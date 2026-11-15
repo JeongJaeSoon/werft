@@ -172,7 +172,9 @@ function failureCodeOf(error: unknown): AchievementJudgmentError | null {
  * Judges each claimed judgment's session against the workspace's rules in
  * use (design achievement-rules.md §4). Each API replica runs one; a claim
  * leases its judgments, and the achievements and the result are written in
- * one transaction under that lease. An `always` rule counts each of its
+ * one transaction under that lease. With no decision model in the
+ * installation, each judgment is skipped and nothing is counted. Otherwise
+ * an `always` rule counts each of its
  * evidence at no cost. A `luna` rule's pairs wait for the next UTC day once
  * the workspace's judgments have spent the day's budget, and are skipped
  * for a session at its cap (`session_limit`) or without a judge it can
@@ -190,6 +192,8 @@ export function createAchievementJudge(deps: {
   >;
   outputs: Pick<SessionOutputSource, "readOutputs" | "openOutput">;
   logger: Logger;
+  /** The decision model: with no connection, every judgment is skipped. */
+  models: Pick<JudgeConnections, "ids">;
   /** Absent, `luna` pairs are skipped as `judge_unavailable`. */
   luna?: {
     connections: JudgeConnections;
@@ -463,6 +467,10 @@ export function createAchievementJudge(deps: {
   /** One pass. Returns how many judgments it finished. */
   async function runOnce(): Promise<number> {
     const claimed = await store.claim({ max: claimMax, leaseMs });
+    if (claimed.length === 0) return 0;
+    // Without a decision model nothing is counted, `always` rules included,
+    // and what was queued before ends here rather than waiting for one.
+    const model = (await deps.models.ids()).length > 0;
     let finished = 0;
     for (const judgment of claimed) {
       const nothing = { rules: [], evidenceIds: [], achievements: [] };
@@ -471,6 +479,12 @@ export function createAchievementJudge(deps: {
       // may have spent it.
       if (!(await store.renew(judgment, leaseMs))) {
         result = null;
+      } else if (!model) {
+        result = {
+          status: "skipped",
+          errorCode: "judge_unavailable",
+          ...nothing,
+        };
       } else if (judgment.attempts > ACHIEVEMENT_JUDGMENT_RETRY_MS.length + 1) {
         // No try finished since: replicas died or lost the lease. The last
         // failure that was written says why.

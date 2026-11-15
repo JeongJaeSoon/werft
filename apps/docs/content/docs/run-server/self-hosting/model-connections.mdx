@@ -37,7 +37,7 @@ owner 로그인, 사용할 모델의 key 또는 사설 모델 endpoint, 세션�
 
 OpenAI 모델을 Codex 엔진으로 쓰려면 같은 화면에서 종류를 `openai_responses`로 고른다. 주소 기본값은 `https://api.openai.com`이고 인증은 API key만 된다. 이 연결의 세션은 Codex worker 이미지로 돈다. 이미지와 proxy 허용 목록(`api.openai.com:443`)은 [설정 레퍼런스](/run-server/self-hosting/reference/configuration)를 따른다.
 
-성과 판정기 Luna(OpenAI Decisions API)가 쓸 연결은 종류를 `openai_decisions`로 고른다. 주소 기본값은 `https://api.openai.com`이고 인증은 API key만 되며, 판정 비용은 늘 따로 센다. 이 연결로는 에이전트를 실행하지 않으므로 모델 목록이 없다. 쓰는 곳은 [성과 규칙](/achievements)의 판정 설정이다.
+성과 판정기 Luna(OpenAI Decisions API)가 쓸 연결(종류 `openai_decisions`)은 이 화면에 보이지 않는다. [성과 규칙](/achievements) 화면의 **판정 모델 설정**에서 만들고, 키를 바꾸고, 사용 중지한다. 주소 기본값은 `https://api.openai.com`이고 인증은 API key만 되며, 판정 비용은 늘 따로 센다.
 
 ### 2. 설정 문서로 연결 더하기
 

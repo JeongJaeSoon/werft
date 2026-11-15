@@ -83,7 +83,7 @@ export const settingsKo = {
   "settings.connections.kindHint.openai_responses":
     "OpenAI Responses API로 부르는 연결입니다. 이 연결을 쓰는 에이전트는 Codex 엔진으로 실행됩니다.",
   "settings.connections.kindHint.openai_decisions":
-    "성과 판정기 Luna(OpenAI Decisions API, gpt-6-luna)가 부르는 연결입니다. 에이전트는 이 연결로 실행되지 않습니다. 성과 규칙 > 판정 설정에서 고릅니다.",
+    "성과 판정기 Luna(OpenAI Decisions API)가 부르는 연결입니다. 모델은 gpt-6-luna로 정해져 있고, 에이전트는 이 연결로 실행되지 않습니다.",
   "settings.connections.endpoint": "엔드포인트",
   "settings.connections.endpointDefault":
     "공식 주소가 채워져 있습니다. 비우면 같은 주소로 저장되고, 프록시나 호환 서버를 쓸 때만 바꿉니다.",
@@ -127,7 +127,6 @@ export const settingsKo = {
   "home.setup.toConnections": "모델 연결",
   "settings.connections.models": "모델",
   "settings.connections.noModels": "모델 없음",
-  "settings.connections.judgeOnly": "성과 판정 전용",
   "settings.models.set": "모델",
   "settings.models.setFor": "{id}의 모델 목록",
   "settings.models.title": "사용할 모델",
@@ -260,7 +259,7 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.connections.kindHint.openai_responses":
     "Calls the OpenAI Responses API. Agents on this connection run on the Codex engine.",
   "settings.connections.kindHint.openai_decisions":
-    "The connection the achievement judge Luna (OpenAI Decisions API, gpt-6-luna) calls. No agent runs on it. Pick it under Achievement rules > Judging.",
+    "The connection the achievement judge Luna (OpenAI Decisions API) calls. Its model is fixed to gpt-6-luna, and no agent runs on it.",
   "settings.connections.endpoint": "Endpoint",
   "settings.connections.endpointDefault":
     "The official address is filled in. Leave it empty to store the same address; change it only for a proxy or a compatible server.",
@@ -305,7 +304,6 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "home.setup.toConnections": "Model connections",
   "settings.connections.models": "Models",
   "settings.connections.noModels": "No models",
-  "settings.connections.judgeOnly": "Achievement judging only",
   "settings.models.set": "Models",
   "settings.models.setFor": "Models of {id}",
   "settings.models.title": "Models in use",
@@ -438,7 +436,7 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.connections.kindHint.openai_responses":
     "OpenAI Responses API を呼び出す接続です。この接続を使うエージェントは Codex エンジンで実行されます。",
   "settings.connections.kindHint.openai_decisions":
-    "成果判定器 Luna(OpenAI Decisions API、gpt-6-luna)が呼び出す接続です。エージェントはこの接続では実行されません。成果ルール > 判定設定で選びます。",
+    "成果判定器 Luna(OpenAI Decisions API)が呼び出す接続です。モデルは gpt-6-luna に固定で、エージェントはこの接続では実行されません。",
   "settings.connections.endpoint": "エンドポイント",
   "settings.connections.endpointDefault":
     "公式アドレスが入力済みです。空にすると同じアドレスで保存されます。プロキシや互換サーバーを使うときだけ変更します。",
@@ -482,7 +480,6 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "home.setup.toConnections": "モデル接続",
   "settings.connections.models": "モデル",
   "settings.connections.noModels": "モデルなし",
-  "settings.connections.judgeOnly": "成果判定専用",
   "settings.models.set": "モデル",
   "settings.models.setFor": "{id} のモデル一覧",
   "settings.models.title": "使用するモデル",

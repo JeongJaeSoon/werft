@@ -68,6 +68,12 @@ export type JudgmentCause =
 
 const JUDGE = sql`w.settings -> 'achievement_judge'`;
 
+// An enabled openai_decisions connection; the judge pass checks again that
+// its credential resolves.
+const DECISION_MODEL = sql`EXISTS (
+  SELECT 1 FROM provider_connections pc
+  WHERE pc.definition ->> 'kind' = 'openai_decisions' AND pc.disabled_at IS NULL)`;
+
 function gateOf(cause: JudgmentCause): SQL {
   switch (cause.trigger) {
     case "evidence":
@@ -97,8 +103,10 @@ function gateOf(cause: JudgmentCause): SQL {
  * queued again after the quiet time, so its `always` pairs are counted
  * without waiting for the next day's budget and its `luna` pairs deferred
  * again. A retry it was becomes a first try, as a new trigger counts
- * afresh. Nothing is queued for a session without a workspace. Returns the
- * pending judgment's id, or null when nothing was queued.
+ * afresh. Nothing is queued for a session without a workspace, nor while the
+ * installation has no decision model: the evidence itself is still written
+ * for the screens that show it, but no judgment waits to count it later.
+ * Returns the pending judgment's id, or null when nothing was queued.
  */
 export async function queueAchievementJudgment(
   tx: Database,
@@ -119,7 +127,7 @@ export async function queueAchievementJudgment(
            clock_timestamp() + make_interval(secs => ${ACHIEVEMENT_JUDGMENT_QUIET_MS / 1000})
     FROM sessions s
     JOIN workspaces w ON w.id = s.workspace_id
-    WHERE s.id = ${sessionId} AND ${gateOf(cause)}
+    WHERE s.id = ${sessionId} AND ${gateOf(cause)} AND ${DECISION_MODEL}
     ON CONFLICT (session_id) WHERE status IN ('queued', 'deferred')
     DO UPDATE SET trigger = EXCLUDED.trigger,
                   status = 'queued',

@@ -97,6 +97,8 @@ function judgeOf(
     renewals?: number;
     /** The last finished try's failure. */
     errorCode?: ClaimedJudgment["errorCode"];
+    /** The installation has no decision model. */
+    noModel?: boolean;
   } = {},
 ) {
   const finished: JudgmentResult[] = [];
@@ -175,12 +177,38 @@ function judgeOf(
         logged.push(message, fields);
       },
     },
+    models: { ids: async () => (options.noModel ? [] : ["luna-main"]) },
     ...(options.luna === undefined ? {} : { luna: options.luna }),
   });
   return { judge, finished, warnings, reads, logged, renewals: () => renewed };
 }
 
 describe("achievement judge", () => {
+  test("without a decision model the judgment is skipped and counts nothing, always rules included", async () => {
+    const { judge, finished, reads } = judgeOf(
+      {
+        rules: [
+          rule("pull_request", "github_pull_request"),
+          rule("code_review", "github_review"),
+        ],
+        outcomes: [PULL_REQUEST, REVIEW],
+      },
+      { status: "none" },
+      { noModel: true },
+    );
+    expect(await judge.runOnce()).toBe(1);
+    expect(reads).toEqual([]);
+    expect(finished).toEqual([
+      {
+        status: "skipped",
+        errorCode: "judge_unavailable",
+        rules: [],
+        evidenceIds: [],
+        achievements: [],
+      },
+    ]);
+  });
+
   test("an always rule counts each evidence of its kind, with the built-in payload and the review state of the kind", async () => {
     const { judge, finished, reads } = judgeOf(
       {

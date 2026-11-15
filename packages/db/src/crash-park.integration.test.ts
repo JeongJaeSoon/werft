@@ -43,6 +43,7 @@ import {
   unassignedSessions,
   workspaces,
 } from "./schema.ts";
+import { insertDecisionModel } from "./testing/decision-model.ts";
 import { launchSession } from "./testing/launches.ts";
 import {
   fixtureRelease,
@@ -103,6 +104,7 @@ integration("crash park on an approval-wait checkpoint", () => {
     database = await createTempDatabase({ prefix: "crash_park_it" });
     pool = new Pool({ connectionString: database.url, max: 12 });
     db = drizzle(pool, { schema });
+    await insertDecisionModel(db);
     gateway = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
       catalog,

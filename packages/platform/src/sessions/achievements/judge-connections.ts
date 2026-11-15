@@ -1,3 +1,4 @@
+import { SessionServiceError } from "../../musterrolle/index.ts";
 import { type EgressUpstream, judgeUpstreamOf } from "../catalog.ts";
 import type { SettingsSnapshot } from "../installation-settings.ts";
 
@@ -18,6 +19,21 @@ export const NO_JUDGE_CONNECTIONS: JudgeConnections = {
   upstream: async () => null,
   ids: async () => [],
 };
+
+/**
+ * Achievements need a decision model: with no enabled `openai_decisions`
+ * connection, every achievement write is refused and nothing is judged,
+ * `always` rules included. What is saved stays, read only.
+ */
+export async function requireDecisionModel(
+  connections: Pick<JudgeConnections, "ids">,
+): Promise<void> {
+  if ((await connections.ids()).length > 0) return;
+  throw new SessionServiceError(
+    "DECISION_MODEL_REQUIRED",
+    "Set up a decision model (an enabled openai_decisions connection) first",
+  );
+}
 
 /**
  * The installation settings' `openai_decisions` connections. A judgment

@@ -1041,6 +1041,7 @@ const achievementJudge = createAchievementJudge({
   store: achievementJudgments,
   outputs: checkpoints.outputs,
   logger,
+  models: judgeConnections,
   ...(judgeEgressUrl === null
     ? {}
     : {
@@ -1340,6 +1341,7 @@ const app = createApiApp({
       createSessionAchievementService({
         authorization,
         store: achievementJudgments,
+        judgeConnections,
       }),
     );
     registerPendingRoutes(router, pendingRequests);

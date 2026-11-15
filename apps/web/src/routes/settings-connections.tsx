@@ -6,7 +6,8 @@ import { ModelConnections } from "./model-connections.tsx";
 
 /**
  * Model connections under Settings, beside the MCP servers. This is the only
- * place connections and the models agents may name on them are managed.
+ * place agents' connections and the models they may name are managed; the
+ * achievement judge's connection is set up on the achievement rules screen.
  */
 export function ConnectionsScreen() {
   const { t } = useI18n();

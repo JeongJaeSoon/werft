@@ -25,6 +25,12 @@ export const ACCEPTED: readonly {
   },
   {
     problem:
+      'error $.error.code: the receiver refuses "DECISION_MODEL_REQUIRED"',
+    why: "Only the achievement rule, judge settings, rejudge and review routes answer it, console-session routes no worker calls; the worker's outcome writes only queue a judgment, which never refuses.",
+    proof: "apps/control-host/src/api/routes/sessions/achievements.test.ts",
+  },
+  {
+    problem:
       "/bootstrap-claim response $.runtime_config.mcp_servers: the receiver's maxItems is 2; the sender's is 10",
     why: "Only a worker that announced workspace_mcp gets workspace servers; a claim from a worker without it is refused, retryable, before anything is bound, so it still gets at most the catalog server and github.",
     proof: "packages/platform/src/workers/worker-gateway-workspace-mcp.test.ts",

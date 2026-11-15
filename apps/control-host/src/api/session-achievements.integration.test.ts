@@ -20,6 +20,7 @@ import {
   users,
   workspaces,
 } from "@werft-ai/db";
+import { insertDecisionModel } from "@werft-ai/db/testing/decision-model";
 import {
   callerFor,
   createAchievementJudge,
@@ -64,6 +65,7 @@ integration("a session's achievement reviews on PostgreSQL", () => {
       },
     ],
   };
+  const decisionModel = { ids: async () => ["luna-main"] };
   const judge = () =>
     createAchievementJudge({
       store: createPostgresAchievementJudgments(db),
@@ -72,6 +74,7 @@ integration("a session's achievement reviews on PostgreSQL", () => {
         openOutput: async () => ({ status: "missing" }),
       },
       logger: { info() {}, warn() {} },
+      models: decisionModel,
     });
   // As if the quiet time had passed since the session's last trigger.
   const quietPassed = () =>
@@ -89,6 +92,7 @@ integration("a session's achievement reviews on PostgreSQL", () => {
     database = await createTempDatabase({ prefix: "session_achievements_it" });
     pool = new Pool({ connectionString: database.url, max: 5 });
     db = drizzle(pool, { schema });
+    await insertDecisionModel(db);
     await db
       .insert(workspaces)
       .values({ id: workspaceId, slug: "acme", name: "Acme" });
@@ -203,6 +207,7 @@ integration("a session's achievement reviews on PostgreSQL", () => {
           createSessionAchievementService({
             authorization: createAuthorizationPolicy(),
             store: createPostgresAchievementJudgments(db),
+            judgeConnections: decisionModel,
           }),
         ),
     });

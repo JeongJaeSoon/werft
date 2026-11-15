@@ -192,6 +192,11 @@ export function useSettingsWrite<V>(
         queryClient.invalidateQueries({
           queryKey: queryKeysOf(client).connections,
         }),
+        // The judge lists the enabled decision connections, which lock or
+        // unlock the achievement rules.
+        queryClient.invalidateQueries({
+          queryKey: scopedKey(client, "achievement-judge"),
+        }),
       ]);
     },
     onError: (error) =>

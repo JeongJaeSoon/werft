@@ -40,7 +40,7 @@ outcome: "セッションが使うモデル接続とそのモデル一覧を設�
 
 OpenAI のモデルを Codex エンジンで使うには、同じ画面で種類に `openai_responses` を選びます。アドレスの既定値は `https://api.openai.com` で、認証は API キーのみです。この接続のセッションは Codex の worker イメージで動きます。イメージと proxy の許可リスト（`api.openai.com:443`）は[設定リファレンス](/run-server/self-hosting/reference/configuration)に従います。
 
-成果判定器 Luna（OpenAI Decisions API）が使う接続は、種類に `openai_decisions` を選びます。アドレスの既定値は `https://api.openai.com` で、認証は API キーのみ、判定の費用は常に別に数えます。この接続でエージェントは実行されないため、モデル一覧はありません。使うのは[成果ルール](/achievements)の判定設定です。
+成果判定器 Luna（OpenAI Decisions API）が使う接続（種類 `openai_decisions`）はこの画面には表示されません。[成果ルール](/achievements)画面の**判定モデルを設定**で作成し、キーの変更や使用停止もそこで行います。アドレスの既定値は `https://api.openai.com` で、認証は API キーのみ、判定の費用は常に別に数えます。
 
 <a id="2-설정-문서로-연결-더하기" />
 ### 2. 設定文書で接続を加える

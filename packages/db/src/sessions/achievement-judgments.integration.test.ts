@@ -44,6 +44,7 @@ import {
   agents,
   attempts,
   memberships,
+  providerConnections,
   receipts,
   sessionAchievements,
   sessionOutcomes,
@@ -54,6 +55,7 @@ import {
   workspaces,
 } from "../schema.ts";
 import { commitCheckpoint } from "../testing/checkpoints.ts";
+import { insertDecisionModel } from "../testing/decision-model.ts";
 import { fixtureTeam } from "../testing/fixture-team.ts";
 import { advanceCheckpointPointer } from "../worker-unit-of-work.ts";
 import {
@@ -89,7 +91,19 @@ integration("achievement judgments on PostgreSQL", () => {
     pool = new Pool({ connectionString: database.url, max: 8 });
     db = drizzle(pool, { schema });
     judgments = createPostgresAchievementJudgments(db);
+    await insertDecisionModel(db);
   }, 60_000);
+
+  /** The decision models the judge pass sees; empty is none. */
+  let modelIds = ["luna-main"];
+  const models = { ids: async () => modelIds };
+
+  async function decisionModelEnabled(enabled: boolean) {
+    await db
+      .update(providerConnections)
+      .set({ disabledAt: enabled ? null : sql`now()` })
+      .where(eq(providerConnections.id, "luna-main"));
+  }
 
   afterAll(async () => {
     await pool.end();
@@ -309,6 +323,7 @@ integration("achievement judgments on PostgreSQL", () => {
         openOutput: async () => ({ status: "missing" }),
       },
       logger: { info() {}, warn() {} },
+      models,
       ...(claimMax === undefined ? {} : { claimMax }),
     });
   }
@@ -866,6 +881,42 @@ integration("achievement judgments on PostgreSQL", () => {
     const legacy = await session(null);
     await queueAchievementJudgment(db, legacy);
     expect(await judgmentsOf(legacy)).toEqual([]);
+  });
+
+  test("without a decision model the evidence is written but no judgment is queued, a manual one neither", async () => {
+    const ws = await workspace();
+    await rule(ws, await typeId(ws.workspaceId, "pull_request"));
+    const sessionId = await session(ws.workspaceId);
+    await decisionModelEnabled(false);
+    try {
+      const pr = await pullRequest(sessionId, ws.workspaceId);
+      await review(sessionId, ws.workspaceId);
+      await queueAchievementJudgment(db, sessionId, { trigger: "manual" });
+      expect(pr.sessionId).toBe(sessionId);
+      expect(await judgmentsOf(sessionId)).toEqual([]);
+    } finally {
+      await decisionModelEnabled(true);
+    }
+    await review(sessionId, ws.workspaceId, 10);
+    expect(await judgmentsOf(sessionId)).toMatchObject([{ status: "queued" }]);
+  });
+
+  test("a judgment queued before the decision model went away is skipped and counts nothing, always rules included", async () => {
+    const ws = await workspace();
+    await rule(ws, await typeId(ws.workspaceId, "pull_request"));
+    const sessionId = await session(ws.workspaceId);
+    await pullRequest(sessionId, ws.workspaceId);
+    await quietPassed(sessionId);
+    modelIds = [];
+    try {
+      await replica().runOnce();
+    } finally {
+      modelIds = ["luna-main"];
+    }
+    expect(await judgmentsOf(sessionId)).toMatchObject([
+      { status: "skipped", errorCode: "judge_unavailable", rules: [] },
+    ]);
+    expect(await achievementsOf(sessionId)).toEqual([]);
   });
 
   test("the judge waits out the quiet time, then writes each always rule's achievements with the payload and review state of their evidence", async () => {
@@ -1839,6 +1890,7 @@ integration("achievement judgments on PostgreSQL", () => {
           openOutput: async () => ({ status: "missing" }),
         },
         logger: { info() {}, warn() {} },
+        models,
         luna: {
           connections: {
             upstream: async () => {

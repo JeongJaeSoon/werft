@@ -46,6 +46,8 @@ export const errorsKo = {
   "error.DEMO_READ_ONLY": "데모에서는 저장되지 않습니다.",
   "error.RELEASE_SPEC_UNAVAILABLE":
     "릴리스의 모델 연결이 꺼졌거나 그 모델이 연결에서 빠졌습니다. 쓸 수 있는 연결과 모델로 다시 릴리스하세요.",
+  "error.DECISION_MODEL_REQUIRED":
+    "판정 모델이 없어 성과 규칙을 바꿀 수 없습니다 — 오너가 성과 규칙 화면에서 판정 모델을 설정하세요.",
 };
 
 export const errorsEn: Record<keyof typeof errorsKo, string> = {
@@ -93,6 +95,8 @@ export const errorsEn: Record<keyof typeof errorsKo, string> = {
   "error.DEMO_READ_ONLY": "Changes are not saved in this demo.",
   "error.RELEASE_SPEC_UNAVAILABLE":
     "The release's model connection was disabled or its model left the connection. Release again on a usable connection and model.",
+  "error.DECISION_MODEL_REQUIRED":
+    "Achievement rules can't change without a decision model — an owner sets one up on the Achievement rules screen.",
 };
 
 export const errorsJa: Record<keyof typeof errorsKo, string> = {
@@ -146,4 +150,6 @@ export const errorsJa: Record<keyof typeof errorsKo, string> = {
   "error.DEMO_READ_ONLY": "このデモでは変更は保存されません。",
   "error.RELEASE_SPEC_UNAVAILABLE":
     "リリースのモデル接続が無効になったか、そのモデルが接続から外れました。使える接続とモデルでリリースし直してください。",
+  "error.DECISION_MODEL_REQUIRED":
+    "判定モデルがないため成果ルールを変更できません。オーナーが成果ルール画面で判定モデルを設定してください。",
 };

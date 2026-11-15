@@ -193,7 +193,7 @@ function routes(overrides: Routes = {}) {
     "GET /v1/achievement-types": () => json(200, { items: TYPES }),
     "GET /v1/achievement-rules": () => json(200, { items: RULES }),
     [`GET ${JUDGE}`]: () =>
-      json(200, { achievement_judge: SETTINGS, connections: [] }),
+      json(200, { achievement_judge: SETTINGS, connections: ["luna-a"] }),
     "GET /v1/usage/achievements": usage,
     "GET /v1/members": () =>
       json(200, memberPage({ items: [OWNER.member], next_cursor: null })),
@@ -203,6 +203,31 @@ function routes(overrides: Routes = {}) {
 
 const writes = <C extends { readonly method: string }>(calls: readonly C[]) =>
   calls.filter((call) => call.method !== "GET");
+
+const SETTINGS_CONNECTIONS = "/v1/installation/settings/connections";
+
+function decisionConnection(id: string, rest: Record<string, unknown> = {}) {
+  return {
+    id,
+    origin: "console",
+    state: "active",
+    kind: "openai_decisions",
+    endpoint: "https://api.openai.com",
+    billing: "per_token",
+    auth_kind: "api_key",
+    credential: { source: "stored", last4: "abcd" },
+    models: [],
+    model_families: null,
+    created_at: AT,
+    disabled_at: null,
+    ...rest,
+  };
+}
+
+/** A withheld button's reason, which its tooltip describes it by. */
+const reasonOf = (button: HTMLElement) =>
+  document.getElementById(button.getAttribute("aria-describedby") ?? "")
+    ?.textContent;
 
 const section = (name: string) =>
   screen
@@ -325,16 +350,13 @@ describe("성과 규칙", () => {
     ).toBe("page");
   });
 
-  test("판정 설정: 연결이 없으면 '연결 없음'만 있고 추가할 곳을 알리며, 오늘·이번 달 판정 비용을 보인다", async () => {
+  test("판정 설정: 켜진 판정 모델을 고를 수 있고, 오늘·이번 달 판정 비용을 보인다", async () => {
     await opened();
     const select = screen.getByRole("combobox", { name: "Luna 연결" });
     expect(select.textContent).toBe(
-      "연결 없음 · Luna 규칙은 판정하지 않습니다",
+      "연결 없음 · Luna 규칙은 판정하지 않습니다luna-a",
     );
     const card = section("판정 설정");
-    expect(card?.textContent).toContain(
-      "설치 owner가 설정 > 에이전트 연결 > 모델 연결에서 openai_decisions 연결을 추가하면 고를 수 있습니다.",
-    );
     await waitFor(() =>
       expect(card?.textContent).toContain(
         "오늘 판정 비용 $0.01 / $1.00 · 이번 달 $0.16 · 판정 1회 예상 약 $0.00025 (근거 요약만)",
@@ -425,9 +447,6 @@ describe("성과 규칙", () => {
       ["luna-b", "luna-b"],
       ["luna-old", "luna-old · 쓸 수 없음"],
     ]);
-    expect(section("판정 설정")?.textContent).not.toContain(
-      "openai_decisions 연결을 추가하면",
-    );
   });
 
   test("판정 설정: 연결을 고르고 저장하면 그 connection_id를 PUT 한다", async () => {
@@ -1298,6 +1317,216 @@ describe("성과 규칙", () => {
     await user.keyboard("{Escape}");
     await closed();
     await focused(addType);
+  });
+
+  test("머리의 '판정 모델 설정'은 '규칙 추가' 바로 왼쪽에 있고, owner만 누를 수 있다", async () => {
+    await opened();
+    const setup = screen.getByRole("button", { name: "판정 모델 설정" });
+    const add = screen.getByRole("button", { name: "규칙 추가" });
+    const buttons = screen.getAllByRole("button");
+    expect(buttons.indexOf(setup) + 1).toBe(buttons.indexOf(add));
+    expect(setup.getAttribute("aria-disabled") === null).toBe(true);
+    expect(add.getAttribute("aria-disabled") === null).toBe(true);
+  });
+
+  for (const [who, principal, reason] of [
+    ["admin", () => me(undefined, "admin"), "어드민"],
+    ["member", () => memberMe(), "멤버"],
+  ] as const) {
+    test(`${who}에게 '판정 모델 설정'은 설치 설정 권한이 없다는 이유와 함께 막힌다`, async () => {
+      const { api } = await opened({}, principal());
+      const user = await setupUser();
+      const setup = screen.getByRole("button", { name: "판정 모델 설정" });
+      expect(setup.getAttribute("aria-disabled")).toBe("true");
+      const text = reasonOf(setup);
+      expect(text).toContain("설치 설정 관리");
+      expect(text).toContain(reason);
+      await user.click(setup);
+      expect(screen.queryByRole("dialog") === null).toBe(true);
+      // Owner-only: the connections are never read.
+      expect(api.calls.some((call) => call.path === SETTINGS_CONNECTIONS)).toBe(
+        false,
+      );
+    });
+  }
+
+  test("판정 모델이 없으면 머리 아래를 잠금이 덮고, 덮인 곳은 inert이며 '규칙 추가'는 이유와 함께 막힌다", async () => {
+    const { api } = await opened({
+      [`GET ${JUDGE}`]: () =>
+        json(200, { achievement_judge: SETTINGS, connections: [] }),
+    });
+    const user = await setupUser();
+    const lock = await screen.findByRole("group", { name: "사용할 수 없음" });
+    expect(lock.textContent).toContain(
+      "판정 모델을 설정해야 성과 규칙을 쓸 수 있습니다",
+    );
+    const covered = (section("규칙") as HTMLElement).closest("[inert]");
+    expect(covered === null).toBe(false);
+    expect(section("판정 설정")?.closest("[inert]") === covered).toBe(true);
+    expect(covered?.contains(lock)).toBe(false);
+    expect(lock.closest("[inert]") === null).toBe(true);
+    expect(
+      within(lock)
+        .getByRole("button", { name: "판정 모델 설정" })
+        .getAttribute("aria-disabled") === null,
+    ).toBe(true);
+
+    const add = screen.getByRole("button", { name: "규칙 추가" });
+    expect(add.closest("[inert]") === null).toBe(true);
+    expect(add.getAttribute("aria-disabled")).toBe("true");
+    expect(reasonOf(add)).toBe(
+      "판정 모델을 설정해야 성과 규칙을 바꿀 수 있습니다.",
+    );
+    await user.click(add);
+    expect(
+      screen.queryByRole("heading", { level: 2, name: "규칙 추가" }) === null,
+    ).toBe(true);
+    expect(writes(api.calls)).toEqual([]);
+  });
+
+  test("판정 모델을 설정하면 새로고침 없이 잠금이 풀리고, 판정기가 그 연결을 쓴다", async () => {
+    const made: string[] = [];
+    let judged: Record<string, unknown> | null = null;
+    const { api } = await opened({
+      [`GET ${JUDGE}`]: () =>
+        json(200, {
+          achievement_judge: { ...SETTINGS, ...judged },
+          connections: made,
+        }),
+      [`PUT ${JUDGE}`]: async (request) => {
+        judged = (await request.json()) as Record<string, unknown>;
+        return json(200, {
+          achievement_judge: { ...SETTINGS, ...judged },
+          receipt_id: RECEIPT_ID,
+        });
+      },
+      [`GET ${SETTINGS_CONNECTIONS}`]: () =>
+        json(200, {
+          items: made.map((id) => decisionConnection(id)),
+          credential_hosts: null,
+          endpoint_defaults: { openai_decisions: "https://api.openai.com" },
+        }),
+      [`POST ${SETTINGS_CONNECTIONS}`]: async (request) => {
+        const body = (await request.json()) as { id: string };
+        made.push(body.id);
+        return json(201, { id: body.id, receipt_id: RECEIPT_ID });
+      },
+    });
+    const user = await setupUser();
+    const lock = await screen.findByRole("group", { name: "사용할 수 없음" });
+    const opener = within(lock).getByRole("button", {
+      name: "판정 모델 설정",
+    });
+    await user.click(opener);
+    const dialog = await screen.findByRole("dialog", {
+      name: "판정 모델 연결 추가",
+    });
+    expect(dialog.textContent).toContain("gpt-6-luna");
+    expect(within(dialog).queryByLabelText("종류") === null).toBe(true);
+    expect(
+      within(dialog).getByLabelText<HTMLInputElement>("엔드포인트").value,
+    ).toBe("https://api.openai.com");
+    await user.type(within(dialog).getByLabelText("id"), "luna-main");
+    await user.type(within(dialog).getByLabelText("키 값"), "example-key");
+    await user.click(within(dialog).getByRole("button", { name: "만들기" }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("group", { name: "사용할 수 없음" }) === null,
+      ).toBe(true),
+    );
+    await waitFor(() => expect(judged).not.toBe(null));
+    expect(document.querySelector("[inert]") === null).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: "규칙 추가" })
+        .getAttribute("aria-disabled") === null,
+    ).toBe(true);
+    expect(
+      writes(api.calls).map((call) => [call.method, call.path, call.body]),
+    ).toEqual([
+      [
+        "POST",
+        SETTINGS_CONNECTIONS,
+        {
+          id: "luna-main",
+          kind: "openai_decisions",
+          billing: "per_token",
+          auth_kind: "api_key",
+          value: "example-key",
+        },
+      ],
+      ["PUT", JUDGE, { ...SETTINGS, connection_id: "luna-main" }],
+    ]);
+  });
+
+  test("이미 있는 판정 모델은 여기서 키를 바꾸고 사용 중지하며, 에이전트의 연결은 보이지 않는다", async () => {
+    const { api } = await opened({
+      [`GET ${SETTINGS_CONNECTIONS}`]: () =>
+        json(200, {
+          items: [
+            decisionConnection("anthropic", {
+              kind: "anthropic",
+              endpoint: "https://api.anthropic.com",
+            }),
+            decisionConnection("luna-a"),
+            decisionConnection("luna-env", {
+              credential: { source: "external", value_env: "LUNA_KEY" },
+            }),
+          ],
+          credential_hosts: null,
+          endpoint_defaults: {},
+        }),
+      [`POST ${SETTINGS_CONNECTIONS}/luna-a/credential`]: () =>
+        json(200, { id: "luna-a", receipt_id: RECEIPT_ID }),
+      [`POST ${SETTINGS_CONNECTIONS}/luna-a/disable`]: () =>
+        json(200, { id: "luna-a", receipt_id: RECEIPT_ID }),
+    });
+    const user = await setupUser();
+    const opener = screen.getByRole("button", { name: "판정 모델 설정" });
+    await user.click(opener);
+    const dialog = await screen.findByRole("dialog", { name: "판정 모델" });
+    await within(dialog).findByText("luna-a");
+    expect(dialog.textContent).not.toContain("anthropic");
+    expect(dialog.textContent).toContain("luna-env");
+    expect(dialog.textContent).toContain("저장 값 ••••abcd");
+    expect(dialog.textContent).toContain("https://api.openai.com");
+
+    await user.click(
+      within(dialog).getByRole("button", { name: "luna-a의 API 키 설정" }),
+    );
+    const keyDialog = await screen.findByRole("dialog", {
+      name: "luna-a의 값 바꾸기",
+    });
+    await user.type(within(keyDialog).getByLabelText("값"), "example-key-2");
+    await user.click(within(keyDialog).getByRole("button", { name: "저장" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "luna-a의 값 바꾸기" }) === null,
+      ).toBe(true),
+    );
+
+    await user.click(
+      within(dialog).getByRole("button", { name: "luna-a 사용 중지" }),
+    );
+    const confirm = await screen.findByRole("dialog", {
+      name: "luna-a를 사용 중지할까요?",
+    });
+    await user.click(
+      within(confirm).getByRole("button", { name: "사용 중지" }),
+    );
+    await waitFor(() =>
+      expect(
+        writes(api.calls).map((call) => [call.method, call.path, call.body]),
+      ).toEqual([
+        [
+          "POST",
+          `${SETTINGS_CONNECTIONS}/luna-a/credential`,
+          { value: "example-key-2" },
+        ],
+        ["POST", `${SETTINGS_CONNECTIONS}/luna-a/disable`, null],
+      ]),
+    );
   });
 
   test("member: 읽기만 한다", async () => {

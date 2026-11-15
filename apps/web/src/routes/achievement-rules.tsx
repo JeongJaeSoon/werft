@@ -56,6 +56,7 @@ import {
   Text,
   Textarea,
 } from "@werft-ai/ui";
+import { Lock } from "lucide-react";
 import {
   type FormEvent,
   type ReactNode,
@@ -79,6 +80,10 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { type Translate, useI18n } from "../i18n/i18n.tsx";
 import { achievementPeriod } from "./achievements.tsx";
+import {
+  useAchievementJudge,
+  useDecisionModelSetup,
+} from "./decision-model.tsx";
 
 // The server's ceilings; the web takes contracts as types only, so a test
 // keeps these equal to the contract's values.
@@ -262,6 +267,13 @@ export function AchievementRulesScreen() {
   const [editing, setEditing] = useState<string | null>(null);
   const { categories, types, rules } = useCatalog();
   const failed = [categories, types, rules].find((query) => query.isError);
+  const judge = useAchievementJudge();
+  // The server refuses every change until a decision model is enabled.
+  const locked =
+    judge.data !== undefined && judge.data.connections.length === 0;
+  const setup = useDecisionModelSetup(setOutcome);
+  const writeReason =
+    reason ?? (locked ? t("decisionModel.lockedReason") : undefined);
   const open = (target: string) => {
     setOutcome(null);
     setEditing(target);
@@ -272,69 +284,127 @@ export function AchievementRulesScreen() {
       title={t("achievementRules.title")}
       description={t("achievementRules.description")}
       actions={
-        <ReasonButton
-          className={buttonVariants()}
-          reason={reason}
-          onClick={() => open("new")}
-        >
-          {t("achievementRules.addRule")}
-        </ReasonButton>
+        <>
+          <ReasonButton
+            className={buttonVariants({ variant: "outline" })}
+            reason={setup.reason}
+            onClick={(event) => setup.open(event.currentTarget)}
+          >
+            {t("decisionModel.setup")}
+          </ReasonButton>
+          <ReasonButton
+            className={buttonVariants()}
+            reason={writeReason}
+            onClick={() => open("new")}
+          >
+            {t("achievementRules.addRule")}
+          </ReasonButton>
+        </>
       }
     >
       <div className="flex min-w-0 flex-col gap-[var(--werft-space-section)]">
         <OutcomeLine outcome={outcome} />
-        <JudgeCard reason={reason} onOutcome={setOutcome} />
-        {failed ? (
-          <div>
-            <LoadFailure
-              error={failed.error}
-              onRetry={() => {
-                for (const query of [categories, types, rules]) {
-                  if (query.isError) void query.refetch();
-                }
-              }}
-            />
-          </div>
-        ) : categories.data && types.data && rules.data ? (
-          <>
-            <CategoriesCard
-              categories={categories.data.items}
-              rules={rules.data.items}
-              reason={reason}
-            />
-            <TypesCard
-              types={types.data.items}
-              rules={rules.data.items}
-              reason={reason}
-            />
-            <RulesCard
-              categories={categories.data.items}
-              types={types.data.items}
-              rules={rules.data.items}
-              reason={reason}
-              onEdit={open}
-              onOutcome={setOutcome}
-            />
-            {editing === null ? null : (
-              <RuleEditor
-                key={editing}
-                rule={rules.data.items.find(
-                  (rule) => rule.family_id === editing,
+        <div className="relative min-w-0">
+          <div
+            inert={locked}
+            className="flex min-w-0 flex-col gap-[var(--werft-space-section)]"
+          >
+            <JudgeCard reason={writeReason} onOutcome={setOutcome} />
+            {failed ? (
+              <div>
+                <LoadFailure
+                  error={failed.error}
+                  onRetry={() => {
+                    for (const query of [categories, types, rules]) {
+                      if (query.isError) void query.refetch();
+                    }
+                  }}
+                />
+              </div>
+            ) : categories.data && types.data && rules.data ? (
+              <>
+                <CategoriesCard
+                  categories={categories.data.items}
+                  rules={rules.data.items}
+                  reason={writeReason}
+                />
+                <TypesCard
+                  types={types.data.items}
+                  rules={rules.data.items}
+                  reason={writeReason}
+                />
+                <RulesCard
+                  categories={categories.data.items}
+                  types={types.data.items}
+                  rules={rules.data.items}
+                  reason={writeReason}
+                  onEdit={open}
+                  onOutcome={setOutcome}
+                />
+                {editing === null ? null : (
+                  <RuleEditor
+                    key={editing}
+                    rule={rules.data.items.find(
+                      (rule) => rule.family_id === editing,
+                    )}
+                    categories={categories.data.items}
+                    types={types.data.items}
+                    rules={rules.data.items}
+                    reason={writeReason}
+                    onClose={() => setEditing(null)}
+                    onOutcome={setOutcome}
+                  />
                 )}
-                categories={categories.data.items}
-                types={types.data.items}
-                rules={rules.data.items}
-                reason={reason}
-                onClose={() => setEditing(null)}
-                onOutcome={setOutcome}
-              />
+              </>
+            ) : (
+              <Skeleton height="12rem" />
             )}
-          </>
-        ) : (
-          <Skeleton height="12rem" />
-        )}
+          </div>
+          {locked ? (
+            <DecisionModelLock
+              reason={setup.reason}
+              onSetup={(from) => setup.open(from)}
+            />
+          ) : null}
+        </div>
       </div>
+      {setup.dialogs}
     </Page>
+  );
+}
+
+function DecisionModelLock({
+  reason,
+  onSetup,
+}: {
+  readonly reason: Reason;
+  readonly onSetup: (opener: HTMLElement) => void;
+}) {
+  const { t } = useI18n();
+  const titleId = useId();
+  return (
+    <div className="absolute inset-0 flex justify-center rounded-card bg-muted/70">
+      {/* Sticky, so the notice stays in view over a long page. */}
+      {/* biome-ignore lint/a11y/useSemanticElements: a fieldset groups form controls, this is a notice with one button */}
+      <div
+        role="group"
+        aria-labelledby={titleId}
+        className="sticky top-[30vh] mx-4 mt-16 flex max-w-prose flex-col items-center gap-2 self-start rounded-card border bg-background p-6 text-center"
+      >
+        <Lock aria-hidden="true" className="size-6 text-muted-foreground" />
+        <Text id={titleId} weight="medium">
+          {t("decisionModel.lock.title")}
+        </Text>
+        <Text variant="sub">{t("decisionModel.lock.body")}</Text>
+        <ReasonButton
+          className={buttonVariants({ size: "sm" })}
+          reason={reason}
+          onClick={(event) => onSetup(event.currentTarget)}
+        >
+          {t("decisionModel.setup")}
+        </ReasonButton>
+      </div>
+    </div>
   );
 }
 
@@ -434,17 +504,7 @@ function JudgeCard({
   const format = OPERATIONS_MESSAGES[locale].format;
   const workspaceId = useMe()?.workspace?.id ?? "";
   const key = scopedKey(client, "achievement-judge");
-  const judge = useQuery({
-    queryKey: key,
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/workspaces/{id}/achievement-judge", {
-          params: { path: { id: workspaceId } },
-        }),
-      ) as Promise<AchievementJudgeResponse>,
-    enabled: workspaceId !== "",
-    retry: false,
-  });
+  const judge = useAchievementJudge();
   const today = useUsage("1");
   const month = useUsage("month");
   const settings = judge.data?.achievement_judge;
@@ -568,11 +628,6 @@ function JudgeCard({
               )}
             </NativeSelect>
           </div>
-          {connections.length === 0 ? (
-            <Text variant="meta">
-              {t("achievementRules.judge.noConnections")}
-            </Text>
-          ) : null}
           <Text variant="meta">{t("achievementRules.judge.sent")}</Text>
         </FormRow>
         <FormRow
