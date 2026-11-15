@@ -267,6 +267,15 @@ export function MembersScreen() {
   // Nothing to search in a list that is empty to begin with: its box holds
   // only the empty state (R4).
   const listFailed = members.error !== null && items.length === 0;
+  const invitesFailed =
+    invites.error !== null && !isApiError(invites.error, "FORBIDDEN");
+  const probeFailed =
+    probe.error !== null && !isApiError(probe.error, "FORBIDDEN");
+  const sideFailure = invitesFailed
+    ? invites.error
+    : probeFailed
+      ? probe.error
+      : null;
   const listEmpty =
     !members.isPending &&
     !members.error &&
@@ -368,24 +377,20 @@ export function MembersScreen() {
           <PagedListFooter list={members} />
         </div>
       )}
-      {/* The members still show when only the invites could not be read;
-          when the list failed too, its one retry reads both. */}
-      {invites.error && !listFailed ? (
-        isApiError(invites.error, "FORBIDDEN") ? (
-          <FormError>{refusal(t, invites.error, role)}</FormError>
-        ) : (
-          <LoadFailure
-            error={invites.error}
-            onRetry={() => void invites.refetch()}
-          />
-        )
+      {isApiError(invites.error, "FORBIDDEN") && !listFailed ? (
+        <FormError>{refusal(t, invites.error, role)}</FormError>
       ) : null}
-      {/* While the list has its own failure on screen, that one alert
-          speaks for the outage. */}
-      {probe.error &&
-      !members.error &&
-      !isApiError(probe.error, "FORBIDDEN") ? (
-        <LoadFailure error={probe.error} onRetry={() => void probe.refetch()} />
+      {/* The members still show when only the invites or the head button's
+          read failed: one alert and one retry for both. While the list has
+          its own failure on screen, that alert speaks for the outage. */}
+      {sideFailure !== null && !members.error ? (
+        <LoadFailure
+          error={sideFailure}
+          onRetry={() => {
+            if (invitesFailed) void invites.refetch();
+            if (probeFailed) void probe.refetch();
+          }}
+        />
       ) : null}
     </div>
   );

@@ -2125,8 +2125,40 @@ describe("역할로 보기", () => {
         json(200, memberPage({ items: [owner, teammate], next_cursor: null })),
       "GET /v1/invites": () => apiError(500, "INTERNAL", "boom"),
     });
+    await screen.findByRole("button", { name: "Mate 메뉴" });
     await screen.findByRole("button", { name: "다시 시도" });
     expect(segments()).toEqual(["전체", "오너", "어드민", "멤버"]);
+  });
+
+  test("초대 목록과 초대 버튼의 첫 페이지가 함께 실패하면 알림 하나의 다시 시도가 둘 다 되찾는다", async () => {
+    const user = await setupUser();
+    let fail = true;
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": (request) =>
+        fail && new URL(request.url).searchParams.has("limit")
+          ? apiError(500, "INTERNAL", "boom")
+          : json(200, memberPage({ items: [owner], next_cursor: null })),
+      "GET /v1/invites": () =>
+        fail ? apiError(500, "INTERNAL", "boom") : json(200, { items: [] }),
+    });
+    await screen.findByRole("button", { name: "Owner 메뉴" });
+    await screen.findByRole("button", { name: "다시 시도" });
+    await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(1));
+    expect(screen.getAllByRole("button", { name: "다시 시도" })).toHaveLength(
+      1,
+    );
+    fail = false;
+    await user.click(screen.getByRole("button", { name: "다시 시도" }));
+    expect(
+      await screen.findByRole("button", { name: "구성원 초대" }),
+    ).toBeDefined();
+    await waitFor(() =>
+      expect(segments()).toEqual(["전체 1", "오너 1", "어드민 0", "멤버 0"]),
+    );
+    expect(screen.queryByRole("button", { name: "다시 시도" }) === null).toBe(
+      true,
+    );
   });
 
   test("받은 페이지에 고른 역할이 없어도 더 보기가 남아 다음 페이지에서 찾는다", async () => {
@@ -2155,5 +2187,35 @@ describe("역할로 보기", () => {
       await screen.findByRole("button", { name: "Mate 메뉴" }),
     ).toBeDefined();
     expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull();
+  });
+
+  test("끝까지 읽어도 고른 역할이 없으면 더 보기가 사라진 자리에서 키보드가 목록에 남는다", async () => {
+    const people = [
+      owner,
+      member({
+        user_id: GONE_ID,
+        email: "owen@example.com",
+        display_name: "Owen",
+        role: "owner",
+      }),
+      { ...teammate, role: "owner" as const },
+    ];
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": pagedMembers(people, 2),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    await screen.findByRole("button", { name: "Owner 메뉴" });
+    await user.click(within(group()).getByRole("button", { name: /^멤버/ }));
+    const more = screen.getByRole("button", { name: "더 보기" });
+    const scope = more.parentElement;
+    await act(async () => more.focus());
+    await user.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull(),
+    );
+    expect(screen.getByText("멤버 역할인 구성원이 없습니다.")).toBeDefined();
+    expect(scope !== null && document.activeElement === scope).toBe(true);
   });
 });

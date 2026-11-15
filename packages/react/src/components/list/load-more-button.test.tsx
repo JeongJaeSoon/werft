@@ -84,6 +84,27 @@ describe("LoadMoreButton", () => {
     expect(document.activeElement === first).toBe(true);
   });
 
+  test("마지막 페이지 뒤에 보일 행이 없으면 포커스가 목록을 감싼 요소로 간다", async () => {
+    const onLoadMore = mock();
+    const view = render(
+      <List rows={0} hasMore={true} loading={false} onLoadMore={onLoadMore} />,
+    );
+    const button = view.getByRole("button", { name: "더 보기" });
+    const scope = button.parentElement;
+    await act(async () => button.focus());
+    const user = await setupUser();
+    await user.keyboard("{Enter}");
+    view.rerender(
+      <List rows={0} hasMore={true} loading={true} onLoadMore={onLoadMore} />,
+    );
+    view.rerender(
+      <List rows={0} hasMore={false} loading={false} onLoadMore={onLoadMore} />,
+    );
+    expect(view.queryByRole("button", { name: "더 보기" })).toBeNull();
+    expect(scope !== null && document.activeElement === scope).toBe(true);
+    expect(scope?.getAttribute("tabindex")).toBe("-1");
+  });
+
   test("포커스가 다른 곳에 있으면 마지막 페이지 뒤에도 옮기지 않는다", async () => {
     const onLoadMore = mock();
     const view = render(
