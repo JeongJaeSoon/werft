@@ -28,7 +28,13 @@ integration 스위트는 숫자 샤드가 아니라 도메인별 job 8개(`integ
 
 ci.yml의 job이 아니라 별도 workflow인 이유는 PR 제목·본문을 고칠 때(`edited`)도 다시 검사해야 하는데, ci.yml의 `concurrency`는 같은 PR의 진행 중 run 전체를 취소하기 때문이다.
 
-secret이 없거나 비어 있으면 **실패한다.** 검사하지 못한 것을 통과로 읽으면 안 된다. fork PR과 Dependabot PR은 `pull_request`에서 secret을 받지 못하므로 같은 이유로 실패하고, 실패 문구만 fork일 때 따로 나온다. fork PR은 메인테이너가 브랜치를 이 저장소로 옮겨 검사한다. Dependabot PR을 통과시키려면 Dependabot secret에도 같은 이름으로 등록해야 한다.
+두 번째 secret `FORBIDDEN_HOST_TERMS`(같은 형식)에는 메인테이너 기기의 tailnet 이름·IP·호스트 이름과 로컬 경로를 둔다. 스크립트가 두 목록을 합쳐 검사한다. 이 secret은 없어도 실패하지 않고, 로그에 "host terms were not scanned"를 남긴다.
+
+PR이면 PR 댓글, review comment, review 본문도 검사한다. 댓글·review·이슈 이벤트(`issue_comment`, `pull_request_review`, `pull_request_review_comment`, `issues`)가 오면 그 PR이나 이슈의 제목·본문·댓글·review를 다시 검사하고, 트리와 커밋 메시지는 건너뛴다. 이 run은 main의 workflow로 돌아 PR의 필수 체크에는 붙지 않는다. 걸리면 Actions에 실패한 run으로 남는다. PR의 필수 체크는 다음 push나 본문 수정 때 댓글까지 다시 본다.
+
+작성자의 `author_association`이 `OWNER`·`MEMBER`·`COLLABORATOR`인 글만 검사한다. 공개 저장소라 누구나 댓글을 달 수 있고, 남의 글에 대한 통과·실패가 보이면 그 사람이 목록을 추측해 맞혀 볼 수 있기 때문이다. 그래서 외부인이 쓴 글은 이 검사가 막지 못한다.
+
+secret `FORBIDDEN_TERMS`가 없거나 비어 있으면 **실패한다.** 검사하지 못한 것을 통과로 읽으면 안 된다. fork PR과 Dependabot PR은 `pull_request`에서 secret을 받지 못하므로 같은 이유로 실패하고, 실패 문구만 fork일 때 따로 나온다. fork PR은 메인테이너가 브랜치를 이 저장소로 옮겨 검사한다. Dependabot PR을 통과시키려면 Dependabot secret에도 같은 이름으로 등록해야 한다.
 
 합성 목록으로 하는 시험은 `tests/forbidden-terms.test.ts`다. 실제 목록으로 시험하지 않는다.
 
