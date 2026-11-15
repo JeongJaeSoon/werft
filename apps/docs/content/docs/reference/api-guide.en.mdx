@@ -87,7 +87,7 @@ OpenAPI: [`createSession`](/reference/http-api/sessions/createSession), [`getSes
 ```
 
 ```bash
-CREATE_BODY=$(jq -nc --arg message 'GATE-SPEC {"id":"guide-permission","steps":[{"tool":"Bash","input":{"command":"echo guide | tee api-guide.txt","description":"write api-guide.txt"}}],"final":"wrote api-guide.txt"}' \
+CREATE_BODY=$(jq -nc --arg message 'GATE-SPEC {"id":"guide-permission","steps":[{"tool":"Bash","input":{"command":"echo guide | sed -n \"w api-guide.txt\"","description":"write api-guide.txt"}}],"final":"wrote api-guide.txt"}' \
   '{agent_release_id:env.WERFT_AGENT_RELEASE_ID, repository_id:"sample-app", message:$message}')
 CREATE_KEY=$(uuidgen)
 created=$(curl -sS "$API/v1/sessions" "${AUTH[@]}" \

@@ -1,16 +1,10 @@
 import { realpathSync } from "node:fs";
-import { z } from "zod";
-import defaultSettings from "./settings/default.json" with { type: "json" };
+import { WORKSPACE_POLICY } from "@werft-ai/runtime-core";
 
 /**
- * What a session needs to make a pull request, decided without asking a
- * person: file edits under its own workspace and the local git and test
- * commands. Handed to the engine as flag settings, which a repository's
- * `.claude/settings.json` cannot widen or drop.
- *
- * The lists live in `settings/default.json`: adding a command to allow or a
- * pattern to ask is an edit of that file. This module holds what the lists
- * mean, which the file cannot say.
+ * The shared workspace policy (`WORKSPACE_POLICY` in runtime-core) as this
+ * engine's permission rules, handed to it as flag settings, which a
+ * repository's `.claude/settings.json` cannot widen or drop.
  *
  * The engine judges deny, then ask, then allow, and the first match wins, so
  * the `ask` list carves the paths and flags that must still reach a person out
@@ -26,154 +20,14 @@ import defaultSettings from "./settings/default.json" with { type: "json" };
  * proxy are what hold that.
  */
 
-/** A list that guards something is never empty: an emptied one is an error. */
-const patterns = z.array(z.string().min(1)).min(1);
-
-const policySchema = z
-  .object({
-    /**
-     * File name parts that mark a secret. A command line is matched by text,
-     * so this list is what `git add` and `git commit` are checked against;
-     * keep it in step with `sensitiveEditPaths`.
-     */
-    secretNameParts: patterns,
-    /** Edits under the workspace that still go to a person. */
-    sensitiveEditPaths: patterns,
-    git: z
-      .object({
-        /**
-         * Whole programs, `git` and `gh`: a session that makes a pull request
-         * runs many shapes of them, and a compound read such as
-         * `git remote -v | sed ... ; git branch -a` needs every part allowed.
-         * What stops harm is not this list but the boundaries behind it: the
-         * workspace container, the egress authorizer (push target, token
-         * scope) and the branch protection on GitHub.
-         */
-        allow: patterns,
-        /**
-         * Shapes carved out of the allow that still reach a person: a file
-         * written or a program run through an option, another repository
-         * than the workspace's, a forced add, and `gh`'s credential commands.
-         * An option can come after the operands, so each is matched anywhere
-         * in the line.
-         */
-        ask: patterns,
-        /**
-         * `git commit <path>` commits that file's current content without an
-         * add, so each of these asks when a secret name is on the line.
-         */
-        askWhenSecretNamed: patterns,
-      })
-      .strict(),
-    /**
-     * Readers the engine does not run unasked on its own (`sed`, which can
-     * also write, and the stream filters). `ls`, `cat`, `grep` and the rest
-     * of the plain readers are already run inside the workspace by the
-     * engine, so listing them here would only skip its outside-path check.
-     * `ask` carves the writing forms out: `sed -i` edits a file in place.
-     */
-    read: z
-      .object({
-        allow: patterns,
-        ask: patterns,
-        /**
-         * The usual one-letter flags that can come before `i` in a bundled
-         * `sed -ni` or `-nEi`: one or two of them, then `i`.
-         */
-        inPlaceLetters: z.string().min(1),
-        /**
-         * What can come right before a `w` (write a file) or `e` (run a
-         * command) in a sed script: a line number, `$`, or the `/` that ends
-         * an `s///` or an address. Three or more bundled flags before `i`
-         * (`-nEri`) are not caught, and `e` after a bare command letter is
-         * not either; the container is what holds those.
-         */
-        addressChars: z.string().min(1),
-      })
-      .strict(),
-    fs: z
-      .object({
-        /**
-         * A sample PR starts with `mkdir -p notes && echo ... > notes/x`, and
-         * the engine does not run `mkdir` unasked outside acceptEdits. An
-         * empty directory is cheap to undo; a path that leaves the workspace
-         * still asks.
-         */
-        allow: patterns,
-        ask: patterns,
-      })
-      .strict(),
-    /**
-     * Read-only inspection (`ls`, `cat`, `grep`, `git remote -v`,
-     * `git branch -a`, `find`, ...) is not listed in `allow`: the engine runs
-     * those unasked inside the workspace and itself asks for an outside path,
-     * `find -exec|-delete|-fprint`, `tree -o` and `rg --pre`. What it does not
-     * see is that `.env` is a secret, so the readers of file content ask when
-     * a secret's name is on the line. By name only: `cat .e*`, `grep -r . .`
-     * and a symlink named innocently get past it, as they do past the Read
-     * tool, which the engine allows in the workspace. The container and the
-     * egress proxy are what hold the content in.
-     */
-    secretRead: z
-      .object({
-        readers: patterns,
-        /** Git verbs that print file content: `git show HEAD:.env`. */
-        gitReaders: patterns,
-        /**
-         * Where a file name begins in a command line: the first operand, or
-         * after one of these. Matching them anywhere would ask for
-         * `process.env` and `src/credentials.ts`, which are code and not
-         * secrets. `-f` and `-<letter>f` are a pattern file named right after
-         * the flag (`grep -f.env`, `grep -nf.env`).
-         */
-        nameStarts: patterns,
-        /** The usual one-letter flags that can come before `f` or `uu`. */
-        clusterLetters: z.string().min(1),
-        /** Matched where the name ends, so `object.keys.ts` is not a key. */
-        extensions: patterns,
-        extensionEnds: patterns,
-        /** Name parts that are code as often as secrets; see `extraNames`. */
-        notAReadName: patterns,
-        /**
-         * Names matched from where they begin, beside the secret parts. Only
-         * the JSON key files, as in `sensitiveEditPaths`: `service-account.ts`
-         * is code.
-         */
-        extraNames: patterns,
-      })
-      .strict(),
-    /**
-     * `rg` skips hidden files (dotenv files among them) unless told not to,
-     * and `-uu` turns that off. It can be spelled `-uu`, `-nuu`, `-u -u` or
-     * `-unu`, so any flag that starts with `-u` asks, and so does one letter
-     * then `uu`. `*` crosses spaces, so a bare `-*uu*` would ask for
-     * `rg -n uuid src`. A `u` in the middle of a longer cluster (`-nunu`,
-     * `-ninuu`) is not caught.
-     */
-    rgHidden: z
-      .object({ ask: patterns, letterBeforeUU: z.string().min(1) })
-      .strict(),
-    dev: z
-      .object({
-        /** Test and script runners; the workspace's own code runs through them. */
-        commands: patterns,
-        /** Ways those runners are pointed at code or a shell outside it. */
-        ask: patterns,
-      })
-      .strict(),
-  })
-  .strict();
-
-const policy = policySchema.parse(defaultSettings);
+const policy = WORKSPACE_POLICY;
 
 /**
  * The ask patterns for one reader and every spelling of a secret's name.
  * `git` is for a git verb written as `git *<verb>*`, so a global option may
  * come first: the name pattern then follows the verb directly instead of
  * after an operand. It keeps the `-<letter>f` starts only for `clusters`
- * (`git grep -nf.env`). The engine gets the whole settings payload as one
- * argument and Linux caps one argument at 128 KiB, so a rule family that
- * multiplies must stay lean.
+ * (`git grep -nf.env`).
  */
 function secretReadPatterns(
   command: string,

@@ -89,13 +89,7 @@ export function settingsSnapshot(
   const unavailableConnections = invalidIds(settings, "connection");
   const connections: Record<string, CatalogConnection> = {};
   const judge_connections: Record<string, JudgeProvider> = {};
-  for (const {
-    id,
-    provider,
-    auto_mode,
-    models,
-    model_families,
-  } of settings.connections) {
+  for (const { id, provider, models, model_families } of settings.connections) {
     try {
       const resolved = resolveProvider(id, provider, lookup);
       if (resolved.kind === "openai_decisions") {
@@ -106,7 +100,6 @@ export function settingsSnapshot(
         provider: resolved,
         models: models ?? [],
         ...(model_families === undefined ? {} : { model_families }),
-        auto_mode: auto_mode ?? "unknown",
       };
     } catch (error) {
       unavailableConnections.add(id);
@@ -188,7 +181,7 @@ export function settingsView(
     // Such a process never judges; a judge connection is no agent's.
     connections: Object.fromEntries(
       settings.connections.flatMap(
-        ({ id, provider, auto_mode, models, model_families }) => {
+        ({ id, provider, models, model_families }) => {
           if (provider.kind === "openai_decisions") return [];
           const { kind: authKind, ...fields } = provider.auth;
           const { billing, ...rest } = provider;
@@ -206,7 +199,6 @@ export function settingsView(
               } as CatalogConnection["provider"],
               models: models ?? [],
               ...(model_families === undefined ? {} : { model_families }),
-              auto_mode: auto_mode ?? "unknown",
             },
           ];
           return [entry];

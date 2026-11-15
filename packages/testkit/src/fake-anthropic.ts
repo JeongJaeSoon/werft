@@ -26,6 +26,8 @@ export type FakeReply = {
   stopReason: "end_turn" | "tool_use";
   /** Token counts to report, which is how a test makes a reply cost something. */
   usage?: { input_tokens: number; output_tokens: number };
+  /** The auto mode safety check flags this reply's tool calls. */
+  flagged?: boolean;
 };
 
 export type RecordedRequest = {
@@ -172,6 +174,7 @@ export function startFakeAnthropicServer(
         recorded.body.model ?? defaultModel,
         reply,
         recorded.body.stream === true,
+        recorded.body.safeguards !== undefined,
       );
     },
   });
@@ -269,11 +272,49 @@ function toResolver(replies: ReplyScript): ReplyResolver {
   return () => replies as FakeReply | Response;
 }
 
+/**
+ * The auto mode safety check's verdict, allowing every tool call. The Claude
+ * engine in auto mode asks the API to run the check with a top-level
+ * `safeguards` field and reads this from the reply (the pinned CLI's gateway
+ * notes); a reply without it makes the engine refuse the calls the check
+ * would judge.
+ */
+function allowAllSafeguards(reply: FakeReply) {
+  return [
+    {
+      type: "dangerous_tool_use",
+      status: {
+        type: "available",
+        tool_uses: Object.fromEntries(
+          reply.content.flatMap((block) =>
+            block.type === "tool_use"
+              ? [
+                  [
+                    block.id,
+                    {
+                      type: "evaluated",
+                      outcome:
+                        reply.flagged === true ? "flagged" : "not_flagged",
+                    },
+                  ],
+                ]
+              : [],
+          ),
+        ),
+      },
+    },
+  ];
+}
+
 function anthropicResponse(
   model: string,
   reply: FakeReply,
   stream: boolean,
+  safeguards: boolean,
 ): Response {
+  const verdict = safeguards
+    ? { safeguard_results: allowAllSafeguards(reply) }
+    : {};
   const message = {
     id: `msg_${crypto.randomUUID()}`,
     type: "message",
@@ -291,7 +332,10 @@ function anthropicResponse(
   };
   const requestId = `req_${crypto.randomUUID()}`;
   if (!stream) {
-    return Response.json(message, { headers: { "request-id": requestId } });
+    return Response.json(
+      { ...message, ...verdict },
+      { headers: { "request-id": requestId } },
+    );
   }
 
   const events: Array<Record<string, unknown>> = [
@@ -341,7 +385,11 @@ function anthropicResponse(
   events.push(
     {
       type: "message_delta",
-      delta: { stop_reason: reply.stopReason, stop_sequence: null },
+      delta: {
+        stop_reason: reply.stopReason,
+        stop_sequence: null,
+        ...verdict,
+      },
       usage: { output_tokens: message.usage.output_tokens },
     },
     { type: "message_stop" },

@@ -139,7 +139,7 @@ function fakeApi() {
                   request_id: "smoke-request",
                   kind: "permission",
                   tool: "Bash",
-                  input: { command: "echo alpha | tee hello.txt" },
+                  input: { command: 'echo alpha | sed -n "w hello.txt"' },
                   created_at: "2026-10-28T00:00:00Z",
                 },
               ],

@@ -17,6 +17,7 @@ import {
 
 import { codexExecutable } from "./binary.ts";
 import { assertStartable, codexLaunch, codexProfileDigest } from "./config.ts";
+import { writeExecRules } from "./exec-rules.ts";
 import { type McpRelay, startMcpRelay } from "./mcp-relay.ts";
 import { spawnAppServer } from "./process.ts";
 import { CodexRolloutStore } from "./rollout-store.ts";
@@ -55,6 +56,7 @@ export class CodexAgentRuntime implements AgentRuntime {
     try {
       launch = codexLaunch(start, this.deps, this.host, relay);
       mkdirSync(launch.home, { recursive: true, mode: 0o700 });
+      writeExecRules(launch.home, launch.approvalPolicy);
       return this.spawn(start, launch, relay, (made) => {
         run = made;
       });

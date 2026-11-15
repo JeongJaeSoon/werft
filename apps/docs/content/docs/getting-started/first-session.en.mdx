@@ -7,7 +7,7 @@ Run one session from start to finish. The agent asks for permission to write a f
 
 ## Create a session that writes a file
 
-This script writes `hello.txt` with Bash `tee`. When the release runs the `default` permission mode (its connection's auto-mode judgment is `unsupported`), file writes and edits inside the session workspace and local git do not ask. Any other command that changes files, such as `tee`, which is not on that list, asks for permission first. A redirect into the workspace (`echo alpha > hello.txt`) does not ask, so this example does not use one.
+This script writes `hello.txt` with the `w` (write file) command of `sed` in Bash. That command is on the workspace rules' ask list, so it asks a person for permission first in every permission mode. File writes and edits inside the session workspace and local git do not ask. In `auto`, which a new release on a Claude model runs, a classifier, not a person, allows or refuses commands that are not on the ask list, so `echo alpha | tee hello.txt` or `echo alpha > hello.txt` makes no permission request ([Permission mode](/agents/permissions#permission-mode)).
 
 ```ts title="approve-and-close.ts"
 import {
@@ -19,7 +19,7 @@ import {
 import { werft } from "./werft.ts";
 
 const signal = AbortSignal.timeout(5 * 60_000);
-const COMMAND = "echo alpha | tee hello.txt";
+const COMMAND = 'echo alpha | sed -n "w hello.txt"';
 
 const created = await werft.sessions.create({
   agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
@@ -63,7 +63,7 @@ console.log(`turn ${first.turn_id}: ${first.status}`);
 ```
 
 ```text
-asked: Bash { command: 'echo alpha | tee hello.txt', description: 'write hello.txt' }
+asked: Bash { command: 'echo alpha | sed -n "w hello.txt"', description: 'write hello.txt' }
 answered: accepted
 turn 1: completed
 ```

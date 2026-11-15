@@ -672,7 +672,6 @@ function consoleWrites(
   | "create"
   | "setValue"
   | "convertConnection"
-  | "setConnectionAutoMode"
   | "setConnectionModels"
   | "disable"
   | "enableConnection"
@@ -838,29 +837,6 @@ function consoleWrites(
             last4: value.slice(-4),
             replaced: auth.value_env === undefined ? "secret_id" : "value_env",
           },
-        );
-        return { outcome: "done" as const, receiptId };
-      });
-    },
-
-    setConnectionAutoMode(id, autoMode, actor) {
-      return asWriter("connection", actor, async (tx) => {
-        const held = await heldRow(tx, "connection", id);
-        if (held === null) return { outcome: "not_found" as const };
-        if (held.disabled) {
-          return { outcome: "conflict" as const, reason: "disabled" };
-        }
-        // This column only: the definition is what releases made over the
-        // connection pinned.
-        await tx
-          .update(providerConnections)
-          .set({ autoMode })
-          .where(eq(providerConnections.id, id));
-        const receiptId = await consoleReceipt(
-          tx,
-          actor,
-          "set_connection_auto_mode",
-          { connection_id: id, auto_mode: autoMode },
         );
         return { outcome: "done" as const, receiptId };
       });
@@ -1047,7 +1023,6 @@ function listRowsIn(db: Database): Pick<SettingsDocumentStore, "listRows"> {
                 last4: value(row.id),
                 createdAt: row.createdAt,
                 disabledAt: row.disabledAt,
-                autoMode: row.autoMode,
                 models: row.models,
                 modelFamilies: (() => {
                   const parsed = modelFamiliesSchema.safeParse(

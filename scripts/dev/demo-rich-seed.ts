@@ -473,6 +473,8 @@ type AgentSpec = {
   active: number | null;
   status?: "paused" | "archived";
   admins?: { user?: string; team?: string }[];
+  /** Engine ask rules: in auto mode only these reach a person. */
+  ask?: string[];
 };
 
 const card = (c: Card) => ({
@@ -489,6 +491,7 @@ const AGENTS: AgentSpec[] = [
     slug: "deploy-helper",
     name: "배포 도우미",
     repository: true,
+    ask: ["Bash(kubectl:*)", "Bash(psql:*)"],
     versions: [
       {
         role: "배포 전 점검 목록을 확인한다",
@@ -650,6 +653,19 @@ async function ensureAgents(owner: Web) {
         id = made.agent.id as string;
         agentId[spec.slug] = id;
         note(`created agent ${spec.slug}`);
+      }
+      if (spec.ask) {
+        const rules = await owner.ok<{ settings_revision: number | null }>(
+          200,
+          "GET",
+          `/v1/agents/${id}/engine-settings`,
+        );
+        if (rules.settings_revision === null) {
+          await owner.ok(200, "PUT", `/v1/agents/${id}/engine-settings`, {
+            expected_revision: null,
+            settings: { permissions: { ask: spec.ask }, auto_mode: {} },
+          });
+        }
       }
       let detail = await owner.ok<AgentDetail>(200, "GET", `/v1/agents/${id}`);
       for (let at = detail.versions.length; at < spec.versions.length; at++) {

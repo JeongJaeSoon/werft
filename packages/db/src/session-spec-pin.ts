@@ -1,4 +1,5 @@
 import {
+  movedPermissionMode,
   type ReleaseSpecRecord,
   releaseSpecRecord,
   verifyReleaseSpec,
@@ -26,7 +27,8 @@ function pinOf(record: ReleaseSpecRecord): SessionSpecPin {
 
 /**
  * The release's verified spec with the session's model in place of the
- * release's. The release stays as it is. Null when the stored spec does not
+ * release's, and the permission mode that model runs (`movedPermissionMode`).
+ * The release stays as it is. Null when the stored spec does not
  * verify: such a session is not given a guessed one.
  */
 export function sessionPinFromRelease(
@@ -42,7 +44,13 @@ export function sessionPinFromRelease(
   if (!verdict.ok) return null;
   const { spec_source: source } = verdict.record;
   if (model === null || model === source.model) return pinOf(verdict.record);
-  return pinOf(releaseSpecRecord({ ...source, model }));
+  return pinOf(
+    releaseSpecRecord({
+      ...source,
+      model,
+      permission_mode: movedPermissionMode(source, model),
+    }),
+  );
 }
 
 /** The pin a new session starts with, read under the creating transaction. */

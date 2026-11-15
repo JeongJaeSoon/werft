@@ -259,6 +259,9 @@ export function codexLaunch(
     ["features.daemon_auto_start", false],
     // The repository's instructions come from the bundle, as committed.
     ["project_doc_max_bytes", 0],
+    // An untrusted project's own `.codex` layer (config and exec rules) is
+    // not loaded, so the repository cannot grant itself commands.
+    ["projects", { [config.cwd]: { trust_level: "untrusted" } }],
   ];
   // A platform server is reached through the relay in this process, with a
   // secret of its own; the engine is shown the server's pinned tools only.

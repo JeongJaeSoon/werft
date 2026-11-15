@@ -362,7 +362,6 @@ describe("OpenAPI document", () => {
         "/v1/login-settings",
         "/v1/connections",
         "/v1/installation/settings/connections",
-        "/v1/installation/settings/connections/{id}/auto-mode",
         "/v1/installation/settings/connections/{id}/convert",
         "/v1/installation/settings/connections/{id}/credential",
         "/v1/installation/settings/connections/{id}/disable",

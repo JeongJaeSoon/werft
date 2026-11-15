@@ -220,10 +220,9 @@ export function testSessionCatalog(
     provider?: CatalogProvider;
     models?: readonly string[];
     model_families?: CatalogConnection["model_families"];
-    auto_mode?: CatalogConnection["auto_mode"];
   } = { repositories: {} },
 ): SessionCatalog & { tool_catalogs: ToolCatalogs } {
-  const { provider, models, model_families, auto_mode, ...rest } = input;
+  const { provider, models, model_families, ...rest } = input;
   return {
     tool_catalogs: testToolCatalogs(),
     connections: {
@@ -231,7 +230,6 @@ export function testSessionCatalog(
         provider: provider ?? TEST_PROVIDER,
         models: models ?? [TEST_MODEL],
         ...(model_families === undefined ? {} : { model_families }),
-        auto_mode: auto_mode ?? "unknown",
       },
     },
     ...rest,

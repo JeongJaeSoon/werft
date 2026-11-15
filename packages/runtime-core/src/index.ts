@@ -73,6 +73,7 @@ export {
   type WorkspaceObservation,
   type WorkspacePlan,
 } from "./workspace.ts";
+export * from "./workspace-policy.ts";
 export {
   type RestoreRefusal,
   readWorkspaceFile,

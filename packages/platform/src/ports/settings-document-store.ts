@@ -140,17 +140,6 @@ export interface SettingsDocumentStore {
     actor: TeamActor,
   ): Promise<SettingsConsoleResult>;
   /**
-   * Records the operator's judgement of whether the connection's models run
-   * the auto-mode classifier. Changes that column only, never the stored
-   * definition. A disabled connection is refused. A release made after it
-   * reads it; sessions keep the spec they hold.
-   */
-  setConnectionAutoMode(
-    id: string,
-    autoMode: "supported" | "unsupported" | "unknown",
-    actor: TeamActor,
-  ): Promise<SettingsConsoleResult>;
-  /**
    * The models an agent may name on the connection and their series. Beside
    * the definition, never in it: the list changes over a connection's life
    * where what it points at does not. A disabled connection is refused.
@@ -195,8 +184,6 @@ export type SettingsRow = {
   createdAt: Date;
   /** Disabled, or for a repository removed. */
   disabledAt: Date | null;
-  /** A connection's judged auto mode; absent on the other kinds. */
-  autoMode?: "supported" | "unsupported" | "unknown";
   /** A connection's models and their series; absent on the other kinds. */
   models?: readonly string[];
   modelFamilies?: ModelFamilies | null;

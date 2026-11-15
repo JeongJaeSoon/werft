@@ -416,12 +416,12 @@ node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 
 ## P-API-PENDING — 권한 요청·응답·SSE
 
-전제: owner key, REL. SID를 덮어쓰지 않고 QSID를 쓴다. 권한 요청은 release가 `default` 모드일 때 온다(fake 연결이 `auto_mode: unsupported`).
+전제: owner key, REL. SID를 덮어쓰지 않고 QSID를 쓴다. fake 연결의 release는 `auto`로 돌고 fake가 안전 검사를 모두 허용하므로, 권한 요청은 묻기 규칙에 걸린 명령(`sed -n "w …"`)으로만 온다. `tee`는 묻지 않는다.
 
 ```sh
 # Actor: owner.
 ap_as owner
-Q=$(ap_post /v1/sessions "$(jq -nc --arg r "$REL" --arg m 'GATE-SPEC {"id":"verify-permission","steps":[{"tool":"Bash","input":{"command":"echo alpha | tee hello.txt","description":"write hello.txt"}}],"final":"wrote hello.txt"}' '{agent_release_id:$r,repository_id:"sample-app",message:$m}')")
+Q=$(ap_post /v1/sessions "$(jq -nc --arg r "$REL" --arg m 'GATE-SPEC {"id":"verify-permission","steps":[{"tool":"Bash","input":{"command":"echo alpha | sed -n \"w hello.txt\"","description":"write hello.txt"}}],"final":"wrote hello.txt"}' '{agent_release_id:$r,repository_id:"sample-app",message:$m}')")
 printf '%s\n' "$Q"
 QSID=$(printf '%s\n' "$Q" | head -1 | jq -r .session_id)
 printf 'QSID=%s\n' "$QSID"

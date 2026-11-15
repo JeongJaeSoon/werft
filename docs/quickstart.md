@@ -141,7 +141,7 @@ get /v1 | jq .
 ### ① 생성
 
 ```bash
-created=$(post /v1/sessions "$(body 'GATE-SPEC {"id":"q1","steps":[{"tool":"Bash","input":{"command":"echo alpha | tee hello.txt","description":"write hello.txt"}}],"final":"wrote hello.txt"}')")
+created=$(post /v1/sessions "$(body 'GATE-SPEC {"id":"q1","steps":[{"tool":"Bash","input":{"command":"echo alpha | sed -n \"w hello.txt\"","description":"write hello.txt"}}],"final":"wrote hello.txt"}')")
 echo "$created" | jq .
 echo "$created" | jq -e '.status == "queued" and .turn_id == "1"'
 SID=$(echo "$created" | jq -r .session_id)
@@ -155,7 +155,7 @@ SID=$(echo "$created" | jq -r .session_id)
 
 ### ② 이벤트 관찰
 
-turn 1은 `echo alpha | tee hello.txt`를 실행하려다 권한을 묻고 멈춘다. worker가 뜨고 저장소를 clone하는 데 몇 초에서 수십 초가 걸리므로, 세션이 그 상태(`needs_input`)가 될 때까지 기다린 뒤 스트림을 처음부터 읽는다.
+turn 1은 `echo alpha | sed -n "w hello.txt"`를 실행하려다 권한을 묻고 멈춘다. worker가 뜨고 저장소를 clone하는 데 몇 초에서 수십 초가 걸리므로, 세션이 그 상태(`needs_input`)가 될 때까지 기다린 뒤 스트림을 처음부터 읽는다.
 
 ```bash
 wait_for "/v1/sessions/$SID" .status needs_input
@@ -172,7 +172,7 @@ SSE 스트림이다(`id`·`event`·`data` 한 묶음씩, 15초마다 comment kee
 
 ### ③ 대기 중인 요청
 
-예시 release의 권한 모드는 `fake-messages` 연결의 자동 모드 판정을 따른다. 판정이 `unsupported`이면 `default`로 돈다. Claude Code는 읽기 전용 명령(`cat`, `ls` 등)은 묻지 않고 실행하므로, 권한 흐름은 파일을 바꾸는 명령으로 보여 준다.
+예시 release는 `auto` 권한 모드로 돈다. `fake-messages`는 자동 모드의 안전 검사에 언제나 허용으로 답하므로, 사람에게 권한을 묻는 것은 작업 공간 규칙의 묻기 목록에 걸린 호출뿐이다. 그래서 권한 흐름은 묻기 목록에 있는 `sed`의 `w`(파일 쓰기) 명령으로 보여 준다. `echo alpha | tee hello.txt`나 `echo alpha > hello.txt`는 묻지 않고 실행된다.
 
 ```bash
 get "/v1/sessions/$SID/pending-requests" | jq .
@@ -180,7 +180,7 @@ REQ=$(get "/v1/sessions/$SID/pending-requests" | jq -r '.items[0].request_id')
 ```
 
 ```text
-{ "items": [ { "request_id": "req_…", "turn_id": "1", "kind": "permission", "tool": "Bash", "input": { "command": "echo alpha | tee hello.txt", … }, "expires_at": "…" } ] }
+{ "items": [ { "request_id": "req_…", "turn_id": "1", "kind": "permission", "tool": "Bash", "input": { "command": "echo alpha | sed -n \"w hello.txt\"", … }, "expires_at": "…" } ] }
 ```
 
 요청은 30분 안에 답하지 않으면 거절로 끝난다. 이 시간은 owner가 웹 콘솔의 설정 > 워크스페이스 > 실행 한도("응답 대기 시간", 정수 초)에서 바꾼다. 바꾸면 worker도 그만큼 기다린다. 다만 같은 화면의 turn 시간 상한을 넘길 수는 없다.

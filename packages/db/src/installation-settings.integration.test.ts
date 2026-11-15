@@ -287,9 +287,11 @@ integration("installation settings", () => {
     );
     const snapshot = settingsSnapshot(opened, () => undefined);
     expect(Object.keys(snapshot.connections)).toEqual(["console_main"]);
-    // Whether the classifier works over a connection is read beside its
-    // definition, onto the connection.
-    expect(snapshot.connections.console_main?.auto_mode).toBe("supported");
+    // A judgement an older image left in the unused column reaches no one.
+    expect(
+      snapshot.connections.console_main === undefined ||
+        "auto_mode" in snapshot.connections.console_main,
+    ).toBe(false);
 
     expect((await store.read()).stored.size).toBe(0);
     const keyless = await createPostgresInstallationSettingsStore(

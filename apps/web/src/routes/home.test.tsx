@@ -37,7 +37,6 @@ const CONNECTION: SettingsConnection = {
   endpoint: "https://api.anthropic.com",
   billing: "per_token",
   auth_kind: "api_key",
-  auto_mode: "unknown",
   credential: { source: "stored", last4: "abcd" },
   models: ["claude-sonnet-5"],
   model_families: null,

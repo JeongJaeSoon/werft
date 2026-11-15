@@ -458,14 +458,12 @@ export type JudgeProvider = {
 
 /**
  * A provider connection as the services hold it: where calls go, the models
- * an agent may name on it, their series for a retired model's successor,
- * and whether the engine's auto mode classifier works over it.
+ * an agent may name on it, and their series for a retired model's successor.
  */
 export type CatalogConnection = {
   provider: CatalogProvider;
   models: readonly string[];
   model_families?: ModelFamilies | undefined;
-  auto_mode: ConnectionAutoMode;
 };
 
 export type CatalogMcpServerConfig = z.infer<typeof catalogMcpServerSchema>;
@@ -736,12 +734,6 @@ export function withoutDeniedTools<T extends readonly string[]>(
   );
   return kept.length === tools.length ? tools : kept;
 }
-
-/**
- * Whether the engine's auto mode classifier works over a connection, as an
- * admin judged it. A connection nobody judged is `unknown`.
- */
-export type ConnectionAutoMode = "supported" | "unsupported" | "unknown";
 
 /** One request the egress proxy makes on a worker's behalf. */
 export type EgressUpstream = {

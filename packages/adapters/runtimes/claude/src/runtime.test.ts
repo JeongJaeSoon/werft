@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { closeSync, fstatSync, openSync } from "node:fs";
+import {
+  closeSync,
+  fstatSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PERMISSION_MODE_VALUES } from "@werft-ai/contracts";
 import { PLATFORM_AUTO_MODE, TRUSTED_PLATFORM_AUTO_MODE } from "./auto-mode.ts";
 import type { ClaudeRuntimeConfig } from "./config.ts";
@@ -11,6 +21,7 @@ import {
   buildSdkOptions,
   ClaudeSdkRuntime,
   resolvePinnedClaudeExecutable,
+  settingsFileDenyRules,
 } from "./runtime.ts";
 import { TurnLedger } from "./turn-ledger.ts";
 
@@ -866,12 +877,12 @@ describe("Claude SDK adapter options", () => {
     }
   });
 
-  test("workspace pre-approvals reach attended modes only, never plan or auto", () => {
+  test("workspace pre-approvals reach every mode but plan, auto included", () => {
     const allow = {
       onPermission: async () => ({ behavior: "allow" as const }),
     };
     const withTools = { ...config, tools: ["Write", "Bash"] };
-    for (const permissionMode of ["default", "acceptEdits"] as const) {
+    for (const permissionMode of ["default", "acceptEdits", "auto"] as const) {
       const permissions = (
         buildSdkOptions({ ...withTools, permissionMode }, allow).settings as {
           permissions?: { allow: string[]; ask: string[] };
@@ -882,11 +893,9 @@ describe("Claude SDK adapter options", () => {
       expect(permissions?.allow).toContain("Bash(gh *)");
       expect(permissions?.ask).toContain(`Edit(/${config.cwd}/.git/**)`);
     }
-    for (const permissionMode of ["plan", "auto"] as const) {
-      expect(
-        buildSdkOptions({ ...withTools, permissionMode }, allow).settings,
-      ).not.toHaveProperty("permissions");
-    }
+    expect(
+      buildSdkOptions({ ...withTools, permissionMode: "plan" }, allow).settings,
+    ).not.toHaveProperty("permissions");
     // The rules do not depend on the tool list: a deny is what narrows the
     // surface, so a profile listing only Read gets the same pre-approvals.
     const readOnly = buildSdkOptions(
@@ -896,31 +905,17 @@ describe("Claude SDK adapter options", () => {
     expect(readOnly.settings).toHaveProperty("permissions");
   });
 
-  test("the pre-approval settings stay well under one Linux argument", () => {
-    // The engine gets the settings as a single argument, and Linux refuses one
-    // over 128 KiB (E2BIG) when the engine starts; macOS does not, so a rule
-    // family that multiplies passes on a laptop and breaks every session in CI.
-    const settings = buildSdkOptions(
-      {
-        ...config,
-        cwd: `/${"w".repeat(200)}`,
-        permissionMode: "default",
-        tools: ["Write", "Edit", "Bash"],
-      },
-      { onPermission: async () => ({ behavior: "allow" as const }) },
-    ).settings;
-    expect(JSON.stringify(settings).length).toBeLessThan(100_000);
-  });
-
   test("auto alone hands the engine the platform's auto mode rules", () => {
     const allow = {
       onPermission: async () => ({ behavior: "allow" as const }),
     };
     const auto = buildSdkOptions({ ...config, permissionMode: "auto" }, allow);
-    expect(auto.settings).toEqual({
-      attribution: { commit: "", pr: "", sessionUrl: false },
-      autoMode: PLATFORM_AUTO_MODE,
-    });
+    const routine = buildSdkOptions(
+      { ...config, permissionMode: "default" },
+      allow,
+    ).settings as Record<string, unknown>;
+    expect(routine).toHaveProperty("permissions");
+    expect(auto.settings).toEqual({ ...routine, autoMode: PLATFORM_AUTO_MODE });
     for (const section of Object.values(PLATFORM_AUTO_MODE)) {
       expect(section[0]).toBe("$defaults");
     }
@@ -1003,7 +998,8 @@ describe("Claude SDK adapter options", () => {
     );
     expect(env).toMatchObject(git);
     expect(rest.settings).toEqual({
-      attribution: { commit: "", pr: "", sessionUrl: false },
+      ...(buildSdkOptions({ ...config, permissionMode: "default" }, allow)
+        .settings as Record<string, unknown>),
       autoMode: PLATFORM_AUTO_MODE,
     });
     expect(JSON.stringify(rest)).not.toContain("werft-dev[bot]");
@@ -1075,6 +1071,68 @@ describe("Claude SDK adapter options", () => {
         buildSdkOptions({ ...config, gitEnvironment }, allow),
       ).toThrow("gitEnvironment");
     }
+  });
+
+  test("each start writes the merged settings to a fresh file outside the checkout and passes its path", () => {
+    const home = mkdtempSync(join(tmpdir(), "engine-settings-"));
+    try {
+      const started: unknown[] = [];
+      const runtime = new ClaudeSdkRuntime(
+        { endpoints: ["https://api.anthropic.com"], models: ["primary"] },
+        undefined,
+        ((args: { options: { settings: unknown } }) => {
+          started.push(args.options.settings);
+          return { close: () => undefined };
+        }) as never,
+      );
+      const { identities: _identities, plugins: _plugins, ...base } = config;
+      const local: ClaudeRuntimeConfig = {
+        ...base,
+        claudeConfigDir: join(home, ".claude"),
+        cwd: join(home, "workspace"),
+        home,
+        permissionMode: "auto",
+      };
+      const allow = { onPermission: async () => ({ behavior: "allow" }) };
+      runtime.start(local, allow as never);
+      const path = join(home, ".claude", "launcher-settings.json");
+      expect(started).toEqual([path]);
+      const file = JSON.parse(readFileSync(path, "utf8"));
+      expect(Object.keys(file)[0]).toBe("$schema");
+      expect(file.$schema).toBe(
+        "https://json.schemastore.org/claude-code-settings.json",
+      );
+      const inline = buildSdkOptions(local, allow as never).settings as Record<
+        string,
+        unknown
+      >;
+      expect(file.autoMode).toEqual(inline.autoMode);
+      expect(file.permissions.deny).toEqual([
+        "Edit(~/.claude/launcher-settings.json)",
+        `Edit(/${path})`,
+      ]);
+
+      // An agent's edit, or a link left in the file's place, does not
+      // survive the next start.
+      rmSync(path);
+      const elsewhere = join(home, "elsewhere.json");
+      symlinkSync(elsewhere, path);
+      runtime.start(local, allow as never);
+      expect(started).toEqual([path, path]);
+      expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(file);
+      expect(() => readFileSync(elsewhere)).toThrow();
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("a settings file outside the home is protected by its absolute path alone", () => {
+    expect(settingsFileDenyRules("/state/s.json", "/home/bun")).toEqual([
+      "Edit(//state/s.json)",
+    ]);
+    expect(
+      settingsFileDenyRules("/home/bun/.claude/s.json", "/home/bun"),
+    ).toEqual(["Edit(~/.claude/s.json)", "Edit(//home/bun/.claude/s.json)"]);
   });
 
   test("rejects an unknown permission mode before starting a query", () => {

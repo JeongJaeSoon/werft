@@ -175,6 +175,9 @@ afterAll(async () => {
   }
 }, TIMEOUT);
 
+/** As remote-mcp.e2e.ts: an ask rule that stops the turn for a person. */
+const GATE: Step = bash('echo gate | sed -n "w gate.txt"');
+
 /** As remote-mcp.e2e.ts: allows each permission request as it comes. */
 async function settle(
   sessionId: string,
@@ -516,9 +519,9 @@ describe("workspace MCP servers an admin connects", () => {
       ].join("\n");
       await api.send(
         sessionId,
-        scripted("wsmcp-scan", [bash(scan)], "scanned"),
+        scripted("wsmcp-scan", [bash(scan), GATE], "scanned"),
       );
-      // While the scan waits for its answer the worker is running and has
+      // While the gate waits for its answer the worker is running and has
       // made both calls.
       const worker: { seen?: string[] } = {};
       const scanned = await settle(sessionId, "2", {
@@ -543,11 +546,11 @@ describe("workspace MCP servers an admin connects", () => {
     "disconnect revokes at the server, and the running session's next call is refused with a call_mcp receipt",
     async () => {
       const before = await workspaceCalls();
-      const sessionId = await startSession([WHOAMI, WHOAMI], "wsmcp-cut");
+      const sessionId = await startSession([WHOAMI, GATE, WHOAMI], "wsmcp-cut");
       const disconnected: { revoked?: boolean | null } = {};
       const turn = await settle(sessionId, "1", {
-        // The first call has run; the second waits for its answer.
-        1: async () => {
+        // The first call has run; the gate waits for its answer.
+        0: async () => {
           const cut = await web<{ server: Server; revoked: boolean | null }>(
             "POST",
             `/v1/workspace/mcp-servers/${oauthServer.id}/disconnect`,
@@ -559,7 +562,7 @@ describe("workspace MCP servers an admin connects", () => {
       });
       expect(turn.status).toBe("completed");
       expect(disconnected.revoked).toBe(true);
-      const [first, second] = await toolResults(sessionId);
+      const [first, , second] = await toolResults(sessionId);
       expect(textOf(first)).toContain("ok:oauth:fake-account");
       const receiptId = REFUSED.exec(textOf(second))?.[1];
       expect(receiptId).toBeDefined();

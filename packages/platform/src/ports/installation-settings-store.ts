@@ -24,8 +24,6 @@ export interface InstallationSettings {
      * when the console has since moved it to a stored value.
      */
     replaces?: CatalogProviderConfig;
-    /** Absent reads as `unknown`. */
-    auto_mode?: "supported" | "unsupported" | "unknown";
     /** The models an agent may name on it; absent reads as none. */
     models?: readonly string[];
     /** Their series, for a retired model's successor. */

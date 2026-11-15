@@ -80,7 +80,7 @@ Every agent has one responsible team. `PUT /v1/agents/{id}/managing-team` change
 
 ### Create a release
 
-A release binds one version to one provider connection (`connection_id`). If the card's `model` is not on that connection's model list, the response is 422. The release pins the run settings of that moment: the runtime for the connection's kind (at the version the image ships), every built-in tool of that runtime, and the `auto` permission mode where the auto-mode classifier works on the connection, `default` otherwise. What to ask about and what to block is set by the workspace's and the agent's run rules ([Permissions](/agents/permissions)). A session created with the release runs the card's model unless it names another.
+A release binds one version to one provider connection (`connection_id`). If the card's `model` is not on that connection's model list, the response is 422. The release pins the run settings of that moment: the runtime for the connection's kind (at the version the image ships), every built-in tool of that runtime, and the permission mode (`auto` for a Claude model, `default` otherwise; see [Permission mode](/agents/permissions#permission-mode)). What to ask about and what to block is set by the workspace's and the agent's run rules ([Permissions](/agents/permissions)). A session created with the release runs the card's model unless it names another.
 
 ```bash
 release=$(curl -sS "$API/v1/agents/$AID/releases" "${WEB[@]}" \

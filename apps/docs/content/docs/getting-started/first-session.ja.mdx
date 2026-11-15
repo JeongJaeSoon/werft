@@ -7,7 +7,7 @@ description: 権限リクエストに答え、メッセージを続けて送り�
 
 ## ファイルを書くセッションを作る
 
-この台本は Bash の `tee` で `hello.txt` を書く。リリースが `default` の権限モードで動くとき (接続の自動モードの判定が `unsupported` のとき)、セッションのワークスペース内でのファイルの書き込み・編集とローカル git では尋ねず、それ以外のファイルを変えるコマンド (一覧にない `tee` など) の前に権限を求める。ワークスペース内へのリダイレクト (`echo alpha > hello.txt`) は尋ねないので、この例では使わない。
+この台本は Bash で `sed` の `w` (ファイル書き込み) コマンドを使って `hello.txt` を書く。このコマンドはワークスペースのルールの確認一覧にあるので、権限モードにかかわらず実行前に人に権限を求める。セッションのワークスペース内でのファイルの書き込み・編集とローカル git では尋ねない。Claude のモデルの新しいリリースが動く `auto` では、確認一覧にないコマンドを人の代わりに分類器が許可または拒否するので、`echo alpha | tee hello.txt` や `echo alpha > hello.txt` では権限リクエストは作られない ([権限モード](/agents/permissions#権限モード))。
 
 ```ts title="approve-and-close.ts"
 import {
@@ -19,7 +19,7 @@ import {
 import { werft } from "./werft.ts";
 
 const signal = AbortSignal.timeout(5 * 60_000);
-const COMMAND = "echo alpha | tee hello.txt";
+const COMMAND = 'echo alpha | sed -n "w hello.txt"';
 
 const created = await werft.sessions.create({
   agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
@@ -63,7 +63,7 @@ console.log(`turn ${first.turn_id}: ${first.status}`);
 ```
 
 ```text
-asked: Bash { command: 'echo alpha | tee hello.txt', description: 'write hello.txt' }
+asked: Bash { command: 'echo alpha | sed -n "w hello.txt"', description: 'write hello.txt' }
 answered: accepted
 turn 1: completed
 ```

@@ -415,7 +415,6 @@ export function createPostgresInstallationSettingsStore(
             id: string;
             provider: CatalogProviderConfig;
             replaces?: CatalogProviderConfig;
-            auto_mode: "supported" | "unsupported" | "unknown";
             models: string[];
             model_families?: ModelFamilies;
           }> = [];
@@ -459,7 +458,6 @@ export function createPostgresInstallationSettingsStore(
             connections.push({
               id: row.id,
               provider: parsed.data,
-              auto_mode: row.autoMode,
               models,
               ...(families?.success ? { model_families: families.data } : {}),
               ...(former?.success ? { replaces: former.data } : {}),

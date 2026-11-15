@@ -155,7 +155,6 @@ export function createSettingsConsoleService(deps: {
         last4: string | null;
         created_at: string;
         disabled_at: string | null;
-        auto_mode: "supported" | "unsupported" | "unknown";
         models: readonly string[];
         model_families: ModelFamilies | null;
       },
@@ -170,7 +169,6 @@ export function createSettingsConsoleService(deps: {
         last4: row.last4,
         created_at: row.createdAt.toISOString(),
         disabled_at: row.disabledAt?.toISOString() ?? null,
-        auto_mode: row.autoMode ?? "unknown",
         models: row.models ?? [],
         model_families: row.modelFamilies ?? null,
       });
@@ -302,7 +300,6 @@ export function createSettingsConsoleService(deps: {
             endpoint: provider.endpoint,
             billing: provider.billing === "none" ? "none" : "per_token",
             auth_kind: provider.auth.kind,
-            auto_mode: meta.auto_mode,
             models: [...meta.models],
             model_families: meta.model_families,
             credential: credentialOf(provider.auth, meta.last4),
@@ -560,16 +557,6 @@ export function createSettingsConsoleService(deps: {
       }
       return onRow(caller, "connection", id, (actor) =>
         store.convertConnection(id, value, actor),
-      );
-    },
-
-    setConnectionAutoMode(
-      caller: Caller,
-      id: string,
-      autoMode: "supported" | "unsupported" | "unknown",
-    ) {
-      return onRow(caller, "connection", id, (actor) =>
-        store.setConnectionAutoMode(id, autoMode, actor),
       );
     },
 

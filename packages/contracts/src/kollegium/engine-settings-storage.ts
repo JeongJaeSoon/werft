@@ -26,21 +26,13 @@ export const ENGINE_AUTO_MODE_RULE_MAX_LENGTH = 1024;
 /**
  * What one source may save, so that the largest settings a claim can merge
  * still fit the worker's contract (128 permission rules and 64 sentences a
- * list, and the engine's 100,000 byte limit on the settings it starts with).
+ * list).
  *
  * A claim merges the workspace's and the agent's twice (the settings it
  * started with and the current ones): 48 + 24 + 24 = 96 of the 128 rules in a
  * permission list; 16 + 16 + 16 = 48
  * sentences in an auto mode list. Bytes are the JSON text of the whole
  * `permissions` or `auto_mode` object, escapes included.
- *
- * Measured against the claude adapter: the default and bypass modes start at
- * 75,870 bytes of the engine's 100,000, so the permission rules of one claim
- * (6 KB workspace + 3 KB agent twice = 12 KB, plus up to
- * 64 whole-tool names) must stay near 20 KB. Auto mode sentences only count
- * in auto mode, which starts at 3,253 bytes. The adapter's
- * `engine-settings-claim.test.ts` composes these maxima and fails first when
- * a limit here is raised past what starts.
  */
 export const ENGINE_SETTINGS_LIMITS = {
   workspace: {

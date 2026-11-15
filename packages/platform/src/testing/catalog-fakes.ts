@@ -29,7 +29,6 @@ export function testConnection(
       },
     },
     models: ["claude-sonnet-5"],
-    auto_mode: "unknown",
     ...overrides,
   };
 }
