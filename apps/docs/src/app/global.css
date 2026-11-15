@@ -87,6 +87,11 @@ body {
   outline-offset: 2px;
   --tw-ring-shadow: 0 0 #0000;
 }
+/* Scroll regions (code blocks, the sidebar) and code tabs sit in clipping
+   frames, so their outline goes inside, as on the console's scroll areas. */
+:where(div[tabindex], pre[tabindex], [role="tab"]):focus-visible {
+  outline-offset: -2px;
+}
 
 /* The search field is a control, not a card. */
 [data-search-full] {
