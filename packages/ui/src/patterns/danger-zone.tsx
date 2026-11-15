@@ -62,7 +62,9 @@ export function DangerZone({
  * The row says what is done to what ("Delete team"); the button only says
  * what is done ("Delete") and is named after the row, so a screen reader
  * moving between buttons hears the target too. The button's word has to
- * appear unbroken in that name (label in name).
+ * appear unbroken in that name (label in name). The title is red and the
+ * button filled red with white text, both AA in either theme (tokens.css
+ * test); the description stays muted.
  */
 export type DangerZoneRowProps = (
   | {
@@ -105,7 +107,7 @@ export function DangerZoneRow({
   const button = (
     <RowAction
       ref={actionRef}
-      variant="danger"
+      variant="destructive"
       aria-label={name}
       disabled={disabled || withheld}
       onClick={onAction}
@@ -115,7 +117,7 @@ export function DangerZoneRow({
   );
   return (
     <SettingRow
-      title={title}
+      title={<span className="text-destructive">{title}</span>}
       description={description}
       actions={
         withheld ? (
