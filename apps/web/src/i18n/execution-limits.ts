@@ -13,9 +13,19 @@ export const executionLimitsKo = {
     "쓸 수 있는 값이 없습니다. 업그레이드 때 환경 변수 {env}의 값이 범위를 벗어나 옮겨 오지 못했거나, 저장된 값이 이 버전의 범위를 벗어났습니다. 값을 저장할 때까지 {refused} 환경 변수가 남아 있으면 저장한 뒤 지우세요.",
   "limits.useDefault": "기본값으로",
   "limits.save": "저장",
+  "limits.section.title": "한도",
+  "limits.section.description":
+    "바꾼 값만 한 번에 저장합니다. 하나라도 거절되면 아무 값도 바뀌지 않습니다.",
+  "limits.pending": "저장하지 않은 한도 {count}개",
+  "limits.clean": "저장하지 않은 변경이 없습니다.",
+  "limits.savedMany": "한도 {count}개를 저장했습니다.",
+  "limits.notSaved":
+    "저장하지 못했습니다. 표시한 칸을 고친 뒤 다시 저장하세요. 다른 칸의 값도 아직 저장되지 않았습니다.",
   "limits.wait.title": "사람 응답",
   "limits.wait.hint":
-    "세션이 권한을 묻거나 질문을 하면 사람이 답할 때까지 기다립니다. 이 시간 안에 답이 없으면 요청을 닫습니다. 기다리는 시간도 턴 시간에 들어가므로, 턴 시간 상한보다 오래 기다리지는 않습니다.",
+    "세션이 권한을 묻거나 질문을 하면 사람이 답할 때까지 기다립니다.",
+  "limits.wait.detail":
+    "이 시간 안에 답이 없으면 요청을 닫습니다. 기다리는 시간도 턴 시간에 들어가므로, 턴 시간 상한보다 오래 기다리지는 않습니다.",
   "limits.wait.label": "응답 대기 시간 (초)",
   "limits.wait.unit": "초",
   "limits.wait.value": "{value}초",
@@ -25,8 +35,8 @@ export const executionLimitsKo = {
   "limits.wait.invalid": "1부터 {max}까지의 정수(초)를 적으세요.",
   "limits.wait.saved": "응답 대기 시간을 저장했습니다.",
   "limits.turn.title": "턴 시간",
-  "limits.turn.hint":
-    "턴 하나가 승인 대기를 포함해 돌 수 있는 시간입니다. 넘으면 그 턴을 멈춥니다.",
+  "limits.turn.hint": "턴 하나가 승인 대기를 포함해 돌 수 있는 시간입니다.",
+  "limits.turn.detail": "넘으면 그 턴을 멈춥니다.",
   "limits.turn.label": "턴 시간 상한 (초)",
   "limits.turn.unit": "초",
   "limits.turn.value": "{value}초",
@@ -38,7 +48,8 @@ export const executionLimitsKo = {
   "limits.turn.saved": "턴 시간 상한을 저장했습니다.",
   "limits.retries.title": "모델 요청 재시도",
   "limits.retries.hint":
-    "모델 공급자 요청이 실패했을 때 턴을 실패로 끝내기 전에 다시 보내는 횟수입니다. 0이면 다시 보내지 않습니다.",
+    "모델 공급자 요청이 실패했을 때 턴을 실패로 끝내기 전에 다시 보내는 횟수입니다.",
+  "limits.retries.detail": "0이면 다시 보내지 않습니다.",
   "limits.retries.label": "재시도 횟수",
   "limits.retries.unit": "회",
   "limits.retries.value": "{value}회",
@@ -49,8 +60,9 @@ export const executionLimitsKo = {
   "limits.retries.invalid": "0부터 {max}까지의 정수를 적으세요.",
   "limits.retries.saved": "재시도 횟수를 저장했습니다.",
   "limits.cost.title": "세션 비용",
-  "limits.cost.hint":
-    "세션 하나가 쓸 수 있는 모델 비용입니다. 닿으면 그 세션에 더 맡기지 않고, 대기 중인 메시지와 다시 시작도 돌지 않습니다.",
+  "limits.cost.hint": "세션 하나가 쓸 수 있는 모델 비용입니다.",
+  "limits.cost.detail":
+    "닿으면 그 세션에 더 맡기지 않고, 대기 중인 메시지와 다시 시작도 돌지 않습니다.",
   "limits.cost.label": "세션 비용 한도 (USD)",
   "limits.cost.unit": "USD",
   "limits.cost.value": "{value} USD",
@@ -61,8 +73,8 @@ export const executionLimitsKo = {
   "limits.cost.invalid": "0보다 크고 {max} 이하인 금액(USD)을 적으세요.",
   "limits.cost.saved": "세션 비용 한도를 저장했습니다.",
   "limits.tokens.title": "세션 토큰",
-  "limits.tokens.hint":
-    "세션 하나가 쓰는 동안 쓸 수 있는 모델 토큰 수입니다. 0이면 토큰 한도 없이 비용 한도만 봅니다.",
+  "limits.tokens.hint": "세션 하나가 쓰는 동안 쓸 수 있는 모델 토큰 수입니다.",
+  "limits.tokens.detail": "0이면 토큰 한도 없이 비용 한도만 봅니다.",
   "limits.tokens.label": "세션 토큰 한도",
   "limits.tokens.unit": "토큰",
   "limits.tokens.value": "{value} 토큰",
@@ -76,7 +88,8 @@ export const executionLimitsKo = {
   "limits.tokens.saved": "세션 토큰 한도를 저장했습니다.",
   "limits.queue.title": "대기 메시지",
   "limits.queue.hint":
-    "세션 하나에 차례를 기다리며 쌓일 수 있는 메시지 수입니다. 넘으면 그 세션의 다음 메시지를 받지 않습니다.",
+    "세션 하나에 차례를 기다리며 쌓일 수 있는 메시지 수입니다.",
+  "limits.queue.detail": "넘으면 그 세션의 다음 메시지를 받지 않습니다.",
   "limits.queue.label": "세션당 대기 메시지 수",
   "limits.queue.unit": "개",
   "limits.queue.value": "{value}개",
@@ -87,7 +100,8 @@ export const executionLimitsKo = {
   "limits.queue.saved": "대기 메시지 수를 저장했습니다.",
   "limits.storage.title": "입력 보관",
   "limits.storage.hint":
-    "이 설치 전체에 보관하는 입력(메시지와 첨부)의 합입니다. 넘으면 새 메시지를 받지 않습니다.",
+    "이 설치 전체에 보관하는 입력(메시지와 첨부)의 합입니다.",
+  "limits.storage.detail": "넘으면 새 메시지를 받지 않습니다.",
   "limits.storage.label": "입력 보관 한도 (바이트)",
   "limits.storage.unit": "바이트",
   "limits.storage.value": "{value}바이트",
@@ -98,7 +112,9 @@ export const executionLimitsKo = {
   "limits.storage.saved": "입력 보관 한도를 저장했습니다.",
   "limits.stopped.title": "멈춘 세션의 작업 공간",
   "limits.stopped.hint":
-    "멈춘 세션의 작업 공간(Docker volume, Kubernetes PVC)을 남겨 두는 시간입니다. 지나면 scheduler가 회수하고, 그 뒤 다시 시작하면 checkpoint에서 복원합니다. 0이면 다음 정리 때 바로 회수합니다.",
+    "멈춘 세션의 작업 공간(Docker volume, Kubernetes PVC)을 남겨 두는 시간입니다.",
+  "limits.stopped.detail":
+    "지나면 scheduler가 회수하고, 그 뒤 다시 시작하면 checkpoint에서 복원합니다. 0이면 다음 정리 때 바로 회수합니다.",
   "limits.stopped.label": "멈춘 뒤 남겨 두는 시간 (초)",
   "limits.stopped.unit": "초",
   "limits.stopped.value": "{value}초",
@@ -110,7 +126,9 @@ export const executionLimitsKo = {
   "limits.stopped.saved": "멈춘 세션의 작업 공간 보존 시간을 저장했습니다.",
   "limits.paused.title": "일시정지한 세션의 작업 공간",
   "limits.paused.hint":
-    "일시정지한 세션의 작업 공간을 일시정지한 때부터 남겨 두는 시간입니다. 복원할 checkpoint가 있는 세션만 지나면 회수하고, 다시 시작하면 그 checkpoint에서 복원합니다. 0이면 다음 정리 때 바로 회수합니다.",
+    "일시정지한 세션의 작업 공간을 일시정지한 때부터 남겨 두는 시간입니다.",
+  "limits.paused.detail":
+    "복원할 checkpoint가 있는 세션만 지나면 회수하고, 다시 시작하면 그 checkpoint에서 복원합니다. 0이면 다음 정리 때 바로 회수합니다.",
   "limits.paused.label": "일시정지한 뒤 남겨 두는 시간 (초)",
   "limits.paused.unit": "초",
   "limits.paused.value": "{value}초",
@@ -136,7 +154,9 @@ export const executionLimitsKo = {
   "limits.enforce.saved": "작업 공간 용량 설정을 저장했습니다.",
   "limits.archive.title": "세션 기록 보관",
   "limits.archive.hint":
-    "오래 쉰 세션의 이벤트를 데이터베이스에서 object store의 보관 object로 옮깁니다. 옮긴 이벤트는 운영자가 restore 명령으로 되돌립니다. 보관 작업은 운영자가 정한 일정(기본 매주)에 돌고, 작업을 끈 설치에서는 이 값을 쓰지 않습니다.",
+    "오래 쉰 세션의 이벤트를 데이터베이스에서 object store의 보관 object로 옮깁니다.",
+  "limits.archive.detail":
+    "옮긴 이벤트는 운영자가 restore 명령으로 되돌립니다. 보관 작업은 운영자가 정한 일정(기본 매주)에 돌고, 작업을 끈 설치에서는 이 값을 쓰지 않습니다.",
   "limits.archive.daysLabel": "보관까지 쉰 기간 (일)",
   "limits.archive.daysUnit": "일",
   "limits.archive.daysValue": "{value}일",
@@ -170,9 +190,19 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
       "No usable value. At the upgrade, the environment variable {env} was out of range and was not carried in, or the saved value is out of this version's range. Until a value is saved, {refused} If the variable is still set, remove it after saving.",
     "limits.useDefault": "Use the default",
     "limits.save": "Save",
+    "limits.section.title": "Limits",
+    "limits.section.description":
+      "Saving sends only the changed values, all at once. If any is refused, nothing changes.",
+    "limits.pending": "Unsaved limits: {count}",
+    "limits.clean": "No unsaved changes.",
+    "limits.savedMany": "Saved {count} limits.",
+    "limits.notSaved":
+      "Nothing was saved. Fix the marked fields and save again; the other fields are not saved yet either.",
     "limits.wait.title": "Human answers",
     "limits.wait.hint":
-      "When a session asks for a permission or a question, it waits for a person to answer. With no answer within this long, the request closes. The wait counts toward the turn's time, so it never outlasts the turn time limit.",
+      "When a session asks for a permission or a question, it waits for a person to answer.",
+    "limits.wait.detail":
+      "With no answer within this long, the request closes. The wait counts toward the turn's time, so it never outlasts the turn time limit.",
     "limits.wait.label": "Wait for an answer (seconds)",
     "limits.wait.unit": "seconds",
     "limits.wait.value": "{value} seconds",
@@ -182,8 +212,8 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
     "limits.wait.invalid": "Enter a whole number of seconds from 1 to {max}.",
     "limits.wait.saved": "Saved the wait for an answer.",
     "limits.turn.title": "Turn time",
-    "limits.turn.hint":
-      "How long one turn may run, approvals included. Past it, the turn is stopped.",
+    "limits.turn.hint": "How long one turn may run, approvals included.",
+    "limits.turn.detail": "Past it, the turn is stopped.",
     "limits.turn.label": "Turn time limit (seconds)",
     "limits.turn.unit": "seconds",
     "limits.turn.value": "{value} seconds",
@@ -195,7 +225,8 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
     "limits.turn.saved": "Saved the turn time limit.",
     "limits.retries.title": "Model request retries",
     "limits.retries.hint":
-      "How many times a failed model provider request is sent again before the turn fails. With 0 it is not sent again.",
+      "How many times a failed model provider request is sent again before the turn fails.",
+    "limits.retries.detail": "With 0 it is not sent again.",
     "limits.retries.label": "Retries",
     "limits.retries.unit": "retries",
     "limits.retries.value": "{value} retries",
@@ -206,8 +237,9 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
     "limits.retries.invalid": "Enter a whole number from 0 to {max}.",
     "limits.retries.saved": "Saved the retries.",
     "limits.cost.title": "Session cost",
-    "limits.cost.hint":
-      "The model cost one session may spend. Once it is reached, the session is given nothing further, and its queued messages and resumes do not run.",
+    "limits.cost.hint": "The model cost one session may spend.",
+    "limits.cost.detail":
+      "Once it is reached, the session is given nothing further, and its queued messages and resumes do not run.",
     "limits.cost.label": "Session cost limit (USD)",
     "limits.cost.unit": "USD",
     "limits.cost.value": "{value} USD",
@@ -218,8 +250,9 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
     "limits.cost.invalid": "Enter an amount in USD above 0 and at most {max}.",
     "limits.cost.saved": "Saved the session cost limit.",
     "limits.tokens.title": "Session tokens",
-    "limits.tokens.hint":
-      "The model tokens one session may use over its life. With 0 there is no token limit, only the cost limit.",
+    "limits.tokens.hint": "The model tokens one session may use over its life.",
+    "limits.tokens.detail":
+      "With 0 there is no token limit, only the cost limit.",
     "limits.tokens.label": "Session token limit",
     "limits.tokens.unit": "tokens",
     "limits.tokens.value": "{value} tokens",
@@ -233,7 +266,9 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
     "limits.tokens.saved": "Saved the session token limit.",
     "limits.queue.title": "Waiting messages",
     "limits.queue.hint":
-      "How many messages may wait their turn in one session. Past that, the session's next message is not taken.",
+      "How many messages may wait their turn in one session.",
+    "limits.queue.detail":
+      "Past that, the session's next message is not taken.",
     "limits.queue.label": "Waiting messages per session",
     "limits.queue.unit": "messages",
     "limits.queue.value": "{value} messages",
@@ -244,7 +279,8 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
     "limits.queue.saved": "Saved the waiting messages limit.",
     "limits.storage.title": "Kept input",
     "limits.storage.hint":
-      "All the input (messages and attachments) this installation keeps. Past that, no new message is taken.",
+      "All the input (messages and attachments) this installation keeps.",
+    "limits.storage.detail": "Past that, no new message is taken.",
     "limits.storage.label": "Kept input limit (bytes)",
     "limits.storage.unit": "bytes",
     "limits.storage.value": "{value} bytes",
@@ -255,7 +291,9 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
     "limits.storage.saved": "Saved the kept input limit.",
     "limits.stopped.title": "Stopped sessions' workspaces",
     "limits.stopped.hint":
-      "How long a stopped session keeps its workspace (Docker volume, Kubernetes PVC). Past it the scheduler reclaims it, and a later resume restores from the checkpoint. With 0 it is reclaimed at the next cleanup.",
+      "How long a stopped session keeps its workspace (Docker volume, Kubernetes PVC).",
+    "limits.stopped.detail":
+      "Past it the scheduler reclaims it, and a later resume restores from the checkpoint. With 0 it is reclaimed at the next cleanup.",
     "limits.stopped.label": "Keep after stopping (seconds)",
     "limits.stopped.unit": "seconds",
     "limits.stopped.value": "{value} seconds",
@@ -268,7 +306,9 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
     "limits.stopped.saved": "Saved how long stopped sessions keep workspaces.",
     "limits.paused.title": "Paused sessions' workspaces",
     "limits.paused.hint":
-      "How long a paused session keeps its workspace, from when it paused. Only a session with a checkpoint to restore is reclaimed past it, and a resume restores that checkpoint. With 0 it is reclaimed at the next cleanup.",
+      "How long a paused session keeps its workspace, from when it paused.",
+    "limits.paused.detail":
+      "Only a session with a checkpoint to restore is reclaimed past it, and a resume restores that checkpoint. With 0 it is reclaimed at the next cleanup.",
     "limits.paused.label": "Keep after pausing (seconds)",
     "limits.paused.unit": "seconds",
     "limits.paused.value": "{value} seconds",
@@ -293,7 +333,9 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
     "limits.enforce.saved": "Saved the workspace size setting.",
     "limits.archive.title": "Session event archive",
     "limits.archive.hint":
-      "Moves the events of long-idle sessions out of the database into archive objects in the object store. An operator puts moved events back with the restore command. The archive job runs on the operator's schedule (weekly by default); an installation that turned the job off does not use these values.",
+      "Moves the events of long-idle sessions out of the database into archive objects in the object store.",
+    "limits.archive.detail":
+      "An operator puts moved events back with the restore command. The archive job runs on the operator's schedule (weekly by default); an installation that turned the job off does not use these values.",
     "limits.archive.daysLabel": "Idle before archiving (days)",
     "limits.archive.daysUnit": "days",
     "limits.archive.daysValue": "{value} days",
@@ -327,9 +369,19 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
       "使える値がありません。アップグレード時に環境変数 {env} の値が範囲外で移せなかったか、保存された値がこのバージョンの範囲外です。値を保存するまで、{refused} 環境変数が残っていれば、保存したあと削除してください。",
     "limits.useDefault": "既定に戻す",
     "limits.save": "保存",
+    "limits.section.title": "上限",
+    "limits.section.description":
+      "変更した値だけをまとめて保存します。1 つでも拒否されると、どの値も変わりません。",
+    "limits.pending": "未保存の上限 {count} 件",
+    "limits.clean": "未保存の変更はありません。",
+    "limits.savedMany": "上限を {count} 件保存しました。",
+    "limits.notSaved":
+      "保存できませんでした。示した欄を直してから、もう一度保存してください。ほかの欄の値もまだ保存されていません。",
     "limits.wait.title": "人の応答",
     "limits.wait.hint":
-      "セッションが権限を求めたり質問したりすると、人が答えるまで待ちます。この時間内に答えがなければリクエストを閉じます。待ち時間もターンの時間に含まれるため、ターン時間の上限より長くは待ちません。",
+      "セッションが権限を求めたり質問したりすると、人が答えるまで待ちます。",
+    "limits.wait.detail":
+      "この時間内に答えがなければリクエストを閉じます。待ち時間もターンの時間に含まれるため、ターン時間の上限より長くは待ちません。",
     "limits.wait.label": "応答の待ち時間 (秒)",
     "limits.wait.unit": "秒",
     "limits.wait.value": "{value} 秒",
@@ -339,8 +391,8 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
     "limits.wait.invalid": "1 から {max} までの整数 (秒) を入力してください。",
     "limits.wait.saved": "応答の待ち時間を保存しました。",
     "limits.turn.title": "ターンの時間",
-    "limits.turn.hint":
-      "1 つのターンが承認待ちを含めて動ける時間です。超えるとそのターンを止めます。",
+    "limits.turn.hint": "1 つのターンが承認待ちを含めて動ける時間です。",
+    "limits.turn.detail": "超えるとそのターンを止めます。",
     "limits.turn.label": "ターンの時間上限 (秒)",
     "limits.turn.unit": "秒",
     "limits.turn.value": "{value} 秒",
@@ -352,7 +404,8 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
     "limits.turn.saved": "ターンの時間上限を保存しました。",
     "limits.retries.title": "モデル呼び出しの再試行",
     "limits.retries.hint":
-      "モデルプロバイダーへのリクエストが失敗したとき、ターンを失敗にする前に送り直す回数です。0 なら送り直しません。",
+      "モデルプロバイダーへのリクエストが失敗したとき、ターンを失敗にする前に送り直す回数です。",
+    "limits.retries.detail": "0 なら送り直しません。",
     "limits.retries.label": "再試行の回数",
     "limits.retries.unit": "回",
     "limits.retries.value": "{value} 回",
@@ -363,8 +416,9 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
     "limits.retries.invalid": "0 から {max} までの整数を入力してください。",
     "limits.retries.saved": "再試行の回数を保存しました。",
     "limits.cost.title": "セッションの費用",
-    "limits.cost.hint":
-      "1 つのセッションが使えるモデルの費用です。達するとそのセッションにはそれ以上任せず、待機中のメッセージと再開も動きません。",
+    "limits.cost.hint": "1 つのセッションが使えるモデルの費用です。",
+    "limits.cost.detail":
+      "達するとそのセッションにはそれ以上任せず、待機中のメッセージと再開も動きません。",
     "limits.cost.label": "セッションの費用上限 (USD)",
     "limits.cost.unit": "USD",
     "limits.cost.value": "{value} USD",
@@ -376,8 +430,9 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
       "0 より大きく {max} 以下の金額 (USD) を入力してください。",
     "limits.cost.saved": "セッションの費用上限を保存しました。",
     "limits.tokens.title": "セッションのトークン",
-    "limits.tokens.hint":
-      "1 つのセッションが使えるモデルのトークン数です。0 ならトークンの上限はなく、費用の上限だけを見ます。",
+    "limits.tokens.hint": "1 つのセッションが使えるモデルのトークン数です。",
+    "limits.tokens.detail":
+      "0 ならトークンの上限はなく、費用の上限だけを見ます。",
     "limits.tokens.label": "セッションのトークン上限",
     "limits.tokens.unit": "トークン",
     "limits.tokens.value": "{value} トークン",
@@ -390,8 +445,9 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
       "0 から {max} までの整数を入力してください。0 ならトークンの上限はありません。",
     "limits.tokens.saved": "セッションのトークン上限を保存しました。",
     "limits.queue.title": "待機メッセージ",
-    "limits.queue.hint":
-      "1 つのセッションで順番を待てるメッセージの数です。超えると、そのセッションの次のメッセージを受け付けません。",
+    "limits.queue.hint": "1 つのセッションで順番を待てるメッセージの数です。",
+    "limits.queue.detail":
+      "超えると、そのセッションの次のメッセージを受け付けません。",
     "limits.queue.label": "セッションごとの待機メッセージ数",
     "limits.queue.unit": "件",
     "limits.queue.value": "{value} 件",
@@ -402,7 +458,8 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
     "limits.queue.saved": "待機メッセージ数を保存しました。",
     "limits.storage.title": "入力の保管",
     "limits.storage.hint":
-      "このインストール全体で保管する入力 (メッセージと添付) の合計です。超えると新しいメッセージを受け付けません。",
+      "このインストール全体で保管する入力 (メッセージと添付) の合計です。",
+    "limits.storage.detail": "超えると新しいメッセージを受け付けません。",
     "limits.storage.label": "入力の保管上限 (バイト)",
     "limits.storage.unit": "バイト",
     "limits.storage.value": "{value} バイト",
@@ -414,7 +471,9 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
     "limits.storage.saved": "入力の保管上限を保存しました。",
     "limits.stopped.title": "停止したセッションの作業領域",
     "limits.stopped.hint":
-      "停止したセッションの作業領域 (Docker volume、Kubernetes PVC) を残しておく時間です。過ぎると scheduler が回収し、そのあと再開すると checkpoint から復元します。0 なら次の整理ですぐに回収します。",
+      "停止したセッションの作業領域 (Docker volume、Kubernetes PVC) を残しておく時間です。",
+    "limits.stopped.detail":
+      "過ぎると scheduler が回収し、そのあと再開すると checkpoint から復元します。0 なら次の整理ですぐに回収します。",
     "limits.stopped.label": "停止後に残す時間 (秒)",
     "limits.stopped.unit": "秒",
     "limits.stopped.value": "{value} 秒",
@@ -428,7 +487,9 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
       "停止したセッションの作業領域を残す時間を保存しました。",
     "limits.paused.title": "一時停止したセッションの作業領域",
     "limits.paused.hint":
-      "一時停止したセッションの作業領域を、一時停止したときから残しておく時間です。復元できる checkpoint があるセッションだけが過ぎると回収され、再開するとその checkpoint から復元します。0 なら次の整理ですぐに回収します。",
+      "一時停止したセッションの作業領域を、一時停止したときから残しておく時間です。",
+    "limits.paused.detail":
+      "復元できる checkpoint があるセッションだけが過ぎると回収され、再開するとその checkpoint から復元します。0 なら次の整理ですぐに回収します。",
     "limits.paused.label": "一時停止後に残す時間 (秒)",
     "limits.paused.unit": "秒",
     "limits.paused.value": "{value} 秒",
@@ -455,7 +516,9 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
     "limits.enforce.saved": "作業領域の容量の設定を保存しました。",
     "limits.archive.title": "セッション記録の保管",
     "limits.archive.hint":
-      "長く使われていないセッションのイベントを、データベースから object store の保管 object に移します。移したイベントは運用者が restore コマンドで戻します。保管ジョブは運用者が決めた予定 (既定は毎週) で動き、ジョブを止めたインストールではこの値を使いません。",
+      "長く使われていないセッションのイベントを、データベースから object store の保管 object に移します。",
+    "limits.archive.detail":
+      "移したイベントは運用者が restore コマンドで戻します。保管ジョブは運用者が決めた予定 (既定は毎週) で動き、ジョブを止めたインストールではこの値を使いません。",
     "limits.archive.daysLabel": "保管までの未使用期間 (日)",
     "limits.archive.daysUnit": "日",
     "limits.archive.daysValue": "{value} 日",

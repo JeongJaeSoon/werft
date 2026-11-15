@@ -62,13 +62,13 @@ const routes = (
   [`GET ${API}`]: () => json(200, current()),
 });
 
-const sectionOf = async (title: string) =>
-  (await screen.findByRole("heading", { name: title })).closest(
-    "section",
-  ) as HTMLElement;
+// Each limit is a row of the one form, named by its title.
+const sectionOf = (title: string) =>
+  screen.findByRole("group", { name: title });
 const section = () => sectionOf("사람 응답");
 const field = (area: HTMLElement, label = LABEL) =>
   within(area).getByRole("spinbutton", { name: label }) as HTMLInputElement;
+const saveButton = () => screen.getByRole("button", { name: "저장" });
 
 describe("설정 › 실행 한도의 응답 대기 시간", () => {
   test("저장한 값이 없으면 기본값을 보여 주고 그렇다고 적는다", async () => {
@@ -110,7 +110,7 @@ describe("설정 › 실행 한도의 응답 대기 시간", () => {
       .join(" ");
     expect(described).toContain("값을 저장할 때까지");
     expect(area.textContent).not.toContain("기본값(1,800초)을 씁니다.");
-    await user.click(within(area).getByRole("button", { name: "저장" }));
+    await user.click(saveButton());
     await screen.findByText("응답 대기 시간을 저장했습니다.");
     expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
       pending_request_ttl_sec: 1800,
@@ -134,7 +134,7 @@ describe("설정 › 실행 한도의 응답 대기 시간", () => {
     await waitFor(() => expect(field(area).value).toBe("1800"));
     await user.clear(field(area));
     await user.type(field(area), "3600");
-    await user.click(within(area).getByRole("button", { name: "저장" }));
+    await user.click(saveButton());
     await screen.findByText("응답 대기 시간을 저장했습니다.");
     expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
       pending_request_ttl_sec: 3600,
@@ -154,7 +154,7 @@ describe("설정 › 실행 한도의 응답 대기 시간", () => {
     await waitFor(() => expect(field(area).value).toBe("1800"));
     await user.clear(field(area));
     await user.type(field(area), "0");
-    await user.click(within(area).getByRole("button", { name: "저장" }));
+    await user.click(saveButton());
     await waitFor(() => expect(area.textContent).toContain(INVALID));
     expect(document.activeElement === field(area)).toBe(true);
     expect(api.calls.filter((call) => call.method === "PATCH")).toHaveLength(0);
@@ -170,7 +170,7 @@ describe("설정 › 실행 한도의 응답 대기 시간", () => {
     await waitFor(() => expect(field(area).value).toBe("1800"));
     await user.clear(field(area));
     await user.type(field(area), "60");
-    await user.click(within(area).getByRole("button", { name: "저장" }));
+    await user.click(saveButton());
     await waitFor(() => expect(area.textContent).toContain(INVALID));
     expect(document.activeElement === field(area)).toBe(true);
   });
@@ -181,7 +181,7 @@ describe("설정 › 실행 한도의 응답 대기 시간", () => {
       routes(() => config(1800, false), "admin"),
     );
     await screen.findByRole("heading", { name: "실행 한도" });
-    expect(screen.queryByRole("heading", { name: "사람 응답" }) === null).toBe(
+    expect(screen.queryByRole("group", { name: "사람 응답" }) === null).toBe(
       true,
     );
     expect(api.calls.some((call) => call.path === API)).toBe(false);
@@ -210,7 +210,7 @@ describe("설정 › 실행 한도의 세션 한도", () => {
     );
     await user.clear(cost());
     await user.type(cost(), "0");
-    await user.click(within(area).getByRole("button", { name: "저장" }));
+    await user.click(saveButton());
     await waitFor(() =>
       expect(area.textContent).toContain(
         "0보다 크고 1,000,000 이하인 금액(USD)을 적으세요.",
@@ -219,7 +219,7 @@ describe("설정 › 실행 한도의 세션 한도", () => {
     expect(api.calls.filter((call) => call.method === "PATCH")).toHaveLength(0);
     await user.clear(cost());
     await user.type(cost(), "12.5");
-    await user.click(within(area).getByRole("button", { name: "저장" }));
+    await user.click(saveButton());
     await screen.findByText("세션 비용 한도를 저장했습니다.");
     expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
       session_cost_limit_usd: 12.5,
@@ -253,18 +253,21 @@ describe("설정 › 실행 한도의 세션 한도", () => {
     expect(status).toContain(
       "값을 저장할 때까지 새 세션과 메시지를 받지 않습니다.",
     );
-    expect(
-      within(area)
-        .getByRole("button", { name: "저장" })
-        .getAttribute("aria-disabled"),
-    ).toBe(null);
+    // The blocked key is the one thing to save.
+    expect(saveButton().getAttribute("aria-disabled")).toBe(null);
+    screen.getByText("저장하지 않은 한도 1개");
     const queue = await sectionOf("대기 메시지");
     expect(within(queue).queryByRole("status") === null).toBe(true);
-    expect(
-      within(queue)
-        .getByRole("button", { name: "저장" })
-        .getAttribute("aria-disabled"),
-    ).toBe("true");
+  });
+
+  test("막힌 키가 없고 바꾼 값도 없으면 저장할 것이 없다고 적는다", async () => {
+    renderAt(
+      PAGE,
+      routes(() => DEFAULTS),
+    );
+    await sectionOf("대기 메시지");
+    expect(saveButton().getAttribute("aria-disabled")).toBe("true");
+    screen.getByText("저장하지 않은 변경이 없습니다.");
   });
 });
 
@@ -306,7 +309,7 @@ describe("설정 › 실행 한도의 worker 한도", () => {
     );
     await user.clear(turnField());
     await user.type(turnField(), "604801");
-    await user.click(within(turn).getByRole("button", { name: "저장" }));
+    await user.click(saveButton());
     await waitFor(() =>
       expect(turn.textContent).toContain(
         "1부터 604,800까지의 정수(초)를 적으세요.",
@@ -314,20 +317,20 @@ describe("설정 › 실행 한도의 worker 한도", () => {
     );
     await user.clear(turnField());
     await user.type(turnField(), "1200");
-    await user.click(within(turn).getByRole("button", { name: "저장" }));
+    await user.click(saveButton());
     await screen.findByText("턴 시간 상한을 저장했습니다.");
 
     const retries = await sectionOf("모델 요청 재시도");
     const retriesField = () => field(retries, "재시도 횟수");
     await user.clear(retriesField());
     await user.type(retriesField(), "11");
-    await user.click(within(retries).getByRole("button", { name: "저장" }));
+    await user.click(saveButton());
     await waitFor(() =>
       expect(retries.textContent).toContain("0부터 10까지의 정수를 적으세요."),
     );
     await user.clear(retriesField());
     await user.type(retriesField(), "0");
-    await user.click(within(retries).getByRole("button", { name: "저장" }));
+    await user.click(saveButton());
     await screen.findByText("재시도 횟수를 저장했습니다.");
     expect(
       api.calls
@@ -379,7 +382,7 @@ describe("설정 › 실행 한도의 작업 공간 용량", () => {
       "저장한 값이 없어 기본값(기록만 남김)을 씁니다.",
     );
     await user.selectOptions(select, "fail");
-    await user.click(within(area).getByRole("button", { name: "저장" }));
+    await user.click(saveButton());
     await screen.findByText("작업 공간 용량 설정을 저장했습니다.");
     expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
       workspace_enforce: "fail",
@@ -424,7 +427,7 @@ describe("설정 › 실행 한도의 세션 기록 보관", () => {
     );
     expect(within(area).queryByRole("status") === null).toBe(true);
     await user.selectOptions(mode(area), "move");
-    await user.click(within(area).getByRole("button", { name: "저장" }));
+    await user.click(saveButton());
     await screen.findByText("세션 기록 보관 설정을 저장했습니다.");
     expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
       session_archive_dry_run: false,
@@ -442,7 +445,7 @@ describe("설정 › 실행 한도의 세션 기록 보관", () => {
     const area = await archiveSection();
     await user.clear(days(area));
     await user.type(days(area), "29");
-    await user.click(within(area).getByRole("button", { name: "저장" }));
+    await user.click(saveButton());
     expect(area.textContent).toContain(
       "0(보관하지 않음) 또는 30부터 3,650까지의 정수(일)를 적으세요.",
     );
@@ -450,7 +453,7 @@ describe("설정 › 실행 한도의 세션 기록 보관", () => {
     expect(api.calls.some((call) => call.method === "PATCH")).toBe(false);
     await user.clear(days(area));
     await user.type(days(area), "0");
-    await user.click(within(area).getByRole("button", { name: "저장" }));
+    await user.click(saveButton());
     await screen.findByText("세션 기록 보관 설정을 저장했습니다.");
     expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
       session_archive_after_days: 0,
@@ -484,7 +487,7 @@ describe("설정 › 실행 한도의 세션 기록 보관", () => {
     expect(described).toContain(notice);
     await user.clear(days(area));
     await user.type(days(area), "90");
-    await user.click(within(area).getByRole("button", { name: "저장" }));
+    await user.click(saveButton());
     await screen.findByText("세션 기록 보관 설정을 저장했습니다.");
     expect(days(area).value).toBe("90");
     expect(within(area).getByRole("status").textContent).toContain(notice);
@@ -512,11 +515,151 @@ describe("설정 › 실행 한도의 세션 기록 보관", () => {
     expect(status).toContain(
       "값을 저장할 때까지 보관 작업이 아무것도 옮기지 않고 실패로 끝납니다.",
     );
-    await user.click(within(area).getByRole("button", { name: "저장" }));
+    await user.click(saveButton());
     await screen.findByText("세션 기록 보관 설정을 저장했습니다.");
     expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
       session_archive_after_days: 180,
     });
+  });
+});
+
+describe("설정 › 실행 한도의 한 번 저장", () => {
+  const COST = "세션 비용 한도 (USD)";
+  const COST_INVALID = "0보다 크고 1,000,000 이하인 금액(USD)을 적으세요.";
+
+  test("저장 버튼은 하나이고, 한 번 누르면 바꾼 칸만 한 요청에 모두 보낸다", async () => {
+    let current = DEFAULTS;
+    const { api } = renderAt(PAGE, {
+      ...routes(() => current),
+      [`PATCH ${API}`]: () => {
+        current = {
+          ...DEFAULTS,
+          pending_request_ttl_sec: { ...entry(3600, true), default: 1800 },
+          session_cost_limit_usd: { ...entry(12.5, true), default: 25 },
+        };
+        return json(200, { ...current, receipt_id: RECEIPT });
+      },
+    });
+    const user = await setupUser();
+    const wait = await section();
+    const cost = await sectionOf("세션 비용");
+    await waitFor(() => expect(field(wait).value).toBe("1800"));
+    expect(screen.getAllByRole("button", { name: "저장" })).toHaveLength(1);
+    await user.clear(field(wait));
+    await user.type(field(wait), "3600");
+    await user.clear(field(cost, COST));
+    await user.type(field(cost, COST), "12.5");
+    screen.getByText("저장하지 않은 한도 2개");
+    await user.click(saveButton());
+    await screen.findByText("한도 2개를 저장했습니다.");
+    const patches = api.calls.filter((call) => call.method === "PATCH");
+    expect(patches.map((call) => call.body)).toEqual([
+      { pending_request_ttl_sec: 3600, session_cost_limit_usd: 12.5 },
+    ]);
+    expect(field(wait).value).toBe("3600");
+    expect(field(cost, COST).value).toBe("12.5");
+    screen.getByText("저장하지 않은 변경이 없습니다.");
+  });
+
+  test("한 칸이라도 틀리면 아무것도 보내지 않고, 그 칸에만 이유를 두고 다른 칸의 값은 남긴다", async () => {
+    const { api } = renderAt(PAGE, {
+      ...routes(() => DEFAULTS),
+      [`PATCH ${API}`]: () => json(200, { ...DEFAULTS, receipt_id: RECEIPT }),
+    });
+    const user = await setupUser();
+    const wait = await section();
+    const cost = await sectionOf("세션 비용");
+    await waitFor(() => expect(field(wait).value).toBe("1800"));
+    await user.clear(field(cost, COST));
+    await user.type(field(cost, COST), "12.5");
+    await user.clear(field(wait));
+    await user.type(field(wait), "0");
+    await user.click(saveButton());
+    await waitFor(() => expect(wait.textContent).toContain(INVALID));
+    expect(field(wait).getAttribute("aria-invalid")).toBe("true");
+    expect(cost.textContent).not.toContain(COST_INVALID);
+    expect(field(cost, COST).getAttribute("aria-invalid")).toBe(null);
+    expect(document.activeElement === field(wait)).toBe(true);
+    expect(field(cost, COST).value).toBe("12.5");
+    expect(api.calls.some((call) => call.method === "PATCH")).toBe(false);
+  });
+
+  test("서버가 한 칸을 거절하면 그 칸에 이유를 두고, 아무것도 저장되지 않았다고 알리고, 모든 입력을 남긴다", async () => {
+    let refuse = true;
+    let current = DEFAULTS;
+    const { api } = renderAt(PAGE, {
+      ...routes(() => current),
+      [`PATCH ${API}`]: () => {
+        if (refuse) {
+          return apiError(
+            400,
+            "BAD_REQUEST",
+            "Request body is invalid",
+            false,
+            {
+              issues: [{ path: "session_cost_limit_usd", message: "too big" }],
+            },
+          );
+        }
+        current = {
+          ...DEFAULTS,
+          pending_request_ttl_sec: { ...entry(60, true), default: 1800 },
+          session_cost_limit_usd: { ...entry(30, true), default: 25 },
+        };
+        return json(200, { ...current, receipt_id: RECEIPT });
+      },
+    });
+    const user = await setupUser();
+    const wait = await section();
+    const cost = await sectionOf("세션 비용");
+    await waitFor(() => expect(field(wait).value).toBe("1800"));
+    await user.clear(field(wait));
+    await user.type(field(wait), "60");
+    await user.clear(field(cost, COST));
+    await user.type(field(cost, COST), "40");
+    await user.click(saveButton());
+    await waitFor(() => expect(cost.textContent).toContain(COST_INVALID));
+    screen.getByText(
+      "저장하지 못했습니다. 표시한 칸을 고친 뒤 다시 저장하세요. 다른 칸의 값도 아직 저장되지 않았습니다.",
+    );
+    expect(wait.textContent).not.toContain(INVALID);
+    expect(document.activeElement === field(cost, COST)).toBe(true);
+    expect(field(wait).value).toBe("60");
+    expect(field(cost, COST).value).toBe("40");
+    screen.getByText("저장하지 않은 한도 2개");
+
+    refuse = false;
+    await user.clear(field(cost, COST));
+    await user.type(field(cost, COST), "30");
+    expect(cost.textContent).not.toContain(COST_INVALID);
+    await user.click(saveButton());
+    await screen.findByText("한도 2개를 저장했습니다.");
+    expect(
+      api.calls
+        .filter((call) => call.method === "PATCH")
+        .map((call) => call.body),
+    ).toEqual([
+      { pending_request_ttl_sec: 60, session_cost_limit_usd: 40 },
+      { pending_request_ttl_sec: 60, session_cost_limit_usd: 30 },
+    ]);
+  });
+
+  test("권한 같은 다른 이유로 거절되면 그 이유를 알리고 입력을 남긴다", async () => {
+    renderAt(PAGE, {
+      ...routes(() => DEFAULTS),
+      [`PATCH ${API}`]: () => apiError(403, "FORBIDDEN", "no", false),
+    });
+    const user = await setupUser();
+    const wait = await section();
+    await waitFor(() => expect(field(wait).value).toBe("1800"));
+    await user.clear(field(wait));
+    await user.type(field(wait), "60");
+    await user.click(saveButton());
+    await waitFor(() =>
+      expect(screen.getAllByRole("alert").length).toBeGreaterThan(0),
+    );
+    expect(within(wait).queryByRole("alert") === null).toBe(true);
+    expect(field(wait).value).toBe("60");
   });
 });
 

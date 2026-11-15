@@ -74,6 +74,7 @@ import {
   useRole,
 } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
+import { FormRow } from "../components/form-row.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { type Translate, useI18n } from "../i18n/i18n.tsx";
@@ -377,28 +378,6 @@ function RulesSection({
   );
 }
 
-function JudgeRow({
-  label,
-  hint,
-  children,
-}: {
-  readonly label: string;
-  readonly hint: string;
-  readonly children: ReactNode;
-}) {
-  return (
-    <div className="grid gap-2 border-b py-3.5 last:border-b-0 md:grid-cols-[260px_minmax(0,1fr)] md:gap-4">
-      <div className="min-w-0">
-        <Text as="div" weight="medium">
-          {label}
-        </Text>
-        <Text variant="meta">{hint}</Text>
-      </div>
-      <div className="flex min-w-0 flex-col gap-2">{children}</div>
-    </div>
-  );
-}
-
 interface JudgeDraft {
   /** "" for none. */
   readonly connection: string;
@@ -559,7 +538,7 @@ function JudgeCard({
     >
       {/* One block: the form's gap-4 would otherwise add to each row's rule. */}
       <div>
-        <JudgeRow
+        <FormRow
           label={t("achievementRules.judge.judge")}
           hint={t("achievementRules.judge.judgeHint")}
         >
@@ -595,8 +574,8 @@ function JudgeCard({
             </Text>
           ) : null}
           <Text variant="meta">{t("achievementRules.judge.sent")}</Text>
-        </JudgeRow>
-        <JudgeRow
+        </FormRow>
+        <FormRow
           label={t("achievementRules.judge.when")}
           hint={t("achievementRules.judge.whenHint")}
         >
@@ -643,8 +622,8 @@ function JudgeCard({
               {t("achievementRules.judge.onIdle")}
             </FieldLabel>
           </Field>
-        </JudgeRow>
-        <JudgeRow
+        </FormRow>
+        <FormRow
           label={t("achievementRules.judge.transcript")}
           hint={t("achievementRules.judge.transcriptHint")}
         >
@@ -670,8 +649,8 @@ function JudgeCard({
               </Field>
             ))}
           </RadioGroup>
-        </JudgeRow>
-        <JudgeRow
+        </FormRow>
+        <FormRow
           label={t("achievementRules.judge.limits")}
           hint={t("achievementRules.judge.limitsHint")}
         >
@@ -716,7 +695,7 @@ function JudgeCard({
               </Text>
             </div>
           </div>
-        </JudgeRow>
+        </FormRow>
       </div>
     </RulesSection>
   );

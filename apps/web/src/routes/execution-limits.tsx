@@ -10,11 +10,8 @@ import {
   Alert,
   AlertDescription,
   Button,
-  Field,
-  FieldDescription,
   FieldError,
   FieldLabel,
-  FormActions,
   Input,
   NativeSelect,
   NativeSelectOption,
@@ -23,9 +20,10 @@ import {
   Skeleton,
   Text,
 } from "@werft-ai/ui";
-import { type FormEvent, useId, useRef, useState } from "react";
+import { type FormEvent, type Ref, useId, useRef, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useHasPermission, useRole } from "../auth/guard.tsx";
+import { FormRow } from "../components/form-row.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -41,6 +39,15 @@ type NumberKey = Exclude<
 type Enforce = InstallationConfig["workspace_enforce"]["value"];
 /** Only the keys to change. */
 type Patch = { [K in InstallationConfigKey]?: InstallationConfig[K]["value"] };
+/** What is typed or chosen, by key; a key with none shows the saved value. */
+type Drafts = Partial<
+  Record<NumberKey | "session_archive_after_days", string> & {
+    workspace_enforce: Enforce;
+    session_archive_dry_run: boolean;
+  }
+>;
+/** One row of the form: a number limit's name, or one of the others. */
+type Row = NumberLimit["name"] | "enforce" | "archive";
 
 export type NumberLimit = {
   readonly key: NumberKey;
@@ -205,12 +212,81 @@ export function ExecutionLimitsScreen() {
   );
 }
 
+const ROWS: readonly Row[] = [
+  ...NUMBER_LIMITS.map((limit) => limit.name),
+  "enforce",
+  "archive",
+];
+const ROW_OF = Object.fromEntries([
+  ...NUMBER_LIMITS.map((limit) => [limit.key, limit.name]),
+  ["workspace_enforce", "enforce"],
+  ["session_archive_after_days", "archive"],
+  ["session_archive_dry_run", "archive"],
+]) as Record<string, Row | undefined>;
+
+/** The rows of these keys, in the form's order. */
+const rowsOf = (keys: readonly string[]): Row[] =>
+  ROWS.filter((row) => keys.some((key) => ROW_OF[key] === row));
+
+/**
+ * What one save sends: each key whose shown value is not the saved one, or
+ * that is blocked (it takes any valid value, the default shown included);
+ * and the rows whose text cannot be sent.
+ */
+function pendingOf(
+  config: InstallationConfig,
+  drafts: Drafts,
+): { readonly patch: Patch; readonly invalid: readonly Row[] } {
+  const patch: Patch = {};
+  const invalid: Row[] = [];
+  const differs = (key: InstallationConfigKey, value: unknown) =>
+    value !== config[key].value || config[key].blocked;
+  for (const limit of NUMBER_LIMITS) {
+    const value = limitValueOf(
+      limit,
+      drafts[limit.key] ?? `${config[limit.key].value}`,
+    );
+    if (value === null) invalid.push(limit.name);
+    else if (differs(limit.key, value)) patch[limit.key] = value;
+  }
+  const enforce = drafts.workspace_enforce ?? config.workspace_enforce.value;
+  if (differs("workspace_enforce", enforce)) patch.workspace_enforce = enforce;
+  const days = archiveDaysOf(
+    drafts.session_archive_after_days ??
+      `${config.session_archive_after_days.value}`,
+  );
+  if (days === null) invalid.push("archive");
+  else if (differs("session_archive_after_days", days)) {
+    patch.session_archive_after_days = days;
+  }
+  const dryRun =
+    drafts.session_archive_dry_run ?? config.session_archive_dry_run.value;
+  if (differs("session_archive_dry_run", dryRun)) {
+    patch.session_archive_dry_run = dryRun;
+  }
+  return { patch, invalid };
+}
+
+/** The keys a refused body names; the server joins each issue's path. */
+function refusedKeys(error: ApiError): string[] {
+  const issues = (error.details as { issues?: unknown } | null)?.issues;
+  if (!Array.isArray(issues)) return [];
+  return issues.map(
+    (issue) =>
+      `${(issue as { path?: unknown }).path ?? ""}`.split(".")[0] ?? "",
+  );
+}
+
+/** All the limits in one form, saved with one request. */
 function Limits({
   onOutcome,
 }: {
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
+  const { t, locale } = useI18n();
   const { client } = useWerft();
+  const queryClient = useQueryClient();
+  const role = useRole();
   const read = useQuery({
     queryKey: configKey(client),
     queryFn: () =>
@@ -219,56 +295,170 @@ function Limits({
       ) as Promise<InstallationConfig>,
     retry: false,
   });
+  // Untouched, a field follows the server's value as it refreshes.
+  const [drafts, setDrafts] = useState<Drafts>({});
+  const [errors, setErrors] = useState<Partial<Record<Row, string>>>({});
+  const controls = useRef<Partial<Record<Row, HTMLElement | null>>>({});
+
+  const invalidText = (row: Row, error?: ApiError): string => {
+    if (row === "archive") {
+      return t("limits.archive.daysInvalid", {
+        min: ARCHIVE_DAYS.min,
+        max: new Intl.NumberFormat(locale).format(ARCHIVE_DAYS.max),
+      });
+    }
+    // A choice from the list is never invalid here; only the server refuses.
+    if (row === "enforce") {
+      return error ? refusalText(t, error, PERMISSION, role) : "";
+    }
+    const limit = NUMBER_LIMITS.find((each) => each.name === row);
+    return t(`limits.${row}.invalid`, {
+      max: new Intl.NumberFormat(locale).format(limit?.max ?? 0),
+    });
+  };
+  const showErrors = (rows: readonly Row[], error?: ApiError) => {
+    setErrors(
+      Object.fromEntries(rows.map((row) => [row, invalidText(row, error)])),
+    );
+    const first = rows[0];
+    if (first) controls.current[first]?.focus();
+  };
+
+  const save = useMutation<UpdateInstallationConfigResponse, ApiError, Patch>({
+    mutationFn: (body) =>
+      unwrap(client.PATCH("/v1/installation-config", { body })),
+    onMutate: () => onOutcome(null),
+    onSuccess: (answer, sent) => {
+      const { receipt_id: _receipt, ...next } = answer;
+      queryClient.setQueryData<InstallationConfig>(configKey(client), next);
+      // Keep only what the saved config does not hold yet, such as a value
+      // typed while the save was in flight.
+      setDrafts((current) => {
+        const left = pendingOf(next, current);
+        return Object.fromEntries(
+          Object.entries(current).filter(
+            ([key]) =>
+              key in left.patch ||
+              left.invalid.some((row) => ROW_OF[key] === row),
+          ),
+        ) as Drafts;
+      });
+      const rows = rowsOf(Object.keys(sent));
+      const only = rows.length === 1 ? rows[0] : undefined;
+      onOutcome({
+        kind: "notice",
+        text: only
+          ? t(`limits.${only}.saved`)
+          : t("limits.savedMany", { count: rows.length }),
+      });
+    },
+    // One transaction: a refusal saved nothing, and every draft stays.
+    onError: (error, sent) => {
+      if (error.code !== "BAD_REQUEST") {
+        onOutcome({
+          kind: "error",
+          text: refusalText(t, error, PERMISSION, role),
+        });
+        return;
+      }
+      const named = refusedKeys(error).filter((key) => key in sent);
+      showErrors(rowsOf(named.length > 0 ? named : Object.keys(sent)), error);
+      onOutcome({ kind: "error", text: t("limits.notSaved") });
+    },
+  });
+
   if (read.isPending) return <Skeleton width="50%" />;
   if (read.isError) {
     return (
       <LoadFailure error={read.error} onRetry={() => void read.refetch()} />
     );
   }
+  const config = read.data;
+  const { patch, invalid } = pendingOf(config, drafts);
+  const count = new Set([...rowsOf(Object.keys(patch)), ...invalid]).size;
+  const change = (row: Row, next: Drafts) => {
+    setDrafts((current) => ({ ...current, ...next }));
+    setErrors(({ [row]: _cleared, ...rest }) => rest);
+  };
+  const controlOf = (row: Row) => (element: HTMLElement | null) => {
+    controls.current[row] = element;
+  };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (save.isPending || count === 0) return;
+    if (invalid.length > 0) {
+      showErrors(invalid);
+      return;
+    }
+    setErrors({});
+    save.mutate(patch);
+  };
+
   return (
-    <>
-      {NUMBER_LIMITS.map((limit) => (
-        <NumberLimitSection
-          key={limit.key}
-          limit={limit}
-          entry={read.data[limit.key]}
-          onOutcome={onOutcome}
+    <SettingsSection
+      title={t("limits.section.title")}
+      description={t("limits.section.description")}
+      onSubmit={submit}
+      foot={
+        <>
+          <Text as="span" variant="meta">
+            {count === 0 ? t("limits.clean") : t("limits.pending", { count })}
+          </Text>
+          <Button
+            type="submit"
+            size="sm"
+            aria-disabled={save.isPending || count === 0 || undefined}
+          >
+            {t("limits.save")}
+          </Button>
+        </>
+      }
+    >
+      {/* One block: the form's gap-4 would otherwise add to each row's rule. */}
+      <div>
+        {NUMBER_LIMITS.map((limit) => (
+          <NumberRow
+            key={limit.key}
+            limit={limit}
+            entry={config[limit.key]}
+            typed={drafts[limit.key] ?? `${config[limit.key].value}`}
+            error={errors[limit.name]}
+            controlRef={controlOf(limit.name)}
+            onChange={(text) =>
+              change(limit.name, { [limit.key]: text } as Drafts)
+            }
+          />
+        ))}
+        <EnforceRow
+          entry={config.workspace_enforce}
+          chosen={drafts.workspace_enforce ?? config.workspace_enforce.value}
+          error={errors.enforce}
+          controlRef={controlOf("enforce")}
+          onChange={(value) => change("enforce", { workspace_enforce: value })}
         />
-      ))}
-      <EnforceSection
-        entry={read.data.workspace_enforce}
-        onOutcome={onOutcome}
-      />
-      <ArchiveSection config={read.data} onOutcome={onOutcome} />
-    </>
+        <ArchiveRow
+          config={config}
+          typed={
+            drafts.session_archive_after_days ??
+            `${config.session_archive_after_days.value}`
+          }
+          dryRun={
+            drafts.session_archive_dry_run ??
+            config.session_archive_dry_run.value
+          }
+          error={errors.archive}
+          controlRef={controlOf("archive")}
+          onChange={(next) => change("archive", next)}
+        />
+      </div>
+    </SettingsSection>
   );
 }
 
-/** One key's save; the answer replaces the whole config every section reads. */
-function useSave<T>(options: {
-  readonly onOutcome: (outcome: Outcome | null) => void;
-  readonly body: (value: T) => Patch;
-  readonly saved: string;
-  readonly onSaved: (sent: T) => void;
-  readonly onRefused: (error: ApiError) => void;
-}) {
-  const { client } = useWerft();
-  const queryClient = useQueryClient();
-  return useMutation<UpdateInstallationConfigResponse, ApiError, T>({
-    mutationFn: (value) =>
-      unwrap(
-        client.PATCH("/v1/installation-config", { body: options.body(value) }),
-      ),
-    onMutate: () => options.onOutcome(null),
-    onSuccess: (answer, sent) => {
-      const { receipt_id: _receipt, ...next } = answer;
-      queryClient.setQueryData<InstallationConfig>(configKey(client), next);
-      options.onSaved(sent);
-      options.onOutcome({ kind: "notice", text: options.saved });
-    },
-    onError: options.onRefused,
-  });
-}
+/** The ids, space-separated, or none. */
+const describedBy = (...ids: readonly (string | false)[]) =>
+  ids.filter((id) => id !== false).join(" ") || undefined;
 
 function Blocked({
   id,
@@ -289,27 +479,24 @@ function Blocked({
   );
 }
 
-function NumberLimitSection({
+function NumberRow({
   limit,
   entry,
-  onOutcome,
+  typed,
+  error,
+  controlRef,
+  onChange,
 }: {
   readonly limit: NumberLimit;
   readonly entry: InstallationConfig[NumberKey];
-  readonly onOutcome: (outcome: Outcome | null) => void;
+  readonly typed: string;
+  readonly error: string | undefined;
+  readonly controlRef: Ref<HTMLInputElement>;
+  readonly onChange: (text: string) => void;
 }) {
   const { t, locale } = useI18n();
-  const role = useRole();
-  const inputId = useId();
-  const blockedId = useId();
-  const inputRef = useRef<HTMLInputElement>(null);
-  // Untouched, the field follows the server's value as it refreshes.
-  const [draft, setDraft] = useState<string | null>(null);
-  const [shownError, setShownError] = useState<string | null>(null);
+  const id = useId();
   const { name } = limit;
-  const invalid = t(`limits.${name}.invalid`, {
-    max: new Intl.NumberFormat(locale).format(limit.max),
-  });
   const valueText = (value: number) =>
     name === "tokens" && value === 0
       ? t("limits.tokens.none")
@@ -319,454 +506,315 @@ function NumberLimitSection({
           }).format(value),
         });
 
-  const save = useSave<number>({
-    onOutcome,
-    body: (value) => ({ [limit.key]: value }) as Patch,
-    saved: t(`limits.${name}.saved`),
-    // Keep anything typed while the save was in flight.
-    onSaved: (sent) =>
-      setDraft((typed) =>
-        typed !== null && limitValueOf(limit, typed) !== sent ? typed : null,
-      ),
-    onRefused: (error) => {
-      setShownError(
-        error.code === "BAD_REQUEST"
-          ? invalid
-          : refusalText(t, error, PERMISSION, role),
-      );
-      inputRef.current?.focus();
-    },
-  });
-
-  const typed = draft ?? `${entry.value}`;
-  const value = limitValueOf(limit, typed);
-  // A blocked key takes any valid value, the default shown included.
-  const unchanged = value === entry.value && !entry.blocked;
-
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (save.isPending || unchanged) return;
-    if (value === null) {
-      setShownError(invalid);
-      inputRef.current?.focus();
-      return;
-    }
-    setShownError(null);
-    save.mutate(value);
-  };
-
   return (
-    <SettingsSection
-      title={t(`limits.${name}.title`)}
-      description={t(`limits.${name}.hint`)}
-      box
-    >
-      <form className="flex w-full flex-col gap-4" noValidate onSubmit={submit}>
-        {entry.blocked ? (
-          <Blocked
-            id={blockedId}
-            env={limit.env}
-            refused={t(`limits.${name}.refused`)}
-          />
-        ) : null}
-        <Field>
-          <FieldLabel htmlFor={inputId}>{t(`limits.${name}.label`)}</FieldLabel>
-          <div className="flex items-center gap-2">
-            <Input
-              ref={inputRef}
-              id={inputId}
-              className="max-w-50"
-              name={limit.key}
-              type="number"
-              inputMode={limit.whole ? "numeric" : "decimal"}
-              min={limit.min}
-              max={limit.max}
-              step={limit.whole ? 1 : "any"}
-              value={typed}
-              aria-invalid={shownError !== null || undefined}
-              // Heard on reaching the field, not only when the page loads.
-              aria-describedby={entry.blocked ? blockedId : undefined}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                setShownError(null);
-              }}
-            />
-            {/* The label already says the unit; this is for sighted readers. */}
-            <Text as="span" variant="sub" aria-hidden="true">
-              {t(`limits.${name}.unit`)}
-            </Text>
-          </div>
-          <FieldDescription>
-            {t(
-              entry.saved || entry.blocked
-                ? "limits.defaultIs"
-                : "limits.defaultApplies",
-              { value: valueText(entry.default) },
-            )}
-          </FieldDescription>
-          <FieldDescription>{t(`limits.${name}.applies`)}</FieldDescription>
-          <FieldError>{shownError}</FieldError>
-        </Field>
-        <FormActions>
-          {entry.saved && entry.value !== entry.default ? (
-            <Button
-              type="button"
-              variant="ghost"
-              aria-disabled={save.isPending || undefined}
-              onClick={() => {
-                if (!save.isPending) save.mutate(entry.default);
-              }}
-            >
-              {t("limits.useDefault")}
-            </Button>
-          ) : null}
+    <FormRow label={t(`limits.${name}.title`)} hint={t(`limits.${name}.hint`)}>
+      {entry.blocked ? (
+        <Blocked
+          id={`${id}-blocked`}
+          env={limit.env}
+          refused={t(`limits.${name}.refused`)}
+        />
+      ) : null}
+      <div className="flex items-center gap-2">
+        <Input
+          ref={controlRef}
+          className="max-w-50"
+          name={limit.key}
+          type="number"
+          inputMode={limit.whole ? "numeric" : "decimal"}
+          min={limit.min}
+          max={limit.max}
+          step={limit.whole ? 1 : "any"}
+          value={typed}
+          aria-label={t(`limits.${name}.label`)}
+          aria-invalid={error !== undefined || undefined}
+          // Heard on reaching the field, not only when the page loads.
+          aria-describedby={describedBy(
+            entry.blocked && `${id}-blocked`,
+            `${id}-notes`,
+            error !== undefined && `${id}-error`,
+          )}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        {/* The label already says the unit; this is for sighted readers. */}
+        <Text as="span" variant="sub" aria-hidden="true">
+          {t(`limits.${name}.unit`)}
+        </Text>
+        {limitValueOf(limit, typed) === entry.default ? null : (
           <Button
-            type="submit"
-            aria-disabled={save.isPending || unchanged || undefined}
+            type="button"
+            variant="ghost"
+            onClick={() => onChange(`${entry.default}`)}
           >
-            {t("limits.save")}
+            {t("limits.useDefault")}
           </Button>
-        </FormActions>
-      </form>
-    </SettingsSection>
+        )}
+      </div>
+      <Notes
+        id={`${id}-notes`}
+        lines={[
+          t(`limits.${name}.detail`),
+          t(
+            entry.saved || entry.blocked
+              ? "limits.defaultIs"
+              : "limits.defaultApplies",
+            { value: valueText(entry.default) },
+          ),
+          t(`limits.${name}.applies`),
+        ]}
+      />
+      <FieldError id={`${id}-error`}>{error}</FieldError>
+    </FormRow>
   );
 }
 
-/** The archive's days and what it does, saved together. */
-function ArchiveSection({
+/** A row's small print under its controls, read as one description. */
+function Notes({
+  id,
+  lines,
+}: {
+  readonly id: string;
+  readonly lines: readonly string[];
+}) {
+  return (
+    <div id={id} className="flex min-w-0 flex-col gap-2">
+      {lines.map((line) => (
+        <Text key={line} variant="meta">
+          {line}
+        </Text>
+      ))}
+    </div>
+  );
+}
+
+/** The archive's days and what it does, in one row. */
+function ArchiveRow({
   config,
-  onOutcome,
+  typed,
+  dryRun,
+  error,
+  controlRef,
+  onChange,
 }: {
   readonly config: InstallationConfig;
-  readonly onOutcome: (outcome: Outcome | null) => void;
+  readonly typed: string;
+  readonly dryRun: boolean;
+  readonly error: string | undefined;
+  readonly controlRef: Ref<HTMLInputElement>;
+  readonly onChange: (next: Drafts) => void;
 }) {
   const { t, locale } = useI18n();
-  const role = useRole();
-  const daysId = useId();
-  const modeId = useId();
-  const noticeId = useId();
-  const daysBlockedId = useId();
-  const modeBlockedId = useId();
-  const daysRef = useRef<HTMLInputElement>(null);
+  const id = useId();
   const days = config.session_archive_after_days;
   const mode = config.session_archive_dry_run;
   const status = config.session_archive;
-  const [daysDraft, setDaysDraft] = useState<string | null>(null);
-  const [modeDraft, setModeDraft] = useState<boolean | null>(null);
-  const [shownError, setShownError] = useState<string | null>(null);
-  const invalid = t("limits.archive.daysInvalid", {
-    min: ARCHIVE_DAYS.min,
-    max: new Intl.NumberFormat(locale).format(ARCHIVE_DAYS.max),
-  });
   const daysText = (value: number) =>
     value === 0
       ? t("limits.archive.off")
       : t("limits.archive.daysValue", {
           value: new Intl.NumberFormat(locale).format(value),
         });
-  const modeText = (dryRun: boolean) =>
-    t(dryRun ? "limits.archive.count" : "limits.archive.move");
-
-  const typed = daysDraft ?? `${days.value}`;
-  const daysValue = archiveDaysOf(typed);
-  const dryRun = modeDraft ?? mode.value;
-  // A blocked key takes any valid value, the default shown included.
-  const changes = (sentDays: number): Patch => ({
-    ...(sentDays !== days.value || days.blocked
-      ? { session_archive_after_days: sentDays }
-      : {}),
-    ...(dryRun !== mode.value || mode.blocked
-      ? { session_archive_dry_run: dryRun }
-      : {}),
-  });
-  const unchanged =
-    daysValue !== null && Object.keys(changes(daysValue)).length === 0;
-
-  const save = useSave<Patch>({
-    onOutcome,
-    body: (patch) => patch,
-    saved: t("limits.archive.saved"),
-    // Keep anything changed while the save was in flight.
-    onSaved: (sent) => {
-      setDaysDraft((text) =>
-        text !== null &&
-        archiveDaysOf(text) !== (sent.session_archive_after_days ?? days.value)
-          ? text
-          : null,
-      );
-      setModeDraft((chosen) =>
-        chosen !== null &&
-        chosen !== (sent.session_archive_dry_run ?? mode.value)
-          ? chosen
-          : null,
-      );
-    },
-    onRefused: (error) => {
-      setShownError(
-        error.code === "BAD_REQUEST"
-          ? invalid
-          : refusalText(t, error, PERMISSION, role),
-      );
-      daysRef.current?.focus();
-    },
-  });
-
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (save.isPending || unchanged) return;
-    if (daysValue === null) {
-      setShownError(invalid);
-      daysRef.current?.focus();
-      return;
-    }
-    setShownError(null);
-    save.mutate(changes(daysValue));
-  };
-  const differs =
-    (days.saved && days.value !== days.default) ||
-    (mode.saved && mode.value !== mode.default);
-  const describedBy = (blocked: boolean, blockedId: string) =>
-    [status.available ? null : noticeId, blocked ? blockedId : null]
-      .filter((id) => id !== null)
-      .join(" ") || undefined;
+  const modeText = (chosen: boolean) =>
+    t(chosen ? "limits.archive.count" : "limits.archive.move");
+  const notice = !status.available && `${id}-notice`;
+  const isDefault =
+    archiveDaysOf(typed) === days.default && dryRun === mode.default;
 
   return (
-    <SettingsSection
-      title={t("limits.archive.title")}
-      description={t("limits.archive.hint")}
-      box
-    >
-      <form className="flex w-full flex-col gap-4" noValidate onSubmit={submit}>
-        {status.available ? null : (
-          <Alert variant="amber" role="status">
-            <AlertDescription id={noticeId}>
-              {t(
-                `limits.archive.unavailable.${status.reason ?? "unversioned"}`,
-              )}
-            </AlertDescription>
-          </Alert>
-        )}
-        {days.blocked ? (
-          <Blocked
-            id={daysBlockedId}
-            env={ARCHIVE_DAYS.env}
-            refused={t("limits.archive.refused")}
-          />
-        ) : null}
-        {mode.blocked ? (
-          <Blocked
-            id={modeBlockedId}
-            env={ARCHIVE_DRY_RUN_ENV}
-            refused={t("limits.archive.refused")}
-          />
-        ) : null}
-        <Field>
-          <FieldLabel htmlFor={daysId}>
-            {t("limits.archive.daysLabel")}
-          </FieldLabel>
-          <div className="flex items-center gap-2">
-            <Input
-              ref={daysRef}
-              id={daysId}
-              className="max-w-50"
-              name="session_archive_after_days"
-              type="number"
-              inputMode="numeric"
-              min={0}
-              max={ARCHIVE_DAYS.max}
-              step={1}
-              value={typed}
-              aria-invalid={shownError !== null || undefined}
-              aria-describedby={describedBy(days.blocked, daysBlockedId)}
-              onChange={(event) => {
-                setDaysDraft(event.target.value);
-                setShownError(null);
-              }}
-            />
-            {/* The label already says the unit; this is for sighted readers. */}
-            <Text as="span" variant="sub" aria-hidden="true">
-              {t("limits.archive.daysUnit")}
-            </Text>
-          </div>
-          <FieldDescription>
-            {t(
-              days.saved || days.blocked
-                ? "limits.defaultIs"
-                : "limits.defaultApplies",
-              { value: daysText(days.default) },
-            )}
-          </FieldDescription>
-          <FieldError>{shownError}</FieldError>
-        </Field>
-        <Field>
-          <FieldLabel htmlFor={modeId}>
-            {t("limits.archive.modeLabel")}
-          </FieldLabel>
-          <NativeSelect
-            id={modeId}
-            name="session_archive_dry_run"
-            value={dryRun ? "count" : "move"}
-            aria-describedby={describedBy(mode.blocked, modeBlockedId)}
-            onChange={(event) => {
-              setModeDraft(event.target.value === "count");
-              setShownError(null);
-            }}
-          >
-            <NativeSelectOption value="count">
-              {modeText(true)}
-            </NativeSelectOption>
-            <NativeSelectOption value="move">
-              {modeText(false)}
-            </NativeSelectOption>
-          </NativeSelect>
-          <FieldDescription>{t("limits.archive.options")}</FieldDescription>
-          <FieldDescription>
-            {t(
-              mode.saved || mode.blocked
-                ? "limits.defaultIs"
-                : "limits.defaultApplies",
-              { value: modeText(mode.default) },
-            )}
-          </FieldDescription>
-          <FieldDescription>{t("limits.archive.applies")}</FieldDescription>
-        </Field>
-        <FormActions>
-          {differs ? (
-            <Button
-              type="button"
-              variant="ghost"
-              aria-disabled={save.isPending || undefined}
-              onClick={() => {
-                if (!save.isPending) {
-                  save.mutate({
-                    session_archive_after_days: days.default,
-                    session_archive_dry_run: mode.default,
-                  });
-                }
-              }}
-            >
-              {t("limits.useDefault")}
-            </Button>
-          ) : null}
+    <FormRow label={t("limits.archive.title")} hint={t("limits.archive.hint")}>
+      {status.available ? null : (
+        <Alert variant="amber" role="status">
+          <AlertDescription id={`${id}-notice`}>
+            {t(`limits.archive.unavailable.${status.reason ?? "unversioned"}`)}
+          </AlertDescription>
+        </Alert>
+      )}
+      {days.blocked ? (
+        <Blocked
+          id={`${id}-days-blocked`}
+          env={ARCHIVE_DAYS.env}
+          refused={t("limits.archive.refused")}
+        />
+      ) : null}
+      {mode.blocked ? (
+        <Blocked
+          id={`${id}-mode-blocked`}
+          env={ARCHIVE_DRY_RUN_ENV}
+          refused={t("limits.archive.refused")}
+        />
+      ) : null}
+      <FieldLabel htmlFor={`${id}-days`} className="font-normal">
+        {t("limits.archive.daysLabel")}
+      </FieldLabel>
+      <div className="flex items-center gap-2">
+        <Input
+          ref={controlRef}
+          id={`${id}-days`}
+          className="max-w-50"
+          name="session_archive_after_days"
+          type="number"
+          inputMode="numeric"
+          min={0}
+          max={ARCHIVE_DAYS.max}
+          step={1}
+          value={typed}
+          aria-invalid={error !== undefined || undefined}
+          aria-describedby={describedBy(
+            notice,
+            days.blocked && `${id}-days-blocked`,
+            `${id}-days-notes`,
+            error !== undefined && `${id}-error`,
+          )}
+          onChange={(event) =>
+            onChange({ session_archive_after_days: event.target.value })
+          }
+        />
+        {/* The label already says the unit; this is for sighted readers. */}
+        <Text as="span" variant="sub" aria-hidden="true">
+          {t("limits.archive.daysUnit")}
+        </Text>
+      </div>
+      <Notes
+        id={`${id}-days-notes`}
+        lines={[
+          t(
+            days.saved || days.blocked
+              ? "limits.defaultIs"
+              : "limits.defaultApplies",
+            { value: daysText(days.default) },
+          ),
+        ]}
+      />
+      <FieldError id={`${id}-error`}>{error}</FieldError>
+      <FieldLabel htmlFor={`${id}-mode`} className="font-normal">
+        {t("limits.archive.modeLabel")}
+      </FieldLabel>
+      <div className="flex items-center gap-2">
+        <NativeSelect
+          id={`${id}-mode`}
+          name="session_archive_dry_run"
+          value={dryRun ? "count" : "move"}
+          aria-describedby={describedBy(
+            notice,
+            mode.blocked && `${id}-mode-blocked`,
+            `${id}-mode-notes`,
+          )}
+          onChange={(event) =>
+            onChange({
+              session_archive_dry_run: event.target.value === "count",
+            })
+          }
+        >
+          <NativeSelectOption value="count">
+            {modeText(true)}
+          </NativeSelectOption>
+          <NativeSelectOption value="move">
+            {modeText(false)}
+          </NativeSelectOption>
+        </NativeSelect>
+        {isDefault ? null : (
           <Button
-            type="submit"
-            aria-disabled={save.isPending || unchanged || undefined}
+            type="button"
+            variant="ghost"
+            onClick={() =>
+              onChange({
+                session_archive_after_days: `${days.default}`,
+                session_archive_dry_run: mode.default,
+              })
+            }
           >
-            {t("limits.save")}
+            {t("limits.useDefault")}
           </Button>
-        </FormActions>
-      </form>
-    </SettingsSection>
+        )}
+      </div>
+      <Notes
+        id={`${id}-mode-notes`}
+        lines={[
+          t("limits.archive.options"),
+          t(
+            mode.saved || mode.blocked
+              ? "limits.defaultIs"
+              : "limits.defaultApplies",
+            { value: modeText(mode.default) },
+          ),
+          t("limits.archive.detail"),
+          t("limits.archive.applies"),
+        ]}
+      />
+    </FormRow>
   );
 }
 
-function EnforceSection({
+function EnforceRow({
   entry,
-  onOutcome,
+  chosen,
+  error,
+  controlRef,
+  onChange,
 }: {
   readonly entry: InstallationConfig["workspace_enforce"];
-  readonly onOutcome: (outcome: Outcome | null) => void;
+  readonly chosen: Enforce;
+  readonly error: string | undefined;
+  readonly controlRef: Ref<HTMLSelectElement>;
+  readonly onChange: (value: Enforce) => void;
 }) {
   const { t } = useI18n();
-  const role = useRole();
-  const selectId = useId();
-  const blockedId = useId();
-  const selectRef = useRef<HTMLSelectElement>(null);
-  const [draft, setDraft] = useState<Enforce | null>(null);
-  const [shownError, setShownError] = useState<string | null>(null);
-  const save = useSave<Enforce>({
-    onOutcome,
-    body: (value) => ({ workspace_enforce: value }),
-    saved: t("limits.enforce.saved"),
-    onSaved: (sent) =>
-      setDraft((chosen) =>
-        chosen !== null && chosen !== sent ? chosen : null,
-      ),
-    onRefused: (error) => {
-      setShownError(refusalText(t, error, PERMISSION, role));
-      selectRef.current?.focus();
-    },
-  });
-  const chosen = draft ?? entry.value;
-  const unchanged = chosen === entry.value && !entry.blocked;
+  const id = useId();
   const label = (value: Enforce) => t(`limits.enforce.${value}`);
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (save.isPending || unchanged) return;
-    setShownError(null);
-    save.mutate(chosen);
-  };
-
   return (
-    <SettingsSection
-      title={t("limits.enforce.title")}
-      description={t("limits.enforce.hint")}
-      box
-    >
-      <form className="flex w-full flex-col gap-4" noValidate onSubmit={submit}>
-        {entry.blocked ? (
-          <Blocked
-            id={blockedId}
-            env={ENFORCE_ENV}
-            refused={t("limits.enforce.refused")}
-          />
-        ) : null}
-        <Field>
-          <FieldLabel htmlFor={selectId}>
-            {t("limits.enforce.label")}
-          </FieldLabel>
-          <NativeSelect
-            ref={selectRef}
-            id={selectId}
-            name="workspace_enforce"
-            value={chosen}
-            aria-invalid={shownError !== null || undefined}
-            aria-describedby={entry.blocked ? blockedId : undefined}
-            onChange={(event) => {
-              setDraft(event.target.value as Enforce);
-              setShownError(null);
-            }}
-          >
-            {ENFORCE_VALUES.map((value) => (
-              <NativeSelectOption key={value} value={value}>
-                {label(value)}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-          <FieldDescription>{t("limits.enforce.options")}</FieldDescription>
-          <FieldDescription>
-            {t(
-              entry.saved || entry.blocked
-                ? "limits.defaultIs"
-                : "limits.defaultApplies",
-              { value: label(entry.default) },
-            )}
-          </FieldDescription>
-          <FieldDescription>{t("limits.enforce.applies")}</FieldDescription>
-          <FieldError>{shownError}</FieldError>
-        </Field>
-        <FormActions>
-          {entry.saved && entry.value !== entry.default ? (
-            <Button
-              type="button"
-              variant="ghost"
-              aria-disabled={save.isPending || undefined}
-              onClick={() => {
-                if (!save.isPending) save.mutate(entry.default);
-              }}
-            >
-              {t("limits.useDefault")}
-            </Button>
-          ) : null}
+    <FormRow label={t("limits.enforce.title")} hint={t("limits.enforce.hint")}>
+      {entry.blocked ? (
+        <Blocked
+          id={`${id}-blocked`}
+          env={ENFORCE_ENV}
+          refused={t("limits.enforce.refused")}
+        />
+      ) : null}
+      <div className="flex items-center gap-2">
+        <NativeSelect
+          ref={controlRef}
+          name="workspace_enforce"
+          value={chosen}
+          aria-label={t("limits.enforce.label")}
+          aria-invalid={error !== undefined || undefined}
+          aria-describedby={describedBy(
+            entry.blocked && `${id}-blocked`,
+            `${id}-notes`,
+            error !== undefined && `${id}-error`,
+          )}
+          onChange={(event) => onChange(event.target.value as Enforce)}
+        >
+          {ENFORCE_VALUES.map((value) => (
+            <NativeSelectOption key={value} value={value}>
+              {label(value)}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+        {chosen === entry.default ? null : (
           <Button
-            type="submit"
-            aria-disabled={save.isPending || unchanged || undefined}
+            type="button"
+            variant="ghost"
+            onClick={() => onChange(entry.default)}
           >
-            {t("limits.save")}
+            {t("limits.useDefault")}
           </Button>
-        </FormActions>
-      </form>
-    </SettingsSection>
+        )}
+      </div>
+      <Notes
+        id={`${id}-notes`}
+        lines={[
+          t("limits.enforce.options"),
+          t(
+            entry.saved || entry.blocked
+              ? "limits.defaultIs"
+              : "limits.defaultApplies",
+            { value: label(entry.default) },
+          ),
+          t("limits.enforce.applies"),
+        ]}
+      />
+      <FieldError id={`${id}-error`}>{error}</FieldError>
+    </FormRow>
   );
 }
