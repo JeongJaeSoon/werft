@@ -265,8 +265,22 @@ export async function agentSummaries(
         inArray(slackApps.agentId, found),
       ),
     );
+  // A hand-made app linked through POST /v1/agents/{id}/identities has no
+  // slack_apps row, so the channel reads the identity alone.
   const slackInstalled = new Set(
-    slackRows.filter((row) => row.installed).map((row) => row.agentId),
+    (
+      await db
+        .selectDistinct({ agentId: agentIdentities.agentId })
+        .from(agentIdentities)
+        .where(
+          and(
+            eq(agentIdentities.workspaceId, workspaceId),
+            inArray(agentIdentities.agentId, found),
+            eq(agentIdentities.provider, "slack_bot"),
+            eq(agentIdentities.status, "active"),
+          ),
+        )
+    ).map((row) => row.agentId),
   );
   const slack = new Map(
     slackRows.map((row): [string | null, AgentSlackAction | null] => [

@@ -787,6 +787,9 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     // A deleted app is not the agent's app any more.
     const deleted = await newId();
     await app(deleted, { state: "deleted", eventsState: "failed" });
+    // A hand-made app linked to the agent: an identity and no created app.
+    const handMade = await newId();
+    await identity(handMade);
 
     const page = await agentsService.listAgents(owner, {
       ...PAGE,
@@ -827,10 +830,16 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       page.items.map((agent) => [agent.id, agent.summary?.channels]),
     );
     expect(
-      [none, fine, failedHomeless, uninstalled, reinstall, deleted].map((id) =>
-        channels.get(id),
-      ),
-    ).toEqual([[], ["slack"], ["slack"], [], [], []]);
+      [
+        none,
+        fine,
+        failedHomeless,
+        uninstalled,
+        reinstall,
+        deleted,
+        handMade,
+      ].map((id) => channels.get(id)),
+    ).toEqual([[], ["slack"], ["slack"], [], [], [], ["slack"]]);
   });
 
   test("a summary lists GitHub while the agent's switch is on and its settings name a repository", async () => {
