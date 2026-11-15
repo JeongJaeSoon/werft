@@ -17,12 +17,15 @@ export function StepHeading({
   focus,
   id,
   describedBy,
+  hidden = false,
   children,
 }: {
   readonly focus: boolean;
   readonly id?: string;
   /** What is read after the heading when it takes focus. */
   readonly describedBy?: string;
+  /** Read and focused, not shown: for a step whose first field says the same. */
+  readonly hidden?: boolean;
   readonly children: ReactNode;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
@@ -35,7 +38,7 @@ export function StepHeading({
       id={id}
       aria-describedby={describedBy}
       tabIndex={-1}
-      className="outline-none"
+      className={hidden ? "sr-only outline-none" : "outline-none"}
     >
       {children}
     </Heading>

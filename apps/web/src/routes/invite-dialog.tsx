@@ -7,7 +7,6 @@ import {
   submitStep,
   useMemberPages,
   useStepForm,
-  useStepper,
   useWerft,
 } from "@werft-ai/react";
 import {
@@ -33,7 +32,6 @@ import {
   Input,
   NativeSelect,
   NativeSelectOption,
-  Stepper,
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
 import { type RefObject, useEffect, useRef, useState } from "react";
@@ -58,7 +56,11 @@ const isObject = (data: unknown): data is InviteSteps["details"] =>
 const hasExpiry = (data: unknown): data is InviteSteps["link"] =>
   isObject(data) && typeof (data as { expires?: unknown }).expires === "string";
 
-/** Opens the invite flow: who and with which role, then the link to hand over. */
+/**
+ * Opens the invite form: who and with which role. Once the link is made the
+ * same dialog shows it in place of the form, with no step indicator: one
+ * form and its result are not a flow worth numbering.
+ */
 export function InviteDialog({
   reason,
   assignableRoles,
@@ -170,16 +172,9 @@ function InviteFlow({
       link: { guard: hasExpiry },
     },
   });
-  const stepper = useStepper({
-    steps: [
-      { id: "details", label: t("members.invite.step.details") },
-      { id: "link", label: t("members.invite.step.link") },
-    ],
-    currentStepId: funnel.step,
-  });
+  const showingLink = funnel.step === "link" && url !== null;
   // Only the link step asks: after browser Back the link is already off screen.
-  const uncopied =
-    funnel.step === "link" && url !== null && !copiedUrls.has(url);
+  const uncopied = showingLink && !copiedUrls.has(url);
   useEffect(() => {
     onUncopied(uncopied);
     return () => onUncopied(false);
@@ -211,10 +206,17 @@ function InviteFlow({
   return (
     <>
       <DialogHeader>
-        <DialogTitle>{t("members.invite.title")}</DialogTitle>
-        <DialogDescription>{t("members.invite.description")}</DialogDescription>
+        <DialogTitle>
+          {showingLink
+            ? t("members.invite.created")
+            : t("members.invite.title")}
+        </DialogTitle>
+        <DialogDescription>
+          {showingLink
+            ? t("members.invite.createdDescription")
+            : t("members.invite.description")}
+        </DialogDescription>
       </DialogHeader>
-      <Stepper label={t("members.invite.steps")} {...stepper} />
       <funnel.Render
         details={() => (
           <DetailsStep

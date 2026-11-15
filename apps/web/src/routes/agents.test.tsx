@@ -1527,6 +1527,20 @@ describe("새 에이전트", () => {
     expect(document.activeElement?.textContent).toBe("이름");
   });
 
+  test("이름 단계 카드는 칸 이름과 겹치는 제목을 보이지 않고, 제목은 읽는 이에게 남는다", async () => {
+    renderAt("/agents/new", { ...meOk, ...agentServer().routes });
+    await atStep("이름");
+    const field = await screen.findByLabelText("이름");
+    const heading = screen.getByRole("heading", { name: "이름" });
+    expect(heading.classList.contains("sr-only")).toBe(true);
+    expect(heading.closest("form") === field.closest("form")).toBe(true);
+    // The next step's heading has no field saying the same, so it shows.
+    const user = await setupUser();
+    await toJobStep(user);
+    const job = await screen.findByRole("heading", { name: "하는 일" });
+    expect(job.classList.contains("sr-only")).toBe(false);
+  });
+
   test("거부된 초안 저장은 서버 이유를 한 줄로 보이고 그 단계에 머문다", async () => {
     renderAt("/agents/new", {
       ...meOk,
