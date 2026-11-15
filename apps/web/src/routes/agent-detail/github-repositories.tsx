@@ -4,6 +4,7 @@ import { queryKeysOf } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import {
   Badge,
+  EmptyState,
   FieldError,
   GridTable,
   GridTableCell,
@@ -255,11 +256,11 @@ export function RepositoryList({
         />
       ) : null}
       {rows.length === 0 ? (
-        <div className="rounded-card border bg-card p-4">
-          <Text as="span" variant="sub">
-            {t("agentGitHub.repositoriesNone")}
-          </Text>
-        </div>
+        <EmptyState
+          framed
+          size="sm"
+          title={t("agentGitHub.repositoriesNone")}
+        />
       ) : (
         <GridTable
           aria-label={t("github.repos.title")}

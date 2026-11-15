@@ -1450,7 +1450,7 @@ function RuleGroup({
       <TableRow className="bg-surface-sunken">
         <TableCell
           colSpan={columns}
-          className="font-semibold max-md:block max-md:px-0 max-md:py-0 max-md:first:pl-0"
+          className="font-medium max-md:block max-md:px-0 max-md:py-0 max-md:first:pl-0"
         >
           {name}
         </TableCell>

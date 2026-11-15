@@ -17,6 +17,7 @@ import {
   Code,
   CodeBlock,
   CopyButton,
+  EmptyState,
   GridTable,
   GridTableCell,
   GridTableColumnHeader,
@@ -360,9 +361,7 @@ export function AgentRecentSessions({ agentId }: { readonly agentId: string }) {
           <Skeleton lines={3} label={t("status.loading.title")} />
         </Card>
       ) : items.length === 0 ? (
-        <Card className="px-4 py-6 text-center text-control text-muted-foreground">
-          {t("agent.sessions.empty")}
-        </Card>
+        <EmptyState framed size="sm" title={t("agent.sessions.empty")} />
       ) : (
         // The row opener's focus ring sits outside the row: no overflow clipping.
         <div className="rounded-card border bg-card">

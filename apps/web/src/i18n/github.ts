@@ -250,7 +250,7 @@ export const githubKo = {
   "github.ceiling.viaApp": "{name}(으)로 · {using}",
   "github.ceiling.appShort": "App 권한 필요",
   "github.ceiling.pending": "일부 계정 승인 대기",
-  "github.ceiling.saving": "{feature} 저장하는 중",
+  "github.ceiling.saving": "{feature} 저장하는 중…",
   "github.ceiling.saved": "{feature} 저장했습니다",
   "github.ceiling.failed": "저장하지 못해 스위치를 저장된 값으로 되돌렸습니다.",
   "github.ceiling.conflict":
@@ -556,7 +556,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.ceiling.viaApp": "With {name} · {using}",
   "github.ceiling.appShort": "App needs permission",
   "github.ceiling.pending": "Some accounts pending",
-  "github.ceiling.saving": "Saving {feature}",
+  "github.ceiling.saving": "Saving {feature}…",
   "github.ceiling.saved": "Saved {feature}",
   "github.ceiling.failed":
     "Could not save, so the switch is back to the saved value.",
@@ -865,7 +865,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.ceiling.viaApp": "{name} で · {using}",
   "github.ceiling.appShort": "App の権限が必要",
   "github.ceiling.pending": "一部のアカウントが承認待ち",
-  "github.ceiling.saving": "{feature} を保存しています",
+  "github.ceiling.saving": "{feature} を保存中…",
   "github.ceiling.saved": "{feature} を保存しました",
   "github.ceiling.failed":
     "保存できなかったため、スイッチを保存済みの値に戻しました。",

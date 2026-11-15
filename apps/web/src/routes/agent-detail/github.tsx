@@ -21,6 +21,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  EmptyState,
   Field,
   FieldError,
   FieldLabel,
@@ -59,7 +60,7 @@ import {
   useState,
 } from "react";
 import { useManagesAgent } from "../../components/agent-access.tsx";
-import { GitHubMark } from "../../components/brand-marks.tsx";
+import { GitHubTileMark } from "../../components/brand-marks.tsx";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import { type Notify, useToast } from "../../components/toast.tsx";
 import {
@@ -336,11 +337,7 @@ function Activity({
             <Skeleton className="h-32 w-full" />
           )
         ) : activity.data.items.length === 0 ? (
-          <div className="rounded-card border bg-card p-4">
-            <Text as="span" variant="sub">
-              {t("agentGitHub.activityEmpty")}
-            </Text>
-          </div>
+          <EmptyState framed size="sm" title={t("agentGitHub.activityEmpty")} />
         ) : (
           <GridTable
             aria-label={t("agentGitHub.section.activity")}
@@ -393,14 +390,6 @@ function useEnabled(agentId: string, notify: Notify) {
     },
   });
   return { update, confirming, setConfirming };
-}
-
-function TileMark({ className }: { readonly className?: string }) {
-  return (
-    <GitHubMark
-      className={cn(className, "text-(--werft-color-tile-foreground)")}
-    />
-  );
 }
 
 function AllowAddDialog({
@@ -717,7 +706,7 @@ function GitHubSettings({
       >
         <div className={SETTINGS_CARD}>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
-            <IconTile icon={TileMark} size="two-line" />
+            <IconTile icon={GitHubTileMark} size="two-line" />
             <div className="flex min-w-0 flex-1 flex-col">
               <div className="flex flex-wrap items-center gap-2">
                 <Heading id={titleId} level={2}>
@@ -994,11 +983,11 @@ function GitHubSettings({
                   }
                 >
                   {settings.actions_allow.length === 0 ? (
-                    <div className="rounded-card border bg-card p-4">
-                      <Text as="span" variant="sub">
-                        {t("agentGitHub.allowlistEmpty")}
-                      </Text>
-                    </div>
+                    <EmptyState
+                      framed
+                      size="sm"
+                      title={t("agentGitHub.allowlistEmpty")}
+                    />
                   ) : (
                     <GridTable
                       aria-label={t("agentGitHub.section.allowlist")}

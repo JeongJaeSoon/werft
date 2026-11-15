@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { waitingSessionsQuery } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
-import { cn, Text, Link as TextLink } from "@werft-ai/ui";
+import { Avatar, cn, MenuItem, Text, Link as TextLink } from "@werft-ai/ui";
 import {
   Bell,
   BookOpen,
@@ -356,15 +356,14 @@ export function AppSidebar({
       <div className="-mx-2 hidden h-[var(--werft-topbar-h)] shrink-0 items-center gap-2 border-b px-4 md:flex">
         {me?.workspace ? (
           <>
-            <span
-              aria-hidden="true"
-              className="flex size-6 shrink-0 items-center justify-center rounded-control bg-primary font-semibold text-caption text-primary-foreground"
-            >
-              {initial(me.workspace.name)}
-            </span>
+            <Avatar
+              shape="square"
+              initials={initial(me.workspace.name)}
+              className="bg-primary text-primary-foreground"
+            />
             <Text truncate>
               <span className="sr-only">{t("shell.group.workspace")}: </span>
-              <span className="font-semibold">{me.workspace.name}</span>
+              <span className="font-medium">{me.workspace.name}</span>
               <span className="text-muted-foreground">
                 {" · "}
                 {t("common.appName")}
@@ -372,7 +371,7 @@ export function AppSidebar({
             </Text>
           </>
         ) : (
-          <p className="m-0 truncate font-semibold text-control leading-5">
+          <p className="m-0 truncate font-medium text-control leading-5">
             {t("common.appName")}
           </p>
         )}
@@ -492,8 +491,6 @@ const THEME_ICONS: Record<Theme, LucideIcon> = {
 const ICON = "size-4 shrink-0";
 const MENU_CARD =
   "absolute z-20 flex flex-col rounded-card border bg-popover p-1 text-popover-foreground shadow-pop";
-const MENU_ITEM =
-  "flex h-8 w-full items-center gap-2 rounded-control px-2 text-left text-control text-popover-foreground no-underline hover:bg-muted focus-visible:bg-muted disabled:opacity-50";
 const MENU_ICON = cn(ICON, "text-muted-foreground");
 const MENU_RULE = "-mx-1 my-1 border-0 border-t";
 
@@ -660,19 +657,18 @@ function UserMenu({
     const expanded = submenu === which;
     return (
       <div className="relative">
-        <button
+        <MenuItem
           ref={(node) => {
             submenuItemRefs.current[which] = node;
           }}
           id={itemId}
-          type="button"
           role="menuitem"
           data-menu="account"
           aria-haspopup="menu"
           aria-expanded={expanded}
           aria-controls={expanded ? listId : undefined}
           tabIndex={-1}
-          className={cn(MENU_ITEM, expanded && "bg-muted")}
+          className={cn(expanded && "bg-hover")}
           onClick={() => setSubmenu(expanded ? null : which)}
           onKeyDown={(event) => {
             if (event.key !== "ArrowRight") return;
@@ -686,7 +682,7 @@ function UserMenu({
             {value}
           </Text>
           <ChevronRight aria-hidden="true" className="size-3.5 shrink-0" />
-        </button>
+        </MenuItem>
         {expanded ? (
           <div
             id={listId}
@@ -702,14 +698,12 @@ function UserMenu({
           >
             {which === "language"
               ? LOCALES.map((value) => (
-                  <button
+                  <MenuItem
                     key={value}
-                    type="button"
                     role="menuitemradio"
                     data-menu="language"
                     aria-checked={locale === value}
                     tabIndex={-1}
-                    className={MENU_ITEM}
                     onClick={() => {
                       setLocale(value);
                       closeSubmenu();
@@ -719,19 +713,17 @@ function UserMenu({
                     {locale === value ? (
                       <Check aria-hidden="true" className="ml-auto size-3.5" />
                     ) : null}
-                  </button>
+                  </MenuItem>
                 ))
               : THEMES.map((value) => {
                   const ThemeIcon = THEME_ICONS[value];
                   return (
-                    <button
+                    <MenuItem
                       key={value}
-                      type="button"
                       role="menuitemradio"
                       data-menu="theme"
                       aria-checked={theme === value}
                       tabIndex={-1}
-                      className={MENU_ITEM}
                       onClick={() => {
                         chooseTheme(value);
                         closeSubmenu();
@@ -745,7 +737,7 @@ function UserMenu({
                           className="ml-auto size-3.5"
                         />
                       ) : null}
-                    </button>
+                    </MenuItem>
                   );
                 })}
           </div>
@@ -788,17 +780,18 @@ function UserMenu({
             </div>
           ) : null}
           <hr className={MENU_RULE} />
-          <Link
-            to="/settings/linked-accounts"
-            role="menuitem"
-            data-menu="account"
-            tabIndex={-1}
-            className={MENU_ITEM}
-            onClick={followLink}
-          >
-            <LinkIcon aria-hidden="true" className={MENU_ICON} />
-            {t("nav.linkedAccounts")}
-          </Link>
+          <MenuItem asChild>
+            <Link
+              to="/settings/linked-accounts"
+              role="menuitem"
+              data-menu="account"
+              tabIndex={-1}
+              onClick={followLink}
+            >
+              <LinkIcon aria-hidden="true" className={MENU_ICON} />
+              {t("nav.linkedAccounts")}
+            </Link>
+          </MenuItem>
           <hr className={MENU_RULE} />
           {submenuParent(
             "language",
@@ -813,53 +806,54 @@ function UserMenu({
             t(`shell.theme.${theme}`),
           )}
           <hr className={MENU_RULE} />
-          <Link
-            to="/settings/api-keys"
-            role="menuitem"
-            data-menu="account"
-            tabIndex={-1}
-            className={MENU_ITEM}
-            onClick={followLink}
-          >
-            <KeyRound aria-hidden="true" className={MENU_ICON} />
-            {t("nav.apiKeys")}
-          </Link>
+          <MenuItem asChild>
+            <Link
+              to="/settings/api-keys"
+              role="menuitem"
+              data-menu="account"
+              tabIndex={-1}
+              onClick={followLink}
+            >
+              <KeyRound aria-hidden="true" className={MENU_ICON} />
+              {t("nav.apiKeys")}
+            </Link>
+          </MenuItem>
           {/* The public site, not the API reference the API keys page links. */}
-          <TextLink
-            href={docsSiteUrl(locale)}
-            target="_blank"
-            newTabLabel={t("shell.docsNewTab")}
-            role="menuitem"
-            data-menu="account"
-            tabIndex={-1}
-            className={cn(MENU_ITEM, "font-normal hover:no-underline")}
-            // The page stays; the menu goes away with the focused item, so
-            // focus returns to the pill it opened from.
-            onClick={() => {
-              setOpen(false);
-              triggerRef.current?.focus();
-            }}
-          >
-            <BookOpen aria-hidden="true" className={MENU_ICON} />
-            {t("shell.docs")}
-            <ExternalLink
-              aria-hidden="true"
-              className="ml-auto size-3.5 shrink-0 text-muted-foreground"
-            />
-          </TextLink>
+          <MenuItem asChild>
+            <TextLink
+              href={docsSiteUrl(locale)}
+              target="_blank"
+              newTabLabel={t("shell.docsNewTab")}
+              role="menuitem"
+              data-menu="account"
+              tabIndex={-1}
+              className="font-normal hover:no-underline"
+              // The page stays; the menu goes away with the focused item, so
+              // focus returns to the pill it opened from.
+              onClick={() => {
+                setOpen(false);
+                triggerRef.current?.focus();
+              }}
+            >
+              <BookOpen aria-hidden="true" className={MENU_ICON} />
+              {t("shell.docs")}
+              <ExternalLink
+                aria-hidden="true"
+                className="ml-auto size-3.5 shrink-0 text-muted-foreground"
+              />
+            </TextLink>
+          </MenuItem>
           <hr className={MENU_RULE} />
-          <button
-            type="button"
+          <MenuItem
             role="menuitem"
             data-menu="account"
             tabIndex={-1}
-            className={MENU_ITEM}
             disabled={logout.pending}
             onClick={logout.run}
           >
             <LogOut aria-hidden="true" className={MENU_ICON} />
             {logout.pending ? t("common.loggingOut") : t("common.logout")}
-          </button>
+          </MenuItem>
         </div>
       ) : null}
       <button
@@ -877,12 +871,11 @@ function UserMenu({
         }}
         className="inline-flex min-h-9 max-w-full items-center gap-2 rounded-full px-2 py-1 text-left hover:bg-sidebar-hover aria-expanded:bg-sidebar-accent"
       >
-        <span
-          aria-hidden="true"
-          className="grid size-6 shrink-0 place-items-center rounded-full bg-sidebar-accent font-semibold text-caption"
-        >
-          {initial(me?.user?.display_name ?? me?.workspace?.name ?? "")}
-        </span>
+        <Avatar
+          initials={initial(
+            me?.user?.display_name ?? me?.workspace?.name ?? "",
+          )}
+        />
         <span className="flex min-w-0 flex-col">
           <Text as="span" weight="medium" truncate>
             {name}

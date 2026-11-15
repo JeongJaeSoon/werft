@@ -46,7 +46,7 @@ export const agentAccessKo = {
   "agentAccess.pending.body":
     "저장하면 릴리스 없이 바로 에이전트 설정이 바뀝니다. 새 세션은 이 값을 읽습니다.",
   "agentAccess.pending.save": "저장",
-  "agentAccess.pending.saving": "저장하는 중",
+  "agentAccess.pending.saving": "저장하는 중…",
   "agentAccess.pending.revert": "되돌리기",
   "agentAccess.pending.reload": "다시 읽기",
   "agentAccess.saved":
@@ -129,7 +129,7 @@ export const agentAccessEn: Record<keyof typeof agentAccessKo, string> = {
   "agentAccess.pending.body":
     "Saving changes the agent's settings at once, without a release. New sessions read these values.",
   "agentAccess.pending.save": "Save",
-  "agentAccess.pending.saving": "Saving",
+  "agentAccess.pending.saving": "Saving…",
   "agentAccess.pending.revert": "Revert",
   "agentAccess.pending.reload": "Reload",
   "agentAccess.saved": "MCP settings saved. No release was created.",
@@ -212,7 +212,7 @@ export const agentAccessJa: Record<keyof typeof agentAccessKo, string> = {
   "agentAccess.pending.body":
     "保存すると、リリースなしでエージェント設定がすぐに変わります。新しいセッションはこの値を読みます。",
   "agentAccess.pending.save": "保存",
-  "agentAccess.pending.saving": "保存中",
+  "agentAccess.pending.saving": "保存中…",
   "agentAccess.pending.revert": "元に戻す",
   "agentAccess.pending.reload": "再読み込み",
   "agentAccess.saved": "MCP設定を保存しました。リリースは作られていません。",
