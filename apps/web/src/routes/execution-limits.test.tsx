@@ -33,6 +33,8 @@ const DEFAULTS: InstallationConfig = {
   session_cost_limit_usd: entry(25),
   session_token_limit: entry(0),
   workspace_enforce: entry("warn" as const),
+  max_turn_seconds: entry(3600),
+  provider_max_retries: entry(2),
 };
 
 const config = (
@@ -255,6 +257,91 @@ describe("설정 › 실행 한도의 세션 한도", () => {
         .getByRole("button", { name: "저장" })
         .getAttribute("aria-disabled"),
     ).toBe("true");
+  });
+});
+
+describe("설정 › 실행 한도의 worker 한도", () => {
+  test("턴 시간과 재시도는 각각 그 키만 보내 저장하고, 재시도 0도 받는다", async () => {
+    let current = DEFAULTS;
+    const { api } = renderAt(PAGE, {
+      ...routes(() => current),
+      [`PATCH ${API}`]: async (request) => {
+        const body = (await request.json()) as Partial<Record<string, number>>;
+        current = {
+          ...current,
+          ...(body.max_turn_seconds === undefined
+            ? {}
+            : {
+                max_turn_seconds: {
+                  ...entry(body.max_turn_seconds, true),
+                  default: 3600,
+                },
+              }),
+          ...(body.provider_max_retries === undefined
+            ? {}
+            : {
+                provider_max_retries: {
+                  ...entry(body.provider_max_retries, true),
+                  default: 2,
+                },
+              }),
+        };
+        return json(200, { ...current, receipt_id: RECEIPT });
+      },
+    });
+    const user = await setupUser();
+    const turn = await sectionOf("턴 시간");
+    const turnField = () => field(turn, "턴 시간 상한 (초)");
+    await waitFor(() => expect(turnField().value).toBe("3600"));
+    expect(turn.textContent).toContain(
+      "턴을 돌고 있는 worker는 그 턴을 받을 때의 값으로 마친 뒤 내립니다.",
+    );
+    await user.clear(turnField());
+    await user.type(turnField(), "604801");
+    await user.click(within(turn).getByRole("button", { name: "저장" }));
+    await waitFor(() =>
+      expect(turn.textContent).toContain(
+        "1부터 604,800까지의 정수(초)를 적으세요.",
+      ),
+    );
+    await user.clear(turnField());
+    await user.type(turnField(), "1200");
+    await user.click(within(turn).getByRole("button", { name: "저장" }));
+    await screen.findByText("턴 시간 상한을 저장했습니다.");
+
+    const retries = await sectionOf("모델 요청 재시도");
+    const retriesField = () => field(retries, "재시도 횟수");
+    await user.clear(retriesField());
+    await user.type(retriesField(), "11");
+    await user.click(within(retries).getByRole("button", { name: "저장" }));
+    await waitFor(() =>
+      expect(retries.textContent).toContain("0부터 10까지의 정수를 적으세요."),
+    );
+    await user.clear(retriesField());
+    await user.type(retriesField(), "0");
+    await user.click(within(retries).getByRole("button", { name: "저장" }));
+    await screen.findByText("재시도 횟수를 저장했습니다.");
+    expect(
+      api.calls
+        .filter((call) => call.method === "PATCH")
+        .map((call) => call.body),
+    ).toEqual([{ max_turn_seconds: 1200 }, { provider_max_retries: 0 }]);
+  });
+
+  test("막힌 턴 시간은 옮겨 오지 못한 변수 이름과 새 worker를 띄우지 않는다는 것을 알린다", async () => {
+    renderAt(
+      PAGE,
+      routes(() => ({
+        ...DEFAULTS,
+        max_turn_seconds: entry(3600, false, true),
+      })),
+    );
+    const area = await sectionOf("턴 시간");
+    const status = within(area).getByRole("status").textContent ?? "";
+    expect(status).toContain("MAX_TURN_SECONDS");
+    expect(status).toContain("값을 저장할 때까지 새 worker를 띄우지 않습니다.");
+    const retries = await sectionOf("모델 요청 재시도");
+    expect(within(retries).queryByRole("status") === null).toBe(true);
   });
 });
 
