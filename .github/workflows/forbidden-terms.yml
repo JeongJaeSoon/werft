@@ -39,7 +39,7 @@ jobs:
           FORBIDDEN_TERMS: ${{ secrets.FORBIDDEN_TERMS }}
           FORBIDDEN_HOST_TERMS: ${{ secrets.FORBIDDEN_HOST_TERMS }}
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: "676"
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
