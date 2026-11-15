@@ -478,74 +478,34 @@ describe("Slack management", () => {
     ).toHaveLength(1);
   });
 
-  test("hides the wide section list while the whole page fits the window", async () => {
+  test("keeps the wide section list on a page that fits the window, before any app exists", async () => {
     const root = document.documentElement;
-    let pageHeight = 900;
     Object.defineProperty(root, "clientHeight", {
       configurable: true,
       get: () => 900,
     });
     Object.defineProperty(root, "scrollHeight", {
       configurable: true,
-      get: () => pageHeight,
+      get: () => 900,
     });
     try {
-      renderAt(DETAIL, routes(APP, true));
+      renderAt(DETAIL, routes());
       const nav = await screen.findByRole("navigation", { name: "Slack 구역" });
-      // A page that fits from the start never shows the list.
-      expect(nav.classList.contains("lg:hidden")).toBe(true);
-      pageHeight = 2000;
-      window.dispatchEvent(new Event("resize"));
-      await waitFor(() =>
-        expect(nav.classList.contains("lg:hidden")).toBe(false),
-      );
-      const link = within(nav).getByRole("link", { name: "기본" });
-      link.focus();
-      // happy-dom applies no stylesheet: lay the list out as lg:hidden would.
-      nav.getClientRects = () => [] as unknown as DOMRectList;
-      pageHeight = 900;
-      window.dispatchEvent(new Event("resize"));
-      await waitFor(() =>
-        expect(nav.classList.contains("lg:hidden")).toBe(true),
-      );
-      // Focus leaves the hidden list for the section it stands for.
-      const here = nav.querySelector("a[aria-current=location]");
-      expect(`#${document.activeElement?.id}`).toBe(
-        here?.getAttribute("href") ?? "",
-      );
-      // Below lg the folded button stays; widening past lg hides it while
-      // the page still fits.
-      nav.getClientRects = () => [new DOMRect()] as unknown as DOMRectList;
-      within(nav)
-        .getByRole("button", { name: /^Slack 구역/ })
-        .focus();
-      window.dispatchEvent(new Event("resize"));
-      expect(document.activeElement?.closest("nav") === nav).toBe(true);
-      nav.getClientRects = () => [] as unknown as DOMRectList;
-      window.dispatchEvent(new Event("resize"));
       expect(
-        `#${document.activeElement?.id}` ===
-          nav.querySelector("a[aria-current=location]")?.getAttribute("href"),
-      ).toBe(true);
-      pageHeight = 1200;
+        within(nav)
+          .getAllByRole("link")
+          .map((link) => link.textContent),
+      ).toContain("Slack 앱 생성");
+      const hidden = () =>
+        [...nav.classList].filter((name) => name.endsWith("hidden"));
+      expect(hidden()).toEqual([]);
       window.dispatchEvent(new Event("resize"));
-      await waitFor(() =>
-        expect(nav.classList.contains("lg:hidden")).toBe(false),
-      );
-      // Another tab's short page says nothing about this one: the panel is
-      // hidden, so the measured Slack body has no boxes.
-      const body = nav.nextElementSibling?.firstElementChild as HTMLElement;
-      body.getClientRects = () => [] as unknown as DOMRectList;
-      pageHeight = 900;
-      window.dispatchEvent(new Event("resize"));
-      await new Promise((done) => setTimeout(done, 100));
-      expect(nav.classList.contains("lg:hidden")).toBe(false);
-      // Shown again, the same resize does hide it.
-      Reflect.deleteProperty(body, "getClientRects");
-      window.dispatchEvent(new Event("resize"));
-      await waitFor(() =>
-        expect(nav.classList.contains("lg:hidden")).toBe(true),
-      );
+      await new Promise((done) => setTimeout(done, 50));
+      expect(hidden()).toEqual([]);
+      // The list holds its links even while the narrow fold is closed: lg:flex
+      // opens it at wide widths.
+      const list = nav.querySelector("[id]");
+      expect(list?.classList.contains("lg:flex")).toBe(true);
     } finally {
       Reflect.deleteProperty(root, "clientHeight");
       Reflect.deleteProperty(root, "scrollHeight");

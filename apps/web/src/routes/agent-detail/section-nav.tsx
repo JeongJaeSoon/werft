@@ -4,10 +4,9 @@ import {
   SideNavLayout,
   SideNavLink,
 } from "@werft-ai/ui";
-import { type ReactNode, useLayoutEffect, useRef } from "react";
+import { type ReactNode, useRef } from "react";
 import { SECTIONS } from "../workspace-settings.tsx";
 import { useCurrentSection } from "./use-current-section.ts";
-import { usePageFits } from "./use-page-fits.ts";
 
 export type SectionNavGroup = {
   /** Left out for the first group. */
@@ -17,8 +16,8 @@ export type SectionNavGroup = {
 
 /**
  * An integration tab's page (GitHub, Slack) with the list of its sections
- * beside it: a link jumps to its section and marks it current, and the list
- * hides on a wide window while the whole page fits.
+ * beside it: a link jumps to its section and marks it current. The list
+ * shows however short the page is, so every integration tab keeps one layout.
  */
 export function SectionNavLayout({
   label,
@@ -32,20 +31,6 @@ export function SectionNavLayout({
   const items = groups.flatMap((group) => group.items);
   const [current, setCurrent] = useCurrentSection(items.map((item) => item.id));
   const jumped = useRef<string>(undefined);
-  // With nothing to scroll to, the wide list only takes room from the page.
-  const [fits, watchPage] = usePageFits();
-  // The list also hides when the window widens past lg while the page fits.
-  useLayoutEffect(() => {
-    if (!fits) return;
-    const leave = () => {
-      const nav = document.activeElement?.closest("[data-slot=side-nav]");
-      if (!nav || nav.getClientRects().length > 0) return;
-      document.getElementById(current ?? "")?.focus({ preventScroll: true });
-    };
-    leave();
-    window.addEventListener("resize", leave);
-    return () => window.removeEventListener("resize", leave);
-  }, [fits, current]);
   const link = (item: SectionNavGroup["items"][number]) => (
     <SideNavLink
       key={item.id}
@@ -74,7 +59,6 @@ export function SectionNavLayout({
       nav={
         <SideNav
           aria-label={label}
-          className={fits ? "lg:hidden" : undefined}
           current={items.find((item) => item.id === current)?.label}
           // Folding the list sends focus to its button; take it back to the
           // section the link jumped to.
@@ -94,9 +78,7 @@ export function SectionNavLayout({
         </SideNav>
       }
     >
-      <div ref={watchPage} className={SECTIONS}>
-        {children}
-      </div>
+      <div className={SECTIONS}>{children}</div>
     </SideNavLayout>
   );
 }
