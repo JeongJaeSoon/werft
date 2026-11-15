@@ -22,3 +22,4 @@ export * from "./session-outcome.ts";
 export * from "./tool-names.ts";
 export * from "./turn.ts";
 export * from "./usage.ts";
+export * from "./workspace-mcp.ts";
