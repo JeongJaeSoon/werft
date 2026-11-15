@@ -38,7 +38,9 @@ import { Plus, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
+import { INACTIVE_ROW_CLASS } from "../components/inactive-member.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { RowMenu, RowMenuItem } from "../components/row-menu.tsx";
 import { type Translate, useI18n } from "../i18n/i18n.tsx";
 import {
   credentialText,
@@ -55,9 +57,11 @@ import {
   useSettingsWrite,
 } from "./settings-entries.tsx";
 
-// id and source, kind and endpoint, credential, models, state, actions; a phone keeps the id (with the state) and the actions.
+// id, endpoint, kind, credential, models, state, actions, one line each so a
+// row is as tall as the members table's; a phone keeps the id (with the
+// state) and the actions.
 const COLUMNS = [
-  "minmax(0,1.1fr) minmax(0,1.6fr) minmax(0,1fr) 112px 128px 196px",
+  "minmax(0,1fr) minmax(0,1.2fr) minmax(0,1.6fr) minmax(0,1.1fr) minmax(0,0.9fr) 112px 120px",
   SETTINGS_NARROW_COLUMNS,
 ] as const;
 
@@ -74,6 +78,7 @@ export function ModelConnections() {
   const [adding, setAdding] = useState(false);
   const [judging, setJudging] = useState<SettingsConnection | null>(null);
   const [listing, setListing] = useState<string | null>(null);
+  const [opener, setOpener] = useState<HTMLElement | null>(null);
   const rows = useRowActions("connection", setOutcome);
 
   return (
@@ -122,6 +127,9 @@ export function ModelConnections() {
                 {t("settings.connections.endpoint")}
               </GridTableColumnHeader>
               <GridTableColumnHeader hideNarrow>
+                {t("settings.connections.kind")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader hideNarrow>
                 {t("settings.column.credential")}
               </GridTableColumnHeader>
               <GridTableColumnHeader hideNarrow>
@@ -130,7 +138,7 @@ export function ModelConnections() {
               <GridTableColumnHeader hideNarrow>
                 {t("settings.column.state")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader>
+              <GridTableColumnHeader align="end">
                 {t("settings.column.actions")}
               </GridTableColumnHeader>
             </GridTableHeader>
@@ -139,14 +147,16 @@ export function ModelConnections() {
                 key={item.id}
                 item={item}
                 busy={rows.busy}
-                onValue={() => rows.openValue(item.id)}
-                onConvert={() => rows.openConvert(item.id)}
-                onAutoMode={() => {
+                onValue={(opener) => rows.openValue(item.id, opener)}
+                onConvert={(opener) => rows.openConvert(item.id, opener)}
+                onAutoMode={(opener) => {
                   setOutcome(null);
+                  setOpener(opener);
                   setJudging(item);
                 }}
-                onModels={() => {
+                onModels={(opener) => {
                   setOutcome(null);
+                  setOpener(opener);
                   setListing(item.id);
                 }}
                 onDisable={() => rows.openDisable(item.id)}
@@ -163,10 +173,14 @@ export function ModelConnections() {
         hosts={connections.data?.credential_hosts ?? null}
         defaults={connections.data?.endpoint_defaults ?? {}}
         onOutcome={setOutcome}
-        onCreated={setListing}
+        onCreated={(id) => {
+          setOpener(null);
+          setListing(id);
+        }}
       />
       <AutoModeDialog
         item={judging}
+        opener={opener}
         onClose={() => setJudging(null)}
         onOutcome={setOutcome}
       />
@@ -174,6 +188,7 @@ export function ModelConnections() {
         // Keyed so each connection opens on its own saved list.
         key={listing ?? ""}
         id={listing}
+        opener={opener}
         item={connections.data?.items.find((item) => item.id === listing)}
         onClose={() => setListing(null)}
         onOutcome={setOutcome}
@@ -195,10 +210,11 @@ function ConnectionRow({
 }: {
   readonly item: SettingsConnection;
   readonly busy: boolean;
-  readonly onValue: () => void;
-  readonly onConvert: () => void;
-  readonly onAutoMode: () => void;
-  readonly onModels: () => void;
+  /** Each gets the menu's button, which takes the focus back on close. */
+  readonly onValue: (opener: HTMLElement | null) => void;
+  readonly onConvert: (opener: HTMLElement | null) => void;
+  readonly onAutoMode: (opener: HTMLElement | null) => void;
+  readonly onModels: (opener: HTMLElement | null) => void;
   readonly onDisable: () => void;
   readonly onEnable: () => void;
 }) {
@@ -206,97 +222,79 @@ function ConnectionRow({
   const actions = entryActions(item);
   // No agent runs on it, so it has no models and no auto mode.
   const judgeOnly = item.kind === "openai_decisions";
+  const disabled = item.state === "disabled";
   const credentialKind = t(`settings.connections.authKind.${item.auth_kind}`);
+  const detail = judgeOnly
+    ? item.kind
+    : `${item.kind} · ${t(`settings.connections.billing.${item.billing}`)} · ${t("settings.autoMode.column")} ${t(`settings.autoMode.${item.auto_mode}`)}`;
+  const credential = `${credentialKind} · ${credentialText(t, item.credential)}`;
+  const models = judgeOnly
+    ? t("settings.connections.judgeOnly")
+    : item.models.length === 0
+      ? t("settings.connections.noModels")
+      : item.models.join(", ");
+  const menu = [
+    actions.setValue && {
+      label: t("settings.connections.changeCredentialFor", {
+        id: item.id,
+        kind: credentialKind,
+      }),
+      text: t("settings.connections.changeCredential", {
+        kind: credentialKind,
+      }),
+      open: onValue,
+    },
+    actions.convert && {
+      label: t("settings.convertFor", { id: item.id }),
+      text: t("settings.convert"),
+      open: onConvert,
+    },
+    !disabled &&
+      !judgeOnly && {
+        label: t("settings.autoMode.setFor", { id: item.id }),
+        text: t("settings.autoMode.set"),
+        open: onAutoMode,
+      },
+    !disabled &&
+      !judgeOnly && {
+        label: t("settings.models.setFor", { id: item.id }),
+        text: t("settings.models.set"),
+        open: onModels,
+      },
+  ].filter((entry) => entry !== false);
   return (
-    <GridTableRow>
+    <GridTableRow className={disabled ? INACTIVE_ROW_CLASS : undefined}>
       <GridTableCell>
-        <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
-          <Code className="wrap-anywhere">{item.id}</Code>
-          <div className="flex flex-wrap items-center gap-1">
-            <NarrowState state={item.state} />
-            <Text as="span" variant="meta">
-              {t(`settings.connections.authKind.${item.auth_kind}`)}
-            </Text>
-          </div>
-        </div>
+        <Code className="truncate" title={item.id}>
+          {item.id}
+        </Code>
+        <NarrowState state={item.state} />
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
-          <Code className="wrap-anywhere">{item.endpoint}</Code>
-          <Text as="span" variant="meta">
-            {judgeOnly ? (
-              item.kind
-            ) : (
-              <>
-                {item.kind} ·{" "}
-                {t(`settings.connections.billing.${item.billing}`)} ·{" "}
-                {t("settings.autoMode.column")}{" "}
-                {t(`settings.autoMode.${item.auto_mode}`)}
-              </>
-            )}
-          </Text>
-        </div>
+        <Code className="truncate" title={item.endpoint}>
+          {item.endpoint}
+        </Code>
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <Text as="span" variant="meta" className="wrap-anywhere">
-          {credentialText(t, item.credential)}
+        <Text as="span" variant="meta" truncate title={detail}>
+          {detail}
         </Text>
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <Text as="span" variant="meta" className="wrap-anywhere">
-          {judgeOnly
-            ? t("settings.connections.judgeOnly")
-            : item.models.length === 0
-              ? t("settings.connections.noModels")
-              : item.models.join(", ")}
+        <Text as="span" variant="meta" truncate title={credential}>
+          {credential}
+        </Text>
+      </GridTableCell>
+      <GridTableCell hideNarrow>
+        <Text as="span" variant="meta" truncate title={models}>
+          {models}
         </Text>
       </GridTableCell>
       <GridTableCell hideNarrow>
         <StateBadge state={item.state} />
       </GridTableCell>
-      <GridTableCell>
-        <div className="flex flex-wrap gap-1">
-          {actions.setValue ? (
-            <RowAction
-              disabled={busy}
-              aria-label={t("settings.connections.changeCredentialFor", {
-                id: item.id,
-                kind: credentialKind,
-              })}
-              onClick={onValue}
-            >
-              {t("settings.connections.changeCredential", {
-                kind: credentialKind,
-              })}
-            </RowAction>
-          ) : null}
-          {actions.convert ? (
-            <RowAction
-              disabled={busy}
-              aria-label={t("settings.convertFor", { id: item.id })}
-              onClick={onConvert}
-            >
-              {t("settings.convert")}
-            </RowAction>
-          ) : null}
-          {item.state !== "disabled" && !judgeOnly ? (
-            <RowAction
-              disabled={busy}
-              aria-label={t("settings.autoMode.setFor", { id: item.id })}
-              onClick={onAutoMode}
-            >
-              {t("settings.autoMode.set")}
-            </RowAction>
-          ) : null}
-          {item.state !== "disabled" && !judgeOnly ? (
-            <RowAction
-              disabled={busy}
-              aria-label={t("settings.models.setFor", { id: item.id })}
-              onClick={onModels}
-            >
-              {t("settings.models.set")}
-            </RowAction>
-          ) : null}
+      <GridTableCell align="end">
+        <div className="flex items-center gap-1">
           {actions.disable ? (
             <RowAction
               variant="danger"
@@ -316,6 +314,24 @@ function ConnectionRow({
               {t("settings.enable")}
             </RowAction>
           ) : null}
+          {/* On every row, so the buttons line up; with nothing to choose it
+              stays, named and focusable, but does not open. */}
+          <RowMenu
+            label={t("settings.connections.menuFor", { id: item.id })}
+            disabled={busy || menu.length === 0}
+          >
+            {(close) =>
+              menu.map((entry) => (
+                <RowMenuItem
+                  key={entry.label}
+                  label={entry.label}
+                  onSelect={() => entry.open(close())}
+                >
+                  {entry.text}
+                </RowMenuItem>
+              ))
+            }
+          </RowMenu>
         </div>
       </GridTableCell>
     </GridTableRow>
@@ -330,10 +346,12 @@ const AUTO_MODES = ["unknown", "supported", "unsupported"] as const;
  */
 function AutoModeDialog({
   item,
+  opener,
   onClose,
   onOutcome,
 }: {
   readonly item: SettingsConnection | null;
+  readonly opener: HTMLElement | null;
   readonly onClose: () => void;
   readonly onOutcome: (outcome: Outcome) => void;
 }) {
@@ -372,6 +390,7 @@ function AutoModeDialog({
   return (
     <FormDialog
       open={item !== null}
+      opener={opener}
       onOpenChange={(next) => {
         if (next) return;
         setError(null);
@@ -518,11 +537,13 @@ function discoveryFailure(
  */
 function ModelsDialog({
   id,
+  opener,
   item,
   onClose,
   onOutcome,
 }: {
   readonly id: string | null;
+  readonly opener: HTMLElement | null;
   /** The listed row, which may lag just after a create. */
   readonly item: SettingsConnection | undefined;
   readonly onClose: () => void;
@@ -580,6 +601,7 @@ function ModelsDialog({
   return (
     <FormDialog
       open={id !== null}
+      opener={opener}
       onOpenChange={(next) => {
         if (next) return;
         setError(null);

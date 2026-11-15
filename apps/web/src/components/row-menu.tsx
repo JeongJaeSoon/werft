@@ -59,10 +59,16 @@ function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
 export function RowMenu({
   label,
   text,
+  disabled,
   children,
 }: {
   /** Names the menu, and the ⋯ button: "acme · werft-agent 메뉴". */
   readonly label: string;
+  /**
+   * The button cannot open the menu, as a row's buttons are while it saves.
+   * aria-disabled, so a dialog closing mid-save can still focus it.
+   */
+  readonly disabled?: boolean | undefined;
   /** A primary button with this text instead of the ⋯ button. */
   readonly text?: ReactNode;
   /**
@@ -75,7 +81,12 @@ export function RowMenu({
   const menuId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        if (!(next && disabled)) setOpen(next);
+      }}
+    >
       <PopoverTrigger asChild>
         {text === undefined ? (
           <Button
@@ -83,6 +94,7 @@ export function RowMenu({
             type="button"
             variant="ghost"
             size="icon-sm"
+            aria-disabled={disabled || undefined}
             aria-label={label}
             aria-haspopup="menu"
             aria-controls={open ? menuId : undefined}
@@ -93,6 +105,7 @@ export function RowMenu({
           <Button
             ref={triggerRef}
             type="button"
+            aria-disabled={disabled || undefined}
             aria-haspopup="menu"
             aria-controls={open ? menuId : undefined}
           >
@@ -131,10 +144,16 @@ export function RowMenuItem({
   onSelect,
   tone,
   reason,
+  label,
   children,
 }: {
   readonly onSelect: () => void;
   readonly tone?: "danger" | undefined;
+  /**
+   * A fuller name than its text, such as one with the row's id; it must
+   * contain the text. Ignored with a `reason`, which names it by its text.
+   */
+  readonly label?: string | undefined;
   /**
    * Why the item cannot be chosen now. It stays in the menu, dimmed, with
    * the reason under its name; the arrow keys still reach it, and a screen
@@ -152,6 +171,7 @@ export function RowMenuItem({
       tabIndex={-1}
       tone={disabled ? "default" : tone}
       aria-disabled={disabled || undefined}
+      aria-label={disabled ? undefined : label}
       // Named by its label alone; the reason under it is its description.
       aria-labelledby={disabled ? labelId : undefined}
       aria-describedby={disabled ? reasonId : undefined}

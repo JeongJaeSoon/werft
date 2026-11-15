@@ -541,6 +541,8 @@ export function useRowActions(
   const [valueFor, setValueFor] = useState<string | null>(null);
   // The same dialog moves a deployment's key to a typed one (connections).
   const [converting, setConverting] = useState(false);
+  // A row menu's button; a plain row button needs none.
+  const [valueOpener, setValueOpener] = useState<HTMLElement | null>(null);
   const [disabling, setDisabling] = useState<string | null>(null);
   const [enabling, setEnabling] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -636,6 +638,7 @@ export function useRowActions(
       />
       <FormDialog
         open={valueFor !== null}
+        opener={valueOpener}
         onOpenChange={(open) => {
           if (!open) setValueFor(null);
         }}
@@ -694,16 +697,18 @@ export function useRowActions(
 
   return {
     dialogs,
-    openValue: (id: string) => {
+    openValue: (id: string, opener: HTMLElement | null = null) => {
       setError(null);
       onOutcome(null);
       setConverting(false);
+      setValueOpener(opener);
       setValueFor(id);
     },
-    openConvert: (id: string) => {
+    openConvert: (id: string, opener: HTMLElement | null = null) => {
       setError(null);
       onOutcome(null);
       setConverting(true);
+      setValueOpener(opener);
       setValueFor(id);
     },
     openDisable: (id: string) => {
