@@ -45,7 +45,7 @@ helm show chart oci://ghcr.io/jeongjaesoon/werft --version "$VERSION"
 helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" | sed -n '/^images:/,/^$/p'
 ```
 
-`images` 配下に三つのイメージの `digest` と `worker.runtime` が出力されればよい状態です。値は chart に含まれるため、環境ごとの values に再記入しません。記入すると、次の chart の値を上書きし続けます。
+`images` 配下に `controlHost`・`egressProxy` の `digest` と `workers` リストが出力されればよい状態です。リストには Claude worker と Codex worker の二つの項目があり、各セッションは自分のエンジンのイメージで起動します。値は chart に含まれるため、環境ごとの values に再記入しません。記入すると、次の chart の値を上書きし続けます。Helm はリストを統合せず丸ごと置き換えるため、values に書いた `images.workers` には次の chart のイメージが入りません。イメージ一つだけをデプロイするには、values に `images.workers: []` とそのイメージの `images.worker`（repository・digest・runtime）を書きます。値は同じ chart の `files/release-images.json` から取得します。この環境のアップグレードは [Kubernetes のアップグレード](/run-server/self-hosting/upgrade-kubernetes)の単一イメージ手順に従います。
 
 <a id="2-namespace와-secret" />
 ### 2. namespace と Secret

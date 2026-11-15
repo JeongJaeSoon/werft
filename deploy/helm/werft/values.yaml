@@ -28,35 +28,24 @@ images:
     repository: ghcr.io/jeongjaesoon/werft-egress-proxy
     digest: ""
   # Not deployed by the chart: the scheduler launches it per session
-  # (WORKER_IMAGE).
+  # (WORKER_IMAGE). Read only while images.workers is empty, and a packaged
+  # release lists its images there: a deployment of one image sets
+  # images.workers: [] beside this, from the target release's
+  # files/release-images.json.
   worker:
     repository: ghcr.io/jeongjaesoon/werft-worker
     digest: ""
     # The `runtime` images.yml recorded with this digest, as given, e.g.
     # {engine: claude, sdkVersion: 0.3.280, cliVersion: 2.1.280,
     # profileDigestScheme: 1}; the Codex worker image (apps/worker built with
-    # WORKER_RUNTIME=codex_app_server, a repository of its own) names
-    # {engine: codex, sdkVersion: 0.167.0, cliVersion: 0.167.0, ...}. One
-    # worker image holds one engine, so a deployment sets repository, digest
-    # and runtime for the engine it runs. An image that also resumes older checkpoints
+    # WORKER_RUNTIME=codex_app_server, ghcr.io/jeongjaesoon/werft-worker-codex)
+    # names {engine: codex, sdkVersion: 0.167.0, cliVersion: 0.167.0, ...}.
+    # One worker image holds one engine, so a deployment sets repository,
+    # digest and runtime for the engine it runs. An image that also resumes older checkpoints
     # adds restorableSchemes: [1, 2] (it must include profileDigestScheme). Empty launches every session on this image, and
     # an upgrade can then keep this image but not replace it
     # (the Kubernetes install page of the docs site (operate/kubernetes-deployment)).
-    # releasedAt is not read here: it is this image's images.workers
-    # releasedAt (its commit's committer time), which a packaged release
-    # fills along with files/release-images.json.
     runtime: {}
-    releasedAt: ""
-  # The Codex worker image of the same release (apps/worker built with
-  # WORKER_RUNTIME=codex_app_server). The chart does not deploy it and reads
-  # nothing from this entry: a deployment that runs Codex copies this
-  # repository, digest and runtime into images.worker. A packaged release
-  # fills the digest, runtime and releasedAt.
-  workerCodex:
-    repository: ghcr.io/jeongjaesoon/werft-worker-codex
-    digest: ""
-    runtime: {}
-    releasedAt: ""
   # The release before, so a session whose checkpoint the current image
   # cannot restore resumes on it (WORKER_IMAGE_PREVIOUS). Its digest and
   # runtime go together, and need images.worker.runtime set. A worker built
@@ -68,10 +57,11 @@ images:
     digest: ""
     runtime: {}
   # The worker images as one list (WORKER_IMAGES), each engine's newest first,
-  # instead of
-  # images.worker and images.workerPrevious, whose digest and runtime must
-  # then be empty (a packaged release fills images.worker: clear its runtime
-  # with null, which {} does not). Each entry: {repository, digest, runtime,
+  # instead of images.worker and images.workerPrevious, whose digest and
+  # runtime must then be empty. A packaged release sets it to its Claude and
+  # Codex images, the entries of files/release-images.json. Helm replaces a
+  # list as a whole, so a list in an installation's values stays as it is on
+  # every upgrade, with no image of the new release. Each entry: {repository, digest, runtime,
   # releasedAt, retracted?}, runtime as images.yml recorded it and releasedAt
   # an RFC 3339 time with seconds (at most milliseconds), strictly decreasing
   # down the list among one engine's entries. Each session launches on an

@@ -52,12 +52,6 @@ const RUNTIME = { worker: runtime, "worker-codex": codexRuntime } as Record<
 >;
 // One commit gives both worker images the same time.
 const RELEASED_AT = "2026-11-10T01:02:03Z";
-const KEY = {
-  "control-host": "controlHost",
-  worker: "worker",
-  "worker-codex": "workerCodex",
-  "egress-proxy": "egressProxy",
-} as const;
 const isWorker = (app: string) => app === "worker" || app === "worker-codex";
 
 const records = (): Record<string, unknown>[] =>
@@ -76,31 +70,27 @@ const records = (): Record<string, unknown>[] =>
     },
   }));
 
-const releaseImages = (
-  at = { worker: RELEASED_AT, "worker-codex": RELEASED_AT },
-) =>
-  `${JSON.stringify(
-    (["worker", "worker-codex"] as const).map((app) => ({
-      repository: `ghcr.io/octo/werft-${app}`,
-      digest: hex(DIGEST_CHAR[app]),
-      runtime: RUNTIME[app],
-      releasedAt: at[app],
-    })),
-    null,
-    2,
-  )}\n`;
+const SAME_TIME = { worker: RELEASED_AT, "worker-codex": RELEASED_AT };
+const workerEntries = (at = SAME_TIME) =>
+  (["worker", "worker-codex"] as const).map((app) => ({
+    repository: `ghcr.io/octo/werft-${app}`,
+    digest: hex(DIGEST_CHAR[app]),
+    runtime: RUNTIME[app],
+    releasedAt: at[app],
+  }));
+const releaseImages = (at = SAME_TIME) =>
+  `${JSON.stringify(workerEntries(at), null, 2)}\n`;
 
-const chart = (version = "0.1.0", workerAt = RELEASED_AT) => ({
+// What bakeValues writes: the two digests and a list entry per line.
+const valuesYaml = (workers: object[]) =>
+  `images:\n  controlHost:\n    digest: ${hex("a")}\n  egressProxy:\n    digest: ${hex("c")}\n  worker:\n    digest: ""\n  workers:\n${workers
+    .map((entry) => `    - ${JSON.stringify(entry)}\n`)
+    .join("")}`;
+
+const chart = (version = "0.1.0", workers: object[] = workerEntries()) => ({
   tgzName: `werft-${version}.tgz`,
   chartYaml: `apiVersion: v2\nname: werft\nversion: ${version}\nappVersion: ${tag}\n`,
-  valuesYaml: `images:\n${APPS.map(
-    (app) =>
-      `  ${KEY[app]}:\n    digest: ${hex(DIGEST_CHAR[app])}\n${
-        isWorker(app)
-          ? `    releasedAt: "${app === "worker" ? workerAt : RELEASED_AT}"\n`
-          : ""
-      }`,
-  ).join("")}`,
+  valuesYaml: valuesYaml(workers),
   releaseImages: releaseImages(),
 });
 
@@ -192,7 +182,20 @@ describe("buildManifest", () => {
     [
       "a values.yaml without a digest",
       { chart: { ...chart(), valuesYaml: "images: {}\n" } },
-      /values\.yaml does not hold/,
+      /images\.controlHost\.digest is undefined/,
+    ],
+    [
+      "a values.yaml of another egress proxy",
+      {
+        chart: {
+          ...chart(),
+          valuesYaml: valuesYaml(workerEntries()).replace(
+            `digest: ${hex("c")}`,
+            `digest: ${hex("f")}`,
+          ),
+        },
+      },
+      /images\.egressProxy\.digest is sha256:f{64}/,
     ],
     [
       "a record of another ref",
@@ -236,8 +239,18 @@ describe("buildManifest", () => {
     ],
     [
       "a values.yaml whose Claude worker holds another time",
-      { chart: chart("0.1.0", "2026-11-10T01:02:04Z") },
-      /images\.worker\.releasedAt is 2026-11-10T01:02:04Z/,
+      {
+        chart: chart(
+          "0.1.0",
+          workerEntries({ ...SAME_TIME, worker: "2026-11-10T01:02:04Z" }),
+        ),
+      },
+      /images\.workers is not the published worker images/,
+    ],
+    [
+      "a values.yaml listing the Claude image alone",
+      { chart: chart("0.1.0", workerEntries().slice(0, 1)) },
+      /images\.workers is not the published worker images/,
     ],
     [
       "a release-images.json of other times",

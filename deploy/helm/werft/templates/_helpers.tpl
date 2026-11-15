@@ -254,7 +254,7 @@ scheduler would refuse.
 {{- end -}}
 {{- with .Values.images -}}
 {{- if or .worker.digest .worker.runtime .workerPrevious.digest .workerPrevious.runtime -}}
-{{- fail "images.workers replaces images.worker and images.workerPrevious: leave their digest and runtime empty (a packaged chart fills images.worker; clear it with --set images.worker.digest= --set-json 'images.worker.runtime=null')" -}}
+{{- fail "images.workers replaces images.worker and images.workerPrevious: leave their digest and runtime empty, or set images.workers: [] to deploy images.worker alone (a packaged chart lists its images in images.workers)" -}}
 {{- end -}}
 {{- end -}}
 {{- /* By engine: each engine's images are ordered and counted on their own. */ -}}
