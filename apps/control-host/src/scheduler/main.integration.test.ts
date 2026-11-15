@@ -239,6 +239,7 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
       cpus: 0.25,
       memoryBytes: 64 * 1024 * 1024,
       pidsLimit: 32,
+      workerLimits: { maxTurnSeconds: 3600, providerMaxRetries: 2 },
     };
     const pinned = (await client.inspectImage(IMAGE))?.Id;
     if (!pinned) throw new Error(`${IMAGE} has no id`);

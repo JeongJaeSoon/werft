@@ -6,7 +6,7 @@ import type {
 import {
   MAX_PROVIDER_RETRIES,
   MAX_TURN_SECONDS_CEILING,
-} from "../../limits/installation-limits.ts";
+} from "../../limits/index.ts";
 
 /** What the worker is started with for its turns, as worker env. */
 export type WorkerLimits = {
