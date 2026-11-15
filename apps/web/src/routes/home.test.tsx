@@ -691,6 +691,8 @@ describe("홈 요약", () => {
               needs_input_count: 0,
               running_count: 0,
               slack_action,
+              engine: null,
+              channels: [],
             },
           })),
           next_cursor,
@@ -1582,6 +1584,8 @@ describe("홈 요약", () => {
       needs_input_count: 2,
       running_count: 1,
       slack_action: null,
+      engine: null,
+      channels: [],
     });
     const agentCardOf = async (
       role: "admin" | "member",

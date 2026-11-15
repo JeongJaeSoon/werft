@@ -324,6 +324,7 @@ const SESSION: SessionSummary = {
   repository: null,
   current_turn_id: null,
   queued_turn_count: 2,
+  turn_time_ms: 0,
   last_event_at: null,
   created_at: "2026-10-21T01:00:00.000Z",
   updated_at: "2026-10-21T01:00:00.000Z",

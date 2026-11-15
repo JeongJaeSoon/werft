@@ -92,6 +92,8 @@ const listed = (
     bound_credential_refs: [],
     admins: ["Owner"],
     slack_action: null,
+    engine: null,
+    channels: [],
     ...counts,
   },
 });

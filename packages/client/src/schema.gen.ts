@@ -6046,6 +6046,11 @@ export interface components {
             }[] | null;
             current_turn_id: string | null;
             queued_turn_count: number;
+            /**
+             * @description How long the session's finished turns ran, in milliseconds: the sum of each turn's end minus its start. Time spent idle between turns, waiting for an answer or paused is not counted, and neither is a turn still running. Absent from a server older than the field.
+             * @default 0
+             */
+            turn_time_ms: number;
             last_event_at: string | null;
             /** Format: date-time */
             created_at: string;
@@ -6179,6 +6184,11 @@ export interface components {
             }[] | null;
             current_turn_id: string | null;
             queued_turn_count: number;
+            /**
+             * @description How long the session's finished turns ran, in milliseconds: the sum of each turn's end minus its start. Time spent idle between turns, waiting for an answer or paused is not counted, and neither is a turn still running. Absent from a server older than the field.
+             * @default 0
+             */
+            turn_time_ms: number;
             last_event_at: string | null;
             /** Format: date-time */
             created_at: string;
@@ -9594,6 +9604,8 @@ export interface components {
                     needs_input_count: number;
                     running_count: number;
                     slack_action: ("events_failed" | "events_unverified" | "install" | "reinstall" | "home_unset") | null;
+                    engine: ("claude_agent_sdk" | "codex_app_server" | "pi_coding_agent") | null;
+                    channels: ("slack" | "github")[];
                 };
             }[];
             next_cursor: string | null;

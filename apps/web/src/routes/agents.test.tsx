@@ -735,6 +735,8 @@ describe("에이전트 카드", () => {
           needs_input_count: 0,
           running_count: 0,
           slack_action: null,
+          engine: null,
+          channels: [],
         },
       }));
       viewport.show(() => false);
@@ -996,6 +998,8 @@ describe("Slack 조치 링크", () => {
         needs_input_count: 0,
         running_count: 0,
         slack_action: action,
+        engine: null,
+        channels: [],
       },
     }));
   }
