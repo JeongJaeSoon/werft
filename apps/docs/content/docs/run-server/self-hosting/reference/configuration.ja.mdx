@@ -85,6 +85,8 @@ GitHub Packages bot token（[決定](https://github.com/JeongJaeSoon/werft/blob/
 | 作業領域の容量（`WORKSPACE_ENFORCE`） | `warn` | `warn`・`fail`・`off`。worker の workspace が quota を超えたときの動作です。worker は claim 時に値を受けるため、すでに動いている worker は受けた値を使い続けます | `warn` はログ `worker.turn.workspace_quota_exceeded` だけを残し、`fail` は超えた turn を止め、`off` は測りません |
 | セッション記録の保管: 保管までの未使用期間（`SESSION_ARCHIVE_AFTER_DAYS`） | 180 | 0（無効）か、整数 30–3650 日。最後の活動がこれより古いセッションのイベントを、保管ジョブが bucket の object に移します。ジョブは実行のたびに DB から読みます（[セッションイベントの保管](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md#세션-이벤트-보관)） | 該当なし |
 | セッション記録の保管: 保管ジョブの動作（`SESSION_ARCHIVE_DRY_RUN`） | 数えるだけ（`true`） | 数えるだけ・実際に移す。数えるだけなら、移す数をログに残すだけです。API の object store の設定から見て保管できないインストールなら、画面がそう知らせます | 該当なし |
+| 停止したセッションの作業領域（`EXECUTION_WORKSPACE_STOPPED_TTL_SEC`） | 86400（1 日） | 整数 0–315360000 秒（3650 日）。`stopped` セッションの workspace（Docker volume、Kubernetes PVC）を stop から残しておく時間です。0 なら次の回収ですぐ回収します。scheduler は回収のたびに DB から読みます（[worker の作業領域](/run-server/self-hosting/reference/storage)） | scheduler が workspace を回収し、次の resume は checkpoint から復元します |
+| 一時停止したセッションの作業領域（`EXECUTION_WORKSPACE_PAUSED_TTL_SEC`） | 86400（1 日） | 整数 0–315360000 秒（3650 日）。resume が受け付ける checkpoint のある `paused` セッションの workspace を、pause から残しておく時間です | 停止したセッションと同じ |
 
 ターンの時間・モデル呼び出しの再試行は scheduler が pass ごとに読み、その pass が予約する launch に固定します。worker は固定された値で起動します。値を変えると、別の値で起動した worker のうち待機中のものはすぐに終了し、turn 中のものは受け取った値でその turn を終えてから終了します。セッションの次の launch が新しい値を受け取ります（[turn 時間と再試行を変えるとき](/run-server/self-hosting/explanation/isolation#turn-시간과-재시도를-바꿀-때)）。
 
@@ -94,6 +96,7 @@ GitHub Packages bot token（[決定](https://github.com/JeongJaeSoon/werft/blob/
 - セッションの費用・トークン・待機メッセージ・入力の保管: セッション作成とメッセージの受付が `503 BACKEND_UNAVAILABLE` で拒否されます。すでに受け付けた要求を同じ `Idempotency-Key` で送り直すと、保存した応答をそのまま受けます。この四つの値とターンの時間・再試行を見せる `GET /v1/limits` と `GET /v1/sessions/{id}/usage` も、どれか一つが止まると `503` です。セッションの費用・トークンはほかにも止めます。scheduler は launch だけを飛ばし（ログ `Launches skipped: the session limits cannot be read`）、終了と workspace の回収は続けます。worker の claim・次の入力・provider 呼び出しの開始・finalize は `503`（再試行）を受けます。すでに開いた provider 呼び出しを開き直すことと、すでに確定した finalize の応答はそのまま通ります。metrics は launch 待ち行列の gauge（`werft_launch_queue_*`）を空にします。
 - 作業領域の容量: worker の claim が `503` を受け、セッションが始まりません。
 - ターンの時間・モデル呼び出しの再試行: scheduler は新しい launch を予約しません（ログ `Launches skipped: the worker limits cannot be read`）。値が固定される前に予約された launch は作り直さず、いまの資源をそのまま残します（ログ `Launch held: the worker limits it would start with cannot be read`）。値が固定された launch と起動中の worker はその値で動き続け、終了と workspace の回収も続けます。
+- 停止・一時停止したセッションの作業領域: どちらか一つでも止まると、scheduler は `stopped`・`paused` セッションの workspace を新たに回収しません（ログ `Workspace TTLs cannot be read; keeping every stopped and paused session's workspace`）。終了したセッションの workspace と、前の回収が終えられなかったものは回収を続け、launch もそのまま行います。
 
 **コストとトークンの上限は provider 呼び出し一つずつにもかかります。** egress proxy は課金される provider 呼び出し(Messages、Responses)を送る前に、API でその呼び出しを開きます。API はセッションの累計コスト・トークンに、まだ終わっていない呼び出しの予約と今回の呼び出しの予約を足します。その合計が上限に届くと `403 BUDGET_EXCEEDED` で拒否し、proxy はその呼び出しを provider に送りません。予約は要求のバイト数を入力トークンとみなして最も高い cache write 単価(Claude は 2 倍、OpenAI は 2.5 倍)で数え、出力は要求の出力上限すべて(上限のない Responses 要求は 32,768 トークン)で数えます。`claude-sonnet-5` や `gpt-5.5` の呼び出し一つでおよそ 1〜2 ドルです。
 

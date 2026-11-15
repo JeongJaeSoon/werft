@@ -866,6 +866,18 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(testOps.maintenance?.image).toBe(testOps.api?.image);
   });
 
+  test("the workspace TTLs are the console's: migrate carries them, the scheduler no longer reads them", () => {
+    const { migrate, scheduler } =
+      layeredServices<ComposeService>(LOCAL_LAYERS);
+    for (const key of [
+      "EXECUTION_WORKSPACE_STOPPED_TTL_SEC",
+      "EXECUTION_WORKSPACE_PAUSED_TTL_SEC",
+    ] as const) {
+      expect(scheduler?.environment).not.toHaveProperty(key);
+      expect(migrate?.environment?.[key]).toBe(`\${${key}:-}`);
+    }
+  });
+
   // 94S-1422: after a host restart only services with a restart policy come
   // back. postgres, the API and LocalStack had none, so a rebooted single
   // server stayed down until `test-ops.sh start`.

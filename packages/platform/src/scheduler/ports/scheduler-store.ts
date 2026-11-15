@@ -228,7 +228,8 @@ export type PassLock = {
 
 /** How long a resumable session keeps its workspace, by admission state. */
 export type WorkspaceTtls = {
-  stoppedTtlMs: number;
+  /** Absent: a stopped session's workspace is never reclaimed. */
+  stoppedTtlMs?: number;
   /** Absent: a paused session's workspace is never reclaimed. */
   pausedTtlMs?: number;
 };
@@ -479,7 +480,8 @@ export interface SchedulerStore {
    * `stoppedTtlMs`; past that it is a candidate, and only a
    * `claimWorkspaceReclaim` decides whether its workspace goes. A `paused`
    * session with a checkpoint is the same past `pausedTtlMs` from its
-   * `paused_at`; without `pausedTtlMs` every paused session is retained.
+   * `paused_at`. Without `stoppedTtlMs` every stopped session is retained,
+   * and without `pausedTtlMs` every paused one.
    */
   filterRetainedSessions(
     sessionIds: string[],

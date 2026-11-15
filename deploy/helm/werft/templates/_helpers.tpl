@@ -123,7 +123,7 @@ by the env names earlier releases read. No role reads them now: the migrate
 Job carries one an earlier release set in, once, while it has nothing saved.
 */}}
 {{- define "ap.carriedSettingNames" -}}
-PENDING_REQUEST_TTL_SEC QUEUED_INPUT_LIMIT_PER_SESSION STORAGE_LIMIT_BYTES SESSION_COST_LIMIT_USD SESSION_TOKEN_LIMIT WORKSPACE_ENFORCE MAX_TURN_SECONDS PROVIDER_MAX_RETRIES SESSION_ARCHIVE_AFTER_DAYS SESSION_ARCHIVE_DRY_RUN
+PENDING_REQUEST_TTL_SEC QUEUED_INPUT_LIMIT_PER_SESSION STORAGE_LIMIT_BYTES SESSION_COST_LIMIT_USD SESSION_TOKEN_LIMIT WORKSPACE_ENFORCE MAX_TURN_SECONDS PROVIDER_MAX_RETRIES SESSION_ARCHIVE_AFTER_DAYS SESSION_ARCHIVE_DRY_RUN EXECUTION_WORKSPACE_STOPPED_TTL_SEC EXECUTION_WORKSPACE_PAUSED_TTL_SEC
 {{- end -}}
 
 {{/* config.limits as a role reads them: the carried settings left out. */}}
@@ -139,12 +139,13 @@ PENDING_REQUEST_TTL_SEC QUEUED_INPUT_LIMIT_PER_SESSION STORAGE_LIMIT_BYTES SESSI
 
 {{/*
 The carried settings where earlier releases took them from, in the order
-the reading role's env let win: for the worker limits the scheduler's
-(scheduler.extraEnv, then config.limits), for the rest the api's
-(api.extraEnv, then config.limits, then api.workspaceEnforce), and for the
-archive settings sessionArchive.afterDays and dryRun alone, which were all
-its CronJob read. Not merge: it takes a 0 for unset and lets a later source
-win.
+the reading role's env let win: for the worker limits and the workspace
+TTLs the scheduler's (scheduler.extraEnv, then config.limits), for the rest
+the api's (api.extraEnv, then config.limits, then api.workspaceEnforce), and
+for the archive settings sessionArchive.afterDays and dryRun alone, which
+were all its CronJob read. Not merge: it takes a 0 for unset and lets a
+later source win. An empty TTL stopped the scheduler before; migrate reads
+"" as unset, so it goes as a blank it refuses.
 */}}
 {{- define "ap.carriedSettingsEnv" -}}
 {{- $apiSources := list (.Values.api.extraEnv | default dict) (.Values.config.limits | default dict) -}}
@@ -162,7 +163,8 @@ win.
 {{- end }}
 {{- range $name := splitList " " (include "ap.carriedSettingNames" .) }}
 {{- $sources := $apiSources }}
-{{- if has $name (list "MAX_TURN_SECONDS" "PROVIDER_MAX_RETRIES") }}
+{{- $ttl := hasPrefix "EXECUTION_WORKSPACE_" $name }}
+{{- if or $ttl (has $name (list "MAX_TURN_SECONDS" "PROVIDER_MAX_RETRIES")) }}
 {{- $sources = $schedulerSources }}
 {{- else if hasPrefix "SESSION_ARCHIVE_" $name }}
 {{- $sources = list $archive }}
@@ -171,8 +173,12 @@ win.
 {{- range $source := $sources }}
 {{- if and (not $found) (hasKey $source $name) }}
 {{- $found = true }}
+{{- $value := index $source $name | toString }}
+{{- if and $ttl (eq $value "") }}
+{{- $value = " " }}
+{{- end }}
 - name: {{ $name | quote }}
-  value: {{ index $source $name | toString | quote }}
+  value: {{ $value | quote }}
 {{- end }}
 {{- end }}
 {{- end }}

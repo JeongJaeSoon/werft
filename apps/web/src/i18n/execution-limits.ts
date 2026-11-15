@@ -96,6 +96,31 @@ export const executionLimitsKo = {
     "저장하면 10초 안에 다음 메시지부터 적용됩니다. 이미 보관한 입력은 지우지 않습니다.",
   "limits.storage.invalid": "1부터 {max}까지의 정수(바이트)를 적으세요.",
   "limits.storage.saved": "입력 보관 한도를 저장했습니다.",
+  "limits.stopped.title": "멈춘 세션의 작업 공간",
+  "limits.stopped.hint":
+    "멈춘 세션의 작업 공간(Docker volume, Kubernetes PVC)을 남겨 두는 시간입니다. 지나면 scheduler가 회수하고, 그 뒤 다시 시작하면 checkpoint에서 복원합니다. 0이면 다음 정리 때 바로 회수합니다.",
+  "limits.stopped.label": "멈춘 뒤 남겨 두는 시간 (초)",
+  "limits.stopped.unit": "초",
+  "limits.stopped.value": "{value}초",
+  "limits.stopped.refused":
+    "멈춘 세션과 일시정지한 세션의 작업 공간을 회수하지 않습니다. 끝난 세션의 작업 공간은 계속 회수합니다.",
+  "limits.stopped.applies":
+    "저장하면 10초 안에 다음 정리부터 적용됩니다. 줄이면 이미 그 시간을 넘긴 작업 공간을 다음 정리 때 회수합니다.",
+  "limits.stopped.invalid": "0부터 {max}까지의 정수(초)를 적으세요.",
+  "limits.stopped.saved": "멈춘 세션의 작업 공간 보존 시간을 저장했습니다.",
+  "limits.paused.title": "일시정지한 세션의 작업 공간",
+  "limits.paused.hint":
+    "일시정지한 세션의 작업 공간을 일시정지한 때부터 남겨 두는 시간입니다. 복원할 checkpoint가 있는 세션만 지나면 회수하고, 다시 시작하면 그 checkpoint에서 복원합니다. 0이면 다음 정리 때 바로 회수합니다.",
+  "limits.paused.label": "일시정지한 뒤 남겨 두는 시간 (초)",
+  "limits.paused.unit": "초",
+  "limits.paused.value": "{value}초",
+  "limits.paused.refused":
+    "멈춘 세션과 일시정지한 세션의 작업 공간을 회수하지 않습니다. 끝난 세션의 작업 공간은 계속 회수합니다.",
+  "limits.paused.applies":
+    "저장하면 10초 안에 다음 정리부터 적용됩니다. 줄이면 이미 그 시간을 넘긴 작업 공간을 다음 정리 때 회수합니다.",
+  "limits.paused.invalid": "0부터 {max}까지의 정수(초)를 적으세요.",
+  "limits.paused.saved":
+    "일시정지한 세션의 작업 공간 보존 시간을 저장했습니다.",
   "limits.enforce.title": "작업 공간 용량",
   "limits.enforce.hint": "worker의 작업 공간이 용량을 넘었을 때 할 일입니다.",
   "limits.enforce.label": "용량을 넘으면",
@@ -228,6 +253,31 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
       "A save applies within 10 seconds, from the next message on. Input already kept is not removed.",
     "limits.storage.invalid": "Enter a whole number of bytes from 1 to {max}.",
     "limits.storage.saved": "Saved the kept input limit.",
+    "limits.stopped.title": "Stopped sessions' workspaces",
+    "limits.stopped.hint":
+      "How long a stopped session keeps its workspace (Docker volume, Kubernetes PVC). Past it the scheduler reclaims it, and a later resume restores from the checkpoint. With 0 it is reclaimed at the next cleanup.",
+    "limits.stopped.label": "Keep after stopping (seconds)",
+    "limits.stopped.unit": "seconds",
+    "limits.stopped.value": "{value} seconds",
+    "limits.stopped.refused":
+      "no stopped or paused session's workspace is reclaimed; finished sessions' workspaces still are.",
+    "limits.stopped.applies":
+      "A save applies within 10 seconds, from the next cleanup on. A shorter time reclaims workspaces already past it at the next cleanup.",
+    "limits.stopped.invalid":
+      "Enter a whole number of seconds from 0 to {max}.",
+    "limits.stopped.saved": "Saved how long stopped sessions keep workspaces.",
+    "limits.paused.title": "Paused sessions' workspaces",
+    "limits.paused.hint":
+      "How long a paused session keeps its workspace, from when it paused. Only a session with a checkpoint to restore is reclaimed past it, and a resume restores that checkpoint. With 0 it is reclaimed at the next cleanup.",
+    "limits.paused.label": "Keep after pausing (seconds)",
+    "limits.paused.unit": "seconds",
+    "limits.paused.value": "{value} seconds",
+    "limits.paused.refused":
+      "no stopped or paused session's workspace is reclaimed; finished sessions' workspaces still are.",
+    "limits.paused.applies":
+      "A save applies within 10 seconds, from the next cleanup on. A shorter time reclaims workspaces already past it at the next cleanup.",
+    "limits.paused.invalid": "Enter a whole number of seconds from 0 to {max}.",
+    "limits.paused.saved": "Saved how long paused sessions keep workspaces.",
     "limits.enforce.title": "Workspace size",
     "limits.enforce.hint":
       "What to do when a worker's workspace outgrows its quota.",
@@ -362,6 +412,34 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
     "limits.storage.invalid":
       "1 から {max} までの整数 (バイト) を入力してください。",
     "limits.storage.saved": "入力の保管上限を保存しました。",
+    "limits.stopped.title": "停止したセッションの作業領域",
+    "limits.stopped.hint":
+      "停止したセッションの作業領域 (Docker volume、Kubernetes PVC) を残しておく時間です。過ぎると scheduler が回収し、そのあと再開すると checkpoint から復元します。0 なら次の整理ですぐに回収します。",
+    "limits.stopped.label": "停止後に残す時間 (秒)",
+    "limits.stopped.unit": "秒",
+    "limits.stopped.value": "{value} 秒",
+    "limits.stopped.refused":
+      "停止したセッションと一時停止したセッションの作業領域を回収しません。終了したセッションの作業領域は回収し続けます。",
+    "limits.stopped.applies":
+      "保存すると 10 秒以内に次の整理から適用されます。短くすると、すでにその時間を過ぎた作業領域を次の整理で回収します。",
+    "limits.stopped.invalid":
+      "0 から {max} までの整数 (秒) を入力してください。",
+    "limits.stopped.saved":
+      "停止したセッションの作業領域を残す時間を保存しました。",
+    "limits.paused.title": "一時停止したセッションの作業領域",
+    "limits.paused.hint":
+      "一時停止したセッションの作業領域を、一時停止したときから残しておく時間です。復元できる checkpoint があるセッションだけが過ぎると回収され、再開するとその checkpoint から復元します。0 なら次の整理ですぐに回収します。",
+    "limits.paused.label": "一時停止後に残す時間 (秒)",
+    "limits.paused.unit": "秒",
+    "limits.paused.value": "{value} 秒",
+    "limits.paused.refused":
+      "停止したセッションと一時停止したセッションの作業領域を回収しません。終了したセッションの作業領域は回収し続けます。",
+    "limits.paused.applies":
+      "保存すると 10 秒以内に次の整理から適用されます。短くすると、すでにその時間を過ぎた作業領域を次の整理で回収します。",
+    "limits.paused.invalid":
+      "0 から {max} までの整数 (秒) を入力してください。",
+    "limits.paused.saved":
+      "一時停止したセッションの作業領域を残す時間を保存しました。",
     "limits.enforce.title": "作業領域の容量",
     "limits.enforce.hint": "worker の作業領域が容量を超えたときの動作です。",
     "limits.enforce.label": "容量を超えたら",

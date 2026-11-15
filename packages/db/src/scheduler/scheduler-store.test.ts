@@ -1774,6 +1774,30 @@ describe("PostgresSchedulerStore", () => {
     ).toEqual([]);
   });
 
+  test("without a stopped TTL no stopped session is a candidate or claimed, however old", async () => {
+    const ancient = await insertUnassigned({
+      admissionState: "stopped",
+      updatedAt: new Date(Date.now() - 3651 * DAY_MS),
+    });
+    const closed = await insertUnassigned({ admissionState: "closed" });
+
+    expect(
+      new Set(await store.filterRetainedSessions([ancient, closed], {})),
+    ).toEqual(new Set([ancient]));
+    expect(
+      await store.claimWorkspaceReclaim({
+        sessionId: ancient,
+        workspaceId: "ap-ws-ancient",
+      }),
+    ).toEqual({ kind: "retained" });
+    expect(
+      await store.claimWorkspaceReclaim({
+        sessionId: closed,
+        workspaceId: "ap-ws-closed",
+      }),
+    ).toEqual({ kind: "unclaimed" });
+  });
+
   test("a claim is needed only where a resume could still come back", async () => {
     const closed = await insertUnassigned({ admissionState: "closed" });
     const input = { stoppedTtlMs: DAY_MS, workspaceId: "ap-ws-x" };

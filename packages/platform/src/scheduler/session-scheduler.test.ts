@@ -40,9 +40,11 @@ import type {
   StoredLaunchIntent,
   WorkerImageRefusal,
   WorkspaceReclaimClaim,
+  WorkspaceTtls,
 } from "./ports/scheduler-store.ts";
 import {
   DEFAULT_LAUNCH_FAILURE_LIMIT,
+  DEFAULT_PAUSED_WORKSPACE_TTL_MS,
   DEFAULT_STOPPED_WORKSPACE_TTL_MS,
   DRAIN_FINALIZE_GRACE_MS,
   launchRetryDelayMs,
@@ -508,15 +510,15 @@ class MemoryStore implements SchedulerStore {
   /** What GC asked about, in order, so the ordering can be asserted. */
   readonly retainedQueries: string[][] = [];
   failRetained = false;
-  /** What each filter was asked with, for the TTL it carried. */
-  readonly retainedTtls: number[] = [];
+  /** What each filter was asked with, for the TTLs it carried. */
+  readonly retainedTtls: WorkspaceTtls[] = [];
 
   async filterRetainedSessions(
     sessionIds: string[],
-    options: { stoppedTtlMs: number },
+    options: WorkspaceTtls,
   ): Promise<string[]> {
     this.retainedQueries.push([...sessionIds]);
-    this.retainedTtls.push(options.stoppedTtlMs);
+    this.retainedTtls.push(options);
     if (this.failRetained) throw new Error("database down");
     return sessionIds.filter((id) => this.retainedSessions.has(id));
   }
@@ -544,12 +546,14 @@ class MemoryStore implements SchedulerStore {
   }> = [];
   failClaim = false;
   failFinish = false;
+  /** What each claim was asked with, for the TTLs it carried. */
+  readonly claimTtls: WorkspaceTtls[] = [];
 
-  async claimWorkspaceReclaim(input: {
-    sessionId: string;
-    workspaceId: string;
-    stoppedTtlMs: number;
-  }): Promise<WorkspaceReclaimClaim> {
+  async claimWorkspaceReclaim(
+    input: { sessionId: string; workspaceId: string } & WorkspaceTtls,
+  ): Promise<WorkspaceReclaimClaim> {
+    const { sessionId: _session, workspaceId: _workspace, ...ttls } = input;
+    this.claimTtls.push(ttls);
     if (this.failClaim) throw new Error("database down");
     const verdict = this.claimVerdicts.get(input.sessionId);
     if (verdict === undefined) return { kind: "unclaimed" };
@@ -938,9 +942,9 @@ function harness(
     retractedImages?: { image: string; runtime: ImageRuntime }[];
     stop?: AbortSignal;
     stopDeadlineMs?: number;
-    stoppedWorkspaceTtlMs?: number;
     workerLimits?: () => Promise<WorkerLimits>;
     workspaceGc?: boolean;
+    workspaceTtls?: () => Promise<WorkspaceTtls>;
   } = {},
 ) {
   const store = new MemoryStore();
@@ -956,9 +960,9 @@ function harness(
         ? {}
         : { workerLimits: options.workerLimits }),
       slotLimit,
-      ...(options.stoppedWorkspaceTtlMs === undefined
+      ...(options.workspaceTtls === undefined
         ? {}
-        : { stoppedWorkspaceTtlMs: options.stoppedWorkspaceTtlMs }),
+        : { workspaceTtls: options.workspaceTtls }),
       ...(options.stop === undefined ? {} : { stop: options.stop }),
       ...(options.imageRuntime === undefined
         ? {}
@@ -980,7 +984,15 @@ function harness(
         : { stopDeadlineMs: options.stopDeadlineMs }),
       store,
     });
-  const reclaim = () => reclaimWorkspaces({ backend, logger, store });
+  const reclaim = () =>
+    reclaimWorkspaces({
+      backend,
+      logger,
+      store,
+      ...(options.workspaceTtls === undefined
+        ? {}
+        : { workspaceTtls: options.workspaceTtls }),
+    });
   return { backend, logger, reclaim, records, run, store };
 }
 
@@ -5131,17 +5143,100 @@ describe("runScheduler workspace GC", () => {
       "removed",
     ]);
     expect(store.pendingClaims.size).toBe(0);
-    expect(store.retainedTtls).toEqual([DEFAULT_STOPPED_WORKSPACE_TTL_MS]);
+    const defaults = {
+      stoppedTtlMs: DEFAULT_STOPPED_WORKSPACE_TTL_MS,
+      pausedTtlMs: DEFAULT_PAUSED_WORKSPACE_TTL_MS,
+    };
+    expect(store.retainedTtls).toEqual([defaults]);
+    expect(store.claimTtls).toEqual([defaults]);
   });
 
-  test("the configured TTL is the one the store judges by", async () => {
-    const { backend, run, store } = harness(10, { stoppedWorkspaceTtlMs: 0 });
+  test("the configured TTLs are the ones the store judges by", async () => {
+    const { backend, run, store } = harness(10, {
+      workspaceTtls: async () => ({ stoppedTtlMs: 0, pausedTtlMs: 3_600_000 }),
+    });
     backend.workspaces.set("ap-ws-stopped", "session-stopped");
 
     await run();
 
-    expect(store.retainedTtls).toEqual([0]);
+    const ttls = { stoppedTtlMs: 0, pausedTtlMs: 3_600_000 };
+    expect(store.retainedTtls).toEqual([ttls]);
+    expect(store.claimTtls).toEqual([ttls]);
   });
+
+  for (const via of ["run", "reclaim"] as const) {
+    test(`unread TTLs claim no stopped or paused workspace, and the rest still goes (${via})`, async () => {
+      let settledAtRead = -1;
+      const h = harness(10, {
+        workspaceTtls: async () => {
+          settledAtRead = h.store.settledClaims.length;
+          throw new InstallationConfigUnavailableError(
+            "workspace_stopped_ttl_sec",
+          );
+        },
+      });
+      const { backend, records, store } = h;
+      // An earlier pass's claim, its volume already gone from the listing.
+      store.pendingClaims.set("session-pending", {
+        claimId: "claim-earlier",
+        sessionId: "session-pending",
+        workspaceId: "ap-ws-pending",
+      });
+      backend.workspaces.set("ap-ws-closed", "session-closed");
+      backend.workspaces.set("ap-ws-stopped", "session-stopped");
+      store.claimVerdicts.set("session-stopped", "retained");
+
+      const summary = await (via === "run" ? h.run() : h.reclaim());
+
+      expect(settledAtRead).toBe(1);
+      expect(store.retainedTtls).toEqual([{}]);
+      expect(store.claimTtls).toEqual([{}, {}]);
+      expect(store.settledClaims.map((claim) => claim.claimId)).toEqual([
+        "claim-earlier",
+      ]);
+      expect(backend.workspaces.has("ap-ws-closed")).toBe(false);
+      expect(backend.workspaces.has("ap-ws-stopped")).toBe(true);
+      expect(summary.workspacesReclaimed).toContain("ap-ws-closed");
+      expect(summary.workspaceScanFailed).toBe(false);
+      expect(
+        records.filter((r) => r.message.startsWith("Workspace TTLs")),
+      ).toEqual([
+        {
+          level: "warn",
+          message:
+            "Workspace TTLs cannot be read; keeping every stopped and paused session's workspace",
+          fields: { setting: "workspace_stopped_ttl_sec" },
+        },
+      ]);
+    });
+  }
+
+  for (const via of ["run", "reclaim"] as const) {
+    test(`a TTL read that fails otherwise fails the ${via}, after the pending claims are settled`, async () => {
+      // A claim left pending keeps its session from resuming, so it is
+      // settled before anything the read could stop.
+      let settledAtRead = -1;
+      const h = harness(10, {
+        workspaceTtls: async () => {
+          settledAtRead = h.store.settledClaims.length;
+          throw new Error("boom");
+        },
+      });
+      h.store.pendingClaims.set("session-pending", {
+        claimId: "claim-earlier",
+        sessionId: "session-pending",
+        workspaceId: "ap-ws-pending",
+      });
+      h.backend.workspaces.set("ap-ws-stopped", "session-stopped");
+
+      await expect(via === "run" ? h.run() : h.reclaim()).rejects.toThrow(
+        "boom",
+      );
+      expect(settledAtRead).toBe(1);
+      expect(h.store.pendingClaims.size).toBe(0);
+      expect(h.backend.workspaces.has("ap-ws-stopped")).toBe(true);
+    });
+  }
 
   test("the verdict under the session lock wins over the listing's", async () => {
     // Between the listing and the claim the session was resumed: its

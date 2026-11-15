@@ -17,6 +17,7 @@ import {
   type SessionBudget,
   type SessionLimits,
   type WorkerLimits,
+  type WorkspaceTtls,
 } from "@werft-ai/platform";
 
 export const SETTINGS_PAGE = "Settings > Workspace > Execution limits";
@@ -49,12 +50,20 @@ function envValueOf(key: InstallationConfigKey, raw: string): unknown {
   return trimmed !== "" && Number.isFinite(number) ? number : trimmed;
 }
 
-/** Unset as the earlier parser saw it: the archive's took only "" so. */
+/**
+ * Keys whose earlier parser refused a blank value: only "" was unset there,
+ * the one Compose's `${X:-…}` replaced, so a blank one is carried as refused.
+ */
+const ONLY_EMPTY_IS_UNSET: ReadonlySet<InstallationConfigKey> = new Set([
+  "session_archive_after_days",
+  "session_archive_dry_run",
+  "workspace_stopped_ttl_sec",
+  "workspace_paused_ttl_sec",
+]);
+
+/** Unset as the earlier parser saw it. */
 function envUnset(key: InstallationConfigKey, raw: string): boolean {
-  return key === "session_archive_after_days" ||
-    key === "session_archive_dry_run"
-    ? raw === ""
-    : raw.trim() === "";
+  return ONLY_EMPTY_IS_UNSET.has(key) ? raw === "" : raw.trim() === "";
 }
 
 /**
@@ -273,6 +282,15 @@ export function createInstallationConfigSource(options: {
       return {
         maxTurnSeconds: read.get("max_turn_seconds"),
         providerMaxRetries: read.get("provider_max_retries"),
+      };
+    },
+
+    /** What a scheduler pass reclaims workspaces by, both from one read. */
+    async workspaceTtls(): Promise<WorkspaceTtls> {
+      const read = readOf(await saved());
+      return {
+        stoppedTtlMs: read.get("workspace_stopped_ttl_sec") * 1_000,
+        pausedTtlMs: read.get("workspace_paused_ttl_sec") * 1_000,
       };
     },
 

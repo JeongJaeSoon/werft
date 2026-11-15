@@ -52,7 +52,9 @@ export type NumberLimit = {
     | "cost"
     | "tokens"
     | "queue"
-    | "storage";
+    | "storage"
+    | "stopped"
+    | "paused";
   /** What migrate carried the value in from. */
   readonly env: string;
   readonly min: number;
@@ -126,6 +128,24 @@ export const NUMBER_LIMITS: readonly NumberLimit[] = [
     min: 1,
     aboveMin: false,
     max: Number.MAX_SAFE_INTEGER,
+    whole: true,
+  },
+  {
+    key: "workspace_stopped_ttl_sec",
+    name: "stopped",
+    env: "EXECUTION_WORKSPACE_STOPPED_TTL_SEC",
+    min: 0,
+    aboveMin: false,
+    max: 315_360_000,
+    whole: true,
+  },
+  {
+    key: "workspace_paused_ttl_sec",
+    name: "paused",
+    env: "EXECUTION_WORKSPACE_PAUSED_TTL_SEC",
+    min: 0,
+    aboveMin: false,
+    max: 315_360_000,
     whole: true,
   },
 ];

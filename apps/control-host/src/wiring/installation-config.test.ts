@@ -85,6 +85,8 @@ describe("carryInstallationConfig", () => {
         WORKSPACE_ENFORCE: "fail",
         MAX_TURN_SECONDS: "600",
         PROVIDER_MAX_RETRIES: "0",
+        EXECUTION_WORKSPACE_STOPPED_TTL_SEC: "0",
+        EXECUTION_WORKSPACE_PAUSED_TTL_SEC: "3600",
       },
       memory.store,
     );
@@ -96,6 +98,8 @@ describe("carryInstallationConfig", () => {
       workspace_enforce: "fail",
       max_turn_seconds: 600,
       provider_max_retries: 0,
+      workspace_stopped_ttl_sec: 0,
+      workspace_paused_ttl_sec: 3600,
     });
   });
 
@@ -147,6 +151,42 @@ describe("carryInstallationConfig", () => {
     });
   }
 
+  // `integerSetting` took what `Number` reads as a safe integer, blanks
+  // around it included.
+  for (const [raw, value] of [
+    [" 30 ", 30],
+    ["1e3", 1000],
+    ["0x10", 16],
+    ["315360000", 315_360_000],
+  ] as const) {
+    test(`EXECUTION_WORKSPACE_STOPPED_TTL_SEC=${JSON.stringify(raw)} is carried in as ${value}`, async () => {
+      const memory = memoryStore();
+      expect(
+        await carryInstallationConfig(
+          { EXECUTION_WORKSPACE_STOPPED_TTL_SEC: raw },
+          memory.store,
+        ),
+      ).toEqual({
+        warnings: [carried("EXECUTION_WORKSPACE_STOPPED_TTL_SEC")],
+      });
+      expect(memory.saved).toEqual({ workspace_stopped_ttl_sec: value });
+    });
+  }
+
+  test("an empty workspace TTL is unset, as Compose's ${X:-86400} made it", async () => {
+    const memory = memoryStore();
+    expect(
+      await carryInstallationConfig(
+        {
+          EXECUTION_WORKSPACE_STOPPED_TTL_SEC: "",
+          EXECUTION_WORKSPACE_PAUSED_TTL_SEC: "",
+        },
+        memory.store,
+      ),
+    ).toEqual({ warnings: [] });
+    expect(memory.saved).toEqual({});
+  });
+
   // The values that used to stop a role at start.
   for (const [name, key, raw] of [
     ["SESSION_ARCHIVE_AFTER_DAYS", "session_archive_after_days", "29"],
@@ -166,6 +206,18 @@ describe("carryInstallationConfig", () => {
     ["WORKSPACE_ENFORCE", "workspace_enforce", "force"],
     ["MAX_TURN_SECONDS", "max_turn_seconds", "0"],
     ["PROVIDER_MAX_RETRIES", "provider_max_retries", "11"],
+    // A blank one stopped the scheduler; only "" was unset.
+    ["EXECUTION_WORKSPACE_STOPPED_TTL_SEC", "workspace_stopped_ttl_sec", "   "],
+    ["EXECUTION_WORKSPACE_PAUSED_TTL_SEC", "workspace_paused_ttl_sec", "\t"],
+    ["EXECUTION_WORKSPACE_STOPPED_TTL_SEC", "workspace_stopped_ttl_sec", "-1"],
+    ["EXECUTION_WORKSPACE_PAUSED_TTL_SEC", "workspace_paused_ttl_sec", "1.5"],
+    ["EXECUTION_WORKSPACE_PAUSED_TTL_SEC", "workspace_paused_ttl_sec", "abc"],
+    // Past the console's range, though the earlier parser had no top.
+    [
+      "EXECUTION_WORKSPACE_STOPPED_TTL_SEC",
+      "workspace_stopped_ttl_sec",
+      "315360001",
+    ],
   ] as const) {
     test(`${name}=${JSON.stringify(raw)} is kept as a refusal, and the warning never carries it`, async () => {
       const memory = memoryStore();
@@ -301,6 +353,28 @@ describe("createInstallationConfigSource", () => {
     );
     // The session limits read nothing of it.
     expect((await source.sessionLimits()).queuedInputLimitPerSession).toBe(20);
+  });
+
+  test("the workspace TTLs come from one read in milliseconds, and either blocked refuses both", async () => {
+    const memory = memoryStore({ workspace_stopped_ttl_sec: 0 });
+    const { source, advance } = sourceOver(memory);
+    expect(await source.workspaceTtls()).toEqual({
+      stoppedTtlMs: 0,
+      pausedTtlMs: 86_400_000,
+    });
+    memory.saved.workspace_paused_ttl_sec = {
+      refused_env: "EXECUTION_WORKSPACE_PAUSED_TTL_SEC",
+    };
+    advance(10_000);
+    const refused = await source.workspaceTtls().catch((error) => error);
+    expect(refused).toBeInstanceOf(InstallationConfigUnavailableError);
+    expect((refused as InstallationConfigUnavailableError).key).toBe(
+      "workspace_paused_ttl_sec",
+    );
+    expect(await source.workerLimits()).toEqual({
+      maxTurnSeconds: 3600,
+      providerMaxRetries: 2,
+    });
   });
 
   test("a saved value that breaks the key's rule blocks the key instead of running on the default", async () => {

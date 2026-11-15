@@ -6,7 +6,7 @@ import type {
   ExecutionResources,
   WorkerLimits,
 } from "./ports/execution-backend.ts";
-import type { SchedulerStore } from "./ports/scheduler-store.ts";
+import type { SchedulerStore, WorkspaceTtls } from "./ports/scheduler-store.ts";
 
 /** api.md: a kill not observed within this is reported unknown. */
 export const TERMINATE_DEADLINE_MS = 30_000;
@@ -124,10 +124,13 @@ export type SchedulerOptions = {
    */
   workerLimits?: Setting<WorkerLimits>;
   slotLimit: number;
-  /** See `DEFAULT_STOPPED_WORKSPACE_TTL_MS`. */
-  stoppedWorkspaceTtlMs?: number;
-  /** See `DEFAULT_PAUSED_WORKSPACE_TTL_MS`. */
-  pausedWorkspaceTtlMs?: number;
+  /**
+   * How long stopped and paused sessions keep their workspaces, read once
+   * per reclaim; left out, the defaults (`DEFAULT_STOPPED_WORKSPACE_TTL_MS`,
+   * `DEFAULT_PAUSED_WORKSPACE_TTL_MS`). While a read fails no stopped or
+   * paused session's workspace is reclaimed.
+   */
+  workspaceTtls?: Setting<WorkspaceTtls>;
   /**
    * Shutdown: the pass stops where it would stop on losing its lock, so
    * nothing is reserved or launched after it and the next pass re-observes
@@ -141,11 +144,7 @@ export type SchedulerOptions = {
 
 export type ReclaimOptions = Pick<
   SchedulerOptions,
-  | "backend"
-  | "logger"
-  | "pausedWorkspaceTtlMs"
-  | "stoppedWorkspaceTtlMs"
-  | "store"
+  "backend" | "logger" | "store" | "workspaceTtls"
 >;
 
 export type SchedulerRunSummary = {

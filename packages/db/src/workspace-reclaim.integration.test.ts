@@ -4,6 +4,7 @@ import {
   reclaimWorkspaces,
   type SchedulerLogger,
   type WorkspaceRemovalResult,
+  type WorkspaceTtls,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -136,10 +137,7 @@ integration("stopped workspace reclaim against resume on PostgreSQL", () => {
     // resume lands right after it, before the claim takes the lock.
     const racing = {
       ...base,
-      async filterRetainedSessions(
-        ids: string[],
-        options: { stoppedTtlMs: number },
-      ) {
+      async filterRetainedSessions(ids: string[], options: WorkspaceTtls) {
         const retained = await base.filterRetainedSessions(ids, options);
         expect(retained).not.toContain(session.id);
         resumed = await resume(
@@ -156,8 +154,8 @@ integration("stopped workspace reclaim against resume on PostgreSQL", () => {
         return { outcome: "removed" };
       }),
       logger: quiet,
-      stoppedWorkspaceTtlMs: DAY_MS,
       store: racing,
+      workspaceTtls: { stoppedTtlMs: DAY_MS, pausedTtlMs: DAY_MS },
     });
 
     expect(resumed?.outcome).toBe("accepted");
@@ -190,8 +188,8 @@ integration("stopped workspace reclaim against resume on PostgreSQL", () => {
         return { outcome: "removed" };
       }),
       logger: quiet,
-      stoppedWorkspaceTtlMs: DAY_MS,
       store: store(),
+      workspaceTtls: { stoppedTtlMs: DAY_MS, pausedTtlMs: DAY_MS },
     });
     await reached;
 
@@ -246,8 +244,8 @@ integration("stopped workspace reclaim against resume on PostgreSQL", () => {
         throw new Error("Docker API timed out");
       }),
       logger: quiet,
-      stoppedWorkspaceTtlMs: DAY_MS,
       store: store(),
+      workspaceTtls: { stoppedTtlMs: DAY_MS, pausedTtlMs: DAY_MS },
     });
     expect(first.workspacesFailed).toEqual([session.workspace]);
     expect((await resume(session, before.revision)).outcome).toBe(
@@ -261,8 +259,8 @@ integration("stopped workspace reclaim against resume on PostgreSQL", () => {
         return { outcome: "absent" };
       }),
       logger: quiet,
-      stoppedWorkspaceTtlMs: DAY_MS,
       store: store(),
+      workspaceTtls: { stoppedTtlMs: DAY_MS, pausedTtlMs: DAY_MS },
     });
     expect(second.workspacesReclaimed).toEqual([session.workspace]);
     expect(asked).toEqual([session.workspace, session.workspace]);
@@ -300,9 +298,8 @@ integration("stopped workspace reclaim against resume on PostgreSQL", () => {
         return { outcome: "removed" };
       }),
       logger: quiet,
-      pausedWorkspaceTtlMs: DAY_MS,
-      stoppedWorkspaceTtlMs: DAY_MS,
       store: store(),
+      workspaceTtls: { stoppedTtlMs: DAY_MS, pausedTtlMs: DAY_MS },
     });
     await reached;
 
@@ -362,9 +359,8 @@ integration("stopped workspace reclaim against resume on PostgreSQL", () => {
         throw new Error("must not be removed");
       }),
       logger: quiet,
-      pausedWorkspaceTtlMs: DAY_MS,
-      stoppedWorkspaceTtlMs: DAY_MS,
       store: store(),
+      workspaceTtls: { stoppedTtlMs: DAY_MS, pausedTtlMs: DAY_MS },
     });
 
     expect(summary.workspacesReclaimed).toEqual([]);
@@ -384,8 +380,8 @@ integration("stopped workspace reclaim against resume on PostgreSQL", () => {
         throw new Error("must not be removed");
       }),
       logger: quiet,
-      stoppedWorkspaceTtlMs: DAY_MS,
       store: store(),
+      workspaceTtls: { stoppedTtlMs: DAY_MS, pausedTtlMs: DAY_MS },
     });
 
     expect(summary.workspacesReclaimed).toEqual([]);
