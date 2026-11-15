@@ -175,7 +175,9 @@ describe("초대 보내기 대화상자", () => {
       warning
         .split(" ")
         .some((id) =>
-          document.getElementById(id)?.textContent?.includes("한 번만 보입니다"),
+          document
+            .getElementById(id)
+            ?.textContent?.includes("한 번만 보입니다"),
         ),
     ).toBe(true);
     expect(history.location.search).toContain("invite.step=link");
@@ -410,9 +412,7 @@ describe("초대 보내기 대화상자", () => {
     );
     await within(first.dialog).findByLabelText("초대 링크");
     history.back();
-    await waitFor(() =>
-      expect(dialogTitle(first.dialog)).toBe(FORM_TITLE),
-    );
+    await waitFor(() => expect(dialogTitle(first.dialog)).toBe(FORM_TITLE));
     await first.user.click(
       within(first.dialog).getByRole("button", { name: "취소" }),
     );
