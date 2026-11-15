@@ -155,8 +155,10 @@ export function DetailRail({
           "grid grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))] items-start gap-x-8 gap-y-6 px-4 py-6 md:p-[var(--werft-space-6)] xl:sticky xl:top-0 xl:flex xl:max-h-[calc(100dvh-var(--werft-topbar-h))] xl:flex-col xl:items-stretch xl:overflow-y-auto",
           separator === "lines"
             ? "xl:gap-y-0 xl:divide-y"
-            : // Without lines a section's own padding would only widen the gap.
-              "gap-y-[var(--werft-space-section)] xl:[&>[data-slot=detail-rail-section]]:py-0",
+            : // Without lines a section's own padding would only widen the
+              // gap, and a head no taller than its title keeps the space above
+              // the first title the same as the sides.
+              "gap-y-[var(--werft-space-6)] [&>[data-slot=detail-rail-section]>div:first-child]:min-h-0 xl:[&>[data-slot=detail-rail-section]]:py-0",
         )}
       >
         {children}

@@ -54,8 +54,8 @@ export function ChatMessage({
     >
       <div
         className={cn(
-          "flex min-w-0 flex-col gap-1",
-          self ? "max-w-[min(85%,48rem)]" : "max-w-full",
+          "flex min-w-0 flex-col gap-0.5",
+          self ? "max-w-[70%]" : "max-w-full",
           self ? "items-end" : "items-start",
         )}
       >
@@ -69,9 +69,9 @@ export function ChatMessage({
         <div
           data-slot="chat-bubble"
           className={cn(
-            "w-fit min-w-0 max-w-full text-body leading-[1.6] [overflow-wrap:anywhere]",
+            "w-fit min-w-0 max-w-full text-control leading-[1.6] [overflow-wrap:anywhere]",
             self
-              ? "whitespace-pre-wrap rounded-card bg-primary px-4 py-3 text-primary-foreground"
+              ? "whitespace-pre-wrap rounded-2xl bg-primary px-3.5 py-2 text-primary-foreground"
               : "text-foreground",
             tone === "error" && "text-destructive",
           )}

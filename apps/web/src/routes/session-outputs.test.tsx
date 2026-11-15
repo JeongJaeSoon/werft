@@ -353,37 +353,54 @@ describe("the session's GitHub pull requests", () => {
   }
   const noFiles = { session_id: SESSION_ID, checkpoint_revision: 2, items: [] };
 
-  test("each pull request links out with its state, files, lines, when it ended and when it was checked", async () => {
+  test("each pull request is one row: title, number and lines, state, and a menu to open it on GitHub", async () => {
     renderAt(`/sessions/${SESSION_ID}`, pulled(pulls));
     await openOutputs();
-    const area = await screen.findByRole("region", { name: "변경 파일" });
+    const area = await screen.findByRole("region", { name: "변경 사항" });
     const rows = within(area).getAllByRole("listitem");
+    // The title links out; with no title kept, the name stands in.
     expect(rows.map((row) => row.querySelector("a")?.textContent)).toEqual([
-      "acme/demo#1",
-      "acme/demo#2",
-      "acme/demo#3",
+      "Retry failed payments",
+      "Retry failed payments",
+      "Retry failed payments",
     ]);
-    const link = within(area).getByRole("link", { name: "acme/demo#2" });
-    expect(link.getAttribute("href")).toBe(
+    expect(rows[1]?.querySelector("a")?.getAttribute("href")).toBe(
       "https://github.com/acme/demo/pull/2",
     );
-    expect(link.getAttribute("target")).toBe("_blank");
+    expect(rows[1]?.querySelector("a")?.getAttribute("target")).toBe("_blank");
     expect(rows.map((row) => row.textContent)).toEqual([
-      expect.stringMatching(/^acme\/demo#1 PR열림 · 상태 확인 /),
-      expect.stringMatching(
-        /^acme\/demo#2 PR머지됨 · 파일 3개 · 머지 .+ · 상태 확인 .+\+84−12$/,
-      ),
-      expect.stringMatching(/^acme\/demo#3 PR닫힘 · 닫음 .+ · 상태 확인 /),
+      expect.stringMatching(/acme\/demo#1열림$/),
+      expect.stringMatching(/acme\/demo#2\+84−12머지됨$/),
+      expect.stringMatching(/acme\/demo#3닫힘/),
     ]);
-    expect(rows[0]?.textContent).not.toContain("마지막 확인");
+    // The files themselves are not listed: the API counts them only.
+    expect(area.textContent).not.toContain("파일 3개");
     expect(rows[2]?.textContent).toContain(
       "마지막 확인에서 GitHub가 이 PR을 찾지 못했습니다. 상태는 그 전에 확인한 값입니다.",
     );
-    // The session's tokens and cost are in the card's own rows above.
+    // The ⋯ menu opens the pull request on GitHub.
+    const user = await setupUser();
+    await user.click(
+      within(rows[1] as HTMLElement).getByRole("button", {
+        name: "Retry failed payments 메뉴",
+      }),
+    );
+    const open = await screen.findByRole("menuitem", {
+      name: /GitHub에서 열기/,
+    });
+    expect(open.getAttribute("href")).toBe(
+      "https://github.com/acme/demo/pull/2",
+    );
+    // The card folds to its title.
+    await user.keyboard("{Escape}");
+    await user.click(
+      within(area).getByRole("button", { name: "변경 사항 접기" }),
+    );
+    expect(within(area).queryByRole("listitem")).toBeNull();
+    // The session's tokens and cost are in the rail's own rows above.
     const card = screen.getByRole("complementary", { name: "세션 정보" });
     expect(card.textContent).toContain("토큰12,345");
     expect(card.textContent).toContain("비용$0.25");
-    expect(screen.getByRole("region", { name: /^out\/ 파일/ })).toBeTruthy();
   });
 
   test("a session with only attached repositories still lists its pull requests", async () => {
@@ -399,12 +416,16 @@ describe("the session's GitHub pull requests", () => {
         }),
     });
     await openOutputs();
-    const area = await screen.findByRole("region", { name: "변경 파일" });
+    const area = await screen.findByRole("region", { name: "변경 사항" });
     expect(
       within(area)
         .getAllByRole("listitem")
         .map((row) => row.querySelector("a")?.textContent),
-    ).toEqual(["acme/demo#1", "acme/demo#2", "acme/demo#3"]);
+    ).toEqual([
+      "Retry failed payments",
+      "Retry failed payments",
+      "Retry failed payments",
+    ]);
     expect(api.calls.some((call) => call.path.endsWith("/outcomes"))).toBe(
       true,
     );
@@ -457,18 +478,16 @@ describe("the session's GitHub pull requests", () => {
       ),
     );
     await openOutputs();
-    const area = await screen.findByRole("region", { name: "변경 파일" });
+    const area = await screen.findByRole("region", { name: "변경 사항" });
     const rows = within(area).getAllByRole("listitem");
     expect(rows.map((row) => row.textContent)).toEqual([
-      expect.stringMatching(
-        /^acme\/shop#398 리뷰제출 .+ · 다른 세션이 연 PR승인$/,
-      ),
-      expect.stringMatching(/^acme\/shop#399 리뷰제출 .+코멘트$/),
+      expect.stringMatching(/^acme\/shop#398 리뷰.*승인 · 다른 세션이 연 PR$/),
+      expect.stringMatching(/^acme\/shop#399 리뷰.*코멘트$/),
     ]);
     expect(rows[1]?.textContent).not.toContain("다른 세션");
     expect(
       within(area)
-        .getByRole("link", { name: "acme/shop#398" })
+        .getByRole("link", { name: "acme/shop#398 리뷰" })
         .getAttribute("href"),
     ).toBe("https://github.com/acme/shop/pull/398#pullrequestreview-71");
   });
@@ -478,7 +497,7 @@ describe("the session's GitHub pull requests", () => {
   test("an open screen reads its pull requests and refusals again every minute", async () => {
     const { services } = renderAt(`/sessions/${SESSION_ID}`, pulled(pulls));
     await openOutputs();
-    await screen.findByRole("region", { name: "변경 파일" });
+    await screen.findByRole("region", { name: "변경 사항" });
     const intervals = (path: string) =>
       services.queryClient
         .getQueryCache()
@@ -492,16 +511,6 @@ describe("the session's GitHub pull requests", () => {
     expect(intervals("github-refusals")).toEqual([60_000]);
   });
 
-  test("a pull request not checked yet says so", async () => {
-    renderAt(
-      `/sessions/${SESSION_ID}`,
-      pulled([pull(4, { state_checked_at: null })]),
-    );
-    await openOutputs();
-    const area = await screen.findByRole("region", { name: "변경 파일" });
-    expect(area.textContent).toContain("아직 상태를 확인하지 않음");
-  });
-
   test("pull requests without files show no files section", async () => {
     renderAt(
       `/sessions/${SESSION_ID}`,
@@ -509,7 +518,7 @@ describe("the session's GitHub pull requests", () => {
     );
     await openOutputs();
     expect(
-      await screen.findByRole("region", { name: "변경 파일" }),
+      await screen.findByRole("region", { name: "변경 사항" }),
     ).toBeTruthy();
     expect(
       screen.queryAllByRole("region", { name: /^out\/ 파일/ }),
@@ -519,7 +528,7 @@ describe("the session's GitHub pull requests", () => {
   test("with no pull requests the changes section says so", async () => {
     renderAt(`/sessions/${SESSION_ID}`, pulled([], noFiles));
     await openOutputs();
-    const area = await screen.findByRole("region", { name: "변경 파일" });
+    const area = await screen.findByRole("region", { name: "변경 사항" });
     expect(
       await within(area).findByText("아직 변경한 PR이 없습니다."),
     ).toBeTruthy();

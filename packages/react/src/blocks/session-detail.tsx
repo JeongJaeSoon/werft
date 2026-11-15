@@ -225,7 +225,7 @@ export function SessionDetail({
       <DetailRailSection title={t("session.info.overview")}>
         <KeyValueList
           variant="grid"
-          className="grid-cols-[6rem_minmax(0,1fr)] gap-y-3"
+          className="grid-cols-[6rem_minmax(0,1fr)] gap-y-2"
           items={[
             {
               label: t("session.info.agent"),
