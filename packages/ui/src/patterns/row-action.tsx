@@ -8,9 +8,15 @@ export type RowActionProps = Omit<ButtonProps, "size" | "variant"> & {
    * `outline` for an ordinary action, `danger` for one that deletes, revokes,
    * disconnects or removes access, `default` for the one next step the row
    * asks for. Dropping an item from an unsaved draft and declining a request
-   * are not `danger`.
+   * are not `danger`. `destructive`, filled red, is the danger zone's own:
+   * a list or table row keeps the quieter `danger`.
    */
-  readonly variant?: "outline" | "danger" | "default" | undefined;
+  readonly variant?:
+    | "outline"
+    | "danger"
+    | "destructive"
+    | "default"
+    | undefined;
   /** `icon-sm` for an icon-only button, named by `aria-label`. */
   readonly size?: "sm" | "icon-sm" | undefined;
 };

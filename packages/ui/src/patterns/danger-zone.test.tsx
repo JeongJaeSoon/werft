@@ -106,7 +106,27 @@ describe("DangerZone", () => {
     expect(row === null).toBe(false);
   });
 
-  test("행의 버튼은 빨간 외곽선이고 누르면 행이 아니라 호출한 쪽이 확인을 연다", async () => {
+  test("행 제목은 빨간 글씨, 설명은 흐린 글씨다", () => {
+    const { getByText } = render(
+      <DangerZone title="위험 구역">
+        <DangerZoneRow
+          title="팀 삭제"
+          description="되돌릴 수 없습니다."
+          actionLabel="삭제"
+          onAction={() => {}}
+        />
+      </DangerZone>,
+    );
+    const title = getByText("팀 삭제");
+    expect(title.className.split(" ")).toContain("text-destructive");
+    const description = getByText("되돌릴 수 없습니다.");
+    expect(description.className).not.toContain("text-destructive");
+    expect(description.className.split(" ")).toContain(
+      "text-subtle-foreground",
+    );
+  });
+
+  test("행의 버튼은 빨간 바탕에 흰 글씨이고 누르면 행이 아니라 호출한 쪽이 확인을 연다", async () => {
     const user = await setupUser();
     let opened = 0;
     const { getByRole } = render(
@@ -125,9 +145,11 @@ describe("DangerZone", () => {
     expect(getByRole("heading", { level: 3 })).toBeDefined();
     const button = getByRole("button", { name: "리뷰용 App 삭제" });
     expect(button.textContent).toBe("삭제");
-    expect(button.className).toContain(
-      "border-[var(--werft-tone-danger-border)]",
-    );
+    const classes = button.className.split(" ");
+    expect(classes).toContain("bg-destructive-solid");
+    expect(classes).toContain("text-destructive-foreground");
+    expect(classes).not.toContain("bg-card");
+    expect(classes).not.toContain("text-destructive");
     // A RowAction: 28px, width from the label down to the 48px floor.
     expect(button.getAttribute("data-size")).toBe("sm");
     expect(button.className).toContain(
@@ -159,6 +181,8 @@ describe("DangerZone", () => {
     }) as HTMLButtonElement;
     expect(button.textContent).toBe("삭제");
     expect(button.disabled).toBe(true);
+    // The filled red fades when disabled, so it does not read as ready.
+    expect(button.className.split(" ")).toContain("disabled:opacity-50");
     const described = (button.getAttribute("aria-describedby") ?? "")
       .split(" ")
       .map((id) => document.getElementById(id)?.textContent);

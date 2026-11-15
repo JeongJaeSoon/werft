@@ -393,7 +393,7 @@ describe("tokens.css", () => {
     expect(hover.filter((line) => !line.endsWith("ok"))).toEqual([]);
   });
 
-  test("링크·상태 점·주 버튼·아이콘 타일·채운 위험 버튼·켜진 Switch가 바탕에서 AA를 넘는다", () => {
+  test("링크·위험 글자·상태 점·주 버튼·아이콘 타일·채운 위험 버튼·켜진 Switch가 바탕에서 AA를 넘는다", () => {
     // Link text 4.5:1; a dot is a graphic, 3:1 (WCAG 1.4.11).
     const DOTS = ["wait", "run", "idle", "done", "failed"].map(
       (state) => `--werft-color-status-dot-${state}`,
@@ -406,6 +406,8 @@ describe("tokens.css", () => {
       ].flatMap((surface): [string, string, number][] => [
         ["--werft-color-link", surface, 4.5],
         ...DOTS.map((dot): [string, string, number] => [dot, surface, 3]),
+        // A danger zone's heading and row titles, and its box edge.
+        ["--werft-tone-danger-fg", surface, 4.5],
       ]),
       [
         "--werft-color-destructive-foreground",
