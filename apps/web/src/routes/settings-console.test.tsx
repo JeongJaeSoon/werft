@@ -251,11 +251,15 @@ describe("모델 연결", () => {
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
     ).toEqual([
-      "console-key 값 바꾸기",
+      "console-key의 API 키 설정",
       "console-key의 자동 모드 판정",
       "console-key의 모델 목록",
       "console-key 사용 중지",
     ]);
+    expect(
+      within(stored).getByRole("button", { name: "console-key의 API 키 설정" })
+        .textContent,
+    ).toBe("API 키 설정");
 
     // An operator reference: no replace, but it can move to a typed key.
     const ref = rowOf(table, "ops-ref");
@@ -273,9 +277,9 @@ describe("모델 연결", () => {
     const fresh = rowOf(table, "fresh");
     expect(fresh.textContent).toContain("값 필요");
     expect(
-      within(fresh).getByRole("button", { name: "fresh 값 바꾸기" })
+      within(fresh).getByRole("button", { name: "fresh의 API 키 설정" })
         .textContent,
-    ).toBe("값 넣기");
+    ).toBe("API 키 넣기");
   });
 
   test("a narrow table keeps every row's actions and puts the state beside the id", async () => {
@@ -403,7 +407,7 @@ describe("모델 연결", () => {
       within(row)
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["luna 값 바꾸기", "luna 사용 중지"]);
+    ).toEqual(["luna의 API 키 설정", "luna 사용 중지"]);
   });
 
   test("an openai_decisions connection is Luna's, takes OpenAI's address and no billing choice, and is created with an API key", async () => {
@@ -469,7 +473,7 @@ describe("모델 연결", () => {
     const user = await setupUser();
     const table = await screen.findByRole("table", { name: "모델 연결" });
     await user.click(
-      within(table).getByRole("button", { name: "console-key 값 바꾸기" }),
+      within(table).getByRole("button", { name: "console-key의 API 키 설정" }),
     );
     const dialog = await screen.findByRole("dialog");
     await user.type(within(dialog).getByLabelText("값"), "rotated-key");

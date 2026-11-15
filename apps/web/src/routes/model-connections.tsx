@@ -206,6 +206,7 @@ function ConnectionRow({
   const actions = entryActions(item);
   // No agent runs on it, so it has no models and no auto mode.
   const judgeOnly = item.kind === "openai_decisions";
+  const credentialKind = t(`settings.connections.authKind.${item.auth_kind}`);
   return (
     <GridTableRow>
       <GridTableCell>
@@ -258,12 +259,18 @@ function ConnectionRow({
           {actions.setValue ? (
             <RowAction
               disabled={busy}
-              aria-label={t("settings.setValueFor", { id: item.id })}
+              aria-label={t("settings.connections.changeCredentialFor", {
+                id: item.id,
+                kind: credentialKind,
+              })}
               onClick={onValue}
             >
-              {item.state === "needs_value"
-                ? t("settings.setFirstValue")
-                : t("settings.setValue")}
+              {t(
+                item.state === "needs_value"
+                  ? "settings.connections.setCredential"
+                  : "settings.connections.changeCredential",
+                { kind: credentialKind },
+              )}
             </RowAction>
           ) : null}
           {actions.convert ? (

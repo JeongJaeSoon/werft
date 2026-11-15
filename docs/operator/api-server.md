@@ -116,7 +116,7 @@ main을 자동으로 따라가는 설치는 머지가 곧 배포이므로, 위 �
 - 저장소는 GitHub App으로만 등록한다. `repositories.<id>.auth`는 필수이고 `kind: github_app`이다(아래 절). `auth`가 없거나 `basic`·`bearer`인 항목은 받지 않는다. worker는 자격 증명을 받지 않고 proxy의 저장소 route로 clone한다.
 - 자격 증명은 8바이트보다 짧으면 쓰지 않는다. API는 그대로 뜨고 그 항목만 빠진다. proxy는 upstream 응답에 주입한 값이 되비치는지 검사하는데, 스트림 본문에서는 8바이트 이상인 값만 검사하기 때문이다.
 - endpoint·저장소 URL은 `http://`·`https://`만 받는다(worker가 밖으로 나가는 길은 HTTP(S) egress proxy뿐이다). 자격 증명(userinfo, query string)이 들어 있으면 거절한다.
-- 세션은 release의 spec(`spec_source`와 그 digest)을 복사해 저장하고, claim은 그 spec으로 런타임 설정을 만든다. provider egress token은 spec digest에 묶인다. 연결의 값만 회전하면(같은 참조 뒤의 값, 콘솔의 **값 바꾸기**) 세션은 멈추지 않는다. endpoint·종류·`billing`·자격 증명 출처를 바꾸려면 새 id로 연결을 더하고 에이전트를 다시 release한다.
+- 세션은 release의 spec(`spec_source`와 그 digest)을 복사해 저장하고, claim은 그 spec으로 런타임 설정을 만든다. provider egress token은 spec digest에 묶인다. 연결의 값만 회전하면(같은 참조 뒤의 값, 콘솔의 **API 키 설정**·**Bearer 토큰 설정**) 세션은 멈추지 않는다. endpoint·종류·`billing`·자격 증명 출처를 바꾸려면 새 id로 연결을 더하고 에이전트를 다시 release한다.
 
 ### workspace volume을 잃었을 때 남는 것
 
