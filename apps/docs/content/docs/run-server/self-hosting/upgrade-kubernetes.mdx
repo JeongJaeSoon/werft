@@ -37,7 +37,15 @@ object store 설정을 한 곳에서만 받는 릴리스로 올릴 때는, 어�
 
 옮기기 전에, 앞선 chart가 떠 있는 동안 갈라져 있었는지 본다. values의 `api.extraEnv`에 위 이름이 있고 그 값이 chart 값(`config.*`, 기본값 포함)과 다르면, 세션 보관 job은 api가 읽지 않는 저장소로 이벤트를 옮기고 DB 행을 지웠을 수 있다. 보관 기록은 object key와 version만 적고 bucket은 적지 않는다. 그래서 설정을 하나로 맞추면 그 이벤트를 다시 읽지 못한다. bucket을 복사하면 version ID가 바뀌므로 대신할 수 없다. 남길 값은 api의 값이다. checkpoint는 api가 그 저장소에 썼다. `scheduler.extraEnv`의 `S3_BUCKET`·`AWS_REGION`이 api의 값과 달랐다면, 맞춘 뒤 그 값이 든 격리 stamp가 바뀌어 worker가 한 번씩 교체된다([업그레이드 호환성](/run-server/self-hosting/explanation/compatibility)). 올리기 전에 다음을 한다.
 
-1. 보관 CronJob을 멈춘다: `kubectl -n werft patch cronjob werft-session-archive -p '{"spec":{"suspend":true}}'`. `suspend`는 이미 만든 Job을 멈추지 않는다. `kubectl -n werft get cronjob werft-session-archive -o jsonpath='{.status.active}'`가 아무것도 출력하지 않을 때까지 기다린다. `status.active`에는 끝나지 않은 Job이 모두 든다(Pod가 아직 `Pending`인 Job도). 그 전에 목록을 얻으면, 아직 끝나지 않은 Job이 그 뒤에 보관한 세션이 빠진다.
+1. 보관 CronJob을 멈춘다: `kubectl -n werft patch cronjob werft-session-archive -p '{"spec":{"suspend":true}}'`. `suspend`는 이미 만든 Job을 멈추지 않는다. 멈춘 뒤 아래 명령이 아무것도 출력하지 않을 때까지 기다린다. 이 CronJob이 만든 Job 가운데 `Complete`나 `Failed`가 아닌 것(Pod가 아직 `Pending`인 Job도)을 출력한다. CronJob의 `status.active`는 controller가 Job을 만든 직후 기록하지 못하면 그 Job을 빠뜨리므로 쓰지 않는다. 그 전에 목록을 얻으면, 아직 끝나지 않은 Job이 그 뒤에 보관한 세션이 빠진다.
+
+   ```bash
+   UID_=$(kubectl -n werft get cronjob werft-session-archive -o jsonpath='{.metadata.uid}')
+   kubectl -n werft get jobs -o json | jq -r --arg uid "$UID_" '.items[]
+     | select(any(.metadata.ownerReferences[]?; .uid == $uid))
+     | select(any(.status.conditions[]?; (.type == "Complete" or .type == "Failed") and .status == "True") | not)
+     | .metadata.name'
+   ```
 2. 운영자의 DB 클라이언트로 `SELECT DISTINCT session_id FROM session_event_archives;`를 돌려 보관된 세션을 얻는다. 행이 없으면 4로 간다.
 3. 세션마다 앞선 chart의 CronJob에서 restore Job을 만든다. CronJob과 같은 저장소 설정으로 돈다. 모든 Job이 성공하고 로그에 `Session archive restored`가 나와야 한다. 그 뒤 `SELECT count(*) FROM session_event_archives;`가 `0`이어야 한다(restore는 그 행을 지운다). 0이 아니면 4로 가지 않는다.
 

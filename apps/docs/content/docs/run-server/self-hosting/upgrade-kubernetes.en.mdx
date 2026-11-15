@@ -41,7 +41,15 @@ When you upgrade to the release that takes the object store settings from one pl
 
 Before moving them, check whether the earlier chart ran split. If `api.extraEnv` holds one of these names with a value other than the chart's (`config.*`, defaults included), the session archive job may have moved events into a store the api does not read and deleted their database rows. An archive record holds the object key and version, not the bucket, so once the settings agree those events can no longer be read. Copying the bucket does not stand in for this, because version IDs change. Keep the api's value: the api wrote the checkpoints into its store. If `S3_BUCKET` or `AWS_REGION` in `scheduler.extraEnv` differed from the api's, aligning them changes the isolation stamp that carries them, and each worker is replaced once ([Upgrade compatibility](/run-server/self-hosting/explanation/compatibility)). Before upgrading:
 
-1. Suspend the archive CronJob: `kubectl -n werft patch cronjob werft-session-archive -p '{"spec":{"suspend":true}}'`. `suspend` does not stop a Job already created. Wait until `kubectl -n werft get cronjob werft-session-archive -o jsonpath='{.status.active}'` prints nothing. `status.active` holds every Job that has not finished, including one whose pod is still `Pending`. A list taken earlier misses the sessions an unfinished Job archives after it.
+1. Suspend the archive CronJob: `kubectl -n werft patch cronjob werft-session-archive -p '{"spec":{"suspend":true}}'`. `suspend` does not stop a Job already created. After suspending, wait until the command below prints nothing. It prints each Job this CronJob created that is neither `Complete` nor `Failed`, including one whose pod is still `Pending`. The CronJob's `status.active` is not used: it misses a Job when the controller fails to record it right after creating it. A list taken earlier misses the sessions an unfinished Job archives after it.
+
+   ```bash
+   UID_=$(kubectl -n werft get cronjob werft-session-archive -o jsonpath='{.metadata.uid}')
+   kubectl -n werft get jobs -o json | jq -r --arg uid "$UID_" '.items[]
+     | select(any(.metadata.ownerReferences[]?; .uid == $uid))
+     | select(any(.status.conditions[]?; (.type == "Complete" or .type == "Failed") and .status == "True") | not)
+     | .metadata.name'
+   ```
 2. Run `SELECT DISTINCT session_id FROM session_event_archives;` from your database client to list the archived sessions. With no rows, go to 4.
 3. For each session, create a restore Job from the earlier chart's CronJob. It runs on the same store settings as the CronJob. Every Job must succeed, with `Session archive restored` in its log. Then `SELECT count(*) FROM session_event_archives;` must return `0` (a restore deletes those rows). Do not go on to 4 until it does.
 
