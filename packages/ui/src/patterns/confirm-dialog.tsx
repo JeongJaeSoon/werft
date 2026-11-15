@@ -140,7 +140,7 @@ export function ConfirmDialog({
           {target === undefined || target === null ? null : (
             <span
               data-slot="confirm-target"
-              className="mt-2 block font-semibold text-foreground [overflow-wrap:anywhere]"
+              className="mt-2 block font-medium text-foreground [overflow-wrap:anywhere]"
             >
               {target}
             </span>

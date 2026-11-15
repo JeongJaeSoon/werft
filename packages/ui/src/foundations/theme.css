@@ -53,6 +53,8 @@
   --color-sidebar-selected-text: var(--werft-color-sidebar-selected-text);
   --color-hover: var(--werft-color-hover);
   --color-active: var(--werft-color-active);
+  --color-segment-track: var(--werft-color-segment-track);
+  --color-segment-thumb: var(--werft-color-segment-thumb);
   --color-skeleton: var(--werft-color-skeleton);
   --color-destructive-solid: var(--werft-color-destructive-solid);
   --color-surface: var(--werft-color-surface);
@@ -72,6 +74,11 @@
   --radius-control: var(--werft-radius-control);
   --radius-card: var(--werft-radius-card);
   --shadow-pop: var(--werft-shadow-pop);
+  --shadow-segment-thumb: var(--werft-shadow-segment-thumb);
+  /* Every `transition-*` without its own duration or ease: one curve, and
+     the reduced-motion 0ms comes with the token. */
+  --default-transition-duration: var(--werft-motion-fast);
+  --default-transition-timing-function: var(--werft-motion-ease);
 }
 
 /*

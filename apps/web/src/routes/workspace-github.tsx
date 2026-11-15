@@ -17,6 +17,7 @@ import {
   cn,
   DangerZone,
   DangerZoneRow,
+  EmptyState,
   formatTableDateTime,
   GridTable,
   GridTableCell,
@@ -51,7 +52,7 @@ import {
   useMe,
   useRole,
 } from "../auth/guard.tsx";
-import { GitHubMark } from "../components/brand-marks.tsx";
+import { GitHubTileMark } from "../components/brand-marks.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { RowMenu, RowMenuItem, RowMenuLink } from "../components/row-menu.tsx";
@@ -301,7 +302,7 @@ function GitHubCard({
       <section aria-labelledby={titleId} className={SECTIONS}>
         <div className={CARD}>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
-            <IconTile icon={TileMark} hue="slate" size="two-line" />
+            <IconTile icon={GitHubTileMark} size="two-line" />
             <div className="flex min-w-0 flex-1 flex-col">
               <Heading
                 id={titleId}
@@ -325,17 +326,23 @@ function GitHubCard({
           <Text variant="sub">{t("github.card.hint")}</Text>
         </div>
         {empty ? (
-          <div className="flex flex-col items-start gap-3 rounded-card border bg-card p-4">
-            <Text weight="medium">{t("github.empty.title")}</Text>
-            <Text variant="sub">{t("github.empty.hint")}</Text>
-            {canManage ? (
-              <div className="flex flex-wrap gap-2">
+          <EmptyState
+            framed
+            size="sm"
+            title={t("github.empty.title")}
+            description={t("github.empty.hint")}
+            action={
+              canManage ? (
                 <Button
                   type="button"
                   onClick={(event) => add("new", event.currentTarget)}
                 >
                   {t("github.empty.create")}
                 </Button>
+              ) : undefined
+            }
+            secondaryAction={
+              canManage ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -343,9 +350,9 @@ function GitHubCard({
                 >
                   {t("github.add.existing")}
                 </Button>
-              </div>
-            ) : null}
-          </div>
+              ) : undefined
+            }
+          />
         ) : (
           <>
             <AppList
@@ -421,14 +428,6 @@ function GitHubCard({
         />
       ) : null}
     </>
-  );
-}
-
-function TileMark({ className }: { readonly className?: string }) {
-  return (
-    <GitHubMark
-      className={cn(className, "text-(--werft-color-tile-foreground)")}
-    />
   );
 }
 
@@ -1073,10 +1072,12 @@ function Installations({
   if (rows.length === 0) {
     // No list yet: the call to action lives in the empty box.
     return section(
-      <div className="flex flex-col items-start gap-3 rounded-card border bg-card p-4">
-        <Text variant="sub">{t("github.table.empty")}</Text>
-        {canManage ? addAccount : null}
-      </div>,
+      <EmptyState
+        framed
+        size="sm"
+        title={t("github.table.empty")}
+        action={canManage ? addAccount : undefined}
+      />,
     );
   }
 

@@ -27,7 +27,7 @@ describe("Tabs", () => {
     }
   });
 
-  test("탭은 상태 사이에 바뀌는 글자색·배경·테두리·투명도만 전환하고 reduced motion에서 전환하지 않는다", () => {
+  test("탭은 상태 사이에 바뀌는 글자색·배경·테두리·그림자·투명도만 전환하고 reduced motion에서 전환하지 않는다", () => {
     const { getByRole } = render(
       <Tabs defaultValue="a">
         <TabsList>
@@ -38,7 +38,7 @@ describe("Tabs", () => {
     const classes = getByRole("tab", { name: "개요" }).className.split(" ");
     // opacity: disabled:opacity-50 fades as it did under transition-all.
     expect(classes).toContain(
-      "transition-[color,background-color,border-color,opacity]",
+      "transition-[color,background-color,border-color,box-shadow,opacity]",
     );
     expect(classes).toContain("motion-reduce:transition-none");
     expect(classes).not.toContain("transition-all");
@@ -119,7 +119,7 @@ describe("Tabs", () => {
     expect(classes.some((name) => name.includes("ring-ring"))).toBe(false);
   });
 
-  test("기본 variant 목록은 그대로다", () => {
+  test("기본 variant 목록은 세그먼트와 같은 회색 트랙·흰 알약이고 컨트롤 높이다", () => {
     const { getByRole } = render(
       <Tabs defaultValue="a">
         <TabsList aria-label="보기">
@@ -130,10 +130,19 @@ describe("Tabs", () => {
     const list = getByRole("tablist", { name: "보기" });
     expect(list.getAttribute("data-variant")).toBe("default");
     const classes = list.className.split(" ");
-    expect(classes).toContain("bg-muted");
+    expect(classes).toContain("bg-segment-track");
     expect(classes).toContain("p-[3px]");
-    expect(classes).toContain("group-data-[orientation=horizontal]/tabs:h-9");
+    expect(classes).toContain(
+      "group-data-[orientation=horizontal]/tabs:h-[var(--werft-control-height)]",
+    );
     expect(classes).not.toContain("border-b");
+    const trigger = getByRole("tab", { name: "개요" }).className.split(" ");
+    expect(trigger).toContain(
+      "group-data-[variant=default]/tabs-list:data-[state=active]:bg-segment-thumb",
+    );
+    expect(trigger).toContain(
+      "group-data-[variant=default]/tabs-list:data-[state=active]:shadow-segment-thumb",
+    );
   });
 
   test("개수는 이름 뒤에 읽히고 0도 그리며 countLabel이 있으면 그 문장을 읽는다", () => {

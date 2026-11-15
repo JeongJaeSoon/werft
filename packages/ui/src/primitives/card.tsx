@@ -59,7 +59,7 @@ export function CardTitle({
   return (
     <div
       data-slot="card-title"
-      className={cn("font-semibold text-body leading-5", className)}
+      className={cn("font-medium text-body leading-5", className)}
       {...props}
     />
   );
@@ -72,7 +72,7 @@ export function CardDescription({
   return (
     <div
       data-slot="card-description"
-      className={cn("text-muted-foreground text-body", className)}
+      className={cn("text-description text-muted-foreground", className)}
       {...props}
     />
   );

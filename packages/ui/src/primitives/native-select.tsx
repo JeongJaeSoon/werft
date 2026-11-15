@@ -28,7 +28,7 @@ export function NativeSelect({
         data-size={size}
         className={cn(
           "h-[var(--werft-control-height)] w-full min-w-0 appearance-none rounded-control border border-input bg-card px-3 py-0 pr-10 text-control transition-[color,border-color] disabled:pointer-events-none disabled:cursor-not-allowed data-[size=sm]:h-[var(--werft-control-height-sm)] data-[size=sm]:text-caption motion-reduce:transition-none",
-          "hover:border-subtle-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
+          "enabled:not-aria-invalid:hover:border-subtle-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
           "aria-invalid:border-destructive",
           className,
         )}

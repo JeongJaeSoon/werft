@@ -110,7 +110,7 @@ export function SettingsSection({
               id={titleId}
               ref={titleRef}
               tabIndex={titleRef ? -1 : undefined}
-              className="m-0 font-semibold text-body leading-6"
+              className="m-0 font-medium text-body leading-5"
             >
               {title}
             </Heading>

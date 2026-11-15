@@ -10,10 +10,10 @@ import {
   Text,
 } from "@werft-ai/ui";
 import { type ReactNode, useId } from "react";
+import { SlackTileMark } from "../../../components/brand-marks.tsx";
 import { LoadFailure } from "../../../components/load-failure.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
 import { SETTINGS_CARD } from "../../workspace-settings.tsx";
-import { TileMark } from "../../workspace-slack.tsx";
 import type { SlackApp } from "./actions.ts";
 import {
   unverifiedApp,
@@ -70,7 +70,7 @@ export function SlackHeader({
   return (
     <section aria-labelledby={titleId} className={SETTINGS_CARD}>
       <div className="flex items-center gap-3">
-        <IconTile icon={TileMark} hue="slate" size="two-line" />
+        <IconTile icon={SlackTileMark} size="two-line" />
         <div className="flex min-w-0 flex-1 flex-col">
           <Heading id={titleId} level={2}>
             Slack

@@ -1419,7 +1419,7 @@ function RuleGroup({
   return (
     <>
       <GridTableRow className="min-h-[var(--werft-row-head-min-height)] py-[var(--werft-row-head-padding-y)]">
-        <GridTableCell className="col-span-full font-semibold">
+        <GridTableCell className="col-span-full font-medium">
           {name}
         </GridTableCell>
       </GridTableRow>

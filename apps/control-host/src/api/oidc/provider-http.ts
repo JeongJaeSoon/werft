@@ -9,10 +9,31 @@ const MAX_BODY_BYTES = 1024 * 1024;
  * `refuse`: https only, and never a loopback address. `loopback`: plain http
  * to a loopback host as well, for an installation whose console is itself on
  * loopback.
+ *
+ * `privateHosts` set: a narrower policy, for URLs a workspace admin rather
+ * than the operator chose. Only those host:port entries may be plain http or
+ * resolve to a private or loopback address; every other host must be https
+ * and public. `plainHttp` is not read then.
  */
-export type NetworkPolicy = { plainHttp: "refuse" | "loopback" };
+export type NetworkPolicy = {
+  plainHttp: "refuse" | "loopback";
+  privateHosts?: readonly string[];
+};
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/** `host:port` as the egress allowlists write it, the port always present. */
+export function hostPortOf(url: URL): string {
+  const host = url.hostname
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.$/, "")
+    .toLowerCase();
+  const port = url.port || (url.protocol === "https:" ? "443" : "80");
+  return `${host}:${port}`;
+}
+
+const insidePrivate = (url: URL, policy: NetworkPolicy): boolean =>
+  policy.privateHosts?.includes(hostPortOf(url)) ?? false;
 
 /** Null when the URL is one this client may send a request or a browser to. */
 export function endpointProblem(
@@ -26,6 +47,9 @@ export function endpointProblem(
   }
   if (url.protocol === "https:") return null;
   if (url.protocol !== "http:") return "invalid_url";
+  if (policy.privateHosts !== undefined) {
+    return insidePrivate(url, policy) ? null : "insecure_endpoint";
+  }
   if (policy.plainHttp === "loopback" && LOOPBACK_HOSTS.has(url.hostname)) {
     return null;
   }
@@ -156,6 +180,12 @@ export type ProviderRequestInit = {
   body?: string;
 };
 export type ProviderResponse = { status: number; text: string };
+export type PinnedResponse = ProviderResponse & { headers: Headers };
+export type PinnedRequest = (
+  url: string,
+  init: ProviderRequestInit,
+  policy: NetworkPolicy,
+) => Promise<PinnedResponse>;
 /**
  * One request to a provider endpoint. Throws OidcUnavailableError when it
  * did not complete, answered 5xx, or may not be sent; any other answer,
@@ -200,7 +230,7 @@ export function createProviderRequest(
     /** The signal that ends one request; a test passes its own. */
     deadline?: () => AbortSignal;
   } = {},
-): ProviderRequest {
+): PinnedRequest {
   const lookup: Lookup =
     deps.lookup ?? ((host) => dnsLookup(host, { all: true }));
   const send = deps.fetch ?? fetch;
@@ -241,13 +271,18 @@ export function createProviderRequest(
         "Provider name did not resolve",
       );
     }
+    const narrow = policy.privateHosts !== undefined;
+    const inside = insidePrivate(original, policy);
     // Every answer is judged, not only the one used: a name that can resolve
     // to a refused address is refused.
     for (const { address } of answers) {
       const addressClass = classifyAddress(address);
       if (
         REFUSED_CLASSES.includes(addressClass) ||
-        (addressClass === "loopback" && policy.plainHttp === "refuse")
+        (narrow
+          ? !inside &&
+            (addressClass === "private" || addressClass === "loopback")
+          : addressClass === "loopback" && policy.plainHttp === "refuse")
       ) {
         throw new OidcUnavailableError(
           "address_not_allowed",
@@ -302,7 +337,7 @@ export function createProviderRequest(
         `Provider answered ${response.status}`,
       );
     }
-    return { status: response.status, text };
+    return { status: response.status, text, headers: response.headers };
   };
 }
 

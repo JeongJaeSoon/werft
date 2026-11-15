@@ -43,7 +43,7 @@ export const settingsKo = {
     "다른 연결이 이 연결의 옛 정의와 같아 키를 옮길 수 없습니다.",
   "settings.value": "값",
   "settings.save": "저장",
-  "settings.saving": "저장 중…",
+  "settings.saving": "저장하는 중…",
   "settings.create": "만들기",
   "settings.creating": "만드는 중…",
   "settings.disable": "사용 중지",
@@ -121,7 +121,7 @@ export const settingsKo = {
     "이 연결의 모델이 자동 모드(auto) 분류기를 실행하는지 기록합니다. '지원함'이면 실행 모드가 기본·편집 허용·묻지 않음·계획인 에이전트가 각 세션의 다음 claim부터 auto로 실행됩니다. 실행 중인 세션은 현재 실행을 마칠 때까지 그대로입니다. '지원 안 함'과 '모름'은 지금 방식(기본 모드와 승인)을 유지합니다.",
   "settings.autoMode.label": "판정",
   "settings.autoMode.save": "저장",
-  "settings.autoMode.saving": "저장하는 중",
+  "settings.autoMode.saving": "저장하는 중…",
   "settings.done.autoMode": "{id}의 자동 모드를 '{value}'(으)로 기록했습니다.",
   "settings.connections.egressWarning":
     "{host}는 egress 자격 증명 허용 목록에 없습니다. 저장은 되지만, 세션이 이 키로 나가려면 운영자가 EGRESS_CREDENTIAL_ALLOWLIST에 더해야 합니다.",
@@ -161,7 +161,7 @@ export const settingsKo = {
   "settings.models.hint":
     "공급자가 쓰는 모델 이름 그대로 적습니다. 쉼표로 나눠도 됩니다.",
   "settings.models.save": "모델 저장",
-  "settings.models.saving": "저장 중…",
+  "settings.models.saving": "저장하는 중…",
   "settings.done.models": "{id}의 모델 {count}개를 저장했습니다.",
   "home.setup.models": "모델 연결에 모델 정하기",
   "home.setup.modelsHint": "연결마다 에이전트가 고를 수 있는 모델을 적습니다.",
@@ -286,7 +286,7 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
     "Record whether this connection's models run the auto-mode classifier. With 'Supported', agents whose mode is default, accept edits, don't ask or plan run as auto from the next claim of each session. Running sessions keep their current run. 'Not supported' and 'Unknown' keep today's behaviour (default mode with approvals).",
   "settings.autoMode.label": "Support",
   "settings.autoMode.save": "Save",
-  "settings.autoMode.saving": "Saving",
+  "settings.autoMode.saving": "Saving…",
   "settings.done.autoMode": "Recorded auto mode '{value}' for {id}.",
   "settings.connections.egressWarning":
     "{host} is not on the egress credential allowlist. It saves, but for a session to go out with this key the operator must add it to EGRESS_CREDENTIAL_ALLOWLIST.",
@@ -453,7 +453,7 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
     "この接続のモデルが自動モード(auto)の分類器を実行できるかを記録します。「対応」にすると、実行モードが既定・編集許可・確認しない・計画のエージェントが、各セッションの次の claim から auto で実行されます。実行中のセッションは現在の実行が終わるまで変わりません。「非対応」と「不明」は現在の動作(既定モードと承認)のままです。",
   "settings.autoMode.label": "判定",
   "settings.autoMode.save": "保存",
-  "settings.autoMode.saving": "保存中",
+  "settings.autoMode.saving": "保存中…",
   "settings.done.autoMode": "{id} の自動モードを「{value}」と記録しました。",
   "settings.connections.egressWarning":
     "{host} は egress 資格情報の許可リストにありません。保存はできますが、セッションがこのキーで外に出るには運用者が EGRESS_CREDENTIAL_ALLOWLIST に追加する必要があります。",

@@ -46,7 +46,6 @@ export { FormActions } from "./form-actions.tsx";
 export {
   IconTile,
   type IconTileProps,
-  type TileHue,
   type TileIcon,
 } from "./icon-tile.tsx";
 export {

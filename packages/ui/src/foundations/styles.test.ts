@@ -293,6 +293,17 @@ describe("tokens.css", () => {
       const pairs: [string[], string[]][] = [
         [TEXT, SURFACES],
         [TEXT, ["--werft-color-sidebar-hover", "--werft-color-sidebar-accent"]],
+        // The segment track is sidebar-hover (above). Its thumb is the
+        // surface in light; in dark it has a value of its own, under the
+        // picked label and its count (never the quiet subtle text).
+        ...(theme === "light"
+          ? []
+          : ([
+              [
+                ["--werft-color-foreground", "--werft-color-muted-foreground"],
+                ["--werft-color-segment-thumb"],
+              ],
+            ] as [string[], string[]][])),
         [
           ["--werft-color-sidebar-selected-text"],
           ["--werft-color-sidebar-selected"],
@@ -408,21 +419,8 @@ describe("tokens.css", () => {
       // A chart's bars, in the accent, on the cards they sit on.
       ["--werft-color-accent", "--werft-color-surface", 3],
       ["--werft-color-accent", "--werft-color-surface-sunken", 3],
-      // An icon tile's glyph on its hue.
-      ...[
-        "blue",
-        "violet",
-        "orange",
-        "green",
-        "pink",
-        "teal",
-        "sky",
-        "slate",
-      ].map((hue): [string, string, number] => [
-        "--werft-color-tile-foreground",
-        `--werft-color-tile-${hue}`,
-        3,
-      ]),
+      // An icon tile's glyph on the tile.
+      ["--werft-color-tile-foreground", "--werft-color-tile", 3],
       // A switch's track, on or off, on the page.
       ...[
         "--werft-color-surface",

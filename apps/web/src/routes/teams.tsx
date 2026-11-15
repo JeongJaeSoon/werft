@@ -43,13 +43,14 @@ import {
   Input,
   NativeSelect,
   NativeSelectOption,
+  RemoveButton,
   RowAction,
   SettingsSection,
   TableTime,
   Text,
   Link as TextLink,
 } from "@werft-ai/ui";
-import { ChevronRight, Plus, X } from "lucide-react";
+import { ChevronRight, Plus } from "lucide-react";
 import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
 import {
   agentSummariesQuery,
@@ -1101,9 +1102,7 @@ function AddMembersForm({
               <span className="max-w-48 truncate" title={member.email}>
                 {member.display_name}
               </span>
-              <button
-                type="button"
-                className="inline-grid size-5 cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-hover hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus-ring disabled:cursor-default disabled:opacity-50"
+              <RemoveButton
                 aria-label={t("teams.unpick", { name: member.display_name })}
                 disabled={pending}
                 onClick={() => {
@@ -1113,9 +1112,7 @@ function AddMembersForm({
                   // The button leaves with its person; the search box keeps the keyboard.
                   document.getElementById(pickerId)?.focus();
                 }}
-              >
-                <X aria-hidden="true" className="size-3" strokeWidth={2} />
-              </button>
+              />
             </li>
           ))}
         </ul>

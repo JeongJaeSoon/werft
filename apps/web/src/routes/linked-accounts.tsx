@@ -15,6 +15,7 @@ import {
   cn,
   formatTimestamp,
   Heading,
+  IconTile,
   Page,
   RowAction,
   RowLines,
@@ -22,21 +23,16 @@ import {
   RowListItem,
   Text,
   Link as TextLink,
+  type TileIcon,
 } from "@werft-ai/ui";
-import {
-  type ReactNode,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { linkedAccountsQuery, queryKeysOf } from "../api/queries.ts";
 import { refusalText, useMe, useRole } from "../auth/guard.tsx";
 import { FormError } from "../components/auth-page.tsx";
 import {
-  GitHubMark,
-  GoogleDriveMark,
-  SlackMark,
+  GitHubTileMark,
+  GoogleDriveTileMark,
+  SlackTileMark,
 } from "../components/brand-marks.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
@@ -237,9 +233,7 @@ export function LinkedAccountsScreen() {
         />
         <li>
           <div className={SERVICE_ROW}>
-            <ServiceMark>
-              <SlackMark />
-            </ServiceMark>
+            <IconTile icon={SlackTileMark} size="two-line" />
             <RowLines>
               <span className="flex flex-wrap items-center gap-2">
                 <Heading
@@ -305,7 +299,7 @@ export function LinkedAccountsScreen() {
           )}
         </li>
         <SoonService
-          mark={<GoogleDriveMark />}
+          mark={GoogleDriveTileMark}
           name="Google Workspace"
           use={t("linked.use.google")}
         />
@@ -353,17 +347,6 @@ function accountName(account: LinkedAccount, t: Translate): string {
       });
 }
 
-function ServiceMark({ children }: { readonly children: ReactNode }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="grid size-(--werft-size-tile-two-line) shrink-0 place-items-center self-start rounded-control bg-muted font-semibold text-caption text-muted-foreground"
-    >
-      {children}
-    </span>
-  );
-}
-
 // GitHub's address for the account whatever its email settings; the same
 // rule the server applies (contracts githubNoreplyEmail).
 const noreplyOf = (account: LinkedAccount) =>
@@ -405,9 +388,7 @@ function GitHubService({
   return (
     <li>
       <div className={SERVICE_ROW}>
-        <ServiceMark>
-          <GitHubMark />
-        </ServiceMark>
+        <IconTile icon={GitHubTileMark} size="two-line" />
         <RowLines>
           <span className="flex flex-wrap items-center gap-2">
             <Heading>GitHub</Heading>
@@ -502,14 +483,14 @@ function SoonService({
   name,
   use,
 }: {
-  readonly mark: ReactNode;
+  readonly mark: TileIcon;
   readonly name: string;
   readonly use: string;
 }) {
   const { t } = useI18n();
   return (
     <li data-soon="true" className={SERVICE_ROW}>
-      <ServiceMark>{mark}</ServiceMark>
+      <IconTile icon={mark} size="two-line" />
       <RowLines>
         <span className="flex flex-wrap items-center gap-2">
           <Heading>{name}</Heading>

@@ -1,7 +1,7 @@
 import {
   Button,
-  cn,
   Link,
+  MenuItem,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -26,9 +26,6 @@ export const focusBack =
     event.preventDefault();
     opener.focus();
   };
-
-const ITEM =
-  "flex w-full items-center gap-1 rounded-control px-2 py-1.5 text-start text-control text-foreground no-underline hover:bg-hover focus-visible:bg-hover focus-visible:outline-none";
 
 const itemsOf = (menu: HTMLElement) =>
   Array.from(
@@ -147,29 +144,28 @@ export function RowMenuItem({
   const reasonId = useId();
   const disabled = reason !== undefined;
   return (
-    <button
-      type="button"
+    <MenuItem
       role="menuitem"
       tabIndex={-1}
+      tone={disabled ? "default" : tone}
       aria-disabled={disabled || undefined}
       // Named by its label alone; the reason under it is its description.
       aria-labelledby={disabled ? labelId : undefined}
       aria-describedby={disabled ? reasonId : undefined}
-      className={cn(
-        ITEM,
+      className={
         disabled
-          ? "cursor-not-allowed flex-col items-start text-muted-foreground hover:bg-transparent"
-          : tone === "danger" && "text-(color:--werft-tone-danger-fg)",
-      )}
+          ? "h-auto cursor-not-allowed flex-col items-start gap-0.5 py-2"
+          : undefined
+      }
       onClick={disabled ? undefined : onSelect}
     >
       <span id={labelId}>{children}</span>
       {disabled ? (
-        <span id={reasonId} className="text-caption text-subtle-foreground">
+        <span id={reasonId} className="text-caption text-muted-foreground">
           {reason}
         </span>
       ) : null}
-    </button>
+    </MenuItem>
   );
 }
 
@@ -187,17 +183,19 @@ export function RowMenuLink({
   readonly children: ReactNode;
 }) {
   return (
-    <Link
-      role="menuitem"
-      tabIndex={-1}
-      href={href}
-      target="_blank"
-      newTabLabel={newTabLabel}
-      className={cn(ITEM, "font-normal hover:no-underline")}
-      onClick={onSelect}
-    >
-      {children}
-      <ArrowUpRight aria-hidden="true" className="size-3.5 shrink-0" />
-    </Link>
+    <MenuItem asChild>
+      <Link
+        role="menuitem"
+        tabIndex={-1}
+        href={href}
+        target="_blank"
+        newTabLabel={newTabLabel}
+        className="font-normal hover:no-underline"
+        onClick={onSelect}
+      >
+        {children}
+        <ArrowUpRight aria-hidden="true" className="size-3.5 shrink-0" />
+      </Link>
+    </MenuItem>
   );
 }
