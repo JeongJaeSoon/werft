@@ -839,9 +839,13 @@ function ProviderSettings({
           </>
         }
       />
-      <DangerZone title={t("workspace.danger")}>
+      {/* Sections here sit a block apart; the danger zone sits a section apart. */}
+      <DangerZone
+        title={t("workspace.danger")}
+        className="mt-[calc(var(--werft-space-section)-var(--werft-space-block))]"
+      >
         <DangerZoneRow
-          title={t("loginProviders.disable")}
+          title={t("loginProviders.disableRow")}
           description={t("loginProviders.disableDescription")}
           actionLabel={t("loginProviders.disable")}
           disabled={busy}
@@ -855,7 +859,7 @@ function ProviderSettings({
           onAction={() => open("disable")}
         />
         <DangerZoneRow
-          title={t("loginProviders.delete")}
+          title={t("loginProviders.deleteRow")}
           description={t("loginProviders.deleteDescription")}
           actionLabel={t("loginProviders.delete")}
           disabled={busy}

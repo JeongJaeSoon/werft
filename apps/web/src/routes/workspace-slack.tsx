@@ -450,7 +450,6 @@ function SlackCard({
             title={t("workspace.tokenDelete")}
             description={t("workspace.tokenDeleteHint")}
             actionLabel={t("workspace.delete")}
-            actionName={t("workspace.tokenDelete")}
             disabled={remove.isPending}
             onAction={onDelete}
           />

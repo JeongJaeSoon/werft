@@ -117,7 +117,7 @@ export const slackJa = {
   "slack.deleteWarning":
     "Slack からアプリを削除し、保存した認証情報も削除します。元に戻せません。もう一度接続すると新しいアプリが作られます。",
   "slack.deleted": "Slack アプリを削除しました。",
-  "slack.revoke": "接続解除",
+  "slack.revoke": "接続を解除",
   "slack.revokeTitle": "Slack の接続を解除",
   "slack.revokeWarning":
     "このエージェントの Slack ID とチャンネル接続を解除します。以後のイベントは受信しません。Slack アプリは残り、再インストールできます。",
@@ -171,7 +171,6 @@ export const slackJa = {
   "slack.homeUnset": "未選択",
   "slack.channelId": "チャンネル ID: {id}",
   "slack.channelsLoading": "チャンネルを読み込み中",
-  "slack.danger": "危険な操作",
   "slack.botId": "ボット ID",
   "slack.mentionOnlyHint":
     "オンにすると @メンションされたときだけ、オフにするとメンションがなくてもチャンネルへの投稿に応答します。どちらでも、すでに会話中のスレッドの返信にはメンションなしで応答します。",

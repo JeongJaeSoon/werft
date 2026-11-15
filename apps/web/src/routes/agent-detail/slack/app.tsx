@@ -459,7 +459,7 @@ export function SlackDangerSection({ slack }: { readonly slack: SlackApp }) {
         <DangerZoneRow
           title={t("slack.deleteTitle")}
           description={t("slack.deleteWarning")}
-          actionLabel={t("slack.delete")}
+          actionLabel={t("workspace.delete")}
           // A delete Slack refused leaves the app "deleting"; asking
           // again is how it finishes.
           disabled={busy || record.state === "creating" || !me?.workspace}

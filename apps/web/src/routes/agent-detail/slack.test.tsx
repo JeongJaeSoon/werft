@@ -1769,7 +1769,11 @@ describe("Slack management", () => {
     });
     const user = await setupUser();
     await screen.findByRole("navigation", { name: "Slack 구역" });
-    await user.click(await screen.findByRole("button", { name: "연결 해제" }));
+    const revoke = await screen.findByRole("button", {
+      name: "Slack 연결 해제",
+    });
+    expect(revoke.textContent).toBe("연결 해제");
+    await user.click(revoke);
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", {
         name: "연결 해제",
@@ -1823,7 +1827,7 @@ describe("Slack management", () => {
       });
       const user = await setupUser();
       await user.click(
-        await screen.findByRole("button", { name: "연결 해제" }),
+        await screen.findByRole("button", { name: "Slack 연결 해제" }),
       );
       await user.click(
         within(await screen.findByRole("dialog")).getByRole("button", {
@@ -2421,7 +2425,9 @@ describe("Slack management", () => {
       },
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "앱 삭제" }));
+    const remove = await screen.findByRole("button", { name: "Slack 앱 삭제" });
+    expect(remove.textContent).toBe("삭제");
+    await user.click(remove);
     expect(api.calls.some((call) => call.method === "DELETE")).toBe(false);
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", {
@@ -2447,7 +2453,7 @@ describe("Slack management", () => {
       },
     });
     const user = await setupUser();
-    const remove = await screen.findByRole("button", { name: "앱 삭제" });
+    const remove = await screen.findByRole("button", { name: "Slack 앱 삭제" });
     expect((remove as HTMLButtonElement).disabled).toBe(false);
     expect(
       (
@@ -2481,7 +2487,7 @@ describe("Slack management", () => {
     const user = await setupUser();
     const nav = await screen.findByRole("navigation", { name: "Slack 구역" });
     expect(within(nav).getByRole("link", { name: "위험 구역" })).toBeDefined();
-    await user.click(screen.getByRole("button", { name: "앱 삭제" }));
+    await user.click(screen.getByRole("button", { name: "Slack 앱 삭제" }));
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", {
         name: "앱 삭제",

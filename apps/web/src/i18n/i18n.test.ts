@@ -103,9 +103,29 @@ describe("i18n", () => {
           label,
         );
       }
-      expect(catalogs[locale]["workspace.danger"]).toBe(
-        catalogs[locale]["slack.danger"],
-      );
+    }
+  });
+
+  // A danger zone button shows the verb and is named after its row, so the
+  // verb has to appear unbroken in the row title (label in name).
+  test("every danger zone button's word is inside its row title", () => {
+    const rows = [
+      ["teams.delete", "workspace.delete"],
+      ["workspace.tokenDelete", "workspace.delete"],
+      ["github.apps.removeRow", "github.apps.remove"],
+      ["agentGitHub.disableRow", "agentGitHub.disableConfirm"],
+      ["slack.deleteTitle", "workspace.delete"],
+      ["slack.revokeTitle", "slack.revoke"],
+      ["loginProviders.disableRow", "loginProviders.disable"],
+      ["loginProviders.deleteRow", "loginProviders.delete"],
+    ] as const;
+    for (const locale of LOCALES) {
+      for (const [title, button] of rows) {
+        const name = catalogs[locale][title].replace("{name}", "werft-review");
+        expect(name.toLocaleLowerCase(locale), `${locale} ${title}`).toContain(
+          catalogs[locale][button].toLocaleLowerCase(locale),
+        );
+      }
     }
   });
 

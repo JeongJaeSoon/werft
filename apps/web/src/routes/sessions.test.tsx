@@ -1009,6 +1009,10 @@ describe("sessions list", () => {
           : apiError(400, "INVALID_REQUEST", "wrong relation"),
     });
     const tabs = await screen.findByRole("group", { name: "상태로 보기" });
+    // Six counted tabs do not fit a phone: one line that scrolls sideways.
+    expect((tabs.parentElement as HTMLElement).dataset.slot).toBe(
+      "segmented-control-scroll",
+    );
     await waitFor(() =>
       expect(
         within(tabs)
