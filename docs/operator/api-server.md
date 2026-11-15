@@ -619,11 +619,21 @@ docker compose exec -T api bun run apps/control-host/src/api/login-recovery.ts r
 
 명령이 바꾼 것은 receipt로 남는다(`set_password_login`, `disable_login_provider`, `issue_password_reset`, `reset_password`). 사람이 아니라 명령이 한 것이라 `actor`는 비어 있고 `result`의 `by` 또는 `issued_by`가 `operator_cli`다.
 
-### workspace key, 개인 key, 오프보딩
+### 운영자 key, 개인 key, 오프보딩
 
 `keys create <owner_id>`로 만든 key는 운영자 key(`kind: operator`)다. workspace 밖에서 그 owner를 partition으로 쓴다. `<owner_id>` 자리에 workspace id를 주면 거절한다. `keys create --workspace <workspace_id> --personal <user_id> --scopes …`는 그 멤버의 개인 key를 만든다. 그 workspace를 partition으로 쓰므로 웹에서 만든 세션을 API에서도 같은 목록으로 본다. `--workspace`는 `--personal` 없이 쓸 수 없다. workspace 전체에 닿는 key는 없다. 개인 key는 key scope와 만든 사람의 지금 역할이 허용하는 scope의 교집합만 갖는다(`/v1/auth/me`의 `scopes`도 그 교집합을 보여 준다). 만든 사람의 계정이나 그 workspace의 membership이 비활성이 되면 다음 요청부터 `401`을 받는다. 에이전트 key는 사람과 무관하게 계속 동작한다. 이 판정은 요청마다 DB를 다시 읽어서 한다. API key는 scope와 관계없이 관리 action(인수 목록·세션 인수·key 발급 등)을 할 수 없다(`403`). 관리 action은 사람의 cookie 세션으로만 한다. 누가 무엇을 하는지는 아래 역할 표를 따른다.
 
-누가 했는지는 새로 쓰는 행에 남는다. cookie로 만든 세션은 `sessions.workspace_id`·`created_by_user_id`를, key로 만든 세션은 `created_by_api_key_id`를 기록한다(개인 key는 만든 사람도 함께 기록한다). turn은 `actor_id`를, receipt는 `actor`를 남긴다. 에이전트 key는 key만 기록하고 사람은 기록하지 않는다. 0136 migration은 사람을 추측하지 않는다. `owner_id`가 workspace id인 세션만 `workspace_id`를 채우고(채운 수는 migration NOTICE로 나온다), 나머지 actor 컬럼은 기존 행에서 비워 둔다.
+누가 했는지는 새로 쓰는 행에 남는다. cookie로 만든 세션은 `sessions.workspace_id`·`created_by_user_id`를, key로 만든 세션은 `created_by_api_key_id`를 기록한다(개인 key는 만든 사람도 함께 기록한다). turn은 `actor_id`를, receipt는 `actor`를 남긴다. 에이전트 key는 key만 기록하고 사람은 기록하지 않는다. 자격별로 남는 값은 아래와 같다.
+
+| 기록 | 개인 key | 에이전트 key | cookie(웹) |
+|---|---|---|---|
+| 세션 응답 `created_by` | key를 만든 사람 | `null` | 로그인한 사람 |
+| `sessions.created_by_user_id` / `created_by_api_key_id` | 그 사람 / 그 key | 비어 있음 / 그 key | 그 사람 / 비어 있음 |
+| `turns.actor_id` / `requester_kind`·`requester_id` | 그 사람 / `user`·그 사람 | 비어 있음 / `api_key`·그 key | 그 사람 / `user`·그 사람 |
+| 회답 `answered_by`(`pending_requests.answered_by`, 답변 응답의 `approval.answered_by`) | `principal: {kind: "api_key", id: <key>}`, `actor_user_id`: 그 사람 | `principal: {kind: "api_key", id: <key>}`, `actor_user_id: null`, `agent_id`: 그 key의 에이전트 | `principal: {kind: "user", id: <사람>}`, `actor_user_id`: 그 사람 |
+| receipt `actor`(`GET /v1/receipts/{id}`) | 회답과 같은 모양 | 회답과 같은 모양 | 회답과 같은 모양 |
+
+사람을 찾을 때는 세션은 `created_by`(또는 `created_by_user_id`), 회답과 receipt는 `actor_user_id`를 읽는다. `principal`이 `api_key`면 그 `id`로 어느 key였는지 알 수 있다. 에이전트 key가 한 일에는 사람이 없고, 그 key를 누가 발급했는지는 key 목록의 `created_by`로 따로 본다. 회답이 어느 표면에서 왔는지는 `pending_requests.answer_surface`(`web`·`api`·`slack`)에 남는다. 개인 key와 에이전트 key 모두 `sessions:approve`를 가질 수 있지만, 어느 key도 그 key가 시작한 세션의 요청에는 답하지 못한다(`403`, `reason_code: self_approval`, 실패 receipt). 같은 사람이 웹이나 다른 key로 답하는 것은 막지 않는다. 0136 migration은 사람을 추측하지 않는다. `owner_id`가 workspace id인 세션만 `workspace_id`를 채우고(채운 수는 migration NOTICE로 나온다), 나머지 actor 컬럼은 기존 행에서 비워 둔다.
 
 멤버 목록은 owner나 admin의 cookie 세션으로 `GET /v1/members`다(`member.manage` 판정). 비활성 멤버도 포함해 오래된 membership부터 `limit`개씩(기본 50, 최대 100) 돌려준다. 응답 `next_cursor`를 다음 요청의 `cursor`로 넘기고, 마지막 페이지에서는 `null`이다. `q`(앞뒤 공백을 빼고 1–200자)는 이름이나 이메일에 그 글자가 들어 있는 멤버만 남긴다. 대소문자는 가리지 않고 `%`·`_`도 글자 그대로 찾는다. 길이를 벗어나거나 cursor가 틀리면 `400`이다.
 
