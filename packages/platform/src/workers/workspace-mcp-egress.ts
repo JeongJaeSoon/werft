@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type {
   WorkspaceMcpEgressStore,
   WorkspaceMcpRefusalReason,
@@ -27,7 +28,7 @@ export type WorkspaceMcpCallCredential =
 
 const REFUSAL_MESSAGES: Record<WorkspaceMcpRefusalReason, string> = {
   workspace_server_unavailable:
-    "The workspace MCP server is gone or no longer on for this agent",
+    "The workspace MCP server is gone, moved, or no longer on for this agent",
   oauth_needs_reauth:
     "The workspace MCP server has to be connected again by a workspace admin",
   credential_unavailable:
@@ -137,10 +138,35 @@ export function createWorkspaceMcpEgress(deps: {
     if (credential === null) return refuse("credential_unavailable");
     const token =
       credential.kind === "bearer" ? credential.token : credential.accessToken;
+    if (method === "tools/call" && tool !== null && !request.regrant) {
+      const recorded = await store.recordCall({
+        id: randomUUID(),
+        ownerId: state.ownerId,
+        sessionId: fenced.sessionId,
+        turnId: state.turnId,
+        actor: state.actor,
+        result: {
+          attempt_id: fenced.attemptId,
+          agent_id: state.agentId,
+          release_id: state.releaseId,
+          server_id: request.server,
+          workspace_server_id: state.serverId,
+          connection_generation: state.connection.generation,
+          tool,
+        },
+      });
+      // Reconnected since the state was read: the credential may be the
+      // new connection's, which the receipt would not name.
+      if (!recorded) return refuse("credential_unavailable");
+    }
+    const at = new URL(state.url);
     return {
       kind: "granted",
       upstream: {
-        url: state.url,
+        url: `${at.origin}${at.pathname}`,
+        // As registered: the proxy would trim a trailing slash from `url`
+        // and refuses a query in it.
+        target: `${at.pathname}${at.search}`,
         headers: [["authorization", `Bearer ${token}`]],
       },
     };

@@ -6,6 +6,7 @@ import {
   deniedMcpTools,
   type SessionWorkspaceMcp,
   visibleMcpTools,
+  type WorkspaceMcpCallRecord,
   type WorkspaceMcpEgressStore,
   type WorkspaceMcpRefusalRecord,
   type WorkspaceMcpSessionState,
@@ -44,10 +45,12 @@ async function releaseDenyOf(
 }
 
 /**
- * The workspace servers a claimed session started with, each with the
- * snapshot's tools less the release's denies; a server left with none, or
- * deleted since, is not claimed. Both are fixed for the session, so every
- * claim of it hands the worker the same entries.
+ * The workspace servers a claimed session started with, at the snapshot's
+ * URL with its tools less the release's denies; a server left with none is
+ * not claimed. A server deleted or moved since stays, for its egress to
+ * refuse: the checkpoint fingerprint names every entry, so every claim of
+ * the session hands the worker the same ones. A snapshot without URLs takes
+ * each from the row, and leaves out a server deleted since.
  */
 export async function sessionWorkspaceMcpOf(
   executor: Database,
@@ -67,21 +70,25 @@ export async function sessionWorkspaceMcpOf(
   }
   const release = await releaseDenyOf(executor, session.agentReleaseId);
   if (release === null) return [];
-  const rows = await executor
-    .select({ id: workspaceMcpServers.id, url: workspaceMcpServers.url })
-    .from(workspaceMcpServers)
-    .where(
-      and(
-        eq(workspaceMcpServers.workspaceId, session.workspaceId),
-        inArray(
-          workspaceMcpServers.id,
-          snapshot.map((server) => server.id),
-        ),
-      ),
-    );
+  const unkept = snapshot.filter((server) => server.url === undefined);
+  const rows =
+    unkept.length === 0
+      ? []
+      : await executor
+          .select({ id: workspaceMcpServers.id, url: workspaceMcpServers.url })
+          .from(workspaceMcpServers)
+          .where(
+            and(
+              eq(workspaceMcpServers.workspaceId, session.workspaceId),
+              inArray(
+                workspaceMcpServers.id,
+                unkept.map((server) => server.id),
+              ),
+            ),
+          );
   const urls = new Map(rows.map((row) => [row.id, row.url]));
   return snapshot.flatMap((server) => {
-    const url = urls.get(server.id);
+    const url = server.url ?? urls.get(server.id);
     const tools = visibleMcpTools(server.name, server.tools, release.deny);
     return url === undefined || tools.length === 0
       ? []
@@ -193,7 +200,10 @@ export function createPostgresWorkspaceMcpEgressStore(
         releaseId: session.agentReleaseId,
         serverId: started.id,
         available:
-          row !== undefined && row.name === started.name && row.on !== null,
+          row !== undefined &&
+          row.name === started.name &&
+          (started.url === undefined || row.url === started.url) &&
+          row.on !== null,
         url: row?.url ?? null,
         connection:
           row === undefined
@@ -227,6 +237,46 @@ export function createPostgresWorkspaceMcpEgressStore(
             actor: record.actor,
           })
           .onConflictDoNothing({ target: receipts.id });
+      });
+    },
+
+    async recordCall(record: WorkspaceMcpCallRecord): Promise<boolean> {
+      return await db.transaction(async (tx) => {
+        // Held until the receipt is in: a reconnect waits, so the
+        // generation named is the one whose credential was read.
+        const [connection] = await tx
+          .select({ generation: workspaceMcpConnections.generation })
+          .from(workspaceMcpConnections)
+          .where(
+            and(
+              eq(
+                workspaceMcpConnections.serverId,
+                record.result.workspace_server_id,
+              ),
+              eq(workspaceMcpConnections.subject, SUBJECT),
+              eq(workspaceMcpConnections.state, "active"),
+              eq(
+                workspaceMcpConnections.generation,
+                record.result.connection_generation,
+              ),
+            ),
+          )
+          .for("share");
+        if (connection === undefined) return false;
+        await tx.insert(receipts).values({
+          id: record.id,
+          ownerId: record.ownerId,
+          operation: "call_mcp",
+          targetRef: {
+            session_id: record.sessionId,
+            turn_id: record.turnId,
+            request_id: null,
+          },
+          status: "accepted",
+          result: record.result,
+          actor: record.actor,
+        });
+        return true;
       });
     },
   };

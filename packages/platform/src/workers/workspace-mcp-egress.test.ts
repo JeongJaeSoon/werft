@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type {
+  WorkspaceMcpCallRecord,
   WorkspaceMcpEgressStore,
   WorkspaceMcpRefusalRecord,
   WorkspaceMcpSessionState,
@@ -35,9 +36,13 @@ function egress(
   options: {
     credential?: WorkspaceMcpCallCredential | null;
     failRecord?: boolean;
+    // The connection moved before the call's receipt was written.
+    moved?: boolean;
+    failCall?: boolean;
   } = {},
 ) {
   const recorded: WorkspaceMcpRefusalRecord[] = [];
+  const calls: WorkspaceMcpCallRecord[] = [];
   const asked: Array<{ server: string }> = [];
   const credentialCalls: Array<[string, string]> = [];
   const store: WorkspaceMcpEgressStore = {
@@ -48,6 +53,12 @@ function egress(
     async recordRefusal(record) {
       if (options.failRecord) throw new Error("db down");
       recorded.push(record);
+    },
+    async recordCall(record) {
+      if (options.failCall) throw new Error("db down");
+      if (options.moved) return false;
+      calls.push(record);
+      return true;
     },
   };
   const errors: unknown[] = [];
@@ -61,7 +72,7 @@ function egress(
     },
     onReceiptError: (error) => errors.push(error),
   });
-  return { decide, recorded, asked, credentialCalls, errors };
+  return { decide, recorded, calls, asked, credentialCalls, errors };
 }
 
 describe("createWorkspaceMcpEgress", () => {
@@ -73,7 +84,7 @@ describe("createWorkspaceMcpEgress", () => {
   });
 
   test("grants a stored tool and the handshake with the row's URL and the stored credential", async () => {
-    const { decide, recorded, credentialCalls } = egress();
+    const { decide, recorded, calls, credentialCalls } = egress();
     for (const request of [
       call("search"),
       call(null, "initialize"),
@@ -86,12 +97,69 @@ describe("createWorkspaceMcpEgress", () => {
         kind: "granted",
         upstream: {
           url: "https://docs.example.test/mcp",
+          target: "/mcp",
           headers: [["authorization", "Bearer example-static-value"]],
         },
       });
     }
     expect(recorded).toEqual([]);
     expect(credentialCalls[0]).toEqual(["ws-1", SERVER_ID]);
+    // Only the tool call is a call on the server's account.
+    expect(calls).toEqual([
+      {
+        id: expect.any(String),
+        ownerId: "owner-a",
+        sessionId: "sess-1",
+        turnId: "7",
+        actor: null,
+        result: {
+          attempt_id: "att-1",
+          agent_id: "agent-1",
+          release_id: "rel-1",
+          server_id: "docs",
+          workspace_server_id: SERVER_ID,
+          connection_generation: 3,
+          tool: "search",
+        },
+      },
+    ]);
+  });
+
+  test("the registered path and query go upstream as they are", async () => {
+    const { decide } = egress({
+      url: "https://docs.example.test/mcp/?tenant=a",
+    });
+    const decision = await decide(fenced, call("search"));
+    expect(decision?.kind === "granted" && decision.upstream.url).toBe(
+      "https://docs.example.test/mcp/",
+    );
+    expect(decision?.kind === "granted" && decision.upstream.target).toBe(
+      "/mcp/?tenant=a",
+    );
+  });
+
+  test("a reconnect before the call's receipt refuses the call with credential_unavailable", async () => {
+    const { decide, recorded, calls } = egress({}, { moved: true });
+    const decision = await decide(fenced, call("search"));
+    expect(decision?.kind === "refused" && decision.code).toBe(
+      "CREDENTIAL_UNBOUND",
+    );
+    expect(calls).toEqual([]);
+    expect(recorded.map((record) => record.result.reason)).toEqual([
+      "credential_unavailable",
+    ]);
+  });
+
+  test("a call whose receipt cannot be written is not sent", async () => {
+    const { decide } = egress({}, { failCall: true });
+    await expect(decide(fenced, call("search"))).rejects.toThrow("db down");
+  });
+
+  test("an exchange under way asking again is not a second call", async () => {
+    const { decide, calls } = egress();
+    const decision = await decide(fenced, { ...call("search"), regrant: true });
+    expect(decision?.kind).toBe("granted");
+    expect(calls).toEqual([]);
   });
 
   test("an OAuth connection sends its access token", async () => {

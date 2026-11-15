@@ -280,6 +280,9 @@ describe("the MCP egress route of a workspace server", () => {
         return input.server === "docs" ? state : null;
       },
       async recordRefusal() {},
+      async recordCall() {
+        return true;
+      },
     };
     const catalogStore: McpEgressStore = {
       async sessionState() {
@@ -326,6 +329,7 @@ describe("the MCP egress route of a workspace server", () => {
     const grant = await gateway.authorizeMcpEgress(ask("docs", "search"));
     expect(grant.upstream).toEqual({
       url: docs.url,
+      target: "/mcp",
       headers: [["authorization", "Bearer example-workspace-value"]],
     });
     expect(catalogAsked).toEqual([]);

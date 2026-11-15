@@ -27,7 +27,10 @@ import {
   workspaceMcpServers,
   workspaces,
 } from "./schema.ts";
-import { createPostgresWorkspaceMcpEgressStore } from "./sessions/workspace-mcp-egress.ts";
+import {
+  createPostgresWorkspaceMcpEgressStore,
+  sessionWorkspaceMcpOf,
+} from "./sessions/workspace-mcp-egress.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
 import { launchSession } from "./testing/launches.ts";
 import {
@@ -150,6 +153,12 @@ integration("workspace MCP servers in the claim and the egress", () => {
       limits: LIMITS,
     });
     if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
+    // A principal without an actor leaves the session's workspace unset; a
+    // console or key caller sets it.
+    await db
+      .update(sessions)
+      .set({ workspaceId })
+      .where(eq(sessions.id, accepted.response.session_id));
     return {
       workspaceId,
       agentId,
@@ -284,8 +293,10 @@ integration("workspace MCP servers in the claim and the egress", () => {
       }
     }, 60_000);
 
-    test("a server deleted after the start is not claimed; one with a new URL is claimed at it", async () => {
-      const { sessionId, tracker, wiki } = await setup();
+    test("a server deleted or moved after the start is claimed as it started, so a checkpoint still matches", async () => {
+      const { sessionId, releaseId, tracker, wiki } = await setup();
+      const first = await claim(sessionId);
+      expect(first.result.outcome).toBe("claimed");
       await db
         .delete(workspaceMcpServers)
         .where(eq(workspaceMcpServers.id, wiki));
@@ -293,16 +304,74 @@ integration("workspace MCP servers in the claim and the egress", () => {
         .update(workspaceMcpServers)
         .set({ url: "https://tracker-moved.example.com/mcp" })
         .where(eq(workspaceMcpServers.id, tracker));
-      const claimed = await claim(sessionId);
-      expect(claimed.result.outcome).toBe("claimed");
-      if (claimed.result.outcome === "claimed") {
-        expect(
-          claimed.result.binding.workspaceMcp?.map((server) => [
-            server.name,
-            server.url,
-          ]),
-        ).toEqual([["tracker", "https://tracker-moved.example.com/mcp"]]);
+      const expected = [
+        entry(releaseId, tracker, "tracker", [
+          "mcp__tracker__search",
+          "mcp__tracker__create",
+        ]),
+        entry(releaseId, wiki, "wiki", ["mcp__wiki__read"]),
+      ];
+      const [session] = await db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.id, sessionId));
+      expect(await sessionWorkspaceMcpOf(db, session as never)).toEqual(
+        expected,
+      );
+      if (first.result.outcome === "claimed") {
+        expect(first.result.binding.workspaceMcp).toEqual(expected);
       }
+      // Each one's egress refuses it.
+      const store = createPostgresWorkspaceMcpEgressStore(db);
+      for (const server of ["tracker", "wiki"]) {
+        expect(
+          (await store.sessionState({ sessionId, attemptId: "att_x", server }))
+            ?.available,
+        ).toBe(false);
+      }
+    }, 60_000);
+
+    test("a snapshot from before URLs were kept takes the row's, and leaves out a server deleted since", async () => {
+      const { sessionId, releaseId, tracker, wiki } = await setup();
+      const [session] = await db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.id, sessionId));
+      const start = session?.workspaceMcpStart as {
+        servers: Array<{ url?: string }>;
+      };
+      const unkept = {
+        servers: start.servers.map(({ url: _url, ...server }) => server),
+      };
+      await db
+        .update(sessions)
+        .set({ workspaceMcpStart: unkept })
+        .where(eq(sessions.id, sessionId));
+      await db
+        .delete(workspaceMcpServers)
+        .where(eq(workspaceMcpServers.id, wiki));
+      expect(
+        await sessionWorkspaceMcpOf(db, {
+          agentReleaseId: releaseId,
+          workspaceId: session?.workspaceId ?? null,
+          workspaceMcpStart: unkept,
+        }),
+      ).toEqual([
+        entry(releaseId, tracker, "tracker", [
+          "mcp__tracker__search",
+          "mcp__tracker__create",
+        ]),
+      ]);
+      // The row's URL is the one checked.
+      expect(
+        (
+          await createPostgresWorkspaceMcpEgressStore(db).sessionState({
+            sessionId,
+            attemptId: "att_x",
+            server: "tracker",
+          })
+        )?.available,
+      ).toBe(true);
     }, 60_000);
   });
 
@@ -399,6 +468,15 @@ integration("workspace MCP servers in the claim and the egress", () => {
       expect(await stateOf(sessionId, "tracker2")).toBeNull();
     });
 
+    test("a server moved to another URL since the start is not the one the session named", async () => {
+      const { sessionId, tracker } = await setup();
+      await db
+        .update(workspaceMcpServers)
+        .set({ url: "https://tracker-moved.example.com/mcp" })
+        .where(eq(workspaceMcpServers.id, tracker));
+      expect((await stateOf(sessionId, "tracker"))?.available).toBe(false);
+    });
+
     test("the release's deny and a whole-server deny are taken out", async () => {
       const { sessionId } = await setup({
         mcpDeny: ["mcp__tracker__create", "mcp__wiki__*"],
@@ -443,6 +521,56 @@ integration("workspace MCP servers in the claim and the egress", () => {
         result: record.result,
         error: { code: "CREDENTIAL_UNBOUND" },
       });
+    });
+
+    test("a call is written as an accepted call_mcp receipt only while its connection is at the generation named", async () => {
+      const { sessionId, workspaceId, agentId, releaseId, tracker } =
+        await setup();
+      const record = (generation: number) => ({
+        id: randomUUID(),
+        ownerId: workspaceId,
+        sessionId,
+        turnId: null,
+        actor: null,
+        result: {
+          attempt_id: "att_x",
+          agent_id: agentId,
+          release_id: releaseId,
+          server_id: "tracker",
+          workspace_server_id: tracker,
+          connection_generation: generation,
+          tool: "search",
+        },
+      });
+      const sent = record(2);
+      expect(await store().recordCall(sent)).toBe(true);
+      const [row] = await db
+        .select()
+        .from(receipts)
+        .where(eq(receipts.id, sent.id));
+      expect(row).toMatchObject({
+        operation: "call_mcp",
+        status: "accepted",
+        result: sent.result,
+        error: null,
+      });
+
+      // Reconnected: generation 3 now; a call read under 2 names nothing.
+      await db
+        .update(workspaceMcpConnections)
+        .set({ generation: 3 })
+        .where(eq(workspaceMcpConnections.serverId, tracker));
+      const stale = record(2);
+      expect(await store().recordCall(stale)).toBe(false);
+      expect(
+        await db.select().from(receipts).where(eq(receipts.id, stale.id)),
+      ).toEqual([]);
+      // Disconnected at the same generation: not active, nothing written.
+      await db
+        .update(workspaceMcpConnections)
+        .set({ state: "none" })
+        .where(eq(workspaceMcpConnections.serverId, tracker));
+      expect(await store().recordCall(record(3))).toBe(false);
     });
   });
 });

@@ -21,8 +21,8 @@ import {
 const SUBJECT = "workspace";
 
 /**
- * The workspace servers the release's agent has on, with their tools now,
- * for `sessions.workspace_mcp_start`. Called with the agent row held FOR
+ * The workspace servers the release's agent has on, with their URLs and
+ * tools now, for `sessions.workspace_mcp_start`. Called with the agent row held FOR
  * SHARE (a save holds it FOR UPDATE), so the set cannot move; the server
  * rows are held FOR SHARE so a delete waits for the session row. Null when
  * the agent has none on.
@@ -35,6 +35,7 @@ export async function captureWorkspaceMcpStart(
     .select({
       id: workspaceMcpServers.id,
       name: workspaceMcpServers.name,
+      url: workspaceMcpServers.url,
       tools: workspaceMcpServers.tools,
     })
     .from(agentReleases)
@@ -60,6 +61,7 @@ export async function captureWorkspaceMcpStart(
     servers: rows.map((row) => ({
       id: row.id,
       name: row.name,
+      url: row.url,
       tools: row.tools.map((tool) => `mcp__${row.name}__${tool.name}`),
     })),
   };

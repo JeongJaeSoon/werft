@@ -747,6 +747,8 @@ export type ConnectionAutoMode = "supported" | "unsupported" | "unknown";
 export type EgressUpstream = {
   /** The base the route's path is appended to. */
   url: string;
+  /** The request line's path and query, sent as is in place of the route's. */
+  target?: string;
   /** Set on the upstream request, replacing whatever the worker sent. */
   headers: Array<[string, string]>;
 };

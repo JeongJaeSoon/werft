@@ -5,7 +5,8 @@ import type { ReceiptActor, ReceiptStatus } from "@werft-ai/contracts";
  * CREDENTIAL_UNBOUND `call_mcp` receipt; the reason tells them apart.
  */
 export type WorkspaceMcpRefusalReason =
-  // The server is gone from the workspace, or the agent turned it off.
+  // The server is gone from the workspace, renamed or moved to another URL
+  // since the session started, or the agent turned it off.
   | "workspace_server_unavailable"
   // An admin has to connect the server again.
   | "oauth_needs_reauth"
@@ -20,7 +21,10 @@ export type WorkspaceMcpSessionState = {
   releaseId: string;
   /** The snapshot's server by the route's name. */
   serverId: string;
-  /** The row with the snapshot's id is in the session's workspace and the agent has it on. */
+  /**
+   * The row with the snapshot's id is in the session's workspace under the
+   * snapshot's name and URL, and the agent has it on.
+   */
   available: boolean;
   /** The row's URL; null when the row is gone. */
   url: string | null;
@@ -60,7 +64,28 @@ export type WorkspaceMcpRefusalRecord = {
   message: string;
 };
 
-/** The reads behind a workspace server's grant, and its refusal receipts. */
+/**
+ * A tool call forwarded to a workspace server, under the connection whose
+ * credential it carries. Whether the server ran it is not seen.
+ */
+export type WorkspaceMcpCallRecord = {
+  id: string;
+  ownerId: string;
+  sessionId: string;
+  turnId: string | null;
+  actor: ReceiptActor | null;
+  result: {
+    attempt_id: string;
+    agent_id: string;
+    release_id: string;
+    server_id: string;
+    workspace_server_id: string;
+    connection_generation: number;
+    tool: string;
+  };
+};
+
+/** The reads behind a workspace server's grant, and its receipts. */
 export interface WorkspaceMcpEgressStore {
   /**
    * Null when the session's snapshot names no workspace server called
@@ -73,4 +98,10 @@ export interface WorkspaceMcpEgressStore {
   }): Promise<WorkspaceMcpSessionState | null>;
   /** In its own transaction; the same id twice is one receipt. */
   recordRefusal(record: WorkspaceMcpRefusalRecord): Promise<void>;
+  /**
+   * An `accepted` receipt for a tool call sent upstream, written only while
+   * the connection is still active at the generation named; false, with
+   * nothing written, when it moved.
+   */
+  recordCall(record: WorkspaceMcpCallRecord): Promise<boolean>;
 }
