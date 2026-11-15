@@ -448,7 +448,7 @@ describe("the provider exchange ledger route", () => {
         sinks: [{ write: (record) => void records.push(record) }],
       }),
       exchanges: createProviderExchangeLedger(db, {
-        admits: admitsReservations(budget),
+        admits: async () => admitsReservations(budget),
       }),
       token: AUTHORIZER_TOKEN,
     });

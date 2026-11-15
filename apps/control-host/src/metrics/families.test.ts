@@ -305,6 +305,18 @@ describe("exposition", () => {
       'werft_provider_cost_usd_total{model="other",priced_by="table"} 0.200002',
     );
   });
+
+  test("without the session limits the launch queue has no sample; the rest still render", () => {
+    const lines = renderMetrics(
+      snapshot({ launchQueue: null, inputQueueOldestAgeSeconds: 3 }),
+    )
+      .trimEnd()
+      .split("\n");
+    expect(
+      lines.filter((line) => line.startsWith("werft_launch_queue_")),
+    ).toEqual([]);
+    expect(lines).toContain("werft_input_queue_oldest_age_seconds 3");
+  });
 });
 
 describe("handler", () => {

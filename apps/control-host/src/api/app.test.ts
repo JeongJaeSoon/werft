@@ -8,6 +8,7 @@ import {
   postSessionMessageRequestSchema,
 } from "@werft-ai/contracts";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
+import { InstallationConfigUnavailableError } from "@werft-ai/platform";
 import {
   INTERACTIVE_CONFIGURATION_ATTRIBUTE,
   STYLE_NONCE_SCRIPT,
@@ -690,6 +691,39 @@ describe("API validation and errors", () => {
     );
     expect(text).not.toContain("sensitive implementation detail");
     expect(text).not.toContain("app.test.ts");
+  });
+
+  test("limits that cannot be read answer a retryable 503 that names the setting", async () => {
+    const app = createApiApp({
+      authMode: "none",
+      registerRoutes(router) {
+        router.get("/blocked", () => {
+          throw new InstallationConfigUnavailableError(
+            "queued_input_limit_per_session",
+          );
+        });
+        router.get("/stale", () => {
+          throw new InstallationConfigUnavailableError(null);
+        });
+      },
+    });
+    const blocked = await app.request("/v1/blocked", {
+      headers: { "X-Owner-Id": "local-owner" },
+    });
+    expect(blocked.status).toBe(503);
+    const { error } = apiErrorResponseSchema.parse(await blocked.json());
+    expect(error).toMatchObject({
+      code: "BACKEND_UNAVAILABLE",
+      retryable: true,
+    });
+    expect(error.message).toContain("queued_input_limit_per_session");
+    const stale = await app.request("/v1/stale", {
+      headers: { "X-Owner-Id": "local-owner" },
+    });
+    expect(stale.status).toBe(503);
+    expect(apiErrorResponseSchema.parse(await stale.json()).error.message).toBe(
+      "the installation settings could not be read",
+    );
   });
 
   test("validates responses before serializing them", async () => {

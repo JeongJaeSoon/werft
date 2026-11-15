@@ -115,12 +115,14 @@ describe("real-model compose layers", () => {
     expect(proxy.allow).not.toContainEqual(destination);
     expect(overlay["egress-proxy"]).toBeUndefined();
     for (const name of ["api", "scheduler"]) {
-      const limits = installationLimitsFromEnv(
-        defaults(base[name], overlay[name]),
-      );
-      expect(limits.sessionCostLimitUsd).toBe(3);
-      expect(limits.maxTurnSeconds).toBe(600);
+      const env = defaults(base[name], overlay[name]);
+      expect(installationLimitsFromEnv(env).maxTurnSeconds).toBe(600);
+      expect(env.SESSION_COST_LIMIT_USD).toBeUndefined();
     }
+    // The cost limit is the console's: migrate carries it in once.
+    expect(defaults(base.migrate, overlay.migrate).SESSION_COST_LIMIT_USD).toBe(
+      "3",
+    );
   });
 });
 

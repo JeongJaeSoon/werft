@@ -128,14 +128,14 @@ config:
   # and the NetworkPolicy need it too: set TRACE_INGEST_PORT nowhere else.
   tracing:
     ingestPort: 4319
-  # Read by the api and the scheduler with one parser.
+  # Read by the api and the scheduler with one parser. The session limits
+  # (QUEUED_INPUT_LIMIT_PER_SESSION, STORAGE_LIMIT_BYTES,
+  # SESSION_COST_LIMIT_USD, SESSION_TOKEN_LIMIT) are the owner's, in Settings
+  # > Workspace > Execution limits: one still set here goes to the migrate
+  # Job only, which carries it in while that limit has nothing saved.
   limits:
     EXECUTION_SLOT_LIMIT: 10
-    QUEUED_INPUT_LIMIT_PER_SESSION: 20
-    STORAGE_LIMIT_BYTES: 1073741824
     MAX_TURN_SECONDS: 3600
-    SESSION_COST_LIMIT_USD: 25
-    SESSION_TOKEN_LIMIT: 0
     PROVIDER_MAX_RETRIES: 2
   aws:
     region: ap-northeast-1
@@ -165,7 +165,8 @@ config:
 
 api:
   replicas: 2
-  workspaceEnforce: warn
+  # workspaceEnforce is set in the console now (the setting above); a value
+  # set here goes to the migrate Job only, the same way.
   # Above SHUTDOWN_DRAIN_MS + SHUTDOWN_CLOSE_MS (35s + 5s).
   terminationGracePeriodSeconds: 45
   # 2 bundle verifications x (git fetch + index-pack) x gitMemoryMb + 512 MiB.

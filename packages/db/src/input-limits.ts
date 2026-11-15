@@ -1,4 +1,8 @@
-import type { InputLimitRefusal, InputLimits } from "@werft-ai/platform";
+import {
+  type InputLimitRefusal,
+  type InputLimitsSource,
+  inputLimitsOf,
+} from "@werft-ai/platform";
 import { and, count, eq } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import { storageUsage, turns } from "./schema.ts";
@@ -24,8 +28,13 @@ export const INSTALLATION_STORAGE_SCOPE = "installation";
  */
 export async function admitInput(
   tx: Database,
-  input: { sessionId: string | null; message: string; limits: InputLimits },
+  input: {
+    sessionId: string | null;
+    message: string;
+    limits: InputLimitsSource;
+  },
 ): Promise<InputLimitRefusal | null> {
+  const limits = inputLimitsOf(input.limits);
   if (input.sessionId !== null) {
     const [queued] = await tx
       .select({ count: count() })
@@ -33,7 +42,7 @@ export async function admitInput(
       .where(
         and(eq(turns.sessionId, input.sessionId), eq(turns.status, "queued")),
       );
-    if ((queued?.count ?? 0) >= input.limits.queuedInputLimitPerSession) {
+    if ((queued?.count ?? 0) >= limits.queuedInputLimitPerSession) {
       return { outcome: "queue_full" };
     }
   }
@@ -48,7 +57,7 @@ export async function admitInput(
     .where(eq(storageUsage.scope, INSTALLATION_STORAGE_SCOPE))
     .for("update");
   const bytes = Buffer.byteLength(input.message, "utf8");
-  return (usage?.bytes ?? 0) + bytes > input.limits.storageLimitBytes
+  return (usage?.bytes ?? 0) + bytes > limits.storageLimitBytes
     ? { outcome: "storage_exhausted" }
     : null;
 }

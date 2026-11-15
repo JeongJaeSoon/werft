@@ -22,6 +22,9 @@ import {
 import {
   budgetExceeded,
   type InstallationLimits,
+  readSetting,
+  type SessionLimits,
+  type Setting,
   STORAGE_ACCOUNTED_CONTENT,
   sessionBudgetOf,
 } from "../limits/installation-limits.ts";
@@ -122,9 +125,11 @@ export function toolFindings(
 export function createUsageService(deps: {
   authorization: AuthorizationPolicy;
   reader: UsageReader;
-  limits: InstallationLimits;
+  // Read per request, as the gates read them.
+  limits: Setting<InstallationLimits & SessionLimits>;
 }) {
-  const { authorization, reader, limits } = deps;
+  const { authorization, reader } = deps;
+  const limitsNow = () => readSetting(deps.limits);
 
   function requireInstallationReader(actor: Caller) {
     return requirePermitted(authorization, actor, "usage.installation_read", {
@@ -194,6 +199,7 @@ export function createUsageService(deps: {
         kind: "session",
         id: null,
       });
+      const limits = await limitsNow();
       return {
         scope: "me",
         refreshed_at: new Date().toISOString(),
@@ -212,6 +218,7 @@ export function createUsageService(deps: {
     ): Promise<InstallationLimitsResponse> {
       await requireInstallationReader(actor);
       const usage = await reader.installationUsage();
+      const limits = await limitsNow();
       return {
         scope: "installation",
         refreshed_at: usage.readAt.toISOString(),
@@ -567,6 +574,7 @@ export function createUsageService(deps: {
       if (!usage) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
+      const limits = await limitsNow();
       return {
         session_id: usage.sessionId,
         period: "session_lifetime",

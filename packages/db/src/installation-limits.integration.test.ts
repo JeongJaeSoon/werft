@@ -8,6 +8,7 @@ import {
 import {
   createWorkerGateway,
   type InputLimits,
+  type InputLimitsSource,
   type ProviderUsage,
   type WorkerGateway,
   WorkerGatewayError,
@@ -122,7 +123,7 @@ integration("installation limits on PostgreSQL", () => {
   async function create(
     ownerId: string,
     message: string,
-    limits: InputLimits = roomy,
+    limits: InputLimitsSource = roomy,
     idempotencyKey: string = crypto.randomUUID(),
   ) {
     return inputs().acceptInputAtomic({
@@ -144,7 +145,7 @@ integration("installation limits on PostgreSQL", () => {
   function append(
     session: { session_id: string; ownerId: string },
     message: string,
-    limits: InputLimits = roomy,
+    limits: InputLimitsSource = roomy,
     idempotencyKey: string = crypto.randomUUID(),
   ) {
     return inputs().appendInputAtomic({
@@ -375,6 +376,25 @@ integration("installation limits on PostgreSQL", () => {
       expect((await create(ownerId, "kept", full, key)).outcome).toBe(
         "replayed",
       );
+    });
+
+    test("a replay is answered while the limits cannot be read; a new input is refused and writes nothing", async () => {
+      const ownerId = crypto.randomUUID();
+      const key = crypto.randomUUID();
+      const first = await create(ownerId, "kept", roomy, key);
+      expect(first.outcome).toBe("accepted");
+      const unreadable = () => {
+        throw new Error("the limits cannot be read");
+      };
+      expect((await create(ownerId, "kept", unreadable, key)).outcome).toBe(
+        "replayed",
+      );
+      const session = await queuedSession();
+      const before = await storedBytes();
+      await expect(append(session, "new", unreadable)).rejects.toThrow(
+        "the limits cannot be read",
+      );
+      expect(await storedBytes()).toBe(before);
     });
 
     test("concurrent acceptances racing for the last bytes admit exactly what fits", async () => {

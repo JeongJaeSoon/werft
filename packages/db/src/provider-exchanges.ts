@@ -152,12 +152,22 @@ async function standingOf(
 export function createProviderExchangeLedger(
   db: Database,
   options: {
-    /** Whether the session may hold one more call: see admitsReservations. */
-    admits: (held: HeldSpend) => boolean;
+    /**
+     * Whether the session may hold one more call: see admitsReservations.
+     * Asked before each open's transaction, so a saved limit applies to the
+     * next call; a failed read fails that open.
+     */
+    admits: () => Promise<(held: HeldSpend) => boolean>;
   },
 ): ProviderExchangeLedger {
   return {
-    open(input): Promise<ProviderExchangeOpenResult> {
+    async open(input): Promise<ProviderExchangeOpenResult> {
+      // Read before the transaction, never on its connection; a failure
+      // refuses only a new row, so a replay still lands.
+      const admission = await options.admits().then(
+        (admits) => ({ admits }),
+        (error: unknown) => ({ error }),
+      );
       return db.transaction(async (tx) => {
         await lockProviderExchange(tx, input.exchangeId);
         await lockProviderExchangeSession(tx, input.sessionId);
@@ -195,8 +205,9 @@ export function createProviderExchangeLedger(
           .from(sessions)
           .where(eq(sessions.id, input.sessionId));
         if (!held) return { outcome: "unknown_attempt" };
+        if ("error" in admission) throw admission.error;
         if (
-          !options.admits({
+          !admission.admits({
             costUsd: held.costUsd,
             providerTokens: held.providerTokens,
             unmetered: held.unmetered,

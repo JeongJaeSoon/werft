@@ -273,9 +273,9 @@ github.com의 비공개 저장소로 확인하는 절차다. `scripts/local.sh u
 - **배포 영향:** 새 이미지로 올린 순간부터 `start_repository_id`가 켜진 에이전트의 새 세션이 저장소 없이 시작한다. 세려면 읽기 전용으로 `SELECT count(*) FROM agent_github_settings WHERE start_repository_id IS NOT NULL`을 쓴다.
 - **롤백:** 이전 이미지로 교체하면 그 에이전트들의 새 세션이 다시 시작 저장소로 시작한다. 데이터 이행이 없고 설정으로 되돌리는 길도 없다. 이전 이미지가 만든 세션과 새 이미지가 만든 세션은 모두 행의 값으로 돌아가므로 교체 중에 갈리는 것은 새 세션의 시작 저장소뿐이고, 어느 쪽이든 허용 범위 안이다.
 
-### Workspace 소프트 상한 (`WORKSPACE_ENFORCE`)
+### Workspace 소프트 상한 (작업 공간 용량)
 
-API의 `WORKSPACE_ENFORCE`는 `warn`(기본)·`fail`·`off` 중 하나다. 다른 값이나 빈 값이면 API가 시작하지 않는다. Compose에서는 같은 이름의 변수로, Helm에서는 `api.workspaceEnforce`로 설정한다.
+owner가 웹 콘솔의 설정 > 워크스페이스 > 실행 한도 "작업 공간 용량"에서 `warn`(기본)·`fail`·`off` 중 하나를 저장한다. worker는 claim할 때 값을 받고, 이미 돌고 있는 worker는 받은 값을 계속 쓴다. 앞선 릴리스의 env `WORKSPACE_ENFORCE`(Helm `api.workspaceEnforce`)는 어느 role도 읽지 않는다. migrate가 올릴 때 한 번 옮겨 담는다. 저장한 값을 읽지 못하면 worker의 claim이 `503`으로 거절된다([웹에서 정하는 실행 한도](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/reference/configuration/#웹에서-정하는-실행-한도)).
 
 - `warn`: 소프트·미확인 축의 사용량이 상한을 넘으면 경고와 지표를 남기고 턴은 계속한다. 초과량에 제한이 없다.
 - `fail`: 턴 입력 전 측정값보다 사용량이 늘었고 상한을 엄격히 초과한 축이 있으면 그 턴을 중단한다. 바이트와 inode를 따로 판정하며 하드 상한이 확인된 축은 관찰만 한다. 완전한 측정은 한 번, 불완전한 측정은 같은 축의 연속 확인 뒤에 중단한다. 측정 실패만으로 턴을 실패시키지는 않는다.
@@ -352,7 +352,7 @@ release가 고정한 `permission_mode`는 `default`·`acceptEdits`·`dontAsk`·`
 - **지정하는 곳은 연결의 자동 모드 판정뿐이다.** 세션 생성 요청은 release만 고르고 모드를 바꿀 수 없다. 모드는 release의 spec에 고정되므로, 판정을 바꾼 뒤에는 에이전트를 다시 release해야 새 세션에 적용된다. 이미 도는 세션은 원래 모드로 계속 돈다. 저장소의 예시 설정 문서 `real-model.json`의 Anthropic 연결은 판정하지 않은 채라 `auto`로 돈다.
 - **묻기·막기는 실행 규칙이 정한다.** 어느 모드든 워크스페이스와 에이전트의 실행 규칙(허용·묻기·막기, 자동 모드 목록)이 더해진다. 막기 목록은 둘의 합집합이고, 허용은 워크스페이스가 허용한 것 안에서만 효과가 있다.
 - **`bypassPermissions`는 새 release가 고르지 않는다.** 그 모드로 고정된 release는 없다. `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS`는 이 판에서 아무것도 열지 않는다.
-- **남는 경계.** 사람 승인이 빠지면 남는 것은 세션마다 하나인 worker 컨테이너(root 아님), egress proxy 허용 목록(Messages API·저장소 route·object store route만), release의 도구 목록과 실행 규칙의 막기 목록, 세션 비용 상한(`SESSION_COST_LIMIT_USD`, turn의 `maxBudgetUsd`)이다. `tools` 목록은 이 모드에서도 PreToolUse hook이 강제하고, 비용 상한과 checkpoint 중 도구 차단도 그대로다. 이 넷 중 하나라도 없는 설치(예: worker를 host 네트워크로 띄우는 경우)에서는 켜지 않는다. 저장소 자격 증명은 worker에 가지 않으므로([위 절](#provider-키와-저장소-자격-증명은-worker에-가지-않는다)) 자율 세션도 push할 수 없고, 바뀐 내용은 checkpoint로만 나간다.
+- **남는 경계.** 사람 승인이 빠지면 남는 것은 세션마다 하나인 worker 컨테이너(root 아님), egress proxy 허용 목록(Messages API·저장소 route·object store route만), release의 도구 목록과 실행 규칙의 막기 목록, 세션 비용 상한(실행 한도의 세션 비용, turn의 `maxBudgetUsd`)이다. `tools` 목록은 이 모드에서도 PreToolUse hook이 강제하고, 비용 상한과 checkpoint 중 도구 차단도 그대로다. 이 넷 중 하나라도 없는 설치(예: worker를 host 네트워크로 띄우는 경우)에서는 켜지 않는다. 저장소 자격 증명은 worker에 가지 않으므로([위 절](#provider-키와-저장소-자격-증명은-worker에-가지-않는다)) 자율 세션도 push할 수 없고, 바뀐 내용은 checkpoint로만 나간다.
 - **감사.** 세션 목록·상세의 `runtime.permission_mode`가 그 세션이 도는 모드다. worker의 claim 로그에도 `permission_mode`가 남는다. 모드는 세션에 고정되므로 receipt에는 따로 싣지 않는다.
 - 실제 모델로 확인하는 방법은 [real-claude.md](../real-claude.md#자율-모드-세션)에 있다.
 
@@ -366,8 +366,7 @@ AWS_ENDPOINT_URL_SECRETS_MANAGER=http://127.0.0.1:4567 AWS_REGION=ap-northeast-1
 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test \
 PLATFORM_SECRET_KEY="$(openssl rand -hex 32)" \
 AUTH_MODE=none PORT=3000 CHECKPOINT_OBJECT_STORE=disabled \
-EXECUTION_SLOT_LIMIT=10 QUEUED_INPUT_LIMIT_PER_SESSION=20 STORAGE_LIMIT_BYTES=1073741824 \
-MAX_TURN_SECONDS=3600 SESSION_COST_LIMIT_USD=25 PROVIDER_MAX_RETRIES=2 \
+EXECUTION_SLOT_LIMIT=10 MAX_TURN_SECONDS=3600 PROVIDER_MAX_RETRIES=2 \
   bun run --cwd apps/control-host start
 curl -H 'X-Owner-Id: local-owner' http://127.0.0.1:3000/v1
 ```
@@ -449,7 +448,7 @@ docker compose exec -T api bun run apps/control-host/src/api/checkpoint-gc.ts   
 
 세션 하나라도 실패하면 exit 1이고, 로그에 `Checkpoint GC failed for a session`이 남는다. 백업과 겹치면 안 된다(아래). 백업은 api와 maintenance가 멈춰 있어야 시작하므로, 이 두 컨테이너에서 도는 GC는 백업 중에 시작될 수 없다. 다만 GC가 도는 도중에 컨테이너를 멈추고 백업을 시작하면 겹칠 수 있다. 백업은 GC가 끝난 뒤에 받는다. test-ops 설치의 명령은 [test-ops.md](test-ops.md)의 점검표에 있다.
 
-**한계: checkpoint 바이트는 저장량에 세지 않는다.** `STORAGE_LIMIT_BYTES`는 보관한 입력 메시지 바이트만 센다([설치 상한](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/#설치-상한)). checkpoint가 S3에 쓰는 바이트와 legal hold가 걸린 version은 계측하지도 제한하지도 않는다. `locked`에서는 모든 version에 hold가 걸려 있어, GC가 hold를 풀고 지우기 전까지는 bucket lifecycle 규칙으로도 줄지 않는다. 저장량은 주 1회 GC와 bucket 크기 관찰로 관리한다.
+**한계: checkpoint 바이트는 저장량에 세지 않는다.** 실행 한도의 입력 보관 상한은 보관한 입력 메시지 바이트만 센다([웹에서 정하는 실행 한도](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/reference/configuration/#웹에서-정하는-실행-한도)). checkpoint가 S3에 쓰는 바이트와 legal hold가 걸린 version은 계측하지도 제한하지도 않는다. `locked`에서는 모든 version에 hold가 걸려 있어, GC가 hold를 풀고 지우기 전까지는 bucket lifecycle 규칙으로도 줄지 않는다. 저장량은 주 1회 GC와 bucket 크기 관찰로 관리한다.
 
 회수 범위는 세션마다 두 곳이다. `sessions/<id>/checkpoints/<rev>/<attempt>/` 아래의 version(manifest·bundle·untracked 파일), 그리고 `sessions/<id>/transcripts/generation-<n>/` 아래의 transcript part version이다. 그 밖의 key는 건드리지 않는다. version 하나를 지우는 조건은 아래 두 가지가 모두 맞을 때다.
 
@@ -474,8 +473,7 @@ DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
 AUTH_MODE=api-key DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
 AWS_ENDPOINT_URL=http://127.0.0.1:4566 AWS_REGION=ap-northeast-1 \
 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test S3_BUCKET=claude-sessions \
-EXECUTION_SLOT_LIMIT=10 QUEUED_INPUT_LIMIT_PER_SESSION=20 STORAGE_LIMIT_BYTES=1073741824 \
-MAX_TURN_SECONDS=3600 SESSION_COST_LIMIT_USD=25 PROVIDER_MAX_RETRIES=2 \
+EXECUTION_SLOT_LIMIT=10 MAX_TURN_SECONDS=3600 PROVIDER_MAX_RETRIES=2 \
   bun run --cwd apps/control-host start
 curl -H 'Authorization: Bearer <issued-key>' http://127.0.0.1:3000/v1
 ```
@@ -1153,7 +1151,7 @@ prefix가 `SLACK_`가 아니라 `SLACK_ROLE_`인 것은 다른 `SLACK_` 이름(�
 - 처리 전에 그 설치가 지금 `revoked`이면(이벤트가 기다리는 사이 앱이 해제됨) 처리하지 않고 `dropped`·`installation_revoked`로 끝내며 본문과 `conversation_key`를 지운다.
 - 처리기는 채널 메시지를 세션에 잇는다(아래 "Slack 스레드와 세션"). 처리기가 끝나면 `processed`, 던지면 위 backoff로 다시 시도한다. 로그는 `Slack event claimed`(id·event_id·종류·시도 횟수)와 pass 요약 `Slack inbox pass`다.
 - 기동할 때와 pass마다(`--once`로 손으로 돌린 pass도) api와 같은 DB 설정을 같은 규칙으로 읽는다. credential은 풀지 않는다. 세션 생성은 credential이 어디서 오는지(`value_env`·`secret_id`의 이름)와 연결 설정만 읽는다(`SessionCatalogView`). provider key와 Secrets Manager 접근은 api에만 있다.
-- 세션 한도는 api와 같은 설치 한도 변수(`EXECUTION_SLOT_LIMIT`·`QUEUED_INPUT_LIMIT_PER_SESSION`·`STORAGE_LIMIT_BYTES`·`MAX_TURN_SECONDS`·`SESSION_COST_LIMIT_USD`·`PROVIDER_MAX_RETRIES`)로 잰다. compose는 api와 같은 값을, Helm은 `config.limits`를 이 역할에도 준다. 빠지면 pass마다 실패한다.
+- 세션 한도는 api와 같은 설치 한도 변수(`EXECUTION_SLOT_LIMIT`·`MAX_TURN_SECONDS`·`PROVIDER_MAX_RETRIES`)로 잰다. compose는 api와 같은 값을, Helm은 `config.limits`를 이 역할에도 준다. 빠지면 pass마다 실패한다. 대기 메시지·입력 보관·세션 비용·세션 토큰은 api처럼 웹 콘솔의 실행 한도를 10초마다 다시 읽는다. 그 값을 읽지 못하면 세션을 만들거나 메시지를 넣는 처리기가 던지고, 위 backoff로 다시 시도한다.
 - master key(`PLATFORM_SECRET_KEY`)는 api와 이 역할에만 간다(bot token으로 Slack에 보내는 일이 이 역할에 붙는다). 값이 없거나 64 hex가 아니면 기동하지 않는다. worker·scheduler·reconciler에는 없다(`tests/images.test.ts`, `deploy/helm/render-check.ts`가 검사한다).
 - 0160 이전에 쌓인 `received`·`processed` 행은 migration이 같은 규칙으로 `conversation_key`를 채운다.
 

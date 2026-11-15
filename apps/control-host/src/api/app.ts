@@ -26,6 +26,7 @@ import {
   type Caller,
   callerFor,
   type IdentityStore,
+  InstallationConfigUnavailableError,
   type ResolvedWebSession,
 } from "@werft-ai/platform";
 import type { Context, Handler, MiddlewareHandler } from "hono";
@@ -659,6 +660,17 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
         error.message,
         error.retryable,
         error.details,
+      );
+    }
+    // A limit with no value this release accepts, or settings not read for
+    // too long: what it sets is refused, never run on a default.
+    if (error instanceof InstallationConfigUnavailableError) {
+      return errorResponse(
+        context,
+        503,
+        "BACKEND_UNAVAILABLE",
+        error.message,
+        true,
       );
     }
     // The key lookup in the auth middleware runs before any route, so a

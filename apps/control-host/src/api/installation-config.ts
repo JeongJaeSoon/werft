@@ -1,242 +1,18 @@
-import {
-  INSTALLATION_CONFIG,
-  INSTALLATION_CONFIG_KEYS,
-  type InstallationConfig,
-  type InstallationConfigKey,
-  type InstallationConfigValues,
-  type UpdateInstallationConfigRequest,
-  type UpdateInstallationConfigResponse,
+import type {
+  InstallationConfig,
+  UpdateInstallationConfigRequest,
+  UpdateInstallationConfigResponse,
 } from "@werft-ai/contracts";
 import type { InstallationConfigStore } from "@werft-ai/db";
 import type { AuthorizationPolicy, Caller } from "@werft-ai/platform";
+import type { InstallationConfigSource } from "../wiring/installation-config.ts";
 import { requireSignInOwner } from "./provider-admin.ts";
-
-const SETTINGS_PAGE = "Settings > Workspace > Execution limits";
-
-/**
- * An env value as the key's rule reads it. A number is read the way the
- * env parsers read it (`Number`, so `1800.0`, `+1800` and `1e3` too): a
- * value an earlier release ran on is carried in, not blocked.
- */
-function envValueOf(raw: string): unknown {
-  const trimmed = raw.trim();
-  const number = Number(trimmed);
-  return trimmed !== "" && Number.isFinite(number) ? number : trimmed;
-}
-
-/**
- * The old env variables are no longer read. A key with no saved value takes
- * a valid one in, once; a wrong one is not carried and blocks the key until
- * it is saved, rather than running under a default nobody chose. The
- * warnings never carry a value.
- */
-export async function importInstallationConfig(
-  env: Record<string, string | undefined>,
-  store: Pick<InstallationConfigStore, "readAll" | "importValue">,
-): Promise<{ warnings: string[]; invalid: InstallationConfigKey[] }> {
-  const present = INSTALLATION_CONFIG_KEYS.filter(
-    (key) => env[INSTALLATION_CONFIG[key].env] !== undefined,
-  );
-  if (present.length === 0) return { warnings: [], invalid: [] };
-  const saved = await store.readAll();
-  const warnings: string[] = [];
-  const invalid: InstallationConfigKey[] = [];
-  const ignored: string[] = [];
-  for (const key of present) {
-    const { env: name, schema } = INSTALLATION_CONFIG[key];
-    if (key in saved) {
-      ignored.push(name);
-      continue;
-    }
-    const parsed = schema.safeParse(envValueOf(env[name] ?? ""));
-    if (!parsed.success) {
-      invalid.push(key);
-      warnings.push(
-        `${name} was not carried in: it is outside what ${SETTINGS_PAGE} accepts. Until a value is saved there, what it sets is refused; then remove it`,
-      );
-      continue;
-    }
-    if (await store.importValue(key, parsed.data)) {
-      warnings.push(
-        `${name} was carried into ${SETTINGS_PAGE} and is no longer read; remove it`,
-      );
-    } else {
-      ignored.push(name);
-    }
-  }
-  if (ignored.length > 0) {
-    warnings.push(`Ignored removed settings: ${ignored.join(", ")}`);
-  }
-  return { warnings, invalid };
-}
-
-export class InstallationConfigUnavailableError extends Error {
-  constructor(readonly key: InstallationConfigKey) {
-    super(
-      `${key} has no value this release accepts; save it in ${SETTINGS_PAGE}`,
-    );
-  }
-}
-
-/**
- * Installation settings as this process applies them. Every read first
- * finishes the carry-over, so nothing runs on a default while an old env
- * value is still due. The start does not wait for the database: it tries
- * at once and again on a timer, as the catalog read does.
- *
- * Values are cached and read again once older than `refreshMs`, and at once
- * after a save through this process; another replica's save lands within
- * `refreshMs`. A failed reload keeps the last values read.
- */
-export function createInstallationConfigSource(deps: {
-  env: Record<string, string | undefined>;
-  store: InstallationConfigStore;
-  warn: (message: string, fields?: Record<string, unknown>) => void;
-  refreshMs: number;
-  retryMs: number;
-  now?: () => number;
-}) {
-  const now = deps.now ?? Date.now;
-  let invalid = new Set<InstallationConfigKey>();
-  let carried: Promise<void> | null = null;
-  const carry = () => {
-    carried ??= importInstallationConfig(deps.env, deps.store).then(
-      (result) => {
-        invalid = new Set(result.invalid);
-        for (const warning of result.warnings) deps.warn(warning);
-      },
-      (error: unknown) => {
-        carried = null;
-        throw error;
-      },
-    );
-    return carried;
-  };
-
-  let cache: { saved: Record<string, unknown>; at: number } | null = null;
-  // One read at a time, so a later one always lands after an earlier one.
-  // A failed read leaves the cache as it was.
-  let loading: Promise<Record<string, unknown>> | null = null;
-  const load = (): Promise<Record<string, unknown>> => {
-    if (loading !== null) return loading;
-    loading = (async () => {
-      await carry();
-      return deps.store.readAll();
-    })()
-      .then((saved) => {
-        cache = { saved, at: now() };
-        return saved;
-      })
-      .finally(() => {
-        loading = null;
-      });
-    return loading;
-  };
-  const saved = async (): Promise<Record<string, unknown>> => {
-    if (cache !== null && now() - cache.at < deps.refreshMs) {
-      return cache.saved;
-    }
-    try {
-      return await load();
-    } catch (error) {
-      if (cache === null) throw error;
-      deps.warn("Installation config could not be read; keeping the last", {
-        error_name: error instanceof Error ? error.name : typeof error,
-      });
-      return cache.saved;
-    }
-  };
-
-  type Entry<K extends InstallationConfigKey> =
-    | { kind: "saved"; value: InstallationConfigValues[K] }
-    | { kind: "default" }
-    | { kind: "blocked" };
-  // A key is blocked while its old env value could not be carried in and
-  // nothing is saved, or while what is saved breaks the key's rule: it
-  // never runs on a default nobody chose.
-  const entryOf = <K extends InstallationConfigKey>(
-    all: Record<string, unknown>,
-    key: K,
-  ): Entry<K> => {
-    if (!(key in all))
-      return invalid.has(key) ? { kind: "blocked" } : { kind: "default" };
-    const parsed = INSTALLATION_CONFIG[key].schema.safeParse(all[key]);
-    return parsed.success
-      ? { kind: "saved", value: parsed.data as InstallationConfigValues[K] }
-      : { kind: "blocked" };
-  };
-
-  const start = (): Promise<void> =>
-    load().then(
-      () => undefined,
-      (error: unknown) => {
-        deps.warn("Installation config could not be read; retrying", {
-          error_name: error instanceof Error ? error.name : typeof error,
-        });
-        setTimeout(() => {
-          void start();
-        }, deps.retryMs).unref();
-      },
-    );
-
-  return {
-    started: start(),
-
-    /** False until the carry-over and a first read have succeeded. */
-    loaded: () => cache !== null,
-
-    /**
-     * What applies now: the saved value, else the default. Throws while the
-     * key is blocked.
-     */
-    async get<K extends InstallationConfigKey>(
-      key: K,
-    ): Promise<InstallationConfigValues[K]> {
-      const entry = entryOf(await saved(), key);
-      if (entry.kind === "saved") return entry.value;
-      if (entry.kind === "blocked") {
-        throw new InstallationConfigUnavailableError(key);
-      }
-      return INSTALLATION_CONFIG[key].default as InstallationConfigValues[K];
-    },
-
-    /**
-     * Every key as the console shows it, read fresh: a read already under
-     * way may have begun before a save, so it is waited out first. A failed
-     * read fails the view and keeps the values the process applies.
-     */
-    async view(): Promise<InstallationConfig> {
-      await loading?.catch(() => undefined);
-      const all = await load();
-      return Object.fromEntries(
-        INSTALLATION_CONFIG_KEYS.map((key) => {
-          const entry = entryOf(all, key);
-          const fallback = INSTALLATION_CONFIG[key].default;
-          return [
-            key,
-            {
-              value: entry.kind === "saved" ? entry.value : fallback,
-              default: fallback,
-              saved: entry.kind === "saved",
-              blocked: entry.kind === "blocked",
-            },
-          ];
-        }),
-      ) as InstallationConfig;
-    },
-
-    store: deps.store,
-  };
-}
-
-export type InstallationConfigSource = ReturnType<
-  typeof createInstallationConfigSource
->;
 
 /** The owner's view of the installation settings, and saving them. */
 export function createInstallationConfigAdmin(deps: {
   authorization: AuthorizationPolicy;
   source: InstallationConfigSource;
+  store: Pick<InstallationConfigStore, "setValues">;
 }) {
   return {
     async read(caller: Caller): Promise<InstallationConfig> {
@@ -252,7 +28,7 @@ export function createInstallationConfigAdmin(deps: {
       const values = Object.fromEntries(
         Object.entries(body).filter(([, value]) => value !== undefined),
       );
-      const { changed } = await deps.source.store.setValues({ values, audit });
+      const { changed } = await deps.store.setValues({ values, audit });
       return {
         ...(await deps.source.view()),
         ...(changed ? { receipt_id: audit.receiptId } : {}),

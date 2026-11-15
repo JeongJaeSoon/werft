@@ -14,6 +14,10 @@ import {
 import { installedDescriptors } from "@werft-ai/runtime-codecs";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { PASS_DEGRADED_EXIT, PASS_SKIPPED_EXIT } from "../pass-loop/loop.ts";
+import {
+  installationConfigOf,
+  spendLimitSettings,
+} from "../wiring/installation-config.ts";
 import { schedulerBackendFor } from "./backend.ts";
 import { schedulerConfigFromEnv, stopDeadlineMsOf } from "./config.ts";
 import { latchOnConnectionLoss } from "./connection-latch.ts";
@@ -50,8 +54,7 @@ export async function main(
       createPostgresSchedulerStore(db, {
         connectForLock: () => pool.connect(),
         logger,
-        sessionCostLimitUsd: config.limits.sessionCostLimitUsd,
-        sessionTokenLimit: config.limits.sessionTokenLimit,
+        ...spendLimitSettings(installationConfigOf(db, logger)),
       }),
       (error) => {
         logger.error("Database connection lost; failing the rest of the pass", {

@@ -62,7 +62,8 @@ export type PlatformMetricsSnapshot = {
     costUsd: string;
     firstAt: Date;
   }[];
-  launchQueue: { sessions: number; oldestWaitSeconds: number };
+  /** Null while the scheduler's budget cannot be read. */
+  launchQueue: { sessions: number; oldestWaitSeconds: number } | null;
   inputQueueOldestAgeSeconds: number;
   /**
    * Sessions not stopping, stopped, closing or closed, by the image their
@@ -77,8 +78,11 @@ export type PlatformMetricsSnapshot = {
 };
 
 export type PlatformMetricsOptions = {
-  /** The scheduler's, so the launch queue is the one it drains. */
-  budget: SessionBudget;
+  /**
+   * The scheduler's, so the launch queue is the one it drains. Null while it
+   * cannot be read: the queue is left out, not counted under a guess.
+   */
+  budget: SessionBudget | null;
   /** Ascending upper bounds of the turn-duration histogram, in seconds. */
   buckets: readonly number[];
 };
@@ -107,7 +111,7 @@ export async function readPlatformMetrics(
     readOutcomeUnknownTurns(db),
     readToolCalls(db),
     readProviderUsage(db),
-    readLaunchQueue(db, options.budget),
+    options.budget === null ? null : readLaunchQueue(db, options.budget),
     readInputQueueOldestAge(db),
     readSessionWorkerImages(db),
   ]);

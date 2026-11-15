@@ -28,7 +28,7 @@
 - **turn과 입력 원문** — `turns` 표(`schema.ts`의 `turns`)
   - 담는 것: 사용자가 보낸 메시지 원문 `message`(`schema.ts`의 `message`), 보낸 사람 `actor_id`(`schema.ts`의 `actorId`), 끝난 turn의 결과·사용량 `result_json`(`schema.ts`의 `resultJson`, 쓰는 곳 `packages/db/src/worker-unit-of-work.ts`의 `finalizeAtomic`).
   - 만드는 시점: 입력을 받을 때(`postgres-unit-of-work.ts`의 `insertQueuedTurn`).
-  - 보존 기간: 무기한. 입력 원문의 바이트는 설치 상한 `STORAGE_LIMIT_BYTES`에 계속 센다. 상한은 지우지 않고 새 입력을 413으로 거절할 뿐이다. 설치처는 `STORAGE_LIMIT_BYTES`(Helm `config.limits.STORAGE_LIMIT_BYTES`, 기본 1 GiB, `deploy/helm/werft/values.yaml`)로 상한을 바꾼다([configuration.md](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/)).
+  - 보존 기간: 무기한. 입력 원문의 바이트는 실행 한도의 입력 보관 상한에 계속 센다. 상한은 지우지 않고 새 입력을 413으로 거절할 뿐이다. owner가 웹 콘솔의 설정 > 워크스페이스 > 실행 한도 "입력 보관"(기본 1 GiB)에서 상한을 바꾼다([웹에서 정하는 실행 한도](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/reference/configuration/#웹에서-정하는-실행-한도)).
   - 삭제 조건: 없음. close·terminate는 대기 중인 turn을 `cancelled`로 바꿀 뿐이다.
 - **세션 이벤트** — `events` 표(`schema.ts`의 `events`)
   - 담는 것: `system`·`assistant`·`tool_use`·`tool_result`·`question`·`result`·`status`·`error` 이벤트. `payload`(`schema.ts`의 `payload`)에 assistant 텍스트, 도구 입력, 도구 결과 본문이 그대로 들어간다. 이 표가 기능의 정본이다([세션 데이터가 흐르는 길](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/session-data-flow/)).

@@ -274,6 +274,7 @@ jobs:
               - apps/control-host/src/metrics/
               - apps/control-host/src/pass-loop/
               - apps/control-host/src/reconciler/
+              - apps/control-host/src/wiring/
               - packages/adapters/forge/
               - tests/catalog-mismatch.
               - tests/context-gap-flow.

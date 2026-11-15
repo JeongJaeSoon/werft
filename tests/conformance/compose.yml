@@ -6,10 +6,10 @@
 # approval within seconds, so 90 seconds leaves them room and lets the expiry
 # scenario end in about a minute and a half.
 #
-# The API no longer reads PENDING_REQUEST_TTL_SEC; on the stack's empty
-# database the first start carries it into the saved settings, as an upgrade
-# does, so the scenarios also run that path.
+# No role reads PENDING_REQUEST_TTL_SEC; on the stack's empty database
+# migrate carries it into the saved settings, as an upgrade does, so the
+# scenarios also run that path.
 services:
-  api:
+  migrate:
     environment:
       PENDING_REQUEST_TTL_SEC: "90"

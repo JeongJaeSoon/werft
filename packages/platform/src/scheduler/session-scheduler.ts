@@ -1,3 +1,4 @@
+import { InstallationConfigUnavailableError } from "../limits/index.ts";
 import { fillSlots } from "./launch.ts";
 import {
   DEFAULT_DRAIN_DEADLINE_MS,
@@ -261,8 +262,14 @@ async function pass(
   await terminateOrphans(ctx);
   await reconcileNetworks(options, summary);
 
-  // 3. Fill free slots.
-  await fillSlots(ctx);
+  // 3. Fill free slots. A session's limits that cannot be read stop only
+  // the launches; what is running is still stopped and reclaimed.
+  await fillSlots(ctx).catch((error: unknown) => {
+    if (!(error instanceof InstallationConfigUnavailableError)) throw error;
+    logger.warn("Launches skipped: the session limits cannot be read", {
+      setting: error.key,
+    });
+  });
 
   // 4. Workspaces nothing will come back to.
   await collectWorkspaces(options, summary, lock);

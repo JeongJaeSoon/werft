@@ -208,10 +208,11 @@ async function topology(
       gateway,
       // As server.ts wires it: a billed call waits for its open.
       exchanges: createProviderExchangeLedger(db, {
-        admits: admitsReservations({
-          costUsd: SESSION_COST_LIMIT_USD,
-          tokens: null,
-        }),
+        admits: async () =>
+          admitsReservations({
+            costUsd: SESSION_COST_LIMIT_USD,
+            tokens: null,
+          }),
       }),
       logger: createLogger({ sinks: [] }),
       token: AUTHORIZER_BEARER,

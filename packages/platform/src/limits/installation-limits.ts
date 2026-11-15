@@ -1,22 +1,28 @@
 import { STORAGE_ACCOUNTED_CONTENT_VALUES } from "@werft-ai/contracts";
-import {
-  integerSetting,
-  positiveNumberSetting,
-  settingProblems,
-} from "@werft-ai/contracts/settings";
+import { integerSetting, settingProblems } from "@werft-ai/contracts/settings";
 
 /**
- * The limits an installation runs under. Every control process
- * reads them with this one parser, so the API that admits input, the gateway
- * that dispatches it and the scheduler that launches workers cannot disagree
- * about them. There are no defaults here on purpose: a missing value stops
- * the process, and the documented defaults live in `infra/compose.core.yml`.
- * The one exception is SESSION_TOKEN_LIMIT, which came later and defaults to
- * none so an installation that never set it runs as it did.
+ * The limits an installation still takes from env. Every control process
+ * reads them with this one parser, so the scheduler that launches workers
+ * and the API that reports them cannot disagree about them. There are no
+ * defaults here on purpose: a missing value stops the process, and the
+ * documented defaults live in `infra/compose.core.yml`.
  */
 export type InstallationLimits = {
   /** Worker containers that may hold a slot at once. */
   executionSlotLimit: number;
+  /** Wall-clock budget of one turn, handed to the worker. */
+  maxTurnSeconds: number;
+  /** Retries of a failed Messages request before the turn fails. */
+  providerMaxRetries: number;
+};
+
+/**
+ * The limits the owner keeps in the console. Each decision reads them once
+ * (a `Setting`) and holds that one read: another process's save reaches the
+ * next decision, not one under way.
+ */
+export type SessionLimits = {
   /** `queued` turns one session may hold; the next input answers 429. */
   queuedInputLimitPerSession: number;
   /**
@@ -24,8 +30,6 @@ export type InstallationLimits = {
    * listed at `STORAGE_ACCOUNTED_CONTENT`; the next input past it answers 413.
    */
   storageLimitBytes: number;
-  /** Wall-clock budget of one turn, handed to the worker. */
-  maxTurnSeconds: number;
   /** A session that has spent this much is dispatched nothing further. */
   sessionCostLimitUsd: number;
   /**
@@ -34,18 +38,39 @@ export type InstallationLimits = {
    * exactly where the cost limit stops it.
    */
   sessionTokenLimit: number | null;
-  /** Retries of a failed Messages request before the turn fails. */
-  providerMaxRetries: number;
 };
+
+/**
+ * A fixed value, or a read asked at each decision so a save applies to the
+ * next one. A read that fails refuses that decision.
+ */
+export type Setting<T> = T | (() => Promise<T>);
+
+export function readSetting<T>(setting: Setting<T>): Promise<T> {
+  return typeof setting === "function"
+    ? (setting as () => Promise<T>)()
+    : Promise.resolve(setting);
+}
+
+/**
+ * What an installation setting sets is refused: nothing it accepts is saved,
+ * or the settings have not been read for longer than a stale value may be
+ * used. Never answered with a default nobody chose.
+ */
+export class InstallationConfigUnavailableError extends Error {
+  constructor(readonly key: string | null) {
+    super(
+      key === null
+        ? "the installation settings could not be read"
+        : `${key} has no value this release accepts; save it in Settings > Workspace > Execution limits`,
+    );
+  }
+}
 
 export type InstallationLimitsEnvironment = {
   EXECUTION_SLOT_LIMIT?: string | undefined;
   MAX_TURN_SECONDS?: string | undefined;
   PROVIDER_MAX_RETRIES?: string | undefined;
-  QUEUED_INPUT_LIMIT_PER_SESSION?: string | undefined;
-  SESSION_COST_LIMIT_USD?: string | undefined;
-  SESSION_TOKEN_LIMIT?: string | undefined;
-  STORAGE_LIMIT_BYTES?: string | undefined;
   [name: string]: string | undefined;
 };
 
@@ -59,8 +84,6 @@ export const STORAGE_ACCOUNTED_CONTENT = STORAGE_ACCOUNTED_CONTENT_VALUES;
 
 /** Past this the engine clamps it anyway, and each retry backs off longer. */
 const MAX_PROVIDER_RETRIES = 10;
-/** Well inside what `sessions.cost_usd` can hold, so the limit is reachable. */
-const MAX_SESSION_COST_LIMIT_USD = 1_000_000;
 /** setTimeout overflows past 2^31-1 ms; a week is far inside that. */
 const MAX_TURN_SECONDS_CEILING = 7 * 24 * 60 * 60;
 
@@ -86,7 +109,7 @@ export function installationLimitsFromEnv(
 }
 
 function parseAll(environment: InstallationLimitsEnvironment): {
-  limits: Record<keyof InstallationLimits, number | null | undefined>;
+  limits: Record<keyof InstallationLimits, number | undefined>;
   problems: string[];
 } {
   const { problems, read } = settingProblems();
@@ -98,40 +121,12 @@ function parseAll(environment: InstallationLimitsEnvironment): {
         max: 10_000,
       }),
     ),
-    // Creating a session queues its first turn, so fewer than one would
-    // refuse every session.
-    queuedInputLimitPerSession: read(() =>
-      integerSetting(environment, "QUEUED_INPUT_LIMIT_PER_SESSION", {
-        min: 1,
-        max: 100_000,
-      }),
-    ),
-    storageLimitBytes: read(() =>
-      integerSetting(environment, "STORAGE_LIMIT_BYTES", {
-        min: 1,
-        max: Number.MAX_SAFE_INTEGER,
-      }),
-    ),
     maxTurnSeconds: read(() =>
       integerSetting(environment, "MAX_TURN_SECONDS", {
         min: 1,
         max: MAX_TURN_SECONDS_CEILING,
       }),
     ),
-    sessionCostLimitUsd: read(() =>
-      positiveNumberSetting(environment, "SESSION_COST_LIMIT_USD", {
-        max: MAX_SESSION_COST_LIMIT_USD,
-      }),
-    ),
-    // Zero, the default, means no token limit.
-    sessionTokenLimit: read(() => {
-      const limit = integerSetting(environment, "SESSION_TOKEN_LIMIT", {
-        min: 0,
-        max: Number.MAX_SAFE_INTEGER,
-        default: 0,
-      });
-      return limit === 0 ? null : limit;
-    }),
     // Zero is a real setting: the first failed request fails the turn.
     providerMaxRetries: read(() =>
       integerSetting(environment, "PROVIDER_MAX_RETRIES", {
@@ -149,7 +144,9 @@ export type SessionSpend = { costUsd: number; providerTokens: number };
 /** The limits a session's spend is held to. */
 export type SessionBudget = { costUsd: number; tokens: number | null };
 
-export function sessionBudgetOf(limits: InstallationLimits): SessionBudget {
+export function sessionBudgetOf(
+  limits: Pick<SessionLimits, "sessionCostLimitUsd" | "sessionTokenLimit">,
+): SessionBudget {
   return {
     costUsd: limits.sessionCostLimitUsd,
     tokens: limits.sessionTokenLimit,
