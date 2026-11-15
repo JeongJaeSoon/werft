@@ -386,7 +386,8 @@ describe("성과 규칙", () => {
       const table = within(section("규칙") as HTMLElement).getByRole("table");
       await waitFor(() =>
         expect(
-          within(table).getAllByRole("row")[2]?.querySelectorAll("td").length,
+          within(table).getAllByRole("row")[2]?.querySelectorAll("[role=cell]")
+            .length,
         ).toBe(5),
       );
       expect(
@@ -850,9 +851,10 @@ describe("성과 규칙", () => {
     const table = within(section("성과 type") as HTMLElement).getByRole(
       "table",
     );
-    const used = within(table)
+    // The fifth column holds the rules that use each type.
+    const used = within(within(table).getAllByRole("row")[1] as HTMLElement)
       .getAllByRole("cell")
-      .find((cell) => cell.getAttribute("data-k") === "규칙");
+      .at(4);
     expect(
       used?.className.split(/\s+/).includes("[overflow-wrap:anywhere]"),
     ).toBe(true);

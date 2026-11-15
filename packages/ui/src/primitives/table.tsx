@@ -3,15 +3,17 @@ import type { ComponentProps, JSX } from "react";
 import { cn } from "../foundations/cn.ts";
 
 /*
- * The console's tables. Their spacing is the --werft-row-* tokens in tokens.css,
- * shared with the session table in @werft-ai/react.
+ * A native table for content whose columns are not known ahead, such as a
+ * table in a reply's Markdown. Console screens use GridTable; this one is
+ * drawn the same way: flat, a rule under the header and between rows, and
+ * its spacing from the --werft-row-* and --werft-table-* tokens in tokens.css.
  *
  * A table cell takes half the row inset on each side, so neighbours sit one
- * full inset apart like the grid rows' gap, and only the outer cells take the
- * full inset from the frame.
+ * full inset apart like the grid rows' gap; the outer cells take none, so the
+ * first column's text stands on the page's left line.
  */
 const CELL_PADDING_X =
-  "px-[calc(var(--werft-row-padding-x)/2)] first:pl-[var(--werft-row-padding-x)] last:pr-[var(--werft-row-padding-x)]";
+  "px-[calc(var(--werft-row-padding-x)/2)] first:pl-0 last:pr-0";
 
 /*
  * `actions` is a column of row buttons: as narrow as its content, never
@@ -43,8 +45,8 @@ export type TableContainerProps = ComponentProps<"section"> & {
 };
 
 /**
- * The bordered frame a table sits in. It scrolls sideways when the table is
- * wider than the screen; the tab stop lets a keyboard reach it and scroll with
+ * The box a table sits in, without a frame. It scrolls sideways when the
+ * table is wider than the screen; the tab stop lets a keyboard reach it and scroll with
  * the arrow keys. Its focus ring is the console's (apps/web styles.css), drawn
  * here too so a host without that rule still shows where focus is.
  */
@@ -62,7 +64,7 @@ export function TableContainer({
       // biome-ignore lint/a11y/noNoninteractiveTabindex: a scroll container must be focusable to scroll by keyboard
       tabIndex={0}
       className={cn(
-        "relative overflow-x-auto rounded-card border bg-card focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2",
+        "relative overflow-x-auto focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:-outline-offset-2",
         className,
       )}
       {...props}
@@ -90,10 +92,7 @@ export function TableHeader({
   return (
     <thead
       data-slot="table-header"
-      className={cn(
-        "bg-surface-sunken [&>tr]:h-[var(--werft-row-head-min-height)]",
-        className,
-      )}
+      className={cn("[&>tr]:h-[var(--werft-row-head-min-height)]", className)}
       {...props}
     />
   );
@@ -130,7 +129,10 @@ export function TableRow({
     <tr
       data-slot="table-row"
       data-inactive={inactive || undefined}
-      className={cn("h-[var(--werft-row-min-height)] border-b", className)}
+      className={cn(
+        "h-[var(--werft-table-row-min-height)] border-b",
+        className,
+      )}
       {...props}
     />
   );
@@ -175,7 +177,7 @@ export function TableCell({
       data-variant={variant}
       className={cn(
         CELL_PADDING_X,
-        "py-[var(--werft-row-padding-y)] text-left align-middle",
+        "py-[var(--werft-table-row-padding-y)] text-left align-middle",
         CELL_VARIANT[variant],
         className,
       )}

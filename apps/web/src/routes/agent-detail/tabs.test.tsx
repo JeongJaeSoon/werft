@@ -1122,8 +1122,7 @@ describe("에이전트 상세 탭", () => {
         .map((head) => head.textContent),
     ).toEqual(["버전", "상태", "활성화 시각", "만든 사람", "동작"]);
     const row = within(table).getAllByRole("row")[1] as HTMLElement;
-    // The column and the version cell's narrow-only list both say it.
-    await within(row).findAllByText("이민호");
+    await within(row).findByText("이민호");
     expect(releaseCells(row)).toEqual([
       "2026-10-11_10:00:00 v1",
       "활성",
@@ -1131,46 +1130,11 @@ describe("에이전트 상세 탭", () => {
       "이민호",
     ]);
     expect(row.textContent).toContain("활성");
-    // A narrow table keeps the version and action columns; the version
-    // cell shows the status and lists every column it drops, the
-    // activation as a time.
-    expect(table.dataset.narrowAt).toBe("860");
-    expect(
-      within(table)
-        .getAllByRole("columnheader")
-        .filter((head) => head.dataset.hideNarrow !== "true")
-        .map((head) => head.textContent),
-    ).toEqual(["버전", "동작"]);
-    expect(table.style.getPropertyValue("--grid-table-narrow-columns")).toBe(
-      "minmax(0,1fr) 120px",
-    );
-    expect(
-      within(row)
-        .getAllByRole("cell")
-        .filter(
-          (cell) =>
-            !cell.className.includes("[@container(max-width:860px)]:hidden"),
-        ),
-    ).toHaveLength(2);
-    const narrowStatus = row.querySelector(
-      "span[class*='[@container(max-width:860px)]:flex']",
-    );
-    expect(narrowStatus?.className).toContain("hidden");
-    expect(narrowStatus?.textContent).toBe("활성");
-    const narrow = row.querySelector("dl");
-    expect(narrow?.className).toContain("hidden");
-    expect(narrow?.className).toContain("[@container(max-width:860px)]:flex");
-    expect(
-      [...(narrow?.querySelectorAll("dt") ?? [])].map((term) => [
-        term.textContent,
-        term.nextElementSibling?.textContent,
-      ]),
-    ).toEqual([
-      ["활성화 시각", expect.any(String)],
-      ["만든 사람", "이민호"],
-    ]);
-    expect(narrow?.querySelector("time")?.getAttribute("datetime")).toBe(
-      "2026-10-11T02:00:00.000Z",
+    // Every column shows at every width; a phone scrolls the table sideways.
+    expect(within(row).getAllByRole("cell")).toHaveLength(5);
+    expect(row.querySelector("dl")).toBeNull();
+    expect(table.style.getPropertyValue("--grid-table-min-width")).toBe(
+      "48rem",
     );
     expect(
       within(visiblePanel())

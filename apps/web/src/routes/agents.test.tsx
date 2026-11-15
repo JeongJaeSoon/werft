@@ -1,19 +1,6 @@
-import {
-  afterAll,
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  test,
-} from "bun:test";
-import { focusManager, onlineManager } from "@tanstack/react-query";
+import { beforeEach, describe, expect, test } from "bun:test";
 import type { ApiError } from "@werft-ai/client";
-import {
-  type AgentCard,
-  type AgentDetail,
-  agentDetailSchema,
-  CREDENTIAL_REVOKE_NOTICE,
-} from "@werft-ai/contracts";
+import type { AgentCard, AgentDetail } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import type { Locale } from "../i18n/i18n.tsx";
 import {
@@ -35,21 +22,13 @@ import {
   keys,
   me,
   memberMe,
-  USER_ID,
 } from "../test-support/fake-api.ts";
-import { fakeIntersection } from "../test-support/intersection.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { act, cleanup, render, renderAt, screen, waitFor, within } =
-  await appHarness();
-// Over happy-dom's, which setupDom put in place.
-const viewport = fakeIntersection();
-afterEach(() => viewport.show(() => true));
-afterAll(() => viewport.restore());
+const { act, render, renderAt, screen, waitFor, within } = await appHarness();
 // After the DOM exists: Radix picks a no-op layout effect when loaded before
 // it, and its dialogs then never reach the page.
 const { agentRefusal } = await import("../components/agent-refusal.ts");
-const { avatarTone } = await import("@werft-ai/ui");
 const { translate } = await import("../i18n/i18n.tsx");
 const { createBrowserHistory } = await import("@tanstack/react-router");
 const { App } = await import("../app.tsx");
@@ -154,13 +133,9 @@ const showTab = async (user: User, name: string) =>
   user.click(await screen.findByRole("tab", { name }));
 const showList = async (user: User, name: string) =>
   user.click(await screen.findByRole("button", { name }));
-// The state badge of the card or row an agent's name links from.
+// The state badge of the row an agent's name links from.
 const stateOf = (link: HTMLElement) =>
-  link
-    .closest("[role=row], [data-slot=card]")
-    ?.querySelector("[data-slot=badge][data-state]");
-const showTable = async (user: User) =>
-  user.click(await screen.findByRole("button", { name: "표" }));
+  link.closest("[role=row]")?.querySelector("[data-slot=badge][data-state]");
 
 const SECOND_VERSION = "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f";
 
@@ -225,70 +200,38 @@ describe("agentRefusal", () => {
 describe("에이전트 목록", () => {
   beforeEach(() => localStorage.clear());
 
-  test("표는 좁으면 수정 열을 숨기고, 그 시각을 이름 칸에 상대 시각으로 보인다", async () => {
+  test("표는 에이전트·담당 팀·상태·수정 네 열이고, 첫 칸은 장식 아이콘 옆에 이름과 식별자를 둔다", async () => {
     const server = agentServer();
     renderAt("/agents", { ...meOk, ...server.routes });
-    await showTable(await setupUser());
     const table = await screen.findByRole("table", { name: "에이전트" });
-    expect(table.dataset.narrowAt).toBe("480");
     expect(
       within(table)
         .getAllByRole("columnheader")
-        .map((head) => [head.textContent, head.dataset.hideNarrow ?? null]),
-    ).toEqual([
-      ["에이전트", null],
-      ["담당 팀", "true"],
-      ["상태", null],
-      ["수정", "true"],
-    ]);
-    const row = (
-      await within(table).findByRole("link", { name: "결제 담당" })
-    ).closest("[role=row]") as HTMLElement;
-    const [agentCell, teamCell, , updatedCell] =
-      within(row).getAllByRole("cell");
-    expect(teamCell?.dataset.hideNarrow).toBe("true");
-    expect(teamCell?.textContent).toBe("재무");
-    const updatedAt = server.detail().agent.updated_at;
-    expect(updatedCell?.dataset.hideNarrow).toBe("true");
-    expect(updatedCell?.querySelector("time")?.getAttribute("datetime")).toBe(
-      updatedAt,
-    );
-    // Only below the table's narrow width; the time in it is the same one.
-    const narrow = [...(agentCell?.querySelectorAll("span") ?? [])].find(
-      (line) => line.className.includes("[@container(width<480px)]:block"),
-    );
-    expect(narrow?.className).toContain("hidden");
-    expect(narrow?.textContent).toMatch(/ 수정$/);
-    expect(narrow?.querySelector("time")?.getAttribute("datetime")).toBe(
-      updatedAt,
-    );
-  });
-
-  test("목록과 상태를 카드로 보이고, 표로 바꿔도 상세로 잇는다", async () => {
-    const server = agentServer();
-    renderAt("/agents", { ...meOk, ...server.routes });
-    const card = (
-      await screen.findByRole("link", { name: "결제 담당" })
-    ).closest("[data-slot=card]") as HTMLElement;
-    expect(within(card).getByText("초안")).toBeDefined();
-    expect(card.textContent).toContain("식별자 billing");
-    // The whole card is its name link: one link, the footer only says so.
-    expect(
-      within(card)
-        .getAllByRole("link")
-        .map((link) => link.getAttribute("href")),
-    ).toEqual([DETAIL]);
-    expect(card.className).toContain("cursor-pointer");
-
-    await showTable(await setupUser());
-    const link = await screen.findByRole("link", { name: "결제 담당" });
+        .map((head) => head.textContent),
+    ).toEqual(["에이전트", "담당 팀", "상태", "수정"]);
+    const link = await within(table).findByRole("link", { name: "결제 담당" });
     expect(link.getAttribute("href")).toBe(DETAIL);
+    expect(link.className).toContain("after:inset-0");
     const row = link.closest("[role=row]") as HTMLElement;
+    // The whole row is its name link: one link, and it takes the pointer.
     expect(within(row).getAllByRole("link")).toHaveLength(1);
     expect(row.className).toContain("cursor-pointer");
-    expect(link.className).toContain("after:inset-0");
-    expect(within(row).getByText("초안")).toBeDefined();
-    expect(row.textContent).toContain("식별자 billing");
+    const [agentCell, teamCell, stateCell, updatedCell] =
+      within(row).getAllByRole("cell");
+    const icon = agentCell?.firstElementChild;
+    expect(icon?.getAttribute("aria-hidden")).toBe("true");
+    expect(icon?.className).toContain("rounded-full");
+    expect(icon?.querySelector("svg")).not.toBeNull();
+    expect(agentCell?.textContent).toContain("결제 담당");
+    expect(agentCell?.textContent).toContain("식별자 billing");
+    expect(teamCell?.textContent).toBe("재무");
+    expect(within(stateCell as HTMLElement).getByText("초안")).toBeDefined();
+    expect(updatedCell?.querySelector("time")?.getAttribute("datetime")).toBe(
+      server.detail().agent.updated_at,
+    );
+    // No cards view to switch to.
+    expect(screen.queryByRole("button", { name: "카드" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "표" })).toBeNull();
   });
 
   test("배지는 초안·릴리스·일시정지·보관됨을 이름만으로 서로 다르게 보인다", async () => {
@@ -336,13 +279,6 @@ describe("에이전트 목록", () => {
       (name) => stateOf(screen.getByRole("link", { name }))?.className,
     );
     expect(new Set(tones).size).toBe(4);
-    await showTable(await setupUser());
-    await waitFor(() =>
-      expect(
-        screen.getByRole("link", { name: "draft" }).closest("[role=row]"),
-      ).not.toBeNull(),
-    );
-    expect(badges()).toEqual(expected);
     // Only the archived row takes the inactive tone; its badge still says so.
     expect(
       ["draft", "live", "held", "old"].map((name) =>
@@ -422,372 +358,10 @@ describe("에이전트 목록", () => {
   });
 });
 
-describe("에이전트 카드", () => {
+describe("에이전트 목록 탭", () => {
   beforeEach(() => localStorage.clear());
 
-  /** One released agent whose card asks for two credentials, one bound. */
-  function releasedServer(mcp: readonly string[] = ["linear"]) {
-    const server = agentServer();
-    const base = server.detail();
-    const version = base.versions[0];
-    if (!version) throw new Error("agentServer has a first version");
-    const card = {
-      ...version.card,
-      capabilities: {
-        ...version.card.capabilities,
-        mcp: mcp.map((server) => ({ server })),
-        credential_refs: ["github", "linear"],
-      },
-    };
-    const release = {
-      id: crypto.randomUUID(),
-      agent_id: AGENT_ID,
-      version_id: version.id,
-      card_sha256: "0".repeat(64),
-      connection_id: CONNECTION,
-      repository_id: null,
-      runtime_config_snapshot: {},
-      effective_tools: { tools: ["Read"], mcp: [] },
-      policy_pins: {},
-      created_by: USER_ID,
-      created_at: "2026-10-11T01:00:00.000Z",
-      approved_by: null,
-      approved_at: null,
-      label: "2026-10-11_10:00:00",
-      activated_at: "2026-10-11T02:00:00.000Z",
-      deactivated_at: null,
-    };
-    const agent = {
-      ...base.agent,
-      description: DESCRIPTION,
-      active_release_id: release.id,
-    };
-    const detail = agentDetailSchema.parse({
-      ...base,
-      agent,
-      versions: [{ ...version, card }],
-      releases: [release],
-      active_release: release,
-    });
-    return {
-      ...server.routes,
-      "GET /v1/agents": () => json(200, { items: [agent], next_cursor: null }),
-      [`GET /v1/agents/${AGENT_ID}`]: () => json(200, detail),
-      [`GET /v1/agents/${AGENT_ID}/admins`]: () =>
-        json(200, {
-          users: [
-            {
-              user_id: USER_ID,
-              email: "owner@example.com",
-              display_name: "Owner",
-              created_by: null,
-              created_at: "2026-10-11T00:00:00.000Z",
-            },
-          ],
-          teams: [],
-        }),
-      [`GET /v1/agents/${AGENT_ID}/credential-bindings`]: () =>
-        json(200, {
-          items: [
-            {
-              id: crypto.randomUUID(),
-              agent_id: AGENT_ID,
-              credential_ref: "github",
-              bound_by: USER_ID,
-              bound_at: "2026-10-11T00:00:00.000Z",
-              revoked_at: null,
-              running_sessions: 0,
-            },
-          ],
-          revoke_notice: CREDENTIAL_REVOKE_NOTICE,
-        }),
-    };
-  }
-
-  async function openAdministered(routes: Parameters<typeof renderAt>[1]) {
-    const list = routes["GET /v1/agents"];
-    if (!list) throw new Error("routes list agents");
-    const rendered = renderAt("/agents", {
-      ...meOk,
-      ...routes,
-      "GET /v1/administered-agents": async (request) => {
-        const { items } = (await (await list(request)).json()) as {
-          items: unknown[];
-        };
-        return json(200, { items });
-      },
-    });
-    const user = await setupUser();
-    await user.click(
-      await screen.findByRole("button", { name: /^관리하는 에이전트/ }),
-    );
-    return rendered;
-  }
-
-  const cardFor = async (name: string) =>
-    (await screen.findByRole("link", { name })).closest(
-      "[data-slot=card]",
-    ) as HTMLElement;
-  const fact = (card: HTMLElement, term: string) =>
-    [...card.querySelectorAll("dt")].find((dt) => dt.textContent === term)
-      ?.nextElementSibling?.textContent;
-
-  test("배포 판·설명·모델 연결·MCP·자격 증명·담당을 카드에 모은다", async () => {
-    await openAdministered(releasedServer());
-    const card = await cardFor("결제 담당");
-    await waitFor(() =>
-      expect(fact(card, "릴리스")).toBe("2026. 10. 11. 10:00"),
-    );
-    // The badge names the state; the label lives in the release row.
-    expect(
-      stateOf(screen.getByRole("link", { name: "결제 담당" }))?.textContent,
-    ).toBe("릴리스");
-    expect(card.textContent).not.toContain("2026-10-11_10:00:00");
-    expect(card.textContent).toContain(DESCRIPTION);
-    expect(card.textContent).not.toContain("지시문");
-    expect(fact(card, "모델 연결")).toBe(CONNECTION);
-    expect(fact(card, "MCP")).toBe("linear");
-    expect(fact(card, "자격 증명")).toBe("연결 필요 1개");
-    // The colour beside the words is decoration; the words carry the state.
-    const dot = card.querySelector("[data-slot=status-dot]");
-    expect(dot?.getAttribute("data-status")).toBe("failed");
-    expect(dot?.getAttribute("aria-hidden")).toBe("true");
-    expect(card.textContent).toContain("관리자: Owner");
-  });
-
-  test("API에 없는 답변 대기·스킬 줄은 두지 않고, 카드는 이름 하나로 열린다", async () => {
-    await openAdministered(releasedServer());
-    const card = await cardFor("결제 담당");
-    await waitFor(() =>
-      expect(fact(card, "릴리스")).toBe("2026. 10. 11. 10:00"),
-    );
-    expect(
-      [...card.querySelectorAll("dt")].map((dt) => dt.textContent),
-    ).toEqual(["담당 팀", "릴리스", "모델 연결", "MCP", "자격 증명"]);
-    expect(card.textContent).not.toContain("미계측");
-    expect(
-      within(card)
-        .getAllByRole("link")
-        .map((a) => a.textContent),
-    ).toEqual(["결제 담당"]);
-  });
-
-  test("긴 MCP 이름은 칩 안에서 잘리고 전체 이름은 title로 남는다", async () => {
-    const long = `mcp-${"x".repeat(28)}`;
-    await openAdministered(releasedServer([long]));
-    const card = await cardFor("결제 담당");
-    await waitFor(() =>
-      expect(fact(card, "릴리스")).toBe("2026. 10. 11. 10:00"),
-    );
-    const chip = [...card.querySelectorAll("dt")]
-      .find((dt) => dt.textContent === "MCP")
-      ?.nextElementSibling?.querySelector("[data-slot=badge]");
-    expect(chip?.textContent).toBe(long);
-    expect(chip?.getAttribute("title")).toBe(long);
-    expect(chip?.firstElementChild?.className).toContain("truncate");
-    // Under the card's stretched link the hover would never reach the title.
-    expect(chip?.className).toContain("relative z-1");
-  });
-
-  test("식별자는 한 줄로 잘리고 전체 값은 링크 위의 title로 남는다", async () => {
-    renderAt("/agents", { ...meOk, ...releasedServer() });
-    const card = await cardFor("결제 담당");
-    const slug = card.getAttribute("data-agent") ?? "";
-    const line = [...card.querySelectorAll("[data-slot=text]")].find(
-      (el) => el.getAttribute("title") === slug,
-    );
-    expect(slug).not.toBe("");
-    expect(line?.textContent).toBe(`식별자 ${slug}`);
-    expect(line?.className).toContain("truncate");
-    expect(line?.className).toContain("relative z-1");
-  });
-  test("아바타 색은 이름으로 정해져 목록과 상세에서 같다", async () => {
-    const tone = `--werft-avatar-${avatarTone("결제 담당")}-bg`;
-    renderAt("/agents", { ...meOk, ...releasedServer() });
-    const card = await cardFor("결제 담당");
-    const avatar = card.querySelector("[data-slot=avatar]");
-    expect(avatar?.className).toContain(tone);
-    expect(avatar?.getAttribute("aria-hidden")).toBe("true");
-    expect(avatarTone("결제 담당")).toBe(avatarTone("결제 담당"));
-    expect(
-      new Set(["a", "b", "c", "d"].map((name) => avatarTone(name))).size,
-    ).toBe(4);
-  });
-
-  test("추가 정보를 못 불러와도 카드는 이름·상태와 상세 링크를 지킨다", async () => {
-    const server = agentServer();
-    const refuse = () => apiError(503, "UNAVAILABLE", "down");
-    await openAdministered({
-      ...server.routes,
-      [`GET /v1/agents/${AGENT_ID}`]: refuse,
-      [`GET /v1/agents/${AGENT_ID}/admins`]: refuse,
-      [`GET /v1/agents/${AGENT_ID}/credential-bindings`]: refuse,
-    });
-    const card = await cardFor("결제 담당");
-    await waitFor(() => expect(fact(card, "모델 연결")).toBe("—불러오지 못함"));
-    expect(stateOf(card.querySelector("a") as HTMLElement)?.textContent).toBe(
-      "초안",
-    );
-    expect(
-      within(card)
-        .getByRole("link", { name: "결제 담당" })
-        .getAttribute("href"),
-    ).toBe(DETAIL);
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
-
-  test("카드 내용을 못 불러와도 설명은 에이전트 행에서 보이고, 자격 증명 칸은 그렇다고 적는다", async () => {
-    const routes = releasedServer();
-    await openAdministered({
-      ...routes,
-      [`GET /v1/agents/${AGENT_ID}`]: () =>
-        apiError(503, "UNAVAILABLE", "down"),
-    });
-    const card = await cardFor("결제 담당");
-    await waitFor(() => expect(fact(card, "자격 증명")).toBe("—불러오지 못함"));
-    expect(card.textContent).toContain(DESCRIPTION);
-  });
-
-  test("카드 내용이 늦으면 자격 증명 칸은 연결 목록이 먼저 와도 기다린다", async () => {
-    await openAdministered({
-      ...releasedServer(),
-      [`GET /v1/agents/${AGENT_ID}`]: () => new Promise<Response>(() => {}),
-    });
-    const card = await cardFor("결제 담당");
-    await waitFor(() =>
-      expect(fact(card, "관리자") ?? card.textContent).toContain("Owner"),
-    );
-    const cell = [...card.querySelectorAll("dt")].find(
-      (dt) => dt.textContent === "자격 증명",
-    )?.nextElementSibling;
-    expect(cell?.querySelector("[aria-busy=true]")).not.toBeNull();
-  });
-
-  describe("보이는 카드만", () => {
-    const items = (count: number) => {
-      const base = agentServer().detail().agent;
-      return Array.from({ length: count }, (_, n) => ({
-        ...base,
-        id: crypto.randomUUID(),
-        slug: `agent-${n}`,
-        name: `에이전트 ${n}`,
-      }));
-    };
-    const slugOf = (element: Element) =>
-      element.querySelector("[data-agent]")?.getAttribute("data-agent");
-    const detailCalls = (api: { calls: readonly { path: string }[] }) =>
-      api.calls
-        .map((c) => c.path)
-        .filter((path) => /^\/v1\/agents\/(?!counts$)[^/]+/.test(path));
-
-    test("화면에 들어온 카드만 추가 정보를 부르고, 스크롤로 들어오면 그때 부른다", async () => {
-      const agents = items(14);
-      const first = new Set(agents.slice(0, 6).map((agent) => agent.slug));
-      viewport.show((element) => first.has(slugOf(element) ?? ""));
-      const { api } = await openAdministered({
-        "GET /v1/agents": () => json(200, { items: agents, next_cursor: null }),
-      });
-      const late = await cardFor("에이전트 13");
-      await waitFor(() => expect(detailCalls(api).length).toBe(18));
-      const asked = new Set(
-        detailCalls(api).map(
-          (path) => /^\/v1\/agents\/([^/]+)/.exec(path)?.[1],
-        ),
-      );
-      expect(asked.has(agents[5]?.id)).toBe(true);
-      expect(asked.has(agents[6]?.id)).toBe(false);
-      // Not yet read is a placeholder, never the dash of a failed read.
-      const connection = [...late.querySelectorAll("dt")].find(
-        (dt) => dt.textContent === "모델 연결",
-      )?.nextElementSibling;
-      expect(connection?.querySelector("[aria-busy=true]")).not.toBeNull();
-      expect(screen.queryByText(/자세한 정보를 불러옵니다/)).toBeNull();
-
-      act(() => viewport.show(() => true));
-      await waitFor(() => expect(detailCalls(api).length).toBe(42));
-      // Each card's three reads go out once, however often it is reported.
-      expect(new Set(detailCalls(api)).size).toBe(42);
-      act(() => viewport.show(() => true));
-      await waitFor(() =>
-        expect(connection?.querySelector("[aria-busy=true]")).toBeNull(),
-      );
-      expect(detailCalls(api).length).toBe(42);
-    });
-
-    test("목록이 요약을 함께 주면 카드는 에이전트마다 따로 부르지 않는다", async () => {
-      const agents = items(14).map((agent, index) => ({
-        ...agent,
-        // The first has no description yet: its card's earlier role stands in.
-        description: index === 0 ? null : `설명 ${index}`,
-        summary: {
-          version: {
-            version_no: 3,
-            role: "옛 역할",
-            instructions: "적용된 적 없는 지시",
-            mcp_servers: ["linear"],
-            credential_refs: ["github", "slack"],
-          },
-          connection_id: index === 0 ? null : CONNECTION,
-          release_label: index === 0 ? null : "2026-10-11_10:00:00-2",
-          release_model: index === 0 ? null : "claude-sonnet-5",
-          bound_credential_refs: ["github"],
-          admins: ["Owner", "재무팀"],
-          needs_input_count: 0,
-          running_count: 0,
-          slack_action: null,
-        },
-      }));
-      viewport.show(() => false);
-      const { api } = renderAt("/agents", {
-        ...meOk,
-        "GET /v1/agents": () => json(200, { items: agents, next_cursor: null }),
-      });
-      const card = await cardFor("에이전트 13");
-      expect(fact(card, "릴리스")).toBe("2026. 10. 11. 10:00");
-      // The dash is drawn; a screen reader hears the words.
-      const draft = await cardFor("에이전트 0");
-      expect(fact(draft, "릴리스")).toBe("—릴리스 전");
-      // Said once: the connection row of an unreleased card is only a dash.
-      expect(fact(draft, "모델 연결")).toBe("—없음");
-      expect(fact(card, "모델 연결")).toBe(CONNECTION);
-      expect(fact(card, "MCP")).toBe("linear");
-      expect(fact(card, "자격 증명")).toBe("연결 필요 1개");
-      expect(card.textContent).toContain("설명 13");
-      expect(card.textContent).not.toContain("옛 역할");
-      expect(card.textContent).not.toContain("적용된 적 없는 지시");
-      expect(draft.textContent).toContain("옛 역할");
-      expect(card.textContent).toContain("관리자: Owner, 재무팀");
-      expect(api.calls.find((c) => c.path === "/v1/agents")?.search).toContain(
-        "include=summary",
-      );
-      act(() => viewport.show(() => true));
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(detailCalls(api)).toEqual([]);
-    });
-
-    test("창이나 네트워크로 돌아와도 이미 불러온 카드를 다시 부르지 않는다", async () => {
-      const { api } = await openAdministered(releasedServer());
-      const card = await cardFor("결제 담당");
-      await waitFor(() => expect(card.textContent).toContain("관리자: Owner"));
-      await waitFor(() => expect(detailCalls(api).length).toBe(3));
-      act(() => {
-        focusManager.setFocused(false);
-        focusManager.setFocused(true);
-        onlineManager.setOnline(false);
-        onlineManager.setOnline(true);
-      });
-      // Let a refetch, if any, go out before counting.
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(detailCalls(api).length).toBe(3);
-      focusManager.setFocused(undefined);
-    });
-  });
-});
-
-describe("에이전트 목록 탭과 보기", () => {
-  beforeEach(() => localStorage.clear());
-
-  test("에이전트가 없어도 탭과 보기 전환은 남고 전체 탭이 비었다고 알린다", async () => {
+  test("에이전트가 없어도 탭은 남고 전체 탭이 비었다고 알린다", async () => {
     renderAt("/agents", {
       ...meOk,
       "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
@@ -797,7 +371,6 @@ describe("에이전트 목록 탭과 보기", () => {
     expect(
       await screen.findByRole("button", { name: "관리하는 에이전트 0" }),
     ).toBeDefined();
-    expect(screen.getByRole("button", { name: "카드" })).toBeDefined();
     expect(screen.getByText("아직 에이전트가 없습니다.")).toBeDefined();
   });
 
@@ -862,13 +435,9 @@ describe("에이전트 목록 탭과 보기", () => {
     const search = screen.getByRole("searchbox", {
       name: "이름이나 식별자로 찾기",
     });
-    const cards = screen.getByRole("button", { name: "카드" });
-    // Categories, then view, then search: the toolbar's reading order.
+    // Categories, then search: the toolbar's reading order.
     expect(
-      all.compareDocumentPosition(cards) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(
-      cards.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING,
+      all.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
     const user = await setupUser();
@@ -921,8 +490,6 @@ describe("에이전트 목록 탭과 보기", () => {
       slug: `agent-${n}`,
       name: `에이전트 ${n}`,
     }));
-    // Only the tab and its notice matter here, not 200 cards' details.
-    viewport.show(() => false);
     renderAt("/agents", {
       ...meOk,
       "GET /v1/agents": () => json(200, { items: [base], next_cursor: null }),
@@ -939,25 +506,6 @@ describe("에이전트 목록 탭과 보기", () => {
     });
     await showList(await setupUser(), "관리하는 에이전트 250");
     expect(await screen.findByText("처음 200개만 보입니다.")).toBeDefined();
-  });
-
-  test("보기 선택은 사용자마다 브라우저에 남고 처음은 카드다", async () => {
-    const server = agentServer();
-    // Another person's choice in the same browser is not this one's.
-    localStorage.setItem("ap.agents.view.someone-else", "table");
-    renderAt("/agents", { ...meOk, ...server.routes });
-    const cards = await screen.findByRole("button", { name: "카드" });
-    expect(cards.getAttribute("aria-pressed")).toBe("true");
-    await showTable(await setupUser());
-    expect(localStorage.getItem(`ap.agents.view.${USER_ID}`)).toBe("table");
-    cleanup();
-
-    renderAt("/agents", { ...meOk, ...server.routes });
-    const link = await screen.findByRole("link", { name: "결제 담당" });
-    expect(link.closest("[role=row]")).not.toBeNull();
-    expect(
-      screen.getByRole("button", { name: "표" }).getAttribute("aria-pressed"),
-    ).toBe("true");
   });
 });
 
@@ -1000,15 +548,14 @@ describe("Slack 조치 링크", () => {
     }));
   }
 
-  // The link in the card or row the agent's name opens, if any.
+  // The link in the row the agent's name opens, if any.
   const slackLinkOf = (name: string) =>
     screen
       .getByRole("link", { name })
-      .closest("[role=row], [data-slot=card]")
+      .closest("[role=row]")
       ?.querySelector<HTMLAnchorElement>("a[href*='tab=slack']") ?? null;
 
-  test("조치가 필요한 카드와 행에만 그 에이전트의 Slack 탭 링크를 이유와 함께 단다", async () => {
-    const user = await setupUser();
+  test("조치가 필요한 행에만 그 에이전트의 Slack 탭 링크를 이유와 함께 단다", async () => {
     const agents = listed();
     renderAt("/agents", {
       ...meOk,
@@ -1027,13 +574,6 @@ describe("Slack 조치 링크", () => {
           `/agents/${agents[n]?.id}?tab=slack`,
         );
       });
-    check();
-    await showTable(user);
-    await waitFor(() =>
-      expect(
-        screen.getByRole("link", { name: "에이전트 0" }).closest("[role=row]"),
-      ).not.toBeNull(),
-    );
     check();
   });
 });

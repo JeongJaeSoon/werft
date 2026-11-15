@@ -7,7 +7,7 @@ import type {
   CountAgentsResponse,
 } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
-import { ListToolbar, ListViewSwitch } from "@werft-ai/react/components";
+import { ListToolbar } from "@werft-ai/react/components";
 import {
   Button,
   buttonVariants,
@@ -26,32 +26,21 @@ import {
   SegmentedControlItem,
   Text,
 } from "@werft-ai/ui";
-import { LayoutGrid, List } from "lucide-react";
+import { Bot } from "lucide-react";
 import { useRef, useState } from "react";
 import {
   administeredAgentsQuery,
   agentCountsQuery,
   agentPagesQuery,
 } from "../api/queries.ts";
-import {
-  permissionReason,
-  useHasPermission,
-  useMe,
-  useRole,
-} from "../auth/guard.tsx";
+import { permissionReason, useHasPermission, useRole } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import {
   ADMINISTERED_LIST_LIMIT,
   AdministeredAgents,
 } from "../components/agent-admins.tsx";
-import { AgentCards } from "../components/agent-cards.tsx";
 import { agentRefusal } from "../components/agent-refusal.ts";
 import { AgentStateBadge, agentState } from "../components/agent-state.tsx";
-import {
-  AGENT_VIEWS,
-  type AgentView,
-  useAgentView,
-} from "../components/agent-view.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { ManagingTeamName } from "../components/managing-team.tsx";
 import { NewAgentFlow } from "../components/new-agent-flow.tsx";
@@ -60,7 +49,6 @@ import { OPENS_ROW, TABLE_ROW_LINK } from "../components/row-link.ts";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { SlackActionLink } from "../components/slack-action-link.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
-import { withNodes } from "../components/with-nodes.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 
 export function AgentsScreen() {
@@ -115,8 +103,6 @@ export function AgentsScreen() {
   );
 }
 
-const VIEW_ICON = { cards: LayoutGrid, table: List } as const;
-
 function AgentList({
   counts,
 }: {
@@ -124,10 +110,6 @@ function AgentList({
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
-  const principal = useMe()?.principal;
-  const [view, setView] = useAgentView(
-    principal?.kind === "user" ? principal.id : undefined,
-  );
   const [scope, setScope] = useState<"all" | "administered">("all");
   const [query, setQuery] = useState("");
   const q = useSearchTerm(query);
@@ -173,18 +155,6 @@ function AgentList({
             </SegmentedControlItem>
           </SegmentedControl>
         }
-        view={
-          <ListViewSwitch
-            aria-label={t("agents.view.label")}
-            value={view}
-            onValueChange={setView}
-            options={AGENT_VIEWS.map((option) => ({
-              value: option,
-              label: t(`agents.view.${option}`),
-              icon: VIEW_ICON[option],
-            }))}
-          />
-        }
         search={{
           ref: search,
           type: "search",
@@ -214,12 +184,7 @@ function AgentList({
           />
         ) : (
           <div className="flex flex-col gap-4">
-            <AgentsIn
-              view={view}
-              agents={shown ?? []}
-              onClear={clear}
-              summarized
-            />
+            <AgentsIn agents={shown ?? []} onClear={clear} />
             <PagedListFooter list={pages} />
           </div>
         )
@@ -241,7 +206,7 @@ function AgentList({
               })}
             </Text>
           ) : null}
-          <AgentsIn view={view} agents={shown ?? []} onClear={clear} />
+          <AgentsIn agents={shown ?? []} onClear={clear} />
         </div>
       )}
     </div>
@@ -262,16 +227,12 @@ function matchesAgentQuery(agent: Agent, query: string) {
 }
 
 function AgentsIn({
-  view,
   agents,
   onClear,
-  summarized = false,
 }: {
-  readonly view: AgentView;
   /** The list after the search. */
   readonly agents: readonly AgentListItem[];
   readonly onClear: () => void;
-  readonly summarized?: boolean;
 }) {
   const { t } = useI18n();
   if (agents.length === 0) {
@@ -287,34 +248,22 @@ function AgentsIn({
       />
     );
   }
-  return view === "cards" ? (
-    <AgentCards agents={agents} summarized={summarized} />
-  ) : (
-    <AgentTable agents={agents} />
-  );
+  return <AgentTable agents={agents} />;
 }
 
 function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
   const { t, locale } = useI18n();
   return (
-    <GridTable
-      aria-label={t("agents.title")}
-      columns={COLUMNS[0]}
-      narrowAt={480}
-      narrowColumns={COLUMNS[1]}
-      framed={true}
-    >
+    <GridTable aria-label={t("agents.title")} columns={COLUMNS}>
       <GridTableHeader>
         <GridTableColumnHeader>
           {t("agents.column.agent")}
         </GridTableColumnHeader>
-        <GridTableColumnHeader hideNarrow>
-          {t("agents.column.team")}
-        </GridTableColumnHeader>
+        <GridTableColumnHeader>{t("agents.column.team")}</GridTableColumnHeader>
         <GridTableColumnHeader>
           {t("agents.column.state")}
         </GridTableColumnHeader>
-        <GridTableColumnHeader align="end" hideNarrow>
+        <GridTableColumnHeader align="end">
           {t("agents.column.updated")}
         </GridTableColumnHeader>
       </GridTableHeader>
@@ -332,13 +281,19 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
             inactive={agentState(agent) === "archived"}
             className={OPENS_ROW}
           >
-            <GridTableCell>
+            <GridTableCell className="gap-3">
+              <span
+                aria-hidden="true"
+                className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-sunken text-muted-foreground"
+              >
+                <Bot className="size-4" />
+              </span>
               <RowLines>
                 <Link
                   to="/agents/$id"
                   params={{ id: agent.id }}
                   className={cn(
-                    "font-medium text-link underline-offset-2 hover:underline [overflow-wrap:anywhere]",
+                    "font-medium text-foreground no-underline underline-offset-2 hover:underline [overflow-wrap:anywhere]",
                     TABLE_ROW_LINK,
                   )}
                 >
@@ -348,36 +303,16 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
                   <span className="sr-only">{t("agents.slug")} </span>
                   {agent.slug}
                 </Code>
-                {/* GridTable's narrowAt={480}, where the time column drops. */}
-                <Text
-                  as="span"
-                  variant="meta"
-                  className="hidden [@container(width<480px)]:block"
-                >
-                  {withNodes((vars) => t("agents.updated", vars), {
-                    at: updated,
-                  })}
-                </Text>
-                <span className="hidden [@container(width<480px)]:block">
-                  <span className="sr-only">{t("agents.column.team")} </span>
-                  <ManagingTeamName agent={agent} />
-                </span>
                 <SlackActionLink agent={agent} />
               </RowLines>
             </GridTableCell>
-            <GridTableCell hideNarrow>
+            <GridTableCell>
               <ManagingTeamName agent={agent} />
             </GridTableCell>
             <GridTableCell>
               <AgentStateBadge agent={agent} />
             </GridTableCell>
-            <GridTableCell
-              align="end"
-              hideNarrow
-              className="text-caption text-muted-foreground"
-            >
-              {updated}
-            </GridTableCell>
+            <GridTableCell align="end">{updated}</GridTableCell>
           </GridTableRow>
         );
       })}
@@ -385,10 +320,7 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
   );
 }
 
-const COLUMNS = [
-  "minmax(0,1fr) minmax(0,200px) 104px 120px",
-  "minmax(0,1fr) 104px",
-] as const;
+const COLUMNS = "minmax(0,1fr) minmax(0,200px) 104px 120px";
 
 /**
  * A blank card, made in steps.

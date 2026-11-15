@@ -466,7 +466,7 @@ describe("최근 세션 표", () => {
       );
     expect(agents).toEqual(["배포 도우미", "—"]);
   });
-  test("좁은 표(820px 이하)에서는 저장소 열이 머리와 칸이 함께 빠지고 남는 네 열이 좁은 열 틀과 맞는다", async () => {
+  test("좁은 폭에서도 다섯 열이 모두 남고 표는 가로 스크롤 상자 안에 있다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
@@ -480,32 +480,15 @@ describe("최근 세션 표", () => {
         }),
     });
     const table = await screen.findByRole("table", { name: "최근 세션" });
-    // GridTable hides by a container query on the table's own width.
-    expect(table.getAttribute("data-narrow-at")).toBe("820");
-    const narrowTracks = (table as HTMLElement).style
-      .getPropertyValue("--grid-table-narrow-columns")
-      .trim()
-      .split(/\s+(?![^(]*\))/);
-    expect(narrowTracks).toHaveLength(4);
-    const hidden = (cell: Element) =>
-      cell.getAttribute("data-hide-narrow") === "true" &&
-      cell.className
-        .split(/\s+/)
-        .includes("[@container(max-width:820px)]:hidden");
+    expect(table.parentElement?.getAttribute("data-slot")).toBe(
+      "grid-table-scroll",
+    );
     const headers = within(table).getAllByRole("columnheader");
-    expect(headers.map(hidden)).toEqual([false, false, false, true, false]);
-    expect(headers.filter(hidden).map((header) => header.textContent)).toEqual([
-      "저장소",
-    ]);
-    const kept = headers.filter((header) => !hidden(header));
-    expect(kept).toHaveLength(narrowTracks.length);
+    expect(headers).toHaveLength(5);
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows).toHaveLength(2);
-    for (const row of rows) {
-      const cells = within(row).getAllByRole("cell");
-      expect(cells.map(hidden)).toEqual(headers.map(hidden));
-      expect(cells.filter((cell) => !hidden(cell))).toHaveLength(kept.length);
-    }
+    for (const row of rows)
+      expect(within(row).getAllByRole("cell")).toHaveLength(headers.length);
   });
 });
 

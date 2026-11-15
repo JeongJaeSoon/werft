@@ -24,28 +24,15 @@ import { useMinute } from "./use-minute.ts";
 
 /**
  * Console v4 `.t-sess`: title, status, agent · model, repository, started
- * by, recent. At 820px of table width and below, repository and started by
- * drop out for SESSION_OVERVIEW_NARROW_TEMPLATE; below 600px each row
- * stacks (PHONE). The status column fits en "Waiting for an answer · 59 min";
- * a longer wait truncates.
+ * by, recent. Below the table's minimum width it scrolls sideways. The
+ * status column fits en "Waiting for an answer · 59 min"; a longer wait
+ * truncates.
  */
 export const SESSION_OVERVIEW_TEMPLATE =
   "minmax(0,2.2fr) 200px minmax(0,1.1fr) minmax(0,1.1fr) minmax(0,1fr) 72px";
 /** v4 `.t-sess-home`: the same without the started-by column. */
 export const SESSION_OVERVIEW_HOME_TEMPLATE =
   "minmax(0,2.2fr) 200px minmax(0,1.2fr) minmax(0,1.2fr) 72px";
-export const SESSION_OVERVIEW_NARROW_TEMPLATE =
-  "minmax(0,2fr) 116px minmax(0,1.2fr) 64px";
-
-// A phone's table has no room for four columns side by side: the title
-// takes the first line, status, agent and time the second, and the column
-// names stay for screen readers only.
-const PHONE = {
-  row: "[@container(width<600px)]:grid-cols-[auto_minmax(0,1fr)_auto]! [@container(width<600px)]:gap-y-1",
-  title: "[@container(width<600px)]:col-span-full",
-  header: "[@container(width<600px)]:sr-only",
-} as const;
-
 /** The id a person can tell rows apart by; the full id stays in the title. */
 export function shortSessionId(id: string): string {
   return id.slice(0, 8);
@@ -83,20 +70,15 @@ export function SessionOverviewTable({
   const startedBy = messages.startedBy !== undefined;
   const agent = messages.agent !== undefined;
   return (
-    // The row opener's focus ring sits outside the row, so this frame must
-    // not clip overflow.
-    <div
-      className={cn("w-full min-w-0 rounded-card border bg-card", className)}
-    >
+    <div className={cn("w-full min-w-0", className)}>
       <GridTable
         aria-label={label}
+        minWidth="52rem"
         columns={
           startedBy ? SESSION_OVERVIEW_TEMPLATE : SESSION_OVERVIEW_HOME_TEMPLATE
         }
-        narrowAt={820}
-        narrowColumns={SESSION_OVERVIEW_NARROW_TEMPLATE}
       >
-        <GridTableHeader className={cn(PHONE.row, PHONE.header)}>
+        <GridTableHeader>
           {/* One line each: a narrow column cuts its name rather than wrap. */}
           <GridTableColumnHeader>
             <span className="truncate">{messages.session}</span>
@@ -107,11 +89,11 @@ export function SessionOverviewTable({
           <GridTableColumnHeader>
             <span className="truncate">{messages.agent ?? messages.model}</span>
           </GridTableColumnHeader>
-          <GridTableColumnHeader hideNarrow={true}>
+          <GridTableColumnHeader>
             <span className="truncate">{messages.repository}</span>
           </GridTableColumnHeader>
           {startedBy ? (
-            <GridTableColumnHeader hideNarrow={true}>
+            <GridTableColumnHeader>
               <span className="truncate">{messages.startedBy}</span>
             </GridTableColumnHeader>
           ) : null}
@@ -203,9 +185,9 @@ export function SessionOverviewRow({
     <GridTableRow
       data-slot="session-overview-row"
       data-status={session.status}
-      className={cn(PHONE.row, className)}
+      className={className}
     >
-      <GridTableCell lines={true} className={PHONE.title}>
+      <GridTableCell lines={true}>
         <SessionRowOpener
           name={messages.open ? messages.open(name) : name}
           // The opener covers the row, so its hover text is the one shown.
@@ -263,7 +245,7 @@ export function SessionOverviewRow({
           </span>
         </GridTableCell>
       )}
-      <GridTableCell hideNarrow={true}>
+      <GridTableCell>
         <RepositoryIcon
           className="size-3.5 flex-none text-subtle-foreground"
           strokeWidth={1.5}
@@ -279,7 +261,7 @@ export function SessionOverviewRow({
         />
       </GridTableCell>
       {startedBy ? (
-        <GridTableCell hideNarrow={true}>
+        <GridTableCell>
           <span className="truncate">
             {session.created_by?.display_name || messages.unknown}
           </span>

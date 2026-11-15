@@ -158,12 +158,9 @@ const SECTION = {
 const ALLOWLIST_ID = "github-allowlist";
 type SectionKey = keyof typeof SECTION;
 const MANAGE_KEYS: readonly SectionKey[] = ["activity", "danger"];
-// Workflow | ref pattern | remove; narrow, the ref moves under the workflow.
+// Workflow | ref pattern | remove.
 const ALLOW_COLUMNS = "minmax(0,1fr) minmax(0,1fr) 88px";
 const ALLOW_COLUMNS_READ = "minmax(0,1fr) minmax(0,1fr)";
-const ALLOW_NARROW = "minmax(0,1fr) 88px";
-const ALLOW_NARROW_READ = "minmax(0,1fr)";
-const WIDE_ONLY_480 = "[@container(min-width:480px)]:hidden";
 // Receipt (what, with its detail line under it) | when.
 const ACTIVITY_COLUMNS = "minmax(0,1fr) 112px";
 const FOCUS_TARGET = "scroll-mt-4 outline-none";
@@ -345,7 +342,6 @@ function Activity({
           <GridTable
             aria-label={t("agentGitHub.section.activity")}
             columns={ACTIVITY_COLUMNS}
-            framed
           >
             <GridTableHeader>
               <GridTableColumnHeader>
@@ -1003,15 +999,12 @@ function GitHubSettings({
                     <GridTable
                       aria-label={t("agentGitHub.section.allowlist")}
                       columns={manages ? ALLOW_COLUMNS : ALLOW_COLUMNS_READ}
-                      narrowAt={480}
-                      narrowColumns={manages ? ALLOW_NARROW : ALLOW_NARROW_READ}
-                      framed
                     >
                       <GridTableHeader>
                         <GridTableColumnHeader>
                           {t("agentGitHub.table.workflow")}
                         </GridTableColumnHeader>
-                        <GridTableColumnHeader hideNarrow>
+                        <GridTableColumnHeader>
                           {t("agentGitHub.table.ref")}
                         </GridTableColumnHeader>
                         {manages ? (
@@ -1045,16 +1038,9 @@ function GitHubSettings({
                                     </Badge>
                                   )}
                                 </div>
-                                <Text
-                                  as="span"
-                                  variant="meta"
-                                  className={WIDE_ONLY_480}
-                                >
-                                  {refText}
-                                </Text>
                               </div>
                             </GridTableCell>
-                            <GridTableCell hideNarrow>
+                            <GridTableCell>
                               <Text
                                 as="span"
                                 variant="sub"

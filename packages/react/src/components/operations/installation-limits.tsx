@@ -1,7 +1,6 @@
 import type { LimitsResponse } from "@werft-ai/contracts";
 import {
   Badge,
-  Card,
   GridTable,
   GridTableCell,
   GridTableColumnHeader,
@@ -247,45 +246,39 @@ export function InstallationLimits({
         title={messages.limits}
         {...(member ? { description: asOf(messages.memberNote) } : {})}
       >
-        <Card flush>
-          <GridTable
-            aria-label={messages.limits}
-            columns="minmax(0,1fr) 128px 112px minmax(0,1.6fr)"
-            narrowAt={480}
-            narrowColumns="minmax(0,1fr) 112px 80px"
-          >
-            <GridTableHeader>
-              <GridTableColumnHeader>{messages.item}</GridTableColumnHeader>
-              <GridTableColumnHeader>{messages.current}</GridTableColumnHeader>
-              <GridTableColumnHeader>{messages.limit}</GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
-                {messages.note}
-              </GridTableColumnHeader>
-            </GridTableHeader>
-            {rows.map(([item, now, limit, note]) => (
-              <GridTableRow key={item}>
-                <GridTableCell>{item}</GridTableCell>
-                <GridTableCell className="tabular-nums">
-                  {fixed.includes(now) ? (
-                    now
-                  ) : (
-                    <Value loading={loading}>{now}</Value>
-                  )}
-                </GridTableCell>
-                <GridTableCell className="tabular-nums">
-                  {fixed.includes(limit) ? (
-                    limit
-                  ) : (
-                    <Value loading={loading}>{limit}</Value>
-                  )}
-                </GridTableCell>
-                <GridTableCell hideNarrow className="text-muted-foreground">
-                  {note}
-                </GridTableCell>
-              </GridTableRow>
-            ))}
-          </GridTable>
-        </Card>
+        <GridTable
+          aria-label={messages.limits}
+          columns="minmax(0,1fr) 128px 112px minmax(0,1.6fr)"
+        >
+          <GridTableHeader>
+            <GridTableColumnHeader>{messages.item}</GridTableColumnHeader>
+            <GridTableColumnHeader>{messages.current}</GridTableColumnHeader>
+            <GridTableColumnHeader>{messages.limit}</GridTableColumnHeader>
+            <GridTableColumnHeader>{messages.note}</GridTableColumnHeader>
+          </GridTableHeader>
+          {rows.map(([item, now, limit, note]) => (
+            <GridTableRow key={item}>
+              <GridTableCell>{item}</GridTableCell>
+              <GridTableCell className="tabular-nums">
+                {fixed.includes(now) ? (
+                  now
+                ) : (
+                  <Value loading={loading}>{now}</Value>
+                )}
+              </GridTableCell>
+              <GridTableCell className="tabular-nums">
+                {fixed.includes(limit) ? (
+                  limit
+                ) : (
+                  <Value loading={loading}>{limit}</Value>
+                )}
+              </GridTableCell>
+              <GridTableCell className="text-muted-foreground">
+                {note}
+              </GridTableCell>
+            </GridTableRow>
+          ))}
+        </GridTable>
       </Section>
       {messages.loading ? (
         <output className="sr-only">{loading ? messages.loading : ""}</output>

@@ -239,17 +239,10 @@ export function TeamsScreen() {
 // The same frame as the 구성원 table; the count and its arrow share the
 // second track, so every row's arrow lines up.
 const TEAM_COLUMNS = "minmax(0,1fr) 9rem";
-// Below 640px the count and its arrow keep what the name leaves.
-const TEAM_NARROW_COLUMNS = "minmax(0,1fr) 7rem";
 // "Remove" in the longest language, beside nothing else.
 const TEAM_ACTIONS_COLUMN = "var(--werft-row-action-min-width)";
 // The inline team role select: "Team lead" and its arrow in the longest language.
 const TEAM_ROLE_COLUMN = "7.5rem";
-// Narrow tables: the select drops its inner padding (see TeamRoleSelect), so
-// the longest language (ja, 110px) fits without clipping.
-const TEAM_ROLE_NARROW_COLUMN = "7rem";
-// The button in the longest language (en "Remove", 67px).
-const TEAM_ACTIONS_NARROW_COLUMN = "4.5rem";
 
 function TeamTable({
   items,
@@ -262,8 +255,6 @@ function TeamTable({
       label={t("teams.listLabel")}
       layout={{
         columns: TEAM_COLUMNS,
-        narrowColumns: TEAM_NARROW_COLUMNS,
-        narrowAt: 640,
         headers: (
           <>
             <GridTableColumnHeader>
@@ -601,9 +592,8 @@ function TeamMembers({
     : team.members;
   // Every track is fixed: each row is its own grid, so a max-content track
   // would size to that row's buttons and the header's "Actions" alone, and
-  // push the columns before it out from under their headers. Below 820px the
-  // date and the workspace role drop out; the name keeps what the team role
-  // and the buttons leave.
+  // push the columns before it out from under their headers. A narrow screen
+  // scrolls the table sideways.
   const teamRoleColumn = manages ? TEAM_ROLE_COLUMN : "96px";
   const columns = [
     "minmax(0,1fr)",
@@ -611,13 +601,6 @@ function TeamMembers({
     teamRoleColumn,
     "minmax(9.5rem,0.5fr)",
     manages && TEAM_ACTIONS_COLUMN,
-  ]
-    .filter(Boolean)
-    .join(" ");
-  const narrowColumns = [
-    "minmax(0,1fr)",
-    manages ? TEAM_ROLE_NARROW_COLUMN : teamRoleColumn,
-    manages && TEAM_ACTIONS_NARROW_COLUMN,
   ]
     .filter(Boolean)
     .join(" ");
@@ -682,22 +665,20 @@ function TeamMembers({
               label={t("teams.tableLabel")}
               layout={{
                 columns,
-                narrowColumns,
-                narrowAt: 820,
                 headers: (
                   <>
                     <GridTableColumnHeader>
                       {t("members.column.name")}
                     </GridTableColumnHeader>
                     {roles && (
-                      <GridTableColumnHeader hideNarrow={true}>
+                      <GridTableColumnHeader>
                         {t("teams.column.workspaceRole")}
                       </GridTableColumnHeader>
                     )}
                     <GridTableColumnHeader>
                       {t("teams.column.teamRole")}
                     </GridTableColumnHeader>
-                    <GridTableColumnHeader hideNarrow={true}>
+                    <GridTableColumnHeader>
                       {t("teams.column.addedAt")}
                     </GridTableColumnHeader>
                     {manages && (
@@ -748,7 +729,7 @@ function TeamMembers({
                       )}
                     </GridTableCell>
                     {roles && (
-                      <GridTableCell hideNarrow={true}>
+                      <GridTableCell>
                         {memberRole && (
                           <Badge
                             variant={memberRole === "member" ? "gray" : "blue"}
@@ -767,10 +748,7 @@ function TeamMembers({
                         <TeamRoleBadge role={member.role} />
                       )}
                     </GridTableCell>
-                    <GridTableCell
-                      hideNarrow={true}
-                      className="text-caption text-muted-foreground tabular-nums"
-                    >
+                    <GridTableCell className="text-caption text-muted-foreground tabular-nums">
                       {formatTimestamp(member.added_at, locale)}
                     </GridTableCell>
                     {manages && (
@@ -875,9 +853,8 @@ function TeamRoleSelect({
   return (
     <>
       <NativeSelect
-        // w-auto, not fit: a select in a table cell collapses at 390px.
-        // Same 820px container query as the table's narrow tracks.
-        className="w-auto ps-2 pe-8 [@container(max-width:820px)]:ps-1 [@container(max-width:820px)]:pe-6"
+        // w-auto, not fit: a select in a table cell collapses.
+        className="w-auto ps-2 pe-8"
         aria-label={t("teams.changeRoleFor", { name })}
         value={shown}
         disabled={save.isPending}

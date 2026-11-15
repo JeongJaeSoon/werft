@@ -4,72 +4,35 @@ import { Slot } from "@radix-ui/react-slot";
 import {
   type ComponentProps,
   type CSSProperties,
-  createContext,
   type JSX,
-  useContext,
+  type RefObject,
+  useLayoutEffect,
+  useRef,
+  useState,
 } from "react";
 
 import { cn } from "../foundations/cn.ts";
 
 /*
- * Console v4 `.tbl`: a table drawn as a div grid that never scrolls sideways.
- * Every row lays its cells out on the table's one column template; below a
- * container width the table switches to a narrower template and drops the
- * columns marked `hideNarrow`, header and cells together, so each row keeps
- * as many cells as there are column headers.
+ * The console's one table, drawn as a div grid. It is flat: no frame and no
+ * header fill, a rule under the header and between rows, no vertical rules.
+ * Every row lays its cells out on the table's one column template.
  *
- * Container query widths cannot come from a CSS variable, so the narrow
- * widths are the ones v4 uses, each a fixed class Tailwind can see.
+ * The table never squeezes below `minWidth`. When its box is narrower (a
+ * phone), the table scrolls sideways inside its own scroller and the page
+ * keeps its width; while it can scroll, the scroller takes a Tab stop so a
+ * keyboard can scroll it with the arrow keys.
  */
-const NARROW = {
-  // A table beside a 400px rail at 1280px is about 600px wide and keeps
-  // every column; only a phone's drops some. Exclusive, because a half of a
-  // two-column row at 1280px is exactly 480px and keeps its columns.
-  480: {
-    row: "[@container(width<480px)]:grid-cols-[var(--grid-table-narrow-columns)]",
-    hide: "[@container(width<480px)]:hidden",
-  },
-  640: {
-    row: "[@container(max-width:640px)]:grid-cols-[var(--grid-table-narrow-columns)]",
-    hide: "[@container(max-width:640px)]:hidden",
-  },
-  760: {
-    row: "[@container(max-width:760px)]:grid-cols-[var(--grid-table-narrow-columns)]",
-    hide: "[@container(max-width:760px)]:hidden",
-  },
-  820: {
-    row: "[@container(max-width:820px)]:grid-cols-[var(--grid-table-narrow-columns)]",
-    hide: "[@container(max-width:820px)]:hidden",
-  },
-  860: {
-    row: "[@container(max-width:860px)]:grid-cols-[var(--grid-table-narrow-columns)]",
-    hide: "[@container(max-width:860px)]:hidden",
-  },
-} as const;
-
-export type GridTableNarrowAt = keyof typeof NARROW;
-
-const NarrowAtContext = createContext<GridTableNarrowAt | undefined>(undefined);
 
 type GridTableName =
   | { readonly "aria-label": string; readonly "aria-labelledby"?: undefined }
   | { readonly "aria-labelledby": string; readonly "aria-label"?: undefined };
 
-type GridTableNarrow =
-  | { readonly narrowAt?: undefined; readonly narrowColumns?: undefined }
-  | {
-      /** The table width (px) at and below which `narrowColumns` applies. */
-      readonly narrowAt: GridTableNarrowAt;
-      /** The template once the `hideNarrow` columns are gone. */
-      readonly narrowColumns: string;
-    };
-
 export type GridTableProps = Omit<
   ComponentProps<"div">,
   "role" | "aria-label" | "aria-labelledby"
 > &
-  GridTableName &
-  GridTableNarrow & {
+  GridTableName & {
     /**
      * `grid-template-columns` for every row, e.g.
      * "minmax(0,1.6fr) 120px minmax(0,1.4fr) minmax(0,1fr)". Keep each track
@@ -77,68 +40,96 @@ export type GridTableProps = Omit<
      */
     readonly columns: string;
     /**
-     * Draws the card frame on the table itself. A min-width on the table then
-     * includes the 1px border on each side.
+     * The narrowest the table draws (a CSS length); below it the scroller
+     * scrolls. Defaults to --werft-table-min-width (640px).
      */
-    readonly framed?: boolean | undefined;
+    readonly minWidth?: string | undefined;
   };
+
+/** True while the element's content is wider than its box. */
+function useScrollsSideways(ref: RefObject<HTMLElement | null>): boolean {
+  const [scrolls, setScrolls] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const check = () => setScrolls(el.scrollWidth > el.clientWidth + 1);
+    check();
+    const observer = new ResizeObserver(check);
+    observer.observe(el);
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
+    return () => observer.disconnect();
+  }, [ref]);
+  return scrolls;
+}
 
 export function GridTable({
   columns,
-  narrowAt,
-  narrowColumns,
-  framed = false,
+  minWidth,
   className,
   style,
+  "aria-label": ariaLabel,
+  "aria-labelledby": ariaLabelledby,
   ...props
 }: GridTableProps): JSX.Element {
+  const scroller = useRef<HTMLDivElement>(null);
+  const scrolls = useScrollsSideways(scroller);
   return (
-    <NarrowAtContext.Provider value={narrowAt}>
+    // -m-1 p-1: a focus ring drawn 2px outside a control at the table's
+    // edge stays inside the scroller's clip.
+    <div
+      ref={scroller}
+      data-slot="grid-table-scroll"
+      data-scrolls={scrolls || undefined}
+      {...(scrolls
+        ? {
+            role: "group",
+            tabIndex: 0,
+            "aria-label": ariaLabel,
+            "aria-labelledby": ariaLabelledby,
+          }
+        : {})}
+      className="-m-1 min-w-0 overflow-x-auto overscroll-x-contain p-1 focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:-outline-offset-2"
+    >
       <div
         role="table"
+        aria-label={ariaLabel}
+        aria-labelledby={ariaLabelledby}
         data-slot="grid-table"
-        data-narrow-at={narrowAt}
-        data-framed={framed || undefined}
         className={cn(
-          "@container flex min-w-0 flex-col",
-          framed && "rounded-card border bg-card",
+          "flex min-w-[var(--grid-table-min-width)] flex-col",
           className,
         )}
         style={
           {
             "--grid-table-columns": columns,
-            "--grid-table-narrow-columns": narrowColumns,
+            "--grid-table-min-width":
+              minWidth ?? "var(--werft-table-min-width)",
             ...style,
           } as CSSProperties
         }
         {...props}
       />
-    </NarrowAtContext.Provider>
+    </div>
   );
 }
 
+// The first column's text stands on the page's left line, so rows take no
+// side inset.
 const ROW =
-  "relative grid grid-cols-[var(--grid-table-columns)] items-center gap-4 border-b px-[var(--werft-row-padding-x)] last:border-b-0";
+  "relative grid grid-cols-[var(--grid-table-columns)] items-center gap-4 border-b last:border-b-0";
 
-function useNarrow(): (typeof NARROW)[GridTableNarrowAt] | undefined {
-  const narrowAt = useContext(NarrowAtContext);
-  return narrowAt === undefined ? undefined : NARROW[narrowAt];
-}
-
-/** The column header row, v4 `.tr.th`. */
+/** The column header row: small faint labels over a rule, no fill. */
 export function GridTableHeader({
   className,
   ...props
 }: Omit<ComponentProps<"div">, "role">): JSX.Element {
-  const narrow = useNarrow();
   return (
     <div
       role="row"
       data-slot="grid-table-header"
       className={cn(
         ROW,
-        narrow?.row,
-        "min-h-[var(--werft-row-head-min-height)] rounded-t-card bg-surface-sunken py-[var(--werft-row-head-padding-y)] font-medium text-caption text-subtle-foreground",
+        "min-h-[var(--werft-row-head-min-height)] py-[var(--werft-row-head-padding-y)] font-medium text-caption text-subtle-foreground",
         className,
       )}
       {...props}
@@ -155,7 +146,7 @@ export type GridTableRowProps = Omit<ComponentProps<"div">, "role"> & {
 };
 
 /**
- * A body row, v4 `.tr`. A row holding a GridTableRowOpener is clickable as a
+ * A body row. A row holding a GridTableRowOpener is clickable as a
  * whole: it takes the hover fill and the pointer.
  */
 export function GridTableRow({
@@ -163,7 +154,6 @@ export function GridTableRow({
   className,
   ...props
 }: GridTableRowProps): JSX.Element {
-  const narrow = useNarrow();
   return (
     <div
       role="row"
@@ -171,8 +161,7 @@ export function GridTableRow({
       data-inactive={inactive || undefined}
       className={cn(
         ROW,
-        narrow?.row,
-        "min-h-[var(--werft-row-min-height)] py-[var(--werft-row-padding-y)] text-control",
+        "min-h-[var(--werft-table-row-min-height)] py-[var(--werft-table-row-padding-y)] text-control",
         "has-[[data-slot=grid-table-row-opener]]:cursor-pointer has-[[data-slot=grid-table-row-opener]]:hover:bg-hover",
         className,
       )}
@@ -182,26 +171,19 @@ export function GridTableRow({
 }
 
 type GridTableCellLayout = {
-  /** v4 `.cell.end`: content at the end of the column. */
+  /** Content at the end of the column. */
   readonly align?: "start" | "end" | undefined;
-  /** v4 `.hide-md`: gone, from screen and accessibility tree, when narrow. */
-  readonly hideNarrow?: boolean | undefined;
 };
 
-function cellClasses(
-  narrow: (typeof NARROW)[GridTableNarrowAt] | undefined,
-  { align, hideNarrow }: GridTableCellLayout,
-): string {
+function cellClasses({ align }: GridTableCellLayout): string {
   return cn(
     "flex min-w-0 items-center gap-2",
     // justify-end places the boxes; text-end the lines of text that wraps.
     align === "end" && "justify-end text-end",
-    hideNarrow && narrow?.hide,
   );
 }
 
 export type GridTableColumnHeaderProps = Omit<ComponentProps<"div">, "role"> &
-  Pick<GridTableCellLayout, "hideNarrow"> &
   (
     | {
         /**
@@ -220,23 +202,17 @@ export type GridTableColumnHeaderProps = Omit<ComponentProps<"div">, "role"> &
 
 export function GridTableColumnHeader({
   align,
-  hideNarrow,
   action = false,
   className,
   children,
   ...props
 }: GridTableColumnHeaderProps): JSX.Element {
-  const narrow = useNarrow();
   return (
     <div
       role="columnheader"
       data-slot="grid-table-column-header"
-      data-hide-narrow={hideNarrow || undefined}
       data-action={action || undefined}
-      className={cn(
-        cellClasses(narrow, { align: action ? "end" : align, hideNarrow }),
-        className,
-      )}
+      className={cn(cellClasses({ align: action ? "end" : align }), className)}
       {...props}
     >
       {action ? (
@@ -253,13 +229,13 @@ export function GridTableColumnHeader({
 export type GridTableCellProps = Omit<ComponentProps<"div">, "role"> &
   GridTableCellLayout & {
     /**
-     * v4 `.cell.col`: the children stacked, a 20px first line then 16px lines
+     * The children stacked, a 20px first line then 16px lines
      * that end in "…" instead of wrapping. The ellipsis is visual only; give
      * the line a `title` or Tooltip with the full text.
      */
     readonly lines?: boolean | undefined;
     /**
-     * v4 `.cell.z`: drawn above the row's opener, so the buttons and links in
+     * Drawn above the row's opener, so the buttons and links in
      * it take their own clicks. Never put the opener itself in a raised cell.
      * An `inactive` row leaves a raised cell at full contrast.
      */
@@ -268,22 +244,19 @@ export type GridTableCellProps = Omit<ComponentProps<"div">, "role"> &
 
 export function GridTableCell({
   align,
-  hideNarrow,
   lines = false,
   raised = false,
   className,
   ...props
 }: GridTableCellProps): JSX.Element {
-  const narrow = useNarrow();
   return (
     <div
       role="cell"
       data-slot="grid-table-cell"
-      data-hide-narrow={hideNarrow || undefined}
       data-lines={lines || undefined}
       data-raised={raised || undefined}
       className={cn(
-        cellClasses(narrow, { align, hideNarrow }),
+        cellClasses({ align }),
         // The lines after the first that is not the row opener.
         lines &&
           "flex-col items-start gap-[var(--werft-row-line-gap)] leading-5 [&>:not([data-slot=grid-table-row-opener])~*]:max-w-full [&>:not([data-slot=grid-table-row-opener])~*]:truncate [&>:not([data-slot=grid-table-row-opener])~*]:leading-4",
@@ -307,11 +280,10 @@ export type GridTableRowOpenerProps = Omit<
 };
 
 /**
- * v4 `.row-open`: an invisible button over the whole row, so a click anywhere
- * on it opens the row and a keyboard reaches it in one Tab stop. Put it in a
- * cell that is not `raised` (a button cannot be a row's own child); it covers
- * the row, not the cell. Its focus outline is the console's 2px ring, outside
- * the row's edge, so the table's parent must not clip overflow.
+ * An invisible button over the whole row, so a click anywhere on it opens the
+ * row and a keyboard reaches it in one Tab stop. Put it in a cell that is not
+ * `raised` (a button cannot be a row's own child); it covers the row, not the
+ * cell. Its focus ring is drawn inside the row, which the scroller clips.
  */
 export function GridTableRowOpener({
   asChild = false,
@@ -325,7 +297,7 @@ export function GridTableRowOpener({
       data-slot="grid-table-row-opener"
       className={cn(
         "absolute inset-0 z-0 cursor-pointer rounded-none border-0 bg-transparent p-0",
-        "focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2",
+        "focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:-outline-offset-2",
         className,
       )}
       {...props}

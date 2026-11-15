@@ -37,10 +37,8 @@ import {
   credentialText,
   entryActions,
   FormDialog,
-  NarrowState,
   type Outcome,
   OutcomeLine,
-  SETTINGS_NARROW_COLUMNS,
   SecretInput,
   StateBadge,
   settingsConnectionsQuery,
@@ -48,11 +46,9 @@ import {
   useSettingsWrite,
 } from "./settings-entries.tsx";
 
-// id and source, kind and endpoint, credential, models, state, actions; a phone keeps the id (with the state) and the actions.
-const COLUMNS = [
-  "minmax(0,1.1fr) minmax(0,1.6fr) minmax(0,1fr) 112px 128px 196px",
-  SETTINGS_NARROW_COLUMNS,
-] as const;
+// id and source, kind and endpoint, credential, models, state, actions.
+const COLUMNS =
+  "minmax(0,1.1fr) minmax(0,1.6fr) minmax(0,1fr) 112px 128px 196px";
 
 /**
  * The model settings' connections (settings-replace-file-catalog.md §1-§3):
@@ -99,28 +95,24 @@ export function ModelConnections() {
           <EmptyState framed title={t("settings.connections.empty")} />
         ) : (
           <GridTable
-            // The settings layout zeroes the row inset; a framed table needs it.
-            className="[--werft-row-padding-x:var(--werft-space-4)]"
             aria-label={t("settings.connections.title")}
-            columns={COLUMNS[0]}
-            narrowAt={860}
-            narrowColumns={COLUMNS[1]}
-            framed
+            columns={COLUMNS}
+            minWidth="52rem"
           >
             <GridTableHeader>
               <GridTableColumnHeader>
                 {t("settings.column.id")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
+              <GridTableColumnHeader>
                 {t("settings.connections.endpoint")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
+              <GridTableColumnHeader>
                 {t("settings.column.credential")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
+              <GridTableColumnHeader>
                 {t("settings.connections.models")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
+              <GridTableColumnHeader>
                 {t("settings.column.state")}
               </GridTableColumnHeader>
               <GridTableColumnHeader>
@@ -201,14 +193,13 @@ function ConnectionRow({
         <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
           <Code className="wrap-anywhere">{item.id}</Code>
           <div className="flex flex-wrap items-center gap-1">
-            <NarrowState state={item.state} />
             <Text as="span" variant="meta">
               {t(`settings.connections.authKind.${item.auth_kind}`)}
             </Text>
           </div>
         </div>
       </GridTableCell>
-      <GridTableCell hideNarrow>
+      <GridTableCell>
         <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
           <Code className="wrap-anywhere">{item.endpoint}</Code>
           <Text as="span" variant="meta">
@@ -225,12 +216,12 @@ function ConnectionRow({
           </Text>
         </div>
       </GridTableCell>
-      <GridTableCell hideNarrow>
+      <GridTableCell>
         <Text as="span" variant="meta" className="wrap-anywhere">
           {credentialText(t, item.credential)}
         </Text>
       </GridTableCell>
-      <GridTableCell hideNarrow>
+      <GridTableCell>
         <Text as="span" variant="meta" className="wrap-anywhere">
           {judgeOnly
             ? t("settings.connections.judgeOnly")
@@ -239,7 +230,7 @@ function ConnectionRow({
               : item.models.join(", ")}
         </Text>
       </GridTableCell>
-      <GridTableCell hideNarrow>
+      <GridTableCell>
         <StateBadge state={item.state} />
       </GridTableCell>
       <GridTableCell>

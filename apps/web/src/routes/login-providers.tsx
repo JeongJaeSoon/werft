@@ -170,11 +170,8 @@ function StateBadge({ state }: { readonly state: LoginProviderState }) {
 const isOn = (provider: LoginProviderView) =>
   provider.state === "enabled" || provider.state === "enabled_secret_pending";
 
-// Name and issuer, state, last test; a phone keeps the name and the state.
-const COLUMNS = [
-  "minmax(0,1fr) 220px 180px",
-  "minmax(0,1fr) fit-content(55%)",
-] as const;
+// Name and issuer, state, last test.
+const COLUMNS = "minmax(0,1fr) 220px 180px";
 
 export function LoginProvidersScreen() {
   const { t, locale } = useI18n();
@@ -224,15 +221,7 @@ export function LoginProvidersScreen() {
         ) : list.data.providers.length === 0 ? (
           <EmptyState framed title={t("loginProviders.empty")} />
         ) : (
-          <GridTable
-            // The settings layout zeroes the row inset; a framed table needs it.
-            className="[--werft-row-padding-x:var(--werft-space-4)]"
-            aria-label={t("loginProviders.title")}
-            columns={COLUMNS[0]}
-            narrowAt={760}
-            narrowColumns={COLUMNS[1]}
-            framed
-          >
+          <GridTable aria-label={t("loginProviders.title")} columns={COLUMNS}>
             <GridTableHeader>
               <GridTableColumnHeader>
                 {t("loginProviders.column.name")}
@@ -240,7 +229,7 @@ export function LoginProvidersScreen() {
               <GridTableColumnHeader>
                 {t("loginProviders.column.state")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
+              <GridTableColumnHeader>
                 {t("loginProviders.column.tested")}
               </GridTableColumnHeader>
             </GridTableHeader>
@@ -262,7 +251,7 @@ export function LoginProvidersScreen() {
                 <GridTableCell>
                   <StateBadge state={provider.state} />
                 </GridTableCell>
-                <GridTableCell hideNarrow>
+                <GridTableCell>
                   <Text as="span" variant="meta">
                     {provider.tested_at ? (
                       <RelativeTime

@@ -30,10 +30,8 @@ import {
   credentialText,
   entryActions,
   FormDialog,
-  NarrowState,
   type Outcome,
   OutcomeLine,
-  SETTINGS_NARROW_COLUMNS,
   SecretInput,
   StateBadge,
   settingsMcpServersQuery,
@@ -41,13 +39,9 @@ import {
   useSettingsWrite,
 } from "./settings-entries.tsx";
 
-// id and source, URL and tool names, credential, workspaces, state,
-// actions; a phone keeps the id (with the state and tool names) and the
-// actions.
-const COLUMNS = [
-  "minmax(0,1fr) minmax(0,1.6fr) minmax(0,1fr) minmax(0,1fr) 128px 196px",
-  SETTINGS_NARROW_COLUMNS,
-] as const;
+// id, URL and tool names, credential, workspaces, state, actions.
+const COLUMNS =
+  "minmax(0,1fr) minmax(0,1.6fr) minmax(0,1fr) minmax(0,1fr) 128px 196px";
 
 /** The tool names a server's tools get in a session (Z5 keys on it). */
 const mcpToolNamespace = (id: string) => `mcp__${id}__*`;
@@ -106,28 +100,24 @@ export function McpServersScreen() {
           <EmptyState framed title={t("settings.mcp.empty")} />
         ) : (
           <GridTable
-            // The settings layout zeroes the row inset; a framed table needs it.
-            className="[--werft-row-padding-x:var(--werft-space-4)]"
             aria-label={t("settings.mcp.title")}
-            columns={COLUMNS[0]}
-            narrowAt={860}
-            narrowColumns={COLUMNS[1]}
-            framed
+            columns={COLUMNS}
+            minWidth="52rem"
           >
             <GridTableHeader>
               <GridTableColumnHeader>
                 {t("settings.column.id")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
+              <GridTableColumnHeader>
                 {t("settings.mcp.url")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
+              <GridTableColumnHeader>
                 {t("settings.column.credential")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
+              <GridTableColumnHeader>
                 {t("settings.mcp.workspaces")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
+              <GridTableColumnHeader>
                 {t("settings.column.state")}
               </GridTableColumnHeader>
               <GridTableColumnHeader>
@@ -184,19 +174,9 @@ function McpRow({
   return (
     <GridTableRow>
       <GridTableCell>
-        <div className="flex min-w-0 flex-col items-start gap-[var(--werft-row-line-gap)]">
-          <Code className="wrap-anywhere">{item.id}</Code>
-          <NarrowState state={item.state} />
-          <Text
-            as="span"
-            variant="meta"
-            className="wrap-anywhere [@container(min-width:861px)]:hidden"
-          >
-            <Code>{mcpToolNamespace(item.id)}</Code>
-          </Text>
-        </div>
+        <Code className="wrap-anywhere">{item.id}</Code>
       </GridTableCell>
-      <GridTableCell hideNarrow>
+      <GridTableCell>
         <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
           <Code className="wrap-anywhere">{item.url}</Code>
           <Text as="span" variant="meta" className="wrap-anywhere">
@@ -204,7 +184,7 @@ function McpRow({
           </Text>
         </div>
       </GridTableCell>
-      <GridTableCell hideNarrow>
+      <GridTableCell>
         <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
           <Code className="wrap-anywhere">{item.credential_ref}</Code>
           <Text as="span" variant="meta" className="wrap-anywhere">
@@ -212,12 +192,12 @@ function McpRow({
           </Text>
         </div>
       </GridTableCell>
-      <GridTableCell hideNarrow>
+      <GridTableCell>
         <Text as="span" variant="meta" className="wrap-anywhere">
           {item.workspaces.join(", ")}
         </Text>
       </GridTableCell>
-      <GridTableCell hideNarrow>
+      <GridTableCell>
         <StateBadge state={item.state} />
       </GridTableCell>
       <GridTableCell>

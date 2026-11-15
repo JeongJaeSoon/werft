@@ -32,10 +32,7 @@ import { previousRelease, releaseChanges } from "./release-changes.ts";
 import { ReleaseChangesSummary } from "./release-changes-view.tsx";
 import { type RollbackPreview, rollbackPreview } from "./rollback-preview.ts";
 
-const COLUMNS = [
-  "minmax(10rem,1.6fr) 96px minmax(0,1.2fr) minmax(0,1fr) 120px",
-  "minmax(0,1fr) 120px",
-] as const;
+const COLUMNS = "minmax(10rem,1.6fr) 96px minmax(0,1.2fr) minmax(0,1fr) 120px";
 
 /** The connection the agent runs on now: its active release's, else its newest. */
 export function releasedConnection(detail: AgentDetail): string | undefined {
@@ -143,22 +140,20 @@ export function Releases({
         ) : (
           <GridTable
             aria-label={t("agent.releases.title")}
-            columns={COLUMNS[0]}
-            narrowAt={860}
-            narrowColumns={COLUMNS[1]}
-            framed={true}
+            columns={COLUMNS}
+            minWidth="48rem"
           >
             <GridTableHeader>
               <GridTableColumnHeader>
                 {t("agent.releases.colVersion")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
+              <GridTableColumnHeader>
                 {t("agent.releases.colStatus")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
+              <GridTableColumnHeader>
                 {t("agent.releases.colActivated")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
+              <GridTableColumnHeader>
                 {t("agent.releases.colBy")}
               </GridTableColumnHeader>
               <GridTableColumnHeader action>
@@ -187,16 +182,13 @@ export function Releases({
                         {entry.item.operation === "set_agent_mcp" ? (
                           <McpChangeLines receipt={entry.item} />
                         ) : null}
-                        <span className="hidden text-caption tabular-nums [@container(max-width:860px)]:block">
-                          {at(entry.item.created_at)}
-                        </span>
                       </div>
                     </GridTableCell>
-                    <GridTableCell hideNarrow>{null}</GridTableCell>
-                    <GridTableCell hideNarrow className="tabular-nums">
+                    <GridTableCell>{null}</GridTableCell>
+                    <GridTableCell className="tabular-nums">
                       {at(entry.item.created_at)}
                     </GridTableCell>
-                    <GridTableCell hideNarrow>{null}</GridTableCell>
+                    <GridTableCell>{null}</GridTableCell>
                     <GridTableCell align="end">{null}</GridTableCell>
                   </GridTableRow>
                 );
@@ -225,15 +217,6 @@ export function Releases({
                     from: at(item.activated_at),
                     to: at(item.deactivated_at),
                   })
-                );
-              // The narrow list is caption sized; Text sub would make its line taller.
-              const listedActivated =
-                item.activated_at == null ? (
-                  <span className="text-muted-foreground">
-                    {t("agent.releases.noteNone")}
-                  </span>
-                ) : (
-                  activated
                 );
               const by =
                 (item.created_by ? names.get(item.created_by) : undefined) ??
@@ -277,39 +260,13 @@ export function Releases({
                         </span>
                       </Text>
                       {changes}
-                      {/* GridTable's narrowAt={860}, where the other columns drop. */}
-                      <span className="hidden [@container(max-width:860px)]:flex">
-                        {status}
-                      </span>
-                      <dl className="m-0 hidden flex-col gap-[var(--werft-row-line-gap)] text-caption [@container(max-width:860px)]:flex">
-                        {(
-                          [
-                            ["colActivated", listedActivated],
-                            ["colBy", by],
-                          ] as const
-                        ).map(([key, value]) => (
-                          <div
-                            key={key}
-                            className="flex min-w-0 flex-wrap gap-x-2"
-                          >
-                            <dt className="text-muted-foreground">
-                              {t(`agent.releases.${key}`)}
-                            </dt>
-                            <dd className="m-0 min-w-0 tabular-nums">
-                              {value}
-                            </dd>
-                          </div>
-                        ))}
-                      </dl>
                     </div>
                   </GridTableCell>
-                  <GridTableCell hideNarrow>{status}</GridTableCell>
-                  <GridTableCell hideNarrow className="flex-wrap tabular-nums">
+                  <GridTableCell>{status}</GridTableCell>
+                  <GridTableCell className="flex-wrap tabular-nums">
                     {activated}
                   </GridTableCell>
-                  <GridTableCell hideNarrow className="wrap-anywhere">
-                    {by}
-                  </GridTableCell>
+                  <GridTableCell className="wrap-anywhere">{by}</GridTableCell>
                   <GridTableCell align="end">
                     {active || !manages ? null : (
                       <RowAction

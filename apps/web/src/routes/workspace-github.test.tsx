@@ -157,27 +157,21 @@ describe("GitHub 연결 › 카드와 설치 표", () => {
     expect(screen.queryByText("에이전트가 쓰는 저장소") === null).toBe(true);
   });
 
-  test("좁은 폭에서 접히는 칸의 내용은 이름 칸 안에 들어 있다", async () => {
+  test("좁은 폭에서도 열을 접지 않고 표가 최소 폭을 지켜 옆으로 스크롤된다", async () => {
     renderAt(PATH, routes(twoAccounts()));
     const table = await installationTable();
-    expect(table.getAttribute("data-narrow-at")).toBe("760");
-    const [header, first] = within(table).getAllByRole("row") as HTMLElement[];
-    const kept = (row: HTMLElement | undefined) =>
-      cellsOf(row as HTMLElement).filter(
-        (cell) => !cell.hasAttribute("data-hide-narrow"),
-      );
-    // Name, status, menu stay; the rest folds into the name.
-    expect(kept(header)).toHaveLength(3);
-    expect(kept(first)).toHaveLength(3);
-    const name = within(first as HTMLElement).getByRole("rowheader");
-    const moved = Array.from(
-      name.querySelectorAll("[class*='min-width:761px']"),
-      (line) => line.textContent,
+    expect(table.style.getPropertyValue("--grid-table-min-width")).toBe(
+      "52rem",
     );
-    expect(moved).toEqual([
-      "조직 · 12개 선택 · werft-agent",
-      expect.stringMatching(/^연결: Kim · 2026/),
-    ]);
+    expect(table.parentElement?.getAttribute("data-slot")).toBe(
+      "grid-table-scroll",
+    );
+    const [header, first] = within(table).getAllByRole("row") as HTMLElement[];
+    // Name, type, repositories, App, connected by, status, menu.
+    expect(cellsOf(header as HTMLElement)).toHaveLength(7);
+    expect(cellsOf(first as HTMLElement)).toHaveLength(7);
+    const name = within(first as HTMLElement).getByRole("rowheader");
+    expect(name.textContent).toBe("acme");
   });
 
   test("연결한 사람이 없으면 설치 날짜를 보인다", async () => {

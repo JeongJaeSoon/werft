@@ -5,7 +5,7 @@ import {
 } from "@werft-ai/ui";
 import type { ReactNode } from "react";
 
-import { SESSION_NARROW_TEMPLATE, SESSION_TEMPLATE } from "./session-row.tsx";
+import { SESSION_TEMPLATE } from "./session-row.tsx";
 
 export interface SessionTableProps {
   readonly label: string;
@@ -22,24 +22,15 @@ export interface SessionTableProps {
 
 export function SessionTable({ label, messages, children }: SessionTableProps) {
   return (
-    // The row opener's focus ring sits outside the row, so this frame must
-    // not clip overflow.
-    <div className="w-full min-w-0 rounded-card border bg-card">
-      <GridTable
-        aria-label={label}
-        columns={SESSION_TEMPLATE}
-        narrowAt={820}
-        narrowColumns={SESSION_NARROW_TEMPLATE}
-      >
+    // Five columns stay legible only from about 52rem; a narrower box
+    // scrolls the table sideways.
+    <div className="w-full min-w-0">
+      <GridTable aria-label={label} columns={SESSION_TEMPLATE} minWidth="52rem">
         <GridTableHeader>
           <GridTableColumnHeader>{messages.id}</GridTableColumnHeader>
           <GridTableColumnHeader>{messages.status}</GridTableColumnHeader>
-          <GridTableColumnHeader hideNarrow={true}>
-            {messages.admission}
-          </GridTableColumnHeader>
-          <GridTableColumnHeader hideNarrow={true}>
-            {messages.runtime}
-          </GridTableColumnHeader>
+          <GridTableColumnHeader>{messages.admission}</GridTableColumnHeader>
+          <GridTableColumnHeader>{messages.runtime}</GridTableColumnHeader>
           <GridTableColumnHeader align="end">
             <span className="truncate">
               {messages.lastEvent} / {messages.created}

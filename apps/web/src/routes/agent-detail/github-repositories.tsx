@@ -264,7 +264,6 @@ export function RepositoryList({
         <GridTable
           aria-label={t("github.repos.title")}
           columns={REPOSITORY_COLUMNS}
-          framed
         >
           <GridTableHeader>
             <GridTableColumnHeader>

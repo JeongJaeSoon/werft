@@ -76,13 +76,13 @@ import {
 } from "../api/queries.ts";
 import { useHasPermission, useMe, useRole } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
-import { CredentialNeed } from "../components/agent-cards.tsx";
 import { AgentStateBadge } from "../components/agent-state.tsx";
 import {
   GitHubMark,
   GoogleDriveMark,
   SlackMark,
 } from "../components/brand-marks.tsx";
+import { CredentialNeed } from "../components/credential-need.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";

@@ -18,6 +18,11 @@ import {
   Code,
   EmptyState,
   formatRelativeTime,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
   Link,
   NativeSelect,
   NativeSelectOption,
@@ -25,13 +30,6 @@ import {
   Section,
   Skeleton,
   StatCard,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableHeader,
-  TableRow,
   Text,
 } from "@werft-ai/ui";
 import { type ReactNode, useState } from "react";
@@ -74,8 +72,6 @@ const STATE_BADGE = {
   needs_review: ["amber", "achievements.state.needsReview"],
   rejected: ["gray", "achievements.state.rejected"],
 } as const;
-
-const NUM = "w-px whitespace-nowrap text-right tabular-nums";
 
 export function AchievementsScreen() {
   const { t, locale } = useI18n();
@@ -277,105 +273,103 @@ export function AchievementsScreen() {
                   {data.by_rule.length === 0 ? (
                     <EmptyState title={t("achievements.empty")} />
                   ) : (
-                    <TableContainer label={t("achievements.byRule")}>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead scope="col">
-                              {t("achievements.column.category")}
-                            </TableHead>
-                            <TableHead scope="col">
-                              {t("achievements.column.rule")}
-                            </TableHead>
-                            <TableHead scope="col">
-                              {t("achievements.column.type")}
-                            </TableHead>
-                            <TableHead scope="col" className={NUM}>
-                              {t("achievements.column.achievements")}
-                            </TableHead>
-                            <TableHead scope="col" className={NUM}>
-                              {t("achievements.column.waiting")}
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {data.by_rule.map((rule) => (
-                            <TableRow key={rule.id}>
-                              <TableCell>{rule.category_name}</TableCell>
-                              <TableCell>
-                                {rule.title}{" "}
-                                <Text as="span" variant="meta">
-                                  {t("achievements.version", {
-                                    version: rule.version,
-                                  })}
-                                </Text>
-                              </TableCell>
-                              <TableCell>
-                                <Code>{rule.type_key}</Code>
-                              </TableCell>
-                              <TableCell className={NUM}>
-                                {format.count(rule.achievement_count)}
-                              </TableCell>
-                              <TableCell className={NUM}>
-                                {format.count(rule.needs_review_count)}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </TableContainer>
+                    <GridTable
+                      aria-label={t("achievements.byRule")}
+                      columns={
+                        "minmax(0,1fr) minmax(0,1.6fr) minmax(0,1fr) 72px 72px"
+                      }
+                      minWidth="32rem"
+                    >
+                      <GridTableHeader>
+                        <GridTableColumnHeader>
+                          {t("achievements.column.category")}
+                        </GridTableColumnHeader>
+                        <GridTableColumnHeader>
+                          {t("achievements.column.rule")}
+                        </GridTableColumnHeader>
+                        <GridTableColumnHeader>
+                          {t("achievements.column.type")}
+                        </GridTableColumnHeader>
+                        <GridTableColumnHeader align="end">
+                          {t("achievements.column.achievements")}
+                        </GridTableColumnHeader>
+                        <GridTableColumnHeader align="end">
+                          {t("achievements.column.waiting")}
+                        </GridTableColumnHeader>
+                      </GridTableHeader>
+                      {data.by_rule.map((rule) => (
+                        <GridTableRow key={rule.id}>
+                          <GridTableCell>{rule.category_name}</GridTableCell>
+                          <GridTableCell>
+                            {rule.title}{" "}
+                            <Text as="span" variant="meta">
+                              {t("achievements.version", {
+                                version: rule.version,
+                              })}
+                            </Text>
+                          </GridTableCell>
+                          <GridTableCell>
+                            <Code>{rule.type_key}</Code>
+                          </GridTableCell>
+                          <GridTableCell align="end" className="tabular-nums">
+                            {format.count(rule.achievement_count)}
+                          </GridTableCell>
+                          <GridTableCell align="end" className="tabular-nums">
+                            {format.count(rule.needs_review_count)}
+                          </GridTableCell>
+                        </GridTableRow>
+                      ))}
+                    </GridTable>
                   )}
                 </Section>
                 <Section title={t("achievements.byAgent")}>
                   {data.by_agent.length === 0 ? (
                     <EmptyState title={t("achievements.empty")} />
                   ) : (
-                    <TableContainer label={t("achievements.byAgent")}>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead scope="col">
-                              {t("achievements.column.agent")}
-                            </TableHead>
-                            <TableHead scope="col" className={NUM}>
-                              {t("achievements.column.sessions")}
-                            </TableHead>
-                            <TableHead scope="col" className={NUM}>
-                              {t("achievements.column.achievements")}
-                            </TableHead>
-                            <TableHead scope="col" className={NUM}>
-                              {t("achievements.column.sessionCost")}
-                            </TableHead>
-                            <TableHead scope="col" className={NUM}>
-                              {t("achievements.column.perAchievement")}
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {data.by_agent.map((agent) => (
-                            <TableRow key={agent.id ?? ""}>
-                              <TableCell>
-                                {agent.name ??
-                                  OPERATIONS_MESSAGES[locale].usageCostTable
-                                    .noAgent}
-                              </TableCell>
-                              <TableCell className={NUM}>
-                                {format.count(agent.session_count)}
-                              </TableCell>
-                              <TableCell className={NUM}>
-                                {format.count(agent.achievement_count)}
-                              </TableCell>
-                              <TableCell className={NUM}>
-                                {format.usd(agent.cost_usd)}
-                              </TableCell>
-                              <TableCell className={NUM}>
-                                {usdOrDash(agent.cost_per_achievement_usd)}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </TableContainer>
+                    <GridTable
+                      aria-label={t("achievements.byAgent")}
+                      columns={"minmax(0,1.6fr) 64px 64px 88px 88px"}
+                      minWidth="32rem"
+                    >
+                      <GridTableHeader>
+                        <GridTableColumnHeader>
+                          {t("achievements.column.agent")}
+                        </GridTableColumnHeader>
+                        <GridTableColumnHeader align="end">
+                          {t("achievements.column.sessions")}
+                        </GridTableColumnHeader>
+                        <GridTableColumnHeader align="end">
+                          {t("achievements.column.achievements")}
+                        </GridTableColumnHeader>
+                        <GridTableColumnHeader align="end">
+                          {t("achievements.column.sessionCost")}
+                        </GridTableColumnHeader>
+                        <GridTableColumnHeader align="end">
+                          {t("achievements.column.perAchievement")}
+                        </GridTableColumnHeader>
+                      </GridTableHeader>
+                      {data.by_agent.map((agent) => (
+                        <GridTableRow key={agent.id ?? ""}>
+                          <GridTableCell>
+                            {agent.name ??
+                              OPERATIONS_MESSAGES[locale].usageCostTable
+                                .noAgent}
+                          </GridTableCell>
+                          <GridTableCell align="end" className="tabular-nums">
+                            {format.count(agent.session_count)}
+                          </GridTableCell>
+                          <GridTableCell align="end" className="tabular-nums">
+                            {format.count(agent.achievement_count)}
+                          </GridTableCell>
+                          <GridTableCell align="end" className="tabular-nums">
+                            {format.usd(agent.cost_usd)}
+                          </GridTableCell>
+                          <GridTableCell align="end" className="tabular-nums">
+                            {usdOrDash(agent.cost_per_achievement_usd)}
+                          </GridTableCell>
+                        </GridTableRow>
+                      ))}
+                    </GridTable>
                   )}
                 </Section>
               </div>
@@ -386,39 +380,37 @@ export function AchievementsScreen() {
                 {data.recent.length === 0 ? (
                   <EmptyState title={t("achievements.empty")} />
                 ) : (
-                  <TableContainer label={t("achievements.recent")}>
-                    {/* Below this the evidence and session would wrap a
-                        letter a line; the frame scrolls instead. */}
-                    <Table className="min-w-[44rem]">
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead scope="col">
-                            {t("achievements.column.at")}
-                          </TableHead>
-                          <TableHead scope="col">
-                            {t("achievements.column.session")}
-                          </TableHead>
-                          <TableHead scope="col">
-                            {t("achievements.column.rule")}
-                          </TableHead>
-                          <TableHead scope="col">
-                            {t("achievements.column.evidence")}
-                          </TableHead>
-                          <TableHead scope="col">
-                            {t("achievements.column.judge")}
-                          </TableHead>
-                          <TableHead scope="col">
-                            {t("achievements.column.state")}
-                          </TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {data.recent.map((row) => (
-                          <RecentRow key={row.id} row={row} />
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
+                  // Below 44rem the evidence and session would wrap a letter
+                  // a line; the table scrolls instead.
+                  <GridTable
+                    aria-label={t("achievements.recent")}
+                    columns="88px minmax(0,1.4fr) minmax(0,1fr) minmax(0,1.4fr) auto auto"
+                    minWidth="44rem"
+                  >
+                    <GridTableHeader>
+                      <GridTableColumnHeader>
+                        {t("achievements.column.at")}
+                      </GridTableColumnHeader>
+                      <GridTableColumnHeader>
+                        {t("achievements.column.session")}
+                      </GridTableColumnHeader>
+                      <GridTableColumnHeader>
+                        {t("achievements.column.rule")}
+                      </GridTableColumnHeader>
+                      <GridTableColumnHeader>
+                        {t("achievements.column.evidence")}
+                      </GridTableColumnHeader>
+                      <GridTableColumnHeader>
+                        {t("achievements.column.judge")}
+                      </GridTableColumnHeader>
+                      <GridTableColumnHeader>
+                        {t("achievements.column.state")}
+                      </GridTableColumnHeader>
+                    </GridTableHeader>
+                    {data.recent.map((row) => (
+                      <RecentRow key={row.id} row={row} />
+                    ))}
+                  </GridTable>
                 )}
               </Section>
             </>
@@ -436,13 +428,13 @@ function RecentRow({ row }: { readonly row: Recent }) {
     row.evidence_kind === "github_pull_request" ||
     row.evidence_kind === "github_review";
   return (
-    <TableRow>
-      <TableCell className="w-px whitespace-nowrap">
+    <GridTableRow>
+      <GridTableCell className="whitespace-nowrap">
         <time dateTime={row.created_at}>
           {formatRelativeTime(row.created_at, locale)}
         </time>
-      </TableCell>
-      <TableCell>
+      </GridTableCell>
+      <GridTableCell>
         {row.session_id === null ? (
           OPERATIONS_MESSAGES[locale].toolCalls.hidden
         ) : (
@@ -452,9 +444,9 @@ function RecentRow({ row }: { readonly row: Recent }) {
             </RouterLink>
           </Link>
         )}
-      </TableCell>
-      <TableCell>{row.rule_title}</TableCell>
-      <TableCell>
+      </GridTableCell>
+      <GridTableCell>{row.rule_title}</GridTableCell>
+      <GridTableCell>
         {row.title === null || row.link === null ? (
           OPERATIONS_MESSAGES[locale].toolCalls.hidden
         ) : github ? (
@@ -469,16 +461,16 @@ function RecentRow({ row }: { readonly row: Recent }) {
         ) : (
           row.title
         )}
-      </TableCell>
-      <TableCell className="w-px whitespace-nowrap">
+      </GridTableCell>
+      <GridTableCell className="whitespace-nowrap">
         {row.judge === "luna"
           ? t("achievements.judge.luna")
           : t("achievements.judge.always")}
-      </TableCell>
-      <TableCell className="w-px whitespace-nowrap">
+      </GridTableCell>
+      <GridTableCell className="whitespace-nowrap">
         <Badge variant={variant}>{t(state)}</Badge>
-      </TableCell>
-    </TableRow>
+      </GridTableCell>
+    </GridTableRow>
   );
 }
 

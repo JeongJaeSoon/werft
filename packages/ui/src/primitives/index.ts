@@ -62,7 +62,6 @@ export {
   GridTableColumnHeader,
   type GridTableColumnHeaderProps,
   GridTableHeader,
-  type GridTableNarrowAt,
   type GridTableProps,
   GridTableRow,
   GridTableRowOpener,

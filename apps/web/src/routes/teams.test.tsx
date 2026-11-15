@@ -711,17 +711,14 @@ describe("팀 화면", () => {
     );
     // Each row is its own grid: a max-content track would size to that
     // row's buttons (the header has none) and shift the columns before it.
-    // The narrow tracks are 4.5rem for the button and 7rem for the select:
-    // the longest language of each, so the name keeps the rest at 390px.
-    for (const [name, last] of [
-      ["--grid-table-columns", "var(--werft-row-action-min-width)"],
-      ["--grid-table-narrow-columns", "4.5rem"],
-    ] as const) {
-      const template = (table as HTMLElement).style.getPropertyValue(name);
-      expect(template, name).not.toBe("");
-      expect(template, name).not.toContain("max-content");
-      expect(template.split(" ").at(-1), name).toBe(last);
-    }
+    const template = (table as HTMLElement).style.getPropertyValue(
+      "--grid-table-columns",
+    );
+    expect(template).not.toBe("");
+    expect(template).not.toContain("max-content");
+    expect(template.split(" ").at(-1)).toBe(
+      "var(--werft-row-action-min-width)",
+    );
   });
 
   test("팀 상세를 볼 수 없는 사람에게도 화면 제목이 있다", async () => {
@@ -1289,11 +1286,11 @@ describe("팀 화면", () => {
     expect(name.getAttribute("title")).toBe("Mate");
     expect(name.className.split(" ")).toContain("line-clamp-2");
     expect(name.className.split(" ")).not.toContain("truncate");
-    // The select's tighter padding switches at the table's own 820px, the same
-    // query as the narrow tracks, so it never overflows a 7rem track in between.
-    expect(within(table).getByRole("combobox").className.split(" ")).toContain(
-      "[@container(max-width:820px)]:pe-6",
-    );
+    // The table scrolls rather than narrow its tracks, so the select keeps
+    // one padding at every width.
+    expect(
+      within(table).getByRole("combobox").className.split(" "),
+    ).not.toContain("[@container(max-width:820px)]:pe-6");
     expect(
       within(table).getByText("mate@example.com").getAttribute("title"),
     ).toBe("mate@example.com");

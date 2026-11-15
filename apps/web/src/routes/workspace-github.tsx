@@ -98,16 +98,9 @@ const GITHUB_WEB = "https://github.com/";
 const MANAGER_COLUMNS =
   "minmax(0,1.2fr) 88px 96px minmax(0,1fr) minmax(0,1.2fr) 88px 32px";
 const MEMBER_COLUMNS = "minmax(0,1.2fr) 88px minmax(0,1fr) 88px";
-// At and under 760px of table: name (with the rest moved under it), status, menu.
-const MANAGER_NARROW = "minmax(0,1fr) 88px 32px";
-const MEMBER_NARROW = "minmax(0,1fr) 88px";
 // App | state | menu; the role and key line stay in the App cell.
 const APP_COLUMNS = "minmax(0,1fr) 152px 44px";
 const APP_COLUMNS_READ = "minmax(0,1fr) 152px";
-const APP_NARROW = "minmax(0,1fr) 120px 44px";
-const APP_NARROW_READ = "minmax(0,1fr) 120px";
-// Shown only while the table is narrow: the columns it dropped, in the name.
-const NARROW_ONLY = "[@container(min-width:761px)]:hidden";
 
 /** The address GitHub's setup URL brings the browser back to. */
 export type GitHubSetupSearch = {
@@ -575,9 +568,6 @@ function AppList({
         <GridTable
           aria-label={t("github.apps.label")}
           columns={canManage ? APP_COLUMNS : APP_COLUMNS_READ}
-          narrowAt={480}
-          narrowColumns={canManage ? APP_NARROW : APP_NARROW_READ}
-          framed
         >
           <GridTableHeader>
             <GridTableColumnHeader>
@@ -1121,27 +1111,23 @@ function Installations({
       <GridTable
         aria-label={t("github.table.label")}
         columns={canManage ? MANAGER_COLUMNS : MEMBER_COLUMNS}
-        narrowAt={760}
-        narrowColumns={canManage ? MANAGER_NARROW : MEMBER_NARROW}
-        framed
+        minWidth={canManage ? "52rem" : undefined}
       >
         <GridTableHeader>
           <GridTableColumnHeader>
             {t("github.table.name")}
           </GridTableColumnHeader>
-          <GridTableColumnHeader hideNarrow>
+          <GridTableColumnHeader>
             {t("github.table.type")}
           </GridTableColumnHeader>
           {canManage ? (
-            <GridTableColumnHeader hideNarrow>
+            <GridTableColumnHeader>
               {t("github.table.repositories")}
             </GridTableColumnHeader>
           ) : null}
-          <GridTableColumnHeader hideNarrow>
-            {t("github.table.app")}
-          </GridTableColumnHeader>
+          <GridTableColumnHeader>{t("github.table.app")}</GridTableColumnHeader>
           {canManage ? (
-            <GridTableColumnHeader hideNarrow>
+            <GridTableColumnHeader>
               {t("github.table.connectedBy")}
             </GridTableColumnHeader>
           ) : null}
@@ -1158,43 +1144,30 @@ function Installations({
         </GridTableHeader>
         {rows.map(({ connection, installation }) => {
           const label = `${installation.account} · ${connection.name}`;
-          const moved = canManage
-            ? [type(installation), repos(installation), connection.name]
-            : [type(installation), connection.name];
           return (
             <GridTableRow
               key={`${connection.connection_id}:${installation.id}`}
             >
-              <GridTableCell {...{ role: "rowheader" }} lines>
+              <GridTableCell {...{ role: "rowheader" }}>
                 <Text as="span" weight="medium" truncate>
                   {installation.account}
                 </Text>
-                <Text as="span" variant="meta" className={NARROW_ONLY}>
-                  {moved.join(" · ")}
-                </Text>
-                {canManage ? (
-                  <Text as="span" variant="meta" className={NARROW_ONLY}>
-                    {t("github.table.connectedLine", {
-                      by: connectedBy(installation),
-                    })}
-                  </Text>
-                ) : null}
               </GridTableCell>
-              <GridTableCell hideNarrow>
+              <GridTableCell>
                 <Text as="span" variant="sub">
                   {type(installation)}
                 </Text>
               </GridTableCell>
               {canManage ? (
-                <GridTableCell hideNarrow>{repos(installation)}</GridTableCell>
+                <GridTableCell>{repos(installation)}</GridTableCell>
               ) : null}
-              <GridTableCell hideNarrow>
+              <GridTableCell>
                 <Text as="span" truncate>
                   {connection.name}
                 </Text>
               </GridTableCell>
               {canManage ? (
-                <GridTableCell hideNarrow>
+                <GridTableCell>
                   <Text as="span" truncate>
                     {connectedBy(installation)}
                   </Text>

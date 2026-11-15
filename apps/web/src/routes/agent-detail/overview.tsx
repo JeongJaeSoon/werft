@@ -331,8 +331,6 @@ export function AgentReadiness({
 }
 
 const RECENT_COLUMNS = "minmax(0,2fr) 136px 120px minmax(0,1fr) 96px";
-// Admission and release drop out; the title keeps the width at 390px.
-const RECENT_NARROW_COLUMNS = "minmax(0,1fr) 116px 72px";
 
 /** The newest sessions created for this agent that the reader can see. */
 export function AgentRecentSessions({ agentId }: { readonly agentId: string }) {
@@ -364,40 +362,36 @@ export function AgentRecentSessions({ agentId }: { readonly agentId: string }) {
           {t("agent.sessions.empty")}
         </Card>
       ) : (
-        // The row opener's focus ring sits outside the row: no overflow clipping.
-        <div className="rounded-card border bg-card">
-          <GridTable
-            aria-label={t("agent.sessions.title")}
-            columns={RECENT_COLUMNS}
-            narrowAt={640}
-            narrowColumns={RECENT_NARROW_COLUMNS}
-          >
-            <GridTableHeader>
-              <GridTableColumnHeader>
-                {t("sessions.column.id")}
-              </GridTableColumnHeader>
-              <GridTableColumnHeader>
-                {t("sessions.column.status")}
-              </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow={true}>
-                {t("sessions.column.admission")}
-              </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow={true}>
-                {t("agent.sessions.release")}
-              </GridTableColumnHeader>
-              <GridTableColumnHeader align="end">
-                {t("sessions.column.lastEvent")}
-              </GridTableColumnHeader>
-            </GridTableHeader>
-            {items.map((session) => (
-              <AgentSessionRow
-                key={session.id}
-                session={session}
-                locale={locale}
-              />
-            ))}
-          </GridTable>
-        </div>
+        <GridTable
+          aria-label={t("agent.sessions.title")}
+          columns={RECENT_COLUMNS}
+          minWidth="48rem"
+        >
+          <GridTableHeader>
+            <GridTableColumnHeader>
+              {t("sessions.column.id")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader>
+              {t("sessions.column.status")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader>
+              {t("sessions.column.admission")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader>
+              {t("agent.sessions.release")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader align="end">
+              {t("sessions.column.lastEvent")}
+            </GridTableColumnHeader>
+          </GridTableHeader>
+          {items.map((session) => (
+            <AgentSessionRow
+              key={session.id}
+              session={session}
+              locale={locale}
+            />
+          ))}
+        </GridTable>
       )}
     </Section>
   );
@@ -445,7 +439,7 @@ function AgentSessionRow({
           axisLabel={t("sessions.column.status")}
         />
       </GridTableCell>
-      <GridTableCell hideNarrow={true}>
+      <GridTableCell>
         <StatusLabel
           className="whitespace-nowrap"
           axis="admission"
@@ -454,7 +448,7 @@ function AgentSessionRow({
           axisLabel={t("sessions.column.admission")}
         />
       </GridTableCell>
-      <GridTableCell hideNarrow={true} className="text-muted-foreground">
+      <GridTableCell className="text-muted-foreground">
         <span className="sr-only">{t("agent.sessions.release")}: </span>
         {session.agent
           ? (session.agent.release_label ??

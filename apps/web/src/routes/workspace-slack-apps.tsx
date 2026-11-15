@@ -99,24 +99,18 @@ export function SlackApps() {
 function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
   const { t, locale } = useI18n();
   return (
-    <GridTable
-      aria-label={t("workspace.slackAppsList")}
-      columns={COLUMNS[0]}
-      narrowAt={640}
-      narrowColumns={COLUMNS[1]}
-      framed
-    >
+    <GridTable aria-label={t("workspace.slackAppsList")} columns={COLUMNS}>
       <GridTableHeader>
         <GridTableColumnHeader>
           {t("workspace.slackAppsApp")}
         </GridTableColumnHeader>
-        <GridTableColumnHeader hideNarrow>
+        <GridTableColumnHeader>
           {t("workspace.slackAppsAgent")}
         </GridTableColumnHeader>
         <GridTableColumnHeader>
           {t("workspace.slackAppsState")}
         </GridTableColumnHeader>
-        <GridTableColumnHeader align="end" hideNarrow>
+        <GridTableColumnHeader align="end">
           {t("workspace.slackAppsUpdated")}
         </GridTableColumnHeader>
         <GridTableColumnHeader>
@@ -130,9 +124,6 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
             : t("workspace.slackAppsAgentApp", {
                 name: item.agent?.name ?? t("workspace.slackAppsNoAgent"),
               });
-        const updated = (
-          <RelativeTime value={item.slack_app.updated_at} locale={locale} />
-        );
         return (
           <GridTableRow key={item.slack_app.id}>
             <GridTableCell>
@@ -147,20 +138,9 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
                 <Code className="text-muted-foreground">
                   {item.slack_app.app_id ?? t("workspace.slackAppsNoId")}
                 </Code>
-                {/* Plain text: the row's details link already opens the agent.
-                    GridTable's narrowAt={640}, where those columns drop. */}
-                <Text
-                  as="span"
-                  variant="meta"
-                  className="hidden [@container(max-width:640px)]:block"
-                >
-                  {item.agent?.name ?? t("workspace.slackAppsNoAgent")}
-                  {" · "}
-                  {updated}
-                </Text>
               </RowLines>
             </GridTableCell>
-            <GridTableCell hideNarrow className="text-muted-foreground">
+            <GridTableCell className="text-muted-foreground">
               {item.agent ? (
                 <Link
                   to="/agents/$id"
@@ -178,10 +158,9 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
             </GridTableCell>
             <GridTableCell
               align="end"
-              hideNarrow
               className="text-caption text-muted-foreground"
             >
-              {updated}
+              <RelativeTime value={item.slack_app.updated_at} locale={locale} />
             </GridTableCell>
             <GridTableCell align="end">
               {item.agent ? (
@@ -233,9 +212,5 @@ function AppState({ item }: { readonly item: MadeApp }) {
   );
 }
 
-// App, agent, state, updated, details; a phone keeps the app, the state and
-// the details link, and the app cell names the agent and the time.
-const COLUMNS = [
-  "minmax(0,1.4fr) minmax(0,1fr) 136px 120px 64px",
-  "minmax(0,1fr) 120px 64px",
-] as const;
+// App, agent, state, updated, details.
+const COLUMNS = "minmax(0,1.4fr) minmax(0,1fr) 136px 120px 64px";

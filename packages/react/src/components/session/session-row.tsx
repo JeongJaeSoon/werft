@@ -18,13 +18,12 @@ import { useMinute } from "./use-minute.ts";
 
 /**
  * SessionTable's column template. The state columns fit their longest label
- * on one line: "Waiting for an answer" and "Needs recovery" in English. At
- * 820px of table width and below, admission and runtime drop out for
- * SESSION_NARROW_TEMPLATE, where a long status label wraps.
+ * on one line: "Waiting for an answer" and "Needs recovery" in English.
+ * Below the table's minimum width it scrolls sideways instead of dropping
+ * columns.
  */
 export const SESSION_TEMPLATE =
   "minmax(0,5fr) 160px 136px minmax(0,3fr) minmax(120px,2fr)";
-export const SESSION_NARROW_TEMPLATE = "minmax(0,1fr) 120px 72px";
 
 export interface SessionRowMessages {
   readonly status: (status: SessionStatus) => string;
@@ -57,7 +56,7 @@ export interface SessionRowLink {
  * child, so its link has to cover the row and show focus on its own.
  */
 const OPENER_LINK =
-  "absolute inset-0 z-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2";
+  "absolute inset-0 z-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:-outline-offset-2";
 
 /** The row's one link, over the whole row, from the screen's renderLink. */
 export function SessionRowOpener({
@@ -129,7 +128,7 @@ export function SessionRow({
           axisLabel={messages.statusAxis}
         />
       </GridTableCell>
-      <GridTableCell hideNarrow={true}>
+      <GridTableCell>
         <StatusLabel
           className="whitespace-nowrap"
           axis="admission"
@@ -138,7 +137,7 @@ export function SessionRow({
           axisLabel={messages.admissionAxis}
         />
       </GridTableCell>
-      <GridTableCell hideNarrow={true} className="text-muted-foreground">
+      <GridTableCell className="text-muted-foreground">
         <span className="min-w-0 truncate">
           <span className="sr-only">{messages.runtime}: </span>
           {runtime

@@ -292,21 +292,6 @@ export function StateBadge({ state }: { readonly state: SettingsEntryState }) {
   );
 }
 
-/**
- * A settings table once narrow (860px, its `narrowAt`): the id cell, which
- * then carries the state, and the actions, which wrap rather than go.
- */
-export const SETTINGS_NARROW_COLUMNS = "minmax(0,1fr) fit-content(55%)";
-
-/** The state inside the id cell, where a narrow table drops its column. */
-export function NarrowState({ state }: { readonly state: SettingsEntryState }) {
-  return (
-    <span className="hidden [@container(max-width:860px)]:inline-flex">
-      <StateBadge state={state} />
-    </span>
-  );
-}
-
 /** A credential as words: a stored value's last four, or a reference's name. */
 export function credentialText(
   t: Translate,

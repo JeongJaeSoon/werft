@@ -273,6 +273,14 @@
     --werft-row-action-button-min-width: 3rem;
     /* A table's long-text column floor; below it the frame scrolls. */
     --werft-row-text-min-width: 10rem;
+    /*
+     * GridTable, the console's flat table: a body row is at least 56px with
+     * 12px above and below its lines, and the table never draws narrower
+     * than 640px; a narrower box scrolls it sideways.
+     */
+    --werft-table-row-min-height: 3.5rem;
+    --werft-table-row-padding-y: var(--werft-space-3);
+    --werft-table-min-width: 40rem;
     --werft-control-height: 2rem;
     --werft-control-height-sm: 1.75rem;
     --werft-text-title: 1.25rem;

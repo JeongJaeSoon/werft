@@ -12,12 +12,9 @@ import type { TimelineEntry, TimelineMessages } from "./timeline.tsx";
 const { render } = await setupDom();
 // After setupDom: these load @werft-ai/ui, whose Radix decides at import time
 // whether a DOM exists.
-const { SESSION_NARROW_TEMPLATE, SESSION_TEMPLATE, SessionRow } = await import(
-  "./session-row.tsx"
-);
+const { SESSION_TEMPLATE, SessionRow } = await import("./session-row.tsx");
 const {
   SESSION_OVERVIEW_HOME_TEMPLATE,
-  SESSION_OVERVIEW_NARROW_TEMPLATE,
   SESSION_OVERVIEW_TEMPLATE,
   SessionOverviewRow,
   SessionOverviewTable,
@@ -30,10 +27,8 @@ const { Timeline } = await import("./timeline.tsx");
 const TRACK = /^(minmax\((0|\d+px),[\d.]+fr\)|\d+px)$/;
 test.each([
   [SESSION_TEMPLATE, 5],
-  [SESSION_NARROW_TEMPLATE, 3],
   [SESSION_OVERVIEW_TEMPLATE, 6],
   [SESSION_OVERVIEW_HOME_TEMPLATE, 5],
-  [SESSION_OVERVIEW_NARROW_TEMPLATE, 4],
 ])("세션 표 열 정의 %s는 열마다 트랙 하나다", (columns, count) => {
   const tracks = columns.split(" ");
   expect(tracks).toHaveLength(count);
@@ -724,7 +719,7 @@ describe("SessionOverviewRow", () => {
     ).toBe("—");
   });
 
-  test("표 머리는 값이 있는 다섯 열이고 좁은 폭에서 저장소를 숨긴다", () => {
+  test("표 머리는 값이 있는 다섯 열이고 좁은 폭에서도 열을 숨기지 않는다", () => {
     const { getAllByRole } = render(
       <SessionOverviewTable
         label="sessions"
@@ -749,10 +744,10 @@ describe("SessionOverviewRow", () => {
     ]);
     expect(
       heads.filter((head) => head.className.includes("hidden")),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
   });
 
-  test("표 폭이 600px 미만이면 행은 제목 한 줄 아래에 나머지를 두고 열 이름은 화면 읽기용으로만 남긴다", () => {
+  test("표 폭이 좁으면 행을 다시 쌓지 않고 최소 폭으로 가로 스크롤한다", () => {
     const { getAllByRole, getByRole } = render(
       <SessionOverviewTable
         label="sessions"
@@ -772,15 +767,14 @@ describe("SessionOverviewRow", () => {
       </SessionOverviewTable>,
     );
     const [header, row] = getAllByRole("row");
-    expect(header?.className).toContain("[@container(width<600px)]:sr-only");
-    expect(row?.className).toContain(
-      "[@container(width<600px)]:grid-cols-[auto_minmax(0,1fr)_auto]!",
+    expect(header?.className).not.toContain("@container");
+    expect(row?.className).not.toContain("@container");
+    const table = getByRole("table", { name: "sessions" });
+    expect(table.style.getPropertyValue("--grid-table-min-width")).toBe(
+      "52rem",
     );
-    const title = getByRole("link", { name: SESSION.id }).closest(
-      '[role="cell"]',
-    );
-    expect(title?.className).toContain(
-      "[@container(width<600px)]:col-span-full",
+    expect(table.parentElement?.getAttribute("data-slot")).toBe(
+      "grid-table-scroll",
     );
   });
 });

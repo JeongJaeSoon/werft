@@ -14,10 +14,6 @@ const {
 
 const COLUMNS =
   "minmax(0,2.2fr) 120px minmax(0,1.1fr) minmax(0,1.1fr) minmax(0,1fr) 72px";
-const NARROW = "minmax(0,2fr) 116px minmax(0,1.2fr) 64px";
-const NARROW_HIDE = "[@container(max-width:820px)]:hidden";
-const NARROW_ROW =
-  "[@container(max-width:820px)]:grid-cols-[var(--grid-table-narrow-columns)]";
 
 function Sessions({
   onOpen = () => {},
@@ -27,18 +23,13 @@ function Sessions({
   readonly onStop?: () => void;
 }) {
   return (
-    <GridTable
-      aria-label="세션"
-      columns={COLUMNS}
-      narrowAt={820}
-      narrowColumns={NARROW}
-    >
+    <GridTable aria-label="세션" columns={COLUMNS} minWidth="52rem">
       <GridTableHeader>
         <GridTableColumnHeader>제목</GridTableColumnHeader>
         <GridTableColumnHeader>상태</GridTableColumnHeader>
         <GridTableColumnHeader>에이전트</GridTableColumnHeader>
-        <GridTableColumnHeader hideNarrow={true}>저장소</GridTableColumnHeader>
-        <GridTableColumnHeader hideNarrow={true}>시작</GridTableColumnHeader>
+        <GridTableColumnHeader>저장소</GridTableColumnHeader>
+        <GridTableColumnHeader>시작</GridTableColumnHeader>
         <GridTableColumnHeader align="end">최근</GridTableColumnHeader>
       </GridTableHeader>
       {["배포 점검", "요금 분석"].map((title) => (
@@ -57,8 +48,8 @@ function Sessions({
               멈추기
             </button>
           </GridTableCell>
-          <GridTableCell hideNarrow={true}>werft/api</GridTableCell>
-          <GridTableCell hideNarrow={true}>김하나</GridTableCell>
+          <GridTableCell>werft/api</GridTableCell>
+          <GridTableCell>김하나</GridTableCell>
           <GridTableCell align="end">3분 전</GridTableCell>
         </GridTableRow>
       ))}
@@ -80,50 +71,54 @@ describe("GridTable", () => {
     }
   });
 
-  test("좁은 폭에서 숨는 열은 머리와 셀이 같이 숨어 남는 셀 수도 같다", () => {
-    const { getAllByRole } = render(<Sessions />);
-    const shown = (cells: Element[]) =>
-      cells.filter((cell) => !cell.classList.contains(NARROW_HIDE)).length;
-    const headers = getAllByRole("columnheader");
-    expect(shown(headers)).toBe(4);
-    for (const row of getAllByRole("row").slice(1)) {
-      expect(shown([...row.querySelectorAll("[role=cell]")])).toBe(4);
-    }
-    // happy-dom does not resolve container queries, so the display: none
-    // itself is not checked here.
-  });
-
-  test("열 템플릿은 표의 변수 하나로 모든 행에 가고 좁은 템플릿은 narrowAt 기준에서 바뀐다", () => {
+  test("열 템플릿과 최소 폭은 표의 변수로 모든 행에 가고, 표는 가로 스크롤 상자 안에 있다", () => {
     const { getByRole, getAllByRole } = render(<Sessions />);
     const table = getByRole("table");
     expect(table.style.getPropertyValue("--grid-table-columns")).toBe(COLUMNS);
-    expect(table.style.getPropertyValue("--grid-table-narrow-columns")).toBe(
-      NARROW,
+    expect(table.style.getPropertyValue("--grid-table-min-width")).toBe(
+      "52rem",
     );
-    expect(table.classList.contains("@container")).toBe(true);
-    expect(table.className).not.toContain("overflow");
+    expect(
+      table.classList.contains("min-w-[var(--grid-table-min-width)]"),
+    ).toBe(true);
+    const scroller = table.parentElement as HTMLElement;
+    expect(scroller.getAttribute("data-slot")).toBe("grid-table-scroll");
+    expect(scroller.classList.contains("overflow-x-auto")).toBe(true);
     for (const row of getAllByRole("row")) {
       expect(
         row.classList.contains("grid-cols-[var(--grid-table-columns)]"),
       ).toBe(true);
-      expect(row.classList.contains(NARROW_ROW)).toBe(true);
     }
   });
 
-  test("narrowAt이 없으면 좁은 폭 클래스가 없고 hideNarrow 열도 남는다", () => {
-    const { getAllByRole } = render(
+  test("최소 폭을 주지 않으면 토큰 값을 쓰고, 넘치지 않는 상자는 Tab을 받지 않는다", () => {
+    const { getByRole } = render(
       <GridTable aria-label="구성원" columns="minmax(0,1fr) 120px">
         <GridTableHeader>
           <GridTableColumnHeader>이름</GridTableColumnHeader>
-          <GridTableColumnHeader hideNarrow={true}>역할</GridTableColumnHeader>
+          <GridTableColumnHeader>역할</GridTableColumnHeader>
         </GridTableHeader>
       </GridTable>,
     );
-    const row = getAllByRole("row")[0] as HTMLElement;
-    expect(row.className).not.toContain("@container");
-    for (const header of getAllByRole("columnheader")) {
-      expect(header.className).not.toContain("hidden");
-    }
+    const table = getByRole("table", { name: "구성원" });
+    expect(table.style.getPropertyValue("--grid-table-min-width")).toBe(
+      "var(--werft-table-min-width)",
+    );
+    const scroller = table.parentElement as HTMLElement;
+    expect(scroller.hasAttribute("tabindex")).toBe(false);
+    expect(scroller.hasAttribute("role")).toBe(false);
+  });
+
+  test("머리 행은 배경 없이 아래 선만 두고 본문 행은 56px 바닥을 갖는다", () => {
+    const { getAllByRole } = render(<Sessions />);
+    const [header, body] = getAllByRole("row") as HTMLElement[];
+    expect(header?.className).not.toContain("bg-");
+    expect(header?.classList.contains("border-b")).toBe(true);
+    expect(
+      body?.classList.contains("min-h-[var(--werft-table-row-min-height)]"),
+    ).toBe(true);
+    for (const row of [header, body])
+      expect(row?.className).not.toContain("px-");
   });
 
   test("aria-busy를 표에 넘긴다", () => {
@@ -202,30 +197,7 @@ describe("GridTable", () => {
   });
 });
 
-describe("GridTable framed", () => {
-  test("framed는 표 자체에 카드 틀을 두고, 기본값은 틀이 없다", () => {
-    const { getAllByRole } = render(
-      <>
-        <GridTable aria-label="틀 있음" columns="1fr" framed>
-          <GridTableHeader>
-            <GridTableColumnHeader>이름</GridTableColumnHeader>
-          </GridTableHeader>
-        </GridTable>
-        <GridTable aria-label="틀 없음" columns="1fr">
-          <GridTableHeader>
-            <GridTableColumnHeader>이름</GridTableColumnHeader>
-          </GridTableHeader>
-        </GridTable>
-      </>,
-    );
-    const [framed, plain] = getAllByRole("table") as HTMLElement[];
-    expect(framed?.getAttribute("data-framed")).toBe("true");
-    for (const name of ["rounded-card", "border", "bg-card", "@container"])
-      expect(framed?.classList.contains(name)).toBe(true);
-    expect(plain?.hasAttribute("data-framed")).toBe(false);
-    expect(plain?.classList.contains("border")).toBe(false);
-  });
-
+describe("GridTable action column", () => {
   test("action 열 머리글은 끝에 붙고 버튼 최소 폭의 가운데에 글자를 둔다", () => {
     const { getByRole } = render(
       <GridTable aria-label="구성원" columns="1fr 120px">

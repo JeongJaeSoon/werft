@@ -1,6 +1,5 @@
 import type { UsageBreakdownResponse } from "@werft-ai/contracts";
 import {
-  Card,
   GridTable,
   GridTableCell,
   GridTableRow,
@@ -49,46 +48,45 @@ export function UsageTokenMix({
         )
       }
     >
-      <Card flush>
-        <GridTable
-          aria-label={messages.title}
-          columns="96px minmax(0,1fr) 80px 56px"
-        >
-          {KINDS.map(([kind, column]) => {
-            const label = messages[kind];
-            const n = totals?.[column] ?? 0;
-            return (
-              <GridTableRow key={column}>
-                <GridTableCell>{label}</GridTableCell>
-                <GridTableCell>
-                  {loading ? (
-                    <Box height="0.25rem" />
-                  ) : (
-                    <Meter
-                      size="inline"
-                      value={n}
-                      max={total || 1}
-                      label={messages.share(label)}
-                      className="w-full"
-                    />
-                  )}
-                </GridTableCell>
-                <GridTableCell align="end" className="tabular-nums">
-                  <Value loading={loading}>{format.tokens(n)}</Value>
-                </GridTableCell>
-                <GridTableCell
-                  align="end"
-                  className="text-subtle-foreground tabular-nums"
-                >
-                  <Value loading={loading} width="2rem">
-                    {`${total ? Math.round((100 * n) / total) : 0}%`}
-                  </Value>
-                </GridTableCell>
-              </GridTableRow>
-            );
-          })}
-        </GridTable>
-      </Card>
+      <GridTable
+        aria-label={messages.title}
+        minWidth="20rem"
+        columns="96px minmax(0,1fr) 80px 56px"
+      >
+        {KINDS.map(([kind, column]) => {
+          const label = messages[kind];
+          const n = totals?.[column] ?? 0;
+          return (
+            <GridTableRow key={column}>
+              <GridTableCell>{label}</GridTableCell>
+              <GridTableCell>
+                {loading ? (
+                  <Box height="0.25rem" />
+                ) : (
+                  <Meter
+                    size="inline"
+                    value={n}
+                    max={total || 1}
+                    label={messages.share(label)}
+                    className="w-full"
+                  />
+                )}
+              </GridTableCell>
+              <GridTableCell align="end" className="tabular-nums">
+                <Value loading={loading}>{format.tokens(n)}</Value>
+              </GridTableCell>
+              <GridTableCell
+                align="end"
+                className="text-subtle-foreground tabular-nums"
+              >
+                <Value loading={loading} width="2rem">
+                  {`${total ? Math.round((100 * n) / total) : 0}%`}
+                </Value>
+              </GridTableCell>
+            </GridTableRow>
+          );
+        })}
+      </GridTable>
     </Section>
   );
 }

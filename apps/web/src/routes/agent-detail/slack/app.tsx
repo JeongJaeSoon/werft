@@ -325,21 +325,15 @@ export function SlackAppSection({
       </Badge>
     );
   return section(
-    <GridTable
-      aria-label={t("workspace.slackAppsList")}
-      columns={COLUMNS[0]}
-      narrowAt={640}
-      narrowColumns={COLUMNS[1]}
-      framed
-    >
+    <GridTable aria-label={t("workspace.slackAppsList")} columns={COLUMNS}>
       <GridTableHeader>
         <GridTableColumnHeader>
           {t("workspace.slackAppsApp")}
         </GridTableColumnHeader>
-        <GridTableColumnHeader hideNarrow>
+        <GridTableColumnHeader>
           {t("workspace.slackAppsState")}
         </GridTableColumnHeader>
-        <GridTableColumnHeader align="end" hideNarrow>
+        <GridTableColumnHeader align="end">
           {t("workspace.slackAppsUpdated")}
         </GridTableColumnHeader>
         <GridTableColumnHeader action>
@@ -359,19 +353,11 @@ export function SlackAppSection({
             <Code className="text-muted-foreground">
               {record.app_id ?? t("workspace.slackAppsNoId")}
             </Code>
-            {/* GridTable's narrowAt={640}, where those columns drop. */}
-            <span className="hidden items-center gap-2 [@container(max-width:640px)]:flex">
-              {badge}
-              <Text as="span" variant="meta">
-                {updated}
-              </Text>
-            </span>
           </RowLines>
         </GridTableCell>
-        <GridTableCell hideNarrow>{badge}</GridTableCell>
+        <GridTableCell>{badge}</GridTableCell>
         <GridTableCell
           align="end"
-          hideNarrow
           className="text-caption text-muted-foreground"
         >
           {updated}
@@ -506,9 +492,5 @@ export function SlackDangerSection({ slack }: { readonly slack: SlackApp }) {
   );
 }
 
-// App, state, updated, actions; a phone keeps the app (with the state and
-// the time under it) and the actions.
-const COLUMNS = [
-  "minmax(0,1.4fr) minmax(0,1fr) 120px 160px",
-  "minmax(0,1fr) 160px",
-] as const;
+// App, state, updated, actions.
+const COLUMNS = "minmax(0,1.4fr) minmax(0,1fr) 120px 160px";

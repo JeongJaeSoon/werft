@@ -75,15 +75,14 @@ const named = (dialog: HTMLElement, name: string) => {
 const writes = <C extends { readonly method: string }>(calls: readonly C[]) =>
   calls.filter((call) => call.method !== "GET");
 
-/** No row action sits in a cell the narrow layout hides. */
+/**
+ * A narrow screen scrolls the table sideways: it keeps a minimum width and
+ * every row keeps its actions.
+ */
 const expectNarrowActions = (table: HTMLElement) => {
-  const buttons = within(table).getAllByRole("button");
-  expect(buttons.length).toBeGreaterThan(0);
-  for (const button of buttons) {
-    expect(button.closest('[role="cell"]')?.className ?? "").not.toContain(
-      ":hidden",
-    );
-  }
+  expect(table.style.getPropertyValue("--grid-table-min-width")).toBe("52rem");
+  expect(table.parentElement?.className).toContain("overflow-x-auto");
+  expect(within(table).getAllByRole("button").length).toBeGreaterThan(0);
 };
 
 describe("모델 연결", () => {
@@ -273,12 +272,13 @@ describe("모델 연결", () => {
     ).toBe("값 넣기");
   });
 
-  test("a narrow table keeps every row's actions and puts the state beside the id", async () => {
+  test("a narrow table scrolls, keeps every row's actions and shows the state in its own column", async () => {
     renderAt(CONNECTIONS_PAGE, routes());
     const table = await screen.findByRole("table", { name: "모델 연결" });
     expectNarrowActions(table);
-    const id = within(rowOf(table, "fresh")).getAllByRole("cell")[0];
-    expect(id?.textContent).toContain("값 필요");
+    const cells = within(rowOf(table, "fresh")).getAllByRole("cell");
+    expect(cells[0]?.textContent).not.toContain("값 필요");
+    expect(cells[4]?.textContent).toContain("값 필요");
   });
 
   test("adding one stores the key, says the address cannot change, and warns when its host is off the egress allowlist", async () => {
@@ -1085,7 +1085,7 @@ describe("MCP 서버", () => {
     ).toEqual(["search 사용 중지"]);
   });
 
-  test("a narrow table keeps every row's actions", async () => {
+  test("a narrow table scrolls and keeps every row's actions", async () => {
     renderAt("/settings/workspace/mcp-servers", routes());
     expectNarrowActions(await screen.findByRole("table", { name: "MCP 서버" }));
   });

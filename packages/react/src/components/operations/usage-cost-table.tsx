@@ -1,6 +1,5 @@
 import type { UsageBreakdownResponse } from "@werft-ai/contracts";
 import {
-  Card,
   cn,
   EmptyState,
   GridTable,
@@ -19,14 +18,6 @@ import { useOperationsMessages } from "./use-messages.ts";
 
 type Row = UsageBreakdownResponse["rows"][number];
 
-// GridTable's narrowest step (480px) drops the token column from a half-width
-// table at 1280px once a classic scrollbar takes 15-17px (about 472px), so
-// this table steps at 460px itself. Below that the name column would wrap a
-// model name; a phone still drops the column.
-const NARROW_ROW =
-  "[@container(width<460px)]:grid-cols-[minmax(0,1fr)_48px_88px]";
-const NARROW_HIDE = "[@container(width<460px)]:hidden";
-
 export interface UsageCostTableProps {
   /** Names the table and heads its first column: "모델별", "에이전트". */
   readonly label: string;
@@ -35,7 +26,7 @@ export interface UsageCostTableProps {
   readonly by: "model" | "agent";
   /** GET /v1/usage/breakdown `rows`, largest cost first; undefined while read. */
   readonly rows: readonly Row[] | undefined;
-  /** The token column, hidden below 460px so the names keep their room. */
+  /** The token column. */
   readonly tokens?: boolean | undefined;
   /** How many rows hold their place while the rows are read. */
   readonly placeholderRows?: number | undefined;
@@ -67,89 +58,84 @@ export function UsageCostTable({
   const max = Math.max(0, ...(rows ?? []).map((r) => Number(r.cost_usd)));
   const shown = rows ?? Array.from({ length: placeholderRows }, () => null);
   return (
-    <Card flush>
-      <GridTable
-        aria-label={label}
-        aria-busy={loading || undefined}
-        columns={
-          tokens ? "minmax(0,1fr) 56px 80px 96px" : "minmax(0,1fr) 64px 96px"
-        }
-      >
-        <GridTableHeader className={cn(tokens && NARROW_ROW)}>
-          <GridTableColumnHeader>{head}</GridTableColumnHeader>
+    // Half a 1280px page is about 600px; a phone scrolls the table sideways
+    // below 24rem rather than wrap a model name.
+    <GridTable
+      aria-label={label}
+      aria-busy={loading || undefined}
+      minWidth="24rem"
+      columns={
+        tokens ? "minmax(0,1fr) 56px 80px 96px" : "minmax(0,1fr) 64px 96px"
+      }
+    >
+      <GridTableHeader>
+        <GridTableColumnHeader>{head}</GridTableColumnHeader>
+        <GridTableColumnHeader align="end">
+          {messages.sessions}
+        </GridTableColumnHeader>
+        {tokens ? (
           <GridTableColumnHeader align="end">
-            {messages.sessions}
+            {messages.tokens}
           </GridTableColumnHeader>
-          {tokens ? (
-            <GridTableColumnHeader align="end" className={NARROW_HIDE}>
-              {messages.tokens}
-            </GridTableColumnHeader>
-          ) : null}
-          <GridTableColumnHeader align="end">
-            {messages.cost}
-          </GridTableColumnHeader>
-        </GridTableHeader>
-        {shown.map((row, i) => {
-          const name =
-            row === null
-              ? ""
-              : (row.label ??
-                (by === "agent" ? messages.noAgent : messages.noModel));
-          return (
-            <GridTableRow
-              key={row ? (row.key ?? "") : i}
-              className={cn(tokens && NARROW_ROW)}
-            >
-              <GridTableCell lines className="gap-1">
-                {/* The whole name, wrapped anywhere: the cell truncates only
+        ) : null}
+        <GridTableColumnHeader align="end">
+          {messages.cost}
+        </GridTableColumnHeader>
+      </GridTableHeader>
+      {shown.map((row, i) => {
+        const name =
+          row === null
+            ? ""
+            : (row.label ??
+              (by === "agent" ? messages.noAgent : messages.noModel));
+        return (
+          <GridTableRow key={row ? (row.key ?? "") : i}>
+            <GridTableCell lines className="gap-1">
+              {/* The whole name, wrapped anywhere: the cell truncates only
                     the lines after it. */}
-                <Text
-                  as="span"
-                  className={cn(
-                    "max-w-full [overflow-wrap:anywhere]",
-                    by === "model" && row?.label && "font-mono text-control",
-                  )}
-                >
-                  <Value loading={loading} width="8rem">
-                    {name}
-                  </Value>
-                </Text>
-                {row === null ? (
-                  <Box height="0.25rem" />
-                ) : (
-                  <Meter
-                    size="inline"
-                    value={Number(row.cost_usd)}
-                    max={max || 1}
-                    label={messages.costShare(name)}
-                    className="w-full"
-                  />
+              <Text
+                as="span"
+                className={cn(
+                  "max-w-full [overflow-wrap:anywhere]",
+                  by === "model" && row?.label && "font-mono text-control",
                 )}
-              </GridTableCell>
-              <GridTableCell align="end" className="tabular-nums">
-                <Value loading={loading} width="1.5rem">
-                  {row ? format.count(row.session_count) : null}
+              >
+                <Value loading={loading} width="8rem">
+                  {name}
                 </Value>
-              </GridTableCell>
-              {tokens ? (
-                <GridTableCell
-                  align="end"
-                  className={cn("tabular-nums", NARROW_HIDE)}
-                >
-                  <Value loading={loading}>
-                    {row ? format.tokens(row.token_count) : null}
-                  </Value>
-                </GridTableCell>
-              ) : null}
+              </Text>
+              {row === null ? (
+                <Box height="0.25rem" />
+              ) : (
+                <Meter
+                  size="inline"
+                  value={Number(row.cost_usd)}
+                  max={max || 1}
+                  label={messages.costShare(name)}
+                  className="w-full"
+                />
+              )}
+            </GridTableCell>
+            <GridTableCell align="end" className="tabular-nums">
+              <Value loading={loading} width="1.5rem">
+                {row ? format.count(row.session_count) : null}
+              </Value>
+            </GridTableCell>
+            {tokens ? (
               <GridTableCell align="end" className="tabular-nums">
                 <Value loading={loading}>
-                  {row ? format.usd(row.cost_usd) : null}
+                  {row ? format.tokens(row.token_count) : null}
                 </Value>
               </GridTableCell>
-            </GridTableRow>
-          );
-        })}
-      </GridTable>
-    </Card>
+            ) : null}
+            <GridTableCell align="end" className="tabular-nums">
+              <Value loading={loading}>
+                {row ? format.usd(row.cost_usd) : null}
+              </Value>
+            </GridTableCell>
+          </GridTableRow>
+        );
+      })}
+    </GridTable>
   );
 }

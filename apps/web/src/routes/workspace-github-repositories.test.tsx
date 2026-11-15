@@ -162,7 +162,7 @@ describe("GitHub 연결 › 저장소 시트", () => {
     expect(lists.at(-1)).toBe("?installation_id=78&page=1&per_page=20");
   });
 
-  test("좁은 폭에서 접히는 기본 브랜치·상태는 이름 칸 안에 들어 있다", async () => {
+  test("좁은 폭에서도 기본 브랜치·상태 열을 접지 않고 표가 옆으로 스크롤된다", async () => {
     renderAt(PATH, routes());
     const { sheet } = await openSheet();
     const table = await within(sheet).findByRole("table", {
@@ -172,27 +172,20 @@ describe("GitHub 연결 › 저장소 시트", () => {
       name: "설치 밖 저장소",
     });
     for (const each of [table, outside]) {
-      expect(each.getAttribute("data-narrow-at")).toBe("480");
+      expect(each.style.getPropertyValue("--grid-table-min-width")).toBe(
+        "28rem",
+      );
       for (const row of within(each).getAllByRole("row")) {
-        // Name, agents, menu stay; the second column folds into the name.
+        // Name, branch or state, agents, menu.
         expect(
-          Array.from(row.children).filter(
-            (cell) =>
-              cell.getAttribute("role") &&
-              !cell.hasAttribute("data-hide-narrow"),
-          ),
-        ).toHaveLength(3);
+          Array.from(row.children).filter((cell) => cell.getAttribute("role")),
+        ).toHaveLength(4);
       }
     }
-    const moved = (each: HTMLElement) =>
-      Array.from(
-        within(each)
-          .getAllByRole("rowheader")[0]
-          ?.querySelectorAll("[class*='width>=480px']") ?? [],
-        (line) => line.textContent,
-      );
-    expect(moved(table)).toEqual(["main"]);
-    expect(moved(outside)).toEqual(["설치 밖"]);
+    const name = (each: HTMLElement) =>
+      within(each).getAllByRole("rowheader")[0]?.textContent;
+    expect(name(table)).not.toContain("main");
+    expect(name(outside)).not.toContain("설치 밖");
   });
 
   test("닫기 버튼으로 시트를 닫으면 저장소 관리로 포커스가 돌아온다", async () => {

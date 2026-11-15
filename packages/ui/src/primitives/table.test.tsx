@@ -61,7 +61,7 @@ describe("Table", () => {
     expect(frame.className).toContain("focus-visible:outline-focus-ring");
   });
 
-  test("행 높이 하한과 셀 padding은 --werft-row-* 토큰에서 온다", () => {
+  test("행 높이 하한과 셀 padding은 GridTable과 같은 토큰에서 오고 머리에 배경이 없다", () => {
     const { container } = render(<MembersTable />);
     const head = container.querySelector("thead");
     const row = container.querySelector("tbody > tr");
@@ -70,13 +70,15 @@ describe("Table", () => {
     expect(head?.className).toContain(
       "[&>tr]:h-[var(--werft-row-head-min-height)]",
     );
-    expect(row?.className).toContain("h-[var(--werft-row-min-height)]");
-    expect(cell?.className).toContain("py-[var(--werft-row-padding-y)]");
+    expect(head?.className).not.toContain("bg-");
+    expect(row?.className).toContain("h-[var(--werft-table-row-min-height)]");
+    expect(cell?.className).toContain("py-[var(--werft-table-row-padding-y)]");
+    expect(cell?.className).toContain("first:pl-0");
     expect(cell?.className).toContain(
       "px-[calc(var(--werft-row-padding-x)/2)]",
     );
     expect(th?.className).toContain("py-[var(--werft-row-head-padding-y)]");
-    expect(TOKENS).toContain("--werft-row-min-height: 3rem;");
+    expect(TOKENS).toContain("--werft-table-row-min-height: 3.5rem;");
     expect(TOKENS).toContain("--werft-row-head-min-height: 2.5rem;");
   });
 

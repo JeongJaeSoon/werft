@@ -385,7 +385,6 @@ export function SlackChannels({
               <GridTable
                 aria-label={t("slack.connectedChannels")}
                 columns={COLUMNS}
-                framed
               >
                 <GridTableHeader>
                   <GridTableColumnHeader>

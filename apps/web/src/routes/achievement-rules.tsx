@@ -37,6 +37,11 @@ import {
   FieldLabel,
   FieldLegend,
   FieldSet,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
   Input,
   NativeSelect,
   NativeSelectOption,
@@ -46,13 +51,6 @@ import {
   SettingsSection,
   Skeleton,
   Switch,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableHeader,
-  TableRow,
   Text,
   Textarea,
 } from "@werft-ai/ui";
@@ -107,19 +105,14 @@ const BUILTIN_FIELDS = {
 const NEW_TYPE = "__new_type__";
 const EDITOR_ID = "achievement-rule-editor";
 
-// Below md each row stacks its cells, each under its column's name (data-k),
-// so no table scrolls sideways at phone width.
-const STACK_TABLE =
-  "[&_tr>*:first-child]:pl-0 [&_tr>*:last-child]:pr-0 max-md:block max-md:[&>tbody]:block max-md:[&>thead]:hidden max-md:[&_tr]:block max-md:[&_tr]:h-auto max-md:[&_tr]:px-0 max-md:[&_tr]:py-2.5";
-// The settings layout zeroes --werft-row-padding-x for its list rows; the table
-// cells halve it for the gap between columns, so it is put back here. The
-// container scrolls, which clips a focus ring that sits outside its
-// control, so -m-1 p-1 leaves the ring's 4px inside the clip (as members.tsx).
-const TABLE_FRAME =
-  "-m-1 rounded-none border-0 p-1 [--werft-row-padding-x:var(--werft-space-4)]";
-const STACK_CELL =
-  "max-md:flex max-md:w-full max-md:min-w-0 max-md:flex-wrap max-md:items-center max-md:justify-end max-md:gap-x-1.5 max-md:gap-y-1 max-md:px-0 max-md:py-0.5 max-md:text-right max-md:first:pl-0 max-md:last:pr-0 max-md:[overflow-wrap:anywhere] max-md:before:mr-auto max-md:before:flex-none max-md:before:text-caption max-md:before:text-subtle-foreground max-md:before:content-[attr(data-k)]";
-const NUM = "text-right tabular-nums";
+// Name | key | evidence | fields | rules using it | rename.
+const TYPE_COLUMNS =
+  "minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1.4fr) auto";
+// Title | type | judge | version | recent count | use.
+const RULE_COLUMNS =
+  "minmax(0,1.6fr) minmax(0,1fr) minmax(0,1.2fr) 64px 96px 56px";
+const RULE_COLUMNS_NO_USAGE =
+  "minmax(0,1.6fr) minmax(0,1fr) minmax(0,1.2fr) 64px 56px";
 const SMALL_BUTTON = buttonVariants({ variant: "outline", size: "sm" });
 
 type Reason = string | undefined;
@@ -1036,77 +1029,67 @@ function TypesCard({
         </>
       }
     >
-      <TableContainer
-        label={t("achievementRules.type.title")}
-        className={TABLE_FRAME}
+      <GridTable
+        aria-label={t("achievementRules.type.title")}
+        columns={TYPE_COLUMNS}
+        minWidth="48rem"
       >
-        <Table className={STACK_TABLE}>
-          <TableHeader>
-            <TableRow>
-              <TableHead scope="col">{k.name}</TableHead>
-              <TableHead scope="col">{k.key}</TableHead>
-              <TableHead scope="col">{k.evidence}</TableHead>
-              <TableHead scope="col">
-                {t("achievementRules.type.fields")}
-              </TableHead>
-              <TableHead scope="col">
-                {t("achievementRules.type.rules")}
-              </TableHead>
-              <TableHead scope="col" variant="actions">
-                <Text as="span" className="sr-only">
-                  {t("achievementRules.type.rename")}
-                </Text>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {shown.map((type) => (
-              <TableRow key={type.id}>
-                <TableCell data-k={k.name} className={STACK_CELL}>
-                  {type.name}{" "}
-                  {type.builtin ? (
-                    <Badge variant="gray">
-                      {t("achievementRules.type.builtin")}
-                    </Badge>
-                  ) : null}
-                </TableCell>
-                <TableCell data-k={k.key} className={STACK_CELL}>
-                  <Code>{type.key}</Code>
-                </TableCell>
-                <TableCell data-k={k.evidence} className={STACK_CELL}>
-                  {t(`achievementRules.evidence.${type.evidence_kind}`)}
-                </TableCell>
-                <TableCell data-k={k.fields} className={STACK_CELL}>
-                  {typeFields(t, type)}
-                </TableCell>
-                <TableCell
-                  data-k={k.rules}
-                  className={`${STACK_CELL} [overflow-wrap:anywhere]`}
+        <GridTableHeader>
+          <GridTableColumnHeader>{k.name}</GridTableColumnHeader>
+          <GridTableColumnHeader>{k.key}</GridTableColumnHeader>
+          <GridTableColumnHeader>{k.evidence}</GridTableColumnHeader>
+          <GridTableColumnHeader>
+            {t("achievementRules.type.fields")}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader>
+            {t("achievementRules.type.rules")}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader action>
+            <Text as="span" className="sr-only">
+              {t("achievementRules.type.rename")}
+            </Text>
+          </GridTableColumnHeader>
+        </GridTableHeader>
+        {shown.map((type) => (
+          <GridTableRow key={type.id}>
+            <GridTableCell>
+              {type.name}{" "}
+              {type.builtin ? (
+                <Badge variant="gray">
+                  {t("achievementRules.type.builtin")}
+                </Badge>
+              ) : null}
+            </GridTableCell>
+            <GridTableCell>
+              <Code>{type.key}</Code>
+            </GridTableCell>
+            <GridTableCell>
+              {t(`achievementRules.evidence.${type.evidence_kind}`)}
+            </GridTableCell>
+            <GridTableCell>{typeFields(t, type)}</GridTableCell>
+            <GridTableCell className="[overflow-wrap:anywhere]">
+              {rules
+                .filter((rule) => rule.type_id === type.id)
+                .map((rule) => rule.title)
+                .join(", ")}
+            </GridTableCell>
+            <GridTableCell align="end">
+              {type.builtin ? null : (
+                <ReasonButton
+                  className={SMALL_BUTTON}
+                  reason={reason}
+                  aria-label={t("achievementRules.type.renameOf", {
+                    name: type.name,
+                  })}
+                  onClick={(event) => open(type, event)}
                 >
-                  {rules
-                    .filter((rule) => rule.type_id === type.id)
-                    .map((rule) => rule.title)
-                    .join(", ")}
-                </TableCell>
-                <TableCell data-k="" variant="actions" className={STACK_CELL}>
-                  {type.builtin ? null : (
-                    <ReasonButton
-                      className={SMALL_BUTTON}
-                      reason={reason}
-                      aria-label={t("achievementRules.type.renameOf", {
-                        name: type.name,
-                      })}
-                      onClick={(event) => open(type, event)}
-                    >
-                      {t("achievementRules.type.rename")}
-                    </ReasonButton>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
+                  {t("achievementRules.type.rename")}
+                </ReasonButton>
+              )}
+            </GridTableCell>
+          </GridTableRow>
+        ))}
+      </GridTable>
       <TypeDialog
         open={dialog !== null}
         type={dialog === "new" || dialog === null ? undefined : dialog}
@@ -1322,139 +1305,124 @@ function RulesCard({
       count={rules.length}
       description={t("achievementRules.rules.description")}
     >
-      <TableContainer
-        label={t("achievementRules.rules.title")}
-        className={TABLE_FRAME}
+      <GridTable
+        aria-label={t("achievementRules.rules.title")}
+        columns={usage.readable ? RULE_COLUMNS : RULE_COLUMNS_NO_USAGE}
       >
-        <Table className={STACK_TABLE}>
-          <TableHeader>
-            <TableRow>
-              <TableHead scope="col">{k.title}</TableHead>
-              <TableHead scope="col">
-                {t("achievementRules.rules.type")}
-              </TableHead>
-              <TableHead scope="col">{k.judge}</TableHead>
-              <TableHead scope="col">{k.version}</TableHead>
-              {usage.readable ? (
-                <TableHead scope="col" className={NUM}>
-                  {k.recent}
-                </TableHead>
-              ) : null}
-              <TableHead scope="col">{k.use}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {groups.map((group) => (
-              <RuleGroup
-                key={group.id}
-                columns={usage.readable ? 6 : 5}
-                name={
-                  categories.find((category) => category.id === group.id)
-                    ?.name ?? ""
-                }
-              >
-                {group.rules.map((rule) => {
-                  const type = typeOf.get(rule.type_id);
-                  const count = counts.get(rule.family_id);
-                  return (
-                    <TableRow key={rule.family_id}>
-                      <TableCell data-k={k.title} className={STACK_CELL}>
-                        <Button
-                          type="button"
-                          variant="link"
-                          className="h-auto min-w-0 shrink whitespace-normal p-0 text-left font-normal [overflow-wrap:anywhere] max-md:text-right"
-                          aria-controls={EDITOR_ID}
-                          onClick={() => onEdit(rule.family_id)}
-                        >
-                          {rule.title}
-                        </Button>
-                      </TableCell>
-                      <TableCell data-k={k.type} className={STACK_CELL}>
-                        <Code>{type?.key ?? ""}</Code>
-                      </TableCell>
-                      <TableCell data-k={k.judge} className={STACK_CELL}>
-                        {rule.judge === "luna" ? (
-                          <Badge variant="blue">
-                            {t("achievementRules.rules.luna")}
-                          </Badge>
-                        ) : (
-                          <Badge variant="gray">
-                            {t("achievementRules.rules.always")}
-                          </Badge>
-                        )}{" "}
-                        {type && NEEDS_REVIEW.has(type.evidence_kind) ? (
-                          <Badge variant="amber">
-                            {t("achievementRules.rules.review")}
-                          </Badge>
-                        ) : null}
-                      </TableCell>
-                      <TableCell data-k={k.version} className={STACK_CELL}>
-                        {t("achievements.version", { version: rule.version })}
-                      </TableCell>
-                      {usage.readable ? (
-                        <TableCell
-                          data-k={k.recent}
-                          className={`${STACK_CELL} ${NUM}`}
-                        >
-                          {usage.data ? (count?.achievement_count ?? 0) : "—"}
-                          {count && count.needs_review_count > 0 ? (
-                            <>
-                              {" "}
-                              <Text as="span" variant="meta">
-                                {t("achievementRules.rules.waiting", {
-                                  count: count.needs_review_count,
-                                })}
-                              </Text>
-                            </>
-                          ) : null}
-                        </TableCell>
+        <GridTableHeader>
+          <GridTableColumnHeader>{k.title}</GridTableColumnHeader>
+          <GridTableColumnHeader>
+            {t("achievementRules.rules.type")}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader>{k.judge}</GridTableColumnHeader>
+          <GridTableColumnHeader>{k.version}</GridTableColumnHeader>
+          {usage.readable ? (
+            <GridTableColumnHeader align="end">
+              {k.recent}
+            </GridTableColumnHeader>
+          ) : null}
+          <GridTableColumnHeader>{k.use}</GridTableColumnHeader>
+        </GridTableHeader>
+        {groups.map((group) => (
+          <RuleGroup
+            key={group.id}
+            name={
+              categories.find((category) => category.id === group.id)?.name ??
+              ""
+            }
+          >
+            {group.rules.map((rule) => {
+              const type = typeOf.get(rule.type_id);
+              const count = counts.get(rule.family_id);
+              return (
+                <GridTableRow key={rule.family_id}>
+                  <GridTableCell>
+                    <Button
+                      type="button"
+                      variant="link"
+                      className="h-auto min-w-0 shrink whitespace-normal p-0 text-left font-normal [overflow-wrap:anywhere]"
+                      aria-controls={EDITOR_ID}
+                      onClick={() => onEdit(rule.family_id)}
+                    >
+                      {rule.title}
+                    </Button>
+                  </GridTableCell>
+                  <GridTableCell>
+                    <Code>{type?.key ?? ""}</Code>
+                  </GridTableCell>
+                  <GridTableCell>
+                    {rule.judge === "luna" ? (
+                      <Badge variant="blue">
+                        {t("achievementRules.rules.luna")}
+                      </Badge>
+                    ) : (
+                      <Badge variant="gray">
+                        {t("achievementRules.rules.always")}
+                      </Badge>
+                    )}{" "}
+                    {type && NEEDS_REVIEW.has(type.evidence_kind) ? (
+                      <Badge variant="amber">
+                        {t("achievementRules.rules.review")}
+                      </Badge>
+                    ) : null}
+                  </GridTableCell>
+                  <GridTableCell>
+                    {t("achievements.version", { version: rule.version })}
+                  </GridTableCell>
+                  {usage.readable ? (
+                    <GridTableCell align="end" className="tabular-nums">
+                      {usage.data ? (count?.achievement_count ?? 0) : "—"}
+                      {count && count.needs_review_count > 0 ? (
+                        <>
+                          {" "}
+                          <Text as="span" variant="meta">
+                            {t("achievementRules.rules.waiting", {
+                              count: count.needs_review_count,
+                            })}
+                          </Text>
+                        </>
                       ) : null}
-                      <TableCell data-k={k.use} className={STACK_CELL}>
-                        <Switch
-                          aria-label={t("achievementRules.rules.useOf", {
-                            title: rule.title,
-                          })}
-                          checked={rule.disabled_at === null}
-                          disabled={reason !== undefined}
-                          aria-disabled={toggle.isPending || undefined}
-                          onCheckedChange={(on) => {
-                            if (!toggle.isPending) {
-                              toggle.mutate({ familyId: rule.family_id, on });
-                            }
-                          }}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </RuleGroup>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
+                    </GridTableCell>
+                  ) : null}
+                  <GridTableCell>
+                    <Switch
+                      aria-label={t("achievementRules.rules.useOf", {
+                        title: rule.title,
+                      })}
+                      checked={rule.disabled_at === null}
+                      disabled={reason !== undefined}
+                      aria-disabled={toggle.isPending || undefined}
+                      onCheckedChange={(on) => {
+                        if (!toggle.isPending) {
+                          toggle.mutate({ familyId: rule.family_id, on });
+                        }
+                      }}
+                    />
+                  </GridTableCell>
+                </GridTableRow>
+              );
+            })}
+          </RuleGroup>
+        ))}
+      </GridTable>
     </RulesSection>
   );
 }
 
 function RuleGroup({
   name,
-  columns,
   children,
 }: {
   readonly name: string;
-  readonly columns: number;
   readonly children: ReactNode;
 }) {
   return (
     <>
-      <TableRow className="bg-surface-sunken">
-        <TableCell
-          colSpan={columns}
-          className="font-semibold max-md:block max-md:px-0 max-md:py-0 max-md:first:pl-0"
-        >
+      <GridTableRow className="min-h-[var(--werft-row-head-min-height)] py-[var(--werft-row-head-padding-y)]">
+        <GridTableCell className="col-span-full font-semibold">
           {name}
-        </TableCell>
-      </TableRow>
+        </GridTableCell>
+      </GridTableRow>
       {children}
     </>
   );
