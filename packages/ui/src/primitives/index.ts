@@ -72,6 +72,11 @@ export {
 export { Heading, type HeadingProps } from "./heading.tsx";
 export { Input } from "./input.tsx";
 export {
+  ItemCount,
+  type ItemCountProps,
+  type ItemCountTone,
+} from "./item-count.tsx";
+export {
   Link,
   type LinkProps,
   linkVariants,

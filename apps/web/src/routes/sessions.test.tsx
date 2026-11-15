@@ -1014,6 +1014,17 @@ describe("sessions list", () => {
         "실패 0",
       ]),
     );
+    // Only the states someone has to act on turn into a badge, and only
+    // above 0: three waiting answers do, no failures and the rest do not.
+    expect(
+      within(tabs)
+        .getAllByRole("button")
+        .map(
+          (tab) =>
+            tab.querySelector<HTMLElement>('[data-slot="item-count"]')?.dataset
+              .tone ?? null,
+        ),
+    ).toEqual([null, "attention", null, null, null, null]);
   });
 
   test("counts that failed leave the tabs without numbers", async () => {

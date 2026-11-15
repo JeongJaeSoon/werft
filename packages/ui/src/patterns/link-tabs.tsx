@@ -7,8 +7,8 @@ import {
 } from "react";
 
 import { cn } from "../foundations/cn.ts";
+import { ItemCount } from "../primitives/item-count.tsx";
 import { Link } from "../primitives/link.tsx";
-import { ItemCount } from "../primitives/segmented-control.tsx";
 import { underlineTabClassName } from "../primitives/tabs.tsx";
 
 /*
