@@ -121,10 +121,9 @@ function KeyForm({
     const form = event.currentTarget.elements;
     const idInput = form.namedItem("app_id");
     const keyInput = form.namedItem("private_key");
-    const typed =
-      idInput instanceof HTMLInputElement ? idInput.value.trim() : "";
-    // Digits only: Number() would also take "1e3" or "0x10".
-    const id = appId ?? (/^\d+$/.test(typed) ? Number(typed) : Number.NaN);
+    const id =
+      appId ??
+      Number(idInput instanceof HTMLInputElement ? idInput.value.trim() : "");
     const file =
       keyInput instanceof HTMLInputElement ? keyInput.files?.[0] : undefined;
     if (!Number.isInteger(id) || id <= 0 || id > GITHUB_APP_ID_MAX) {

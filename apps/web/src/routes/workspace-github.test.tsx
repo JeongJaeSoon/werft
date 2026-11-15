@@ -412,7 +412,7 @@ describe("GitHub 연결 › App 목록과 GitHub 링크", () => {
     const id = within(dialog).getByLabelText("App ID");
     // The App ID is checked before the key, so no key file is needed.
     for (const [typed, reason] of [
-      ["1e3", "App ID를 숫자로 넣어 주세요."],
+      ["12.5", "App ID를 숫자로 넣어 주세요."],
       [
         "2147483648",
         "App ID는 2147483647 이하입니다. GitHub App 설정 페이지의 숫자를 확인하세요.",

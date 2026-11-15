@@ -225,7 +225,7 @@ export const githubKo = {
   "github.repo.branchHint":
     "세션이 이 브랜치에서 시작합니다. 바꾸면 이 저장소에서 실행 중인 세션은 다음 저장소 요청부터 거절됩니다.",
   "github.repo.branchInvalid":
-    "브랜치 이름이 올바르지 않습니다. 공백과 ~ ^ : ? * [ \\ 없이 {max}자까지 쓰고, .. @{ //를 넣거나 - / .로 시작하거나 / .lock으로 끝낼 수 없습니다.",
+    "브랜치 이름이 올바르지 않습니다. 공백과 ~ ^ : ? * [ \\ 없이 {max}자까지 쓰고, .. @{ // /.를 넣거나 - / .로 시작하거나 / .lock으로 끝낼 수 없습니다.",
   "github.repo.save": "저장",
   "github.repo.saved": "{name}의 기본 브랜치를 {branch}(으)로 바꿨습니다.",
   "github.repo.conflict":
@@ -533,7 +533,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.repo.branchHint":
     "Sessions start from this branch. A change refuses the next repository request of sessions running on it.",
   "github.repo.branchInvalid":
-    "That is not a valid branch name. Use up to {max} characters without spaces or ~ ^ : ? * [ \\; it cannot contain .. @{ or //, start with - / or ., or end with / or .lock.",
+    "That is not a valid branch name. Use up to {max} characters without spaces or ~ ^ : ? * [ \\; it cannot contain .. @{ // or /., start with - / or ., or end with / or .lock.",
   "github.repo.save": "Save",
   "github.repo.saved": "{name} now starts from {branch}.",
   "github.repo.conflict":
@@ -845,7 +845,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.repo.branchHint":
     "セッションはこのブランチから始まります。変えると、このリポジトリで実行中のセッションは次のリポジトリ要求から拒否されます。",
   "github.repo.branchInvalid":
-    "ブランチ名が正しくありません。空白と ~ ^ : ? * [ \\ を使わず {max} 文字までで書き、.. @{ // を含めたり、- / . で始めたり、/ .lock で終えたりはできません。",
+    "ブランチ名が正しくありません。空白と ~ ^ : ? * [ \\ を使わず {max} 文字までで書き、.. @{ // /. を含めたり、- / . で始めたり、/ .lock で終えたりはできません。",
   "github.repo.save": "保存",
   "github.repo.saved": "{name} のデフォルトブランチを {branch} に変えました。",
   "github.repo.conflict":
