@@ -259,10 +259,12 @@ function ConnectionRow({
           {actions.setValue ? (
             <RowAction
               disabled={busy}
-              aria-label={t("settings.connections.changeCredentialFor", {
-                id: item.id,
-                kind: credentialKind,
-              })}
+              aria-label={t(
+                item.state === "needs_value"
+                  ? "settings.connections.setCredentialFor"
+                  : "settings.connections.changeCredentialFor",
+                { id: item.id, kind: credentialKind },
+              )}
               onClick={onValue}
             >
               {t(

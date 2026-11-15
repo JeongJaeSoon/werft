@@ -277,7 +277,7 @@ describe("모델 연결", () => {
     const fresh = rowOf(table, "fresh");
     expect(fresh.textContent).toContain("값 필요");
     expect(
-      within(fresh).getByRole("button", { name: "fresh의 API 키 설정" })
+      within(fresh).getByRole("button", { name: "fresh의 API 키 넣기" })
         .textContent,
     ).toBe("API 키 넣기");
   });
