@@ -337,6 +337,73 @@ function checkObjectStoreKeys(
   return errors;
 }
 
+// What checkpointStorageConfigFromEnv (apps/control-host/src/api/
+// checkpoints.ts) reads, by the values key that sets it. The api and its two
+// object store jobs must read one bucket, mode and set of keys, or a job holds,
+// releases or archives objects the api does not read.
+const CHECKPOINT_STORAGE_ENV: Record<string, string> = {
+  S3_BUCKET: "config.checkpoints.bucket",
+  AWS_REGION: "config.aws.region",
+  AWS_ENDPOINT_URL: "config.aws.endpointUrl",
+  AWS_ACCESS_KEY_ID: "secrets.objectStoreKeys",
+  AWS_SECRET_ACCESS_KEY: "secrets.objectStoreKeys",
+  CHECKPOINT_OBJECT_STORE: "config.checkpoints.objectStore",
+  CHECKPOINT_OBJECT_PROTECTION: "config.checkpoints.protection",
+  CHECKPOINT_OBJECT_ENCRYPTION_CHECK: "config.checkpoints.encryptionCheck",
+};
+const CHECKPOINT_STORAGE_HOLDERS = ["api", "checkpoint-gc", "session-archive"];
+
+function checkCheckpointStorage(
+  label: string,
+  manifests: Manifest[],
+  want: Record<string, string>,
+): string[] {
+  const errors: string[] = [];
+  const rendered = new Map<string, string>();
+  for (const m of manifests) {
+    const component = m.metadata.labels?.["app.kubernetes.io/component"] ?? "";
+    const pod = podSpecOf(m);
+    if (pod === undefined || !CHECKPOINT_STORAGE_HOLDERS.includes(component)) {
+      continue;
+    }
+    const env: EnvVar[] = (pod.containers[0].env ?? []).filter(
+      (v: EnvVar) => v.name in CHECKPOINT_STORAGE_ENV,
+    );
+    const names = env.map((v) => v.name);
+    if (new Set(names).size !== names.length) {
+      errors.push(
+        `${label}: ${component} sets a checkpoint storage variable twice: ${names.join(", ")}`,
+      );
+    }
+    for (const [name, value] of Object.entries(want)) {
+      const got = env.findLast((v) => v.name === name)?.value;
+      if (got !== value) {
+        errors.push(`${label}: ${component} ${name} is ${got}, not ${value}`);
+      }
+    }
+    rendered.set(
+      component,
+      JSON.stringify(
+        env
+          .map((v) => [v.name, v.value ?? v.valueFrom])
+          .sort(([a], [b]) => String(a).localeCompare(String(b))),
+      ),
+    );
+  }
+  const api = rendered.get("api");
+  for (const component of CHECKPOINT_STORAGE_HOLDERS) {
+    const got = rendered.get(component);
+    if (got === undefined) {
+      errors.push(`${label}: no ${component} rendered`);
+    } else if (got !== api) {
+      errors.push(
+        `${label}: ${component} reads checkpoint storage ${got}, the api ${api}`,
+      );
+    }
+  }
+  return errors;
+}
+
 const SECRET_KEY = "PLATFORM_SECRET_KEY";
 
 const SECRET_KEY_HOLDERS = ["api", "slack"];
@@ -1004,6 +1071,41 @@ const MUST_FAIL: [string, string[], RegExp][] = [
     ["-f", ciDigests, "--set", set],
     /must not be set through extraEnv, config\.limits or secrets\.catalogEnv/,
   ]),
+  // The api's extraEnv came after its checkpoint settings and won there
+  // alone: the jobs and the scheduler kept the chart's.
+  ...[
+    "api.extraEnv.CHECKPOINT_OBJECT_STORE=disabled",
+    "api.extraEnv.S3_BUCKET=other",
+    "api.extraEnv.CHECKPOINT_OBJECT_ENCRYPTION_CHECK=warn",
+    "scheduler.extraEnv.S3_BUCKET=other",
+    "reconciler.extraEnv.AWS_REGION=us-east-1",
+    "slack.extraEnv.AWS_ENDPOINT_URL=http://store:9000",
+    "egressProxy.extraEnv.CHECKPOINT_OBJECT_PROTECTION=unversioned",
+    "metrics.extraEnv.AWS_ACCESS_KEY_ID=x",
+    "config.limits.CHECKPOINT_OBJECT_STORE=disabled",
+    "secrets.catalogEnv={ANTHROPIC_API_KEY,AWS_SECRET_ACCESS_KEY}",
+  ].map((set): [string, string[], RegExp] => {
+    const name = /([A-Z0-9_]+)[=}]/.exec(set)?.[1] ?? "";
+    return [
+      `${name} through ${set.split(/[.=]/).slice(0, 2).join(".")}`,
+      ["-f", ciDigests, "--set", set],
+      new RegExp(
+        `${name} must not be set through extraEnv, config\\.limits or secrets\\.catalogEnv; set ${CHECKPOINT_STORAGE_ENV[name]?.replaceAll(".", "\\.")}`,
+      ),
+    ];
+  }),
+  // With no endpoint or keys set, the SDK reads these itself: a store or a
+  // signer for one role alone.
+  ...[
+    "api.extraEnv.AWS_ENDPOINT_URL_S3=http://store:9000",
+    "api.extraEnv.AWS_ROLE_ARN=arn:aws:iam::1:role/other",
+    "scheduler.extraEnv.AWS_PROFILE=other",
+    "api.extraEnv.CHECKPOINT_OBJECT_LATER=x",
+  ].map((set): [string, string[], RegExp] => [
+    `${set.split("=")[0]}`,
+    ["-f", ciDigests, "--set", set],
+    /must not be set through extraEnv, config\.limits or secrets\.catalogEnv; the api, its object store jobs and the scheduler share one AWS environment/,
+  ]),
   [
     "images.workers beside images.worker",
     [
@@ -1181,6 +1283,37 @@ const errors = [
       "scheduler.enabled=false",
     ]),
     false,
+  ),
+  ...checkCheckpointStorage("default", render(["-f", ciDigests]), {
+    CHECKPOINT_OBJECT_STORE: "s3",
+    CHECKPOINT_OBJECT_ENCRYPTION_CHECK: "enforce",
+  }),
+  ...checkCheckpointStorage("aws example", awsRender(), {
+    CHECKPOINT_OBJECT_STORE: "s3",
+  }),
+  ...checkCheckpointStorage(
+    "checkpoint storage values",
+    render([
+      "-f",
+      ciDigests,
+      "--set",
+      "config.checkpoints.objectStore=disabled",
+      "--set",
+      "config.checkpoints.encryptionCheck=warn",
+      "--set",
+      "config.checkpoints.protection=unversioned",
+      "--set",
+      "config.checkpoints.bucket=other",
+      "--set",
+      "config.aws.endpointUrl=http://store:9000",
+    ]),
+    {
+      CHECKPOINT_OBJECT_STORE: "disabled",
+      CHECKPOINT_OBJECT_ENCRYPTION_CHECK: "warn",
+      CHECKPOINT_OBJECT_PROTECTION: "unversioned",
+      S3_BUCKET: "other",
+      AWS_ENDPOINT_URL: "http://store:9000",
+    },
   ),
 ];
 for (const declaration of [undefined, false, true]) {

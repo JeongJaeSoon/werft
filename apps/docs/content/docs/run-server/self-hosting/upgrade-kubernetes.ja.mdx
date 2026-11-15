@@ -37,6 +37,33 @@ env で指していた資格情報を DB へ移すリリース（migration `0285
 
 実行の上限、セッション記録の保管、作業領域の保持の設定、あわせて十二個を Web に移したリリースへ更新するときは、インストールの values をそのまま渡します。values に残った `config.limits` の `QUEUED_INPUT_LIMIT_PER_SESSION`・`STORAGE_LIMIT_BYTES`・`SESSION_COST_LIMIT_USD`・`SESSION_TOKEN_LIMIT`・`MAX_TURN_SECONDS`・`PROVIDER_MAX_RETRIES`、`api.workspaceEnforce` は、migrate Job にだけ入るようになりました。chart の `config.limits` の既定値は `EXECUTION_SLOT_LIMIT` だけです。`api.extraEnv` の同じ名前と `PENDING_REQUEST_TTL_SEC` も migrate Job に入ります。api Pod にもそのまま残りますが、api は読みません。同じ名前が二つあれば `api.extraEnv` が優先します。`MAX_TURN_SECONDS`・`PROVIDER_MAX_RETRIES` だけは、worker を起動していた scheduler が読んでいたとおりに選びます。`scheduler.extraEnv` の同じ名前が `config.limits` より優先し、`api.extraEnv` の二つの名前は移しません。作業領域の保持の `EXECUTION_WORKSPACE_STOPPED_TTL_SEC`・`EXECUTION_WORKSPACE_PAUSED_TTL_SEC` も同じです。`scheduler.extraEnv` に残した値は scheduler Pod にもそのまま入りますが、scheduler は読みません。そこの空文字列は以前の scheduler が起動を拒否していた値なので、移さずにそのキーを止めます。セッション記録の保管の `sessionArchive.afterDays`・`dryRun` は chart の既定値（180、`true`）がなくなり、インストールの values に書いた値だけが `SESSION_ARCHIVE_AFTER_DAYS`・`SESSION_ARCHIVE_DRY_RUN` として migrate Job に入ります。書いておいた `0` と `false` も値として移します。保管の CronJob はこの二つを受け取らず、実行のたびに DB から読みます。以前の chart と違い、範囲外の値でレンダーは止まりません。migrate がそのキーを止めます。Job は `pre-upgrade` hook なので、どの role よりも先に、保存した値のないキーへ一度だけ移します。Job のログで `note: … was carried into Settings > Workspace > Execution limits` の行を確かめたら、values からそのキーを削除します。範囲外の値は移さず、そのキーを止めます（`note: … was not carried in`）。コンソールで値を保存すると解けます。どれも設定していないインストールは、以前の chart と同じ既定値を使います（[Web に移した実行の上限](/run-server/self-hosting/upgrade-compose#웹으로-옮긴-실행-한도)）。
 
+object store の設定を一か所からだけ受け取るリリースへ更新するときは、どの role の `extraEnv`・`config.limits`・`secrets.catalogEnv` に `AWS_` か `CHECKPOINT_OBJECT_` で始まる名前があってもレンダーが止まります（`… must not be set through extraEnv, config.limits or secrets.catalogEnv`）。hook は動かず、Deployment も変わりません。以前の chart は `extraEnv` をその role にだけ入れていました。そのため `api.extraEnv` の値は api でだけ優先し、checkpoint GC・セッション記録の保管の CronJob と scheduler は chart の値で動いていました。値は次のように移します。`S3_BUCKET` → `config.checkpoints.bucket`、`CHECKPOINT_OBJECT_STORE` → `config.checkpoints.objectStore`（`s3`・`disabled`）、`CHECKPOINT_OBJECT_PROTECTION` → `config.checkpoints.protection`、`CHECKPOINT_OBJECT_ENCRYPTION_CHECK` → `config.checkpoints.encryptionCheck`（`enforce`・`warn`）、`AWS_REGION` → `config.aws.region`、`AWS_ENDPOINT_URL` → `config.aws.endpointUrl`、`AWS_ENDPOINT_URL_SECRETS_MANAGER` → `config.aws.secretsManagerEndpointUrl`、二つの静的キー → `secrets.objectStoreKeys` と Secret の同じ名前。それ以外の `AWS_` の名前（`AWS_ENDPOINT_URL_S3`、`AWS_ROLE_ARN`、`AWS_PROFILE` など）は chart から入れる手段がないので削除します。IRSA role は api ServiceAccount の annotation で与えます。二つの CronJob もその ServiceAccount を使います。名前を移しても Pod が受け取る値が同じなら、作業はそれだけです。
+
+移す前に、以前の chart が動いている間に設定が分かれていなかったかを確かめます。values の `api.extraEnv` に上の名前があり、その値が chart の値（`config.*`、既定値を含む）と違えば、セッション記録の保管 job は api が読まない保存先へイベントを移し、DB の行を削除したかもしれません。保管の記録は object key と version だけを持ち、bucket は持ちません。そのため設定を一つに揃えると、そのイベントはもう読めません。bucket をコピーしても version ID が変わるので代わりになりません。残す値は api の値です。checkpoint は api がその保存先に書きました。`scheduler.extraEnv` の `S3_BUCKET`・`AWS_REGION` が api の値と違っていた場合、揃えるとその値を含む隔離 stamp が変わり、worker が一度ずつ置き換わります（[アップグレードの互換性](/run-server/self-hosting/explanation/compatibility)）。更新の前に次を行います。
+
+1. 保管の CronJob を止めます: `kubectl -n werft patch cronjob werft-session-archive -p '{"spec":{"suspend":true}}'`。`suspend` はすでに作られた Job を止めません。止めたあと、下のコマンドが何も出力しなくなるまで待ちます。この CronJob が作った Job のうち `Complete` でも `Failed` でもないもの（Pod がまだ `Pending` の Job も）を出力します。CronJob の `status.active` は、controller が Job を作った直後に記録できないとその Job が漏れるので使いません。それより前に一覧を取ると、まだ終わっていない Job がその後に保管したセッションが漏れます。
+
+```bash
+UID_=$(kubectl -n werft get cronjob werft-session-archive -o jsonpath='{.metadata.uid}')
+kubectl -n werft get jobs -o json | jq -r --arg uid "$UID_" '.items[]
+  | select(any(.metadata.ownerReferences[]?; .uid == $uid))
+  | select(any(.status.conditions[]?; (.type == "Complete" or .type == "Failed") and .status == "True") | not)
+  | .metadata.name'
+```
+
+2. 運用者の DB クライアントで `SELECT DISTINCT session_id FROM session_event_archives;` を実行し、保管されたセッションを得ます。行がなければ 4 へ進みます。
+3. セッションごとに、以前の chart の CronJob から restore Job を作ります。CronJob と同じ保存先の設定で動きます。すべての Job が成功し、ログに `Session archive restored` が出ることを確かめます。その後 `SELECT count(*) FROM session_event_archives;` が `0` であることを確かめます（restore はその行を削除します）。0 でなければ 4 へ進みません。
+
+```bash
+kubectl -n werft create job "werft-archive-restore-$N" --from=cronjob/werft-session-archive --dry-run=client -o json \
+  | jq --arg id "$SESSION_ID" '.spec.template.spec.containers[0].args += ["restore", $id]' \
+  | kubectl -n werft apply -f -
+```
+
+4. values の名前を上のとおり移し、この手順の `helm upgrade` を実行します。その後 `kubectl -n werft patch cronjob werft-session-archive -p '{"spec":{"suspend":false}}'` で CronJob を再開します。Helm は `suspend` を扱わないため、更新後も止まったままです。戻したイベントは次の保管の実行が api の保存先へ再び移します。
+
+この手順は実行して確かめていません。render 検査が見るのは、分かれる values を拒否するところまでです。
+
 対象 chart を取得し、手順 2 まで使う二つの関数を定義します。対象リリースの二つの worker イメージの項目は chart の `files/release-images.json` に、次の values ファイルを作るプログラムは `files/next-workers.jq` にあります。
 
 ```bash
