@@ -8,14 +8,31 @@ import {
 
 type Handler = (params: Record<string, unknown>) => unknown;
 
-/** The policy 0.167.0 reports: a named profile wins, then `sandbox`. */
-function sandboxOf(params: Record<string, unknown>): { type: string } {
+/**
+ * The policy 0.167.0 reports for what the adapter sends: `sandbox`, or the
+ * `werft` profile (as measured), never both; other profiles are not modelled.
+ */
+function sandboxOf(params: Record<string, unknown>): Record<string, unknown> {
   const config = (params.config ?? {}) as Record<string, unknown>;
-  if (config.default_permissions !== undefined)
-    return { type: "workspaceWrite" };
+  const profile = config.default_permissions;
+  if (params.sandbox !== undefined && profile !== undefined) {
+    throw new Error("The fake does not model sandbox and a profile together");
+  }
   if (params.sandbox === "danger-full-access")
     return { type: "dangerFullAccess" };
-  return { type: "readOnly" };
+  if (profile === "werft") {
+    return {
+      type: "workspaceWrite",
+      writableRoots: [],
+      networkAccess: true,
+      excludeTmpdirEnvVar: false,
+      excludeSlashTmp: false,
+    };
+  }
+  if (profile !== undefined) {
+    throw new Error(`The fake does not model profile ${String(profile)}`);
+  }
+  return { type: "readOnly", networkAccess: false };
 }
 
 /**

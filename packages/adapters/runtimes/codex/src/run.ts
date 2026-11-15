@@ -411,10 +411,20 @@ export class CodexRun implements AgentRun {
     if (typeof id !== "string") {
       throw new Error("The Codex app-server started no thread");
     }
-    const policy = record(response.sandbox).type;
-    if (launch.sandbox === "bubblewrap" && policy !== "workspaceWrite") {
+    // The `werft` profile as 0.167.0 reports it: the workspace alone
+    // writable, the network on. Anything else is refused, not trusted.
+    const policy = record(response.sandbox);
+    if (
+      launch.sandbox === "bubblewrap" &&
+      !(
+        policy.type === "workspaceWrite" &&
+        policy.networkAccess === true &&
+        Array.isArray(policy.writableRoots) &&
+        policy.writableRoots.length === 0
+      )
+    ) {
       throw new Error(
-        `The Codex app-server put the thread in sandbox ${String(policy)}, not the workspace profile`,
+        `The Codex app-server put the thread in sandbox ${JSON.stringify(response.sandbox)}, not the workspace profile`,
       );
     }
     const problem = this.options.startupProblem();

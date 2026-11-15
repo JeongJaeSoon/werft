@@ -178,16 +178,27 @@ describe("auto mode", () => {
     expect(params).not.toHaveProperty("sandbox");
   });
 
-  test("a thread the engine leaves outside the profile is a failed start", async () => {
-    const t = auto("bubblewrap", undefined, { resume: "thread-9" });
-    t.server.on("thread/resume", (params) => ({
-      thread: { id: params.threadId },
-      sandbox: { type: "dangerFullAccess" },
-    }));
-    await expect(t.run.ready()).rejects.toThrow(
-      "sandbox dangerFullAccess, not the workspace profile",
-    );
-  });
+  const workspace = {
+    type: "workspaceWrite",
+    writableRoots: [],
+    networkAccess: true,
+  };
+  test.each([
+    ["full access", { type: "dangerFullAccess" }],
+    ["a root beyond the workspace", { ...workspace, writableRoots: ["/"] }],
+    ["the network off", { ...workspace, networkAccess: false }],
+    ["no policy at all", undefined],
+  ])(
+    "a thread the engine puts under %s is a failed start",
+    async (_name, sandbox) => {
+      const t = auto("bubblewrap", undefined, { resume: "thread-9" });
+      t.server.on("thread/resume", (params) => ({
+        thread: { id: params.threadId },
+        sandbox,
+      }));
+      await expect(t.run.ready()).rejects.toThrow("not the workspace profile");
+    },
+  );
 
   test("a sandbox that cannot start refuses the session before any thread", async () => {
     const t = auto("bubblewrap", async () => "bwrap: No permissions");
