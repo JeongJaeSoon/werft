@@ -23473,6 +23473,31 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "engine": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "claude_agent_sdk",
+                            "codex_app_server",
+                            "pi_coding_agent"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "channels": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "slack",
+                          "github"
+                        ]
+                      }
                     }
                   },
                   "required": [
@@ -23484,7 +23509,9 @@
                     "admins",
                     "needs_input_count",
                     "running_count",
-                    "slack_action"
+                    "slack_action",
+                    "engine",
+                    "channels"
                   ],
                   "additionalProperties": false
                 }

@@ -10,6 +10,7 @@ export {
 export {
   Avatar,
   type AvatarProps,
+  avatarInitial,
   avatarInitials,
   avatarTone,
   avatarVariants,
@@ -114,6 +115,7 @@ export {
   StatusDot,
   type StatusDotProps,
   type StatusDotStatus,
+  StatusText,
 } from "./status-dot.tsx";
 export { Switch, type SwitchProps } from "./switch.tsx";
 export {

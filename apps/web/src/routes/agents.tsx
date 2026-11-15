@@ -5,10 +5,13 @@ import type {
   Agent,
   AgentListItem,
   CountAgentsResponse,
+  RuntimeKind,
 } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
 import { ListToolbar } from "@werft-ai/react/components";
 import {
+  Badge,
+  type BadgeProps,
   Button,
   buttonVariants,
   Code,
@@ -20,7 +23,6 @@ import {
   GridTableHeader,
   GridTableRow,
   Page,
-  RelativeTime,
   RowLines,
   SegmentedControl,
   SegmentedControlItem,
@@ -40,9 +42,9 @@ import {
   AdministeredAgents,
 } from "../components/agent-admins.tsx";
 import { agentRefusal } from "../components/agent-refusal.ts";
-import { AgentStateBadge, agentState } from "../components/agent-state.tsx";
+import { AgentStateText, agentState } from "../components/agent-state.tsx";
+import { GitHubMark, SlackMark } from "../components/brand-marks.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { ManagingTeamName } from "../components/managing-team.tsx";
 import { NewAgentFlow } from "../components/new-agent-flow.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { OPENS_ROW, TABLE_ROW_LINK } from "../components/row-link.ts";
@@ -252,29 +254,28 @@ function AgentsIn({
 }
 
 function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   return (
     <GridTable aria-label={t("agents.title")} columns={COLUMNS}>
       <GridTableHeader>
+        <GridTableColumnHeader>{t("agents.column.name")}</GridTableColumnHeader>
         <GridTableColumnHeader>
-          {t("agents.column.agent")}
+          {t("agents.column.engine")}
         </GridTableColumnHeader>
-        <GridTableColumnHeader>{t("agents.column.team")}</GridTableColumnHeader>
         <GridTableColumnHeader>
           {t("agents.column.state")}
         </GridTableColumnHeader>
+        <GridTableColumnHeader>
+          {t("agents.column.channels")}
+        </GridTableColumnHeader>
         <GridTableColumnHeader align="end">
-          {t("agents.column.updated")}
+          {t("agents.column.running")}
         </GridTableColumnHeader>
       </GridTableHeader>
       {agents.map((agent) => {
-        const updated = (
-          <RelativeTime
-            value={agent.updated_at}
-            locale={locale}
-            className="relative z-1"
-          />
-        );
+        // A list without summaries (the agents a person administers) does
+        // not know the engine, the channels or the running sessions.
+        const summary = agent.summary;
         return (
           <GridTableRow
             key={agent.id}
@@ -307,12 +308,45 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
               </RowLines>
             </GridTableCell>
             <GridTableCell>
-              <ManagingTeamName agent={agent} />
+              {summary?.engine ? (
+                <Badge variant={ENGINE_VARIANT[summary.engine]}>
+                  {t(`agents.engine.${summary.engine}`)}
+                </Badge>
+              ) : (
+                <Dash />
+              )}
             </GridTableCell>
             <GridTableCell>
-              <AgentStateBadge agent={agent} />
+              <AgentStateText agent={agent} />
             </GridTableCell>
-            <GridTableCell align="end">{updated}</GridTableCell>
+            <GridTableCell className="gap-2">
+              {summary && summary.channels.length > 0 ? (
+                summary.channels.map((channel) => {
+                  const Mark = channel === "slack" ? SlackMark : GitHubMark;
+                  const label = t(`agents.channel.${channel}`);
+                  return (
+                    <span
+                      key={channel}
+                      role="img"
+                      aria-label={label}
+                      title={label}
+                      className="inline-flex"
+                    >
+                      <Mark className="size-4" />
+                    </span>
+                  );
+                })
+              ) : (
+                <Dash />
+              )}
+            </GridTableCell>
+            <GridTableCell align="end" className="tabular-nums">
+              {summary && summary.running_count > 0 ? (
+                summary.running_count
+              ) : (
+                <Dash />
+              )}
+            </GridTableCell>
           </GridTableRow>
         );
       })}
@@ -320,7 +354,25 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
   );
 }
 
-const COLUMNS = "minmax(0,1fr) minmax(0,200px) 104px 120px";
+/** A dash to the eye, "없음" to a screen reader. */
+function Dash() {
+  const { t } = useI18n();
+  return (
+    <span className="text-subtle-foreground">
+      <span aria-hidden="true">—</span>
+      <span className="sr-only">{t("agent.panel.none")}</span>
+    </span>
+  );
+}
+
+const ENGINE_VARIANT = {
+  claude_agent_sdk: "amber",
+  codex_app_server: "teal",
+  pi_coding_agent: "gray",
+} as const satisfies Record<RuntimeKind, BadgeProps["variant"]>;
+
+// Name | engine | state | channels | running sessions.
+const COLUMNS = "minmax(0,1fr) 96px 112px 104px 120px";
 
 /**
  * A blank card, made in steps.

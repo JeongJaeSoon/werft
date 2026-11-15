@@ -668,7 +668,7 @@ describe("팀 화면", () => {
       within(table)
         .getAllByRole("columnheader")
         .map((h) => h.textContent),
-    ).toEqual(["구성원", "팀 역할", "추가한 날"]);
+    ).toEqual(["이름", "팀 역할", "추가한 날"]);
     expect(
       within(within(table).getAllByRole("row")[1] as HTMLElement)
         .getAllByRole("cell")
@@ -910,7 +910,7 @@ describe("팀 화면", () => {
       within(table)
         .getAllByRole("columnheader")
         .map((h) => h.textContent),
-    ).toEqual(["구성원", "워크스페이스 역할", "팀 역할", "추가한 날", "관리"]);
+    ).toEqual(["이름", "워크스페이스 역할", "팀 역할", "추가한 날", "관리"]);
     const mateRow = within(table).getAllByRole("row")[1] as HTMLElement;
     expect(
       within(mateRow)

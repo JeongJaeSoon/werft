@@ -166,6 +166,16 @@
     --werft-tone-positive-bg: #eaf7ee;
     --werft-tone-positive-border: #b6e3c3;
 
+    /* A role that outranks the rest (the owner badge). */
+    --werft-tone-violet-fg: #6d28d9;
+    --werft-tone-violet-bg: #f3effe;
+    --werft-tone-violet-border: #d9cbfb;
+
+    /* The Codex engine badge. */
+    --werft-tone-teal-fg: #0b6e69;
+    --werft-tone-teal-bg: #e6f6f4;
+    --werft-tone-teal-border: #a9ddd7;
+
     /* Typography */
     --werft-font-sans:
       Geist, "Pretendard Variable", Pretendard, -apple-system,
@@ -275,9 +285,11 @@
     --werft-row-text-min-width: 10rem;
     /*
      * GridTable, the console's flat table: a body row is at least 56px with
-     * 12px above and below its lines, and the table never draws narrower
-     * than 640px; a narrower box scrolls it sideways.
+     * 12px above and below its lines, the first and last cells sit 16px in
+     * from the rules' ends, and the table never draws narrower than 640px;
+     * a narrower box scrolls it sideways.
      */
+    --werft-table-padding-x: var(--werft-space-4);
     --werft-table-row-min-height: 3.5rem;
     --werft-table-row-padding-y: var(--werft-space-3);
     --werft-table-min-width: 40rem;
@@ -390,6 +402,14 @@
       --werft-tone-positive-bg: #0a1f10;
       --werft-tone-positive-border: #16452a;
 
+      --werft-tone-violet-fg: #b69cff;
+      --werft-tone-violet-bg: #1c1233;
+      --werft-tone-violet-border: #3d2a70;
+
+      --werft-tone-teal-fg: #4fd1c5;
+      --werft-tone-teal-bg: #062420;
+      --werft-tone-teal-border: #0f4a44;
+
       --werft-shadow-pop:
         0 0 0 1px rgb(255 255 255 / 0.08), 0 8px 24px -6px rgb(0 0 0 / 0.6);
       --werft-color-overlay: rgb(0 0 0 / 0.6);
@@ -484,6 +504,14 @@
     --werft-tone-positive-fg: #5cc77a;
     --werft-tone-positive-bg: #0a1f10;
     --werft-tone-positive-border: #16452a;
+
+    --werft-tone-violet-fg: #b69cff;
+    --werft-tone-violet-bg: #1c1233;
+    --werft-tone-violet-border: #3d2a70;
+
+    --werft-tone-teal-fg: #4fd1c5;
+    --werft-tone-teal-bg: #062420;
+    --werft-tone-teal-border: #0f4a44;
 
     --werft-shadow-pop:
       0 0 0 1px rgb(255 255 255 / 0.08), 0 8px 24px -6px rgb(0 0 0 / 0.6);

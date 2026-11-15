@@ -433,8 +433,8 @@ describe("sessions list", () => {
     // Untitled: the row shows the id's head, the link keeps the whole id.
     expect(within(row).getByText(SESSION_ID.slice(0, 8))).toBeTruthy();
     expect(row.textContent).toContain("작업 상태: 쉬는 중");
-    expect(within(row).getByText("model-default")).toBeTruthy();
-    expect(within(row).getByText("demo")).toBeTruthy();
+    // Idle with its last event at its start: no time passed, not "in progress".
+    expect(within(row).getByText("1분 미만")).toBeTruthy();
     expect(screen.getByText(/나에게 공유된 세션입니다/)).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "더 보기" }));
@@ -616,17 +616,16 @@ describe("sessions list", () => {
     const row = link.closest('[role="row"]') as HTMLElement;
     expect(screen.getByRole("table", { name: "Sessions table" })).toBeTruthy();
     expect(within(row).getByText("Working")).toBeTruthy();
+    expect(within(row).getByText("In progress")).toBeTruthy();
     expect(screen.getByRole("searchbox", { name: "Find by title or ID" }));
     expect(screen.queryByText(/세션/)).toBeNull();
-    // Focus opens the exact time in a Tooltip; no title attribute is left.
+    expect(
+      screen.getAllByRole("columnheader").map((head) => head.textContent),
+    ).toEqual(["Title", "Agent", "Channel", "Status", "Started", "Duration"]);
+    // The start reads without its year; the title keeps the whole time.
     const time = row.querySelector("time") as HTMLElement;
-    expect(time.hasAttribute("title")).toBe(false);
-    act(() => time.focus());
-    await waitFor(() =>
-      expect(document.querySelector('[role="tooltip"]')?.textContent).toMatch(
-        /^October 11, 2026/,
-      ),
-    );
+    expect(time.textContent).toMatch(/^Oct \d+, \d+:\d\d [AP]M$/);
+    expect(time.getAttribute("title")).toMatch(/^Oct \d+, 2026, \d\d:\d\d$/);
   });
 
   test("a row's link opens the session inside the app", async () => {
@@ -664,12 +663,11 @@ describe("sessions list", () => {
     expect(within(row).getByText(SESSION_ID.slice(0, 8))).toBeTruthy();
     const untitled = screen.getByRole("link", { name: opener(OTHER_ID) });
     const bare = untitled.closest('[role="row"]') as HTMLElement;
-    expect(within(bare).getByText("저장소 없음")).toBeTruthy();
-    // No agent and no starter in the summary: placeholders, not guesses.
+    // No agent and no channel in the summary: placeholders, not guesses.
     expect(within(bare).getAllByText("—")).toHaveLength(2);
   });
 
-  test("a row shows its agent over the model and who started it", async () => {
+  test("a row shows its agent and its channel, not who started it", async () => {
     renderAt("/sessions", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/sessions": () =>
@@ -685,6 +683,7 @@ describe("sessions list", () => {
                 release_is_active: true,
               },
               created_by: { user_id: OTHER_ID, display_name: "김하나" },
+              channel: "slack",
             }),
           ],
           next_cursor: null,
@@ -698,25 +697,21 @@ describe("sessions list", () => {
       within(table)
         .getAllByRole("columnheader")
         .map((head) => head.textContent),
-    ).toEqual([
-      "세션",
-      "상태",
-      "에이전트 · 모델",
-      "저장소",
-      "시작한 사람",
-      "최근",
-    ]);
-    const cells = within(
-      link.closest('[role="row"]') as HTMLElement,
-    ).getAllByRole("cell");
+    ).toEqual(["제목", "에이전트", "채널", "상태", "시작 시각", "소요 시간"]);
+    const row = link.closest('[role="row"]') as HTMLElement;
+    const cells = within(row).getAllByRole("cell");
     expect(cells.map((cell) => cell.textContent)).toEqual([
       expect.stringContaining("배포 점검"),
-      expect.any(String),
-      "Release helpermodel-default",
-      expect.stringContaining("demo"),
-      "김하나",
-      expect.any(String),
+      "Release helper",
+      "",
+      "작업 상태: 작업 중",
+      expect.stringMatching(/^\d+월 \d+일 오[전후] \d\d:\d\d$/),
+      "진행 중",
     ]);
+    expect(
+      within(cells[2] as HTMLElement).getByRole("img", { name: "Slack" }),
+    ).toBeTruthy();
+    expect(row.textContent).not.toContain("김하나");
   });
 
   test("the search box asks the API with the trimmed text, and an empty box sends none", async () => {
@@ -1087,7 +1082,7 @@ describe("sessions list", () => {
     });
     const table = await screen.findByRole("table", { name: "세션 표" });
     await waitFor(() =>
-      expect(table.textContent).toContain("작업 상태: 답변 대기 · 12분"),
+      expect(table.textContent).toContain("작업 상태: 답변 대기12분"),
     );
   });
 
@@ -1126,7 +1121,7 @@ describe("sessions list", () => {
     });
     const table = await screen.findByRole("table", { name: "세션 표" });
     await waitFor(() =>
-      expect(table.textContent).toContain("작업 상태: 답변 대기 · 2시간"),
+      expect(table.textContent).toContain("작업 상태: 답변 대기2시간"),
     );
   });
 

@@ -73,7 +73,9 @@ describe("Table", () => {
     expect(head?.className).not.toContain("bg-");
     expect(row?.className).toContain("h-[var(--werft-table-row-min-height)]");
     expect(cell?.className).toContain("py-[var(--werft-table-row-padding-y)]");
-    expect(cell?.className).toContain("first:pl-0");
+    expect(cell?.className).toContain(
+      "first:pl-[var(--werft-table-padding-x)]",
+    );
     expect(cell?.className).toContain(
       "px-[calc(var(--werft-row-padding-x)/2)]",
     );

@@ -11,6 +11,8 @@ export const avatarVariants = cva(
       size: {
         default: "size-6 text-2xs",
         lg: "size-8 text-caption",
+        // A person at the start of a table row.
+        row: "size-10 text-control",
         // Beside a 20px line over a 16px one, spanning both; pinned to the
         // first line when the text wraps past two.
         "two-line": "size-(--werft-size-tile-two-line) self-start text-control",
@@ -90,6 +92,13 @@ export function avatarTone(key: string): 1 | 2 | 3 | 4 {
  * Words with no letter or digit (brackets, emoji) are skipped; a name with
  * none at all keeps its leading symbols rather than an empty mark.
  */
+/** One letter for a person's row avatar: "정하은" → "정", "sam" → "S". */
+export function avatarInitial(name: string) {
+  const chars = [...name.trim()];
+  const first = chars.find((char) => /[\p{L}\p{N}]/u.test(char)) ?? chars[0];
+  return (first ?? "").toUpperCase();
+}
+
 export function avatarInitials(name: string) {
   const words = name.trim().split(/\s+/).filter(Boolean);
   const pick = (only: (char: string) => boolean) => {

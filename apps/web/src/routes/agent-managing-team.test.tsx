@@ -414,7 +414,7 @@ describe("새 에이전트의 담당 팀", () => {
 describe("목록의 담당 팀", () => {
   beforeEach(() => localStorage.clear());
 
-  test("에이전트 표의 행은 이름·담당 팀을 보이고 에이전트마다 따로 읽지 않는다", async () => {
+  test("에이전트 표는 담당 팀 열 없이 이름을 보이고 에이전트마다 따로 읽지 않는다", async () => {
     const server = await managedServer();
     const { api } = renderAt("/agents", {
       ...meAs(memberMe()),
@@ -424,7 +424,10 @@ describe("목록의 담당 팀", () => {
     const row = (
       await screen.findByRole("link", { name: "결제 담당" })
     ).closest("[role=row]") as HTMLElement;
-    expect(row.textContent).toContain("재무");
+    expect(row.textContent).toContain("결제 담당");
+    // The list's columns are name, engine, state, channels and running
+    // sessions; the team shows on the agent's own page.
+    expect(row.textContent).not.toContain("재무");
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(
       api.calls.some((c) => /^\/v1\/agents\/(?!counts$)[^/]+/.test(c.path)),

@@ -131,24 +131,44 @@ export function RowMenu({
 export function RowMenuItem({
   onSelect,
   tone,
+  reason,
   children,
 }: {
   readonly onSelect: () => void;
   readonly tone?: "danger" | undefined;
+  /**
+   * Why the item cannot be chosen now. It stays in the menu, dimmed and
+   * skipped by the arrow keys, with the reason under its name.
+   */
+  readonly reason?: string | undefined;
   readonly children: ReactNode;
 }) {
+  const labelId = useId();
+  const reasonId = useId();
+  const disabled = reason !== undefined;
   return (
     <button
       type="button"
       role="menuitem"
       tabIndex={-1}
+      aria-disabled={disabled || undefined}
+      // Named by its label alone; the reason under it is its description.
+      aria-labelledby={disabled ? labelId : undefined}
+      aria-describedby={disabled ? reasonId : undefined}
       className={cn(
         ITEM,
-        tone === "danger" && "text-(color:--werft-tone-danger-fg)",
+        disabled
+          ? "cursor-not-allowed flex-col items-start text-muted-foreground hover:bg-transparent"
+          : tone === "danger" && "text-(color:--werft-tone-danger-fg)",
       )}
-      onClick={onSelect}
+      onClick={disabled ? undefined : onSelect}
     >
-      {children}
+      <span id={labelId}>{children}</span>
+      {disabled ? (
+        <span id={reasonId} className="text-caption text-subtle-foreground">
+          {reason}
+        </span>
+      ) : null}
     </button>
   );
 }

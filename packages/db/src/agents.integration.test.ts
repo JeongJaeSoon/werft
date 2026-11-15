@@ -40,6 +40,7 @@ import {
   agentActivationEvents,
   agentAdmins,
   agentAdminTeams,
+  agentGitHubSettings,
   agentIdentities,
   agentReleases,
   agents,
@@ -626,6 +627,8 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         needs_input_count: 0,
         running_count: 0,
         slack_action: null,
+        engine: null,
+        channels: [],
       },
       {
         version: {
@@ -643,6 +646,8 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         needs_input_count: 0,
         running_count: 0,
         slack_action: null,
+        engine: "claude_agent_sdk",
+        channels: [],
       },
     ]);
     // By the active release's connection: the draft has none, so only v1's
@@ -817,6 +822,60 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       "home_unset",
       null,
     ]);
+    // Slack is a channel once the app is installed, whatever steps remain.
+    const channels = new Map(
+      page.items.map((agent) => [agent.id, agent.summary?.channels]),
+    );
+    expect(
+      [none, fine, failedHomeless, uninstalled, reinstall, deleted].map((id) =>
+        channels.get(id),
+      ),
+    ).toEqual([[], ["slack"], ["slack"], [], [], []]);
+  });
+
+  test("a summary lists GitHub while the agent's switch is on and its settings name a repository", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const agentsService = service();
+    const newId = async () => (await newAgent(agentsService, owner)).agent.id;
+    async function settings(agentId: string, repositories: string[]) {
+      await db.insert(agentGitHubSettings).values({
+        agentId,
+        workspaceId,
+        repositories,
+        pushApproval: true,
+        features: {
+          workflows: false,
+          actions: false,
+          checks: false,
+          issues: false,
+          review: false,
+        },
+        actionsAllow: [],
+      });
+    }
+    const none = await newId();
+    const withRepo = await newId();
+    await settings(withRepo, ["app"]);
+    const emptyRow = await newId();
+    await settings(emptyRow, []);
+    const switchedOff = await newId();
+    await settings(switchedOff, ["app"]);
+    await db
+      .update(agents)
+      .set({ githubEnabled: false })
+      .where(eq(agents.id, switchedOff));
+
+    const page = await agentsService.listAgents(owner, {
+      ...PAGE,
+      include: "summary",
+    });
+    const channels = new Map(
+      page.items.map((agent) => [agent.id, agent.summary?.channels]),
+    );
+    expect(
+      [none, withRepo, emptyRow, switchedOff].map((id) => channels.get(id)),
+    ).toEqual([[], ["github"], [], []]);
   });
 
   test("a card counts the agent's waiting and working sessions the caller can list, in a fixed number of statements", async () => {

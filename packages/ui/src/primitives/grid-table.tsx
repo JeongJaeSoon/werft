@@ -113,10 +113,9 @@ export function GridTable({
   );
 }
 
-// The first column's text stands on the page's left line, so rows take no
-// side inset.
+// The rules run the table's full width; the cells sit 16px in from each end.
 const ROW =
-  "relative grid grid-cols-[var(--grid-table-columns)] items-center gap-4 border-b last:border-b-0";
+  "relative grid grid-cols-[var(--grid-table-columns)] items-center gap-4 border-b px-[var(--werft-table-padding-x)] last:border-b-0";
 
 /** The column header row: small faint labels over a rule, no fill. */
 export function GridTableHeader({

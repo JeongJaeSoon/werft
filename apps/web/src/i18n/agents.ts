@@ -3,9 +3,16 @@ export const agentsKo = {
   "agents.new": "새 에이전트",
   "agents.intro":
     "에이전트는 카드·릴리스·관리자를 가진 작업자입니다. 관리자는 그 에이전트 세션의 요청에 답합니다.",
-  "agents.column.agent": "에이전트",
+  "agents.column.name": "이름",
+  "agents.column.engine": "엔진",
+  "agents.column.channels": "연결 채널",
+  "agents.column.running": "실행 중인 세션",
+  "agents.engine.claude_agent_sdk": "Claude",
+  "agents.engine.codex_app_server": "Codex",
+  "agents.engine.pi_coding_agent": "Pi",
+  "agents.channel.slack": "Slack",
+  "agents.channel.github": "GitHub",
   "agents.column.state": "상태",
-  "agents.column.updated": "수정",
   "agents.listWithheld":
     "전체 에이전트 목록은 소유자와 관리자만 봅니다. 새 에이전트를 만들면 아래 '내가 관리하는 에이전트'에 나옵니다.",
   "agent.notFound.title": "에이전트를 찾을 수 없습니다",
@@ -374,7 +381,6 @@ export const agentsKo = {
   "managingTeam.saved": "담당 팀을 {name}(으)로 정했습니다.",
   "managingTeam.notAllowed": "내가 속한 팀만 담당 팀으로 정할 수 있습니다.",
   "managingTeam.noChoices": "담당 팀으로 고를 수 있는 다른 팀이 없습니다.",
-  "agents.column.team": "담당 팀",
   "agent.readOnly":
     "담당 팀 구성원은 이 에이전트의 설정을 볼 수만 있습니다. 바꾸는 것은 팀 관리자와 에이전트 관리자입니다.",
   "agent.outsider.body":
@@ -419,9 +425,16 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.new": "New agent",
   "agents.intro":
     "An agent is a worker with a card, a release and admins. Its admins answer the requests from its sessions.",
-  "agents.column.agent": "Agent",
+  "agents.column.name": "Name",
+  "agents.column.engine": "Engine",
+  "agents.column.channels": "Channels",
+  "agents.column.running": "Running sessions",
+  "agents.engine.claude_agent_sdk": "Claude",
+  "agents.engine.codex_app_server": "Codex",
+  "agents.engine.pi_coding_agent": "Pi",
+  "agents.channel.slack": "Slack",
+  "agents.channel.github": "GitHub",
   "agents.column.state": "Status",
-  "agents.column.updated": "Updated",
   "agents.listWithheld":
     "Only owners and admins can see the full agent list. Agents you create appear under 'Agents I manage' below.",
   "agent.notFound.title": "Agent not found",
@@ -789,7 +802,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "managingTeam.saved": "The responsible team is now {name}.",
   "managingTeam.notAllowed": "You can only pick a team you are in.",
   "managingTeam.noChoices": "There is no other team you can pick.",
-  "agents.column.team": "Responsible team",
   "agent.readOnly":
     "As a member of the responsible team you can see this agent's settings but not change them. Team leads and the agent's admins change them.",
   "agent.outsider.body":
@@ -1186,9 +1198,16 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agentAdmins.mine.truncated": "最初の {count}件を表示しています。",
   "agents.intro":
     "エージェントは、カード・リリース・管理者を持つ作業者です。管理者はそのエージェントのセッションからのリクエストに回答します。",
-  "agents.column.agent": "エージェント",
+  "agents.column.name": "名前",
+  "agents.column.engine": "エンジン",
+  "agents.column.channels": "接続チャネル",
+  "agents.column.running": "実行中のセッション",
+  "agents.engine.claude_agent_sdk": "Claude",
+  "agents.engine.codex_app_server": "Codex",
+  "agents.engine.pi_coding_agent": "Pi",
+  "agents.channel.slack": "Slack",
+  "agents.channel.github": "GitHub",
   "agents.column.state": "状態",
-  "agents.column.updated": "更新",
   "agent.back": "エージェント一覧",
   "agent.panel.none": "なし",
   "agent.card.releasedAt": "リリース {at}",
@@ -1208,7 +1227,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "managingTeam.saved": "担当チームを「{name}」にしました。",
   "managingTeam.notAllowed": "自分が所属するチームだけを担当チームにできます。",
   "managingTeam.noChoices": "担当チームに選べるほかのチームがありません。",
-  "agents.column.team": "担当チーム",
   "agent.readOnly":
     "担当チームのメンバーはこのエージェントの設定を見るだけです。変更するのはチーム管理者とエージェント管理者です。",
   "agent.outsider.body":

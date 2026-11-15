@@ -455,18 +455,14 @@ describe("최근 세션 표", () => {
     const table = await screen.findByRole("table", { name: "최근 세션" });
     const at = within(table)
       .getAllByRole("columnheader")
-      .findIndex((header) => header.textContent === "에이전트 · 모델");
+      .findIndex((header) => header.textContent === "에이전트");
     const agents = within(table)
       .getAllByRole("row")
       .slice(1)
-      .map(
-        (row) =>
-          within(row).getAllByRole("cell")[at]?.querySelector("span")
-            ?.textContent,
-      );
+      .map((row) => within(row).getAllByRole("cell")[at]?.textContent);
     expect(agents).toEqual(["배포 도우미", "—"]);
   });
-  test("좁은 폭에서도 다섯 열이 모두 남고 표는 가로 스크롤 상자 안에 있다", async () => {
+  test("좁은 폭에서도 여섯 열이 모두 남고 표는 가로 스크롤 상자 안에 있다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
@@ -484,7 +480,15 @@ describe("최근 세션 표", () => {
       "grid-table-scroll",
     );
     const headers = within(table).getAllByRole("columnheader");
-    expect(headers).toHaveLength(5);
+    // The same columns as the session list.
+    expect(headers.map((header) => header.textContent)).toEqual([
+      "제목",
+      "에이전트",
+      "채널",
+      "상태",
+      "시작 시각",
+      "소요 시간",
+    ]);
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows).toHaveLength(2);
     for (const row of rows)
@@ -674,6 +678,8 @@ describe("홈 요약", () => {
               needs_input_count: 0,
               running_count: 0,
               slack_action,
+              engine: null,
+              channels: [],
             },
           })),
           next_cursor,
@@ -1565,6 +1571,8 @@ describe("홈 요약", () => {
       needs_input_count: 2,
       running_count: 1,
       slack_action: null,
+      engine: null,
+      channels: [],
     });
     const agentCardOf = async (
       role: "admin" | "member",

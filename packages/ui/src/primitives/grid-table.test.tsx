@@ -118,7 +118,9 @@ describe("GridTable", () => {
       body?.classList.contains("min-h-[var(--werft-table-row-min-height)]"),
     ).toBe(true);
     for (const row of [header, body])
-      expect(row?.className).not.toContain("px-");
+      expect(row?.classList.contains("px-[var(--werft-table-padding-x)]")).toBe(
+        true,
+      );
   });
 
   test("aria-busy를 표에 넘긴다", () => {

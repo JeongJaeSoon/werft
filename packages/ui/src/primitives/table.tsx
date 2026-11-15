@@ -9,11 +9,11 @@ import { cn } from "../foundations/cn.ts";
  * its spacing from the --werft-row-* and --werft-table-* tokens in tokens.css.
  *
  * A table cell takes half the row inset on each side, so neighbours sit one
- * full inset apart like the grid rows' gap; the outer cells take none, so the
- * first column's text stands on the page's left line.
+ * full inset apart like the grid rows' gap; the outer cells sit
+ * --werft-table-padding-x in from the rules' ends, as GridTable's do.
  */
 const CELL_PADDING_X =
-  "px-[calc(var(--werft-row-padding-x)/2)] first:pl-0 last:pr-0";
+  "px-[calc(var(--werft-row-padding-x)/2)] first:pl-[var(--werft-table-padding-x)] last:pr-[var(--werft-table-padding-x)]";
 
 /*
  * `actions` is a column of row buttons: as narrow as its content, never

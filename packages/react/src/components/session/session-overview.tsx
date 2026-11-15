@@ -1,58 +1,50 @@
-import type { SessionStatus, SessionSummary } from "@werft-ai/contracts";
+import type {
+  AdmissionState,
+  SessionStatus,
+  SessionSummary,
+  SurfaceKind,
+} from "@werft-ai/contracts";
 import {
+  Badge,
+  type BadgeProps,
   Code,
   cn,
+  formatDuration,
+  formatTableDateTime,
+  formatTimestamp,
   GridTable,
   GridTableCell,
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
-  RelativeTime,
-  StatusDot,
+  SlackMark,
   type TimestampLocale,
 } from "@werft-ai/ui";
-import { Folder } from "lucide-react";
-import { createContext, type JSX, type ReactNode, useContext } from "react";
-import { GitBranch } from "../console-icons.ts";
-import { statusDot } from "../status/vocabulary.ts";
-import {
-  RepositorySummary,
-  sessionRepositoriesOf,
-} from "./session-repositories.tsx";
+import { Globe, SquareTerminal } from "lucide-react";
+import type { JSX, ReactNode } from "react";
 import { type SessionRowLink, SessionRowOpener } from "./session-row.tsx";
-import { useMinute } from "./use-minute.ts";
 
 /**
- * Console v4 `.t-sess`: title, status, agent · model, repository, started
- * by, recent. Below the table's minimum width it scrolls sideways. The
- * status column fits en "Waiting for an answer · 59 min"; a longer wait
- * truncates.
+ * Title, agent, channel, status, started, duration. Below the table's
+ * minimum width it scrolls sideways. The status column fits en "Waiting for
+ * an answer"; an admission pill beside it wraps under it.
  */
 export const SESSION_OVERVIEW_TEMPLATE =
-  "minmax(0,2.2fr) 200px minmax(0,1.1fr) minmax(0,1.1fr) minmax(0,1fr) 72px";
-/** v4 `.t-sess-home`: the same without the started-by column. */
-export const SESSION_OVERVIEW_HOME_TEMPLATE =
-  "minmax(0,2.2fr) 200px minmax(0,1.2fr) minmax(0,1.2fr) 72px";
+  "minmax(0,2.2fr) minmax(0,1.2fr) 56px 152px 148px 96px";
+
 /** The id a person can tell rows apart by; the full id stays in the title. */
 export function shortSessionId(id: string): string {
   return id.slice(0, 8);
 }
 
 export interface SessionOverviewHeadMessages {
-  readonly session: string;
+  readonly title: string;
+  readonly agent: string;
+  readonly channel: string;
   readonly status: string;
-  /** The third column's name when `agent` is not given. */
-  readonly model: string;
-  /** The third column's name, which holds the agent over its model. */
-  readonly agent?: string | undefined;
-  readonly repository: string;
-  /** Given, the table has the started-by column (v4 `.t-sess`). */
-  readonly startedBy?: string | undefined;
-  readonly recent: string;
+  readonly started: string;
+  readonly duration: string;
 }
-
-/** Which of the optional columns the rows draw; the table decides. */
-const Columns = createContext({ agent: false, startedBy: false });
 
 export interface SessionOverviewTableProps {
   readonly label: string;
@@ -67,43 +59,35 @@ export function SessionOverviewTable({
   children,
   className,
 }: SessionOverviewTableProps): JSX.Element {
-  const startedBy = messages.startedBy !== undefined;
-  const agent = messages.agent !== undefined;
   return (
     <div className={cn("w-full min-w-0", className)}>
       <GridTable
         aria-label={label}
         minWidth="52rem"
-        columns={
-          startedBy ? SESSION_OVERVIEW_TEMPLATE : SESSION_OVERVIEW_HOME_TEMPLATE
-        }
+        columns={SESSION_OVERVIEW_TEMPLATE}
       >
         <GridTableHeader>
           {/* One line each: a narrow column cuts its name rather than wrap. */}
           <GridTableColumnHeader>
-            <span className="truncate">{messages.session}</span>
+            <span className="truncate">{messages.title}</span>
+          </GridTableColumnHeader>
+          <GridTableColumnHeader>
+            <span className="truncate">{messages.agent}</span>
+          </GridTableColumnHeader>
+          <GridTableColumnHeader>
+            <span className="truncate">{messages.channel}</span>
           </GridTableColumnHeader>
           <GridTableColumnHeader>
             <span className="truncate">{messages.status}</span>
           </GridTableColumnHeader>
           <GridTableColumnHeader>
-            <span className="truncate">{messages.agent ?? messages.model}</span>
+            <span className="truncate">{messages.started}</span>
           </GridTableColumnHeader>
-          <GridTableColumnHeader>
-            <span className="truncate">{messages.repository}</span>
-          </GridTableColumnHeader>
-          {startedBy ? (
-            <GridTableColumnHeader>
-              <span className="truncate">{messages.startedBy}</span>
-            </GridTableColumnHeader>
-          ) : null}
           <GridTableColumnHeader align="end">
-            <span className="truncate">{messages.recent}</span>
+            <span className="truncate">{messages.duration}</span>
           </GridTableColumnHeader>
         </GridTableHeader>
-        <Columns.Provider value={{ agent, startedBy }}>
-          {children}
-        </Columns.Provider>
+        {children}
       </GridTable>
     </div>
   );
@@ -111,23 +95,17 @@ export function SessionOverviewTable({
 
 export interface SessionOverviewRowMessages {
   readonly status: (status: SessionStatus) => string;
+  readonly admission: (state: AdmissionState) => string;
   /** The axis name a screen reader hears before the status. */
   readonly statusAxis: string;
-  readonly noRepository: string;
-  /** Names the "+N" button after the first repository, e.g. "저장소 2개 더". */
-  readonly moreRepositories: (count: number) => string;
-  /** Stands in for a value the session does not have: agent, model, starter. */
+  /** Names the channel icon: "Slack", "웹", "API". */
+  readonly channel: (channel: SurfaceKind) => string;
+  /** The duration of a session still at work: "진행 중". */
+  readonly inProgress: string;
+  /** Stands in for a value the session does not have: agent, channel, time. */
   readonly unknown: string;
-  /** Heard before the time, which the row shows as a value only. */
-  readonly recent: string;
   /** Names the row's opener, e.g. "세션 열기: 배포 점검"; the name alone if unset. */
   readonly open?: ((name: string) => string) | undefined;
-  /**
-   * Follows the status of a session that waits on a recovery decision, e.g.
-   * "복구 필요". The row has no admission column, so without it such a session
-   * reads like any other stopped one. Nothing is added if unset.
-   */
-  readonly recoveryRequired?: string | undefined;
 }
 
 export interface SessionOverviewRowProps {
@@ -144,15 +122,68 @@ export interface SessionOverviewRowProps {
    * tooltip trigger in it gets its own hover and focus.
    */
   readonly statusDetail?: ReactNode;
-  /**
-   * Draws the last activity; when omitted, "12분 전" with the exact time in
-   * a tooltip.
-   */
-  readonly renderTime?: ((iso: string) => ReactNode) | undefined;
   readonly locale?: TimestampLocale | undefined;
-  /** The instant the default time counts from; a clock of its own if unset. */
-  readonly now?: number | undefined;
   readonly className?: string | undefined;
+}
+
+/** A session's status as a pill; there is no "done" status to draw green. */
+const STATUS_VARIANT = {
+  queued: "gray",
+  running: "blue",
+  needs_input: "amber",
+  idle: "gray",
+  failed: "red",
+  stopped: "gray",
+} as const satisfies Record<SessionStatus, BadgeProps["variant"]>;
+
+/** Statuses whose session is still at work, so it has no duration yet. */
+const AT_WORK: ReadonlySet<SessionStatus> = new Set([
+  "queued",
+  "running",
+  "needs_input",
+]);
+
+/** Admission states that say nothing beyond the status. */
+const QUIET_ADMISSION: ReadonlySet<AdmissionState> = new Set([
+  "active",
+  "closed",
+]);
+
+function ChannelIcon({
+  channel,
+  label,
+}: {
+  readonly channel: SurfaceKind;
+  readonly label: string;
+}) {
+  const icon =
+    channel === "slack" ? (
+      <SlackMark />
+    ) : channel === "web" ? (
+      <Globe
+        className="size-4 text-muted-foreground"
+        strokeWidth={1.5}
+        aria-hidden="true"
+      />
+    ) : (
+      <SquareTerminal
+        className="size-4 text-muted-foreground"
+        strokeWidth={1.5}
+        aria-hidden="true"
+      />
+    );
+  return (
+    <span
+      role="img"
+      aria-label={label}
+      title={label}
+      data-channel={channel}
+      // Above the opener, so hovering shows the channel's name.
+      className="relative inline-flex"
+    >
+      {icon}
+    </span>
+  );
 }
 
 export function SessionOverviewRow({
@@ -160,27 +191,24 @@ export function SessionOverviewRow({
   renderLink,
   messages,
   statusDetail,
-  renderTime,
   locale = "ko",
-  now,
   className,
 }: SessionOverviewRowProps): JSX.Element {
-  const { agent, startedBy } = useContext(Columns);
-  const clock = useMinute(!renderTime && now === undefined);
   const shortId = shortSessionId(session.id);
   // Untitled, the row shows the id's head; the opener's name keeps it whole.
   const name = session.title ?? session.id;
-  const at = session.last_event_at ?? session.created_at;
-  const repositories = sessionRepositoriesOf(session);
-  const RepositoryIcon = repositories.length > 0 ? GitBranch : Folder;
-  const statusLabel = messages.status(session.status);
-  // A caller's detail (how long an answer has been awaited) is about a
-  // session that runs; one that waits on a recovery decision does not.
-  const detail =
-    statusDetail ??
-    (session.admission_state === "recovery_required"
-      ? messages.recoveryRequired
-      : undefined);
+  const admission = QUIET_ADMISSION.has(session.admission_state)
+    ? null
+    : session.admission_state;
+  // The API keeps no end for a session (an idle one takes the next message),
+  // so a session that is not at work is measured from its start to its last
+  // event.
+  const duration = AT_WORK.has(session.status)
+    ? messages.inProgress
+    : session.last_event_at
+      ? (formatDuration(session.created_at, session.last_event_at, locale) ??
+        messages.unknown)
+      : messages.unknown;
   return (
     <GridTableRow
       data-slot="session-overview-row"
@@ -210,85 +238,59 @@ export function SessionOverviewRow({
         ) : null}
       </GridTableCell>
       <GridTableCell>
-        <StatusDot status={statusDot("session", session.status)} />
-        <span className="sr-only">{messages.statusAxis}: </span>
-        {/* A narrow column cuts the label, never the wait after it. */}
-        <span className="flex min-w-0 whitespace-nowrap">
-          <span className="min-w-0 truncate">{statusLabel}</span>
-          {detail ? (
-            <span
-              className={cn(
-                "flex-none whitespace-pre",
-                typeof detail === "string" ? null : "relative",
-              )}
-            >
-              {" · "}
-              {detail}
-            </span>
-          ) : null}
+        <span className="min-w-0 truncate">
+          {session.agent?.name ?? messages.unknown}
         </span>
       </GridTableCell>
-      {agent ? (
-        <GridTableCell lines={true}>
-          <span className="max-w-full truncate">
-            {session.agent?.name ?? messages.unknown}
-          </span>
-          {session.model ? (
-            <Code className="text-subtle-foreground">{session.model}</Code>
-          ) : null}
-        </GridTableCell>
-      ) : (
-        // A table that names no agent column keeps the model column it had.
-        <GridTableCell className="font-mono text-caption text-muted-foreground">
-          <span className="min-w-0 truncate">
-            {session.runtime?.model ?? messages.unknown}
-          </span>
-        </GridTableCell>
-      )}
       <GridTableCell>
-        <RepositoryIcon
-          className="size-3.5 flex-none text-subtle-foreground"
-          strokeWidth={1.5}
-          aria-hidden="true"
-        />
-        <RepositorySummary
-          repositories={repositories}
-          messages={{
-            none: messages.noRepository,
-            unknown: messages.unknown,
-            more: messages.moreRepositories,
-          }}
-        />
+        {session.channel ? (
+          <ChannelIcon
+            channel={session.channel}
+            label={messages.channel(session.channel)}
+          />
+        ) : (
+          <span className="text-subtle-foreground">{messages.unknown}</span>
+        )}
       </GridTableCell>
-      {startedBy ? (
-        <GridTableCell>
-          <span className="truncate">
-            {session.created_by?.display_name || messages.unknown}
+      <GridTableCell className="flex-wrap gap-1">
+        <span className="sr-only">{messages.statusAxis}: </span>
+        <Badge variant={STATUS_VARIANT[session.status]}>
+          {messages.status(session.status)}
+        </Badge>
+        {admission ? (
+          <Badge variant={admission === "recovery_required" ? "red" : "gray"}>
+            {messages.admission(admission)}
+          </Badge>
+        ) : null}
+        {statusDetail ? (
+          <span
+            className={cn(
+              "whitespace-nowrap text-caption text-muted-foreground",
+              typeof statusDetail === "string" ? null : "relative",
+            )}
+          >
+            {statusDetail}
           </span>
-        </GridTableCell>
-      ) : null}
-      <GridTableCell
-        align="end"
-        className="overflow-hidden whitespace-nowrap text-caption text-subtle-foreground"
-      >
-        <span className="sr-only">{messages.recent} </span>
-        {/* Above the opener, so hovering and focus reach the time. A longer
-            word than the column ("yesterday 15:14") is cut, not spilled over
-            the next column; the ring sits inside the cut. */}
-        <span
-          className={cn("relative min-w-0", renderTime ? "truncate" : "flex")}
+        ) : null}
+      </GridTableCell>
+      <GridTableCell className="whitespace-nowrap">
+        <time
+          dateTime={session.created_at}
+          title={formatTimestamp(session.created_at, locale)}
+          // Above the opener, so hovering shows the full time.
+          className="relative truncate"
         >
-          {renderTime ? (
-            renderTime(at)
-          ) : (
-            <RelativeTime
-              value={at}
-              locale={locale}
-              now={now ?? clock}
-              // Important: apps/web's unlayered focus rule sets a 2px offset.
-              className="truncate focus-visible:-outline-offset-2!"
-            />
+          {formatTableDateTime(session.created_at, locale)}
+        </time>
+      </GridTableCell>
+      <GridTableCell align="end" className="whitespace-nowrap">
+        <span
+          className={cn(
+            "truncate",
+            AT_WORK.has(session.status) ? "text-muted-foreground" : null,
           )}
+        >
+          {duration}
         </span>
       </GridTableCell>
     </GridTableRow>

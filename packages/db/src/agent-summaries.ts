@@ -1,7 +1,9 @@
 import {
   AGENT_SUMMARY_INSTRUCTIONS_MAX,
+  type AgentChannel,
   type AgentSlackAction,
   type AgentSummary,
+  type RuntimeKind,
   storedAgentCapabilitiesSchema,
 } from "@werft-ai/contracts";
 import type { SessionViewer } from "@werft-ai/platform";
@@ -17,6 +19,7 @@ import type { Database } from "./queries.ts";
 import {
   agentAdmins,
   agentAdminTeams,
+  agentGitHubSettings,
   agentIdentities,
   agentMcpSettings,
   agentReleases,
@@ -38,6 +41,13 @@ function clip(text: string) {
     0,
     /[\uD800-\uDBFF]/.test(text[end - 1] ?? "") ? end - 1 : end,
   );
+}
+
+function channelsOf(slack: boolean, github: boolean): AgentChannel[] {
+  const channels: AgentChannel[] = [];
+  if (slack) channels.push("slack");
+  if (github) channels.push("github");
+  return channels;
 }
 
 function push<T>(map: Map<string, T[]>, key: string, value: T) {
@@ -67,6 +77,8 @@ export async function agentSummaries(
       model: sql<
         string | null
       >`${agentReleases.runtimeConfigSnapshot}->>'model'`,
+      engine: sql<RuntimeKind | null>`${agentReleases.runtimeSpec} -> 'runtime' ->> 'kind'`,
+      githubEnabled: agents.githubEnabled,
       versionId: agentReleases.versionId,
       releasedAt: agentReleases.createdAt,
       earlier: earlierInSecond(agentReleases),
@@ -214,48 +226,50 @@ export async function agentSummaries(
 
   // The agent's created app as its Slack tab reads it: an active bot
   // identity means installed, and a live home binding means a home.
-  const slack = new Map(
-    (
-      await db
-        .select({
-          agentId: slackApps.agentId,
-          eventsState: slackApps.eventsState,
-          eventsSent: sql<boolean>`${slackApps.eventsUrl} is not null`,
-          botToken: sql<boolean>`${slackApps.botTokenRef} is not null`,
-          installed: sql<boolean>`exists (${db
-            .select({ one: sql`1` })
-            .from(agentIdentities)
-            .where(
-              and(
-                eq(agentIdentities.workspaceId, slackApps.workspaceId),
-                eq(agentIdentities.agentId, slackApps.agentId),
-                eq(agentIdentities.provider, "slack_bot"),
-                eq(agentIdentities.status, "active"),
-              ),
-            )})`,
-          home: sql<boolean>`exists (${db
-            .select({ one: sql`1` })
-            .from(surfaceBindings)
-            .where(
-              and(
-                eq(surfaceBindings.workspaceId, slackApps.workspaceId),
-                eq(surfaceBindings.agentId, slackApps.agentId),
-                eq(surfaceBindings.surface, "slack"),
-                eq(surfaceBindings.home, true),
-                isNull(surfaceBindings.revokedAt),
-              ),
-            )})`,
-        })
-        .from(slackApps)
+  const slackRows = await db
+    .select({
+      agentId: slackApps.agentId,
+      eventsState: slackApps.eventsState,
+      eventsSent: sql<boolean>`${slackApps.eventsUrl} is not null`,
+      botToken: sql<boolean>`${slackApps.botTokenRef} is not null`,
+      installed: sql<boolean>`exists (${db
+        .select({ one: sql`1` })
+        .from(agentIdentities)
         .where(
           and(
-            eq(slackApps.workspaceId, workspaceId),
-            eq(slackApps.kind, "agent"),
-            eq(slackApps.state, "created"),
-            inArray(slackApps.agentId, found),
+            eq(agentIdentities.workspaceId, slackApps.workspaceId),
+            eq(agentIdentities.agentId, slackApps.agentId),
+            eq(agentIdentities.provider, "slack_bot"),
+            eq(agentIdentities.status, "active"),
           ),
-        )
-    ).map((row): [string | null, AgentSlackAction | null] => [
+        )})`,
+      home: sql<boolean>`exists (${db
+        .select({ one: sql`1` })
+        .from(surfaceBindings)
+        .where(
+          and(
+            eq(surfaceBindings.workspaceId, slackApps.workspaceId),
+            eq(surfaceBindings.agentId, slackApps.agentId),
+            eq(surfaceBindings.surface, "slack"),
+            eq(surfaceBindings.home, true),
+            isNull(surfaceBindings.revokedAt),
+          ),
+        )})`,
+    })
+    .from(slackApps)
+    .where(
+      and(
+        eq(slackApps.workspaceId, workspaceId),
+        eq(slackApps.kind, "agent"),
+        eq(slackApps.state, "created"),
+        inArray(slackApps.agentId, found),
+      ),
+    );
+  const slackInstalled = new Set(
+    slackRows.filter((row) => row.installed).map((row) => row.agentId),
+  );
+  const slack = new Map(
+    slackRows.map((row): [string | null, AgentSlackAction | null] => [
       row.agentId,
       // An uninstalled app keeps its events columns, which the tab no
       // longer shows; installed, the tab leads with an unverified URL's
@@ -274,6 +288,28 @@ export async function agentSummaries(
     ]),
   );
 
+  // An agent reaches GitHub while its switch is on and its settings name at
+  // least one repository.
+  const enabledIds = heads
+    .filter((head) => head.githubEnabled)
+    .map((head) => head.id);
+  const github = new Set(
+    enabledIds.length === 0
+      ? []
+      : (
+          await db
+            .select({ agentId: agentGitHubSettings.agentId })
+            .from(agentGitHubSettings)
+            .where(
+              and(
+                eq(agentGitHubSettings.workspaceId, workspaceId),
+                inArray(agentGitHubSettings.agentId, enabledIds),
+                sql`jsonb_array_length(${agentGitHubSettings.repositories}) > 0`,
+              ),
+            )
+        ).map((row) => row.agentId),
+  );
+  const engines = new Map(heads.map((head) => [head.id, head.engine]));
   const connections = new Map(heads.map((head) => [head.id, head.connection]));
   const models = new Map(heads.map((head) => [head.id, head.model]));
   const labels = new Map(
@@ -313,6 +349,11 @@ export async function agentSummaries(
       needs_input_count: live.get(version.agentId)?.needsInput ?? 0,
       running_count: live.get(version.agentId)?.running ?? 0,
       slack_action: slack.get(version.agentId) ?? null,
+      engine: engines.get(version.agentId) ?? null,
+      channels: channelsOf(
+        slackInstalled.has(version.agentId),
+        github.has(version.agentId),
+      ),
     });
   }
   return summaries;

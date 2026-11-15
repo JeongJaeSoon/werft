@@ -9362,6 +9362,8 @@ export interface components {
                     needs_input_count: number;
                     running_count: number;
                     slack_action: ("events_failed" | "events_unverified" | "install" | "reinstall" | "home_unset") | null;
+                    engine: ("claude_agent_sdk" | "codex_app_server" | "pi_coding_agent") | null;
+                    channels: ("slack" | "github")[];
                 };
             }[];
             next_cursor: string | null;

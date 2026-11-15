@@ -61,7 +61,6 @@ import {
 } from "../api/queries.ts";
 import {
   refusalText,
-  roleLabel,
   useHasPermission,
   usePermissionReason,
   useRole,
@@ -74,6 +73,7 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { MemberTableFrame } from "../components/member-table.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
+import { RoleBadge } from "../components/role-badge.tsx";
 import {
   SEARCH_MAX,
   SEARCH_SETTLE_MS,
@@ -730,13 +730,7 @@ function TeamMembers({
                     </GridTableCell>
                     {roles && (
                       <GridTableCell>
-                        {memberRole && (
-                          <Badge
-                            variant={memberRole === "member" ? "gray" : "blue"}
-                          >
-                            {roleLabel(t, memberRole)}
-                          </Badge>
-                        )}
+                        {memberRole && <RoleBadge role={memberRole} />}
                       </GridTableCell>
                     )}
                     <GridTableCell>

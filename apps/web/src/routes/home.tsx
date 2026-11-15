@@ -1227,9 +1227,7 @@ function RecentSessionTable({
   const { t, locale } = useI18n();
   const sessions = useSessions();
   const items = sessions.data?.pages[0]?.items ?? [];
-  // Home has no room for who started each session; they are all the viewer's.
-  // Without startedBy the table takes its home column template.
-  const { startedBy: _startedBy, ...head } = useSessionOverviewHead();
+  const head = useSessionOverviewHead();
   const messages = useSessionOverviewRowMessages();
 
   if (sessions.isPending) return <StatusScreen kind="loading" />;
@@ -1255,7 +1253,6 @@ function RecentSessionTable({
             key={session.id}
             session={session}
             locale={locale}
-            now={now}
             messages={messages}
             renderLink={sessionLink(session.id)}
             statusDetail={

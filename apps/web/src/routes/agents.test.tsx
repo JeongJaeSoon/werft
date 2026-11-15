@@ -135,7 +135,9 @@ const showList = async (user: User, name: string) =>
   user.click(await screen.findByRole("button", { name }));
 // The state badge of the row an agent's name links from.
 const stateOf = (link: HTMLElement) =>
-  link.closest("[role=row]")?.querySelector("[data-slot=badge][data-state]");
+  link
+    .closest("[role=row]")
+    ?.querySelector("[data-slot=status-text][data-state]");
 
 const SECOND_VERSION = "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f";
 
@@ -200,7 +202,7 @@ describe("agentRefusal", () => {
 describe("에이전트 목록", () => {
   beforeEach(() => localStorage.clear());
 
-  test("표는 에이전트·담당 팀·상태·수정 네 열이고, 첫 칸은 장식 아이콘 옆에 이름과 식별자를 둔다", async () => {
+  test("표는 이름·엔진·상태·연결 채널·실행 중인 세션 다섯 열이고, 첫 칸은 장식 아이콘 옆에 이름과 식별자를 둔다", async () => {
     const server = agentServer();
     renderAt("/agents", { ...meOk, ...server.routes });
     const table = await screen.findByRole("table", { name: "에이전트" });
@@ -208,7 +210,7 @@ describe("에이전트 목록", () => {
       within(table)
         .getAllByRole("columnheader")
         .map((head) => head.textContent),
-    ).toEqual(["에이전트", "담당 팀", "상태", "수정"]);
+    ).toEqual(["이름", "엔진", "상태", "연결 채널", "실행 중인 세션"]);
     const link = await within(table).findByRole("link", { name: "결제 담당" });
     expect(link.getAttribute("href")).toBe(DETAIL);
     expect(link.className).toContain("after:inset-0");
@@ -216,7 +218,7 @@ describe("에이전트 목록", () => {
     // The whole row is its name link: one link, and it takes the pointer.
     expect(within(row).getAllByRole("link")).toHaveLength(1);
     expect(row.className).toContain("cursor-pointer");
-    const [agentCell, teamCell, stateCell, updatedCell] =
+    const [agentCell, engineCell, stateCell, channelCell, runningCell] =
       within(row).getAllByRole("cell");
     const icon = agentCell?.firstElementChild;
     expect(icon?.getAttribute("aria-hidden")).toBe("true");
@@ -224,11 +226,10 @@ describe("에이전트 목록", () => {
     expect(icon?.querySelector("svg")).not.toBeNull();
     expect(agentCell?.textContent).toContain("결제 담당");
     expect(agentCell?.textContent).toContain("식별자 billing");
-    expect(teamCell?.textContent).toBe("재무");
     expect(within(stateCell as HTMLElement).getByText("초안")).toBeDefined();
-    expect(updatedCell?.querySelector("time")?.getAttribute("datetime")).toBe(
-      server.detail().agent.updated_at,
-    );
+    // A draft runs nowhere yet: no engine, no channel, no running session.
+    for (const cell of [engineCell, channelCell, runningCell])
+      expect(cell?.textContent).toBe("—없음");
     // No cards view to switch to.
     expect(screen.queryByRole("button", { name: "카드" })).toBeNull();
     expect(screen.queryByRole("button", { name: "표" })).toBeNull();
@@ -269,16 +270,19 @@ describe("에이전트 목록", () => {
       });
     const expected = [
       ["초안", "draft"],
-      ["릴리스", "active"],
+      ["활성", "active"],
       ["일시정지", "paused"],
       ["보관됨", "archived"],
     ];
     await screen.findByRole("link", { name: "draft" });
     await waitFor(() => expect(badges()).toEqual(expected));
-    const tones = ["draft", "live", "held", "old"].map(
-      (name) => stateOf(screen.getByRole("link", { name }))?.className,
+    // Green for the one people talk to; the rest are grey.
+    const dots = ["draft", "live", "held", "old"].map((name) =>
+      stateOf(screen.getByRole("link", { name }))
+        ?.querySelector("[data-slot=status-dot]")
+        ?.getAttribute("data-status"),
     );
-    expect(new Set(tones).size).toBe(4);
+    expect(dots).toEqual(["idle", "done", "idle", "idle"]);
     // Only the archived row takes the inactive tone; its badge still says so.
     expect(
       ["draft", "live", "held", "old"].map((name) =>
@@ -288,6 +292,86 @@ describe("에이전트 목록", () => {
           ?.hasAttribute("data-inactive"),
       ),
     ).toEqual([false, false, false, true]);
+  });
+
+  test("요약이 주는 엔진은 색 배지로, 연결 채널은 로고로, 실행 중인 세션은 숫자로 보인다", async () => {
+    const base = agentServer().detail().agent;
+    const summary = {
+      version: {
+        version_no: 1,
+        role: null,
+        instructions: null,
+        mcp_servers: [],
+        credential_refs: [],
+      },
+      connection_id: "conn",
+      release_label: null,
+      release_model: null,
+      bound_credential_refs: [],
+      admins: [],
+      needs_input_count: 0,
+      slack_action: null,
+    };
+    const agent = (
+      name: string,
+      patch: {
+        engine: "claude_agent_sdk" | "codex_app_server" | null;
+        channels: ("slack" | "github")[];
+        running_count: number;
+      },
+    ) => ({
+      ...base,
+      id: crypto.randomUUID(),
+      slug: name,
+      name,
+      active_release_id: crypto.randomUUID(),
+      activation_revision: 0,
+      summary: { ...summary, ...patch },
+    });
+    renderAt("/agents", {
+      ...meOk,
+      "GET /v1/agents": () =>
+        json(200, {
+          items: [
+            agent("claude", {
+              engine: "claude_agent_sdk",
+              channels: ["slack", "github"],
+              running_count: 3,
+            }),
+            agent("codex", {
+              engine: "codex_app_server",
+              channels: [],
+              running_count: 0,
+            }),
+          ],
+          next_cursor: null,
+        }),
+    });
+    const cells = async (name: string) =>
+      within(
+        (await screen.findByRole("link", { name })).closest(
+          "[role=row]",
+        ) as HTMLElement,
+      ).getAllByRole("cell");
+    const [, claudeEngine, , claudeChannels, claudeRunning] =
+      await cells("claude");
+    const [, codexEngine, , codexChannels, codexRunning] = await cells("codex");
+    expect(claudeEngine?.textContent).toBe("Claude");
+    expect(
+      claudeEngine?.querySelector("[data-slot=badge]")?.className,
+    ).toContain("--werft-tone-caution-bg");
+    expect(codexEngine?.textContent).toBe("Codex");
+    expect(
+      codexEngine?.querySelector("[data-slot=badge]")?.className,
+    ).toContain("--werft-tone-teal-bg");
+    expect(
+      within(claudeChannels as HTMLElement)
+        .getAllByRole("img")
+        .map((mark) => mark.getAttribute("aria-label")),
+    ).toEqual(["Slack", "GitHub"]);
+    expect(codexChannels?.textContent).toBe("—없음");
+    expect(claudeRunning?.textContent).toBe("3");
+    expect(codexRunning?.textContent).toBe("—없음");
   });
 
   test("구성원은 전체 목록 대신 안내를 보고, 새 에이전트는 만들 수 있다", async () => {
@@ -544,6 +628,8 @@ describe("Slack 조치 링크", () => {
         needs_input_count: 0,
         running_count: 0,
         slack_action: action,
+        engine: null,
+        channels: [],
       },
     }));
   }
@@ -867,7 +953,7 @@ describe("새 에이전트", () => {
     await waitFor(() => expect(history.location.pathname).toBe(DETAIL));
     act(() => history.push("/agents"));
     const link = await screen.findByRole("link", { name: "결제 담당" });
-    expect(stateOf(link)?.textContent).toBe("릴리스");
+    expect(stateOf(link)?.textContent).toBe("활성");
   });
 
   test("초안을 다시 저장해도 다른 곳에서 넣은 규칙은 그대로 남는다", async () => {
