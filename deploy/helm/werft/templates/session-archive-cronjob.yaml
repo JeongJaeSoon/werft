@@ -1,13 +1,8 @@
 {{- if .Values.sessionArchive.enabled }}
-{{- $days := int .Values.sessionArchive.afterDays }}
-{{- /* int turns "45.5" or "abc" into a valid-looking 45 or 0 */}}
-{{- if or (not (regexMatch "^[0-9]+$" (toString .Values.sessionArchive.afterDays))) (and (ne $days 0) (or (lt $days 30) (gt $days 3650))) }}
-{{- fail (printf "sessionArchive.afterDays must be 0 (off) or 30–3650, got %v" .Values.sessionArchive.afterDays) }}
-{{- end }}
 # One session event archive pass (apps/control-host/src/api/
 # session-archive.ts): events of long-idle sessions move into held objects
-# under session-archive/. Must not overlap a backup
-# (docs/operator/backup-restore.md).
+# under session-archive/, by the days and dry run saved in the console. Must
+# not overlap a backup (docs/operator/backup-restore.md).
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -42,10 +37,6 @@ spec:
               args: ["bun", "run", "apps/control-host/src/api/session-archive.ts"]
               env:
                 {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 16 }}
-                - name: SESSION_ARCHIVE_AFTER_DAYS
-                  value: {{ $days | quote }}
-                - name: SESSION_ARCHIVE_DRY_RUN
-                  value: {{ .Values.sessionArchive.dryRun | quote }}
                 - name: LOG_LEVEL
                   value: {{ .Values.config.logLevel | quote }}
                 {{- include "ap.checkpointEnv" . | nindent 16 }}

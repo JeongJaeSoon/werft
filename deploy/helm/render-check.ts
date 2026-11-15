@@ -907,13 +907,6 @@ const MUST_FAIL: [string, string[], RegExp][] = [
     ["-f", ciDigests, "--set", "images.egressProxy.digest=sha256:abc"],
     /digest must be sha256/,
   ],
-  ...["29", "3651", "45.5", "abc", "-30"].map(
-    (days): [string, string[], RegExp] => [
-      `sessionArchive.afterDays=${days}`,
-      ["-f", ciDigests, "--set", `sessionArchive.afterDays=${days}`],
-      /sessionArchive.afterDays must be 0 \(off\) or 30–3650/,
-    ],
-  ),
   [
     "an installation id that is no label value",
     ["-f", ciDigests, "--set", "installationId=not/a/label"],
@@ -1306,6 +1299,61 @@ for (const declaration of [undefined, false, true]) {
         `carried worker limits: migrate ${name} is ${carried.get(name)}, not ${value}`,
       );
     }
+  }
+}
+// The archive settings are carried from sessionArchive alone, which was all
+// its CronJob read: an explicit 0 and false are values, the api's extraEnv
+// never reached it, and an unset key carries nothing. The CronJob reads them
+// from the console, so it gets neither.
+for (const [label, args, want] of [
+  ["unset", [], {}],
+  [
+    "0 and false",
+    [
+      "--set",
+      "sessionArchive.afterDays=0",
+      "--set",
+      "sessionArchive.dryRun=false",
+      "--set-json",
+      'api.extraEnv={"SESSION_ARCHIVE_AFTER_DAYS":90}',
+    ],
+    { SESSION_ARCHIVE_AFTER_DAYS: "0", SESSION_ARCHIVE_DRY_RUN: "false" },
+  ],
+  [
+    "a value it refuses",
+    ["--set", "sessionArchive.afterDays=45.5"],
+    { SESSION_ARCHIVE_AFTER_DAYS: "45.5" },
+  ],
+] as const) {
+  const manifests = render(["-f", ciDigests, ...args]);
+  const envOf = (component: string) => {
+    const m = manifests.find(
+      (x) => componentOf(x) === component && podSpecOf(x) !== undefined,
+    );
+    const env: { name: string; value?: string }[] =
+      m === undefined ? [] : podSpecOf(m).containers[0].env;
+    return new Map(env.map((e) => [e.name, e.value]));
+  };
+  const carried = envOf("migrate");
+  const archive = envOf("session-archive");
+  for (const name of [
+    "SESSION_ARCHIVE_AFTER_DAYS",
+    "SESSION_ARCHIVE_DRY_RUN",
+  ]) {
+    const value = (want as Record<string, string>)[name];
+    if (carried.get(name) !== value) {
+      errors.push(
+        `carried archive settings (${label}): migrate ${name} is ${carried.get(name)}, not ${value}`,
+      );
+    }
+    if (archive.has(name)) {
+      errors.push(
+        `carried archive settings (${label}): the CronJob still gets ${name}`,
+      );
+    }
+  }
+  if (archive.size === 0) {
+    errors.push(`carried archive settings (${label}): no CronJob rendered`);
   }
 }
 errors.push(

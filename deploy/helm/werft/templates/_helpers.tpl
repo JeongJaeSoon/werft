@@ -123,7 +123,7 @@ by the env names earlier releases read. No role reads them now: the migrate
 Job carries one an earlier release set in, once, while it has nothing saved.
 */}}
 {{- define "ap.carriedSettingNames" -}}
-PENDING_REQUEST_TTL_SEC QUEUED_INPUT_LIMIT_PER_SESSION STORAGE_LIMIT_BYTES SESSION_COST_LIMIT_USD SESSION_TOKEN_LIMIT WORKSPACE_ENFORCE MAX_TURN_SECONDS PROVIDER_MAX_RETRIES
+PENDING_REQUEST_TTL_SEC QUEUED_INPUT_LIMIT_PER_SESSION STORAGE_LIMIT_BYTES SESSION_COST_LIMIT_USD SESSION_TOKEN_LIMIT WORKSPACE_ENFORCE MAX_TURN_SECONDS PROVIDER_MAX_RETRIES SESSION_ARCHIVE_AFTER_DAYS SESSION_ARCHIVE_DRY_RUN
 {{- end -}}
 
 {{/* config.limits as a role reads them: the carried settings left out. */}}
@@ -141,8 +141,10 @@ PENDING_REQUEST_TTL_SEC QUEUED_INPUT_LIMIT_PER_SESSION STORAGE_LIMIT_BYTES SESSI
 The carried settings where earlier releases took them from, in the order
 the reading role's env let win: for the worker limits the scheduler's
 (scheduler.extraEnv, then config.limits), for the rest the api's
-(api.extraEnv, then config.limits, then api.workspaceEnforce). Not merge:
-it takes a 0 for unset and lets a later source win.
+(api.extraEnv, then config.limits, then api.workspaceEnforce), and for the
+archive settings sessionArchive.afterDays and dryRun alone, which were all
+its CronJob read. Not merge: it takes a 0 for unset and lets a later source
+win.
 */}}
 {{- define "ap.carriedSettingsEnv" -}}
 {{- $apiSources := list (.Values.api.extraEnv | default dict) (.Values.config.limits | default dict) -}}
@@ -150,10 +152,20 @@ it takes a 0 for unset and lets a later source win.
 {{- $apiSources = append $apiSources (dict "WORKSPACE_ENFORCE" .) -}}
 {{- end }}
 {{- $schedulerSources := list (.Values.scheduler.extraEnv | default dict) (.Values.config.limits | default dict) -}}
+{{- $archive := dict -}}
+{{- $archiveValues := .Values.sessionArchive | default dict -}}
+{{- if hasKey $archiveValues "afterDays" }}
+{{- $_ := set $archive "SESSION_ARCHIVE_AFTER_DAYS" $archiveValues.afterDays -}}
+{{- end }}
+{{- if hasKey $archiveValues "dryRun" }}
+{{- $_ := set $archive "SESSION_ARCHIVE_DRY_RUN" $archiveValues.dryRun -}}
+{{- end }}
 {{- range $name := splitList " " (include "ap.carriedSettingNames" .) }}
 {{- $sources := $apiSources }}
 {{- if has $name (list "MAX_TURN_SECONDS" "PROVIDER_MAX_RETRIES") }}
 {{- $sources = $schedulerSources }}
+{{- else if hasPrefix "SESSION_ARCHIVE_" $name }}
+{{- $sources = list $archive }}
 {{- end }}
 {{- $found := false }}
 {{- range $source := $sources }}

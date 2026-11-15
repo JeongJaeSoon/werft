@@ -825,8 +825,8 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(reconcilerBlock).not.toMatch(/^ {4}ports:/m);
   });
 
-  test("maintenance runs checkpoint GC and a dry-run session archive on the api's image and env", () => {
-    const { api, maintenance } = layeredServices<
+  test("maintenance runs checkpoint GC and the session archive on the api's image and env", () => {
+    const { api, maintenance, migrate } = layeredServices<
       ComposeService & { profiles?: string[] }
     >(LOCAL_LAYERS);
     expect(maintenance?.build).toBeUndefined();
@@ -838,12 +838,17 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(script).toContain("apps/control-host/src/api/session-archive.ts");
     // A restart keeps the weekly slot instead of starting a fresh week.
     expect(script).toMatch(/% \$\$\{MAINTENANCE_INTERVAL_SEC\}/);
-    for (const [key, fallback] of [
-      ["MAINTENANCE_INTERVAL_SEC", "604800"],
-      ["SESSION_ARCHIVE_AFTER_DAYS", "180"],
-      ["SESSION_ARCHIVE_DRY_RUN", "true"],
+    expect(maintenance?.environment?.MAINTENANCE_INTERVAL_SEC).toEndWith(
+      ":-604800}",
+    );
+    // The archive's days and dry run are the console's; migrate carries a
+    // value set the old way in, and a blank one is unset.
+    for (const key of [
+      "SESSION_ARCHIVE_AFTER_DAYS",
+      "SESSION_ARCHIVE_DRY_RUN",
     ] as const) {
-      expect(maintenance?.environment?.[key]).toEndWith(`:-${fallback}}`);
+      expect(maintenance?.environment).not.toHaveProperty(key);
+      expect(migrate?.environment?.[key]).toBe(`\${${key}:-}`);
     }
     // The bucket settings it reads are the api's, so both see one store.
     for (const key of [
