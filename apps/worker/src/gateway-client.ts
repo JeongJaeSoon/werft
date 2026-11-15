@@ -59,7 +59,6 @@ const REFUSABLE_CAPABILITIES = [
   "platform_tool_trust",
   "user_env",
   "permission_rules",
-  "engine_settings",
   "response_language",
   "answer_surface",
   "repository_pins",

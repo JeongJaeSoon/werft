@@ -8,7 +8,6 @@ import {
   RECEIPT_ID,
   STORE_OFF,
   WORKSPACE_ID,
-  workspaceEngineSettings,
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
@@ -21,8 +20,6 @@ const renderAt: typeof harness.renderAt = (path, routes, locale) =>
   harness.renderAt(
     path,
     {
-      [`GET /v1/workspaces/${WORKSPACE_ID}/engine-settings`]: () =>
-        json(200, workspaceEngineSettings()),
       [`GET ${TOKEN}`]: () => json(200, REGISTERED_TOKEN),
       [`GET ${APPS}`]: () => json(200, { items: [] }),
       "GET /v1/slack-settings": () =>
@@ -588,10 +585,9 @@ describe("워크스페이스 설정", () => {
     expect(name.value).toBe("Acme");
     expect(name.readOnly).toBe(true);
     expect(screen.getByText(WORKSPACE_ID).className).toContain("font-mono");
-    // Only the run rules, retention and agent access cards save; the name has
-    // no API to. The run rules card waits for its own read.
+    // Only the retention and agent access cards save; the name has no API to.
     await waitFor(() =>
-      expect(screen.getAllByRole("button", { name: "저장" })).toHaveLength(3),
+      expect(screen.getAllByRole("button", { name: "저장" })).toHaveLength(2),
     );
     expect(screen.getAllByText("읽기 전용")).toHaveLength(1);
     // Model connections in Settings own the models; this page lists none.

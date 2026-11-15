@@ -6,7 +6,7 @@ description: 에이전트를 정의하고, release를 만들어 활성화하고,
 에이전트는 워크스페이스 안의 이름 붙은 정의다. 이름과 설명은 사람이 보는 값이고, 실행에 쓰이는 정의는 카드(모델, 도구)다. 카드를 고칠 때마다 새 version이 쌓인다. version 하나를 provider 연결 하나와 묶은 것이 release이고, 에이전트가 가리키는 release가 활성 release다. 세션은 언제나 release로 만들고, 그 세션은 그 에이전트의 것이 된다.
 
 <Callout type="warn">
-세션은 release가 고정한 실행 설정(연결, 모델, 런타임, 내장 도구)으로 돈다. 무엇을 묻고 막을지는 워크스페이스와 에이전트의 실행 규칙이 정한다. 이름과 설명은 모델에 전달되지 않고, 에이전트가 일하는 방식은 저장소의 `AGENTS.md`나 `CLAUDE.md`로 알려 준다. 자세한 내용은 [지시문과 설명](/agents/instructions-and-roles)과 [권한](/agents/permissions)에 있다.
+세션은 release가 고정한 실행 설정(연결, 모델, 런타임, 내장 도구)으로 돈다. 무엇을 사람에게 묻는지는 권한 모드와 플랫폼에 들어 있는 작업 공간 규칙이 정한다. 이름과 설명은 모델에 전달되지 않고, 에이전트가 일하는 방식은 저장소의 `AGENTS.md`나 `CLAUDE.md`로 알려 준다. 자세한 내용은 [지시문과 설명](/agents/instructions-and-roles)과 [권한](/agents/permissions)에 있다.
 </Callout>
 
 ## 웹 콘솔에서
@@ -80,7 +80,7 @@ echo "$agent" | jq '{slug: .agent.slug, version: .versions[0].version_no, active
 
 ### 릴리스 만들기
 
-release는 version 하나와 provider 연결 하나(`connection_id`)를 묶는다. 카드의 `model`이 그 연결의 모델 목록에 없으면 422다. release는 그때의 실행 설정을 고정한다: 연결 종류에 맞는 런타임(이미지가 싣는 버전), 그 런타임의 내장 도구 전부, 그리고 권한 모드(Claude 모델이면 `auto`, 그 밖에는 `default`. [권한 모드](/agents/permissions#권한-모드))다. 무엇을 묻고 막을지는 워크스페이스와 에이전트의 실행 규칙이 정한다([권한](/agents/permissions)). release로 만든 세션은 `model`을 생략하면 카드의 모델로 돈다.
+release는 version 하나와 provider 연결 하나(`connection_id`)를 묶는다. 카드의 `model`이 그 연결의 모델 목록에 없으면 422다. release는 그때의 실행 설정을 고정한다: 연결 종류에 맞는 런타임(이미지가 싣는 버전), 그 런타임의 내장 도구 전부, 그리고 권한 모드(Claude 모델이면 `auto`, 그 밖에는 `default`. [권한 모드](/agents/permissions#권한-모드))다. release로 만든 세션은 `model`을 생략하면 카드의 모델로 돈다.
 
 ```bash
 release=$(curl -sS "$API/v1/agents/$AID/releases" "${WEB[@]}" \

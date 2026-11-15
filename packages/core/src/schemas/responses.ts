@@ -12,7 +12,6 @@ import {
   agentAdminsViewSchema,
   agentCallerLimitsSchema,
   agentDetailSchema,
-  agentEngineSettingsResponseSchema,
   agentEnvVariablesSchema,
   agentGitHubActivityResponseSchema,
   agentGitHubResponseSchema,
@@ -126,7 +125,6 @@ import {
   putAgentPullRequestSettingsResponseSchema,
   putAgentUsageResponseSchema,
   putAgentWorkspaceMcpServersResponseSchema,
-  putEngineSettingsResponseSchema,
   putEnvVariableGrantsResponseSchema,
   putEnvVariableResponseSchema,
   putGitHubAppResponseSchema,
@@ -185,7 +183,6 @@ import {
   usageSummaryResponseSchema,
   usageToolCallsResponseSchema,
   usageToolsResponseSchema,
-  workspaceEngineSettingsResponseSchema,
   workspaceMcpServerListSchema,
   workspaceMcpServerSchema,
 } from "@werft-ai/contracts";
@@ -303,11 +300,6 @@ export const responseSchemas = {
     agentWorkspaceMcpServerListSchema,
   "PUT /v1/agents/{id}/mcp/workspace-servers":
     putAgentWorkspaceMcpServersResponseSchema,
-  "GET /v1/agents/{id}/engine-settings": agentEngineSettingsResponseSchema,
-  "PUT /v1/agents/{id}/engine-settings": putEngineSettingsResponseSchema,
-  "GET /v1/workspaces/{id}/engine-settings":
-    workspaceEngineSettingsResponseSchema,
-  "PUT /v1/workspaces/{id}/engine-settings": putEngineSettingsResponseSchema,
   "GET /v1/agents/{id}/github/repositories":
     listAgentGitHubRepositoriesResponseSchema,
   "POST /v1/agents/{id}/github/repositories":

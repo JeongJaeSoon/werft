@@ -6,7 +6,6 @@ export const AGENT_TABS = [
   "card",
   "release",
   "access",
-  "engine",
   "admins",
   "slack",
   "github",

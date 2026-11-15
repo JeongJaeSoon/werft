@@ -172,7 +172,6 @@ describe("what the engine cannot honor is refused, not dropped", () => {
   test.each([
     ["a turn limit", { maxTurns: 3 }],
     ["deny rules", { disallowedTools: ["exec_command"] }],
-    ["engine permission rules", { engineSettings: {} }],
     ["the tools Read", { tools: ["exec_command", "Read"] }],
     ["a session without exec_command", { tools: [] }],
   ])("%s", (what, change) => {

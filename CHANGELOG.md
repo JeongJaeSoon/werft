@@ -14,6 +14,11 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **워크스페이스·에이전트의 실행 규칙(허용·묻기·막기 목록, 자동 모드 목록)이 없어졌다. 저장해 둔 규칙은 새 세션에도, 이미 도는 세션의 다음 claim에도 더는 적용되지 않는다**(PR_LINK). 규칙으로 막던 도구나 묻던 명령이 있었다면 올린 뒤에는 권한 모드와 플랫폼의 작업 공간 규칙대로만 돈다. 올리기 전에 저장된 규칙을 확인한다. MCP 도구 하나를 막는 방법은 에이전트 카드의 `capabilities.tool_policy.per_tool`에 `deny`를 적는 것뿐이다.
+  - **없어진 API:** `GET|PUT /v1/workspaces/{id}/engine-settings`, `GET|PUT /v1/agents/{id}/engine-settings`. 이 경로를 부르던 client는 `404`를 받는다. 콘솔의 워크스페이스 설정 **실행 규칙** 카드와 에이전트 상세의 **실행 규칙** 탭도 없어졌다.
+  - DB의 `workspace_engine_settings`·`agent_engine_settings` 표와 `sessions.engine_settings_start` 열은 데이터를 지우지 않도록 그대로 두고 더는 읽거나 쓰지 않는다. migration은 없다. 지난 저장의 receipt는 그대로 읽힌다.
+  - worker는 `engine_settings` capability를 더는 알리지 않고, 앞선 control-host가 보낸 `runtime_config.engine_settings`도 엔진에 넘기지 않는다. 배포 순서 제약은 없다.
+
 - **Claude 모델의 새 release는 `auto` 권한 모드로 돈다. 연결의 자동 모드 판정과 그 API는 없어졌다.** Claude 모델은 `anthropic` 연결의 모델, 또는 `litellm` 연결에서 `claude-`·`anthropic/claude-`로 시작하거나 `sonnet`·`opus`·`haiku`·`fable`(`[1m]`이 붙어도 된다)과 정확히 같은 모델 id다. 그 밖의 모델(`my-sonnet-proxy`처럼 계열 이름을 품기만 한 id 포함)과 Codex 연결(`openai_responses`)은 `default`다. 세션의 모델이 다음 판으로 옮겨 가면 모드도 새 모델로 다시 정한다. 자동 모드는 그것을 지원하는 모델에서만 동작한다([Claude Code의 자동 모드 요건](https://code.claude.com/docs/en/permission-modes#eliminate-prompts-with-auto-mode)). 이미 만든 release는 고정된 모드를 지키므로, 다시 release할 때까지 원래 모드로 돈다.
   - **`auto`도 `default`와 같은 작업 공간 규칙을 받는다.** `git`·`gh`, `sed`, 작업 공간 안 쓰기·`mkdir`, 조회는 분류기 없이 실행되고, 묻기 목록(비밀 경로, `git --output`, 비밀 이름의 `git add` 등)에 걸린 호출은 분류기가 아니라 사람에게 권한 요청으로 간다. 그래서 `auto` 세션에도 사람이 답할 권한 요청이 생길 수 있다. `bun run`·`npm run`·`npx` 같은 스크립트 실행은 엔진이 `auto`에서 허용을 빼므로 분류기가 판정한다. 분류기를 쓸 수 없는 연결에서는 분류기가 판정할 호출이 거부된다.
   - **엔진 설정은 인자가 아니라 파일로 넘긴다.** worker는 엔진을 시작할 때마다 합친 설정(플랫폼 기본값, 워크스페이스·에이전트 실행 규칙, 자동 모드 규칙)을 체크아웃 밖의 `$CLAUDE_CONFIG_DIR/launcher-settings.json`(이미지에서는 `/home/bun/.claude/launcher-settings.json`)에 새로 쓰고 그 경로를 `--settings`로 준다. 파일에는 그 파일 자신의 편집을 막는 deny 규칙(`Edit(~/…)`, `Edit(//…)`)이 함께 들어가고, 세션 중에 바뀌어도 다음 엔진 시작 때 다시 쓴다. 그래서 설정 크기에 걸던 엔진 인자 한도(100 000바이트)는 없어졌다. 저장 규칙 수·바이트 한도(`ENGINE_SETTINGS_LIMITS`)는 그대로다.

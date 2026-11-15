@@ -1553,10 +1553,9 @@ export const sessions = pgTable(
     // only narrow them for it. Null on a session started before the column,
     // which reaches no workspace server.
     workspaceMcpStart: jsonb("workspace_mcp_start").$type<unknown>(),
-    // The agent's engine settings and their revision as they were when the
-    // session started (`engineSettingsStartSchema`); later changes can only
-    // restrict it further. Null on a session started without a settings row
-    // or without a release: restrict-only, never granted anything.
+    // The agent's run rules and their revision as a session started while
+    // run rules applied. Nothing writes or reads it any more; kept with the
+    // rows written then.
     engineSettingsStart: jsonb("engine_settings_start").$type<unknown>(),
     // The user variables the session took when it was accepted
     // (`envStartSchema`). A plain entry keeps its value so claims, retries and
@@ -3979,13 +3978,9 @@ function stringListsCheck(
     AND NOT jsonb_path_exists(${column}, ${path(`$.*[*] ? (@ == "" || @ like_regex "${over}" flag "s")`)})`;
 }
 
-// An agent's engine settings: the permission rules and auto mode sentences it
-// runs with, outside the card, so a change makes no release. No row, or two
-// empty objects, means no rules. A row is never deleted: clearing writes
-// empty objects and raises `revision`, so a revision is never reused. Nothing
-// writes this table yet; the write path ships with the merge that sends the
-// settings to the engine. A session follows it as `start ∩ now`, never wider
-// than it started.
+// An agent's saved run rules (permission rules and auto mode sentences).
+// Run rules were removed: nothing writes or reads this table any more, and
+// it is kept with its rows rather than dropped.
 export const agentEngineSettings = pgTable(
   "agent_engine_settings",
   {
@@ -4030,10 +4025,8 @@ export const agentEngineSettings = pgTable(
   ],
 );
 
-// A workspace's engine settings, in the shape of an agent's: one row, never
-// deleted (clearing writes empty objects and raises `revision`), no row means
-// no rules. Every agent of the workspace runs under it; an agent's own rules
-// only ever add restrictions to it. Nothing writes this table yet.
+// A workspace's saved run rules, in the shape of an agent's. Kept with its
+// rows as `agent_engine_settings` is; nothing writes or reads it any more.
 export const workspaceEngineSettings = pgTable(
   "workspace_engine_settings",
   {

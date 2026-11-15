@@ -198,11 +198,9 @@ export const RECEIPT_OPERATION_VALUES = [
   "set_env_variable_grants",
   "resolve_session_env",
   "reject_session_env",
-  // What a claim evaluated of the saved engine rules: revisions, result and
-  // rule counts. Never a rule's text.
+  // Saved engine rules (run rules), which nothing reads or writes any more:
+  // kept so the receipts written while they applied still parse.
   "resolve_session_engine_settings",
-  // A save of the saved engine rules: revisions before and after and rule
-  // counts. Never a rule's text.
   "set_workspace_engine_settings",
   "set_agent_engine_settings",
   // Skill-only extension bundles. Names, digests and review states

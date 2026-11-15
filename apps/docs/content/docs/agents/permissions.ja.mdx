@@ -3,45 +3,13 @@ title: "権限"
 description: エージェントが使えるツール、人による承認、エージェントを管理する人と認証情報の紐付け
 ---
 
-エージェントの権限は 3 つの層からなる。リリースが固定したツールと権限モードにワークスペースとエージェントの実行ルールを加えたもの、人が答える権限リクエスト、そしてエージェントを管理し資格情報の名前をつなぐ人である。
+エージェントの権限は 3 つの層からなる。リリースが固定したツールと権限モード、人が答える権限リクエスト、そしてエージェントを管理し資格情報の名前をつなぐ人である。
 
-## ツール: リリースと実行ルールが決める
+## ツール: リリースが決める
 
-リリースは接続のランタイムが持つ組み込みツールすべてを固定する (リリースのレスポンスの `effective_tools.tools`)。そのうち何をブロックするかは、ワークスペースとエージェントの実行ルールが決める。ブロック (`deny`) に書いたツールは権限リクエストなしで拒否され、モデルはエラーの `tool_result` を受け取る。次のスクリプトは、ワークスペースの実行ルールのブロック一覧に `WebFetch` を入れたあとで `WebFetch` を呼び出す。
+リリースは接続のランタイムが持つ組み込みツールすべてを固定する (リリースのレスポンスの `effective_tools.tools`)。組み込みツールを選んでブロックする設定はない。ツールを実行する前に人へ尋ねるかどうかは、下の権限モードと、プラットフォームに組み込まれた作業スペースのルール (事前許可と確認の一覧) が決める。
 
-```bash
-created=$(curl -sS "$API/v1/sessions" \
-  -H "Authorization: Bearer $KEY" \
-  -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"outside","steps":[{"tool":"WebFetch","input":{"url":"https://example.com","prompt":"summarize"}}],"final":"done"}' \
-    '{agent_release_id: env.WERFT_AGENT_RELEASE_ID, repository_id: "sample-app", message: $m}')")
-SID=$(echo "$created" | jq -r .session_id)
-until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
-  sleep 2
-done
-curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
-  | awk '/^event: tool_result/ { getline; sub(/^data: /, ""); print }' \
-  | jq -c '.data | {is_error, content}' || true
-```
-
-```text
-curl: (28) Operation timed out after 5006 milliseconds with 4482 bytes received
-{"is_error":true,"content":"<tool_use_error>Error: No such tool available: WebFetch. WebFetch is disabled for this session, in subagents as well as here.</tool_use_error>"}
-```
-
-`curl: (28)` は `--max-time` がストリームを切断したものである。
-
-ブロックする場所は二つあり、範囲が違う。セッションには二つの和集合がかかる。
-
-| | ワークスペースの実行ルール | エージェントの実行ルール |
-| --- | --- | --- |
-| 誰が決めるか | owner・admin (ワークスペース設定 → 実行ルール) | エージェントの管理者 (エージェント詳細 → 実行ルール) |
-| 及ぶ範囲 | そのワークスペースのすべてのエージェントのセッション | そのエージェントのセッション |
-| 受け付けるルール | 許可・確認・ブロックの一覧、自動モードの一覧 | 同じ。許可はワークスペースが許可した範囲内でだけ効く |
-| 変更が効くのは | 次の claim から。すでに始まったセッションには狭める方だけが及ぶ | 同じ |
-
-カードの `capabilities.forbidden` は、そのエージェントのリリースからそのツールを除く。カードの `tool_policy` では MCP ツールの既定値は `ask` である。組み込みツールを実行前に人へ尋ねさせるのは、権限モードと実行ルールの確認一覧である。
+カードの `capabilities.forbidden` は MCP ツールに及ぶ。リリースが許可する MCP ツールがその一覧にあると、リリースは作れない。カードの `tool_policy` では MCP ツールの既定値は `ask` である。
 
 ## 権限モード
 

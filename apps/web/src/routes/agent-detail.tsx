@@ -35,7 +35,6 @@ import { useI18n } from "../i18n/i18n.tsx";
 import { AccessTab } from "./agent-detail/access-tab.tsx";
 import { AdminsTab } from "./agent-detail/admins-tab.tsx";
 import { CardTab } from "./agent-detail/card-tab.tsx";
-import { EngineSettings } from "./agent-detail/engine-settings.tsx";
 import { GitHubPanel, SlackPanel } from "./agent-detail/lazy-tabs.tsx";
 import {
   AGENT_TABS,
@@ -229,9 +228,6 @@ function AgentView({
           unbound={activation.unbound}
           credentialsTitle={credentialsTitle}
         />
-      </TabsContent>
-      <TabsContent {...tabPanel("engine")}>
-        <EngineSettings agentId={agent.id} manages={manages} />
       </TabsContent>
       <TabsContent {...tabPanel("admins")}>
         <AdminsTab

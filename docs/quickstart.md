@@ -415,4 +415,4 @@ GATE-SPEC {"id":"<이름>","steps":[{"tool":"<도구>","input":{…},"delayMs":<
 - `steps`의 도구 호출을 하나씩 순서대로 보내고, 도구 결과를 다 받으면 `final` 텍스트로 turn을 끝낸다. 몇 번째 단계인지는 대본 뒤에 쌓인 도구 결과 수로 정하므로 서버는 상태를 갖지 않는다.
 - `delayMs`·`finalDelayMs`는 그 응답을 늦춘다. 긴 turn(interrupt·terminate 시연)을 만들 때 쓴다.
 - 대본이 없는 메시지에는 `Hello from the local fake Messages API.`로 답한다.
-- 도구는 release의 `effective_tools`(런타임의 내장 도구 전부) 안에 있고, 워크스페이스·에이전트 실행 규칙의 막기 목록 밖이어야 한다. 막힌 도구는 권한 요청 없이 거절된다.
+- 도구는 release의 `effective_tools`(런타임의 내장 도구 전부) 안에 있어야 한다.

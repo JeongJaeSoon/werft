@@ -155,7 +155,6 @@ import {
   rethrowCursorCastError,
 } from "./sessions/cursors.ts";
 import { drainAttention } from "./sessions/drain.ts";
-import { captureEngineSettingsStart } from "./sessions/engine-settings-start.ts";
 import { enqueueWithin } from "./sessions/enqueue.ts";
 import { eventWithNeutralFields } from "./sessions/event-payload.ts";
 import {
@@ -556,10 +555,6 @@ export function createPostgresSessionUnitOfWork(
           input.captureGitHubPolicyStart === true
             ? await captureGitHubPolicyStart(tx, input.agentReleaseId)
             : null;
-        const engineSettingsStart = await captureEngineSettingsStart(
-          tx,
-          input.agentReleaseId,
-        );
         await tx.insert(sessions).values({
           id: sessionId,
           ownerId: scope.principal,
@@ -570,7 +565,6 @@ export function createPostgresSessionUnitOfWork(
           githubPolicyStart,
           mcpStart,
           workspaceMcpStart,
-          engineSettingsStart,
           envStart:
             envCapture.outcome === "resolved" ? envCapture.envStart : null,
           title: input.title ?? null,

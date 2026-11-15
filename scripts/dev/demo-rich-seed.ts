@@ -473,8 +473,6 @@ type AgentSpec = {
   active: number | null;
   status?: "paused" | "archived";
   admins?: { user?: string; team?: string }[];
-  /** Engine ask rules: in auto mode only these reach a person. */
-  ask?: string[];
 };
 
 const card = (c: Card) => ({
@@ -491,7 +489,6 @@ const AGENTS: AgentSpec[] = [
     slug: "deploy-helper",
     name: "배포 도우미",
     repository: true,
-    ask: ["Bash(kubectl:*)", "Bash(psql:*)"],
     versions: [
       {
         role: "배포 전 점검 목록을 확인한다",
@@ -653,19 +650,6 @@ async function ensureAgents(owner: Web) {
         id = made.agent.id as string;
         agentId[spec.slug] = id;
         note(`created agent ${spec.slug}`);
-      }
-      if (spec.ask) {
-        const rules = await owner.ok<{ settings_revision: number | null }>(
-          200,
-          "GET",
-          `/v1/agents/${id}/engine-settings`,
-        );
-        if (rules.settings_revision === null) {
-          await owner.ok(200, "PUT", `/v1/agents/${id}/engine-settings`, {
-            expected_revision: null,
-            settings: { permissions: { ask: spec.ask }, auto_mode: {} },
-          });
-        }
       }
       let detail = await owner.ok<AgentDetail>(200, "GET", `/v1/agents/${id}`);
       for (let at = detail.versions.length; at < spec.versions.length; at++) {
@@ -1697,10 +1681,12 @@ const SESSIONS: SessionSpec[] = [
     title: "프로덕션 로그 확인 (권한 요청 대기)",
     agent: "deploy-helper",
     repository: true,
+    // sed's `w` is on the built-in ask list, so the turn stops for a person
+    // in auto mode too; the fake's safety check allows everything else.
     turns: [
       permissionTurn(
-        "kubectl logs deploy/api --since=1h",
-        "프로덕션 API 로그 읽기",
+        'kubectl logs deploy/api --since=1h | sed -n "w api.log"',
+        "프로덕션 API 로그 읽어 저장하기",
       )(),
     ],
     outcome: "permission",
@@ -1719,8 +1705,8 @@ const SESSIONS: SessionSpec[] = [
     repository: true,
     turns: [
       permissionTurn(
-        "psql --file migrations/staging.sql",
-        "Apply pending migrations to staging",
+        'psql --file migrations/staging.sql | sed -n "w migrate.log"',
+        "Apply pending migrations to staging and keep the log",
       )(),
     ],
     outcome: "permission",
