@@ -31,6 +31,7 @@ import {
   createPostgresWorkspaceKeyStore,
   memberships,
   users,
+  workspaceRepositoryCeiling,
 } from "@werft-ai/db";
 import { sessionPinValues } from "@werft-ai/db/testing/spec-pins";
 import { createGitHubAppDirectory } from "@werft-ai/forge-github";
@@ -148,6 +149,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
       catalog,
       credentials,
       githubSettings,
+      repositoryCeiling: (id) => workspaceRepositoryCeiling(db, id),
       runtimes: TEST_RUNTIMES,
     });
     const keys = createApiKeyService({
