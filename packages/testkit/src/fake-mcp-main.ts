@@ -13,6 +13,8 @@ const mcp = await startFakeMcp({
   marker: env.FAKE_MCP_MARKER ?? "fake-mcp",
   hostname: "0.0.0.0",
   port: Number(env.FAKE_MCP_PORT ?? "4020"),
+  // The address the API and the proxy reach it at, on their allowlists.
+  origin: env.FAKE_MCP_ORIGIN ?? "http://fake-mcp:4020",
 });
 
 Bun.serve({
@@ -23,6 +25,14 @@ Bun.serve({
     if (url.pathname === "/healthz") return new Response("ok");
     if (url.pathname === "/calls" && request.method === "GET") {
       return Response.json(mcp.calls());
+    }
+    if (url.pathname === "/workspace-calls" && request.method === "GET") {
+      return Response.json(mcp.workspaceCalls());
+    }
+    // The browser's step of the OAuth sign-in: the authorization URL names
+    // the API's address, which a browser outside the stack cannot open.
+    if (url.pathname === "/authorize" && request.method === "GET") {
+      return mcp.authorize(request);
     }
     return new Response("not found", { status: 404 });
   },

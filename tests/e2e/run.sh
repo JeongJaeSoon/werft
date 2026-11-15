@@ -351,9 +351,9 @@ elif [ -n "$conformance" ]; then
 elif [ -n "$real_model$local_model" ]; then
   suites=(./tests/e2e/real-model.e2e.ts)
 else
-  # remote-mcp first: the other suites leave their sessions holding every
-  # execution slot.
-  suites=(./tests/e2e/remote-mcp.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts)
+  # The MCP suites first: the other suites leave their sessions holding
+  # every execution slot.
+  suites=(./tests/e2e/remote-mcp.e2e.ts ./tests/e2e/workspace-mcp.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts)
 fi
 # The suites drive the public API and never need the provider key.
 env -u ANTHROPIC_API_KEY bun test "${suites[@]}" --timeout 900000 \
