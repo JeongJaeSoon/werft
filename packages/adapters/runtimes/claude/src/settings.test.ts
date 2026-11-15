@@ -45,14 +45,16 @@ describe("settings files", () => {
     }
   });
 
-  test("each mode gets its own file's rules and nothing else", () => {
+  test("every mode but plan gets the same workspace rules; auto adds its classifier's", () => {
     expect(modeSettings({ ...base, permissionMode: "plan" })).toEqual({});
+    const workspace = modeSettings({ ...base, permissionMode: "default" });
     expect(modeSettings({ ...base, permissionMode: "auto" })).toEqual({
+      ...workspace,
       autoMode: PLATFORM_AUTO_MODE,
     });
     expect(
       modeSettings({ ...base, permissionMode: "auto", trusted: true }),
-    ).toEqual({ autoMode: TRUSTED_PLATFORM_AUTO_MODE });
+    ).toEqual({ ...workspace, autoMode: TRUSTED_PLATFORM_AUTO_MODE });
     for (const permissionMode of [
       undefined,
       "default",

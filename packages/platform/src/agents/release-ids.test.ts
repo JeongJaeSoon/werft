@@ -11,9 +11,11 @@ import {
   assertReleaseIdentity,
   cardContentSha256,
   deriveReleaseId,
+  movedPermissionMode,
   type ReleaseIdentity,
   ReleaseIdentityError,
   type ReleaseRun,
+  releasePermissionMode,
   resolveReleaseContent,
 } from "./release-ids.ts";
 
@@ -242,6 +244,96 @@ describe("resolveReleaseContent", () => {
     expect(deriveReleaseId(identityOf({ ...card, language: "ja" }))).not.toBe(
       deriveReleaseId(identityOf({ ...card, language: "en" })),
     );
+  });
+
+  test("auto holds only where the connection serves the card's model as Claude", () => {
+    const providerOf = (kind: "anthropic" | "litellm") =>
+      ({
+        ...run.connection.provider,
+        kind,
+      }) as ReleaseRun["connection"]["provider"];
+    for (const [kind, model, mode] of [
+      ["anthropic", "claude-sonnet-5", "auto"],
+      ["litellm", "claude-sonnet-5", "auto"],
+      ["litellm", "anthropic/claude-sonnet-5", "auto"],
+      ["litellm", "sonnet", "auto"],
+      ["litellm", "opus", "auto"],
+      ["litellm", "haiku", "auto"],
+      ["litellm", "fable", "auto"],
+      ["litellm", "sonnet[1m]", "auto"],
+      ["litellm", "opus[1m]", "auto"],
+      ["litellm", "gpt-5", "default"],
+      // A family name inside another id, or a near miss of a Claude id.
+      ["litellm", "my-sonnet-proxy", "default"],
+      ["litellm", "sonnet-latest", "default"],
+      ["litellm", "Sonnet", "default"],
+      ["litellm", "sonnet[2m]", "default"],
+      ["litellm", "claude", "default"],
+      ["litellm", "claude-", "default"],
+      ["litellm", "openai/claude-sonnet-5", "default"],
+      ["litellm", "anthropic/sonnet", "default"],
+    ] as const) {
+      const auto: ReleaseRun = {
+        ...run,
+        permission_mode: "auto",
+        connection: {
+          ...run.connection,
+          provider: providerOf(kind),
+          models: [model],
+        },
+      };
+      expect(
+        identityOf({ ...card, model }, auto).runtime_config_snapshot
+          .permission_mode,
+      ).toBe(mode);
+      expect(releasePermissionMode(auto, model)).toBe(mode);
+    }
+    // A run that is not `auto` keeps its mode on any model.
+    expect(releasePermissionMode(run, "claude-sonnet-5")).toBe("default");
+  });
+
+  test("a session's model move decides the mode again only where the model decided it", () => {
+    const source = {
+      runtime: { kind: "claude_agent_sdk" as const, version: "0.3.270" },
+      connection: {
+        id: "conn-1",
+        kind: "litellm" as const,
+        endpoint: "https://litellm.invalid",
+        billing: "per_token" as const,
+      },
+    };
+    // From the model: auto on a Claude model, default on another.
+    expect(
+      movedPermissionMode(
+        { ...source, model: "claude-sonnet-5", permission_mode: "auto" },
+        "gpt-5",
+      ),
+    ).toBe("default");
+    expect(
+      movedPermissionMode(
+        { ...source, model: "gpt-5", permission_mode: "default" },
+        "claude-sonnet-5",
+      ),
+    ).toBe("auto");
+    // `default` on a Claude model was pinned, not decided: it stays.
+    expect(
+      movedPermissionMode(
+        { ...source, model: "claude-sonnet-5", permission_mode: "default" },
+        "claude-opus-5",
+      ),
+    ).toBe("default");
+    // Another runtime never runs auto.
+    expect(
+      movedPermissionMode(
+        {
+          runtime: { kind: "codex_app_server", version: "0.167.0" },
+          connection: { ...source.connection, kind: "openai_responses" },
+          model: "gpt-5",
+          permission_mode: "default",
+        },
+        "claude-sonnet-5",
+      ),
+    ).toBe("default");
   });
 
   test("a changed run is a different release; a rotated credential is not", () => {

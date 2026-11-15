@@ -166,8 +166,11 @@ describe("ClaudeSdkRuntime.start hands the published tree's skills to the readin
   const hooks = { onPermission: async () => ({ behavior: "allow" as const }) };
 
   function started(path: string, initialization: object) {
+    // A start writes the engine's settings file here.
+    const state = mkdtempSync(join(tmpdir(), "engine-state-"));
+    made.push(state);
     const config: ClaudeRuntimeConfig = {
-      claudeConfigDir: "/tenant/config",
+      claudeConfigDir: state,
       correlationId: "start-skills",
       mode: "new",
       cwd: "/tenant/workspace",

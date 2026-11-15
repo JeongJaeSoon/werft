@@ -20,9 +20,9 @@ if (!agent_release_id) {
 }
 const target = { agent_release_id };
 
-// `tee` rather than a redirect: a write under the workspace by redirect is
-// pre-approved by the platform and would never reach this handler.
-const COMMAND = "echo alpha | tee hello.txt";
+// `sed`'s `w` command is on the workspace ask list, so it reaches this handler
+// in every permission mode; a redirect or `tee` would not in `auto`.
+const COMMAND = 'echo alpha | sed -n "w hello.txt"';
 // A handler is a security boundary: allow the exact command, deny the rest.
 const approvals: PendingRequestHandlers = {
   permission(request) {

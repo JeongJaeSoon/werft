@@ -278,7 +278,7 @@ bun run scripts/lib/test-ops.ts settings-digest /etc/werft/settings.json
 
 `preflight`는 마운트한 문서가 이 digest와 다르면 거부한다. `deploy`는 끝에서 `settings import --dry-run`으로 DB가 문서를 모두 담았는지 보고, 더할 것이 남아 있으면 `the database does not hold the settings document`로 멈춘다. `upgrade`는 이 확인을 하지 않는다(위 "카탈로그").
 
-연결 설정은 DB 행이 정본이다. 모델 목록과 자동 모드 판정은 콘솔의 **모델 연결**에서 바꾸고, endpoint·자격 증명 출처를 바꿀 때는 새 id로 연결을 더한 뒤 에이전트를 다시 release한다([api-server.md](api-server.md#운영자-카탈로그-모델-연결--repository)).
+연결 설정은 DB 행이 정본이다. 모델 목록은 콘솔의 **모델 연결**에서 바꾸고, endpoint·자격 증명 출처를 바꿀 때는 새 id로 연결을 더한 뒤 에이전트를 다시 release한다([api-server.md](api-server.md#운영자-카탈로그-모델-연결--repository)).
 
 **파일 카탈로그로 돌던 설치.** 올리기 전에 env 파일에서 `PLATFORM_CATALOG_DIR`을 지우고, 옛 디렉터리를 `PLATFORM_LEGACY_CONFIG_DIR`로 준다. migrate가 그 디렉터리를 한 번 가져온다. master key를 `PLATFORM_SECRET_KEY`로 옮기는 일까지 순서는 [api-server.md](api-server.md#설정-문서-가져오기내보내기)의 "파일 카탈로그에서 옮기기"를 따른다. 가져온 뒤 `settings export`의 결과를 설정 문서로 두면 다음 `upgrade`부터 옛 디렉터리가 필요 없다.
 

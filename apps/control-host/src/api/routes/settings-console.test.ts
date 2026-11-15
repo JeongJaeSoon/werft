@@ -159,15 +159,6 @@ const WRITES: ReadonlyArray<{
   },
   {
     method: "POST",
-    path: `${BASE}/connections/console/auto-mode`,
-    service: "setConnectionAutoMode",
-    body: { auto_mode: "supported" },
-    invalid: { auto_mode: "yes" },
-    status: 200,
-    args: ["console", "supported"],
-  },
-  {
-    method: "POST",
     path: `${BASE}/connections/console/models`,
     service: "setConnectionModels",
     body: { models: ["claude-sonnet-5"] },
@@ -200,7 +191,6 @@ describe("GET /v1/installation/settings/{kind}", () => {
               endpoint: "http://fake-model:8080",
               billing: "none",
               auth_kind: "api_key",
-              auto_mode: "unknown",
               models: ["claude-sonnet-5"],
               model_families: null,
               credential: { source: "external", value_env: "FAKE_KEY" },

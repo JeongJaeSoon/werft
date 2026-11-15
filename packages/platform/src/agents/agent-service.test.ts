@@ -381,18 +381,10 @@ describe("agent service", () => {
       derivation_version: 2,
       connection: { id: "conn-1", kind: "litellm" },
       model: "claude-sonnet-5",
-      permission_mode: "default",
+      permission_mode: "auto",
       tools: ["Read", "Grep", "Agent"],
     });
     expect(stored.spec.spec_source).not.toHaveProperty("release_id");
-  });
-
-  test("a connection whose classifier works runs its releases in auto", async () => {
-    const { release: made } = await serviceOver(memoryStore().store, {
-      ...CONNECTION,
-      auto_mode: "supported",
-    }).createRelease(owner, AGENT, release);
-    expect(made.runtime_config_snapshot.permission_mode).toBe("auto");
   });
 
   test("a new release keeps the active release's GitHub settings; only they and the id differ", async () => {
@@ -961,8 +953,7 @@ describe("activation and the agent's extension bundles", () => {
 
   test("a release in auto is activated while the agent offers a scripted bundle: the bundle's review, not the mode, lets it run", async () => {
     const memory = memoryStore();
-    const auto = { ...CONNECTION, auto_mode: "supported" as const };
-    const service = overWith(memory.store, WITH_SKILL, auto);
+    const service = overWith(memory.store, WITH_SKILL);
     const { release: made } = await service.createRelease(
       owner,
       AGENT,

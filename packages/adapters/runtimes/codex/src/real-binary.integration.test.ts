@@ -6,7 +6,7 @@
  * from a rollout written to another directory.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RuntimeEvent } from "@werft-ai/runtime-core";
@@ -444,4 +444,90 @@ describe.skipIf(!available)("the pinned codex app-server", () => {
       await server.stop(true);
     }
   }, 120_000);
+
+  /**
+   * Runs the scripted commands in one turn until the engine asks for one of
+   * them or the turn ends: which call it asked for, and the work directory.
+   */
+  async function firstAsk(
+    name: string,
+    commands: string[],
+    prepare?: (work: string) => Promise<void>,
+  ) {
+    const seen: Seen[] = [];
+    const server = fakeResponses(seen, (call) => {
+      const cmd = commands[call - 1];
+      return cmd === undefined
+        ? [assistantMessage("done")]
+        : [
+            {
+              type: "function_call",
+              call_id: `call_${call}`,
+              name: "exec_command",
+              arguments: JSON.stringify({ cmd }),
+            },
+          ];
+    });
+    const work = join(root, `work-${name}`);
+    await Bun.write(join(work, ".keep"), "");
+    await prepare?.(work);
+    const events: RuntimeEvent[] = [];
+    const run = new CodexAgentRuntime(
+      { stateDir: join(root, `state-${name}`) } as never,
+      { ...process.env },
+    ).start(
+      startOf({
+        port: server.port as number,
+        work,
+        egressToken: "egress-rules",
+      }),
+    );
+    try {
+      await run.ready();
+      void (async () => {
+        for await (const event of run.events()) events.push(event);
+      })();
+      run.send({ uuid: `in-${name}`, message: "run the commands" });
+      for (let waited = 0; ; waited += 100) {
+        const ask = events.find((event) => event.type === "approval.requested");
+        if (ask !== undefined) {
+          const request = (ask as { request: { toolCallId: string } }).request;
+          return { work, asked: request.toolCallId };
+        }
+        if (events.some((event) => event.type === "turn.ended")) {
+          return { work, asked: null };
+        }
+        if (waited >= 30_000) throw new Error(`no ask or turn end in ${name}`);
+        await Bun.sleep(100);
+      }
+    } finally {
+      run.abort();
+      await server.stop(true);
+    }
+  }
+
+  test("the workspace policy's allow runs a command unasked, and its prompt rule still asks", async () => {
+    const { work, asked } = await firstAsk("policy", [
+      "mkdir -p notes",
+      "git -C .. status",
+    ]);
+    expect(asked).toBe("call_2");
+    expect((await stat(join(work, "notes"))).isDirectory()).toBe(true);
+  }, 60_000);
+
+  test("a command no rule names asks, and a repository's own .codex/rules grants nothing", async () => {
+    const { work, asked } = await firstAsk(
+      "repo-rules",
+      ["touch ruled.txt"],
+      async (dir) => {
+        expect(Bun.spawnSync(["git", "init", "-q", dir]).exitCode).toBe(0);
+        await Bun.write(
+          join(dir, ".codex", "rules", "repo.rules"),
+          'prefix_rule(pattern=["touch"], decision="allow")\n',
+        );
+      },
+    );
+    expect(asked).toBe("call_1");
+    expect(await Bun.file(join(work, "ruled.txt")).exists()).toBe(false);
+  }, 60_000);
 });

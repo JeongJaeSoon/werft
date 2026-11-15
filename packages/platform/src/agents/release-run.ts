@@ -29,9 +29,10 @@ export type ReleaseRunRefusal = {
  * the one the connection's kind runs on, at the version the image ships; its
  * tools are that runtime's whole built-in catalog (or its fixed tool set, for a
  * runtime with no catalog) and its subagent tool, which the workspace's and
- * the agent's rules then narrow. The engine runs `auto` where an operator
- * judged that its classifier works over the connection, and `default` (a
- * person answers what the rules leave open) everywhere else.
+ * the agent's rules then narrow. `permission_mode` is `auto` for a runtime
+ * whose engine has a classifier of its own and `default` (a person answers
+ * what the rules leave open) for any other; the card's model then narrows
+ * `auto` (release-ids.ts `releasePermissionMode`).
  */
 export function releaseRunOf(
   catalog: {
@@ -69,11 +70,11 @@ export function releaseRunOf(
       message: `No built-in tool catalog is installed for ${kind} ${version}`,
     };
   }
-  const permission_mode: PermissionMode =
-    RUNTIME_KINDS_WITH_AUTO_MODE.includes(kind) &&
-    connection.auto_mode === "supported"
-      ? "auto"
-      : "default";
+  const permission_mode: PermissionMode = RUNTIME_KINDS_WITH_AUTO_MODE.includes(
+    kind,
+  )
+    ? "auto"
+    : "default";
   return {
     ok: true,
     run: {

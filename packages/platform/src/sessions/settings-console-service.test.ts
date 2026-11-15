@@ -140,7 +140,6 @@ function service(
     create: record("create"),
     setValue: record("setValue"),
     convertConnection: record("convertConnection"),
-    setConnectionAutoMode: record("setConnectionAutoMode"),
     setConnectionModels: record("setConnectionModels"),
     disable: record("disable"),
     enableConnection: record("enableConnection"),
@@ -208,10 +207,6 @@ describe("settings console service", () => {
       ).toBe("FORBIDDEN");
       expect(
         (await refusal(settings.convertConnection(who, "c", "v"))).code,
-      ).toBe("FORBIDDEN");
-      expect(
-        (await refusal(settings.setConnectionAutoMode(who, "c", "supported")))
-          .code,
       ).toBe("FORBIDDEN");
     }
     expect(writes).toEqual([]);
@@ -406,45 +401,30 @@ describe("settings console service", () => {
     expect(rereads()).toBe(1);
   });
 
-  test("a connection's auto mode is passed to the store and the settings are read again", async () => {
-    const { settings, writes, rereads } = service();
-    const set = await settings.setConnectionAutoMode(
-      caller("owner"),
-      "main",
-      "supported",
-    );
-    expect(set).toEqual({ id: "main", receipt_id: RECEIPT });
-    expect(writes).toEqual([["setConnectionAutoMode", "main", "supported"]]);
-    expect(rereads()).toBe(1);
-  });
-
-  test("the list names each connection's judged auto mode, unknown when the store has none", async () => {
-    const entry = {
-      kind: "anthropic",
-      endpoint: "https://api.anthropic.com",
-      billing: "per_token",
-      auth: { kind: "api_key", stored: true },
-    };
-    const row = (id: string, autoMode?: "supported" | "unsupported") => ({
-      id,
-      entry,
-      origin: "console" as const,
-      last4: "abcd",
-      createdAt: new Date("2026-10-01T00:00:00.000Z"),
-      disabledAt: null,
-      ...(autoMode === undefined ? {} : { autoMode }),
-    });
+  test("a listed connection carries no auto mode judgement", async () => {
     const { settings } = service({
       rows: {
-        connection: [row("a", "supported"), row("b", "unsupported"), row("c")],
+        connection: [
+          {
+            id: "a",
+            entry: {
+              kind: "anthropic",
+              endpoint: "https://api.anthropic.com",
+              billing: "per_token",
+              auth: { kind: "api_key", stored: true },
+            },
+            origin: "console" as const,
+            last4: "abcd",
+            createdAt: new Date("2026-10-01T00:00:00.000Z"),
+            disabledAt: null,
+          },
+        ],
       },
     });
     const listed = await settings.listConnections(caller("owner"));
-    expect(listed.items.map((item) => [item.id, item.auto_mode])).toEqual([
-      ["a", "supported"],
-      ["b", "unsupported"],
-      ["c", "unknown"],
-    ]);
+    expect(listed.items.map((item) => item.id)).toEqual(["a"]);
+    expect("auto_mode" in (listed.items[0] ?? {})).toBe(false);
+    expect("setConnectionAutoMode" in settings).toBe(false);
   });
 
   test("the store's refusals map to their codes and reason", async () => {
@@ -725,7 +705,6 @@ describe("reading a connection's models from its provider", () => {
       },
     },
     models: [],
-    auto_mode: "unknown",
   });
   const listing = async () => ({
     status: 200,

@@ -5779,7 +5779,11 @@ export const providerConnections = pgTable(
      */
     models: jsonb().$type<string[]>().notNull().default([]),
     modelFamilies: jsonb("model_families").$type<Record<string, unknown>>(),
-    /** Whether the engine's auto mode classifier works over this connection. */
+    /**
+     * Unused: the operator's old judgement of the engine's auto mode
+     * classifier over this connection. Nothing reads or writes it any more;
+     * kept so no migration drops data.
+     */
     autoMode: text("auto_mode")
       .$type<"supported" | "unsupported" | "unknown">()
       .notNull()

@@ -29,30 +29,14 @@ describe("releaseRunOf", () => {
       connection_id: TEST_CONNECTION_ID,
       runtime: { kind: "claude_agent_sdk", version: "0.3.270" },
       tools: ["Read", "Edit", "Bash", "Agent"],
-      permission_mode: "default",
+      permission_mode: "auto",
       project_settings: { claude_md: true },
     });
   });
 
-  test("runs auto only where an operator judged the classifier works over the connection", () => {
-    for (const [autoMode, mode] of [
-      ["supported", "auto"],
-      ["unsupported", "default"],
-      ["unknown", "default"],
-    ] as const) {
-      const catalog = testCatalog({
-        connections: {
-          [TEST_CONNECTION_ID]: testConnection({ auto_mode: autoMode }),
-        },
-      });
-      const found = releaseRunOf(catalog, TEST_RUNTIMES, TEST_CONNECTION_ID);
-      expect(found.ok && found.run.permission_mode).toBe(mode);
-    }
-  });
-
   test("a Responses connection runs codex, and never auto", () => {
     const catalog = testCatalog({
-      connections: { codex: { ...responses, auto_mode: "supported" } },
+      connections: { codex: responses },
       // As installed: no catalog for Codex.
       tool_catalogs: { ...testToolCatalogs(), for: () => undefined },
     });

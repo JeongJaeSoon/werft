@@ -161,7 +161,6 @@ async function topology(
             },
           },
           models: ["claude-sonnet-4-5"],
-          auto_mode: "unknown",
         },
         [RESPONSES_CONNECTION]: {
           provider: {
@@ -174,7 +173,6 @@ async function topology(
             },
           },
           models: ["gpt-5.5"],
-          auto_mode: "unknown",
         },
       },
       repositories: {

@@ -20,9 +20,9 @@ export function claudeEngine(env = process.env): EngineFixture {
     // The Claude engine enforces its budget inside the SDK, and the fake
     // Messages API reports no scripted usage.
     capabilities: new Set<Capability>(),
-    // A write through `tee` asks; a read-only command and a redirect into the
-    // workspace do not.
-    approvalCommand: "echo conformance | tee approved.txt",
+    // The release runs auto mode and the fake's safety check allows every
+    // call, so only an ask rule reaches a person: sed's `w` is on that list.
+    approvalCommand: 'echo conformance | sed -n "w approved.txt"',
     prompt: (script) =>
       scripted(
         script.id,

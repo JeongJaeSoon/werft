@@ -32,8 +32,7 @@ A session calls its model through the model connection its agent release chose. 
    - A saved model the provider no longer lists stays checked and is marked **Not listed**. Nothing drops it on its own; uncheck it and save.
    - The server sends the key only to hosts on the egress credential allowlist (`EGRESS_CREDENTIAL_ALLOWLIST`, or `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` for a private server). When the allowlist is empty, the host is not on it, or the provider refuses the key or cannot be reached, the dialog says which. The saved list can still be saved when the list cannot be read. Neither the key nor the provider's answer body appears in a response or a log.
    - When a model taken off the list has a later version of its series on the list, agents and sessions on it move to that one (`model_families`).
-3. Choose **Set auto mode** from the row's ⋯ menu and say whether the auto-mode classifier works on the connection. With `supported` (or an Anthropic connection nobody judged), new releases run the `auto` permission mode; otherwise `default`.
-4. When you create an agent, choose this connection in the **Release** step ([Create](/agents/create)).
+3. When you create an agent, choose this connection in the **Release** step ([Create](/agents/create)). New releases on this connection run the `auto` permission mode.
 
 Choose repositories in the agent's **GitHub** tab, within the workspace's allowed scope, not on the connection. What to ask about and block is set by the workspace's and the agent's run rules ([Permissions](/agents/permissions)).
 
@@ -41,7 +40,7 @@ Starting a session on a release of this connection before providing a key produc
 
 To run OpenAI models on the Codex engine, choose the kind `openai_responses` on the same screen. The default address is `https://api.openai.com`, and an API key is the only way to authenticate. Sessions on this connection run on the Codex worker image. For the image and the proxy allowlist (`api.openai.com:443`), follow the [configuration reference](/run-server/self-hosting/reference/configuration).
 
-For the connection the achievement judge Luna (OpenAI Decisions API) uses, choose the kind `openai_decisions`. The default address is `https://api.openai.com`, an API key is the only way to authenticate, and judging is always charged on its own ledger. No agent runs on this connection, so it has no model list and no auto mode. It is picked in the judging settings of [Achievement rules](/achievements).
+For the connection the achievement judge Luna (OpenAI Decisions API) uses, choose the kind `openai_decisions`. The default address is `https://api.openai.com`, an API key is the only way to authenticate, and judging is always charged on its own ledger. No agent runs on this connection, so it has no model list. It is picked in the judging settings of [Achievement rules](/achievements).
 
 <a id="2-환경-변수-대안" />
 ### 2. Environment-variable alternative

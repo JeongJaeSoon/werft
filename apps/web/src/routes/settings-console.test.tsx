@@ -29,7 +29,6 @@ const connection = (
   endpoint: "https://api.anthropic.com",
   billing: "per_token",
   auth_kind: "api_key",
-  auto_mode: "unknown",
   credential: { source: "stored", last4: "abcd" },
   models: ["claude-sonnet-5"],
   model_families: null,
@@ -272,6 +271,8 @@ describe("모델 연결", () => {
     // Disabling stays a button of its own; the rest wait in the row's menu.
     const stored = rowOf(table, "console-key");
     expect(stored.textContent).toContain("••••abcd");
+    // Every Claude release runs auto, so no row offers or shows a judgement.
+    expect(stored.textContent).not.toContain("자동 모드");
     expect(
       within(stored)
         .getAllByRole("button")
@@ -280,7 +281,6 @@ describe("모델 연결", () => {
     const storedMenu = await openMenu(user, table, "console-key");
     expect(menuLabels(storedMenu)).toEqual([
       "console-key의 API 키 설정",
-      "console-key의 자동 모드 판정",
       "console-key의 모델 목록",
     ]);
     expect(
@@ -294,7 +294,6 @@ describe("모델 연결", () => {
     // An operator reference: no replace, but it can move to a typed key.
     expect(menuLabels(await openMenu(user, table, "ops-ref"))).toEqual([
       "ops-ref 화면에서 키 넣기",
-      "ops-ref의 자동 모드 판정",
       "ops-ref의 모델 목록",
     ]);
     await user.keyboard("{Escape}");
@@ -409,7 +408,7 @@ describe("모델 연결", () => {
     ]);
   });
 
-  test("an openai_decisions row says it only judges achievements, and offers no models or auto mode", async () => {
+  test("an openai_decisions row says it only judges achievements, and offers no models", async () => {
     renderAt(CONNECTIONS_PAGE, {
       ...routes(),
       [`GET ${CONNECTIONS}`]: () =>
@@ -1398,29 +1397,6 @@ describe("모델 연결", () => {
     await screen.findByText("anthropic의 키를 저장했습니다.");
     expect(writes(api.calls).map((call) => [call.path, call.body])).toEqual([
       [`${CONNECTIONS}/anthropic/convert`, { value: "typed-key-value" }],
-    ]);
-  });
-
-  test("a connection's auto mode is judged from its row: the dialog says what 'supported' does and sends the choice to its own route", async () => {
-    const { api } = renderAt(CONNECTIONS_PAGE, {
-      ...routes(),
-      [`POST ${CONNECTIONS}/console-key/auto-mode`]: () =>
-        json(200, CHANGE("console-key")),
-    });
-    const user = await setupUser();
-    const table = await screen.findByRole("table", { name: "모델 연결" });
-    await choose(user, table, "console-key", "console-key의 자동 모드 판정");
-    const dialog = await screen.findByRole("dialog");
-    expect(dialog.textContent).toContain("다음 claim부터 auto로 실행됩니다");
-    const select = within(dialog).getByLabelText("판정") as HTMLSelectElement;
-    expect(select.value).toBe("unknown");
-    await user.selectOptions(select, "supported");
-    await user.click(within(dialog).getByRole("button", { name: "저장" }));
-    await screen.findByText(
-      "console-key의 자동 모드를 '지원함'(으)로 기록했습니다.",
-    );
-    expect(writes(api.calls).map((call) => [call.path, call.body])).toEqual([
-      [`${CONNECTIONS}/console-key/auto-mode`, { auto_mode: "supported" }],
     ]);
   });
 

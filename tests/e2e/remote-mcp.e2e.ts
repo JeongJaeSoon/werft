@@ -115,10 +115,13 @@ afterAll(async () => {
   }
 }, TIMEOUT);
 
+const GATE: Step = bash('echo gate | sed -n "w gate.txt"');
+
 /**
  * Settles a turn, allowing each permission request as it comes; `before`
- * runs ahead of the answer to the n-th one (0-based). The fake-messages connection
- * runs `permission_mode: default` (no auto mode), so a pinned tool still asks.
+ * runs ahead of the answer to the n-th one (0-based). The fake-messages
+ * release runs auto mode and the fake's safety check allows every call, so
+ * only an ask rule (`GATE`) stops the turn for a person.
  */
 async function settle(
   sessionId: string,
@@ -313,14 +316,14 @@ describe("remote MCP with the agent's service account", () => {
       const before = await fakeMcp();
       const whoami: Step = { tool: "mcp__fake__whoami", input: {} };
       const started = await startSession(
-        [whoami, whoami, whoami],
+        [whoami, GATE, whoami, whoami],
         "mcp-revoke",
       );
       expect(started.status).toBe(201);
       const sessionId = started.body.session_id;
       const turn = await settle(sessionId, "1", {
-        // The first call has run; the second waits for its answer.
-        1: async () => {
+        // The first call has run; the gate waits for its answer.
+        0: async () => {
           const revoked = await web(
             "DELETE",
             `/v1/agents/${agentId}/credential-bindings/${bindingId}`,
@@ -329,7 +332,7 @@ describe("remote MCP with the agent's service account", () => {
         },
       });
       expect(turn.status).toBe("completed");
-      const [first, second, third] = await toolResults(sessionId);
+      const [first, , second, third] = await toolResults(sessionId);
       expect(textOf(first)).toContain("ok:fake-mcp");
       const refused =
         /egress denied: credential_unbound \(receipt ([0-9a-f-]{36})\)/;

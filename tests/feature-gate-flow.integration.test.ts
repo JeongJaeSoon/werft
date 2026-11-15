@@ -57,7 +57,7 @@ import { noWorkspace } from "../apps/worker/src/workspace.ts";
 
 /**
  * A release the control plane let through, run by a worker whose engine
- * cannot serve it: the catalog names auto mode, the started run offers no
+ * cannot serve it: a Claude release runs auto mode, the started run offers no
  * classifier. A real WorkerHost refuses it at the Worker Gateway's own HTTP
  * routes before taking the queued input, and the public API says why. Only
  * the container runtime and the engine are fake.
@@ -65,10 +65,7 @@ import { noWorkspace } from "../apps/worker/src/workspace.ts";
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? test : test.skip;
 
-const CATALOG: SessionCatalog = testCatalog({
-  repositories: {},
-  auto_mode: "supported",
-});
+const CATALOG: SessionCatalog = testCatalog({ repositories: {} });
 const REASON = `Runtime claude_agent_sdk ${TEST_RUNTIME_VERSION} cannot run this session's settings: it does not support classifier_review`;
 
 /** Runs a real WorkerHost over a run with no classifier for each container started. */

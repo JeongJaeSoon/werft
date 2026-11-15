@@ -9,12 +9,14 @@ const plan = z.object({}).strict().parse(planSettings);
 
 /**
  * The rules the engine gets for a permission mode, next to its attribution:
- * `settings/default.json` for every mode but auto and plan (default,
- * acceptEdits, dontAsk and bypassPermissions too, as before),
- * `settings/auto.json` for auto, `settings/plan.json` (nothing) for plan.
+ * the shared workspace policy's rules for every mode but plan,
+ * auto's classifier rules of `settings/auto.json` beside them in auto, and
+ * `settings/plan.json` (nothing) for plan.
  *
- * Auto mode leaves these calls to its classifier, whose rules know what a
- * secret is; a rule here would settle a commit before the classifier saw it.
+ * In auto the same routine commands run unasked as in default, and what an
+ * `ask` rule carves out goes to a person, never to the classifier. The engine
+ * drops an allow rule for an interpreter or script runner (`bun run`,
+ * `npm run`, ...) when it enters auto, and the classifier judges those.
  */
 export function modeSettings(input: {
   cwd: string;
@@ -22,11 +24,12 @@ export function modeSettings(input: {
   trusted: boolean;
 }) {
   if (input.permissionMode === "plan") return plan;
-  if (input.permissionMode === "auto") {
-    return { autoMode: platformAutoMode(input.trusted) };
-  }
   const rules = workspaceRules(input.cwd);
-  return rules.allow.length === 0 ? {} : { permissions: rules };
+  const permissions = rules.allow.length === 0 ? {} : { permissions: rules };
+  if (input.permissionMode === "auto") {
+    return { ...permissions, autoMode: platformAutoMode(input.trusted) };
+  }
+  return permissions;
 }
 
 type RuleLists = Partial<Record<"allow" | "ask" | "deny", readonly string[]>>;

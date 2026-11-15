@@ -226,7 +226,7 @@ new_session() {
   post /v1/sessions "$(jq -nc --arg m "GATE-SPEC ${spec}" --arg r "$KIND_RELEASE_ID" '{agent_release_id: $r, repository_id: "sample-app", message: $m}')" |
     jq -r .session_id
 }
-s1="$(new_session '{"id":"upgrade-wait","final":"approved turn done","steps":[{"tool":"Bash","input":{"command":"echo upgrade | tee up.txt","description":"write a file"}}]}')"
+s1="$(new_session '{"id":"upgrade-wait","final":"approved turn done","steps":[{"tool":"Bash","input":{"command":"echo upgrade | sed -n \"w up.txt\"","description":"write a file"}}]}')"
 s2="$(new_session '{"id":"upgrade-paused","steps":[],"final":"turn one done"}')"
 echo "S1 ${s1} waits for an approval; S2 ${s2} gets paused"
 wait_session "waiting for input" '.status == "needs_input"' "$s1"
@@ -461,7 +461,7 @@ pause_session() {
 pause_session "$s1"
 pause_session "$s2"
 checkpoint_list="$(get "/v1/sessions/${s2}" | jq '.durability.checkpoint_revision')"
-s3="$(new_session '{"id":"list-wait","final":"list turn done","steps":[{"tool":"Bash","input":{"command":"echo list | tee list.txt","description":"write a file"}}]}')"
+s3="$(new_session '{"id":"list-wait","final":"list turn done","steps":[{"tool":"Bash","input":{"command":"echo list | sed -n \"w list.txt\"","description":"write a file"}}]}')"
 wait_session "waiting for input" '.status == "needs_input"' "$s3"
 request_s3="$(get "/v1/sessions/${s3}/pending-requests" | jq -r '.items[0].request_id')"
 worker_s3="$(worker_pods "$s3")"

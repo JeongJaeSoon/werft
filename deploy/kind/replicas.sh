@@ -239,9 +239,10 @@ assert_once() {
 
 # Four turns' worth of permission questions: each Bash step asks, the session
 # waits, and the answer goes to the other replica than the one reading.
+# `sed -n "w …"` is on the workspace ask list, so it asks in auto mode too.
 asks=4
 spec="$(jq -nc --argjson n "$asks" '{id: "replicas-flow", final: "replicas flow done",
-  steps: [range(0; $n) | {tool: "Bash", input: {command: ("echo replicas " + tostring + " | tee hello" + tostring + ".txt"), description: "write a file"}}]}')"
+  steps: [range(0; $n) | {tool: "Bash", input: {command: ("echo replicas " + tostring + " | sed -n \"w hello" + tostring + ".txt\""), description: "write a file"}}]}')"
 body="$(jq -nc --arg m "GATE-SPEC ${spec}" --arg r "$KIND_RELEASE_ID" '{agent_release_id: $r, repository_id: "sample-app", message: $m}')"
 created_session="$(post "$PORT_A" /v1/sessions "$body")"
 sid="$(echo "$created_session" | jq -r .session_id)"

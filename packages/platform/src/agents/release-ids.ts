@@ -9,7 +9,9 @@ import {
   MCP_TOOL_PREFIX,
   type PermissionMode,
   type PolicyPins,
+  RUNTIME_KINDS_WITH_AUTO_MODE,
   type RuntimeKind,
+  type SpecSource,
   type ToolPolicy,
 } from "@werft-ai/contracts";
 import {
@@ -25,6 +27,61 @@ export function releaseModel(
 ): string | undefined {
   const model = release?.runtime_config_snapshot.model;
   return typeof model === "string" ? model : undefined;
+}
+
+/**
+ * Whether a connection of `kind` serves `model` as a Claude model. The Claude
+ * engine's classifier is a Claude model reached over the session's own
+ * connection, so `auto` holds only there: an `anthropic` connection, or a
+ * `litellm` one whose model id names Claude: `claude-…`, `anthropic/claude-…`,
+ * or exactly one of the engine's family aliases, with or without `[1m]`. A
+ * family name inside another id (`my-sonnet-proxy`) does not count: the
+ * connection records nothing else about its upstream.
+ */
+const CLAUDE_MODEL_ID =
+  /^(?:(?:anthropic\/)?claude-.+|(?:sonnet|opus|haiku|fable)(?:\[1m\])?)$/;
+
+function servesClaudeModel(
+  kind: CatalogConnectionView["provider"]["kind"],
+  model: string,
+): boolean {
+  return (
+    kind === "anthropic" || (kind === "litellm" && CLAUDE_MODEL_ID.test(model))
+  );
+}
+
+/** The mode a release of `model` on the run's connection pins. */
+export function releasePermissionMode(
+  run: { connection: CatalogConnectionView; permission_mode: PermissionMode },
+  model: string,
+): PermissionMode {
+  if (run.permission_mode !== "auto") return run.permission_mode;
+  return servesClaudeModel(run.connection.provider.kind, model)
+    ? "auto"
+    : "default";
+}
+
+/**
+ * The mode a session's spec runs once its model is `model` rather than the
+ * release's: decided again where the release's mode came from its model, kept
+ * where it did not (another runtime, or `default` pinned on a Claude model).
+ */
+export function movedPermissionMode(
+  source: Pick<
+    SpecSource,
+    "runtime" | "connection" | "model" | "permission_mode"
+  >,
+  model: string,
+): SpecSource["permission_mode"] {
+  if (!RUNTIME_KINDS_WITH_AUTO_MODE.includes(source.runtime.kind)) {
+    return source.permission_mode;
+  }
+  const fromModel =
+    source.permission_mode === "auto" ||
+    (source.permission_mode === "default" &&
+      !servesClaudeModel(source.connection.kind, source.model));
+  if (!fromModel) return source.permission_mode;
+  return servesClaudeModel(source.connection.kind, model) ? "auto" : "default";
 }
 
 // Ported from Kollegium v1 `packages/core/src/ids.ts` (Apache-2.0,
@@ -142,7 +199,7 @@ export function resolveReleaseContent(
       runtime_config_snapshot: {
         model: card.model,
         tools,
-        permission_mode: run.permission_mode,
+        permission_mode: releasePermissionMode(run, card.model),
         provider: {
           kind: run.connection.provider.kind,
           endpoint: run.connection.provider.endpoint,

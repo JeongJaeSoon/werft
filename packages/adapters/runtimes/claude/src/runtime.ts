@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
-import { writeSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { dirname, join, relative, sep } from "node:path";
 import { Readable, Writable } from "node:stream";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import {
@@ -36,26 +37,62 @@ import { TurnLedger } from "./turn-ledger.ts";
 
 const MIN_BUDGET_USD = 0.000001;
 
-// The inline settings and the deny rules both travel as engine arguments,
-// and a Linux argument is one string of at most 128 KiB: the settings once
-// reached 132 KB and the engine failed to start (E2BIG). The settings plus
-// the rules, in the bytes the arguments hold after merging, stay under the
-// figure the default settings are already tested against; over it the run
-// does not start, and no rule is cut to fit.
-const ENGINE_ARGUMENT_BUDGET_BYTES = 100_000;
+const SETTINGS_SCHEMA =
+  "https://json.schemastore.org/claude-code-settings.json";
 
-function assertEngineArgumentBudget(
-  settings: unknown,
-  disallowed: readonly string[],
-): void {
-  const bytes =
-    Buffer.byteLength(JSON.stringify(settings), "utf8") +
-    Buffer.byteLength(JSON.stringify(disallowed), "utf8");
-  if (bytes > ENGINE_ARGUMENT_BUDGET_BYTES) {
-    throw new Error(
-      `The engine's settings and deny rules take ${bytes} bytes of arguments, over the ${ENGINE_ARGUMENT_BUDGET_BYTES} the engine starts with`,
-    );
+/**
+ * Where a start's merged settings go: beside the engine's own state, outside
+ * the checkout, so neither the repository nor its history carries them.
+ */
+export function engineSettingsPath(config: ClaudeRuntimeConfig): string {
+  return join(config.claudeConfigDir, "launcher-settings.json");
+}
+
+/** Deny rules that keep the agent from editing the settings file it runs under. */
+export function settingsFileDenyRules(path: string, home: string): string[] {
+  const rules = [`Edit(/${path})`];
+  const fromHome = relative(home, path);
+  if (
+    fromHome !== "" &&
+    !fromHome.startsWith("..") &&
+    !fromHome.startsWith(sep)
+  ) {
+    rules.unshift(`Edit(~/${fromHome})`);
   }
+  return rules;
+}
+
+/**
+ * Writes the settings to a fresh file and returns its path for the engine's
+ * `--settings`. Rewritten on every start, so an edit made during a session
+ * never outlives the engine that made it. The old file is removed first and
+ * the new one created exclusively, so a link left in its place is not
+ * followed.
+ */
+export function writeEngineSettings(
+  config: ClaudeRuntimeConfig,
+  settings: Record<string, unknown>,
+): string {
+  const path = engineSettingsPath(config);
+  const permissions = (settings.permissions ?? {}) as { deny?: string[] };
+  const file = {
+    $schema: SETTINGS_SCHEMA,
+    ...settings,
+    permissions: {
+      ...permissions,
+      deny: [
+        ...(permissions.deny ?? []),
+        ...settingsFileDenyRules(path, config.home),
+      ],
+    },
+  };
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  rmSync(path, { force: true });
+  writeFileSync(path, `${JSON.stringify(file, null, 2)}\n`, {
+    flag: "wx",
+    mode: 0o600,
+  });
+  return path;
 }
 
 // The platform attributes commits and pull requests itself. Flag settings
@@ -100,16 +137,23 @@ export class ClaudeSdkRuntime {
     const input = new InputStream();
     const abortController = new AbortController();
     const ledger = new TurnLedger(config.resume);
+    const options = buildSdkOptions(
+      launched,
+      hooks,
+      ledger,
+      abortController,
+      this.processObserver,
+      this.toolDecisions,
+    );
     const sdkQuery = this.launch({
       prompt: input,
-      options: buildSdkOptions(
-        launched,
-        hooks,
-        ledger,
-        abortController,
-        this.processObserver,
-        this.toolDecisions,
-      ),
+      options: {
+        ...options,
+        settings: writeEngineSettings(
+          launched,
+          options.settings as Record<string, unknown>,
+        ),
+      },
     });
     return new ClaudeSdkRun(
       config.correlationId,
@@ -178,7 +222,6 @@ export function buildSdkOptions(
     ),
   };
   const disallowed = [...(config.disallowedTools ?? [])];
-  assertEngineArgumentBudget(settings, disallowed);
   const settle: HookCallback = async (input) => {
     if ("tool_use_id" in input) {
       ledger.toolSettled(input.tool_use_id);

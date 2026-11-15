@@ -84,22 +84,6 @@ describe("disallowedTools", () => {
     );
     expect(withRules.settings).toEqual(without.settings);
   });
-
-  test("a start whose settings and rules do not fit the engine's arguments fails, and no rule is cut", () => {
-    const rule = `Bash(${"a".repeat(240)})`;
-    expect(() =>
-      buildSdkOptions(
-        configOf({ disallowedTools: Array.from({ length: 64 }, () => rule) }),
-        hooks,
-      ),
-    ).not.toThrow();
-    // Above the budget by size alone: the rules are not trimmed to fit.
-    const huge = configOf({
-      disallowedTools: Array.from({ length: 64 }, () => rule),
-    });
-    huge.cwd = `/${"w".repeat(100_000)}`;
-    expect(() => buildSdkOptions(huge, hooks)).toThrow(/bytes of arguments/);
-  });
 });
 
 describe("a rule the engine would drop does not start", () => {

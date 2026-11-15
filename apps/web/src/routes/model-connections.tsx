@@ -76,7 +76,6 @@ export function ModelConnections() {
   const connections = useQuery(settingsConnectionsQuery(client));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [adding, setAdding] = useState(false);
-  const [judging, setJudging] = useState<SettingsConnection | null>(null);
   const [listing, setListing] = useState<string | null>(null);
   const [opener, setOpener] = useState<HTMLElement | null>(null);
   const rows = useRowActions("connection", setOutcome);
@@ -149,11 +148,6 @@ export function ModelConnections() {
                 busy={rows.busy}
                 onValue={(opener) => rows.openValue(item.id, opener)}
                 onConvert={(opener) => rows.openConvert(item.id, opener)}
-                onAutoMode={(opener) => {
-                  setOutcome(null);
-                  setOpener(opener);
-                  setJudging(item);
-                }}
                 onModels={(opener) => {
                   setOutcome(null);
                   setOpener(opener);
@@ -178,12 +172,6 @@ export function ModelConnections() {
           setListing(id);
         }}
       />
-      <AutoModeDialog
-        item={judging}
-        opener={opener}
-        onClose={() => setJudging(null)}
-        onOutcome={setOutcome}
-      />
       <ModelsDialog
         // Keyed so each connection opens on its own saved list.
         key={listing ?? ""}
@@ -203,7 +191,6 @@ function ConnectionRow({
   busy,
   onValue,
   onConvert,
-  onAutoMode,
   onModels,
   onDisable,
   onEnable,
@@ -213,20 +200,19 @@ function ConnectionRow({
   /** Each gets the menu's button, which takes the focus back on close. */
   readonly onValue: (opener: HTMLElement | null) => void;
   readonly onConvert: (opener: HTMLElement | null) => void;
-  readonly onAutoMode: (opener: HTMLElement | null) => void;
   readonly onModels: (opener: HTMLElement | null) => void;
   readonly onDisable: () => void;
   readonly onEnable: () => void;
 }) {
   const { t } = useI18n();
   const actions = entryActions(item);
-  // No agent runs on it, so it has no models and no auto mode.
+  // No agent runs on it, so it has no models.
   const judgeOnly = item.kind === "openai_decisions";
   const disabled = item.state === "disabled";
   const credentialKind = t(`settings.connections.authKind.${item.auth_kind}`);
   const detail = judgeOnly
     ? item.kind
-    : `${item.kind} · ${t(`settings.connections.billing.${item.billing}`)} · ${t("settings.autoMode.column")} ${t(`settings.autoMode.${item.auto_mode}`)}`;
+    : `${item.kind} · ${t(`settings.connections.billing.${item.billing}`)}`;
   const credential = `${credentialKind} · ${credentialText(t, item.credential)}`;
   const models = judgeOnly
     ? t("settings.connections.judgeOnly")
@@ -249,12 +235,6 @@ function ConnectionRow({
       text: t("settings.convert"),
       open: onConvert,
     },
-    !disabled &&
-      !judgeOnly && {
-        label: t("settings.autoMode.setFor", { id: item.id }),
-        text: t("settings.autoMode.set"),
-        open: onAutoMode,
-      },
     !disabled &&
       !judgeOnly && {
         label: t("settings.models.setFor", { id: item.id }),
@@ -335,99 +315,6 @@ function ConnectionRow({
         </div>
       </GridTableCell>
     </GridTableRow>
-  );
-}
-
-const AUTO_MODES = ["unknown", "supported", "unsupported"] as const;
-
-/**
- * Records whether a connection's models run the auto-mode classifier. Only
- * "supported" changes how agents run, so the dialog says what that does.
- */
-function AutoModeDialog({
-  item,
-  opener,
-  onClose,
-  onOutcome,
-}: {
-  readonly item: SettingsConnection | null;
-  readonly opener: HTMLElement | null;
-  readonly onClose: () => void;
-  readonly onOutcome: (outcome: Outcome) => void;
-}) {
-  const { t } = useI18n();
-  const [error, setError] = useState<string | null>(null);
-  const save = useSettingsWrite(
-    "connection",
-    (
-      client,
-      variables: {
-        readonly id: string;
-        readonly auto_mode: (typeof AUTO_MODES)[number];
-      },
-    ) =>
-      unwrap(
-        client.POST("/v1/installation/settings/connections/{id}/auto-mode", {
-          params: { path: { id: variables.id } },
-          body: { auto_mode: variables.auto_mode },
-        }),
-      ),
-    {
-      onDone: (_answer, variables) => {
-        onClose();
-        onOutcome({
-          kind: "notice",
-          text: t("settings.done.autoMode", {
-            id: variables.id,
-            value: t(`settings.autoMode.${variables.auto_mode}`),
-          }),
-        });
-      },
-      onRefused: setError,
-    },
-  );
-
-  return (
-    <FormDialog
-      open={item !== null}
-      opener={opener}
-      onOpenChange={(next) => {
-        if (next) return;
-        setError(null);
-        onClose();
-      }}
-      pending={save.isPending}
-      title={t("settings.autoMode.title")}
-      description={t("settings.autoMode.description")}
-      error={error}
-      submitLabel={t("settings.autoMode.save")}
-      pendingLabel={t("settings.autoMode.saving")}
-      onSubmit={(form) => {
-        if (item === null) return;
-        setError(null);
-        const picked = AUTO_MODES.find(
-          (mode) => mode === form.get("auto_mode"),
-        );
-        if (picked === undefined) return;
-        save.mutate({ id: item.id, auto_mode: picked });
-      }}
-    >
-      <Field>
-        <FieldLabel>{t("settings.autoMode.label")}</FieldLabel>
-        {/* Keyed so each connection opens on its own stored value. */}
-        <NativeSelect
-          key={item?.id ?? ""}
-          name="auto_mode"
-          defaultValue={item?.auto_mode ?? "unknown"}
-        >
-          {AUTO_MODES.map((mode) => (
-            <NativeSelectOption key={mode} value={mode}>
-              {t(`settings.autoMode.${mode}`)}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
-      </Field>
-    </FormDialog>
   );
 }
 

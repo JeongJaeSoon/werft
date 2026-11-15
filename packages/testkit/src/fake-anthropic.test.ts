@@ -73,6 +73,51 @@ describe("fake Anthropic Messages API", () => {
     expect(text).toContain('"stop_reason":"tool_use"');
   });
 
+  test("answers the auto mode safety check only when the request asks for it", async () => {
+    server = startFakeAnthropicServer([
+      toolReply("Bash", { command: "ls" }, "toolu_1"),
+      { ...toolReply("Bash", { command: "ls" }, "toolu_2"), flagged: true },
+      toolReply("Bash", { command: "ls" }, "toolu_3"),
+    ]);
+    const asked = { model: "claude-sonnet-4-5", messages: [], safeguards: {} };
+    const verdict = (id: string, outcome: string) => [
+      {
+        type: "dangerous_tool_use",
+        status: {
+          type: "available",
+          tool_uses: { [id]: { type: "evaluated", outcome } },
+        },
+      },
+    ];
+
+    const allowed = (await (
+      await postMessages(server.url, asked)
+    ).json()) as Record<string, unknown>;
+    expect(allowed.safeguard_results).toEqual(
+      verdict("toolu_1", "not_flagged"),
+    );
+
+    const streamed = await (
+      await postMessages(server.url, { ...asked, stream: true })
+    ).text();
+    const delta = [...streamed.matchAll(/^data: (.+)$/gm)]
+      .map((m) => JSON.parse(m[1] as string) as Record<string, unknown>)
+      .find((event) => event.type === "message_delta") as {
+      delta: Record<string, unknown>;
+    };
+    expect(delta.delta.safeguard_results).toEqual(
+      verdict("toolu_2", "flagged"),
+    );
+
+    const plain = (await (
+      await postMessages(server.url, {
+        model: "claude-sonnet-4-5",
+        messages: [],
+      })
+    ).json()) as Record<string, unknown>;
+    expect("safeguard_results" in plain).toBe(false);
+  });
+
   test("plays an array script in order and repeats the last entry", async () => {
     server = startFakeAnthropicServer([textReply("one"), textReply("two")]);
     const texts: string[] = [];

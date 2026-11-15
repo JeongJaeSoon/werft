@@ -45,7 +45,6 @@ function build(costLimitUsd: number) {
             },
           },
           models: ["claude-sonnet-5"],
-          auto_mode: "unknown",
         },
         openai: {
           provider: {
@@ -58,7 +57,6 @@ function build(costLimitUsd: number) {
             },
           },
           models: ["gpt-5.5"],
-          auto_mode: "unknown",
         },
       },
       repositories: {

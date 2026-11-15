@@ -131,7 +131,6 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/installation/settings/connections",
     "POST /v1/installation/settings/connections",
     "GET /v1/installation/settings/connections/{id}/impact",
-    "POST /v1/installation/settings/connections/{id}/auto-mode",
     "POST /v1/installation/settings/connections/{id}/models",
     "POST /v1/installation/settings/connections/{id}/models/discover",
     "POST /v1/installation/settings/connections/{id}/convert",

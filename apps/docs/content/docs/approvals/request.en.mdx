@@ -15,7 +15,7 @@ A session does not push to the repository directly. The session's work is saved 
 
 ## Prepare a session that changes files
 
-The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key). This script appends a line to the repository's `README.md`, and the turn ends once you allow the permission request. Allowing it with the key that created the session works only with the development server's operator key. With a key issued in the web console, allow it from a client made with another key ([A separate key for approvals](/getting-started/client#a-separate-key-for-approvals)).
+The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key). This script writes `NOTES.md` in the repository. It uses the `w` command of `sed`, which is on the ask list, so it asks for permission in every permission mode, and the turn ends once you allow the permission request. Allowing it with the key that created the session works only with the development server's operator key. With a key issued in the web console, allow it from a client made with another key ([A separate key for approvals](/getting-started/client#a-separate-key-for-approvals)).
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
@@ -26,8 +26,19 @@ import { waitForTurn } from "@werft-ai/sdk";
 const note = await werft.sessions.create({
   agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
   repository_id: "sample-app",
-  message:
-    'GATE-SPEC {"id":"note","steps":[{"tool":"Bash","input":{"command":"echo tested | tee -a README.md","description":"append to README.md"}}],"final":"updated README.md"}',
+  message: `GATE-SPEC ${JSON.stringify({
+    id: "note",
+    steps: [
+      {
+        tool: "Bash",
+        input: {
+          command: 'echo tested | sed -n "w NOTES.md"',
+          description: "write NOTES.md",
+        },
+      },
+    ],
+    final: "wrote NOTES.md",
+  })}`,
 });
 const sessionId = note.session_id;
 await waitForTurn(werft, sessionId, note.turn_id, {
@@ -43,7 +54,7 @@ SID=$(curl -sS "$API/v1/sessions" \
   -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"note","steps":[{"tool":"Bash","input":{"command":"echo tested | tee -a README.md","description":"append to README.md"}}],"final":"updated README.md"}' \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"note","steps":[{"tool":"Bash","input":{"command":"echo tested | sed -n \"w NOTES.md\"","description":"write NOTES.md"}}],"final":"wrote NOTES.md"}' \
     '{agent_release_id: env.WERFT_AGENT_RELEASE_ID, repository_id: "sample-app", message: $m}')" \
   | jq -r .session_id)
 until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .status)" = needs_input ]; do
