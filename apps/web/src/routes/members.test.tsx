@@ -1710,7 +1710,34 @@ describe("구성원 · 팀 탭", () => {
     const status = row.querySelector("[data-slot=status-text]");
     expect(status?.textContent).toBe("초대 중");
     expect(status?.getAttribute("data-status")).toBe("wait");
-    expect(cells[3]?.textContent).toContain("까지");
+    // The status keeps one line; the full expiry is the note of an icon
+    // button beside it.
+    const expiry = within(cells[3] as HTMLElement).getByRole("button", {
+      name: "late@example.com 초대의 만료 시각",
+    });
+    expect(expiry.dataset.slot).toBe("invite-expiry");
+    const note = "2026년 10월 18일 09:00:00 GMT+9에 만료";
+    expect(descriptionOf(expiry)).toBe(note);
+    expect(
+      [...(cells[3]?.children ?? [])]
+        .filter((child) => !(child as HTMLElement).hidden)
+        .map((child) => child.textContent),
+    ).toEqual(["초대 중", ""]);
+    // A keyboard reaches the icon after the member row's ⋯ and opens the note.
+    screen.getByRole("button", { name: "Owner 메뉴" }).focus();
+    await user.tab();
+    expect(document.activeElement === expiry).toBe(true);
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-slot="popover-content"]')?.textContent,
+      ).toBe(note),
+    );
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-slot="popover-content"]') === null,
+      ).toBe(true),
+    );
     expect(await itemsOf(user, "late@example.com")).toEqual(["회수"]);
   });
 
@@ -1744,8 +1771,15 @@ describe("구성원 · 팀 탭", () => {
     const status = row.querySelector("[data-slot=status-text]");
     expect(status?.textContent).toBe("만료");
     expect(status?.getAttribute("data-status")).toBe("idle");
-    expect(row.textContent).toContain("에 만료됨");
-    expect(within(row).queryByRole("button") === null).toBe(true);
+    // Its one button is the expiry note's: no ⋯ menu.
+    const buttons = within(row).getAllByRole("button");
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]?.getAttribute("aria-label")).toBe(
+      "old@example.com 초대의 만료 시각",
+    );
+    expect(descriptionOf(buttons[0] as HTMLElement)).toBe(
+      "2026년 10월 18일 09:00:00 GMT+9에 만료됨",
+    );
     // Waiting invites keep their ⋯ menu; revoked ones are history.
     const user = await setupUser();
     expect(await itemsOf(user, "late@example.com")).toEqual(["회수"]);

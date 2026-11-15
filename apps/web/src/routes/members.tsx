@@ -27,7 +27,7 @@ import {
   FieldLabel,
   FieldLegend,
   FieldSet,
-  formatTableDateTime,
+  formatExactTime,
   GridTableCell,
   GridTableRow,
   LinkTab,
@@ -39,7 +39,11 @@ import {
   SegmentedControlItem,
   StatusText,
   Text,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@werft-ai/ui";
+import { Info } from "lucide-react";
 import { useId, useRef, useState } from "react";
 import {
   firstMembersQuery,
@@ -674,10 +678,9 @@ function MemberTable({
         })}
         {invites.map((invite) => {
           const lapsed = inviteLapsed(invite);
-          // The cell ellipsizes a long line; the title keeps the full time.
           const expires = t(
             lapsed ? "members.invites.expiredAt" : "members.invites.expires",
-            { expires: formatTableDateTime(invite.expires_at, locale) },
+            { expires: formatExactTime(invite.expires_at, locale) },
           );
           return (
             <GridTableRow
@@ -707,7 +710,9 @@ function MemberTable({
               <GridTableCell>
                 <RoleBadge role={invite.role} />
               </GridTableCell>
-              <GridTableCell lines={true}>
+              {/* The expiry sits behind an icon so an invite row is one line
+                  tall like a member row (owner, 2026-11-16). */}
+              <GridTableCell className="gap-1">
                 <StatusText status={lapsed ? "idle" : "wait"}>
                   {t(
                     lapsed
@@ -715,9 +720,23 @@ function MemberTable({
                       : "members.invites.state.pending",
                   )}
                 </StatusText>
-                <Text as="span" variant="meta" truncate title={expires}>
-                  {expires}
-                </Text>
+                <Tooltip>
+                  <TooltipTrigger asChild={true}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="size-6"
+                      aria-label={t("members.invites.expiryFor", {
+                        email: invite.email,
+                      })}
+                      data-slot="invite-expiry"
+                    >
+                      <Info aria-hidden="true" className="size-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{expires}</TooltipContent>
+                </Tooltip>
               </GridTableCell>
               <GridTableCell raised={true} align="end">
                 {lapsed ? null : (

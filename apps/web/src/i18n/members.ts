@@ -75,7 +75,8 @@ export const membersKo = {
   "members.invites.state.expired": "만료",
   "members.invites.state.pending": "초대 중",
   "members.invites.expiredAt": "{expires}에 만료됨",
-  "members.invites.expires": "{expires}까지",
+  "members.invites.expires": "{expires}에 만료",
+  "members.invites.expiryFor": "{email} 초대의 만료 시각",
   "members.invites.revoke": "회수",
   "members.invites.revokeTitle": "{email} 초대를 회수할까요?",
   "members.invites.revokeConsequence":
@@ -175,6 +176,7 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.invites.state.pending": "Invited",
   "members.invites.expiredAt": "Expired {expires}",
   "members.invites.expires": "Expires {expires}",
+  "members.invites.expiryFor": "Expiry of the invite for {email}",
   "members.invites.revoke": "Revoke",
   "members.invites.revokeTitle": "Revoke the invite for {email}?",
   "members.invites.revokeConsequence":
@@ -276,7 +278,8 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.invites.state.expired": "期限切れ",
   "members.invites.state.pending": "招待中",
   "members.invites.expiredAt": "{expires}に期限切れ",
-  "members.invites.expires": "{expires}まで",
+  "members.invites.expires": "有効期限 {expires}",
+  "members.invites.expiryFor": "{email} への招待の有効期限",
   "members.invites.revoke": "取り消し",
   "members.invites.revokeTitle": "{email}への招待を取り消しますか？",
   "members.invites.revokeConsequence":

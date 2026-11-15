@@ -269,10 +269,13 @@
     --werft-layout-detail-panel-width: 21.25rem;
     /*
      * Table and list rows (console design v30): a row is at least 48px and a
-     * header row 40px. Lines stacked in one cell sit 2px apart.
+     * header row 40px. Lines stacked in one cell sit 2px apart. A GridTable
+     * row is denser (owner, 2026-11-16): with a 28px row button it stays at
+     * the 48px floor, so the one-line rows of a table share one height.
      */
     --werft-row-padding-x: var(--werft-space-4);
     --werft-row-padding-y: var(--werft-space-4);
+    --werft-grid-row-padding-y: var(--werft-space-2);
     --werft-row-head-padding-y: var(--werft-space-2);
     --werft-row-min-height: 3rem;
     --werft-row-head-min-height: 2.5rem;
