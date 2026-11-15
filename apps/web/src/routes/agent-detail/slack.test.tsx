@@ -1694,6 +1694,41 @@ describe("Slack management", () => {
     expect(pick.closest("[inert]")).toBeNull();
   });
 
+  test("leads the lock to the app section when the app has no event URL", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(200, {
+          ...appResponse(APP),
+          event_url: null,
+          events: { state: "pending", checked_at: AT, url: SENT },
+        }),
+      [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [] }),
+    });
+    const user = await setupUser();
+    const lock = await within(
+      await screen.findByRole("region", { name: "홈 채널 지정" }),
+    ).findByRole("group", {
+      name: "Request URL 확인 전에는 채널을 고를 수 없습니다",
+    });
+    expect(
+      screen.queryByRole("region", { name: "Slack 앱에 넣을 주소" }) === null,
+    ).toBe(true);
+    const nav = screen.getByRole("navigation", { name: "Slack 구역" });
+    expect(
+      within(nav)
+        .getAllByRole("link")
+        .some((link) => link.textContent === "Slack 앱에 넣을 주소"),
+    ).toBe(false);
+    await user.click(
+      within(lock).getByRole("button", { name: "다시 확인으로 이동" }),
+    );
+    expect(
+      document.activeElement ===
+        screen.getByRole("region", { name: "자동으로 만든 Slack 앱" }),
+    ).toBe(true);
+  });
+
   test("locks the connected channels too while Slack has not checked", async () => {
     renderAt(
       DETAIL,

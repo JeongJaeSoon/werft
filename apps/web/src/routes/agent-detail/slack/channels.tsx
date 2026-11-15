@@ -717,7 +717,9 @@ function ChannelsLock({
         onClick={() => {
           const target =
             document.getElementById(RECHECK_ID) ??
-            document.getElementById(SECTION.addresses);
+            document.getElementById(SECTION.addresses) ??
+            // Without an event URL there is no address section.
+            document.getElementById(SECTION.app);
           target?.scrollIntoView({
             block: "center",
             behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
