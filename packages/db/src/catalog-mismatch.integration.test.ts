@@ -734,14 +734,15 @@ integration("claim against a catalog that dropped the pair", () => {
       const session = await queuedSession(MOVED_TO);
       const launch = await reserved(session.session_id);
       const read = await settingsGenerationNow();
+      const id = `conn_${randomUUID().slice(0, 8)}`;
       await db.insert(providerConnections).values({
-        id: `conn_${randomUUID().slice(0, 8)}`,
+        id,
         definition: {
           kind: "anthropic",
           endpoint: "https://api.anthropic.com",
-          auth: { kind: "api_key", value_env: "UNUSED" },
+          auth: { kind: "api_key", stored: `connection:${id}` },
         },
-        credentialSource: "external",
+        credentialSource: "stored",
         origin: "import",
       });
       const now = await settingsGenerationNow();
@@ -773,7 +774,7 @@ integration("claim against a catalog that dropped the pair", () => {
         await writer.query("BEGIN");
         // As a settings import: one row written, the generation held.
         await writer.query(
-          "INSERT INTO provider_connections (id, definition, credential_source, origin) VALUES ('in_flight', '{}', 'external', 'import')",
+          `INSERT INTO provider_connections (id, definition, credential_source, origin) VALUES ('in_flight', '{"auth":{"stored":"connection:in_flight"}}', 'stored', 'import')`,
         );
         const claiming = claim(launch, 1_000, undefined, {
           generation: current,

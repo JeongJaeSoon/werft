@@ -26,9 +26,8 @@ import {
 // The operator's settings import and export
 // (docs/contributing/decisions/settings-replace-file-catalog.md §5, §6), and
 // migrate's seed of an empty installation.
-// Run where keys.ts runs, against the database: unlike the API's import it
-// may bring in env and Secrets Manager references, since whoever reaches
-// the database already holds the deployment.
+// Run where keys.ts runs, against the database. Its entries name `stored`
+// as the API's do; each value is set in the console or through the API.
 const USAGE = `Usage: bun run apps/control-host/src/api/settings.ts export
        bun run apps/control-host/src/api/settings.ts import --document <file|-> [--dry-run]
        bun run apps/control-host/src/api/settings.ts import --from-dir <dir> [--if-present] [--dry-run]
@@ -193,7 +192,6 @@ export async function runSettingsCommand(
   if (await strandedBy(skipped, stores, output)) return false;
   const result = await stores.settings.importEntries(entries, {
     dryRun: command.dryRun,
-    allowExternal: true,
     ...("dir" in source ? { databaseOwnsRepositories: true } : {}),
     actor: null,
   });

@@ -25,7 +25,7 @@ export function testConnection(
       auth: {
         kind: "api_key",
         value: "resolved-key",
-        ref: { value_env: "PROVIDER_KEY" },
+        ref: { stored: `connection:${TEST_CONNECTION_ID}` },
       },
     },
     models: ["claude-sonnet-5"],
@@ -49,11 +49,12 @@ export function runtimeProviderOf(
   };
 }
 
-/** Environment-only lookup: a secret reference resolves to nothing here. */
-export function environmentCredentials(
-  env: Record<string, string | undefined>,
+/** Stored values by their reference (`connection:<id>`, …). */
+export function storedCredentials(
+  values: Record<string, string | undefined>,
 ): (ref: CredentialRef) => string | undefined {
-  return (ref) => ("value_env" in ref ? env[ref.value_env] : undefined);
+  return (ref) =>
+    Object.hasOwn(values, ref.stored) ? values[ref.stored] : undefined;
 }
 
 /** A console App repository, as the settings resolve one. */

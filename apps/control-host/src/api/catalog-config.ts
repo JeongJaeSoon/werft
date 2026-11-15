@@ -1,8 +1,4 @@
 import {
-  GetSecretValueCommand,
-  SecretsManagerClient,
-} from "@aws-sdk/client-secrets-manager";
-import {
   type CatalogRepositoryStore,
   configuredImageRuntimesFromEnv,
   createCatalogRegistry,
@@ -27,7 +23,6 @@ import {
 
 export const SECRET_KEY_SETTING = "PLATFORM_SECRET_KEY";
 const CONFIG_DIR_SETTING = "PLATFORM_CONFIG_DIR";
-const SECRET_READ_TIMEOUT_MS = 10_000;
 
 /** The runtimes the worker image ships, as the control plane sees them. */
 export const installedRuntimes = new RuntimeFeatureGate(installedDescriptors);
@@ -39,34 +34,6 @@ export const installedRuntimeVersions: InstalledRuntimes = Object.fromEntries(
     descriptor.runtimeVersion,
   ]),
 );
-
-export type SecretReader = (secretId: string) => Promise<string | undefined>;
-
-export function secretsManagerReader(
-  env: Record<string, string | undefined>,
-  timeoutMs = SECRET_READ_TIMEOUT_MS,
-): SecretReader {
-  let client: SecretsManagerClient | undefined;
-  return async (secretId) => {
-    client ??= new SecretsManagerClient({
-      ...(env.AWS_REGION === undefined ? {} : { region: env.AWS_REGION }),
-      // Its own endpoint, never AWS_ENDPOINT_URL: locally that one is the
-      // object store workers can reach, and secrets must not be.
-      // The SDK would fall back to it on its own, so configured endpoints
-      // are ignored and only this variable (or AWS itself) is used.
-      ignoreConfiguredEndpointUrls: true,
-      ...(env.AWS_ENDPOINT_URL_SECRETS_MANAGER === undefined
-        ? {}
-        : { endpoint: env.AWS_ENDPOINT_URL_SECRETS_MANAGER }),
-      maxAttempts: 2,
-    });
-    const result = await client.send(
-      new GetSecretValueCommand({ SecretId: secretId }),
-      { abortSignal: AbortSignal.timeout(timeoutMs) },
-    );
-    return result.SecretString;
-  };
-}
 
 /** Compose passes an unset variable through as empty. */
 export function refuseFileCatalog(

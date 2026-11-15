@@ -1053,7 +1053,6 @@ const MUST_FAIL: [string, string[], RegExp][] = [
     "api.extraEnv.PREVIEW_NAMESPACE=prod",
     "scheduler.extraEnv.PREVIEW_NAMESPACE=prod",
     "config.limits.PREVIEW_NAMESPACE=prod",
-    "secrets.catalogEnv={ANTHROPIC_API_KEY,PREVIEW_NAMESPACE}",
   ].map((set): [string, string[], RegExp] => [
     `PREVIEW_NAMESPACE through ${set.split(/[.=]/).slice(0, 2).join(".")}`,
     ["-f", ciDigests, "--set", set],
@@ -1064,13 +1063,34 @@ const MUST_FAIL: [string, string[], RegExp][] = [
     "scheduler.extraEnv.WORKER_IMAGES=x",
     "api.extraEnv.WORKER_IMAGE_RUNTIME=x",
     "config.limits.WORKER_IMAGE_PREVIOUS=reg/worker@sha256:x",
-    "secrets.catalogEnv={ANTHROPIC_API_KEY,WORKER_IMAGE_PREVIOUS_RUNTIME}",
     "scheduler.enabled=false,api.extraEnv.WORKER_IMAGE_RUNTIME=x",
   ].map((set): [string, string[], RegExp] => [
     `a worker image variable through ${set.split(/[.=]/).slice(0, 2).join(".")}`,
     ["-f", ciDigests, "--set", set],
-    /must not be set through extraEnv, config\.limits or secrets\.catalogEnv/,
+    /must not be set through extraEnv or config\.limits/,
   ]),
+  // Values an earlier chart read: kept, they would leave a key undelivered
+  // without a word.
+  [
+    "secrets.catalogEnv",
+    ["-f", ciDigests, "--set", "secrets.catalogEnv={ANTHROPIC_API_KEY}"],
+    /secrets\.catalogEnv is removed/,
+  ],
+  [
+    "an empty secrets.catalogEnv",
+    ["-f", ciDigests, "--set-json", "secrets.catalogEnv=[]"],
+    /secrets\.catalogEnv is removed/,
+  ],
+  [
+    "config.aws.secretsManagerEndpointUrl",
+    [
+      "-f",
+      ciDigests,
+      "--set",
+      "config.aws.secretsManagerEndpointUrl=http://secrets:4566",
+    ],
+    /config\.aws\.secretsManagerEndpointUrl is removed/,
+  ],
   // The api's extraEnv came after its checkpoint settings and won there
   // alone: the jobs and the scheduler kept the chart's.
   ...[
@@ -1083,14 +1103,13 @@ const MUST_FAIL: [string, string[], RegExp][] = [
     "egressProxy.extraEnv.CHECKPOINT_OBJECT_PROTECTION=unversioned",
     "metrics.extraEnv.AWS_ACCESS_KEY_ID=x",
     "config.limits.CHECKPOINT_OBJECT_STORE=disabled",
-    "secrets.catalogEnv={ANTHROPIC_API_KEY,AWS_SECRET_ACCESS_KEY}",
   ].map((set): [string, string[], RegExp] => {
-    const name = /([A-Z0-9_]+)[=}]/.exec(set)?.[1] ?? "";
+    const name = /([A-Z0-9_]+)=/.exec(set)?.[1] ?? "";
     return [
       `${name} through ${set.split(/[.=]/).slice(0, 2).join(".")}`,
       ["-f", ciDigests, "--set", set],
       new RegExp(
-        `${name} must not be set through extraEnv, config\\.limits or secrets\\.catalogEnv; set ${CHECKPOINT_STORAGE_ENV[name]?.replaceAll(".", "\\.")}`,
+        `${name} must not be set through extraEnv or config\\.limits; set ${CHECKPOINT_STORAGE_ENV[name]?.replaceAll(".", "\\.")}`,
       ),
     ];
   }),
@@ -1104,7 +1123,7 @@ const MUST_FAIL: [string, string[], RegExp][] = [
   ].map((set): [string, string[], RegExp] => [
     `${set.split("=")[0]}`,
     ["-f", ciDigests, "--set", set],
-    /must not be set through extraEnv, config\.limits or secrets\.catalogEnv; the api, its object store jobs and the scheduler share one AWS environment/,
+    /must not be set through extraEnv or config\.limits; the api, its object store jobs and the scheduler share one AWS environment/,
   ]),
   [
     "images.workers beside images.worker",
@@ -1736,6 +1755,37 @@ errors.push(
     false,
   ),
 );
+// BOOTSTRAP_TOKEN reaches the api alone, from the Secret, and only on request.
+for (const on of [false, true]) {
+  for (const m of render([
+    "-f",
+    ciDigests,
+    "--set",
+    `secrets.bootstrapToken=${on}`,
+  ])) {
+    const pod = podSpecOf(m);
+    if (pod === undefined) continue;
+    const component = m.metadata.labels?.["app.kubernetes.io/component"] ?? "";
+    for (const c of [...(pod.initContainers ?? []), ...pod.containers]) {
+      const token = (c.env ?? []).find(
+        (v: { name: string }) => v.name === "BOOTSTRAP_TOKEN",
+      );
+      const want = on && component === "api" && c.name === "api";
+      if (Boolean(token) !== want) {
+        errors.push(
+          `secrets.bootstrapToken=${on}: ${m.kind}/${m.metadata.name}: container ${c.name} ${token ? "has" : "lacks"} BOOTSTRAP_TOKEN`,
+        );
+      } else if (
+        token &&
+        token.valueFrom?.secretKeyRef?.key !== "BOOTSTRAP_TOKEN"
+      ) {
+        errors.push(
+          `secrets.bootstrapToken=${on}: BOOTSTRAP_TOKEN is not read from the Secret`,
+        );
+      }
+    }
+  }
+}
 const awsPreview = checkPreview(
   "aws example, preview on",
   render(["-f", ciDigests, "-f", awsExample, "--set", "preview.enabled=true"]),

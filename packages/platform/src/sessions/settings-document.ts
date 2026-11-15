@@ -14,6 +14,8 @@ import {
   isRegisteredGitHubApp,
   type ModelFamilies,
   modelFamiliesSchema,
+  REMOVED_CREDENTIAL_FIELDS,
+  REMOVED_CREDENTIAL_MESSAGE,
   type StoredOwnerKind,
   sessionCatalogConfigSchema,
 } from "./catalog.ts";
@@ -78,7 +80,8 @@ function isObject(value: unknown): value is Record<string, unknown> {
 /**
  * The entry with its document `stored: true` turned into its own row's
  * reference. A `stored` that is not `true` is refused here, before the
- * catalog schema would take a string naming another row.
+ * catalog schema would take a string naming another row, and so is a
+ * reference to the deployment's env or Secrets Manager.
  */
 function ownStored(
   kind: SettingsKind,
@@ -87,6 +90,13 @@ function ownStored(
   path: string,
 ): unknown {
   if (!isObject(entry) || !isObject(entry.auth)) return entry;
+  for (const field of REMOVED_CREDENTIAL_FIELDS) {
+    if (Object.hasOwn(entry.auth, field)) {
+      throw new SettingsDocumentError(
+        `${path}.auth.${field} ${REMOVED_CREDENTIAL_MESSAGE}`,
+      );
+    }
+  }
   if (!Object.hasOwn(entry.auth, "stored")) return entry;
   if (!storedMark.safeParse(entry.auth).success) {
     throw new SettingsDocumentError(
@@ -336,19 +346,11 @@ export function repositoryAuthKindOf(repository: {
 
 /**
  * Where an entry's credential comes from: null for none (a public
- * repository, the console's App), `stored` for the database's own value,
- * `external` for the deployment's env or Secrets Manager.
+ * repository, the console's App), `stored` for the database's own value.
  */
-export function credentialSourceOf(entry: {
-  auth?: unknown;
-}): "stored" | "external" | null {
+export function credentialSourceOf(entry: { auth?: unknown }): "stored" | null {
   const auth = entry.auth;
-  if (!isObject(auth)) return null;
-  if (typeof auth.stored === "string") return "stored";
-  if (auth.value_env !== undefined || auth.secret_id !== undefined) {
-    return "external";
-  }
-  return null;
+  return isObject(auth) && typeof auth.stored === "string" ? "stored" : null;
 }
 
 /**
@@ -380,11 +382,6 @@ export type ExistingSettingsEntry = {
   active: boolean;
   /** For a stored row: whether its value is set. */
   has_value: boolean;
-  /**
-   * For a connection the console moved to a stored value: the entry it was.
-   * A document that still names that entry leaves the row as it is.
-   */
-  replaces?: unknown;
 };
 
 export type ExistingSettings = {
@@ -421,8 +418,6 @@ export type SettingsImportPlan = {
    * or a new stored entry whose id already has a value.
    */
   conflicts: string[];
-  /** New external references, where the caller may not bring one. */
-  refused_external: string[];
   /**
    * From an old catalog directory: repositories that differ from their row,
    * and second names of a GitHub repository that already has a row. The API
@@ -437,13 +432,12 @@ const sameEntry = (a: unknown, b: unknown) =>
 
 /**
  * What importing `incoming` over `existing` does. Nothing is written when
- * `conflicts` or `refused_external` is non-empty: the caller applies `add`
- * only when both are empty.
+ * `conflicts` is non-empty: the caller applies `add` only when it is empty.
  */
 export function planSettingsImport(
   incoming: SettingsEntries,
   existing: ExistingSettings,
-  rules: { allowExternal: boolean; databaseOwnsRepositories?: boolean },
+  rules: { databaseOwnsRepositories?: boolean } = {},
 ): SettingsImportPlan {
   const kept: string[] = [];
   const plan: SettingsImportPlan = {
@@ -452,7 +446,6 @@ export function planSettingsImport(
     inactive: [],
     needs_value: [],
     conflicts: [],
-    refused_external: [],
   };
   const visit = (
     kind: SettingsImportAdd["kind"],
@@ -468,10 +461,6 @@ export function planSettingsImport(
       if (row !== undefined) {
         const same = sameEntry(row.entry, entry);
         if (!same) {
-          if (row.replaces !== undefined && sameEntry(row.replaces, entry)) {
-            kept.push(ref);
-            continue;
-          }
           const ownedByDatabase =
             rules.databaseOwnsRepositories === true &&
             kind === "repository" &&
@@ -486,23 +475,6 @@ export function planSettingsImport(
         }
         plan.unchanged.push(ref);
         if (source === "stored" && !row.has_value) plan.needs_value.push(ref);
-        continue;
-      }
-      // The row that moved off this definition still answers for it; a second
-      // connection holding it would make a re-import depend on which rows
-      // are usable at the moment.
-      if (
-        kind === "connection" &&
-        [...rows.values()].some(
-          (other) =>
-            other.replaces !== undefined && sameEntry(other.replaces, entry),
-        )
-      ) {
-        plan.conflicts.push(ref);
-        continue;
-      }
-      if (source === "external" && !rules.allowExternal) {
-        plan.refused_external.push(ref);
         continue;
       }
       if (source === "stored") {

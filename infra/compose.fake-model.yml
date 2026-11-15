@@ -4,9 +4,11 @@
 # gate and soak). It names no path, so it merges the same under either
 # project directory.
 #
-# It turns on compose.local.yml's fake-messages and secrets and has migrate
-# import tests/fixtures/settings/fake-model.json, whose connection calls the
-# former with a placeholder key from the latter. An empty SETTINGS_DOCUMENT
+# It turns on compose.local.yml's fake-messages and fake-mcp and has migrate
+# import tests/fixtures/settings/fake-model.json, whose stored keys (a
+# placeholder for the former, the latter's bearer, the fake App's key) the
+# stack's starter sets once the first owner exists
+# (scripts/lib/seed-credentials.sh). An empty SETTINGS_DOCUMENT
 # imports nothing: an empty installation, set up in the console. Sessions
 # follow the GATE-SPEC script in each prompt (docs/quickstart.md § 스크립트된
 # 프롬프트).
@@ -15,20 +17,12 @@ services:
     profiles: !reset []
   fake-mcp:
     profiles: !reset []
-  secrets:
-    profiles: !reset []
   migrate:
     environment:
       SETTINGS_DOCUMENT: ${SETTINGS_DOCUMENT-/settings/fake-model.json}
   api:
-    environment:
-      # The fake settings read no key: a real one exported in the shell or
-      # .env stays out of this container.
-      ANTHROPIC_API_KEY: ""
     depends_on:
       fake-messages:
         condition: service_healthy
       fake-mcp:
-        condition: service_healthy
-      secrets:
         condition: service_healthy

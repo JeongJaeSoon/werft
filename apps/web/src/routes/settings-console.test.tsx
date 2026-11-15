@@ -118,13 +118,9 @@ describe("모델 연결", () => {
   const listed = [
     connection("anthropic", {
       origin: "import",
-      credential: { source: "external", value_env: "ANTHROPIC_API_KEY" },
+      credential: { source: "stored", last4: "wxyz" },
     }),
     connection("console-key"),
-    connection("ops-ref", {
-      origin: "import",
-      credential: { source: "external", secret_id: "ops/anthropic" },
-    }),
     connection("fresh", {
       credential: { source: "stored", last4: null },
       state: "needs_value",
@@ -264,7 +260,7 @@ describe("모델 연결", () => {
     const user = await setupUser();
     const table = await screen.findByRole("table", { name: "모델 연결" });
     const imported = rowOf(table, "anthropic");
-    expect(imported.textContent).toContain("환경 변수 ANTHROPIC_API_KEY");
+    expect(imported.textContent).toContain("••••wxyz");
     expect(imported.textContent).toContain("claude-sonnet-5");
     expect(imported.textContent).not.toContain("파일");
 
@@ -288,14 +284,6 @@ describe("모델 연결", () => {
         name: "console-key의 API 키 설정",
       }).textContent,
     ).toBe("API 키 설정");
-    await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
-
-    // An operator reference: no replace, but it can move to a typed key.
-    expect(menuLabels(await openMenu(user, table, "ops-ref"))).toEqual([
-      "ops-ref 화면에서 키 넣기",
-      "ops-ref의 모델 목록",
-    ]);
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 
@@ -1381,46 +1369,49 @@ describe("모델 연결", () => {
     });
   });
 
-  test("an env-referenced connection moves to a typed key through its own route", async () => {
+  test("a connection cannot be made without a key: create stays off until one of 8 characters is typed", async () => {
     const { api } = renderAt(CONNECTIONS_PAGE, {
-      ...routes(),
-      [`POST ${CONNECTIONS}/anthropic/convert`]: () =>
-        json(200, CHANGE("anthropic")),
+      ...routes(me(), null, { anthropic: "https://api.anthropic.com" }),
+      [`POST ${CONNECTIONS}`]: () => json(201, CHANGE("keyed")),
     });
     const user = await setupUser();
-    const table = await screen.findByRole("table", { name: "모델 연결" });
-    await choose(user, table, "anthropic", "anthropic 화면에서 키 넣기");
+    await user.click(await screen.findByRole("button", { name: "연결 추가" }));
     const dialog = await screen.findByRole("dialog");
-    expect(dialog.textContent).toContain("기존 값을 읽어 옮기지는 않습니다");
-    await user.type(within(dialog).getByLabelText("값"), "typed-key-value");
-    await user.click(within(dialog).getByRole("button", { name: "저장" }));
-    await screen.findByText("anthropic의 키를 저장했습니다.");
-    expect(writes(api.calls).map((call) => [call.path, call.body])).toEqual([
-      [`${CONNECTIONS}/anthropic/convert`, { value: "typed-key-value" }],
+    const create = within(dialog).getByRole("button", { name: "만들기" });
+    expect(create.getAttribute("aria-disabled")).toBe("true");
+    await user.type(within(dialog).getByLabelText("id"), "keyed");
+    expect(create.getAttribute("aria-disabled")).toBe("true");
+    const key = within(dialog).getByLabelText("키 값");
+    await user.type(key, "1234567");
+    expect(create.getAttribute("aria-disabled")).toBe("true");
+    await user.click(create);
+    expect(writes(api.calls)).toEqual([]);
+
+    await user.type(key, "8");
+    expect(create.getAttribute("aria-disabled")).toBeNull();
+    await user.click(create);
+    await screen.findByText("keyed를 만들었습니다.");
+    expect(writes(api.calls).map((call) => call.body)).toEqual([
+      {
+        id: "keyed",
+        kind: "anthropic",
+        billing: "per_token",
+        auth_kind: "api_key",
+        value: "12345678",
+      },
     ]);
   });
 
-  test("moving a key that another connection's old definition holds says why", async () => {
-    renderAt(CONNECTIONS_PAGE, {
-      ...routes(),
-      [`POST ${CONNECTIONS}/anthropic/convert`]: () =>
-        json(409, {
-          error: {
-            code: "REVISION_CONFLICT",
-            message: "taken",
-            details: { reason_code: "alias_taken" },
-          },
-        }),
-    });
+  test("replacing a key stays off while the field is empty", async () => {
+    const { api } = renderAt(CONNECTIONS_PAGE, routes());
     const user = await setupUser();
     const table = await screen.findByRole("table", { name: "모델 연결" });
-    await choose(user, table, "anthropic", "anthropic 화면에서 키 넣기");
+    await choose(user, table, "console-key", "console-key의 API 키 설정");
     const dialog = await screen.findByRole("dialog");
-    await user.type(within(dialog).getByLabelText("값"), "typed-key-value");
-    await user.click(within(dialog).getByRole("button", { name: "저장" }));
-    expect((await within(dialog).findByRole("alert")).textContent).toContain(
-      "옛 정의와 같아",
-    );
+    const save = within(dialog).getByRole("button", { name: "저장" });
+    expect(save.getAttribute("aria-disabled")).toBe("true");
+    await user.click(save);
+    expect(writes(api.calls)).toEqual([]);
   });
 
   test("a refusal names the server's reason", async () => {
@@ -1470,10 +1461,6 @@ describe("MCP 서버", () => {
       json(200, {
         items: [
           mcp("docs"),
-          mcp("ops", {
-            origin: "import",
-            credential: { source: "external", value_env: "OPS_MCP_TOKEN" },
-          }),
           mcp("search", { origin: "import", credential: { source: "none" } }),
         ],
       }),
@@ -1492,12 +1479,6 @@ describe("MCP 서버", () => {
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
     ).toEqual(["docs 값 바꾸기", "docs 워크스페이스 바꾸기", "docs 사용 중지"]);
-    // An operator's reference: view and disable only.
-    expect(
-      within(rowOf(table, "ops"))
-        .getAllByRole("button")
-        .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["ops 사용 중지"]);
     expect(
       within(rowOf(table, "search"))
         .getAllByRole("button")

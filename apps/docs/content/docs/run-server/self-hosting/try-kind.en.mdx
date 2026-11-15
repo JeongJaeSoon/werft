@@ -64,10 +64,10 @@ kubectl -n werft create secret generic werft --from-file="$SECRETS"
 unset KIND_DB_PASSWORD
 rm -r "${SECRETS:?}"
 helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
-  --namespace werft -f deploy/kind/values.yaml --set-json 'secrets.catalogEnv=["BOOTSTRAP_TOKEN"]' --timeout 10m
+  --namespace werft -f deploy/kind/values.yaml --set secrets.bootstrapToken=true --timeout 10m
 ```
 
-The default API replica count is 2, so create the same `BOOTSTRAP_TOKEN` in the Secret (`openssl rand -hex 32` gives 64 characters, which meets the 32–256 character requirement) and keep it in `secrets.catalogEnv`. Emptying the list with `[]` gives each replica a different token. This test adds no model key, so only the default `ANTHROPIC_API_KEY` is removed from the list. Check that the Secret directory has 0700 permissions after creation, and supply the database password on standard input when running without a terminal. Do not put production credentials in this test. Success of the Secret block and fixture chart test does not establish success of the entire published-chart test.
+The default API replica count is 2, so create the same `BOOTSTRAP_TOKEN` in the Secret (`openssl rand -hex 32` gives 64 characters, which meets the 32–256 character requirement) and hand it to the api with `secrets.bootstrapToken=true`. With `false` (the chart default), each replica generates a different token. Do not put a model key in the Secret. A key is only ever a value the first owner enters on the console and that is stored in the database, and this test enters none. Check that the Secret directory has 0700 permissions after creation, and supply the database password on standard input when running without a terminal. Do not put production credentials in this test. Success of the Secret block and fixture chart test does not establish success of the entire published-chart test.
 
 <a id="확인" />
 ## Verify

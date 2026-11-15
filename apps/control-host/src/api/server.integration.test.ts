@@ -7,12 +7,13 @@ import { join } from "node:path";
 import * as schema from "@werft-ai/db";
 import {
   apiKeys,
+  createPostgresInstallationSettingsStore,
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
 } from "@werft-ai/db";
 import { launchSession } from "@werft-ai/db/testing/launches";
 import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
-import { createWorkerGateway } from "@werft-ai/platform";
+import { createWorkerGateway, SecretKey } from "@werft-ai/platform";
 import { acceptAllCheckpoints } from "@werft-ai/platform/testing/checkpoints";
 import {
   createTempDatabase,
@@ -145,7 +146,7 @@ async function waitForServer(
   }
 }
 
-// The provider key the catalog below references by environment variable.
+// The provider key the connection below stores as its own value.
 // The server must start with it and never write it anywhere.
 const PROVIDER_KEY = `provider-${crypto.randomUUID()}`;
 const CONNECTIONS = `connections:
@@ -155,7 +156,7 @@ const CONNECTIONS = `connections:
     models: [claude-sonnet-5]
     auth:
       kind: api_key
-      value_env: INTEGRATION_PROVIDER_KEY
+      stored: true
 `;
 const REPOSITORIES = `repositories:
   app:
@@ -253,7 +254,6 @@ async function refusedStart(
       SESSION_COST_LIMIT_USD: "25",
       STORAGE_LIMIT_BYTES: "1073741824",
       PORT: "0",
-      INTEGRATION_PROVIDER_KEY: PROVIDER_KEY,
       PLATFORM_SECRET_KEY: MASTER_KEY,
       ...env,
     },
@@ -334,6 +334,14 @@ integration("API server on PostgreSQL", () => {
     db = drizzle(pool, { schema });
     await seedSettings(db, settingsDocument(CONNECTIONS, REPOSITORIES));
     releaseId = await releaseIn(db, ownerId);
+    await createPostgresInstallationSettingsStore(
+      db,
+      SecretKey.fromHex(MASTER_KEY, "PLATFORM_SECRET_KEY"),
+    ).putStoredValue(
+      { kind: "connection", id: "test-connection" },
+      PROVIDER_KEY,
+      null,
+    );
     // "missing" is inside the ceiling but not in the catalog.
     await allowRepositories(db, ownerId, ["app", "missing"]);
     await db.insert(schema.users).values({
@@ -400,7 +408,6 @@ integration("API server on PostgreSQL", () => {
           STORAGE_LIMIT_BYTES: "1073741824",
           PORT: "0",
           PLATFORM_SECRET_KEY: MASTER_KEY,
-          INTEGRATION_PROVIDER_KEY: PROVIDER_KEY,
         },
         stdout: "pipe",
         stderr: "pipe",
@@ -625,7 +632,6 @@ integration("API server on PostgreSQL", () => {
           STORAGE_LIMIT_BYTES: "1073741824",
           PORT: "0",
           PLATFORM_SECRET_KEY: MASTER_KEY,
-          INTEGRATION_PROVIDER_KEY: PROVIDER_KEY,
         },
         stdout: "pipe",
         stderr: "pipe",
@@ -735,7 +741,7 @@ integration("API server on PostgreSQL", () => {
             auth: {
               kind: "api_key",
               value: PROVIDER_KEY,
-              ref: { value_env: "INTEGRATION_PROVIDER_KEY" },
+              ref: { stored: "connection:test-connection" },
             },
           },
           repositories: {
@@ -826,7 +832,6 @@ integration("API server on PostgreSQL", () => {
           STORAGE_LIMIT_BYTES: "1073741824",
           PORT: "0",
           PLATFORM_SECRET_KEY: MASTER_KEY,
-          INTEGRATION_PROVIDER_KEY: PROVIDER_KEY,
         },
         stdout: "pipe",
         stderr: "pipe",

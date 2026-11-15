@@ -25,16 +25,18 @@ spec:
           imagePullPolicy: IfNotPresent
           # args, not command: the image's init stays PID 1.
           args: ["bun", "run", "packages/testkit/src/local-github-main.ts", "sample-app", "gate-app"]
-          env:
-            - {name: AWS_ENDPOINT_URL_SECRETS_MANAGER, value: "http://secrets:4566"}
-            - {name: AWS_REGION, value: ap-northeast-1}
-            - {name: AWS_ACCESS_KEY_ID, value: test}
-            - {name: AWS_SECRET_ACCESS_KEY, value: test}
           ports:
             - containerPort: 3000
           readinessProbe:
             httpGet: {path: /healthz, port: 3000}
             periodSeconds: 5
+          # The fake App's signing key, generated on start; up.sh stores the
+          # same key on the repositories (seed-credentials-main.ts, run here).
+          volumeMounts:
+            - {name: fake-github-key, mountPath: /var/lib/fake-github}
+      volumes:
+        - name: fake-github-key
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

@@ -147,7 +147,6 @@ export function ModelConnections() {
                 item={item}
                 busy={rows.busy}
                 onValue={(opener) => rows.openValue(item.id, opener)}
-                onConvert={(opener) => rows.openConvert(item.id, opener)}
                 onModels={(opener) => {
                   setOutcome(null);
                   setOpener(opener);
@@ -190,7 +189,6 @@ function ConnectionRow({
   item,
   busy,
   onValue,
-  onConvert,
   onModels,
   onDisable,
   onEnable,
@@ -199,7 +197,6 @@ function ConnectionRow({
   readonly busy: boolean;
   /** Each gets the menu's button, which takes the focus back on close. */
   readonly onValue: (opener: HTMLElement | null) => void;
-  readonly onConvert: (opener: HTMLElement | null) => void;
   readonly onModels: (opener: HTMLElement | null) => void;
   readonly onDisable: () => void;
   readonly onEnable: () => void;
@@ -229,11 +226,6 @@ function ConnectionRow({
         kind: credentialKind,
       }),
       open: onValue,
-    },
-    actions.convert && {
-      label: t("settings.convertFor", { id: item.id }),
-      text: t("settings.convert"),
-      open: onConvert,
     },
     !disabled &&
       !judgeOnly && {
@@ -741,6 +733,7 @@ function AddConnection({
       pending={create.isPending}
       title={t("settings.connections.add")}
       description={t("settings.immutable")}
+      gated
       error={error}
       submitLabel={t("settings.create")}
       pendingLabel={t("settings.creating")}

@@ -41,7 +41,7 @@ function build(costLimitUsd: number) {
             auth: {
               kind: "api_key",
               value: CLAUDE_KEY,
-              ref: { value_env: "CLAUDE_KEY" },
+              ref: { stored: "connection:claude" },
             },
           },
           models: ["claude-sonnet-5"],
@@ -53,7 +53,7 @@ function build(costLimitUsd: number) {
             auth: {
               kind: "api_key",
               value: OPENAI_KEY,
-              ref: { value_env: "OPENAI_KEY" },
+              ref: { stored: "connection:openai" },
             },
           },
           models: ["gpt-5.5"],

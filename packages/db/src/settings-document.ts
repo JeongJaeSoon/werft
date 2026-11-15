@@ -29,6 +29,7 @@ import {
 import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
 import { lockCatalogWrites } from "./catalog-repositories.ts";
 import { lockPeople } from "./control-shared.ts";
+import { rebindCarriedPushes } from "./installation-settings.ts";
 import {
   lockMcpServerName,
   workspaceMcpNameTaken,
@@ -121,15 +122,7 @@ async function existingIn(
           row.definition,
           row.disabledAt === null,
         );
-        return [
-          id,
-          row.replacesAuth === null
-            ? existing
-            : {
-                ...existing,
-                replaces: { ...row.definition, auth: row.replacesAuth },
-              },
-        ];
+        return [id, existing];
       }),
     ),
     repositories: new Map(
@@ -163,8 +156,7 @@ async function insertRow(
       await tx.insert(providerConnections).values({
         id: add.id,
         definition: add.entry,
-        // A provider always names a credential.
-        credentialSource: source ?? "external",
+        credentialSource: "stored",
         origin,
         createdBy,
         ...(add.models === undefined
@@ -210,7 +202,7 @@ async function insertRow(
         url: add.entry.url,
         credentialRef: add.entry.credential_ref,
         auth: add.entry.auth,
-        credentialSource: source ?? "external",
+        credentialSource: "stored",
         workspaces: [...add.entry.workspaces],
         origin,
         createdBy,
@@ -414,7 +406,6 @@ export function createPostgresSettingsDocumentStore(
           for (const [index, step] of steps.entries()) {
             const result = await importIn(tx, step.entries, {
               dryRun: false,
-              allowExternal: true,
               databaseOwnsRepositories: step.databaseOwnsRepositories,
               actor: null,
             });
@@ -479,7 +470,6 @@ async function importIn(
   entries: SettingsEntries,
   options: {
     dryRun: boolean;
-    allowExternal: boolean;
     databaseOwnsRepositories?: boolean;
     actor: TeamActor | null;
   },
@@ -490,10 +480,9 @@ async function importIn(
   }
   const workspaceId = await firstWorkspace(tx);
   const plan = planSettingsImport(entries, await existingIn(tx, workspaceId), {
-    allowExternal: options.allowExternal,
     databaseOwnsRepositories: options.databaseOwnsRepositories === true,
   });
-  if (plan.conflicts.length > 0 || plan.refused_external.length > 0) {
+  if (plan.conflicts.length > 0) {
     return { ...plan, outcome: "refused" as const, receipt_ids: [] };
   }
   if (options.dryRun) {
@@ -550,8 +539,6 @@ type HeldRow = {
   entry: unknown;
   credentialSource: string | null;
   disabled: boolean;
-  /** A connection's earlier `auth`, kept after a move to a stored value. */
-  replacesAuth?: Record<string, unknown> | null;
 };
 
 /** The row under its lock, as an entry, or null. */
@@ -572,7 +559,6 @@ async function heldRow(
             entry: row.definition,
             credentialSource: row.credentialSource,
             disabled: row.disabledAt !== null,
-            replacesAuth: row.replacesAuth,
           }
         : null;
     }
@@ -671,7 +657,6 @@ function consoleWrites(
   SettingsDocumentStore,
   | "create"
   | "setValue"
-  | "convertConnection"
   | "setConnectionModels"
   | "disable"
   | "enableConnection"
@@ -701,6 +686,9 @@ function consoleWrites(
       value,
       actor.userId,
     );
+    if (owner.kind === "repository") {
+      await rebindCarriedPushes(tx, owner.id);
+    }
   };
 
   /** The locks, then the actor's role for `kind`, then `write`. */
@@ -730,11 +718,10 @@ function consoleWrites(
             mcp_servers: add.kind === "mcp" ? { [add.id]: add.entry } : {},
           },
           await existingIn(tx, await firstWorkspace(tx)),
-          { allowExternal: false },
         );
         // Anything but one add: the id was ever taken, or a value is
-        // already sealed under it; the console never brings a reference.
-        if (plan.add.length !== 1 || plan.refused_external.length > 0) {
+        // already sealed under it.
+        if (plan.add.length !== 1) {
           return { outcome: "conflict" as const, reason: "already_exists" };
         }
         if (add.kind === "mcp") {
@@ -743,14 +730,11 @@ function consoleWrites(
             return { outcome: "conflict" as const, reason: "already_exists" };
           }
         }
-        const stored = credentialSourceOf(add.entry) === "stored";
-        if (stored !== (value !== null)) {
-          throw new Error(
-            "a console entry is stored exactly when it has a value",
-          );
+        if (credentialSourceOf(add.entry) !== "stored") {
+          throw new Error("a console entry stores its own value");
         }
         await insertRow(tx, add, actor.userId, "console");
-        if (value !== null) await sealIn(tx, add, value, actor);
+        await sealIn(tx, add, value, actor);
         const receiptId = await consoleReceipt(tx, actor, CREATED[add.kind], {
           ...auditOf(add),
           source: "console",
@@ -777,65 +761,6 @@ function consoleWrites(
           {
             [TARGET[owner.kind]]: owner.id,
             last4: value.slice(-4),
-          },
-        );
-        return { outcome: "done" as const, receiptId };
-      });
-    },
-
-    convertConnection(id, value, actor) {
-      return asWriter("connection", actor, async (tx) => {
-        const held = await heldRow(tx, "connection", id);
-        if (held === null) return { outcome: "not_found" as const };
-        if (held.disabled) {
-          return { outcome: "conflict" as const, reason: "disabled" };
-        }
-        const entry = isRecord(held.entry) ? held.entry : {};
-        const auth = isRecord(entry.auth) ? entry.auth : {};
-        if (
-          held.credentialSource !== "external" ||
-          (auth.value_env === undefined && auth.secret_id === undefined)
-        ) {
-          return { outcome: "conflict" as const, reason: "not_external" };
-        }
-        // The old definition must stay this row's alone: every other row,
-        // by what it is now and by what it was.
-        const was = canonicalJson(entry);
-        for (const other of await tx
-          .select()
-          .from(providerConnections)
-          .where(ne(providerConnections.id, id))) {
-          const names = [
-            other.definition,
-            ...(other.replacesAuth === null
-              ? []
-              : [{ ...other.definition, auth: other.replacesAuth }]),
-          ];
-          if (names.some((name) => canonicalJson(name) === was)) {
-            return { outcome: "conflict" as const, reason: "alias_taken" };
-          }
-        }
-        const { value_env: _env, secret_id: _secret, ...kept } = auth;
-        await tx
-          .update(providerConnections)
-          .set({
-            definition: {
-              ...entry,
-              auth: { ...kept, stored: `connection:${id}` },
-            },
-            credentialSource: "stored",
-            replacesAuth: auth,
-          })
-          .where(eq(providerConnections.id, id));
-        await sealIn(tx, { kind: "connection", id }, value, actor);
-        const receiptId = await consoleReceipt(
-          tx,
-          actor,
-          "set_settings_credential",
-          {
-            connection_id: id,
-            last4: value.slice(-4),
-            replaced: auth.value_env === undefined ? "secret_id" : "value_env",
           },
         );
         return { outcome: "done" as const, receiptId };
@@ -922,18 +847,9 @@ function consoleWrites(
           return { outcome: "conflict" as const, reason: "not_disabled" };
         }
         // A re-import finds its connection by what it is, so two live rows
-        // holding one definition (or one's old reference) would make the
-        // match depend on which of them is usable at the moment.
-        const namesOf = (
-          definition: unknown,
-          replacesAuth: Record<string, unknown> | null | undefined,
-        ): string[] => [
-          canonicalJson(definition),
-          ...(replacesAuth == null || !isRecord(definition)
-            ? []
-            : [canonicalJson({ ...definition, auth: replacesAuth })]),
-        ];
-        const mine = new Set(namesOf(held.entry, held.replacesAuth));
+        // holding one definition would make the match depend on which of
+        // them is usable at the moment.
+        const mine = canonicalJson(held.entry);
         for (const other of await tx
           .select()
           .from(providerConnections)
@@ -943,24 +859,16 @@ function consoleWrites(
               isNull(providerConnections.disabledAt),
             ),
           )) {
-          if (
-            namesOf(other.definition, other.replacesAuth).some((name) =>
-              mine.has(name),
-            )
-          ) {
+          if (canonicalJson(other.definition) === mine) {
             return {
               outcome: "conflict" as const,
               reason: "definition_active",
             };
           }
         }
-        // A deployment's reference cannot be checked here; it shows as
-        // `unresolved` if it does not resolve. A stored value must exist.
-        if (held.credentialSource === "stored") {
-          const values = await storedLast4(tx, await firstWorkspace(tx));
-          if (!values.has(`connection:${id}`)) {
-            return { outcome: "conflict" as const, reason: "needs_value" };
-          }
+        const values = await storedLast4(tx, await firstWorkspace(tx));
+        if (!values.has(`connection:${id}`)) {
+          return { outcome: "conflict" as const, reason: "needs_value" };
         }
         await tx
           .update(providerConnections)

@@ -166,8 +166,7 @@ services:
       EGRESS_ALLOWLIST: ${EGRESS_ALLOWLIST:-}
       # The worker gateway alone. api:3000 is the compose-run API (`apps`
       # profile); host.docker.internal stays for an API started on the host
-      # with `bun run --cwd apps/control-host start`. `secrets` is
-      # deliberately absent.
+      # with `bun run --cwd apps/control-host start`.
       EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-api:3000,host.docker.internal:3000}
       EGRESS_PROXY_PORT: *egress-forward-port
       # The credential routes: workers send their provider and git

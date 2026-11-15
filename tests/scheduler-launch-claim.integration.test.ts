@@ -232,7 +232,7 @@ integration(
             auth: {
               kind: "api_key",
               value: PROVIDER_KEY_VALUE,
-              ref: { value_env: "PROVIDER_KEY" },
+              ref: { stored: "connection:conn-1" },
             },
           },
           repositories: {

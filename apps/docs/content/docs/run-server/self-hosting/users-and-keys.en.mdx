@@ -15,7 +15,7 @@ Create the first owner and workspace, then issue an API key for each user. Disti
 <a id="준비물" />
 ## Before you begin
 
-Complete [installation](/run-server/self-hosting) and [access configuration](/run-server/self-hosting/access). Restrict bootstrap tokens and logs to operators. On Kubernetes, configure the Secret and catalogEnv so every replica receives the same BOOTSTRAP_TOKEN.
+Complete [installation](/run-server/self-hosting) and [access configuration](/run-server/self-hosting/access). Restrict bootstrap tokens and logs to operators. On Kubernetes, put BOOTSTRAP_TOKEN in the Secret and set `secrets.bootstrapToken: true` so every replica receives the same token.
 
 <a id="1-첫-owner-만들기" />
 <a id="단계" />

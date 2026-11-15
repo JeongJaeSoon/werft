@@ -278,7 +278,7 @@ ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select result::
 
 ## Gotchas
 
-- **실제 GitHub App 흐름은 이 절차에서만 본다.** CI의 e2e 스택(`tests/e2e`)은 실제 GitHub가 아니라 로컬 가짜 git host와 가짜 App 키(`werft/local/fake-github-app`)로 돈다. 그래서 실제 App 토큰이 있어야 하는 흐름(실제 저장소 clone, `attach_repository`로 붙이기, 실제 GitHub로의 push·PR, LFS 객체의 redirect)은 CI가 확인하지 않고, 이 로컬 sandbox run으로만 확인한다. 이 흐름을 바꾼 PR은 이 절차의 출력을 근거로 남긴다.
+- **실제 GitHub App 흐름은 이 절차에서만 본다.** CI의 e2e 스택(`tests/e2e`)은 실제 GitHub가 아니라 로컬 가짜 git host와 가짜 App 키(fake-git이 만든 `FAKE_GITHUB_APP_KEY_FILE`, 콘솔 API로 저장소마다 저장)로 돈다. 그래서 실제 App 토큰이 있어야 하는 흐름(실제 저장소 clone, `attach_repository`로 붙이기, 실제 GitHub로의 push·PR, LFS 객체의 redirect)은 CI가 확인하지 않고, 이 로컬 sandbox run으로만 확인한다. 이 흐름을 바꾼 PR은 이 절차의 출력을 근거로 남긴다.
 
 - **파생 worker 이미지는 `derived-worker.yml`로 스택을 처음 띄울 때 함께 만든다.** 출하 worker 이미지에는 node·npm·go가 없고, Bun의 node shim 위 npm은 실제 npm과 다르게 실패해 결과를 근거로 쓸 수 없다. overlay의 `worker-deps` 서비스가 같은 `up --build`에서 `additional_contexts: base: service:worker`로 이 run의 worker 이미지를 base로 받아 `werft-worker-deps:<project>`를 build하고(`github-sandbox/derived-worker/Dockerfile`, node 이미지는 digest 고정), scheduler의 `WORKER_IMAGE`를 그 태그로 둔다. 그래서 첫 세션부터 그 이미지로 뜬다. 띄운 뒤 scheduler만 다시 만들지 않는다(바로 아래 master key 항목). `WORKER_IMAGES`는 두지 않는다(값이 있으면 스택이 멈춘다, `infra/compose.core.yml`). `worker-deps` 컨테이너는 `npm --version`을 찍고 exit 0으로 끝난다. 확인은 재생성과 다른 호출에서 한다: 세션 worker 컨테이너(`label=werft.installation=<project>`)의 `docker inspect` `.Config.Image`가 `werft-worker-deps:<project>`의 image id와 같고, base(`werft-worker:<project>`)의 id와는 다르다. run `20261115-064258-12512`에서 세 세션 worker가 모두 파생 이미지 id였고 scheduler env도 그 태그였다. `down.sh`가 이 태그를 run 태그와 함께 정확한 이름으로 지운다. `FROM`에 쓴 `node:24.22.1-bookworm-slim`은 run 밖 이미지라 지우지 않는다. go 같은 다른 도구가 필요하면 같은 Dockerfile에 더한다.
 

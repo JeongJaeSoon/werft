@@ -10,7 +10,7 @@ import {
   type SessionCatalog,
   sessionCatalogConfigSchema,
 } from "../sessions/catalog.ts";
-import { environmentCredentials } from "./catalog-fakes.ts";
+import { storedCredentials } from "./catalog-fakes.ts";
 import { releasePolicy } from "./github-fakes.ts";
 
 const repo = (name: string, branch = "main") => ({
@@ -30,7 +30,7 @@ function catalogOf(
     connections: {},
     ...resolveSessionCatalog(
       sessionCatalogConfigSchema.parse({ repositories }),
-      environmentCredentials({}),
+      storedCredentials({}),
     ),
   };
 }

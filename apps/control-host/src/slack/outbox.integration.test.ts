@@ -100,7 +100,7 @@ const CONNECTIONS = `connections:
     models: [claude-sonnet-5]
     auth:
       kind: api_key
-      value_env: PROVIDER_KEY
+      stored: true
 `;
 const APP_ID = "A0OUTBOX";
 const TEAM = "T0ACME";

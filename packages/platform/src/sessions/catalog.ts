@@ -24,8 +24,8 @@ import { z } from "zod";
 import { type GitCredential, repoRefOf } from "../action/ports/forge.ts";
 import type { ToolCatalogs } from "./tool-names.ts";
 
-// An entry never holds a credential value outside `secret_values`: it names a
-// stored value, an environment variable or a Secrets Manager secret.
+// An entry never holds a credential value outside `secret_values`: it names
+// its own stored value.
 //
 // A connection's kind decides the runtime a release on it runs
 // (`runtimeKindOfProvider`); a kind no installed runtime serves is refused
@@ -48,34 +48,23 @@ export const STORED_OWNER_KINDS = ["connection", "repository", "mcp"] as const;
 export type StoredOwnerKind = (typeof STORED_OWNER_KINDS)[number];
 const storedRefPattern = new RegExp(`^(${STORED_OWNER_KINDS.join("|")}):\\S+$`);
 
-const credentialRefFields = {
-  value_env: z.string().min(1).optional(),
-  secret_id: z.string().min(1).optional(),
-  stored: z
-    .string()
-    .regex(
-      storedRefPattern,
-      "must be connection:, repository: or mcp: and an id",
-    )
-    .optional(),
-};
-function namesOneRef(auth: {
-  value_env?: string | undefined;
-  secret_id?: string | undefined;
-  stored?: string | undefined;
-}): boolean {
-  return (
-    [auth.value_env, auth.secret_id, auth.stored].filter(
-      (field) => field !== undefined,
-    ).length === 1
+const storedRef = z
+  .string()
+  .regex(
+    storedRefPattern,
+    "must be connection:, repository: or mcp: and an id",
   );
-}
-const ONE_REF_MESSAGE = "name exactly one of value_env, secret_id or stored";
+
+/**
+ * The operator references a credential could once name instead of a stored
+ * value. Both are refused wherever an entry is read, naming the field.
+ */
+export const REMOVED_CREDENTIAL_FIELDS = ["value_env", "secret_id"] as const;
+export const REMOVED_CREDENTIAL_MESSAGE =
+  'is no longer supported: write "stored": true and set the value in the console';
+
 function credentialRef<K extends z.ZodType<string>>(kind: K) {
-  return z
-    .object({ kind, ...credentialRefFields })
-    .strict()
-    .refine(namesOneRef, { message: ONE_REF_MESSAGE });
+  return z.object({ kind, stored: storedRef }).strict();
 }
 
 // A credential in a URL would ride every fingerprint, snapshot and claim
@@ -277,7 +266,7 @@ const githubAppAuthSchema = z
     kind: z.literal("github_app"),
     app_id: z.number().int().positive().optional(),
     installation_id: z.number().int().positive().optional(),
-    ...credentialRefFields,
+    stored: storedRef.optional(),
     // GHES: `https://<host>/api/v3`. The JWT and the token cross it, so
     // plain http only to a host inside the operator's network.
     api_base: webUrl
@@ -296,10 +285,10 @@ const githubAppAuthSchema = z
       isRegisteredGitHubApp(auth) ||
       (auth.app_id !== undefined &&
         auth.installation_id !== undefined &&
-        namesOneRef(auth)),
+        auth.stored !== undefined),
     {
       message:
-        "name app_id, installation_id and exactly one of value_env, secret_id or stored, or none of them to use the App registered in the console",
+        "name app_id, installation_id and stored, or none of them to use the App registered in the console",
     },
   );
 
@@ -308,8 +297,6 @@ export function isRegisteredGitHubApp(auth: {
   kind: string;
   app_id?: number | undefined;
   installation_id?: number | undefined;
-  value_env?: string | undefined;
-  secret_id?: string | undefined;
   stored?: string | undefined;
   api_base?: string | undefined;
 }): boolean {
@@ -317,8 +304,6 @@ export function isRegisteredGitHubApp(auth: {
     auth.kind === "github_app" &&
     auth.app_id === undefined &&
     auth.installation_id === undefined &&
-    auth.value_env === undefined &&
-    auth.secret_id === undefined &&
     auth.stored === undefined &&
     auth.api_base === undefined
   );
@@ -416,10 +401,7 @@ export type RepositoryCredential =
 export type CatalogRepository = Omit<CatalogRepositoryConfig, "auth"> & {
   auth: RepositoryCredential;
 };
-export type CredentialRef =
-  | { value_env: string }
-  | { secret_id: string }
-  | { stored: string };
+export type CredentialRef = { stored: string };
 
 /** A connection's provider with its credential resolved, its reference kept. */
 export type CatalogProvider =
@@ -1042,21 +1024,16 @@ export function releaseStartable(
   return repositoryInCeiling(catalog, repositoryCeiling, repositoryId);
 }
 
+/** The entry's stored reference; the schema refuses an entry without one. */
 export function credentialRefOf(auth: {
-  value_env?: string | undefined;
-  secret_id?: string | undefined;
   stored?: string | undefined;
 }): CredentialRef {
-  if (auth.value_env !== undefined) return { value_env: auth.value_env };
-  if (auth.stored !== undefined) return { stored: auth.stored };
-  return { secret_id: auth.secret_id as string };
+  return { stored: auth.stored as string };
 }
 
 /** The reference as `field: name`, for a message; never a value. */
 export function describeCredentialRef(ref: CredentialRef): string {
-  if ("value_env" in ref) return `value_env: ${ref.value_env}`;
-  if ("stored" in ref) return `stored: ${ref.stored}`;
-  return `secret_id: ${ref.secret_id}`;
+  return `stored: ${ref.stored}`;
 }
 
 export class CatalogCredentialError extends Error {
@@ -1068,37 +1045,6 @@ export class CatalogCredentialError extends Error {
   ) {
     super(`${path}.${describeCredentialRef(ref)} ${reason}`);
   }
-}
-
-/** Every credential reference in the catalog, with where it sits. */
-export function catalogCredentialRefs(
-  config: SessionCatalogConfig,
-  connections: Readonly<Record<string, CatalogProviderConfig>> = {},
-): Array<{ path: string; ref: CredentialRef }> {
-  const refs: Array<{ path: string; ref: CredentialRef }> = [];
-  for (const [id, provider] of Object.entries(connections)) {
-    const { kind: _kind, ...fields } = provider.auth;
-    refs.push({ path: `connections.${id}.auth`, ref: credentialRefOf(fields) });
-  }
-  for (const [id, repository] of Object.entries(config.repositories)) {
-    if (
-      repository.auth === undefined ||
-      isRegisteredGitHubApp(repository.auth)
-    ) {
-      continue;
-    }
-    refs.push({
-      path: `repositories.${id}.auth`,
-      ref: credentialRefOf(repository.auth),
-    });
-  }
-  for (const [id, server] of Object.entries(config.mcp_servers ?? {})) {
-    refs.push({
-      path: `mcp_servers.${id}.auth`,
-      ref: credentialRefOf(server.auth),
-    });
-  }
-  return refs;
 }
 
 /**
@@ -1165,9 +1111,8 @@ export function resolveCredential(
 
 /**
  * The resolved catalog. `lookup` hands back each reference's value, already
- * fetched (a Secrets Manager read is the loader's job, not this pure step);
- * an absent or empty value fails naming where the reference sits, never a
- * value.
+ * opened; an absent or empty value fails naming where the reference sits,
+ * never a value.
  */
 export function resolveSessionCatalog(
   config: SessionCatalogConfig,
@@ -1245,7 +1190,7 @@ export function resolveProvider(
   } as CatalogProvider | JudgeProvider;
 }
 
-// A PEM spans lines, which an environment variable often carries as `\n`
+// A PEM spans lines, which a value pasted as one line carries as `\n`
 // escapes. Parsed here so a key that cannot sign fails startup, not the
 // first clone.
 function privateKeyPem(

@@ -2,8 +2,6 @@
 # settings' anthropic connection against the sample repository of
 # deps-session.yaml, under infra/compose.real-model.yml's limits.
 config:
-  aws:
-    secretsManagerEndpointUrl: http://secrets:4566
   limits:
     # The migrate Job carries them into the fresh cluster's console.
     SESSION_COST_LIMIT_USD: 1

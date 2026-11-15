@@ -15,12 +15,12 @@ Once it is up, the server address is `http://127.0.0.1:3000`. The SDK and curl e
 | Docker Compose | 2.24.6 or later |
 | curl, jq, uuidgen, git | Any version |
 
-The stack opens ports on `127.0.0.1` only. Ports 3000 (API and web console), 5432 (PostgreSQL), 4566 (S3) and 4567 (LocalStack Secrets Manager), and 3001 (read-only Git server) must be free.
+The stack opens ports on `127.0.0.1` only. Ports 3000 (API and web console), 5432 (PostgreSQL), 4566 (S3), and 3001 (read-only Git server) must be free.
 
 ```sh
 docker version --format 'Docker Engine {{.Server.Version}}'
 docker compose version
-for p in 3000 5432 4566 4567 3001; do
+for p in 3000 5432 4566 3001; do
   lsof -nP -iTCP:$p -sTCP:LISTEN >/dev/null 2>&1 && echo "사용 중: $p"
 done
 ```
@@ -46,7 +46,7 @@ The first run builds the images from this checkout, so it takes a few minutes to
 {"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}
 ```
 
-With `--fake-model`, model calls are received by a fake Messages API inside compose. A real Claude Code runs inside the worker, and the fake answers according to the script written in the message ([Create your first session](/getting-started/quickstart)). If you start without the option, with `scripts/local.sh up`, it calls the real Claude and costs money. The default way to give it the model key is the console, under **Settings > Agent connections > Model connections > Add connection**; passing the shell's `ANTHROPIC_API_KEY` is the alternative. Started without a key, the stack does not switch to the fake: it comes up with no model connection.
+With `--fake-model`, model calls are received by a fake Messages API inside compose. A real Claude Code runs inside the worker, and the fake answers according to the script written in the message ([Create your first session](/getting-started/quickstart)). If you start without the option, with `scripts/local.sh up`, it calls the real Claude and costs money. The model key is only ever a value stored encrypted in the database. Enter it on the console with **Set API key** on the `anthropic` connection under **Settings > Agent connections > Model connections**, or pass the shell's `ANTHROPIC_API_KEY` and `up` stores it through the API as the demo owner. Started without a key, the stack does not switch to the fake: it comes up with no key on the model connection.
 
 ## Check the status
 
@@ -92,7 +92,7 @@ When migrating an older LocalStack installation, back up from the old checkout b
 | --- | --- |
 | `Docker Engine … is too old` | Upgrade Docker Engine to 28 or later |
 | `127.0.0.1 port(s) … already in use` | Use the `lsof` loop above to find the process using that port |
-| `up` prints `no ANTHROPIC_API_KEY … no model connection` and sessions are refused as no connection (`connection_missing`) | `up` without options uses the real Claude and starts without a key. Enter the key under **Settings > Agent connections > Model connections > Add connection**. To run without a model account, add `--fake-model` |
+| `up` prints `no ANTHROPIC_API_KEY … waiting for its key` and sessions do not start, with an error that no key is available | `up` without options uses the real Claude and starts without a key. Enter the key with **Set API key** on the `anthropic` connection under **Settings > Agent connections > Model connections**. To run without a model account, add `--fake-model` |
 | The API does not come up after restarting Docker | Check the S3 volume, encryption key, and logs. For lost objects from an older LocalStack installation, follow the recovery guide |
 | After a pull, `up` ends with `has neither an image nor a build context specified` or `port is already allocated` | The Git server's service is now named `fake-git`. Fix the key in your port override file, run `scripts/local.sh down --keep-volumes`, then `up` again. Older sessions stop with `CATALOG_MISMATCH`, so open a new session |
 

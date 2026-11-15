@@ -91,10 +91,9 @@ secrets:
   # leaves them out, and the object store signs with the AWS default
   # credential chain instead: IRSA through serviceAccounts.api on EKS.
   objectStoreKeys: true
-  # Further keys handed to the api alone, as environment variables of the
-  # same name: the credentials the settings name by value_env. slack reads
-  # the settings too, but never their credentials.
-  catalogEnv: [ANTHROPIC_API_KEY]
+  # Hand the Secret's BOOTSTRAP_TOKEN to the api, for the first owner's
+  # bootstrap (POST /v1/auth/bootstrap). Turn it off once an owner exists.
+  bootstrapToken: false
   # Have the External Secrets Operator write the Secret above from a secret
   # store instead of creating it by hand. Needs the operator's CRDs.
   externalSecret:
@@ -109,8 +108,7 @@ secrets:
 serviceAccounts:
   # The only ServiceAccount meant to carry cloud credentials (IRSA on EKS).
   # With secrets.objectStoreKeys false the role signs the api's object store
-  # and Secrets Manager requests; with it true the static keys win over the
-  # role in both. The checkpoint GC runs as this one too: it releases object
+  # requests; with it true the static keys win over the role. The checkpoint GC runs as this one too: it releases object
   # holds with the api's object store settings.
   api:
     annotations: {}
@@ -141,12 +139,10 @@ config:
     region: ap-northeast-1
     # An S3-compatible endpoint (LocalStack, MinIO); empty is AWS.
     endpointUrl: ""
-    # The Secrets Manager the catalog's secret_id references read; empty is AWS.
-    secretsManagerEndpointUrl: ""
   # The api, its checkpoint-gc and session-archive jobs and the scheduler read
   # these alike. The chart refuses AWS_* and CHECKPOINT_OBJECT_* in any
-  # extraEnv, config.limits or secrets.catalogEnv: there they would reach one
-  # role and split the object store.
+  # extraEnv or config.limits: there they would reach one role and split the
+  # object store.
   checkpoints:
     bucket: claude-sessions
     # s3 | disabled: run with no object store, every checkpoint refused.

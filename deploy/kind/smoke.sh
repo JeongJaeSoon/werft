@@ -40,9 +40,9 @@
 #                        cost limit. The key is the shell's ANTHROPIC_API_KEY,
 #                        else the ANTHROPIC_API_KEY line of the file
 #                        AGENT_PLATFORM_DOTENV names (default .env), read by
-#                        scripts/lib/real-model-key.sh. up.sh hands it to the
-#                        Secret through a file descriptor: it is never
-#                        printed nor put in an argument. Needs a fresh cluster.
+#                        scripts/lib/real-model-key.sh. up.sh stores it on the
+#                        anthropic connection through the console API, on
+#                        stdin: it is never printed nor put in an argument.
 #   KEEP_CLUSTER=1       leave the cluster up for a look afterwards
 #   PROBE_IMAGE          busybox for the egress probe, by digest
 #   K8S_BACKEND_TEST_IMAGE  the contract suite's image (its README)

@@ -6,7 +6,7 @@
       "endpoint": "http://fake-responses:4030",
       "auth": {
         "kind": "api_key",
-        "secret_id": "werft/local/fake-messages"
+        "stored": true
       },
       "models": ["gpt-5.5"]
     }

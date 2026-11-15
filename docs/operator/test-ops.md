@@ -197,11 +197,10 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops   # TEST_OPS_STATE_DIR
 | `EXECUTION_INSTALLATION_ID` | `test-ops`. scheduler가 띄운 worker 컨테이너와 egress proxy의 label이다. `local`(로컬 스택)이거나 이 daemon의 컨테이너가 이미 같은 값을 달고 있으면 `deploy`가 거부하고, 배포한 뒤에는 바꿀 수 없다 |
 | `POSTGRES_PASSWORD` | 무작위 값. `DATABASE_URL`에 escape 없이 들어가므로 영문·숫자·`.` `_` `~` `-`만 쓴다. `preflight`가 다른 문자를 거부한다 |
 | `EGRESS_AUTHORIZER_TOKEN` | 32자 이상 무작위 값. API와 egress proxy가 같은 값을 쓴다 |
-| `ANTHROPIC_API_KEY` | 선택. 비워도 렌더되고 시작된다. 기본은 콘솔 모델 연결 화면에서 넣는다(아래 "provider key"). 연결이 `value_env: ANTHROPIC_API_KEY`로 이름을 가리킬 때만 채운다. API에만 간다 |
 | `PLATFORM_SETTINGS_DOCUMENT` | 설정 문서 파일. 기본 예시는 `/etc/werft/settings.json`. checkout 안이면 거부한다 |
 | `PLATFORM_SECRET_KEY` | 64자 hex(`openssl rand -hex 32`). 저장한 자격 증명을 봉인하는 master key다. API와 slack 역할에만 가고, 없으면 `preflight`가 거부한다. 잃으면 저장한 값을 읽지 못한다 |
 | `EGRESS_CREDENTIAL_ALLOWLIST` | `localstack`: `api.anthropic.com:443,github.com:443`. `s3`: `api.anthropic.com:443,github.com:443,<bucket>.s3.ap-northeast-1.amazonaws.com:443`. `github.com:443`이 없으면 worker가 카탈로그의 GitHub 저장소를 clone하지 못한다. bucket 호스트가 없으면 worker가 checkpoint를 쓰지 못하므로 `preflight`가 거부한다. 이름에 `.`이 든 bucket은 `s3.ap-northeast-1.amazonaws.com:443`이다 |
-| `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | `localstack`: `localstack:4566`. 없으면 worker가 checkpoint를 쓰지 못하므로 거부한다. `s3`: 비워 둔다. 어느 쪽이든 로컬 전용 서비스(`fake-messages`, `secrets`, `fake-git`, `s3`에서는 `localstack`도)를 적으면 거부한다 |
+| `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | `localstack`: `localstack:4566`. 없으면 worker가 checkpoint를 쓰지 못하므로 거부한다. `s3`: 비워 둔다. 어느 쪽이든 로컬 전용 서비스(`fake-messages`, `fake-git`, `s3`에서는 `localstack`도)를 적으면 거부한다 |
 | `EXECUTION_WORKSPACE_QUOTA` | `on`. 다른 값이면 거부한다 |
 
 `s3`에서만 다음을 더 채운다. `localstack`에서는 비워 둔다. API는 LocalStack의 `claude-sessions` bucket에 LocalStack용 고정 key로 붙고, `S3_BUCKET`을 다른 값으로 두면 `preflight`가 거부한다.
@@ -244,7 +243,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops   # TEST_OPS_STATE_DIR
 
 ## 카탈로그
 
-`PLATFORM_SETTINGS_DOCUMENT`에 설정 문서 하나를 둔다. migrate는 빈 설치의 첫 `deploy`에서만 이 문서를 가져온다(`settings seed`, [API 서버 문서](api-server.md)). `deploy`는 끝에 문서 import dry-run으로 DB가 문서를 담았는지 본다. 그 뒤로는 콘솔이 설정을 맡는다. `upgrade`는 문서를 가져오지도 DB와 대조하지도 않고, manifest의 문서가 바뀌었으면 `the settings document changed; it is not imported …`만 남긴다. 바꿀 것은 콘솔에서 바꾼다. 그래도 `preflight`는 마운트한 파일이 manifest의 digest와 같고 지금 스키마로 읽히는지 본다. `reset` 뒤 `deploy`가 그 파일을 다시 쓰기 때문이다. 그러니 manifest의 `settings_digest`와 `history.log`의 settings는 처음 넣은 문서와 그 뒤 마운트한 파일의 기록이지, 지금 DB 설정의 digest가 아니다. migrate 컨테이너(uid 1000)가 읽을 수 있게 파일은 `0644`로 둔다. 문서에는 값이 아니라 참조만 적으므로 비밀이 없다. 기본 안내는 문서에 연결을 적지 않고 콘솔에서 만드는 것이다. 문서에 적는다면 provider는 실제 Messages API로, key는 `value_env: ANTHROPIC_API_KEY`로 적고, 에이전트가 고를 모델을 `models`에 적는다. 그런 연결을 콘솔에서 키를 넣는 방식(stored)으로 옮기면(모델 연결 행의 "화면에서 키 넣기") 연결 행은 stored로 바뀌고 옛 참조는 `provider_connections.replaces_auth`에 남는다. 그 연결로 만든 release와 세션은 계속 돌고, 손으로 돌린 가져오기는 문서가 옛 항목을 그대로 적고 있어도 DB 행을 둔다(`kept`). 옮긴 뒤에는 `ANTHROPIC_API_KEY`가 그 연결에 쓰이지 않는다. 이 열은 추가형이라 앞 이미지로 되돌려도 무시되지만, 되돌린 이미지는 옮긴 연결의 stored 정의를 `stored` 참조로 읽을 뿐 옛 env 참조로 돌아가지 않는다.
+`PLATFORM_SETTINGS_DOCUMENT`에 설정 문서 하나를 둔다. migrate는 빈 설치의 첫 `deploy`에서만 이 문서를 가져온다(`settings seed`, [API 서버 문서](api-server.md)). `deploy`는 끝에 문서 import dry-run으로 DB가 문서를 담았는지 본다. 그 뒤로는 콘솔이 설정을 맡는다. `upgrade`는 문서를 가져오지도 DB와 대조하지도 않고, manifest의 문서가 바뀌었으면 `the settings document changed; it is not imported …`만 남긴다. 바꿀 것은 콘솔에서 바꾼다. 그래도 `preflight`는 마운트한 파일이 manifest의 digest와 같고 지금 스키마로 읽히는지 본다. `reset` 뒤 `deploy`가 그 파일을 다시 쓰기 때문이다. 그러니 manifest의 `settings_digest`와 `history.log`의 settings는 처음 넣은 문서와 그 뒤 마운트한 파일의 기록이지, 지금 DB 설정의 digest가 아니다. migrate 컨테이너(uid 1000)가 읽을 수 있게 파일은 `0644`로 둔다. 문서에는 값을 적지 않으므로 비밀이 없다. 기본 안내는 문서에 연결을 적지 않고 콘솔에서 만드는 것이다. 문서에 적는다면 provider는 실제 Messages API로, key는 `"stored": true`로 적고, 에이전트가 고를 모델을 `models`에 적는다. 그 연결은 값 없이(`needs_value`) 들어오므로 첫 `deploy` 뒤 owner가 콘솔의 모델 연결 화면에서 그 연결의 "API 키 설정"으로 key를 넣는다(아래 "provider key"). 그전에는 그 연결의 release로 세션이 시작되지 않는다.
 
 ```json
 {
@@ -253,7 +252,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops   # TEST_OPS_STATE_DIR
     "anthropic": {
       "kind": "anthropic",
       "endpoint": "https://api.anthropic.com",
-      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" },
+      "auth": { "kind": "api_key", "stored": true },
       "models": ["claude-sonnet-5"]
     }
   },
@@ -391,12 +390,11 @@ docker exec werft-test-ops-api-1 bun run apps/control-host/src/api/grants.ts rev
 
 test-ops는 운영자의 Anthropic key 하나를 모든 세션이 같이 쓴다.
 
-- key는 콘솔의 모델 연결 화면(설정 > 에이전트 연결 > 모델 연결)에서 넣는 것이 기본이다. DB에 봉인돼 저장되고(`PLATFORM_SECRET_KEY`로 연다), 키를 넣기 전에는 그 연결의 release로 세션이 시작되지 않고 화면 경로를 알려 주는 오류가 난다. env로 두려면 env 파일의 `ANTHROPIC_API_KEY`를 채우고 연결이 `value_env`로 이름만 가리키게 한다. compose는 이 값을 API 컨테이너에만 넘긴다. worker는 key를 받지 않는다. egress proxy의 provider route가 요청마다 API에 물어 key를 붙인다.
+- key는 콘솔의 모델 연결 화면(설정 > 에이전트 연결 > 모델 연결)에서 넣거나, owner의 로그인 세션으로 `POST /v1/installation/settings/connections/{id}/credential`을 불러 넣는다. env 파일로는 줄 수 없다. DB에 봉인돼 저장되고(`PLATFORM_SECRET_KEY`로 연다), 키를 넣기 전에는 그 연결의 release로 세션이 시작되지 않고 화면 경로를 알려 주는 오류가 난다. worker는 key를 받지 않는다. egress proxy의 provider route가 요청마다 API에 물어 key를 붙인다.
 - 비용은 실행 한도의 세션 비용(기본 25달러, 설정 > 워크스페이스 > 실행 한도)으로 막는다. Anthropic 콘솔에도 월 한도를 건다.
-- 교체(화면에서 넣은 key): 콘솔에서 새 key를 만든다 → 모델 연결 화면에서 그 연결 행의 ⋯ 메뉴에 있는 "API 키 설정"으로 새 key를 넣는다 → 세션 한 턴을 확인한다 → 옛 key를 폐기한다. env 파일은 건드리지 않는다. 저장형 연결은 env 값을 읽지 않으므로 env만 바꾸면 계속 옛 key로 돈다.
-- 교체(env 참조 연결): 콘솔에서 새 key를 만든다 → env 파일 값을 바꾼다 → `scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`으로 같은 release를 다시 적용한다(바뀐 설정만 컨테이너를 새로 만든다) → `/readyz`와 세션 한 턴을 확인한다 → 옛 key를 폐기한다. 참조 이름이 같으므로 연결과 release spec은 바뀌지 않고 진행 중인 세션도 그대로 이어진다.
+- 교체: 콘솔에서 새 key를 만든다 → 모델 연결 화면에서 그 연결 행의 ⋯ 메뉴에 있는 "API 키 설정"으로 새 key를 넣는다 → 세션 한 턴을 확인한다 → 옛 key를 폐기한다. env 파일은 건드리지 않는다. 연결과 release spec은 바뀌지 않고 진행 중인 세션도 그대로 이어진다.
 
-env 파일의 다른 값을 바꿀 때도 같은 명령을 쓴다.
+env 파일의 값을 바꿀 때는 `scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`으로 같은 release를 다시 적용한다(바뀐 설정만 컨테이너를 새로 만든다).
 
 ## 업그레이드
 

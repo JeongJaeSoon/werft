@@ -44,7 +44,7 @@ const DOCUMENT = {
       kind: "litellm",
       endpoint: "http://10.0.0.5:4000",
       billing: "none",
-      auth: { kind: "bearer", value_env: "PROVIDER_KEY" },
+      auth: { kind: "bearer", stored: true },
     },
     console: {
       kind: "anthropic",
@@ -70,7 +70,7 @@ const DOCUMENT = {
         kind: "github_app",
         app_id: 7,
         installation_id: 70,
-        value_env: "GHEC_APP_KEY",
+        stored: true,
       },
     },
   },
@@ -78,7 +78,7 @@ const DOCUMENT = {
     docs: {
       url: "https://mcp.example.invalid/docs",
       credential_ref: "docs_token",
-      auth: { kind: "bearer", value_env: "MCP_TOKEN" },
+      auth: { kind: "bearer", stored: true },
       workspaces: ["acme"],
     },
   },
@@ -158,7 +158,13 @@ integration("settings document import and export", () => {
 
   const entries = (): SettingsEntries => parseSettingsDocument(DOCUMENT);
   const store = () => createPostgresSettingsDocumentStore(db);
-  const operator = { dryRun: false, allowExternal: true, actor: null };
+  const operator = { dryRun: false, actor: null };
+  const STORED = [
+    "connection:console",
+    "connection:main",
+    "repository:ghec",
+    "mcp:docs",
+  ];
 
   test("an import, its export and the export imported again change nothing the second time", async () => {
     await clear();
@@ -167,7 +173,7 @@ integration("settings document import and export", () => {
       outcome: "applied",
       unchanged: [],
       conflicts: [],
-      needs_value: ["connection:console"],
+      needs_value: STORED,
     });
     if (first.outcome === "actor_inactive") throw new Error("unreachable");
     expect(first.add.map((add) => `${add.kind}:${add.id}`).sort()).toEqual([
@@ -243,11 +249,14 @@ integration("settings document import and export", () => {
       },
       ghec: {
         authKind: "github_app_explicit",
-        credentialSource: "external",
+        credentialSource: "stored",
         source: "import",
         owner: "acme",
         name: "ghec",
-        auth: DOCUMENT.repositories.ghec.auth,
+        auth: {
+          ...DOCUMENT.repositories.ghec.auth,
+          stored: "repository:ghec",
+        },
       },
     });
     const read = await createPostgresInstallationSettingsStore(db, null).read();
@@ -265,8 +274,8 @@ integration("settings document import and export", () => {
       url: "https://git.example.invalid/acme/legacy.git",
       branch: "main",
       authKind: "bearer",
-      auth: { kind: "bearer", value_env: "REPO_TOKEN" },
-      credentialSource: "external",
+      auth: { kind: "bearer", stored: "repository:legacy" },
+      credentialSource: "stored",
       source: "import",
     });
     const row = () =>
@@ -418,21 +427,41 @@ integration("settings document import and export", () => {
     ]);
   });
 
-  test("the API's import refuses a new external reference, takes stored ones, and an export never carries the value", async () => {
+  test("a document naming an env or Secrets Manager reference is refused, naming the field", () => {
+    const named = (field: string) => ({
+      ...DOCUMENT,
+      repositories: {
+        ghec: {
+          ...DOCUMENT.repositories.ghec,
+          auth: {
+            kind: "github_app",
+            app_id: 7,
+            installation_id: 70,
+            [field]: "X",
+          },
+        },
+      },
+      mcp_servers: {
+        docs: {
+          ...DOCUMENT.mcp_servers.docs,
+          auth: { kind: "bearer", [field]: "X" },
+        },
+      },
+    });
+    for (const field of ["value_env", "secret_id"]) {
+      expect(() =>
+        parseSettingsDocument({ ...named(field), mcp_servers: {} }),
+      ).toThrow(`repositories.ghec.auth.${field} is no longer supported`);
+      expect(() =>
+        parseSettingsDocument({ ...named(field), repositories: {} }),
+      ).toThrow(`mcp_servers.docs.auth.${field} is no longer supported`);
+    }
+  });
+
+  test("the API's import takes stored entries, and an export never carries the value", async () => {
     await clear();
     const actor = await owner();
-    const api = { dryRun: false, allowExternal: false, actor };
-    const refused = await store().importEntries(entries(), api);
-    expect(refused).toMatchObject({
-      outcome: "refused",
-      refused_external: ["connection:main", "repository:ghec", "mcp:docs"],
-    });
-    expect(await rowCounts()).toEqual({
-      connections: 0,
-      repositories: 0,
-      mcp: 0,
-    });
-
+    const api = { dryRun: false, actor };
     const stored: SettingsEntries = {
       connections: { console: entries().connections.console as never },
       repositories: {
@@ -523,11 +552,7 @@ integration("settings document import and export", () => {
       mcp_servers: {},
     });
     expect(
-      await store().importEntries(elsewhere, {
-        ...operator,
-        allowExternal: false,
-        actor,
-      }),
+      await store().importEntries(elsewhere, { ...operator, actor }),
     ).toMatchObject({ outcome: "refused", conflicts: ["connection:console"] });
     await expect(
       settings.putStoredValue(
@@ -556,7 +581,7 @@ integration("settings document import and export", () => {
           later: {
             kind: "anthropic",
             endpoint: "https://api.anthropic.invalid",
-            auth: { kind: "api_key", value_env: "LATER_KEY" },
+            auth: { kind: "api_key", stored: true },
           },
         },
         repositories: {},

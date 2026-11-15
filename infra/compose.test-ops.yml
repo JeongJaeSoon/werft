@@ -37,12 +37,6 @@ services:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
     environment:
       EGRESS_AUTHORIZER_TOKEN: ${EGRESS_AUTHORIZER_TOKEN:?EGRESS_AUTHORIZER_TOKEN must be set for test-ops}
-      # Optional. The model key is normally entered on the console's model
-      # connections screen and sealed in the database. Set it only for a
-      # connection that names it with `value_env: ANTHROPIC_API_KEY`; unset,
-      # that connection stays out of the catalog and a session on a release
-      # pinned to it is refused.
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       PLATFORM_SECRET_KEY: ${PLATFORM_SECRET_KEY:?PLATFORM_SECRET_KEY must be set for test-ops}
       # A minted bootstrap token waits here, owner-only, instead of the
       # container log; `scripts/test-ops.sh bootstrap-token` takes it once.

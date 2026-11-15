@@ -278,13 +278,14 @@ Helm chart(`deploy/helm/werft`, 설치 절차는 [Kubernetes 설치 (Helm chart)
 | `DATABASE_URL` | api, scheduler, reconciler, slack, migrate, checkpoint GC, metrics, upgrade-check Job, session archive CronJob |
 | `EGRESS_AUTHORIZER_TOKEN` | api, egress-proxy(같은 값) |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | api, checkpoint GC, session archive CronJob. `secrets.objectStoreKeys: true`일 때만. `false`면 AWS 기본 credential chain(IRSA)으로 서명한다 |
-| `secrets.catalogEnv`의 이름(기본 `ANTHROPIC_API_KEY`) | api만. 설정 문서가 `value_env`로 가리키는 provider·저장소 자격 증명을 환경 변수로 주는 대안이다. api는 그 값을 처음 읽을 때 DB에 한 번 옮기고 그 뒤로 읽지 않으므로, 옮겼다는 경고(`… into the database …; remove <이름>`)가 나온 뒤에는 이 이름을 빼도 된다. 모델 key의 기본 경로는 설치 뒤 콘솔의 **설정 > 에이전트 연결 > 모델 연결 > 연결 추가**이고, 그렇게 하면 `secrets.catalogEnv`에서 이 이름만 빼고 `BOOTSTRAP_TOKEN`은 남긴다(`["BOOTSTRAP_TOKEN"]`). `secrets.catalogEnv`나 `api.extraEnv` 같은 어떤 경로로도 `BOOTSTRAP_TOKEN`을 주입하지 않으면 프로세스마다 토큰이 자동 생성된다. 기본 API replica 2개로 첫 설치(bootstrap)를 하려면 같은 토큰을 주입해야 한다. 다른 경로 주입이 없는데 목록을 `[]`로 비우면 replica마다 다른 토큰이 생겨 일부 요청이 401이 된다. replica가 1개이면 자동 생성 토큰도 쓸 수 있다. 기본값을 두면 Secret에 그 키가 없을 때 Pod가 뜨지 않는다. slack은 받지 않는다 |
 | `PLATFORM_SECRET_KEY` | api, slack. 필수. 64자 hex master key. 콘솔에서 저장한 자격 증명을 봉인한다. Secret에 없으면 Pod가 뜨지 않는다 |
+
+모델 연결·MCP 서버·저장소 GitHub App key는 Secret이나 환경 변수로 주지 않는다. 콘솔(또는 credential API)에서 넣고 DB에 `PLATFORM_SECRET_KEY`로 암호화돼 저장된다. `secrets.catalogEnv`와 `config.aws.secretsManagerEndpointUrl`은 없어졌고, values에 남아 있으면 렌더링이 실패한다. `secrets.bootstrapToken: true`이면 api가 Secret의 `BOOTSTRAP_TOKEN`을 받는다(기본 `false`). 받지 않으면 프로세스마다 토큰이 자동 생성된다. 기본 API replica 2개로 첫 설치(bootstrap)를 하려면 같은 토큰을 Secret으로 주입해야 하고, 그렇지 않으면 replica마다 다른 토큰이 생겨 일부 요청이 401이 된다. replica가 1개이면 자동 생성 토큰도 쓸 수 있다.
 
 | 값 | 무엇을 바꾸나 |
 |---|---|
 | `images.registry`, `images.*.digest` | ECR host와 그 이미지의 digest |
-| `secrets.objectStoreKeys: false`, `serviceAccounts.api.annotations` | 정적 AWS key 대신 IRSA. api, checkpoint GC, session archive CronJob이 api ServiceAccount의 이 role로 S3·Secrets Manager에 서명한다. scheduler와 worker는 S3 권한이 없다 |
+| `secrets.objectStoreKeys: false`, `serviceAccounts.api.annotations` | 정적 AWS key 대신 IRSA. api, checkpoint GC, session archive CronJob이 api ServiceAccount의 이 role로 S3에 서명한다. scheduler와 worker는 S3 권한이 없다 |
 | `secrets.externalSecret` | External Secrets Operator가 Secrets Manager의 `remoteKey`(JSON, 위 Secret 키 전부. IRSA면 AWS key 둘은 뺀다)로 Secret을 쓴다. 운영자 CRD가 필요하다 |
 | `ingress` | ALB Ingress. `scheme`은 `internal`이다(위). `healthcheck-path: /readyz`, SSE를 위해 idle timeout 300초. 공개 경로(`/v1`·`/docs`·`/healthz`·`/readyz`)만 route하고 `/internal`과 authorizer(3100)는 열지 않는다 |
 | `ingress.console.enabled` | 기본 `false`. 켜면 웹 콘솔 `/`와 `/internal` 404 규칙을 더한다. 켜는 조건은 [접속 경로](/run-server/self-hosting/access) |

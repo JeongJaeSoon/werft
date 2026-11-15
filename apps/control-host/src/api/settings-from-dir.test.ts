@@ -19,7 +19,7 @@ const REPOSITORIES = `repositories:
       app_id: 1
       installation_id: 1
       api_base: http://fake-git:3000
-      value_env: GITHUB_APP_KEY
+      stored: repository:sample-app
 `;
 const CONNECTIONS = `connections:
   main:
@@ -27,7 +27,7 @@ const CONNECTIONS = `connections:
     endpoint: https://api.anthropic.invalid
     auth:
       kind: api_key
-      value_env: PROVIDER_KEY
+      stored: connection:main
 `;
 
 let root: string;

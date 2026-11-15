@@ -190,7 +190,7 @@ const TEST_PROVIDER: CatalogProvider = {
   auth: {
     kind: "api_key",
     value: "test-provider-key",
-    ref: { value_env: "TEST_PROVIDER_KEY" },
+    ref: { stored: `connection:${TEST_CONNECTION_ID}` },
   },
 };
 

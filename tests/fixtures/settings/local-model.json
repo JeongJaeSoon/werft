@@ -6,7 +6,7 @@
       "endpoint": "http://ollama.internal:11434",
       "auth": {
         "kind": "api_key",
-        "value_env": "LOCAL_OLLAMA_API_KEY"
+        "stored": true
       },
       "models": ["gemma4:26b-mlx"]
     },
@@ -15,7 +15,7 @@
       "endpoint": "http://litellm:4000",
       "auth": {
         "kind": "bearer",
-        "value_env": "LITELLM_MASTER_KEY"
+        "stored": true
       },
       "models": ["gemma4-local"]
     }
@@ -29,7 +29,7 @@
         "app_id": 1,
         "installation_id": 1,
         "api_base": "http://fake-git:3000",
-        "secret_id": "werft/local/fake-github-app"
+        "stored": true
       }
     }
   },

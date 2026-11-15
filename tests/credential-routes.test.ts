@@ -157,7 +157,7 @@ async function topology(
             auth: {
               kind: "api_key",
               value: providerValue,
-              ref: { value_env: "PROVIDER_KEY" },
+              ref: { stored: `connection:${CLAUDE_CONNECTION}` },
             },
           },
           models: ["claude-sonnet-4-5"],
@@ -169,7 +169,7 @@ async function topology(
             auth: {
               kind: "api_key",
               value: RESPONSES_UPSTREAM_VALUE,
-              ref: { value_env: "OPENAI_KEY" },
+              ref: { stored: `connection:${RESPONSES_CONNECTION}` },
             },
           },
           models: ["gpt-5.5"],

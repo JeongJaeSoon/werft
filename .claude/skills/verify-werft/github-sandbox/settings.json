@@ -6,7 +6,7 @@
       "endpoint": "http://fake-messages:4010",
       "auth": {
         "kind": "api_key",
-        "secret_id": "werft/local/fake-messages"
+        "stored": true
       },
       "models": ["claude-sonnet-5"]
     }
@@ -20,7 +20,7 @@
         "app_id": 1,
         "installation_id": 1,
         "api_base": "http://fake-git:3000",
-        "secret_id": "werft/local/fake-github-app"
+        "stored": true
       }
     },
     "sandbox": {
@@ -37,7 +37,7 @@
       "credential_ref": "mcp/fake",
       "auth": {
         "kind": "bearer",
-        "secret_id": "werft/local/fake-mcp"
+        "stored": true
       },
       "workspaces": ["verify"]
     }

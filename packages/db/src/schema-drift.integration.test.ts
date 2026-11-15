@@ -33,9 +33,12 @@ const integrationTest = testDatabaseUrl() ? test : test.skip;
 // Listed exactly, so a migration that loses, disables or rewrites one fails
 // as well; a migration that changes one on purpose updates its line here.
 const MIGRATIONS_ONLY = [
+  // 0288: a console row commits only with its stored value.
+  "constraint mcp_servers.mcp_servers_console_value TRIGGER DEFERRABLE INITIALLY DEFERRED",
   // 0226: a state write marks the session's Slack thread status due at commit.
   "constraint pending_requests.pending_requests_slack_thread_status_insert TRIGGER DEFERRABLE INITIALLY DEFERRED",
   "constraint pending_requests.pending_requests_slack_thread_status_update TRIGGER DEFERRABLE INITIALLY DEFERRED",
+  "constraint provider_connections.provider_connections_console_value TRIGGER DEFERRABLE INITIALLY DEFERRED",
   // 0236: a push intent or pull request stage change does the same.
   "constraint push_intents.push_intents_slack_thread_status_insert TRIGGER DEFERRABLE INITIALLY DEFERRED",
   "constraint push_intents.push_intents_slack_thread_status_update TRIGGER DEFERRABLE INITIALLY DEFERRED",
@@ -85,6 +88,7 @@ const MIGRATIONS_ONLY = [
   "function sessions_pin_required() trigger language plpgsql volatility=v parallel=u body md5 8c7a7d0511d31a3e8cb3167922d9b680",
   // 0273: entering paused stamps the workspace TTL's clock, leaving clears it.
   "function sessions_track_paused_at() trigger language plpgsql volatility=v parallel=u body md5 b076ce49aab13242b12bab969eadca0e",
+  "function settings_console_value_check() trigger language plpgsql volatility=v parallel=u body md5 e883e3d7e91c7d7d3c2696f163ccb436",
   "function slack_thread_status_of_row() trigger language plpgsql volatility=v parallel=u body md5 82b785c73c74e41ac9d4ca426506e7d3",
   "function slack_thread_status_of_session() trigger language plpgsql volatility=v parallel=u body md5 2dfe6ae6f5da387e822bf624ebaeb999",
   "function slack_thread_status_touch(session uuid) void language sql volatility=v parallel=u body md5 c4d8bde1fd53798d7cd4a18e5187512f",
@@ -107,8 +111,10 @@ const MIGRATIONS_ONLY = [
   // migration that changes that function's line above rebuilds this index.
   "index CREATE INDEX sessions_env_start_values_idx ON public.sessions USING btree (id) WHERE ((env_start IS NOT NULL) AND (env_start IS DISTINCT FROM env_start_without_values(env_start)))",
   "relation sessions_env_start_values_idx kind=i",
+  "trigger CREATE CONSTRAINT TRIGGER mcp_servers_console_value AFTER INSERT ON public.mcp_servers DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN ((new.origin = 'console'::text)) EXECUTE FUNCTION settings_console_value_check('mcp') enabled=O",
   "trigger CREATE CONSTRAINT TRIGGER pending_requests_slack_thread_status_insert AFTER INSERT ON public.pending_requests DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
   "trigger CREATE CONSTRAINT TRIGGER pending_requests_slack_thread_status_update AFTER UPDATE ON public.pending_requests DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (((old.resolved_at IS DISTINCT FROM new.resolved_at) OR (old.answered_at IS DISTINCT FROM new.answered_at) OR (old.parked_at IS DISTINCT FROM new.parked_at) OR (old.expires_at IS DISTINCT FROM new.expires_at))) EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
+  "trigger CREATE CONSTRAINT TRIGGER provider_connections_console_value AFTER INSERT ON public.provider_connections DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN ((new.origin = 'console'::text)) EXECUTE FUNCTION settings_console_value_check('connection') enabled=O",
   "trigger CREATE CONSTRAINT TRIGGER push_intents_slack_thread_status_insert AFTER INSERT ON public.push_intents DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
   "trigger CREATE CONSTRAINT TRIGGER push_intents_slack_thread_status_update AFTER UPDATE ON public.push_intents DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN ((old.status IS DISTINCT FROM new.status)) EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
   "trigger CREATE CONSTRAINT TRIGGER push_requests_slack_thread_status_insert AFTER INSERT ON public.push_requests DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",

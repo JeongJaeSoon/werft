@@ -1212,7 +1212,7 @@ const SETTINGS_DOCUMENT_EXAMPLE = {
     "anthropic-main": {
       kind: "anthropic",
       endpoint: "https://api.anthropic.com",
-      auth: { kind: "api_key", value_env: "ANTHROPIC_API_KEY" },
+      auth: { kind: "api_key", stored: true },
     },
     "anthropic-console": {
       kind: "anthropic",
@@ -1292,19 +1292,17 @@ const LOGIN_PROVIDER_EXAMPLE = {
   updated_at: "2026-10-18T09:12:00Z",
 } as const;
 const SETTINGS_LIST =
-  "The database's rows, disabled ones included, by id. A credential is shown as `stored` with its `last4`, or as the name of the env or Secrets Manager reference; never a value. `state`: `needs_value` (stored, no value yet), `unresolved` (the credential did not resolve on the replica that answered), `disabled`, else `active`. Changes nothing.";
+  "The database's rows, disabled ones included, by id. A credential is shown as `stored` with its `last4`; never a value. `state`: `needs_value` (stored, no value yet), `unresolved` (the credential did not resolve on the replica that answered), `disabled`, else `active`. Changes nothing.";
 const SETTINGS_CREATE =
-  "The credential is the value in the request, sealed under this row alone in the same transaction as the row; a reference to the deployment's env or Secrets Manager is the operator's settings CLI's. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an entry the catalog's rules refuse is 400 `invalid_entry`.";
+  "The credential is the value in the request, required and at least 8 characters, sealed under this row alone in the same transaction as the row; a row is never made without it. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an entry the catalog's rules refuse is 400 `invalid_entry`.";
 const SETTINGS_CREDENTIAL =
-  "Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A row whose credential comes from the operator's deployment is 409 `not_stored`, a disabled one 409 `disabled`. Writes a `set_settings_credential` receipt naming the last four characters.";
-const SETTINGS_CONVERT =
-  "For a connection whose key comes from the operator's deployment (an env or Secrets Manager reference): the person types the key, it is sealed under the same id, and the row is stored from then on. The server does not read the referenced value. Ceilings made before keep running on the stored key and their pins do not change. A settings document that still names the old entry leaves the row as it is. A connection that already keeps its own value is 409 `not_external`, a disabled one 409 `disabled`, one that another connection is or was exactly 409 `alias_taken`. Writes a `set_settings_credential` receipt naming the last four characters and which reference it replaced.";
+  "Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A repository with no credential of its own is 409 `not_stored`, a disabled row 409 `disabled`. Writes a `set_settings_credential` receipt naming the last four characters.";
 const SETTINGS_DISABLE =
   "Never undone and nothing is deleted: the id stays taken and the stored value stays sealed. Ceilings over it stop running anything. Disabling one already disabled is 409 `disabled`.";
 const SETTINGS_DISABLE_CONNECTION =
   "Nothing is deleted: the id stays taken and the stored value stays sealed. Releases on it stop running anything until it is enabled again. Disabling one already disabled is 409 `disabled`.";
 const SETTINGS_ENABLE_CONNECTION =
-  "Brings a disabled connection back: releases on it run again once the settings are read again (a reference to the deployment that does not resolve leaves it `unresolved`). It is refused with 409 `not_disabled` when the row is in use, 409 `definition_active` when another connection in use is, or was, exactly what this one is (disable that one first), and 409 `needs_value` when its stored value is gone (disabling keeps it, so this is rare). The destination never changes. Writes an `enable_connection` receipt.";
+  "Brings a disabled connection back: releases on it run again once the settings are read again. It is refused with 409 `not_disabled` when the row is in use, 409 `definition_active` when another connection in use is exactly what this one is (disable that one first), and 409 `needs_value` when its stored value is gone (disabling keeps it, so this is rare). The destination never changes. Writes an `enable_connection` receipt.";
 const SETTINGS_CHANGE_EXAMPLE = (id: string) => ({
   id,
   receipt_id: "019a0000-0000-7000-8000-0000000000f3",
@@ -7935,7 +7933,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The installation's settings as one document, without a value",
     description:
-      "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The provider connections, repositories and remote MCP servers the database holds, each entry in the shape the document holds it; disabled and removed rows are left out, so this is the active settings to copy, not a backup. An env or Secrets Manager reference comes back as its name (`value_env`, `secret_id`); a value the database stores as `stored: true` and its `last4`, never the value. Execution ceilings are not in it. `digest` is the SHA-256 of the document's canonical JSON, `last4` included. Changes nothing.",
+      "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The provider connections, repositories and remote MCP servers the database holds, each entry in the shape the document holds it; disabled and removed rows are left out, so this is the active settings to copy, not a backup. A credential comes back as `stored: true` and its `last4`, never the value. Execution ceilings are not in it. `digest` is the SHA-256 of the document's canonical JSON, `last4` included. Changes nothing.",
     auth: "session",
     success: {
       status: 200,
@@ -7955,7 +7953,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Add the entries of a settings document the installation lacks",
     description:
-      "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Adds each entry whose id no row holds, in one transaction, and writes an `import_connection`, `import_repository` or `import_mcp_server` receipt for each. An id held with the same content is `unchanged` (`inactive` when that row is disabled or removed: it stays so), and nothing is overwritten: an id held with other content, a GitHub App repository another id already holds, or a new stored entry whose id already has a value is 409 REVISION_CONFLICT (`details.reason_code: settings_conflict`, `details.entries`) and nothing changes. An entry bringing an env or Secrets Manager reference the installation does not hold yet is 400 `external_reference` (`details.entries`), nothing changed: only the operator's `settings import` CLI brings those in. A `stored: true` entry always means its own row's value and runs once the value is set (`needs_value`). A wrong outline (`version`, the top-level keys) is 400 with `details.issues`; an entry the settings rules refuse is 400 `invalid_document`. `dry_run=true` answers the same without writing.",
+      "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Adds each entry whose id no row holds, in one transaction, and writes an `import_connection`, `import_repository` or `import_mcp_server` receipt for each. An id held with the same content is `unchanged` (`inactive` when that row is disabled or removed: it stays so), and nothing is overwritten: an id held with other content, a GitHub App repository another id already holds, or a new stored entry whose id already has a value is 409 REVISION_CONFLICT (`details.reason_code: settings_conflict`, `details.entries`) and nothing changes. A credential is `stored: true` only: an entry naming `value_env` or `secret_id` is 400 `invalid_document`, its message naming the field. A `stored: true` entry always means its own row's value and runs once the value is set (`needs_value`). A wrong outline (`version`, the top-level keys) is 400 with `details.issues`; an entry the settings rules refuse is 400 `invalid_document`. `dry_run=true` answers the same without writing.",
     auth: "session",
     query: "ImportSettingsQuery",
     body: "SettingsDocument",
@@ -8062,26 +8060,6 @@ export const API_ROUTE_DECLARATIONS = [
       schema: "SettingsChangeResponse",
       description: "The entry's id and the change's receipt.",
       example: SETTINGS_CHANGE_EXAMPLE("anthropic-console"),
-    },
-    errors: [400, 401, 403, 404, 409, 503],
-    errorCodes: { 409: ["REVISION_CONFLICT"] },
-    idempotent: false,
-  },
-  {
-    method: "post",
-    path: "/v1/installation/settings/connections/{id}/convert",
-    operationId: "convertSettingsConnection",
-    tag: "Agents",
-    summary: "Move a connection's key from the deployment to a stored value",
-    description: `${SETTINGS_OWNER} ${SETTINGS_CONVERT}`,
-    auth: "session",
-    body: "SetSettingsCredentialRequest",
-    requestExample: { value: "example-key" },
-    success: {
-      status: 200,
-      schema: "SettingsChangeResponse",
-      description: "The entry's id and the change's receipt.",
-      example: SETTINGS_CHANGE_EXAMPLE("anthropic-main"),
     },
     errors: [400, 401, 403, 404, 409, 503],
     errorCodes: { 409: ["REVISION_CONFLICT"] },

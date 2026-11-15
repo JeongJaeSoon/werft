@@ -10,7 +10,7 @@ const settings: InstallationSettings = {
       provider: {
         kind: "anthropic",
         endpoint: "https://api.anthropic.com",
-        auth: { kind: "api_key", value_env: "READABLE_KEY" },
+        auth: { kind: "api_key", stored: "connection:readable" },
       },
       models: ["claude-sonnet-5"],
     },
@@ -19,23 +19,19 @@ const settings: InstallationSettings = {
       provider: {
         kind: "anthropic",
         endpoint: "https://api.anthropic.com",
-        auth: { kind: "api_key", value_env: "MISSING_KEY" },
+        auth: { kind: "api_key", stored: "connection:unreadable" },
       },
     },
   ],
   repositories: [],
   mcpServers: [],
-  stored: new Map(),
+  stored: new Map([["connection:readable", "sk-test-readable-key"]]),
   invalid: ["connection:broken"],
 };
 
 describe("settingsSnapshot", () => {
-  test("a connection whose credential this host cannot read is unavailable here, not gone", () => {
-    const snapshot = settingsSnapshot(settings, (ref) =>
-      "value_env" in ref && ref.value_env === "READABLE_KEY"
-        ? "sk-test-readable-key"
-        : undefined,
-    );
+  test("a connection without its stored value is unavailable, not gone", () => {
+    const snapshot = settingsSnapshot(settings);
     expect(Object.keys(snapshot.connections)).toEqual(["readable"]);
     expect([...snapshot.unavailable_connections].sort()).toEqual([
       "broken",
@@ -57,9 +53,13 @@ describe("settingsSnapshot", () => {
           },
         },
       ],
-      stored: new Map([["connection:luna", "luna-key"]]),
+      stored: new Map([
+        ["connection:readable", "sk-test-readable-key"],
+        ["connection:unreadable", "sk-test-unreadable-key"],
+        ["connection:luna", "luna-key"],
+      ]),
     };
-    const snapshot = settingsSnapshot(withLuna, () => "sk-test-readable-key");
+    const snapshot = settingsSnapshot(withLuna);
     expect(Object.keys(snapshot.connections).sort()).toEqual([
       "readable",
       "unreadable",

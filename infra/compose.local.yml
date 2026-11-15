@@ -2,9 +2,10 @@
 # test-ops' AWS account needs to run the product. compose.yml merges
 # the two. It adds
 # - the local dependencies: persistent SeaweedFS S3 and a read-only git host;
-# - the fake Messages API and a separate LocalStack Secrets Manager
-#   the API catalog reads, both off unless
-#   infra/compose.fake-model.yml turns them on;
+# - the fake Messages API and the fake MCP server, off unless
+#   infra/compose.fake-model.yml turns them on (their keys are stored values
+#   the stack's starter sets through the console's routes after the first
+#   owner exists: scripts/lib/seed-credentials.sh);
 # - the builds of the apps from this checkout;
 # - the endpoints and local credentials that point the API at them,
 #   and the ordering on them.
@@ -14,8 +15,7 @@
 services:
   # Workers reach this only through the egress proxy's object store route
   # (EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST below), which
-  # the API signs for one session's prefix. It runs S3 alone all the same: nothing here
-  # uses Secrets Manager.
+  # the API signs for one session's prefix.
   # Keep the service name and port stable for local clients and proxy routes.
   localstack:
     image: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
@@ -50,31 +50,6 @@ services:
     depends_on:
       localstack:
         condition: service_healthy
-
-  # The API's Secrets Manager, apart from `localstack` on purpose
-  # workers reach that one through the egress proxy, and nothing on the
-  # allowlist may answer for the provider keys the catalog references. Only
-  # the API talks to it (AWS_ENDPOINT_URL_SECRETS_MANAGER). The local GitHub
-  # App also stores its generated signing key here, including real-model runs.
-  secrets:
-    image: localstack/localstack:3@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
-    environment:
-      SERVICES: secretsmanager
-      AWS_DEFAULT_REGION: ${AWS_REGION:-ap-northeast-1}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
-    ports:
-      # For an API started on the host (docs/contributing/development.md); loopback only.
-      - "127.0.0.1:4567:4566"
-    volumes:
-      - ./localstack/secrets-init/10-seed-secrets.sh:/etc/localstack/init/ready.d/10-seed-secrets.sh:ro
-    healthcheck:
-      # The last secret the init script seeds.
-      test: ["CMD-SHELL", "awslocal secretsmanager describe-secret --secret-id werft/local/fake-mcp >/dev/null"]
-      interval: 5s
-      timeout: 3s
-      retries: 12
-      start_period: 5s
 
   # The Messages API the fake-model settings point at, so a stack runs
   # sessions without an Anthropic account. Off by default:
@@ -116,7 +91,8 @@ services:
       start_period: 5s
 
   # The remote MCP server the fake-model settings name, behind
-  # the service-account bearer the secrets service seeds. Workers reach it
+  # this service-account bearer, which the seed step stores for it
+  # (scripts/lib/seed-credentials.sh). Workers reach it
   # only through the proxy's /mcp/fake route. Its control port (/calls)
   # reports call counts and bearer hashes, never a value.
   fake-mcp:
@@ -149,14 +125,10 @@ services:
       # The published image has no testkit; `local` adds it (and the demo tools).
       target: local
     command: ["bun", "run", "packages/testkit/src/local-github-main.ts", "sample-app", "gate-app"]
-    environment:
-      AWS_ENDPOINT_URL_SECRETS_MANAGER: http://secrets:4566
-      AWS_REGION: ${AWS_REGION:-ap-northeast-1}
-      AWS_ACCESS_KEY_ID: test
-      AWS_SECRET_ACCESS_KEY: test
-    depends_on:
-      secrets:
-        condition: service_healthy
+    # The fake App's signing key, generated on the first start and kept so
+    # the value the seed step stored for the repositories stays its key.
+    volumes:
+      - fake-github-key:/var/lib/fake-github
     ports:
       # HTTP clone for this host. Workers clone through the proxy's
       # repository route (fake-git:3000).
@@ -199,16 +171,10 @@ services:
       - path: ../.env
         required: false
     environment:
-      AWS_ENDPOINT_URL_SECRETS_MANAGER: ${AWS_ENDPOINT_URL_SECRETS_MANAGER:-http://secrets:4566}
       AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-http://localstack:4566}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
       PLATFORM_SECRET_KEY: &local-secret-key ${PLATFORM_SECRET_KEY:-0000000000000000000000000000000000000000000000000000000000000001}
-      # The provider key the real-model settings read, passed through by name
-      # from the caller's environment (scripts/local.sh exports it from the
-      # ignored .env when the shell has none), so its value is in no tracked
-      # file and no argument. The proxy puts it on each worker call.
-      ANTHROPIC_API_KEY:
     depends_on:
       localstack:
         condition: service_healthy
@@ -251,3 +217,4 @@ services:
 
 volumes:
   local-s3-data:
+  fake-github-key:

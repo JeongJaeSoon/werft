@@ -14,7 +14,7 @@ const server = {
   auth: {
     kind: "bearer" as const,
     value: "sa-value",
-    ref: { value_env: "FAKE_MCP_SA" },
+    ref: { stored: "mcp:fake" },
   },
   workspaces: ["default"],
 };

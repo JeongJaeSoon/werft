@@ -26,6 +26,12 @@ ap_compose() { (cd "$VERIFY_REPO" && docker compose --profile apps --profile fak
 # Issue an API key; prints it (stdout) once. key id goes to stderr.
 ap_key() { (cd "$VERIFY_REPO" && scripts/local.sh key "$@"); }
 ap_revoke() { ap_compose exec -T api bun run apps/control-host/src/api/keys.ts revoke "$1"; }
+# The settings' `"stored": true` keys (fake model, fake MCP, fake GitHub App)
+# start unset; the owner web-user.mjs logged in stores them, cookie on stdin.
+ap_store_keys() {
+  [ -s "$VERIFY_RUN/cookie.owner" ] || { echo "ap_store_keys: no cookie for 'owner'; web-user.mjs bootstrap and login owner first" >&2; return 1; }
+  (cd "$VERIFY_REPO" && scripts/local.sh store-keys <"$VERIFY_RUN/cookie.owner")
+}
 
 # Every secret (key, cookie, a body that may carry a token or OAuth code)
 # reaches curl through a <(…) pipe, never argv, where `ps` would show it.

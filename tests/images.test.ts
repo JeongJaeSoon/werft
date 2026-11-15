@@ -134,6 +134,8 @@ describe("app Dockerfiles", () => {
     expect(local.match(/^(COPY|RUN) .*$/gm)).toEqual([
       "COPY --from=deps --chown=1000:1000 /app/packages/testkit /app/packages/testkit",
       "COPY --from=deps --chown=1000:1000 /app/apps/control-host/src/api/demo-accounts.ts /app/apps/control-host/src/api/demo-data.ts /app/apps/control-host/src/api/",
+      // fake-git's App key file, on a volume or emptyDir mounted over it.
+      "RUN install -d -o 1000 -g 1000 -m 0700 /var/lib/fake-github",
     ]);
   });
 
@@ -642,14 +644,10 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       "run",
       "packages/testkit/src/local-github-main.ts",
     ]);
-    expect(gitHost?.environment).toMatchObject({
-      AWS_ENDPOINT_URL_SECRETS_MANAGER: "http://secrets:4566",
-      AWS_ACCESS_KEY_ID: "test",
-      AWS_SECRET_ACCESS_KEY: "test",
-    });
-    expect(gitHost?.depends_on).toEqual({
-      secrets: { condition: "service_healthy" },
-    });
+    // The App key stays in fake-git's own file; nothing else holds it.
+    expect(gitHost?.environment).toBeUndefined();
+    expect(gitHost?.depends_on).toBeUndefined();
+    expect(gitHost?.volumes).toEqual(["fake-github-key:/var/lib/fake-github"]);
     const served = gitHost?.command?.slice(3) ?? [];
 
     const documents: Record<string, string> = {
@@ -2610,7 +2608,6 @@ describe("compose publishes nothing beyond loopback and runs pinned images", () 
     expect(published).toEqual({
       postgres: ["127.0.0.1:$" + "{TEST_OPS_POSTGRES_PORT:-5432}:5432"],
       localstack: ["127.0.0.1:4566:4566"],
-      secrets: ["127.0.0.1:4567:4566"],
       "fake-git": ["127.0.0.1:3001:3000"],
       api: ["127.0.0.1:$" + "{TEST_OPS_API_PORT:-3000}:3000"],
     });
@@ -2733,12 +2730,7 @@ function render(
 // installation that adds to it and loosens nothing.
 describe("compose layers", () => {
   const core = servicesOf(CORE);
-  const LOCAL_DEPENDENCIES = [
-    "localstack",
-    "local-s3-init",
-    "secrets",
-    "fake-messages",
-  ];
+  const LOCAL_DEPENDENCIES = ["localstack", "local-s3-init", "fake-messages"];
   const APP_IMAGES = {
     API_IMAGE: `registry.invalid/control-host@sha256:${"a".repeat(64)}`,
     WORKER_IMAGE: `registry.invalid/worker@sha256:${"b".repeat(64)}`,
@@ -2750,11 +2742,10 @@ describe("compose layers", () => {
     EGRESS_AUTHORIZER_TOKEN: "test-ops-authorizer-placeholder",
   };
   // The rest of what the env file must give: the API alone holds
-  // the S3 key (on s3) and the provider key.
+  // the S3 key (on s3). The provider key is entered on the console.
   const API_KEYS = {
     AWS_ACCESS_KEY_ID: "test-ops-s3-key-id",
     AWS_SECRET_ACCESS_KEY: "test-ops-s3-key",
-    ANTHROPIC_API_KEY: "test-ops-provider-key",
   };
   const TEST_OPS_SETTINGS = {
     ...API_KEYS,
@@ -2776,9 +2767,6 @@ describe("compose layers", () => {
   const S3_ONLY = ["S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"];
   // And what only LocalStack's does: on s3 no upstream is private.
   const LOCALSTACK_ONLY = ["EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST"];
-  // The model key is entered on the console's model connections screen;
-  // the env value only serves a connection that names it with `value_env`.
-  const OPTIONAL = ["ANTHROPIC_API_KEY"];
   // The one value this layer fixes itself: the path the API writes a minted
   // bootstrap token to and `scripts/test-ops.sh bootstrap-token` reads from.
   // It is no operator setting, so it is not asked of the env file.
@@ -2989,10 +2977,8 @@ describe("compose layers", () => {
       ],
       [
         "AWS_ENDPOINT_URL",
-        "AWS_ENDPOINT_URL_SECRETS_MANAGER",
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
-        "ANTHROPIC_API_KEY",
         "PLATFORM_SECRET_KEY",
         "SETTINGS_DOCUMENT",
         "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST",
@@ -3019,11 +3005,7 @@ describe("compose layers", () => {
       ["environment"],
       ["SESSION_COST_LIMIT_USD", "MAX_TURN_SECONDS", "SETTINGS_DOCUMENT"],
     ],
-    [
-      FAKE_MODEL,
-      ["environment", "depends_on"],
-      ["ANTHROPIC_API_KEY", "SETTINGS_DOCUMENT"],
-    ],
+    [FAKE_MODEL, ["environment", "depends_on"], ["SETTINGS_DOCUMENT"]],
     [TEST_OPS_STORE_LAYERS.s3, ["environment"], S3_ONLY],
     [
       TEST_OPS_STORE_LAYERS.localstack,
@@ -3076,9 +3058,7 @@ describe("compose layers", () => {
           (service.environment ?? {}) as Record<string, string>,
         ).filter(
           ([variable]) =>
-            variable !== "SETTINGS_DOCUMENT" &&
-            variable !== FIXED_PATH &&
-            !OPTIONAL.includes(variable),
+            variable !== "SETTINGS_DOCUMENT" && variable !== FIXED_PATH,
         );
         if (typeof service.image === "string") values.push(["", service.image]);
         for (const [variable, value] of values)
@@ -3088,17 +3068,6 @@ describe("compose layers", () => {
               new RegExp(`^\\$\\{${variable || "[A-Z_]+"}:\\?[^}]+\\}$`),
             ),
           });
-        for (const variable of OPTIONAL)
-          if (service.environment?.[variable] !== undefined)
-            expect({
-              name,
-              variable,
-              value: service.environment[variable],
-            }).toEqual({
-              name,
-              variable,
-              value: `\${${variable}:-}`,
-            });
         expect({ name, volumes: service.volumes }).toEqual({
           name,
           volumes:
@@ -3202,8 +3171,10 @@ describe("compose layers", () => {
           (volume) => volume.target === "/settings",
         )?.source,
       ).toBe(join(root, "tests/fixtures/settings"));
-      // The local S3 server and its encryption seed survive container replacement.
+      // The local S3 server and its encryption seed survive container
+      // replacement, and so does the fake GitHub App's key.
       expect(Object.keys(model?.volumes ?? {}).sort()).toEqual([
+        "fake-github-key",
         "local-s3-data",
         "postgres-data",
       ]);
@@ -3285,15 +3256,13 @@ describe("compose layers", () => {
       "s3",
       S3_LAYERS,
       Object.keys(TEST_OPS_REQUIRED).filter(
-        (name) => !LOCALSTACK_ONLY.includes(name) && !OPTIONAL.includes(name),
+        (name) => !LOCALSTACK_ONLY.includes(name),
       ),
     ],
     [
       "localstack",
       LOCALSTACK_LAYERS,
-      Object.keys(TEST_OPS_REQUIRED).filter(
-        (name) => !S3_ONLY.includes(name) && !OPTIONAL.includes(name),
-      ),
+      Object.keys(TEST_OPS_REQUIRED).filter((name) => !S3_ONLY.includes(name)),
     ],
   ] as const)(
     "the test-ops layers on %s refuse to render without their required values",
@@ -3317,12 +3286,18 @@ describe("compose layers", () => {
     ["s3", S3_LAYERS],
     ["localstack", LOCALSTACK_LAYERS],
   ] as const)(
-    "the test-ops layers on %s render and start without a model key",
+    "the test-ops layers on %s hand no service a model key, even from the shell",
     (_store, layers) => {
-      const { ANTHROPIC_API_KEY: _key, ...withoutKey } = TEST_OPS_REQUIRED;
-      const { exitCode, stderr, model } = render(layers, withoutKey);
+      const { exitCode, stderr, model } = render(layers, {
+        ...TEST_OPS_REQUIRED,
+        ANTHROPIC_API_KEY: "shell-model-key",
+      });
       expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
-      expect(model?.services?.api?.environment?.ANTHROPIC_API_KEY).toBe("");
+      for (const [name, service] of Object.entries(model?.services ?? {}))
+        expect({
+          name,
+          key: service.environment?.ANTHROPIC_API_KEY,
+        }).toEqual({ name, key: undefined });
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );
@@ -3456,7 +3431,7 @@ describe("compose layers", () => {
     [["compose.yaml", REAL_MODEL]],
     [[...LOCAL_LAYERS, "tests/e2e/compose.yml", REAL_MODEL]],
   ])(
-    "%p hands the key to the API alone, with the real-model settings and the e2e limits",
+    "%p hands the key to no service, with the real-model settings and the e2e limits",
     (files) => {
       const probe = `key-probe-${crypto.randomUUID()}`;
       const { exitCode, stderr, model } = render(files, {
@@ -3464,24 +3439,20 @@ describe("compose layers", () => {
       });
       expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
       const services = model?.services ?? {};
-      const api = services.api;
-      expect(api?.environment?.ANTHROPIC_API_KEY).toBe(probe);
       expect(services.migrate?.environment?.SETTINGS_DOCUMENT).toBe(
         "/settings/real-model.json",
       );
       expect(services["fake-messages"]).toBeUndefined();
-      expect(services.secrets).toBeDefined();
-      expect(Object.keys(api?.depends_on ?? {})).not.toContain("secrets");
-      for (const [name, service] of Object.entries(services)) {
-        if (name !== "api")
-          expect({
-            name,
-            key: JSON.stringify(service).includes(probe),
-          }).toEqual({
-            name,
-            key: false,
-          });
-      }
+      expect(services.secrets).toBeUndefined();
+      // The seed step stores it on the `anthropic` connection, by stdin.
+      for (const [name, service] of Object.entries(services))
+        expect({
+          name,
+          key: JSON.stringify(service).includes(probe),
+        }).toEqual({
+          name,
+          key: false,
+        });
       // Both limits are the console's: migrate carries them in, no role
       // reads them.
       for (const [name, cost, turn] of [
@@ -3593,7 +3564,8 @@ describe("compose layers", () => {
   // `scripts/local.sh up --fake-model` and the free runs: with no key the
   // migrate imports the fake settings and the API waits on the fake Messages
   // API, whose checkout mount resolves to the repository from either project
-  // directory, and on the Secrets Manager holding their placeholder key.
+  // directory, and on the fake MCP server. Their placeholder keys are stored
+  // through the console after the first owner exists.
   test.each([
     [["compose.yaml", FAKE_MODEL]],
     [[...LOCAL_LAYERS, FAKE_MODEL, "tests/e2e/compose.yml"]],
@@ -3610,7 +3582,8 @@ describe("compose layers", () => {
       expect(services.migrate?.environment?.SETTINGS_DOCUMENT).toBe(
         "/settings/fake-model.json",
       );
-      for (const name of ["fake-messages", "secrets"])
+      expect(services.secrets).toBeUndefined();
+      for (const name of ["fake-messages", "fake-mcp"])
         expect({ name, on: services.api?.depends_on?.[name] }).toMatchObject({
           name,
           on: { condition: "service_healthy" },
@@ -3626,7 +3599,7 @@ describe("compose layers", () => {
 
   // where scripts/local.sh reads the ports to check and the worker
   // label to delete, also under the CI quickstart job's COMPOSE_FILE.
-  const PORTS = ["3000", "3001", "4566", "4567", "5432"];
+  const PORTS = ["3000", "3001", "4566", "5432"];
   const FAKE_PORTS = PORTS;
   test.each([
     [LOCAL_LAYERS, {}, "local", PORTS],
@@ -3701,11 +3674,10 @@ describe("compose layers", () => {
         expect(Object.keys(services[name]?.depends_on ?? {})).toContain(
           "localstack",
         );
-      // LocalStack's key signs for the API and the maintenance jobs alone;
-      // the provider key for the API alone.
+      // LocalStack's key signs for the API and the maintenance jobs alone.
       for (const [name, service] of Object.entries(services)) {
         if (name === "localstack") continue;
-        for (const variable of [...S3_ONLY.slice(1), "ANTHROPIC_API_KEY"])
+        for (const variable of S3_ONLY.slice(1))
           expect({
             name,
             variable,

@@ -15,7 +15,7 @@ const DOCUMENT = {
     main: {
       kind: "anthropic",
       endpoint: "https://api.anthropic.invalid",
-      auth: { kind: "api_key", value_env: "ANTHROPIC_API_KEY" },
+      auth: { kind: "api_key", stored: true },
     },
     console: {
       kind: "anthropic",
@@ -39,7 +39,7 @@ const DOCUMENT = {
     docs: {
       url: "https://mcp.example.invalid/docs",
       credential_ref: "docs_token",
-      auth: { kind: "bearer", value_env: "MCP_TOKEN" },
+      auth: { kind: "bearer", stored: true },
       workspaces: ["acme"],
     },
   },
@@ -61,8 +61,46 @@ describe("parseSettingsDocument", () => {
     });
     expect(entries.connections.main?.auth).toEqual({
       kind: "api_key",
-      value_env: "ANTHROPIC_API_KEY",
+      stored: "connection:main",
     });
+    expect(entries.mcp_servers.docs?.auth).toEqual({
+      kind: "bearer",
+      stored: "mcp:docs",
+    });
+  });
+
+  test("refuses an env or Secrets Manager reference, naming the field", () => {
+    const main = DOCUMENT.connections.main;
+    const docs = DOCUMENT.mcp_servers.docs;
+    for (const [field, section, id, entry] of [
+      ["value_env", "connections", "main", main],
+      ["secret_id", "connections", "main", main],
+      ["value_env", "mcp_servers", "docs", docs],
+    ] as const) {
+      const document = {
+        ...DOCUMENT,
+        [section]: {
+          [id]: { ...entry, auth: { ...entry.auth, [field]: "NAME" } },
+        },
+      };
+      expect(() => parseSettingsDocument(document)).toThrow(
+        new SettingsDocumentError(
+          `${section}.${id}.auth.${field} is no longer supported: write "stored": true and set the value in the console`,
+        ),
+      );
+    }
+    // Without `stored` beside it, too.
+    expect(() =>
+      parseSettingsDocument({
+        version: 1,
+        connections: {
+          c: {
+            kind: "anthropic",
+            auth: { kind: "api_key", value_env: "ANTHROPIC_API_KEY" },
+          },
+        },
+      }),
+    ).toThrow("connections.c.auth.value_env is no longer supported");
   });
 
   test("refuses a stored reference naming any row, its own included", () => {
@@ -110,8 +148,8 @@ describe("parseSettingsDocument", () => {
       ...[
         undefined,
         { kind: "none" },
-        { kind: "basic", username: "bot", value_env: "GIT_PASSWORD" },
-        { kind: "bearer", value_env: "GIT_TOKEN" },
+        { kind: "basic", username: "bot", stored: true },
+        { kind: "bearer", stored: true },
       ].map((auth) => ({
         ...DOCUMENT,
         repositories: {
@@ -122,16 +160,6 @@ describe("parseSettingsDocument", () => {
           },
         },
       })),
-      {
-        ...DOCUMENT,
-        connections: {
-          both: {
-            kind: "anthropic",
-            endpoint: "https://api.anthropic.invalid",
-            auth: { kind: "api_key", value_env: "A", stored: true },
-          },
-        },
-      },
     ]) {
       expect(() => parseSettingsDocument(bad)).toThrow(SettingsDocumentError);
     }
@@ -156,7 +184,7 @@ describe("parseSettingsDocument", () => {
       version: 1,
       connections: { c: entry },
     });
-    const auth = { kind: "api_key", value_env: "ANTHROPIC_API_KEY" };
+    const auth = { kind: "api_key", stored: true };
     const expected = "https://api.anthropic.com";
     for (const open of [{}, { endpoint: "" }, { endpoint: "  " }]) {
       const entries = parseSettingsDocument(
@@ -175,7 +203,7 @@ describe("parseSettingsDocument", () => {
     ).toMatchObject({ endpoint: "http://proxy:4000" });
     expect(() =>
       parseSettingsDocument(
-        document({ kind: "litellm", auth: { kind: "bearer", value_env: "K" } }),
+        document({ kind: "litellm", auth: { kind: "bearer", stored: true } }),
       ),
     ).toThrow(
       "connections.c.endpoint: a litellm connection needs an endpoint, it has no default address",
@@ -193,7 +221,7 @@ describe("parseSettingsDocument", () => {
       connections: { c: { kind: "openai_responses", auth } },
     });
     const entries = parseSettingsDocument(
-      entry({ kind: "api_key", value_env: "OPENAI_API_KEY" }),
+      entry({ kind: "api_key", stored: true }),
     );
     expect(entries.connections.c).toMatchObject({
       kind: "openai_responses",
@@ -203,7 +231,7 @@ describe("parseSettingsDocument", () => {
       parseSettingsDocument(settingsDocumentOf(entries)).connections,
     ).toEqual(entries.connections);
     expect(() =>
-      parseSettingsDocument(entry({ kind: "bearer", value_env: "K" })),
+      parseSettingsDocument(entry({ kind: "bearer", stored: true })),
     ).toThrow(SettingsDocumentError);
   });
 
@@ -219,102 +247,8 @@ describe("parseSettingsDocument", () => {
 describe("planSettingsImport", () => {
   const entries = parseSettingsDocument(DOCUMENT);
 
-  test("a connection the console moved to a stored value is kept, not a conflict", () => {
-    const moved = {
-      ...entries.connections.main,
-      auth: { kind: "api_key", stored: "connection:main" },
-    };
-    const plan = planSettingsImport(
-      entries,
-      {
-        ...NONE,
-        connections: new Map([
-          [
-            "main",
-            {
-              entry: moved,
-              active: true,
-              has_value: true,
-              replaces: entries.connections.main,
-            },
-          ],
-        ]),
-      },
-      { allowExternal: true },
-    );
-    expect(plan.conflicts).toEqual([]);
-    expect(plan.kept).toEqual(["connection:main"]);
-    expect(plan.add.map((add) => add.id)).not.toContain("main");
-  });
-
-  test("a document naming the connection otherwise is still a conflict", () => {
-    const moved = {
-      ...entries.connections.main,
-      auth: { kind: "api_key", stored: "connection:main" },
-    };
-    const other = parseSettingsDocument({
-      ...DOCUMENT,
-      connections: {
-        main: {
-          ...DOCUMENT.connections.main,
-          auth: { kind: "api_key", value_env: "ANOTHER_KEY" },
-        },
-      },
-    });
-    const plan = planSettingsImport(
-      other,
-      {
-        ...NONE,
-        connections: new Map([
-          [
-            "main",
-            {
-              entry: moved,
-              active: true,
-              has_value: true,
-              replaces: entries.connections.main,
-            },
-          ],
-        ]),
-      },
-      { allowExternal: true },
-    );
-    expect(plan.conflicts).toEqual(["connection:main"]);
-  });
-
-  test("a new connection under a definition another row moved off is a conflict", () => {
-    const moved = {
-      ...entries.connections.main,
-      auth: { kind: "api_key", stored: "connection:main" },
-    };
-    const renamed = parseSettingsDocument({
-      ...DOCUMENT,
-      connections: { twin: DOCUMENT.connections.main },
-    });
-    const plan = planSettingsImport(
-      renamed,
-      {
-        ...NONE,
-        connections: new Map([
-          [
-            "main",
-            {
-              entry: moved,
-              active: true,
-              has_value: true,
-              replaces: entries.connections.main,
-            },
-          ],
-        ]),
-      },
-      { allowExternal: true },
-    );
-    expect(plan.conflicts).toEqual(["connection:twin"]);
-    expect(plan.add.map((add) => add.id)).not.toContain("twin");
-  });
-
   test("adds every entry over an empty installation", () => {
-    const plan = planSettingsImport(entries, NONE, { allowExternal: true });
+    const plan = planSettingsImport(entries, NONE);
     expect(plan.add.map((add) => `${add.kind}:${add.id}`)).toEqual([
       "connection:console",
       "connection:main",
@@ -322,14 +256,12 @@ describe("planSettingsImport", () => {
       "repository:open",
       "mcp:docs",
     ]);
-    expect(plan.needs_value).toEqual(["connection:console"]);
+    expect(plan.needs_value).toEqual([
+      "connection:console",
+      "connection:main",
+      "mcp:docs",
+    ]);
     expect(plan.conflicts).toEqual([]);
-  });
-
-  test("refuses new external references when the caller may not bring one", () => {
-    const plan = planSettingsImport(entries, NONE, { allowExternal: false });
-    expect(plan.refused_external).toEqual(["connection:main", "mcp:docs"]);
-    expect(plan.add.map((add) => add.id)).toEqual(["console", "app", "open"]);
   });
 
   test("an id already held: same content unchanged, other content a conflict, an inactive row stays so", () => {
@@ -360,15 +292,14 @@ describe("planSettingsImport", () => {
         ],
       ]),
     };
-    const plan = planSettingsImport(entries, existing, {
-      allowExternal: false,
-    });
+    const plan = planSettingsImport(entries, existing);
     expect(plan.unchanged).toEqual(["connection:console", "connection:main"]);
     expect(plan.inactive).toEqual(["repository:app"]);
     expect(plan.conflicts).toEqual(["repository:open"]);
-    expect(plan.refused_external).toEqual(["mcp:docs"]);
-    expect(plan.needs_value).toEqual([]);
-    expect(plan.add).toEqual([]);
+    expect(plan.needs_value).toEqual(["connection:main", "mcp:docs"]);
+    expect(plan.add.map((add) => `${add.kind}:${add.id}`)).toEqual([
+      "mcp:docs",
+    ]);
   });
 
   describe("a repository the console moved to another branch", () => {
@@ -389,7 +320,7 @@ describe("planSettingsImport", () => {
       const plan = planSettingsImport(
         { ...incoming, repositories: { app: app("main") } },
         row(app("develop")),
-        { allowExternal: true, databaseOwnsRepositories: true },
+        { databaseOwnsRepositories: true },
       );
       expect(plan.conflicts).toEqual([]);
       expect(plan.kept).toEqual(["repository:app"]);
@@ -400,7 +331,7 @@ describe("planSettingsImport", () => {
       const plan = planSettingsImport(
         { ...incoming, repositories: { alias: app("main") } },
         row(app("main")),
-        { allowExternal: true, databaseOwnsRepositories: true },
+        { databaseOwnsRepositories: true },
       );
       expect(plan.conflicts).toEqual([]);
       expect(plan.kept).toEqual(["repository:alias"]);
@@ -411,7 +342,6 @@ describe("planSettingsImport", () => {
       const plan = planSettingsImport(
         { ...incoming, repositories: { app: app("main") } },
         row(app("develop")),
-        { allowExternal: true },
       );
       expect(plan.conflicts).toEqual(["repository:app"]);
       expect(plan.kept).toBeUndefined();
@@ -420,12 +350,12 @@ describe("planSettingsImport", () => {
     test("a legacy row of another auth kind is still a conflict, never replaced", () => {
       for (const auth of [
         undefined,
-        { kind: "bearer", value_env: "GIT_TOKEN" },
+        { kind: "bearer", stored: "repository:app" },
       ]) {
         const plan = planSettingsImport(
           { ...incoming, repositories: { app: app("main") } },
           row({ ...app("develop"), auth }),
-          { allowExternal: true, databaseOwnsRepositories: true },
+          { databaseOwnsRepositories: true },
         );
         expect(plan.conflicts).toEqual(["repository:app"]);
         expect(plan.add).toEqual([]);
@@ -452,7 +382,7 @@ describe("planSettingsImport", () => {
       ]),
       stored_values: new Set(["connection:console"]),
     };
-    const plan = planSettingsImport(entries, existing, { allowExternal: true });
+    const plan = planSettingsImport(entries, existing);
     expect(plan.conflicts).toEqual(["connection:console", "repository:app"]);
     const twice = planSettingsImport(
       {
@@ -471,7 +401,6 @@ describe("planSettingsImport", () => {
         },
       },
       NONE,
-      { allowExternal: true },
     );
     expect(twice.conflicts).toEqual(["repository:two"]);
   });

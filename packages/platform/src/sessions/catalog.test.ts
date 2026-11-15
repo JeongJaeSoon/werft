@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import {
-  environmentCredentials,
   runtimeProviderOf,
+  storedCredentials,
 } from "../testing/catalog-fakes.ts";
 import {
   BILLING_NONE_ENDPOINT_MESSAGE,
@@ -11,7 +11,6 @@ import {
   type CatalogProviderConfig,
   CONNECTION_ENDPOINT_DEFAULTS,
   catalogConnectionsSchema,
-  catalogCredentialRefs,
   connectionModels,
   describeConfigError,
   type JudgeProvider,
@@ -33,7 +32,7 @@ import {
 const provider = {
   kind: "anthropic",
   endpoint: "https://api.anthropic.invalid",
-  auth: { kind: "api_key", value_env: "ANTHROPIC_KEY_MAIN" },
+  auth: { kind: "api_key", stored: "connection:main" },
 };
 const repository = {
   url: "https://github.com/team/app.git",
@@ -44,7 +43,7 @@ const resolvedRepository = {
   ...repository,
   auth: { kind: "github_app" as const, registered: true as const },
 };
-const env = { ANTHROPIC_KEY_MAIN: "resolved-key" };
+const env = { "connection:main": "resolved-key" };
 
 function config(repositories: unknown = { app: repository }) {
   return { repositories };
@@ -52,7 +51,7 @@ function config(repositories: unknown = { app: repository }) {
 
 function load(
   input: unknown,
-  lookup = environmentCredentials(env),
+  lookup = storedCredentials(env),
 ): ReturnType<typeof resolveSessionCatalog> {
   const parsed = sessionCatalogConfigSchema.safeParse(input);
   if (!parsed.success) throw new Error(describeConfigError(parsed.error));
@@ -62,7 +61,7 @@ function load(
 /** One connection `c` as the settings parse and resolve it. */
 function resolveOne(
   entry: unknown,
-  lookup = environmentCredentials(env),
+  lookup = storedCredentials(env),
 ): CatalogProvider | JudgeProvider {
   const parsed = catalogConnectionsSchema.safeParse({ c: entry });
   if (!parsed.success) {
@@ -74,7 +73,7 @@ function resolveOne(
 /** One model connection `c`, the kind an agent runs on. */
 function connect(
   entry: unknown,
-  lookup = environmentCredentials(env),
+  lookup = storedCredentials(env),
 ): CatalogProvider {
   const resolved = resolveOne(entry, lookup);
   if (resolved.kind === "openai_decisions") throw new Error("a judge's");
@@ -85,9 +84,9 @@ describe("an openai_decisions connection", () => {
   const luna = {
     kind: "openai_decisions",
     endpoint: "https://api.openai.com",
-    auth: { kind: "api_key", value_env: "OPENAI_KEY_LUNA" },
+    auth: { kind: "api_key", stored: "connection:luna" },
   };
-  const lookup = environmentCredentials({ OPENAI_KEY_LUNA: "luna-key" });
+  const lookup = storedCredentials({ "connection:luna": "luna-key" });
 
   test("resolves for the judge, and the proxy is handed the key as a bearer", () => {
     const resolved = resolveOne(luna, lookup);
@@ -107,7 +106,7 @@ describe("an openai_decisions connection", () => {
     ).not.toHaveProperty("billing");
     expect(() =>
       resolveOne(
-        { ...luna, auth: { kind: "bearer", value_env: "OPENAI_KEY_LUNA" } },
+        { ...luna, auth: { kind: "bearer", stored: "connection:luna" } },
         lookup,
       ),
     ).toThrow(/auth/);
@@ -129,7 +128,7 @@ describe("a connection", () => {
       auth: {
         kind: "api_key",
         value: "resolved-key",
-        ref: { value_env: "ANTHROPIC_KEY_MAIN" },
+        ref: { stored: "connection:main" },
       },
     });
     // What the worker protocol carries is neither the value nor where it
@@ -146,28 +145,14 @@ describe("a connection", () => {
     });
   });
 
-  test("a Secrets Manager reference resolves through the lookup the loader filled", () => {
-    expect(
-      connect(
-        {
-          ...provider,
-          auth: { kind: "api_key", secret_id: "agent-platform/anthropic" },
-        },
-        (ref) => ("secret_id" in ref ? "from-secrets" : undefined),
-      ).auth,
-    ).toEqual({
-      kind: "api_key",
-      value: "from-secrets",
-      ref: { secret_id: "agent-platform/anthropic" },
-    });
-  });
-
-  test("exactly one reference: both, neither, or an inline value is refused", () => {
+  test("only a stored reference: an env or Secrets Manager name, none, or an inline value is refused", () => {
     for (const auth of [
+      { kind: "api_key", value_env: "ANTHROPIC_KEY_MAIN" },
+      { kind: "api_key", secret_id: "agent-platform/anthropic" },
       {
         kind: "api_key",
+        stored: "connection:main",
         value_env: "ANTHROPIC_KEY_MAIN",
-        secret_id: "agent-platform/anthropic",
       },
       { kind: "api_key" },
       { kind: "api_key", value: "leaked" },
@@ -180,10 +165,8 @@ describe("a connection", () => {
 
   test("a missing credential names the connection and the reference, never a value", () => {
     expect(() =>
-      connect(provider, environmentCredentials({ ANTHROPIC_KEY_MAIN: "" })),
-    ).toThrow(
-      /^connections\.c\.auth\.value_env: ANTHROPIC_KEY_MAIN is not set$/,
-    );
+      connect(provider, storedCredentials({ "connection:main": "" })),
+    ).toThrow(/^connections\.c\.auth\.stored: connection:main is not set$/);
   });
 
   test("an endpoint carrying a credential, or not a web address, is refused", () => {
@@ -300,8 +283,8 @@ describe("catalog config schema", () => {
     for (const auth of [
       undefined,
       { kind: "none" },
-      { kind: "basic", username: "reader", value_env: "REPO_TOKEN" },
-      { kind: "bearer", value_env: "REPO_TOKEN" },
+      { kind: "basic", username: "reader", stored: "repository:app" },
+      { kind: "bearer", stored: "repository:app" },
     ]) {
       expect(
         sessionCatalogConfigSchema.safeParse(
@@ -319,7 +302,7 @@ describe("catalog config schema", () => {
       kind: "github_app",
       app_id: 101,
       installation_id: 202,
-      value_env: "GITHUB_APP_KEY",
+      stored: "repository:app",
     };
     const github = {
       ...repository,
@@ -327,7 +310,7 @@ describe("catalog config schema", () => {
       auth: appAuth,
     };
     const keyed = (key: string) =>
-      environmentCredentials({ ...env, GITHUB_APP_KEY: key });
+      storedCredentials({ ...env, "repository:app": key });
 
     test("resolves the private key once and keeps it out of the binding and revision", () => {
       const catalog = load(config({ app: github }), keyed(pem));
@@ -339,7 +322,7 @@ describe("catalog config schema", () => {
         installation_id: 202,
         api_base: "https://api.github.com",
         value: pem.trim(),
-        ref: { value_env: "GITHUB_APP_KEY" },
+        ref: { stored: "repository:app" },
       });
       const body = pem.split("\n")[1] ?? "";
       expect(body.length).toBeGreaterThan(20);
@@ -373,7 +356,7 @@ describe("catalog config schema", () => {
       }
     });
 
-    test("takes a key with escaped newlines, a GHES API base, or a Secrets Manager reference", () => {
+    test("takes a key with escaped newlines and a GHES API base", () => {
       const escaped = pem.trim().replaceAll("\n", "\\n");
       const ghes = load(
         config({
@@ -381,21 +364,17 @@ describe("catalog config schema", () => {
             ...github,
             url: "https://ghes.example.invalid/acme/app.git",
             auth: {
-              kind: "github_app",
-              app_id: 101,
-              installation_id: 202,
-              secret_id: "github-app-key",
+              ...appAuth,
               api_base: "https://ghes.example.invalid/api/v3",
             },
           },
         }),
-        (ref) =>
-          "secret_id" in ref ? escaped : environmentCredentials(env)(ref),
+        keyed(escaped),
       ).repositories.app?.auth;
       expect(ghes).toMatchObject({
         api_base: "https://ghes.example.invalid/api/v3",
         value: pem.trim(),
-        ref: { secret_id: "github-app-key" },
+        ref: { stored: "repository:app" },
       });
       // A private host (the local stack's fake GitHub) may be plain http.
       expect(
@@ -424,11 +403,11 @@ describe("catalog config schema", () => {
           message = (error as Error).message;
         }
         expect(message).toBe(
-          "repositories.app.auth.value_env: GITHUB_APP_KEY is not an RSA private key PEM",
+          "repositories.app.auth.stored: repository:app is not an RSA private key PEM",
         );
       }
       expect(() => load(config({ app: github }), keyed(""))).toThrow(
-        /^repositories\.app\.auth\.value_env: GITHUB_APP_KEY is not set$/,
+        /^repositories\.app\.auth\.stored: repository:app is not set$/,
       );
     });
 
@@ -438,7 +417,8 @@ describe("catalog config schema", () => {
         { ...github, auth: { ...appAuth, installation_id: 0 } },
         { ...github, auth: { ...appAuth, username: "x-access-token" } },
         { ...github, auth: { ...appAuth, secret_id: "also" } },
-        { ...github, auth: { ...appAuth, value_env: undefined } },
+        { ...github, auth: { ...appAuth, value_env: "GITHUB_APP_KEY" } },
+        { ...github, auth: { ...appAuth, stored: undefined } },
         {
           ...github,
           auth: { ...appAuth, api_base: "http://api.github.example.com" },
@@ -453,37 +433,13 @@ describe("catalog config schema", () => {
       }
     });
 
-    test("an explicit App's key may be its row's stored value, still exactly one reference", () => {
-      const { value_env: _name, ...named } = appAuth;
-      const stored = { ...named, stored: "repository:app" };
-      expect(
-        sessionCatalogConfigSchema.safeParse(
-          config({ app: { ...github, auth: stored } }),
-        ).success,
-      ).toBe(true);
-      expect(
-        sessionCatalogConfigSchema.safeParse(
-          config({
-            app: { ...github, auth: { ...appAuth, stored: "repository:app" } },
-          }),
-        ).success,
-      ).toBe(false);
-    });
-
     test("{ kind: github_app } alone uses the App registered in the console, with no key to resolve", () => {
       const registered = { ...github, auth: { kind: "github_app" } };
-      const catalog = load(
-        config({ app: registered }),
-        environmentCredentials(env),
-      );
+      // No value behind any reference: there is none to resolve.
+      const catalog = load(config({ app: registered }), storedCredentials({}));
       const app = catalog.repositories.app;
       if (!app) throw new Error("no repository");
       expect(app.auth).toEqual({ kind: "github_app", registered: true });
-      expect(
-        catalogCredentialRefs(
-          sessionCatalogConfigSchema.parse(config({ app: registered })),
-        ).some(({ path }) => path.startsWith("repositories.")),
-      ).toBe(false);
       expect(() => repositoryUpstreamOf(app)).toThrow(
         /needs an issued credential/,
       );
@@ -498,7 +454,7 @@ describe("catalog config schema", () => {
       for (const auth of [
         { kind: "github_app", app_id: 101 },
         { kind: "github_app", installation_id: 202 },
-        { kind: "github_app", value_env: "GITHUB_APP_KEY" },
+        { kind: "github_app", stored: "repository:app" },
         { kind: "github_app", api_base: "https://ghes.example.invalid/api/v3" },
       ]) {
         expect(
@@ -569,7 +525,7 @@ describe("catalog config schema", () => {
                 kind: "github_app",
                 app_id: 101,
                 installation_id: 202,
-                value_env: "GITHUB_APP_KEY",
+                stored: "repository:app",
               },
             },
           }),
@@ -613,42 +569,17 @@ describe("the catalog view (94S-791)", () => {
     expect(JSON.stringify(view)).not.toContain("resolved-key");
     expect(view.repositories.app).not.toHaveProperty("auth");
   });
-
-  test("lists each credential reference the config and the connections name", () => {
-    const parsed = sessionCatalogConfigSchema.parse({
-      ...config(),
-      mcp_servers: {
-        fake: {
-          url: "http://fake-mcp:4020/mcp",
-          credential_ref: "mcp/fake",
-          auth: { kind: "bearer", value_env: "FAKE_MCP_SA" },
-          workspaces: ["default"],
-        },
-      },
-    });
-    const connections = {
-      main: catalogConnectionsSchema.parse({ main: provider })
-        .main as CatalogProviderConfig,
-    };
-    expect(catalogCredentialRefs(parsed, connections)).toEqual([
-      {
-        path: "connections.main.auth",
-        ref: { value_env: "ANTHROPIC_KEY_MAIN" },
-      },
-      { path: "mcp_servers.fake.auth", ref: { value_env: "FAKE_MCP_SA" } },
-    ]);
-  });
 });
 
 describe("remote MCP servers", () => {
   const server = {
     url: "http://fake-mcp:4020/mcp",
     credential_ref: "mcp/fake",
-    auth: { kind: "bearer", value_env: "FAKE_MCP_SA" },
+    auth: { kind: "bearer", stored: "mcp:fake" },
     workspaces: ["default"],
   };
   const withMcp = (mcp: unknown) => ({ ...config(), mcp_servers: mcp });
-  const lookup = environmentCredentials({ ...env, FAKE_MCP_SA: "sa-value" });
+  const lookup = storedCredentials({ ...env, "mcp:fake": "sa-value" });
 
   test("resolves the bearer at load, and only the proxy's upstream holds it", () => {
     const catalog = load(withMcp({ fake: server }), lookup);
@@ -656,7 +587,7 @@ describe("remote MCP servers", () => {
     expect(fake?.auth).toEqual({
       kind: "bearer",
       value: "sa-value",
-      ref: { value_env: "FAKE_MCP_SA" },
+      ref: { stored: "mcp:fake" },
     });
     if (fake === undefined) throw new Error("no server");
     expect(mcpUpstreamOf(fake)).toEqual({
@@ -674,7 +605,8 @@ describe("remote MCP servers", () => {
       { fake: { ...server, workspaces: [] } },
       { fake: { ...server, workspaces: ["a", "a"] } },
       { fake: { ...server, credential_ref: "Not A Ref" } },
-      { fake: { ...server, auth: { kind: "basic", value_env: "X" } } },
+      { fake: { ...server, auth: { kind: "basic", stored: "mcp:fake" } } },
+      { fake: { ...server, auth: { kind: "bearer", value_env: "X" } } },
       { fake: { ...server, extra: true } },
       // The built-in server's name.
       { github: server },

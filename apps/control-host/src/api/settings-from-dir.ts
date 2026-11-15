@@ -5,6 +5,7 @@ import {
   catalogConnectionsSchema,
   describeConfigError,
   messageOf,
+  REMOVED_CREDENTIAL_FIELDS,
   type SessionCatalogConfig,
   sessionCatalogConfigSchema,
 } from "@werft-ai/platform";
@@ -99,6 +100,33 @@ export function withoutLegacyRepositories(
   return kept;
 }
 
+/**
+ * An old directory names its credentials by env or Secrets Manager; the
+ * schema would only call the field unrecognized.
+ */
+function refuseRemovedReferences(
+  entries: unknown,
+  kind: "connection" | "repository" | "mcp",
+  path: string,
+): unknown {
+  if (entries === null || typeof entries !== "object") return entries;
+  for (const [id, entry] of Object.entries(entries)) {
+    const auth =
+      entry !== null && typeof entry === "object"
+        ? (entry as { auth?: unknown }).auth
+        : null;
+    if (auth === null || typeof auth !== "object") continue;
+    for (const field of REMOVED_CREDENTIAL_FIELDS) {
+      if (Object.hasOwn(auth, field)) {
+        throw new Error(
+          `${path}: ${id}.auth.${field} is no longer supported: write "stored: ${kind}:${id}" and set the value in the console`,
+        );
+      }
+    }
+  }
+  return entries;
+}
+
 export async function readCatalogConfig(
   dir: string,
   notes: string[] = [],
@@ -107,20 +135,28 @@ export async function readCatalogConfig(
   const repositoriesPath = resolve(dir, REPOSITORIES_FILE);
   const mcpServersPath = resolve(dir, MCP_SERVERS_FILE);
   const parsed = sessionCatalogConfigSchema.safeParse({
-    repositories: withoutLegacyRepositories(
-      section(
-        await readYaml(repositoriesPath),
-        "repositories",
-        repositoriesPath,
+    repositories: refuseRemovedReferences(
+      withoutLegacyRepositories(
+        section(
+          await readYaml(repositoriesPath),
+          "repositories",
+          repositoriesPath,
+        ),
+        notes,
+        skipped,
       ),
-      notes,
-      skipped,
+      "repository",
+      repositoriesPath,
     ),
     ...((await Bun.file(mcpServersPath).exists())
       ? {
-          mcp_servers: section(
-            await readYaml(mcpServersPath),
-            "mcp_servers",
+          mcp_servers: refuseRemovedReferences(
+            section(
+              await readYaml(mcpServersPath),
+              "mcp_servers",
+              mcpServersPath,
+            ),
+            "mcp",
             mcpServersPath,
           ),
         }
@@ -139,7 +175,11 @@ export async function readConnections(
 ): Promise<Record<string, CatalogProviderConfig>> {
   const path = resolve(dir, CONNECTIONS_FILE);
   const parsed = catalogConnectionsSchema.safeParse(
-    section(await readYaml(path), "connections", path),
+    refuseRemovedReferences(
+      section(await readYaml(path), "connections", path),
+      "connection",
+      path,
+    ),
   );
   if (!parsed.success) {
     throw new Error(`${path} is invalid: ${describeConfigError(parsed.error)}`);

@@ -24,7 +24,7 @@ const OLD_CATALOG = {
     endpoint: http://fake-messages:4010
     auth:
       kind: api_key
-      secret_id: werft/local/fake-messages
+      stored: connection:fake-messages
 `,
   "repositories.yaml": `repositories:
   sample-app:
@@ -36,7 +36,7 @@ const OLD_CATALOG = {
       app_id: 1
       installation_id: 1
       api_base: http://fake-git:3000
-      value_env: GITHUB_APP_KEY
+      stored: repository:sample-app
   bare:
     url: http://fake-git:3000/agent/bare.git
     branch: main
@@ -45,7 +45,7 @@ const OLD_CATALOG = {
       app_id: 1
       installation_id: 1
       api_base: http://fake-git:3000
-      value_env: GITHUB_APP_KEY
+      stored: repository:bare
 `,
   "mcp-servers.yaml": `mcp_servers:
   fake:
@@ -53,7 +53,7 @@ const OLD_CATALOG = {
     credential_ref: mcp/fake
     auth:
       kind: bearer
-      secret_id: werft/local/fake-mcp
+      stored: mcp:fake
     workspaces: [verify]
 `,
   "profiles.yaml": `profiles:
@@ -96,7 +96,6 @@ const PLAN = {
   inactive: [],
   needs_value: [],
   conflicts: [],
-  refused_external: [],
 };
 
 type Stranded = Awaited<
@@ -292,7 +291,7 @@ describe("settings seed", () => {
           docs: {
             url: "https://mcp.example.invalid/mcp",
             credential_ref: "mcp/docs",
-            auth: { kind: "bearer", value_env: "DOCS_TOKEN" },
+            auth: { kind: "bearer", stored: true },
             workspaces: ["*"],
           },
         },
@@ -417,7 +416,38 @@ describe("settings CLI", () => {
     expect(entries.repositories["sample-app"]).not.toHaveProperty("profiles");
   });
 
-  test("import --from-dir hands the operator's import every entry, external references allowed", async () => {
+  test("--from-dir refuses an entry that names an env or Secrets Manager reference, naming the field", async () => {
+    for (const [file, from, to, field] of [
+      [
+        "connections.yaml",
+        "stored: connection:fake-messages",
+        "value_env: FAKE_KEY",
+        "value_env",
+      ],
+      [
+        "mcp-servers.yaml",
+        "stored: mcp:fake",
+        "secret_id: werft/fake",
+        "secret_id",
+      ],
+    ] as const) {
+      const dir = join(root, `external-${file}`);
+      await mkdir(dir, { recursive: true });
+      for (const [name, text] of Object.entries(OLD_CATALOG)) {
+        await writeFile(
+          join(dir, name),
+          name === file ? text.replace(from, to) : text,
+        );
+      }
+      const refused = await documentFromDir(dir).then(
+        () => "",
+        (error: Error) => error.message,
+      );
+      expect(refused).toContain(`.auth.${field} is no longer supported`);
+    }
+  });
+
+  test("import --from-dir hands the operator's import every entry", async () => {
     const { store, asked } = fakeStore({
       ...PLAN,
       outcome: "applied",
@@ -440,7 +470,6 @@ describe("settings CLI", () => {
     ]);
     expect(options).toEqual({
       dryRun: false,
-      allowExternal: true,
       databaseOwnsRepositories: true,
       actor: null,
     });

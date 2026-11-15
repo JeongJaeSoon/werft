@@ -26,7 +26,7 @@ You need an owner login, a key for the model or a private model endpoint, and th
 
 A session calls its model through the model connection its agent release chose. A connection needs a key and the list of models in use. Signed in as owner:
 
-1. In **Settings > Agent connections > Model connections**, choose **Add connection**. Use kind `anthropic`, keep the default address (`https://api.anthropic.com`), paste the Anthropic key, and choose **Create**. The key is sealed in the database; the console shows only its last four characters.
+1. In **Settings > Agent connections > Model connections**, choose **Add connection**. Use kind `anthropic`, keep the default address (`https://api.anthropic.com`), paste the Anthropic key, and choose **Create**. **Create** stays off until the key has at least 8 characters. The key is sealed in the database; the console shows only its last four characters.
 2. Once it is made, the **Models in use** dialog opens and the server reads the provider's model list (`GET /v1/models`) with that key. The dialog shows the connection's id and address. Check the models to use (for example `claude-sonnet-5`) and choose **Save models**. To change them later, choose **Models** from the ⋯ menu at the end of the same row; **Refresh list** reads the list again. A connection holds up to 64 models.
    - On an OpenAI connection, models no agent runs on (embeddings, speech, images and the like) are left out. LiteLLM shows the list its proxy returns as it is.
    - A saved model the provider no longer lists stays checked and is marked **Not listed**. Nothing drops it on its own; uncheck it and save.
@@ -42,10 +42,10 @@ To run OpenAI models on the Codex engine, choose the kind `openai_responses` on 
 
 For the connection the achievement judge Luna (OpenAI Decisions API) uses, choose the kind `openai_decisions`. The default address is `https://api.openai.com`, an API key is the only way to authenticate, and judging is always charged on its own ledger. No agent runs on this connection, so it has no model list. It is picked in the judging settings of [Achievement rules](/achievements).
 
-<a id="2-환경-변수-대안" />
-### 2. Environment-variable alternative
+<a id="2-설정-문서로-연결-더하기" />
+### 2. Add connections through the settings document
 
-To keep the key in the server env file instead of the database, set `ANTHROPIC_API_KEY` in `/etc/werft/test-ops.env`, and name the connection by environment variable in the [settings document from single-server step 2](/run-server/self-hosting/single-server#2-비밀과-설정-문서). The document contains names only, never values. Fill `connections` as below, list the models agents may pick in `models`, then regenerate settings digest and release input in [single-server step 3](/run-server/self-hosting/single-server#3-release-입력-생성). For existing installations, apply with the [Compose upgrade](/run-server/self-hosting/upgrade-compose). An import refuses a settings document that still has a `profiles` entry.
+You can also add connections through the [settings document from single-server step 2](/run-server/self-hosting/single-server#2-비밀과-설정-문서). Credentials always come from values stored in the database. The document holds only `"stored": true` in place of a value, so it contains no secrets. An import refuses an entry that names an environment variable (`value_env`) or an AWS Secrets Manager id (`secret_id`) with 400 `invalid_document`. Fill `connections` as below, list the models agents may pick in `models`, then regenerate settings digest and release input in [single-server step 3](/run-server/self-hosting/single-server#3-release-입력-생성). For existing installations, apply with the [Compose upgrade](/run-server/self-hosting/upgrade-compose). An import refuses a settings document that still has a `profiles` entry.
 
 ```json
 {
@@ -53,16 +53,14 @@ To keep the key in the server env file instead of the database, set `ANTHROPIC_A
     "anthropic": {
       "kind": "anthropic",
       "endpoint": "https://api.anthropic.com",
-      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" },
+      "auth": { "kind": "api_key", "stored": true },
       "models": ["claude-sonnet-5", "claude-haiku-4-5"]
     }
   }
 }
 ```
 
-You can later move this connection to console-managed credentials. From the ⋯ menu of its **Model connections** row, choose **Enter key on screen** and paste the key again; the same connection then uses the stored key. The server does not read and migrate the env value: a person re-enters it. After the move, an import that still names the same connection leaves the database row unchanged.
-
-On Kubernetes, if the Secret's model key is no longer used, remove its name from `secrets.catalogEnv`. Keep names you still need, such as a fixed bootstrap token. The list replaces the whole set, so keep it aligned with the Secret's keys.
+A connection imported this way is `needs_value` (**Needs a value** on screen) until it has a value, and sessions released on it do not run. From the ⋯ menu of its **Model connections** row, choose **Set API key** (**Set Bearer token** on a bearer-token connection) and enter the key. Through the API, call `POST /v1/installation/settings/connections/{id}/credential` with an owner session. The value must be at least 8 bytes, with no control characters and no leading or trailing whitespace. It is encrypted with `PLATFORM_SECRET_KEY` and kept in the database. After that, an import that still names the same connection leaves the database row unchanged.
 
 <a id="3-설정-문서-가져오기내보내기" />
 ### 3. Import and export settings
@@ -73,7 +71,7 @@ docker exec "$API_CONTAINER" bun run apps/control-host/src/api/settings.ts expor
 docker exec -i "$API_CONTAINER" bun run apps/control-host/src/api/settings.ts import --document - --dry-run < settings.json
 ```
 
-Identify API_CONTAINER from this installation's status and project label. On Kubernetes, the package scripts below require a checkout matching the installed version and host Bun/kubectl. Substitute `bun run settings:k8s export` and `bun run settings:k8s import --document - --dry-run`. Review additions and errors from dry-run, then remove `--dry-run` from the same command to import. This tool does not unconditionally overwrite existing database rows with file contents. A connection's `models` and `model_families` go in when the connection is added; change the list of an existing connection in the console. Reference credential environment-variable names instead of values in the document.
+Identify API_CONTAINER from this installation's status and project label. On Kubernetes, the package scripts below require a checkout matching the installed version and host Bun/kubectl. Substitute `bun run settings:k8s export` and `bun run settings:k8s import --document - --dry-run`. Review additions and errors from dry-run, then remove `--dry-run` from the same command to import. This tool does not unconditionally overwrite existing database rows with file contents. A connection's `models` and `model_families` go in when the connection is added; change the list of an existing connection in the console. Write credentials in the document only as `"stored": true` and enter the values in the console.
 
 <a id="4-과금-없는-사설-모델" />
 ### 4. Private models without per-token billing
@@ -90,7 +88,7 @@ endpoint: http://litellm:4000
 billing: none
 auth:
   kind: bearer
-  value_env: LITELLM_MASTER_KEY
+  stored: true
 models:
   - qwen3-coder
 ```
@@ -109,7 +107,7 @@ Meet the [upgrade gate](/run-server/self-hosting/upgrade-compose#실행-전-게�
 <a id="확인" />
 ## Verify
 
-Create a session on an agent released on this connection and confirm a turn completes. ready 200 does not check model keys or successful calls. After moving the environment-variable path to the console, confirm new calls and key rotation work.
+Create a session on an agent released on this connection and confirm a turn completes. ready 200 does not check model keys or successful calls. After entering the key of a connection imported through the settings document, confirm it is no longer `needs_value` and that new calls work.
 
 <a id="자주-막히는-곳" />
 ## Troubleshooting

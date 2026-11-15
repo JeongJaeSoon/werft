@@ -11,15 +11,14 @@ const appKey = generateKeyPairSync("rsa", { modulusLength: 2048 })
   .toString();
 
 /**
- * The catalog the API would read after migrate imported the fixture: its
- * connections with their models, and its repositories. As the API's first
- * read does, an env reference with a value in `env` is carried into a
- * stored value of its row's own; one without stays and does not resolve.
- * The fake GitHub App's key comes from a generated one.
+ * The catalog the API would read after migrate imported the fixture and the
+ * stack's seed step set its values: `values` holds what was set, by
+ * `<kind>:<id>`; a stored entry without one does not resolve. Every
+ * repository holds the fake GitHub App's key, as the seed step sets it.
  */
 export async function fixtureCatalog(
   name: string,
-  env: Record<string, string | undefined>,
+  values: Record<string, string | undefined>,
 ): Promise<SessionCatalog> {
   const entries = parseSettingsDocument(
     await Bun.file(
@@ -27,47 +26,29 @@ export async function fixtureCatalog(
     ).json(),
   );
   const stored = new Map<string, string>();
-  const carried = <T extends { auth?: unknown }>(
-    kind: string,
-    id: string,
-    entry: T,
-  ): T => {
-    const { value_env: name, ...kept } = (entry.auth ?? {}) as {
-      value_env?: string;
-    };
-    const value = name === undefined ? undefined : env[name];
-    if (!value) return entry;
-    stored.set(`${kind}:${id}`, value);
-    return { ...entry, auth: { ...kept, stored: `${kind}:${id}` } };
-  };
-  const snapshot = settingsSnapshot(
-    {
-      generation: 0,
-      connections: Object.entries(entries.connections).map(
-        ([id, provider]) => ({
-          id,
-          provider: carried("connection", id, provider),
-          ...(entries.connection_models?.[id] ?? {}),
-        }),
-      ),
-      repositories: Object.entries(entries.repositories).map(
-        ([id, repository]) => ({
-          id,
-          repository: carried("repository", id, repository),
-        }),
-      ),
-      mcpServers: Object.entries(entries.mcp_servers).map(([id, server]) => ({
-        id,
-        server: carried("mcp", id, server),
-      })),
-      stored,
-      invalid: [],
-    },
-    (ref) =>
-      "secret_id" in ref && ref.secret_id === "werft/local/fake-github-app"
-        ? appKey
-        : undefined,
-  );
+  for (const id of Object.keys(entries.repositories)) {
+    stored.set(`repository:${id}`, appKey);
+  }
+  for (const [ref, value] of Object.entries(values)) {
+    if (value) stored.set(ref, value);
+  }
+  const snapshot = settingsSnapshot({
+    generation: 0,
+    connections: Object.entries(entries.connections).map(([id, provider]) => ({
+      id,
+      provider,
+      ...(entries.connection_models?.[id] ?? {}),
+    })),
+    repositories: Object.entries(entries.repositories).map(
+      ([id, repository]) => ({ id, repository }),
+    ),
+    mcpServers: Object.entries(entries.mcp_servers).map(([id, server]) => ({
+      id,
+      server,
+    })),
+    stored,
+    invalid: [],
+  });
   if (snapshot.left_out.length > 0) {
     throw new Error(
       `${name}: ${snapshot.left_out.map((entry) => `${entry.entry}: ${entry.reason}`).join("; ")}`,

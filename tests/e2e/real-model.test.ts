@@ -15,8 +15,8 @@ import { fixtureCatalog } from "./settings-fixture.ts";
 
 /**
  * The plumbing of `tests/e2e/run.sh --real-model` and `scripts/local.sh up`,
- * without Docker or a key: the real-model settings migrate imports, the local
- * layer that hands the key to the API alone, the overlay's cost limits, and
+ * without Docker or a key: the real-model settings migrate imports, the seed
+ * step that stores the key through stdin alone, the overlay's cost limits, and
  * both scripts run against stand-ins for docker, bun and curl. The paid run
  * is the user's (docs/real-claude.md).
  */
@@ -46,9 +46,9 @@ function defaults(...layers: Array<Service | undefined>) {
 }
 
 describe("real-model settings", () => {
-  test("its connection calls api.anthropic.com with the key from the API's environment", async () => {
+  test("its connection calls api.anthropic.com with the key the seed step stores", async () => {
     const catalog = await fixtureCatalog("real-model", {
-      [KEY_VARIABLE]: PROBE,
+      "connection:anthropic": PROBE,
     });
     expect(Object.keys(catalog.connections)).toEqual(["anthropic"]);
     expect(Object.keys(catalog.repositories)).toEqual(["sample-app"]);
@@ -69,27 +69,22 @@ describe("real-model settings", () => {
   });
 
   test("without the key the connection does not resolve", async () => {
-    for (const env of [{}, { [KEY_VARIABLE]: "" }]) {
-      await expect(fixtureCatalog("real-model", env)).rejects.toThrow(
-        `value_env: ${KEY_VARIABLE} is not set`,
+    for (const values of [{}, { "connection:anthropic": "" }]) {
+      await expect(fixtureCatalog("real-model", values)).rejects.toThrow(
+        "stored: connection:anthropic is not set",
       );
     }
   });
 });
 
 describe("real-model compose layers", () => {
-  test("only the API is given the key, by name and never by value", async () => {
+  test("no service is given the key: it reaches the API through the seed step alone", async () => {
     const files = [...LOCAL_LAYERS, "tests/e2e/compose.yml", OVERLAY];
     for (const file of files) {
-      for (const [name, service] of Object.entries(
-        (await compose(file)).services,
-      )) {
-        const env = service.environment ?? {};
-        if (file === LOCAL_LAYERS[1] && name === "api") {
-          expect(env[KEY_VARIABLE]).toBeNull();
-        } else {
-          expect(Object.hasOwn(env, KEY_VARIABLE)).toBe(false);
-        }
+      for (const service of Object.values((await compose(file)).services)) {
+        expect(Object.hasOwn(service.environment ?? {}, KEY_VARIABLE)).toBe(
+          false,
+        );
       }
     }
   });
@@ -135,6 +130,9 @@ printf '%s\\n' "$*" >>"$STUB_ARGV"
 case "$*" in
   "version --format"*) echo 28.1.0 ;;
   *" exec -T api "*) echo e2e-platform-key ;;
+  *" exec -T -e SEED_COOKIE fake-git bun run packages/testkit/src/seed-credentials-main.ts")
+    printf 'cookie=%s ' "\${SEED_COOKIE:+present}" >>"$STUB_ARGV.seed"
+    cat >>"$STUB_ARGV.seed" ;;
   *" logs --no-color worker") echo "worker-1  | 2.1.319 (Claude Code)" ;;
   *" logs --no-color --timestamps")
     echo "api-1  | listening"
@@ -231,6 +229,11 @@ echo " 0 fail"
     // The suite gets no key: it drives the public API only.
     expect(argv).toMatch(/^bun test .* key=$/m);
     expect(argv).not.toContain(PROBE);
+    // The key reaches the stored connection on the seed step's stdin, with
+    // the owner's session by name.
+    expect(await Bun.file(join(dir, "clean.argv.seed")).text()).toBe(
+      `cookie=present {"connections":{"anthropic":"${PROBE}"},"mcp_servers":{},"repositories":["sample-app"]}\n`,
+    );
     const record = await Bun.file(join(result.out, "record.txt")).text();
     expect(record).toContain("command: tests/e2e/run.sh --real-model");
     expect(record).toContain("model: claude-sonnet-5");
@@ -346,6 +349,10 @@ echo " 0 fail"
     const record = await Bun.file(join(result.out, "record.txt")).text();
     expect(record).toContain("command: tests/e2e/run.sh\n");
     expect(record).not.toContain("model:");
+    const seed = await Bun.file(join(dir, "fake.argv.seed")).text();
+    expect(seed).toContain('"fake-messages":"local-placeholder-key"');
+    expect(seed).toContain('"mcp_servers":{"fake":');
+    expect(seed).not.toContain(PROBE);
   });
 });
 
@@ -407,7 +414,7 @@ echo '{"status":"ready"}'
     };
   }
 
-  test("starts on the real-model overlay with no model connection when the key is unset or empty", async () => {
+  test("starts on the real-model overlay with its connection waiting for a key when the key is unset or empty", async () => {
     for (const [name, env] of [
       ["unset", {}],
       ["empty", { [KEY_VARIABLE]: "" }],
@@ -415,7 +422,7 @@ echo '{"status":"ready"}'
       const result = await local(`no-key-up-${name}`, ["up"], env);
       expect(result.status).toBe(0);
       expect(result.stderr).toContain(
-        "the stack starts with no model connection",
+        "the stack starts with the anthropic connection waiting for its key",
       );
       expect(result.argv).toContain(`-f ${OVERLAY} up -d --build`);
       expect(result.argv).not.toContain("compose.fake-model.yml");

@@ -5,25 +5,25 @@
 - **A. 유료 e2e 한 번**: `tests/e2e/run.sh --real-model`. 스택을 띄우고 정해진 시나리오를 돌린 뒤 스스로 지운다.
 - **B. 직접 대화**: `scripts/local.sh up`. 스택을 띄워 두고 curl로 자유 문장을 보낸다.
 
-둘 다 같은 기본 설정 문서(`tests/fixtures/settings/real-model.json`)와 비용 상한 overlay(`infra/compose.real-model.yml`)를 쓴다. 필요한 것은 **실행하는 사람 본인의 Anthropic API key** 하나다. B는 key를 콘솔의 모델 연결 화면에 넣는 것이 기본이고, 환경 변수로 주는 것은 대안이다. A는 사람이 화면을 만지지 않는 시험이라 환경 변수로만 받는다. AWS 계정은 필요 없다(S3는 named volume에 저장하는 SeaweedFS다. 기본 설정 문서는 Secrets Manager를 쓰지 않아 `secrets`는 뜨지 않는다). 유료 호출이므로 CI에서는 돌지 않는다.
+둘 다 같은 기본 설정 문서(`tests/fixtures/settings/real-model.json`)와 비용 상한 overlay(`infra/compose.real-model.yml`)를 쓴다. 필요한 것은 **실행하는 사람 본인의 Anthropic API key** 하나다. key는 어느 쪽이든 DB에 암호화돼 저장된다. B는 key를 콘솔의 모델 연결 화면에 넣거나, 셸의 `ANTHROPIC_API_KEY`를 주면 `up`이 owner로 대신 저장한다. A는 사람이 화면을 만지지 않는 시험이라 셸의 `ANTHROPIC_API_KEY`로만 받아 같은 방식으로 저장한다. AWS 계정은 필요 없다(S3는 named volume에 저장하는 SeaweedFS다). 유료 호출이므로 CI에서는 돌지 않는다.
 
 준비물은 [quickstart 0장](quickstart.md#0-준비물)과 같고, Docker Compose는 **2.24.6 이상**이어야 한다(`include`로 합친 스택 위에 overlay를 겹친다). B는 quickstart 2장의 curl 헬퍼를 쓴다.
 
 ## 기본 스택이 쓰는 것
 
 - migrate가 `tests/fixtures/settings/real-model.json`을 가져온다. 연결은 `https://api.anthropic.com`을 부르는 `anthropic` 하나이고, 그 모델 목록에 `claude-sonnet-5`가 있다. 이 문서에는 fake를 가리키는 연결이 없다. fake 문서(`fake-model.json`)는 `--fake-model` overlay를 얹을 때만 가져온다.
-- key의 기본 경로는 콘솔이다. B는 key 없이 뜨고, 설정 > 에이전트 연결 > 모델 연결 > 연결 추가에서 넣은 key가 DB에 봉인돼 저장된다. 환경 변수는 대안이다. 셸의 `ANTHROPIC_API_KEY`(없으면 저장소 `.env`의 그 줄)가 있으면 **API 컨테이너에만** 이름으로 전달되고(`infra/compose.local.yml`), 설정 문서의 `value_env`가 그 값을 읽는다. 추적되는 compose 파일과 명령 인자 어디에도 값이 없다. worker는 attempt 범위의 egress token만 받고, egress proxy가 `api.anthropic.com:443`(기본 `EGRESS_CREDENTIAL_ALLOWLIST`)으로 나가는 요청에 key를 붙인다.
+- 설정 문서의 `anthropic` 연결은 `"auth": {"stored": true}`라 값 없이 들어온다. key는 `PLATFORM_SECRET_KEY`로 암호화해 DB에 두는 값뿐이고, API는 환경 변수에서 key를 읽지 않는다. 넣는 길은 둘이다. 하나는 콘솔이다. owner가 설정 > 에이전트 연결 > 모델 연결에서 `anthropic` 행의 **API 키 설정**으로 넣는다. 다른 하나는 스크립트다. 셸의 `ANTHROPIC_API_KEY`(없으면 저장소 `.env`의 그 줄)가 있으면 스택이 뜬 뒤 owner로 로그인해 `POST /v1/installation/settings/connections/anthropic/credential`로 저장한다(`scripts/lib/seed-credentials.sh`). A는 첫 owner, B는 데모 owner로 저장한다. 값은 fake-git 컨테이너에서 도는 저장 단계의 stdin으로만 가고, 추적되는 compose 파일과 명령 인자, API 컨테이너의 환경 어디에도 없다. worker는 attempt 범위의 egress token만 받고, egress proxy가 `api.anthropic.com:443`(기본 `EGRESS_CREDENTIAL_ALLOWLIST`)으로 나가는 요청에 key를 붙인다.
 - 상한: `infra/compose.real-model.yml`이 migrate에 `MAX_TURN_SECONDS=600`(turn당 600초)과 `SESSION_COST_LIMIT_USD=3`(세션당 3달러)을 넘긴다. migrate는 저장한 값이 없는 키에만 이 값을 한 번 넣는다. A와 B가 같은 값을 쓴다. 처음 띄우기 전에 바꾸려면 같은 이름의 변수를 셸에 export한다. B(`local.sh up`)는 저장소 `.env`에 적은 값도 읽는다. 한 번 들어간 뒤로는 env가 바꾸지 않으니, 설정 > 워크스페이스 > 실행 한도에서 바꾼다. `local.sh`를 거치지 않고 `docker compose up`으로 띄우면 이 overlay가 없으므로 기본값(세션당 25달러, turn당 3600초)이다.
 
-`ANTHROPIC_API_KEY`가 셸과 `.env` 어디에도 없거나 비어 있을 때 `run.sh --real-model`(A)은 Docker를 건드리기 전에 exit 2로 끝난다. `local.sh up`(B)은 뜨되, 모델 연결 없이 뜬다고 알리고 화면 경로를 한 줄로 알려 준다. 어느 쪽도 fake로 대신 뜨지 않는다. 연결에 key가 없는 동안 그 연결의 release로 세션을 만들면 화면 경로를 알려 주는 오류로 거절된다. 연결을 넣으면 쓸 수 있게 된다. `.env`의 key 줄 따옴표가 깨졌으면 B도 exit 2로 끝난다. fake로 돌리려면 `--fake-model`을 명시한다.
+`ANTHROPIC_API_KEY`가 셸과 `.env` 어디에도 없거나 비어 있을 때 `run.sh --real-model`(A)은 Docker를 건드리기 전에 exit 2로 끝난다. `local.sh up`(B)은 뜨되, 모델 연결 없이 뜬다고 알리고 화면 경로를 한 줄로 알려 준다. 어느 쪽도 fake로 대신 뜨지 않는다. 연결에 key가 없는 동안 그 연결의 release로 세션을 만들면 화면 경로를 알려 주는 오류로 거절된다. key를 넣으면 쓸 수 있게 된다. `.env`의 key 줄 따옴표가 깨졌으면 B도 exit 2로 끝난다. fake로 돌리려면 `--fake-model`을 명시한다.
 
 ## key 입력과 폐기
 
 이 용도로 쓸 **전용 key**를 만들고 Console에서 workspace 지출 한도를 걸어 두기를 권한다. 상한은 세션마다 따로 걸리므로 세션을 여러 개 만들면 합계는 상한보다 커질 수 있다.
 
-**B의 기본 경로는 화면이다.** `scripts/local.sh up`을 key 없이 실행한 뒤(아래 B의 1단계), 콘솔에 owner로 로그인해 **설정 > 에이전트 연결 > 모델 연결**에서 **연결 추가**를 누른다. 종류는 `anthropic`, 주소는 기본값(`https://api.anthropic.com`)을 두고 key를 붙여 넣어 저장한다. key는 DB에 봉인돼 저장되고 화면에는 끝 네 글자만 보인다. 셸 history, 프로세스 목록, 컨테이너 설정에 key가 남지 않는다. 이미 `value_env` 연결이 있으면 같은 화면에서 key를 넣어 저장형으로 바꾼다. 저장한 key는 그 화면에서 교체하거나 지우고, 스택을 `down`하면 DB와 함께 사라진다.
+**B의 기본 경로는 화면이다.** `scripts/local.sh up`을 key 없이 실행한 뒤(아래 B의 1단계), 콘솔에 owner로 로그인해 **설정 > 에이전트 연결 > 모델 연결**에서 `anthropic` 행의 **API 키 설정**을 누르고 key를 붙여 넣어 저장한다. key는 DB에 봉인돼 저장되고 화면에는 끝 네 글자만 보인다. 셸 history, 프로세스 목록, 컨테이너 설정에 key가 남지 않는다. 저장한 key는 그 화면에서 교체하거나 사용 중지하고, 스택을 `down`하면 DB와 함께 사라진다.
 
-**대안: 환경 변수.** A는 환경 변수로만 받고, B도 화면을 거치지 않으려면 환경 변수로 줄 수 있다. 셸 history에 남지 않도록 `read -rs`로 입력받는다.
+**셸에서 주기.** A는 셸에서만 받고, B도 화면을 거치지 않으려면 셸에서 줄 수 있다. 어느 쪽이든 스크립트가 API로 DB에 저장한다. B는 `up`이 데모 계정을 더할 때만(`LOCAL_DEMO_ACCOUNTS=0`이 아니고 이 머신의 Docker에서 API가 루프백에 뜰 때) 데모 owner로 저장한다. 데모 계정이 없으면 화면에서 넣거나, owner의 세션 cookie(`__Host-werft_session=…`)를 stdin 첫 줄로 주고 `scripts/local.sh store-keys`를 실행한다. 셸 history에 남지 않도록 `read -rs`로 입력받는다.
 
 ```sh
 printf 'Anthropic API key: '
@@ -31,8 +31,8 @@ read -rs ANTHROPIC_API_KEY
 echo
 ```
 
-- 명령을 실행한 뒤에는 `unset ANTHROPIC_API_KEY`로 셸에서 지운다. B는 `up`이 끝나면 key가 이미 API 컨테이너에 넘어가 있으므로 바로 지워도 된다.
-- 스택이 떠 있는 동안에는 API 컨테이너 설정(`docker inspect`)에 key가 있다. 다 쓰면 스택을 내린다(A는 스스로, B는 `scripts/local.sh down`).
+- 명령을 실행한 뒤에는 `unset ANTHROPIC_API_KEY`로 셸에서 지운다. B는 `up`이 끝나면 key가 이미 DB에 저장돼 있으므로 바로 지워도 된다.
+- 스택이 떠 있는 동안 key는 DB에 암호화돼 있다. 다 쓰면 스택을 내린다(A는 스스로, B는 `scripts/local.sh down`).
 - 다 쓴 key는 Console의 API Keys에서 비활성화하거나 삭제한다.
 
 환경 변수로 매번 입력하지 않으려면 `.env.example`을 복사한 `.env`의 `ANTHROPIC_API_KEY=` 줄에 값을 적는다. `.env`는 git과 이미지 빌드가 무시한다. 두 명령은 셸에 export된 값이 없을 때만 이 한 줄을 읽고, `.env`의 다른 값은 가져오지 않는다. 다른 파일을 쓰려면 `AGENT_PLATFORM_DOTENV`에 그 경로를 준다. 값은 `.env.example`에 적지 않는다(추적되는 파일이고 저장소는 public이다). 디스크에 평문으로 남으므로 다 쓰면 그 줄을 비운다.
@@ -60,7 +60,7 @@ run record(`E2E_OUT`, 끝에 경로를 출력한다)의 `record.txt`에는 teste
 `run.sh`는 끝날 때 `E2E_OUT` 전체(compose 로그, 모든 worker 로그, run record, 테스트 출력)에서 key 값을 찾는다. 하나라도 나오면 파일 이름만 출력하고 실행을 실패시킨다. key 값은 어떤 로그에도 출력되지 않는다. `E2E_KEEP=1`로 스택을 남겼다면 끝에 출력되는 `kept: compose project <project>, installation <installation>`의 두 값으로 직접 지운다. scheduler가 만든 worker 컨테이너·네트워크·workspace volume은 compose 소유가 아니므로 label로 지우고, run.sh가 tag를 붙인 이미지 셋은 이름으로 지운다.
 
 ```sh
-P='e2e-123456789'; I='e2e123456789'   # kept: 줄의 project와 installation 값으로 바꾼다
+P='e2e-987654321'; I='e2e987654321'   # kept: 줄의 project와 installation 값으로 바꾼다
 docker compose -p "$P" -f infra/compose.yml -f tests/e2e/compose.yml \
   -f infra/compose.real-model.yml --profile apps down -v --remove-orphans --rmi local
 docker ps -aq --filter "label=werft.installation=$I" | xargs -r docker rm -f
@@ -82,7 +82,7 @@ KEY=$(scripts/local.sh key real-claude \
 echo "${KEY:0:12}…"
 ```
 
-`up`은 quickstart 1장과 같이 `/readyz`가 ready가 될 때까지 기다린 뒤 끝난다. 그다음 [key 입력과 폐기](#key-입력과-폐기)의 화면 경로로 key를 넣는다. 환경 변수로 주려면 그 절의 `read -rs` 세 줄 뒤에 `export ANTHROPIC_API_KEY`를 하고 `scripts/local.sh up`을 실행한다.
+`up`은 quickstart 1장과 같이 `/readyz`가 ready가 될 때까지 기다린 뒤 끝난다. 그다음 [key 입력과 폐기](#key-입력과-폐기)의 화면 경로로 key를 넣는다. 셸에서 주려면 그 절의 `read -rs` 세 줄 뒤에 `export ANTHROPIC_API_KEY`를 하고 `scripts/local.sh up`을 실행한다. `up`이 데모 owner로 그 key를 `anthropic` 연결에 저장한다.
 
 **2. 헬퍼 설정.** [quickstart 2장](quickstart.md#2-curl-준비)의 블록을 같은 터미널에 그대로 붙여 넣은 다음, 세션을 만드는 `body`는 그대로 두고, `anthropic` 연결로 만든 release id를 `WERFT_AGENT_RELEASE_ID`에 넣는다.
 
@@ -155,7 +155,7 @@ turn 조회 결과(`result`)에는 답 문장이 없다. 답은 이벤트 스트
 scripts/local.sh down
 ```
 
-스택과 모든 데이터(세션, checkpoint, API key)를 지운다. 화면에서 넣은 모델 key는 DB에 있으므로 함께 사라지고, 환경 변수로 준 key를 가진 API 컨테이너도 이때 사라진다. 마지막으로 Console에서 key를 비활성화한다.
+스택과 모든 데이터(세션, checkpoint, API key)를 지운다. 모델 key는 화면에서 넣었든 셸에서 주었든 DB에 있으므로 함께 사라진다. 마지막으로 Console에서 key를 비활성화한다.
 
 ## 자율 모드 세션
 
@@ -185,9 +185,9 @@ Sonnet 5 기준(100만 토큰당 입력 2달러, 출력 10달러, 캐시 쓰기 
 
 | 증상 | 원인과 조치 |
 |---|---|
-| `run.sh --real-model`이 바로 exit 2로 끝난다 | A는 환경 변수로만 key를 받는다. `ANTHROPIC_API_KEY`가 셸에도 `.env`에도 없거나 비었다. [key 입력](#key-입력과-폐기)의 `read -rs` 세 줄과 `export ANTHROPIC_API_KEY`를 같은 셸에서 한 뒤 다시 실행한다 |
+| `run.sh --real-model`이 바로 exit 2로 끝난다 | A는 셸의 `ANTHROPIC_API_KEY`로만 key를 받는다. `ANTHROPIC_API_KEY`가 셸에도 `.env`에도 없거나 비었다. [key 입력](#key-입력과-폐기)의 `read -rs` 세 줄과 `export ANTHROPIC_API_KEY`를 같은 셸에서 한 뒤 다시 실행한다 |
 | `local.sh up`이 `invalid ANTHROPIC_API_KEY quoting`으로 exit 2로 끝난다 | `.env`의 key 줄 따옴표가 한쪽만 있다. 따옴표를 맞추거나 그 줄을 지우고(key는 화면으로 넣는다) 다시 실행한다 |
-| 세션이 `connection_missing`(연결 없음)이거나 모델 key를 넣으라는 오류로 거절된다 | 모델 연결에 key가 없다. 설정 > 에이전트 연결 > 모델 연결 > 연결 추가에서 넣는다 |
+| 세션이 `connection_missing`(연결 없음)이거나 모델 key를 넣으라는 오류로 거절된다 | 모델 연결에 key가 없다. 설정 > 에이전트 연결 > 모델 연결에서 `anthropic` 행의 **API 키 설정**으로 넣는다 |
 | `local.sh up`이 `docker compose … is too old; … is an overlay on compose.yaml's include`로 끝난다 | Docker Compose가 2.24.6보다 낮다. 2.24.0–2.24.5는 `include` 위의 overlay를 `conflicts with imported resource`로 거부한다. compose를 올린다 |
 | turn이 `budget_exceeded`로 실패한다 | 세션 비용과 다음 호출의 예약을 더한 값이 3달러 상한에 닿았다. 새 세션을 만든다 |
 | 그 밖의 증상 | [quickstart 8장](quickstart.md#8-막혔을-때)을 본다 |

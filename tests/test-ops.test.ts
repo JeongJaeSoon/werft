@@ -1038,7 +1038,6 @@ describe("rendered installation", () => {
           ...(store === "s3" ? { S3_BUCKET: "ops-bucket" } : {}),
           AWS_ACCESS_KEY_ID: filler("i"),
           AWS_SECRET_ACCESS_KEY: filler("s"),
-          ANTHROPIC_API_KEY: filler("k"),
           PLATFORM_SETTINGS_DOCUMENT: document,
           PLATFORM_SECRET_KEY: filler("m"),
           EXECUTION_WORKSPACE_QUOTA: "on",
@@ -1448,22 +1447,22 @@ exit 0
       const proxy = services["egress-proxy"]?.environment;
       if (api === undefined || proxy === undefined)
         throw new Error("api or egress-proxy has no environment");
-      services.secrets = {
-        image: `localstack/localstack@sha256:${"d".repeat(64)}`,
+      services["fake-messages"] = {
+        image: `registry.invalid/fake-messages@sha256:${"d".repeat(64)}`,
       };
       api.AWS_ENDPOINT_URL = "http://127.0.0.1:4566";
       api.S3_BUCKET = "ops-bucket";
-      proxy.EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST = "secrets:4566";
+      proxy.EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST = "fake-messages:4010";
       const found = await checkRender(model, { store: "localstack" }).then(
         () => "",
         (error: Error) => error.message,
       );
       for (const expected of [
-        "service secrets is local-only",
+        "service fake-messages is local-only",
         "api AWS_ENDPOINT_URL must be http://localstack:4566",
         "S3_BUCKET must be claude-sessions",
         "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST must name localstack:4566",
-        "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST names secrets:4566, a local-only service",
+        "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST names fake-messages:4010, a local-only service",
       ])
         expect(found).toContain(expected);
     },
@@ -1526,7 +1525,7 @@ exit 0
         }),
       );
       await expect(checkRender(model, { store: "localstack" })).rejects.toThrow(
-        "repositories.sample.auth: name app_id, installation_id and exactly one of value_env, secret_id or stored, or none of them to use the App registered in the console",
+        "repositories.sample.auth: name app_id, installation_id and stored, or none of them to use the App registered in the console",
       );
     },
     COMPOSE_RENDER_TIMEOUT_MS,

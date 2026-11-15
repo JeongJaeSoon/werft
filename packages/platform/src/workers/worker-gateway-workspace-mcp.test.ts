@@ -29,7 +29,7 @@ const catalogServer = {
   auth: {
     kind: "bearer" as const,
     value: "example-catalog-value",
-    ref: { value_env: "FAKE_MCP_SA" },
+    ref: { stored: "mcp:fake" },
   },
   workspaces: ["default"],
 };

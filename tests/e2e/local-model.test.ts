@@ -46,8 +46,8 @@ function defaults(...layers: Array<Service | undefined>) {
 
 const catalog = () =>
   fixtureCatalog("local-model", {
-    LOCAL_OLLAMA_API_KEY: "ollama-probe",
-    LITELLM_MASTER_KEY: "sk-probe",
+    "connection:ollama": "ollama-probe",
+    "connection:litellm": "sk-probe",
   });
 
 describe("local-model catalog", () => {
@@ -74,7 +74,7 @@ describe("local-model catalog", () => {
 });
 
 describe("local-model compose overlay", () => {
-  test("migrate imports the local-model settings and the API alone holds the Ollama key", async () => {
+  test("migrate imports the local-model settings, the API holds no key and LiteLLM its master key alone", async () => {
     const services = await overlay();
     const { api, migrate } = layeredServices<Service>([
       ...LOCAL_LAYERS,
@@ -83,13 +83,15 @@ describe("local-model compose overlay", () => {
     expect(migrate?.environment?.SETTINGS_DOCUMENT).toBe(
       "/settings/local-model.json",
     );
-    expect(api?.environment?.ANTHROPIC_API_KEY).toBe("");
+    // The connections' keys are stored through the console API (run.sh's
+    // seed step), not handed to the API by environment.
+    expect(Object.hasOwn(api?.environment ?? {}, "ANTHROPIC_API_KEY")).toBe(
+      false,
+    );
     for (const [name, service] of Object.entries(services)) {
       const env = service.environment ?? {};
       for (const key of KEYS) {
-        const holds =
-          name === "api" ||
-          (name === "litellm" && key === "LITELLM_MASTER_KEY");
+        const holds = name === "litellm" && key === "LITELLM_MASTER_KEY";
         // By name, from the caller's environment, never a value.
         if (holds) expect(env[key]).toBeNull();
         else expect(Object.hasOwn(env, key)).toBe(false);

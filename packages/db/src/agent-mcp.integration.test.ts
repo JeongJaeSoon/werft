@@ -57,7 +57,7 @@ const CATALOG = {
     docs: {
       url: "https://docs.example.com/mcp",
       credential_ref: "docs-key",
-      auth: { kind: "bearer", value: "x", ref: { value_env: "X" } },
+      auth: { kind: "bearer", value: "x", ref: { stored: "mcp:docs" } },
       workspaces: DOCS_WORKSPACES,
     },
   },

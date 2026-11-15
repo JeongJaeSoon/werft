@@ -289,13 +289,14 @@ Helm chart（`deploy/helm/werft`、設置手順は [Kubernetes 設置（Helm cha
 | `DATABASE_URL` | api、scheduler、reconciler、slack、migrate、checkpoint GC、metrics、upgrade-check Job、session archive CronJob |
 | `EGRESS_AUTHORIZER_TOKEN` | api、egress-proxy（同じ値） |
 | `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` | api、checkpoint GC、session archive CronJob。`secrets.objectStoreKeys: true` の場合だけ。`false` なら AWS 既定 credential chain（IRSA）で署名します |
-| `secrets.catalogEnv` の名前（既定 `ANTHROPIC_API_KEY`） | api だけ。設定文書が `value_env` で指す provider・リポジトリ資格情報を環境変数で渡す代替手段です。api はその値を最初に読んだときに DB へ一度移し、その後は読まないので、移したという警告（`… into the database …; remove <名前>`）が出たらこの名前は外せます。モデル key の既定経路は設置後のコンソールの**設定 > エージェント接続 > モデル接続 > 接続を追加**で、その場合は `secrets.catalogEnv` からこの名前だけを外し、`BOOTSTRAP_TOKEN` は残します（`["BOOTSTRAP_TOKEN"]`）。`secrets.catalogEnv` や `api.extraEnv` などどの経路でも `BOOTSTRAP_TOKEN` を渡さなければ、プロセスごとにトークンが自動生成されます。既定の API replica 2 個で最初の設置（bootstrap）をするには、同じトークンを渡す必要があります。別の経路で渡していないのに一覧を `[]` で空にすると replica ごとに別のトークンができ、一部のリクエストが 401 になります。replica が 1 個なら、自動生成されたトークンも使えます。既定値を維持し Secret に key がなければ Pod は起動しません。slack には渡しません |
 | `PLATFORM_SECRET_KEY` | api、slack。必須。64 文字 hex の master key。コンソールに保存した資格情報を封印します。Secret にないと Pod は起動しません |
+
+モデル接続・MCP サーバー・リポジトリの GitHub App key は、Secret や環境変数では渡しません。コンソール（または credential API）で入れ、`PLATFORM_SECRET_KEY` で暗号化して DB に保存されます。`secrets.catalogEnv` と `config.aws.secretsManagerEndpointUrl` はなくなり、values に残っているとレンダリングが失敗します。`secrets.bootstrapToken: true` なら api は Secret の `BOOTSTRAP_TOKEN` を受け取ります（既定 `false`）。受け取らなければ、プロセスごとにトークンが自動生成されます。既定の API replica 2 個で最初の設置（bootstrap）をするには同じトークンを Secret で渡す必要があり、そうしないと replica ごとに別のトークンができ、一部のリクエストが 401 になります。replica が 1 個なら、自動生成されたトークンも使えます。
 
 | 値 | 変更対象 |
 |---|---|
 | `images.registry`、`images.*.digest` | ECR host とそのイメージの digest |
-| `secrets.objectStoreKeys: false`、`serviceAccounts.api.annotations` | 静的 AWS key の代わりに IRSA。api、checkpoint GC、session archive CronJob が api ServiceAccount のこの role で S3・Secrets Manager に署名します。scheduler と worker に S3 権限はありません |
+| `secrets.objectStoreKeys: false`、`serviceAccounts.api.annotations` | 静的 AWS key の代わりに IRSA。api、checkpoint GC、session archive CronJob が api ServiceAccount のこの role で S3 に署名します。scheduler と worker に S3 権限はありません |
 | `secrets.externalSecret` | External Secrets Operator が Secrets Manager の `remoteKey`（JSON、上記 Secret key 全部。IRSA なら AWS key 二つを除外）から Secret を書きます。運用者の CRD が必要です |
 | `ingress` | ALB Ingress。`scheme` は `internal`（上記）。`healthcheck-path: /readyz`、SSE 用 idle timeout 300 秒。公開経路（`/v1`・`/docs`・`/healthz`・`/readyz`）だけを route し、`/internal` と authorizer（3100）は開きません |
 | `ingress.console.enabled` | 既定 `false`。有効にすると Web コンソールの `/` と `/internal` の 404 規則を追加します。条件は[アクセス経路](/run-server/self-hosting/access)を参照してください |
