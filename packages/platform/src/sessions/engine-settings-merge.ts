@@ -95,15 +95,3 @@ export function mergeEngineSettings(input: {
       : undefined;
   return { kind: "rules", engine, disallowedTools, mcpDeny };
 }
-
-/**
- * Whether a call to `toolName` is denied by an `mcp__` rule. A rule names one
- * whole tool, so the match is exact: a prefix would deny a server's other
- * tools.
- */
-export function mcpCallDenied(
-  mcpDeny: readonly string[],
-  toolName: string,
-): boolean {
-  return mcpDeny.includes(toolName);
-}

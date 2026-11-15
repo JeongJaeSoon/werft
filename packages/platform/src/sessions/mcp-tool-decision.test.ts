@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { deniedMcpTools } from "./catalog.ts";
-import { mcpToolPermitted, visibleMcpTools } from "./mcp-tool-decision.ts";
+import {
+  mcpToolDenied,
+  mcpToolPermitted,
+  visibleMcpTools,
+} from "./mcp-tool-decision.ts";
 
 const allow = ["mcp__docs__search", "mcp__docs__read", "mcp__wiki__read"];
 
@@ -47,6 +51,13 @@ describe("visibleMcpTools", () => {
     ]);
   });
 
+  test("mcp__<server>__* closes every tool of that server and no other", () => {
+    expect(visibleMcpTools("docs", allow, ["mcp__docs__*"])).toEqual([]);
+    expect(visibleMcpTools("wiki", allow, ["mcp__docs__*"])).toEqual([
+      "mcp__wiki__read",
+    ]);
+  });
+
   test("unreadable engine rules are the caller's empty set: nothing is visible", () => {
     // claim-engine-settings returns null for unreadable rules and the db
     // adapter answers [] without calling this; the empty visible set denies.
@@ -61,6 +72,30 @@ describe("mcpToolPermitted", () => {
     expect(mcpToolPermitted(visible, "docs", "search")).toBe(false);
     expect(mcpToolPermitted(visible, "docs", "other")).toBe(false);
     expect(mcpToolPermitted(visible, "wiki", "read")).toBe(false);
+  });
+});
+
+describe("mcpToolDenied", () => {
+  test("a whole name is matched exactly", () => {
+    expect(mcpToolDenied(["mcp__a__b"], "a", "mcp__a__b")).toBe(true);
+    expect(mcpToolDenied(["mcp__a__b"], "a", "mcp__a__bc")).toBe(false);
+    expect(mcpToolDenied(["mcp__a__b"], "a", "mcp__a")).toBe(false);
+  });
+
+  test("the wildcard is judged on the server the call goes to", () => {
+    // `mcp__docs___read` is the tool `_read` of `docs` or `read` of `docs_`.
+    expect(mcpToolDenied(["mcp__docs_a__*"], "docs", "mcp__docs_a__x")).toBe(
+      false,
+    );
+    expect(mcpToolDenied(["mcp__docs___*"], "docs", "mcp__docs___read")).toBe(
+      false,
+    );
+    expect(mcpToolDenied(["mcp__docs___*"], "docs_", "mcp__docs___read")).toBe(
+      true,
+    );
+    expect(mcpToolDenied(["mcp__docs__*"], "docs", "mcp__docs___read")).toBe(
+      true,
+    );
   });
 });
 

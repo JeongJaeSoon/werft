@@ -1,4 +1,18 @@
-import { MCP_TOOL_PREFIX } from "@werft-ai/contracts";
+import { MCP_TOOL_PREFIX, mcpServerWildcard } from "@werft-ai/contracts";
+
+/**
+ * Whether a deny source blocks `tool`, a full `mcp__<server>__<tool>` name,
+ * on `server`: by its whole name, or by `mcp__<server>__*`. The server is
+ * the one the call goes to, never split out of the name, so the wildcard of
+ * `docs_` does not reach the tool `_read` of `docs`.
+ */
+export function mcpToolDenied(
+  denied: readonly string[],
+  server: string,
+  tool: string,
+): boolean {
+  return denied.includes(tool) || denied.includes(mcpServerWildcard(server));
+}
 
 /**
  * The one deny-first rule for a remote MCP server's tools. The claim's tool
@@ -6,9 +20,9 @@ import { MCP_TOOL_PREFIX } from "@werft-ai/contracts";
  * come from here, so they cannot drift.
  *
  * A tool is visible when some allow source names it, it belongs to `server`,
- * and no deny source names it. Every deny source (release `deny` pins,
- * release snapshot `mcp_deny`, saved engine rules) wins over every allow.
- * A match is exact: a prefix would deny a server's other tools.
+ * and no deny source blocks it (`mcpToolDenied`). Every deny source (release
+ * `deny` pins, release snapshot `mcp_deny`, saved engine rules) wins over
+ * every allow. An allow is matched by whole name only.
  */
 export function visibleMcpTools(
   server: string,
@@ -16,14 +30,14 @@ export function visibleMcpTools(
   ...denies: readonly (readonly string[])[]
 ): string[] {
   const prefix = `${MCP_TOOL_PREFIX}${server}__`;
-  const denied = new Set(denies.flat());
+  const denied = denies.flat();
   return [
     ...new Set(
       allow.filter(
         (tool) =>
           tool.startsWith(prefix) &&
           tool.length > prefix.length &&
-          !denied.has(tool),
+          !mcpToolDenied(denied, server, tool),
       ),
     ),
   ].sort();

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isMcpServerWildcard,
   isMcpToolName,
+  mcpServerWildcard,
   mcpToolNameSchema,
   mcpToolOfServer,
 } from "./tool-names.ts";
@@ -30,6 +32,27 @@ describe("the mcp__ name rule", () => {
     ]) {
       expect(isMcpToolName(name)).toBe(false);
       expect(mcpToolNameSchema.safeParse(name).success).toBe(false);
+    }
+  });
+
+  test("a name ending in __* is a whole-server deny rule, never a tool", () => {
+    expect(isMcpToolName("mcp__docs__*")).toBe(false);
+    expect(isMcpToolName("mcp__docs__a__*")).toBe(false);
+    expect(mcpToolOfServer("mcp__docs__*", "docs")).toBe(false);
+    expect(isMcpToolName("mcp__docs__a*")).toBe(true);
+    expect(mcpServerWildcard("docs")).toBe("mcp__docs__*");
+    expect(isMcpServerWildcard("mcp__docs__*")).toBe(true);
+    expect(isMcpServerWildcard("mcp__docs_a__*")).toBe(true);
+    for (const rule of [
+      "mcp__*",
+      "mcp____*",
+      "mcp__Docs__*",
+      "mcp__docs__a__*",
+      "mcp__docs__*x",
+      "mcp__docs_*",
+      "docs__*",
+    ]) {
+      expect(isMcpServerWildcard(rule)).toBe(false);
     }
   });
 

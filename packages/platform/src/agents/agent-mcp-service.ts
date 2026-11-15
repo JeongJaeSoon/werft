@@ -18,6 +18,7 @@ import {
 } from "../musterrolle/index.ts";
 import type { AgentMcpStore } from "../ports/agent-mcp-store.ts";
 import type { SessionCatalog } from "../sessions/catalog.ts";
+import { mcpToolDenied } from "../sessions/index.ts";
 import { mcpValuesOfCard } from "./mcp-release-values.ts";
 
 const refused = (field: string, reason: string) =>
@@ -169,7 +170,6 @@ export function createAgentMcpService(deps: {
             current !== null && current.server === settings.server
               ? new Set(current.allowedTools)
               : new Set<string>();
-          const blocked = new Set(releaseMcpDeny);
           given.allowed_tools.forEach((tool, at) => {
             if (already.has(tool)) return;
             if (!mcpToolOfServer(tool, settings.server ?? "")) {
@@ -178,7 +178,7 @@ export function createAgentMcpService(deps: {
                 "tool_outside_server",
               );
             }
-            if (blocked.has(tool)) {
+            if (mcpToolDenied(releaseMcpDeny, settings.server ?? "", tool)) {
               throw refused(`settings.allowed_tools.${at}`, "mcp_tool_denied");
             }
           });
