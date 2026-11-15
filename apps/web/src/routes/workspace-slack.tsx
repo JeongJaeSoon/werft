@@ -25,9 +25,8 @@ import {
   FieldLabel,
   FormActions,
   formatTimestamp,
-  Heading,
-  IconTile,
   Input,
+  IntegrationHeader,
   Link,
   RowListItem,
   SettingsSection,
@@ -58,12 +57,7 @@ import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { RowMenu, RowMenuItem } from "../components/row-menu.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { IntegrationsLayout } from "./integrations.tsx";
-import {
-  type OnOutcome,
-  SECTIONS,
-  SETTINGS_CARD,
-  SlackGuest,
-} from "./workspace-settings.tsx";
+import { type OnOutcome, SECTIONS, SlackGuest } from "./workspace-settings.tsx";
 import { SlackApps, useWorkspaceSlackApps } from "./workspace-slack-apps.tsx";
 import { SlackEventsSetting } from "./workspace-slack-events.tsx";
 
@@ -425,18 +419,13 @@ function SlackCard({
 
   const card = (
     <section aria-labelledby={titleId} className={SECTIONS}>
-      <div className={SETTINGS_CARD}>
-        <div className="flex items-center gap-3">
-          <IconTile icon={SlackTileMark} size="two-line" />
-          <div className="flex min-w-0 flex-1 flex-col">
-            <Heading id={titleId} level={2}>
-              Slack
-            </Heading>
-            <Text variant="sub">{status}</Text>
-          </div>
-        </div>
-        <Text variant="sub">{t("workspace.slackCardHint")}</Text>
-      </div>
+      <IntegrationHeader
+        icon={SlackTileMark}
+        title="Slack"
+        titleId={titleId}
+        summary={status}
+        description={t("workspace.slackCardHint")}
+      />
       {body}
     </section>
   );

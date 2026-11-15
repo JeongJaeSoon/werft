@@ -24,8 +24,7 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
-  Heading,
-  IconTile,
+  IntegrationHeader,
   Link,
   Popover,
   PopoverContent,
@@ -307,31 +306,21 @@ function GitHubCard({
   return (
     <>
       <section aria-labelledby={titleId} className={SECTIONS}>
-        <div className={CARD}>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
-            <IconTile icon={GitHubTileMark} size="two-line" />
-            <div className="flex min-w-0 flex-1 flex-col">
-              <Heading
-                id={titleId}
-                ref={headingRef}
-                level={2}
-                tabIndex={-1}
-                className="focus-visible:outline-none"
-              >
-                GitHub
-              </Heading>
-              <Text variant="sub">
-                {empty
-                  ? t("github.card.none")
-                  : t("github.card.counts", {
-                      apps: connections.length,
-                      accounts: accounts.size,
-                    })}
-              </Text>
-            </div>
-          </div>
-          <Text variant="sub">{t("github.card.hint")}</Text>
-        </div>
+        <IntegrationHeader
+          icon={GitHubTileMark}
+          title="GitHub"
+          titleId={titleId}
+          titleRef={headingRef}
+          summary={
+            empty
+              ? t("github.card.none")
+              : t("github.card.counts", {
+                  apps: connections.length,
+                  accounts: accounts.size,
+                })
+          }
+          description={t("github.card.hint")}
+        />
         {empty ? (
           <EmptyState
             framed

@@ -4,18 +4,14 @@ import {
   AlertTitle,
   Badge,
   Code,
-  cn,
-  Heading,
-  IconTile,
+  IntegrationHeader,
   Link,
   Skeleton,
-  Text,
 } from "@werft-ai/ui";
 import { type ReactNode, useId } from "react";
 import { SlackTileMark } from "../../../components/brand-marks.tsx";
 import { LoadFailure } from "../../../components/load-failure.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
-import { SETTINGS_CARD } from "../../workspace-settings.tsx";
 import type { SlackApp } from "./actions.ts";
 import {
   unverifiedApp,
@@ -117,70 +113,62 @@ export function SlackHeader({
       id={SECTION.slack}
       tabIndex={-1}
       aria-labelledby={titleId}
-      className={cn(SETTINGS_CARD, SECTION_TARGET)}
+      className={SECTION_TARGET}
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
-        <IconTile icon={SlackTileMark} size="two-line" />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex flex-wrap items-center gap-2">
-            <Heading id={titleId} level={2}>
-              Slack
-            </Heading>
-            {app.isPending ? (
-              placeholder
-            ) : (
-              <Badge variant={STATE_BADGE[state]}>
-                {t(`slack.state.${state}`)}
-              </Badge>
-            )}
-          </div>
-          <Text
-            as="div"
-            variant="sub"
-            className="flex flex-wrap items-center gap-x-1.5"
-          >
-            {summary}
-          </Text>
-        </div>
-      </div>
-      <Text variant="sub">{t("slack.cardHint")}</Text>
-      {error ? (
-        <LoadFailure
-          error={error}
-          guidance={slackReason(error, t)}
-          kept={failed.every((read) => read.data !== undefined)}
-          onRetry={retry}
-        />
-      ) : null}
-      {unverified ? (
-        <Alert variant="amber">
-          <AlertTitle>{t("slack.eventsPending.title")}</AlertTitle>
-          <AlertDescription>
-            {t("slack.eventsPending.body")}{" "}
-            <Link
-              href={`https://api.slack.com/apps/${encodeURIComponent(unverified)}/event-subscriptions`}
-              target="_blank"
-              newTabLabel={t("slack.newTab")}
-              underline="always"
-            >
-              {t("slack.eventsPending.open")}
-            </Link>
-          </AlertDescription>
-        </Alert>
-      ) : null}
-      {warnings.map((warning) => (
-        <Alert key={warning.code} variant="amber">
-          <AlertTitle>{t(SLACK_WARNING_KEY[warning.code].title)}</AlertTitle>
-          <AlertDescription>
-            {t(SLACK_WARNING_KEY[warning.code].body, {
-              release: "release_id" in warning ? warning.release_id : "",
-              previous:
-                "previous_user_id" in warning ? warning.previous_user_id : "",
-              user: "user_id" in warning ? warning.user_id : "",
-            })}
-          </AlertDescription>
-        </Alert>
-      ))}
+      <IntegrationHeader
+        icon={SlackTileMark}
+        title="Slack"
+        titleId={titleId}
+        status={
+          app.isPending ? (
+            placeholder
+          ) : (
+            <Badge variant={STATE_BADGE[state]}>
+              {t(`slack.state.${state}`)}
+            </Badge>
+          )
+        }
+        summary={summary}
+        description={t("slack.cardHint")}
+      >
+        {error ? (
+          <LoadFailure
+            error={error}
+            guidance={slackReason(error, t)}
+            kept={failed.every((read) => read.data !== undefined)}
+            onRetry={retry}
+          />
+        ) : null}
+        {unverified ? (
+          <Alert variant="amber">
+            <AlertTitle>{t("slack.eventsPending.title")}</AlertTitle>
+            <AlertDescription>
+              {t("slack.eventsPending.body")}{" "}
+              <Link
+                href={`https://api.slack.com/apps/${encodeURIComponent(unverified)}/event-subscriptions`}
+                target="_blank"
+                newTabLabel={t("slack.newTab")}
+                underline="always"
+              >
+                {t("slack.eventsPending.open")}
+              </Link>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+        {warnings.map((warning) => (
+          <Alert key={warning.code} variant="amber">
+            <AlertTitle>{t(SLACK_WARNING_KEY[warning.code].title)}</AlertTitle>
+            <AlertDescription>
+              {t(SLACK_WARNING_KEY[warning.code].body, {
+                release: "release_id" in warning ? warning.release_id : "",
+                previous:
+                  "previous_user_id" in warning ? warning.previous_user_id : "",
+                user: "user_id" in warning ? warning.user_id : "",
+              })}
+            </AlertDescription>
+          </Alert>
+        ))}
+      </IntegrationHeader>
     </section>
   );
 }
