@@ -74,6 +74,7 @@ import {
   createPostgresWorkerPendingStore,
   createPostgresWorkerUnitOfWork,
   createPostgresWorkspaceKeyStore,
+  createPostgresWorkspaceMcpStore,
   createProviderExchangeLedger,
   hasUncollectedCheckpoint,
   newSessionGitHubReaders,
@@ -143,6 +144,7 @@ import {
   createTeamService,
   createUsageService,
   createWorkerGateway,
+  createWorkspaceMcpService,
   derivedSecretKey,
   GITHUB_API_BASE,
   InstallationConfigError,
@@ -231,6 +233,7 @@ import {
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { createLoginSettingsAdmin } from "./login-settings.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
+import { endpointProblem } from "./oidc/provider-http.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createProviderAdmin } from "./provider-admin.ts";
 import { createProviderLogin } from "./provider-login.ts";
@@ -275,6 +278,7 @@ import { registerLinkedAccountRoutes } from "./routes/musterrolle/linked-account
 import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
 import { registerSessionShareRoutes } from "./routes/musterrolle/session-shares.ts";
 import { registerTeamRoutes } from "./routes/musterrolle/teams.ts";
+import { registerWorkspaceMcpServerRoutes } from "./routes/musterrolle/workspace-mcp-servers.ts";
 import { registerWorkspaceRoutes } from "./routes/musterrolle/workspaces.ts";
 import {
   registerAchievementRoutes,
@@ -317,6 +321,12 @@ import {
   startTelemetryIngest,
   warnCollectorOnEgressAllowlist,
 } from "./tracing-startup.ts";
+import {
+  workspaceMcpHostsFromEnv,
+  workspaceMcpOutbound,
+  workspaceMcpRedirectUri,
+  workspaceMcpUrlProblem,
+} from "./workspace-mcp.ts";
 
 const authMode = process.env.AUTH_MODE;
 const databaseUrl = process.env.DATABASE_URL;
@@ -692,6 +702,23 @@ const credentialBindingService = createCredentialBindingService({
 const envVariableService = createEnvVariableService({
   authorization,
   store: createPostgresEnvVariableStore(db),
+});
+const workspaceMcpHosts = workspaceMcpHostsFromEnv(process.env);
+const workspaceMcpPolicy = {
+  plainHttp: "refuse" as const,
+  privateHosts: workspaceMcpHosts?.private ?? [],
+};
+const workspaceMcp = createWorkspaceMcpService({
+  authorization,
+  store: createPostgresWorkspaceMcpStore(db, secretKey),
+  secretStoreOn: secretKey !== null,
+  remote: {
+    http: workspaceMcpOutbound(workspaceMcpHosts),
+    allowsUrl: (url) => endpointProblem(url, workspaceMcpPolicy) === null,
+  },
+  serverUrlProblem: (url) => workspaceMcpUrlProblem(workspaceMcpHosts, url),
+  redirectUriFor: (serverId) =>
+    workspaceMcpRedirectUri(consoleOrigin, serverId),
 });
 const apiKeys = createApiKeyService({
   authorization,
@@ -1346,6 +1373,7 @@ const app = createApiApp({
     registerAgentCallerLimitsRoutes(router, agentCallerLimits);
     registerCredentialBindingRoutes(router, credentialBindingService);
     registerEnvVariableRoutes(router, envVariableService);
+    registerWorkspaceMcpServerRoutes(router, workspaceMcp);
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,

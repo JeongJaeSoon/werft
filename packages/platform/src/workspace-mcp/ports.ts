@@ -193,8 +193,13 @@ export interface WorkspaceMcpStore {
         clientSecret: string | null;
       } | null;
     },
-  ): Promise<{ outcome: "started" } | { outcome: "not_found" | "actor_inactive" }>;
-  readFlow(workspaceId: string, serverId: string): Promise<WorkspaceMcpFlow | null>;
+  ): Promise<
+    { outcome: "started" } | { outcome: "not_found" | "actor_inactive" }
+  >;
+  readFlow(
+    workspaceId: string,
+    serverId: string,
+  ): Promise<WorkspaceMcpFlow | null>;
   /**
    * Stores the tokens only if, under the connection's lock, the flow is
    * still this one and unexpired and its starter still manages the
@@ -263,7 +268,9 @@ export type OutboundResponse = {
  * Throws WorkspaceMcpOutboundError when the request may not be sent, did
  * not complete, or answered 5xx; any other answer is the caller's to read.
  */
-export type OutboundHttp = (request: OutboundRequest) => Promise<OutboundResponse>;
+export type OutboundHttp = (
+  request: OutboundRequest,
+) => Promise<OutboundResponse>;
 
 export class WorkspaceMcpOutboundError extends Error {
   constructor(

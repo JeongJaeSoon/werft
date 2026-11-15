@@ -177,7 +177,10 @@ async function readRecords(
       and(
         eq(secretValues.workspaceId, ws),
         inArray(secretValues.ownerRef, refs),
-        inArray(secretValues.purpose, ["mcp_bearer_token", "mcp_client_secret"]),
+        inArray(secretValues.purpose, [
+          "mcp_bearer_token",
+          "mcp_client_secret",
+        ]),
       ),
     );
   const secretOf = (serverId: string, purpose: SecretPurpose) =>
@@ -208,7 +211,10 @@ async function readRecords(
       connectedBy:
         connection?.connectedByUserId == null || connectorName === null
           ? null
-          : { userId: connection.connectedByUserId, displayName: connectorName },
+          : {
+              userId: connection.connectedByUserId,
+              displayName: connectorName,
+            },
       connectedAt: connection?.connectedAt ?? null,
       accessExpiresAt: connection?.accessExpiresAt ?? null,
       grantedScope: connection?.grantedScope ?? null,
@@ -290,7 +296,11 @@ async function revocationOf(
   );
   const token =
     refresh ??
-    (await readSecretInTx(tx, key, slotOf(workspaceId, serverId, "mcp_access_token")));
+    (await readSecretInTx(
+      tx,
+      key,
+      slotOf(workspaceId, serverId, "mcp_access_token"),
+    ));
   if (token === null) return null;
   return {
     oauth,
@@ -374,7 +384,10 @@ export async function disconnectWorkspaceMcpOf(
       ]);
       await tx
         .update(workspaceMcpConnections)
-        .set({ ...DISCONNECTED, generation: sql`${workspaceMcpConnections.generation} + 1` })
+        .set({
+          ...DISCONNECTED,
+          generation: sql`${workspaceMcpConnections.generation} + 1`,
+        })
         .where(eq(workspaceMcpConnections.serverId, row.serverId));
       disconnected += 1;
     } else {
@@ -477,12 +490,18 @@ export function createPostgresWorkspaceMcpStore(
             input.actorUserId,
           );
         }
-        await writeReceipt(tx, input.principal, workspaceId, "create_workspace_mcp_server", {
-          server_id: id,
-          name: input.name,
-          url: input.url,
-          auth_kind: input.authKind,
-        });
+        await writeReceipt(
+          tx,
+          input.principal,
+          workspaceId,
+          "create_workspace_mcp_server",
+          {
+            server_id: id,
+            name: input.name,
+            url: input.url,
+            auth_kind: input.authKind,
+          },
+        );
         const record = await readRecord(tx, workspaceId, id);
         if (record === null) throw new Error("the new server is not readable");
         return { outcome: "created" as const, record };
@@ -510,10 +529,16 @@ export function createPostgresWorkspaceMcpStore(
         await tx
           .delete(workspaceMcpServers)
           .where(eq(workspaceMcpServers.id, server.id));
-        await writeReceipt(tx, input.principal, workspaceId, "delete_workspace_mcp_server", {
-          server_id: server.id,
-          name: server.name,
-        });
+        await writeReceipt(
+          tx,
+          input.principal,
+          workspaceId,
+          "delete_workspace_mcp_server",
+          {
+            server_id: server.id,
+            name: server.name,
+          },
+        );
         return { outcome: "deleted" as const, revocation };
       });
     },
@@ -527,7 +552,8 @@ export function createPostgresWorkspaceMcpStore(
         }
         const server = await heldServer(tx, workspaceId, input.serverId);
         if (server === null) return { outcome: "not_found" as const };
-        if (server.authKind !== "bearer") return { outcome: "not_bearer" as const };
+        if (server.authKind !== "bearer")
+          return { outcome: "not_bearer" as const };
         await heldConnection(tx, server.id);
         await writeSecretInTx(
           tx,
@@ -546,10 +572,16 @@ export function createPostgresWorkspaceMcpStore(
             generation: sql`${workspaceMcpConnections.generation} + 1`,
           })
           .where(eq(workspaceMcpConnections.serverId, server.id));
-        await writeReceipt(tx, input.principal, workspaceId, "set_workspace_mcp_credential", {
-          server_id: server.id,
-          credential: "bearer_token",
-        });
+        await writeReceipt(
+          tx,
+          input.principal,
+          workspaceId,
+          "set_workspace_mcp_credential",
+          {
+            server_id: server.id,
+            credential: "bearer_token",
+          },
+        );
         const record = await readRecord(tx, workspaceId, server.id);
         if (record === null) throw new Error("the server is not readable");
         return { outcome: "saved" as const, record };
@@ -575,19 +607,34 @@ export function createPostgresWorkspaceMcpStore(
         if (input.clientSecret === null) {
           await deleteSecretInTx(tx, secretSlot);
         } else {
-          await writeSecretInTx(tx, secretKey, secretSlot, input.clientSecret, input.actorUserId);
+          await writeSecretInTx(
+            tx,
+            secretKey,
+            secretSlot,
+            input.clientSecret,
+            input.actorUserId,
+          );
         }
         await deleteSecrets(tx, workspaceId, server.id, PERSON_PURPOSES);
         await tx
           .update(workspaceMcpConnections)
-          .set({ ...DISCONNECTED, generation: sql`${workspaceMcpConnections.generation} + 1` })
+          .set({
+            ...DISCONNECTED,
+            generation: sql`${workspaceMcpConnections.generation} + 1`,
+          })
           .where(eq(workspaceMcpConnections.serverId, server.id));
-        await writeReceipt(tx, input.principal, workspaceId, "set_workspace_mcp_credential", {
-          server_id: server.id,
-          credential: "oauth_client",
-          client_id: input.client.clientId,
-          has_client_secret: input.clientSecret !== null,
-        });
+        await writeReceipt(
+          tx,
+          input.principal,
+          workspaceId,
+          "set_workspace_mcp_credential",
+          {
+            server_id: server.id,
+            credential: "oauth_client",
+            client_id: input.client.clientId,
+            has_client_secret: input.clientSecret !== null,
+          },
+        );
         const record = await readRecord(tx, workspaceId, server.id);
         if (record === null) throw new Error("the server is not readable");
         return { outcome: "saved" as const, record };
@@ -612,11 +659,21 @@ export function createPostgresWorkspaceMcpStore(
             .update(workspaceMcpServers)
             .set({ oauth: { ...server.oauth, client: registered.client } })
             .where(eq(workspaceMcpServers.id, server.id));
-          const secretSlot = slotOf(workspaceId, server.id, "mcp_client_secret");
+          const secretSlot = slotOf(
+            workspaceId,
+            server.id,
+            "mcp_client_secret",
+          );
           if (registered.clientSecret === null) {
             await deleteSecretInTx(tx, secretSlot);
           } else {
-            await writeSecretInTx(tx, secretKey, secretSlot, registered.clientSecret, null);
+            await writeSecretInTx(
+              tx,
+              secretKey,
+              secretSlot,
+              registered.clientSecret,
+              null,
+            );
           }
         }
         await writeSecretInTx(
@@ -644,7 +701,10 @@ export function createPostgresWorkspaceMcpStore(
       const ws = workspaceId.toLowerCase();
       return db.transaction(async (tx) => {
         const [row] = await tx
-          .select({ server: workspaceMcpServers, connection: workspaceMcpConnections })
+          .select({
+            server: workspaceMcpServers,
+            connection: workspaceMcpConnections,
+          })
           .from(workspaceMcpServers)
           .innerJoin(
             workspaceMcpConnections,
@@ -725,9 +785,18 @@ export function createPostgresWorkspaceMcpStore(
         if (tokens.refreshToken === null) {
           await deleteSecretInTx(tx, refreshSlot);
         } else {
-          await writeSecretInTx(tx, secretKey, refreshSlot, tokens.refreshToken, input.actorUserId);
+          await writeSecretInTx(
+            tx,
+            secretKey,
+            refreshSlot,
+            tokens.refreshToken,
+            input.actorUserId,
+          );
         }
-        await deleteSecretInTx(tx, slotOf(workspaceId, server.id, "mcp_pkce_verifier"));
+        await deleteSecretInTx(
+          tx,
+          slotOf(workspaceId, server.id, "mcp_pkce_verifier"),
+        );
         const generation = connection.generation + 1;
         await tx
           .update(workspaceMcpConnections)
@@ -741,12 +810,18 @@ export function createPostgresWorkspaceMcpStore(
             grantedScope: tokens.scope,
           })
           .where(eq(workspaceMcpConnections.serverId, server.id));
-        await writeReceipt(tx, input.principal, workspaceId, "connect_workspace_mcp_server", {
-          server_id: server.id,
-          name: server.name,
-          generation,
-          granted_scope: tokens.scope,
-        });
+        await writeReceipt(
+          tx,
+          input.principal,
+          workspaceId,
+          "connect_workspace_mcp_server",
+          {
+            server_id: server.id,
+            name: server.name,
+            generation,
+            granted_scope: tokens.scope,
+          },
+        );
         const record = await readRecord(tx, workspaceId, server.id);
         if (record === null) throw new Error("the server is not readable");
         return { outcome: "connected" as const, record };
@@ -781,18 +856,27 @@ export function createPostgresWorkspaceMcpStore(
           .update(workspaceMcpConnections)
           .set({ ...DISCONNECTED, generation })
           .where(eq(workspaceMcpConnections.serverId, server.id));
-        await writeReceipt(tx, input.principal, workspaceId, "disconnect_workspace_mcp_server", {
-          server_id: server.id,
-          name: server.name,
-          generation,
-        });
+        await writeReceipt(
+          tx,
+          input.principal,
+          workspaceId,
+          "disconnect_workspace_mcp_server",
+          {
+            server_id: server.id,
+            name: server.name,
+            generation,
+          },
+        );
         const record = await readRecord(tx, workspaceId, server.id);
         if (record === null) throw new Error("the server is not readable");
         return { outcome: "disconnected" as const, record, revocation };
       });
     },
 
-    async credentialOf(workspaceId, serverId): Promise<WorkspaceMcpCredential | null> {
+    async credentialOf(
+      workspaceId,
+      serverId,
+    ): Promise<WorkspaceMcpCredential | null> {
       const secretKey = sealed();
       const record = await readRecord(db, workspaceId, serverId);
       if (record === null || record.connection.state !== "active") return null;
@@ -892,7 +976,10 @@ export function createPostgresWorkspaceMcpStore(
               "mcp_refresh_token",
             ]);
             if (decision.dropClient) {
-              await deleteSecretInTx(tx, slotOf(ws, server.id, "mcp_client_secret"));
+              await deleteSecretInTx(
+                tx,
+                slotOf(ws, server.id, "mcp_client_secret"),
+              );
               await tx
                 .update(workspaceMcpServers)
                 .set({ oauth: { ...server.oauth, client: null } })

@@ -39,11 +39,11 @@ import {
   listTools,
   manualAuthMethod,
   pkcePair,
-  type WorkspaceMcpRemoteDeps,
   refreshTokens,
   registerClient,
   revokeToken,
   scopeWidens,
+  type WorkspaceMcpRemoteDeps,
   WorkspaceMcpRemoteError,
 } from "./remote.ts";
 
@@ -83,9 +83,14 @@ const refused = (reasonCode: string, message: string) =>
 /** A refusal from the remote server, by what the admin can do about it. */
 function remoteRefusal(error: WorkspaceMcpRemoteError): SessionServiceError {
   if (error.reason === "unreachable" || error.reason === "mcp_failed") {
-    return new SessionServiceError("BACKEND_UNAVAILABLE", error.message, undefined, {
-      reason_code: `mcp_${error.reason === "unreachable" ? "unreachable" : "failed"}`,
-    });
+    return new SessionServiceError(
+      "BACKEND_UNAVAILABLE",
+      error.message,
+      undefined,
+      {
+        reason_code: `mcp_${error.reason === "unreachable" ? "unreachable" : "failed"}`,
+      },
+    );
   }
   return new SessionServiceError("BAD_REQUEST", error.message, undefined, {
     reason_code: error.reason,
@@ -106,7 +111,9 @@ async function remoteCall<T>(call: () => Promise<T>): Promise<T> {
 }
 
 const person = (value: { userId: string; displayName: string } | null) =>
-  value === null ? null : { user_id: value.userId, display_name: value.displayName };
+  value === null
+    ? null
+    : { user_id: value.userId, display_name: value.displayName };
 
 export function workspaceMcpServerViewOf(
   record: WorkspaceMcpServerRecord,
@@ -186,14 +193,25 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
   }
 
   function checkUrl(url: string): void {
-    if (!URL.canParse(url)) throw refused("url_invalid", "The URL is not a URL");
+    if (!URL.canParse(url))
+      throw refused("url_invalid", "The URL is not a URL");
     const parsed = new URL(url);
-    if (parsed.username !== "" || parsed.password !== "" || parsed.hash !== "") {
-      throw refused("url_invalid", "The URL may hold no user name, password or fragment");
+    if (
+      parsed.username !== "" ||
+      parsed.password !== "" ||
+      parsed.hash !== ""
+    ) {
+      throw refused(
+        "url_invalid",
+        "The URL may hold no user name, password or fragment",
+      );
     }
     const problem = deps.serverUrlProblem(url);
     if (problem !== null) {
-      throw refused(problem, "This installation does not allow credentials to be sent to that address");
+      throw refused(
+        problem,
+        "This installation does not allow credentials to be sent to that address",
+      );
     }
   }
 
@@ -208,8 +226,8 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
     const uri = deps.redirectUriFor(serverId);
     if (uri === null) {
       throw new SessionServiceError(
-        "NOT_READY",
-        "The console's address is not set, so no OAuth callback can be named",
+        "BACKEND_UNAVAILABLE",
+        "CONSOLE_ORIGIN is not set, so no OAuth callback can be named",
         undefined,
         { reason_code: "console_origin_unset" },
       );
@@ -218,8 +236,11 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
   }
 
   /** Best effort, after the commit that took the token out. */
-  async function revoke(revocation: WorkspaceMcpRevocation | null): Promise<boolean | null> {
-    if (revocation === null || revocation.oauth.revocationEndpoint === null) return null;
+  async function revoke(
+    revocation: WorkspaceMcpRevocation | null,
+  ): Promise<boolean | null> {
+    if (revocation === null || revocation.oauth.revocationEndpoint === null)
+      return null;
     const client = revocation.oauth.client;
     if (client === null) return null;
     return revokeToken(remote, {
@@ -232,10 +253,15 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
   }
 
   function decideRefresh(at: Date) {
-    return async (input: WorkspaceMcpRefreshInput): Promise<WorkspaceMcpRefreshDecision> => {
+    return async (
+      input: WorkspaceMcpRefreshInput,
+    ): Promise<WorkspaceMcpRefreshDecision> => {
       const { connection } = input.server;
       const expiresAt = connection.accessExpiresAt;
-      if (expiresAt === null || expiresAt.getTime() - at.getTime() > REFRESH_AHEAD_MS) {
+      if (
+        expiresAt === null ||
+        expiresAt.getTime() - at.getTime() > REFRESH_AHEAD_MS
+      ) {
         return { kind: "keep" };
       }
       if (input.refreshToken === null || input.oauth.client === null) {
@@ -244,7 +270,10 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
           : { kind: "keep" };
       }
       const failedAt = connection.refreshFailedAt;
-      if (failedAt !== null && at.getTime() - failedAt.getTime() < REFRESH_BACKOFF_MS) {
+      if (
+        failedAt !== null &&
+        at.getTime() - failedAt.getTime() < REFRESH_BACKOFF_MS
+      ) {
         return { kind: "backoff" };
       }
       try {
@@ -255,7 +284,10 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
           refreshToken: input.refreshToken,
           now: at,
         });
-        if (tokens.scope !== null && scopeWidens(tokens.scope, connection.grantedScope)) {
+        if (
+          tokens.scope !== null &&
+          scopeWidens(tokens.scope, connection.grantedScope)
+        ) {
           return { kind: "reauth", reason: "scope_widened", dropClient: false };
         }
         return {
@@ -299,7 +331,11 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
     }
     await store.refresh(workspaceId, serverId, decideRefresh(at));
     const fresh = await store.credentialOf(workspaceId, serverId);
-    if (fresh?.kind === "oauth" && fresh.expiresAt !== null && fresh.expiresAt <= at) {
+    if (
+      fresh?.kind === "oauth" &&
+      fresh.expiresAt !== null &&
+      fresh.expiresAt <= at
+    ) {
       return null;
     }
     return fresh;
@@ -311,7 +347,8 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
   ): Promise<WorkspaceMcpServerRecord> {
     const credential = await credentialFor(record.workspaceId, record.id);
     if (credential === null) return record;
-    const token = credential.kind === "bearer" ? credential.token : credential.accessToken;
+    const token =
+      credential.kind === "bearer" ? credential.token : credential.accessToken;
     try {
       const { tools, skipped } = await listTools(remote, {
         url: record.url,
@@ -371,19 +408,30 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
       body: CreateWorkspaceMcpServerRequest,
     ): Promise<WorkspaceMcpServer> {
       const check = await manager(caller);
-      if ((WORKSPACE_MCP_RESERVED_NAMES as readonly string[]).includes(body.name)) {
-        throw refused("name_reserved", "The platform uses that server name itself");
+      if (
+        (WORKSPACE_MCP_RESERVED_NAMES as readonly string[]).includes(body.name)
+      ) {
+        throw refused(
+          "name_reserved",
+          "The platform uses that server name itself",
+        );
       }
       checkUrl(body.url);
       let oauth: WorkspaceMcpOAuthPin | null = null;
       if (body.auth_kind === "oauth") {
         const found = await remoteCall(() => discover(remote, body.url));
         if (found.oauth === null) {
-          throw refused("oauth_unavailable", "The server publishes no OAuth metadata; register it with a token");
+          throw refused(
+            "oauth_unavailable",
+            "The server publishes no OAuth metadata; register it with a token",
+          );
         }
         const pin = found.oauth.pin;
         if (body.scope !== undefined && scopeWidens(body.scope, pin.scope)) {
-          throw refused("scope_widened", "The scope asks for more than the server offers");
+          throw refused(
+            "scope_widened",
+            "The scope asks for more than the server offers",
+          );
         }
         oauth = { ...pin, scope: body.scope ?? pin.scope };
       }
@@ -401,7 +449,9 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
       switch (result.outcome) {
         case "created":
           return view(
-            body.auth_kind === "bearer" ? await readTools(result.record) : result.record,
+            body.auth_kind === "bearer"
+              ? await readTools(result.record)
+              : result.record,
           );
         case "name_taken":
           throw new SessionServiceError(
@@ -412,7 +462,7 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
           );
         case "quota_exceeded":
           throw new SessionServiceError(
-            "WORKSPACE_QUOTA_EXCEEDED",
+            "MCP_SERVER_QUOTA_EXCEEDED",
             `The workspace holds its limit of ${WORKSPACE_MCP_SERVERS_MAX} MCP servers`,
           );
         default:
@@ -448,7 +498,10 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
         token: body.token,
       });
       if (result.outcome === "not_bearer") {
-        throw refused("not_bearer", "This server signs in with OAuth, not a static token");
+        throw refused(
+          "not_bearer",
+          "This server signs in with OAuth, not a static token",
+        );
       }
       if (result.outcome !== "saved") throw notDone(result.outcome);
       return view(await readTools(result.record));
@@ -474,7 +527,10 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
         clientSecret,
       });
       if (result.outcome === "not_oauth") {
-        throw refused("not_oauth", "This server takes a static token, not OAuth");
+        throw refused(
+          "not_oauth",
+          "This server takes a static token, not OAuth",
+        );
       }
       if (result.outcome !== "saved") throw notDone(result.outcome);
       return view(result.record);
@@ -488,8 +544,10 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
       const pin = oauthOf(await existing(caller, serverId));
       const callback = redirectUri(serverId);
       let client = pin.client;
-      let registered: { client: NonNullable<typeof client>; clientSecret: string | null } | null =
-        null;
+      let registered: {
+        client: NonNullable<typeof client>;
+        clientSecret: string | null;
+      } | null = null;
       if (client === null) {
         if (pin.registrationEndpoint === null) {
           throw refused(
@@ -497,12 +555,16 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
             "This server needs a client registered by hand; enter its client id first",
           );
         }
-        registered = await remoteCall(() => registerClient(remote, pin, callback));
+        registered = await remoteCall(() =>
+          registerClient(remote, pin, callback),
+        );
         client = registered.client;
       }
       const state = randomBytes(32).toString("base64url");
       const { verifier, challenge } = pkcePair();
-      const expiresAt = new Date(now().getTime() + WORKSPACE_MCP_OAUTH_FLOW_TTL_SECONDS * 1000);
+      const expiresAt = new Date(
+        now().getTime() + WORKSPACE_MCP_OAUTH_FLOW_TTL_SECONDS * 1000,
+      );
       const result = await store.beginFlow({
         ...check,
         workspaceId: caller.ownerId,
@@ -533,16 +595,25 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
     ): Promise<WorkspaceMcpServer> {
       const check = await manager(caller);
       const flowGone = () =>
-        refused("oauth_state_invalid", "This sign-in is not the one in progress; start it again");
+        refused(
+          "oauth_state_invalid",
+          "This sign-in is not the one in progress; start it again",
+        );
       const flow = await store.readFlow(caller.ownerId, serverId);
       if (flow === null) throw flowGone();
       const sent = sha256(body.state);
-      if (sent.length !== flow.stateSha256.length || !timingSafeEqual(sent, flow.stateSha256)) {
+      if (
+        sent.length !== flow.stateSha256.length ||
+        !timingSafeEqual(sent, flow.stateSha256)
+      ) {
         throw flowGone();
       }
       const at = now();
       if (flow.expiresAt <= at) {
-        throw refused("oauth_flow_expired", "The sign-in took too long; start it again");
+        throw refused(
+          "oauth_flow_expired",
+          "The sign-in took too long; start it again",
+        );
       }
       if (flow.startedByUserId !== check.actorUserId) {
         throw new SessionServiceError(
@@ -553,8 +624,15 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
         );
       }
       const { oauth } = flow;
-      if (body.iss !== undefined ? body.iss !== oauth.issuer : oauth.issParameterSupported) {
-        throw refused("issuer_mismatch", "The sign-in came back from another authorization server");
+      if (
+        body.iss !== undefined
+          ? body.iss !== oauth.issuer
+          : oauth.issParameterSupported
+      ) {
+        throw refused(
+          "issuer_mismatch",
+          "The sign-in came back from another authorization server",
+        );
       }
       const client = oauth.client;
       if (client === null) throw flowGone();
@@ -579,7 +657,10 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
         });
       if (tokens.scope !== null && scopeWidens(tokens.scope, oauth.scope)) {
         await revokeReceived();
-        throw refused("scope_widened", "The server granted more than was asked for");
+        throw refused(
+          "scope_widened",
+          "The server granted more than was asked for",
+        );
       }
       const result = await store.completeFlow({
         ...check,
@@ -608,22 +689,31 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
         serverId,
       });
       if (result.outcome !== "disconnected") throw notDone(result.outcome);
-      return { server: view(result.record), revoked: await revoke(result.revocation) };
+      return {
+        server: view(result.record),
+        revoked: await revoke(result.revocation),
+      };
     },
 
-    async refreshTools(caller: Caller, serverId: string): Promise<WorkspaceMcpServer> {
+    async refreshTools(
+      caller: Caller,
+      serverId: string,
+    ): Promise<WorkspaceMcpServer> {
       await manager(caller);
       const record = await existing(caller, serverId);
       const credential = await credentialFor(record.workspaceId, record.id);
       if (credential === null) {
         throw new SessionServiceError(
-          "NOT_READY",
+          "BAD_REQUEST",
           "The server is not connected",
           undefined,
           { reason_code: "not_connected" },
         );
       }
-      const token = credential.kind === "bearer" ? credential.token : credential.accessToken;
+      const token =
+        credential.kind === "bearer"
+          ? credential.token
+          : credential.accessToken;
       const { tools, skipped } = await remoteCall(() =>
         listTools(remote, { url: record.url, serverName: record.name, token }),
       );

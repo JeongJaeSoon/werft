@@ -64,14 +64,19 @@ async function send(
   request: Parameters<OutboundHttp>[0],
 ): Promise<OutboundResponse> {
   if (!deps.allowsUrl(request.url)) {
-    throw fail("endpoint_not_allowed", "The address is not one this server may call");
+    throw fail(
+      "endpoint_not_allowed",
+      "The address is not one this server may call",
+    );
   }
   try {
     return await deps.http(request);
   } catch (error) {
     if (error instanceof WorkspaceMcpOutboundError) {
       throw fail(
-        error.reason === "address_not_allowed" ? "address_not_allowed" : "unreachable",
+        error.reason === "address_not_allowed"
+          ? "address_not_allowed"
+          : "unreachable",
         error.reason === "address_not_allowed"
           ? "The server resolves to an address this server may not call"
           : "The server could not be reached",
@@ -90,7 +95,11 @@ function refuseReflection(
   sent: readonly string[],
 ): void {
   const seen = [response.text, ...[...response.headers.values()]];
-  if (sent.some((secret) => secret !== "" && seen.some((text) => text.includes(secret)))) {
+  if (
+    sent.some(
+      (secret) => secret !== "" && seen.some((text) => text.includes(secret)),
+    )
+  ) {
     throw fail("credential_reflected", "The server sent a credential back");
   }
 }
@@ -110,15 +119,18 @@ const stringOf = (value: unknown): string | null =>
   typeof value === "string" && value !== "" ? value : null;
 
 const stringsOf = (value: unknown): string[] =>
-  Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 
 /** The URL without one trailing `/`, as resource identifiers compare. */
 const withoutSlash = (url: string) => url.replace(/\/$/, "");
 
 /** RFC 9728 / RFC 6750 parameters of a `WWW-Authenticate: Bearer` challenge. */
-export function bearerChallengeOf(
-  header: string | null,
-): { resourceMetadata: string | null; scope: string | null } {
+export function bearerChallengeOf(header: string | null): {
+  resourceMetadata: string | null;
+  scope: string | null;
+} {
   const empty = { resourceMetadata: null, scope: null };
   if (header === null) return empty;
   const at = header.search(/\bbearer\b/i);
@@ -127,7 +139,8 @@ export function bearerChallengeOf(
   const pattern = /([a-z_]+)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|([^\s,]+))/gi;
   for (const match of header.slice(at + 6).matchAll(pattern)) {
     const key = match[1]?.toLowerCase();
-    const value = match[2] !== undefined ? match[2].replace(/\\(.)/g, "$1") : match[3];
+    const value =
+      match[2] !== undefined ? match[2].replace(/\\(.)/g, "$1") : match[3];
     if (key && value !== undefined && !params.has(key)) params.set(key, value);
   }
   return {
@@ -193,7 +206,10 @@ export type Discovery = {
 };
 
 /** Discovery as decision 3 steps 1–4 and 6 lay it out; the client is left for later. */
-export async function discover(deps: WorkspaceMcpRemoteDeps, url: string): Promise<Discovery> {
+export async function discover(
+  deps: WorkspaceMcpRemoteDeps,
+  url: string,
+): Promise<Discovery> {
   const probe = await send(deps, {
     url,
     method: "POST",
@@ -215,11 +231,17 @@ export async function discover(deps: WorkspaceMcpRemoteDeps, url: string): Promi
   if (resourceMetadata === null) return { url, oauth: null };
   const resource = stringOf(resourceMetadata.resource);
   if (resource === null || withoutSlash(resource) !== withoutSlash(url)) {
-    throw fail("resource_mismatch", "The server's resource metadata names another resource");
+    throw fail(
+      "resource_mismatch",
+      "The server's resource metadata names another resource",
+    );
   }
   const issuer = stringsOf(resourceMetadata.authorization_servers)[0];
   if (issuer === undefined || !URL.canParse(issuer)) {
-    throw fail("discovery_failed", "The resource metadata names no authorization server");
+    throw fail(
+      "discovery_failed",
+      "The resource metadata names no authorization server",
+    );
   }
   const issuerUrl = new URL(issuer);
   const metadata = await firstJson(deps, [
@@ -227,32 +249,56 @@ export async function discover(deps: WorkspaceMcpRemoteDeps, url: string): Promi
     `${withoutSlash(issuerUrl.href)}/.well-known/openid-configuration`,
   ]);
   if (metadata === null) {
-    throw fail("discovery_failed", "The authorization server publishes no metadata");
+    throw fail(
+      "discovery_failed",
+      "The authorization server publishes no metadata",
+    );
   }
   if (stringOf(metadata.issuer) !== issuer) {
-    throw fail("issuer_mismatch", "The authorization server's metadata names another issuer");
+    throw fail(
+      "issuer_mismatch",
+      "The authorization server's metadata names another issuer",
+    );
   }
   if (!stringsOf(metadata.code_challenge_methods_supported).includes("S256")) {
-    throw fail("pkce_unsupported", "The authorization server does not take PKCE with S256");
+    throw fail(
+      "pkce_unsupported",
+      "The authorization server does not take PKCE with S256",
+    );
   }
   const authorizationEndpoint = stringOf(metadata.authorization_endpoint);
   const tokenEndpoint = stringOf(metadata.token_endpoint);
   const revocationEndpoint = stringOf(metadata.revocation_endpoint);
   const registrationEndpoint = stringOf(metadata.registration_endpoint);
-  for (const endpoint of [authorizationEndpoint, tokenEndpoint, revocationEndpoint, registrationEndpoint]) {
-    if (endpoint !== null && (!URL.canParse(endpoint) || !deps.allowsUrl(endpoint))) {
-      throw fail("endpoint_not_allowed", "The authorization server names an endpoint this server may not call");
+  for (const endpoint of [
+    authorizationEndpoint,
+    tokenEndpoint,
+    revocationEndpoint,
+    registrationEndpoint,
+  ]) {
+    if (
+      endpoint !== null &&
+      (!URL.canParse(endpoint) || !deps.allowsUrl(endpoint))
+    ) {
+      throw fail(
+        "endpoint_not_allowed",
+        "The authorization server names an endpoint this server may not call",
+      );
     }
   }
   if (authorizationEndpoint === null || tokenEndpoint === null) {
-    throw fail("discovery_failed", "The authorization server names no authorization or token endpoint");
+    throw fail(
+      "discovery_failed",
+      "The authorization server names no authorization or token endpoint",
+    );
   }
   const scopesSupported = [
     ...stringsOf(resourceMetadata.scopes_supported),
     ...stringsOf(metadata.scopes_supported),
   ].filter((scope, at, all) => all.indexOf(scope) === at);
   const defaultScope =
-    challenge.scope ?? (scopesSupported.length > 0 ? scopesSupported.join(" ") : null);
+    challenge.scope ??
+    (scopesSupported.length > 0 ? scopesSupported.join(" ") : null);
   return {
     url,
     oauth: {
@@ -264,8 +310,11 @@ export async function discover(deps: WorkspaceMcpRemoteDeps, url: string): Promi
         registrationEndpoint,
         resource,
         scope: defaultScope,
-        issParameterSupported: metadata.authorization_response_iss_parameter_supported === true,
-        tokenEndpointAuthMethods: stringsOf(metadata.token_endpoint_auth_methods_supported),
+        issParameterSupported:
+          metadata.authorization_response_iss_parameter_supported === true,
+        tokenEndpointAuthMethods: stringsOf(
+          metadata.token_endpoint_auth_methods_supported,
+        ),
         client: null,
       },
       scopesSupported,
@@ -281,7 +330,10 @@ export async function registerClient(
   redirectUri: string,
 ): Promise<{ client: WorkspaceMcpClient; clientSecret: string | null }> {
   if (pin.registrationEndpoint === null) {
-    throw fail("registration_failed", "The authorization server takes no client registration");
+    throw fail(
+      "registration_failed",
+      "The authorization server takes no client registration",
+    );
   }
   const response = await send(deps, {
     url: pin.registrationEndpoint,
@@ -299,10 +351,16 @@ export async function registerClient(
   const body = jsonOf(response.text);
   const clientId = isRecord(body) ? stringOf(body.client_id) : null;
   if (response.status !== 201 && response.status !== 200) {
-    throw fail("registration_failed", `Client registration answered ${response.status}`);
+    throw fail(
+      "registration_failed",
+      `Client registration answered ${response.status}`,
+    );
   }
   if (!isRecord(body) || clientId === null) {
-    throw fail("registration_failed", "Client registration answered without a client id");
+    throw fail(
+      "registration_failed",
+      "Client registration answered without a client id",
+    );
   }
   const clientSecret = stringOf(body.client_secret);
   const method = stringOf(body.token_endpoint_auth_method);
@@ -357,7 +415,8 @@ export function authorizationUrl(input: {
   return url.toString();
 }
 
-const scopeSet = (scope: string) => new Set(scope.split(" ").filter((token) => token !== ""));
+const scopeSet = (scope: string) =>
+  new Set(scope.split(" ").filter((token) => token !== ""));
 
 /** Whether `scope` holds a token `within` does not. */
 export function scopeWidens(scope: string, within: string | null): boolean {
@@ -405,19 +464,29 @@ async function tokenRequest(
   if (response.status !== 200) {
     // A refresh token or client secret in an error body would otherwise
     // reach whoever reads the reason (decision 5).
-    refuseReflection(response, [...sent, ...(clientSecret === null ? [] : [clientSecret])]);
+    refuseReflection(response, [
+      ...sent,
+      ...(clientSecret === null ? [] : [clientSecret]),
+    ]);
     const oauthError = isRecord(body) ? stringOf(body.error) : null;
     throw new WorkspaceMcpRemoteError(
       "token_rejected",
       `The token endpoint answered ${response.status}${oauthError === null ? "" : ` (${oauthError})`}`,
-      oauthError !== null && /^[\x20-\x21\x23-\x5b\x5d-\x7e]{1,64}$/.test(oauthError) ? oauthError : null,
+      oauthError !== null &&
+        /^[\x20-\x21\x23-\x5b\x5d-\x7e]{1,64}$/.test(oauthError)
+        ? oauthError
+        : null,
     );
   }
-  if (!isRecord(body)) throw fail("token_invalid", "The token endpoint answered without JSON");
+  if (!isRecord(body))
+    throw fail("token_invalid", "The token endpoint answered without JSON");
   const accessToken = stringOf(body.access_token);
   const tokenType = stringOf(body.token_type);
   if (accessToken === null || tokenType?.toLowerCase() !== "bearer") {
-    throw fail("token_invalid", "The token endpoint answered without a bearer access token");
+    throw fail(
+      "token_invalid",
+      "The token endpoint answered without a bearer access token",
+    );
   }
   const expiresIn = body.expires_in;
   const scope = stringOf(body.scope);
@@ -425,7 +494,9 @@ async function tokenRequest(
     accessToken,
     refreshToken: stringOf(body.refresh_token),
     expiresAt:
-      typeof expiresIn === "number" && Number.isFinite(expiresIn) && expiresIn > 0
+      typeof expiresIn === "number" &&
+      Number.isFinite(expiresIn) &&
+      expiresIn > 0
         ? new Date(now.getTime() + expiresIn * 1000)
         : null,
     scope,
@@ -485,16 +556,25 @@ export async function revokeToken(
   },
 ): Promise<boolean> {
   if (input.pin.revocationEndpoint === null) return false;
-  const form = new URLSearchParams({ token: input.token, token_type_hint: input.hint });
+  const form = new URLSearchParams({
+    token: input.token,
+    token_type_hint: input.hint,
+  });
   const headers: Record<string, string> = {
     "Content-Type": "application/x-www-form-urlencoded",
   };
-  if (input.client.authMethod === "client_secret_basic" && input.clientSecret !== null) {
+  if (
+    input.client.authMethod === "client_secret_basic" &&
+    input.clientSecret !== null
+  ) {
     const pair = `${encodeURIComponent(input.client.clientId)}:${encodeURIComponent(input.clientSecret)}`;
     headers.Authorization = `Basic ${Buffer.from(pair).toString("base64")}`;
   } else {
     form.set("client_id", input.client.clientId);
-    if (input.client.authMethod === "client_secret_post" && input.clientSecret !== null) {
+    if (
+      input.client.authMethod === "client_secret_post" &&
+      input.clientSecret !== null
+    ) {
       form.set("client_secret", input.clientSecret);
     }
   }
@@ -513,7 +593,10 @@ export async function revokeToken(
 }
 
 /** The JSON-RPC answer with `id`, from a JSON body or an event stream. */
-function rpcResultOf(response: OutboundResponse, id: number): Record<string, unknown> {
+function rpcResultOf(
+  response: OutboundResponse,
+  id: number,
+): Record<string, unknown> {
   const type = response.headers.get("content-type") ?? "";
   const messages: unknown[] = [];
   if (type.includes("text/event-stream")) {
@@ -529,7 +612,9 @@ function rpcResultOf(response: OutboundResponse, id: number): Record<string, unk
     const body = jsonOf(response.text);
     messages.push(...(Array.isArray(body) ? body : [body]));
   }
-  const answer = messages.find((message) => isRecord(message) && message.id === id);
+  const answer = messages.find(
+    (message) => isRecord(message) && message.id === id,
+  );
   if (!isRecord(answer) || !isRecord(answer.result)) {
     throw fail("mcp_failed", "The server did not answer the MCP request");
   }
@@ -550,10 +635,18 @@ export async function listTools(
     Authorization: `Bearer ${input.token}`,
   };
   const call = async (body: string) => {
-    const response = await send(deps, { url: input.url, method: "POST", headers, body });
+    const response = await send(deps, {
+      url: input.url,
+      method: "POST",
+      headers,
+      body,
+    });
     refuseReflection(response, [input.token]);
     if (response.status === 401 || response.status === 403) {
-      throw fail("unauthorized", `The server refused the credential (${response.status})`);
+      throw fail(
+        "unauthorized",
+        `The server refused the credential (${response.status})`,
+      );
     }
     return response;
   };
@@ -566,7 +659,9 @@ export async function listTools(
   if (session !== null) headers["Mcp-Session-Id"] = session;
   const version = stringOf(result.protocolVersion);
   if (version !== null) headers["MCP-Protocol-Version"] = version;
-  await call(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }));
+  await call(
+    JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
+  );
 
   const tools: WorkspaceMcpTool[] = [];
   let skipped = 0;
@@ -600,7 +695,9 @@ export async function listTools(
       tools.push({
         name,
         description:
-          description === null ? null : description.slice(0, WORKSPACE_MCP_TOOL_DESCRIPTION_MAX),
+          description === null
+            ? null
+            : description.slice(0, WORKSPACE_MCP_TOOL_DESCRIPTION_MAX),
       });
     }
     cursor = stringOf(listed.nextCursor);
