@@ -110,7 +110,7 @@ export function FieldLegend({
       className={cn(
         "mb-3 font-medium",
         "data-[variant=legend]:text-body",
-        "data-[variant=label]:text-sm",
+        "data-[variant=label]:text-control",
         className,
       )}
       {...props}
@@ -226,7 +226,7 @@ export function FieldLabel({
       data-slot="field-label"
       htmlFor={htmlFor ?? field?.controlId}
       className={cn(
-        "group/field-label peer/field-label flex w-fit select-none items-center gap-2 font-medium text-sm leading-snug group-data-[disabled=true]/field:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50",
+        "group/field-label peer/field-label flex w-fit select-none items-center gap-2 font-medium text-control leading-snug group-data-[disabled=true]/field:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50",
         "has-[>[data-slot=field]]:w-full has-[>[data-slot=field]]:flex-col has-[>[data-slot=field]]:rounded-card has-[>[data-slot=field]]:border [&>*]:data-[slot=field]:p-4",
         "has-data-[state=checked]:border-primary has-data-[state=checked]:bg-primary/5",
         "has-[>[data-slot=field]]:cursor-pointer has-[>[data-slot=field]]:has-[:disabled]:cursor-not-allowed has-[>[data-slot=field]]:not-has-[:disabled,[data-state=checked]]:hover:border-border-strong has-[>[data-slot=field]]:not-has-[:disabled,[data-state=checked]]:hover:bg-hover",
@@ -247,7 +247,7 @@ export function FieldDescription({
       data-slot="field-description"
       id={usePartId("description", id)}
       className={cn(
-        "font-normal text-muted-foreground text-sm leading-normal group-has-[[data-orientation=horizontal]]/field:text-balance",
+        "font-normal text-caption text-muted-foreground leading-normal group-has-[[data-orientation=horizontal]]/field:text-balance",
         "nth-last-2:-mt-1 last:mt-0 [[data-variant=legend]+&]:-mt-1",
         "[&>a:hover]:text-link [&>a]:underline [&>a]:underline-offset-4",
         className,
@@ -292,7 +292,10 @@ function FieldErrorMessage({
       role="alert"
       data-slot="field-error"
       id={usePartId("error", id)}
-      className={cn("font-normal text-destructive text-sm", className)}
+      className={cn(
+        "font-normal text-caption text-destructive leading-normal",
+        className,
+      )}
       {...props}
     />
   );
