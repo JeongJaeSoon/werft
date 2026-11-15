@@ -184,6 +184,25 @@ export const postSessionAnswerInputSchema = z.discriminatedUnion("kind", [
   questionsAnswerInputSchema,
 ]);
 
+/**
+ * Why a reason or free text of `answer` breaks `answerTextInputSchema`, or
+ * null. For writers that skip the API's input schema, such as Slack.
+ */
+export function answerTextRefusal(
+  answer: PostSessionAnswerRequest,
+): string | null {
+  const texts =
+    answer.kind === "permission"
+      ? [answer.reason]
+      : answer.answers.map((item) => item.free_text);
+  for (const text of texts) {
+    if (text === undefined) continue;
+    const parsed = answerTextInputSchema.safeParse(text);
+    if (!parsed.success) return parsed.error.issues[0]?.message ?? "Invalid";
+  }
+  return null;
+}
+
 /** The stored form of an API answer, so either name hashes the same. */
 export function storedAnswer(
   input: PostSessionAnswerInput,

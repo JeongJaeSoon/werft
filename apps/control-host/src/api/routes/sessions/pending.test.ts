@@ -8,9 +8,11 @@ import {
 import {
   type AnswerRequestInput,
   type AnswerRequestResult,
+  type Caller,
   createAuthorizationPolicy,
   createPendingRequestService,
   type PendingRequestStore,
+  SessionServiceError,
 } from "@werft-ai/platform";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerPendingRoutes } from "./pending.ts";
@@ -233,6 +235,42 @@ describe("pending-request routes", () => {
     expect(padded.seen[0]?.answer).toMatchObject({
       answers: [{ free_text: " use the second option " }],
     });
+  });
+
+  test("the service refuses the same text for a writer that skips the route, as Slack does", async () => {
+    let reached = 0;
+    const service = createPendingRequestService({
+      authorization: createAuthorizationPolicy(),
+      store: {
+        listOpen: async () => null,
+        answerAtomic: async () => {
+          reached += 1;
+          return { outcome: "not_found" };
+        },
+        recordSelfApproval: async () => {
+          throw new Error("not reached");
+        },
+        requestOutcome: async () => null,
+      },
+    });
+    const overCap = "가".repeat(Math.floor(ANSWER_TEXT_MAX_BYTES / 3) + 1);
+    for (const free_text of [overCap, " \n "]) {
+      const refused = await service
+        .answer({} as Caller, SESSION, {
+          idempotencyKey: "slack:req_1:U1",
+          body: {
+            request_id: "req_1",
+            kind: "question",
+            answers: [
+              { question_id: "q0", selected_option_ids: [], free_text },
+            ],
+          },
+        })
+        .catch((error: unknown) => error);
+      expect(refused).toBeInstanceOf(SessionServiceError);
+      expect((refused as SessionServiceError).code).toBe("BAD_REQUEST");
+    }
+    expect(reached).toBe(0);
   });
 
   test("POST refuses the old decision name, both names, or neither, with 400", async () => {

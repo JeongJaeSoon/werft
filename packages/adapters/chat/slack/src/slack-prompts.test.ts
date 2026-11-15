@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ANSWER_TEXT_MAX_BYTES,
   type PendingQuestion,
   SLACK_INTERACTION_ACTIONS,
   USER_LOCALE_VALUES,
@@ -586,6 +587,23 @@ describe("Slack prompt cards", () => {
         "en",
       ).ok,
     ).toBe(false);
+  });
+
+  test("a typed answer over the API's byte cap stays in the form with a note under it", () => {
+    const questions = [question(0, { allow_free_text: true })];
+    const typed = (value: string) =>
+      slackQuestionAnswers(questions, { "q0.text": { v: { value } } }, "ko");
+    const cap = "가".repeat(Math.floor(ANSWER_TEXT_MAX_BYTES / 3));
+    expect(typed(cap)).toEqual({
+      ok: true,
+      answers: [
+        { question_id: "q-1", selected_option_ids: [], free_text: cap },
+      ],
+    });
+    expect(typed(`${cap}가`)).toEqual({
+      ok: false,
+      errors: { "q0.text": SLACK_PROMPT_MESSAGES.ko.answerTooLong },
+    });
   });
 
   test("every language has every card word", () => {

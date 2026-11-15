@@ -1,7 +1,8 @@
-import type {
-  ListPendingRequestsResponse,
-  PostSessionAnswerRequest,
-  PostSessionAnswerResponse,
+import {
+  answerTextRefusal,
+  type ListPendingRequestsResponse,
+  type PostSessionAnswerRequest,
+  type PostSessionAnswerResponse,
 } from "@werft-ai/contracts";
 import {
   type AuthorizationPolicy,
@@ -78,6 +79,10 @@ export function createPendingRequestService(deps: {
       sessionId: string,
       input: { idempotencyKey: string; body: PostSessionAnswerRequest },
     ): Promise<PostSessionAnswerResponse> {
+      const refusal = answerTextRefusal(input.body);
+      if (refusal !== null) {
+        throw new SessionServiceError("BAD_REQUEST", refusal);
+      }
       const decision = await requireAllowed(
         authorization,
         actor,

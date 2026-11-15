@@ -1,4 +1,5 @@
 import {
+  answerTextInputSchema,
   type PendingQuestion,
   type QuestionAnswer,
   questionAnswerMismatch,
@@ -92,6 +93,8 @@ type PromptCopy = {
   expires: string;
   link: string;
   answerRequired: string;
+  /** A typed answer over the API's byte cap. */
+  answerTooLong: string;
   loading: string;
   /** The form closed on a request this person cannot answer here. */
   unavailable: string;
@@ -148,6 +151,7 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     expires: "답하지 않으면 {time}에 만료돼요",
     link: "웹에서 열기",
     answerRequired: "답을 고르거나 입력해 주세요",
+    answerTooLong: "입력한 답이 너무 길어요. 줄여서 다시 보내 주세요",
     loading: "질문을 불러오고 있어요…",
     unavailable:
       "이 요청은 여기서 답할 수 없어요. 스레드의 안내를 확인해 주세요",
@@ -218,6 +222,7 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     expires: "回答がない場合、{time}に期限切れになります",
     link: "Webで開く",
     answerRequired: "回答を選ぶか入力してください",
+    answerTooLong: "入力した回答が長すぎます。短くしてもう一度送信してください",
     loading: "質問を読み込んでいます…",
     unavailable:
       "このリクエストにはここで回答できません。スレッドの案内を確認してください",
@@ -288,6 +293,7 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     expires: "Expires at {time} if no one answers",
     link: "Open on the web",
     answerRequired: "Choose or type an answer",
+    answerTooLong: "Your answer is too long. Shorten it and send again",
     loading: "Loading the question…",
     unavailable:
       "This request can't be answered here. See the note in the thread",
@@ -1220,6 +1226,13 @@ export function slackQuestionAnswers(
     }
     if (selected.length === 0 && freeText === null) {
       errors[where] = copy.answerRequired;
+      continue;
+    }
+    if (
+      freeText !== null &&
+      !answerTextInputSchema.safeParse(freeText).success
+    ) {
+      errors[textBlock(index)] = copy.answerTooLong;
       continue;
     }
     answers.push({
