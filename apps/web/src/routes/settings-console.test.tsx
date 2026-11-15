@@ -1156,6 +1156,28 @@ describe("모델 연결", () => {
       expectNarrowActions(table);
     });
 
+    test("a disabled row with no value offers its first value, nothing else", async () => {
+      renderAt(CONNECTIONS_PAGE, {
+        ...routes(),
+        [`GET ${CONNECTIONS}`]: () =>
+          json(200, {
+            items: [
+              connection("off-empty", {
+                state: "disabled",
+                disabled_at: AT,
+                credential: { source: "stored", last4: null },
+              }),
+            ],
+            credential_hosts: null,
+            endpoint_defaults: {},
+          }),
+      });
+      const user = await setupUser();
+      const table = await screen.findByRole("table", { name: "모델 연결" });
+      const menu = await openMenu(user, table, "off-empty");
+      expect(menuLabels(menu)).toEqual(["off-empty의 API 키 설정"]);
+    });
+
     test("its ⋯ button keeps the focus and its name but opens nothing, by click or Enter", async () => {
       renderAt(CONNECTIONS_PAGE, withDisabled());
       const user = await setupUser();

@@ -532,6 +532,24 @@ integration("settings console writes", () => {
         reason: "needs_value",
       });
       expect((await rowOf("en-imported"))?.disabledAt).not.toBeNull();
+
+      // Still disabled, it takes its first value, but no second one.
+      const first = { kind: "connection" as const, id: "en-imported" };
+      expect(
+        (await store().setValue(first, "first-key-1111", owner)).outcome,
+      ).toBe("done");
+      expect(await store().setValue(first, "again-key-2222", owner)).toEqual({
+        outcome: "conflict",
+        reason: "disabled",
+      });
+      expect(
+        (await store().enableConnection("en-imported", owner)).outcome,
+      ).toBe("done");
+      expect(
+        (await settings().read({ openStored: true })).stored.get(
+          "connection:en-imported",
+        ),
+      ).toBe("first-key-1111");
     });
 
     test("two twins enabled at once: one is done and the other sees it, so never two live", async () => {

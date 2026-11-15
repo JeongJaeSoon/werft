@@ -1296,7 +1296,7 @@ const SETTINGS_LIST =
 const SETTINGS_CREATE =
   "The credential is the value in the request, required and at least 8 characters, sealed under this row alone in the same transaction as the row; a row is never made without it. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an entry the catalog's rules refuse is 400 `invalid_entry`.";
 const SETTINGS_CREDENTIAL =
-  "Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A repository with no credential of its own is 409 `not_stored`, a disabled row 409 `disabled`. Writes a `set_settings_credential` receipt naming the last four characters.";
+  "Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A repository with no credential of its own is 409 `not_stored`, a disabled row 409 `disabled`, except a disabled connection with no value yet, which takes its first so it can be enabled again. Writes a `set_settings_credential` receipt naming the last four characters.";
 const SETTINGS_DISABLE =
   "Never undone and nothing is deleted: the id stays taken and the stored value stays sealed. Ceilings over it stop running anything. Disabling one already disabled is 409 `disabled`.";
 const SETTINGS_DISABLE_CONNECTION =

@@ -4454,7 +4454,7 @@ export interface paths {
         put?: never;
         /**
          * Replace a connection's stored key
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A repository with no credential of its own is 409 `not_stored`, a disabled row 409 `disabled`. Writes a `set_settings_credential` receipt naming the last four characters.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A repository with no credential of its own is 409 `not_stored`, a disabled row 409 `disabled`, except a disabled connection with no value yet, which takes its first so it can be enabled again. Writes a `set_settings_credential` receipt naming the last four characters.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4614,7 +4614,7 @@ export interface paths {
         put?: never;
         /**
          * Replace an MCP server's stored bearer
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A repository with no credential of its own is 409 `not_stored`, a disabled row 409 `disabled`. Writes a `set_settings_credential` receipt naming the last four characters.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A repository with no credential of its own is 409 `not_stored`, a disabled row 409 `disabled`, except a disabled connection with no value yet, which takes its first so it can be enabled again. Writes a `set_settings_credential` receipt naming the last four characters.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4636,7 +4636,7 @@ export interface paths {
         put?: never;
         /**
          * Replace a repository's stored credential
-         * @description Owners and admins (`workspace.manage`), signed in; an API key is 403 whatever its scopes. Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A repository with no credential of its own is 409 `not_stored`, a disabled row 409 `disabled`. Writes a `set_settings_credential` receipt naming the last four characters. For a repository naming its own GitHub App the value is the App's private key: anything but an RSA private key PEM is 400 `invalid_private_key`, and the repository's id, App and installation stay as they are. A repository using the App registered in the console is 404. The value is in no response, log or error.
+         * @description Owners and admins (`workspace.manage`), signed in; an API key is 403 whatever its scopes. Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A repository with no credential of its own is 409 `not_stored`, a disabled row 409 `disabled`, except a disabled connection with no value yet, which takes its first so it can be enabled again. Writes a `set_settings_credential` receipt naming the last four characters. For a repository naming its own GitHub App the value is the App's private key: anything but an RSA private key PEM is 400 `invalid_private_key`, and the repository's id, App and installation stay as they are. A repository using the App registered in the console is 404. The value is in no response, log or error.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */

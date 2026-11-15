@@ -747,7 +747,16 @@ function consoleWrites(
       return asWriter(owner.kind, actor, async (tx) => {
         const held = await heldRow(tx, owner.kind, owner.id);
         if (held === null) return { outcome: "not_found" as const };
-        if (held.disabled) {
+        // A disabled connection without a value (one moved off env or
+        // Secrets Manager while off) takes its first, or it could never be
+        // enabled again.
+        if (
+          held.disabled &&
+          (owner.kind !== "connection" ||
+            (await storedLast4(tx, await firstWorkspace(tx))).has(
+              `connection:${owner.id}`,
+            ))
+        ) {
           return { outcome: "conflict" as const, reason: "disabled" };
         }
         if (!ownStoredOf(owner.kind, owner.id, held)) {
