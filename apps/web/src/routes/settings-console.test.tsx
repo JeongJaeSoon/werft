@@ -4,7 +4,7 @@ import type {
   SettingsMcpServer,
 } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { json, me } from "../test-support/fake-api.ts";
+import { apiError, json, me } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
 const { act, renderAt, screen, waitFor, within } = await appHarness();
@@ -72,8 +72,13 @@ const named = (dialog: HTMLElement, name: string) => {
   return input;
 };
 
-const writes = <C extends { readonly method: string }>(calls: readonly C[]) =>
-  calls.filter((call) => call.method !== "GET");
+/** Every call that changes something; reading a model list is a POST that does not. */
+const writes = <C extends { readonly method: string; readonly path: string }>(
+  calls: readonly C[],
+) =>
+  calls.filter(
+    (call) => call.method !== "GET" && !call.path.endsWith("/models/discover"),
+  );
 
 /** No row action sits in a cell the narrow layout hides. */
 const expectNarrowActions = (table: HTMLElement) => {
@@ -498,36 +503,334 @@ describe("모델 연결", () => {
     ]);
   });
 
-  test("the owner sets a connection's models, one per line or comma separated", async () => {
-    const { api } = renderAt(CONNECTIONS_PAGE, {
-      ...routes(),
-      [`POST ${CONNECTIONS}/console-key/models`]: () =>
-        json(200, CHANGE("console-key")),
+  describe("a connection's models are picked from what its provider lists", () => {
+    const DISCOVER = (id: string) => `${CONNECTIONS}/${id}/models/discover`;
+    const DEFAULTS = {
+      anthropic: "https://api.anthropic.com",
+      openai_decisions: "https://api.openai.com",
+    };
+    const discovered = (
+      models: Array<{ id: string; display_name?: string | null }>,
+      rest: { missing?: string[]; skipped?: number; truncated?: boolean } = {},
+    ) => ({
+      models: models.map((model) => ({
+        id: model.id,
+        display_name: model.display_name ?? null,
+        selected: false,
+      })),
+      missing: rest.missing ?? [],
+      skipped: rest.skipped ?? 0,
+      truncated: rest.truncated ?? false,
     });
-    const user = await setupUser();
-    const table = await screen.findByRole("table", { name: "모델 연결" });
-    expect(rowOf(table, "console-key").textContent).toContain(
-      "claude-sonnet-5",
-    );
-    await user.click(
-      within(table).getByRole("button", { name: "console-key의 모델 목록" }),
-    );
-    const dialog = await screen.findByRole("dialog");
-    const field = named(dialog, "models") as HTMLTextAreaElement;
-    expect(field.value).toBe("claude-sonnet-5");
-    await user.clear(field);
-    await user.type(
-      field,
-      "claude-sonnet-5{Enter}claude-haiku-5, claude-opus-5",
-    );
-    await user.click(within(dialog).getByRole("button", { name: "모델 저장" }));
-    await screen.findByText("console-key의 모델 3개를 저장했습니다.");
-    expect(writes(api.calls).map((call) => [call.path, call.body])).toEqual([
+    const checkbox = (dialog: HTMLElement, id: string) =>
+      within(dialog).getByRole("checkbox", { name: new RegExp(id) });
+    const openModels = async (id = "console-key") => {
+      const user = await setupUser();
+      const table = await screen.findByRole("table", { name: "모델 연결" });
+      await user.click(
+        within(table).getByRole("button", { name: `${id}의 모델 목록` }),
+      );
+      return { user, dialog: await screen.findByRole("dialog") };
+    };
+    const discoverCalls = (calls: readonly { path: string }[], id: string) =>
+      calls.filter((call) => call.path === DISCOVER(id)).length;
+
+    test("creating one opens its models at once, read from the provider, and saves the checked ones in the provider's order", async () => {
+      const { api } = renderAt(CONNECTIONS_PAGE, {
+        ...routes(me(), null, DEFAULTS),
+        [`POST ${CONNECTIONS}`]: () => json(201, CHANGE("fresh-a")),
+        [`POST ${DISCOVER("fresh-a")}`]: () =>
+          json(
+            200,
+            discovered([
+              { id: "claude-sonnet-5", display_name: "Claude Sonnet 5" },
+              { id: "claude-opus-5", display_name: "Claude Opus 5" },
+            ]),
+          ),
+        [`POST ${CONNECTIONS}/fresh-a/models`]: () =>
+          json(200, CHANGE("fresh-a")),
+      });
+      const user = await setupUser();
+      await user.click(
+        await screen.findByRole("button", { name: "연결 추가" }),
+      );
+      const adding = await screen.findByRole("dialog");
+      await user.type(within(adding).getByLabelText("id"), "fresh-a");
+      await user.type(within(adding).getByLabelText("키 값"), "example-key");
+      await user.click(within(adding).getByRole("button", { name: "만들기" }));
+      const dialog = await screen.findByRole("dialog", { name: "사용할 모델" });
+      const opus = await within(dialog).findByRole("checkbox", {
+        name: /claude-opus-5/,
+      });
+      expect(discoverCalls(api.calls, "fresh-a")).toBe(1);
+      expect(dialog.querySelector("textarea") === null).toBe(true);
+      expect(within(dialog).getByText("fresh-a") !== null).toBe(true);
+      expect(
+        checkbox(dialog, "claude-sonnet-5").getAttribute("aria-checked"),
+      ).toBe("false");
+      await user.click(opus);
+      await user.click(checkbox(dialog, "claude-sonnet-5"));
+      expect(within(dialog).getByText("2개 선택 (최대 64개)") !== null).toBe(
+        true,
+      );
+      await user.click(
+        within(dialog).getByRole("button", { name: "모델 저장" }),
+      );
+      await screen.findByText("fresh-a의 모델 2개를 저장했습니다.");
+      expect(writes(api.calls).map((call) => [call.path, call.body])).toEqual([
+        [
+          CONNECTIONS,
+          {
+            id: "fresh-a",
+            kind: "anthropic",
+            billing: "per_token",
+            auth_kind: "api_key",
+            value: "example-key",
+          },
+        ],
+        [
+          `${CONNECTIONS}/fresh-a/models`,
+          { models: ["claude-sonnet-5", "claude-opus-5"] },
+        ],
+      ]);
+    });
+
+    test("a judge's connection opens no model list after it is made", async () => {
+      const { api } = renderAt(CONNECTIONS_PAGE, {
+        ...routes(me(), null, DEFAULTS),
+        [`POST ${CONNECTIONS}`]: () => json(201, CHANGE("judge")),
+      });
+      const user = await setupUser();
+      await user.click(
+        await screen.findByRole("button", { name: "연결 추가" }),
+      );
+      const adding = await screen.findByRole("dialog");
+      await user.type(within(adding).getByLabelText("id"), "judge");
+      await user.selectOptions(
+        within(adding).getByLabelText("종류"),
+        "openai_decisions",
+      );
+      await user.type(within(adding).getByLabelText("키 값"), "example-key");
+      await user.click(within(adding).getByRole("button", { name: "만들기" }));
+      await screen.findByText("judge를 만들었습니다.");
+      expect(screen.queryByRole("dialog") === null).toBe(true);
+      expect(discoverCalls(api.calls, "judge")).toBe(0);
+    });
+
+    test("the row's dialog shows the connection's id and endpoint, keeps a model the provider dropped checked and marked, and saves only on save", async () => {
+      const { api } = renderAt(CONNECTIONS_PAGE, {
+        ...routes(),
+        [`POST ${DISCOVER("console-key")}`]: () =>
+          json(
+            200,
+            discovered([{ id: "claude-opus-5" }, { id: "claude-haiku-5" }], {
+              missing: ["claude-sonnet-5"],
+              skipped: 2,
+            }),
+          ),
+        [`POST ${CONNECTIONS}/console-key/models`]: () =>
+          json(200, CHANGE("console-key")),
+      });
+      const { user, dialog } = await openModels();
+      await within(dialog).findByRole("checkbox", { name: /claude-opus-5/ });
+      expect(within(dialog).getByText("console-key") !== null).toBe(true);
+      expect(
+        within(dialog).getByText("https://api.anthropic.com") !== null,
+      ).toBe(true);
+      expect(within(dialog).queryByRole("textbox") === null).toBe(true);
+      const dropped = checkbox(dialog, "claude-sonnet-5");
+      expect(dropped.getAttribute("aria-checked")).toBe("true");
+      expect(
+        dropped
+          .closest('[data-slot="field"]')
+          ?.textContent?.includes("목록에 없음"),
+      ).toBe(true);
+      expect(
+        checkbox(dialog, "claude-opus-5")
+          .closest('[data-slot="field"]')
+          ?.textContent?.includes("목록에 없음"),
+      ).toBe(false);
+      expect(
+        within(dialog).getByText(
+          "에이전트가 쓰지 않는 모델 2개(임베딩·음성·이미지 등)는 목록에서 뺐습니다.",
+        ) !== null,
+      ).toBe(true);
+      // Reading the list changed nothing.
+      expect(writes(api.calls)).toEqual([]);
+      await user.click(checkbox(dialog, "claude-haiku-5"));
+      await user.click(
+        within(dialog).getByRole("button", { name: "모델 저장" }),
+      );
+      await screen.findByText("console-key의 모델 2개를 저장했습니다.");
+      expect(writes(api.calls).map((call) => [call.path, call.body])).toEqual([
+        [
+          `${CONNECTIONS}/console-key/models`,
+          { models: ["claude-sonnet-5", "claude-haiku-5"] },
+        ],
+      ]);
+    });
+
+    test("a failed load says why, the saved list can still be saved, and refresh reads again", async () => {
+      let reads = 0;
+      const { api } = renderAt(CONNECTIONS_PAGE, {
+        ...routes(),
+        [`POST ${DISCOVER("console-key")}`]: () => {
+          reads += 1;
+          return reads === 1
+            ? apiError(400, "BAD_REQUEST", "refused", false, {
+                reason_code: "host_not_allowed",
+              })
+            : json(200, discovered([{ id: "claude-opus-5" }]));
+        },
+        [`POST ${CONNECTIONS}/console-key/models`]: () =>
+          json(200, CHANGE("console-key")),
+      });
+      const { user, dialog } = await openModels();
+      await within(dialog).findByText(
+        "엔드포인트의 호스트가 egress 자격 증명 허용 목록에 없어 키를 보낼 수 없습니다.",
+      );
+      const kept = checkbox(dialog, "claude-sonnet-5");
+      expect(kept.getAttribute("aria-checked")).toBe("true");
+      // Not marked: an unread list says nothing about what the provider has.
+      expect(within(dialog).queryByText("목록에 없음") === null).toBe(true);
+      await user.click(
+        within(dialog).getByRole("button", { name: "목록 새로고침" }),
+      );
+      await within(dialog).findByRole("checkbox", { name: /claude-opus-5/ });
+      expect(reads).toBe(2);
+      await user.click(
+        within(dialog).getByRole("button", { name: "모델 저장" }),
+      );
+      await screen.findByText("console-key의 모델 1개를 저장했습니다.");
+      expect(writes(api.calls).map((call) => call.body)).toEqual([
+        { models: ["claude-sonnet-5"] },
+      ]);
+    });
+
+    test("a new pick the provider stops listing on refresh stays checked, marked and saved", async () => {
+      let reads = 0;
+      const { api } = renderAt(CONNECTIONS_PAGE, {
+        ...routes(),
+        [`POST ${DISCOVER("console-key")}`]: () => {
+          reads += 1;
+          return json(
+            200,
+            discovered(
+              reads === 1
+                ? [{ id: "claude-sonnet-5" }, { id: "claude-opus-5" }]
+                : [{ id: "claude-sonnet-5" }],
+            ),
+          );
+        },
+        [`POST ${CONNECTIONS}/console-key/models`]: () =>
+          json(200, CHANGE("console-key")),
+      });
+      const { user, dialog } = await openModels();
+      await user.click(
+        await within(dialog).findByRole("checkbox", { name: /claude-opus-5/ }),
+      );
+      await user.click(
+        within(dialog).getByRole("button", { name: "목록 새로고침" }),
+      );
+      await waitFor(() => expect(reads).toBe(2));
+      await within(dialog).findByText("목록에 없음");
+      const gone = checkbox(dialog, "claude-opus-5");
+      expect(gone.getAttribute("aria-checked")).toBe("true");
+      expect(
+        gone
+          .closest('[data-slot="field"]')
+          ?.textContent?.includes("목록에 없음"),
+      ).toBe(true);
+      await user.click(
+        within(dialog).getByRole("button", { name: "모델 저장" }),
+      );
+      await screen.findByText("console-key의 모델 2개를 저장했습니다.");
+      expect(writes(api.calls).map((call) => call.body)).toEqual([
+        { models: ["claude-sonnet-5", "claude-opus-5"] },
+      ]);
+    });
+
+    const failures: [string, Response, string][] = [
       [
-        `${CONNECTIONS}/console-key/models`,
-        { models: ["claude-sonnet-5", "claude-haiku-5", "claude-opus-5"] },
+        "a provider's own status",
+        apiError(400, "BAD_REQUEST", "x", false, {
+          reason_code: "provider_answered",
+          provider_status: 429,
+        }),
+        "공급자가 모델 목록 요청에 HTTP 429로 답했습니다.",
       ],
-    ]);
+      [
+        "a refused key",
+        apiError(400, "BAD_REQUEST", "x", false, {
+          reason_code: "provider_unauthorized",
+          provider_status: 401,
+        }),
+        "공급자가 이 키를 거절했습니다. 키 값을 확인하세요.",
+      ],
+      [
+        "an unreachable provider",
+        apiError(503, "BACKEND_UNAVAILABLE", "x", true, {
+          reason_code: "provider_unreachable",
+        }),
+        "공급자에 닿지 못했습니다. 잠시 뒤 목록을 새로고침하세요.",
+      ],
+      [
+        "an unset allowlist",
+        apiError(400, "BAD_REQUEST", "x", false, {
+          reason_code: "credential_allowlist_unset",
+        }),
+        "egress 자격 증명 허용 목록이 비어 있어 키를 보내 목록을 읽을 수 없습니다. 운영자가 EGRESS_CREDENTIAL_ALLOWLIST를 정해야 합니다.",
+      ],
+      [
+        "a server without the route (404)",
+        apiError(404, "NOT_FOUND", "no route"),
+        "모델 목록을 불러오지 못했습니다. 저장된 모델은 그대로 저장할 수 있습니다.",
+      ],
+      [
+        "a 200 of another shape",
+        json(200, { data: [] }),
+        "모델 목록을 불러오지 못했습니다. 저장된 모델은 그대로 저장할 수 있습니다.",
+      ],
+    ];
+    for (const [what, answer, text] of failures) {
+      test(`${what} is said in the page's words`, async () => {
+        renderAt(CONNECTIONS_PAGE, {
+          ...routes(),
+          [`POST ${DISCOVER("console-key")}`]: () => answer.clone(),
+        });
+        const { dialog } = await openModels();
+        await within(dialog).findByText(text);
+      });
+    }
+
+    test("more than 64 models is refused at the dialog, without a request", async () => {
+      const saved = Array.from({ length: 64 }, (_, index) => `model-${index}`);
+      const { api } = renderAt(CONNECTIONS_PAGE, {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`GET ${CONNECTIONS}`]: () =>
+          json(200, {
+            items: [connection("console-key", { models: saved })],
+            credential_hosts: null,
+            endpoint_defaults: {},
+          }),
+        [`POST ${DISCOVER("console-key")}`]: () =>
+          json(
+            200,
+            discovered([...saved, "model-extra"].map((id) => ({ id }))),
+          ),
+      });
+      const { user, dialog } = await openModels();
+      await user.click(
+        await within(dialog).findByRole("checkbox", { name: /model-extra/ }),
+      );
+      await user.click(
+        within(dialog).getByRole("button", { name: "모델 저장" }),
+      );
+      await within(dialog).findByText(
+        "모델은 64개까지 저장할 수 있습니다. 65개가 선택되어 있습니다.",
+      );
+      expect(writes(api.calls)).toEqual([]);
+    });
   });
 
   describe("disabling reads what it would leave without a model", () => {

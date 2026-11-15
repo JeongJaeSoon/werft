@@ -70,21 +70,65 @@ export type FakeAnthropicOptions = {
   tls?: { cert: string; key: string };
   /** Where to listen; loopback on a free port unless a long-running host says otherwise. */
   listen?: { hostname: string; port: number };
+  /** What `GET /v1/models` lists, in order; `FAKE_ANTHROPIC_MODELS` by default. */
+  models?: ReadonlyArray<{ id: string; display_name: string }>;
+  /** The most models one page holds, whatever `limit` asks for. */
+  modelsPageMax?: number;
 };
 
 export type FakeAnthropicServer = {
   requests: RecordedRequest[];
+  /** Every `GET /v1/models`: path with query, and headers. */
+  modelRequests: { path: string; headers: Record<string, string> }[];
   stop(): void;
   url: string;
 };
 
 const defaultModel = "claude-sonnet-4-5";
 
+export const FAKE_ANTHROPIC_MODELS = [
+  { id: "claude-sonnet-5", display_name: "Claude Sonnet 5" },
+  { id: "claude-opus-5", display_name: "Claude Opus 5" },
+  { id: "claude-haiku-5", display_name: "Claude Haiku 5" },
+  { id: "claude-sonnet-4-5", display_name: "Claude Sonnet 4.5" },
+] as const;
+
+/**
+ * Anthropic's model list: `limit` per page (20 when not given), the page
+ * after `after_id`, `has_more` and the page's first and last ids.
+ */
+function modelsPage(
+  models: ReadonlyArray<{ id: string; display_name: string }>,
+  url: URL,
+  pageMax: number,
+): Response {
+  const limit = Math.min(
+    Number(url.searchParams.get("limit") ?? "20"),
+    pageMax,
+  );
+  const after = url.searchParams.get("after_id");
+  const start =
+    after === null ? 0 : models.findIndex((model) => model.id === after) + 1;
+  const page = models.slice(start, start + limit);
+  return Response.json({
+    data: page.map((model) => ({
+      type: "model",
+      id: model.id,
+      display_name: model.display_name,
+      created_at: "2026-01-01T00:00:00Z",
+    })),
+    has_more: start + limit < models.length,
+    first_id: page[0]?.id ?? null,
+    last_id: page.at(-1)?.id ?? null,
+  });
+}
+
 export function startFakeAnthropicServer(
   replies: ReplyScript,
   options: FakeAnthropicOptions = {},
 ): FakeAnthropicServer {
   const requests: RecordedRequest[] = [];
+  const modelRequests: FakeAnthropicServer["modelRequests"] = [];
   const resolve = toResolver(replies);
   const server = Bun.serve({
     hostname: options.listen?.hostname ?? "127.0.0.1",
@@ -92,6 +136,17 @@ export function startFakeAnthropicServer(
     ...(options.tls === undefined ? {} : { tls: options.tls }),
     async fetch(request) {
       const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname === "/v1/models") {
+        modelRequests.push({
+          path: `${url.pathname}${url.search}`,
+          headers: Object.fromEntries(request.headers.entries()),
+        });
+        return modelsPage(
+          options.models ?? FAKE_ANTHROPIC_MODELS,
+          url,
+          options.modelsPageMax ?? 1000,
+        );
+      }
       if (request.method !== "POST" || !url.pathname.endsWith("/messages")) {
         return new Response("not found", { status: 404 });
       }
@@ -122,6 +177,7 @@ export function startFakeAnthropicServer(
   });
   return {
     requests,
+    modelRequests,
     stop: () => server.stop(true),
     url: `${options.tls === undefined ? "http" : "https"}://${options.listen?.hostname ?? "127.0.0.1"}:${server.port}`,
   };

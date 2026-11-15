@@ -89,7 +89,7 @@ export const settingsKo = {
 
   "settings.connections.title": "모델 연결",
   "settings.connections.description":
-    "이 설치의 모든 워크스페이스가 쓰는, 에이전트가 모델을 부르는 주소와 키, 그리고 에이전트가 고를 수 있는 모델입니다. 콘솔에서 넣은 키는 암호화해 저장하고 끝 네 글자만 보입니다.",
+    "이 설치의 모든 워크스페이스가 쓰는, 에이전트가 모델을 부르는 주소와 키, 그리고 연결마다 사용할 모델입니다. 콘솔에서 넣은 키는 암호화해 저장하고 끝 네 글자만 보입니다.",
   "settings.connections.add": "연결 추가",
   "settings.connections.empty":
     "모델 연결이 없습니다. 연결을 추가하고 모델 목록을 정하면 에이전트가 고를 수 있습니다.",
@@ -154,17 +154,53 @@ export const settingsKo = {
   "settings.connections.judgeOnly": "성과 판정 전용",
   "settings.models.set": "모델",
   "settings.models.setFor": "{id}의 모델 목록",
-  "settings.models.title": "에이전트가 고를 수 있는 모델",
+  "settings.models.title": "사용할 모델",
   "settings.models.description":
-    "이 연결에서 에이전트 카드가 고를 수 있는 모델입니다. 목록에서 뺀 모델로 도는 세션은 다음 모델 호출에서 멈춥니다.",
-  "settings.models.label": "모델 (한 줄에 하나)",
-  "settings.models.hint":
-    "공급자가 쓰는 모델 이름 그대로 적습니다. 쉼표로 나눠도 됩니다.",
+    "공급자가 알려 준 모델 가운데 에이전트 카드가 이 연결에서 쓸 모델을 고릅니다. 저장해야 바뀌며, 뺀 모델로 도는 세션은 다음 모델 호출에서 멈춥니다.",
+  "settings.models.connection": "연결",
+  "settings.models.list": "모델",
+  "settings.models.refresh": "목록 새로고침",
+  "settings.models.loading": "공급자에서 모델 목록을 불러오는 중…",
+  "settings.models.notListed": "목록에 없음",
+  "settings.models.notListedHint":
+    "공급자가 더는 알려 주지 않는 모델입니다. 체크를 풀고 저장해야 빠집니다.",
+  "settings.models.count": "{count}개 선택 (최대 {max}개)",
+  "settings.models.tooMany":
+    "모델은 {max}개까지 저장할 수 있습니다. {count}개가 선택되어 있습니다.",
+  "settings.models.empty": "공급자가 돌려준 모델이 없습니다.",
+  "settings.models.skipped":
+    "에이전트가 쓰지 않는 모델 {count}개(임베딩·음성·이미지 등)는 목록에서 뺐습니다.",
+  "settings.models.truncated":
+    "목록이 길어 앞부분만 보입니다. 빠진 모델은 저장된 것만 아래에 남습니다.",
+  "settings.models.error.credential_allowlist_unset":
+    "egress 자격 증명 허용 목록이 비어 있어 키를 보내 목록을 읽을 수 없습니다. 운영자가 EGRESS_CREDENTIAL_ALLOWLIST를 정해야 합니다.",
+  "settings.models.error.host_not_allowed":
+    "엔드포인트의 호스트가 egress 자격 증명 허용 목록에 없어 키를 보낼 수 없습니다.",
+  "settings.models.error.url_insecure":
+    "엔드포인트가 https가 아니어서 키를 보낼 수 없습니다. http는 사설 허용 목록의 호스트만 씁니다.",
+  "settings.models.error.address_not_allowed":
+    "엔드포인트가 사설 주소로 풀려 막았습니다. 사설 서버라면 운영자가 EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST에 더해야 합니다.",
+  "settings.models.error.provider_unauthorized":
+    "공급자가 이 키를 거절했습니다. 키 값을 확인하세요.",
+  "settings.models.error.provider_answered":
+    "공급자가 모델 목록 요청에 HTTP {status}로 답했습니다.",
+  "settings.models.error.provider_unreachable":
+    "공급자에 닿지 못했습니다. 잠시 뒤 목록을 새로고침하세요.",
+  "settings.models.error.provider_failed":
+    "공급자의 답을 모델 목록으로 읽지 못했습니다.",
+  "settings.models.error.credential_reflected":
+    "공급자의 답에 키가 그대로 들어 있어 목록을 버렸습니다.",
+  "settings.models.error.credential_unresolved":
+    "이 서버가 아직 연결의 키를 읽지 못했습니다. 잠시 뒤 목록을 새로고침하세요.",
+  "settings.models.error.kind_unsupported":
+    "성과 판정 전용 연결에는 모델 목록이 없습니다.",
+  "settings.models.error.unknown":
+    "모델 목록을 불러오지 못했습니다. 저장된 모델은 그대로 저장할 수 있습니다.",
   "settings.models.save": "모델 저장",
   "settings.models.saving": "저장하는 중…",
   "settings.done.models": "{id}의 모델 {count}개를 저장했습니다.",
-  "home.setup.models": "모델 연결에 모델 정하기",
-  "home.setup.modelsHint": "연결마다 에이전트가 고를 수 있는 모델을 적습니다.",
+  "home.setup.models": "모델 연결에 사용할 모델 정하기",
+  "home.setup.modelsHint": "연결마다 사용할 모델을 고릅니다.",
 } as const;
 
 export const settingsEn: Record<keyof typeof settingsKo, string> = {
@@ -254,7 +290,7 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
 
   "settings.connections.title": "Model connections",
   "settings.connections.description":
-    "Where agents reach a model, and with which key, for every workspace on this installation, and the models agents may pick on each. A key entered here is stored encrypted; only its last four characters show.",
+    "Where agents reach a model, and with which key, for every workspace on this installation, and the models in use on each. A key entered here is stored encrypted; only its last four characters show.",
   "settings.connections.add": "Add connection",
   "settings.connections.empty":
     "No model connections. Add one and list its models, and agents can pick it.",
@@ -320,18 +356,53 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.connections.judgeOnly": "Achievement judging only",
   "settings.models.set": "Models",
   "settings.models.setFor": "Models of {id}",
-  "settings.models.title": "Models agents may pick",
+  "settings.models.title": "Models in use",
   "settings.models.description":
-    "The models an agent's card may name on this connection. A session on a model taken off the list stops at its next model call.",
-  "settings.models.label": "Models (one per line)",
-  "settings.models.hint":
-    "Write each model the way the provider names it. Commas work too.",
+    "Pick, from the models the provider lists, the ones an agent's card may use on this connection. Nothing changes until you save; a session on a model taken off stops at its next model call.",
+  "settings.models.connection": "Connection",
+  "settings.models.list": "Models",
+  "settings.models.refresh": "Refresh list",
+  "settings.models.loading": "Loading the model list from the provider…",
+  "settings.models.notListed": "Not listed",
+  "settings.models.notListedHint":
+    "The provider no longer lists these. They stay until you uncheck them and save.",
+  "settings.models.count": "{count} selected (up to {max})",
+  "settings.models.tooMany":
+    "A connection holds up to {max} models; {count} are selected.",
+  "settings.models.empty": "The provider listed no models.",
+  "settings.models.skipped":
+    "{count} models no agent runs on (embeddings, speech, images and the like) are left out.",
+  "settings.models.truncated":
+    "The list is long, so only its first part shows. Saved models beyond it stay below.",
+  "settings.models.error.credential_allowlist_unset":
+    "The egress credential allowlist is empty, so the key cannot be sent to read the list. An operator must set EGRESS_CREDENTIAL_ALLOWLIST.",
+  "settings.models.error.host_not_allowed":
+    "The endpoint's host is not on the egress credential allowlist, so the key cannot be sent there.",
+  "settings.models.error.url_insecure":
+    "The endpoint is not https, so the key cannot be sent there. Only hosts on the private allowlist use http.",
+  "settings.models.error.address_not_allowed":
+    "The endpoint resolved to a private address and was blocked. For a private server, an operator must add it to EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST.",
+  "settings.models.error.provider_unauthorized":
+    "The provider refused this key. Check the key's value.",
+  "settings.models.error.provider_answered":
+    "The provider answered the model list request with HTTP {status}.",
+  "settings.models.error.provider_unreachable":
+    "The provider could not be reached. Refresh the list in a moment.",
+  "settings.models.error.provider_failed":
+    "The provider's answer could not be read as a model list.",
+  "settings.models.error.credential_reflected":
+    "The provider's answer contained the key itself, so the list was discarded.",
+  "settings.models.error.credential_unresolved":
+    "This server has not read the connection's key yet. Refresh the list in a moment.",
+  "settings.models.error.kind_unsupported":
+    "A connection only for achievement judging has no model list.",
+  "settings.models.error.unknown":
+    "The model list could not be loaded. The saved models can still be saved as they are.",
   "settings.models.save": "Save models",
   "settings.models.saving": "Saving…",
   "settings.done.models": "Saved {count} models for {id}.",
-  "home.setup.models": "List models on a connection",
-  "home.setup.modelsHint":
-    "For each connection, list the models agents may pick.",
+  "home.setup.models": "Pick the models in use on a connection",
+  "home.setup.modelsHint": "For each connection, pick the models in use.",
 };
 
 export const settingsJa: Record<keyof typeof settingsKo, string> = {
@@ -421,7 +492,7 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
 
   "settings.connections.title": "モデル接続",
   "settings.connections.description":
-    "このインストールのすべてのワークスペースが使う、エージェントがモデルを呼ぶアドレスとキー、そしてエージェントが選べるモデルです。コンソールで入れたキーは暗号化して保存し、末尾 4 文字だけ表示します。",
+    "このインストールのすべてのワークスペースが使う、エージェントがモデルを呼ぶアドレスとキー、そして接続ごとに使用するモデルです。コンソールで入れたキーは暗号化して保存し、末尾 4 文字だけ表示します。",
   "settings.connections.add": "接続を追加",
   "settings.connections.empty":
     "モデル接続がありません。接続を追加してモデル一覧を決めると、エージェントが選べます。",
@@ -486,15 +557,51 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.connections.judgeOnly": "成果判定専用",
   "settings.models.set": "モデル",
   "settings.models.setFor": "{id} のモデル一覧",
-  "settings.models.title": "エージェントが選べるモデル",
+  "settings.models.title": "使用するモデル",
   "settings.models.description":
-    "この接続でエージェントのカードが選べるモデルです。一覧から外したモデルで動くセッションは、次のモデル呼び出しで止まります。",
-  "settings.models.label": "モデル（1 行に 1 つ）",
-  "settings.models.hint":
-    "プロバイダーが使うモデル名のまま書きます。カンマ区切りでもかまいません。",
+    "プロバイダーが示したモデルから、エージェントのカードがこの接続で使うモデルを選びます。保存するまで変わりません。外したモデルで動くセッションは、次のモデル呼び出しで止まります。",
+  "settings.models.connection": "接続",
+  "settings.models.list": "モデル",
+  "settings.models.refresh": "一覧を更新",
+  "settings.models.loading": "プロバイダーからモデル一覧を読み込んでいます…",
+  "settings.models.notListed": "一覧にない",
+  "settings.models.notListedHint":
+    "プロバイダーがもう示さないモデルです。チェックを外して保存するまで残ります。",
+  "settings.models.count": "{count} 件を選択（最大 {max} 件）",
+  "settings.models.tooMany":
+    "モデルは {max} 件まで保存できます。いま {count} 件を選んでいます。",
+  "settings.models.empty": "プロバイダーが返したモデルはありません。",
+  "settings.models.skipped":
+    "エージェントが使わないモデル {count} 件（埋め込み・音声・画像など）は一覧から外しました。",
+  "settings.models.truncated":
+    "一覧が長いため、先頭の一部だけを表示しています。それより後の保存済みモデルは下に残ります。",
+  "settings.models.error.credential_allowlist_unset":
+    "egress 認証情報の許可リストが空のため、キーを送って一覧を読めません。運用者が EGRESS_CREDENTIAL_ALLOWLIST を設定する必要があります。",
+  "settings.models.error.host_not_allowed":
+    "エンドポイントのホストが egress 認証情報の許可リストにないため、キーを送れません。",
+  "settings.models.error.url_insecure":
+    "エンドポイントが https ではないため、キーを送れません。http はプライベート許可リストのホストだけが使います。",
+  "settings.models.error.address_not_allowed":
+    "エンドポイントがプライベートアドレスに解決されたため止めました。プライベートなサーバーなら、運用者が EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST に加える必要があります。",
+  "settings.models.error.provider_unauthorized":
+    "プロバイダーがこのキーを拒否しました。キーの値を確認してください。",
+  "settings.models.error.provider_answered":
+    "プロバイダーがモデル一覧の要求に HTTP {status} で答えました。",
+  "settings.models.error.provider_unreachable":
+    "プロバイダーに届きませんでした。しばらくしてから一覧を更新してください。",
+  "settings.models.error.provider_failed":
+    "プロバイダーの答えをモデル一覧として読めませんでした。",
+  "settings.models.error.credential_reflected":
+    "プロバイダーの答えにキーがそのまま含まれていたため、一覧を破棄しました。",
+  "settings.models.error.credential_unresolved":
+    "このサーバーはまだ接続のキーを読めていません。しばらくしてから一覧を更新してください。",
+  "settings.models.error.kind_unsupported":
+    "成果判定専用の接続にはモデル一覧がありません。",
+  "settings.models.error.unknown":
+    "モデル一覧を読み込めませんでした。保存済みのモデルはそのまま保存できます。",
   "settings.models.save": "モデルを保存",
   "settings.models.saving": "保存中…",
   "settings.done.models": "{id} のモデル {count} 件を保存しました。",
-  "home.setup.models": "モデル接続にモデルを決める",
-  "home.setup.modelsHint": "接続ごとに、エージェントが選べるモデルを書きます。",
+  "home.setup.models": "モデル接続で使用するモデルを決める",
+  "home.setup.modelsHint": "接続ごとに、使用するモデルを選びます。",
 };

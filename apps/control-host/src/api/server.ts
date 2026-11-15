@@ -765,6 +765,12 @@ const settingsConsole = createSettingsConsoleService({
   secretStoreOn: true,
   credentialHosts: credentialHostsFromEnv(process.env),
   reread: rereadSettings,
+  discovery: {
+    connection: (id) => catalogRegistry.settings?.connections[id],
+    urlProblem: (url) => workspaceMcpUrlProblem(workspaceMcpHosts, url),
+    http: workspaceMcpOutbound(workspaceMcpHosts),
+    log: (fields) => logger.info("Connection model list read", fields),
+  },
 });
 const agentAdmins = createAgentAdminService({
   authorization,

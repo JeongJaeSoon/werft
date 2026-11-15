@@ -232,7 +232,20 @@ describe("fake Responses API", () => {
       headers: { "user-agent": "codex/9" },
     });
     expect(update.status).toBe(404);
-    expect(models.status).toBe(404);
+    // The model list is served, OpenAI's shape, chat and other families mixed.
+    expect(models.status).toBe(200);
+    expect(
+      ((await models.json()) as { data: Array<{ id: string }> }).data.map(
+        (model) => model.id,
+      ),
+    ).toEqual([
+      "gpt-5.5",
+      "text-embedding-3-large",
+      "tts-1",
+      "whisper-1",
+      "gpt-image-1",
+      "o4-mini",
+    ]);
     // A GET on the served path is not a Responses call either.
     expect((await fetch(`${server.url}/v1/responses`)).status).toBe(404);
     expect(
@@ -243,6 +256,21 @@ describe("fake Responses API", () => {
       { method: "GET", path: "/v1/responses", body: null },
     ]);
     expect(server.requests[1]?.headers["user-agent"]).toBe("codex/9");
+  });
+
+  test("lists the models it is given, and a model list is not a Responses call", async () => {
+    server = startFakeResponsesServer(textResponse("ok"), {
+      models: ["gpt-only"],
+    });
+    const listed = (await (await fetch(`${server.url}/v1/models`)).json()) as {
+      object: string;
+      data: Array<{ id: string; object: string }>;
+    };
+    expect(listed).toMatchObject({
+      object: "list",
+      data: [{ id: "gpt-only", object: "model" }],
+    });
+    expect((await post(server.url, { model: "gpt-5.5" })).status).toBe(200);
   });
 
   test("serves a scripted Response more than once", async () => {

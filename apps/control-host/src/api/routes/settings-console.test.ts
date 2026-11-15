@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   apiErrorResponseSchema,
+  discoverConnectionModelsResponseSchema,
   listSettingsConnectionsResponseSchema,
   settingsChangeResponseSchema,
   settingsConnectionImpactResponseSchema,
@@ -277,6 +278,76 @@ describe("GET /v1/installation/settings/connections/{id}/impact", () => {
     }
     expect(
       (await request({ connectionImpact: outage }, "GET", path)).status,
+    ).toBe(503);
+  });
+});
+
+describe("POST /v1/installation/settings/connections/{id}/models/discover", () => {
+  const path = `${BASE}/connections/console/models/discover`;
+  const LISTED = {
+    models: [
+      {
+        id: "claude-sonnet-5",
+        display_name: "Claude Sonnet 5",
+        selected: true,
+      },
+    ],
+    missing: ["claude-retired-4"],
+    skipped: 0,
+    truncated: false,
+  };
+
+  test("asks the service for the id in the path and answers its list", async () => {
+    const asked: unknown[][] = [];
+    const response = await request(
+      {
+        discoverConnectionModels: async (_caller, id) => {
+          asked.push([id]);
+          return LISTED;
+        },
+      },
+      "POST",
+      path,
+    );
+    expect(response.status).toBe(200);
+    expect(
+      discoverConnectionModelsResponseSchema.parse(await response.json()),
+    ).toEqual(LISTED);
+    expect(asked).toEqual([["console"]]);
+  });
+
+  test("every refusal maps to its status with its reason", async () => {
+    for (const [code, status, reason] of [
+      ["BAD_REQUEST", 400, "host_not_allowed"],
+      ["FORBIDDEN", 403, "role"],
+      ["NOT_FOUND", 404, undefined],
+      ["REVISION_CONFLICT", 409, "disabled"],
+      ["BACKEND_UNAVAILABLE", 503, "provider_unreachable"],
+    ] as const) {
+      const response = await request(
+        {
+          discoverConnectionModels: async () => {
+            throw new SessionServiceError(
+              code,
+              "no",
+              undefined,
+              reason === undefined ? undefined : { reason_code: reason },
+            );
+          },
+        },
+        "POST",
+        path,
+      );
+      expect(response.status).toBe(status);
+      const body = apiErrorResponseSchema.parse(await response.json());
+      expect(body.error.code).toBe(code);
+      if (reason !== undefined) {
+        expect(body.error.details).toEqual({ reason_code: reason });
+      }
+    }
+    expect(
+      (await request({ discoverConnectionModels: outage }, "POST", path))
+        .status,
     ).toBe(503);
   });
 });

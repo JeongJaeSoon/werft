@@ -166,6 +166,7 @@ export * from "./sessions/receipt-agent-refs.ts";
 export * from "./sessions/session-service.ts";
 export * from "./sessions/settings-document.ts";
 export * from "./sessions/settings-console-service.ts";
+export * from "./sessions/model-discovery.ts";
 export * from "./sessions/settings-document-service.ts";
 export * from "./sessions/session-title.ts";
 export * from "./sessions/session-titler.ts";

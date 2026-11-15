@@ -381,7 +381,7 @@ describe("bootstrap checklist", () => {
     );
     expect(checklistSteps()[1]?.textContent).toContain("모델 연결 추가하기");
     expect(checklistSteps()[2]?.textContent).toContain(
-      "모델 연결에 모델 정하기",
+      "모델 연결에 사용할 모델 정하기",
     );
     const links = stepLinks();
     expect(

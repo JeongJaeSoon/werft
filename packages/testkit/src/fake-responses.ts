@@ -5,8 +5,8 @@
  *
  * It records every request that reaches it, whatever the method or path, and
  * answers a path it does not serve with a 404. What a client contacts beside
- * `/v1/responses` (an update check, telemetry, a model list) therefore shows
- * up in `requests` instead of being lost.
+ * `/v1/responses` (an update check, telemetry, the model list it serves at
+ * `GET /v1/models`) therefore shows up in `requests` instead of being lost.
  */
 
 export type ResponsesRequest = {
@@ -92,7 +92,19 @@ export type FakeResponsesOptions = {
   tls?: { cert: string; key: string };
   /** Where to listen; loopback on a free port unless a long-running host says otherwise. */
   listen?: { hostname: string; port: number };
+  /** What `GET /v1/models` lists, in order; `FAKE_OPENAI_MODELS` by default. */
+  models?: readonly string[];
 };
+
+/** A chat model among the families an agent cannot run on, as OpenAI lists them. */
+export const FAKE_OPENAI_MODELS = [
+  "gpt-5.5",
+  "text-embedding-3-large",
+  "tts-1",
+  "whisper-1",
+  "gpt-image-1",
+  "o4-mini",
+] as const;
 
 export type FakeResponsesServer = {
   /** Every request, in arrival order, served or not. */
@@ -124,6 +136,17 @@ export function startFakeResponsesServer(
         signal: request.signal,
       };
       requests.push(recorded);
+      if (request.method === "GET" && url.pathname === "/v1/models") {
+        return Response.json({
+          object: "list",
+          data: (options.models ?? FAKE_OPENAI_MODELS).map((id) => ({
+            id,
+            object: "model",
+            created: 1_767_225_600,
+            owned_by: "system",
+          })),
+        });
+      }
       if (request.method !== "POST" || url.pathname !== SERVED_PATH) {
         return new Response("not found", { status: 404 });
       }

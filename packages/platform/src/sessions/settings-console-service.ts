@@ -2,6 +2,7 @@ import type {
   AuthorizationAction,
   CreateSettingsConnectionRequest,
   CreateSettingsMcpServerRequest,
+  DiscoverConnectionModelsResponse,
   ListSettingsConnectionsResponse,
   ListSettingsMcpServersResponse,
   SettingsChangeResponse,
@@ -20,6 +21,7 @@ import {
   SECRET_STORE_OFF,
   SessionServiceError,
 } from "../musterrolle/index.ts";
+import type { OutboundHttp } from "../ports/outbound-http.ts";
 import type {
   SettingsConsoleResult,
   SettingsDocumentStore,
@@ -29,6 +31,7 @@ import type { TeamActor } from "../ports/team-store.ts";
 import {
   BILLING_NONE_ENDPOINT_MESSAGE,
   billingFitsEndpoint,
+  type CatalogConnection,
   type CatalogMcpServerConfig,
   type CatalogProviderConfig,
   CONNECTION_ENDPOINT_DEFAULTS,
@@ -36,6 +39,7 @@ import {
   type ModelFamilies,
   modelFamiliesSchema,
 } from "./catalog.ts";
+import { listProviderModels, ModelDiscoveryError } from "./model-discovery.ts";
 import {
   type SettingsKind as DocumentSettingsKind,
   parseSettingsDocument,
@@ -95,6 +99,16 @@ export function createSettingsConsoleService(deps: {
   credentialHosts: readonly string[] | null;
   /** Reads the settings again after a write committed; never throws. */
   reread: () => Promise<void>;
+  /** Asking a connection's provider which models it serves. */
+  discovery: {
+    /** The connection with its credential resolved on this replica. */
+    connection: (id: string) => CatalogConnection | undefined;
+    /** Why the API may not send a key to this endpoint; null when it may. */
+    urlProblem: (url: string) => string | null;
+    http: OutboundHttp;
+    /** Ids, outcomes and counts only. */
+    log?: (fields: Record<string, unknown>) => void;
+  };
 }) {
   const { store } = deps;
 
@@ -323,6 +337,111 @@ export function createSettingsConsoleService(deps: {
         agent_count: use.agents,
         session_count: use.sessions,
         judge_used: use.judgeNamed,
+      };
+    },
+
+    /**
+     * Asks the connection's provider which models it serves, with the
+     * connection's own key, and marks the saved ones. Writes nothing; only
+     * the API's credential allowlist may be called, closed when it is unset.
+     */
+    async discoverConnectionModels(
+      caller: Caller,
+      id: string,
+    ): Promise<DiscoverConnectionModelsResponse> {
+      await writer(caller, "connection");
+      const row = (await store.listRows("connection")).find(
+        (listed) => listed.id === id,
+      );
+      if (row === undefined) {
+        throw new SessionServiceError(
+          "NOT_FOUND",
+          `No settings row ${id} the console manages`,
+        );
+      }
+      const conflict = (reason: string, message: string) =>
+        new SessionServiceError("REVISION_CONFLICT", message, undefined, {
+          reason_code: reason,
+        });
+      if ((row.entry as Provider).kind === "openai_decisions") {
+        throw conflict(
+          "kind_unsupported",
+          `${id} is the achievement judge's: no agent runs on its models`,
+        );
+      }
+      const state = stateOf("connection", row);
+      if (state === "disabled") throw conflict("disabled", `${id} is disabled`);
+      if (state === "needs_value") {
+        throw conflict("needs_value", `${id} has no stored value yet`);
+      }
+      // A row made a moment ago may be on another replica's read only.
+      let connection = deps.discovery.connection(id);
+      if (connection === undefined) {
+        await deps.reread();
+        connection = deps.discovery.connection(id);
+      }
+      if (connection === undefined) {
+        throw new SessionServiceError(
+          "BACKEND_UNAVAILABLE",
+          `${id}'s credential is not resolved on this server yet; try again`,
+          undefined,
+          { reason_code: "credential_unresolved" },
+        );
+      }
+      const problem = deps.discovery.urlProblem(connection.provider.endpoint);
+      if (problem !== null) {
+        throw new SessionServiceError(
+          "BAD_REQUEST",
+          "This installation does not allow the connection's key to be sent to its endpoint",
+          undefined,
+          { reason_code: problem },
+        );
+      }
+      let listed: Awaited<ReturnType<typeof listProviderModels>>;
+      try {
+        listed = await listProviderModels(
+          connection.provider,
+          deps.discovery.http,
+        );
+      } catch (error) {
+        if (!(error instanceof ModelDiscoveryError)) throw error;
+        deps.discovery.log?.({
+          connection_id: id,
+          outcome: error.reason,
+          provider_status: error.status,
+        });
+        const retryable =
+          error.reason === "provider_unreachable" ||
+          error.reason === "provider_failed";
+        throw new SessionServiceError(
+          retryable ? "BACKEND_UNAVAILABLE" : "BAD_REQUEST",
+          error.message,
+          undefined,
+          {
+            reason_code: error.reason,
+            ...(error.status === null ? {} : { provider_status: error.status }),
+          },
+        );
+      }
+      const saved = row.models ?? [];
+      const listedIds = new Set(listed.models.map((model) => model.id));
+      const missing = saved.filter((model) => !listedIds.has(model));
+      deps.discovery.log?.({
+        connection_id: id,
+        outcome: "listed",
+        models: listed.models.length,
+        skipped: listed.skipped,
+        missing: missing.length,
+        truncated: listed.truncated,
+      });
+      return {
+        models: listed.models.map((model) => ({
+          ...model,
+          selected: saved.includes(model.id),
+        })),
+        missing,
+        skipped: listed.skipped,
+        truncated: listed.truncated,
       };
     },
 

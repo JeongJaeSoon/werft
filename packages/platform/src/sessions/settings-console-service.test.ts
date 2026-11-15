@@ -16,6 +16,12 @@ import type {
   SettingsDocumentStore,
   SettingsRow,
 } from "../ports/settings-document-store.ts";
+import {
+  type OutboundHttp,
+  type OutboundRequest,
+  WorkspaceMcpOutboundError,
+} from "../workspace-mcp/ports.ts";
+import type { CatalogConnection } from "./catalog.ts";
 import { createSettingsConsoleService } from "./settings-console-service.ts";
 import type { SettingsKind } from "./settings-document.ts";
 
@@ -92,10 +98,18 @@ function service(
     secretStoreOn?: boolean;
     leftOut?: string[];
     use?: { agents: number; sessions: number; judgeNamed: boolean };
+    /** Resolved connections, by id; a function sees how many rereads ran. */
+    resolved?:
+      | Record<string, CatalogConnection>
+      | ((rereads: number) => Record<string, CatalogConnection>);
+    urlProblem?: string | null;
+    http?: OutboundHttp;
   } = {},
 ) {
   const writes: unknown[][] = [];
   const uses: unknown[] = [];
+  const logged: Record<string, unknown>[] = [];
+  const sent: OutboundRequest[] = [];
   let rereads = 0;
   const result = options.result ?? { outcome: "done", receiptId: RECEIPT };
   const record =
@@ -144,8 +158,24 @@ function service(
     reread: async () => {
       rereads += 1;
     },
+    discovery: {
+      connection: (id) => {
+        const resolved =
+          typeof options.resolved === "function"
+            ? options.resolved(rereads)
+            : options.resolved;
+        return resolved?.[id];
+      },
+      urlProblem: () => options.urlProblem ?? null,
+      http: async (request) => {
+        sent.push(request);
+        if (options.http === undefined) throw new Error("not used");
+        return options.http(request);
+      },
+      log: (fields) => logged.push(fields),
+    },
   });
-  return { settings, writes, uses, rereads: () => rereads };
+  return { settings, writes, uses, rereads: () => rereads, logged, sent };
 }
 
 const NEW_CONNECTION = {
@@ -677,6 +707,265 @@ describe("a connection's models", () => {
         { "claude-sonnet-5": { family: "sonnet", rank: 5 } },
       ],
     ]);
+  });
+});
+
+describe("reading a connection's models from its provider", () => {
+  const KEY = "example-model-key";
+  const resolved = (
+    endpoint = "https://api.anthropic.invalid",
+  ): CatalogConnection => ({
+    provider: {
+      kind: "anthropic",
+      endpoint,
+      auth: {
+        kind: "api_key",
+        value: KEY,
+        ref: { stored: "connection:console" },
+      },
+    },
+    models: [],
+    auto_mode: "unknown",
+  });
+  const listing = async () => ({
+    status: 200,
+    headers: new Headers(),
+    text: JSON.stringify({
+      data: [
+        { id: "claude-sonnet-5", display_name: "Claude Sonnet 5" },
+        { id: "claude-haiku-5", display_name: "Claude Haiku 5" },
+      ],
+      has_more: false,
+    }),
+  });
+
+  test("only the signed-in owner asks, and nothing is sent for anyone else", async () => {
+    const { settings, sent } = service({
+      rows: { connection: [connectionRow("console")] },
+      resolved: { console: resolved() },
+      http: listing,
+    });
+    for (const who of [caller("admin"), caller("member"), apiKey]) {
+      expect(
+        (await refusal(settings.discoverConnectionModels(who, "console"))).code,
+      ).toBe("FORBIDDEN");
+    }
+    expect(sent).toEqual([]);
+  });
+
+  test("marks the saved models, lists the ones the provider dropped, writes nothing and logs counts only", async () => {
+    const { settings, writes, sent, logged } = service({
+      rows: {
+        connection: [
+          connectionRow("console", {
+            models: ["claude-retired-4", "claude-haiku-5"],
+          }),
+        ],
+      },
+      resolved: { console: resolved("https://api.anthropic.invalid/") },
+      http: listing,
+    });
+    const answered = await settings.discoverConnectionModels(
+      caller("owner"),
+      "console",
+    );
+    expect(answered).toEqual({
+      models: [
+        {
+          id: "claude-sonnet-5",
+          display_name: "Claude Sonnet 5",
+          selected: false,
+        },
+        {
+          id: "claude-haiku-5",
+          display_name: "Claude Haiku 5",
+          selected: true,
+        },
+      ],
+      missing: ["claude-retired-4"],
+      skipped: 0,
+      truncated: false,
+    });
+    expect(sent.map((request) => request.url)).toEqual([
+      "https://api.anthropic.invalid/v1/models?limit=1000",
+    ]);
+    expect(writes).toEqual([]);
+    expect(logged).toEqual([
+      {
+        connection_id: "console",
+        outcome: "listed",
+        models: 2,
+        skipped: 0,
+        missing: 1,
+        truncated: false,
+      },
+    ]);
+    expect(JSON.stringify(logged)).not.toContain(KEY);
+  });
+
+  test("each state refuses before anything is sent", async () => {
+    const cases: Array<{
+      rows: SettingsRow[];
+      leftOut?: string[];
+      resolved?: Record<string, CatalogConnection>;
+      code: string;
+      reason?: string;
+    }> = [
+      { rows: [], code: "NOT_FOUND" },
+      {
+        rows: [
+          connectionRow("console", {
+            entry: {
+              kind: "openai_decisions",
+              endpoint: "https://api.openai.invalid",
+              auth: { kind: "api_key", stored: "connection:console" },
+            },
+          }),
+        ],
+        code: "REVISION_CONFLICT",
+        reason: "kind_unsupported",
+      },
+      {
+        rows: [connectionRow("console", { disabledAt: AT })],
+        code: "REVISION_CONFLICT",
+        reason: "disabled",
+      },
+      {
+        rows: [connectionRow("console", { last4: null })],
+        code: "REVISION_CONFLICT",
+        reason: "needs_value",
+      },
+      {
+        rows: [connectionRow("console")],
+        leftOut: ["connection:console"],
+        code: "BACKEND_UNAVAILABLE",
+        reason: "credential_unresolved",
+      },
+    ];
+    for (const item of cases) {
+      const { settings, sent } = service({
+        rows: { connection: item.rows },
+        ...(item.leftOut === undefined ? {} : { leftOut: item.leftOut }),
+        resolved: item.resolved ?? {},
+        http: listing,
+      });
+      const refused = await refusal(
+        settings.discoverConnectionModels(caller("owner"), "console"),
+      );
+      expect([
+        refused.code,
+        (refused.details as { reason_code?: string } | undefined)?.reason_code,
+      ]).toEqual([item.code, item.reason]);
+      expect(sent).toEqual([]);
+    }
+  });
+
+  test("a connection this replica has not read yet is read again once", async () => {
+    const { settings, rereads } = service({
+      rows: { connection: [connectionRow("console")] },
+      resolved: (count) => (count === 0 ? {} : { console: resolved() }),
+      http: listing,
+    });
+    const answered = await settings.discoverConnectionModels(
+      caller("owner"),
+      "console",
+    );
+    expect(answered.models).toHaveLength(2);
+    expect(rereads()).toBe(1);
+  });
+
+  test("an endpoint outside the API's credential allowlist is refused closed", async () => {
+    for (const problem of [
+      "credential_allowlist_unset",
+      "host_not_allowed",
+      "url_insecure",
+    ]) {
+      const { settings, sent } = service({
+        rows: { connection: [connectionRow("console")] },
+        resolved: { console: resolved() },
+        urlProblem: problem,
+        http: listing,
+      });
+      const refused = await refusal(
+        settings.discoverConnectionModels(caller("owner"), "console"),
+      );
+      expect(refused.code).toBe("BAD_REQUEST");
+      expect(refused.details).toEqual({ reason_code: problem });
+      expect(sent).toEqual([]);
+    }
+  });
+
+  test("the provider's refusals map to a code and reason, never carrying the key or body", async () => {
+    const cases: Array<[OutboundHttp, string, string, number | undefined]> = [
+      [
+        async () => ({ status: 401, headers: new Headers(), text: KEY }),
+        "BAD_REQUEST",
+        "provider_unauthorized",
+        401,
+      ],
+      [
+        async () => ({ status: 307, headers: new Headers(), text: "" }),
+        "BAD_REQUEST",
+        "provider_answered",
+        307,
+      ],
+      [
+        async () => {
+          throw new WorkspaceMcpOutboundError("unreachable", "refused");
+        },
+        "BACKEND_UNAVAILABLE",
+        "provider_unreachable",
+        undefined,
+      ],
+      [
+        async () => {
+          throw new WorkspaceMcpOutboundError("address_not_allowed", "private");
+        },
+        "BAD_REQUEST",
+        "address_not_allowed",
+        undefined,
+      ],
+      [
+        async () => ({ status: 200, headers: new Headers(), text: "not json" }),
+        "BACKEND_UNAVAILABLE",
+        "provider_failed",
+        undefined,
+      ],
+      [
+        async () => ({
+          status: 200,
+          headers: new Headers(),
+          text: JSON.stringify({ data: [{ id: KEY }] }),
+        }),
+        "BAD_REQUEST",
+        "credential_reflected",
+        undefined,
+      ],
+    ];
+    for (const [http, code, reason, status] of cases) {
+      const { settings, logged } = service({
+        rows: { connection: [connectionRow("console")] },
+        resolved: { console: resolved() },
+        http,
+      });
+      const refused = await refusal(
+        settings.discoverConnectionModels(caller("owner"), "console"),
+      );
+      expect<string>(refused.code).toBe(code);
+      expect(refused.details).toEqual({
+        reason_code: reason,
+        ...(status === undefined ? {} : { provider_status: status }),
+      });
+      expect(refused.message).not.toContain(KEY);
+      expect(JSON.stringify(logged)).not.toContain(KEY);
+      expect(logged).toEqual([
+        {
+          connection_id: "console",
+          outcome: reason,
+          provider_status: status ?? null,
+        },
+      ]);
+    }
   });
 });
 
