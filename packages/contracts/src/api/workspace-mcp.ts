@@ -1,8 +1,15 @@
 import { z } from "zod";
 
-import { mcpServerIdSchema } from "../kollegium/agents.ts";
+import {
+  AGENT_WORKSPACE_MCP_SERVERS_MAX,
+  mcpServerIdSchema,
+} from "../kollegium/agents.ts";
 import { displayNameSchema } from "../musterrolle/workspaces.ts";
-import { timestampSchema, userIdSchema } from "../shared/index.ts";
+import {
+  receiptIdSchema,
+  timestampSchema,
+  userIdSchema,
+} from "../shared/index.ts";
 
 // Remote MCP servers a workspace registers and authenticates once; every
 // agent that turns one on calls it with that one credential (decision
@@ -232,4 +239,56 @@ export const deleteWorkspaceMcpServerResponseSchema = z
   .strict();
 export type DeleteWorkspaceMcpServerResponse = z.infer<
   typeof deleteWorkspaceMcpServerResponseSchema
+>;
+
+/** One workspace server as an agent's MCP tab shows it. */
+export const agentWorkspaceMcpServerSchema = z
+  .object({
+    server_id: workspaceMcpServerIdSchema,
+    name: mcpServerIdSchema,
+    /** The agent's next sessions may call it. */
+    on: z.boolean(),
+    /** Tools stay hidden from sessions until the connection is active. */
+    state: workspaceMcpConnectionStateSchema,
+    /** Whose external account the agent's calls run as. */
+    connected_by: personSchema.nullable(),
+    tool_count: z.number().int().nonnegative(),
+  })
+  .strict();
+export type AgentWorkspaceMcpServer = z.infer<
+  typeof agentWorkspaceMcpServerSchema
+>;
+
+/** Every server of the workspace, by name; `on` marks the agent's own. */
+export const agentWorkspaceMcpServerListSchema = z
+  .object({
+    items: z.array(agentWorkspaceMcpServerSchema),
+    limit: z.number().int().positive(),
+  })
+  .strict();
+export type AgentWorkspaceMcpServerList = z.infer<
+  typeof agentWorkspaceMcpServerListSchema
+>;
+
+/** The whole set, replaced. */
+export const putAgentWorkspaceMcpServersRequestSchema = z
+  .object({
+    server_ids: z
+      .array(workspaceMcpServerIdSchema)
+      .max(AGENT_WORKSPACE_MCP_SERVERS_MAX),
+  })
+  .strict();
+export type PutAgentWorkspaceMcpServersRequest = z.infer<
+  typeof putAgentWorkspaceMcpServersRequestSchema
+>;
+
+/** `receipt_id` is null when the agent already had this set. */
+export const putAgentWorkspaceMcpServersResponseSchema = z
+  .object({
+    servers: agentWorkspaceMcpServerListSchema,
+    receipt_id: receiptIdSchema.nullable(),
+  })
+  .strict();
+export type PutAgentWorkspaceMcpServersResponse = z.infer<
+  typeof putAgentWorkspaceMcpServersResponseSchema
 >;

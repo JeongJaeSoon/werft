@@ -1373,6 +1373,13 @@
       "when": 1794725811535,
       "tag": "0286_workspace_mcp_servers",
       "breakpoints": true
+    },
+    {
+      "idx": 287,
+      "version": "7",
+      "when": 1794730377177,
+      "tag": "0287_agent_workspace_mcp_servers",
+      "breakpoints": true
     }
   ]
 }

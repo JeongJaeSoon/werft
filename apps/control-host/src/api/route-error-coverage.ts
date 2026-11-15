@@ -209,6 +209,10 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/agents/{id}/mcp/settings",
     "PUT /v1/agents/{id}/mcp/settings",
   ],
+  "routes/agents/agent-workspace-mcp.test.ts": [
+    "GET /v1/agents/{id}/mcp/workspace-servers",
+    "PUT /v1/agents/{id}/mcp/workspace-servers",
+  ],
   "routes/agents/engine-settings.test.ts": [
     "GET /v1/workspaces/{id}/engine-settings",
     "PUT /v1/workspaces/{id}/engine-settings",

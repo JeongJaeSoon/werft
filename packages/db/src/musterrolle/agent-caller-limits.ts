@@ -8,6 +8,8 @@ import {
   GITHUB_MCP_SERVER,
   type McpStart,
   mcpStartSchema,
+  type WorkspaceMcpStart,
+  workspaceMcpStartSchema,
 } from "@werft-ai/contracts";
 import {
   type AgentCallerLimitsStore,
@@ -26,6 +28,7 @@ import {
   withLiveRepositories,
 } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { captureWorkspaceMcpStart } from "../agents/agent-workspace-mcp.ts";
 import { captureMcpStart } from "../agents/mcp-settings.ts";
 import { lockPeople, UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
@@ -302,7 +305,8 @@ async function releaseFacts(
 
 // The union of what the card and the release declare and what the MCP route
 // and the built-in GitHub server expose to the session: a tool or server any
-// of them reaches counts.
+// of them reaches counts. A workspace server counts with every tool it had
+// when the session started, connected or not.
 async function reachOf(
   tx: Database,
   releaseId: string,
@@ -310,6 +314,7 @@ async function reachOf(
   input: {
     builtinTools: readonly string[];
     mcpStart: McpStart | null;
+    workspaceMcpStart: WorkspaceMcpStart | null;
     githubPolicySource: string;
     repositories: readonly string[];
   },
@@ -330,6 +335,8 @@ async function reachOf(
   }
   if (github !== null && github.tools.length > 0)
     servers.add(GITHUB_MCP_SERVER);
+  const workspaceServers = input.workspaceMcpStart?.servers ?? [];
+  for (const server of workspaceServers) servers.add(server.name);
   const effective = effectiveToolsSchema.safeParse(release.effectiveTools);
   return {
     tools: [
@@ -338,6 +345,7 @@ async function reachOf(
         ...(effective.success ? effective.data.mcp : []),
         ...(exposed?.tools ?? []),
         ...(github?.tools ?? []),
+        ...workspaceServers.flatMap((server) => server.tools),
       ]),
     ],
     repositories: input.repositories,
@@ -360,6 +368,7 @@ export async function startReach(
   input: {
     releaseId: string;
     mcpStart: McpStart | null;
+    workspaceMcpStart: WorkspaceMcpStart | null;
     githubPolicySource: string;
     repositoryIds: readonly string[];
   },
@@ -369,6 +378,7 @@ export async function startReach(
   return reachOf(tx, input.releaseId, release, {
     builtinTools: releaseBuiltinTools(release),
     mcpStart: input.mcpStart,
+    workspaceMcpStart: input.workspaceMcpStart,
     githubPolicySource: input.githubPolicySource,
     repositories: input.repositoryIds,
   });
@@ -406,6 +416,7 @@ export async function sessionReach(
     repositoryId: string | null;
     attachedRepositoryIds: readonly string[] | null;
     mcpStart: unknown;
+    workspaceMcpStart: unknown;
     githubPolicySource: string;
     githubPolicyStart: unknown;
   },
@@ -424,6 +435,8 @@ export async function sessionReach(
   return reachOf(tx, session.agentReleaseId, release, {
     builtinTools: releaseBuiltinTools(release),
     mcpStart: mcpStartSchema.safeParse(session.mcpStart).data ?? null,
+    workspaceMcpStart:
+      workspaceMcpStartSchema.safeParse(session.workspaceMcpStart).data ?? null,
     githubPolicySource: session.githubPolicySource,
     repositories: [
       ...(session.repositoryId === null ? [] : [session.repositoryId]),
@@ -495,6 +508,7 @@ export function createPostgresCallerLimitGate(db: Database): CallerLimitGate {
       const reach = await startReach(db, {
         releaseId: input.releaseId,
         mcpStart: await captureMcpStart(db, input.releaseId),
+        workspaceMcpStart: await captureWorkspaceMcpStart(db, input.releaseId),
         githubPolicySource: input.githubPolicySource,
         repositoryIds: input.repositoryIds,
       });

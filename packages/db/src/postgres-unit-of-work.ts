@@ -78,6 +78,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { captureWorkspaceMcpStart } from "./agents/agent-workspace-mcp.ts";
 import { captureMcpStart } from "./agents/mcp-settings.ts";
 import { earlierInSecond, releaseLabel } from "./agents/release-labels.ts";
 import { workerRuntimeView } from "./checkpoints/checkpoint-runtime.ts";
@@ -445,6 +446,10 @@ export function createPostgresSessionUnitOfWork(
           input.agentReleaseId === undefined
             ? null
             : await captureMcpStart(tx, input.agentReleaseId);
+        const workspaceMcpStart =
+          input.agentReleaseId === undefined
+            ? null
+            : await captureWorkspaceMcpStart(tx, input.agentReleaseId);
         // The same merge and the same coverage check as the service made,
         // over the rows locked above: when a rule moved since, this answer
         // wins. Before the unbound check, which would hide a limit that
@@ -457,6 +462,7 @@ export function createPostgresSessionUnitOfWork(
           const reach = await startReach(tx, {
             releaseId: input.agentReleaseId,
             mcpStart,
+            workspaceMcpStart,
             githubPolicySource: input.githubPolicySource ?? "release",
             repositoryIds: [
               ...(typeof input.repository === "object"
@@ -562,6 +568,7 @@ export function createPostgresSessionUnitOfWork(
           githubPolicySource: input.githubPolicySource ?? "release",
           githubPolicyStart,
           mcpStart,
+          workspaceMcpStart,
           engineSettingsStart,
           envStart:
             envCapture.outcome === "resolved" ? envCapture.envStart : null,
@@ -687,6 +694,7 @@ export function createPostgresSessionUnitOfWork(
             repositoryId: sessions.repositoryId,
             attachedRepositoryIds: sessions.attachedRepositoryIds,
             mcpStart: sessions.mcpStart,
+            workspaceMcpStart: sessions.workspaceMcpStart,
             githubPolicySource: sessions.githubPolicySource,
             githubPolicyStart: sessions.githubPolicyStart,
             callerLimit: sessions.callerLimit,
