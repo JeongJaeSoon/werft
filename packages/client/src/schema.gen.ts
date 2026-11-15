@@ -1123,7 +1123,7 @@ export interface paths {
         };
         /**
          * Execution limits for the whole installation
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Each key gives `value`, what applies now; `default`, what applies while nothing is saved; `saved`, false until an owner saves the key or an upgrade carries its old environment variable in; and `blocked`, true while that variable held a value the key does not accept and nothing is saved: only what the key sets is refused (503, retryable) until a value is saved, and no default stands in. `pending_request_ttl_sec` is how long a permission or question a session raised takes answers once registered (1 to 604800 seconds); while blocked, a permission or question is not registered. `queued_input_limit_per_session` is how many queued turns one session holds before the next input answers 429 (1 to 100000), and `storage_limit_bytes` the input bytes the installation retains before the next answers 413; while either is blocked, a new session or input is refused. `session_cost_limit_usd` (above 0, up to 1000000) and `session_token_limit` (0 sets none) stop a session that reached either: it is launched, claimed and given nothing more, and a new provider call is refused. A raised limit reaches a running worker at its next claim; a lowered one stops the next provider call. While either is blocked, no session is launched and no provider call is opened. `workspace_enforce` (`warn`, `fail`, `off`) is what a worker does once its workspace outgrows its quota, read at each claim. The values apply to every workspace of the installation.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Each key gives `value`, what applies now; `default`, what applies while nothing is saved; `saved`, false until an owner saves the key or an upgrade carries its old environment variable in; and `blocked`, true while that variable held a value the key does not accept and nothing is saved: only what the key sets is refused (503, retryable) until a value is saved, and no default stands in. `pending_request_ttl_sec` is how long a permission or question a session raised takes answers once registered (1 to 604800 seconds); while blocked, a permission or question is not registered. `queued_input_limit_per_session` is how many queued turns one session holds before the next input answers 429 (1 to 100000), and `storage_limit_bytes` the input bytes the installation retains before the next answers 413; while either is blocked, a new session or input is refused. `session_cost_limit_usd` (above 0, up to 1000000) and `session_token_limit` (0 sets none) stop a session that reached either: it is launched, claimed and given nothing more, and a new provider call is refused. A raised limit reaches a running worker at its next claim; a lowered one stops the next provider call. While either is blocked, no session is launched and no provider call is opened. `workspace_enforce` (`warn`, `fail`, `off`) is what a worker does once its workspace outgrows its quota, read at each claim. `session_archive_after_days` (0 archives nothing, otherwise 30 to 3650) and `session_archive_dry_run` (true only counts) are read by the session event archive job at each run; while either is blocked, the job moves nothing and exits 1. `session_archive` is not a setting: whether this API's object store settings could hold archived events (`reason`: `object_store_disabled` or `unversioned` when not); it does not know whether the job itself is turned off. The values apply to every workspace of the installation.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -19179,6 +19179,10 @@ export interface operations {
                      *         "default": true,
                      *         "saved": false,
                      *         "blocked": false
+                     *       },
+                     *       "session_archive": {
+                     *         "available": true,
+                     *         "reason": null
                      *       }
                      *     }
                      */
@@ -19324,6 +19328,10 @@ export interface operations {
                      *         "default": true,
                      *         "saved": false,
                      *         "blocked": false
+                     *       },
+                     *       "session_archive": {
+                     *         "available": true,
+                     *         "reason": null
                      *       },
                      *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
                      *     }
