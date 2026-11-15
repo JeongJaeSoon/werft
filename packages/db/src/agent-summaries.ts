@@ -29,6 +29,7 @@ import {
   memberTeams,
   sessions,
   slackApps,
+  slackInstallations,
   surfaceBindings,
   users,
 } from "./schema.ts";
@@ -266,18 +267,33 @@ export async function agentSummaries(
       ),
     );
   // A hand-made app linked through POST /v1/agents/{id}/identities has no
-  // slack_apps row, so the channel reads the identity alone.
+  // slack_apps row, so the channel reads the identity. Deleting a created
+  // app leaves its identity active until Slack sends app_uninstalled, which
+  // a deleted app may never send.
   const slackInstalled = new Set(
     (
       await db
         .selectDistinct({ agentId: agentIdentities.agentId })
         .from(agentIdentities)
+        .innerJoin(
+          slackInstallations,
+          eq(slackInstallations.id, agentIdentities.installationId),
+        )
         .where(
           and(
             eq(agentIdentities.workspaceId, workspaceId),
             inArray(agentIdentities.agentId, found),
             eq(agentIdentities.provider, "slack_bot"),
             eq(agentIdentities.status, "active"),
+            sql`not exists (${db
+              .select({ one: sql`1` })
+              .from(slackApps)
+              .where(
+                and(
+                  eq(slackApps.appId, slackInstallations.appId),
+                  eq(slackApps.state, "deleted"),
+                ),
+              )})`,
           ),
         )
     ).map((row) => row.agentId),

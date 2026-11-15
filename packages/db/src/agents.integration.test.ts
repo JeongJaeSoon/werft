@@ -699,17 +699,18 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         eventsUrl: "https://example.invalid/slack/events",
         ...values,
       });
-      return id;
+      return `A${id.slice(0, 8).toUpperCase()}`;
     }
     async function identity(
       agentId: string,
       status: "active" | "revoked" = "active",
+      appId?: string,
     ) {
       const installationId = randomUUID();
       await db.insert(slackInstallations).values({
         id: installationId,
         workspaceId,
-        appId: `A${installationId.slice(0, 8).toUpperCase()}`,
+        appId: appId ?? `A${installationId.slice(0, 8).toUpperCase()}`,
         teamId: "T1",
       });
       await db.insert(agentIdentities).values({
@@ -790,6 +791,13 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     // A hand-made app linked to the agent: an identity and no created app.
     const handMade = await newId();
     await identity(handMade);
+    // Deleted while installed, before Slack sent app_uninstalled.
+    const deletedInstalled = await newId();
+    await identity(
+      deletedInstalled,
+      "active",
+      await app(deletedInstalled, { state: "deleted", botTokenRef: null }),
+    );
 
     const page = await agentsService.listAgents(owner, {
       ...PAGE,
@@ -838,8 +846,9 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         reinstall,
         deleted,
         handMade,
+        deletedInstalled,
       ].map((id) => channels.get(id)),
-    ).toEqual([[], ["slack"], ["slack"], [], [], [], ["slack"]]);
+    ).toEqual([[], ["slack"], ["slack"], [], [], [], ["slack"], []]);
   });
 
   test("a summary lists GitHub while the agent's switch is on and its settings name a repository", async () => {
