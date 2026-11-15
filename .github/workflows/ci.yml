@@ -31,19 +31,28 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
+  # On a main push whose tree a PR run already tested and passed
+  # (.github/scripts/ci-reuse.sh), the plan drops the suites that run reused:
+  # `reused` names it, and the required gates accept that in place of a
+  # second run. Anything short of that proof keeps the plan as it was.
   changes:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 3
+    permissions:
+      contents: read
+      # ci-reuse.sh reads the PR run's jobs.
+      actions: read
     outputs:
-      tests: ${{ steps.plan.outputs.tests }}
-      product: ${{ steps.plan.outputs.product }}
+      tests: ${{ steps.reuse.outputs.reused != '' && 'false' || steps.plan.outputs.tests }}
+      product: ${{ steps.reuse.outputs.reused != '' && 'false' || steps.plan.outputs.product }}
       site: ${{ steps.plan.outputs.site }}
-      quickstart: ${{ steps.plan.outputs.quickstart }}
+      quickstart: ${{ steps.reuse.outputs.reused != '' && 'false' || steps.plan.outputs.quickstart }}
       docs_only: ${{ steps.plan.outputs.docs_only }}
-      helm: ${{ steps.plan.outputs.helm }}
-      k8s: ${{ steps.plan.outputs.k8s }}
-      domains: ${{ steps.plan.outputs.domains }}
-      sdk_pack: ${{ steps.sdk.outputs.run }}
+      helm: ${{ steps.reuse.outputs.helm == 'true' && 'false' || steps.plan.outputs.helm }}
+      k8s: ${{ steps.reuse.outputs.k8s == 'true' && 'false' || steps.plan.outputs.k8s }}
+      domains: ${{ steps.reuse.outputs.reused != '' && '[]' || steps.plan.outputs.domains }}
+      sdk_pack: ${{ steps.reuse.outputs.sdk_pack == 'true' && 'false' || steps.sdk.outputs.run }}
+      reused: ${{ steps.reuse.outputs.reused }}
       unit_parts: ${{ steps.units.outputs.matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -73,6 +82,22 @@ jobs:
             done <"$RUNNER_TEMP/sdk-pack-paths"
           fi
           echo "run=$run" >>"$GITHUB_OUTPUT"
+      - id: reuse
+        name: Reuse the PR run that tested this tree
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          BEFORE_SHA: ${{ github.event.before }}
+          TESTS: ${{ steps.plan.outputs.tests }}
+          PRODUCT: ${{ steps.plan.outputs.product }}
+          QUICKSTART: ${{ steps.plan.outputs.quickstart }}
+          HELM: ${{ steps.plan.outputs.helm }}
+          K8S: ${{ steps.plan.outputs.k8s }}
+          SDK_PACK: ${{ steps.sdk.outputs.run }}
+          DOMAINS: ${{ steps.plan.outputs.domains }}
+          DOCS_ONLY: ${{ steps.plan.outputs.docs_only }}
+        run: bash .github/scripts/ci-reuse.sh >>"$GITHUB_OUTPUT"
       - if: github.event.inputs.only == 'check' || steps.plan.outputs.domains == '["surface"]'
         uses: ./.github/actions/bun-setup
         with:
@@ -179,11 +204,13 @@ jobs:
           DOCS: ${{ needs.docs-checks.result }}
           TESTS: ${{ needs.changes.outputs.tests }}
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          REUSED: ${{ needs.changes.outputs.reused }}
         run: |
           [ "$PLAN" = success ] && [ "$STATIC" = success ] || exit 1
-          case "$TESTS:$DOCS_ONLY:$RESULT:$DOCS" in
-            true:false:success:skipped) echo "check: all planned tests passed" ;;
-            false:true:skipped:success) echo "check: documentation policy tests passed; product tests are not needed" ;;
+          case "$TESTS:$DOCS_ONLY:$RESULT:$DOCS:${REUSED:+reused}" in
+            true:false:success:skipped:) echo "check: all planned tests passed" ;;
+            false:true:skipped:success:) echo "check: documentation policy tests passed; product tests are not needed" ;;
+            false:false:skipped:skipped:reused) echo "check: the PR run that tested this exact tree passed them: ${REUSED}" ;;
             *) echo "::error::invalid or failed check plan/results"; exit 1 ;;
           esac
       - id: product-results
@@ -381,6 +408,7 @@ jobs:
               - tests/ci-images.
               - tests/ci-services.
               - tests/ci-plan.
+              - tests/ci-reuse.
               - tests/ci-static-checks.
               - tests/install-rehearsal.
               - tests/receipt-agent-refs.
@@ -629,6 +657,7 @@ jobs:
           PLAN: ${{ needs.changes.result }}
           TESTS: ${{ needs.changes.outputs.tests }}
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          REUSED: ${{ needs.changes.outputs.reused }}
         run: |
           [ "$PLAN" = success ] || exit 1
           case "$EVENT:$ONLY:$E2E:$CONFORMANCE:$QUICKSTART" in
@@ -636,9 +665,10 @@ jobs:
             workflow_dispatch:integration:skipped:skipped:skipped) ;;
             *) echo "::error::required scenario or guide jobs did not pass"; exit 1 ;;
           esac
-          case "$TESTS:$DOCS_ONLY:$RESULT" in
-            true:false:success) echo "integration: all domains passed" ;;
-            false:true:skipped) echo "integration: documentation-only PR; no product test inputs changed" ;;
+          case "$TESTS:$DOCS_ONLY:$RESULT:${REUSED:+reused}" in
+            true:false:success:) echo "integration: all domains passed" ;;
+            false:true:skipped:) echo "integration: documentation-only PR; no product test inputs changed" ;;
+            false:false:skipped:reused) echo "integration: the PR run that tested this exact tree passed every domain: ${REUSED}" ;;
             *) echo "::error::invalid or failed integration plan/results"; exit 1 ;;
           esac
       - id: cancelled
@@ -895,11 +925,13 @@ jobs:
           PLAN: ${{ needs.changes.result }}
           PRODUCT: ${{ needs.changes.outputs.product }}
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          REUSED: ${{ needs.changes.outputs.reused }}
         run: |
           [ "$PLAN" = success ] || exit 1
-          case "$PRODUCT:$DOCS_ONLY" in
-            true:false) echo "e2e: product inputs changed; running the complete scenario" ;;
-            false:true) echo "e2e: documentation-only PR; product inputs unchanged" ;;
+          case "$PRODUCT:$DOCS_ONLY:${REUSED:+reused}" in
+            true:false:) echo "e2e: product inputs changed; running the complete scenario" ;;
+            false:true:) echo "e2e: documentation-only PR; product inputs unchanged" ;;
+            false:false:reused) echo "e2e: the PR run that tested this exact tree passed it: ${REUSED}" ;;
             *) echo "::error::invalid product test plan"; exit 1 ;;
           esac
       - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
@@ -938,12 +970,14 @@ jobs:
           PLAN: ${{ needs.changes.result }}
           PRODUCT: ${{ needs.changes.outputs.product }}
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          REUSED: ${{ needs.changes.outputs.reused }}
           SCENARIO: ${{ steps.scenario.outcome }}
         run: |
           [ "$PLAN" = success ] || exit 1
-          case "$PRODUCT:$DOCS_ONLY:$SCENARIO" in
-            true:false:success) echo "e2e: scenario passed" ;;
-            false:true:skipped) echo "e2e: intentionally omitted for documentation-only inputs" ;;
+          case "$PRODUCT:$DOCS_ONLY:$SCENARIO:${REUSED:+reused}" in
+            true:false:success:) echo "e2e: scenario passed" ;;
+            false:true:skipped:) echo "e2e: intentionally omitted for documentation-only inputs" ;;
+            false:false:skipped:reused) echo "e2e: passed in the PR run that tested this exact tree: ${REUSED}" ;;
             *) echo "::error::required e2e scenario did not pass"; exit 1 ;;
           esac
       - id: cancelled
@@ -977,11 +1011,13 @@ jobs:
           PLAN: ${{ needs.changes.result }}
           PRODUCT: ${{ needs.changes.outputs.product }}
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          REUSED: ${{ needs.changes.outputs.reused }}
         run: |
           [ "$PLAN" = success ] || exit 1
-          case "$PRODUCT:$DOCS_ONLY" in
-            true:false) echo "conformance: product inputs changed; running the suite" ;;
-            false:true) echo "conformance: documentation-only PR; product inputs unchanged" ;;
+          case "$PRODUCT:$DOCS_ONLY:${REUSED:+reused}" in
+            true:false:) echo "conformance: product inputs changed; running the suite" ;;
+            false:true:) echo "conformance: documentation-only PR; product inputs unchanged" ;;
+            false:false:reused) echo "conformance: the PR run that tested this exact tree passed it: ${REUSED}" ;;
             *) echo "::error::invalid product test plan"; exit 1 ;;
           esac
       - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
@@ -1017,12 +1053,14 @@ jobs:
           PLAN: ${{ needs.changes.result }}
           PRODUCT: ${{ needs.changes.outputs.product }}
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          REUSED: ${{ needs.changes.outputs.reused }}
           SCENARIO: ${{ steps.scenario.outcome }}
         run: |
           [ "$PLAN" = success ] || exit 1
-          case "$PRODUCT:$DOCS_ONLY:$SCENARIO" in
-            true:false:success) echo "conformance: suite passed" ;;
-            false:true:skipped) echo "conformance: intentionally omitted for documentation-only inputs" ;;
+          case "$PRODUCT:$DOCS_ONLY:$SCENARIO:${REUSED:+reused}" in
+            true:false:success:) echo "conformance: suite passed" ;;
+            false:true:skipped:) echo "conformance: intentionally omitted for documentation-only inputs" ;;
+            false:false:skipped:reused) echo "conformance: passed in the PR run that tested this exact tree: ${REUSED}" ;;
             *) echo "::error::required conformance suite did not pass"; exit 1 ;;
           esac
       - id: cancelled
@@ -1241,7 +1279,7 @@ jobs:
       issues: write
     if: >-
       !cancelled() && needs.static.result != 'failure'
-      && needs.changes.outputs.product == 'true'
+      && (needs.changes.outputs.product == 'true' || needs.changes.outputs.reused != '')
       && github.event_name != 'pull_request'
       && contains(fromJSON('["all","agent-sdk-compat"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04

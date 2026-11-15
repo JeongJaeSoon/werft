@@ -997,6 +997,8 @@ describe("compose and workflow agree with the Dockerfiles", () => {
         // The release jobs of a main run: they run only when release-detect
         // found a new version heading, which no row below models.
         if (term === "needs.release-detect.outputs.tag != ''") return false;
+        // Every row below is a push that changes the product: the plan builds.
+        if (term === "needs.plan.outputs.images == 'build'") return true;
         const equal = term.match(/^github\.(event_name|ref) == '([^']+)'$/);
         if (!equal) throw new Error(`unexpected term: ${term}`);
         return (equal[1] === "ref" ? run.ref : run.event) === equal[2];
@@ -1090,12 +1092,16 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       }
     });
 
-    test("only the build job writes the layer cache, and never for a pull request", () => {
+    // A main push skips `build`, so publish-main keeps the cache current.
+    test("build and the publish jobs write the layer cache, never for a pull request", () => {
       for (const name of ["publish", "publish-main"]) {
         const build = jobs[name]?.steps.find((step) =>
           step.uses?.startsWith("docker/build-push-action@"),
         );
-        expect(build?.with?.["cache-to"]).toBeUndefined();
+        expect(build?.with?.["cache-to"]).toBe(
+          `type=gha,scope=images-${expression("matrix.app")}-${expression("matrix.arch")},mode=min`,
+        );
+        expect(jobs[name]?.if).toContain("github.event_name == 'push'");
       }
       const build = jobs.build?.steps.find((step) =>
         step.uses?.startsWith("docker/build-push-action@"),
@@ -1194,7 +1200,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
         expect(jobs[name]?.permissions).toBeUndefined();
         expect(jobs[name]?.environment).toBeUndefined();
       }
-      expect(jobs["sources-main"]?.if).toBe(jobs["publish-main"]?.if);
+      expect(jobs["publish-main"]?.if).toBe(
+        `${jobs["sources-main"]?.if} && needs.plan.outputs.images == 'build'`,
+      );
       expect(jobs.sources?.if).toBe(jobs.publish?.if);
     });
 
@@ -1219,9 +1227,11 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       for (const name of ["chart", "chart-main"]) {
         expect(jobs[name]?.permissions).toBeUndefined();
       }
-      expect(jobs["chart-main"]?.if).toBe(jobs["publish-main"]?.if);
+      expect(jobs["publish-main"]?.if).toBe(
+        `${jobs["chart-main"]?.if} && needs.plan.outputs.images == 'build'`,
+      );
       expect(jobs.chart?.if).toBe(jobs.publish?.if);
-      expect(jobs["chart-publish-main"]?.if).toBe(jobs["publish-main"]?.if);
+      expect(jobs["chart-publish-main"]?.if).toBe(jobs["chart-main"]?.if);
       expect(jobs["chart-publish"]?.if).toBe(jobs.publish?.if);
       expect(jobs["chart-main"]?.steps).toEqual(jobs.chart?.steps ?? []);
       expect(jobs["chart-publish-main"]?.steps).toEqual(
