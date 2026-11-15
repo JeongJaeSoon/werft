@@ -58,10 +58,35 @@ async function commit(
   return git(dir, "rev-parse", "HEAD");
 }
 
+// One API object: a PR or issue (with a title) or a comment or review.
+function item(
+  body: string,
+  author_association = "OWNER",
+  title?: string,
+): Record<string, string> {
+  return title === undefined
+    ? { body, author_association }
+    : { title, body, author_association };
+}
+
+const pr = (title: string, body: string, association = "OWNER") =>
+  JSON.stringify(item(body, association, title));
+const list = (...items: Record<string, string>[]) => JSON.stringify(items);
+
+async function ghCalls(cwd: string): Promise<string[]> {
+  const text = await Bun.file(`${cwd}.gh-log`)
+    .text()
+    .catch(() => "");
+  return text.split("\n").filter(Boolean);
+}
+
 async function run(cwd: string, env: Record<string, string>) {
   const clean = { ...process.env } as Record<string, string>;
   for (const key of [
     "FORBIDDEN_TERMS",
+    "FORBIDDEN_HOST_TERMS",
+    "ISSUE_NUMBER",
+    "TEXT_ONLY",
     "PR_NUMBER",
     "BASE_SHA",
     "BASE_REF",
@@ -75,6 +100,7 @@ async function run(cwd: string, env: Record<string, string>) {
       ...clean,
       PATH: `${binDir}:${process.env.PATH}`,
       GITHUB_REPOSITORY: "o/r",
+      FAKE_GH_LOG: `${cwd}.gh-log`,
       ...env,
     },
     stdout: "pipe",
@@ -91,10 +117,28 @@ beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "forbidden-terms-"));
   binDir = join(root, "bin");
   await mkdir(binDir);
-  // Fake `gh`: prints the PR text held in $FAKE_PR_TEXT, or fails when FAKE_PR_FAIL is set.
+  // Fake `gh api [--paginate] <path> --jq <filter>`: runs the filter with the real jq over the
+  // JSON held for that path, so the author filter is tested too. FAKE_<KIND>_FAIL fails a kind.
   await writeFile(
     join(binDir, "gh"),
-    '#!/bin/sh\n[ -n "$FAKE_PR_FAIL" ] && exit 4\nprintf "%s\\n" "$FAKE_PR_TEXT"\n',
+    `#!/bin/sh
+path=""; filter=""; paginate=""
+while [ $# -gt 0 ]; do
+  case "$1" in --jq) filter="$2"; shift ;; --paginate) paginate=1 ;; repos/*) path="$1" ;; esac
+  shift
+done
+echo "$path" >> "$FAKE_GH_LOG"
+# Without --paginate a long thread would be read only to its first page.
+[ -z "$paginate" ] && exit 5
+case "$path" in
+  */issues/*/comments) json="\${FAKE_COMMENTS:-[]}"; fail="$FAKE_COMMENTS_FAIL" ;;
+  */pulls/*/comments) json="\${FAKE_REVIEW_COMMENTS:-[]}"; fail="$FAKE_COMMENTS_FAIL" ;;
+  */pulls/*/reviews) json="\${FAKE_REVIEWS:-[]}"; fail="$FAKE_COMMENTS_FAIL" ;;
+  *) json="$FAKE_PR"; fail="$FAKE_PR_FAIL" ;;
+esac
+[ -n "$fail" ] && exit 4
+printf '%s' "$json" | jq -r "$filter"
+`,
   );
   await chmod(join(binDir, "gh"), 0o755);
 });
@@ -113,12 +157,13 @@ describe("forbidden-terms", () => {
       BASE_SHA: base,
       HEAD_SHA: head,
       PR_NUMBER: "7",
-      FAKE_PR_TEXT: "title\nbody",
+      FAKE_PR: pr("title", "body"),
     });
     expect(r.code).toBe(0);
     expect(r.out).toContain("tree: 0");
     expect(r.out).toContain("commit messages: 0");
     expect(r.out).toContain("PR title and body: 0");
+    expect(r.out).toContain("PR comments and reviews: 0");
   });
 
   test("a tree hit fails and the log has counts only", async () => {
@@ -214,7 +259,7 @@ describe("forbidden-terms", () => {
     const r = await run(dir, {
       FORBIDDEN_TERMS: SYNTHETIC,
       PR_NUMBER: "7",
-      FAKE_PR_TEXT: `title\nbody ${HIT_TEXT}`,
+      FAKE_PR: pr("title", `body ${HIT_TEXT}`),
     });
     expect(r.code).toBe(1);
     expect(r.out).toContain("PR title and body: 1");
@@ -259,6 +304,146 @@ describe("forbidden-terms", () => {
     });
     expect(r.code).toBe(1);
     expect(r.out).toContain("could not read the PR title and body");
+  });
+
+  test("FORBIDDEN_HOST_TERMS joins the scan; without it the log says it was skipped", async () => {
+    const dir = await makeRepo("host", { "a.txt": "zz-synthetic-host 1\n" });
+    const hit = await run(dir, {
+      FORBIDDEN_TERMS: SYNTHETIC,
+      FORBIDDEN_HOST_TERMS: "\nzz-synthetic-host\n",
+    });
+    expect(hit.code).toBe(1);
+    expect(hit.out).toContain("tree: 1");
+    expect(hit.out).not.toContain("not set");
+    expectNoLeak(hit.out);
+    const skipped = await run(dir, { FORBIDDEN_TERMS: SYNTHETIC });
+    expect(skipped.code).toBe(0);
+    expect(skipped.out).toContain(
+      "FORBIDDEN_HOST_TERMS is not set; host terms were not scanned",
+    );
+    const bad = await run(dir, {
+      FORBIDDEN_TERMS: SYNTHETIC,
+      FORBIDDEN_HOST_TERMS: "zz-synthetic-host(\n",
+    });
+    expect(bad.code).toBe(1);
+    expectNoLeak(bad.out);
+  });
+
+  test("thread scans run under their own check name, gated before concurrency, on main's code", async () => {
+    const workflows = join(import.meta.dir, "..", ".github", "workflows");
+    // biome-ignore lint/suspicious/noExplicitAny: parsed workflow YAML
+    const load = async (name: string): Promise<any> =>
+      Bun.YAML.parse(await Bun.file(join(workflows, name)).text());
+    const pr = await load("forbidden-terms.yml");
+    const threads = await load("forbidden-terms-threads.yml");
+    // Review events run on the PR's commit: one job named forbidden-terms there would
+    // stand in for the required check, even when skipped.
+    expect(Object.keys(pr.on).sort()).toEqual(["pull_request", "push"]);
+    expect(Object.keys(threads.on).sort()).toEqual([
+      "issue_comment",
+      "issues",
+      "pull_request_review",
+      "pull_request_review_comment",
+    ]);
+    expect(Object.keys(threads.jobs)).toEqual(["forbidden-terms-threads"]);
+    const job = threads.jobs["forbidden-terms-threads"];
+    expect(job.name).toBe("forbidden-terms-threads");
+    // Concurrency on the gated job only, so a stranger's skipped event cancels nothing.
+    expect(threads.concurrency).toBeUndefined();
+    expect(job.concurrency.group).toContain("forbidden-terms-threads-");
+    const gate = job.if.replace(/\s+/g, " ");
+    expect(gate).toContain('fromJSON(\'["OWNER","MEMBER","COLLABORATOR"]\')');
+    for (const who of ["comment", "review", "issue"])
+      expect(gate).toContain(`github.event.${who}.author_association`);
+    expect(gate).toContain(
+      "github.event.pull_request.head.repo.full_name == github.repository",
+    );
+    const checkout = job.steps.find((s: { uses?: string }) =>
+      s.uses?.startsWith("actions/checkout@"),
+    );
+    expect(checkout.with.ref).toMatch(
+      /^\$\{\{ github\.event\.repository\.default_branch \}\}$/,
+    );
+    const scan = job.steps.find((s: { run?: string }) =>
+      s.run?.includes("forbidden-terms.ts"),
+    );
+    expect(scan.env.TEXT_ONLY).toBe("true");
+  });
+
+  test("a hit in a PR comment, review comment or review fails with a count only", async () => {
+    const dir = await makeRepo("pr-comments", { "a.txt": "ok\n" });
+    const base = { FORBIDDEN_TERMS: SYNTHETIC, PR_NUMBER: "7" };
+    const cases: Record<string, string>[] = [
+      { FAKE_COMMENTS: list(item("fine"), item(`see ${HIT_TEXT}`, "MEMBER")) },
+      { FAKE_REVIEW_COMMENTS: list(item(HIT_TEXT, "COLLABORATOR")) },
+      { FAKE_REVIEWS: list(item(HIT_TEXT)) },
+    ];
+    for (const texts of cases) {
+      const r = await run(dir, { ...base, FAKE_PR: pr("t", "b"), ...texts });
+      expect(r.code).toBe(1);
+      expect(r.out).toContain("PR comments and reviews: 1");
+      expectNoLeak(r.out);
+    }
+  });
+
+  test("a stranger's comment, review or PR body is not scanned", async () => {
+    const dir = await makeRepo("stranger", { "a.txt": "ok\n" });
+    const r = await run(dir, {
+      FORBIDDEN_TERMS: SYNTHETIC,
+      PR_NUMBER: "7",
+      FAKE_PR: pr("t", HIT_TEXT, "NONE"),
+      FAKE_COMMENTS: list(
+        item(HIT_TEXT, "NONE"),
+        item(HIT_TEXT, "CONTRIBUTOR"),
+      ),
+      FAKE_REVIEWS: list(item(HIT_TEXT, "FIRST_TIME_CONTRIBUTOR")),
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("PR title and body: 0");
+    expect(r.out).toContain("PR comments and reviews: 0");
+  });
+
+  test("an issue scans its title, body and comments, and no PR endpoint", async () => {
+    const dir = await makeRepo("issue", { "a.txt": "ok\n" });
+    const r = await run(dir, {
+      FORBIDDEN_TERMS: SYNTHETIC,
+      ISSUE_NUMBER: "9",
+      FAKE_PR: pr("t", "b"),
+      FAKE_COMMENTS: list(item(HIT_TEXT)),
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("issue title and body: 0");
+    expect(r.out).toContain("issue comments and reviews: 1");
+    expect(await ghCalls(dir)).toEqual([
+      "repos/o/r/issues/9",
+      "repos/o/r/issues/9/comments",
+    ]);
+  });
+
+  test("TEXT_ONLY skips the tree and commit messages", async () => {
+    const dir = await makeRepo("text-only", { "a.txt": `${HIT_TEXT}\n` });
+    const r = await run(dir, {
+      FORBIDDEN_TERMS: SYNTHETIC,
+      TEXT_ONLY: "true",
+      PR_NUMBER: "7",
+      FAKE_PR: pr("t", "b"),
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("tree:");
+    expect(r.out).not.toContain("commit messages:");
+    expect(r.out).toContain("PR comments and reviews: 0");
+  });
+
+  test("a comment API failure fails with fixed text", async () => {
+    const dir = await makeRepo("comments-api", { "a.txt": "ok\n" });
+    const r = await run(dir, {
+      FORBIDDEN_TERMS: SYNTHETIC,
+      PR_NUMBER: "7",
+      FAKE_PR: pr("t", "b"),
+      FAKE_COMMENTS_FAIL: "1",
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("could not read the PR comments and reviews");
   });
 });
 
