@@ -18,6 +18,7 @@ export const dmOn = (dm: Binding | undefined) =>
   dm === undefined || dm.mode !== "off";
 
 export const SECTION = {
+  slack: "slack-overview",
   channels: "slack-channels",
   basic: "slack-basic",
   token: "slack-token",
@@ -29,6 +30,7 @@ export const SECTION = {
 } as const;
 /** The tab's sections, in the side list's words. */
 export const SECTION_LABEL = {
+  slack: "agent.tabs.slack",
   channels: "slack.channels",
   basic: "slack.basic",
   token: "workspace.tokenSection",
@@ -64,6 +66,14 @@ export const SECTION_BOX =
 export const SECTION_TARGET = "scroll-mt-4 outline-none";
 export const RECHECK_ID = "slack-events-recheck";
 export const UNVERIFIED_POLL_MS = 10_000;
+/** The tone of each `slackState`, in the card and the app's row alike. */
+export const STATE_BADGE = {
+  connected: "green",
+  error: "red",
+  reinstall: "amber",
+  pending: "gray",
+  none: "gray",
+} as const satisfies Record<ReturnType<typeof slackState>, string>;
 export const EVENTS_BADGE = {
   verified: "green",
   pending: "amber",

@@ -2,7 +2,9 @@ import {
   Alert,
   AlertDescription,
   AlertTitle,
+  Badge,
   Code,
+  cn,
   Heading,
   IconTile,
   Link,
@@ -20,7 +22,15 @@ import {
   useSlackBindings,
   useSlackChannels,
 } from "./queries.ts";
-import { dmOn, SLACK_WARNING_KEY, slackReason, slackState } from "./shared.ts";
+import {
+  dmOn,
+  SECTION,
+  SECTION_TARGET,
+  SLACK_WARNING_KEY,
+  STATE_BADGE,
+  slackReason,
+  slackState,
+} from "./shared.ts";
 
 /**
  * The tab's Slack card, as on Integrations > Slack: the mark, then this
@@ -61,55 +71,76 @@ export function SlackHeader({
   const unverified = unverifiedApp(app.data);
   // At most one reason sessions would fail, after any token issuer change.
   const warnings = manages ? (app.data?.warnings ?? []) : [];
-  const item = (label: string, value: ReactNode) => (
-    <span className="flex items-center gap-1.5">
+  // GitHub's summary line: "label value" pairs between middle dots.
+  const item = (label: string, value: ReactNode, first = false) => (
+    <span className="inline-flex items-center gap-1.5">
+      {first ? null : <span aria-hidden="true">·</span>}
       <span>{label}</span>
-      <span className="text-foreground">{value}</span>
+      <span>{value}</span>
     </span>
   );
+  const summary = (
+    <>
+      {item(
+        t("slack.botId"),
+        <Code>{identity?.bot_user_id ?? "—"}</Code>,
+        true,
+      )}
+      {connected
+        ? item(
+            t("slack.homeChannel"),
+            bindings.isPending || (home && channels.isPending)
+              ? placeholder
+              : bindingsLost
+                ? "—"
+                : homeName
+                  ? `#${homeName}`
+                  : home?.external_surface_id
+                    ? t("slack.channelId", { id: home.external_surface_id })
+                    : t("slack.homeUnset"),
+          )
+        : null}
+      {connected
+        ? item(
+            t("slack.dmSetting"),
+            bindings.isPending
+              ? placeholder
+              : bindingsLost
+                ? "—"
+                : t(dmOn(dm) ? "slack.on" : "slack.off"),
+          )
+        : null}
+    </>
+  );
   return (
-    <section aria-labelledby={titleId} className={SETTINGS_CARD}>
-      <div className="flex items-center gap-3">
+    <section
+      id={SECTION.slack}
+      tabIndex={-1}
+      aria-labelledby={titleId}
+      className={cn(SETTINGS_CARD, SECTION_TARGET)}
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
         <IconTile icon={SlackTileMark} size="two-line" />
         <div className="flex min-w-0 flex-1 flex-col">
-          <Heading id={titleId} level={2}>
-            Slack
-          </Heading>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-control text-muted-foreground">
-            <span className="text-foreground">
-              {app.isPending ? placeholder : t(`slack.state.${state}`)}
-            </span>
-            {item(
-              t("slack.botId"),
-              <Code>{identity?.bot_user_id ?? "—"}</Code>,
+          <div className="flex flex-wrap items-center gap-2">
+            <Heading id={titleId} level={2}>
+              Slack
+            </Heading>
+            {app.isPending ? (
+              placeholder
+            ) : (
+              <Badge variant={STATE_BADGE[state]}>
+                {t(`slack.state.${state}`)}
+              </Badge>
             )}
-            {connected
-              ? item(
-                  t("slack.homeChannel"),
-                  bindings.isPending || (home && channels.isPending)
-                    ? placeholder
-                    : bindingsLost
-                      ? "—"
-                      : homeName
-                        ? `#${homeName}`
-                        : home?.external_surface_id
-                          ? t("slack.channelId", {
-                              id: home.external_surface_id,
-                            })
-                          : t("slack.homeUnset"),
-                )
-              : null}
-            {connected
-              ? item(
-                  t("slack.dmSetting"),
-                  bindings.isPending
-                    ? placeholder
-                    : bindingsLost
-                      ? "—"
-                      : t(dmOn(dm) ? "slack.on" : "slack.off"),
-                )
-              : null}
           </div>
+          <Text
+            as="div"
+            variant="sub"
+            className="flex flex-wrap items-center gap-x-1.5"
+          >
+            {summary}
+          </Text>
         </div>
       </div>
       <Text variant="sub">{t("slack.cardHint")}</Text>

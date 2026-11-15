@@ -41,10 +41,6 @@ import {
   RowList,
   SettingRow,
   SettingsSection,
-  SideNav,
-  SideNavGroup,
-  SideNavLayout,
-  SideNavLink,
   Skeleton,
   Switch,
   Text,
@@ -84,8 +80,7 @@ import {
   type SavedSwitch,
   useRepositoryToggles,
 } from "./github-repository-toggles.ts";
-import { useCurrentSection } from "./use-current-section.ts";
-import { usePageFits } from "./use-page-fits.ts";
+import { SectionNavLayout } from "./section-nav.tsx";
 
 type GitHubTabData = components["schemas"]["AgentGitHubResponse"];
 type Settings = NonNullable<GitHubTabData["github"]>;
@@ -1261,9 +1256,6 @@ export default function GitHubTab({
     "pullRequest",
     "activity",
   ]);
-  const [current, setCurrent] = useCurrentSection(keys.map((k) => SECTION[k]));
-  const jumped = useRef<string>(undefined);
-  const [fits, watchPage] = usePageFits();
   const sectionKeys = useRef((next: readonly SectionKey[]) =>
     setKeys((held) => (held.join() === next.join() ? held : next)),
   ).current;
@@ -1282,70 +1274,37 @@ export default function GitHubTab({
       <LoadFailure error={github.error} onRetry={() => void github.refetch()} />
     );
   }
-  const link = (key: SectionKey) => (
-    <SideNavLink
-      key={key}
-      href={`#${SECTION[key]}`}
-      current={current === SECTION[key] ? "location" : undefined}
-      onClick={(event) => {
-        // Stay off the URL hash: the router owns the location.
-        event.preventDefault();
-        const target = document.getElementById(SECTION[key]);
-        target?.scrollIntoView({
-          block: "start",
-          behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
-            ? "auto"
-            : "smooth",
-        });
-        target?.focus({ preventScroll: true });
-        jumped.current = SECTION[key];
-        setCurrent(SECTION[key]);
-      }}
-    >
-      {t(SECTION_LABEL[key])}
-    </SideNavLink>
-  );
-  const here = keys.find((key) => SECTION[key] === current);
+  const item = (key: SectionKey) => ({
+    id: SECTION[key],
+    label: t(SECTION_LABEL[key]),
+  });
   return (
     <>
-      <SideNavLayout
-        nav={
-          <SideNav
-            aria-label={t("agentGitHub.sectionNav")}
-            className={fits ? "lg:hidden" : undefined}
-            current={here ? t(SECTION_LABEL[here]) : undefined}
-            onPick={() =>
-              document
-                .getElementById(jumped.current ?? "")
-                ?.focus({ preventScroll: true })
-            }
-          >
-            <SideNavGroup>
-              {keys.filter((k) => !MANAGE_KEYS.includes(k)).map(link)}
-            </SideNavGroup>
-            <SideNavGroup label={t("agentGitHub.manage")}>
-              {keys.filter((k) => MANAGE_KEYS.includes(k)).map(link)}
-            </SideNavGroup>
-          </SideNav>
-        }
+      <SectionNavLayout
+        label={t("agentGitHub.sectionNav")}
+        groups={[
+          { items: keys.filter((k) => !MANAGE_KEYS.includes(k)).map(item) },
+          {
+            label: t("agentGitHub.manage"),
+            items: keys.filter((k) => MANAGE_KEYS.includes(k)).map(item),
+          },
+        ]}
       >
-        <div ref={watchPage} className={SECTIONS}>
-          {github.error ? (
-            <LoadFailure
-              error={github.error}
-              kept
-              onRetry={() => void github.refetch()}
-            />
-          ) : null}
-          <GitHubSettings
-            agentId={agentId}
-            detail={detail}
-            data={github.data}
-            notify={notify}
-            sectionKeys={sectionKeys}
+        {github.error ? (
+          <LoadFailure
+            error={github.error}
+            kept
+            onRetry={() => void github.refetch()}
           />
-        </div>
-      </SideNavLayout>
+        ) : null}
+        <GitHubSettings
+          agentId={agentId}
+          detail={detail}
+          data={github.data}
+          notify={notify}
+          sectionKeys={sectionKeys}
+        />
+      </SectionNavLayout>
       {toast}
     </>
   );
