@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import type { Database } from "../queries.ts";
-import { memberTeams } from "../schema.ts";
+import { memberTeamMembers, memberTeams } from "../schema.ts";
 
 const FIXTURE_TEAM_NAME = "fixture team";
 
@@ -28,6 +28,26 @@ export async function fixtureTeam(
     );
   if (!team) throw new Error("fixture team missing");
   return team.id;
+}
+
+/**
+ * Puts a member on the workspace's fixture team, inside every agent it
+ * manages: only those inside an agent start it.
+ */
+export async function joinFixtureTeam(
+  db: Database,
+  workspaceId: string,
+  userId: string,
+): Promise<void> {
+  await db
+    .insert(memberTeamMembers)
+    .values({
+      id: randomUUID(),
+      workspaceId,
+      teamId: await fixtureTeam(db, workspaceId),
+      userId,
+    })
+    .onConflictDoNothing();
 }
 
 interface Queryable {

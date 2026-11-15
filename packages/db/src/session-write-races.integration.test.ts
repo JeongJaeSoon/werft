@@ -38,7 +38,7 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
-import { fixtureTeam } from "./testing/fixture-team.ts";
+import { fixtureTeam, joinFixtureTeam } from "./testing/fixture-team.ts";
 import {
   fixtureRelease,
   releaseSpecColumns,
@@ -108,14 +108,7 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
   async function workspace() {
     const id = randomUUID();
     const slug = `ws-${id.slice(0, 8)}`;
-    // Workspace sessions stay visible to people outside an agent's team, so
-    // these tests reach the role check rather than the visibility one.
-    await db.insert(workspaces).values({
-      id,
-      slug,
-      name: slug,
-      settings: { agent_outsider_session_visibility: "workspace" },
-    });
+    await db.insert(workspaces).values({ id, slug, name: slug });
     return id;
   }
 
@@ -128,6 +121,9 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
       displayName: role,
     });
     await db.insert(memberships).values({ workspaceId, userId, role });
+    // Everyone is inside the test agents, so these tests reach the role
+    // check rather than the agent's.
+    await joinFixtureTeam(db, workspaceId, userId);
     return callerFor(
       {
         kind: "user",

@@ -490,7 +490,8 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
         `/v1/agents/${agentId}/${path}`,
         asCookie(cookies.other),
       );
-      expect(response.status).toBe(403);
+      // Outside the agent's managing team, the agent is not there at all.
+      expect(response.status).toBe(404);
     }
   });
 
@@ -1058,8 +1059,8 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
       [id],
     );
     expect(held[0].n).toBe(0);
-    // A member who does not manage the agent may neither read nor save.
-    expect((await send("GET", path, asCookie(cookies.other))).status).toBe(403);
+    // A member outside the agent's managing team does not find it.
+    expect((await send("GET", path, asCookie(cookies.other))).status).toBe(404);
     // The receipt keeps a template's size and hash, never its text.
     const { rows } = await pool.query(
       "SELECT result FROM receipts WHERE operation = 'set_agent_pull_request_settings' AND owner_id = $1 AND target_ref->'resource'->>'id' = $2",

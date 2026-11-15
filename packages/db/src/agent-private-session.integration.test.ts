@@ -56,6 +56,8 @@ const SCOPES: SessionScope[] = [
 // 94S-901: a private agent is used only by its teams, workspace owners and
 // admins, its admins and its managers; the write judges that again over
 // locked rows, in the order a usage edit and a team archive take theirs.
+// A start also needs someone inside the agent, so a usage team alone no
+// longer starts it.
 integration("private agents on PostgreSQL", () => {
   let database: TempDatabase;
   let pool: Pool;
@@ -97,12 +99,7 @@ integration("private agents on PostgreSQL", () => {
   async function workspace() {
     const id = randomUUID();
     const slug = `ws-${id.slice(0, 8)}`;
-    await db.insert(workspaces).values({
-      id,
-      slug,
-      name: slug,
-      settings: { agent_outsider_session_visibility: "workspace" },
-    });
+    await db.insert(workspaces).values({ id, slug, name: slug });
     return id;
   }
 
@@ -336,21 +333,35 @@ integration("private agents on PostgreSQL", () => {
   }
 
   describe("who may use it, and what the turn keeps of why", () => {
-    test("a member of a usage team starts and feeds; the basis and the requester are kept", async () => {
+    test("a member of a usage team outside the managing team does not start it", async () => {
       const w = await world();
-      const created = await create(w.insider, w.releaseId);
+      expect(await create(w.insider, w.releaseId)).toEqual({
+        outcome: "agent_use_refused",
+      });
+      const started = await db
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(eq(sessions.workspaceId, w.ws));
+      expect(started).toEqual([]);
+    });
+
+    test("a managing-team member's start and input keep the basis and the requester", async () => {
+      const w = await world();
+      const manager = await person(w.ws);
+      await teamMember(w.owner, w.managingTeamId, manager);
+      const created = await create(manager, w.releaseId);
       expect(created).toMatchObject({ outcome: "accepted" });
       const sessionId =
         created.outcome === "accepted" ? created.response.session_id : "";
       const expected = {
-        usageBasis: "team",
-        usageTeamId: w.teamId,
+        usageBasis: "manager",
+        usageTeamId: w.managingTeamId,
         requesterKind: "user",
-        requesterId: idOf(w.insider),
+        requesterId: idOf(manager),
       };
       expect(await turnOf(sessionId)).toEqual(expected);
       expect(await sessionRow(sessionId)).toEqual(expected);
-      expect(await append(w.insider, sessionId)).toMatchObject({
+      expect(await append(manager, sessionId)).toMatchObject({
         outcome: "accepted",
       });
       expect(await turnOf(sessionId, 2)).toEqual(expected);
@@ -403,9 +414,10 @@ integration("private agents on PostgreSQL", () => {
       expect(
         await create(w.outsider, w.releaseId, { credentialsUnbound: true }),
       ).toEqual({ outcome: "agent_private" });
-      const sessionId = await session(w.insider, w.releaseId);
+      // Nor do they find a session of it someone inside started.
+      const sessionId = await session(w.owner, w.releaseId);
       expect(await append(w.outsider, sessionId)).toEqual({
-        outcome: "agent_private",
+        outcome: "not_found",
       });
       const stored = await db.select().from(receipts);
       expect(stored.some((r) => r.operation === "credential_unbound")).toBe(
@@ -415,7 +427,7 @@ integration("private agents on PostgreSQL", () => {
 
     test("a session the requester cannot see stays not found, whatever its agent", async () => {
       const w = await world();
-      const sessionId = await session(w.insider, w.releaseId);
+      const sessionId = await session(w.owner, w.releaseId);
       await db.insert(schema.sessionShares).values({
         sessionId,
         ownerId: w.ws,
@@ -427,12 +439,17 @@ integration("private agents on PostgreSQL", () => {
       });
     });
 
-    test("a workspace agent is open to every member, with its basis public", async () => {
+    test("a workspace agent passes usage for every member, but only those inside start it", async () => {
       const w = await world();
       expect(await setUsage(w.owner, w.agentId, "workspace", [])).toMatchObject(
         { outcome: "set" },
       );
-      const created = await create(w.outsider, w.releaseId);
+      expect(await create(w.outsider, w.releaseId)).toEqual({
+        outcome: "agent_use_refused",
+      });
+      const manager = await person(w.ws);
+      await teamMember(w.owner, w.managingTeamId, manager);
+      const created = await create(manager, w.releaseId);
       expect(created).toMatchObject({ outcome: "accepted" });
       expect(
         await turnOf(
@@ -496,12 +513,14 @@ integration("private agents on PostgreSQL", () => {
   describe("a request the policy refused", () => {
     test("a retry of a start taken before the requester lost the agent is answered", async () => {
       const w = await world();
+      await teamMember(w.owner, w.managingTeamId, w.insider);
       const key = randomUUID();
       const first = await create(w.insider, w.releaseId, {
         idempotencyKey: key,
       });
       expect(first).toMatchObject({ outcome: "accepted" });
       await teamMember(w.owner, w.teamId, w.insider, false);
+      await teamMember(w.owner, w.managingTeamId, w.insider, false);
       expect(
         await create(w.insider, w.releaseId, { idempotencyKey: key }),
       ).toMatchObject({ outcome: "replayed" });
@@ -519,6 +538,7 @@ integration("private agents on PostgreSQL", () => {
 
     test("the flag alone refuses a new start and a new input, and no replay is lost", async () => {
       const w = await world();
+      await teamMember(w.owner, w.managingTeamId, w.insider);
       expect(
         await create(w.insider, w.releaseId, { agentPrivate: true }),
       ).toEqual({ outcome: "agent_private" });
@@ -542,7 +562,9 @@ integration("private agents on PostgreSQL", () => {
   describe("approval does not look at usage", () => {
     test("the creator who lost the agent still answers a pending request", async () => {
       const w = await world();
+      await teamMember(w.owner, w.managingTeamId, w.insider);
       const sessionId = await session(w.insider, w.releaseId);
+      await teamMember(w.owner, w.managingTeamId, w.insider, false);
       const attemptId = `att-${randomUUID()}`;
       await db.insert(attempts).values({
         id: attemptId,
@@ -601,8 +623,10 @@ integration("private agents on PostgreSQL", () => {
   describe("concurrent changes", () => {
     test("a start holding its rows makes the usage edit wait; a start behind the edit is refused", async () => {
       const w = await world();
+      const manager = await person(w.ws);
+      await teamMember(w.owner, w.managingTeamId, manager);
       let started = false;
-      const held = create(w.insider, w.releaseId, { message: HOLD }).then(
+      const held = create(manager, w.releaseId, { message: HOLD }).then(
         (result) => {
           started = true;
           return result;
@@ -621,6 +645,11 @@ integration("private agents on PostgreSQL", () => {
 
     test("a start that meets a usage edit in flight follows the committed edit", async () => {
       const w = await world();
+      // A session the insider started while on the managing team, fed now
+      // through the usage team alone.
+      await teamMember(w.owner, w.managingTeamId, w.insider);
+      const own = await session(w.insider, w.releaseId);
+      await teamMember(w.owner, w.managingTeamId, w.insider, false);
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
@@ -629,9 +658,7 @@ integration("private agents on PostgreSQL", () => {
           [w.agentId],
         );
         const waiting = create(w.insider, w.releaseId);
-        const feeding = session(w.owner, w.releaseId).then((id) =>
-          append(w.insider, id),
-        );
+        const feeding = append(w.insider, own);
         await Bun.sleep(300);
         await client.query(
           "DELETE FROM agent_usage_targets WHERE agent_id = $1",
@@ -674,6 +701,8 @@ integration("private agents on PostgreSQL", () => {
       const spare = await team(w.owner, [extra]);
       const lending = await team(w.owner, [lender]);
       const second = await team(w.owner, [w.insider]);
+      // Inside the agent while the managing team is the first one.
+      await teamMember(w.owner, w.managingTeamId, w.insider);
       const sessionId = await session(w.insider, w.releaseId);
       const settled: Promise<unknown>[] = [];
       for (let round = 0; round < 6; round++) {

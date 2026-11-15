@@ -427,9 +427,10 @@ integration("the agent MCP settings writer on PostgreSQL", () => {
     );
     expect(await rowOf(agentId)).toBeUndefined();
     expect(await receiptsOf(agentId)).toHaveLength(0);
-    // Nor may a member read what only managers read.
+    // Nor may a member read it: outside the managing team, the agent is
+    // not there.
     expect(await refusal(service().get(member, agentId))).toStartWith(
-      "FORBIDDEN",
+      "NOT_FOUND",
     );
   });
 

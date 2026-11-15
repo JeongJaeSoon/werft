@@ -25,6 +25,7 @@ import {
   sessions,
   users,
 } from "@werft-ai/db";
+import { joinFixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
@@ -266,6 +267,8 @@ integration("members and actors over HTTP on PostgreSQL", () => {
     ownerId = body.user_id;
     ownerCookie = await login("owner@example.com");
     memberId = await addMember("member@example.com");
+    // Inside the agent, so the member's own starts are taken.
+    await joinFixtureTeam(db, workspaceId, memberId);
     sessionBody.agent_release_id = await releaseIn(db, workspaceId);
     await allowRepositories(db, workspaceId, ["sample-app"]);
   });

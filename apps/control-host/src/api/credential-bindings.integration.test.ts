@@ -387,9 +387,10 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
     expect(await errorOf(member)).toMatchObject({
       details: { reason_code: "role" },
     });
+    // Outside the agent's managing team, the agent is not there to read.
     expect(
       (await send("GET", bindingsPath(), asCookie(cookies.other))).status,
-    ).toBe(403);
+    ).toBe(404);
     expect(
       (await send("POST", bindingsPath(), bearer(agentKey), body)).status,
     ).toBe(403);

@@ -257,11 +257,16 @@ integration("agent_usable on PostgreSQL", () => {
     const lentMember = await person(ws);
     const managingMember = await person(ws);
     const former = await person(ws);
-    const { agentId, releaseId, managingTeamId } = await agent(ws);
+    const { agentId, releaseId } = await agent(ws);
     const other = await agent(ws);
     const usageTeam = await team(owner, [insider, former]);
     const lentTeam = await team(owner, [lentMember]);
-    await addMember(owner, managingTeamId, managingMember);
+    // Its own managing team, so its members are inside this agent alone.
+    const managingTeamId = await team(owner, [managingMember]);
+    await db
+      .update(agents)
+      .set({ managingTeamId })
+      .where(eq(agents.id, agentId));
     await setUsage(owner, agentId, "private", [usageTeam]);
     await admin(owner, agentId, { kind: "user", id: idOf(directAdmin) });
     await admin(owner, agentId, { kind: "team", id: lentTeam });
@@ -490,16 +495,18 @@ integration("agent_usable on PostgreSQL", () => {
         workspaceId: w.ws,
         scope: "people",
       });
-      await db.insert(sessionShareTargets).values({
-        id: randomUUID(),
-        workspaceId: w.ws,
-        sessionId,
-        userId: idOf(w.outsider),
-      });
+      await db.insert(sessionShareTargets).values(
+        [w.outsider, w.insider].map((to) => ({
+          id: randomUUID(),
+          workspaceId: w.ws,
+          sessionId,
+          userId: idOf(to),
+        })),
+      );
       return sessionId;
     };
-    const privateId = await start(w.insider, w.releaseId);
-    const publicId = await start(w.insider, w.other.releaseId);
+    const privateId = await start(w.owner, w.releaseId);
+    const publicId = await start(w.owner, w.other.releaseId);
     const viewer = (caller: Caller) => ({
       userId: idOf(caller),
       apiKeyId: null,
@@ -544,8 +551,8 @@ integration("agent_usable on PostgreSQL", () => {
     expect(inside.detail?.agent?.id).toBe(w.agentId);
     expect(inside.detail?.agent_hidden).toBe(false);
 
-    // On the usage team but outside the managing team: the starter's own
-    // sessions show no agent, the open agent's included.
+    // On the usage team but outside both managing teams: the sessions shared
+    // with them show no agent, the open agent's included.
     const usageOnly = await seenBy(w.insider);
     expect(usageOnly.byId.get(privateId)?.agent).toBeNull();
     expect(usageOnly.byId.get(privateId)?.agent_hidden).toBe(true);
@@ -569,7 +576,7 @@ integration("agent_usable on PostgreSQL", () => {
     expect(await filtered(w.outsider, w.agentId)).toEqual(
       await filtered(w.outsider, randomUUID()),
     );
-    // The starter on the usage team alone filters by it as by nothing.
+    // Someone on the usage team alone filters by it as by nothing.
     expect((await filtered(w.insider, w.agentId)).items).toEqual([]);
     expect(
       (await filtered(w.outsider, w.other.agentId)).items.map(
@@ -602,13 +609,16 @@ integration("agent_usable on PostgreSQL", () => {
     );
     expect([...outside.agentIds]).toEqual([w.agentId]);
     expect([...outside.releaseIds]).toEqual([w.releaseId]);
-    const inside = await reader.hiddenAgentRefs(
+    const inside = await reader.hiddenAgentRefs(w.ws, viewer(w.owner), asked);
+    expect([...inside.agentIds]).toEqual([]);
+    expect([...inside.releaseIds]).toEqual([]);
+    // A managing team reaches its own agent only.
+    const managing = await reader.hiddenAgentRefs(
       w.ws,
       viewer(w.managingMember),
       asked,
     );
-    expect([...inside.agentIds]).toEqual([]);
-    expect([...inside.releaseIds]).toEqual([]);
+    expect([...managing.agentIds]).toEqual([w.other.agentId]);
     // A usage team alone does not reach an agent outside its managing team.
     const usageOnly = await reader.hiddenAgentRefs(
       w.ws,
@@ -622,7 +632,7 @@ integration("agent_usable on PostgreSQL", () => {
     // A session of the private agent hides its agent and release too, with
     // nothing else named.
     const created = await uow().acceptInputAtomic({
-      principal: w.insider,
+      principal: w.owner,
       idempotencyKey: randomUUID(),
       payloadHash: "create",
       model: TEST_MODEL,

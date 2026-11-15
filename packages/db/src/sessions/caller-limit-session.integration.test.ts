@@ -41,7 +41,7 @@ import {
   users,
   workspaces,
 } from "../schema.ts";
-import { fixtureTeam } from "../testing/fixture-team.ts";
+import { fixtureTeam, joinFixtureTeam } from "../testing/fixture-team.ts";
 import {
   releaseSpecColumns,
   TEST_CONNECTION_ID,
@@ -88,12 +88,7 @@ integration("caller limits on session create and input", () => {
   async function workspace() {
     const id = randomUUID();
     const slug = `ws-${id.slice(0, 8)}`;
-    await db.insert(workspaces).values({
-      id,
-      slug,
-      name: slug,
-      settings: { agent_outsider_session_visibility: "workspace" },
-    });
+    await db.insert(workspaces).values({ id, slug, name: slug });
     return id;
   }
 
@@ -106,6 +101,8 @@ integration("caller limits on session create and input", () => {
       displayName: role,
     });
     await db.insert(memberships).values({ workspaceId, userId, role });
+    // The fixture team manages every test agent: everyone is inside them.
+    await joinFixtureTeam(db, workspaceId, userId);
     return callerFor(
       {
         kind: "user",
@@ -724,13 +721,6 @@ integration("caller limits on session create and input", () => {
       const b = await agentRelease(ws, { credentialRefs: ["jira"] });
       const c = await agentRelease(ws);
       const memberTeam = await team(owner, [member]);
-      // The fixture team manages all three, so the member is inside each.
-      await teams().addMember({
-        actor: acting(owner),
-        receiptId: randomUUID(),
-        teamId: a.managingTeamId,
-        userId: idOf(member),
-      });
       await setRules(owner, a.agentId, [
         rule({ kind: "team", id: memberTeam }, { credentials_deny: ["slack"] }),
       ]);
