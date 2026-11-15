@@ -77,6 +77,11 @@ import { shellEn, shellJa, shellKo } from "./shell.ts";
 import { teamsEn, teamsJa, teamsKo } from "./teams.ts";
 import { usageEn, usageJa, usageKo } from "./usage.ts";
 import { workspaceEn, workspaceJa, workspaceKo } from "./workspace.ts";
+import {
+  workspaceMcpEn,
+  workspaceMcpJa,
+  workspaceMcpKo,
+} from "./workspace-mcp.ts";
 
 const catalogs = { ko, ja, en } as const;
 const variables = (text: string) => (text.match(/\{\w+\}/g) ?? []).sort();
@@ -266,6 +271,7 @@ describe("i18n", () => {
         outputsKo,
         apiKeysKo,
         workspaceKo,
+        workspaceMcpKo,
         githubKo,
         githubUserLinkKo,
         agentGitHubKo,
@@ -299,6 +305,7 @@ describe("i18n", () => {
         outputsJa,
         apiKeysJa,
         workspaceJa,
+        workspaceMcpJa,
         githubJa,
         githubUserLinkJa,
         agentGitHubJa,
@@ -332,6 +339,7 @@ describe("i18n", () => {
         outputsEn,
         apiKeysEn,
         workspaceEn,
+        workspaceMcpEn,
         githubEn,
         githubUserLinkEn,
         agentGitHubEn,

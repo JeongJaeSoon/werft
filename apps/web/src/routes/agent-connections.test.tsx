@@ -75,15 +75,14 @@ describe("설정 사이드바의 에이전트 연결 그룹", () => {
     ).toBe(true);
   });
 
-  test("관리자 메뉴에는 연동만 있고 모델 연결과 MCP 서버는 없다", async () => {
+  test("관리자 메뉴에는 연동과 MCP 서버(워크스페이스 서버)가 있고 모델 연결은 없다", async () => {
     renderAt("/settings/workspace/achievement-rules", as("admin"));
     const items = await group();
     expect(
       items.getAllByRole("link").map((link) => link.getAttribute("href")),
-    ).toEqual([INTEGRATIONS]);
+    ).toEqual([INTEGRATIONS, MCP]);
     const nav = await sidebar();
     expect(nav.queryByRole("link", { name: "모델 연결" }) === null).toBe(true);
-    expect(nav.queryByRole("link", { name: "MCP 서버" }) === null).toBe(true);
   });
 
   test("구성원 메뉴에는 그룹이 통째로 없다", async () => {

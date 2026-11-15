@@ -1145,12 +1145,17 @@ describe("MCP 서버", () => {
     ]);
   });
 
-  test("an admin gets the refusal screen and no read", async () => {
-    const { api } = renderAt(
-      "/settings/workspace/mcp-servers",
-      routes(me(undefined, "admin")),
+  test("an admin gets the workspace servers and no catalog read", async () => {
+    const { api } = renderAt("/settings/workspace/mcp-servers", {
+      ...routes(me(undefined, "admin")),
+      "GET /v1/workspace/mcp-servers": () =>
+        json(200, { items: [], limit: 20 }),
+    });
+    await screen.findByText("등록한 서버가 없습니다.", { exact: false });
+    expect(screen.queryByRole("table", { name: "MCP 서버" }) === null).toBe(
+      true,
     );
-    await screen.findByText("이 화면을 볼 권한이 없습니다");
+    expect(screen.queryByText("설치 카탈로그") === null).toBe(true);
     expect(api.calls.some((call) => call.path === MCP)).toBe(false);
   });
 });

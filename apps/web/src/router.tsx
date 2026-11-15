@@ -83,6 +83,7 @@ import {
   GitHubNewAppRoute,
   gitHubNewAppSearch,
 } from "./routes/workspace-github-new-app.tsx";
+import { workspaceMcpCallbackSearch } from "./routes/workspace-mcp-callback-search.ts";
 import { WorkspaceSettingsScreen } from "./routes/workspace-settings.tsx";
 import { WorkspaceSlackRoute } from "./routes/workspace-slack.tsx";
 import type { Services } from "./services.tsx";
@@ -340,6 +341,16 @@ const mcpServers = createRoute({
   component: McpServersScreen,
 });
 
+const workspaceMcpCallback = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/workspace/mcp-servers/$serverId/callback",
+  validateSearch: workspaceMcpCallbackSearch,
+  component: lazyRouteComponent(
+    () => import("./routes/workspace-mcp-callback.tsx"),
+    "WorkspaceMcpCallback",
+  ),
+});
+
 const loginProviders = createRoute({
   getParentRoute: () => authed,
   path: "/settings/workspace/login",
@@ -451,6 +462,7 @@ const routeTree = root.addChildren([
     orgKeys,
     connections,
     mcpServers,
+    workspaceMcpCallback,
     loginProviders,
     loginProvider,
     executionLimits,
