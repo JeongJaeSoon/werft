@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **워크스페이스·에이전트의 실행 규칙(허용·묻기·막기 목록, 자동 모드 목록)이 없어졌다. 저장해 둔 규칙은 새 세션에도, 이미 도는 세션의 다음 claim에도 더는 적용되지 않는다**(PR_LINK). 규칙으로 막던 도구나 묻던 명령이 있었다면 올린 뒤에는 권한 모드와 플랫폼의 작업 공간 규칙대로만 돈다. 올리기 전에 저장된 규칙을 확인한다. MCP 도구 하나를 막는 방법은 에이전트 카드의 `capabilities.tool_policy.per_tool`에 `deny`를 적는 것뿐이다.
+- **워크스페이스·에이전트의 실행 규칙(허용·묻기·막기 목록, 자동 모드 목록)이 없어졌다. 저장해 둔 규칙은 새 세션에도, 이미 도는 세션의 다음 claim에도 더는 적용되지 않는다**(JeongJaeSoon/werft#1798). 규칙으로 막던 도구나 묻던 명령이 있었다면 올린 뒤에는 권한 모드와 플랫폼의 작업 공간 규칙대로만 돈다. 올리기 전에 저장된 규칙을 확인한다. MCP 도구 하나를 막는 방법은 에이전트 카드의 `capabilities.tool_policy.per_tool`에 `deny`를 적는 것뿐이다.
   - **없어진 API:** `GET|PUT /v1/workspaces/{id}/engine-settings`, `GET|PUT /v1/agents/{id}/engine-settings`. 이 경로를 부르던 client는 `404`를 받는다. 콘솔의 워크스페이스 설정 **실행 규칙** 카드와 에이전트 상세의 **실행 규칙** 탭도 없어졌다.
   - DB의 `workspace_engine_settings`·`agent_engine_settings` 표와 `sessions.engine_settings_start` 열은 데이터를 지우지 않도록 그대로 두고 더는 읽거나 쓰지 않는다. migration은 없다. 지난 저장의 receipt는 그대로 읽힌다.
   - worker는 `engine_settings` capability를 더는 알리지 않고, 앞선 control-host가 보낸 `runtime_config.engine_settings`도 엔진에 넘기지 않는다. 그래서 control-host를 먼저 올리고 worker 이미지를 바꾼다. worker를 먼저 바꾸면 묻기·패턴 막기·자동 모드 규칙을 저장해 둔 워크스페이스·에이전트의 세션은 앞선 control-host가 재시도 가능한 503으로 claim을 거절해, control-host가 바뀔 때까지 시작하지 않고 기다린다.
