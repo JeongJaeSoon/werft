@@ -13,6 +13,7 @@ import {
   fakeRemote,
   memoryWorkspaceMcpStore,
 } from "../testing/workspace-mcp-fakes.ts";
+import type { OutboundRequest } from "./ports.ts";
 import { createWorkspaceMcpService } from "./service.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
@@ -57,6 +58,8 @@ function setup(
     secretStoreOn?: boolean;
     redirect?: boolean;
     urlProblem?: string | null;
+    /** Runs before each outbound request reaches the fake, to change things mid-call. */
+    beforeSend?: (request: OutboundRequest) => Promise<void> | void;
   } = {},
 ) {
   let clock = new Date("2026-11-15T00:00:00.000Z");
@@ -70,7 +73,13 @@ function setup(
     authorization: createAuthorizationPolicy(),
     store: memory.store,
     secretStoreOn: options.secretStoreOn ?? true,
-    remote: { http: remote.http, allowsUrl: remote.allowsUrl },
+    remote: {
+      http: async (request) => {
+        await options.beforeSend?.(request);
+        return remote.http(request);
+      },
+      allowsUrl: remote.allowsUrl,
+    },
     serverUrlProblem: () => options.urlProblem ?? null,
     redirectUriFor: (id) =>
       options.redirect === false
@@ -378,6 +387,48 @@ describe("OAuth", () => {
     ).toBe("hand-made");
   });
 
+  test("a client that lands while DCR runs is kept, and the start asks again", async () => {
+    let serverId = "";
+    const context = setup({
+      beforeSend: async (request) => {
+        if (!request.url.endsWith("/register")) return;
+        await context.service.putOAuthClient(owner, serverId, {
+          client_id: "hand-made",
+        });
+      },
+    });
+    const created = await context.service.create(admin, oauthBody);
+    serverId = created.id;
+    expect(
+      await refusal(context.service.startOAuth(admin, created.id)),
+    ).toEqual({ code: "BAD_REQUEST", reason: "connection_changed" });
+    expect((await context.service.list(admin)).items[0]?.oauth).toMatchObject({
+      client_registration: "manual",
+      client_id: "hand-made",
+    });
+  });
+
+  test("an exchange that runs past the sign-in's expiry stores nothing and revokes what came", async () => {
+    const context = setup({
+      beforeSend: (request) => {
+        if (
+          request.url.endsWith("/token") &&
+          request.body?.includes("authorization_code")
+        ) {
+          context.advance(10 * 60 * 1000);
+        }
+      },
+    });
+    expect(await refusal(connected(context))).toEqual({
+      code: "BAD_REQUEST",
+      reason: "oauth_state_invalid",
+    });
+    expect(context.remote.revoked).toHaveLength(1);
+    expect((await context.service.list(admin)).items[0]?.connection.state).toBe(
+      "none",
+    );
+  });
+
   test("disconnect deletes the tokens and revokes the refresh token", async () => {
     const context = setup();
     const { created } = await connected(context);
@@ -466,6 +517,43 @@ describe("refresh", () => {
       reauth_reason: "invalid_grant",
     });
   });
+
+  test("waiting out a failed refresh does not push the retry back", async () => {
+    let first = true;
+    const context = setup({
+      remote: {
+        token: () => {
+          if (!first) {
+            return { status: 400, json: { error: "temporarily_unavailable" } };
+          }
+          first = false;
+          return {
+            status: 200,
+            json: {
+              access_token: "example-access-1",
+              token_type: "Bearer",
+              refresh_token: "example-refresh-1",
+              expires_in: 3600,
+            },
+          };
+        },
+      },
+    });
+    const { created } = await connected(context);
+    const refreshes = () =>
+      context.remote.requests.filter((r) =>
+        r.body?.includes("grant_type=refresh_token"),
+      ).length;
+    context.advance(3600 * 1000 - 40_000);
+    await context.service.credentialFor(WORKSPACE, created.id);
+    expect(refreshes()).toBe(1);
+    context.advance(20_000);
+    await context.service.credentialFor(WORKSPACE, created.id);
+    expect(refreshes()).toBe(1);
+    context.advance(10_000);
+    await context.service.credentialFor(WORKSPACE, created.id);
+    expect(refreshes()).toBe(2);
+  });
 });
 
 describe("static token", () => {
@@ -521,6 +609,43 @@ describe("static token", () => {
       code: "BAD_REQUEST",
       reason: "unauthorized",
     });
+  });
+
+  test("a tool list read while the token was replaced, or by someone no longer managing, is not stored", async () => {
+    let serverId = "";
+    let swap = false;
+    let drop = false;
+    const context = setup({
+      remote: { oauth: false, accepted: [FAKE_TOKEN] },
+      beforeSend: async (request) => {
+        if (!request.body?.includes("tools/list")) return;
+        if (swap) {
+          swap = false;
+          await context.service.putBearerToken(owner, serverId, {
+            token: FAKE_TOKEN,
+          });
+        }
+        if (drop) {
+          drop = false;
+          context.memory.inactive.add(ADMIN);
+        }
+      },
+    });
+    const created = await context.service.create(admin, {
+      name: "tracker",
+      url: FAKE_MCP_URL,
+      auth_kind: "bearer",
+      token: FAKE_TOKEN,
+    });
+    serverId = created.id;
+    swap = true;
+    expect(
+      await refusal(context.service.refreshTools(admin, created.id)),
+    ).toEqual({ code: "BAD_REQUEST", reason: "connection_changed" });
+    drop = true;
+    expect(
+      await refusal(context.service.refreshTools(admin, created.id)),
+    ).toMatchObject({ code: "FORBIDDEN" });
   });
 
   test("a second server of the same name, and a member no longer managing", async () => {

@@ -179,7 +179,12 @@ export interface WorkspaceMcpStore {
     | { outcome: "saved"; record: WorkspaceMcpServerRecord }
     | { outcome: "not_found" | "actor_inactive" | "not_oauth" }
   >;
-  /** Writes the pending flow (and a client DCR just registered). */
+  /**
+   * Writes the pending flow (and a client DCR just registered), unless the
+   * server's client is no longer `expectedClientId`, the one the sign-in
+   * was built for: another admin's registration or a hand-made client
+   * landed meanwhile (`client_changed`).
+   */
   beginFlow(
     input: ManagerCheck & {
       workspaceId: string;
@@ -188,13 +193,15 @@ export interface WorkspaceMcpStore {
       stateSha256: Buffer;
       expiresAt: Date;
       verifier: string;
+      expectedClientId: string | null;
       registered: {
         client: WorkspaceMcpClient;
         clientSecret: string | null;
       } | null;
     },
   ): Promise<
-    { outcome: "started" } | { outcome: "not_found" | "actor_inactive" }
+    | { outcome: "started" }
+    | { outcome: "not_found" | "actor_inactive" | "client_changed" }
   >;
   readFlow(
     workspaceId: string,
@@ -243,13 +250,24 @@ export interface WorkspaceMcpStore {
       input: WorkspaceMcpRefreshInput,
     ) => Promise<WorkspaceMcpRefreshDecision>,
   ): Promise<WorkspaceMcpServerRecord | null>;
-  saveTools(input: {
-    workspaceId: string;
-    serverId: string;
-    tools: WorkspaceMcpTool[];
-    skipped: number;
-    readAt: Date;
-  }): Promise<WorkspaceMcpServerRecord | null>;
+  /**
+   * Stores a tool list read with the connection at `generation`, if the
+   * actor still manages the workspace and the connection is still that
+   * one and active (`stale` otherwise).
+   */
+  saveTools(
+    input: ManagerCheck & {
+      workspaceId: string;
+      serverId: string;
+      generation: number;
+      tools: WorkspaceMcpTool[];
+      skipped: number;
+      readAt: Date;
+    },
+  ): Promise<
+    | { outcome: "saved"; record: WorkspaceMcpServerRecord }
+    | { outcome: "not_found" | "actor_inactive" | "stale" }
+  >;
 }
 
 /** One request control-host sends a server itself, under the outbound policy. */

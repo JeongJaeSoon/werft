@@ -9,6 +9,7 @@ import type { WorkspaceMcpOAuthPin } from "./ports.ts";
 import {
   bearerChallengeOf,
   discover,
+  exchangeCode,
   listTools,
   manualAuthMethod,
   registerClient,
@@ -227,5 +228,66 @@ describe("listTools", () => {
         token: FAKE_TOKEN,
       }),
     ).toEqual({ tools: [{ name: "a", description: null }], skipped: 2 });
+  });
+});
+
+describe("exchangeCode", () => {
+  const VERIFIER = "example-verifier-not-real";
+  // The verifier with its first letter as a JSON escape, which a search of
+  // the raw text misses.
+  const ESCAPED_VERIFIER = "\\u0065xample-verifier-not-real";
+
+  async function exchange(answer: NonNullable<FakeRemoteOptions["token"]>) {
+    const { deps: d } = deps({ token: answer });
+    const pin = (await discover(d, FAKE_MCP_URL)).oauth
+      ?.pin as WorkspaceMcpOAuthPin;
+    return exchangeCode(d, {
+      pin,
+      client: { registration: "dcr", clientId: "c1", authMethod: "none" },
+      clientSecret: null,
+      code: "example-code",
+      verifier: VERIFIER,
+      redirectUri: "https://console.example.com/cb",
+      now: new Date(),
+    });
+  }
+
+  test("an error body that escapes the verifier is still refused", async () => {
+    expect(
+      await reasonOf(
+        exchange(() => ({
+          status: 400,
+          text: `{"error":"invalid_grant","hint":"${ESCAPED_VERIFIER}"}`,
+        })),
+      ),
+    ).toBe("credential_reflected");
+  });
+
+  test("a granted scope that carries the verifier is refused", async () => {
+    for (const scope of [`read ${VERIFIER}`, ESCAPED_VERIFIER]) {
+      expect(
+        await reasonOf(
+          exchange(() => ({
+            status: 200,
+            text: `{"access_token":"a1","token_type":"Bearer","scope":"${scope}"}`,
+          })),
+        ),
+      ).toBe("credential_reflected");
+    }
+  });
+
+  test("an OAuth error code outside RFC 6749's characters is not repeated", async () => {
+    try {
+      await exchange(() => ({
+        status: 400,
+        json: { error: 'bad"code' },
+      }));
+      throw new Error("answered normally");
+    } catch (error) {
+      expect(error).toBeInstanceOf(WorkspaceMcpRemoteError);
+      const refused = error as WorkspaceMcpRemoteError;
+      expect(refused.oauthError).toBeNull();
+      expect(refused.message).toBe("The token endpoint answered 400");
+    }
   });
 });

@@ -354,6 +354,9 @@ export function memoryWorkspaceMcpStore(
       const stored = held(input.workspaceId, input.serverId);
       const oauth = stored?.record.oauth;
       if (!stored || !oauth) return { outcome: "not_found" };
+      if ((oauth.client?.clientId ?? null) !== input.expectedClientId) {
+        return { outcome: "client_changed" };
+      }
       if (input.registered !== null) {
         stored.record.oauth = { ...oauth, client: input.registered.client };
         stored.clientSecret = input.registered.clientSecret;
@@ -474,12 +477,20 @@ export function memoryWorkspaceMcpStore(
       return copy(stored);
     },
     async saveTools(input) {
+      if (inactive.has(input.actorUserId)) return { outcome: "actor_inactive" };
       const stored = held(input.workspaceId, input.serverId);
-      if (!stored) return null;
+      if (!stored) return { outcome: "not_found" };
+      const { connection } = stored.record;
+      if (
+        connection.generation !== input.generation ||
+        connection.state !== "active"
+      ) {
+        return { outcome: "stale" };
+      }
       stored.record.tools = input.tools;
       stored.record.toolsSkipped = input.skipped;
       stored.record.toolsReadAt = input.readAt;
-      return copy(stored);
+      return { outcome: "saved", record: copy(stored) };
     },
   };
 

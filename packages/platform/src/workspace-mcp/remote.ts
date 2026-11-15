@@ -94,7 +94,19 @@ function refuseReflection(
   response: OutboundResponse,
   sent: readonly string[],
 ): void {
-  const seen = [response.text, ...[...response.headers.values()]];
+  // The decoded JSON too: a `\u` escape hides a value from the raw text
+  // and is back whole once parsed.
+  refuseReflected(sent, [
+    response.text,
+    ...response.headers.values(),
+    ...textsOf(bodiesOf(response)),
+  ]);
+}
+
+function refuseReflected(
+  sent: readonly string[],
+  seen: readonly string[],
+): void {
   if (
     sent.some(
       (secret) => secret !== "" && seen.some((text) => text.includes(secret)),
@@ -102,6 +114,43 @@ function refuseReflection(
   ) {
     throw fail("credential_reflected", "The server sent a credential back");
   }
+}
+
+/** Every string and key in parsed JSON, walked without recursion. */
+function textsOf(values: readonly unknown[]): string[] {
+  const texts: string[] = [];
+  const pending = [...values];
+  while (pending.length > 0) {
+    const value = pending.pop();
+    if (typeof value === "string") texts.push(value);
+    else if (Array.isArray(value)) for (const item of value) pending.push(item);
+    else if (typeof value === "object" && value !== null) {
+      for (const [key, item] of Object.entries(value)) {
+        texts.push(key);
+        pending.push(item);
+      }
+    }
+  }
+  return texts;
+}
+
+/** The JSON messages of a body: one document, or each event of a stream. */
+function bodiesOf(response: OutboundResponse): unknown[] {
+  const type = response.headers.get("content-type") ?? "";
+  if (!type.includes("text/event-stream")) {
+    const body = jsonOf(response.text);
+    return Array.isArray(body) ? body : [body];
+  }
+  const messages: unknown[] = [];
+  for (const event of response.text.split(/\r?\n\r?\n/)) {
+    const data = event
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).replace(/^ /, ""))
+      .join("\n");
+    if (data !== "") messages.push(jsonOf(data));
+  }
+  return messages;
 }
 
 function jsonOf(text: string): unknown {
@@ -469,13 +518,16 @@ async function tokenRequest(
       ...(clientSecret === null ? [] : [clientSecret]),
     ]);
     const oauthError = isRecord(body) ? stringOf(body.error) : null;
+    // RFC 6749 5.2's error characters; anything else is not repeated.
+    const code =
+      oauthError !== null &&
+      /^[\x20-\x21\x23-\x5b\x5d-\x7e]{1,64}$/.test(oauthError)
+        ? oauthError
+        : null;
     throw new WorkspaceMcpRemoteError(
       "token_rejected",
-      `The token endpoint answered ${response.status}${oauthError === null ? "" : ` (${oauthError})`}`,
-      oauthError !== null &&
-        /^[\x20-\x21\x23-\x5b\x5d-\x7e]{1,64}$/.test(oauthError)
-        ? oauthError
-        : null,
+      `The token endpoint answered ${response.status}${code === null ? "" : ` (${code})`}`,
+      code,
     );
   }
   if (!isRecord(body))
@@ -488,6 +540,12 @@ async function tokenRequest(
       "The token endpoint answered without a bearer access token",
     );
   }
+  // The scope is the field kept where people read it. The rest of a good
+  // answer is not compared: a server may hand the same refresh token back.
+  refuseReflected(
+    [...sent, ...(clientSecret === null ? [] : [clientSecret])],
+    textsOf([body.scope]),
+  );
   const expiresIn = body.expires_in;
   const scope = stringOf(body.scope);
   return {
@@ -597,22 +655,7 @@ function rpcResultOf(
   response: OutboundResponse,
   id: number,
 ): Record<string, unknown> {
-  const type = response.headers.get("content-type") ?? "";
-  const messages: unknown[] = [];
-  if (type.includes("text/event-stream")) {
-    for (const event of response.text.split(/\r?\n\r?\n/)) {
-      const data = event
-        .split(/\r?\n/)
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice(5).replace(/^ /, ""))
-        .join("\n");
-      if (data !== "") messages.push(jsonOf(data));
-    }
-  } else {
-    const body = jsonOf(response.text);
-    messages.push(...(Array.isArray(body) ? body : [body]));
-  }
-  const answer = messages.find(
+  const answer = bodiesOf(response).find(
     (message) => isRecord(message) && message.id === id,
   );
   if (!isRecord(answer) || !isRecord(answer.result)) {

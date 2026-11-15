@@ -180,6 +180,7 @@ integration("workspace MCP servers on PostgreSQL", () => {
     expiresAt: Date,
   ) {
     const flowId = randomUUID();
+    const current = (await store.get(ws, serverId))?.oauth?.client ?? null;
     const started = await store.beginFlow({
       ...asUser(ws, actor),
       workspaceId: ws,
@@ -188,14 +189,18 @@ integration("workspace MCP servers on PostgreSQL", () => {
       stateSha256: createHash("sha256").update(flowId).digest(),
       expiresAt,
       verifier: "example-verifier-not-real",
-      registered: {
-        client: {
-          registration: "dcr",
-          clientId: "client-1",
-          authMethod: "client_secret_basic",
-        },
-        clientSecret: FAKE_CLIENT_VALUE,
-      },
+      expectedClientId: current?.clientId ?? null,
+      registered:
+        current !== null
+          ? null
+          : {
+              client: {
+                registration: "dcr",
+                clientId: "client-1",
+                authMethod: "client_secret_basic",
+              },
+              clientSecret: FAKE_CLIENT_VALUE,
+            },
     });
     expect(started.outcome).toBe("started");
     return flowId;
@@ -375,6 +380,123 @@ integration("workspace MCP servers on PostgreSQL", () => {
       "mcp_refresh_token",
     ]);
     await expectNoPlainCredential(ws);
+  });
+
+  test("a sign-in past its expiry is gone even when the caller's clock is behind", async () => {
+    const { ws, admin } = await team();
+    const server = await created(ws, admin, {
+      authKind: "oauth",
+      oauth: PIN,
+      bearerToken: null,
+    });
+    const flowId = await startedFlow(
+      ws,
+      admin,
+      server.id,
+      new Date(Date.now() - 1000),
+    );
+    const done = await store.completeFlow({
+      ...asUser(ws, admin),
+      workspaceId: ws,
+      serverId: server.id,
+      flowId,
+      now: new Date(Date.now() - HOUR),
+      tokens: {
+        accessToken: FAKE_ACCESS,
+        refreshToken: FAKE_REFRESH,
+        expiresAt: null,
+        scope: null,
+      },
+    });
+    expect(done.outcome).toBe("flow_gone");
+    expect((await store.get(ws, server.id))?.connection.state).toBe("none");
+  });
+
+  test("a sign-in built for one client does not start once another landed", async () => {
+    const { ws, admin, owner } = await team();
+    const server = await created(ws, admin, {
+      authKind: "oauth",
+      oauth: PIN,
+      bearerToken: null,
+    });
+    await startedFlow(ws, owner, server.id, new Date(Date.now() + HOUR));
+    const late = await store.beginFlow({
+      ...asUser(ws, admin),
+      workspaceId: ws,
+      serverId: server.id,
+      flowId: randomUUID(),
+      stateSha256: createHash("sha256").update("late").digest(),
+      expiresAt: new Date(Date.now() + HOUR),
+      verifier: "example-verifier-not-real",
+      expectedClientId: null,
+      registered: {
+        client: {
+          registration: "dcr",
+          clientId: "client-late",
+          authMethod: "none",
+        },
+        clientSecret: null,
+      },
+    });
+    expect(late.outcome).toBe("client_changed");
+    const kept = await store.get(ws, server.id);
+    expect(kept?.oauth?.client?.clientId).toBe("client-1");
+    expect((await store.readFlow(ws, server.id))?.startedByUserId).toBe(owner);
+  });
+
+  test("a tool list is stored only for the connection it was read with, by a manager", async () => {
+    const { ws, admin, owner } = await team();
+    const server = await connectedOAuth(ws, admin);
+    const save = (actor: string, generation: number) =>
+      store.saveTools({
+        ...asUser(ws, actor),
+        workspaceId: ws,
+        serverId: server.id,
+        generation,
+        tools: [{ name: "search", description: null }],
+        skipped: 0,
+        readAt: new Date(),
+      });
+    const saved = await save(admin, server.connection.generation);
+    if (saved.outcome !== "saved") throw new Error(saved.outcome);
+    expect(saved.record.tools).toEqual([{ name: "search", description: null }]);
+    expect((await save(admin, server.connection.generation + 1)).outcome).toBe(
+      "stale",
+    );
+    await db
+      .update(memberships)
+      .set({ role: "member" })
+      .where(
+        and(eq(memberships.workspaceId, ws), eq(memberships.userId, admin)),
+      );
+    expect((await save(admin, server.connection.generation)).outcome).toBe(
+      "actor_inactive",
+    );
+    const off = await store.disconnect({
+      ...asUser(ws, owner),
+      workspaceId: ws,
+      serverId: server.id,
+    });
+    if (off.outcome !== "disconnected") throw new Error(off.outcome);
+    expect((await save(owner, server.connection.generation)).outcome).toBe(
+      "stale",
+    );
+    expect((await save(owner, off.record.connection.generation)).outcome).toBe(
+      "stale",
+    );
+    expect(
+      (
+        await store.saveTools({
+          ...asUser(ws, owner),
+          workspaceId: ws,
+          serverId: randomUUID(),
+          generation: 1,
+          tools: [],
+          skipped: 0,
+          readAt: new Date(),
+        })
+      ).outcome,
+    ).toBe("not_found");
   });
 
   test("a refresh stores what it decided under the lock", async () => {

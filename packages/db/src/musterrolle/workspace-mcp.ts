@@ -653,6 +653,14 @@ export function createPostgresWorkspaceMcpStore(
           return { outcome: "not_found" as const };
         }
         await heldConnection(tx, server.id);
+        // The authorization URL names the client the service saw; a late
+        // registration must not replace one that landed since, whose tokens
+        // may already be in use.
+        if (
+          (server.oauth.client?.clientId ?? null) !== input.expectedClientId
+        ) {
+          return { outcome: "client_changed" as const };
+        }
         const { registered } = input;
         if (registered !== null) {
           await tx
@@ -757,20 +765,24 @@ export function createPostgresWorkspaceMcpStore(
       const secretKey = sealed();
       const workspaceId = input.workspaceId.toLowerCase();
       return db.transaction(async (tx) => {
+        // The person before the server and connection, the order every
+        // writer here and the offboarding in members.ts take.
+        if (!(await stillManager(tx, workspaceId, input.actorUserId))) {
+          return { outcome: "actor_inactive" as const };
+        }
         const server = await heldServer(tx, workspaceId, input.serverId);
         if (server === null) return { outcome: "flow_gone" as const };
         const connection = await heldConnection(tx, server.id);
+        // The clock once the locks are held, so waiting for them counts.
+        const at = Math.max(input.now.getTime(), Date.now());
         if (
           connection.pendingFlowId !== input.flowId ||
           connection.pendingExpiresAt === null ||
-          connection.pendingExpiresAt <= input.now
+          connection.pendingExpiresAt.getTime() <= at
         ) {
           return { outcome: "flow_gone" as const };
         }
-        if (
-          connection.pendingStartedByUserId !== input.actorUserId ||
-          !(await stillManager(tx, workspaceId, input.actorUserId))
-        ) {
+        if (connection.pendingStartedByUserId !== input.actorUserId) {
           return { outcome: "actor_inactive" as const };
         }
         const { tokens } = input;
@@ -1001,24 +1013,35 @@ export function createPostgresWorkspaceMcpStore(
       });
     },
 
-    async saveTools(input) {
+    saveTools(input) {
       const ws = input.workspaceId.toLowerCase();
-      const updated = await db
-        .update(workspaceMcpServers)
-        .set({
-          tools: input.tools,
-          toolsSkipped: input.skipped,
-          toolsReadAt: input.readAt,
-        })
-        .where(
-          and(
-            eq(workspaceMcpServers.workspaceId, ws),
-            eq(workspaceMcpServers.id, input.serverId.toLowerCase()),
-          ),
-        )
-        .returning({ id: workspaceMcpServers.id });
-      if (updated.length === 0) return null;
-      return readRecord(db, ws, input.serverId);
+      return db.transaction(async (tx) => {
+        if (!(await stillManager(tx, ws, input.actorUserId))) {
+          return { outcome: "actor_inactive" as const };
+        }
+        const server = await heldServer(tx, ws, input.serverId);
+        if (server === null) return { outcome: "not_found" as const };
+        const connection = await heldConnection(tx, server.id);
+        // Read with a credential since disconnected or replaced: the list
+        // is not that connection's to set.
+        if (
+          connection.generation !== input.generation ||
+          connection.state !== "active"
+        ) {
+          return { outcome: "stale" as const };
+        }
+        await tx
+          .update(workspaceMcpServers)
+          .set({
+            tools: input.tools,
+            toolsSkipped: input.skipped,
+            toolsReadAt: input.readAt,
+          })
+          .where(eq(workspaceMcpServers.id, server.id));
+        const record = await readRecord(tx, ws, server.id);
+        if (record === null) throw new Error("the server is not readable");
+        return { outcome: "saved" as const, record };
+      });
     },
   };
 }

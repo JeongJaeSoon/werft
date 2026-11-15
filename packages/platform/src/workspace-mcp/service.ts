@@ -101,6 +101,12 @@ function remoteRefusal(error: WorkspaceMcpRemoteError): SessionServiceError {
 const notDone = (outcome: "not_found" | "actor_inactive") =>
   outcome === "not_found" ? NOT_FOUND() : ACTOR_INACTIVE();
 
+const CONNECTION_CHANGED = () =>
+  refused(
+    "connection_changed",
+    "The server's connection changed while this was under way; try again",
+  );
+
 async function remoteCall<T>(call: () => Promise<T>): Promise<T> {
   try {
     return await call();
@@ -270,11 +276,13 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
           : { kind: "keep" };
       }
       const failedAt = connection.refreshFailedAt;
+      // Waiting out an earlier failure writes nothing, so the retry stays
+      // due 30 s after that failure however often the route asks.
       if (
         failedAt !== null &&
         at.getTime() - failedAt.getTime() < REFRESH_BACKOFF_MS
       ) {
-        return { kind: "backoff" };
+        return { kind: "keep" };
       }
       try {
         const tokens = await refreshTokens(remote, {
@@ -341,9 +349,13 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
     return fresh;
   }
 
-  /** Reads the tool list with the stored credential; a failure leaves the list as it was. */
+  /**
+   * Reads the tool list with the stored credential; a failure, or a
+   * connection that changed meanwhile, leaves the list as it was.
+   */
   async function readTools(
     record: WorkspaceMcpServerRecord,
+    check: ManagerCheck,
   ): Promise<WorkspaceMcpServerRecord> {
     const credential = await credentialFor(record.workspaceId, record.id);
     if (credential === null) return record;
@@ -355,15 +367,16 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
         serverName: record.name,
         token,
       });
-      return (
-        (await store.saveTools({
-          workspaceId: record.workspaceId,
-          serverId: record.id,
-          tools,
-          skipped,
-          readAt: now(),
-        })) ?? record
-      );
+      const saved = await store.saveTools({
+        ...check,
+        workspaceId: record.workspaceId,
+        serverId: record.id,
+        generation: record.connection.generation,
+        tools,
+        skipped,
+        readAt: now(),
+      });
+      return saved.outcome === "saved" ? saved.record : record;
     } catch (error) {
       if (error instanceof WorkspaceMcpRemoteError) return record;
       throw error;
@@ -450,7 +463,7 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
         case "created":
           return view(
             body.auth_kind === "bearer"
-              ? await readTools(result.record)
+              ? await readTools(result.record, check)
               : result.record,
           );
         case "name_taken":
@@ -504,7 +517,7 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
         );
       }
       if (result.outcome !== "saved") throw notDone(result.outcome);
-      return view(await readTools(result.record));
+      return view(await readTools(result.record, check));
     },
 
     async putOAuthClient(
@@ -573,8 +586,10 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
         stateSha256: sha256(state),
         expiresAt,
         verifier,
+        expectedClientId: pin.client?.clientId ?? null,
         registered,
       });
+      if (result.outcome === "client_changed") throw CONNECTION_CHANGED();
       if (result.outcome !== "started") throw notDone(result.outcome);
       return {
         authorization_url: authorizationUrl({
@@ -668,14 +683,15 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
         serverId,
         flowId: flow.flowId,
         tokens: { ...tokens, scope: tokens.scope ?? oauth.scope },
-        now: at,
+        // After the exchange: one that ran past the expiry does not count.
+        now: now(),
       });
       if (result.outcome !== "connected") {
         await revokeReceived();
         if (result.outcome === "actor_inactive") throw ACTOR_INACTIVE();
         throw flowGone();
       }
-      return view(await readTools(result.record));
+      return view(await readTools(result.record, check));
     },
 
     async disconnect(
@@ -699,7 +715,7 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
       caller: Caller,
       serverId: string,
     ): Promise<WorkspaceMcpServer> {
-      await manager(caller);
+      const check = await manager(caller);
       const record = await existing(caller, serverId);
       const credential = await credentialFor(record.workspaceId, record.id);
       if (credential === null) {
@@ -718,14 +734,17 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
         listTools(remote, { url: record.url, serverName: record.name, token }),
       );
       const saved = await store.saveTools({
+        ...check,
         workspaceId: record.workspaceId,
         serverId: record.id,
+        generation: record.connection.generation,
         tools,
         skipped,
         readAt: now(),
       });
-      if (saved === null) throw NOT_FOUND();
-      return view(saved);
+      if (saved.outcome === "stale") throw CONNECTION_CHANGED();
+      if (saved.outcome !== "saved") throw notDone(saved.outcome);
+      return view(saved.record);
     },
   };
 }
