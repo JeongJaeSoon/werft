@@ -483,13 +483,13 @@ export function workerEnvironmentFor(
 /** The limits a Pod's worker was started with, from its env. */
 export function workerLimitsOfPod(pod: Pod): WorkerLimits | null {
   const env = pod.spec.containers.find((c) => c.name === CONTAINER_NAME)?.env;
-  const valueOf = (name: string): number => {
+  const numberIn = (name: string): number => {
     const value = env?.find((e) => e.name === name)?.value;
     return value === undefined ? Number.NaN : Number(value);
   };
   return workerLimitsOf({
-    maxTurnSeconds: valueOf(ENV.maxTurnSeconds),
-    providerMaxRetries: valueOf(ENV.providerMaxRetries),
+    maxTurnSeconds: numberIn(ENV.maxTurnSeconds),
+    providerMaxRetries: numberIn(ENV.providerMaxRetries),
   });
 }
 

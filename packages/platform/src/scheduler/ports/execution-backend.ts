@@ -5,7 +5,10 @@ import type {
 } from "@werft-ai/contracts";
 
 /** What the worker is started with for its turns, as worker env. */
-export type WorkerLimits = { maxTurnSeconds: number; providerMaxRetries: number };
+export type WorkerLimits = {
+  maxTurnSeconds: number;
+  providerMaxRetries: number;
+};
 
 export type ExecutionResources = {
   /** Fractional CPUs, e.g. 1.5. */

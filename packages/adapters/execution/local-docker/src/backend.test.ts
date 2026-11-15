@@ -1022,9 +1022,7 @@ test("the isolation stamp leaves the worker limits to the launch", () => {
   expect(isolationStampFor(limited)).toBe(isolationStampFor(base));
   // What a host from before the pin stamped: its limits, or none before
   // they existed. Neither is what this host stamps.
-  expect(legacyIsolationStampFor(limited)).not.toBe(
-    isolationStampFor(limited),
-  );
+  expect(legacyIsolationStampFor(limited)).not.toBe(isolationStampFor(limited));
   expect(legacyIsolationStampFor(base)).not.toBe(isolationStampFor(base));
   expect(
     legacyIsolationStampFor({

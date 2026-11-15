@@ -4,7 +4,7 @@ import {
   parseExecutionResources,
 } from "./execution-backend.ts";
 
-const IMAGE = "worker@sha256:" + "a".repeat(64);
+const IMAGE = `worker@sha256:${"a".repeat(64)}`;
 const RESOURCES = { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 };
 const LIMITS = { maxTurnSeconds: 600, providerMaxRetries: 2 };
 
@@ -49,9 +49,9 @@ describe("launchSpecFingerprint", () => {
 
 describe("parseExecutionResources", () => {
   test("reads a row with pinned limits, and one from before them", () => {
-    expect(parseExecutionResources({ ...RESOURCES, workerLimits: LIMITS })).toEqual(
-      { ...RESOURCES, workerLimits: LIMITS },
-    );
+    expect(
+      parseExecutionResources({ ...RESOURCES, workerLimits: LIMITS }),
+    ).toEqual({ ...RESOURCES, workerLimits: LIMITS });
     expect(parseExecutionResources(RESOURCES)).toEqual(RESOURCES);
   });
 

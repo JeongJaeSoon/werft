@@ -2306,13 +2306,15 @@ export function workerEnvironmentFor(
 function workerLimitsOfContainer(
   container: ContainerInspect,
 ): WorkerLimits | null {
-  const valueOf = (name: string): number => {
+  const numberIn = (name: string): number => {
     const entry = container.Config.Env?.find((e) => e.startsWith(`${name}=`));
-    return entry === undefined ? Number.NaN : Number(entry.slice(name.length + 1));
+    return entry === undefined
+      ? Number.NaN
+      : Number(entry.slice(name.length + 1));
   };
   return workerLimitsOf({
-    maxTurnSeconds: valueOf(ENV.maxTurnSeconds),
-    providerMaxRetries: valueOf(ENV.providerMaxRetries),
+    maxTurnSeconds: numberIn(ENV.maxTurnSeconds),
+    providerMaxRetries: numberIn(ENV.providerMaxRetries),
   });
 }
 

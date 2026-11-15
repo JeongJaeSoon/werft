@@ -219,9 +219,7 @@ describe("worker Pod", () => {
     });
     const env = pinned.spec.containers[0]?.env ?? [];
     expect(env.find((e) => e.name === ENV.maxTurnSeconds)?.value).toBe("300");
-    expect(env.find((e) => e.name === ENV.providerMaxRetries)?.value).toBe(
-      "0",
-    );
+    expect(env.find((e) => e.name === ENV.providerMaxRetries)?.value).toBe("0");
     expect(workerLimitsOfPod(pinned as never)).toEqual(limits);
     // Reserved before the limits were pinned: the host's.
     expect(workerLimitsOfPod(pod as never)).toEqual(config.workerLimits);

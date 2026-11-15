@@ -42,8 +42,8 @@ import {
   podNameFor,
   proxyHostOf,
   selectorFor,
-  workspaceClaimFor,
   workerLimitsOfPod,
+  workspaceClaimFor,
   workspaceClaimNameFor,
 } from "./specs.ts";
 import { workspaceCapacity } from "./workspace-capacity.ts";
