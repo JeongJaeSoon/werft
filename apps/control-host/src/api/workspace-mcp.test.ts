@@ -190,10 +190,11 @@ describe("a connection's model list over the outbound policy", () => {
 
   test("reads every page of the fake Anthropic list with the key it was given", async () => {
     const server = startFakeAnthropicServer(textReply("x"), {
-      models: Array.from({ length: 1205 }, (_, index) => ({
+      models: Array.from({ length: 3 }, (_, index) => ({
         id: `claude-${index}`,
         display_name: `Claude ${index}`,
       })),
+      modelsPageMax: 2,
     });
     try {
       const listed = await listProviderModels(
@@ -204,12 +205,23 @@ describe("a connection's model list over the outbound policy", () => {
         },
         workspaceMcpOutbound(privateTo(server.url)),
       );
-      expect(listed.models).toHaveLength(1000);
-      expect(listed.truncated).toBe(true);
-      expect(listed.models[0]).toEqual({
-        id: "claude-0",
-        display_name: "Claude 0",
+      expect(listed).toEqual({
+        models: [0, 1, 2].map((index) => ({
+          id: `claude-${index}`,
+          display_name: `Claude ${index}`,
+        })),
+        skipped: 0,
+        truncated: false,
       });
+      expect(server.modelRequests.map((request) => request.path)).toEqual([
+        "/v1/models?limit=1000",
+        "/v1/models?limit=1000&after_id=claude-1",
+      ]);
+      for (const request of server.modelRequests) {
+        expect(request.headers["x-api-key"]).toBe(KEY);
+        expect(request.headers["anthropic-version"]).toBe("2023-06-01");
+        expect(request.headers.authorization).toBeUndefined();
+      }
     } finally {
       server.stop();
     }

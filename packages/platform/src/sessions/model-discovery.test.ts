@@ -228,7 +228,16 @@ describe("listProviderModels", () => {
   });
 
   test("a provider that sends the key back is refused whole, escaped or not, and the key is in no message", async () => {
+    const escaped = (text: string) =>
+      [...text]
+        .map((c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`)
+        .join("");
     for (const given of [
+      // Cut at 200 characters, this name would keep all of the key but its last character.
+      answer(
+        `{"data":[{"id":"m","display_name":"${"x".repeat(200 - KEY.length + 1)}${escaped(KEY)}"}]}`,
+      ),
+      answer(`{"data":[{"id":"m"}],"note":"${escaped(KEY)}"}`),
       answer({ data: [{ id: `model-${KEY}` }] }),
       answer({ data: [{ id: "m" }] }, 200, { "x-echo": KEY }),
       answer(

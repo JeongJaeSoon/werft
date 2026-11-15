@@ -72,10 +72,14 @@ export type FakeAnthropicOptions = {
   listen?: { hostname: string; port: number };
   /** What `GET /v1/models` lists, in order; `FAKE_ANTHROPIC_MODELS` by default. */
   models?: ReadonlyArray<{ id: string; display_name: string }>;
+  /** The most models one page holds, whatever `limit` asks for. */
+  modelsPageMax?: number;
 };
 
 export type FakeAnthropicServer = {
   requests: RecordedRequest[];
+  /** Every `GET /v1/models`: path with query, and headers. */
+  modelRequests: { path: string; headers: Record<string, string> }[];
   stop(): void;
   url: string;
 };
@@ -96,8 +100,12 @@ export const FAKE_ANTHROPIC_MODELS = [
 function modelsPage(
   models: ReadonlyArray<{ id: string; display_name: string }>,
   url: URL,
+  pageMax: number,
 ): Response {
-  const limit = Number(url.searchParams.get("limit") ?? "20");
+  const limit = Math.min(
+    Number(url.searchParams.get("limit") ?? "20"),
+    pageMax,
+  );
   const after = url.searchParams.get("after_id");
   const start =
     after === null ? 0 : models.findIndex((model) => model.id === after) + 1;
@@ -120,6 +128,7 @@ export function startFakeAnthropicServer(
   options: FakeAnthropicOptions = {},
 ): FakeAnthropicServer {
   const requests: RecordedRequest[] = [];
+  const modelRequests: FakeAnthropicServer["modelRequests"] = [];
   const resolve = toResolver(replies);
   const server = Bun.serve({
     hostname: options.listen?.hostname ?? "127.0.0.1",
@@ -128,7 +137,15 @@ export function startFakeAnthropicServer(
     async fetch(request) {
       const url = new URL(request.url);
       if (request.method === "GET" && url.pathname === "/v1/models") {
-        return modelsPage(options.models ?? FAKE_ANTHROPIC_MODELS, url);
+        modelRequests.push({
+          path: `${url.pathname}${url.search}`,
+          headers: Object.fromEntries(request.headers.entries()),
+        });
+        return modelsPage(
+          options.models ?? FAKE_ANTHROPIC_MODELS,
+          url,
+          options.modelsPageMax ?? 1000,
+        );
       }
       if (request.method !== "POST" || !url.pathname.endsWith("/messages")) {
         return new Response("not found", { status: 404 });
@@ -160,6 +177,7 @@ export function startFakeAnthropicServer(
   });
   return {
     requests,
+    modelRequests,
     stop: () => server.stop(true),
     url: `${options.tls === undefined ? "http" : "https"}://${options.listen?.hostname ?? "127.0.0.1"}:${server.port}`,
   };

@@ -707,6 +707,49 @@ describe("모델 연결", () => {
       ]);
     });
 
+    test("a new pick the provider stops listing on refresh stays checked, marked and saved", async () => {
+      let reads = 0;
+      const { api } = renderAt(CONNECTIONS_PAGE, {
+        ...routes(),
+        [`POST ${DISCOVER("console-key")}`]: () => {
+          reads += 1;
+          return json(
+            200,
+            discovered(
+              reads === 1
+                ? [{ id: "claude-sonnet-5" }, { id: "claude-opus-5" }]
+                : [{ id: "claude-sonnet-5" }],
+            ),
+          );
+        },
+        [`POST ${CONNECTIONS}/console-key/models`]: () =>
+          json(200, CHANGE("console-key")),
+      });
+      const { user, dialog } = await openModels();
+      await user.click(
+        await within(dialog).findByRole("checkbox", { name: /claude-opus-5/ }),
+      );
+      await user.click(
+        within(dialog).getByRole("button", { name: "목록 새로고침" }),
+      );
+      await waitFor(() => expect(reads).toBe(2));
+      await within(dialog).findByText("목록에 없음");
+      const gone = checkbox(dialog, "claude-opus-5");
+      expect(gone.getAttribute("aria-checked")).toBe("true");
+      expect(
+        gone
+          .closest('[data-slot="field"]')
+          ?.textContent?.includes("목록에 없음"),
+      ).toBe(true);
+      await user.click(
+        within(dialog).getByRole("button", { name: "모델 저장" }),
+      );
+      await screen.findByText("console-key의 모델 2개를 저장했습니다.");
+      expect(writes(api.calls).map((call) => call.body)).toEqual([
+        { models: ["claude-sonnet-5", "claude-opus-5"] },
+      ]);
+    });
+
     const failures: [string, Response, string][] = [
       [
         "a provider's own status",

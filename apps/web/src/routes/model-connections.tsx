@@ -537,8 +537,9 @@ function ModelsDialog({
   const picked = checked ?? new Set(saved);
   const listed = discovery.isSuccess ? discovery.data.models : [];
   const listedIds = new Set(listed.map((model) => model.id));
+  // A pick the provider stopped listing after a refresh stays, like a saved one.
   const unlisted = [
-    ...new Set([...saved, ...(discovery.data?.missing ?? [])]),
+    ...new Set([...saved, ...(discovery.data?.missing ?? []), ...picked]),
   ].filter((model) => !listedIds.has(model));
   const toggle = (model: string, on: boolean) => {
     const next = new Set(picked);

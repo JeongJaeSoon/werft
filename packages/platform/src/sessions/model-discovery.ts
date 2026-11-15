@@ -95,11 +95,27 @@ async function get(
   ) {
     throw reflected();
   }
+  let body: unknown;
   try {
-    return JSON.parse(response.text);
+    body = JSON.parse(response.text);
   } catch {
     throw malformed();
   }
+  // A `\u` escape hides the key from the raw text, and trimming or cutting a
+  // field later could leave all of it but one character: check what parsed.
+  if (secret !== "" && carries(body, secret)) throw reflected();
+  return body;
+}
+
+function carries(value: unknown, secret: string): boolean {
+  if (typeof value === "string") return value.includes(secret);
+  if (Array.isArray(value)) return value.some((item) => carries(item, secret));
+  if (isRecord(value)) {
+    return Object.entries(value).some(
+      ([key, item]) => key.includes(secret) || carries(item, secret),
+    );
+  }
+  return false;
 }
 
 const reflected = () =>
@@ -200,17 +216,6 @@ export async function listProviderModels(
         ? item.display_name.trim().slice(0, DISPLAY_NAME_MAX)
         : "";
     models.push({ id, display_name: name === "" ? null : name });
-  }
-  // A `\u` escape hides the key from the raw text; what leaves is checked too.
-  if (
-    secret !== "" &&
-    models.some(
-      (model) =>
-        model.id.includes(secret) ||
-        (model.display_name?.includes(secret) ?? false),
-    )
-  ) {
-    throw reflected();
   }
   return { models, skipped, truncated };
 }
