@@ -1146,9 +1146,18 @@ describe("모델 연결", () => {
       renderAt(CONNECTIONS_PAGE, withDisabled());
       const table = await screen.findByRole("table", { name: "모델 연결" });
       const off = within(rowOf(table, "off-key"));
+      // The ⋯ button is there, so the buttons line up, but unavailable.
       expect(
-        off.getAllByRole("button").map((button) => button.textContent),
-      ).toEqual(["다시 켜기"]);
+        off
+          .getAllByRole("button")
+          .map((button) => [
+            button.getAttribute("aria-label"),
+            button.getAttribute("aria-disabled"),
+          ]),
+      ).toEqual([
+        ["off-key 다시 켜기", null],
+        ["off-key 메뉴", "true"],
+      ]);
       expect(
         off.getByRole("button", { name: "off-key 다시 켜기" }),
       ).toBeTruthy();
@@ -1158,6 +1167,35 @@ describe("모델 연결", () => {
         }) === null,
       ).toBe(true);
       expectNarrowActions(table);
+    });
+
+    test("its ⋯ button keeps the focus and its name but opens nothing, by click or Enter", async () => {
+      renderAt(CONNECTIONS_PAGE, withDisabled());
+      const user = await setupUser();
+      const table = await screen.findByRole("table", { name: "모델 연결" });
+      const button = within(rowOf(table, "off-key")).getByRole("button", {
+        name: "off-key 메뉴",
+      });
+      expect(button.hasAttribute("disabled")).toBe(false);
+      expect(button.getAttribute("aria-disabled")).toBe("true");
+
+      await user.click(button);
+      expect(document.activeElement === button).toBe(true);
+      await user.keyboard("{Enter}");
+      await user.keyboard(" ");
+      expect(screen.queryByRole("menu") === null).toBe(true);
+      expect(button.getAttribute("aria-expanded")).toBe("false");
+
+      // An active row's still opens, so the click above reached a live button.
+      await openMenu(user, table, "on-key");
+    });
+
+    test("only the disabled row takes the muted fill", async () => {
+      renderAt(CONNECTIONS_PAGE, withDisabled());
+      const table = await screen.findByRole("table", { name: "모델 연결" });
+      const classes = (id: string) => rowOf(table, id).className.split(" ");
+      expect(classes("off-key").includes("bg-hover")).toBe(true);
+      expect(classes("on-key").includes("bg-hover")).toBe(false);
     });
 
     test("asks first, then posts to its route and says it is on again", async () => {

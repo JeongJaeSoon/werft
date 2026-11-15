@@ -38,6 +38,7 @@ import { Plus, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
+import { INACTIVE_ROW_CLASS } from "../components/inactive-member.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { RowMenu, RowMenuItem } from "../components/row-menu.tsx";
 import { type Translate, useI18n } from "../i18n/i18n.tsx";
@@ -56,9 +57,11 @@ import {
   useSettingsWrite,
 } from "./settings-entries.tsx";
 
-// id and source, kind and endpoint, credential, models, state, actions; a phone keeps the id (with the state) and the actions.
+// id, endpoint, kind, credential, models, state, actions, one line each so a
+// row is as tall as the members table's; a phone keeps the id (with the
+// state) and the actions.
 const COLUMNS = [
-  "minmax(0,1.1fr) minmax(0,1.6fr) minmax(0,1fr) minmax(0,1fr) 112px 120px",
+  "minmax(0,1fr) minmax(0,1.2fr) minmax(0,1.6fr) minmax(0,1.1fr) minmax(0,0.9fr) 112px 120px",
   SETTINGS_NARROW_COLUMNS,
 ] as const;
 
@@ -122,6 +125,9 @@ export function ModelConnections() {
               </GridTableColumnHeader>
               <GridTableColumnHeader hideNarrow>
                 {t("settings.connections.endpoint")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader hideNarrow>
+                {t("settings.connections.kind")}
               </GridTableColumnHeader>
               <GridTableColumnHeader hideNarrow>
                 {t("settings.column.credential")}
@@ -216,11 +222,12 @@ function ConnectionRow({
   const actions = entryActions(item);
   // No agent runs on it, so it has no models and no auto mode.
   const judgeOnly = item.kind === "openai_decisions";
+  const disabled = item.state === "disabled";
   const credentialKind = t(`settings.connections.authKind.${item.auth_kind}`);
   const detail = judgeOnly
     ? item.kind
     : `${item.kind} · ${t(`settings.connections.billing.${item.billing}`)} · ${t("settings.autoMode.column")} ${t(`settings.autoMode.${item.auto_mode}`)}`;
-  const credential = credentialText(t, item.credential);
+  const credential = `${credentialKind} · ${credentialText(t, item.credential)}`;
   const models = judgeOnly
     ? t("settings.connections.judgeOnly")
     : item.models.length === 0
@@ -242,13 +249,13 @@ function ConnectionRow({
       text: t("settings.convert"),
       open: onConvert,
     },
-    item.state !== "disabled" &&
+    !disabled &&
       !judgeOnly && {
         label: t("settings.autoMode.setFor", { id: item.id }),
         text: t("settings.autoMode.set"),
         open: onAutoMode,
       },
-    item.state !== "disabled" &&
+    !disabled &&
       !judgeOnly && {
         label: t("settings.models.setFor", { id: item.id }),
         text: t("settings.models.set"),
@@ -256,23 +263,20 @@ function ConnectionRow({
       },
   ].filter((entry) => entry !== false);
   return (
-    <GridTableRow>
-      <GridTableCell lines>
-        <div className="flex min-w-0 max-w-full items-center gap-1.5">
-          <Code className="truncate" title={item.id}>
-            {item.id}
-          </Code>
-          <NarrowState state={item.state} />
-        </div>
-        <Text as="span" variant="meta">
-          {credentialKind}
-        </Text>
+    <GridTableRow className={disabled ? INACTIVE_ROW_CLASS : undefined}>
+      <GridTableCell>
+        <Code className="truncate" title={item.id}>
+          {item.id}
+        </Code>
+        <NarrowState state={item.state} />
       </GridTableCell>
-      <GridTableCell hideNarrow lines>
-        <Code className="max-w-full truncate" title={item.endpoint}>
+      <GridTableCell hideNarrow>
+        <Code className="truncate" title={item.endpoint}>
           {item.endpoint}
         </Code>
-        <Text as="span" variant="meta" title={detail}>
+      </GridTableCell>
+      <GridTableCell hideNarrow>
+        <Text as="span" variant="meta" truncate title={detail}>
           {detail}
         </Text>
       </GridTableCell>
@@ -310,24 +314,24 @@ function ConnectionRow({
               {t("settings.enable")}
             </RowAction>
           ) : null}
-          {menu.length > 0 ? (
-            <RowMenu
-              label={t("settings.connections.menuFor", { id: item.id })}
-              disabled={busy}
-            >
-              {(close) =>
-                menu.map((entry) => (
-                  <RowMenuItem
-                    key={entry.label}
-                    label={entry.label}
-                    onSelect={() => entry.open(close())}
-                  >
-                    {entry.text}
-                  </RowMenuItem>
-                ))
-              }
-            </RowMenu>
-          ) : null}
+          {/* On every row, so the buttons line up; with nothing to choose it
+              stays, named and focusable, but does not open. */}
+          <RowMenu
+            label={t("settings.connections.menuFor", { id: item.id })}
+            disabled={busy || menu.length === 0}
+          >
+            {(close) =>
+              menu.map((entry) => (
+                <RowMenuItem
+                  key={entry.label}
+                  label={entry.label}
+                  onSelect={() => entry.open(close())}
+                >
+                  {entry.text}
+                </RowMenuItem>
+              ))
+            }
+          </RowMenu>
         </div>
       </GridTableCell>
     </GridTableRow>
