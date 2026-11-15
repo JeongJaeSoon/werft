@@ -198,6 +198,55 @@ describe("assessUpgrade", () => {
       }
     });
 
+    test("with no runtime of its own, is judged by what the deployed list declares for its digest", () => {
+      // A launched as one image with no runtime; the list since declares it,
+      // and n is A rebuilt under the same runtime.
+      const listed: Assessed["deployed"] = [
+        { image: n, runtime: previous },
+        { image: other, runtime: previous },
+      ];
+      const dropA: Omit<Assessed, "sessions" | "approved"> = {
+        deployed: listed,
+        target: [
+          { image: n1, runtime: current },
+          { image: n, runtime: previous },
+        ],
+        writers: [{ image: other, runtime: null }],
+      };
+      expect(assessUpgrade({ ...dropA, sessions: [], approved: [] })).toEqual({
+        verdict: "proceed",
+        affected: [],
+        approved: [],
+      });
+      // Declared under a runtime the target restores on no image: refused.
+      const declaredOlder = assessUpgrade({
+        ...dropA,
+        deployed: [listed[0], { image: other, runtime: older }],
+        sessions: [],
+        approved: [],
+      });
+      expect(declaredOlder.verdict).toBe("refused");
+      expect(declaredOlder.reason).toContain(
+        `workers on ${other} still hold a slot`,
+      );
+      // One digest as the current and the previous image under two runtimes
+      // (the single-image settings allow it): neither declaration counts.
+      const disagreeing = assessUpgrade({
+        deployed: [
+          { image: other, runtime: previous },
+          { image: other, runtime: { ...previous, engine: "codex" } },
+        ],
+        target: [{ image: n, runtime: previous }],
+        writers: [{ image: other, runtime: null }],
+        sessions: [],
+        approved: [],
+      });
+      expect(disagreeing.verdict).toBe("refused");
+      expect(disagreeing.reason).toContain(
+        `workers on ${other} still hold a slot`,
+      );
+    });
+
     test("passes when the target still restores what it seals", () => {
       expect(
         assessUpgrade({
