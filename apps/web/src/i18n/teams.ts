@@ -22,8 +22,10 @@ export const teamsKo = {
   "teams.mine.intro":
     "오너나 어드민이 넣은 팀입니다. 팀이 담당 팀인 에이전트는 팀 관리자가 관리하고 구성원은 설정을 보고 사용합니다. 팀이 에이전트 관리자로 지정되면 구성원 모두가 그 에이전트를 관리합니다.",
   "teams.mine.empty": "아직 속한 팀이 없습니다.",
-  "teams.settings": "팀 설정",
-  "teams.rename": "이름 바꾸기",
+  "teams.rename": "팀 이름 바꾸기",
+  "teams.renameDescription":
+    "구성원과 이 팀이 관리하는 에이전트는 그대로이고, 이름만 바뀝니다.",
+  "teams.nameRequired": "팀 이름을 입력하세요.",
   "teams.renamed": "팀 이름을 바꿨습니다. 지금 이름은 {name}입니다.",
   "teams.delete": "팀 삭제",
   "teams.deleted": "팀을 삭제했습니다: {name}",
@@ -61,7 +63,6 @@ export const teamsKo = {
   "teams.removeMemberTitle": "{name}님을 다음 팀에서 제외할까요? {team}",
   "teams.removeMemberConsequence":
     "워크스페이스에는 그대로 남지만, 이 팀을 통해 관리하던 에이전트는 더 관리하지 못합니다. 다시 추가하면 돌아옵니다.",
-  "teams.column.workspaceRole": "워크스페이스 역할",
   "teams.column.teamRole": "팀 역할",
   "teams.role.lead": "팀 관리자",
   "teams.role.member": "구성원",
@@ -107,8 +108,10 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.mine.intro":
     "These are the teams an owner or admin added you to. An agent a team manages is managed by the team's leads, and its members see the agent's settings and use it. When a team is assigned as an agent admin, all its members can manage that agent.",
   "teams.mine.empty": "You are not in any team yet.",
-  "teams.settings": "Team settings",
-  "teams.rename": "Rename",
+  "teams.rename": "Rename team",
+  "teams.renameDescription":
+    "Only the name changes; the members and the agents this team manages stay as they are.",
+  "teams.nameRequired": "Enter a team name.",
   "teams.renamed": "Renamed the team. Its name is now {name}.",
   "teams.delete": "Delete team",
   "teams.deleted": "Deleted team {name}.",
@@ -146,7 +149,6 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.removeMemberTitle": "Remove {name} from team {team}?",
   "teams.removeMemberConsequence":
     "They stay in the workspace but lose the ability to manage agents through this team. Adding them again restores that access.",
-  "teams.column.workspaceRole": "Workspace role",
   "teams.column.teamRole": "Team role",
   "teams.role.lead": "Team lead",
   "teams.role.member": "Member",
@@ -191,8 +193,10 @@ export const teamsJa: Record<keyof typeof teamsKo, string> = {
   "teams.mine.intro":
     "オーナーまたはアドミンが追加したチームです。チームが担当チームのエージェントは、チーム管理者が管理し、メンバーは設定を見て利用します。チームがエージェントの管理者に指定されると、メンバー全員がそのエージェントを管理できます。",
   "teams.mine.empty": "所属しているチームはまだありません。",
-  "teams.settings": "チーム設定",
-  "teams.rename": "名前を変更",
+  "teams.rename": "チーム名を変更",
+  "teams.renameDescription":
+    "変わるのは名前だけです。メンバーとこのチームが管理するエージェントはそのままです。",
+  "teams.nameRequired": "チーム名を入力してください。",
   "teams.renamed": "チーム名を変更しました。現在の名前は「{name}」です。",
   "teams.delete": "チームを削除",
   "teams.deleted": "チーム「{name}」を削除しました。",
@@ -230,7 +234,6 @@ export const teamsJa: Record<keyof typeof teamsKo, string> = {
   "teams.removeMemberTitle": "{name}さんをチーム「{team}」から外しますか？",
   "teams.removeMemberConsequence":
     "ワークスペースには残りますが、このチームを通じて管理していたエージェントは管理できなくなります。再び追加すると元に戻ります。",
-  "teams.column.workspaceRole": "ワークスペースのロール",
   "teams.column.teamRole": "チームのロール",
   "teams.role.lead": "チーム管理者",
   "teams.role.member": "メンバー",

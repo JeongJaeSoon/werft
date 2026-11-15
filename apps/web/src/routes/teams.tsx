@@ -50,12 +50,11 @@ import {
   Text,
   Link as TextLink,
 } from "@werft-ai/ui";
-import { ChevronRight, Plus } from "lucide-react";
+import { ChevronRight, Pencil, Plus } from "lucide-react";
 import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
 import {
   agentSummariesQuery,
   memberPagesQuery,
-  memberSummariesQuery,
   queryKeysOf,
   teamPagesQuery,
   teamQuery,
@@ -66,7 +65,6 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { MemberTableFrame } from "../components/member-table.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
-import { RoleBadge } from "../components/role-badge.tsx";
 import { RowMenu, RowMenuItem } from "../components/row-menu.tsx";
 import {
   SEARCH_MAX,
@@ -190,7 +188,7 @@ export function TeamsScreen() {
 const TEAM_COLUMNS = "minmax(0,1fr) 9rem";
 // Below 640px the count and its arrow keep what the name leaves.
 const TEAM_NARROW_COLUMNS = "minmax(0,1fr) 7rem";
-// Role, team role and status share the members table's 104px, so badges and
+// Team role and status share the members table's 104px, so badges and
 // dots line up the same way; the ⋯ button closes the row as it does there.
 const TEAM_BADGE_COLUMN = "104px";
 const TEAM_MENU_COLUMN = "var(--werft-control-height-sm)";
@@ -278,14 +276,16 @@ function TeamPage({ id }: { readonly id: string }) {
   // on a team's address, or the browser's back.
   return (
     <div className="flex flex-col gap-[var(--werft-space-section)]">
-      <Heading className="min-w-0 [overflow-wrap:anywhere]">
-        {team.error ? t("teams.title") : team.data.name}
-      </Heading>
+      <div className="flex min-w-0 items-center gap-2">
+        <Heading className="min-w-0 [overflow-wrap:anywhere]">
+          {team.error ? t("teams.title") : team.data.name}
+        </Heading>
+        {manages && !team.error ? <TeamRenameDialog team={team.data} /> : null}
+      </div>
       {team.error ? (
         <ListError error={team.error} onRetry={() => void team.refetch()} />
       ) : (
         <>
-          {manages && <TeamSettings team={team.data} />}
           <TeamMembers team={team.data} manages={manages} />
           {manages && <TeamDangerZone team={team.data} />}
         </>
@@ -294,87 +294,144 @@ function TeamPage({ id }: { readonly id: string }) {
   );
 }
 
-function TeamSettings({ team }: { readonly team: TeamDetail }) {
+/**
+ * The pencil beside the team's heading (owner, 2026-11-16): the name in a
+ * dialog, so the page holds no form of its own above the members.
+ */
+function TeamRenameDialog({ team }: { readonly team: TeamDetail }) {
   const { t } = useI18n();
   const notify = useNotify();
   const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
+  const [open, setOpen] = useState(false);
   const [name, setName] = useState(team.name);
+  const [blank, setBlank] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   // The name that was refused, not a flag: a reply that comes after the box
   // was edited must not mark the new name.
   const [taken, setTaken] = useState<string | null>(null);
-  const path = { params: { path: { team_id: team.id } } };
-
-  const fail = (error: ApiError, submitted: string) => {
-    if (error.code === "ALREADY_EXISTS") setTaken(submitted);
-    else notify(refusalText(t, error, "team.manage", role), { tone: "error" });
-  };
 
   const rename = useMutation<TeamChangeResponse, ApiError, string>({
     mutationFn: (submitted) =>
       unwrap(
         client.PATCH("/v1/teams/{team_id}", {
-          ...path,
+          params: { path: { team_id: team.id } },
           body: { name: submitted },
         }),
       ),
-    onMutate: () => setTaken(null),
+    onMutate: () => {
+      setError(null);
+      setTaken(null);
+    },
     onSuccess: async ({ team: renamed }) => {
+      setOpen(false);
       notify(t("teams.renamed", { name: renamed.name }));
       await queryClient.invalidateQueries({
         queryKey: queryKeysOf(client).teams,
       });
     },
-    onError: fail,
+    onError: (failure, submitted) => {
+      if (failure.code === "ALREADY_EXISTS") setTaken(submitted);
+      else setError(refusalText(t, failure, "team.manage", role));
+    },
   });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    // The form is noValidate, so `required` does not stop an empty name.
-    if (name.trim() === "") return;
-    rename.mutate(name.trim());
+    if (rename.isPending) return;
+    const next = name.trim();
+    if (next === "") {
+      setBlank(true);
+      return;
+    }
+    if (next === team.name) {
+      setOpen(false);
+      return;
+    }
+    rename.mutate(next);
   };
 
-  // One box under the team's heading, the button beside the name it saves
-  // (owner, 2026-11-16): no second "팀 설정" heading over a single field.
+  const fieldError = blank
+    ? t("teams.nameRequired")
+    : name.trim() === taken
+      ? t("teams.nameTaken")
+      : undefined;
+
   return (
-    <form
-      aria-label={t("teams.settings")}
-      // noValidate: the server owns the limits and says why it refused.
-      noValidate
-      onSubmit={submit}
-      className="flex min-w-0 flex-col gap-4 rounded-card border bg-card p-4"
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // Open until the request answers, so its answer lands in this opening.
+        if (rename.isPending) return;
+        setName(team.name);
+        setBlank(false);
+        setError(null);
+        setTaken(null);
+        setOpen(next);
+      }}
     >
-      <Field className="min-w-0 max-w-xl">
-        <FieldLabel>{t("teams.name")}</FieldLabel>
-        <div className="flex flex-wrap items-center gap-2">
-          <Input
-            name="team-name"
-            required
-            maxLength={100}
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            className="min-w-0 flex-1 basis-48"
-          />
-          <Button
-            type="submit"
-            variant="outline"
-            disabled={
-              rename.isPending ||
-              name.trim() === "" ||
-              name.trim() === team.name
-            }
-          >
-            {t("teams.rename")}
-          </Button>
-        </div>
-        {/* Why this name was refused; it stays with the box that holds it. */}
-        <FieldError>
-          {name.trim() === taken ? t("teams.nameTaken") : undefined}
-        </FieldError>
-      </Field>
-    </form>
+      {/* As the trigger, the button gets the focus back when the dialog closes. */}
+      <DialogTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="shrink-0"
+          aria-label={t("teams.rename")}
+        >
+          <Pencil aria-hidden="true" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        {/* noValidate: an empty name says so under its box, and the server
+            owns the other limits. */}
+        <form className="flex flex-col gap-4" noValidate onSubmit={submit}>
+          <DialogHeader>
+            <DialogTitle>{t("teams.rename")}</DialogTitle>
+            <DialogDescription>
+              {t("teams.renameDescription")}
+            </DialogDescription>
+          </DialogHeader>
+          {error === null ? null : (
+            <Alert variant="red" role="alert">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          <Field>
+            <FieldLabel>{t("teams.name")}</FieldLabel>
+            <Input
+              name="team-name"
+              required
+              maxLength={100}
+              autoComplete="off"
+              value={name}
+              readOnly={rename.isPending}
+              onChange={(event) => {
+                setBlank(false);
+                setName(event.target.value);
+              }}
+            />
+            <FieldError>{fieldError}</FieldError>
+          </Field>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button
+                type="button"
+                variant="outline"
+                aria-disabled={rename.isPending || undefined}
+              >
+                {t("common.cancel")}
+              </Button>
+            </DialogClose>
+            {/* aria-disabled, not disabled: Enter on it keeps the focus there. */}
+            <Button type="submit" aria-disabled={rename.isPending || undefined}>
+              {rename.isPending ? t("settings.saving") : t("settings.save")}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -531,15 +588,6 @@ function TeamMembers({
   const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
-  // Managers read the roles of this team's people only; the picker searches
-  // the workspace on its own. A team's own members never ask.
-  const members = useQuery({
-    ...memberSummariesQuery(
-      client,
-      team.members.map((member) => member.user_id),
-    ),
-    enabled: manages && team.members.length > 0,
-  });
   const [removing, setRemoving] = useState<TeamMember | null>(null);
   const [promoting, setPromoting] = useState<TeamMember | null>(null);
   const [query, setQuery] = useState("");
@@ -600,9 +648,6 @@ function TeamMembers({
       }),
   });
 
-  const roles = members.isSuccess
-    ? new Map(members.data.items.map((member) => [member.user_id, member.role]))
-    : undefined;
   const needle = query.trim().normalize("NFKC").toLowerCase();
   const found = needle
     ? team.members.filter((member) => matches(member, needle))
@@ -620,7 +665,6 @@ function TeamMembers({
   const columns = [
     "minmax(0,1.3fr)",
     "minmax(0,1.5fr)",
-    roles && TEAM_BADGE_COLUMN,
     TEAM_BADGE_COLUMN,
     TEAM_BADGE_COLUMN,
     "9.5rem",
@@ -719,11 +763,6 @@ function TeamMembers({
                     <GridTableColumnHeader hideNarrow={true}>
                       {t("members.column.email")}
                     </GridTableColumnHeader>
-                    {roles && (
-                      <GridTableColumnHeader hideNarrow={true}>
-                        {t("teams.column.workspaceRole")}
-                      </GridTableColumnHeader>
-                    )}
                     <GridTableColumnHeader>
                       {t("teams.column.teamRole")}
                     </GridTableColumnHeader>
@@ -747,7 +786,6 @@ function TeamMembers({
             >
               {shown.map((member) => {
                 const name = member.display_name ?? member.email;
-                const memberRole = roles?.get(member.user_id);
                 const inactive = member.disabled_at !== null;
                 const status = (
                   <StatusText status={inactive ? "failed" : "done"}>
@@ -793,11 +831,6 @@ function TeamMembers({
                         {member.email}
                       </Text>
                     </GridTableCell>
-                    {roles && (
-                      <GridTableCell hideNarrow={true}>
-                        {memberRole && <RoleBadge role={memberRole} />}
-                      </GridTableCell>
-                    )}
                     <GridTableCell>
                       <TeamRoleBadge role={member.role} />
                     </GridTableCell>

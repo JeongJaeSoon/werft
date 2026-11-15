@@ -97,6 +97,15 @@ async function openAdd(user: Awaited<ReturnType<typeof setupUser>>) {
   return { dialog, picker };
 }
 
+async function openRename(user: Awaited<ReturnType<typeof setupUser>>) {
+  await user.click(
+    await screen.findByRole("button", { name: "팀 이름 바꾸기" }),
+  );
+  const dialog = await screen.findByRole("dialog", { name: "팀 이름 바꾸기" });
+  const name = within(dialog).getByLabelText("팀 이름");
+  return { dialog, name };
+}
+
 /** The teams API as one stateful server, as the real routes answer. */
 function teamServer({
   refuse = {},
@@ -387,15 +396,74 @@ describe("팀 화면", () => {
     }
   });
 
-  test("팀 이름을 비우면 이름 바꾸기가 잠기고 아무것도 보내지 않는다", async () => {
+  test("팀 이름 칸은 페이지에 없고, 제목 옆 연필 버튼이 이름 바꾸기 대화상자를 연다", async () => {
+    const server = teamServer();
+    renderAt(`/members/teams/${TEAM_ID}`, server.routes);
+    const user = await setupUser();
+    const heading = await screen.findByRole("heading", {
+      level: 2,
+      name: "결제팀",
+    });
+    expect(screen.queryByLabelText("팀 이름")).toBeNull();
+    expect(screen.queryByRole("form", { name: "팀 설정" })).toBeNull();
+    const pencil = screen.getByRole("button", { name: "팀 이름 바꾸기" });
+    // Beside the heading, an icon only: its name is the aria-label.
+    expect(pencil.parentElement === heading.parentElement).toBe(true);
+    expect(pencil.textContent).toBe("");
+    expect(pencil.querySelector("svg")?.getAttribute("aria-hidden")).toBe(
+      "true",
+    );
+    await user.click(pencil);
+    const dialog = await screen.findByRole("dialog", {
+      name: "팀 이름 바꾸기",
+    });
+    const box = within(dialog).getByLabelText("팀 이름") as HTMLInputElement;
+    expect(box.value).toBe("결제팀");
+    expect(within(dialog).getByRole("button", { name: "저장" })).toBeDefined();
+    await user.click(within(dialog).getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement === pencil).toBe(true));
+  });
+
+  test("팀 이름을 비우거나 공백만 두고 저장하면 칸 아래에서 말하고 아무것도 보내지 않는다", async () => {
     const server = teamServer();
     const { api } = renderAt(`/members/teams/${TEAM_ID}`, server.routes);
     const user = await setupUser();
-    const name = await screen.findByLabelText("팀 이름");
+    await user.click(
+      await screen.findByRole("button", { name: "팀 이름 바꾸기" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "팀 이름 바꾸기",
+    });
+    const name = within(dialog).getByLabelText("팀 이름");
     await user.clear(name);
-    const rename = screen.getByRole("button", { name: "이름 바꾸기" });
-    expect(rename.hasAttribute("disabled")).toBe(true);
-    await user.type(name, "{Enter}");
+    await user.type(name, "   {Enter}");
+    await waitFor(() =>
+      expect(within(dialog).getByText("팀 이름을 입력하세요.")).toBeDefined(),
+    );
+    expect(name.getAttribute("aria-invalid")).toBe("true");
+    await user.clear(name);
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    expect(within(dialog).getByText("팀 이름을 입력하세요.")).toBeDefined();
+    expect(screen.queryByRole("dialog") === dialog).toBe(true);
+    expect(api.calls.some((c) => c.method === "PATCH")).toBe(false);
+    // Typing again clears the complaint.
+    await user.type(name, "지원팀");
+    expect(within(dialog).queryByText("팀 이름을 입력하세요.")).toBeNull();
+  });
+
+  test("이름을 그대로 두고 저장하면 보내지 않고 닫는다", async () => {
+    const server = teamServer();
+    const { api } = renderAt(`/members/teams/${TEAM_ID}`, server.routes);
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "팀 이름 바꾸기" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "팀 이름 바꾸기",
+    });
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(api.calls.some((c) => c.method === "PATCH")).toBe(false);
   });
 
@@ -659,8 +727,6 @@ describe("팀 화면", () => {
     ).toBeDefined();
     const table = screen.getByRole("table", { name: "팀 구성원" });
     expect(within(table).getByText("Mate")).toBeDefined();
-    // Workspace roles come from the member list, which only managers read;
-    // the team role comes with the team.
     expect(
       within(table)
         .getAllByRole("columnheader")
@@ -677,7 +743,7 @@ describe("팀 화면", () => {
       "활성",
       "10월 11일 오전 09:0010/11",
     ]);
-    for (const control of ["이름 바꾸기", "구성원 추가", "팀 삭제"])
+    for (const control of ["팀 이름 바꾸기", "구성원 추가", "팀 삭제"])
       expect(
         screen.queryByRole("button", { name: control }),
         control,
@@ -709,9 +775,6 @@ describe("팀 화면", () => {
     const table = await screen.findByRole("table", { name: "팀 구성원" });
     await waitFor(() =>
       expect(within(table).getAllByRole("row")).toHaveLength(3),
-    );
-    await waitFor(() =>
-      expect(within(table).getAllByText("오너").length).toBeGreaterThan(0),
     );
     // Each row is its own grid: a max-content track would size to that
     // row's buttons (the header has none) and shift the columns before it.
@@ -837,7 +900,7 @@ describe("팀 화면", () => {
     ).toBeDefined();
   });
 
-  test("관리자는 이름이나 이메일로 찾아 여러 명을 고른 뒤 한 번에 추가하고, 표에서 역할과 함께 본다", async () => {
+  test("관리자는 이름이나 이메일로 찾아 여러 명을 고른 뒤 한 번에 추가하고, 표에서 팀 역할과 함께 본다", async () => {
     const server = teamServer();
     const { api } = renderAt(`/members/teams/${TEAM_ID}`, server.routes);
     const user = await setupUser();
@@ -916,15 +979,15 @@ describe("팀 화면", () => {
       within(table)
         .getAllByRole("columnheader")
         .map((h) => h.textContent),
-    ).toEqual([
-      "이름",
-      "이메일",
-      "워크스페이스 역할",
-      "팀 역할",
-      "상태",
-      "추가한 날",
-      "관리",
-    ]);
+    ).toEqual(["이름", "이메일", "팀 역할", "상태", "추가한 날", "관리"]);
+    // The workspace role is 구성원's; the team page shows only the team role
+    // and so never reads the workspace's member list for it.
+    expect(within(table).queryByText("워크스페이스 역할")).toBeNull();
+    expect(
+      api.calls.some(
+        (c) => c.path === "/v1/members" && c.search.includes("user_ids"),
+      ),
+    ).toBe(false);
     const mateRow = within(table).getAllByRole("row")[1] as HTMLElement;
     // One line per cell, as on 구성원: the team role is a badge, not a select.
     expect(
@@ -934,7 +997,6 @@ describe("팀 화면", () => {
     ).toEqual([
       "Mate",
       "mate@example.com",
-      "멤버",
       "구성원",
       "활성",
       "10월 11일 오전 09:0010/11",
@@ -1129,15 +1191,34 @@ describe("팀 화면", () => {
       expect(said()).toContain("Mate님을 팀에서 제외했습니다."),
     );
 
-    const name = screen.getByLabelText("팀 이름");
+    const pencil = screen.getByRole("button", { name: "팀 이름 바꾸기" });
+    await user.click(pencil);
+    const renameDialog = await screen.findByRole("dialog", {
+      name: "팀 이름 바꾸기",
+    });
+    const name = within(renameDialog).getByLabelText("팀 이름");
     await user.clear(name);
-    await user.type(name, "청구팀");
-    await user.click(screen.getByRole("button", { name: "이름 바꾸기" }));
+    await user.type(name, " 청구팀 ");
+    await user.click(
+      within(renameDialog).getByRole("button", { name: "저장" }),
+    );
     await waitFor(() =>
       expect(said()).toContain(
         "팀 이름을 바꿨습니다. 지금 이름은 청구팀입니다.",
       ),
     );
+    // Saved: the dialog closes, the keyboard is back on the pencil, and the
+    // heading shows the new name.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement === pencil).toBe(true));
+    await screen.findByRole("heading", { level: 2, name: "청구팀" });
+    expect(
+      api.calls
+        .filter(
+          (c) => c.method === "PATCH" && c.path === `/v1/teams/${TEAM_ID}`,
+        )
+        .map((c) => c.body),
+    ).toEqual([{ name: "청구팀" }]);
 
     // Deleting sits last on the page, in its own danger zone, behind a confirm.
     const danger = screen.getByRole("region", { name: "위험 구역" });
@@ -1557,10 +1638,10 @@ describe("팀 화면", () => {
     await new Promise((resolve) => setTimeout(resolve, 8300));
     expect(alert?.isConnected).toBe(true);
     // A later notice sits beside it instead of replacing it.
-    const name = screen.getByLabelText("팀 이름");
+    const { dialog, name } = await openRename(user);
     await user.clear(name);
     await user.type(name, "청구팀");
-    await user.click(screen.getByRole("button", { name: "이름 바꾸기" }));
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
     await waitFor(() => {
       const texts = [...document.querySelectorAll("[data-slot=toast]")].map(
         (region) => region.textContent,
@@ -1587,23 +1668,28 @@ describe("팀 화면", () => {
         apiError(409, "ALREADY_EXISTS", "A team by that name exists"),
     });
     const user = await setupUser();
-    const name = await screen.findByLabelText("팀 이름");
+    const { dialog, name } = await openRename(user);
     await user.clear(name);
     await user.type(name, "청구팀");
-    await user.click(screen.getByRole("button", { name: "이름 바꾸기" }));
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
     await waitFor(() => expect(name.getAttribute("aria-invalid")).toBe("true"));
-    expect(screen.getByRole("alert").textContent).toBe(
+    expect(within(dialog).getByRole("alert").textContent).toBe(
       "같은 이름의 팀이 이미 있습니다 — 다른 이름을 쓰세요.",
     );
+    // The dialog stays open on the name it refused.
+    expect(screen.queryByRole("dialog") === dialog).toBe(true);
     expect(toastRegion() === null).toBe(true);
     await user.type(name, "2");
     await waitFor(() => expect(name.getAttribute("aria-invalid")).toBeNull());
+    // Back to the refused name, the refusal is about it again.
+    await user.type(name, "{Backspace}");
+    await waitFor(() => expect(name.getAttribute("aria-invalid")).toBe("true"));
   });
 
-  test("이름이 중복이라는 답이 늦게 와도 그 사이 고친 이름에는 붙지 않는다", async () => {
+  test("이름을 바꾸는 동안 칸과 저장이 잠겨 다시 보내지 않고, 다른 거절은 대화상자 안에서 말한다", async () => {
     const server = teamServer();
     let answer: ((response: Response) => void) | undefined;
-    renderAt(`/members/teams/${TEAM_ID}`, {
+    const { api } = renderAt(`/members/teams/${TEAM_ID}`, {
       ...server.routes,
       [`PATCH /v1/teams/${TEAM_ID}`]: () =>
         new Promise<Response>((resolve) => {
@@ -1611,19 +1697,27 @@ describe("팀 화면", () => {
         }),
     });
     const user = await setupUser();
-    const name = await screen.findByLabelText("팀 이름");
+    const { dialog, name } = await openRename(user);
     await user.clear(name);
     await user.type(name, "청구팀");
-    await user.click(screen.getByRole("button", { name: "이름 바꾸기" }));
-    await user.type(name, "2");
-    answer?.(apiError(409, "ALREADY_EXISTS", "A team by that name exists"));
-    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(name.getAttribute("aria-invalid")).toBeNull();
-    expect(screen.queryByRole("alert")).toBeNull();
-    // Back to the refused name, the refusal is about it again.
-    await user.type(name, "{Backspace}");
-    await waitFor(() => expect(name.getAttribute("aria-invalid")).toBe("true"));
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    const saving = await within(dialog).findByRole("button", {
+      name: "저장하는 중…",
+    });
+    expect(saving.getAttribute("aria-disabled")).toBe("true");
+    expect(name.hasAttribute("readonly")).toBe(true);
+    await user.click(saving);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog") === dialog).toBe(true);
+    expect(api.calls.filter((c) => c.method === "PATCH")).toHaveLength(1);
+    answer?.(apiError(403, "FORBIDDEN", "Not permitted"));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("alert").textContent).toContain(
+        "팀 관리 권한이 있어야",
+      ),
+    );
+    expect(name.hasAttribute("readonly")).toBe(false);
+    expect(toastRegion() === null).toBe(true);
   });
 
   test("내가 속한 팀에 그 팀에서의 내 역할이 보인다", async () => {

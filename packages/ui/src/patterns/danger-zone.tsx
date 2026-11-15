@@ -6,10 +6,9 @@ import {
   useId,
 } from "react";
 
-import { RowList } from "../primitives/row-list.tsx";
+import { RowList, RowListItem } from "../primitives/row-list.tsx";
 import { DisabledReason } from "./disabled-reason.tsx";
 import { RowAction } from "./row-action.tsx";
-import { SettingRow } from "./setting-row.tsx";
 
 export type DangerZoneProps = Omit<ComponentProps<"section">, "title"> & {
   /** "Danger zone" in the reader's language. */
@@ -115,19 +114,37 @@ export function DangerZoneRow({
       {actionLabel}
     </RowAction>
   );
+  // Two columns, unlike SettingRow: the description never runs under the
+  // button, which keeps a column of its own on the title's line. Below 640px
+  // the button goes under the text.
   return (
-    <SettingRow
-      title={<span className="text-destructive">{title}</span>}
-      description={description}
-      actions={
-        withheld ? (
+    <RowListItem
+      data-slot="danger-zone-row"
+      className="flex-col flex-nowrap items-stretch gap-x-4 sm:flex-row sm:items-start"
+    >
+      <div
+        data-slot="danger-zone-row-text"
+        className="flex min-w-0 flex-1 flex-col gap-[var(--werft-row-line-gap)]"
+      >
+        <span className="font-medium text-control text-destructive leading-5">
+          {title}
+        </span>
+        <p className="m-0 text-caption text-subtle-foreground leading-4">
+          {description}
+        </p>
+      </div>
+      <div
+        data-slot="danger-zone-row-action"
+        className="flex shrink-0 self-start"
+      >
+        {withheld ? (
           <DisabledReason reason={reason} label={name}>
             {button}
           </DisabledReason>
         ) : (
           button
-        )
-      }
-    />
+        )}
+      </div>
+    </RowListItem>
   );
 }
