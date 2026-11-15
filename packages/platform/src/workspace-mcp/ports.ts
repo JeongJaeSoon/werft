@@ -188,7 +188,10 @@ export interface WorkspaceMcpStore {
       stateSha256: Buffer;
       expiresAt: Date;
       verifier: string;
-      registered: WorkspaceMcpClient | null;
+      registered: {
+        client: WorkspaceMcpClient;
+        clientSecret: string | null;
+      } | null;
     },
   ): Promise<{ outcome: "started" } | { outcome: "not_found" | "actor_inactive" }>;
   readFlow(workspaceId: string, serverId: string): Promise<WorkspaceMcpFlow | null>;

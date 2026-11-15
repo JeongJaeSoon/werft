@@ -177,6 +177,12 @@ export * from "./extensions/bundle-service.ts";
 export * from "./extensions/bundle-validator.ts";
 export * from "./extensions/resolve.ts";
 export * from "./extensions/session-extensions.ts";
+export * from "./workspace-mcp/ports.ts";
+export {
+  type WorkspaceMcpRemoteDeps,
+  WorkspaceMcpRemoteError,
+} from "./workspace-mcp/remote.ts";
+export * from "./workspace-mcp/service.ts";
 
 export * from "./sessions/achievements/achievement-judge.ts";
 export * from "./sessions/achievements/achievement-judgment-store.ts";

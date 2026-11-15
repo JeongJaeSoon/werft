@@ -51,7 +51,7 @@ const fail = (reason: RemoteReason, message: string) =>
   new WorkspaceMcpRemoteError(reason, message);
 
 /** `allowsUrl`: whether control-host, or a browser, may be sent there. */
-export type RemoteDeps = {
+export type WorkspaceMcpRemoteDeps = {
   http: OutboundHttp;
   allowsUrl: (url: string) => boolean;
 };
@@ -60,7 +60,7 @@ const MCP_PROTOCOL_VERSION = "2025-06-18";
 const TOOLS_PAGES_MAX = 10;
 
 async function send(
-  deps: RemoteDeps,
+  deps: WorkspaceMcpRemoteDeps,
   request: Parameters<OutboundHttp>[0],
 ): Promise<OutboundResponse> {
   if (!deps.allowsUrl(request.url)) {
@@ -165,7 +165,7 @@ function wellKnown(base: string, suffix: string): string[] {
 }
 
 async function firstJson(
-  deps: RemoteDeps,
+  deps: WorkspaceMcpRemoteDeps,
   urls: readonly string[],
 ): Promise<Record<string, unknown> | null> {
   for (const url of urls) {
@@ -193,7 +193,7 @@ export type Discovery = {
 };
 
 /** Discovery as decision 3 steps 1–4 and 6 lay it out; the client is left for later. */
-export async function discover(deps: RemoteDeps, url: string): Promise<Discovery> {
+export async function discover(deps: WorkspaceMcpRemoteDeps, url: string): Promise<Discovery> {
   const probe = await send(deps, {
     url,
     method: "POST",
@@ -210,12 +210,9 @@ export async function discover(deps: RemoteDeps, url: string): Promise<Discovery
       ? [challenge.resourceMetadata]
       : wellKnown(url, "oauth-protected-resource"),
   );
-  if (resourceMetadata === null) {
-    if (probe.status === 401) {
-      throw fail("discovery_failed", "The server asks for sign-in but publishes no resource metadata");
-    }
-    return { url, oauth: null };
-  }
+  // A server that publishes no resource metadata, even one that answered
+  // 401, takes a static token or nothing.
+  if (resourceMetadata === null) return { url, oauth: null };
   const resource = stringOf(resourceMetadata.resource);
   if (resource === null || withoutSlash(resource) !== withoutSlash(url)) {
     throw fail("resource_mismatch", "The server's resource metadata names another resource");
@@ -279,7 +276,7 @@ export async function discover(deps: RemoteDeps, url: string): Promise<Discovery
 
 /** RFC 7591, as decision 3 step 5 asks: a public client for this one callback. */
 export async function registerClient(
-  deps: RemoteDeps,
+  deps: WorkspaceMcpRemoteDeps,
   pin: WorkspaceMcpOAuthPin,
   redirectUri: string,
 ): Promise<{ client: WorkspaceMcpClient; clientSecret: string | null }> {
@@ -375,7 +372,7 @@ type ClientCredentials = {
 };
 
 async function tokenRequest(
-  deps: RemoteDeps,
+  deps: WorkspaceMcpRemoteDeps,
   pin: WorkspaceMcpOAuthPin,
   credentials: ClientCredentials,
   params: Record<string, string>,
@@ -436,7 +433,7 @@ async function tokenRequest(
 }
 
 export function exchangeCode(
-  deps: RemoteDeps,
+  deps: WorkspaceMcpRemoteDeps,
   input: ClientCredentials & {
     pin: WorkspaceMcpOAuthPin;
     code: string;
@@ -461,7 +458,7 @@ export function exchangeCode(
 }
 
 export function refreshTokens(
-  deps: RemoteDeps,
+  deps: WorkspaceMcpRemoteDeps,
   input: ClientCredentials & {
     pin: WorkspaceMcpOAuthPin;
     refreshToken: string;
@@ -480,7 +477,7 @@ export function refreshTokens(
 
 /** RFC 7009, best effort: true when the server took it. */
 export async function revokeToken(
-  deps: RemoteDeps,
+  deps: WorkspaceMcpRemoteDeps,
   input: ClientCredentials & {
     pin: WorkspaceMcpOAuthPin;
     token: string;
@@ -545,7 +542,7 @@ function rpcResultOf(response: OutboundResponse, id: number): Record<string, unk
  * check, and any past the limit, are counted and left out.
  */
 export async function listTools(
-  deps: RemoteDeps,
+  deps: WorkspaceMcpRemoteDeps,
   input: { url: string; serverName: string; token: string },
 ): Promise<{ tools: WorkspaceMcpTool[]; skipped: number }> {
   const headers: Record<string, string> = {

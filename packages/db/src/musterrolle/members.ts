@@ -37,6 +37,7 @@ import {
 import { memberColumns, memberRecord } from "./invites.ts";
 import { revokeUserLinkedAccounts } from "./linked-accounts.ts";
 import { keepsOwnerSignIn, lockLoginSettings } from "./login-settings.ts";
+import { disconnectWorkspaceMcpOf } from "./workspace-mcp.ts";
 
 const TAKEOVER = "takeover";
 
@@ -92,6 +93,9 @@ async function cutOff(
       ),
     )
     .returning({ id: sessions.id });
+  // Calls to a workspace MCP server go out under the external account of
+  // whoever connected it; that stops with their access.
+  await disconnectWorkspaceMcpOf(tx, userId, workspaceId);
   return {
     disabled: true as const,
     revokedWebSessions: sessionsRevoked.length,
