@@ -361,9 +361,10 @@ describe("초대 보내기 대화상자", () => {
     await copy(user, dialog);
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "구성원 초대" }),
-    );
+    expect(
+      document.activeElement ===
+        screen.getByRole("button", { name: "구성원 초대" }),
+    ).toBe(true);
   });
 
   test("닫은 뒤에 도착한 응답은 다시 연 흐름을 옮기지 않는다", async () => {
@@ -465,9 +466,10 @@ describe("복사하지 않은 링크를 두고 나가기", () => {
     expect(
       (within(dialog).getByLabelText("초대 링크") as HTMLInputElement).value,
     ).toContain(TOKEN);
-    expect(document.activeElement).toBe(
-      within(dialog).getByRole("button", { name: "닫기" }),
-    );
+    expect(
+      document.activeElement ===
+        within(dialog).getByRole("button", { name: "닫기" }),
+    ).toBe(true);
 
     await user.click(within(dialog).getByRole("button", { name: "닫기" }));
     const leave = await screen.findByRole("dialog", { name: LEAVE });
@@ -477,9 +479,10 @@ describe("복사하지 않은 링크를 두고 나가기", () => {
       within(leave).getByRole("button", { name: "복사하지 않고 나가기" }),
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "구성원 초대" }),
-    );
+    expect(
+      document.activeElement ===
+        screen.getByRole("button", { name: "구성원 초대" }),
+    ).toBe(true);
   });
 
   test("Escape는 확인을 묻고, 확인 위의 Escape는 확인만 닫는다", async () => {
@@ -529,7 +532,7 @@ describe("복사하지 않은 링크를 두고 나가기", () => {
     expect(within(dialog).queryByLabelText("초대 링크")).toBeNull();
     // The button that opened the confirmation is gone; the keyboard lands on
     // the field the next invite starts from instead of <body>.
-    await waitFor(() => expect(document.activeElement).toBe(email));
+    await waitFor(() => expect(document.activeElement === email).toBe(true));
   });
 
   test("앞 링크를 복사한 뒤 뒤로 가서 새로 만든 링크는 다시 묻는다", async () => {
