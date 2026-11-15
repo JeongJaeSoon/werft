@@ -65,6 +65,11 @@ export type DetailRailProps = Omit<
    * (`useDetailRailToggle`). Without it the rail is always there.
    */
   readonly toggle?: DetailRailToggle | undefined;
+  /**
+   * `lines` (default): a line between sections from 1280px. `space`: no
+   * lines, the sections set apart by `--werft-space-section` alone.
+   */
+  readonly separator?: "lines" | "space";
 };
 
 /**
@@ -80,6 +85,7 @@ export function DetailRail({
   label,
   children,
   toggle,
+  separator = "lines",
   className,
   ...props
 }: DetailRailProps): JSX.Element {
@@ -144,7 +150,14 @@ export function DetailRail({
         {...(scrollable
           ? { tabIndex: 0, role: "group", "aria-label": label }
           : undefined)}
-        className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))] items-start gap-x-8 gap-y-6 px-4 py-6 md:p-[var(--werft-space-6)] xl:sticky xl:top-0 xl:flex xl:max-h-[calc(100dvh-var(--werft-topbar-h))] xl:flex-col xl:items-stretch xl:gap-y-0 xl:divide-y xl:overflow-y-auto"
+        data-separator={separator}
+        className={cn(
+          "grid grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))] items-start gap-x-8 gap-y-6 px-4 py-6 md:p-[var(--werft-space-6)] xl:sticky xl:top-0 xl:flex xl:max-h-[calc(100dvh-var(--werft-topbar-h))] xl:flex-col xl:items-stretch xl:overflow-y-auto",
+          separator === "lines"
+            ? "xl:gap-y-0 xl:divide-y"
+            : // Without lines a section's own padding would only widen the gap.
+              "gap-y-[var(--werft-space-section)] xl:[&>[data-slot=detail-rail-section]]:py-0",
+        )}
       >
         {children}
       </div>
@@ -175,6 +188,10 @@ export interface DetailRailSectionProps {
   readonly description?: ReactNode;
   /** Drawn at the head's far end, such as a done mark. */
   readonly actions?: ReactNode;
+  /** After the title, such as a count. */
+  readonly badge?: ReactNode;
+  /** The section's id, for a link that jumps to it. */
+  readonly id?: string | undefined;
   readonly className?: string;
   /** Rows: a `KeyValueList`, a short paragraph, or request cards. */
   readonly children?: ReactNode;
@@ -188,15 +205,19 @@ export function DetailRailSection({
   title,
   description,
   actions,
+  badge,
+  id,
   className,
   children,
 }: DetailRailSectionProps): JSX.Element {
   return (
     <Section
       data-slot="detail-rail-section"
+      id={id}
       title={title}
       description={description}
       actions={actions}
+      badge={badge}
       className={cn(
         "min-w-0 xl:py-[var(--werft-space-6)] xl:first:pt-0 xl:last:pb-0",
         className,

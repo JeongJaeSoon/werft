@@ -10,10 +10,15 @@ export type {
   SessionActionProps,
 } from "./session-actions.tsx";
 export {
+  type ChatItem,
+  chatItems,
+  SessionChat,
+  type SessionChatProps,
+} from "./session-chat.tsx";
+export {
   PANEL_STORAGE_KEY,
   SessionDetail,
   type SessionDetailProps,
-  type SessionDetailTab,
 } from "./session-detail.tsx";
 export {
   type NamedSessionListProps,

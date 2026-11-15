@@ -8,6 +8,7 @@ import {
   Text,
   Textarea,
 } from "@werft-ai/ui";
+import { ArrowUp } from "lucide-react";
 import {
   type Dispatch,
   type FormEvent,
@@ -93,11 +94,13 @@ export function Composer({
     }
   };
 
+  // Enter sends and Shift+Enter breaks the line, as a chat does. Not while
+  // an IME composes: Enter then picks the Korean or Japanese word.
   const sendFromKeyboard = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault();
-      event.currentTarget.form?.requestSubmit();
-    }
+    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+    if (event.shiftKey && !event.metaKey && !event.ctrlKey) return;
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
   };
 
   return (
@@ -122,31 +125,42 @@ export function Composer({
           </ol>
         </div>
       ) : null}
-      <form className="flex flex-col gap-2" onSubmit={submit}>
-        <Field data-disabled={disabled || undefined}>
-          <FieldLabel>{messages.label}</FieldLabel>
-          <Textarea
-            value={text}
-            placeholder={placeholder}
-            disabled={disabled}
-            onChange={(event) => setText(event.target.value)}
-            onKeyDown={sendFromKeyboard}
-          />
+      <form onSubmit={submit}>
+        <Field data-disabled={disabled || undefined} className="relative gap-1">
+          <FieldLabel className="sr-only">{messages.label}</FieldLabel>
+          {/* One line that grows with the text, the send button at its end. */}
+          <div className="flex min-w-0 items-end gap-2 rounded-card border bg-card py-1 pr-1 pl-3 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50 has-[textarea:disabled]:opacity-60">
+            <Textarea
+              rows={1}
+              value={text}
+              placeholder={placeholder}
+              disabled={disabled}
+              onChange={(event) => setText(event.target.value)}
+              onKeyDown={sendFromKeyboard}
+              className="max-h-40 min-h-8 flex-1 resize-none border-0 bg-transparent px-0 py-1.5 shadow-none [field-sizing:content] focus-visible:border-0 focus-visible:ring-0 disabled:opacity-100"
+            />
+            <Button
+              type="submit"
+              size="icon"
+              className="flex-none rounded-full"
+              disabled={blocked || !text.trim()}
+              aria-busy={pending || sending || undefined}
+              aria-label={messages.send}
+              title={messages.send}
+            >
+              <ArrowUp strokeWidth={2} aria-hidden="true" />
+            </Button>
+          </div>
           {disabled && disabledReason ? (
             <FieldDescription>{disabledReason}</FieldDescription>
           ) : messages.hint ? (
-            <FieldDescription>{messages.hint}</FieldDescription>
+            // Read with the field, not shown: a chat line needs no caption.
+            <FieldDescription className="absolute size-px overflow-hidden whitespace-nowrap [clip-path:inset(50%)]">
+              {messages.hint}
+            </FieldDescription>
           ) : null}
           <FieldError>{error}</FieldError>
         </Field>
-        <Button
-          type="submit"
-          className="self-end"
-          disabled={blocked || !text.trim()}
-          aria-busy={pending || sending || undefined}
-        >
-          {messages.send}
-        </Button>
       </form>
     </div>
   );

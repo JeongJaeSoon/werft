@@ -494,6 +494,9 @@ export function PendingAnswers({
                   error={errorFor(request)}
                   messages={{
                     title: (tool) => t("session.pending.permission", { tool }),
+                    heading: t("session.pending.approval"),
+                    answer: t("session.answer.optional"),
+                    answerPlaceholder: t("session.answer.placeholder"),
                     summary: (verb) => t(verb.key, verb.params),
                     input: t("session.answer.input"),
                     expires,
@@ -508,11 +511,12 @@ export function PendingAnswers({
                     denySubmit: t("session.answer.denySubmit"),
                     cancel: t("session.answer.cancel"),
                   }}
-                  onAllow={() =>
+                  onAllow={(text) =>
                     send({
                       request_id: request.request_id,
                       kind: "permission",
                       action: "allow",
+                      ...(text ? { reason: text } : {}),
                     })
                   }
                   onDeny={(text) =>
@@ -520,7 +524,7 @@ export function PendingAnswers({
                       request_id: request.request_id,
                       kind: "permission",
                       action: "deny",
-                      reason: text,
+                      ...(text ? { reason: text } : {}),
                     })
                   }
                 />
@@ -763,7 +767,11 @@ export function SessionControls({
     );
   });
   const group = (
-    <div ref={groupRef} className="flex flex-wrap gap-2">
+    <div
+      ref={groupRef}
+      data-slot="session-controls"
+      className="flex flex-wrap gap-2"
+    >
       {buttons}
     </div>
   );
@@ -872,6 +880,7 @@ export function SessionComposer({
           hint: t("session.composer.hint"),
           queued: t("session.composer.queued"),
         }}
+        placeholder={t("session.composer.placeholder")}
         value={draft}
         onValueChange={onDraftChange}
         disabled={reason !== undefined}

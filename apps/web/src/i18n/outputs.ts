@@ -65,6 +65,8 @@ export const outputsKo = {
   "session.outcomes.mergedAt": "머지",
   "session.outcomes.closedAt": "닫음",
   "session.outcomes.checkedAt": "상태 확인",
+  "session.outcomes.changedFiles": "파일 {count}개",
+  "session.outcomes.noChanges": "아직 변경한 PR이 없습니다.",
   "session.outcomes.notChecked": "아직 상태를 확인하지 않음",
   "session.outcomes.checkError.not_found":
     "마지막 확인에서 GitHub가 이 PR을 찾지 못했습니다. 상태는 그 전에 확인한 값입니다.",
@@ -231,6 +233,8 @@ export const outputsJa: Record<keyof typeof outputsKo, string> = {
   "session.outcomes.mergedAt": "マージ",
   "session.outcomes.closedAt": "クローズ",
   "session.outcomes.checkedAt": "状態確認",
+  "session.outcomes.changedFiles": "ファイル {count} 件",
+  "session.outcomes.noChanges": "まだ変更した PR はありません。",
   "session.outcomes.notChecked": "まだ状態を確認していません",
   "session.outcomes.checkError.not_found":
     "前回の確認で GitHub がこの PR を見つけられませんでした。状態はその前に確認した値です。",
@@ -401,6 +405,8 @@ export const outputsEn: Record<keyof typeof outputsKo, string> = {
   "session.outcomes.mergedAt": "Merged",
   "session.outcomes.closedAt": "Closed",
   "session.outcomes.checkedAt": "Checked",
+  "session.outcomes.changedFiles": "{count} files",
+  "session.outcomes.noChanges": "No pull request changes yet.",
   "session.outcomes.notChecked": "Not checked yet",
   "session.outcomes.checkError.not_found":
     "At the last check GitHub could not find this pull request. The state shown is from the check before.",
