@@ -10,11 +10,13 @@ import {
   cpuQuantity,
   ENV,
   isolationStampFor,
+  legacyIsolationStampFor,
   nonceSecretFor,
   nonceSecretNameOf,
   podFor,
   podNameFor,
   workerEnvironmentFor,
+  workerLimitsOfPod,
   workspaceClaimFor,
   workspaceClaimNameFor,
 } from "./specs.ts";
@@ -174,6 +176,55 @@ describe("worker Pod", () => {
       memory: String(1024 * 1024 * 1024),
     };
     expect(container.resources).toEqual({ limits, requests: limits });
+  });
+
+  test("the isolation stamp leaves the worker limits to the launch", () => {
+    const moved = {
+      ...config,
+      workerLimits: { maxTurnSeconds: 1800, providerMaxRetries: 3 },
+    };
+    expect(isolationStampFor(moved, PROXY_ADDRESS)).toBe(
+      isolationStampFor(config, PROXY_ADDRESS),
+    );
+    // A host from before the pin stamped its limits, or none before they
+    // existed; neither is this host's stamp.
+    expect(legacyIsolationStampFor(config, PROXY_ADDRESS)).not.toBe(
+      isolationStampFor(config, PROXY_ADDRESS),
+    );
+    expect(legacyIsolationStampFor(moved, PROXY_ADDRESS)).not.toBe(
+      legacyIsolationStampFor(config, PROXY_ADDRESS),
+    );
+    const { workerLimits: _, ...none } = config;
+    expect(legacyIsolationStampFor(none, PROXY_ADDRESS)).not.toBe(
+      isolationStampFor(none, PROXY_ADDRESS),
+    );
+  });
+
+  test("starts the worker with the limits its launch was reserved with, and reads them back", () => {
+    const limits = { maxTurnSeconds: 300, providerMaxRetries: 0 };
+    const podOf = (
+      backendConfig: Parameters<typeof podFor>[0],
+      launch: LaunchIntent,
+    ) =>
+      podFor(
+        backendConfig,
+        launch,
+        "secret-name",
+        "fingerprint",
+        PROXY_ADDRESS,
+      ) as PodShape;
+    const pinned = podOf(config, {
+      ...intent,
+      resources: { ...intent.resources, workerLimits: limits },
+    });
+    const env = pinned.spec.containers[0]?.env ?? [];
+    expect(env.find((e) => e.name === ENV.maxTurnSeconds)?.value).toBe("300");
+    expect(env.find((e) => e.name === ENV.providerMaxRetries)?.value).toBe("0");
+    expect(workerLimitsOfPod(pinned as never)).toEqual(limits);
+    // Reserved before the limits were pinned: the host's.
+    expect(workerLimitsOfPod(pod as never)).toEqual(config.workerLimits);
+    const { workerLimits: _, ...none } = config;
+    expect(workerLimitsOfPod(podOf(none, intent) as never)).toBeNull();
   });
 
   test("a changed disk limit is another isolation stamp", () => {

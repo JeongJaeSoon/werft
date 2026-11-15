@@ -15,6 +15,7 @@ import { type LogLevel, logLevelFromEnv } from "@werft-ai/observability";
 import {
   DEFAULT_PAUSED_WORKSPACE_TTL_MS,
   DEFAULT_STOPPED_WORKSPACE_TTL_MS,
+  DRAIN_FINALIZE_GRACE_MS,
   type ExecutionResources,
   type InstallationLimits,
   type InstallationLimitsEnvironment,
@@ -85,22 +86,22 @@ export function schedulerConfigFromEnv(
   // under different limits from one env file.
   const limits = installationLimitsFromEnv(environment);
   const logLevel = logLevelFromEnv(environment.LOG_LEVEL);
+  const workerLimits = {
+    maxTurnSeconds: limits.maxTurnSeconds,
+    providerMaxRetries: limits.providerMaxRetries,
+  };
   return {
     databaseUrl,
-    // A claimed worker on an older isolation contract finishes its turn
-    // before it is replaced. No turn outlasts MAX_TURN_SECONDS
-    // the grace covers the finalize and checkpoint that end it.
+    // For a claimed worker whose own turn time is unknown — reserved before
+    // it was pinned, on a resource whose env cannot be read. Its worker was
+    // started with the limits of its day; this host's is the best guess.
     drainDeadlineMs: limits.maxTurnSeconds * 1_000 + DRAIN_FINALIZE_GRACE_MS,
     // The workspace quota helper runs from the newest image, listed or not.
+    // The worker limits here start only a launch reserved before they were
+    // pinned; every other one starts with its own.
     execution: executionFromEnv(
       { ...environment, WORKER_IMAGE: images.image },
-      {
-        workerLimits: {
-          maxTurnSeconds: limits.maxTurnSeconds,
-          providerMaxRetries: limits.providerMaxRetries,
-        },
-        logLevel,
-      },
+      { workerLimits, logLevel },
     ),
     ...images,
     limits,
@@ -121,6 +122,7 @@ export function schedulerConfigFromEnv(
         min: 1,
         default: 512,
       }),
+      workerLimits,
     },
     slotLimit: limits.executionSlotLimit,
     // Zero is a real setting: a stopped session's workspace goes on the
@@ -252,8 +254,6 @@ export function assertPassOutlastsStop(
     );
   }
 }
-
-const DRAIN_FINALIZE_GRACE_MS = 5 * 60_000;
 
 /** Docker's smallest CPU quota is 0.01 CPU; below that NanoCpus rounds to "no limit". */
 const MIN_CPUS = 0.01;

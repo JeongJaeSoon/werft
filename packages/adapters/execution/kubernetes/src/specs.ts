@@ -12,7 +12,10 @@ import {
   type LaunchIntent,
   launchNonceFingerprint,
   sessionObjectPrefix,
+  type WorkerLimits,
+  workerLimitsOf,
 } from "@werft-ai/platform";
+import type { Pod } from "./client.ts";
 import type { KubernetesBackendConfig } from "./config.ts";
 
 /**
@@ -96,10 +99,33 @@ export const WORKER_NAMESERVER = "127.0.0.1";
  * The proxy's address is in it because a Pod only knows the address it was
  * created with: a proxy Service recreated under a new ClusterIP leaves
  * every older Pod without a route, so they read as stale and are replaced.
+ * The turn time and provider retries are pinned to the launch the same way;
+ * the marker in their place keeps a Pod from before they existed, whose
+ * worker reports no turn cost, from matching.
  */
 export function isolationStampFor(
   config: KubernetesBackendConfig,
   proxyAddress: string,
+): string {
+  return stampOf(config, proxyAddress, "worker-limits:pinned");
+}
+
+/**
+ * The stamp a host from before the worker limits were pinned gave its Pods,
+ * with that host's limits in it. Such a Pod runs what this host would start
+ * a worker with, so it is as current as one built here.
+ */
+export function legacyIsolationStampFor(
+  config: KubernetesBackendConfig,
+  proxyAddress: string,
+): string {
+  return stampOf(config, proxyAddress, config.workerLimits ?? null);
+}
+
+function stampOf(
+  config: KubernetesBackendConfig,
+  proxyAddress: string,
+  limits: unknown,
 ): string {
   const shape = JSON.stringify([
     config.egressProxyUrl,
@@ -117,7 +143,7 @@ export function isolationStampFor(
     config.workspaceSizeBytes,
     config.workerServiceAccount,
     config.stopTimeoutSeconds,
-    config.workerLimits ?? null,
+    limits,
     config.ephemeralStorageBytes,
   ]);
   const digest = createHash("sha256").update(shape).digest("hex").slice(0, 16);
@@ -400,10 +426,14 @@ type EnvVar =
 /** What a worker Pod is told; the same contract as the Docker backend's env. */
 export function workerEnvironmentFor(
   config: KubernetesBackendConfig,
-  intent: Pick<LaunchIntent, "executionId" | "generation" | "sessionId">,
+  intent: Pick<LaunchIntent, "executionId" | "generation" | "sessionId"> & {
+    resources?: Pick<LaunchIntent["resources"], "workerLimits">;
+  },
   secretName: string,
   pvcCapacityBytes?: number,
 ): EnvVar[] {
+  // A launch reserved before the limits were pinned starts with the host's.
+  const workerLimits = intent.resources?.workerLimits ?? config.workerLimits;
   const plain: Array<[string, string]> = [
     [ENV.executionGeneration, String(intent.generation)],
     [ENV.executionId, intent.executionId],
@@ -431,14 +461,11 @@ export function workerEnvironmentFor(
     [ENV.objectPrefix, sessionObjectPrefix(intent.sessionId)],
     [ENV.objectRegion, config.objectStore.region],
     [ENV.stopGrace, String(config.stopTimeoutSeconds)],
-    ...(config.workerLimits === undefined
+    ...(workerLimits === undefined
       ? []
       : ([
-          [ENV.maxTurnSeconds, String(config.workerLimits.maxTurnSeconds)],
-          [
-            ENV.providerMaxRetries,
-            String(config.workerLimits.providerMaxRetries),
-          ],
+          [ENV.maxTurnSeconds, String(workerLimits.maxTurnSeconds)],
+          [ENV.providerMaxRetries, String(workerLimits.providerMaxRetries)],
         ] as Array<[string, string]>)),
     ...(config.logLevel === undefined
       ? []
@@ -451,6 +478,19 @@ export function workerEnvironmentFor(
     },
     ...plain.map(([name, value]) => ({ name, value })),
   ];
+}
+
+/** The limits a Pod's worker was started with, from its env. */
+export function workerLimitsOfPod(pod: Pod): WorkerLimits | null {
+  const env = pod.spec.containers.find((c) => c.name === CONTAINER_NAME)?.env;
+  const numberIn = (name: string): number => {
+    const value = env?.find((e) => e.name === name)?.value;
+    return value === undefined ? Number.NaN : Number(value);
+  };
+  return workerLimitsOf({
+    maxTurnSeconds: numberIn(ENV.maxTurnSeconds),
+    providerMaxRetries: numberIn(ENV.providerMaxRetries),
+  });
 }
 
 /** The Secret a Pod's env reads its nonce from, by name. */

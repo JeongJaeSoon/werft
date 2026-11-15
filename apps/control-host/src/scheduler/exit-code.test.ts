@@ -22,6 +22,7 @@ const clean: SchedulerRunSummary = {
   launchesQuarantined: [],
   launchesRetracted: [],
   launchesEngineDropped: [],
+  launchesLimitsChanged: [],
   networkScanFailed: false,
   networksFailed: [],
   networksReclaimed: [],

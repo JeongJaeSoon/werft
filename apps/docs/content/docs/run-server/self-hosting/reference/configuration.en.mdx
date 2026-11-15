@@ -25,6 +25,8 @@ API and scheduler refuse startup if any of the three values below is missing or 
 | `MAX_TURN_SECONDS` | Turn wall-clock limit including approval waits, passed as `WORKER_MAX_TURN_SEC` | `failed(turn_timeout)`, or `outcome_unknown(turn_timeout)` if engine does not respond |
 | `PROVIDER_MAX_RETRIES` | Retries for failed Messages requests, passed through WORKER_PROVIDER_MAX_RETRIES to SDK CLAUDE_CODE_MAX_RETRIES. 0 ends the turn on first failure | `failed(api_error)`; turn result retains api_error_status/provider_error/last_retry_status |
 
+`MAX_TURN_SECONDS` and `PROVIDER_MAX_RETRIES` are pinned to a launch when it is reserved, and the worker starts with the pinned values. After a change, a worker already claimed finishes its current turn under the values it was started with and then stops; the session's next launch gets the new values ([changing the turn time and retries](/run-server/self-hosting/explanation/isolation#turn-시간과-재시도를-바꿀-때)).
+
 <a id="api-설정" />
 ## API settings
 

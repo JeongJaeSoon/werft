@@ -24,7 +24,9 @@ import {
   sessionObjectPrefix,
   type TerminateExecutionResult,
   type TerminateOptions,
+  type WorkerLimits,
   type WorkspaceRemovalResult,
+  workerLimitsOf,
 } from "@werft-ai/platform";
 import {
   type LocalDockerBackendConfig,
@@ -180,9 +182,29 @@ const GATEWAY_MODE_MIN_API = [1, 48] as const;
  * CPU, memory and pids limits stay out on purpose: they belong to the launch,
  * pinned at reservation and checked through the launch-spec label, so a
  * lowered limit takes effect from the next launch instead of retiring every
- * running worker at once.
+ * running worker at once. The turn time and provider retries are pinned the
+ * same way; the marker in their place keeps a container from before they
+ * existed, whose worker reports no turn cost, from matching.
  */
 export function isolationStampFor(config: LocalDockerBackendConfig): string {
+  return stampOf(config, WORKER_LIMITS_PINNED);
+}
+
+const WORKER_LIMITS_PINNED = "worker-limits:pinned";
+
+/**
+ * The stamp a host from before the worker limits were pinned gave the
+ * containers it built, with that host's limits in it. Such a container runs
+ * what this host would start a worker with, so it is as current as one built
+ * here; with other limits it is stale, as it was there.
+ */
+export function legacyIsolationStampFor(
+  config: LocalDockerBackendConfig,
+): string {
+  return stampOf(config, config.workerLimits ?? null);
+}
+
+function stampOf(config: LocalDockerBackendConfig, limits: unknown): string {
   const shape = JSON.stringify([
     config.egressProxyUrl,
     // A worker holding the old credential port would lose its provider.
@@ -214,10 +236,7 @@ export function isolationStampFor(config: LocalDockerBackendConfig): string {
     // The worker plans its drain from the grace it was started with; stopped
     // with a shorter one, the SIGKILL lands mid-finalize.
     config.stopTimeoutSeconds,
-    // Same for the turn deadline and provider retries. It also
-    // retires containers from before the limits existed, whose workers
-    // report no turn cost and so would never reach the budget.
-    config.workerLimits ?? null,
+    limits,
   ]);
   const digest = createHash("sha256").update(shape).digest("hex").slice(0, 16);
   return `${ISOLATION_CONTRACT}:${digest}`;
@@ -833,6 +852,7 @@ export class LocalDockerBackend implements ExecutionBackend {
       observedAt,
       providerRef: container.Id,
       state,
+      workerLimits: workerLimitsOfContainer(container),
       ...(verdict === "current" ? {} : { stale: true }),
     };
   }
@@ -2237,10 +2257,14 @@ function withoutSecrets(error: unknown, body: ContainerCreateBody): unknown {
  */
 export function workerEnvironmentFor(
   config: LocalDockerBackendConfig,
-  intent: Pick<LaunchIntent, "executionId" | "generation" | "sessionId">,
+  intent: Pick<LaunchIntent, "executionId" | "generation" | "sessionId"> & {
+    resources?: Pick<LaunchIntent["resources"], "workerLimits">;
+  },
   bootstrapNonce: string,
 ): string[] {
   const { objectStore } = config;
+  // A launch reserved before the limits were pinned starts with the host's.
+  const workerLimits = intent.resources?.workerLimits ?? config.workerLimits;
   return [
     `${ENV.bootstrapNonce}=${bootstrapNonce}`,
     `${ENV.executionGeneration}=${intent.generation}`,
@@ -2266,16 +2290,32 @@ export function workerEnvironmentFor(
     `${ENV.objectPrefix}=${sessionObjectPrefix(intent.sessionId)}`,
     `${ENV.objectRegion}=${objectStore.region}`,
     `${ENV.stopGrace}=${config.stopTimeoutSeconds}`,
-    ...(config.workerLimits === undefined
+    ...(workerLimits === undefined
       ? []
       : [
-          `${ENV.maxTurnSeconds}=${config.workerLimits.maxTurnSeconds}`,
-          `${ENV.providerMaxRetries}=${config.workerLimits.providerMaxRetries}`,
+          `${ENV.maxTurnSeconds}=${workerLimits.maxTurnSeconds}`,
+          `${ENV.providerMaxRetries}=${workerLimits.providerMaxRetries}`,
         ]),
     ...(config.logLevel === undefined
       ? []
       : [`${ENV.logLevel}=${config.logLevel}`]),
   ];
+}
+
+/** The limits a container's worker was started with, from its env. */
+function workerLimitsOfContainer(
+  container: ContainerInspect,
+): WorkerLimits | null {
+  const numberIn = (name: string): number => {
+    const entry = container.Config.Env?.find((e) => e.startsWith(`${name}=`));
+    return entry === undefined
+      ? Number.NaN
+      : Number(entry.slice(name.length + 1));
+  };
+  return workerLimitsOf({
+    maxTurnSeconds: numberIn(ENV.maxTurnSeconds),
+    providerMaxRetries: numberIn(ENV.providerMaxRetries),
+  });
 }
 
 /**
@@ -2292,7 +2332,10 @@ function contractVerdictOf(
   const version = Number(stamp.split(":")[0]);
   if (!Number.isInteger(version) || version < 1) return "stale";
   if (version > ISOLATION_CONTRACT) return "newer";
-  return stamp === isolationStampFor(config) ? "current" : "stale";
+  return stamp === isolationStampFor(config) ||
+    stamp === legacyIsolationStampFor(config)
+    ? "current"
+    : "stale";
 }
 
 /** The fingerprint label, or null on a container from before the label. */

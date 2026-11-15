@@ -17,6 +17,7 @@ import {
   isolationStampFor,
   LABELS,
   LocalDockerBackend,
+  legacyIsolationStampFor,
   NetworkIsolationError,
   NO_PROXY_VALUE,
   networkNameFor,
@@ -1012,19 +1013,47 @@ test("a container started under another inode limit, or before one, is stale", (
   ).toBe(isolationStampFor(base));
 });
 
-test("a container started under other worker limits, or none, is stale", () => {
+test("the isolation stamp leaves the worker limits to the launch", () => {
   const base = configFor("unix:///fake.sock");
   const limited = {
     ...base,
     workerLimits: { maxTurnSeconds: 900, providerMaxRetries: 2 },
   };
-  expect(isolationStampFor(limited)).not.toBe(isolationStampFor(base));
+  expect(isolationStampFor(limited)).toBe(isolationStampFor(base));
+  // What a host from before the pin stamped: its limits, or none before
+  // they existed. Neither is what this host stamps.
+  expect(legacyIsolationStampFor(limited)).not.toBe(isolationStampFor(limited));
+  expect(legacyIsolationStampFor(base)).not.toBe(isolationStampFor(base));
   expect(
-    isolationStampFor({
+    legacyIsolationStampFor({
       ...limited,
       workerLimits: { maxTurnSeconds: 1800, providerMaxRetries: 2 },
     }),
-  ).not.toBe(isolationStampFor(limited));
+  ).not.toBe(legacyIsolationStampFor(limited));
+});
+
+test("starts the worker with the limits its launch was reserved with", () => {
+  const config = {
+    ...configFor("unix:///fake.sock"),
+    workerLimits: { maxTurnSeconds: 900, providerMaxRetries: 2 },
+  };
+  const pinned = workerEnvironmentFor(
+    config,
+    intentFor({
+      resources: {
+        ...RESOURCES,
+        workerLimits: { maxTurnSeconds: 300, providerMaxRetries: 0 },
+      },
+    }),
+    "nonce-abc",
+  );
+  expect(pinned).toContain("WORKER_MAX_TURN_SEC=300");
+  expect(pinned).toContain("WORKER_PROVIDER_MAX_RETRIES=0");
+  expect(pinned).not.toContain("WORKER_MAX_TURN_SEC=900");
+  // Reserved before the limits were pinned: the host's.
+  const unpinned = workerEnvironmentFor(config, intentFor(), "nonce-abc");
+  expect(unpinned).toContain("WORKER_MAX_TURN_SEC=900");
+  expect(unpinned).toContain("WORKER_PROVIDER_MAX_RETRIES=2");
 });
 
 describe("LocalDockerBackend.ensureExecution", () => {
@@ -1242,6 +1271,20 @@ describe("LocalDockerBackend.ensureExecution", () => {
     });
   });
 
+  test("inspect reports the limits the container's worker was started with", async () => {
+    const limits = { maxTurnSeconds: 300, providerMaxRetries: 1 };
+    const intent = intentFor({
+      resources: { ...RESOURCES, workerLimits: limits },
+    });
+    await backend.ensureExecution(intent);
+    expect((await backend.inspect(intent)).workerLimits).toEqual(limits);
+    // Started with none: nothing to read.
+    const body = await createBodyOf(intentFor());
+    docker.containers.clear();
+    docker.add(containerNameFor(intent, "test-a"), body);
+    expect((await backend.inspect(intent)).workerLimits).toBeNull();
+  });
+
   test("a registry that accepts no credential adopts nothing", async () => {
     // Revoked after expiry, or never issued: whatever the container holds,
     // there is nothing for it to match.
@@ -1394,6 +1437,34 @@ describe("LocalDockerBackend.ensureExecution", () => {
 
     expect(result).toMatchObject({ created: true, state: "running" });
     expect(result.providerRef).not.toBe(stale.id);
+  });
+
+  test("a container a host from before the pin built is adopted under the same limits, replaced under others", async () => {
+    const limits = { maxTurnSeconds: 900, providerMaxRetries: 2 };
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.isolation] = legacyIsolationStampFor({
+      ...configFor(docker.host),
+      workerLimits: limits,
+    });
+    const old = docker.add(containerNameFor(intent, "test-a"), body);
+
+    const same = new LocalDockerBackend({
+      ...configFor(docker.host),
+      workerLimits: limits,
+    });
+    expect(await same.ensureExecution(intent)).toMatchObject({
+      created: false,
+      providerRef: old.id,
+    });
+
+    const moved = new LocalDockerBackend({
+      ...configFor(docker.host),
+      workerLimits: { ...limits, maxTurnSeconds: 1800 },
+    });
+    const result = await moved.ensureExecution(intent);
+    expect(result).toMatchObject({ created: true, state: "running" });
+    expect(result.providerRef).not.toBe(old.id);
   });
 
   test("a container started with another stop grace is replaced", async () => {

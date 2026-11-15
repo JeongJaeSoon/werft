@@ -25,6 +25,8 @@ API と scheduler は、下記の三つの値がない、または形式が不�
 | `MAX_TURN_SECONDS` | 一つの turn の実時間上限。承認待ちも含み、worker env の `WORKER_MAX_TURN_SEC` に渡します | turn は `failed(turn_timeout)`。エンジンが応答しなければ `outcome_unknown(turn_timeout)` |
 | `PROVIDER_MAX_RETRIES` | 失敗した Messages 要求の再送回数。worker env の `WORKER_PROVIDER_MAX_RETRIES` を経由して SDK の `CLAUDE_CODE_MAX_RETRIES` に渡します。0 なら最初の失敗で turn が終わります | turn は `failed(api_error)`。turn 詳細の `result` に `api_error_status`・`provider_error`・`last_retry_status` が残ります |
 
+`MAX_TURN_SECONDS`・`PROVIDER_MAX_RETRIES` は launch の予約時にその launch に固定され、worker は固定された値で起動します。値を変えると、claim 済みの worker は受け取った値で現在の turn を終えてから終了し、セッションの次の launch が新しい値を受け取ります（[turn 時間と再試行を変えるとき](/run-server/self-hosting/explanation/isolation#turn-시간과-재시도를-바꿀-때)）。
+
 <a id="api-설정" />
 ## API 設定
 

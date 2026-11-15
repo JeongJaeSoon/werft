@@ -119,9 +119,19 @@ Stale claimed containers are not destroyed immediately:
 1. The first pass records `worker_launches.drain_requested_at` using the database clock. No new turns are accepted; active turns finish and later input stays queued.
 2. While a turn is running/needs_input, or before the first input request (workspace preparation/restoration, where interruption counts as failed startup), retain the container and report pass `draining` (log `draining_count`, `Claimed execution draining before its replacement`).
 3. The first pass after turn completion tears down the container. Finalize already committed the turn's checkpoint. SIGTERM causes idle-drain release; queued input launches under the current contract and resumes from checkpoint.
-4. After deadline, tear down even if busy/starting. Active turns become outcome_unknown. Unfinished startup does not count if SIGTERM yields drain release; death without release counts once. Pass `drainsOverdue` (log `drain_overdue_count`) and `Drain deadline passed with the worker still busy; replacing anyway` record it. Deadline is MAX_TURN_SECONDS + 5 minutes: the turn is bounded by MAX_TURN_SECONDS and the additional 5 minutes covers finalize/checkpoint.
+4. After deadline, tear down even if busy/starting. Active turns become outcome_unknown. Unfinished startup does not count if SIGTERM yields drain release; death without release counts once. Pass `drainsOverdue` (log `drain_overdue_count`) and `Drain deadline passed with the worker still busy; replacing anyway` record it. Deadline is the worker's own turn time + 5 minutes: no turn outlasts the turn time the worker was started with, and the additional 5 minutes covers finalize/checkpoint. The turn time is pinned in `worker_launches.resources` when the launch is reserved. A worker started before the pin is read from its container or Pod env (`WORKER_MAX_TURN_SEC`); when that cannot be read either, the current `MAX_TURN_SECONDS` applies.
 
 Unclaimed stale containers are replaced immediately as before.
+
+<a id="turn-시간과-재시도를-바꿀-때" />
+### Changing the turn time and retries
+
+`MAX_TURN_SECONDS` and `PROVIDER_MAX_RETRIES` are not in the isolation stamp. Like CPU and memory, they are pinned when a launch is reserved, and the worker starts with them. After a change, the scheduler handles launches reserved with other values as follows, logging `Execution resource runs other worker limits`:
+
+- A claimed worker follows the drain above. It finishes its current turn under the values it was started with and then stops; the deadline is that worker's turn time + 5 minutes. The session gets the new values on its next launch.
+- An unclaimed launch is given back rather than rebuilt, because a rebuild would start with the same pinned values. The session reserves a new launch and starts with the new values. The given-back launch's row first records a replacement, so no worker can bind to it, and is then closed; the new launch's replacement count (`replacement_count`) starts at 0, so the replacement limit is never reached this way. The pass summary records `launchesLimitsChanged` (log `launch_limits_changed_count`) and the warning `Launch was reserved with other worker limits; torn down unbuilt so its session launches with the current ones`.
+
+Containers and Pods built by a control host from before the pin carry that host's values in their stamp. They are accepted as current when those values match the current ones, and replaced as stale otherwise, as before. So upgrading to this release does not replace every worker at once.
 
 For rollout, emergency terminate, and rollback decisions, follow [isolation contract operations](/run-server/self-hosting/recover-sessions#격리-계약-변경을-적용할-때).
 

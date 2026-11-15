@@ -41,7 +41,7 @@ docker exec -e RECONCILER_DRY_RUN=false "$RECONCILER_CONTAINER" \
 <a id="격리-계약-변경을-적용할-때" />
 ### 隔離契約の変更を適用する場合
 
-Docker daemon を先に 28 以上へ更新し、その後に隔離契約を変更したサーバーイメージを適用します。以前の daemon では preflight が pass 全体を遮断し、既存 worker も交代できません。claim 済み worker は最大 `MAX_TURN_SECONDS` + 5 分 drain するため、その間は以前の契約のコンテナと待機入力が残ります。即時遮断すべき隔離欠陥なら、影響セッションを terminate します。rollback でコンテナが current になっても drain 要求は残り、新 turn なしで終了して次の launch へ続きます。
+Docker daemon を先に 28 以上へ更新し、その後に隔離契約を変更したサーバーイメージを適用します。以前の daemon では preflight が pass 全体を遮断し、既存 worker も交代できません。claim 済み worker は最大でその worker が受け取った turn 時間 + 5 分 drain するため、その間は以前の契約のコンテナと待機入力が残ります。即時遮断すべき隔離欠陥なら、影響セッションを terminate します。rollback でコンテナが current になっても drain 要求は残り、新 turn なしで終了して次の launch へ続きます。
 
 <a id="2-checkpoint-복원과-시작-실패" />
 ### 2. checkpoint 復元と起動失敗

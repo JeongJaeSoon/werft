@@ -3,12 +3,27 @@ import type {
   ExecutionBackend as ExecutionBackendKind,
   ExecutionState,
 } from "@werft-ai/contracts";
+import {
+  MAX_PROVIDER_RETRIES,
+  MAX_TURN_SECONDS_CEILING,
+} from "../../limits/index.ts";
+
+/** What the worker is started with for its turns, as worker env. */
+export type WorkerLimits = {
+  maxTurnSeconds: number;
+  providerMaxRetries: number;
+};
 
 export type ExecutionResources = {
   /** Fractional CPUs, e.g. 1.5. */
   cpus: number;
   memoryBytes: number;
   pidsLimit: number;
+  /**
+   * Absent on a launch reserved before they were pinned; its worker is
+   * started with the host's current ones.
+   */
+  workerLimits?: WorkerLimits;
 };
 
 /**
@@ -106,6 +121,12 @@ export type ExecutionObservation = {
    * label; absent when the backend has no such label at all.
    */
   launchSpec?: string | null;
+  /**
+   * The limits the resource's worker was started with, read from its env:
+   * what bounds the turn it runs now. Null when the env holds none or no
+   * valid pair; absent when the backend cannot read it.
+   */
+  workerLimits?: WorkerLimits | null;
 };
 
 export type EnsureExecutionResult = {
@@ -251,28 +272,52 @@ export type NetworkReconcileResult = {
   failed: Array<{ id: string; error: string }>;
 };
 
-const LAUNCH_SPEC_VERSION = "launch-spec/v1";
-
 /**
  * What a launch was reserved to run, as one value a label can carry and a
  * row can recompute. Versioned so a change to what goes in never makes an
- * old label look like a new one.
+ * old label look like a new one: v1 is a launch reserved before the worker
+ * limits were pinned, and its label still matches its row.
  */
 export function launchSpecFingerprint(
   image: string,
   resources: ExecutionResources,
 ): string {
-  return createHash("sha256")
-    .update(
-      JSON.stringify([
-        LAUNCH_SPEC_VERSION,
-        image,
-        resources.cpus,
-        resources.memoryBytes,
-        resources.pidsLimit,
-      ]),
-    )
-    .digest("hex");
+  const { workerLimits } = resources;
+  const shape: unknown[] =
+    workerLimits === undefined
+      ? ["launch-spec/v1", image]
+      : ["launch-spec/v2", image];
+  shape.push(resources.cpus, resources.memoryBytes, resources.pidsLimit);
+  if (workerLimits !== undefined) {
+    shape.push(workerLimits.maxTurnSeconds, workerLimits.providerMaxRetries);
+  }
+  return createHash("sha256").update(JSON.stringify(shape)).digest("hex");
+}
+
+/**
+ * `value` as worker limits, or null when it is not a pair a worker would
+ * start with: within the bounds the installation setting takes, which also
+ * keeps a drain deadline built from the turn a valid database interval.
+ */
+export function workerLimitsOf(value: {
+  maxTurnSeconds: unknown;
+  providerMaxRetries: unknown;
+}): WorkerLimits | null {
+  const { maxTurnSeconds, providerMaxRetries } = value;
+  if (
+    !Number.isSafeInteger(maxTurnSeconds) ||
+    (maxTurnSeconds as number) < 1 ||
+    (maxTurnSeconds as number) > MAX_TURN_SECONDS_CEILING ||
+    !Number.isSafeInteger(providerMaxRetries) ||
+    (providerMaxRetries as number) < 0 ||
+    (providerMaxRetries as number) > MAX_PROVIDER_RETRIES
+  ) {
+    return null;
+  }
+  return {
+    maxTurnSeconds: maxTurnSeconds as number,
+    providerMaxRetries: providerMaxRetries as number,
+  };
 }
 
 /**
@@ -285,7 +330,10 @@ export function parseExecutionResources(value: unknown): ExecutionResources {
       `Execution resources ${JSON.stringify(value)} are not an object`,
     );
   }
-  const { cpus, memoryBytes, pidsLimit } = value as Record<string, unknown>;
+  const { cpus, memoryBytes, pidsLimit, workerLimits } = value as Record<
+    string,
+    unknown
+  >;
   if (typeof cpus !== "number" || !Number.isFinite(cpus) || cpus <= 0) {
     throw new Error(
       `Execution resources cpus ${String(cpus)} is not a positive number`,
@@ -301,11 +349,22 @@ export function parseExecutionResources(value: unknown): ExecutionResources {
       );
     }
   }
-  return {
+  const resources: ExecutionResources = {
     cpus,
     memoryBytes: memoryBytes as number,
     pidsLimit: pidsLimit as number,
   };
+  if (workerLimits === undefined) return resources;
+  const limits =
+    typeof workerLimits === "object" && workerLimits !== null
+      ? workerLimitsOf(workerLimits as WorkerLimits)
+      : null;
+  if (limits === null) {
+    throw new Error(
+      `Execution resources workerLimits ${JSON.stringify(workerLimits)} are not a turn of whole seconds and a retry count`,
+    );
+  }
+  return { ...resources, workerLimits: limits };
 }
 
 /**

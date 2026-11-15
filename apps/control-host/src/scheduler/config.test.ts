@@ -93,6 +93,12 @@ describe("schedulerConfigFromEnv", () => {
       maxTurnSeconds: 3600,
       providerMaxRetries: 2,
     });
+    // Pinned to each launch at reservation; the backend's copy starts only
+    // a launch reserved before that.
+    expect(config.resources.workerLimits).toEqual({
+      maxTurnSeconds: 3600,
+      providerMaxRetries: 2,
+    });
     const docker = dockerOf(config);
     expect(docker.workerLimits).toEqual({
       maxTurnSeconds: 3600,

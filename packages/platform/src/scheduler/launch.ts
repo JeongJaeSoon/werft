@@ -172,29 +172,51 @@ export async function reensure(
  * Why an unclaimed launch is given back instead of built again, or null to
  * build it. No worker bound it, so nothing runs on it yet: `retracted`, its
  * rebuild would restore its session on a retracted image; `engine_dropped`,
- * no configured image runs its session's engine.
+ * no configured image runs its session's engine; `limits_changed`, it was
+ * reserved with worker limits the scheduler no longer runs, and a rebuild
+ * would start its worker with them again.
  */
 export async function giveBackCause(
   ctx: PassContext,
   execution: ActiveExecution,
   stored: StoredLaunchIntent,
-): Promise<"retracted" | "engine_dropped" | null> {
+): Promise<GiveBackCause | null> {
   if (execution.claimed) return null;
   // An intent from before images were stored takes the current setting.
   const image = stored.image ?? ctx.options.image;
   if ((await retractedImagesOf(ctx)).rebuildsRetracted(image)) {
     return "retracted";
   }
-  return (await engineDropped(ctx, execution.sessionId))
-    ? "engine_dropped"
-    : null;
+  if (await engineDropped(ctx, execution.sessionId)) return "engine_dropped";
+  return limitsChanged(ctx, execution) ? "limits_changed" : null;
+}
+
+export type GiveBackCause = "retracted" | "engine_dropped" | "limits_changed";
+
+/**
+ * The launch was reserved with worker limits other than the ones a launch
+ * reserved now takes. One reserved before they were pinned starts with the
+ * current ones, so it never differs.
+ */
+export function limitsChanged(
+  ctx: PassContext,
+  execution: ActiveExecution,
+): boolean {
+  const pinned = execution.resources?.workerLimits;
+  const current = ctx.options.resources.workerLimits;
+  return (
+    pinned !== undefined &&
+    current !== undefined &&
+    (pinned.maxTurnSeconds !== current.maxTurnSeconds ||
+      pinned.providerMaxRetries !== current.providerMaxRetries)
+  );
 }
 
 /** Counts and logs a launch given back unbuilt, under its cause. */
 export function reportGivenBack(
   ctx: PassContext,
   ref: ExecutionRef,
-  cause: "retracted" | "engine_dropped",
+  cause: GiveBackCause,
   done: "given back" | "torn down",
   fields: Record<string, unknown>,
 ): void {
@@ -204,10 +226,16 @@ export function reportGivenBack(
       `Launch's worker image is retracted; ${done} unbuilt so its session chooses an image again`,
       { ...fieldsOf(ref), ...fields },
     );
-  } else {
+  } else if (cause === "engine_dropped") {
     ctx.summary.launchesEngineDropped.push(ref);
     ctx.logger.warn(
       `No configured worker image runs the launch's session engine; ${done} unbuilt so its session waits for one`,
+      { ...fieldsOf(ref), ...fields },
+    );
+  } else {
+    ctx.summary.launchesLimitsChanged.push(ref);
+    ctx.logger.warn(
+      `Launch was reserved with other worker limits; ${done} unbuilt so its session launches with the current ones`,
       { ...fieldsOf(ref), ...fields },
     );
   }
