@@ -466,7 +466,7 @@ describe("성과 규칙", () => {
     await opened();
     const card = section("판정 설정") as HTMLElement;
     const form = card.querySelector("form") as HTMLFormElement;
-    const rows = [...form.querySelectorAll("div.border-b")].filter((row) =>
+    const rows = [...form.querySelectorAll("fieldset.border-b")].filter((row) =>
       row.className.includes("py-3.5"),
     );
     expect(rows.length).toBeGreaterThan(1);
