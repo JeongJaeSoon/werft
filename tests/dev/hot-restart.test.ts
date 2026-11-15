@@ -144,20 +144,78 @@ describe("scripts/dev/hot-restart.ts", () => {
     }
   }, 20_000);
 
+  // A pass loop that gave up (94S-1641): no file changes, yet it is
+  // started again, the way Docker's restart policy would outside dev.
+  test("a command that exits on its own starts again after a growing delay", async () => {
+    const supervisor = supervise(record("process.exit(3)"), "0");
+    try {
+      await until(async () => (await starts()).length === 2);
+      // The next delay is 2s; well inside it nothing starts.
+      await Bun.sleep(1200);
+      expect(await starts()).toHaveLength(2);
+      await until(async () => (await starts()).length === 3);
+      supervisor.kill("SIGTERM");
+      expect(await supervisor.exited).toBe(3);
+      const stderr = await new Response(supervisor.stderr).text();
+      expect(stderr).toContain("exited with 3; starting again in 1s");
+      expect(stderr).toContain("exited with 3; starting again in 2s");
+    } finally {
+      supervisor.kill("SIGKILL");
+    }
+  }, 20_000);
+
+  test("a command that stays up after starting again stays up", async () => {
+    // Exits on its first start only: the proxy that was briefly gone.
+    const supervisor = supervise(
+      record(
+        `if (require("node:fs").readFileSync(${JSON.stringify(join(dir, "starts"))}, "utf8").split("\\n").length < 3) process.exit(1); process.on("SIGTERM", () => process.exit(0)); setInterval(() => {}, 1000)`,
+      ),
+      "0",
+    );
+    try {
+      await until(async () => (await starts()).length === 2);
+      await Bun.sleep(2500);
+      expect(await starts()).toHaveLength(2);
+      supervisor.kill("SIGTERM");
+      expect(await supervisor.exited).toBe(0);
+    } finally {
+      supervisor.kill("SIGKILL");
+    }
+  }, 20_000);
+
   // A poll shorter than the 100ms settle delay must still get through.
-  test("a command that exits on its own waits for the next change", async () => {
-    const supervisor = supervise(record("process.exit(3)"), "50");
+  test("a change while the delay runs starts the command at once, and only once", async () => {
+    const supervisor = supervise(
+      record(
+        `if (require("node:fs").readFileSync(${JSON.stringify(join(dir, "starts"))}, "utf8").split("\\n").length < 4) process.exit(3); process.on("SIGTERM", () => process.exit(0)); setInterval(() => {}, 1000)`,
+      ),
+      "50",
+    );
+    try {
+      // Second start after 1s; its exit starts a 2s delay.
+      await until(async () => (await starts()).length === 2);
+      await Bun.sleep(200);
+      await writeFile(join(src, "nested", "a.ts"), "export const a = 3;\n");
+      await until(async () => (await starts()).length === 3);
+      // The 2s delay it cut short starts nothing on top.
+      await Bun.sleep(2500);
+      expect(await starts()).toHaveLength(3);
+      supervisor.kill("SIGTERM");
+      expect(await supervisor.exited).toBe(0);
+    } finally {
+      supervisor.kill("SIGKILL");
+    }
+  }, 20_000);
+
+  test("a stop while the delay runs starts nothing", async () => {
+    const supervisor = supervise(record("process.exit(3)"), "0");
     try {
       await until(async () => (await starts()).length === 1);
-      await Bun.sleep(600);
-      expect(await starts()).toHaveLength(1);
-      await writeFile(join(src, "nested", "a.ts"), "export const a = 3;\n");
-      await until(async () => (await starts()).length === 2);
+      await Bun.sleep(300);
       supervisor.kill("SIGTERM");
-      await supervisor.exited;
-      expect(await new Response(supervisor.stderr).text()).toContain(
-        "exited with 3; waiting for a change",
-      );
+      expect(await supervisor.exited).toBe(3);
+      await Bun.sleep(1200);
+      expect(await starts()).toHaveLength(1);
     } finally {
       supervisor.kill("SIGKILL");
     }
