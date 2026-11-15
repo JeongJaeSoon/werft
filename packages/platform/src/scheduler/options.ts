@@ -40,6 +40,9 @@ export const DEFAULT_PAUSED_WORKSPACE_TTL_MS = 24 * 60 * 60 * 1_000;
  */
 export const DEFAULT_DRAIN_DEADLINE_MS = 30 * 60_000;
 
+/** Past its turn limit a draining worker still finalizes and checkpoints. */
+export const DRAIN_FINALIZE_GRACE_MS = 5 * 60_000;
+
 /**
  * How long a kill may stay `stopping` after its first stop went out: the
  * backend's stop grace plus one request. A stop the daemon took has ended in
@@ -193,6 +196,11 @@ export type SchedulerRunSummary = {
    * more: given back unbuilt, so their sessions wait for an image of it.
    */
   launchesEngineDropped: ExecutionRef[];
+  /**
+   * Unclaimed launches reserved with worker limits the scheduler no longer
+   * runs: given back unbuilt, so the next reservation takes the current ones.
+   */
+  launchesLimitsChanged: ExecutionRef[];
   orphansTerminated: ExecutionRef[];
   /** Orphans the provider would not terminate; each still holds a slot. */
   orphansUnresolved: ExecutionRef[];

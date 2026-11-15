@@ -33,6 +33,7 @@ import {
   ISOLATION_CONTRACT,
   isolationStampFor,
   LABELS,
+  legacyIsolationStampFor,
   nonceSecretFor,
   nonceSecretNameFor,
   nonceSecretNameOf,
@@ -42,6 +43,7 @@ import {
   proxyHostOf,
   selectorFor,
   workspaceClaimFor,
+  workerLimitsOfPod,
   workspaceClaimNameFor,
 } from "./specs.ts";
 import { workspaceCapacity } from "./workspace-capacity.ts";
@@ -336,6 +338,7 @@ export class KubernetesBackend implements ExecutionBackend {
       observedAt,
       providerRef: uidOf(pod),
       state,
+      workerLimits: workerLimitsOfPod(pod),
       ...(verdict === "current" ? {} : { stale: true }),
     };
   }
@@ -822,7 +825,8 @@ export class KubernetesBackend implements ExecutionBackend {
     const version = Number(stamp.split(":")[0]);
     if (!Number.isInteger(version) || version < 1) return "stale";
     if (version > ISOLATION_CONTRACT) return "newer";
-    return stamp === isolationStampFor(this.config, proxyAddress)
+    return stamp === isolationStampFor(this.config, proxyAddress) ||
+      stamp === legacyIsolationStampFor(this.config, proxyAddress)
       ? "current"
       : "stale";
   }

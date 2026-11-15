@@ -12,6 +12,7 @@ import type {
   ExecutionBackend,
   ExecutionObservation,
   ExecutionRef,
+  ExecutionResources,
   LaunchCredentialState,
   LaunchIntent,
   ManagedExecution,
@@ -19,6 +20,7 @@ import type {
   NetworkReconcileResult,
   TerminateExecutionResult,
   TerminateOptions,
+  WorkerLimits,
   WorkspaceRemovalResult,
 } from "./ports/execution-backend.ts";
 import {
@@ -42,6 +44,7 @@ import type {
 import {
   DEFAULT_LAUNCH_FAILURE_LIMIT,
   DEFAULT_STOPPED_WORKSPACE_TTL_MS,
+  DRAIN_FINALIZE_GRACE_MS,
   launchRetryDelayMs,
   reclaimNetworks,
   reclaimWorkspaces,
@@ -604,6 +607,8 @@ type Container = {
   sessionId: string;
   /** false models Docker `created`: create succeeded, start never ran. */
   started?: boolean;
+  /** What its env says the worker was started with. */
+  workerLimits?: WorkerLimits | null;
 };
 
 /**
@@ -826,6 +831,9 @@ class FakeBackend implements ExecutionBackend {
           : container.started === false
             ? "pending"
             : "running",
+      ...(container.workerLimits === undefined
+        ? {}
+        : { workerLimits: container.workerLimits }),
     };
   }
 
@@ -926,6 +934,7 @@ function harness(
     engineOfKind?: (kind: string) => string | undefined;
     imageRuntime?: ImageRuntime;
     olderImages?: { image: string; runtime: ImageRuntime }[];
+    resources?: ExecutionResources;
     retractedImages?: { image: string; runtime: ImageRuntime }[];
     stop?: AbortSignal;
     stopDeadlineMs?: number;
@@ -941,7 +950,7 @@ function harness(
       backend,
       image: "worker:test",
       logger,
-      resources: RESOURCES,
+      resources: options.resources ?? RESOURCES,
       slotLimit,
       ...(options.stoppedWorkspaceTtlMs === undefined
         ? {}
@@ -1989,6 +1998,118 @@ describe("runScheduler", () => {
       const replaced = await run();
       expect(replaced.replaced).toEqual([ref]);
       expect(store.confirmedGone).toEqual(["exec-1"]);
+    });
+  });
+
+  describe("worker limits pinned to the launch", () => {
+    const current = { ...RESOURCES, workerLimits: limitsOf(600) };
+    const pinnedAt = (seconds: number): ExecutionResources => ({
+      ...RESOURCES,
+      workerLimits: limitsOf(seconds),
+    });
+    function limitsOf(maxTurnSeconds: number): WorkerLimits {
+      return { maxTurnSeconds, providerMaxRetries: 2 };
+    }
+    function running(
+      store: MemoryStore,
+      backend: FakeBackend,
+      launch: { claimed: boolean; resources: ExecutionResources | null },
+      workerLimits?: WorkerLimits,
+    ): { ref: ExecutionRef; sessionId: string } {
+      const row = store.seedActive({
+        ...launch,
+        executionId: "exec-1",
+        observedState: "running",
+      });
+      backend.containers.set("exec-1#1", {
+        exited: false,
+        generation: 1,
+        operationId: row.operationId ?? "op",
+        sessionId: row.sessionId,
+        ...(workerLimits === undefined ? {} : { workerLimits }),
+      });
+      return {
+        ref: { executionId: "exec-1", generation: 1 },
+        sessionId: row.sessionId,
+      };
+    }
+
+    test("a claimed launch reserved with other limits finishes its turn under its own turn time, then goes", async () => {
+      // The host's own deadline is far longer: only the pinned one ends it.
+      const { backend, run, store } = harness(10, {
+        drainDeadlineMs: 60 * 60_000,
+        resources: current,
+      });
+      const { ref, sessionId } = running(store, backend, {
+        claimed: true,
+        resources: pinnedAt(60),
+      });
+      store.busySessions.add(sessionId);
+      expect((await run()).draining).toEqual([ref]);
+
+      // The store's clock also runs on in real time between passes.
+      store.elapse(60_000 + DRAIN_FINALIZE_GRACE_MS - 1_000);
+      expect((await run()).draining).toEqual([ref]);
+
+      store.elapse(1_000);
+      const overdue = await run();
+      expect(overdue.drainsOverdue).toEqual([ref]);
+      expect(overdue.replaced).toEqual([ref]);
+      expect(store.confirmedGone).toEqual(["exec-1"]);
+      // Nothing is rebuilt from a claimed launch on its old limits.
+      expect(
+        backend.ensureCalls.filter((c) => c.executionId === "exec-1"),
+      ).toEqual([]);
+    });
+
+    test("an unclaimed launch reserved with other limits is given back, and its session launches with the current ones", async () => {
+      const { backend, run, store } = harness(10, { resources: current });
+      const { ref, sessionId } = running(store, backend, {
+        claimed: false,
+        resources: pinnedAt(60),
+      });
+
+      const summary = await run();
+      expect(summary.launchesLimitsChanged).toEqual([ref]);
+      expect(backend.terminateCalls).toEqual([ref]);
+      expect(store.confirmedGone).toEqual(["exec-1"]);
+      expect(summary.replacementsExhausted).toEqual([]);
+      const rebuilt = backend.ensureCalls.filter(
+        (c) => c.sessionId === sessionId,
+      );
+      expect(
+        rebuilt.every((c) => c.resources.workerLimits?.maxTurnSeconds === 600),
+      ).toBe(true);
+      expect(rebuilt.some((c) => c.executionId === "exec-1")).toBe(false);
+    });
+
+    test("a launch reserved with the current limits, or before they were pinned, is left alone", async () => {
+      for (const resources of [current, null]) {
+        const { backend, run, store } = harness(10, { resources: current });
+        running(store, backend, { claimed: true, resources });
+        const summary = await run();
+        expect(summary.replaced).toEqual([]);
+        expect(summary.draining).toEqual([]);
+        expect(backend.terminateCalls).toEqual([]);
+      }
+    });
+
+    test("a stale launch reserved before the pin drains under the turn time its worker was started with", async () => {
+      const { backend, run, store } = harness(10, {
+        drainDeadlineMs: 60 * 60_000,
+        resources: current,
+      });
+      const { ref, sessionId } = running(
+        store,
+        backend,
+        { claimed: true, resources: null },
+        limitsOf(60),
+      );
+      backend.staleFor.add("exec-1#1");
+      store.busySessions.add(sessionId);
+      expect((await run()).draining).toEqual([ref]);
+      store.elapse(60_000 + DRAIN_FINALIZE_GRACE_MS);
+      expect((await run()).drainsOverdue).toEqual([ref]);
     });
   });
 

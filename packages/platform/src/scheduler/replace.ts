@@ -1,6 +1,7 @@
 import { confirmGone } from "./kill.ts";
 import {
   backingOff,
+  type GiveBackCause,
   giveBackCause,
   launchFailed,
   reensure,
@@ -178,7 +179,7 @@ export async function replace(
 async function retire(
   ctx: PassContext,
   execution: ActiveExecution,
-  cause: "retracted" | "engine_dropped",
+  cause: GiveBackCause,
   reason: ReplaceReason,
   observed: ExecutionObservation,
   acceptedFingerprint: string | null,

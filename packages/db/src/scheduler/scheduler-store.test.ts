@@ -1453,6 +1453,49 @@ describe("PostgresSchedulerStore", () => {
     expect(await db.select().from(workerLaunches)).toHaveLength(1);
   });
 
+  test("reserveLaunch keeps the worker limits with the launch, and a row from before them reads without", async () => {
+    const workerLimits = { maxTurnSeconds: 600, providerMaxRetries: 2 };
+    const pinned = { ...SPEC.resources, workerLimits };
+    const sessionId = await insertUnassigned();
+    await store.reserveLaunch({
+      ...SPEC,
+      backend: "local_docker",
+      now: NOW,
+      resources: pinned,
+      sessionId,
+      slotLimit: 10,
+    });
+    const before = await insertUnassigned();
+    await store.reserveLaunch({
+      ...SPEC,
+      backend: "local_docker",
+      now: NOW,
+      sessionId: before,
+      slotLimit: 10,
+    });
+    const active = await store.listActiveExecutions("local_docker");
+    expect(active.find((e) => e.sessionId === sessionId)?.resources).toEqual(
+      pinned,
+    );
+    expect(active.find((e) => e.sessionId === before)?.resources).toEqual(
+      SPEC.resources,
+    );
+
+    await expect(
+      store.reserveLaunch({
+        ...SPEC,
+        backend: "local_docker",
+        now: NOW,
+        resources: {
+          ...SPEC.resources,
+          workerLimits: { maxTurnSeconds: 0, providerMaxRetries: 2 },
+        },
+        sessionId: await insertUnassigned(),
+        slotLimit: 10,
+      }),
+    ).rejects.toThrow("workerLimits");
+  });
+
   test("a launch holds both halves of its spec or neither, and a stored spec that is not one fails loudly", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({

@@ -3,9 +3,11 @@ import { confirmGone, kill, killRequested } from "./kill.ts";
 import {
   giveBackCause,
   launchFailed,
+  limitsChanged,
   reensure,
   runsRetracted,
 } from "./launch.ts";
+import { DRAIN_FINALIZE_GRACE_MS } from "./options.ts";
 import {
   fieldsOf,
   messageOf,
@@ -17,7 +19,10 @@ import {
   storedSpecOf,
   unknownObservation,
 } from "./pass-context.ts";
-import type { TerminateExecutionResult } from "./ports/execution-backend.ts";
+import type {
+  ExecutionObservation,
+  TerminateExecutionResult,
+} from "./ports/execution-backend.ts";
 import type {
   ActiveExecution,
   StoredLaunchIntent,
@@ -122,7 +127,28 @@ async function reconcile(
       session_id: execution.sessionId,
       state: observed.state,
     });
-    if (execution.claimed && !(await drained(ctx, execution))) return;
+    if (execution.claimed && !(await drained(ctx, execution, observed))) {
+      return;
+    }
+    await replace(ctx, execution, "stale_isolation", observed);
+    return;
+  }
+  if (up && limitsChanged(ctx, execution)) {
+    // Its worker runs the turn time and retries it was reserved with, and
+    // the host has moved on from them. A claimed one finishes its turn
+    // under them first; an unclaimed one is given back, not rebuilt — a
+    // rebuild would start the worker on the same pinned limits — so its
+    // session's next launch takes the current ones.
+    logger.warn("Execution resource runs other worker limits", {
+      ...fieldsOf(ref),
+      claimed: execution.claimed,
+      provider_ref: observed.providerRef,
+      session_id: execution.sessionId,
+      state: observed.state,
+    });
+    if (execution.claimed && !(await drained(ctx, execution, observed))) {
+      return;
+    }
     await replace(ctx, execution, "stale_isolation", observed);
     return;
   }
@@ -138,7 +164,9 @@ async function reconcile(
       session_id: execution.sessionId,
       state: observed.state,
     });
-    if (execution.claimed && !(await drained(ctx, execution))) return;
+    if (execution.claimed && !(await drained(ctx, execution, observed))) {
+      return;
+    }
     // Recorded under a reason every scheduler reads: a value an older one
     // does not know fails its whole pass, and a rollback lands on one while
     // an interrupted teardown leaves the record on the row.
@@ -490,14 +518,21 @@ async function reconcile(
  * turn unknown for an operator. Its worker is asked to take no
  * new turn instead, and it goes once the one it runs has ended. True when
  * the teardown may go ahead now: nothing is left open, or the deadline
- * passed first.
+ * passed first. The deadline is the worker's own turn time, so a host whose
+ * turn limit was lowered since does not cut a longer turn short.
  */
 async function drained(
   ctx: PassContext,
   execution: ActiveExecution,
+  observed: ExecutionObservation,
 ): Promise<boolean> {
-  const { drainDeadlineMs, lock, logger, store, summary } = ctx;
+  const { lock, logger, store, summary } = ctx;
   const ref = refOf(execution);
+  const limits = execution.resources?.workerLimits ?? observed.workerLimits;
+  const drainDeadlineMs =
+    limits == null
+      ? ctx.drainDeadlineMs
+      : limits.maxTurnSeconds * 1_000 + DRAIN_FINALIZE_GRACE_MS;
   lock.throwIfAborted();
   const drain = await store.requestDrain(ref, drainDeadlineMs);
   // The binding moved on since the rows were read; the next pass sees

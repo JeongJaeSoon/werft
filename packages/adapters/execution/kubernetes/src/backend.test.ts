@@ -15,7 +15,12 @@ import {
   WorkspaceClaimError,
 } from "./backend.ts";
 import { KubernetesApiError } from "./client.ts";
-import { podNameFor, workspaceClaimNameFor } from "./specs.ts";
+import {
+  ANNOTATIONS,
+  legacyIsolationStampFor,
+  podNameFor,
+  workspaceClaimNameFor,
+} from "./specs.ts";
 import { FakeKubernetes } from "./testing/fake-client.ts";
 import {
   TEST_PROXY_ADDRESS,
@@ -341,6 +346,54 @@ describe("ensureExecution", () => {
     await expect(
       backend.ensureExecution({ ...intent, generation: 2 }),
     ).rejects.toThrow("recreated since");
+  });
+});
+
+describe("worker limits pinned to the launch", () => {
+  const limits = { maxTurnSeconds: 900, providerMaxRetries: 2 };
+
+  function withLimits(api: FakeKubernetes, workerLimits: typeof limits) {
+    return new KubernetesBackend(
+      { ...testConfig(NS, INSTALLATION), workerLimits },
+      api.asClient(),
+      testResolver,
+    );
+  }
+
+  test("a Pod a host from before the pin built is current under the same limits, stale under others", async () => {
+    const api = new FakeKubernetes();
+    const { intent } = intentFor();
+    await withLimits(api, limits).ensureExecution(intent);
+    api.setPhase(NS, podName, "Running");
+    const annotations = api.objects.get(`${NS}/pods/${podName}`)?.metadata
+      .annotations as Record<string, string> | undefined;
+    if (annotations === undefined) throw new Error("no pod");
+    annotations[ANNOTATIONS.isolation] = legacyIsolationStampFor(
+      { ...testConfig(NS, INSTALLATION), workerLimits: limits },
+      TEST_PROXY_ADDRESS,
+    );
+
+    expect(
+      (await withLimits(api, limits).inspect(intent)).stale,
+    ).toBeUndefined();
+    expect(
+      (
+        await withLimits(api, { ...limits, maxTurnSeconds: 1800 }).inspect(
+          intent,
+        )
+      ).stale,
+    ).toBe(true);
+  });
+
+  test("inspect reports the limits the Pod's worker was started with", async () => {
+    const api = new FakeKubernetes();
+    const pinned = { maxTurnSeconds: 300, providerMaxRetries: 1 };
+    const { intent } = intentFor({
+      resources: { ...RESOURCES, workerLimits: pinned },
+    });
+    const backend = withLimits(api, limits);
+    await backend.ensureExecution(intent);
+    expect((await backend.inspect(intent)).workerLimits).toEqual(pinned);
   });
 });
 
