@@ -229,6 +229,16 @@ cleanup() {
       [ "$status" != 0 ] || status=1
     fi
   fi
+  # What the fake MCP server issues carries a prefix
+  # (packages/testkit/src/fake-oauth.ts). The record, logs of removed worker
+  # containers included, holds none; only file names come out.
+  local issued
+  issued="$(grep -rlE -D skip 'fm[ocrs]_[A-Za-z0-9_-]{16,}' "$out" || true)"
+  if [ -n "$issued" ]; then
+    echo "e2e: a value the fake MCP server issued is in the record:" >&2
+    echo "$issued" >&2
+    [ "$status" != 0 ] || status=1
+  fi
   echo "e2e record: $out" >&2
   exit "$status"
 }
@@ -351,9 +361,9 @@ elif [ -n "$conformance" ]; then
 elif [ -n "$real_model$local_model" ]; then
   suites=(./tests/e2e/real-model.e2e.ts)
 else
-  # remote-mcp first: the other suites leave their sessions holding every
-  # execution slot.
-  suites=(./tests/e2e/remote-mcp.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts)
+  # The MCP suites first: the other suites leave their sessions holding
+  # every execution slot.
+  suites=(./tests/e2e/remote-mcp.e2e.ts ./tests/e2e/workspace-mcp.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts)
 fi
 # The suites drive the public API and never need the provider key.
 env -u ANTHROPIC_API_KEY bun test "${suites[@]}" --timeout 900000 \

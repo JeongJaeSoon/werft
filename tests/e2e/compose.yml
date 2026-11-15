@@ -27,7 +27,8 @@ services:
   fake-messages:
     ports:
       - "127.0.0.1::4011"
-  # Its control port: tool calls that reached it and bearer hashes.
+  # Its control port: tool calls that reached it, bearer hashes, and the
+  # browser's step of a workspace server's OAuth sign-in.
   fake-mcp:
     ports:
       - "127.0.0.1::4021"
@@ -36,6 +37,9 @@ services:
       - "127.0.0.1::3000"
     environment:
       EXECUTION_SLOT_LIMIT: "16"
+      # The redirect URI a workspace MCP server's sign-in is built on; the
+      # suite plays the browser, so no console needs to answer there.
+      CONSOLE_ORIGIN: http://127.0.0.1:3000
   scheduler:
     environment:
       EXECUTION_SLOT_LIMIT: "16"
