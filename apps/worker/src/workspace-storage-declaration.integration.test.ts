@@ -16,8 +16,6 @@ test.each([undefined, "false", "true"])(
       EXECUTION_K8S_NAMESPACE: "workers",
       EXECUTION_SLOT_LIMIT: "10",
       EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE: declaration,
-      MAX_TURN_SECONDS: "3600",
-      PROVIDER_MAX_RETRIES: "2",
       QUEUED_INPUT_LIMIT_PER_SESSION: "20",
       S3_BUCKET: "sessions",
       SESSION_COST_LIMIT_USD: "25",

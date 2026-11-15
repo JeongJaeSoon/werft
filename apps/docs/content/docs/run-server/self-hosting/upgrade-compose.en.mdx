@@ -174,7 +174,7 @@ From this release on, the API no longer reads `SLACK_EVENTS_PUBLIC_URL`. When ev
 <a id="웹으로-옮긴-실행-한도" />
 ### Execution limits moved to the web
 
-An owner saves six installation-wide execution limits under **Settings > Workspace > Execution limits** instead of env (`GET`/`PATCH /v1/installation-config`, audit record `update_installation_config`). No role reads the env below. A save applies at once on that API and within 10 seconds on other replicas and on the scheduler, slack, and metrics roles. A request already waiting keeps the wait it was given. Ranges and defaults are in [execution limits set on the web](/run-server/self-hosting/reference/configuration#웹에서-정하는-실행-한도).
+An owner saves eight installation-wide execution limits under **Settings > Workspace > Execution limits** instead of env (`GET`/`PATCH /v1/installation-config`, audit record `update_installation_config`). No role reads the env below. A save applies at once on that API and within 10 seconds on other replicas and on the scheduler, slack, and metrics roles. A request already waiting keeps the wait it was given. The turn time and model request retries reach launches reserved after the save, and a worker started with other values stops once its current turn ends ([changing the turn time and retries](/run-server/self-hosting/explanation/isolation#turn-시간과-재시도를-바꿀-때)). Ranges and defaults are in [execution limits set on the web](/run-server/self-hosting/reference/configuration#웹에서-정하는-실행-한도).
 
 | Section on the screen | Env carried in |
 |---|---|
@@ -184,9 +184,11 @@ An owner saves six installation-wide execution limits under **Settings > Workspa
 | Waiting messages | `QUEUED_INPUT_LIMIT_PER_SESSION` |
 | Kept input | `STORAGE_LIMIT_BYTES` |
 | Workspace size | `WORKSPACE_ENFORCE` |
+| Turn time | `MAX_TURN_SECONDS` |
+| Model request retries | `PROVIDER_MAX_RETRIES` |
 
 - Migration `0281_installation_config` adds the `installation_config` table, one row per key. Migrate then carries the values in before any role starts. For a key with nothing saved and an env value present, it carries the value in once and logs `note: <env> was carried into Settings > Workspace > Execution limits and is no longer read; remove it`, without the value. With a workspace, the carry-over is recorded as an audit record without an author (`by: "env_import"`). A blank value counts as unset.
-- `infra/compose.core.yml` takes the six variables from the host env or `.env` and passes them to migrate only. A value you kept in `.env`, as earlier releases read it, is carried in as is. A value you passed to api or scheduler through an overlay is not: move it to `.env` before upgrading, or save it on the screen after. With nothing set, the defaults apply; they are the defaults earlier Compose files used.
+- `infra/compose.core.yml` takes the eight variables from the host env or `.env` and passes them to migrate only. A value you kept in `.env`, as earlier releases read it, is carried in as is. A value you passed to api or scheduler through an overlay is not: move it to `.env` before upgrading, or save it on the screen after. With nothing set, the defaults apply; they are the defaults earlier Compose files used (a turn time of 3600 seconds, 2 retries). When the carried turn time and retries equal a running worker's, that worker keeps running after the upgrade.
 - After the carry-over, delete the line from your env. While it stays, every migrate run logs `note: Ignored removed settings: <env>`. The env never changes a saved value.
 - A value outside the range is not carried in (`note: <env> was not carried in`). Unlike earlier releases, startup does not stop, and the default does not apply either. That key is blocked until a value is saved on the screen, and so is a saved value outside this version's range. Only the work that reads a blocked key is refused, and the screen marks the field. What is refused is under "With no usable value" in [execution limits set on the web](/run-server/self-hosting/reference/configuration#웹에서-정하는-실행-한도). For example, with the session cost blocked, new sessions and messages are refused with `503 BACKEND_UNAVAILABLE` and the scheduler skips launches.
 - Workers no longer read `QUESTION_TIMEOUT_SEC`. No launcher ever passed it, so nothing changes (30 minutes until the gateway registers the request).

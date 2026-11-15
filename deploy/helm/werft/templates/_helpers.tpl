@@ -123,7 +123,7 @@ by the env names earlier releases read. No role reads them now: the migrate
 Job carries one an earlier release set in, once, while it has nothing saved.
 */}}
 {{- define "ap.carriedSettingNames" -}}
-PENDING_REQUEST_TTL_SEC QUEUED_INPUT_LIMIT_PER_SESSION STORAGE_LIMIT_BYTES SESSION_COST_LIMIT_USD SESSION_TOKEN_LIMIT WORKSPACE_ENFORCE
+PENDING_REQUEST_TTL_SEC QUEUED_INPUT_LIMIT_PER_SESSION STORAGE_LIMIT_BYTES SESSION_COST_LIMIT_USD SESSION_TOKEN_LIMIT WORKSPACE_ENFORCE MAX_TURN_SECONDS PROVIDER_MAX_RETRIES
 {{- end -}}
 
 {{/* config.limits as a role reads them: the carried settings left out. */}}
@@ -138,17 +138,23 @@ PENDING_REQUEST_TTL_SEC QUEUED_INPUT_LIMIT_PER_SESSION STORAGE_LIMIT_BYTES SESSI
 {{- end -}}
 
 {{/*
-The carried settings where earlier releases took them from, the last of
-which the api's env let win: api.extraEnv, then config.limits, then
-api.workspaceEnforce. Not merge: it takes a 0 for unset and lets a later
-source win.
+The carried settings where earlier releases took them from, in the order
+the reading role's env let win: for the worker limits the scheduler's
+(scheduler.extraEnv, then config.limits), for the rest the api's
+(api.extraEnv, then config.limits, then api.workspaceEnforce). Not merge:
+it takes a 0 for unset and lets a later source win.
 */}}
 {{- define "ap.carriedSettingsEnv" -}}
-{{- $sources := list (.Values.api.extraEnv | default dict) (.Values.config.limits | default dict) -}}
+{{- $apiSources := list (.Values.api.extraEnv | default dict) (.Values.config.limits | default dict) -}}
 {{- with .Values.api.workspaceEnforce }}
-{{- $sources = append $sources (dict "WORKSPACE_ENFORCE" .) -}}
+{{- $apiSources = append $apiSources (dict "WORKSPACE_ENFORCE" .) -}}
 {{- end }}
+{{- $schedulerSources := list (.Values.scheduler.extraEnv | default dict) (.Values.config.limits | default dict) -}}
 {{- range $name := splitList " " (include "ap.carriedSettingNames" .) }}
+{{- $sources := $apiSources }}
+{{- if has $name (list "MAX_TURN_SECONDS" "PROVIDER_MAX_RETRIES") }}
+{{- $sources = $schedulerSources }}
+{{- end }}
 {{- $found := false }}
 {{- range $source := $sources }}
 {{- if and (not $found) (hasKey $source $name) }}

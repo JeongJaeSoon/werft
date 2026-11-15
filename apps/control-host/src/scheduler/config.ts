@@ -20,6 +20,7 @@ import {
   type InstallationLimits,
   type InstallationLimitsEnvironment,
   installationLimitsFromEnv,
+  MAX_TURN_SECONDS_CEILING,
   type SchedulerOptions,
   workerImageListFromEnv,
   workerImageRuntimesFromEnv,
@@ -86,22 +87,19 @@ export function schedulerConfigFromEnv(
   // under different limits from one env file.
   const limits = installationLimitsFromEnv(environment);
   const logLevel = logLevelFromEnv(environment.LOG_LEVEL);
-  const workerLimits = {
-    maxTurnSeconds: limits.maxTurnSeconds,
-    providerMaxRetries: limits.providerMaxRetries,
-  };
   return {
     databaseUrl,
     // For a claimed worker whose own turn time is unknown — reserved before
-    // it was pinned, on a resource whose env cannot be read. Its worker was
-    // started with the limits of its day; this host's is the best guess.
-    drainDeadlineMs: limits.maxTurnSeconds * 1_000 + DRAIN_FINALIZE_GRACE_MS,
+    // it was pinned, on a resource whose env cannot be read. The console's
+    // value says nothing about the limits of its day, so it gets as long as
+    // any turn may run rather than having a long turn cut.
+    drainDeadlineMs: MAX_TURN_SECONDS_CEILING * 1_000 + DRAIN_FINALIZE_GRACE_MS,
     // The workspace quota helper runs from the newest image, listed or not.
-    // The worker limits here start only a launch reserved before they were
-    // pinned; every other one starts with its own.
+    // Every worker starts with the limits its launch carries: its pinned
+    // ones, else the console's at the pass that builds it.
     execution: executionFromEnv(
       { ...environment, WORKER_IMAGE: images.image },
-      { workerLimits, logLevel },
+      { logLevel },
     ),
     ...images,
     limits,
@@ -122,7 +120,6 @@ export function schedulerConfigFromEnv(
         min: 1,
         default: 512,
       }),
-      workerLimits,
     },
     slotLimit: limits.executionSlotLimit,
     // Zero is a real setting: a stopped session's workspace goes on the
@@ -196,10 +193,7 @@ function configuredImages(
 
 function executionFromEnv(
   environment: SchedulerEnvironment,
-  worker: {
-    workerLimits: { maxTurnSeconds: number; providerMaxRetries: number };
-    logLevel: LogLevel;
-  },
+  worker: { logLevel: LogLevel },
 ): SchedulerExecution {
   const backend = environment.EXECUTION_BACKEND || "local_docker";
   switch (backend) {

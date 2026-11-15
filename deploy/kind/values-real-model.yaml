@@ -5,7 +5,7 @@ config:
   aws:
     secretsManagerEndpointUrl: http://secrets:4566
   limits:
-    # The migrate Job carries it into the fresh cluster's console.
+    # The migrate Job carries them into the fresh cluster's console.
     SESSION_COST_LIMIT_USD: 1
     MAX_TURN_SECONDS: 600
   egress:

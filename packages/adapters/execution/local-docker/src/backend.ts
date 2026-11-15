@@ -194,14 +194,16 @@ const WORKER_LIMITS_PINNED = "worker-limits:pinned";
 
 /**
  * The stamp a host from before the worker limits were pinned gave the
- * containers it built, with that host's limits in it. Such a container runs
- * what this host would start a worker with, so it is as current as one built
- * here; with other limits it is stale, as it was there.
+ * containers it built, with that host's limits in it: `limits` are the ones
+ * the container's worker was started with, from its env. A match says its
+ * boundary is this host's, as current as one built here; whether its limits
+ * still are is the scheduler's to judge, as for any launch.
  */
 export function legacyIsolationStampFor(
   config: LocalDockerBackendConfig,
+  limits: WorkerLimits | null,
 ): string {
-  return stampOf(config, config.workerLimits ?? null);
+  return stampOf(config, limits);
 }
 
 function stampOf(config: LocalDockerBackendConfig, limits: unknown): string {
@@ -2333,7 +2335,8 @@ function contractVerdictOf(
   if (!Number.isInteger(version) || version < 1) return "stale";
   if (version > ISOLATION_CONTRACT) return "newer";
   return stamp === isolationStampFor(config) ||
-    stamp === legacyIsolationStampFor(config)
+    stamp ===
+      legacyIsolationStampFor(config, workerLimitsOfContainer(container))
     ? "current"
     : "stale";
 }

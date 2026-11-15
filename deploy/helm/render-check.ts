@@ -1249,6 +1249,8 @@ for (const declaration of [undefined, false, true]) {
     SESSION_TOKEN_LIMIT: "0",
     SESSION_COST_LIMIT_USD: "9",
     WORKSPACE_ENFORCE: "fail",
+    MAX_TURN_SECONDS: "3600",
+    PROVIDER_MAX_RETRIES: "2",
   };
   for (const [name, value] of Object.entries(want)) {
     if (carried.get(name) !== value) {
@@ -1264,9 +1266,45 @@ for (const declaration of [undefined, false, true]) {
       }
     }
   }
-  for (const name of ["SESSION_COST_LIMIT_USD", "WORKSPACE_ENFORCE"]) {
+  for (const name of [
+    "SESSION_COST_LIMIT_USD",
+    "WORKSPACE_ENFORCE",
+    "MAX_TURN_SECONDS",
+    "PROVIDER_MAX_RETRIES",
+  ]) {
     if (envOf("api").has(name)) {
       errors.push(`carried settings: api still gets ${name}`);
+    }
+  }
+}
+// The worker limits are carried as the scheduler read them, which started
+// the workers: its extraEnv over config.limits; the api's extraEnv never
+// reached a worker.
+{
+  const manifests = render([
+    "-f",
+    ciDigests,
+    "--set-json",
+    'scheduler.extraEnv={"MAX_TURN_SECONDS":600}',
+    "--set-json",
+    'api.extraEnv={"MAX_TURN_SECONDS":900,"PROVIDER_MAX_RETRIES":5}',
+    "--set-json",
+    'config.limits={"EXECUTION_SLOT_LIMIT":10,"MAX_TURN_SECONDS":3600,"PROVIDER_MAX_RETRIES":1}',
+  ]);
+  const migrate = manifests.find(
+    (x) => componentOf(x) === "migrate" && podSpecOf(x) !== undefined,
+  );
+  const env: { name: string; value?: string }[] =
+    migrate === undefined ? [] : podSpecOf(migrate).containers[0].env;
+  const carried = new Map(env.map((e) => [e.name, e.value]));
+  for (const [name, value] of Object.entries({
+    MAX_TURN_SECONDS: "600",
+    PROVIDER_MAX_RETRIES: "1",
+  })) {
+    if (carried.get(name) !== value) {
+      errors.push(
+        `carried worker limits: migrate ${name} is ${carried.get(name)}, not ${value}`,
+      );
     }
   }
 }

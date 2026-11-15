@@ -5,6 +5,7 @@ import {
   countsAsLaunchFailure,
   failedEnsureObservation,
   fieldsOf,
+  heldForLimits,
   isLaunched,
   messageOf,
   type PassContext,
@@ -14,6 +15,7 @@ import {
 } from "./pass-context.ts";
 import type {
   EnsureExecutionResult,
+  ExecutionObservation,
   ExecutionRef,
 } from "./ports/execution-backend.ts";
 import type {
@@ -90,6 +92,10 @@ export async function reensure(
       reason,
       session_id: execution.sessionId,
     });
+    return;
+  }
+  if (heldForLimits(ctx, stored)) {
+    reportHeldForLimits(ctx, execution, reason);
     return;
   }
   if (!execution.launchRetryDue) {
@@ -194,21 +200,39 @@ export async function giveBackCause(
 export type GiveBackCause = "retracted" | "engine_dropped" | "limits_changed";
 
 /**
- * The launch was reserved with worker limits other than the ones a launch
- * reserved now takes. One reserved before they were pinned starts with the
- * current ones, so it never differs.
+ * The launch runs worker limits other than the ones a launch reserved now
+ * takes: its pinned ones, else those its resource was started with. One with
+ * neither is built with the current ones, so it never differs; nor does
+ * anything while this pass could not read them.
  */
 export function limitsChanged(
   ctx: PassContext,
   execution: ActiveExecution,
+  observed?: ExecutionObservation,
 ): boolean {
-  const pinned = execution.resources?.workerLimits;
-  const current = ctx.options.resources.workerLimits;
+  const own = execution.resources?.workerLimits ?? observed?.workerLimits;
+  const current = ctx.workerLimits;
   return (
-    pinned !== undefined &&
-    current !== undefined &&
-    (pinned.maxTurnSeconds !== current.maxTurnSeconds ||
-      pinned.providerMaxRetries !== current.providerMaxRetries)
+    own != null &&
+    current !== null &&
+    (own.maxTurnSeconds !== current.maxTurnSeconds ||
+      own.providerMaxRetries !== current.providerMaxRetries)
+  );
+}
+
+/** A build that waits for a pass that can read the worker limits. */
+export function reportHeldForLimits(
+  ctx: PassContext,
+  execution: ActiveExecution,
+  reason: "missing" | ReplaceReason,
+): void {
+  ctx.logger.warn(
+    "Launch held: the worker limits it would start with cannot be read",
+    {
+      ...fieldsOf(refOf(execution)),
+      reason,
+      session_id: execution.sessionId,
+    },
   );
 }
 
@@ -681,7 +705,11 @@ export async function fillSlots(ctx: PassContext): Promise<void> {
       ...(chosen.runtime === undefined ? {} : { imageRuntime: chosen.runtime }),
       ...(retractedImages === undefined ? {} : { retractedImages }),
       now: now(),
-      resources: options.resources,
+      // Pinned to this pass's limits; the pass reserves nothing without them.
+      resources:
+        ctx.workerLimits === null
+          ? options.resources
+          : { ...options.resources, workerLimits: ctx.workerLimits },
       sessionId,
       slotLimit: options.slotLimit,
     });

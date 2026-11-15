@@ -14,8 +14,6 @@ const base = {
   EXECUTION_SLOT_LIMIT: "10",
   EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
   EXECUTION_INSTALLATION_ID: "dev-a",
-  MAX_TURN_SECONDS: "3600",
-  PROVIDER_MAX_RETRIES: "2",
   S3_BUCKET: "claude-sessions",
   WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
   WORKER_IMAGE: "werft-worker:dev",
@@ -88,22 +86,11 @@ describe("schedulerConfigFromEnv", () => {
       },
       slotLimit: 10,
     });
-    expect(config.limits).toEqual({
-      executionSlotLimit: 10,
-      maxTurnSeconds: 3600,
-      providerMaxRetries: 2,
-    });
-    // Pinned to each launch at reservation; the backend's copy starts only
-    // a launch reserved before that.
-    expect(config.resources.workerLimits).toEqual({
-      maxTurnSeconds: 3600,
-      providerMaxRetries: 2,
-    });
+    // The turn time and the retries are the console's now; the env values
+    // are only carried in by migrate.
+    expect(config.limits).toEqual({ executionSlotLimit: 10 });
+    expect(config.resources.workerLimits).toBeUndefined();
     const docker = dockerOf(config);
-    expect(docker.workerLimits).toEqual({
-      maxTurnSeconds: 3600,
-      providerMaxRetries: 2,
-    });
     expect(docker.gatewayUrl).toBe(base.WORKER_GATEWAY_URL);
     expect(docker.egressProxyUrl).toBe(base.EXECUTION_EGRESS_PROXY_URL);
   });
@@ -247,15 +234,17 @@ describe("schedulerConfigFromEnv", () => {
     expect(() =>
       schedulerConfigFromEnv({ ...base, EXECUTION_SLOT_LIMIT: "-1" }),
     ).toThrow("EXECUTION_SLOT_LIMIT");
-    for (const name of [
-      "EXECUTION_SLOT_LIMIT",
-      "MAX_TURN_SECONDS",
-      "PROVIDER_MAX_RETRIES",
-    ]) {
-      expect(() =>
-        schedulerConfigFromEnv({ ...base, [name]: undefined }),
-      ).toThrow(`${name} is required`);
-    }
+    expect(() =>
+      schedulerConfigFromEnv({ ...base, EXECUTION_SLOT_LIMIT: undefined }),
+    ).toThrow("EXECUTION_SLOT_LIMIT is required");
+    // Migrate's to carry in; a value no rule accepts stops no scheduler.
+    expect(() =>
+      schedulerConfigFromEnv({
+        ...base,
+        MAX_TURN_SECONDS: "0",
+        PROVIDER_MAX_RETRIES: "11",
+      }),
+    ).not.toThrow();
     expect(() =>
       schedulerConfigFromEnv({ ...base, WORKER_CPUS: "0.001" }),
     ).toThrow("at least 0.01");
@@ -298,8 +287,8 @@ describe("schedulerConfigFromEnv", () => {
       installationId: "dev-a",
       logLevel: "warn",
       namespace: "werft",
-      workerLimits: { maxTurnSeconds: 3600, providerMaxRetries: 2 },
     });
+    expect(config.execution.kubernetes.workerLimits).toBeUndefined();
   });
 
   test("an EXECUTION_BACKEND it does not know stops the scheduler, naming the value", () => {

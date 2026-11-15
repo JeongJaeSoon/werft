@@ -4,4 +4,6 @@ export {
   InstallationConfigUnavailableError,
   MAX_PROVIDER_RETRIES,
   MAX_TURN_SECONDS_CEILING,
+  readSetting,
+  type Setting,
 } from "./installation-limits.ts";

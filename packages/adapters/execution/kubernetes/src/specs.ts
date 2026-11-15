@@ -112,14 +112,16 @@ export function isolationStampFor(
 
 /**
  * The stamp a host from before the worker limits were pinned gave its Pods,
- * with that host's limits in it. Such a Pod runs what this host would start
- * a worker with, so it is as current as one built here.
+ * with that host's limits in it: `limits` are the ones the Pod's worker was
+ * started with, from its env. A match says its boundary is this host's;
+ * whether its limits still are is the scheduler's to judge.
  */
 export function legacyIsolationStampFor(
   config: KubernetesBackendConfig,
   proxyAddress: string,
+  limits: WorkerLimits | null,
 ): string {
-  return stampOf(config, proxyAddress, config.workerLimits ?? null);
+  return stampOf(config, proxyAddress, limits);
 }
 
 function stampOf(

@@ -133,12 +133,13 @@ async function reconcile(
     await replace(ctx, execution, "stale_isolation", observed);
     return;
   }
-  if (up && limitsChanged(ctx, execution)) {
-    // Its worker runs the turn time and retries it was reserved with, and
-    // the host has moved on from them. A claimed one finishes its turn
+  if (up && limitsChanged(ctx, execution, observed)) {
+    // Its worker runs the turn time and retries it was started with, and
+    // the owner has moved on from them. A claimed one finishes its turn
     // under them first; an unclaimed one is given back, not rebuilt — a
     // rebuild would start the worker on the same pinned limits — so its
-    // session's next launch takes the current ones.
+    // session's next launch takes the current ones. One reserved before
+    // they were pinned is rebuilt, and starts with the current ones.
     logger.warn("Execution resource runs other worker limits", {
       ...fieldsOf(ref),
       claimed: execution.claimed,

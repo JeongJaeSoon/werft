@@ -42,7 +42,14 @@ type Patch = { [K in InstallationConfigKey]?: InstallationConfig[K]["value"] };
 export type NumberLimit = {
   readonly key: NumberKey;
   /** Its messages, under `limits.<name>.`. */
-  readonly name: "wait" | "cost" | "tokens" | "queue" | "storage";
+  readonly name:
+    | "wait"
+    | "turn"
+    | "retries"
+    | "cost"
+    | "tokens"
+    | "queue"
+    | "storage";
   /** What migrate carried the value in from. */
   readonly env: string;
   readonly min: number;
@@ -62,6 +69,24 @@ export const NUMBER_LIMITS: readonly NumberLimit[] = [
     min: 1,
     aboveMin: false,
     max: 604_800,
+    whole: true,
+  },
+  {
+    key: "max_turn_seconds",
+    name: "turn",
+    env: "MAX_TURN_SECONDS",
+    min: 1,
+    aboveMin: false,
+    max: 604_800,
+    whole: true,
+  },
+  {
+    key: "provider_max_retries",
+    name: "retries",
+    env: "PROVIDER_MAX_RETRIES",
+    min: 0,
+    aboveMin: false,
+    max: 10,
     whole: true,
   },
   {

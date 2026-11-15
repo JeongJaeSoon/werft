@@ -22,6 +22,7 @@ import {
   type InputLimits,
   type InstallationLimits,
   type SessionLimits,
+  type WorkerLimits,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
 import {
@@ -38,7 +39,7 @@ import { registerUsageRoutes } from "./routes/usage/usage.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-const limits: InstallationLimits & SessionLimits = {
+const limits: InstallationLimits & SessionLimits & WorkerLimits = {
   executionSlotLimit: 10,
   queuedInputLimitPerSession: 20,
   storageLimitBytes: 1_073_741_824,

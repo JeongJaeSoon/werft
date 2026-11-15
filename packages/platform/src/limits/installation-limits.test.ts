@@ -6,23 +6,13 @@ import {
   installationLimitsFromEnv,
 } from "./installation-limits.ts";
 
-const complete = {
-  EXECUTION_SLOT_LIMIT: "10",
-  MAX_TURN_SECONDS: "3600",
-  PROVIDER_MAX_RETRIES: "2",
-};
+const complete = { EXECUTION_SLOT_LIMIT: "10" };
 
 describe("installationLimitsFromEnv", () => {
   test("reads every limit", () => {
     expect(installationLimitsFromEnv(complete)).toEqual({
       executionSlotLimit: 10,
-      maxTurnSeconds: 3600,
-      providerMaxRetries: 2,
     });
-    expect(
-      installationLimitsFromEnv({ ...complete, PROVIDER_MAX_RETRIES: "0" })
-        .providerMaxRetries,
-    ).toBe(0);
   });
 
   test("no longer reads the limits the console keeps", () => {
@@ -33,6 +23,8 @@ describe("installationLimitsFromEnv", () => {
         STORAGE_LIMIT_BYTES: "0",
         SESSION_COST_LIMIT_USD: "abc",
         SESSION_TOKEN_LIMIT: "-1",
+        MAX_TURN_SECONDS: "0",
+        PROVIDER_MAX_RETRIES: "11",
       }),
     ).toEqual([]);
   });
@@ -47,16 +39,12 @@ describe("installationLimitsFromEnv", () => {
     expect(thrown).toBeInstanceOf(InstallationConfigError);
     expect((thrown as InstallationConfigError).problems).toEqual([
       "EXECUTION_SLOT_LIMIT is required",
-      "MAX_TURN_SECONDS is required",
-      "PROVIDER_MAX_RETRIES is required",
     ]);
   });
 
   test("rejects values outside each limit's range", () => {
     const rejected: Record<string, string[]> = {
       EXECUTION_SLOT_LIMIT: ["-1", "1.5", "10001", "ten"],
-      MAX_TURN_SECONDS: ["0", "604801"],
-      PROVIDER_MAX_RETRIES: ["-1", "1.5", "11", ""],
     };
     for (const [name, values] of Object.entries(rejected)) {
       for (const value of values) {

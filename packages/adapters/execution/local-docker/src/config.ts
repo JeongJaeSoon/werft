@@ -110,10 +110,10 @@ export type LocalDockerBackendConfig = {
   volumeNamePrefix: string;
   /**
    * Installation limits the worker enforces itself, handed to it as
-   * `WORKER_MAX_TURN_SEC` and `WORKER_PROVIDER_MAX_RETRIES`. The scheduler
-   * always sets them; a worker launched without the retries refuses to
-   * start, since that limit has no code default. Only backends
-   * running a stand-in image leave this out.
+   * `WORKER_MAX_TURN_SEC` and `WORKER_PROVIDER_MAX_RETRIES`, for a launch
+   * whose intent carries none. The scheduler pins them to every launch and
+   * leaves this out; a worker launched without the retries refuses to
+   * start, since that limit has no code default.
    */
   workerLimits?: { maxTurnSeconds: number; providerMaxRetries: number };
   /**

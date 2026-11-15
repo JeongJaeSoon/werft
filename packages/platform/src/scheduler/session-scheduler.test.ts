@@ -939,6 +939,7 @@ function harness(
     stop?: AbortSignal;
     stopDeadlineMs?: number;
     stoppedWorkspaceTtlMs?: number;
+    workerLimits?: () => Promise<WorkerLimits>;
     workspaceGc?: boolean;
   } = {},
 ) {
@@ -951,6 +952,9 @@ function harness(
       image: "worker:test",
       logger,
       resources: options.resources ?? RESOURCES,
+      ...(options.workerLimits === undefined
+        ? {}
+        : { workerLimits: options.workerLimits }),
       slotLimit,
       ...(options.stoppedWorkspaceTtlMs === undefined
         ? {}
@@ -2121,6 +2125,129 @@ describe("runScheduler", () => {
       expect((await run()).draining).toEqual([ref]);
       store.elapse(60_000 + DRAIN_FINALIZE_GRACE_MS);
       expect((await run()).drainsOverdue).toEqual([ref]);
+    });
+
+    describe("read from the console each pass", () => {
+      const unreadable = async (): Promise<WorkerLimits> => {
+        throw new InstallationConfigUnavailableError("max_turn_seconds");
+      };
+
+      test("each pass reads them once, and pins a launch it reserves to that pass's value", async () => {
+        let console = limitsOf(600);
+        let reads = 0;
+        const { backend, run, store } = harness(10, {
+          workerLimits: async () => {
+            reads += 1;
+            return console;
+          },
+        });
+        const [first] = store.addUnassigned(1);
+        await run();
+        expect(reads).toBe(1);
+        console = limitsOf(1200);
+        const [second] = store.addUnassigned(1);
+        await run();
+        expect(reads).toBe(2);
+        const pinned = (sessionId: string | undefined) =>
+          [...store.executions.values()].find((e) => e.sessionId === sessionId)
+            ?.resources?.workerLimits;
+        expect(pinned(first)).toEqual(limitsOf(600));
+        expect(pinned(second)).toEqual(limitsOf(1200));
+        const built = (sessionId: string | undefined) =>
+          backend.ensureCalls.find((c) => c.sessionId === sessionId)?.resources
+            .workerLimits;
+        expect(built(first)).toEqual(limitsOf(600));
+        expect(built(second)).toEqual(limitsOf(1200));
+      });
+
+      test("limits that cannot be read reserve nothing and replace no running launch", async () => {
+        const { backend, records, run, store } = harness(10, {
+          workerLimits: unreadable,
+        });
+        const { sessionId } = running(store, backend, {
+          claimed: true,
+          resources: pinnedAt(60),
+        });
+        store.busySessions.add(sessionId);
+        store.addUnassigned(1);
+
+        const summary = await run();
+        expect(summary.launched).toEqual([]);
+        expect(summary.draining).toEqual([]);
+        expect(backend.ensureCalls).toEqual([]);
+        expect(backend.terminateCalls).toEqual([]);
+        expect(store.executions.size).toBe(1);
+        expect(
+          records.filter((r) => r.message.startsWith("Launches skipped")),
+        ).toEqual([
+          {
+            level: "warn",
+            message: "Launches skipped: the worker limits cannot be read",
+            fields: { setting: "max_turn_seconds" },
+          },
+        ]);
+      });
+
+      test("a launch from before the pin is kept up, not rebuilt, while its limits cannot be read; a pinned one is rebuilt on its own", async () => {
+        for (const [resources, rebuilt] of [
+          [null, false],
+          [pinnedAt(600), true],
+        ] as const) {
+          const { backend, records, run, store } = harness(10, {
+            workerLimits: unreadable,
+          });
+          const { ref, sessionId } = running(store, backend, {
+            claimed: false,
+            resources,
+          });
+          store.unassigned.add(sessionId);
+          backend.staleFor.add("exec-1#1");
+
+          await run();
+          const held = records.filter((r) =>
+            r.message.startsWith("Launch held"),
+          );
+          if (rebuilt) {
+            expect(held).toEqual([]);
+            expect(backend.terminateCalls).toEqual([ref]);
+            const [build] = backend.ensureCalls.filter(
+              (c) => c.executionId === "exec-1",
+            );
+            expect(build?.resources.workerLimits).toEqual(limitsOf(600));
+          } else {
+            expect(held).toMatchObject([
+              {
+                level: "warn",
+                message:
+                  "Launch held: the worker limits it would start with cannot be read",
+                fields: { session_id: sessionId },
+              },
+            ]);
+            // Judged before the teardown: the resource it has stays up.
+            expect(backend.terminateCalls).toEqual([]);
+            expect(backend.ensureCalls).toEqual([]);
+          }
+        }
+      });
+
+      test("a worker from before the pin whose env names other limits drains under them", async () => {
+        const { backend, run, store } = harness(10, {
+          drainDeadlineMs: 60 * 60_000,
+          workerLimits: async () => limitsOf(600),
+        });
+        const { ref, sessionId } = running(
+          store,
+          backend,
+          { claimed: true, resources: null },
+          limitsOf(60),
+        );
+        store.busySessions.add(sessionId);
+        expect((await run()).draining).toEqual([ref]);
+        store.elapse(60_000 + DRAIN_FINALIZE_GRACE_MS);
+        const overdue = await run();
+        expect(overdue.drainsOverdue).toEqual([ref]);
+        expect(overdue.replaced).toEqual([ref]);
+      });
     });
   });
 

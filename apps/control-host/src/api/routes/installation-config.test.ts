@@ -40,6 +40,8 @@ const CONFIG: InstallationConfig = {
   },
   session_token_limit: unsaved(0),
   workspace_enforce: unsaved("warn" as const),
+  max_turn_seconds: unsaved(3600),
+  provider_max_retries: unsaved(2),
 };
 
 function request(

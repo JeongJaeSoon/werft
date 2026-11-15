@@ -1,4 +1,8 @@
-import { STORAGE_ACCOUNTED_CONTENT_VALUES } from "@werft-ai/contracts";
+import {
+  MAX_TURN_SECONDS_MAX,
+  PROVIDER_MAX_RETRIES_MAX,
+  STORAGE_ACCOUNTED_CONTENT_VALUES,
+} from "@werft-ai/contracts";
 import { integerSetting, settingProblems } from "@werft-ai/contracts/settings";
 
 /**
@@ -11,10 +15,6 @@ import { integerSetting, settingProblems } from "@werft-ai/contracts/settings";
 export type InstallationLimits = {
   /** Worker containers that may hold a slot at once. */
   executionSlotLimit: number;
-  /** Wall-clock budget of one turn, handed to the worker. */
-  maxTurnSeconds: number;
-  /** Retries of a failed Messages request before the turn fails. */
-  providerMaxRetries: number;
 };
 
 /**
@@ -69,8 +69,6 @@ export class InstallationConfigUnavailableError extends Error {
 
 export type InstallationLimitsEnvironment = {
   EXECUTION_SLOT_LIMIT?: string | undefined;
-  MAX_TURN_SECONDS?: string | undefined;
-  PROVIDER_MAX_RETRIES?: string | undefined;
   [name: string]: string | undefined;
 };
 
@@ -82,10 +80,9 @@ export type InstallationLimitsEnvironment = {
  */
 export const STORAGE_ACCOUNTED_CONTENT = STORAGE_ACCOUNTED_CONTENT_VALUES;
 
-/** Past this the engine clamps it anyway, and each retry backs off longer. */
-export const MAX_PROVIDER_RETRIES = 10;
-/** setTimeout overflows past 2^31-1 ms; a week is far inside that. */
-export const MAX_TURN_SECONDS_CEILING = 7 * 24 * 60 * 60;
+/** The widest worker limits the console takes. */
+export const MAX_PROVIDER_RETRIES = PROVIDER_MAX_RETRIES_MAX;
+export const MAX_TURN_SECONDS_CEILING = MAX_TURN_SECONDS_MAX;
 
 export class InstallationConfigError extends Error {
   constructor(readonly problems: readonly string[]) {
@@ -119,19 +116,6 @@ function parseAll(environment: InstallationLimitsEnvironment): {
       integerSetting(environment, "EXECUTION_SLOT_LIMIT", {
         min: 0,
         max: 10_000,
-      }),
-    ),
-    maxTurnSeconds: read(() =>
-      integerSetting(environment, "MAX_TURN_SECONDS", {
-        min: 1,
-        max: MAX_TURN_SECONDS_CEILING,
-      }),
-    ),
-    // Zero is a real setting: the first failed request fails the turn.
-    providerMaxRetries: read(() =>
-      integerSetting(environment, "PROVIDER_MAX_RETRIES", {
-        min: 0,
-        max: MAX_PROVIDER_RETRIES,
       }),
     ),
   };

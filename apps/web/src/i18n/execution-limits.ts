@@ -24,6 +24,30 @@ export const executionLimitsKo = {
     "저장하면 바로 다음 요청부터 적용됩니다. 이미 기다리는 요청은 처음 받은 시간을 그대로 씁니다.",
   "limits.wait.invalid": "1부터 {max}까지의 정수(초)를 적으세요.",
   "limits.wait.saved": "응답 대기 시간을 저장했습니다.",
+  "limits.turn.title": "턴 시간",
+  "limits.turn.hint":
+    "턴 하나가 승인 대기를 포함해 돌 수 있는 시간입니다. 넘으면 그 턴을 멈춥니다.",
+  "limits.turn.label": "턴 시간 상한 (초)",
+  "limits.turn.unit": "초",
+  "limits.turn.value": "{value}초",
+  "limits.turn.refused":
+    "새 worker를 띄우지 않습니다. 이미 값을 받은 worker는 그 값으로 계속 돕니다.",
+  "limits.turn.applies":
+    "저장하면 그 뒤에 띄우는 worker부터 적용됩니다. 쉬고 있는 worker는 바로 내리고, 턴을 돌고 있는 worker는 그 턴을 받을 때의 값으로 마친 뒤 내립니다. 세션은 다음에 worker를 받을 때 새 값을 씁니다.",
+  "limits.turn.invalid": "1부터 {max}까지의 정수(초)를 적으세요.",
+  "limits.turn.saved": "턴 시간 상한을 저장했습니다.",
+  "limits.retries.title": "모델 요청 재시도",
+  "limits.retries.hint":
+    "모델 공급자 요청이 실패했을 때 턴을 실패로 끝내기 전에 다시 보내는 횟수입니다. 0이면 다시 보내지 않습니다.",
+  "limits.retries.label": "재시도 횟수",
+  "limits.retries.unit": "회",
+  "limits.retries.value": "{value}회",
+  "limits.retries.refused":
+    "새 worker를 띄우지 않습니다. 이미 값을 받은 worker는 그 값으로 계속 돕니다.",
+  "limits.retries.applies":
+    "저장하면 그 뒤에 띄우는 worker부터 적용됩니다. 쉬고 있는 worker는 바로 내리고, 턴을 돌고 있는 worker는 그 턴을 받을 때의 값으로 마친 뒤 내립니다. 세션은 다음에 worker를 받을 때 새 값을 씁니다.",
+  "limits.retries.invalid": "0부터 {max}까지의 정수를 적으세요.",
+  "limits.retries.saved": "재시도 횟수를 저장했습니다.",
   "limits.cost.title": "세션 비용",
   "limits.cost.hint":
     "세션 하나가 쓸 수 있는 모델 비용입니다. 닿으면 그 세션에 더 맡기지 않고, 대기 중인 메시지와 다시 시작도 돌지 않습니다.",
@@ -111,6 +135,30 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
       "A save applies from the next request on. A request already waiting keeps the wait it was given.",
     "limits.wait.invalid": "Enter a whole number of seconds from 1 to {max}.",
     "limits.wait.saved": "Saved the wait for an answer.",
+    "limits.turn.title": "Turn time",
+    "limits.turn.hint":
+      "How long one turn may run, approvals included. Past it, the turn is stopped.",
+    "limits.turn.label": "Turn time limit (seconds)",
+    "limits.turn.unit": "seconds",
+    "limits.turn.value": "{value} seconds",
+    "limits.turn.refused":
+      "no new worker starts; a worker already given a value keeps running on it.",
+    "limits.turn.applies":
+      "A save applies to workers started after it. An idle worker is stopped at once; one in a turn finishes that turn under the value it took it with, then stops. The session takes the new value with its next worker.",
+    "limits.turn.invalid": "Enter a whole number of seconds from 1 to {max}.",
+    "limits.turn.saved": "Saved the turn time limit.",
+    "limits.retries.title": "Model request retries",
+    "limits.retries.hint":
+      "How many times a failed model provider request is sent again before the turn fails. With 0 it is not sent again.",
+    "limits.retries.label": "Retries",
+    "limits.retries.unit": "retries",
+    "limits.retries.value": "{value} retries",
+    "limits.retries.refused":
+      "no new worker starts; a worker already given a value keeps running on it.",
+    "limits.retries.applies":
+      "A save applies to workers started after it. An idle worker is stopped at once; one in a turn finishes that turn under the value it took it with, then stops. The session takes the new value with its next worker.",
+    "limits.retries.invalid": "Enter a whole number from 0 to {max}.",
+    "limits.retries.saved": "Saved the retries.",
     "limits.cost.title": "Session cost",
     "limits.cost.hint":
       "The model cost one session may spend. Once it is reached, the session is given nothing further, and its queued messages and resumes do not run.",
@@ -198,6 +246,30 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
       "保存すると次のリクエストから適用されます。すでに待っているリクエストは最初に受けた時間のままです。",
     "limits.wait.invalid": "1 から {max} までの整数 (秒) を入力してください。",
     "limits.wait.saved": "応答の待ち時間を保存しました。",
+    "limits.turn.title": "ターンの時間",
+    "limits.turn.hint":
+      "1 つのターンが承認待ちを含めて動ける時間です。超えるとそのターンを止めます。",
+    "limits.turn.label": "ターンの時間上限 (秒)",
+    "limits.turn.unit": "秒",
+    "limits.turn.value": "{value} 秒",
+    "limits.turn.refused":
+      "新しい worker を起動しません。すでに値を受けた worker はその値で動き続けます。",
+    "limits.turn.applies":
+      "保存すると、そのあとに起動する worker から適用されます。待機中の worker はすぐに止め、ターン中の worker はそのターンを受けたときの値で終えてから止めます。セッションは次に worker を受けるときに新しい値を使います。",
+    "limits.turn.invalid": "1 から {max} までの整数 (秒) を入力してください。",
+    "limits.turn.saved": "ターンの時間上限を保存しました。",
+    "limits.retries.title": "モデル呼び出しの再試行",
+    "limits.retries.hint":
+      "モデルプロバイダーへのリクエストが失敗したとき、ターンを失敗にする前に送り直す回数です。0 なら送り直しません。",
+    "limits.retries.label": "再試行の回数",
+    "limits.retries.unit": "回",
+    "limits.retries.value": "{value} 回",
+    "limits.retries.refused":
+      "新しい worker を起動しません。すでに値を受けた worker はその値で動き続けます。",
+    "limits.retries.applies":
+      "保存すると、そのあとに起動する worker から適用されます。待機中の worker はすぐに止め、ターン中の worker はそのターンを受けたときの値で終えてから止めます。セッションは次に worker を受けるときに新しい値を使います。",
+    "limits.retries.invalid": "0 から {max} までの整数を入力してください。",
+    "limits.retries.saved": "再試行の回数を保存しました。",
     "limits.cost.title": "セッションの費用",
     "limits.cost.hint":
       "1 つのセッションが使えるモデルの費用です。達するとそのセッションにはそれ以上任せず、待機中のメッセージと再開も動きません。",

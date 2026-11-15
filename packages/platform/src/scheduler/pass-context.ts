@@ -10,6 +10,7 @@ import type {
   ExecutionRef,
   LaunchIntent,
   TerminateOptions,
+  WorkerLimits,
 } from "./ports/execution-backend.ts";
 import {
   LaunchOutcomeUnknownError,
@@ -37,7 +38,25 @@ export type PassContext = {
   stopDeadlineMs: number;
   store: SchedulerStore;
   summary: SchedulerRunSummary;
+  /**
+   * The worker limits a launch reserved this pass is pinned to, read once
+   * at its start; null when none are set or the read failed.
+   */
+  workerLimits: WorkerLimits | null;
+  /** The read failed: nothing without limits of its own is built. */
+  workerLimitsUnread: boolean;
 };
+
+/**
+ * Building this launch waits for a pass that can read the worker limits: it
+ * has none of its own, and a default nobody chose is never started.
+ */
+export function heldForLimits(
+  ctx: Pick<PassContext, "workerLimitsUnread">,
+  stored: Pick<StoredLaunchIntent, "resources">,
+): boolean {
+  return ctx.workerLimitsUnread && stored.resources?.workerLimits === undefined;
+}
 
 /** Only these states mean the launch took; anything else is a failure. */
 export function isLaunched(state: ExecutionObservation["state"]): boolean {

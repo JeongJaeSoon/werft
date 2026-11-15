@@ -130,13 +130,13 @@ config:
     ingestPort: 4319
   # Read by the api and the scheduler with one parser. The session limits
   # (QUEUED_INPUT_LIMIT_PER_SESSION, STORAGE_LIMIT_BYTES,
-  # SESSION_COST_LIMIT_USD, SESSION_TOKEN_LIMIT) are the owner's, in Settings
-  # > Workspace > Execution limits: one still set here goes to the migrate
-  # Job only, which carries it in while that limit has nothing saved.
+  # SESSION_COST_LIMIT_USD, SESSION_TOKEN_LIMIT), the turn time
+  # (MAX_TURN_SECONDS) and the provider retries (PROVIDER_MAX_RETRIES) are
+  # the owner's, in Settings > Workspace > Execution limits: one still set
+  # here goes to the migrate Job only, which carries it in while that limit
+  # has nothing saved.
   limits:
     EXECUTION_SLOT_LIMIT: 10
-    MAX_TURN_SECONDS: 3600
-    PROVIDER_MAX_RETRIES: 2
   aws:
     region: ap-northeast-1
     # An S3-compatible endpoint (LocalStack, MinIO); empty is AWS.

@@ -115,8 +115,6 @@ const BOT_CREDENTIAL = `bot-${randomBytes(12).toString("hex")}`;
 const MANAGERS = ["owner", "admin"] as const;
 const ENVIRONMENT = {
   EXECUTION_SLOT_LIMIT: "10",
-  MAX_TURN_SECONDS: "3600",
-  PROVIDER_MAX_RETRIES: "2",
   QUEUED_INPUT_LIMIT_PER_SESSION: "20",
   SESSION_COST_LIMIT_USD: "25",
   STORAGE_LIMIT_BYTES: "1073741824",

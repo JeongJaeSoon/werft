@@ -366,7 +366,7 @@ AWS_ENDPOINT_URL_SECRETS_MANAGER=http://127.0.0.1:4567 AWS_REGION=ap-northeast-1
 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test \
 PLATFORM_SECRET_KEY="$(openssl rand -hex 32)" \
 AUTH_MODE=none PORT=3000 CHECKPOINT_OBJECT_STORE=disabled \
-EXECUTION_SLOT_LIMIT=10 MAX_TURN_SECONDS=3600 PROVIDER_MAX_RETRIES=2 \
+EXECUTION_SLOT_LIMIT=10 \
   bun run --cwd apps/control-host start
 curl -H 'X-Owner-Id: local-owner' http://127.0.0.1:3000/v1
 ```
@@ -473,7 +473,7 @@ DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
 AUTH_MODE=api-key DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
 AWS_ENDPOINT_URL=http://127.0.0.1:4566 AWS_REGION=ap-northeast-1 \
 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test S3_BUCKET=claude-sessions \
-EXECUTION_SLOT_LIMIT=10 MAX_TURN_SECONDS=3600 PROVIDER_MAX_RETRIES=2 \
+EXECUTION_SLOT_LIMIT=10 \
   bun run --cwd apps/control-host start
 curl -H 'Authorization: Bearer <issued-key>' http://127.0.0.1:3000/v1
 ```
@@ -1161,7 +1161,7 @@ prefix가 `SLACK_`가 아니라 `SLACK_ROLE_`인 것은 다른 `SLACK_` 이름(�
 - 처리 전에 그 설치가 지금 `revoked`이면(이벤트가 기다리는 사이 앱이 해제됨) 처리하지 않고 `dropped`·`installation_revoked`로 끝내며 본문과 `conversation_key`를 지운다.
 - 처리기는 채널 메시지를 세션에 잇는다(아래 "Slack 스레드와 세션"). 처리기가 끝나면 `processed`, 던지면 위 backoff로 다시 시도한다. 로그는 `Slack event claimed`(id·event_id·종류·시도 횟수)와 pass 요약 `Slack inbox pass`다.
 - 기동할 때와 pass마다(`--once`로 손으로 돌린 pass도) api와 같은 DB 설정을 같은 규칙으로 읽는다. credential은 풀지 않는다. 세션 생성은 credential이 어디서 오는지(`value_env`·`secret_id`의 이름)와 연결 설정만 읽는다(`SessionCatalogView`). provider key와 Secrets Manager 접근은 api에만 있다.
-- 세션 한도는 api와 같은 설치 한도 변수(`EXECUTION_SLOT_LIMIT`·`MAX_TURN_SECONDS`·`PROVIDER_MAX_RETRIES`)로 잰다. compose는 api와 같은 값을, Helm은 `config.limits`를 이 역할에도 준다. 빠지면 pass마다 실패한다. 대기 메시지·입력 보관·세션 비용·세션 토큰은 api처럼 웹 콘솔의 실행 한도를 10초마다 다시 읽는다. 그 값을 읽지 못하면 세션을 만들거나 메시지를 넣는 처리기가 던지고, 위 backoff로 다시 시도한다.
+- 세션 한도는 api와 같은 설치 한도 변수(`EXECUTION_SLOT_LIMIT`)로 잰다. compose는 api와 같은 값을, Helm은 `config.limits`를 이 역할에도 준다. 빠지면 pass마다 실패한다. 대기 메시지·입력 보관·세션 비용·세션 토큰은 api처럼 웹 콘솔의 실행 한도를 10초마다 다시 읽는다. 그 값을 읽지 못하면 세션을 만들거나 메시지를 넣는 처리기가 던지고, 위 backoff로 다시 시도한다.
 - master key(`PLATFORM_SECRET_KEY`)는 api와 이 역할에만 간다(bot token으로 Slack에 보내는 일이 이 역할에 붙는다). 값이 없거나 64 hex가 아니면 기동하지 않는다. worker·scheduler·reconciler에는 없다(`tests/images.test.ts`, `deploy/helm/render-check.ts`가 검사한다).
 - 0160 이전에 쌓인 `received`·`processed` 행은 migration이 같은 규칙으로 `conversation_key`를 채운다.
 

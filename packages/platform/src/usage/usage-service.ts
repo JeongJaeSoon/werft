@@ -43,6 +43,7 @@ import type {
   UsageSummaryRecord,
   UsageTotalsFilter,
 } from "../ports/usage-reader.ts";
+import type { WorkerLimits } from "../scheduler/ports/execution-backend.ts";
 import { viewerOf } from "../sessions/index.ts";
 
 /**
@@ -125,8 +126,9 @@ export function toolFindings(
 export function createUsageService(deps: {
   authorization: AuthorizationPolicy;
   reader: UsageReader;
-  // Read per request, as the gates read them.
-  limits: Setting<InstallationLimits & SessionLimits>;
+  // Read per request, as the gates read them. The worker limits are what a
+  // launch reserved now takes; a running worker keeps its own.
+  limits: Setting<InstallationLimits & SessionLimits & WorkerLimits>;
 }) {
   const { authorization, reader } = deps;
   const limitsNow = () => readSetting(deps.limits);

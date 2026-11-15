@@ -50,11 +50,12 @@ export async function main(
       config.execution,
       environment,
     );
+    const installationConfig = installationConfigOf(db, logger);
     const latch = latchOnConnectionLoss(
       createPostgresSchedulerStore(db, {
         connectForLock: () => pool.connect(),
         logger,
-        ...spendLimitSettings(installationConfigOf(db, logger)),
+        ...spendLimitSettings(installationConfig),
       }),
       (error) => {
         logger.error("Database connection lost; failing the rest of the pass", {
@@ -88,6 +89,7 @@ export async function main(
           ?.checkpointEngine,
       logger,
       resources: config.resources,
+      workerLimits: installationConfig.workerLimits,
       slotLimit: config.slotLimit,
       stopDeadlineMs: stopDeadlineMsOf(config.execution),
       pausedWorkspaceTtlMs: config.pausedWorkspaceTtlMs,

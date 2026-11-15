@@ -3465,12 +3465,12 @@ describe("compose layers", () => {
             key: false,
           });
       }
-      // The cost limit is the console's: migrate carries it in, no role
-      // reads it.
+      // Both limits are the console's: migrate carries them in, no role
+      // reads them.
       for (const [name, cost, turn] of [
-        ["migrate", "3", undefined],
-        ["api", undefined, "600"],
-        ["scheduler", undefined, "600"],
+        ["migrate", "3", "600"],
+        ["api", undefined, undefined],
+        ["scheduler", undefined, undefined],
       ] as const)
         expect({
           name,
