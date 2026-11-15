@@ -129,6 +129,16 @@ beforeEach(() => {
 async function infoCard() {
   return screen.findByRole("complementary", { name: "세션 정보" });
 }
+/** The head's one line under the title: id, agent, channel, cost and tokens. */
+async function sessionMeta() {
+  return waitFor(() => {
+    const meta = document.querySelector<HTMLElement>(
+      "[data-slot='session-meta']",
+    );
+    if (!meta) throw new Error("no session meta line yet");
+    return meta;
+  });
+}
 const EVENTS_ROUTE = `GET /v1/sessions/${SESSION_ID}/events`;
 
 /** Opens the relation chip and picks one by its label. */
@@ -1320,9 +1330,9 @@ describe("session detail", () => {
     expect(
       await screen.findByText("한도에 도달해 새 턴을 시작하지 않습니다."),
     ).toBeTruthy();
-    const card = within(await infoCard());
-    expect(await card.findByText("<$0.01")).toBeTruthy();
-    expect(card.getByText("1,234")).toBeTruthy();
+    const meta = await sessionMeta();
+    await waitFor(() => expect(meta.textContent).toContain("<$0.01"));
+    expect(meta.textContent).toContain("토큰 1,234");
     expect(
       await screen.findByRole("article", { name: "권한 요청: Bash" }),
     ).toBeTruthy();
@@ -1645,7 +1655,7 @@ describe("session detail", () => {
     await waitFor(() => expect(history.location.pathname).toBe("/login"));
   });
 
-  describe("the agent in the info card", () => {
+  describe("the agent in the head's meta line", () => {
     const withAgent = (
       agentRoute: (request: Request) => Response | Promise<Response>,
     ) => ({
@@ -1663,7 +1673,7 @@ describe("session detail", () => {
         }),
       [`GET /v1/agents/${AGENT_ID}`]: agentRoute,
     });
-    const headerOf = infoCard;
+    const headerOf = sessionMeta;
 
     test("opens the agent's page, reachable from the keyboard", async () => {
       // The agents API's own answer, which the client checks against its schema.
@@ -1714,13 +1724,14 @@ describe("session detail", () => {
       refused(() => apiError(403, "FORBIDDEN", "may not read")));
   });
 
-  test("cost reads with two decimals in the info card", async () => {
+  test("cost reads with two decimals in the head's meta line", async () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
       [`GET /v1/sessions/${SESSION_ID}/usage`]: () =>
         json(200, { ...usage, cost: { ...usage.cost, amount_usd: "1.5" } }),
     });
-    expect(await within(await infoCard()).findByText("$1.50")).toBeTruthy();
+    const meta = await sessionMeta();
+    await waitFor(() => expect(meta.textContent).toContain("$1.50"));
   });
 
   test("a turn that ended without a cost report is not called running", async () => {
@@ -2578,8 +2589,12 @@ describe("세션 상세 레이아웃", () => {
       within(trail).getByRole("link", { name: "세션" }).getAttribute("href"),
     ).toBe("/sessions");
     expect(heading.textContent).toContain("답변 대기");
-    // From 1280px the rail always shows: the head has no button at all.
-    expect(within(header).queryAllByRole("button")).toHaveLength(0);
+    // From 1280px the rail always shows: the head's one button copies the id.
+    expect(
+      within(header)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["세션 ID 복사"]);
     expect(header.textContent).not.toContain("model-default");
 
     const card = await infoCard();
@@ -2590,10 +2605,13 @@ describe("세션 상세 레이아웃", () => {
         .filter((button) => button.dataset.action !== undefined)
         .map((button) => button.textContent),
     ).toEqual(["지금 턴 멈추기", "일시 정지", "세션 종료"]);
-    await waitFor(() => expect(card.textContent).toContain("<$0.01"));
+    // The rail holds no overview: the meta line under the title has it.
+    expect(card.textContent).not.toContain("에이전트");
+    const meta = await sessionMeta();
+    await waitFor(() => expect(meta.textContent).toContain("<$0.01"));
   });
 
-  test("세션 정보는 에이전트와 호출한 채널을 보인다", async () => {
+  test("머리의 메타 줄은 에이전트, 호출한 사람과 채널, Slack 링크를 보인다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
       [`GET /v1/sessions/${SESSION_ID}`]: () =>
@@ -2605,12 +2623,14 @@ describe("세션 상세 레이아웃", () => {
           slack_permalink: SLACK_PERMALINK,
         }),
     });
-    const card = await infoCard();
+    const meta = await sessionMeta();
     await waitFor(() =>
-      expect(card.textContent).toContain("에이전트코드 리뷰"),
+      expect(meta.textContent).toContain("에이전트: 코드 리뷰"),
     );
-    expect(card.textContent).toContain("채널Slack");
-    expect(card.textContent).toContain("시작 시각");
+    expect(meta.textContent).toContain("채널: Demo Owner · Slack");
+    expect(within(meta).getByRole("link", { name: /Slack/ })).toBeTruthy();
+    // The start time is read out and shown on hover, not drawn.
+    expect(meta.textContent).toContain("시작 시각");
   });
 
   test.each([
@@ -2623,10 +2643,12 @@ describe("세션 상세 레이아웃", () => {
       [`GET /v1/sessions/${SESSION_ID}`]: () =>
         json(200, { ...detail, ...fields }),
     });
-    const card = await infoCard();
-    await waitFor(() => expect(card.textContent).toContain(`에이전트${agent}`));
-    expect(card.textContent).toContain(`채널${channel}`);
-    expect(within(card).queryByRole("link", { name: /Slack/ })).toBeNull();
+    const meta = await sessionMeta();
+    await waitFor(() =>
+      expect(meta.textContent).toContain(`에이전트: ${agent}`),
+    );
+    expect(meta.textContent).toContain(`채널: ${channel}`);
+    expect(within(meta).queryByRole("link", { name: /Slack/ })).toBeNull();
   });
 
   test.each([

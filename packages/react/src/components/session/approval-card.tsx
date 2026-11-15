@@ -2,7 +2,6 @@ import type { PendingRequest, ToolVerbMessage } from "@werft-ai/contracts";
 import {
   Button,
   CodeBlock,
-  cn,
   Field,
   FieldError,
   FieldLabel,
@@ -22,6 +21,7 @@ import {
 
 import { Busy } from "./busy.tsx";
 import { useExpired, useExpiryFocus } from "./expiry.ts";
+import { RequestCard } from "./request-card.tsx";
 
 export type PermissionRequest = Extract<PendingRequest, { kind: "permission" }>;
 
@@ -109,63 +109,29 @@ export function ApprovalCard({
   };
 
   return (
-    // An article, not a section: two requests for the same tool would make
-    // two landmarks with one name.
-    <article
-      aria-labelledby={titleId}
-      aria-busy={pending || undefined}
-      data-slot="approval-card"
-      data-expired={expired || undefined}
-      className={cn(
-        "flex min-w-0 flex-col gap-3 rounded-card border border-[var(--werft-tone-attention-border)] bg-[var(--werft-tone-attention-bg)] p-4 text-control",
-        className,
-      )}
-      {...within}
-    >
-      <span id={titleId} className="sr-only">
-        {messages.title(request.tool)}
-      </span>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <ShieldCheck
-          className="size-4 shrink-0 text-[var(--werft-tone-attention-fg)]"
-          strokeWidth={1.5}
-          aria-hidden="true"
-        />
-        {/* Not a heading: the level depends on the screen around the card. */}
-        <Text
-          as="span"
-          aria-hidden="true"
-          className="font-medium text-[var(--werft-tone-attention-fg)] text-body"
-        >
-          {messages.heading ?? messages.title(request.tool)}
-        </Text>
-        {/* Each separator wraps with the item after it, never left trailing. */}
-        {subject === undefined ? null : (
-          <span className="flex min-w-0 items-center gap-2">
-            <span aria-hidden="true" className="text-muted-foreground">
-              ·
-            </span>
-            <Text
-              as="span"
-              variant="meta"
-              className="min-w-0 text-foreground [overflow-wrap:anywhere]"
-            >
-              {subject}
-            </Text>
-          </span>
-        )}
+    <RequestCard
+      titleId={titleId}
+      icon={ShieldCheck}
+      title={messages.heading ?? messages.title(request.tool)}
+      label={messages.title(request.tool)}
+      subject={subject}
+      notice={
         <Text
           ref={noticeRef}
-          as="span"
           variant="meta"
-          className="ml-auto"
           tabIndex={expired ? -1 : undefined}
         >
           {expired
             ? messages.expired
             : messages.expires(formatTimestamp(request.expires_at, locale))}
         </Text>
-      </div>
+      }
+      slot="approval-card"
+      aria-busy={pending || undefined}
+      data-expired={expired || undefined}
+      className={className}
+      {...within}
+    >
       {summary !== undefined && messages.summary !== undefined ? (
         <div data-slot="tool-summary" className="flex min-w-0 flex-col gap-2">
           <Text className="text-body text-foreground [overflow-wrap:anywhere]">
@@ -223,6 +189,6 @@ export function ApprovalCard({
           </div>
         </form>
       )}
-    </article>
+    </RequestCard>
   );
 }

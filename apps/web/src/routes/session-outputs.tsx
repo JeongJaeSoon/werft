@@ -293,6 +293,8 @@ function SessionChanges({
           type="button"
           variant="ghost"
           size="icon-sm"
+          // Taller than the title; kept from pushing the head line down.
+          className="-my-1"
           aria-expanded={open}
           aria-controls={bodyId}
           aria-label={

@@ -27,6 +27,7 @@ import {
 
 import { Busy } from "./busy.tsx";
 import { useExpired, useExpiryFocus } from "./expiry.ts";
+import { RequestCard } from "./request-card.tsx";
 
 export type QuestionRequest = Extract<PendingRequest, { kind: "question" }>;
 type Question = QuestionRequest["questions"][number];
@@ -130,45 +131,29 @@ export function QuestionCard({
   };
 
   return (
-    <article
-      aria-labelledby={titleId}
-      aria-busy={pending || undefined}
-      data-slot="question-card"
-      data-expired={expired || undefined}
-      className={cn(
-        "flex min-w-0 flex-col gap-3 text-control",
-        variant === "card" &&
-          "max-w-[var(--werft-w-narrow)] rounded-card border border-[var(--werft-tone-attention-border)] bg-[var(--werft-tone-attention-bg)] p-4",
-        className,
-      )}
-      {...within}
-    >
-      <div
-        className={cn(
-          "flex items-center gap-2",
-          variant === "plain" && !expired && "sr-only",
-        )}
-      >
-        <Hourglass
-          className="size-4 shrink-0"
-          strokeWidth={1.5}
-          aria-hidden="true"
-        />
-        {/* Not a heading: the level depends on the screen around the card. */}
-        <Text id={titleId} className="font-semibold text-body">
-          {messages.title}
-        </Text>
+    <RequestCard
+      titleId={titleId}
+      icon={Hourglass}
+      title={messages.title}
+      variant={variant}
+      headHidden={variant === "plain" && !expired}
+      notice={
         <Text
           ref={noticeRef}
           variant="meta"
           tabIndex={expired ? -1 : undefined}
-          className="ml-auto text-right"
         >
           {expired
             ? messages.expired
             : messages.expires(formatTimestamp(request.expires_at, locale))}
         </Text>
-      </div>
+      }
+      aria-busy={pending || undefined}
+      slot="question-card"
+      data-expired={expired || undefined}
+      className={className}
+      {...within}
+    >
       <form className="flex flex-col gap-4" onSubmit={submit} noValidate>
         {request.questions.map((question) => (
           <QuestionFields
@@ -197,7 +182,7 @@ export function QuestionCard({
           </Button>
         )}
       </form>
-    </article>
+    </RequestCard>
   );
 }
 

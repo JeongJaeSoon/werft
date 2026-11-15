@@ -24,10 +24,10 @@ export interface ChatMessageProps
 }
 
 /**
- * One chat message: the reader's own on the right in a filled bubble, the
- * other side's on the left as plain text, without a bubble or avatar. Each
- * message names its author and time again, even after one from the same
- * person.
+ * One chat message in a bubble of one size for both sides: the reader's own
+ * on the right in the primary fill, the other side's on the left in muted
+ * grey, without an avatar. Each message names its author and time again,
+ * even after one from the same person.
  */
 export function ChatMessage({
   side,
@@ -55,7 +55,7 @@ export function ChatMessage({
       <div
         className={cn(
           "flex min-w-0 flex-col gap-0.5",
-          self ? "max-w-[70%]" : "max-w-full",
+          "max-w-[70%]",
           self ? "items-end" : "items-start",
         )}
       >
@@ -69,11 +69,12 @@ export function ChatMessage({
         <div
           data-slot="chat-bubble"
           className={cn(
-            "w-fit min-w-0 max-w-full text-control leading-[1.6] [overflow-wrap:anywhere]",
+            "w-fit min-w-0 max-w-full rounded-2xl px-3.5 py-2 text-control leading-[1.6] [overflow-wrap:anywhere]",
             self
-              ? "whitespace-pre-wrap rounded-2xl bg-primary px-3.5 py-2 text-primary-foreground"
-              : "text-foreground",
-            tone === "error" && "text-destructive",
+              ? "whitespace-pre-wrap bg-primary text-primary-foreground"
+              : "bg-muted text-foreground",
+            tone === "error" &&
+              "bg-[var(--werft-tone-danger-bg)] text-destructive",
           )}
         >
           {children}

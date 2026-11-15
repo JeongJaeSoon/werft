@@ -3,14 +3,17 @@ import type {
   SessionDetail as SessionDetailData,
   SessionUsageResponse,
 } from "@werft-ai/contracts";
-import { Button, formatClockTime, KeyValueList } from "@werft-ai/ui";
+import { Button, formatClockTime } from "@werft-ai/ui";
 import {
   ArrowDown,
+  Bot,
+  Copy,
+  Gauge,
   Globe,
   KeyRound,
-  type LucideIcon,
   PanelRightClose,
   PanelRightOpen,
+  UserRound,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import {
@@ -42,6 +45,7 @@ import {
 } from "./session-actions.tsx";
 import { SessionChat } from "./session-chat.tsx";
 import { SlackMark } from "./slack-mark.tsx";
+import { SlackMessageLink } from "./slack-message-link.tsx";
 import { useBlockText } from "./text.ts";
 
 export interface SessionDetailProps extends SessionActionProps {
@@ -72,7 +76,7 @@ export function SessionDetail({
   unavailable,
   refusal,
 }: SessionDetailProps) {
-  const { t, locale } = useBlockText();
+  const { t } = useBlockText();
   const session = useSession(id);
   const [draft, setDraft] = useState("");
   const [draftFor, setDraftFor] = useState(id);
@@ -222,51 +226,6 @@ export function SessionDetail({
       toggle={panel}
       separator="space"
     >
-      <DetailRailSection title={t("session.info.overview")}>
-        <KeyValueList
-          variant="grid"
-          className="grid-cols-[6rem_minmax(0,1fr)] gap-y-2"
-          items={[
-            {
-              label: t("session.info.agent"),
-              value: <AgentName session={detail} />,
-            },
-            {
-              label: t("session.info.channel"),
-              value: <Channel channel={detail.channel} />,
-            },
-            {
-              label: t("session.info.started"),
-              value: (
-                <time dateTime={detail.created_at}>
-                  {formatClockTime(detail.created_at, locale, true)}
-                </time>
-              ),
-            },
-            ...(usage.data
-              ? [
-                  {
-                    label: t("session.info.tokens"),
-                    value: (
-                      <span className="tabular-nums">
-                        {new Intl.NumberFormat(locale).format(
-                          usage.data.token_count,
-                        )}
-                      </span>
-                    ),
-                  },
-                  {
-                    label: t("session.info.cost"),
-                    value: <Cost usage={usage.data} />,
-                  },
-                ]
-              : []),
-          ]}
-        />
-        {usage.error
-          ? renderError(usage.error, () => void usage.refetch())
-          : null}
-      </DetailRailSection>
       {panelSections?.(detail)}
       <DetailRailSection title={t("session.controls.title")}>
         {controls}
@@ -313,6 +272,10 @@ export function SessionDetail({
           {/* Below 1280px the rail is a sheet, opened from here. */}
           {panel.wide ? null : <PanelToggle panel={panel} />}
         </div>
+        <SessionMeta session={detail} usage={usage.data} />
+        {usage.error
+          ? renderError(usage.error, () => void usage.refetch())
+          : null}
       </header>
       <div className="mt-[var(--werft-space-page-head)] flex min-h-0 min-w-0 flex-1 flex-col">
         {chat}
@@ -347,30 +310,119 @@ function PanelToggle({ panel }: { readonly panel: DetailRailToggle }) {
   );
 }
 
-const CHANNEL_ICON: Record<"web" | "api", LucideIcon> = {
-  web: Globe,
-  api: KeyRound,
+/** Each surface's mark, by the words that name it. */
+const CHANNEL_ICON: Record<
+  NonNullable<SessionDetailData["channel"]>,
+  (props: { readonly className?: string }) => ReactNode
+> = {
+  slack: ({ className }) => <SlackMark className={className} />,
+  web: ({ className }) => (
+    <Globe className={className} strokeWidth={1.5} aria-hidden="true" />
+  ),
+  api: ({ className }) => (
+    <KeyRound className={className} strokeWidth={1.5} aria-hidden="true" />
+  ),
 };
 
 /** Where the session was started from, with that surface's mark. */
-function Channel({
-  channel,
+/**
+ * The head's one line under the title: the short id to copy, the agent,
+ * where the session was started and by whom (the start time on hover), then
+ * its cost and tokens. Grey and small; it wraps on a narrow screen.
+ */
+function SessionMeta({
+  session,
+  usage,
 }: {
-  readonly channel: SessionDetailData["channel"];
+  readonly session: SessionDetailData;
+  readonly usage: SessionUsageResponse | undefined;
 }) {
-  const { t } = useBlockText();
-  // A server from before the field sends none at all.
-  if (!channel) return t("sessions.none");
-  const Icon = channel === "slack" ? null : CHANNEL_ICON[channel];
+  const { t, locale } = useBlockText();
+  const [copied, setCopied] = useState(false);
+  const copy = t("session.id.copy");
+  const person = session.created_by?.display_name;
+  const channel = session.channel;
+  const ChannelIcon = channel ? CHANNEL_ICON[channel] : null;
+  const started = `${t("session.info.started")} ${formatClockTime(session.created_at, locale, true)}`;
   return (
-    <span className="inline-flex items-center gap-2">
-      {Icon === null ? (
-        <SlackMark className="size-4" />
-      ) : (
-        <Icon className="size-4" strokeWidth={1.5} aria-hidden="true" />
-      )}
-      {t(`session.channel.${channel}`)}
-    </span>
+    <p
+      data-slot="session-meta"
+      className="m-0 flex min-w-0 flex-wrap items-center gap-x-5 gap-y-1 text-caption text-muted-foreground"
+    >
+      <span className="inline-flex items-center gap-1">
+        <span className="sr-only">{t("session.info.id")}: </span>
+        <span className="font-mono">{shortSessionId(session.id)}</span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="size-6"
+          aria-label={copy}
+          title={copy}
+          onClick={() => {
+            void navigator.clipboard?.writeText(session.id).then(
+              () => setCopied(true),
+              () => setCopied(false),
+            );
+          }}
+        >
+          <Copy className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
+        </Button>
+        <output className="sr-only">
+          {copied ? t("session.id.copied") : null}
+        </output>
+      </span>
+      <span className="inline-flex min-w-0 items-center gap-1.5">
+        <Bot
+          className="size-3.5 shrink-0"
+          strokeWidth={1.5}
+          aria-hidden="true"
+        />
+        <span className="sr-only">{t("session.info.agent")}: </span>
+        <AgentName session={session} />
+      </span>
+      <span
+        className="inline-flex min-w-0 flex-wrap items-center gap-x-1.5"
+        title={started}
+      >
+        {ChannelIcon === null ? (
+          <UserRound
+            className="size-3.5 shrink-0"
+            strokeWidth={1.5}
+            aria-hidden="true"
+          />
+        ) : (
+          <ChannelIcon className="size-3.5 shrink-0" />
+        )}
+        <span className="sr-only">{t("session.info.channel")}: </span>
+        <span className="[overflow-wrap:anywhere]">
+          {[person || null, channel ? t(`session.channel.${channel}`) : null]
+            .filter((part) => part !== null)
+            .join(" · ") || t("sessions.none")}
+        </span>
+        {session.slack_permalink ? (
+          <SlackMessageLink href={session.slack_permalink} />
+        ) : null}
+        <span className="sr-only">
+          {" · "}
+          {started}
+        </span>
+      </span>
+      {usage ? (
+        <span className="inline-flex items-center gap-1.5 tabular-nums">
+          <Gauge
+            className="size-3.5 shrink-0"
+            strokeWidth={1.5}
+            aria-hidden="true"
+          />
+          <span className="sr-only">{t("session.usage")}: </span>
+          <Cost usage={usage} />
+          {" · "}
+          {t("session.info.tokens")}{" "}
+          {new Intl.NumberFormat(locale).format(usage.token_count)}
+        </span>
+      ) : null}
+    </p>
   );
 }
 
