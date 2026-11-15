@@ -493,6 +493,50 @@ describe("모델 연결", () => {
     expect(within(dialog).queryByRole("status") === null).toBe(true);
   });
 
+  test("while the list reloads after a save, the menu button takes the focus back but does not open", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let loads = 0;
+    const list = routes()[`GET ${CONNECTIONS}`];
+    renderAt(CONNECTIONS_PAGE, {
+      ...routes(),
+      [`GET ${CONNECTIONS}`]: async () => {
+        loads += 1;
+        if (loads > 1) await gate;
+        return list();
+      },
+      [`POST ${CONNECTIONS}/console-key/credential`]: () =>
+        json(200, CHANGE("console-key")),
+    });
+    const user = await setupUser();
+    const table = await screen.findByRole("table", { name: "모델 연결" });
+    await choose(user, table, "console-key", "console-key의 API 키 설정");
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText("값"), "rotated-key");
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog") === null).toBe(true),
+    );
+
+    const menuButton = within(table).getByRole("button", {
+      name: "console-key 메뉴",
+    });
+    expect(menuButton.getAttribute("aria-disabled")).toBe("true");
+    await waitFor(() =>
+      expect(document.activeElement === menuButton).toBe(true),
+    );
+    await user.click(menuButton);
+    expect(screen.queryByRole("menu") === null).toBe(true);
+
+    release();
+    await waitFor(() =>
+      expect(menuButton.getAttribute("aria-disabled") === null).toBe(true),
+    );
+    await openMenu(user, table, "console-key");
+  });
+
   test("a new value and a disable each go to their own route; disabling asks first", async () => {
     const { api } = renderAt(CONNECTIONS_PAGE, {
       ...routes(),
