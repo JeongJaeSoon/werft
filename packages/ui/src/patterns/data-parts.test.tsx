@@ -252,6 +252,33 @@ describe("SecretField", () => {
     }
   });
 
+  test("복사 중에 A→B→A로 돌아온 뒤 늦게 성공해도 복사했다고 알리지 않는다", async () => {
+    const screen = render(<SecretField value={VALUE} {...COPY} />);
+    const { container, rerender } = screen;
+    const user = await setupUser();
+    let settle: () => void = () => {};
+    const restore = stubClipboard(
+      () =>
+        new Promise<void>((resolve) => {
+          settle = resolve;
+        }),
+    );
+    try {
+      await user.click(screen.getByRole("button", { name: "복사" }));
+      rerender(<SecretField value="ws_FAKE_OTHER" {...COPY} />);
+      rerender(<SecretField value={VALUE} {...COPY} />);
+      settle();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(container.querySelector("[aria-live=polite]")?.textContent).toBe(
+        "",
+      );
+      // The only live region is the field's own: the button adds none.
+      expect(container.querySelectorAll("output").length).toBe(0);
+    } finally {
+      restore();
+    }
+  });
+
   test("값이 바뀌면 지난 값의 결과를 지운다", async () => {
     const screen = render(<SecretField value={VALUE} {...COPY} />);
     const { container, rerender } = screen;

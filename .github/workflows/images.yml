@@ -80,6 +80,12 @@ jobs:
             *) echo "::error::ci-plan.sh gave no docs_only value" >&2; exit 1 ;;
           esac
 
+  # On a main push the smoke, license and scan steps below are left out:
+  # publish-main runs them on the very digest it pushes, the one main-<12>
+  # promotes, and this job's image is never published. The job itself still
+  # runs and succeeds (and writes the layer cache publish-main reads): a
+  # skipped job here would skip every job after supply-chain as well, even
+  # through its `always()` (actions/runner#491).
   build:
     needs: plan
     if: needs.plan.outputs.images == 'build'
@@ -141,6 +147,7 @@ jobs:
             ${{ matrix.app == 'worker-codex' && 'WORKER_RUNTIME=codex_app_server' || '' }}
 
       - name: Smoke
+        if: "!(github.event_name == 'push' && github.ref == 'refs/heads/main')"
         env:
           APP: ${{ matrix.app }}
           NAME: ${{ steps.meta.outputs.name }}
@@ -148,6 +155,7 @@ jobs:
 
       # THIRD_PARTY_NOTICES.md against what the image really holds.
       - name: Licenses of what the image ships
+        if: "!(github.event_name == 'push' && github.ref == 'refs/heads/main')"
         env:
           APP: ${{ matrix.app }}
           NAME: ${{ steps.meta.outputs.name }}
@@ -158,6 +166,7 @@ jobs:
       # download, database update) fails the build: no verdict is not a pass.
       # The `error` it leaves in the result file is what `supply-chain` reads.
       - name: Vulnerability scan
+        if: "!(github.event_name == 'push' && github.ref == 'refs/heads/main')"
         timeout-minutes: 10
         env:
           APP: ${{ matrix.app }}
@@ -165,7 +174,7 @@ jobs:
           NAME: ${{ steps.meta.outputs.name }}
         run: .github/scripts/image-scan.sh "${APP}-${ARCH}" "${NAME}:sha-${GITHUB_SHA::12}" vulnerabilities
 
-      - if: always()
+      - if: always() && !(github.event_name == 'push' && github.ref == 'refs/heads/main')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: vulnerabilities-${{ matrix.app }}-${{ matrix.arch }}
@@ -261,7 +270,7 @@ jobs:
           IMAGES_PLAN: ${{ needs.plan.outputs.images }}
           IMAGES_PLAN_RESULT: ${{ needs.plan.result }}
           IMAGES_BUILD_RESULT: ${{ needs.build.result }}
-          SCAN_SCOPE: ${{ needs.plan.outputs.images == 'skip' && 'dependencies' || (github.event_name == 'pull_request' && 'amd64' || 'all') }}
+          SCAN_SCOPE: ${{ (needs.plan.outputs.images == 'skip' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && 'dependencies' || (github.event_name == 'pull_request' && 'amd64' || 'all') }}
         run: .github/scripts/supply-chain-verdict.sh vulnerabilities "$NO_VERDICT" "$SCAN_SCOPE"
 
   # Publish path, in stages so a failed verification never leaves a consumable
@@ -304,8 +313,12 @@ jobs:
         with:
           name: supply-chain-results
           path: supply-chain-results
+      # A main push has no `build` scans (see `build`): its images are judged
+      # below, on the pushed digest, and only npm audit comes from here.
       - name: Every scan answered
-        run: .github/scripts/supply-chain-verdict.sh supply-chain-results fail
+        env:
+          SCAN_SCOPE: ${{ github.ref == 'refs/heads/main' && 'dependencies' || 'all' }}
+        run: .github/scripts/supply-chain-verdict.sh supply-chain-results fail "$SCAN_SCOPE"
       - name: Commit must be on main
         run: |
           git fetch --no-tags origin main

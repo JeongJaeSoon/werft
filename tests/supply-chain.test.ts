@@ -388,6 +388,60 @@ describe("supply-chain-verdict.sh", () => {
       expect(run.out).toContain("requires image scans");
     });
 
+    // publish-main scans the digests a main push publishes, so `build` scans
+    // nothing there, and `supply-chain` judges the npm audit.
+    test("a main push with a planned build leaves the image scans to publish-main", async () => {
+      const input = {
+        ...plan("build", "success", "push"),
+        GITHUB_REF: "refs/heads/main",
+      };
+      const run = (results: Record<string, string>, env = input) =>
+        verdict(results, "warn", "[]", env, "dependencies");
+      expect((await run(npmOnly)).code).toBe(0);
+      expect((await run({ npm: "found 1" })).code).toBe(1);
+      // Only a main push whose build succeeded: anything else is the old rule.
+      for (const env of [
+        { ...input, GITHUB_REF: "refs/tags/v1.2.3" },
+        { ...input, GITHUB_REF: "refs/heads/feature" },
+        { ...input, GITHUB_EVENT_NAME: "pull_request" },
+        { ...input, GITHUB_EVENT_NAME: "schedule" },
+        { ...input, IMAGES_BUILD_RESULT: "failure" },
+        { ...input, IMAGES_BUILD_RESULT: "skipped" },
+      ]) {
+        const refused = await run(npmOnly, env);
+        expect(refused.code).toBe(1);
+      }
+      // With the full scope it still wants the build's results.
+      const full = await verdict(npmOnly, "warn", "[]", input, "all");
+      expect(full.code).toBe(1);
+      expect(full.out).toContain("no result");
+    });
+
+    test("a main push publish needs only the npm audit from supply-chain", async () => {
+      // No IMAGES_PLAN: the publish jobs judge without a plan.
+      expect(
+        (await verdict(npmOnly, "fail", "[]", {}, "dependencies")).code,
+      ).toBe(0);
+      expect(
+        (await verdict({ npm: "error" }, "fail", "[]", {}, "dependencies"))
+          .code,
+      ).toBe(1);
+      const publish = Bun.YAML.parse(
+        readFileSync(join(root, ".github/workflows/images.yml"), "utf8"),
+      ) as {
+        jobs: Record<
+          string,
+          { steps?: { name?: string; env?: Record<string, string> }[] }
+        >;
+      };
+      const answered = publish.jobs.publish?.steps?.find(
+        (step) => step.name === "Every scan answered",
+      );
+      expect(answered?.env?.SCAN_SCOPE).toBe(
+        `\${{ github.ref == 'refs/heads/main' && 'dependencies' || 'all' }}`,
+      );
+    });
+
     test("a main prose push may skip, but a tag or another branch may not", async () => {
       const input = {
         ...plan("skip", "skipped", "push"),
@@ -454,9 +508,31 @@ describe("images.yml supply-chain", () => {
     };
     expect(plan.outputs?.images).toBe("${{ steps.images.outputs.images }}");
     expect(workflow.jobs.build?.needs).toBe("plan");
+    // The job runs wherever the plan builds, a main push included: a skipped
+    // build skips every job after supply-chain, through its always()
+    // (actions/runner#491), and main stops publishing. A main push leaves out
+    // only the checks publish-main repeats on the digest it pushes.
     expect(workflow.jobs.build?.if).toBe(
       "needs.plan.outputs.images == 'build'",
     );
+    const notMain =
+      "!(github.event_name == 'push' && github.ref == 'refs/heads/main')";
+    const steps = workflow.jobs.build?.steps ?? [];
+    for (const name of [
+      "Smoke",
+      "Licenses of what the image ships",
+      "Vulnerability scan",
+    ]) {
+      expect(steps.find((step) => step.name === name)?.if).toBe(notMain);
+    }
+    for (const step of steps) {
+      if (
+        step.uses?.startsWith("docker/build-push-action@") ||
+        step.name === "Record digests"
+      ) {
+        expect(step.if).toBeUndefined();
+      }
+    }
     const verdict = job?.steps?.find((step) =>
       step.run?.includes("supply-chain-verdict.sh"),
     );

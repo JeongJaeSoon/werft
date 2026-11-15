@@ -1,6 +1,7 @@
 import type { JSX, ReactNode } from "react";
 import { useEffect, useId, useState } from "react";
 
+import { Input } from "../primitives/input.tsx";
 import { ConfirmDialog } from "./confirm-dialog.tsx";
 
 export interface DestructiveActionDialogProps {
@@ -74,9 +75,8 @@ export function DestructiveActionDialog({
           계속하려면 아래 이름을 그대로 입력하세요
         </label>
         <code className="werft-dialog__match-target">{expected}</code>
-        <input
+        <Input
           id={inputId}
-          className="werft-input"
           type="text"
           value={typed}
           autoComplete="off"

@@ -172,7 +172,7 @@ test("static checks keep one cache writer and report independent failures", () =
     `\${{ steps.units.outputs.matrix }}`,
   );
   expect(workflow.jobs.changes?.outputs?.sdk_pack).toBe(
-    `\${{ steps.sdk.outputs.run }}`,
+    `\${{ steps.reuse.outputs.sdk_pack == 'true' && 'false' || steps.sdk.outputs.run }}`,
   );
   expect(
     workflow.jobs.changes?.steps.map((step) => step.id ?? step.uses),
@@ -180,6 +180,7 @@ test("static checks keep one cache writer and report independent failures", () =
     expect.stringContaining("actions/checkout@"),
     "plan",
     "sdk",
+    "reuse",
     "./.github/actions/bun-setup",
     "units",
   ]);
@@ -635,20 +636,93 @@ test("all product and site consumers use the same explicit plan", () => {
     workflow.jobs.changes?.steps.find((step) => step.id === "plan")?.env
       ?.BASE_REF,
   ).toBe(`\${{ github.event.pull_request.base.ref }}`);
-  for (const key of [
-    "tests",
-    "product",
-    "site",
-    "quickstart",
-    "docs_only",
-    "helm",
-    "k8s",
-    "domains",
-  ]) {
+  for (const key of ["site", "docs_only"]) {
     expect(workflow.jobs.changes?.outputs?.[key]).toBe(
       `\${{ steps.plan.outputs.${key} }}`,
     );
   }
+  // A main push that reuses the PR run of its tree drops those suites;
+  // otherwise every flag is the plan's.
+  for (const [key, off] of [
+    ["tests", "false"],
+    ["product", "false"],
+    ["quickstart", "false"],
+    ["domains", "[]"],
+  ] as const) {
+    expect(workflow.jobs.changes?.outputs?.[key]).toBe(
+      `\${{ steps.reuse.outputs.reused != '' && '${off}' || steps.plan.outputs.${key} }}`,
+    );
+  }
+  for (const key of ["helm", "k8s"]) {
+    expect(workflow.jobs.changes?.outputs?.[key]).toBe(
+      `\${{ steps.reuse.outputs.${key} == 'true' && 'false' || steps.plan.outputs.${key} }}`,
+    );
+  }
+  const reuse = workflow.jobs.changes?.steps.find((s) => s.id === "reuse");
+  expect(reuse?.if).toBe(
+    "github.event_name == 'push' && github.ref == 'refs/heads/main'",
+  );
+  expect(reuse?.run).toBe(
+    'bash .github/scripts/ci-reuse.sh >>"$GITHUB_OUTPUT"',
+  );
+});
+
+test("a reused PR run passes the required gates only with its URL", () => {
+  const reused = "https://github.com/o/r/actions/runs/1";
+  const check = {
+    PLAN: "success",
+    STATIC: "success",
+    RESULT: "skipped",
+    DOCS: "skipped",
+    TESTS: "false",
+    DOCS_ONLY: "false",
+  };
+  expect(verdict("check", { ...check, REUSED: reused }, "verdict")).toBe(0);
+  expect(verdict("check", { ...check, REUSED: "" }, "verdict")).not.toBe(0);
+  expect(
+    verdict(
+      "check",
+      { ...check, RESULT: "success", TESTS: "true", REUSED: reused },
+      "verdict",
+    ),
+  ).not.toBe(0);
+  const integration = {
+    PLAN: "success",
+    RESULT: "skipped",
+    E2E: "success",
+    CONFORMANCE: "success",
+    QUICKSTART: "success",
+    EVENT: "push",
+    ONLY: "all",
+    TESTS: "false",
+    DOCS_ONLY: "false",
+  };
+  expect(
+    verdict("integration", { ...integration, REUSED: reused }, "verdict"),
+  ).toBe(0);
+  expect(
+    verdict("integration", { ...integration, REUSED: "" }, "verdict"),
+  ).not.toBe(0);
+  for (const job of ["e2e", "conformance"]) {
+    const plan = { PLAN: "success", PRODUCT: "false", DOCS_ONLY: "false" };
+    expect(verdict(job, { ...plan, REUSED: reused })).toBe(0);
+    expect(verdict(job, { ...plan, REUSED: "" })).not.toBe(0);
+    const final = { ...plan, SCENARIO: "skipped" };
+    expect(verdict(job, { ...final, REUSED: reused }, "verdict")).toBe(0);
+    expect(verdict(job, { ...final, REUSED: "" }, "verdict")).not.toBe(0);
+    // Reuse never excuses a scenario that ran and failed.
+    expect(
+      verdict(
+        job,
+        { ...final, PRODUCT: "true", SCENARIO: "failure", REUSED: reused },
+        "verdict",
+      ),
+    ).not.toBe(0);
+  }
+  // The non-blocking probe has no PR run to reuse, so it still runs.
+  expect(workflow.jobs["agent-sdk-compat"]?.if).toContain(
+    "(needs.changes.outputs.product == 'true' || needs.changes.outputs.reused != '')",
+  );
 });
 
 test("an integration domain no changed path reaches runs no step but its gate", () => {

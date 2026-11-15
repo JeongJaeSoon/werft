@@ -534,13 +534,6 @@
     user-select: all;
   }
 
-  .werft-dialog__actions {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: var(--werft-space-2);
-  }
-
   @keyframes werft-fade-in {
     from {
       opacity: 0;
@@ -603,20 +596,7 @@
     color: var(--werft-color-muted-foreground);
   }
 
-  .werft-input {
-    width: 100%;
-    padding: var(--werft-space-2) var(--werft-space-3);
-    border: 1px solid var(--werft-color-border-input);
-    border-radius: var(--werft-radius-control);
-    background: var(--werft-color-surface);
-    color: var(--werft-color-foreground);
-    font-family: var(--werft-font-sans);
-    font-size: var(--werft-text-sm);
-    transition: border-color var(--werft-motion-fast) var(--werft-motion-ease);
-  }
-
   .werft-button:focus-visible,
-  .werft-input:focus-visible,
   .werft-receipt-link:focus-visible {
     outline: 2px solid var(--werft-color-focus-ring);
     outline-offset: 2px;
@@ -637,8 +617,7 @@
       animation: none;
     }
 
-    .werft-button,
-    .werft-input {
+    .werft-button {
       transition: none;
     }
   }

@@ -1,4 +1,4 @@
-import { CircleAlert, Copy } from "lucide-react";
+import { CircleAlert } from "lucide-react";
 import {
   type ComponentProps,
   type JSX,
@@ -7,9 +7,8 @@ import {
   useState,
 } from "react";
 
-import { writeClipboard } from "../foundations/clipboard.ts";
 import { cn } from "../foundations/cn.ts";
-import { Button } from "../primitives/button.tsx";
+import { CopyButton } from "./copy-button.tsx";
 
 export type SecretFieldProps = Omit<ComponentProps<"div">, "children"> & {
   /** The value to show and copy, such as an ID or a key shown once. */
@@ -54,11 +53,10 @@ export function SecretField({
   }, [generation]);
   const shown = result?.value === value ? result : null;
 
-  const copy = async () => {
-    const copied = value;
-    const started = generation;
-    const ok = await writeClipboard(copied);
-    if (latest.current !== started) return;
+  // CopyButton reports with the handler of the render it was clicked in, so
+  // `generation` here is the one the copy started under.
+  const report = (ok: boolean, copied: string) => {
+    if (latest.current !== generation) return;
     // Selected, the value is one keystroke from a manual copy.
     if (!ok && valueRef.current) {
       globalThis.getSelection?.()?.selectAllChildren(valueRef.current);
@@ -79,16 +77,16 @@ export function SecretField({
         >
           {value}
         </span>
-        <Button
-          type="button"
+        <CopyButton
+          value={value}
+          label={copyLabel}
           variant="outline"
           size="sm"
+          icon="copy"
+          iconClassName="size-3.5"
           disabled={value === ""}
-          onClick={() => void copy()}
-        >
-          <Copy aria-hidden="true" className="size-3.5" strokeWidth={1.5} />
-          {copyLabel}
-        </Button>
+          onResult={report}
+        />
       </div>
       <p
         aria-live="polite"

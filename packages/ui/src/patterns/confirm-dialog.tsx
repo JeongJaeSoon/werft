@@ -8,6 +8,7 @@ import {
   DialogClose,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogTitle,
 } from "../primitives/dialog.tsx";
 
@@ -147,7 +148,7 @@ export function ConfirmDialog({
           )}
         </DialogDescription>
         {children}
-        <div className="werft-dialog__actions">
+        <DialogFooter>
           <DialogClose asChild>
             <Button type="button" variant="ghost">
               {cancelLabel}
@@ -164,7 +165,7 @@ export function ConfirmDialog({
             ) : null}
             {confirmLabel}
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
