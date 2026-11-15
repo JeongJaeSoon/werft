@@ -126,6 +126,82 @@ describe("GridTable", () => {
     }
   });
 
+  test("narrowCards이면 640px 이하에서 행이 카드가 되고, 머리는 화면 읽기용으로만 남고, 열을 숨기지 않는다", () => {
+    const { getByRole, getAllByRole } = render(
+      <GridTable
+        aria-label="에이전트"
+        columns="minmax(0,1fr) 96px 120px"
+        narrowAt={640}
+        narrowCards={true}
+        framed={true}
+      >
+        <GridTableHeader>
+          <GridTableColumnHeader>이름</GridTableColumnHeader>
+          <GridTableColumnHeader hideNarrow={true}>엔진</GridTableColumnHeader>
+          <GridTableColumnHeader align="end">실행 중</GridTableColumnHeader>
+        </GridTableHeader>
+        <GridTableRow>
+          <GridTableCell>werft-agent</GridTableCell>
+          <GridTableCell hideNarrow={true} cardLabel="엔진">
+            Codex
+          </GridTableCell>
+          <GridTableCell align="end" cardLabel="실행 중">
+            2
+          </GridTableCell>
+        </GridTableRow>
+      </GridTable>,
+    );
+    const table = getByRole("table", { name: "에이전트" });
+    // The frame goes from a container outside the table.
+    expect(table.parentElement?.classList.contains("@container")).toBe(true);
+    expect(table.dataset.narrowCards).toBe("true");
+    expect(
+      table.classList.contains("[@container(max-width:640px)]:border-0"),
+    ).toBe(true);
+    const [header, row] = getAllByRole("row") as HTMLElement[];
+    expect(
+      header?.classList.contains("[@container(max-width:640px)]:sr-only"),
+    ).toBe(true);
+    expect(
+      row?.classList.contains("[@container(max-width:640px)]:flex-col"),
+    ).toBe(true);
+    for (const cell of [
+      ...getAllByRole("columnheader"),
+      ...getAllByRole("cell"),
+    ]) {
+      expect(cell.className).not.toContain(":hidden");
+    }
+    const [name, engine, running] = getAllByRole("cell") as HTMLElement[];
+    expect(name?.querySelector("[aria-hidden=true]") === null).toBe(true);
+    const label = engine?.firstElementChild;
+    expect(label?.getAttribute("aria-hidden")).toBe("true");
+    expect(label?.textContent).toBe("엔진");
+    expect(
+      running?.classList.contains(
+        "[@container(max-width:640px)]:justify-start",
+      ),
+    ).toBe(true);
+  });
+
+  test("narrowCards가 아니면 cardLabel을 그리지 않는다", () => {
+    const { getByRole } = render(
+      <GridTable
+        aria-label="세션"
+        columns="minmax(0,1fr) 120px"
+        narrowAt={640}
+        narrowColumns="minmax(0,1fr)"
+      >
+        <GridTableRow>
+          <GridTableCell>배포 점검</GridTableCell>
+          <GridTableCell cardLabel="상태">실행 중</GridTableCell>
+        </GridTableRow>
+      </GridTable>,
+    );
+    const table = getByRole("table", { name: "세션" });
+    expect(table.querySelector("[aria-hidden=true]") === null).toBe(true);
+    expect(table.dataset.narrowCards).toBeUndefined();
+  });
+
   test("aria-busy를 표에 넘긴다", () => {
     const { getByRole } = render(
       <GridTable aria-labelledby="t" aria-busy={true} columns="1fr">

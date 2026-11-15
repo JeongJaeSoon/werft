@@ -7,7 +7,7 @@ import type {
   CountAgentsResponse,
 } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
-import { ListToolbar, ListViewSwitch } from "@werft-ai/react/components";
+import { ListToolbar } from "@werft-ai/react/components";
 import {
   Button,
   buttonVariants,
@@ -24,25 +24,18 @@ import {
   SegmentedControlItem,
   Text,
 } from "@werft-ai/ui";
-import { LayoutGrid, List } from "lucide-react";
 import { useRef, useState } from "react";
 import {
   administeredAgentsQuery,
   agentCountsQuery,
   agentPagesQuery,
 } from "../api/queries.ts";
-import {
-  permissionReason,
-  useHasPermission,
-  useMe,
-  useRole,
-} from "../auth/guard.tsx";
+import { permissionReason, useHasPermission, useRole } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import {
   ADMINISTERED_LIST_LIMIT,
   AdministeredAgents,
 } from "../components/agent-admins.tsx";
-import { AgentCards } from "../components/agent-cards.tsx";
 import {
   AgentChannels,
   AgentEngine,
@@ -52,11 +45,6 @@ import {
 } from "../components/agent-columns.tsx";
 import { agentRefusal } from "../components/agent-refusal.ts";
 import { AgentStateText, agentState } from "../components/agent-state.tsx";
-import {
-  AGENT_VIEWS,
-  type AgentView,
-  useAgentView,
-} from "../components/agent-view.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { NewAgentFlow } from "../components/new-agent-flow.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
@@ -117,8 +105,6 @@ export function AgentsScreen() {
   );
 }
 
-const VIEW_ICON = { cards: LayoutGrid, table: List } as const;
-
 function AgentList({
   counts,
 }: {
@@ -126,10 +112,6 @@ function AgentList({
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
-  const principal = useMe()?.principal;
-  const [view, setView] = useAgentView(
-    principal?.kind === "user" ? principal.id : undefined,
-  );
   const [scope, setScope] = useState<"all" | "administered">("all");
   const [query, setQuery] = useState("");
   const q = useSearchTerm(query);
@@ -174,18 +156,6 @@ function AgentList({
             </SegmentedControlItem>
           </SegmentedControl>
         }
-        view={
-          <ListViewSwitch
-            aria-label={t("agents.view.label")}
-            value={view}
-            onValueChange={setView}
-            options={AGENT_VIEWS.map((option) => ({
-              value: option,
-              label: t(`agents.view.${option}`),
-              icon: VIEW_ICON[option],
-            }))}
-          />
-        }
         search={{
           ref: search,
           type: "search",
@@ -215,12 +185,7 @@ function AgentList({
           />
         ) : (
           <div className="flex flex-col gap-4">
-            <AgentsIn
-              view={view}
-              agents={shown ?? []}
-              onClear={clear}
-              summarized
-            />
+            <AgentsIn agents={shown ?? []} onClear={clear} />
             <PagedListFooter list={pages} />
           </div>
         )
@@ -242,7 +207,7 @@ function AgentList({
               })}
             </Text>
           ) : null}
-          <AgentsIn view={view} agents={shown ?? []} onClear={clear} />
+          <AgentsIn agents={shown ?? []} onClear={clear} />
         </div>
       )}
     </div>
@@ -263,16 +228,12 @@ function matchesAgentQuery(agent: Agent, query: string) {
 }
 
 function AgentsIn({
-  view,
   agents,
   onClear,
-  summarized = false,
 }: {
-  readonly view: AgentView;
   /** The list after the search. */
   readonly agents: readonly AgentListItem[];
   readonly onClear: () => void;
-  readonly summarized?: boolean;
 }) {
   const { t } = useI18n();
   if (agents.length === 0) {
@@ -288,36 +249,32 @@ function AgentsIn({
       />
     );
   }
-  return view === "cards" ? (
-    <AgentCards agents={agents} summarized={summarized} />
-  ) : (
-    <AgentTable agents={agents} />
-  );
+  return <AgentTable agents={agents} />;
 }
 
 function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
   const { t } = useI18n();
+  const column = {
+    engine: t("agents.column.engine"),
+    state: t("agents.column.state"),
+    channels: t("agents.column.channels"),
+    running: t("agents.column.running"),
+  };
   return (
     <GridTable
       aria-label={t("agents.title")}
-      columns={COLUMNS[0]}
+      columns={COLUMNS}
       narrowAt={640}
-      narrowColumns={COLUMNS[1]}
+      narrowCards={true}
       framed={true}
     >
       <GridTableHeader>
         <GridTableColumnHeader>{t("agents.column.name")}</GridTableColumnHeader>
-        <GridTableColumnHeader hideNarrow>
-          {t("agents.column.engine")}
-        </GridTableColumnHeader>
-        <GridTableColumnHeader>
-          {t("agents.column.state")}
-        </GridTableColumnHeader>
-        <GridTableColumnHeader hideNarrow>
-          {t("agents.column.channels")}
-        </GridTableColumnHeader>
-        <GridTableColumnHeader align="end" hideNarrow>
-          {t("agents.column.running")}
+        <GridTableColumnHeader>{column.engine}</GridTableColumnHeader>
+        <GridTableColumnHeader>{column.state}</GridTableColumnHeader>
+        <GridTableColumnHeader>{column.channels}</GridTableColumnHeader>
+        <GridTableColumnHeader align="end">
+          {column.running}
         </GridTableColumnHeader>
       </GridTableHeader>
       {agents.map((agent) => (
@@ -345,16 +302,20 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
               <AgentSlug slug={agent.slug} />
             </RowLines>
           </GridTableCell>
-          <GridTableCell hideNarrow>
+          <GridTableCell cardLabel={column.engine}>
             <AgentEngine agent={agent} />
           </GridTableCell>
-          <GridTableCell>
+          <GridTableCell cardLabel={column.state}>
             <AgentStateText agent={agent} />
           </GridTableCell>
-          <GridTableCell hideNarrow className="gap-2">
+          <GridTableCell cardLabel={column.channels} className="gap-2">
             <AgentChannels agent={agent} />
           </GridTableCell>
-          <GridTableCell align="end" hideNarrow className="tabular-nums">
+          <GridTableCell
+            align="end"
+            cardLabel={column.running}
+            className="tabular-nums"
+          >
             <AgentRunning agent={agent} />
           </GridTableCell>
         </GridTableRow>
@@ -364,12 +325,9 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
 }
 
 // Name | engine | state | channels | running sessions; at 640px of table width
-// or less, name | state. The fixed tracks, gaps and padding take 520px, so a
-// narrower breakpoint would leave the name no room.
-const COLUMNS = [
-  "minmax(0,1fr) 96px 104px 104px 120px",
-  "minmax(0,1fr) 104px",
-] as const;
+// or less, one card per agent. The fixed tracks, gaps and padding take 520px,
+// so a narrower breakpoint would leave the name no room.
+const COLUMNS = "minmax(0,1fr) 96px 104px 104px 120px";
 
 /**
  * A blank card, made in steps.

@@ -11,7 +11,7 @@ import {
 } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
 import { agentSummariesQuery } from "../../api/queries.ts";
-import { AgentAvatar } from "../../components/agent-cards.tsx";
+import { AgentAvatar } from "../../components/agent-avatar.tsx";
 import { AgentStateBadge } from "../../components/agent-state.tsx";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import { ManagingTeamName } from "../../components/managing-team.tsx";
