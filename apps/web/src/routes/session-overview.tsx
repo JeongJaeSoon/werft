@@ -24,17 +24,16 @@ function useMinute(): number {
   return now;
 }
 
-/** The session list's column names; home leaves out the starter. */
+/** The session list's column names, shared with home's recent sessions. */
 export function useSessionOverviewHead(): SessionOverviewHeadMessages {
   const { t } = useI18n();
   return {
-    session: t("sessionList.column.session"),
-    status: t("sessionList.column.status"),
-    model: t("sessionList.column.model"),
+    title: t("sessionList.column.title"),
     agent: t("sessionList.column.agent"),
-    repository: t("sessionList.column.repository"),
-    startedBy: t("sessionList.column.startedBy"),
-    recent: t("sessionList.column.recent"),
+    channel: t("sessionList.column.channel"),
+    status: t("sessionList.column.status"),
+    started: t("sessionList.column.started"),
+    duration: t("sessionList.column.duration"),
   };
 }
 
@@ -42,16 +41,12 @@ export function useSessionOverviewRowMessages(): SessionOverviewRowMessages {
   const { t } = useI18n();
   return {
     status: (status) => t(`sessions.status.${status}`),
+    admission: (state) => t(`sessions.admission.${state}`),
     statusAxis: t("sessions.column.status"),
-    noRepository: t("sessionList.noRepository"),
-    moreRepositories: (count) =>
-      count === 1
-        ? t("sessionList.moreRepositories.one")
-        : t("sessionList.moreRepositories", { count }),
+    channel: (channel) => t(`session.channel.${channel}`),
+    inProgress: t("sessionList.inProgress"),
     unknown: t("sessionList.unknown"),
-    recent: t("sessionList.column.recent"),
     open: (name) => t("sessionList.open", { name }),
-    recoveryRequired: t("sessions.admission.recovery_required"),
   };
 }
 
@@ -106,7 +101,6 @@ function Row({
         waiting && since ? formatElapsed(since, locale, now) : undefined
       }
       messages={messages}
-      now={now}
       renderLink={sessionLink(session.id)}
     />
   );

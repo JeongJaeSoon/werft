@@ -228,7 +228,7 @@ export function ApprovalRow({
               variant="default"
               disabled={blocked}
               aria-label={messages.allowName(request.tool)}
-              onClick={onAllow}
+              onClick={() => onAllow()}
             >
               <Busy shown={pending} />
               {messages.allow}

@@ -166,6 +166,11 @@
     --werft-tone-positive-bg: #eaf7ee;
     --werft-tone-positive-border: #b6e3c3;
 
+    /* The Codex engine badge. */
+    --werft-tone-teal-fg: #0b6e69;
+    --werft-tone-teal-bg: #e6f6f4;
+    --werft-tone-teal-border: #a9ddd7;
+
     /* Typography */
     --werft-font-sans:
       Geist, "Pretendard Variable", Pretendard, -apple-system,
@@ -380,6 +385,10 @@
       --werft-tone-positive-bg: #0a1f10;
       --werft-tone-positive-border: #16452a;
 
+      --werft-tone-teal-fg: #4fd1c5;
+      --werft-tone-teal-bg: #062420;
+      --werft-tone-teal-border: #0f4a44;
+
       --werft-shadow-pop:
         0 0 0 1px rgb(255 255 255 / 0.08), 0 8px 24px -6px rgb(0 0 0 / 0.6);
       --werft-color-segment-thumb: #262b38;
@@ -470,6 +479,10 @@
     --werft-tone-positive-fg: #5cc77a;
     --werft-tone-positive-bg: #0a1f10;
     --werft-tone-positive-border: #16452a;
+
+    --werft-tone-teal-fg: #4fd1c5;
+    --werft-tone-teal-bg: #062420;
+    --werft-tone-teal-border: #0f4a44;
 
     --werft-shadow-pop:
       0 0 0 1px rgb(255 255 255 / 0.08), 0 8px 24px -6px rgb(0 0 0 / 0.6);

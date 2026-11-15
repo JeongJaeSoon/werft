@@ -16,15 +16,18 @@ const { SESSION_NARROW_TEMPLATE, SESSION_TEMPLATE, SessionRow } = await import(
   "./session-row.tsx"
 );
 const {
-  SESSION_OVERVIEW_HOME_TEMPLATE,
   SESSION_OVERVIEW_NARROW_TEMPLATE,
   SESSION_OVERVIEW_TEMPLATE,
   SessionOverviewRow,
   SessionOverviewTable,
 } = await import("./session-overview.tsx");
+const { RepositorySummary, sessionRepositoriesOf } = await import(
+  "./session-repositories.tsx"
+);
 const { StatusLabel } = await import("../status/status-label.tsx");
 const { StageIndicator } = await import("./stage-indicator.tsx");
 const { Timeline } = await import("./timeline.tsx");
+const { formatRelativeTime } = await import("@werft-ai/ui");
 
 // One track per column, each minmax(0,…) or fixed so no cell widens the table.
 const TRACK = /^(minmax\((0|\d+px),[\d.]+fr\)|\d+px)$/;
@@ -32,7 +35,6 @@ test.each([
   [SESSION_TEMPLATE, 5],
   [SESSION_NARROW_TEMPLATE, 3],
   [SESSION_OVERVIEW_TEMPLATE, 6],
-  [SESSION_OVERVIEW_HOME_TEMPLATE, 5],
   [SESSION_OVERVIEW_NARROW_TEMPLATE, 4],
 ])("세션 표 열 정의 %s는 열마다 트랙 하나다", (columns, count) => {
   const tracks = columns.split(" ");
@@ -324,6 +326,7 @@ const SESSION: SessionSummary = {
   repository: null,
   current_turn_id: null,
   queued_turn_count: 2,
+  turn_time_ms: 0,
   last_event_at: null,
   created_at: "2026-10-21T01:00:00.000Z",
   updated_at: "2026-10-21T01:00:00.000Z",
@@ -403,69 +406,73 @@ describe("SessionRow", () => {
 
 const OVERVIEW_MESSAGES = {
   status: (status: string) => `status:${status}`,
+  admission: (state: string) => `admission:${state}`,
   statusAxis: "work",
-  noRepository: "no repository",
-  moreRepositories: (count: number) => `more:${count}`,
+  channel: (channel: string) => `channel:${channel}`,
+  inProgress: "in progress",
   unknown: "—",
-  recent: "recent",
 };
 
+const HEAD = {
+  title: "제목",
+  agent: "에이전트",
+  channel: "채널",
+  status: "상태",
+  started: "시작 시각",
+  duration: "소요 시간",
+};
+
+const AGENT = {
+  id: "0192f0c4-7d3a-7b4e-9f00-0000000000a1",
+  name: "Release helper",
+  release_version_no: 3,
+  release_label: "2026-10-30_14:30:28",
+  release_is_active: true,
+};
+
+function overviewRow(session: SessionSummary, extra: object = {}) {
+  return render(
+    <SessionOverviewTable label="sessions" messages={HEAD}>
+      <SessionOverviewRow
+        session={session}
+        renderLink={(link) => <a href="/sessions/abc" {...link} />}
+        messages={OVERVIEW_MESSAGES}
+        {...extra}
+      />
+    </SessionOverviewTable>,
+  );
+}
+
+const cellsOf = (row: Element | null | undefined) => [
+  ...(row?.querySelectorAll('[role="cell"]') ?? []),
+];
+
 describe("SessionOverviewRow", () => {
-  test("복구 결정을 기다리는 세션은 상태 뒤에 그 사실을 적고, 다른 세션과 문구 없는 화면은 적지 않는다", () => {
-    const rowText = (
-      session: typeof SESSION,
-      messages: typeof OVERVIEW_MESSAGES & { recoveryRequired?: string },
-    ) => {
-      const { getByRole, unmount } = render(
-        <SessionOverviewRow
-          session={session}
-          renderLink={(link) => <a href="/sessions/abc" {...link} />}
-          messages={messages}
-        />,
-      );
-      const text = getByRole("row").textContent;
-      unmount();
-      return text;
-    };
-    const named = { ...OVERVIEW_MESSAGES, recoveryRequired: "복구 필요" };
-    // A terminate that cut a running turn: stopped, yet a decision is owed.
-    expect(
-      rowText(
-        { ...SESSION, status: "stopped", admission_state: "recovery_required" },
-        named,
-      ),
-    ).toContain("work: status:stopped · 복구 필요");
-    expect(
-      rowText(
-        { ...SESSION, status: "failed", admission_state: "recovery_required" },
-        named,
-      ),
-    ).toContain("work: status:failed · 복구 필요");
-    expect(
-      rowText(
-        { ...SESSION, status: "stopped", admission_state: "stopped" },
-        named,
-      ),
-    ).not.toContain("복구 필요");
-    expect(
-      rowText(
-        { ...SESSION, status: "stopped", admission_state: "recovery_required" },
-        OVERVIEW_MESSAGES,
-      ),
-    ).not.toContain(" · ");
+  test("머리는 제목·에이전트·채널·상태·시작 시각·소요 시간이고 행마다 셀이 여섯이다", () => {
+    const { getAllByRole } = overviewRow(SESSION);
+    const heads = getAllByRole("columnheader");
+    expect(heads.map((head) => head.textContent)).toEqual([
+      "제목",
+      "에이전트",
+      "채널",
+      "상태",
+      "시작 시각",
+      "소요 시간",
+    ]);
+    expect(cellsOf(getAllByRole("row")[1])).toHaveLength(6);
   });
 
   test("제목이 있으면 행을 여는 링크가 제목으로 읽히고 그 아래 짧은 ID 8자리를 둔다", () => {
-    const { getByRole, getByText } = render(
-      <SessionOverviewRow
-        session={{ ...SESSION, title: "hello.txt 만들고 commit" }}
-        renderLink={(link) => <a href="/sessions/abc" {...link} />}
-        messages={OVERVIEW_MESSAGES}
-        statusDetail="12분"
-        renderTime={(at) => <time dateTime={at}>12분 전</time>}
-      />,
+    const { getByRole, getByText } = overviewRow(
+      { ...SESSION, title: "hello.txt 만들고 commit", agent: AGENT },
+      {
+        messages: {
+          ...OVERVIEW_MESSAGES,
+          open: (name: string) => `열기: ${name}`,
+        },
+      },
     );
-    const link = getByRole("link", { name: "hello.txt 만들고 commit" });
+    const link = getByRole("link", { name: "열기: hello.txt 만들고 commit" });
     expect(link.dataset.slot).toBe("grid-table-row-opener");
     expect(link.getAttribute("title")).toBe("hello.txt 만들고 commit");
     expect(getByText("hello.txt 만들고 commit").className).not.toContain(
@@ -474,46 +481,101 @@ describe("SessionOverviewRow", () => {
     expect(getByText(SESSION.id.slice(0, 8)).getAttribute("title")).toBe(
       SESSION.id,
     );
-    expect(getByText("model-claude-default")).toBeTruthy();
-    expect(getByText("no repository")).toBeTruthy();
-    const row = link.closest('[role="row"]') as HTMLElement;
-    expect(row.textContent).toContain("work: status:running · 12분");
-    expect(
-      row.querySelector("[data-slot=status-dot]")?.getAttribute("data-status"),
-    ).toBe("run");
-    expect(row.querySelector("time")?.textContent).toBe("12분 전");
-    // A caller's time keeps the ellipsis the column has always given it.
-    expect(row.querySelector("time")?.parentElement?.className).toContain(
-      "truncate",
+    expect(cellsOf(link.closest('[role="row"]'))[1]?.textContent).toBe(
+      "Release helper",
     );
   });
 
-  test("멈춘 세션의 점은 다른 화면처럼 쉬는 점이고 문구는 그대로다", () => {
-    const { container } = render(
-      <SessionOverviewRow
-        session={{ ...SESSION, status: "stopped" }}
-        renderLink={(link) => <a href="/sessions/abc" {...link} />}
-        messages={OVERVIEW_MESSAGES}
-      />,
-    );
-    const dot = container.querySelector("[data-slot=status-dot]");
-    expect(dot?.getAttribute("data-status")).toBe("idle");
-    expect(container.textContent).toContain("work: status:stopped");
+  test("제목이 없으면 짧은 ID를 mono로 보이고 링크 이름은 전체 ID이며, 에이전트가 없으면 —다", () => {
+    const { getByRole, getByText } = overviewRow(SESSION);
+    const link = getByRole("link", { name: SESSION.id });
+    expect(getByText(SESSION.id.slice(0, 8)).className).toContain("font-mono");
+    const cells = cellsOf(link.closest('[role="row"]'));
+    expect(cells[1]?.textContent).toBe("—");
+    // An older session without a channel: a dash, not a guessed icon.
+    expect(cells[2]?.textContent).toBe("—");
+  });
+
+  test("채널은 Slack 로고·웹·API 아이콘이고 이름은 스크린 리더와 툴팁으로 읽는다", () => {
+    for (const channel of ["slack", "web", "api"] as const) {
+      const { getByRole, unmount } = overviewRow({ ...SESSION, channel });
+      const icon = getByRole("img", { name: `channel:${channel}` });
+      expect(icon.getAttribute("data-channel")).toBe(channel);
+      expect(icon.getAttribute("title")).toBe(`channel:${channel}`);
+      // Above the row's opener, so hovering shows the name.
+      expect(icon.className).toContain("relative");
+      expect(icon.querySelector("svg")?.getAttribute("aria-hidden")).toBe(
+        "true",
+      );
+      unmount();
+    }
+  });
+
+  test("상태는 색 알약 배지이고 답변 대기 노랑, 작업 중 파랑, 실패 빨강, 나머지는 회색이다", () => {
+    const variants = {
+      needs_input: "amber",
+      running: "blue",
+      failed: "red",
+      queued: "gray",
+      idle: "gray",
+      stopped: "gray",
+    } as const;
+    for (const [status, tone] of Object.entries(variants)) {
+      const { container, unmount } = overviewRow({
+        ...SESSION,
+        status: status as SessionSummary["status"],
+      });
+      const badge = container.querySelector("[data-slot=badge]");
+      expect(badge?.textContent).toBe(`status:${status}`);
+      expect(badge?.className).toContain(
+        {
+          amber: "tone-caution",
+          blue: "tone-progress",
+          red: "tone-danger",
+          gray: "tone-neutral",
+        }[tone],
+      );
+      unmount();
+    }
+  });
+
+  test("열림·닫힘이 아닌 진입 상태는 두 번째 배지로, 복구 필요는 빨강으로 적는다", () => {
+    const badges = (admission_state: SessionSummary["admission_state"]) => {
+      const { container, unmount } = overviewRow({
+        ...SESSION,
+        status: "stopped",
+        admission_state,
+      });
+      const found = [...container.querySelectorAll("[data-slot=badge]")].map(
+        (badge) => [badge.textContent, badge.className.includes("tone-danger")],
+      );
+      unmount();
+      return found;
+    };
+    // A terminate that cut a running turn: stopped, yet a decision is owed.
+    expect(badges("recovery_required")).toEqual([
+      ["status:stopped", false],
+      ["admission:recovery_required", true],
+    ]);
+    expect(badges("paused")).toEqual([
+      ["status:stopped", false],
+      ["admission:paused", false],
+    ]);
+    expect(badges("active")).toEqual([["status:stopped", false]]);
+    expect(badges("closed")).toEqual([["status:stopped", false]]);
   });
 
   test("상태 뒤 설명은 노드를 받아 툴팁과 포커스를 행 링크 위에 둔다", () => {
-    const { getByText, getByRole } = render(
-      <SessionOverviewRow
-        session={{ ...SESSION, status: "needs_input" }}
-        renderLink={(link) => <a href="/sessions/abc" {...link} />}
-        messages={OVERVIEW_MESSAGES}
-        statusDetail={
+    const { getByText, getAllByRole } = overviewRow(
+      { ...SESSION, status: "needs_input" },
+      {
+        statusDetail: (
           // biome-ignore lint/a11y/noNoninteractiveTabindex: home's wait tooltip trigger, focused for its exact time
           <time dateTime="2026-11-02T00:00:00Z" tabIndex={0} title="exact">
             12분
           </time>
-        }
-      />,
+        ),
+      },
     );
     const time = getByText("12분");
     expect(time.tagName).toBe("TIME");
@@ -521,9 +583,105 @@ describe("SessionOverviewRow", () => {
     expect(time.parentElement?.className).toContain("relative");
     time.focus();
     expect(document.activeElement === time).toBe(true);
-    const row = getByRole("row");
-    expect(row.textContent).toContain("work: status:needs_input · 12분");
+    expect(getAllByRole("row")[1]?.textContent).toContain(
+      "work: status:needs_input12분",
+    );
   });
+
+  test("시작 시각은 연도 없는 절대 시각이고 툴팁에 상대 시각을 둔다", () => {
+    const { getAllByRole } = overviewRow({
+      ...SESSION,
+      created_at: "2026-11-11T00:42:00.000Z",
+    });
+    const time = cellsOf(getAllByRole("row")[1])[4]?.querySelector("time");
+    expect(time?.textContent).toBe("11월 11일 오전 09:42");
+    expect(time?.getAttribute("dateTime")).toBe("2026-11-11T00:42:00.000Z");
+    expect(time?.getAttribute("data-slot")).toBe("table-time");
+    expect(time?.tabIndex).toBe(0);
+    expect(
+      document.getElementById(time?.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBe(formatRelativeTime("2026-11-11T00:42:00.000Z", "ko"));
+  });
+
+  test("소요 시간은 일하는 세션이면 진행 중, 아니면 끝난 턴들이 돈 시간의 합이다", () => {
+    const duration = (session: SessionSummary) => {
+      const { getAllByRole, unmount } = overviewRow(session);
+      const text = cellsOf(getAllByRole("row")[1])[5]?.textContent;
+      unmount();
+      return text;
+    };
+    const minutes = (n: number) => n * 60_000;
+    for (const status of ["running", "needs_input", "queued"] as const)
+      expect(duration({ ...SESSION, status, turn_time_ms: minutes(5) })).toBe(
+        "in progress",
+      );
+    // Not the wall clock from start to last event: an idle hour between
+    // turns does not count.
+    expect(
+      duration({
+        ...SESSION,
+        status: "idle",
+        created_at: "2026-11-11T00:00:00.000Z",
+        last_event_at: "2026-11-11T05:00:00.000Z",
+        turn_time_ms: minutes(18),
+      }),
+    ).toBe("18분");
+    expect(
+      duration({ ...SESSION, status: "failed", turn_time_ms: minutes(65) }),
+    ).toBe("1시간 5분");
+    expect(duration({ ...SESSION, status: "stopped", turn_time_ms: 0 })).toBe(
+      "—",
+    );
+  });
+
+  test("표 폭 820px 이하에서는 채널과 시작 시각을 머리와 셀에서 함께 숨긴다", () => {
+    const { getAllByRole, getByRole } = overviewRow(SESSION);
+    expect(
+      getByRole("table", { name: "sessions" }).getAttribute("data-narrow-at"),
+    ).toBe("820");
+    const hidden = (cells: Element[]) =>
+      cells.map((cell) =>
+        cell.className.includes("[@container(max-width:820px)]:hidden"),
+      );
+    const shape = [false, false, true, false, true, false];
+    expect(hidden(getAllByRole("columnheader"))).toEqual(shape);
+    expect(hidden(cellsOf(getAllByRole("row")[1]))).toEqual(shape);
+  });
+
+  test("표 폭이 600px 미만이면 행은 제목 한 줄 아래에 나머지를 두고 열 이름은 화면 읽기용으로만 남긴다", () => {
+    const { getAllByRole, getByRole } = overviewRow(SESSION);
+    const [header, row] = getAllByRole("row");
+    expect(header?.className).toContain("[@container(width<600px)]:sr-only");
+    expect(row?.className).toContain(
+      "[@container(width<600px)]:grid-cols-[minmax(0,1fr)_auto_auto]!",
+    );
+    const title = getByRole("link", { name: SESSION.id }).closest(
+      '[role="cell"]',
+    );
+    expect(title?.className).toContain(
+      "[@container(width<600px)]:col-span-full",
+    );
+  });
+});
+
+describe("RepositorySummary", () => {
+  const own = { id: "web", full_name: "acme/web", branch: "main" } as const;
+  const attached = [
+    { id: "zed", full_name: "acme/zed" },
+    { id: "api", full_name: "acme/api" },
+  ];
+  const renderSummary = (session: SessionSummary) =>
+    render(
+      <RepositorySummary
+        repositories={sessionRepositoriesOf(session)}
+        messages={{
+          none: "no repository",
+          unknown: "—",
+          more: (count) => `more:${count}`,
+        }}
+      />,
+    );
 
   test("저장소는 표시 이름 · branch로, 이름이 없으면 —로, 옛 서버면 catalog key로 보인다", () => {
     const cases = [
@@ -536,35 +694,19 @@ describe("SessionOverviewRow", () => {
       [null, "demo", "demo"],
     ] as const;
     for (const [repository, repository_id, shown] of cases) {
-      const { getByTitle, unmount } = render(
-        <SessionOverviewRow
-          session={{ ...SESSION, repository, repository_id }}
-          renderLink={(link) => <a href="/sessions/abc" {...link} />}
-          messages={OVERVIEW_MESSAGES}
-        />,
-      );
+      const { getByTitle, unmount } = renderSummary({
+        ...SESSION,
+        repository,
+        repository_id,
+      });
       expect(getByTitle(shown).textContent).toBe(shown);
       unmount();
     }
   });
 
   describe("저장소 여러 개", () => {
-    const own = { id: "web", full_name: "acme/web", branch: "main" } as const;
-    const attached = [
-      { id: "zed", full_name: "acme/zed" },
-      { id: "api", full_name: "acme/api" },
-    ];
-    const renderRow = (session: SessionSummary) =>
-      render(
-        <SessionOverviewRow
-          session={session}
-          renderLink={(link) => <a href="/sessions/abc" {...link} />}
-          messages={OVERVIEW_MESSAGES}
-        />,
-      );
-
     test("id 순 첫 저장소와 +N 단추를 보이고, 단추의 설명이 전체 목록이다", () => {
-      const { getByRole, container } = renderRow({
+      const { getByRole, container } = renderSummary({
         ...SESSION,
         repository_id: "web",
         repository: own,
@@ -576,7 +718,7 @@ describe("SessionOverviewRow", () => {
       const more = getByRole("button", { name: "+2 more:2" });
       expect(more.textContent).toBe("+2");
       expect(more.getAttribute("type")).toBe("button");
-      // Above the row's opener, so it takes its own hover and focus.
+      // Above a row's opener, so it takes its own hover and focus.
       expect(more.className).toContain("relative");
       const described = more.getAttribute("aria-describedby");
       const description = document.getElementById(described ?? "");
@@ -586,7 +728,7 @@ describe("SessionOverviewRow", () => {
     });
 
     test("자기 저장소 없이 추가만 있어도 저장소 있음으로 읽는다", () => {
-      const { queryByText, getByRole, container } = renderRow({
+      const { queryByText, getByRole, container } = renderSummary({
         ...SESSION,
         repository_id: null,
         repository: null,
@@ -598,20 +740,20 @@ describe("SessionOverviewRow", () => {
     });
 
     test("하나면 단추가 없고, 하나도 없으면 단추 없이 문구만 둔다", () => {
-      const one = renderRow({
+      const one = renderSummary({
         ...SESSION,
         repository_id: "web",
         repository: own,
       });
       expect(one.queryByRole("button")).toBeNull();
       one.unmount();
-      const none = renderRow({ ...SESSION, attached_repositories: [] });
+      const none = renderSummary({ ...SESSION, attached_repositories: [] });
       expect(none.queryByRole("button")).toBeNull();
       expect(none.getByText("no repository")).toBeTruthy();
     });
 
     test("옛 서버가 id만 보내면 id가 이름을 대신하고, 같은 id는 한 번만 센다", () => {
-      const { getByRole, container } = renderRow({
+      const { getByRole, container } = renderSummary({
         ...SESSION,
         repository_id: "web",
         repository: own,
@@ -620,168 +762,6 @@ describe("SessionOverviewRow", () => {
       expect(container.querySelector("code")?.textContent).toBe("api");
       expect(getByRole("button", { name: "+1 more:1" })).toBeTruthy();
     });
-  });
-
-  test("제목이 없으면 짧은 ID를 mono로 보이고 링크 이름은 전체 ID다", () => {
-    const { getByRole, getByText, queryAllByText } = render(
-      <SessionOverviewRow
-        session={{ ...SESSION, runtime: null, repository_id: "demo" }}
-        renderLink={(link) => <a href="/sessions/abc" {...link} />}
-        messages={OVERVIEW_MESSAGES}
-      />,
-    );
-    const link = getByRole("link", { name: SESSION.id });
-    expect(getByText(SESSION.id.slice(0, 8)).className).toContain("font-mono");
-    // No agent column asked for: the model column it had, a dash without a
-    // runtime rather than a guess.
-    expect(queryAllByText("—")).toHaveLength(1);
-    expect(queryAllByText(SESSION.id.slice(0, 8))).toHaveLength(1);
-    // No last event yet: the time is the creation time, absolute.
-    expect(link.closest('[role="row"]')?.querySelector("time")?.dateTime).toBe(
-      SESSION.created_at,
-    );
-  });
-
-  test("에이전트 위에 모델, 시작한 사람 열에 표시 이름을 두고 여는 링크 이름은 messages.open이다", () => {
-    const head = {
-      session: "세션",
-      status: "상태",
-      model: "모델",
-      agent: "에이전트 · 모델",
-      repository: "저장소",
-      startedBy: "시작한 사람",
-      recent: "최근",
-    };
-    const { getAllByRole, getByRole, rerender } = render(
-      <SessionOverviewTable label="sessions" messages={head}>
-        <SessionOverviewRow
-          session={{
-            ...SESSION,
-            title: "배포 점검",
-            agent: {
-              id: "0192f0c4-7d3a-7b4e-9f00-0000000000a1",
-              name: "Release helper",
-              release_version_no: 3,
-              release_label: "2026-10-30_14:30:28",
-              release_is_active: true,
-            },
-            created_by: {
-              user_id: "0192f0c4-7d3a-7b4e-9f00-0000000000b1",
-              display_name: "김하나",
-            },
-          }}
-          renderLink={(link) => <a href="/sessions/abc" {...link} />}
-          messages={{
-            ...OVERVIEW_MESSAGES,
-            open: (name) => `세션 열기: ${name}`,
-          }}
-        />
-      </SessionOverviewTable>,
-    );
-    expect(getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
-      "세션",
-      "상태",
-      "에이전트 · 모델",
-      "저장소",
-      "시작한 사람",
-      "최근",
-    ]);
-    const link = getByRole("link", { name: "세션 열기: 배포 점검" });
-    const cells = [
-      ...(link.closest('[role="row"]')?.querySelectorAll('[role="cell"]') ??
-        []),
-    ];
-    expect(cells).toHaveLength(6);
-    expect(cells[2]?.textContent).toBe("Release helpermodel-claude-default");
-    expect(cells[4]?.textContent).toBe("김하나");
-    rerender(
-      <SessionOverviewTable label="sessions" messages={head}>
-        <SessionOverviewRow
-          session={SESSION}
-          renderLink={(link) => <a href="/sessions/abc" {...link} />}
-          messages={OVERVIEW_MESSAGES}
-        />
-      </SessionOverviewTable>,
-    );
-    // A service key's session or one from before people were recorded.
-    const row = getByRole("link", { name: SESSION.id }).closest('[role="row"]');
-    const plain = row?.querySelectorAll('[role="cell"]');
-    expect(plain?.[4]?.textContent).toBe("—");
-    // No agent: a dash over the model; no model: no second line.
-    rerender(
-      <SessionOverviewTable label="sessions" messages={head}>
-        <SessionOverviewRow
-          session={{ ...SESSION, model: null }}
-          renderLink={(link) => <a href="/sessions/abc" {...link} />}
-          messages={OVERVIEW_MESSAGES}
-        />
-      </SessionOverviewTable>,
-    );
-    expect(
-      getByRole("link", { name: SESSION.id })
-        .closest('[role="row"]')
-        ?.querySelectorAll('[role="cell"]')[2]?.textContent,
-    ).toBe("—");
-  });
-
-  test("표 머리는 값이 있는 다섯 열이고 좁은 폭에서 저장소를 숨긴다", () => {
-    const { getAllByRole } = render(
-      <SessionOverviewTable
-        label="sessions"
-        messages={{
-          session: "세션",
-          status: "상태",
-          model: "모델",
-          repository: "저장소",
-          recent: "최근",
-        }}
-      >
-        {null}
-      </SessionOverviewTable>,
-    );
-    const heads = getAllByRole("columnheader");
-    expect(heads.map((head) => head.textContent)).toEqual([
-      "세션",
-      "상태",
-      "모델",
-      "저장소",
-      "최근",
-    ]);
-    expect(
-      heads.filter((head) => head.className.includes("hidden")),
-    ).toHaveLength(1);
-  });
-
-  test("표 폭이 600px 미만이면 행은 제목 한 줄 아래에 나머지를 두고 열 이름은 화면 읽기용으로만 남긴다", () => {
-    const { getAllByRole, getByRole } = render(
-      <SessionOverviewTable
-        label="sessions"
-        messages={{
-          session: "세션",
-          status: "상태",
-          model: "모델",
-          repository: "저장소",
-          recent: "최근",
-        }}
-      >
-        <SessionOverviewRow
-          session={SESSION}
-          renderLink={(link) => <a href="/sessions/abc" {...link} />}
-          messages={OVERVIEW_MESSAGES}
-        />
-      </SessionOverviewTable>,
-    );
-    const [header, row] = getAllByRole("row");
-    expect(header?.className).toContain("[@container(width<600px)]:sr-only");
-    expect(row?.className).toContain(
-      "[@container(width<600px)]:grid-cols-[auto_minmax(0,1fr)_auto]!",
-    );
-    const title = getByRole("link", { name: SESSION.id }).closest(
-      '[role="cell"]',
-    );
-    expect(title?.className).toContain(
-      "[@container(width<600px)]:col-span-full",
-    );
   });
 });
 
@@ -794,13 +774,6 @@ describe("rows' relative time", () => {
 
   test("now가 없으면 행이 분마다 다시 읽어 'N분 전'이 늘어난다", () => {
     jest.useFakeTimers({ now: new Date(at) });
-    const overview = render(
-      <SessionOverviewRow
-        session={{ ...SESSION, last_event_at: at }}
-        renderLink={(link) => <a href="/sessions/abc" {...link} />}
-        messages={OVERVIEW_MESSAGES}
-      />,
-    );
     const row = render(
       <SessionRow
         session={{ ...SESSION, last_event_at: at }}
@@ -808,19 +781,17 @@ describe("rows' relative time", () => {
         messages={ROW_MESSAGES}
       />,
     );
-    expect(shown(overview.container)).toBe("방금");
     expect(shown(row.container)).toBe("방금");
     act(() => jest.advanceTimersByTime(3 * 60_000));
-    expect(shown(overview.container)).toBe("3분 전");
     expect(shown(row.container)).toBe("3분 전");
   });
 
   test("now를 주면 그 시각부터 세고 정확한 시각은 툴팁 설명으로 둔다", () => {
     const { container } = render(
-      <SessionOverviewRow
+      <SessionRow
         session={{ ...SESSION, last_event_at: at }}
         renderLink={(link) => <a href="/sessions/abc" {...link} />}
-        messages={OVERVIEW_MESSAGES}
+        messages={ROW_MESSAGES}
         now={Date.parse(at) + 12 * 60_000}
       />,
     );

@@ -881,6 +881,8 @@ describe("agent list summary", () => {
     needs_input_count: 1,
     running_count: 2,
     slack_action: "home_unset" as const,
+    engine: "codex_app_server" as const,
+    channels: ["slack" as const, "github" as const],
   };
 
   test("is asked for, and a page without it is the agents as before", () => {
@@ -896,6 +898,25 @@ describe("agent list summary", () => {
     expect(
       agentSchema.parse(listAgentsResponseSchema.parse(page).items[0]),
     ).toEqual(agent);
+  });
+
+  test("names the engine and the channels, and nothing else as a channel", () => {
+    const parse = (patch: object) =>
+      agentListItemSchema.safeParse({
+        ...agent,
+        summary: { ...summary, ...patch },
+      }).success;
+    expect(parse({ engine: null, channels: [] })).toBe(true);
+    expect(parse({ engine: "claude_agent_sdk", channels: ["github"] })).toBe(
+      true,
+    );
+    expect(parse({ engine: "claude" })).toBe(false);
+    expect(parse({ channels: ["web"] })).toBe(false);
+    const { channels: _, ...withoutChannels } = summary;
+    expect(
+      agentListItemSchema.safeParse({ ...agent, summary: withoutChannels })
+        .success,
+    ).toBe(false);
   });
 
   test("carries a clipped card, never the whole one", () => {

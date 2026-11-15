@@ -1,16 +1,23 @@
 /**
- * Scan the tree, the commit messages of this run and the PR title and body for a private
- * list of forbidden terms.
+ * Scan the tree, the commit messages of this run, and the title, body, comments and reviews
+ * of a PR or issue for private lists of forbidden terms.
  *
- * FORBIDDEN_TERMS=<one ERE per line> [PR_NUMBER=n BASE_SHA=s BASE_REF=b HEAD_SHA=s] bun .github/scripts/forbidden-terms.ts
+ * FORBIDDEN_TERMS=<one ERE per line> [FORBIDDEN_HOST_TERMS=<one ERE per line>]
+ *   [PR_NUMBER=n | ISSUE_NUMBER=n] [TEXT_ONLY=true] [BASE_SHA=s BASE_REF=b HEAD_SHA=s]
+ *   bun .github/scripts/forbidden-terms.ts
  *
- * The list stays out of the repository and this repository's Actions logs are public, so the
+ * The lists stay out of the repository and this repository's Actions logs are public, so the
  * output is fixed text and counts only: no term, no path, line or sha (any of them would point
  * at the public sentence that holds a term). Find the place with a local grep. Child stderr is
- * dropped because a bad pattern's error quotes the pattern. The title and body come from the
- * API because a re-run reuses the old event payload.
+ * dropped because a bad pattern's error quotes the pattern. Texts come from the API because a
+ * re-run reuses the old event payload.
  *
- * A missing list fails the job. A scan that cannot run is not a scan that found nothing.
+ * Only texts by OWNER, MEMBER or COLLABORATOR are scanned. Anyone can comment here, and a
+ * pass or fail on a stranger's text would let them test guesses against the private lists.
+ *
+ * A missing FORBIDDEN_TERMS fails the job: a scan that cannot run is not a scan that found
+ * nothing. FORBIDDEN_HOST_TERMS is optional; without it the log says those terms were skipped.
+ * TEXT_ONLY (comment and issue events) skips the tree and commit messages.
  */
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -28,8 +35,12 @@ function child(
   cmd: [string, ...string[]],
   input?: string,
 ): { status: number | null; stdout: string } {
-  // The list never reaches a child: patterns go through a file, and the variable is dropped.
-  const { FORBIDDEN_TERMS: _dropped, ...rest } = env;
+  // The lists never reach a child: patterns go through a file, and the variables are dropped.
+  const {
+    FORBIDDEN_TERMS: _dropped,
+    FORBIDDEN_HOST_TERMS: _droppedHost,
+    ...rest
+  } = env;
   const [file, ...args] = cmd;
   const p = spawnSync(file, args, {
     input,
@@ -92,23 +103,50 @@ function commitMessages(): string {
   return p.stdout;
 }
 
-function prText(number: string): string {
-  const p = child([
-    "gh",
-    "api",
-    `repos/${env.GITHUB_REPOSITORY ?? ""}/pulls/${number}`,
-    "--jq",
-    '.title + "\\n" + (.body // "")',
-  ]);
-  if (p.status !== 0) throw new Failed("could not read the PR title and body");
+const TRUSTED =
+  'select(.author_association == "OWNER" or .author_association == "MEMBER" or .author_association == "COLLABORATOR")';
+
+function api(path: string, jq: string, failure: string): string {
+  const p = child(["gh", "api", "--paginate", path, "--jq", jq]);
+  if (p.status !== 0) throw new Failed(failure);
   return p.stdout;
 }
 
-function main(): number {
-  const patterns = (env.FORBIDDEN_TERMS ?? "")
+// The title and body, then every comment and review, of one PR or issue.
+function threadText(
+  kind: "PR" | "issue",
+  number: string,
+): Record<string, string> {
+  const repo = `repos/${env.GITHUB_REPOSITORY ?? ""}`;
+  const body = `${TRUSTED} | .title + "\\n" + (.body // "")`;
+  const each = `.[] | ${TRUSTED} | .body // ""`;
+  const title = api(
+    `${repo}/${kind === "PR" ? "pulls" : "issues"}/${number}`,
+    body,
+    `could not read the ${kind} title and body`,
+  );
+  const fail = `could not read the ${kind} comments and reviews`;
+  const comments = [api(`${repo}/issues/${number}/comments`, each, fail)];
+  if (kind === "PR")
+    comments.push(
+      api(`${repo}/pulls/${number}/comments`, each, fail),
+      api(`${repo}/pulls/${number}/reviews`, each, fail),
+    );
+  return {
+    [`${kind} title and body`]: title,
+    [`${kind} comments and reviews`]: comments.join("\n"),
+  };
+}
+
+function lines(value: string | undefined): string[] {
+  return (value ?? "")
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
+}
+
+function main(): number {
+  const patterns = lines(env.FORBIDDEN_TERMS);
   if (patterns.length === 0) {
     const fork = env.FORK_PR === "true";
     throw new Failed(
@@ -117,18 +155,29 @@ function main(): number {
         : "FORBIDDEN_TERMS is empty or not set; the forbidden-term scan cannot run",
     );
   }
+  const hostPatterns = lines(env.FORBIDDEN_HOST_TERMS);
+  if (hostPatterns.length === 0)
+    console.log("FORBIDDEN_HOST_TERMS is not set; host terms were not scanned");
   const dir = mkdtempSync(
     join(env.RUNNER_TEMP || tmpdir(), "forbidden-terms-"),
   ); // mode 700
   try {
     const terms = join(dir, "terms.tmp");
-    writeFileSync(terms, `${patterns.join("\n")}\n`, { mode: 0o600 });
-    const hits: Record<string, number> = {
-      tree: countTree(terms),
-      "commit messages": countText(commitMessages(), terms),
-    };
-    if (env.PR_NUMBER)
-      hits["PR title and body"] = countText(prText(env.PR_NUMBER), terms);
+    writeFileSync(terms, `${[...patterns, ...hostPatterns].join("\n")}\n`, {
+      mode: 0o600,
+    });
+    const hits: Record<string, number> = {};
+    if (env.TEXT_ONLY !== "true") {
+      hits.tree = countTree(terms);
+      hits["commit messages"] = countText(commitMessages(), terms);
+    }
+    const texts = env.PR_NUMBER
+      ? threadText("PR", env.PR_NUMBER)
+      : env.ISSUE_NUMBER
+        ? threadText("issue", env.ISSUE_NUMBER)
+        : {};
+    for (const [where, text] of Object.entries(texts))
+      hits[where] = countText(text, terms);
     for (const [where, n] of Object.entries(hits))
       console.log(`${where}: ${n}`);
     if (Object.values(hits).some((n) => n > 0)) {

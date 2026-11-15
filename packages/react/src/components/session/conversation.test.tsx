@@ -42,7 +42,7 @@ const APPROVAL: ApprovalCardMessages = {
 describe("ApprovalCard", () => {
   test("키보드만으로 허용한다", async () => {
     const user = await setupUser();
-    const onAllow = mock(() => {});
+    const onAllow = mock((_reason?: string) => {});
     render(
       <ApprovalCard
         request={REQUEST}
@@ -52,19 +52,21 @@ describe("ApprovalCard", () => {
         now={NOW}
       />,
     );
-    // The folded input is the first stop, then the actions.
+    // The folded input, the answer field, then the actions.
+    await user.tab();
     await user.tab();
     await user.tab();
     expect(document.activeElement?.textContent).toBe("Allow");
     await user.keyboard("{Enter}");
     expect(onAllow).toHaveBeenCalledTimes(1);
+    expect(onAllow).toHaveBeenCalledWith(undefined);
   });
 
-  test("제목 줄에 대상과 기한을 함께 두고, 답 버튼은 입력 보기와 다른 줄에 내용 폭으로 둔다", () => {
+  test("제목 줄에 승인 대기와 기한을 두고, 도구 이름 칩과 답 버튼은 각자 줄에 내용 폭으로 둔다", () => {
     const view = render(
       <ApprovalCard
         request={REQUEST}
-        messages={APPROVAL}
+        messages={{ ...APPROVAL, heading: "Awaiting" }}
         onAllow={() => {}}
         onDeny={() => {}}
         now={NOW}
@@ -72,8 +74,10 @@ describe("ApprovalCard", () => {
         subject={<a href="#s">s-1…</a>}
       />,
     );
-    const title = view.getByText("Bash asks").parentElement as HTMLElement;
-    expect(title.textContent).toMatch(/^Bash asks·s-1…·expires /);
+    expect(view.getByRole("article", { name: "Bash asks" })).toBeTruthy();
+    const title = view.getByText("Awaiting").parentElement as HTMLElement;
+    expect(title.textContent).toMatch(/^Awaiting·s-1…expires /);
+    expect(view.getByText("Bash", { selector: "code" })).toBeTruthy();
     const allow = view.getByRole("button", { name: "Allow" });
     const deny = view.getByRole("button", { name: "Deny" });
     expect(allow.className).not.toContain("flex-1");
@@ -82,37 +86,26 @@ describe("ApprovalCard", () => {
     expect(row.contains(view.getByText("input"))).toBe(false);
   });
 
-  test("거부는 이유를 적어야 보내지고, 취소하면 거부 버튼으로 돌아간다", async () => {
+  test("답변 칸은 선택이다: 적으면 승인·거절에 실어 보내고, 비우면 이유 없이 거절한다", async () => {
     const user = await setupUser();
+    const onAllow = mock((_reason?: string) => {});
     const onDeny = mock((_reason: string) => {});
-    const { getByRole, getByLabelText } = render(
+    const view = render(
       <ApprovalCard
         request={REQUEST}
-        messages={APPROVAL}
-        onAllow={() => {}}
+        messages={{ ...APPROVAL, answer: "Answer" }}
+        onAllow={onAllow}
         onDeny={onDeny}
         now={NOW}
       />,
     );
-    getByRole("button", { name: "Deny" }).focus();
-    await user.keyboard("{Enter}");
-    const reason = getByLabelText("Reason");
-    expect(document.activeElement).toBe(reason);
-    expect(
-      (getByRole("button", { name: "Send denial" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
-    await user.tab();
-    expect(document.activeElement?.textContent).toBe("Cancel");
-    await user.keyboard("{Enter}");
-    expect(document.activeElement).toBe(getByRole("button", { name: "Deny" }));
-
-    await user.keyboard("{Enter}");
-    await user.keyboard("  not this file  ");
-    await user.tab();
-    expect(document.activeElement?.textContent).toBe("Send denial");
-    await user.keyboard("{Enter}");
-    expect(onDeny).toHaveBeenCalledWith("not this file");
+    await user.click(view.getByRole("button", { name: "Deny" }));
+    expect(onDeny).toHaveBeenCalledWith("");
+    await user.type(view.getByLabelText("Answer"), "  not this file  ");
+    await user.click(view.getByRole("button", { name: "Deny" }));
+    expect(onDeny).toHaveBeenLastCalledWith("not this file");
+    await user.click(view.getByRole("button", { name: "Allow" }));
+    expect(onAllow).toHaveBeenCalledWith("not this file");
   });
 
   test("만료되면 답할 버튼 없이 만료로 읽힌다", () => {
@@ -228,7 +221,7 @@ describe("Composer", () => {
     expect(document.activeElement).toBe(field);
     await user.keyboard("run the tests");
     await user.tab();
-    expect(document.activeElement?.textContent).toBe("Send");
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Send");
     await user.keyboard("{Enter}");
     expect(onSend).toHaveBeenCalledWith("run the tests");
     await waitFor(() => expect(field.value).toBe(""));
@@ -259,6 +252,21 @@ describe("Composer", () => {
       ).toBe(false),
     );
     expect(field.value).toBe("second");
+  });
+
+  test("Enter로 보내고 Shift+Enter는 줄을 바꾼다", async () => {
+    const user = await setupUser();
+    const onSend = mock((_text: string) => Promise.resolve());
+    const { getByLabelText } = render(
+      <Composer messages={COMPOSER} onSend={onSend} />,
+    );
+    const field = getByLabelText("Message") as HTMLTextAreaElement;
+    await user.click(field);
+    await user.keyboard("one{Shift>}{Enter}{/Shift}two");
+    expect(onSend).toHaveBeenCalledTimes(0);
+    expect(field.value).toBe("one\ntwo");
+    await user.keyboard("{Enter}");
+    expect(onSend).toHaveBeenCalledWith("one\ntwo");
   });
 
   test("Ctrl+Enter로 보내고, 거절되면 쓴 글을 남긴다", async () => {

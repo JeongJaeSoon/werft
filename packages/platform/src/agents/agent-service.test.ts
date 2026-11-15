@@ -291,6 +291,8 @@ describe("agent service", () => {
       needs_input_count: 0,
       running_count: 0,
       slack_action: null,
+      engine: null,
+      channels: [],
     };
     const service = serviceOver({
       ...store,

@@ -235,6 +235,49 @@ integration("session reader on PostgreSQL", () => {
     ).toBe(at.toISOString());
   });
 
+  test("turn_time_ms sums the finished turns' run time, leaving out the gaps between them and a turn still running", async () => {
+    const { sessionId, turnId } = await queuedSession();
+    const at = (minute: number) => new Date(Date.UTC(2026, 10, 11, 0, minute));
+    // Turn 1 ran 18 minutes; an hour idle; turn 2 ran 7; turn 3 still runs.
+    await db
+      .update(turns)
+      .set({ status: "completed", startedAt: at(0), endedAt: at(18) })
+      .where(eq(turns.id, turnId));
+    await db.insert(turns).values([
+      {
+        sessionId,
+        sequence: 2,
+        message: "again",
+        status: "completed",
+        startedAt: at(78),
+        endedAt: at(85),
+      },
+      {
+        sessionId,
+        sequence: 3,
+        message: "once more",
+        status: "running",
+        startedAt: at(90),
+      },
+    ]);
+    const untouched = await queuedSession();
+    const reader = createPostgresSessionReader(db);
+    const listed = (
+      await reader.listSessions(
+        OWNER,
+        { limit: 100 },
+        { userId: null, apiKeyId: null },
+      )
+    ).items;
+    const timeOf = (id: string) =>
+      listed.find((item) => item.id === id)?.turn_time_ms;
+    expect(timeOf(sessionId)).toBe(25 * 60_000);
+    expect(timeOf(untouched.sessionId)).toBe(0);
+    expect((await reader.getSession(OWNER, sessionId))?.turn_time_ms).toBe(
+      25 * 60_000,
+    );
+  });
+
   test("the session list and detail answer no activity", async () => {
     const { sessionId } = await queuedSession();
     await db.insert(events).values({

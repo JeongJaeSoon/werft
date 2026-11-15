@@ -11,8 +11,10 @@ const BUDGET_BYTES: Record<string, number> = {
   // (4c) put ./schemas 141 bytes over 139, then raised it to 140. The tool call
   // audit report schemas put it 38 bytes over that, and ./forms 243 bytes over
   // its 139, so ./forms moves to 140. The session event archive settings
-  // put ./schemas 2 bytes over 141, so it moves to 142.
-  "./schemas": 142 * 1024,
+  // put ./schemas 2 bytes over 141, so it moves to 142. The agent list's
+  // engine and channels and the session's turn time put it 26 bytes over 142,
+  // so it moves to 143.
+  "./schemas": 143 * 1024,
   "./forms": 140 * 1024,
 };
 

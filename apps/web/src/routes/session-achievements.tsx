@@ -10,6 +10,7 @@ import type {
 } from "@werft-ai/contracts";
 import { administeredAgentsQuery, queryKeysOf } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
+import { DetailRailSection } from "@werft-ai/react/components";
 import {
   Badge,
   Code,
@@ -20,7 +21,6 @@ import {
   RowLines,
   RowList,
   RowListItem,
-  Section,
   Text,
 } from "@werft-ai/ui";
 import { useState } from "react";
@@ -139,7 +139,7 @@ export function SessionAchievements({
     return null;
   }
   return (
-    <Section
+    <DetailRailSection
       title={t("session.achievements.title")}
       badge={<Badge>{data.items.length}</Badge>}
       actions={
@@ -175,7 +175,7 @@ export function SessionAchievements({
           </RowList>
         )}
       </div>
-    </Section>
+    </DetailRailSection>
   );
 }
 

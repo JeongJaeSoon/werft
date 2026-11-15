@@ -5,12 +5,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import {
-  Link,
-  useNavigate,
-  useParams,
-  useSearch,
-} from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { type ApiClient, isApiError, unwrap } from "@werft-ai/client";
 import type {
   CountSessionsResponse,
@@ -29,7 +24,6 @@ import {
 import { DetailLayout, ListToolbar } from "@werft-ai/react/components";
 import {
   Button,
-  buttonVariants,
   EmptyState,
   FilterMenu,
   type ItemCountTone,
@@ -38,7 +32,6 @@ import {
   SegmentedControlItem,
   Text,
 } from "@werft-ai/ui";
-import { ArrowLeft } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useCan } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
@@ -47,11 +40,8 @@ import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 import { SessionGitHubWork } from "./session-github-work.tsx";
-import { SessionOutputsCount, SessionOutputsTab } from "./session-outputs.tsx";
+import { SessionOutputsPanel } from "./session-outputs.tsx";
 import { SessionsOverview } from "./session-overview.tsx";
-import { SessionReleaseBlock } from "./session-release.tsx";
-import { SessionShareBlock } from "./session-share.tsx";
-import { SessionWorkspaceLimit } from "./session-workspace-limit.tsx";
 
 export function loadError(error: unknown, onRetry: () => void) {
   if (isApiError(error, "FORBIDDEN")) {
@@ -396,41 +386,14 @@ export function SessionDetailScreen() {
   const { id } = useParams({ from: "/authed/sessions/$id" });
   const unavailable = useUnavailable();
   return (
-    // The screen fills the area under the top bar, so its rail reaches the bottom.
+    // The screen fills the area under the top bar, so the chat reaches the bottom.
     <div className="flex flex-1 flex-col">
       <SessionDetail
-        back={
-          <Link
-            to="/sessions"
-            className={buttonVariants({ variant: "outline", size: "sm" })}
-          >
-            <ArrowLeft strokeWidth={1.5} aria-hidden="true" />
-            {t("session.back")}
-          </Link>
-        }
         id={id}
         loading={<StatusScreen kind="loading" />}
         renderError={loadError}
-        controls={(session) => (
-          <>
-            <SessionWorkspaceLimit mode={session.workspace_limit_mode} />
-            <SessionReleaseBlock agent={session.agent} />
-            <SessionShareBlock id={session.id} />
-          </>
-        )}
-        tabs={(session) => [
-          {
-            value: "outputs",
-            label: t("session.outputs.title"),
-            count: <SessionOutputsCount session={session} />,
-            content: <SessionOutputsTab session={session} />,
-          },
-        ]}
-        timelineExtra={(session) => (
-          <div className="px-4 pb-4">
-            <SessionGitHubWork session={session} />
-          </div>
-        )}
+        panel={(session) => <SessionOutputsPanel session={session} />}
+        timelineExtra={(session) => <SessionGitHubWork session={session} />}
         unavailable={unavailable}
         refusal={(error) => t(errorKey(error.code))}
       />

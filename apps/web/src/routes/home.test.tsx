@@ -455,18 +455,14 @@ describe("최근 세션 표", () => {
     const table = await screen.findByRole("table", { name: "최근 세션" });
     const at = within(table)
       .getAllByRole("columnheader")
-      .findIndex((header) => header.textContent === "에이전트 · 모델");
+      .findIndex((header) => header.textContent === "에이전트");
     const agents = within(table)
       .getAllByRole("row")
       .slice(1)
-      .map(
-        (row) =>
-          within(row).getAllByRole("cell")[at]?.querySelector("span")
-            ?.textContent,
-      );
+      .map((row) => within(row).getAllByRole("cell")[at]?.textContent);
     expect(agents).toEqual(["배포 도우미", "—"]);
   });
-  test("좁은 표(820px 이하)에서는 저장소 열이 머리와 칸이 함께 빠지고 남는 네 열이 좁은 열 틀과 맞는다", async () => {
+  test("좁은 표(820px 이하)에서는 채널과 시작 시각 열이 머리와 칸이 함께 빠지고 남는 네 열이 좁은 열 틀과 맞는다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
@@ -493,9 +489,18 @@ describe("최근 세션 표", () => {
         .split(/\s+/)
         .includes("[@container(max-width:820px)]:hidden");
     const headers = within(table).getAllByRole("columnheader");
-    expect(headers.map(hidden)).toEqual([false, false, false, true, false]);
+    // The same columns as the session list.
+    expect(headers.map((header) => header.textContent)).toEqual([
+      "제목",
+      "에이전트",
+      "채널",
+      "상태",
+      "시작 시각",
+      "소요 시간",
+    ]);
     expect(headers.filter(hidden).map((header) => header.textContent)).toEqual([
-      "저장소",
+      "채널",
+      "시작 시각",
     ]);
     const kept = headers.filter((header) => !hidden(header));
     expect(kept).toHaveLength(narrowTracks.length);
@@ -691,6 +696,8 @@ describe("홈 요약", () => {
               needs_input_count: 0,
               running_count: 0,
               slack_action,
+              engine: null,
+              channels: [],
             },
           })),
           next_cursor,
@@ -1003,32 +1010,36 @@ describe("홈 요약", () => {
     ).toBeTruthy();
     expect(within(overview).getByText("추정 비용")).toBeTruthy();
     const recent = screen.getByRole("table", { name: "최근 세션" });
-    // The design's dot, not a pill: amber for waiting, the text says which.
+    // A pill per status: amber for waiting, grey for idle; the text says
+    // which.
     expect(
-      [...recent.querySelectorAll("[data-slot=status-dot]")].map((dot) =>
-        dot.getAttribute("data-status"),
+      [...recent.querySelectorAll("[data-slot=badge]")].map(
+        (badge) => badge.className.match(/tone-[a-z]+-bg/)?.[0],
       ),
-    ).toEqual(["wait", "idle"]);
+    ).toEqual(["tone-caution-bg", "tone-neutral-bg"]);
     expect(
       within(recent)
         .getAllByRole("row")
         .map((row) => [...row.children].map((cell) => shownText(cell))),
     ).toEqual([
-      // The session list's own columns, home without the starter.
-      ["세션", "상태", "에이전트 · 모델", "저장소", "최근"],
+      // The session list's own columns.
+      ["제목", "에이전트", "채널", "상태", "시작 시각", "소요 시간"],
       [
         `${waitingSession.title}${waitingSession.id.slice(0, 8)}`,
-        expect.stringMatching(/^작업 상태: 답변 대기 · \d+(분|시간|일)$/),
-        expect.stringMatching(/^—/),
-        "demo",
-        expect.stringMatching(/^최근 /),
+        "—",
+        "—",
+        expect.stringMatching(/^작업 상태: 답변 대기\d+(분|시간|일)$/),
+        expect.stringMatching(/^\d+월 \d+일 (오전|오후) \d{2}:\d{2}$/),
+        "진행 중",
       ],
       [
         oneSession.id.slice(0, 8),
+        "—",
+        "—",
         "작업 상태: 쉬는 중",
-        expect.stringMatching(/^—/),
-        "demo",
-        expect.stringMatching(/^최근 /),
+        expect.stringMatching(/^\d+월 \d+일 (오전|오후) \d{2}:\d{2}$/),
+        // No finished turn has a run time to show.
+        "—",
       ],
     ]);
     expect(
@@ -1582,6 +1593,8 @@ describe("홈 요약", () => {
       needs_input_count: 2,
       running_count: 1,
       slack_action: null,
+      engine: null,
+      channels: [],
     });
     const agentCardOf = async (
       role: "admin" | "member",

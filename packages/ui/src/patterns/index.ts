@@ -6,10 +6,32 @@ export {
   type BarChartProps,
 } from "./bar-chart.tsx";
 export {
+  type BrandMarkProps,
+  GitHubMark,
+  GoogleDriveMark,
+  SlackMark,
+} from "./brand-marks.tsx";
+export {
+  ChatList,
+  ChatMessage,
+  type ChatMessageProps,
+  type ChatSide,
+  ChatToolGroup,
+  type ChatToolGroupProps,
+  ChatToolItem,
+  type ChatToolItemProps,
+} from "./chat.tsx";
+export {
   Combobox,
   type ComboboxOption,
   type ComboboxProps,
 } from "./combobox.tsx";
+export {
+  CompactList,
+  CompactRow,
+  type CompactRowProps,
+  DiffStat,
+} from "./compact-list.tsx";
 export {
   ConfirmDialog,
   type ConfirmDialogProps,

@@ -2,34 +2,34 @@ import type { PendingRequest, ToolVerbMessage } from "@werft-ai/contracts";
 import {
   Button,
   CodeBlock,
-  cn,
   Field,
   FieldError,
   FieldLabel,
   formatTimestamp,
+  Input,
   Text,
-  Textarea,
   type TimestampLocale,
 } from "@werft-ai/ui";
-import { Hourglass } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import {
   type FormEvent,
   type JSX,
   type ReactNode,
-  useEffect,
   useId,
-  useRef,
   useState,
 } from "react";
 
 import { Busy } from "./busy.tsx";
 import { useExpired, useExpiryFocus } from "./expiry.ts";
-import { ToolSummary } from "./tool-summary.tsx";
+import { RequestCard } from "./request-card.tsx";
 
 export type PermissionRequest = Extract<PendingRequest, { kind: "permission" }>;
 
 export interface ApprovalCardMessages {
+  /** Names the card for screen readers: what asks, and for which tool. */
   readonly title: (tool: string) => string;
+  /** The bold line by the shield: "승인 대기". Falls back to `title`. */
+  readonly heading?: string | undefined;
   /** Words the verb of the request's `summary`; without it no summary shows. */
   readonly summary?: ((verb: ToolVerbMessage) => string) | undefined;
   /** Names the folded view of the tool input. */
@@ -39,16 +39,23 @@ export interface ApprovalCardMessages {
   readonly expired: string;
   readonly allow: string;
   readonly deny: string;
+  /** The denial form's reason label, where a caller still opens one. */
   readonly denyReason: string;
-  readonly denySubmit: string;
-  readonly cancel: string;
+  /** The optional answer field's label: "답변 (선택)". */
+  readonly answer?: string | undefined;
+  /** The answer field's placeholder. */
+  readonly answerPlaceholder?: string | undefined;
+  /** Kept for callers that still pass it; the card no longer opens a form. */
+  readonly denySubmit?: string | undefined;
+  readonly cancel?: string | undefined;
 }
 
 export interface ApprovalCardProps {
   readonly request: PermissionRequest;
   readonly messages: ApprovalCardMessages;
-  readonly onAllow: () => void;
-  /** A denial always carries the reason the person typed. */
+  /** Takes what the person typed in the answer field, if anything. */
+  readonly onAllow: (reason?: string) => void;
+  /** Takes what the person typed; empty when they gave no reason. */
   readonly onDeny: (reason: string) => void;
   /** An answer was sent and its receipt has not come back. */
   readonly pending?: boolean | undefined;
@@ -86,149 +93,105 @@ export function ApprovalCard({
   className,
 }: ApprovalCardProps): JSX.Element {
   const titleId = useId();
-  const [denying, setDenying] = useState(false);
-  const [reason, setReason] = useState("");
-  const reasonRef = useRef<HTMLTextAreaElement>(null);
-  const denyRef = useRef<HTMLButtonElement>(null);
-  // Set when a cancel should hand focus back to the button that opened it.
-  const returnFocus = useRef(false);
+  const [answer, setAnswer] = useState("");
   const expired = useExpired(request.request_id, request.expires_at, now);
   const { noticeRef, within } = useExpiryFocus(expired);
   const blocked = pending || disabled;
+  const reason = answer.trim();
+  const summary =
+    request.summary !== undefined && messages.summary !== undefined
+      ? request.summary
+      : undefined;
 
-  useEffect(() => {
-    if (denying) reasonRef.current?.focus();
-    else if (returnFocus.current) {
-      returnFocus.current = false;
-      denyRef.current?.focus();
-    }
-  }, [denying]);
-
-  const submitDenial = (event: FormEvent) => {
+  const allow = (event: FormEvent) => {
     event.preventDefault();
-    const trimmed = reason.trim();
-    if (trimmed) onDeny(trimmed);
+    if (!blocked) onAllow(reason || undefined);
   };
 
   return (
-    // An article, not a section: two requests for the same tool would make
-    // two landmarks with one name.
-    <article
-      aria-labelledby={titleId}
+    <RequestCard
+      titleId={titleId}
+      icon={ShieldCheck}
+      title={messages.heading ?? messages.title(request.tool)}
+      label={messages.title(request.tool)}
+      subject={subject}
+      notice={
+        <Text
+          ref={noticeRef}
+          variant="meta"
+          tabIndex={expired ? -1 : undefined}
+        >
+          {expired
+            ? messages.expired
+            : messages.expires(formatTimestamp(request.expires_at, locale))}
+        </Text>
+      }
+      slot="approval-card"
       aria-busy={pending || undefined}
-      data-slot="approval-card"
       data-expired={expired || undefined}
-      className={cn(
-        "flex min-w-0 flex-col gap-3 rounded-card border border-[var(--werft-tone-attention-border)] bg-[var(--werft-tone-attention-bg)] p-4 text-control",
-        className,
-      )}
+      className={className}
       {...within}
     >
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <Hourglass
-          className="size-4 shrink-0"
-          strokeWidth={1.5}
-          aria-hidden="true"
-        />
-        {/* Not a heading: the level depends on the screen around the card. */}
-        <Text
-          id={titleId}
-          className="font-semibold text-body [overflow-wrap:anywhere]"
-        >
-          {messages.title(request.tool)}
-        </Text>
-        {/* Each separator wraps with the item after it, never left trailing. */}
-        {subject === undefined ? null : (
-          <span className="flex min-w-0 items-center gap-2">
-            <span aria-hidden="true" className="text-muted-foreground">
-              ·
-            </span>
-            <Text
-              as="span"
-              variant="meta"
-              className="min-w-0 text-foreground [overflow-wrap:anywhere]"
-            >
-              {subject}
-            </Text>
-          </span>
-        )}
-        <span className="flex items-center gap-2">
-          <span aria-hidden="true" className="text-muted-foreground">
-            ·
-          </span>
-          <Text
-            ref={noticeRef}
-            variant="meta"
-            tabIndex={expired ? -1 : undefined}
-          >
-            {expired
-              ? messages.expired
-              : messages.expires(formatTimestamp(request.expires_at, locale))}
+      {summary !== undefined && messages.summary !== undefined ? (
+        <div data-slot="tool-summary" className="flex min-w-0 flex-col gap-2">
+          <Text className="text-control text-foreground [overflow-wrap:anywhere]">
+            {messages.summary(summary.verb)}
+            {summary.target === null ? null : <> · {summary.target}</>}
           </Text>
-        </span>
-      </div>
-      <ToolSummary summary={request.summary} verb={messages.summary} />
-      {/* Full width on its own line, so an opened input never shares a row with the buttons. */}
-      <details className="min-w-0">
-        <summary className="cursor-pointer rounded-control py-1 text-muted-foreground text-caption">
+          {summary.excerpt === null ? null : (
+            <CodeBlock className="max-h-24 overflow-y-auto">
+              {summary.excerpt}
+            </CodeBlock>
+          )}
+        </div>
+      ) : null}
+      <details className="group/input min-w-0">
+        <summary className="w-fit cursor-pointer rounded-control py-0.5 text-caption text-muted-foreground hover:text-foreground">
           {messages.input}
         </summary>
-        <CodeBlock className="mt-2 max-h-60 overflow-y-auto">
-          {inputText(request.input)}
-        </CodeBlock>
+        <div className="mt-2 flex min-w-0 flex-col gap-2">
+          <code className="w-fit max-w-full rounded-control bg-muted px-2 py-0.5 font-mono text-caption [overflow-wrap:anywhere]">
+            {request.tool}
+          </code>
+          <CodeBlock className="max-h-60 overflow-y-auto">
+            {inputText(request.input)}
+          </CodeBlock>
+        </div>
       </details>
       <FieldError>{error}</FieldError>
-      {expired || denying ? null : (
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" disabled={blocked} onClick={onAllow}>
-            <Busy shown={pending} />
-            {messages.allow}
-          </Button>
-          <Button
-            ref={denyRef}
-            type="button"
-            variant="outline"
-            disabled={blocked}
-            onClick={() => setDenying(true)}
-          >
-            {messages.deny}
-          </Button>
-        </div>
-      )}
-      {expired || !denying ? null : (
-        <form className="flex flex-col gap-3" onSubmit={submitDenial}>
-          <Field>
-            <FieldLabel>{messages.denyReason}</FieldLabel>
-            <Textarea
-              ref={reasonRef}
-              value={reason}
-              required
-              onChange={(event) => setReason(event.target.value)}
+      {expired ? null : (
+        <form className="flex flex-wrap items-center gap-2" onSubmit={allow}>
+          <Field className="min-w-48 flex-1">
+            <FieldLabel className="sr-only">
+              {messages.answer ?? messages.denyReason}
+            </FieldLabel>
+            <Input
+              value={answer}
+              maxLength={1000}
+              placeholder={messages.answerPlaceholder}
+              disabled={disabled}
+              className="bg-card"
+              onChange={(event) => setAnswer(event.target.value)}
             />
           </Field>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="submit"
-              variant="destructive"
-              disabled={blocked || !reason.trim()}
-            >
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" disabled={blocked}>
               <Busy shown={pending} />
-              {messages.denySubmit}
+              {messages.allow}
             </Button>
             <Button
               type="button"
-              variant="ghost"
-              disabled={pending}
-              onClick={() => {
-                returnFocus.current = true;
-                setDenying(false);
-              }}
+              variant="outline"
+              size="sm"
+              className="bg-card"
+              disabled={blocked}
+              onClick={() => onDeny(reason)}
             >
-              {messages.cancel}
+              {messages.deny}
             </Button>
           </div>
         </form>
       )}
-    </article>
+    </RequestCard>
   );
 }
