@@ -45,18 +45,25 @@ const MCP = "http://fake-mcp:4020";
 // tests/e2e/compose.yml sets the API's CONSOLE_ORIGIN to this.
 const CONSOLE = "http://127.0.0.1:3000";
 const REFUSED = /credential_unbound \(receipt ([0-9a-f-]{36})\)/;
+// Names are the workspace's own: a suite run again on a kept stack
+// (E2E_UP_ONLY) registers its servers and agent beside the last run's.
+const tag = randomBytes(3).toString("hex");
+const PROBE = `wsmcp${tag}`;
+const TRACKER = `tracker${tag}`;
+const WIKI = `wiki${tag}`;
+const WHOAMI: Step = { tool: `mcp__${TRACKER}__whoami`, input: {} };
+// call_mcp receipt lines (callReceipts). The first connection is
+// generation 1; the disconnect makes it 2, which the refusal names.
+const ACCEPTED = `accepted ${TRACKER} whoami 1 -`;
+const REFUSED_AFTER_CUT = `failed ${TRACKER} - 2 credential_unavailable`;
 
 const card = {
   role: "workspace MCP probe",
   instructions: "Call the workspace's MCP servers.",
   language: "en",
   model: "claude-sonnet-5",
-  capabilities: {
-    tools: ["Bash", "Read"],
-    mcp: [],
-    forbidden: [],
-    credential_refs: [],
-  },
+  // No catalog server: the workspace's servers are turned on per agent.
+  capabilities: { mcp: null, forbidden: [] },
   rules: [],
 };
 
@@ -244,15 +251,15 @@ beforeAll(async () => {
   approver = new Api({ ...env, apiKey: approverKey.body.secret });
 
   const team = await web<{ team: { id: string } }>("POST", "/v1/teams", {
-    name: "wsmcpprobe",
+    name: PROBE,
   });
   expect(team.status).toBe(201);
   const created = await web<{
     agent: { id: string };
     versions: { id: string }[];
   }>("POST", "/v1/agents", {
-    slug: "wsmcpprobe",
-    name: "wsmcpprobe",
+    slug: PROBE,
+    name: PROBE,
     managing_team_id: team.body.team.id,
     card,
   });
@@ -292,7 +299,7 @@ describe("workspace MCP servers an admin connects", () => {
       });
 
       const created = await web<Server>("POST", "/v1/workspace/mcp-servers", {
-        name: "tracker",
+        name: TRACKER,
         url: `${MCP}/oauth/mcp`,
         auth_kind: "oauth",
       });
@@ -365,16 +372,13 @@ describe("workspace MCP servers an admin connects", () => {
       expect(turnedOn.status).toBe(200);
       expect(turnedOn.body.servers.items).toContainEqual(
         expect.objectContaining({
-          name: "tracker",
+          name: TRACKER,
           on: true,
           connected_by: oauthServer.connection.connected_by,
         }),
       );
 
-      const sessionId = await startSession(
-        [{ tool: "mcp__tracker__whoami", input: {} }],
-        "wsmcp-oauth",
-      );
+      const sessionId = await startSession([WHOAMI], "wsmcp-oauth");
       expect((await settle(sessionId, "1")).status).toBe("completed");
       const [result] = await toolResults(sessionId);
       expect(textOf(result)).toContain("ok:oauth:fake-account");
@@ -384,9 +388,7 @@ describe("workspace MCP servers an admin connects", () => {
       expect(after.oauth.refresh_grants).toBeGreaterThan(
         signedIn.oauth.refresh_grants,
       );
-      expect(await callReceipts(sessionId)).toEqual([
-        expect.stringMatching(/^accepted tracker whoami \d+ -$/),
-      ]);
+      expect(await callReceipts(sessionId)).toEqual([ACCEPTED]);
     },
     TIMEOUT,
   );
@@ -394,8 +396,10 @@ describe("workspace MCP servers an admin connects", () => {
   test(
     "static token: the server takes the admin's token, both servers answer one session, and no issued value reaches the worker",
     async () => {
+      // Before the registration, which reads the tools with the token.
+      const before = await workspaceCalls();
       const created = await web<Server>("POST", "/v1/workspace/mcp-servers", {
-        name: "wiki",
+        name: WIKI,
         url: `${MCP}/static/mcp`,
         auth_kind: "bearer",
         token: staticToken,
@@ -413,12 +417,8 @@ describe("workspace MCP servers an admin connects", () => {
         },
       );
       expect(turnedOn.status).toBe(200);
-      const before = await workspaceCalls();
       const sessionId = await startSession(
-        [
-          { tool: "mcp__tracker__whoami", input: {} },
-          { tool: "mcp__wiki__whoami", input: {} },
-        ],
+        [WHOAMI, { tool: `mcp__${WIKI}__whoami`, input: {} }],
         "wsmcp-both",
       );
       expect((await settle(sessionId, "1")).status).toBe("completed");
@@ -428,9 +428,18 @@ describe("workspace MCP servers an admin connects", () => {
       const after = await workspaceCalls();
       expect(after.oauth.calls).toBe(before.oauth.calls + 1);
       expect(after.static.calls).toBe(before.static.calls + 1);
-      expect(after.static.authorization_sha256).toEqual([
+      // The one bearer this run's server was sent is the admin's token.
+      expect(after.static.authorization_sha256).toEqual(
+        [
+          ...new Set([
+            ...before.static.authorization_sha256,
+            sha256Hex(staticToken),
+          ]),
+        ].sort(),
+      );
+      expect(before.static.authorization_sha256).not.toContain(
         sha256Hex(staticToken),
-      ]);
+      );
 
       // The pattern does not match itself. The planted file is the control:
       // a scan that cannot see shows files=0 and fails.
@@ -456,9 +465,8 @@ describe("workspace MCP servers an admin connects", () => {
   test(
     "disconnect revokes at the server, and the running session's next call is refused with a call_mcp receipt",
     async () => {
-      const whoami: Step = { tool: "mcp__tracker__whoami", input: {} };
       const before = await workspaceCalls();
-      const sessionId = await startSession([whoami, whoami], "wsmcp-cut");
+      const sessionId = await startSession([WHOAMI, WHOAMI], "wsmcp-cut");
       const disconnected: { revoked?: boolean | null } = {};
       const turn = await settle(sessionId, "1", {
         // The first call has run; the second waits for its answer.
@@ -484,7 +492,7 @@ describe("workspace MCP servers an admin connects", () => {
         status: "failed",
         error: { code: "CREDENTIAL_UNBOUND" },
         result: {
-          server_id: "tracker",
+          server_id: TRACKER,
           workspace_server_id: oauthServer.id,
           reason: "credential_unavailable",
         },
@@ -493,8 +501,8 @@ describe("workspace MCP servers an admin connects", () => {
       expect(after.oauth.calls).toBe(before.oauth.calls + 1);
       expect(after.oauth.revocations).toBeGreaterThan(before.oauth.revocations);
       expect(await callReceipts(sessionId)).toEqual([
-        expect.stringMatching(/^accepted tracker whoami \d+ -$/),
-        "failed tracker - - credential_unavailable",
+        ACCEPTED,
+        REFUSED_AFTER_CUT,
       ]);
 
       const listed = await web<{ items: Server[] }>(
