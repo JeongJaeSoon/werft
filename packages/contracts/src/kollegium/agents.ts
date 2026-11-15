@@ -22,6 +22,7 @@ import {
   workspaceIdSchema,
 } from "../shared/index.ts";
 import { providerKindSchema } from "../shared/provider-kind.ts";
+import { runtimeKindSchema } from "../shared/runtime-kind.ts";
 import { cardEnvDeclarationSchema } from "./env-variables.ts";
 
 export {
@@ -1066,6 +1067,10 @@ export const AGENT_SLACK_ACTION_VALUES = [
 ] as const;
 export type AgentSlackAction = (typeof AGENT_SLACK_ACTION_VALUES)[number];
 
+/** Where people reach an agent, as the agent list shows it. */
+export const AGENT_CHANNEL_VALUES = ["slack", "github"] as const;
+export type AgentChannel = (typeof AGENT_CHANNEL_VALUES)[number];
+
 /**
  * What a list shows of an agent beyond its row, read in one go for the page
  * so a list of cards does not ask once per agent. Only with
@@ -1117,6 +1122,17 @@ export const agentSummarySchema = z
      * Request URL sent, the bot has no home channel, Slack refused the URL.
      */
     slack_action: z.enum(AGENT_SLACK_ACTION_VALUES).nullable(),
+    /**
+     * The runtime the active release runs (Claude or Codex), or null before
+     * any activation.
+     */
+    engine: runtimeKindSchema.nullable(),
+    /**
+     * Where people reach the agent, in this order: `slack` once its Slack app
+     * is installed (setup steps may remain; `slack_action` names them),
+     * `github` while its GitHub switch is on and it has a repository.
+     */
+    channels: z.array(z.enum(AGENT_CHANNEL_VALUES)),
   })
   .strict();
 

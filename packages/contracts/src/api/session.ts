@@ -536,6 +536,10 @@ export const sessionSummarySchema = z.object({
   }),
   current_turn_id: turnIdSchema.nullable(),
   queued_turn_count: z.number().int().nonnegative(),
+  turn_time_ms: z.number().int().nonnegative().default(0).meta({
+    description:
+      "How long the session's finished turns ran, in milliseconds: the sum of each turn's end minus its start. Time spent idle between turns, waiting for an answer or paused is not counted, and neither is a turn still running. 0 from a server older than the field.",
+  }),
   last_event_at: timestampSchema.nullable(),
   created_at: timestampSchema,
   updated_at: timestampSchema,
