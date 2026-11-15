@@ -215,6 +215,19 @@ describe("the agent MCP service", () => {
     );
   });
 
+  test("a whole-server deny blocks every tool of that server only", async () => {
+    expect(
+      await refusal(
+        save({ lockedDeny: ["mcp__docs__*"] }, ["mcp__docs__read"]),
+      ),
+    ).toBe("BAD_REQUEST:mcp_tool_denied");
+    expect(
+      await refusal(
+        save({ lockedDeny: ["mcp__wiki__*"] }, ["mcp__docs__read"]),
+      ),
+    ).toBe("saved");
+  });
+
   test("only what the save adds is judged: a held blocked tool can be narrowed past", async () => {
     const lockedDeny = ["mcp__docs__write"];
     const held = row(["mcp__docs__read", "mcp__docs__write"]);
@@ -260,6 +273,7 @@ describe("the agent MCP service", () => {
       "mcp__docs__",
       "mcp__docs__read all",
       "mcp__docs__a\u0000b",
+      "mcp__docs__*",
       "mcp__wiki__read",
       `mcp__docs__${"x".repeat(200)}`,
     ]) {

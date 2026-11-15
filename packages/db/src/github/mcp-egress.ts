@@ -1,6 +1,7 @@
 import {
   effectiveGitHubPolicy,
   GITHUB_MCP_FIXED_TOOLS,
+  GITHUB_MCP_SERVER,
   githubMcpToolNames,
   githubMcpTools,
   githubPolicySourceOf,
@@ -14,8 +15,8 @@ import {
   type McpEgressStore,
   type McpRefusalRecord,
   type McpSessionState,
-  mcpCallDenied,
   mcpDenyOf,
+  mcpToolDenied,
   pinnedMcpTools,
   SavedRulesUnavailable,
   type SessionGitHubMcp,
@@ -221,7 +222,11 @@ async function blockedGitHubTools(
   return GITHUB_MCP_FIXED_TOOLS.filter(
     (tool) =>
       denied === null ||
-      mcpCallDenied(denied, githubMcpToolNames([tool])[0] as string),
+      mcpToolDenied(
+        denied,
+        GITHUB_MCP_SERVER,
+        githubMcpToolNames([tool])[0] as string,
+      ),
   );
 }
 

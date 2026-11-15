@@ -361,6 +361,22 @@ integration("agent MCP settings on PostgreSQL", () => {
     ).toMatchObject({ tools: [READ] });
   });
 
+  test("a whole-server mcp_deny closes every tool in both kinds of session", async () => {
+    const workspaceId = await workspace();
+    const { agentId, releaseId } = await agentOnRelease(workspaceId, {
+      snapshot: { mcp_deny: ["mcp__docs__*"] },
+    });
+    expect(
+      (await stateOf(await sessionOn(workspaceId, releaseId)))?.tools,
+    ).toEqual([]);
+    await saveSettings(workspaceId, agentId, { updatedBy: await person() });
+    const started = await db.transaction((tx) =>
+      captureMcpStart(tx, releaseId),
+    );
+    const snapshot = await sessionOn(workspaceId, releaseId, started);
+    expect((await stateOf(snapshot))?.tools).toEqual([]);
+  });
+
   test("a release deny pin beats the agent's saved allow in both kinds of session", async () => {
     const workspaceId = await workspace();
     const { agentId, releaseId } = await agentOnRelease(workspaceId, {

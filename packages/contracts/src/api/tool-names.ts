@@ -5,15 +5,39 @@ export const MCP_TOOL_NAME_MAX = 128;
 
 // The server id holds no `__`, so a name has one reading for any id that can
 // exist; only the tool part is free-form. Matching is exact everywhere a name
-// is compared, so `()*:` are part of a tool name here, never a pattern.
+// is compared, so `()*:` are part of a tool name here, never a pattern. The
+// one exception is a name ending in `__*`, which is the deny rule for a whole
+// server and never a tool.
 const MCP_TOOL_NAME = new RegExp(
   `^${MCP_TOOL_PREFIX}${MCP_SERVER_ID_PATTERN.slice(1, -1)}__[^\\s\\p{Cc}]+$`,
   "u",
 );
+const MCP_SERVER_ID = new RegExp(MCP_SERVER_ID_PATTERN);
+const MCP_SERVER_WILDCARD_SUFFIX = "__*";
 
 /** Whether `name` is `mcp__<server>__<tool>` in the one shape every side uses. */
 export function isMcpToolName(name: string): boolean {
-  return name.length <= MCP_TOOL_NAME_MAX && MCP_TOOL_NAME.test(name);
+  return (
+    name.length <= MCP_TOOL_NAME_MAX &&
+    !name.endsWith(MCP_SERVER_WILDCARD_SUFFIX) &&
+    MCP_TOOL_NAME.test(name)
+  );
+}
+
+/** The deny rule `mcp__<server>__*`, which names every tool of `server`. */
+export function mcpServerWildcard(server: string): string {
+  return `${MCP_TOOL_PREFIX}${server}${MCP_SERVER_WILDCARD_SUFFIX}`;
+}
+
+/** Whether `rule` is `mcp__<server>__*` for a server id that can exist. */
+export function isMcpServerWildcard(rule: string): boolean {
+  return (
+    rule.startsWith(MCP_TOOL_PREFIX) &&
+    rule.endsWith(MCP_SERVER_WILDCARD_SUFFIX) &&
+    MCP_SERVER_ID.test(
+      rule.slice(MCP_TOOL_PREFIX.length, -MCP_SERVER_WILDCARD_SUFFIX.length),
+    )
+  );
 }
 
 /**
