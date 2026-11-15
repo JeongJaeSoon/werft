@@ -1,6 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import { unwrap } from "@werft-ai/client";
-import type { SettingsMcpServer } from "@werft-ai/contracts";
+import type {
+  ListSettingsMcpServersResponse,
+  SettingsMcpServer,
+} from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
 import {
   Button,
@@ -17,6 +20,7 @@ import {
   Input,
   Page,
   RowAction,
+  Section,
   Skeleton,
   Text,
 } from "@werft-ai/ui";
@@ -24,7 +28,6 @@ import { Plus } from "lucide-react";
 import { useState } from "react";
 import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import {
   credentialText,
@@ -40,6 +43,7 @@ import {
   useRowActions,
   useSettingsWrite,
 } from "./settings-entries.tsx";
+import { WorkspaceMcpServers } from "./workspace-mcp-servers.tsx";
 
 // id and source, URL and tool names, credential, workspaces, state,
 // actions; a phone keeps the id (with the state and tool names) and the
@@ -69,87 +73,42 @@ export function McpServersScreen() {
   const [editing, setEditing] = useState<SettingsMcpServer | null>(null);
   const rows = useRowActions("mcp", setOutcome);
 
-  if (!owns)
-    return (
-      <Page title={t("settings.mcp.title")}>
-        <StatusScreen kind="forbidden" />
-      </Page>
-    );
-
   return (
     <Page
       title={t("settings.mcp.title")}
-      description={t("settings.mcp.description")}
-      actions={
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => {
-            setOutcome(null);
-            setAdding(true);
-          }}
-        >
-          <Plus aria-hidden="true" />
-          {t("settings.mcp.add")}
-        </Button>
-      }
+      description={t("settings.mcp.pageDescription")}
     >
-      <div className="flex flex-col gap-[var(--werft-space-block)]">
-        {servers.isPending ? (
-          <Skeleton width="60%" />
-        ) : servers.isError ? (
-          <LoadFailure
-            error={servers.error}
-            onRetry={() => void servers.refetch()}
-          />
-        ) : servers.data.items.length === 0 ? (
-          <EmptyState framed title={t("settings.mcp.empty")} />
-        ) : (
-          <GridTable
-            // The settings layout zeroes the row inset; a framed table needs it.
-            className="[--werft-row-padding-x:var(--werft-space-4)]"
-            aria-label={t("settings.mcp.title")}
-            columns={COLUMNS[0]}
-            narrowAt={860}
-            narrowColumns={COLUMNS[1]}
-            framed
-          >
-            <GridTableHeader>
-              <GridTableColumnHeader>
-                {t("settings.column.id")}
-              </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
-                {t("settings.mcp.url")}
-              </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
-                {t("settings.column.credential")}
-              </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
-                {t("settings.mcp.workspaces")}
-              </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
-                {t("settings.column.state")}
-              </GridTableColumnHeader>
-              <GridTableColumnHeader>
-                {t("settings.column.actions")}
-              </GridTableColumnHeader>
-            </GridTableHeader>
-            {servers.data.items.map((item) => (
-              <McpRow
-                key={item.id}
-                item={item}
-                busy={rows.busy}
-                onValue={() => rows.openValue(item.id)}
-                onDisable={() => rows.openDisable(item.id)}
-                onWorkspaces={() => {
+      <div className="flex flex-col gap-[var(--werft-space-section)]">
+        <WorkspaceMcpServers />
+        {owns ? (
+          <Section
+            title={t("settings.mcp.catalogTitle")}
+            description={t("settings.mcp.description")}
+            actions={
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
                   setOutcome(null);
-                  setEditing(item);
+                  setAdding(true);
                 }}
-              />
-            ))}
-          </GridTable>
-        )}
-        <OutcomeLine outcome={outcome} />
+              >
+                <Plus aria-hidden="true" />
+                {t("settings.mcp.add")}
+              </Button>
+            }
+          >
+            <McpCatalog
+              servers={servers}
+              outcome={outcome}
+              rows={rows}
+              onEdit={(item) => {
+                setOutcome(null);
+                setEditing(item);
+              }}
+            />
+          </Section>
+        ) : null}
       </div>
       <AddMcpServer
         open={adding}
@@ -163,6 +122,76 @@ export function McpServersScreen() {
       />
       {rows.dialogs}
     </Page>
+  );
+}
+
+function McpCatalog({
+  servers,
+  outcome,
+  rows,
+  onEdit,
+}: {
+  readonly servers: UseQueryResult<ListSettingsMcpServersResponse>;
+  readonly outcome: Outcome | null;
+  readonly rows: ReturnType<typeof useRowActions>;
+  readonly onEdit: (item: SettingsMcpServer) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-col gap-[var(--werft-space-block)]">
+      {servers.isPending ? (
+        <Skeleton width="60%" />
+      ) : servers.isError ? (
+        <LoadFailure
+          error={servers.error}
+          onRetry={() => void servers.refetch()}
+        />
+      ) : servers.data.items.length === 0 ? (
+        <EmptyState framed title={t("settings.mcp.empty")} />
+      ) : (
+        <GridTable
+          // The settings layout zeroes the row inset; a framed table needs it.
+          className="[--werft-row-padding-x:var(--werft-space-4)]"
+          aria-label={t("settings.mcp.title")}
+          columns={COLUMNS[0]}
+          narrowAt={860}
+          narrowColumns={COLUMNS[1]}
+          framed
+        >
+          <GridTableHeader>
+            <GridTableColumnHeader>
+              {t("settings.column.id")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader hideNarrow>
+              {t("settings.mcp.url")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader hideNarrow>
+              {t("settings.column.credential")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader hideNarrow>
+              {t("settings.mcp.workspaces")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader hideNarrow>
+              {t("settings.column.state")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader>
+              {t("settings.column.actions")}
+            </GridTableColumnHeader>
+          </GridTableHeader>
+          {servers.data.items.map((item) => (
+            <McpRow
+              key={item.id}
+              item={item}
+              busy={rows.busy}
+              onValue={() => rows.openValue(item.id)}
+              onDisable={() => rows.openDisable(item.id)}
+              onWorkspaces={() => onEdit(item)}
+            />
+          ))}
+        </GridTable>
+      )}
+      <OutcomeLine outcome={outcome} />
+    </div>
   );
 }
 

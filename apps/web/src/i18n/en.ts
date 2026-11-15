@@ -27,6 +27,7 @@ import { shellEn } from "./shell.ts";
 import { teamsEn } from "./teams.ts";
 import { usageEn } from "./usage.ts";
 import { workspaceEn } from "./workspace.ts";
+import { workspaceMcpEn } from "./workspace-mcp.ts";
 
 export const slackEn = {
   "slack.error.config":
@@ -240,6 +241,7 @@ export const en: Record<MessageKey, string> = {
   ...outputsEn,
   ...apiKeysEn,
   ...workspaceEn,
+  ...workspaceMcpEn,
   ...githubEn,
   ...githubUserLinkEn,
   ...agentGitHubEn,

@@ -26,6 +26,7 @@ import { shellKo } from "./shell.ts";
 import { teamsKo } from "./teams.ts";
 import { usageKo } from "./usage.ts";
 import { workspaceKo } from "./workspace.ts";
+import { workspaceMcpKo } from "./workspace-mcp.ts";
 
 /**
  * The message catalog's source of truth, spread together from one file per
@@ -245,6 +246,7 @@ export const ko = {
   ...outputsKo,
   ...apiKeysKo,
   ...workspaceKo,
+  ...workspaceMcpKo,
   ...githubKo,
   ...githubUserLinkKo,
   ...agentGitHubKo,

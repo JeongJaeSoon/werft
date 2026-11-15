@@ -27,6 +27,7 @@ import { shellJa } from "./shell.ts";
 import { teamsJa } from "./teams.ts";
 import { usageJa } from "./usage.ts";
 import { workspaceJa } from "./workspace.ts";
+import { workspaceMcpJa } from "./workspace-mcp.ts";
 
 export const slackJa = {
   "slack.error.config":
@@ -242,6 +243,7 @@ export const ja: Record<MessageKey, string> = {
   ...outputsJa,
   ...apiKeysJa,
   ...workspaceJa,
+  ...workspaceMcpJa,
   ...githubJa,
   ...githubUserLinkJa,
   ...agentGitHubJa,

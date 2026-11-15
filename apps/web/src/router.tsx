@@ -83,6 +83,7 @@ import {
   GitHubNewAppRoute,
   gitHubNewAppSearch,
 } from "./routes/workspace-github-new-app.tsx";
+import { workspaceMcpCallbackSearch } from "./routes/workspace-mcp-callback-search.ts";
 import { WorkspaceSettingsScreen } from "./routes/workspace-settings.tsx";
 import { WorkspaceSlackRoute } from "./routes/workspace-slack.tsx";
 import type { Services } from "./services.tsx";
@@ -340,6 +341,19 @@ const mcpServers = createRoute({
   component: McpServersScreen,
 });
 
+// Public: an authorization server sends the browser back here with a code.
+// Behind the session guard an expired session would put that code into the
+// login page's redirect address; the screen answers the 401 itself.
+const workspaceMcpCallback = createRoute({
+  getParentRoute: () => root,
+  path: "/settings/workspace/mcp-servers/$serverId/callback",
+  validateSearch: workspaceMcpCallbackSearch,
+  component: lazyRouteComponent(
+    () => import("./routes/workspace-mcp-callback.tsx"),
+    "WorkspaceMcpCallback",
+  ),
+});
+
 const loginProviders = createRoute({
   getParentRoute: () => authed,
   path: "/settings/workspace/login",
@@ -424,6 +438,7 @@ const routeTree = root.addChildren([
   login,
   bootstrap,
   providerCallback,
+  workspaceMcpCallback,
   invite,
   authed.addChildren([
     home,

@@ -802,6 +802,14 @@ describe("web console (WEB_DIST_DIR)", () => {
         // The GitHub App manifest is a form POST to github.com, and only there.
         expect(csp).toContain("form-action 'self' https://github.com;");
       }
+      // A callback's code must not ride out as the Referer of the page's
+      // own asset requests before the app clears the address.
+      const callback = await app.request(
+        "/settings/workspace/mcp-servers/s1/callback?code=c1&state=s1",
+      );
+      expect(callback.headers.get("Referrer-Policy")).toBe("no-referrer");
+      const asset = await app.request("/assets/index-abc.js");
+      expect(asset.headers.get("Referrer-Policy")).toBe("same-origin");
       const head = await app.request("/login", { method: "HEAD" });
       expect(head.status).toBe(200);
     });

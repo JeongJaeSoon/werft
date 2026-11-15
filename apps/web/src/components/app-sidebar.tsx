@@ -228,6 +228,9 @@ export function useSettingsNavGroups(): readonly NavGroup[] {
       label: "settings.connections.nav",
       icon: SettingsIcon,
     });
+  }
+  // Workspace servers are the admins'; the installation catalog the owner's.
+  if (workspaceManage || installationManage) {
     agentConnections.push({
       to: "/settings/workspace/mcp-servers",
       label: "settings.mcp.nav",
