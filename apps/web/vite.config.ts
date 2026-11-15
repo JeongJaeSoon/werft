@@ -82,6 +82,10 @@ export default defineConfig(({ mode }) => ({
   },
   server: {
     proxy: { "/v1": { target: apiTarget, changeOrigin: false } },
+    // As control-host serves index.html: an OAuth callback opens with the
+    // code in its address. A meta tag would come after the client script
+    // Vite prepends to <head>, so the policy rides on the response.
+    headers: { "Referrer-Policy": "no-referrer" },
     // chokidar keeps FSEvents on even when CHOKIDAR_USEPOLLING asks for
     // polling, so on a Mac where FSEvents delivers nothing no edit is seen.
     ...(/^(1|true)$/i.test(process.env.CHOKIDAR_USEPOLLING ?? "") && {
