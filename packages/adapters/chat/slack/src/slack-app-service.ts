@@ -582,14 +582,15 @@ export function createSlackAppService(deps: {
       );
     } catch (error) {
       // An unanswered call may still have reached Slack, whose challenge
-      // then left `verified`. A refused move leaves Slack on the old URL,
-      // whatever `verified` the store holds for the new one.
+      // then left `verified`. Any other failure, a refused token included,
+      // leaves Slack on the old URL whatever `verified` the store holds.
       const failed = {
         state: "failed",
         checked_at: now().toISOString(),
         error: "events_registration_failed",
       } as const;
-      if (moved && error instanceof SlackApiError && error.answered)
+      const unanswered = error instanceof SlackApiError && !error.answered;
+      if (moved && !unanswered)
         await apps.setEvents(workspaceId, slackAppId, failed);
       else if (input.eventsUrl !== undefined)
         await apps.setEventsUnlessVerified(workspaceId, slackAppId, failed);

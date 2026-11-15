@@ -187,6 +187,24 @@ test("a verified app keeps verified when a move goes unanswered, and fails when 
     url: again,
     error: "events_registration_failed",
   });
+  // A refused token never moved the URL either.
+  await apps.store.setEvents(WORKSPACE, created.slack_app.id, verified);
+  slack.api.updateApp = async () => {
+    throw new SlackApiError("apps.manifest.update", "token_revoked", true);
+  };
+  const third = `https://third.example.test/v1/slack/events/${AGENT}`;
+  await expect(
+    service.updateAgentAppManifest(WORKSPACE, created.slack_app.id, {
+      ...input,
+      eventsUrl: third,
+    }),
+  ).rejects.toThrow();
+  expect((await service.getAgentApp(caller, AGENT)).events).toEqual({
+    state: "failed",
+    checked_at: "2026-10-23T00:00:00.000Z",
+    url: third,
+    error: "events_registration_failed",
+  });
 });
 
 test("a pending app whose URL moves stays pending", async () => {
