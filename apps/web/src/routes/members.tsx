@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, Outlet, useLocation } from "@tanstack/react-router";
+import { Link, Outlet, useLocation, useParams } from "@tanstack/react-router";
 import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type {
   Invite,
@@ -79,6 +79,7 @@ import {
 } from "../i18n/i18n.tsx";
 import { InviteDialog } from "./invite-dialog.tsx";
 import { TeamCreateButton } from "./team-create-dialog.tsx";
+import { TeamAddButton } from "./teams.tsx";
 
 type MemberAction = "role" | "disable" | "enable";
 
@@ -164,9 +165,10 @@ function MembersPage() {
   const onTeamList = pathname.replace(/\/$/, "") === "/members/teams";
   const onMemberList = pathname.replace(/\/$/, "") === "/members";
   const managesTeams = useHasPermission("team.manage");
+  const { teamId } = useParams({ strict: false });
 
   // The open tab's one primary action sits at the head's end, as on the
-  // agents page; a team's own page has none.
+  // agents page; a team's own page adds people to that team.
   return (
     <Page
       title={t("members.title")}
@@ -182,6 +184,8 @@ function MembersPage() {
           <InviteButton />
         ) : onTeamList ? (
           <TeamCreateButton />
+        ) : teamId ? (
+          <TeamAddButton teamId={teamId} />
         ) : undefined
       }
     >

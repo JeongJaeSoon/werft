@@ -41,11 +41,11 @@ import {
   GridTableRowOpener,
   Heading,
   Input,
-  NativeSelect,
-  NativeSelectOption,
   RemoveButton,
-  RowAction,
+  SegmentedControl,
+  SegmentedControlItem,
   SettingsSection,
+  StatusText,
   TableTime,
   Text,
   Link as TextLink,
@@ -61,15 +61,13 @@ import {
   teamQuery,
 } from "../api/queries.ts";
 import { refusalText, useHasPermission, useRole } from "../auth/guard.tsx";
-import {
-  INACTIVE_ROW_CLASS,
-  InactiveBadge,
-} from "../components/inactive-member.tsx";
+import { INACTIVE_ROW_CLASS } from "../components/inactive-member.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MemberTableFrame } from "../components/member-table.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { RoleBadge } from "../components/role-badge.tsx";
+import { RowMenu, RowMenuItem } from "../components/row-menu.tsx";
 import {
   SEARCH_MAX,
   SEARCH_SETTLE_MS,
@@ -78,8 +76,6 @@ import {
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useNotify } from "../components/toast.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-
-const NAME_FIELD = "min-w-0 max-w-xl";
 
 type TeamMember = TeamDetail["members"][number];
 
@@ -99,32 +95,6 @@ function ListError({
     <StatusScreen kind="forbidden" />
   ) : (
     <LoadFailure error={error} onRetry={onRetry} />
-  );
-}
-
-function TeamNameField({
-  value,
-  onChange,
-  error,
-}: {
-  readonly value: string;
-  readonly onChange: (value: string) => void;
-  /** Why this name was refused; it stays with the box that holds the name. */
-  readonly error?: string | undefined;
-}) {
-  const { t } = useI18n();
-  return (
-    <Field className={NAME_FIELD}>
-      <FieldLabel>{t("teams.name")}</FieldLabel>
-      <Input
-        name="team-name"
-        required
-        maxLength={100}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      <FieldError>{error}</FieldError>
-    </Field>
   );
 }
 
@@ -220,15 +190,12 @@ export function TeamsScreen() {
 const TEAM_COLUMNS = "minmax(0,1fr) 9rem";
 // Below 640px the count and its arrow keep what the name leaves.
 const TEAM_NARROW_COLUMNS = "minmax(0,1fr) 7rem";
-// "Remove" in the longest language, beside nothing else.
-const TEAM_ACTIONS_COLUMN = "var(--werft-row-action-min-width)";
-// The inline team role select: "Team lead" and its arrow in the longest language.
-const TEAM_ROLE_COLUMN = "7.5rem";
-// Narrow tables: the select drops its inner padding (see TeamRoleSelect), so
-// the longest language (ja, 110px) fits without clipping.
-const TEAM_ROLE_NARROW_COLUMN = "7rem";
-// The button in the longest language (en "Remove", 67px).
-const TEAM_ACTIONS_NARROW_COLUMN = "4.5rem";
+// Role, team role and status share the members table's 104px, so badges and
+// dots line up the same way; the ⋯ button closes the row as it does there.
+const TEAM_BADGE_COLUMN = "104px";
+const TEAM_MENU_COLUMN = "var(--werft-control-height-sm)";
+// Narrow, the team role badge in the longest language (ja "チーム管理者").
+const TEAM_ROLE_NARROW_COLUMN = "88px";
 
 function TeamTable({
   items,
@@ -364,37 +331,65 @@ function TeamSettings({ team }: { readonly team: TeamDetail }) {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    // SettingsSection's form is noValidate, so `required` no longer stops an
-    // empty name here.
+    // The form is noValidate, so `required` does not stop an empty name.
     if (name.trim() === "") return;
     rename.mutate(name.trim());
   };
 
+  // One box under the team's heading, the button beside the name it saves
+  // (owner, 2026-11-16): no second "팀 설정" heading over a single field.
   return (
-    <SettingsSection
-      title={t("teams.settings")}
-      titleAs="h3"
-      box
+    <form
+      aria-label={t("teams.settings")}
+      // noValidate: the server owns the limits and says why it refused.
+      noValidate
       onSubmit={submit}
-      foot={
-        <Button
-          type="submit"
-          variant="outline"
-          disabled={
-            rename.isPending || name.trim() === "" || name.trim() === team.name
-          }
-        >
-          {t("teams.rename")}
-        </Button>
-      }
+      className="flex min-w-0 flex-col gap-4 rounded-card border bg-card p-4"
     >
-      <TeamNameField
-        value={name}
-        onChange={setName}
-        error={name.trim() === taken ? t("teams.nameTaken") : undefined}
-      />
-    </SettingsSection>
+      <Field className="min-w-0 max-w-xl">
+        <FieldLabel>{t("teams.name")}</FieldLabel>
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            name="team-name"
+            required
+            maxLength={100}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            className="min-w-0 flex-1 basis-48"
+          />
+          <Button
+            type="submit"
+            variant="outline"
+            disabled={
+              rename.isPending ||
+              name.trim() === "" ||
+              name.trim() === team.name
+            }
+          >
+            {t("teams.rename")}
+          </Button>
+        </div>
+        {/* Why this name was refused; it stays with the box that holds it. */}
+        <FieldError>
+          {name.trim() === taken ? t("teams.nameTaken") : undefined}
+        </FieldError>
+      </Field>
+    </form>
   );
+}
+
+/**
+ * A team page's primary action, at the page head's end like 구성원 초대 on
+ * the 구성원 tab. Only for managers, once the team has been read.
+ */
+export function TeamAddButton({ teamId }: { readonly teamId: string }) {
+  const { client } = useWerft();
+  const manages = useHasPermission("team.manage");
+  const team = useQuery({ ...teamQuery(client, teamId), enabled: manages });
+  if (!manages || !team.data) return null;
+  // The key ties the dialog's picks to one team, so going to another team
+  // never carries them over.
+  return <AddMembersDialog key={team.data.id} team={team.data} />;
 }
 
 /** Deleting the team, last on the page, in the settings' danger zone. */
@@ -546,8 +541,42 @@ function TeamMembers({
     enabled: manages && team.members.length > 0,
   });
   const [removing, setRemoving] = useState<TeamMember | null>(null);
+  const [promoting, setPromoting] = useState<TeamMember | null>(null);
   const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState<TeamRoleFilter>("all");
   const search = useRef<HTMLInputElement>(null);
+
+  // A lead administers every agent the team manages from the next request on
+  // (agent-rbac (d)), so promotion asks first; demotion does not.
+  const changeRole = useMutation<
+    TeamChangeResponse,
+    ApiError,
+    { member: TeamMember; role: TeamMemberRole }
+  >({
+    mutationFn: ({ member, role: next }) =>
+      unwrap(
+        client.PATCH("/v1/teams/{team_id}/members/{user_id}", {
+          params: { path: { team_id: team.id, user_id: member.user_id } },
+          body: { role: next },
+        }),
+      ),
+    onSettled: () => setPromoting(null),
+    onSuccess: async (_result, { member, role: next }) => {
+      notify(
+        t("teams.roleChanged", {
+          name: member.display_name ?? member.email,
+          role: t(`teams.role.${next}`),
+        }),
+      );
+      await refreshTeam(queryClient, client, team.id);
+    },
+    // A failure after the promotion's confirmation stays until read.
+    onError: (error, { role: next }) =>
+      notify(refusalText(t, error, "team.manage", role), {
+        tone: "error",
+        persistent: next === "lead",
+      }),
+  });
 
   const remove = useMutation<TeamChangeResponse, ApiError, TeamMember>({
     mutationFn: (member) =>
@@ -575,28 +604,34 @@ function TeamMembers({
     ? new Map(members.data.items.map((member) => [member.user_id, member.role]))
     : undefined;
   const needle = query.trim().normalize("NFKC").toLowerCase();
-  const shown = needle
+  const found = needle
     ? team.members.filter((member) => matches(member, needle))
     : team.members;
-  // Every track is fixed: each row is its own grid, so a max-content track
-  // would size to that row's buttons and the header's "Actions" alone, and
-  // push the columns before it out from under their headers. Below 820px the
-  // date and the workspace role drop out; the name keeps what the team role
-  // and the buttons leave.
-  const teamRoleColumn = manages ? TEAM_ROLE_COLUMN : "96px";
+  const countOf = (filter: TeamRoleFilter) =>
+    found.filter((member) => filter === "all" || member.role === filter).length;
+  const shown =
+    roleFilter === "all"
+      ? found
+      : found.filter((member) => member.role === roleFilter);
+  // The members table's tracks, with the team role and the date added. Every
+  // track is fixed or minmax(0,…): each row is its own grid, so a max-content
+  // track would size to that row alone. Below 820px the name keeps what the
+  // team role and the ⋯ button leave, and carries the status itself.
   const columns = [
-    "minmax(0,1fr)",
-    roles && "112px",
-    teamRoleColumn,
-    "minmax(9.5rem,0.5fr)",
-    manages && TEAM_ACTIONS_COLUMN,
+    "minmax(0,1.3fr)",
+    "minmax(0,1.5fr)",
+    roles && TEAM_BADGE_COLUMN,
+    TEAM_BADGE_COLUMN,
+    TEAM_BADGE_COLUMN,
+    "9.5rem",
+    manages && TEAM_MENU_COLUMN,
   ]
     .filter(Boolean)
     .join(" ");
   const narrowColumns = [
     "minmax(0,1fr)",
-    manages ? TEAM_ROLE_NARROW_COLUMN : teamRoleColumn,
-    manages && TEAM_ACTIONS_NARROW_COLUMN,
+    TEAM_ROLE_NARROW_COLUMN,
+    manages && TEAM_MENU_COLUMN,
   ]
     .filter(Boolean)
     .join(" ");
@@ -605,31 +640,35 @@ function TeamMembers({
     search.current?.focus();
   };
 
-  // The key ties the dialog's picks to one team, so going back to another
-  // team never carries them over.
-  const addMembers = manages ? (
-    <AddMembersDialog key={team.id} team={team} />
-  ) : null;
   const listEmpty = team.members.length === 0;
 
   return (
-    <SettingsSection
-      title={t("teams.members")}
-      titleAs="h3"
-      badge={
-        <Badge variant="gray">
-          {t("teams.memberTotal", { count: team.members.length })}
-        </Badge>
-      }
-      actions={addMembers}
-      box={listEmpty}
-    >
+    <SettingsSection title={t("teams.members")} titleAs="h3" box={listEmpty}>
       {listEmpty ? (
         <EmptyState title={t("teams.noMembers")} />
       ) : (
         <div className="flex flex-col gap-3">
           <ListToolbar
-            filter={null}
+            filter={
+              <SegmentedControl
+                aria-label={t("teams.filter.label")}
+                value={roleFilter}
+                onValueChange={(next) => setRoleFilter(next as TeamRoleFilter)}
+              >
+                <SegmentedControlItem value="all" count={countOf("all")}>
+                  {t("members.filter.all")}
+                </SegmentedControlItem>
+                {TEAM_ROLES.map((value) => (
+                  <SegmentedControlItem
+                    key={value}
+                    value={value}
+                    count={countOf(value)}
+                  >
+                    {t(`teams.role.${value}`)}
+                  </SegmentedControlItem>
+                ))}
+              </SegmentedControl>
+            }
             search={{
               ref: search,
               type: "search",
@@ -641,21 +680,30 @@ function TeamMembers({
             }}
           />
           {shown.length === 0 ? (
-            <EmptyState
-              className="w-full"
-              title={t("teams.noMatch")}
-              description={t("teams.noMatchHint")}
-              action={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={clear}
-                >
-                  {t("members.clearSearch")}
-                </Button>
-              }
-            />
+            found.length === 0 ? (
+              <EmptyState
+                className="w-full"
+                title={t("teams.noMatch")}
+                description={t("teams.noMatchHint")}
+                action={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={clear}
+                  >
+                    {t("members.clearSearch")}
+                  </Button>
+                }
+              />
+            ) : (
+              <EmptyState
+                className="w-full"
+                title={t("teams.filter.empty", {
+                  role: t(`teams.role.${roleFilter as TeamMemberRole}`),
+                })}
+              />
+            )
           ) : (
             <MemberTableFrame
               label={t("teams.tableLabel")}
@@ -668,6 +716,9 @@ function TeamMembers({
                     <GridTableColumnHeader>
                       {t("members.column.name")}
                     </GridTableColumnHeader>
+                    <GridTableColumnHeader hideNarrow={true}>
+                      {t("members.column.email")}
+                    </GridTableColumnHeader>
                     {roles && (
                       <GridTableColumnHeader hideNarrow={true}>
                         {t("teams.column.workspaceRole")}
@@ -677,11 +728,17 @@ function TeamMembers({
                       {t("teams.column.teamRole")}
                     </GridTableColumnHeader>
                     <GridTableColumnHeader hideNarrow={true}>
+                      {t("members.column.status")}
+                    </GridTableColumnHeader>
+                    <GridTableColumnHeader hideNarrow={true}>
                       {t("teams.column.addedAt")}
                     </GridTableColumnHeader>
                     {manages && (
-                      <GridTableColumnHeader action={true}>
-                        {t("members.column.actions")}
+                      // The ⋯ column has no visible title, as on 구성원.
+                      <GridTableColumnHeader>
+                        <span className="sr-only">
+                          {t("members.column.actions")}
+                        </span>
                       </GridTableColumnHeader>
                     )}
                   </>
@@ -692,39 +749,51 @@ function TeamMembers({
                 const name = member.display_name ?? member.email;
                 const memberRole = roles?.get(member.user_id);
                 const inactive = member.disabled_at !== null;
+                const status = (
+                  <StatusText status={inactive ? "failed" : "done"}>
+                    {t(
+                      inactive
+                        ? "members.state.suspended"
+                        : "members.state.active",
+                    )}
+                  </StatusText>
+                );
+                const busy =
+                  (changeRole.isPending &&
+                    changeRole.variables?.member.user_id === member.user_id) ||
+                  (remove.isPending &&
+                    remove.variables?.user_id === member.user_id);
                 return (
                   <GridTableRow
                     key={member.user_id}
-                    inactive={inactive}
+                    // Not `inactive`, as on 구성원: the status says it.
                     className={inactive ? INACTIVE_ROW_CLASS : undefined}
                     data-disabled={inactive}
+                    data-member-id={member.user_id}
                   >
-                    <GridTableCell lines={true}>
-                      {/* Below md the badge drops under the name, so the name keeps the column. */}
-                      <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--werft-row-line-gap)] @max-md:grid-cols-[minmax(0,auto)]">
-                        {/* Two lines at most: the track left at 390px holds about 63px. */}
-                        <Text
-                          as="span"
-                          weight="medium"
-                          title={name}
-                          className="line-clamp-2 min-w-0 [overflow-wrap:anywhere]"
-                        >
+                    <GridTableCell>
+                      <span className="flex min-w-0 items-center gap-2">
+                        <Text as="span" weight="medium" truncate title={name}>
                           {name}
                         </Text>
+                        {/* Narrow, the status column is gone: a suspended
+                            member says so beside the name. */}
                         {inactive ? (
-                          <InactiveBadge className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0" />
+                          <span className="hidden shrink-0 [@container(max-width:820px)]:inline-flex">
+                            {status}
+                          </span>
                         ) : null}
                       </span>
-                      {member.display_name !== null && (
-                        <Text
-                          as="span"
-                          variant="meta"
-                          truncate
-                          title={member.email}
-                        >
-                          {member.email}
-                        </Text>
-                      )}
+                    </GridTableCell>
+                    <GridTableCell hideNarrow={true}>
+                      <Text
+                        as="span"
+                        truncate
+                        title={member.email}
+                        className="text-muted-foreground"
+                      >
+                        {member.email}
+                      </Text>
                     </GridTableCell>
                     {roles && (
                       <GridTableCell hideNarrow={true}>
@@ -732,14 +801,9 @@ function TeamMembers({
                       </GridTableCell>
                     )}
                     <GridTableCell>
-                      {/* The server refuses a role change or a removal on a
-                          disabled member; the row reads, it does not edit. */}
-                      {manages && !inactive ? (
-                        <TeamRoleSelect team={team} member={member} />
-                      ) : (
-                        <TeamRoleBadge role={member.role} />
-                      )}
+                      <TeamRoleBadge role={member.role} />
                     </GridTableCell>
+                    <GridTableCell hideNarrow={true}>{status}</GridTableCell>
                     <GridTableCell
                       hideNarrow={true}
                       className="text-caption text-muted-foreground tabular-nums"
@@ -748,15 +812,46 @@ function TeamMembers({
                     </GridTableCell>
                     {manages && (
                       <GridTableCell raised={true} align="end">
-                        {inactive ? null : (
-                          <RowAction
-                            disabled={remove.isPending}
-                            aria-label={t("teams.removeMemberFor", { name })}
-                            onClick={() => setRemoving(member)}
-                          >
-                            {t("teams.removeMember")}
-                          </RowAction>
-                        )}
+                        {/* The server refuses a role change or a removal on a
+                            suspended member: its ⋯ stays, named and
+                            focusable, but does not open. */}
+                        <RowMenu
+                          label={t("members.menuFor", { name })}
+                          disabled={inactive || busy}
+                        >
+                          {(close) => (
+                            <>
+                              <RowMenuItem
+                                onSelect={() => {
+                                  close();
+                                  if (member.role === "member")
+                                    setPromoting(member);
+                                  else
+                                    changeRole.mutate({
+                                      member,
+                                      role: "member",
+                                    });
+                                }}
+                              >
+                                {t(
+                                  member.role === "member"
+                                    ? "teams.promoteConfirm"
+                                    : "teams.demote",
+                                )}
+                              </RowMenuItem>
+                              <RowMenuItem
+                                tone="danger"
+                                label={t("teams.removeMemberFor", { name })}
+                                onSelect={() => {
+                                  close();
+                                  setRemoving(member);
+                                }}
+                              >
+                                {t("teams.removeMember")}
+                              </RowMenuItem>
+                            </>
+                          )}
+                        </RowMenu>
                       </GridTableCell>
                     )}
                   </GridTableRow>
@@ -784,11 +879,29 @@ function TeamMembers({
           if (removing) remove.mutate(removing);
         }}
       />
+      <ConfirmDialog
+        open={promoting !== null}
+        onOpenChange={(open) => {
+          if (!open && !changeRole.isPending) setPromoting(null);
+        }}
+        title={t("teams.promoteTitle", {
+          name: promoting?.display_name ?? promoting?.email ?? "",
+        })}
+        consequence={t("teams.promoteConsequence")}
+        confirmLabel={t("teams.promoteConfirm")}
+        cancelLabel={t("common.cancel")}
+        busy={changeRole.isPending}
+        onConfirm={() => {
+          if (promoting) changeRole.mutate({ member: promoting, role: "lead" });
+        }}
+      />
     </SettingsSection>
   );
 }
 
 const TEAM_ROLES: readonly TeamMemberRole[] = ["lead", "member"];
+
+type TeamRoleFilter = "all" | TeamMemberRole;
 
 function TeamRoleBadge({ role }: { readonly role: TeamMemberRole }) {
   const { t } = useI18n();
@@ -796,90 +909,6 @@ function TeamRoleBadge({ role }: { readonly role: TeamMemberRole }) {
     <Badge variant={role === "lead" ? "blue" : "gray"}>
       {t(`teams.role.${role}`)}
     </Badge>
-  );
-}
-
-/**
- * A team member's role, applied the moment it is picked: a lead administers
- * every agent the team manages from the next request on (agent-rbac (d)).
- * The select follows the server's role, so a refused change snaps back; it is
- * locked while the request runs. Promotion to lead asks first, demotion does not.
- */
-function TeamRoleSelect({
-  team,
-  member,
-}: {
-  readonly team: TeamDetail;
-  readonly member: TeamMember;
-}) {
-  const { t } = useI18n();
-  const notify = useNotify();
-  const { client } = useWerft();
-  const queryClient = useQueryClient();
-  const role = useRole();
-  const [promoting, setPromoting] = useState(false);
-  const name = member.display_name ?? member.email;
-
-  const save = useMutation<TeamChangeResponse, ApiError, TeamMemberRole>({
-    mutationFn: (next) =>
-      unwrap(
-        client.PATCH("/v1/teams/{team_id}/members/{user_id}", {
-          params: { path: { team_id: team.id, user_id: member.user_id } },
-          body: { role: next },
-        }),
-      ),
-    onSettled: () => setPromoting(false),
-    onSuccess: async (_result, next) => {
-      notify(t("teams.roleChanged", { name, role: t(`teams.role.${next}`) }));
-      await refreshTeam(queryClient, client, team.id);
-    },
-    // Nothing is kept locally, so the select is already back on the server's
-    // role; the toast says why.
-    // A failure after the confirmation stays until read, like any other one.
-    onError: (error) =>
-      notify(refusalText(t, error, "team.manage", role), {
-        tone: "error",
-        persistent: promoting,
-      }),
-  });
-  // While the request runs the select shows the role it asked for.
-  const shown = save.isPending && save.variables ? save.variables : member.role;
-
-  return (
-    <>
-      <NativeSelect
-        // w-auto, not fit: a select in a table cell collapses at 390px.
-        // Same 820px container query as the table's narrow tracks.
-        className="w-auto ps-2 pe-8 [@container(max-width:820px)]:ps-1 [@container(max-width:820px)]:pe-6"
-        aria-label={t("teams.changeRoleFor", { name })}
-        value={shown}
-        disabled={save.isPending}
-        onChange={(event) => {
-          const next = event.target.value as TeamMemberRole;
-          if (next === member.role) return;
-          if (next === "lead") setPromoting(true);
-          else save.mutate(next);
-        }}
-      >
-        {TEAM_ROLES.map((value) => (
-          <NativeSelectOption key={value} value={value}>
-            {t(`teams.role.${value}`)}
-          </NativeSelectOption>
-        ))}
-      </NativeSelect>
-      <ConfirmDialog
-        open={promoting}
-        onOpenChange={(next) => {
-          if (!next && !save.isPending) setPromoting(false);
-        }}
-        title={t("teams.promoteTitle", { name })}
-        consequence={t("teams.promoteConsequence")}
-        confirmLabel={t("teams.promoteConfirm")}
-        cancelLabel={t("common.cancel")}
-        busy={save.isPending}
-        onConfirm={() => save.mutate("lead")}
-      />
-    </>
   );
 }
 
