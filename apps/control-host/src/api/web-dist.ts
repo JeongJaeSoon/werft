@@ -74,6 +74,10 @@ export function createWebDistHandler(directory: string) {
     return new Response(Bun.file(index), {
       headers: {
         ...SECURITY_HEADERS,
+        // An OAuth callback page opens with the code in its address; every
+        // request the page makes before the app clears it would carry it as
+        // the Referer. The API takes the `Origin: null` this gives a POST.
+        "Referrer-Policy": "no-referrer",
         "Cache-Control": "no-cache",
         "Content-Security-Policy": APP_CSP,
         "Content-Type": "text/html; charset=utf-8",
