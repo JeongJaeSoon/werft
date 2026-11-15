@@ -681,7 +681,7 @@ describe("ApprovalInbox", () => {
     }
   });
 
-  test("레일 줄은 시안처럼 아바타·종류 배지·에이전트·내게 온 이유·대기 시간과 답하기를 보이고, 본문과 기한은 레일에 남긴다", async () => {
+  test("레일 줄은 아바타 없이 제목 옆 종류 배지, 에이전트·대기 시간·내게 온 이유 한 줄과 답하기를 보이고, 본문과 기한은 레일에 남긴다", async () => {
     const view = renderInbox({
       // Bash, whose old line read "Bash: ls".
       open: [permission("req_1", "Bash")],
@@ -697,23 +697,23 @@ describe("ApprovalInbox", () => {
     });
     expect(answer.textContent).toBe("Answer");
     const line = answer.parentElement as HTMLElement;
-    const avatar = line.querySelector("[data-slot='avatar']");
-    expect(avatar?.textContent).toBe("RH");
-    expect(avatar?.getAttribute("aria-hidden")).toBe("true");
-    expect(avatar?.className).toContain("rounded-control");
-    expect(line.textContent).toContain("Permission · Bash");
-    // The first of the reasons, in the design's order.
+    expect(line.querySelector("[data-slot='avatar']") === null).toBe(true);
+    // The kind sits on the title's line, after it.
+    const [first, second] = [...line.querySelectorAll("p")];
+    expect(first?.textContent).toBe("hello.txtPermission · Bash");
+    // The first of the reasons, in the design's order, without a label.
     await waitFor(() =>
-      expect(line.textContent).toContain(
-        "Repo Helper · Why you: Session you started · Waiting 12 min",
+      expect(second?.textContent).toBe(
+        "Repo Helper · Waiting 12 min · Session you started",
       ),
     );
+    expect(line.textContent).not.toContain("Why you");
     // A long reason wraps; only the wait stays whole.
     const parts = [...line.querySelectorAll("p > span")].map((part) => [
       part.textContent,
       part.className,
     ]);
-    expect(parts).toContainEqual([" · Why you: Session you started", ""]);
+    expect(parts).toContainEqual([" · Session you started", ""]);
     expect(parts).toContainEqual([" · Waiting 12 min", "whitespace-nowrap"]);
     expect(line.textContent).not.toContain("Bash: ls");
     expect(line.textContent).not.toContain("until");
@@ -739,7 +739,9 @@ describe("ApprovalInbox", () => {
       const line = answer.parentElement as HTMLElement;
       expect(line.textContent).toContain("Question");
       await waitFor(() =>
-        expect(line.textContent).toContain(`Why you: ${reason} · `),
+        expect(line.querySelectorAll("p")[1]?.textContent).toMatch(
+          new RegExp(`^Repo Helper · Waiting \\d+ min · ${reason}$`),
+        ),
       );
     });
   }
@@ -754,14 +756,16 @@ describe("ApprovalInbox", () => {
     const answer = await view.findByRole("button", { name: "Answer README" });
     const line = answer.parentElement as HTMLElement;
     await waitFor(() => expect(line.textContent).toContain("Waiting"));
-    expect(line.textContent).not.toContain("Why you");
+    expect(line.textContent).not.toContain("Shared with you");
     await view.relate(["shared"]);
     await waitFor(() =>
-      expect(line.textContent).toContain("Why you: Shared with you"),
+      expect(line.querySelectorAll("p")[1]?.textContent).toMatch(
+        /^Waiting \d+ min · Shared with you$/,
+      ),
     );
   });
 
-  test("레일 줄은 관계를 모르면 이유를 빼고, 에이전트 없는 세션은 시작한 사람의 기본 아바타를 쓴다", async () => {
+  test("레일 줄은 관계를 모르면 이유를 빼고, 에이전트 없는 세션은 시작한 사람의 이름을 쓴다", async () => {
     const view = renderInbox({
       open: [QUESTION],
       layout: "summary",
@@ -771,13 +775,12 @@ describe("ApprovalInbox", () => {
     });
     const answer = await view.findByRole("button", { name: "Answer README" });
     const line = answer.parentElement as HTMLElement;
-    const avatar = line.querySelector("[data-slot='avatar']");
-    expect(avatar?.textContent).toBe("JJ");
-    expect(avatar?.className).toContain("bg-active");
-    // The starter's name is not in the meta, so the avatar says it.
-    expect(avatar?.getAttribute("aria-label")).toBe("Jaesoon Jeong");
-    await waitFor(() => expect(line.textContent).toContain("Waiting"));
-    expect(line.textContent).not.toContain("Why you");
+    expect(line.querySelector("[data-slot='avatar']") === null).toBe(true);
+    await waitFor(() =>
+      expect(line.querySelectorAll("p")[1]?.textContent).toMatch(
+        /^Jaesoon Jeong · Waiting \d+ min$/,
+      ),
+    );
   });
 
   test("레일 배치는 줄마다 답하기 하나를 두고, 오른쪽 레일의 타임라인 질문 행에서 답한다", async () => {

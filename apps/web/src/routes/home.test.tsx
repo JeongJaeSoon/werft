@@ -1208,9 +1208,8 @@ describe("홈 요약", () => {
       name: `세션 열기 ${waitingSession.title}`,
     });
     expect(name.getAttribute("href")).toBe(`/sessions/${waitingSession.id}`);
-    expect(inbox.textContent).toMatch(
-      /내게 온 이유: 내가 시작한 세션 · \d+분째 대기/,
-    );
+    expect(inbox.textContent).toMatch(/\d+분째 대기 · 내가 시작한 세션/);
+    expect(inbox.textContent).not.toContain("내게 온 이유");
     expect(
       within(inbox)
         .getByRole("link", { name: "전체 보기" })

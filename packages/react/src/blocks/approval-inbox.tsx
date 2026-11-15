@@ -9,15 +9,7 @@ import {
   waitingSessionsByQuery,
   waitingSessionsQuery,
 } from "@werft-ai/core";
-import {
-  Avatar,
-  avatarInitials,
-  avatarTone,
-  Badge,
-  cn,
-  RowAction,
-  Skeleton,
-} from "@werft-ai/ui";
+import { Badge, cn, RowAction, Skeleton } from "@werft-ai/ui";
 import {
   type ReactNode,
   useEffect,
@@ -402,17 +394,18 @@ function WaitingSession({
         Math.floor((now - Date.parse(request.created_at)) / 60_000),
       ),
     });
-    // Untitled, the name line already is the short id. A rail line follows
-    // the design: why it came to the reader in place of the id.
-    const parts = [
-      session.agent?.name,
+    // Untitled, the name line already is the short id. A rail line has no
+    // id: it names a session's starter when it has no agent, and ends with
+    // why the request came to the reader.
+    const parts = (
       onOpen
-        ? reason && t("inbox.why", { reason: t(`inbox.why.${reason}`) })
-        : session.title
-          ? short
-          : undefined,
-      waited,
-    ].filter((part) => part !== undefined);
+        ? [
+            session.agent?.name ?? session.created_by?.display_name,
+            waited,
+            reason && t(`inbox.why.${reason}`),
+          ]
+        : [session.agent?.name, session.title ? short : undefined, waited]
+    ).filter((part) => part !== undefined);
     return (
       <>
         {parts.map((part, index) => (
@@ -441,7 +434,6 @@ function WaitingSession({
           {pending.data.items.map((request) => (
             <li key={request.request_id}>
               <PanelLine
-                session={session}
                 request={request}
                 heading={heading}
                 meta={meta(request)}
@@ -506,7 +498,6 @@ function WaitingSession({
  * what it asks and until when are shown.
  */
 function PanelLine({
-  session,
   request,
   heading,
   meta,
@@ -514,7 +505,6 @@ function PanelLine({
   opened,
   onOpen,
 }: {
-  readonly session: SessionSummary;
   readonly request: PendingRequest;
   readonly heading: ReactNode;
   readonly meta: ReactNode;
@@ -524,22 +514,8 @@ function PanelLine({
   readonly onOpen: (opener: HTMLElement) => void;
 }) {
   const { t } = useBlockText();
-  // An agent's own colour; a session without one shows its starter, uncoloured.
-  const agent = session.agent?.name;
   return (
     <div className="flex min-h-[var(--werft-row-min-height)] items-center gap-3 px-[var(--werft-row-padding-x)] py-[var(--werft-row-padding-y)]">
-      <Avatar
-        size="two-line"
-        shape="square"
-        tone={agent === undefined ? "default" : avatarTone(agent)}
-        initials={avatarInitials(
-          agent ?? session.created_by?.display_name ?? "",
-        )}
-        // The meta names the agent, never the starter.
-        label={
-          agent === undefined ? session.created_by?.display_name : undefined
-        }
-      />
       <div className="flex min-w-0 flex-1 flex-col gap-(--werft-row-line-gap)">
         {/* On a narrow line the badge goes under the title rather than
             both being cut. */}
