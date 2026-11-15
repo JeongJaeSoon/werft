@@ -775,11 +775,17 @@ describe("focus after a page change", () => {
       );
     });
 
+    // Another provider stays on: a cancelled read also draws no Google button,
+    // only the server's answer draws the one left.
     test("a provider turned off in this tab loses its button", async () => {
+      const OKTA = {
+        id: "9e2f4c1a-7b3d-4e8f-a6c5-1d2e3f4a5b6c",
+        display_name: "Okta",
+      };
       let on = true;
       await logOutWith(() => ({
         password: "on",
-        providers: on ? [GOOGLE] : [],
+        providers: on ? [GOOGLE, OKTA] : [OKTA],
       }));
       await screen.findByRole("button", { name: "Google 계정으로 로그인" });
       const user = await setupUser();
@@ -789,7 +795,7 @@ describe("focus after a page change", () => {
       await screen.findByRole("heading", { level: 1, name: "홈" });
       on = false;
       await logOut();
-      await screen.findByRole("button", { name: "로그인" });
+      await screen.findByRole("button", { name: "Okta 계정으로 로그인" });
       await waitFor(() =>
         expect(
           screen.queryByRole("button", { name: "Google 계정으로 로그인" }) ===
