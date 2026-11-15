@@ -99,8 +99,13 @@ function judgeOf(
     errorCode?: ClaimedJudgment["errorCode"];
     /** The installation has no decision model. */
     noModel?: boolean;
+    /** The decision model is gone after this many reads of it. */
+    modelReads?: number;
+    /** How many judgments one claim takes; one by default. */
+    claims?: number;
   } = {},
 ) {
+  let modelReads = 0;
   const finished: JudgmentResult[] = [];
   const warnings: string[] = [];
   const logged: unknown[] = [];
@@ -109,13 +114,13 @@ function judgeOf(
     AchievementJudgmentStore,
     "claim" | "context" | "finish" | "transcript" | "renew"
   > = {
-    claim: async () => [
-      {
+    claim: async () =>
+      Array.from({ length: options.claims ?? 1 }, (_, at) => ({
         ...CLAIMED,
+        id: at === 0 ? CLAIMED.id : `${CLAIMED.id}-${at}`,
         attempts: options.attempts ?? 1,
         errorCode: options.errorCode ?? null,
-      },
-    ],
+      })),
     renew: async () => {
       renewed += 1;
       return renewed <= (options.renewals ?? Number.POSITIVE_INFINITY);
@@ -177,7 +182,15 @@ function judgeOf(
         logged.push(message, fields);
       },
     },
-    models: { ids: async () => (options.noModel ? [] : ["luna-main"]) },
+    models: {
+      ids: async () => {
+        modelReads += 1;
+        const gone =
+          options.noModel ||
+          (options.modelReads !== undefined && modelReads > options.modelReads);
+        return gone ? [] : ["luna-main"];
+      },
+    },
     ...(options.luna === undefined ? {} : { luna: options.luna }),
   });
   return { judge, finished, warnings, reads, logged, renewals: () => renewed };
@@ -207,6 +220,30 @@ describe("achievement judge", () => {
         achievements: [],
       },
     ]);
+  });
+
+  test("a decision model disabled while a batch runs stops the judgments after it", async () => {
+    const { judge, finished } = judgeOf(
+      {
+        rules: [rule("code_review", "github_review")],
+        outcomes: [REVIEW],
+      },
+      { status: "none" },
+      { claims: 2, modelReads: 1 },
+    );
+    expect(await judge.runOnce()).toBe(2);
+    expect(finished.map((result) => result.status)).toEqual([
+      "succeeded",
+      "skipped",
+    ]);
+    expect(finished[0]?.achievements.length).toBe(1);
+    expect(finished[1]).toEqual({
+      status: "skipped",
+      errorCode: "judge_unavailable",
+      rules: [],
+      evidenceIds: [],
+      achievements: [],
+    });
   });
 
   test("an always rule counts each evidence of its kind, with the built-in payload and the review state of the kind", async () => {

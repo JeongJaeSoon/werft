@@ -272,6 +272,7 @@ export function AchievementRulesScreen() {
   const locked =
     judge.data !== undefined && judge.data.connections.length === 0;
   const setup = useDecisionModelSetup(setOutcome);
+  const setupId = useId();
   const writeReason =
     reason ?? (locked ? t("decisionModel.lockedReason") : undefined);
   const open = (target: string) => {
@@ -286,6 +287,7 @@ export function AchievementRulesScreen() {
       actions={
         <>
           <ReasonButton
+            id={setupId}
             className={buttonVariants({ variant: "outline" })}
             reason={setup.reason}
             onClick={(event) => setup.open(event.currentTarget)}
@@ -363,7 +365,11 @@ export function AchievementRulesScreen() {
           {locked ? (
             <DecisionModelLock
               reason={setup.reason}
-              onSetup={(from) => setup.open(from)}
+              // The focus goes back to the header's button: this one leaves
+              // with the lock once a model is set up.
+              onSetup={(from) =>
+                setup.open(document.getElementById(setupId) ?? from)
+              }
             />
           ) : null}
         </div>

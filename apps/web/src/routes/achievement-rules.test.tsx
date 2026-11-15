@@ -1437,6 +1437,9 @@ describe("성과 규칙", () => {
     );
     await waitFor(() => expect(judged).not.toBe(null));
     expect(document.querySelector("[inert]") === null).toBe(true);
+    // The lock's button left with the lock; the header's takes the focus.
+    const header = screen.getByRole("button", { name: "판정 모델 설정" });
+    await waitFor(() => expect(document.activeElement === header).toBe(true));
     expect(
       screen
         .getByRole("button", { name: "규칙 추가" })
@@ -1458,6 +1461,52 @@ describe("성과 규칙", () => {
       ],
       ["PUT", JUDGE, { ...SETTINGS, connection_id: "luna-main" }],
     ]);
+  });
+
+  test("화면을 연 뒤 다른 사람이 판정기를 골랐으면, 새 판정 모델을 만들어도 그 설정을 덮어쓰지 않는다", async () => {
+    let reads = 0;
+    const { api } = await opened({
+      // The screen's first read sees no judge; anyone's later read sees the
+      // one another person saved meanwhile.
+      [`GET ${JUDGE}`]: () => {
+        reads += 1;
+        return json(200, {
+          achievement_judge:
+            reads === 1
+              ? SETTINGS
+              : { ...SETTINGS, connection_id: "luna-a", threshold: 0.8 },
+          connections: reads === 1 ? [] : ["luna-a"],
+        });
+      },
+      [`GET ${SETTINGS_CONNECTIONS}`]: () =>
+        json(200, {
+          items: [],
+          credential_hosts: null,
+          endpoint_defaults: { openai_decisions: "https://api.openai.com" },
+        }),
+      [`POST ${SETTINGS_CONNECTIONS}`]: async (request) => {
+        const body = (await request.json()) as { id: string };
+        return json(201, { id: body.id, receipt_id: RECEIPT_ID });
+      },
+    });
+    const user = await setupUser();
+    const lock = await screen.findByRole("group", { name: "사용할 수 없음" });
+    await user.click(
+      within(lock).getByRole("button", { name: "판정 모델 설정" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "판정 모델 연결 추가",
+    });
+    await user.type(within(dialog).getByLabelText("id"), "luna-main");
+    await user.type(within(dialog).getByLabelText("키 값"), "example-key");
+    await user.click(within(dialog).getByRole("button", { name: "만들기" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("group", { name: "사용할 수 없음" }) === null,
+      ).toBe(true),
+    );
+    await waitFor(() => expect(reads >= 3).toBe(true));
+    expect(writes(api.calls).map((call) => call.method)).toEqual(["POST"]);
   });
 
   test("이미 있는 판정 모델은 여기서 키를 바꾸고 사용 중지하며, 에이전트의 연결은 보이지 않는다", async () => {

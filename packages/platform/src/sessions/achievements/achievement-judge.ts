@@ -468,9 +468,6 @@ export function createAchievementJudge(deps: {
   async function runOnce(): Promise<number> {
     const claimed = await store.claim({ max: claimMax, leaseMs });
     if (claimed.length === 0) return 0;
-    // Without a decision model nothing is counted, `always` rules included,
-    // and what was queued before ends here rather than waiting for one.
-    const model = (await deps.models.ids()).length > 0;
     let finished = 0;
     for (const judgment of claimed) {
       const nothing = { rules: [], evidenceIds: [], achievements: [] };
@@ -479,7 +476,10 @@ export function createAchievementJudge(deps: {
       // may have spent it.
       if (!(await store.renew(judgment, leaseMs))) {
         result = null;
-      } else if (!model) {
+      } else if ((await deps.models.ids()).length === 0) {
+        // Asked per judgment: the model may go while the batch runs. Without
+        // one nothing is counted, `always` rules included, and what was
+        // queued before ends here rather than waiting for one.
         result = {
           status: "skipped",
           errorCode: "judge_unavailable",

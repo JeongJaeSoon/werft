@@ -85,7 +85,6 @@ export function useDecisionModelSetup(
     ? undefined
     : permissionReason(t, "installation.settings.manage", role);
   const connections = useQuery(settingsConnectionsQuery(client, owns));
-  const judge = useAchievementJudge();
   const items = connections.data?.items.filter(
     (item) => item.kind === DECISION_KIND,
   );
@@ -100,11 +99,20 @@ export function useDecisionModelSetup(
   const rows = useRowActions("connection", report);
 
   // A judge with no connection named takes the first decision model, so
-  // setting one up is enough to judge.
-  const select = useMutation<AchievementJudgeChangeResponse, ApiError, string>({
-    mutationFn: (id) => {
-      const settings = judge.data?.achievement_judge;
-      if (!settings) throw new Error("judge settings not loaded");
+  // setting one up is enough to judge. The settings are read again first:
+  // the cached ones may predate another person's save, which this would undo.
+  const select = useMutation<
+    AchievementJudgeChangeResponse | null,
+    ApiError,
+    string
+  >({
+    mutationFn: async (id) => {
+      const { achievement_judge: settings } = (await unwrap(
+        client.GET("/v1/workspaces/{id}/achievement-judge", {
+          params: { path: { id: workspaceId } },
+        }),
+      )) as AchievementJudgeResponse;
+      if (settings.connection_id !== null) return null;
       return unwrap(
         client.PUT("/v1/workspaces/{id}/achievement-judge", {
           params: { path: { id: workspaceId } },
@@ -134,11 +142,7 @@ export function useDecisionModelSetup(
         hosts={connections.data?.credential_hosts ?? null}
         defaults={connections.data?.endpoint_defaults ?? {}}
         onOutcome={report}
-        onCreated={(id) => {
-          if (judge.data?.achievement_judge.connection_id === null) {
-            select.mutate(id);
-          }
-        }}
+        onCreated={(id) => select.mutate(id)}
       />
       <Dialog
         open={mode === "manage"}
