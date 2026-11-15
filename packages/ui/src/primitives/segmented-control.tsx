@@ -64,10 +64,21 @@ export function SegmentedControl({
   useEffect(() => {
     const scroller = box.current;
     if (!scroller) return;
-    const reveal = () =>
-      scroller
-        .querySelector<HTMLElement>("[aria-pressed=true]")
-        ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    // Only this box scrolls: scrollIntoView would also move the page to the
+    // filter whenever a count update resizes the track.
+    const reveal = () => {
+      const item = scroller.querySelector<HTMLElement>("[aria-pressed=true]");
+      if (!item) return;
+      const pad =
+        Number.parseFloat(getComputedStyle(scroller).paddingLeft) || 0;
+      const view = scroller.getBoundingClientRect();
+      const { left, right } = item.getBoundingClientRect();
+      if (left < view.left + pad) {
+        scroller.scrollLeft -= view.left + pad - left;
+      } else if (right > view.right - pad) {
+        scroller.scrollLeft += right - (view.right - pad);
+      }
+    };
     reveal();
     // Counts arriving after the first paint widen the items and can push
     // the picked one out of view again.

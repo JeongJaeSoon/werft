@@ -88,24 +88,40 @@ describe("SegmentedControl", () => {
     }
   });
 
-  test("scroll이면 고른 항목을 상자 안의 보이는 곳으로 옮긴다", async () => {
-    const shown: Element[] = [];
-    const original = HTMLElement.prototype.scrollIntoView;
-    HTMLElement.prototype.scrollIntoView = function (this: Element) {
-      shown.push(this);
+  test("scroll이면 상자만 가로로 밀어 고른 항목을 보이게 하고 페이지는 움직이지 않는다", async () => {
+    // happy-dom does no layout: a 200px box, 90px items 100px apart.
+    let intoView = 0;
+    const originalRect = Element.prototype.getBoundingClientRect;
+    const originalIntoView = HTMLElement.prototype.scrollIntoView;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      const box = this.closest<HTMLElement>(
+        "[data-slot=segmented-control-scroll]",
+      );
+      if (box === this) return new DOMRect(0, 0, 200, 40);
+      const items = [...(box?.querySelectorAll("button") ?? [])];
+      const x = items.indexOf(this as HTMLButtonElement) * 100;
+      return new DOMRect(x - (box?.scrollLeft ?? 0), 4, 90, 26);
+    };
+    HTMLElement.prototype.scrollIntoView = () => {
+      intoView += 1;
     };
     try {
       const { getByRole } = render(
         <StatusFilter initial="done" scroll={true} />,
       );
-      const done = getByRole("button", { name: "끝남" });
-      expect(shown.at(-1) === done).toBe(true);
+      const box = getByRole("group").parentElement as HTMLElement;
+      // No stylesheet, so no padding: "끝남" ends at 390, the box at 200.
+      expect(box.scrollLeft).toBe(190);
       const user = await setupUser();
-      const running = getByRole("button", { name: /실행 중/ });
-      await user.click(running);
-      expect(shown.at(-1) === running).toBe(true);
+      await user.click(getByRole("button", { name: /실행 중/ }));
+      // "실행 중" starts at 100, scrolled to -90: back to the box's left edge.
+      expect(box.scrollLeft).toBe(100);
+      await user.click(getByRole("button", { name: "끝남" }));
+      expect(box.scrollLeft).toBe(190);
+      expect(intoView).toBe(0);
     } finally {
-      HTMLElement.prototype.scrollIntoView = original;
+      Element.prototype.getBoundingClientRect = originalRect;
+      HTMLElement.prototype.scrollIntoView = originalIntoView;
     }
   });
 
