@@ -126,6 +126,12 @@ export const workspaceMcpKo = {
     "이 주소로는 연결할 수 없습니다. 사설·loopback 주소이거나 https가 아닙니다.",
   "workspaceMcp.error.endpoint_not_allowed":
     "서버나 인가 서버의 호스트가 허용 목록에 없습니다. 운영자에게 API와 egress proxy의 허용 목록에 넣어 달라고 요청하세요.",
+  "workspaceMcp.error.credential_allowlist_unset":
+    "이 설치는 자격을 보낼 호스트 목록(EGRESS_CREDENTIAL_ALLOWLIST)이 없어 서버를 등록할 수 없습니다. 운영자에게 설정을 요청하세요.",
+  "workspaceMcp.error.host_not_allowed":
+    "이 서버의 host:port가 자격을 보낼 수 있는 목록에 없습니다. 운영자에게 API와 egress proxy의 EGRESS_CREDENTIAL_ALLOWLIST에 넣어 달라고 요청하세요.",
+  "workspaceMcp.error.url_insecure":
+    "https 주소만 등록할 수 있습니다. http는 운영자가 사설 허용 목록에 넣은 호스트만 됩니다.",
   "workspaceMcp.error.discovery_failed":
     "서버가 요구하는 인증을 읽지 못했습니다. URL을 확인하세요.",
   "workspaceMcp.error.not_oauth":
@@ -151,6 +157,8 @@ export const workspaceMcpKo = {
     "다른 사람이 시작한 로그인입니다. 연결을 시작한 사람이 끝내야 합니다.",
   "workspaceMcp.error.scope_widened":
     "인가 서버가 요청한 것보다 넓은 권한을 주어 연결을 거절했습니다.",
+  "workspaceMcp.error.token_rejected":
+    "인가 서버가 로그인 결과를 받지 않았습니다. 다시 연결하세요.",
   "workspaceMcp.error.token_invalid":
     "인가 서버가 올바른 token을 주지 않았습니다.",
   "workspaceMcp.error.unauthorized":
@@ -175,6 +183,8 @@ export const workspaceMcpKo = {
     "인가 서버가 로그인을 허용하지 않았습니다(코드: {code}). MCP 서버 화면에서 다시 연결하세요.",
   "workspaceMcp.callback.missing":
     "로그인 응답에 code가 없습니다. MCP 서버 화면에서 다시 연결하세요.",
+  "workspaceMcp.callback.signedOut":
+    "그사이 콘솔 로그인이 끝나 연결을 마치지 못했습니다. 다시 로그인한 뒤 MCP 서버 화면에서 다시 연결하세요.",
   "workspaceMcp.callback.back": "MCP 서버로 돌아가기",
   "agentWorkspaceMcp.title": "워크스페이스 MCP 서버",
   "agentWorkspaceMcp.description":
@@ -321,6 +331,12 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
     "That address cannot be reached: it is private, loopback or not https.",
   "workspaceMcp.error.endpoint_not_allowed":
     "The server's or the authorization server's host is not on the allowlist. Ask the operator to add it to the API's and the egress proxy's allowlists.",
+  "workspaceMcp.error.credential_allowlist_unset":
+    "This installation has no list of hosts credentials may go to (EGRESS_CREDENTIAL_ALLOWLIST), so no server can be registered. Ask the operator to set it.",
+  "workspaceMcp.error.host_not_allowed":
+    "This server's host:port is not on the list of hosts credentials may go to. Ask the operator to add it to EGRESS_CREDENTIAL_ALLOWLIST for the API and the egress proxy.",
+  "workspaceMcp.error.url_insecure":
+    "Only https addresses can be registered; http only for a host the operator put on the private allowlist.",
   "workspaceMcp.error.discovery_failed":
     "Could not read what the server asks for. Check the URL.",
   "workspaceMcp.error.not_oauth":
@@ -347,6 +363,8 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
     "Someone else started this sign-in; the person who started it must finish it.",
   "workspaceMcp.error.scope_widened":
     "The authorization server granted more than was asked for, so the connection was refused.",
+  "workspaceMcp.error.token_rejected":
+    "The authorization server did not accept the sign-in result. Connect again.",
   "workspaceMcp.error.token_invalid":
     "The authorization server did not send a usable token.",
   "workspaceMcp.error.unauthorized":
@@ -371,6 +389,8 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
     "The authorization server did not allow the sign-in (code: {code}). Connect again from the MCP servers page.",
   "workspaceMcp.callback.missing":
     "The sign-in answer has no code. Connect again from the MCP servers page.",
+  "workspaceMcp.callback.signedOut":
+    "Your console sign-in ended meanwhile, so the connection was not finished. Sign in again, then connect again from the MCP servers page.",
   "workspaceMcp.callback.back": "Back to MCP servers",
   "agentWorkspaceMcp.title": "Workspace MCP servers",
   "agentWorkspaceMcp.description":
@@ -520,6 +540,12 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
     "このアドレスには接続できません。プライベート・loopback のアドレスか、https ではありません。",
   "workspaceMcp.error.endpoint_not_allowed":
     "サーバーか認可サーバーのホストが許可リストにありません。運用者に API と egress proxy の許可リストへの追加を依頼してください。",
+  "workspaceMcp.error.credential_allowlist_unset":
+    "このインストールには資格情報を送れるホストのリスト（EGRESS_CREDENTIAL_ALLOWLIST）がないため、サーバーを登録できません。運用者に設定を依頼してください。",
+  "workspaceMcp.error.host_not_allowed":
+    "このサーバーの host:port が資格情報を送れるリストにありません。運用者に API と egress proxy の EGRESS_CREDENTIAL_ALLOWLIST への追加を依頼してください。",
+  "workspaceMcp.error.url_insecure":
+    "登録できるのは https のアドレスだけです。http は運用者がプライベート許可リストに入れたホストに限られます。",
   "workspaceMcp.error.discovery_failed":
     "サーバーが求める認証を読み取れませんでした。URL を確認してください。",
   "workspaceMcp.error.not_oauth":
@@ -546,6 +572,8 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
     "別の人が始めたログインです。接続を始めた人が完了する必要があります。",
   "workspaceMcp.error.scope_widened":
     "認可サーバーが要求より広い権限を与えたため接続を拒否しました。",
+  "workspaceMcp.error.token_rejected":
+    "認可サーバーがログイン結果を受け付けませんでした。再接続してください。",
   "workspaceMcp.error.token_invalid":
     "認可サーバーが正しい token を返しませんでした。",
   "workspaceMcp.error.unauthorized":
@@ -570,6 +598,8 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
     "認可サーバーがログインを許可しませんでした（コード: {code}）。MCP サーバー画面から再接続してください。",
   "workspaceMcp.callback.missing":
     "ログイン応答に code がありません。MCP サーバー画面から再接続してください。",
+  "workspaceMcp.callback.signedOut":
+    "その間にコンソールのログインが終わったため、接続を完了できませんでした。ログインし直してから MCP サーバー画面で再接続してください。",
   "workspaceMcp.callback.back": "MCP サーバーに戻る",
   "agentWorkspaceMcp.title": "ワークスペースの MCP サーバー",
   "agentWorkspaceMcp.description":

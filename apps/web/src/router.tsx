@@ -341,8 +341,11 @@ const mcpServers = createRoute({
   component: McpServersScreen,
 });
 
+// Public: an authorization server sends the browser back here with a code.
+// Behind the session guard an expired session would put that code into the
+// login page's redirect address; the screen answers the 401 itself.
 const workspaceMcpCallback = createRoute({
-  getParentRoute: () => authed,
+  getParentRoute: () => root,
   path: "/settings/workspace/mcp-servers/$serverId/callback",
   validateSearch: workspaceMcpCallbackSearch,
   component: lazyRouteComponent(
@@ -435,6 +438,7 @@ const routeTree = root.addChildren([
   login,
   bootstrap,
   providerCallback,
+  workspaceMcpCallback,
   invite,
   authed.addChildren([
     home,
@@ -462,7 +466,6 @@ const routeTree = root.addChildren([
     orgKeys,
     connections,
     mcpServers,
-    workspaceMcpCallback,
     loginProviders,
     loginProvider,
     executionLimits,

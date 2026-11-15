@@ -317,6 +317,87 @@ describe("워크스페이스 MCP 서버", () => {
     expect(within(dialog).queryByLabelText("이름") === null).toBe(true);
   });
 
+  test("a host off the credential list says who can add it", async () => {
+    renderAt(PAGE, {
+      ...routes([]),
+      [`POST ${LIST}/discover`]: () =>
+        apiError(400, "BAD_REQUEST", "refused", false, {
+          reason_code: "host_not_allowed",
+        }),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "서버 등록" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(
+      within(dialog).getByLabelText("서버 URL"),
+      "https://mcp.example.com/mcp",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "탐색" }));
+    expect(
+      await within(dialog).findByText(
+        /egress proxy의 EGRESS_CREDENTIAL_ALLOWLIST에 넣어 달라고/,
+      ),
+    ).toBeDefined();
+  });
+
+  test("a replaced static value leaves the cache and the keyboard goes back", async () => {
+    const { api, services } = renderAt(PAGE, {
+      ...routes([bearerServer()]),
+      [`PUT ${LIST}/${TRACKER}/token`]: () => json(200, bearerServer()),
+    });
+    const user = await setupUser();
+    const opener = within(await rowOf("tracker")).getByRole("button", {
+      name: "tracker token 바꾸기",
+    });
+    await user.click(opener);
+    const dialog = await screen.findByRole("dialog");
+    await user.type(
+      dialog.querySelector('input[name="token"]') as HTMLInputElement,
+      "fake-value-0000",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    expect(
+      await screen.findByText("tracker의 token을 바꿨습니다."),
+    ).toBeDefined();
+    expect(writes(api.calls).at(-1)?.body).toEqual({
+      token: "fake-value-0000",
+    });
+    await waitFor(() =>
+      expect(services.queryClient.getMutationCache().getAll()).toEqual([]),
+    );
+    await waitFor(() => expect(document.activeElement === opener).toBe(true));
+  });
+
+  test("closing the client and register dialogs gives the keyboard back", async () => {
+    renderAt(
+      PAGE,
+      routes([
+        oauthServer({
+          oauth: {
+            issuer: "https://auth.example.com",
+            scope: "read",
+            client_registration: "manual",
+            client_id: "client-1",
+            has_client_secret: false,
+            dcr_supported: false,
+          },
+        }),
+      ]),
+    );
+    const user = await setupUser();
+    await list();
+    for (const name of ["wiki client 설정", "서버 등록"]) {
+      const opener = screen.getByRole("button", { name });
+      await user.click(opener);
+      await screen.findByRole("dialog");
+      await user.keyboard("{Escape}");
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog") === null).toBe(true),
+      );
+      await waitFor(() => expect(document.activeElement === opener).toBe(true));
+    }
+  });
+
   test("disconnect asks first and says when revocation was not accepted", async () => {
     const { api } = renderAt(PAGE, {
       ...routes([oauthServer()]),
@@ -406,16 +487,43 @@ describe("OAuth 콜백", () => {
     ).toBeDefined();
   });
 
-  test("a refused completion says the API's reason", async () => {
-    renderAt(`${CALLBACK}?code=c1&state=s1`, {
-      ...routes([]),
-      [`POST ${LIST}/${WIKI}/oauth/complete`]: () =>
-        apiError(400, "BAD_REQUEST", "refused", false, {
-          reason_code: "oauth_flow_other_user",
-        }),
-    });
+  test("a refused completion says the API's reason and keeps no code", async () => {
+    const { history, services } = renderAt(
+      `${CALLBACK}?code=code-once-1&state=s1`,
+      {
+        ...routes([]),
+        [`POST ${LIST}/${WIKI}/oauth/complete`]: () =>
+          apiError(400, "BAD_REQUEST", "refused", false, {
+            reason_code: "oauth_flow_other_user",
+          }),
+      },
+    );
     expect(
       await screen.findByText(/다른 사람이 시작한 로그인입니다/),
     ).toBeDefined();
+    expect(history.location.pathname).toBe(CALLBACK);
+    expect(history.location.href).not.toContain("code-once-1");
+    await waitFor(() =>
+      expect(services.queryClient.getMutationCache().getAll()).toEqual([]),
+    );
+  });
+
+  test("an ended console sign-in stays here, out of the login address", async () => {
+    const signedOut = () => apiError(401, "UNAUTHORIZED", "signed out", false);
+    const { api, history } = renderAt(`${CALLBACK}?code=code-once-2&state=s1`, {
+      ...routes([]),
+      "GET /v1/auth/me": signedOut,
+      [`POST ${LIST}/${WIKI}/oauth/complete`]: signedOut,
+    });
+    expect(
+      await screen.findByText(
+        /그사이 콘솔 로그인이 끝나 연결을 마치지 못했습니다/,
+      ),
+    ).toBeDefined();
+    expect(history.location.pathname).toBe(CALLBACK);
+    expect(history.location.href).not.toContain("code-once-2");
+    expect(writes(api.calls).map((call) => call.path)).toEqual([
+      `${LIST}/${WIKI}/oauth/complete`,
+    ]);
   });
 });

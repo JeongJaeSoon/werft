@@ -95,6 +95,7 @@ export function WorkspaceMcpServers() {
   const servers = useQuery(workspaceMcpServersQuery(client));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [registering, setRegistering] = useState(false);
+  const [opener, setOpener] = useState<HTMLElement | null>(null);
   const navigate = useNavigate();
   // Read from the history entry, not a mark taken once: on its way in from
   // the callback the screen mounts twice and the second would find it spent.
@@ -129,8 +130,9 @@ export function WorkspaceMcpServers() {
           <Button
             type="button"
             variant="outline"
-            onClick={() => {
+            onClick={(event) => {
               report(null);
+              setOpener(event.currentTarget);
               setRegistering(true);
             }}
           >
@@ -175,6 +177,7 @@ export function WorkspaceMcpServers() {
         open={registering}
         onOpenChange={setRegistering}
         onOutcome={report}
+        opener={opener}
       />
     </Section>
   );
@@ -193,6 +196,9 @@ function useServerWrite<V, R>(
   const cache = useQueryClient();
   const role = useRole();
   return useMutation<R, ApiError, V>({
+    // Some writes carry a credential; a settled one must not wait in the
+    // mutation cache for its five-minute collection.
+    gcTime: 0,
     mutationFn: (variables) => write(client, variables),
     onSuccess: async (answer, variables) => {
       handlers.onDone(answer, variables);
@@ -215,6 +221,7 @@ function ServerRow({
 }) {
   const { t, locale } = useI18n();
   const [dialog, setDialog] = useState<Dialogs>({ kind: "none" });
+  const [opener, setOpener] = useState<HTMLElement | null>(null);
   const close = () => setDialog({ kind: "none" });
   const refused = (text: string) => onOutcome({ kind: "error", text });
   const name = server.name;
@@ -452,7 +459,10 @@ function ServerRow({
             <RowAction
               disabled={busy}
               aria-label={t("workspaceMcp.replaceTokenFor", { name })}
-              onClick={() => setDialog({ kind: "token" })}
+              onClick={(event) => {
+                setOpener(event.currentTarget);
+                setDialog({ kind: "token" });
+              }}
             >
               {t("workspaceMcp.replaceToken")}
             </RowAction>
@@ -461,7 +471,10 @@ function ServerRow({
             <RowAction
               disabled={busy}
               aria-label={t("workspaceMcp.clientFor", { name })}
-              onClick={() => setDialog({ kind: "client" })}
+              onClick={(event) => {
+                setOpener(event.currentTarget);
+                setDialog({ kind: "client" });
+              }}
             >
               {t("workspaceMcp.client")}
             </RowAction>
@@ -530,11 +543,13 @@ function ServerRow({
         server={dialog.kind === "token" ? server : null}
         onClose={close}
         onOutcome={onOutcome}
+        opener={opener}
       />
       <SetClient
         server={dialog.kind === "client" ? server : null}
         onClose={close}
         onOutcome={onOutcome}
+        opener={opener}
       />
     </RowListItem>
   );
@@ -572,10 +587,12 @@ function ReplaceToken({
   server,
   onClose,
   onOutcome,
+  opener,
 }: {
   readonly server: WorkspaceMcpServer | null;
   readonly onClose: () => void;
   readonly onOutcome: (outcome: Outcome) => void;
+  readonly opener: HTMLElement | null;
 }) {
   const { t } = useI18n();
   const [error, setError] = useState<string | null>(null);
@@ -607,6 +624,7 @@ function ReplaceToken({
         if (!open) onClose();
       }}
       pending={save.isPending}
+      opener={opener}
       title={t("workspaceMcp.replaceTokenTitle", { name })}
       description={t("workspaceMcp.replaceTokenBody")}
       error={error}
@@ -615,7 +633,11 @@ function ReplaceToken({
       onSubmit={(form) => {
         if (server === null) return;
         setError(null);
-        save.mutate({ id: server.id, token: String(form.get("token")) });
+        save.mutate(
+          { id: server.id, token: String(form.get("token")) },
+          // Detach the observer so the settled write and its token go now.
+          { onSettled: () => save.reset() },
+        );
       }}
     >
       <TokenInput
@@ -631,10 +653,12 @@ function SetClient({
   server,
   onClose,
   onOutcome,
+  opener,
 }: {
   readonly server: WorkspaceMcpServer | null;
   readonly onClose: () => void;
   readonly onOutcome: (outcome: Outcome) => void;
+  readonly opener: HTMLElement | null;
 }) {
   const { t } = useI18n();
   const [error, setError] = useState<string | null>(null);
@@ -671,6 +695,7 @@ function SetClient({
         if (!open) onClose();
       }}
       pending={save.isPending}
+      opener={opener}
       title={t("workspaceMcp.clientTitle", { name })}
       description={t("workspaceMcp.clientBody")}
       error={error}
@@ -679,11 +704,14 @@ function SetClient({
       onSubmit={(form) => {
         if (server === null) return;
         setError(null);
-        save.mutate({
-          id: server.id,
-          client_id: String(form.get("client_id")).trim(),
-          client_secret: String(form.get("client_secret")),
-        });
+        save.mutate(
+          {
+            id: server.id,
+            client_id: String(form.get("client_id")).trim(),
+            client_secret: String(form.get("client_secret")),
+          },
+          { onSettled: () => save.reset() },
+        );
       }}
     >
       <Field>
@@ -719,10 +747,12 @@ function RegisterServer({
   open,
   onOpenChange,
   onOutcome,
+  opener,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly onOutcome: (outcome: Outcome) => void;
+  readonly opener: HTMLElement | null;
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
@@ -790,6 +820,7 @@ function RegisterServer({
         if (!next) reset();
         onOpenChange(next);
       }}
+      opener={opener}
       pending={discover.isPending || create.isPending}
       title={t("workspaceMcp.register.title")}
       description={t("workspaceMcp.register.description")}
@@ -812,12 +843,15 @@ function RegisterServer({
         }
         const name = String(form.get("name")).trim();
         if (kind === "bearer") {
-          create.mutate({
-            name,
-            url: found.url,
-            auth_kind: "bearer",
-            token: String(form.get("token")),
-          });
+          create.mutate(
+            {
+              name,
+              url: found.url,
+              auth_kind: "bearer",
+              token: String(form.get("token")),
+            },
+            { onSettled: () => create.reset() },
+          );
           return;
         }
         const scope = String(form.get("scope") ?? "").trim();
