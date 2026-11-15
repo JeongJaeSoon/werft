@@ -3,6 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { docker, serviceContainer } from "../conformance/docker.ts";
 import {
   Api,
+  type ApiResponse,
   bash,
   type ErrorBody,
   e2eEnv,
@@ -105,6 +106,20 @@ const staticToken = `fms_${randomBytes(18).toString("base64url")}`;
 // Every API answer the suite read, scanned at the end.
 const answers: string[] = [];
 const started: string[] = [];
+
+/** An Api whose every answer (turns, pending requests, receipts) joins `answers`. */
+class RecordingApi extends Api {
+  override async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    idempotencyKey?: string | null,
+  ): Promise<ApiResponse<T>> {
+    const response = await super.request<T>(method, path, body, idempotencyKey);
+    answers.push(JSON.stringify(response.body));
+    return response;
+  }
+}
 
 async function web<T>(
   method: string,
@@ -228,6 +243,54 @@ async function callReceipts(sessionId: string): Promise<string[]> {
   );
 }
 
+/**
+ * The engine cannot read the worker process, which is non-dumpable, so the
+ * in-session scan sees only the engine's side. Root with CAP_SYS_PTRACE
+ * (`docker exec --privileged -u 0`, as the isolation docs say) reads every
+ * process's environment in each running worker container; the worker's own
+ * user, which cannot read the worker process, is the control.
+ */
+async function workerEnvironments(): Promise<string[]> {
+  const ids = (
+    await docker([
+      "ps",
+      "-q",
+      "--filter",
+      `label=werft.installation=${installation}`,
+    ])
+  )
+    .split("\n")
+    .filter((id) => id.trim() !== "");
+  // A process gone before its read is not a miss.
+  const loop = [
+    "pattern='fm[ocrs]_[A-Za-z0-9_-]{16,}'",
+    "read=0; missed=0; found=0",
+    "for p in /proc/[0-9]*; do",
+    '  if cat "$p/environ" >/dev/null 2>&1; then',
+    "    read=$((read + 1))",
+    '    found=$((found + $(cat "$p/environ" 2>/dev/null | grep -aoE "$pattern" | wc -l)))',
+    '  elif [ -d "$p" ]; then missed=$((missed + 1)); fi',
+    "done",
+    'echo "read=$read missed=$missed found=$found"',
+  ].join("\n");
+  const lines: string[] = [];
+  for (const id of ids) {
+    const privileged = await docker([
+      "exec",
+      "--privileged",
+      "-u",
+      "0",
+      id,
+      "sh",
+      "-c",
+      loop,
+    ]);
+    const own = await docker(["exec", id, "sh", "-c", loop]);
+    lines.push(`privileged ${privileged.trim()} worker-user ${own.trim()}`);
+  }
+  return lines;
+}
+
 const count = (text: string) => text.match(ISSUED)?.length ?? 0;
 
 beforeAll(async () => {
@@ -242,13 +305,13 @@ beforeAll(async () => {
     ],
   });
   expect(key.status).toBe(201);
-  api = new Api({ ...env, apiKey: key.body.secret });
+  api = new RecordingApi({ ...env, apiKey: key.body.secret });
   const approverKey = await web<{ secret: string }>("POST", "/v1/api-keys", {
     kind: "personal",
     scopes: ["sessions:read", "sessions:approve"],
   });
   expect(approverKey.status).toBe(201);
-  approver = new Api({ ...env, apiKey: approverKey.body.secret });
+  approver = new RecordingApi({ ...env, apiKey: approverKey.body.secret });
 
   const team = await web<{ team: { id: string } }>("POST", "/v1/teams", {
     name: PROBE,
@@ -455,9 +518,23 @@ describe("workspace MCP servers an admin connects", () => {
         sessionId,
         scripted("wsmcp-scan", [bash(scan)], "scanned"),
       );
-      expect((await settle(sessionId, "2")).status).toBe("completed");
+      // While the scan waits for its answer the worker is running and has
+      // made both calls.
+      const worker: { seen?: string[] } = {};
+      const scanned = await settle(sessionId, "2", {
+        0: async () => {
+          worker.seen = await workerEnvironments();
+        },
+      });
+      expect(scanned.status).toBe("completed");
       const [counts] = await toolResults(sessionId, "2");
       expect(textOf(counts)).toMatch(/env=0\s+proc=0\s+files=1/);
+      expect(worker.seen?.length).toBeGreaterThan(0);
+      for (const line of worker.seen ?? []) {
+        expect(line).toMatch(
+          /^privileged read=[1-9]\d* missed=0 found=0 worker-user read=\d+ missed=[1-9]\d* found=0$/,
+        );
+      }
     },
     TIMEOUT,
   );

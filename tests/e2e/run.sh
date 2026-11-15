@@ -229,6 +229,16 @@ cleanup() {
       [ "$status" != 0 ] || status=1
     fi
   fi
+  # What the fake MCP server issues carries a prefix
+  # (packages/testkit/src/fake-oauth.ts). The record, logs of removed worker
+  # containers included, holds none; only file names come out.
+  local issued
+  issued="$(grep -rlE -D skip 'fm[ocrs]_[A-Za-z0-9_-]{16,}' "$out" || true)"
+  if [ -n "$issued" ]; then
+    echo "e2e: a value the fake MCP server issued is in the record:" >&2
+    echo "$issued" >&2
+    [ "$status" != 0 ] || status=1
+  fi
   echo "e2e record: $out" >&2
   exit "$status"
 }

@@ -186,6 +186,9 @@ export function createFakeOAuth(options: {
         case "POST /register": {
           const body = (await request.json().catch(() => null)) as {
             redirect_uris?: unknown;
+            token_endpoint_auth_method?: unknown;
+            grant_types?: unknown;
+            response_types?: unknown;
           } | null;
           const uris = Array.isArray(body?.redirect_uris)
             ? body.redirect_uris.filter((uri) => typeof uri === "string")
@@ -193,6 +196,32 @@ export function createFakeOAuth(options: {
           if (uris.length === 0) {
             return Response.json(
               { error: "invalid_redirect_uri" },
+              { status: 400 },
+            );
+          }
+          // RFC 7591 §2 defaults an omitted method to client_secret_basic
+          // and omitted grants to authorization_code alone, so a client that
+          // leaves either out would get no public client or no refresh from
+          // a real server; this one refuses it outright.
+          const grants = Array.isArray(body?.grant_types)
+            ? body.grant_types
+            : ["authorization_code"];
+          const responses = Array.isArray(body?.response_types)
+            ? body.response_types
+            : ["code"];
+          if (
+            body?.token_endpoint_auth_method !== "none" ||
+            !grants.includes("authorization_code") ||
+            !grants.includes("refresh_token") ||
+            grants.some(
+              (grant) =>
+                grant !== "authorization_code" && grant !== "refresh_token",
+            ) ||
+            responses.length !== 1 ||
+            responses[0] !== "code"
+          ) {
+            return Response.json(
+              { error: "invalid_client_metadata" },
               { status: 400 },
             );
           }

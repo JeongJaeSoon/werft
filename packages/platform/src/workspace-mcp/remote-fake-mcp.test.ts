@@ -97,6 +97,32 @@ describe("the fake MCP server's OAuth side", () => {
     });
   });
 
+  test("registration takes only a public client that asks for refresh, as this client registers", async () => {
+    const register = (body: Record<string, unknown>) =>
+      fetch(`${origin}/register`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ redirect_uris: [CALLBACK], ...body }),
+      });
+    const full = {
+      token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+    };
+    expect((await register(full)).status).toBe(201);
+    for (const left of [
+      { ...full, token_endpoint_auth_method: undefined },
+      { ...full, grant_types: undefined },
+      { ...full, grant_types: ["authorization_code"] },
+    ]) {
+      const refused = await register(left);
+      expect(refused.status).toBe(400);
+      expect(await refused.json()).toEqual({
+        error: "invalid_client_metadata",
+      });
+    }
+  });
+
   test("the browser comes back with a code, the state and the issuer; the code works once", async () => {
     const { pin, client, pkce, authorize, back } = await signIn();
     expect(authorize.status).toBe(302);
