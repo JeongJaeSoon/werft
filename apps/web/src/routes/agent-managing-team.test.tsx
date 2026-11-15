@@ -414,18 +414,17 @@ describe("새 에이전트의 담당 팀", () => {
 describe("목록의 담당 팀", () => {
   beforeEach(() => localStorage.clear());
 
-  test("설정을 읽지 못하는 에이전트 카드는 이름·담당 팀만 보이고 따로 읽지 않는다", async () => {
+  test("설정을 읽지 못하는 에이전트도 목록 행에 보이고, 목록은 에이전트를 따로 읽지 않는다", async () => {
     const server = await managedServer();
     const { api } = renderAt("/agents", {
       ...meAs(memberMe()),
       ...server.routes,
       "GET /v1/administered-agents": () => json(200, { items: [] }),
     });
-    const card = (
+    const row = (
       await screen.findByRole("link", { name: "결제 담당" })
-    ).closest("[data-slot=card]") as HTMLElement;
-    expect(card.textContent).toContain("재무");
-    expect(card.textContent).toContain("설정은 담당 팀과 관리자만 봅니다.");
+    ).closest("[role=row]");
+    expect(row === null).toBe(false);
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(
       api.calls.some((c) => /^\/v1\/agents\/(?!counts$)[^/]+/.test(c.path)),

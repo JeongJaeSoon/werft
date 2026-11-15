@@ -49,19 +49,56 @@ const NARROW = {
 
 export type GridTableNarrowAt = keyof typeof NARROW;
 
-const NarrowAtContext = createContext<GridTableNarrowAt | undefined>(undefined);
+// `narrowCards`: at 640px or less each row is a card of its own, the cells
+// stacked, the header kept for screen readers only and every column shown.
+const CARDS = {
+  table:
+    "[@container(max-width:640px)]:gap-3 [@container(max-width:640px)]:rounded-none [@container(max-width:640px)]:border-0 [@container(max-width:640px)]:bg-transparent",
+  header: "[@container(max-width:640px)]:sr-only",
+  row: "[@container(max-width:640px)]:flex [@container(max-width:640px)]:flex-col [@container(max-width:640px)]:items-stretch [@container(max-width:640px)]:gap-2 [@container(max-width:640px)]:rounded-card [@container(max-width:640px)]:border [@container(max-width:640px)]:bg-card [@container(max-width:640px)]:last:border-b",
+  start:
+    "[@container(max-width:640px)]:justify-start [@container(max-width:640px)]:text-start",
+  label:
+    "hidden w-28 shrink-0 text-caption text-subtle-foreground [@container(max-width:640px)]:inline",
+} as const;
+
+type Narrow = {
+  readonly row: string;
+  readonly header?: string;
+  readonly hide?: string;
+  readonly start?: string;
+  readonly label?: string;
+};
+
+const NarrowContext = createContext<
+  { readonly at: GridTableNarrowAt; readonly cards: boolean } | undefined
+>(undefined);
 
 type GridTableName =
   | { readonly "aria-label": string; readonly "aria-labelledby"?: undefined }
   | { readonly "aria-labelledby": string; readonly "aria-label"?: undefined };
 
 type GridTableNarrow =
-  | { readonly narrowAt?: undefined; readonly narrowColumns?: undefined }
+  | {
+      readonly narrowAt?: undefined;
+      readonly narrowColumns?: undefined;
+      readonly narrowCards?: undefined;
+    }
   | {
       /** The table width (px) at and below which `narrowColumns` applies. */
       readonly narrowAt: GridTableNarrowAt;
       /** The template once the `hideNarrow` columns are gone. */
       readonly narrowColumns: string;
+      readonly narrowCards?: false | undefined;
+    }
+  | {
+      readonly narrowAt: 640;
+      readonly narrowColumns?: undefined;
+      /**
+       * At and below `narrowAt` each row becomes a card with its cells
+       * stacked and no column hidden; give the cells a `cardLabel`.
+       */
+      readonly narrowCards: true;
     };
 
 export type GridTableProps = Omit<
@@ -87,42 +124,58 @@ export function GridTable({
   columns,
   narrowAt,
   narrowColumns,
+  narrowCards = false,
   framed = false,
   className,
   style,
   ...props
 }: GridTableProps): JSX.Element {
+  const table = (
+    <div
+      role="table"
+      data-slot="grid-table"
+      data-narrow-at={narrowAt}
+      data-narrow-cards={narrowCards || undefined}
+      data-framed={framed || undefined}
+      className={cn(
+        "flex min-w-0 flex-col",
+        !narrowCards && "@container",
+        framed && "rounded-card border bg-card",
+        narrowCards && CARDS.table,
+        className,
+      )}
+      style={
+        {
+          "--grid-table-columns": columns,
+          "--grid-table-narrow-columns": narrowColumns,
+          ...style,
+        } as CSSProperties
+      }
+      {...props}
+    />
+  );
   return (
-    <NarrowAtContext.Provider value={narrowAt}>
-      <div
-        role="table"
-        data-slot="grid-table"
-        data-narrow-at={narrowAt}
-        data-framed={framed || undefined}
-        className={cn(
-          "@container flex min-w-0 flex-col",
-          framed && "rounded-card border bg-card",
-          className,
-        )}
-        style={
-          {
-            "--grid-table-columns": columns,
-            "--grid-table-narrow-columns": narrowColumns,
-            ...style,
-          } as CSSProperties
-        }
-        {...props}
-      />
-    </NarrowAtContext.Provider>
+    <NarrowContext.Provider
+      value={
+        narrowAt === undefined
+          ? undefined
+          : { at: narrowAt, cards: narrowCards }
+      }
+    >
+      {/* The table cannot query its own width to drop its frame, and its rows
+          query the same wrapper so frame and cards switch at one width. */}
+      {narrowCards ? <div className="@container min-w-0">{table}</div> : table}
+    </NarrowContext.Provider>
   );
 }
 
 const ROW =
   "relative grid grid-cols-[var(--grid-table-columns)] items-center gap-4 border-b px-[var(--werft-row-padding-x)] last:border-b-0";
 
-function useNarrow(): (typeof NARROW)[GridTableNarrowAt] | undefined {
-  const narrowAt = useContext(NarrowAtContext);
-  return narrowAt === undefined ? undefined : NARROW[narrowAt];
+function useNarrow(): Narrow | undefined {
+  const narrow = useContext(NarrowContext);
+  if (narrow === undefined) return undefined;
+  return narrow.cards ? CARDS : NARROW[narrow.at];
 }
 
 /** The column header row, v4 `.tr.th`. */
@@ -137,7 +190,7 @@ export function GridTableHeader({
       data-slot="grid-table-header"
       className={cn(
         ROW,
-        narrow?.row,
+        narrow?.header ?? narrow?.row,
         "min-h-[var(--werft-row-head-min-height)] rounded-t-card bg-surface-sunken py-[var(--werft-row-head-padding-y)] font-medium text-caption text-subtle-foreground",
         className,
       )}
@@ -189,13 +242,13 @@ type GridTableCellLayout = {
 };
 
 function cellClasses(
-  narrow: (typeof NARROW)[GridTableNarrowAt] | undefined,
+  narrow: Narrow | undefined,
   { align, hideNarrow }: GridTableCellLayout,
 ): string {
   return cn(
     "flex min-w-0 items-center gap-2",
     // justify-end places the boxes; text-end the lines of text that wraps.
-    align === "end" && "justify-end text-end",
+    align === "end" && cn("justify-end text-end", narrow?.start),
     hideNarrow && narrow?.hide,
   );
 }
@@ -264,6 +317,12 @@ export type GridTableCellProps = Omit<ComponentProps<"div">, "role"> &
      * An `inactive` row leaves a raised cell at full contrast.
      */
     readonly raised?: boolean | undefined;
+    /**
+     * The column's name, shown before the content when `narrowCards` draws
+     * the row as a card. Hidden from screen readers, which have the column
+     * header. Not for a `lines` cell.
+     */
+    readonly cardLabel?: string | undefined;
   };
 
 export function GridTableCell({
@@ -271,7 +330,9 @@ export function GridTableCell({
   hideNarrow,
   lines = false,
   raised = false,
+  cardLabel,
   className,
+  children,
   ...props
 }: GridTableCellProps): JSX.Element {
   const narrow = useNarrow();
@@ -291,7 +352,14 @@ export function GridTableCell({
         className,
       )}
       {...props}
-    />
+    >
+      {cardLabel !== undefined && narrow?.label !== undefined ? (
+        <span aria-hidden="true" className={narrow.label}>
+          {cardLabel}
+        </span>
+      ) : null}
+      {children}
+    </div>
   );
 }
 
