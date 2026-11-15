@@ -589,6 +589,7 @@ describe("POST /v1/sessions/{id}/messages validation", () => {
     );
     expect((await postMessage({ message: "hi", extra: 1 })).status).toBe(400);
     expect((await postMessage({ message: "" })).status).toBe(400);
+    expect((await postMessage({ message: " \n\t " })).status).toBe(400);
     expect((await postMessage({ message: "x".repeat(33 * 1024) })).status).toBe(
       413,
     );
@@ -1346,7 +1347,34 @@ describe("session titles (94S-804)", () => {
     expect(
       await createdTitle({ ...valid, message: "Fix the\n\nflaky test" }),
     ).toBe("Fix the flaky test");
-    expect(await createdTitle({ ...valid, message: " \n " })).toBeNull();
+  });
+
+  test("create refuses a message of whitespace alone, and keeps a padded one as sent", async () => {
+    const blank = await post({ ...valid, message: " \n\t " });
+    expect(blank.status).toBe(400);
+    const { error } = apiErrorResponseSchema.parse(await blank.json());
+    expect(
+      requestBodyInvalidDetailsSchema
+        .parse(error.details)
+        .issues.map((issue) => issue.path),
+    ).toEqual(["message"]);
+    let message: string | undefined;
+    const padded = await app({
+      acceptInputAtomic: async (input) => {
+        message = input.message;
+        return { outcome: "accepted", response: accepted };
+      },
+    }).request("/v1/sessions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": "owner-a",
+        "Idempotency-Key": "key-1",
+      },
+      body: JSON.stringify({ ...valid, message: "  Fix it\n" }),
+    });
+    expect(padded.status).toBe(201);
+    expect(message).toBe("  Fix it\n");
   });
 
   test("create refuses an empty or overlong title", async () => {

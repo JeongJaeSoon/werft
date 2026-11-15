@@ -490,6 +490,21 @@ describe("bootstrap", () => {
     expect(await errorCode(second)).toBe("BOOTSTRAP_DONE");
   });
 
+  test("trims the owner's and the workspace's names, and refuses whitespace alone with the token unspent", async () => {
+    const h = harness();
+    for (const blank of [{ display_name: "  " }, { workspace_name: "\t\n" }]) {
+      expect((await h.bootstrap(blank)).status).toBe(400);
+    }
+    const trimmed = await h.bootstrap({
+      display_name: "  Owner ",
+      workspace_name: " Acme  ",
+    });
+    expect(trimmed.status).toBe(201);
+    const body = bootstrapResponseSchema.parse(await trimmed.json());
+    expect(body.workspace.name).toBe("Acme");
+    expect(h.identity.users[0]?.displayName).toBe("Owner");
+  });
+
   test("refuses a missing or wrong token with 401 and keeps the token spendable", async () => {
     const h = harness();
     expect((await h.bootstrap({ bootstrap_token: undefined })).status).toBe(

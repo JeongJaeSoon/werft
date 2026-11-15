@@ -122,6 +122,16 @@ export const SLACK_BINDING_MESSAGES = {
   notPending:
     "이 채널은 승인을 기다리고 있지 않거나, 그 사이에 바뀌었어요. 목록을 새로 읽고 다시 시도하세요",
 } as const;
+/** The `details.reason_code` sent with each of those messages. */
+export const SLACK_BINDING_REASON_CODES = {
+  notInstalled: "not_installed",
+  conflict: "conflict",
+  dmChannel: "dm_channel",
+  channelUnknown: "channel_unknown",
+  slackUnavailable: "slack_unavailable",
+  pendingHome: "pending_home",
+  notPending: "not_pending",
+} as const satisfies Record<keyof typeof SLACK_BINDING_MESSAGES, string>;
 
 export type PutSlackBindingRequest = z.infer<
   typeof putSlackBindingRequestSchema

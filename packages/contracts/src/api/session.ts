@@ -584,6 +584,18 @@ export const messageTextSchema = z
     params: { code: PAYLOAD_TOO_LARGE_ISSUE },
   })
   .meta({ description: `At most ${MESSAGE_MAX_BYTES} bytes of UTF-8` });
+/**
+ * A message a client sends. Stored and queued messages keep
+ * `messageTextSchema`, so one written before the blank rule still reads.
+ */
+export const messageInputSchema = messageTextSchema
+  // "" is already refused by the length check; one issue is enough.
+  .refine((text) => text === "" || text.trim() !== "", {
+    message: "Message is blank",
+  })
+  .meta({
+    description: `At most ${MESSAGE_MAX_BYTES} bytes of UTF-8, not whitespace alone`,
+  });
 
 export const createSessionRequestSchema = z
   .object({
@@ -621,7 +633,7 @@ export const createSessionRequestSchema = z
         description:
           "Turns extension bundles on or off for this session, by the bundle ids the workspace registered. Only a bundle its agent or workspace left `optional` can be named; a `required` one is always on and a `forbidden` one cannot be turned on, else `UNSUPPORTED_CAPABILITY` with `details.reason_code` naming why (`required_removed`, `required_replaced`, `forbidden_revived`, `not_optional`, `bundle_not_found`, `bundle_not_approved`, `skill_name_collision`, `feature_unsupported`) and `details.bundle` the bundle name. An `optional` bundle not named in `enable` stays off. The resolved list is fixed at create and returned as `extensions`.",
       }),
-    message: messageTextSchema,
+    message: messageInputSchema,
     // Pins the session to this release of an agent: the session belongs to
     // that agent, runs the release's spec, and an agent's key may create it.
     agent_release_id: agentReleaseIdSchema,

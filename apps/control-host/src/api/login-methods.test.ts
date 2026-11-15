@@ -39,6 +39,8 @@ const createApiApp = recordRouteErrors("login-methods.test.ts");
 
 // Made per run: nothing here is a value anyone could use elsewhere.
 const made = () => randomBytes(18).toString("base64url");
+/** As long as an invite link carries: the API refuses a shorter one. */
+const invited = () => randomBytes(32).toString("base64url");
 const CLIENT_ID = "client-id.apps.example";
 const CLIENT_KEY = made();
 // On loopback, so the stand-in provider's plain http is allowed.
@@ -252,7 +254,7 @@ describe("a sign-up by invite starts at a provider", () => {
         },
       },
     });
-    const word = made();
+    const word = invited();
     const started = await h.request("POST", inviteStart(), {
       body: { invite_token: word },
     });
@@ -286,7 +288,7 @@ describe("a sign-up by invite starts at a provider", () => {
         methods: { inviteForSignUp: async () => ({ outcome }) },
       });
       const refused = await h.request("POST", inviteStart(), {
-        body: { invite_token: made() },
+        body: { invite_token: invited() },
       });
       expect(refused.status).toBe(status);
       expect((await errorOf(refused)).code).toBe(code);
@@ -297,7 +299,7 @@ describe("a sign-up by invite starts at a provider", () => {
 
   test("it is refused off the console, malformed, oversized, for no provider, and while it cannot run", async () => {
     const h = harness();
-    const body = { invite_token: made() };
+    const body = { invite_token: invited() };
     // Without the header a page of another site cannot send.
     const offSite = await h.request("POST", inviteStart(), {
       body,
@@ -308,6 +310,8 @@ describe("a sign-up by invite starts at a provider", () => {
       {},
       { invite_token: 1 },
       { invite_token: "" },
+      // Shorter than any invite link carries.
+      { invite_token: made() },
       { ...body, email: "alice@example.com" },
     ]) {
       const refused = await h.request("POST", inviteStart(), {

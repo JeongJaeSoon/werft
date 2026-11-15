@@ -525,6 +525,8 @@ const agents = createAgentService({
   catalog,
   credentials: credentialBindings,
   githubSettings: githubSettingsStore,
+  repositoryCeiling: (workspaceId) =>
+    workspaceRepositoryCeiling(db, workspaceId),
   welcome: slackWelcome,
   keys: createPostgresWorkspaceKeyStore(db),
   outsideAgents: agentAccess,

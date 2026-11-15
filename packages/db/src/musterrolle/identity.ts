@@ -1,4 +1,4 @@
-import type { UserLocale } from "@werft-ai/contracts";
+import { clampDisplayName, type UserLocale } from "@werft-ai/contracts";
 import {
   BootstrapDoneError,
   type BootstrapInput,
@@ -1128,9 +1128,9 @@ export async function signUpWithInvite(
           id: input.newUserId,
           email: invite.email,
           passwordHash: null,
-          displayName: (
-            input.name ?? invite.email.slice(0, invite.email.indexOf("@"))
-          ).slice(0, 64),
+          displayName: clampDisplayName(
+            input.name ?? invite.email.slice(0, invite.email.indexOf("@")),
+          ),
         })
         .onConflictDoNothing({ target: users.email })
         .returning({ id: users.id });

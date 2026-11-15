@@ -284,6 +284,21 @@ export function githubRefMatches(pattern: string, ref: string): boolean {
 }
 
 /**
+ * Whether an allow-list `ref` can match an `agent/` branch, which a dispatch
+ * never runs: its part before the first `/` matches `agent`.
+ */
+export function githubRefNamesAgentBranch(pattern: string): boolean {
+  const slash = pattern.indexOf("/");
+  return (
+    slash >= 0 &&
+    githubRefMatches(
+      pattern.slice(0, slash),
+      GITHUB_AGENT_REF_PREFIX.slice(0, -1),
+    )
+  );
+}
+
+/**
  * The allow-list entry that lets `workflow` run on branch `ref`, or null.
  * An entry without `ref` means the repository's default branch only.
  */

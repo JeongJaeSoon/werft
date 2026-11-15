@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ANSWER_TEXT_MAX_BYTES,
   type ApiErrorCode,
   apiErrorResponseSchema,
   listPendingRequestsResponseSchema,
@@ -196,6 +197,42 @@ describe("pending-request routes", () => {
       code: "PAYLOAD_TOO_LARGE",
     });
     expect(oversized.seen).toHaveLength(0);
+  });
+
+  test("POST refuses a reason or free text of whitespace alone or over its byte cap", async () => {
+    const accepted: AnswerRequestResult = { outcome: "not_found" };
+    const permission = (reason: string) => ({
+      request_id: "req_1",
+      kind: "permission",
+      action: "deny",
+      reason,
+    });
+    const question = (free_text: string) => ({
+      request_id: "req_1",
+      kind: "question",
+      answers: [{ question_id: "q0", selected_option_ids: [], free_text }],
+    });
+    // Three bytes a character: under the body limit, over the text cap.
+    const overCap = "가".repeat(Math.floor(ANSWER_TEXT_MAX_BYTES / 3) + 1);
+    for (const body of [
+      permission(" \n "),
+      permission(overCap),
+      question("\t"),
+      question(overCap),
+    ]) {
+      const refused = answer(accepted, body);
+      expect(await errorOf(refused.response)).toEqual({
+        status: 400,
+        code: "BAD_REQUEST",
+      });
+      expect(refused.seen).toHaveLength(0);
+    }
+    // Padding is kept as sent: only text that is nothing but whitespace goes.
+    const padded = answer(accepted, question(" use the second option "));
+    expect((await padded.response).status).toBe(404);
+    expect(padded.seen[0]?.answer).toMatchObject({
+      answers: [{ free_text: " use the second option " }],
+    });
   });
 
   test("POST refuses the old decision name, both names, or neither, with 400", async () => {

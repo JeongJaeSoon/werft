@@ -90,6 +90,44 @@ describe("channel kinds through the agent's own app", () => {
     }
   });
 
+  test("each refusal names why in details.reason_code", async () => {
+    const reasonOf = async (work: Promise<unknown>) => {
+      try {
+        await work;
+      } catch (error) {
+        if (error instanceof SessionServiceError) {
+          return (error.details as { reason_code?: string }).reason_code;
+        }
+        throw error;
+      }
+      return null;
+    };
+    const fine = api(async () => "public_channel");
+    for (const [slack, apps, reason] of [
+      [fine, false, "not_installed"],
+      [
+        api(async () => {
+          throw new SlackApiError("conversations.info", "missing_scope", true);
+        }),
+        true,
+        "channel_unknown",
+      ],
+      [
+        api(async () => {
+          throw new SlackApiError("conversations.info", "fetch_failed", false);
+        }),
+        true,
+        "slack_unavailable",
+      ],
+    ] as const) {
+      expect(
+        await reasonOf(
+          kinds(slack, "bot-credential", apps).kindOf(WORKSPACE, AGENT, "C0"),
+        ),
+      ).toBe(reason);
+    }
+  });
+
   test("a channel hidden from the bot is a private one waiting for the invite; a hidden DM is refused", async () => {
     const hidden = api(async () => {
       throw new SlackApiError("conversations.info", "channel_not_found", true);

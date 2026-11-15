@@ -4933,7 +4933,7 @@ export interface components {
                 enable?: string[];
                 disable?: string[];
             };
-            /** @description At most 32768 bytes of UTF-8 */
+            /** @description At most 32768 bytes of UTF-8, not whitespace alone */
             message: string;
             agent_release_id: string;
             /** @description One of the models the release's connection offers. Omitted, the model of the agent release's card. */
@@ -5097,7 +5097,7 @@ export interface components {
             cursor?: string;
         };
         PostSessionMessageRequest: {
-            /** @description At most 32768 bytes of UTF-8 */
+            /** @description At most 32768 bytes of UTF-8, not whitespace alone */
             message: string;
             /**
              * @default enqueue
@@ -5127,6 +5127,7 @@ export interface components {
             request_id: string;
             /** @constant */
             kind: "permission";
+            /** @description At most 8192 bytes of UTF-8, not whitespace alone */
             reason?: string;
             /** @constant */
             remember?: "session";
@@ -5139,6 +5140,7 @@ export interface components {
             answers: {
                 question_id: string;
                 selected_option_ids: string[];
+                /** @description At most 8192 bytes of UTF-8, not whitespace alone */
                 free_text?: string;
             }[];
         };

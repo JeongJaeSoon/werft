@@ -58,6 +58,8 @@ export interface RepositoryBeingEnabled {
   authKind: string;
   /** `catalog`: named by a ref; `github`: picked from an installation. */
   via: "catalog" | "github";
+  /** How many repositories the settings already turn on. */
+  heldCount: number;
 }
 
 /** An agent's GitHub switch (`agents.github_enabled`) and its activity. */

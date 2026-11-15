@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  AGENT_GITHUB_REPOSITORIES_MAX,
   type AgentDetail,
   type AgentGitHub,
   type AgentGitHubSettingsRow,
@@ -690,6 +691,33 @@ describe("saving the agent's GitHub settings", () => {
     ).toBe("saved");
   });
 
+  test("a save over the repository cap is refused when it adds one; a row already over it still saves", async () => {
+    const many = Array.from(
+      { length: AGENT_GITHUB_REPOSITORIES_MAX + 1 },
+      (_, index) => `repo-${index}`,
+    );
+    const over = request({
+      expected_revision: 2,
+      settings: { ...SAVED, repositories: many },
+    });
+    expect(
+      await refusal(
+        serviceWithPuts({ current: HELD }).service.putSettings(
+          caller,
+          AGENT,
+          over,
+        ),
+      ),
+    ).toBe("BAD_REQUEST:too_many_repositories");
+    expect(
+      await refusal(
+        serviceWithPuts({
+          current: { ...HELD, repositories: many },
+        }).service.putSettings(caller, AGENT, over),
+      ),
+    ).toBe("saved");
+  });
+
   test("a feature the save turns on must be under the feature ceiling; one already on may stay", async () => {
     const off = { ...ALL_ON, actions: false };
     expect(
@@ -824,7 +852,12 @@ describe("repositories read as owner/repo", () => {
     const serviceWithToggles = (input: {
       outcome?: Awaited<ReturnType<AgentGitHubStore["setRepository"]>>;
       /** What the store judges, as the real one does in its transaction. */
-      enabling?: { id: string; authKind: string; via: "catalog" | "github" };
+      enabling?: {
+        id: string;
+        authKind: string;
+        via: "catalog" | "github";
+        heldCount?: number;
+      };
       ceiling?: RepositoryCeiling;
       selection?: Parameters<typeof serviceWith>[0]["selection"];
     }) => {
@@ -837,7 +870,10 @@ describe("repositories read as owner/repo", () => {
           async setRepository(toggle) {
             toggles.push(toggle);
             if (input.enabling !== undefined) {
-              toggle.check(input.enabling, input.ceiling ?? DEFAULT_CEILING);
+              toggle.check(
+                { heldCount: 0, ...input.enabling },
+                input.ceiling ?? DEFAULT_CEILING,
+              );
             }
             return input.outcome ?? SAVED_TOGGLE;
           },
@@ -965,6 +1001,27 @@ describe("repositories read as owner/repo", () => {
           listed,
         ),
       ).toBe("BAD_REQUEST:repository_not_allowed");
+    });
+
+    test("turning on one more than the cap is refused, as a settings save is", async () => {
+      const turnOn = (heldCount: number) =>
+        refusal(
+          serviceWithToggles({
+            enabling: {
+              id: "sample-app",
+              authKind: "github_app",
+              via: "catalog",
+              heldCount,
+            },
+          }).service.putRepositoryAccess(caller, AGENT, {
+            repository: { ref },
+            enabled: true,
+          }),
+        );
+      expect(await turnOn(AGENT_GITHUB_REPOSITORIES_MAX - 1)).toBe("saved");
+      expect(await turnOn(AGENT_GITHUB_REPOSITORIES_MAX)).toBe(
+        "BAD_REQUEST:too_many_repositories",
+      );
     });
 
     test("the store's refusals become the API's", async () => {
