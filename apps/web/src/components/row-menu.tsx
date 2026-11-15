@@ -1,7 +1,7 @@
 import {
   Button,
-  cn,
   Link,
+  MenuItem,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -26,9 +26,6 @@ export const focusBack =
     event.preventDefault();
     opener.focus();
   };
-
-const ITEM =
-  "flex w-full items-center gap-1 rounded-control px-2 py-1.5 text-start text-control text-foreground no-underline hover:bg-hover focus-visible:bg-hover focus-visible:outline-none";
 
 const itemsOf = (menu: HTMLElement) =>
   Array.from(
@@ -138,18 +135,9 @@ export function RowMenuItem({
   readonly children: ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      role="menuitem"
-      tabIndex={-1}
-      className={cn(
-        ITEM,
-        tone === "danger" && "text-(color:--werft-tone-danger-fg)",
-      )}
-      onClick={onSelect}
-    >
+    <MenuItem role="menuitem" tabIndex={-1} tone={tone} onClick={onSelect}>
       {children}
-    </button>
+    </MenuItem>
   );
 }
 
@@ -167,17 +155,19 @@ export function RowMenuLink({
   readonly children: ReactNode;
 }) {
   return (
-    <Link
-      role="menuitem"
-      tabIndex={-1}
-      href={href}
-      target="_blank"
-      newTabLabel={newTabLabel}
-      className={cn(ITEM, "font-normal hover:no-underline")}
-      onClick={onSelect}
-    >
-      {children}
-      <ArrowUpRight aria-hidden="true" className="size-3.5 shrink-0" />
-    </Link>
+    <MenuItem asChild>
+      <Link
+        role="menuitem"
+        tabIndex={-1}
+        href={href}
+        target="_blank"
+        newTabLabel={newTabLabel}
+        className="font-normal hover:no-underline"
+        onClick={onSelect}
+      >
+        {children}
+        <ArrowUpRight aria-hidden="true" className="size-3.5 shrink-0" />
+      </Link>
+    </MenuItem>
   );
 }

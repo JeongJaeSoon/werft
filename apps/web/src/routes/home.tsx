@@ -48,6 +48,7 @@ import {
   Skeleton,
   StatusDot,
   type StatusDotStatus,
+  StatValue,
   Steps,
   Text,
   Link as TextLink,
@@ -1162,7 +1163,9 @@ function GlanceCard({
           {badge ? <div className="shrink-0">{badge}</div> : null}
         </div>
         <div>
-          <p className="m-0 font-semibold text-number tabular-nums">{value}</p>
+          <StatValue asChild>
+            <p className="m-0">{value}</p>
+          </StatValue>
           <Text variant="meta">{note}</Text>
         </div>
         <dl className="m-0 flex flex-1 flex-col gap-1">

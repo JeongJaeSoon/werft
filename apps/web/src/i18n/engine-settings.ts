@@ -23,7 +23,7 @@ export const engineSettingsKo = {
   "engine.list.auto_mode.hint":
     "한 줄에 문장 하나입니다. 분류기가 글로 읽으므로 형식 검사는 하지 않습니다.",
   "engine.save": "저장",
-  "engine.saving": "저장하는 중",
+  "engine.saving": "저장하는 중…",
   "engine.saved": "저장했습니다. 이후 시작하는 세션부터 적용됩니다.",
   "engine.unchanged": "바뀐 내용이 없습니다.",
   "engine.conflict":
@@ -79,7 +79,7 @@ export const engineSettingsEn: Record<keyof typeof engineSettingsKo, string> = {
   "engine.list.auto_mode.hint":
     "One sentence per line. The classifier reads them as prose, so their form is not checked.",
   "engine.save": "Save",
-  "engine.saving": "Saving",
+  "engine.saving": "Saving…",
   "engine.saved": "Saved. Sessions that start from now on use it.",
   "engine.unchanged": "Nothing has changed.",
   "engine.conflict":
@@ -135,7 +135,7 @@ export const engineSettingsJa: Record<keyof typeof engineSettingsKo, string> = {
   "engine.list.auto_mode.hint":
     "1行に1文です。分類器が文章として読むため、形式は検査しません。",
   "engine.save": "保存",
-  "engine.saving": "保存中",
+  "engine.saving": "保存中…",
   "engine.saved": "保存しました。以降に始まるセッションから適用されます。",
   "engine.unchanged": "変更はありません。",
   "engine.conflict":

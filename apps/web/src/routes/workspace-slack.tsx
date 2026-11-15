@@ -16,7 +16,6 @@ import {
   Button,
   ConfirmDialog,
   CopyButton,
-  cn,
   DangerZone,
   DangerZoneRow,
   ErrorState,
@@ -53,7 +52,7 @@ import {
   useMe,
   useRole,
 } from "../auth/guard.tsx";
-import { SlackMark } from "../components/brand-marks.tsx";
+import { SlackTileMark } from "../components/brand-marks.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { RowMenu, RowMenuItem } from "../components/row-menu.tsx";
@@ -142,18 +141,6 @@ const focusFirst = (...refs: RefObject<HTMLElement | null>[]) =>
     .map((ref) => ref.current)
     .find((element) => element?.isConnected)
     ?.focus();
-
-/** Slack's mark in the tile's one colour, as GitHub's is on its card. */
-export function TileMark({ className }: { readonly className?: string }) {
-  return (
-    <SlackMark
-      className={cn(
-        className,
-        "text-(--werft-color-tile-foreground) [&_path]:fill-current",
-      )}
-    />
-  );
-}
 
 /**
  * The token only reads as a state and who saved it when; the value never
@@ -440,7 +427,7 @@ function SlackCard({
     <section aria-labelledby={titleId} className={SECTIONS}>
       <div className={SETTINGS_CARD}>
         <div className="flex items-center gap-3">
-          <IconTile icon={TileMark} size="two-line" />
+          <IconTile icon={SlackTileMark} size="two-line" />
           <div className="flex min-w-0 flex-1 flex-col">
             <Heading id={titleId} level={2}>
               Slack

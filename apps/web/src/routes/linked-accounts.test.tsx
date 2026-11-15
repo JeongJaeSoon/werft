@@ -76,7 +76,8 @@ describe("연동 계정", () => {
     expect(githubMark?.textContent).toBe("");
     // The mark is decoration: the row is named by its heading alone.
     expect(screen.getAllByText("GitHub").length).toBe(1);
-    // Each service's own mark in its own colours (brand-marks.tsx sources).
+    // Each service's own mark, its source paths kept (brand-marks.tsx), drawn
+    // on the shared tile in the tile's one colour as on every other page.
     const marks: [string, string, string[]][] = [
       ["Slack", "0 0 54 54", ["#E3066A", "#00B3FF", "#41B658", "#FCC003"]],
       [
@@ -95,6 +96,13 @@ describe("연동 계정", () => {
       ).toEqual(fills);
       expect(icon?.textContent).toBe("");
       expect(screen.getAllByText(name).length).toBe(1);
+    }
+    for (const name of ["GitHub", "Slack", "Google Workspace"]) {
+      const icon = mark(screen.getByRole("heading", { name }));
+      expect(icon?.getAttribute("data-slot")).toBe("icon-tile");
+      expect(
+        icon?.querySelector("svg")?.getAttribute("class")?.split(" "),
+      ).toContain("[&_path]:fill-current");
     }
   });
 
