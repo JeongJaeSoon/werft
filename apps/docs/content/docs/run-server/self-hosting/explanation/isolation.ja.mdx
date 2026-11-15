@@ -126,7 +126,7 @@ claim 済みコンテナが stale でも scheduler は即座に破棄しませ�
 `MAX_TURN_SECONDS`・`PROVIDER_MAX_RETRIES` は隔離 stamp に含みません。CPU・メモリと同じく launch の予約時に固定され、worker はその値で起動します。値を変えると、scheduler は別の値で予約された launch を次のように扱います。ログは `Execution resource runs other worker limits` です。
 
 - claim 済み worker は上の drain に従います。受け取った値で現在の turn を終えてから終了し、期限はその worker の turn 時間 + 5 分です。セッションは次の launch で新しい値を受け取ります。
-- 未 claim の launch は作り直さず返却します。作り直すと同じ固定値で起動するためです。セッションは新しい launch を予約し、新しい値で起動します。交代回数（`replacement_count`）は使いません。pass summary は `launchesLimitsChanged`（ログは `launch_limits_changed_count`）と警告 `Launch was reserved with other worker limits; torn down unbuilt so its session launches with the current ones` を残します。
+- 未 claim の launch は作り直さず返却します。作り直すと同じ固定値で起動するためです。セッションは新しい launch を予約し、新しい値で起動します。返却する launch の行は worker が接続できないよう先に交代を記録してから閉じられ、新しい launch の交代回数（`replacement_count`）は 0 から始まります。そのため交代の上限には達しません。pass summary は `launchesLimitsChanged`（ログは `launch_limits_changed_count`）と警告 `Launch was reserved with other worker limits; torn down unbuilt so its session launches with the current ones` を残します。
 
 値を固定する前の control host が作ったコンテナ・Pod は、stamp にその host の値を含みます。現在の値と同じなら current として受け入れ、違えば従来どおり stale として交代します。そのため、この版への更新で worker が一斉に入れ替わることはありません。
 

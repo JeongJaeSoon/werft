@@ -83,9 +83,9 @@ export type InstallationLimitsEnvironment = {
 export const STORAGE_ACCOUNTED_CONTENT = STORAGE_ACCOUNTED_CONTENT_VALUES;
 
 /** Past this the engine clamps it anyway, and each retry backs off longer. */
-const MAX_PROVIDER_RETRIES = 10;
+export const MAX_PROVIDER_RETRIES = 10;
 /** setTimeout overflows past 2^31-1 ms; a week is far inside that. */
-const MAX_TURN_SECONDS_CEILING = 7 * 24 * 60 * 60;
+export const MAX_TURN_SECONDS_CEILING = 7 * 24 * 60 * 60;
 
 export class InstallationConfigError extends Error {
   constructor(readonly problems: readonly string[]) {

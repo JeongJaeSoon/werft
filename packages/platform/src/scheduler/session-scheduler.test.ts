@@ -2068,19 +2068,30 @@ describe("runScheduler", () => {
         claimed: false,
         resources: pinnedAt(60),
       });
+      // Still waiting for a worker, so it is due a launch once its slot is
+      // given back.
+      store.unassigned.add(sessionId);
 
       const summary = await run();
       expect(summary.launchesLimitsChanged).toEqual([ref]);
       expect(backend.terminateCalls).toEqual([ref]);
       expect(store.confirmedGone).toEqual(["exec-1"]);
       expect(summary.replacementsExhausted).toEqual([]);
-      const rebuilt = backend.ensureCalls.filter(
+      if (!store.executions.get("exec-1")?.slotReleased) await run();
+
+      const launches = [...store.executions.values()].filter(
+        (e) => e.sessionId === sessionId,
+      );
+      expect(launches.map((e) => e.generation)).toEqual([1, 2]);
+      const [, next] = launches;
+      if (!next) throw new Error("no launch reserved anew");
+      expect(next.resources?.workerLimits).toEqual(limitsOf(600));
+      expect(next.replacementCount).toBe(0);
+      const built = backend.ensureCalls.filter(
         (c) => c.sessionId === sessionId,
       );
-      expect(
-        rebuilt.every((c) => c.resources.workerLimits?.maxTurnSeconds === 600),
-      ).toBe(true);
-      expect(rebuilt.some((c) => c.executionId === "exec-1")).toBe(false);
+      expect(built.map((c) => c.executionId)).toEqual([next.executionId]);
+      expect(built[0]?.resources.workerLimits).toEqual(limitsOf(600));
     });
 
     test("a launch reserved with the current limits, or before they were pinned, is left alone", async () => {

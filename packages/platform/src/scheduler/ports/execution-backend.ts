@@ -3,6 +3,10 @@ import type {
   ExecutionBackend as ExecutionBackendKind,
   ExecutionState,
 } from "@werft-ai/contracts";
+import {
+  MAX_PROVIDER_RETRIES,
+  MAX_TURN_SECONDS_CEILING,
+} from "../../limits/installation-limits.ts";
 
 /** What the worker is started with for its turns, as worker env. */
 export type WorkerLimits = {
@@ -292,7 +296,8 @@ export function launchSpecFingerprint(
 
 /**
  * `value` as worker limits, or null when it is not a pair a worker would
- * start with: a turn of at least a second, and retries a count.
+ * start with: within the bounds the installation setting takes, which also
+ * keeps a drain deadline built from the turn a valid database interval.
  */
 export function workerLimitsOf(value: {
   maxTurnSeconds: unknown;
@@ -302,8 +307,10 @@ export function workerLimitsOf(value: {
   if (
     !Number.isSafeInteger(maxTurnSeconds) ||
     (maxTurnSeconds as number) < 1 ||
+    (maxTurnSeconds as number) > MAX_TURN_SECONDS_CEILING ||
     !Number.isSafeInteger(providerMaxRetries) ||
-    (providerMaxRetries as number) < 0
+    (providerMaxRetries as number) < 0 ||
+    (providerMaxRetries as number) > MAX_PROVIDER_RETRIES
   ) {
     return null;
   }

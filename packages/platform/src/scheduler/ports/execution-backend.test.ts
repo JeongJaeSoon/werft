@@ -63,10 +63,20 @@ describe("parseExecutionResources", () => {
       { maxTurnSeconds: 1.5, providerMaxRetries: 2 },
       { maxTurnSeconds: 600, providerMaxRetries: -1 },
       { maxTurnSeconds: 600 },
+      { maxTurnSeconds: 604_801, providerMaxRetries: 2 },
+      { maxTurnSeconds: Number.MAX_SAFE_INTEGER, providerMaxRetries: 2 },
+      { maxTurnSeconds: 600, providerMaxRetries: 11 },
     ]) {
       expect(() =>
         parseExecutionResources({ ...RESOURCES, workerLimits }),
       ).toThrow("workerLimits");
     }
+  });
+
+  test("takes the bounds the installation setting takes", () => {
+    const widest = { maxTurnSeconds: 604_800, providerMaxRetries: 10 };
+    expect(
+      parseExecutionResources({ ...RESOURCES, workerLimits: widest }),
+    ).toEqual({ ...RESOURCES, workerLimits: widest });
   });
 });
