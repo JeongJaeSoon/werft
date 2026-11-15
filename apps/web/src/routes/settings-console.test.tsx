@@ -277,9 +277,9 @@ describe("모델 연결", () => {
     const fresh = rowOf(table, "fresh");
     expect(fresh.textContent).toContain("값 필요");
     expect(
-      within(fresh).getByRole("button", { name: "fresh의 API 키 넣기" })
+      within(fresh).getByRole("button", { name: "fresh의 API 키 설정" })
         .textContent,
-    ).toBe("API 키 넣기");
+    ).toBe("API 키 설정");
   });
 
   test("a narrow table keeps every row's actions and puts the state beside the id", async () => {
