@@ -38,7 +38,7 @@ export const settingsKo = {
     "이 연결은 서버의 환경 변수나 Secrets Manager에 있는 키를 씁니다. 키를 여기에 붙여 넣으면 DB에 봉인해 저장하고, 이 연결은 저장한 키로 돕니다. 서버가 기존 값을 읽어 옮기지는 않습니다. 도는 세션은 멈추지 않습니다.",
   "settings.done.converted": "{id}의 키를 저장했습니다.",
   "settings.error.not_external":
-    "이미 화면에서 넣은 키를 쓰는 항목입니다. 값 바꾸기를 쓰세요.",
+    "이미 화면에서 넣은 키를 쓰는 연결입니다. 키는 '설정' 버튼으로 바꾸세요.",
   "settings.error.alias_taken":
     "다른 연결이 이 연결의 옛 정의와 같아 키를 옮길 수 없습니다.",
   "settings.value": "값",
@@ -107,6 +107,8 @@ export const settingsKo = {
   "settings.connections.billing.per_token": "토큰당 비용 집계",
   "settings.connections.billing.none": "비용 집계 안 함",
   "settings.connections.authKind": "인증 방식",
+  "settings.connections.changeCredential": "{kind} 설정",
+  "settings.connections.changeCredentialFor": "{id}의 {kind} 설정",
   "settings.connections.authKind.api_key": "API 키",
   "settings.connections.authKind.bearer": "Bearer 토큰",
   "settings.connections.key": "키 값",
@@ -239,7 +241,7 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
     "This connection uses a key from the server's environment or Secrets Manager. Paste the key here and it is sealed in the database; the connection then runs on the stored key. The server does not read the old value and copy it. Running sessions keep running.",
   "settings.done.converted": "The key of {id} was stored.",
   "settings.error.not_external":
-    "This entry already keeps a key entered on screen. Use Replace value.",
+    "This connection already uses a key entered on screen. Change the key with its Set button.",
   "settings.error.alias_taken":
     "Another connection is exactly what this one was, so its key cannot be moved.",
   "settings.value": "Value",
@@ -308,6 +310,8 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.connections.billing.per_token": "Per-token cost tracking",
   "settings.connections.billing.none": "No cost tracking",
   "settings.connections.authKind": "Authentication",
+  "settings.connections.changeCredential": "Set {kind}",
+  "settings.connections.changeCredentialFor": "Set {kind} for {id}",
   "settings.connections.authKind.api_key": "API key",
   "settings.connections.authKind.bearer": "Bearer token",
   "settings.connections.key": "Key",
@@ -441,7 +445,7 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
     "この接続は、サーバーの環境変数または Secrets Manager にあるキーを使っています。ここにキーを貼り付けると DB に封印して保存し、この接続は保存したキーで動きます。サーバーが古い値を読んで移すことはありません。実行中のセッションは止まりません。",
   "settings.done.converted": "{id} のキーを保存しました。",
   "settings.error.not_external":
-    "すでに画面で入れたキーを使う項目です。値を変えるを使ってください。",
+    "すでに画面で入れたキーを使う接続です。キーは「設定」ボタンで変えてください。",
   "settings.error.alias_taken":
     "別の接続がこの接続の元の定義と同じため、キーを移せません。",
   "settings.value": "値",
@@ -510,6 +514,8 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.connections.billing.per_token": "トークン単位で集計",
   "settings.connections.billing.none": "集計しない",
   "settings.connections.authKind": "認証方式",
+  "settings.connections.changeCredential": "{kind}を設定",
+  "settings.connections.changeCredentialFor": "{id} の{kind}を設定",
   "settings.connections.authKind.api_key": "API キー",
   "settings.connections.authKind.bearer": "Bearer トークン",
   "settings.connections.key": "キーの値",

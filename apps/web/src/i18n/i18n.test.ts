@@ -129,6 +129,24 @@ describe("i18n", () => {
     }
   });
 
+  test("every model connection credential button's word is inside its accessible name", () => {
+    for (const locale of LOCALES) {
+      const catalog = catalogs[locale];
+      for (const authKind of ["api_key", "bearer"] as const) {
+        const kind = catalog[`settings.connections.authKind.${authKind}`];
+        const label = catalog["settings.connections.changeCredentialFor"]
+          .replace("{id}", "console-key")
+          .replace("{kind}", kind);
+        expect(label, `${locale} ${authKind}`).toContain(
+          catalog["settings.connections.changeCredential"].replace(
+            "{kind}",
+            kind,
+          ),
+        );
+      }
+    }
+  });
+
   // The platform paragraph is off by default, so a hint without the condition
   // is wrong on a default installation.
   test("name and description hints say the model reads them only with platform guidance on", () => {
