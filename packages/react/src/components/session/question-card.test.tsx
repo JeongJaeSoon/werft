@@ -75,9 +75,7 @@ describe("QuestionCard", () => {
     await user.tab();
     await user.keyboard(" ");
     await user.tab();
-    await user.keyboard("{Enter}");
     await user.keyboard("  zig  ");
-    await user.tab();
     await user.keyboard("{Enter}");
     expect(onSubmit).toHaveBeenCalledWith([
       { question_id: "q_color", selected_option_ids: ["blue"] },
@@ -178,7 +176,6 @@ describe("QuestionCard", () => {
       />,
     );
     await user.click(getByRole("radio", { name: "Red" }));
-    await user.click(getByRole("button", { name: "Other" }));
     await user.type(getByRole("textbox", { name: "Other" }), "zig");
     await user.click(getByRole("button", { name: "Send answer" }));
     await user.click(getByRole("checkbox", { name: "bun" }));
@@ -207,39 +204,34 @@ describe("QuestionCard", () => {
     ]);
   });
 
-  test("직접 입력은 접혀 있고, 펼치면 입력란에 포커스가 가며, 접어도 쓴 글로 보낸다", async () => {
+  test("선택지는 번호가 붙은 줄이고, 번호 키로 고르며 마지막 번호는 직접 입력으로 간다", async () => {
     const user = await setupUser();
-    const onSubmit = mock((_answers: QuestionAnswer[]) => {});
-    const { getByRole, queryByRole } = render(
+    const { getByRole } = render(
       <QuestionCard
         request={REQUEST}
         messages={MESSAGES}
-        onSubmit={onSubmit}
+        onSubmit={() => {}}
         now={NOW}
       />,
     );
-    const toggle = getByRole("button", { name: "Other" });
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(queryByRole("textbox")).toBeNull();
-    await user.click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    const text = getByRole("textbox", { name: "Other" });
-    expect(toggle.getAttribute("aria-controls")).toBe(text.id);
-    expect(document.activeElement === text).toBe(true);
-    await user.keyboard("zig");
-    await user.click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(queryByRole("textbox")).toBeNull();
-    await user.click(getByRole("radio", { name: "Blue" }));
-    await user.click(getByRole("button", { name: "Send answer" }));
-    expect(onSubmit).toHaveBeenCalledWith([
-      { question_id: "q_color", selected_option_ids: ["blue"] },
-      { question_id: "q_tools", selected_option_ids: [], free_text: "zig" },
-    ]);
-    await user.click(toggle);
+    const red = getByRole("radio", { name: "Red" }) as HTMLElement;
+    red.focus();
+    await user.keyboard("2");
     expect(
-      (getByRole("textbox", { name: "Other" }) as HTMLTextAreaElement).value,
-    ).toBe("zig");
+      (getByRole("radio", { name: "Blue" }) as HTMLElement).dataset.state,
+    ).toBe("checked");
+    const git = getByRole("checkbox", { name: "git" });
+    git.focus();
+    await user.keyboard("2");
+    expect(
+      getByRole("checkbox", { name: "bun" }).getAttribute("aria-checked"),
+    ).toBe("true");
+    await user.keyboard("3");
+    const text = getByRole("textbox", { name: "Other" });
+    expect(document.activeElement === text).toBe(true);
+    // Digits typed into the text stay text.
+    await user.keyboard("12");
+    expect((text as HTMLInputElement).value).toBe("12");
   });
 
   test("선택지가 없는 질문은 직접 입력이 처음부터 펼쳐져 있다", async () => {
@@ -270,28 +262,6 @@ describe("QuestionCard", () => {
     expect(onSubmit).toHaveBeenCalledWith([
       { question_id: "q_why", selected_option_ids: [], free_text: "because" },
     ]);
-  });
-
-  test("답하지 않은 질문의 직접 입력은 펼쳐진다", async () => {
-    const user = await setupUser();
-    const { getByRole } = render(
-      <QuestionCard
-        request={REQUEST}
-        messages={MESSAGES}
-        onSubmit={() => {}}
-        now={NOW}
-      />,
-    );
-    await user.click(getByRole("radio", { name: "Red" }));
-    await user.click(getByRole("button", { name: "Send answer" }));
-    expect(
-      getByRole("button", { name: "Other" }).getAttribute("aria-expanded"),
-    ).toBe("true");
-    // Typing clears the error; the field must not fold away under the cursor.
-    await user.type(getByRole("textbox", { name: "Other" }), "z");
-    expect(
-      getByRole("button", { name: "Other" }).getAttribute("aria-expanded"),
-    ).toBe("true");
   });
 
   test("하나 고르기는 질문 글로 이름 붙은 radiogroup이고 화살표 키로 고른다", async () => {

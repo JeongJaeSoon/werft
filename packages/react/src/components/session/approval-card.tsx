@@ -145,19 +145,19 @@ export function ApprovalCard({
           )}
         </div>
       ) : null}
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <code className="min-w-0 rounded-control bg-muted px-2 py-0.5 font-mono text-caption [overflow-wrap:anywhere]">
-          {request.tool}
-        </code>
-        <details className="group/input min-w-0 flex-1 open:basis-full">
-          <summary className="w-fit cursor-pointer rounded-control py-1 text-caption text-muted-foreground">
-            {messages.input}
-          </summary>
-          <CodeBlock className="mt-2 max-h-60 overflow-y-auto">
+      <details className="group/input min-w-0">
+        <summary className="w-fit cursor-pointer rounded-control py-0.5 text-caption text-muted-foreground hover:text-foreground">
+          {messages.input}
+        </summary>
+        <div className="mt-2 flex min-w-0 flex-col gap-2">
+          <code className="w-fit max-w-full rounded-control bg-muted px-2 py-0.5 font-mono text-caption [overflow-wrap:anywhere]">
+            {request.tool}
+          </code>
+          <CodeBlock className="max-h-60 overflow-y-auto">
             {inputText(request.input)}
           </CodeBlock>
-        </details>
-      </div>
+        </div>
+      </details>
       <FieldError>{error}</FieldError>
       {expired ? null : (
         <form className="flex flex-wrap items-center gap-2" onSubmit={allow}>

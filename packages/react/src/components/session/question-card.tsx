@@ -9,17 +9,18 @@ import {
   FieldLegend,
   FieldSet,
   formatTimestamp,
+  Input,
   RadioGroup,
   RadioGroupItem,
   Text,
   Textarea,
   type TimestampLocale,
 } from "@werft-ai/ui";
-import { ChevronDown, Hourglass } from "lucide-react";
+import { Hourglass } from "lucide-react";
 import {
   type FormEvent,
   type JSX,
-  useEffect,
+  type KeyboardEvent,
   useId,
   useRef,
   useState,
@@ -175,7 +176,7 @@ export function QuestionCard({
           <Button
             type="submit"
             size="sm"
-            className="self-start"
+            className="self-end"
             disabled={pending || disabled}
           >
             <Busy shown={pending} />
@@ -203,9 +204,78 @@ function QuestionFields({
   readonly unanswered: string | undefined;
 }) {
   const legendId = useId();
+  const textRef = useRef<HTMLInputElement>(null);
   const options = question.options;
+  const toggle = (id: string) =>
+    onChange({
+      selected: draft.selected.includes(id)
+        ? draft.selected.filter((other) => other !== id)
+        : [...draft.selected, id],
+    });
+
+  // A row's number picks it, as long as the key is not typed into the text.
+  const pickByNumber = (event: KeyboardEvent<HTMLFieldSetElement>) => {
+    if (disabled || event.altKey || event.ctrlKey || event.metaKey) return;
+    const target = event.target as HTMLElement;
+    if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+    const index = Number(event.key) - 1;
+    if (!Number.isInteger(index) || index < 0) return;
+    const option = options[index];
+    if (option) {
+      event.preventDefault();
+      if (question.multi_select) toggle(option.option_id);
+      else onChange({ selected: [option.option_id] });
+    } else if (index === options.length && question.allow_free_text) {
+      event.preventDefault();
+      textRef.current?.focus();
+    }
+  };
+
+  if (options.length === 0) {
+    return (
+      <FieldSet className="m-0 gap-2 border-0 p-0">
+        <FieldLegend
+          variant="label"
+          className="mb-1 text-control [overflow-wrap:anywhere]"
+        >
+          {question.prompt}
+        </FieldLegend>
+        {question.allow_free_text ? (
+          <Field>
+            <FieldLabel className="sr-only">{freeTextLabel}</FieldLabel>
+            <Textarea
+              disabled={disabled}
+              value={draft.text}
+              placeholder={`${freeTextLabel}…`}
+              className="min-h-0 bg-card [field-sizing:content]"
+              rows={1}
+              onChange={(event) => onChange({ text: event.target.value })}
+            />
+          </Field>
+        ) : null}
+        <FieldError>{unanswered}</FieldError>
+      </FieldSet>
+    );
+  }
+
+  const freeText = question.allow_free_text ? (
+    <li className={cn(ROW, "cursor-text")}>
+      <Input
+        ref={textRef}
+        aria-label={freeTextLabel}
+        placeholder={`${freeTextLabel}…`}
+        disabled={disabled}
+        value={draft.text}
+        maxLength={1000}
+        className="h-auto flex-1 rounded-none border-0 bg-transparent p-0 focus-visible:outline-none enabled:not-aria-invalid:hover:border-0"
+        onChange={(event) => onChange({ text: event.target.value })}
+      />
+      <Key n={options.length + 1} on={draft.text.trim() !== ""} />
+    </li>
+  ) : null;
+
   return (
-    <FieldSet className="m-0 gap-2 border-0 p-0">
+    <FieldSet className="m-0 gap-2 border-0 p-0" onKeyDown={pickByNumber}>
       <FieldLegend
         id={legendId}
         variant="label"
@@ -213,135 +283,80 @@ function QuestionFields({
       >
         {question.prompt}
       </FieldLegend>
-      {options.length === 0 ? null : question.multi_select ? (
-        <div className="flex flex-wrap gap-2">
-          {options.map((option) => (
-            <FieldLabel key={option.option_id} className={CHIP}>
-              <Checkbox
-                disabled={disabled}
-                checked={draft.selected.includes(option.option_id)}
-                onCheckedChange={(checked) =>
-                  onChange({
-                    selected:
-                      checked === true
-                        ? [...draft.selected, option.option_id]
-                        : draft.selected.filter(
-                            (id) => id !== option.option_id,
-                          ),
-                  })
-                }
-              />
-              {option.label}
-            </FieldLabel>
-          ))}
-        </div>
+      {question.multi_select ? (
+        <ul className={LIST}>
+          {options.map((option, index) => {
+            const on = draft.selected.includes(option.option_id);
+            return (
+              <li key={option.option_id}>
+                <FieldLabel className={ROW}>
+                  <Checkbox
+                    className={HIDDEN}
+                    disabled={disabled}
+                    checked={on}
+                    onCheckedChange={() => toggle(option.option_id)}
+                  />
+                  <span className="min-w-0 flex-1">{option.label}</span>
+                  <Key n={index + 1} on={on} />
+                </FieldLabel>
+              </li>
+            );
+          })}
+          {freeText}
+        </ul>
       ) : (
-        <RadioGroup
-          aria-labelledby={legendId}
-          className="flex flex-wrap gap-2"
-          disabled={disabled}
-          value={draft.selected[0] ?? ""}
-          onValueChange={(value) => onChange({ selected: [value] })}
-        >
-          {options.map((option) => (
-            <FieldLabel key={option.option_id} className={CHIP}>
-              <RadioGroupItem value={option.option_id} />
-              {option.label}
-            </FieldLabel>
-          ))}
-        </RadioGroup>
-      )}
-      {!question.allow_free_text ? null : options.length === 0 ? (
-        <Field>
-          <FieldLabel>{freeTextLabel}</FieldLabel>
-          <Textarea
+        <div className={LIST}>
+          <RadioGroup
+            aria-labelledby={legendId}
+            className="flex flex-col gap-0 divide-y"
             disabled={disabled}
-            value={draft.text}
-            onChange={(event) => onChange({ text: event.target.value })}
-          />
-        </Field>
-      ) : (
-        <FreeText
-          label={freeTextLabel}
-          text={draft.text}
-          onChange={(text) => onChange({ text })}
-          disabled={disabled}
-          unanswered={unanswered !== undefined}
-        />
+            value={draft.selected[0] ?? ""}
+            onValueChange={(value) => onChange({ selected: [value] })}
+          >
+            {options.map((option, index) => (
+              <FieldLabel key={option.option_id} className={ROW}>
+                <RadioGroupItem className={HIDDEN} value={option.option_id} />
+                <span className="min-w-0 flex-1">{option.label}</span>
+                <Key
+                  n={index + 1}
+                  on={draft.selected.includes(option.option_id)}
+                />
+              </FieldLabel>
+            ))}
+          </RadioGroup>
+          {freeText ? <ul className="m-0 list-none p-0">{freeText}</ul> : null}
+        </div>
       )}
       <FieldError>{unanswered}</FieldError>
     </FieldSet>
   );
 }
 
-// The label wraps its control, so the whole chip toggles it; `relative` keeps
-// Radix's hidden form input inside the chip.
-const CHIP =
-  "relative min-h-[var(--werft-control-height-sm)] max-w-full cursor-pointer rounded-control border border-input bg-card px-2.5 py-0.5 text-control [overflow-wrap:anywhere] has-disabled:cursor-not-allowed has-disabled:opacity-50";
+// The control spans its row unseen, so the row is what is clicked and ringed.
+const HIDDEN =
+  "absolute inset-0 aspect-auto size-auto rounded-none border-0 bg-transparent opacity-0";
 
-/** Free text beside options starts folded; folding keeps what was written. */
-function FreeText({
-  label,
-  text,
-  onChange,
-  disabled,
-  unanswered,
-}: {
-  readonly label: string;
-  readonly text: string;
-  readonly onChange: (text: string) => void;
-  readonly disabled: boolean;
-  readonly unanswered: boolean;
-}) {
-  const toggleId = useId();
-  const textId = useId();
-  const textRef = useRef<HTMLTextAreaElement>(null);
-  const focusOnOpen = useRef(false);
-  const [open, setOpen] = useState(text !== "");
-  // The way to answer an unanswered question has to be in sight.
-  if (unanswered && !open) setOpen(true);
+// Each choice is a row of one list, as in a chat app's picker: the words on
+// the left, the number that picks it on the right. The control itself is out
+// of sight; the row's fill says what is chosen, its ring where focus is.
+const LIST =
+  "m-0 flex list-none flex-col divide-y overflow-hidden rounded-card border bg-card p-0";
+const ROW =
+  "relative flex min-h-9 w-full cursor-pointer items-center gap-3 px-3 py-1.5 font-normal text-control [overflow-wrap:anywhere] hover:bg-muted has-focus-visible:outline-2 has-focus-visible:-outline-offset-2 has-focus-visible:outline-focus-ring has-[[data-state=checked]]:bg-[var(--werft-tone-progress-bg)] has-disabled:cursor-not-allowed has-disabled:opacity-50";
 
-  useEffect(() => {
-    if (open && focusOnOpen.current) textRef.current?.focus();
-    focusOnOpen.current = false;
-  }, [open]);
-
+/** The number that picks a row, filled once the row is chosen. */
+function Key({ n, on }: { readonly n: number; readonly on: boolean }) {
   return (
-    <>
-      <Button
-        id={toggleId}
-        type="button"
-        variant="link"
-        size="sm"
-        className="h-auto self-start px-0 py-0.5 text-muted-foreground hover:text-foreground"
-        aria-expanded={open}
-        aria-controls={textId}
-        disabled={disabled}
-        onClick={() => {
-          focusOnOpen.current = !open;
-          setOpen(!open);
-        }}
-      >
-        <ChevronDown
-          className={cn(
-            "transition-transform motion-reduce:transition-none",
-            open && "rotate-180",
-          )}
-          aria-hidden="true"
-        />
-        {label}
-      </Button>
-      <Textarea
-        ref={textRef}
-        id={textId}
-        aria-labelledby={toggleId}
-        hidden={!open}
-        // The textarea's own `flex` would beat the attribute.
-        className={cn(!open && "hidden")}
-        disabled={disabled}
-        value={text}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </>
+    <span
+      aria-hidden="true"
+      className={cn(
+        "flex size-5 flex-none items-center justify-center rounded-md text-caption tabular-nums",
+        on
+          ? "bg-primary text-primary-foreground"
+          : "bg-muted text-muted-foreground",
+      )}
+    >
+      {n}
+    </span>
   );
 }
