@@ -1356,6 +1356,70 @@ for (const [label, args, want] of [
     errors.push(`carried archive settings (${label}): no CronJob rendered`);
   }
 }
+// The workspace TTLs are carried as the scheduler read them: its extraEnv
+// over config.limits, never the api's. An explicit "" was a value the
+// scheduler refused, so migrate gets one it refuses too, not an unset one.
+// scheduler.extraEnv still reaches the scheduler verbatim, where nothing
+// reads it; config.limits no longer does.
+for (const [label, args, want, passedThrough] of [
+  ["unset", [], {}, []],
+  [
+    "scheduler sources",
+    [
+      "--set-json",
+      'scheduler.extraEnv={"EXECUTION_WORKSPACE_STOPPED_TTL_SEC":0}',
+      "--set-json",
+      'api.extraEnv={"EXECUTION_WORKSPACE_PAUSED_TTL_SEC":5}',
+      "--set-json",
+      'config.limits={"EXECUTION_SLOT_LIMIT":10,"EXECUTION_WORKSPACE_STOPPED_TTL_SEC":3600,"EXECUTION_WORKSPACE_PAUSED_TTL_SEC":7200}',
+    ],
+    {
+      EXECUTION_WORKSPACE_STOPPED_TTL_SEC: "0",
+      EXECUTION_WORKSPACE_PAUSED_TTL_SEC: "7200",
+    },
+    ["EXECUTION_WORKSPACE_STOPPED_TTL_SEC"],
+  ],
+  [
+    "an explicit empty value",
+    [
+      "--set-json",
+      'scheduler.extraEnv={"EXECUTION_WORKSPACE_PAUSED_TTL_SEC":""}',
+    ],
+    { EXECUTION_WORKSPACE_PAUSED_TTL_SEC: " " },
+    ["EXECUTION_WORKSPACE_PAUSED_TTL_SEC"],
+  ],
+] as const) {
+  const manifests = render(["-f", ciDigests, ...args]);
+  const envOf = (component: string) => {
+    const m = manifests.find(
+      (x) => componentOf(x) === component && podSpecOf(x) !== undefined,
+    );
+    const env: { name: string; value?: string }[] =
+      m === undefined ? [] : podSpecOf(m).containers[0].env;
+    return new Map(env.map((e) => [e.name, e.value]));
+  };
+  const carried = envOf("migrate");
+  const scheduler = envOf("scheduler");
+  for (const name of [
+    "EXECUTION_WORKSPACE_STOPPED_TTL_SEC",
+    "EXECUTION_WORKSPACE_PAUSED_TTL_SEC",
+  ]) {
+    const value = (want as Record<string, string>)[name];
+    if (carried.get(name) !== value) {
+      errors.push(
+        `carried workspace TTLs (${label}): migrate ${name} is ${carried.get(name)}, not ${value}`,
+      );
+    }
+    if (
+      scheduler.has(name) !==
+      (passedThrough as readonly string[]).includes(name)
+    ) {
+      errors.push(
+        `carried workspace TTLs (${label}): the scheduler ${scheduler.has(name) ? "still gets" : "lost its extraEnv"} ${name}`,
+      );
+    }
+  }
+}
 errors.push(
   ...checkUpgradeHook("default", render(["-f", ciDigests]), true, []),
   ...checkUpgradeHook(

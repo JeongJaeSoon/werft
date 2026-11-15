@@ -71,9 +71,8 @@ export async function main(
       probeQuota: !config.retractedImages.some(
         ({ image }) => image === config.image,
       ),
-      pausedWorkspaceTtlMs: config.pausedWorkspaceTtlMs,
-      stoppedWorkspaceTtlMs: config.stoppedWorkspaceTtlMs,
       store,
+      workspaceTtls: installationConfig.workspaceTtls,
     });
     const summary = await runScheduler({
       backend,
@@ -92,9 +91,8 @@ export async function main(
       workerLimits: installationConfig.workerLimits,
       slotLimit: config.slotLimit,
       stopDeadlineMs: stopDeadlineMsOf(config.execution),
-      pausedWorkspaceTtlMs: config.pausedWorkspaceTtlMs,
-      stoppedWorkspaceTtlMs: config.stoppedWorkspaceTtlMs,
       store,
+      workspaceTtls: installationConfig.workspaceTtls,
       ...(options.stop === undefined ? {} : { stop: options.stop }),
     });
     // The pass records a lost connection against each execution it was

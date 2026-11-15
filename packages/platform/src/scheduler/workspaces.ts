@@ -1,4 +1,8 @@
 import {
+  InstallationConfigUnavailableError,
+  readSetting,
+} from "../limits/index.ts";
+import {
   DEFAULT_PAUSED_WORKSPACE_TTL_MS,
   DEFAULT_STOPPED_WORKSPACE_TTL_MS,
   type ReclaimOptions,
@@ -18,6 +22,32 @@ import type {
 } from "./ports/scheduler-store.ts";
 
 /**
+ * This reclaim's TTLs. While the settings refuse them there are none: no
+ * new claim is made on a stopped or paused session's workspace, and only
+ * the workspaces nothing will come back to go.
+ */
+async function workspaceTtlsOf(
+  options: ReclaimOptions,
+): Promise<WorkspaceTtls> {
+  if (options.workspaceTtls === undefined) {
+    return {
+      stoppedTtlMs: DEFAULT_STOPPED_WORKSPACE_TTL_MS,
+      pausedTtlMs: DEFAULT_PAUSED_WORKSPACE_TTL_MS,
+    };
+  }
+  try {
+    return await readSetting(options.workspaceTtls);
+  } catch (error) {
+    if (!(error instanceof InstallationConfigUnavailableError)) throw error;
+    options.logger.warn(
+      "Workspace TTLs cannot be read; keeping every stopped and paused session's workspace",
+      { setting: error.key },
+    );
+    return {};
+  }
+}
+
+/**
  * Reclaim the workspace volumes of sessions nothing will come back to, and
  * of sessions stopped or paused for longer than their TTL. Runs as the last step of a
  * pass, and on its own from `reclaimWorkspaces`.
@@ -32,12 +62,6 @@ export async function collectWorkspaces(
   // A backend whose workspaces it does not own leaves both out; there is
   // then nothing here to reclaim.
   if (!listWorkspaces || !removeWorkspace) return;
-  const ttls: WorkspaceTtls = {
-    stoppedTtlMs:
-      options.stoppedWorkspaceTtlMs ?? DEFAULT_STOPPED_WORKSPACE_TTL_MS,
-    pausedTtlMs:
-      options.pausedWorkspaceTtlMs ?? DEFAULT_PAUSED_WORKSPACE_TTL_MS,
-  };
   const removal: WorkspaceRemoval = {
     logger,
     remove: (id, sessionId) => removeWorkspace.call(backend, id, { sessionId }),
@@ -60,6 +84,9 @@ export async function collectWorkspaces(
     lock.throwIfAborted();
     await removeClaimed(removal, claim);
   }
+  // After the pending claims: those were decided under the TTLs of their
+  // own pass, and one left unsettled keeps its session from resuming.
+  const ttls = await workspaceTtlsOf(options);
   let workspaces: ManagedWorkspace[];
   let retained: Set<string>;
   let closedLegacy: Set<string>;

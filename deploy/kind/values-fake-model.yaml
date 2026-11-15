@@ -12,5 +12,6 @@ worker:
 scheduler:
   extraEnv:
     # A stopped session's workspace goes on the next pass, so the smoke sees
-    # the PVC reclaimed after terminate.
+    # the PVC reclaimed after terminate. Migrate carries it into the console
+    # on install; the scheduler itself no longer reads it.
     EXECUTION_WORKSPACE_STOPPED_TTL_SEC: "0"

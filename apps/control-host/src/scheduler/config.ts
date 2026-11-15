@@ -13,8 +13,6 @@ import {
 } from "@werft-ai/execution-local-docker";
 import { type LogLevel, logLevelFromEnv } from "@werft-ai/observability";
 import {
-  DEFAULT_PAUSED_WORKSPACE_TTL_MS,
-  DEFAULT_STOPPED_WORKSPACE_TTL_MS,
   DRAIN_FINALIZE_GRACE_MS,
   type ExecutionResources,
   type InstallationLimits,
@@ -33,8 +31,6 @@ export type SchedulerEnvironment = LocalDockerBackendEnvironment &
   InstallationLimitsEnvironment & {
     DATABASE_URL?: string | undefined;
     EXECUTION_BACKEND?: string | undefined;
-    EXECUTION_WORKSPACE_PAUSED_TTL_SEC?: string | undefined;
-    EXECUTION_WORKSPACE_STOPPED_TTL_SEC?: string | undefined;
     LOG_LEVEL?: string | undefined;
     QUEUE_DATABASE_URL?: string | undefined;
     WORKER_CPUS?: string | undefined;
@@ -69,8 +65,6 @@ export type SchedulerConfig = {
   logLevel: LogLevel;
   resources: ExecutionResources;
   slotLimit: number;
-  stoppedWorkspaceTtlMs: number;
-  pausedWorkspaceTtlMs: number;
 };
 
 export function schedulerConfigFromEnv(
@@ -121,21 +115,8 @@ export function schedulerConfigFromEnv(
         default: 512,
       }),
     },
+    // The workspace TTLs are the console's, read by each pass.
     slotLimit: limits.executionSlotLimit,
-    // Zero is a real setting: a stopped session's workspace goes on the
-    // next pass, and a resume restores from the checkpoint.
-    stoppedWorkspaceTtlMs:
-      integerSetting(environment, "EXECUTION_WORKSPACE_STOPPED_TTL_SEC", {
-        min: 0,
-        default: DEFAULT_STOPPED_WORKSPACE_TTL_MS / 1_000,
-      }) * 1_000,
-    // Counted from when the session paused; zero takes a paused session's
-    // workspace on the next pass once it has a checkpoint to resume from.
-    pausedWorkspaceTtlMs:
-      integerSetting(environment, "EXECUTION_WORKSPACE_PAUSED_TTL_SEC", {
-        min: 0,
-        default: DEFAULT_PAUSED_WORKSPACE_TTL_MS / 1_000,
-      }) * 1_000,
   };
 }
 

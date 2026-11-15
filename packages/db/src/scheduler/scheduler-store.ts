@@ -965,7 +965,9 @@ export function createPostgresSchedulerStore(
                   sql`${sessions.admissionState} NOT IN ('stopped', 'paused')`,
                   and(
                     sql`${sessions.admissionState} = 'stopped'`,
-                    sql`${sessions.updatedAt} > ${fromDbNow(-options.stoppedTtlMs)}`,
+                    options.stoppedTtlMs === undefined
+                      ? sql`true`
+                      : sql`${sessions.updatedAt} > ${fromDbNow(-options.stoppedTtlMs)}`,
                   ),
                   and(
                     sql`${sessions.admissionState} = 'paused'`,
@@ -1077,7 +1079,10 @@ export function createPostgresSchedulerStore(
         if (session.pendingClaim !== null) return { kind: "retained" };
         const now = await dbNow(tx);
         if (session.admissionState === "stopped") {
-          if (session.updatedAt.getTime() > now.getTime() - stoppedTtlMs) {
+          if (
+            stoppedTtlMs === undefined ||
+            session.updatedAt.getTime() > now.getTime() - stoppedTtlMs
+          ) {
             return { kind: "retained" };
           }
         } else if (session.admissionState === "paused") {
