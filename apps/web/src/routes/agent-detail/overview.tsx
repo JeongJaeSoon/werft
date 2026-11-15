@@ -384,7 +384,7 @@ export function AgentRecentSessions({ agentId }: { readonly agentId: string }) {
               <GridTableColumnHeader hideNarrow={true}>
                 {t("agent.sessions.release")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader align="end">
+              <GridTableColumnHeader>
                 {t("sessions.column.lastEvent")}
               </GridTableColumnHeader>
             </GridTableHeader>
@@ -462,10 +462,7 @@ function AgentSessionRow({
             }))
           : t("agent.panel.none")}
       </GridTableCell>
-      <GridTableCell
-        align="end"
-        className="overflow-hidden whitespace-nowrap text-caption text-muted-foreground"
-      >
+      <GridTableCell className="overflow-hidden whitespace-nowrap text-caption text-muted-foreground">
         <span className="sr-only">
           {session.last_event_at
             ? t("sessions.column.lastEvent")

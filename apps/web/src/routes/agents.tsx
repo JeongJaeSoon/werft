@@ -29,6 +29,7 @@ import {
   administeredAgentsQuery,
   agentCountsQuery,
   agentPagesQuery,
+  agentSummariesQuery,
 } from "../api/queries.ts";
 import { permissionReason, useHasPermission, useRole } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
@@ -121,6 +122,17 @@ function AgentList({
     enabled: paged,
   });
   const administered = useQuery(administeredAgentsQuery(client));
+  // The administered list carries no summaries; the engine, channels and
+  // running count come from the list API by id, as the "all" tab reads them.
+  const ids = administered.data?.items.map((agent) => agent.id) ?? [];
+  const summaries = useQuery({
+    ...agentSummariesQuery(client, ids),
+    enabled: !paged && ids.length > 0,
+  });
+  const mine = administeredWithSummaries(
+    administered.data?.items,
+    summaries.data?.items,
+  );
   // The server stops at this many, so a full page may have left some out.
   const truncated =
     (administered.data?.items.length ?? 0) >= ADMINISTERED_LIST_LIMIT;
@@ -133,9 +145,7 @@ function AgentList({
   };
   const shown = paged
     ? pages.data?.pages.flatMap((page) => page.items)
-    : administered.data?.items.filter((agent) =>
-        matchesAgentQuery(agent, query),
-      );
+    : mine?.filter((agent) => matchesAgentQuery(agent, query));
   return (
     <div className="flex flex-col gap-4">
       <ListToolbar
@@ -189,12 +199,18 @@ function AgentList({
             <PagedListFooter list={pages} />
           </div>
         )
-      ) : administered.isPending ? (
+      ) : administered.isPending || (ids.length > 0 && summaries.isPending) ? (
         <StatusScreen kind="loading" />
       ) : administered.error ? (
         <LoadFailure
           error={administered.error}
           onRetry={() => void administered.refetch()}
+        />
+      ) : summaries.error ? (
+        // A dash would claim no engine or channel; say the read failed.
+        <LoadFailure
+          error={summaries.error}
+          onRetry={() => void summaries.refetch()}
         />
       ) : administered.data.items.length === 0 ? (
         <EmptyState title={t("agentAdmins.mine.empty")} />
@@ -212,6 +228,19 @@ function AgentList({
       )}
     </div>
   );
+}
+
+/**
+ * The administered agents in their order, each with its list item (and so its
+ * summary) when the list API returned it; one it left out keeps its row.
+ */
+function administeredWithSummaries(
+  agents: readonly Agent[] | undefined,
+  listed: readonly AgentListItem[] | undefined,
+): readonly AgentListItem[] | undefined {
+  if (agents === undefined) return undefined;
+  const byId = new Map(listed?.map((item) => [item.id, item]));
+  return agents.map((agent) => byId.get(agent.id) ?? agent);
 }
 
 /**
@@ -273,9 +302,7 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
         <GridTableColumnHeader>{column.engine}</GridTableColumnHeader>
         <GridTableColumnHeader>{column.state}</GridTableColumnHeader>
         <GridTableColumnHeader>{column.channels}</GridTableColumnHeader>
-        <GridTableColumnHeader align="end">
-          {column.running}
-        </GridTableColumnHeader>
+        <GridTableColumnHeader>{column.running}</GridTableColumnHeader>
       </GridTableHeader>
       {agents.map((agent) => (
         <GridTableRow
@@ -311,11 +338,7 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
           <GridTableCell cardLabel={column.channels} className="gap-2">
             <AgentChannels agent={agent} />
           </GridTableCell>
-          <GridTableCell
-            align="end"
-            cardLabel={column.running}
-            className="tabular-nums"
-          >
+          <GridTableCell cardLabel={column.running} className="tabular-nums">
             <AgentRunning agent={agent} />
           </GridTableCell>
         </GridTableRow>
@@ -325,9 +348,12 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
 }
 
 // Name | engine | state | channels | running sessions; at 640px of table width
-// or less, one card per agent. The fixed tracks, gaps and padding take 520px,
-// so a narrower breakpoint would leave the name no room.
-const COLUMNS = "minmax(0,1fr) 96px 104px 104px 120px";
+// or less, one card per agent. The other tracks' floors, gaps and padding take
+// 520px, so a narrower breakpoint would leave the name no room. Past those
+// floors the width is shared, the name taking two parts, so the last column
+// does not end up against the right edge of a wide table.
+const COLUMNS =
+  "minmax(0,2fr) minmax(96px,1fr) minmax(104px,1fr) minmax(104px,1fr) minmax(120px,1fr)";
 
 /**
  * A blank card, made in steps.

@@ -293,7 +293,7 @@ function ReceiptRow({
           {detailLine}
         </div>
       </GridTableCell>
-      <GridTableCell align="end">
+      <GridTableCell>
         <RelativeTime
           value={receipt.created_at}
           locale={locale}
@@ -348,7 +348,7 @@ function Activity({
               <GridTableColumnHeader>
                 {t("agentGitHub.table.receipt")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader align="end">
+              <GridTableColumnHeader>
                 {t("agentGitHub.table.at")}
               </GridTableColumnHeader>
             </GridTableHeader>

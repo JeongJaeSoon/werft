@@ -40,7 +40,7 @@ export function SessionTable({ label, messages, children }: SessionTableProps) {
           <GridTableColumnHeader hideNarrow={true}>
             {messages.runtime}
           </GridTableColumnHeader>
-          <GridTableColumnHeader align="end">
+          <GridTableColumnHeader>
             <span className="truncate">
               {messages.lastEvent} / {messages.created}
             </span>

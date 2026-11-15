@@ -269,6 +269,12 @@ describe("에이전트 목록", () => {
       ["연결 채널", null],
       ["실행 중인 세션", null],
     ]);
+    // Every column starts at its left edge, header and cells alike.
+    expect(
+      [...table.querySelectorAll("[role=columnheader], [role=cell]")].filter(
+        (cell) => cell.className.includes("justify-end"),
+      ).length,
+    ).toBe(0);
     const cellsOf = async (name: string) =>
       within(
         (await within(table).findByRole("link", { name })).closest(
@@ -582,6 +588,118 @@ describe("에이전트 목록 탭과 검색", () => {
     ).toBeDefined();
     expect((search as HTMLInputElement).value).toBe("");
     expect(document.activeElement === search).toBe(true);
+  });
+
+  /** The agent as GET /v1/agents?include=summary lists it. */
+  function withSummary(
+    agent: ReturnType<ReturnType<typeof agentServer>["detail"]>["agent"],
+  ) {
+    return {
+      ...agent,
+      summary: {
+        version: {
+          version_no: 1,
+          role: null,
+          instructions: null,
+          mcp_servers: [],
+          credential_refs: [],
+        },
+        connection_id: null,
+        release_label: null,
+        release_model: null,
+        bound_credential_refs: [],
+        admins: [],
+        needs_input_count: 0,
+        slack_action: null,
+        running_count: 3,
+        engine: "claude_agent_sdk" as const,
+        channels: ["slack" as const, "github" as const],
+      },
+    };
+  }
+
+  test("관리하는 에이전트 탭도 전체 탭과 같은 엔진·연결 채널·실행 중인 세션을 보인다", async () => {
+    const base = agentServer().detail().agent;
+    const second = {
+      ...base,
+      id: crypto.randomUUID(),
+      slug: "second",
+      name: "두 번째",
+    };
+    const { api } = renderAt("/agents", {
+      ...meOk,
+      // The list API's order differs from the administered list's.
+      "GET /v1/agents": () =>
+        json(200, {
+          items: [withSummary(second), withSummary(base)],
+          next_cursor: null,
+        }),
+      // As the server answers it: the agents alone, no summary.
+      "GET /v1/administered-agents": () => json(200, { items: [base, second] }),
+    });
+    const names = () =>
+      [
+        ...(screen
+          .getByRole("table", { name: "에이전트" })
+          .querySelectorAll("[role=row] a[href^='/agents/']") ?? []),
+      ].map((link) => link.textContent);
+    const columns = async (name = "결제 담당") => {
+      const link = await screen.findByRole("link", { name });
+      const [, engine, , channels, running] = within(
+        link.closest("[role=row]") as HTMLElement,
+      ).getAllByRole("cell");
+      return [
+        engine?.querySelector("[data-engine]")?.textContent,
+        [...(channels?.querySelectorAll("[data-channel]") ?? [])].map((mark) =>
+          mark.getAttribute("aria-label"),
+        ),
+        running?.textContent,
+      ];
+    };
+    const all = await columns();
+    expect(all).toEqual(["Claude", ["Slack", "GitHub"], "실행 중인 세션3"]);
+    await showList(await setupUser(), "관리하는 에이전트 2");
+    await waitFor(async () => expect(await columns()).toEqual(all));
+    expect(await columns("두 번째")).toEqual(all);
+    // In the administered list's order, whatever order the summaries came in.
+    expect(names()).toEqual(["결제 담당", "두 번째"]);
+    // Read by id with summaries, as the all tab's items carry them.
+    const byId = api.calls.find(
+      (call) =>
+        call.path === "/v1/agents" &&
+        new URLSearchParams(call.search).has("ids"),
+    );
+    const sent = new URLSearchParams(byId?.search);
+    expect(sent.get("ids")?.split(",").sort()).toEqual(
+      [base.id, second.id].sort(),
+    );
+    expect(sent.get("include")).toBe("summary");
+  });
+
+  test("관리하는 에이전트의 요약을 읽지 못하면 빈 값 대신 실패와 다시 시도를 보인다", async () => {
+    const base = agentServer().detail().agent;
+    let failing = true;
+    renderAt("/agents", {
+      ...meOk,
+      "GET /v1/agents": (request) =>
+        new URL(request.url).searchParams.has("ids") && failing
+          ? apiError(500, "INTERNAL", "down")
+          : json(200, { items: [withSummary(base)], next_cursor: null }),
+      "GET /v1/administered-agents": () => json(200, { items: [base] }),
+    });
+    const user = await setupUser();
+    await showList(user, "관리하는 에이전트 1");
+    const retry = await screen.findByRole("button", { name: "다시 시도" });
+    expect(screen.queryByRole("link", { name: "결제 담당" }) === null).toBe(
+      true,
+    );
+    failing = false;
+    await user.click(retry);
+    const row = (
+      await screen.findByRole("link", { name: "결제 담당" })
+    ).closest("[role=row]");
+    // Recovered with the summary, not dashes.
+    expect(row?.querySelector("[data-engine]")?.textContent).toBe("Claude");
   });
 
   test("관리하는 에이전트가 서버 상한만큼 오면 일부만 보인다고 알리고, 개수는 서버가 센 값이다", async () => {

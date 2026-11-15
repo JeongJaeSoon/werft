@@ -100,7 +100,7 @@ export function SessionOverviewTable({
           <GridTableColumnHeader hideNarrow={true}>
             <span className="truncate">{messages.started}</span>
           </GridTableColumnHeader>
-          <GridTableColumnHeader align="end">
+          <GridTableColumnHeader>
             <span className="truncate">{messages.duration}</span>
           </GridTableColumnHeader>
         </GridTableHeader>
@@ -299,7 +299,7 @@ export function SessionOverviewRow({
           className="relative truncate focus-visible:-outline-offset-2!"
         />
       </GridTableCell>
-      <GridTableCell align="end" className="whitespace-nowrap">
+      <GridTableCell className="whitespace-nowrap">
         <span
           className={cn("truncate", atWork ? "text-muted-foreground" : null)}
         >
