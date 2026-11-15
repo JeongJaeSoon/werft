@@ -138,7 +138,8 @@ export function GridTable({
       data-narrow-cards={narrowCards || undefined}
       data-framed={framed || undefined}
       className={cn(
-        "@container flex min-w-0 flex-col",
+        "flex min-w-0 flex-col",
+        !narrowCards && "@container",
         framed && "rounded-card border bg-card",
         narrowCards && CARDS.table,
         className,
@@ -161,7 +162,8 @@ export function GridTable({
           : { at: narrowAt, cards: narrowCards }
       }
     >
-      {/* The table cannot query its own width to drop its frame. */}
+      {/* The table cannot query its own width to drop its frame, and its rows
+          query the same wrapper so frame and cards switch at one width. */}
       {narrowCards ? <div className="@container min-w-0">{table}</div> : table}
     </NarrowContext.Provider>
   );

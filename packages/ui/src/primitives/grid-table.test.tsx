@@ -152,8 +152,10 @@ describe("GridTable", () => {
       </GridTable>,
     );
     const table = getByRole("table", { name: "에이전트" });
-    // The frame goes from a container outside the table.
+    // The frame goes from a container outside the table, and the rows query
+    // that container too: a framed table's own content box is 2px narrower.
     expect(table.parentElement?.classList.contains("@container")).toBe(true);
+    expect(table.classList.contains("@container")).toBe(false);
     expect(table.dataset.narrowCards).toBe("true");
     expect(
       table.classList.contains("[@container(max-width:640px)]:border-0"),
@@ -200,6 +202,7 @@ describe("GridTable", () => {
     const table = getByRole("table", { name: "세션" });
     expect(table.querySelector("[aria-hidden=true]") === null).toBe(true);
     expect(table.dataset.narrowCards).toBeUndefined();
+    expect(table.classList.contains("@container")).toBe(true);
   });
 
   test("aria-busy를 표에 넘긴다", () => {
