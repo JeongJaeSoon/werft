@@ -183,13 +183,14 @@ describe("포커스", () => {
     ]);
   });
 
-  test("체크박스는 고르지 않은 상태에서만 포인터에 테두리와 바탕이 바뀐다", () => {
+  test("체크박스는 고르지 않은 정상 상태에서만 포인터에 테두리와 바탕이 바뀐다", () => {
     const { getByRole } = render(<Checkbox aria-label="알림" />);
     const classes = getByRole("checkbox").className.split(" ");
-    expect(classes).toContain(
+    const hover = classes.filter((c) => c.includes("hover:"));
+    expect(hover.sort()).toEqual([
+      "enabled:not-aria-invalid:data-[state=unchecked]:hover:bg-hover",
       "enabled:not-aria-invalid:data-[state=unchecked]:hover:border-foreground",
-    );
-    expect(classes).toContain("enabled:data-[state=unchecked]:hover:bg-hover");
+    ]);
   });
 
   test("입력 칸은 네 변 모두 border-input 테두리를 두고 hover에 진해진다", () => {

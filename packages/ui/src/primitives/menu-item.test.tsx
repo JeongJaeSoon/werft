@@ -66,6 +66,23 @@ describe("MenuItem", () => {
     await (await setupUser()).click(getByRole("button", { name: "보관" }));
     expect(clicks).toBe(0);
   });
+
+  test("링크 항목은 disabled를 받지 않고 aria-disabled로 흐려진다", () => {
+    const { getByRole } = render(
+      <>
+        {/* @ts-expect-error a link has no disabled state */}
+        <MenuItem asChild={true} disabled={true}>
+          <a href="/archive">보관</a>
+        </MenuItem>
+        <MenuItem asChild={true} aria-disabled={true}>
+          <a href="/delete">삭제</a>
+        </MenuItem>
+      </>,
+    );
+    const withheld = getByRole("link", { name: "삭제" });
+    expect(withheld.getAttribute("aria-disabled")).toBe("true");
+    expect(withheld.className.split(" ")).toContain("aria-disabled:opacity-50");
+  });
 });
 
 describe("RemoveButton", () => {

@@ -35,7 +35,7 @@ export function RadioGroupItem({
     <RadioGroupPrimitive.Item
       data-slot="radio-group-item"
       className={cn(
-        "aspect-square size-4 shrink-0 rounded-full border border-muted-foreground bg-card text-primary transition-[background-color,border-color] enabled:data-[state=unchecked]:hover:bg-hover enabled:not-aria-invalid:data-[state=unchecked]:hover:border-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive motion-reduce:transition-none",
+        "aspect-square size-4 shrink-0 rounded-full border border-muted-foreground bg-card text-primary transition-[background-color,border-color] enabled:not-aria-invalid:data-[state=unchecked]:hover:bg-hover enabled:not-aria-invalid:data-[state=unchecked]:hover:border-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive motion-reduce:transition-none",
         className,
       )}
       {...useFieldControl(props)}

@@ -21,7 +21,7 @@ export function Checkbox({
     <CheckboxPrimitive.Root
       data-slot="checkbox"
       className={cn(
-        "peer group size-4 shrink-0 rounded-[4px] border border-muted-foreground bg-card transition-[background-color,border-color] enabled:data-[state=unchecked]:hover:bg-hover enabled:not-aria-invalid:data-[state=unchecked]:hover:border-foreground motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground data-[state=indeterminate]:border-primary data-[state=indeterminate]:bg-primary data-[state=indeterminate]:text-primary-foreground",
+        "peer group size-4 shrink-0 rounded-[4px] border border-muted-foreground bg-card transition-[background-color,border-color] enabled:not-aria-invalid:data-[state=unchecked]:hover:bg-hover enabled:not-aria-invalid:data-[state=unchecked]:hover:border-foreground motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground data-[state=indeterminate]:border-primary data-[state=indeterminate]:bg-primary data-[state=indeterminate]:text-primary-foreground",
         className,
       )}
       {...useFieldControl(props)}

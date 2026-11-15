@@ -3,12 +3,21 @@ import type { ComponentProps, JSX } from "react";
 
 import { cn } from "../foundations/cn.ts";
 
-export type MenuItemProps = Omit<ComponentProps<"button">, "type"> & {
-  /** Render the single child (a link) as the item. */
-  readonly asChild?: boolean;
+type MenuItemBase = Omit<ComponentProps<"button">, "type"> & {
   /** `danger` for an item that removes or revokes. */
   readonly tone?: "default" | "danger" | undefined;
 };
+
+export type MenuItemProps =
+  | (MenuItemBase & { readonly asChild?: false | undefined })
+  | (Omit<MenuItemBase, "disabled"> & {
+      /**
+       * Render the single child (a link) as the item. A link has no
+       * `disabled` state: withhold it with `aria-disabled` and stop its click.
+       */
+      readonly asChild: true;
+      readonly disabled?: never;
+    });
 
 /*
  * One choice in a popover menu: a 32px row with the control's corner and

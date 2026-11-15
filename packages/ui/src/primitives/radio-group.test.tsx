@@ -7,7 +7,7 @@ const { render } = await setupDom();
 const { RadioGroup, RadioGroupItem } = await import("./radio-group.tsx");
 
 describe("RadioGroupItem", () => {
-  test("고르지 않은 항목만 포인터에 테두리와 바탕이 바뀌고, 비활성은 그대로다", () => {
+  test("고르지 않은 정상 항목만 포인터에 테두리와 바탕이 바뀌고, 비활성은 그대로다", () => {
     const { getAllByRole } = render(
       <RadioGroup aria-label="테마" defaultValue="light">
         <RadioGroupItem value="light" aria-label="라이트" />
@@ -16,12 +16,10 @@ describe("RadioGroupItem", () => {
     );
     for (const radio of getAllByRole("radio")) {
       const classes = radio.className.split(" ");
-      expect(classes).toContain(
+      expect(classes.filter((c) => c.includes("hover:")).sort()).toEqual([
+        "enabled:not-aria-invalid:data-[state=unchecked]:hover:bg-hover",
         "enabled:not-aria-invalid:data-[state=unchecked]:hover:border-foreground",
-      );
-      expect(classes).toContain(
-        "enabled:data-[state=unchecked]:hover:bg-hover",
-      );
+      ]);
     }
   });
 
