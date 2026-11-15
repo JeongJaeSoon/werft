@@ -53,16 +53,18 @@ describe("ApprovalCard", () => {
     const details = summary.closest("details") as HTMLElement;
     const buttons = view.getByRole("button", { name: "Allow" })
       .parentElement as HTMLElement;
+    const form = buttons.closest("form") as HTMLElement;
 
     await user.click(summary);
     const pre = (await view.findByText(/echo alpha/)).closest("pre");
 
-    // Both are direct children of the card, never sharing a row.
-    expect(details.parentElement).toBe(article);
-    expect(buttons.parentElement).toBe(article);
+    // The input view and the answer form never share a row.
+    expect(article.contains(details)).toBe(true);
+    expect(form.parentElement).toBe(article);
     expect(details.contains(buttons)).toBe(false);
     expect(details.contains(pre)).toBe(true);
-    expect(buttons).toBe(article.lastElementChild as HTMLElement);
+    expect(form).toBe(article.lastElementChild as HTMLElement);
+    expect(buttons).toBe(form.lastElementChild as HTMLElement);
     expect(
       details.compareDocumentPosition(buttons) &
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -87,8 +89,9 @@ describe("ApprovalCard", () => {
         now={NOW}
       />,
     );
-    expect(view.getByText("verb:action.tool.writeFile")).toBeTruthy();
-    expect(view.getByText(/src\/a\.ts/)).toBeTruthy();
+    expect(
+      view.getByText(/verb:action\.tool\.writeFile · src\/a\.ts/),
+    ).toBeTruthy();
     expect(view.getByText("line one")).toBeTruthy();
   });
 

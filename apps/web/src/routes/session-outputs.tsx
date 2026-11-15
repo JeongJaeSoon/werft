@@ -10,36 +10,42 @@ import type {
   SessionOutcome,
 } from "@werft-ai/contracts";
 import { queryKeysOf } from "@werft-ai/core";
-import { useSessionUsage, useWerft } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
-  OPERATIONS_MESSAGES,
+  DetailRailSection,
   sessionRepositoriesOf,
 } from "@werft-ai/react/components";
 import {
-  Badge,
+  Button,
   Code,
-  EmptyState,
+  CompactList,
+  CompactRow,
+  cn,
+  DiffStat,
   Link,
   RelativeTime,
   RowAction,
-  RowLines,
-  RowList,
-  RowListItem,
-  Section,
   Text,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@werft-ai/ui";
-import { Download } from "lucide-react";
-import { LoadFailure } from "../components/load-failure.tsx";
-import { StatusScreen } from "../components/status-screen.tsx";
-import { useI18n } from "../i18n/i18n.tsx";
 import {
-  OUT_FILES_ID,
-  SessionAchievements,
-  useSessionAchievements,
-} from "./session-achievements.tsx";
+  ChevronDown,
+  ChevronRight,
+  Download,
+  FileText,
+  GitMerge,
+  GitPullRequest,
+  GitPullRequestClosed,
+  type LucideIcon,
+  MessageSquare,
+} from "lucide-react";
+import { type ReactNode, useId, useState } from "react";
+import { LoadFailure } from "../components/load-failure.tsx";
+import { RowMenu, RowMenuLink } from "../components/row-menu.tsx";
+import { useI18n } from "../i18n/i18n.tsx";
+import { OUT_FILES_ID, SessionAchievements } from "./session-achievements.tsx";
 
 const UNITS = ["byte", "kilobyte", "megabyte", "gigabyte"] as const;
 
@@ -102,29 +108,6 @@ function useSessionOutcomes(session: SessionDetail) {
   });
 }
 
-/** Achievements, evidence and files, once all are read: the outputs tab's count. */
-export function SessionOutputsCount({
-  session,
-}: {
-  readonly session: SessionDetail;
-}) {
-  const outputs = useSessionOutputs(session);
-  const outcomes = useSessionOutcomes(session);
-  const achievements = useSessionAchievements(session);
-  const files =
-    session.checkpoint_revision === null
-      ? 0
-      : (outputs.data?.items.length ?? null);
-  const pulls = hasRepository(session)
-    ? (outcomes.data?.items.length ?? (outcomes.error ? 0 : null))
-    : 0;
-  const achieved =
-    achievements.data?.items.length ?? (achievements.error ? 0 : null);
-  return files === null || pulls === null || achieved === null
-    ? null
-    : files + pulls + achieved;
-}
-
 type PullRequestOutcome = Extract<
   SessionOutcome,
   { type: "github_pull_request" }
@@ -142,86 +125,117 @@ function pullRequestName(outcome: SessionOutcome, number: string): string {
   return `${repository}#${number}`;
 }
 
-function OutcomeLink({
+const STATE_TONE = {
+  open: "text-[var(--werft-tone-success-fg)]",
+  merged: "text-[var(--werft-tone-progress-fg)]",
+  closed: "text-muted-foreground",
+} as const;
+
+/**
+ * One pull request or review as the changes card draws it: an icon, the
+ * title (cut to one line) with a ⋯ menu, then its number and lines changed.
+ * The files themselves are on GitHub; the API keeps only their count.
+ */
+function ChangeRow({
   outcome,
-  number,
-  kind,
+  icon: Icon,
+  iconTone,
+  title,
+  meta,
+  aside,
+  note,
 }: {
   readonly outcome: SessionOutcome;
-  readonly number: string;
-  readonly kind: string;
+  readonly icon: LucideIcon;
+  readonly iconTone: string;
+  readonly title: string;
+  readonly meta: ReactNode;
+  readonly aside?: ReactNode;
+  readonly note?: ReactNode;
 }) {
+  const { t } = useI18n();
   return (
-    <span className="min-w-0">
-      <Link
-        href={outcome.url}
-        target="_blank"
-        rel="noreferrer"
-        variant="table"
-        className="font-mono [overflow-wrap:anywhere]"
-      >
-        {pullRequestName(outcome, number)}
-      </Link>{" "}
-      {kind}
-    </span>
+    <li className="flex min-w-0 gap-3 py-2">
+      <Icon
+        className={cn("mt-0.5 size-4 flex-none", iconTone)}
+        strokeWidth={1.5}
+        aria-hidden="true"
+      />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <Link
+            href={outcome.url}
+            target="_blank"
+            rel="noreferrer"
+            variant="table"
+            className="min-w-0 flex-1 truncate font-medium text-control text-foreground hover:underline"
+            title={title}
+          >
+            {title}
+          </Link>
+          <RowMenu label={t("session.changes.menu", { name: title })}>
+            {(close) => (
+              <RowMenuLink
+                href={outcome.url}
+                newTabLabel={t("github.newTab")}
+                onSelect={() => void close()}
+              >
+                {t("session.changes.openOnGitHub")}
+              </RowMenuLink>
+            )}
+          </RowMenu>
+        </div>
+        <div className="flex min-w-0 items-center gap-2 text-caption">
+          <span className="flex min-w-0 flex-1 items-center gap-2">{meta}</span>
+          {aside}
+        </div>
+        {note ? (
+          <Text as="span" variant="meta">
+            {note}
+          </Text>
+        ) : null}
+      </div>
+    </li>
   );
 }
 
-const STATE_BADGE = {
-  open: "blue",
-  merged: "green",
-  closed: "gray",
-} as const;
-
 function PullRequestRow({ outcome }: { readonly outcome: PullRequestOutcome }) {
-  const { t, locale } = useI18n();
-  const state = outcome.state;
-  const { additions, deletions } = outcome.metadata;
-  const ended =
-    outcome.state === "merged" && outcome.merged_at !== null
-      ? { label: t("session.outcomes.mergedAt"), at: outcome.merged_at }
-      : outcome.state === "closed" && outcome.closed_at !== null
-        ? { label: t("session.outcomes.closedAt"), at: outcome.closed_at }
-        : null;
+  const { t } = useI18n();
+  const { additions, deletions, title } = outcome.metadata;
+  const number = outcome.external_id ?? "";
+  const icon =
+    outcome.state === "merged"
+      ? GitMerge
+      : outcome.state === "closed"
+        ? GitPullRequestClosed
+        : GitPullRequest;
   return (
-    <RowListItem>
-      <RowLines>
-        <Text as="span" className="flex min-w-0 items-center gap-2">
-          <OutcomeLink
-            outcome={outcome}
-            number={outcome.external_id ?? ""}
-            kind={t("session.outcomes.kind.pullRequest")}
-          />
-          <Badge variant={STATE_BADGE[state] ?? "gray"}>
-            {t(`session.outcomes.state.${state}`)}
-          </Badge>
-        </Text>
-        <Text as="span" variant="meta">
-          {ended === null ? null : (
-            <>
-              {ended.label} <RelativeTime value={ended.at} locale={locale} />
-              {" · "}
-            </>
+    <ChangeRow
+      outcome={outcome}
+      icon={icon}
+      iconTone={STATE_TONE[outcome.state] ?? "text-muted-foreground"}
+      title={title || pullRequestName(outcome, number)}
+      meta={
+        <>
+          <span className="truncate text-muted-foreground">
+            {pullRequestName(outcome, number)}
+          </span>
+          {additions === null || deletions === null ? null : (
+            <DiffStat additions={additions} deletions={deletions} />
           )}
-          {additions === null || deletions === null
-            ? null
-            : `+${additions} −${deletions} · `}
-          {outcome.state_checked_at === null ? (
-            t("session.outcomes.notChecked")
-          ) : (
-            <>
-              {t("session.outcomes.checkedAt")}{" "}
-              <RelativeTime value={outcome.state_checked_at} locale={locale} />
-            </>
-          )}
-        </Text>
-        {outcome.check_error === null ? null : (
-          <Text as="span" variant="meta">
-            {t(`session.outcomes.checkError.${outcome.check_error}`)}
-          </Text>
-        )}
-      </RowLines>
-    </RowListItem>
+        </>
+      }
+      aside={
+        <span className="flex-none text-muted-foreground">
+          {t(`session.outcomes.state.${outcome.state}`)}
+        </span>
+      }
+      note={
+        outcome.check_error === null
+          ? null
+          : t(`session.outcomes.checkError.${outcome.check_error}`)
+      }
+    />
   );
 }
 
@@ -232,50 +246,33 @@ function ReviewRow({
   readonly outcome: ReviewOutcome;
   readonly session: SessionDetail;
 }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const { number, event, opened_by_session_id } = outcome.metadata;
+  const name = pullRequestName(outcome, String(number));
   return (
-    <RowListItem>
-      <RowLines>
-        <Text as="span" className="flex min-w-0 items-center gap-2">
-          <OutcomeLink
-            outcome={outcome}
-            number={String(number)}
-            kind={t("session.outcomes.kind.review")}
-          />
-          <Badge variant="gray">{t(`session.outcomes.event.${event}`)}</Badge>
-        </Text>
-        <Text as="span" variant="meta">
-          {t("session.outcomes.submittedAt")}{" "}
-          <RelativeTime value={outcome.created_at} locale={locale} />
+    <ChangeRow
+      outcome={outcome}
+      icon={MessageSquare}
+      iconTone="text-muted-foreground"
+      title={`${name} ${t("session.outcomes.kind.review")}`}
+      meta={
+        <span className="truncate text-muted-foreground">
+          {t(`session.outcomes.event.${event}`)}
           {opened_by_session_id !== null && opened_by_session_id !== session.id
             ? ` · ${t("session.outcomes.otherSessionPullRequest")}`
             : null}
-        </Text>
-      </RowLines>
-    </RowListItem>
+        </span>
+      }
+    />
   );
 }
 
-/** This session's tokens and estimated cost, as the detail reads them. */
-function SessionUsageLine({ session }: { readonly session: SessionDetail }) {
-  const { t, locale } = useI18n();
-  const usage = useSessionUsage(session.id, true).data;
-  if (usage === undefined) return null;
-  const tokens = new Intl.NumberFormat(locale).format(usage.token_count);
-  return (
-    <Text variant="meta">
-      {usage.cost.kind === "unmetered"
-        ? t("session.outcomes.usageUnmetered", { tokens })
-        : t("session.outcomes.usage", {
-            tokens,
-            cost: OPERATIONS_MESSAGES[locale].format.usd(usage.cost.amount_usd),
-          })}
-    </Text>
-  );
-}
-
-function SessionPullRequests({
+/**
+ * The session's changes, one row per pull request or review, in a card the
+ * reader can fold. The API counts a pull request's files and lines but does
+ * not list the files, so none are listed here.
+ */
+function SessionChanges({
   session,
   outcomes,
 }: {
@@ -283,32 +280,67 @@ function SessionPullRequests({
   readonly outcomes: ReturnType<typeof useSessionOutcomes>;
 }) {
   const { t } = useI18n();
-  if (outcomes.error && !isApiError(outcomes.error, "NOT_FOUND")) {
-    return (
-      <LoadFailure
-        error={outcomes.error}
-        onRetry={() => void outcomes.refetch()}
-      />
-    );
-  }
+  const [open, setOpen] = useState(true);
+  const bodyId = useId();
+  if (!hasRepository(session)) return null;
+  const failed = outcomes.error && !isApiError(outcomes.error, "NOT_FOUND");
   const items = outcomes.data?.items ?? [];
-  if (items.length === 0) return null;
   return (
-    <Section
-      title={t("session.outcomes.title")}
-      badge={<Badge>{items.length}</Badge>}
-      description={t("session.outcomes.description")}
+    <DetailRailSection
+      title={t("session.changes.title")}
+      actions={
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          // Taller than the title; kept from pushing the head line down.
+          className="-my-1"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          aria-label={
+            open ? t("session.changes.fold") : t("session.changes.unfold")
+          }
+          onClick={() => setOpen(!open)}
+        >
+          <ChevronDown
+            className={cn(
+              "transition-transform motion-reduce:transition-none",
+              !open && "-rotate-90",
+            )}
+            strokeWidth={1.5}
+            aria-hidden="true"
+          />
+        </Button>
+      }
     >
-      <RowList variant="joined">
-        {items.map((outcome) =>
-          outcome.type === "github_review" ? (
-            <ReviewRow key={outcome.id} outcome={outcome} session={session} />
-          ) : (
-            <PullRequestRow key={outcome.id} outcome={outcome} />
-          ),
+      <div id={bodyId} hidden={!open} className="flex min-w-0 flex-col gap-1">
+        {failed ? (
+          <LoadFailure
+            error={outcomes.error}
+            onRetry={() => void outcomes.refetch()}
+          />
+        ) : items.length === 0 ? (
+          <Text variant="meta">
+            {outcomes.data ? t("session.outcomes.noChanges") : null}
+          </Text>
+        ) : (
+          <ul className="m-0 flex list-none flex-col p-0">
+            {items.map((outcome) =>
+              outcome.type === "github_review" ? (
+                <ReviewRow
+                  key={outcome.id}
+                  outcome={outcome}
+                  session={session}
+                />
+              ) : (
+                <PullRequestRow key={outcome.id} outcome={outcome} />
+              ),
+            )}
+          </ul>
         )}
-      </RowList>
-    </Section>
+        <SessionAttribution session={session} />
+      </div>
+    </DetailRailSection>
   );
 }
 
@@ -335,77 +367,43 @@ function SessionGitHubRefusals({
   const items = refusals.data?.items ?? [];
   if (!hasRepository(session) || items.length === 0) return null;
   return (
-    <Section title={t("session.refusals.title")}>
-      <RowList variant="joined">
+    <DetailRailSection title={t("session.refusals.title")}>
+      <CompactList>
         {items.map((refusal) => (
-          <RowListItem key={refusal.receipt_id}>
-            <RowLines>
-              <Text as="span">
-                {t(`agentGitHub.refusal.${refusal.reason_code}`)}
-              </Text>
-              <Text as="span" variant="meta">
-                {t(`agentGitHub.purpose.${refusal.purpose}`)}
-                {" · "}
-                <RelativeTime value={refusal.created_at} locale={locale} />
-              </Text>
-            </RowLines>
-          </RowListItem>
+          <CompactRow key={refusal.receipt_id}>
+            <Text as="span">
+              {t(`agentGitHub.refusal.${refusal.reason_code}`)}
+            </Text>
+            <Text as="span" variant="meta">
+              {t(`agentGitHub.purpose.${refusal.purpose}`)}
+              {" · "}
+              <RelativeTime value={refusal.created_at} locale={locale} />
+            </Text>
+          </CompactRow>
         ))}
-      </RowList>
-    </Section>
+      </CompactList>
+    </DetailRailSection>
   );
 }
 
 /**
- * The outputs tab (성과물): achievements, the evidence (pull requests,
- * reviews), `out/` files, the GitHub work and its refusals, then one meta
- * line with whom commits name and the session's tokens and cost. The tab's
- * count is the sum of the three counted lists above it.
+ * The session info card's sections from what was the outputs tab: the
+ * changed files as pull requests (the API has no per-file diff), reviews,
+ * achievements, `out/` files, GitHub refusals, then whom commits name.
  */
-export function SessionOutputsTab({
+export function SessionOutputsPanel({
   session,
 }: {
   readonly session: SessionDetail;
 }) {
-  const { t } = useI18n();
-  const outputs = useSessionOutputs(session);
   const outcomes = useSessionOutcomes(session);
-  // The tab counts achievements, so with any it is not empty.
-  const achieved =
-    (useSessionAchievements(session).data?.items.length ?? 0) > 0;
-  const files = outputs.data?.items ?? [];
-  const pulls = outcomes.data?.items ?? [];
-  const filesRead =
-    session.checkpoint_revision === null || outputs.data !== undefined;
-  // A failed read is the pull request area's to report, even over a list an
-  // earlier read kept.
-  const pullsRead =
-    !hasRepository(session) ||
-    (outcomes.error === null
-      ? outcomes.data !== undefined
-      : isApiError(outcomes.error, "NOT_FOUND"));
   return (
-    <div className="flex flex-col gap-[var(--werft-space-block)]">
+    <>
+      <SessionChanges session={session} outcomes={outcomes} />
       <SessionAchievements session={session} />
-      <SessionPullRequests session={session} outcomes={outcomes} />
-      {filesRead && pullsRead && files.length === 0 && pulls.length === 0 ? (
-        outputs.error && !isApiError(outputs.error, "NOT_FOUND") ? (
-          <SessionOutputs session={session} />
-        ) : achieved ? null : (
-          <EmptyState
-            title={t("session.outputs.empty")}
-            description={t("session.outputs.emptyHint")}
-          />
-        )
-      ) : (
-        <SessionOutputs session={session} />
-      )}
+      <SessionOutputs session={session} />
       <SessionGitHubRefusals session={session} />
-      <div className="flex flex-col gap-1">
-        <SessionAttribution session={session} />
-        <SessionUsageLine session={session} />
-      </div>
-    </div>
+    </>
   );
 }
 
@@ -471,53 +469,79 @@ function SessionOutputs({ session }: { readonly session: SessionDetail }) {
     );
   }
   if (outputs.isPending && session.checkpoint_revision !== null) {
-    return <StatusScreen kind="loading" />;
+    return null;
   }
   const items = outputs.data?.items ?? [];
   if (items.length === 0) return null;
+  const summary = t("session.outputs.count", { count: items.length });
+  // One line that opens to the files, each with its download.
   return (
-    <Section
+    <section
       id={OUT_FILES_ID}
-      title={t("session.outputs.files")}
-      badge={<Badge>{items.length}</Badge>}
+      aria-label={summary}
+      data-slot="detail-rail-section"
+      className="min-w-0"
     >
-      <RowList variant="joined">
-        {items.map((item) => {
-          const name = item.path.replace(/^out\//, "");
-          return (
-            <RowListItem key={item.path} className="justify-between">
-              <RowLines>
-                <Code className="text-control [overflow-wrap:anywhere]">
-                  {name}
-                </Code>
-                <Text as="span" variant="meta">
-                  {item.omitted === null
-                    ? formatBytes(item.bytes, locale)
-                    : `${formatBytes(item.bytes, locale)} · ${t("session.outputs.tooLarge")}`}
-                </Text>
-              </RowLines>
-              {item.omitted === null ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <RowAction asChild size="icon-sm">
-                      <Link
-                        href={`/v1/sessions/${encodeURIComponent(session.id)}/outputs/${encodeURIComponent(item.path)}`}
-                        download={name.slice(name.lastIndexOf("/") + 1)}
-                        aria-label={t("session.outputs.download", { name })}
-                      >
-                        <Download className="size-3.5" aria-hidden="true" />
-                      </Link>
-                    </RowAction>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {t("session.outputs.download", { name })}
-                  </TooltipContent>
-                </Tooltip>
-              ) : null}
-            </RowListItem>
-          );
-        })}
-      </RowList>
-    </Section>
+      <details className="group/files min-w-0">
+        <summary className="flex w-fit max-w-full cursor-pointer list-none items-center gap-2 rounded-control py-1 text-control [&::-webkit-details-marker]:hidden">
+          <FileText
+            className="size-4 flex-none text-muted-foreground"
+            strokeWidth={1.5}
+            aria-hidden="true"
+          />
+          <span className="truncate">{summary}</span>
+          <ChevronRight
+            className="size-4 flex-none text-muted-foreground transition-transform group-open/files:rotate-90 motion-reduce:transition-none"
+            strokeWidth={1.5}
+            aria-hidden="true"
+          />
+        </summary>
+        <CompactList className="mt-2 pl-6">
+          {items.map((item) => {
+            const name = item.path.replace(/^out\//, "");
+            return (
+              <CompactRow
+                key={item.path}
+                title={item.path}
+                trailing={
+                  <>
+                    <Text as="span" variant="meta">
+                      {item.omitted === null
+                        ? formatBytes(item.bytes, locale)
+                        : t("session.outputs.tooLarge")}
+                    </Text>
+                    {item.omitted === null ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <RowAction asChild size="icon-sm">
+                            <Link
+                              href={`/v1/sessions/${encodeURIComponent(session.id)}/outputs/${encodeURIComponent(item.path)}`}
+                              download={name.slice(name.lastIndexOf("/") + 1)}
+                              aria-label={t("session.outputs.download", {
+                                name,
+                              })}
+                            >
+                              <Download
+                                className="size-3.5"
+                                aria-hidden="true"
+                              />
+                            </Link>
+                          </RowAction>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {t("session.outputs.download", { name })}
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : null}
+                  </>
+                }
+              >
+                <Code className="truncate text-control">{name}</Code>
+              </CompactRow>
+            );
+          })}
+        </CompactList>
+      </details>
+    </section>
   );
 }

@@ -62,3 +62,29 @@ export function formatTimestamp(
       return `${at("year")}. ${at("month")}. ${at("day")}. ${time}`;
   }
 }
+
+const CLOCK: Record<TimestampLocale, string> = {
+  ko: "ko-KR",
+  ja: "ja-JP",
+  en: "en-US",
+};
+
+/**
+ * A chat line's time of day: "오전 09:42". `withDate` puts the month and day
+ * first, "11월 11일 오전 09:42", for a value read away from its day.
+ */
+export function formatClockTime(
+  iso: string,
+  locale: TimestampLocale = "ko",
+  withDate = false,
+): string {
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return iso;
+  return new Intl.DateTimeFormat(CLOCK[locale], {
+    timeZone: OPTIONS.timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+    ...(withDate ? { month: "long", day: "numeric" } : {}),
+  }).format(parsed);
+}

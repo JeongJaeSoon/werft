@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { focusManager } from "@tanstack/react-query";
 import type {
   ListPendingRequestsResponse,
   SessionDetail,
@@ -126,11 +125,19 @@ beforeEach(() => {
 });
 
 /** Switches the timeline from focus to every event. */
-async function showAllEvents() {
-  const view = await screen.findByRole("group", { name: "타임라인 보기" });
-  await (await setupUser()).click(
-    within(view).getByRole("button", { name: "전체" }),
-  );
+/** The session info card beside the chat. */
+async function infoCard() {
+  return screen.findByRole("complementary", { name: "세션 정보" });
+}
+/** The head's one line under the title: id, agent, channel, cost and tokens. */
+async function sessionMeta() {
+  return waitFor(() => {
+    const meta = document.querySelector<HTMLElement>(
+      "[data-slot='session-meta']",
+    );
+    if (!meta) throw new Error("no session meta line yet");
+    return meta;
+  });
 }
 const EVENTS_ROUTE = `GET /v1/sessions/${SESSION_ID}/events`;
 
@@ -243,7 +250,7 @@ describe("approval inbox", () => {
     });
     // The form waits for the stream to say where the request was asked.
     await act(async () => stream.open());
-    return within(rail).findByRole("button", { name: /^허용/ });
+    return within(rail).findByRole("button", { name: /^승인/ });
   };
   const waitingRoutes = (items: unknown[], next_cursor: string | null) => ({
     "GET /v1/auth/me": () => json(200, me()),
@@ -277,7 +284,7 @@ describe("approval inbox", () => {
       await within(inbox).findAllByRole("button", { name: DETAIL }),
     ).toHaveLength(1);
     // The line answers nothing itself.
-    expect(within(inbox).queryByRole("button", { name: /^허용/ })).toBeNull();
+    expect(within(inbox).queryByRole("button", { name: /^승인/ })).toBeNull();
     // OTHER_ID was answered or lapsed since the waiting list was read: no
     // line of its own saying nothing waits, and not counted.
     expect(within(inbox).queryByText(/요청이 없습니다/)).toBeNull();
@@ -389,7 +396,7 @@ describe("approval inbox", () => {
       expect(document.activeElement).toBe(rail.querySelector("h2")),
     );
     await act(async () => stream.open());
-    (await within(rail).findByRole("button", { name: /^허용/ })).focus();
+    (await within(rail).findByRole("button", { name: /^승인/ })).focus();
     await user.keyboard("{Enter}");
     expect(
       await screen.findByText("답을 기다리는 세션이 없습니다."),
@@ -1321,24 +1328,14 @@ describe("session detail", () => {
     expect(await screen.findByText("답변 대기")).toBeTruthy();
     // Why no new turn starts sits above the composer it holds back.
     expect(
-      await within(screen.getByRole("tabpanel")).findByText(
-        "한도에 도달해 새 턴을 시작하지 않습니다.",
-      ),
+      await screen.findByText("한도에 도달해 새 턴을 시작하지 않습니다."),
     ).toBeTruthy();
-    await setupInfo();
-    expect(screen.getByText("BUDGET_EXCEEDED")).toBeTruthy();
-    const info = within(screen.getByRole("tabpanel"));
-    expect(info.getByText("<$0.01")).toBeTruthy();
-    expect(screen.getByText("$25.00")).toBeTruthy();
-    expect(info.getByText("1234")).toBeTruthy();
+    const meta = await sessionMeta();
+    await waitFor(() => expect(meta.textContent).toContain("<$0.01"));
+    expect(meta.textContent).toContain("토큰 1,234");
     expect(
-      info.getByText(/진행 중인 턴이 있어 아직 확정되지 않았습니다/),
+      await screen.findByRole("article", { name: "권한 요청: Bash" }),
     ).toBeTruthy();
-    expect(
-      info.getByText("한도에 도달해 새 턴을 시작하지 않습니다."),
-    ).toBeTruthy();
-    await (await setupUser()).click(screen.getByRole("tab", { name: "진행" }));
-    expect(await screen.findByText("권한 요청: Bash")).toBeTruthy();
 
     await waitFor(() => expect(stream.requests).toHaveLength(1));
     expect(stream.requests[0]?.headers.get("last-event-id")).toBeNull();
@@ -1366,22 +1363,22 @@ describe("session detail", () => {
     });
     expect(await screen.findByText("Listing files")).toBeTruthy();
     expect(screen.getAllByText("Listing files")).toHaveLength(1);
-    // Focus folds the call under what it did; the reply stays open.
-    expect(screen.queryByText("도구 호출")).toBeNull();
-    expect(
-      screen.getByRole("button", { name: /^실행한 명령 1개/ }),
-    ).toBeTruthy();
+    // The agent's reply is its message; the call is one folded line.
+    const reply = screen
+      .getByText("Listing files")
+      .closest("[data-slot='chat-message']");
+    expect(reply?.getAttribute("data-side")).toBe("other");
+    // The run of calls folds to one plain line; the list holds the names.
+    const calls = screen
+      .getByText("도구 호출 1개")
+      .closest("[data-slot='chat-tool-group']");
+    expect(calls?.textContent).toContain("Bash");
     expect(screen.queryByText("tool_use")).toBeNull();
-    // Only the latest status is announced; the list itself is not live.
-    const list = screen.getByText("Listing files").closest("ol");
-    expect(list?.getAttribute("aria-live")).toBeNull();
-    expect(
-      screen.getByRole("tabpanel").querySelector("output.sr-only")?.textContent,
-    ).toBe("작업 중");
-    expect(
-      screen.getByRole("complementary", { name: "세션 요약" }),
-    ).toBeTruthy();
+    // The list itself is not live.
+    const list = screen.getByRole("list", { name: "이벤트" });
+    expect(list.getAttribute("aria-live")).toBeNull();
 
+    // Engine bookkeeping is not part of the conversation.
     act(() =>
       stream.emit("ev_5", "system", {
         type: "system",
@@ -1389,9 +1386,6 @@ describe("session detail", () => {
       }),
     );
     expect(screen.queryByText("command_lifecycle")).toBeNull();
-    await showAllEvents();
-    expect(await screen.findByText("command_lifecycle")).toBeTruthy();
-    expect(screen.getByText("도구 호출")).toBeTruthy();
 
     // The session reporting an error is an event, not a lost connection.
     act(() =>
@@ -1425,27 +1419,6 @@ describe("session detail", () => {
     ).toBeTruthy();
   });
 
-  test("a tool result keeps its tool's name after the call leaves the window", async () => {
-    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
-    await waitFor(() => expect(stream.requests).toHaveLength(1));
-    await act(async () => stream.open());
-    act(() => {
-      stream.emit("ev_call", "tool_use", {
-        type: "assistant",
-        tool_call: { id: "tu_1", name: "Bash", input: { command: "make" } },
-      });
-      stream.emit("ev_result", "tool_result", {
-        tool_result: { tool_call_id: "tu_1", is_error: false, text: "built" },
-      });
-      for (let i = 0; i < 199; i += 1) {
-        stream.emit(`ev_s${i}`, "status", { phase: "running" });
-      }
-    });
-    await showAllEvents();
-    expect(await screen.findByText("Bash 결과 · 성공 · built")).toBeTruthy();
-    expect(screen.queryByText("Bash: make")).toBeNull();
-  });
-
   test("a tool call runs until its result arrives, then holds it in the same row", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     await waitFor(() => expect(stream.requests).toHaveLength(1));
@@ -1456,52 +1429,35 @@ describe("session detail", () => {
         tool_call: { id: "tu_1", name: "Bash", input: { command: "make" } },
       }),
     );
-    // Focus folds the call, and its line says it still runs.
-    const fold = await screen.findByRole("button", {
-      name: "실행한 명령 1개 · 실행 중",
-    });
-    expect(fold.getAttribute("aria-expanded")).toBe("false");
-    await (await setupUser()).click(fold);
-    const call = (await screen.findByText("Bash: make")).closest("li");
-    expect(call?.textContent).toContain("실행 중");
+    // Folded to one line that says it still runs.
+    const group = (await screen.findByText("도구 호출 1개")).closest(
+      "[data-slot='chat-tool-group']",
+    ) as HTMLDetailsElement;
+    expect(group.querySelector("summary")?.textContent).toContain("실행 중");
+    expect(group.open).toBe(false);
+    const user = await setupUser();
+    await user.click(within(group).getByText("도구 호출 1개"));
+    expect(group.open).toBe(true);
+    // Each call opens on its own to what it did.
+    const row = group.querySelector(
+      "[data-slot='chat-tool-item']",
+    ) as HTMLElement;
+    await user.click(within(row).getByText("Bash"));
+    expect(row.textContent).toContain('"command": "make"');
     act(() =>
       stream.emit("ev_result", "tool_result", {
         tool_result: { tool_call_id: "tu_1", is_error: false, text: "built" },
       }),
     );
-    expect(await screen.findByText("Bash 결과 · 성공 · built")).toBeTruthy();
-    expect(fold.textContent).toBe("실행한 명령 1개");
-    const list = screen.getByRole("list", { name: "이벤트" });
-    // The fold's line and the call it opened, the result in the call's row.
-    expect(list.querySelectorAll("li")).toHaveLength(2);
-    expect(list.textContent).not.toContain("실행 중");
+    expect(await within(row).findByText("built")).toBeTruthy();
+    expect(row.textContent).not.toContain("실행 중");
+    // The result joins its call's row instead of drawing one of its own.
+    expect(
+      document.querySelectorAll("[data-slot='chat-tool-item']"),
+    ).toHaveLength(1);
   });
 
-  test("focus folds earlier status lines into one button and keeps the latest open", async () => {
-    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
-    await waitFor(() => expect(stream.requests).toHaveLength(1));
-    await act(async () => stream.open());
-    act(() => {
-      stream.emit("ev_s1", "status", { phase: "running" });
-      stream.emit("ev_s2", "status", { phase: "needs_input" });
-      stream.emit("ev_s3", "status", { phase: "idle" });
-    });
-    const toggle = await screen.findByRole("button", { name: "이벤트 2개" });
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    const list = screen.getByRole("list", { name: "이벤트" });
-    expect(list.querySelectorAll("li")).toHaveLength(2);
-    await (await setupUser()).click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(list.querySelectorAll("li")).toHaveLength(4);
-    // The view is remembered for the next session screen.
-    await showAllEvents();
-    expect(screen.queryByRole("button", { name: "이벤트 2개" })).toBeNull();
-    expect(globalThis.localStorage.getItem("werft.session.timeline.view")).toBe(
-      "all",
-    );
-  });
-
-  test("each turn opens with the message it was asked, read again as turns start", async () => {
+  test("each instruction is the person's message on the right, read again as turns start", async () => {
     const turn = (
       turn_id: string,
       message: string,
@@ -1521,10 +1477,7 @@ describe("session detail", () => {
       started_at: AT,
       ended_at: AT,
     });
-    let turns = [
-      turn("1", "첫 지시", "slack", "김민아"),
-      turn("3", "아직 줄 선 지시"),
-    ];
+    let turns = [turn("1", "첫 지시", "slack", "김민아")];
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
       [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
@@ -1538,26 +1491,26 @@ describe("session detail", () => {
         text: "첫 답",
       });
     });
-    const asked = async (turnId: string) => {
-      const head = await screen.findByText(`턴 ${turnId}`);
-      const group = head.closest("[data-slot='timeline-turn']");
-      return group?.querySelector("[data-slot='message']") ?? null;
-    };
-    const first = await asked("1");
-    expect(first?.getAttribute("data-from")).toBe("user");
-    expect(first?.textContent).toContain("김민아 · Slack");
-    expect(first?.textContent).toContain("첫 지시");
+    const asked = async (text: string) =>
+      (await screen.findByText(text)).closest("[data-slot='chat-message']");
+    const first = await asked("첫 지시");
+    expect(first?.getAttribute("data-side")).toBe("self");
+    expect(first?.textContent).toContain("김민아");
     const fromSlack = within(first as HTMLElement).getByRole("link", {
       name: "Slack에서 보기 (새 탭에서 열림)",
     });
     expect(fromSlack.getAttribute("href")).toBe(SLACK_PERMALINK);
     expect(fromSlack.getAttribute("target")).toBe("_blank");
-    // The message stands above the turn's lines, not as one of them.
-    const list = screen.getByRole("list", { name: "이벤트" });
-    expect(list.querySelectorAll("li")).toHaveLength(1);
+    // The instruction comes before the reply it asked for.
+    const reply = await asked("첫 답");
+    expect(
+      (first as Node).compareDocumentPosition(reply as Node) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     // An absolute box (the link's new-tab text) placed from outside the
-    // scrolling timeline escapes its clip and stretches the page below the
-    // app shell, so each one is positioned from within it.
+    // scrolling chat escapes its clip and stretches the page below the app
+    // shell, so each one is positioned from within it.
+    const list = screen.getByRole("list", { name: "이벤트" });
     const scroller = list.closest(".overflow-y-auto") as HTMLElement;
     const boxes = scroller.querySelectorAll(".sr-only, .absolute");
     expect(boxes.length).toBeGreaterThan(0);
@@ -1572,8 +1525,6 @@ describe("session detail", () => {
         holder = holder.parentElement;
       expect(holder !== null && scroller.contains(holder)).toBe(true);
     }
-    // A queued turn has no events yet, so no group of its own.
-    expect(screen.queryByText("아직 줄 선 지시")).toBeNull();
 
     turns = [
       turn("1", "첫 지시", "slack", "김민아"),
@@ -1591,42 +1542,24 @@ describe("session detail", () => {
         "2",
       );
     });
-    await waitFor(async () =>
-      expect((await asked("2"))?.textContent).toContain("두 번째 지시"),
-    );
     // An API key no person created has no name to show.
-    expect((await asked("2"))?.textContent).toContain("지시 · API");
-    expect((await asked("2"))?.querySelector("a")).toBeNull();
+    const second = await asked("두 번째 지시");
+    expect(second?.textContent).toContain("지시");
+    expect(second?.querySelector("a")).toBeNull();
   });
 
-  test("thinking ticks fold into one line and an empty message draws no card", async () => {
+  test("an empty message draws no bubble", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     await waitFor(() => expect(stream.requests).toHaveLength(1));
     await act(async () => stream.open());
     act(() => {
-      for (const id of ["ev_t1", "ev_t2", "ev_t3"]) {
-        stream.emit(id, "system", {
-          type: "system",
-          engine_event: { name: "thinking_tokens", category: "thinking" },
-        });
-      }
-      // The next turn's tick starts its own line.
-      stream.emit(
-        "ev_t4",
-        "system",
-        {
-          type: "system",
-          engine_event: { name: "thinking_tokens", category: "thinking" },
-        },
-        "2",
-      );
       stream.emit("ev_empty", "assistant", { type: "assistant" });
+      stream.emit("ev_said", "assistant", { type: "assistant", text: "hi" });
     });
-    await showAllEvents();
-    expect(await screen.findByText("생각 중 (3)")).toBeTruthy();
-    expect(screen.getByText("생각 중 (1)")).toBeTruthy();
-    const list = screen.getByRole("list", { name: "이벤트" });
-    expect(list.querySelectorAll("li")).toHaveLength(2);
+    expect(await screen.findByText("hi")).toBeTruthy();
+    expect(
+      document.querySelectorAll("[data-slot='chat-message']"),
+    ).toHaveLength(1);
   });
 
   test("leaving the screen closes the stream", async () => {
@@ -1637,7 +1570,12 @@ describe("session detail", () => {
     });
     await waitFor(() => expect(stream.requests).toHaveLength(1));
     await act(async () => stream.open());
-    await user.click(screen.getByRole("link", { name: "세션 목록" }));
+    await user.click(
+      within(screen.getByRole("navigation", { name: "메뉴 위치" })).getByRole(
+        "link",
+        { name: "세션" },
+      ),
+    );
     await screen.findByText("아직 세션이 없습니다.");
     expect(stream.closed).toBe(true);
   });
@@ -1717,7 +1655,7 @@ describe("session detail", () => {
     await waitFor(() => expect(history.location.pathname).toBe("/login"));
   });
 
-  describe("the agent in the header", () => {
+  describe("the agent in the head's meta line", () => {
     const withAgent = (
       agentRoute: (request: Request) => Response | Promise<Response>,
     ) => ({
@@ -1735,10 +1673,7 @@ describe("session detail", () => {
         }),
       [`GET /v1/agents/${AGENT_ID}`]: agentRoute,
     });
-    const headerOf = async () =>
-      (await screen.findByRole("button", { name: "일시 정지" })).closest(
-        "header",
-      ) as HTMLElement;
+    const headerOf = sessionMeta;
 
     test("opens the agent's page, reachable from the keyboard", async () => {
       // The agents API's own answer, which the client checks against its schema.
@@ -1754,7 +1689,7 @@ describe("session detail", () => {
       expect(link.getAttribute("aria-current")).toBeNull();
       link.focus();
       expect(document.activeElement).toBe(link);
-      // The rail no longer repeats the header's agent.
+      // Nothing else on the screen repeats the agent.
       expect(
         screen.getAllByRole("link", { name: "Release helper" }),
       ).toHaveLength(1);
@@ -1789,20 +1724,14 @@ describe("session detail", () => {
       refused(() => apiError(403, "FORBIDDEN", "may not read")));
   });
 
-  test("cost reads with two decimals in the header and the info tab", async () => {
+  test("cost reads with two decimals in the head's meta line", async () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
       [`GET /v1/sessions/${SESSION_ID}/usage`]: () =>
         json(200, { ...usage, cost: { ...usage.cost, amount_usd: "1.5" } }),
     });
-    const header = (
-      await screen.findByRole("button", { name: "일시 정지" })
-    ).closest("header") as HTMLElement;
-    await waitFor(() => expect(header.textContent).toContain("$1.50"));
-    await setupInfo();
-    expect(
-      within(screen.getByRole("tabpanel")).getByText("$1.50"),
-    ).toBeTruthy();
+    const meta = await sessionMeta();
+    await waitFor(() => expect(meta.textContent).toContain("$1.50"));
   });
 
   test("a turn that ended without a cost report is not called running", async () => {
@@ -1814,7 +1743,7 @@ describe("session detail", () => {
           cost: { ...usage.cost, open_turn_count: 0, unreported_turn_count: 1 },
         }),
     });
-    await setupInfo();
+    await infoCard();
     expect(
       await screen.findByText(/비용을 보고하지 않고 끝난 턴이 있어/),
     ).toBeTruthy();
@@ -1840,21 +1769,6 @@ describe("session detail", () => {
 });
 
 describe("session runtime", () => {
-  // A session runs what its agent's release names; the screen shows the
-  // model and offers no change mid-session.
-  test("shows the model the session runs on the info tab", async () => {
-    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
-    const header = (
-      await screen.findByRole("button", { name: "일시 정지" })
-    ).closest("header") as HTMLElement;
-    // The model is on the info tab only, not repeated in the header.
-    expect(header.textContent).not.toContain("model-default");
-    await setupInfo();
-    expect(
-      screen.getByRole("tabpanel", { name: "정보" }).textContent,
-    ).toContain("model-default");
-  });
-
   test("allows a permission request from the keyboard; the answered request leaves", async () => {
     const user = await setupUser();
     let open = [{ ...pending.items[0], expires_at: LATER }];
@@ -1870,7 +1784,7 @@ describe("session runtime", () => {
         });
       },
     });
-    const allow = await screen.findByRole("button", { name: "허용" });
+    const allow = await screen.findByRole("button", { name: "승인" });
     allow.focus();
     await user.keyboard("{Enter}");
     expect(await screen.findByText("답을 보냈습니다.")).toBeTruthy();
@@ -1882,14 +1796,14 @@ describe("session runtime", () => {
       action: "allow",
     });
     expect(post?.headers.get("idempotency-key")).toMatch(/^[0-9a-f-]{36}$/);
-    expect(
-      await screen.findByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다."),
-    ).toBeTruthy();
-    expect(
-      screen.getAllByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다."),
-    ).toHaveLength(1);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("article", { name: "권한 요청: Bash" }),
+      ).toBeNull(),
+    );
     expect(screen.getByText("답을 보냈습니다.").tagName).toBe("OUTPUT");
-    expect(screen.getByText("답을 보냈습니다.").closest("aside")).toBeTruthy();
+    // The notice stays in the chat where the card was, not in the info card.
+    expect(screen.getByText("답을 보냈습니다.").closest("aside")).toBeNull();
     // The answered card took focus with it; the visible notice holds it now.
     await waitFor(() =>
       expect(document.activeElement?.textContent).toBe("답을 보냈습니다."),
@@ -1923,7 +1837,7 @@ describe("session runtime", () => {
     });
     await waitFor(() => expect(stream.requests).toHaveLength(1));
     await act(async () => stream.open());
-    const allow = await screen.findByRole("button", { name: "허용" });
+    const allow = await screen.findByRole("button", { name: "승인" });
     allow.focus();
     await user.keyboard("{Enter}");
     await waitFor(() =>
@@ -1994,7 +1908,7 @@ describe("session runtime", () => {
         });
       },
     });
-    const [allow] = await screen.findAllByRole("button", { name: "허용" });
+    const [allow] = await screen.findAllByRole("button", { name: "승인" });
     allow?.focus();
     await user.keyboard("{Enter}");
     await waitFor(() =>
@@ -2032,7 +1946,7 @@ describe("session runtime", () => {
     });
     await waitFor(() => expect(stream.requests).toHaveLength(1));
     await act(async () => stream.open());
-    const [allow] = await screen.findAllByRole("button", { name: "허용" });
+    const [allow] = await screen.findAllByRole("button", { name: "승인" });
     allow?.focus();
     await user.keyboard("{Enter}");
     await waitFor(() => expect(posted).toBe(true));
@@ -2071,7 +1985,7 @@ describe("session runtime", () => {
     });
     await waitFor(() => expect(stream.requests).toHaveLength(1));
     await act(async () => stream.open());
-    const allow = await screen.findByRole("button", { name: "허용" });
+    const allow = await screen.findByRole("button", { name: "승인" });
     allow.focus();
     await user.keyboard("{Enter}");
     await waitFor(() => expect(posted).toBe(true));
@@ -2100,9 +2014,11 @@ describe("session runtime", () => {
       [`POST /v1/sessions/${SESSION_ID}/answers`]: () =>
         apiError(409, "REQUEST_EXPIRED", "request expired"),
     });
-    await user.click(await screen.findByRole("button", { name: "거부" }));
-    await user.keyboard("not now");
-    await user.click(screen.getByRole("button", { name: "거부 보내기" }));
+    await user.type(
+      await screen.findByRole("textbox", { name: "답변 (선택)" }),
+      "not now",
+    );
+    await user.click(screen.getByRole("button", { name: "거절" }));
     expect(
       await screen.findByText("이미 답했거나 만료되었거나 닫힌 요청입니다."),
     ).toBeTruthy();
@@ -2184,8 +2100,9 @@ describe("session runtime", () => {
     act(() => stream.emit("ev_1", "status", { phase: "interrupting" }));
     await waitFor(() =>
       expect(
-        screen.getByRole("tabpanel").querySelector("output.sr-only")
-          ?.textContent,
+        screen
+          .getByRole("list", { name: "이벤트" })
+          .parentElement?.querySelector("output.sr-only")?.textContent,
       ).toBe("멈추는 중"),
     );
   });
@@ -2472,7 +2389,7 @@ describe("session runtime", () => {
     ).toBe(true);
   });
 
-  test("a send in flight survives a trip to another tab and is not sent twice", async () => {
+  test("a send in flight is not sent twice, by button or by Enter", async () => {
     const user = await setupUser();
     let posts = 0;
     renderAt(`/sessions/${SESSION_ID}`, {
@@ -2486,8 +2403,8 @@ describe("session runtime", () => {
     await user.keyboard("next step");
     await user.click(screen.getByRole("button", { name: "보내기" }));
     await waitFor(() => expect(posts).toBe(1));
-    await setupInfo();
-    await user.click(screen.getByRole("tab", { name: "진행" }));
+    await user.click(screen.getByRole("textbox", { name: "다음 지시" }));
+    await user.keyboard("{Enter}");
     const send = screen.getByRole("button", { name: "보내기" });
     expect((send as HTMLButtonElement).disabled).toBe(true);
     await user.click(send);
@@ -2579,12 +2496,12 @@ describe("session runtime", () => {
           items: [{ ...pending.items[0], expires_at: LATER }],
         }),
     });
-    const allow = await screen.findByRole("button", { name: "허용" });
+    const allow = await screen.findByRole("button", { name: "승인" });
     expect(allow.hasAttribute("disabled")).toBe(true);
-    // Beside the buttons and in the answerers card, which says the same.
+    // Beside the buttons, once.
     expect(
       screen.getAllByText("sessions:approve 권한이 있어야 할 수 있습니다."),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
     expect(
       screen.queryByText("나는 이 세션의 요청에 답할 수 있습니다."),
     ).toBeNull();
@@ -2594,13 +2511,6 @@ describe("session runtime", () => {
       document.getElementById(stop.getAttribute("aria-describedby") ?? "")
         ?.textContent,
     ).toBe("sessions:control 권한이 있어야 할 수 있습니다.");
-    // The header's commands say it on hover or focus; only the operations
-    // card spells it out.
-    expect(
-      screen
-        .getAllByText("sessions:control 권한이 있어야 할 수 있습니다.")
-        .filter((node) => node.closest("[hidden]") === null),
-    ).toHaveLength(1);
     expect(screen.queryByText("할 수 있음")).toBeNull();
     expect(
       screen
@@ -2621,10 +2531,10 @@ describe("session runtime", () => {
           items: [{ ...pending.items[0], expires_at: LATER }],
         }),
     });
-    const allow = await screen.findByRole("button", { name: "허용" });
+    const allow = await screen.findByRole("button", { name: "승인" });
     expect(allow.hasAttribute("disabled")).toBe(true);
     expect(
-      screen.getByRole("button", { name: "거부" }).hasAttribute("disabled"),
+      screen.getByRole("button", { name: "거절" }).hasAttribute("disabled"),
     ).toBe(true);
     expect(
       screen.getByText(
@@ -2639,46 +2549,9 @@ describe("session runtime", () => {
   });
 });
 
-async function setupInfo() {
-  await (await setupUser()).click(
-    await screen.findByRole("tab", { name: "정보" }),
-  );
-}
-
 describe("세션 상세 레이아웃", () => {
-  test("Radix 탭은 화살표로 선택하고 보기 전환은 진행 탭에만 보인다", async () => {
-    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
-    const user = await setupUser();
-    const list = await screen.findByRole("tablist", { name: "세션 상세" });
-    await waitFor(() =>
-      expect(
-        within(list)
-          .getAllByRole("tab")
-          .map((tab) => tab.textContent),
-      ).toEqual(["진행", "성과물0", "정보"]),
-    );
-    await user.click(screen.getByRole("tab", { name: "진행" }));
-    // The list wraps, so the last tab is one step left of the first.
-    await user.keyboard("{ArrowLeft}");
-    await waitFor(() =>
-      expect(
-        screen.getByRole("tab", { name: "정보" }).getAttribute("aria-selected"),
-      ).toBe("true"),
-    );
-    const viewGroup = () =>
-      screen.queryByRole("group", { name: "타임라인 보기" });
-    expect(viewGroup()).toBeNull();
-    await user.keyboard("{ArrowRight}");
-    await waitFor(() => expect(viewGroup()).toBeTruthy());
-    expect(list.contains(viewGroup())).toBe(false);
-    const focus = within(viewGroup() as HTMLElement).getByRole("button", {
-      name: "집중",
-    });
-    expect(focus.getAttribute("aria-pressed")).toBe("true");
-  });
-
   test.each(["error", "loading"] as const)(
-    "pending %s keeps the composer under the timeline",
+    "pending %s keeps the composer under the chat",
     async (state) => {
       renderAt(`/sessions/${SESSION_ID}`, {
         ...detailRoutes,
@@ -2692,73 +2565,53 @@ describe("세션 상세 레이아웃", () => {
       const composer = await screen.findByRole("textbox", {
         name: "다음 지시",
       });
-      expect(composer.closest('[role="tabpanel"]')).toBeTruthy();
-      const aside = screen.getByRole("complementary", { name: "세션 요약" });
+      expect(composer.closest("aside")).toBeNull();
       if (state === "error")
-        await within(aside).findByRole("button", { name: "다시 시도" });
-      else expect(within(aside).getByText("불러오는 중…")).toBeTruthy();
+        expect(
+          await screen.findByRole("button", { name: "다시 시도" }),
+        ).toBeTruthy();
       expect(
         screen.getAllByRole("textbox", { name: "다음 지시" }),
       ).toHaveLength(1);
       // Requests that could not be read are not reported as none.
-      expect(aside.textContent).not.toContain("기다리는 요청 없음");
-      expect(aside.textContent).not.toContain(
-        "답변 대기 · 요청이 오면 여기에 먼저 나옵니다.",
-      );
+      expect(document.body.textContent).not.toContain("기다리는 요청 없음");
     },
   );
 
-  test("헤더는 라벨 붙은 제어를 종료가 마지막인 순서로 두고 맨 끝에 세션 목록 버튼을, 메타 줄에 저장소·사용량을 둔다", async () => {
+  test("넓은 화면의 머리는 제목과 상태만 두고 조작은 레일의 세션 조작 섹션에 둔다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
-    const pause = await screen.findByRole("button", { name: "일시 정지" });
-    const header = pause.closest("header") as HTMLElement;
-    expect(pause.textContent).toBe("일시 정지");
+    const heading = await screen.findByRole("heading", { level: 1 });
+    const header = heading.closest("header") as HTMLElement;
+    // The way back is the top bar's trail; the head has no trail of its own.
+    expect(within(header).queryByRole("navigation")).toBeNull();
+    const trail = screen.getByRole("navigation", { name: "메뉴 위치" });
     expect(
-      within(header).queryByRole("navigation", { name: "위치" }),
-    ).toBeNull();
-    const back = within(header).getByRole("link", { name: "세션 목록" });
-    expect(back.getAttribute("href")).toBe("/sessions");
-    const heading = screen.getByRole("heading", { level: 1 });
-    const commands = within(header)
-      .getAllByRole("button")
-      .filter((button) => button.dataset.action !== undefined);
-    expect(commands.map((button) => button.textContent)).toEqual([
-      "지금 턴 멈추기",
-      "일시 정지",
-      "세션 종료",
-    ]);
-    // The keyboard reaches the title, the commands, then the way back.
-    expect(
-      heading.compareDocumentPosition(pause) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+      within(trail).getByRole("link", { name: "세션" }).getAttribute("href"),
+    ).toBe("/sessions");
+    expect(heading.textContent).toContain("답변 대기");
+    // From 1280px the rail always shows: the head's one button copies the id.
     expect(
       within(header)
-        .getByRole("button", { name: "세션 종료" })
-        .compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(heading.textContent).toContain("답변 대기");
-    expect(header.textContent).toContain("demo");
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["세션 ID 복사"]);
     expect(header.textContent).not.toContain("model-default");
-    await waitFor(() => expect(header.textContent).toContain("<$0.01"));
 
-    const panel = screen.getByRole("complementary", { name: "세션 요약" });
-    expect(within(panel).getByText("답할 수 있는 사람")).toBeTruthy();
+    const card = await infoCard();
+    const controls = within(card).getByRole("region", { name: "세션 조작" });
     expect(
-      await within(panel).findByText("나는 이 세션의 요청에 답할 수 있습니다."),
-    ).toBeTruthy();
-    // The rail no longer repeats what the header and the info tab carry.
-    expect(
-      within(panel).queryByRole("region", { name: "세션 정보" }),
-    ).toBeNull();
-    await setupInfo();
-    const tab = screen.getByRole("tabpanel", { name: "정보" });
-    expect(tab.textContent).toContain("model-default");
-    expect(tab.textContent).toContain("저장소 1개");
-    expect(within(tab).getByText("demo")).toBeTruthy();
-    expect(tab.textContent).not.toContain("아직 볼 수 없습니다");
+      within(controls)
+        .getAllByRole("button")
+        .filter((button) => button.dataset.action !== undefined)
+        .map((button) => button.textContent),
+    ).toEqual(["지금 턴 멈추기", "일시 정지", "세션 종료"]);
+    // The rail holds no overview: the meta line under the title has it.
+    expect(card.textContent).not.toContain("에이전트");
+    const meta = await sessionMeta();
+    await waitFor(() => expect(meta.textContent).toContain("<$0.01"));
   });
 
-  test("머리·세션 정보·정보 탭은 에이전트와 시작한 사람·경로를 보인다", async () => {
+  test("머리의 메타 줄은 에이전트, 호출한 사람과 채널, Slack 링크를 보인다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
       [`GET /v1/sessions/${SESSION_ID}`]: () =>
@@ -2770,308 +2623,33 @@ describe("세션 상세 레이아웃", () => {
           slack_permalink: SLACK_PERMALINK,
         }),
     });
-    const header = (
-      await screen.findByRole("button", { name: "일시 정지" })
-    ).closest("header") as HTMLElement;
-    expect(header.textContent).toContain("에이전트: 코드 리뷰");
-    expect(header.textContent).toContain(
-      "시작한 사람·경로: Demo Owner · Slack",
+    const meta = await sessionMeta();
+    await waitFor(() =>
+      expect(meta.textContent).toContain("에이전트: 코드 리뷰"),
     );
-    const opened = within(header).getByRole("link", {
-      name: "Slack에서 보기 (새 탭에서 열림)",
-    });
-    expect(opened.getAttribute("href")).toBe(SLACK_PERMALINK);
-    expect(opened.getAttribute("target")).toBe("_blank");
-    expect(opened.getAttribute("rel")).toBe("noopener noreferrer");
-    await setupInfo();
-    const tab = screen.getByRole("tabpanel", { name: "정보" });
-    expect(tab.textContent).toContain("에이전트코드 리뷰");
-    expect(tab.textContent).toContain("시작한 사람·경로Demo Owner · Slack");
-  });
-
-  describe("정보 탭의 저장소 목록", () => {
-    const pushRequest = (fields: Record<string, unknown>) => ({
-      id: "019a0000-0000-7000-8000-0000000000a1",
-      session_id: SESSION_ID,
-      repository_id: "web",
-      checkpoint_revision: 2,
-      git_commit: "a".repeat(40),
-      target_branch: "feature/x",
-      state: "pushed",
-      requested_by: {
-        principal: { kind: "api_key", id: "key-1" },
-        actor_user_id: null,
-        agent_id: null,
-      },
-      requested_at: AT,
-      resolved_by: null,
-      resolved_at: null,
-      resolution_reason: null,
-      request_receipt_id: "019a0000-0000-7000-8000-0000000000b1",
-      resolution_receipt_id: null,
-      finished_at: AT,
-      push_receipt_id: null,
-      origin: "direct",
-      flow: "actions",
-      pr_state: null,
-      pr_error: null,
-      pr_number: null,
-      pr_url: null,
-      ...fields,
-    });
-    const attachedOnly = (requests: unknown[]) => ({
-      ...detailRoutes,
-      [`GET /v1/sessions/${SESSION_ID}`]: () =>
-        json(200, {
-          ...detail,
-          repository: null,
-          repository_id: null,
-          attached_repository_ids: ["web", "api"],
-          attached_repositories: [
-            { id: "api", full_name: "acme/api" },
-            { id: "web", full_name: "acme/web" },
-          ],
-        }),
-      [`GET /v1/sessions/${SESSION_ID}/push-requests`]: () =>
-        json(200, { items: requests, intents: [] }),
-    });
-
-    test("자기 저장소 없이 추가만 있는 세션도 id 순으로 보이고 PR에만 링크를 건다", async () => {
-      renderAt(
-        `/sessions/${SESSION_ID}`,
-        attachedOnly([
-          pushRequest({
-            pr_state: "opened",
-            pr_number: 7,
-            pr_url: "https://github.com/acme/web/pull/7",
-          }),
-        ]),
-      );
-      await screen.findByRole("button", { name: "일시 정지" });
-      await setupInfo();
-      const tab = screen.getByRole("tabpanel", { name: "정보" });
-      expect(await within(tab).findByText("push 완료")).toBeTruthy();
-      expect(tab.textContent).toContain("저장소 2개");
-      const names = within(tab)
-        .getAllByText(/^acme\//)
-        .map((node) => node.textContent);
-      expect(names).toEqual(["acme/api", "acme/web"]);
-      expect(tab.textContent).toContain("push 브랜치 feature/x");
-      expect(within(tab).getByText("아직 push 요청 없음")).toBeTruthy();
-      const links = within(tab).getAllByRole("link");
-      expect(links.map((link) => link.getAttribute("href"))).toEqual([
-        "https://github.com/acme/web/pull/7",
-      ]);
-      expect(links[0]?.textContent).toContain("PR 생성됨 #7");
-    });
-
-    test("https가 아닌 PR 주소는 링크로 걸지 않고 단계만 보인다", async () => {
-      renderAt(
-        `/sessions/${SESSION_ID}`,
-        attachedOnly([
-          pushRequest({
-            pr_state: "opened",
-            pr_number: 9,
-            pr_url: "javascript:alert(1)",
-          }),
-        ]),
-      );
-      await screen.findByRole("button", { name: "일시 정지" });
-      await setupInfo();
-      const tab = screen.getByRole("tabpanel", { name: "정보" });
-      expect(await within(tab).findByText("PR 생성됨")).toBeTruthy();
-      expect(within(tab).queryAllByRole("link")).toHaveLength(0);
-    });
-
-    test.each([
-      ["deferred", "작업이 끝나기를 기다리는 중"],
-      ["failed", "push 요청을 만들지 못함"],
-    ])(
-      "요청 없이 intent만 %s이면 '아직 push 요청 없음' 대신 그 상태를 보인다",
-      async (status, label) => {
-        renderAt(`/sessions/${SESSION_ID}`, {
-          ...attachedOnly([]),
-          [`GET /v1/sessions/${SESSION_ID}/push-requests`]: () =>
-            json(200, {
-              items: [],
-              intents: [
-                {
-                  id: "019a0000-0000-7000-8000-0000000000c1",
-                  session_id: SESSION_ID,
-                  repository_id: "web",
-                  target_branch: "feature/x",
-                  status,
-                  refusal_code: null,
-                  push_request_id: null,
-                  created_at: AT,
-                },
-              ],
-            }),
-        });
-        await screen.findByRole("button", { name: "일시 정지" });
-        await setupInfo();
-        const tab = screen.getByRole("tabpanel", { name: "정보" });
-        expect(await within(tab).findByText(label)).toBeTruthy();
-        // The repository without an intent still says no request yet.
-        expect(within(tab).getAllByText("아직 push 요청 없음")).toHaveLength(1);
-      },
-    );
-
-    test.each([
-      ["failed", "push 요청을 만들지 못함"],
-      ["deferred", "작업이 끝나기를 기다리는 중"],
-    ])(
-      "예전 push가 끝난 뒤의 더 새로운 %s intent는 'push 완료'에 가려지지 않는다",
-      async (status, label) => {
-        renderAt(`/sessions/${SESSION_ID}`, {
-          ...attachedOnly([pushRequest({})]),
-          [`GET /v1/sessions/${SESSION_ID}/push-requests`]: () =>
-            json(200, {
-              items: [pushRequest({})],
-              intents: [
-                {
-                  id: "019a0000-0000-7000-8000-0000000000c2",
-                  session_id: SESSION_ID,
-                  repository_id: "web",
-                  target_branch: "feature/y",
-                  status,
-                  refusal_code: null,
-                  push_request_id: null,
-                  created_at: "2026-10-11T09:00:00.000Z",
-                },
-              ],
-            }),
-        });
-        await screen.findByRole("button", { name: "일시 정지" });
-        await setupInfo();
-        const tab = screen.getByRole("tabpanel", { name: "정보" });
-        expect(await within(tab).findByText(label)).toBeTruthy();
-        expect(tab.textContent).toContain("push 브랜치 feature/y");
-        expect(within(tab).queryByText("push 완료")).toBeNull();
-      },
-    );
-
-    test("push 요청에 이어진 intent는 요청이 대신 보이고, 더 오래된 intent는 요청을 가리지 않는다", async () => {
-      renderAt(`/sessions/${SESSION_ID}`, {
-        ...attachedOnly([
-          pushRequest({ requested_at: "2026-10-11T09:00:00.000Z" }),
-        ]),
-        [`GET /v1/sessions/${SESSION_ID}/push-requests`]: () =>
-          json(200, {
-            items: [pushRequest({ requested_at: "2026-10-11T09:00:00.000Z" })],
-            intents: [
-              {
-                id: "019a0000-0000-7000-8000-0000000000c3",
-                session_id: SESSION_ID,
-                repository_id: "web",
-                target_branch: "feature/x",
-                status: "failed",
-                refusal_code: null,
-                push_request_id: null,
-                created_at: AT,
-              },
-            ],
-          }),
-      });
-      await screen.findByRole("button", { name: "일시 정지" });
-      await setupInfo();
-      const tab = screen.getByRole("tabpanel", { name: "정보" });
-      expect(await within(tab).findByText("push 완료")).toBeTruthy();
-      expect(within(tab).queryByText("push 요청을 만들지 못함")).toBeNull();
-    });
-
-    test("push 요청을 읽지 못하면 이름은 두고 실패를 알리며 다시 불러올 수 있다", async () => {
-      const user = await setupUser();
-      let fail = true;
-      renderAt(`/sessions/${SESSION_ID}`, {
-        ...attachedOnly([pushRequest({})]),
-        [`GET /v1/sessions/${SESSION_ID}/push-requests`]: () =>
-          fail
-            ? json(500, {
-                error: {
-                  code: "INTERNAL",
-                  message: "boom",
-                  retryable: false,
-                  request_id: "r1",
-                  details: null,
-                },
-              })
-            : json(200, { items: [pushRequest({})], intents: [] }),
-      });
-      await screen.findByRole("button", { name: "일시 정지" });
-      await user.click(await screen.findByRole("tab", { name: "정보" }));
-      const tab = screen.getByRole("tabpanel", { name: "정보" });
-      const alert = await within(tab).findByRole("alert");
-      expect(alert.textContent).toContain(
-        "push·PR 상태를 불러오지 못했습니다.",
-      );
-      expect(tab.textContent).toContain("acme/web");
-      fail = false;
-      await user.click(
-        within(alert).getByRole("button", { name: "다시 불러오기" }),
-      );
-      expect(await within(tab).findByText("push 완료")).toBeTruthy();
-      expect(within(tab).queryByRole("alert")).toBeNull();
-    });
-
-    test("저장소가 없는 세션은 없다고 말하고 push 요청을 묻지 않는다", async () => {
-      const { api } = renderAt(`/sessions/${SESSION_ID}`, {
-        ...detailRoutes,
-        [`GET /v1/sessions/${SESSION_ID}`]: () =>
-          json(200, { ...detail, repository: null, repository_id: null }),
-      });
-      await screen.findByRole("button", { name: "일시 정지" });
-      await setupInfo();
-      const tab = screen.getByRole("tabpanel", { name: "정보" });
-      expect(within(tab).getByText("기록된 저장소가 없습니다.")).toBeTruthy();
-      expect(
-        api.calls.some((call) => call.path.endsWith("/push-requests")),
-      ).toBe(false);
-    });
+    expect(meta.textContent).toContain("채널: Demo Owner · Slack");
+    expect(within(meta).getByRole("link", { name: /Slack/ })).toBeTruthy();
+    // The start time is read out and shown on hover, not drawn.
+    expect(meta.textContent).toContain("시작 시각");
   });
 
   test.each([
-    [
-      { agent: null, created_by: null, channel: "api" },
-      "에이전트 없음",
-      "기록 없음 · API",
-    ],
-    [
-      {
-        agent: null,
-        created_by: { user_id: THIRD_ID, display_name: "" },
-        channel: null,
-      },
-      "에이전트 없음",
-      "기록 없음",
-    ],
-    [
-      {
-        agent: null,
-        created_by: { user_id: THIRD_ID, display_name: "김하나" },
-        channel: "web",
-      },
-      "에이전트 없음",
-      "김하나 · 웹 콘솔",
-    ],
-  ])(
-    "%p는 에이전트 %p, 시작한 사람·경로 %p로 쓴다",
-    async (fields, agent, startedBy) => {
-      renderAt(`/sessions/${SESSION_ID}`, {
-        ...detailRoutes,
-        [`GET /v1/sessions/${SESSION_ID}`]: () =>
-          json(200, { ...detail, ...fields }),
-      });
-      const header = (
-        await screen.findByRole("button", { name: "일시 정지" })
-      ).closest("header") as HTMLElement;
-      expect(header.textContent).toContain(`에이전트: ${agent}`);
-      expect(header.textContent).toContain(`시작한 사람·경로: ${startedBy}`);
-      expect(header.textContent).not.toContain("정보 없음");
-      // A session from before links were kept has none to offer.
-      expect(within(header).queryByRole("link", { name: /Slack/ })).toBeNull();
-    },
-  );
+    [{ agent: null, channel: "api" }, "에이전트 없음", "API"],
+    [{ agent: null, channel: null }, "에이전트 없음", "—"],
+    [{ agent: null, channel: "web" }, "에이전트 없음", "웹 콘솔"],
+  ])("%p는 에이전트 %p, 채널 %p로 쓴다", async (fields, agent, channel) => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, { ...detail, ...fields }),
+    });
+    const meta = await sessionMeta();
+    await waitFor(() =>
+      expect(meta.textContent).toContain(`에이전트: ${agent}`),
+    );
+    expect(meta.textContent).toContain(`채널: ${channel}`);
+    expect(within(meta).queryByRole("link", { name: /Slack/ })).toBeNull();
+  });
 
   test.each([
     ["hello.txt 만들고 commit", "hello.txt 만들고 commit"],
@@ -3113,90 +2691,18 @@ describe("세션 상세 레이아웃", () => {
     expect(heading.querySelectorAll("[data-axis]")).toHaveLength(1);
   });
 
-  test("ID 복사는 세션 ID 전체를 복사하고 그렇다고 알린다", async () => {
-    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
-    const user = await setupUser();
-    // After setupUser, which installs a clipboard of its own.
-    const copied: string[] = [];
-    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: {
-        writeText: async (text: string) => {
-          copied.push(text);
-        },
-      },
-    });
-    try {
-      await user.click(
-        await screen.findByRole("button", { name: "세션 ID 복사" }),
-      );
-      expect(copied).toEqual([SESSION_ID]);
-      expect(await screen.findByText("세션 ID를 복사했습니다.")).toBeTruthy();
-    } finally {
-      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
-      else Reflect.deleteProperty(navigator, "clipboard");
-    }
-  });
-
-  test("운영 카드는 답할 수 있는 사람과 지금 할 수 있는 조치를 모으고 제어 버튼은 헤더에만 둔다", async () => {
-    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
-    const ops = await screen.findByRole("region", { name: "운영" });
-    const panel = screen.getByRole("complementary", { name: "세션 요약" });
-    expect(
-      within(panel)
-        .getAllByRole("region")
-        .filter((region) => region.dataset.slot === "detail-rail-section")
-        .map((region) => region.querySelector("h2")?.textContent),
-    ).toEqual(["답변 대기 요청", "운영"]);
-    expect(
-      within(ops)
-        .getAllByRole("heading", { level: 3 })
-        .map((heading) => heading.textContent),
-    ).toEqual(["답할 수 있는 사람", "운영 조치"]);
-    expect(
-      await within(ops).findByText("나는 이 세션의 요청에 답할 수 있습니다."),
-    ).toBeTruthy();
-    expect(ops.textContent).toContain("지금 턴 멈추기 · 일시 정지 · 세션 종료");
-    expect(within(ops).getByText("할 수 있음")).toBeTruthy();
-    expect(within(ops).queryAllByRole("button")).toHaveLength(0);
-  });
-
-  test("운영 카드는 멈춘 세션에 다시 시작·종료를, 요청을 읽기 전에는 규칙만 보인다", async () => {
-    renderAt(`/sessions/${SESSION_ID}`, {
-      ...detailRoutes,
-      [`GET /v1/sessions/${SESSION_ID}`]: () =>
-        json(200, { ...detail, admission_state: "paused" }),
-      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
-        new Promise<Response>(() => {}),
-    });
-    const ops = await screen.findByRole("region", { name: "운영" });
-    expect(ops.textContent).toContain("다시 시작 · 세션 종료");
-    expect(
-      within(ops).getByText(
-        "세션을 시작한 사람, 에이전트 담당자, 워크스페이스 소유자·관리자",
-      ),
-    ).toBeTruthy();
-    expect(ops.textContent).not.toContain("답할 수 있습니다.");
-    expect(ops.textContent).not.toContain("답할 수 없습니다.");
-  });
-
   test("공유받아 보기만 하는 사람에게는 답할 수 없다고 말한다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
       [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
         json(200, { ...pending, answerable: false }),
     });
-    const panel = await screen.findByRole("complementary", {
-      name: "세션 요약",
-    });
     expect(
-      await within(panel).findByText(
-        "공유받아 볼 수만 있어 요청에 답할 수 없습니다.",
+      await screen.findByText(
+        "이 세션을 시작한 사람, 에이전트 관리자, 워크스페이스 소유자·관리자만 답할 수 있습니다.",
       ),
     ).toBeTruthy();
   });
-
   test("작성 중인 다음 지시는 요청이 생기고 사라져도 남는다", async () => {
     const user = await setupUser();
     let open: ListPendingRequestsResponse["items"] = [];
@@ -3218,20 +2724,19 @@ describe("세션 상세 레이아웃", () => {
           name: "다음 지시",
         }) as HTMLTextAreaElement
       ).value;
-    await screen.findByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다.");
-    await user.click(screen.getByRole("textbox", { name: "다음 지시" }));
+    await user.click(await screen.findByRole("textbox", { name: "다음 지시" }));
     await user.keyboard("next step draft");
     await waitFor(() => expect(stream.requests).toHaveLength(1));
     await act(async () => stream.open());
 
     open = pending.items.map((item) => ({ ...item, expires_at: LATER }));
     act(() => stream.emit("ev_1", "status", { phase: "running" }));
-    const allow = await screen.findByRole("button", { name: "허용" });
+    const allow = await screen.findByRole("button", { name: "승인" });
     expect(draft()).toBe("next step draft");
 
     allow.focus();
     await user.keyboard("{Enter}");
-    await screen.findByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다.");
+    await screen.findByText("답을 보냈습니다.");
     expect(draft()).toBe("next step draft");
   });
 
@@ -3271,24 +2776,19 @@ describe("세션 상세 레이아웃", () => {
     ).toBe("");
   });
 
-  test("작성창은 늘 진행 탭의 타임라인 아래에 있고 넓은 화면은 본문부터 읽는다", async () => {
+  test("작성창은 늘 채팅 아래 본문에 있고 넓은 화면은 본문부터 읽는다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
-    await screen.findByRole("textbox", { name: "다음 지시" });
-    await waitFor(() =>
-      expect(
-        screen
-          .getByRole("textbox", { name: "다음 지시" })
-          .closest('[role="tabpanel"]'),
-      ).toBeTruthy(),
-    );
+    const composer = await screen.findByRole("textbox", { name: "다음 지시" });
+    const chat = screen.getByRole("list", { name: "이벤트" });
+    expect(
+      chat.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     const layout = document.querySelector('[data-slot="detail-layout"]');
     const body = layout?.firstElementChild?.firstElementChild;
     expect(body?.getAttribute("data-slot")).toBe("page-frame-body");
-    expect(body?.querySelector('[data-slot="page-header"]')).toBeTruthy();
-    expect(body?.lastElementChild?.getAttribute("data-slot")).toBe("tabs");
+    expect(body?.contains(composer)).toBe(true);
     expect(layout?.lastElementChild?.tagName).toBe("ASIDE");
   });
-
   test.each([
     ["loading", () => new Promise<Response>(() => {})],
     [
@@ -3314,26 +2814,17 @@ describe("세션 상세 레이아웃", () => {
     },
   );
 
-  test("레일은 어느 폭에서나 본문 다음에 읽고, 요청이 없어도 작성창은 본문에 있다", async () => {
+  test("세션 정보는 어느 폭에서나 본문 다음에 읽고, 요청이 없어도 작성창은 본문에 있다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
       [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
         json(200, { answerable: true, items: [] }),
     });
-    await screen.findByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다.");
-    const composer = screen.getByRole("textbox", { name: "다음 지시" });
+    const composer = await screen.findByRole("textbox", { name: "다음 지시" });
     expect(composer.closest("aside")).toBeNull();
-    expect(composer.closest('[role="tabpanel"]')).toBeTruthy();
-    expect(
-      screen.getAllByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다."),
-    ).toHaveLength(1);
-    expect(
-      screen
-        .getByText("답변 대기 · 요청이 오면 여기에 먼저 나옵니다.")
-        .closest("section")?.textContent,
-    ).toContain("기다리는 요청 없음");
-    // One landmark, after the body in the DOM: below 1280px CSS stacks it
-    // under the body instead of moving it ahead.
+    await infoCard();
+    // One landmark, after the body in the DOM: below 1280px it is a sheet,
+    // never ahead of the body.
     const [aside, ...others] = screen.getAllByRole("complementary");
     expect(others).toHaveLength(0);
     expect(
@@ -3413,174 +2904,5 @@ describe("세션 상세 머리 경로", () => {
     expect(bar.queryByRole("link")).toBeNull();
     expect(bar.getByText("세션")).toBeTruthy();
     expect(bar.queryByText("/")).toBeNull();
-  });
-});
-
-describe("session share", () => {
-  const SHARE = `GET /v1/sessions/${SESSION_ID}/share`;
-  const share = (over: Record<string, unknown>) => ({
-    session_id: SESSION_ID,
-    scope: "workspace",
-    user_ids: [],
-    team_ids: [],
-    revision: 0,
-    updated_by: null,
-    updated_at: null,
-    audience_limited: false,
-    ...over,
-  });
-  const shownFor = async (over: Record<string, unknown>) => {
-    const view = renderAt(`/sessions/${SESSION_ID}`, {
-      ...detailRoutes,
-      [SHARE]: () => json(200, share(over)),
-    });
-    const block = await screen.findByRole("region", { name: "공유 범위" });
-    const text = block.textContent;
-    view.container.remove();
-    return text;
-  };
-
-  test("a workspace scope kept inside the agent says so; one that is not reads as the workspace", async () => {
-    expect(await shownFor({ audience_limited: true })).toBe(
-      "공유 범위워크스페이스(담당 팀 밖 사람은 보지 못함, 워크스페이스 설정)",
-    );
-    expect(await shownFor({ audience_limited: false })).toBe(
-      "공유 범위워크스페이스",
-    );
-  });
-
-  test("people and team scopes count whom they name, whatever the setting", async () => {
-    expect(
-      await shownFor({
-        scope: "people",
-        user_ids: [OTHER_ID, THIRD_ID],
-        revision: 1,
-        audience_limited: true,
-      }),
-    ).toBe("공유 범위지정한 사람 2명");
-    expect(
-      await shownFor({ scope: "team", team_ids: [OTHER_ID], revision: 1 }),
-    ).toBe("공유 범위지정한 팀 1개");
-    expect(await shownFor({ scope: "private", revision: 1 })).toBe(
-      "공유 범위세션을 가진 사람만",
-    );
-  });
-
-  test("someone who cannot read the share sees no block", async () => {
-    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
-      ...detailRoutes,
-      [SHARE]: () => apiError(404, "NOT_FOUND", "Resource not found"),
-    });
-    expect(await screen.findByText("답변 대기")).toBeTruthy();
-    await waitFor(() =>
-      expect(
-        api.calls.some((c) => c.path === `/v1/sessions/${SESSION_ID}/share`),
-      ).toBe(true),
-    );
-    expect(screen.queryByRole("region", { name: "공유 범위" })).toBeNull();
-  });
-
-  test("a failed read says so and asks again on retry", async () => {
-    let fail = true;
-    renderAt(`/sessions/${SESSION_ID}`, {
-      ...detailRoutes,
-      [SHARE]: () =>
-        fail
-          ? apiError(500, "INTERNAL", "boom")
-          : json(200, share({ audience_limited: true })),
-    });
-    const block = await screen.findByRole("region", { name: "공유 범위" });
-    expect(within(block).getByRole("alert").textContent).toBe(
-      "공유 범위를 확인하지 못했습니다.",
-    );
-    fail = false;
-    await (await setupUser()).click(
-      within(block).getByRole("button", { name: "다시 시도" }),
-    );
-    await waitFor(() =>
-      expect(block.textContent).toBe(
-        "공유 범위워크스페이스(담당 팀 밖 사람은 보지 못함, 워크스페이스 설정)",
-      ),
-    );
-  });
-
-  test("a read that fails after one that worked says so instead of the old scope", async () => {
-    let fail = false;
-    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
-      ...detailRoutes,
-      [SHARE]: () =>
-        fail
-          ? apiError(500, "INTERNAL", "boom")
-          : json(200, share({ audience_limited: true })),
-    });
-    const block = await screen.findByRole("region", { name: "공유 범위" });
-    await waitFor(() =>
-      expect(block.textContent).toBe(
-        "공유 범위워크스페이스(담당 팀 밖 사람은 보지 못함, 워크스페이스 설정)",
-      ),
-    );
-    const reads = () =>
-      api.calls.filter((c) => c.path === `/v1/sessions/${SESSION_ID}/share`)
-        .length;
-    const before = reads();
-    fail = true;
-    act(() => {
-      focusManager.setFocused(false);
-      focusManager.setFocused(true);
-    });
-    focusManager.setFocused(undefined);
-    await waitFor(() => expect(reads()).toBeGreaterThan(before));
-    await waitFor(() =>
-      expect(within(block).getByRole("alert").textContent).toBe(
-        "공유 범위를 확인하지 못했습니다.",
-      ),
-    );
-    expect(block.textContent).not.toContain("워크스페이스(");
-  });
-});
-
-describe("session release", () => {
-  const agent = (releaseIsActive: boolean | null) => ({
-    id: OTHER_ID,
-    name: "Release helper",
-    release_version_no: 2,
-    release_label: "2026-10-30_14:30:28",
-    release_is_active: releaseIsActive,
-  });
-  const shownFor = async (over: Partial<SessionDetail>) => {
-    const view = renderAt(`/sessions/${SESSION_ID}`, {
-      ...detailRoutes,
-      [`GET /v1/sessions/${SESSION_ID}`]: () =>
-        json(200, { ...detail, ...over }),
-    });
-    const block = await screen.findByRole("region", {
-      name: "이 세션이 쓰는 릴리스",
-    });
-    const text = block.textContent;
-    view.container.remove();
-    return text;
-  };
-
-  test("a session pinned to a release the agent no longer runs says so", async () => {
-    expect(await shownFor({ agent: agent(false) })).toBe(
-      "이 세션이 쓰는 릴리스2026-10-30_14:30:28활성 릴리스 아님이 세션은 시작할 때의 릴리스를 계속 씁니다. 에이전트의 지금 설정은 새 세션부터 쓰입니다.",
-    );
-  });
-
-  test("the active release is marked active, and an older server's null claims neither", async () => {
-    expect(await shownFor({ agent: agent(true) })).toBe(
-      "이 세션이 쓰는 릴리스2026-10-30_14:30:28활성 릴리스",
-    );
-    expect(await shownFor({ agent: agent(null) })).toBe(
-      "이 세션이 쓰는 릴리스2026-10-30_14:30:28",
-    );
-  });
-
-  test("a session without an agent shows no release block", async () => {
-    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
-    expect(await screen.findByText("답변 대기")).toBeTruthy();
-    expect(
-      screen.queryByRole("region", { name: "이 세션이 쓰는 릴리스" }),
-    ).toBeNull();
   });
 });

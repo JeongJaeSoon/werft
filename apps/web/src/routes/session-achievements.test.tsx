@@ -3,7 +3,6 @@ import type {
   ListSessionAchievementsResponse,
   SessionAchievement,
   SessionDetail,
-  SessionOutcome,
 } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { agentServer } from "../test-support/fake-agents.ts";
@@ -153,10 +152,8 @@ function routes(
   };
 }
 
+/** The achievements sit in the session info card beside the chat. */
 async function openCard() {
-  await (await setupUser()).click(
-    await screen.findByRole("tab", { name: /^성과물/ }),
-  );
   return screen.findByRole("region", { name: /^성과/ });
 }
 
@@ -467,68 +464,6 @@ describe("session achievements", () => {
     );
   });
 
-  test("the outputs tab counts achievements with evidence and files", async () => {
-    const pull = (number: number): SessionOutcome => ({
-      id: `019a0000-0000-7000-8000-00000000000${number}`,
-      type: "github_pull_request",
-      url: `https://github.com/acme/shop/pull/${number}`,
-      repository_id: "demo",
-      external_id: String(number),
-      state: "open",
-      state_changed_at: AT,
-      merged_at: null,
-      closed_at: null,
-      state_checked_at: AT,
-      check_error: null,
-      metadata: {
-        title: "Retry failed payments",
-        head: `agent/${SESSION_ID}`,
-        base: "main",
-        adopted: false,
-        merge_commit_sha: null,
-        additions: null,
-        deletions: null,
-        changed_files: null,
-        commits: null,
-      },
-      created_at: AT,
-    });
-    renderAt(
-      `/sessions/${SESSION_ID}`,
-      routes(() => json(200, listed), me(), {
-        [`GET /v1/sessions/${SESSION_ID}`]: () =>
-          json(200, {
-            ...detail,
-            checkpoint_revision: 2,
-            repository: { id: "demo", full_name: "acme/shop", branch: "main" },
-          }),
-        [`GET /v1/sessions/${SESSION_ID}/outputs`]: () =>
-          json(200, {
-            session_id: SESSION_ID,
-            checkpoint_revision: 2,
-            items: [
-              {
-                path: "out/design.md",
-                bytes: 2048,
-                sha256: null,
-                omitted: null,
-              },
-            ],
-          }),
-        [`GET /v1/sessions/${SESSION_ID}/outcomes`]: () =>
-          json(200, { items: [pull(1), pull(2)] }),
-        [`GET /v1/sessions/${SESSION_ID}/github/refusals`]: () =>
-          json(200, { items: [] }),
-      }),
-    );
-    // Three achievements, two pull requests and one file.
-    await waitFor(() =>
-      expect(screen.getByRole("tab", { name: /^성과물/ }).textContent).toBe(
-        "성과물6",
-      ),
-    );
-  });
-
   test("a list that cannot be read says so and offers to ask again", async () => {
     let failing = true;
     renderAt(
@@ -538,9 +473,6 @@ describe("session achievements", () => {
           ? apiError(503, "SERVICE_UNAVAILABLE", "store down")
           : json(200, listed),
       ),
-    );
-    await (await setupUser()).click(
-      await screen.findByRole("tab", { name: /^성과물/ }),
     );
     const retry = await screen.findByRole("button", { name: "다시 시도" });
     failing = false;
@@ -560,29 +492,10 @@ describe("session achievements", () => {
         }),
       ),
     );
-    await (await setupUser()).click(
-      await screen.findByRole("tab", { name: /^성과물/ }),
-    );
     await waitFor(() =>
       expect(api.calls.some((call) => call.path === ACHIEVEMENTS)).toBe(true),
     );
-    expect(await screen.findByText("아직 성과물이 없습니다.")).toBeTruthy();
+    await screen.findByRole("complementary", { name: "세션 정보" });
     expect(screen.queryByRole("region", { name: /^성과/ }) === null).toBe(true);
-  });
-
-  test("achievements without evidence or files do not call the tab empty", async () => {
-    renderAt(
-      `/sessions/${SESSION_ID}`,
-      routes(() => json(200, { ...listed, items: [REVIEW] })),
-    );
-    expect(await openCard()).toBeTruthy();
-    await waitFor(() =>
-      expect(screen.getByRole("tab", { name: /^성과물/ }).textContent).toBe(
-        "성과물1",
-      ),
-    );
-    // The empty state needs no further read here; give it a render to appear.
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(screen.queryByText("아직 성과물이 없습니다.") === null).toBe(true);
   });
 });
