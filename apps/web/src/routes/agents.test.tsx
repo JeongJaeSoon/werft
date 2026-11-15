@@ -739,6 +739,181 @@ describe("에이전트 목록 탭과 검색", () => {
   });
 });
 
+describe("에이전트 목록 페이지", () => {
+  beforeEach(() => localStorage.clear());
+
+  const base = agentServer().detail().agent;
+  /** Agents named "에이전트 1".."에이전트 count", as the list API holds them. */
+  const many = (count: number) =>
+    Array.from({ length: count }, (_, n) => ({
+      ...base,
+      id: `00000000-0000-4000-8000-${String(n + 1).padStart(12, "0")}`,
+      slug: `agent-${n + 1}`,
+      name: `에이전트 ${n + 1}`,
+    }));
+  /** GET /v1/agents over `agents`: q, ids, limit (default 50) and cursor. */
+  const agentsRoute =
+    (agents: ReturnType<typeof many>) => (request: Request) => {
+      const params = new URL(request.url).searchParams;
+      const ids = params.get("ids")?.split(",");
+      const q = params.get("q");
+      const matched = agents.filter(
+        (agent) =>
+          (!ids || ids.includes(agent.id)) && (!q || agent.name.includes(q)),
+      );
+      const limit = Number(params.get("limit") ?? 50);
+      const from = Number(params.get("cursor")?.slice(1) ?? 0);
+      const to = from + limit;
+      return json(200, {
+        items: matched.slice(from, to),
+        next_cursor: to < matched.length ? `c${to}` : null,
+      });
+    };
+  const counted = (all: number, administered = 0) => ({
+    "GET /v1/agents/counts": () =>
+      json(200, { counts: { all, administered, active: 0, draft: all } }),
+  });
+  const listedNames = () =>
+    [
+      ...screen
+        .getByRole("table", { name: "에이전트" })
+        .querySelectorAll("[role=row] a[href^='/agents/']"),
+    ].map((link) => link.textContent);
+  const nav = () => screen.queryByRole("navigation", { name: "페이지 이동" });
+  const range = (from: number, to: number) =>
+    Array.from({ length: to - from + 1 }, (_, n) => `에이전트 ${from + n}`);
+
+  test("전체 탭은 한 페이지에 15개씩 읽어 보이고, 이전·다음과 주소의 page로 오간다", async () => {
+    const user = await setupUser();
+    const { api, history } = renderAt("/agents", {
+      ...meOk,
+      "GET /v1/agents": agentsRoute(many(40)),
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
+      ...counted(40),
+    });
+    await screen.findByRole("link", { name: "에이전트 15" });
+    expect(listedNames()).toEqual(range(1, 15));
+    expect(screen.getByText("1–15 / 40")).toBeDefined();
+    expect(
+      screen
+        .getByRole("button", { name: "1페이지" })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+
+    await user.click(screen.getByRole("button", { name: "다음 페이지" }));
+    await screen.findByRole("link", { name: "에이전트 30" });
+    expect(listedNames()).toEqual(range(16, 30));
+    expect(history.location.search).toBe("?page=2");
+    expect(screen.getByText("16–30 / 40")).toBeDefined();
+
+    await user.click(screen.getByRole("button", { name: "3페이지" }));
+    await screen.findByRole("link", { name: "에이전트 40" });
+    expect(listedNames()).toEqual(range(31, 40));
+    expect(history.location.search).toBe("?page=3");
+
+    await user.click(screen.getByRole("button", { name: "이전 페이지" }));
+    await screen.findByRole("link", { name: "에이전트 16" });
+    expect(history.location.search).toBe("?page=2");
+    // Each page is its own history entry.
+    act(() => history.back());
+    await screen.findByRole("link", { name: "에이전트 31" });
+    expect(history.location.search).toBe("?page=3");
+
+    const reads = api.calls.filter((call) => call.path === "/v1/agents");
+    expect(
+      reads.every(
+        (call) => new URLSearchParams(call.search).get("limit") === "15",
+      ),
+    ).toBe(true);
+    expect(
+      reads.map((call) => new URLSearchParams(call.search).get("cursor")),
+    ).toEqual([null, "c15", "c30"]);
+  });
+
+  test("한 페이지에 다 들어가면 페이지 이동을 보이지 않는다", async () => {
+    const { api } = renderAt("/agents", {
+      ...meOk,
+      "GET /v1/agents": agentsRoute(many(15)),
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
+      ...counted(15),
+    });
+    await screen.findByRole("link", { name: "에이전트 15" });
+    expect(listedNames()).toHaveLength(15);
+    expect(nav()).toBeNull();
+    // Read at the page size: fifteen rows, and nothing past them.
+    expect(
+      api.calls
+        .filter((call) => call.path === "/v1/agents")
+        .map((call) => call.search),
+    ).toEqual(["?include=summary&limit=15"]);
+  });
+
+  test("주소의 page가 끝을 넘으면 마지막 페이지로 옮긴다", async () => {
+    const { history } = renderAt("/agents?page=9", {
+      ...meOk,
+      "GET /v1/agents": agentsRoute(many(20)),
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
+      ...counted(20),
+    });
+    await screen.findByRole("link", { name: "에이전트 20" });
+    expect(listedNames()).toEqual(range(16, 20));
+    await waitFor(() => expect(history.location.search).toBe("?page=2"));
+  });
+
+  test("검색이나 탭을 바꾸면 첫 페이지로 돌아간다", async () => {
+    const user = await setupUser();
+    const agents = many(40);
+    const { history } = renderAt("/agents?page=2", {
+      ...meOk,
+      "GET /v1/agents": agentsRoute(agents),
+      "GET /v1/administered-agents": () =>
+        json(200, { items: agents.slice(0, 20) }),
+      ...counted(40, 20),
+    });
+    await screen.findByRole("link", { name: "에이전트 16" });
+    await user.type(
+      screen.getByRole("searchbox", { name: "이름이나 식별자로 찾기" }),
+      "에이전트 1",
+    );
+    await waitFor(() => expect(history.location.search).toBe(""));
+    // "에이전트 1" and 10–19: eleven, so one page and no page links.
+    await waitFor(
+      () => expect(listedNames()).toEqual(["에이전트 1", ...range(10, 19)]),
+      { timeout: 3000 },
+    );
+    expect(nav()).toBeNull();
+
+    await user.clear(
+      screen.getByRole("searchbox", { name: "이름이나 식별자로 찾기" }),
+    );
+    await screen.findByRole("link", { name: "에이전트 15" }, { timeout: 3000 });
+    await user.click(screen.getByRole("button", { name: "다음 페이지" }));
+    await screen.findByRole("link", { name: "에이전트 30" });
+    expect(history.location.search).toBe("?page=2");
+    await showList(user, "관리하는 에이전트 20");
+    await waitFor(() => expect(history.location.search).toBe(""));
+    await waitFor(() => expect(listedNames()).toEqual(range(1, 15)));
+  });
+
+  test("관리하는 에이전트 탭은 받은 목록을 15개씩 나눠 보인다", async () => {
+    const user = await setupUser();
+    const agents = many(20);
+    const { history } = renderAt("/agents", {
+      ...meOk,
+      "GET /v1/agents": agentsRoute(agents),
+      "GET /v1/administered-agents": () => json(200, { items: agents }),
+      ...counted(20, 20),
+    });
+    await showList(user, "관리하는 에이전트 20");
+    await waitFor(() => expect(listedNames()).toEqual(range(1, 15)));
+    expect(screen.getByText("1–15 / 20")).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "다음 페이지" }));
+    await waitFor(() => expect(listedNames()).toEqual(range(16, 20)));
+    expect(history.location.search).toBe("?page=2");
+    expect(screen.getByText("16–20 / 20")).toBeDefined();
+  });
+});
+
 describe("Slack 조치 링크", () => {
   beforeEach(() => localStorage.clear());
 

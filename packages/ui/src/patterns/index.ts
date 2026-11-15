@@ -90,6 +90,12 @@ export {
   type PageProps,
 } from "./page-frame.tsx";
 export { PageHeader, type PageHeaderProps } from "./page-header.tsx";
+export {
+  Pagination,
+  type PaginationMessages,
+  type PaginationProps,
+  paginationItems,
+} from "./pagination.tsx";
 export { RowAction, type RowActionProps } from "./row-action.tsx";
 export {
   SecretField,
