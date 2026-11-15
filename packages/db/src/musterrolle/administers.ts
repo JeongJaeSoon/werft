@@ -223,6 +223,30 @@ export function agentUsable(
   return or(...branches) as SQL;
 }
 
+/**
+ * `agentUsable` for someone who is also inside the agent: what hides an
+ * agent's name and filter from a session reader. A key bound to the agent is
+ * inside it.
+ */
+export function agentReachable(
+  db: Database,
+  workspaceId: string | SQLWrapper,
+  who: { userId: string | null; keyAgentId: string | null },
+  agentId: string | SQLWrapper,
+): SQL {
+  const inside: SQL[] = [];
+  if (who.keyAgentId !== null && UUID.test(who.keyAgentId)) {
+    inside.push(sql`${agentId} = ${who.keyAgentId.toLowerCase()}::uuid`);
+  }
+  if (who.userId !== null && UUID.test(who.userId)) {
+    inside.push(
+      insideAgent(db, workspaceId, who.userId.toLowerCase(), agentId),
+    );
+  }
+  if (inside.length === 0) return sql`false`;
+  return and(agentUsable(db, workspaceId, who, agentId), or(...inside)) as SQL;
+}
+
 export function credentialsAllowed(
   workspaceId: string | SQLWrapper,
   userId: string | null,

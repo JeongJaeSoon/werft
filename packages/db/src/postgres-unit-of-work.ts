@@ -103,7 +103,7 @@ import {
 import { captureGitHubPolicyStart } from "./github-settings.ts";
 import { admitInput } from "./input-limits.ts";
 import { readArchivedWorkspaceLimit } from "./limits/workspace-limit.ts";
-import { agentUsable } from "./musterrolle/administers.ts";
+import { agentReachable } from "./musterrolle/administers.ts";
 import {
   inputRefusal,
   lockCallerLimit,
@@ -1310,7 +1310,7 @@ export function createPostgresSessionReader(
                 .where(
                   and(
                     inArray(agents.id, agentIds),
-                    agentUsable(
+                    agentReachable(
                       executor,
                       agents.workspaceId,
                       {
@@ -1477,9 +1477,9 @@ export function createPostgresSessionReader(
                         .where(
                           and(
                             eq(agentReleases.agentId, query.agent_id),
-                            // An agent the viewer may not use filters like one
-                            // that is not there.
-                            agentUsable(
+                            // An agent the viewer may not use, or is outside,
+                            // filters like one that is not there.
+                            agentReachable(
                               db,
                               agents.workspaceId,
                               {
@@ -1845,7 +1845,7 @@ export function createPostgresSessionReader(
         userId: viewer.userId,
         keyAgentId: viewer.keyAgentId ?? null,
       };
-      const unusable = not(agentUsable(db, ownerId, who, agents.id));
+      const unusable = not(agentReachable(db, ownerId, who, agents.id));
       const named = refs.agentIds.filter(isUuid).map((id) => id.toLowerCase());
       if (named.length > 0) {
         for (const row of await db

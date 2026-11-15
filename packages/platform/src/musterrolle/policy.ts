@@ -270,16 +270,17 @@ export const POLICY_VERSION = "m16";
 
 export interface AuthorizationPolicy {
   /**
-   * The agent a release belongs to and whether this subject may use it, for a
-   * start that must answer as a missing release when they may not. Null when
-   * the release or the subject cannot be resolved: the caller goes on as for
-   * any other release. Records nothing.
+   * The agent a release belongs to, whether this subject may use it and
+   * whether they are inside it, for a start that must answer as a missing
+   * release when they may not. Null when the release or the subject cannot
+   * be resolved: the caller goes on as for any other release. Records
+   * nothing.
    */
   usageOfRelease?(
     subject: AuthorizationSubject,
     ownerScope: string,
     releaseId: string,
-  ): Promise<{ agentId: string; usage: UsageDecision } | null>;
+  ): Promise<{ agentId: string; usage: UsageDecision; inside: boolean } | null>;
   /**
    * `record: false` decides without keeping the decision: for what a screen
    * offers, never for an act.
@@ -551,6 +552,26 @@ export function createAuthorizationPolicy(
       ? "ok"
       : "role";
   }
+  // A person starts as themselves, a personal key as its creator; an agent
+  // key is inside its own agent, the only one its ceiling lets it reach.
+  async function startsInside(
+    reading: Extract<IdentityReading, { status: "ok" }>,
+    workspaceId: string,
+    agentId: string,
+  ): Promise<boolean> {
+    if (reading.keyAgentId !== undefined) return true;
+    const { principal } = reading;
+    const starter =
+      principal.kind === "user"
+        ? { userId: principal.id, role: principal.role }
+        : reading.keyCreator;
+    if (starter === undefined) return false;
+    if (WORKSPACE_MANAGERS.includes(starter.role)) return true;
+    return agents.isInside
+      ? agents.isInside(workspaceId, agentId, starter.userId)
+      : agents.isAdmin(workspaceId, agentId, starter.userId);
+  }
+
   // A personal key uses an agent as its creator; an agent's key as that
   // agent; any other key has no person.
   async function usageFor(
@@ -788,23 +809,11 @@ export function createAuthorizationPolicy(
       // it (agent-rbac (b)). An agent key is inside its own agent, the only
       // one the ceiling above lets it reach.
       if (reading.keyAgentId === undefined) {
-        const starter =
-          principal.kind === "user"
-            ? { userId: principal.id, role: principal.role }
-            : reading.keyCreator;
         const agentId = await agentOfResource(resource);
         if (agentId === null) return ["error", []];
-        const inside =
-          starter !== undefined &&
-          (WORKSPACE_MANAGERS.includes(starter.role) ||
-            (await (agents.isInside
-              ? agents.isInside(resource.owner_scope, agentId, starter.userId)
-              : agents.isAdmin(
-                  resource.owner_scope,
-                  agentId,
-                  starter.userId,
-                ))));
-        if (!inside) return ["role", scopes];
+        if (!(await startsInside(reading, resource.owner_scope, agentId))) {
+          return ["role", scopes];
+        }
       }
       if (resource.kind !== "session") {
         if (agents.agentOfRelease === undefined) return ["error", []];
@@ -854,6 +863,7 @@ export function createAuthorizationPolicy(
       return {
         agentId,
         usage: await usageFor(reading, ownerScope, agentId.toLowerCase()),
+        inside: await startsInside(reading, ownerScope, agentId.toLowerCase()),
       };
     },
     async authorize(request, options) {

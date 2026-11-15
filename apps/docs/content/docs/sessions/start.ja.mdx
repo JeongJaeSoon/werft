@@ -289,7 +289,8 @@ try {
 | --- | --- |
 | 400 | 本文が schema と異なる、または `Idempotency-Key` がない |
 | 401 | キーがない、誤っている、または失効している |
-| 403 | キーに `sessions:write` がない。または呼び出した人(個人キーなら作った人)がエージェントの外側である(`details.reason_code` が `role`) |
+| 403 | キーに `sessions:write` がない |
+| 404 | release がない。エージェントの外側の人(個人キーなら作った人)も同じ答えを受ける |
 | 409 `IDEMPOTENCY_CONFLICT` | 同じキーで本文が異なる |
 | 413 | メッセージが 32,768 バイトを超えている。ストレージ容量の上限なら `STORAGE_LIMIT_EXCEEDED` |
 | 403 `GITHUB_REFUSED` | 指定した `repository_id` がエージェントの GitHub 設定の一覧またはワークスペースの上限の外にある(`details.reason_code` が `repository_not_allowed`) |

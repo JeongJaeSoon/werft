@@ -325,11 +325,11 @@ integration("starting an agent's session from the console", () => {
     test(`a member outside the managing team is refused, the owner and the team are not (stored \`${access}\`)`, async () => {
       await setAccess(access);
       const before = await db.$count(sessions);
+      // Answered as a release that is not there.
       const refused = await start(asCookie(cookies.outsider));
-      expect(refused.status).toBe(403);
+      expect(refused.status).toBe(404);
       const { error } = apiErrorResponseSchema.parse(await refused.json());
-      expect(error.code).toBe("FORBIDDEN");
-      expect(error.details).toMatchObject({ reason_code: "role" });
+      expect(error.code).toBe("NOT_FOUND");
       expect(await db.$count(sessions)).toBe(before);
 
       expect((await start(asCookie(cookies.teammate))).status).toBe(201);

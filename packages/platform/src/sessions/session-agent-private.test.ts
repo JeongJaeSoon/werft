@@ -52,6 +52,8 @@ function setup(options: {
   /** What the policy says about the start; absent, `ok`. */
   decides?: AuthorizationReason;
   usage?: UsageDecision;
+  /** On the agent's managing team (or exempt); absent, true. */
+  inside?: boolean;
   accept?: AcceptSessionResult["outcome"];
   append?: AppendMessageResult["outcome"];
   /** The release reads fine; absent, its integrity check fails. */
@@ -72,6 +74,7 @@ function setup(options: {
           usageOfRelease: async () => ({
             agentId: AGENT,
             usage: options.usage as UsageDecision,
+            inside: options.inside ?? true,
           }),
         }),
   };
@@ -258,6 +261,26 @@ describe("a start of a private agent by someone outside it", () => {
       expect(shapeOf(hidden)).toBe(shapeOf(missing));
     });
   }
+});
+
+describe("a start of an open agent by someone outside its managing team", () => {
+  test("is a missing release and never reads the release's integrity", async () => {
+    const { service, resolved, accepted } = setup({
+      usage: { allowed: true, basis: "public", teamId: null },
+      inside: false,
+      decides: "role",
+      accept: "agent_private",
+    });
+    const hidden = await failure(
+      service.createSession(actor, start("rel-1") as never),
+    );
+    const missing = await failure(
+      setup({}).service.createSession(actor, start("rel-gone") as never),
+    );
+    expect(shapeOf(hidden)).toBe(shapeOf(missing));
+    expect(resolved()).toBe(0);
+    expect(accepted[0]).toMatchObject({ agentPrivate: true });
+  });
 });
 
 describe("an agent that turned private after the release was read", () => {

@@ -289,7 +289,8 @@ try {
 | --- | --- |
 | 400 | 본문이 schema와 다르거나 `Idempotency-Key`가 없다 |
 | 401 | key가 없거나 틀렸거나 폐기됐다 |
-| 403 | key에 `sessions:write`가 없다. 또는 에이전트 바깥의 사람(개인 key면 만든 사람)이다(`details.reason_code`가 `role`) |
+| 403 | key에 `sessions:write`가 없다 |
+| 404 | release가 없다. 에이전트 바깥의 사람(개인 key면 만든 사람)도 같은 답을 받는다 |
 | 409 `IDEMPOTENCY_CONFLICT` | 같은 key에 다른 본문 |
 | 413 | 메시지가 32,768바이트를 넘는다. 저장소 상한이면 `STORAGE_LIMIT_EXCEEDED` |
 | 403 `GITHUB_REFUSED` | 명시한 `repository_id`가 에이전트의 GitHub 설정 목록이나 워크스페이스 상한 밖이다(`details.reason_code`가 `repository_not_allowed`) |

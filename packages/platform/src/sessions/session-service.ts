@@ -514,9 +514,9 @@ export function createSessionService(deps: {
   // The release a start pins, in this order: the release, its
   // agent, whether the requester may see a private agent, and only then
   // what would tell them it exists (a release that fails its integrity
-  // check, a paused agent). A requester outside a private agent gets
-  // `hidden`, which the start answers as it answers a release that is not
-  // there.
+  // check, a paused agent). A requester outside the agent, or outside a
+  // private agent's usage, gets `hidden`, which the start answers as it
+  // answers a release that is not there.
   async function pinnedRelease(
     actor: Caller,
     body: CreateSessionRequest,
@@ -542,7 +542,7 @@ export function createSessionService(deps: {
       actor.ownerId,
       body.agent_release_id,
     );
-    if (seen && !seen.usage.allowed) {
+    if (seen && (!seen.usage.allowed || !seen.inside)) {
       return {
         hidden: true,
         agentId: seen.agentId,
@@ -652,7 +652,7 @@ export function createSessionService(deps: {
     };
   }
 
-  // A start of a private agent by someone outside it: nothing else is judged,
+  // A start by someone outside the agent: nothing else is judged,
   // so nothing else can differ from a release that is not there. The policy
   // still decides, to keep its reason in the log (a scope or ceiling refusal
   // keeps its own), and its answer changes nothing. Only a replay of an

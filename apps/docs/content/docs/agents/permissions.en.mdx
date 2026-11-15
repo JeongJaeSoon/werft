@@ -62,7 +62,7 @@ The responsible team's `member` finds the agents their team is responsible for w
 
 Owners, admins, the agent's administrators and its responsible team's members are inside the agent; every other member is outside it. Only those inside use the agent. No setting changes this.
 
-- To a member outside, the agent does not exist, on the web or in Slack. It is missing from lists and counts, reading it is `404`, and starting a session is `403 FORBIDDEN` (`reason_code: role`).
+- To a member outside, the agent does not exist, on the web or in Slack. It is missing from lists and counts, reading it is `404`, and starting a session is the same `404` as a release that does not exist. A session shared with them still shows, with its agent hidden.
 - When a member outside mentions the agent or sends it a DM in Slack, no session starts; they get a short notice that they lack the right. A Slack user who has not linked a Werft account gets a notice to link one.
 - Only those inside see the agent's `workspace`-shared sessions. They are left out of lists, counts, details, events and the usage recent list for members outside. Agents that had no team before a responsible team became required went to a memberless holding team (the server recognizes it even if it is renamed), and their `workspace` sessions stay visible to every member, as before, until the agent moves to the right team.
 - A member outside still sees the sessions they started and the ones shared with them or their team (`people`, `team`).

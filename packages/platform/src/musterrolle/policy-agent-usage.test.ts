@@ -334,7 +334,14 @@ describe("usageOfRelease", () => {
     const { agents } = authority(CLOSED);
     expect(
       await policyOf(agents).usageOfRelease?.(web.subject, WORKSPACE, RELEASE),
-    ).toEqual({ agentId: AGENT, usage: CLOSED });
+    ).toEqual({ agentId: AGENT, usage: CLOSED, inside: true });
+  });
+
+  test("says when the person is outside the agent's managing team", async () => {
+    const { agents } = authority(CLOSED, { isInside: async () => false });
+    expect(
+      await policyOf(agents).usageOfRelease?.(web.subject, WORKSPACE, RELEASE),
+    ).toEqual({ agentId: AGENT, usage: CLOSED, inside: false });
   });
 
   test("is null for a release the workspace does not have", async () => {

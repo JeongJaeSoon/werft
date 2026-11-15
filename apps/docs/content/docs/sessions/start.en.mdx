@@ -289,7 +289,8 @@ Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
 | --- | --- |
 | 400 | The body does not match the schema, or `Idempotency-Key` is missing |
 | 401 | The key is missing, wrong, or revoked |
-| 403 | The key lacks `sessions:write`, or the caller (for a personal key, its creator) is outside the agent (`details.reason_code` is `role`) |
+| 403 | The key lacks `sessions:write` |
+| 404 | The release does not exist. A caller outside the agent (for a personal key, its creator) gets the same answer |
 | 409 `IDEMPOTENCY_CONFLICT` | The same key with a different body |
 | 413 | The message exceeds 32,768 bytes. `STORAGE_LIMIT_EXCEEDED` if the storage limit is exceeded |
 | 403 `GITHUB_REFUSED` | The `repository_id` you named is outside the agent's GitHub settings list or the workspace ceiling (`details.reason_code` is `repository_not_allowed`) |
