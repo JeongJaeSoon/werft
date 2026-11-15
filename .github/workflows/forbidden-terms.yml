@@ -3,43 +3,25 @@ name: Forbidden terms
 # A separate workflow, not a job in ci.yml: the check re-runs when a PR title or
 # body is edited, and ci.yml's concurrency group would cancel the whole suite on
 # every edit. The job name below is the required-check name; keep it unique.
-#
-# Comment, review and issue events scan that PR's or issue's texts again. They run from main,
-# not as the PR's required check, so a hit there shows as a failed run for the maintainer.
+# Comments, reviews and issues that change without a push: forbidden-terms-threads.yml.
 on:
   push:
     branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, edited]
-  issue_comment:
-    types: [created, edited]
-  pull_request_review:
-    types: [submitted, edited]
-  pull_request_review_comment:
-    types: [created, edited]
-  issues:
-    types: [opened, edited]
 
 permissions:
   contents: read
   issues: read
   pull-requests: read
 
-# The event name keeps a comment from cancelling the PR's required-check run.
 concurrency:
-  group: forbidden-terms-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number || github.sha }}
+  group: forbidden-terms-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 jobs:
   forbidden-terms:
     name: forbidden-terms
-    # A stranger's text never starts a scan: its result would answer their guess at the list.
-    # The script also skips strangers' texts inside the thread.
-    if: >-
-      github.event_name == 'push' || github.event_name == 'pull_request' ||
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
-        github.event.comment.author_association || github.event.review.author_association ||
-        github.event.issue.author_association)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -57,10 +39,8 @@ jobs:
           FORBIDDEN_TERMS: ${{ secrets.FORBIDDEN_TERMS }}
           FORBIDDEN_HOST_TERMS: ${{ secrets.FORBIDDEN_HOST_TERMS }}
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number || (github.event.issue.pull_request && github.event.issue.number) || '' }}
-          ISSUE_NUMBER: ${{ (!github.event.issue.pull_request && github.event.issue.number) || '' }}
-          TEXT_ONLY: ${{ github.event_name != 'push' && github.event_name != 'pull_request' }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          FORK_PR: ${{ github.event.pull_request != null && github.event.pull_request.head.repo.full_name != github.repository }}
+          FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}

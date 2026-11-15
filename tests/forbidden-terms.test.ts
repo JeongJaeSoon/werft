@@ -122,12 +122,14 @@ beforeAll(async () => {
   await writeFile(
     join(binDir, "gh"),
     `#!/bin/sh
-path=""; filter=""
+path=""; filter=""; paginate=""
 while [ $# -gt 0 ]; do
-  case "$1" in --jq) filter="$2"; shift ;; repos/*) path="$1" ;; esac
+  case "$1" in --jq) filter="$2"; shift ;; --paginate) paginate=1 ;; repos/*) path="$1" ;; esac
   shift
 done
 echo "$path" >> "$FAKE_GH_LOG"
+# Without --paginate a long thread would be read only to its first page.
+[ -z "$paginate" ] && exit 5
 case "$path" in
   */issues/*/comments) json="\${FAKE_COMMENTS:-[]}"; fail="$FAKE_COMMENTS_FAIL" ;;
   */pulls/*/comments) json="\${FAKE_REVIEW_COMMENTS:-[]}"; fail="$FAKE_COMMENTS_FAIL" ;;
@@ -319,6 +321,37 @@ describe("forbidden-terms", () => {
     expect(skipped.out).toContain(
       "FORBIDDEN_HOST_TERMS is not set; host terms were not scanned",
     );
+    const bad = await run(dir, {
+      FORBIDDEN_TERMS: SYNTHETIC,
+      FORBIDDEN_HOST_TERMS: "zz-synthetic-host(\n",
+    });
+    expect(bad.code).toBe(1);
+    expectNoLeak(bad.out);
+  });
+
+  test("thread scans run under their own check name, gated before concurrency, on main's code", async () => {
+    const workflows = join(import.meta.dir, "..", ".github", "workflows");
+    const pr = await Bun.file(join(workflows, "forbidden-terms.yml")).text();
+    const threads = await Bun.file(
+      join(workflows, "forbidden-terms-threads.yml"),
+    ).text();
+    // Review events run on the PR's commit: one job named forbidden-terms there would
+    // stand in for the required check, even when skipped.
+    for (const event of ["issue_comment", "pull_request_review", "issues"])
+      expect(pr).not.toMatch(new RegExp(`^  ${event}:\\s*$`, "m"));
+    expect(threads).toMatch(/^ {2}pull_request_review:\s*$/m);
+    expect(threads).not.toMatch(/name: forbidden-terms\s*$/m);
+    expect(threads).toContain("name: forbidden-terms-threads");
+    // Concurrency on the gated job only, so a stranger's skipped event cancels nothing.
+    expect(threads).not.toMatch(/^concurrency:/m);
+    expect(threads.indexOf("if: ")).toBeLessThan(
+      threads.indexOf("    concurrency:"),
+    );
+    expect(threads).toContain('["OWNER","MEMBER","COLLABORATOR"]');
+    expect(threads).toMatch(
+      /ref: \$\{\{ github\.event\.repository\.default_branch \}\}/,
+    );
+    expect(threads).toContain('TEXT_ONLY: "true"');
   });
 
   test("a hit in a PR comment, review comment or review fails with a count only", async () => {

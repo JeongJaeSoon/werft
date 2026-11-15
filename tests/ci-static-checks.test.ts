@@ -128,8 +128,8 @@ test("a job that skips the bun cache restore installs nothing and saves nothing"
       ).toEqual([]);
     }
   }
-  // changes, forbidden-terms, helm-chart, supply-chain
-  expect(skipping).toBe(4);
+  // changes, forbidden-terms, forbidden-terms-threads, helm-chart, supply-chain
+  expect(skipping).toBe(5);
 });
 
 test("unit parts isolate slow Slack fixtures and reject every empty part", async () => {
