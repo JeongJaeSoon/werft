@@ -2582,6 +2582,22 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 10
+          },
+          "session_archive_after_days": {
+            "anyOf": [
+              {
+                "type": "number",
+                "const": 0
+              },
+              {
+                "type": "integer",
+                "minimum": 30,
+                "maximum": 3650
+              }
+            ]
+          },
+          "session_archive_dry_run": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -17058,6 +17074,101 @@
               "blocked"
             ],
             "additionalProperties": false
+          },
+          "session_archive_after_days": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "const": 0
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 30,
+                    "maximum": 3650
+                  }
+                ]
+              },
+              "default": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "const": 0
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 30,
+                    "maximum": 3650
+                  }
+                ]
+              },
+              "saved": {
+                "type": "boolean"
+              },
+              "blocked": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value",
+              "default",
+              "saved",
+              "blocked"
+            ],
+            "additionalProperties": false
+          },
+          "session_archive_dry_run": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "boolean"
+              },
+              "default": {
+                "type": "boolean"
+              },
+              "saved": {
+                "type": "boolean"
+              },
+              "blocked": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value",
+              "default",
+              "saved",
+              "blocked"
+            ],
+            "additionalProperties": false
+          },
+          "session_archive": {
+            "type": "object",
+            "properties": {
+              "available": {
+                "type": "boolean"
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "object_store_disabled",
+                      "unversioned"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "available",
+              "reason"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -17068,7 +17179,10 @@
           "session_token_limit",
           "workspace_enforce",
           "max_turn_seconds",
-          "provider_max_retries"
+          "provider_max_retries",
+          "session_archive_after_days",
+          "session_archive_dry_run",
+          "session_archive"
         ],
         "additionalProperties": false
       },
@@ -17305,6 +17419,101 @@
             ],
             "additionalProperties": false
           },
+          "session_archive_after_days": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "const": 0
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 30,
+                    "maximum": 3650
+                  }
+                ]
+              },
+              "default": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "const": 0
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 30,
+                    "maximum": 3650
+                  }
+                ]
+              },
+              "saved": {
+                "type": "boolean"
+              },
+              "blocked": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value",
+              "default",
+              "saved",
+              "blocked"
+            ],
+            "additionalProperties": false
+          },
+          "session_archive_dry_run": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "boolean"
+              },
+              "default": {
+                "type": "boolean"
+              },
+              "saved": {
+                "type": "boolean"
+              },
+              "blocked": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value",
+              "default",
+              "saved",
+              "blocked"
+            ],
+            "additionalProperties": false
+          },
+          "session_archive": {
+            "type": "object",
+            "properties": {
+              "available": {
+                "type": "boolean"
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "object_store_disabled",
+                      "unversioned"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "available",
+              "reason"
+            ],
+            "additionalProperties": false
+          },
           "receipt_id": {
             "type": "string",
             "format": "uuid",
@@ -17319,7 +17528,10 @@
           "session_token_limit",
           "workspace_enforce",
           "max_turn_seconds",
-          "provider_max_retries"
+          "provider_max_retries",
+          "session_archive_after_days",
+          "session_archive_dry_run",
+          "session_archive"
         ],
         "additionalProperties": false
       },
@@ -47883,6 +48095,18 @@
                     "default": 2,
                     "saved": false,
                     "blocked": false
+                  },
+                  "session_archive_after_days": {
+                    "value": 180,
+                    "default": 180,
+                    "saved": false,
+                    "blocked": false
+                  },
+                  "session_archive_dry_run": {
+                    "value": true,
+                    "default": true,
+                    "saved": false,
+                    "blocked": false
                   }
                 },
                 "schema": {
@@ -48100,6 +48324,18 @@
                   "provider_max_retries": {
                     "value": 2,
                     "default": 2,
+                    "saved": false,
+                    "blocked": false
+                  },
+                  "session_archive_after_days": {
+                    "value": 180,
+                    "default": 180,
+                    "saved": false,
+                    "blocked": false
+                  },
+                  "session_archive_dry_run": {
+                    "value": true,
+                    "default": true,
                     "saved": false,
                     "blocked": false
                   },

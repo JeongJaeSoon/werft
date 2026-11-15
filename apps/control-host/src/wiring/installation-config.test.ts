@@ -128,8 +128,33 @@ describe("carryInstallationConfig", () => {
     });
   }
 
+  // The archive read whole digits for its days and booleanFlag's four words
+  // for its dry run, nothing looser.
+  for (const [name, key, raw, value] of [
+    ["SESSION_ARCHIVE_AFTER_DAYS", "session_archive_after_days", "0", 0],
+    ["SESSION_ARCHIVE_AFTER_DAYS", "session_archive_after_days", "180", 180],
+    ["SESSION_ARCHIVE_DRY_RUN", "session_archive_dry_run", "true", true],
+    ["SESSION_ARCHIVE_DRY_RUN", "session_archive_dry_run", "1", true],
+    ["SESSION_ARCHIVE_DRY_RUN", "session_archive_dry_run", "0", false],
+    ["SESSION_ARCHIVE_DRY_RUN", "session_archive_dry_run", "false", false],
+  ] as const) {
+    test(`${name}=${JSON.stringify(raw)} is carried in as ${value}, as the archive read it`, async () => {
+      const memory = memoryStore();
+      expect(
+        await carryInstallationConfig({ [name]: raw }, memory.store),
+      ).toEqual({ warnings: [carried(name)] });
+      expect(memory.saved).toEqual({ [key]: value });
+    });
+  }
+
   // The values that used to stop a role at start.
   for (const [name, key, raw] of [
+    ["SESSION_ARCHIVE_AFTER_DAYS", "session_archive_after_days", "29"],
+    ["SESSION_ARCHIVE_AFTER_DAYS", "session_archive_after_days", "3e1"],
+    ["SESSION_ARCHIVE_AFTER_DAYS", "session_archive_after_days", "+30"],
+    ["SESSION_ARCHIVE_AFTER_DAYS", "session_archive_after_days", " 30"],
+    ["SESSION_ARCHIVE_DRY_RUN", "session_archive_dry_run", "maybe"],
+    ["SESSION_ARCHIVE_DRY_RUN", "session_archive_dry_run", "TRUE"],
     ["PENDING_REQUEST_TTL_SEC", "pending_request_ttl_sec", "30m"],
     ["PENDING_REQUEST_TTL_SEC", "pending_request_ttl_sec", "604801"],
     ["SESSION_COST_LIMIT_USD", "session_cost_limit_usd", "0"],

@@ -11,8 +11,9 @@ import {
   createCheckpointObjectStore,
   createStorageS3Client,
 } from "@werft-ai/storage";
+import { InstallationConfigUnavailableError } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { booleanFlag } from "../boolean-flag.ts";
+import { installationConfigOf } from "../wiring/installation-config.ts";
 import {
   assertCheckpointBucketProtection,
   type CheckpointStorageEnvironment,
@@ -20,24 +21,6 @@ import {
 } from "./checkpoints.ts";
 
 const BATCH_SIZE = 100;
-export const DEFAULT_SESSION_ARCHIVE_AFTER_DAYS = 180;
-const MIN_AFTER_DAYS = 30;
-const MAX_AFTER_DAYS = 3650;
-
-/** `0` turns archiving off; otherwise a whole number of days, 30–3650. */
-export function sessionArchiveAfterDays(value: string | undefined): number {
-  if (value === undefined || value === "") {
-    return DEFAULT_SESSION_ARCHIVE_AFTER_DAYS;
-  }
-  const days = /^\d+$/.test(value) ? Number(value) : Number.NaN;
-  if (days === 0) return 0;
-  if (!(days >= MIN_AFTER_DAYS && days <= MAX_AFTER_DAYS)) {
-    throw new Error(
-      `SESSION_ARCHIVE_AFTER_DAYS must be 0 (off) or a whole number of days from ${MIN_AFTER_DAYS} to ${MAX_AFTER_DAYS}, got "${value}"`,
-    );
-  }
-  return days;
-}
 
 type Stores = {
   db: Database;
@@ -47,23 +30,21 @@ type Stores = {
 
 /**
  * One archiving pass, then exit, on the API image with the API's object
- * store settings: moves `events` of sessions idle longer than
- * `SESSION_ARCHIVE_AFTER_DAYS` into held objects under `session-archive/`.
- * `SESSION_ARCHIVE_DRY_RUN` defaults to true, which only counts.
+ * store settings: moves `events` of sessions idle longer than the console's
+ * archive days into held objects under `session-archive/`. Both settings
+ * come from one read at the start; the dry run, which only counts, is the
+ * default.
  *
- * `restore <session id>` puts that session's archived events back instead.
+ * `restore <session id>` puts that session's archived events back instead,
+ * whatever the settings say.
  *
  * Only a `locked` deployment archives: the held version is what makes the
  * object a safe place for rows the database then deletes. Returns the exit
- * code: 1 when any session failed.
+ * code: 1 when any session failed, or the settings could not be read.
  */
 export async function runSessionArchive(input: {
   argv?: readonly string[];
-  environment: CheckpointStorageEnvironment & {
-    DATABASE_URL?: string;
-    SESSION_ARCHIVE_AFTER_DAYS?: string;
-    SESSION_ARCHIVE_DRY_RUN?: string;
-  };
+  environment: CheckpointStorageEnvironment & { DATABASE_URL?: string };
   logger: StructuredLogger;
   /** Tests substitute the stores; the product path builds them from env. */
   connect?: (config: {
@@ -79,13 +60,6 @@ export async function runSessionArchive(input: {
   ) {
     throw new Error("Usage: session-archive.ts [restore <session id>]");
   }
-  const afterDays = sessionArchiveAfterDays(
-    environment.SESSION_ARCHIVE_AFTER_DAYS,
-  );
-  const dryRun = booleanFlag(
-    environment.SESSION_ARCHIVE_DRY_RUN ?? "true",
-    "SESSION_ARCHIVE_DRY_RUN",
-  );
   const config = checkpointStorageConfigFromEnv(environment);
   if (config === "disabled" || config.protection !== "locked") {
     const reason =
@@ -96,12 +70,6 @@ export async function runSessionArchive(input: {
       throw new Error(`Cannot restore archived events: ${reason}`);
     }
     logger.info("Session archive skipped", { reason });
-    return 0;
-  }
-  if (command === undefined && afterDays === 0) {
-    logger.info("Session archive skipped", {
-      reason: "SESSION_ARCHIVE_AFTER_DAYS=0",
-    });
     return 0;
   }
   const databaseUrl = environment.DATABASE_URL;
@@ -120,6 +88,26 @@ export async function runSessionArchive(input: {
       logger.info("Session archive restored", {
         session_id: sessionId,
         ...restored,
+      });
+      return 0;
+    }
+    let afterDays: number;
+    let dryRun: boolean;
+    try {
+      const read = await installationConfigOf(stores.db, logger).read();
+      afterDays = read.get("session_archive_after_days");
+      dryRun = read.get("session_archive_dry_run");
+    } catch (error) {
+      if (!(error instanceof InstallationConfigUnavailableError)) throw error;
+      logger.error("Session archive refused: its settings cannot be read", {
+        error: error.message,
+        setting: error.key,
+      });
+      return 1;
+    }
+    if (afterDays === 0) {
+      logger.info("Session archive skipped", {
+        reason: "session_archive_after_days is 0",
       });
       return 0;
     }

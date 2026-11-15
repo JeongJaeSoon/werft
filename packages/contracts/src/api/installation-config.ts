@@ -13,6 +13,9 @@ export const PENDING_REQUEST_TTL_SEC_MAX = MAX_TURN_SECONDS_MAX;
 /** Well inside what `sessions.cost_usd` can hold, so the limit is reachable. */
 export const SESSION_COST_LIMIT_USD_MAX = 1_000_000;
 
+export const SESSION_ARCHIVE_AFTER_DAYS_MIN = 30;
+export const SESSION_ARCHIVE_AFTER_DAYS_MAX = 3650;
+
 /**
  * The settings of the whole installation an owner keeps in the console, by
  * key. `env` is the variable they were read from before: migrate carries it
@@ -77,6 +80,28 @@ export const INSTALLATION_CONFIG = {
     schema: z.number().int().min(0).max(PROVIDER_MAX_RETRIES_MAX),
     default: 2,
   },
+  /**
+   * Days a session stays idle before its events move into held objects;
+   * 0 archives nothing.
+   */
+  session_archive_after_days: {
+    env: "SESSION_ARCHIVE_AFTER_DAYS",
+    schema: z.union([
+      z.literal(0),
+      z
+        .number()
+        .int()
+        .min(SESSION_ARCHIVE_AFTER_DAYS_MIN)
+        .max(SESSION_ARCHIVE_AFTER_DAYS_MAX),
+    ]),
+    default: 180,
+  },
+  /** True only counts what archiving would move. */
+  session_archive_dry_run: {
+    env: "SESSION_ARCHIVE_DRY_RUN",
+    schema: z.boolean(),
+    default: true,
+  },
 } as const;
 
 export type InstallationConfigKey = keyof typeof INSTALLATION_CONFIG;
@@ -111,7 +136,19 @@ const rule = <K extends InstallationConfigKey>(
   key: K,
 ): (typeof INSTALLATION_CONFIG)[K]["schema"] => INSTALLATION_CONFIG[key].schema;
 
-export const installationConfigSchema = z
+/**
+ * Whether archiving can run, as the API's object store settings say; the
+ * archive job reads its own and may be switched off apart.
+ */
+export const sessionArchiveStatusSchema = z
+  .object({
+    available: z.boolean(),
+    reason: z.enum(["object_store_disabled", "unversioned"]).nullable(),
+  })
+  .strict();
+
+/** Every key's entry, as the settings source reads them. */
+export const installationConfigEntriesSchema = z
   .object({
     pending_request_ttl_sec: entrySchema(rule("pending_request_ttl_sec")),
     queued_input_limit_per_session: entrySchema(
@@ -123,7 +160,13 @@ export const installationConfigSchema = z
     workspace_enforce: entrySchema(rule("workspace_enforce")),
     max_turn_seconds: entrySchema(rule("max_turn_seconds")),
     provider_max_retries: entrySchema(rule("provider_max_retries")),
+    session_archive_after_days: entrySchema(rule("session_archive_after_days")),
+    session_archive_dry_run: entrySchema(rule("session_archive_dry_run")),
   } satisfies Record<InstallationConfigKey, z.ZodType>)
+  .strict();
+
+export const installationConfigSchema = installationConfigEntriesSchema
+  .extend({ session_archive: sessionArchiveStatusSchema })
   .strict();
 
 /** Only the keys to change; one transaction for all of them. */
@@ -139,6 +182,8 @@ export const updateInstallationConfigRequestSchema = z
     workspace_enforce: rule("workspace_enforce").optional(),
     max_turn_seconds: rule("max_turn_seconds").optional(),
     provider_max_retries: rule("provider_max_retries").optional(),
+    session_archive_after_days: rule("session_archive_after_days").optional(),
+    session_archive_dry_run: rule("session_archive_dry_run").optional(),
   } satisfies Record<InstallationConfigKey, z.ZodType>)
   .strict();
 
@@ -149,6 +194,10 @@ export const updateInstallationConfigResponseSchema = installationConfigSchema
   })
   .strict();
 
+export type InstallationConfigEntries = z.infer<
+  typeof installationConfigEntriesSchema
+>;
+export type SessionArchiveStatus = z.infer<typeof sessionArchiveStatusSchema>;
 export type InstallationConfig = z.infer<typeof installationConfigSchema>;
 export type UpdateInstallationConfigRequest = z.infer<
   typeof updateInstallationConfigRequestSchema

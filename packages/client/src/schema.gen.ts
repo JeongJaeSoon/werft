@@ -5254,6 +5254,8 @@ export interface components {
             workspace_enforce?: "warn" | "fail" | "off";
             max_turn_seconds?: number;
             provider_max_retries?: number;
+            session_archive_after_days?: 0 | number;
+            session_archive_dry_run?: boolean;
         };
         SetLoginProviderSecretRequest: {
             value: string;
@@ -8155,6 +8157,22 @@ export interface components {
                 saved: boolean;
                 blocked: boolean;
             };
+            session_archive_after_days: {
+                value: 0 | number;
+                default: 0 | number;
+                saved: boolean;
+                blocked: boolean;
+            };
+            session_archive_dry_run: {
+                value: boolean;
+                default: boolean;
+                saved: boolean;
+                blocked: boolean;
+            };
+            session_archive: {
+                available: boolean;
+                reason: ("object_store_disabled" | "unversioned") | null;
+            };
         };
         UpdateInstallationConfigResponse: {
             pending_request_ttl_sec: {
@@ -8206,6 +8224,22 @@ export interface components {
                 default: number;
                 saved: boolean;
                 blocked: boolean;
+            };
+            session_archive_after_days: {
+                value: 0 | number;
+                default: 0 | number;
+                saved: boolean;
+                blocked: boolean;
+            };
+            session_archive_dry_run: {
+                value: boolean;
+                default: boolean;
+                saved: boolean;
+                blocked: boolean;
+            };
+            session_archive: {
+                available: boolean;
+                reason: ("object_store_disabled" | "unversioned") | null;
             };
             /** Format: uuid */
             receipt_id?: string;
@@ -19133,6 +19167,18 @@ export interface operations {
                      *         "default": 2,
                      *         "saved": false,
                      *         "blocked": false
+                     *       },
+                     *       "session_archive_after_days": {
+                     *         "value": 180,
+                     *         "default": 180,
+                     *         "saved": false,
+                     *         "blocked": false
+                     *       },
+                     *       "session_archive_dry_run": {
+                     *         "value": true,
+                     *         "default": true,
+                     *         "saved": false,
+                     *         "blocked": false
                      *       }
                      *     }
                      */
@@ -19264,6 +19310,18 @@ export interface operations {
                      *       "provider_max_retries": {
                      *         "value": 2,
                      *         "default": 2,
+                     *         "saved": false,
+                     *         "blocked": false
+                     *       },
+                     *       "session_archive_after_days": {
+                     *         "value": 180,
+                     *         "default": 180,
+                     *         "saved": false,
+                     *         "blocked": false
+                     *       },
+                     *       "session_archive_dry_run": {
+                     *         "value": true,
+                     *         "default": true,
                      *         "saved": false,
                      *         "blocked": false
                      *       },
