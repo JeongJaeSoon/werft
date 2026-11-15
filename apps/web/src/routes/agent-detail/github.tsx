@@ -717,7 +717,7 @@ function GitHubSettings({
       >
         <div className={SETTINGS_CARD}>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
-            <IconTile icon={TileMark} hue="slate" size="two-line" />
+            <IconTile icon={TileMark} size="two-line" />
             <div className="flex min-w-0 flex-1 flex-col">
               <div className="flex flex-wrap items-center gap-2">
                 <Heading id={titleId} level={2}>

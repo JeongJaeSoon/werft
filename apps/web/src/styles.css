@@ -111,7 +111,7 @@ select:focus-visible,
 }
 .web-status__title {
   margin: 0;
-  font-weight: var(--werft-weight-bold);
+  font-weight: var(--werft-weight-medium);
   font-size: var(--werft-text-label);
   display: flex;
   align-items: center;
