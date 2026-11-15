@@ -135,7 +135,7 @@ export function ApprovalCard({
         <Text
           as="span"
           aria-hidden="true"
-          className="font-semibold text-[var(--werft-tone-attention-fg)] text-body"
+          className="font-medium text-[var(--werft-tone-attention-fg)] text-body"
         >
           {messages.heading ?? messages.title(request.tool)}
         </Text>

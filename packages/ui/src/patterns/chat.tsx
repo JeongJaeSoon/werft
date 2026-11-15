@@ -60,7 +60,7 @@ export function ChatMessage({
         )}
       >
         <header className="flex flex-wrap items-baseline gap-x-2 text-caption">
-          <span className="font-semibold text-control text-foreground">
+          <span className="font-medium text-control text-foreground">
             {author}
           </span>
           {time ? <span className="text-muted-foreground">{time}</span> : null}

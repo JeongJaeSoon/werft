@@ -284,7 +284,7 @@ export function SessionDetail({
     >
       <header className="flex min-w-0 flex-col gap-2">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
-          <h1 className="m-0 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 font-semibold text-title">
+          <h1 className="m-0 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 font-medium text-title">
             {/* A server from before titles sends none at all. */}
             {detail.title ? (
               <span className="[overflow-wrap:anywhere]">{detail.title}</span>
