@@ -14,9 +14,16 @@
  * this was written on did, OrbStack and the host alike), a scan of mtimes and
  * sizes every DEV_POLL_MS (default 1000, 0 turns it off) finds the change.
  * A restart sends SIGTERM and waits DEV_STOP_GRACE_MS (default 30000) before
- * SIGKILL, so a pass loop stops at its safe point. A command that exits on its
- * own starts again on the next change, not before: a crash on a half-written
- * file waits for the fix instead of looping.
+ * SIGKILL, so a pass loop stops at its safe point.
+ *
+ * A command that exits on its own starts again after a delay, as Docker's
+ * restart policy would start the container outside dev: this process keeps the
+ * container up, so that policy never sees the exit. A pass loop that gave up
+ * on a dependency gone for a few seconds (a recreated egress proxy, 94S-1641)
+ * thus comes back without a save. The delay doubles from DEV_RESTART_MIN_MS
+ * (default 1000) to DEV_RESTART_MAX_MS (default 30000) while the command keeps
+ * exiting within the longest delay, so a crash on a half-written file costs
+ * one start per longest delay, and a change starts it at once.
  */
 
 import {
@@ -128,15 +135,46 @@ async function main(args: string[]) {
   log(`watching ${roots.join(", ")}`);
   const pollMs = intEnv("DEV_POLL_MS", 1000);
   const graceMs = intEnv("DEV_STOP_GRACE_MS", 30_000);
+  const minDelayMs = intEnv("DEV_RESTART_MIN_MS", 1000);
+  const maxDelayMs = intEnv("DEV_RESTART_MAX_MS", 30_000);
+  // A timer above 2^31 - 1 ms fires after 1ms instead.
+  if (minDelayMs < 1 || maxDelayMs < minDelayMs || maxDelayMs > 2 ** 31 - 1) {
+    log(
+      "DEV_RESTART_MIN_MS must be at least 1, and DEV_RESTART_MAX_MS at least that and at most 2147483647",
+    );
+    process.exit(2);
+  }
 
   let child: Bun.Subprocess;
+  // One scan at a time; events and the poll only ask for one.
+  let queue = Promise.resolve();
+  let pending: Timer | undefined;
+  let shuttingDown = false;
+  let delayMs = minDelayMs;
+  let restart: Timer | undefined;
   const start = () => {
+    clearTimeout(restart);
+    restart = undefined;
+    const startedAt = Date.now();
     const started = Bun.spawn(command, {
       stdio: ["ignore", "inherit", "inherit"],
     });
     void started.exited.then((code) => {
-      if (child === started && !stopping.has(started))
-        log(`exited with ${code ?? started.signalCode}; waiting for a change`);
+      if (child !== started || stopping.has(started) || shuttingDown) return;
+      if (Date.now() - startedAt >= maxDelayMs) delayMs = minDelayMs;
+      log(
+        `exited with ${code ?? started.signalCode}; starting again in ${delayMs / 1000}s`,
+      );
+      restart = setTimeout(() => {
+        restart = undefined;
+        // Queued with the change checks, so a restart in flight is not doubled.
+        queue = queue
+          .then(() => {
+            if (child === started && !shuttingDown) child = start();
+          })
+          .catch((error) => log(`restart failed: ${error}`));
+      }, delayMs);
+      delayMs = Math.min(delayMs * 2, maxDelayMs);
     });
     return started;
   };
@@ -156,15 +194,13 @@ async function main(args: string[]) {
 
   let last = snapshot(roots);
   child = start();
-  // One scan at a time; events and the poll only ask for one.
-  let queue = Promise.resolve();
-  let pending: Timer | undefined;
-  let shuttingDown = false;
   const check = async () => {
     const next = snapshot(roots);
     if (sameSnapshot(last, next)) return;
     last = next;
     log("source changed; restarting");
+    // New code earns a fresh start rather than the old one's delay.
+    delayMs = minDelayMs;
     await stop(child);
     if (!shuttingDown) child = start();
   };
