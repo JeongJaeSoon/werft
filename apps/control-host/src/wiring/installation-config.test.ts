@@ -83,6 +83,8 @@ describe("carryInstallationConfig", () => {
         SESSION_COST_LIMIT_USD: "0.5",
         SESSION_TOKEN_LIMIT: "0",
         WORKSPACE_ENFORCE: "fail",
+        MAX_TURN_SECONDS: "600",
+        PROVIDER_MAX_RETRIES: "0",
       },
       memory.store,
     );
@@ -92,6 +94,8 @@ describe("carryInstallationConfig", () => {
       session_cost_limit_usd: 0.5,
       session_token_limit: 0,
       workspace_enforce: "fail",
+      max_turn_seconds: 600,
+      provider_max_retries: 0,
     });
   });
 
@@ -132,6 +136,8 @@ describe("carryInstallationConfig", () => {
     ["SESSION_TOKEN_LIMIT", "session_token_limit", "1.5"],
     ["STORAGE_LIMIT_BYTES", "storage_limit_bytes", "lots"],
     ["WORKSPACE_ENFORCE", "workspace_enforce", "force"],
+    ["MAX_TURN_SECONDS", "max_turn_seconds", "0"],
+    ["PROVIDER_MAX_RETRIES", "provider_max_retries", "11"],
   ] as const) {
     test(`${name}=${JSON.stringify(raw)} is kept as a refusal, and the warning never carries it`, async () => {
       const memory = memoryStore();
@@ -184,6 +190,10 @@ describe("createInstallationConfigSource", () => {
       sessionTokenLimit: null,
     });
     expect(await source.get("workspace_enforce")).toBe("warn");
+    expect(await source.workerLimits()).toEqual({
+      maxTurnSeconds: 3600,
+      providerMaxRetries: 2,
+    });
     expect(source.loaded()).toBe(true);
   });
 
@@ -239,6 +249,30 @@ describe("createInstallationConfigSource", () => {
     );
     expect(await source.sessionBudget()).toEqual({ costUsd: 25, tokens: null });
     expect(await source.get("workspace_enforce")).toBe("warn");
+    expect(await source.workerLimits()).toEqual({
+      maxTurnSeconds: 3600,
+      providerMaxRetries: 2,
+    });
+  });
+
+  test("the worker limits come from one read, and either blocked refuses both", async () => {
+    const memory = memoryStore({ max_turn_seconds: 1200 });
+    const { source, advance } = sourceOver(memory);
+    expect(await source.workerLimits()).toEqual({
+      maxTurnSeconds: 1200,
+      providerMaxRetries: 2,
+    });
+    memory.saved.provider_max_retries = {
+      refused_env: "PROVIDER_MAX_RETRIES",
+    };
+    advance(10_000);
+    const refused = await source.workerLimits().catch((error) => error);
+    expect(refused).toBeInstanceOf(InstallationConfigUnavailableError);
+    expect((refused as InstallationConfigUnavailableError).key).toBe(
+      "provider_max_retries",
+    );
+    // The session limits read nothing of it.
+    expect((await source.sessionLimits()).queuedInputLimitPerSession).toBe(20);
   });
 
   test("a saved value that breaks the key's rule blocks the key instead of running on the default", async () => {

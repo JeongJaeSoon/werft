@@ -144,11 +144,7 @@ describe("readiness probe", () => {
 
   test("fails the config check on invalid installation limits", async () => {
     const db = await database(true);
-    const limits = {
-      EXECUTION_SLOT_LIMIT: "10",
-      MAX_TURN_SECONDS: "3600",
-      PROVIDER_MAX_RETRIES: "2",
-    };
+    const limits = { EXECUTION_SLOT_LIMIT: "10" };
     const probe = (extra: Record<string, string | undefined>) =>
       createReadinessProbe({
         db,
@@ -158,16 +154,17 @@ describe("readiness probe", () => {
       })();
     expect(await probe({})).toEqual({ ready: true });
     // A limit the console keeps is not read here, set or not.
-    expect(await probe({ SESSION_COST_LIMIT_USD: "abc" })).toEqual({
-      ready: true,
-    });
     expect(
-      await probe({ PROVIDER_MAX_RETRIES: undefined, MAX_TURN_SECONDS: "0" }),
-    ).toEqual({
+      await probe({
+        SESSION_COST_LIMIT_USD: "abc",
+        MAX_TURN_SECONDS: "0",
+        PROVIDER_MAX_RETRIES: "11",
+      }),
+    ).toEqual({ ready: true });
+    expect(await probe({ EXECUTION_SLOT_LIMIT: undefined })).toEqual({
       ready: false,
       check: "config",
-      reason:
-        "configuration: MAX_TURN_SECONDS must be an integer from 1 to 604800, PROVIDER_MAX_RETRIES is required",
+      reason: "configuration: EXECUTION_SLOT_LIMIT is required",
     });
   });
 
@@ -175,8 +172,6 @@ describe("readiness probe", () => {
     const irsa = {
       ...environment,
       EXECUTION_SLOT_LIMIT: "10",
-      MAX_TURN_SECONDS: "3600",
-      PROVIDER_MAX_RETRIES: "2",
       QUEUED_INPUT_LIMIT_PER_SESSION: "20",
       SESSION_COST_LIMIT_USD: "25",
       STORAGE_LIMIT_BYTES: "1073741824",

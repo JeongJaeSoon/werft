@@ -1,8 +1,14 @@
 import { z } from "zod";
 import { workspaceEnforceSchema } from "../shared/index.ts";
 
-/** A week, as MAX_TURN_SECONDS allows at most; no turn waits longer. */
-export const PENDING_REQUEST_TTL_SEC_MAX = 7 * 24 * 60 * 60;
+/** A worker's setTimeout overflows past 2^31-1 ms; a week is far inside that. */
+export const MAX_TURN_SECONDS_MAX = 7 * 24 * 60 * 60;
+
+/** Past this the engine clamps it anyway, and each retry backs off longer. */
+export const PROVIDER_MAX_RETRIES_MAX = 10;
+
+/** As long as a turn may run; no turn waits longer. */
+export const PENDING_REQUEST_TTL_SEC_MAX = MAX_TURN_SECONDS_MAX;
 
 /** Well inside what `sessions.cost_usd` can hold, so the limit is reachable. */
 export const SESSION_COST_LIMIT_USD_MAX = 1_000_000;
@@ -53,6 +59,24 @@ export const INSTALLATION_CONFIG = {
     schema: workspaceEnforceSchema,
     default: "warn",
   },
+  /**
+   * Wall-clock budget of one turn. A worker is started with it and keeps
+   * the value it was started with; a change reaches the next launch.
+   */
+  max_turn_seconds: {
+    env: "MAX_TURN_SECONDS",
+    schema: z.number().int().min(1).max(MAX_TURN_SECONDS_MAX),
+    default: 3600,
+  },
+  /**
+   * Retries of a failed provider request before the turn fails; 0 fails it
+   * at the first. Fixed per worker, as the turn time is.
+   */
+  provider_max_retries: {
+    env: "PROVIDER_MAX_RETRIES",
+    schema: z.number().int().min(0).max(PROVIDER_MAX_RETRIES_MAX),
+    default: 2,
+  },
 } as const;
 
 export type InstallationConfigKey = keyof typeof INSTALLATION_CONFIG;
@@ -97,6 +121,8 @@ export const installationConfigSchema = z
     session_cost_limit_usd: entrySchema(rule("session_cost_limit_usd")),
     session_token_limit: entrySchema(rule("session_token_limit")),
     workspace_enforce: entrySchema(rule("workspace_enforce")),
+    max_turn_seconds: entrySchema(rule("max_turn_seconds")),
+    provider_max_retries: entrySchema(rule("provider_max_retries")),
   } satisfies Record<InstallationConfigKey, z.ZodType>)
   .strict();
 
@@ -111,6 +137,8 @@ export const updateInstallationConfigRequestSchema = z
     session_cost_limit_usd: rule("session_cost_limit_usd").optional(),
     session_token_limit: rule("session_token_limit").optional(),
     workspace_enforce: rule("workspace_enforce").optional(),
+    max_turn_seconds: rule("max_turn_seconds").optional(),
+    provider_max_retries: rule("provider_max_retries").optional(),
   } satisfies Record<InstallationConfigKey, z.ZodType>)
   .strict();
 

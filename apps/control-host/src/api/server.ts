@@ -542,13 +542,14 @@ const sessionOutputs = createSessionOutputService({
   source: checkpoints.outputs,
 });
 // The same limits admission and dispatch run under, so what this reports is
-// what the gates enforce.
+// what the gates enforce; the worker limits are what the next launch takes.
 const usage = createUsageService({
   authorization,
   reader: createPostgresUsageReader(db),
   limits: async () => ({
     ...limits,
     ...(await installationConfig.sessionLimits()),
+    ...(await installationConfig.workerLimits()),
   }),
 });
 const pendingRequests = createPendingRequestService({

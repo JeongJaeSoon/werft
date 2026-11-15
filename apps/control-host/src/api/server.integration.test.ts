@@ -249,8 +249,6 @@ async function refusedStart(
       CHECKPOINT_OBJECT_STORE: "disabled",
       DATABASE_URL: databaseUrl,
       EXECUTION_SLOT_LIMIT: "10",
-      MAX_TURN_SECONDS: "3600",
-      PROVIDER_MAX_RETRIES: "2",
       QUEUED_INPUT_LIMIT_PER_SESSION: "20",
       SESSION_COST_LIMIT_USD: "25",
       STORAGE_LIMIT_BYTES: "1073741824",
@@ -397,8 +395,6 @@ integration("API server on PostgreSQL", () => {
             process.env.CHECKPOINT_OBJECT_STORE ?? "disabled",
           DATABASE_URL: databaseUrl,
           EXECUTION_SLOT_LIMIT: "10",
-          MAX_TURN_SECONDS: "3600",
-          PROVIDER_MAX_RETRIES: "2",
           QUEUED_INPUT_LIMIT_PER_SESSION: "20",
           SESSION_COST_LIMIT_USD: "25",
           STORAGE_LIMIT_BYTES: "1073741824",
@@ -624,8 +620,6 @@ integration("API server on PostgreSQL", () => {
           CHECKPOINT_OBJECT_STORE: "disabled",
           DATABASE_URL: databaseUrl,
           EXECUTION_SLOT_LIMIT: "10",
-          MAX_TURN_SECONDS: "3600",
-          PROVIDER_MAX_RETRIES: "2",
           QUEUED_INPUT_LIMIT_PER_SESSION: "20",
           SESSION_COST_LIMIT_USD: "25",
           STORAGE_LIMIT_BYTES: "1073741824",
@@ -827,8 +821,6 @@ integration("API server on PostgreSQL", () => {
           CHECKPOINT_OBJECT_STORE: "disabled",
           DATABASE_URL: databaseUrl,
           EXECUTION_SLOT_LIMIT: "10",
-          MAX_TURN_SECONDS: "3600",
-          PROVIDER_MAX_RETRIES: "2",
           QUEUED_INPUT_LIMIT_PER_SESSION: "20",
           SESSION_COST_LIMIT_USD: "25",
           STORAGE_LIMIT_BYTES: "1073741824",
@@ -943,7 +935,7 @@ integration("API server on PostgreSQL", () => {
   );
 
   test(
-    "refuses to start on missing or malformed installation limits, naming each",
+    "refuses to start on a malformed slot limit, and reads no limit the console keeps",
     async () => {
       const server = Bun.spawn(["bun", "run", "src/main.ts", "api"], {
         cwd: `${import.meta.dir}/../..`,
@@ -951,10 +943,10 @@ integration("API server on PostgreSQL", () => {
           ...process.env,
           AUTH_MODE: "api-key",
           DATABASE_URL: databaseUrl,
-          EXECUTION_SLOT_LIMIT: "10",
-          MAX_TURN_SECONDS: "0",
           // A blank is a wrong value, not the default, and overrides whatever
           // the runner has.
+          EXECUTION_SLOT_LIMIT: "",
+          MAX_TURN_SECONDS: "0",
           PROVIDER_MAX_RETRIES: "",
           PORT: "0",
         },
@@ -979,11 +971,10 @@ integration("API server on PostgreSQL", () => {
         "Refusing to start: installation limits are invalid",
       );
       expect(logs).toContain(
-        "MAX_TURN_SECONDS must be an integer from 1 to 604800",
+        "EXECUTION_SLOT_LIMIT must be an integer from 0 to 10000",
       );
-      expect(logs).toContain(
-        "PROVIDER_MAX_RETRIES must be an integer from 0 to 10",
-      );
+      expect(logs).not.toContain("MAX_TURN_SECONDS");
+      expect(logs).not.toContain("PROVIDER_MAX_RETRIES");
     },
     TEST_TIMEOUT_MS,
   );

@@ -5252,6 +5252,8 @@ export interface components {
             session_token_limit?: number;
             /** @enum {string} */
             workspace_enforce?: "warn" | "fail" | "off";
+            max_turn_seconds?: number;
+            provider_max_retries?: number;
         };
         SetLoginProviderSecretRequest: {
             value: string;
@@ -8141,6 +8143,18 @@ export interface components {
                 saved: boolean;
                 blocked: boolean;
             };
+            max_turn_seconds: {
+                value: number;
+                default: number;
+                saved: boolean;
+                blocked: boolean;
+            };
+            provider_max_retries: {
+                value: number;
+                default: number;
+                saved: boolean;
+                blocked: boolean;
+            };
         };
         UpdateInstallationConfigResponse: {
             pending_request_ttl_sec: {
@@ -8178,6 +8192,18 @@ export interface components {
                 value: "warn" | "fail" | "off";
                 /** @enum {string} */
                 default: "warn" | "fail" | "off";
+                saved: boolean;
+                blocked: boolean;
+            };
+            max_turn_seconds: {
+                value: number;
+                default: number;
+                saved: boolean;
+                blocked: boolean;
+            };
+            provider_max_retries: {
+                value: number;
+                default: number;
                 saved: boolean;
                 blocked: boolean;
             };
@@ -19095,6 +19121,18 @@ export interface operations {
                      *         "default": "warn",
                      *         "saved": false,
                      *         "blocked": false
+                     *       },
+                     *       "max_turn_seconds": {
+                     *         "value": 3600,
+                     *         "default": 3600,
+                     *         "saved": false,
+                     *         "blocked": false
+                     *       },
+                     *       "provider_max_retries": {
+                     *         "value": 2,
+                     *         "default": 2,
+                     *         "saved": false,
+                     *         "blocked": false
                      *       }
                      *     }
                      */
@@ -19214,6 +19252,18 @@ export interface operations {
                      *       "workspace_enforce": {
                      *         "value": "warn",
                      *         "default": "warn",
+                     *         "saved": false,
+                     *         "blocked": false
+                     *       },
+                     *       "max_turn_seconds": {
+                     *         "value": 3600,
+                     *         "default": 3600,
+                     *         "saved": false,
+                     *         "blocked": false
+                     *       },
+                     *       "provider_max_retries": {
+                     *         "value": 2,
+                     *         "default": 2,
                      *         "saved": false,
                      *         "blocked": false
                      *       },

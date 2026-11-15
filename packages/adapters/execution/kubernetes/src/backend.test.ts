@@ -360,29 +360,31 @@ describe("worker limits pinned to the launch", () => {
     );
   }
 
-  test("a Pod a host from before the pin built is current under the same limits, stale under others", async () => {
+  test("a Pod a host from before the pin built is current when its stamp names the limits its worker got", async () => {
     const api = new FakeKubernetes();
     const { intent } = intentFor();
+    // Its worker got 900 seconds, from the host that built it.
     await withLimits(api, limits).ensureExecution(intent);
     api.setPhase(NS, podName, "Running");
     const annotations = api.objects.get(`${NS}/pods/${podName}`)?.metadata
       .annotations as Record<string, string> | undefined;
     if (annotations === undefined) throw new Error("no pod");
-    annotations[ANNOTATIONS.isolation] = legacyIsolationStampFor(
-      { ...testConfig(NS, INSTALLATION), workerLimits: limits },
-      TEST_PROXY_ADDRESS,
-    );
+    const stampWith = (workerLimits: typeof limits) =>
+      legacyIsolationStampFor(
+        testConfig(NS, INSTALLATION),
+        TEST_PROXY_ADDRESS,
+        workerLimits,
+      );
+    // Whatever this host is configured with: the Pod's env speaks.
+    const host = withLimits(api, { ...limits, maxTurnSeconds: 1800 });
 
-    expect(
-      (await withLimits(api, limits).inspect(intent)).stale,
-    ).toBeUndefined();
-    expect(
-      (
-        await withLimits(api, { ...limits, maxTurnSeconds: 1800 }).inspect(
-          intent,
-        )
-      ).stale,
-    ).toBe(true);
+    annotations[ANNOTATIONS.isolation] = stampWith(limits);
+    expect((await host.inspect(intent)).stale).toBeUndefined();
+    annotations[ANNOTATIONS.isolation] = stampWith({
+      ...limits,
+      maxTurnSeconds: 1800,
+    });
+    expect((await host.inspect(intent)).stale).toBe(true);
   });
 
   test("inspect reports the limits the Pod's worker was started with", async () => {

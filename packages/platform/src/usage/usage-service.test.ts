@@ -39,7 +39,8 @@ import {
   toolFindings,
 } from "./usage-service.ts";
 
-const limits: InstallationLimits & SessionLimits = {
+const limits: InstallationLimits &
+  SessionLimits & { maxTurnSeconds: number; providerMaxRetries: number } = {
   executionSlotLimit: 0,
   queuedInputLimitPerSession: 3,
   storageLimitBytes: Number.MAX_SAFE_INTEGER,

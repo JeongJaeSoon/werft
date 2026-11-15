@@ -192,8 +192,6 @@ integration(
       EXECUTION_EGRESS_PROXY_URL: proxyUrl,
       EXECUTION_INSTALLATION_ID: installationId,
       EXECUTION_SLOT_LIMIT: "1",
-      MAX_TURN_SECONDS: "3600",
-      PROVIDER_MAX_RETRIES: "2",
       // The runner's data root is ext4, so this daemon cannot put a ceiling
       // on a volume and the preflight refuses to start without the opt-out.
       // The ceiling itself is covered by the `workspace-quota` job.

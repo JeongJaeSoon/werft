@@ -826,7 +826,12 @@ export class KubernetesBackend implements ExecutionBackend {
     if (!Number.isInteger(version) || version < 1) return "stale";
     if (version > ISOLATION_CONTRACT) return "newer";
     return stamp === isolationStampFor(this.config, proxyAddress) ||
-      stamp === legacyIsolationStampFor(this.config, proxyAddress)
+      stamp ===
+        legacyIsolationStampFor(
+          this.config,
+          proxyAddress,
+          workerLimitsOfPod(pod),
+        )
       ? "current"
       : "stale";
   }

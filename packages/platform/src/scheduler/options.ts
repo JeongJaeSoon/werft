@@ -1,8 +1,10 @@
 import type { ImageRuntime } from "@werft-ai/runtime-core";
+import type { Setting } from "../limits/index.ts";
 import type {
   ExecutionBackend,
   ExecutionRef,
   ExecutionResources,
+  WorkerLimits,
 } from "./ports/execution-backend.ts";
 import type { SchedulerStore } from "./ports/scheduler-store.ts";
 
@@ -114,6 +116,13 @@ export type SchedulerOptions = {
   /** Replacements per launch before it is closed instead; see the default. */
   replacementLimit?: number;
   resources: ExecutionResources;
+  /**
+   * The worker limits a launch reserved now is pinned to, read once per
+   * pass; left out, `resources.workerLimits` is that value. While a read
+   * fails nothing without limits of its own is built, and nothing running
+   * is judged against them: what runs keeps the limits it was started with.
+   */
+  workerLimits?: Setting<WorkerLimits>;
   slotLimit: number;
   /** See `DEFAULT_STOPPED_WORKSPACE_TTL_MS`. */
   stoppedWorkspaceTtlMs?: number;

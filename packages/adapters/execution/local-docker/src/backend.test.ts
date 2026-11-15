@@ -1020,16 +1020,18 @@ test("the isolation stamp leaves the worker limits to the launch", () => {
     workerLimits: { maxTurnSeconds: 900, providerMaxRetries: 2 },
   };
   expect(isolationStampFor(limited)).toBe(isolationStampFor(base));
-  // What a host from before the pin stamped: its limits, or none before
-  // they existed. Neither is what this host stamps.
-  expect(legacyIsolationStampFor(limited)).not.toBe(isolationStampFor(limited));
-  expect(legacyIsolationStampFor(base)).not.toBe(isolationStampFor(base));
+  // What a host from before the pin stamped: the limits its worker got, or
+  // none before they existed. Neither is what this host stamps.
+  const got = { maxTurnSeconds: 900, providerMaxRetries: 2 };
+  expect(legacyIsolationStampFor(base, got)).not.toBe(isolationStampFor(base));
+  expect(legacyIsolationStampFor(base, null)).not.toBe(isolationStampFor(base));
   expect(
-    legacyIsolationStampFor({
-      ...limited,
-      workerLimits: { maxTurnSeconds: 1800, providerMaxRetries: 2 },
-    }),
-  ).not.toBe(legacyIsolationStampFor(limited));
+    legacyIsolationStampFor(base, { ...got, maxTurnSeconds: 1800 }),
+  ).not.toBe(legacyIsolationStampFor(base, got));
+  // The limits this host was configured with play no part in it.
+  expect(legacyIsolationStampFor(limited, got)).toBe(
+    legacyIsolationStampFor(base, got),
+  );
 });
 
 test("starts the worker with the limits its launch was reserved with", () => {
@@ -1439,30 +1441,38 @@ describe("LocalDockerBackend.ensureExecution", () => {
     expect(result.providerRef).not.toBe(stale.id);
   });
 
-  test("a container a host from before the pin built is adopted under the same limits, replaced under others", async () => {
+  test("a container a host from before the pin built is adopted when its stamp names the limits its worker got", async () => {
+    // This host is configured with no limits: the container's env speaks.
     const limits = { maxTurnSeconds: 900, providerMaxRetries: 2 };
-    const intent = intentFor();
-    const body = await createBodyOf(intent);
-    body.Labels[LABELS.isolation] = legacyIsolationStampFor({
-      ...configFor(docker.host),
-      workerLimits: limits,
+    const intent = intentFor({
+      resources: { ...intentFor().resources, workerLimits: limits },
     });
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.isolation] = legacyIsolationStampFor(
+      configFor(docker.host),
+      limits,
+    );
     const old = docker.add(containerNameFor(intent, "test-a"), body);
 
-    const same = new LocalDockerBackend({
-      ...configFor(docker.host),
-      workerLimits: limits,
-    });
-    expect(await same.ensureExecution(intent)).toMatchObject({
+    expect(await backend.ensureExecution(intent)).toMatchObject({
       created: false,
       providerRef: old.id,
     });
+  });
 
-    const moved = new LocalDockerBackend({
-      ...configFor(docker.host),
-      workerLimits: { ...limits, maxTurnSeconds: 1800 },
+  test("a container whose old stamp names other limits than its worker got is replaced", async () => {
+    const limits = { maxTurnSeconds: 900, providerMaxRetries: 2 };
+    const intent = intentFor({
+      resources: { ...intentFor().resources, workerLimits: limits },
     });
-    const result = await moved.ensureExecution(intent);
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.isolation] = legacyIsolationStampFor(
+      configFor(docker.host),
+      { ...limits, maxTurnSeconds: 1800 },
+    );
+    const old = docker.add(containerNameFor(intent, "test-a"), body);
+
+    const result = await backend.ensureExecution(intent);
     expect(result).toMatchObject({ created: true, state: "running" });
     expect(result.providerRef).not.toBe(old.id);
   });

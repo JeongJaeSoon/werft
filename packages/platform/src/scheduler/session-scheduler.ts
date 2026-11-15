@@ -1,4 +1,7 @@
-import { InstallationConfigUnavailableError } from "../limits/index.ts";
+import {
+  InstallationConfigUnavailableError,
+  readSetting,
+} from "../limits/index.ts";
 import { fillSlots } from "./launch.ts";
 import {
   DEFAULT_DRAIN_DEADLINE_MS,
@@ -12,7 +15,11 @@ import {
 } from "./options.ts";
 import { reconcileNetworks, terminateOrphans } from "./orphans.ts";
 import { type PassContext, refOf, storedSpecOf } from "./pass-context.ts";
-import type { LaunchIntent } from "./ports/execution-backend.ts";
+import type {
+  ExecutionResources,
+  LaunchIntent,
+  WorkerLimits,
+} from "./ports/execution-backend.ts";
 import { parseExecutionResources } from "./ports/execution-backend.ts";
 import type { StoredLaunchIntent } from "./ports/scheduler-store.ts";
 import { reconcileRows } from "./reconcile.ts";
@@ -204,12 +211,51 @@ function emptySummary(slotLimit: number): SchedulerRunSummary {
   };
 }
 
+/**
+ * This pass's worker limits. A read the settings refuse (a value that could
+ * not be carried in, or settings unread for too long) is no limits at all,
+ * not a default.
+ */
+async function workerLimitsOf(options: SchedulerOptions): Promise<{
+  value: WorkerLimits | null;
+  unread: boolean;
+  key: string | null;
+}> {
+  if (options.workerLimits === undefined) {
+    return {
+      value: options.resources.workerLimits ?? null,
+      unread: false,
+      key: null,
+    };
+  }
+  try {
+    return {
+      value: await readSetting(options.workerLimits),
+      unread: false,
+      key: null,
+    };
+  } catch (error) {
+    if (!(error instanceof InstallationConfigUnavailableError)) throw error;
+    return { value: null, unread: true, key: error.key };
+  }
+}
+
 async function pass(
   options: SchedulerOptions,
   lock: AbortSignal,
 ): Promise<SchedulerRunSummary> {
   const now = options.now ?? (() => new Date());
   const { backend, logger, store } = options;
+  const limits = await workerLimitsOf(options);
+  // A launch with limits of its own starts with them; one reserved before
+  // they were pinned starts with this pass's.
+  const resourcesOf = (stored: StoredLaunchIntent): ExecutionResources => {
+    const resources = stored.resources ?? options.resources;
+    if (resources.workerLimits !== undefined || limits.value === null) {
+      return resources;
+    }
+    return { ...resources, workerLimits: limits.value };
+  };
   // `attempt` is the one `openAttempt` opened for this ensure: the credential
   // is issued only while no later attempt has been opened, so a pass that
   // lost its lock cannot rotate out the one a newer attempt just launched.
@@ -230,7 +276,7 @@ async function pass(
       store.issueBootstrapNonce(refOf(stored), attempt),
     launchSpec: storedSpecOf(stored),
     operationId: stored.operationId,
-    resources: stored.resources ?? options.resources,
+    resources: resourcesOf(stored),
     sessionId: stored.sessionId,
   });
   const summary = emptySummary(options.slotLimit);
@@ -248,6 +294,8 @@ async function pass(
     stopDeadlineMs: options.stopDeadlineMs ?? DEFAULT_STOP_DEADLINE_MS,
     store,
     summary,
+    workerLimits: limits.value,
+    workerLimitsUnread: limits.unread,
   };
 
   // 1. Reconcile rows against the provider.
@@ -263,14 +311,20 @@ async function pass(
   await terminateOrphans(ctx);
   await reconcileNetworks(options, summary);
 
-  // 3. Fill free slots. A session's limits that cannot be read stop only
-  // the launches; what is running is still stopped and reclaimed.
-  await fillSlots(ctx).catch((error: unknown) => {
-    if (!(error instanceof InstallationConfigUnavailableError)) throw error;
-    logger.warn("Launches skipped: the session limits cannot be read", {
-      setting: error.key,
+  // 3. Fill free slots. Limits that cannot be read stop only the launches;
+  // what is running is still stopped and reclaimed.
+  if (limits.unread) {
+    logger.warn("Launches skipped: the worker limits cannot be read", {
+      setting: limits.key,
     });
-  });
+  } else {
+    await fillSlots(ctx).catch((error: unknown) => {
+      if (!(error instanceof InstallationConfigUnavailableError)) throw error;
+      logger.warn("Launches skipped: the session limits cannot be read", {
+        setting: error.key,
+      });
+    });
+  }
 
   // 4. Workspaces nothing will come back to.
   await collectWorkspaces(options, summary, lock);

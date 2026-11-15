@@ -6,9 +6,11 @@ import {
   launchFailed,
   reensure,
   reportGivenBack,
+  reportHeldForLimits,
 } from "./launch.ts";
 import {
   fieldsOf,
+  heldForLimits,
   messageOf,
   type PassContext,
   pinnedTo,
@@ -68,6 +70,12 @@ export async function replace(
   const cause = await giveBackCause(ctx, execution, stored);
   if (cause !== null) {
     await retire(ctx, execution, cause, reason, observed, acceptedFingerprint);
+    return;
+  }
+  if (heldForLimits(ctx, stored)) {
+    // Judged before the teardown: the resource it has stays up until a
+    // pass can say what its rebuild starts with.
+    reportHeldForLimits(ctx, execution, reason);
     return;
   }
   if (!execution.launchRetryDue) {

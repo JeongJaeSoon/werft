@@ -2562,6 +2562,16 @@
               "fail",
               "off"
             ]
+          },
+          "max_turn_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 604800
+          },
+          "provider_max_retries": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
           }
         },
         "additionalProperties": false
@@ -16982,6 +16992,62 @@
               "blocked"
             ],
             "additionalProperties": false
+          },
+          "max_turn_seconds": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 604800
+              },
+              "default": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 604800
+              },
+              "saved": {
+                "type": "boolean"
+              },
+              "blocked": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value",
+              "default",
+              "saved",
+              "blocked"
+            ],
+            "additionalProperties": false
+          },
+          "provider_max_retries": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10
+              },
+              "default": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10
+              },
+              "saved": {
+                "type": "boolean"
+              },
+              "blocked": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value",
+              "default",
+              "saved",
+              "blocked"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -16990,7 +17056,9 @@
           "storage_limit_bytes",
           "session_cost_limit_usd",
           "session_token_limit",
-          "workspace_enforce"
+          "workspace_enforce",
+          "max_turn_seconds",
+          "provider_max_retries"
         ],
         "additionalProperties": false
       },
@@ -17171,6 +17239,62 @@
             ],
             "additionalProperties": false
           },
+          "max_turn_seconds": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 604800
+              },
+              "default": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 604800
+              },
+              "saved": {
+                "type": "boolean"
+              },
+              "blocked": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value",
+              "default",
+              "saved",
+              "blocked"
+            ],
+            "additionalProperties": false
+          },
+          "provider_max_retries": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10
+              },
+              "default": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10
+              },
+              "saved": {
+                "type": "boolean"
+              },
+              "blocked": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value",
+              "default",
+              "saved",
+              "blocked"
+            ],
+            "additionalProperties": false
+          },
           "receipt_id": {
             "type": "string",
             "format": "uuid",
@@ -17183,7 +17307,9 @@
           "storage_limit_bytes",
           "session_cost_limit_usd",
           "session_token_limit",
-          "workspace_enforce"
+          "workspace_enforce",
+          "max_turn_seconds",
+          "provider_max_retries"
         ],
         "additionalProperties": false
       },
@@ -47735,6 +47861,18 @@
                     "default": "warn",
                     "saved": false,
                     "blocked": false
+                  },
+                  "max_turn_seconds": {
+                    "value": 3600,
+                    "default": 3600,
+                    "saved": false,
+                    "blocked": false
+                  },
+                  "provider_max_retries": {
+                    "value": 2,
+                    "default": 2,
+                    "saved": false,
+                    "blocked": false
                   }
                 },
                 "schema": {
@@ -47940,6 +48078,18 @@
                   "workspace_enforce": {
                     "value": "warn",
                     "default": "warn",
+                    "saved": false,
+                    "blocked": false
+                  },
+                  "max_turn_seconds": {
+                    "value": 3600,
+                    "default": 3600,
+                    "saved": false,
+                    "blocked": false
+                  },
+                  "provider_max_retries": {
+                    "value": 2,
+                    "default": 2,
                     "saved": false,
                     "blocked": false
                   },

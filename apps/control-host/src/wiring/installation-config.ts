@@ -16,6 +16,7 @@ import {
   InstallationConfigUnavailableError,
   type SessionBudget,
   type SessionLimits,
+  type WorkerLimits,
 } from "@werft-ai/platform";
 
 export const SETTINGS_PAGE = "Settings > Workspace > Execution limits";
@@ -246,6 +247,15 @@ export function createInstallationConfigSource(options: {
 
     async sessionTokenLimit(): Promise<number | null> {
       return tokenLimitOf(readOf(await saved()).get("session_token_limit"));
+    },
+
+    /** What a launch reserved now is pinned to, both from one read. */
+    async workerLimits(): Promise<WorkerLimits> {
+      const read = readOf(await saved());
+      return {
+        maxTurnSeconds: read.get("max_turn_seconds"),
+        providerMaxRetries: read.get("provider_max_retries"),
+      };
     },
 
     /**

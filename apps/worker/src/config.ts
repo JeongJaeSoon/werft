@@ -103,8 +103,8 @@ export type WorkerTimeouts = {
   leaseSafetyMarginMs?: number;
   /**
    * Wall-clock budget for one turn, approvals included. Nothing else bounds
-   * an engine that stops answering while the heartbeat keeps the lease alive
-   * It is configured per installation as `MAX_TURN_SECONDS`.
+   * an engine that stops answering while the heartbeat keeps the lease alive.
+   * The installation's turn time, as the launch was pinned to it.
    */
   maxTurnMs: number;
   /**
@@ -143,7 +143,7 @@ export type WorkerRuntimeSettings = {
   home: string;
   /**
    * Retries of a failed Messages request before the turn fails: the
-   * installation's PROVIDER_MAX_RETRIES, which the launcher passes on.
+   * installation's provider retries, as the launch was pinned to them.
    */
   providerMaxRetries: number;
 };
@@ -232,7 +232,7 @@ export function workerConfigFromEnv(
       cwd: required(environment.WORKER_WORKSPACE_DIR, "WORKER_WORKSPACE_DIR"),
       home,
       // An installation limit, so no code default: the scheduler
-      // always passes the installation's PROVIDER_MAX_RETRIES.
+      // always passes the retries the launch was pinned to.
       providerMaxRetries: integerSetting(
         environment,
         "WORKER_PROVIDER_MAX_RETRIES",

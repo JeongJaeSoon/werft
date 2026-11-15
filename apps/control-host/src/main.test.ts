@@ -273,8 +273,6 @@ describe("control host executable", () => {
           EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
           EXECUTION_INSTALLATION_ID: "quota-marker",
           EXECUTION_SLOT_LIMIT: "1",
-          MAX_TURN_SECONDS: "3600",
-          PROVIDER_MAX_RETRIES: "2",
           QUEUED_INPUT_LIMIT_PER_SESSION: "20",
           S3_BUCKET: "claude-sessions",
           SCHEDULER_MAX_CONSECUTIVE_FAILURES: "1",

@@ -186,17 +186,24 @@ describe("worker Pod", () => {
     expect(isolationStampFor(moved, PROXY_ADDRESS)).toBe(
       isolationStampFor(config, PROXY_ADDRESS),
     );
-    // A host from before the pin stamped its limits, or none before they
-    // existed; neither is this host's stamp.
-    expect(legacyIsolationStampFor(config, PROXY_ADDRESS)).not.toBe(
+    // A host from before the pin stamped the limits its worker got, or none
+    // before they existed; neither is this host's stamp.
+    const got = { maxTurnSeconds: 900, providerMaxRetries: 2 };
+    expect(legacyIsolationStampFor(config, PROXY_ADDRESS, got)).not.toBe(
       isolationStampFor(config, PROXY_ADDRESS),
     );
-    expect(legacyIsolationStampFor(moved, PROXY_ADDRESS)).not.toBe(
-      legacyIsolationStampFor(config, PROXY_ADDRESS),
+    expect(legacyIsolationStampFor(config, PROXY_ADDRESS, null)).not.toBe(
+      isolationStampFor(config, PROXY_ADDRESS),
     );
-    const { workerLimits: _, ...none } = config;
-    expect(legacyIsolationStampFor(none, PROXY_ADDRESS)).not.toBe(
-      isolationStampFor(none, PROXY_ADDRESS),
+    expect(
+      legacyIsolationStampFor(config, PROXY_ADDRESS, {
+        ...got,
+        maxTurnSeconds: 1800,
+      }),
+    ).not.toBe(legacyIsolationStampFor(config, PROXY_ADDRESS, got));
+    // The limits this host was configured with play no part in it.
+    expect(legacyIsolationStampFor(moved, PROXY_ADDRESS, got)).toBe(
+      legacyIsolationStampFor(config, PROXY_ADDRESS, got),
     );
   });
 

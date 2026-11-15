@@ -2,10 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  installationLimitsFromEnv,
-  providerUpstreamOf,
-} from "@werft-ai/platform";
+import { providerUpstreamOf } from "@werft-ai/platform";
 import { runtimeProviderOf } from "@werft-ai/platform/testing/catalog";
 import { egressProxyConfigFromEnv } from "../../apps/egress-proxy/src/config.ts";
 import {
@@ -116,13 +113,13 @@ describe("real-model compose layers", () => {
     expect(overlay["egress-proxy"]).toBeUndefined();
     for (const name of ["api", "scheduler"]) {
       const env = defaults(base[name], overlay[name]);
-      expect(installationLimitsFromEnv(env).maxTurnSeconds).toBe(600);
+      expect(env.MAX_TURN_SECONDS).toBeUndefined();
       expect(env.SESSION_COST_LIMIT_USD).toBeUndefined();
     }
-    // The cost limit is the console's: migrate carries it in once.
-    expect(defaults(base.migrate, overlay.migrate).SESSION_COST_LIMIT_USD).toBe(
-      "3",
-    );
+    // Both limits are the console's: migrate carries them in once.
+    const migrate = defaults(base.migrate, overlay.migrate);
+    expect(migrate.SESSION_COST_LIMIT_USD).toBe("3");
+    expect(migrate.MAX_TURN_SECONDS).toBe("600");
   });
 });
 
