@@ -4,13 +4,13 @@ owner·admin은 웹 콘솔 `/members`에서 초대 대화상자로 링크를 만
 
 ## Sub-features
 
-- `invite-create` `/members`의 "초대 링크 만들기"가 대화상자 "초대"를 연다(`?invite.step=details`). 이메일·역할(select, 값 `owner`·`admin`·`member`. `GET /v1/members`의 `assignable_roles`에 없는 값은 비활성이고 칸 아래 "소유자 역할은 소유자만 줄 수 있습니다."가 붙는다. admin이면 owner가 비활성)을 넣고 대화상자 안의 "초대 링크 만들기"를 누르면 둘째 단계(`?invite.step=link`)에 `<origin>/invite/<token>` 링크가 읽기 전용 칸에 한 번만 보인다("링크 복사"·"다른 사람 초대"·"닫기"). 복사하지 않고 "닫기"를 누르면 "복사하지 않고 나가기" 확인이 한 번 더 뜬다. 대기 중 초대 목록에 생기고 "회수"는 확인 대화상자를 거친다.
+- `invite-create` `/members`의 "초대 링크 만들기"가 대화상자 "초대"를 연다(`?invite.step=details`). 이메일·역할(select, 값 `owner`·`admin`·`member`. `GET /v1/members`의 `assignable_roles`에 없는 값은 비활성이고 칸 아래 "오너 역할은 오너만 줄 수 있습니다."가 붙는다. admin이면 owner가 비활성)을 넣고 대화상자 안의 "초대 링크 만들기"를 누르면 둘째 단계(`?invite.step=link`)에 `<origin>/invite/<token>` 링크가 읽기 전용 칸에 한 번만 보인다("링크 복사"·"다른 사람 초대"·"닫기"). 복사하지 않고 "닫기"를 누르면 "복사하지 않고 나가기" 확인이 한 번 더 뜬다. 구성원 표에 상태 "초대 중" 행으로 생기고 행 메뉴의 "회수"는 확인 대화상자를 거친다.
 - `invite-accept` 로그인하지 않은 브라우저로 링크를 열면 "초대받은 이메일로 쓰는 계정이 있나요?"와 "네, 계정이 있습니다"·"아니요, 처음입니다". 고르면 `?accept.step=password`에 이름(`display_name`, "처음"일 때만)·비밀번호 칸과 "초대 수락". 내면 `/`에 그 사람 이름으로 로그인된다.
 - `invite-provider` 켜진 로그인 공급자가 있으면([web-settings.md](./web-settings.md) 1로 켠다) 첫 단계의 두 버튼 아래 "또는"과 구역 "비밀번호 없이 가입"에 공급자마다 "<이름> 계정으로 가입"이 있다. 누르면 `POST /v1/auth/providers/{id}/invite/start`(본문에 초대 token) 뒤 공급자 화면으로 가고, 돌아온 `/auth/callback/<공급자 id>`가 계정을 만들어 `/`에 로그인된다. 계정의 이메일은 초대받은 주소이고 비밀번호는 없다(`SELECT email, password_hash IS NULL FROM users`). 쓴 링크·회수된 링크로 누르면 `invite-used`·`invite-expired`와 같은 안내가 공급자 화면으로 가기 전에 나온다. 누른 뒤 공급자 화면으로 넘어가는 동안 이 구역의 버튼과 위의 두 선택지는 비활성이다. 콜백이 거절되면(그사이 회수된 초대, 공급자가 검증하지 않은 주소, 만료된 흐름: 모두 `401`) 콜백 화면이 "가입하지 못했습니다 — 받은 초대 링크를 다시 열어 처음부터 시도하세요. …"라고 말한다. 켜진 공급자가 없으면 구역이 없다. 비밀번호 단계에는 없다. 화면은 `browser.mjs <run id> invite <who>`로 연다(token을 파일에서 읽고 폼은 건드리지 않는다).
 - `invite-signed-in` 이미 로그인한 브라우저로 링크를 열면 "이미 이 워크스페이스의 구성원입니다" 안내와 "워크스페이스로 가기"·"로그아웃하고 다른 계정으로 수락".
 - `invite-used` / `invite-expired` / `invite-invalid` 이미 쓴 링크로 수락하면 "이미 수락한 초대입니다"(본문 "이 초대는 이미 쓰였습니다. 수락한 계정으로 로그인하세요.", 버튼 "로그인 화면으로"), 회수했거나 만료된 링크는 "쓸 수 없는 초대입니다"(본문 "만료됐거나 회수된 초대입니다. …"). 둘 다 비밀번호 단계에서 제출한 뒤에 나온다. 모양이 틀린 token은 열자마자 "초대 링크가 올바르지 않습니다".
-- `member-forbidden` member로 `/members`를 열면 제목 "구성원"과 "구성원 초대와 관리는 워크스페이스 소유자나 관리자가 합니다."만 보인다. 목록을 묻지 않아 서버 403도, 초대 버튼도 없다. 사이드바에도 "구성원"이 없다.
-- `role-change` 역할 select(`aria-label` "<이름>의 역할")를 바꾸면 확인 대화상자 "<이름>의 역할을 <역할>(으)로 바꿀까요?"가 뜨고 "역할 바꾸기"를 눌러야 PATCH한다 → "<이름>의 역할을 <역할>(으)로 바꿨습니다." 마지막 owner를 내리면 "마지막 소유자는 역할을 바꾸거나 비활성화할 수 없습니다 — …".
+- `member-forbidden` member로 `/members`를 열면 제목 "구성원"과 "구성원 초대와 관리는 워크스페이스 오너나 어드민이 합니다."만 보인다. 목록을 묻지 않아 서버 403도, 초대 버튼도 없다. 사이드바에도 "구성원"이 없다.
+- `role-change` 역할 select(`aria-label` "<이름>의 역할")를 바꾸면 확인 대화상자 "<이름>의 역할을 <역할>(으)로 바꿀까요?"가 뜨고 "역할 바꾸기"를 눌러야 PATCH한다 → "<이름>의 역할을 <역할>(으)로 바꿨습니다." 마지막 owner를 내리면 "마지막 오너는 역할을 바꾸거나 비활성화할 수 없습니다 — …".
 - `disable` "비활성화"(`aria-label` "<이름> 비활성화")는 확인 대화상자 "<이름> 계정을 비활성화할까요?"를 거친다 → "<이름> 계정을 비활성화했습니다." 비활성화된 사람의 cookie 세션은 바로 끊긴다(`ap_web`이 401). "다시 활성화"는 바로 된다 → "… 다시 활성화했습니다. 이제 다시 로그인할 수 있습니다."
 - `agent-create` `/agents/new`(`?new-agent.step=name|job|release|activate`). ① "이름": 이름·식별자(이름에서 채워진다), "다음". ② "하는 일": 역할·지시 사항·답변 언어(select `ko`|`en`)·모델(select, 로컬 스택은 `claude-sonnet-5`)·도구 radio·금지 도구, "초안 저장하고 다음"(여기서 `POST /v1/agents`, 이후 나가도 초안으로 남는다). ③ "릴리스": 모델 연결 select(`fake-messages`, 카드 모델을 제공하는 연결이 먼저 골라진다), "릴리스 만들기"(또는 "나중에 하기"). ④ "켜기": "에이전트 켜기" → "<이름>을(를) 켰습니다. 이제 새 세션이 이 에이전트를 씁니다."와 "에이전트 보기" 링크. owner·admin·member 모두 만든다(`me.permissions`의 `agent.create`).
 - `agent-save` 상세의 "카드" 탭(`?tab=card`)에서 고쳐 "저장"하면 "저장했습니다 — 버전 N. 아직 활성화되지 않았습니다. 릴리스 탭에서 릴리스를 만들고 활성화해야 반영됩니다." 바뀐 것 없으면 "저장했습니다. 카드 내용이 같아 새 버전은 생기지 않았습니다." version이 둘 이상이면 "비교 기준"·"비교 대상" select가 생긴다.
@@ -40,7 +40,7 @@ node $U <run id> login member                  # 같은 비밀번호로 API 로�
 
 - API로만 수락하려면 `node $U <run id> accept member` → `200` `{user_id, workspace, role: "member"}`, cookie가 생긴다.
 - 브라우저는 cookie를 하나만 가진다. 다른 사람으로 화면을 보려면 사이드바 아래 사용자 메뉴를 열고 로그아웃한 뒤(`node $B <run id> open /`, `click "Verify Owner"`, `click 로그아웃`. [web-console.md](./web-console.md) `logout`) `node $B <run id> login <who>`. 이미 로그인한 브라우저로 초대 링크를 열면 `invite-signed-in` 화면이 나온다.
-- 초대 대화상자(`invite-create`)는 `<main>` 밖에 그려져 `@N`이 닿지 않는다. CSS로 몬다: `open /members` → `click "구성원 초대"` → `type '[role=dialog] input[type=email]' invitee@example.test` → `click '[role=dialog] form button[type=submit]'`(같은 글자의 바깥 버튼이 먼저 잡히므로 글자로 누르지 않는다) → `?invite.step=link`. 그 링크의 token은 출력하지 않는다(`eval`로 읽지 말고 대화상자 버튼 이름이나 목록의 "대기 중인 초대"로 확인한다). 끝내려면 `click 닫기` → `click "복사하지 않고 나가기"`.
+- 초대 대화상자(`invite-create`)는 `<main>` 밖에 그려져 `@N`이 닿지 않는다. CSS로 몬다: `open /members` → `click "구성원 초대"` → `type '[role=dialog] input[type=email]' invitee@example.test` → `click '[role=dialog] form button[type=submit]'`(같은 글자의 바깥 버튼이 먼저 잡히므로 글자로 누르지 않는다) → `?invite.step=link`. 그 링크의 token은 출력하지 않는다(`eval`로 읽지 말고 대화상자 버튼 이름이나 구성원 표의 "초대 중" 행으로 확인한다). 끝내려면 `click 닫기` → `click "복사하지 않고 나가기"`.
 - `accept`는 `/`에 닿아야 exit 0이다. 폼 대신 안내 화면이 나오면 그 제목을 출력하고 exit 1로 끝난다. 그래서 다른 상태 화면도 `accept`로 본다(token을 `open` 인자로 넘기지 않는다. 명령줄 인자는 `ps`에 보인다): 로그인한 브라우저로 `accept member` → `| 이미 이 워크스페이스의 구성원입니다`, 이미 수락한 뒤 로그아웃한 브라우저로 다시 `accept member` → `| 이미 수락한 초대입니다`. 모양이 틀린 token은 `open /invite/not-a-real-token` → "초대 링크가 올바르지 않습니다". zsh에서는 `[...]`가 든 CSS를 따옴표로 감싼다.
 
 역할 변경·비활성은 owner 화면에서 몬다. 확인 대화상자 둘이 동시에 열리지 않도록 하나씩 끝낸다(`click`은 `el.click()`이라 열린 modal 뒤의 버튼도 누른다).
@@ -49,7 +49,7 @@ node $U <run id> login member                  # 같은 비밀번호로 API 로�
 node $B <run id> click '[aria-label="Verify Member 편집"]'
 node $B <run id> click '[role=dialog] [role=radio][value=admin]'
 node $B <run id> click '[role=dialog] button:last-child' # Save, then confirm the role change.   # 출력은 "selected member": 확인 전에는 값이 그대로다
-node $B <run id> click "역할 바꾸기"                                               # → "Verify Member의 역할을 관리자(으)로 바꿨습니다."
+node $B <run id> click "역할 바꾸기"                                               # → "Verify Member의 역할을 어드민(으)로 바꿨습니다."
 node $B <run id> click '[aria-label="Verify Member 비활성화"]'
 node $B <run id> click '[role=dialog] button:last-child'                          # 대화상자의 "비활성화" → "… 계정을 비활성화했습니다."
 node $B <run id> click "다시 활성화"
@@ -99,4 +99,4 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select a.slug, a.ac
 - 초대 token은 URL 경로에 있다. 텍스트 증거에는 링크를 남기지 않는다. 초대 링크 스크린샷의 token은 수락이나 회수 뒤 무효다.
 - 같은 사람을 두 번 초대하지 않는다. `invite`는 그 사람의 `users/<who>`가 이미 있으면 새 비밀번호를 만들지 않고 그대로 쓴다.
 
-현재 구성원 화면은 구성원·팀·초대 LinkTabs다. 표는 GridTable의 role=table/row/cell이며 구성원·역할·관리 3열이다. 역할은 행의 편집 버튼 → RadioGroup → 저장 → 역할 바꾸기 확인으로 바꾼다. 팀 주소는 `/members/teams`, 대기 중 초대는 `/members/invites`다. 에이전트 목록은 전체/관리하는 에이전트 SegmentedControl과 개수, 카드/표 보기다. 소스: `apps/web/src/routes/members.tsx`, `agents.tsx`. 실행 순서는 [procedures.md](procedures.md)를 따른다.
+현재 구성원 화면은 구성원·팀 LinkTabs다. 표는 GridTable의 role=table/row/cell이고, 대기 중·만료된 초대도 상태 "초대 중"·"만료" 행으로 함께 있으며, 표 위 "역할로 보기"(전체·오너·어드민·멤버)가 검색과 함께 거른다. 역할은 행의 편집 버튼 → RadioGroup → 저장 → 역할 바꾸기 확인으로 바꾼다. 팀 주소는 `/members/teams`이고, 옛 `/members/invites`는 `/members`로 옮겨진다. 에이전트 목록은 전체/관리하는 에이전트 SegmentedControl과 개수, 카드/표 보기다. 소스: `apps/web/src/routes/members.tsx`, `agents.tsx`. 실행 순서는 [procedures.md](procedures.md)를 따른다.

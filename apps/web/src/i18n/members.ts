@@ -22,19 +22,18 @@ export const membersKo = {
   "members.roleChangeConsequence":
     "바꾸는 즉시 이 사람이 할 수 있는 일이 새 역할에 맞게 바뀝니다.",
   "members.roleChangeOwnerConsequence":
-    "소유자는 워크스페이스 설정과 다른 소유자의 역할까지 바꿀 수 있습니다. 소유자 역할은 소유자만 다시 거둘 수 있습니다.",
+    "오너는 워크스페이스 설정과 다른 오너의 역할까지 바꿀 수 있습니다. 오너 역할은 오너만 다시 거둘 수 있습니다.",
   "members.roleChangeConfirm": "역할 바꾸기",
   "members.disableSelf": "자기 자신은 비활성화할 수 없습니다.",
   "members.disableLastOwner":
-    "하나뿐인 소유자는 비활성화할 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요.",
-  "members.disableOwnerProtected": "소유자는 관리자가 비활성화할 수 없습니다.",
-  "members.enableOwnerProtected":
-    "소유자는 관리자가 다시 활성화할 수 없습니다.",
+    "하나뿐인 오너는 비활성화할 수 없습니다 — 다른 사람을 먼저 오너로 정하세요.",
+  "members.disableOwnerProtected": "오너는 어드민이 비활성화할 수 없습니다.",
+  "members.enableOwnerProtected": "오너는 어드민이 다시 활성화할 수 없습니다.",
   "members.roleSelf": "자기 자신의 역할은 바꿀 수 없습니다.",
   "members.roleLastOwner":
-    "하나뿐인 소유자의 역할은 바꿀 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요.",
-  "members.roleOwnerProtected": "소유자의 역할은 관리자가 바꿀 수 없습니다.",
-  "members.roleOwnerGrant": "소유자 역할은 소유자만 줄 수 있습니다.",
+    "하나뿐인 오너의 역할은 바꿀 수 없습니다 — 다른 사람을 먼저 오너로 정하세요.",
+  "members.roleOwnerProtected": "오너의 역할은 어드민이 바꿀 수 없습니다.",
+  "members.roleOwnerGrant": "오너 역할은 오너만 줄 수 있습니다.",
   "members.roleAccountDisabled":
     "계정이 정지된 사람의 역할은 바꿀 수 없습니다 — 계정 정지를 먼저 풀어야 합니다.",
   "members.enableAccountDisabled":
@@ -42,7 +41,7 @@ export const membersKo = {
   "members.disable": "비활성화",
   "members.disableTitle": "{name} 계정을 비활성화할까요?",
   "members.disableConsequence":
-    "이 사람의 웹 로그인과 개인 API 키가 바로 끊기고, 이 사람이 시작한 세션은 소유자가 넘겨받을 때까지 멈춥니다. 다시 활성화해도 끊긴 로그인과 키는 돌아오지 않습니다.",
+    "이 사람의 웹 로그인과 개인 API 키가 바로 끊기고, 이 사람이 시작한 세션은 오너가 넘겨받을 때까지 멈춥니다. 다시 활성화해도 끊긴 로그인과 키는 돌아오지 않습니다.",
   "members.disabled": "{name} 계정을 비활성화했습니다.",
   "members.enable": "다시 활성화",
   "members.enabled":
@@ -73,13 +72,8 @@ export const membersKo = {
     "이 초대 링크는 다시 볼 수 없습니다. 나중에 링크가 필요하면 대기 중인 초대를 회수하고 새로 만들어야 합니다.",
   "members.invite.leave.confirm": "복사하지 않고 나가기",
   "members.invite.leave.cancel": "링크로 돌아가기",
-  "members.invites.tableLabel": "초대 표",
-  "members.invites.empty": "남아 있는 초대가 없습니다.",
-  "members.invites.search": "이메일로 찾기",
-  "members.invites.noMatch": "검색어에 맞는 초대가 없습니다",
-  "members.invites.noMatchHint": "다른 이메일로 찾아 보세요.",
   "members.invites.state.expired": "만료",
-  "members.invites.state.pending": "초대됨",
+  "members.invites.state.pending": "초대 중",
   "members.invites.expiredAt": "{expires}에 만료됨",
   "members.invites.expires": "{expires}까지",
   "members.invites.revoke": "회수",
@@ -88,19 +82,21 @@ export const membersKo = {
     "보낸 링크로는 더 가입할 수 없습니다. 다시 초대하려면 새 링크를 만들어 보내야 합니다.",
   "members.invites.revoked": "{email} 초대를 회수했습니다.",
   "members.withheld":
-    "구성원 초대와 관리는 워크스페이스 소유자나 관리자가 합니다.",
+    "구성원 초대와 관리는 워크스페이스 오너나 어드민이 합니다.",
   "members.description": "워크스페이스에 속한 사람과 역할입니다.",
   "members.edit.title": "구성원 편집",
   "members.edit.disabledNote":
     "비활성 구성원의 역할은 다시 활성화한 뒤 바꿀 수 있습니다.",
-  "members.roleHelp.owner": "워크스페이스 설정과 소유자까지 모두 바꿉니다.",
+  "members.roleHelp.owner": "워크스페이스 설정과 오너까지 모두 바꿉니다.",
   "members.roleHelp.admin": "구성원·팀·초대를 관리합니다.",
   "members.roleHelp.member": "자기 세션과 맡은 에이전트만 다룹니다.",
   "members.invite.open": "구성원 초대",
   "members.tabs": "구성원 보기",
   "members.tab.members": "구성원",
   "members.tab.teams": "팀",
-  "members.tab.invites": "초대",
+  "members.filter.label": "역할로 보기",
+  "members.filter.all": "전체",
+  "members.filter.empty": "{role} 역할인 구성원이 없습니다.",
 };
 
 export const membersEn: Record<keyof typeof membersKo, string> = {
@@ -175,11 +171,6 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
     "This invite link can't be shown again. If you need it later, revoke the pending invite and create a new one.",
   "members.invite.leave.confirm": "Leave without copying",
   "members.invite.leave.cancel": "Back to the link",
-  "members.invites.tableLabel": "Invites table",
-  "members.invites.empty": "No invites waiting.",
-  "members.invites.search": "Find by email",
-  "members.invites.noMatch": "No invites match",
-  "members.invites.noMatchHint": "Try another email.",
   "members.invites.state.expired": "Expired",
   "members.invites.state.pending": "Invited",
   "members.invites.expiredAt": "Expired {expires}",
@@ -203,7 +194,9 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.tabs": "Members views",
   "members.tab.members": "Members",
   "members.tab.teams": "Teams",
-  "members.tab.invites": "Invites",
+  "members.filter.label": "Show by role",
+  "members.filter.all": "All",
+  "members.filter.empty": "No members with the {role} role.",
 };
 
 export const membersJa: Record<keyof typeof membersKo, string> = {
@@ -234,12 +227,12 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.disableSelf": "自分自身は無効化できません。",
   "members.disableLastOwner":
     "唯一のオーナーは無効化できません。先にほかの人をオーナーにしてください。",
-  "members.disableOwnerProtected": "管理者はオーナーを無効化できません。",
-  "members.enableOwnerProtected": "管理者はオーナーを再有効化できません。",
+  "members.disableOwnerProtected": "アドミンはオーナーを無効化できません。",
+  "members.enableOwnerProtected": "アドミンはオーナーを再有効化できません。",
   "members.roleSelf": "自分自身のロールは変更できません。",
   "members.roleLastOwner":
     "唯一のオーナーのロールは変更できません。先にほかの人をオーナーにしてください。",
-  "members.roleOwnerProtected": "管理者はオーナーのロールを変更できません。",
+  "members.roleOwnerProtected": "アドミンはオーナーのロールを変更できません。",
   "members.roleOwnerGrant":
     "オーナーのロールを付与できるのはオーナーのみです。",
   "members.roleAccountDisabled":
@@ -280,13 +273,8 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
     "この招待リンクは再表示できません。あとでリンクが必要になった場合は、保留中の招待を取り消して新しく作成してください。",
   "members.invite.leave.confirm": "コピーせずに閉じる",
   "members.invite.leave.cancel": "リンクに戻る",
-  "members.invites.tableLabel": "招待の表",
-  "members.invites.empty": "残っている招待はありません。",
-  "members.invites.search": "メールで探す",
-  "members.invites.noMatch": "検索語に合う招待はありません",
-  "members.invites.noMatchHint": "別のメールで探してみてください。",
   "members.invites.state.expired": "期限切れ",
-  "members.invites.state.pending": "招待済み",
+  "members.invites.state.pending": "招待中",
   "members.invites.expiredAt": "{expires}に期限切れ",
   "members.invites.expires": "{expires}まで",
   "members.invites.revoke": "取り消し",
@@ -295,7 +283,7 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
     "送信したリンクからは参加できなくなります。再度招待するには、新しいリンクを作成して送ってください。",
   "members.invites.revoked": "{email}への招待を取り消しました。",
   "members.withheld":
-    "メンバーの招待と管理は、ワークスペースのオーナーまたは管理者が行います。",
+    "メンバーの招待と管理は、ワークスペースのオーナーまたはアドミンが行います。",
   "members.description": "このワークスペースに所属する人とロールです。",
   "members.edit.title": "メンバーを編集",
   "members.edit.disabledNote":
@@ -309,5 +297,7 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.tabs": "メンバーの表示",
   "members.tab.members": "メンバー",
   "members.tab.teams": "チーム",
-  "members.tab.invites": "招待",
+  "members.filter.label": "ロールで表示",
+  "members.filter.all": "すべて",
+  "members.filter.empty": "{role}ロールのメンバーはいません。",
 };

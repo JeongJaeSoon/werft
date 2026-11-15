@@ -1,5 +1,9 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type ApiError, unwrap } from "@werft-ai/client";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type { TeamChangeResponse } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
 import {
@@ -22,10 +26,41 @@ import {
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { queryKeysOf } from "../api/queries.ts";
-import { refusalText, useRole } from "../auth/guard.tsx";
+import { queryKeysOf, teamPagesQuery } from "../api/queries.ts";
+import {
+  refusalText,
+  useHasPermission,
+  usePermissionReason,
+  useRole,
+} from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
+import { useNotify } from "../components/toast.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
+
+/**
+ * The 팀 tab's head button for those who manage teams. The unsearched first
+ * page of teams is the permission probe: a refused or failed one leaves no
+ * list to add a team to.
+ */
+export function TeamCreateButton() {
+  const { t } = useI18n();
+  const { client } = useWerft();
+  const notify = useNotify();
+  const manages = useHasPermission("team.manage");
+  const probe = useInfiniteQuery({
+    ...teamPagesQuery(client),
+    enabled: manages,
+  });
+  const reason = usePermissionReason("team.manage", probe);
+  if (!manages) return null;
+  if (probe.isError && !isApiError(probe.error, "FORBIDDEN")) return null;
+  return (
+    <TeamCreateDialog
+      reason={reason}
+      onCreated={(name) => notify(t("teams.created", { name }))}
+    />
+  );
+}
 
 /**
  * The 팀 tab's head button: a team's name in a dialog, then the new team.

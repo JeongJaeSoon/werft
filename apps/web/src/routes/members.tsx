@@ -29,14 +29,14 @@ import {
   FieldSet,
   formatTableDateTime,
   GridTableCell,
-  GridTableColumnHeader,
   GridTableRow,
   LinkTab,
   LinkTabs,
   Page,
   RadioGroup,
   RadioGroupItem,
-  SettingsSection,
+  SegmentedControl,
+  SegmentedControlItem,
   StatusText,
   Text,
 } from "@werft-ai/ui";
@@ -57,7 +57,6 @@ import {
   useRole,
   WORKSPACE_ROLE_VALUES,
 } from "../auth/guard.tsx";
-import { FormError } from "../components/auth-page.tsx";
 import { INACTIVE_ROW_CLASS } from "../components/inactive-member.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MemberTableFrame } from "../components/member-table.tsx";
@@ -74,9 +73,7 @@ import {
   useI18n,
 } from "../i18n/i18n.tsx";
 import { InviteDialog } from "./invite-dialog.tsx";
-
-// Past more invites than this the list is searched like the member list.
-const INVITE_SEARCH_THRESHOLD = 10;
+import { TeamCreateButton } from "./team-create-dialog.tsx";
 
 type MemberAction = "role" | "disable" | "enable";
 
@@ -138,13 +135,13 @@ function refusal(
 }
 
 /**
- * The 구성원 page: its head and the 구성원 · 팀 · 초대 tabs (v3 M-01), each an
+ * The 구성원 page: its head and the 구성원 · 팀 tabs (v3 M-01), each an
  * address of its own. A tab the viewer may not manage is not offered; 팀
  * always is, since anyone sees the teams they are in there.
  */
 export function MembersLayout() {
   const { t } = useI18n();
-  // One toast for the three tabs and the team pages under them, so a notice
+  // One toast for the tabs and the team pages under them, so a notice
   // outlives the screen that raised it.
   return (
     <ToastProvider dismissLabel={t("common.dismiss")}>
@@ -160,10 +157,11 @@ function MembersPage() {
   const onTeams = pathname.startsWith("/members/teams");
   // The router also serves the list at "/members/teams/".
   const onTeamList = pathname.replace(/\/$/, "") === "/members/teams";
+  const onMemberList = pathname.replace(/\/$/, "") === "/members";
   const managesTeams = useHasPermission("team.manage");
 
-  // Each tab's one primary action sits on its own section's title row (R1),
-  // so the page head carries none.
+  // The open tab's one primary action sits at the head's end, as on the
+  // agents page; a team's own page has none.
   return (
     <Page
       title={t("members.title")}
@@ -174,6 +172,13 @@ function MembersPage() {
             ? "teams.intro"
             : "members.description",
       )}
+      actions={
+        onMemberList ? (
+          <InviteButton />
+        ) : onTeamList ? (
+          <TeamCreateButton />
+        ) : undefined
+      }
     >
       <div className="flex flex-col gap-[var(--werft-space-block)]">
         <LinkTabs aria-label={t("members.tabs")}>
@@ -189,13 +194,6 @@ function MembersPage() {
               {t("members.tab.teams")}
             </Link>
           </LinkTab>
-          {manages ? (
-            <LinkTab asChild current={pathname === "/members/invites"}>
-              <Link to="/members/invites" activeOptions={{ exact: true }}>
-                {t("members.tab.invites")}
-              </Link>
-            </LinkTab>
-          ) : null}
         </LinkTabs>
         <Outlet />
       </div>
@@ -203,24 +201,57 @@ function MembersPage() {
   );
 }
 
+type RoleFilter = "all" | WorkspaceRole;
+
 /**
- * The 구성원 tab: the first page, more on request, searched on the server.
- * Without member.manage the page head already says why.
+ * The 구성원 tab: the first page, more on request, searched on the server,
+ * with the invites still waiting as rows of their own. Without member.manage
+ * the page head already says why.
  */
 export function MembersScreen() {
   const { t } = useI18n();
+  const { client } = useWerft();
+  const queryClient = useQueryClient();
   const manages = useHasPermission("member.manage");
   const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
   const q = useSearchTerm(query);
   const members = useMemberPages(q, { enabled: manages });
+  const invites = useQuery({ ...invitesQuery(client), enabled: manages });
   const search = useRef<HTMLInputElement>(null);
-  const invite = useInviteButton();
 
   if (!manages) return null;
 
   const items = (members.data?.pages.flatMap((page) => page.items) ?? []).map(
     (member) => ({ ...member, actions: offeredActions(member) }),
   );
+  // Revoked and accepted invites are history; waiting and lapsed ones are
+  // what someone may still act on or ask about. The server searches members;
+  // invites, which have only an email, are searched here the same way.
+  const term = q?.toLowerCase();
+  const invited =
+    invites.data?.items.filter(
+      (invite) =>
+        (invite.status === "pending" || inviteLapsed(invite)) &&
+        (term === undefined || invite.email.toLowerCase().includes(term)),
+    ) ?? [];
+  // Counts only once every member page is here: a partial list would
+  // undercount the roles further down.
+  const counted = !members.isPending && !members.hasNextPage;
+  const countOf = (role: RoleFilter) =>
+    counted
+      ? [...items, ...invited].filter(
+          (row) => role === "all" || row.role === role,
+        ).length
+      : undefined;
+  const shownMembers =
+    roleFilter === "all"
+      ? items
+      : items.filter((member) => member.role === roleFilter);
+  const shownInvites =
+    roleFilter === "all"
+      ? invited
+      : invited.filter((invite) => invite.role === roleFilter);
   // The clear button leaves with the empty state; focus goes back to the box.
   const clear = () => {
     setQuery("");
@@ -229,23 +260,42 @@ export function MembersScreen() {
 
   // Nothing to search in a list that is empty to begin with: its box holds
   // only the empty state (R4).
+  const listFailed = members.error !== null && items.length === 0;
   const listEmpty =
-    !members.isPending && !members.error && items.length === 0 && query === "";
+    !members.isPending &&
+    !members.error &&
+    items.length === 0 &&
+    invited.length === 0 &&
+    query === "";
 
   return (
-    <SettingsSection
-      title={t("members.tab.members")}
-      // Always here, never in the empty box: a button that changes place
-      // remounts, and would close an invite dialog open on its link step
-      // when the list fills.
-      actions={invite.button}
-      box={listEmpty}
-    >
+    <div className="flex min-w-0 flex-col gap-4">
       {listEmpty ? (
-        <EmptyState title={t("members.empty")} />
+        <div className="flex min-w-0 flex-col gap-4 rounded-card border bg-card p-4">
+          <EmptyState title={t("members.empty")} />
+        </div>
       ) : (
         <ListToolbar
-          filter={null}
+          filter={
+            <SegmentedControl
+              aria-label={t("members.filter.label")}
+              value={roleFilter}
+              onValueChange={(next) => setRoleFilter(next as RoleFilter)}
+            >
+              <SegmentedControlItem value="all" count={countOf("all")}>
+                {t("members.filter.all")}
+              </SegmentedControlItem>
+              {WORKSPACE_ROLE_VALUES.map((value) => (
+                <SegmentedControlItem
+                  key={value}
+                  value={value}
+                  count={countOf(value)}
+                >
+                  {roleLabel(t, value)}
+                </SegmentedControlItem>
+              ))}
+            </SegmentedControl>
+          }
           search={{
             ref: search,
             type: "search",
@@ -259,79 +309,95 @@ export function MembersScreen() {
       )}
       {listEmpty ? null : members.isPending ? (
         <StatusScreen kind="loading" />
-      ) : members.error && items.length === 0 ? (
+      ) : listFailed ? (
         isApiError(members.error, "FORBIDDEN") ? (
           <StatusScreen kind="forbidden" />
         ) : (
           <LoadFailure
             error={members.error}
-            onRetry={() => void members.refetch()}
+            onRetry={() => {
+              void members.refetch();
+              if (invites.error) void invites.refetch();
+              // The head's invite button waits on its own read of the list.
+              void queryClient.refetchQueries({
+                queryKey: queryKeysOf(client).firstMembers,
+              });
+            }}
           />
         )
-      ) : items.length === 0 && q !== undefined ? (
-        <EmptyState
-          className="w-full"
-          title={t("members.noMatch")}
-          description={t("members.noMatchHint")}
-          action={
-            <Button type="button" variant="outline" size="sm" onClick={clear}>
-              {t("members.clearSearch")}
-            </Button>
-          }
-        />
+      ) : shownMembers.length === 0 && shownInvites.length === 0 ? (
+        q !== undefined ? (
+          <EmptyState
+            className="w-full"
+            title={t("members.noMatch")}
+            description={t("members.noMatchHint")}
+            action={
+              <Button type="button" variant="outline" size="sm" onClick={clear}>
+                {t("members.clearSearch")}
+              </Button>
+            }
+          />
+        ) : roleFilter !== "all" ? (
+          <EmptyState
+            className="w-full"
+            title={t("members.filter.empty", {
+              role: roleLabel(t, roleFilter),
+            })}
+          />
+        ) : (
+          <EmptyState className="w-full" title={t("members.empty")} />
+        )
       ) : (
         <div className="flex flex-col gap-4">
-          <MemberTable items={items} />
+          <MemberTable items={shownMembers} invites={shownInvites} />
           <PagedListFooter list={members} />
         </div>
       )}
-    </SettingsSection>
+      {/* The members still show when only the invites could not be read;
+          when the list failed too, its one retry reads both. */}
+      {invites.error &&
+      !listFailed &&
+      !isApiError(invites.error, "FORBIDDEN") ? (
+        <LoadFailure
+          error={invites.error}
+          onRetry={() => void invites.refetch()}
+        />
+      ) : null}
+    </div>
   );
 }
 
 /**
- * The invite button of the 구성원 and 초대 sections. It waits on the first
- * member page for the roles it may offer. A screen calls this once, at its
- * top, so the read starts with the screen: an observer that mounts later
- * would read an already loaded page again.
+ * The 구성원 tab's head button. It waits on the first member page for the
+ * roles it may offer.
  */
-function useInviteButton() {
+function InviteButton() {
   const { t } = useI18n();
   const { client } = useWerft();
   const manages = useHasPermission("member.manage");
   const members = useQuery({ ...firstMembersQuery(client), enabled: manages });
   const reason = usePermissionReason("member.manage", members);
-  // The read is the permission probe: when it failed, nobody knows.
+  // The read is the permission probe: when it failed, nobody knows, and the
+  // list under the head says why.
   const failed = members.isError && !isApiError(members.error, "FORBIDDEN");
-  return {
-    // Why the button is gone: the read it waits on failed.
-    failure: manages && failed ? members : null,
-    button:
-      manages && !failed ? (
-        <InviteDialog
-          reason={reason}
-          assignableRoles={offeredInviteRoles(members.data)}
-          refusal={(error, role) => refusal(t, error, role)}
-        />
-      ) : null,
-  };
+  if (!manages || failed) return null;
+  return (
+    <InviteDialog
+      reason={reason}
+      assignableRoles={offeredInviteRoles(members.data)}
+      refusal={(error, role) => refusal(t, error, role)}
+    />
+  );
 }
 
-// Email | role | status | ⋯.
-const INVITE_COLUMNS =
-  "minmax(0,1.6fr) 104px minmax(0,1fr) var(--werft-control-height-sm)";
-const INVITE_NARROW_COLUMNS =
-  "minmax(0,1.2fr) 72px minmax(0,1fr) var(--werft-control-height-sm)";
-
-/** The 초대 tab: invites still waiting to be accepted. */
-export function InvitesScreen() {
-  const manages = useHasPermission("member.manage");
-  if (!manages) return null;
-  return <InviteList />;
-}
-
-function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
-  const { t } = useI18n();
+function MemberTable({
+  items,
+  invites,
+}: {
+  readonly items: readonly MemberRow[];
+  readonly invites: readonly Invite[];
+}) {
+  const { t, locale } = useI18n();
   const notify = useNotify();
   const { client } = useWerft();
   const queryClient = useQueryClient();
@@ -420,6 +486,26 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
       setConfirming(null);
       fail(error, enable ? "enable" : "disable");
     },
+  });
+
+  const [revoking, setRevoking] = useState<Invite | null>(null);
+  const revoke = useMutation<unknown, ApiError, Invite>({
+    mutationFn: (invite) =>
+      unwrap(
+        client.DELETE("/v1/invites/{id}", {
+          params: { path: { id: invite.id } },
+        }),
+      ),
+    onSettled: () => setRevoking(null),
+    onSuccess: async (_result, invite) => {
+      notify(t("members.invites.revoked", { email: invite.email }));
+      await queryClient.invalidateQueries({
+        queryKey: queryKeysOf(client).invites,
+      });
+    },
+    // The confirmation has closed: the person reads why it did not happen.
+    onError: (error) =>
+      notify(refusal(t, error, role), { tone: "error", persistent: true }),
   });
 
   return (
@@ -529,7 +615,91 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
             </GridTableRow>
           );
         })}
+        {invites.map((invite) => {
+          const lapsed = inviteLapsed(invite);
+          // The cell ellipsizes a long line; the title keeps the full time.
+          const expires = t(
+            lapsed ? "members.invites.expiredAt" : "members.invites.expires",
+            { expires: formatTableDateTime(invite.expires_at, locale) },
+          );
+          return (
+            <GridTableRow
+              key={invite.id}
+              inactive={lapsed}
+              className={lapsed ? INACTIVE_ROW_CLASS : undefined}
+              data-invite-id={invite.id}
+              data-expired={lapsed}
+            >
+              {/* An invite has no name until it is accepted: its email
+                  stands in. */}
+              <GridTableCell>
+                <Text as="span" weight="medium" truncate title={invite.email}>
+                  {invite.email}
+                </Text>
+              </GridTableCell>
+              <GridTableCell>
+                <Text
+                  as="span"
+                  truncate
+                  title={invite.email}
+                  className="text-muted-foreground"
+                >
+                  {invite.email}
+                </Text>
+              </GridTableCell>
+              <GridTableCell>
+                <RoleBadge role={invite.role} />
+              </GridTableCell>
+              <GridTableCell lines={true}>
+                <StatusText status={lapsed ? "idle" : "wait"}>
+                  {t(
+                    lapsed
+                      ? "members.invites.state.expired"
+                      : "members.invites.state.pending",
+                  )}
+                </StatusText>
+                <Text as="span" variant="meta" truncate title={expires}>
+                  {expires}
+                </Text>
+              </GridTableCell>
+              <GridTableCell raised={true} align="end">
+                {lapsed ? null : (
+                  <RowMenu label={t("members.menuFor", { name: invite.email })}>
+                    {(close) => (
+                      <RowMenuItem
+                        tone="danger"
+                        onSelect={() => {
+                          close();
+                          if (!revoke.isPending) setRevoking(invite);
+                        }}
+                      >
+                        {t("members.invites.revoke")}
+                      </RowMenuItem>
+                    )}
+                  </RowMenu>
+                )}
+              </GridTableCell>
+            </GridTableRow>
+          );
+        })}
       </MemberTableFrame>
+      <ConfirmDialog
+        open={revoking !== null}
+        onOpenChange={(open) => {
+          if (!open) setRevoking(null);
+        }}
+        title={t("members.invites.revokeTitle", {
+          email: revoking?.email ?? "",
+        })}
+        consequence={t("members.invites.revokeConsequence")}
+        confirmLabel={t("members.invites.revoke")}
+        cancelLabel={t("common.cancel")}
+        tone="danger"
+        busy={revoke.isPending}
+        onConfirm={() => {
+          if (revoking) revoke.mutate(revoking);
+        }}
+      />
       {editing ? (
         <MemberEditDialog
           member={editing}
@@ -719,216 +889,4 @@ function MemberEditDialog({
 /** The server lists an invite whose time has passed as expired. */
 function inviteLapsed(invite: Invite): boolean {
   return invite.status === "expired";
-}
-
-function InviteList() {
-  const { t, locale } = useI18n();
-  const notify = useNotify();
-  const { client } = useWerft();
-  const queryClient = useQueryClient();
-  const role = useRole();
-  const invites = useQuery(invitesQuery(client));
-  const [revoking, setRevoking] = useState<Invite | null>(null);
-
-  const revoke = useMutation<unknown, ApiError, Invite>({
-    mutationFn: (invite) =>
-      unwrap(
-        client.DELETE("/v1/invites/{id}", {
-          params: { path: { id: invite.id } },
-        }),
-      ),
-    onSettled: () => setRevoking(null),
-    onSuccess: async (_result, invite) => {
-      notify(t("members.invites.revoked", { email: invite.email }));
-      await queryClient.invalidateQueries({
-        queryKey: queryKeysOf(client).invites,
-      });
-    },
-    // The confirmation has closed: the person reads why it did not happen.
-    onError: (error) =>
-      notify(refusal(t, error, role), { tone: "error", persistent: true }),
-  });
-
-  const [query, setQuery] = useState("");
-  const search = useRef<HTMLInputElement>(null);
-  // Revoked and accepted invites are history; waiting and lapsed ones are
-  // what someone may still act on or ask about.
-  const listed =
-    invites.data?.items.filter(
-      (invite) => invite.status === "pending" || inviteLapsed(invite),
-    ) ?? [];
-  const term = query.trim().toLowerCase();
-  const shown = term
-    ? listed.filter((invite) => invite.email.toLowerCase().includes(term))
-    : listed;
-  // Once shown the box stays: a revoke that brings the list under the
-  // threshold must not remove the field that holds the focus.
-  const [shownBefore, setShownBefore] = useState(false);
-  const searchable =
-    shownBefore || listed.length > INVITE_SEARCH_THRESHOLD || query !== "";
-  if (searchable && !shownBefore) setShownBefore(true);
-  // The clear button leaves with the empty state; focus goes back to the box.
-  const clear = () => {
-    setQuery("");
-    search.current?.focus();
-  };
-
-  const invite = useInviteButton();
-  // A search box left over from a revoke stays out of the empty box (R4).
-  const listEmpty =
-    !invites.isPending && !invites.error && listed.length === 0 && !searchable;
-
-  return (
-    <SettingsSection
-      title={t("members.tab.invites")}
-      actions={invite.button}
-      box={listEmpty}
-    >
-      {/* The invite button waits on the member list; say why it is gone. */}
-      {invite.failure ? (
-        <LoadFailure
-          error={invite.failure.error}
-          onRetry={() => void invite.failure?.refetch()}
-        />
-      ) : null}
-      {searchable ? (
-        <ListToolbar
-          filter={null}
-          search={{
-            ref: search,
-            type: "search",
-            "aria-label": t("members.invites.search"),
-            placeholder: t("members.invites.search"),
-            maxLength: SEARCH_MAX,
-            value: query,
-            onChange: (event) => setQuery(event.target.value),
-          }}
-        />
-      ) : null}
-      {invites.isPending ? (
-        <StatusScreen kind="loading" />
-      ) : invites.error ? (
-        isApiError(invites.error, "FORBIDDEN") ? (
-          <FormError>{refusal(t, invites.error, role)}</FormError>
-        ) : (
-          <LoadFailure
-            error={invites.error}
-            onRetry={() => void invites.refetch()}
-          />
-        )
-      ) : listed.length === 0 ? (
-        <EmptyState title={t("members.invites.empty")} />
-      ) : shown.length === 0 ? (
-        <EmptyState
-          className="w-full"
-          title={t("members.invites.noMatch")}
-          description={t("members.invites.noMatchHint")}
-          action={
-            <Button type="button" variant="outline" size="sm" onClick={clear}>
-              {t("members.clearSearch")}
-            </Button>
-          }
-        />
-      ) : (
-        <MemberTableFrame
-          label={t("members.invites.tableLabel")}
-          layout={{
-            columns: INVITE_COLUMNS,
-            narrowColumns: INVITE_NARROW_COLUMNS,
-            narrowAt: 640,
-            headers: (
-              <>
-                <GridTableColumnHeader>
-                  {t("members.column.email")}
-                </GridTableColumnHeader>
-                <GridTableColumnHeader>
-                  {t("members.column.role")}
-                </GridTableColumnHeader>
-                <GridTableColumnHeader>
-                  {t("members.column.status")}
-                </GridTableColumnHeader>
-                <GridTableColumnHeader>
-                  <span className="sr-only">{t("members.column.actions")}</span>
-                </GridTableColumnHeader>
-              </>
-            ),
-          }}
-        >
-          {shown.map((invite) => {
-            const lapsed = inviteLapsed(invite);
-            // The cell ellipsizes a long line; the title keeps the full time.
-            const expires = t(
-              lapsed ? "members.invites.expiredAt" : "members.invites.expires",
-              { expires: formatTableDateTime(invite.expires_at, locale) },
-            );
-            return (
-              <GridTableRow
-                key={invite.id}
-                inactive={lapsed}
-                className={lapsed ? INACTIVE_ROW_CLASS : undefined}
-                data-expired={lapsed}
-              >
-                <GridTableCell>
-                  <Text as="span" weight="medium" truncate title={invite.email}>
-                    {invite.email}
-                  </Text>
-                </GridTableCell>
-                <GridTableCell>
-                  <RoleBadge role={invite.role} />
-                </GridTableCell>
-                <GridTableCell lines={true}>
-                  <StatusText status={lapsed ? "idle" : "wait"}>
-                    {t(
-                      lapsed
-                        ? "members.invites.state.expired"
-                        : "members.invites.state.pending",
-                    )}
-                  </StatusText>
-                  <Text as="span" variant="meta" title={expires}>
-                    {expires}
-                  </Text>
-                </GridTableCell>
-                <GridTableCell raised={true} align="end">
-                  {lapsed ? null : (
-                    <RowMenu
-                      label={t("members.menuFor", { name: invite.email })}
-                    >
-                      {(close) => (
-                        <RowMenuItem
-                          tone="danger"
-                          onSelect={() => {
-                            close();
-                            if (!revoke.isPending) setRevoking(invite);
-                          }}
-                        >
-                          {t("members.invites.revoke")}
-                        </RowMenuItem>
-                      )}
-                    </RowMenu>
-                  )}
-                </GridTableCell>
-              </GridTableRow>
-            );
-          })}
-        </MemberTableFrame>
-      )}
-      <ConfirmDialog
-        open={revoking !== null}
-        onOpenChange={(open) => {
-          if (!open) setRevoking(null);
-        }}
-        title={t("members.invites.revokeTitle", {
-          email: revoking?.email ?? "",
-        })}
-        consequence={t("members.invites.revokeConsequence")}
-        confirmLabel={t("members.invites.revoke")}
-        cancelLabel={t("common.cancel")}
-        tone="danger"
-        busy={revoke.isPending}
-        onConfirm={() => {
-          if (revoking) revoke.mutate(revoking);
-        }}
-      />
-    </SettingsSection>
-  );
 }

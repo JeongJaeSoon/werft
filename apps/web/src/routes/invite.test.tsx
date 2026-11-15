@@ -798,7 +798,7 @@ describe("공급자 계정으로 가입", () => {
       await accept("있음", "wrong password!!");
       const alerts = await screen.findAllByRole("alert");
       expect(alerts.map((alert) => alert.textContent)).toEqual([
-        "권한이 없습니다 — 소유자나 관리자에게 요청하세요.",
+        "권한이 없습니다 — 오너나 어드민에게 요청하세요.",
       ]);
       expect(
         api.calls.filter((c) => c.path === "/v1/auth/login-methods"),
@@ -908,7 +908,7 @@ describe("공급자 가입의 콜백", () => {
         apiError(409, "LOGIN_LINK_REQUIRED", "An account exists"),
     });
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "이미 이 이메일로 만든 계정이 있습니다 — 그 계정에 쓰던 수단으로 로그인한 뒤 설정 > 로그인 수단에서 이 공급자를 연결하세요. 그 수단으로 로그인할 수 없으면 소유자에게 요청하세요.",
+      "이미 이 이메일로 만든 계정이 있습니다 — 그 계정에 쓰던 수단으로 로그인한 뒤 설정 > 로그인 수단에서 이 공급자를 연결하세요. 그 수단으로 로그인할 수 없으면 오너에게 요청하세요.",
     );
     expect(
       screen
