@@ -785,6 +785,41 @@ describe("입력 검증(W24 규약)", () => {
     expect(within(dialog).queryByLabelText("초대 링크") === null).toBe(true);
   });
 
+  test("응답을 기다리는 동안 다른 주소로 고쳤으면 앞 주소의 409는 칸 오류가 되지 않는다", async () => {
+    let answer: (response: Response) => void = () => {};
+    renderMembers(
+      () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }) as unknown as Response,
+    );
+    const { user, dialog } = await open();
+    const email = within(dialog).getByLabelText("이메일");
+    await user.type(email, "member@example.com");
+    await user.click(
+      within(dialog).getByRole("button", { name: "초대 링크 만들기" }),
+    );
+    await user.clear(email);
+    await user.type(email, "new@example.com");
+    const other = within(dialog).getByRole("button", { name: "취소" });
+    other.focus();
+    await act(async () => {
+      answer(
+        apiError(
+          409,
+          "ALREADY_EXISTS",
+          "This email already belongs to a member of the workspace",
+          false,
+          { field: "email", reason_code: "already_member" },
+        ),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(email.getAttribute("aria-invalid") === "true").toBe(false);
+    expect(within(dialog).queryAllByRole("alert")).toHaveLength(0);
+    expect(document.activeElement === other).toBe(true);
+  });
+
   test("서버가 거절한 초대(403)는 비활성 버튼과 같은 문구로 보인다", async () => {
     renderMembers(() =>
       apiError(403, "FORBIDDEN", "This principal does not hold member.manage"),

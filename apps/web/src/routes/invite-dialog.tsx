@@ -345,12 +345,15 @@ function DetailsStep({
   // focused is gone and the keyboard would land on <body>.
   const { setFocus } = form;
   useEffect(() => setFocus("email"), [setFocus]);
-  // The server's refusal of a member's address belongs to the email field.
+  // The server's refusal of a member's address belongs to the email field,
+  // unless the field moved on to another address while the request ran.
   const sendOrMark = async (values: { email: string; role: WorkspaceRole }) => {
     try {
       await send(values);
     } catch (error) {
       if (!isAlreadyMember(error)) throw error;
+      const sent = values.email.trim().toLowerCase();
+      if (form.getValues("email").trim().toLowerCase() !== sent) return;
       form.setError(
         "email",
         { type: "server", message: t("members.invite.alreadyMember") },
