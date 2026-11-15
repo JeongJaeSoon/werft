@@ -700,7 +700,15 @@ describe("ApprovalInbox", () => {
     expect(line.querySelector("[data-slot='avatar']") === null).toBe(true);
     // The kind sits on the title's line, after it.
     const [first, second] = [...line.querySelectorAll("p")];
-    expect(first?.textContent).toBe("hello.txtPermission · Bash");
+    // The badge names the kind only; the tool is the rail's to show.
+    expect(first?.textContent).toBe("hello.txtPermission");
+    // A long title takes two lines before it is cut, and the answer button
+    // keeps its width beside it.
+    const title = first?.firstElementChild as HTMLElement;
+    expect(title.className.split(" ")).toContain("line-clamp-2");
+    expect(title.className.split(" ")).not.toContain("truncate");
+    expect(answer.className.split(" ")).toContain("shrink-0");
+    expect(line.lastElementChild === answer).toBe(true);
     // The first of the reasons, in the design's order, without a label.
     await waitFor(() =>
       expect(second?.textContent).toBe(
@@ -763,6 +771,17 @@ describe("ApprovalInbox", () => {
         /^Waiting \d+ min · Shared with you$/,
       ),
     );
+  });
+
+  test("권한 요청 배지는 모든 언어에서 도구 이름 없이 종류만 부른다", async () => {
+    const { sessionsEn, sessionsJa, sessionsKo } = await import(
+      "../messages/sessions.ts"
+    );
+    expect([
+      sessionsKo["inbox.permission"],
+      sessionsEn["inbox.permission"],
+      sessionsJa["inbox.permission"],
+    ]).toEqual(["권한", "Permission", "権限"]);
   });
 
   test("레일 줄은 관계를 모르면 이유를 빼고, 에이전트 없는 세션은 시작한 사람의 이름을 쓴다", async () => {

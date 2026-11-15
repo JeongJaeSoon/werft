@@ -518,14 +518,14 @@ function PanelLine({
     <div className="flex min-h-[var(--werft-row-min-height)] items-center gap-3 px-[var(--werft-row-padding-x)] py-[var(--werft-row-padding-y)]">
       <div className="flex min-w-0 flex-1 flex-col gap-(--werft-row-line-gap)">
         {/* On a narrow line the badge goes under the title rather than
-            both being cut. */}
+            both being cut; a long title takes two lines before it is cut. */}
         <p className="m-0 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-medium text-control leading-(--werft-leading-body)">
-          <span className="min-w-16 max-w-full truncate">{heading}</span>
+          <span className="line-clamp-2 min-w-16 max-w-full">{heading}</span>
           <Badge variant="amber" className="min-w-0 max-w-full shrink">
             <span className="truncate">
               {request.kind === "question"
                 ? t("session.pending.question")
-                : t("inbox.permission", { tool: request.tool })}
+                : t("inbox.permission")}
             </span>
           </Badge>
         </p>
