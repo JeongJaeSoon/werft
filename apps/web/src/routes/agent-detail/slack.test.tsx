@@ -13,7 +13,9 @@ import {
 } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor, within } = await appHarness();
+const { act, renderAt, screen, waitFor, within } = await appHarness();
+// After the harness: the module pulls in @werft-ai/ui, which needs the DOM.
+const { UNVERIFIED_POLL_MS } = await import("./slack/shared.ts");
 const PATH = `/v1/agents/${AGENT_ID}`;
 const DETAIL = `/agents/${AGENT_ID}?tab=slack`;
 const ID = "00000000-0000-4000-8000-000000000001";
@@ -1478,7 +1480,7 @@ describe("Slack management", () => {
       "Slack이 Request URL을 아직 확인하지 않았습니다",
     );
     expect(status.textContent).toContain(
-      "앱 설정의 Event Subscriptions에서 Request URL의 Verify(또는 Retry)를 누르세요",
+      "Event Subscriptions에서 Request URL의 Verify(또는 Retry)를 누르세요",
     );
     expect(status.textContent).not.toContain("App Manifest");
     const link = within(status).getByRole("link", {
@@ -1633,19 +1635,38 @@ describe("Slack management", () => {
       name: "홈 채널 지정",
     });
     const lock = await within(channels).findByRole("group", {
-      name: "Request URL 확인 전에는 채널을 고를 수 없습니다",
+      name: "Request URL이 확인되면 채널을 고를 수 있습니다.",
     });
     // Nothing to pick with until Slack checks.
     expect(within(channels).queryByText("홈 채널 고르기")).toBeNull();
     expect(lock.closest("[inert]")).toBeNull();
-    // The way out stays reachable: the lock leads to it.
-    await user.click(
-      within(lock).getByRole("button", { name: "다시 확인으로 이동" }),
+    // One notice: the card's banner. The channels say one quiet line.
+    expect(
+      screen.getAllByText("Slack이 Request URL을 아직 확인하지 않았습니다"),
+    ).toHaveLength(1);
+    expect(within(channels).queryByRole("alert")).toBeNull();
+    expect(lock.className).not.toContain("caution");
+    expect(within(lock).queryByRole("button")).toBeNull();
+    // The way out is the banner's own: Slack's Event Subscriptions page.
+    const open = within(lock).getByRole("link", {
+      name: /Event Subscriptions 열기/,
+    });
+    expect(open.getAttribute("href")).toBe(
+      "https://api.slack.com/apps/A123/event-subscriptions",
     );
+    expect(open.getAttribute("target")).toBe("_blank");
+    expect(open.getAttribute("rel")?.split(" ").sort()).toEqual([
+      "noopener",
+      "noreferrer",
+    ]);
+    const banner = within(
+      screen.getByRole("region", { name: "Slack" }),
+    ).getByRole("link", { name: /Event Subscriptions 열기/ });
+    expect(open.getAttribute("href")).toBe(banner.getAttribute("href"));
     const recheck = within(
       screen.getByRole("region", { name: "Slack 앱에 넣을 주소" }),
     ).getByRole("button", { name: "다시 확인" });
-    expect(document.activeElement === recheck).toBe(true);
+    expect(recheck.closest("[inert]")).toBeNull();
     await user.click(recheck);
     await waitFor(() =>
       expect(within(channels).queryByRole("group")).toBeNull(),
@@ -1654,7 +1675,7 @@ describe("Slack management", () => {
     expect(pick.closest("[inert]")).toBeNull();
   });
 
-  test("leads the lock to the app section when the app has no event URL", async () => {
+  test("keeps the lock's way out when the app has no event URL", async () => {
     renderAt(DETAIL, {
       ...routes(APP, true),
       [`GET ${PATH}/slack/app`]: () =>
@@ -1665,11 +1686,10 @@ describe("Slack management", () => {
         }),
       [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [] }),
     });
-    const user = await setupUser();
     const lock = await within(
       await screen.findByRole("region", { name: "홈 채널 지정" }),
     ).findByRole("group", {
-      name: "Request URL 확인 전에는 채널을 고를 수 없습니다",
+      name: "Request URL이 확인되면 채널을 고를 수 있습니다.",
     });
     expect(
       screen.queryByRole("region", { name: "Slack 앱에 넣을 주소" }) === null,
@@ -1680,13 +1700,53 @@ describe("Slack management", () => {
         .getAllByRole("link")
         .some((link) => link.textContent === "Slack 앱에 넣을 주소"),
     ).toBe(false);
-    await user.click(
-      within(lock).getByRole("button", { name: "다시 확인으로 이동" }),
-    );
+    // Without the address section, Slack's own page is still the way out.
     expect(
-      document.activeElement ===
-        screen.getByRole("region", { name: "자동으로 만든 Slack 앱" }),
-    ).toBe(true);
+      within(lock)
+        .getByRole("link", { name: /Event Subscriptions 열기/ })
+        .getAttribute("href"),
+    ).toBe("https://api.slack.com/apps/A123/event-subscriptions");
+  });
+
+  test("asks Slack's answer again while the notice shows, drops it without a refresh, then stops asking", async () => {
+    let read: components["schemas"]["GetSlackAppResponse"]["events"] = {
+      state: "pending",
+      checked_at: AT,
+      url: SENT,
+    };
+    const { services } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(200, { ...appResponse(APP), event_url: SENT, events: read }),
+    });
+    const TITLE = "Slack이 Request URL을 아직 확인하지 않았습니다";
+    await screen.findByText(TITLE);
+    const appQuery = () => {
+      const found = services.queryClient
+        .getQueryCache()
+        .findAll()
+        .find(
+          (query) =>
+            query.queryKey.at(-2) === "slack" &&
+            query.queryKey.at(-1) === "app",
+        );
+      if (!found) throw new Error("no Slack app query");
+      return found;
+    };
+    const intervals = () => {
+      const query = appQuery();
+      return query.observers.map((observer) => {
+        const every = observer.options.refetchInterval;
+        return typeof every === "function" ? every(query as never) : every;
+      });
+    };
+    expect(intervals()).not.toHaveLength(0);
+    expect(new Set(intervals())).toEqual(new Set([UNVERIFIED_POLL_MS]));
+    // Slack's check lands in the next read: the notice goes, no reload.
+    read = { state: "verified", checked_at: AT, url: SENT };
+    await act(() => appQuery().fetch());
+    expect(screen.queryByText(TITLE)).toBeNull();
+    expect(new Set(intervals())).toEqual(new Set([false]));
   });
 
   test("locks the connected channels too while Slack has not checked", async () => {

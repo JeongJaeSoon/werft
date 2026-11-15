@@ -20,6 +20,7 @@ import {
 } from "./queries.ts";
 import {
   dmOn,
+  eventSubscriptionsUrl,
   SECTION,
   SECTION_TARGET,
   SLACK_WARNING_KEY,
@@ -145,7 +146,7 @@ export function SlackHeader({
             <AlertDescription>
               {t("slack.eventsPending.body")}{" "}
               <Link
-                href={`https://api.slack.com/apps/${encodeURIComponent(unverified)}/event-subscriptions`}
+                href={eventSubscriptionsUrl(unverified)}
                 target="_blank"
                 newTabLabel={t("slack.newTab")}
                 underline="always"

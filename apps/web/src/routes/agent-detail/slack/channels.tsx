@@ -20,6 +20,7 @@ import {
   GridTableHeader,
   GridTableRow,
   Input,
+  Link,
   RowAction,
   RowList,
   RowListItem,
@@ -40,7 +41,7 @@ import { slackKey, useSlackBindings, useSlackChannels } from "./queries.ts";
 import {
   type Binding,
   type BindingChange,
-  RECHECK_ID,
+  eventSubscriptionsUrl,
   SECTION,
   SECTION_TARGET,
   slackFailure,
@@ -154,7 +155,7 @@ export function SlackChannels({
   invite,
   notify,
   homeStep = false,
-  locked = false,
+  lockedApp = null,
   installed = true,
 }: {
   readonly agentId: string;
@@ -163,8 +164,11 @@ export function SlackChannels({
   readonly notify: Notify;
   /** Installed with no home yet: only picking the home is offered. */
   readonly homeStep?: boolean;
-  /** Slack has not checked the Request URL, so no channel would hear the bot. */
-  readonly locked?: boolean;
+  /**
+   * The Slack app ID while Slack has not checked its Request URL, so no
+   * channel would hear the bot. The card above carries the notice.
+   */
+  readonly lockedApp?: string | null;
   /**
    * An active bot to invite. After a disconnect the tab keeps its layout,
    * but `/invite` would add a bot that hears nothing.
@@ -180,7 +184,8 @@ export function SlackChannels({
   const [picking, setPicking] = useState(false);
   const [pickHome, setPickHome] = useState(false);
   const pickerOpener = useRef<HTMLButtonElement | null>(null);
-  const lockAction = useRef<HTMLButtonElement>(null);
+  const lockAction = useRef<HTMLAnchorElement>(null);
+  const locked = lockedApp !== null;
   // A lock that arrives with the picker open closes it; it sits outside inert.
   useEffect(() => {
     if (locked) setPicking(false);
@@ -500,7 +505,9 @@ export function SlackChannels({
               </GridTable>
             )}
           </div>
-          {locked ? <ChannelsLock action={lockAction} /> : null}
+          {locked ? (
+            <ChannelsLock appId={lockedApp} action={lockAction} />
+          ) : null}
         </div>
       </SettingsSection>
       <Dialog open={picking} onOpenChange={setPicking}>
@@ -688,48 +695,36 @@ function InviteRow({
   );
 }
 
-/** Covers the channels, pointing to the address section's Recheck. */
+/** One quiet line over the hidden channels; the card above explains why. */
 function ChannelsLock({
+  appId,
   action,
 }: {
-  readonly action: RefObject<HTMLButtonElement | null>;
+  readonly appId: string;
+  readonly action: RefObject<HTMLAnchorElement | null>;
 }) {
   const { t } = useI18n();
   const titleId = useId();
   return (
-    // biome-ignore lint/a11y/useSemanticElements: a fieldset groups form controls, this is a notice with one button
+    // biome-ignore lint/a11y/useSemanticElements: a fieldset groups form controls, this is a line with one link
     <div
       role="group"
       aria-labelledby={titleId}
-      className="col-start-1 row-start-1 flex flex-col items-center justify-center gap-2 rounded-card border border-(color:--werft-tone-caution-border) bg-background p-4 text-center"
+      className="col-start-1 row-start-1 flex flex-wrap items-center gap-x-3 gap-y-2 self-start"
     >
-      <Text id={titleId} className="font-medium">
+      <Text id={titleId} variant="sub">
         {t("slack.channelsLocked.title")}
       </Text>
-      <Text variant="sub" className="max-w-prose">
-        {t("slack.channelsLocked.body")}
-      </Text>
-      <Button
-        ref={action}
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() => {
-          const target =
-            document.getElementById(RECHECK_ID) ??
-            document.getElementById(SECTION.addresses) ??
-            // Without an event URL there is no address section.
-            document.getElementById(SECTION.app);
-          target?.scrollIntoView({
-            block: "center",
-            behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
-              ? "auto"
-              : "smooth",
-          });
-          target?.focus({ preventScroll: true });
-        }}
-      >
-        {t("slack.channelsLocked.action")}
+      <Button asChild variant="outline" size="sm">
+        <Link
+          ref={action}
+          href={eventSubscriptionsUrl(appId)}
+          target="_blank"
+          newTabLabel={t("slack.newTab")}
+          className="text-foreground hover:no-underline"
+        >
+          {t("slack.eventsPending.open")}
+        </Link>
       </Button>
     </div>
   );

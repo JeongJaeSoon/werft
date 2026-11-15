@@ -98,8 +98,8 @@ export interface SlackAppStore {
     events: SlackEventsCheck,
   ): Promise<void>;
   /**
-   * Records `url` as sent to Slack: `pending` again unless the app is
-   * already `verified` for that same URL.
+   * Records `url` as sent to Slack: `pending` unless the app is already
+   * `verified`, for this URL or an earlier one.
    */
   registerEventsUrl(
     workspaceId: string,

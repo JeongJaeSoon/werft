@@ -71,8 +71,8 @@ test("event registration results persist across reads and expose only a safe err
   });
 });
 
-test("a reinstall keeps a verified URL verified and a changed URL pending again", async () => {
-  const { service, apps } = await setup();
+test("a reinstall keeps a verified URL verified, also when the URL moves, until Slack refuses the move", async () => {
+  const { service, apps, slack } = await setup();
   const caller = user("owner");
   const created = await service.createAgentApp(caller, AGENT, {
     replace_uncertain: false,
@@ -94,6 +94,49 @@ test("a reinstall keeps a verified URL verified and a changed URL pending again"
     checked_at: "2026-10-23T00:00:01.000Z",
     url: input.eventsUrl,
   });
+  // Slack moves a verified Request URL without sending a url_verification
+  // to the new one, so nothing would ever settle a `pending` here.
+  const moved = `https://moved.example.test/v1/slack/events/${AGENT}`;
+  await service.updateAgentAppManifest(WORKSPACE, created.slack_app.id, {
+    ...input,
+    eventsUrl: moved,
+  });
+  expect((await service.getAgentApp(caller, AGENT)).events).toEqual({
+    state: "verified",
+    checked_at: "2026-10-23T00:00:01.000Z",
+    url: moved,
+  });
+  slack.api.updateApp = async () => {
+    throw new SlackApiError("apps.manifest.update", "invalid_manifest", true);
+  };
+  const again = `https://again.example.test/v1/slack/events/${AGENT}`;
+  await expect(
+    service.updateAgentAppManifest(WORKSPACE, created.slack_app.id, {
+      ...input,
+      eventsUrl: again,
+    }),
+  ).rejects.toThrow();
+  expect((await service.getAgentApp(caller, AGENT)).events).toEqual({
+    state: "failed",
+    checked_at: "2026-10-23T00:00:00.000Z",
+    url: again,
+    error: "events_registration_failed",
+  });
+});
+
+test("a pending app whose URL moves stays pending", async () => {
+  const { service } = await setup();
+  const caller = user("owner");
+  const created = await service.createAgentApp(caller, AGENT, {
+    replace_uncertain: false,
+  });
+  const input = {
+    name: "Release notes",
+    botName: "release-notes",
+    description: "Writes the release notes",
+    eventsUrl: `https://events.example.test/v1/slack/events/${AGENT}`,
+  };
+  await service.updateAgentAppManifest(WORKSPACE, created.slack_app.id, input);
   const moved = `https://moved.example.test/v1/slack/events/${AGENT}`;
   await service.updateAgentAppManifest(WORKSPACE, created.slack_app.id, {
     ...input,
