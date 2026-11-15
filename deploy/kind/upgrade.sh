@@ -20,9 +20,10 @@
 #                  through files/next-workers.jq (B: A rebuilt, C: Codex);
 #                  S3 waits on A in the same Pod; S2 resumes on B
 #   6. next-list   the control phase keeps that list, then [D, B, C] drops A:
-#                  refused while S3's launch on A holds a slot, the rerun
-#                  gives the same file, and once S3 completes and pauses it
-#                  proceeds; S2 (paused on B) and S3 (paused on A) resume on D
+#                  refused for a stale approval alone, the rerun gives the
+#                  same file, and it proceeds while S3's launch on A holds a
+#                  slot (B restores what A seals); S3 completes on A and
+#                  pauses; S2 (paused on B) and S3 (paused on A) resume on D
 #   7. list-rollback
 #                  helm rollback from that list to the single image A: no hook
 #                  ran; api and scheduler are back on WORKER_IMAGE; S2 (paused
@@ -545,35 +546,37 @@ jq -e --arg b "$digest_b" --arg c "$digest_c" --arg d "$digest_d" \
   '[.images.workers[].digest] == [$d, $b, $c]' "$work/workers-2.json" >/dev/null ||
   fail "next-workers gave $(jq -c '[.images.workers[].digest]' "$work/workers-2.json") for the next list"
 # S3 launched on A before any runtime was declared for it, so its launch
-# record has none and only A is known to restore what it seals: dropping A
-# is refused while that launch holds a slot.
+# record has none. The list declares A's runtime, under which B (A rebuilt)
+# restores what A seals: dropping A goes ahead while that launch holds a
+# slot. A stale approval is refused first, which a check that still held
+# S3's slot against A would refuse before reaching the approvals.
 if helm upgrade "$RELEASE" "$root/deploy/helm/werft" --namespace "$NAMESPACE" \
   -f "$work/release-values.json" -f "$work/workers-2.json" \
-  --set-json 'upgrade.approvedSessions=[]' --wait --timeout 10m; then
-  fail "dropping A passed while S3's worker held a slot on it"
+  --set-json 'upgrade.approvedSessions=["stale-approval"]' --wait --timeout 10m; then
+  fail "dropping A passed with a stale approval"
 fi
 verdict="$(k logs "job/${fullname}-upgrade-check" | jq -c 'select(.verdict)')"
 echo "upgrade-check: ${verdict}"
-echo "$verdict" | jq -e --arg a "${image_repo}-worker@${digest_a}" \
-  '.verdict == "refused" and (.reason | startswith("workers on \($a) still hold a slot"))' >/dev/null ||
-  fail "dropping A was not refused for S3's slot"
+echo "$verdict" | jq -e '.verdict == "refused" and (.reason | endswith("no longer affected: stale-approval"))' >/dev/null ||
+  fail "dropping A was not refused for the stale approval alone"
 # The failed revision is not the deployed one: the procedure gives the same file.
 deployed_values "$work/deployed-retry.json"
 next_workers final "$work/deployed-retry.json" "$work/release-2.json" '{}' >"$work/workers-2-retry.json"
 cmp -s "$work/workers-2.json" "$work/workers-2-retry.json" || fail "the rerun after the refusal gave another list"
-open_api
-[ "$(worker_pods "$s3")" = "$worker_s3" ] || fail "S3's worker Pod changed: $(worker_pods "$s3")"
-post "/v1/sessions/${s3}/answers" "$(jq -nc --arg r "$request_s3" '{request_id: $r, kind: "permission", action: "allow"}')" >/dev/null
-wait_turn "$s3" 1
-pause_session "$s3"
-checkpoint_s3="$(get "/v1/sessions/${s3}" | jq '.durability.checkpoint_revision')"
-echo "S3 completed on A after the refusal and paused"
 upgrade_to "$work/workers-2.json"
 list_2="$(as_env "$(rendered "$work/workers-2.json")")"
 same_list "$list_2"
 [ "$(hook_env UPGRADE_DEPLOYED_WORKER_IMAGES)" = "$list_1" ] || fail "the upgrade-check Job did not get the list deployed before it"
-echo "list -> next list ${list_2}"
+echo "list -> next list ${list_2}, S3's launch on A holding a slot"
 open_api
+# A left the list, but the worker started on it finishes its turn there.
+[ "$(worker_pods "$s3")" = "$worker_s3" ] || fail "S3's worker Pod changed: $(worker_pods "$s3")"
+[ "$(pod_image "$s3")" = "${image_repo}-worker@${digest_a}" ] || fail "S3 runs $(pod_image "$s3"), not A"
+post "/v1/sessions/${s3}/answers" "$(jq -nc --arg r "$request_s3" '{request_id: $r, kind: "permission", action: "allow"}')" >/dev/null
+wait_turn "$s3" 1
+pause_session "$s3"
+checkpoint_s3="$(get "/v1/sessions/${s3}" | jq '.durability.checkpoint_revision')"
+echo "S3 completed on A after A left the list and paused"
 resumed="$(post "/v1/sessions/${s2}/resume" "$(jq -nc --argjson r "$(get "/v1/sessions/${s2}" | jq .revision)" '{expected_revision: $r}')")"
 settle_receipt "$(echo "$resumed" | jq -r .receipt_id)" resume
 wait_session "active" '.admission_state == "active"' "$s2"

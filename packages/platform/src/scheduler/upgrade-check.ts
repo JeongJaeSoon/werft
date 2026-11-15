@@ -152,6 +152,21 @@ export function assessUpgrade(input: {
     deployed: deployed.filter((image) => !image.retracted),
     target: target.filter((image) => !image.retracted),
   };
+  // A launch reserved before its image had a runtime declared (one image,
+  // unpinned, since listed with one) runs what the deployed list now
+  // declares for that digest.
+  const writers = input.writers.map((writer) =>
+    writer.runtime !== null
+      ? writer
+      : {
+          ...writer,
+          runtime:
+            deployed.find(
+              ({ image, runtime }) =>
+                image === writer.image && runtime !== null,
+            )?.runtime ?? null,
+        },
+  );
   const stranded = (writers: readonly UpgradeImage[]) => [
     ...new Set(
       writers
@@ -189,7 +204,7 @@ export function assessUpgrade(input: {
     (engine): engine is string =>
       engine !== undefined && ofGroup(target, engine).length === 0,
   );
-  const ofDropped = input.writers.filter(({ image, runtime }) =>
+  const ofDropped = writers.filter(({ image, runtime }) =>
     dropped.some((engine) =>
       runtime === null
         ? ofGroup(deployed, engine).some((d) => d.image === image)
@@ -197,10 +212,7 @@ export function assessUpgrade(input: {
     ),
   );
   const launches = [
-    ...new Set([
-      ...stranded(input.writers),
-      ...ofDropped.map(({ image }) => image),
-    ]),
+    ...new Set([...stranded(writers), ...ofDropped.map(({ image }) => image)]),
   ].sort();
   if (launches.length > 0) {
     return {
@@ -253,8 +265,8 @@ function schemeSet(runtime: ImageRuntime): string {
     .join();
 }
 
-// A writer with no runtime recorded seals whatever its image runs, which only
-// the same digest is known to restore.
+// A writer with no runtime recorded or declared seals whatever its image
+// runs, which only the same digest is known to restore.
 function resumesOn(
   writer: UpgradeImage,
   images: readonly UpgradeImage[],
