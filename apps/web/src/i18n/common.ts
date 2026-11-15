@@ -33,9 +33,9 @@ export const commonKo = {
   "operations.byAgent": "에이전트별",
   "operations.usageEmpty": "이 기간에 시작한 세션이 없습니다.",
 
-  "role.owner": "소유자",
-  "role.admin": "관리자",
-  "role.member": "구성원",
+  "role.owner": "오너",
+  "role.admin": "어드민",
+  "role.member": "멤버",
 
   "status.loading.title": "불러오는 중입니다",
   "status.checkingLogin.title": "로그인 상태를 확인하는 중입니다",
@@ -198,7 +198,7 @@ export const commonJa: Record<keyof typeof commonKo, string> = {
   "operations.usageEmpty": "この期間に開始したセッションはありません。",
 
   "role.owner": "オーナー",
-  "role.admin": "管理者",
+  "role.admin": "アドミン",
   "role.member": "メンバー",
 
   "status.loading.title": "読み込み中です",

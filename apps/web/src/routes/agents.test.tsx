@@ -438,7 +438,7 @@ describe("에이전트 목록", () => {
     expect(
       document.getElementById(button.getAttribute("aria-describedby") ?? "")
         ?.textContent,
-    ).toBe("에이전트 만들기 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.");
+    ).toBe("에이전트 만들기 권한이 있어야 할 수 있습니다. 지금 역할: 멤버.");
   });
 
   test("영어 화면도 권한 식별자와 서버 문구 없이 안내한다", async () => {

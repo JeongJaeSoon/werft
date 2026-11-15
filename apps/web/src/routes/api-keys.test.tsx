@@ -1001,7 +1001,7 @@ describe("API key", () => {
     await chooseAgent(user, "Billing");
     await user.click(screen.getByRole("button", { name: "키 만들기" }));
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "에이전트 키 발급 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
+      "에이전트 키 발급 권한이 있어야 할 수 있습니다. 지금 역할: 오너.",
     );
   });
 

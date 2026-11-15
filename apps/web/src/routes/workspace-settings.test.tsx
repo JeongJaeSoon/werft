@@ -328,7 +328,7 @@ describe("워크스페이스 설정", () => {
       document.getElementById(save.getAttribute("aria-describedby") ?? "")
         ?.textContent,
     ).toBe(
-      "감사 기록 보존 기간 변경 권한이 있어야 할 수 있습니다. 지금 역할: 관리자.",
+      "감사 기록 보존 기간 변경 권한이 있어야 할 수 있습니다. 지금 역할: 어드민.",
     );
     expect(
       (screen.getByLabelText("보존 기간(일)") as HTMLInputElement).disabled,
@@ -345,7 +345,7 @@ describe("워크스페이스 설정", () => {
     const user = await setupUser();
     await user.click(await findRetentionSave());
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "감사 기록 보존 기간 변경 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
+      "감사 기록 보존 기간 변경 권한이 있어야 할 수 있습니다. 지금 역할: 오너.",
     );
   });
 
@@ -534,7 +534,7 @@ describe("워크스페이스 설정", () => {
       document.getElementById(toggle.getAttribute("aria-describedby") ?? "")
         ?.textContent,
     ).toBe(
-      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
+      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 오너.",
     );
     const user = await setupUser();
     await user.click(toggle);
@@ -588,7 +588,7 @@ describe("워크스페이스 설정", () => {
     const user = await setupUser();
     await user.click(await screen.findByRole("switch", GUEST_SWITCH));
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 관리자.",
+      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 어드민.",
     );
   });
 
@@ -997,7 +997,7 @@ describe("워크스페이스 설정", () => {
     );
     await user.click(screen.getByRole("button", { name: "등록" }));
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 관리자.",
+      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 어드민.",
     );
   });
 
@@ -1646,7 +1646,7 @@ describe("워크스페이스 설정", () => {
     await user.click(within(card).getByRole("radio", { name: "숨김" }));
     await user.click(within(card).getByRole("button", { name: "저장" }));
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
+      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 오너.",
     );
   });
 

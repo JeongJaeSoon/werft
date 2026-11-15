@@ -60,12 +60,7 @@ import {
   teamPagesQuery,
   teamQuery,
 } from "../api/queries.ts";
-import {
-  refusalText,
-  useHasPermission,
-  usePermissionReason,
-  useRole,
-} from "../auth/guard.tsx";
+import { refusalText, useHasPermission, useRole } from "../auth/guard.tsx";
 import {
   INACTIVE_ROW_CLASS,
   InactiveBadge,
@@ -83,7 +78,6 @@ import {
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useNotify } from "../components/toast.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { TeamCreateDialog } from "./team-create-dialog.tsx";
 
 const NAME_FIELD = "min-w-0 max-w-xl";
 
@@ -147,23 +141,6 @@ export function TeamsScreen() {
   });
   const items = teams.data?.pages.flatMap((page) => page.items) ?? [];
   const search = useRef<HTMLInputElement>(null);
-  const notify = useNotify();
-  // The unsearched first page is the permission probe: a search changes
-  // `teams`' key, and the button must not lock while that reads. Until a
-  // search starts it is the same query as `teams`.
-  const probe = useInfiniteQuery({
-    ...teamPagesQuery(client),
-    enabled: manages,
-  });
-  const reason = usePermissionReason("team.manage", probe);
-  // A refused or failed first page leaves no list to add a team to.
-  const createFailed = probe.isError && !isApiError(probe.error, "FORBIDDEN");
-  const createButton = createFailed ? null : (
-    <TeamCreateDialog
-      reason={reason}
-      onCreated={(name) => notify(t("teams.created", { name }))}
-    />
-  );
   const clear = () => {
     setQuery("");
     search.current?.focus();
@@ -177,17 +154,18 @@ export function TeamsScreen() {
     );
   }
 
-  // Creating a team is the section's title-row button (TeamCreateDialog),
-  // also while the list is empty: a button that moved into the empty box
-  // would remount. The intro is the page's description line here, so the tab
-  // opens on the search box like the 구성원 tab does.
+  // Creating a team is the page head's button (TeamCreateButton). The intro
+  // is the page's description line here, so the tab opens on the search box
+  // like the 구성원 tab does.
   const listEmpty =
     !teams.isPending && !teams.error && items.length === 0 && query === "";
   const section = (
-    <SettingsSection
-      title={t("members.tab.teams")}
-      actions={createButton}
-      box={listEmpty}
+    <div
+      className={
+        listEmpty
+          ? "flex min-w-0 flex-col gap-4 rounded-card border bg-card p-4"
+          : "flex min-w-0 flex-col gap-4"
+      }
     >
       {isApiError(teams.error, "FORBIDDEN") || listEmpty ? null : (
         <ListToolbar
@@ -226,7 +204,7 @@ export function TeamsScreen() {
           <PagedListFooter list={teams} />
         </div>
       )}
-    </SettingsSection>
+    </div>
   );
   if (!isApiError(teams.error, "FORBIDDEN")) return section;
   return (

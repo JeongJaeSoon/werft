@@ -128,11 +128,11 @@ describe("app shell", () => {
     const user = await setupUser();
     await user.click(
       within(region).getByRole("button", {
-        name: "Owner owner@example.com · 구성원",
+        name: "Owner owner@example.com · 멤버",
       }),
     );
     const menu = screen.getByRole("menu", {
-      name: "Owner owner@example.com · 구성원",
+      name: "Owner owner@example.com · 멤버",
     });
     expect(
       within(menu)
@@ -444,7 +444,7 @@ describe("app shell", () => {
     renderAt("/", signedIn);
     const region = await screen.findByRole("region", { name: "사용자 메뉴" });
     const trigger = within(region).getByRole("button", {
-      name: "Owner owner@example.com · 소유자",
+      name: "Owner owner@example.com · 오너",
     });
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByRole("menu")).toBeNull();
@@ -453,10 +453,10 @@ describe("app shell", () => {
     const user = await setupUser();
     await user.click(trigger);
     const menu = screen.getByRole("menu", {
-      name: "Owner owner@example.com · 소유자",
+      name: "Owner owner@example.com · 오너",
     });
     expect(within(menu).getByText("owner@example.com")).toBeDefined();
-    expect(within(menu).getByText("소유자 · Acme")).toBeDefined();
+    expect(within(menu).getByText("오너 · Acme")).toBeDefined();
     // Each submenu item shows its current value after the label.
     expect(
       within(menu)
@@ -699,7 +699,7 @@ describe("focus after a page change", () => {
     const user = await setupUser();
     await user.click(
       await screen.findByRole("button", {
-        name: "Owner owner@example.com · 소유자",
+        name: "Owner owner@example.com · 오너",
       }),
     );
     await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
@@ -743,7 +743,7 @@ describe("focus after a page change", () => {
       const user = await setupUser();
       await user.click(
         await screen.findByRole("button", {
-          name: "Owner owner@example.com · 소유자",
+          name: "Owner owner@example.com · 오너",
         }),
       );
       await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
@@ -1023,7 +1023,7 @@ describe("who the cache belongs to", () => {
     await screen.findByRole("link", { name: "세션 답변 대기 1개" });
     const user = await setupUser();
     await user.click(
-      screen.getByRole("button", { name: "Owner owner@example.com · 소유자" }),
+      screen.getByRole("button", { name: "Owner owner@example.com · 오너" }),
     );
     await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
     await screen.findByText("로그아웃했습니다.");

@@ -49,11 +49,7 @@ import {
   LoginProviderScreen,
   LoginProvidersScreen,
 } from "./routes/login-providers.tsx";
-import {
-  InvitesScreen,
-  MembersLayout,
-  MembersScreen,
-} from "./routes/members.tsx";
+import { MembersLayout, MembersScreen } from "./routes/members.tsx";
 import {
   type OperationsSearch,
   type OperationsToolsSearch,
@@ -172,8 +168,8 @@ const home = createRoute({
   component: HomeScreen,
 });
 
-// 구성원, 팀 and 초대 are tabs of one page (v3 M-01); a team opens inside
-// the 팀 tab (M-03).
+// 구성원 and 팀 are tabs of one page (v3 M-01); a team opens inside the 팀
+// tab (M-03).
 const members = createRoute({
   getParentRoute: () => authed,
   path: "/members",
@@ -198,10 +194,13 @@ const team = createRoute({
   component: TeamDetailScreen,
 });
 
+// Pending invites are rows of the 구성원 tab now; an old 초대 link lands there.
 const invites = createRoute({
   getParentRoute: () => members,
   path: "invites",
-  component: InvitesScreen,
+  beforeLoad: () => {
+    throw redirect({ to: "/members", replace: true });
+  },
 });
 
 const sessions = createRoute({
