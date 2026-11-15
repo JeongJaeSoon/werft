@@ -89,14 +89,18 @@ imagePullSecrets:
       key: {{ .key | quote }}
 {{- end -}}
 
-{{/* The checkpoint object store settings the api and the checkpoint GC share. */}}
+{{/* The checkpoint object store settings the api and its two object store jobs share. */}}
 {{- define "ap.checkpointEnv" -}}
 - name: AWS_REGION
   value: {{ .Values.config.aws.region | quote }}
 - name: S3_BUCKET
   value: {{ .Values.config.checkpoints.bucket | quote }}
+- name: CHECKPOINT_OBJECT_STORE
+  value: {{ .Values.config.checkpoints.objectStore | quote }}
 - name: CHECKPOINT_OBJECT_PROTECTION
   value: {{ .Values.config.checkpoints.protection | quote }}
+- name: CHECKPOINT_OBJECT_ENCRYPTION_CHECK
+  value: {{ .Values.config.checkpoints.encryptionCheck | quote }}
 {{- with .Values.config.aws.endpointUrl }}
 - name: AWS_ENDPOINT_URL
   value: {{ . | quote }}
@@ -211,6 +215,38 @@ images than the scheduler launches.
 {{- range $name := list "WORKER_IMAGE" "WORKER_IMAGES" "WORKER_IMAGE_PREVIOUS" "WORKER_IMAGE_RUNTIME" "WORKER_IMAGE_PREVIOUS_RUNTIME" -}}
 {{- if has $name $names -}}
 {{- fail (printf "%s must not be set through extraEnv, config.limits or secrets.catalogEnv; set images.workers, or images.worker and images.workerPrevious" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Fails when a values-named variable is one the object store reads. The api, its
+checkpoint-gc and session-archive jobs and the scheduler must read one store,
+mode and signer, and only ap.checkpointEnv reaches all of them; an extraEnv
+reaches one role. Every AWS_ name counts: with no endpoint or keys set, the
+SDK reads its own (AWS_ENDPOINT_URL_S3, AWS_ROLE_ARN, AWS_PROFILE, ...).
+*/}}
+{{- define "ap.checkpointEnvReserved" -}}
+{{- $names := concat (keys .Values.config.limits) .Values.secrets.catalogEnv -}}
+{{- range $key := list "api" "scheduler" "reconciler" "slack" "egressProxy" "metrics" -}}
+{{- $names = concat $names (keys (index $.Values $key).extraEnv) -}}
+{{- end -}}
+{{- $keys := dict
+  "S3_BUCKET" "config.checkpoints.bucket"
+  "AWS_REGION" "config.aws.region"
+  "AWS_ENDPOINT_URL" "config.aws.endpointUrl"
+  "AWS_ENDPOINT_URL_SECRETS_MANAGER" "config.aws.secretsManagerEndpointUrl"
+  "AWS_ACCESS_KEY_ID" "secrets.objectStoreKeys and the Secret's AWS_ACCESS_KEY_ID"
+  "AWS_SECRET_ACCESS_KEY" "secrets.objectStoreKeys and the Secret's AWS_SECRET_ACCESS_KEY"
+  "CHECKPOINT_OBJECT_STORE" "config.checkpoints.objectStore"
+  "CHECKPOINT_OBJECT_PROTECTION" "config.checkpoints.protection"
+  "CHECKPOINT_OBJECT_ENCRYPTION_CHECK" "config.checkpoints.encryptionCheck"
+-}}
+{{- range $name := sortAlpha $names -}}
+{{- if hasKey $keys $name -}}
+{{- fail (printf "%s must not be set through extraEnv, config.limits or secrets.catalogEnv; set %s" $name (get $keys $name)) -}}
+{{- else if or (hasPrefix "AWS_" $name) (hasPrefix "CHECKPOINT_OBJECT_" $name) -}}
+{{- fail (printf "%s must not be set through extraEnv, config.limits or secrets.catalogEnv; the api, its object store jobs and the scheduler share one AWS environment, set only from config.aws, config.checkpoints and secrets.objectStoreKeys" $name) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

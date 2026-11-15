@@ -75,6 +75,7 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- include "ap.previewEnvReserved" . }}
+            {{- include "ap.checkpointEnvReserved" . }}
             {{- if .Values.preview.enabled }}
             - name: PREVIEW_NAMESPACE
               valueFrom:

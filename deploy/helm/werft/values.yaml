@@ -143,10 +143,18 @@ config:
     endpointUrl: ""
     # The Secrets Manager the catalog's secret_id references read; empty is AWS.
     secretsManagerEndpointUrl: ""
+  # The api, its checkpoint-gc and session-archive jobs and the scheduler read
+  # these alike. The chart refuses AWS_* and CHECKPOINT_OBJECT_* in any
+  # extraEnv, config.limits or secrets.catalogEnv: there they would reach one
+  # role and split the object store.
   checkpoints:
     bucket: claude-sessions
+    # s3 | disabled: run with no object store, every checkpoint refused.
+    objectStore: s3
     # locked | unversioned (see infra/compose.core.yml).
     protection: locked
+    # enforce | warn: start on a bucket whose default encryption is not SSE-S3.
+    encryptionCheck: enforce
     # Sized with api.resources.limits.memory (2 x 2 x this + 512 MiB).
     gitMemoryMb: 1536
   egress:
