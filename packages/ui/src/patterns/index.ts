@@ -65,6 +65,10 @@ export {
   type TileIcon,
 } from "./icon-tile.tsx";
 export {
+  IntegrationHeader,
+  type IntegrationHeaderProps,
+} from "./integration-header.tsx";
+export {
   type KeyValueItem,
   KeyValueList,
   type KeyValueListProps,

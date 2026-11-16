@@ -30,9 +30,8 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
-  Heading,
-  IconTile,
   Input,
+  IntegrationHeader,
   Link,
   NativeSelect,
   NativeSelectOption,
@@ -65,7 +64,7 @@ import {
   type Translate,
   useI18n,
 } from "../../i18n/i18n.tsx";
-import { SECTIONS, SETTINGS_CARD } from "../workspace-settings.tsx";
+import { SECTIONS } from "../workspace-settings.tsx";
 import {
   githubKey,
   receiptTitle,
@@ -699,44 +698,37 @@ function GitHubSettings({
         aria-labelledby={titleId}
         className={cn(SECTIONS, FOCUS_TARGET)}
       >
-        <div className={SETTINGS_CARD}>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
-            <IconTile icon={GitHubTileMark} size="two-line" />
-            <div className="flex min-w-0 flex-1 flex-col">
-              <div className="flex flex-wrap items-center gap-2">
-                <Heading id={titleId} level={2}>
-                  GitHub
-                </Heading>
-                <Badge variant={data.enabled ? "green" : "gray"}>
-                  {t(
-                    data.enabled
-                      ? "agentGitHub.state.on"
-                      : "agentGitHub.state.off",
-                  )}
-                </Badge>
-              </div>
-              <Text variant="sub">
-                {[
-                  base === null || data.github === null
-                    ? t("agentGitHub.status.repositoriesLegacy")
-                    : t("agentGitHub.status.repositories", {
-                        count: data.github.repositories.length,
-                      }),
-                  `${t("agentGitHub.status.pushApproval")} ${
-                    base
-                      ? t(
-                          // A release without settings still asks a person,
-                          // whatever a first save would start from.
-                          data.github === null || base.push_approval
-                            ? "agentGitHub.on"
-                            : "agentGitHub.off",
-                        )
-                      : "—"
-                  }`,
-                ].join(" · ")}
-              </Text>
-            </div>
-            {manages && !data.enabled ? (
+        <IntegrationHeader
+          icon={GitHubTileMark}
+          title="GitHub"
+          titleId={titleId}
+          status={
+            <Badge variant={data.enabled ? "green" : "gray"}>
+              {t(
+                data.enabled ? "agentGitHub.state.on" : "agentGitHub.state.off",
+              )}
+            </Badge>
+          }
+          summary={[
+            base === null || data.github === null
+              ? t("agentGitHub.status.repositoriesLegacy")
+              : t("agentGitHub.status.repositories", {
+                  count: data.github.repositories.length,
+                }),
+            `${t("agentGitHub.status.pushApproval")} ${
+              base
+                ? t(
+                    // A release without settings still asks a person,
+                    // whatever a first save would start from.
+                    data.github === null || base.push_approval
+                      ? "agentGitHub.on"
+                      : "agentGitHub.off",
+                  )
+                : "—"
+            }`,
+          ].join(" · ")}
+          action={
+            manages && !data.enabled ? (
               <Button
                 type="button"
                 size="sm"
@@ -747,16 +739,17 @@ function GitHubSettings({
               >
                 {t("agentGitHub.turnOn")}
               </Button>
-            ) : null}
-          </div>
-          <Text variant="sub">{t("agentGitHub.overviewHint")}</Text>
+            ) : null
+          }
+          description={t("agentGitHub.overviewHint")}
+        >
           {enableError}
           {data.enabled ? null : (
             <Text as="span" variant="sub">
               {t("agentGitHub.offNote")}
             </Text>
           )}
-        </div>
+        </IntegrationHeader>
         {manages && (pending > 0 || firstSave || saveFailure) ? (
           <Alert
             ref={pendingRegion}
