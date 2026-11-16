@@ -414,7 +414,7 @@ describe("팀 화면", () => {
       "true",
     );
     // Smaller and fainter than the heading.
-    expect(pencil.querySelector("svg")?.classList.contains("size-3")).toBe(
+    expect(pencil.querySelector("svg")?.classList.contains("size-2")).toBe(
       true,
     );
     const classes = [...pencil.classList];
