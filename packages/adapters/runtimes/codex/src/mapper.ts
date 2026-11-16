@@ -91,9 +91,24 @@ function systemEvent(
   );
 }
 
-/** The engine started its thread: the first thing a person's transcript shows. */
-export function startedEvent(threadId: string, model: string): RuntimeEvent {
-  return systemEvent("init", { session_id: threadId, model }, []);
+/**
+ * The engine started its thread: the first thing a person's transcript shows.
+ * `sandbox` is where an `auto` session's commands run.
+ */
+export function startedEvent(
+  threadId: string,
+  model: string,
+  sandbox?: "bubblewrap" | "disabled",
+): RuntimeEvent {
+  return systemEvent(
+    "init",
+    {
+      session_id: threadId,
+      model,
+      ...(sandbox === undefined ? {} : { sandbox }),
+    },
+    [],
+  );
 }
 
 function toolCall(

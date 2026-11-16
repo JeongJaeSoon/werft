@@ -143,6 +143,57 @@ describe("worker Pod", () => {
     );
   });
 
+  test("a declared Codex image's container alone gets the sandbox's Localhost profile", () => {
+    const podOf = (
+      codexSandbox: NonNullable<(typeof config)["codexSandbox"]>,
+    ) =>
+      podFor(
+        { ...config, codexSandbox },
+        intent,
+        "secret-name",
+        "fingerprint",
+        PROXY_ADDRESS,
+      ) as PodShape;
+    const sandboxed = podOf({ mode: "enabled", images: [intent.image] });
+    expect(sandboxed.spec.containers[0]?.securityContext).toEqual({
+      ...(container.securityContext as object),
+      seccompProfile: {
+        localhostProfile: "werft/codex-sandbox.json",
+        type: "Localhost",
+      },
+    });
+    expect(sandboxed.spec.securityContext).toEqual(pod.spec.securityContext);
+    // On, it changes no stamp, so no running Pod is replaced for it.
+    expect(sandboxed.metadata.annotations).toEqual(pod.metadata.annotations);
+    expect(
+      podOf({
+        mode: "enabled",
+        images: [`codex@sha256:${"d".repeat(64)}`],
+      }),
+    ).toEqual(pod);
+  });
+
+  test("the Codex sandbox turned off reaches the worker and is another isolation stamp", () => {
+    const off = { ...config, codexSandbox: { mode: "disabled" } } as const;
+    const disabled = podFor(
+      off,
+      intent,
+      "secret-name",
+      "fingerprint",
+      PROXY_ADDRESS,
+    ) as PodShape;
+    expect(disabled.spec.containers[0]?.env).toContainEqual({
+      name: "CODEX_SANDBOX",
+      value: "disabled",
+    });
+    expect(disabled.spec.containers[0]?.securityContext).toEqual(
+      container.securityContext,
+    );
+    expect(isolationStampFor(off, PROXY_ADDRESS)).not.toBe(
+      isolationStampFor(config, PROXY_ADDRESS),
+    );
+  });
+
   test("asks no DNS server and finds the proxy in its hosts file", () => {
     expect(pod.spec.dnsPolicy).toBe("None");
     expect(pod.spec.dnsConfig).toEqual({ nameservers: ["127.0.0.1"] });

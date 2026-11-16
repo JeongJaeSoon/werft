@@ -28,6 +28,9 @@ import {
   type WorkspaceRemovalResult,
   workerLimitsOf,
 } from "@werft-ai/platform";
+import codexSandboxSeccomp from "./codex-sandbox-seccomp.json" with {
+  type: "json",
+};
 import {
   type LocalDockerBackendConfig,
   validateLocalDockerConfig,
@@ -239,10 +242,24 @@ function stampOf(config: LocalDockerBackendConfig, limits: unknown): string {
     // with a shorter one, the SIGKILL lands mid-finalize.
     config.stopTimeoutSeconds,
     limits,
+    // Only the off switch: a worker started under another setting would keep
+    // the sandbox it was started with. Left out while it is on, so turning
+    // this release on replaces no running worker; one from before it has no
+    // seccomp profile for the sandbox, and its auto sessions are refused.
+    ...(config.codexSandbox?.mode === "disabled"
+      ? ["codex-sandbox:disabled"]
+      : []),
   ]);
   const digest = createHash("sha256").update(shape).digest("hex").slice(0, 16);
   return `${ISOLATION_CONTRACT}:${digest}`;
 }
+
+/**
+ * Docker's default seccomp profile with the calls bubblewrap makes to set up
+ * its namespaces allowed (scripts/codex-seccomp-profile.ts), inline as the
+ * daemon takes it.
+ */
+const CODEX_SANDBOX_SECURITY_OPT = `seccomp=${JSON.stringify(codexSandboxSeccomp)}`;
 
 /** How long `terminate` without `waitForExit` waits on a stop. */
 const STOP_WAIT_MS = 5_000;
@@ -1895,6 +1912,27 @@ export class LocalDockerBackend implements ExecutionBackend {
     }
   }
 
+  /**
+   * Whether `image` (an id) is one of the images declared as Codex. Inspected
+   * per launch, since a tag can move; one not on this daemon is not it.
+   */
+  private async runsCodexSandbox(image: string): Promise<boolean> {
+    const sandbox = this.config.codexSandbox;
+    if (sandbox?.mode !== "enabled") return false;
+    for (const reference of sandbox.images) {
+      const inspected = await this.client
+        .inspectImage(reference)
+        .catch((error: unknown) => {
+          if (error instanceof DockerApiError && error.status === 404) {
+            return null;
+          }
+          throw error;
+        });
+      if (inspected?.Id === image) return true;
+    }
+    return false;
+  }
+
   private async createBody(
     intent: LaunchIntent,
     image: string,
@@ -1919,6 +1957,7 @@ export class LocalDockerBackend implements ExecutionBackend {
     // root, so hand both of its writable dirs to its uid/gid.
     const [uid, gid = uid] = config.user.split(":");
     const tmpfsOptions = `rw,nosuid,nodev,size=${config.tmpfsSizeBytes},uid=${uid},gid=${gid}`;
+    const sandboxed = await this.runsCodexSandbox(image);
     // Last, so a limit this host refuses never costs the launch a nonce.
     const bootstrapNonce = await intent.issueBootstrapNonce();
     return {
@@ -1942,7 +1981,10 @@ export class LocalDockerBackend implements ExecutionBackend {
         PidsLimit: intent.resources.pidsLimit,
         ReadonlyRootfs: true,
         RestartPolicy: { Name: "no" },
-        SecurityOpt: ["no-new-privileges"],
+        SecurityOpt: [
+          "no-new-privileges",
+          ...(sandboxed ? [CODEX_SANDBOX_SECURITY_OPT] : []),
+        ],
         Tmpfs: {
           "/tmp": tmpfsOptions,
           [config.homeDir]: tmpfsOptions,
@@ -2301,6 +2343,9 @@ export function workerEnvironmentFor(
     ...(config.logLevel === undefined
       ? []
       : [`${ENV.logLevel}=${config.logLevel}`]),
+    ...(config.codexSandbox?.mode === "disabled"
+      ? [`${ENV.codexSandbox}=disabled`]
+      : []),
   ];
 }
 

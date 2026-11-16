@@ -43,6 +43,8 @@ export const ENV = {
   maxTurnSeconds: "WORKER_MAX_TURN_SEC",
   providerMaxRetries: "WORKER_PROVIDER_MAX_RETRIES",
   logLevel: "LOG_LEVEL",
+  // Set only to `disabled`, where an operator turned Codex auto's sandbox off.
+  codexSandbox: "CODEX_SANDBOX",
 } as const;
 
 export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";

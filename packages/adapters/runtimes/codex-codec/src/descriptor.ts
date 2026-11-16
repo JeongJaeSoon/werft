@@ -17,8 +17,10 @@ import { CODEX_CLI_VERSION } from "./versions.ts";
  * - `acceptEdits` and `dontAsk` are `emulated`: the adapter runs the engine
  *   with `untrusted` approval (every command it does not know to be safe,
  *   and every file change, is asked) and answers those requests itself.
- * - `plan` and `auto`: the engine has no read-only planning mode nor a
- *   classifier the adapter could call.
+ * - `plan`: the engine has no read-only planning mode.
+ * - `auto` is `native`: commands run in the engine's bubblewrap sandbox and
+ *   its `auto_review` reviewer judges each request to leave it. A worker
+ *   whose sandbox cannot start refuses the session instead.
  */
 export const CODEX_DESCRIPTOR: RuntimeDescriptor = {
   contractVersion: "runtime-contract/v1",
@@ -39,7 +41,7 @@ export const CODEX_DESCRIPTOR: RuntimeDescriptor = {
       dontAsk: "emulated",
       plan: "none",
       bypassPermissions: "native",
-      auto: "none",
+      auto: "native",
     },
   },
   extraFeatures: { subagents: "none", user_hooks: "none" },

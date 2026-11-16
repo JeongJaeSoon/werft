@@ -28,6 +28,18 @@ kubernetes backend refuses a bare tag, and so does this chart for every image.
 {{- include "ap.imageRef" (dict "root" .root "label" (printf "images.%s" .name) "image" (index .root.Values.images .name)) -}}
 {{- end -}}
 
+{{/*
+The Codex sandbox's seccomp profile under the kubelet's seccomp directory.
+Fixed, as the scheduler's CODEX_SECCOMP_PROFILE is: a value that would move
+it is refused rather than ignored.
+*/}}
+{{- define "ap.codexSeccompProfile" -}}
+{{- if hasKey .Values.codexSandbox "localhostProfile" -}}
+{{- fail "codexSandbox.localhostProfile is not a setting: the profile is always werft/codex-sandbox.json under the kubelet's seccomp directory (codexSandbox.installer.kubeletDir moves that directory)" -}}
+{{- end -}}
+werft/codex-sandbox.json
+{{- end -}}
+
 {{- define "ap.imageRef" -}}
 {{- $image := .image -}}
 {{- $repository := required (printf "%s.repository is required" .label) $image.repository -}}

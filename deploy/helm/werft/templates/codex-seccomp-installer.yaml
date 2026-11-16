@@ -1,0 +1,102 @@
+{{- /* Outside the if, so a stray localhostProfile is refused in any install. */}}
+{{- $profile := include "ap.codexSeccompProfile" . }}
+{{- if and .Values.codexSandbox.enabled .Values.codexSandbox.installer.enabled }}
+{{- $installer := .Values.codexSandbox.installer }}
+{{- $source := .Files.Get "files/codex-sandbox-seccomp.json" }}
+{{- $target := printf "/host/%s" (base $profile) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ap.fullname" . }}-codex-seccomp
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "codex-seccomp-installer") | nindent 4 }}
+data:
+  codex-sandbox.json: {{ $source | quote }}
+---
+# Writes the Codex sandbox's seccomp profile to one directory under the
+# kubelet's seccomp root on each worker node, then sleeps; ready once the
+# file there is this release's.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "ap.fullname" . }}-codex-seccomp
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "codex-seccomp-installer") | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "ap.selectorLabels" (dict "root" . "component" "codex-seccomp-installer") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ap.labels" (dict "root" . "component" "codex-seccomp-installer") | nindent 8 }}
+      annotations:
+        checksum/profile: {{ sha256sum $source }}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 5
+      # Root, because the directory the kubelet creates is root's; with no
+      # capabilities it can write there and nowhere else it is not given.
+      securityContext:
+        runAsNonRoot: false
+        runAsUser: 0
+        runAsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
+      {{- include "ap.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: install
+          {{- if or $installer.image.repository $installer.image.digest }}
+          image: {{ include "ap.imageRef" (dict "root" . "label" "codexSandbox.installer.image" "image" $installer.image) }}
+          {{- else }}
+          image: {{ include "ap.image" (dict "root" . "name" "controlHost") }}
+          {{- end }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              cp /profile/codex-sandbox.json /host/.codex-sandbox.json.tmp
+              mv -f /host/.codex-sandbox.json.tmp {{ $target }}
+              trap 'exit 0' TERM INT
+              while :; do sleep 3600 & wait $!; done
+          readinessProbe:
+            exec:
+              command: [cmp, -s, /profile/codex-sandbox.json, {{ $target | quote }}]
+            periodSeconds: 30
+          resources:
+            {{- toYaml $installer.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: profile
+              mountPath: /profile
+              readOnly: true
+            - name: host
+              mountPath: /host
+      volumes:
+        - name: profile
+          configMap:
+            name: {{ include "ap.fullname" . }}-codex-seccomp
+        - name: host
+          hostPath:
+            path: {{ printf "%s/seccomp/%s" (trimSuffix "/" $installer.kubeletDir) (dir $profile) | quote }}
+            type: DirectoryOrCreate
+      {{- with (default .Values.worker.nodeSelector $installer.nodeSelector) }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with (default .Values.worker.tolerations $installer.tolerations) }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

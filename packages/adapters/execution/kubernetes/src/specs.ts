@@ -16,6 +16,7 @@ import {
   workerLimitsOf,
 } from "@werft-ai/platform";
 import type { Pod } from "./client.ts";
+import { CODEX_SECCOMP_PROFILE } from "./codex-seccomp.ts";
 import type { KubernetesBackendConfig } from "./config.ts";
 
 /**
@@ -147,6 +148,12 @@ function stampOf(
     config.stopTimeoutSeconds,
     limits,
     config.ephemeralStorageBytes,
+    // Only the off switch, as in the Docker backend: turning this release on
+    // replaces no running Pod, and one without the profile has its auto
+    // sessions refused.
+    ...(config.codexSandbox?.mode === "disabled"
+      ? ["codex-sandbox:disabled"]
+      : []),
   ]);
   const digest = createHash("sha256").update(shape).digest("hex").slice(0, 16);
   return `${ISOLATION_CONTRACT}:${digest}`;
@@ -212,6 +219,21 @@ export function cpuQuantity(cpus: number): string {
     throw new Error(`cpus ${cpus} rounds to no CPU limit`);
   }
   return `${millis}m`;
+}
+
+/**
+ * The worker container's: a declared Codex image's gets the one bubblewrap
+ * needs while the sandbox is on. Set on the container alone, so the Pod's
+ * own default stays RuntimeDefault for anything else in it.
+ */
+function seccompProfileFor(
+  config: KubernetesBackendConfig,
+  image: string,
+): Record<string, string> {
+  const sandbox = config.codexSandbox;
+  return sandbox?.mode === "enabled" && sandbox.images.includes(image)
+    ? { localhostProfile: CODEX_SECCOMP_PROFILE, type: "Localhost" }
+    : { type: "RuntimeDefault" };
 }
 
 /**
@@ -291,7 +313,7 @@ export function podFor(
             privileged: false,
             readOnlyRootFilesystem: true,
             runAsNonRoot: true,
-            seccompProfile: { type: "RuntimeDefault" },
+            seccompProfile: seccompProfileFor(config, intent.image),
           },
           volumeMounts: [
             { mountPath: config.workspaceDir, name: "workspace" },
@@ -472,6 +494,9 @@ export function workerEnvironmentFor(
     ...(config.logLevel === undefined
       ? []
       : ([[ENV.logLevel, config.logLevel]] as Array<[string, string]>)),
+    ...(config.codexSandbox?.mode === "disabled"
+      ? ([[ENV.codexSandbox, "disabled"]] as Array<[string, string]>)
+      : []),
   ];
   return [
     {

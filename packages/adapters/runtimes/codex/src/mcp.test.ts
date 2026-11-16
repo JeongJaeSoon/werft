@@ -273,6 +273,7 @@ describe("the run judging a platform tool call", () => {
       descendants: () => [],
       kill: () => {},
       startupProblem: () => undefined,
+      probeSandbox: async () => undefined,
       precheckTool: options.precheck,
       mcp: {
         servers: new Set(["github"]),
@@ -536,6 +537,7 @@ describe("the run waiting for the relay servers", () => {
       descendants: () => [],
       kill: () => {},
       startupProblem: () => undefined,
+      probeSandbox: async () => undefined,
       mcp: {
         servers: new Set(["github"]),
         trusted: new Set(),
@@ -590,6 +592,7 @@ describe("the run waiting for the relay servers", () => {
       descendants: () => [],
       kill: () => {},
       startupProblem: () => undefined,
+      probeSandbox: async () => undefined,
       mcp: {
         servers: new Set(["github"]),
         trusted: new Set(),

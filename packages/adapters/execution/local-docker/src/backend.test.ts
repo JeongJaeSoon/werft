@@ -992,6 +992,65 @@ test("hands the worker the scheduler's LOG_LEVEL without changing the isolation 
   expect(isolationStampFor(quiet)).toBe(isolationStampFor(base));
 });
 
+test("the Codex sandbox turned off reaches every worker and replaces it; on, it changes neither", () => {
+  const intent = intentFor();
+  const base = configFor("unix:///fake.sock");
+  const without = workerEnvironmentFor(base, intent, "nonce-abc");
+  const on = {
+    ...base,
+    codexSandbox: { mode: "enabled", images: ["worker:test"] },
+  } as const;
+  expect(workerEnvironmentFor(on, intent, "nonce-abc")).toEqual(without);
+  expect(isolationStampFor(on)).toBe(isolationStampFor(base));
+  const off = { ...base, codexSandbox: { mode: "disabled" } } as const;
+  expect(workerEnvironmentFor(off, intent, "nonce-abc")).toEqual([
+    ...without,
+    "CODEX_SANDBOX=disabled",
+  ]);
+  expect(isolationStampFor(off)).not.toBe(isolationStampFor(base));
+});
+
+describe("Codex sandbox seccomp profile", () => {
+  async function securityOptFor(
+    codexSandbox: NonNullable<LocalDockerBackendConfig["codexSandbox"]>,
+  ): Promise<string[]> {
+    const sandboxed = new LocalDockerBackend({
+      ...configFor(docker.host),
+      codexSandbox,
+    });
+    const intent = intentFor();
+    await sandboxed.ensureExecution(intent);
+    const container = docker.containers.get(containerNameFor(intent, "test-a"));
+    if (!container) throw new Error("missing");
+    return container.body.HostConfig.SecurityOpt;
+  }
+
+  test("a declared Codex image starts under the profile bubblewrap needs", async () => {
+    const [noNewPrivileges, seccomp = ""] = await securityOptFor({
+      mode: "enabled",
+      images: ["worker:test"],
+    });
+    expect(noNewPrivileges).toBe("no-new-privileges");
+    expect(seccomp.startsWith("seccomp={")).toBe(true);
+    const profile = JSON.parse(seccomp.slice("seccomp=".length));
+    expect(profile.defaultAction).toBe("SCMP_ACT_ERRNO");
+    expect(profile.syscalls).toContainEqual({
+      names: ["clone", "unshare", "mount", "umount2", "pivot_root"],
+      action: "SCMP_ACT_ALLOW",
+    });
+  });
+
+  test("any other image, or the sandbox turned off, keeps Docker's default", async () => {
+    expect(
+      await securityOptFor({ mode: "enabled", images: ["codex:elsewhere"] }),
+    ).toEqual(["no-new-privileges"]);
+    docker.containers.clear();
+    expect(await securityOptFor({ mode: "disabled" })).toEqual([
+      "no-new-privileges",
+    ]);
+  });
+});
+
 test("a container started under another inode limit, or before one, is stale", () => {
   // Not for the volume's sake — the limit is set in place — but because
   // only a launch sets it, and replacing the container is what launches.

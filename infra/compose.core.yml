@@ -454,6 +454,11 @@ services:
       WORKER_IMAGE_PREVIOUS: ${WORKER_IMAGE_PREVIOUS:-}
       WORKER_IMAGE_PREVIOUS_RUNTIME: *worker-image-previous-runtime
       WORKER_IMAGES: *worker-images
+      # Codex auto mode runs commands in Codex's bubblewrap sandbox, which
+      # needs the Werft seccomp profile: the scheduler adds it to containers
+      # of images whose declared runtime has engine codex. `disabled` turns
+      # the sandbox off, and with it auto mode: auto sessions are refused.
+      CODEX_SANDBOX: ${CODEX_SANDBOX:-}
       EXECUTION_INSTALLATION_ID: ${EXECUTION_INSTALLATION_ID:-local}
       EXECUTION_EGRESS_PROXY_URL: *worker-proxy-url
       EXECUTION_EGRESS_CREDENTIAL_PORT: *egress-credential-port

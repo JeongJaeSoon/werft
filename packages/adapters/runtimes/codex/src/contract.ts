@@ -22,6 +22,7 @@ import { type McpRelay, startMcpRelay } from "./mcp-relay.ts";
 import { spawnAppServer } from "./process.ts";
 import { CodexRolloutStore } from "./rollout-store.ts";
 import { CodexRun, heldInputsFrom } from "./run.ts";
+import { probeSandbox } from "./sandbox.ts";
 
 /** Bumped when what the digest covers changes; a checkpoint is stamped with it. */
 export const CODEX_PROFILE_DIGEST_SCHEME = 1;
@@ -73,8 +74,9 @@ export class CodexAgentRuntime implements AgentRuntime {
     publish: (run: CodexRun) => void,
   ): CodexRun {
     const servers = start.bundle.mcpServers;
+    const command = codexExecutable();
     const process = spawnAppServer({
-      command: codexExecutable(),
+      command,
       args: launch.args,
       cwd: start.config.cwd,
       env: launch.env,
@@ -93,6 +95,8 @@ export class CodexAgentRuntime implements AgentRuntime {
       descendants: process.descendants,
       kill: process.kill,
       startupProblem: process.startupProblem,
+      probeSandbox: () =>
+        probeSandbox({ command, cwd: start.config.cwd, env: launch.env }),
       ...(relay === undefined
         ? {}
         : {
