@@ -1521,8 +1521,10 @@ describe("성과 규칙", () => {
               endpoint: "https://api.anthropic.com",
             }),
             decisionConnection("luna-a"),
-            decisionConnection("luna-env", {
-              credential: { source: "external", value_env: "LUNA_KEY" },
+            decisionConnection("luna-off", {
+              state: "disabled",
+              disabled_at: AT,
+              credential: { source: "stored", last4: null },
             }),
           ],
           credential_hosts: null,
@@ -1539,9 +1541,14 @@ describe("성과 규칙", () => {
     const dialog = await screen.findByRole("dialog", { name: "판정 모델" });
     await within(dialog).findByText("luna-a");
     expect(dialog.textContent).not.toContain("anthropic");
-    expect(dialog.textContent).toContain("luna-env");
     expect(dialog.textContent).toContain("저장 값 ••••abcd");
     expect(dialog.textContent).toContain("https://api.openai.com");
+    // Disabled with no value: it takes its first, so it can be enabled again.
+    expect(
+      within(dialog).queryByRole("button", {
+        name: "luna-off의 API 키 설정",
+      }) !== null,
+    ).toBe(true);
 
     await user.click(
       within(dialog).getByRole("button", { name: "luna-a의 API 키 설정" }),

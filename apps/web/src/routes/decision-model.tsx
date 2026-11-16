@@ -139,7 +139,6 @@ export function useDecisionModelSetup(
                   item={item}
                   busy={rows.busy}
                   onValue={(from) => rows.openValue(item.id, from)}
-                  onConvert={(from) => rows.openConvert(item.id, from)}
                   onDisable={() => rows.openDisable(item.id)}
                   onEnable={() => rows.openEnable(item.id)}
                 />
@@ -181,20 +180,24 @@ function DecisionRow({
   item,
   busy,
   onValue,
-  onConvert,
   onDisable,
   onEnable,
 }: {
   readonly item: SettingsConnection;
   readonly busy: boolean;
   readonly onValue: (opener: HTMLElement) => void;
-  readonly onConvert: (opener: HTMLElement) => void;
   readonly onDisable: () => void;
   readonly onEnable: () => void;
 }) {
   const { t } = useI18n();
   const actions = entryActions(item);
   const credentialKind = t(`settings.connections.authKind.${item.auth_kind}`);
+  // As on the connections screen: a disabled one with no value takes its
+  // first, so it can be enabled again.
+  const firstValue =
+    item.state === "disabled" &&
+    item.credential.source === "stored" &&
+    item.credential.last4 === null;
   return (
     <SettingRow
       title={<Code>{item.id}</Code>}
@@ -203,7 +206,7 @@ function DecisionRow({
       meta={credentialText(t, item.credential)}
       actions={
         <>
-          {actions.setValue ? (
+          {actions.setValue || firstValue ? (
             <RowAction
               disabled={busy}
               aria-label={t("settings.connections.changeCredentialFor", {
@@ -215,15 +218,6 @@ function DecisionRow({
               {t("settings.connections.changeCredential", {
                 kind: credentialKind,
               })}
-            </RowAction>
-          ) : null}
-          {actions.convert ? (
-            <RowAction
-              disabled={busy}
-              aria-label={t("settings.convertFor", { id: item.id })}
-              onClick={(event) => onConvert(event.currentTarget)}
-            >
-              {t("settings.convert")}
             </RowAction>
           ) : null}
           {actions.disable ? (

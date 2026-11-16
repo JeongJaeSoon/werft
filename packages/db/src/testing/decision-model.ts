@@ -16,9 +16,9 @@ export async function insertDecisionModel(
       definition: {
         kind: "openai_decisions",
         endpoint: "https://api.openai.com",
-        auth: { kind: "api_key", value_env: "UNUSED" },
+        auth: { kind: "api_key", stored: `connection:${id}` },
       },
-      credentialSource: "external",
+      credentialSource: "stored",
       origin: "import",
     })
     .onConflictDoNothing();
