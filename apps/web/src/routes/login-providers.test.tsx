@@ -541,6 +541,7 @@ describe("로그인 공급자 상세", () => {
           enabled_providers,
         },
         emergency_admin_candidates: [],
+        caller_has_provider_account: false,
       }),
   });
   const LAST =
@@ -830,6 +831,12 @@ describe("테스트 로그인이 돌아온 화면", () => {
         "거절됩니다. 연결된 계정이 꺼져 있거나, 공급자가 주소를 증명하지 않습니다.",
       ],
     ]);
+    // Labels and values in their own left-aligned columns, a long value
+    // wrapping in its own, stacked on a phone.
+    const list = document.querySelector("dl") as HTMLElement;
+    expect(list.dataset.variant).toBe("grid");
+    expect(list.dataset.stack).toBe("sm");
+    expect(list.innerHTML).not.toContain("text-right");
     expect(
       screen
         .getByRole("link", { name: "공급자 설정으로" })

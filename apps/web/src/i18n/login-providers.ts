@@ -229,6 +229,8 @@ export const loginProvidersKo = {
     "비상 관리자가 없습니다. 먼저 지정하세요.",
   "loginProviders.access.reason.lapsed":
     "비상 관리자가 더는 비밀번호로 로그인할 수 없습니다. 다른 오너를 지정하세요.",
+  "loginProviders.access.reason.locksOut":
+    "아직 닫을 수 없습니다. 켜진 공급자가 내 계정에 연결되어 있지 않아, 닫으면 내가 다시 들어올 수 없습니다. 켜진 공급자로 한 번 로그인해 내 계정에 연결하세요. 공급자가 확인한 이메일이 내 계정의 이메일과 같으면 자동으로 연결됩니다.",
   "loginProviders.access.error.locksOut":
     "이대로는 내가 다시 들어올 수 없습니다. 켜진 공급자로 먼저 한 번 로그인해 내 계정에 연결하세요. 공급자가 확인한 이메일이 내 계정의 이메일과 같으면 자동으로 연결됩니다.",
   "loginProviders.access.done.closed":
@@ -481,6 +483,8 @@ export const loginProvidersEn: Record<keyof typeof loginProvidersKo, string> = {
     "There is no emergency admin. Name one first.",
   "loginProviders.access.reason.lapsed":
     "The emergency admin can no longer log in with a password. Name another owner.",
+  "loginProviders.access.reason.locksOut":
+    "You can't close it yet. No provider that is on is connected to your account, so you would not be able to get back in. Log in once with a provider that is on to connect it to your account. It connects by itself when the email the provider verified is your account's email.",
   "loginProviders.access.error.locksOut":
     "You would not be able to get back in. Sign in once with a provider that is on first, so it is connected to your account. It connects by itself when the email the provider verified is your account's email.",
   "loginProviders.access.done.closed":
@@ -737,6 +741,8 @@ export const loginProvidersJa: Record<keyof typeof loginProvidersKo, string> = {
     "緊急管理者がいません。先に指定してください。",
   "loginProviders.access.reason.lapsed":
     "緊急管理者はパスワードでログインできなくなっています。別のオーナーを指定してください。",
+  "loginProviders.access.reason.locksOut":
+    "まだ閉じられません。オンのプロバイダーが自分のアカウントに連携されていないため、閉じると自分が入れなくなります。オンのプロバイダーで一度ログインして、自分のアカウントに連携してください。プロバイダーが確認したメールアドレスが自分のアカウントのものと同じなら自動で連携されます。",
   "loginProviders.access.error.locksOut":
     "このままでは自分が入れなくなります。先にオンのプロバイダーで一度ログインして、自分のアカウントに連携してください。プロバイダーが確認したメールアドレスが自分のアカウントのものと同じなら自動で連携されます。",
   "loginProviders.access.done.closed":

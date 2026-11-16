@@ -31,6 +31,7 @@ const READ = {
   emergency_admin_candidates: [
     { user_id: OWNER, email: "owner@example.com", display_name: "Owner" },
   ],
+  caller_has_provider_account: false,
 };
 
 function request(

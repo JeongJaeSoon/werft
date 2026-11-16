@@ -383,6 +383,8 @@ integration("who may sign in with a password", () => {
     const other = await person("owner");
     // Not the emergency admin, and no account of a provider that is on.
     expect(await close(other.id)).toEqual({ outcome: "locks_out_actor" });
+    // What the page reads ahead is what the close goes by.
+    expect(await store.hasProviderAccount(other.id)).toBe(false);
     const stale = await provider();
     await account(other.id, stale);
     await db
@@ -390,10 +392,12 @@ integration("who may sign in with a password", () => {
       .set({ enabled: false })
       .where(eq(loginProviders.id, stale.id));
     expect(await close(other.id)).toEqual({ outcome: "locks_out_actor" });
+    expect(await store.hasProviderAccount(other.id)).toBe(false);
 
+    await account(other.id, idp);
+    expect(await store.hasProviderAccount(other.id)).toBe(true);
     // Nobody named: an installation whose owners never had a password.
     await db.update(loginSettings).set({ emergencyAdminUserId: null });
-    await account(other.id, idp);
     expect(await close(other.id)).toEqual({ outcome: "no_emergency_admin" });
     // Named, but no longer able to sign in with a password. No path here
     // leaves one so; a row written by hand does.
@@ -423,6 +427,7 @@ integration("who may sign in with a password", () => {
       await session(member.id, member.passwordMethodId),
       await session(member.id, null),
     ];
+    expect(await store.hasProviderAccount(owner.id)).toBe(true);
     const result = await store.setPasswordLogin({
       value: "emergency_only",
       audit: audit(owner.id),

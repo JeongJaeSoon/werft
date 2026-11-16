@@ -56,7 +56,7 @@ export function createLoginSettingsAdmin(deps: {
 }) {
   return {
     async read(caller: Caller): Promise<LoginSettingsResponse> {
-      const { workspaceId } = await requireSignInOwner(
+      const { userId, workspaceId } = await requireSignInOwner(
         deps.authorization,
         caller,
       );
@@ -69,6 +69,8 @@ export function createLoginSettingsAdmin(deps: {
           email: owner.email,
           display_name: owner.displayName,
         })),
+        caller_has_provider_account:
+          await deps.store.hasProviderAccount(userId),
       };
     },
 

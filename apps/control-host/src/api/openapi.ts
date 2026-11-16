@@ -3254,13 +3254,13 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "getLoginSettings",
     tag: "Auth",
     summary: "Who may sign in with a password, and the emergency admin",
-    description: `${LOGIN_PROVIDER_OWNER} \`password_login\` is \`on\` (everyone with a password) or \`emergency_only\` (the emergency admin alone; everyone else comes in through a provider). The emergency admin is the one owner whose password sign-in stays open either way; \`eligible: false\` says they are no longer an owner who can sign in with a password, so another has to be named before passwords can be closed. \`emergency_admin_candidates\` are the owners of the caller's workspace who can be named (on, with a password), oldest membership first, at most 100; the one named is listed like any other, while still eligible and within those 100.`,
+    description: `${LOGIN_PROVIDER_OWNER} \`password_login\` is \`on\` (everyone with a password) or \`emergency_only\` (the emergency admin alone; everyone else comes in through a provider). The emergency admin is the one owner whose password sign-in stays open either way; \`eligible: false\` says they are no longer an owner who can sign in with a password, so another has to be named before passwords can be closed. \`emergency_admin_candidates\` are the owners of the caller's workspace who can be named (on, with a password), oldest membership first, at most 100; the one named is listed like any other, while still eligible and within those 100. \`caller_has_provider_account\` says whether the caller has an account of a provider that is on; without one, PATCH refuses to close passwords (\`locks_out_actor\`) unless the caller is the emergency admin. The emergency admin's password is their own way back, not the caller's.`,
     auth: "session",
     success: {
       status: 200,
       schema: "LoginSettingsResponse",
       description:
-        "The password switch, the emergency admin, how many providers are on, and who can be named emergency admin.",
+        "The password switch, the emergency admin, how many providers are on, who can be named emergency admin, and whether the caller could come back through a provider.",
       example: {
         settings: LOGIN_SETTINGS_EXAMPLE,
         emergency_admin_candidates: [
@@ -3270,6 +3270,7 @@ export const API_ROUTE_DECLARATIONS = [
             display_name: LOGIN_SETTINGS_EXAMPLE.emergency_admin.display_name,
           },
         ],
+        caller_has_provider_account: true,
       },
     },
     errors: [401, 403, 503],
@@ -3301,7 +3302,7 @@ export const API_ROUTE_DECLARATIONS = [
     errorCodes: { 409: ["REVISION_CONFLICT"] },
     errorNotes: {
       REVISION_CONFLICT:
-        "`details.reason_code` says why. Closing passwords: `no_provider` (no provider is on), `no_emergency_admin` (none is named, or the one named can no longer sign in with a password), `locks_out_actor` (the caller is not the emergency admin and has no account of a provider that is on). Naming the emergency admin: `not_eligible` (not an owner who is on and has a password), `locks_out_actor` (passwords are closed, and the caller is the one being replaced with no provider account to come back with).",
+        "`details.reason_code` says why. Closing passwords: `no_provider` (no provider is on), `no_emergency_admin` (none is named, or the one named can no longer sign in with a password), `locks_out_actor` (the caller is not the emergency admin and has no account of a provider that is on; GET answers this ahead as `caller_has_provider_account: false`). Naming the emergency admin: `not_eligible` (not an owner who is on and has a password), `locks_out_actor` (passwords are closed, and the caller is the one being replaced with no provider account to come back with).",
     },
     idempotent: false,
   },

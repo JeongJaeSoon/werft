@@ -262,6 +262,11 @@ export const loginSettingsResponseSchema = z
         })
         .strict(),
     ),
+    /**
+     * The caller has an account of a provider that is on. Without one,
+     * closing passwords is refused unless the caller is the emergency admin.
+     */
+    caller_has_provider_account: z.boolean(),
   })
   .strict();
 

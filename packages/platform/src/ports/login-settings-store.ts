@@ -62,6 +62,8 @@ export interface LoginSettingsStore {
   emergencyAdminCandidates(
     workspaceId: string,
   ): Promise<{ userId: string; email: string; displayName: string }[]>;
+  /** Whether the user has an account of a provider that is on. */
+  hasProviderAccount(userId: string): Promise<boolean>;
   /**
    * `emergency_only` ends, in the same transaction, the password sessions
    * of everyone but the emergency admin.

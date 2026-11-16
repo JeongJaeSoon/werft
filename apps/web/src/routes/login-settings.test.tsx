@@ -21,10 +21,14 @@ const owner = (user_id: string, display_name: string) => ({
   display_name,
 });
 
-/** Passwords open, the signed-in owner named, one provider on. */
+/**
+ * Passwords open, the signed-in owner named, one provider on, and none of
+ * its accounts the signed-in owner's.
+ */
 const read = (
   rest: Partial<LoginSettingsResponse["settings"]> = {},
   candidates = [owner(ME, "Me"), owner(OTHER, "Dana")],
+  linked = false,
 ): LoginSettingsResponse => ({
   settings: {
     password_login: "on",
@@ -33,7 +37,13 @@ const read = (
     ...rest,
   },
   emergency_admin_candidates: candidates,
+  caller_has_provider_account: linked,
 });
+const DANA_NAMED = {
+  emergency_admin: { ...owner(OTHER, "Dana"), eligible: true },
+};
+const LOCKED_OUT =
+  "아직 닫을 수 없습니다. 켜진 공급자가 내 계정에 연결되어 있지 않아, 닫으면 내가 다시 들어올 수 없습니다. 켜진 공급자로 한 번 로그인해 내 계정에 연결하세요. 공급자가 확인한 이메일이 내 계정의 이메일과 같으면 자동으로 연결됩니다.";
 
 const routes = (answer: LoginSettingsResponse) => ({
   "GET /v1/auth/me": () => json(200, me()),
@@ -130,11 +140,15 @@ describe("비밀번호 로그인 설정", () => {
     });
     await user.click(close);
     const dialog = await screen.findByRole("dialog");
-    // The one asking is the emergency admin: their own session stays.
+    // The one asking is the emergency admin: their own session stays, and
+    // their password is their way back without a provider account.
     expect(dialog.textContent).toContain("비상 관리자인 나 말고는");
     expect(dialog.textContent).not.toContain("내 세션도 끊깁니다");
+    expect(dialog.textContent).not.toContain(LOCKED_OUT);
     expect(api.calls.filter((call) => call.method !== "GET")).toHaveLength(0);
-    await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+    const confirm = within(dialog).getByRole("button", { name: "닫기" });
+    expect(withheld(confirm)).toBe(null);
+    await user.click(confirm);
     await screen.findByText(
       "비밀번호 로그인을 닫았습니다. 세션 3개를 끊었습니다.",
     );
@@ -148,11 +162,61 @@ describe("비밀번호 로그인 설정", () => {
     ).toBeDefined();
   });
 
-  test("비상 관리자가 아닌 소유자에게는 자기 세션도 끊길 수 있다고 말하고, 거절은 대화상자에 남는다", async () => {
+  test("비상 관리자가 아니고 공급자 계정도 없는 소유자는 닫을 수 없고, 왜인지와 무엇을 할지 본다", async () => {
+    const { api } = renderAt(LIST_PAGE, routes(read(DANA_NAMED)));
+    const user = await setupUser();
+    await user.click(
+      within(await section()).getByRole("button", {
+        name: "비밀번호 로그인 닫기",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    // Dana's password is Dana's way back, not the one asking.
+    expect(dialog.textContent).toContain("비상 관리자 Dana 말고는");
+    expect(dialog.textContent).toContain(LOCKED_OUT);
+    const confirm = within(dialog).getByRole("button", { name: "닫기" });
+    expect(withheld(confirm)).toBe(LOCKED_OUT);
+    await user.click(confirm);
+    expect(api.calls.filter((call) => call.method !== "GET")).toHaveLength(0);
+  });
+
+  test("비상 관리자가 아닌 소유자도 공급자 계정이 있으면 닫는다", async () => {
+    let answer = read(DANA_NAMED, undefined, true);
     const { api } = renderAt(LIST_PAGE, {
-      ...routes(
-        read({ emergency_admin: { ...owner(OTHER, "Dana"), eligible: true } }),
-      ),
+      ...routes(answer),
+      [`GET ${API}`]: () => json(200, answer),
+      [`PATCH ${API}`]: () => {
+        answer = read(
+          { ...DANA_NAMED, password_login: "emergency_only" },
+          undefined,
+          true,
+        );
+        return json(200, { settings: answer.settings, sessions_revoked: 1 });
+      },
+    });
+    const user = await setupUser();
+    await user.click(
+      within(await section()).getByRole("button", {
+        name: "비밀번호 로그인 닫기",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).not.toContain(LOCKED_OUT);
+    const confirm = within(dialog).getByRole("button", { name: "닫기" });
+    expect(withheld(confirm)).toBe(null);
+    await user.click(confirm);
+    await screen.findByText(
+      "비밀번호 로그인을 닫았습니다. 세션 1개를 끊었습니다.",
+    );
+    expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
+      password_login: "emergency_only",
+    });
+  });
+
+  test("비상 관리자가 아닌 소유자에게는 자기 세션도 끊길 수 있다고 말하고, 서버의 거절은 같은 이유로 확인을 막는다", async () => {
+    // The page read a provider account that is gone by the time of the close.
+    const { api } = renderAt(LIST_PAGE, {
+      ...routes(read(DANA_NAMED, undefined, true)),
       [`PATCH ${API}`]: () =>
         apiError(409, "REVISION_CONFLICT", "no", false, {
           reason_code: "locks_out_actor",
@@ -171,10 +235,12 @@ describe("비밀번호 로그인 설정", () => {
       "Dana 말고 비밀번호로 로그인한 사람은 모두 로그아웃됩니다",
     );
     expect(dialog.textContent).toContain("내 세션도 끊깁니다");
-    await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+    const confirm = within(dialog).getByRole("button", { name: "닫기" });
+    await user.click(confirm);
     expect((await within(dialog).findByRole("alert")).textContent).toBe(
-      "이대로는 내가 다시 들어올 수 없습니다. 켜진 공급자로 먼저 한 번 로그인해 내 계정에 연결하세요. 공급자가 확인한 이메일이 내 계정의 이메일과 같으면 자동으로 연결됩니다.",
+      LOCKED_OUT,
     );
+    expect(withheld(confirm)).toBe(LOCKED_OUT);
     // Refused: read again, since the reason is often news.
     await waitFor(() =>
       expect(

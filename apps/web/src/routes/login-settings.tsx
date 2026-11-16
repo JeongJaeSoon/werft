@@ -23,7 +23,7 @@ import {
   SettingsSection,
   Skeleton,
 } from "@werft-ai/ui";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useMe, useRole } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
@@ -54,6 +54,7 @@ function refusal(
   t: Translate,
   error: ApiError,
   role: string | undefined,
+  closing: boolean,
 ): string {
   const reason = (error.details as { reason_code?: unknown } | null)
     ?.reason_code;
@@ -64,7 +65,11 @@ function refusal(
     if (reason === "no_emergency_admin")
       return t("loginProviders.access.reason.lapsed");
     if (reason === "locks_out_actor")
-      return t("loginProviders.access.error.locksOut");
+      return t(
+        closing
+          ? "loginProviders.access.reason.locksOut"
+          : "loginProviders.access.error.locksOut",
+      );
     if (reason === "not_eligible")
       return t("loginProviders.emergency.error.notEligible");
   }
@@ -93,6 +98,7 @@ export function PasswordLoginSettings() {
   const [opener, setOpener] = useState<HTMLElement | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
+  const lockedOutId = useId();
 
   const change = useMutation<UpdateLoginSettingsResponse, ApiError, Change>({
     mutationFn: (body) => unwrap(client.PATCH("/v1/login-settings", { body })),
@@ -111,7 +117,15 @@ export function PasswordLoginSettings() {
             : t("loginProviders.access.done.opened"),
       });
     },
-    onError: (error) => setDialogError(refusal(t, error, role)),
+    onError: (error, body) =>
+      setDialogError(
+        refusal(
+          t,
+          error,
+          role,
+          "password_login" in body && body.password_login === "emergency_only",
+        ),
+      ),
     // A refusal is often news: a provider went off, another owner was named.
     onSettled: () =>
       queryClient.invalidateQueries({ queryKey: loginSettingsKey(client) }),
@@ -147,6 +161,23 @@ export function PasswordLoginSettings() {
       <AlertDescription>{dialogError}</AlertDescription>
     </Alert>
   ) : null;
+  // The server's rule: the emergency admin keeps a password; anyone else
+  // closing passwords needs a provider account to come back with.
+  const lockedOutText = t("loginProviders.access.reason.locksOut");
+  const lockedOut =
+    dialogError === lockedOutText ||
+    (admin?.user_id !== me?.user?.id && !read.data.caller_has_provider_account);
+  const closeNotice = lockedOut ? (
+    <Alert
+      variant="red"
+      id={lockedOutId}
+      role={dialogError === lockedOutText ? "alert" : undefined}
+    >
+      <AlertDescription>{lockedOutText}</AlertDescription>
+    </Alert>
+  ) : (
+    failure
+  );
 
   return (
     <div className="flex flex-col gap-[var(--werft-space-block)]">
@@ -229,9 +260,11 @@ export function PasswordLoginSettings() {
         cancelLabel={t("common.cancel")}
         tone="danger"
         busy={change.isPending}
+        confirmDisabled={lockedOut}
+        confirmDescribedBy={lockedOut ? lockedOutId : undefined}
         onConfirm={() => change.mutate({ password_login: "emergency_only" })}
       >
-        {failure}
+        {closeNotice}
       </ConfirmDialog>
       <ConfirmDialog
         open={editing === "open"}

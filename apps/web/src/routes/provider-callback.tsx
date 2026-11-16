@@ -90,6 +90,8 @@ function TestResult({ test }: { readonly test: LoginProviderTestResult }) {
           </AlertDescription>
         </Alert>
         <KeyValueList
+          variant="grid"
+          stack="sm"
           items={[
             {
               label: t("loginProviders.result.reason"),
@@ -119,6 +121,8 @@ function TestResult({ test }: { readonly test: LoginProviderTestResult }) {
         </AlertDescription>
       </Alert>
       <KeyValueList
+        variant="grid"
+        stack="sm"
         items={[
           {
             label: t("loginProviders.result.subject"),

@@ -1067,7 +1067,7 @@ export interface paths {
         };
         /**
          * Who may sign in with a password, and the emergency admin
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. `password_login` is `on` (everyone with a password) or `emergency_only` (the emergency admin alone; everyone else comes in through a provider). The emergency admin is the one owner whose password sign-in stays open either way; `eligible: false` says they are no longer an owner who can sign in with a password, so another has to be named before passwords can be closed. `emergency_admin_candidates` are the owners of the caller's workspace who can be named (on, with a password), oldest membership first, at most 100; the one named is listed like any other, while still eligible and within those 100.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. `password_login` is `on` (everyone with a password) or `emergency_only` (the emergency admin alone; everyone else comes in through a provider). The emergency admin is the one owner whose password sign-in stays open either way; `eligible: false` says they are no longer an owner who can sign in with a password, so another has to be named before passwords can be closed. `emergency_admin_candidates` are the owners of the caller's workspace who can be named (on, with a password), oldest membership first, at most 100; the one named is listed like any other, while still eligible and within those 100. `caller_has_provider_account` says whether the caller has an account of a provider that is on; without one, PATCH refuses to close passwords (`locks_out_actor`) unless the caller is the emergency admin. The emergency admin's password is their own way back, not the caller's.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -8045,6 +8045,7 @@ export interface components {
                 email: string;
                 display_name: string;
             }[];
+            caller_has_provider_account: boolean;
         };
         UpdateLoginSettingsResponse: {
             settings: {
@@ -18935,7 +18936,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The password switch, the emergency admin, how many providers are on, and who can be named emergency admin. */
+            /** @description The password switch, the emergency admin, how many providers are on, who can be named emergency admin, and whether the caller could come back through a provider. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -18960,7 +18961,8 @@ export interface operations {
                      *           "email": "owner@example.com",
                      *           "display_name": "Owner"
                      *         }
-                     *       ]
+                     *       ],
+                     *       "caller_has_provider_account": true
                      *     }
                      */
                     "application/json": components["schemas"]["LoginSettingsResponse"];
@@ -19121,7 +19123,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. `details.reason_code` says why. Closing passwords: `no_provider` (no provider is on), `no_emergency_admin` (none is named, or the one named can no longer sign in with a password), `locks_out_actor` (the caller is not the emergency admin and has no account of a provider that is on). Naming the emergency admin: `not_eligible` (not an owner who is on and has a password), `locks_out_actor` (passwords are closed, and the caller is the one being replaced with no provider account to come back with). */
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. `details.reason_code` says why. Closing passwords: `no_provider` (no provider is on), `no_emergency_admin` (none is named, or the one named can no longer sign in with a password), `locks_out_actor` (the caller is not the emergency admin and has no account of a provider that is on; GET answers this ahead as `caller_has_provider_account: false`). Naming the emergency admin: `not_eligible` (not an owner who is on and has a password), `locks_out_actor` (passwords are closed, and the caller is the one being replaced with no provider account to come back with). */
             409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
