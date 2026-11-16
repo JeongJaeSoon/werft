@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { components } from "@werft-ai/client";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { AGENT_ID, agentServer } from "../../test-support/fake-agents.ts";
+import { AGENT_ID, agentServer, TEAM } from "../../test-support/fake-agents.ts";
 import {
   apiError,
   json,
@@ -1716,6 +1716,33 @@ describe("Slack management", () => {
         .some((link) => link.textContent === "Slack 앱에 넣을 주소"),
     ).toBe(false);
     // Without the address section there is no Recheck to point to or name.
+    expect(within(lock).queryByRole("button")).toBeNull();
+    expect(lock.textContent).not.toContain("다시 확인");
+    expect(
+      within(lock)
+        .getByRole("link", { name: /Event Subscriptions 열기/ })
+        .getAttribute("href"),
+    ).toBe("https://api.slack.com/apps/A123/event-subscriptions");
+  });
+
+  test("gives a managing-team member who reads the app the notice too, without the jump to Recheck", async () => {
+    renderAt(DETAIL, {
+      ...subscribed({ state: "pending", checked_at: AT, url: SENT }),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/my-teams": () =>
+        json(200, {
+          items: [{ id: TEAM.id, name: TEAM.name, role: "member" }],
+          next_cursor: null,
+        }),
+      [`GET ${PATH}/admins`]: () => json(200, { users: [], teams: [] }),
+    });
+    const channels = await screen.findByRole("region", {
+      name: "연결된 채널",
+    });
+    const lock = await within(channels).findByRole("group", { name: LOCK });
+    expect(
+      screen.queryByRole("region", { name: "Slack 앱에 넣을 주소" }) === null,
+    ).toBe(true);
     expect(within(lock).queryByRole("button")).toBeNull();
     expect(lock.textContent).not.toContain("다시 확인");
     expect(

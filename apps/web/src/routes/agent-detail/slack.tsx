@@ -127,9 +127,10 @@ export default function SlackTab({
             invite={`/invite @${slug}`}
             notify={notify}
             homeStep={homeStep}
-            lockedApp={manages ? unverified : null}
+            // A managing-team member reads the app too and gets the notice.
+            lockedApp={unverified}
             // The address section offers Recheck only for an installed app.
-            canRecheck={installed && eventUrl(slack) !== null}
+            canRecheck={manages && installed && eventUrl(slack) !== null}
             installed={installed}
           />
         ) : null}
