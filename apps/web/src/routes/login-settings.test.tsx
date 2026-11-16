@@ -215,12 +215,16 @@ describe("비밀번호 로그인 설정", () => {
 
   test("비상 관리자가 아닌 소유자에게는 자기 세션도 끊길 수 있다고 말하고, 서버의 거절은 같은 이유로 확인을 막는다", async () => {
     // The page read a provider account that is gone by the time of the close.
+    let answer = read(DANA_NAMED, undefined, true);
     const { api } = renderAt(LIST_PAGE, {
-      ...routes(read(DANA_NAMED, undefined, true)),
-      [`PATCH ${API}`]: () =>
-        apiError(409, "REVISION_CONFLICT", "no", false, {
+      ...routes(answer),
+      [`GET ${API}`]: () => json(200, answer),
+      [`PATCH ${API}`]: () => {
+        answer = read(DANA_NAMED);
+        return apiError(409, "REVISION_CONFLICT", "no", false, {
           reason_code: "locks_out_actor",
-        }),
+        });
+      },
     });
     const user = await setupUser();
     await user.click(
@@ -247,6 +251,47 @@ describe("비밀번호 로그인 설정", () => {
         api.calls.filter((call) => call.method === "GET" && call.path === API)
           .length,
       ).toBe(2),
+    );
+    expect(withheld(confirm)).toBe(LOCKED_OUT);
+  });
+
+  test("거절 뒤 다시 읽은 설정에 공급자 계정이 있으면 확인을 다시 누를 수 있다", async () => {
+    const answer = read(DANA_NAMED, undefined, true);
+    let refused = false;
+    const { api } = renderAt(LIST_PAGE, {
+      ...routes(answer),
+      [`PATCH ${API}`]: () => {
+        if (refused)
+          return json(200, { settings: answer.settings, sessions_revoked: 0 });
+        refused = true;
+        return apiError(409, "REVISION_CONFLICT", "no", false, {
+          reason_code: "locks_out_actor",
+        });
+      },
+    });
+    const user = await setupUser();
+    await user.click(
+      within(await section()).getByRole("button", {
+        name: "비밀번호 로그인 닫기",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    const confirm = within(dialog).getByRole("button", { name: "닫기" });
+    await user.click(confirm);
+    await waitFor(() =>
+      expect(
+        api.calls.filter((call) => call.method === "GET" && call.path === API)
+          .length,
+      ).toBe(2),
+    );
+    // The read after the refusal answers for itself: linked meanwhile.
+    await waitFor(() => expect(withheld(confirm)).toBe(null));
+    expect(dialog.textContent).not.toContain(LOCKED_OUT);
+    await user.click(confirm);
+    await waitFor(() =>
+      expect(api.calls.filter((call) => call.method === "PATCH")).toHaveLength(
+        2,
+      ),
     );
   });
 

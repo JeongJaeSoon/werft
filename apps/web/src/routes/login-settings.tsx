@@ -99,6 +99,10 @@ export function PasswordLoginSettings() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const lockedOutId = useId();
+  const readCount = () =>
+    queryClient.getQueryState(loginSettingsKey(client))?.dataUpdateCount ?? 0;
+  // How many reads had answered when the server last refused.
+  const [refusedAtRead, setRefusedAtRead] = useState(0);
 
   const change = useMutation<UpdateLoginSettingsResponse, ApiError, Change>({
     mutationFn: (body) => unwrap(client.PATCH("/v1/login-settings", { body })),
@@ -117,7 +121,8 @@ export function PasswordLoginSettings() {
             : t("loginProviders.access.done.opened"),
       });
     },
-    onError: (error, body) =>
+    onError: (error, body) => {
+      setRefusedAtRead(readCount());
       setDialogError(
         refusal(
           t,
@@ -125,7 +130,8 @@ export function PasswordLoginSettings() {
           role,
           "password_login" in body && body.password_login === "emergency_only",
         ),
-      ),
+      );
+    },
     // A refusal is often news: a provider went off, another owner was named.
     onSettled: () =>
       queryClient.invalidateQueries({ queryKey: loginSettingsKey(client) }),
@@ -164,18 +170,24 @@ export function PasswordLoginSettings() {
   // The server's rule: the emergency admin keeps a password; anyone else
   // closing passwords needs a provider account to come back with.
   const lockedOutText = t("loginProviders.access.reason.locksOut");
+  // A refusal holds until the read that follows it answers for itself: a
+  // provider account linked, or the caller named, since then lifts it.
+  const refusedLockedOut = dialogError === lockedOutText;
+  // Read so a read that changed nothing still renders anew.
+  void read.dataUpdatedAt;
+  const refusalOutdated = refusedLockedOut && readCount() > refusedAtRead;
   const lockedOut =
-    dialogError === lockedOutText ||
+    (refusedLockedOut && !refusalOutdated) ||
     (admin?.user_id !== me?.user?.id && !read.data.caller_has_provider_account);
   const closeNotice = lockedOut ? (
     <Alert
       variant="red"
       id={lockedOutId}
-      role={dialogError === lockedOutText ? "alert" : undefined}
+      role={refusedLockedOut ? "alert" : undefined}
     >
       <AlertDescription>{lockedOutText}</AlertDescription>
     </Alert>
-  ) : (
+  ) : refusalOutdated ? null : (
     failure
   );
 
