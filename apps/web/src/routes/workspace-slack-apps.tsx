@@ -105,6 +105,7 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
       columns={COLUMNS[0]}
       narrowAt={640}
       narrowColumns={COLUMNS[1]}
+      align={["start", "start", "start", "start", "action"]}
       framed
     >
       <GridTableHeader>
@@ -121,7 +122,7 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
           {t("workspace.slackAppsUpdated")}
         </GridTableColumnHeader>
         <GridTableColumnHeader>
-          <span className="sr-only">{t("workspace.slackAppsMore")}</span>
+          {t("workspace.slackAppsMore")}
         </GridTableColumnHeader>
       </GridTableHeader>
       {items.map((item) => {
@@ -183,7 +184,7 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
             >
               {updated}
             </GridTableCell>
-            <GridTableCell align="end">
+            <GridTableCell>
               {item.agent ? (
                 <Link
                   to="/agents/$id"

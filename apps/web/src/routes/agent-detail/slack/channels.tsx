@@ -414,13 +414,14 @@ export function SlackChannels({
               <GridTable
                 aria-label={t("slack.connectedChannels")}
                 columns={COLUMNS}
+                align={["start", "end"]}
                 framed
               >
                 <GridTableHeader>
                   <GridTableColumnHeader>
                     {t("slack.channelColumn")}
                   </GridTableColumnHeader>
-                  <GridTableColumnHeader align="end">
+                  <GridTableColumnHeader>
                     {t("slack.useColumn")}
                   </GridTableColumnHeader>
                 </GridTableHeader>
@@ -483,7 +484,7 @@ export function SlackChannels({
                           {meta}
                         </div>
                       </GridTableCell>
-                      <GridTableCell align="end">
+                      <GridTableCell>
                         {
                           // A left binding takes no input and sends nothing, so a
                           // switch that reads "on" would be a lie.

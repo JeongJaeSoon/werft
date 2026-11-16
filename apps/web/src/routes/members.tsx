@@ -631,7 +631,7 @@ function MemberTable({
                   )}
                 </StatusText>
               </GridTableCell>
-              <GridTableCell raised={true} align="end">
+              <GridTableCell raised={true}>
                 <RowMenu
                   label={t("members.menuFor", { name: member.display_name })}
                 >
@@ -742,7 +742,7 @@ function MemberTable({
                   <TooltipContent>{expires}</TooltipContent>
                 </Tooltip>
               </GridTableCell>
-              <GridTableCell raised={true} align="end">
+              <GridTableCell raised={true}>
                 {lapsed ? null : (
                   <RowMenu label={t("members.menuFor", { name: invite.email })}>
                     {(close) => (

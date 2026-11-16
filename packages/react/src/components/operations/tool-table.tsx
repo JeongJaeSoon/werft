@@ -71,21 +71,18 @@ export function ToolTable({
         columns={COLUMNS}
         narrowAt={480}
         narrowColumns={NARROW_COLUMNS}
+        align={["start", "end", "end", "end", "end"]}
       >
         <GridTableHeader>
           <GridTableColumnHeader>{messages.name}</GridTableColumnHeader>
-          <GridTableColumnHeader align="end">
-            {messages.calls}
-          </GridTableColumnHeader>
-          <GridTableColumnHeader align="end" hideNarrow>
+          <GridTableColumnHeader>{messages.calls}</GridTableColumnHeader>
+          <GridTableColumnHeader hideNarrow>
             {messages.total}
           </GridTableColumnHeader>
-          <GridTableColumnHeader align="end" hideNarrow>
+          <GridTableColumnHeader hideNarrow>
             {messages.median}
           </GridTableColumnHeader>
-          <GridTableColumnHeader align="end">
-            {messages.failed}
-          </GridTableColumnHeader>
+          <GridTableColumnHeader>{messages.failed}</GridTableColumnHeader>
         </GridTableHeader>
         {tools === undefined
           ? Array.from({ length: loadingRows }, (_, row) => row).map((row) => (
@@ -154,25 +151,16 @@ export function ToolTable({
                       className="w-full"
                     />
                   </GridTableCell>
-                  <GridTableCell align="end" className="tabular-nums">
+                  <GridTableCell className="tabular-nums">
                     {format.count(tool.calls)}
                   </GridTableCell>
-                  <GridTableCell
-                    align="end"
-                    hideNarrow
-                    className="tabular-nums"
-                  >
+                  <GridTableCell hideNarrow className="tabular-nums">
                     {format.elapsed(tool.total_ms)}
                   </GridTableCell>
-                  <GridTableCell
-                    align="end"
-                    hideNarrow
-                    className="tabular-nums"
-                  >
+                  <GridTableCell hideNarrow className="tabular-nums">
                     {format.elapsed(tool.median_ms)}
                   </GridTableCell>
                   <GridTableCell
-                    align="end"
                     className={cn(
                       "tabular-nums",
                       tool.failed > 0 && "text-(color:--werft-tone-danger-fg)",

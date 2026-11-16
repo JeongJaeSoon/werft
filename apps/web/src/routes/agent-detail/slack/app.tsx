@@ -342,6 +342,7 @@ export function SlackAppSection({
       columns={COLUMNS[0]}
       narrowAt={640}
       narrowColumns={COLUMNS[1]}
+      align={["start", "start", "start", "action"]}
       framed
     >
       <GridTableHeader>
@@ -354,9 +355,7 @@ export function SlackAppSection({
         <GridTableColumnHeader hideNarrow>
           {t("workspace.slackAppsUpdated")}
         </GridTableColumnHeader>
-        <GridTableColumnHeader action>
-          <span className="sr-only">{t("slack.appMenu")}</span>
-        </GridTableColumnHeader>
+        <GridTableColumnHeader>{t("slack.appMenu")}</GridTableColumnHeader>
       </GridTableHeader>
       <GridTableRow>
         <GridTableCell>
@@ -387,7 +386,7 @@ export function SlackAppSection({
         >
           {updated}
         </GridTableCell>
-        <GridTableCell align="end">
+        <GridTableCell>
           <RowAction
             disabled={busy || pending || Boolean(slack.readError)}
             aria-describedby={`${SECTION.app}-install-hint`}

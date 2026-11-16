@@ -53,6 +53,7 @@ export function UsageTokenMix({
         <GridTable
           aria-label={messages.title}
           columns="96px minmax(0,1fr) 80px 56px"
+          align={["start", "start", "end", "end"]}
         >
           {KINDS.map(([kind, column]) => {
             const label = messages[kind];
@@ -73,13 +74,10 @@ export function UsageTokenMix({
                     />
                   )}
                 </GridTableCell>
-                <GridTableCell align="end" className="tabular-nums">
+                <GridTableCell className="tabular-nums">
                   <Value loading={loading}>{format.tokens(n)}</Value>
                 </GridTableCell>
-                <GridTableCell
-                  align="end"
-                  className="text-subtle-foreground tabular-nums"
-                >
+                <GridTableCell className="text-subtle-foreground tabular-nums">
                   <Value loading={loading} width="2rem">
                     {`${total ? Math.round((100 * n) / total) : 0}%`}
                   </Value>

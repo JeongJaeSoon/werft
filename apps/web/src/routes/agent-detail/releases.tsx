@@ -146,6 +146,7 @@ export function Releases({
             columns={COLUMNS[0]}
             narrowAt={860}
             narrowColumns={COLUMNS[1]}
+            align={["start", "start", "start", "start", "action"]}
             framed={true}
           >
             <GridTableHeader>
@@ -161,10 +162,8 @@ export function Releases({
               <GridTableColumnHeader hideNarrow>
                 {t("agent.releases.colBy")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader action>
-                <span className="sr-only">
-                  {t("agent.releases.colActions")}
-                </span>
+              <GridTableColumnHeader>
+                {t("agent.releases.colActions")}
               </GridTableColumnHeader>
             </GridTableHeader>
             {entries.map((entry) => {
@@ -197,7 +196,7 @@ export function Releases({
                       {at(entry.item.created_at)}
                     </GridTableCell>
                     <GridTableCell hideNarrow>{null}</GridTableCell>
-                    <GridTableCell align="end">{null}</GridTableCell>
+                    <GridTableCell>{null}</GridTableCell>
                   </GridTableRow>
                 );
               }
@@ -310,7 +309,7 @@ export function Releases({
                   <GridTableCell hideNarrow className="wrap-anywhere">
                     {by}
                   </GridTableCell>
-                  <GridTableCell align="end">
+                  <GridTableCell>
                     {active || !manages ? null : (
                       <RowAction
                         disabled={activating !== undefined}

@@ -982,6 +982,7 @@ function GitHubSettings({
                       columns={manages ? ALLOW_COLUMNS : ALLOW_COLUMNS_READ}
                       narrowAt={480}
                       narrowColumns={manages ? ALLOW_NARROW : ALLOW_NARROW_READ}
+                      align={["start", "start", "action"]}
                       framed
                     >
                       <GridTableHeader>
@@ -992,10 +993,8 @@ function GitHubSettings({
                           {t("agentGitHub.table.ref")}
                         </GridTableColumnHeader>
                         {manages ? (
-                          <GridTableColumnHeader action>
-                            <span className="sr-only">
-                              {t("agentGitHub.table.remove")}
-                            </span>
+                          <GridTableColumnHeader>
+                            {t("agentGitHub.table.remove")}
                           </GridTableColumnHeader>
                         ) : null}
                       </GridTableHeader>
@@ -1041,7 +1040,7 @@ function GitHubSettings({
                               </Text>
                             </GridTableCell>
                             {manages ? (
-                              <GridTableCell align="end">
+                              <GridTableCell>
                                 <RowAction
                                   disabled={readOnly}
                                   aria-label={t("agentGitHub.removeLabel", {

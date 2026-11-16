@@ -264,7 +264,8 @@ describe("모델 연결", () => {
     expect(imported.textContent).toContain("claude-sonnet-5");
     expect(imported.textContent).not.toContain("파일");
 
-    // Disabling stays a button of its own; the rest wait in the row's menu.
+    // As in the members table: the ⋯ menu is the row's only button, and
+    // disabling is its last item, in red.
     const stored = rowOf(table, "console-key");
     expect(stored.textContent).toContain("••••abcd");
     // Every Claude release runs auto, so no row offers or shows a judgement.
@@ -273,22 +274,42 @@ describe("모델 연결", () => {
       within(stored)
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["console-key 사용 중지", "console-key 메뉴"]);
+    ).toEqual(["console-key 메뉴"]);
     const storedMenu = await openMenu(user, table, "console-key");
     expect(menuLabels(storedMenu)).toEqual([
       "console-key의 API 키 설정",
       "console-key의 모델 목록",
+      "console-key 사용 중지",
     ]);
     expect(
       within(storedMenu).getByRole("menuitem", {
         name: "console-key의 API 키 설정",
       }).textContent,
     ).toBe("API 키 설정");
+    const disable = within(storedMenu).getByRole("menuitem", {
+      name: "console-key 사용 중지",
+    });
+    expect(disable.textContent).toBe("사용 중지");
+    expect(disable.getAttribute("data-tone")).toBe("danger");
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 
     const fresh = rowOf(table, "fresh");
     expect(fresh.textContent).toContain("값 필요");
+    // The state column says it as the members table does: a dot and a name,
+    // not a badge.
+    const states = [stored, fresh].map((row) => {
+      const cell = within(row).getAllByRole("cell")[5] as HTMLElement;
+      expect(cell.querySelector('[data-slot="badge"]') === null).toBe(true);
+      const text = cell.querySelector('[data-slot="status-text"]');
+      const dot = text?.querySelector('[data-slot="status-dot"]');
+      expect(dot?.getAttribute("aria-hidden")).toBe("true");
+      return [text?.getAttribute("data-status"), text?.textContent];
+    });
+    expect(states).toEqual([
+      ["done", "사용 중"],
+      ["wait", "값 필요"],
+    ]);
     expect(
       within(await openMenu(user, table, "fresh")).getByRole("menuitem", {
         name: "fresh의 API 키 설정",
@@ -499,9 +520,7 @@ describe("모델 연결", () => {
       expect(document.activeElement === menuButton).toBe(true),
     );
 
-    await user.click(
-      within(table).getByRole("button", { name: "console-key 사용 중지" }),
-    );
+    await choose(user, table, "console-key", "console-key 사용 중지");
     const confirm = await screen.findByRole("dialog");
     expect(confirm.textContent).toContain(
       "나중에 같은 화면에서 다시 켤 수 있습니다.",
@@ -863,9 +882,7 @@ describe("모델 연결", () => {
       const table = await screen.findByRole("table", { name: "모델 연결" });
       // Nothing is read for a table nobody is disabling from.
       expect(impactCalls(rendered.api.calls)).toEqual([]);
-      await user.click(
-        within(table).getByRole("button", { name: "console-key 사용 중지" }),
-      );
+      await choose(user, table, "console-key", "console-key 사용 중지");
       const confirm = await screen.findByRole("dialog");
       return { ...rendered, user, table, confirm };
     }
@@ -1016,9 +1033,7 @@ describe("모델 연결", () => {
       await waitFor(() =>
         expect(screen.queryByRole("dialog") === null).toBe(true),
       );
-      await user.click(
-        within(table).getByRole("button", { name: "console-key 사용 중지" }),
-      );
+      await choose(user, table, "console-key", "console-key 사용 중지");
       await within(await screen.findByRole("dialog")).findByRole("alert");
       expect(impactCalls(api.calls).length).toBe(2);
     });
@@ -1059,11 +1074,12 @@ describe("모델 연결", () => {
       ...extra,
     });
 
-    test("only the disabled row offers it, and it offers nothing else", async () => {
+    test("only the disabled row's menu offers it, and it offers nothing else", async () => {
       renderAt(CONNECTIONS_PAGE, withDisabled());
+      const user = await setupUser();
       const table = await screen.findByRole("table", { name: "모델 연결" });
       const off = within(rowOf(table, "off-key"));
-      // The ⋯ button is there, so the buttons line up, but unavailable.
+      // As in the members table: no row button beside the ⋯ menu.
       expect(
         off
           .getAllByRole("button")
@@ -1071,22 +1087,23 @@ describe("모델 연결", () => {
             button.getAttribute("aria-label"),
             button.getAttribute("aria-disabled"),
           ]),
-      ).toEqual([
-        ["off-key 다시 켜기", null],
-        ["off-key 메뉴", "true"],
-      ]);
-      expect(
-        off.getByRole("button", { name: "off-key 다시 켜기" }),
-      ).toBeTruthy();
-      expect(
-        within(rowOf(table, "on-key")).queryByRole("button", {
-          name: "on-key 다시 켜기",
-        }) === null,
-      ).toBe(true);
+      ).toEqual([["off-key 메뉴", null]]);
+      const menu = await openMenu(user, table, "off-key");
+      expect(menuLabels(menu)).toEqual(["off-key 다시 켜기"]);
+      const enable = within(menu).getByRole("menuitem", {
+        name: "off-key 다시 켜기",
+      });
+      expect(enable.textContent).toBe("다시 켜기");
+      expect(enable.getAttribute("data-tone")).toBe("default");
+      await user.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+      expect(menuLabels(await openMenu(user, table, "on-key"))).not.toContain(
+        "on-key 다시 켜기",
+      );
       expectNarrowActions(table);
     });
 
-    test("a disabled row with no value offers its first value, nothing else", async () => {
+    test("a disabled row with no value offers its first value before enabling it again", async () => {
       renderAt(CONNECTIONS_PAGE, {
         ...routes(),
         [`GET ${CONNECTIONS}`]: () =>
@@ -1105,33 +1122,10 @@ describe("모델 연결", () => {
       const user = await setupUser();
       const table = await screen.findByRole("table", { name: "모델 연결" });
       const menu = await openMenu(user, table, "off-empty");
-      expect(menuLabels(menu)).toEqual(["off-empty의 API 키 설정"]);
-    });
-
-    test("its ⋯ button keeps the focus and its name but opens nothing, by click or Enter", async () => {
-      renderAt(CONNECTIONS_PAGE, withDisabled());
-      const user = await setupUser();
-      const table = await screen.findByRole("table", { name: "모델 연결" });
-      const button = within(rowOf(table, "off-key")).getByRole("button", {
-        name: "off-key 메뉴",
-      });
-      expect(button.hasAttribute("disabled")).toBe(false);
-      expect(button.getAttribute("aria-disabled")).toBe("true");
-
-      const expectShut = () => {
-        expect(screen.queryByRole("menu") === null).toBe(true);
-        expect(button.getAttribute("aria-expanded")).toBe("false");
-      };
-      await user.click(button);
-      expect(document.activeElement === button).toBe(true);
-      expectShut();
-      await user.keyboard("{Enter}");
-      expectShut();
-      await user.keyboard(" ");
-      expectShut();
-
-      // An active row's still opens, so the click above reached a live button.
-      await openMenu(user, table, "on-key");
+      expect(menuLabels(menu)).toEqual([
+        "off-empty의 API 키 설정",
+        "off-empty 다시 켜기",
+      ]);
     });
 
     test("every cell holds one line, as the members table's do, and the credential kind sits in its column", async () => {
@@ -1148,8 +1142,11 @@ describe("모델 연결", () => {
         "자격 증명",
         "모델",
         "상태",
+        // The ⋯ column's name is for screen readers only, as in members.
         "동작",
       ]);
+      const last = within(table).getAllByRole("columnheader")[6];
+      expect(last?.firstElementChild?.className).toBe("sr-only");
       const cells = within(rowOf(table, "on-key")).getAllByRole("cell");
       expect(cells.length).toBe(7);
       expect(cells.filter((cell) => cell.hasAttribute("data-lines"))).toEqual(
@@ -1175,9 +1172,7 @@ describe("모델 연결", () => {
       );
       const user = await setupUser();
       const table = await screen.findByRole("table", { name: "모델 연결" });
-      await user.click(
-        within(table).getByRole("button", { name: "off-key 다시 켜기" }),
-      );
+      await choose(user, table, "off-key", "off-key 다시 켜기");
       const confirm = await screen.findByRole("dialog");
       expect(confirm.textContent).toContain("off-key를 다시 켤까요?");
       expect(writes(api.calls)).toEqual([]);
@@ -1188,9 +1183,7 @@ describe("모델 연결", () => {
       );
       expect(writes(api.calls)).toEqual([]);
 
-      await user.click(
-        within(table).getByRole("button", { name: "off-key 다시 켜기" }),
-      );
+      await choose(user, table, "off-key", "off-key 다시 켜기");
       await user.click(
         within(await screen.findByRole("dialog")).getByRole("button", {
           name: "다시 켜기",
@@ -1202,7 +1195,7 @@ describe("모델 연결", () => {
       ]);
     });
 
-    test("the row comes back active and keyboard focus lands on its new button", async () => {
+    test("the row comes back active and keyboard focus lands on its ⋯ button", async () => {
       let on = false;
       renderAt(CONNECTIONS_PAGE, {
         ...routes(),
@@ -1224,20 +1217,24 @@ describe("모델 연결", () => {
       });
       const user = await setupUser();
       const table = await screen.findByRole("table", { name: "모델 연결" });
-      await user.click(
-        within(table).getByRole("button", { name: "off-key 다시 켜기" }),
-      );
+      await choose(user, table, "off-key", "off-key 다시 켜기");
       await user.click(
         within(await screen.findByRole("dialog")).getByRole("button", {
           name: "다시 켜기",
         }),
       );
       await screen.findByText("off-key를 다시 켰습니다.");
-      const disable = await within(table).findByRole("button", {
-        name: "off-key 사용 중지",
+      await waitFor(() =>
+        expect(rowOf(table, "off-key").textContent).toContain("사용 중"),
+      );
+      const menuButton = within(table).getByRole("button", {
+        name: "off-key 메뉴",
       });
       await waitFor(() =>
-        expect(document.activeElement === disable).toBe(true),
+        expect(document.activeElement === menuButton).toBe(true),
+      );
+      expect(menuLabels(await openMenu(user, table, "off-key"))).toContain(
+        "off-key 사용 중지",
       );
     });
 
@@ -1265,9 +1262,7 @@ describe("모델 연결", () => {
         );
         const user = await setupUser();
         const table = await screen.findByRole("table", { name: "모델 연결" });
-        await user.click(
-          within(table).getByRole("button", { name: "off-key 다시 켜기" }),
-        );
+        await choose(user, table, "off-key", "off-key 다시 켜기");
         await user.click(
           within(await screen.findByRole("dialog")).getByRole("button", {
             name: "다시 켜기",
@@ -1278,9 +1273,9 @@ describe("모델 연결", () => {
         expect(alert.textContent).not.toContain("server words");
         // The dialog is closed and the row is still there to try again.
         expect(screen.queryByRole("dialog") === null).toBe(true);
-        expect(
-          within(table).getByRole("button", { name: "off-key 다시 켜기" }),
-        ).toBeTruthy();
+        expect(menuLabels(await openMenu(user, table, "off-key"))).toEqual([
+          "off-key 다시 켜기",
+        ]);
       });
     }
 
@@ -1294,18 +1289,16 @@ describe("모델 연결", () => {
       );
       const user = await setupUser();
       const table = await screen.findByRole("table", { name: "모델 연결" });
-      await user.click(
-        within(table).getByRole("button", { name: "off-key 다시 켜기" }),
-      );
+      await choose(user, table, "off-key", "off-key 다시 켜기");
       await user.click(
         within(await screen.findByRole("dialog")).getByRole("button", {
           name: "다시 켜기",
         }),
       );
       await screen.findByRole("alert");
-      expect(
-        within(table).getByRole("button", { name: "off-key 다시 켜기" }),
-      ).toBeTruthy();
+      expect(menuLabels(await openMenu(user, table, "off-key"))).toEqual([
+        "off-key 다시 켜기",
+      ]);
     });
 
     test("a disabled MCP server has no way back", async () => {

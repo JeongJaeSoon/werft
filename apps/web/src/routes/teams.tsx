@@ -208,6 +208,7 @@ function TeamTable({
         columns: TEAM_COLUMNS,
         narrowColumns: TEAM_NARROW_COLUMNS,
         narrowAt: 640,
+        align: ["start", "end"],
         headers: (
           <>
             <GridTableColumnHeader>
@@ -239,7 +240,7 @@ function TeamTable({
             </Text>
             <ChevronRight
               aria-hidden="true"
-              className="ml-auto size-4 shrink-0 text-subtle-foreground"
+              className="size-4 shrink-0 text-subtle-foreground"
             />
           </GridTableCell>
         </GridTableRow>
@@ -759,6 +760,14 @@ function TeamMembers({
                 columns,
                 narrowColumns,
                 narrowAt: 820,
+                align: [
+                  "start",
+                  "start",
+                  "start",
+                  "start",
+                  "start",
+                  ...(manages ? ["action" as const] : []),
+                ],
                 headers: (
                   <>
                     <GridTableColumnHeader>
@@ -777,11 +786,8 @@ function TeamMembers({
                       {t("teams.column.addedAt")}
                     </GridTableColumnHeader>
                     {manages && (
-                      // The ⋯ column has no visible title, as on 구성원.
                       <GridTableColumnHeader>
-                        <span className="sr-only">
-                          {t("members.column.actions")}
-                        </span>
+                        {t("members.column.actions")}
                       </GridTableColumnHeader>
                     )}
                   </>
@@ -846,7 +852,7 @@ function TeamMembers({
                       <TableTime value={member.added_at} locale={locale} />
                     </GridTableCell>
                     {manages && (
-                      <GridTableCell raised={true} align="end">
+                      <GridTableCell raised={true}>
                         {/* The server refuses a role change or a removal on a
                             suspended member: its ⋯ stays, named and
                             focusable, but does not open. */}

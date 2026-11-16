@@ -564,6 +564,7 @@ function AppList({
           columns={canManage ? APP_COLUMNS : APP_COLUMNS_READ}
           narrowAt={480}
           narrowColumns={canManage ? APP_NARROW : APP_NARROW_READ}
+          align={["start", "start", "action"]}
           framed
         >
           <GridTableHeader>
@@ -575,9 +576,7 @@ function AppList({
             </GridTableColumnHeader>
             {canManage ? (
               <GridTableColumnHeader>
-                <Text as="span" className="sr-only">
-                  {t("github.table.menu")}
-                </Text>
+                {t("github.table.menu")}
               </GridTableColumnHeader>
             ) : null}
           </GridTableHeader>
@@ -670,7 +669,7 @@ function AppRow({
         <AppStateBadge state={state} pending={pending.length} />
       </GridTableCell>
       {canManage ? (
-        <GridTableCell align="end">
+        <GridTableCell>
           {/* Disconnecting lives in the page's danger zone. */}
           <RowMenu label={t("github.apps.menu", { name: connection.name })}>
             {(close) => (
@@ -1112,6 +1111,11 @@ function Installations({
         columns={canManage ? MANAGER_COLUMNS : MEMBER_COLUMNS}
         narrowAt={760}
         narrowColumns={canManage ? MANAGER_NARROW : MEMBER_NARROW}
+        align={
+          canManage
+            ? ["start", "start", "end", "start", "start", "start", "action"]
+            : undefined
+        }
         framed
       >
         <GridTableHeader>
@@ -1139,9 +1143,7 @@ function Installations({
           </GridTableColumnHeader>
           {canManage ? (
             <GridTableColumnHeader>
-              <Text as="span" className="sr-only">
-                {t("github.table.menu")}
-              </Text>
+              {t("github.table.menu")}
             </GridTableColumnHeader>
           ) : null}
         </GridTableHeader>
@@ -1193,7 +1195,7 @@ function Installations({
                 <InstallationBadge installation={installation} />
               </GridTableCell>
               {canManage ? (
-                <GridTableCell align="end">
+                <GridTableCell>
                   {installation.detail?.html_url ? (
                     <RowMenu label={t("github.table.rowMenu", { name: label })}>
                       {(close) => (

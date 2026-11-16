@@ -269,12 +269,13 @@ describe("에이전트 목록", () => {
       ["연결 채널", null],
       ["실행 중인 세션", null],
     ]);
-    // Every column starts at its left edge, header and cells alike.
-    expect(
-      [...table.querySelectorAll("[role=columnheader], [role=cell]")].filter(
-        (cell) => cell.className.includes("justify-end"),
-      ).length,
-    ).toBe(0);
+    // Text columns start; the running count ends, header and cells alike.
+    for (const row of within(table).getAllByRole("row"))
+      expect(
+        [...row.querySelectorAll("[role=columnheader], [role=cell]")].map(
+          (cell) => cell.className.includes("justify-end"),
+        ),
+      ).toEqual([false, false, false, false, true]);
     const cellsOf = async (name: string) =>
       within(
         (await within(table).findByRole("link", { name })).closest(

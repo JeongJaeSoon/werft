@@ -2,10 +2,14 @@
 /* biome-ignore-all lint/a11y/useFocusableInteractive: a static table's rows and cells take no focus; the row opener does. */
 import { Slot } from "@radix-ui/react-slot";
 import {
+  Children,
   type ComponentProps,
   type CSSProperties,
   createContext,
+  Fragment,
+  isValidElement,
   type JSX,
+  type ReactNode,
   useContext,
 } from "react";
 
@@ -74,6 +78,55 @@ const NarrowContext = createContext<
   { readonly at: GridTableNarrowAt; readonly cards: boolean } | undefined
 >(undefined);
 
+/**
+ * Where a column's header and cells sit, set once per column on the table so
+ * the two cannot disagree:
+ * - "start": text, names, roles, dates and states.
+ * - "end": numbers compared down the column (counts, costs, times, sizes),
+ *   and a switch whose header names the setting it turns on.
+ * - "action": the row's controls, at the end; the header is read by screen
+ *   readers only.
+ */
+export type GridTableColumnAlign = "start" | "end" | "action";
+
+const AlignContext = createContext<readonly GridTableColumnAlign[]>([]);
+const ColumnContext = createContext<number | undefined>(undefined);
+
+function useColumnAlign(): GridTableColumnAlign {
+  const align = useContext(AlignContext);
+  const column = useContext(ColumnContext);
+  return column === undefined ? "start" : (align[column] ?? "start");
+}
+
+/**
+ * A row's children as its columns, in order: arrays and fragments opened,
+ * empty slots (null, false) not counted, each other child wrapped with its
+ * column index. Each child counts as one column, so a row's or header's
+ * children must be its cells themselves, conditionals, arrays or fragments
+ * of them; a component that renders several cells, or none, shifts the
+ * columns after it.
+ */
+function indexColumns(children: ReactNode): ReactNode {
+  let next = 0;
+  // Children.map keys each result under its parent, and a fragment stays a
+  // fragment, so keys never collide across levels.
+  const open = (nodes: ReactNode): ReactNode =>
+    Children.map(nodes, (child) => {
+      if (child === null || child === undefined || typeof child === "boolean")
+        return null;
+      if (isValidElement(child) && child.type === Fragment)
+        return (
+          <Fragment>
+            {open((child.props as { readonly children?: ReactNode }).children)}
+          </Fragment>
+        );
+      return (
+        <ColumnContext.Provider value={next++}>{child}</ColumnContext.Provider>
+      );
+    });
+  return open(children);
+}
+
 type GridTableName =
   | { readonly "aria-label": string; readonly "aria-labelledby"?: undefined }
   | { readonly "aria-labelledby": string; readonly "aria-label"?: undefined };
@@ -114,14 +167,22 @@ export type GridTableProps = Omit<
      */
     readonly columns: string;
     /**
+     * Each column's alignment, in the order of `columns`; a column left out
+     * starts. Header and cells both follow it.
+     */
+    readonly align?: readonly GridTableColumnAlign[] | undefined;
+    /**
      * Draws the card frame on the table itself. A min-width on the table then
      * includes the 1px border on each side.
      */
     readonly framed?: boolean | undefined;
   };
 
+const START: readonly GridTableColumnAlign[] = [];
+
 export function GridTable({
   columns,
+  align = START,
   narrowAt,
   narrowColumns,
   narrowCards = false,
@@ -162,9 +223,16 @@ export function GridTable({
           : { at: narrowAt, cards: narrowCards }
       }
     >
-      {/* The table cannot query its own width to drop its frame, and its rows
-          query the same wrapper so frame and cards switch at one width. */}
-      {narrowCards ? <div className="@container min-w-0">{table}</div> : table}
+      <AlignContext.Provider value={align}>
+        {/* The table cannot query its own width to drop its frame, and its
+            rows query the same wrapper so frame and cards switch at one
+            width. */}
+        {narrowCards ? (
+          <div className="@container min-w-0">{table}</div>
+        ) : (
+          table
+        )}
+      </AlignContext.Provider>
     </NarrowContext.Provider>
   );
 }
@@ -183,6 +251,7 @@ function useNarrow(): Narrow | undefined {
 /** The column header row, v4 `.tr.th`. */
 export function GridTableHeader({
   className,
+  children,
   ...props
 }: Omit<ComponentProps<"div">, "role">): JSX.Element {
   const narrow = useNarrow();
@@ -197,7 +266,9 @@ export function GridTableHeader({
         className,
       )}
       {...props}
-    />
+    >
+      {indexColumns(children)}
+    </div>
   );
 }
 
@@ -216,6 +287,7 @@ export type GridTableRowProps = Omit<ComponentProps<"div">, "role"> & {
 export function GridTableRow({
   inactive = false,
   className,
+  children,
   ...props
 }: GridTableRowProps): JSX.Element {
   const narrow = useNarrow();
@@ -232,77 +304,53 @@ export function GridTableRow({
         className,
       )}
       {...props}
-    />
+    >
+      {indexColumns(children)}
+    </div>
   );
 }
 
 type GridTableCellLayout = {
-  /**
-   * v4 `.cell.end`: content at the end of the column. For a control column
-   * (a switch, row button or menu) and for numbers compared down the column
-   * (the operations metrics); a list's text, dates and counts start, header
-   * and cells alike, so a row does not read half left, half right.
-   */
-  readonly align?: "start" | "end" | undefined;
   /** v4 `.hide-md`: gone, from screen and accessibility tree, when narrow. */
   readonly hideNarrow?: boolean | undefined;
 };
 
 function cellClasses(
   narrow: Narrow | undefined,
-  { align, hideNarrow }: GridTableCellLayout,
+  align: GridTableColumnAlign,
+  hideNarrow: boolean | undefined,
 ): string {
   return cn(
     "flex min-w-0 items-center gap-2",
     // justify-end places the boxes; text-end the lines of text that wraps.
-    align === "end" && cn("justify-end text-end", narrow?.start),
+    align !== "start" && cn("justify-end text-end", narrow?.start),
     hideNarrow && narrow?.hide,
   );
 }
 
 export type GridTableColumnHeaderProps = Omit<ComponentProps<"div">, "role"> &
-  Pick<GridTableCellLayout, "hideNarrow"> &
-  (
-    | {
-        /**
-         * The row buttons' column: the label sits at the end, centred in a
-         * box as wide as the narrowest row button (RowAction's floor), so it
-         * lines up over a two-syllable button.
-         */
-        readonly action: true;
-        readonly align?: undefined;
-      }
-    | {
-        readonly action?: false | undefined;
-        readonly align?: GridTableCellLayout["align"];
-      }
-  );
+  GridTableCellLayout;
 
+/** Sits where the table's `align` puts its column's cells. */
 export function GridTableColumnHeader({
-  align,
   hideNarrow,
-  action = false,
   className,
   children,
   ...props
 }: GridTableColumnHeaderProps): JSX.Element {
   const narrow = useNarrow();
+  const align = useColumnAlign();
   return (
     <div
       role="columnheader"
       data-slot="grid-table-column-header"
+      data-align={align}
       data-hide-narrow={hideNarrow || undefined}
-      data-action={action || undefined}
-      className={cn(
-        cellClasses(narrow, { align: action ? "end" : align, hideNarrow }),
-        className,
-      )}
+      className={cn(cellClasses(narrow, align, hideNarrow), className)}
       {...props}
     >
-      {action ? (
-        <span className="min-w-[var(--werft-row-action-button-min-width)] text-center">
-          {children}
-        </span>
+      {align === "action" ? (
+        <span className="sr-only">{children}</span>
       ) : (
         children
       )}
@@ -333,7 +381,6 @@ export type GridTableCellProps = Omit<ComponentProps<"div">, "role"> &
   };
 
 export function GridTableCell({
-  align,
   hideNarrow,
   lines = false,
   raised = false,
@@ -343,15 +390,17 @@ export function GridTableCell({
   ...props
 }: GridTableCellProps): JSX.Element {
   const narrow = useNarrow();
+  const align = useColumnAlign();
   return (
     <div
       role="cell"
       data-slot="grid-table-cell"
+      data-align={align}
       data-hide-narrow={hideNarrow || undefined}
       data-lines={lines || undefined}
       data-raised={raised || undefined}
       className={cn(
-        cellClasses(narrow, { align, hideNarrow }),
+        cellClasses(narrow, align, hideNarrow),
         // The lines after the first that is not the row opener.
         lines &&
           "flex-col items-start gap-[var(--werft-row-line-gap)] leading-5 [&>:not([data-slot=grid-table-row-opener])~*]:max-w-full [&>:not([data-slot=grid-table-row-opener])~*]:truncate [&>:not([data-slot=grid-table-row-opener])~*]:leading-4",

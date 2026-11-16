@@ -59,6 +59,7 @@ export {
   GridTable,
   GridTableCell,
   type GridTableCellProps,
+  type GridTableColumnAlign,
   GridTableColumnHeader,
   type GridTableColumnHeaderProps,
   GridTableHeader,
