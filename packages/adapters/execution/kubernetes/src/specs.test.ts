@@ -154,11 +154,7 @@ describe("worker Pod", () => {
         "fingerprint",
         PROXY_ADDRESS,
       ) as PodShape;
-    const sandboxed = podOf({
-      mode: "enabled",
-      images: [intent.image],
-      localhostProfile: "werft/codex-sandbox.json",
-    });
+    const sandboxed = podOf({ mode: "enabled", images: [intent.image] });
     expect(sandboxed.spec.containers[0]?.securityContext).toEqual({
       ...(container.securityContext as object),
       seccompProfile: {
@@ -173,7 +169,6 @@ describe("worker Pod", () => {
       podOf({
         mode: "enabled",
         images: [`codex@sha256:${"d".repeat(64)}`],
-        localhostProfile: "werft/codex-sandbox.json",
       }),
     ).toEqual(pod);
   });

@@ -83,15 +83,17 @@ export type Pod = {
       name: string;
       persistentVolumeClaim?: { claimName: string };
     }>;
+    nodeName?: string;
   };
   status?: {
     phase?: string;
     /** Pod-level cause, such as `Evicted`. */
     reason?: string;
     containerStatuses?: Array<{
+      name?: string;
       state?: {
         terminated?: { exitCode: number; reason?: string };
-        waiting?: { reason?: string };
+        waiting?: { reason?: string; message?: string };
       };
     }>;
   };

@@ -49,27 +49,13 @@ describe("Codex sandbox setting", () => {
     expect(sandboxOf(base)).toEqual({ mode: "enabled", images: [] });
   });
 
-  test("names the Localhost profile on Kubernetes, which must stay under the kubelet's directory", () => {
-    const codex = {
-      ...kubernetes,
-      WORKER_IMAGE_RUNTIME: runtime("codex", "0.167.0"),
-    };
-    expect(sandboxOf(codex)).toEqual({
-      mode: "enabled",
-      images: [kubernetes.WORKER_IMAGE],
-      localhostProfile: "werft/codex-sandbox.json",
-    });
+  test("is the same on Kubernetes, whose profile path is fixed", () => {
     expect(
       sandboxOf({
-        ...codex,
-        CODEX_SANDBOX_SECCOMP_PROFILE: "operator/codex.json",
+        ...kubernetes,
+        WORKER_IMAGE_RUNTIME: runtime("codex", "0.167.0"),
       }),
-    ).toMatchObject({ localhostProfile: "operator/codex.json" });
-    for (const outside of ["/etc/codex.json", "werft/../../codex.json"]) {
-      expect(() =>
-        sandboxOf({ ...codex, CODEX_SANDBOX_SECCOMP_PROFILE: outside }),
-      ).toThrow("CODEX_SANDBOX_SECCOMP_PROFILE must be a path under");
-    }
+    ).toEqual({ mode: "enabled", images: [kubernetes.WORKER_IMAGE] });
   });
 
   test("turned off on either backend; anything else is refused", () => {

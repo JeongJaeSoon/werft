@@ -18,7 +18,7 @@
 # Auto mode runs commands in Codex's sandbox, whose seccomp profile the
 # scheduler adds only to an image declared as Codex: export WORKER_IMAGE_RUNTIME
 # read from the built image (infra/compose.two-engines.yml shows how), or auto
-# sessions are refused. CODEX_SANDBOX=disabled runs them unsandboxed instead.
+# sessions are refused. CODEX_SANDBOX=disabled turns auto mode off with it.
 services:
   worker:
     build:

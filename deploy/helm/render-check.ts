@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { packageChart } from "../../.github/scripts/chart-package.ts";
+import { CODEX_SECCOMP_PROFILE } from "../../packages/adapters/execution/kubernetes/src/specs.ts";
 import { parseImageRuntime } from "../../packages/runtime-core/src/image-runtime.ts";
 
 const dir = import.meta.dir;
@@ -2375,9 +2376,9 @@ for (const runtime of RUNTIME_EDGES) {
   }
 }
 
-// The Codex sandbox: the scheduler told where the profile is, or that the
-// sandbox is off; the installer writing the Docker backend's very profile to
-// one node directory, with nothing else of the node's in reach.
+// The Codex sandbox: the scheduler told only that it is off; the installer
+// writing the Docker backend's very profile to the one path the Kubernetes
+// backend names, with nothing else of the node's in reach.
 const CODEX_PROFILE = readFileSync(
   join(
     dir,
@@ -2410,13 +2411,8 @@ function checkCodexSandbox(): string[] {
     );
   }
   const on = render(["-f", ciDigests]);
-  const env = schedulerEnvOf(on);
-  if (
-    env.find((v) => v.name === "CODEX_SANDBOX_SECCOMP_PROFILE")?.value !==
-      "werft/codex-sandbox.json" ||
-    env.some((v) => v.name === "CODEX_SANDBOX")
-  ) {
-    fail("on by default, the scheduler is not told the profile alone");
+  if (schedulerEnvOf(on).some((v) => v.name.startsWith("CODEX_SANDBOX"))) {
+    fail("on by default, the scheduler is told something about it");
   }
   const { configMap, daemonSet } = installerOf(on);
   if (configMap?.data?.["codex-sandbox.json"] !== CODEX_PROFILE) {
@@ -2456,6 +2452,7 @@ function checkCodexSandbox(): string[] {
       fail(`the installer is not held down: ${JSON.stringify(pod)}`);
     }
     const volumes = JSON.stringify(pod.volumes);
+    const [profileDir, profileFile] = CODEX_SECCOMP_PROFILE.split("/");
     if (
       volumes !==
       JSON.stringify([
@@ -2463,19 +2460,19 @@ function checkCodexSandbox(): string[] {
         {
           name: "host",
           hostPath: {
-            path: "/var/lib/kubelet/seccomp/werft",
+            path: `/var/lib/kubelet/seccomp/${profileDir}`,
             type: "DirectoryOrCreate",
           },
         },
       ])
     ) {
       fail(
-        `the installer reaches more of the node than its directory: ${volumes}`,
+        `the installer reaches more of the node than its directory, or another one than the backend names: ${volumes}`,
       );
     }
-    if (!container.command.join(" ").includes("/host/codex-sandbox.json")) {
+    if (!container.command.join(" ").includes(`/host/${profileFile}`)) {
       fail(
-        "the installer writes another file than the profile the scheduler names",
+        "the installer writes another file than the profile the backend names",
       );
     }
   }
@@ -2514,8 +2511,6 @@ function checkCodexSandbox(): string[] {
       "-f",
       ciDigests,
       "--set",
-      "codexSandbox.localhostProfile=operator/codex.json",
-      "--set",
       "codexSandbox.installer.kubeletDir=/var/lib/k0s/kubelet/",
       "--set",
       "codexSandbox.installer.image.repository=registry.local/busybox",
@@ -2525,14 +2520,14 @@ function checkCodexSandbox(): string[] {
   ).daemonSet?.spec.template.spec;
   if (
     moved?.volumes?.[1]?.hostPath?.path !==
-      "/var/lib/k0s/kubelet/seccomp/operator" ||
-    !moved.containers[0].command.join(" ").includes("/host/codex.json") ||
+      "/var/lib/k0s/kubelet/seccomp/werft" ||
+    !moved.containers[0].command
+      .join(" ")
+      .includes("/host/codex-sandbox.json") ||
     moved.containers[0].image !==
       `registry.local/busybox@sha256:${"9".repeat(64)}`
   ) {
-    fail(
-      "a moved profile, kubelet directory or installer image is not followed",
-    );
+    fail("a moved kubelet directory or installer image is not followed");
   }
 
   const noInstaller = render([
@@ -2544,40 +2539,37 @@ function checkCodexSandbox(): string[] {
   if (
     installerOf(noInstaller).daemonSet !== undefined ||
     installerOf(noInstaller).configMap !== undefined ||
-    !schedulerEnvOf(noInstaller).some(
-      (v) => v.name === "CODEX_SANDBOX_SECCOMP_PROFILE",
-    )
+    schedulerEnvOf(noInstaller).some((v) => v.name === "CODEX_SANDBOX")
   ) {
-    fail(
-      "the installer turned off still renders, or takes the profile with it",
-    );
+    fail("the installer turned off still renders, or turns the sandbox off");
   }
 
+  // Off means auto mode off: the workers are told, and refuse it.
   const off = render(["-f", ciDigests, "--set", "codexSandbox.enabled=false"]);
-  const offEnv = schedulerEnvOf(off);
   if (
     installerOf(off).daemonSet !== undefined ||
-    offEnv.find((v) => v.name === "CODEX_SANDBOX")?.value !== "disabled" ||
-    offEnv.some((v) => v.name === "CODEX_SANDBOX_SECCOMP_PROFILE")
+    installerOf(off).configMap !== undefined ||
+    schedulerEnvOf(off).find((v) => v.name === "CODEX_SANDBOX")?.value !==
+      "disabled"
   ) {
     fail("turned off, the scheduler is not told so or the installer stays");
   }
 
-  for (const profile of [
-    "/etc/codex.json",
-    "../codex.json",
-    "codex.json",
-    "a/b/codex.json",
-    "werft/codex.yaml",
-  ]) {
-    const { ok, out } = helmTemplate([
-      "-f",
-      ciDigests,
+  // The path is fixed: a value that would move it is refused, not ignored,
+  // whatever it says and whether or not the sandbox is on.
+  for (const args of [
+    ["--set", "codexSandbox.localhostProfile=operator/codex.json"],
+    ["--set", `codexSandbox.localhostProfile=${CODEX_SECCOMP_PROFILE}`],
+    [
       "--set",
-      `codexSandbox.localhostProfile=${profile}`,
-    ]);
-    if (ok || !out.includes("codexSandbox.localhostProfile must be")) {
-      fail(`localhostProfile ${profile} is not refused`);
+      "codexSandbox.localhostProfile=operator/codex.json",
+      "--set",
+      "codexSandbox.enabled=false",
+    ],
+  ]) {
+    const { ok, out } = helmTemplate(["-f", ciDigests, ...args]);
+    if (ok || !out.includes("codexSandbox.localhostProfile is not a setting")) {
+      fail(`${args.join(" ")} is not refused`);
     }
   }
   const unpinned = helmTemplate([

@@ -70,7 +70,7 @@ export function modeRunOf(mode: PermissionMode): ModeRun {
  * The operator's switch for the sandbox `auto` runs in (Helm
  * `codexSandbox.enabled`, compose `CODEX_SANDBOX`). The scheduler hands it to
  * the worker, and starts a Codex container under the seccomp profile
- * bubblewrap needs only while it is on.
+ * bubblewrap needs only while it is on. Off, auto sessions are refused.
  */
 export const CODEX_SANDBOX_VARIABLE = "CODEX_SANDBOX";
 
@@ -230,7 +230,7 @@ export type CodexLaunch = {
   args: string[];
   approvalPolicy: ModeRun["approval"];
   answers: ModeRun["answers"];
-  /** `auto` only: whether its commands run in the sandbox. */
+  /** `auto` only: the sandbox its commands run in, or `disabled` to refuse it. */
   sandbox?: CodexSandbox;
   /** `config` for `thread/start` and `thread/resume`, not on any command line. */
   threadConfig: Record<string, unknown>;

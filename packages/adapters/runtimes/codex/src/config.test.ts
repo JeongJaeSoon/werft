@@ -188,7 +188,7 @@ describe("auto mode sandbox", () => {
     expect(launch.threadConfig.default_permissions).toBe("werft");
   });
 
-  test("turned off, an auto session gets no profile and says so", () => {
+  test("turned off, an auto session gets no profile and is marked to be refused", () => {
     const launch = codexLaunch(startOf({ permissionMode: "auto" }), DEPS, {
       CODEX_SANDBOX: "disabled",
     });

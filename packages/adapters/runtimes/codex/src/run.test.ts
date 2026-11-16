@@ -209,28 +209,39 @@ describe("auto mode", () => {
     expect(refused).toStartWith(
       "Runtime codex_app_server 0.167.0 cannot run this session's settings: it does not support classifier_review",
     );
-    expect(refused).toContain("codexSandbox.enabled=false");
+    expect(refused).not.toContain("codexSandbox.enabled=false");
     expect(refused).toEndWith("Cause: bwrap: No permissions");
     expect(isUnsupportedFeaturesReason(refused ?? "")).toBe(true);
     expect(t.server.started("thread/start")).toBeUndefined();
   });
 
-  test("turned off, it runs with full access, reports it, and probes nothing", async () => {
-    let probed = false;
-    const t = auto("disabled", async () => {
-      probed = true;
-      return "unreachable";
-    });
-    await t.run.ready();
-    expect(probed).toBe(false);
-    expect(t.server.started("thread/start")).toMatchObject({
-      sandbox: "danger-full-access",
-      approvalsReviewer: "auto_review",
-    });
-    expect(await initOf(t)).toMatchObject({
-      event: { data: { subtype: "init", sandbox: "disabled" } },
-    });
-  });
+  test.each([
+    ["a new thread", {}],
+    ["a resume", { resume: "thread-9" }],
+  ])(
+    "turned off, it refuses %s before any thread and probes nothing",
+    async (_name, extra) => {
+      let probed = false;
+      const t = auto(
+        "disabled",
+        async () => {
+          probed = true;
+          return "unreachable";
+        },
+        extra,
+      );
+      const refused = await t.run.ready().then(
+        () => undefined,
+        (error: Error) => error.message,
+      );
+      expect(isUnsupportedFeaturesReason(refused ?? "")).toBe(true);
+      expect(refused).toContain("codexSandbox.enabled=false");
+      expect(refused).toContain("Use another permission mode");
+      expect(probed).toBe(false);
+      expect(t.server.started("thread/start")).toBeUndefined();
+      expect(t.server.started("thread/resume")).toBeUndefined();
+    },
+  );
 });
 
 describe("approvals", () => {

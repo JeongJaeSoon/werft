@@ -31,7 +31,6 @@ type ImageRuntime = NonNullable<SchedulerOptions["imageRuntime"]>;
 export type SchedulerEnvironment = LocalDockerBackendEnvironment &
   InstallationLimitsEnvironment & {
     CODEX_SANDBOX?: string | undefined;
-    CODEX_SANDBOX_SECCOMP_PROFILE?: string | undefined;
     DATABASE_URL?: string | undefined;
     EXECUTION_BACKEND?: string | undefined;
     LOG_LEVEL?: string | undefined;
@@ -177,20 +176,17 @@ function configuredImages(
 }
 
 type CodexSandbox =
-  | { mode: "enabled"; images: string[]; localhostProfile: string }
+  | { mode: "enabled"; images: string[] }
   | { mode: "disabled" };
 
 export const CODEX_SANDBOX_DISABLED_WARNING =
-  "Codex auto mode's sandbox is turned off (CODEX_SANDBOX=disabled): its commands run unconfined in the worker, and the auto reviewer judges none of them";
-
-/** Where the profile installer writes it, under the kubelet's seccomp root. */
-const DEFAULT_CODEX_SECCOMP_PROFILE = "werft/codex-sandbox.json";
+  "Codex auto mode's sandbox is turned off (CODEX_SANDBOX=disabled): Codex workers refuse auto sessions; other modes run";
 
 /**
- * Codex `auto` mode's sandbox: on unless `CODEX_SANDBOX=disabled`. Only the
- * images whose declared runtime is Codex run under its seccomp profile; one
- * with no declared runtime keeps the default, and its auto sessions are
- * refused with the reason.
+ * Codex `auto` mode's sandbox: on unless `CODEX_SANDBOX=disabled`, which
+ * turns auto mode off with it. Only the images whose declared runtime is
+ * Codex run under its seccomp profile; one with no declared runtime keeps
+ * the default, and its auto sessions are refused with the reason.
  */
 function codexSandboxFromEnv(
   environment: SchedulerEnvironment,
@@ -204,17 +200,6 @@ function codexSandboxFromEnv(
   if (value && value !== "enabled") {
     throw new Error(`CODEX_SANDBOX must be enabled or disabled (got ${value})`);
   }
-  const localhostProfile =
-    environment.CODEX_SANDBOX_SECCOMP_PROFILE || DEFAULT_CODEX_SECCOMP_PROFILE;
-  // The kubelet resolves it under its own seccomp directory and nowhere else.
-  if (
-    localhostProfile.startsWith("/") ||
-    localhostProfile.split("/").includes("..")
-  ) {
-    throw new Error(
-      `CODEX_SANDBOX_SECCOMP_PROFILE must be a path under the kubelet's seccomp directory (got ${localhostProfile})`,
-    );
-  }
   const declared = [
     ...(images.imageRuntime === undefined
       ? []
@@ -227,7 +212,6 @@ function codexSandboxFromEnv(
     images: declared
       .filter(({ runtime }) => runtime.engine === CODEX_CHECKPOINT_ENGINE)
       .map(({ image }) => image),
-    localhostProfile,
   };
 }
 
@@ -244,10 +228,7 @@ function executionFromEnv(
         docker: {
           ...localDockerConfigFromEnv(environment),
           ...worker,
-          codexSandbox:
-            codexSandbox.mode === "disabled"
-              ? codexSandbox
-              : { mode: "enabled", images: codexSandbox.images },
+          codexSandbox,
         },
       };
     case "kubernetes":

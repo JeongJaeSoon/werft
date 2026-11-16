@@ -74,10 +74,18 @@ function lastProblem(stderr: string): string | undefined {
  * the first launch instead of retrying one every launch would repeat.
  */
 export function sandboxRefusal(detail: string): string {
-  const reason = unsupportedFeaturesReason(
+  // The cause goes last: the control plane keeps the first 500 characters.
+  return `${autoRefused()} here: auto mode runs only in Codex's bubblewrap sandbox, which could not start in this worker. Use another permission mode until an operator fixes the worker nodes. Cause: ${detail}`;
+}
+
+/** As `sandboxRefusal`, for an installation whose operator turned it off. */
+export function sandboxTurnedOffRefusal(): string {
+  return `${autoRefused()} here: auto mode runs only in Codex's bubblewrap sandbox, which an operator turned off on this installation (Helm codexSandbox.enabled=false, CODEX_SANDBOX=disabled on compose). Use another permission mode.`;
+}
+
+function autoRefused(): string {
+  return unsupportedFeaturesReason(
     { kind: CODEX_DESCRIPTOR.kind, version: CODEX_CLI_VERSION },
     ["classifier_review"],
   );
-  // The cause goes last: the control plane keeps the first 500 characters.
-  return `${reason} here: auto mode needs Codex's bubblewrap sandbox, which could not start in this worker. An operator turns it off with the Helm value codexSandbox.enabled=false (CODEX_SANDBOX=disabled on compose). Cause: ${detail}`;
 }

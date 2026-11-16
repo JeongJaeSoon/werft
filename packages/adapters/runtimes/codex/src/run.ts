@@ -40,7 +40,7 @@ import {
   warningEvent,
 } from "./mapper.ts";
 import type { RelayCall } from "./mcp-relay.ts";
-import { sandboxRefusal } from "./sandbox.ts";
+import { sandboxRefusal, sandboxTurnedOffRefusal } from "./sandbox.ts";
 import { type AppServerTransport, RpcError, type RpcId } from "./transport.ts";
 
 const COMMAND_APPROVAL = "item/commandExecution/requestApproval";
@@ -372,6 +372,10 @@ export class CodexRun implements AgentRun {
       capabilities: null,
     });
     transport.notify("initialized");
+    // Auto runs in the sandbox or not at all, a resumed thread too.
+    if (launch.sandbox === "disabled") {
+      throw new Error(sandboxTurnedOffRefusal());
+    }
     if (launch.sandbox === "bubblewrap") {
       const failure = await this.options.probeSandbox();
       if (failure !== undefined) throw new Error(sandboxRefusal(failure));

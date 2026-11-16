@@ -221,16 +221,12 @@ export function cpuQuantity(cpus: number): string {
 }
 
 /**
- * The worker Pod. The nonce is not in here: the env entry for it names the
- * Secret that holds it, created right after the Pod and owned by it.
- *
- * `pidsLimit` has no Pod-level field — the bound is the node kubelet's
- * `podPidsLimit`, which the node pool has to set. It stays in the launch
- * spec, so a changed limit still marks a running Pod as another spec.
- *
- * `proxyAddress` is the proxy Service's ClusterIP: the Pod resolves the
- * proxy's name from its hosts file and asks no DNS server anything.
+ * Where the chart's installer writes the Codex sandbox's seccomp profile,
+ * under the kubelet's seccomp directory. Fixed: the chart, the installer and
+ * this backend agree on it, and no setting moves one without the others.
  */
+export const CODEX_SECCOMP_PROFILE = "werft/codex-sandbox.json";
+
 /**
  * The worker container's: a declared Codex image's gets the one bubblewrap
  * needs while the sandbox is on. Set on the container alone, so the Pod's
@@ -242,10 +238,21 @@ function seccompProfileFor(
 ): Record<string, string> {
   const sandbox = config.codexSandbox;
   return sandbox?.mode === "enabled" && sandbox.images.includes(image)
-    ? { localhostProfile: sandbox.localhostProfile, type: "Localhost" }
+    ? { localhostProfile: CODEX_SECCOMP_PROFILE, type: "Localhost" }
     : { type: "RuntimeDefault" };
 }
 
+/**
+ * The worker Pod. The nonce is not in here: the env entry for it names the
+ * Secret that holds it, created right after the Pod and owned by it.
+ *
+ * `pidsLimit` has no Pod-level field — the bound is the node kubelet's
+ * `podPidsLimit`, which the node pool has to set. It stays in the launch
+ * spec, so a changed limit still marks a running Pod as another spec.
+ *
+ * `proxyAddress` is the proxy Service's ClusterIP: the Pod resolves the
+ * proxy's name from its hosts file and asks no DNS server anything.
+ */
 export function podFor(
   config: KubernetesBackendConfig,
   intent: LaunchIntent,

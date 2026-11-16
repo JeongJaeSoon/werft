@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isUnsupportedFeaturesReason } from "@werft-ai/runtime-core";
 
-import { probeSandbox, sandboxRefusal } from "./sandbox.ts";
+import {
+  probeSandbox,
+  sandboxRefusal,
+  sandboxTurnedOffRefusal,
+} from "./sandbox.ts";
 
 function fakeCodex(script: string): string {
   const path = join(mkdtempSync(join(tmpdir(), "codex-probe-")), "codex");
@@ -47,14 +51,22 @@ describe("probeSandbox", () => {
   });
 });
 
-test("the refusal stops the session as an unsupported setting and names the switch", () => {
+test("the refusal stops the session as an unsupported setting, with the cause last", () => {
   const reason = sandboxRefusal(
     "bwrap: Failed to make / slave: Permission denied",
   );
   expect(isUnsupportedFeaturesReason(reason)).toBe(true);
-  expect(reason).toContain("codexSandbox.enabled=false");
-  expect(reason).toContain("CODEX_SANDBOX=disabled");
+  // Turning the sandbox off no longer lets auto run, so it is not offered.
+  expect(reason).not.toContain("codexSandbox.enabled=false");
   expect(reason.endsWith("Failed to make / slave: Permission denied")).toBe(
     true,
   );
+});
+
+test("the turned-off refusal names the switch and fits what the control plane keeps", () => {
+  const reason = sandboxTurnedOffRefusal();
+  expect(isUnsupportedFeaturesReason(reason)).toBe(true);
+  expect(reason).toContain("codexSandbox.enabled=false");
+  expect(reason).toContain("CODEX_SANDBOX=disabled");
+  expect(reason.length).toBeLessThanOrEqual(500);
 });

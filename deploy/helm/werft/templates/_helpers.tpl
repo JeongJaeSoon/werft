@@ -29,15 +29,15 @@ kubernetes backend refuses a bare tag, and so does this chart for every image.
 {{- end -}}
 
 {{/*
-codexSandbox.localhostProfile, held to one directory and a .json file: the
-installer mounts that directory, and only it, from the node.
+The Codex sandbox's seccomp profile under the kubelet's seccomp directory.
+Fixed, as the scheduler's CODEX_SECCOMP_PROFILE is: a value that would move
+it is refused rather than ignored.
 */}}
 {{- define "ap.codexSeccompProfile" -}}
-{{- $profile := toString .Values.codexSandbox.localhostProfile -}}
-{{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*\\.json$" $profile) -}}
-{{- fail (printf "codexSandbox.localhostProfile must be <directory>/<file>.json under the kubelet's seccomp directory (got %q)" $profile) -}}
+{{- if hasKey .Values.codexSandbox "localhostProfile" -}}
+{{- fail "codexSandbox.localhostProfile is not a setting: the profile is always werft/codex-sandbox.json under the kubelet's seccomp directory (codexSandbox.installer.kubeletDir moves that directory)" -}}
 {{- end -}}
-{{- $profile -}}
+werft/codex-sandbox.json
 {{- end -}}
 
 {{- define "ap.imageRef" -}}

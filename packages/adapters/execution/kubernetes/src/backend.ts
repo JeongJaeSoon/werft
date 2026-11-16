@@ -28,6 +28,7 @@ import {
 import {
   ANNOTATIONS,
   bootstrapFingerprintOf,
+  CODEX_SECCOMP_PROFILE,
   COMPONENTS,
   CONTAINER_NAME,
   ISOLATION_CONTRACT,
@@ -313,11 +314,18 @@ export class KubernetesBackend implements ExecutionBackend {
         pod.metadata.annotations?.[ANNOTATIONS.isolation] ?? "<none>",
       );
     }
-    const state = stateOf(pod);
+    // A container that cannot be created for want of its seccomp profile is
+    // retried by the kubelet forever; read as dead, it is a launch failure.
+    const missingProfile = missingSeccompProfileOf(pod);
+    const state =
+      missingProfile !== undefined && stateOf(pod) === "pending"
+        ? "terminated"
+        : stateOf(pod);
     const terminated = pod.status?.containerStatuses?.[0]?.state?.terminated;
     // The Pod's own reason first: an evicted Pod's container reads as
     // plainly killed, or carries no status at all.
-    const terminationReason = pod.status?.reason ?? terminated?.reason;
+    const terminationReason =
+      missingProfile ?? pod.status?.reason ?? terminated?.reason;
     const logTail =
       state === "terminated" && pod.status?.phase === "Failed"
         ? await this.logTailOf(pod)
@@ -879,6 +887,27 @@ export function workspaceClaimProblem(
     );
   }
   return null;
+}
+
+/**
+ * Why a Pending worker can never start: the container runtime could not load
+ * its Localhost seccomp profile (containerd: `cannot load seccomp profile`,
+ * CRI-O: `unable to load local profile`, both under CreateContainerError),
+ * which on this chart means the node has no Codex sandbox profile.
+ */
+export function missingSeccompProfileOf(pod: Pod): string | undefined {
+  const waiting = pod.status?.containerStatuses?.find(
+    (status) => status.name === CONTAINER_NAME,
+  )?.state?.waiting;
+  const message = waiting?.message ?? "";
+  if (waiting?.reason !== "CreateContainerError" || !/seccomp/i.test(message)) {
+    return undefined;
+  }
+  return (
+    `CreateContainerError: node ${pod.spec.nodeName ?? "<unknown>"} has no Codex sandbox seccomp profile ` +
+    `(<kubelet>/seccomp/${CODEX_SECCOMP_PROFILE}), which the chart's codex-seccomp installer DaemonSet writes ` +
+    `to each worker node; check that DaemonSet runs there. Runtime: ${message.slice(0, 300)}`
+  );
 }
 
 /** Pod phase → the platform's execution state. */

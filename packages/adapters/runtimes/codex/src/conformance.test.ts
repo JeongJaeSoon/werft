@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { RuntimeStart } from "@werft-ai/runtime-core";
+import {
+  isUnsupportedFeaturesReason,
+  type RuntimeStart,
+} from "@werft-ai/runtime-core";
 import {
   ADAPTER_CONFORMANCE,
   type AdapterConformanceHarness,
@@ -73,12 +76,9 @@ async function signatureOf(permissionMode: string, instructions?: string) {
   const seen: Seen[] = [];
   const server = fakeResponses(seen, () => [assistantMessage("ok")]);
   try {
-    // What the engine signs does not depend on where its commands run, and a
-    // test host may not allow the sandbox's namespaces.
-    const run = new CodexAgentRuntime(
-      { stateDir: join(root, "state") } as never,
-      { ...process.env, CODEX_SANDBOX: "disabled" },
-    ).start(
+    const run = new CodexAgentRuntime({
+      stateDir: join(root, "state"),
+    } as never).start(
       realStartOf({
         port: server.port as number,
         work: root,
@@ -88,7 +88,21 @@ async function signatureOf(permissionMode: string, instructions?: string) {
       }),
     );
     try {
-      await run.ready();
+      // Auto on a host whose sandbox cannot start is refused before the
+      // engine is asked anything, so it too writes nothing.
+      const refused = await run.ready().then(
+        () => false,
+        (error: unknown) => {
+          if (
+            error instanceof Error &&
+            isUnsupportedFeaturesReason(error.message)
+          ) {
+            return true;
+          }
+          throw error;
+        },
+      );
+      if (refused) return { commit: "", pr: "" };
       const ended = (async () => {
         for await (const event of run.events()) {
           if (event.type === "turn.ended") return;
