@@ -444,7 +444,8 @@ export const githubSettingsConnectionSchema = z
     permissions: githubAppPermissionsSchema.nullable(),
     /**
      * `ok` when GitHub took the App's key on this read, `rejected` when it
-     * refused it, `unknown` when GitHub did not answer.
+     * refused it, `unknown` when GitHub did not answer or was not asked
+     * because the stored key does not open on this server.
      */
     key_status: z.enum(["ok", "rejected", "unknown"]),
     /**

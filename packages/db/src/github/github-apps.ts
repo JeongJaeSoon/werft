@@ -13,6 +13,7 @@ import {
   type GitHubAppStore,
   receiptActorOf,
   type SecretAudit,
+  SecretDecryptError,
   type SecretKey,
   type SecretSlot,
 } from "@werft-ai/platform";
@@ -593,7 +594,15 @@ export function createPostgresGitHubAppStore(
         .orderBy(asc(githubApps.createdAt), asc(githubApps.id));
       const held: GitHubAppCredential[] = [];
       for (const row of rows) {
-        const privateKey = await secrets.get(keySlot(row));
+        let privateKey: string | null;
+        try {
+          privateKey = await secrets.get(keySlot(row));
+        } catch (error) {
+          // A key sealed under another master key is left out alone: that App
+          // has no usable key until one is put again, and the rest still sign.
+          if (error instanceof SecretDecryptError) continue;
+          throw error;
+        }
         // A row is written with its key in one transaction, so a missing key
         // is a delete racing this read.
         if (privateKey === null) continue;
