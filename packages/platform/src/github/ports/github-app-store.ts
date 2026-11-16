@@ -274,6 +274,13 @@ export interface GitHubAppStore {
   credentials(
     role: GitHubAppRole,
     workspaceId?: string,
+    options?: {
+      /**
+       * Given: an App whose key does not open (sealed under another master
+       * key) is named here and left out. Left out: that read throws.
+       */
+      onUnreadable?: (app: { id: string; appId: number }) => void;
+    },
   ): Promise<GitHubAppCredential[]>;
 }
 

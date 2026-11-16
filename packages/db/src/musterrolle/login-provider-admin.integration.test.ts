@@ -543,6 +543,36 @@ integration("login provider admin store", () => {
       clientSecret: replacement,
     });
 
+    // On, the waiting one does not open: naming the one in use withdraws it.
+    const back = await turnedOn();
+    await sealElsewhere(back.id, "next");
+    const withdrawn = await admin.setClientSecret({
+      id: back.id,
+      value: FIRST_SECRET,
+      audit: audit(),
+    });
+    if (withdrawn.outcome !== "stored") throw new Error(withdrawn.outcome);
+    expect(withdrawn.provider.pendingClientSecret).toBeNull();
+    expect(withdrawn.provider.clientSecret?.last4).toBe("1111");
+
+    // On, the one in use does not open but the waiting one does: that one
+    // again is no change.
+    const half = await turnedOn();
+    const queued = await admin.setClientSecret({
+      id: half.id,
+      value: replacement,
+      audit: audit(),
+    });
+    if (queued.outcome !== "stored") throw new Error(queued.outcome);
+    await sealElsewhere(half.id, "current");
+    const again = await admin.setClientSecret({
+      id: half.id,
+      value: replacement,
+      audit: audit(),
+    });
+    if (again.outcome !== "stored") throw new Error(again.outcome);
+    expect(again.provider.revision).toBe(queued.provider.revision);
+
     // On, and neither opens: the new value still waits for its test.
     const lost = await turnedOn();
     await sealElsewhere(lost.id, "current");

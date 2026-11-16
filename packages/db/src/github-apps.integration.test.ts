@@ -636,7 +636,17 @@ integration("the GitHub App on PostgreSQL", () => {
     });
     expect(asked.includes(71)).toBe(false);
     expect((await read()).oauth.client_secret_set).toBe(true);
-    expect((await store.credentials("author", ws)).length).toBe(0);
+    // Other readers still see the failure; the settings read asks to be told.
+    await expect(store.credentials("author", ws)).rejects.toThrow(
+      "could not be decrypted",
+    );
+    const named: number[] = [];
+    expect(
+      await store.credentials("author", ws, {
+        onUnreadable: (app) => named.push(app.appId),
+      }),
+    ).toEqual([]);
+    expect(named).toEqual([71]);
     expect((await oauth.client(ws)) === null).toBe(true);
 
     // A new key for the same App and a new client secret replace both.

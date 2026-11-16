@@ -254,11 +254,15 @@ export function createGitHubSettingsService(deps: {
     const apps = deps.apps;
     if (apps === null) return [];
     const kept = deps.installations;
+    // App id by connection, for keys that do not open here.
+    const unreadable = new Map<string, number>();
     const [records, credentials, links] = await Promise.all([
       apps.list(workspaceId),
       Promise.all(
         GITHUB_APP_ROLE_VALUES.map((role) =>
-          apps.credentials(role, workspaceId),
+          apps.credentials(role, workspaceId, {
+            onUnreadable: (app) => unreadable.set(app.id, app.appId),
+          }),
         ),
       ),
       manager && kept
@@ -274,10 +278,16 @@ export function createGitHubSettingsService(deps: {
     const keyOf = new Map(credentials.flat().map((held) => [held.id, held]));
     return await Promise.all(
       records.flatMap((record) => {
-        const credential = keyOf.get(record.id) ?? null;
-        // Replaced (same row, another App) between the two reads. No key at
-        // all is one that does not open, so its key can be put again here.
-        return credential !== null && credential.appId !== record.appId
+        const credential = keyOf.get(record.id);
+        if (credential === undefined) {
+          // Its key does not open: listed so a new key can be put. Otherwise
+          // deleted or replaced between the two reads.
+          return unreadable.get(record.id) === record.appId
+            ? [connectionOf(record, null, manager, linksOf(record.id))]
+            : [];
+        }
+        // Replaced (same row, another App) between the two reads.
+        return credential.appId !== record.appId
           ? []
           : [connectionOf(record, credential, manager, linksOf(record.id))];
       }),

@@ -582,7 +582,7 @@ export function createPostgresGitHubAppStore(
         .where(and(eq(githubApps.id, id), eq(githubApps.appId, appId)));
     },
 
-    async credentials(role, workspaceId) {
+    async credentials(role, workspaceId, options) {
       const rows = await db
         .select()
         .from(githubApps)
@@ -598,10 +598,14 @@ export function createPostgresGitHubAppStore(
         try {
           privateKey = await secrets.get(keySlot(row));
         } catch (error) {
-          // A key sealed under another master key is left out alone: that App
-          // has no usable key until one is put again, and the rest still sign.
-          if (error instanceof SecretDecryptError) continue;
-          throw error;
+          if (
+            !(error instanceof SecretDecryptError) ||
+            !options?.onUnreadable
+          ) {
+            throw error;
+          }
+          options.onUnreadable({ id: row.id, appId: row.appId });
+          continue;
         }
         // A row is written with its key in one transaction, so a missing key
         // is a delete racing this read.
