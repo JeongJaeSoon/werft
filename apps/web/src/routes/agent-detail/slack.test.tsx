@@ -1482,12 +1482,16 @@ describe("Slack management", () => {
     const lock = await within(channels).findByRole("group", { name: LOCK });
     await screen.findByRole("table", { name: "앱 목록" });
     expect(lock.getAttribute("aria-describedby")).toBeTruthy();
+    // The warning surface the status card's callout had.
+    expect(lock.getAttribute("data-slot")).toBe("alert");
+    expect(lock.getAttribute("data-variant")).toBe("amber");
     expect(lock.textContent).toContain(
       "초대·멘션·DM·채널 이벤트가 오지 않습니다",
     );
     expect(lock.textContent).toContain(
-      "먼저 'Slack 앱에 넣을 주소'의 '다시 확인'으로 URL을 다시 보내세요",
+      "'다시 확인'으로 URL을 다시 보내고, 그래도 그대로면",
     );
+    expect(lock.textContent).not.toContain("Slack 앱에 넣을 주소");
     expect(lock.textContent).toContain(
       "Event Subscriptions에서 Verify(또는 Retry)를 누르세요",
     );
@@ -1500,9 +1504,10 @@ describe("Slack management", () => {
     expect(
       screen.getAllByRole("link", { name: /Event Subscriptions 열기/ }),
     ).toHaveLength(1);
-    expect(
-      screen.getAllByRole("button", { name: "다시 확인으로 이동" }),
-    ).toHaveLength(1);
+    // The card rechecks itself; nothing sends the reader elsewhere to do it.
+    expect(screen.queryByText(/다시 확인으로 이동/)).toBeNull();
+    expect(within(lock).getAllByRole("button")).toHaveLength(1);
+    within(lock).getByRole("button", { name: "다시 확인" });
     const link = within(lock).getByRole("link", {
       name: /Event Subscriptions 열기/,
     });
@@ -1636,12 +1641,14 @@ describe("Slack management", () => {
       checked_at: AT,
       url: SENT,
     };
+    const posts: string[] = [];
     renderAt(DETAIL, {
       ...routes(APP, true),
       [`GET ${PATH}/slack/app`]: () =>
         json(200, { ...appResponse(APP), event_url: SENT, events: read }),
       [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [] }),
       [`POST ${PATH}/slack/app/events/recheck`]: () => {
+        posts.push("recheck");
         read = { state: "verified", checked_at: AT, url: SENT };
         return json(200, {
           ...appResponse(APP),
@@ -1662,7 +1669,7 @@ describe("Slack management", () => {
     expect(lock.closest("[inert]")).toBeNull();
     expect(within(channels).queryByRole("alert")).toBeNull();
     expect(screen.getAllByText(LOCK)).toHaveLength(1);
-    // Slack's own page is the second way, beside the jump to Recheck.
+    // Slack's own page is the second way, beside the card's Recheck.
     const open = within(lock).getByRole("link", {
       name: /Event Subscriptions 열기/,
     });
@@ -1674,20 +1681,75 @@ describe("Slack management", () => {
       "noopener",
       "noreferrer",
     ]);
-    const recheck = within(
-      screen.getByRole("region", { name: "Slack 앱에 넣을 주소" }),
-    ).getByRole("button", { name: "다시 확인" });
+    const recheck = within(lock).getByRole("button", { name: "다시 확인" });
     expect(recheck.closest("[inert]")).toBeNull();
-    await user.click(
-      within(lock).getByRole("button", { name: "다시 확인으로 이동" }),
-    );
-    expect(document.activeElement === recheck).toBe(true);
     await user.click(recheck);
+    expect(posts).toEqual(["recheck"]);
     await waitFor(() =>
       expect(within(channels).queryByRole("group")).toBeNull(),
     );
+    // Said where it was asked, after the lock has gone.
+    const done = await within(channels).findByText(
+      "Slack이 Request URL을 확인했습니다.",
+    );
+    await waitFor(() => expect(document.activeElement === done).toBe(true));
+    const addresses = screen.getByRole("region", {
+      name: "Slack 앱에 넣을 주소",
+    });
+    expect(addresses.textContent).not.toContain("확인했습니다");
     const pick = await within(channels).findByText("홈 채널 고르기");
     expect(pick.closest("[inert]")).toBeNull();
+  });
+
+  test("the notice's Recheck is the address section's: one request, both wait, its failure stays in the notice", async () => {
+    let release!: () => void;
+    let fail = true;
+    renderAt(DETAIL, {
+      ...subscribed({ state: "pending", checked_at: AT, url: SENT }),
+      [`POST ${PATH}/slack/app/events/recheck`]: async () => {
+        if (fail) return apiError(409, "SLACK_APP_CREATING", "busy");
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return json(200, {
+          ...appResponse(APP),
+          event_url: SENT,
+          events: { state: "pending", checked_at: AT, url: SENT },
+        });
+      },
+    });
+    const user = await setupUser();
+    const channels = await screen.findByRole("region", {
+      name: "연결된 채널",
+    });
+    const lock = await within(channels).findByRole("group", { name: LOCK });
+    const addresses = screen.getByRole("region", {
+      name: "Slack 앱에 넣을 주소",
+    });
+    await user.click(within(lock).getByRole("button", { name: "다시 확인" }));
+    expect(await within(lock).findByRole("alert")).toBeDefined();
+    expect(within(addresses).queryByRole("alert")).toBeNull();
+    fail = false;
+    await user.click(within(lock).getByRole("button", { name: "다시 확인" }));
+    // Pending: the notice's button says so, and neither can send again.
+    const working = await within(lock).findByRole("button", {
+      name: "준비 중…",
+    });
+    expect((working as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (
+        within(addresses).getByRole("button", {
+          name: "다시 확인",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(within(lock).queryByRole("alert")).toBeNull();
+    release();
+    const sent = await within(channels).findByText(
+      "Request URL을 Slack에 다시 보냈습니다. Slack이 확인하면 상태가 바뀝니다.",
+    );
+    await waitFor(() => expect(document.activeElement === sent).toBe(true));
+    expect(addresses.textContent).not.toContain("다시 보냈습니다");
   });
 
   test("keeps the lock's way out when the app has no event URL", async () => {

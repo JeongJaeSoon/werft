@@ -2,6 +2,10 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { unwrap } from "@werft-ai/client";
 import { useWerft } from "@werft-ai/react";
 import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
   Badge,
   Button,
   Code,
@@ -44,12 +48,13 @@ import { useManagesAgent } from "../../../components/agent-access.tsx";
 import { LoadFailure } from "../../../components/load-failure.tsx";
 import type { Notify } from "../../../components/toast.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
+import type { SlackApp } from "./actions.ts";
+import { Outcome, RecheckButton, RecheckError } from "./app.tsx";
 import { slackKey, useSlackBindings, useSlackChannels } from "./queries.ts";
 import {
   type Binding,
   type BindingChange,
   eventSubscriptionsUrl,
-  RECHECK_ID,
   SECTION,
   SECTION_TARGET,
   slackFailure,
@@ -163,6 +168,7 @@ export function SlackChannels({
   invite,
   notify,
   homeStep = false,
+  slack,
   lockedApp = null,
   canRecheck = false,
   installed = true,
@@ -173,12 +179,14 @@ export function SlackChannels({
   readonly notify: Notify;
   /** Installed with no home yet: only picking the home is offered. */
   readonly homeStep?: boolean;
+  /** The app's actions, for the lock's Recheck. */
+  readonly slack: SlackApp;
   /**
    * The Slack app ID while Slack has not checked its Request URL, so no
    * channel would hear the bot. The lock is the tab's one notice of it.
    */
   readonly lockedApp?: string | null;
-  /** The address section has a Recheck button for the lock to point to. */
+  /** This viewer may recheck: the address section offers it too. */
   readonly canRecheck?: boolean;
   /**
    * An active bot to invite. After a disconnect the tab keeps its layout,
@@ -359,10 +367,12 @@ export function SlackChannels({
           ) : undefined
         }
       >
+        {/* Outside the lock: "verified" is said after the lock has gone. */}
+        <Outcome slack={slack} at="channels" />
         {locked ? (
           <ChannelsLock
             appId={lockedApp}
-            canRecheck={canRecheck}
+            slack={canRecheck ? slack : null}
             action={lockAction}
           />
         ) : (
@@ -711,15 +721,16 @@ function InviteRow({
 
 /**
  * The tab's one notice that Slack has not checked the Request URL, in place
- * of the channels: Recheck first, then Slack's own Verify.
+ * of the channels: Recheck here first, then Slack's own Verify.
  */
 function ChannelsLock({
   appId,
-  canRecheck,
+  slack,
   action,
 }: {
   readonly appId: string;
-  readonly canRecheck: boolean;
+  /** The app, when this viewer may recheck it. */
+  readonly slack: SlackApp | null;
   readonly action: RefObject<HTMLDivElement | null>;
 }) {
   const { t } = useI18n();
@@ -736,59 +747,33 @@ function ChannelsLock({
     [action],
   );
   return (
-    // biome-ignore lint/a11y/useSemanticElements: a fieldset groups form controls, this is a notice with two actions
-    <div
+    <Alert
       ref={action}
+      variant="amber"
       role="group"
       aria-labelledby={titleId}
       aria-describedby={bodyId}
-      className="flex flex-col items-center gap-2 rounded-card border border-(color:--werft-tone-caution-border) bg-background p-4 text-center"
     >
-      <Text id={titleId} className="font-medium">
-        {t("slack.channelsLocked.title")}
-      </Text>
-      <Text id={bodyId} variant="sub" className="max-w-prose">
+      <AlertTitle id={titleId}>{t("slack.channelsLocked.title")}</AlertTitle>
+      <AlertDescription id={bodyId}>
         {t(
-          canRecheck
+          slack
             ? "slack.channelsLocked.bodyRecheck"
             : "slack.channelsLocked.body",
         )}
-      </Text>
-      <div className="flex flex-wrap justify-center gap-2">
-        {canRecheck ? (
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => {
-              const button = document.getElementById(RECHECK_ID);
-              button?.scrollIntoView({
-                block: "center",
-                behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
-                  ? "auto"
-                  : "smooth",
-              });
-              button?.focus({ preventScroll: true });
-              // A disabled Recheck (one already running) takes no focus.
-              if (document.activeElement !== button)
-                document
-                  .getElementById(SECTION.addresses)
-                  ?.focus({ preventScroll: true });
-            }}
-          >
-            {t("slack.channelsLocked.action")}
-          </Button>
-        ) : null}
-        <Button asChild variant="outline" size="sm">
-          <Link
-            href={eventSubscriptionsUrl(appId)}
-            target="_blank"
-            newTabLabel={t("slack.newTab")}
-            className="text-foreground hover:no-underline"
-          >
-            {t("slack.channelsLocked.open")}
-          </Link>
-        </Button>
-      </div>
-    </div>
+      </AlertDescription>
+      {slack ? <RecheckError slack={slack} site="channels" /> : null}
+      <AlertActions>
+        {slack ? <RecheckButton slack={slack} site="channels" /> : null}
+        <Link
+          href={eventSubscriptionsUrl(appId)}
+          target="_blank"
+          newTabLabel={t("slack.newTab")}
+          underline="always"
+        >
+          {t("slack.channelsLocked.open")}
+        </Link>
+      </AlertActions>
+    </Alert>
   );
 }

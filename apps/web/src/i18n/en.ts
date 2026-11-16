@@ -70,10 +70,9 @@ export const slackEn = {
   "slack.channelsLocked.title":
     "Channels can't be picked until Slack checks the Request URL",
   "slack.channelsLocked.bodyRecheck":
-    "No invite, mention, DM or channel events arrive until Slack has checked this app's Request URL. First send the URL again with Recheck under Addresses for a Slack app. If it stays unchecked, press Verify (or Retry) on the app's Event Subscriptions page. This notice goes away on its own once Slack checks.",
+    "No invite, mention, DM or channel events arrive until Slack has checked this app's Request URL. Send the URL again with Recheck; if it stays unchecked, press Verify (or Retry) on the app's Event Subscriptions page. This notice goes away on its own once Slack checks.",
   "slack.channelsLocked.body":
     "No invite, mention, DM or channel events arrive until Slack has checked this app's Request URL. Press Verify (or Retry) on the app's Event Subscriptions page. This notice goes away on its own once Slack checks.",
-  "slack.channelsLocked.action": "Go to Recheck",
   "slack.channelsLocked.open": "Open Event Subscriptions",
   "slack.eventsUrl.title": "Events Request URL",
   "slack.eventsUrl.hint":

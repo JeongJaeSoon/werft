@@ -69,10 +69,9 @@ export const slackJa = {
   "slack.state.reinstall": "再インストールが必要",
   "slack.channelsLocked.title": "Request URL の確認前はチャンネルを選べません",
   "slack.channelsLocked.bodyRecheck":
-    "Slack がこのアプリの Request URL を確認するまで、招待・メンション・DM・チャンネルのイベントは届きません。まず「Slack アプリに入れるアドレス」の「再確認」で URL をもう一度送ってください。それでも変わらない場合は、アプリ設定の Event Subscriptions で Verify(または Retry)を押してください。確認されるとこの案内は自動で消えます。",
+    "Slack がこのアプリの Request URL を確認するまで、招待・メンション・DM・チャンネルのイベントは届きません。「再確認」で URL をもう一度送り、それでも変わらない場合は、アプリ設定の Event Subscriptions で Verify(または Retry)を押してください。確認されるとこの案内は自動で消えます。",
   "slack.channelsLocked.body":
     "Slack がこのアプリの Request URL を確認するまで、招待・メンション・DM・チャンネルのイベントは届きません。アプリ設定の Event Subscriptions で Verify(または Retry)を押してください。確認されるとこの案内は自動で消えます。",
-  "slack.channelsLocked.action": "再確認へ移動",
   "slack.channelsLocked.open": "Event Subscriptions を開く",
   "slack.eventsUrl.title": "イベントの Request URL",
   "slack.eventsUrl.hint":

@@ -24,7 +24,6 @@ import { useI18n } from "../../../i18n/i18n.tsx";
 import { useSlackApp } from "./actions.ts";
 import {
   EVENTS_BADGE,
-  RECHECK_ID,
   SECTION,
   SECTION_BOX,
   SECTION_TARGET,
@@ -189,9 +188,8 @@ export function SlackConnect({
                 }
                 actions={
                   <RowAction
-                    id={RECHECK_ID}
                     disabled={busy || pending}
-                    onClick={() => recheck.mutate()}
+                    onClick={() => recheck.mutate("address")}
                   >
                     {recheck.isPending
                       ? t("slack.working")

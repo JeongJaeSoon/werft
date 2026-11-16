@@ -127,6 +127,7 @@ export default function SlackTab({
             invite={`/invite @${slug}`}
             notify={notify}
             homeStep={homeStep}
+            slack={slack}
             // A managing-team member reads the app too and gets the notice.
             lockedApp={unverified}
             // The address section offers Recheck only for an installed app.

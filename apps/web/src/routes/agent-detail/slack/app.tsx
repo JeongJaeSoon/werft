@@ -28,10 +28,9 @@ import {
   RowMenuLink,
 } from "../../../components/row-menu.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
-import type { SlackActionSite, SlackApp } from "./actions.ts";
+import type { RecheckSite, SlackActionSite, SlackApp } from "./actions.ts";
 import {
   EVENTS_BADGE,
-  RECHECK_ID,
   SECTION,
   SECTION_TARGET,
   STATE_BADGE,
@@ -47,7 +46,7 @@ import {
  */
 
 /** The outcome of the last action, said in the section of its button. */
-function Outcome({
+export function Outcome({
   slack,
   at,
 }: {
@@ -79,6 +78,43 @@ function SaveError({ error }: { readonly error: unknown }) {
       <FieldError>{slackFailure(error, t)}</FieldError>
     </div>
   ) : null;
+}
+
+/** Sends the Request URL to Slack again, from the given site. */
+export function RecheckButton({
+  slack,
+  site,
+}: {
+  readonly slack: SlackApp;
+  readonly site: RecheckSite;
+}) {
+  const { t } = useI18n();
+  const { recheck } = slack;
+  return (
+    <RowAction
+      disabled={slack.busy || slack.pending}
+      onClick={() => recheck.mutate(site)}
+    >
+      {recheck.isPending && recheck.variables === site
+        ? t("slack.working")
+        : t("slack.eventsUrl.recheck")}
+    </RowAction>
+  );
+}
+
+/** A failed recheck, beside the button that asked for it. */
+export function RecheckError({
+  slack,
+  site,
+}: {
+  readonly slack: SlackApp;
+  readonly site: RecheckSite;
+}) {
+  return (
+    <SaveError
+      error={slack.recheck.variables === site ? slack.recheck.error : null}
+    />
+  );
 }
 
 /** Integrations > Slack's "Slack app creation", as this agent sees it. */
@@ -140,7 +176,7 @@ export function SlackTokenSection({ slack }: { readonly slack: SlackApp }) {
 /** Integrations > Slack's "Addresses for a Slack app": this agent's one. */
 export function SlackAddressSection({ slack }: { readonly slack: SlackApp }) {
   const { t } = useI18n();
-  const { app, record, identity, busy, pending, recheck } = slack;
+  const { app, record, identity } = slack;
   const url = eventUrl(slack);
   const events = app.data?.events;
   if (!url || !events) return null;
@@ -166,22 +202,14 @@ export function SlackAddressSection({ slack }: { readonly slack: SlackApp }) {
       actions={
         // Slack sends the check to an installed app only.
         identity && record?.state === "created" ? (
-          <RowAction
-            id={RECHECK_ID}
-            disabled={busy || pending}
-            onClick={() => recheck.mutate()}
-          >
-            {recheck.isPending
-              ? t("slack.working")
-              : t("slack.eventsUrl.recheck")}
-          </RowAction>
+          <RecheckButton slack={slack} site="address" />
         ) : null
       }
     >
       <div className="flex min-w-0 flex-col gap-1">
         <Code className="self-start [overflow-wrap:anywhere]">{url}</Code>
         <Text variant="meta">{t("slack.eventsUrl.hint")}</Text>
-        <SaveError error={recheck.error} />
+        <RecheckError slack={slack} site="address" />
         <Outcome slack={slack} at="address" />
       </div>
     </SettingsSection>
