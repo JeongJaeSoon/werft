@@ -32,6 +32,19 @@ describe("SettingsSection", () => {
     expect(section.querySelector("form")).toBeNull();
   });
 
+  test("제목·설명 아래에 구분선을 긋지 않고 본문까지 gap-4를 둔다", () => {
+    const { getByRole } = render(
+      <SettingsSection title="채널" description="이 채널의 설명입니다.">
+        <p>본문</p>
+      </SettingsSection>,
+    );
+    const section = getByRole("region", { name: "채널" });
+    const head = section.firstElementChild as HTMLElement;
+    expect(head.textContent).toContain("이 채널의 설명입니다.");
+    expect(head.className.split(/\s+/)).not.toContain("border-b");
+    expect(section.className.split(/\s+/)).toContain("gap-4");
+  });
+
   test("onSubmit이 있으면 본문·행·하단을 검증 없는 form으로 감싼다", () => {
     const sent: string[] = [];
     const { getByRole } = render(
