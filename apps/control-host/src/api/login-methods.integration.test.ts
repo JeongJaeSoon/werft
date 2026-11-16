@@ -583,10 +583,17 @@ integration(
           },
         ]);
         expect(mine.linkable.map((row) => row.display_name)).toEqual(["B"]);
-        const written = await db
-          .select()
-          .from(receipts)
-          .where(eq(receipts.operation, "link_login_method"));
+        // gwen's sign-in above linked by address and wrote one too.
+        const written = (
+          await db
+            .select()
+            .from(receipts)
+            .where(eq(receipts.operation, "link_login_method"))
+        ).filter(
+          (row) =>
+            (row.actor as { actor_user_id?: string } | null)?.actor_user_id ===
+            ownerId,
+        );
         expect(written).toHaveLength(1);
         expect(written[0]?.actor).toMatchObject({ actor_user_id: ownerId });
         expect(JSON.stringify(written[0])).not.toContain("owner-at-a");
