@@ -901,6 +901,52 @@ integration("achievement judgments on PostgreSQL", () => {
     expect(await judgmentsOf(sessionId)).toMatchObject([{ status: "queued" }]);
   });
 
+  test("a queue that reads the decision model while a disable holds it waits, and queues nothing once the disable commits", async () => {
+    const ws = await workspace();
+    const sessionId = await session(ws.workspaceId);
+    let held: () => void = () => {};
+    const holding = new Promise<void>((resolve) => {
+      held = resolve;
+    });
+    let proceed: () => void = () => {};
+    const go = new Promise<void>((resolve) => {
+      proceed = resolve;
+    });
+    // As the console's disable: the row locked and disabled, not committed.
+    const disable = db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT 1 FROM provider_connections WHERE id = 'luna-main' FOR UPDATE`,
+      );
+      await tx
+        .update(providerConnections)
+        .set({ disabledAt: sql`now()` })
+        .where(eq(providerConnections.id, "luna-main"));
+      held();
+      await go;
+    });
+    try {
+      await holding;
+      let settled = false;
+      const queue = db
+        .transaction((tx) =>
+          queueAchievementJudgment(tx, sessionId, { trigger: "manual" }),
+        )
+        .finally(() => {
+          settled = true;
+        });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(settled).toBe(false);
+      proceed();
+      await disable;
+      expect(await queue).toBeNull();
+      expect(await judgmentsOf(sessionId)).toEqual([]);
+    } finally {
+      proceed();
+      await disable.catch(() => {});
+      await decisionModelEnabled(true);
+    }
+  });
+
   test("a judgment queued before the decision model went away is skipped and counts nothing, always rules included", async () => {
     const ws = await workspace();
     await rule(ws, await typeId(ws.workspaceId, "pull_request"));

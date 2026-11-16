@@ -69,10 +69,15 @@ export type JudgmentCause =
 const JUDGE = sql`w.settings -> 'achievement_judge'`;
 
 // An enabled openai_decisions connection; the judge pass checks again that
-// its credential resolves.
+// its credential resolves. FOR SHARE: a disable holding the row (FOR UPDATE)
+// is waited out and the row read again, so nothing is queued after the last
+// model went; a later disable waits for this transaction. Lock order: the
+// session (FOR KEY SHARE), this row, the pending judgment. A console write
+// takes the catalog lock, then this row, and never a session or a judgment.
 const DECISION_MODEL = sql`EXISTS (
   SELECT 1 FROM provider_connections pc
-  WHERE pc.definition ->> 'kind' = 'openai_decisions' AND pc.disabled_at IS NULL)`;
+  WHERE pc.definition ->> 'kind' = 'openai_decisions' AND pc.disabled_at IS NULL
+  FOR SHARE)`;
 
 function gateOf(cause: JudgmentCause): SQL {
   switch (cause.trigger) {

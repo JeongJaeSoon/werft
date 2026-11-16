@@ -692,8 +692,11 @@ export function AddConnection({
   readonly defaults: Readonly<Record<string, string>>;
   readonly onOutcome: (outcome: Outcome) => void;
   /** Opens the new connection's models, read from its provider. */
-  readonly onCreated: (id: string) => void;
-  /** Creates the achievement judge's connection, and nothing else. */
+  readonly onCreated?: (id: string) => void;
+  /**
+   * Creates the achievement judge's connection, and nothing else; the API
+   * names it in a judge that names none.
+   */
   readonly decision?: boolean;
   readonly opener?: HTMLElement | null;
 }) {
@@ -724,7 +727,7 @@ export function AddConnection({
           kind: "notice",
           text: t("settings.done.created", { id: answer.id }),
         });
-        onCreated(answer.id);
+        onCreated?.(answer.id);
       },
       onRefused: setError,
     },

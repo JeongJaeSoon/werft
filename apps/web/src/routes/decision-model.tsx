@@ -1,7 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ApiError, unwrap } from "@werft-ai/client";
+import { useQuery } from "@tanstack/react-query";
+import { unwrap } from "@werft-ai/client";
 import type {
-  AchievementJudgeChangeResponse,
   AchievementJudgeResponse,
   SettingsConnection,
 } from "@werft-ai/contracts";
@@ -24,7 +23,6 @@ import { type ReactNode, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import {
   permissionReason,
-  refusalText,
   useHasPermission,
   useMe,
   useRole,
@@ -77,9 +75,7 @@ export function useDecisionModelSetup(
 } {
   const { t } = useI18n();
   const { client } = useWerft();
-  const queryClient = useQueryClient();
   const role = useRole();
-  const workspaceId = useMe()?.workspace?.id ?? "";
   const owns = useHasPermission("installation.settings.manage");
   const reason = owns
     ? undefined
@@ -98,40 +94,6 @@ export function useDecisionModelSetup(
   };
   const rows = useRowActions("connection", report);
 
-  // A judge with no connection named takes the first decision model, so
-  // setting one up is enough to judge. The settings are read again first:
-  // the cached ones may predate another person's save, which this would undo.
-  const select = useMutation<
-    AchievementJudgeChangeResponse | null,
-    ApiError,
-    string
-  >({
-    mutationFn: async (id) => {
-      const { achievement_judge: settings } = (await unwrap(
-        client.GET("/v1/workspaces/{id}/achievement-judge", {
-          params: { path: { id: workspaceId } },
-        }),
-      )) as AchievementJudgeResponse;
-      if (settings.connection_id !== null) return null;
-      return unwrap(
-        client.PUT("/v1/workspaces/{id}/achievement-judge", {
-          params: { path: { id: workspaceId } },
-          body: { ...settings, connection_id: id },
-        }),
-      );
-    },
-    // A refetch started by the connection write may predate this one.
-    onSettled: () =>
-      queryClient.invalidateQueries({
-        queryKey: scopedKey(client, "achievement-judge"),
-      }),
-    onError: (error) =>
-      report({
-        kind: "error",
-        text: refusalText(t, error, "achievement_rule.manage", role),
-      }),
-  });
-
   const dialogs = (
     <>
       <AddConnection
@@ -142,7 +104,6 @@ export function useDecisionModelSetup(
         hosts={connections.data?.credential_hosts ?? null}
         defaults={connections.data?.endpoint_defaults ?? {}}
         onOutcome={report}
-        onCreated={(id) => select.mutate(id)}
       />
       <Dialog
         open={mode === "manage"}

@@ -1393,22 +1393,17 @@ describe("성과 규칙", () => {
           achievement_judge: { ...SETTINGS, ...judged },
           connections: made,
         }),
-      [`PUT ${JUDGE}`]: async (request) => {
-        judged = (await request.json()) as Record<string, unknown>;
-        return json(200, {
-          achievement_judge: { ...SETTINGS, ...judged },
-          receipt_id: RECEIPT_ID,
-        });
-      },
       [`GET ${SETTINGS_CONNECTIONS}`]: () =>
         json(200, {
           items: made.map((id) => decisionConnection(id)),
           credential_hosts: null,
           endpoint_defaults: { openai_decisions: "https://api.openai.com" },
         }),
+      // As the API: a judge that names no connection takes the new one.
       [`POST ${SETTINGS_CONNECTIONS}`]: async (request) => {
         const body = (await request.json()) as { id: string };
         made.push(body.id);
+        judged ??= { connection_id: body.id };
         return json(201, { id: body.id, receipt_id: RECEIPT_ID });
       },
     });
@@ -1435,7 +1430,11 @@ describe("성과 규칙", () => {
         screen.queryByRole("group", { name: "사용할 수 없음" }) === null,
       ).toBe(true),
     );
-    await waitFor(() => expect(judged).not.toBe(null));
+    // The judge the API set is read again, with no write of the screen's own.
+    const judge = (await screen.findByRole("combobox", {
+      name: "Luna 연결",
+    })) as HTMLSelectElement;
+    await waitFor(() => expect(judge.value).toBe("luna-main"));
     expect(document.querySelector("[inert]") === null).toBe(true);
     // The lock's button left with the lock; the header's takes the focus.
     const header = screen.getByRole("button", { name: "판정 모델 설정" });
@@ -1459,7 +1458,6 @@ describe("성과 규칙", () => {
           value: "example-key",
         },
       ],
-      ["PUT", JUDGE, { ...SETTINGS, connection_id: "luna-main" }],
     ]);
   });
 
@@ -1505,7 +1503,11 @@ describe("성과 규칙", () => {
         screen.queryByRole("group", { name: "사용할 수 없음" }) === null,
       ).toBe(true),
     );
-    await waitFor(() => expect(reads >= 3).toBe(true));
+    await waitFor(() => expect(reads >= 2).toBe(true));
+    const judge = (await screen.findByRole("combobox", {
+      name: "Luna 연결",
+    })) as HTMLSelectElement;
+    await waitFor(() => expect(judge.value).toBe("luna-a"));
     expect(writes(api.calls).map((call) => call.method)).toEqual(["POST"]);
   });
 
