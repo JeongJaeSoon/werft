@@ -417,6 +417,9 @@ describe("팀 화면", () => {
     expect(pencil.querySelector("svg")?.classList.contains("size-2")).toBe(
       true,
     );
+    expect(pencil.querySelector("svg")?.getAttribute("stroke-width")).toBe(
+      "2.5",
+    );
     const classes = [...pencil.classList];
     expect(classes).toContain("size-5");
     expect(classes).not.toContain("size-[var(--werft-control-height-sm)]");
