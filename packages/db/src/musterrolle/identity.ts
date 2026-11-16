@@ -839,6 +839,7 @@ export async function verifiedEmailJoinOf(
         eq(loginMethods.userId, userId),
         eq(loginMethods.kind, "oidc"),
         eq(loginMethods.issuer, issuer),
+        notDeleted(loginMethods),
       ),
     );
   return sameIssuer ? "link_required" : membership;

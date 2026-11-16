@@ -29,6 +29,7 @@ import {
   webSessions,
   workspaces,
 } from "../schema.ts";
+import { deletedBy } from "../soft-delete.ts";
 import { seedLoginProvider } from "../testing/login-provider.ts";
 import {
   bootstrapOwner,
@@ -404,6 +405,32 @@ integration("who may sign in with a password", () => {
     const lapsed = await person("owner", false);
     await db.update(loginSettings).set({ emergencyAdminUserId: lapsed.id });
     expect(await close(other.id)).toEqual({ outcome: "no_emergency_admin" });
+    expect((await settingsRow()).passwordLogin).toBe("on");
+  });
+
+  test("a deleted account, or an account of a deleted provider, is no way back for the one asking", async () => {
+    const close = (by: string) =>
+      store.setPasswordLogin({ value: "emergency_only", audit: audit(by) });
+    const idp = await provider();
+    const other = await person("owner");
+    const method = await account(other.id, idp);
+    expect(await store.hasProviderAccount(other.id)).toBe(true);
+    await db
+      .update(loginMethods)
+      .set(deletedBy(other.id))
+      .where(eq(loginMethods.id, method));
+    expect(await store.hasProviderAccount(other.id)).toBe(false);
+    expect(await close(other.id)).toEqual({ outcome: "locks_out_actor" });
+
+    // A provider row deleted while still marked on is no provider at all.
+    const gone = await provider();
+    await account(other.id, gone);
+    await db
+      .update(loginProviders)
+      .set(deletedBy(first))
+      .where(eq(loginProviders.id, gone.id));
+    expect(await store.hasProviderAccount(other.id)).toBe(false);
+    expect(await close(other.id)).toEqual({ outcome: "locks_out_actor" });
     expect((await settingsRow()).passwordLogin).toBe("on");
   });
 

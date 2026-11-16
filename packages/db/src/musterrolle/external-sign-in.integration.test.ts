@@ -20,6 +20,7 @@ import {
   webSessions,
   workspaces,
 } from "../schema.ts";
+import { deletedBy } from "../soft-delete.ts";
 import { seedLoginProvider } from "../testing/login-provider.ts";
 import { signInWithExternalIdentity } from "./identity.ts";
 import { createPostgresMemberStore } from "./members.ts";
@@ -285,6 +286,32 @@ integration("external sign-in first-entry rules", () => {
     });
     expect((await methodsOf(tara)).map((row) => row.subject)).toEqual([
       "sub-tara-1",
+    ]);
+  });
+
+  test("a deleted link of this issuer is no other subject, so the address links the new one", async () => {
+    const vera = await account("vera@example.com");
+    expect(await signIn("sub-vera-1", "vera@example.com")).toMatchObject({
+      outcome: "signed_in",
+      via: "verified_email",
+      userId: vera,
+    });
+    await db
+      .update(loginMethods)
+      .set(deletedBy(vera))
+      .where(eq(loginMethods.userId, vera));
+    expect(await signIn("sub-vera-2", "vera@example.com")).toMatchObject({
+      outcome: "signed_in",
+      via: "verified_email",
+      userId: vera,
+    });
+    expect(
+      (await methodsOf(vera))
+        .map((row) => [row.subject, row.deletedAt === null])
+        .sort(),
+    ).toEqual([
+      ["sub-vera-1", false],
+      ["sub-vera-2", true],
     ]);
   });
 
