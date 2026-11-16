@@ -276,7 +276,7 @@ function TeamPage({ id }: { readonly id: string }) {
   // on a team's address, or the browser's back.
   return (
     <div className="flex flex-col gap-[var(--werft-space-section)]">
-      <div className="flex min-w-0 items-center gap-2">
+      <div className="flex min-w-0 items-center gap-1">
         <Heading className="min-w-0 [overflow-wrap:anywhere]">
           {team.error ? t("teams.title") : team.data.name}
         </Heading>
@@ -377,10 +377,12 @@ function TeamRenameDialog({ team }: { readonly team: TeamDetail }) {
           type="button"
           variant="ghost"
           size="icon-sm"
-          className="shrink-0"
+          // Under the 14px heading (owner, 2026-11-17): a 14px pencil in the
+          // faint text colour, still a 24px target (WCAG 2.5.8).
+          className="size-6 shrink-0 text-subtle-foreground focus-visible:text-foreground"
           aria-label={t("teams.rename")}
         >
-          <Pencil aria-hidden="true" />
+          <Pencil aria-hidden="true" className="size-3.5" />
         </Button>
       </DialogTrigger>
       <DialogContent>

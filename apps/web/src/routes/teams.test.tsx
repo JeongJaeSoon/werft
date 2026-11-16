@@ -413,6 +413,17 @@ describe("팀 화면", () => {
     expect(pencil.querySelector("svg")?.getAttribute("aria-hidden")).toBe(
       "true",
     );
+    // Smaller and fainter than the heading, still a 24px target.
+    expect(pencil.querySelector("svg")?.classList.contains("size-3.5")).toBe(
+      true,
+    );
+    const classes = [...pencil.classList];
+    expect(classes).toContain("size-6");
+    expect(classes).not.toContain("size-[var(--werft-control-height-sm)]");
+    expect(classes).toContain("text-subtle-foreground");
+    expect(classes).not.toContain("text-muted-foreground");
+    expect(classes).toContain("hover:text-foreground");
+    expect(classes).toContain("focus-visible:text-foreground");
     await user.click(pencil);
     const dialog = await screen.findByRole("dialog", {
       name: "팀 이름 바꾸기",
