@@ -5110,12 +5110,19 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Invite a person to the workspace",
     description:
-      "The token is returned once and expires in seven days; only its sha256 is stored. Inviting an address that already has a live invite revokes that invite. An address that is already a live member answers 400. Every invite writes an `invite_member` receipt.",
+      "The token is returned once and expires in seven days; only its sha256 is stored. Addresses are compared trimmed and lower-cased. Inviting an address that already has a live invite revokes that invite. An address whose membership in the workspace is on, even while its account is suspended, answers 409 ALREADY_EXISTS; a member whose membership is disabled may be invited again, and accepting turns the membership back on. Every invite writes an `invite_member` receipt.",
     auth: "session",
     body: "CreateInviteRequest",
     success: { status: 201, schema: "CreateInviteResponse" },
-    errors: [400, 401, 403, 413, 503],
-    errorCodes: { 403: ["FORBIDDEN", "OWNER_PROTECTED"] },
+    errors: [400, 401, 403, 409, 413, 503],
+    errorCodes: {
+      403: ["FORBIDDEN", "OWNER_PROTECTED"],
+      409: ["ALREADY_EXISTS"],
+    },
+    errorNotes: {
+      ALREADY_EXISTS:
+        'The address belongs to a member of the workspace; `details` is `{ field: "email", reason_code: "already_member" }`.',
+    },
     idempotent: false,
   },
   {

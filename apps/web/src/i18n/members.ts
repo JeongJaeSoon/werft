@@ -51,6 +51,8 @@ export const membersKo = {
   "members.invite.role": "역할",
   "members.invite.submit": "초대 링크 만들기",
   "members.invite.submitting": "만드는 중…",
+  "members.invite.alreadyMember":
+    "이미 이 워크스페이스의 구성원인 주소입니다. 초대하지 않아도 됩니다.",
   "members.invite.disabledHint":
     "{name}님은 비활성 상태의 구성원입니다. 다시 초대하지 말고 목록에서 다시 활성화하세요. SSO로만 로그인하던 계정은 비밀번호가 없어 초대를 수락할 수 없습니다.",
   "members.invite.link": "초대 링크",
@@ -151,6 +153,8 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.invite.role": "Role",
   "members.invite.submit": "Create invite link",
   "members.invite.submitting": "Creating…",
+  "members.invite.alreadyMember":
+    "This address already belongs to a member of this workspace. No invite is needed.",
   "members.invite.disabledHint":
     "{name} is a disabled member. Re-enable them in the list instead of inviting again: an account that only logs in with SSO has no password and cannot accept an invite.",
   "members.invite.link": "Invite link",
@@ -254,6 +258,8 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.invite.role": "ロール",
   "members.invite.submit": "招待リンクを作成",
   "members.invite.submitting": "作成中…",
+  "members.invite.alreadyMember":
+    "このアドレスはすでにこのワークスペースのメンバーです。招待は不要です。",
   "members.invite.disabledHint":
     "{name}さんは無効化されたメンバーです。招待し直さずに、一覧から再有効化してください。SSO ログインのみで利用していたアカウントにはパスワードがないため、招待を承諾できません。",
   "members.invite.link": "招待リンク",
