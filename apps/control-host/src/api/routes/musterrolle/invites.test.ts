@@ -426,6 +426,34 @@ describe("POST /v1/invites/accept", () => {
     });
   });
 
+  test("a given name is trimmed, whitespace alone counts as none, and an overlong one is refused", async () => {
+    const named: unknown[] = [];
+    const api = app(
+      inviteStore({
+        acceptInvite: async (input) => {
+          named.push(
+            input.account.kind === "new" ? input.account.displayName : null,
+          );
+          return {
+            outcome: "accepted",
+            userId: input.account.userId,
+            workspaceId: WORKSPACE,
+            role: "member",
+            sessionExpiresAt: new Date("2026-10-25T00:00:00.000Z"),
+          };
+        },
+      }),
+    );
+    const sent = (display_name: string) =>
+      accept(api, { token: TOKEN, password: PASSWORD, display_name });
+    expect((await sent("  Invitee  ")).status).toBe(200);
+    expect((await sent(" \t ")).status).toBe(200);
+    expect(named).toEqual(["Invitee", "invitee"]);
+    const overlong = await sent("a".repeat(DISPLAY_NAME_MAX + 1));
+    expect(overlong.status).toBe(400);
+    expect(named).toHaveLength(2);
+  });
+
   test("an existing account joins with its own password, unchanged", async () => {
     let asked: AcceptInviteInput | undefined;
     const response = await accept(

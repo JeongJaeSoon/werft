@@ -1,3 +1,4 @@
+import { normalizeSessionTitle } from "@werft-ai/contracts";
 import { createPostgresSettingsDocumentStore } from "@werft-ai/db";
 import { createLogger } from "@werft-ai/observability";
 import { type CatalogProviderConfig, messageOf } from "@werft-ai/platform";
@@ -252,8 +253,8 @@ export const DEMO_SESSIONS: readonly DemoSession[] = [
     agent: null,
     repository: false,
     private: false,
-    // Whitespace alone: the title derived from it is empty, so none is kept.
-    message: " ",
+    // No title sent: the API derives one from the message.
+    message: "이 저장소가 하는 일을 한 줄로 알려 주세요.",
     outcome: "idle",
   },
 ];
@@ -518,7 +519,11 @@ async function alreadySeeded(
   if (session.title !== null) {
     return rows.find((row) => row.title === session.title) ?? null;
   }
-  for (const row of rows.filter((candidate) => candidate.title === null)) {
+  // A row seeded before blank messages were refused has no title.
+  const derived = normalizeSessionTitle(session.message);
+  for (const row of rows.filter(
+    (candidate) => candidate.title === null || candidate.title === derived,
+  )) {
     const turn = await client.request<{ message?: string }>(
       "GET",
       `/v1/sessions/${row.id}/turns/1`,
@@ -691,7 +696,7 @@ export type DemoDataOutcome = {
 
 /**
  * Adds whichever demo agent or session is missing, found by agent slug and
- * session title (an untitled one by its first message), and leaves every
+ * session title (one sent without a title by its first message), and leaves every
  * existing row alone. The demo accounts must exist already.
  */
 async function seedDemoData(
@@ -761,7 +766,7 @@ async function seedAs(
   // One at a time: several sessions starting and polled at once held the
   // api's database pool long enough for running workers' heartbeats to fail.
   for (const session of DEMO_SESSIONS) {
-    const name = session.title ?? "(제목 없음)";
+    const name = session.title ?? normalizeSessionTitle(session.message);
     const client = clients[session.creator];
     const existing = await alreadySeeded(
       client,

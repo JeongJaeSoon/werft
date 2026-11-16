@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   AGENT_WORKSPACE_MCP_SERVERS_MAX,
+  MCP_RESERVED_SERVER_NAMES,
   mcpServerIdSchema,
 } from "../kollegium/agents.ts";
 import { displayNameSchema } from "../musterrolle/workspaces.ts";
@@ -24,7 +25,7 @@ export const WORKSPACE_MCP_URL_MAX = 2048;
 export const WORKSPACE_MCP_SCOPE_MAX = 1024;
 export const WORKSPACE_MCP_OAUTH_FLOW_TTL_SECONDS = 600;
 /** Names a workspace server may not take: the built-in server and a reserved one. */
-export const WORKSPACE_MCP_RESERVED_NAMES = ["github", "browser"] as const;
+export const WORKSPACE_MCP_RESERVED_NAMES = MCP_RESERVED_SERVER_NAMES;
 
 export const workspaceMcpServerIdSchema = z.uuid();
 export const workspaceMcpAuthKindSchema = z.enum(["oauth", "bearer"]);

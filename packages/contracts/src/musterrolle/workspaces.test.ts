@@ -14,8 +14,11 @@ import {
 import {
   achievementJudgeSettingsSchema,
   auditRetentionRequestSchema,
+  clampDisplayName,
   createInviteRequestSchema,
   createInviteResponseSchema,
+  DISPLAY_NAME_MAX,
+  displayNameSchema,
   inviteSchema,
   memberViewSchema,
   normalizeEmail,
@@ -30,6 +33,31 @@ const WORKSPACE_ID = "019a0000-0000-7000-8000-0000000000d2";
 const INVITE_ID = "019a0000-0000-7000-8000-0000000000d3";
 const AT = "2026-09-22T01:00:00Z";
 const PASSWORD = "correct horse battery";
+
+describe("display names", () => {
+  test("a derived name is trimmed and cut to the limit without splitting a surrogate pair", () => {
+    expect(clampDisplayName("  Alice  ")).toBe("Alice");
+    expect(clampDisplayName(" \t ")).toBe("");
+    expect(clampDisplayName("a".repeat(DISPLAY_NAME_MAX + 5))).toBe(
+      "a".repeat(DISPLAY_NAME_MAX),
+    );
+    // The emoji's high surrogate would be the 64th code unit.
+    const split = clampDisplayName(`${"a".repeat(DISPLAY_NAME_MAX - 1)}😀b`);
+    expect(split).toBe("a".repeat(DISPLAY_NAME_MAX - 1));
+    expect(displayNameSchema.safeParse(split).success).toBe(true);
+    expect(clampDisplayName(`${"a".repeat(DISPLAY_NAME_MAX - 2)}😀`)).toBe(
+      `${"a".repeat(DISPLAY_NAME_MAX - 2)}😀`,
+    );
+    // A cut that lands before a space leaves no trailing blank.
+    expect(clampDisplayName(`${"a".repeat(DISPLAY_NAME_MAX - 1)} b`)).toBe(
+      "a".repeat(DISPLAY_NAME_MAX - 1),
+    );
+  });
+
+  test("a stored name with padding still reads", () => {
+    expect(displayNameSchema.safeParse(" Alice ").success).toBe(true);
+  });
+});
 
 describe("workspace", () => {
   test("fills settings with the documented defaults", () => {

@@ -224,7 +224,7 @@
           "message": {
             "type": "string",
             "minLength": 1,
-            "description": "At most 32768 bytes of UTF-8"
+            "description": "At most 32768 bytes of UTF-8, not whitespace alone"
           },
           "agent_release_id": {
             "type": "string",
@@ -856,7 +856,7 @@
           "message": {
             "type": "string",
             "minLength": 1,
-            "description": "At most 32768 bytes of UTF-8"
+            "description": "At most 32768 bytes of UTF-8, not whitespace alone"
           },
           "mode": {
             "default": "enqueue",
@@ -936,7 +936,8 @@
               },
               "reason": {
                 "type": "string",
-                "minLength": 1
+                "minLength": 1,
+                "description": "At most 8192 bytes of UTF-8, not whitespace alone"
               },
               "remember": {
                 "type": "string",
@@ -987,7 +988,8 @@
                     },
                     "free_text": {
                       "type": "string",
-                      "minLength": 1
+                      "minLength": 1,
+                      "description": "At most 8192 bytes of UTF-8, not whitespace alone"
                     }
                   },
                   "required": [
@@ -2221,7 +2223,6 @@
           },
           "display_name": {
             "type": "string",
-            "minLength": 1,
             "maxLength": 64
           }
         },
@@ -2236,7 +2237,7 @@
         "properties": {
           "invite_token": {
             "type": "string",
-            "minLength": 1,
+            "minLength": 32,
             "maxLength": 256
           }
         },
@@ -24475,7 +24476,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+            "pattern": "^[a-z0-9](?:[a-z0-9-]|_(?!_)){0,31}$"
           },
           "url": {
             "type": "string",

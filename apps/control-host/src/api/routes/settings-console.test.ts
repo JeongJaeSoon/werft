@@ -216,6 +216,52 @@ describe("GET /v1/installation/settings/{kind}", () => {
   });
 });
 
+describe("POST /v1/installation/settings/mcp-servers", () => {
+  // The id becomes the agent's tool prefix `mcp__<id>__`, so it takes the
+  // agent card's MCP id rule, and a name the platform's own servers use is
+  // refused.
+  test("refuses an id a tool name cannot carry or a reserved name, before the service", async () => {
+    const created: unknown[] = [];
+    const settings: Partial<SettingsConsoleService> = {
+      createMcpServer: async (_caller, input) => {
+        created.push(input.id);
+        return CHANGED;
+      },
+    };
+    const server = (id: string) => ({
+      id,
+      url: "https://mcp.example.invalid/mcp",
+      credential_ref: "docs_mcp",
+      workspaces: ["acme"],
+      value: "example-bearer",
+    });
+    for (const id of [
+      "github",
+      "browser",
+      "docs.v2",
+      "docs__v2",
+      "a".repeat(33),
+    ]) {
+      const response = await request(
+        settings,
+        "POST",
+        `${BASE}/mcp-servers`,
+        server(id),
+      );
+      expect(response.status).toBe(400);
+    }
+    expect(created).toEqual([]);
+    const fine = await request(
+      settings,
+      "POST",
+      `${BASE}/mcp-servers`,
+      server("docs_v2"),
+    );
+    expect(fine.status).toBe(201);
+    expect(created).toEqual(["docs_v2"]);
+  });
+});
+
 describe("GET /v1/installation/settings/connections/{id}/impact", () => {
   const path = `${BASE}/connections/console/impact`;
   const IMPACT = {

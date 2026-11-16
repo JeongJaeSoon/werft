@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { githubFeaturesSchema } from "../musterrolle/github-settings.ts";
+import {
+  GITHUB_AGENT_REF_PREFIX,
+  githubFeaturesSchema,
+  githubRefNamesAgentBranch,
+} from "../musterrolle/github-settings.ts";
 import {
   AGENT_DESCRIPTION_MAX_LENGTH,
   CARD_LEGACY_INSTRUCTIONS_MAX_LENGTH,
@@ -114,6 +118,17 @@ export const MCP_SERVER_ID_PATTERN = "^[a-z0-9](?:[a-z0-9-]|_(?!_)){0,31}$";
 export const mcpServerIdSchema = z
   .string()
   .regex(new RegExp(MCP_SERVER_ID_PATTERN), "must be a catalog MCP server id");
+/**
+ * Names no new MCP server may take, in the catalog or a workspace: the
+ * built-in server and one kept for a future built-in. A catalog document
+ * refuses only `github`, so one saved before `browser` was kept still loads.
+ */
+export const MCP_RESERVED_SERVER_NAMES = ["github", "browser"] as const;
+/** A new MCP server's id: the catalog rule, less the reserved names. */
+export const newMcpServerIdSchema = mcpServerIdSchema.refine(
+  (id) => !(MCP_RESERVED_SERVER_NAMES as readonly string[]).includes(id),
+  "is reserved",
+);
 export const cardMcpServerSchema = z
   .object({ server: mcpServerIdSchema })
   .strict();
@@ -324,6 +339,24 @@ export const agentDescriptionSchema = z
     (description) => !description.includes("\u0000"),
     "description must not contain NUL",
   );
+/** A description a client sends: the ends trimmed, and empty meaning none. */
+const agentDescriptionInputSchema = z
+  .string()
+  .trim()
+  .max(AGENT_DESCRIPTION_MAX_LENGTH)
+  .refine(
+    (description) => !description.includes("\u0000"),
+    "description must not contain NUL",
+  )
+  .transform((description) => description || null);
+
+export const AGENT_NAME_MAX_LENGTH = 120;
+/** A name a client sends: the ends trimmed, whitespace alone refused. */
+export const agentNameInputSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(AGENT_NAME_MAX_LENGTH);
 
 /** `-1` until the first activation, which is why it is not a `revision`. */
 export const activationRevisionSchema = z.number().int().min(-1).max(INT4_MAX);
@@ -496,6 +529,10 @@ export const runtimeConfigSnapshotSchema = z
     assertCredentialFree(snapshot, [], ctx);
   });
 
+/** Enforced on every path that turns a repository on, settings and pins alike. */
+export const AGENT_GITHUB_REPOSITORIES_MAX = 32;
+export const AGENT_GITHUB_ACTIONS_ALLOW_MAX = 32;
+
 /**
  * What an agent's GitHub work may reach, pinned on its release. A release
  * without it runs as before: every repository the workspace ceiling allows, a person
@@ -504,7 +541,10 @@ export const runtimeConfigSnapshotSchema = z
 export const agentGitHubSchema = z
   .object({
     /** Catalog repository ids. */
-    repositories: z.array(z.string().min(1).max(128)).min(1).max(32),
+    repositories: z
+      .array(z.string().min(1).max(128))
+      .min(1)
+      .max(AGENT_GITHUB_REPOSITORIES_MAX),
     push_approval: z.boolean(),
     features: githubFeaturesSchema,
     actions_allow: z
@@ -518,7 +558,7 @@ export const agentGitHubSchema = z
           })
           .strict(),
       )
-      .max(32),
+      .max(AGENT_GITHUB_ACTIONS_ALLOW_MAX),
   })
   .strict();
 
@@ -529,6 +569,46 @@ export const agentGitHubSchema = z
 export const agentGitHubSettingsSchema = agentGitHubSchema.extend({
   repositories: z.array(z.string().min(1).max(128)),
 });
+
+/**
+ * What a client may save into `actions_allow`: no entry twice, and no `ref`
+ * that can match an `agent/` branch, which a dispatch never runs. A stored
+ * list reads without these, so one saved earlier still applies.
+ */
+function checkActionsAllow(
+  allow: AgentGitHub["actions_allow"],
+  ctx: z.RefinementCtx,
+) {
+  const seen = new Set<string>();
+  for (const [index, entry] of allow.entries()) {
+    if (entry.ref !== undefined && githubRefNamesAgentBranch(entry.ref)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["actions_allow", index, "ref"],
+        message: `must not match a ${GITHUB_AGENT_REF_PREFIX} branch`,
+      });
+    }
+    const key = JSON.stringify([entry.workflow, entry.ref ?? null]);
+    if (seen.has(key)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["actions_allow", index],
+        message: "lists this workflow and ref twice",
+      });
+    }
+    seen.add(key);
+  }
+}
+
+/** A release pin a client sends. */
+export const agentGitHubInputSchema = agentGitHubSchema.superRefine(
+  (github, ctx) => checkActionsAllow(github.actions_allow, ctx),
+);
+/** Settings a client saves. */
+export const agentGitHubSettingsInputSchema =
+  agentGitHubSettingsSchema.superRefine((settings, ctx) =>
+    checkActionsAllow(settings.actions_allow, ctx),
+  );
 
 /**
  * The bound `push_attached` puts on a push to any repository; the stricter of
@@ -1194,8 +1274,10 @@ export const countAgentsResponseSchema = z.object({
 export const createAgentRequestSchema = z
   .object({
     slug: agentSlugSchema,
-    name: z.string().min(1).max(120),
-    description: agentDescriptionSchema.optional(),
+    name: agentNameInputSchema,
+    description: agentDescriptionInputSchema
+      .transform((description) => description ?? undefined)
+      .optional(),
     /**
      * Owners and admins name any live team; anyone else only a team they are
      * in.
@@ -1221,8 +1303,8 @@ export const createAgentRequestSchema = z
  */
 export const updateAgentRequestSchema = z
   .object({
-    name: z.string().min(1).max(120).optional(),
-    description: agentDescriptionSchema.nullable().optional(),
+    name: agentNameInputSchema.optional(),
+    description: agentDescriptionInputSchema.nullable().optional(),
     /** Changes the row only, at once; no release is made. */
     auto_model_migration: z.boolean().optional(),
     card: agentCardRequestSchema.optional(),
@@ -1239,7 +1321,7 @@ export const updateAgentRequestSchema = z
 export const draftAgentRequestSchema = z
   .object({
     prompt: z.string().min(1).max(4_000),
-    name: z.string().min(1).max(120).optional(),
+    name: agentNameInputSchema.optional(),
   })
   .strict();
 export const draftAgentResponseSchema = z
@@ -1256,7 +1338,7 @@ export const createAgentReleaseRequestSchema = z
     connection_id: z.string().min(1).max(128),
     repository_id: z.string().min(1).max(128).optional(),
     /** Absent: the active release's, unless this one has no repository. */
-    github: agentGitHubSchema.optional(),
+    github: agentGitHubInputSchema.optional(),
   })
   .strict();
 /** `created: false` when the same content was released before. */

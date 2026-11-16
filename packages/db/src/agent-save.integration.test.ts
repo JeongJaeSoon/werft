@@ -105,6 +105,10 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
       store: store(),
       catalog: CATALOG,
       credentials: createPostgresCredentialBindingStore(db),
+      repositoryCeiling: async () => ({
+        repository_ids: ["app"],
+        github_app_repositories: "listed",
+      }),
       runtimes: TEST_RUNTIMES,
     });
   }

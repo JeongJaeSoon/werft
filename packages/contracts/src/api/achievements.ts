@@ -79,6 +79,12 @@ export const achievementRuleDefinitionSchema = z
   .string()
   .min(1)
   .max(ACHIEVEMENT_RULE_DEFINITION_MAX);
+/**
+ * What a client sends for a name, title or definition: the ends trimmed, so
+ * whitespace alone is refused and `A` and `A ` are one name. Stored values
+ * read through the untrimmed schema, as they were written.
+ */
+const trimmedInput = (max: number) => z.string().trim().min(1).max(max);
 
 export const achievementCategorySchema = z
   .object({
@@ -138,11 +144,11 @@ export const listAchievementRulesResponseSchema = z
   .strict();
 
 export const createAchievementCategoryRequestSchema = z
-  .object({ name: achievementCategoryNameSchema })
+  .object({ name: trimmedInput(ACHIEVEMENT_CATEGORY_NAME_MAX) })
   .strict();
 export const updateAchievementCategoryRequestSchema = z
   .object({
-    name: achievementCategoryNameSchema.optional(),
+    name: trimmedInput(ACHIEVEMENT_CATEGORY_NAME_MAX).optional(),
     position: positionRequestSchema.optional(),
   })
   .strict()
@@ -153,22 +159,22 @@ export const updateAchievementCategoryRequestSchema = z
 export const createAchievementTypeRequestSchema = z
   .object({
     key: achievementTypeKeySchema,
-    name: achievementTypeNameSchema,
+    name: trimmedInput(ACHIEVEMENT_TYPE_NAME_MAX),
     evidence_kind: achievementEvidenceKindSchema,
   })
   .strict();
 /** Only the name changes; `key` and `evidence_kind` are fixed. */
 export const updateAchievementTypeRequestSchema = z
-  .object({ name: achievementTypeNameSchema })
+  .object({ name: trimmedInput(ACHIEVEMENT_TYPE_NAME_MAX) })
   .strict();
 
 /** The whole rule: a new version replaces every field. */
 export const achievementRuleRequestSchema = z
   .object({
     category_id: z.uuid(),
-    title: achievementRuleTitleSchema,
+    title: trimmedInput(ACHIEVEMENT_RULE_TITLE_MAX),
     type_id: z.uuid(),
-    definition: achievementRuleDefinitionSchema,
+    definition: trimmedInput(ACHIEVEMENT_RULE_DEFINITION_MAX),
     judge: achievementRuleJudgeSchema,
     agent_ids: z.null().default(null),
   })

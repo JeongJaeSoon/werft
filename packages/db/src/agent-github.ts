@@ -434,6 +434,7 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
                 id: repository.id,
                 authKind,
                 via: pick === null ? "catalog" : "github",
+                heldCount: base.repositories.length,
               },
               ceiling,
             );

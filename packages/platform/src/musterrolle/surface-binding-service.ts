@@ -7,6 +7,7 @@ import {
   type ResolveSlackBindingResponse,
   SLACK_BINDING_LIST_LIMIT,
   SLACK_BINDING_MESSAGES,
+  SLACK_BINDING_REASON_CODES,
   type SurfaceBinding,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
@@ -32,6 +33,14 @@ const MANAGERS: readonly WorkspaceRole[] = MANAGEMENT_ROLES[ACTION] ?? [];
 const APPROVE_ACTION = "binding.approve";
 const APPROVERS: readonly WorkspaceRole[] =
   MANAGEMENT_ROLES[APPROVE_ACTION] ?? [];
+
+const bindingError = (
+  code: ConstructorParameters<typeof SessionServiceError>[0],
+  key: keyof typeof SLACK_BINDING_MESSAGES,
+) =>
+  new SessionServiceError(code, SLACK_BINDING_MESSAGES[key], undefined, {
+    reason_code: SLACK_BINDING_REASON_CODES[key],
+  });
 
 export function surfaceBindingView(
   record: SurfaceBindingRecord,
@@ -138,10 +147,7 @@ export function createSurfaceBindingService(deps: {
       case "not_found":
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       case "conflict":
-        throw new SessionServiceError(
-          "REVISION_CONFLICT",
-          SLACK_BINDING_MESSAGES.notPending,
-        );
+        throw bindingError("REVISION_CONFLICT", "notPending");
       case "outranked":
         throw new SessionServiceError(
           "FORBIDDEN",
@@ -169,10 +175,7 @@ export function createSurfaceBindingService(deps: {
           ? "dm"
           : await channels.kindOf(caller.ownerId, agentId, request.channel_id);
       if (request.channel_id !== null && channelKind === "dm") {
-        throw new SessionServiceError(
-          "BAD_REQUEST",
-          SLACK_BINDING_MESSAGES.dmChannel,
-        );
+        throw bindingError("BAD_REQUEST", "dmChannel");
       }
       const result = await store.set({
         principal: caller,
@@ -194,20 +197,11 @@ export function createSurfaceBindingService(deps: {
         case "agent_not_found":
           throw new SessionServiceError("NOT_FOUND", "Resource not found");
         case "not_installed":
-          throw new SessionServiceError(
-            "SLACK_NOT_INSTALLED",
-            SLACK_BINDING_MESSAGES.notInstalled,
-          );
+          throw bindingError("SLACK_NOT_INSTALLED", "notInstalled");
         case "conflict":
-          throw new SessionServiceError(
-            "REVISION_CONFLICT",
-            SLACK_BINDING_MESSAGES.conflict,
-          );
+          throw bindingError("REVISION_CONFLICT", "conflict");
         case "pending_home":
-          throw new SessionServiceError(
-            "BAD_REQUEST",
-            SLACK_BINDING_MESSAGES.pendingHome,
-          );
+          throw bindingError("BAD_REQUEST", "pendingHome");
         case "outranked":
           throw new SessionServiceError(
             "FORBIDDEN",

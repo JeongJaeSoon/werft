@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { newMcpServerIdSchema } from "../kollegium/agents.ts";
 import { connectionKindSchema } from "../shared/provider-kind.ts";
 
 /**
@@ -168,9 +169,10 @@ export const createSettingsConnectionRequestSchema = z
   })
   .strict();
 
+/** The id is a tool prefix (`mcp__<id>__`), so it takes the MCP server id rule. */
 export const createSettingsMcpServerRequestSchema = z
   .object({
-    id: consoleEntryId,
+    id: newMcpServerIdSchema,
     url: z.string().min(1),
     credential_ref: z.string().min(1),
     workspaces: z.array(z.string().min(1)).min(1),

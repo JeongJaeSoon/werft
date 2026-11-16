@@ -9,6 +9,7 @@ import {
   activateAgentRequestSchema,
   agentCardRequestSchema,
   agentCardSchema,
+  agentGitHubSchema,
   agentListItemSchema,
   agentReleaseSchema,
   agentSchema,
@@ -587,6 +588,54 @@ describe("agent, version and release", () => {
     expect(request({})).toBe(true);
     expect(request({ note: "hotfix" })).toBe(false);
     expect(request({ note: null })).toBe(false);
+  });
+
+  test("a sent pin may not allow a workflow on an agent/ branch or twice; a stored one still reads", () => {
+    const github = (actions_allow: unknown[]) => ({
+      repositories: ["sample-app"],
+      push_approval: true,
+      features: {
+        workflows: false,
+        actions: true,
+        checks: false,
+        issues: false,
+        review: false,
+      },
+      actions_allow,
+    });
+    const request = (actions_allow: unknown[]) =>
+      createAgentReleaseRequestSchema.safeParse({
+        version_id: VERSION_ID,
+        connection_id: "fake-messages",
+        github: github(actions_allow),
+      }).success;
+    expect(request([{ workflow: "ci.yml", ref: "release/*" }])).toBe(true);
+    expect(request([{ workflow: "ci.yml", ref: "agent/fix" }])).toBe(false);
+    expect(request([{ workflow: "ci.yml" }, { workflow: "ci.yml" }])).toBe(
+      false,
+    );
+    expect(
+      agentGitHubSchema.safeParse(
+        github([
+          { workflow: "ci.yml", ref: "agent/*" },
+          { workflow: "ci.yml", ref: "agent/*" },
+        ]),
+      ).success,
+    ).toBe(true);
+  });
+
+  test("a sent name is trimmed and whitespace alone refused; an empty description is none", () => {
+    expect(
+      updateAgentRequestSchema.parse({ name: " 재무 ", description: "" }),
+    ).toEqual({ name: "재무", description: null });
+    expect(updateAgentRequestSchema.safeParse({ name: "  " }).success).toBe(
+      false,
+    );
+    const draft = (name: string) =>
+      draftAgentRequestSchema.safeParse({ prompt: "재무 분석가", name });
+    expect(draft(" 재무 ").data?.name).toBe("재무");
+    expect(draft("\t").success).toBe(false);
+    expect(agentSchema.shape.name.safeParse(" padded ").success).toBe(true);
   });
 
   test("a release snapshot has no room for a live credential", () => {

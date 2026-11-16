@@ -118,6 +118,60 @@ async function codeOf(work: Promise<unknown>) {
   return "ok";
 }
 
+describe("a refused binding names why in details.reason_code", () => {
+  async function refusalOf(work: Promise<unknown>) {
+    try {
+      await work;
+    } catch (error) {
+      if (error instanceof SessionServiceError) {
+        return { code: error.code, details: error.details };
+      }
+      throw error;
+    }
+    return null;
+  }
+  const put = (bindings: ReturnType<typeof service>["bindings"]) =>
+    bindings.putSlackBinding(caller, AGENT, {
+      channel_id: "C0OPS",
+      mode: "on",
+      home: true,
+    });
+
+  test("each refusal a client words for itself carries its code", async () => {
+    for (const [outcome, code, reason_code] of [
+      ["not_installed", "SLACK_NOT_INSTALLED", "not_installed"],
+      ["conflict", "REVISION_CONFLICT", "conflict"],
+      ["pending_home", "BAD_REQUEST", "pending_home"],
+    ] as const) {
+      const { bindings } = service(async () => "public_channel", {
+        set: async () => ({ outcome }),
+      });
+      expect(await refusalOf(put(bindings))).toEqual({
+        code,
+        details: { reason_code },
+      });
+    }
+    const dm = service(async () => "dm");
+    expect(await refusalOf(put(dm.bindings))).toEqual({
+      code: "BAD_REQUEST",
+      details: { reason_code: "dm_channel" },
+    });
+    const moved = service(async () => "public_channel", {
+      approve: async () => ({ outcome: "conflict" }),
+    });
+    expect(
+      await refusalOf(
+        moved.bindings.approveSlackBinding(caller, AGENT, "binding-1", {
+          revision: 1,
+        }),
+      ),
+    ).toEqual({
+      code: "REVISION_CONFLICT",
+      details: { reason_code: "not_pending" },
+    });
+  });
+});
+
 describe("a Slack binding's channel kind is Slack's answer (94S-177)", () => {
   test("the kind Slack reports is stored, whatever the request said", async () => {
     const { bindings, asked, stored } = service(async () => "private_channel");

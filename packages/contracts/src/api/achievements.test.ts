@@ -17,6 +17,52 @@ const ok =
     schema.safeParse(value).success;
 
 describe("achievement requests", () => {
+  test("names, titles and definitions are trimmed; whitespace alone is refused; a stored padded name still reads", () => {
+    expect(
+      createAchievementCategoryRequestSchema.parse({ name: " 품질 " }),
+    ).toEqual({ name: "품질" });
+    expect(ok(createAchievementCategoryRequestSchema)({ name: "  " })).toBe(
+      false,
+    );
+    expect(ok(updateAchievementCategoryRequestSchema)({ name: "\t" })).toBe(
+      false,
+    );
+    expect(
+      createAchievementTypeRequestSchema.parse({
+        key: "first_fix",
+        name: " 첫 수정\n",
+        evidence_kind: "out_file",
+      }).name,
+    ).toBe("첫 수정");
+    expect(ok(updateAchievementTypeRequestSchema)({ name: " " })).toBe(false);
+    const rule = {
+      category_id: ID,
+      title: " 제목 ",
+      type_id: ID,
+      definition: " 정의 ",
+      judge: "always",
+    };
+    const parsed = achievementRuleRequestSchema.parse(rule);
+    expect([parsed.title, parsed.definition]).toEqual(["제목", "정의"]);
+    expect(ok(achievementRuleRequestSchema)({ ...rule, title: "  " })).toBe(
+      false,
+    );
+    expect(
+      ok(achievementRuleRequestSchema)({ ...rule, definition: "\n" }),
+    ).toBe(false);
+    expect(
+      ok(achievementCategorySchema)({
+        id: ID,
+        name: " 품질 ",
+        position: 0,
+        created_by: ID,
+        created_at: "2026-11-16T00:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+      }),
+    ).toBe(true);
+  });
+
   test("a position set by hand is at most 1,000,000; one stored after it still answers", () => {
     const patch = ok(updateAchievementCategoryRequestSchema);
     expect(patch({ position: 1_000_000 })).toBe(true);

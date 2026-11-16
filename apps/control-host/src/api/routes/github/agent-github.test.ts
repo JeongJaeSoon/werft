@@ -13,6 +13,7 @@ import {
   putAgentGitHubSettingsResponseSchema,
   REQUEST_BODY_MAX_BYTES,
   repositoryRefOf,
+  requestBodyInvalidDetailsSchema,
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import {
@@ -426,6 +427,52 @@ describe("the agent GitHub API", () => {
         body: { ...body(), pad: "x".repeat(REQUEST_BODY_MAX_BYTES) },
       });
       expect(huge.status).toBe(413);
+    });
+
+    test("an allowed workflow on an agent/ branch, or listed twice, is refused", async () => {
+      const { call } = appWith({
+        ceiling: { ...GITHUB_CEILING_NONE, actions: true },
+      });
+      const owner = cookieFor("owner");
+      const withAllow = (actions_allow: unknown[]) => ({
+        ...body(),
+        settings: {
+          ...settings,
+          features: { ...settings.features, actions: true },
+          actions_allow,
+        },
+      });
+      for (const actions_allow of [
+        [{ workflow: "ci.yml", ref: "agent/*" }],
+        [{ workflow: "ci.yml", ref: "*/fix" }],
+        [{ workflow: "ci.yml" }, { workflow: "ci.yml" }],
+        [
+          { workflow: "ci.yml", ref: "main" },
+          { workflow: "ci.yml", ref: "main" },
+        ],
+      ]) {
+        const refused = await call("PUT", put, {
+          cookie: owner,
+          body: withAllow(actions_allow),
+        });
+        expect(refused.status).toBe(400);
+        expect(
+          requestBodyInvalidDetailsSchema
+            .parse(apiErrorResponseSchema.parse(refused.json).error.details)
+            .issues.every(({ path }) =>
+              path.startsWith("settings.actions_allow"),
+            ),
+        ).toBe(true);
+      }
+      const fine = await call("PUT", put, {
+        cookie: owner,
+        body: withAllow([
+          { workflow: "ci.yml" },
+          { workflow: "ci.yml", ref: "release/*" },
+          { workflow: "deploy.yml" },
+        ]),
+      });
+      expect(fine.status).toBe(200);
     });
 
     describe("turning one repository on or off", () => {

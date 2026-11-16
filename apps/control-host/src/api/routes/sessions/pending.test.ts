@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ANSWER_TEXT_MAX_BYTES,
   type ApiErrorCode,
   apiErrorResponseSchema,
   listPendingRequestsResponseSchema,
@@ -7,9 +8,12 @@ import {
 import {
   type AnswerRequestInput,
   type AnswerRequestResult,
+  type AuthorizationPolicy,
+  type Caller,
   createAuthorizationPolicy,
   createPendingRequestService,
   type PendingRequestStore,
+  SessionServiceError,
 } from "@werft-ai/platform";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerPendingRoutes } from "./pending.ts";
@@ -196,6 +200,84 @@ describe("pending-request routes", () => {
       code: "PAYLOAD_TOO_LARGE",
     });
     expect(oversized.seen).toHaveLength(0);
+  });
+
+  test("POST refuses a reason or free text of whitespace alone or over its byte cap", async () => {
+    const accepted: AnswerRequestResult = { outcome: "not_found" };
+    const permission = (reason: string) => ({
+      request_id: "req_1",
+      kind: "permission",
+      action: "deny",
+      reason,
+    });
+    const question = (free_text: string) => ({
+      request_id: "req_1",
+      kind: "question",
+      answers: [{ question_id: "q0", selected_option_ids: [], free_text }],
+    });
+    // Three bytes a character: under the body limit, over the text cap.
+    const overCap = "가".repeat(Math.floor(ANSWER_TEXT_MAX_BYTES / 3) + 1);
+    for (const body of [
+      permission(" \n "),
+      permission(overCap),
+      question("\t"),
+      question(overCap),
+    ]) {
+      const refused = answer(accepted, body);
+      expect(await errorOf(refused.response)).toEqual({
+        status: 400,
+        code: "BAD_REQUEST",
+      });
+      expect(refused.seen).toHaveLength(0);
+    }
+    // Padding is kept as sent: only text that is nothing but whitespace goes.
+    const padded = answer(accepted, question(" use the second option "));
+    expect((await padded.response).status).toBe(404);
+    expect(padded.seen[0]?.answer).toMatchObject({
+      answers: [{ free_text: " use the second option " }],
+    });
+  });
+
+  test("the service refuses the same text for a writer that skips the route, as Slack does", async () => {
+    let reached = 0;
+    const service = createPendingRequestService({
+      authorization: {
+        authorize: async () => ({
+          outcome: "allow",
+          reason_code: "ok",
+          decision_id: "019a0000-0000-7000-8000-0000000000d1",
+        }),
+      } as unknown as AuthorizationPolicy,
+      store: {
+        listOpen: async () => null,
+        answerAtomic: async () => {
+          reached += 1;
+          return { outcome: "not_found" };
+        },
+        recordSelfApproval: async () => {
+          throw new Error("not reached");
+        },
+        requestOutcome: async () => null,
+      },
+    });
+    const overCap = "가".repeat(Math.floor(ANSWER_TEXT_MAX_BYTES / 3) + 1);
+    for (const free_text of [overCap, " \n "]) {
+      const refused = await service
+        .answer({ ownerId: "owner-a", requestId: "r-1" } as Caller, SESSION, {
+          idempotencyKey: "slack:req_1:U1",
+          body: {
+            request_id: "req_1",
+            kind: "question",
+            answers: [
+              { question_id: "q0", selected_option_ids: [], free_text },
+            ],
+          },
+        })
+        .catch((error: unknown) => error);
+      expect(refused).toBeInstanceOf(SessionServiceError);
+      expect((refused as SessionServiceError).code).toBe("BAD_REQUEST");
+    }
+    expect(reached).toBe(0);
   });
 
   test("POST refuses the old decision name, both names, or neither, with 400", async () => {

@@ -5,6 +5,7 @@ import type {
   RegisterPendingRequest,
   WorkerScope,
 } from "@werft-ai/contracts";
+import { ANSWER_TEXT_MAX_BYTES, MESSAGE_MAX_BYTES } from "@werft-ai/contracts";
 import {
   createAuthorizationPolicy,
   createPendingRequestService,
@@ -1658,18 +1659,21 @@ integration("parked pending requests on PostgreSQL", () => {
   });
 
   test("answers that would not fit the turn carrying them on are refused", async () => {
-    const { owner, sessionId, requestIds, turnRowId } = await parked(2);
-    const [first = "", second = ""] = requestIds;
+    // Each reason at its own cap: three fit one message, a fourth does not.
+    const { owner, sessionId, requestIds, turnRowId } = await parked(4);
+    const last = requestIds.at(-1) ?? "";
     const deny = (requestId: string) =>
       answerWith(owner, sessionId, {
         request_id: requestId,
         kind: "permission",
         decision: "deny",
-        reason: "x".repeat(20 * 1024),
+        reason: "x".repeat(ANSWER_TEXT_MAX_BYTES),
       });
-    expect((await deny(first)).receipt_status).toBe("accepted");
-    expect(await failure(deny(second))).toBe("BAD_REQUEST");
-    expect((await request(second)).answeredAt).toBeNull();
+    for (const requestId of requestIds.slice(0, -1)) {
+      expect((await deny(requestId)).receipt_status).toBe("accepted");
+    }
+    expect(await failure(deny(last))).toBe("BAD_REQUEST");
+    expect((await request(last)).answeredAt).toBeNull();
     expect(await continuations(turnRowId)).toEqual([]);
   });
 
@@ -1792,24 +1796,26 @@ integration("parked pending requests on PostgreSQL", () => {
 
   test("answers kept before their turn parked still carry it on, cut to fit one message", async () => {
     const { owner, sessionId, worker } = await runningSession();
-    const first = await register(worker);
-    const second = await register(worker, HASH_B);
-    for (const requestId of [first, second]) {
+    const requestIds: string[] = [];
+    for (let i = 0; i < 4; i += 1) {
+      requestIds.push(await register(worker, String(i).repeat(64)));
+    }
+    for (const requestId of requestIds) {
       await answerWith(owner, sessionId, {
         request_id: requestId,
         kind: "permission",
         decision: "deny",
-        reason: "x".repeat(20 * 1024),
+        reason: "x".repeat(ANSWER_TEXT_MAX_BYTES),
       });
     }
-    const turnRowId = await parkRows(worker, [first, second]);
+    const turnRowId = await parkRows(worker, requestIds);
     await executionGone(worker);
 
     const [carried] = await continuations(turnRowId);
     expect(carried?.message).toContain("[cut to fit]");
     expect(
       new TextEncoder().encode(carried?.message ?? "").length,
-    ).toBeLessThanOrEqual(32 * 1024);
+    ).toBeLessThanOrEqual(MESSAGE_MAX_BYTES);
   });
 
   test("a group of thousands of answers still carries on, the lines past one message counted", async () => {
