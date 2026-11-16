@@ -14,7 +14,16 @@ import {
   type SlackAppStore,
   secretOwnerRef,
 } from "@werft-ai/platform";
-import { and, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  ne,
+  sql,
+} from "drizzle-orm";
 import { UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import { holdsRight, lockedRole } from "../musterrolle/api-keys.ts";
@@ -189,6 +198,79 @@ async function lockedApp(
     )
     .for("update");
   return row;
+}
+
+/**
+ * Before a secret write: the app's agent, locked ahead of the app as an
+ * archive takes them, so a Slack answer landing after the archive stores
+ * nothing. False when that agent is deleted; a link app has none.
+ */
+async function appAgentLive(
+  tx: Database,
+  workspaceId: string,
+  slackAppId: string,
+): Promise<boolean> {
+  const [app] = await tx
+    .select({ agentId: slackApps.agentId })
+    .from(slackApps)
+    .where(
+      and(eq(slackApps.id, slackAppId), eq(slackApps.workspaceId, workspaceId)),
+    );
+  if (!app?.agentId) return true;
+  const [agent] = await tx
+    .select({ id: agents.id })
+    .from(agents)
+    .where(
+      and(
+        eq(agents.id, app.agentId),
+        eq(agents.workspaceId, workspaceId),
+        isNull(agents.deletedAt),
+      ),
+    )
+    .for("key share");
+  return agent !== undefined;
+}
+
+/**
+ * Destroys the secrets of the agent's own Slack apps in the caller's
+ * transaction. The app rows stay, so the app can still be removed from Slack.
+ */
+export async function destroyAgentSlackAppSecrets(
+  tx: Database,
+  workspaceId: string,
+  agentId: string,
+): Promise<void> {
+  const rows = await tx
+    .select()
+    .from(slackApps)
+    .where(
+      and(
+        eq(slackApps.workspaceId, workspaceId),
+        eq(slackApps.agentId, agentId),
+      ),
+    )
+    .orderBy(slackApps.id)
+    .for("update");
+  for (const row of rows) {
+    for (const purpose of SLACK_APP_SECRET_PURPOSE_VALUES) {
+      await deleteSecretInTx(tx, secretSlot(row, purpose));
+    }
+  }
+  if (rows.length === 0) return;
+  await tx
+    .update(slackApps)
+    .set({
+      signingSecretRef: null,
+      clientSecretRef: null,
+      botTokenRef: null,
+      updatedAt: DB_NOW,
+    })
+    .where(
+      inArray(
+        slackApps.id,
+        rows.map((row) => row.id),
+      ),
+    );
 }
 
 // Needs no secret key, so the Slack event handler reads it without the store.
@@ -436,8 +518,9 @@ export function createPostgresSlackAppStore(
     finishCreate(input) {
       const workspaceId = input.workspaceId.toLowerCase();
       return db.transaction(async (tx) => {
+        const live = await appAgentLive(tx, workspaceId, input.slackAppId);
         const row = await lockedApp(tx, workspaceId, input.slackAppId);
-        if (!row || row.state !== "creating") {
+        if (!live || !row || row.state !== "creating") {
           throw new Error(
             `Slack app ${input.slackAppId} is no longer being created`,
           );
@@ -476,11 +559,10 @@ export function createPostgresSlackAppStore(
 
     storeBotToken(input) {
       return db.transaction(async (tx) => {
-        const row = await lockedApp(
-          tx,
-          input.workspaceId.toLowerCase(),
-          input.slackAppId.toLowerCase(),
-        );
+        const workspaceId = input.workspaceId.toLowerCase();
+        const slackAppId = input.slackAppId.toLowerCase();
+        if (!(await appAgentLive(tx, workspaceId, slackAppId))) return null;
+        const row = await lockedApp(tx, workspaceId, slackAppId);
         if (!row || row.state !== "created") return null;
         await writeSecretInTx(
           tx,

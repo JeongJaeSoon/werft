@@ -27,6 +27,7 @@ import {
   gt,
   inArray,
   isNotNull,
+  isNull,
   max,
   or,
   type SQL,
@@ -46,7 +47,12 @@ import {
   liveMember,
 } from "./musterrolle/administers.ts";
 import { managingTeamAllowed } from "./musterrolle/agent-admins.ts";
-import { holdsRight, lockedRole } from "./musterrolle/api-keys.ts";
+import { revokeAgentIdentities } from "./musterrolle/agent-identities.ts";
+import {
+  holdsRight,
+  lockAgentKeyIssue,
+  lockedRole,
+} from "./musterrolle/api-keys.ts";
 import { enqueueModelMoveNotices } from "./musterrolle/model-move-notices.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -57,14 +63,17 @@ import {
   agents,
   agentUsage,
   agentVersions,
+  apiKeys,
   memberTeams,
   receipts,
+  surfaceBindings,
 } from "./schema.ts";
 import {
   decodeCreatedAtCursor,
   encodeCreatedAtCursor,
   rethrowCursorCastError,
 } from "./sessions/cursors.ts";
+import { destroyAgentSlackAppSecrets } from "./surface/slack-apps.ts";
 
 type AgentRow = typeof agents.$inferSelect;
 
@@ -229,7 +238,13 @@ async function detailOf(
   const [row] = await db
     .select({ agent: agents, teamName: managingTeamName })
     .from(agents)
-    .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)))
+    .where(
+      and(
+        eq(agents.id, agentId),
+        eq(agents.workspaceId, workspaceId),
+        isNull(agents.deletedAt),
+      ),
+    )
     .limit(1);
   if (!row) return null;
   const { agent } = row;
@@ -344,10 +359,37 @@ async function lockAgent(tx: Database, workspaceId: string, agentId: string) {
       autoModelMigration: agents.autoModelMigration,
     })
     .from(agents)
-    .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)))
+    .where(
+      and(
+        eq(agents.id, agentId),
+        eq(agents.workspaceId, workspaceId),
+        isNull(agents.deletedAt),
+      ),
+    )
     .limit(1)
     .for("update");
   return agent;
+}
+
+/** A deleted agent's row with this id; any other id answers false. */
+export async function agentDeleted(
+  db: Database,
+  workspaceId: string,
+  agentId: string,
+): Promise<boolean> {
+  if (!UUID.test(agentId) || !UUID.test(workspaceId)) return false;
+  const [row] = await db
+    .select({ id: agents.id })
+    .from(agents)
+    .where(
+      and(
+        eq(agents.id, agentId.toLowerCase()),
+        eq(agents.workspaceId, workspaceId),
+        isNotNull(agents.deletedAt),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
 }
 
 /**
@@ -424,6 +466,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         .where(
           and(
             eq(agents.workspaceId, workspaceId),
+            isNull(agents.deletedAt),
             visibleTo(
               db,
               workspaceId,
@@ -531,6 +574,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         .where(
           and(
             eq(agents.workspaceId, workspaceId),
+            isNull(agents.deletedAt),
             visibleTo(db, workspaceId, person, reader.outsideAccess),
           ),
         );
@@ -617,6 +661,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           })
           .onConflictDoNothing({
             target: [agents.workspaceId, agents.slug],
+            where: isNull(agents.deletedAt),
           })
           .returning({ id: agents.id });
         if (inserted.length === 0) return { outcome: "slug_taken" };
@@ -808,6 +853,81 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         const detail = await detailOf(tx, input.workspaceId, agent.id);
         if (!detail) throw new Error(`agent ${agent.id} vanished in its tx`);
         return { outcome: "updated", detail, saved };
+      });
+    },
+
+    archive(input) {
+      return db.transaction(async (tx) => {
+        // Membership, then the agent's keys, then the agent: the order a
+        // session start takes them in (requester-locks.ts). The issue lock
+        // first keeps a new key out of the set locked here.
+        await lockAgentKeyIssue(tx, input.agentId);
+        const userId = input.principal.actor?.userId;
+        if (userId) await lockedRole(tx, input.workspaceId, userId);
+        await tx
+          .select({ id: apiKeys.id })
+          .from(apiKeys)
+          .where(
+            and(
+              eq(apiKeys.workspaceId, input.workspaceId),
+              eq(apiKeys.agentId, input.agentId),
+              isNull(apiKeys.revokedAt),
+            ),
+          )
+          .orderBy(apiKeys.id)
+          .for("update");
+        const locked = await lockAgentToChange(tx, input, input.agentId);
+        if ("outcome" in locked) return locked;
+        const { agent } = locked;
+        await tx
+          .update(agents)
+          .set({
+            status: "archived",
+            deletedAt: DB_NOW,
+            deletedBy: input.deletedBy,
+            updatedAt: DB_NOW,
+          })
+          .where(eq(agents.id, agent.id));
+        // Before the identities, which would revoke their installs' bindings
+        // without naming them for the receipt.
+        const bindings = await tx
+          .update(surfaceBindings)
+          .set({
+            status: "revoked",
+            home: false,
+            revokedAt: DB_NOW,
+            updatedAt: DB_NOW,
+            revision: sql`${surfaceBindings.revision} + 1`,
+          })
+          .where(
+            and(
+              eq(surfaceBindings.agentId, agent.id),
+              isNull(surfaceBindings.revokedAt),
+            ),
+          )
+          .returning({ id: surfaceBindings.id });
+        const identityIds = await revokeAgentIdentities(
+          tx,
+          agent.id,
+          input.deletedBy,
+        );
+        await destroyAgentSlackAppSecrets(tx, input.workspaceId, agent.id);
+        const keys = await tx
+          .update(apiKeys)
+          .set({ revokedAt: DB_NOW })
+          .where(and(eq(apiKeys.agentId, agent.id), isNull(apiKeys.revokedAt)))
+          .returning({ id: apiKeys.id });
+        const receiptId = await writeReceipt(tx, input.principal, {
+          operation: "delete_agent",
+          workspaceId: input.workspaceId,
+          agentId: agent.id,
+          result: {
+            agent_identity_ids: identityIds,
+            surface_binding_ids: bindings.map((row) => row.id),
+            api_key_ids: keys.map((row) => row.id),
+          },
+        });
+        return { outcome: "archived", receiptId };
       });
     },
 

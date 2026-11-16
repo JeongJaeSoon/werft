@@ -291,6 +291,37 @@ export async function revokeInstallationIdentities(
   for (const identity of active) await revokeIdentityRow(tx, identity, null);
 }
 
+/**
+ * Revokes the agent's active identities, with their bindings and bot token
+ * names, for the agent's delete. The caller holds the agent row's lock.
+ */
+export async function revokeAgentIdentities(
+  tx: Database,
+  agentId: string,
+  revokedBy: string,
+): Promise<string[]> {
+  const active = await tx
+    .select({
+      id: agentIdentities.id,
+      workspaceId: agentIdentities.workspaceId,
+      agentId: agentIdentities.agentId,
+      installationId: agentIdentities.installationId,
+    })
+    .from(agentIdentities)
+    .where(
+      and(
+        eq(agentIdentities.agentId, agentId),
+        eq(agentIdentities.status, "active"),
+      ),
+    )
+    .orderBy(asc(agentIdentities.id))
+    .for("update");
+  for (const identity of active) {
+    await revokeIdentityRow(tx, identity, revokedBy);
+  }
+  return active.map((identity) => identity.id);
+}
+
 async function revoke(
   db: Database,
   input: Parameters<AgentIdentityStore["revoke"]>[0],

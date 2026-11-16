@@ -134,6 +134,7 @@ function memoryStore(
     releaseSuperseded: async () => false,
     create: async () => ({ outcome: "created", detail }),
     update: async () => ({ outcome: "updated", detail, saved: null }),
+    archive: async () => ({ outcome: "not_found" }),
     recordDraftFailure: async () => true,
     hasGitHubSettings: async () => settingsRow,
     autoModelMigration: async () => true,

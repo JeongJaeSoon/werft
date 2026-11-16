@@ -255,6 +255,12 @@ export const agentsKo = {
   "agent.tabs.admins": "관리자",
   "agent.tabs.toRelease": "릴리스 탭으로",
   "agent.back": "에이전트 목록",
+  "agent.delete": "에이전트 삭제",
+  "agent.deleteHint":
+    "새 세션을 더 받지 않고, Slack 연결과 에이전트 API 키도 함께 끊깁니다. 지난 세션은 그대로 볼 수 있습니다.",
+  "agent.deleteTitle": "다음 에이전트를 삭제할까요? {name}",
+  "agent.deleteConsequence":
+    "되돌릴 수 없습니다. 같은 식별자는 새 에이전트에 다시 쓸 수 있습니다.",
   "agent.panel.none": "없음",
   "agent.card.releasedAt": "릴리스 {at}",
   "agent.overview.notActive":
@@ -680,6 +686,12 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.tabs.admins": "Admins",
   "agent.tabs.toRelease": "Go to the Release tab",
   "agent.back": "Agents",
+  "agent.delete": "Delete agent",
+  "agent.deleteHint":
+    "It takes no new sessions, and its Slack connection and agent API keys are cut too. Past sessions stay readable.",
+  "agent.deleteTitle": "Delete agent {name}?",
+  "agent.deleteConsequence":
+    "This cannot be undone. A new agent can use the same identifier.",
   "agent.panel.none": "None",
   "agent.card.releasedAt": "Released {at}",
   "agent.overview.notActive":
@@ -1214,6 +1226,12 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.column.state": "状態",
   "agents.slackActionShort": "Slack の対応が必要",
   "agent.back": "エージェント一覧",
+  "agent.delete": "エージェントを削除",
+  "agent.deleteHint":
+    "新しいセッションを受け付けなくなり、Slack の接続とエージェントの API キーも切れます。過去のセッションはそのまま見られます。",
+  "agent.deleteTitle": "エージェント「{name}」を削除しますか？",
+  "agent.deleteConsequence":
+    "元に戻せません。同じ識別子は新しいエージェントで使えます。",
   "agent.panel.none": "なし",
   "agent.card.releasedAt": "リリース {at}",
 

@@ -1394,6 +1394,13 @@
       "when": 1794840401522,
       "tag": "0289_soft_delete_user_rows",
       "breakpoints": true
+    },
+    {
+      "idx": 290,
+      "version": "7",
+      "when": 1794852563037,
+      "tag": "0290_agent_archive",
+      "breakpoints": true
     }
   ]
 }

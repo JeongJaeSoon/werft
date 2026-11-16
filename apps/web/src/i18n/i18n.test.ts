@@ -106,6 +106,7 @@ describe("i18n", () => {
   test("every danger zone button's word is inside its row title", () => {
     const rows = [
       ["teams.delete", "workspace.delete"],
+      ["agent.delete", "workspace.delete"],
       ["workspace.tokenDelete", "workspace.delete"],
       ["github.apps.removeRow", "github.apps.remove"],
       ["agentGitHub.disableRow", "agentGitHub.disableConfirm"],

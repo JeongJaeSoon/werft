@@ -3668,9 +3668,19 @@ export const agents = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /** Set by a delete; the row is kept and every agent read skips it. */
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: uuid("deleted_by").references(() => users.id),
   },
   (table) => [
-    uniqueIndex("agents_workspace_slug_idx").on(table.workspaceId, table.slug),
+    // A deleted agent's slug is free for a new one.
+    uniqueIndex("agents_workspace_slug_idx")
+      .on(table.workspaceId, table.slug)
+      .where(sql`${table.deletedAt} IS NULL`),
+    check(
+      "agents_deleted_check",
+      sql`(${table.deletedAt} IS NULL) = (${table.deletedBy} IS NULL) AND (${table.deletedAt} IS NULL OR ${table.status} = 'archived')`,
+    ),
     foreignKey({
       name: "agents_draft_version_fk",
       columns: [table.id, table.draftVersionId],

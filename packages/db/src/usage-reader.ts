@@ -698,7 +698,13 @@ export function createPostgresUsageReader(db: Database): UsageReader {
       const [row] = await db
         .select({ id: agents.id })
         .from(agents)
-        .where(and(eq(agents.workspaceId, ownerId), eq(agents.id, agentId)));
+        .where(
+          and(
+            eq(agents.workspaceId, ownerId),
+            eq(agents.id, agentId),
+            isNull(agents.deletedAt),
+          ),
+        );
       return row !== undefined;
     },
 

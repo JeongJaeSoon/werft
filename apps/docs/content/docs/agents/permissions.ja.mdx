@@ -114,6 +114,7 @@ curl -sS "$API/v1/agents/$AID/admins" "${WEB[@]}" | jq '{users: [.users[].email]
 | `DELETE /v1/agents/{id}/admins/users/{user_id}`, `…/teams/{team_id}` | 解除 |
 | `PUT /v1/agents/{id}/managing-team` `{"team_id"}` | 担当チームの指定・変更 |
 | `GET /v1/administered-agents` | 自分が管理しているエージェント |
+| `DELETE /v1/agents/{id}` | エージェントを削除する(コンソール: **詳細設定** → **危険な操作**)。新しいセッションを受け付けなくなり、Slack の接続とエージェントキーを同じリクエストで切る。過去のセッションはそのまま読め、以後このエージェントへのリクエストはすべて `404`、slug は新しいエージェントが使える。API キーではできない(`403`) |
 
 ## 認証情報の紐付け
 

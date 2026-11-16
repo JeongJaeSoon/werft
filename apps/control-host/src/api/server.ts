@@ -1,6 +1,7 @@
 import { REQUEST_BODY_MAX_BYTES } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
+  agentDeleted,
   agentGitHubSettingsOf,
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
@@ -247,7 +248,10 @@ import {
   registerAgentMcpRoutes,
   registerAgentWorkspaceMcpRoutes,
 } from "./routes/agents/agent-mcp.ts";
-import { registerAgentRoutes } from "./routes/agents/agents.ts";
+import {
+  refuseDeletedAgents,
+  registerAgentRoutes,
+} from "./routes/agents/agents.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerAgentGitHubRoutes } from "./routes/github/agent-github.ts";
 import { registerGitHubAppRoutes } from "./routes/github/github-app.ts";
@@ -1297,6 +1301,9 @@ const app = createApiApp({
     });
   },
   registerRoutes: (router) => {
+    refuseDeletedAgents(router, (workspaceId, agentId) =>
+      agentDeleted(db, workspaceId, agentId),
+    );
     registerAuthRoutes(router, auth);
     registerInviteRoutes(router, invites);
     registerWorkspaceRoutes(router, {

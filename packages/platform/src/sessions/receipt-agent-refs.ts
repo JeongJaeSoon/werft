@@ -45,6 +45,7 @@ export const RECEIPT_AGENT_REFS: Partial<Record<ReceiptOperation, AgentRefs>> =
       ...ON_AGENT,
       releases: ["release_id", "previous_release_id"],
     },
+    delete_agent: ON_AGENT,
     set_agent_managing_team: ON_AGENT,
     set_agent_usage: ON_AGENT,
     set_agent_caller_limits: ON_AGENT,

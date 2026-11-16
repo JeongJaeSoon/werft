@@ -296,6 +296,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/agents",
     "GET /v1/agents/{id}",
     "PATCH /v1/agents/{id}",
+    "DELETE /v1/agents/{id}",
     "POST /v1/agents/{id}/releases",
     "POST /v1/agents/{id}/activate",
     "GET /v1/connections",

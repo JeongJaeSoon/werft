@@ -9,6 +9,7 @@ import {
   apiErrorResponseSchema,
   countAgentsResponseSchema,
   createAgentReleaseResponseSchema,
+  deleteAgentResponseSchema,
   type ListAgentsQuery,
   listAgentsResponseSchema,
   listConnectionOptionsResponseSchema,
@@ -34,7 +35,7 @@ import {
   testCatalog,
 } from "../../../testing/catalog.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
-import { registerAgentRoutes } from "./agents.ts";
+import { refuseDeletedAgents, registerAgentRoutes } from "./agents.ts";
 
 const createApiApp = recordRouteErrors("routes/agents/agents.test.ts");
 
@@ -149,6 +150,7 @@ function store(overrides: Partial<AgentStore> = {}): AgentStore {
     releaseSuperseded: async () => false,
     create: async () => ({ outcome: "created", detail }),
     update: async () => ({ outcome: "updated", detail, saved: null }),
+    archive: async () => ({ outcome: "archived", receiptId: RECEIPT }),
     recordDraftFailure: async () => true,
     hasGitHubSettings: async () => false,
     autoModelMigration: async () => true,
@@ -209,6 +211,7 @@ function app(
     unbound?: string[];
     /** The release's connection is gone from the catalog. */
     blocked?: boolean;
+    deleted?: (workspaceId: string, agentId: string) => Promise<boolean>;
   } = {},
 ) {
   const catalog = testCatalog({
@@ -253,6 +256,8 @@ function app(
             service.createAgent(asPerson(caller), body),
           updateAgent: (caller, id, body) =>
             service.updateAgent(asPerson(caller), id, body),
+          deleteAgent: (caller, id) =>
+            service.deleteAgent(asPerson(caller), id),
           createRelease: (caller, id, body) =>
             service.createRelease(asPerson(caller), id, body),
           activateAgent: (caller, id, body) =>
@@ -260,7 +265,10 @@ function app(
         };
   return createApiApp({
     authMode: "none",
-    registerRoutes: (router) => registerAgentRoutes(router, routed),
+    registerRoutes: (router) => {
+      if (options.deleted) refuseDeletedAgents(router, options.deleted);
+      registerAgentRoutes(router, routed);
+    },
   });
 }
 
@@ -993,6 +1001,67 @@ describe("PATCH /v1/agents/{id}", () => {
     expect(
       (await send(keyOnly(), "PATCH", `/v1/agents/${AGENT}`, { name: "x" }))
         .status,
+    ).toBe(403);
+  });
+});
+
+describe("DELETE /v1/agents/{id}", () => {
+  test("archives the agent as the caller and answers with the receipt", async () => {
+    let archived: unknown;
+    const response = await send(
+      app(
+        store({
+          archive: async (input) => {
+            archived = input;
+            return { outcome: "archived", receiptId: RECEIPT };
+          },
+        }),
+      ),
+      "DELETE",
+      `/v1/agents/${AGENT}`,
+    );
+    expect(response.status).toBe(200);
+    expect(deleteAgentResponseSchema.parse(await response.json())).toEqual({
+      receipt_id: RECEIPT,
+    });
+    expect(archived).toMatchObject({ agentId: AGENT, deletedBy: OWNER_USER });
+  });
+
+  test("a deleted agent is not found to a second delete and to every agent route", async () => {
+    const deleted = new Set<string>();
+    const api = app(
+      store({
+        archive: async ({ agentId }) => {
+          deleted.add(agentId);
+          return { outcome: "archived", receiptId: RECEIPT };
+        },
+      }),
+      { deleted: async (_workspaceId, agentId) => deleted.has(agentId) },
+    );
+    expect((await send(api, "DELETE", `/v1/agents/${AGENT}`)).status).toBe(200);
+    for (const [method, path] of [
+      ["DELETE", `/v1/agents/${AGENT}`],
+      ["GET", `/v1/agents/${AGENT}`],
+      ["POST", `/v1/agents/${AGENT}/activate`],
+    ] as const) {
+      const response = await send(api, method, path, {});
+      expect(response.status).toBe(404);
+      expect(await codeOf(response)).toBe("NOT_FOUND");
+    }
+  });
+
+  test("an unknown agent is 404 and an API key is refused", async () => {
+    expect(
+      (
+        await send(
+          app(store({ archive: async () => ({ outcome: "not_found" }) })),
+          "DELETE",
+          `/v1/agents/${AGENT}`,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (await send(keyOnly(), "DELETE", `/v1/agents/${AGENT}`)).status,
     ).toBe(403);
   });
 });
