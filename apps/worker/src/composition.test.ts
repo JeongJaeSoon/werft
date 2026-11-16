@@ -522,21 +522,15 @@ describe("user variables from the claim", () => {
     autoMode: { hard_deny: ["Never touch billing."] },
   };
 
-  test("the worker announces engine_settings now that runtimeStart passes them on", () => {
-    expect(WORKER_CAPABILITIES.engine_settings).toBe(true);
-  });
-
-  test("runtimeStart hands the claim's engine settings to the engine side, and only then", () => {
+  test("run rules an older server still sends are neither announced nor passed on", () => {
+    expect(WORKER_CAPABILITIES.engine_settings).toBeUndefined();
     const withSettings = {
       ...launch(),
       runtimeConfig: { ...runtimeConfig, engine_settings: engineSettings },
     };
-    expect(
-      runtimeStart(config, claude, withSettings).config.engineSettings,
-    ).toEqual(engineSettings);
-    expect(
-      "engineSettings" in runtimeStart(config, claude, launch()).config,
-    ).toBe(false);
+    expect(runtimeStart(config, claude, withSettings).config).toEqual(
+      runtimeStart(config, claude, launch()).config,
+    );
   });
 
   test("the engine settings never move the fingerprint a checkpoint is stamped with", () => {

@@ -3,45 +3,13 @@ title: "Permissions"
 description: The tools an agent can use, human approval, and the people who administer an agent and its credential bindings
 ---
 
-An agent's permissions have three layers: the tools and permission mode a release pins plus the workspace's and the agent's run rules, the permission requests that a person answers, and the people who administer the agent and connect credential names.
+An agent's permissions have three layers: the tools and permission mode a release pins, the permission requests that a person answers, and the people who administer the agent and connect credential names.
 
-## Tools: set by the release and the run rules
+## Tools: set by the release
 
-A release pins every built-in tool of its connection's runtime (the release response's `effective_tools.tools`). Which of them to block is set by the workspace's and the agent's run rules. A tool on a deny list is denied without a permission request, and the model receives an error `tool_result`. The script below calls `WebFetch` after `WebFetch` was added to the workspace run rules' deny list.
+A release pins every built-in tool of its connection's runtime (the release response's `effective_tools.tools`). There is no setting that blocks a chosen built-in tool. Whether a tool asks a person before it runs is set by the permission mode below and by the workspace rules built into the platform (the pre-allowed list and the ask list).
 
-```bash
-created=$(curl -sS "$API/v1/sessions" \
-  -H "Authorization: Bearer $KEY" \
-  -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"outside","steps":[{"tool":"WebFetch","input":{"url":"https://example.com","prompt":"summarize"}}],"final":"done"}' \
-    '{agent_release_id: env.WERFT_AGENT_RELEASE_ID, repository_id: "sample-app", message: $m}')")
-SID=$(echo "$created" | jq -r .session_id)
-until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
-  sleep 2
-done
-curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
-  | awk '/^event: tool_result/ { getline; sub(/^data: /, ""); print }' \
-  | jq -c '.data | {is_error, content}' || true
-```
-
-```text
-curl: (28) Operation timed out after 5006 milliseconds with 4482 bytes received
-{"is_error":true,"content":"<tool_use_error>Error: No such tool available: WebFetch. WebFetch is disabled for this session, in subagents as well as here.</tool_use_error>"}
-```
-
-`curl: (28)` is `--max-time` cutting the stream.
-
-Two places block tools, with different reach. A session is held to the union of both.
-
-| | Workspace run rules | Agent run rules |
-| --- | --- | --- |
-| Who sets them | Owners and admins (workspace settings → Run rules) | The agent's admins (agent page → Run rules) |
-| Where they apply | Every agent session in the workspace | That agent's sessions |
-| What they take | Allow, ask and deny lists, and the auto-mode lists | The same; an allow only works inside what the workspace allows |
-| A change takes effect | From the next claim; a session already started only gets the narrowing part | The same |
-
-A card's `capabilities.forbidden` takes those tools out of that agent's releases. In a card's `tool_policy`, the default for MCP tools is `ask`. What makes a built-in tool ask a person before it runs is the permission mode and the run rules' ask list.
+A card's `capabilities.forbidden` applies to MCP tools. If an MCP tool the release allows is on that list, the release cannot be created. In a card's `tool_policy`, the default for MCP tools is `ask`.
 
 ## Permission mode
 

@@ -169,7 +169,7 @@ get "/v1/sessions/$SID" | jq -c '{status, runtime, pending_request_count}'
 get "/v1/sessions/$SID/usage" | jq -r .cost.amount_usd
 ```
 
-세션 상세의 `runtime.permission_mode`가 `auto`이고 `pending_request_count`가 0이다. 2026-10 실측에서 `auto`는 Bash 호출마다 분류기 요청(입력 약 4만3천 토큰)이 하나씩 더 나가서 비용은 약 0.15달러였다. 분류기 판정이 바뀔 수 있으므로 거부된 호출이 있었는지는 이벤트 스트림의 `tool_result`에서 본다. 무엇을 묻고 막을지는 워크스페이스와 에이전트의 실행 규칙으로 더 좁힌다.
+세션 상세의 `runtime.permission_mode`가 `auto`이고 `pending_request_count`가 0이다. 2026-10 실측에서 `auto`는 Bash 호출마다 분류기 요청(입력 약 4만3천 토큰)이 하나씩 더 나가서 비용은 약 0.15달러였다. 분류기 판정이 바뀔 수 있으므로 거부된 호출이 있었는지는 이벤트 스트림의 `tool_result`에서 본다.
 
 ## 비용
 

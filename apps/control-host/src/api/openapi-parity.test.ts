@@ -20,7 +20,6 @@ import type {
   AgentWorkspaceMcpService,
   ApiKeyService,
   CredentialBindingService,
-  EngineSettingsService,
   EnvVariableService,
   GitHubAppService,
   GitHubRepositoryService,
@@ -64,7 +63,6 @@ import {
   registerAgentWorkspaceMcpRoutes,
 } from "./routes/agents/agent-mcp.ts";
 import { registerAgentRoutes } from "./routes/agents/agents.ts";
-import { registerEngineSettingsRoutes } from "./routes/agents/engine-settings.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerAgentGitHubRoutes } from "./routes/github/agent-github.ts";
 import { registerGitHubAppRoutes } from "./routes/github/github-app.ts";
@@ -220,7 +218,6 @@ function apiApp() {
       registerAgentGitHubRoutes(router, {} as AgentGitHubService);
       registerAgentMcpRoutes(router, {} as AgentMcpService);
       registerAgentWorkspaceMcpRoutes(router, {} as AgentWorkspaceMcpService);
-      registerEngineSettingsRoutes(router, {} as EngineSettingsService);
       registerAgentPullRequestRoutes(router, {} as AgentPullRequestService);
       registerGitHubWorkRoutes(router, {} as GitHubWorkService);
       registerSessionAttributionRoutes(router, {} as SessionAttributionService);

@@ -174,7 +174,6 @@ export function assertStartable(
   };
   if (config.maxTurns !== undefined) refuse("a turn limit");
   if ((config.disallowedTools ?? []).length > 0) refuse("deny rules");
-  if (config.engineSettings !== undefined) refuse("engine permission rules");
   // Only the platform's own servers, which the relay judges call by call; a
   // remote server an administrator named has no such path here.
   const remote = bundle.mcpServers.filter((server) => server.platform !== true);

@@ -95,7 +95,9 @@ export const checkpointRefSchema = z.object({
 //     rules the engine is started with in every permission mode
 //   engine_settings: `runtime_config` may carry `engine_settings`, the
 //     merged permission and auto mode rules the engine's settings are
-//     extended with
+//     extended with. Run rules no longer apply: the server sends neither
+//     field and ignores the key, which a worker in the support window may
+//     still announce
 //   response_language: `runtime_config` may carry `response_language`, the
 //     language the engine is asked to answer in
 //   answer_surface: a pending-control answer may carry `answer_surface`, where
@@ -367,16 +369,9 @@ export const runtimeExtensionSchema = z
   })
   .strict();
 
-// The settings the platform merged for one claim: the workspace's and the
-// agent's permission rules, and the auto mode classifier's rules in that
-// order. The worker appends them after its own baseline rules; it never
-// replaces the baseline and never reorders what the platform merged.
-// `permissions.deny` takes the pattern form (`Bash(rm:*)`); a rule that names
-// a whole built-in tool goes in `disallowed_tools`. An `mcp__<server>__<tool>`
-// or `mcp__<server>__*` rule is written in the same deny list but reaches
-// neither field: the MCP
-// egress enforces it per call, deny first (`mergeEngineSettings` splits it
-// out as `mcpDeny`).
+// The workspace's and the agent's run rules a claim once carried. Run rules
+// no longer apply, so the server never sends this; the schema stays while a
+// worker or a stored restore config in the support window may hold it.
 const ENGINE_SETTINGS_RULES_MAX = 128;
 // Classifier rules are sentences, not patterns.
 const ENGINE_CLASSIFIER_RULES_MAX = 64;
@@ -429,12 +424,9 @@ export const runtimeConfigSchema = z
     // With an MCP server, also its `mcp__<name>__<tool>` names the release
     // allows.
     tools: z.array(z.string().min(1)),
-    // Whole built-in tool denies in the engine's spelling, from the workspace
-    // and agent engine settings and the admin deny, merged by the platform.
-    // The engine gets them as `disallowedTools`, which holds in every
-    // permission mode. `mcp__` rules are not here: the MCP egress enforces
-    // them per call. Absent when nothing is denied, so a claim
-    // without rules stays what it was. In the strict claim config, so a
+    // Whole built-in tool denies in the engine's spelling. The engine gets
+    // them as `disallowedTools`, which holds in every permission mode.
+    // Absent when nothing is denied. In the strict claim config, so a
     // worker that does not know the field refuses the claim instead of
     // running without the rules. Not part of any fingerprint.
     disallowed_tools: z
@@ -442,11 +434,7 @@ export const runtimeConfigSchema = z
       .min(1)
       .max(PERMISSION_RULES_MAX)
       .optional(),
-    // Workspace and agent settings merged for this claim. Absent when
-    // neither sets any, so a claim without them stays what it was. In the
-    // strict claim config, so a worker that does not know the field refuses
-    // the claim instead of running without a deny. Not part of any
-    // fingerprint: the workspace's settings can change between claims.
+    // No longer sent (see `engineSettingsSchema`); a worker ignores it.
     engine_settings: engineSettingsSchema.optional(),
     // The language the agent's release asks the engine to answer in; absent
     // for `follow-user` and for a release made before the field. Only sent to

@@ -39,7 +39,6 @@ import {
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
-import { WorkspaceEngineSettings } from "./workspace-engine-settings.tsx";
 
 // The server's bounds; the web takes contracts as types only, so a test
 // keeps these equal to the contract's values.
@@ -79,7 +78,6 @@ export function WorkspaceSettingsScreen() {
     <WorkspacePage>
       <OutcomeLine outcome={outcome} />
       <Basics />
-      <WorkspaceEngineSettings />
       {editable ? (
         <>
           <AgentAccess onOutcome={setOutcome} />

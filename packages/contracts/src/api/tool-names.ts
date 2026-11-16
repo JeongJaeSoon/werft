@@ -58,7 +58,7 @@ export function mcpToolOfServer(name: string, server: string): boolean {
 
 /**
  * The one rule for an `mcp__` tool name that is allowed (an agent's MCP
- * settings), blocked (an engine settings deny) and compared (what a session runs).
+ * settings), blocked (a release deny) and compared (what a session runs).
  */
 export const mcpToolNameSchema = z
   .string()

@@ -58,9 +58,7 @@ describe("visibleMcpTools", () => {
     ]);
   });
 
-  test("unreadable engine rules are the caller's empty set: nothing is visible", () => {
-    // claim-engine-settings returns null for unreadable rules and the db
-    // adapter answers [] without calling this; the empty visible set denies.
+  test("an empty visible set denies", () => {
     expect(mcpToolPermitted([], "docs", "read")).toBe(false);
   });
 });

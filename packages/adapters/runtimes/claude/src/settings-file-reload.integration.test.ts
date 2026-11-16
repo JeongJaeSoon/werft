@@ -53,7 +53,6 @@ async function run(input: {
   turns: Turn[] | ((settingsPath: string) => Turn[]);
   /** Runs after the turn of that index settles, before the next starts. */
   between?: (path: string, after: number) => void;
-  denyFromStart?: boolean;
 }) {
   isolated = await createIsolatedWorkspace({ prefix: "settings-reload-" });
   const { home, workspace } = isolated;
@@ -92,9 +91,6 @@ async function run(input: {
     correlationId: "settings-reload",
     cwd: workspace,
     home,
-    ...(input.denyFromStart
-      ? { engineSettings: { permissions: { deny: [DENY_LATER] } } }
-      : {}),
     maxTurns: 5,
     mode: "new",
     model: MODEL,
@@ -150,19 +146,6 @@ const withLaterDeny = (text: string) => {
 };
 
 describe("the engine's --settings file during a session", () => {
-  test("a deny rule in the file from the start stops the call", async () => {
-    const { made, results } = await run({
-      denyFromStart: true,
-      turns: [
-        { id: "first", command: "mkdir first-dir" },
-        { id: "later", command: "mkdir later-dir" },
-      ],
-    });
-    expect(made("first-dir")).toBe(true);
-    expect(made("later-dir")).toBe(false);
-    expect(results.get("toolu_later")).toContain("has been denied");
-  }, 120_000);
-
   test("a deny rule written into the file between turns is not read", async () => {
     let rewritten = "";
     const { made, path } = await run({

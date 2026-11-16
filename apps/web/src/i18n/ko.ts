@@ -7,7 +7,6 @@ import { agentsKo } from "./agents.ts";
 import { apiKeysKo } from "./api-keys.ts";
 import { authKo } from "./auth.ts";
 import { commonKo } from "./common.ts";
-import { engineSettingsKo } from "./engine-settings.ts";
 import { errorsKo } from "./errors.ts";
 import { executionLimitsKo } from "./execution-limits.ts";
 import { githubKo } from "./github.ts";
@@ -248,7 +247,6 @@ export const ko = {
   ...githubUserLinkKo,
   ...agentGitHubKo,
   ...agentAccessKo,
-  ...engineSettingsKo,
   ...usageKo,
   ...achievementsKo,
   ...achievementRulesKo,

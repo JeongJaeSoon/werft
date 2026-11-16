@@ -58,9 +58,9 @@ Earlier cards had "Role" (`role`) and "Instructions" (`instructions`) fields, an
 
 Name (1–120 characters) and description (0–2,000 characters) are fields of the agent, not the card. Send them as `name` and `description` to `POST /v1/agents` and `PATCH /v1/agents/{id}`.
 
-## Built-in tools and run rules
+## Built-in tools
 
-A card does not choose built-in tools. A release pins every built-in tool of its connection's runtime, and what to ask about or block is set by the workspace's and the agent's run rules (allow, ask, deny, and the auto-mode lists). The deny list is the union of the two. Edit the run rules in the workspace settings and on the agent page's "Run rules" tab ([Permissions](/agents/permissions)).
+A card does not choose built-in tools. A release pins every built-in tool of its connection's runtime, and what to ask a person about is set by the permission mode and the workspace rules built into the platform ([Permissions](/agents/permissions)).
 
 - An existing card's `forbidden` shows as a list, and "Clear blocked tools" empties it.
 

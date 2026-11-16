@@ -16,7 +16,7 @@ import type {
 } from "@werft-ai/runtime-core";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import type { DriverRun, RuntimeHooks } from "./driver.ts";
-import { modeSettings, withEngineSettings } from "./engine-settings.ts";
+import { modeSettings } from "./engine-settings.ts";
 import { MEMORY_READ_GUIDANCE, readsOnlyMemory } from "./memory-read.ts";
 import { MirrorProgress } from "./mirror-progress.ts";
 import { expectedPluginSkills } from "./plugin-skills.ts";
@@ -211,15 +211,11 @@ export function buildSdkOptions(
     ...(config.responseLanguage === undefined
       ? {}
       : { language: ENGINE_LANGUAGE_NAMES[config.responseLanguage] }),
-    ...withEngineSettings(
-      modeSettings({
-        cwd: config.cwd,
-        permissionMode: config.permissionMode,
-        trusted: trustedTools.size > 0,
-      }),
-      config.permissionMode,
-      config.engineSettings,
-    ),
+    ...modeSettings({
+      cwd: config.cwd,
+      permissionMode: config.permissionMode,
+      trusted: trustedTools.size > 0,
+    }),
   };
   const disallowed = [...(config.disallowedTools ?? [])];
   const settle: HookCallback = async (input) => {

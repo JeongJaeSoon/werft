@@ -1,8 +1,4 @@
-import type {
-  EngineSettings,
-  PermissionMode,
-  RuntimeConfig,
-} from "@werft-ai/contracts";
+import type { PermissionMode, RuntimeConfig } from "@werft-ai/contracts";
 
 import type { AgentRun } from "./agent-run.ts";
 import type { TranscriptMirror } from "./checkpoint-manifest.ts";
@@ -70,14 +66,6 @@ export type RuntimeStartConfig = RuntimeMode & {
    * checkpoint's fingerprint.
    */
   disallowedTools?: readonly string[];
-  /**
-   * The workspace's and the agent's permission and auto mode rules, merged
-   * by the platform for this claim (`runtime_config.engine_settings`). An
-   * adapter appends them after its own baseline rules and never lets them
-   * take a baseline rule away. Absent when neither sets any. Never part of a
-   * checkpoint's fingerprint: the workspace can change them between claims.
-   */
-  engineSettings?: EngineSettings;
   /**
    * The language the agent's release asks the engine to answer in
    * (`runtime_config.response_language`). An adapter passes it through the

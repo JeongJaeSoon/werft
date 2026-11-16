@@ -6,7 +6,7 @@ description: Define an agent, create and activate a release, and bind it to a se
 An agent is a named definition in a workspace. Name and description are values for people; the definition a run uses is a card (model, tools). Every edit to the card adds a new version. A release binds one version to a provider connection, and the release an agent points to is its active release. A session is always created from a release, and it belongs to that agent.
 
 <Callout type="warn">
-Sessions run with the settings their release pinned (connection, model, runtime, built-in tools). What to ask about and what to block is set by the workspace's and the agent's run rules. Name and description are not passed to the model; how the agent should work is told by the repository's `AGENTS.md` or `CLAUDE.md`. See [Instructions and description](/agents/instructions-and-roles) and [Permissions](/agents/permissions) for details.
+Sessions run with the settings their release pinned (connection, model, runtime, built-in tools). What to ask a person about is set by the permission mode and the workspace rules built into the platform. Name and description are not passed to the model; how the agent should work is told by the repository's `AGENTS.md` or `CLAUDE.md`. See [Instructions and description](/agents/instructions-and-roles) and [Permissions](/agents/permissions) for details.
 </Callout>
 
 ## In the web console
@@ -80,7 +80,7 @@ Every agent has one responsible team. `PUT /v1/agents/{id}/managing-team` change
 
 ### Create a release
 
-A release binds one version to one provider connection (`connection_id`). If the card's `model` is not on that connection's model list, the response is 422. The release pins the run settings of that moment: the runtime for the connection's kind (at the version the image ships), every built-in tool of that runtime, and the permission mode (`auto` for a Claude model, `default` otherwise; see [Permission mode](/agents/permissions#permission-mode)). What to ask about and what to block is set by the workspace's and the agent's run rules ([Permissions](/agents/permissions)). A session created with the release runs the card's model unless it names another.
+A release binds one version to one provider connection (`connection_id`). If the card's `model` is not on that connection's model list, the response is 422. The release pins the run settings of that moment: the runtime for the connection's kind (at the version the image ships), every built-in tool of that runtime, and the permission mode (`auto` for a Claude model, `default` otherwise; see [Permission mode](/agents/permissions#permission-mode)). A session created with the release runs the card's model unless it names another.
 
 ```bash
 release=$(curl -sS "$API/v1/agents/$AID/releases" "${WEB[@]}" \

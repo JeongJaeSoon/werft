@@ -1,7 +1,6 @@
 import {
   effectiveGitHubPolicy,
   GITHUB_MCP_FIXED_TOOLS,
-  GITHUB_MCP_SERVER,
   githubMcpToolNames,
   githubMcpTools,
   githubPolicySourceOf,
@@ -16,9 +15,7 @@ import {
   type McpRefusalRecord,
   type McpSessionState,
   mcpDenyOf,
-  mcpToolDenied,
   pinnedMcpTools,
-  SavedRulesUnavailable,
   type SessionGitHubMcp,
   type SessionMcp,
   visibleMcpTools,
@@ -38,7 +35,6 @@ import {
   turns,
   workspaces,
 } from "../schema.ts";
-import { mcpDeniedBy } from "../sessions/claim-engine-settings.ts";
 
 type ReleaseMcp = {
   agentId: string;
@@ -189,47 +185,6 @@ export function creatorOf(
   return null;
 }
 
-/** What the built-in `github` server is judged on, read fresh per exchange. */
-async function withoutSavedMcpDenies(
-  db: Database,
-  session: {
-    workspaceId: string | null;
-    agentReleaseId: string | null;
-    engineSettingsStart: unknown;
-  },
-  server: string | null,
-  tools: readonly string[],
-): Promise<readonly string[]> {
-  const denied = await mcpDeniedBy(db, session);
-  if (denied === null || server === null) return [];
-  return visibleMcpTools(server, tools, denied);
-}
-
-async function blockedGitHubTools(
-  db: Database,
-  session: {
-    workspaceId: string | null;
-    agentReleaseId: string | null;
-    engineSettingsStart: unknown;
-  },
-): Promise<string[]> {
-  let denied: string[] | null;
-  try {
-    denied = await mcpDeniedBy(db, session);
-  } catch (cause) {
-    throw new SavedRulesUnavailable({ cause });
-  }
-  return GITHUB_MCP_FIXED_TOOLS.filter(
-    (tool) =>
-      denied === null ||
-      mcpToolDenied(
-        denied,
-        GITHUB_MCP_SERVER,
-        githubMcpToolNames([tool])[0] as string,
-      ),
-  );
-}
-
 export function createPostgresGitHubMcpStore(db: Database): GitHubMcpStore {
   return {
     async sessionState(sessionId) {
@@ -240,7 +195,6 @@ export function createPostgresGitHubMcpStore(db: Database): GitHubMcpStore {
           createdByUserId: sessions.createdByUserId,
           createdByApiKeyId: sessions.createdByApiKeyId,
           workspaceId: sessions.workspaceId,
-          engineSettingsStart: sessions.engineSettingsStart,
           agentId: agentReleases.agentId,
           enabled: agents.githubEnabled,
           ...githubPolicyColumns,
@@ -264,7 +218,6 @@ export function createPostgresGitHubMcpStore(db: Database): GitHubMcpStore {
         github: policy.settings === "invalid" ? null : policy.settings,
         // Off now, or off as the session started: both close it.
         enabled: (session.enabled ?? false) && policy.enabledAtStart,
-        blockedTools: await blockedGitHubTools(db, session),
         actor: creatorOf(session, session.agentId),
       };
     },
@@ -298,7 +251,6 @@ export function createPostgresMcpEgressStore(db: Database): McpEgressStore {
           createdByUserId: sessions.createdByUserId,
           createdByApiKeyId: sessions.createdByApiKeyId,
           mcpStart: sessions.mcpStart,
-          engineSettingsStart: sessions.engineSettingsStart,
         })
         .from(sessions)
         .leftJoin(workspaces, eq(workspaces.id, sessions.workspaceId))
@@ -343,17 +295,10 @@ export function createPostgresMcpEgressStore(db: Database): McpEgressStore {
         agentId: release.agentId,
         releaseId: session.agentReleaseId,
         server: effective.server,
-        // Saved `mcp__` denies are enforced here, per call and from the rows
-        // as they are now: the claim's `tools` is in the checkpoint
-        // fingerprint and stays what the release allows. Unreadable rules
-        // allow nothing. A failed read throws, so the caller answers
-        // retryably and nothing has been forwarded yet.
-        tools: await withoutSavedMcpDenies(
-          db,
-          session,
-          effective.server,
-          effective.tools,
-        ),
+        tools:
+          effective.server === null
+            ? []
+            : visibleMcpTools(effective.server, effective.tools),
         boundRefs: bound.map((row) => row.ref),
         turnId: turn === undefined ? null : String(turn.sequence),
         actor: creatorOf(session, release.agentId),
