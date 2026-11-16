@@ -365,9 +365,12 @@ worker:
 # or images.workers) gets the Localhost seccomp profile
 # <kubeletDir>/seccomp/werft/codex-sandbox.json instead; no other Pod does.
 # The path is fixed, not a setting. A Codex image with no runtime keeps
-# RuntimeDefault and its auto sessions are refused. The profile must be on
-# every worker node (the installer below writes it); a Pod on a node without
-# it fails with CreateContainerError, which the scheduler counts as a failed
+# RuntimeDefault and its auto sessions are refused. Such a Pod also requires
+# the node label werft.codex-seccomp-profile=installed (required node
+# affinity), so it waits Pending until a node holding the profile has room.
+# The installer below writes the profile and sets that label; with it off,
+# the operator does both. A labelled node that has lost the file still fails
+# the Pod with CreateContainerError, which the scheduler counts as a failed
 # launch naming the profile and the installer. Nodes must allow unprivileged
 # user namespaces (Ubuntu's kernel.apparmor_restrict_unprivileged_userns=1
 # does not): where the sandbox cannot start, auto sessions are refused.
@@ -378,23 +381,30 @@ codexSandbox:
   # the other permission modes run under RuntimeDefault.
   enabled: true
   # A DaemonSet that writes the profile (files/codex-sandbox-seccomp.json) to
-  # <kubeletDir>/seccomp/werft on each worker node and then sleeps. It runs as root,
-  # with no capabilities, no token and a read-only root, because the
-  # directory is root's; a namespace held to the restricted Pod Security
-  # level refuses it. Turn it off where the profile is put on the nodes
-  # another way (the Security Profiles Operator, a node image).
+  # <kubeletDir>/seccomp/werft on each worker node, labels that node
+  # werft.codex-seccomp-profile=installed, then sleeps. The writing init
+  # container runs as root, because the directory is root's, with no
+  # capabilities, no token and a read-only root; a namespace held to the
+  # restricted Pod Security level refuses it. The labelling container runs
+  # as uid 1000 (images.controlHost, for bun) with the directory read-only
+  # and a token whose ClusterRole can patch Nodes; a ValidatingAdmissionPolicy
+  # (Kubernetes 1.30+) holds it to its own node and that one label. The label
+  # stays when the installer goes, as the file does. Turn it off where the
+  # profile is put on the nodes another way (the Security Profiles Operator,
+  # a node image), and label those nodes yourself.
   installer:
     enabled: true
     kubeletDir: /var/lib/kubelet
-    # The image it runs: empty repository and digest is images.controlHost,
-    # which already has the shell, cp and sleep it needs. Any image with
-    # those works, pinned by digest.
+    # The image the writing init container runs: empty repository and digest
+    # is images.controlHost, which has the shell, cp and mv it needs. Any
+    # image with those works, pinned by digest.
     image:
       repository: ""
       digest: ""
+    # Each of the two containers'.
     resources:
-      requests: {cpu: 10m, memory: 16Mi}
-      limits: {memory: 32Mi}
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {memory: 96Mi}
     # Empty: worker.nodeSelector and worker.tolerations, the nodes worker
     # Pods land on.
     nodeSelector: {}

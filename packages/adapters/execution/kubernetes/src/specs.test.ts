@@ -66,6 +66,7 @@ type PodShape = {
     dnsConfig: unknown;
     dnsPolicy: string;
     hostAliases: unknown;
+    affinity?: unknown;
   };
 };
 
@@ -171,6 +172,42 @@ describe("worker Pod", () => {
         images: [`codex@sha256:${"d".repeat(64)}`],
       }),
     ).toEqual(pod);
+  });
+
+  test("a Pod given the sandbox's profile is placed only on a node labelled as holding it", () => {
+    const sandboxed = podFor(
+      { ...config, codexSandbox: { mode: "enabled", images: [intent.image] } },
+      intent,
+      "secret-name",
+      "fingerprint",
+      PROXY_ADDRESS,
+    ) as PodShape;
+    expect(sandboxed.spec.affinity).toEqual({
+      nodeAffinity: {
+        requiredDuringSchedulingIgnoredDuringExecution: {
+          nodeSelectorTerms: [
+            {
+              matchExpressions: [
+                {
+                  key: "werft.codex-seccomp-profile",
+                  operator: "In",
+                  values: ["installed"],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    });
+    expect(pod.spec.affinity).toBeUndefined();
+    const disabled = podFor(
+      { ...config, codexSandbox: { mode: "disabled" } },
+      intent,
+      "secret-name",
+      "fingerprint",
+      PROXY_ADDRESS,
+    ) as PodShape;
+    expect(disabled.spec.affinity).toBeUndefined();
   });
 
   test("the Codex sandbox turned off reaches the worker and is another isolation stamp", () => {

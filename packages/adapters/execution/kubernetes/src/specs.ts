@@ -16,7 +16,10 @@ import {
   workerLimitsOf,
 } from "@werft-ai/platform";
 import type { Pod } from "./client.ts";
-import { CODEX_SECCOMP_PROFILE } from "./codex-seccomp.ts";
+import {
+  CODEX_SECCOMP_NODE_LABEL,
+  CODEX_SECCOMP_PROFILE,
+} from "./codex-seccomp.ts";
 import type { KubernetesBackendConfig } from "./config.ts";
 
 /**
@@ -226,15 +229,41 @@ export function cpuQuantity(cpus: number): string {
  * needs while the sandbox is on. Set on the container alone, so the Pod's
  * own default stays RuntimeDefault for anything else in it.
  */
-function seccompProfileFor(
-  config: KubernetesBackendConfig,
-  image: string,
-): Record<string, string> {
-  const sandbox = config.codexSandbox;
-  return sandbox?.mode === "enabled" && sandbox.images.includes(image)
+function seccompProfileFor(sandboxed: boolean): Record<string, string> {
+  return sandboxed
     ? { localhostProfile: CODEX_SECCOMP_PROFILE, type: "Localhost" }
     : { type: "RuntimeDefault" };
 }
+
+function codexSandboxed(
+  config: KubernetesBackendConfig,
+  image: string,
+): boolean {
+  const sandbox = config.codexSandbox;
+  return sandbox?.mode === "enabled" && sandbox.images.includes(image);
+}
+
+/**
+ * A Pod given the profile goes only to a node labelled as holding it, so on
+ * a cluster with no such node it waits Pending instead of failing to start.
+ */
+const PROFILE_NODE_AFFINITY = {
+  nodeAffinity: {
+    requiredDuringSchedulingIgnoredDuringExecution: {
+      nodeSelectorTerms: [
+        {
+          matchExpressions: [
+            {
+              key: CODEX_SECCOMP_NODE_LABEL.key,
+              operator: "In",
+              values: [CODEX_SECCOMP_NODE_LABEL.value],
+            },
+          ],
+        },
+      ],
+    },
+  },
+};
 
 /**
  * The worker Pod. The nonce is not in here: the env entry for it names the
@@ -269,6 +298,7 @@ export function podFor(
   };
   const [uid, gid = uid] = config.user.split(":").map(Number);
   const tmpfs = { medium: "Memory", sizeLimit: String(config.tmpfsSizeBytes) };
+  const sandboxed = codexSandboxed(config, intent.image);
   return {
     apiVersion: "v1",
     kind: "Pod",
@@ -291,6 +321,7 @@ export function podFor(
       namespace: config.namespace,
     },
     spec: {
+      ...(sandboxed ? { affinity: PROFILE_NODE_AFFINITY } : {}),
       automountServiceAccountToken: false,
       containers: [
         {
@@ -313,7 +344,7 @@ export function podFor(
             privileged: false,
             readOnlyRootFilesystem: true,
             runAsNonRoot: true,
-            seccompProfile: seccompProfileFor(config, intent.image),
+            seccompProfile: seccompProfileFor(sandboxed),
           },
           volumeMounts: [
             { mountPath: config.workspaceDir, name: "workspace" },

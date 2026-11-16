@@ -32,7 +32,7 @@ worker namespace 하나에만 거는 `Role`이다. 어댑터가 실제로 부르
 
 `inspect()`는 끝난 Pod의 종료 사유를 `terminationReason`으로 돌려준다. Pod의 `status.reason`(`Evicted`, `DeadlineExceeded` 등)이 있으면 그 값을 쓰고, 없으면 컨테이너의 `state.terminated.reason`(`OOMKilled`, `Error`, `Completed` 등)을 쓴다. 값은 바꾸지 않고 그대로 넘긴다.
 
-예외가 하나 있다. 노드에 Codex 샌드박스 seccomp 프로필(`werft/codex-sandbox.json`)이 없어 worker 컨테이너가 `CreateContainerError`로 멈춘 Pod는, 아직 대기 중이어도 끝난 것으로 읽는다. 이때 `terminationReason`에는 노드 이름, 프로필 경로, chart의 설치 DaemonSet이 들어간다. 파일이 생기기 전까지 kubelet의 재시도는 계속 실패하므로, scheduler가 이를 launch 실패로 세어 backoff 뒤 다시 띄우고 한도에서 포기하게 하려는 것이다.
+예외가 하나 있다. 노드에 Codex 샌드박스 seccomp 프로필(`werft/codex-sandbox.json`)이 없어 worker 컨테이너가 `CreateContainerError`로 멈춘 Pod는, 아직 대기 중이어도 끝난 것으로 읽는다. 이때 `terminationReason`에는 노드 이름, 프로필 경로, chart의 설치 DaemonSet이 들어간다. 파일이 생기기 전까지 kubelet의 재시도는 계속 실패하므로, scheduler가 이를 launch 실패로 세어 backoff 뒤 다시 띄우고 한도에서 포기하게 하려는 것이다. 이 프로필을 거는 Pod는 노드 라벨 `werft.codex-seccomp-profile=installed`를 요구하는 nodeAffinity로 프로필이 있는 노드에만 배치되므로, 이 경로는 라벨은 붙었는데 파일이 없는 노드에서만 탄다.
 
 phase가 `Failed`인 Pod면 worker 컨테이너 로그의 마지막 200줄을 읽고, 그중 마지막 8 KiB만 `logTail`로 넘긴다. 한 번에 읽는 양은 64 KiB로 제한한다. 서버는 이 상한을 요청한 줄의 앞에서부터 자르므로, 읽은 양이 상한을 채우면 마지막 20줄, 그다음 마지막 1줄로 다시 읽어 로그의 실제 끝을 남긴다. 마지막 한 줄이 64 KiB보다 길면 그 끝은 읽을 수 없다. 이때는 그 줄의 앞 8 KiB를 남기고, 끝을 읽지 못했다는 표시를 붙인다. 로그를 못 읽으면 tail만 빠지고 inspect는 그대로 성공한다.
 
