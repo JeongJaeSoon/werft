@@ -108,16 +108,24 @@ export function createGitHubSettingsService(deps: {
 
   async function connectionOf(
     record: GitHubAppRecord & { role: GitHubAppRole },
-    credential: GitHubAppCredential,
+    /** Null when the App's key does not open here: GitHub is not asked. */
+    credential: GitHubAppCredential | null,
     manager: boolean,
     links: ReadonlyMap<number, GitHubInstallationLink>,
   ): Promise<GitHubSettingsConnection> {
-    const [described, listed] = await Promise.allSettled([
-      deps.directory.describe(credential),
-      deps.directory
-        .installations(credential)
-        .then((installations) => ({ installations, readAt: now() })),
-    ]);
+    const unasked: PromiseRejectedResult = {
+      status: "rejected",
+      reason: null,
+    };
+    const [described, listed] =
+      credential === null
+        ? [unasked, unasked]
+        : await Promise.allSettled([
+            deps.directory.describe(credential),
+            deps.directory
+              .installations(credential)
+              .then((installations) => ({ installations, readAt: now() })),
+          ]);
     const checkedAt = now().toISOString();
     const profile = described.status === "fulfilled" ? described.value : null;
     if (manager && profile !== null && deps.apps !== null) {
@@ -125,7 +133,7 @@ export function createGitHubSettingsService(deps: {
       await deps.apps
         .recordPermissions(
           record.id,
-          credential.appId,
+          record.appId,
           profile.permissions,
           profile.clientId,
         )
@@ -144,20 +152,18 @@ export function createGitHubSettingsService(deps: {
       snapshot = listed.value;
       if (kept) {
         await kept
-          .recordSnapshot(record.id, credential.appId, snapshot)
+          .recordSnapshot(record.id, record.appId, snapshot)
           .catch(() => undefined);
       }
     } else if (kept) {
-      snapshot = await kept
-        .snapshot(record.id, credential.appId)
-        .catch(() => null);
+      snapshot = await kept.snapshot(record.id, record.appId).catch(() => null);
     }
     const fresh = listed.status === "fulfilled";
     const installations = [...(snapshot?.installations ?? [])].sort(
       (a, b) => a.account.localeCompare(b.account) || a.id - b.id,
     );
     const counts =
-      manager && fresh
+      credential !== null && manager && fresh
         ? await Promise.all(
             installations.map((installation, index) =>
               index < INSTALLATION_COUNT_MAX
@@ -232,7 +238,10 @@ export function createGitHubSettingsService(deps: {
           ? { state: "ok", checked_at: checkedAt }
           : {
               state: "failed",
-              reason_code: githubUnavailableOf(listed.reason),
+              reason_code:
+                credential === null
+                  ? "github_app_auth_failed"
+                  : githubUnavailableOf(listed.reason),
               checked_at: checkedAt,
             },
     };
@@ -245,11 +254,15 @@ export function createGitHubSettingsService(deps: {
     const apps = deps.apps;
     if (apps === null) return [];
     const kept = deps.installations;
+    // App id by connection, for keys that do not open here.
+    const unreadable = new Map<string, number>();
     const [records, credentials, links] = await Promise.all([
       apps.list(workspaceId),
       Promise.all(
         GITHUB_APP_ROLE_VALUES.map((role) =>
-          apps.credentials(role, workspaceId),
+          apps.credentials(role, workspaceId, {
+            onUnreadable: (app) => unreadable.set(app.id, app.appId),
+          }),
         ),
       ),
       manager && kept
@@ -265,9 +278,16 @@ export function createGitHubSettingsService(deps: {
     const keyOf = new Map(credentials.flat().map((held) => [held.id, held]));
     return await Promise.all(
       records.flatMap((record) => {
-        // Deleted or replaced (same row, another App) between the two reads.
         const credential = keyOf.get(record.id);
-        return credential === undefined || credential.appId !== record.appId
+        if (credential === undefined) {
+          // Its key does not open: listed so a new key can be put. Otherwise
+          // deleted or replaced between the two reads.
+          return unreadable.get(record.id) === record.appId
+            ? [connectionOf(record, null, manager, linksOf(record.id))]
+            : [];
+        }
+        // Replaced (same row, another App) between the two reads.
+        return credential.appId !== record.appId
           ? []
           : [connectionOf(record, credential, manager, linksOf(record.id))];
       }),
