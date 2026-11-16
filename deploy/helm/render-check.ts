@@ -17,7 +17,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { packageChart } from "../../.github/scripts/chart-package.ts";
-import { CODEX_SECCOMP_PROFILE } from "../../packages/adapters/execution/kubernetes/src/codex-seccomp.ts";
+import {
+  CODEX_SECCOMP_NODE_LABEL,
+  CODEX_SECCOMP_PROFILE,
+} from "../../packages/adapters/execution/kubernetes/src/codex-seccomp.ts";
 import { parseImageRuntime } from "../../packages/runtime-core/src/image-runtime.ts";
 
 const dir = import.meta.dir;
@@ -62,6 +65,8 @@ type Manifest = {
   // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
   spec?: any;
   rules?: RoleRule[];
+  roleRef?: { name: string };
+  subjects?: { kind: string; name: string; namespace?: string }[];
 };
 
 function helmTemplate(
@@ -207,9 +212,9 @@ function check(
       fail(m, "worker ephemeral-storage is not a positive MB count");
     }
   }
-  if (manifests.some((m) => m.kind.startsWith("Cluster"))) {
-    errors.push(`${label}: a cluster-scoped RBAC object rendered`);
-  }
+  errors.push(
+    ...checkNodeLabelAccess(manifests).map((error) => `${label}: ${error}`),
+  );
 
   const workerPolicy = manifests.find(
     (m) =>
@@ -289,6 +294,112 @@ function check(
     ) {
       fail(service, "the authorizer must stay ClusterIP");
     }
+  }
+  return errors;
+}
+
+const CLUSTER_KINDS = [
+  "ClusterRole",
+  "ClusterRoleBinding",
+  "ValidatingAdmissionPolicy",
+  "ValidatingAdmissionPolicyBinding",
+];
+
+/**
+ * The only cluster-scoped objects the chart renders: the Codex profile
+ * installer's right to patch Nodes, and the admission policy holding that
+ * right to its own node and its one label. Present exactly when the installer is.
+ */
+function checkNodeLabelAccess(manifests: Manifest[]): string[] {
+  const errors: string[] = [];
+  const daemonSet = manifests.find((m) => m.kind === "DaemonSet");
+  const cluster = manifests.filter(
+    (m) =>
+      CLUSTER_KINDS.includes(m.kind) ||
+      m.kind.startsWith("Cluster") ||
+      m.kind.includes("Admission"),
+  );
+  if (daemonSet === undefined) {
+    if (cluster.length > 0) {
+      errors.push(
+        `cluster-scoped objects with no installer: ${cluster.map((m) => m.kind).join(", ")}`,
+      );
+    }
+    return errors;
+  }
+  const kinds = cluster.map((m) => m.kind).sort();
+  if (JSON.stringify(kinds) !== JSON.stringify([...CLUSTER_KINDS].sort())) {
+    errors.push(`cluster-scoped objects ${kinds.join(", ")}`);
+    return errors;
+  }
+  const of = (kind: string) => cluster.find((m) => m.kind === kind) as Manifest;
+  const role = of("ClusterRole");
+  const binding = of("ClusterRoleBinding");
+  const policy = of("ValidatingAdmissionPolicy");
+  const policyBinding = of("ValidatingAdmissionPolicyBinding");
+  const serviceAccount = daemonSet.spec.template.spec.serviceAccountName;
+  const namespace = binding.subjects?.[0]?.namespace;
+  if (
+    JSON.stringify(role.rules) !==
+    JSON.stringify([
+      { apiGroups: [""], resources: ["nodes"], verbs: ["patch"] },
+    ])
+  ) {
+    errors.push(
+      `the installer's ClusterRole is not Node patch alone: ${JSON.stringify(role.rules)}`,
+    );
+  }
+  if (
+    binding.roleRef?.name !== role.metadata.name ||
+    JSON.stringify(binding.subjects) !==
+      JSON.stringify([
+        { kind: "ServiceAccount", name: serviceAccount, namespace },
+      ]) ||
+    !namespace
+  ) {
+    errors.push(
+      "the ClusterRoleBinding grants it to another than the installer",
+    );
+  }
+  const spec = policy.spec ?? {};
+  const validations = (spec.validations ?? [])
+    .map((v: { expression: string }) => v.expression)
+    .join("\n");
+  if (
+    spec.failurePolicy !== "Fail" ||
+    JSON.stringify(spec.matchConstraints?.resourceRules) !==
+      JSON.stringify([
+        {
+          apiGroups: [""],
+          apiVersions: ["*"],
+          operations: ["UPDATE"],
+          resources: ["nodes"],
+        },
+      ]) ||
+    JSON.stringify(
+      spec.matchConditions?.map((c: { expression: string }) => c.expression),
+    ) !==
+      JSON.stringify([
+        `request.userInfo.username == 'system:serviceaccount:${namespace}:${serviceAccount}'`,
+      ]) ||
+    !validations.includes(
+      "request.userInfo.extra[?'authentication.kubernetes.io/node-name'].orValue([]) == [object.metadata.name]",
+    ) ||
+    !validations.includes(
+      `variables.labels[?'${CODEX_SECCOMP_NODE_LABEL.key}'] == optional.of('${CODEX_SECCOMP_NODE_LABEL.value}')`,
+    ) ||
+    !validations.includes("object.spec == oldObject.spec")
+  ) {
+    errors.push(
+      "the admission policy does not hold the installer to its own node and label",
+    );
+  }
+  if (
+    policyBinding.spec?.policyName !== policy.metadata.name ||
+    JSON.stringify(policyBinding.spec?.validationActions) !== '["Deny"]' ||
+    policyBinding.spec?.matchResources !== undefined
+  ) {
+    errors.push("the admission policy is not bound to deny");
   }
   return errors;
 }
@@ -2473,8 +2584,8 @@ function checkCodexSandbox(): string[] {
   } else {
     const template = daemonSet.spec.template;
     const pod = template.spec;
-    const [container, ...others] = pod.containers;
-    const sc = container?.securityContext ?? {};
+    const [install, ...otherInits] = pod.initContainers ?? [];
+    const [label, ...others] = pod.containers;
     if (
       template.metadata.annotations?.["checksum/profile"] !==
       new Bun.CryptoHasher("sha256").update(CODEX_PROFILE).digest("hex")
@@ -2483,21 +2594,30 @@ function checkCodexSandbox(): string[] {
         "the checksum annotation is not the profile's, so a new one would not roll out",
       );
     }
+    // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
+    const hardened = (c: any) => {
+      const sc = c?.securityContext ?? {};
+      return (
+        sc.allowPrivilegeEscalation === false &&
+        sc.privileged === false &&
+        sc.readOnlyRootFilesystem === true &&
+        JSON.stringify(sc.capabilities) === '{"drop":["ALL"]}' &&
+        sc.seccompProfile?.type === "RuntimeDefault" &&
+        DIGEST_REF.test(c?.image ?? "") &&
+        Boolean(c?.resources?.limits?.memory)
+      );
+    };
     if (
       others.length > 0 ||
-      (pod.initContainers ?? []).length > 0 ||
+      otherInits.length > 0 ||
       pod.automountServiceAccountToken !== false ||
       pod.hostNetwork === true ||
       pod.hostPID === true ||
       pod.securityContext?.seccompProfile?.type !== "RuntimeDefault" ||
-      sc.allowPrivilegeEscalation !== false ||
-      sc.privileged !== false ||
-      sc.readOnlyRootFilesystem !== true ||
-      JSON.stringify(sc.capabilities) !== '{"drop":["ALL"]}' ||
-      sc.seccompProfile?.type !== "RuntimeDefault" ||
-      !DIGEST_REF.test(container?.image ?? "") ||
-      !container?.resources?.limits?.memory ||
-      !container?.readinessProbe
+      pod.securityContext?.runAsNonRoot !== true ||
+      !hardened(install) ||
+      !hardened(label) ||
+      !label?.readinessProbe
     ) {
       fail(`the installer is not held down: ${JSON.stringify(pod)}`);
     }
@@ -2507,6 +2627,22 @@ function checkCodexSandbox(): string[] {
       volumes !==
       JSON.stringify([
         { name: "profile", configMap: { name: configMap?.metadata.name } },
+        {
+          name: "kube-api",
+          projected: {
+            sources: [
+              {
+                serviceAccountToken: { path: "token", expirationSeconds: 600 },
+              },
+              {
+                configMap: {
+                  name: "kube-root-ca.crt",
+                  items: [{ key: "ca.crt", path: "ca.crt" }],
+                },
+              },
+            ],
+          },
+        },
         {
           name: "host",
           hostPath: {
@@ -2520,9 +2656,43 @@ function checkCodexSandbox(): string[] {
         `the installer reaches more of the node than its directory, or another one than the backend names: ${volumes}`,
       );
     }
-    if (!container.command.join(" ").includes(`/host/${profileFile}`)) {
+    if (!install?.command.join(" ").includes(`/host/${profileFile}`)) {
       fail(
         "the installer writes another file than the profile the backend names",
+      );
+    }
+    // The root container that writes the node's directory holds no token;
+    // the one with the token is not root and only reads that directory.
+    const mounts = (c: {
+      volumeMounts?: { name: string; readOnly?: boolean }[];
+    }) =>
+      JSON.stringify(
+        (c?.volumeMounts ?? []).map((v) => `${v.name}:${v.readOnly === true}`),
+      );
+    if (
+      mounts(install) !== '["profile:true","host:false"]' ||
+      mounts(label) !== '["profile:true","host:true","kube-api:true"]' ||
+      label?.securityContext?.runAsNonRoot !== true ||
+      label?.securityContext?.runAsUser !== undefined
+    ) {
+      fail(
+        `the token and the writable node directory are not kept apart: install ${mounts(install)}, label ${mounts(label)}`,
+      );
+    }
+    const labelEnv = Object.fromEntries(
+      (label?.env ?? []).map((v: EnvVar) => [
+        v.name,
+        v.value ?? v.valueFrom?.fieldRef?.fieldPath,
+      ]),
+    );
+    if (
+      labelEnv.NODE_NAME !== "spec.nodeName" ||
+      labelEnv.NODE_LABEL_KEY !== CODEX_SECCOMP_NODE_LABEL.key ||
+      labelEnv.NODE_LABEL_VALUE !== CODEX_SECCOMP_NODE_LABEL.value ||
+      !label?.command.join(" ").includes('method: "PATCH"')
+    ) {
+      fail(
+        `the installer does not label its own node with the label the backend requires: ${JSON.stringify(labelEnv)}`,
       );
     }
   }
@@ -2569,15 +2739,22 @@ function checkCodexSandbox(): string[] {
     ]),
   ).daemonSet?.spec.template.spec;
   if (
-    moved?.volumes?.[1]?.hostPath?.path !==
+    moved?.volumes?.[2]?.hostPath?.path !==
       "/var/lib/k0s/kubelet/seccomp/werft" ||
-    !moved.containers[0].command
+    !moved.initContainers[0].command
       .join(" ")
       .includes("/host/codex-sandbox.json") ||
-    moved.containers[0].image !==
+    moved.initContainers[0].image !==
       `registry.local/busybox@sha256:${"9".repeat(64)}`
   ) {
     fail("a moved kubelet directory or installer image is not followed");
+  }
+  // The labelling needs bun, so it stays on the control-host image.
+  if (
+    moved?.containers[0].image !==
+    installerOf(on).daemonSet?.spec.template.spec.containers[0].image
+  ) {
+    fail("the installer image replaces the labelling container's");
   }
 
   const noInstaller = render([
@@ -2589,6 +2766,7 @@ function checkCodexSandbox(): string[] {
   if (
     installerOf(noInstaller).daemonSet !== undefined ||
     installerOf(noInstaller).configMap !== undefined ||
+    noInstaller.some((m) => m.kind.startsWith("Cluster")) ||
     schedulerEnvOf(noInstaller).some((v) => v.name === "CODEX_SANDBOX")
   ) {
     fail("the installer turned off still renders, or turns the sandbox off");
@@ -2599,6 +2777,7 @@ function checkCodexSandbox(): string[] {
   if (
     installerOf(off).daemonSet !== undefined ||
     installerOf(off).configMap !== undefined ||
+    off.some((m) => m.kind.startsWith("Cluster")) ||
     schedulerEnvOf(off).find((v) => v.name === "CODEX_SANDBOX")?.value !==
       "disabled"
   ) {
