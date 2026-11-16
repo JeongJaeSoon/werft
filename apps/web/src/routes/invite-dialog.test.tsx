@@ -59,8 +59,12 @@ async function open() {
   return { user, dialog };
 }
 
-const currentStep = (dialog: HTMLElement) =>
-  dialog.querySelector('[aria-current="step"]')?.textContent;
+const FORM_TITLE = "초대";
+const LINK_TITLE = "초대 링크를 만들었습니다";
+
+// The form and the link take turns in one dialog; its title says which.
+const dialogTitle = (dialog: HTMLElement) =>
+  dialog.querySelector('[data-slot="dialog-title"]')?.textContent;
 
 async function toLink() {
   const opened = await open();
@@ -135,13 +139,19 @@ describe("초대 보내기 대화상자", () => {
       ).toBe(true),
     );
     expect(screen.getByRole("dialog") === dialog).toBe(true);
-    expect(currentStep(dialog)).toContain("초대 링크");
+    expect(dialogTitle(dialog)).toBe(LINK_TITLE);
   });
 
-  test("받는 사람 단계에서 링크 단계로 넘어가고, 마지막 단계에 링크와 만료 시각이 보인다", async () => {
+  test("단계 표시 없이 폼이 같은 대화상자에서 링크와 만료 시각으로 바뀐다", async () => {
     const { api, history } = renderMembers();
     const { user, dialog } = await open();
-    expect(currentStep(dialog)).toContain("받는 사람");
+    const noStepper = () => {
+      expect(dialog.querySelector('[data-slot="stepper"]') === null).toBe(true);
+      expect(dialog.querySelector('[aria-current="step"]') === null).toBe(true);
+      expect(within(dialog).queryByRole("navigation") === null).toBe(true);
+    };
+    expect(dialogTitle(dialog)).toBe(FORM_TITLE);
+    noStepper();
     await user.type(within(dialog).getByLabelText("이메일"), "new@example.com");
     await user.selectOptions(within(dialog).getByLabelText("역할"), "admin");
     await user.click(
@@ -151,8 +161,25 @@ describe("초대 보내기 대화상자", () => {
       "초대 링크",
     )) as HTMLInputElement;
     expect(link.value).toBe(`${window.location.origin}/invite/${TOKEN}`);
-    expect(currentStep(dialog)).toContain("초대 링크");
-    expect(dialog.textContent).toContain("한 번만 보입니다");
+    expect(dialogTitle(dialog)).toBe(LINK_TITLE);
+    noStepper();
+    // Same dialog, the form gone from it.
+    expect(screen.getByRole("dialog") === dialog).toBe(true);
+    expect(within(dialog).queryByLabelText("이메일") === null).toBe(true);
+    expect(screen.getByRole("dialog", { name: LINK_TITLE }) === dialog).toBe(
+      true,
+    );
+    // The one-time warning is read with the focused link.
+    const warning = link.getAttribute("aria-describedby") ?? "";
+    expect(
+      warning
+        .split(" ")
+        .some((id) =>
+          document
+            .getElementById(id)
+            ?.textContent?.includes("한 번만 보입니다"),
+        ),
+    ).toBe(true);
     expect(history.location.search).toContain("invite.step=link");
     expect(invitePosts(api)[0]?.body).toEqual({
       email: "new@example.com",
@@ -319,7 +346,7 @@ describe("초대 보내기 대화상자", () => {
     ) as HTMLInputElement;
     expect(email.value).toBe("");
     expect(within(again.dialog).queryByLabelText("초대 링크")).toBeNull();
-    expect(currentStep(again.dialog)).toContain("받는 사람");
+    expect(dialogTitle(again.dialog)).toBe(FORM_TITLE);
   });
 
   test("링크 단계가 열리면 링크 칸에 포커스가 가고, 닫으면 여는 버튼으로 돌아온다", async () => {
@@ -330,13 +357,14 @@ describe("초대 보내기 대화상자", () => {
       within(dialog).getByRole("button", { name: "초대 링크 만들기" }),
     );
     const link = await within(dialog).findByLabelText("초대 링크");
-    await waitFor(() => expect(document.activeElement).toBe(link));
+    await waitFor(() => expect(document.activeElement === link).toBe(true));
     await copy(user, dialog);
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "구성원 초대" }),
-    );
+    expect(
+      document.activeElement ===
+        screen.getByRole("button", { name: "구성원 초대" }),
+    ).toBe(true);
   });
 
   test("닫은 뒤에 도착한 응답은 다시 연 흐름을 옮기지 않는다", async () => {
@@ -364,7 +392,7 @@ describe("초대 보내기 대화상자", () => {
     // The pending list refetches once the late answer lands.
     await waitFor(() => expect(inviteReads(api)).toBeGreaterThan(1));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(currentStep(again.dialog)).toContain("받는 사람");
+    expect(dialogTitle(again.dialog)).toBe(FORM_TITLE);
     expect(within(again.dialog).queryByLabelText("초대 링크")).toBeNull();
     expect(
       (history.location.state as unknown as Record<string, unknown>)[
@@ -385,9 +413,7 @@ describe("초대 보내기 대화상자", () => {
     );
     await within(first.dialog).findByLabelText("초대 링크");
     history.back();
-    await waitFor(() =>
-      expect(currentStep(first.dialog)).toContain("받는 사람"),
-    );
+    await waitFor(() => expect(dialogTitle(first.dialog)).toBe(FORM_TITLE));
     await first.user.click(
       within(first.dialog).getByRole("button", { name: "취소" }),
     );
@@ -400,7 +426,7 @@ describe("초대 보내기 대화상자", () => {
     await waitFor(() =>
       expect(history.location.search).toContain("invite.step=details"),
     );
-    expect(currentStep(again.dialog)).toContain("받는 사람");
+    expect(dialogTitle(again.dialog)).toBe(FORM_TITLE);
     expect(within(again.dialog).getByLabelText("이메일")).toBeDefined();
   });
 
@@ -440,9 +466,10 @@ describe("복사하지 않은 링크를 두고 나가기", () => {
     expect(
       (within(dialog).getByLabelText("초대 링크") as HTMLInputElement).value,
     ).toContain(TOKEN);
-    expect(document.activeElement).toBe(
-      within(dialog).getByRole("button", { name: "닫기" }),
-    );
+    expect(
+      document.activeElement ===
+        within(dialog).getByRole("button", { name: "닫기" }),
+    ).toBe(true);
 
     await user.click(within(dialog).getByRole("button", { name: "닫기" }));
     const leave = await screen.findByRole("dialog", { name: LEAVE });
@@ -452,9 +479,10 @@ describe("복사하지 않은 링크를 두고 나가기", () => {
       within(leave).getByRole("button", { name: "복사하지 않고 나가기" }),
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "구성원 초대" }),
-    );
+    expect(
+      document.activeElement ===
+        screen.getByRole("button", { name: "구성원 초대" }),
+    ).toBe(true);
   });
 
   test("Escape는 확인을 묻고, 확인 위의 Escape는 확인만 닫는다", async () => {
@@ -470,7 +498,9 @@ describe("복사하지 않은 링크를 두고 나가기", () => {
       expect(screen.queryByRole("dialog", { name: LEAVE })).toBeNull(),
     );
     expect(within(dialog).getByLabelText("초대 링크")).toBeDefined();
-    expect(screen.getByRole("dialog", { name: "초대" })).toBe(dialog);
+    expect(screen.getByRole("dialog", { name: LINK_TITLE }) === dialog).toBe(
+      true,
+    );
   });
 
   test("바깥 클릭은 확인을 묻는다", async () => {
@@ -502,7 +532,7 @@ describe("복사하지 않은 링크를 두고 나가기", () => {
     expect(within(dialog).queryByLabelText("초대 링크")).toBeNull();
     // The button that opened the confirmation is gone; the keyboard lands on
     // the field the next invite starts from instead of <body>.
-    await waitFor(() => expect(document.activeElement).toBe(email));
+    await waitFor(() => expect(document.activeElement === email).toBe(true));
   });
 
   test("앞 링크를 복사한 뒤 뒤로 가서 새로 만든 링크는 다시 묻는다", async () => {
@@ -516,7 +546,7 @@ describe("복사하지 않은 링크를 두고 나가기", () => {
     await user.click(
       within(dialog).getByRole("button", { name: "초대 링크 만들기" }),
     );
-    await waitFor(() => expect(currentStep(dialog)).toContain("초대 링크"));
+    await waitFor(() => expect(dialogTitle(dialog)).toBe(LINK_TITLE));
     expect(within(dialog).queryByText("초대 링크를 복사했습니다.")).toBeNull();
     await user.click(within(dialog).getByRole("button", { name: "닫기" }));
     expect(await screen.findByRole("dialog", { name: LEAVE })).toBeDefined();
@@ -547,7 +577,7 @@ describe("복사하지 않은 링크를 두고 나가기", () => {
       await user.click(
         within(dialog).getByRole("button", { name: "초대 링크 만들기" }),
       );
-      await waitFor(() => expect(currentStep(dialog)).toContain("초대 링크"));
+      await waitFor(() => expect(dialogTitle(dialog)).toBe(LINK_TITLE));
       finish();
       await new Promise((resolve) => setTimeout(resolve, 20));
       await user.click(within(dialog).getByRole("button", { name: "닫기" }));
@@ -582,7 +612,7 @@ describe("복사하지 않은 링크를 두고 나가기", () => {
       await user.click(
         within(dialog).getByRole("button", { name: "초대 링크 만들기" }),
       );
-      await waitFor(() => expect(currentStep(dialog)).toContain("초대 링크"));
+      await waitFor(() => expect(dialogTitle(dialog)).toBe(LINK_TITLE));
       await user.click(copyButton());
       const [first, second] = pending;
       second?.();
