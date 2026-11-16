@@ -21,6 +21,7 @@ import {
   type PersistentVolumeClaim,
   type Pod,
 } from "./client.ts";
+import { CODEX_SECCOMP_PROFILE } from "./codex-seccomp.ts";
 import {
   type KubernetesBackendConfig,
   validateKubernetesConfig,
@@ -28,7 +29,6 @@ import {
 import {
   ANNOTATIONS,
   bootstrapFingerprintOf,
-  CODEX_SECCOMP_PROFILE,
   COMPONENTS,
   CONTAINER_NAME,
   ISOLATION_CONTRACT,

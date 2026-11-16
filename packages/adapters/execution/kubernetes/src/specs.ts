@@ -16,6 +16,7 @@ import {
   workerLimitsOf,
 } from "@werft-ai/platform";
 import type { Pod } from "./client.ts";
+import { CODEX_SECCOMP_PROFILE } from "./codex-seccomp.ts";
 import type { KubernetesBackendConfig } from "./config.ts";
 
 /**
@@ -219,13 +220,6 @@ export function cpuQuantity(cpus: number): string {
   }
   return `${millis}m`;
 }
-
-/**
- * Where the chart's installer writes the Codex sandbox's seccomp profile,
- * under the kubelet's seccomp directory. Fixed: the chart, the installer and
- * this backend agree on it, and no setting moves one without the others.
- */
-export const CODEX_SECCOMP_PROFILE = "werft/codex-sandbox.json";
 
 /**
  * The worker container's: a declared Codex image's gets the one bubblewrap

@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { packageChart } from "../../.github/scripts/chart-package.ts";
-import { CODEX_SECCOMP_PROFILE } from "../../packages/adapters/execution/kubernetes/src/specs.ts";
+import { CODEX_SECCOMP_PROFILE } from "../../packages/adapters/execution/kubernetes/src/codex-seccomp.ts";
 import { parseImageRuntime } from "../../packages/runtime-core/src/image-runtime.ts";
 
 const dir = import.meta.dir;
