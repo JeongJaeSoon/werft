@@ -801,20 +801,27 @@ export function createAuthorizationPolicy(
         if (!usage.allowed) return ["agent_private", scopes];
       }
     }
+    if (resource.release_id !== undefined && action !== "session.submit") {
+      return ["error", []];
+    }
+    // A start on web, api and Slack alike: only those inside the agent run
+    // it (agent-rbac (b)). An agent key is inside its own agent, the only
+    // one the ceiling above lets it reach. A Slack start on an agent with no
+    // release is judged too, so only those inside learn it has none.
+    if (
+      (resource.release_id !== undefined ||
+        (action === "session.submit" && resource.kind === "surface_binding")) &&
+      reading.keyAgentId === undefined
+    ) {
+      const agentId = await agentOfResource(resource);
+      if (agentId === null) return ["error", []];
+      if (!(await startsInside(reading, resource.owner_scope, agentId))) {
+        return ["role", scopes];
+      }
+    }
     // Re-read at every start: a binding revoked since activation stops the
     // next session.
     if (resource.release_id !== undefined) {
-      if (action !== "session.submit") return ["error", []];
-      // A start on web, api and Slack alike: only those inside the agent run
-      // it (agent-rbac (b)). An agent key is inside its own agent, the only
-      // one the ceiling above lets it reach.
-      if (reading.keyAgentId === undefined) {
-        const agentId = await agentOfResource(resource);
-        if (agentId === null) return ["error", []];
-        if (!(await startsInside(reading, resource.owner_scope, agentId))) {
-          return ["role", scopes];
-        }
-      }
       if (resource.kind !== "session") {
         if (agents.agentOfRelease === undefined) return ["error", []];
         const releaseAgent = await agents.agentOfRelease(

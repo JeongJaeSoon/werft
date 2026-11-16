@@ -336,13 +336,13 @@ export function createSlackSessionHandler(
         agent.workspaceId,
         agent.agentId,
       );
-      if (!detail?.active_release) {
-        deps.logger.warn("Slack agent has no active release; refused", ids);
-        await notice("no_active_release", { message: "noActiveRelease" });
-        return;
-      }
-      release = detail.active_release;
-      resource = { kind: "surface_binding", releaseId: release.id };
+      // Without a release the decision still judges who may start the
+      // agent; only someone it lets in is told the agent has none.
+      release = detail?.active_release ?? null;
+      resource =
+        release === null
+          ? { kind: "surface_binding" }
+          : { kind: "surface_binding", releaseId: release.id };
     } else {
       resource = { kind: "session_link", id: found.id };
     }
@@ -382,6 +382,11 @@ export function createSlackSessionHandler(
           ? notice(decision.decision.reason_code, decision.notice)
           : notice("pending_approval", decision.notice, decision.pending));
       }
+      return;
+    }
+    if (found === null && release === null) {
+      deps.logger.warn("Slack agent has no active release; refused", ids);
+      await notice("no_active_release", { message: "noActiveRelease" });
       return;
     }
     // Read again: the binding the decision allowed on may be a newer one
