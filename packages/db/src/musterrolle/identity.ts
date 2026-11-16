@@ -50,6 +50,7 @@ import {
   workspaces,
 } from "../schema.ts";
 import { insertBuiltinAchievementTypes } from "../sessions/achievement-rules.ts";
+import { notDeleted } from "../soft-delete.ts";
 import { rowsOf } from "../statement-rows.ts";
 import {
   lockLoginSettings,
@@ -739,6 +740,7 @@ export async function createWebSession(
         and(
           eq(loginMethods.userId, input.userId),
           eq(loginMethods.kind, "password"),
+          notDeleted(loginMethods),
         ),
       )
       .returning({ id: loginMethods.id });
@@ -845,6 +847,7 @@ export async function signInWithExternalIdentity(
           eq(loginProviders.enabled, true),
           eq(loginProviders.issuer, input.issuer),
           eq(loginProviders.configRevision, input.provider.configRevision),
+          notDeleted(loginProviders),
         ),
       )
       .for("share");
@@ -859,6 +862,7 @@ export async function signInWithExternalIdentity(
           eq(loginMethods.kind, input.kind),
           eq(loginMethods.issuer, input.issuer),
           eq(loginMethods.subject, input.subject),
+          notDeleted(loginMethods),
         ),
       );
     if (linked) {
@@ -876,7 +880,7 @@ export async function signInWithExternalIdentity(
       const [stillLinked] = await tx
         .update(loginMethods)
         .set({ lastLoginAt: DB_NOW })
-        .where(eq(loginMethods.id, linked.id))
+        .where(and(eq(loginMethods.id, linked.id), notDeleted(loginMethods)))
         .returning({ id: loginMethods.id });
       if (!stillLinked) {
         return { outcome: "rejected" };
@@ -1068,6 +1072,7 @@ export async function signUpWithInvite(
             eq(loginProviders.enabled, true),
             eq(loginProviders.issuer, input.issuer),
             eq(loginProviders.configRevision, input.provider.configRevision),
+            notDeleted(loginProviders),
           ),
         )
         .for("share");
@@ -1118,6 +1123,7 @@ export async function signUpWithInvite(
             eq(loginMethods.kind, "oidc"),
             eq(loginMethods.issuer, input.issuer),
             eq(loginMethods.subject, input.subject),
+            notDeleted(loginMethods),
           ),
         );
       if (linked) return { outcome: "already_linked" };
@@ -1250,6 +1256,7 @@ export async function resolveWebSession(
             SELECT 1 FROM ${loginMethods}
             WHERE ${loginMethods.userId} = ${users.id}
               AND ${loginMethods.kind} <> 'password'
+              AND ${loginMethods.deletedAt} IS NULL
           )`,
         ),
       ),

@@ -920,12 +920,15 @@ integration("login provider admin store", () => {
     expect(await admin.delete({ id: provider.id, audit: audit() })).toEqual({
       outcome: "deleted",
     });
-    expect(
-      await db
-        .select({ id: loginProviders.id })
-        .from(loginProviders)
-        .where(eq(loginProviders.id, provider.id)),
-    ).toEqual([]);
+    const [kept] = await db
+      .select()
+      .from(loginProviders)
+      .where(eq(loginProviders.id, provider.id));
+    expect(kept?.deletedAt).toBeInstanceOf(Date);
+    expect(kept?.deletedBy).toBe(ownerId);
+    expect((await admin.list()).some((each) => each.id === provider.id)).toBe(
+      false,
+    );
     expect(
       (await db.select({ ownerRef: secretValues.ownerRef }).from(secretValues))
         .map((row) => row.ownerRef)
@@ -940,6 +943,23 @@ integration("login provider admin store", () => {
     expect(
       (await admin.delete({ id: provider.id, audit: audit() })).outcome,
     ).toBe("not_found");
+    expect(
+      (
+        await admin.refreshDiscovery({
+          id: provider.id,
+          endpoints: endpointsOf(provider.issuer),
+          audit: audit(),
+        })
+      ).outcome,
+    ).toBe("not_found");
+
+    const again = await admin.create({
+      id: randomUUID(),
+      displayName: "Same issuer",
+      endpoints: endpointsOf(provider.issuer),
+      audit: audit(),
+    });
+    expect(again.outcome).toBe("created");
   });
 
   test("every change leaves a receipt naming the owner, and none holds a secret", async () => {

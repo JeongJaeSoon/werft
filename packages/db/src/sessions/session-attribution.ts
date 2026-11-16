@@ -12,6 +12,7 @@ import {
   sessions,
   turns,
 } from "../schema.ts";
+import { notDeleted } from "../soft-delete.ts";
 
 function triggerOf(row: {
   channel: string | null;
@@ -151,6 +152,7 @@ export function createPostgresSessionAttributionStore(
               eq(githubApps.appId, catalogRepositoryGitHubApps.appId),
               eq(githubApps.role, "author"),
               eq(githubApps.workspaceId, row.workspaceId),
+              notDeleted(githubApps),
             ),
           )
           .where(

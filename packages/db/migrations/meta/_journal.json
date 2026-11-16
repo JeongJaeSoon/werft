@@ -1387,6 +1387,13 @@
       "when": 1794758550479,
       "tag": "0288_remove_external_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 289,
+      "version": "7",
+      "when": 1794840401522,
+      "tag": "0289_soft_delete_user_rows",
+      "breakpoints": true
     }
   ]
 }

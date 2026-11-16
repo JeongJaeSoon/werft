@@ -35,6 +35,7 @@ import {
   turns,
 } from "./schema.ts";
 import { queueAchievementJudgment } from "./sessions/achievement-judgments.ts";
+import { notDeleted } from "./soft-delete.ts";
 
 /** No row reads all false; a row a later image wrote in another shape, too. */
 function ceilingOf(stored: unknown): GitHubCeiling {
@@ -572,7 +573,9 @@ export function createPostgresGitHubSettingsStore(
       const rows = await db
         .select({ role: githubApps.role, permissions: githubApps.permissions })
         .from(githubApps)
-        .where(eq(githubApps.workspaceId, workspaceId));
+        .where(
+          and(eq(githubApps.workspaceId, workspaceId), notDeleted(githubApps)),
+        );
       const of = (role: "author" | "reviewer") => {
         const held = rows.filter((row) => row.role === role);
         const found = held.length === 1 ? held[0] : undefined;

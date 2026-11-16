@@ -17,6 +17,7 @@ import {
   workspaceMcpConnections,
   workspaceMcpServers,
 } from "../schema.ts";
+import { notDeleted } from "../soft-delete.ts";
 
 const SUBJECT = "workspace";
 
@@ -53,7 +54,9 @@ export async function captureWorkspaceMcpStart(
         eq(workspaceMcpServers.id, agentWorkspaceMcpServers.serverId),
       ),
     )
-    .where(eq(agentReleases.id, releaseId))
+    .where(
+      and(eq(agentReleases.id, releaseId), notDeleted(workspaceMcpServers)),
+    )
     .orderBy(asc(workspaceMcpServers.name))
     .for("share", { of: workspaceMcpServers });
   if (rows.length === 0) return null;
@@ -98,7 +101,12 @@ async function listOf(
       ),
     )
     .leftJoin(users, eq(users.id, workspaceMcpConnections.connectedByUserId))
-    .where(eq(workspaceMcpServers.workspaceId, workspaceId))
+    .where(
+      and(
+        eq(workspaceMcpServers.workspaceId, workspaceId),
+        notDeleted(workspaceMcpServers),
+      ),
+    )
     .orderBy(asc(workspaceMcpServers.name));
   return rows.map((row) => ({
     serverId: row.id,
@@ -151,6 +159,7 @@ export function createPostgresAgentWorkspaceMcpStore(
                   and(
                     eq(workspaceMcpServers.workspaceId, ws),
                     inArray(workspaceMcpServers.id, [...input.serverIds]),
+                    notDeleted(workspaceMcpServers),
                   ),
                 )
                 .for("share");
@@ -167,7 +176,10 @@ export function createPostgresAgentWorkspaceMcpStore(
           .from(agentWorkspaceMcpServers)
           .innerJoin(
             workspaceMcpServers,
-            eq(workspaceMcpServers.id, agentWorkspaceMcpServers.serverId),
+            and(
+              eq(workspaceMcpServers.id, agentWorkspaceMcpServers.serverId),
+              notDeleted(workspaceMcpServers),
+            ),
           )
           .where(eq(agentWorkspaceMcpServers.agentId, agentId))
           .orderBy(asc(workspaceMcpServers.name));

@@ -22,6 +22,7 @@ import {
   secretValues,
   users,
   workspaceMcpConnections,
+  workspaceMcpServers,
   workspaces,
 } from "../schema.ts";
 import { createPostgresMemberStore } from "./members.ts";
@@ -609,7 +610,7 @@ integration("workspace MCP servers on PostgreSQL", () => {
     expect(await purposesOf(ws)).toEqual([]);
   });
 
-  test("delete takes the row, its connection and every secret", async () => {
+  test("delete marks the row and takes its connection and every secret", async () => {
     const { ws, admin } = await team();
     const server = await connectedOAuth(ws, admin);
     const result = await store.delete({
@@ -638,6 +639,17 @@ integration("workspace MCP servers on PostgreSQL", () => {
         })
       ).outcome,
     ).toBe("not_found");
+    const [kept] = await db
+      .select()
+      .from(workspaceMcpServers)
+      .where(eq(workspaceMcpServers.id, server.id));
+    expect(kept).toMatchObject({ deletedBy: admin, oauth: null });
+    expect(kept?.deletedAt).toBeInstanceOf(Date);
+    expect(await store.list(ws)).toEqual([]);
+    // The name is free again, and the deleted row is not counted.
+    const again = await created(ws, admin, { name: server.name, max: 1 });
+    expect(again.id).not.toBe(server.id);
+    expect((await store.list(ws)).map((row) => row.id)).toEqual([again.id]);
   });
 
   test("disabling the person who connected disconnects what they connected", async () => {

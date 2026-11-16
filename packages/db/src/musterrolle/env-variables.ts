@@ -36,6 +36,7 @@ import {
   receipts,
   sessions,
 } from "../schema.ts";
+import { deletedBy, notDeleted } from "../soft-delete.ts";
 import { rowsOf } from "../statement-rows.ts";
 
 const NEXT_VERSION = sql<number>`nextval('env_variable_versions_seq')`;
@@ -45,7 +46,7 @@ function scopeWhere(scope: EnvVariableScope): SQL {
     scope.agentId === null
       ? isNull(envVariables.agentId)
       : eq(envVariables.agentId, scope.agentId)
-  }`;
+  } AND ${notDeleted(envVariables)}`;
 }
 
 /**
@@ -356,7 +357,14 @@ export function createPostgresEnvVariableStore(db: Database): EnvVariableStore {
           }
         }
         const openSessions = await openSessionsHolding(tx, scope, name);
-        await tx.delete(envVariables).where(eq(envVariables.id, existing.id));
+        // The row stays without its value; its grants go with it.
+        await tx
+          .delete(envVariableGrants)
+          .where(eq(envVariableGrants.variableId, existing.id));
+        await tx
+          .update(envVariables)
+          .set({ value: null, ...deletedBy(principal.actor) })
+          .where(eq(envVariables.id, existing.id));
         const receiptId = await writeReceipt(tx, principal, {
           operation: "delete_env_variable",
           scope,
@@ -604,6 +612,7 @@ export async function captureEnvStart(
         eq(envVariables.workspaceId, input.workspaceId),
         inArray(envVariables.name, names),
         sql`(${envVariables.agentId} IS NULL OR ${envVariables.agentId} = ${release.agentId})`,
+        notDeleted(envVariables),
       ),
     )
     .for("share");

@@ -7,6 +7,7 @@ import {
   githubApps,
   receipts,
 } from "../schema.ts";
+import { notDeleted } from "../soft-delete.ts";
 import { lockGitHubApps } from "./github-apps.ts";
 
 type Row = typeof catalogRepositoryGitHubApps.$inferSelect;
@@ -132,7 +133,7 @@ export function createPostgresGitHubPinStore(
         const [owner] = await tx
           .select({ workspaceId: githubApps.workspaceId })
           .from(githubApps)
-          .where(eq(githubApps.id, connectionId));
+          .where(and(eq(githubApps.id, connectionId), notDeleted(githubApps)));
         if (owner === undefined) return held();
         // Under the writers' lock, so a replacement cannot land between
         // this check and the insert.
@@ -145,6 +146,7 @@ export function createPostgresGitHubPinStore(
               eq(githubApps.id, connectionId),
               eq(githubApps.role, input.role),
               eq(githubApps.appId, input.appId),
+              notDeleted(githubApps),
             ),
           );
         if (still === undefined) return held();
@@ -217,6 +219,7 @@ export function createPostgresGitHubPinStore(
             and(
               eq(githubApps.workspaceId, workspaceId),
               eq(githubApps.id, input.connectionId.toLowerCase()),
+              notDeleted(githubApps),
             ),
           );
         if (connection === undefined) return { outcome: "not_found" as const };

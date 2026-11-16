@@ -19,6 +19,7 @@ import {
   users,
   webSessions,
 } from "../schema.ts";
+import { deletedBy, notDeleted } from "../soft-delete.ts";
 import { signUpWithInvite } from "./identity.ts";
 import { lockLoginSettings, passwordOpenTo } from "./login-settings.ts";
 
@@ -70,6 +71,7 @@ async function linkLoginMethod(
           eq(loginProviders.enabled, true),
           eq(loginProviders.issuer, input.issuer),
           eq(loginProviders.configRevision, input.provider.configRevision),
+          notDeleted(loginProviders),
         ),
       )
       .for("share");
@@ -101,6 +103,7 @@ async function linkLoginMethod(
           eq(loginMethods.kind, "oidc"),
           eq(loginMethods.issuer, input.issuer),
           eq(loginMethods.subject, input.subject),
+          notDeleted(loginMethods),
         ),
       );
     if (taken) return { outcome: "already_linked" };
@@ -112,6 +115,7 @@ async function linkLoginMethod(
           eq(loginMethods.userId, input.userId),
           eq(loginMethods.kind, "oidc"),
           eq(loginMethods.issuer, input.issuer),
+          notDeleted(loginMethods),
         ),
       );
     if (sameIssuer) return { outcome: "issuer_linked" };
@@ -158,11 +162,12 @@ async function listLoginMethods(
       enabled: loginProviders.enabled,
     })
     .from(loginProviders)
+    .where(notDeleted(loginProviders))
     .orderBy(asc(loginProviders.displayName), asc(loginProviders.id));
   const rows = await db
     .select()
     .from(loginMethods)
-    .where(eq(loginMethods.userId, userId))
+    .where(and(eq(loginMethods.userId, userId), notDeleted(loginMethods)))
     .orderBy(asc(loginMethods.createdAt), asc(loginMethods.id));
   const byIssuer = new Map(providers.map((row) => [row.issuer, row]));
   const enabledIssuers = new Set(
@@ -232,7 +237,7 @@ async function unlinkLoginMethod(
     const on = await tx
       .select({ issuer: loginProviders.issuer })
       .from(loginProviders)
-      .where(eq(loginProviders.enabled, true))
+      .where(and(eq(loginProviders.enabled, true), notDeleted(loginProviders)))
       .for("share");
     const [user] = await tx
       .select({ passwordHash: users.passwordHash })
@@ -252,7 +257,9 @@ async function unlinkLoginMethod(
         issuer: loginMethods.issuer,
       })
       .from(loginMethods)
-      .where(eq(loginMethods.userId, input.userId))
+      .where(
+        and(eq(loginMethods.userId, input.userId), notDeleted(loginMethods)),
+      )
       .for("update");
     const target = methods.find((method) => method.id === input.loginMethodId);
     if (!target) return { outcome: "not_found" };
@@ -306,7 +313,10 @@ async function unlinkLoginMethod(
         .set({ passwordHash: null })
         .where(eq(users.id, input.userId));
     }
-    await tx.delete(loginMethods).where(eq(loginMethods.id, target.id));
+    await tx
+      .update(loginMethods)
+      .set(deletedBy(input.userId))
+      .where(eq(loginMethods.id, target.id));
     await writeReceipt(tx, input, "unlink_login_method", {
       login_method_id: target.id,
       kind: target.kind,

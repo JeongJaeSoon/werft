@@ -13,6 +13,7 @@ import {
   enablePasswordLoginAsOperator,
   issueOperatorPasswordReset,
   loginProviders,
+  notDeleted,
 } from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
@@ -134,6 +135,7 @@ async function run(
           enabled: loginProviders.enabled,
         })
         .from(loginProviders)
+        .where(notDeleted(loginProviders))
         .orderBy(asc(loginProviders.displayName), asc(loginProviders.id));
       return {
         exit: ok,

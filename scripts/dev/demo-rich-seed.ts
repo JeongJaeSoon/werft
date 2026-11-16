@@ -1050,7 +1050,7 @@ function startFakeGitHub() {
 // is written through the API's own store, sealed under the master key.
 async function ensureGitHubApp(workspaceId: string) {
   const [held] = await q(
-    "select id from github_apps where workspace_id = $1 and role = 'author'",
+    "select id from github_apps where workspace_id = $1 and role = 'author' and deleted_at is null",
     [workspaceId],
   );
   if (held) return;

@@ -22,6 +22,7 @@ import {
   workspaceMcpConnections,
   workspaceMcpServers,
 } from "../schema.ts";
+import { notDeleted } from "../soft-delete.ts";
 
 const SUBJECT = "workspace";
 
@@ -83,6 +84,7 @@ export async function sessionWorkspaceMcpOf(
                 workspaceMcpServers.id,
                 unkept.map((server) => server.id),
               ),
+              notDeleted(workspaceMcpServers),
             ),
           );
   const urls = new Map(rows.map((row) => [row.id, row.url]));
@@ -162,6 +164,7 @@ export function createPostgresWorkspaceMcpEgressStore(
           and(
             eq(workspaceMcpServers.workspaceId, session.workspaceId),
             eq(workspaceMcpServers.id, started.id),
+            notDeleted(workspaceMcpServers),
           ),
         )
         .limit(1);

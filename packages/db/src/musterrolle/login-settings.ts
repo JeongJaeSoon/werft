@@ -31,6 +31,7 @@ import {
   users,
   webSessions,
 } from "../schema.ts";
+import { notDeleted } from "../soft-delete.ts";
 
 const olderMembership = alias(memberships, "older_membership");
 
@@ -157,7 +158,7 @@ const enabledIssuers = async (tx: Database): Promise<string[]> =>
     await tx
       .select({ issuer: loginProviders.issuer })
       .from(loginProviders)
-      .where(eq(loginProviders.enabled, true))
+      .where(and(eq(loginProviders.enabled, true), notDeleted(loginProviders)))
       .for("share")
   ).map((row) => row.issuer);
 
@@ -176,6 +177,7 @@ async function signsInThroughProvider(
         eq(loginMethods.userId, userId),
         eq(loginMethods.kind, "oidc"),
         inArray(loginMethods.issuer, issuers),
+        notDeleted(loginMethods),
       ),
     )
     .limit(1);
@@ -207,7 +209,12 @@ export async function revokePasswordSessions(
             tx
               .select({ id: loginMethods.id })
               .from(loginMethods)
-              .where(eq(loginMethods.kind, "password")),
+              .where(
+                and(
+                  eq(loginMethods.kind, "password"),
+                  notDeleted(loginMethods),
+                ),
+              ),
           ),
         ),
       ),
@@ -264,7 +271,7 @@ async function recordOf(
         : null,
     enabledProviders: await db.$count(
       loginProviders,
-      eq(loginProviders.enabled, true),
+      and(eq(loginProviders.enabled, true), notDeleted(loginProviders)),
     ),
   };
 }

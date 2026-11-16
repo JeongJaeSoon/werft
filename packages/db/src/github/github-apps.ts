@@ -35,6 +35,9 @@ import {
   agents,
   catalogRepositoryGitHubApps,
   githubApps,
+  githubInstallationLinks,
+  githubInstallationSnapshots,
+  githubInstallationStates,
   githubWorkspaceSettings,
   receipts,
   sessions,
@@ -47,6 +50,7 @@ import {
   secretAuditRefusal,
   writeSecretInTx,
 } from "../secrets/secret-values.ts";
+import { deletedBy, notDeleted } from "../soft-delete.ts";
 
 type Row = typeof githubApps.$inferSelect;
 
@@ -179,8 +183,14 @@ const appResult = (
     : { permissions, warnings: githubAppWarnings(role, permissions) }),
 });
 
+const ofWorkspace = (workspaceId: string) =>
+  and(eq(githubApps.workspaceId, workspaceId), notDeleted(githubApps));
+
+const byId = (workspaceId: string, connectionId: string) =>
+  and(ofWorkspace(workspaceId), eq(githubApps.id, connectionId.toLowerCase()));
+
 const ofRole = (workspaceId: string, role: GitHubAppRole) =>
-  and(eq(githubApps.workspaceId, workspaceId), eq(githubApps.role, role));
+  and(ofWorkspace(workspaceId), eq(githubApps.role, role));
 
 export async function lockGitHubApps(tx: Database, workspaceId: string) {
   await tx.execute(
@@ -301,12 +311,7 @@ export function createPostgresGitHubAppStore(
       const [row] = await db
         .select()
         .from(githubApps)
-        .where(
-          and(
-            eq(githubApps.workspaceId, named.toLowerCase()),
-            eq(githubApps.id, connectionId.toLowerCase()),
-          ),
-        );
+        .where(byId(named.toLowerCase(), connectionId));
       return row ? recordOf(db, row) : null;
     },
 
@@ -314,7 +319,7 @@ export function createPostgresGitHubAppStore(
       const rows = await db
         .select()
         .from(githubApps)
-        .where(eq(githubApps.workspaceId, workspaceId.toLowerCase()))
+        .where(ofWorkspace(workspaceId.toLowerCase()))
         .orderBy(githubApps.role, githubApps.createdAt, githubApps.id);
       const records = await Promise.all(rows.map((row) => recordOf(db, row)));
       return records.filter((record) => record !== null);
@@ -334,7 +339,7 @@ export function createPostgresGitHubAppStore(
         const rows = await tx
           .select()
           .from(githubApps)
-          .where(eq(githubApps.workspaceId, workspaceId))
+          .where(ofWorkspace(workspaceId))
           .orderBy(asc(githubApps.createdAt), asc(githubApps.id));
         let current: Row | undefined;
         let role: GitHubAppRole;
@@ -474,10 +479,7 @@ export function createPostgresGitHubAppStore(
           .where(
             target.kind === "role"
               ? ofRole(workspaceId, target.role)
-              : and(
-                  eq(githubApps.workspaceId, workspaceId),
-                  eq(githubApps.id, target.id.toLowerCase()),
-                ),
+              : byId(workspaceId, target.id),
           );
         if (held.length > 1) return { outcome: "ambiguous_role" };
         const [row] = held;
@@ -499,8 +501,26 @@ export function createPostgresGitHubAppStore(
           await dropOAuthSecret(tx, row);
           await chooseUserLink(tx, workspaceId, null, null);
         }
-        await tx.delete(githubApps).where(eq(githubApps.id, row.id));
+        // What the foreign keys' cascade and set null did for a hard delete.
+        await tx
+          .delete(githubInstallationSnapshots)
+          .where(eq(githubInstallationSnapshots.connectionId, row.id));
+        await tx
+          .delete(githubInstallationStates)
+          .where(eq(githubInstallationStates.connectionId, row.id));
+        await tx
+          .delete(githubInstallationLinks)
+          .where(eq(githubInstallationLinks.connectionId, row.id));
+        await tx
+          .update(catalogRepositoryGitHubApps)
+          .set({ connectionId: null })
+          .where(eq(catalogRepositoryGitHubApps.connectionId, row.id));
+        await tx
+          .update(githubApps)
+          .set(deletedBy(audit.principal.actor?.userId))
+          .where(eq(githubApps.id, row.id));
         await deleteSecretInTx(tx, keySlot(row));
+        await deleteSecretInTx(tx, oauthSecretSlot(row));
         await tx.insert(receipts).values(
           receiptRow(audit, workspaceId, "delete_github_app", {
             ...appResult(row, row.role),
@@ -516,12 +536,7 @@ export function createPostgresGitHubAppStore(
       const [row] = await db
         .select()
         .from(githubApps)
-        .where(
-          and(
-            eq(githubApps.workspaceId, workspaceId),
-            eq(githubApps.id, connectionId.toLowerCase()),
-          ),
-        );
+        .where(byId(workspaceId, connectionId));
       if (!row) return null;
       const link = await userLinkConnection(db, workspaceId);
       return usageOf(db, row, link?.id === row.id);
@@ -541,12 +556,7 @@ export function createPostgresGitHubAppStore(
         const [row] = await tx
           .select()
           .from(githubApps)
-          .where(
-            and(
-              eq(githubApps.workspaceId, workspaceId),
-              eq(githubApps.id, connectionId.toLowerCase()),
-            ),
-          );
+          .where(byId(workspaceId, connectionId));
         if (!row) return { outcome: "not_found" };
         if (row.role !== "author") return { outcome: "role_mismatch" };
         const link = await userLinkConnection(tx, workspaceId);
@@ -579,7 +589,13 @@ export function createPostgresGitHubAppStore(
           permissionsCheckedAt: DB_NOW,
           ...(clientId === undefined ? {} : { clientId }),
         })
-        .where(and(eq(githubApps.id, id), eq(githubApps.appId, appId)));
+        .where(
+          and(
+            eq(githubApps.id, id),
+            eq(githubApps.appId, appId),
+            notDeleted(githubApps),
+          ),
+        );
     },
 
     async credentials(role, workspaceId, options) {
@@ -588,7 +604,7 @@ export function createPostgresGitHubAppStore(
         .from(githubApps)
         .where(
           workspaceId === undefined
-            ? eq(githubApps.role, role)
+            ? and(eq(githubApps.role, role), notDeleted(githubApps))
             : ofRole(workspaceId, role),
         )
         .orderBy(asc(githubApps.createdAt), asc(githubApps.id));
