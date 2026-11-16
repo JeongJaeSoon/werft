@@ -182,9 +182,7 @@ function KeyForm({
           {missing === "appId" ? (
             <FieldError>{t("github.appIdMissing")}</FieldError>
           ) : missing === "appIdRange" ? (
-            <FieldError>
-              {t("github.appIdRange", { max: GITHUB_APP_ID_MAX })}
-            </FieldError>
+            <FieldError>{t("github.appIdRange")}</FieldError>
           ) : null}
         </Field>
       ) : null}

@@ -415,7 +415,7 @@ describe("GitHub 연결 › App 목록과 GitHub 링크", () => {
       ["12.5", "App ID를 숫자로 넣어 주세요."],
       [
         "2147483648",
-        "App ID는 2147483647 이하입니다. GitHub App 설정 페이지의 숫자를 확인하세요.",
+        "App ID가 올바르지 않습니다. GitHub App 설정 페이지의 'App ID' 숫자를 넣어 주세요.",
       ],
     ] as const) {
       await user.clear(id);
