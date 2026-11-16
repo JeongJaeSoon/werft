@@ -23,6 +23,8 @@ export const authKo = {
   "login.provider.title": "SSO 로그인",
   "login.provider.rejected":
     "이 계정으로 로그인하지 못했습니다 — 초대받은 이메일 주소의 계정인지 확인하고 다시 시도하세요.",
+  "login.provider.elsewhere":
+    "로그인을 시작한 주소와 돌아온 주소가 다릅니다 — 이 주소({origin})에서 처음부터 다시 시작하세요.",
   "login.provider.forbidden":
     "이 계정으로는 로그인할 수 없습니다 — 워크스페이스가 허용한 도메인의 계정을 쓰세요.",
   "login.provider.cancelled": "로그인을 마치지 못했습니다 — 다시 시도하세요.",
@@ -127,6 +129,8 @@ export const authEn: Record<keyof typeof authKo, string> = {
   "login.provider.title": "SSO login",
   "login.provider.rejected":
     "Could not log in with this account — make sure it uses the email address you were invited with, then try again.",
+  "login.provider.elsewhere":
+    "The login started at a different address than the one it came back to — start over at this address ({origin}).",
   "login.provider.forbidden":
     "This account cannot log in here — use an account from a domain this workspace allows.",
   "login.provider.cancelled": "The login was not completed — try again.",
@@ -233,6 +237,8 @@ export const authJa: Record<keyof typeof authKo, string> = {
   "login.provider.title": "SSO ログイン",
   "login.provider.rejected":
     "このアカウントでログインできませんでした。招待されたメールアドレスのアカウントか確認して、もう一度お試しください。",
+  "login.provider.elsewhere":
+    "ログインを始めたアドレスと戻ってきたアドレスが異なります。このアドレス（{origin}）で最初からやり直してください。",
   "login.provider.forbidden":
     "このアカウントではログインできません。ワークスペースで許可されたドメインのアカウントを使ってください。",
   "login.provider.cancelled":

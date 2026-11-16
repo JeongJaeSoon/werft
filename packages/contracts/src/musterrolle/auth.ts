@@ -122,6 +122,13 @@ export const loginProviderParamsSchema = z.object({ id: z.uuid() }).strict();
 export const startProviderLoginResponseSchema = z
   .object({ authorization_url: z.url() })
   .strict();
+/**
+ * `details.reason_code` of a callback's 401 when the browser brought back no
+ * flow cookie, or no session of the test it started: the usual cause is a
+ * flow started on another origin than the redirect URI's. Every other 401
+ * of the callback has no details.
+ */
+export const PROVIDER_FLOW_ELSEWHERE = "flow_elsewhere";
 export const providerLoginCallbackRequestSchema = z
   .object({
     /** From the path the provider sent the browser back to. */

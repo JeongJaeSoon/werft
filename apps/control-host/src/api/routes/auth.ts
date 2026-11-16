@@ -20,6 +20,7 @@ import {
   myLoginMethodParamsSchema,
   normalizeEmail,
   PASSWORD_RESET_TTL_MINUTES,
+  PROVIDER_FLOW_ELSEWHERE,
   passwordResetRequestSchema,
   passwordResetResponseSchema,
   providerLoginCallbackRequestSchema,
@@ -881,9 +882,16 @@ const PROVIDER_REJECTED = "Sign-in was not accepted";
 const providerOff = () =>
   new ApiHttpError(404, "NOT_FOUND", "No such sign-in provider");
 
+// A flow the browser did not bring back: no flow cookie that opens, or not
+// the session a test was started from. Both are what a flow started on
+// another origin than the redirect URI's ends in.
+const FLOW_ELSEWHERE_REASONS = new Set(["flow_missing", "test_session"]);
+
 /**
  * Runs a step of a provider flow. Why it was refused goes to the log only:
- * every 401 reads the same, so a caller cannot tell which check failed.
+ * every other 401 reads the same, so a caller cannot tell which check failed.
+ * A flow this browser did not bring back is said apart, so the console can
+ * send the person to the address the flow belongs to.
  */
 async function providerStep<T>(
   logger: StructuredLogger | undefined,
@@ -915,7 +923,16 @@ async function providerStep<T>(
         true,
       );
     }
-    throw new ApiHttpError(401, "UNAUTHORIZED", PROVIDER_REJECTED);
+    throw new ApiHttpError(
+      401,
+      "UNAUTHORIZED",
+      PROVIDER_REJECTED,
+      false,
+      undefined,
+      FLOW_ELSEWHERE_REASONS.has(error.reason)
+        ? { reason_code: PROVIDER_FLOW_ELSEWHERE }
+        : null,
+    );
   }
 }
 

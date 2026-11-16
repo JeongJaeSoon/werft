@@ -436,6 +436,36 @@ describe("로그인 공급자 상세", () => {
     );
   });
 
+  test("opened on another origin than the redirect URI's, the test says so and links to this page there", async () => {
+    renderAt(PAGE, routes([filled()]));
+    const link = await screen.findByRole("link", {
+      name: "https://console.test에서 이 화면 열기",
+    });
+    expect(link.getAttribute("href")).toBe(`https://console.test${PAGE}`);
+    expect(link.closest("[data-variant=amber]")?.textContent).toContain(
+      "지금 주소는 redirect URI의 주소(https://console.test)와 다릅니다. 여기서 테스트 로그인을 시작하면 공급자가 https://console.test(으)로 돌려보내 실패합니다.",
+    );
+    // Said, not withheld: the owner may know a way this page cannot see.
+    expect(
+      screen
+        .getByRole("button", { name: "테스트 로그인" })
+        .hasAttribute("aria-disabled"),
+    ).toBe(false);
+  });
+
+  test("opened on the redirect URI's origin, or with no redirect URI, nothing is said of the address", async () => {
+    for (const redirect_uri of [
+      `${window.location.origin}/auth/callback/${ID}`,
+      null,
+    ]) {
+      const { container } = renderAt(PAGE, routes([filled({ redirect_uri })]));
+      await screen.findByRole("button", { name: "테스트 로그인" });
+      expect(container.textContent).not.toContain("이 화면 열기");
+      expect(container.textContent).not.toContain("redirect URI의 주소");
+      container.remove();
+    }
+  });
+
   test("a provider whose test passed is turned on", async () => {
     const ready = filled({ state: "ready", tested_at: AT });
     const { api } = renderAt(PAGE, {

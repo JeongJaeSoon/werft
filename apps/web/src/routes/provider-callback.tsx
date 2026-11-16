@@ -51,6 +51,12 @@ function refusalKey(error: ApiError, joining: boolean): MessageKey {
       "issuer_linked"
       ? "loginMethods.callback.issuer"
       : "loginMethods.callback.taken";
+  if (
+    error.code === "UNAUTHORIZED" &&
+    (error.details as { reason_code?: unknown } | null)?.reason_code ===
+      "flow_elsewhere"
+  )
+    return "login.provider.elsewhere";
   if (error.code === "UNAUTHORIZED")
     // Joining from an invite does not go by the provider's address, and the
     // server does not say what it was (the invite ended meanwhile, what the
@@ -261,7 +267,9 @@ export function ProviderCallbackScreen() {
       {failure || finish.error ? (
         <>
           <FormError>
-            {t(failure ?? refusalKey(finish.error as ApiError, joining))}
+            {t(failure ?? refusalKey(finish.error as ApiError, joining), {
+              origin: window.location.origin,
+            })}
           </FormError>
           <Text variant="sub">
             <TextLink asChild underline="always">
