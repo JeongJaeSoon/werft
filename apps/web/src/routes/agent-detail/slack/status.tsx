@@ -5,7 +5,6 @@ import {
   Badge,
   Code,
   IntegrationHeader,
-  Link,
   Skeleton,
 } from "@werft-ai/ui";
 import { type ReactNode, useId } from "react";
@@ -13,14 +12,9 @@ import { SlackTileMark } from "../../../components/brand-marks.tsx";
 import { LoadFailure } from "../../../components/load-failure.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
 import type { SlackApp } from "./actions.ts";
-import {
-  unverifiedApp,
-  useSlackBindings,
-  useSlackChannels,
-} from "./queries.ts";
+import { useSlackBindings, useSlackChannels } from "./queries.ts";
 import {
   dmOn,
-  eventSubscriptionsUrl,
   SECTION,
   SECTION_TARGET,
   SLACK_WARNING_KEY,
@@ -65,7 +59,6 @@ export function SlackHeader({
     for (const read of failed) void read.refetch();
   };
   const state = slackState(error, identity, record);
-  const unverified = unverifiedApp(app.data);
   // At most one reason sessions would fail, after any token issuer change.
   const warnings = manages ? (app.data?.warnings ?? []) : [];
   // GitHub's summary line: "label value" pairs between middle dots.
@@ -139,22 +132,6 @@ export function SlackHeader({
             kept={failed.every((read) => read.data !== undefined)}
             onRetry={retry}
           />
-        ) : null}
-        {unverified ? (
-          <Alert variant="amber">
-            <AlertTitle>{t("slack.eventsPending.title")}</AlertTitle>
-            <AlertDescription>
-              {t("slack.eventsPending.body")}{" "}
-              <Link
-                href={eventSubscriptionsUrl(unverified)}
-                target="_blank"
-                newTabLabel={t("slack.newTab")}
-                underline="always"
-              >
-                {t("slack.eventsPending.open")}
-              </Link>
-            </AlertDescription>
-          </Alert>
         ) : null}
         {warnings.map((warning) => (
           <Alert key={warning.code} variant="amber">

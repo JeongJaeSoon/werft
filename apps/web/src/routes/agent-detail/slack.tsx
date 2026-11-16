@@ -128,6 +128,8 @@ export default function SlackTab({
             notify={notify}
             homeStep={homeStep}
             lockedApp={manages ? unverified : null}
+            // The address section offers Recheck only for an installed app.
+            canRecheck={installed && eventUrl(slack) !== null}
             installed={installed}
           />
         ) : null}
