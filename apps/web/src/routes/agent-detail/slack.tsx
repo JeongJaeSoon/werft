@@ -7,6 +7,7 @@ import { useI18n } from "../../i18n/i18n.tsx";
 import { SectionNavLayout } from "./section-nav.tsx";
 import { useSlackApp } from "./slack/actions.ts";
 import {
+  eventUrl,
   SlackAddressSection,
   SlackAppSection,
   SlackDangerSection,
@@ -94,7 +95,10 @@ export default function SlackTab({
     "slack",
     ...(connected ? (["channels"] as const) : []),
     ...(connected && !homeStep ? (["basic"] as const) : []),
-    ...(manages ? (["token", "addresses", "app"] as const) : []),
+    ...(manages ? (["token"] as const) : []),
+    // Before an app there is no address to put in it.
+    ...(manages && eventUrl(slack) ? (["addresses"] as const) : []),
+    ...(manages ? (["app"] as const) : []),
   ];
   const manageKeys: readonly SectionKey[] =
     manages && app.data?.slack_app ? ["danger"] : [];

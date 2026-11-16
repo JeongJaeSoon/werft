@@ -16,7 +16,6 @@ import {
   RelativeTime,
   RowAction,
   RowLines,
-  SettingRow,
   SettingsSection,
   Skeleton,
   Text,
@@ -88,6 +87,13 @@ export function SlackTokenSection({ slack }: { readonly slack: SlackApp }) {
   const manageWorkspace = useHasPermission("workspace.manage");
   // An older API sends no state; say nothing rather than guess.
   const state = slack.app.data?.config_token;
+  const stateHint =
+    state === "unset"
+      ? t("workspace.tokenUnsetHint")
+      : state === "needs_reentry"
+        ? t("workspace.tokenNeedsReentryHint")
+        : null;
+  // One token, so its state and link sit on the section's own title line.
   return (
     <SettingsSection
       id={SECTION.token}
@@ -95,46 +101,37 @@ export function SlackTokenSection({ slack }: { readonly slack: SlackApp }) {
       className={SECTION_TARGET}
       titleAs="h3"
       title={t("workspace.tokenSection")}
-      description={t("slack.tokenHint")}
-      rows={
+      badge={
         slack.app.isPending ? (
-          <SettingRow title={<Skeleton width="50%" />} />
-        ) : (
-          <SettingRow
-            title={t("workspace.token")}
-            badge={
-              state === "active" ? (
-                <Badge variant="green">{t("workspace.tokenActive")}</Badge>
-              ) : state === "needs_reentry" ? (
-                <Badge variant="red">{t("workspace.tokenNeedsReentry")}</Badge>
-              ) : state === "unset" ? (
-                <Badge>{t("workspace.tokenUnset")}</Badge>
-              ) : null
-            }
-            description={
-              state === "unset"
-                ? t("workspace.tokenUnsetHint")
-                : state === "needs_reentry"
-                  ? t("workspace.tokenNeedsReentryHint")
-                  : undefined
-            }
-            actions={
-              manageWorkspace ? (
-                <RowAction asChild>
-                  <RouterLink to="/settings/workspace/integrations/slack">
-                    {t("slack.tokenManage")}
-                  </RouterLink>
-                </RowAction>
-              ) : state === "unset" || state === "needs_reentry" ? (
-                // Only a known missing or unusable token; an unread or older
-                // answer says nothing about it.
-                <Text as="span" variant="sub">
-                  {t("slack.configToken.askAdmin")}
-                </Text>
-              ) : null
-            }
-          />
-        )
+          <Skeleton className="h-4 w-20" />
+        ) : state === "active" ? (
+          <Badge variant="green">{t("workspace.tokenActive")}</Badge>
+        ) : state === "needs_reentry" ? (
+          <Badge variant="red">{t("workspace.tokenNeedsReentry")}</Badge>
+        ) : state === "unset" ? (
+          <Badge>{t("workspace.tokenUnset")}</Badge>
+        ) : null
+      }
+      description={
+        <>
+          {t("slack.tokenHint", { token: t("workspace.token") })}
+          {stateHint ? ` ${stateHint}` : null}
+        </>
+      }
+      actions={
+        manageWorkspace ? (
+          <RowAction asChild>
+            <RouterLink to="/settings/workspace/integrations/slack">
+              {t("slack.tokenManage")}
+            </RouterLink>
+          </RowAction>
+        ) : stateHint ? (
+          // Only a known missing or unusable token; an unread or older
+          // answer says nothing about it.
+          <Text as="span" variant="sub">
+            {t("slack.configToken.askAdmin")}
+          </Text>
+        ) : null
       }
     />
   );
@@ -144,8 +141,10 @@ export function SlackTokenSection({ slack }: { readonly slack: SlackApp }) {
 export function SlackAddressSection({ slack }: { readonly slack: SlackApp }) {
   const { t } = useI18n();
   const { app, record, identity, busy, pending, recheck } = slack;
-  const url = record ? app.data?.event_url : null;
+  const url = eventUrl(slack);
   const events = app.data?.events;
+  if (!url || !events) return null;
+  // One address, so its state and recheck sit on the section's title line.
   return (
     <SettingsSection
       id={SECTION.addresses}
@@ -153,57 +152,48 @@ export function SlackAddressSection({ slack }: { readonly slack: SlackApp }) {
       className={SECTION_TARGET}
       titleAs="h3"
       title={t("workspace.addressesTitle")}
-      description={t("slack.addressesHint")}
-      box={!url}
-      foot={
-        url ? (
-          <div className="flex flex-col gap-2">
-            <SaveError error={recheck.error} />
-            <Outcome slack={slack} at="address" />
-          </div>
-        ) : undefined
+      badge={
+        // Apps checked before the URL was recorded have none.
+        events.url === null && events.state === "pending" ? (
+          <Badge variant="gray">{t("slack.eventsUrl.unsent")}</Badge>
+        ) : (
+          <Badge variant={EVENTS_BADGE[events.state]}>
+            {t(`slack.eventsUrl.${events.state}`)}
+          </Badge>
+        )
       }
-      rows={
-        url && events ? (
-          <SettingRow
-            title={t("workspace.addressEvents")}
-            meta={<Code className="[overflow-wrap:anywhere]">{url}</Code>}
-            badge={
-              // Apps checked before the URL was recorded have none.
-              events.url === null && events.state === "pending" ? (
-                <Badge variant="gray">{t("slack.eventsUrl.unsent")}</Badge>
-              ) : (
-                <Badge variant={EVENTS_BADGE[events.state]}>
-                  {t(`slack.eventsUrl.${events.state}`)}
-                </Badge>
-              )
-            }
-            description={t("slack.eventsUrl.hint")}
-            actions={
-              // Slack sends the check to an installed app only.
-              identity && record?.state === "created" ? (
-                <RowAction
-                  id={RECHECK_ID}
-                  disabled={busy || pending}
-                  onClick={() => recheck.mutate()}
-                >
-                  {recheck.isPending
-                    ? t("slack.working")
-                    : t("slack.eventsUrl.recheck")}
-                </RowAction>
-              ) : null
-            }
-          />
-        ) : undefined
+      description={t("slack.addressesHint")}
+      actions={
+        // Slack sends the check to an installed app only.
+        identity && record?.state === "created" ? (
+          <RowAction
+            id={RECHECK_ID}
+            disabled={busy || pending}
+            onClick={() => recheck.mutate()}
+          >
+            {recheck.isPending
+              ? t("slack.working")
+              : t("slack.eventsUrl.recheck")}
+          </RowAction>
+        ) : null
       }
     >
-      {url ? null : app.isPending ? (
-        <Skeleton width="50%" />
-      ) : (
-        <Text variant="sub">{t("slack.addressesNone")}</Text>
-      )}
+      <div className="flex min-w-0 flex-col gap-1">
+        <Code className="self-start [overflow-wrap:anywhere]">{url}</Code>
+        <Text variant="meta">{t("slack.eventsUrl.hint")}</Text>
+        <SaveError error={recheck.error} />
+        <Outcome slack={slack} at="address" />
+      </div>
     </SettingsSection>
   );
+}
+
+/**
+ * The address Slack calls, once there is an app to put it in; a server that
+ * cannot compute one sends none, and the section is left out with it.
+ */
+export function eventUrl(slack: SlackApp): string | null {
+  return slack.record ? (slack.app.data?.event_url ?? null) : null;
 }
 
 /** Integrations > Slack's "Slack apps made here": the one for this agent. */
@@ -230,7 +220,6 @@ export function SlackAppSection({
       titleAs="h3"
       title={t("workspace.slackApps")}
       description={t("slack.appsHint")}
-      box={!record}
       {...rest}
     >
       {body}

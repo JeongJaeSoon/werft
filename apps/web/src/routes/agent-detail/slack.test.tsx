@@ -49,7 +49,8 @@ const appResponse = (
   configToken: components["schemas"]["GetSlackAppResponse"]["config_token"] = "active",
 ): components["schemas"]["GetSlackAppResponse"] => ({
   slack_app: app,
-  event_url: null,
+  // A server computes the address once there is an app to put it in.
+  event_url: app ? `https://events.test/v1/slack/events/${AGENT_ID}` : null,
   events: { state: "pending", checked_at: null, url: null },
   warnings,
   config_token: configToken,
@@ -1241,6 +1242,13 @@ describe("Slack management", () => {
     ]);
     const token = screen.getByRole("region", { name: "Slack 앱 생성" });
     expect(within(token).getByText("토큰 확인됨")).toBeDefined();
+    // One token: its state, name and link are the section's own, not a row
+    // in a box under it, and only this section says where it is registered.
+    expect(within(token).queryByRole("list") === null).toBe(true);
+    expect(token.textContent).toContain("App Configuration Token입니다");
+    expect(
+      screen.getByRole("region", { name: "Slack" }).textContent,
+    ).not.toContain("연동 > Slack");
     expect(
       within(token)
         .getByRole("link", { name: "연동 > Slack에서 관리" })
@@ -1585,9 +1593,10 @@ describe("Slack management", () => {
     const addresses = await screen.findByRole("region", {
       name: "Slack 앱에 넣을 주소",
     });
-    // The agent's own URL, under the workspace screen's row name.
-    expect(within(addresses).getByText("이벤트 요청 URL")).toBeDefined();
+    // The agent's one URL sits in the section itself, with no box of rows.
+    expect(addresses.textContent).toContain("이벤트 요청 URL입니다");
     expect(within(addresses).getByText(SENT)).toBeDefined();
+    expect(within(addresses).queryByRole("list") === null).toBe(true);
     await within(addresses).findByText("Slack 확인 대기");
     await user.click(
       within(addresses).getByRole("button", { name: "다시 확인" }),
@@ -1683,6 +1692,41 @@ describe("Slack management", () => {
     );
     const pick = await within(channels).findByText("홈 채널 고르기");
     expect(pick.closest("[inert]")).toBeNull();
+  });
+
+  test("leads the lock to the app section when the app has no event URL", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(200, {
+          ...appResponse(APP),
+          event_url: null,
+          events: { state: "pending", checked_at: AT, url: SENT },
+        }),
+      [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [] }),
+    });
+    const user = await setupUser();
+    const lock = await within(
+      await screen.findByRole("region", { name: "홈 채널 지정" }),
+    ).findByRole("group", {
+      name: "Request URL 확인 전에는 채널을 고를 수 없습니다",
+    });
+    expect(
+      screen.queryByRole("region", { name: "Slack 앱에 넣을 주소" }) === null,
+    ).toBe(true);
+    const nav = screen.getByRole("navigation", { name: "Slack 구역" });
+    expect(
+      within(nav)
+        .getAllByRole("link")
+        .some((link) => link.textContent === "Slack 앱에 넣을 주소"),
+    ).toBe(false);
+    await user.click(
+      within(lock).getByRole("button", { name: "다시 확인으로 이동" }),
+    );
+    expect(
+      document.activeElement ===
+        screen.getByRole("region", { name: "자동으로 만든 Slack 앱" }),
+    ).toBe(true);
   });
 
   test("locks the connected channels too while Slack has not checked", async () => {
@@ -2086,7 +2130,8 @@ describe("Slack management", () => {
         for (const row of rows)
           expect(row.className.includes(`--werft-tone-${tone}-bg`)).toBe(true);
       }
-      // Before an install there are no channels to list.
+      // Before an install there are no channels to list, and before an app
+      // no address to put in it.
       const nav = screen.getByRole("navigation", { name: "Slack 구역" });
       expect(
         within(nav)
@@ -2096,10 +2141,15 @@ describe("Slack management", () => {
         "Slack",
         ...(installed ? ["채널", "기본"] : []),
         "Slack 앱 생성",
-        "Slack 앱에 넣을 주소",
+        ...(app ? ["Slack 앱에 넣을 주소"] : []),
         "자동으로 만든 Slack 앱",
         ...(app ? ["위험 구역"] : []),
       ]);
+      expect(
+        (screen.queryByRole("region", { name: "Slack 앱에 넣을 주소" }) ===
+          null) ===
+          (app === null),
+      ).toBe(true);
       // The /invite hint belongs to the channel picker alone.
       expect(screen.queryByText(/비공개 채널은 \/invite/)).toBeNull();
       if (installed) {

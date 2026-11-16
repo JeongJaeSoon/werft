@@ -147,14 +147,12 @@ export const slackEn = {
   "slack.addChannelHint":
     "Choose Add channel to select where this agent responds.",
   "slack.addChannel": "Add channel",
-  "slack.cardHint":
-    "The app, address and channels this agent uses in Slack. The token that makes the app is registered in the workspace's Integrations > Slack.",
+  "slack.cardHint": "The app, address and channels this agent uses in Slack.",
   "slack.tokenHint":
-    "The workspace token this agent's Slack app is made with. Register or replace it in Integrations > Slack.",
+    "The workspace's {token} this agent's Slack app is made with. Register or replace it in Integrations > Slack.",
   "slack.tokenManage": "Manage in Integrations > Slack",
   "slack.addressesHint":
     "The Events Request URL this agent's app uses. The console puts it in the app it makes; Slack must check it before channel messages reach the agent.",
-  "slack.addressesNone": "This agent gets its address once its app is made.",
   "slack.appsHint":
     "The Slack app this console made for this agent. Install and reinstall it here; disconnect and delete it in the danger zone.",
   "slack.appsEmpty": "This agent has no Slack app yet.",
