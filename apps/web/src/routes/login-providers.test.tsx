@@ -134,10 +134,14 @@ describe("로그인 공급자 목록", () => {
       ...table.querySelectorAll<HTMLElement>(
         "[role=columnheader], [role=cell], [role=columnheader] *, [role=cell] *",
       ),
-    ].filter((element) =>
-      /(^|\s)(justify-end|text-end|text-right|ml-auto)(\s|$)/.test(
-        element.getAttribute("class") ?? "",
-      ),
+    ].filter(
+      (element) =>
+        /(^|\s)(\S*:)?(justify-end|justify-self-end|justify-items-end|self-end|place-self-end|text-end|text-right|ml-auto|ms-auto)(\s|$)/.test(
+          element.getAttribute("class") ?? "",
+        ) ||
+        /(justify|text-align|margin-left|margin-inline-start)[^;]*(end|right|auto)/.test(
+          element.getAttribute("style") ?? "",
+        ),
     );
     expect(placed.map((element) => element.outerHTML)).toEqual([]);
     // Each row is a grid of its own: a track sized by its content (auto,
