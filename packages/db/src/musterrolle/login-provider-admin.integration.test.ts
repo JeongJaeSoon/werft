@@ -1108,14 +1108,17 @@ integration("login provider admin store", () => {
       ["pv-off", "pv-off@example.com", "refused", "rejected", true],
       ["pv-homeless", "pv-homeless@example.com", "refused", "rejected", true],
       ["pv-left", "pv-left@example.com", "refused", "rejected", true],
+      // Unvouched first: the vouched sign-in below links pv-joins for good.
+      ["pv-joins", "pv-account@example.com", "linkable", "rejected", false],
+      ["pv-joins", "pv-account@example.com", "linkable", "signed_in", true],
+      // pv-linked already has an account of this provider.
       [
         "pv-new",
-        "pv-account@example.com",
+        "pv-linked@example.com",
         "account_exists",
         "link_required",
         true,
       ],
-      ["pv-new", "pv-account@example.com", "account_exists", "rejected", false],
       ["pv-new", "pv-off-account@example.com", "refused", "rejected", true],
       // A live invite for the address is not found by an address the
       // provider does not vouch for, and no address finds nothing.

@@ -24,7 +24,7 @@ const REFUSED: Record<Refusal, string> = {
   no_emergency_admin:
     "Name an emergency admin who can sign in with a password first",
   locks_out_actor:
-    "You would not get back in: connect an account of a provider that is on first",
+    "You would not get back in: sign in once with a provider that is on first, so it is connected to your account",
   not_eligible:
     "The emergency admin must be an owner who is on and has a password",
 };

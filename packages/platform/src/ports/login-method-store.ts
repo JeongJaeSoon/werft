@@ -36,6 +36,12 @@ export type InviteSignUpInput = ExternalAccount & {
 export type InviteSignUpResult =
   | {
       outcome: "signed_in";
+      /**
+       * `invite`: a new account. `verified_email`: the invite's address had
+       * an account, the provider vouched for that address, and the external
+       * account was linked to it; the invite stays unspent.
+       */
+      via: "invite" | "verified_email";
       userId: string;
       workspaceId: string;
       role: MembershipRole;
@@ -45,7 +51,10 @@ export type InviteSignUpResult =
   | { outcome: "invite_gone" }
   /** The external account is somebody's already. */
   | { outcome: "already_linked" }
-  /** The invite's address has an account; nothing is joined to it. */
+  /**
+   * The invite's address has an account this external account cannot be
+   * linked to; nothing is joined to it.
+   */
   | { outcome: "link_required" }
   | { outcome: "provider_off" };
 

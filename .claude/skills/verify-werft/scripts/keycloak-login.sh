@@ -192,29 +192,28 @@ printf '%s' "$WEB_BODY" | PID=$PID node -e '
 shot
 ok
 
-# The owner's test sign-in left bo's Keycloak session in this browser, so the
-# link comes back without the form. The console has no screen for linking, so
-# the page starts the flow through the API; the console's callback then goes
-# home.
-step=kc-link
-B open "$CONSOLE_ORIGIN/" >/dev/null || fail "open the console"
-on_console /
-started=$(value "fetch('/v1/auth/me/login-methods/$PID/link/start', { method: 'POST', headers: { 'X-Requested-With': 'werft-web' } }).then(async (r) => { if (!r.ok) return 'link/start ' + r.status; location.assign((await r.json()).authorization_url); return 'started'; })")
-[ "$started" = started ] || fail "link start: $started"
-# The page is still at / before it leaves for Keycloak, so wait for the link.
-linked=
-for _ in $(seq 1 40); do
-  linked=$(value "location.pathname === '/' && fetch('/v1/auth/me/login-methods').then((r) => r.json()).then((b) => b.methods.some((m) => m.provider?.id === '$PID'))")
-  [ "$linked" = true ] && break
-  sleep 0.5
-done
-[ "$linked" = true ] || fail "no Keycloak method after the link: ${linked:-nothing}"
-on_console /
-echo "  linked: $linked"
+# bo first joins with a password under the address Keycloak vouches for. The
+# owner's test sign-in left bo's Keycloak session in this browser, so the
+# sign-in comes back without the form and lands on bo's account.
+step=kc-auto-link
+WU invite owner bo member bo@acme.example >/dev/null || fail "invite bo"
+WU accept bo >/dev/null || fail "bo accepts with a password"
+bo_id=$(sql "select id from users where email = 'bo@acme.example'")
+[ -n "$bo_id" ] || fail "bo has no account"
 werft_logout
 sign_in_with_keycloak
 on_console /
-expect_me "200 owner@example.test"
+expect_me "200 bo@acme.example"
+row=$(sql "select u.password_hash is not null, (select count(*) from login_methods l where l.user_id = u.id and l.kind = 'oidc'), (select count(*) from receipts r where r.operation = 'link_login_method' and r.result->>'via' = 'verified_email' and r.actor->>'actor_user_id' = u.id::text) from users u where u.id = '$bo_id'")
+[ "$row" = "t|1|1" ] || fail "bo after the sign-in (password kept|oidc methods|receipts): ${row:-none}"
+echo "  bo: password kept, 1 Keycloak method, 1 receipt"
+# The second sign-in takes the link, not the address.
+werft_logout
+sign_in_with_keycloak
+on_console /
+expect_me "200 bo@acme.example"
+row=$(sql "select (select count(*) from login_methods l where l.user_id = u.id and l.kind = 'oidc'), (select count(*) from receipts r where r.operation = 'link_login_method' and r.actor->>'actor_user_id' = u.id::text) from users u where u.id = '$bo_id'")
+[ "$row" = "1|1" ] || fail "bo after the second sign-in (oidc methods|receipts): ${row:-none}"
 shot
 ok
 

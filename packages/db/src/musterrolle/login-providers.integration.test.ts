@@ -258,22 +258,30 @@ integration("login providers", () => {
       );
     });
 
-    test("the same address from another issuer is not joined to the account", async () => {
+    test("the same vouched address from another issuer joins the account", async () => {
       const home = await seedLoginProvider(db, { issuer: newIssuer() });
       const other = await seedLoginProvider(db, { issuer: newIssuer() });
       const owner = await signIn(home, "sub-home", "shared@example.com");
       const userId = userIdOf(owner.result);
 
-      const intruder = await signIn(other, "sub-home", "shared@example.com");
-      expect(intruder.result).toEqual({ outcome: "link_required" });
-      expect(await resolveWebSession(db, intruder.tokenHash)).toBeNull();
+      const joined = await signIn(other, "sub-home", "shared@example.com");
+      expect(joined.result).toMatchObject({
+        outcome: "signed_in",
+        via: "verified_email",
+        userId,
+      });
+      expect(await resolveWebSession(db, joined.tokenHash)).not.toBeNull();
       expect(
-        await db
-          .select({ issuer: loginMethods.issuer })
-          .from(loginMethods)
-          .where(eq(loginMethods.userId, userId)),
-      ).toEqual([{ issuer: home.issuer }]);
-      expect(await liveSessionsOf(other.issuer)).toBe(0);
+        (
+          await db
+            .select({ issuer: loginMethods.issuer })
+            .from(loginMethods)
+            .where(eq(loginMethods.userId, userId))
+        )
+          .map((row) => row.issuer)
+          .sort(),
+      ).toEqual([home.issuer, other.issuer].sort());
+      expect(await liveSessionsOf(other.issuer)).toBe(1);
     });
   });
 

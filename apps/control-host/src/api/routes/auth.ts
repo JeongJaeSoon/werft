@@ -698,8 +698,19 @@ export function registerPublicAuthRoutes(
     new ApiHttpError(
       409,
       "LOGIN_LINK_REQUIRED",
-      "Sign in with your existing account, then connect this provider in settings",
+      "An account with this address exists, and this provider account cannot be connected to it",
     );
+  /** No subject, address or token: the receipt holds the same. */
+  const linkedByEmail = (
+    providerId: string,
+    userId: string,
+    loginMethodId: string,
+  ) =>
+    deps.logger?.info("Login method linked by verified email", {
+      provider_id: providerId,
+      user_id: userId,
+      login_method_id: loginMethodId,
+    });
   const alreadyLinked = (reason: "login_method_linked" | "issuer_linked") =>
     new ApiHttpError(
       409,
@@ -721,6 +732,7 @@ export function registerPublicAuthRoutes(
     const methods = deps.loginMethods;
     if (!methods) throw providerOff();
     const token = generateWebSessionToken();
+    const newLoginMethodId = randomUUID();
     const result = await storageMapped(() =>
       methods.signUpWithInvite({
         provider: { id: provider.id, configRevision: provider.configRevision },
@@ -730,7 +742,7 @@ export function registerPublicAuthRoutes(
         vouchedEmail: admission.ownsEmail ? identity.email : null,
         name: clampDisplayName(identity.name ?? "") || null,
         newUserId: randomUUID(),
-        newLoginMethodId: randomUUID(),
+        newLoginMethodId,
         receiptId: randomUUID(),
         session: sessionInput(context, token),
       }),
@@ -751,11 +763,14 @@ export function registerPublicAuthRoutes(
         });
         throw linkRequired();
     }
+    if (result.via === "verified_email") {
+      linkedByEmail(provider.id, result.userId, newLoginMethodId);
+    }
     deps.logger?.info("Provider sign-in", {
       provider_id: provider.id,
       user_id: result.userId,
       workspace_id: result.workspaceId,
-      via: "invite_token",
+      via: result.via === "invite" ? "invite_token" : result.via,
     });
     setWebSessionCookie(context, token, result.expiresAt);
     return jsonWithSchema(context, providerLoginCallbackResponseSchema, {
@@ -818,6 +833,7 @@ export function registerPublicAuthRoutes(
   const signIn = async (context: Context, answer: Answer) => {
     const { provider, identity, admission } = answer;
     const token = generateWebSessionToken();
+    const newLoginMethodId = randomUUID();
     const result = await storageMapped(() =>
       deps.identity.signInWithExternalIdentity({
         kind: "oidc",
@@ -832,7 +848,7 @@ export function registerPublicAuthRoutes(
         jitRole: admission.jitRole,
         ownsEmail: admission.ownsEmail,
         newUserId: randomUUID(),
-        newLoginMethodId: randomUUID(),
+        newLoginMethodId,
         receiptId: randomUUID(),
         session: sessionInput(context, token),
       }),
@@ -858,6 +874,9 @@ export function registerPublicAuthRoutes(
         reason: "no_rule_admits",
       });
       throw new ApiHttpError(401, "UNAUTHORIZED", PROVIDER_REJECTED);
+    }
+    if (result.via === "verified_email") {
+      linkedByEmail(provider.id, result.userId, newLoginMethodId);
     }
     deps.logger?.info("Provider sign-in", {
       provider_id: provider.id,

@@ -172,7 +172,8 @@ When the test passes, the result shows what would happen if that account really 
 | Result | Meaning |
 | --- | --- |
 | It signs in as the account it is connected to | This provider account is linked to a werft user |
-| An account with this address exists but … does not sign in | There is no link, and an account with the proven address exists. That person signs in and links |
+| It is connected to the account with this address and signs in as it | There is no link, and an account with the proven address exists. The first sign-in connects it to that account |
+| An account with this address exists but … does not sign in | There is no link, and the account with the proven address already has another account of this provider linked |
 | It joins as a new member | Becomes a member through **Join without an invite** |
 | It comes in only with an invite sent to this address | There is no account. With an invite, they come in with its role |
 | It is refused: outside the allowed domains | Outside the allowed domains, or there is a list and the address is not proven. Refused even for a linked account |
@@ -199,7 +200,7 @@ The screen shows the refusals below as sentences. When calling the API directly,
 | `409 REVISION_CONFLICT` | `password_login_closed` | Tried to issue a reset link for someone other than the emergency admin while password sign-in is closed |
 | `403` | `password_login_closed` | Tried to accept an invite with a password while password sign-in is closed |
 | `403` | `session_too_old` | Tried to link or remove a sign-in method with a session more than 10 minutes after sign-in |
-| `409 LOGIN_LINK_REQUIRED` | | An account with the proven address already exists, so the provider account was not attached |
+| `409 LOGIN_LINK_REQUIRED` | | The account with the proven address already has another account of this provider linked, or an invite sign-up proved an address other than the invited one, so the provider account was not attached |
 | `409 ALREADY_EXISTS` | `login_method_linked`, `issuer_linked`, or none | `login_method_linked`: this provider account is already linked to a user (your own account included). `issuer_linked`: the linking user already has another account of the same issuer. None: tried to create another provider with the same issuer |
 | `401 UNAUTHORIZED` | `flow_elsewhere` | The browser came back without the flow cookie, or not in the session the test was started from. The usual cause is a flow started on another address than the redirect URI's (for example `localhost` against `127.0.0.1`). Start over at the redirect URI's address. Any other `401` does not say why |
 | `503` | | There is no `CONSOLE_ORIGIN`, so no redirect URI can be built |

@@ -173,7 +173,7 @@ describe("비밀번호 로그인 설정", () => {
     expect(dialog.textContent).toContain("내 세션도 끊깁니다");
     await user.click(within(dialog).getByRole("button", { name: "닫기" }));
     expect((await within(dialog).findByRole("alert")).textContent).toBe(
-      "이대로는 내가 다시 들어올 수 없습니다. 켜진 공급자의 계정을 내 로그인 수단에 먼저 연결하세요.",
+      "이대로는 내가 다시 들어올 수 없습니다. 켜진 공급자로 먼저 한 번 로그인해 내 계정에 연결하세요. 공급자가 확인한 이메일이 내 계정의 이메일과 같으면 자동으로 연결됩니다.",
     );
     // Refused: read again, since the reason is often news.
     await waitFor(() =>

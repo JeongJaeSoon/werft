@@ -188,9 +188,9 @@ describe("i18n", () => {
   });
 
   test("the link-required error sends people to an owner, never to a settings page or a password", () => {
-    // People no longer link a provider to their own account, and the
-    // existing account may have no password, or password sign-in may be
-    // closed to it.
+    // People do not link a provider to their own account in the console,
+    // and the existing account may have no password, or password sign-in
+    // may be closed to it.
     const settings = { ko: /설정 >/, en: /Settings >/, ja: /設定 >/ };
     const password = { ko: /비밀번호/, en: /password/i, ja: /パスワード/ };
     for (const locale of LOCALES) {

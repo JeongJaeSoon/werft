@@ -866,6 +866,20 @@ describe("provider test sign-in", () => {
         claims: alice,
         entry: "domain_not_allowed",
       },
+      // The address has an account the vouched address may be linked to.
+      { known: "linkable", claims: alice, entry: "links" },
+      {
+        provider: { requireVerifiedEmail: false },
+        known: "linkable",
+        claims: silent,
+        entry: "refused",
+      },
+      {
+        provider: { allowedDomains: ["elsewhere.example"] },
+        known: "linkable",
+        claims: alice,
+        entry: "domain_not_allowed",
+      },
       { known: "account_exists", claims: alice, entry: "link_required" },
       {
         provider: { requireVerifiedEmail: false },
@@ -1104,7 +1118,27 @@ describe("provider sign-in routes", () => {
     expect(calls[0]).toMatchObject({ jitRole: "member", displayName: "alice" });
   });
 
-  test("an address that has an account answers 409 LOGIN_LINK_REQUIRED", async () => {
+  test("an account linked by its verified address signs in, and the log names the link without the address", async () => {
+    const h = harness({ result: { ...signedIn, via: "verified_email" } });
+    const response = await h.signIn(alice);
+    expect(response.status).toBe(200);
+    expect(h.calls[0]).toMatchObject({
+      email: "alice@example.com",
+      ownsEmail: true,
+    });
+    const linked = h.sink.records.filter(
+      (record) => record.message === "Login method linked by verified email",
+    );
+    expect(linked).toHaveLength(1);
+    expect(linked[0]?.fields).toMatchObject({
+      provider_id: PROVIDER_ID,
+      user_id: signedIn.userId,
+      login_method_id: h.calls[0]?.newLoginMethodId,
+    });
+    expect(JSON.stringify(h.sink.records)).not.toContain("alice@example.com");
+  });
+
+  test("an address whose account cannot take this provider's account answers 409 LOGIN_LINK_REQUIRED", async () => {
     const { signIn } = harness({ result: { outcome: "link_required" } });
     const response = await signIn(alice);
     expect(response.status).toBe(409);

@@ -103,13 +103,18 @@ integration("a person's ways to sign in", () => {
     });
     return id;
   };
-  const signUp = (inviteId: string, subject: string, provider = providerA) =>
+  const signUp = (
+    inviteId: string,
+    subject: string,
+    provider = providerA,
+    vouchedEmail: string | null = null,
+  ) =>
     store.signUpWithInvite({
       provider: flowOf(provider),
       inviteId,
       issuer: provider.issuer,
       subject,
-      vouchedEmail: null,
+      vouchedEmail,
       name: null,
       newUserId: randomUUID(),
       newLoginMethodId: randomUUID(),
@@ -314,18 +319,42 @@ integration("a person's ways to sign in", () => {
       expect(await db.$count(webSessions)).toBe(sessionsBefore);
     });
 
-    test("an address that has an account is never joined to the provider's account", async () => {
+    test("an address that has an account is joined only when the provider vouches for it", async () => {
       const dave = await person("dave@example.com");
       const inviteId = await invite("dave@example.com");
       const sessionsBefore = await db.$count(webSessions);
       expect(await signUp(inviteId, "sub-dave")).toEqual({
         outcome: "link_required",
       });
-      expect((await inviteRow(inviteId))?.acceptedAt).toBeNull();
+      expect(
+        await signUp(inviteId, "sub-dave", providerA, "other@example.com"),
+      ).toEqual({ outcome: "link_required" });
       expect((await methodsOf(dave.id)).map((row) => row.kind)).toEqual([
         "password",
       ]);
       expect(await db.$count(webSessions)).toBe(sessionsBefore);
+
+      const joined = await signUp(
+        inviteId,
+        "sub-dave",
+        providerA,
+        "dave@example.com",
+      );
+      expect(joined).toMatchObject({
+        outcome: "signed_in",
+        userId: dave.id,
+        via: "verified_email",
+      });
+      expect((await inviteRow(inviteId))?.acceptedAt).toBeNull();
+      const linked = (await methodsOf(dave.id)).find(
+        (row) => row.kind === "oidc",
+      );
+      expect(linked).toMatchObject({
+        issuer: providerA.issuer,
+        subject: "sub-dave",
+        emailAtLink: "dave@example.com",
+      });
+      expect(await db.$count(webSessions)).toBe(sessionsBefore + 1);
     });
 
     test("a provider turned off, or changed since the flow started, ends the sign-up", async () => {

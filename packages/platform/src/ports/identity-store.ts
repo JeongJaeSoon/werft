@@ -144,12 +144,14 @@ export type ExternalSignInInput = {
 /**
  * The first rule that matched (design 3.1). `link_required` is only for
  * a caller whose address the provider verified, so it may say an account
- * exists; `rejected` must not.
+ * exists that this provider account cannot be linked to; `rejected` must
+ * not. `verified_email`: no link yet, and the account with the address the
+ * provider verified was linked to it now.
  */
 export type ExternalSignInResult =
   | {
       outcome: "signed_in";
-      via: "linked" | "invite" | "jit";
+      via: "linked" | "verified_email" | "invite" | "jit";
       userId: string;
       workspaceId: string;
       role: MembershipRole;
