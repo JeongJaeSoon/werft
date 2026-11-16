@@ -43,6 +43,7 @@ import {
   agentAdmins,
   agents,
   attempts,
+  checkpoints,
   memberships,
   providerConnections,
   receipts,
@@ -214,6 +215,38 @@ integration("achievement judgments on PostgreSQL", () => {
       leaseEpoch: 1,
     });
     return id;
+  }
+
+  /**
+   * The session lists out/report.md from its checkpoint `revision`, which
+   * committed now and first uploaded the file's bytes, unless `committedAt`
+   * says otherwise.
+   */
+  async function reportListed(
+    sessionId: string,
+    revision = 1,
+    committedAt?: ReturnType<typeof sql>,
+  ) {
+    const directory = `sessions/${sessionId}/checkpoints/${revision}/attempt/`;
+    await db.insert(checkpoints).values({
+      sessionId,
+      revision,
+      manifestRef: `${directory}manifest.json`,
+      manifestSha256: "a".repeat(64),
+      ...(committedAt === undefined ? {} : { committedAt }),
+    });
+    outputsBySession.set(sessionId, {
+      status: "ready",
+      revision,
+      outputs: [
+        {
+          path: "out/report.md",
+          bytes: 42,
+          sha256: "b".repeat(64),
+          key: `${directory}outputs/${"b".repeat(64)}`,
+        },
+      ],
+    });
   }
 
   async function receipt(ownerId: string, sessionId: string) {
@@ -970,6 +1003,124 @@ integration("achievement judgments on PostgreSQL", () => {
     expect(await achievementsOf(sessionId)).toEqual([]);
   });
 
+  test("a decision model joins the window of the ones still on; once none is on, the next one starts it over", async () => {
+    const sinceOf = async (id: string) => {
+      const [row] = await db
+        .select({ since: providerConnections.judgingSince })
+        .from(providerConnections)
+        .where(eq(providerConnections.id, id));
+      return row?.since ?? null;
+    };
+    const first = await sinceOf("luna-main");
+    expect(first).not.toBeNull();
+    await insertDecisionModel(db, "luna-window");
+    try {
+      expect(await sinceOf("luna-window")).toEqual(first);
+      // luna-window stays on: the window goes on, and luna-main rejoins it.
+      await decisionModelEnabled(false);
+      await decisionModelEnabled(true);
+      expect(await sinceOf("luna-main")).toEqual(first);
+
+      await db
+        .update(providerConnections)
+        .set({ disabledAt: sql`now()` })
+        .where(eq(providerConnections.id, "luna-window"));
+      await decisionModelEnabled(false);
+      await decisionModelEnabled(true);
+      const again = await sinceOf("luna-main");
+      expect(again?.getTime()).toBeGreaterThan(first?.getTime() ?? 0);
+      // An edit that enables nothing leaves the window as it is.
+      await db
+        .update(providerConnections)
+        .set({ disabledAt: null })
+        .where(eq(providerConnections.id, "luna-main"));
+      expect(await sinceOf("luna-main")).toEqual(again);
+    } finally {
+      await db
+        .delete(providerConnections)
+        .where(eq(providerConnections.id, "luna-window"));
+    }
+  });
+
+  test("evidence from before the decision model went on is left out of what a judgment reads", async () => {
+    const ws = await workspace();
+    const sessionId = await session(ws.workspaceId, "Talk");
+    const open = await pullRequest(sessionId, ws.workspaceId);
+    const mergedEarlier = await pullRequest(sessionId, ws.workspaceId);
+    const mergedLater = await pullRequest(sessionId, ws.workspaceId);
+    await db.insert(turns).values({
+      sessionId,
+      sequence: 1,
+      message: "ask 1",
+      status: "completed",
+      endedAt: sql`now() - interval '1 minute'`,
+      resultJson: { result: "answer 1" },
+    });
+    await reportListed(sessionId, 1, sql`now() - interval '1 minute'`);
+    await db
+      .update(sessionOutcomes)
+      .set({ stateChangedAt: sql`now() - interval '1 minute'` })
+      .where(eq(sessionOutcomes.sessionId, sessionId));
+    // A gap with no decision model: the window starts over.
+    await decisionModelEnabled(false);
+    await decisionModelEnabled(true);
+    await db
+      .update(sessionOutcomes)
+      .set({
+        state: "merged",
+        // Merged on GitHub before the window, seen by this server after.
+        mergedAt: sql`now() - interval '1 minute'`,
+        stateChangedAt: sql`clock_timestamp()`,
+      })
+      .where(eq(sessionOutcomes.id, mergedEarlier.id));
+    await db
+      .update(sessionOutcomes)
+      .set({
+        state: "merged",
+        mergedAt: sql`clock_timestamp()`,
+        stateChangedAt: sql`clock_timestamp()`,
+      })
+      .where(eq(sessionOutcomes.id, mergedLater.id));
+    const claimed: ClaimedJudgment = {
+      id: randomUUID(),
+      sessionId,
+      attempts: 1,
+      errorCode: null,
+      leaseToken: randomUUID(),
+    };
+
+    const before = await judgments.context(claimed);
+    expect(before.outcomes.map((outcome) => outcome.id)).toEqual([
+      mergedLater.id,
+    ]);
+    expect(before.outcomes.map((outcome) => outcome.id)).not.toContain(open.id);
+    expect(before.since).toEqual({ conversation: false, checkpoints: [] });
+    expect(await judgments.transcript(sessionId, 20)).toEqual([]);
+
+    await db.insert(turns).values({
+      sessionId,
+      sequence: 2,
+      message: "ask 2",
+      status: "completed",
+      endedAt: sql`clock_timestamp()`,
+      resultJson: { result: "answer 2" },
+    });
+    await reportListed(sessionId, 2);
+    const after = await judgments.context(claimed);
+    expect(after.since).toEqual({
+      conversation: true,
+      checkpoints: [
+        {
+          revision: 2,
+          directory: `sessions/${sessionId}/checkpoints/2/attempt/`,
+        },
+      ],
+    });
+    expect(await judgments.transcript(sessionId, 20)).toEqual([
+      { sequence: 2, message: "ask 2", result: "answer 2" },
+    ]);
+  });
+
   test("the judge waits out the quiet time, then writes each always rule's achievements with the payload and review state of their evidence", async () => {
     const ws = await workspace();
     await rule(ws, await typeId(ws.workspaceId, "pull_request"));
@@ -979,18 +1130,7 @@ integration("achievement judgments on PostgreSQL", () => {
     const sessionId = await session(ws.workspaceId, "Fix the payments");
     const pr = await pullRequest(sessionId, ws.workspaceId);
     await review(sessionId, ws.workspaceId);
-    outputsBySession.set(sessionId, {
-      status: "ready",
-      revision: 1,
-      outputs: [
-        {
-          path: "out/report.md",
-          bytes: 42,
-          sha256: "b".repeat(64),
-          key: `sessions/${sessionId}/outputs/${"b".repeat(64)}`,
-        },
-      ],
-    });
+    await reportListed(sessionId);
 
     await replica().runOnce();
     expect(await judgmentsOf(sessionId)).toMatchObject([{ status: "queued" }]);
@@ -1115,23 +1255,10 @@ integration("achievement judgments on PostgreSQL", () => {
   test("one out/ path counts once in its session and once in each other session", async () => {
     const ws = await workspace();
     await rule(ws, await typeId(ws.workspaceId, "document"));
-    const report = (sessionId: string) =>
-      outputsBySession.set(sessionId, {
-        status: "ready",
-        revision: 1,
-        outputs: [
-          {
-            path: "out/report.md",
-            bytes: 42,
-            sha256: "b".repeat(64),
-            key: `sessions/${sessionId}/outputs/${"b".repeat(64)}`,
-          },
-        ],
-      });
     const a = await session(ws.workspaceId);
     const b = await session(ws.workspaceId);
-    report(a);
-    report(b);
+    await reportListed(a);
+    await reportListed(b);
     for (let trigger = 0; trigger < 2; trigger += 1) {
       for (const sessionId of [a, b]) {
         await queueAchievementJudgment(db, sessionId);
@@ -2231,8 +2358,9 @@ integration("achievement judgments on PostgreSQL", () => {
       const pr = await pullRequest(sessionId, ws.workspaceId);
       await db
         .update(sessionOutcomes)
-        // Merged before the session's first judgment was queued.
-        .set({ state: "merged", mergedAt: sql`now() - interval '1 hour'` })
+        // Merged before the session's first judgment was queued, and since
+        // the decision model went on.
+        .set({ state: "merged", mergedAt: sessionOutcomes.stateChangedAt })
         .where(eq(sessionOutcomes.id, pr.id));
       const replica = lunaReplica(() => 0.95);
       await quietPassed(sessionId);
@@ -2597,18 +2725,7 @@ integration("achievement judgments on PostgreSQL", () => {
     await rule(ws, await typeId(ws.workspaceId, "document"));
     const sessionId = await session(ws.workspaceId);
     await pullRequest(sessionId, ws.workspaceId);
-    outputsBySession.set(sessionId, {
-      status: "ready",
-      revision: 1,
-      outputs: [
-        {
-          path: "out/report.md",
-          bytes: 42,
-          sha256: "b".repeat(64),
-          key: `sessions/${sessionId}/outputs/${"b".repeat(64)}`,
-        },
-      ],
-    });
+    await reportListed(sessionId);
     await quietPassed(sessionId);
     await replica().runOnce();
     const listed = await judgments.list(ws.workspaceId, sessionId);

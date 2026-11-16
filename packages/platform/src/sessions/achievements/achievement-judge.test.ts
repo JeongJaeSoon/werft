@@ -80,10 +80,19 @@ const NO_JUDGE: JudgeInForce = {
   lastInputDigest: null,
 };
 
+/** The checkpoint of revision 3, committed since the decision model went on. */
+const OUTPUTS_DIRECTORY = "p/checkpoints/r3/";
+const OUTPUT_KEY = `${OUTPUTS_DIRECTORY}outputs/a`;
+const ALL_SINCE: JudgmentContext["since"] = {
+  conversation: true,
+  checkpoints: [{ revision: 3, directory: OUTPUTS_DIRECTORY }],
+};
+
 function judgeOf(
-  context: Omit<JudgmentContext, "session" | "judge"> & {
+  context: Omit<JudgmentContext, "session" | "judge" | "since"> & {
     title?: string | null;
     judge?: Partial<JudgeInForce>;
+    since?: JudgmentContext["since"];
   },
   outputs: SessionOutputsResult = { status: "none" },
   options: {
@@ -137,6 +146,7 @@ function judgeOf(
         rules: context.rules,
         outcomes: context.outcomes,
         judge: { ...NO_JUDGE, ...context.judge },
+        since: context.since ?? ALL_SINCE,
       };
     },
     finish: async (_judgment, result) => {
@@ -220,6 +230,59 @@ describe("achievement judge", () => {
         achievements: [],
       },
     ]);
+  });
+
+  test("out/ files and the conversation from before the decision model went on are not paired", async () => {
+    const outputs: SessionOutputsResult = {
+      status: "ready",
+      revision: 3,
+      outputs: [
+        {
+          path: "out/old.md",
+          bytes: 5,
+          sha256: "b",
+          key: "p/checkpoints/r1/outputs/b",
+        },
+        { path: "out/new.md", bytes: 5, sha256: "a", key: OUTPUT_KEY },
+      ] as never,
+    };
+    const rules = [
+      rule("file_made", "out_file"),
+      rule("talked", "conversation"),
+    ];
+    const before = judgeOf(
+      {
+        rules,
+        outcomes: [],
+        title: "Fix the payment retry",
+        since: { conversation: false, checkpoints: ALL_SINCE.checkpoints },
+      },
+      outputs,
+    );
+    await before.judge.runOnce();
+    expect(before.finished[0]?.evidenceIds).toEqual(["out/new.md"]);
+    expect(before.finished[0]?.achievements.map((a) => a.evidenceKind)).toEqual(
+      ["out_file"],
+    );
+
+    // An omitted file has no key: it is new only with its listed revision.
+    const omitted = (revision: number) =>
+      judgeOf(
+        { rules, outcomes: [] },
+        {
+          status: "ready",
+          revision,
+          outputs: [
+            { path: "out/huge.bin", bytes: 9e9, omitted: "too_large" },
+          ] as never,
+        },
+      );
+    const old = omitted(2);
+    await old.judge.runOnce();
+    expect(old.finished[0]?.evidenceIds).toEqual([]);
+    const listedSince = omitted(3);
+    await listedSince.judge.runOnce();
+    expect(listedSince.finished[0]?.evidenceIds).toEqual(["out/huge.bin"]);
   });
 
   test("a decision model disabled while a batch runs stops the judgments after it", async () => {
@@ -979,7 +1042,7 @@ describe("achievement judge with Luna", () => {
         status: "ready",
         revision: 3,
         outputs: [
-          { path: "out/report.md", bytes: 7000, sha256: "a" },
+          { path: "out/report.md", bytes: 7000, sha256: "a", key: OUTPUT_KEY },
           { path: "out/huge.bin", bytes: 9e9, omitted: "too_large" },
         ] as never,
       },
@@ -1022,7 +1085,9 @@ describe("achievement judge with Luna", () => {
       {
         status: "ready",
         revision: 3,
-        outputs: [{ path: "out/report.md", bytes: 10, sha256: "a" }] as never,
+        outputs: [
+          { path: "out/report.md", bytes: 10, sha256: "a", key: OUTPUT_KEY },
+        ] as never,
       },
       { luna, files: { "out/report.md": "unavailable" } },
     );
@@ -1197,7 +1262,7 @@ describe("achievement judge with Luna", () => {
       {
         status: "ready",
         revision: 3,
-        outputs: [{ path, bytes: 10, sha256: "a" }] as never,
+        outputs: [{ path, bytes: 10, sha256: "a", key: OUTPUT_KEY }] as never,
       },
       { luna },
     );

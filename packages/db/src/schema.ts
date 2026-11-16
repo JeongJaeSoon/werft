@@ -5840,6 +5840,15 @@ export const providerConnections = pgTable(
       .default("unknown"),
     disabledAt: timestamp("disabled_at", { withTimezone: true }),
     disabledBy: uuid("disabled_by").references(() => users.id),
+    /**
+     * An `openai_decisions` row's: since when the installation has had a
+     * decision model without a break. Achievement judging reads only
+     * evidence from then on (the earliest across the enabled rows). Set by
+     * a trigger (0291) as the row is created or enabled again: the earliest
+     * of the other enabled rows, or now when there are none, so a gap with
+     * no decision model starts the window over.
+     */
+    judgingSince: timestamp("judging_since", { withTimezone: true }),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

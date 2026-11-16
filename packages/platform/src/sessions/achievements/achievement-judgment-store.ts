@@ -98,8 +98,24 @@ export type JudgmentContext = {
     agentReleaseId: string | null;
   };
   rules: JudgedRule[];
+  /** Those whose state last changed since the decision model was on. */
   outcomes: OutcomeEvidence[];
   judge: JudgeInForce;
+  /**
+   * What happened since the decision model was on without a break: older
+   * evidence is never judged (achievement-rules.md §4).
+   */
+  since: {
+    /** A turn ended since. */
+    conversation: boolean;
+    /**
+     * The checkpoints committed since, by revision and publish directory
+     * (ending in `/`). A stored out/ file is new when its key is under one
+     * of the directories, the checkpoint that first uploaded its bytes; an
+     * omitted one when the listed revision is among them.
+     */
+    checkpoints: { revision: number; directory: string }[];
+  };
 };
 
 export type NewAchievement = {
@@ -167,7 +183,10 @@ export interface AchievementJudgmentStore {
    * once it ran out; false once it was taken over or finished.
    */
   renew(judgment: ClaimedJudgment, leaseMs: number): Promise<boolean>;
-  /** The session's last `turns` ended turns, oldest first. */
+  /**
+   * The session's last `turns` turns that ended since the decision model
+   * was on, oldest first.
+   */
   transcript(sessionId: string, turns: number): Promise<TranscriptTurn[]>;
   /**
    * Writes the result and the achievements in one transaction under the

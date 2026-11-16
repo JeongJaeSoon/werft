@@ -46,6 +46,7 @@ import {
   achievementRules,
   achievementTypes,
   agentReleases,
+  checkpoints,
   receipts,
   sessionAchievements,
   sessionOutcomes,
@@ -78,6 +79,11 @@ const DECISION_MODEL = sql`EXISTS (
   SELECT 1 FROM provider_connections pc
   WHERE pc.definition ->> 'kind' = 'openai_decisions' AND pc.disabled_at IS NULL
   FOR SHARE)`;
+
+// Since when the installation has had a decision model without a break
+// (0291). NULL without one, and nothing compares as since NULL.
+const JUDGING_SINCE = sql`(SELECT min(pc.judging_since) FROM provider_connections pc
+  WHERE pc.definition ->> 'kind' = 'openai_decisions' AND pc.disabled_at IS NULL)`;
 
 function gateOf(cause: JudgmentCause): SQL {
   switch (cause.trigger) {
@@ -450,11 +456,43 @@ export function createPostgresAchievementJudgments(
           ),
         )
         .orderBy(asc(achievementRules.createdAt), asc(achievementRules.id));
+      // When the outcome reached its state: GitHub's merge or close time,
+      // else when this server saw the state.
       const outcomes = await db
         .select()
         .from(sessionOutcomes)
-        .where(eq(sessionOutcomes.sessionId, judgment.sessionId))
+        .where(
+          and(
+            eq(sessionOutcomes.sessionId, judgment.sessionId),
+            sql`COALESCE(CASE ${sessionOutcomes.state}
+                  WHEN 'merged' THEN ${sessionOutcomes.mergedAt}
+                  WHEN 'closed' THEN ${sessionOutcomes.closedAt} END,
+                ${sessionOutcomes.stateChangedAt}) >= ${JUDGING_SINCE}`,
+          ),
+        )
         .orderBy(asc(sessionOutcomes.createdAt), asc(sessionOutcomes.id));
+      const [conversation] = await db
+        .select({ id: turns.id })
+        .from(turns)
+        .where(
+          and(
+            eq(turns.sessionId, judgment.sessionId),
+            sql`${turns.endedAt} >= ${JUDGING_SINCE}`,
+          ),
+        )
+        .limit(1);
+      const checkpointsSince = await db
+        .select({
+          revision: checkpoints.revision,
+          manifestRef: checkpoints.manifestRef,
+        })
+        .from(checkpoints)
+        .where(
+          and(
+            eq(checkpoints.sessionId, judgment.sessionId),
+            sql`${checkpoints.committedAt} >= ${JUDGING_SINCE}`,
+          ),
+        );
       const settings = judgeSettingsOf(session.settings);
       const [called] = await db
         .select({ count: count() })
@@ -508,6 +546,16 @@ export function createPostgresAchievementJudgments(
           const evidence = outcomeEvidenceOf(row);
           return evidence === null ? [] : [evidence];
         }),
+        since: {
+          conversation: conversation !== undefined,
+          // Never an empty directory: it would take every key as new.
+          checkpoints: checkpointsSince.flatMap(({ revision, manifestRef }) => {
+            const end = manifestRef.lastIndexOf("/");
+            return end <= 0
+              ? []
+              : [{ revision, directory: manifestRef.slice(0, end + 1) }];
+          }),
+        },
       };
     },
 
@@ -538,7 +586,12 @@ export function createPostgresAchievementJudgments(
           resultJson: turns.resultJson,
         })
         .from(turns)
-        .where(and(eq(turns.sessionId, sessionId), isNotNull(turns.endedAt)))
+        .where(
+          and(
+            eq(turns.sessionId, sessionId),
+            sql`${turns.endedAt} >= ${JUDGING_SINCE}`,
+          ),
+        )
         .orderBy(desc(turns.sequence))
         .limit(limit);
       return rows.reverse().map((row) => ({

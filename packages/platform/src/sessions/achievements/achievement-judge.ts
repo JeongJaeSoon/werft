@@ -134,7 +134,7 @@ function evidenceOf(
     });
   }
   // A session has a conversation once its first message gave it a title.
-  if (context.session.title !== null) {
+  if (context.session.title !== null && context.since.conversation) {
     evidence.push({
       kind: "conversation",
       id: null,
@@ -174,7 +174,8 @@ function failureCodeOf(error: unknown): AchievementJudgmentError | null {
  * leases its judgments, and the achievements and the result are written in
  * one transaction under that lease. With no decision model in the
  * installation, each judgment is skipped and nothing is counted. Otherwise
- * an `always` rule counts each of its
+ * only evidence from since the decision model was on without a break is
+ * paired (`JudgmentContext.since`), and an `always` rule counts each of its
  * evidence at no cost. A `luna` rule's pairs wait for the next UTC day once
  * the workspace's judgments have spent the day's budget, and are skipped
  * for a session at its cap (`session_limit`) or without a judge it can
@@ -321,7 +322,19 @@ export function createAchievementJudge(deps: {
       // The pairs that need no out/ list are counted all the same.
       if (listed.status === "unavailable") outputsUnavailable = true;
       if (listed.status === "ready") {
-        files = listed.outputs.map(({ path, bytes }) => ({ path, bytes }));
+        const { checkpoints } = context.since;
+        const listedSince = checkpoints.some(
+          ({ revision }) => revision === listed.revision,
+        );
+        files = listed.outputs
+          .filter((output) =>
+            "omitted" in output
+              ? listedSince
+              : checkpoints.some(({ directory }) =>
+                  output.key.startsWith(directory),
+                ),
+          )
+          .map(({ path, bytes }) => ({ path, bytes }));
       }
     }
     const evidence = evidenceOf(context, files);
