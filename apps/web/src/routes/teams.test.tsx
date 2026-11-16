@@ -463,18 +463,17 @@ describe("팀 화면", () => {
     expect(await toastSaid()).toBe("팀을 만들었습니다: 지원팀");
   });
 
-  test("팀 상세의 주 버튼은 구성원 구역 제목 줄의 구성원 추가 하나이고 팀 만들기·초대는 없다", async () => {
+  test("팀 상세의 주 버튼은 페이지 머리의 구성원 추가 하나이고 팀 만들기·초대는 없다", async () => {
     const server = teamServer();
     renderAt(`/members/teams/${TEAM_ID}`, server.routes);
     await screen.findByRole("heading", { level: 2, name: "결제팀" });
     const add = await screen.findByRole("button", { name: "구성원 추가" });
-    // On the members section's title row (R1), not in the page head.
-    expect(add.closest("header") === null).toBe(true);
-    const section = add.closest("section");
-    expect(section === null).toBe(false);
-    const title = section?.querySelector("h3");
-    expect(title?.id === section?.getAttribute("aria-labelledby")).toBe(true);
-    expect(title?.nextElementSibling?.textContent).toContain("명");
+    // At the page head's end, where 구성원 초대 sits on the 구성원 tab.
+    const head = screen.getByRole("heading", { level: 1, name: "구성원" });
+    const header = head.closest("header");
+    expect(header === null).toBe(false);
+    expect(header?.contains(add)).toBe(true);
+    expect(add.closest("section") === null).toBe(true);
     expect(screen.getAllByRole("button", { name: "구성원 추가" })).toHaveLength(
       1,
     );
@@ -666,25 +665,32 @@ describe("팀 화면", () => {
       within(table)
         .getAllByRole("columnheader")
         .map((h) => h.textContent),
-    ).toEqual(["이름", "팀 역할", "추가한 날"]);
+    ).toEqual(["이름", "이메일", "팀 역할", "상태", "추가한 날"]);
     expect(
       within(within(table).getAllByRole("row")[1] as HTMLElement)
         .getAllByRole("cell")
         .map((c) => c.textContent),
-    ).toEqual(["Matemate@example.com", "구성원", "10월 11일 오전 09:0010/11"]);
+    ).toEqual([
+      "Mate",
+      "mate@example.com",
+      "구성원",
+      "활성",
+      "10월 11일 오전 09:0010/11",
+    ]);
     for (const control of ["이름 바꾸기", "구성원 추가", "팀 삭제"])
       expect(
         screen.queryByRole("button", { name: control }),
         control,
       ).toBeNull();
     expect(screen.queryByRole("button", { name: /제외/ })).toBeNull();
+    expect(within(table).queryByRole("button")).toBeNull();
     expect(screen.queryByRole("combobox")).toBeNull();
     expect(screen.queryByLabelText("팀 이름")).toBeNull();
     expect(screen.queryByLabelText("추가할 사람")).toBeNull();
     expect(api.calls.some((c) => c.path === "/v1/members")).toBe(false);
   });
 
-  test("관리자의 팀 상세 표는 관리 열을 고정 폭으로 두어 머리글과 모든 행의 열이 같은 자리에 선다", async () => {
+  test("관리자의 팀 상세 표는 ⋯ 열을 고정 폭으로 두어 머리글과 모든 행의 열이 같은 자리에 선다", async () => {
     const teamMember = (person: MemberView): TeamDetail["members"][number] => ({
       user_id: person.user_id,
       email: person.email,
@@ -709,11 +715,10 @@ describe("팀 화면", () => {
     );
     // Each row is its own grid: a max-content track would size to that
     // row's buttons (the header has none) and shift the columns before it.
-    // The narrow tracks are 4.5rem for the button and 7rem for the select:
-    // the longest language of each, so the name keeps the rest at 390px.
+    // The ⋯ button's track ends the row, wide and narrow, as on 구성원.
     for (const [name, last] of [
-      ["--grid-table-columns", "var(--werft-row-action-min-width)"],
-      ["--grid-table-narrow-columns", "4.5rem"],
+      ["--grid-table-columns", "var(--werft-control-height-sm)"],
+      ["--grid-table-narrow-columns", "var(--werft-control-height-sm)"],
     ] as const) {
       const template = (table as HTMLElement).style.getPropertyValue(name);
       expect(template, name).not.toBe("");
@@ -911,34 +916,53 @@ describe("팀 화면", () => {
       within(table)
         .getAllByRole("columnheader")
         .map((h) => h.textContent),
-    ).toEqual(["이름", "워크스페이스 역할", "팀 역할", "추가한 날", "관리"]);
+    ).toEqual([
+      "이름",
+      "이메일",
+      "워크스페이스 역할",
+      "팀 역할",
+      "상태",
+      "추가한 날",
+      "관리",
+    ]);
     const mateRow = within(table).getAllByRole("row")[1] as HTMLElement;
+    // One line per cell, as on 구성원: the team role is a badge, not a select.
     expect(
       within(mateRow)
         .getAllByRole("cell")
         .map((c) => c.textContent),
     ).toEqual([
-      "Matemate@example.com",
+      "Mate",
+      "mate@example.com",
       "멤버",
-      // The inline select's two options.
-      "팀 관리자구성원",
+      "구성원",
+      "활성",
       "10월 11일 오전 09:0010/11",
-      "제외",
+      "",
     ]);
-    // One neutral row button; red belongs to the confirm only.
-    expect(within(mateRow).getAllByRole("button")).toHaveLength(1);
-    const remove = within(mateRow).getByRole("button", {
-      name: "Mate님을 팀에서 제외",
-    });
-    expect(remove.className).not.toContain("text-destructive");
-    expect(remove.className).toContain(
-      "min-w-[var(--werft-row-action-button-min-width)]",
-    );
-    expect(remove.getAttribute("data-size")).toBe("sm");
+    expect(within(mateRow).queryByRole("combobox")).toBeNull();
+    // The row's only button is its ⋯ menu.
+    expect(
+      within(mateRow)
+        .getAllByRole("button")
+        .map((b) => b.getAttribute("aria-label")),
+    ).toEqual(["Mate 메뉴"]);
+    // The count sits in the filter, as on 구성원, not beside the heading.
     expect(
       screen.getByRole("heading", { level: 3, name: "팀 구성원" })
-        .nextElementSibling?.textContent,
-    ).toBe("2명");
+        .nextElementSibling === null,
+    ).toBe(true);
+    const filter = screen.getByRole("group", { name: "팀 역할로 보기" });
+    expect(
+      within(filter)
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(["전체 2", "팀 관리자 0", "구성원 2"]);
+    await user.click(within(filter).getByRole("button", { name: /팀 관리자/ }));
+    expect(
+      screen.getByText("팀 역할이 팀 관리자인 구성원이 없습니다."),
+    ).toBeDefined();
+    await user.click(within(filter).getByRole("button", { name: /전체/ }));
 
     // The list's own search narrows the table, and says when nobody matches.
     const [search, ...more] = screen.getAllByRole("searchbox");
@@ -948,8 +972,10 @@ describe("팀 화면", () => {
     );
     if (!search) throw new Error("no search box");
     await user.type(search, "OWNER@");
-    expect(within(table).getAllByRole("row")).toHaveLength(2);
-    expect(within(table).getByText("Owner")).toBeDefined();
+    // The role filter's empty state unmounted the first table.
+    const refreshed = screen.getByRole("table", { name: "팀 구성원" });
+    expect(within(refreshed).getAllByRole("row")).toHaveLength(2);
+    expect(within(refreshed).getByText("Owner")).toBeDefined();
     await user.type(search, "nobody");
     expect(screen.getByText("검색어에 맞는 구성원이 없습니다")).toBeDefined();
     expect(
@@ -1072,11 +1098,17 @@ describe("팀 화면", () => {
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
-    const removeMate = await screen.findByRole("button", {
-      name: "Mate님을 팀에서 제외",
-    });
+    const removeMate = async () => {
+      await user.click(
+        await screen.findByRole("button", { name: "Mate 메뉴" }),
+      );
+      const menu = await screen.findByRole("menu", { name: "Mate 메뉴" });
+      await user.click(
+        within(menu).getByRole("menuitem", { name: "Mate님을 팀에서 제외" }),
+      );
+    };
     // Cancelling sends nothing; Mate stays.
-    await user.click(removeMate);
+    await removeMate();
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", {
         name: "취소",
@@ -1085,7 +1117,7 @@ describe("팀 화면", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(api.calls.some((c) => c.method === "DELETE")).toBe(false);
 
-    await user.click(removeMate);
+    await removeMate();
     const removeDialog = await screen.findByRole("dialog");
     expect(removeDialog.textContent).toContain(
       "Mate님을 다음 팀에서 제외할까요? 결제팀",
@@ -1144,23 +1176,47 @@ describe("팀 화면", () => {
     disabled_at: null,
   };
 
-  const roleSelect = async () =>
-    within(await screen.findByRole("table", { name: "팀 구성원" })).getByRole(
-      "combobox",
-      { name: "Mate님의 팀 역할" },
-    ) as HTMLSelectElement;
+  /** The team role badge in Mate's row. */
+  const roleBadge = async () =>
+    Array.from(
+      within(await screen.findByRole("table", { name: "팀 구성원" }))
+        .getAllByRole("row")
+        .find((row) => row.textContent?.includes("Mate"))
+        ?.querySelectorAll("[data-slot=badge]") ?? [],
+    )
+      .map((badge) => badge.textContent)
+      .find((text) => text === "팀 관리자" || text === "구성원");
+  const menuButton = () => screen.findByRole("button", { name: "Mate 메뉴" });
+  /** Opens Mate's ⋯ menu and picks the item named `name`. */
+  const choose = async (
+    user: Awaited<ReturnType<typeof setupUser>>,
+    name: string,
+  ) => {
+    await user.click(await menuButton());
+    const menu = await screen.findByRole("menu", { name: "Mate 메뉴" });
+    await user.click(within(menu).getByRole("menuitem", { name }));
+  };
   const rolePatches = (api: { calls: { method: string; body?: unknown }[] }) =>
     api.calls.filter((c) => c.method === "PATCH");
 
-  test("팀 역할은 행의 선택 상자로 바로 바뀌고, 팀 관리자로 올릴 때만 확인을 묻는다", async () => {
+  test("팀 역할은 행의 ⋯ 메뉴에서 바꾸고, 팀 관리자로 올릴 때만 확인을 묻는다", async () => {
     const server = teamServer({ members: [mateMember] });
     const { api } = renderAt(`/members/teams/${TEAM_ID}`, server.routes);
     const user = await setupUser();
-    const select = await roleSelect();
-    expect(select.value).toBe("member");
+    await waitFor(async () => expect(await roleBadge()).toBe("구성원"));
+
+    // The menu offers the other role and removal, nothing else.
+    await user.click(await menuButton());
+    expect(
+      within(await screen.findByRole("menu", { name: "Mate 메뉴" }))
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["팀 관리자로 바꾸기", "제외"]);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 
     // Promotion asks first; cancelling sends nothing and leaves the role.
-    await user.selectOptions(select, "lead");
+    await choose(user, "팀 관리자로 바꾸기");
     const ask = await screen.findByRole("dialog", {
       name: "Mate님을 팀 관리자로 바꿀까요?",
     });
@@ -1168,9 +1224,9 @@ describe("팀 화면", () => {
     await user.click(within(ask).getByRole("button", { name: "취소" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(rolePatches(api)).toHaveLength(0);
-    expect(select.value).toBe("member");
+    expect(await roleBadge()).toBe("구성원");
 
-    await user.selectOptions(select, "lead");
+    await choose(user, "팀 관리자로 바꾸기");
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", {
         name: "팀 관리자로 바꾸기",
@@ -1184,7 +1240,7 @@ describe("팀 화면", () => {
     expect(rolePatches(api).map((c) => c.body)).toEqual([{ role: "lead" }]);
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(server.team?.members[0]?.role).toBe("lead");
-    await waitFor(async () => expect((await roleSelect()).value).toBe("lead"));
+    await waitFor(async () => expect(await roleBadge()).toBe("팀 관리자"));
   });
 
   test("팀 관리자를 구성원으로 내리는 일은 확인 없이 바로 적용된다", async () => {
@@ -1193,9 +1249,8 @@ describe("팀 화면", () => {
     });
     const { api } = renderAt(`/members/teams/${TEAM_ID}`, server.routes);
     const user = await setupUser();
-    const select = await roleSelect();
-    expect(select.value).toBe("lead");
-    await user.selectOptions(select, "member");
+    await waitFor(async () => expect(await roleBadge()).toBe("팀 관리자"));
+    await choose(user, "구성원으로 바꾸기");
     await waitFor(() =>
       expect(said()).toContain(
         "Mate님의 팀 역할을 바꿨습니다. 지금 역할은 구성원입니다.",
@@ -1205,7 +1260,7 @@ describe("팀 화면", () => {
     expect(rolePatches(api).map((c) => c.body)).toEqual([{ role: "member" }]);
   });
 
-  test("역할을 바꾸는 동안 선택 상자는 잠기고, 거절되면 원래 역할로 돌아오며 오류 토스트가 뜬다", async () => {
+  test("역할을 바꾸는 동안 ⋯ 메뉴는 잠기고, 거절되면 원래 역할 그대로 오류 토스트가 뜬다", async () => {
     const server = teamServer({ members: [mateMember] });
     let answer: (response: Response) => void = () => {};
     const { api } = renderAt(`/members/teams/${TEAM_ID}`, {
@@ -1216,25 +1271,68 @@ describe("팀 화면", () => {
         }),
     });
     const user = await setupUser();
-    const select = await roleSelect();
-    await user.selectOptions(select, "lead");
+    const menu = await menuButton();
+    await choose(user, "팀 관리자로 바꾸기");
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", {
         name: "팀 관리자로 바꾸기",
       }),
     );
     await waitFor(() => expect(rolePatches(api)).toHaveLength(1));
-    // Locked while the request runs, showing what was asked for.
-    await waitFor(() => expect(select.disabled).toBe(true));
-    expect(select.value).toBe("lead");
+    // Locked while the request runs (behind the busy confirmation).
+    await waitFor(() =>
+      expect(menu.getAttribute("aria-disabled")).toBe("true"),
+    );
     answer(apiError(403, "FORBIDDEN", "Not permitted"));
     expect(await toastSaid()).toContain("팀 관리 권한이 있어야");
-    await waitFor(() => expect(select.disabled).toBe(false));
-    expect(select.value).toBe("member");
+    await waitFor(async () =>
+      expect((await menuButton()).hasAttribute("aria-disabled")).toBe(false),
+    );
+    expect(await roleBadge()).toBe("구성원");
     expect(server.team?.members[0]?.role).toBe("member");
   });
 
-  test("비활성 구성원은 팀 상세 표에서 구성원 탭과 같은 비활성 행으로 보이고 활성 행은 그대로다", async () => {
+  test("한 행의 역할을 바꾸는 동안 다른 행의 ⋯ 메뉴도 잠긴다", async () => {
+    const server = teamServer({
+      members: [
+        { ...mateMember, role: "lead" },
+        {
+          ...mateMember,
+          user_id: USER_ID,
+          email: owner.email,
+          display_name: owner.display_name,
+        },
+      ],
+    });
+    let answer: (response: Response) => void = () => {};
+    const { api } = renderAt(`/members/teams/${TEAM_ID}`, {
+      ...server.routes,
+      [`PATCH /v1/teams/${TEAM_ID}/members/${MATE_ID}`]: () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    });
+    const user = await setupUser();
+    const other = await screen.findByRole("button", { name: "Owner 메뉴" });
+    await choose(user, "구성원으로 바꾸기");
+    await waitFor(() => expect(rolePatches(api)).toHaveLength(1));
+    await waitFor(() =>
+      expect(other.getAttribute("aria-disabled")).toBe("true"),
+    );
+    await user.click(other);
+    expect(screen.queryByRole("menu")).toBeNull();
+    answer(apiError(403, "FORBIDDEN", "Not permitted"));
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "Owner 메뉴" })
+          .hasAttribute("aria-disabled"),
+      ).toBe(false),
+    );
+    expect(rolePatches(api)).toHaveLength(1);
+  });
+
+  test("정지된 구성원은 구성원 탭처럼 회색 행과 상태 열로 보이고, ⋯는 남지만 열리지 않는다", async () => {
     const server = teamServer({
       members: [
         mateMember,
@@ -1247,7 +1345,8 @@ describe("팀 화면", () => {
         },
       ],
     });
-    renderAt(`/members/teams/${TEAM_ID}`, server.routes);
+    const { api } = renderAt(`/members/teams/${TEAM_ID}`, server.routes);
+    const user = await setupUser();
     const table = await screen.findByRole("table", { name: "팀 구성원" });
     const rows = within(table).getAllByRole("row");
     const [, activeRow, inactiveRow] = rows as [
@@ -1255,46 +1354,72 @@ describe("팀 화면", () => {
       HTMLElement,
       HTMLElement,
     ];
-    expect(within(activeRow).queryByText("비활성")).toBeNull();
     expect(activeRow.getAttribute("data-disabled")).toBe("false");
-    expect(within(inactiveRow).getByText("비활성")).toBeDefined();
     expect(inactiveRow.getAttribute("data-disabled")).toBe("true");
     expect(inactiveRow.className.split(" ")).toContain("bg-hover");
     expect(activeRow.className.split(" ")).not.toContain("bg-hover");
-    // Still two lines, no avatar: the name beside its badge, then the email.
-    expect(within(inactiveRow).getByText("owner@example.com")).toBeDefined();
+    // The status column says it, as on 구성원; no 비활성 badge by the name.
+    expect(within(inactiveRow).queryByText("비활성")).toBeNull();
+    const cellsOf = (row: HTMLElement) =>
+      within(row)
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent);
+    expect(cellsOf(activeRow)).toContain("활성");
+    expect(cellsOf(inactiveRow)).toContain("정지됨");
+    // Narrow, the status column goes and the name cell carries it instead.
+    const narrowStatus = within(inactiveRow)
+      .getAllByRole("cell")[0]
+      ?.querySelector("[class*='@container(max-width:820px)']");
+    expect(narrowStatus?.textContent).toBe("정지됨");
+    expect(narrowStatus?.className.split(" ")).toContain("hidden");
+    expect(within(activeRow).getAllByRole("cell")[0]?.textContent).toBe("Mate");
     expect(table.querySelector('[data-slot="avatar"]')).toBeNull();
-    // The server refuses both changes on a disabled member, so the row offers
-    // neither: its team role reads as a badge, and no 제외 button is there.
-    expect(within(activeRow).queryByRole("combobox")).not.toBeNull();
-    expect(
-      within(activeRow).queryByRole("button", { name: /제외/ }),
-    ).not.toBeNull();
+    // The server refuses both changes on a disabled member: its team role
+    // reads as a badge and its ⋯ is there, named and focusable, but inert.
     expect(within(inactiveRow).queryByRole("combobox")).toBeNull();
-    expect(within(inactiveRow).queryByRole("button")).toBeNull();
     expect(
       within(inactiveRow).getAllByText("구성원", {
         selector: "[data-slot=badge]",
       }).length,
     ).toBeGreaterThan(0);
+    const inert = within(inactiveRow).getByRole("button", {
+      name: "Owner 메뉴",
+    }) as HTMLButtonElement;
+    expect(inert.getAttribute("aria-disabled")).toBe("true");
+    expect(inert.disabled).toBe(false);
+    await user.click(inert);
+    expect(screen.queryByRole("menu")).toBeNull();
+    inert.focus();
+    expect(document.activeElement === inert).toBe(true);
+    await user.keyboard("{Enter}");
+    await user.keyboard(" ");
+    expect(screen.queryByRole("menu")).toBeNull();
+    // The active row's ⋯ opens.
+    const active = within(activeRow).getByRole("button", { name: "Mate 메뉴" });
+    expect(active.hasAttribute("aria-disabled")).toBe(false);
+    await user.click(active);
+    expect(
+      (await screen.findByRole("menu", { name: "Mate 메뉴" })) === null,
+    ).toBe(false);
+    expect(api.calls.some((c) => c.method !== "GET")).toBe(false);
   });
 
-  test("팀 상세 표의 이름과 이메일은 말줄임이 나도 전체 글이 title에 남고, 이름은 두 줄까지 접힌다", async () => {
+  test("팀 상세 표의 행은 셀마다 한 줄이고, 말줄임이 나도 전체 글이 title에 남는다", async () => {
     const server = teamServer({ members: [mateMember] });
     renderAt(`/members/teams/${TEAM_ID}`, server.routes);
     const table = await screen.findByRole("table", { name: "팀 구성원" });
     const name = within(table).getByText("Mate");
     expect(name.getAttribute("title")).toBe("Mate");
-    expect(name.className.split(" ")).toContain("line-clamp-2");
-    expect(name.className.split(" ")).not.toContain("truncate");
-    // The select's tighter padding switches at the table's own 820px, the same
-    // query as the narrow tracks, so it never overflows a 7rem track in between.
-    expect(within(table).getByRole("combobox").className.split(" ")).toContain(
-      "[@container(max-width:820px)]:pe-6",
-    );
+    expect(name.className.split(" ")).toContain("truncate");
+    expect(name.className.split(" ")).not.toContain("line-clamp-2");
+    // No stacked cell: the email is its own column, not a second line.
+    expect(table.querySelector("[data-lines]")).toBeNull();
+    const email = within(table).getByText("mate@example.com");
+    expect(email.getAttribute("title")).toBe("mate@example.com");
+    expect(email.className.split(" ")).toContain("truncate");
     expect(
-      within(table).getByText("mate@example.com").getAttribute("title"),
-    ).toBe("mate@example.com");
+      within(table).getAllByRole("cell")[0]?.contains(email) === false,
+    ).toBe(true);
   });
 
   test("담당 팀인 팀을 지우려 하면 지우지 않고 그 에이전트 이름을 링크로 알린다", async () => {

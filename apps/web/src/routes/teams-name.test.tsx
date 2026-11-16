@@ -104,8 +104,9 @@ describe("이름이 '팀'으로 끝나는 팀", () => {
     renderAt(`/members/teams/${TEAM_ID}`, server());
     const user = await setupUser();
 
+    await user.click(await screen.findByRole("button", { name: "Mate 메뉴" }));
     await user.click(
-      await screen.findByRole("button", { name: "Mate님을 팀에서 제외" }),
+      await screen.findByRole("menuitem", { name: "Mate님을 팀에서 제외" }),
     );
     const removeDialog = await screen.findByRole("dialog");
     expect(removeDialog.textContent).toContain(
