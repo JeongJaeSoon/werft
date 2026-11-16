@@ -127,6 +127,32 @@ describe("로그인 공급자 목록", () => {
     ).toBe(LIST_PAGE);
   });
 
+  test("every column starts at its left edge, header and cells alike, the last one too", async () => {
+    renderAt(LIST_PAGE, routes([provider(), filled({ state: "enabled" })]));
+    const table = await screen.findByRole("table", { name: "로그인" });
+    const placed = [
+      ...table.querySelectorAll<HTMLElement>(
+        "[role=columnheader], [role=cell], [role=columnheader] *, [role=cell] *",
+      ),
+    ].filter((element) =>
+      /(^|\s)(justify-end|text-end|text-right|ml-auto)(\s|$)/.test(
+        element.getAttribute("class") ?? "",
+      ),
+    );
+    expect(placed.map((element) => element.outerHTML)).toEqual([]);
+    // Each row is a grid of its own: a track sized by its content (auto,
+    // fit-content, min/max-content) puts the header and each row's cell at a
+    // different place, the last one pushed to the right edge.
+    const tracks = ["--grid-table-columns", "--grid-table-narrow-columns"].map(
+      (name) => table.style.getPropertyValue(name),
+    );
+    expect(
+      tracks.filter((template) =>
+        /\b(auto|fit-content|max-content|min-content)\b/.test(template),
+      ),
+    ).toEqual([]);
+  });
+
   test("without CONSOLE_ORIGIN the page says why and offers no way to add one", async () => {
     renderAt(LIST_PAGE, routes([], false));
     await screen.findByText(/CONSOLE_ORIGIN/);

@@ -178,9 +178,11 @@ const isOn = (provider: LoginProviderView) =>
   provider.state === "enabled" || provider.state === "enabled_secret_pending";
 
 // Name and issuer, state, last test; a phone keeps the name and the state.
+// Every row is a grid of its own, so no track may size to its content: the
+// state would start at another place in each row, hugging the right edge.
 const COLUMNS = [
   "minmax(0,1fr) 220px 180px",
-  "minmax(0,1fr) fit-content(55%)",
+  "minmax(0,1fr) min(220px,55%)",
 ] as const;
 
 export function LoginProvidersScreen() {
