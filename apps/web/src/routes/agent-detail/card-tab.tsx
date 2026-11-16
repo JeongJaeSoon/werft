@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { Outcome } from "../../components/outcome.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { CardEditor } from "./card-editor.tsx";
+import { AgentDangerZone } from "./delete-agent.tsx";
 import { EffectiveBehavior } from "./effective-behavior.tsx";
 import { CardSummary } from "./overview.tsx";
 import { type Placed, PlacedOutcome } from "./placement.tsx";
@@ -83,6 +84,7 @@ export function CardTab({
         key={`${shownVersion(detail)?.id}:${detail.agent.active_release_id}`}
         detail={detail}
       />
+      {manages ? <AgentDangerZone agent={detail.agent} /> : null}
     </>
   );
 }

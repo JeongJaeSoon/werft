@@ -94,6 +94,12 @@ export type UpdateAgentResult =
   | Inactive
   | Outranked;
 
+export type ArchiveAgentResult =
+  | { outcome: "archived"; receiptId: string }
+  | { outcome: "not_found" }
+  | Inactive
+  | Outranked;
+
 export type InsertReleaseResult =
   | { outcome: "created" | "exists"; release: AgentRelease }
   | { outcome: "not_found" | "github_settings_exist" }
@@ -258,6 +264,20 @@ export interface AgentStore {
       updatedBy: string;
     },
   ): Promise<UpdateAgentResult>;
+  /**
+   * Deletes the agent: the row is kept as `archived` with who deleted it, and
+   * every read treats it as missing. Its identities, surface bindings and
+   * agent keys are revoked and a `delete_agent` receipt written in the same
+   * transaction. A deleted agent is `not_found`.
+   */
+  archive(
+    input: ManagerRoles & {
+      principal: Principal;
+      workspaceId: string;
+      agentId: string;
+      deletedBy: string;
+    },
+  ): Promise<ArchiveAgentResult>;
   /**
    * Writes `failure` on the agent's draft, only while the agent's
    * `behavior_revision` and draft are the save's own. False: a newer save

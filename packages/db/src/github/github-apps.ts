@@ -266,6 +266,7 @@ async function usageOf(
     .where(
       and(
         eq(agents.workspaceId, row.workspaceId),
+        isNull(agents.deletedAt),
         eq(agents.githubEnabled, true),
         names,
         row.role === "reviewer"

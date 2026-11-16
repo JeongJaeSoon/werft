@@ -21,10 +21,17 @@ export function createDatabaseAgentAuthority(db: Database): AgentAuthority {
       if (!UUID.test(resource.id) || !UUID.test(workspaceId)) return null;
       const id = resource.id.toLowerCase();
       if (resource.kind === "agent") {
+        // A deleted agent is no agent; its sessions still name it below.
         const [row] = await db
           .select({ id: agents.id })
           .from(agents)
-          .where(and(eq(agents.id, id), eq(agents.workspaceId, workspaceId)))
+          .where(
+            and(
+              eq(agents.id, id),
+              eq(agents.workspaceId, workspaceId),
+              isNull(agents.deletedAt),
+            ),
+          )
           .limit(1);
         return row?.id ?? null;
       }

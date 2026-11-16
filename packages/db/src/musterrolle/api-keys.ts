@@ -44,6 +44,18 @@ const liveMembership = (workspaceId: string, userId: string) =>
     isNull(users.disabledAt),
   );
 
+// Taken before any row lock by both an agent key's issue and the agent's
+// archive: a key issued after the archive locked the agent's keys would
+// otherwise reach the archive's revoke while a session start holds it.
+export async function lockAgentKeyIssue(
+  tx: Database,
+  agentId: string,
+): Promise<void> {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext(${`agent_keys:${agentId.toLowerCase()}`}))`,
+  );
+}
+
 // The issuer's role as it stands under the share lock, so a demotion that
 // commits after the policy's decision either waits for this key or is seen.
 export async function lockedRole(
@@ -188,6 +200,7 @@ export function createPostgresWorkspaceKeyStore(
   return {
     issue(input) {
       return db.transaction(async (tx) => {
+        if (input.agentId !== null) await lockAgentKeyIssue(tx, input.agentId);
         const role = await lockedRole(
           tx,
           input.workspaceId,
@@ -207,6 +220,7 @@ export function createPostgresWorkspaceKeyStore(
               and(
                 eq(agents.id, input.agentId),
                 eq(agents.workspaceId, input.workspaceId),
+                isNull(agents.deletedAt),
               ),
             )
             .limit(1)

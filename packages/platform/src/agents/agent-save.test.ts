@@ -158,6 +158,7 @@ function scripted(script: Script) {
       calls.update.push(input);
       return updates.shift() ?? pending;
     },
+    archive: async () => ({ outcome: "not_found" }),
     recordDraftFailure: async (input) => {
       calls.failure.push(input);
       return true;

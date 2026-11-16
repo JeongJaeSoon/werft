@@ -3,6 +3,7 @@ import type {
   CreateAgentReleaseRequest,
   CreateAgentReleaseResponse,
   CreateAgentRequest,
+  DeleteAgentResponse,
   ListAgentsQuery,
   ListAgentsResponse,
   ListConnectionOptionsResponse,
@@ -1158,6 +1159,30 @@ export function createAgentService(deps: {
           ? {}
           : { connection_id: request.connection_id }),
       });
+    },
+
+    async deleteAgent(
+      caller: Caller,
+      agentId: string,
+    ): Promise<DeleteAgentResponse> {
+      const userId = await manageAgent(caller, agentId);
+      const result = await store.archive({
+        principal: caller,
+        workspaceId: caller.ownerId,
+        agentId,
+        managerRoles: AGENT_MANAGERS,
+        deletedBy: userId,
+      });
+      switch (result.outcome) {
+        case "archived":
+          return { receipt_id: result.receiptId };
+        case "not_found":
+          throw NOT_FOUND();
+        case "actor_inactive":
+          throw ACTOR_INACTIVE();
+        default:
+          throw OUTRANKED();
+      }
     },
 
     async createRelease(

@@ -329,7 +329,11 @@ async function actorMayManage(
     .select({ id: agents.id })
     .from(agents)
     .where(
-      and(eq(agents.workspaceId, actor.workspaceId), eq(agents.id, agentId)),
+      and(
+        eq(agents.workspaceId, actor.workspaceId),
+        eq(agents.id, agentId),
+        isNull(agents.deletedAt),
+      ),
     )
     .for("no key update");
   if (!agent) return managerRoles.includes(me.role) ? "no_agent" : "no";
@@ -485,6 +489,7 @@ export function createPostgresAgentAdminStore(db: Database): AgentAdminStore {
         .where(
           and(
             eq(agents.workspaceId, workspaceId),
+            isNull(agents.deletedAt),
             administers(db, workspaceId, userId.toLowerCase(), agents.id),
             liveMember(db, workspaceId, userId.toLowerCase()),
           ),

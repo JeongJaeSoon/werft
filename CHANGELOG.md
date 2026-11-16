@@ -14,6 +14,13 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **에이전트 slug 유일 색인이 지우지 않은 에이전트만 보는 부분 색인(`WHERE deleted_at IS NULL`)으로 바뀐다. 그래서 rolling deploy 중이나 되돌린 뒤 옛 코드에서는 에이전트 생성이 실패한다**(JeongJaeSoon/werft#1807).
+  - 원인: 옛 replica의 `ON CONFLICT`에는 `WHERE`가 없어서 PostgreSQL이 맞는 색인을 찾지 못한다.
+  - 대처: 모든 api replica가 새 이미지로 바뀔 때까지 에이전트를 만들지 않는다.
+  - 되돌릴 때: 지운 에이전트와 같은 slug가 다시 쓰이지 않았다면 migration `0290`의 색인을 전체 유일 색인으로 되돌린다.
+  - 이번 판의 `DELETE /v1/agents/{id}`는 행을 지우지 않는다. 대신 에이전트를 보관하고, 그 에이전트의 surface 바인딩·신원·에이전트 API 키를 같은 트랜잭션에서 회수한다. 기존 세션은 그대로 읽힌다.
+  - 같은 트랜잭션에서 그 에이전트 전용 Slack 앱의 signing secret·client secret·bot token을 지운다.
+  - 앱 행과 Slack 쪽 앱은 남는다. Slack에서 앱을 없애려면 따로 지운다.
 - **변수·워크스페이스 MCP 서버·GitHub App·로그인 공급자·로그인 방법·Slack config token을 지우면 행이 `deleted_at`·`deleted_by`와 함께 남는다. 비밀은 지울 때 같이 없어진다**(JeongJaeSoon/werft#1796). migration `0289`가 여섯 표에 두 열을 더하고, 이름·issuer·App id·subject의 UNIQUE를 지우지 않은 행만 보는 부분 index로 바꾼다. `slack_config_tokens`는 새 `id` PK를 받는다. 롤링 배포 중 앞선 api replica는 지운 행을 걸러 내지 않으므로 새 replica가 지운 것을 다시 보여 줄 수 있고, 로그인 공급자 생성은 500으로 실패한다. 모든 replica가 바뀌면 해당 없다. 되돌릴 때는 앞선 판이 지운 행을 살아 있는 행으로 읽으므로, 먼저 여섯 표에서 `DELETE … WHERE deleted_at IS NOT NULL`로 지운 행을 없앤다.
 - **워크스페이스·에이전트의 실행 규칙(허용·묻기·막기 목록, 자동 모드 목록)이 없어졌다. 저장해 둔 규칙은 새 세션에도, 이미 도는 세션의 다음 claim에도 더는 적용되지 않는다**(JeongJaeSoon/werft#1798). 규칙으로 막던 도구나 묻던 명령이 있었다면 올린 뒤에는 권한 모드와 플랫폼의 작업 공간 규칙대로만 돈다. 올리기 전에 저장된 규칙을 확인한다. MCP 도구 하나를 막는 방법은 에이전트 카드의 `capabilities.tool_policy.per_tool`에 `deny`를 적는 것뿐이다.
   - **없어진 API:** `GET|PUT /v1/workspaces/{id}/engine-settings`, `GET|PUT /v1/agents/{id}/engine-settings`. 이 경로를 부르던 client는 `404`를 받는다. 콘솔의 워크스페이스 설정 **실행 규칙** 카드와 에이전트 상세의 **실행 규칙** 탭도 없어졌다.

@@ -36,6 +36,7 @@ import {
   createInviteResponseSchema,
   createSessionResponseSchema,
   createSlackAppResponseSchema,
+  deleteAgentResponseSchema,
   deleteEnvVariableResponseSchema,
   deleteGitHubAppResponseSchema,
   deleteSlackAppResponseSchema,
@@ -386,6 +387,7 @@ export const responseSchemas = {
   "POST /v1/agents": saveAgentResponseSchema,
   "GET /v1/agents/{id}": agentDetailSchema,
   "PATCH /v1/agents/{id}": saveAgentResponseSchema,
+  "DELETE /v1/agents/{id}": deleteAgentResponseSchema,
   "POST /v1/agents/{id}/releases": createAgentReleaseResponseSchema,
   "POST /v1/agents/{id}/activate": activateAgentResponseSchema,
   "GET /v1/agents/{id}/credential-bindings":

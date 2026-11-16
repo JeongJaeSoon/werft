@@ -40,6 +40,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   update_agent: "에이전트 수정",
   create_agent_release: "에이전트 release 생성",
   activate_agent: "에이전트 활성화",
+  delete_agent: "에이전트 삭제",
   create_api_key: "API key 발급",
   revoke_api_key: "API key 폐기",
   create_team: "팀 생성",

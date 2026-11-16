@@ -66,6 +66,8 @@ export const RECEIPT_OPERATION_VALUES = [
   "update_agent",
   "create_agent_release",
   "activate_agent",
+  // The agent's delete: the row is kept, its keys and Slack links revoked.
+  "delete_agent",
   // Issuing and revoking an API key from the web or the API.
   "create_api_key",
   "revoke_api_key",

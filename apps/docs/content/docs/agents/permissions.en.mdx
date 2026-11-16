@@ -114,6 +114,7 @@ curl -sS "$API/v1/agents/$AID/admins" "${WEB[@]}" | jq '{users: [.users[].email]
 | `DELETE /v1/agents/{id}/admins/users/{user_id}`, `…/teams/{team_id}` | Remove |
 | `PUT /v1/agents/{id}/managing-team` `{"team_id"}` | Set or change the responsible team |
 | `GET /v1/administered-agents` | Agents I administer |
+| `DELETE /v1/agents/{id}` | Delete the agent (console: **Settings** → **Danger zone**). It takes no new sessions, and its Slack connection and agent keys are cut in the same request. Past sessions stay readable; afterwards every request for the agent is `404`, and a new agent can take its slug. An API key cannot do it (`403`) |
 
 ## Credential bindings
 

@@ -1138,6 +1138,11 @@ export const saveReleaseSchema = z
 export const saveAgentResponseSchema = agentDetailSchema
   .extend({ release: saveReleaseSchema })
   .strict();
+
+export const deleteAgentResponseSchema = z
+  .object({ receipt_id: receiptIdSchema })
+  .strict();
+export type DeleteAgentResponse = z.infer<typeof deleteAgentResponseSchema>;
 /** How much of a version's instructions a list summary carries. */
 export const AGENT_SUMMARY_INSTRUCTIONS_MAX = 300;
 export const AGENT_SLACK_ACTION_VALUES = [
