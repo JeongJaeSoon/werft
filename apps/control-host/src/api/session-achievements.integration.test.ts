@@ -10,6 +10,7 @@ import {
 import * as schema from "@werft-ai/db";
 import {
   achievementJudgments,
+  checkpoints,
   createPostgresAchievementJudgments,
   createPostgresAchievementRuleStore,
   insertBuiltinAchievementTypes,
@@ -53,6 +54,7 @@ integration("a session's achievement reviews on PostgreSQL", () => {
   const sessionId = crypto.randomUUID();
   const webSessions = new Map<string, ResolvedWebSession>();
   const people: Partial<Record<WorkspaceRole, string>> = {};
+  const checkpointDirectory = `sessions/${sessionId}/checkpoints/1/attempt/`;
   const outputs = {
     status: "ready" as const,
     revision: 1,
@@ -61,7 +63,7 @@ integration("a session's achievement reviews on PostgreSQL", () => {
         path: "out/report.md",
         bytes: 42,
         sha256: "b".repeat(64),
-        key: `sessions/${sessionId}/outputs/${"b".repeat(64)}`,
+        key: `${checkpointDirectory}outputs/${"b".repeat(64)}`,
       },
     ],
   };
@@ -156,6 +158,12 @@ integration("a session's achievement reviews on PostgreSQL", () => {
       authRevision: 1,
       executionGeneration: 1,
       leaseEpoch: 1,
+    });
+    await db.insert(checkpoints).values({
+      sessionId,
+      revision: 1,
+      manifestRef: `${checkpointDirectory}manifest.json`,
+      manifestSha256: "a".repeat(64),
     });
     const receiptId = crypto.randomUUID();
     await db.insert(receipts).values({

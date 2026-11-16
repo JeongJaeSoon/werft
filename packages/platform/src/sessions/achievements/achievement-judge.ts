@@ -281,7 +281,11 @@ export function createAchievementJudge(deps: {
   ): Promise<DecisionsRequest | null> {
     if (item.kind === "conversation") {
       if (context.judge.transcript === "none") return null;
-      const turns = await store.transcript(claimed.sessionId, TRANSCRIPT_TURNS);
+      const turns = await store.transcript(
+        claimed.sessionId,
+        TRANSCRIPT_TURNS,
+        context.since.at,
+      );
       return questionOf(rule.definition, item.kind, [
         `turns: ${transcriptExcerpt(turns)}`,
       ]);
@@ -359,6 +363,7 @@ export function createAchievementJudge(deps: {
       rules: [...rules],
       evidenceIds: [...evidenceIds],
       achievements,
+      since: context.since.at,
     };
     if (outputsUnavailable) {
       return { ...again(claimed, "outputs_unavailable"), ...paired };

@@ -106,6 +106,12 @@ export type JudgmentContext = {
    * evidence is never judged (achievement-rules.md §4).
    */
   since: {
+    /**
+     * When that began, as the store reads it back; null with no model on.
+     * Every read of the judgment uses this one, and `finish` writes nothing
+     * once another is in force.
+     */
+    at: string | null;
     /** A turn ended since. */
     conversation: boolean;
     /**
@@ -152,6 +158,8 @@ export type JudgmentResult = {
      */
     declined: { ruleFamilyId: string; evidenceId: string | null }[];
   };
+  /** `JudgmentContext.since.at` of the evidence paired. */
+  since?: string | null;
   /**
    * The threshold `luna` pairs were asked against, set once a call went out
    * whether or not the try then failed; apart from `luna`, whose digest a
@@ -184,13 +192,20 @@ export interface AchievementJudgmentStore {
    */
   renew(judgment: ClaimedJudgment, leaseMs: number): Promise<boolean>;
   /**
-   * The session's last `turns` turns that ended since the decision model
-   * was on, oldest first.
+   * The session's last `turns` turns that ended since `since`
+   * (`JudgmentContext.since.at`), oldest first.
    */
-  transcript(sessionId: string, turns: number): Promise<TranscriptTurn[]>;
+  transcript(
+    sessionId: string,
+    turns: number,
+    since: string | null,
+  ): Promise<TranscriptTurn[]>;
   /**
    * Writes the result and the achievements in one transaction under the
-   * lease; one a rule family already has for the evidence is kept. A retry
+   * lease; one a rule family already has for the evidence is kept. A "no"
+   * takes down only what the window in force counted. When `result.since`
+   * is no longer the window in force, the judgment ends as skipped with
+   * `judge_unavailable` and writes no achievement. A retry
    * goes back to queued and a deferral to deferred, or, when the session
    * has another pending judgment already, moves that one's wait instead and
    * ends as `failed`. False when the lease was taken over or the

@@ -1094,8 +1094,14 @@ integration("achievement judgments on PostgreSQL", () => {
       mergedLater.id,
     ]);
     expect(before.outcomes.map((outcome) => outcome.id)).not.toContain(open.id);
-    expect(before.since).toEqual({ conversation: false, checkpoints: [] });
-    expect(await judgments.transcript(sessionId, 20)).toEqual([]);
+    expect(before.since).toEqual({
+      at: expect.any(String),
+      conversation: false,
+      checkpoints: [],
+    });
+    expect(await judgments.transcript(sessionId, 20, before.since.at)).toEqual(
+      [],
+    );
 
     await db.insert(turns).values({
       sessionId,
@@ -1108,6 +1114,7 @@ integration("achievement judgments on PostgreSQL", () => {
     await reportListed(sessionId, 2);
     const after = await judgments.context(claimed);
     expect(after.since).toEqual({
+      at: before.since.at,
       conversation: true,
       checkpoints: [
         {
@@ -1116,8 +1123,134 @@ integration("achievement judgments on PostgreSQL", () => {
         },
       ],
     });
-    expect(await judgments.transcript(sessionId, 20)).toEqual([
+    expect(await judgments.transcript(sessionId, 20, after.since.at)).toEqual([
       { sequence: 2, message: "ask 2", result: "answer 2" },
+    ]);
+  });
+
+  test("a decision model enabled after waiting for the catalog lock starts its window when it got it", async () => {
+    const ws = await workspace();
+    const sessionId = await session(ws.workspaceId);
+    await decisionModelEnabled(false);
+    const enabling = await pool.connect();
+    try {
+      await enabling.query("BEGIN");
+      // The transaction's now(), before anything below.
+      await enabling.query("SELECT now()");
+      await reportListed(sessionId, 1, sql`clock_timestamp()`);
+      await enabling.query(
+        "UPDATE provider_connections SET disabled_at = NULL WHERE id = 'luna-main'",
+      );
+      await enabling.query("COMMIT");
+    } finally {
+      enabling.release();
+    }
+    const context = await judgments.context({
+      id: randomUUID(),
+      sessionId,
+      attempts: 1,
+      errorCode: null,
+      leaseToken: randomUUID(),
+    });
+    expect(context.since.checkpoints).toEqual([]);
+  });
+
+  test("a window that restarts while a judgment runs leaves its result unwritten, and a no in a later window leaves an earlier window's achievement standing", async () => {
+    const ws = await workspace();
+    const counted = await rule(
+      ws,
+      await typeId(ws.workspaceId, "pull_request"),
+    );
+    const sessionId = await session(ws.workspaceId);
+    const pr = await pullRequest(sessionId, ws.workspaceId);
+    const achievement = {
+      ruleId: counted.id,
+      ruleFamilyId: counted.family_id,
+      typeId: counted.type_id,
+      agentId: null,
+      agentReleaseId: null,
+      title: "merged",
+      link: pr.url,
+      evidenceKind: "github_pull_request" as const,
+      evidenceId: pr.id,
+      payload: null,
+      judge: "luna" as const,
+      probability: 0.95,
+      reviewState: "auto" as const,
+    };
+    const judged = (since: string | null, declined: boolean) => ({
+      status: "succeeded" as const,
+      errorCode: null,
+      rules: [counted.id],
+      evidenceIds: [pr.id],
+      achievements: declined ? [] : [achievement],
+      luna: {
+        connectionId: "luna-main",
+        inputDigest: randomUUID(),
+        declined: declined
+          ? [{ ruleFamilyId: counted.family_id, evidenceId: pr.id }]
+          : [],
+      },
+      since,
+    });
+    const claimed = async () => {
+      await quietPassed(sessionId);
+      const one = await claimOne(sessionId);
+      if (!one) throw new Error("not claimed");
+      return { one, context: await judgments.context(one) };
+    };
+
+    const stale = await claimed();
+    await decisionModelEnabled(false);
+    await decisionModelEnabled(true);
+    expect(
+      await judgments.finish(stale.one, judged(stale.context.since.at, false)),
+    ).toBe(true);
+    expect(await achievementsOf(sessionId)).toEqual([]);
+    expect(await judgmentsOf(sessionId)).toMatchObject([
+      {
+        status: "skipped",
+        errorCode: "judge_unavailable",
+        inputDigest: null,
+      },
+    ]);
+
+    await queueAchievementJudgment(db, sessionId, { trigger: "manual" });
+    const counting = await claimed();
+    expect(
+      await judgments.finish(
+        counting.one,
+        judged(counting.context.since.at, false),
+      ),
+    ).toBe(true);
+    expect(await achievementsOf(sessionId)).toMatchObject([
+      { title: "merged", supersededAt: null },
+    ]);
+
+    await decisionModelEnabled(false);
+    await decisionModelEnabled(true);
+    await queueAchievementJudgment(db, sessionId, { trigger: "manual" });
+    const later = await claimed();
+    expect(later.context.since.at).not.toBe(counting.context.since.at);
+    expect(
+      await judgments.finish(later.one, judged(later.context.since.at, true)),
+    ).toBe(true);
+    expect(await achievementsOf(sessionId)).toMatchObject([
+      { title: "merged", supersededAt: null },
+    ]);
+
+    // The same no within the window that counted it takes it down.
+    await queueAchievementJudgment(db, sessionId, { trigger: "manual" });
+    const same = await claimed();
+    await db
+      .update(sessionAchievements)
+      .set({ createdAt: sql`clock_timestamp()` })
+      .where(eq(sessionAchievements.sessionId, sessionId));
+    expect(
+      await judgments.finish(same.one, judged(same.context.since.at, true)),
+    ).toBe(true);
+    expect(await achievementsOf(sessionId)).toMatchObject([
+      { title: "merged", supersededAt: expect.any(Date) },
     ]);
   });
 
@@ -2712,7 +2845,9 @@ integration("achievement judgments on PostgreSQL", () => {
         })),
         { sessionId, sequence: 5, message: "running", status: "running" },
       ]);
-      expect(await judgments.transcript(sessionId, 3)).toEqual([
+      expect(
+        await judgments.transcript(sessionId, 3, "2000-01-01T00:00:00Z"),
+      ).toEqual([
         { sequence: 2, message: "ask 2", result: "answer 2" },
         { sequence: 3, message: "ask 3", result: "answer 3" },
         { sequence: 4, message: "ask 4", result: "answer 4" },

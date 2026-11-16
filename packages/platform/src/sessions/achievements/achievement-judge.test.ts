@@ -83,7 +83,9 @@ const NO_JUDGE: JudgeInForce = {
 /** The checkpoint of revision 3, committed since the decision model went on. */
 const OUTPUTS_DIRECTORY = "p/checkpoints/r3/";
 const OUTPUT_KEY = `${OUTPUTS_DIRECTORY}outputs/a`;
+const WINDOW = "2026-11-17 00:00:00.123456+00";
 const ALL_SINCE: JudgmentContext["since"] = {
+  at: WINDOW,
   conversation: true,
   checkpoints: [{ revision: 3, directory: OUTPUTS_DIRECTORY }],
 };
@@ -153,8 +155,10 @@ function judgeOf(
       finished.push(result);
       return true;
     },
-    transcript: async (_sessionId, turns) =>
-      (options.turns ?? []).slice(-turns),
+    transcript: async (_sessionId, turns, since) =>
+      since === (context.since ?? ALL_SINCE).at
+        ? (options.turns ?? []).slice(-turns)
+        : [],
   };
   const reads: string[] = [];
   const judge = createAchievementJudge({
@@ -255,7 +259,7 @@ describe("achievement judge", () => {
         rules,
         outcomes: [],
         title: "Fix the payment retry",
-        since: { conversation: false, checkpoints: ALL_SINCE.checkpoints },
+        since: { ...ALL_SINCE, conversation: false },
       },
       outputs,
     );
@@ -444,6 +448,7 @@ describe("achievement judge", () => {
         rules: ["rule-pull_request"],
         evidenceIds: ["outcome-pr"],
         achievements: [],
+        since: WINDOW,
       },
     ]);
   });

@@ -6,7 +6,9 @@ WHERE "definition" ->> 'kind' = 'openai_decisions' AND "disabled_at" IS NULL;-->
 -- A decision model created or enabled again joins the window of the ones
 -- still enabled; with none, the window starts now. Every write that creates
 -- or enables a connection holds the catalog lock (lockCatalogWrites), so
--- two of them never both see none.
+-- two of them never both see none. clock_timestamp(), not now(): the
+-- transaction's start may be before that lock was granted, and evidence
+-- from while it waited is not the new window's.
 CREATE OR REPLACE FUNCTION "provider_connections_judging_since"() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF TG_OP = 'UPDATE' AND OLD."disabled_at" IS NULL THEN
@@ -17,7 +19,7 @@ BEGIN
      WHERE pc."definition" ->> 'kind' = 'openai_decisions'
        AND pc."disabled_at" IS NULL
        AND pc."id" <> NEW."id"),
-    now());
+    clock_timestamp());
   RETURN NEW;
 END $$;--> statement-breakpoint
 CREATE TRIGGER "provider_connections_judging_since" BEFORE INSERT OR UPDATE OF "disabled_at" ON "provider_connections" FOR EACH ROW WHEN (NEW."definition" ->> 'kind' = 'openai_decisions' AND NEW."disabled_at" IS NULL) EXECUTE FUNCTION "provider_connections_judging_since"();
