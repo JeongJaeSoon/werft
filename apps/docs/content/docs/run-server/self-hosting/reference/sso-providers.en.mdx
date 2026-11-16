@@ -201,6 +201,7 @@ The screen shows the refusals below as sentences. When calling the API directly,
 | `403` | `session_too_old` | Tried to link or remove a sign-in method with a session more than 10 minutes after sign-in |
 | `409 LOGIN_LINK_REQUIRED` | | An account with the proven address already exists, so the provider account was not attached |
 | `409 ALREADY_EXISTS` | `login_method_linked`, `issuer_linked`, or none | `login_method_linked`: this provider account is already linked to a user (your own account included). `issuer_linked`: the linking user already has another account of the same issuer. None: tried to create another provider with the same issuer |
+| `401 UNAUTHORIZED` | `flow_elsewhere` | The browser came back without the flow cookie, or not in the session the test was started from. The usual cause is a flow started on another address than the redirect URI's (for example `localhost` against `127.0.0.1`). Start over at the redirect URI's address. Any other `401` does not say why |
 | `503` | | There is no `CONSOLE_ORIGIN`, so no redirect URI can be built |
 
 <a id="감사-기록" />

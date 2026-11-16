@@ -881,6 +881,19 @@ describe("공급자 가입의 콜백", () => {
     expect(sessionStorage.getItem("ap.inviteFlow")).toBeNull();
   });
 
+  test("흐름이 돌아오지 않은 가입은 시작한 주소가 다르다고 말한다", async () => {
+    sessionStorage.setItem("ap.inviteFlow", "s1");
+    renderAt(`${CALLBACK}?code=c1&state=s1`, {
+      "POST /v1/auth/oidc/callback": () =>
+        apiError(401, "UNAUTHORIZED", "Sign-in was not accepted", false, {
+          reason_code: "flow_elsewhere",
+        }),
+    });
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      `로그인을 시작한 주소와 돌아온 주소가 다릅니다 — 이 주소(${window.location.origin})에서 처음부터 다시 시작하세요.`,
+    );
+  });
+
   test("공급자에서 그만둔 가입도 초대를 다시 열라고 말하고, 아무것도 보내지 않는다", async () => {
     sessionStorage.setItem("ap.inviteFlow", "s1");
     const { api } = renderAt(`${CALLBACK}?state=s1`, notAccepted);

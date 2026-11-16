@@ -146,7 +146,7 @@ API가 콜백을 직접 받지 않는 이유는 지금과 같다. 콜백 GET이 
 
 - PKCE: werft는 모든 흐름에 S256 challenge와 verifier를 보낸다. 생략하는 설정은 없다. verifier가 틀린 요청을 거절하는 것은 IdP다(단계 4). 인수 조건은 틀린 verifier의 거절을 요구하므로, 이를 거절하지 않는 IdP는 그 조건을 채우지 못한 것이다. 공급자별 확인은 10절에 적는다.
 - `iat` 상한 11분은 흐름 cookie 수명 10분에 시계 오차를 더한 값이다. id_token은 code 교환 때 발급되므로 정상 흐름에서는 몇 초 전이다.
-- `401`의 응답 문구는 이유를 구분하지 않는다("Sign-in was not accepted"). 이유는 서버 로그에 이유 코드로만 남긴다. code, token, cookie, client secret, UserInfo 응답은 로그에 남기지 않는다.
+- `401`의 응답 문구는 이유를 구분하지 않는다("Sign-in was not accepted"). 이유는 서버 로그에 이유 코드로만 남긴다. 예외는 브라우저가 흐름을 가져오지 않은 거절(`flow_missing`: 흐름 cookie가 없거나 열리지 않음, `test_session`: 테스트를 시작한 세션이 아님) 하나다. 이 둘은 `details.reason_code: "flow_elsewhere"`를 붙여, 콘솔이 "시작한 주소와 돌아온 주소가 다르다"고 안내하게 한다. redirect URI와 다른 origin에서 시작한 흐름은 host에 묶인 cookie가 따라오지 않아 늘 이렇게 끝나고, 이로써 응답이 알려 주는 것은 "보낸 흐름 cookie가 이 서버에서 열리는가"(테스트라면 "시작한 세션인가")뿐이다. cookie는 서버 key로 봉인되어 있어 이 신호로 위조 cookie를 만들 수 없고, 계정이 있는지나 cookie가 열린 뒤의 검증 단계(state, id_token, 규칙)는 여전히 구분되지 않는다. 검사 자체는 그대로다. code, token, cookie, client secret, UserInfo 응답은 로그에 남기지 않는다.
 
 ### 4.4 discovery와 endpoint 고정
 

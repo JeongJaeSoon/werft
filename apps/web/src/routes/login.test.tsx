@@ -281,6 +281,20 @@ describe("공급자 콜백", () => {
         "이 계정으로 로그인하지 못했습니다 — 초대받은 이메일 주소의 계정인지 확인하고 다시 시도하세요.",
       ],
       [
+        // No flow cookie, or not the test's session: started elsewhere.
+        apiError(401, "UNAUTHORIZED", "Sign-in was not accepted", false, {
+          reason_code: "flow_elsewhere",
+        }),
+        `로그인을 시작한 주소와 돌아온 주소가 다릅니다 — 이 주소(${window.location.origin})에서 처음부터 다시 시작하세요.`,
+      ],
+      [
+        // Any other reason code is not taken for one.
+        apiError(401, "UNAUTHORIZED", "Sign-in was not accepted", false, {
+          reason_code: "state_mismatch",
+        }),
+        "이 계정으로 로그인하지 못했습니다 — 초대받은 이메일 주소의 계정인지 확인하고 다시 시도하세요.",
+      ],
+      [
         apiError(403, "FORBIDDEN", "This account's domain is not allowed here"),
         "이 계정으로는 로그인할 수 없습니다 — 워크스페이스가 허용한 도메인의 계정을 쓰세요.",
       ],

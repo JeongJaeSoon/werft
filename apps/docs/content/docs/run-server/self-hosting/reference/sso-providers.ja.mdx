@@ -201,6 +201,7 @@ Keycloak はユーザーごとに `email_verified` を送ります。Keycloak �
 | `403` | `session_too_old` | ログインから 10 分が過ぎたセッションで、ログイン方法を接続・解除しようとしました |
 | `409 LOGIN_LINK_REQUIRED` | | 証明されたアドレスのアカウントがすでにあるので、プロバイダーのアカウントを結び付けませんでした |
 | `409 ALREADY_EXISTS` | `login_method_linked`、`issuer_linked` またはなし | `login_method_linked`：このプロバイダーのアカウントがすでにユーザーに接続されています（自分のアカウントを含む）。`issuer_linked`：接続しようとするユーザーに同じ issuer の別のアカウントがあります。なし：同じ issuer のプロバイダーをもう一つ作ろうとしました |
+| `401 UNAUTHORIZED` | `flow_elsewhere` | 戻ってきたブラウザーにフローの cookie がないか、テストを始めたセッションではありません。よくある原因は、redirect URI と違うアドレス（例: `localhost` と `127.0.0.1`）で始めたフローです。redirect URI のアドレスで最初からやり直します。ほかの `401` は理由を言いません |
 | `503` | | `CONSOLE_ORIGIN` がないので redirect URI を作れません |
 
 <a id="감사-기록" />

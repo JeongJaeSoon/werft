@@ -1116,18 +1116,21 @@ describe("provider sign-in routes", () => {
     ).toBe(false);
   });
 
-  test("every refusal reads the same and says nothing of why; the log does", async () => {
+  test("every refusal reads the same and says nothing of why, but a flow not brought back; the log does", async () => {
     const byRules = harness({ result: { outcome: "rejected" } });
     const responses: Response[] = [await byRules.signIn(alice)];
 
     const h = harness();
     responses.push(await h.signIn({ ...alice, email_verified: false }));
+    // No flow cookie, or one that does not open: the browser is not where
+    // the flow started. Only these are said apart.
+    const elsewhere: Response[] = [];
     const noCookie = await h.begin(alice);
-    responses.push(
+    elsewhere.push(
       await h.post("/v1/auth/oidc/callback", { body: noCookie.body }),
     );
     const forged = await h.begin(alice);
-    responses.push(
+    elsewhere.push(
       await h.post("/v1/auth/oidc/callback", {
         body: forged.body,
         cookie: `${LOGIN_FLOW_COOKIE_NAME}=not-a-cookie`,
@@ -1149,8 +1152,9 @@ describe("provider sign-in routes", () => {
       }),
     );
 
-    const errors = [];
-    for (const response of responses) {
+    const errors: Awaited<ReturnType<typeof errorOf>>[] = [];
+    const elsewhereErrors: Awaited<ReturnType<typeof errorOf>>[] = [];
+    for (const response of [...responses, ...elsewhere]) {
       expect(response.status).toBe(401);
       expect(clearsFlowCookie(response)).toBe(true);
       expect(
@@ -1158,13 +1162,23 @@ describe("provider sign-in routes", () => {
           .getSetCookie()
           .some((cookie) => cookie.startsWith(`${WEB_SESSION_COOKIE_NAME}=`)),
       ).toBe(false);
-      errors.push(await errorOf(response));
+      (elsewhere.includes(response) ? elsewhereErrors : errors).push(
+        await errorOf(response),
+      );
     }
     expect(errors[0]).toMatchObject({
       code: "UNAUTHORIZED",
       message: "Sign-in was not accepted",
+      details: null,
     });
     for (const error of errors) expect(error).toEqual(errors[0]);
+    expect(elsewhereErrors).toHaveLength(2);
+    for (const error of elsewhereErrors) {
+      expect(error).toEqual({
+        ...errors[0],
+        details: { reason_code: "flow_elsewhere" },
+      });
+    }
 
     const reasons = [...byRules.sink.records, ...h.sink.records]
       .map((record) => JSON.stringify(record))
@@ -1176,6 +1190,14 @@ describe("provider sign-in routes", () => {
       "config_changed",
     ]) {
       expect(reasons.some((line) => line.includes(reason))).toBe(true);
+    }
+    // A reason code only: no state, code or cookie of the refused flows.
+    for (const line of reasons) {
+      for (const flow of [noCookie, forged]) {
+        expect(line).not.toContain(flow.body.state);
+        expect(line).not.toContain(flow.body.code);
+      }
+      expect(line).not.toContain("not-a-cookie");
     }
     // Only the rules were asked about the one the provider vouched for.
     expect(byRules.calls).toHaveLength(1);
@@ -1477,9 +1499,12 @@ describe("provider sign-in routes", () => {
         const h = testHarness(session);
         const response = await h.bring(alice);
         expect(response.status).toBe(401);
+        // Said apart: the usual cause is a test started on another origin,
+        // whose session cookie did not come back with the browser.
         expect(await errorOf(response)).toMatchObject({
           code: "UNAUTHORIZED",
           message: "Sign-in was not accepted",
+          details: { reason_code: "flow_elsewhere" },
         });
         expect(clearsFlowCookie(response)).toBe(true);
         expect(setsSession(response)).toBe(false);

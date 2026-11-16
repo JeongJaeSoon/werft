@@ -4,7 +4,13 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useParams,
+  useRouter,
+} from "@tanstack/react-router";
 import { type ApiClient, type ApiError, unwrap } from "@werft-ai/client";
 import type {
   ListLoginProvidersResponse,
@@ -424,6 +430,20 @@ export function LoginProviderScreen() {
   );
 }
 
+/**
+ * The redirect URI's origin, when this page is open on another one: a flow
+ * started here comes back there, without the cookies set here.
+ */
+function redirectOriginElsewhere(redirectUri: string | null): string | null {
+  if (!redirectUri) return null;
+  try {
+    const origin = new URL(redirectUri).origin;
+    return origin === window.location.origin ? null : origin;
+  } catch {
+    return null;
+  }
+}
+
 function ProviderSettings({
   provider,
 }: {
@@ -438,6 +458,9 @@ function ProviderSettings({
   const [editing, setEditing] = useState<Editing>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const on = isOn(provider);
+  const elsewhere = redirectOriginElsewhere(provider.redirect_uri);
+  const router = useRouter();
+  const location = useLocation();
   const id = { params: { path: { id: provider.id } } };
   const refused = (text: string) => setOutcome({ kind: "error", text });
   const notice = (text: string) => setOutcome({ kind: "notice", text });
@@ -839,7 +862,21 @@ function ProviderSettings({
             )}
           </>
         }
-      />
+      >
+        {elsewhere ? (
+          <Alert variant="amber">
+            <AlertDescription>
+              {t("loginProviders.testElsewhere", { origin: elsewhere })}{" "}
+              <TextLink
+                underline="always"
+                href={`${elsewhere}${router.history.createHref(location.href)}`}
+              >
+                {t("loginProviders.testElsewhereLink", { origin: elsewhere })}
+              </TextLink>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+      </SettingsSection>
       {/* Sections here sit a block apart; the danger zone sits a section apart. */}
       <DangerZone
         title={t("workspace.danger")}
