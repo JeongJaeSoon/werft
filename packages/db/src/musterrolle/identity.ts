@@ -1290,6 +1290,14 @@ export async function signUpWithInvite(
         if (input.vouchedEmail !== invite.email) {
           return { outcome: "link_required" };
         }
+        // The link below takes this lock too; waiting for it here lets the
+        // expiry be judged after the wait, before anything is written.
+        await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.email, invite.email))
+          .for("update");
+        if (await expired()) return { outcome: "invite_gone" };
         const joined = await linkByVerifiedEmail(tx, {
           vouchedEmail: invite.email,
           issuer: input.issuer,

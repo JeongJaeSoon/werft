@@ -9,7 +9,8 @@ type ExternalAccount = {
   subject: string;
   /**
    * The address, only when the provider vouches the person owns it. Kept
-   * on the link as a record; it decides nothing here.
+   * on the link as a record. An invite's sign-up joins the account that has
+   * the invited address only when this is that address.
    */
   vouchedEmail: string | null;
 };

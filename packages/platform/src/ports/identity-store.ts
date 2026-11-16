@@ -130,7 +130,10 @@ export type ExternalSignInInput = {
   ownsEmail: boolean;
   newUserId: string;
   newLoginMethodId: string;
-  /** The accept_invite receipt's id, used only when an invite admits them. */
+  /**
+   * The id of the receipt the sign-in writes: accept_invite when an invite
+   * admits them, link_login_method when a verified address joins an account.
+   */
   receiptId: string;
   session: {
     id: string;

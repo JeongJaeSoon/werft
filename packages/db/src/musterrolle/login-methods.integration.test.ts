@@ -470,6 +470,38 @@ integration("a person's ways to sign in", () => {
       expect(await userByEmail("kay@example.com")).toBeUndefined();
     });
 
+    test("an invite that expires while the vouched account is locked joins nobody", async () => {
+      const lou = await person("lou@example.com");
+      const inviteId = await invite("lou@example.com");
+      await dying(inviteId, 1_000);
+      const holder = await pool.connect();
+      try {
+        await holder.query("BEGIN");
+        await holder.query("SELECT 1 FROM users WHERE id = $1 FOR UPDATE", [
+          lou.id,
+        ]);
+        const pending = signUp(
+          inviteId,
+          "sub-lou",
+          providerA,
+          "lou@example.com",
+        );
+        await lockWaiters(1);
+        await dead(inviteId);
+        await holder.query("COMMIT");
+        expect(await pending).toEqual({ outcome: "invite_gone" });
+      } finally {
+        await holder.query("ROLLBACK");
+        holder.release();
+      }
+      expect(
+        (await methodsOf(lou.id)).filter((row) => row.kind === "oidc"),
+      ).toEqual([]);
+      expect(await db.$count(webSessions, eq(webSessions.userId, lou.id))).toBe(
+        0,
+      );
+    });
+
     test("one invite makes one account, and one external account joins once", async () => {
       const shared = await invite("frank@example.com");
       const sameInvite = await Promise.all([
@@ -515,10 +547,17 @@ integration("a person's ways to sign in", () => {
       expect(await db.$count(webSessions, eq(webSessions.userId, ivy.id))).toBe(
         1,
       );
-      const written = await db
-        .select()
-        .from(receipts)
-        .where(eq(receipts.operation, "link_login_method"));
+      // dave's invite above linked by address and wrote one too.
+      const written = (
+        await db
+          .select()
+          .from(receipts)
+          .where(eq(receipts.operation, "link_login_method"))
+      ).filter(
+        (row) =>
+          (row.actor as { actor_user_id?: string } | null)?.actor_user_id ===
+          ivy.id,
+      );
       expect(written).toHaveLength(1);
       expect(written[0]?.actor).toMatchObject({ actor_user_id: ivy.id });
       expect(written[0]?.result).toMatchObject({
