@@ -191,20 +191,16 @@ describe("i18n", () => {
     }
   });
 
-  test("the link-required error sends people to their sign-in methods, never to a password", () => {
-    // The existing account may have no password, or password sign-in may be
-    // closed to it; any method it has links on that page.
-    const path = {
-      ko: "설정 > 로그인 수단",
-      en: "Settings > Sign-in methods",
-      ja: "設定 > ログイン方法",
-    };
+  test("the link-required error sends people to an owner, never to a settings page or a password", () => {
+    // People no longer link a provider to their own account, and the
+    // existing account may have no password, or password sign-in may be
+    // closed to it.
+    const settings = { ko: /설정 >/, en: /Settings >/, ja: /設定 >/ };
     const password = { ko: /비밀번호/, en: /password/i, ja: /パスワード/ };
     for (const locale of LOCALES) {
       const catalog = catalogs[locale];
       const text = catalog["error.LOGIN_LINK_REQUIRED"];
-      expect(path[locale].endsWith(catalog["loginMethods.title"])).toBe(true);
-      expect(text).toContain(path[locale]);
+      expect([locale, settings[locale].test(text)]).toEqual([locale, false]);
       expect([locale, password[locale].test(text)]).toEqual([locale, false]);
       // Someone who cannot sign in any way they had is told whom to ask.
       expect(text.toLowerCase()).toContain(catalog["role.owner"].toLowerCase());

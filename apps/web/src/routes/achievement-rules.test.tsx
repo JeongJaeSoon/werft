@@ -317,7 +317,7 @@ describe("성과 규칙", () => {
     const user = await setupUser();
     await user.click(link);
     await screen.findByRole("heading", { level: 1, name: "성과 규칙" });
-    const nav = screen.getByRole("navigation", { name: "설정" });
+    const nav = screen.getByRole("navigation", { name: "워크스페이스 설정" });
     expect(
       within(nav)
         .getByRole("link", { name: "성과 규칙" })

@@ -193,12 +193,24 @@ shot
 ok
 
 # The owner's test sign-in left bo's Keycloak session in this browser, so the
-# link comes back without the form.
+# link comes back without the form. The console has no screen for linking, so
+# the page starts the flow through the API; the console's callback then goes
+# home.
 step=kc-link
-B open "$CONSOLE_ORIGIN/settings/login-methods" >/dev/null || fail "open login methods"
-click '[aria-label="Keycloak 연결"]'
-on_console /settings/login-methods
-expect_text main "연결했습니다."
+B open "$CONSOLE_ORIGIN/" >/dev/null || fail "open the console"
+on_console /
+started=$(value "fetch('/v1/auth/me/login-methods/$PID/link/start', { method: 'POST', headers: { 'X-Requested-With': 'werft-web' } }).then(async (r) => { if (!r.ok) return 'link/start ' + r.status; location.assign((await r.json()).authorization_url); return 'started'; })")
+[ "$started" = started ] || fail "link start: $started"
+# The page is still at / before it leaves for Keycloak, so wait for the link.
+linked=
+for _ in $(seq 1 40); do
+  linked=$(value "location.pathname === '/' && fetch('/v1/auth/me/login-methods').then((r) => r.json()).then((b) => b.methods.some((m) => m.provider?.id === '$PID'))")
+  [ "$linked" = true ] && break
+  sleep 0.5
+done
+[ "$linked" = true ] || fail "no Keycloak method after the link: ${linked:-nothing}"
+on_console /
+echo "  linked: $linked"
 werft_logout
 sign_in_with_keycloak
 on_console /

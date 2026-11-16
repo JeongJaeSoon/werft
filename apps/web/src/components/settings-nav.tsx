@@ -7,7 +7,13 @@ import {
 } from "@werft-ai/ui";
 import type { ReactNode } from "react";
 import { useI18n } from "../i18n/i18n.tsx";
-import { type NavItem, useSettingsNavGroups } from "./app-sidebar.tsx";
+import {
+  type NavItem,
+  PERSONAL_SETTINGS_GROUP,
+  SETTINGS_AREA_LABEL,
+  type SettingsArea,
+  useWorkspaceSettingsNavGroups,
+} from "./app-sidebar.tsx";
 import { MAIN_CONTENT_ID } from "./main.tsx";
 
 // A page's own sub-paths (a key's new page, the Slack link callback) keep
@@ -21,11 +27,20 @@ function isCurrent(item: NavItem, pathname: string): boolean {
 
 /**
  * Settings as GitHub lays them out (V4-SETTINGS-LAYOUT A): the settings nav
- * on the left, the page in one column beside it.
+ * on the left, the page in one column beside it. Workspace and personal
+ * settings are two areas, each with only its own pages in the nav.
  */
-export function SettingsLayout({ children }: { readonly children: ReactNode }) {
+export function SettingsLayout({
+  area,
+  children,
+}: {
+  readonly area: SettingsArea;
+  readonly children: ReactNode;
+}) {
   const { t } = useI18n();
-  const groups = useSettingsNavGroups();
+  const workspaceGroups = useWorkspaceSettingsNavGroups();
+  const groups =
+    area === "workspace" ? workspaceGroups : [PERSONAL_SETTINGS_GROUP];
   // The router also opens a page at its path with a trailing slash.
   const pathname = useRouterState({
     select: (state) => state.location.pathname.replace(/(.)\/$/, "$1"),
@@ -38,13 +53,17 @@ export function SettingsLayout({ children }: { readonly children: ReactNode }) {
       className="[--werft-row-padding-x:0px]"
       nav={
         <SideNav
-          aria-label={t("nav.settings")}
+          aria-label={t(SETTINGS_AREA_LABEL[area])}
           current={here ? t(here.label) : undefined}
           // The followed link hides with the list; focus lands on the page.
           onPick={() => document.getElementById(MAIN_CONTENT_ID)?.focus()}
         >
           {groups.map((group) => (
-            <SideNavGroup key={group.label} label={t(group.label)}>
+            <SideNavGroup
+              key={group.label}
+              // A list of one group needs no heading: the nav's name says it.
+              label={groups.length > 1 ? t(group.label) : undefined}
+            >
               {group.items.map((item) => (
                 <SideNavLink
                   key={item.to}

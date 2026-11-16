@@ -87,7 +87,9 @@ describe("preferences", () => {
     ).toBeDefined();
     cleanup();
     renderAt("/", unsaved, null);
-    expect(await screen.findByRole("link", { name: "Settings" })).toBeDefined();
+    expect(
+      await screen.findByRole("link", { name: "Workspace settings" }),
+    ).toBeDefined();
   });
 
   test("the saved language wins when the console opens, and a language chosen here is saved for Slack", async () => {

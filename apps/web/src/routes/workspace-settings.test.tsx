@@ -636,15 +636,19 @@ describe("워크스페이스 설정", () => {
   test("오너·어드민의 설정 메뉴는 워크스페이스 일반으로 연다", async () => {
     renderAt("/", { "GET /v1/auth/me": () => json(200, adminMe()) });
     expect(
-      (await screen.findByRole("link", { name: "설정" })).getAttribute("href"),
+      (
+        await screen.findByRole("link", { name: "워크스페이스 설정" })
+      ).getAttribute("href"),
     ).toBe("/settings/workspace");
   });
 
-  test("구성원의 사이드바에는 설정이 없다(내 설정은 계정 메뉴: layout.test)", async () => {
+  test("구성원의 사이드바에는 워크스페이스 설정이 없다(개인 설정은 계정 메뉴: layout.test)", async () => {
     renderAt("/", { "GET /v1/auth/me": () => json(200, memberMe()) });
     const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
     await within(nav).findByRole("link", { name: "에이전트" });
-    expect(within(nav).queryByRole("link", { name: "설정" })).toBeNull();
+    expect(
+      within(nav).queryByRole("link", { name: "워크스페이스 설정" }) === null,
+    ).toBe(true);
   });
 
   test("App Configuration Token을 넣으면 다시 읽은 상태와 지우는 칸이 보인다", async () => {
@@ -1627,14 +1631,16 @@ describe("워크스페이스 설정", () => {
     renderAt("/settings/workspace/", {
       "GET /v1/auth/me": () => json(200, me()),
     });
-    const nav = await screen.findByRole("navigation", { name: "설정" });
+    const nav = await screen.findByRole("navigation", {
+      name: "워크스페이스 설정",
+    });
     expect(
       within(nav)
         .getByRole("link", { name: "일반" })
         .getAttribute("aria-current"),
     ).toBe("page");
     expect(
-      within(nav).getByRole("button", { name: /^설정 · 일반/ }),
+      within(nav).getByRole("button", { name: /^워크스페이스 설정 · 일반/ }),
     ).toBeDefined();
   });
 });

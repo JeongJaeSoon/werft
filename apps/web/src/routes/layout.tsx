@@ -39,8 +39,11 @@ import {
   MANAGER_NAV_GROUP,
   type NavGroup,
   navItemFor,
+  PERSONAL_SETTINGS_GROUP,
+  SETTINGS_AREA_LABEL,
+  settingsAreaOf,
   useNavGroups,
-  useSettingsNavGroups,
+  useWorkspaceSettingsNavGroups,
 } from "../components/app-sidebar.tsx";
 import { FormError } from "../components/auth-page.tsx";
 import { MAIN_CONTENT_ID, Main } from "../components/main.tsx";
@@ -174,7 +177,6 @@ function LocaleSwitch() {
 const SESSION_PATH = /^\/sessions\/([^/]+)\/?$/;
 const AGENT_PATH = /^\/agents\/([^/]+)\/?$/;
 const RAIL_PATH = /^\/(sessions(\/[^/]+)?|operations\/tools)?\/?$/;
-const SETTINGS_PATH = /^\/settings(\/|$)/;
 
 export function AuthedLayout() {
   const me = useMe();
@@ -312,13 +314,33 @@ function PageTrail({
 }) {
   const { t } = useI18n();
   const pathname = usePathname();
-  // A settings page reads as its own name, not the one sidebar item.
-  const settingsGroups = useSettingsNavGroups();
-  const here = navItemFor(
-    [...settingsGroups, ...groups, MANAGER_NAV_GROUP],
-    pathname,
-  );
+  const workspaceSettings = useWorkspaceSettingsNavGroups();
+  const here = navItemFor([...groups, MANAGER_NAV_GROUP], pathname);
   const leaf = useLeafTitle(pathname);
+  const area = settingsAreaOf(pathname);
+  if (area) {
+    // A settings page reads as its area, then its own name: which of the
+    // two settings a page belongs to shows on every one of them.
+    const areaGroups =
+      area === "workspace" ? workspaceSettings : [PERSONAL_SETTINGS_GROUP];
+    const page = navItemFor(areaGroups, pathname);
+    const first = areaGroups[0]?.items[0];
+    const areaName = t(SETTINGS_AREA_LABEL[area]);
+    return (
+      <PageBreadcrumb label={t("shell.menuTrail")}>
+        {page && first ? (
+          <PageBreadcrumbLink asChild>
+            <Link to={first.to} activeOptions={{ exact: true }}>
+              {areaName}
+            </Link>
+          </PageBreadcrumbLink>
+        ) : null}
+        <PageBreadcrumbCurrent className="wrap-anywhere">
+          {page ? t(page.item.label) : areaName}
+        </PageBreadcrumbCurrent>
+      </PageBreadcrumb>
+    );
+  }
   if (!here) {
     return (
       <Text weight="medium" truncate>
@@ -355,6 +377,7 @@ function ShellMain({ children }: { readonly children: ReactNode }) {
     select: (state) => (state.resolvedLocation ?? state.location).pathname,
   });
   const flush = RAIL_PATH.test(pathname);
+  const area = settingsAreaOf(pathname);
   return (
     <Main className="web-shell__main flex w-full min-w-0 flex-col bg-surface md:col-start-2 md:row-start-2">
       {flush ? (
@@ -366,8 +389,8 @@ function ShellMain({ children }: { readonly children: ReactNode }) {
         </div>
       ) : (
         <PageFrame className="flex-1">
-          {SETTINGS_PATH.test(pathname) ? (
-            <SettingsLayout>{children}</SettingsLayout>
+          {area ? (
+            <SettingsLayout area={area}>{children}</SettingsLayout>
           ) : (
             children
           )}

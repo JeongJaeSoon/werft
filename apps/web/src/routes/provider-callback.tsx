@@ -22,7 +22,6 @@ import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import { INVITE_FLOW_KEY } from "./invite.tsx";
 import { POST_LOGIN_PATH_KEY, safeRedirect } from "./login.tsx";
-import { LINK_FLOW_KEY } from "./login-methods.tsx";
 
 export interface ProviderCallbackSearch {
   readonly code?: string;
@@ -147,7 +146,7 @@ function TestResult({ test }: { readonly test: LoginProviderTestResult }) {
 
 /**
  * Whether the flow that came back is the one this tab left for under `key`
- * (a link, an invite's sign-up). One started and given up leaves its mark
+ * (an invite's sign-up). One started and given up leaves its mark
  * behind, and the next sign-in in the tab is not that flow.
  */
 function flowStarted(key: string, state: string | undefined): boolean {
@@ -186,11 +185,9 @@ export function ProviderCallbackScreen() {
   });
   const sent = useRef(false);
   // Read once and forgotten: the next flow of this tab may be a sign-in.
-  const [linking] = useState(() => flowStarted(LINK_FLOW_KEY, state));
   const [joining] = useState(() => flowStarted(INVITE_FLOW_KEY, state));
   useEffect(() => {
     try {
-      sessionStorage.removeItem(LINK_FLOW_KEY);
       sessionStorage.removeItem(INVITE_FLOW_KEY);
     } catch {
       // Nothing to forget where nothing could be kept.
@@ -218,14 +215,9 @@ export function ProviderCallbackScreen() {
       // read stand, and the answer is shown here.
       if (answer.outcome === "tested") return;
       if (answer.outcome === "linked") {
-        // A link signed nobody in either: the person goes back to their
-        // account, in the session they started from. The list is read
-        // there: this page came from the provider with an empty cache.
-        await navigate({
-          to: "/settings/login-methods",
-          replace: true,
-          state: (previous) => ({ ...previous, loginMethodLinked: true }),
-        });
+        // The console starts no link any more; one started through the API
+        // signed nobody in either, and the session it came from goes on.
+        await navigate({ to: "/", replace: true });
         return;
       }
       queryClient.clear();
@@ -273,14 +265,7 @@ export function ProviderCallbackScreen() {
           </FormError>
           <Text variant="sub">
             <TextLink asChild underline="always">
-              {linking ? (
-                // Signed in already: the login page would only send them on.
-                <Link to="/settings/login-methods">
-                  {t("loginMethods.callback.back")}
-                </Link>
-              ) : (
-                <Link to="/login">{t("login.provider.backToLogin")}</Link>
-              )}
+              <Link to="/login">{t("login.provider.backToLogin")}</Link>
             </TextLink>
           </Text>
         </>
