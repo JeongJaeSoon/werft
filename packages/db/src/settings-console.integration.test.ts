@@ -29,6 +29,7 @@ import {
 } from "./schema.ts";
 import { writeSecretInTx } from "./secrets/secret-values.ts";
 import { createPostgresSettingsDocumentStore } from "./settings-document.ts";
+import { backendPid, waitsOn } from "./testing/lock-wait.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -295,6 +296,7 @@ integration("settings console writes", () => {
       const go = new Promise<void>((resolve) => {
         proceed = resolve;
       });
+      let blocker = 0;
       // As a judge save: the workspace row locked, the judge set, not committed.
       const save = db.transaction(async (tx) => {
         await tx.execute(
@@ -306,13 +308,15 @@ integration("settings console writes", () => {
             settings: sql`jsonb_set(${workspaces.settings}, '{achievement_judge}', '{"connection_id":"luna-picked"}'::jsonb)`,
           })
           .where(eq(workspaces.id, workspaceId));
+        blocker = await backendPid(tx);
         held();
         await go;
       });
+      let create: ReturnType<ReturnType<typeof store>["create"]> | null = null;
       try {
         await holding;
         let settled = false;
-        const create = store()
+        create = store()
           .create(
             add("connections", "luna-raced", DECISION),
             "raced-key-0004",
@@ -321,8 +325,8 @@ integration("settings console writes", () => {
           .finally(() => {
             settled = true;
           });
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        expect(settled).toBe(false);
+        // The create's judge write waits on the save's row lock.
+        expect(await waitsOn(db, blocker, () => settled)).toBe(true);
         proceed();
         await save;
         expect((await create).outcome).toBe("done");
@@ -330,6 +334,36 @@ integration("settings console writes", () => {
       } finally {
         proceed();
         await save.catch(() => {});
+        await create?.catch(() => null);
+      }
+    });
+
+    test("a judge stored as JSON null, or naming no connection, takes the new decision model", async () => {
+      const owner = await person("owner");
+      for (const [id, judge] of [
+        ["luna-after-null", "null"],
+        ["luna-after-unset", '{"connection_id":null,"threshold":0.8}'],
+      ] as const) {
+        await db
+          .update(workspaces)
+          .set({
+            settings: sql`jsonb_set(${workspaces.settings}, '{achievement_judge}', ${judge}::jsonb)`,
+          })
+          .where(eq(workspaces.id, workspaceId));
+        expect(
+          (
+            await store().create(
+              add("connections", id, DECISION),
+              `${id}-key`,
+              owner,
+            )
+          ).outcome,
+        ).toBe("done");
+        expect(await judgeOf()).toEqual(
+          judge === "null"
+            ? { connection_id: id }
+            : { connection_id: id, threshold: 0.8 },
+        );
       }
     });
   });

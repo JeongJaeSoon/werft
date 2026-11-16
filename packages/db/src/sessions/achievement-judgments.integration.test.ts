@@ -57,6 +57,7 @@ import {
 import { commitCheckpoint } from "../testing/checkpoints.ts";
 import { insertDecisionModel } from "../testing/decision-model.ts";
 import { fixtureTeam } from "../testing/fixture-team.ts";
+import { backendPid, waitsOn } from "../testing/lock-wait.ts";
 import { advanceCheckpointPointer } from "../worker-unit-of-work.ts";
 import {
   createPostgresAchievementJudgments,
@@ -912,6 +913,7 @@ integration("achievement judgments on PostgreSQL", () => {
     const go = new Promise<void>((resolve) => {
       proceed = resolve;
     });
+    let blocker = 0;
     // As the console's disable: the row locked and disabled, not committed.
     const disable = db.transaction(async (tx) => {
       await tx.execute(
@@ -921,21 +923,23 @@ integration("achievement judgments on PostgreSQL", () => {
         .update(providerConnections)
         .set({ disabledAt: sql`now()` })
         .where(eq(providerConnections.id, "luna-main"));
+      blocker = await backendPid(tx);
       held();
       await go;
     });
+    let queue: Promise<string | null> | null = null;
     try {
       await holding;
       let settled = false;
-      const queue = db
+      queue = db
         .transaction((tx) =>
           queueAchievementJudgment(tx, sessionId, { trigger: "manual" }),
         )
         .finally(() => {
           settled = true;
         });
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      expect(settled).toBe(false);
+      // Waits on the disable's row lock, or settles without ever waiting.
+      expect(await waitsOn(db, blocker, () => settled)).toBe(true);
       proceed();
       await disable;
       expect(await queue).toBeNull();
@@ -943,6 +947,7 @@ integration("achievement judgments on PostgreSQL", () => {
     } finally {
       proceed();
       await disable.catch(() => {});
+      await queue?.catch(() => null);
       await decisionModelEnabled(true);
     }
   });

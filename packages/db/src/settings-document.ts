@@ -650,7 +650,7 @@ async function judgeWithFirstDecisionModel(
   const result = await tx.execute(sql`
     UPDATE workspaces
        SET settings = jsonb_set(settings, '{achievement_judge}',
-             coalesce(settings -> 'achievement_judge', '{}'::jsonb)
+             coalesce(nullif(settings -> 'achievement_judge', 'null'::jsonb), '{}'::jsonb)
                || jsonb_build_object('connection_id', ${connectionId}::text))
      WHERE id = ${actor.workspaceId}
        AND settings -> 'achievement_judge' ->> 'connection_id' IS NULL
