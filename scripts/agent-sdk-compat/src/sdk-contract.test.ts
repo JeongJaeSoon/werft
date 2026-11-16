@@ -722,7 +722,10 @@ describe.serial("Agent SDK 0.3.319 and Claude Code 2.1.319", () => {
       context = await createProbeContext();
       server = startFakeAnthropicServer((request, index) =>
         index === 0
-          ? toolReply(PUSH, { value: "p" }, "toolu_sdkcompat_trusted")
+          ? {
+              ...toolReply(PUSH, { value: "p" }, "toolu_sdkcompat_trusted"),
+              flagged: true,
+            }
           : (request.body.tools ?? []).length === 0
             ? // The classifier's question; no verdict it can parse.
               textReply("no verdict")
@@ -767,24 +770,45 @@ describe.serial("Agent SDK 0.3.319 and Claude Code 2.1.319", () => {
       return { asked, classifierRequests, ran };
     }
 
-    // 0.3.319 judges an auto call on the server's side, so no classifier
-    // request reaches the fake upstream. With no server verdict, auto mode
-    // refuses the call and says so in the tool result: that refusal is how
-    // the control run shows the stage is in play.
-    const autoRefusals = () =>
+    // 0.3.319 judges an auto call on the server's side: the request carries
+    // `safeguards`, and the reply's verdict decides. The fake upstream flags
+    // this push, so without the hook the engine refuses it and returns an
+    // error result for that call; that refusal is how the control run shows
+    // the stage is in play.
+    const refusals = () =>
       (server?.requests ?? []).filter((request) =>
-        JSON.stringify(request.body).includes("Auto mode is unavailable"),
+        (
+          (request.body.messages ?? []) as {
+            content?:
+              | { type?: string; tool_use_id?: string; is_error?: boolean }[]
+              | string;
+          }[]
+        ).some(
+          (message) =>
+            Array.isArray(message.content) &&
+            message.content.some(
+              (block) =>
+                block.type === "tool_result" &&
+                block.tool_use_id === "toolu_sdkcompat_trusted" &&
+                block.is_error === true,
+            ),
+        ),
+      ).length;
+    const judged = () =>
+      (server?.requests ?? []).filter(
+        (request) => request.body.safeguards !== undefined,
       ).length;
 
     test("auto: a control run is refused by the safety check, and the allow is not", async () => {
       const control = await pushRun("auto", []);
-      expect(autoRefusals()).toBeGreaterThan(0);
+      expect(judged()).toBeGreaterThan(0);
+      expect(refusals()).toBeGreaterThan(0);
       expect(control).toEqual({ asked: [], classifierRequests: 0, ran: [] });
       await context?.dispose();
       server?.stop();
 
       const allowed = await pushRun("auto", [allowHook]);
-      expect(autoRefusals()).toBe(0);
+      expect(refusals()).toBe(0);
       expect(allowed).toEqual({ asked: [], classifierRequests: 0, ran: ["p"] });
     }, 120_000);
 

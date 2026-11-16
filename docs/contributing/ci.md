@@ -30,7 +30,7 @@ integration 스위트는 숫자 샤드가 아니라 도메인별 job 8개(`integ
 4. 그 head와 브랜치의 `pull_request` CI run이 성공했다.
 5. 그 run에서 push가 돌릴 integration 도메인·e2e·conformance 세 엔진·demo·ui-pack·workspace-quota·두 가이드의 **테스트 step 자체**가 실행되어 성공했다. 계획상 건너뛰고 초록으로 끝난 job은 증거가 아니다.
 
-다섯 조건을 모두 통과하면 `changes`가 그 묶음을 끄고 `reused`에 run URL을 남긴다. required `check`·`integration`·`e2e`·`conformance`는 URL이 있을 때만 이 조합을 통과시킨다. `helm-chart`·`k8s-smoke`·`sdk-pack-smoke`는 하나씩 판정한다. PR 계획이 k8s-smoke를 뺐다면 main은 여전히 k8s-smoke를 돌린다. 하나라도 확인하지 못하면(조회 실패 포함) 원래 계획대로 전부 돈다. 정적 검사(캐시 저장 포함)와 비차단 `agent-sdk-compat`는 PR에 대응하는 run이 없으므로 그대로 돈다. push run 자체는 남으므로 자동 릴리스의 `ci.yml green` 확인과 `main-push-run.yml`의 누락 감시는 바뀌지 않는다. main 뒤에서 머지된 브랜치는 아무도 검증하지 않은 트리이므로 전부 돈다. 2026-11-14~15의 main 커밋 60개에 판정을 그대로 돌리면 28개가 재사용 대상이었다.
+다섯 조건을 모두 통과하면 `changes`가 그 묶음을 끄고 `reused`에 run URL을 남긴다. required `check`·`integration`·`e2e`·`conformance`는 URL이 있을 때만 이 조합을 통과시킨다. `helm-chart`·`k8s-smoke`·`sdk-pack-smoke`는 하나씩 판정한다. PR 계획이 k8s-smoke를 뺐다면 main은 여전히 k8s-smoke를 돌린다. 하나라도 확인하지 못하면(조회 실패 포함) 원래 계획대로 전부 돈다. 정적 검사(캐시 저장 포함)와 비차단 `agent-sdk-compat`는 PR에 대응하는 run이 없으므로 그대로 돈다. push run 자체는 남으므로 자동 릴리스의 `ci.yml green` 확인과 `main-push-run.yml`의 누락 감시는 바뀌지 않는다. main 뒤에서 머지된 브랜치는 아무도 검증하지 않은 트리이므로 전부 돈다. 2026-11-14~15의 main 커밋 60개에 판정을 그대로 돌리면 28개가 재사용 대상이었다. 도입 직후(2026-11-15~16)에는 머지가 몰려 대부분 main 뒤에서 머지됐고, 13개 중 2개만 재사용됐다. 재사용된 `a9c1b59`의 push run은 13.4 runner분으로, 같은 기간 중앙값 77.5분보다 83% 적었다.
 
 ## 금칙어 검사
 
