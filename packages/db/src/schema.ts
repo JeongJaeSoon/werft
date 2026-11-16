@@ -334,21 +334,26 @@ export const loginMethods = pgTable(
       .notNull()
       .defaultNow(),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+    /** Set when the person unlinked it; the row stays. */
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: uuid("deleted_by"),
   },
   (table) => [
-    uniqueIndex("login_methods_external_uniq").on(
-      table.kind,
-      table.issuer,
-      table.subject,
-    ),
+    uniqueIndex("login_methods_external_uniq")
+      .on(table.kind, table.issuer, table.subject)
+      .where(sql`${table.deletedAt} IS NULL`),
     uniqueIndex("login_methods_password_user_uniq")
       .on(table.userId)
-      .where(sql`${table.kind} = 'password'`),
+      .where(sql`${table.kind} = 'password' AND ${table.deletedAt} IS NULL`),
     // One subject per issuer for a user. Also what the session lookup reads
     // to learn whether a user has any external method.
     uniqueIndex("login_methods_user_issuer_uniq")
       .on(table.userId, table.issuer)
-      .where(sql`${table.kind} <> 'password'`),
+      .where(sql`${table.kind} <> 'password' AND ${table.deletedAt} IS NULL`),
+    check(
+      "login_methods_deleted_check",
+      sql`(${table.deletedAt} IS NULL) = (${table.deletedBy} IS NULL)`,
+    ),
     check(
       "login_methods_kind_check",
       sql`${table.kind} IN ('password', 'oidc')`,
@@ -450,11 +455,19 @@ export const loginProviders = pgTable(
       .notNull()
       .defaultNow(),
     createdBy: uuid("created_by").references(() => users.id),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: uuid("deleted_by"),
   },
   (table) => [
     // (issuer, subject) names a user, so two providers of one issuer would
     // name the same person twice.
-    uniqueIndex("login_providers_issuer_uniq").on(table.issuer),
+    uniqueIndex("login_providers_issuer_uniq")
+      .on(table.issuer)
+      .where(sql`${table.deletedAt} IS NULL`),
+    check(
+      "login_providers_deleted_check",
+      sql`(${table.deletedAt} IS NULL) = (${table.deletedBy} IS NULL)`,
+    ),
     check(
       "login_providers_display_name_check",
       sql`length(${table.displayName}) BETWEEN 1 AND 64`,
@@ -677,12 +690,14 @@ export const secretValues = pgTable(
 
 // What the console and the rotator know about a workspace's App
 // Configuration Token without opening it; the token pair itself is the
-// workspace's `slack_config_token` secret.
+// workspace's `slack_config_token` secret. A deleted one stays; the
+// workspace's next token is a new row.
 export const slackConfigTokens = pgTable(
   "slack_config_tokens",
   {
+    id: uuid().primaryKey().defaultRandom(),
     workspaceId: uuid("workspace_id")
-      .primaryKey()
+      .notNull()
       .references(() => workspaces.id),
     state: text().$type<"active" | "needs_reentry">().notNull(),
     accessExpiresAt: timestamp("access_expires_at", { withTimezone: true }),
@@ -695,8 +710,17 @@ export const slackConfigTokens = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: uuid("deleted_by"),
   },
   (table) => [
+    uniqueIndex("slack_config_tokens_workspace_uniq")
+      .on(table.workspaceId)
+      .where(sql`${table.deletedAt} IS NULL`),
+    check(
+      "slack_config_tokens_deleted_check",
+      sql`(${table.deletedAt} IS NULL) = (${table.deletedBy} IS NULL)`,
+    ),
     check(
       "slack_config_tokens_state_check",
       sql`${table.state} IN ('active', 'needs_reentry')`,
@@ -738,9 +762,17 @@ export const githubApps = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: uuid("deleted_by"),
   },
   (table) => [
-    unique("github_apps_workspace_app_uniq").on(table.workspaceId, table.appId),
+    uniqueIndex("github_apps_workspace_app_uniq")
+      .on(table.workspaceId, table.appId)
+      .where(sql`${table.deletedAt} IS NULL`),
+    check(
+      "github_apps_deleted_check",
+      sql`(${table.deletedAt} IS NULL) = (${table.deletedBy} IS NULL)`,
+    ),
     check("github_apps_app_id_check", sql`${table.appId} > 0`),
     check(
       "github_apps_role_check",
@@ -3834,9 +3866,18 @@ export const workspaceMcpServers = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /** A deleted server keeps its row with `oauth` cleared. */
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: uuid("deleted_by"),
   },
   (table) => [
-    unique("workspace_mcp_servers_name_uniq").on(table.workspaceId, table.name),
+    uniqueIndex("workspace_mcp_servers_name_uniq")
+      .on(table.workspaceId, table.name)
+      .where(sql`${table.deletedAt} IS NULL`),
+    check(
+      "workspace_mcp_servers_deleted_check",
+      sql`(${table.deletedAt} IS NULL) = (${table.deletedBy} IS NULL)`,
+    ),
     unique("workspace_mcp_servers_workspace_id_key").on(
       table.workspaceId,
       table.id,
@@ -3851,7 +3892,7 @@ export const workspaceMcpServers = pgTable(
     ),
     check(
       "workspace_mcp_servers_oauth_check",
-      sql`(${table.authKind} = 'oauth') = (${table.oauth} IS NOT NULL)`,
+      sql`${table.deletedAt} IS NOT NULL OR (${table.authKind} = 'oauth') = (${table.oauth} IS NOT NULL)`,
     ),
     check(
       "workspace_mcp_servers_tools_check",
@@ -5112,6 +5153,9 @@ export const envVariables = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /** A deleted variable keeps its row without its value. */
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: uuid("deleted_by"),
   },
   (table) => [
     foreignKey({
@@ -5124,10 +5168,14 @@ export const envVariables = pgTable(
     unique("env_variables_workspace_id_uniq").on(table.workspaceId, table.id),
     uniqueIndex("env_variables_workspace_name_uniq")
       .on(table.workspaceId, table.name)
-      .where(sql`${table.agentId} IS NULL`),
+      .where(sql`${table.agentId} IS NULL AND ${table.deletedAt} IS NULL`),
     uniqueIndex("env_variables_agent_name_uniq")
       .on(table.workspaceId, table.agentId, table.name)
-      .where(sql`${table.agentId} IS NOT NULL`),
+      .where(sql`${table.agentId} IS NOT NULL AND ${table.deletedAt} IS NULL`),
+    check(
+      "env_variables_deleted_check",
+      sql`(${table.deletedAt} IS NULL) = (${table.deletedBy} IS NULL)`,
+    ),
     check(
       "env_variables_name_check",
       sql`${table.name} ~ ${sql.raw(`'${ENV_VARIABLE_NAME_PATTERN}'`)}`,
@@ -5136,10 +5184,10 @@ export const envVariables = pgTable(
       "env_variables_kind_check",
       sql`${table.kind} IN (${sql.raw(sqlList(ENV_VARIABLE_KIND_VALUES))})`,
     ),
-    // A plain value lives here; a secret's never does.
+    // A plain value lives here; a secret's never does. A deleted one has none.
     check(
       "env_variables_value_check",
-      sql`(${table.kind} = 'plain') = (${table.value} IS NOT NULL) AND (${table.value} IS NULL OR octet_length(${table.value}) <= ${sql.raw(String(ENV_VARIABLE_VALUE_MAX_BYTES))})`,
+      sql`(${table.deletedAt} IS NOT NULL OR (${table.kind} = 'plain') = (${table.value} IS NOT NULL)) AND (${table.value} IS NULL OR octet_length(${table.value}) <= ${sql.raw(String(ENV_VARIABLE_VALUE_MAX_BYTES))})`,
     ),
     check(
       "env_variables_engine_delivery_check",

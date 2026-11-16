@@ -18,6 +18,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
+  agentWorkspaceMcpServers,
   mcpServers,
   receipts,
   secretValues,
@@ -30,6 +31,7 @@ import {
   readSecretInTx,
   writeSecretInTx,
 } from "../secrets/secret-values.ts";
+import { deletedBy, notDeleted } from "../soft-delete.ts";
 import { lockedRole } from "./api-keys.ts";
 
 // Workspace MCP servers and their one connection (decision
@@ -83,7 +85,9 @@ export async function workspaceMcpNameTaken(
   const [row] = await tx
     .select({ id: workspaceMcpServers.id })
     .from(workspaceMcpServers)
-    .where(eq(workspaceMcpServers.name, name))
+    .where(
+      and(eq(workspaceMcpServers.name, name), notDeleted(workspaceMcpServers)),
+    )
     .limit(1);
   return row !== undefined;
 }
@@ -159,6 +163,7 @@ async function readRecords(
         serverId === null
           ? undefined
           : eq(workspaceMcpServers.id, serverId.toLowerCase()),
+        notDeleted(workspaceMcpServers),
       ),
     )
     .orderBy(asc(workspaceMcpServers.name));
@@ -242,6 +247,7 @@ async function heldServer(tx: Database, workspaceId: string, serverId: string) {
       and(
         eq(workspaceMcpServers.workspaceId, workspaceId.toLowerCase()),
         eq(workspaceMcpServers.id, serverId.toLowerCase()),
+        notDeleted(workspaceMcpServers),
       ),
     )
     .for("update");
@@ -358,6 +364,7 @@ export async function disconnectWorkspaceMcpOf(
         workspaceId === null
           ? undefined
           : eq(workspaceMcpServers.workspaceId, workspaceId),
+        notDeleted(workspaceMcpServers),
       ),
     )
     .orderBy(asc(workspaceMcpConnections.serverId))
@@ -448,6 +455,7 @@ export function createPostgresWorkspaceMcpStore(
             and(
               eq(workspaceMcpServers.workspaceId, workspaceId),
               eq(workspaceMcpServers.name, input.name),
+              notDeleted(workspaceMcpServers),
             ),
           )
           .limit(1);
@@ -455,7 +463,12 @@ export function createPostgresWorkspaceMcpStore(
         const [held] = await tx
           .select({ n: count() })
           .from(workspaceMcpServers)
-          .where(eq(workspaceMcpServers.workspaceId, workspaceId));
+          .where(
+            and(
+              eq(workspaceMcpServers.workspaceId, workspaceId),
+              notDeleted(workspaceMcpServers),
+            ),
+          );
         if ((held?.n ?? 0) >= input.max) {
           return { outcome: "quota_exceeded" as const };
         }
@@ -526,8 +539,17 @@ export function createPostgresWorkspaceMcpStore(
           server.oauth,
         );
         await deleteSecrets(tx, workspaceId, server.id, ALL_PURPOSES);
+        // What the row's foreign keys used to cascade to; the row itself
+        // stays without its OAuth settings.
         await tx
-          .delete(workspaceMcpServers)
+          .delete(workspaceMcpConnections)
+          .where(eq(workspaceMcpConnections.serverId, server.id));
+        await tx
+          .delete(agentWorkspaceMcpServers)
+          .where(eq(agentWorkspaceMcpServers.serverId, server.id));
+        await tx
+          .update(workspaceMcpServers)
+          .set({ oauth: null, ...deletedBy(input.actorUserId) })
           .where(eq(workspaceMcpServers.id, server.id));
         await writeReceipt(
           tx,
@@ -725,6 +747,7 @@ export function createPostgresWorkspaceMcpStore(
             and(
               eq(workspaceMcpServers.workspaceId, ws),
               eq(workspaceMcpServers.id, serverId.toLowerCase()),
+              notDeleted(workspaceMcpServers),
             ),
           );
         const { server, connection } = row ?? {};

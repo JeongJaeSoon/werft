@@ -18,8 +18,15 @@ import {
   secretReceiptRow,
   writeSecretInTx,
 } from "../secrets/secret-values.ts";
+import { deletedBy, notDeleted } from "../soft-delete.ts";
 
 type Row = typeof slackConfigTokens.$inferSelect;
+
+const live = (workspaceId: string) =>
+  and(
+    eq(slackConfigTokens.workspaceId, workspaceId),
+    notDeleted(slackConfigTokens),
+  );
 
 const slotOf = (workspaceId: string): SecretSlot => ({
   workspaceId,
@@ -43,7 +50,7 @@ async function lockedMeta(
   const [row] = await tx
     .select()
     .from(slackConfigTokens)
-    .where(eq(slackConfigTokens.workspaceId, workspaceId))
+    .where(live(workspaceId))
     .for("update");
   return row;
 }
@@ -55,7 +62,7 @@ async function summaryOf(
   const [row] = await db
     .select()
     .from(slackConfigTokens)
-    .where(eq(slackConfigTokens.workspaceId, workspaceId));
+    .where(live(workspaceId));
   const secret = await describeSecret(db, slotOf(workspaceId));
   if (!row || (row.issuerUserId === null && secret === null)) {
     return { state: "unset", secret: null, expiresAt: null, issuer: null };
@@ -81,7 +88,7 @@ async function markNeedsReentry(tx: Database, workspaceId: string) {
       leaseUntil: null,
       updatedAt: DB_NOW,
     })
-    .where(eq(slackConfigTokens.workspaceId, workspaceId));
+    .where(live(workspaceId));
   await deleteSecretInTx(tx, slotOf(workspaceId));
 }
 
@@ -132,7 +139,7 @@ export function createPostgresSlackConfigTokenStore(
         await tx
           .update(slackConfigTokens)
           .set({ leaseId, leaseUntil: clock.leaseUntil })
-          .where(eq(slackConfigTokens.workspaceId, workspaceId));
+          .where(live(workspaceId));
         return {
           outcome: "claimed" as const,
           leaseId,
@@ -164,7 +171,7 @@ export function createPostgresSlackConfigTokenStore(
           await tx
             .update(slackConfigTokens)
             .set({ leaseId, leaseUntil: clock.leaseUntil })
-            .where(eq(slackConfigTokens.workspaceId, workspaceId));
+            .where(live(workspaceId));
         } else {
           await tx.insert(slackConfigTokens).values({
             workspaceId,
@@ -212,7 +219,7 @@ export function createPostgresSlackConfigTokenStore(
             leaseUntil: null,
             updatedAt: DB_NOW,
           })
-          .where(eq(slackConfigTokens.workspaceId, workspaceId));
+          .where(live(workspaceId));
         if (audit) {
           await tx
             .insert(receipts)
@@ -238,12 +245,7 @@ export function createPostgresSlackConfigTokenStore(
       await db
         .update(slackConfigTokens)
         .set({ leaseId: null, leaseUntil: null })
-        .where(
-          and(
-            eq(slackConfigTokens.workspaceId, workspaceId),
-            eq(slackConfigTokens.leaseId, leaseId),
-          ),
-        );
+        .where(and(live(workspaceId), eq(slackConfigTokens.leaseId, leaseId)));
     },
 
     async invalidate(named, leaseId) {
@@ -260,7 +262,7 @@ export function createPostgresSlackConfigTokenStore(
       await db
         .update(slackConfigTokens)
         .set({ accessExpiresAt: now })
-        .where(eq(slackConfigTokens.workspaceId, named.toLowerCase()));
+        .where(live(named.toLowerCase()));
     },
 
     describe: (named) => summaryOf(db, named.toLowerCase()),
@@ -272,8 +274,9 @@ export function createPostgresSlackConfigTokenStore(
         if (refused) return { outcome: refused };
         await lockedMeta(tx, workspaceId);
         await tx
-          .delete(slackConfigTokens)
-          .where(eq(slackConfigTokens.workspaceId, workspaceId));
+          .update(slackConfigTokens)
+          .set(deletedBy(audit.principal.actor?.userId))
+          .where(live(workspaceId));
         const last4 = await deleteSecretInTx(tx, slotOf(workspaceId));
         if (last4 === null) return { outcome: "not_found" as const };
         await tx

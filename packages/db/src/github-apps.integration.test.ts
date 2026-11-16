@@ -449,6 +449,46 @@ integration("the GitHub App on PostgreSQL", () => {
     expect(await store.list(ws)).toEqual([]);
   });
 
+  test("a deleted App keeps its row without its key, reads as gone, and can be added again", async () => {
+    const store = createPostgresGitHubAppStore(db, key);
+    const ws = await workspace();
+    const owner = await person(ws, "owner");
+    const set = owner();
+    const app = await stored(
+      await store.put(ws, AUTHOR, profile(43), pemOf(), set),
+    );
+    expect((await store.delete(ws, byId(app.id), owner())).outcome).toBe(
+      "deleted",
+    );
+    const [row] = await db
+      .select()
+      .from(githubApps)
+      .where(eq(githubApps.id, app.id));
+    expect(row?.deletedAt).toBeInstanceOf(Date);
+    expect(row?.deletedBy).toBe(set.principal.actor?.userId ?? "");
+    expect(
+      await db
+        .select()
+        .from(secretValues)
+        .where(eq(secretValues.ownerRef, `github_app:${app.id}`)),
+    ).toEqual([]);
+    expect(await store.get(ws, app.id)).toBeNull();
+    expect(await store.usage(ws, app.id)).toBeNull();
+    expect(await store.list(ws)).toEqual([]);
+    expect(
+      (await store.credentials("author")).some(({ id }) => id === app.id),
+    ).toBe(false);
+    expect(await store.delete(ws, byId(app.id), owner())).toEqual({
+      outcome: "not_found",
+    });
+
+    const again = await stored(
+      await store.put(ws, AUTHOR, profile(43), pemOf(), owner()),
+    );
+    expect(again.id).not.toBe(app.id);
+    expect((await store.list(ws)).map(({ id }) => id)).toEqual([again.id]);
+  });
+
   test("user linking reads the author App's client id; a reviewer App or none gives no client", async () => {
     const store = createPostgresGitHubAppStore(db, key);
     const oauth = createPostgresGitHubOAuthStore(db, key);

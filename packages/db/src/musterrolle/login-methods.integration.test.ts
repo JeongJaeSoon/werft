@@ -217,7 +217,12 @@ integration("a person's ways to sign in", () => {
   const inviteRow = async (id: string) =>
     (await db.select().from(invites).where(eq(invites.id, id)))[0];
   const methodsOf = (userId: string) =>
-    db.select().from(loginMethods).where(eq(loginMethods.userId, userId));
+    db
+      .select()
+      .from(loginMethods)
+      .where(
+        and(eq(loginMethods.userId, userId), isNull(loginMethods.deletedAt)),
+      );
   const liveSessionsOf = (loginMethodId: string) =>
     db.$count(
       webSessions,
@@ -618,6 +623,20 @@ integration("a person's ways to sign in", () => {
         issuer: ISSUER_A,
         sessions_revoked: 2,
       });
+      const [kept] = await db
+        .select()
+        .from(loginMethods)
+        .where(eq(loginMethods.id, viaA?.id ?? ""));
+      expect(kept?.deletedAt).toBeInstanceOf(Date);
+      expect(kept?.deletedBy).toBe(ivy?.id ?? "");
+      expect(
+        (await store.list(ivy?.id ?? "")).methods.some(
+          (method) => method.id === viaA?.id,
+        ),
+      ).toBe(false);
+      expect(await unlink(ivy?.id ?? "", viaA?.id ?? "")).toEqual({
+        outcome: "not_found",
+      });
     });
 
     test("the last way that works stays; a provider that is off does not count as one", async () => {
@@ -898,7 +917,13 @@ integration("a person's ways to sign in", () => {
           ),
         ).toBe(first === "sign-in" ? 1 : 0);
         expect(
-          await db.$count(loginMethods, eq(loginMethods.subject, subject)),
+          await db.$count(
+            loginMethods,
+            and(
+              eq(loginMethods.subject, subject),
+              isNull(loginMethods.deletedAt),
+            ),
+          ),
         ).toBe(0);
       });
     }

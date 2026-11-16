@@ -364,6 +364,50 @@ integration("Slack apps and the config token on PostgreSQL", () => {
         expect(text).not.toContain(refresh);
       }
     });
+
+    test("a deleted token keeps its row without the value, and a new paste starts a new row", async () => {
+      const slack = fakeSlack();
+      const store = createPostgresSlackConfigTokenStore(db, key);
+      const { workspaceId, owner, tokens } = await registered(store, slack);
+      expect(
+        await store.delete(workspaceId, {
+          ...owner.audit,
+          receiptId: randomUUID(),
+        }),
+      ).toMatchObject({ outcome: "deleted" });
+      const rows = () =>
+        db
+          .select()
+          .from(slackConfigTokens)
+          .where(eq(slackConfigTokens.workspaceId, workspaceId));
+      const [gone] = await rows();
+      expect(gone?.deletedAt).toBeInstanceOf(Date);
+      expect(gone?.deletedBy).toBe(owner.audit.principal.actor?.userId ?? "");
+      expect(
+        await db
+          .select({ id: secretValues.id })
+          .from(secretValues)
+          .where(eq(secretValues.workspaceId, workspaceId)),
+      ).toEqual([]);
+      expect((await store.describe(workspaceId)).state).toBe("unset");
+      expect(
+        await store.delete(workspaceId, {
+          ...owner.audit,
+          receiptId: randomUUID(),
+        }),
+      ).toEqual({ outcome: "not_found" });
+
+      expect(
+        await tokens.register(workspaceId, slack.issueRefresh(), {
+          ...owner.audit,
+          receiptId: randomUUID(),
+        }),
+      ).toMatchObject({ outcome: "stored" });
+      const after = await rows();
+      expect(after).toHaveLength(2);
+      expect(after.filter((row) => row.deletedAt === null)).toHaveLength(1);
+      expect((await store.describe(workspaceId)).state).toBe("active");
+    });
   });
 
   describe("agent apps", () => {

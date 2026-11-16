@@ -10,7 +10,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import {
@@ -86,8 +86,15 @@ integration("user variables on PostgreSQL", () => {
     return workspaceId;
   }
 
+  const PERSON = randomUUID();
   const principal = (workspaceId: string): Principal => ({
     ownerId: workspaceId,
+    actor: {
+      principal: { kind: "user", id: PERSON },
+      userId: PERSON,
+      workspaceId,
+      apiKeyId: null,
+    },
   });
 
   async function agentOn(workspaceId: string) {
@@ -168,6 +175,7 @@ integration("user variables on PostgreSQL", () => {
         and(
           eq(envVariables.workspaceId, workspaceId),
           eq(envVariables.name, name),
+          isNull(envVariables.deletedAt),
         ),
       );
     const result = await store().setGrants({
@@ -188,7 +196,8 @@ integration("user variables on PostgreSQL", () => {
     idempotencyKey: string = randomUUID(),
   ) {
     return inputs().acceptInputAtomic({
-      principal: principal(workspaceId),
+      // No person: a session's actor must be a live member.
+      principal: { ownerId: workspaceId },
       idempotencyKey,
       payloadHash: "h",
       model: TEST_MODEL,
@@ -385,6 +394,58 @@ integration("user variables on PostgreSQL", () => {
           ifMatch: first.version,
         }),
       ).toMatchObject({ outcome: "version_mismatch" });
+    });
+
+    test("a deleted variable stays as a row without its value, outside every list and count", async () => {
+      const workspaceId = await workspace();
+      const { agentId } = await agentOn(workspaceId);
+      for (let i = 0; i < ENV_WORKSPACE_VARIABLE_LIMIT - 1; i++) {
+        await saved(workspaceId, null, `KEEP_${i}`, "v");
+      }
+      const gone = await saved(workspaceId, null, "GONE", "plain-value");
+      await grant(workspaceId, "GONE", [agentId]);
+      expect(
+        (
+          await store().delete({
+            principal: principal(workspaceId),
+            scope: { workspaceId, agentId: null },
+            name: "GONE",
+            ifMatch: gone.version,
+          })
+        ).outcome,
+      ).toBe("deleted");
+      const [row] = await db
+        .select()
+        .from(envVariables)
+        .where(
+          and(
+            eq(envVariables.workspaceId, workspaceId),
+            eq(envVariables.name, "GONE"),
+          ),
+        );
+      expect(row).toMatchObject({ value: null, deletedBy: PERSON });
+      expect(row?.deletedAt).toBeInstanceOf(Date);
+      expect(
+        await db
+          .select()
+          .from(envVariableGrants)
+          .where(eq(envVariableGrants.variableId, row?.id ?? "")),
+      ).toEqual([]);
+      const listed = await store().list({ workspaceId, agentId: null });
+      expect(listed.map((variable) => variable.name)).not.toContain("GONE");
+      expect(listed).toHaveLength(ENV_WORKSPACE_VARIABLE_LIMIT - 1);
+      // The limit counts what is left, so one more fits.
+      expect((await put(workspaceId, null, "NEW_ONE", "v")).outcome).toBe(
+        "saved",
+      );
+      expect(
+        await store().delete({
+          principal: principal(workspaceId),
+          scope: { workspaceId, agentId: null },
+          name: "GONE",
+          ifMatch: gone.version,
+        }),
+      ).toEqual({ outcome: "not_found" });
     });
 
     test("writers racing for the last place leave exactly one winner", async () => {

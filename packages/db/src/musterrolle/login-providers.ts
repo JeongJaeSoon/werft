@@ -32,6 +32,7 @@ import {
   readSecretInTx,
   writeSecretInTx,
 } from "../secrets/secret-values.ts";
+import { deletedBy, notDeleted } from "../soft-delete.ts";
 import { findLiveMembership } from "./identity.ts";
 import {
   lockLoginSettings,
@@ -158,7 +159,7 @@ async function lockedProvider(tx: Database, id: string): Promise<Row | null> {
   const [row] = await tx
     .select()
     .from(loginProviders)
-    .where(eq(loginProviders.id, id))
+    .where(and(eq(loginProviders.id, id), notDeleted(loginProviders)))
     .for("update");
   return row ?? null;
 }
@@ -224,7 +225,7 @@ async function turnOff(
       revision: sql`${loginProviders.revision} + 1`,
       updatedAt: DB_NOW,
     })
-    .where(eq(loginProviders.id, id))
+    .where(and(eq(loginProviders.id, id), notDeleted(loginProviders)))
     .returning();
   if (!row) return null;
   const revoked = await tx
@@ -242,6 +243,7 @@ async function turnOff(
               and(
                 eq(loginMethods.kind, "oidc"),
                 eq(loginMethods.issuer, row.issuer),
+                notDeleted(loginMethods),
               ),
             ),
         ),
@@ -272,7 +274,9 @@ export function createPostgresLoginProviderStore(
           displayName: loginProviders.displayName,
         })
         .from(loginProviders)
-        .where(eq(loginProviders.enabled, true))
+        .where(
+          and(eq(loginProviders.enabled, true), notDeleted(loginProviders)),
+        )
         .orderBy(asc(loginProviders.createdAt), asc(loginProviders.id));
     },
 
@@ -280,7 +284,7 @@ export function createPostgresLoginProviderStore(
       const [row] = await db
         .select()
         .from(loginProviders)
-        .where(eq(loginProviders.id, id));
+        .where(and(eq(loginProviders.id, id), notDeleted(loginProviders)));
       if (!row) return null;
       const workspaceId = await secretOwnerWorkspace(db);
       const ownerRef = secretOwnerRef(loginProviderSecretOwner(row.id));
@@ -322,6 +326,7 @@ export function createPostgresLoginProviderAdminStore(
       const rows = await db
         .select()
         .from(loginProviders)
+        .where(notDeleted(loginProviders))
         .orderBy(asc(loginProviders.createdAt), asc(loginProviders.id));
       const secrets = await secretSummaries(
         db,
@@ -345,7 +350,10 @@ export function createPostgresLoginProviderAdminStore(
               endpoints.tokenAuthMethods[0] ?? "client_secret_basic",
             createdBy: input.audit.userId,
           })
-          .onConflictDoNothing({ target: loginProviders.issuer })
+          .onConflictDoNothing({
+            target: loginProviders.issuer,
+            where: notDeleted(loginProviders),
+          })
           .returning();
         if (!row) return { outcome: "issuer_taken" as const };
         await writeReceipt(tx, input.audit, "create_login_provider", row.id, {
@@ -577,7 +585,7 @@ export function createPostgresLoginProviderAdminStore(
       const [row] = await db
         .select()
         .from(loginProviders)
-        .where(eq(loginProviders.id, id));
+        .where(and(eq(loginProviders.id, id), notDeleted(loginProviders)));
       if (!row) return null;
       const provider = providerOf(row);
       const workspaceId = await secretOwnerWorkspace(db);
@@ -724,6 +732,7 @@ export function createPostgresLoginProviderAdminStore(
             and(
               eq(loginProviders.enabled, true),
               ne(loginProviders.id, row.id),
+              notDeleted(loginProviders),
             ),
           )) === 0
         ) {
@@ -752,7 +761,10 @@ export function createPostgresLoginProviderAdminStore(
           await deleteSecretInTx(tx, slotOf(workspaceId, row.id, "current"));
           await deleteSecretInTx(tx, slotOf(workspaceId, row.id, "next"));
         }
-        await tx.delete(loginProviders).where(eq(loginProviders.id, row.id));
+        await tx
+          .update(loginProviders)
+          .set(deletedBy(input.audit.userId))
+          .where(eq(loginProviders.id, row.id));
         await writeReceipt(tx, input.audit, "delete_login_provider", row.id, {
           issuer: row.issuer,
         });
@@ -771,6 +783,7 @@ export function createPostgresLoginProviderAdminStore(
             eq(loginMethods.kind, "oidc"),
             eq(loginMethods.issuer, input.issuer),
             eq(loginMethods.subject, input.subject),
+            notDeleted(loginMethods),
           ),
         );
       if (linked) {
@@ -818,6 +831,7 @@ export async function disableLoginProvidersAsOperator(
     const rows = await tx
       .select()
       .from(loginProviders)
+      .where(notDeleted(loginProviders))
       .orderBy(asc(loginProviders.id))
       .for("update");
     const asked = rows.filter(

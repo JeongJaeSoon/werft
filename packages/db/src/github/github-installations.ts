@@ -12,6 +12,7 @@ import {
   githubInstallationStates,
   users,
 } from "../schema.ts";
+import { notDeleted } from "../soft-delete.ts";
 import { rowsOf } from "../statement-rows.ts";
 
 const isDateOrNull = (value: unknown): value is string | null =>
@@ -77,6 +78,7 @@ export function createPostgresGitHubInstallationStore(
           ${JSON.stringify(installations)}::jsonb, ${snapshot.readAt}
         FROM ${githubApps}
         WHERE ${githubApps.id} = ${connectionId} AND ${githubApps.appId} = ${appId}
+          AND ${githubApps.deletedAt} IS NULL
         ON CONFLICT (connection_id) DO UPDATE
           SET app_id = EXCLUDED.app_id,
             installations = EXCLUDED.installations,
@@ -144,6 +146,7 @@ export function createPostgresGitHubInstallationStore(
         WHERE ${githubApps.id} = ${input.connectionId}
           AND ${githubApps.workspaceId} = ${input.workspaceId}
           AND ${githubApps.appId} = ${input.appId}
+          AND ${githubApps.deletedAt} IS NULL
         ON CONFLICT (connection_id, installation_id) DO NOTHING
         RETURNING installation_id`),
       );
@@ -165,6 +168,7 @@ export function createPostgresGitHubInstallationStore(
           and(
             eq(githubApps.id, githubInstallationLinks.connectionId),
             eq(githubApps.appId, githubInstallationLinks.appId),
+            notDeleted(githubApps),
           ),
         )
         .leftJoin(users, eq(users.id, githubInstallationLinks.connectedBy))
