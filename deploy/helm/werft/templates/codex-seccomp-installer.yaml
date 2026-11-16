@@ -99,6 +99,8 @@ spec:
         && object.metadata.?annotations.orValue({}) == oldObject.metadata.?annotations.orValue({})
         && object.metadata.?finalizers.orValue([]) == oldObject.metadata.?finalizers.orValue([])
         && object.metadata.?ownerReferences.orValue([]) == oldObject.metadata.?ownerReferences.orValue([])
+        && object.metadata.?generateName == oldObject.metadata.?generateName
+        && object.metadata.?generation == oldObject.metadata.?generation
       message: the codex-seccomp installer changes nothing on a Node but its label
 ---
 apiVersion: admissionregistration.k8s.io/v1
@@ -205,18 +207,31 @@ spec:
                 const { NODE_NAME: node, NODE_LABEL_KEY: key, NODE_LABEL_VALUE: value } = process.env;
                 let host = process.env.KUBERNETES_SERVICE_HOST;
                 if (host.includes(":")) host = `[${host}]`;
-                const response = await fetch(
-                  `https://${host}:${process.env.KUBERNETES_SERVICE_PORT}/api/v1/nodes/${encodeURIComponent(node)}`,
-                  {
+                const url = `https://${host}:${process.env.KUBERNETES_SERVICE_PORT}/api/v1/nodes/${encodeURIComponent(node)}`;
+                const patch = async (label, query) =>
+                  fetch(url + query, {
                     method: "PATCH",
                     headers: {
                       authorization: `Bearer ${(await Bun.file(`${dir}/token`).text()).trim()}`,
                       "content-type": "application/merge-patch+json",
                     },
-                    body: JSON.stringify({ metadata: { labels: { [key]: value } } }),
+                    body: JSON.stringify({ metadata: { labels: { [key]: label } } }),
                     tls: { ca: await Bun.file(`${dir}/ca.crt`).text() },
-                  },
-                );
+                  });
+                // Helm creates the admission policy after this Pod, and the
+                // API server loads it some time after that: until a change it
+                // must refuse is refused, nothing is changed for real.
+                for (let attempt = 1; ; attempt++) {
+                  const probe = await patch(`${value}-probe`, "?dryRun=All");
+                  const text = await probe.text();
+                  if (probe.status === 422 && text.includes("codex-seccomp installer")) break;
+                  if (!probe.ok || attempt === 60) {
+                    console.error(`admission policy not enforced for node ${node}: ${probe.status} ${text.slice(0, 500)}`);
+                    process.exit(1);
+                  }
+                  await Bun.sleep(2000);
+                }
+                const response = await patch(value, "");
                 if (!response.ok) {
                   console.error(`labelling node ${node} ${key}=${value}: ${response.status} ${(await response.text()).slice(0, 500)}`);
                   process.exit(1);

@@ -362,10 +362,38 @@ function checkNodeLabelAccess(manifests: Manifest[]): string[] {
     );
   }
   const spec = policy.spec ?? {};
-  const validations = (spec.validations ?? [])
-    .map((v: { expression: string }) => v.expression)
-    .join("\n");
+  const { key, value } = CODEX_SECCOMP_NODE_LABEL;
+  const same = (field: string, fallback: string) =>
+    `object.metadata.?${field}${fallback} == oldObject.metadata.?${field}${fallback}`;
+  // Exact: any rewording of a rule is a change to what the installer may do.
+  const policyRules = {
+    variables: [
+      { name: "labels", expression: "object.metadata.?labels.orValue({})" },
+      {
+        name: "oldLabels",
+        expression: "oldObject.metadata.?labels.orValue({})",
+      },
+    ],
+    validations: [
+      "request.userInfo.extra[?'authentication.kubernetes.io/node-name'].orValue([]) == [object.metadata.name]",
+      `variables.labels[?'${key}'] == optional.of('${value}') && variables.labels.all(k, k == '${key}' || (k in variables.oldLabels && variables.oldLabels[k] == variables.labels[k])) && variables.oldLabels.all(k, k in variables.labels)`,
+      [
+        "object.spec == oldObject.spec",
+        same("annotations", ".orValue({})"),
+        same("finalizers", ".orValue([])"),
+        same("ownerReferences", ".orValue([])"),
+        same("generateName", ""),
+        same("generation", ""),
+      ].join(" && "),
+    ],
+  };
   if (
+    JSON.stringify({
+      variables: spec.variables,
+      validations: spec.validations?.map(
+        (v: { expression: string }) => v.expression,
+      ),
+    }) !== JSON.stringify(policyRules) ||
     spec.failurePolicy !== "Fail" ||
     JSON.stringify(spec.matchConstraints?.resourceRules) !==
       JSON.stringify([
@@ -381,14 +409,7 @@ function checkNodeLabelAccess(manifests: Manifest[]): string[] {
     ) !==
       JSON.stringify([
         `request.userInfo.username == 'system:serviceaccount:${namespace}:${serviceAccount}'`,
-      ]) ||
-    !validations.includes(
-      "request.userInfo.extra[?'authentication.kubernetes.io/node-name'].orValue([]) == [object.metadata.name]",
-    ) ||
-    !validations.includes(
-      `variables.labels[?'${CODEX_SECCOMP_NODE_LABEL.key}'] == optional.of('${CODEX_SECCOMP_NODE_LABEL.value}')`,
-    ) ||
-    !validations.includes("object.spec == oldObject.spec")
+      ])
   ) {
     errors.push(
       "the admission policy does not hold the installer to its own node and label",
@@ -2694,6 +2715,9 @@ function checkCodexSandbox(): string[] {
       fail(
         `the installer does not label its own node with the label the backend requires: ${JSON.stringify(labelEnv)}`,
       );
+    }
+    if (!label?.command.join(" ").includes('"?dryRun=All"')) {
+      fail("the installer labels before it sees the admission policy refuse");
     }
   }
 
