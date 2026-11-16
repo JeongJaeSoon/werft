@@ -413,12 +413,12 @@ describe("팀 화면", () => {
     expect(pencil.querySelector("svg")?.getAttribute("aria-hidden")).toBe(
       "true",
     );
-    // Smaller and fainter than the heading, still a 24px target.
-    expect(pencil.querySelector("svg")?.classList.contains("size-3.5")).toBe(
+    // Smaller and fainter than the heading.
+    expect(pencil.querySelector("svg")?.classList.contains("size-3")).toBe(
       true,
     );
     const classes = [...pencil.classList];
-    expect(classes).toContain("size-6");
+    expect(classes).toContain("size-5");
     expect(classes).not.toContain("size-[var(--werft-control-height-sm)]");
     expect(classes).toContain("text-subtle-foreground");
     expect(classes).not.toContain("text-muted-foreground");

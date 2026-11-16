@@ -377,12 +377,13 @@ function TeamRenameDialog({ team }: { readonly team: TeamDetail }) {
           type="button"
           variant="ghost"
           size="icon-sm"
-          // Under the 14px heading (owner, 2026-11-17): a 14px pencil in the
-          // faint text colour, still a 24px target (WCAG 2.5.8).
-          className="size-6 shrink-0 text-subtle-foreground focus-visible:text-foreground"
+          // Under the 14px heading (owner, 2026-11-17): a 12px pencil in the
+          // faint text colour. The 20px target meets WCAG 2.5.8 by spacing:
+          // nothing else to press sits within 24px of its centre.
+          className="size-5 shrink-0 text-subtle-foreground focus-visible:text-foreground"
           aria-label={t("teams.rename")}
         >
-          <Pencil aria-hidden="true" className="size-3.5" />
+          <Pencil aria-hidden="true" className="size-3" />
         </Button>
       </DialogTrigger>
       <DialogContent>
