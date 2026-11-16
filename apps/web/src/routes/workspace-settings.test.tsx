@@ -241,33 +241,37 @@ describe("워크스페이스 설정", () => {
     expect(input.value).toBe("200");
   });
 
-  test("30일보다 짧으면 서버가 거절하고 그 이유를 보인다", async () => {
-    const { api } = renderAt("/settings/workspace", {
-      "GET /v1/auth/me": () => json(200, me()),
-      [`POST ${RETENTION}`]: () =>
-        apiError(400, "BAD_REQUEST", "Invalid request body"),
-    });
-    const input = await screen.findByLabelText("보존 기간(일)");
-    const user = await setupUser();
-    await user.clear(input);
-    await user.type(input, "29");
-    await user.click(retentionSave());
-    expect((await screen.findByRole("alert")).textContent).toBe(
+  for (const [typed, reason] of [
+    [
+      "29",
       "감사 기록은 30일보다 짧게 보존할 수 없습니다. 30일 이상(최대 3650일)으로 정하세요.",
-    );
-    expect(
-      api.calls.filter((c) => c.method === "POST").map((c) => c.body),
-    ).toEqual([{ audit_retention_days: 29 }]);
-  });
+    ],
+    ["90.5", "보존 기간은 소수 없이 일 단위의 정수로 정하세요."],
+  ] as const)
+    test(`${typed}일은 서버에 보내지 않고 그 이유를 보인다`, async () => {
+      const { api } = renderAt("/settings/workspace", {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`POST ${RETENTION}`]: () =>
+          apiError(400, "BAD_REQUEST", "Invalid request body"),
+      });
+      const input = await screen.findByLabelText("보존 기간(일)");
+      const user = await setupUser();
+      await user.clear(input);
+      await user.type(input, typed);
+      await user.click(retentionSave());
+      expect((await screen.findByRole("alert")).textContent).toBe(reason);
+      expect(api.calls.filter((c) => c.method === "POST")).toEqual([]);
+    });
 
-  test("화면의 최대치는 계약의 최대치와 같다", async () => {
-    const { AUDIT_RETENTION_MAX_DAYS: contract } = await import(
-      "@werft-ai/contracts"
-    );
-    const { AUDIT_RETENTION_MAX_DAYS } = await import(
+  test("화면의 최소·최대치는 계약의 값과 같다", async () => {
+    const contract = await import("@werft-ai/contracts");
+    const { AUDIT_RETENTION_MIN_DAYS, AUDIT_RETENTION_MAX_DAYS } = await import(
       "./workspace-settings.tsx"
     );
-    expect(AUDIT_RETENTION_MAX_DAYS).toBe(contract);
+    expect([AUDIT_RETENTION_MIN_DAYS, AUDIT_RETENTION_MAX_DAYS]).toEqual([
+      contract.AUDIT_RETENTION_MIN_DAYS,
+      contract.AUDIT_RETENTION_MAX_DAYS,
+    ]);
   });
 
   test("에이전트 접근의 고르는 값은 계약의 값과 같다", async () => {

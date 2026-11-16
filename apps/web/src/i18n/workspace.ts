@@ -17,6 +17,8 @@ export const workspaceKo = {
     "감사 기록은 30일보다 짧게 보존할 수 없습니다. 30일 이상(최대 3650일)으로 정하세요.",
   "workspace.retentionCeiling":
     "감사 기록은 최대 {max}일까지 보존할 수 있습니다. {max}일 이하로 정하세요.",
+  "workspace.retentionWhole":
+    "보존 기간은 소수 없이 일 단위의 정수로 정하세요.",
   "workspace.retentionSaved": "감사 기록을 {days}일 보존합니다.",
   "workspace.save": "저장",
   "workspace.guest": "Slack 게스트",
@@ -195,6 +197,7 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
     "Audit records must be kept for at least 30 days. Choose a number from 30 to 3650.",
   "workspace.retentionCeiling":
     "Audit records can be kept for at most {max} days. Choose {max} or fewer.",
+  "workspace.retentionWhole": "Enter the retention as a whole number of days.",
   "workspace.retentionSaved": "Audit records are kept for {days} days.",
   "workspace.save": "Save",
   "workspace.guest": "Slack guests",
@@ -373,6 +376,8 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
     "監査ログは 30 日以上保存する必要があります。30〜3650 の数値を入力してください。",
   "workspace.retentionCeiling":
     "監査ログの保存期間は最長 {max} 日です。{max} 以下の数値を入力してください。",
+  "workspace.retentionWhole":
+    "保存期間は小数を使わず、日数の整数で入力してください。",
   "workspace.retentionSaved": "監査ログを {days} 日間保存します。",
   "workspace.save": "保存",
   "workspace.guest": "Slack ゲスト",

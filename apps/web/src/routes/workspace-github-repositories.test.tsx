@@ -233,6 +233,33 @@ describe("GitHub 연결 › 저장소 시트", () => {
     await waitFor(() => expect(document.activeElement === menu).toBe(true));
   });
 
+  test("서버가 거절할 브랜치 이름은 칸에 이유를 붙이고 보내지 않는다", async () => {
+    const { api } = renderAt(PATH, routes());
+    const { user, sheet } = await openSheet();
+    await user.click(
+      await within(sheet).findByRole("button", { name: "acme/api 메뉴" }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: "기본 브랜치 바꾸기" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "acme/api의 기본 브랜치",
+    });
+    const input = within(dialog).getByLabelText("기본 브랜치");
+    for (const typed of ["feature..x", "-x", "a.lock", "b".repeat(256)]) {
+      await user.clear(input);
+      await user.type(input, typed);
+      await user.click(within(dialog).getByRole("button", { name: "저장" }));
+      expect(
+        await within(dialog).findByText((text) =>
+          text.startsWith("브랜치 이름이 올바르지 않습니다."),
+        ),
+      ).toBeDefined();
+      expect(input.getAttribute("aria-invalid")).toBe("true");
+    }
+    expect(api.calls.filter((call) => call.method !== "GET")).toEqual([]);
+  });
+
   test("같은 역할 App이 여럿이면 정지·확인 못 함이 아닌 첫 설치를 이름으로 읽는다", async () => {
     const twoApps = {
       ...SETTINGS,

@@ -49,6 +49,7 @@ import { Plus } from "lucide-react";
 import { Fragment, useRef, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useHasPermission, useRole } from "../auth/guard.tsx";
+import { LOGIN_DOMAIN_PATTERN, LOGIN_DOMAINS_MAX } from "../auth/limits.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { Action } from "../components/setting-action.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -958,11 +959,23 @@ function ProviderSettings({
         onSubmit={(form) => {
           setDialogError(null);
           const verified = form.get("require_verified_email");
+          const domains = String(form.get("allowed_domains"))
+            .toLowerCase()
+            .split(/[\s,]+/)
+            .filter(Boolean);
+          const wrong = domains.find(
+            (domain) => !LOGIN_DOMAIN_PATTERN.test(domain),
+          );
+          if (wrong !== undefined || domains.length > LOGIN_DOMAINS_MAX) {
+            setDialogError(
+              wrong === undefined
+                ? t("loginProviders.domainsTooMany", { max: LOGIN_DOMAINS_MAX })
+                : t("loginProviders.domainInvalid", { domain: wrong }),
+            );
+            return;
+          }
           change.mutate({
-            allowed_domains: String(form.get("allowed_domains"))
-              .toLowerCase()
-              .split(/[\s,]+/)
-              .filter(Boolean),
+            allowed_domains: domains,
             jit_role: form.get("jit_role") === "member" ? "member" : null,
             // Not in the form of a provider that cannot change it.
             ...(verified === null
@@ -982,7 +995,7 @@ function ProviderSettings({
               defaultValue={provider.allowed_domains.join(", ")}
             />
             <FieldDescription>
-              {t("loginProviders.domainsHint")}
+              {t("loginProviders.domainsHint", { max: LOGIN_DOMAINS_MAX })}
             </FieldDescription>
           </Field>
           <Field>

@@ -637,6 +637,37 @@ describe("로그인 공급자 상세", () => {
     });
   });
 
+  test("a domain the server would refuse, or one too many, is said in the dialog and nothing is sent", async () => {
+    const { api } = renderAt(PAGE, {
+      ...routes([filled()]),
+      [`PATCH ${API}/${ID}`]: () => json(200, { provider: filled() }),
+    });
+    const user = await setupUser();
+    const dialog = await openRules(user);
+    const domains = named(dialog, "allowed_domains") as HTMLInputElement;
+    await user.clear(domains);
+    await user.type(domains, "example.com, @corp.example.org");
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    expect(
+      await within(dialog).findByText(
+        "@corp.example.org은(는) 도메인 이름이 아닙니다. @나 *, 경로 없이 example.com처럼 적으세요.",
+      ),
+    ).toBeDefined();
+    await user.clear(domains);
+    // Pasted, not typed: 51 entries one key at a time take too long.
+    await user.click(domains);
+    await user.paste(
+      Array.from({ length: 51 }, (_, i) => `d${i}.example.com`).join(" "),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    expect(
+      await within(dialog).findByText(
+        "허용 도메인은 50개까지 적을 수 있습니다.",
+      ),
+    ).toBeDefined();
+    expect(writes(api.calls)).toEqual([]);
+  });
+
   test("a form filled before someone else's change is refused, then starts over on what they saved", async () => {
     // Another owner narrows the domains (revision 4) while this form is open.
     let stored = filled({ allowed_domains: ["example.com"] });

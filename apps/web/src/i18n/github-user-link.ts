@@ -25,6 +25,8 @@ export const githubUserLinkKo = {
     "GitHub App 설정 > Client secrets에서 새로 만든 값을 넣습니다. 저장한 뒤에는 다시 보여 주지 않습니다.",
   "githubUserLink.secretInputHint": "GitHub는 만들 때 한 번만 보여 줍니다.",
   "githubUserLink.secretMissing": "client secret을 넣어 주세요.",
+  "githubUserLink.secretFormat":
+    "client secret은 공백 없는 영문·숫자·기호 {min}~{max}자입니다. GitHub에서 복사한 값을 그대로 넣어 주세요.",
   "githubUserLink.save": "저장",
   "githubUserLink.saved": "client secret을 저장했습니다.",
   "githubUserLink.switchTitle": "계정 연결에 쓸 App을 바꿀까요?",
@@ -61,6 +63,8 @@ export const githubUserLinkEn: Record<keyof typeof githubUserLinkKo, string> = {
   "githubUserLink.secretInputHint":
     "GitHub shows it only once, when generated.",
   "githubUserLink.secretMissing": "Enter the client secret.",
+  "githubUserLink.secretFormat":
+    "A client secret is {min} to {max} ASCII letters, digits and symbols with no spaces. Paste the value GitHub showed as it is.",
   "githubUserLink.save": "Save",
   "githubUserLink.saved": "Saved the client secret.",
   "githubUserLink.switchTitle": "Change the App for account linking?",
@@ -96,6 +100,8 @@ export const githubUserLinkJa: Record<keyof typeof githubUserLinkKo, string> = {
     "GitHub App 設定 > Client secrets で新しく作成した値を入力します。保存後は二度と表示しません。",
   "githubUserLink.secretInputHint": "GitHub は作成時に一度だけ表示します。",
   "githubUserLink.secretMissing": "client secret を入力してください。",
+  "githubUserLink.secretFormat":
+    "client secret は空白を含まない {min}〜{max} 文字の英数字・記号です。GitHub に表示された値をそのまま貼り付けてください。",
   "githubUserLink.save": "保存",
   "githubUserLink.saved": "client secret を保存しました。",
   "githubUserLink.switchTitle": "アカウント連携に使う App を変更しますか?",

@@ -172,6 +172,28 @@ describe("이 에이전트로 새 세션", () => {
     expect(api.calls.some((call) => call.method === "POST")).toBe(false);
   });
 
+  test("UTF-8로 32KB를 넘는 메시지는 글자 수가 한도 안이어도 보내지 않고 이유를 보인다", async () => {
+    const server = await released();
+    const { api } = renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      "POST /v1/sessions": created,
+    });
+    const { user, dialog } = await openDialog();
+    const field = within(dialog).getByLabelText(MESSAGE);
+    await user.click(field);
+    // 10,923 three-byte characters: 32,769 bytes.
+    await user.paste("가".repeat(10_923));
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    expect(
+      await within(dialog).findByText(
+        "메시지가 너무 깁니다. 32KB(UTF-8) 이하로 줄이세요. 한글은 한 글자가 3바이트입니다.",
+      ),
+    ).toBeDefined();
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(api.calls.some((call) => call.method === "POST")).toBe(false);
+  });
+
   test("서버가 거절하면 대화상자에 이유를 보이고 입력을 남긴다", async () => {
     const server = await released();
     const { history } = renderAt(DETAIL, {
@@ -573,7 +595,7 @@ describe("이 에이전트로 새 세션", () => {
     const keys = Object.keys(agentsKo).filter((key) =>
       key.startsWith("agent.newSession."),
     ) as (keyof typeof agentsKo)[];
-    expect(keys).toHaveLength(12);
+    expect(keys).toHaveLength(13);
     for (const key of keys) {
       expect(agentsEn[key]?.trim()).toBeTruthy();
       expect(agentsJa[key]?.trim()).toBeTruthy();

@@ -399,6 +399,62 @@ describe("GitHub 연결 › App 목록과 GitHub 링크", () => {
     ).toBeDefined();
   });
 
+  test("App ID가 숫자만이 아니거나 계약의 최대치를 넘으면 칸에 이유를 붙이고 보내지 않는다", async () => {
+    const { api } = renderAt(PATH, routes(settingsWith([githubConnection()])));
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "App 추가" }));
+    await user.click(
+      await screen.findByRole("button", { name: "이미 있는 App 연결" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "이미 있는 App 연결",
+    });
+    const id = within(dialog).getByLabelText("App ID");
+    // The App ID is checked before the key, so no key file is needed.
+    for (const [typed, reason] of [
+      ["12.5", "App ID를 숫자로 넣어 주세요."],
+      [
+        "2147483648",
+        "App ID는 2147483647 이하입니다. GitHub App 설정 페이지의 숫자를 확인하세요.",
+      ],
+    ] as const) {
+      await user.clear(id);
+      await user.type(id, typed);
+      await user.click(within(dialog).getByRole("button", { name: "연결" }));
+      expect(await within(dialog).findByText(reason)).toBeDefined();
+      expect(id.getAttribute("aria-invalid")).toBe("true");
+    }
+    expect(api.calls.filter((call) => call.method !== "GET")).toEqual([]);
+  });
+
+  test("client secret이 계약의 형식이 아니면 칸에 이유를 붙이고 보내지 않는다", async () => {
+    const { api } = renderAt(PATH, routes(settingsWith([githubConnection()])));
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", {
+        name: "구성원 GitHub 계정 연결 메뉴",
+      }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: "client secret 바꾸기" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    const input = dialog.querySelector(
+      'input[name="client_secret"]',
+    ) as HTMLInputElement;
+    const reason =
+      "client secret은 공백 없는 영문·숫자·기호 8~4096자입니다. GitHub에서 복사한 값을 그대로 넣어 주세요.";
+    for (const typed of ["short", "fake value with spaces"]) {
+      await user.clear(input);
+      await user.type(input, typed);
+      await user.click(within(dialog).getByRole("button", { name: "저장" }));
+      expect(await within(dialog).findByText(reason)).toBeDefined();
+      // Kept for a fix, not reset as a sent value is.
+      expect(input.value).toBe(typed);
+    }
+    expect(api.calls.filter((call) => call.method !== "GET")).toEqual([]);
+  });
+
   test("App마다 역할 배지가 붙고 역할별 구획은 없다", async () => {
     renderAt(PATH, routes(settingsWith([githubConnection(), reviewer])));
     const table = await screen.findByRole("table", {

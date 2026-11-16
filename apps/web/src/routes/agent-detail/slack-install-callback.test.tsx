@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { components } from "@werft-ai/client";
+import { completeSlackInstallRequestSchema } from "@werft-ai/contracts";
 import { AGENT_ID, agentServer } from "../../test-support/fake-agents.ts";
 import { apiError, json, me } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
+import { slackCallbackValid } from "./slack-install-callback.tsx";
 
 const { renderAt, screen, waitFor } = await appHarness();
 const CALLBACK = `/agents/${AGENT_ID}/slack/callback?state=state1&error=access_denied`;
@@ -191,5 +193,48 @@ describe("Slack install callback", () => {
     );
     finish();
     await screen.findByText(/Slack에서 설치를 허용하지 않았습니다/);
+  });
+
+  for (const search of [
+    "state=state1&code=abc&error=access_denied",
+    "state=state1",
+    "code=abc",
+    "state=state%201&code=abc",
+  ])
+    test(`a redirect the server would refuse (${search}) says to start again and sends nothing`, async () => {
+      const { api } = renderAt(`/agents/${AGENT_ID}/slack/callback?${search}`, {
+        "GET /v1/auth/me": () => json(200, me()),
+        "POST /v1/slack/install/complete": () => json(200, completed()),
+      });
+      await screen.findByText(
+        "설치 링크가 만료됐거나 이미 사용됐습니다. Slack 탭에서 다시 설치하세요.",
+      );
+      expect(
+        screen.getByRole("link", { name: "Slack 앱" }).getAttribute("href"),
+      ).toBe(`/agents/${AGENT_ID}?tab=slack`);
+      expect(api.calls.filter((call) => call.method === "POST")).toEqual([]);
+    });
+
+  test("the redirect check takes what the contract takes", () => {
+    for (const search of [
+      { state: "s-1_A", code: "a.b-c_1", error: undefined },
+      { state: "s", code: undefined, error: "access_denied" },
+      { state: "", code: "a", error: undefined },
+      { state: "s", code: undefined, error: undefined },
+      { state: "s", code: "a", error: "access_denied" },
+      { state: "s", code: "a b", error: undefined },
+      { state: "s", code: undefined, error: "Denied" },
+      { state: "s".repeat(513), code: "a", error: undefined },
+      { state: "s", code: "c".repeat(2049), error: undefined },
+      { state: "s", code: undefined, error: "e".repeat(65) },
+    ])
+      expect(slackCallbackValid(search)).toBe(
+        completeSlackInstallRequestSchema.safeParse({
+          agent_id: AGENT_ID,
+          state: search.state,
+          ...(search.code === undefined ? {} : { code: search.code }),
+          ...(search.error === undefined ? {} : { error: search.error }),
+        }).success,
+      );
   });
 });
