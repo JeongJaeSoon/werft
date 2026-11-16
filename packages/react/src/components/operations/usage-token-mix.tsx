@@ -53,7 +53,6 @@ export function UsageTokenMix({
         <GridTable
           aria-label={messages.title}
           columns="96px minmax(0,1fr) 80px 56px"
-          align={["start", "start", "end", "end"]}
         >
           {KINDS.map(([kind, column]) => {
             const label = messages[kind];

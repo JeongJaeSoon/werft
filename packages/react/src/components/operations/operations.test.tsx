@@ -107,14 +107,14 @@ describe("ToolTable", () => {
     );
   });
 
-  test("숫자 열은 머리글과 셀이 함께 끝에 붙고, 이름 열은 함께 시작에 붙는다", () => {
+  test("숫자 열도 머리글과 셀이 모두 시작에 붙는다", () => {
     const { getAllByRole } = withPlatform(
       <ToolTable tools={TOOLS} label="도구" />,
     );
     const ends = (element: Element) =>
-      element.className.includes("justify-end");
+      /\b(justify-end|text-end|text-right)\b/.test(element.className);
     const heads = getAllByRole("columnheader");
-    expect(heads.map(ends)).toEqual([false, true, true, true, true]);
+    expect(heads.map(ends)).toEqual([false, false, false, false, false]);
     const cells = getAllByRole("row")[1]?.querySelectorAll("[role=cell]");
     expect([...(cells ?? [])].map(ends)).toEqual(heads.map(ends));
   });

@@ -81,13 +81,12 @@ const NarrowContext = createContext<
 /**
  * Where a column's header and cells sit, set once per column on the table so
  * the two cannot disagree:
- * - "start": text, names, roles, dates and states.
- * - "end": numbers compared down the column (counts, costs, times, sizes),
- *   and a switch whose header names the setting it turns on.
+ * - "start": every column with a visible header, numbers and switches
+ *   included, so header and cells all read from the left.
  * - "action": the row's controls, at the end; the header is read by screen
  *   readers only.
  */
-export type GridTableColumnAlign = "start" | "end" | "action";
+export type GridTableColumnAlign = "start" | "action";
 
 const AlignContext = createContext<readonly GridTableColumnAlign[]>([]);
 const ColumnContext = createContext<number | undefined>(undefined);
@@ -323,7 +322,7 @@ function cellClasses(
   return cn(
     "flex min-w-0 items-center gap-2",
     // justify-end places the boxes; text-end the lines of text that wraps.
-    align !== "start" && cn("justify-end text-end", narrow?.start),
+    align === "action" && cn("justify-end text-end", narrow?.start),
     hideNarrow && narrow?.hide,
   );
 }

@@ -135,7 +135,7 @@ describe("GridTable", () => {
         narrowAt={640}
         narrowCards={true}
         framed={true}
-        align={["start", "start", "end"]}
+        align={["start", "start", "action"]}
       >
         <GridTableHeader>
           <GridTableColumnHeader>이름</GridTableColumnHeader>
@@ -402,7 +402,7 @@ describe("GridTable column alignment", () => {
         align={[
           "start",
           ...(roles ? (["start"] as const) : []),
-          "end",
+          "start",
           "action",
         ]}
       >
@@ -430,16 +430,17 @@ describe("GridTable column alignment", () => {
   }
 
   const ends = (element: Element) =>
-    element.classList.contains("justify-end") &&
-    element.classList.contains("text-end");
+    ["justify-end", "text-end", "text-right"].some((name) =>
+      element.classList.contains(name),
+    );
 
   for (const roles of [true, false]) {
     test(`머리글과 셀은 열마다 같은 쪽에 붙는다 (역할 열 ${roles ? "있음" : "없음"})`, () => {
       const { getAllByRole } = render(<Members roles={roles} />);
       const headers = getAllByRole("columnheader");
       const want = roles
-        ? ["start", "start", "end", "action"]
-        : ["start", "end", "action"];
+        ? ["start", "start", "start", "action"]
+        : ["start", "start", "action"];
       expect(headers.map((header) => header.dataset.align)).toEqual(want);
       for (const row of getAllByRole("row").slice(1)) {
         const cells = [...row.querySelectorAll<HTMLElement>("[role=cell]")];
@@ -473,7 +474,7 @@ describe("GridTable column alignment", () => {
         <GridTable
           aria-label="구성원"
           columns="1fr 1fr 1fr"
-          align={["start", ...(roles ? (["start"] as const) : []), "end"]}
+          align={["start", ...(roles ? (["start"] as const) : []), "action"]}
         >
           <GridTableRow>
             <Fragment key="a">
@@ -486,13 +487,13 @@ describe("GridTable column alignment", () => {
       );
       const { getAllByRole, rerender } = render(table(false));
       const [name, count] = getAllByRole("cell") as HTMLElement[];
-      expect(count?.dataset.align).toBe("end");
+      expect(count?.dataset.align).toBe("action");
       rerender(table(true));
       const cells = getAllByRole("cell") as HTMLElement[];
       expect(cells.map((cell) => cell.dataset.align)).toEqual([
         "start",
         "start",
-        "end",
+        "action",
       ]);
       expect(cells[0] === name).toBe(true);
       expect(cells[2] === count).toBe(true);

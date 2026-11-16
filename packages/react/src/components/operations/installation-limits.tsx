@@ -253,7 +253,6 @@ export function InstallationLimits({
             columns="minmax(0,1fr) 128px 112px minmax(0,1.6fr)"
             narrowAt={480}
             narrowColumns="minmax(0,1fr) 112px 80px"
-            align={["start", "end", "end", "start"]}
           >
             <GridTableHeader>
               <GridTableColumnHeader>{messages.item}</GridTableColumnHeader>

@@ -1113,7 +1113,7 @@ function Installations({
         narrowColumns={canManage ? MANAGER_NARROW : MEMBER_NARROW}
         align={
           canManage
-            ? ["start", "start", "end", "start", "start", "start", "action"]
+            ? ["start", "start", "start", "start", "start", "start", "action"]
             : undefined
         }
         framed

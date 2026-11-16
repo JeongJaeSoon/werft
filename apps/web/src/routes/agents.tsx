@@ -369,7 +369,6 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
     <GridTable
       aria-label={t("agents.title")}
       columns={COLUMNS}
-      align={ALIGN}
       narrowAt={640}
       narrowCards={true}
       framed={true}
@@ -427,11 +426,10 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
 // Name | engine | state | channels | running sessions; at 640px of table width
 // or less, one card per agent. The other tracks' floors, gaps and padding take
 // 520px, so a narrower breakpoint would leave the name no room. Past those
-// floors the width is shared, the name taking two parts, so the text columns
-// spread across a wide table; the running count sits at the end like numbers.
+// floors the width is shared, the name taking two parts, so the last column
+// does not end up against the right edge of a wide table.
 const COLUMNS =
   "minmax(0,2fr) minmax(96px,1fr) minmax(104px,1fr) minmax(104px,1fr) minmax(120px,1fr)";
-const ALIGN = ["start", "start", "start", "start", "end"] as const;
 
 /**
  * A blank card, made in steps.

@@ -269,13 +269,6 @@ describe("에이전트 목록", () => {
       ["연결 채널", null],
       ["실행 중인 세션", null],
     ]);
-    // Text columns start; the running count ends, header and cells alike.
-    for (const row of within(table).getAllByRole("row"))
-      expect(
-        [...row.querySelectorAll("[role=columnheader], [role=cell]")].map(
-          (cell) => cell.className.includes("justify-end"),
-        ),
-      ).toEqual([false, false, false, false, true]);
     const cellsOf = async (name: string) =>
       within(
         (await within(table).findByRole("link", { name })).closest(
@@ -283,6 +276,21 @@ describe("에이전트 목록", () => {
         ) as HTMLElement,
       ).getAllByRole("cell");
     const [, engine, , channels, running] = await cellsOf("결제 담당");
+    // Every column starts, the running count included, header and cells alike.
+    const rows = within(table).getAllByRole("row");
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows)
+      expect(
+        [
+          ...row.querySelectorAll<HTMLElement>(
+            "[role=columnheader], [role=cell]",
+          ),
+        ].map(
+          (cell) =>
+            cell.dataset.align === "start" &&
+            !/\b(justify-end|text-end|text-right)\b/.test(cell.className),
+        ),
+      ).toEqual([true, true, true, true, true]);
     // On a card each value follows its column's name, hidden from screen
     // readers, which have the column header.
     expect(

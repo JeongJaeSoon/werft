@@ -74,9 +74,6 @@ export function UsageCostTable({
         columns={
           tokens ? "minmax(0,1fr) 56px 80px 96px" : "minmax(0,1fr) 64px 96px"
         }
-        align={
-          tokens ? ["start", "end", "end", "end"] : ["start", "end", "end"]
-        }
       >
         <GridTableHeader className={cn(tokens && NARROW_ROW)}>
           <GridTableColumnHeader>{head}</GridTableColumnHeader>

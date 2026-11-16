@@ -208,7 +208,7 @@ function TeamTable({
         columns: TEAM_COLUMNS,
         narrowColumns: TEAM_NARROW_COLUMNS,
         narrowAt: 640,
-        align: ["start", "end"],
+        align: ["start", "start"],
         headers: (
           <>
             <GridTableColumnHeader>
@@ -240,7 +240,7 @@ function TeamTable({
             </Text>
             <ChevronRight
               aria-hidden="true"
-              className="size-4 shrink-0 text-subtle-foreground"
+              className="ml-auto size-4 shrink-0 text-subtle-foreground"
             />
           </GridTableCell>
         </GridTableRow>
