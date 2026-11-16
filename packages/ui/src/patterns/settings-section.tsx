@@ -46,8 +46,8 @@ export interface SettingsSectionProps {
 }
 
 /**
- * A settings page's block: a title ruled off from its body, an optional
- * description, then the body, a joined list of SettingRows and a foot.
+ * A settings page's block: a title and an optional description with no rule
+ * under them, then the body, a joined list of SettingRows and a foot.
  */
 export function SettingsSection({
   id,
@@ -101,7 +101,7 @@ export function SettingsSection({
         className,
       )}
     >
-      <div className="flex flex-col gap-1 border-b pb-2">
+      <div className="flex flex-col gap-1">
         {/* Wraps so a wide action (a select, several buttons) drops under the
             title at 390px instead of pushing the page sideways. */}
         <div className="flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-2">
@@ -123,7 +123,7 @@ export function SettingsSection({
           ) : null}
         </div>
         {description ? (
-          // The rule above runs to the page's edge; the text keeps to a
+          // The title row runs to the page's edge; the text keeps to a
           // reading line.
           <div
             id={descriptionId}
