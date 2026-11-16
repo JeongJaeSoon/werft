@@ -505,17 +505,25 @@ export function createPostgresLoginProviderAdminStore(
         const workspaceId = await secretOwnerWorkspace(tx);
         if (workspaceId === null) return { outcome: "no_workspace" as const };
         const slot: LoginProviderSecretSlot = row.enabled ? "next" : "current";
-        const inUse = await readSecretInTx(
-          tx,
-          key,
-          slotOf(workspaceId, row.id, "current"),
-        );
+        // A value sealed under another key reads as null: it matches nothing,
+        // so the new value replaces it.
+        const inUse = (
+          await openSecretStamped(
+            tx,
+            key,
+            slotOf(workspaceId, row.id, "current"),
+          )
+        )?.value;
         const waiting = row.enabled
-          ? await readSecretInTx(tx, key, slotOf(workspaceId, row.id, "next"))
+          ? await openSecretStamped(
+              tx,
+              key,
+              slotOf(workspaceId, row.id, "next"),
+            )
           : null;
         // The value this provider already has, or already waits to try, is
         // no change: a pass that vouches for it stands.
-        if (input.value === (waiting ?? inUse)) {
+        if (input.value === (waiting === null ? inUse : waiting.value)) {
           return {
             outcome: "stored" as const,
             provider: await recordOf(tx, row),

@@ -569,6 +569,49 @@ describe("inspect", () => {
     expect(observed.exitCode).toBeUndefined();
   });
 
+  test("a worker whose node lacks the Codex seccomp profile reads as dead, naming the profile and the installer", async () => {
+    const { api, backend } = setup();
+    const { intent } = intentFor();
+    await backend.ensureExecution(intent);
+    const pod = api.objects.get(`${NS}/pods/${podName}`);
+    if (pod === undefined) throw new Error("the worker Pod was not created");
+    (pod.spec as { nodeName?: string }).nodeName = "node-7";
+    const waiting = (reason: string, message: string) => ({
+      containerStatuses: [
+        { name: "worker", state: { waiting: { message, reason } } },
+      ],
+    });
+    api.setPhase(
+      NS,
+      podName,
+      "Pending",
+      waiting(
+        "CreateContainerError",
+        'failed to generate seccomp spec opts: cannot load seccomp profile "/var/lib/kubelet/seccomp/werft/codex-sandbox.json": open /var/lib/kubelet/seccomp/werft/codex-sandbox.json: no such file or directory',
+      ),
+    );
+    const observed = await backend.inspect(intent);
+    expect(observed.state).toBe("terminated");
+    expect(observed.exitCode).toBeUndefined();
+    expect(observed.terminationReason).toStartWith(
+      "CreateContainerError: node node-7 has no Codex sandbox seccomp profile (<kubelet>/seccomp/werft/codex-sandbox.json), which the chart's codex-seccomp installer DaemonSet writes",
+    );
+    expect(observed.terminationReason).toContain("cannot load seccomp profile");
+    expect(logReads(api)).toEqual([]);
+
+    // Any other wait is the kubelet's to retry, as before.
+    for (const [reason, message] of [
+      ["CreateContainerError", "failed to reserve container name"],
+      ["CreateContainerConfigError", 'secret "nonce" not found'],
+      ["ContainerCreating", ""],
+    ] as const) {
+      api.setPhase(NS, podName, "Pending", waiting(reason, message));
+      const pending = await backend.inspect(intent);
+      expect(pending.state).toBe("pending");
+      expect(pending.terminationReason).toBeUndefined();
+    }
+  });
+
   test("a worker that succeeded reports its reason and has no log read", async () => {
     const { api, backend } = setup();
     const { intent } = intentFor();

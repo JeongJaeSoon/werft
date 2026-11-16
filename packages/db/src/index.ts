@@ -20,7 +20,6 @@ export * from "./control-unit-of-work.ts";
 export * from "./decision/pending-control.ts";
 export { createPostgresPendingRequests } from "./decision/pending-requests.ts";
 export { publicStatus } from "./decision/pending-status.ts";
-export * from "./engine-settings-store.ts";
 export * from "./extensions/extension-bundles.ts";
 export * from "./github/github-app-manifest-states.ts";
 export * from "./github/github-apps.ts";

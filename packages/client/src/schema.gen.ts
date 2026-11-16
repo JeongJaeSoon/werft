@@ -647,7 +647,7 @@ export interface paths {
         };
         /**
          * The workspace's GitHub ceiling (members)
-         * @description What the workspace lets its agents turn on beyond writing a pull request: `workflows`, `actions`, `checks`, `issues`, `review`, all false until an owner or admin saves the ceiling (`revision` 0 until then). `merge` is the ceiling's alone, no agent or release holds it: it lets the workspace's agents squash-merge the pull request their own session opened, it reads false when a stored ceiling lacks it, and GitHub's branch protection and required checks still apply. An agent's release may turn a feature on only under the ceiling, and every GitHub token is cut to the ceiling again when it is issued. `agents_using` counts, per feature, agents with GitHub on whose active release turns it on; sessions still running an earlier release are not counted. `connections` lists every registered App (author ones first; a role may have several) with its `name`, `app_id`, the `owner` account GitHub names, the `permissions` it asks for, `key_status`, and where it is installed: each installation's `account`, `account_type` and `status` (`suspended`, `approval_pending` when the account has not approved every permission the App asks for, `unknown` before the App's permissions were read or when the list could not be read now, else `active`). Installations are read from GitHub with each App's own key on every request, so one App failing does not hide another's: its `check` is `failed` with `reason_code` (`github_unavailable` or `github_app_auth_failed`), its `installations` is the last list read for that App with each `status` `unknown` (empty when none was ever read), and `installations_read_at` says when that list was read (null when never). An installation's `detail` (connection, account id, approved permissions, `approval`, `repository_count` for the first 20 when read now, `repository_selection`, its settings page, `created_at`, `suspended_at`, and `connected`: who finished installing it from the console and when, null when not recorded) is given to owners and admins only; a member reads null. `apps` has each role's App permissions as last read from GitHub; it reads null for a role with several Apps, so read `connections`. Any member signed in to the console reads it; API keys are refused.
+         * @description What the workspace lets its agents turn on beyond writing a pull request: `workflows`, `actions`, `checks`, `issues`, `review`, all false until an owner or admin saves the ceiling (`revision` 0 until then). `merge` is the ceiling's alone, no agent or release holds it: it lets the workspace's agents squash-merge the pull request their own session opened, it reads false when a stored ceiling lacks it, and GitHub's branch protection and required checks still apply. An agent's release may turn a feature on only under the ceiling, and every GitHub token is cut to the ceiling again when it is issued. `agents_using` counts, per feature, agents with GitHub on whose active release turns it on; sessions still running an earlier release are not counted. `connections` lists every registered App (author ones first; a role may have several) with its `name`, `app_id`, the `owner` account GitHub names, the `permissions` it asks for, `key_status`, and where it is installed: each installation's `account`, `account_type` and `status` (`suspended`, `approval_pending` when the account has not approved every permission the App asks for, `unknown` before the App's permissions were read or when the list could not be read now, else `active`). Installations are read from GitHub with each App's own key on every request, so one App failing does not hide another's: its `check` is `failed` with `reason_code` (`github_unavailable` or `github_app_auth_failed`), its `installations` is the last list read for that App with each `status` `unknown` (empty when none was ever read), and `installations_read_at` says when that list was read (null when never). An App whose stored key this server cannot open (sealed under another master key) is still listed and GitHub is not asked: `key_status` `unknown`, `check` `failed` with `github_app_auth_failed`, until its key is put again. An installation's `detail` (connection, account id, approved permissions, `approval`, `repository_count` for the first 20 when read now, `repository_selection`, its settings page, `created_at`, `suspended_at`, and `connected`: who finished installing it from the console and when, null when not recorded) is given to owners and admins only; a member reads null. `apps` has each role's App permissions as last read from GitHub; it reads null for a role with several Apps, so read `connections`. Any member signed in to the console reads it; API keys are refused.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -2212,7 +2212,7 @@ export interface paths {
         put?: never;
         /**
          * Invite a person to the workspace
-         * @description The token is returned once and expires in seven days; only its sha256 is stored. Inviting an address that already has a live invite revokes that invite. An address that is already a live member answers 400. Every invite writes an `invite_member` receipt.
+         * @description The token is returned once and expires in seven days; only its sha256 is stored. Addresses are compared trimmed and lower-cased. Inviting an address that already has a live invite revokes that invite. An address whose membership in the workspace is on, even while its account is suspended, answers 409 ALREADY_EXISTS; a member whose membership is disabled may be invited again, and accepting turns the membership back on. Every invite writes an `invite_member` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3399,7 +3399,7 @@ export interface paths {
         get: operations["getAgentMcpSettings"];
         /**
          * Save the agent's MCP settings
-         * @description Replaces the agent's whole settings row in one transaction and makes no release: a new session reads it at once, a change that narrows reaches running sessions too, and a change that widens only sessions that start after it. `expected_revision` is `settings_revision` as read (null when there was no row); another value answers 409 `REVISION_CONFLICT`. `updated_by` is always the caller, so the first person's save of an agent also fixes the rollback floor at the snapshot-reading image. A server the save adds must be in the catalog (400 `server_unknown`; `server_builtin` for the built-in one); every `allowed_tools` name must be `mcp__<server>__<tool>` of the chosen server (`tool_outside_server`; the name has no spaces or control characters and is at most 128 characters), a tool the save adds that the workspace's or the agent's rules block is refused (`mcp_tool_denied`; a tool the row already holds can still be narrowed away), with no server there are none (`server_required`), and the server's credential name must be in `credential_refs` (`server_credential_missing`). A repeated tool or credential name is refused (`duplicate`). Binding the credentials is not required to save. Writes a `set_agent_mcp` receipt with `result.change = "settings"` and the names before and after; `receipt_id` is null when a person's row already held them. Agent managers with a web session only; API keys are refused.
+         * @description Replaces the agent's whole settings row in one transaction and makes no release: a new session reads it at once, a change that narrows reaches running sessions too, and a change that widens only sessions that start after it. `expected_revision` is `settings_revision` as read (null when there was no row); another value answers 409 `REVISION_CONFLICT`. `updated_by` is always the caller, so the first person's save of an agent also fixes the rollback floor at the snapshot-reading image. A server the save adds must be in the catalog (400 `server_unknown`; `server_builtin` for the built-in one); every `allowed_tools` name must be `mcp__<server>__<tool>` of the chosen server (`tool_outside_server`; the name has no spaces or control characters and is at most 128 characters), a tool the save adds that the agent's release blocks is refused (`mcp_tool_denied`; a tool the row already holds can still be narrowed away), with no server there are none (`server_required`), and the server's credential name must be in `credential_refs` (`server_credential_missing`). A repeated tool or credential name is refused (`duplicate`). Binding the credentials is not required to save. Writes a `set_agent_mcp` receipt with `result.change = "settings"` and the names before and after; `receipt_id` is null when a person's row already held them. Agent managers with a web session only; API keys are refused.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3432,62 +3432,6 @@ export interface paths {
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         put: operations["putAgentWorkspaceMcpServers"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/workspaces/{id}/engine-settings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The workspace's saved engine rules
-         * @description The rules every agent of the workspace runs under: `settings.permissions` (`allow`, `ask`, `deny`: tool rules in the engine's spelling) and `settings.auto_mode` (`allow`, `soft_deny`, `hard_deny`, `environment`: sentences the auto-mode classifier reads). A list that is absent holds nothing. `settings_revision` is null while nothing is saved. Any member of the workspace reads it, with a console session or with that member's personal API key; an agent's key and the operator key read nothing here.
-         *
-         *     **Scope:** `sessions:read` (API key or cookie session).
-         */
-        get: operations["getWorkspaceEngineSettings"];
-        /**
-         * Save the workspace's engine rules
-         * @description Replaces the whole rule set in one transaction. `expected_revision` is `settings_revision` as read (null when nothing was saved); another value answers 409 `REVISION_CONFLICT`. The rules are checked against every installed tool catalog before anything is locked: a rule the engine would drop without a word is 400 with the parser's `reason_code` (`unknown_tool`, `too_many_rules`, `settings_too_large`, `mcp_rule_verdict`, ...), and `engine_settings_catalog_ambiguous` when two catalogs would store a rule differently. Restrictions (`deny`, `ask`, `soft_deny`, `hard_deny`) add to every agent's own; grants (`allow`, `environment`) reach an agent only where the agent's own list holds the same entry. Writes a `set_workspace_engine_settings` receipt with the rule counts and sizes before and after, never a rule's text; `receipt_id` is null when the workspace already held these rules. Workspace owners and admins with a web session only; API keys are refused.
-         *
-         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
-         */
-        put: operations["putWorkspaceEngineSettings"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{id}/engine-settings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The agent's saved engine rules next to the workspace's
-         * @description `settings` are the agent's own rules and `settings_revision` guards them (null while none are saved). `workspace` repeats the workspace's rules, which also apply, read only here. `reach` says what the allow lists do together: `agent_allow_without_effect` names the agent's `allow`/`environment` entries the workspace does not share, which do nothing because a grant needs both sides, and `workspace_allow_inactive` is true when the workspace allows something the agent's own list leaves empty. Whoever manages the agent reads it, and so do the live members of its managing team, with a console session or with their personal API key; an agent's own key does not.
-         *
-         *     **Scope:** `sessions:read` (API key or cookie session).
-         */
-        get: operations["getAgentEngineSettings"];
-        /**
-         * Save the agent's engine rules
-         * @description Replaces the agent's own rule set in one transaction and makes no release: a session that starts afterwards reads it, and a session already running keeps the rules it started with unless a later save only narrows them. `expected_revision` and the checks are those of the workspace's save (409 `REVISION_CONFLICT`; 400 with the parser's `reason_code` or `engine_settings_catalog_ambiguous`). Writes a `set_agent_engine_settings` receipt with the rule counts and sizes before and after, never a rule's text; `receipt_id` is null when the agent already held these rules. Agent managers with a web session only; API keys are refused.
-         *
-         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
-         */
-        put: operations["putAgentEngineSettings"];
         post?: never;
         delete?: never;
         options?: never;
@@ -4933,7 +4877,7 @@ export interface components {
                 enable?: string[];
                 disable?: string[];
             };
-            /** @description At most 32768 bytes of UTF-8 */
+            /** @description At most 32768 bytes of UTF-8, not whitespace alone */
             message: string;
             agent_release_id: string;
             /** @description One of the models the release's connection offers. Omitted, the model of the agent release's card. */
@@ -5097,7 +5041,7 @@ export interface components {
             cursor?: string;
         };
         PostSessionMessageRequest: {
-            /** @description At most 32768 bytes of UTF-8 */
+            /** @description At most 32768 bytes of UTF-8, not whitespace alone */
             message: string;
             /**
              * @default enqueue
@@ -5127,6 +5071,7 @@ export interface components {
             request_id: string;
             /** @constant */
             kind: "permission";
+            /** @description At most 8192 bytes of UTF-8, not whitespace alone */
             reason?: string;
             /** @constant */
             remember?: "session";
@@ -5139,6 +5084,7 @@ export interface components {
             answers: {
                 question_id: string;
                 selected_option_ids: string[];
+                /** @description At most 8192 bytes of UTF-8, not whitespace alone */
                 free_text?: string;
             }[];
         };
@@ -5356,22 +5302,6 @@ export interface components {
                 server: string | null;
                 allowed_tools: string[];
                 credential_refs: string[];
-            };
-        };
-        PutEngineSettingsRequest: {
-            expected_revision: number | null;
-            settings: {
-                permissions: {
-                    allow?: string[];
-                    ask?: string[];
-                    deny?: string[];
-                };
-                auto_mode: {
-                    allow?: string[];
-                    soft_deny?: string[];
-                    hard_deny?: string[];
-                    environment?: string[];
-                };
             };
         };
         BootstrapRequest: {
@@ -7755,66 +7685,6 @@ export interface components {
             available_servers?: string[];
         };
         PutAgentMcpSettingsResponse: {
-            settings_revision: number;
-            receipt_id: string | null;
-        };
-        WorkspaceEngineSettingsResponse: {
-            settings: {
-                permissions: {
-                    allow?: string[];
-                    ask?: string[];
-                    deny?: string[];
-                };
-                auto_mode: {
-                    allow?: string[];
-                    soft_deny?: string[];
-                    hard_deny?: string[];
-                    environment?: string[];
-                };
-            };
-            settings_revision: number | null;
-        };
-        AgentEngineSettingsResponse: {
-            settings: {
-                permissions: {
-                    allow?: string[];
-                    ask?: string[];
-                    deny?: string[];
-                };
-                auto_mode: {
-                    allow?: string[];
-                    soft_deny?: string[];
-                    hard_deny?: string[];
-                    environment?: string[];
-                };
-            };
-            settings_revision: number | null;
-            workspace: {
-                settings: {
-                    permissions: {
-                        allow?: string[];
-                        ask?: string[];
-                        deny?: string[];
-                    };
-                    auto_mode: {
-                        allow?: string[];
-                        soft_deny?: string[];
-                        hard_deny?: string[];
-                        environment?: string[];
-                    };
-                };
-                settings_revision: number | null;
-            };
-            reach: {
-                agent_allow_without_effect: {
-                    permissions: string[];
-                    auto_mode_allow: string[];
-                    auto_mode_environment: string[];
-                };
-                workspace_allow_inactive: boolean;
-            };
-        };
-        PutEngineSettingsResponse: {
             settings_revision: number;
             receipt_id: string | null;
         };
@@ -27272,6 +27142,21 @@ export interface operations {
                     };
                 };
             };
+            /** @description - `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique. The address belongs to a member of the workspace; `details` is `{ field: "email", reason_code: "already_member" }`. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "ALREADY_EXISTS";
+                        };
+                    };
+                };
+            };
             /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
             413: {
                 headers: {
@@ -36112,567 +35997,6 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "REQUEST_TIMEOUT";
-                        };
-                    };
-                };
-            };
-            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
-            413: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "PAYLOAD_TOO_LARGE";
-                        };
-                    };
-                };
-            };
-            500: components["responses"]["InternalError"];
-            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
-            503: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    "Retry-After": components["headers"]["RetryAfter"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "BACKEND_UNAVAILABLE";
-                        };
-                    };
-                };
-            };
-        };
-    };
-    getWorkspaceEngineSettings: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The workspace's id. */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The rules and the revision that guards them. */
-            200: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "settings": {
-                     *         "permissions": {
-                     *           "deny": [
-                     *             "Bash(rm:*)"
-                     *           ]
-                     *         },
-                     *         "auto_mode": {}
-                     *       },
-                     *       "settings_revision": 2
-                     *     }
-                     */
-                    "application/json": components["schemas"]["WorkspaceEngineSettingsResponse"];
-                };
-            };
-            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
-            401: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "UNAUTHORIZED";
-                        };
-                    };
-                };
-            };
-            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
-            403: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "FORBIDDEN";
-                        };
-                    };
-                };
-            };
-            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
-            404: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "NOT_FOUND";
-                        };
-                    };
-                };
-            };
-            500: components["responses"]["InternalError"];
-            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
-            503: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    "Retry-After": components["headers"]["RetryAfter"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "BACKEND_UNAVAILABLE";
-                        };
-                    };
-                };
-            };
-        };
-    };
-    putWorkspaceEngineSettings: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Required with a cookie session: the literal `werft-web`. */
-                "X-Requested-With"?: "werft-web";
-            };
-            path: {
-                /** @description The workspace's id. */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                /**
-                 * @example {
-                 *       "expected_revision": 2,
-                 *       "settings": {
-                 *         "permissions": {
-                 *           "deny": [
-                 *             "Bash(rm:*)"
-                 *           ]
-                 *         },
-                 *         "auto_mode": {}
-                 *       }
-                 *     }
-                 */
-                "application/json": components["schemas"]["PutEngineSettingsRequest"];
-            };
-        };
-        responses: {
-            /** @description Saved. */
-            200: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "settings_revision": 3,
-                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
-                     *     }
-                     */
-                    "application/json": components["schemas"]["PutEngineSettingsResponse"];
-                };
-            };
-            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
-            400: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "BAD_REQUEST";
-                        };
-                    };
-                };
-            };
-            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
-            401: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "UNAUTHORIZED";
-                        };
-                    };
-                };
-            };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
-            403: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "FORBIDDEN";
-                        };
-                    };
-                };
-            };
-            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
-            404: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "NOT_FOUND";
-                        };
-                    };
-                };
-            };
-            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
-            408: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "REQUEST_TIMEOUT";
-                        };
-                    };
-                };
-            };
-            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
-            409: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "REVISION_CONFLICT";
-                        };
-                    };
-                };
-            };
-            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
-            413: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "PAYLOAD_TOO_LARGE";
-                        };
-                    };
-                };
-            };
-            500: components["responses"]["InternalError"];
-            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
-            503: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    "Retry-After": components["headers"]["RetryAfter"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "BACKEND_UNAVAILABLE";
-                        };
-                    };
-                };
-            };
-        };
-    };
-    getAgentEngineSettings: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The agent's id. */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The agent's rules, the workspace's and how they combine. */
-            200: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "settings": {
-                     *         "permissions": {
-                     *           "ask": [
-                     *             "WebFetch"
-                     *           ]
-                     *         },
-                     *         "auto_mode": {}
-                     *       },
-                     *       "settings_revision": 1,
-                     *       "workspace": {
-                     *         "settings": {
-                     *           "permissions": {
-                     *             "deny": [
-                     *               "Bash(rm:*)"
-                     *             ]
-                     *           },
-                     *           "auto_mode": {}
-                     *         },
-                     *         "settings_revision": 2
-                     *       },
-                     *       "reach": {
-                     *         "agent_allow_without_effect": {
-                     *           "permissions": [],
-                     *           "auto_mode_allow": [],
-                     *           "auto_mode_environment": []
-                     *         },
-                     *         "workspace_allow_inactive": false
-                     *       }
-                     *     }
-                     */
-                    "application/json": components["schemas"]["AgentEngineSettingsResponse"];
-                };
-            };
-            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
-            401: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "UNAUTHORIZED";
-                        };
-                    };
-                };
-            };
-            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
-            403: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "FORBIDDEN";
-                        };
-                    };
-                };
-            };
-            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
-            404: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "NOT_FOUND";
-                        };
-                    };
-                };
-            };
-            500: components["responses"]["InternalError"];
-            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
-            503: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    "Retry-After": components["headers"]["RetryAfter"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "BACKEND_UNAVAILABLE";
-                        };
-                    };
-                };
-            };
-        };
-    };
-    putAgentEngineSettings: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Required with a cookie session: the literal `werft-web`. */
-                "X-Requested-With"?: "werft-web";
-            };
-            path: {
-                /** @description The agent's id. */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                /**
-                 * @example {
-                 *       "expected_revision": 1,
-                 *       "settings": {
-                 *         "permissions": {
-                 *           "ask": [
-                 *             "WebFetch"
-                 *           ]
-                 *         },
-                 *         "auto_mode": {}
-                 *       }
-                 *     }
-                 */
-                "application/json": components["schemas"]["PutEngineSettingsRequest"];
-            };
-        };
-        responses: {
-            /** @description Saved. */
-            200: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "settings_revision": 2,
-                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
-                     *     }
-                     */
-                    "application/json": components["schemas"]["PutEngineSettingsResponse"];
-                };
-            };
-            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
-            400: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "BAD_REQUEST";
-                        };
-                    };
-                };
-            };
-            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
-            401: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "UNAUTHORIZED";
-                        };
-                    };
-                };
-            };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
-            403: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "FORBIDDEN";
-                        };
-                    };
-                };
-            };
-            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
-            404: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "NOT_FOUND";
-                        };
-                    };
-                };
-            };
-            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
-            408: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "REQUEST_TIMEOUT";
-                        };
-                    };
-                };
-            };
-            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
-            409: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "REVISION_CONFLICT";
                         };
                     };
                 };

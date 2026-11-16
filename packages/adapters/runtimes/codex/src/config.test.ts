@@ -6,8 +6,10 @@ import {
   codexHomeOf,
   codexLaunch,
   codexProfileDigest,
+  codexSandboxOf,
   connectionOf,
   modeRunOf,
+  sandboxProbeArgs,
   toml,
 } from "./config.ts";
 
@@ -148,6 +150,7 @@ describe("modes", () => {
     ["acceptEdits", "untrusted", "edits"],
     ["dontAsk", "untrusted", "none"],
     ["bypassPermissions", "never", "none"],
+    ["auto", "on-request", "none"],
   ] as const)(
     "%s runs with %s approval answered by %s",
     (mode, approval, answers) => {
@@ -156,8 +159,61 @@ describe("modes", () => {
     },
   );
 
-  test.each(["plan", "auto"] as const)("%s is refused", (mode) => {
-    expect(() => modeRunOf(mode)).toThrow("does not run in");
+  test("plan is refused", () => {
+    expect(() => modeRunOf("plan")).toThrow("does not run in");
+  });
+});
+
+describe("auto mode sandbox", () => {
+  const PROFILE = "default_permissions=";
+
+  test("is on unless an operator turns it off, and a typo is refused", () => {
+    expect(codexSandboxOf({})).toBe("bubblewrap");
+    expect(codexSandboxOf({ CODEX_SANDBOX: "enabled" })).toBe("bubblewrap");
+    expect(codexSandboxOf({ CODEX_SANDBOX: "disabled" })).toBe("disabled");
+    expect(() => codexSandboxOf({ CODEX_SANDBOX: "off" })).toThrow(
+      "CODEX_SANDBOX must be enabled or disabled",
+    );
+  });
+
+  test("an auto session runs under the Werft permission profile", () => {
+    const launch = codexLaunch(startOf({ permissionMode: "auto" }), DEPS, {});
+    expect(launch.sandbox).toBe("bubblewrap");
+    expect(launch.approvalPolicy).toBe("on-request");
+    expect(launch.args).toContain('default_permissions="werft"');
+    const profile = launch.args.find((a) => a.startsWith("permissions.werft="));
+    expect(profile).toContain('"extends" = ":workspace"');
+    expect(profile).toContain('"enabled" = true');
+    // On every thread request, so a resume does not restore a stored profile.
+    expect(launch.threadConfig.default_permissions).toBe("werft");
+  });
+
+  test("turned off, an auto session gets no profile and is marked to be refused", () => {
+    const launch = codexLaunch(startOf({ permissionMode: "auto" }), DEPS, {
+      CODEX_SANDBOX: "disabled",
+    });
+    expect(launch.sandbox).toBe("disabled");
+    expect(launch.args.join(" ")).not.toContain(PROFILE);
+    expect(launch.threadConfig).not.toHaveProperty("default_permissions");
+  });
+
+  test("other modes are untouched by the setting", () => {
+    for (const host of [
+      {},
+      { CODEX_SANDBOX: "disabled" },
+      { CODEX_SANDBOX: "x" },
+    ]) {
+      const launch = codexLaunch(startOf(), DEPS, host);
+      expect(launch.sandbox).toBeUndefined();
+      expect(launch.args.join(" ")).not.toContain(PROFILE);
+    }
+  });
+
+  test("the probe runs the same profile", () => {
+    const args = sandboxProbeArgs();
+    expect(args[0]).toBe("sandbox");
+    expect(args).toContain('default_permissions="werft"');
+    expect(args.slice(-2)).toEqual(["--", "true"]);
   });
 });
 
@@ -172,7 +228,6 @@ describe("what the engine cannot honor is refused, not dropped", () => {
   test.each([
     ["a turn limit", { maxTurns: 3 }],
     ["deny rules", { disallowedTools: ["exec_command"] }],
-    ["engine permission rules", { engineSettings: {} }],
     ["the tools Read", { tools: ["exec_command", "Read"] }],
     ["a session without exec_command", { tools: [] }],
   ])("%s", (what, change) => {

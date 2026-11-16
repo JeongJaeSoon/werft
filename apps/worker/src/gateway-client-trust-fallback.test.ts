@@ -103,7 +103,6 @@ describe("claim against a control-host older than platform_tool_trust", () => {
       approval_remember: true,
       platform_tool_trust: true,
       permission_rules: true,
-      engine_settings: true,
       user_env: true,
       response_language: true,
       answer_surface: true,
@@ -125,7 +124,6 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         approval_remember: true,
         platform_tool_trust: true,
         permission_rules: true,
-        engine_settings: true,
         user_env: true,
         response_language: true,
         answer_surface: true,
@@ -135,7 +133,6 @@ describe("claim against a control-host older than platform_tool_trust", () => {
       {
         approval_remember: true,
         permission_rules: true,
-        engine_settings: true,
         user_env: true,
         response_language: true,
         answer_surface: true,
@@ -169,7 +166,6 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         approval_remember: true,
         platform_tool_trust: true,
         permission_rules: true,
-        engine_settings: true,
         user_env: true,
         response_language: true,
         answer_surface: true,
@@ -179,7 +175,6 @@ describe("claim against a control-host older than platform_tool_trust", () => {
       {
         approval_remember: true,
         permission_rules: true,
-        engine_settings: true,
         user_env: true,
         response_language: true,
         answer_surface: true,
@@ -189,7 +184,6 @@ describe("claim against a control-host older than platform_tool_trust", () => {
       {
         approval_remember: true,
         permission_rules: true,
-        engine_settings: true,
         user_env: true,
         response_language: true,
         answer_surface: true,
@@ -261,7 +255,6 @@ describe("claim against a control-host older than user_env", () => {
         approval_remember: true,
         platform_tool_trust: true,
         permission_rules: true,
-        engine_settings: true,
         user_env: true,
         response_language: true,
         answer_surface: true,
@@ -272,7 +265,6 @@ describe("claim against a control-host older than user_env", () => {
         approval_remember: true,
         platform_tool_trust: true,
         permission_rules: true,
-        engine_settings: true,
         response_language: true,
         answer_surface: true,
         repository_pins: true,
@@ -293,7 +285,6 @@ describe("claim against a control-host older than user_env", () => {
         approval_remember: true,
         platform_tool_trust: true,
         permission_rules: true,
-        engine_settings: true,
         user_env: true,
         response_language: true,
         answer_surface: true,
@@ -303,7 +294,6 @@ describe("claim against a control-host older than user_env", () => {
       {
         approval_remember: true,
         permission_rules: true,
-        engine_settings: true,
         response_language: true,
         answer_surface: true,
         repository_pins: true,
@@ -342,7 +332,6 @@ describe("claim against a control-host older than user_env", () => {
         approval_remember: true,
         platform_tool_trust: true,
         permission_rules: true,
-        engine_settings: true,
         user_env: true,
         response_language: true,
         answer_surface: true,
@@ -353,7 +342,6 @@ describe("claim against a control-host older than user_env", () => {
         approval_remember: true,
         platform_tool_trust: true,
         permission_rules: true,
-        engine_settings: true,
         response_language: true,
         answer_surface: true,
         repository_pins: true,
@@ -363,7 +351,6 @@ describe("claim against a control-host older than user_env", () => {
         approval_remember: true,
         platform_tool_trust: true,
         permission_rules: true,
-        engine_settings: true,
         response_language: true,
         answer_surface: true,
         repository_pins: true,
@@ -372,7 +359,6 @@ describe("claim against a control-host older than user_env", () => {
       {
         approval_remember: true,
         permission_rules: true,
-        engine_settings: true,
         response_language: true,
         answer_surface: true,
         repository_pins: true,
@@ -393,39 +379,6 @@ describe("claim against a control-host older than user_env", () => {
         approval_remember: true,
         platform_tool_trust: true,
         permission_rules: true,
-        engine_settings: true,
-        user_env: true,
-        response_language: true,
-        answer_surface: true,
-        repository_pins: true,
-        workspace_mcp: true,
-      },
-      {
-        approval_remember: true,
-        platform_tool_trust: true,
-        permission_rules: true,
-        engine_settings: true,
-        user_env: true,
-        answer_surface: true,
-        repository_pins: true,
-        workspace_mcp: true,
-      },
-    ]);
-  });
-
-  test("a control-host that does not know engine_settings is claimed again without it only", async () => {
-    const { gateway, sent } = gatewayAgainst((request) =>
-      lacks(request, "engine_settings")
-        ? json(200, claimAnswer)
-        : badRequest(refusing("engine_settings")),
-    );
-    await gateway.bootstrapClaim(withUserEnv);
-    expect(sent.map((entry) => entry.body.capabilities)).toEqual([
-      {
-        approval_remember: true,
-        platform_tool_trust: true,
-        permission_rules: true,
-        engine_settings: true,
         user_env: true,
         response_language: true,
         answer_surface: true,
@@ -437,7 +390,6 @@ describe("claim against a control-host older than user_env", () => {
         platform_tool_trust: true,
         permission_rules: true,
         user_env: true,
-        response_language: true,
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,

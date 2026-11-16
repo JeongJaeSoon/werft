@@ -478,32 +478,3 @@ export function memberPage(page: {
     ),
   };
 }
-
-const NO_RULES = { permissions: {}, auto_mode: {} };
-
-/** GET /v1/workspaces/{id}/engine-settings: nothing saved. */
-export function workspaceEngineSettings(over: Record<string, unknown> = {}) {
-  return {
-    settings: NO_RULES,
-    settings_revision: null,
-    ...over,
-  };
-}
-
-/** GET /v1/agents/{id}/engine-settings: nothing saved anywhere. */
-export function agentEngineSettings(over: Record<string, unknown> = {}) {
-  return {
-    settings: NO_RULES,
-    settings_revision: null,
-    workspace: { settings: NO_RULES, settings_revision: null },
-    reach: {
-      agent_allow_without_effect: {
-        permissions: [],
-        auto_mode_allow: [],
-        auto_mode_environment: [],
-      },
-      workspace_allow_inactive: false,
-    },
-    ...over,
-  };
-}

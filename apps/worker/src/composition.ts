@@ -274,9 +274,6 @@ export function runtimeStart(
       ...(launch.runtimeConfig.disallowed_tools === undefined
         ? {}
         : { disallowedTools: launch.runtimeConfig.disallowed_tools }),
-      ...(launch.runtimeConfig.engine_settings === undefined
-        ? {}
-        : { engineSettings: launch.runtimeConfig.engine_settings }),
       ...(launch.runtimeConfig.response_language === undefined
         ? {}
         : { responseLanguage: launch.runtimeConfig.response_language }),

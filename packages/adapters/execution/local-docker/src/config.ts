@@ -122,7 +122,19 @@ export type LocalDockerBackendConfig = {
    * was launched with rather than being replaced for it.
    */
   logLevel?: string;
+  /**
+   * Codex `auto` mode's sandbox, from the scheduler's `CODEX_SANDBOX`. While
+   * it is on, a worker from one of `images` (the ones declared as Codex)
+   * starts under the seccomp profile bubblewrap needs; every other keeps
+   * Docker's default. Turned off, every worker is told so and refuses auto
+   * sessions. Absent, as in tests: nothing changes.
+   */
+  codexSandbox?: CodexSandboxSetting;
 };
+
+export type CodexSandboxSetting =
+  | { mode: "enabled"; images: readonly string[] }
+  | { mode: "disabled" };
 
 export type WorkerObjectStoreAccess = {
   bucket: string;

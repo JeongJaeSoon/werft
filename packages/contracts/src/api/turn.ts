@@ -18,6 +18,7 @@ import {
 import { receiptStatusSchema } from "./receipt.ts";
 import {
   attemptStateSchema,
+  messageInputSchema,
   messageTextSchema,
   turnStatusSchema,
 } from "./session.ts";
@@ -26,6 +27,7 @@ export const sessionMessageSchema = z
   .object({ message: messageTextSchema })
   .strict();
 export const postSessionMessageRequestSchema = sessionMessageSchema.extend({
+  message: messageInputSchema,
   mode: z.literal("enqueue").default("enqueue"),
 });
 export const postSessionMessageResponseSchema = z.object({

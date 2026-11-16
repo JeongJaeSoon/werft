@@ -4,6 +4,7 @@ import {
   authMeResponseSchema,
   bootstrapRequestSchema,
   bootstrapResponseSchema,
+  clampDisplayName,
   issuePasswordResetRequestSchema,
   issuePasswordResetResponseSchema,
   LOGIN_FLOW_COOKIE_NAME,
@@ -726,7 +727,7 @@ export function registerPublicAuthRoutes(
         issuer: identity.issuer,
         subject: identity.subject,
         vouchedEmail: admission.ownsEmail ? identity.email : null,
-        name: identity.name?.trim().slice(0, 64) || null,
+        name: clampDisplayName(identity.name ?? "") || null,
         newUserId: randomUUID(),
         newLoginMethodId: randomUUID(),
         receiptId: randomUUID(),
@@ -923,12 +924,11 @@ function displayNameFor(identity: {
   email: string | null;
   subject: string;
 }) {
-  const name = identity.name?.trim().slice(0, 64);
+  const name = clampDisplayName(identity.name ?? "");
   if (name) return name;
   const { email } = identity;
-  return (email ? email.slice(0, email.indexOf("@")) : identity.subject).slice(
-    0,
-    64,
+  return clampDisplayName(
+    email ? email.slice(0, email.indexOf("@")) : identity.subject,
   );
 }
 

@@ -1,5 +1,6 @@
 import {
   AGENT_GITHUB_ACTIVITY_LIMIT,
+  AGENT_GITHUB_REPOSITORIES_MAX,
   type AgentGitHubActivityResponse,
   type AgentGitHubFeatureUnavailable,
   type AgentGitHubRepositoryUnavailable,
@@ -480,6 +481,14 @@ export function createAgentGitHubService(deps: {
           const held = new Set<unknown>(
             Array.isArray(current?.repositories) ? current.repositories : [],
           );
+          // Only a save that adds one is refused, so settings over the cap
+          // from before it still save while they shrink or stay.
+          if (
+            settings.repositories.length > AGENT_GITHUB_REPOSITORIES_MAX &&
+            settings.repositories.some((id) => !held.has(id))
+          ) {
+            throw refused("settings.repositories", "too_many_repositories");
+          }
           for (const [index, id] of settings.repositories.entries()) {
             if (held.has(id)) continue;
             const field = `settings.repositories.${index}`;
@@ -604,6 +613,9 @@ export function createAgentGitHubService(deps: {
         principal: caller,
         managerRoles: MANAGEMENT_ROLES["agent.manage"] ?? [],
         check: (repository, ceiling) => {
+          if (repository.heldCount >= AGENT_GITHUB_REPOSITORIES_MAX) {
+            throw refuse("repository", "too_many_repositories");
+          }
           // A repository from an installation is picked only where the
           // ceiling runs on the App's repositories, as `pick` does.
           const installed = ceiling.github_app_repositories === "installed";

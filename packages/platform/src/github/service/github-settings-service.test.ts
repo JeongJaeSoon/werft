@@ -81,6 +81,8 @@ type FakeConnection = {
   appId: number;
   /** The App the key read finds on the row, when a replacement landed between. */
   keyAppId?: number;
+  /** The key read finds no key (a delete between) or one that does not open. */
+  key?: "gone" | "unreadable";
   fails?: GitHubAppCheckFailure;
   installations?: GitHubAppInstallationView[];
 };
@@ -126,9 +128,22 @@ function fakeApps(connections: readonly FakeConnection[]) {
   });
   const apps = {
     list: async () => connections.map(record),
-    credentials: async (role: GitHubAppRole) =>
+    credentials: async (
+      role: GitHubAppRole,
+      _workspaceId: string,
+      options?: {
+        onUnreadable?: (app: { id: string; appId: number }) => void;
+      },
+    ) =>
       connections
         .filter((held) => held.role === role)
+        .filter((held) => {
+          if (held.key === "unreadable") {
+            if (!options?.onUnreadable) throw new Error("does not open");
+            options.onUnreadable({ id: held.id, appId: held.appId });
+          }
+          return held.key === undefined;
+        })
         .map((held) => ({
           id: held.id,
           workspaceId: WORKSPACE,
@@ -666,6 +681,34 @@ describe("GitHub settings service", () => {
     });
     const { connections } = await service.get(user("owner"), WORKSPACE);
     expect(connections.map((each) => each.connection_id)).toEqual(["conn-r"]);
+  });
+
+  test("an App whose key does not open is listed unasked; one deleted between the reads is left out", async () => {
+    const { service, recorded } = harness({
+      connections: [
+        {
+          id: "conn-a",
+          role: "author",
+          appId: 11,
+          key: "unreadable",
+          installations: [installation(1, "acme")],
+        },
+        { id: "conn-b", role: "author", appId: 12, key: "gone" },
+        { id: "conn-r", role: "reviewer", appId: 13 },
+      ],
+    });
+    const { connections } = await service.get(user("owner"), WORKSPACE);
+    expect(connections.map((each) => each.connection_id)).toEqual([
+      "conn-a",
+      "conn-r",
+    ]);
+    expect(connections[0]).toMatchObject({
+      key_status: "unknown",
+      check: { state: "failed", reason_code: "github_app_auth_failed" },
+      installations: [],
+    });
+    // Only the App GitHub answered for had its permissions kept.
+    expect(recorded).toEqual(["conn-r"]);
   });
 
   test("GET for another workspace is NOT_FOUND", async () => {

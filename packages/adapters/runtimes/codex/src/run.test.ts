@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { RuntimeEvent } from "@werft-ai/runtime-core";
+import {
+  isUnsupportedFeaturesReason,
+  type RuntimeEvent,
+} from "@werft-ai/runtime-core";
 
 import { CodexRun, type CodexRunOptions } from "./run.ts";
 import { FakeAppServer } from "./testing/fake-app-server.ts";
@@ -25,6 +28,7 @@ function setup(answers: Answers = "ask", extra: Partial<CodexRunOptions> = {}) {
       killed = true;
     },
     startupProblem: () => undefined,
+    probeSandbox: async () => undefined,
     ...extra,
   });
   const seen: RuntimeEvent[] = [];
@@ -120,6 +124,124 @@ describe("start", () => {
     const t = setup("ask", { startupProblem: () => "ignored a setting" });
     await expect(t.run.ready()).rejects.toThrow("ignored a setting");
   });
+});
+
+describe("auto mode", () => {
+  const auto = (
+    sandbox: "bubblewrap" | "disabled",
+    probe: () => Promise<string | undefined> = async () => undefined,
+    extra: Partial<CodexRunOptions> = {},
+  ) =>
+    setup("none", {
+      launch: {
+        answers: "none",
+        approvalPolicy: "on-request",
+        developerInstructions: undefined,
+        threadConfig:
+          sandbox === "bubblewrap" ? { default_permissions: "werft" } : {},
+        sandbox,
+      },
+      probeSandbox: probe,
+      ...extra,
+    });
+  const initOf = (t: ReturnType<typeof setup>) =>
+    t.until(() =>
+      t.seen.find(
+        (event) =>
+          event.type === "public" &&
+          (event.event.data as { subtype?: string }).subtype === "init",
+      ),
+    );
+
+  test("runs in the engine's profile with its reviewer", async () => {
+    const t = auto("bubblewrap");
+    await t.run.ready();
+    const params = t.server.started("thread/start");
+    expect(params).toMatchObject({
+      approvalPolicy: "on-request",
+      approvalsReviewer: "auto_review",
+    });
+    expect(params).not.toHaveProperty("sandbox");
+    expect(await initOf(t)).toMatchObject({
+      event: { data: { subtype: "init", sandbox: "bubblewrap" } },
+    });
+  });
+
+  test("a resume restates it instead of the thread's stored sandbox", async () => {
+    const t = auto("bubblewrap", undefined, { resume: "thread-9" });
+    await t.run.ready();
+    const params = t.server.started("thread/resume");
+    expect(params).toMatchObject({
+      approvalsReviewer: "auto_review",
+      config: { default_permissions: "werft" },
+    });
+    expect(params).not.toHaveProperty("sandbox");
+  });
+
+  const workspace = {
+    type: "workspaceWrite",
+    writableRoots: [],
+    networkAccess: true,
+  };
+  test.each([
+    ["full access", { type: "dangerFullAccess" }],
+    ["a root beyond the workspace", { ...workspace, writableRoots: ["/"] }],
+    ["the network off", { ...workspace, networkAccess: false }],
+    ["no policy at all", undefined],
+  ])(
+    "a thread the engine puts under %s is a failed start",
+    async (_name, sandbox) => {
+      const t = auto("bubblewrap", undefined, { resume: "thread-9" });
+      t.server.on("thread/resume", (params) => ({
+        thread: { id: params.threadId },
+        sandbox,
+      }));
+      await expect(t.run.ready()).rejects.toThrow("not the workspace profile");
+    },
+  );
+
+  test("a sandbox that cannot start refuses the session before any thread", async () => {
+    const t = auto("bubblewrap", async () => "bwrap: No permissions");
+    const refused = await t.run.ready().then(
+      () => undefined,
+      (error: Error) => error.message,
+    );
+    expect(refused).toStartWith(
+      "Runtime codex_app_server 0.167.0 cannot run this session's settings: it does not support classifier_review",
+    );
+    expect(refused).not.toContain("codexSandbox.enabled=false");
+    expect(refused).toEndWith("Cause: bwrap: No permissions");
+    expect(isUnsupportedFeaturesReason(refused ?? "")).toBe(true);
+    expect(t.server.started("thread/start")).toBeUndefined();
+  });
+
+  test.each([
+    ["a new thread", {}],
+    ["a resume", { resume: "thread-9" }],
+  ])(
+    "turned off, it refuses %s before any thread and probes nothing",
+    async (_name, extra) => {
+      let probed = false;
+      const t = auto(
+        "disabled",
+        async () => {
+          probed = true;
+          return "unreachable";
+        },
+        extra,
+      );
+      const refused = await t.run.ready().then(
+        () => undefined,
+        (error: Error) => error.message,
+      );
+      expect(isUnsupportedFeaturesReason(refused ?? "")).toBe(true);
+      expect(refused).toContain("codexSandbox.enabled=false");
+      expect(refused).toContain("Use another permission mode");
+      expect(probed).toBe(false);
+      expect(t.server.started("thread/start")).toBeUndefined();
+      expect(t.server.started("thread/resume")).toBeUndefined();
+    },
+  );
 });
 
 describe("approvals", () => {

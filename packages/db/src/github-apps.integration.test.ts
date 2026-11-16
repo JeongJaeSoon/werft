@@ -6,7 +6,10 @@ import {
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import {
+  type AuthorizationPolicy,
   callerFor,
+  createGitHubSettingsService,
+  type GitHubAppDirectory,
   type GitHubAppStore,
   MANAGEMENT_ROLES,
   type SecretAudit,
@@ -21,10 +24,12 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresPullRequestSettingsStore } from "./action/pull-request-settings.ts";
 import { createPostgresGitHubAppManifestStore } from "./github/github-app-manifest-states.ts";
 import { createPostgresGitHubAppStore } from "./github/github-apps.ts";
 import { createPostgresGitHubOAuthStore } from "./github/github-oauth.ts";
 import { createPostgresGitHubPinStore } from "./github/github-pins.ts";
+import { createPostgresGitHubSettingsStore } from "./github-settings.ts";
 import * as schema from "./schema.ts";
 import {
   agentReleases,
@@ -545,6 +550,115 @@ integration("the GitHub App on PostgreSQL", () => {
     });
     // A boolean: a client left behind would print its secret.
     expect((await oauth.client(ws)) === null).toBe(true);
+  });
+
+  test("an App key or client secret sealed under another key reads as not checked, and both are replaced", async () => {
+    const otherKey = SecretKey.fromHex(
+      randomBytes(32).toString("hex"),
+      "another key",
+    );
+    const store = createPostgresGitHubAppStore(db, key);
+    const oauth = createPostgresGitHubOAuthStore(db, key);
+    const ws = await workspace();
+    const owner = await person(ws, "owner");
+    // Written while the server ran with another key: neither opens now.
+    const author = await stored(
+      await createPostgresGitHubAppStore(db, otherKey).put(
+        ws,
+        AUTHOR,
+        profile(71),
+        pemOf(),
+        owner(),
+      ),
+    );
+    expect(
+      await createPostgresGitHubOAuthStore(db, otherKey).putClientSecret(
+        ws,
+        fakeGitHubClientSecret(),
+        owner(),
+        "Iv23li71",
+      ),
+    ).toEqual({ outcome: "stored" });
+    const reviewer = await stored(
+      await store.put(ws, REVIEWER, profile(72), pemOf(), owner()),
+    );
+
+    const asked: number[] = [];
+    const directory = {
+      async describe(app: { appId: number }) {
+        asked.push(app.appId);
+        return { ...profile(app.appId), owner: null };
+      },
+      async installations(app: { appId: number }) {
+        asked.push(app.appId);
+        return [];
+      },
+    } as unknown as GitHubAppDirectory;
+    const settings = createGitHubSettingsService({
+      authorization: {
+        authorize: async () => ({ outcome: "allow" }),
+      } as unknown as AuthorizationPolicy,
+      store: createPostgresGitHubSettingsStore(db),
+      pullRequestSettings: createPostgresPullRequestSettingsStore(db),
+      oauth,
+      callbackUrl: null,
+      secretsOn: true,
+      apps: store,
+      directory,
+    });
+    const viewer = callerFor(
+      {
+        kind: "user",
+        id: randomUUID(),
+        workspace_id: ws,
+        role: "owner",
+        scopes: [...scopesForRole("owner")],
+      },
+      { kind: "web" },
+      randomUUID(),
+    );
+    const read = () => settings.get(viewer, ws);
+    const keyOf = async (connectionId: string) => {
+      const found = (await read()).connections.find(
+        (connection) => connection.connection_id === connectionId,
+      );
+      return { key_status: found?.key_status, check: found?.check.state };
+    };
+
+    // The App whose key opens is still checked; the other is shown, not asked.
+    expect(await keyOf(author.id)).toEqual({
+      key_status: "unknown",
+      check: "failed",
+    });
+    expect(await keyOf(reviewer.id)).toEqual({
+      key_status: "ok",
+      check: "ok",
+    });
+    expect(asked.includes(71)).toBe(false);
+    expect((await read()).oauth.client_secret_set).toBe(true);
+    // Other readers still see the failure; the settings read asks to be told.
+    await expect(store.credentials("author", ws)).rejects.toThrow(
+      "could not be decrypted",
+    );
+    const named: number[] = [];
+    expect(
+      await store.credentials("author", ws, {
+        onUnreadable: (app) => named.push(app.appId),
+      }),
+    ).toEqual([]);
+    expect(named).toEqual([71]);
+    expect((await oauth.client(ws)) === null).toBe(true);
+
+    // A new key for the same App and a new client secret replace both.
+    await stored(
+      await store.put(ws, byId(author.id), profile(71), pemOf(), owner()),
+    );
+    const typed = fakeGitHubClientSecret();
+    expect(await oauth.putClientSecret(ws, typed, owner(), "Iv23li71")).toEqual(
+      { outcome: "stored" },
+    );
+    expect(await keyOf(author.id)).toEqual({ key_status: "ok", check: "ok" });
+    expect((await oauth.client(ws))?.clientSecret === typed).toBe(true);
   });
 
   test("a client secret typed for an App a replacement took out is refused, nothing stored", async () => {

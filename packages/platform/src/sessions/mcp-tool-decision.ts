@@ -21,7 +21,7 @@ export function mcpToolDenied(
  *
  * A tool is visible when some allow source names it, it belongs to `server`,
  * and no deny source blocks it (`mcpToolDenied`). Every deny source (release
- * `deny` pins, release snapshot `mcp_deny`, saved engine rules) wins over
+ * `deny` pins, release snapshot `mcp_deny`) wins over
  * every allow. An allow is matched by whole name only.
  */
 export function visibleMcpTools(

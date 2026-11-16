@@ -16,6 +16,13 @@ import { workspaceRoleSchema } from "./authorization.ts";
 
 export { WORKSPACE_ROLE_VALUES, workspaceRoleSchema } from "./authorization.ts";
 
+export const WORKSPACE_NAME_MAX = 120;
+export const workspaceNameSchema = z.string().min(1).max(WORKSPACE_NAME_MAX);
+export const workspaceNameInputSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(WORKSPACE_NAME_MAX);
 export const workspaceSlugSchema = z
   .string()
   .min(1)
@@ -23,7 +30,23 @@ export const workspaceSlugSchema = z
   .regex(/^[a-z0-9][a-z0-9-]*$/, "must be lowercase kebab-case");
 export const emailSchema = z.email().max(254);
 export const DISPLAY_NAME_MAX = 64;
+/** What a stored name reads as; a name written before the trim rule stays readable. */
 export const displayNameSchema = z.string().min(1).max(DISPLAY_NAME_MAX);
+/** A name a client sends: the ends trimmed, whitespace alone refused. */
+export const displayNameInputSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(DISPLAY_NAME_MAX);
+/**
+ * A name derived from a provider's claim or an email address: trimmed and
+ * cut to `DISPLAY_NAME_MAX` without splitting a surrogate pair. Empty when
+ * nothing but whitespace was given.
+ */
+export function clampDisplayName(name: string): string {
+  const cut = name.trim().slice(0, DISPLAY_NAME_MAX);
+  return (/[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut).trimEnd();
+}
 
 /** Emails are compared lower-cased; store what this returns. */
 export function normalizeEmail(email: string): string {
@@ -155,7 +178,7 @@ export const workspaceSchema = z
   .object({
     id: workspaceIdSchema,
     slug: workspaceSlugSchema,
-    name: z.string().min(1).max(120),
+    name: workspaceNameSchema,
     settings: workspaceSettingsSchema,
     created_at: timestampSchema,
   })
@@ -314,6 +337,12 @@ export const inviteSchema = z
 export const createInviteRequestSchema = z
   .object({ email: emailSchema, role: workspaceRoleSchema })
   .strict();
+
+/**
+ * `details.reason_code` of the 409 ALREADY_EXISTS that POST /v1/invites
+ * answers when the address belongs to a member whose membership is on.
+ */
+export const INVITE_ALREADY_MEMBER = "already_member";
 
 /**
  * The only place an invite token ever appears. It is returned once, to the

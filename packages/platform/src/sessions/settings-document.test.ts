@@ -264,6 +264,31 @@ describe("planSettingsImport", () => {
     expect(plan.conflicts).toEqual([]);
   });
 
+  test("a new MCP server on a reserved name is a conflict; a row that already holds it stays", () => {
+    const browser = parseSettingsDocument({
+      ...DOCUMENT,
+      mcp_servers: { browser: DOCUMENT.mcp_servers.docs },
+    });
+    const refused = planSettingsImport(browser, NONE);
+    expect(refused.conflicts).toEqual(["mcp:browser"]);
+    expect(refused.add.map((add) => add.id)).not.toContain("browser");
+    const held = planSettingsImport(browser, {
+      ...NONE,
+      mcp_servers: new Map([
+        [
+          "browser",
+          {
+            entry: browser.mcp_servers.browser,
+            active: true,
+            has_value: true,
+          },
+        ],
+      ]),
+    });
+    expect(held.conflicts).toEqual([]);
+    expect(held.unchanged).toContain("mcp:browser");
+  });
+
   test("an id already held: same content unchanged, other content a conflict, an inactive row stays so", () => {
     const existing: ExistingSettings = {
       ...NONE,

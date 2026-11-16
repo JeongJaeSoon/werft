@@ -26,10 +26,14 @@ import {
   webSessions,
   workspaces,
 } from "../schema.ts";
+import { writeSecretInTx } from "../secrets/secret-values.ts";
 import { signInWithExternalIdentity } from "./identity.ts";
 import {
   createPostgresLoginProviderAdminStore,
   createPostgresLoginProviderStore,
+  LOGIN_CLIENT_SECRET_NEXT_PURPOSE,
+  LOGIN_CLIENT_SECRET_PURPOSE,
+  loginProviderSecretOwner,
 } from "./login-providers.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -484,6 +488,105 @@ integration("login provider admin store", () => {
     expect(refilled?.secretVersion).toBe(started?.secretVersion);
     expect(refilled?.secretId).toBeString();
     expect(refilled?.secretId).not.toBe(started?.secretId);
+  });
+
+  test("a secret sealed under another key is replaced, not compared: off it becomes the secret, on it waits", async () => {
+    const otherKey = SecretKey.fromHex("ef".repeat(32), "another key");
+    const sealElsewhere = (providerId: string, slot: "current" | "next") =>
+      db.transaction((tx) =>
+        writeSecretInTx(
+          tx,
+          otherKey,
+          {
+            workspaceId,
+            owner: loginProviderSecretOwner(providerId),
+            purpose:
+              slot === "current"
+                ? LOGIN_CLIENT_SECRET_PURPOSE
+                : LOGIN_CLIENT_SECRET_NEXT_PURPOSE,
+          },
+          `sealed-elsewhere-${slot}`,
+          ownerId,
+        ),
+      );
+    const replacement = "replacement-value-3333";
+
+    // Off: the secret it has does not open.
+    const off = await configured();
+    await sealElsewhere(off.id, "current");
+    const stored = await admin.setClientSecret({
+      id: off.id,
+      value: replacement,
+      audit: audit(),
+    });
+    if (stored.outcome !== "stored") throw new Error(stored.outcome);
+    expect(stored.provider.clientSecret?.last4).toBe("3333");
+    expect(stored.provider.configRevision).toBe(off.configRevision + 1);
+    expect((await admin.findForTest(off.id))?.clientSecret).toBe(replacement);
+
+    // On: the one in use opens, the one waiting does not.
+    const on = await turnedOn();
+    await sealElsewhere(on.id, "next");
+    const waiting = await admin.setClientSecret({
+      id: on.id,
+      value: replacement,
+      audit: audit(),
+    });
+    if (waiting.outcome !== "stored") throw new Error(waiting.outcome);
+    expect(waiting.provider).toMatchObject({
+      enabled: true,
+      clientSecret: { last4: "1111" },
+      pendingClientSecret: { last4: "3333" },
+    });
+    expect(await admin.findForTest(on.id)).toMatchObject({
+      slot: "next",
+      clientSecret: replacement,
+    });
+
+    // On, the waiting one does not open: naming the one in use withdraws it.
+    const back = await turnedOn();
+    await sealElsewhere(back.id, "next");
+    const withdrawn = await admin.setClientSecret({
+      id: back.id,
+      value: FIRST_SECRET,
+      audit: audit(),
+    });
+    if (withdrawn.outcome !== "stored") throw new Error(withdrawn.outcome);
+    expect(withdrawn.provider.pendingClientSecret).toBeNull();
+    expect(withdrawn.provider.clientSecret?.last4).toBe("1111");
+
+    // On, the one in use does not open but the waiting one does: that one
+    // again is no change.
+    const half = await turnedOn();
+    const queued = await admin.setClientSecret({
+      id: half.id,
+      value: replacement,
+      audit: audit(),
+    });
+    if (queued.outcome !== "stored") throw new Error(queued.outcome);
+    await sealElsewhere(half.id, "current");
+    const again = await admin.setClientSecret({
+      id: half.id,
+      value: replacement,
+      audit: audit(),
+    });
+    if (again.outcome !== "stored") throw new Error(again.outcome);
+    expect(again.provider.revision).toBe(queued.provider.revision);
+
+    // On, and neither opens: the new value still waits for its test.
+    const lost = await turnedOn();
+    await sealElsewhere(lost.id, "current");
+    await sealElsewhere(lost.id, "next");
+    const relost = await admin.setClientSecret({
+      id: lost.id,
+      value: replacement,
+      audit: audit(),
+    });
+    if (relost.outcome !== "stored") throw new Error(relost.outcome);
+    expect(relost.provider.pendingClientSecret?.last4).toBe("3333");
+    expect(
+      (await receiptsOf(lost.id)).at(-1)?.result as Record<string, unknown>,
+    ).toMatchObject({ slot: "next", last4: "3333" });
   });
 
   test("a test that ran while the settings changed is not written down", async () => {

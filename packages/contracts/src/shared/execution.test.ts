@@ -54,6 +54,7 @@ test("worker environment names retain both proxy spellings", () => {
     maxTurnSeconds: "WORKER_MAX_TURN_SEC",
     providerMaxRetries: "WORKER_PROVIDER_MAX_RETRIES",
     logLevel: "LOG_LEVEL",
+    codexSandbox: "CODEX_SANDBOX",
   });
 });
 

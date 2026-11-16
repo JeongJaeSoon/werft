@@ -1,4 +1,3 @@
-import type { EngineSettings } from "@werft-ai/contracts";
 import type {
   GitEnvironment,
   TranscriptMirror,
@@ -80,14 +79,6 @@ export type ClaudeRuntimeConfig = DriverConfig & {
    * drop does not start. Not part of the checkpoint fingerprint.
    */
   disallowedTools?: readonly string[];
-  /**
-   * The platform's merged permission and auto mode rules for this claim,
-   * appended to the mode's baseline settings and written with them to the
-   * file the engine starts with (`writeEngineSettings`). `permissions.deny` is checked
-   * like `disallowedTools` before the run starts. Not part of the checkpoint
-   * fingerprint.
-   */
-  engineSettings?: EngineSettings;
   /**
    * The fixed answer language, given to the engine as its `language` setting
    * (the engine adds it to the message stream, not the system prompt). Not

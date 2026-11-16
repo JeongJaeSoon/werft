@@ -56,18 +56,14 @@ describe("the answer language", () => {
   );
 
   test.each(["plan", "auto", "bypassPermissions"] as const)(
-    "survives %s mode and the claim's engine rules",
+    "survives %s mode",
     (permissionMode) => {
       const base = start("ja");
       const { settings } = buildSdkOptions(
         claudeStartConfig(
           {
             ...base,
-            config: {
-              ...base.config,
-              permissionMode,
-              engineSettings: { permissions: { deny: ["Bash(rm:*)"] } },
-            },
+            config: { ...base.config, permissionMode },
           } as RuntimeStart,
           deps,
         ),

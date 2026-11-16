@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { canonicalJsonOfJson } from "@werft-ai/contracts";
+import { canonicalJsonOfJson, newMcpServerIdSchema } from "@werft-ai/contracts";
 import { z } from "zod";
 import { repoRefOf } from "../action/ports/forge.ts";
 import {
@@ -415,7 +415,8 @@ export type SettingsImportPlan = {
   needs_value: string[];
   /**
    * Same id, other content; a GitHub repository another id already holds;
-   * or a new stored entry whose id already has a value.
+   * a new stored entry whose id already has a value; or a new MCP server
+   * on a reserved name.
    */
   conflicts: string[];
   /**
@@ -475,6 +476,10 @@ export function planSettingsImport(
         }
         plan.unchanged.push(ref);
         if (source === "stored" && !row.has_value) plan.needs_value.push(ref);
+        continue;
+      }
+      if (kind === "mcp" && !newMcpServerIdSchema.safeParse(id).success) {
+        plan.conflicts.push(ref);
         continue;
       }
       if (source === "stored") {

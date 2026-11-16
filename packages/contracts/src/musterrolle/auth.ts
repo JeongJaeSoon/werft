@@ -19,9 +19,12 @@ import {
   passwordLoginSchema,
 } from "./login-providers.ts";
 import {
+  DISPLAY_NAME_MAX,
+  displayNameInputSchema,
   displayNameSchema,
   emailSchema,
   inviteTokenSchema,
+  workspaceNameInputSchema,
   workspaceSchema,
   workspaceSlugSchema,
 } from "./workspaces.ts";
@@ -65,8 +68,8 @@ export const bootstrapRequestSchema = z
     bootstrap_token: bootstrapTokenSchema,
     email: emailSchema,
     password: passwordSchema,
-    display_name: displayNameSchema,
-    workspace_name: z.string().min(1).max(120),
+    display_name: displayNameInputSchema,
+    workspace_name: workspaceNameInputSchema,
     workspace_slug: workspaceSlugSchema,
   })
   .strict();
@@ -133,7 +136,7 @@ export const providerLoginCallbackRequestSchema = z
 export const startProviderInviteRequestSchema = z
   .object({
     /** In the body, never the URL, as when a password redeems it. */
-    invite_token: z.string().min(1).max(256),
+    invite_token: inviteTokenSchema,
   })
   .strict();
 /**
@@ -281,7 +284,13 @@ export const acceptInviteRequestSchema = z
     /** In the body, never the URL, for the same reason as a reset token. */
     token: inviteTokenSchema,
     password: passwordSchema,
-    display_name: displayNameSchema.optional(),
+    /** Whitespace alone counts as absent: the email's local part is used. */
+    display_name: z
+      .string()
+      .trim()
+      .max(DISPLAY_NAME_MAX)
+      .transform((name) => name || undefined)
+      .optional(),
   })
   .strict();
 export const acceptInviteResponseSchema = z

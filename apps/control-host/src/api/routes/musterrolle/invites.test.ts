@@ -205,17 +205,27 @@ describe("POST /v1/invites", () => {
   });
 
   test("an address that is already a member, or a bad body, is refused", async () => {
+    let asked: string | undefined;
     const member = await send(
       app(
         inviteStore({
-          createInvite: async () => ({ outcome: "already_member" }),
+          createInvite: async (input) => {
+            asked = input.email;
+            return { outcome: "already_member" };
+          },
         }),
       ),
       "/v1/invites",
       "POST",
-      { email: "invitee@example.com", role: "member" },
+      { email: "Invitee@Example.COM", role: "member" },
     );
-    expect(member.status).toBe(400);
+    // The store matches the stored, lower-cased address.
+    expect(asked).toBe("invitee@example.com");
+    expect(member.status).toBe(409);
+    expect(await errorOf(member)).toMatchObject({
+      code: "ALREADY_EXISTS",
+      details: { field: "email", reason_code: "already_member" },
+    });
     const bad = await send(app(), "/v1/invites", "POST", {
       email: "invitee@example.com",
       role: "guest",
@@ -414,6 +424,34 @@ describe("POST /v1/invites/accept", () => {
       kind: "new",
       displayName: "a".repeat(DISPLAY_NAME_MAX),
     });
+  });
+
+  test("a given name is trimmed, whitespace alone counts as none, and an overlong one is refused", async () => {
+    const named: unknown[] = [];
+    const api = app(
+      inviteStore({
+        acceptInvite: async (input) => {
+          named.push(
+            input.account.kind === "new" ? input.account.displayName : null,
+          );
+          return {
+            outcome: "accepted",
+            userId: input.account.userId,
+            workspaceId: WORKSPACE,
+            role: "member",
+            sessionExpiresAt: new Date("2026-10-25T00:00:00.000Z"),
+          };
+        },
+      }),
+    );
+    const sent = (display_name: string) =>
+      accept(api, { token: TOKEN, password: PASSWORD, display_name });
+    expect((await sent("  Invitee  ")).status).toBe(200);
+    expect((await sent(" \t ")).status).toBe(200);
+    expect(named).toEqual(["Invitee", "invitee"]);
+    const overlong = await sent("a".repeat(DISPLAY_NAME_MAX + 1));
+    expect(overlong.status).toBe(400);
+    expect(named).toHaveLength(2);
   });
 
   test("an existing account joins with its own password, unchanged", async () => {

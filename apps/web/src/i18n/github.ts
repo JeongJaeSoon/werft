@@ -89,7 +89,7 @@ export const githubKo = {
   "github.appIdHint": "GitHub App 설정 페이지 위쪽에 있는 숫자입니다.",
   "github.appIdMissing": "App ID를 숫자로 넣어 주세요.",
   "github.appIdRange":
-    "App ID는 {max} 이하입니다. GitHub App 설정 페이지의 숫자를 확인하세요.",
+    "App ID가 올바르지 않습니다. GitHub App 설정 페이지의 'App ID' 숫자를 넣어 주세요.",
   "github.key": "Private key (.pem)",
   "github.keyHint":
     "키는 GitHub에서 확인한 뒤 암호화해 저장하고, 저장한 뒤에는 다시 보여 주지 않습니다. 저장했으면 내려받은 파일은 지우세요.",
@@ -395,7 +395,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
     "The number at the top of the GitHub App's settings page.",
   "github.appIdMissing": "Enter the App ID as a number.",
   "github.appIdRange":
-    "An App ID is at most {max}. Check the number on the GitHub App settings page.",
+    "This is not a valid App ID. Enter the 'App ID' number from the GitHub App settings page.",
   "github.key": "Private key (.pem)",
   "github.keyHint":
     "The key is checked with GitHub, then stored encrypted and never shown again. Delete the downloaded file once it is saved.",
@@ -706,7 +706,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.appIdHint": "GitHub App の設定ページ上部にある数字です。",
   "github.appIdMissing": "App ID を数字で入力してください。",
   "github.appIdRange":
-    "App ID は {max} 以下です。GitHub App の設定ページの数字を確認してください。",
+    "App ID が正しくありません。GitHub App の設定ページにある「App ID」の数字を入力してください。",
   "github.key": "Private key (.pem)",
   "github.keyHint":
     "鍵は GitHub で確認してから暗号化して保存し、保存後は二度と表示しません。保存したら、ダウンロードしたファイルは削除してください。",

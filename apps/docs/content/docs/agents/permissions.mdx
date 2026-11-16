@@ -3,45 +3,13 @@ title: "권한"
 description: 에이전트가 쓸 수 있는 도구, 사람의 승인, 에이전트를 관리하는 사람과 자격 연결
 ---
 
-에이전트의 권한은 세 층이다. release가 고정한 도구와 권한 모드에 워크스페이스·에이전트의 실행 규칙을 더한 것, 사람이 답하는 권한 요청, 그리고 에이전트를 관리하고 자격 증명 이름을 연결하는 사람.
+에이전트의 권한은 세 층이다. release가 고정한 도구와 권한 모드, 사람이 답하는 권한 요청, 그리고 에이전트를 관리하고 자격 증명 이름을 연결하는 사람.
 
-## 도구: release와 실행 규칙이 정한다
+## 도구: release가 정한다
 
-release는 연결의 런타임이 가진 내장 도구 전부를 고정한다(release 응답의 `effective_tools.tools`). 그중 무엇을 막을지는 워크스페이스와 에이전트의 실행 규칙이 정한다. 막기(`deny`)에 적은 도구는 권한 요청 없이 거절되고, 모델은 오류 `tool_result`를 받는다. 아래 대본은 워크스페이스 실행 규칙의 막기 목록에 `WebFetch`를 넣은 뒤 `WebFetch`를 부른다.
+release는 연결의 런타임이 가진 내장 도구 전부를 고정한다(release 응답의 `effective_tools.tools`). 내장 도구를 골라 막는 설정은 없다. 도구를 실행하기 전에 사람에게 묻는지는 아래 권한 모드와 플랫폼에 들어 있는 작업 공간 규칙(사전 허용과 묻기 목록)이 정한다.
 
-```bash
-created=$(curl -sS "$API/v1/sessions" \
-  -H "Authorization: Bearer $KEY" \
-  -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"outside","steps":[{"tool":"WebFetch","input":{"url":"https://example.com","prompt":"summarize"}}],"final":"done"}' \
-    '{agent_release_id: env.WERFT_AGENT_RELEASE_ID, repository_id: "sample-app", message: $m}')")
-SID=$(echo "$created" | jq -r .session_id)
-until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
-  sleep 2
-done
-curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
-  | awk '/^event: tool_result/ { getline; sub(/^data: /, ""); print }' \
-  | jq -c '.data | {is_error, content}' || true
-```
-
-```text
-curl: (28) Operation timed out after 5006 milliseconds with 4482 bytes received
-{"is_error":true,"content":"<tool_use_error>Error: No such tool available: WebFetch. WebFetch is disabled for this session, in subagents as well as here.</tool_use_error>"}
-```
-
-`curl: (28)`은 `--max-time`이 스트림을 끊은 것이다.
-
-막는 곳은 둘이고 범위가 다르다. 세션에는 둘의 합집합이 걸린다.
-
-| | 워크스페이스 실행 규칙 | 에이전트 실행 규칙 |
-| --- | --- | --- |
-| 누가 정하나 | owner·admin(워크스페이스 설정 → 실행 규칙) | 에이전트 관리자(에이전트 상세 → 실행 규칙) |
-| 미치는 곳 | 그 워크스페이스의 모든 에이전트 세션 | 그 에이전트의 세션 |
-| 받는 규칙 | 허용·묻기·막기 목록, 자동 모드 목록 | 같다. 허용은 워크스페이스가 허용한 것 안에서만 효과가 있다 |
-| 바꾸면 | 다음 claim부터. 이미 시작한 세션에는 더 좁히는 쪽만 미친다 | 같다 |
-
-카드의 `capabilities.forbidden`은 그 에이전트의 release에서 그 도구를 뺀다. 카드 `tool_policy`의 MCP 도구 기본값은 `ask`다. 내장 도구를 실행 전에 사람에게 묻게 하는 것은 권한 모드와 실행 규칙의 묻기 목록이다.
+카드의 `capabilities.forbidden`은 MCP 도구에 미친다. release가 허용하는 MCP 도구가 그 목록에 있으면 release를 만들 수 없다. 카드 `tool_policy`의 MCP 도구 기본값은 `ask`다.
 
 ## 권한 모드
 

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  AGENT_NAME_MAX_LENGTH,
   type AgentDetail,
   type AgentRelease,
   activateAgentResponseSchema,
@@ -682,6 +683,42 @@ describe("POST /v1/agents", () => {
     expect(withOld.contentSha256).toBe(without.contentSha256);
   });
 
+  test("trims the name and description, and refuses a name of whitespace alone or over its length", async () => {
+    let created: { name?: string; description?: string } = {};
+    const api = app(
+      store({
+        create: async (input) => {
+          created = input;
+          return { outcome: "created", detail };
+        },
+      }),
+    );
+    const trimmed = await send(api, "POST", "/v1/agents", {
+      ...body,
+      name: "  재무 분석가 ",
+      description: " 월말 결산을 본다\n",
+    });
+    expect(trimmed.status).toBe(201);
+    expect(created).toMatchObject({
+      name: "재무 분석가",
+      description: "월말 결산을 본다",
+    });
+    // A description of whitespace alone is none.
+    created = {};
+    const blankDescription = await send(api, "POST", "/v1/agents", {
+      ...body,
+      description: "   ",
+    });
+    expect(blankDescription.status).toBe(201);
+    expect(created.description).toBeUndefined();
+    for (const name of [" \t ", "x".repeat(AGENT_NAME_MAX_LENGTH + 1)]) {
+      created = {};
+      const refused = await send(api, "POST", "/v1/agents", { ...body, name });
+      expect(refused.status).toBe(400);
+      expect(created).toEqual({});
+    }
+  });
+
   test("refuses a card that names an MCP server or a bad slug", async () => {
     for (const bad of [
       {
@@ -907,6 +944,26 @@ describe("PATCH /v1/agents/{id}", () => {
       card: { card, contentSha256: expect.any(String) },
       updatedBy: OWNER_USER,
     });
+  });
+
+  test("a patch trims the name, clears the description with an empty one, and refuses a blank name", async () => {
+    const updates: unknown[] = [];
+    const api = app(
+      store({
+        update: async (input) => {
+          updates.push(input);
+          return { outcome: "updated", detail, saved: null };
+        },
+      }),
+    );
+    const path = `/v1/agents/${AGENT}`;
+    expect(
+      (await send(api, "PATCH", path, { name: " 재무 ", description: "  " }))
+        .status,
+    ).toBe(200);
+    expect(updates[0]).toMatchObject({ name: "재무", description: null });
+    expect((await send(api, "PATCH", path, { name: "  " })).status).toBe(400);
+    expect(updates).toHaveLength(1);
   });
 
   test("refuses an empty patch, an unknown agent and an oversized body", async () => {

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   acceptInviteResponseSchema,
+  apiErrorResponseSchema,
   authMeResponseSchema,
   bootstrapResponseSchema,
   CSRF_HEADER_NAME,
@@ -382,6 +383,45 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
     expect(Date.parse(gone?.disabled_at ?? "")).toBeGreaterThan(
       Date.now() - 60_000,
     );
+  });
+
+  test("a member's address is refused in any case; a disabled membership is invited back", async () => {
+    const issuedTo = async (email: string) =>
+      (await db.select().from(invites).where(eq(invites.email, email))).length;
+    const before = await issuedTo("member@example.com");
+    for (const email of ["Member@Example.COM", "OWNER@example.com"]) {
+      const refused = await send(
+        "POST",
+        "/v1/invites",
+        { email, role: "member" },
+        as(ownerCookie),
+      );
+      expect(refused.status).toBe(409);
+      expect(
+        apiErrorResponseSchema.parse(await refused.json()).error,
+      ).toMatchObject({
+        code: "ALREADY_EXISTS",
+        details: { field: "email", reason_code: "already_member" },
+      });
+    }
+    expect(await issuedTo("member@example.com")).toBe(before);
+    expect(await issuedTo("owner@example.com")).toBe(0);
+
+    // The previous test disabled this membership: the invite turns it on.
+    const back = await invite(ownerCookie, "Returning@Example.com");
+    const joined = await accept(back.invite_token);
+    expect(joined.status).toBe(200);
+    const rows = await db
+      .select({ disabledAt: memberships.disabledAt })
+      .from(memberships)
+      .innerJoin(users, eq(users.id, memberships.userId))
+      .where(
+        and(
+          eq(memberships.workspaceId, workspaceId),
+          eq(users.email, "returning@example.com"),
+        ),
+      );
+    expect(rows).toEqual([{ disabledAt: null }]);
   });
 
   test("a member is refused every management route", async () => {

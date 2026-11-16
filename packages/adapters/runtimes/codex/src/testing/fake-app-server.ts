@@ -9,6 +9,33 @@ import {
 type Handler = (params: Record<string, unknown>) => unknown;
 
 /**
+ * The policy 0.167.0 reports for what the adapter sends: `sandbox`, or the
+ * `werft` profile (as measured), never both; other profiles are not modelled.
+ */
+function sandboxOf(params: Record<string, unknown>): Record<string, unknown> {
+  const config = (params.config ?? {}) as Record<string, unknown>;
+  const profile = config.default_permissions;
+  if (params.sandbox !== undefined && profile !== undefined) {
+    throw new Error("The fake does not model sandbox and a profile together");
+  }
+  if (params.sandbox === "danger-full-access")
+    return { type: "dangerFullAccess" };
+  if (profile === "werft") {
+    return {
+      type: "workspaceWrite",
+      writableRoots: [],
+      networkAccess: true,
+      excludeTmpdirEnvVar: false,
+      excludeSlashTmp: false,
+    };
+  }
+  if (profile !== undefined) {
+    throw new Error(`The fake does not model profile ${String(profile)}`);
+  }
+  return { type: "readOnly", networkAccess: false };
+}
+
+/**
  * An in-memory stand-in for `codex app-server`: it answers the client's
  * requests from handlers, records them, and lets a test speak as the server
  * (notifications, and requests the client must decide).
@@ -56,13 +83,13 @@ export class FakeAppServer implements AppServerTransport {
         }, 0);
       }
     };
-    this.on("thread/start", () => {
+    this.on("thread/start", (params) => {
       startServers();
-      return { thread: { id: threadId } };
+      return { thread: { id: threadId }, sandbox: sandboxOf(params) };
     });
     this.on("thread/resume", (params) => {
       startServers();
-      return { thread: { id: params.threadId } };
+      return { thread: { id: params.threadId }, sandbox: sandboxOf(params) };
     });
     this.on("thread/read", () => ({ thread: { id: threadId } }));
     this.on("turn/start", () => ({ turn: { id: "turn-1" } }));

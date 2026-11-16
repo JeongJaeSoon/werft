@@ -1,13 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type ApiError, unwrap } from "@werft-ai/client";
-import type { WorkspaceRole } from "@werft-ai/contracts";
+import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
+import type { INVITE_ALREADY_MEMBER, WorkspaceRole } from "@werft-ai/contracts";
 import { inviteStep } from "@werft-ai/core/forms";
 import {
   formAlerts,
   submitStep,
   useMemberPages,
   useStepForm,
-  useStepper,
   useWerft,
 } from "@werft-ai/react";
 import {
@@ -33,7 +32,6 @@ import {
   Input,
   NativeSelect,
   NativeSelectOption,
-  Stepper,
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
 import { type RefObject, useEffect, useRef, useState } from "react";
@@ -58,7 +56,11 @@ const isObject = (data: unknown): data is InviteSteps["details"] =>
 const hasExpiry = (data: unknown): data is InviteSteps["link"] =>
   isObject(data) && typeof (data as { expires?: unknown }).expires === "string";
 
-/** Opens the invite flow: who and with which role, then the link to hand over. */
+/**
+ * Opens the invite form: who and with which role. Once the link is made the
+ * same dialog shows it in place of the form, with no step indicator: one
+ * form and its result are not a flow worth numbering.
+ */
 export function InviteDialog({
   reason,
   assignableRoles,
@@ -170,16 +172,9 @@ function InviteFlow({
       link: { guard: hasExpiry },
     },
   });
-  const stepper = useStepper({
-    steps: [
-      { id: "details", label: t("members.invite.step.details") },
-      { id: "link", label: t("members.invite.step.link") },
-    ],
-    currentStepId: funnel.step,
-  });
+  const showingLink = funnel.step === "link" && url !== null;
   // Only the link step asks: after browser Back the link is already off screen.
-  const uncopied =
-    funnel.step === "link" && url !== null && !copiedUrls.has(url);
+  const uncopied = showingLink && !copiedUrls.has(url);
   useEffect(() => {
     onUncopied(uncopied);
     return () => onUncopied(false);
@@ -211,10 +206,17 @@ function InviteFlow({
   return (
     <>
       <DialogHeader>
-        <DialogTitle>{t("members.invite.title")}</DialogTitle>
-        <DialogDescription>{t("members.invite.description")}</DialogDescription>
+        <DialogTitle>
+          {showingLink
+            ? t("members.invite.created")
+            : t("members.invite.title")}
+        </DialogTitle>
+        <DialogDescription>
+          {showingLink
+            ? t("members.invite.createdDescription")
+            : t("members.invite.description")}
+        </DialogDescription>
       </DialogHeader>
-      <Stepper label={t("members.invite.steps")} {...stepper} />
       <funnel.Render
         details={() => (
           <DetailsStep
@@ -314,6 +316,13 @@ function LinkFocus({
 
 const FIELDS = ["email", "role"] as const;
 
+const ALREADY_MEMBER: typeof INVITE_ALREADY_MEMBER = "already_member";
+
+const isAlreadyMember = (error: unknown) =>
+  isApiError(error, "ALREADY_EXISTS") &&
+  (error.details as { reason_code?: unknown } | null)?.reason_code ===
+    ALREADY_MEMBER;
+
 function DetailsStep({
   assignableRoles: grantable,
   pending,
@@ -338,6 +347,22 @@ function DetailsStep({
   // focused is gone and the keyboard would land on <body>.
   const { setFocus } = form;
   useEffect(() => setFocus("email"), [setFocus]);
+  // The server's refusal of a member's address belongs to the email field,
+  // unless the field moved on to another address while the request ran.
+  const sendOrMark = async (values: { email: string; role: WorkspaceRole }) => {
+    try {
+      await send(values);
+    } catch (error) {
+      if (!isAlreadyMember(error)) throw error;
+      const sent = values.email.trim().toLowerCase();
+      if (form.getValues("email").trim().toLowerCase() !== sent) return;
+      form.setError(
+        "email",
+        { type: "server", message: t("members.invite.alreadyMember") },
+        { shouldFocus: true },
+      );
+    }
+  };
 
   // Re-inviting someone whose membership is off leads nowhere when their
   // account has no password (Google sign-in only): the invite asks for one.
@@ -373,7 +398,7 @@ function DetailsStep({
     <form
       className="flex flex-col gap-4"
       noValidate
-      onSubmit={submitStep(form, send, serverMessage)}
+      onSubmit={submitStep(form, sendOrMark, serverMessage)}
     >
       {formAlerts(errors, FIELDS).map((alert) => (
         <Alert key={alert} variant="red" role="alert">

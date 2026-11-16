@@ -51,20 +51,22 @@ export const membersKo = {
   "members.invite.role": "역할",
   "members.invite.submit": "초대 링크 만들기",
   "members.invite.submitting": "만드는 중…",
+  "members.invite.alreadyMember":
+    "이미 이 워크스페이스의 구성원인 주소입니다. 초대하지 않아도 됩니다.",
   "members.invite.disabledHint":
     "{name}님은 비활성 상태의 구성원입니다. 다시 초대하지 말고 목록에서 다시 활성화하세요. SSO로만 로그인하던 계정은 비밀번호가 없어 초대를 수락할 수 없습니다.",
   "members.invite.link": "초대 링크",
   "members.invite.linkOnce":
-    "이 링크는 지금 한 번만 보입니다. {expires}까지 쓸 수 있습니다. 초대할 사람에게 직접 전하세요.",
+    "이 링크는 지금 한 번만 보입니다. {expires}까지 쓸 수 있습니다.",
   "members.invite.copy": "링크 복사",
   "members.invite.copied": "초대 링크를 복사했습니다.",
   "members.invite.copyFailed":
     "초대 링크를 복사하지 못했습니다 — 링크 칸을 눌러 직접 복사하세요.",
   "members.invite.description":
     "받는 사람의 이메일과 역할을 정하면 한 번만 보이는 초대 링크를 만듭니다.",
-  "members.invite.steps": "초대 단계",
-  "members.invite.step.details": "받는 사람",
-  "members.invite.step.link": "초대 링크",
+  "members.invite.created": "초대 링크를 만들었습니다",
+  "members.invite.createdDescription":
+    "링크를 복사해 초대할 사람에게 직접 전하세요.",
   "members.invite.again": "다른 사람 초대",
   "members.invite.close": "닫기",
   "members.invite.leave.title": "링크를 복사하지 않고 나갈까요?",
@@ -151,20 +153,22 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.invite.role": "Role",
   "members.invite.submit": "Create invite link",
   "members.invite.submitting": "Creating…",
+  "members.invite.alreadyMember":
+    "This address already belongs to a member of this workspace. No invite is needed.",
   "members.invite.disabledHint":
     "{name} is a disabled member. Re-enable them in the list instead of inviting again: an account that only logs in with SSO has no password and cannot accept an invite.",
   "members.invite.link": "Invite link",
   "members.invite.linkOnce":
-    "This link is shown only now and works until {expires}. Send it to the person yourself.",
+    "This link is shown only now and works until {expires}.",
   "members.invite.copy": "Copy link",
   "members.invite.copied": "Invite link copied.",
   "members.invite.copyFailed":
     "Could not copy the invite link — select the link field and copy it yourself.",
   "members.invite.description":
     "Choose the email and role, and a link that is shown only once is made for them.",
-  "members.invite.steps": "Invite steps",
-  "members.invite.step.details": "Recipient",
-  "members.invite.step.link": "Invite link",
+  "members.invite.created": "Invite link created",
+  "members.invite.createdDescription":
+    "Copy the link and send it to the person yourself.",
   "members.invite.again": "Invite someone else",
   "members.invite.close": "Close",
   "members.invite.leave.title": "Leave without copying the link?",
@@ -254,20 +258,22 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.invite.role": "ロール",
   "members.invite.submit": "招待リンクを作成",
   "members.invite.submitting": "作成中…",
+  "members.invite.alreadyMember":
+    "このアドレスはすでにこのワークスペースのメンバーです。招待は不要です。",
   "members.invite.disabledHint":
     "{name}さんは無効化されたメンバーです。招待し直さずに、一覧から再有効化してください。SSO ログインのみで利用していたアカウントにはパスワードがないため、招待を承諾できません。",
   "members.invite.link": "招待リンク",
   "members.invite.linkOnce":
-    "このリンクは今回のみ表示されます。{expires}まで使えます。招待する人に直接伝えてください。",
+    "このリンクは今回のみ表示されます。{expires}まで使えます。",
   "members.invite.copy": "リンクをコピー",
   "members.invite.copied": "招待リンクをコピーしました。",
   "members.invite.copyFailed":
     "招待リンクをコピーできませんでした。リンク欄を選択して手動でコピーしてください。",
   "members.invite.description":
     "招待する人のメールアドレスとロールを指定すると、一度だけ表示される招待リンクを作成します。",
-  "members.invite.steps": "招待のステップ",
-  "members.invite.step.details": "招待する人",
-  "members.invite.step.link": "招待リンク",
+  "members.invite.created": "招待リンクを作成しました",
+  "members.invite.createdDescription":
+    "リンクをコピーして、招待する人に直接伝えてください。",
   "members.invite.again": "ほかの人を招待",
   "members.invite.close": "閉じる",
   "members.invite.leave.title": "リンクをコピーせずに閉じますか？",

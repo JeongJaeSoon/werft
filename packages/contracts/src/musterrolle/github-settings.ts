@@ -284,6 +284,21 @@ export function githubRefMatches(pattern: string, ref: string): boolean {
 }
 
 /**
+ * Whether an allow-list `ref` can match an `agent/` branch, which a dispatch
+ * never runs: its part before the first `/` matches `agent`.
+ */
+export function githubRefNamesAgentBranch(pattern: string): boolean {
+  const slash = pattern.indexOf("/");
+  return (
+    slash >= 0 &&
+    githubRefMatches(
+      pattern.slice(0, slash),
+      GITHUB_AGENT_REF_PREFIX.slice(0, -1),
+    )
+  );
+}
+
+/**
  * The allow-list entry that lets `workflow` run on branch `ref`, or null.
  * An entry without `ref` means the repository's default branch only.
  */
@@ -444,7 +459,8 @@ export const githubSettingsConnectionSchema = z
     permissions: githubAppPermissionsSchema.nullable(),
     /**
      * `ok` when GitHub took the App's key on this read, `rejected` when it
-     * refused it, `unknown` when GitHub did not answer.
+     * refused it, `unknown` when GitHub did not answer or was not asked
+     * because the stored key does not open on this server.
      */
     key_status: z.enum(["ok", "rejected", "unknown"]),
     /**

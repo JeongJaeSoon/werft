@@ -3,7 +3,6 @@ import type {
   AttemptState,
   CheckpointBlockReason,
   CheckpointRef,
-  EngineSettings,
   FinalizeRequest,
   ModelCutCause,
   PauseBlockedReason,
@@ -84,8 +83,6 @@ export type WorkerBinding = {
   // only ko, en or ja. Null, or absent, for `follow-user`, a release made
   // before the field, and a session without a release.
   releaseLanguage?: "ko" | "en" | "ja" | null;
-  // The saved rules merged for this claim; absent when there are none.
-  engineSettings?: ClaimEngineSettings;
   // The session row's platform prompt as stored. Null, or absent, for a
   // revision 0 session.
   platformPrompt?: PlatformPrompt | null;
@@ -199,16 +196,6 @@ export type ClaimInput = {
   // The worker announced `workspace_mcp`. A session with workspace servers
   // is not bound to one that did not, as with `userEnv`.
   workspaceMcp?: true;
-  // What the worker announced for the saved rules (`engine_settings`,
-  // `permission_rules`). A session whose merged rules need one it lacks is
-  // not bound to it, as with `userEnv`.
-  engineSettingsCaps?: { engineSettings: boolean; permissionRules: boolean };
-};
-
-// The saved rules one claim hands the engine, merged for the session.
-export type ClaimEngineSettings = {
-  engine?: EngineSettings;
-  disallowedTools: string[];
 };
 
 export type EgressPurpose =
@@ -331,11 +318,6 @@ export type ClaimResult =
   // The session has workspace servers and this worker did not announce
   // `workspace_mcp`. Nothing was bound and nothing changed, as above.
   | { outcome: "workspace_mcp_unsupported" }
-  // Retryable and nothing consumed: the merged rules need a field this worker
-  // does not carry, so the session waits for one that does.
-  | { outcome: "engine_settings_unsupported" }
-  // A source of the rules cannot be trusted; the claim is refused.
-  | { outcome: "engine_settings_closed"; reason: string }
   // The worker runs another combination than its launch was reserved under:
   // the image's configured runtime is wrong. Nothing was bound and the
   // session is untouched; the launch was asked to go and the image refused

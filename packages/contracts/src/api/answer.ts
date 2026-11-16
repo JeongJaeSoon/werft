@@ -51,10 +51,29 @@ export const permissionAnswerSchema = z
     { message: REMEMBER_NEEDS_ALLOW, path: ["remember"] },
   );
 
+export const ANSWER_TEXT_MAX_BYTES = 8 * 1024;
+const utf8 = new TextEncoder();
+/**
+ * A reason or free text a client sends with an answer. Stored answers keep
+ * `z.string().min(1)`, so one written before these bounds still reads.
+ */
+export const answerTextInputSchema = z
+  .string()
+  .min(1)
+  .refine((text) => text === "" || text.trim() !== "", {
+    message: "Text is blank",
+  })
+  .refine((text) => utf8.encode(text).length <= ANSWER_TEXT_MAX_BYTES, {
+    message: `Text exceeds ${ANSWER_TEXT_MAX_BYTES} UTF-8 bytes`,
+  })
+  .meta({
+    description: `At most ${ANSWER_TEXT_MAX_BYTES} bytes of UTF-8, not whitespace alone`,
+  });
+
 const permissionAnswerFields = {
   request_id: requestIdSchema,
   kind: z.literal("permission"),
-  reason: z.string().min(1).optional(),
+  reason: answerTextInputSchema.optional(),
   remember: rememberSchema.optional(),
 };
 
@@ -67,39 +86,47 @@ export const permissionAnswerInputSchema = z
     { message: REMEMBER_NEEDS_ALLOW, path: ["remember"] },
   );
 
-export const questionAnswerSchema = z
-  .object({
-    question_id: z.string().min(1),
-    selected_option_ids: z.array(z.string().min(1)),
-    free_text: z.string().min(1).optional(),
-  })
-  .strict()
-  .refine(
-    (answer) =>
-      answer.selected_option_ids.length > 0 || answer.free_text !== undefined,
-    "An answer needs a selected option or free text",
-  );
+function questionAnswer(freeText: z.ZodType<string>) {
+  return z
+    .object({
+      question_id: z.string().min(1),
+      selected_option_ids: z.array(z.string().min(1)),
+      free_text: freeText.optional(),
+    })
+    .strict()
+    .refine(
+      (answer) =>
+        answer.selected_option_ids.length > 0 || answer.free_text !== undefined,
+      "An answer needs a selected option or free text",
+    );
+}
 
-export const questionsAnswerSchema = z
-  .object({
-    request_id: requestIdSchema,
-    kind: z.literal("question"),
-    answers: z.array(questionAnswerSchema).min(1),
-  })
-  .strict()
-  .superRefine((answer, context) => {
-    const ids = new Set<string>();
-    for (const [index, item] of answer.answers.entries()) {
-      if (ids.has(item.question_id)) {
-        context.addIssue({
-          code: "custom",
-          message: "Question IDs must be unique",
-          path: ["answers", index, "question_id"],
-        });
+function questionsAnswer(freeText: z.ZodType<string>) {
+  return z
+    .object({
+      request_id: requestIdSchema,
+      kind: z.literal("question"),
+      answers: z.array(questionAnswer(freeText)).min(1),
+    })
+    .strict()
+    .superRefine((answer, context) => {
+      const ids = new Set<string>();
+      for (const [index, item] of answer.answers.entries()) {
+        if (ids.has(item.question_id)) {
+          context.addIssue({
+            code: "custom",
+            message: "Question IDs must be unique",
+            path: ["answers", index, "question_id"],
+          });
+        }
+        ids.add(item.question_id);
       }
-      ids.add(item.question_id);
-    }
-  });
+    });
+}
+
+export const questionAnswerSchema = questionAnswer(z.string().min(1));
+export const questionsAnswerSchema = questionsAnswer(z.string().min(1));
+const questionsAnswerInputSchema = questionsAnswer(answerTextInputSchema);
 
 /**
  * Why an answer cannot stand for the questions asked, or null when it can:
@@ -154,8 +181,27 @@ export const postSessionAnswerRequestSchema = z.discriminatedUnion("kind", [
 /** The body of `POST /v1/sessions/{id}/answers`. */
 export const postSessionAnswerInputSchema = z.discriminatedUnion("kind", [
   permissionAnswerInputSchema,
-  questionsAnswerSchema,
+  questionsAnswerInputSchema,
 ]);
+
+/**
+ * Why a reason or free text of `answer` breaks `answerTextInputSchema`, or
+ * null. For writers that skip the API's input schema, such as Slack.
+ */
+export function answerTextRefusal(
+  answer: PostSessionAnswerRequest,
+): string | null {
+  const texts =
+    answer.kind === "permission"
+      ? [answer.reason]
+      : answer.answers.map((item) => item.free_text);
+  for (const text of texts) {
+    if (text === undefined) continue;
+    const parsed = answerTextInputSchema.safeParse(text);
+    if (!parsed.success) return parsed.error.issues[0]?.message ?? "Invalid";
+  }
+  return null;
+}
 
 /** The stored form of an API answer, so either name hashes the same. */
 export function storedAnswer(

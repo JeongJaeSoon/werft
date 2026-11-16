@@ -1,3 +1,4 @@
+import { normalizeSessionTitle } from "@werft-ai/contracts";
 import { createPostgresSettingsDocumentStore } from "@werft-ai/db";
 import { createLogger } from "@werft-ai/observability";
 import { type CatalogProviderConfig, messageOf } from "@werft-ai/platform";
@@ -57,8 +58,6 @@ type DemoAgent = {
   instructions: string;
   /** The release's repository, which its sessions work on. */
   repositoryId?: string;
-  /** Engine ask rules: in auto mode only these reach a person. */
-  ask?: string[];
 };
 
 const DEMO_AGENTS: readonly DemoAgent[] = [
@@ -77,7 +76,6 @@ const DEMO_AGENTS: readonly DemoAgent[] = [
     instructions:
       "변경된 파일을 읽고 버그·회귀 가능성이 있는 곳을 근거와 함께 정리한다. 명령을 돌리기 전에 확인을 받는다.",
     repositoryId: REPOSITORY_ID,
-    ask: ["Bash(npm install:*)"],
   },
   {
     slug: "support-triage",
@@ -181,9 +179,12 @@ export const DEMO_SESSIONS: readonly DemoSession[] = [
       [
         {
           tool: "Bash",
-          // On code-review's ask list, so it stops on a permission card even
-          // in auto mode; `npm test` is pre-approved.
-          input: { command: "npm install", description: "의존성 설치" },
+          // Outside the workspace, so the built-in policy's ask stops it on a
+          // permission card even in auto mode.
+          input: {
+            command: "mkdir /tmp/deps-check",
+            description: "의존성 확인용 임시 폴더 만들기",
+          },
         },
       ],
       "테스트에 영향을 주는 변경은 없었습니다.",
@@ -252,8 +253,8 @@ export const DEMO_SESSIONS: readonly DemoSession[] = [
     agent: null,
     repository: false,
     private: false,
-    // Whitespace alone: the title derived from it is empty, so none is kept.
-    message: " ",
+    // No title sent: the API derives one from the message.
+    message: "이 저장소가 하는 일을 한 줄로 알려 주세요.",
     outcome: "idle",
   },
 ];
@@ -468,19 +469,6 @@ async function ensureAgent(
     );
     versionId = detail.versions[0]?.id;
   }
-  if (agent.ask !== undefined) {
-    const current = await owner.expect<{ settings_revision: number | null }>(
-      200,
-      "GET",
-      `/v1/agents/${agentId}/engine-settings`,
-    );
-    if (current.settings_revision === null) {
-      await owner.expect(200, "PUT", `/v1/agents/${agentId}/engine-settings`, {
-        expected_revision: null,
-        settings: { permissions: { ask: agent.ask }, auto_mode: {} },
-      });
-    }
-  }
   const released = await owner.expect<{ release: { id: string } }>(
     200,
     "POST",
@@ -531,7 +519,11 @@ async function alreadySeeded(
   if (session.title !== null) {
     return rows.find((row) => row.title === session.title) ?? null;
   }
-  for (const row of rows.filter((candidate) => candidate.title === null)) {
+  // A row seeded before blank messages were refused has no title.
+  const derived = normalizeSessionTitle(session.message);
+  for (const row of rows.filter(
+    (candidate) => candidate.title === null || candidate.title === derived,
+  )) {
     const turn = await client.request<{ message?: string }>(
       "GET",
       `/v1/sessions/${row.id}/turns/1`,
@@ -704,7 +696,7 @@ export type DemoDataOutcome = {
 
 /**
  * Adds whichever demo agent or session is missing, found by agent slug and
- * session title (an untitled one by its first message), and leaves every
+ * session title (one sent without a title by its first message), and leaves every
  * existing row alone. The demo accounts must exist already.
  */
 async function seedDemoData(
@@ -774,7 +766,7 @@ async function seedAs(
   // One at a time: several sessions starting and polled at once held the
   // api's database pool long enough for running workers' heartbeats to fail.
   for (const session of DEMO_SESSIONS) {
-    const name = session.title ?? "(제목 없음)";
+    const name = session.title ?? normalizeSessionTitle(session.message);
     const client = clients[session.creator];
     const existing = await alreadySeeded(
       client,

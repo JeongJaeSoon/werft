@@ -17,7 +17,10 @@ import { cn } from "../foundations/cn.ts";
  *
  * A finished step says so in words, never with a symbol. From `sm` up the
  * status word sits on its own 20px line under the name, so every step is the
- * same height; below `sm` it sits at the row's right end.
+ * same height; below `sm` it follows the name on the same line.
+ *
+ * The steps pack at the start, joined by short fixed lines: spread across a
+ * wide page, the first and last numbers ended up at opposite edges.
  */
 
 export interface StepperStep {
@@ -85,7 +88,7 @@ export function Stepper({
 
   return (
     <nav aria-label={label} data-slot="stepper" className={className}>
-      <ol className="flex flex-col gap-2 break-keep sm:flex-row sm:items-center sm:gap-3">
+      <ol className="flex flex-col gap-2 break-keep sm:flex-row sm:flex-wrap sm:items-start sm:gap-3">
         {steps.map((step, index) => {
           const state: StepState =
             index < currentIndex
@@ -98,7 +101,7 @@ export function Stepper({
           const body = (
             <>
               <StepIndicator state={state} number={index + 1} />
-              <span className="flex min-w-0 flex-1 items-start justify-between gap-2 sm:flex-col sm:gap-0">
+              <span className="flex min-w-0 items-start gap-2 sm:flex-col sm:gap-0">
                 <span className="flex min-w-0 flex-col">
                   <span className="whitespace-nowrap font-medium text-sm leading-6">
                     {step.label}
@@ -135,7 +138,7 @@ export function Stepper({
             </>
           );
           const itemClass = cn(
-            "flex min-w-0 flex-1 items-start gap-2 sm:flex-none sm:shrink-0",
+            "flex min-w-0 items-start gap-2 sm:shrink-0",
             state === "upcoming" ? "text-muted-foreground" : "text-foreground",
           );
           return (
@@ -143,10 +146,7 @@ export function Stepper({
               key={step.id}
               data-slot="stepper-step"
               data-state={state}
-              className={cn(
-                "flex items-center gap-3 sm:items-start",
-                !last && "sm:flex-1",
-              )}
+              className="flex items-center gap-3 sm:items-start"
             >
               {onStepSelect ? (
                 <button
@@ -182,7 +182,7 @@ export function Stepper({
                   data-slot="stepper-connector"
                   className={cn(
                     // Through the circle's centre, 12px from the top.
-                    "hidden h-px min-w-4 flex-1 sm:mt-3 sm:block sm:-translate-y-1/2",
+                    "hidden h-px w-8 shrink-0 sm:mt-3 sm:block sm:-translate-y-1/2",
                     state === "complete"
                       ? "bg-(color:--werft-tone-success-border)"
                       : "bg-border",

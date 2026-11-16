@@ -13,6 +13,7 @@ import {
   type GitHubAppStore,
   receiptActorOf,
   type SecretAudit,
+  SecretDecryptError,
   type SecretKey,
   type SecretSlot,
 } from "@werft-ai/platform";
@@ -581,7 +582,7 @@ export function createPostgresGitHubAppStore(
         .where(and(eq(githubApps.id, id), eq(githubApps.appId, appId)));
     },
 
-    async credentials(role, workspaceId) {
+    async credentials(role, workspaceId, options) {
       const rows = await db
         .select()
         .from(githubApps)
@@ -593,7 +594,19 @@ export function createPostgresGitHubAppStore(
         .orderBy(asc(githubApps.createdAt), asc(githubApps.id));
       const held: GitHubAppCredential[] = [];
       for (const row of rows) {
-        const privateKey = await secrets.get(keySlot(row));
+        let privateKey: string | null;
+        try {
+          privateKey = await secrets.get(keySlot(row));
+        } catch (error) {
+          if (
+            !(error instanceof SecretDecryptError) ||
+            !options?.onUnreadable
+          ) {
+            throw error;
+          }
+          options.onUnreadable({ id: row.id, appId: row.appId });
+          continue;
+        }
         // A row is written with its key in one transaction, so a missing key
         // is a delete racing this read.
         if (privateKey === null) continue;

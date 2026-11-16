@@ -2,9 +2,9 @@ import { randomBytes, randomUUID } from "node:crypto";
 import {
   acceptInviteRequestSchema,
   acceptInviteResponseSchema,
+  clampDisplayName,
   createInviteRequestSchema,
   createInviteResponseSchema,
-  DISPLAY_NAME_MAX,
   inviteIdParamsSchema,
   listInvitesResponseSchema,
   normalizeEmail,
@@ -125,7 +125,7 @@ function passwordClosed(): ApiHttpError {
 
 // The local part may be longer than a display name is allowed to be.
 function defaultDisplayName(email: string): string {
-  return (email.split("@")[0] || email).slice(0, DISPLAY_NAME_MAX);
+  return clampDisplayName(email.split("@")[0] || email);
 }
 
 /** Mounted outside the auth middleware (03 §3.2 public allowlist). */

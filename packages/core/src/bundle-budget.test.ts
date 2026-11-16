@@ -13,9 +13,11 @@ const BUDGET_BYTES: Record<string, number> = {
   // its 139, so ./forms moves to 140. The session event archive settings
   // put ./schemas 2 bytes over 141, so it moves to 142. The agent list's
   // engine and channels and the session's turn time put it 26 bytes over 142,
-  // so it moves to 143.
+  // so it moves to 143. The input-only validation schemas (trimmed names,
+  // non-blank messages and answers, the allow-list rules) put ./forms 416
+  // bytes over 140, so it moves to 141.
   "./schemas": 143 * 1024,
-  "./forms": 140 * 1024,
+  "./forms": 141 * 1024,
 };
 
 test("every entry has a budget", () => {

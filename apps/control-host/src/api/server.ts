@@ -21,7 +21,6 @@ import {
   createPostgresCommitAttributionLedger,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
-  createPostgresEngineSettingsStore,
   createPostgresEnvVariableStore,
   createPostgresGitHubAppManifestStore,
   createPostgresGitHubAppStore,
@@ -110,7 +109,6 @@ import {
   createCatalogRegistry,
   createCredentialBindingService,
   createDecisionsClient,
-  createEngineSettingsService,
   createEnvVariableService,
   createGitHubAppService,
   createGitHubConnectionResolver,
@@ -250,7 +248,6 @@ import {
   registerAgentWorkspaceMcpRoutes,
 } from "./routes/agents/agent-mcp.ts";
 import { registerAgentRoutes } from "./routes/agents/agents.ts";
-import { registerEngineSettingsRoutes } from "./routes/agents/engine-settings.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerAgentGitHubRoutes } from "./routes/github/agent-github.ts";
 import { registerGitHubAppRoutes } from "./routes/github/github-app.ts";
@@ -525,6 +522,8 @@ const agents = createAgentService({
   catalog,
   credentials: credentialBindings,
   githubSettings: githubSettingsStore,
+  repositoryCeiling: (workspaceId) =>
+    workspaceRepositoryCeiling(db, workspaceId),
   welcome: slackWelcome,
   keys: createPostgresWorkspaceKeyStore(db),
   outsideAgents: agentAccess,
@@ -909,11 +908,6 @@ const agentMcp = createAgentMcpService({
 const agentWorkspaceMcp = createAgentWorkspaceMcpService({
   authorization,
   store: createPostgresAgentWorkspaceMcpStore(db),
-});
-const engineSettings = createEngineSettingsService({
-  authorization,
-  store: createPostgresEngineSettingsStore(db),
-  catalogs: installedToolCatalogView.all,
 });
 const agentPullRequest = createAgentPullRequestService({
   authorization,
@@ -1319,7 +1313,6 @@ const app = createApiApp({
     registerAgentGitHubRoutes(router, agentGitHub);
     registerAgentMcpRoutes(router, agentMcp);
     registerAgentWorkspaceMcpRoutes(router, agentWorkspaceMcp);
-    registerEngineSettingsRoutes(router, engineSettings);
     registerAgentPullRequestRoutes(router, agentPullRequest);
     registerSessionRoutes(router, sessions);
     registerSessionOutputRoutes(router, sessionOutputs);

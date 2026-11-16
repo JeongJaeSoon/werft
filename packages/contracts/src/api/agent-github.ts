@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  agentGitHubSettingsInputSchema,
   agentGitHubSettingsSchema,
   pushAttachedSchema,
 } from "../kollegium/agents.ts";
@@ -128,7 +129,7 @@ export const putAgentGitHubSettingsRequestSchema = z
   .object({
     /** `settings_revision` as read; null when the agent had no row. */
     expected_revision: z.number().int().nullable(),
-    settings: agentGitHubSettingsSchema,
+    settings: agentGitHubSettingsInputSchema,
     /** Must be one of `settings.repositories`. */
     start_repository_id: z.string().min(1).max(128).nullable(),
     /**

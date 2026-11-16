@@ -34,7 +34,7 @@ A session calls its model through the model connection its agent release chose. 
    - When a model taken off the list has a later version of its series on the list, agents and sessions on it move to that one (`model_families`).
 3. When you create an agent, choose this connection in the **Release** step ([Create](/agents/create)). New releases on this connection run the `auto` permission mode.
 
-Choose repositories in the agent's **GitHub** tab, within the workspace's allowed scope, not on the connection. What to ask about and block is set by the workspace's and the agent's run rules ([Permissions](/agents/permissions)).
+Choose repositories in the agent's **GitHub** tab, within the workspace's allowed scope, not on the connection. What a session asks a person about is in [Permissions](/agents/permissions).
 
 Starting a session on a release of this connection before providing a key produces an error indicating no key is available for the model connection. The error points to the console path in step 1. To rotate the key, choose **Set API key** (**Set Bearer token** on a bearer-token connection) from the row's ⋯ menu on the same screen.
 

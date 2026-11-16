@@ -40,6 +40,7 @@ import {
   warningEvent,
 } from "./mapper.ts";
 import type { RelayCall } from "./mcp-relay.ts";
+import { sandboxRefusal, sandboxTurnedOffRefusal } from "./sandbox.ts";
 import { type AppServerTransport, RpcError, type RpcId } from "./transport.ts";
 
 const COMMAND_APPROVAL = "item/commandExecution/requestApproval";
@@ -52,7 +53,11 @@ export type CodexRunOptions = {
   transport: AppServerTransport;
   launch: Pick<
     CodexLaunch,
-    "answers" | "approvalPolicy" | "developerInstructions" | "threadConfig"
+    | "answers"
+    | "approvalPolicy"
+    | "developerInstructions"
+    | "sandbox"
+    | "threadConfig"
   >;
   cwd: string;
   model: string;
@@ -67,6 +72,8 @@ export type CodexRunOptions = {
   kill: () => void;
   /** Why the engine started badly (settings it ignored), if it did. */
   startupProblem: () => string | undefined;
+  /** Why the sandbox `auto` runs in cannot start here, or undefined when it can. */
+  probeSandbox: () => Promise<string | undefined>;
   /**
    * The platform tools the MCP relay serves that the server judges itself
    * (`mcp__<server>__<tool>`), and the end of the relay with the run.
@@ -365,13 +372,28 @@ export class CodexRun implements AgentRun {
       capabilities: null,
     });
     transport.notify("initialized");
+    // Auto runs in the sandbox or not at all, a resumed thread too.
+    if (launch.sandbox === "disabled") {
+      throw new Error(sandboxTurnedOffRefusal());
+    }
+    if (launch.sandbox === "bubblewrap") {
+      const failure = await this.options.probeSandbox();
+      if (failure !== undefined) throw new Error(sandboxRefusal(failure));
+    }
     // The claim's policy, on a resumed thread too: what was stored with the
-    // thread never decides how this run is approved or instructed.
+    // thread never decides how this run is approved or instructed. The
+    // sandbox runs on the permission profile `config` names, which a
+    // `sandbox` here would replace.
     const overrides = {
       cwd: this.options.cwd,
       model: this.options.model,
       approvalPolicy: launch.approvalPolicy,
-      sandbox: "danger-full-access",
+      ...(launch.sandbox === "bubblewrap"
+        ? {}
+        : { sandbox: "danger-full-access" }),
+      ...(launch.sandbox === undefined
+        ? {}
+        : { approvalsReviewer: "auto_review" }),
       config: launch.threadConfig,
       ...(launch.developerInstructions === undefined
         ? {}
@@ -393,11 +415,27 @@ export class CodexRun implements AgentRun {
     if (typeof id !== "string") {
       throw new Error("The Codex app-server started no thread");
     }
+    // The `werft` profile as 0.167.0 reports it: the workspace alone
+    // writable, the network on. Anything else is refused, not trusted.
+    const policy = record(response.sandbox);
+    if (
+      launch.sandbox === "bubblewrap" &&
+      !(
+        policy.type === "workspaceWrite" &&
+        policy.networkAccess === true &&
+        Array.isArray(policy.writableRoots) &&
+        policy.writableRoots.length === 0
+      )
+    ) {
+      throw new Error(
+        `The Codex app-server put the thread in sandbox ${JSON.stringify(response.sandbox)}, not the workspace profile`,
+      );
+    }
     const problem = this.options.startupProblem();
     if (problem !== undefined) throw new Error(problem);
     await this.mcpStarted();
     this.threadId = id;
-    this.events$.push(startedEvent(id, this.options.model));
+    this.events$.push(startedEvent(id, this.options.model, launch.sandbox));
     void this.pump();
     return {
       effective: CODEX_DESCRIPTOR.capabilities,

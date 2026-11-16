@@ -1,4 +1,7 @@
-import { SLACK_BINDING_MESSAGES } from "@werft-ai/contracts";
+import {
+  SLACK_BINDING_MESSAGES,
+  SLACK_BINDING_REASON_CODES,
+} from "@werft-ai/contracts";
 import {
   type ChannelKindReadable,
   type SecretStore,
@@ -54,6 +57,8 @@ export function createSlackChannelKinds(deps: {
     new SessionServiceError(
       "SLACK_NOT_INSTALLED",
       SLACK_BINDING_MESSAGES.notInstalled,
+      undefined,
+      { reason_code: SLACK_BINDING_REASON_CODES.notInstalled },
     );
   return {
     async kindOf(workspaceId, agentId, channelId) {
@@ -95,13 +100,17 @@ export function createSlackChannelKinds(deps: {
             "BAD_REQUEST",
             SLACK_BINDING_MESSAGES.channelUnknown,
             undefined,
-            { slack_error: error.code },
+            {
+              slack_error: error.code,
+              reason_code: SLACK_BINDING_REASON_CODES.channelUnknown,
+            },
           );
         }
         throw new SessionServiceError(
           "BACKEND_UNAVAILABLE",
           SLACK_BINDING_MESSAGES.slackUnavailable,
           { afterSeconds: 10 },
+          { reason_code: SLACK_BINDING_REASON_CODES.slackUnavailable },
         );
       }
     },

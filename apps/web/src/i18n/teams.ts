@@ -33,7 +33,6 @@ export const teamsKo = {
   "teams.deleteConsequence":
     "구성원은 워크스페이스에 그대로 남지만, 이 팀을 통해 관리하던 에이전트는 더 관리하지 못합니다.",
   "teams.members": "팀 구성원",
-  "teams.memberTotal": "{count}명",
   "teams.addHint":
     "여러 명을 골라 한 번에 추가할 수 있습니다. 추가하면 수락 없이 바로 구성원이 됩니다.",
   "teams.addOpen": "구성원 추가",
@@ -66,7 +65,9 @@ export const teamsKo = {
   "teams.column.teamRole": "팀 역할",
   "teams.role.lead": "팀 관리자",
   "teams.role.member": "구성원",
-  "teams.changeRoleFor": "{name}님의 팀 역할",
+  "teams.demote": "구성원으로 바꾸기",
+  "teams.filter.label": "팀 역할로 보기",
+  "teams.filter.empty": "팀 역할이 {role}인 구성원이 없습니다.",
   "teams.promoteTitle": "{name}님을 팀 관리자로 바꿀까요?",
   "teams.promoteConsequence":
     "팀 관리자는 이 팀이 담당 팀인 에이전트를 모두 관리합니다. 바꾸면 바로 적용됩니다.",
@@ -117,7 +118,6 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.deleteConsequence":
     "Its members stay in the workspace, but can no longer manage agents through this team.",
   "teams.members": "Team members",
-  "teams.memberTotal": "{count}",
   "teams.addHint":
     "Pick several people and add them at once. They join the team right away, without having to accept.",
   "teams.addOpen": "Add members",
@@ -150,7 +150,9 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.column.teamRole": "Team role",
   "teams.role.lead": "Team lead",
   "teams.role.member": "Member",
-  "teams.changeRoleFor": "{name}'s team role",
+  "teams.demote": "Make member",
+  "teams.filter.label": "View by team role",
+  "teams.filter.empty": "No members have the {role} team role.",
   "teams.promoteTitle": "Make {name} a team lead?",
   "teams.promoteConsequence":
     "A team lead manages every agent this team is the responsible team of. The change applies right away.",
@@ -200,7 +202,6 @@ export const teamsJa: Record<keyof typeof teamsKo, string> = {
   "teams.deleteConsequence":
     "メンバーはワークスペースに残りますが、このチームを通じて管理していたエージェントは管理できなくなります。",
   "teams.members": "チームメンバー",
-  "teams.memberTotal": "{count}人",
   "teams.addHint":
     "複数の人を選んで一度に追加できます。追加すると、承諾なしですぐにメンバーになります。",
   "teams.addOpen": "メンバーを追加",
@@ -233,7 +234,9 @@ export const teamsJa: Record<keyof typeof teamsKo, string> = {
   "teams.column.teamRole": "チームのロール",
   "teams.role.lead": "チーム管理者",
   "teams.role.member": "メンバー",
-  "teams.changeRoleFor": "{name}さんのチームのロール",
+  "teams.demote": "メンバーにする",
+  "teams.filter.label": "チームのロールで表示",
+  "teams.filter.empty": "チームのロールが{role}のメンバーはいません。",
   "teams.promoteTitle": "{name}さんをチーム管理者にしますか？",
   "teams.promoteConsequence":
     "チーム管理者は、このチームが担当チームのエージェントをすべて管理します。変更はすぐに反映されます。",

@@ -33,17 +33,27 @@ export const EGRESS_TOKEN_VARIABLE = "WERFT_EGRESS_TOKEN";
  *
  * `answers` is who answers what the engine asks: the person (`ask`), the
  * adapter accepting file changes only (`edits`), or the adapter declining all
- * (`none`). The sandbox is off in every mode: the container is the boundary
- * (a user namespace for bwrap would widen it), and approval is independent.
+ * (`none`). The sandbox is off in every mode but `auto`: the container is the
+ * boundary, and approval is independent.
+ *
+ * `auto` runs commands in Codex's bubblewrap sandbox and lets the engine's
+ * own reviewer (`auto_review`) judge each request to leave it; what still
+ * reaches the adapter is declined. The reviewer judges sandbox escalations
+ * only: with `untrusted` a request skips it and comes to the adapter, and
+ * outside a sandbox `on-request` asks nothing (seen with 0.167.0).
  */
 const MODES = {
   default: { approval: "untrusted", answers: "ask" },
   acceptEdits: { approval: "untrusted", answers: "edits" },
   dontAsk: { approval: "untrusted", answers: "none" },
   bypassPermissions: { approval: "never", answers: "none" },
+  auto: { approval: "on-request", answers: "none" },
 } as const satisfies Record<
   string,
-  { approval: "untrusted" | "never"; answers: "ask" | "edits" | "none" }
+  {
+    approval: "untrusted" | "on-request" | "never";
+    answers: "ask" | "edits" | "none";
+  }
 >;
 
 export type ModeRun = (typeof MODES)[keyof typeof MODES];
@@ -54,6 +64,51 @@ export function modeRunOf(mode: PermissionMode): ModeRun {
     throw new Error(`The Codex engine does not run in ${mode} mode`);
   }
   return MODES[mode as keyof typeof MODES];
+}
+
+/**
+ * The operator's switch for the sandbox `auto` runs in (Helm
+ * `codexSandbox.enabled`, compose `CODEX_SANDBOX`). The scheduler hands it to
+ * the worker, and starts a Codex container under the seccomp profile
+ * bubblewrap needs only while it is on. Off, auto sessions are refused.
+ */
+export const CODEX_SANDBOX_VARIABLE = "CODEX_SANDBOX";
+
+export type CodexSandbox = "bubblewrap" | "disabled";
+
+export function codexSandboxOf(host: NodeJS.ProcessEnv): CodexSandbox {
+  const value = host[CODEX_SANDBOX_VARIABLE];
+  if (value === undefined || value === "" || value === "enabled") {
+    return "bubblewrap";
+  }
+  if (value === "disabled") return "disabled";
+  throw new Error(
+    `${CODEX_SANDBOX_VARIABLE} must be enabled or disabled (got ${value})`,
+  );
+}
+
+/**
+ * The permission profile `auto` runs commands under while the sandbox is on:
+ * the workspace writable, the rest of the file system read-only, and the
+ * network left to the egress proxy, which is its boundary.
+ */
+const SANDBOX_PROFILE = "werft";
+
+const SANDBOX_OVERRIDES: Array<[string, TomlValue]> = [
+  ["default_permissions", SANDBOX_PROFILE],
+  [
+    `permissions.${SANDBOX_PROFILE}`,
+    { extends: ":workspace", network: { enabled: true } },
+  ],
+];
+
+function overrideArgs(overrides: Array<[string, TomlValue]>): string[] {
+  return overrides.flatMap(([key, value]) => ["-c", `${key}=${toml(value)}`]);
+}
+
+/** `codex sandbox` under the profile `auto` runs in: one command, then out. */
+export function sandboxProbeArgs(): string[] {
+  return ["sandbox", ...overrideArgs(SANDBOX_OVERRIDES), "--", "true"];
 }
 
 export type CodexConnection = {
@@ -119,7 +174,6 @@ export function assertStartable(
   };
   if (config.maxTurns !== undefined) refuse("a turn limit");
   if ((config.disallowedTools ?? []).length > 0) refuse("deny rules");
-  if (config.engineSettings !== undefined) refuse("engine permission rules");
   // Only the platform's own servers, which the relay judges call by call; a
   // remote server an administrator named has no such path here.
   const remote = bundle.mcpServers.filter((server) => server.platform !== true);
@@ -173,8 +227,10 @@ export function toml(value: TomlValue): string {
 export type CodexLaunch = {
   /** The arguments after the executable: no secret and no claim data. */
   args: string[];
-  approvalPolicy: "untrusted" | "never";
+  approvalPolicy: ModeRun["approval"];
   answers: ModeRun["answers"];
+  /** `auto` only: the sandbox its commands run in, or `disabled` to refuse it. */
+  sandbox?: CodexSandbox;
   /** `config` for `thread/start` and `thread/resume`, not on any command line. */
   threadConfig: Record<string, unknown>;
   developerInstructions: string | undefined;
@@ -216,6 +272,8 @@ export function codexLaunch(
   assertStartable(config, bundle);
   const connection = connectionOf(bindings);
   const run = modeRunOf(config.permissionMode);
+  const sandbox =
+    config.permissionMode === "auto" ? codexSandboxOf(host) : undefined;
   const home = codexHomeOf(deps.stateDir);
 
   const provider = {
@@ -262,6 +320,7 @@ export function codexLaunch(
     // An untrusted project's own `.codex` layer (config and exec rules) is
     // not loaded, so the repository cannot grant itself commands.
     ["projects", { [config.cwd]: { trust_level: "untrusted" } }],
+    ...(sandbox === "bubblewrap" ? SANDBOX_OVERRIDES : []),
   ];
   // A platform server is reached through the relay in this process, with a
   // secret of its own; the engine is shown the server's pinned tools only.
@@ -330,14 +389,18 @@ export function codexLaunch(
   };
 
   return {
-    args: [
-      "app-server",
-      ...overrides.flatMap(([key, value]) => ["-c", `${key}=${toml(value)}`]),
-    ],
+    args: ["app-server", ...overrideArgs(overrides)],
     approvalPolicy: run.approval,
     answers: run.answers,
+    ...(sandbox === undefined ? {} : { sandbox }),
     threadConfig: {
       shell_environment_policy: { inherit: "none", set: toolEnv },
+      // Without a permission setting in the request, a resume restores the
+      // profile stored with the thread (danger-full-access when the thread
+      // ran with the sandbox off), over the engine's own default.
+      ...(sandbox === "bubblewrap"
+        ? { default_permissions: SANDBOX_PROFILE }
+        : {}),
     },
     developerInstructions: developerInstructionsOf(start),
     env,

@@ -23,6 +23,7 @@ import {
   type GitHubRefusal,
   githubFeaturesOverCeiling,
   type ListUsableAgentsResponse,
+  type RepositoryCeiling,
   type SaveAgentResponse,
   type SaveRelease,
   TEAM_LIST_LIMIT,
@@ -65,6 +66,7 @@ import {
   connectionOf,
   modelMoves,
   modelSuccessor,
+  repositoryInCeiling,
   type SessionCatalog,
   type SessionCatalogView,
 } from "../sessions/catalog.ts";
@@ -191,6 +193,10 @@ export function createAgentService(deps: {
   keys?: Pick<WorkspaceKeyStore, "find">;
   /** The ceiling a release's `github` is checked against; absent: all off. */
   githubSettings?: Pick<GitHubSettingsStore, "get">;
+  /** The repository ceiling a sent `github` pin is held to; absent: none allowed. */
+  repositoryCeiling?: (
+    workspaceId: string,
+  ) => Promise<RepositoryCeiling | null>;
   /** Axis A, as the policy reads it; absent: `use`. */
   outsideAgents?: OutsideAgentAccessSetting;
   /** The runtime version a new release of each kind runs. */
@@ -246,7 +252,18 @@ export function createAgentService(deps: {
     ownerId: string,
     repositoryId: string | null,
     github: AgentGitHub,
+    /**
+     * Whether the caller sent `github`. Only a sent one is held to the
+     * repository ceiling, as a settings save holds only the repositories it
+     * adds: a kept pin from before a narrowed ceiling still saves, and the
+     * gate cuts it at each token issue.
+     */
+    sent: boolean,
   ): Promise<void> {
+    const repositoryCeiling =
+      sent && deps.repositoryCeiling
+        ? await deps.repositoryCeiling(ownerId)
+        : null;
     for (const [index, id] of github.repositories.entries()) {
       const field = `github.repositories.${index}`;
       const repository = Object.hasOwn(catalog.repositories, id)
@@ -258,6 +275,9 @@ export function createAgentService(deps: {
       // A PAT cannot be narrowed to a permission set.
       if (repository.auth?.kind !== "github_app") {
         throw githubInvalid(field, "app_required");
+      }
+      if (sent && !repositoryInCeiling(catalog, repositoryCeiling, id)) {
+        throw githubInvalid(field, "repository_not_allowed");
       }
     }
     if (repositoryId !== null && !github.repositories.includes(repositoryId)) {
@@ -478,7 +498,7 @@ export function createAgentService(deps: {
     }
     if (github !== undefined) {
       try {
-        await checkGitHub(caller.ownerId, repositoryId, github);
+        await checkGitHub(caller.ownerId, repositoryId, github, false);
       } catch (error) {
         const reason = refusalCode(error);
         if (reason === null) throw error;
@@ -1192,7 +1212,12 @@ export function createAgentService(deps: {
           : (await store.get(caller.ownerId, agentId))?.active_release
               ?.policy_pins.github);
       if (github !== undefined) {
-        await checkGitHub(caller.ownerId, repositoryId, github);
+        await checkGitHub(
+          caller.ownerId,
+          repositoryId,
+          github,
+          request.github !== undefined,
+        );
       }
       const identity = {
         // As stored: PostgreSQL returns a uuid in lower case.

@@ -565,7 +565,11 @@ function NameStep({
         onNext(values);
       })}
     >
-      <StepHeading focus={focus}>{t("agents.flow.name")}</StepHeading>
+      {/* The name field's label right below says the same word; the step
+          keeps its heading for readers and for focus. */}
+      <StepHeading focus={focus} hidden>
+        {t("agents.flow.name")}
+      </StepHeading>
       <Field>
         <FieldLabel>{t("agents.name")}</FieldLabel>
         <Input maxLength={120} {...name} />

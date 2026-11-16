@@ -27,7 +27,6 @@ import {
   agentAdminsViewSchema,
   agentCallerLimitsSchema,
   agentDetailSchema,
-  agentEngineSettingsResponseSchema,
   agentEnvVariablesSchema,
   agentGitHubActivityResponseSchema,
   agentGitHubResponseSchema,
@@ -229,8 +228,6 @@ import {
   putAgentUsageResponseSchema,
   putAgentWorkspaceMcpServersRequestSchema,
   putAgentWorkspaceMcpServersResponseSchema,
-  putEngineSettingsRequestSchema,
-  putEngineSettingsResponseSchema,
   putEnvVariableGrantsRequestSchema,
   putEnvVariableGrantsResponseSchema,
   putEnvVariableRequestSchema,
@@ -371,7 +368,6 @@ import {
   usageToolsResponseSchema,
   WEB_SESSION_COOKIE_NAME,
   workflowRunParamsSchema,
-  workspaceEngineSettingsResponseSchema,
   workspaceMcpServerListSchema,
   workspaceMcpServerParamsSchema,
   workspaceMcpServerSchema,
@@ -447,7 +443,6 @@ const requestComponents = {
   PutAgentGitHubRepositoryAccessRequest:
     putAgentGitHubRepositoryAccessRequestSchema,
   PutAgentMcpSettingsRequest: putAgentMcpSettingsRequestSchema,
-  PutEngineSettingsRequest: putEngineSettingsRequestSchema,
   BootstrapRequest: bootstrapRequestSchema,
   LoginRequest: loginRequestSchema,
   PasswordResetRequest: passwordResetRequestSchema,
@@ -573,9 +568,6 @@ const responseComponents = {
     putAgentGitHubRepositoryAccessResponseSchema,
   AgentMcpResponse: agentMcpResponseSchema,
   PutAgentMcpSettingsResponse: putAgentMcpSettingsResponseSchema,
-  WorkspaceEngineSettingsResponse: workspaceEngineSettingsResponseSchema,
-  AgentEngineSettingsResponse: agentEngineSettingsResponseSchema,
-  PutEngineSettingsResponse: putEngineSettingsResponseSchema,
   AgentGitHubActivityResponse: agentGitHubActivityResponseSchema,
   ReceiptAcceptedResponse: receiptAcceptedResponseSchema,
   TerminateSessionResponse: terminateSessionResponseSchema,
@@ -2528,7 +2520,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary: "The workspace's GitHub ceiling (members)",
     description:
-      "What the workspace lets its agents turn on beyond writing a pull request: `workflows`, `actions`, `checks`, `issues`, `review`, all false until an owner or admin saves the ceiling (`revision` 0 until then). `merge` is the ceiling's alone, no agent or release holds it: it lets the workspace's agents squash-merge the pull request their own session opened, it reads false when a stored ceiling lacks it, and GitHub's branch protection and required checks still apply. An agent's release may turn a feature on only under the ceiling, and every GitHub token is cut to the ceiling again when it is issued. `agents_using` counts, per feature, agents with GitHub on whose active release turns it on; sessions still running an earlier release are not counted. `connections` lists every registered App (author ones first; a role may have several) with its `name`, `app_id`, the `owner` account GitHub names, the `permissions` it asks for, `key_status`, and where it is installed: each installation's `account`, `account_type` and `status` (`suspended`, `approval_pending` when the account has not approved every permission the App asks for, `unknown` before the App's permissions were read or when the list could not be read now, else `active`). Installations are read from GitHub with each App's own key on every request, so one App failing does not hide another's: its `check` is `failed` with `reason_code` (`github_unavailable` or `github_app_auth_failed`), its `installations` is the last list read for that App with each `status` `unknown` (empty when none was ever read), and `installations_read_at` says when that list was read (null when never). An installation's `detail` (connection, account id, approved permissions, `approval`, `repository_count` for the first 20 when read now, `repository_selection`, its settings page, `created_at`, `suspended_at`, and `connected`: who finished installing it from the console and when, null when not recorded) is given to owners and admins only; a member reads null. `apps` has each role's App permissions as last read from GitHub; it reads null for a role with several Apps, so read `connections`. Any member signed in to the console reads it; API keys are refused.",
+      "What the workspace lets its agents turn on beyond writing a pull request: `workflows`, `actions`, `checks`, `issues`, `review`, all false until an owner or admin saves the ceiling (`revision` 0 until then). `merge` is the ceiling's alone, no agent or release holds it: it lets the workspace's agents squash-merge the pull request their own session opened, it reads false when a stored ceiling lacks it, and GitHub's branch protection and required checks still apply. An agent's release may turn a feature on only under the ceiling, and every GitHub token is cut to the ceiling again when it is issued. `agents_using` counts, per feature, agents with GitHub on whose active release turns it on; sessions still running an earlier release are not counted. `connections` lists every registered App (author ones first; a role may have several) with its `name`, `app_id`, the `owner` account GitHub names, the `permissions` it asks for, `key_status`, and where it is installed: each installation's `account`, `account_type` and `status` (`suspended`, `approval_pending` when the account has not approved every permission the App asks for, `unknown` before the App's permissions were read or when the list could not be read now, else `active`). Installations are read from GitHub with each App's own key on every request, so one App failing does not hide another's: its `check` is `failed` with `reason_code` (`github_unavailable` or `github_app_auth_failed`), its `installations` is the last list read for that App with each `status` `unknown` (empty when none was ever read), and `installations_read_at` says when that list was read (null when never). An App whose stored key this server cannot open (sealed under another master key) is still listed and GitHub is not asked: `key_status` `unknown`, `check` `failed` with `github_app_auth_failed`, until its key is put again. An installation's `detail` (connection, account id, approved permissions, `approval`, `repository_count` for the first 20 when read now, `repository_selection`, its settings page, `created_at`, `suspended_at`, and `connected`: who finished installing it from the console and when, null when not recorded) is given to owners and admins only; a member reads null. `apps` has each role's App permissions as last read from GitHub; it reads null for a role with several Apps, so read `connections`. Any member signed in to the console reads it; API keys are refused.",
     auth: "session",
     success: {
       status: 200,
@@ -5110,12 +5102,19 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Invite a person to the workspace",
     description:
-      "The token is returned once and expires in seven days; only its sha256 is stored. Inviting an address that already has a live invite revokes that invite. An address that is already a live member answers 400. Every invite writes an `invite_member` receipt.",
+      "The token is returned once and expires in seven days; only its sha256 is stored. Addresses are compared trimmed and lower-cased. Inviting an address that already has a live invite revokes that invite. An address whose membership in the workspace is on, even while its account is suspended, answers 409 ALREADY_EXISTS; a member whose membership is disabled may be invited again, and accepting turns the membership back on. Every invite writes an `invite_member` receipt.",
     auth: "session",
     body: "CreateInviteRequest",
     success: { status: 201, schema: "CreateInviteResponse" },
-    errors: [400, 401, 403, 413, 503],
-    errorCodes: { 403: ["FORBIDDEN", "OWNER_PROTECTED"] },
+    errors: [400, 401, 403, 409, 413, 503],
+    errorCodes: {
+      403: ["FORBIDDEN", "OWNER_PROTECTED"],
+      409: ["ALREADY_EXISTS"],
+    },
+    errorNotes: {
+      ALREADY_EXISTS:
+        'The address belongs to a member of the workspace; `details` is `{ field: "email", reason_code: "already_member" }`.',
+    },
     idempotent: false,
   },
   {
@@ -6493,7 +6492,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Save the agent's MCP settings",
     description:
-      "Replaces the agent's whole settings row in one transaction and makes no release: a new session reads it at once, a change that narrows reaches running sessions too, and a change that widens only sessions that start after it. `expected_revision` is `settings_revision` as read (null when there was no row); another value answers 409 `REVISION_CONFLICT`. `updated_by` is always the caller, so the first person's save of an agent also fixes the rollback floor at the snapshot-reading image. A server the save adds must be in the catalog (400 `server_unknown`; `server_builtin` for the built-in one); every `allowed_tools` name must be `mcp__<server>__<tool>` of the chosen server (`tool_outside_server`; the name has no spaces or control characters and is at most 128 characters), a tool the save adds that the workspace's or the agent's rules block is refused (`mcp_tool_denied`; a tool the row already holds can still be narrowed away), with no server there are none (`server_required`), and the server's credential name must be in `credential_refs` (`server_credential_missing`). A repeated tool or credential name is refused (`duplicate`). Binding the credentials is not required to save. Writes a `set_agent_mcp` receipt with `result.change = \"settings\"` and the names before and after; `receipt_id` is null when a person's row already held them. Agent managers with a web session only; API keys are refused.",
+      "Replaces the agent's whole settings row in one transaction and makes no release: a new session reads it at once, a change that narrows reaches running sessions too, and a change that widens only sessions that start after it. `expected_revision` is `settings_revision` as read (null when there was no row); another value answers 409 `REVISION_CONFLICT`. `updated_by` is always the caller, so the first person's save of an agent also fixes the rollback floor at the snapshot-reading image. A server the save adds must be in the catalog (400 `server_unknown`; `server_builtin` for the built-in one); every `allowed_tools` name must be `mcp__<server>__<tool>` of the chosen server (`tool_outside_server`; the name has no spaces or control characters and is at most 128 characters), a tool the save adds that the agent's release blocks is refused (`mcp_tool_denied`; a tool the row already holds can still be narrowed away), with no server there are none (`server_required`), and the server's credential name must be in `credential_refs` (`server_credential_missing`). A repeated tool or credential name is refused (`duplicate`). Binding the credentials is not required to save. Writes a `set_agent_mcp` receipt with `result.change = \"settings\"` and the names before and after; `receipt_id` is null when a person's row already held them. Agent managers with a web session only; API keys are refused.",
     auth: "session",
     body: "PutAgentMcpSettingsRequest",
     requestExample: {
@@ -6555,112 +6554,6 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [400, 401, 403, 404, 413, 503],
-    idempotent: false,
-  },
-  {
-    method: "get",
-    path: "/v1/workspaces/{id}/engine-settings",
-    operationId: "getWorkspaceEngineSettings",
-    tag: "Workspace settings",
-    summary: "The workspace's saved engine rules",
-    description:
-      "The rules every agent of the workspace runs under: `settings.permissions` (`allow`, `ask`, `deny`: tool rules in the engine's spelling) and `settings.auto_mode` (`allow`, `soft_deny`, `hard_deny`, `environment`: sentences the auto-mode classifier reads). A list that is absent holds nothing. `settings_revision` is null while nothing is saved. Any member of the workspace reads it, with a console session or with that member's personal API key; an agent's key and the operator key read nothing here.",
-    scope: "read",
-    success: {
-      status: 200,
-      schema: "WorkspaceEngineSettingsResponse",
-      description: "The rules and the revision that guards them.",
-      example: {
-        settings: {
-          permissions: { deny: ["Bash(rm:*)"] },
-          auto_mode: {},
-        },
-        settings_revision: 2,
-      },
-    },
-    errors: [401, 403, 404, 503],
-  },
-  {
-    method: "put",
-    path: "/v1/workspaces/{id}/engine-settings",
-    operationId: "putWorkspaceEngineSettings",
-    tag: "Workspace settings",
-    summary: "Save the workspace's engine rules",
-    description:
-      "Replaces the whole rule set in one transaction. `expected_revision` is `settings_revision` as read (null when nothing was saved); another value answers 409 `REVISION_CONFLICT`. The rules are checked against every installed tool catalog before anything is locked: a rule the engine would drop without a word is 400 with the parser's `reason_code` (`unknown_tool`, `too_many_rules`, `settings_too_large`, `mcp_rule_verdict`, ...), and `engine_settings_catalog_ambiguous` when two catalogs would store a rule differently. Restrictions (`deny`, `ask`, `soft_deny`, `hard_deny`) add to every agent's own; grants (`allow`, `environment`) reach an agent only where the agent's own list holds the same entry. Writes a `set_workspace_engine_settings` receipt with the rule counts and sizes before and after, never a rule's text; `receipt_id` is null when the workspace already held these rules. Workspace owners and admins with a web session only; API keys are refused.",
-    auth: "session",
-    body: "PutEngineSettingsRequest",
-    requestExample: {
-      expected_revision: 2,
-      settings: {
-        permissions: { deny: ["Bash(rm:*)"] },
-        auto_mode: {},
-      },
-    },
-    success: {
-      status: 200,
-      schema: "PutEngineSettingsResponse",
-      description: "Saved.",
-      example: { settings_revision: 3, receipt_id: EXAMPLE_RECEIPT_ID },
-    },
-    errors: [400, 401, 403, 404, 409, 413, 503],
-    errorCodes: { 409: ["REVISION_CONFLICT"] },
-    idempotent: false,
-  },
-  {
-    method: "get",
-    path: "/v1/agents/{id}/engine-settings",
-    operationId: "getAgentEngineSettings",
-    tag: "Agents",
-    summary: "The agent's saved engine rules next to the workspace's",
-    description:
-      "`settings` are the agent's own rules and `settings_revision` guards them (null while none are saved). `workspace` repeats the workspace's rules, which also apply, read only here. `reach` says what the allow lists do together: `agent_allow_without_effect` names the agent's `allow`/`environment` entries the workspace does not share, which do nothing because a grant needs both sides, and `workspace_allow_inactive` is true when the workspace allows something the agent's own list leaves empty. Whoever manages the agent reads it, and so do the live members of its managing team, with a console session or with their personal API key; an agent's own key does not.",
-    scope: "read",
-    success: {
-      status: 200,
-      schema: "AgentEngineSettingsResponse",
-      description: "The agent's rules, the workspace's and how they combine.",
-      example: {
-        settings: { permissions: { ask: ["WebFetch"] }, auto_mode: {} },
-        settings_revision: 1,
-        workspace: {
-          settings: { permissions: { deny: ["Bash(rm:*)"] }, auto_mode: {} },
-          settings_revision: 2,
-        },
-        reach: {
-          agent_allow_without_effect: {
-            permissions: [],
-            auto_mode_allow: [],
-            auto_mode_environment: [],
-          },
-          workspace_allow_inactive: false,
-        },
-      },
-    },
-    errors: [401, 403, 404, 503],
-  },
-  {
-    method: "put",
-    path: "/v1/agents/{id}/engine-settings",
-    operationId: "putAgentEngineSettings",
-    tag: "Agents",
-    summary: "Save the agent's engine rules",
-    description:
-      "Replaces the agent's own rule set in one transaction and makes no release: a session that starts afterwards reads it, and a session already running keeps the rules it started with unless a later save only narrows them. `expected_revision` and the checks are those of the workspace's save (409 `REVISION_CONFLICT`; 400 with the parser's `reason_code` or `engine_settings_catalog_ambiguous`). Writes a `set_agent_engine_settings` receipt with the rule counts and sizes before and after, never a rule's text; `receipt_id` is null when the agent already held these rules. Agent managers with a web session only; API keys are refused.",
-    auth: "session",
-    body: "PutEngineSettingsRequest",
-    requestExample: {
-      expected_revision: 1,
-      settings: { permissions: { ask: ["WebFetch"] }, auto_mode: {} },
-    },
-    success: {
-      status: 200,
-      schema: "PutEngineSettingsResponse",
-      description: "Saved.",
-      example: { settings_revision: 2, receipt_id: EXAMPLE_RECEIPT_ID },
-    },
-    errors: [400, 401, 403, 404, 409, 413, 503],
-    errorCodes: { 409: ["REVISION_CONFLICT"] },
     idempotent: false,
   },
   {

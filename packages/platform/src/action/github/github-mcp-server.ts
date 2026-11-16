@@ -6,10 +6,7 @@ import {
   githubMcpTools,
 } from "@werft-ai/contracts";
 import { z } from "zod";
-import {
-  type GitHubMcpStore,
-  SavedRulesUnavailable,
-} from "../../github/ports/github-mcp.ts";
+import type { GitHubMcpStore } from "../../github/ports/github-mcp.ts";
 import { isRecord, refusalOf } from "../refusal.ts";
 import {
   createToolDispatcher,
@@ -214,12 +211,7 @@ export function createGitHubMcpServer(deps: {
       state = await deps.store.sessionState(grant.sessionId);
     } catch (error) {
       // Other methods have no tool to answer for: the transport reports it.
-      // The same for the saved rules: nothing has run yet, and a failure to
-      // read them is the transport's retryable 503, not a tool result that
-      // says "internal error" and that nobody retries.
-      if (askedTool === null || error instanceof SavedRulesUnavailable) {
-        throw error;
-      }
+      if (askedTool === null) throw error;
       return internalFault(askedTool, error);
     }
     if (
@@ -230,12 +222,8 @@ export function createGitHubMcpServer(deps: {
     ) {
       return fail(-32001, "GitHub tools are not available to this session");
     }
-    const blocked = state.blockedTools ?? [];
     if (message.method === "tools/list") {
       return answer({
-        // A saved deny does not change what is listed: the model sees what
-        // the release exposes and the call is refused, as for the general
-        // MCP route.
         tools: describeTools(
           state.source === "release"
             ? githubMcpTools(state.github)
@@ -246,9 +234,6 @@ export function createGitHubMcpServer(deps: {
     const tool = servedTool(params.name);
     if (tool === null) {
       return fail(-32602, "Unknown tool");
-    }
-    if (blocked.includes(tool)) {
-      return fail(-32001, "A saved rule denies this tool");
     }
     try {
       return answer(

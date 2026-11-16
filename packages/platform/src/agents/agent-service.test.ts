@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type AgentGitHub,
   type AgentRelease,
+  type RepositoryCeiling,
   storedAgentCardSchema,
 } from "@werft-ai/contracts";
 import { SessionServiceError } from "../musterrolle/index.ts";
@@ -681,7 +682,16 @@ describe("a release's GitHub settings", () => {
     actions_allow: [],
   };
 
-  function service(store: AgentStore = memoryStore().store, ceiling = OFF) {
+  const INSTALLED: RepositoryCeiling = {
+    repository_ids: [],
+    github_app_repositories: "installed",
+  };
+
+  function service(
+    store: AgentStore = memoryStore().store,
+    ceiling = OFF,
+    repositoryCeiling: RepositoryCeiling | null = INSTALLED,
+  ) {
     return createAgentService({
       authorization: createAuthorizationPolicy(),
       store,
@@ -689,8 +699,35 @@ describe("a release's GitHub settings", () => {
       credentials: { unboundRefs: async () => [] },
       runtimes: TEST_RUNTIMES,
       githubSettings: { get: async () => ({ ceiling, revision: 1 }) },
+      repositoryCeiling: async () => repositoryCeiling,
     });
   }
+
+  test("a sent repository outside the workspace's repository ceiling is repository_not_allowed", async () => {
+    const listed: RepositoryCeiling = {
+      repository_ids: ["sample-app"],
+      github_app_repositories: "listed",
+    };
+    const error = await service(memoryStore().store, OFF, listed)
+      .createRelease(owner, AGENT, {
+        ...release,
+        github: { ...github, repositories: ["sample-app", "docs-app"] },
+      })
+      .catch((thrown: unknown) => thrown);
+    expect(error).toMatchObject({
+      code: "BAD_REQUEST",
+      details: {
+        field: "github.repositories.1",
+        reason_code: "repository_not_allowed",
+      },
+    });
+    const made = await service(memoryStore().store, OFF, listed).createRelease(
+      owner,
+      AGENT,
+      { ...release, github },
+    );
+    expect(made.release.policy_pins.github).toEqual(github);
+  });
 
   async function refusal(
     body: Record<string, unknown>,

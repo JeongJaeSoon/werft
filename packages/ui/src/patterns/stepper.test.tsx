@@ -79,6 +79,37 @@ describe("Stepper", () => {
     ).toEqual([true, true, false]);
   });
 
+  test("단계는 시작에 모이고 연결선은 짧은 고정 길이다", () => {
+    const { getAllByRole } = render(
+      <Stepper label="만들기 단계" steps={STEPS} currentStepId="model" />,
+    );
+    const classes = (node: Element | null | undefined) =>
+      (node?.getAttribute("class") ?? "").split(/\s+/);
+    // Any grow class would push the last step to the far edge again.
+    const grows = (node: Element | null | undefined) =>
+      classes(node).some((name) =>
+        /(^|:)(flex-1|grow|justify-between)$/.test(name),
+      );
+    expect(grows(document.querySelector("ol"))).toBe(false);
+    for (const item of getAllByRole("listitem")) {
+      const step = item.firstElementChild;
+      expect(grows(item)).toBe(false);
+      expect(grows(step)).toBe(false);
+      expect(grows(step?.querySelector(":scope > span:nth-child(2)"))).toBe(
+        false,
+      );
+    }
+    const lines = [
+      ...document.querySelectorAll('[data-slot="stepper-connector"]'),
+    ];
+    expect(lines).toHaveLength(3);
+    for (const line of lines) {
+      expect(classes(line)).toContain("w-8");
+      expect(classes(line)).toContain("shrink-0");
+      expect(grows(line)).toBe(false);
+    }
+  });
+
   test("끝난 단계 원에 기호 없이 번호가 남는다", () => {
     render(
       <Stepper label="만들기 단계" steps={STEPS} currentStepId="review" />,

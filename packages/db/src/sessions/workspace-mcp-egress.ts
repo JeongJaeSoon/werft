@@ -22,7 +22,6 @@ import {
   workspaceMcpConnections,
   workspaceMcpServers,
 } from "../schema.ts";
-import { mcpDeniedBy } from "./claim-engine-settings.ts";
 
 const SUBJECT = "workspace";
 
@@ -117,7 +116,6 @@ export function createPostgresWorkspaceMcpEgressStore(
           createdByUserId: sessions.createdByUserId,
           createdByApiKeyId: sessions.createdByApiKeyId,
           workspaceMcpStart: sessions.workspaceMcpStart,
-          engineSettingsStart: sessions.engineSettingsStart,
         })
         .from(sessions)
         .where(eq(sessions.id, input.sessionId))
@@ -167,21 +165,14 @@ export function createPostgresWorkspaceMcpEgressStore(
           ),
         )
         .limit(1);
-      // Saved `mcp__` denies as the rows are now; unreadable rules allow
-      // nothing. A failed read throws, so nothing is forwarded.
-      const saved = await mcpDeniedBy(db, session);
       const stored = new Set(
         (row?.tools ?? []).map((tool) => `mcp__${started.name}__${tool.name}`),
       );
-      const tools =
-        saved === null
-          ? []
-          : visibleMcpTools(
-              started.name,
-              started.tools.filter((tool) => stored.has(tool)),
-              release.deny,
-              saved,
-            );
+      const tools = visibleMcpTools(
+        started.name,
+        started.tools.filter((tool) => stored.has(tool)),
+        release.deny,
+      );
       const [turn] = await db
         .select({ sequence: turns.sequence })
         .from(turns)

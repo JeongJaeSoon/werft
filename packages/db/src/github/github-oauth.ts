@@ -2,6 +2,7 @@ import {
   type GitHubOAuthClient,
   type GitHubOAuthStore,
   receiptActorOf,
+  SecretDecryptError,
   type SecretKey,
 } from "@werft-ai/platform";
 import { eq } from "drizzle-orm";
@@ -58,7 +59,14 @@ export function createPostgresGitHubOAuthStore(
       if (row === null || row.clientId === null) return null;
       const webBase = webBaseOf(row.htmlUrl);
       if (webBase === null) return null;
-      const clientSecret = await secrets.get(oauthSecretSlot(row));
+      let clientSecret: string | null;
+      try {
+        clientSecret = await secrets.get(oauthSecretSlot(row));
+      } catch (error) {
+        // Sealed under another master key: no client until it is put again.
+        if (error instanceof SecretDecryptError) return null;
+        throw error;
+      }
       if (clientSecret === null) return null;
       return {
         connectionId: row.id,

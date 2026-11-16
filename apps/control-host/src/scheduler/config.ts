@@ -23,12 +23,14 @@ import {
   workerImageListFromEnv,
   workerImageRuntimesFromEnv,
 } from "@werft-ai/platform";
+import { CODEX_CHECKPOINT_ENGINE } from "@werft-ai/runtime-codecs";
 import { queueDatabaseUrl } from "../database-url.ts";
 
 type ImageRuntime = NonNullable<SchedulerOptions["imageRuntime"]>;
 
 export type SchedulerEnvironment = LocalDockerBackendEnvironment &
   InstallationLimitsEnvironment & {
+    CODEX_SANDBOX?: string | undefined;
     DATABASE_URL?: string | undefined;
     EXECUTION_BACKEND?: string | undefined;
     LOG_LEVEL?: string | undefined;
@@ -94,6 +96,7 @@ export function schedulerConfigFromEnv(
     execution: executionFromEnv(
       { ...environment, WORKER_IMAGE: images.image },
       { logLevel },
+      codexSandboxFromEnv(environment, images),
     ),
     ...images,
     limits,
@@ -172,21 +175,70 @@ function configuredImages(
   };
 }
 
+type CodexSandbox =
+  | { mode: "enabled"; images: string[] }
+  | { mode: "disabled" };
+
+export const CODEX_SANDBOX_DISABLED_WARNING =
+  "Codex auto mode's sandbox is turned off (CODEX_SANDBOX=disabled): Codex workers refuse auto sessions; other modes run";
+
+/**
+ * Codex `auto` mode's sandbox: on unless `CODEX_SANDBOX=disabled`, which
+ * turns auto mode off with it. Only the images whose declared runtime is
+ * Codex run under its seccomp profile; one with no declared runtime keeps
+ * the default, and its auto sessions are refused with the reason.
+ */
+function codexSandboxFromEnv(
+  environment: SchedulerEnvironment,
+  images: Pick<
+    SchedulerConfig,
+    "image" | "imageRuntime" | "olderImages" | "retractedImages"
+  >,
+): CodexSandbox {
+  const value = environment.CODEX_SANDBOX;
+  if (value === "disabled") return { mode: "disabled" };
+  if (value && value !== "enabled") {
+    throw new Error(`CODEX_SANDBOX must be enabled or disabled (got ${value})`);
+  }
+  const declared = [
+    ...(images.imageRuntime === undefined
+      ? []
+      : [{ image: images.image, runtime: images.imageRuntime }]),
+    ...images.olderImages,
+    ...images.retractedImages,
+  ];
+  return {
+    mode: "enabled",
+    images: declared
+      .filter(({ runtime }) => runtime.engine === CODEX_CHECKPOINT_ENGINE)
+      .map(({ image }) => image),
+  };
+}
+
 function executionFromEnv(
   environment: SchedulerEnvironment,
   worker: { logLevel: LogLevel },
+  codexSandbox: CodexSandbox,
 ): SchedulerExecution {
   const backend = environment.EXECUTION_BACKEND || "local_docker";
   switch (backend) {
     case "local_docker":
       return {
         backend,
-        docker: { ...localDockerConfigFromEnv(environment), ...worker },
+        docker: {
+          ...localDockerConfigFromEnv(environment),
+          ...worker,
+          codexSandbox,
+        },
       };
     case "kubernetes":
       return {
         backend,
-        kubernetes: { ...kubernetesConfigFromEnv(environment), ...worker },
+        kubernetes: {
+          ...kubernetesConfigFromEnv(environment),
+          ...worker,
+          codexSandbox,
+        },
       };
     default:
       throw new Error(
