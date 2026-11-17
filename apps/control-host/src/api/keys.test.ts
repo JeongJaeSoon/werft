@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import {
   type ApiKeyWriter,
   hashApiKey,
@@ -229,5 +230,32 @@ describe("keys CLI arguments", () => {
       parseKeysCommand(["revoke", keyId, "--scopes", "sessions:read"]),
     ).toThrow("Usage");
     expect(() => parseKeysCommand(["revoke", keyId, "extra"])).toThrow("Usage");
+  });
+
+  test("the CLI prints a refused argument as a message and exits 1, without a stack trace", () => {
+    for (const [args, message] of [
+      [["create", "owner-a"], "--scopes is required"],
+      [["revoke", "owner-a"], "key_id must be a UUID"],
+      [["rotate", "owner-a"], "Usage"],
+    ] as const) {
+      const result = Bun.spawnSync(
+        ["bun", "run", join(import.meta.dir, "keys.ts"), ...args],
+        {
+          env: {
+            PATH: process.env.PATH ?? "",
+            // Unreachable: a refusal that still connected would hang or fail.
+            DATABASE_URL: "postgresql://postgres:dev@203.0.113.1:5432/sessions",
+          },
+          stderr: "pipe",
+          stdout: "pipe",
+        },
+      );
+      const stderr = result.stderr.toString();
+      expect(result.exitCode, args.join(" ")).toBe(1);
+      expect(result.stdout.toString()).toBe("");
+      expect(stderr.startsWith(message), stderr).toBe(true);
+      expect(stderr).not.toContain("throw new Error");
+      expect(stderr).not.toMatch(/^\s+at /m);
+    }
   });
 });
