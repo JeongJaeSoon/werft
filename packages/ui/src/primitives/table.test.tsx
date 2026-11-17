@@ -90,6 +90,8 @@ describe("Table", () => {
       expect(el?.getAttribute("data-variant")).toBe("actions");
       expect(el?.className).toContain("w-px");
       expect(el?.className).toContain("whitespace-nowrap");
+      expect(el?.classList.contains("text-right")).toBe(true);
+      expect(el?.classList.contains("text-left")).toBe(false);
       expect(el?.className).toContain(
         "[&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--werft-row-action-button-min-width)]",
       );
