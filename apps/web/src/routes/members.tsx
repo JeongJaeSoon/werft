@@ -619,10 +619,10 @@ function MemberTable({
                   {member.email}
                 </Text>
               </GridTableCell>
-              <GridTableCell>
+              <GridTableCell cardLabel={t("members.column.role")}>
                 <RoleBadge role={member.role} />
               </GridTableCell>
-              <GridTableCell>
+              <GridTableCell cardLabel={t("members.column.status")}>
                 <StatusText status={disabled ? "failed" : "done"}>
                   {t(
                     disabled
@@ -631,7 +631,10 @@ function MemberTable({
                   )}
                 </StatusText>
               </GridTableCell>
-              <GridTableCell raised={true}>
+              <GridTableCell
+                raised={true}
+                cardLabel={t("members.column.actions")}
+              >
                 <RowMenu
                   label={t("members.menuFor", { name: member.display_name })}
                 >
@@ -711,12 +714,15 @@ function MemberTable({
                   {invite.email}
                 </Text>
               </GridTableCell>
-              <GridTableCell>
+              <GridTableCell cardLabel={t("members.column.role")}>
                 <RoleBadge role={invite.role} />
               </GridTableCell>
               {/* The expiry sits behind an icon so an invite row is one line
                   tall like a member row (owner, 2026-11-16). */}
-              <GridTableCell className="gap-1">
+              <GridTableCell
+                className="gap-1"
+                cardLabel={t("members.column.status")}
+              >
                 <StatusText status={lapsed ? "idle" : "wait"}>
                   {t(
                     lapsed
@@ -742,7 +748,10 @@ function MemberTable({
                   <TooltipContent>{expires}</TooltipContent>
                 </Tooltip>
               </GridTableCell>
-              <GridTableCell raised={true}>
+              <GridTableCell
+                raised={true}
+                cardLabel={lapsed ? undefined : t("members.column.actions")}
+              >
                 {lapsed ? null : (
                   <RowMenu label={t("members.menuFor", { name: invite.email })}>
                     {(close) => (
