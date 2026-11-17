@@ -127,6 +127,20 @@ describe("로그인 공급자 목록", () => {
     ).toBe(LIST_PAGE);
   });
 
+  test("a long issuer keeps to one line cut with an ellipsis, the whole of it on hover", async () => {
+    const issuer =
+      "https://login.example.test/realms/very-long-workspace-name/protocol/openid-connect";
+    renderAt(LIST_PAGE, routes([provider({ issuer })]));
+    const table = await screen.findByRole("table", { name: "로그인" });
+    const code = within(table).getByText(issuer);
+    expect(code.tagName).toBe("CODE");
+    expect(code.getAttribute("title")).toBe(issuer);
+    expect(code.className.split(" ")).toEqual(
+      expect.arrayContaining(["truncate", "max-w-full"]),
+    );
+    expect(code.className).not.toContain("wrap-anywhere");
+  });
+
   test("every column starts at its left edge, header and cells alike, the last one too", async () => {
     renderAt(
       LIST_PAGE,
@@ -236,6 +250,45 @@ describe("로그인 공급자 상세", () => {
     expect(withheld(screen.getByRole("button", { name: "켜기" }))).toBe(
       "지금 설정으로 테스트 로그인이 통과해야 켤 수 있습니다.",
     );
+  });
+
+  test("the issuer is shown whole and breaks only after a separator, never inside a word", async () => {
+    const issuer =
+      "https://sso.example.test/application/o/fakeworkspace/?a=b&c";
+    renderAt(PAGE, routes([provider({ issuer })]));
+    await screen.findByRole("heading", { level: 1, name: "Acme SSO" });
+    const code = screen.getByText(issuer);
+    expect(code.tagName).toBe("CODE");
+    expect(code.className).toContain("wrap-break-word");
+    // Each text run ends at a separator, a <wbr> after it; the last ends the value.
+    const runs = [...code.childNodes].map((node) =>
+      node.nodeType === 3 ? node.textContent : `<${node.nodeName}>`,
+    );
+    expect(runs).toEqual([
+      "https:/",
+      "<WBR>",
+      "/",
+      "<WBR>",
+      "sso.",
+      "<WBR>",
+      "example.",
+      "<WBR>",
+      "test/",
+      "<WBR>",
+      "application/",
+      "<WBR>",
+      "o/",
+      "<WBR>",
+      "fakeworkspace/",
+      "<WBR>",
+      "?",
+      "<WBR>",
+      "a=",
+      "<WBR>",
+      "b&",
+      "<WBR>",
+      "c",
+    ]);
   });
 
   test("the client is changed at the revision that was read", async () => {

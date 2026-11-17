@@ -174,6 +174,24 @@ function StateBadge({ state }: { readonly state: LoginProviderState }) {
   );
 }
 
+/**
+ * An address that may wrap only after a `/`, `.`, `?`, `&` or `=`, never
+ * inside a word. `<wbr>` rather than a zero-width space, which a copy would
+ * carry into the pasted address.
+ */
+function BreakAfterSeparators({ value }: { readonly value: string }) {
+  let at = 0;
+  return value.split(/(?<=[/.?&=])/).map((part) => {
+    at += part.length;
+    return (
+      <Fragment key={at}>
+        {part}
+        {at < value.length ? <wbr /> : null}
+      </Fragment>
+    );
+  });
+}
+
 const isOn = (provider: LoginProviderView) =>
   provider.state === "enabled" || provider.state === "enabled_secret_pending";
 
@@ -266,7 +284,12 @@ export function LoginProvidersScreen() {
                         {provider.display_name}
                       </Link>
                     </TextLink>
-                    <Code className="wrap-anywhere">{provider.issuer}</Code>
+                    <Code
+                      className="max-w-full truncate"
+                      title={provider.issuer}
+                    >
+                      {provider.issuer}
+                    </Code>
                   </div>
                 </GridTableCell>
                 <GridTableCell>
@@ -632,7 +655,13 @@ function ProviderSettings({
             />
             <SettingRow
               title={t("loginProviders.issuer")}
-              meta={<Code className="wrap-anywhere">{provider.issuer}</Code>}
+              meta={
+                // The row breaks anywhere; here only a word longer than the
+                // line may still be cut.
+                <Code className="wrap-break-word">
+                  <BreakAfterSeparators value={provider.issuer} />
+                </Code>
+              }
             />
           </>
         }
