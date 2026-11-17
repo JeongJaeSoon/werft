@@ -31,6 +31,11 @@ const { ADMINISTERED_LIST_LIMIT } = await import(
 const TEAM_ID = "9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b";
 const MATE_ID = "2c7e1d4a-5b6f-4a8e-9d0c-1e2f3a4b5c6d";
 const AT = "2026-10-11T00:00:00.000Z";
+const TEAMS_INTRO =
+  "팀은 사람 묶음입니다. 에이전트의 담당 팀이나 관리자로 지정해 함께 관리하고 씁니다.";
+const MEMBERS_DESCRIPTION = "워크스페이스에 속한 사람과 역할입니다.";
+const MEMBERS_WITHHELD =
+  "구성원 초대와 관리는 워크스페이스 오너나 어드민이 합니다.";
 
 const mate: MemberView = {
   user_id: MATE_ID,
@@ -434,6 +439,40 @@ describe("팀 화면", () => {
       expect(create.hasAttribute("disabled")).toBe(false);
       expect(create.getAttribute("aria-disabled") === "true").toBe(false);
     }
+  });
+
+  test("팀 페이지 머리말은 팀 탭과 같은 팀 설명이고, 구성원 탭의 설명이 아니다", async () => {
+    const server = teamServer();
+    renderAt(`/members/teams/${TEAM_ID}`, server.routes);
+    await screen.findByRole("heading", { level: 2, name: "결제팀" });
+    expect(screen.getByText(TEAMS_INTRO)).toBeDefined();
+    expect(screen.queryByText(MEMBERS_DESCRIPTION)).toBeNull();
+  });
+
+  test("관리 권한이 없는 구성원에게도 팀 목록과 팀 상세의 머리말은 팀 설명 한 줄이다", async () => {
+    const list = renderAt("/members/teams", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/my-teams": () => json(200, { items: [], next_cursor: null }),
+    });
+    expect(await screen.findByText("아직 속한 팀이 없습니다.")).toBeDefined();
+    expect(screen.getByText(TEAMS_INTRO)).toBeDefined();
+    expect(screen.queryByText(MEMBERS_WITHHELD)).toBeNull();
+    list.container.remove();
+
+    const detail = teamServer();
+    renderAt(`/members/teams/${TEAM_ID}`, {
+      ...detail.routes,
+      "GET /v1/auth/me": () => json(200, memberMe()),
+    });
+    await screen.findByRole("heading", { level: 2, name: "결제팀" });
+    expect(screen.getByText(TEAMS_INTRO)).toBeDefined();
+    expect(screen.queryByText(MEMBERS_WITHHELD)).toBeNull();
+  });
+
+  test("/members/teams 로 시작할 뿐인 경로는 팀 페이지로 읽지 않는다", async () => {
+    renderAt("/members/teams-x", teamServer().routes);
+    expect(await screen.findByText(MEMBERS_DESCRIPTION)).toBeDefined();
+    expect(screen.queryByText(TEAMS_INTRO)).toBeNull();
   });
 
   test("팀 이름 칸은 페이지에 없고, 제목 옆 연필 버튼이 이름 바꾸기 대화상자를 연다", async () => {

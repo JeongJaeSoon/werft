@@ -51,7 +51,7 @@ import {
   Link as TextLink,
 } from "@werft-ai/ui";
 import { ChevronRight, Pencil, Plus } from "lucide-react";
-import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
+import { type FormEvent, useId, useRef, useState } from "react";
 import {
   agentSummariesQuery,
   memberPagesQuery,
@@ -114,17 +114,11 @@ export function TeamsScreen() {
     search.current?.focus();
   };
 
-  if (!manages) {
-    return (
-      <TeamsTab>
-        <MyTeams showEmpty />
-      </TeamsTab>
-    );
-  }
+  if (!manages) return <MyTeams showEmpty />;
 
   // Creating a team is the page head's button (TeamCreateButton). The intro
-  // is the page's description line here, so the tab opens on the search box
-  // like the 구성원 tab does.
+  // is the page's description line, so the tab opens on the search box like
+  // the 구성원 tab does.
   const listEmpty =
     !teams.isPending && !teams.error && items.length === 0 && query === "";
   const section = (
@@ -242,17 +236,6 @@ function TeamTable({
         </GridTableRow>
       ))}
     </MemberTableFrame>
-  );
-}
-
-/** The 팀 tab of 구성원: what teams are for, then the tab's own sections. */
-function TeamsTab({ children }: { readonly children: ReactNode }) {
-  const { t } = useI18n();
-  return (
-    <div className="flex flex-col gap-[var(--werft-space-section)]">
-      <Text variant="sub">{t("teams.intro")}</Text>
-      {children}
-    </div>
   );
 }
 

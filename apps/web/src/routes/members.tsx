@@ -160,11 +160,10 @@ function MembersPage() {
   const { t } = useI18n();
   const { pathname } = useLocation();
   const manages = useHasPermission("member.manage");
-  const onTeams = pathname.startsWith("/members/teams");
   // The router also serves the list at "/members/teams/".
   const onTeamList = pathname.replace(/\/$/, "") === "/members/teams";
+  const onTeams = onTeamList || pathname.startsWith("/members/teams/");
   const onMemberList = pathname.replace(/\/$/, "") === "/members";
-  const managesTeams = useHasPermission("team.manage");
   const { teamId } = useParams({ strict: false });
 
   // The open tab's one primary action sits at the head's end, as on the
@@ -173,11 +172,11 @@ function MembersPage() {
     <Page
       title={t("members.title")}
       description={t(
-        !manages
-          ? "members.withheld"
-          : onTeamList && managesTeams
-            ? "teams.intro"
-            : "members.description",
+        onTeams
+          ? "teams.intro"
+          : manages
+            ? "members.description"
+            : "members.withheld",
       )}
       actions={
         onMemberList ? (
