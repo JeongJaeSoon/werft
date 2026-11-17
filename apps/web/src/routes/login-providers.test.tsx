@@ -254,7 +254,7 @@ describe("로그인 공급자 상세", () => {
     );
   });
 
-  test("the issuer keeps to one line, whole in its title, and is copied with its own button", async () => {
+  test("the issuer is set to one line, whole in its title, beside a copy button described as the issuer's", async () => {
     const issuer =
       "https://sso.example.test/application/o/fakeworkspace/?a=b&c";
     renderAt(PAGE, routes([provider({ issuer })]));
