@@ -652,6 +652,13 @@ describe("createGitHubAppDirectory", () => {
   const directory = createGitHubAppDirectory({ retryAfterBaseMs: 1 });
   const app = () => ({ appId: 101, apiBase: github.origin, privateKey });
 
+  test("an API base with trailing slashes asks the same GitHub", async () => {
+    expect(
+      (await directory.describe({ ...app(), apiBase: `${github.origin}//` }))
+        .slug,
+    ).toBe("fake-app");
+  });
+
   test("describes the App with its permissions, lists its installation, and finds it per repository", async () => {
     expect(await directory.describe(app())).toEqual({
       appId: 101,
