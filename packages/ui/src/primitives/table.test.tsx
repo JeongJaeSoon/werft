@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { setupDom } from "../test-support/dom.ts";
 import { Button } from "./button.tsx";
 import { RowLines, RowList, RowListItem } from "./row-list.tsx";
+import { Switch } from "./switch.tsx";
 import {
   Table,
   TableBody,
@@ -202,6 +203,65 @@ describe("Table", () => {
       expect(el.classList.contains("w-px")).toBe(true);
       expect(el.classList.contains("whitespace-nowrap")).toBe(true);
     }
+  });
+
+  test("numeric 열은 머리글과 셀이 함께 끝에 붙고, 자릿수 폭이 같은 숫자로 한 줄에 쓴다", () => {
+    const { getByRole } = render(
+      <table>
+        <thead>
+          <tr>
+            <TableHead variant="numeric">비용</TableHead>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <TableCell variant="numeric">$12.40</TableCell>
+          </tr>
+        </tbody>
+      </table>,
+    );
+    for (const el of [
+      getByRole("columnheader", { name: "비용" }),
+      getByRole("cell", { name: "$12.40" }),
+    ]) {
+      expect(el.getAttribute("data-variant")).toBe("numeric");
+      expect(el.classList.contains("text-right")).toBe(true);
+      expect(el.classList.contains("text-left")).toBe(false);
+      expect(el.classList.contains("tabular-nums")).toBe(true);
+      expect(el.classList.contains("whitespace-nowrap")).toBe(true);
+    }
+  });
+
+  test("switch 열은 머리글과 스위치가 함께 끝에 붙는다", () => {
+    const { getByRole } = render(
+      <table>
+        <thead>
+          <tr>
+            <TableHead variant="switch">사용</TableHead>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <TableCell variant="switch">
+              <Switch className="flex" aria-label="규칙 사용" />
+            </TableCell>
+          </tr>
+        </tbody>
+      </table>,
+    );
+    const toggle = getByRole("switch", { name: "규칙 사용" });
+    const cell = toggle.closest("td") as HTMLElement;
+    for (const el of [getByRole("columnheader", { name: "사용" }), cell]) {
+      expect(el.getAttribute("data-variant")).toBe("switch");
+      expect(el.classList.contains("w-px")).toBe(true);
+      expect(el.classList.contains("text-right")).toBe(true);
+      expect(el.classList.contains("text-left")).toBe(false);
+    }
+    // A block-level switch ignores text-right; the cell's own selector, not a
+    // copy of it, must reach the switch to push it to the end.
+    const selector = /\[&>(.+)\]:ml-auto/.exec(cell.className)?.[1];
+    expect(selector).toBeDefined();
+    expect(toggle.matches(`td > ${selector}`)).toBe(true);
   });
 
   test("기본 셀에는 actions 클래스가 붙지 않는다", () => {

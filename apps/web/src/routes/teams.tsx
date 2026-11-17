@@ -184,7 +184,8 @@ export function TeamsScreen() {
 }
 
 // The same frame as the 구성원 table; the count and its arrow share the
-// second track, so every row's arrow lines up.
+// second track at its end, so every row's arrow closes the row and the
+// counts end at one x.
 const TEAM_COLUMNS = "minmax(0,1fr) 9rem";
 // Below 640px the count and its arrow keep what the name leaves.
 const TEAM_NARROW_COLUMNS = "minmax(0,1fr) 7rem";
@@ -208,13 +209,15 @@ function TeamTable({
         columns: TEAM_COLUMNS,
         narrowColumns: TEAM_NARROW_COLUMNS,
         narrowAt: 640,
-        align: ["start", "start"],
+        align: ["start", "end"],
         headers: (
           <>
             <GridTableColumnHeader>
               {t("teams.column.team")}
             </GridTableColumnHeader>
-            <GridTableColumnHeader>
+            {/* pr-6 is the arrow and its gap, so the header ends where
+                the count does. */}
+            <GridTableColumnHeader className="pr-6">
               {t("teams.column.members")}
             </GridTableColumnHeader>
           </>
@@ -240,7 +243,7 @@ function TeamTable({
             </Text>
             <ChevronRight
               aria-hidden="true"
-              className="ml-auto size-4 shrink-0 text-subtle-foreground"
+              className="size-4 shrink-0 text-subtle-foreground"
             />
           </GridTableCell>
         </GridTableRow>

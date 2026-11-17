@@ -135,7 +135,7 @@ describe("GridTable", () => {
         narrowAt={640}
         narrowCards={true}
         framed={true}
-        align={["start", "start", "action"]}
+        align={["start", "start", "end"]}
       >
         <GridTableHeader>
           <GridTableColumnHeader>이름</GridTableColumnHeader>
@@ -402,7 +402,7 @@ describe("GridTable column alignment", () => {
         align={[
           "start",
           ...(roles ? (["start"] as const) : []),
-          "start",
+          "end",
           "action",
         ]}
       >
@@ -429,18 +429,22 @@ describe("GridTable column alignment", () => {
     );
   }
 
+  // Any one of these puts content at the end, so any one counts.
   const ends = (element: Element) =>
     ["justify-end", "text-end", "text-right"].some((name) =>
       element.classList.contains(name),
     );
+  const figures = (element: Element) =>
+    element.classList.contains("tabular-nums") &&
+    element.classList.contains("whitespace-nowrap");
 
   for (const roles of [true, false]) {
     test(`머리글과 셀은 열마다 같은 쪽에 붙는다 (역할 열 ${roles ? "있음" : "없음"})`, () => {
       const { getAllByRole } = render(<Members roles={roles} />);
       const headers = getAllByRole("columnheader");
       const want = roles
-        ? ["start", "start", "start", "action"]
-        : ["start", "start", "action"];
+        ? ["start", "start", "end", "action"]
+        : ["start", "end", "action"];
       expect(headers.map((header) => header.dataset.align)).toEqual(want);
       for (const row of getAllByRole("row").slice(1)) {
         const cells = [...row.querySelectorAll<HTMLElement>("[role=cell]")];
@@ -450,6 +454,8 @@ describe("GridTable column alignment", () => {
           expect(cell.dataset.align).toBe(header.dataset.align as string);
           expect(ends(cell)).toBe(ends(header));
           expect(ends(cell)).toBe(want[i] !== "start");
+          expect(figures(cell)).toBe(want[i] === "end");
+          expect(figures(header)).toBe(want[i] === "end");
         });
       }
     });
@@ -474,7 +480,7 @@ describe("GridTable column alignment", () => {
         <GridTable
           aria-label="구성원"
           columns="1fr 1fr 1fr"
-          align={["start", ...(roles ? (["start"] as const) : []), "action"]}
+          align={["start", ...(roles ? (["start"] as const) : []), "end"]}
         >
           <GridTableRow>
             <Fragment key="a">
@@ -487,13 +493,13 @@ describe("GridTable column alignment", () => {
       );
       const { getAllByRole, rerender } = render(table(false));
       const [name, count] = getAllByRole("cell") as HTMLElement[];
-      expect(count?.dataset.align).toBe("action");
+      expect(count?.dataset.align).toBe("end");
       rerender(table(true));
       const cells = getAllByRole("cell") as HTMLElement[];
       expect(cells.map((cell) => cell.dataset.align)).toEqual([
         "start",
         "start",
-        "action",
+        "end",
       ]);
       expect(cells[0] === name).toBe(true);
       expect(cells[2] === count).toBe(true);
@@ -510,7 +516,7 @@ describe("GridTable column alignment", () => {
       ...getAllByRole("cell"),
     ]) {
       expect(element.dataset.align).toBe("start");
-      expect(element.classList.contains("justify-end")).toBe(false);
+      expect(ends(element)).toBe(false);
     }
   });
 });

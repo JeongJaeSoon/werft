@@ -75,8 +75,6 @@ const STATE_BADGE = {
   rejected: ["gray", "achievements.state.rejected"],
 } as const;
 
-const NUM = "tabular-nums";
-
 export function AchievementsScreen() {
   const { t, locale } = useI18n();
   const { client } = useWerft();
@@ -290,18 +288,10 @@ export function AchievementsScreen() {
                             <TableHead scope="col" variant="nowrap">
                               {t("achievements.column.type")}
                             </TableHead>
-                            <TableHead
-                              scope="col"
-                              variant="nowrap"
-                              className={NUM}
-                            >
+                            <TableHead scope="col" variant="numeric">
                               {t("achievements.column.achievements")}
                             </TableHead>
-                            <TableHead
-                              scope="col"
-                              variant="nowrap"
-                              className={NUM}
-                            >
+                            <TableHead scope="col" variant="numeric">
                               {t("achievements.column.waiting")}
                             </TableHead>
                           </TableRow>
@@ -323,10 +313,10 @@ export function AchievementsScreen() {
                               <TableCell variant="nowrap">
                                 <Code>{rule.type_key}</Code>
                               </TableCell>
-                              <TableCell variant="nowrap" className={NUM}>
+                              <TableCell variant="numeric">
                                 {format.count(rule.achievement_count)}
                               </TableCell>
-                              <TableCell variant="nowrap" className={NUM}>
+                              <TableCell variant="numeric">
                                 {format.count(rule.needs_review_count)}
                               </TableCell>
                             </TableRow>
@@ -347,32 +337,16 @@ export function AchievementsScreen() {
                             <TableHead scope="col">
                               {t("achievements.column.agent")}
                             </TableHead>
-                            <TableHead
-                              scope="col"
-                              variant="nowrap"
-                              className={NUM}
-                            >
+                            <TableHead scope="col" variant="numeric">
                               {t("achievements.column.sessions")}
                             </TableHead>
-                            <TableHead
-                              scope="col"
-                              variant="nowrap"
-                              className={NUM}
-                            >
+                            <TableHead scope="col" variant="numeric">
                               {t("achievements.column.achievements")}
                             </TableHead>
-                            <TableHead
-                              scope="col"
-                              variant="nowrap"
-                              className={NUM}
-                            >
+                            <TableHead scope="col" variant="numeric">
                               {t("achievements.column.sessionCost")}
                             </TableHead>
-                            <TableHead
-                              scope="col"
-                              variant="nowrap"
-                              className={NUM}
-                            >
+                            <TableHead scope="col" variant="numeric">
                               {t("achievements.column.perAchievement")}
                             </TableHead>
                           </TableRow>
@@ -385,16 +359,16 @@ export function AchievementsScreen() {
                                   OPERATIONS_MESSAGES[locale].usageCostTable
                                     .noAgent}
                               </TableCell>
-                              <TableCell variant="nowrap" className={NUM}>
+                              <TableCell variant="numeric">
                                 {format.count(agent.session_count)}
                               </TableCell>
-                              <TableCell variant="nowrap" className={NUM}>
+                              <TableCell variant="numeric">
                                 {format.count(agent.achievement_count)}
                               </TableCell>
-                              <TableCell variant="nowrap" className={NUM}>
+                              <TableCell variant="numeric">
                                 {format.usd(agent.cost_usd)}
                               </TableCell>
-                              <TableCell variant="nowrap" className={NUM}>
+                              <TableCell variant="numeric">
                                 {usdOrDash(agent.cost_per_achievement_usd)}
                               </TableCell>
                             </TableRow>

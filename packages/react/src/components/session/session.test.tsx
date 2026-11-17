@@ -460,10 +460,9 @@ describe("SessionOverviewRow", () => {
       "소요 시간",
     ]);
     expect(cellsOf(getAllByRole("row")[1])).toHaveLength(6);
-    // Every column starts, the duration included; header and cells alike.
-    const ends = (cell: Element) =>
-      /\b(justify-end|text-end|text-right)\b/.test(cell.className);
-    const want = [false, false, false, false, false, false];
+    // Only the duration, a time, ends; its header and cells alike.
+    const ends = (cell: Element) => cell.className.includes("justify-end");
+    const want = [false, false, false, false, false, true];
     expect(heads.map(ends)).toEqual(want);
     expect(cellsOf(getAllByRole("row")[1]).map(ends)).toEqual(want);
   });

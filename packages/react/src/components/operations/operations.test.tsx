@@ -107,14 +107,14 @@ describe("ToolTable", () => {
     );
   });
 
-  test("숫자 열도 머리글과 셀이 모두 시작에 붙는다", () => {
+  test("숫자 열은 머리글과 셀이 함께 끝에 붙고, 이름 열은 함께 시작에 붙는다", () => {
     const { getAllByRole } = withPlatform(
       <ToolTable tools={TOOLS} label="도구" />,
     );
     const ends = (element: Element) =>
-      /\b(justify-end|text-end|text-right)\b/.test(element.className);
+      element.className.includes("justify-end");
     const heads = getAllByRole("columnheader");
-    expect(heads.map(ends)).toEqual([false, false, false, false, false]);
+    expect(heads.map(ends)).toEqual([false, true, true, true, true]);
     const cells = getAllByRole("row")[1]?.querySelectorAll("[role=cell]");
     expect([...(cells ?? [])].map(ends)).toEqual(heads.map(ends));
   });
@@ -984,6 +984,38 @@ describe("UsageCostTable", () => {
       />,
     );
     expect(models.getByText("호출 기록이 없는 비용")).toBeTruthy();
+  });
+
+  test("세션·토큰·비용은 머리글과 셀이 함께 끝에 붙고 자릿수 폭이 같은 숫자로 쓴다", () => {
+    for (const by of ["agent", "model"] as const) {
+      const table = withPlatform(
+        <UsageCostTable
+          label="비용"
+          head="이름"
+          by={by}
+          rows={[row("a1", "triage", "3.00")]}
+        />,
+      );
+      const align = (element: HTMLElement) => [
+        element.dataset.align,
+        element.classList.contains("justify-end"),
+        element.classList.contains("tabular-nums"),
+      ];
+      const heads = table.getAllByRole("columnheader");
+      expect(heads.length).toBeGreaterThan(2);
+      expect(heads.map(align)).toEqual(
+        heads.map((_, i) =>
+          i === 0 ? ["start", false, false] : ["end", true, true],
+        ),
+      );
+      const cells = [
+        ...(table
+          .getAllByRole("row")[1]
+          ?.querySelectorAll<HTMLElement>("[role=cell]") ?? []),
+      ];
+      expect(cells.map(align)).toEqual(heads.map(align));
+      table.unmount();
+    }
   });
 
   test("빈 rows는 빈 상태, undefined는 자리 행을 placeholderRows만큼 둔다", () => {

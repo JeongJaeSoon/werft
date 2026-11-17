@@ -81,12 +81,15 @@ const NarrowContext = createContext<
 /**
  * Where a column's header and cells sit, set once per column on the table so
  * the two cannot disagree:
- * - "start": every column with a visible header, numbers and switches
- *   included, so header and cells all read from the left.
- * - "action": the row's controls, at the end; the header is read by screen
+ * - "start": text, names, roles, states, dates and relative times.
+ * - "end": numbers compared down the column (counts, costs, tokens, times,
+ *   ratios), in tabular figures on one line; and, as the last column, a
+ *   switch whose visible header names the setting it turns on.
+ * - "action": the row's controls, last; the header is read by screen
  *   readers only.
+ * Nothing is centred. Stacked as cards (`narrowCards`), every column starts.
  */
-export type GridTableColumnAlign = "start" | "action";
+export type GridTableColumnAlign = "start" | "end" | "action";
 
 const AlignContext = createContext<readonly GridTableColumnAlign[]>([]);
 const ColumnContext = createContext<number | undefined>(undefined);
@@ -322,7 +325,8 @@ function cellClasses(
   return cn(
     "flex min-w-0 items-center gap-2",
     // justify-end places the boxes; text-end the lines of text that wraps.
-    align === "action" && cn("justify-end text-end", narrow?.start),
+    align !== "start" && cn("justify-end text-end", narrow?.start),
+    align === "end" && "whitespace-nowrap tabular-nums",
     hideNarrow && narrow?.hide,
   );
 }

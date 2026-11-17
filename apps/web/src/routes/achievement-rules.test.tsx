@@ -844,18 +844,37 @@ describe("성과 규칙", () => {
         ],
       ]),
     );
-    // Every column is left-aligned, numbers too, and so is every value in
-    // the stacked phone layout; 제목 takes the leftover width and the rest
-    // are as narrow as their content.
+    // The 30-day count ends, header and cells, in tabular figures, and so
+    // does the 사용 switch under its header; every other column starts, and
+    // so does every value in the stacked phone layout. 제목 takes the
+    // leftover width and the rest are as narrow as their content.
     const head = within(table).getAllByRole("columnheader");
     const firstRow = within(table).getAllByRole("row")[2] as HTMLElement;
-    for (const cell of [...head, ...within(firstRow).getAllByRole("cell")]) {
+    const cells = within(firstRow).getAllByRole("cell");
+    for (const [index, cell] of [...head, ...cells].entries()) {
       const classes = cell.className.split(/\s+/);
-      expect(
-        classes.filter((name) => /text-right|justify-end/.test(name)),
-      ).toEqual([]);
-      expect(classes.includes("text-left")).toBe(true);
+      const column = index % head.length;
+      if (column === 4 || column === 5) {
+        expect(classes.includes("text-right")).toBe(true);
+        expect(classes.includes("tabular-nums")).toBe(column === 4);
+        expect(classes.includes("text-left")).toBe(false);
+      } else {
+        expect(
+          classes.filter((name) => /text-right|justify-end/.test(name)),
+        ).toEqual([]);
+        expect(classes.includes("text-left")).toBe(true);
+      }
     }
+    for (const cell of [cells[4], cells[5]]) {
+      expect(cell?.className.split(/\s+/).includes("max-md:text-left")).toBe(
+        true,
+      );
+    }
+    expect(
+      cells[5]?.className
+        .split(/\s+/)
+        .includes("max-md:[&>[data-slot=switch]]:ml-0"),
+    ).toBe(true);
     expect(
       screen
         .getByRole("button", { name: "머지된 PR" })
@@ -867,8 +886,8 @@ describe("성과 규칙", () => {
       "nowrap",
       "nowrap",
       "nowrap",
-      "nowrap",
-      "nowrap",
+      "numeric",
+      "switch",
     ]);
     const used = screen.getByRole("switch", { name: "머지된 PR 사용" });
     expect(used.className.split(/\s+/).includes("flex")).toBe(true);

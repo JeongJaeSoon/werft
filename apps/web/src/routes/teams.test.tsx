@@ -251,12 +251,15 @@ describe("팀 화면", () => {
     ).toBeDefined();
   });
 
-  // Owner, 2026-11-17: the 구성원 column stays where it was, its header and
-  // its count starting at one x; only the chevron sits at the row's end.
-  test("팀 표는 머리글과 셀이 열마다 시작에 붙고, 화살표만 행 끝에 붙는다", async () => {
-    const starts = (cell: HTMLElement) =>
-      cell.dataset.align === "start" &&
-      !/\b(justify-end|text-end|text-right|ml-auto)\b/.test(cell.className);
+  // The team name starts; the member count is a number, so header and count
+  // end, the count just before the arrow that closes the row. The header
+  // keeps the arrow's room so both end at one x.
+  test("팀 표는 팀 이름이 시작에, 구성원 수는 머리글과 함께 끝에 붙고 화살표가 행을 닫는다", async () => {
+    const align = (cell: HTMLElement) => [
+      cell.dataset.align,
+      /\bjustify-end\b/.test(cell.className),
+      /\btabular-nums\b/.test(cell.className),
+    ];
     const server = teamServer();
     renderAt("/members/teams", server.routes);
     await screen.findByRole("link", { name: "팀 열기: 결제팀" });
@@ -270,16 +273,22 @@ describe("팀 화면", () => {
           "[role=columnheader], [role=cell]",
         ),
       ];
-      expect(cells.map(starts)).toEqual([true, true]);
+      expect(cells.map(align)).toEqual([
+        ["start", false, false],
+        ["end", true, true],
+      ]);
     }
+    const header = within(teams).getByRole("columnheader", { name: "구성원" });
+    expect(header.className.split(/\s+/).includes("pr-6")).toBe(true);
     const count = within(teams).getAllByText(
       /^구성원 \d+명$/,
     )[0] as HTMLElement;
-    expect(count.className).not.toContain("ml-auto");
-    expect(count.parentElement?.firstElementChild === count).toBe(true);
+    expect(count.parentElement?.lastElementChild?.tagName.toLowerCase()).toBe(
+      "svg",
+    );
     expect(
-      count.parentElement?.querySelector("svg")?.getAttribute("class"),
-    ).toContain("ml-auto");
+      count.parentElement?.lastElementChild?.getAttribute("class"),
+    ).toContain("size-4");
   });
 
   test("헤더의 팀 만들기가 대화상자를 열어 만든다. 같은 이름은 대화상자 안에서 말한다", async () => {

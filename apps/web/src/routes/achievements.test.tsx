@@ -267,12 +267,12 @@ describe("성과", () => {
         "거절됨",
       ],
     ]);
-    // Every header and cell is left-aligned, numbers too. Short columns are
-    // as narrow as their content; the text columns take what they leave and
-    // wrap between words.
+    // Number columns end, header and cells alike, in tabular figures; every
+    // other header and cell starts. Short columns are as narrow as their
+    // content; the text columns take what they leave and wrap between words.
     for (const [name, variants] of [
-      ["규칙별", ["nowrap", "default", "nowrap", "nowrap", "nowrap"]],
-      ["에이전트별", ["default", "nowrap", "nowrap", "nowrap", "nowrap"]],
+      ["규칙별", ["nowrap", "default", "nowrap", "numeric", "numeric"]],
+      ["에이전트별", ["default", "numeric", "numeric", "numeric", "numeric"]],
       [
         "최근 성과",
         ["nowrap", "default", "default", "default", "nowrap", "nowrap"],
@@ -293,10 +293,16 @@ describe("성과", () => {
         ).toEqual([...variants]);
       for (const cell of [...head, ...within(table).getAllByRole("cell")]) {
         const classes = cell.className.split(/\s+/);
-        expect(
-          classes.filter((c) => /text-(right|end)|justify-end/.test(c)),
-        ).toEqual([]);
-        expect(classes.includes("text-left")).toBe(true);
+        if (cell.getAttribute("data-variant") === "numeric") {
+          expect(classes.includes("text-right")).toBe(true);
+          expect(classes.includes("tabular-nums")).toBe(true);
+          expect(classes.includes("text-left")).toBe(false);
+        } else {
+          expect(
+            classes.filter((c) => /text-(right|end)|justify-end/.test(c)),
+          ).toEqual([]);
+          expect(classes.includes("text-left")).toBe(true);
+        }
       }
     }
     expect(

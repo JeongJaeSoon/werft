@@ -668,10 +668,25 @@ describe("에이전트 GitHub 탭", () => {
     expect(nodes.map((node) => node.tagName)).not.toContain("DETAILS");
     // The repositories sit under GitHub, as on the workspace screen.
     expect(nodes[0]?.contains(nodes[1] as Node)).toBe(true);
-    // Lists are tables.
-    expect(
-      screen.getByRole("table", { name: "에이전트가 쓰는 저장소" }),
-    ).toBeTruthy();
+    // Lists are tables. The 사용 switch is the last column, at the end with
+    // its header, so the two end at one x; the repository starts.
+    const repositories = screen.getByRole("table", {
+      name: "에이전트가 쓰는 저장소",
+    });
+    for (const row of within(repositories).getAllByRole("row"))
+      expect(
+        [
+          ...row.querySelectorAll<HTMLElement>(
+            "[role=columnheader], [role=cell]",
+          ),
+        ].map((cell) => [
+          cell.dataset.align,
+          /\bjustify-end\b/.test(cell.className),
+        ]),
+      ).toEqual([
+        ["start", false],
+        ["end", true],
+      ]);
     expect(
       screen.getByRole("table", { name: "Actions 허용 목록" }),
     ).toBeTruthy();

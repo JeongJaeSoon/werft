@@ -71,6 +71,7 @@ export function ToolTable({
         columns={COLUMNS}
         narrowAt={480}
         narrowColumns={NARROW_COLUMNS}
+        align={["start", "end", "end", "end", "end"]}
       >
         <GridTableHeader>
           <GridTableColumnHeader>{messages.name}</GridTableColumnHeader>
