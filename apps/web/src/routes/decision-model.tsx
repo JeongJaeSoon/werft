@@ -200,6 +200,10 @@ function DecisionRow({
     item.credential.last4 === null;
   return (
     <SettingRow
+      // Below 640px SettingRow pins the buttons to the title's line; these
+      // lines are short, so they keep to the left column and the buttons
+      // centre on the whole row as on a desktop. A long address breaks.
+      className="max-sm:[&>span:nth-child(2)]:col-1 max-sm:[&>div]:row-end-3 max-sm:[&>div]:self-center [&_p]:wrap-anywhere"
       title={<Code>{item.id}</Code>}
       badge={<StateBadge state={item.state} />}
       description={item.endpoint}

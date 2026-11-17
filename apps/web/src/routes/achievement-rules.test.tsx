@@ -844,6 +844,35 @@ describe("성과 규칙", () => {
         ],
       ]),
     );
+    // Every column is left-aligned, numbers too, and so is every value in
+    // the stacked phone layout; 제목 takes the leftover width and the rest
+    // are as narrow as their content.
+    const head = within(table).getAllByRole("columnheader");
+    const firstRow = within(table).getAllByRole("row")[2] as HTMLElement;
+    for (const cell of [...head, ...within(firstRow).getAllByRole("cell")]) {
+      const classes = cell.className.split(/\s+/);
+      expect(
+        classes.filter((name) => /text-right|justify-end/.test(name)),
+      ).toEqual([]);
+      expect(classes.includes("text-left")).toBe(true);
+    }
+    expect(
+      screen
+        .getByRole("button", { name: "머지된 PR" })
+        .className.split(/\s+/)
+        .filter((name) => name.includes("text-right")),
+    ).toEqual([]);
+    expect(head.map((cell) => cell.getAttribute("data-variant"))).toEqual([
+      "text",
+      "nowrap",
+      "nowrap",
+      "nowrap",
+      "nowrap",
+      "nowrap",
+    ]);
+    const used = screen.getByRole("switch", { name: "머지된 PR 사용" });
+    expect(used.className.split(/\s+/).includes("flex")).toBe(true);
+    expect(used.className.split(/\s+/).includes("inline-flex")).toBe(false);
     expect(
       screen
         .getByRole("switch", { name: "설계 문서 작성 사용" })
@@ -1549,6 +1578,17 @@ describe("성과 규칙", () => {
         name: "luna-off의 API 키 설정",
       }) !== null,
     ).toBe(true);
+    // jsdom has no layout; the 390px demo shot is the real check.
+    const row = within(dialog)
+      .getByRole("button", { name: "luna-a 사용 중지" })
+      .closest("li");
+    for (const name of [
+      "max-sm:[&>span:nth-child(2)]:col-1",
+      "max-sm:[&>div]:row-end-3",
+      "max-sm:[&>div]:self-center",
+    ]) {
+      expect(row?.className.split(/\s+/).includes(name)).toBe(true);
+    }
 
     await user.click(
       within(dialog).getByRole("button", { name: "luna-a의 API 키 설정" }),
