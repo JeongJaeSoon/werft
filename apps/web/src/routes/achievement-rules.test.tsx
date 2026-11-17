@@ -866,6 +866,30 @@ describe("성과 규칙", () => {
     ).toBe(true);
   });
 
+  test("규칙 편집: 만든 날은 UTC가 아니라 제품 시간대의 날짜로 보인다", async () => {
+    await opened({
+      "GET /v1/achievement-rules": () =>
+        json(200, {
+          items: RULES.map((r) =>
+            r.family_id === BUGFIX
+              ? { ...r, created_at: "2026-10-27T22:30:00.000Z" }
+              : r,
+          ),
+        }),
+    });
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "버그 수정 PR" }));
+    const editor = (
+      await screen.findByRole("heading", {
+        level: 2,
+        name: "규칙 편집 — 버그 수정 PR",
+      })
+    ).closest("section") as HTMLElement;
+    await waitFor(() =>
+      expect(editor.textContent).toContain("v1 · 2026. 10. 28. 김지민이 만듦"),
+    );
+  });
+
   test("규칙 편집: 다른 사용 중 규칙이 쓰지 않는 type만 고르고, 저장하면 새 버전을 보낸다", async () => {
     const { api } = await opened({
       [`POST /v1/achievement-rules/${BUGFIX}/versions`]: async (request) => {
@@ -885,7 +909,7 @@ describe("성과 규칙", () => {
       })
     ).closest("section") as HTMLElement;
     await waitFor(() =>
-      expect(editor.textContent).toContain("v1 · 2026-10-28 김지민이 만듦"),
+      expect(editor.textContent).toContain("v1 · 2026. 10. 28. 김지민이 만듦"),
     );
     const typeSelect = within(editor).getByRole("combobox", {
       name: "성과 type",
@@ -1623,7 +1647,7 @@ describe("성과 규칙", () => {
         name: "규칙 편집 — 버그 수정 PR",
       })
     ).closest("section") as HTMLElement;
-    expect(editor.textContent).toContain("v1 · 2026-10-28");
+    expect(editor.textContent).toContain("v1 · 2026. 10. 28.");
     expect(editor.textContent).not.toContain("만듦");
     expect(
       (

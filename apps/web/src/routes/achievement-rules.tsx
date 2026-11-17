@@ -37,6 +37,7 @@ import {
   FieldLabel,
   FieldLegend,
   FieldSet,
+  formatTimestamp,
   Input,
   NativeSelect,
   NativeSelectOption,
@@ -49,6 +50,7 @@ import {
   Switch,
   Text,
   Textarea,
+  type TimestampLocale,
 } from "@werft-ai/ui";
 import { Lock } from "lucide-react";
 import {
@@ -171,6 +173,10 @@ export function subjectParticle(name: string): string {
   if (code < 0xac00 || code > 0xd7a3) return "이(가)";
   return (code - 0xac00) % 28 === 0 ? "가" : "이";
 }
+
+/** "2026. 10. 30.": formatTimestamp without its time, in the product's zone. */
+const dateOf = (iso: string, locale: TimestampLocale) =>
+  formatTimestamp(iso, locale).replace(/,? \d{2}:\d{2}$/, "");
 
 function useCatalog() {
   const { client } = useWerft();
@@ -1601,11 +1607,11 @@ function RuleEditor({
             ? creatorName === undefined
               ? t("achievementRules.edit.meta", {
                   version: rule.version,
-                  date: rule.created_at.slice(0, 10),
+                  date: dateOf(rule.created_at, locale),
                 })
               : t("achievementRules.edit.metaBy", {
                   version: rule.version,
-                  date: rule.created_at.slice(0, 10),
+                  date: dateOf(rule.created_at, locale),
                   // Korean marks the maker with a particle the name decides.
                   name:
                     locale === "ko"
