@@ -436,6 +436,20 @@ describe("팀 화면", () => {
     }
   });
 
+  test("팀 페이지 머리말은 팀 탭과 같은 팀 설명이고, 구성원 탭의 설명이 아니다", async () => {
+    const server = teamServer();
+    renderAt(`/members/teams/${TEAM_ID}`, server.routes);
+    await screen.findByRole("heading", { level: 2, name: "결제팀" });
+    expect(
+      screen.getAllByText(
+        "팀은 사람 묶음입니다. 에이전트의 담당 팀이나 관리자로 지정해 함께 관리하고 씁니다.",
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.queryByText("워크스페이스에 속한 사람과 역할입니다."),
+    ).toBeNull();
+  });
+
   test("팀 이름 칸은 페이지에 없고, 제목 옆 연필 버튼이 이름 바꾸기 대화상자를 연다", async () => {
     const server = teamServer();
     renderAt(`/members/teams/${TEAM_ID}`, server.routes);

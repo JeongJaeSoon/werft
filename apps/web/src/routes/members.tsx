@@ -175,7 +175,7 @@ function MembersPage() {
       description={t(
         !manages
           ? "members.withheld"
-          : onTeamList && managesTeams
+          : onTeams && managesTeams
             ? "teams.intro"
             : "members.description",
       )}
