@@ -118,11 +118,22 @@ export function InviteScreen() {
         alert
         title={t("invite.invalid.title")}
         body={t("invite.invalid.body")}
+        actions={<LoginLink />}
       />
     );
   } else body = <AcceptFlow key={token} token={token} />;
 
   return <AuthPage title={t("invite.title")}>{body}</AuthPage>;
+}
+
+/** The way on from an invite that cannot be accepted, for whoever has an account. */
+function LoginLink() {
+  const { t } = useI18n();
+  return (
+    <Link className={buttonVariants()} to="/login">
+      {t("invite.login")}
+    </Link>
+  );
 }
 
 type Account = "existing" | "new";
@@ -231,6 +242,7 @@ function AcceptFlow({ token }: { readonly token: string }) {
         alert
         title={t("invite.expired.title")}
         body={t("invite.expired.body")}
+        actions={<LoginLink />}
       />
     );
   }
@@ -242,11 +254,7 @@ function AcceptFlow({ token }: { readonly token: string }) {
         alert
         title={t("invite.used.title")}
         body={t("invite.used.body")}
-        actions={
-          <Link className={buttonVariants()} to="/login">
-            {t("invite.used.login")}
-          </Link>
-        }
+        actions={<LoginLink />}
       />
     );
   }

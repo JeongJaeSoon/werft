@@ -197,16 +197,19 @@ describe("입력 검증(W24 규약)", () => {
 });
 
 describe("쓸 수 없는 초대", () => {
-  test("만료·회수된 초대(410)는 폼 대신 새 링크를 요청하라고 한다", async () => {
-    renderAt(`/invite/${TOKEN}`, {
+  test("만료·회수된 초대(410)는 폼 대신 새 링크를 요청하라고 하고, 로그인 화면으로 가는 길을 둔다", async () => {
+    const { history } = renderAt(`/invite/${TOKEN}`, {
       "GET /v1/auth/me": signedOut,
       "POST /v1/invites/accept": () =>
         apiError(410, "INVITE_EXPIRED", "This invite was revoked"),
     });
-    await accept();
+    const user = await accept();
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("만료됐거나 회수된 초대입니다");
+    expect(alert.textContent).toContain("새 링크를 요청하세요");
     expect(screen.queryByRole("button", { name: "초대 수락" })).toBeNull();
+    await user.click(screen.getByRole("link", { name: "로그인 화면으로" }));
+    await waitFor(() => expect(history.location.pathname).toBe("/login"));
   });
 
   test("이미 쓴 초대(409)는 로그인으로 안내한다", async () => {
@@ -224,8 +227,8 @@ describe("쓸 수 없는 초대", () => {
     ).toBe("/login");
   });
 
-  test("잘리거나 지어낸 링크는 서버에 묻지 않고 링크 전체를 다시 열라고 한다", async () => {
-    const { api } = renderAt(`/invite/${"t".repeat(10)}`, {
+  test("잘리거나 지어낸 링크는 서버에 묻지 않고 링크 전체를 다시 열라고 하고, 로그인 화면으로 가는 길을 둔다", async () => {
+    const { api, history } = renderAt(`/invite/${"t".repeat(10)}`, {
       "GET /v1/auth/me": signedOut,
     });
     const alert = await screen.findByRole("alert");
@@ -233,6 +236,9 @@ describe("쓸 수 없는 초대", () => {
     expect(alert.textContent).toContain("받은 링크 전체를");
     expect(screen.queryByRole("button", { name: "초대 수락" })).toBeNull();
     expect(acceptCalls(api)).toHaveLength(0);
+    const user = await setupUser();
+    await user.click(screen.getByRole("link", { name: "로그인 화면으로" }));
+    await waitFor(() => expect(history.location.pathname).toBe("/login"));
   });
 
   test("다른 초대 링크로 옮기면 앞 초대의 결과를 들고 가지 않는다", async () => {
@@ -562,6 +568,11 @@ describe("공급자 계정으로 가입", () => {
       await screen.findByText(title);
       expect(shown()).toBe(0);
       expect(left).toEqual([]);
+      expect(
+        screen
+          .getByRole("link", { name: "로그인 화면으로" })
+          .getAttribute("href"),
+      ).toBe("/login");
     });
   }
 
