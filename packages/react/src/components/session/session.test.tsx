@@ -667,9 +667,10 @@ describe("SessionOverviewRow", () => {
     const { getAllByRole, getByRole } = overviewRow(SESSION);
     const [header, row] = getAllByRole("row");
     expect(header?.className).toContain("[@container(width<600px)]:sr-only");
-    expect(row?.className).toContain(
+    expect(getByRole("table").className).toContain(
       "[@container(width<600px)]:grid-cols-[minmax(0,1fr)_auto_auto]!",
     );
+    expect(row?.className).toContain("grid-cols-subgrid");
     const title = getByRole("link", { name: SESSION.id }).closest(
       '[role="cell"]',
     );

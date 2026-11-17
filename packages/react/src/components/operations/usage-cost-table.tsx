@@ -22,8 +22,9 @@ type Row = UsageBreakdownResponse["rows"][number];
 // GridTable's narrowest step (480px) drops the token column from a half-width
 // table at 1280px once a classic scrollbar takes 15-17px (about 472px), so
 // this table steps at 460px itself. Below that the name column would wrap a
-// model name; a phone still drops the column.
-const NARROW_ROW =
+// model name; a phone still drops the column. The rows are subgrids of the
+// table, so the template changes on the table.
+const NARROW_TABLE =
   "[@container(width<460px)]:grid-cols-[minmax(0,1fr)_48px_88px]";
 const NARROW_HIDE = "[@container(width<460px)]:hidden";
 
@@ -71,6 +72,7 @@ export function UsageCostTable({
       <GridTable
         aria-label={label}
         aria-busy={loading || undefined}
+        className={cn(tokens && NARROW_TABLE)}
         columns={
           tokens ? "minmax(0,1fr) 56px 80px 96px" : "minmax(0,1fr) 64px 96px"
         }
@@ -78,7 +80,7 @@ export function UsageCostTable({
           tokens ? ["start", "end", "end", "end"] : ["start", "end", "end"]
         }
       >
-        <GridTableHeader className={cn(tokens && NARROW_ROW)}>
+        <GridTableHeader>
           <GridTableColumnHeader>{head}</GridTableColumnHeader>
           <GridTableColumnHeader>{messages.sessions}</GridTableColumnHeader>
           {tokens ? (
@@ -95,10 +97,7 @@ export function UsageCostTable({
               : (row.label ??
                 (by === "agent" ? messages.noAgent : messages.noModel));
           return (
-            <GridTableRow
-              key={row ? (row.key ?? "") : i}
-              className={cn(tokens && NARROW_ROW)}
-            >
+            <GridTableRow key={row ? (row.key ?? "") : i}>
               <GridTableCell lines className="gap-1">
                 {/* The whole name, wrapped anywhere: the cell truncates only
                     the lines after it. */}

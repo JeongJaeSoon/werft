@@ -94,7 +94,9 @@ describe("GridTable", () => {
     // itself is not checked here.
   });
 
-  test("열 템플릿은 표 하나에 두고 모든 행이 그 subgrid라, 내용 너비 열이 모든 행에서 같은 폭이다", () => {
+  // happy-dom lays nothing out, so this checks the structure only: the
+  // widths themselves were measured in a browser.
+  test("열 템플릿은 표 하나에 두고 모든 행은 그 템플릿을 잇는 subgrid다", () => {
     const { getByRole, getAllByRole } = render(<Sessions />);
     const table = getByRole("table");
     expect(table.style.getPropertyValue("--grid-table-columns")).toBe(COLUMNS);

@@ -230,7 +230,7 @@ function AppState({ item }: { readonly item: MadeApp }) {
         <Badge>{t("workspace.slackAppsNotInstalled")}</Badge>
       )}
       {connected ? (
-        <Text as="span" variant="meta">
+        <Text as="span" variant="meta" truncate className="max-w-full">
           {link ? t("workspace.slackAppsSignIn") : `@${item.agent?.slug}`}
         </Text>
       ) : null}
@@ -239,8 +239,9 @@ function AppState({ item }: { readonly item: MadeApp }) {
 }
 
 // App, agent, state, updated, details; a phone keeps the app, the state and
-// the details link, and the app cell names the agent and the time.
+// the details link, and the app cell names the agent and the time. The state
+// cell can hold an agent slug, so its track stops at 12rem and the slug is cut.
 const COLUMNS = [
-  "minmax(0,1.4fr) minmax(0,1fr) max-content max-content max-content",
-  "minmax(0,1fr) max-content max-content",
+  "minmax(0,1.4fr) minmax(0,1fr) fit-content(12rem) max-content max-content",
+  "minmax(0,1fr) fit-content(12rem) max-content",
 ] as const;

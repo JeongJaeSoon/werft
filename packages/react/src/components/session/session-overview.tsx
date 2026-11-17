@@ -46,9 +46,11 @@ const SESSION_OVERVIEW_ALIGN = [
 // A phone's table has no room for four columns side by side: the title
 // takes the first line, agent, status and duration the second, and the
 // column names stay for screen readers only. The status's detail drops out:
-// the screens that draw this row show waits in their inbox above it.
+// the screens that draw this row show waits in their inbox above it. The
+// rows are subgrids, so the template changes on the table.
 const PHONE = {
-  row: "[@container(width<600px)]:grid-cols-[minmax(0,1fr)_auto_auto]! [@container(width<600px)]:gap-y-1",
+  table: "[@container(width<600px)]:grid-cols-[minmax(0,1fr)_auto_auto]!",
+  row: "[@container(width<600px)]:gap-y-1",
   title: "[@container(width<600px)]:col-span-full",
   header: "[@container(width<600px)]:sr-only",
   detail: "[@container(width<600px)]:hidden",
@@ -89,6 +91,7 @@ export function SessionOverviewTable({
     >
       <GridTable
         aria-label={label}
+        className={PHONE.table}
         columns={SESSION_OVERVIEW_TEMPLATE}
         narrowAt={820}
         narrowColumns={SESSION_OVERVIEW_NARROW_TEMPLATE}
