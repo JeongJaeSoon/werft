@@ -318,16 +318,22 @@ function liveRules() {
   };
 }
 
+const metaOf = (item: HTMLElement) =>
+  item.querySelector('[data-slot="text"][data-variant="meta"]')?.textContent;
+
+/** Each category's heading, then each of its rules' title and meta line. */
 const ruleRows = () =>
-  within(within(section("규칙") as HTMLElement).getByRole("table"))
-    .getAllByRole("row")
-    .slice(1)
-    .map((row) =>
-      within(row)
-        .getAllByRole("cell")
-        .slice(0, 4)
-        .map((cell) => cell.textContent),
-    );
+  within(section("규칙") as HTMLElement)
+    .getAllByRole("heading", { level: 3 })
+    .flatMap((heading) => [
+      [heading.textContent],
+      ...within(screen.getByRole("list", { name: heading.textContent ?? "" }))
+        .getAllByRole("listitem")
+        .map((item) => [
+          within(item).getAllByRole("button")[0]?.textContent,
+          metaOf(item),
+        ]),
+    ]);
 
 describe("성과 규칙", () => {
   afterEach(() => {
@@ -402,20 +408,15 @@ describe("성과 규칙", () => {
       }),
     ],
   ] as const) {
-    test(`${who}에게는 판정 비용 줄과 지난 30일 칸을 숨긴다`, async () => {
+    test(`${who}에게는 판정 비용 줄과 지난 30일 수를 숨긴다`, async () => {
       const { who: principal, overrides } = setup();
       const { api } = await opened(overrides, principal);
-      const table = within(section("규칙") as HTMLElement).getByRole("table");
       await waitFor(() =>
-        expect(
-          within(table).getAllByRole("row")[2]?.querySelectorAll("td").length,
-        ).toBe(5),
+        expect(ruleRows().slice(0, 2)).toEqual([
+          ["개발"],
+          ["머지된 PR", "pull_request · Luna 판정 · v2"],
+        ]),
       );
-      expect(
-        within(table)
-          .getAllByRole("columnheader")
-          .map((cell) => cell.textContent),
-      ).toEqual(["제목", "성과 type", "판정", "버전", "사용"]);
       expect(section("판정 설정")?.textContent).not.toContain("오늘 판정 비용");
       expect(
         api.calls.some(
@@ -682,7 +683,7 @@ describe("성과 규칙", () => {
     await waitFor(() => expect(document.activeElement === add).toBe(true));
   });
 
-  test("성과 type 표: 이름·key·근거 종류·저장되는 칸·쓰는 규칙, 내장 표시, 추가·이름 바꾸기", async () => {
+  test("성과 type 목록: 이름·내장, 보조 줄에 key·근거 종류·저장되는 칸·쓰는 규칙, 추가·이름 바꾸기", async () => {
     const created = type(
       "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
       "hotfix_pr",
@@ -699,67 +700,39 @@ describe("성과 규칙", () => {
           receipt_id: RECEIPT_ID,
         }),
     });
-    const table = within(section("성과 type") as HTMLElement).getByRole(
-      "table",
-    );
-    const rows = within(table).getAllByRole("row");
+    const list = within(screen.getByRole("list", { name: "성과 type" }));
     expect(
-      within(rows[0] as HTMLElement)
-        .getAllByRole("columnheader")
-        .map((cell) => cell.textContent),
-    ).toEqual([
-      "이름",
-      "key",
-      "근거 종류",
-      "저장되는 칸",
-      "쓰는 규칙",
-      "이름 바꾸기",
-    ]);
-    expect(
-      rows.slice(1).map((row) =>
-        within(row)
-          .getAllByRole("cell")
-          .map((cell) => cell.textContent),
-      ),
+      list
+        .getAllByRole("listitem")
+        .map((item) => [
+          item.firstElementChild?.textContent,
+          metaOf(item),
+          within(item).queryByRole("button")?.textContent ?? "",
+        ]),
     ).toEqual([
       [
-        "GitHub PR 내장",
-        "pull_request",
-        "PR",
-        "공통 + 저장소·번호·상태·머지 시각·변경 줄 수",
-        "머지된 PR",
+        "GitHub PR내장",
+        "pull_request · PR · 저장되는 칸: 공통 + 저장소·번호·상태·머지 시각·변경 줄 수 · 쓰는 규칙: 머지된 PR",
         "",
       ],
       [
-        "코드 리뷰 내장",
-        "code_review",
-        "리뷰",
-        "공통 + 저장소·번호·event·commit",
-        "코드 리뷰 제출",
+        "코드 리뷰내장",
+        "code_review · 리뷰 · 저장되는 칸: 공통 + 저장소·번호·event·commit · 쓰는 규칙: 코드 리뷰 제출",
         "",
       ],
       [
-        "문서 내장",
-        "document",
-        "out/ 파일",
-        "공통 + 경로·크기",
-        "설계 문서 작성",
+        "문서내장",
+        "document · out/ 파일 · 저장되는 칸: 공통 + 경로·크기 · 쓰는 규칙: 설계 문서 작성",
         "",
       ],
       [
-        "버그 수정 PR ",
-        "bugfix_pr",
-        "PR",
-        "공통 (제목·링크·근거)",
         "버그 수정 PR",
+        "bugfix_pr · PR · 저장되는 칸: 공통 (제목·링크·근거) · 쓰는 규칙: 버그 수정 PR",
         "이름 바꾸기",
       ],
       [
-        "대화로 해결 ",
-        "solved_talk",
-        "대화",
-        "공통 (제목·링크·근거)",
-        "",
+        "대화로 해결",
+        "solved_talk · 대화 · 저장되는 칸: 공통 (제목·링크·근거)",
         "이름 바꾸기",
       ],
     ]);
@@ -814,84 +787,39 @@ describe("성과 규칙", () => {
     ]);
   });
 
-  test("규칙 표는 구분별로 묶이고, 지난 30일 수와 판정·사람 확인 표시를 보인다", async () => {
+  test("규칙 목록은 구분별 소제목 아래 한 줄씩, 보조 줄에 type·판정·버전·지난 30일·확인 대기를 보인다", async () => {
     await opened();
-    const table = within(section("규칙") as HTMLElement).getByRole("table");
     await waitFor(() =>
-      expect(
-        within(table)
-          .getAllByRole("row")
-          .slice(1)
-          .map((row) =>
-            within(row)
-              .getAllByRole("cell")
-              .map((cell) => cell.textContent),
-          ),
-      ).toEqual([
+      expect(ruleRows()).toEqual([
         ["개발"],
-        ["머지된 PR", "pull_request", "Luna 판정 ", "v2", "41", ""],
-        ["버그 수정 PR", "bugfix_pr", "Luna 판정 ", "v1", "12", ""],
+        ["머지된 PR", "pull_request · Luna 판정 · v2 · 지난 30일 41"],
+        ["버그 수정 PR", "bugfix_pr · Luna 판정 · v1 · 지난 30일 12"],
         ["리뷰"],
-        ["코드 리뷰 제출", "code_review", "바로 인정 ", "v1", "0", ""],
+        ["코드 리뷰 제출", "code_review · 바로 인정 · v1 · 지난 30일 0"],
         ["문서"],
         [
           "설계 문서 작성",
-          "document",
-          "Luna 판정 사람 확인",
-          "v3",
-          "2 +3 확인 대기",
-          "",
+          "document · Luna 판정 사람 확인 · v3 · 지난 30일 2 · 확인 대기 3",
         ],
       ]),
     );
-    // The 30-day count ends, header and cells, in tabular figures, and so
-    // does the 사용 switch under its header; every other column starts, and
-    // so does every value in the stacked phone layout. 제목 takes the
-    // leftover width and the rest are as narrow as their content.
-    const head = within(table).getAllByRole("columnheader");
-    const firstRow = within(table).getAllByRole("row")[2] as HTMLElement;
-    const cells = within(firstRow).getAllByRole("cell");
-    for (const [index, cell] of [...head, ...cells].entries()) {
-      const classes = cell.className.split(/\s+/);
-      const column = index % head.length;
-      if (column === 4 || column === 5) {
-        expect(classes.includes("text-right")).toBe(true);
-        expect(classes.includes("tabular-nums")).toBe(column === 4);
-        expect(classes.includes("text-left")).toBe(false);
-      } else {
-        expect(
-          classes.filter((name) => /text-right|justify-end/.test(name)),
-        ).toEqual([]);
-        expect(classes.includes("text-left")).toBe(true);
-      }
-    }
-    for (const cell of [cells[4], cells[5]]) {
-      expect(cell?.className.split(/\s+/).includes("max-md:text-left")).toBe(
-        true,
-      );
-    }
+    // Not a table: no column heads to repeat on each row at phone width.
     expect(
-      cells[5]?.className
-        .split(/\s+/)
-        .includes("max-md:[&>[data-slot=switch]]:ml-0"),
+      within(section("규칙") as HTMLElement).queryByRole("table") === null,
     ).toBe(true);
     expect(
-      screen
+      within(section("성과 type") as HTMLElement).queryByRole("table") === null,
+    ).toBe(true);
+    // Each rule's switch is in its own row, beside the title that opens it.
+    const row = within(screen.getByRole("list", { name: "개발" }))
+      .getByRole("button", { name: "머지된 PR" })
+      .closest("li") as HTMLElement;
+    expect(
+      within(row)
         .getByRole("button", { name: "머지된 PR" })
-        .className.split(/\s+/)
-        .filter((name) => name.includes("text-right")),
-    ).toEqual([]);
-    expect(head.map((cell) => cell.getAttribute("data-variant"))).toEqual([
-      "text",
-      "nowrap",
-      "nowrap",
-      "nowrap",
-      "numeric",
-      "switch",
-    ]);
-    const used = screen.getByRole("switch", { name: "머지된 PR 사용" });
-    expect(used.className.split(/\s+/).includes("flex")).toBe(true);
-    expect(used.className.split(/\s+/).includes("inline-flex")).toBe(false);
+        .getAttribute("aria-controls"),
+    ).toBe("achievement-rule-editor");
+    within(row).getByRole("switch", { name: "머지된 PR 사용" });
     expect(
       screen
         .getByRole("switch", { name: "설계 문서 작성 사용" })
@@ -913,15 +841,28 @@ describe("성과 규칙", () => {
     expect(classes.includes("shrink-0")).toBe(false);
     expect(classes.includes("whitespace-normal")).toBe(true);
     expect(classes.includes("min-w-0")).toBe(true);
-    // A title without spaces may break anywhere in the types table too.
-    const table = within(section("성과 type") as HTMLElement).getByRole(
-      "table",
+    // A meta part wraps as a whole, and breaks inside only when it is wider
+    // than the line, such as a list of rule titles without spaces.
+    const item = within(
+      screen.getByRole("list", { name: "성과 type" }),
+    ).getAllByRole("listitem")[0] as HTMLElement;
+    const parts = item.querySelectorAll(
+      '[data-slot="text"][data-variant="meta"] > span',
     );
-    const used = within(table)
-      .getAllByRole("cell")
-      .find((cell) => cell.getAttribute("data-k") === "규칙");
+    expect(parts.length).toBe(4);
+    for (const [index, part] of [...parts].entries()) {
+      const names = part.className.split(/\s+/);
+      expect(names.includes("inline-block")).toBe(true);
+      expect(names.includes("[overflow-wrap:anywhere]")).toBe(true);
+      // Each separator wraps with the part after it, never at a line end.
+      expect(part.textContent?.startsWith("· ")).toBe(index > 0);
+    }
+    // A type name without spaces breaks before the rename button.
+    const name = within(
+      screen.getByRole("list", { name: "성과 type" }),
+    ).getByText("버그 수정 PR");
     expect(
-      used?.className.split(/\s+/).includes("[overflow-wrap:anywhere]"),
+      name.className.split(/\s+/).includes("[overflow-wrap:anywhere]"),
     ).toBe(true);
   });
 
@@ -1150,7 +1091,7 @@ describe("성과 규칙", () => {
     );
   });
 
-  test("새 버전을 저장하면 표가 새 제목과 버전을 보인다", async () => {
+  test("새 버전을 저장하면 목록이 새 제목과 버전을 보인다", async () => {
     await opened(liveRules());
     const user = await setupUser();
     await user.click(screen.getByRole("button", { name: "버그 수정 PR" }));
@@ -1170,9 +1111,7 @@ describe("성과 규칙", () => {
     await waitFor(() =>
       expect(ruleRows()[2]).toEqual([
         "고객 버그 수정 PR",
-        "bugfix_pr",
-        "Luna 판정 ",
-        "v2",
+        "bugfix_pr · Luna 판정 · v2 · 지난 30일 12",
       ]),
     );
   });
@@ -1205,8 +1144,8 @@ describe("성과 규칙", () => {
     await waitFor(() =>
       expect(ruleRows().slice(3, 6)).toEqual([
         ["리뷰"],
-        ["코드 리뷰 제출", "code_review", "바로 인정 ", "v1"],
-        ["대화로 해결", "solved_talk", "바로 인정 사람 확인", "v1"],
+        ["코드 리뷰 제출", "code_review · 바로 인정 · v1 · 지난 30일 0"],
+        ["대화로 해결", "solved_talk · 바로 인정 사람 확인 · v1 · 지난 30일 0"],
       ]),
     );
     expect(
