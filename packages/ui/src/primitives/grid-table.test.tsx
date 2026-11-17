@@ -17,7 +17,7 @@ const COLUMNS =
   "minmax(0,2.2fr) 120px minmax(0,1.1fr) minmax(0,1.1fr) minmax(0,1fr) 72px";
 const NARROW = "minmax(0,2fr) 116px minmax(0,1.2fr) 64px";
 const NARROW_HIDE = "[@container(max-width:820px)]:hidden";
-const NARROW_ROW =
+const NARROW_TABLE =
   "[@container(max-width:820px)]:grid-cols-[var(--grid-table-narrow-columns)]";
 
 function Sessions({
@@ -94,20 +94,29 @@ describe("GridTable", () => {
     // itself is not checked here.
   });
 
-  test("열 템플릿은 표의 변수 하나로 모든 행에 가고 좁은 템플릿은 narrowAt 기준에서 바뀐다", () => {
+  // happy-dom lays nothing out, so this checks the structure only: the
+  // widths themselves were measured in a browser.
+  test("열 템플릿은 표 하나에 두고 모든 행은 그 템플릿을 잇는 subgrid다", () => {
     const { getByRole, getAllByRole } = render(<Sessions />);
     const table = getByRole("table");
     expect(table.style.getPropertyValue("--grid-table-columns")).toBe(COLUMNS);
     expect(table.style.getPropertyValue("--grid-table-narrow-columns")).toBe(
       NARROW,
     );
-    expect(table.classList.contains("@container")).toBe(true);
+    for (const name of [
+      "grid",
+      "grid-cols-[var(--grid-table-columns)]",
+      "*:col-span-full",
+      NARROW_TABLE,
+    ])
+      expect(table.classList.contains(name)).toBe(true);
+    // The table cannot query its own width to switch its template.
+    expect(table.classList.contains("@container")).toBe(false);
+    expect(table.parentElement?.classList.contains("@container")).toBe(true);
     expect(table.className).not.toContain("overflow");
     for (const row of getAllByRole("row")) {
-      expect(
-        row.classList.contains("grid-cols-[var(--grid-table-columns)]"),
-      ).toBe(true);
-      expect(row.classList.contains(NARROW_ROW)).toBe(true);
+      expect(row.classList.contains("grid-cols-subgrid")).toBe(true);
+      expect(row.className).not.toContain("--grid-table");
     }
   });
 
@@ -157,9 +166,11 @@ describe("GridTable", () => {
     expect(table.parentElement?.classList.contains("@container")).toBe(true);
     expect(table.classList.contains("@container")).toBe(false);
     expect(table.dataset.narrowCards).toBe("true");
-    expect(
-      table.classList.contains("[@container(max-width:640px)]:border-0"),
-    ).toBe(true);
+    for (const name of [
+      "[@container(max-width:640px)]:border-0",
+      "[@container(max-width:640px)]:flex",
+    ])
+      expect(table.classList.contains(name)).toBe(true);
     const [header, row] = getAllByRole("row") as HTMLElement[];
     expect(
       header?.classList.contains("[@container(max-width:640px)]:sr-only"),
@@ -202,7 +213,7 @@ describe("GridTable", () => {
     const table = getByRole("table", { name: "세션" });
     expect(table.querySelector("[aria-hidden=true]") === null).toBe(true);
     expect(table.dataset.narrowCards).toBeUndefined();
-    expect(table.classList.contains("@container")).toBe(true);
+    expect(table.parentElement?.classList.contains("@container")).toBe(true);
   });
 
   test("aria-busy를 표에 넘긴다", () => {
@@ -347,7 +358,7 @@ describe("GridTable framed", () => {
     );
     const [framed, plain] = getAllByRole("table") as HTMLElement[];
     expect(framed?.getAttribute("data-framed")).toBe("true");
-    for (const name of ["rounded-card", "border", "bg-card", "@container"])
+    for (const name of ["rounded-card", "border", "bg-card"])
       expect(framed?.classList.contains(name)).toBe(true);
     expect(plain?.hasAttribute("data-framed")).toBe(false);
     expect(plain?.classList.contains("border")).toBe(false);

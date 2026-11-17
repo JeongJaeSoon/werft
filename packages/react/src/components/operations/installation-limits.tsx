@@ -250,9 +250,9 @@ export function InstallationLimits({
         <Card flush>
           <GridTable
             aria-label={messages.limits}
-            columns="minmax(0,1fr) 128px 112px minmax(0,1.6fr)"
+            columns="minmax(0,1fr) max-content max-content minmax(0,1.6fr)"
             narrowAt={480}
-            narrowColumns="minmax(0,1fr) 112px 80px"
+            narrowColumns="minmax(0,1fr) max-content max-content"
             align={["start", "end", "end", "start"]}
           >
             <GridTableHeader>

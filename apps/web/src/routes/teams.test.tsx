@@ -265,7 +265,7 @@ describe("팀 화면", () => {
     await screen.findByRole("link", { name: "팀 열기: 결제팀" });
     const teams = screen.getByRole("table", { name: "팀 표" });
     expect(teams.style.getPropertyValue("--grid-table-columns")).toBe(
-      "minmax(0,1fr) 9rem",
+      "minmax(0,1fr) max-content",
     );
     for (const row of within(teams).getAllByRole("row")) {
       const cells = [
@@ -830,17 +830,17 @@ describe("팀 화면", () => {
     await waitFor(() =>
       expect(within(table).getAllByRole("row")).toHaveLength(3),
     );
-    // Each row is its own grid: a max-content track would size to that
-    // row's buttons (the header has none) and shift the columns before it.
-    // The ⋯ button's track ends the row, wide and narrow, as on 구성원.
-    for (const [name, last] of [
-      ["--grid-table-columns", "var(--werft-control-height-sm)"],
-      ["--grid-table-narrow-columns", "var(--werft-control-height-sm)"],
+    // The rows are subgrids of one template, so the ⋯ button's track is as
+    // wide as the buttons and ends the row, wide and narrow, as on 구성원.
+    for (const [name, count] of [
+      ["--grid-table-columns", 6],
+      ["--grid-table-narrow-columns", 3],
     ] as const) {
-      const template = (table as HTMLElement).style.getPropertyValue(name);
-      expect(template, name).not.toBe("");
-      expect(template, name).not.toContain("max-content");
-      expect(template.split(" ").at(-1), name).toBe(last);
+      const template = (table as HTMLElement).style
+        .getPropertyValue(name)
+        .split(" ");
+      expect(template, name).toHaveLength(count);
+      expect(template.at(-1), name).toBe("max-content");
     }
   });
 

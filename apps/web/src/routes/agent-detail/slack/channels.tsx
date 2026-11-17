@@ -664,9 +664,9 @@ export function SlackChannels({
   );
 }
 
-// The channel, its state and what to do about it; then the in-use switch,
-// with room for an approve button beside it.
-const COLUMNS = "minmax(0,1fr) 136px";
+// The channel, its state and what to do about it; then the in-use switch
+// and any approve button beside it, as wide as the widest row's.
+const COLUMNS = "minmax(0,1fr) max-content";
 
 /** The `/invite` line, for any channel the bot should join. */
 function InviteRow({

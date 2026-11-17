@@ -184,17 +184,10 @@ export function TeamsScreen() {
 }
 
 // The same frame as the 구성원 table; the count and its arrow share the
-// second track at its end, so every row's arrow closes the row and the
-// counts end at one x.
-const TEAM_COLUMNS = "minmax(0,1fr) 9rem";
-// Below 640px the count and its arrow keep what the name leaves.
-const TEAM_NARROW_COLUMNS = "minmax(0,1fr) 7rem";
-// Team role and status share the members table's 104px, so badges and
-// dots line up the same way; the ⋯ button closes the row as it does there.
-const TEAM_BADGE_COLUMN = "104px";
-const TEAM_MENU_COLUMN = "var(--werft-control-height-sm)";
-// Narrow, the team role badge in the longest language (ja "チーム管理者").
-const TEAM_ROLE_NARROW_COLUMN = "88px";
+// second track at its end, as wide as its widest cell, so every row's arrow
+// closes the row and the counts end at one x.
+const TEAM_COLUMNS = "minmax(0,1fr) max-content";
+const TEAM_NARROW_COLUMNS = TEAM_COLUMNS;
 
 function TeamTable({
   items,
@@ -666,24 +659,23 @@ function TeamMembers({
     roleFilter === "all"
       ? found
       : found.filter((member) => member.role === roleFilter);
-  // The members table's tracks, with the team role and the date added. Every
-  // track is fixed or minmax(0,…): each row is its own grid, so a max-content
-  // track would size to that row alone. Below 820px the name keeps what the
-  // team role and the ⋯ button leave, and carries the status itself.
+  // The members table's tracks, with the team role and the date added; the
+  // short ones as wide as their widest cell. Below 820px the name keeps what
+  // the team role and the ⋯ button leave, and carries the status itself.
   const columns = [
     "minmax(0,1.3fr)",
     "minmax(0,1.5fr)",
-    TEAM_BADGE_COLUMN,
-    TEAM_BADGE_COLUMN,
-    "9.5rem",
-    manages && TEAM_MENU_COLUMN,
+    "max-content",
+    "max-content",
+    "max-content",
+    manages && "max-content",
   ]
     .filter(Boolean)
     .join(" ");
   const narrowColumns = [
     "minmax(0,1fr)",
-    TEAM_ROLE_NARROW_COLUMN,
-    manages && TEAM_MENU_COLUMN,
+    "max-content",
+    manages && "max-content",
   ]
     .filter(Boolean)
     .join(" ");

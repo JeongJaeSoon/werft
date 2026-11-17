@@ -58,8 +58,10 @@ export const repositoriesKey = (client: ApiClient, workspaceId: string) =>
   scopedKey(client, "workspace", workspaceId, "github-repositories");
 
 const PER_PAGE = 20;
-const COLUMNS = "minmax(0,1fr) 112px 64px 32px";
-const NARROW_COLUMNS = "minmax(0,1fr) 48px 32px";
+// The repository takes the leftover; the branch is cut at 112px; the agent
+// count and the menu are as wide as their widest cell.
+const COLUMNS = "minmax(0,1fr) 112px max-content max-content";
+const NARROW_COLUMNS = "minmax(0,1fr) max-content max-content";
 const ALIGN = ["start", "start", "end", "action"] as const;
 const NARROW_ONLY = "[@container(width>=480px)]:hidden";
 

@@ -29,8 +29,8 @@ const { StageIndicator } = await import("./stage-indicator.tsx");
 const { Timeline } = await import("./timeline.tsx");
 const { formatRelativeTime } = await import("@werft-ai/ui");
 
-// One track per column, each minmax(0,…) or fixed so no cell widens the table.
-const TRACK = /^(minmax\((0|\d+px),[\d.]+fr\)|\d+px)$/;
+// One track per column: minmax(0,…), fixed, or as wide as the column's content.
+const TRACK = /^(minmax\((0|\d+px),[\d.]+fr\)|\d+px|max-content)$/;
 test.each([
   [SESSION_TEMPLATE, 5],
   [SESSION_NARROW_TEMPLATE, 3],
@@ -667,9 +667,10 @@ describe("SessionOverviewRow", () => {
     const { getAllByRole, getByRole } = overviewRow(SESSION);
     const [header, row] = getAllByRole("row");
     expect(header?.className).toContain("[@container(width<600px)]:sr-only");
-    expect(row?.className).toContain(
+    expect(getByRole("table").className).toContain(
       "[@container(width<600px)]:grid-cols-[minmax(0,1fr)_auto_auto]!",
     );
+    expect(row?.className).toContain("grid-cols-subgrid");
     const title = getByRole("link", { name: SESSION.id }).closest(
       '[role="cell"]',
     );

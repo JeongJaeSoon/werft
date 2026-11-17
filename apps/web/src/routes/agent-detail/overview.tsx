@@ -331,9 +331,12 @@ export function AgentReadiness({
   );
 }
 
-const RECENT_COLUMNS = "minmax(0,2fr) 136px 120px minmax(0,1fr) 96px";
+// Status, admission and time are as wide as their content; title and
+// release share the rest.
+const RECENT_COLUMNS =
+  "minmax(0,2fr) max-content max-content minmax(0,1fr) max-content";
 // Admission and release drop out; the title keeps the width at 390px.
-const RECENT_NARROW_COLUMNS = "minmax(0,1fr) 116px 72px";
+const RECENT_NARROW_COLUMNS = "minmax(0,1fr) max-content max-content";
 
 /** The newest sessions created for this agent that the reader can see. */
 export function AgentRecentSessions({ agentId }: { readonly agentId: string }) {

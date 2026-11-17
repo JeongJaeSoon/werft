@@ -1142,7 +1142,7 @@ describe("에이전트 상세 탭", () => {
         .map((head) => head.textContent),
     ).toEqual(["버전", "동작"]);
     expect(table.style.getPropertyValue("--grid-table-narrow-columns")).toBe(
-      "minmax(0,1fr) 120px",
+      "minmax(0,1fr) max-content",
     );
     expect(
       within(row)

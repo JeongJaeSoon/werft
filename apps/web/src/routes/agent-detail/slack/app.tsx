@@ -13,7 +13,6 @@ import {
   GridTableHeader,
   GridTableRow,
   Link,
-  RELATIVE_TIME_TRACK,
   RelativeTime,
   RowAction,
   RowLines,
@@ -346,9 +345,9 @@ export function SlackAppSection({
   return section(
     <GridTable
       aria-label={t("workspace.slackAppsList")}
-      columns={columns(locale)[0]}
+      columns={COLUMNS[0]}
       narrowAt={640}
-      narrowColumns={columns(locale)[1]}
+      narrowColumns={COLUMNS[1]}
       align={["start", "start", "start", "action"]}
       framed
     >
@@ -524,12 +523,9 @@ export function SlackDangerSection({ slack }: { readonly slack: SlackApp }) {
 }
 
 // App, state, updated, actions; a phone keeps the app (with the state and
-// the time under it) and the actions. The app takes the leftover; the state
-// fits the longest badge ("재설치 필요" 73px, "再インストールが必要" 124px,
-// "Awaiting installation" 132px).
-const STATE_TRACK = { ko: "80px", ja: "128px", en: "136px" } as const;
-const columns = (locale: keyof typeof RELATIVE_TIME_TRACK) =>
-  [
-    `minmax(0,1fr) ${STATE_TRACK[locale]} ${RELATIVE_TIME_TRACK[locale]} 160px`,
-    "minmax(0,1fr) 160px",
-  ] as const;
+// the time under it) and the actions. The app takes the leftover; the rest
+// are as wide as their widest cell.
+const COLUMNS = [
+  "minmax(0,1fr) max-content max-content max-content",
+  "minmax(0,1fr) max-content",
+] as const;

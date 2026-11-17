@@ -96,16 +96,14 @@ import {
 const GITHUB_WEB = "https://github.com/";
 // Installation table: name, type, repositories, App, connected by, status, menu.
 const MANAGER_COLUMNS =
-  "minmax(0,1.2fr) 88px 96px minmax(0,1fr) minmax(0,1.2fr) 88px 32px";
-const MEMBER_COLUMNS = "minmax(0,1.2fr) 88px minmax(0,1fr) 88px";
+  "minmax(0,1.2fr) max-content max-content minmax(0,1fr) minmax(0,1.2fr) max-content max-content";
+const MEMBER_COLUMNS = "minmax(0,1.2fr) max-content minmax(0,1fr) max-content";
 // At and under 760px of table: name (with the rest moved under it), status, menu.
-const MANAGER_NARROW = "minmax(0,1fr) 88px 32px";
-const MEMBER_NARROW = "minmax(0,1fr) 88px";
-// App | state | menu; the role and key line stay in the App cell.
-const APP_COLUMNS = "minmax(0,1fr) 152px 44px";
-const APP_COLUMNS_READ = "minmax(0,1fr) 152px";
-const APP_NARROW = "minmax(0,1fr) 120px 44px";
-const APP_NARROW_READ = "minmax(0,1fr) 120px";
+const MANAGER_NARROW = "minmax(0,1fr) max-content max-content";
+const MEMBER_NARROW = "minmax(0,1fr) max-content";
+// App | state | menu at every width; the role and key line stay in the App cell.
+const APP_COLUMNS = "minmax(0,1fr) max-content max-content";
+const APP_COLUMNS_READ = "minmax(0,1fr) max-content";
 // Shown only while the table is narrow: the columns it dropped, in the name.
 const NARROW_ONLY = "[@container(min-width:761px)]:hidden";
 
@@ -562,8 +560,6 @@ function AppList({
         <GridTable
           aria-label={t("github.apps.label")}
           columns={canManage ? APP_COLUMNS : APP_COLUMNS_READ}
-          narrowAt={480}
-          narrowColumns={canManage ? APP_NARROW : APP_NARROW_READ}
           align={["start", "start", "action"]}
           framed
         >

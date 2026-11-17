@@ -20,8 +20,8 @@ import type { UsageTool } from "./tools.ts";
 import { useOperationsMessages } from "./use-messages.ts";
 
 // Name, calls, total, median, failed; at 480px and under the two times go.
-const COLUMNS = "minmax(0,1fr) 56px 80px 64px 56px";
-const NARROW_COLUMNS = "minmax(0,1fr) 56px 56px";
+const COLUMNS = "minmax(0,1fr) max-content max-content max-content max-content";
+const NARROW_COLUMNS = "minmax(0,1fr) max-content max-content";
 
 export interface ToolTableProps {
   /** GET /v1/usage/tools `tools`, in the order to show; undefined while read. */

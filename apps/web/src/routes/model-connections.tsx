@@ -40,7 +40,7 @@ import { refusalText, useRole } from "../auth/guard.tsx";
 import { INACTIVE_ROW_CLASS } from "../components/inactive-member.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { RowMenu, RowMenuItem } from "../components/row-menu.tsx";
-import { type Locale, type Translate, useI18n } from "../i18n/i18n.tsx";
+import { type Translate, useI18n } from "../i18n/i18n.tsx";
 import {
   credentialText,
   entryActions,
@@ -58,19 +58,11 @@ import {
 
 // id, endpoint, kind, credential, models, state, ⋯, one line each so a row
 // is as tall as the members table's; a phone keeps the id (with the state)
-// and the ⋯. The state track fits the dot and the longest state unwrapped
-// ("자격 증명 확인 안 됨" 103px, "資格情報を確認できない" 124px, "Credential
-// unresolved" 129px at 13px).
-const STATE_TRACK: Readonly<Record<Locale, string>> = {
-  ko: "120px",
-  ja: "142px",
-  en: "148px",
-};
-const columns = (locale: Locale) =>
-  [
-    `minmax(0,1fr) minmax(0,1.2fr) minmax(0,1.6fr) minmax(0,1.1fr) minmax(0,0.9fr) ${STATE_TRACK[locale]} var(--werft-control-height-sm)`,
-    SETTINGS_NARROW_COLUMNS,
-  ] as const;
+// and the ⋯. The state and the ⋯ are as wide as their widest cell.
+const COLUMNS = [
+  "minmax(0,1fr) minmax(0,1.2fr) minmax(0,1.6fr) minmax(0,1.1fr) minmax(0,0.9fr) max-content max-content",
+  SETTINGS_NARROW_COLUMNS,
+] as const;
 
 /**
  * The model settings' connections (settings-replace-file-catalog.md §1-§3):
@@ -78,7 +70,7 @@ const columns = (locale: Locale) =>
  * where it comes from. Only the owner reads them.
  */
 export function ModelConnections() {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const { client } = useWerft();
   const connections = useQuery(settingsConnectionsQuery(client));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -124,7 +116,7 @@ export function ModelConnections() {
             // The settings layout zeroes the row inset; a framed table needs it.
             className="[--werft-row-padding-x:var(--werft-space-4)]"
             aria-label={t("settings.connections.title")}
-            columns={columns(locale)[0]}
+            columns={COLUMNS[0]}
             align={[
               "start",
               "start",
@@ -135,7 +127,7 @@ export function ModelConnections() {
               "action",
             ]}
             narrowAt={860}
-            narrowColumns={columns(locale)[1]}
+            narrowColumns={COLUMNS[1]}
             framed
           >
             <GridTableHeader>
