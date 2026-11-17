@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
 import {
   ADMISSION_STATE_VALUES,
+  AUTHORIZATION_ACTION_VALUES,
   CREDENTIAL_REF_PATTERN as CONTRACT_CREDENTIAL_REF_PATTERN,
   CREDENTIAL_BINDING_TARGET_VALUES,
   RECEIPT_STATUS_VALUES,
@@ -16,6 +17,7 @@ import {
   CREDENTIAL_REF_PATTERN,
   checkpoints,
   events,
+  GRANT_ACTION_VALUES,
   idempotencyKeys,
   receiptStatus,
   receipts,
@@ -49,6 +51,13 @@ describe("database schema", () => {
   test("uses the contract admission and receipt status values", () => {
     expect(admissionState.enumValues).toEqual([...ADMISSION_STATE_VALUES]);
     expect(receiptStatus.enumValues).toEqual([...RECEIPT_STATUS_VALUES]);
+  });
+
+  test("grants hold only actions the contract defines", () => {
+    const contract: readonly string[] = AUTHORIZATION_ACTION_VALUES;
+    expect(
+      GRANT_ACTION_VALUES.filter((action) => !contract.includes(action)),
+    ).toEqual([]);
   });
 
   test("agent_mcp_settings holds only well-formed names for its server", async () => {
