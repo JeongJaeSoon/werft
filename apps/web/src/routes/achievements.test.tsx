@@ -267,15 +267,15 @@ describe("성과", () => {
         "거절됨",
       ],
     ]);
-    // Every header and cell is left-aligned, numbers too; one column per
-    // table is left at the default width and takes what the narrow ones
-    // leave.
+    // Every header and cell is left-aligned, numbers too. Short columns are
+    // as narrow as their content; the text columns take what they leave and
+    // wrap between words.
     for (const [name, variants] of [
       ["규칙별", ["nowrap", "default", "nowrap", "nowrap", "nowrap"]],
       ["에이전트별", ["default", "nowrap", "nowrap", "nowrap", "nowrap"]],
       [
         "최근 성과",
-        ["nowrap", "default", "nowrap", "nowrap", "nowrap", "nowrap"],
+        ["nowrap", "default", "default", "default", "nowrap", "nowrap"],
       ],
     ] as const) {
       const table = screen

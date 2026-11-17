@@ -413,8 +413,8 @@ export function AchievementsScreen() {
                   <EmptyState title={t("achievements.empty")} />
                 ) : (
                   <TableContainer label={t("achievements.recent")}>
-                    {/* Below this the session would wrap a letter a line;
-                        the frame scrolls instead. */}
+                    {/* Below this the evidence and session would wrap a
+                        letter a line; the frame scrolls instead. */}
                     <Table className="min-w-[44rem]">
                       <TableHeader>
                         <TableRow>
@@ -424,10 +424,10 @@ export function AchievementsScreen() {
                           <TableHead scope="col">
                             {t("achievements.column.session")}
                           </TableHead>
-                          <TableHead scope="col" variant="nowrap">
+                          <TableHead scope="col">
                             {t("achievements.column.rule")}
                           </TableHead>
-                          <TableHead scope="col" variant="nowrap">
+                          <TableHead scope="col">
                             {t("achievements.column.evidence")}
                           </TableHead>
                           <TableHead scope="col" variant="nowrap">
@@ -479,8 +479,8 @@ function RecentRow({ row }: { readonly row: Recent }) {
           </Link>
         )}
       </TableCell>
-      <TableCell variant="nowrap">{row.rule_title}</TableCell>
-      <TableCell variant="nowrap">
+      <TableCell>{row.rule_title}</TableCell>
+      <TableCell>
         {row.title === null || row.link === null ? (
           OPERATIONS_MESSAGES[locale].toolCalls.hidden
         ) : github ? (
