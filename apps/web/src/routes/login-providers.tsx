@@ -206,7 +206,12 @@ function TestedWidth({
             className="font-medium text-caption"
           />
           {texts.map((text) => (
-            <Ghost key={text} text={text} className="text-caption" />
+            // font-normal: in the header row they would take its weight.
+            <Ghost
+              key={text}
+              text={text}
+              className="font-normal text-caption"
+            />
           ))}
         </>
       }
@@ -255,9 +260,6 @@ export function LoginProvidersScreen() {
   const list = useQuery(loginProvidersQuery(client, owns));
   const [adding, setAdding] = useState(false);
   const [opener, setOpener] = useState<HTMLElement | null>(null);
-  // One instant for every "N분 전" and its ghosts, so they read the same.
-  const [now] = useState(Date.now);
-
   if (!owns)
     return (
       <Page title={t("loginProviders.title")}>
@@ -267,6 +269,9 @@ export function LoginProvidersScreen() {
   const states = [
     ...new Set(list.data?.providers.map((provider) => provider.state)),
   ];
+  // One instant for every "N분 전" and its ghosts, so they read the same;
+  // it moves on with each fetch.
+  const now = list.dataUpdatedAt;
   const tested = (provider: LoginProviderView) =>
     provider.tested_at
       ? formatRelativeTime(provider.tested_at, locale, now)

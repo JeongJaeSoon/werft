@@ -183,11 +183,20 @@ describe("로그인 공급자 목록", () => {
       Array.from({ length: 3 }, () => ["상태", "초안", "켜짐"]),
     );
     const tested = unseen(3);
+    const time = table.querySelector("time");
+    expect(time?.textContent).toBeTruthy();
     expect(tested[0]).toEqual([
       "마지막 테스트",
       "테스트한 적 없음",
-      table.querySelector("time")?.textContent,
+      time?.textContent,
     ]);
+    // The header row is set in medium; the values must not take it there.
+    const header = table.querySelector("[role=columnheader]:nth-child(3)");
+    expect(
+      [
+        ...(header?.querySelectorAll<HTMLElement>("[aria-hidden=true]") ?? []),
+      ].map((ghost) => ghost.className.includes("font-normal")),
+    ).toEqual([false, true, true]);
     for (const cell of tested) expect(cell).toEqual(tested[0] ?? []);
   });
 
