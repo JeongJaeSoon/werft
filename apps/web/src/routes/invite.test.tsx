@@ -889,7 +889,46 @@ describe("공급자 가입의 콜백", () => {
     sessionStorage.setItem("ap.inviteFlow", "s1");
     renderAt(`${CALLBACK}?code=c1&state=s1`, notAccepted);
     expect((await screen.findByRole("alert")).textContent).toBe(REFUSED);
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "초대 수락",
+    );
     expect(sessionStorage.getItem("ap.inviteFlow")).toBeNull();
+  });
+
+  test("거절된 로그인의 제목은 SSO 로그인이다", async () => {
+    renderAt(`${CALLBACK}?code=c1&state=s1`, notAccepted);
+    await screen.findByRole("alert");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "SSO 로그인",
+    );
+  });
+
+  test("허용 도메인 밖의 계정으로 한 가입은 가입할 수 없다고 말한다", async () => {
+    sessionStorage.setItem("ap.inviteFlow", "s1");
+    renderAt(`${CALLBACK}?code=c1&state=s1`, {
+      "POST /v1/auth/oidc/callback": () =>
+        apiError(403, "FORBIDDEN", "domain not allowed"),
+    });
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "이 계정으로는 가입할 수 없습니다 — 워크스페이스가 허용한 도메인의 계정을 쓰세요.",
+    );
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "초대 수락",
+    );
+  });
+
+  test("공급자가 사라지거나 꺼진 가입은 그 공급자로 지금 가입할 수 없다고 말한다", async () => {
+    sessionStorage.setItem("ap.inviteFlow", "s1");
+    renderAt(`${CALLBACK}?code=c1&state=s1`, {
+      "POST /v1/auth/oidc/callback": () =>
+        apiError(404, "NOT_FOUND", "provider not found"),
+    });
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "이 로그인 공급자로는 지금 가입할 수 없습니다 — 받은 초대 링크를 다시 열어 다른 방법으로 가입하세요.",
+    );
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "초대 수락",
+    );
   });
 
   test("흐름이 돌아오지 않은 가입은 시작한 주소가 다르다고 말한다", async () => {
@@ -901,7 +940,10 @@ describe("공급자 가입의 콜백", () => {
         }),
     });
     expect((await screen.findByRole("alert")).textContent).toBe(
-      `로그인을 시작한 주소와 돌아온 주소가 다릅니다 — 이 주소(${window.location.origin})에서 처음부터 다시 시작하세요.`,
+      `가입을 시작한 주소와 돌아온 주소가 다릅니다 — 이 주소(${window.location.origin})에서 받은 초대 링크를 다시 열어 처음부터 시도하세요.`,
+    );
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "초대 수락",
     );
   });
 
@@ -914,6 +956,23 @@ describe("공급자 가입의 콜백", () => {
     expect(
       api.calls.filter((c) => c.path === "/v1/auth/oidc/callback"),
     ).toHaveLength(0);
+  });
+
+  test("가입이 돌아온 화면의 제목은 초대 수락이다", async () => {
+    sessionStorage.setItem("ap.inviteFlow", "s1");
+    renderAt(`${CALLBACK}?state=s1`, notAccepted);
+    await screen.findByRole("alert");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "초대 수락",
+    );
+  });
+
+  test("로그인이 돌아온 화면의 제목은 SSO 로그인이다", async () => {
+    renderAt(`${CALLBACK}?state=s1`, notAccepted);
+    await screen.findByRole("alert");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "SSO 로그인",
+    );
   });
 
   test("시작했다가 그만둔 가입은 그 탭의 다음 로그인을 가입으로 읽게 하지 않는다", async () => {

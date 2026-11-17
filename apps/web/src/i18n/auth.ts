@@ -96,6 +96,12 @@ export const authKo = {
     "가입하지 못했습니다 — 받은 초대 링크를 다시 열어 처음부터 시도하세요. 계속 안 되면 초대가 회수됐거나 만료됐을 수 있으니 초대한 사람에게 문의하세요.",
   "invite.provider.cancelled":
     "가입을 마치지 못했습니다 — 받은 초대 링크를 다시 열어 시도하세요.",
+  "invite.provider.elsewhere":
+    "가입을 시작한 주소와 돌아온 주소가 다릅니다 — 이 주소({origin})에서 받은 초대 링크를 다시 열어 처음부터 시도하세요.",
+  "invite.provider.forbidden":
+    "이 계정으로는 가입할 수 없습니다 — 워크스페이스가 허용한 도메인의 계정을 쓰세요.",
+  "invite.provider.unavailable":
+    "이 로그인 공급자로는 지금 가입할 수 없습니다 — 받은 초대 링크를 다시 열어 다른 방법으로 가입하세요.",
   "invite.passwordTitle.existing": "기존 계정으로 수락",
   "invite.passwordTitle.new": "새 계정으로 수락",
   "invite.back": "이전",
@@ -206,6 +212,12 @@ export const authEn: Record<keyof typeof authKo, string> = {
     "Could not join — open your invite link again and start over. If it keeps failing, the invite may have been revoked or expired, so ask whoever invited you.",
   "invite.provider.cancelled":
     "Joining was not completed — open your invite link again to retry.",
+  "invite.provider.elsewhere":
+    "Joining started at a different address than the one it came back to — open your invite link again at this address ({origin}) and start over.",
+  "invite.provider.forbidden":
+    "This account cannot join here — use an account from a domain this workspace allows.",
+  "invite.provider.unavailable":
+    "You can't join with this sign-in provider right now — open your invite link again and join another way.",
   "invite.back": "Back",
   "invite.invalid.title": "This invite link is not valid",
   "invite.invalid.body":
@@ -313,6 +325,12 @@ export const authJa: Record<keyof typeof authKo, string> = {
     "参加できませんでした。受け取った招待リンクをもう一度開いて、最初からお試しください。解決しない場合は、招待が取り消されたか期限切れの可能性があるため、招待した人にお問い合わせください。",
   "invite.provider.cancelled":
     "参加が完了しませんでした。受け取った招待リンクをもう一度開いてお試しください。",
+  "invite.provider.elsewhere":
+    "参加を始めたアドレスと戻ってきたアドレスが異なります。このアドレス（{origin}）で受け取った招待リンクをもう一度開き、最初からやり直してください。",
+  "invite.provider.forbidden":
+    "このアカウントでは参加できません。ワークスペースで許可されたドメインのアカウントを使ってください。",
+  "invite.provider.unavailable":
+    "このログインプロバイダーでは現在参加できません。受け取った招待リンクをもう一度開き、別の方法で参加してください。",
   "invite.passwordTitle.existing": "既存のアカウントで承諾",
   "invite.passwordTitle.new": "新しいアカウントで承諾",
   "invite.back": "戻る",

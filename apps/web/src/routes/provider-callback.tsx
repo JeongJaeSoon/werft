@@ -56,16 +56,20 @@ function refusalKey(error: ApiError, joining: boolean): MessageKey {
     (error.details as { reason_code?: unknown } | null)?.reason_code ===
       "flow_elsewhere"
   )
-    return "login.provider.elsewhere";
+    return joining ? "invite.provider.elsewhere" : "login.provider.elsewhere";
   if (error.code === "UNAUTHORIZED")
     // Joining from an invite does not go by the provider's address, and the
     // server does not say what it was (the invite ended meanwhile, what the
     // provider said of the account was not taken, the flow ran out): the
     // copy names the way on, not a cause.
     return joining ? "invite.provider.refused" : "login.provider.rejected";
-  if (error.code === "FORBIDDEN") return "login.provider.forbidden";
+  if (error.code === "FORBIDDEN")
+    return joining ? "invite.provider.forbidden" : "login.provider.forbidden";
   // The callback route answers 404 when the provider is gone or turned off.
-  if (error.code === "NOT_FOUND") return "login.provider.unavailable";
+  if (error.code === "NOT_FOUND")
+    return joining
+      ? "invite.provider.unavailable"
+      : "login.provider.unavailable";
   return errorKey(error.code);
 }
 
@@ -267,7 +271,7 @@ export function ProviderCallbackScreen() {
       </AuthPage>
     );
   return (
-    <AuthPage title={t("login.provider.title")}>
+    <AuthPage title={t(joining ? "invite.title" : "login.provider.title")}>
       {failure || finish.error ? (
         <>
           <FormError>
