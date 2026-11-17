@@ -128,7 +128,10 @@ describe("로그인 공급자 목록", () => {
   });
 
   test("every column starts at its left edge, header and cells alike, the last one too", async () => {
-    renderAt(LIST_PAGE, routes([provider(), filled({ state: "enabled" })]));
+    renderAt(
+      LIST_PAGE,
+      routes([provider(), filled({ state: "enabled", tested_at: AT })]),
+    );
     const table = await screen.findByRole("table", { name: "로그인" });
     const placed = [
       ...table.querySelectorAll<HTMLElement>(
@@ -144,35 +147,48 @@ describe("로그인 공급자 목록", () => {
         ),
     );
     expect(placed.map((element) => element.outerHTML)).toEqual([]);
-    // Narrow, the state column is as wide as its content, at the right edge.
+    // The short columns are as wide as their content, the last at the right
+    // edge; the name column takes what is left.
     expect(
       ["--grid-table-columns", "--grid-table-narrow-columns"].map((name) =>
         table.style.getPropertyValue(name),
       ),
-    ).toEqual(["minmax(0,1fr) 220px 180px", "minmax(0,1fr) fit-content(55%)"]);
+    ).toEqual([
+      "minmax(0,1fr) fit-content(220px) fit-content(180px)",
+      "minmax(0,1fr) fit-content(55%)",
+    ]);
     // Each row is a grid of its own, so a content-sized track is as wide in
-    // every row only when the header and each state cell hold the same
-    // content: their own, and the column's widest, unseen.
-    const states = [
-      ...table.querySelectorAll<HTMLElement>(
-        "[role=columnheader]:nth-child(2), [role=cell]:nth-child(2)",
-      ),
-    ];
-    expect(states).toHaveLength(3);
-    const unseen = states.map((cell) =>
-      [
-        ...cell.querySelectorAll<HTMLElement>(
-          "[data-slot=same-width] > [aria-hidden=true]",
+    // every row only when the header and each cell of the column hold the
+    // same content: their own, and the column's others, unseen.
+    const unseen = (column: number) => {
+      const cells = [
+        ...table.querySelectorAll<HTMLElement>(
+          `[role=columnheader]:nth-child(${column}), [role=cell]:nth-child(${column})`,
         ),
-      ].map((ghost) => {
-        expect(ghost.className).toContain("invisible");
-        expect(ghost.textContent).toBe("");
-        return ghost.dataset.text;
-      }),
-    );
-    expect(unseen).toEqual(
+      ];
+      expect(cells).toHaveLength(3);
+      return cells.map((cell) =>
+        [
+          ...cell.querySelectorAll<HTMLElement>(
+            "[data-slot=same-width] > [aria-hidden=true]",
+          ),
+        ].map((ghost) => {
+          expect(ghost.className).toContain("invisible");
+          expect(ghost.textContent).toBe("");
+          return ghost.dataset.text;
+        }),
+      );
+    };
+    expect(unseen(2)).toEqual(
       Array.from({ length: 3 }, () => ["상태", "초안", "켜짐"]),
     );
+    const tested = unseen(3);
+    expect(tested[0]).toEqual([
+      "마지막 테스트",
+      "테스트한 적 없음",
+      table.querySelector("time")?.textContent,
+    ]);
+    for (const cell of tested) expect(cell).toEqual(tested[0] ?? []);
   });
 
   test("without CONSOLE_ORIGIN the page says why and offers no way to add one", async () => {

@@ -32,6 +32,7 @@ import {
   Field,
   FieldDescription,
   FieldLabel,
+  formatRelativeTime,
   GridTable,
   GridTableCell,
   GridTableColumnHeader,
@@ -178,14 +179,42 @@ function StateBadge({ state }: { readonly state: LoginProviderState }) {
 const isOn = (provider: LoginProviderView) =>
   provider.state === "enabled" || provider.state === "enabled_secret_pending";
 
-// Name and issuer, state, last test; narrow, the name and the state, which
-// is as wide as its widest content and so ends at the table's right edge.
-// Every row is a grid of its own: StateWidth gives each state cell and its
-// header that same content, so the track is as wide in every row.
+// Name and issuer, state, last test; narrow, the name and the state. The
+// short columns are as wide as their widest content, so the name takes what
+// is left and the last column ends at the table's right edge. Every row is a
+// grid of its own: StateWidth and TestedWidth give each cell and its header
+// the same content, so a track is as wide in every row.
 const COLUMNS = [
-  "minmax(0,1fr) 220px 180px",
+  "minmax(0,1fr) fit-content(220px) fit-content(180px)",
   "minmax(0,1fr) fit-content(55%)",
 ] as const;
+
+function TestedWidth({
+  texts,
+  children,
+}: {
+  readonly texts: readonly string[];
+  readonly children: ReactNode;
+}) {
+  const { t } = useI18n();
+  return (
+    <SameWidth
+      alike={
+        <>
+          <Ghost
+            text={t("loginProviders.column.tested")}
+            className="font-medium text-caption"
+          />
+          {texts.map((text) => (
+            <Ghost key={text} text={text} className="text-caption" />
+          ))}
+        </>
+      }
+    >
+      {children}
+    </SameWidth>
+  );
+}
 
 function StateWidth({
   states,
@@ -226,6 +255,8 @@ export function LoginProvidersScreen() {
   const list = useQuery(loginProvidersQuery(client, owns));
   const [adding, setAdding] = useState(false);
   const [opener, setOpener] = useState<HTMLElement | null>(null);
+  // One instant for every "N분 전" and its ghosts, so they read the same.
+  const [now] = useState(Date.now);
 
   if (!owns)
     return (
@@ -236,6 +267,11 @@ export function LoginProvidersScreen() {
   const states = [
     ...new Set(list.data?.providers.map((provider) => provider.state)),
   ];
+  const tested = (provider: LoginProviderView) =>
+    provider.tested_at
+      ? formatRelativeTime(provider.tested_at, locale, now)
+      : t("loginProviders.neverTested");
+  const testedTexts = [...new Set(list.data?.providers.map(tested))];
 
   return (
     <Page
@@ -289,7 +325,9 @@ export function LoginProvidersScreen() {
                 </StateWidth>
               </GridTableColumnHeader>
               <GridTableColumnHeader hideNarrow>
-                {t("loginProviders.column.tested")}
+                <TestedWidth texts={testedTexts}>
+                  {t("loginProviders.column.tested")}
+                </TestedWidth>
               </GridTableColumnHeader>
             </GridTableHeader>
             {list.data.providers.map((provider) => (
@@ -313,16 +351,19 @@ export function LoginProvidersScreen() {
                   </StateWidth>
                 </GridTableCell>
                 <GridTableCell hideNarrow>
-                  <Text as="span" variant="meta">
-                    {provider.tested_at ? (
-                      <RelativeTime
-                        value={provider.tested_at}
-                        locale={locale}
-                      />
-                    ) : (
-                      t("loginProviders.neverTested")
-                    )}
-                  </Text>
+                  <TestedWidth texts={testedTexts}>
+                    <Text as="span" variant="meta">
+                      {provider.tested_at ? (
+                        <RelativeTime
+                          value={provider.tested_at}
+                          locale={locale}
+                          now={now}
+                        />
+                      ) : (
+                        t("loginProviders.neverTested")
+                      )}
+                    </Text>
+                  </TestedWidth>
                 </GridTableCell>
               </GridTableRow>
             ))}
