@@ -376,7 +376,7 @@ function DecisionModelLock() {
   const { t } = useI18n();
   const titleId = useId();
   return (
-    <div className="absolute inset-0 flex justify-center rounded-card bg-muted/85">
+    <div className="absolute inset-0 flex justify-center rounded-card bg-background/90">
       {/* Sticky, so the notice stays in view over a long page. */}
       {/* biome-ignore lint/a11y/useSemanticElements: a fieldset groups form controls, this is a notice */}
       <div
