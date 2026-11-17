@@ -154,6 +154,7 @@ function McpCatalog({
           className="[--werft-row-padding-x:var(--werft-space-4)]"
           aria-label={t("settings.mcp.title")}
           columns={COLUMNS[0]}
+          align={["start", "start", "start", "start", "start", "action"]}
           narrowAt={860}
           narrowColumns={COLUMNS[1]}
           framed
@@ -250,7 +251,7 @@ function McpRow({
         <StateBadge state={item.state} />
       </GridTableCell>
       <GridTableCell>
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap justify-end gap-1">
           {actions.setValue ? (
             <>
               <RowAction

@@ -265,13 +265,14 @@ export function RepositoryList({
         <GridTable
           aria-label={t("github.repos.title")}
           columns={REPOSITORY_COLUMNS}
+          align={["start", "end"]}
           framed
         >
           <GridTableHeader>
             <GridTableColumnHeader>
               {t("agentGitHub.table.repository")}
             </GridTableColumnHeader>
-            <GridTableColumnHeader align="end">
+            <GridTableColumnHeader>
               {t("agentGitHub.table.use")}
             </GridTableColumnHeader>
           </GridTableHeader>
@@ -331,7 +332,7 @@ export function RepositoryList({
                     ) : null}
                   </div>
                 </GridTableCell>
-                <GridTableCell align="end">
+                <GridTableCell>
                   {manages ? (
                     <Switch
                       aria-label={t("agentGitHub.repositoryToggle", {

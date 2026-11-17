@@ -34,6 +34,14 @@ export const SESSION_OVERVIEW_TEMPLATE =
   "minmax(0,2.2fr) minmax(0,1.2fr) 56px 152px 148px 96px";
 export const SESSION_OVERVIEW_NARROW_TEMPLATE =
   "minmax(0,2fr) minmax(0,1.2fr) 152px 96px";
+const SESSION_OVERVIEW_ALIGN = [
+  "start",
+  "start",
+  "start",
+  "start",
+  "start",
+  "end",
+] as const;
 
 // A phone's table has no room for four columns side by side: the title
 // takes the first line, agent, status and duration the second, and the
@@ -84,6 +92,7 @@ export function SessionOverviewTable({
         columns={SESSION_OVERVIEW_TEMPLATE}
         narrowAt={820}
         narrowColumns={SESSION_OVERVIEW_NARROW_TEMPLATE}
+        align={SESSION_OVERVIEW_ALIGN}
       >
         <GridTableHeader className={cn(PHONE.row, PHONE.header)}>
           {/* One line each: a narrow column cuts its name rather than wrap. */}

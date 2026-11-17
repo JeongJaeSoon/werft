@@ -251,6 +251,46 @@ describe("팀 화면", () => {
     ).toBeDefined();
   });
 
+  // The team name starts; the member count is a number, so header and count
+  // end, the count just before the arrow that closes the row. The header
+  // keeps the arrow's room so both end at one x.
+  test("팀 표는 팀 이름이 시작에, 구성원 수는 머리글과 함께 끝에 붙고 화살표가 행을 닫는다", async () => {
+    const align = (cell: HTMLElement) => [
+      cell.dataset.align,
+      /\bjustify-end\b/.test(cell.className),
+      /\btabular-nums\b/.test(cell.className),
+    ];
+    const server = teamServer();
+    renderAt("/members/teams", server.routes);
+    await screen.findByRole("link", { name: "팀 열기: 결제팀" });
+    const teams = screen.getByRole("table", { name: "팀 표" });
+    expect(teams.style.getPropertyValue("--grid-table-columns")).toBe(
+      "minmax(0,1fr) 9rem",
+    );
+    for (const row of within(teams).getAllByRole("row")) {
+      const cells = [
+        ...row.querySelectorAll<HTMLElement>(
+          "[role=columnheader], [role=cell]",
+        ),
+      ];
+      expect(cells.map(align)).toEqual([
+        ["start", false, false],
+        ["end", true, true],
+      ]);
+    }
+    const header = within(teams).getByRole("columnheader", { name: "구성원" });
+    expect(header.className.split(/\s+/).includes("pr-6")).toBe(true);
+    const count = within(teams).getAllByText(
+      /^구성원 \d+명$/,
+    )[0] as HTMLElement;
+    expect(count.parentElement?.lastElementChild?.tagName.toLowerCase()).toBe(
+      "svg",
+    );
+    expect(
+      count.parentElement?.lastElementChild?.getAttribute("class"),
+    ).toContain("size-4");
+  });
+
   test("헤더의 팀 만들기가 대화상자를 열어 만든다. 같은 이름은 대화상자 안에서 말한다", async () => {
     const server = teamServer();
     const { api } = renderAt("/members/teams", server.routes);
@@ -1003,6 +1043,26 @@ describe("팀 화면", () => {
       ),
     ).toBe(false);
     const mateRow = within(table).getAllByRole("row")[1] as HTMLElement;
+    // Every header and cell starts its column; only the row menu sits at the end.
+    for (const row of within(table).getAllByRole("row")) {
+      const cells = [
+        ...row.querySelectorAll<HTMLElement>(
+          "[role=columnheader], [role=cell]",
+        ),
+      ];
+      expect(cells.map((cell) => cell.dataset.align)).toEqual([
+        "start",
+        "start",
+        "start",
+        "start",
+        "start",
+        "action",
+      ]);
+      for (const cell of cells.slice(0, -1))
+        expect(cell.className).not.toMatch(
+          /\b(justify-end|text-end|text-right|ml-auto)\b/,
+        );
+    }
     // One line per cell, as on 구성원: the team role is a badge, not a select.
     expect(
       within(mateRow)

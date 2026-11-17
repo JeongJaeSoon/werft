@@ -30,6 +30,8 @@ import {
   FieldDescription,
   FieldLabel,
   Input,
+  type StatusDotStatus,
+  StatusText,
 } from "@werft-ai/ui";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { queryKeysOf, scopedKey } from "../api/queries.ts";
@@ -288,11 +290,35 @@ export function StateBadge({ state }: { readonly state: SettingsEntryState }) {
  */
 export const SETTINGS_NARROW_COLUMNS = "minmax(0,1fr) fit-content(55%)";
 
+const STATE_DOT: Record<SettingsEntryState, StatusDotStatus> = {
+  active: "done",
+  needs_value: "wait",
+  unresolved: "failed",
+  disabled: "idle",
+};
+
+/** The state as the members table says its own: a dot and its name. */
+export function StateText({ state }: { readonly state: SettingsEntryState }) {
+  const { t } = useI18n();
+  return (
+    <StatusText status={STATE_DOT[state]}>
+      {t(`settings.state.${state}`)}
+    </StatusText>
+  );
+}
+
 /** The state inside the id cell, where a narrow table drops its column. */
-export function NarrowState({ state }: { readonly state: SettingsEntryState }) {
+export function NarrowState({
+  state,
+  dot = false,
+}: {
+  readonly state: SettingsEntryState;
+  /** StateText instead of StateBadge, as the table's state column. */
+  readonly dot?: boolean;
+}) {
   return (
     <span className="hidden [@container(max-width:860px)]:inline-flex">
-      <StateBadge state={state} />
+      {dot ? <StateText state={state} /> : <StateBadge state={state} />}
     </span>
   );
 }
@@ -614,18 +640,17 @@ export function useRowActions(
     },
   );
 
-  // The "enable again" button leaves with the refetch that brings the row back,
-  // and the dialog's focus return has nothing left to land on.
+  // The "enable again" item opened the dialog from a menu that is gone, so
+  // the focus goes back to the row's ⋯ button once the refetch brings it.
   const [refocus, setRefocus] = useState<string | null>(null);
   useEffect(() => {
     if (refocus === null) return;
-    const label = t("settings.disableFor", { id: refocus });
+    const label = t("settings.connections.menuFor", { id: refocus });
     const next = [...document.querySelectorAll<HTMLElement>("button")].find(
       (button) => button.getAttribute("aria-label") === label,
     );
     if (next === undefined) return;
-    // The button stays disabled while the other refetches are in flight, and
-    // focus() on a disabled button does nothing: keep waiting until it lands.
+    // Keep trying until the focus lands, should a render steal it first.
     next.focus();
     if (document.activeElement === next) setRefocus(null);
   });

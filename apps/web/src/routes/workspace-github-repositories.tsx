@@ -60,6 +60,7 @@ export const repositoriesKey = (client: ApiClient, workspaceId: string) =>
 const PER_PAGE = 20;
 const COLUMNS = "minmax(0,1fr) 112px 64px 32px";
 const NARROW_COLUMNS = "minmax(0,1fr) 48px 32px";
+const ALIGN = ["start", "start", "end", "action"] as const;
 const NARROW_ONLY = "[@container(width>=480px)]:hidden";
 
 type CatalogRow = ListGitHubRepositoriesResponse["catalog"][number];
@@ -294,6 +295,7 @@ export function RepositorySheet({
                   className="[--werft-row-padding-x:0px]"
                   aria-label={tableName}
                   columns={COLUMNS}
+                  align={ALIGN}
                   narrowAt={480}
                   narrowColumns={NARROW_COLUMNS}
                   framed={false}
@@ -309,9 +311,7 @@ export function RepositorySheet({
                       {t("github.sheet.col.agents")}
                     </GridTableColumnHeader>
                     <GridTableColumnHeader>
-                      <Text as="span" className="sr-only">
-                        {t("github.sheet.col.menu")}
-                      </Text>
+                      {t("github.sheet.col.menu")}
                     </GridTableColumnHeader>
                   </GridTableHeader>
                   {data.repositories.map((repository) => {
@@ -345,7 +345,7 @@ export function RepositorySheet({
                           </Text>
                         </GridTableCell>
                         <GridTableCell>{repository.agent_count}</GridTableCell>
-                        <GridTableCell align="end">
+                        <GridTableCell>
                           {menu(row, repository.full_name)}
                         </GridTableCell>
                       </GridTableRow>
@@ -399,6 +399,7 @@ export function RepositorySheet({
                   className="[--werft-row-padding-x:0px]"
                   aria-labelledby={outsideId}
                   columns={COLUMNS}
+                  align={ALIGN}
                   narrowAt={480}
                   narrowColumns={NARROW_COLUMNS}
                   framed={false}
@@ -414,9 +415,7 @@ export function RepositorySheet({
                       {t("github.sheet.col.agents")}
                     </GridTableColumnHeader>
                     <GridTableColumnHeader>
-                      <Text as="span" className="sr-only">
-                        {t("github.sheet.col.menu")}
-                      </Text>
+                      {t("github.sheet.col.menu")}
                     </GridTableColumnHeader>
                   </GridTableHeader>
                   {outside.map((row) => {
@@ -439,9 +438,7 @@ export function RepositorySheet({
                           </Badge>
                         </GridTableCell>
                         <GridTableCell>{row.agent_count}</GridTableCell>
-                        <GridTableCell align="end">
-                          {menu(row, name)}
-                        </GridTableCell>
+                        <GridTableCell>{menu(row, name)}</GridTableCell>
                       </GridTableRow>
                     );
                   })}

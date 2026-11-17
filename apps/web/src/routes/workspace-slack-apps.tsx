@@ -14,6 +14,7 @@ import {
   GridTableHeader,
   GridTableRow,
   linkVariants,
+  RELATIVE_TIME_TRACK,
   RelativeTime,
   RowLines,
   SettingsSection,
@@ -102,9 +103,10 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
   return (
     <GridTable
       aria-label={t("workspace.slackAppsList")}
-      columns={COLUMNS[0]}
+      columns={columns(locale)[0]}
       narrowAt={640}
-      narrowColumns={COLUMNS[1]}
+      narrowColumns={columns(locale)[1]}
+      align={["start", "start", "start", "start", "action"]}
       framed
     >
       <GridTableHeader>
@@ -121,7 +123,7 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
           {t("workspace.slackAppsUpdated")}
         </GridTableColumnHeader>
         <GridTableColumnHeader>
-          <span className="sr-only">{t("workspace.slackAppsMore")}</span>
+          {t("workspace.slackAppsMore")}
         </GridTableColumnHeader>
       </GridTableHeader>
       {items.map((item) => {
@@ -132,7 +134,11 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
                 name: item.agent?.name ?? t("workspace.slackAppsNoAgent"),
               });
         const updated = (
-          <RelativeTime value={item.slack_app.updated_at} locale={locale} />
+          <RelativeTime
+            value={item.slack_app.updated_at}
+            locale={locale}
+            className="whitespace-nowrap"
+          />
         );
         return (
           <GridTableRow key={item.slack_app.id}>
@@ -183,7 +189,7 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
             >
               {updated}
             </GridTableCell>
-            <GridTableCell align="end">
+            <GridTableCell>
               {item.agent ? (
                 <Link
                   to="/agents/$id"
@@ -235,7 +241,8 @@ function AppState({ item }: { readonly item: MadeApp }) {
 
 // App, agent, state, updated, details; a phone keeps the app, the state and
 // the details link, and the app cell names the agent and the time.
-const COLUMNS = [
-  "minmax(0,1.4fr) minmax(0,1fr) 136px 120px 64px",
-  "minmax(0,1fr) 120px 64px",
-] as const;
+const columns = (locale: keyof typeof RELATIVE_TIME_TRACK) =>
+  [
+    `minmax(0,1.4fr) minmax(0,1fr) 136px ${RELATIVE_TIME_TRACK[locale]} 64px`,
+    "minmax(0,1fr) 120px 64px",
+  ] as const;

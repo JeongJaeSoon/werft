@@ -17,11 +17,17 @@ const CELL_PADDING_X =
  * `actions` is a column of row buttons: as narrow as its content, never
  * wrapped, and every labelled button in it at least
  * --werft-row-action-button-min-width wide, RowAction's floor. A label that
- * changes ("disable" ↔ "enable") may shift the width; the right end stays.
- * An icon button keeps its own square size.
+ * changes ("disable" ↔ "enable") may shift the width; the right end stays,
+ * since header and buttons sit at the end. An icon button keeps its own
+ * square size.
  *
- * `nowrap` is a date, number or badge column: as narrow as its content and
- * never wrapped. `text` is the long-text column: it takes the width the other
+ * `nowrap` is a date or badge column: as narrow as its content and never
+ * wrapped. `numeric` is a number compared down the column (count, cost,
+ * tokens, time, ratio): `nowrap`, in tabular figures, header and cells at the
+ * end, as GridTable's "end" columns. `switch` is the last column, a switch
+ * under a visible header naming the setting: both end at one x, however wide
+ * the header's language makes the column. Give a column's header and its
+ * cells the same variant. `text` is the long-text column: it takes the width the other
  * columns leave, down to --werft-row-text-min-width, and the lines after the
  * first in its RowLines end in "…" instead of wrapping, so every row keeps one
  * height. `max-w-0` stops auto layout from widening the column to the text,
@@ -31,8 +37,10 @@ const CELL_PADDING_X =
 const CELL_VARIANT = {
   default: "",
   actions:
-    "w-px whitespace-nowrap [&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--werft-row-action-button-min-width)]",
+    "w-px whitespace-nowrap text-right [&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--werft-row-action-button-min-width)]",
   nowrap: "w-px whitespace-nowrap",
+  numeric: "w-px whitespace-nowrap text-right tabular-nums",
+  switch: "w-px whitespace-nowrap text-right [&>[data-slot=switch]]:ml-auto",
   text: "w-full min-w-[var(--werft-row-text-min-width)] max-w-0 [&_[data-slot=row-lines]>*:not(:first-child)]:truncate",
 } as const;
 

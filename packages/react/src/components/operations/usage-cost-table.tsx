@@ -74,20 +74,19 @@ export function UsageCostTable({
         columns={
           tokens ? "minmax(0,1fr) 56px 80px 96px" : "minmax(0,1fr) 64px 96px"
         }
+        align={
+          tokens ? ["start", "end", "end", "end"] : ["start", "end", "end"]
+        }
       >
         <GridTableHeader className={cn(tokens && NARROW_ROW)}>
           <GridTableColumnHeader>{head}</GridTableColumnHeader>
-          <GridTableColumnHeader align="end">
-            {messages.sessions}
-          </GridTableColumnHeader>
+          <GridTableColumnHeader>{messages.sessions}</GridTableColumnHeader>
           {tokens ? (
-            <GridTableColumnHeader align="end" className={NARROW_HIDE}>
+            <GridTableColumnHeader className={NARROW_HIDE}>
               {messages.tokens}
             </GridTableColumnHeader>
           ) : null}
-          <GridTableColumnHeader align="end">
-            {messages.cost}
-          </GridTableColumnHeader>
+          <GridTableColumnHeader>{messages.cost}</GridTableColumnHeader>
         </GridTableHeader>
         {shown.map((row, i) => {
           const name =
@@ -126,22 +125,19 @@ export function UsageCostTable({
                   />
                 )}
               </GridTableCell>
-              <GridTableCell align="end" className="tabular-nums">
+              <GridTableCell className="tabular-nums">
                 <Value loading={loading} width="1.5rem">
                   {row ? format.count(row.session_count) : null}
                 </Value>
               </GridTableCell>
               {tokens ? (
-                <GridTableCell
-                  align="end"
-                  className={cn("tabular-nums", NARROW_HIDE)}
-                >
+                <GridTableCell className={cn("tabular-nums", NARROW_HIDE)}>
                   <Value loading={loading}>
                     {row ? format.tokens(row.token_count) : null}
                   </Value>
                 </GridTableCell>
               ) : null}
-              <GridTableCell align="end" className="tabular-nums">
+              <GridTableCell className="tabular-nums">
                 <Value loading={loading}>
                   {row ? format.usd(row.cost_usd) : null}
                 </Value>

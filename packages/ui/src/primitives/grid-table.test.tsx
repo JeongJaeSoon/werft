@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Fragment } from "react";
 
 import { setupDom, setupUser } from "../test-support/dom.ts";
 
@@ -39,7 +40,7 @@ function Sessions({
         <GridTableColumnHeader>에이전트</GridTableColumnHeader>
         <GridTableColumnHeader hideNarrow={true}>저장소</GridTableColumnHeader>
         <GridTableColumnHeader hideNarrow={true}>시작</GridTableColumnHeader>
-        <GridTableColumnHeader align="end">최근</GridTableColumnHeader>
+        <GridTableColumnHeader>최근</GridTableColumnHeader>
       </GridTableHeader>
       {["배포 점검", "요금 분석"].map((title) => (
         <GridTableRow key={title}>
@@ -59,7 +60,7 @@ function Sessions({
           </GridTableCell>
           <GridTableCell hideNarrow={true}>werft/api</GridTableCell>
           <GridTableCell hideNarrow={true}>김하나</GridTableCell>
-          <GridTableCell align="end">3분 전</GridTableCell>
+          <GridTableCell>3분 전</GridTableCell>
         </GridTableRow>
       ))}
     </GridTable>
@@ -134,20 +135,19 @@ describe("GridTable", () => {
         narrowAt={640}
         narrowCards={true}
         framed={true}
+        align={["start", "start", "end"]}
       >
         <GridTableHeader>
           <GridTableColumnHeader>이름</GridTableColumnHeader>
           <GridTableColumnHeader hideNarrow={true}>엔진</GridTableColumnHeader>
-          <GridTableColumnHeader align="end">실행 중</GridTableColumnHeader>
+          <GridTableColumnHeader>실행 중</GridTableColumnHeader>
         </GridTableHeader>
         <GridTableRow>
           <GridTableCell>werft-agent</GridTableCell>
           <GridTableCell hideNarrow={true} cardLabel="엔진">
             Codex
           </GridTableCell>
-          <GridTableCell align="end" cardLabel="실행 중">
-            2
-          </GridTableCell>
+          <GridTableCell cardLabel="실행 중">2</GridTableCell>
         </GridTableRow>
       </GridTable>,
     );
@@ -389,30 +389,134 @@ describe("GridTable framed", () => {
       card?.classList.contains("[@container(max-width:640px)]:rounded-card"),
     ).toBe(true);
   });
+});
 
-  test("action 열 머리글은 끝에 붙고 버튼 최소 폭의 가운데에 글자를 둔다", () => {
-    const { getByRole } = render(
-      <GridTable aria-label="구성원" columns="1fr 120px">
+describe("GridTable column alignment", () => {
+  function Members({ roles }: { readonly roles: boolean }) {
+    return (
+      <GridTable
+        aria-label="구성원"
+        columns="1fr 80px 80px 120px"
+        narrowAt={640}
+        narrowCards={true}
+        align={[
+          "start",
+          ...(roles ? (["start"] as const) : []),
+          "end",
+          "action",
+        ]}
+      >
         <GridTableHeader>
           <GridTableColumnHeader>이름</GridTableColumnHeader>
-          <GridTableColumnHeader action>관리</GridTableColumnHeader>
+          {roles ? <GridTableColumnHeader>역할</GridTableColumnHeader> : null}
+          {/* biome-ignore lint/complexity/noUselessFragments: a caller's fragment must still count as its columns. */}
+          <>
+            <GridTableColumnHeader>세션</GridTableColumnHeader>
+            <GridTableColumnHeader>관리</GridTableColumnHeader>
+          </>
         </GridTableHeader>
-      </GridTable>,
+        {["김하나", "이두리"].map((name) => (
+          <GridTableRow key={name}>
+            <GridTableCell>{name}</GridTableCell>
+            {roles ? <GridTableCell>관리자</GridTableCell> : null}
+            <GridTableCell>12</GridTableCell>
+            <GridTableCell raised={true}>
+              <button type="button">비활성화</button>
+            </GridTableCell>
+          </GridTableRow>
+        ))}
+      </GridTable>
     );
-    const header = getByRole("columnheader", { name: "관리" });
-    expect(header.getAttribute("data-action")).toBe("true");
-    expect(header.classList.contains("justify-end")).toBe(true);
-    const label = header.firstElementChild as HTMLElement;
-    expect(label.tagName).toBe("SPAN");
-    expect(label.textContent).toBe("관리");
-    expect(label.classList.contains("text-center")).toBe(true);
-    expect(
-      label.classList.contains(
-        "min-w-[var(--werft-row-action-button-min-width)]",
-      ),
-    ).toBe(true);
-    const name = getByRole("columnheader", { name: "이름" });
-    expect(name.hasAttribute("data-action")).toBe(false);
-    expect(name.firstElementChild).toBeNull();
+  }
+
+  // Any one of these puts content at the end, so any one counts.
+  const ends = (element: Element) =>
+    ["justify-end", "text-end", "text-right"].some((name) =>
+      element.classList.contains(name),
+    );
+  const figures = (element: Element) =>
+    element.classList.contains("tabular-nums") &&
+    element.classList.contains("whitespace-nowrap");
+
+  for (const roles of [true, false]) {
+    test(`머리글과 셀은 열마다 같은 쪽에 붙는다 (역할 열 ${roles ? "있음" : "없음"})`, () => {
+      const { getAllByRole } = render(<Members roles={roles} />);
+      const headers = getAllByRole("columnheader");
+      const want = roles
+        ? ["start", "start", "end", "action"]
+        : ["start", "end", "action"];
+      expect(headers.map((header) => header.dataset.align)).toEqual(want);
+      for (const row of getAllByRole("row").slice(1)) {
+        const cells = [...row.querySelectorAll<HTMLElement>("[role=cell]")];
+        expect(cells).toHaveLength(headers.length);
+        cells.forEach((cell, i) => {
+          const header = headers[i] as HTMLElement;
+          expect(cell.dataset.align).toBe(header.dataset.align as string);
+          expect(ends(cell)).toBe(ends(header));
+          expect(ends(cell)).toBe(want[i] !== "start");
+          expect(figures(cell)).toBe(want[i] === "end");
+          expect(figures(header)).toBe(want[i] === "end");
+        });
+      }
+    });
+  }
+
+  test("행 동작 열의 머리글은 화면에서 숨고 스크린리더에만 읽힌다", () => {
+    const { getAllByRole, getByRole } = render(<Members roles={false} />);
+    const [name, count, action] = getAllByRole("columnheader") as HTMLElement[];
+    for (const shown of [name, count])
+      expect(shown?.firstElementChild === null).toBe(true);
+    expect(action?.firstElementChild?.className).toBe("sr-only");
+    expect(action?.textContent).toBe("관리");
+    expect(getByRole("columnheader", { name: "관리" }) === action).toBe(true);
+  });
+
+  test("조건부 칸이 생겨도 다른 칸은 다시 그려지지 않고, fragment 안팎의 key가 겹치지 않는다", () => {
+    const errors: unknown[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => errors.push(args);
+    try {
+      const table = (roles: boolean) => (
+        <GridTable
+          aria-label="구성원"
+          columns="1fr 1fr 1fr"
+          align={["start", ...(roles ? (["start"] as const) : []), "end"]}
+        >
+          <GridTableRow>
+            <Fragment key="a">
+              <GridTableCell key="b">김하나</GridTableCell>
+            </Fragment>
+            {roles ? <GridTableCell key="a/.$b">관리자</GridTableCell> : null}
+            <GridTableCell key="n">12</GridTableCell>
+          </GridTableRow>
+        </GridTable>
+      );
+      const { getAllByRole, rerender } = render(table(false));
+      const [name, count] = getAllByRole("cell") as HTMLElement[];
+      expect(count?.dataset.align).toBe("end");
+      rerender(table(true));
+      const cells = getAllByRole("cell") as HTMLElement[];
+      expect(cells.map((cell) => cell.dataset.align)).toEqual([
+        "start",
+        "start",
+        "end",
+      ]);
+      expect(cells[0] === name).toBe(true);
+      expect(cells[2] === count).toBe(true);
+      expect(errors).toEqual([]);
+    } finally {
+      console.error = original;
+    }
+  });
+
+  test("align이 없으면 머리글과 셀이 모두 시작에 붙는다", () => {
+    const { getAllByRole } = render(<Sessions />);
+    for (const element of [
+      ...getAllByRole("columnheader"),
+      ...getAllByRole("cell"),
+    ]) {
+      expect(element.dataset.align).toBe("start");
+      expect(ends(element)).toBe(false);
+    }
   });
 });

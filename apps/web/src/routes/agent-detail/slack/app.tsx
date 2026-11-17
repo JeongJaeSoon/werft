@@ -13,6 +13,7 @@ import {
   GridTableHeader,
   GridTableRow,
   Link,
+  RELATIVE_TIME_TRACK,
   RelativeTime,
   RowAction,
   RowLines,
@@ -327,7 +328,13 @@ export function SlackAppSection({
   }
   const appName = t("slack.appName", { name });
   const state = slackState(slack.readError, identity, record);
-  const updated = <RelativeTime value={record.updated_at} locale={locale} />;
+  const updated = (
+    <RelativeTime
+      value={record.updated_at}
+      locale={locale}
+      className="whitespace-nowrap"
+    />
+  );
   const badge =
     record.state === "creating" ? (
       <Badge>{t("workspace.slackAppsCreating")}</Badge>
@@ -339,9 +346,10 @@ export function SlackAppSection({
   return section(
     <GridTable
       aria-label={t("workspace.slackAppsList")}
-      columns={COLUMNS[0]}
+      columns={columns(locale)[0]}
       narrowAt={640}
-      narrowColumns={COLUMNS[1]}
+      narrowColumns={columns(locale)[1]}
+      align={["start", "start", "start", "action"]}
       framed
     >
       <GridTableHeader>
@@ -354,9 +362,7 @@ export function SlackAppSection({
         <GridTableColumnHeader hideNarrow>
           {t("workspace.slackAppsUpdated")}
         </GridTableColumnHeader>
-        <GridTableColumnHeader action>
-          <span className="sr-only">{t("slack.appMenu")}</span>
-        </GridTableColumnHeader>
+        <GridTableColumnHeader>{t("slack.appMenu")}</GridTableColumnHeader>
       </GridTableHeader>
       <GridTableRow>
         <GridTableCell>
@@ -387,7 +393,7 @@ export function SlackAppSection({
         >
           {updated}
         </GridTableCell>
-        <GridTableCell align="end">
+        <GridTableCell>
           <RowAction
             disabled={busy || pending || Boolean(slack.readError)}
             aria-describedby={`${SECTION.app}-install-hint`}
@@ -518,8 +524,12 @@ export function SlackDangerSection({ slack }: { readonly slack: SlackApp }) {
 }
 
 // App, state, updated, actions; a phone keeps the app (with the state and
-// the time under it) and the actions.
-const COLUMNS = [
-  "minmax(0,1.4fr) minmax(0,1fr) 120px 160px",
-  "minmax(0,1fr) 160px",
-] as const;
+// the time under it) and the actions. The app takes the leftover; the state
+// fits the longest badge ("재설치 필요" 73px, "再インストールが必要" 124px,
+// "Awaiting installation" 132px).
+const STATE_TRACK = { ko: "80px", ja: "128px", en: "136px" } as const;
+const columns = (locale: keyof typeof RELATIVE_TIME_TRACK) =>
+  [
+    `minmax(0,1fr) ${STATE_TRACK[locale]} ${RELATIVE_TIME_TRACK[locale]} 160px`,
+    "minmax(0,1fr) 160px",
+  ] as const;

@@ -35,6 +35,7 @@ import {
   Link,
   NativeSelect,
   NativeSelectOption,
+  RELATIVE_TIME_TRACK,
   RelativeTime,
   RowAction,
   RowList,
@@ -47,6 +48,7 @@ import {
 import { Plus } from "lucide-react";
 import {
   type FormEvent,
+  Fragment,
   type ReactNode,
   useEffect,
   useId,
@@ -159,8 +161,6 @@ const ALLOW_COLUMNS_READ = "minmax(0,1fr) minmax(0,1fr)";
 const ALLOW_NARROW = "minmax(0,1fr) 88px";
 const ALLOW_NARROW_READ = "minmax(0,1fr)";
 const WIDE_ONLY_480 = "[@container(min-width:480px)]:hidden";
-// Receipt (what, with its detail line under it) | when.
-const ACTIVITY_COLUMNS = "minmax(0,1fr) 112px";
 const FOCUS_TARGET = "scroll-mt-4 outline-none";
 // The order the mockup lists them in: what most agents turn on first.
 // checks and issues stay in the contract but have no work behind them yet
@@ -257,12 +257,21 @@ function ReceiptRow({
   ].filter((part): part is string => part !== null);
   const detailLine =
     parts.length > 0 || result.session_id ? (
-      <Text as="span" variant="sub" className="[overflow-wrap:anywhere]">
-        {parts.join(" · ")}
+      <Text as="span" variant="sub">
+        {/* Each part wraps as a whole ("acme/werft-sandbox" never splits at
+            its hyphen); only a part wider than the line breaks inside. */}
+        {parts.map((part, index) => (
+          <Fragment key={part}>
+            {index > 0 ? " · " : null}
+            <span className="inline-block max-w-full [overflow-wrap:anywhere]">
+              {part}
+            </span>
+          </Fragment>
+        ))}
         {result.session_id ? (
           <>
             {parts.length > 0 ? " · " : null}
-            <Link asChild>
+            <Link asChild className="inline-block">
               <RouterLink to="/sessions/$id" params={{ id: result.session_id }}>
                 {t("agentGitHub.activity.session")}{" "}
                 <Code>{shortSessionId(result.session_id)}</Code>
@@ -291,7 +300,7 @@ function ReceiptRow({
         <RelativeTime
           value={receipt.created_at}
           locale={locale}
-          className="text-caption text-muted-foreground"
+          className="whitespace-nowrap text-caption text-muted-foreground"
         />
       </GridTableCell>
     </GridTableRow>
@@ -305,7 +314,7 @@ function Activity({
   readonly agentId: string;
   readonly detail: AgentDetail;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const activity = useAgentGitHubActivity(agentId);
   const repositories = new Map(
     (activity.data?.receipt_repositories ?? []).map((held) => [
@@ -335,7 +344,7 @@ function Activity({
         ) : (
           <GridTable
             aria-label={t("agentGitHub.section.activity")}
-            columns={ACTIVITY_COLUMNS}
+            columns={`minmax(0,1fr) ${RELATIVE_TIME_TRACK[locale]}`}
             framed
           >
             <GridTableHeader>
@@ -982,6 +991,7 @@ function GitHubSettings({
                       columns={manages ? ALLOW_COLUMNS : ALLOW_COLUMNS_READ}
                       narrowAt={480}
                       narrowColumns={manages ? ALLOW_NARROW : ALLOW_NARROW_READ}
+                      align={["start", "start", "action"]}
                       framed
                     >
                       <GridTableHeader>
@@ -992,10 +1002,8 @@ function GitHubSettings({
                           {t("agentGitHub.table.ref")}
                         </GridTableColumnHeader>
                         {manages ? (
-                          <GridTableColumnHeader action>
-                            <span className="sr-only">
-                              {t("agentGitHub.table.remove")}
-                            </span>
+                          <GridTableColumnHeader>
+                            {t("agentGitHub.table.remove")}
                           </GridTableColumnHeader>
                         ) : null}
                       </GridTableHeader>
@@ -1041,7 +1049,7 @@ function GitHubSettings({
                               </Text>
                             </GridTableCell>
                             {manages ? (
-                              <GridTableCell align="end">
+                              <GridTableCell>
                                 <RowAction
                                   disabled={readOnly}
                                   aria-label={t("agentGitHub.removeLabel", {

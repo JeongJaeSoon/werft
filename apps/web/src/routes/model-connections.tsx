@@ -30,7 +30,6 @@ import {
   NativeSelect,
   NativeSelectOption,
   Page,
-  RowAction,
   Skeleton,
   Text,
 } from "@werft-ai/ui";
@@ -41,7 +40,7 @@ import { refusalText, useRole } from "../auth/guard.tsx";
 import { INACTIVE_ROW_CLASS } from "../components/inactive-member.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { RowMenu, RowMenuItem } from "../components/row-menu.tsx";
-import { type Translate, useI18n } from "../i18n/i18n.tsx";
+import { type Locale, type Translate, useI18n } from "../i18n/i18n.tsx";
 import {
   credentialText,
   entryActions,
@@ -51,19 +50,27 @@ import {
   OutcomeLine,
   SETTINGS_NARROW_COLUMNS,
   SecretInput,
-  StateBadge,
+  StateText,
   settingsConnectionsQuery,
   useRowActions,
   useSettingsWrite,
 } from "./settings-entries.tsx";
 
-// id, endpoint, kind, credential, models, state, actions, one line each so a
-// row is as tall as the members table's; a phone keeps the id (with the
-// state) and the actions.
-const COLUMNS = [
-  "minmax(0,1fr) minmax(0,1.2fr) minmax(0,1.6fr) minmax(0,1.1fr) minmax(0,0.9fr) 112px 120px",
-  SETTINGS_NARROW_COLUMNS,
-] as const;
+// id, endpoint, kind, credential, models, state, ⋯, one line each so a row
+// is as tall as the members table's; a phone keeps the id (with the state)
+// and the ⋯. The state track fits the dot and the longest state unwrapped
+// ("자격 증명 확인 안 됨" 103px, "資格情報を確認できない" 124px, "Credential
+// unresolved" 129px at 13px).
+const STATE_TRACK: Readonly<Record<Locale, string>> = {
+  ko: "120px",
+  ja: "142px",
+  en: "148px",
+};
+const columns = (locale: Locale) =>
+  [
+    `minmax(0,1fr) minmax(0,1.2fr) minmax(0,1.6fr) minmax(0,1.1fr) minmax(0,0.9fr) ${STATE_TRACK[locale]} var(--werft-control-height-sm)`,
+    SETTINGS_NARROW_COLUMNS,
+  ] as const;
 
 /**
  * The model settings' connections (settings-replace-file-catalog.md §1-§3):
@@ -71,7 +78,7 @@ const COLUMNS = [
  * where it comes from. Only the owner reads them.
  */
 export function ModelConnections() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { client } = useWerft();
   const connections = useQuery(settingsConnectionsQuery(client));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -117,9 +124,18 @@ export function ModelConnections() {
             // The settings layout zeroes the row inset; a framed table needs it.
             className="[--werft-row-padding-x:var(--werft-space-4)]"
             aria-label={t("settings.connections.title")}
-            columns={COLUMNS[0]}
+            columns={columns(locale)[0]}
+            align={[
+              "start",
+              "start",
+              "start",
+              "start",
+              "start",
+              "start",
+              "action",
+            ]}
             narrowAt={860}
-            narrowColumns={COLUMNS[1]}
+            narrowColumns={columns(locale)[1]}
             framed
           >
             <GridTableHeader>
@@ -141,7 +157,7 @@ export function ModelConnections() {
               <GridTableColumnHeader hideNarrow>
                 {t("settings.column.state")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader align="end">
+              <GridTableColumnHeader>
                 {t("settings.column.actions")}
               </GridTableColumnHeader>
             </GridTableHeader>
@@ -244,7 +260,7 @@ function ConnectionRow({
         <Code className="truncate" title={item.id}>
           {item.id}
         </Code>
-        <NarrowState state={item.state} />
+        <NarrowState state={item.state} dot />
       </GridTableCell>
       <GridTableCell hideNarrow>
         <Code className="truncate" title={item.endpoint}>
@@ -267,37 +283,17 @@ function ConnectionRow({
         </Text>
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <StateBadge state={item.state} />
+        <StateText state={item.state} />
       </GridTableCell>
-      <GridTableCell align="end">
-        <div className="flex items-center gap-1">
-          {actions.disable ? (
-            <RowAction
-              variant="danger"
-              disabled={busy}
-              aria-label={t("settings.disableFor", { id: item.id })}
-              onClick={onDisable}
-            >
-              {t("settings.disable")}
-            </RowAction>
-          ) : null}
-          {actions.enable ? (
-            <RowAction
-              disabled={busy}
-              aria-label={t("settings.enableFor", { id: item.id })}
-              onClick={onEnable}
-            >
-              {t("settings.enable")}
-            </RowAction>
-          ) : null}
-          {/* On every row, so the buttons line up; with nothing to choose it
-              stays, named and focusable, but does not open. */}
-          <RowMenu
-            label={t("settings.connections.menuFor", { id: item.id })}
-            disabled={busy || menu.length === 0}
-          >
-            {(close) =>
-              menu.map((entry) => (
+      <GridTableCell>
+        {/* As the members table: the ⋯ menu alone, disable last and red. */}
+        <RowMenu
+          label={t("settings.connections.menuFor", { id: item.id })}
+          disabled={busy}
+        >
+          {(close) => (
+            <>
+              {menu.map((entry) => (
                 <RowMenuItem
                   key={entry.label}
                   label={entry.label}
@@ -305,10 +301,33 @@ function ConnectionRow({
                 >
                   {entry.text}
                 </RowMenuItem>
-              ))
-            }
-          </RowMenu>
-        </div>
+              ))}
+              {actions.enable ? (
+                <RowMenuItem
+                  label={t("settings.enableFor", { id: item.id })}
+                  onSelect={() => {
+                    close();
+                    onEnable();
+                  }}
+                >
+                  {t("settings.enable")}
+                </RowMenuItem>
+              ) : null}
+              {actions.disable ? (
+                <RowMenuItem
+                  tone="danger"
+                  label={t("settings.disableFor", { id: item.id })}
+                  onSelect={() => {
+                    close();
+                    onDisable();
+                  }}
+                >
+                  {t("settings.disable")}
+                </RowMenuItem>
+              ) : null}
+            </>
+          )}
+        </RowMenu>
       </GridTableCell>
     </GridTableRow>
   );

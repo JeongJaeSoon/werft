@@ -11,6 +11,7 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
+  RELATIVE_TIME_TRACK,
   RelativeTime,
   RowAction,
   Section,
@@ -32,10 +33,13 @@ import { previousRelease, releaseChanges } from "./release-changes.ts";
 import { ReleaseChangesSummary } from "./release-changes-view.tsx";
 import { type RollbackPreview, rollbackPreview } from "./rollback-preview.ts";
 
-const COLUMNS = [
-  "minmax(10rem,1.6fr) 96px minmax(0,1.2fr) minmax(0,1fr) 120px",
-  "minmax(0,1fr) 120px",
-] as const;
+// The version, whose description runs longest, takes the leftover; the time
+// range fits two times and its "~", and the author a name.
+const columns = (locale: keyof typeof RELATIVE_TIME_TRACK) =>
+  [
+    `minmax(10rem,1fr) 96px calc(2 * ${RELATIVE_TIME_TRACK[locale]} + 1.5rem) minmax(0,8rem) 120px`,
+    "minmax(0,1fr) 120px",
+  ] as const;
 
 /** The connection the agent runs on now: its active release's, else its newest. */
 export function releasedConnection(detail: AgentDetail): string | undefined {
@@ -143,9 +147,10 @@ export function Releases({
         ) : (
           <GridTable
             aria-label={t("agent.releases.title")}
-            columns={COLUMNS[0]}
+            columns={columns(locale)[0]}
             narrowAt={860}
-            narrowColumns={COLUMNS[1]}
+            narrowColumns={columns(locale)[1]}
+            align={["start", "start", "start", "start", "action"]}
             framed={true}
           >
             <GridTableHeader>
@@ -161,10 +166,8 @@ export function Releases({
               <GridTableColumnHeader hideNarrow>
                 {t("agent.releases.colBy")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader action>
-                <span className="sr-only">
-                  {t("agent.releases.colActions")}
-                </span>
+              <GridTableColumnHeader>
+                {t("agent.releases.colActions")}
               </GridTableColumnHeader>
             </GridTableHeader>
             {entries.map((entry) => {
@@ -197,7 +200,7 @@ export function Releases({
                       {at(entry.item.created_at)}
                     </GridTableCell>
                     <GridTableCell hideNarrow>{null}</GridTableCell>
-                    <GridTableCell align="end">{null}</GridTableCell>
+                    <GridTableCell>{null}</GridTableCell>
                   </GridTableRow>
                 );
               }
@@ -310,7 +313,7 @@ export function Releases({
                   <GridTableCell hideNarrow className="wrap-anywhere">
                     {by}
                   </GridTableCell>
-                  <GridTableCell align="end">
+                  <GridTableCell>
                     {active || !manages ? null : (
                       <RowAction
                         disabled={activating !== undefined}

@@ -460,12 +460,11 @@ describe("SessionOverviewRow", () => {
       "소요 시간",
     ]);
     expect(cellsOf(getAllByRole("row")[1])).toHaveLength(6);
-    // No control column: every header and cell starts at its left edge.
-    expect(
-      [...heads, ...cellsOf(getAllByRole("row")[1])].filter((cell) =>
-        cell.className.includes("justify-end"),
-      ).length,
-    ).toBe(0);
+    // Only the duration, a time, ends; its header and cells alike.
+    const ends = (cell: Element) => cell.className.includes("justify-end");
+    const want = [false, false, false, false, false, true];
+    expect(heads.map(ends)).toEqual(want);
+    expect(cellsOf(getAllByRole("row")[1]).map(ends)).toEqual(want);
   });
 
   test("제목이 있으면 행을 여는 링크가 제목으로 읽히고 그 아래 짧은 ID 8자리를 둔다", () => {

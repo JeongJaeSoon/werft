@@ -1,0 +1,52 @@
+---
+title: "Table alignment"
+description: "Decide whether a GridTable or Table column sits at the start or the end"
+---
+
+A table in `@werft-ai/ui` sets one alignment per column, and the column's header and cells sit on the same side. Start columns share the start x of header and cells; end columns share the end x. Nothing is centred.
+
+## The side for each column
+
+| Column | Side | `GridTable` `align` | `Table` `variant` |
+| --- | --- | --- | --- |
+| Text: names, repositories, states, dates, relative times | Start | `"start"` | `default`, `text`, `nowrap` |
+| Numbers: counts, costs, tokens, durations, ratios | End, in tabular figures (`tabular-nums`), on one line | `"end"` | `numeric` |
+| A switch whose visible header names the setting | End of the last column. The switch's right edge and the header's right edge share one x | `"end"` | `switch` |
+| Row actions (buttons, menus) | End of the last column. Only screen readers read the header | `"action"` | `actions` |
+
+Numbers at the end put digits of the same place in one vertical line, so their sizes compare at a glance. The header sits on the numbers' side too, so in a narrow column it stays clear which values it names.
+
+A column with no `align` starts. `GridTable` decides the alignment and `GridTableColumnHeader` and `GridTableCell` read it in column order, so cells take no class such as `text-right` of their own. In a `Table`, give a column's header and cells the same `variant`.
+
+```tsx
+<GridTable
+  aria-label="모델별"
+  columns="minmax(0,1fr) 64px 96px"
+  align={["start", "end", "end"]}
+>
+  <GridTableHeader>
+    <GridTableColumnHeader>모델</GridTableColumnHeader>
+    <GridTableColumnHeader>세션</GridTableColumnHeader>
+    <GridTableColumnHeader>비용</GridTableColumnHeader>
+  </GridTableHeader>
+  <GridTableRow>
+    <GridTableCell>claude-sonnet</GridTableCell>
+    <GridTableCell>12</GridTableCell>
+    <GridTableCell>$4.20</GridTableCell>
+  </GridTableRow>
+</GridTable>
+```
+
+## Narrow screens
+
+When a `GridTable` with `narrowCards` stacks its rows as cards, every column starts. Inside a card each column name and value takes its own line, so end alignment no longer helps comparison. A screen that stacks a `Table` as cards also returns its cells to the start.
+
+## Sources
+
+Several design systems share this rule: numeric columns at the end, and each header on the same side as its column's values.
+
+- [Material Design: Data tables](https://m2.material.io/components/data-tables)
+- [Elastic UI: Tables](https://eui.elastic.co/docs/components/tables/basic/)
+- [NHS digital service manual: Table](https://service-manual.nhs.uk/design-system/components/table)
+- [Siemens Mindsphere: Data table](https://design.mindsphere.io/patterns/datatable.html)
+- [Ripple design system: Table](https://ripple.sdp.vic.gov.au/design-system/components/table)

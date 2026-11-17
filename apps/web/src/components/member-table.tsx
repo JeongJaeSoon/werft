@@ -1,5 +1,6 @@
 import {
   GridTable,
+  type GridTableColumnAlign,
   GridTableColumnHeader,
   GridTableHeader,
 } from "@werft-ai/ui";
@@ -15,6 +16,13 @@ const MEMBER_COLUMNS =
 // "Suspended" with its dot, and "Expired"/"期限切れ" with the expiry icon.
 const MEMBER_NARROW_COLUMNS =
   "minmax(6rem,1fr) minmax(8rem,1fr) 72px 96px var(--werft-control-height-sm)";
+const MEMBER_ALIGN: readonly GridTableColumnAlign[] = [
+  "start",
+  "start",
+  "start",
+  "start",
+  "action",
+];
 // 420px of narrow tracks, four 16px gaps, the row's 16px padding on each side
 // and the frame's 1px border on each side.
 const MEMBER_TABLE_MIN = "min-w-[518px]";
@@ -24,6 +32,7 @@ export type MemberTableLayout = {
   readonly columns: string;
   readonly narrowColumns: string;
   readonly narrowAt: NonNullable<ComponentProps<typeof GridTable>["narrowAt"]>;
+  readonly align: readonly GridTableColumnAlign[];
   /** The GridTableColumnHeader cells, in the columns' order. */
   readonly headers: ReactNode;
 };
@@ -32,7 +41,7 @@ export type MemberTableLayout = {
  * The frame of every table in the members area. By default it holds the
  * members table's columns (name, email, role, status, ⋯ menu); the invites
  * and team tables pass their own `layout`. The rows are the caller's:
- * GridTableRow children whose cells follow the header's order and alignment.
+ * GridTableRow children whose cells follow the header's order.
  */
 export function MemberTableFrame({
   label,
@@ -52,6 +61,7 @@ export function MemberTableFrame({
       <GridTable
         aria-label={label}
         columns={layout?.columns ?? MEMBER_COLUMNS}
+        align={layout?.align ?? MEMBER_ALIGN}
         narrowAt={layout?.narrowAt ?? 640}
         narrowColumns={layout?.narrowColumns ?? MEMBER_NARROW_COLUMNS}
         framed={true}
@@ -74,9 +84,8 @@ export function MemberTableFrame({
               <GridTableColumnHeader>
                 {t("members.column.status")}
               </GridTableColumnHeader>
-              {/* The ⋯ column has no visible title. */}
               <GridTableColumnHeader>
-                <span className="sr-only">{t("members.column.actions")}</span>
+                {t("members.column.actions")}
               </GridTableColumnHeader>
             </>
           )}

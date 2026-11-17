@@ -124,11 +124,12 @@ const STACK_TABLE =
 const TABLE_FRAME =
   "-m-1 rounded-none border-0 p-1 [--werft-row-padding-x:var(--werft-space-4)]";
 // The name takes a fixed width so every value starts at one x, left-aligned
-// as in the table. max-w-none and whitespace-normal undo the `text` and
-// `nowrap` column widths, which mean nothing once a cell is a line.
+// as in the table. max-w-none and whitespace-normal undo the `text`, `nowrap`,
+// `numeric` and `switch` column widths, which mean nothing once a cell is a
+// line; text-left and the switch's ml-0 undo the end of `numeric` and
+// `switch`, since a stacked card starts every value.
 const STACK_CELL =
-  "max-md:flex max-md:w-full max-md:min-w-0 max-md:max-w-none max-md:whitespace-normal max-md:items-center max-md:gap-x-1.5 max-md:px-0 max-md:py-0.5 max-md:first:pl-0 max-md:last:pr-0 max-md:[overflow-wrap:anywhere] max-md:before:w-24 max-md:before:flex-none max-md:before:text-caption max-md:before:text-subtle-foreground max-md:before:content-[attr(data-k)]";
-const NUM = "tabular-nums";
+  "max-md:flex max-md:w-full max-md:min-w-0 max-md:max-w-none max-md:whitespace-normal max-md:text-left max-md:[&>[data-slot=switch]]:ml-0 max-md:items-center max-md:gap-x-1.5 max-md:px-0 max-md:py-0.5 max-md:first:pl-0 max-md:last:pr-0 max-md:[overflow-wrap:anywhere] max-md:before:w-24 max-md:before:flex-none max-md:before:text-caption max-md:before:text-subtle-foreground max-md:before:content-[attr(data-k)]";
 const SMALL_BUTTON = buttonVariants({ variant: "outline", size: "sm" });
 
 type Reason = string | undefined;
@@ -1387,11 +1388,11 @@ function RulesCard({
                 {k.version}
               </TableHead>
               {usage.readable ? (
-                <TableHead scope="col" variant="nowrap" className={NUM}>
+                <TableHead scope="col" variant="numeric">
                   {k.recent}
                 </TableHead>
               ) : null}
-              <TableHead scope="col" variant="nowrap">
+              <TableHead scope="col" variant="switch">
                 {k.use}
               </TableHead>
             </TableRow>
@@ -1463,8 +1464,8 @@ function RulesCard({
                       {usage.readable ? (
                         <TableCell
                           data-k={k.recent}
-                          variant="nowrap"
-                          className={`${STACK_CELL} ${NUM}`}
+                          variant="numeric"
+                          className={STACK_CELL}
                         >
                           {usage.data ? (count?.achievement_count ?? 0) : "—"}
                           {count && count.needs_review_count > 0 ? (
@@ -1481,7 +1482,7 @@ function RulesCard({
                       ) : null}
                       <TableCell
                         data-k={k.use}
-                        variant="nowrap"
+                        variant="switch"
                         className={STACK_CELL}
                       >
                         <Switch

@@ -668,10 +668,25 @@ describe("에이전트 GitHub 탭", () => {
     expect(nodes.map((node) => node.tagName)).not.toContain("DETAILS");
     // The repositories sit under GitHub, as on the workspace screen.
     expect(nodes[0]?.contains(nodes[1] as Node)).toBe(true);
-    // Lists are tables.
-    expect(
-      screen.getByRole("table", { name: "에이전트가 쓰는 저장소" }),
-    ).toBeTruthy();
+    // Lists are tables. The 사용 switch is the last column, at the end with
+    // its header, so the two end at one x; the repository starts.
+    const repositories = screen.getByRole("table", {
+      name: "에이전트가 쓰는 저장소",
+    });
+    for (const row of within(repositories).getAllByRole("row"))
+      expect(
+        [
+          ...row.querySelectorAll<HTMLElement>(
+            "[role=columnheader], [role=cell]",
+          ),
+        ].map((cell) => [
+          cell.dataset.align,
+          /\bjustify-end\b/.test(cell.className),
+        ]),
+      ).toEqual([
+        ["start", false],
+        ["end", true],
+      ]);
     expect(
       screen.getByRole("table", { name: "Actions 허용 목록" }),
     ).toBeTruthy();
@@ -722,7 +737,25 @@ describe("에이전트 GitHub 탭", () => {
     await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
     await openSection(user, "최근 기록");
     expect(await screen.findByText("GitHub 설정 저장")).toBeTruthy();
-    expect(screen.getByRole("table", { name: "최근 기록" })).toBeTruthy();
+    const table = screen.getByRole("table", { name: "최근 기록" });
+    // 시각 is as wide as the longest relative time, unwrapped; 기록 takes
+    // the rest, and each part of its detail line wraps whole.
+    expect(table.style.getPropertyValue("--grid-table-columns")).toBe(
+      "minmax(0,1fr) 78px",
+    );
+    expect(table.querySelector("time")?.className).toContain(
+      "whitespace-nowrap",
+    );
+    expect(screen.getByText("에이전트 관리자가 변경").className).toContain(
+      "inline-block",
+    );
+    for (const cell of table.querySelectorAll<HTMLElement>(
+      "[role=columnheader], [role=cell]",
+    ))
+      expect(
+        cell.dataset.align === "start" &&
+          !/\b(justify-end|text-end|text-right)\b/.test(cell.className),
+      ).toBe(true);
     expect(
       api.calls.filter((c) => c.path === `${PATH}/github/activity`),
     ).toHaveLength(1);
@@ -2140,11 +2173,12 @@ describe("에이전트 GitHub 탭", () => {
     const rows = await screen.findByRole("table", { name: "최근 기록" });
     expect(within(rows).getByText("GitHub 설정 저장")).toBeTruthy();
     expect(within(rows).getByText("워크플로 실행 거절")).toBeTruthy();
-    expect(
-      within(rows).getByText(
-        /^deploy\.yml @ main · acme\/werft-sandbox · 허용 목록 밖 ·$/,
-      ),
-    ).toBeTruthy();
+    // Each part wraps whole, so the repository never splits at its hyphen.
+    const repository = within(rows).getByText("acme/werft-sandbox");
+    expect(repository.className).toContain("inline-block");
+    expect(repository.parentElement?.textContent).toMatch(
+      /^deploy\.yml @ main · acme\/werft-sandbox · 허용 목록 밖 · 세션/,
+    );
     expect(within(rows).queryByText(/(^| )werft-sandbox( |$)/)).toBeNull();
     expect(
       within(rows).getByRole("link", { name: /세션/ }).getAttribute("href"),
