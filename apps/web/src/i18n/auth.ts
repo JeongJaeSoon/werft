@@ -69,7 +69,7 @@ export const authKo = {
   "invite.used.title": "이미 수락한 초대입니다",
   "invite.used.body":
     "이 초대는 이미 쓰였습니다. 수락한 계정으로 로그인하세요.",
-  "invite.used.login": "로그인 화면으로",
+  "invite.login": "로그인 화면으로",
   "invite.member.title": "이미 이 워크스페이스의 구성원입니다",
   "invite.member.body":
     "{email} 계정으로 {workspace}에 로그인되어 있어 초대를 수락할 필요가 없습니다.",
@@ -176,7 +176,7 @@ export const authEn: Record<keyof typeof authKo, string> = {
   "invite.used.title": "This invite was already accepted",
   "invite.used.body":
     "It has already been used. Log in with the account that accepted it.",
-  "invite.used.login": "Log in",
+  "invite.login": "Log in",
   "invite.member.title": "You are already a member of this workspace",
   "invite.member.body":
     "You are logged in to {workspace} as {email}, so there is nothing to accept.",
@@ -285,7 +285,7 @@ export const authJa: Record<keyof typeof authKo, string> = {
   "invite.used.title": "この招待は承諾済みです",
   "invite.used.body":
     "この招待はすでに使用されています。承諾したアカウントでログインしてください。",
-  "invite.used.login": "ログイン画面へ",
+  "invite.login": "ログイン画面へ",
   "invite.member.title": "すでにこのワークスペースのメンバーです",
   "invite.member.body":
     "{email} で {workspace} にログインしているため、招待を承諾する必要はありません。",
