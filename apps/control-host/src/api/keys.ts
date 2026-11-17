@@ -227,10 +227,20 @@ export function parseKeysCommand(argv: string[]): KeysCommand {
 }
 
 async function main(): Promise<void> {
-  const command = parseKeysCommand(Bun.argv.slice(2));
+  let command: ReturnType<typeof parseKeysCommand>;
+  try {
+    command = parseKeysCommand(Bun.argv.slice(2));
+  } catch (error) {
+    // An operator's typo, not a crash: the message and usage, no stack.
+    console.error(messageOf(error));
+    process.exitCode = 1;
+    return;
+  }
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
-    throw new Error("DATABASE_URL is required");
+    console.error("DATABASE_URL is required");
+    process.exitCode = 1;
+    return;
   }
 
   await withJobDatabase("keys", databaseUrl, createLogger(), async ({ db }) => {
