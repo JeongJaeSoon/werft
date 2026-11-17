@@ -11,6 +11,7 @@ import {
   AGENT_IDENTITY_PROVIDER_VALUES,
   AGENT_IDENTITY_STATUS_VALUES,
   AGENT_STATUS_VALUES,
+  type AuthorizationAction,
   BINDING_MODE_VALUES,
   ENV_VARIABLE_KIND_VALUES,
   ENV_VARIABLE_NAME_PATTERN,
@@ -35,6 +36,7 @@ import {
   RECEIPT_STATUS_VALUES,
   SESSION_OUTCOME_CHECK_ERROR_VALUES,
   SESSION_OUTCOME_TYPE_VALUES,
+  SESSION_SCOPE_VALUES,
   SESSION_STATUS_VALUES,
   type SessionOutcome,
   type SessionOutcomeCheckError,
@@ -108,18 +110,9 @@ export const sessionStatus = pgEnum("session_status", SESSION_STATUS_VALUES);
 export const admissionState = pgEnum("admission_state", ADMISSION_STATE_VALUES);
 export const receiptStatus = pgEnum("receipt_status", RECEIPT_STATUS_VALUES);
 
-// Vocabularies the CHECK constraints below pin. They mirror
-// SESSION_SCOPE_VALUES and AUTHORIZATION_ACTION_VALUES; schema.test.ts
-// asserts the two lists are equal, the way
-// it already does for sessionStatus.
-export const SESSION_SCOPE_VALUES = [
-  "sessions:read",
-  "sessions:write",
-  "sessions:approve",
-  "sessions:control",
-  "sessions:recover",
-] as const;
-export const AUTHORIZATION_ACTION_VALUES = [
+// The actions a grants row may hold, which its CHECK constraints pin: a
+// subset of the contract's AUTHORIZATION_ACTION_VALUES.
+export const GRANT_ACTION_VALUES = [
   "workspace.read",
   "workspace.manage",
   "agent.manage",
@@ -135,7 +128,7 @@ export const AUTHORIZATION_ACTION_VALUES = [
   "memory.write",
   "artifact.read",
   "delivery.send",
-] as const;
+] as const satisfies readonly AuthorizationAction[];
 export const RESOURCE_KIND_VALUES = [
   "workspace",
   "session",
@@ -158,7 +151,7 @@ export const AUDIENCE_KIND_VALUES = [
 // Which resource kinds each action may be granted on: `session.read` on a
 // workspace would be a workspace-wide read smuggled in through the resource.
 const ACTION_RESOURCE_KINDS: Record<
-  (typeof AUTHORIZATION_ACTION_VALUES)[number],
+  (typeof GRANT_ACTION_VALUES)[number],
   readonly (typeof RESOURCE_KIND_VALUES)[number][]
 > = {
   "workspace.read": ["workspace"],
@@ -182,13 +175,13 @@ const sqlList = (values: readonly string[]) =>
 const textArrayLiteral = (values: readonly string[]) =>
   sql.raw(`ARRAY[${sqlList(values)}]::text[]`);
 const SESSION_SCOPES_SQL = textArrayLiteral(SESSION_SCOPE_VALUES);
-const AUTHORIZATION_ACTIONS_SQL = textArrayLiteral(AUTHORIZATION_ACTION_VALUES);
+const GRANT_ACTIONS_SQL = textArrayLiteral(GRANT_ACTION_VALUES);
 const RESOURCE_KINDS_SQL = sql.raw(sqlList(RESOURCE_KIND_VALUES));
 const AUDIENCE_KINDS_SQL = sql.raw(sqlList(AUDIENCE_KIND_VALUES));
 // `actions` must be a subset of what the row's resource kind admits.
 const ACTIONS_FOR_RESOURCE_SQL = sql.raw(
   `CASE "resource_kind" ${RESOURCE_KIND_VALUES.map((kind) => {
-    const allowed = AUTHORIZATION_ACTION_VALUES.filter((action) =>
+    const allowed = GRANT_ACTION_VALUES.filter((action) =>
       ACTION_RESOURCE_KINDS[action].includes(kind),
     );
     return `WHEN '${kind}' THEN ARRAY[${sqlList(allowed)}]::text[]`;
@@ -202,8 +195,8 @@ const oneDimensional = (column: unknown) =>
 // Identity (I0-2, 03 §3.1). One workspace per installation for now; every
 // row added by the interface track carries a workspace_id. Vocabularies are
 // CHECK constraints rather than pg enums so that widening one is a plain
-// additive migration, and rather than contracts imports so that the schema
-// does not depend on a package that is still landing.
+// additive migration. Most take their values from the contracts;
+// RESOURCE_KIND_VALUES and AUDIENCE_KIND_VALUES above are still hand copies.
 export const workspaces = pgTable("workspaces", {
   id: uuid().primaryKey(),
   slug: text().notNull().unique(),
@@ -1301,7 +1294,7 @@ export const grants = pgTable(
     ),
     check(
       "grants_actions_check",
-      sql`cardinality(${table.actions}) > 0 AND ${oneDimensional(table.actions)} AND ${table.actions} <@ ${AUTHORIZATION_ACTIONS_SQL}`,
+      sql`cardinality(${table.actions}) > 0 AND ${oneDimensional(table.actions)} AND ${table.actions} <@ ${GRANT_ACTIONS_SQL}`,
     ),
     check(
       "grants_actions_resource_check",
