@@ -70,7 +70,19 @@
     },
     {
       "name": "Workspace settings",
-      "description": "Change workspace-wide settings. Owners only."
+      "description": "How long authorization decisions are kept, GitHub App installations and the workspace's own remote MCP servers. Signed-in people only; who may read or change each one is in its description."
+    },
+    {
+      "name": "Achievements",
+      "description": "The workspace's achievement categories, types and rules, and the judge that decides the rules it asks. Every member reads them; owners and admins change them, signed in."
+    },
+    {
+      "name": "Installation settings",
+      "description": "Provider connections, repository credentials and the remote MCP server catalog of the whole installation, the settings document that exports and imports them, and the execution limits every workspace runs under. The operator (the workspace owner) only, signed in; API keys are refused."
+    },
+    {
+      "name": "Slack callbacks",
+      "description": "The request URLs Slack calls for each agent's app, for events and for interactivity. Slack signs every request; people and API keys do not call them."
     },
     {
       "name": "Agents",
@@ -104,7 +116,8 @@
     {
       "name": "Agents",
       "tags": [
-        "Agents"
+        "Agents",
+        "Slack callbacks"
       ]
     },
     {
@@ -126,6 +139,7 @@
         "Teams",
         "Linked accounts",
         "Workspace settings",
+        "Achievements",
         "Variables"
       ]
     },
@@ -139,6 +153,7 @@
     {
       "name": "Operations",
       "tags": [
+        "Installation settings",
         "Health",
         "Limits & receipts"
       ]
@@ -47995,7 +48010,7 @@
       "get": {
         "operationId": "getInstallationConfig",
         "tags": [
-          "Workspace settings"
+          "Installation settings"
         ],
         "summary": "Execution limits for the whole installation",
         "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Each key gives `value`, what applies now; `default`, what applies while nothing is saved; `saved`, false until an owner saves the key or an upgrade carries its old environment variable in; and `blocked`, true while that variable held a value the key does not accept and nothing is saved: only what the key sets is refused (503, retryable) until a value is saved, and no default stands in. `pending_request_ttl_sec` is how long a permission or question a session raised takes answers once registered (1 to 604800 seconds); while blocked, a permission or question is not registered. `queued_input_limit_per_session` is how many queued turns one session holds before the next input answers 429 (1 to 100000), and `storage_limit_bytes` the input bytes the installation retains before the next answers 413; while either is blocked, a new session or input is refused. `session_cost_limit_usd` (above 0, up to 1000000) and `session_token_limit` (0 sets none) stop a session that reached either: it is launched, claimed and given nothing more, and a new provider call is refused. A raised limit reaches a running worker at its next claim; a lowered one stops the next provider call. While either is blocked, no session is launched and no provider call is opened. `workspace_enforce` (`warn`, `fail`, `off`) is what a worker does once its workspace outgrows its quota, read at each claim. `session_archive_after_days` (0 archives nothing, otherwise 30 to 3650) and `session_archive_dry_run` (true only counts) are read by the session event archive job at each run; while either is blocked, the job moves nothing and exits 1. `session_archive` is not a setting: whether this API's object store settings could hold archived events (`reason`: `object_store_disabled` or `unversioned` when not); it does not know whether the job itself is turned off. `workspace_stopped_ttl_sec` and `workspace_paused_ttl_sec` (0 to 315360000 seconds) are how long a stopped session, and a paused one with a checkpoint to resume from, keep their workspace before a scheduler pass reclaims it; 0 reclaims it at the next pass, and a later resume restores from the checkpoint. While either is blocked, no stopped or paused session's workspace is reclaimed. The values apply to every workspace of the installation.\n\n**Auth:** cookie session only; no scope.",
@@ -48215,7 +48230,7 @@
       "patch": {
         "operationId": "updateInstallationConfig",
         "tags": [
-          "Workspace settings"
+          "Installation settings"
         ],
         "summary": "Save execution limits",
         "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Only the keys sent change; saving a key's default keeps it saved, so an old environment variable is never carried in again. All keys are one transaction and one receipt (`update_installation_config`, each changed key's value and the one before); values already saved answer 200 without `receipt_id` and leave no receipt. This API applies a change at once; another replica within 10 seconds. A permission or question already registered keeps the wait it was given. A raised cost limit reaches a running worker at its next claim; a lowered one stops its next provider call.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -86517,7 +86532,7 @@
       "post": {
         "operationId": "receiveSlackEvent",
         "tags": [
-          "Agents"
+          "Slack callbacks"
         ],
         "summary": "Slack's Events API request URL for one agent's app",
         "description": "Called by Slack, not by people: each agent app's event subscription points here (Finalize registers it when an https events address is known: `CONSOLE_ORIGIN`, or the address saved with PUT /v1/slack-settings when events enter apart from the console). The body is read up to 256 KiB (413 above that), then checked in this order: the `v0` signature (`X-Slack-Signature`) over the raw bytes with the app's signing secret, the `X-Slack-Request-Timestamp` within 300 seconds, then the JSON. An unknown agent, an agent without a created app, an app without a signing secret, a wrong, missing or stale signature all answer the same 401. A signed `url_verification` answers its `challenge`. An `event_callback` is stored once per `(team_id, event_id)`, so Slack's retries (`X-Slack-Retry-Num`) answer 200 without a second row; one for another app or team than the agent's install, from a bot, or of a message subtype other than `thread_broadcast`, is stored as dropped with its reason. `app_uninstalled` and `tokens_revoked` mark the install revoked and revoke the agent's identity on it, so the console shows the app as needing a reinstall; a repeat or an event sent before a reinstall changes nothing. Any other envelope type answers 200 and is ignored. A failed write answers 5xx so Slack sends the event again. Rate limited per agent and overall before any database read (429).\n\n**Auth:** public; no credential. **Idempotency-Key:** ignored.",
@@ -86805,7 +86820,7 @@
       "post": {
         "operationId": "receiveSlackInteraction",
         "tags": [
-          "Agents"
+          "Slack callbacks"
         ],
         "summary": "Slack's interactivity request URL for one agent's app",
         "description": "Called by Slack, not by people: each agent app's interactivity points here, beside its events route (Finalize registers both when an https events address is known, as for the events route). It takes the buttons and the modal of the messages the agent posts in a thread when its session waits on a person: allow or deny a tool permission, answer a question, approve or reject a push request. The form body is read up to 256 KiB (413 above that) and checked as events are: the `v0` signature over the raw bytes with the app's signing secret and the timestamp within 300 seconds, else the same 401. The `payload` field is Slack's JSON. Each press is judged for the Slack user who pressed it, through their linked account, as the same `session.approve` decision the web makes; a refusal, or a request already answered, is told to that person alone and nothing is answered twice. A request settled here updates its message in place with who settled it and how. A `block_actions` press answers `{\"ok\": true}`; a submitted question modal answers `{\"response_action\": \"clear\"}`, or `errors` naming the blocks to fix. Rate limited per agent and overall before any database read (429).\n\n**Auth:** public; no credential. **Idempotency-Key:** ignored.",
@@ -93358,7 +93373,7 @@
       "get": {
         "operationId": "listAchievementCategories",
         "tags": [
-          "Workspace settings"
+          "Achievements"
         ],
         "summary": "List the workspace's achievement categories",
         "description": "Every category of the caller's workspace, archived ones included (`archived_at`), by `position`. A category groups achievement rules; its name is not copied anywhere, so renaming it renames it for past achievements too. Every member reads it, and so does a member's personal key (`workspace.read`); an agent's key is 403.\n\n**Scope:** `sessions:read` (API key or cookie session).",
@@ -93521,7 +93536,7 @@
       "post": {
         "operationId": "createAchievementCategory",
         "tags": [
-          "Workspace settings"
+          "Achievements"
         ],
         "summary": "Make an achievement category",
         "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. The name (1 to 32 characters) is unique among the workspace's categories that are not archived (409 ALREADY_EXISTS, `details.reason_code: name_taken`). The new category goes after the last one. Writes a `create_achievement_category` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -93844,7 +93859,7 @@
       "patch": {
         "operationId": "updateAchievementCategory",
         "tags": [
-          "Workspace settings"
+          "Achievements"
         ],
         "summary": "Rename or reorder an achievement category",
         "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. Changes `name`, `position` or both. A name another category that is not archived holds is 409 ALREADY_EXISTS (`details.reason_code: name_taken`). Writes an `update_achievement_category` receipt unless nothing changed (`receipt_id` null). Another workspace's category is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -94214,7 +94229,7 @@
       "post": {
         "operationId": "archiveAchievementCategory",
         "tags": [
-          "Workspace settings"
+          "Achievements"
         ],
         "summary": "Archive an achievement category",
         "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. A category with a rule in use (its latest version, not disabled) is 409 REVISION_CONFLICT with `details.reason_code: category_in_use`. Archiving one already archived changes nothing and answers a null `receipt_id`; otherwise writes an `archive_achievement_category` receipt. Another workspace's category is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -94500,7 +94515,7 @@
       "get": {
         "operationId": "listAchievementTypes",
         "tags": [
-          "Workspace settings"
+          "Achievements"
         ],
         "summary": "List the workspace's achievement types",
         "description": "Every type of the caller's workspace, archived ones included: the built-in `pull_request`, `code_review` and `document` (`builtin: true`, `created_by` null) first, then the ones people made. A type is what a rule counts, and names the kind of evidence it is counted from. Every member reads it, and so does a member's personal key (`workspace.read`); an agent's key is 403.\n\n**Scope:** `sessions:read` (API key or cookie session).",
@@ -94665,7 +94680,7 @@
       "post": {
         "operationId": "createAchievementType",
         "tags": [
-          "Workspace settings"
+          "Achievements"
         ],
         "summary": "Make an achievement type",
         "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. `key` matches `[a-z][a-z0-9_]{1,40}` and is unique in the workspace, archived types included (409 ALREADY_EXISTS, `details.reason_code: key_taken`); `key` and `evidence_kind` never change afterwards. A workspace holds at most 50 types that are not archived (409 REVISION_CONFLICT, `details.reason_code: limit_reached`). Writes a `create_achievement_type` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -94993,7 +95008,7 @@
       "patch": {
         "operationId": "updateAchievementType",
         "tags": [
-          "Workspace settings"
+          "Achievements"
         ],
         "summary": "Rename an achievement type",
         "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. Only `name` changes; a body naming `key` or `evidence_kind` is 400. To count under another key or evidence kind, make a new type and move the rule to it in a new version. Writes an `update_achievement_type` receipt unless the name is unchanged (`receipt_id` null). Another workspace's type is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -95363,7 +95378,7 @@
       "post": {
         "operationId": "archiveAchievementType",
         "tags": [
-          "Workspace settings"
+          "Achievements"
         ],
         "summary": "Archive an achievement type",
         "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. A built-in type is never archived (409 REVISION_CONFLICT, `details.reason_code: builtin`), nor is one a rule in use counts (`details.reason_code: type_in_use`). Archiving one already archived changes nothing and answers a null `receipt_id`; otherwise writes an `archive_achievement_type` receipt. Another workspace's type is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -95651,7 +95666,7 @@
       "get": {
         "operationId": "listAchievementRules",
         "tags": [
-          "Workspace settings"
+          "Achievements"
         ],
         "summary": "List the workspace's achievement rules",
         "description": "The latest version of every rule of the caller's workspace, disabled ones included (`disabled_at`), grouped by category in the categories' order and by title within one. A rule is one title, one type and one definition; `judge: always` counts the type's evidence as it appears, `luna` asks the judge whether the definition holds. `agent_ids` is null: every agent. Every member reads it, and so does a member's personal key (`workspace.read`); an agent's key is 403.\n\n**Scope:** `sessions:read` (API key or cookie session).",
@@ -95821,7 +95836,7 @@
       "post": {
         "operationId": "createAchievementRule",
         "tags": [
-          "Workspace settings"
+          "Achievements"
         ],
         "summary": "Make an achievement rule",
         "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. Version 1 of a new rule. `category_id` and `type_id` name a category and a type of the workspace that are not archived (400, `details.reason_code: unknown_category` or `unknown_type`); `agent_ids` takes only null. A type is counted by one rule in use at a time: a type another rule in use counts is 409 REVISION_CONFLICT with `details.reason_code: type_in_use`. A workspace has at most 30 rules in use (`details.reason_code: limit_reached`). Writes a `create_achievement_rule` receipt naming the rule's id, family and version, never its definition.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -96155,7 +96170,7 @@
       "post": {
         "operationId": "createAchievementRuleVersion",
         "tags": [
-          "Workspace settings"
+          "Achievements"
         ],
         "summary": "Edit an achievement rule as its next version",
         "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. The body is the whole rule, as for a new one. A rule's rows never change: this makes version + 1 under a new id and sets the previous version's `superseded_by` to it; achievements already counted keep pointing at the version they were judged by. A disabled rule's new version is disabled too. 400 and 409 `type_in_use` as for a new rule; two edits at once are saved one after the other, each as its own version. Writes an `update_achievement_rule` receipt with the new and previous version ids, never the definition. Another workspace's rule is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -96535,7 +96550,7 @@
       "post": {
         "operationId": "disableAchievementRule",
         "tags": [
-          "Workspace settings"
+          "Achievements"
         ],
         "summary": "Stop using an achievement rule",
         "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. Disables the rule's latest version: it counts nothing from now on, and its type is free for another rule. Disabling one already disabled changes nothing and answers a null `receipt_id`; otherwise writes a `disable_achievement_rule` receipt. Another workspace's rule is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -96827,7 +96842,7 @@
       "post": {
         "operationId": "enableAchievementRule",
         "tags": [
-          "Workspace settings"
+          "Achievements"
         ],
         "summary": "Use a disabled achievement rule again",
         "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. Enables the rule's latest version. If another rule in use counts its type now, 409 REVISION_CONFLICT with `details.reason_code: type_in_use`; at 30 rules in use, `limit_reached`; a category or type archived since is 400 (`unknown_category`, `unknown_type`). Enabling one already in use changes nothing and answers a null `receipt_id`; otherwise writes an `enable_achievement_rule` receipt. Another workspace's rule is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -97155,7 +97170,7 @@
       "get": {
         "operationId": "getAchievementJudge",
         "tags": [
-          "Workspace settings"
+          "Achievements"
         ],
         "summary": "Read how the workspace's achievement judge runs",
         "description": "`workspace.settings.achievement_judge` of the caller's workspace, every field filled with its default when never set, and `connections`, the enabled `openai_decisions` connections of the installation whose credential resolves: the ids `connection_id` may name. `connection_id` null leaves `luna` rules unjudged; `always` rules count regardless. Another workspace is 404. Every member reads it, and so does a member's personal key (`workspace.read`); an agent's key is 403.\n\n**Scope:** `sessions:read` (API key or cookie session).",
@@ -97367,7 +97382,7 @@
       "put": {
         "operationId": "putAchievementJudge",
         "tags": [
-          "Workspace settings"
+          "Achievements"
         ],
         "summary": "Change how the workspace's achievement judge runs",
         "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. Replaces the settings; a field left out takes its default. `threshold` is between 0 and 1, `every_n_turns` null or 5 to 100, `transcript` `none` or `recent`. `connection_id` names one of the read's `connections`, else 400 `unknown_connection`; one named before it was disabled is kept as it is. Writes a `set_achievement_judge` receipt with the settings saved. Another workspace is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -97743,7 +97758,7 @@
       "get": {
         "operationId": "exportInstallationSettings",
         "tags": [
-          "Agents"
+          "Installation settings"
         ],
         "summary": "The installation's settings as one document, without a value",
         "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The provider connections, repositories and remote MCP servers the database holds, each entry in the shape the document holds it; disabled and removed rows are left out, so this is the active settings to copy, not a backup. A credential comes back as `stored: true` and its `last4`, never the value. Execution ceilings are not in it. `digest` is the SHA-256 of the document's canonical JSON, `last4` included. Changes nothing.\n\n**Auth:** cookie session only; no scope.",
@@ -97922,7 +97937,7 @@
       "post": {
         "operationId": "importInstallationSettings",
         "tags": [
-          "Agents"
+          "Installation settings"
         ],
         "summary": "Add the entries of a settings document the installation lacks",
         "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Adds each entry whose id no row holds, in one transaction, and writes an `import_connection`, `import_repository` or `import_mcp_server` receipt for each. An id held with the same content is `unchanged` (`inactive` when that row is disabled or removed: it stays so), and nothing is overwritten: an id held with other content, a GitHub App repository another id already holds, or a new stored entry whose id already has a value is 409 REVISION_CONFLICT (`details.reason_code: settings_conflict`, `details.entries`) and nothing changes. A credential is `stored: true` only: an entry naming `value_env` or `secret_id` is 400 `invalid_document`, its message naming the field. A `stored: true` entry always means its own row's value and runs once the value is set (`needs_value`). A wrong outline (`version`, the top-level keys) is 400 with `details.issues`; an entry the settings rules refuse is 400 `invalid_document`. `dry_run=true` answers the same without writing.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -98292,7 +98307,7 @@
       "get": {
         "operationId": "listSettingsConnections",
         "tags": [
-          "Agents"
+          "Installation settings"
         ],
         "summary": "The provider connections, from the file and the console",
         "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The database's rows, disabled ones included, by id. A credential is shown as `stored` with its `last4`; never a value. `state`: `needs_value` (stored, no value yet), `unresolved` (the credential did not resolve on the replica that answered), `disabled`, else `active`. Changes nothing.\n\n**Auth:** cookie session only; no scope.",
@@ -98464,7 +98479,7 @@
       "post": {
         "operationId": "createSettingsConnection",
         "tags": [
-          "Agents"
+          "Installation settings"
         ],
         "summary": "Make a provider connection with a key typed in",
         "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The credential is the value in the request, required and at least 8 characters, sealed under this row alone in the same transaction as the row; a row is never made without it. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an entry the catalog's rules refuse is 400 `invalid_entry`. An empty `endpoint` is stored as the kind's default from `endpoint_defaults`; a kind with none answers `400` `invalid_entry`. Writes a `create_connection` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -98747,7 +98762,7 @@
       "get": {
         "operationId": "getSettingsConnectionImpact",
         "tags": [
-          "Agents"
+          "Installation settings"
         ],
         "summary": "What disabling a connection would leave without a model",
         "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Counts, read when the confirmation opens: the active agents whose active release runs on this connection, the sessions not yet failed or stopped that run on it, and whether a workspace's achievement judge setting names the connection. Counts only, no names. Changes nothing; disabling is never blocked by it. `404` for an id the console does not hold.\n\n**Auth:** cookie session only; no scope.",
@@ -98943,7 +98958,7 @@
       "post": {
         "operationId": "setSettingsConnectionCredential",
         "tags": [
-          "Agents"
+          "Installation settings"
         ],
         "summary": "Replace a connection's stored key",
         "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A repository with no credential of its own is 409 `not_stored`, a disabled row 409 `disabled`, except a disabled connection with no value yet, which takes its first so it can be enabled again. Writes a `set_settings_credential` receipt naming the last four characters.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -99267,7 +99282,7 @@
       "post": {
         "operationId": "setSettingsConnectionModels",
         "tags": [
-          "Agents"
+          "Installation settings"
         ],
         "summary": "Set the models agents may name on a connection",
         "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Replaces the connection's `models` (at most 64, none repeated) and, when sent, its `model_families` (which models are versions of one series, newest highest; `null` clears them). Changes those fields only: the connection's definition stays. A release made afterwards checks its card's model against the new list; a session whose model was taken off the list stops at its next model call, or moves to the next listed model of its series when its agent migrates models automatically. A disabled connection is 409 `disabled`. Writes a `set_connection_models` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -99595,7 +99610,7 @@
       "post": {
         "operationId": "discoverSettingsConnectionModels",
         "tags": [
-          "Agents"
+          "Installation settings"
         ],
         "summary": "Read the models a connection's provider lists now",
         "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Asks the provider behind the connection, with the connection's own key, which models it serves: `GET /v1/models` on the endpoint (Anthropic page by page with `anthropic-version`; OpenAI without the families an agent cannot talk to, such as embeddings, speech and images, counted in `skipped`; LiteLLM as listed). Answers the ids in the provider's order, Anthropic's `display_name`, which ones the connection already saves (`selected`), and the saved ones the provider no longer lists (`missing`). Writes nothing and no receipt: saving stays `POST /v1/installation/settings/connections/{id}/models`. The key, the request's headers and the provider's body never come back or reach the log. The endpoint's host:port must be on the API's `EGRESS_CREDENTIAL_ALLOWLIST` or `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` and https unless on the private one: else 400 `credential_allowlist_unset`, `host_not_allowed` or `url_insecure`; an address the outbound policy refuses is 400 `address_not_allowed`. The provider refusing the key is 400 `provider_unauthorized`; any other non-2xx answer below 500, a redirect included, is 400 `provider_answered` (`details.provider_status`); a provider that sends the key back is 400 `credential_reflected`. Unreachable or 5xx is 503 `provider_unreachable`, an unreadable list 503 `provider_failed`, a credential this replica has not resolved yet 503 `credential_unresolved`. A disabled connection is 409 `disabled`, one without its value 409 `needs_value`, an `openai_decisions` one 409 `kind_unsupported`; an id the console does not hold is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -99921,7 +99936,7 @@
       "post": {
         "operationId": "disableSettingsConnection",
         "tags": [
-          "Agents"
+          "Installation settings"
         ],
         "summary": "Disable a provider connection",
         "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Nothing is deleted: the id stays taken and the stored value stays sealed. Releases on it stop running anything until it is enabled again. Disabling one already disabled is 409 `disabled`. Writes a `disable_connection` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -100197,7 +100212,7 @@
       "post": {
         "operationId": "enableSettingsConnection",
         "tags": [
-          "Agents"
+          "Installation settings"
         ],
         "summary": "Enable a disabled provider connection again",
         "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Brings a disabled connection back: releases on it run again once the settings are read again. It is refused with 409 `not_disabled` when the row is in use, 409 `definition_active` when another connection in use is exactly what this one is (disable that one first), and 409 `needs_value` when its stored value is gone (disabling keeps it, so this is rare). The destination never changes. Writes an `enable_connection` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -100473,7 +100488,7 @@
       "get": {
         "operationId": "listSettingsMcpServers",
         "tags": [
-          "Agents"
+          "Installation settings"
         ],
         "summary": "The remote MCP servers, from the file and the console",
         "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The database's rows, disabled ones included, by id. A credential is shown as `stored` with its `last4`; never a value. `state`: `needs_value` (stored, no value yet), `unresolved` (the credential did not resolve on the replica that answered), `disabled`, else `active`. Changes nothing. A server's tools are named `mcp__\u003cid>__\u003ctool>` and are known only once a session reaches it.\n\n**Auth:** cookie session only; no scope.",
@@ -100635,7 +100650,7 @@
       "post": {
         "operationId": "createSettingsMcpServer",
         "tags": [
-          "Agents"
+          "Installation settings"
         ],
         "summary": "Make a remote MCP server with a bearer typed in",
         "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The credential is the value in the request, required and at least 8 characters, sealed under this row alone in the same transaction as the row; a row is never made without it. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an entry the catalog's rules refuse is 400 `invalid_entry`. `github` is the built-in server's name. Writes a `create_mcp_server` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -100920,7 +100935,7 @@
       "patch": {
         "operationId": "setSettingsMcpServer",
         "tags": [
-          "Agents"
+          "Installation settings"
         ],
         "summary": "Change which workspaces may use an MCP server",
         "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The one field changed in place: the workspaces (by slug) are not part of a session's MCP binding. Its URL and credential name never change. A server whose bearer comes from the operator's deployment is 409 `not_stored`; a disabled one 409 `disabled`. Writes a `set_mcp_server_workspaces` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -101247,7 +101262,7 @@
       "post": {
         "operationId": "setSettingsMcpServerCredential",
         "tags": [
-          "Agents"
+          "Installation settings"
         ],
         "summary": "Replace an MCP server's stored bearer",
         "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A repository with no credential of its own is 409 `not_stored`, a disabled row 409 `disabled`, except a disabled connection with no value yet, which takes its first so it can be enabled again. Writes a `set_settings_credential` receipt naming the last four characters.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -101571,7 +101586,7 @@
       "post": {
         "operationId": "setSettingsRepositoryCredential",
         "tags": [
-          "Agents"
+          "Installation settings"
         ],
         "summary": "Replace a repository's stored credential",
         "description": "Owners and admins (`workspace.manage`), signed in; an API key is 403 whatever its scopes. Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A repository with no credential of its own is 409 `not_stored`, a disabled row 409 `disabled`, except a disabled connection with no value yet, which takes its first so it can be enabled again. Writes a `set_settings_credential` receipt naming the last four characters. For a repository naming its own GitHub App the value is the App's private key: anything but an RSA private key PEM is 400 `invalid_private_key`, and the repository's id, App and installation stay as they are. A repository using the App registered in the console is 404. The value is in no response, log or error.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -101894,7 +101909,7 @@
       "post": {
         "operationId": "disableSettingsMcpServer",
         "tags": [
-          "Agents"
+          "Installation settings"
         ],
         "summary": "Disable a remote MCP server for good",
         "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Never undone and nothing is deleted: the id stays taken and the stored value stays sealed. Ceilings over it stop running anything. Disabling one already disabled is 409 `disabled`. Writes a `disable_mcp_server` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
