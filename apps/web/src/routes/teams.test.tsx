@@ -1041,14 +1041,18 @@ describe("팀 화면", () => {
           "[role=columnheader], [role=cell]",
         ),
       ];
-      expect(
-        cells.map((cell) =>
-          cell.dataset.align === "start" &&
-          !/\b(justify-end|text-end|text-right|ml-auto)\b/.test(cell.className)
-            ? "start"
-            : cell.dataset.align,
-        ),
-      ).toEqual(["start", "start", "start", "start", "start", "action"]);
+      expect(cells.map((cell) => cell.dataset.align)).toEqual([
+        "start",
+        "start",
+        "start",
+        "start",
+        "start",
+        "action",
+      ]);
+      for (const cell of cells.slice(0, -1))
+        expect(cell.className).not.toMatch(
+          /\b(justify-end|text-end|text-right|ml-auto)\b/,
+        );
     }
     // One line per cell, as on 구성원: the team role is a badge, not a select.
     expect(

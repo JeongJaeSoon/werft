@@ -726,7 +726,7 @@ describe("에이전트 GitHub 탭", () => {
     // 시각 is as wide as the longest relative time, unwrapped; 기록 takes
     // the rest, and each part of its detail line wraps whole.
     expect(table.style.getPropertyValue("--grid-table-columns")).toBe(
-      "minmax(0,1fr) 72px",
+      "minmax(0,1fr) 78px",
     );
     expect(table.querySelector("time")?.className).toContain(
       "whitespace-nowrap",

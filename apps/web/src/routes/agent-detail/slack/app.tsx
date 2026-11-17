@@ -524,9 +524,12 @@ export function SlackDangerSection({ slack }: { readonly slack: SlackApp }) {
 }
 
 // App, state, updated, actions; a phone keeps the app (with the state and
-// the time under it) and the actions.
+// the time under it) and the actions. The app takes the leftover; the state
+// fits the longest badge ("재설치 필요" 73px, "再インストールが必要" 124px,
+// "Awaiting installation" 132px).
+const STATE_TRACK = { ko: "80px", ja: "128px", en: "136px" } as const;
 const columns = (locale: keyof typeof RELATIVE_TIME_TRACK) =>
   [
-    `minmax(0,1.4fr) minmax(0,1fr) ${RELATIVE_TIME_TRACK[locale]} 160px`,
+    `minmax(0,1fr) ${STATE_TRACK[locale]} ${RELATIVE_TIME_TRACK[locale]} 160px`,
     "minmax(0,1fr) 160px",
   ] as const;
