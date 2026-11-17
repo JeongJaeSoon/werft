@@ -75,6 +75,23 @@ const unpaced = {
   }),
 } as never;
 
+/** One client per API base, built on first use and kept by the returned lookup. */
+function clientsByBase(
+  logger: Logger | undefined,
+  pacing: { retryAfterBaseMs?: number; paced?: boolean },
+): (apiBase: string) => Client {
+  const clients = new Map<string, Client>();
+  return (apiBase) => {
+    const base = apiBase.replace(/\/+$/, "");
+    let client = clients.get(base);
+    if (client === undefined) {
+      client = clientOf(base, logger, pacing);
+      clients.set(base, client);
+    }
+    return client;
+  };
+}
+
 function clientOf(
   apiBase: string,
   logger: Logger | undefined,
@@ -1035,16 +1052,7 @@ export function createGitHubAppDirectory(
   options: { logger?: Logger; retryAfterBaseMs?: number } = {},
 ): GitHubAppDirectory {
   const { logger } = options;
-  const clients = new Map<string, Client>();
-  const clientFor = (apiBase: string) => {
-    const base = apiBase.replace(/\/+$/, "");
-    let client = clients.get(base);
-    if (client === undefined) {
-      client = clientOf(base, logger, options);
-      clients.set(base, client);
-    }
-    return client;
-  };
+  const clientFor = clientsByBase(logger, options);
   async function asking<T>(
     what: string,
     app: { appId: number; apiBase: string; privateKey: string },
@@ -1186,17 +1194,12 @@ function installationRepositoryOf(repository: {
 export function createGitHubManifestConverter(
   options: { logger?: Logger } = {},
 ) {
-  const clients = new Map<string, Client>();
+  const clientFor = clientsByBase(options.logger, { paced: false });
   return async (
     apiBase: string,
     code: string,
   ): Promise<GitHubAppManifestConversion> => {
-    const base = apiBase.replace(/\/+$/, "");
-    let client = clients.get(base);
-    if (client === undefined) {
-      client = clientOf(base, options.logger, { paced: false });
-      clients.set(base, client);
-    }
+    const client = clientFor(apiBase);
     try {
       const { data } = await client.request(
         "POST /app-manifests/{code}/conversions",
