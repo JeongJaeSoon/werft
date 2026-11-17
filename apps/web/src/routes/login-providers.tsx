@@ -32,7 +32,6 @@ import {
   Field,
   FieldDescription,
   FieldLabel,
-  formatRelativeTime,
   GridTable,
   GridTableCell,
   GridTableColumnHeader,
@@ -53,12 +52,11 @@ import {
   Link as TextLink,
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
-import { Fragment, type ReactNode, useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useHasPermission, useRole } from "../auth/guard.tsx";
 import { LOGIN_DOMAIN_PATTERN, LOGIN_DOMAINS_MAX } from "../auth/limits.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { GHOST, Ghost, SameWidth } from "../components/same-width.tsx";
 import { Action } from "../components/setting-action.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { isMessageKey, type Translate, useI18n } from "../i18n/i18n.tsx";
@@ -180,78 +178,11 @@ const isOn = (provider: LoginProviderView) =>
   provider.state === "enabled" || provider.state === "enabled_secret_pending";
 
 // Name and issuer, state, last test; narrow, the name and the state. The
-// short columns are as wide as their widest content, so the name takes what
-// is left and the last column ends at the table's right edge. Every row is a
-// grid of its own: StateWidth and TestedWidth give each cell and its header
-// the same content, so a track is as wide in every row.
+// short columns are as wide as their content and the name takes the rest.
 const COLUMNS = [
-  "minmax(0,1fr) fit-content(220px) fit-content(180px)",
-  "minmax(0,1fr) fit-content(55%)",
+  "minmax(0,1fr) max-content max-content",
+  "minmax(0,1fr) max-content",
 ] as const;
-
-function TestedWidth({
-  texts,
-  children,
-}: {
-  readonly texts: readonly string[];
-  readonly children: ReactNode;
-}) {
-  const { t } = useI18n();
-  return (
-    <SameWidth
-      alike={
-        <>
-          <Ghost
-            text={t("loginProviders.column.tested")}
-            className="font-medium text-caption"
-          />
-          {texts.map((text) => (
-            // font-normal: in the header row they would take its weight.
-            <Ghost
-              key={text}
-              text={text}
-              className="font-normal text-caption"
-            />
-          ))}
-        </>
-      }
-    >
-      {children}
-    </SameWidth>
-  );
-}
-
-function StateWidth({
-  states,
-  children,
-}: {
-  readonly states: readonly LoginProviderState[];
-  readonly children: ReactNode;
-}) {
-  const { t } = useI18n();
-  return (
-    <SameWidth
-      alike={
-        <>
-          <Ghost
-            text={t("loginProviders.column.state")}
-            className="font-medium text-caption"
-          />
-          {states.map((state) => (
-            <Badge
-              key={state}
-              aria-hidden="true"
-              data-text={t(`loginProviders.state.${state}`)}
-              className={GHOST}
-            />
-          ))}
-        </>
-      }
-    >
-      {children}
-    </SameWidth>
-  );
-}
 
 export function LoginProvidersScreen() {
   const { t, locale } = useI18n();
@@ -266,17 +197,9 @@ export function LoginProvidersScreen() {
         <StatusScreen kind="forbidden" />
       </Page>
     );
-  const states = [
-    ...new Set(list.data?.providers.map((provider) => provider.state)),
-  ];
-  // One instant for every "N분 전" and its ghosts, so they read the same;
-  // it moves on with each fetch.
+  // One instant for every "N분 전", so they read the same; it moves on with
+  // each fetch.
   const now = list.dataUpdatedAt;
-  const tested = (provider: LoginProviderView) =>
-    provider.tested_at
-      ? formatRelativeTime(provider.tested_at, locale, now)
-      : t("loginProviders.neverTested");
-  const testedTexts = [...new Set(list.data?.providers.map(tested))];
 
   return (
     <Page
@@ -325,14 +248,10 @@ export function LoginProvidersScreen() {
                 {t("loginProviders.column.name")}
               </GridTableColumnHeader>
               <GridTableColumnHeader>
-                <StateWidth states={states}>
-                  {t("loginProviders.column.state")}
-                </StateWidth>
+                {t("loginProviders.column.state")}
               </GridTableColumnHeader>
               <GridTableColumnHeader hideNarrow>
-                <TestedWidth texts={testedTexts}>
-                  {t("loginProviders.column.tested")}
-                </TestedWidth>
+                {t("loginProviders.column.tested")}
               </GridTableColumnHeader>
             </GridTableHeader>
             {list.data.providers.map((provider) => (
@@ -351,24 +270,20 @@ export function LoginProvidersScreen() {
                   </div>
                 </GridTableCell>
                 <GridTableCell>
-                  <StateWidth states={states}>
-                    <StateBadge state={provider.state} />
-                  </StateWidth>
+                  <StateBadge state={provider.state} />
                 </GridTableCell>
                 <GridTableCell hideNarrow>
-                  <TestedWidth texts={testedTexts}>
-                    <Text as="span" variant="meta">
-                      {provider.tested_at ? (
-                        <RelativeTime
-                          value={provider.tested_at}
-                          locale={locale}
-                          now={now}
-                        />
-                      ) : (
-                        t("loginProviders.neverTested")
-                      )}
-                    </Text>
-                  </TestedWidth>
+                  <Text as="span" variant="meta">
+                    {provider.tested_at ? (
+                      <RelativeTime
+                        value={provider.tested_at}
+                        locale={locale}
+                        now={now}
+                      />
+                    ) : (
+                      t("loginProviders.neverTested")
+                    )}
+                  </Text>
                 </GridTableCell>
               </GridTableRow>
             ))}

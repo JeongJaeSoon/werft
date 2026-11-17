@@ -26,14 +26,14 @@ import { type SessionRowLink, SessionRowOpener } from "./session-row.tsx";
 /**
  * Title, agent, channel, status, started, duration. At 820px of table width
  * and below, channel and started drop out for
- * SESSION_OVERVIEW_NARROW_TEMPLATE; below 600px each row stacks (PHONE). The
- * status column fits en "Waiting for an answer"; an admission pill or a wait
- * beside it wraps under it.
+ * SESSION_OVERVIEW_NARROW_TEMPLATE; below 600px each row stacks (PHONE).
+ * Channel, status, started and duration are as wide as their content; title
+ * and agent share the rest.
  */
 export const SESSION_OVERVIEW_TEMPLATE =
-  "minmax(0,2.2fr) minmax(0,1.2fr) 56px 152px 148px 96px";
+  "minmax(0,2fr) minmax(0,1fr) max-content max-content max-content max-content";
 export const SESSION_OVERVIEW_NARROW_TEMPLATE =
-  "minmax(0,2fr) minmax(0,1.2fr) 152px 96px";
+  "minmax(0,2fr) minmax(0,1fr) max-content max-content";
 const SESSION_OVERVIEW_ALIGN = [
   "start",
   "start",

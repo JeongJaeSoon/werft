@@ -11,7 +11,6 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
-  RELATIVE_TIME_TRACK,
   RelativeTime,
   RowAction,
   Section,
@@ -33,13 +32,13 @@ import { previousRelease, releaseChanges } from "./release-changes.ts";
 import { ReleaseChangesSummary } from "./release-changes-view.tsx";
 import { type RollbackPreview, rollbackPreview } from "./rollback-preview.ts";
 
-// The version, whose description runs longest, takes the leftover; the time
-// range fits two times and its "~", and the author a name.
-const columns = (locale: keyof typeof RELATIVE_TIME_TRACK) =>
-  [
-    `minmax(10rem,1fr) 96px calc(2 * ${RELATIVE_TIME_TRACK[locale]} + 1.5rem) minmax(0,8rem) 120px`,
-    "minmax(0,1fr) 120px",
-  ] as const;
+// The version, whose description runs longest, takes the leftover; the author
+// is cut at 8rem; the state, the time range and the actions are as wide as
+// their widest cell.
+const COLUMNS = [
+  "minmax(10rem,1fr) max-content max-content minmax(0,8rem) max-content",
+  "minmax(0,1fr) max-content",
+] as const;
 
 /** The connection the agent runs on now: its active release's, else its newest. */
 export function releasedConnection(detail: AgentDetail): string | undefined {
@@ -147,9 +146,9 @@ export function Releases({
         ) : (
           <GridTable
             aria-label={t("agent.releases.title")}
-            columns={columns(locale)[0]}
+            columns={COLUMNS[0]}
             narrowAt={860}
-            narrowColumns={columns(locale)[1]}
+            narrowColumns={COLUMNS[1]}
             align={["start", "start", "start", "start", "action"]}
             framed={true}
           >

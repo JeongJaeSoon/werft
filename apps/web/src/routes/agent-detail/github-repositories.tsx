@@ -54,7 +54,7 @@ export type RepositoryRow = {
 
 const GITHUB = "https://github.com/";
 // Repository (name, badges, why it is locked) | the switch.
-const REPOSITORY_COLUMNS = "minmax(0,1fr) 64px";
+const REPOSITORY_COLUMNS = "minmax(0,1fr) max-content";
 
 function pageOf(url: string | undefined, name: string): string {
   if (url?.startsWith("https://")) return url.replace(/\.git$/, "");

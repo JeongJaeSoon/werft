@@ -17,10 +17,11 @@ import { cn } from "../foundations/cn.ts";
 
 /*
  * Console v4 `.tbl`: a table drawn as a div grid that never scrolls sideways.
- * Every row lays its cells out on the table's one column template; below a
- * container width the table switches to a narrower template and drops the
- * columns marked `hideNarrow`, header and cells together, so each row keeps
- * as many cells as there are column headers.
+ * The table holds the one column template and every row is a subgrid of it,
+ * so a `max-content` track is as wide as the widest cell of its column,
+ * header included. Below a container width the table switches to a narrower
+ * template and drops the columns marked `hideNarrow`, header and cells
+ * together, so each row keeps as many cells as there are column headers.
  *
  * Container query widths cannot come from a CSS variable, so the narrow
  * widths are the ones v4 uses, each a fixed class Tailwind can see.
@@ -30,23 +31,28 @@ const NARROW = {
   // every column; only a phone's drops some. Exclusive, because a half of a
   // two-column row at 1280px is exactly 480px and keeps its columns.
   480: {
-    row: "[@container(width<480px)]:grid-cols-[var(--grid-table-narrow-columns)]",
+    table:
+      "[@container(width<480px)]:grid-cols-[var(--grid-table-narrow-columns)]",
     hide: "[@container(width<480px)]:hidden",
   },
   640: {
-    row: "[@container(max-width:640px)]:grid-cols-[var(--grid-table-narrow-columns)]",
+    table:
+      "[@container(max-width:640px)]:grid-cols-[var(--grid-table-narrow-columns)]",
     hide: "[@container(max-width:640px)]:hidden",
   },
   760: {
-    row: "[@container(max-width:760px)]:grid-cols-[var(--grid-table-narrow-columns)]",
+    table:
+      "[@container(max-width:760px)]:grid-cols-[var(--grid-table-narrow-columns)]",
     hide: "[@container(max-width:760px)]:hidden",
   },
   820: {
-    row: "[@container(max-width:820px)]:grid-cols-[var(--grid-table-narrow-columns)]",
+    table:
+      "[@container(max-width:820px)]:grid-cols-[var(--grid-table-narrow-columns)]",
     hide: "[@container(max-width:820px)]:hidden",
   },
   860: {
-    row: "[@container(max-width:860px)]:grid-cols-[var(--grid-table-narrow-columns)]",
+    table:
+      "[@container(max-width:860px)]:grid-cols-[var(--grid-table-narrow-columns)]",
     hide: "[@container(max-width:860px)]:hidden",
   },
 } as const;
@@ -57,7 +63,7 @@ export type GridTableNarrowAt = keyof typeof NARROW;
 // stacked, the header kept for screen readers only and every column shown.
 const CARDS = {
   table:
-    "[@container(max-width:640px)]:gap-3 [@container(max-width:640px)]:rounded-none [@container(max-width:640px)]:border-0 [@container(max-width:640px)]:bg-transparent",
+    "[@container(max-width:640px)]:flex [@container(max-width:640px)]:flex-col [@container(max-width:640px)]:gap-3 [@container(max-width:640px)]:rounded-none [@container(max-width:640px)]:border-0 [@container(max-width:640px)]:bg-transparent",
   header: "[@container(max-width:640px)]:sr-only",
   row: "[@container(max-width:640px)]:flex [@container(max-width:640px)]:flex-col [@container(max-width:640px)]:items-stretch [@container(max-width:640px)]:gap-2 [@container(max-width:640px)]:py-[var(--werft-row-padding-y)] [@container(max-width:640px)]:rounded-card [@container(max-width:640px)]:border [@container(max-width:640px)]:bg-card [@container(max-width:640px)]:last:border-b",
   start:
@@ -67,7 +73,8 @@ const CARDS = {
 } as const;
 
 type Narrow = {
-  readonly row: string;
+  readonly table: string;
+  readonly row?: string;
   readonly header?: string;
   readonly hide?: string;
   readonly start?: string;
@@ -164,8 +171,12 @@ export type GridTableProps = Omit<
   GridTableNarrow & {
     /**
      * `grid-template-columns` for every row, e.g.
-     * "minmax(0,1.6fr) 120px minmax(0,1.4fr) minmax(0,1fr)". Keep each track
-     * `minmax(0,…)` or a fixed width so no cell can push the table wider.
+     * "minmax(0,1fr) max-content max-content". A short column (state, time,
+     * count, switch, row action) takes `max-content`: as wide as its widest
+     * cell or header, unwrapped. The longest text column takes
+     * `minmax(0,1fr)` and with it the width left over. Keep every other track
+     * `minmax(0,…)` or fixed, and `narrowAt` wide enough for the
+     * `max-content` columns, so no cell can push the table wider.
      */
     readonly columns: string;
     /**
@@ -193,6 +204,12 @@ export function GridTable({
   style,
   ...props
 }: GridTableProps): JSX.Element {
+  const narrow =
+    narrowAt === undefined
+      ? undefined
+      : narrowCards
+        ? CARDS.table
+        : NARROW[narrowAt].table;
   const table = (
     <div
       role="table"
@@ -201,10 +218,11 @@ export function GridTable({
       data-narrow-cards={narrowCards || undefined}
       data-framed={framed || undefined}
       className={cn(
-        "flex min-w-0 flex-col",
-        !narrowCards && "@container",
+        // Each row spans the template and lays its cells on it as a subgrid;
+        // the gap matches the rows' own, used when a row leaves the subgrid.
+        "grid min-w-0 grid-cols-[var(--grid-table-columns)] gap-x-4 *:col-span-full",
+        narrow,
         framed && "rounded-card border bg-card",
-        narrowCards && CARDS.table,
         className,
       )}
       style={
@@ -226,14 +244,10 @@ export function GridTable({
       }
     >
       <AlignContext.Provider value={align}>
-        {/* The table cannot query its own width to drop its frame, and its
-            rows query the same wrapper so frame and cards switch at one
-            width. */}
-        {narrowCards ? (
-          <div className="@container min-w-0">{table}</div>
-        ) : (
-          table
-        )}
+        {/* The table cannot query its own width to change its template or
+            drop its frame, and its rows and cells query the same wrapper so
+            they all switch at one width. */}
+        <div className="@container min-w-0">{table}</div>
       </AlignContext.Provider>
     </NarrowContext.Provider>
   );
@@ -242,7 +256,7 @@ export function GridTable({
 // The last row rounds like the header, so a filled last row (hover, inactive)
 // keeps the frame's bottom corners; the frame cannot clip (see the opener).
 const ROW =
-  "relative grid grid-cols-[var(--grid-table-columns)] items-center gap-4 border-b px-[var(--werft-row-padding-x)] last:rounded-b-card last:border-b-0";
+  "relative grid grid-cols-subgrid items-center gap-4 border-b px-[var(--werft-row-padding-x)] last:rounded-b-card last:border-b-0";
 
 function useNarrow(): Narrow | undefined {
   const narrow = useContext(NarrowContext);

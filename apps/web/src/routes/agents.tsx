@@ -425,12 +425,10 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
 }
 
 // Name | engine | state | channels | running sessions; at 640px of table width
-// or less, one card per agent. The other tracks' floors, gaps and padding take
-// 520px, so a narrower breakpoint would leave the name no room. Past those
-// floors the width is shared, the name taking two parts, so the text columns
-// spread across a wide table; the running count sits at the end like numbers.
-const COLUMNS =
-  "minmax(0,2fr) minmax(96px,1fr) minmax(104px,1fr) minmax(104px,1fr) minmax(120px,1fr)";
+// or less, one card per agent. Engine, state, channels and the running count
+// are as wide as their content and the name takes the rest; the running
+// count sits at the end like numbers.
+const COLUMNS = "minmax(0,1fr) max-content max-content max-content max-content";
 const ALIGN = ["start", "start", "start", "start", "end"] as const;
 
 /**

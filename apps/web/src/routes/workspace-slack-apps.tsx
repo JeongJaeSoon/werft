@@ -14,7 +14,6 @@ import {
   GridTableHeader,
   GridTableRow,
   linkVariants,
-  RELATIVE_TIME_TRACK,
   RelativeTime,
   RowLines,
   SettingsSection,
@@ -103,9 +102,9 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
   return (
     <GridTable
       aria-label={t("workspace.slackAppsList")}
-      columns={columns(locale)[0]}
+      columns={COLUMNS[0]}
       narrowAt={640}
-      narrowColumns={columns(locale)[1]}
+      narrowColumns={COLUMNS[1]}
       align={["start", "start", "start", "start", "action"]}
       framed
     >
@@ -241,8 +240,7 @@ function AppState({ item }: { readonly item: MadeApp }) {
 
 // App, agent, state, updated, details; a phone keeps the app, the state and
 // the details link, and the app cell names the agent and the time.
-const columns = (locale: keyof typeof RELATIVE_TIME_TRACK) =>
-  [
-    `minmax(0,1.4fr) minmax(0,1fr) 136px ${RELATIVE_TIME_TRACK[locale]} 64px`,
-    "minmax(0,1fr) 120px 64px",
-  ] as const;
+const COLUMNS = [
+  "minmax(0,1.4fr) minmax(0,1fr) max-content max-content max-content",
+  "minmax(0,1fr) max-content max-content",
+] as const;

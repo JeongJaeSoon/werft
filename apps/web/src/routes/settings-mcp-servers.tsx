@@ -47,9 +47,9 @@ import { WorkspaceMcpServers } from "./workspace-mcp-servers.tsx";
 
 // id and source, URL and tool names, credential, workspaces, state,
 // actions; a phone keeps the id (with the state and tool names) and the
-// actions.
+// actions. The state and the actions are as wide as their widest cell.
 const COLUMNS = [
-  "minmax(0,1fr) minmax(0,1.6fr) minmax(0,1fr) minmax(0,1fr) 128px 196px",
+  "minmax(0,1fr) minmax(0,1.6fr) minmax(0,1fr) minmax(0,1fr) max-content max-content",
   SETTINGS_NARROW_COLUMNS,
 ] as const;
 
