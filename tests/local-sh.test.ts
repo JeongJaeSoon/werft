@@ -266,6 +266,16 @@ echo '{"status":"ready"}'
     expect(await calls("docker-calls")).toContain("volume rm ws-1");
   });
 
+  test("key with no argument names both forms the keys CLI takes, without calling docker", async () => {
+    const result = await run(["key"]);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("key <owner> --scopes");
+    expect(result.stderr).toContain(
+      "key --workspace <workspace_id> --personal <user_id> --scopes",
+    );
+    expect(await calls("docker-calls")).toEqual([]);
+  });
+
   test("down refuses any other argument without calling docker", async () => {
     const result = await run(["down", "-v"]);
     expect(result.exitCode).toBe(2);

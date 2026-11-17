@@ -11,7 +11,9 @@
 #                                        down, then up
 #   scripts/local.sh status              containers and /readyz
 #   scripts/local.sh key <owner> --scopes <scope>[,<scope>...]
-#                                        print a new API key once (same CLI as `bun run keys create`)
+#   scripts/local.sh key --workspace <workspace_id> --personal <user_id> --scopes <scope>[,<scope>...]
+#                                        print a new API key once (same CLI as `bun run keys create`):
+#                                        an operator key, or that member's personal key in the workspace
 #   scripts/local.sh demo-key --scopes <scope>[,<scope>...]
 #                                        print a new personal API key of the demo owner in workspace `demo`
 #   scripts/local.sh demo-release <agent slug>
@@ -463,7 +465,8 @@ status() {
 }
 
 key() {
-  [ "$#" -ge 1 ] || die "usage: scripts/local.sh key <owner> --scopes <scope>[,<scope>...]"
+  [ "$#" -ge 1 ] || die "usage: scripts/local.sh key <owner> --scopes <scope>[,<scope>...]
+       scripts/local.sh key --workspace <workspace_id> --personal <user_id> --scopes <scope>[,<scope>...]"
   compose exec -T api bun run apps/control-host/src/api/keys.ts create "$@"
 }
 
