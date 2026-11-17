@@ -52,7 +52,7 @@ export const agentsKo = {
   "agents.description": "설명",
   "agents.descriptionOptional": "설명 (선택)",
   "agents.descriptionHint":
-    "목록과 상세 화면에 보입니다. 설치에서 플랫폼 안내를 켜 두었다면 이름과 함께 모델에게도 그대로 전해지고, 바꾼 값은 새 세션부터 적용됩니다.",
+    "목록과 상세 화면에 보입니다. 모델에게는 전해지지 않습니다.",
   "agents.slugHint":
     "이 워크스페이스에서 에이전트를 구분하는 이름으로, 목록과 상세 화면에 보이고 다른 에이전트와 겹칠 수 없습니다. 영문 소문자, 숫자, 하이픈(-). 이름에서 채워지고 고칠 수 있습니다. 저장한 뒤에는 바꿀 수 없습니다",
   "agents.slugLocked": "저장해 식별자는 더 바꿀 수 없습니다",
@@ -110,7 +110,7 @@ export const agentsKo = {
     "이름과 설명은 저장하면 바로 바뀝니다. 실행 설정은 새 버전으로 저장되고, 에이전트가 쓰는 값이 달라지면 릴리스를 만들어 바로 적용합니다.",
   "agent.card.identity": "이름과 설명",
   "agent.card.identityHint":
-    "새 버전이나 릴리스 없이 바로 바뀝니다. 설치에서 플랫폼 안내를 켜 두었다면 새 세션부터 모델도 이 값을 에이전트의 이름과 설명으로 읽습니다. 맡을 일과 행동 방식은 저장소의 CLAUDE.md나 AGENTS.md에 적으세요.",
+    "새 버전이나 릴리스 없이 바로 바뀝니다. 이름과 설명은 사람이 보는 값이고 모델에게는 전해지지 않습니다. 맡을 일과 행동 방식은 저장소의 CLAUDE.md나 AGENTS.md에 적으세요.",
   "agent.card.run": "실행 설정",
   "agent.card.runHint":
     "저장하면 새 버전이 생기고, 에이전트가 쓰는 값이 달라지면 릴리스를 만들어 바로 적용합니다. 값이 같으면 릴리스는 만들지 않습니다.",
@@ -478,7 +478,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.description": "Description",
   "agents.descriptionOptional": "Description (optional)",
   "agents.descriptionHint":
-    "It shows in the list and on the agent's page. If platform guidance is turned on for this installation, the model also reads it as written, with the name, and a change applies from the next new session.",
+    "It shows in the list and on the agent's page; the model does not see it.",
   "agents.slugHint":
     "Tells this agent apart in the workspace, shows in the list and on its page, and no other agent can use it. Lowercase letters, digits and hyphens (-). Filled in from the name; you can change it. Cannot be changed once saved.",
   "agents.slugLocked":
@@ -536,7 +536,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "Name and description change as soon as you save. Run settings are saved as a new version, and when the values the agent runs with change, a release is made and applied at once.",
   "agent.card.identity": "Name and description",
   "agent.card.identityHint":
-    "They change at once, with no new version or release. If platform guidance is turned on for this installation, the model also reads them as the agent's name and description, starting with the next new session. Put what it does and how it behaves in the repository's CLAUDE.md or AGENTS.md.",
+    "They change at once, with no new version or release. The name and description are for people; the model does not see them. Put what it does and how it behaves in the repository's CLAUDE.md or AGENTS.md.",
   "agent.card.run": "Run settings",
   "agent.card.runHint":
     "Saving creates a new version, and when the values the agent runs with change, a release is made and applied at once. If they are the same, no release is made.",
@@ -893,7 +893,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.description": "説明",
   "agents.descriptionOptional": "説明（任意）",
   "agents.descriptionHint":
-    "一覧と詳細画面に表示されます。インストールでプラットフォーム案内を有効にしている場合は、名前とあわせてモデルにもそのまま渡され、変更は次に始まるセッションから反映されます。",
+    "一覧と詳細画面に表示されます。モデルには渡されません。",
   "agents.slugHint":
     "このワークスペースでエージェントを区別する名前で、一覧と詳細画面に表示され、ほかのエージェントと重複できません。英小文字・数字・ハイフン（-）。名前から自動入力され、変更できます。保存後は変更できません",
   "agents.slugLocked": "保存したため、識別子は変更できません",
@@ -951,7 +951,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "名前と説明は保存するとすぐに変わります。実行設定は新しいバージョンとして保存され、エージェントが使う値が変わるときはリリースを作成してすぐに適用します。",
   "agent.card.identity": "名前と説明",
   "agent.card.identityHint":
-    "新しいバージョンやリリースなしですぐに変わります。インストールでプラットフォーム案内を有効にしている場合は、新しいセッションからモデルもこの値をエージェントの名前と説明として読みます。任せる仕事と振る舞い方はリポジトリの CLAUDE.md や AGENTS.md に書いてください。",
+    "新しいバージョンやリリースなしですぐに変わります。名前と説明は人が見るための値で、モデルには渡されません。任せる仕事と振る舞い方はリポジトリの CLAUDE.md や AGENTS.md に書いてください。",
   "agent.card.run": "実行設定",
   "agent.card.runHint":
     "保存すると新しいバージョンが作成され、エージェントが使う値が変わるときはリリースを作成してすぐに適用します。値が同じなら、リリースは作成しません。",

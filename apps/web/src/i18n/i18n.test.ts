@@ -143,18 +143,29 @@ describe("i18n", () => {
     }
   });
 
-  // The platform paragraph is off by default, so a hint without the condition
-  // is wrong on a default installation.
-  test("name and description hints say the model reads them only with platform guidance on", () => {
-    const condition = {
+  // No engine gets the agent's name or description any more (see
+  // apps/worker/src/legacy-platform-prompt.ts), and there is no setting that
+  // turns it back on.
+  test("name and description hints say the model does not see them", () => {
+    const platformGuidance = {
       ko: "플랫폼 안내",
       ja: "プラットフォーム案内",
       en: "platform guidance",
     } as const;
+    const notSeen = {
+      ko: "모델에게는 전해지지 않습니다",
+      ja: "モデルには渡されません",
+      en: "the model does not see",
+    } as const;
     for (const locale of LOCALES) {
       const catalog = catalogs[locale];
-      expect(catalog["agent.card.identityHint"]).toContain(condition[locale]);
-      expect(catalog["agents.descriptionHint"]).toContain(condition[locale]);
+      for (const key of [
+        "agent.card.identityHint",
+        "agents.descriptionHint",
+      ] as const) {
+        expect(catalog[key]).not.toContain(platformGuidance[locale]);
+        expect(catalog[key]).toContain(notSeen[locale]);
+      }
       expect(catalog["agent.card.identityHint"]).toContain("CLAUDE.md");
     }
   });
