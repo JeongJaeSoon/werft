@@ -17,17 +17,27 @@ export const CONNECTIONS_FILE = "connections.yaml";
 export const PLATFORM_FILE = "platform.yaml";
 const MCP_SERVERS_FILE = "mcp-servers.yaml";
 
+/**
+ * An input file the operator named is missing, malformed or fails its
+ * schema: theirs to fix, so the CLI prints the message without a stack.
+ */
+export class SettingsFileError extends Error {
+  override name = "SettingsFileError";
+}
+
 async function readYaml(path: string): Promise<unknown> {
   const file = Bun.file(path);
   if (!(await file.exists())) {
-    throw new Error(`${path} is missing`);
+    throw new SettingsFileError(`${path} is missing`);
   }
   try {
     // Not Bun.YAML: it keeps the last of two equal keys, so an entry
     // defined twice would silently lose its first, reviewed definition.
     return parseYaml(await file.text(), { uniqueKeys: true });
   } catch (error) {
-    throw new Error(`${path} is not valid YAML: ${messageOf(error)}`);
+    throw new SettingsFileError(
+      `${path} is not valid YAML: ${messageOf(error)}`,
+    );
   }
 }
 
@@ -39,7 +49,9 @@ function section(document: unknown, key: string, path: string): unknown {
     Object.keys(document).length !== 1 ||
     !Object.hasOwn(document, key)
   ) {
-    throw new Error(`${path} must hold exactly one top-level key: ${key}`);
+    throw new SettingsFileError(
+      `${path} must hold exactly one top-level key: ${key}`,
+    );
   }
   return (document as Record<string, unknown>)[key];
 }
@@ -118,7 +130,7 @@ function refuseRemovedReferences(
     if (auth === null || typeof auth !== "object") continue;
     for (const field of REMOVED_CREDENTIAL_FIELDS) {
       if (Object.hasOwn(auth, field)) {
-        throw new Error(
+        throw new SettingsFileError(
           `${path}: ${id}.auth.${field} is no longer supported: write "stored: ${kind}:${id}" and set the value in the console`,
         );
       }
@@ -163,7 +175,7 @@ export async function readCatalogConfig(
       : {}),
   });
   if (!parsed.success) {
-    throw new Error(
+    throw new SettingsFileError(
       `Catalog config in ${dir} is invalid: ${describeConfigError(parsed.error)}`,
     );
   }
@@ -182,7 +194,9 @@ export async function readConnections(
     ),
   );
   if (!parsed.success) {
-    throw new Error(`${path} is invalid: ${describeConfigError(parsed.error)}`);
+    throw new SettingsFileError(
+      `${path} is invalid: ${describeConfigError(parsed.error)}`,
+    );
   }
   return parsed.data;
 }

@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as platform from "@werft-ai/platform";
 import {
   parseSettingsDocument,
   type SettingsDocumentStore,
@@ -13,6 +14,7 @@ import {
 } from "@werft-ai/platform";
 import {
   documentFromDir,
+  inputRefusal,
   parseSettingsCommand,
   runSettingsCommand,
 } from "./settings.ts";
@@ -292,7 +294,77 @@ describe("settings CLI arguments", () => {
     // Three cold spawns, each killed at 10 s: above that sum, not the 5 s default.
   }, 35_000);
 
-  test("an import file that is missing, unreadable or invalid ends as a message, not a stack trace", async () => {
+  test("only a named input error becomes a message; a fault on the --from-dir path keeps its stack", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "settings-input-"));
+    const repositories = join(dir, "repositories.yaml");
+    try {
+      for (const [text, message] of [
+        [undefined, `${repositories} is missing`],
+        ["a: [b", `${repositories} is not valid YAML`],
+        [
+          "repositories: {}\nextra: {}\n",
+          `${repositories} must hold exactly one top-level key`,
+        ],
+        ["repositories: 3\n", `Catalog config in ${dir} is invalid`],
+      ] as const) {
+        await rm(repositories, { force: true });
+        if (text !== undefined) await writeFile(repositories, text);
+        const refusal = await documentFromDir(dir).then(
+          () => "resolved",
+          inputRefusal,
+        );
+        expect(refusal?.startsWith(message), refusal).toBe(true);
+      }
+      expect(
+        inputRefusal(
+          (() => {
+            try {
+              parseSettingsDocument({ profiles: {} });
+            } catch (error) {
+              return error;
+            }
+          })(),
+        )?.startsWith("The settings document is invalid"),
+      ).toBe(true);
+
+      // A defect past the files: the command rejects with it untouched.
+      const fault = new TypeError("not an input error");
+      const spy = spyOn(platform, "settingsDocumentOf").mockImplementation(
+        () => {
+          throw fault;
+        },
+      );
+      try {
+        const rejected = await runSettingsCommand(
+          {
+            command: "import",
+            source: { dir: oldCatalog, ifPresent: false },
+            dryRun: false,
+          },
+          {
+            settings: fakeStore({
+              ...PLAN,
+              outcome: "applied",
+              receipt_ids: [],
+            }).store,
+          },
+          captured().output,
+        ).then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+        expect(rejected).toBe(fault);
+        expect(inputRefusal(rejected)).toBeUndefined();
+      } finally {
+        spy.mockRestore();
+      }
+      expect(inputRefusal(new Error("connect ECONNREFUSED"))).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("an import file that is missing, malformed or invalid ends as a message, not a stack trace", async () => {
     const inputs = await mkdtemp(join(tmpdir(), "settings-cli-inputs-"));
     try {
       await writeFile(join(inputs, "broken.json"), "{ not json");

@@ -21,6 +21,7 @@ import {
   PROFILES_FILE,
   readCatalogConfig,
   readConnections,
+  SettingsFileError,
   withoutLegacyRepositories,
 } from "./settings-from-dir.ts";
 
@@ -143,11 +144,6 @@ export async function documentFromDir(dir: string): Promise<{
     );
   }
   return { document: settingsDocumentOf(entries), notes, skipped };
-}
-
-/** An input file the operator named could not be read. */
-class SettingsFileError extends Error {
-  override name = "SettingsFileError";
 }
 
 /** `-` is stdin: the document reaches a container through `exec -T`. */
@@ -317,9 +313,7 @@ async function readSource(
   output: Output,
 ): Promise<{ entries: SettingsEntries; skipped: string[] }> {
   if ("dir" in source) {
-    const read = await documentFromDir(source.dir).catch((error: unknown) => {
-      throw new SettingsFileError(messageOf(error));
-    });
+    const read = await documentFromDir(source.dir);
     for (const note of read.notes) output.err(`note: ${note}`);
     return {
       entries: parseSettingsDocument(read.document),
@@ -411,17 +405,22 @@ async function main(): Promise<void> {
       },
     );
   } catch (error) {
-    // A wrong input file is the operator's to fix: the message, no stack.
-    // Anything else is a fault and keeps its stack.
-    if (
-      !(error instanceof SettingsFileError) &&
-      !(error instanceof SettingsDocumentError)
-    ) {
-      throw error;
-    }
-    console.error(error.message);
+    const refusal = inputRefusal(error);
+    if (refusal === undefined) throw error;
+    console.error(refusal);
     process.exitCode = 1;
   }
+}
+
+/**
+ * A wrong input file is the operator's to fix: its message, no stack.
+ * Anything else is a fault and keeps its stack (undefined).
+ */
+export function inputRefusal(error: unknown): string | undefined {
+  return error instanceof SettingsFileError ||
+    error instanceof SettingsDocumentError
+    ? error.message
+    : undefined;
 }
 
 if (import.meta.main) {
