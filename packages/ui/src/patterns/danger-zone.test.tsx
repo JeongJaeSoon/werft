@@ -23,7 +23,46 @@ describe("DangerZone", () => {
     expect(heading.className).toContain("text-destructive");
     const list = region.querySelector("ul");
     expect(list?.className).toContain("border-destructive");
-    expect(list?.children[0]?.getAttribute("data-slot")).toBe("setting-row");
+    expect(list?.children[0]?.getAttribute("data-slot")).toBe(
+      "danger-zone-row",
+    );
+  });
+
+  test("행은 글 열과 버튼 열 두 칸이고, 제목·설명은 글 열 안에만 있어 버튼 자리로 들어가지 않는다", () => {
+    const { getByRole, getByText } = render(
+      <DangerZone title="위험 구역">
+        <DangerZoneRow
+          title="팀 삭제"
+          description="팀과 팀 구성원 목록이 지워지고, 이 팀이 관리하던 에이전트는 관리 팀을 잃습니다. 되돌릴 수 없습니다."
+          actionLabel="삭제"
+          onAction={() => {}}
+        />
+      </DangerZone>,
+    );
+    const row = getByRole("listitem");
+    const [text, action] = [...row.children] as HTMLElement[];
+    expect(row.children.length).toBe(2);
+    expect(text?.getAttribute("data-slot")).toBe("danger-zone-row-text");
+    expect(action?.getAttribute("data-slot")).toBe("danger-zone-row-action");
+    expect(text?.contains(getByText("팀 삭제"))).toBe(true);
+    expect(text?.contains(getByText(/되돌릴 수 없습니다/))).toBe(true);
+    expect(action?.contains(getByRole("button", { name: "팀 삭제" }))).toBe(
+      true,
+    );
+    // Text grows and wraps in its own column; the button column never shrinks
+    // and sits on the title's line. Below 640px the two stack.
+    const rowClasses = row.className.split(" ");
+    for (const name of ["flex-col", "sm:flex-row", "sm:items-start"]) {
+      expect(rowClasses).toContain(name);
+    }
+    expect(rowClasses).not.toContain("flex-wrap");
+    expect(rowClasses).not.toContain("grid");
+    for (const name of ["min-w-0", "flex-1"]) {
+      expect(text?.className.split(" ")).toContain(name);
+    }
+    for (const name of ["shrink-0", "self-start"]) {
+      expect(action?.className.split(" ")).toContain(name);
+    }
   });
 
   test("호출한 쪽 className은 구역에만 붙고, 제목·상자 간격과 행 패딩은 그 안 감싸개가 가진다", () => {
