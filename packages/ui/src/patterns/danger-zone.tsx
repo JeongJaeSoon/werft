@@ -6,9 +6,10 @@ import {
   useId,
 } from "react";
 
-import { RowList, RowListItem } from "../primitives/row-list.tsx";
+import { RowList } from "../primitives/row-list.tsx";
 import { DisabledReason } from "./disabled-reason.tsx";
 import { RowAction } from "./row-action.tsx";
+import { SettingRow } from "./setting-row.tsx";
 
 export type DangerZoneProps = Omit<ComponentProps<"section">, "title"> & {
   /** "Danger zone" in the reader's language. */
@@ -63,7 +64,8 @@ export function DangerZone({
  * moving between buttons hears the target too. The button's word has to
  * appear unbroken in that name (label in name). The title is red and the
  * button filled red with white text, both AA in either theme (tokens.css
- * test); the description stays muted.
+ * test); the description stays muted. It is a `SettingRow tone="danger"`,
+ * so its button sits where every setting row's does.
  */
 export type DangerZoneRowProps = (
   | {
@@ -114,37 +116,21 @@ export function DangerZoneRow({
       {actionLabel}
     </RowAction>
   );
-  // Two columns, unlike SettingRow: the description never runs under the
-  // button, which keeps a column of its own on the title's line. Below 640px
-  // the button goes under the text.
   return (
-    <RowListItem
+    <SettingRow
       data-slot="danger-zone-row"
-      className="flex-col flex-nowrap items-stretch gap-x-4 sm:flex-row sm:items-start"
-    >
-      <div
-        data-slot="danger-zone-row-text"
-        className="flex min-w-0 flex-1 flex-col gap-[var(--werft-row-line-gap)]"
-      >
-        <span className="font-medium text-control text-destructive leading-5">
-          {title}
-        </span>
-        <p className="m-0 text-caption text-subtle-foreground leading-4">
-          {description}
-        </p>
-      </div>
-      <div
-        data-slot="danger-zone-row-action"
-        className="flex shrink-0 self-start"
-      >
-        {withheld ? (
+      tone="danger"
+      title={title}
+      description={description}
+      actions={
+        withheld ? (
           <DisabledReason reason={reason} label={name}>
             {button}
           </DisabledReason>
         ) : (
           button
-        )}
-      </div>
-    </RowListItem>
+        )
+      }
+    />
   );
 }
