@@ -249,14 +249,13 @@ describe("로그인 공급자 상세", () => {
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
       "공급자",
     );
-    const trail = screen
-      .getAllByRole("navigation", { name: "위치" })
-      .map((nav) =>
-        [...nav.querySelectorAll("li")]
-          .map((li) => li.textContent?.trim())
-          .filter((text) => text !== "/"),
-      )
-      .find((items) => items.includes("공급자"));
+    const trail = [
+      ...screen
+        .getByRole("navigation", { name: "위치" })
+        .querySelectorAll("li"),
+    ]
+      .map((li) => li.textContent?.trim())
+      .filter((text) => text !== "/");
     expect(trail).toEqual(["로그인", "공급자"]);
   });
 
