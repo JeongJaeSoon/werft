@@ -97,7 +97,7 @@ describe("SettingRow", () => {
     expect(container.querySelector("label")).toBe(null);
   });
 
-  test("640px 아래에서도 컨트롤은 제목 첫 줄 오른쪽에 두고, 설명은 그 아래 전체 폭으로, 상태 글자는 뺀다", () => {
+  test("어느 폭에서나 설명은 왼쪽 열에만 두고, 컨트롤은 오른쪽 열에서 행 전체의 세로 가운데에 두며, 640px 아래에서는 상태 글자만 뺀다", () => {
     const { getByRole, getByText } = render(
       <RowList variant="joined">
         <SettingRow
@@ -114,34 +114,63 @@ describe("SettingRow", () => {
     for (const name of [
       "grid",
       "grid-cols-[minmax(0,1fr)_auto]",
-      "items-start",
-      "sm:items-center",
+      "items-center",
     ]) {
       expect(classes(row)).toContain(name);
     }
-    expect(classes(row)).not.toContain("flex");
+    for (const name of ["flex", "items-start", "sm:items-center"]) {
+      expect(classes(row)).not.toContain(name);
+    }
     const slot = getByRole("switch").parentElement;
     for (const name of [
       "col-start-2",
       "row-start-1",
-      "self-start",
-      "sm:self-center",
-      "sm:row-span-2",
+      "row-span-2",
+      "self-center",
     ]) {
       expect(classes(slot)).toContain(name);
     }
+    // No width-dependent placement: the same at 390 as at 1280.
+    expect(classes(slot).filter((name) => /^(sm|md|lg):/.test(name))).toEqual(
+      [],
+    );
+    expect(classes(slot)).not.toContain("self-start");
     const title = getByText("DM 받기").parentElement;
     expect(classes(title)).toContain("row-start-1");
     expect(classes(title)).toContain("leading-5");
     // A taller control (a select, a button) centres a one-line title on it.
     expect(classes(title)).toContain("self-center");
     const lines = getByText("에이전트가 DM으로도 답합니다.").parentElement;
-    for (const name of ["col-span-2", "row-start-2", "sm:col-span-1"]) {
+    for (const name of ["col-start-1", "row-start-2"]) {
       expect(classes(lines)).toContain(name);
+    }
+    for (const name of ["col-span-2", "sm:col-span-1"]) {
+      expect(classes(lines)).not.toContain(name);
     }
     const status = getByText("꺼짐");
     expect(classes(status)).toEqual(["hidden", "sm:contents"]);
     expect(status.nextElementSibling === getByRole("switch")).toBe(true);
+  });
+
+  test("tone이 danger면 제목만 빨간 글씨이고, 기본은 빨갛지 않다", () => {
+    const { getByText } = render(
+      <RowList variant="joined">
+        <SettingRow
+          tone="danger"
+          title="팀 삭제"
+          description="되돌릴 수 없습니다."
+          actions={<Button size="sm">삭제</Button>}
+        />
+        <SettingRow title="DM 받기" description="DM으로도 답합니다." />
+      </RowList>,
+    );
+    expect(getByText("팀 삭제").className.split(" ")).toContain(
+      "text-destructive",
+    );
+    expect(getByText("되돌릴 수 없습니다.").className).not.toContain(
+      "text-destructive",
+    );
+    expect(getByText("DM 받기").className).not.toContain("text-destructive");
   });
 
   test("설명이 없으면 컨트롤이 두 줄에 걸치지 않는다", () => {

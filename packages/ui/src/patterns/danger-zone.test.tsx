@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createRef } from "react";
 
 import { setupDom, setupUser } from "../test-support/dom.ts";
 
@@ -28,7 +29,7 @@ describe("DangerZone", () => {
     );
   });
 
-  test("행은 글 열과 버튼 열 두 칸이고, 제목·설명은 글 열 안에만 있어 버튼 자리로 들어가지 않는다", () => {
+  test("행은 설정 행과 같은 배치다: 제목·설명은 왼쪽 열에만 있고, 버튼은 오른쪽 열에서 행 전체의 세로 가운데에 있으며 폰에서도 내려가지 않는다", () => {
     const { getByRole, getByText } = render(
       <DangerZone title="위험 구역">
         <DangerZoneRow
@@ -39,30 +40,47 @@ describe("DangerZone", () => {
         />
       </DangerZone>,
     );
+    const classes = (element: Element | null | undefined) =>
+      element?.className.split(" ") ?? [];
     const row = getByRole("listitem");
-    const [text, action] = [...row.children] as HTMLElement[];
-    expect(row.children.length).toBe(2);
-    expect(text?.getAttribute("data-slot")).toBe("danger-zone-row-text");
-    expect(action?.getAttribute("data-slot")).toBe("danger-zone-row-action");
-    expect(text?.contains(getByText("팀 삭제"))).toBe(true);
-    expect(text?.contains(getByText(/되돌릴 수 없습니다/))).toBe(true);
-    expect(action?.contains(getByRole("button", { name: "팀 삭제" }))).toBe(
-      true,
-    );
-    // Text grows and wraps in its own column; the button column never shrinks
-    // and sits on the title's line. Below 640px the two stack.
-    const rowClasses = row.className.split(" ");
+    expect(row.getAttribute("data-slot")).toBe("danger-zone-row");
+    for (const name of ["grid", "grid-cols-[minmax(0,1fr)_auto]"]) {
+      expect(classes(row)).toContain(name);
+    }
     for (const name of ["flex-col", "sm:flex-row", "sm:items-start"]) {
-      expect(rowClasses).toContain(name);
+      expect(classes(row)).not.toContain(name);
     }
-    expect(rowClasses).not.toContain("flex-wrap");
-    expect(rowClasses).not.toContain("grid");
-    for (const name of ["min-w-0", "flex-1"]) {
-      expect(text?.className.split(" ")).toContain(name);
+    const title = getByText("팀 삭제").parentElement;
+    expect(classes(title)).toContain("col-start-1");
+    const lines = getByText(/되돌릴 수 없습니다/).parentElement;
+    expect(classes(lines)).toContain("col-start-1");
+    expect(classes(lines)).not.toContain("col-span-2");
+    const slot = getByRole("button", { name: "팀 삭제" }).parentElement;
+    for (const name of [
+      "col-start-2",
+      "row-start-1",
+      "row-span-2",
+      "self-center",
+    ]) {
+      expect(classes(slot)).toContain(name);
     }
-    for (const name of ["shrink-0", "self-start"]) {
-      expect(action?.className.split(" ")).toContain(name);
-    }
+    expect(classes(slot)).not.toContain("self-start");
+  });
+
+  test("actionRef는 행의 버튼을 가리켜, 확인 창이 닫히면 초점을 돌려받을 수 있다", () => {
+    const ref = createRef<HTMLButtonElement>();
+    const { getByRole } = render(
+      <DangerZone title="위험 구역">
+        <DangerZoneRow
+          title="팀 삭제"
+          description="설명"
+          actionLabel="삭제"
+          actionRef={ref}
+          onAction={() => {}}
+        />
+      </DangerZone>,
+    );
+    expect(ref.current === getByRole("button", { name: "팀 삭제" })).toBe(true);
   });
 
   test("호출한 쪽 className은 구역에만 붙고, 제목·상자 간격과 행 패딩은 그 안 감싸개가 가진다", () => {

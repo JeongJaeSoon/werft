@@ -25,6 +25,8 @@ export type SettingRowProps = Omit<ComponentProps<"li">, "title"> & {
   readonly control?: ReactNode | undefined;
   /** Buttons. They keep their own names. */
   readonly actions?: ReactNode | undefined;
+  /** `danger`: a red title, for a row in a DangerZone. */
+  readonly tone?: "default" | "danger" | undefined;
 };
 
 const TITLE = "m-0 font-medium text-control leading-5";
@@ -38,11 +40,12 @@ function ownId(control: ReactNode): string | undefined {
 }
 
 /**
- * One setting in a `RowList variant="joined"`: title and description on the
- * left, the control on the right, centred on the row. Below 640px a row with
- * a description keeps the control on the title's first line and runs the
- * description under both, full width; the status words drop out there, since
- * the control's own state says the same.
+ * One setting in a `RowList variant="joined"`, or one action in a
+ * DangerZone: title and description on the left, the control or buttons on
+ * the right. At every width the text keeps to its column and the right
+ * column is centred on the whole row; nothing drops under the text on a
+ * phone. The status words drop out below 640px, since the control's own
+ * state says the same.
  */
 export function SettingRow({
   title,
@@ -52,33 +55,29 @@ export function SettingRow({
   status,
   control,
   actions,
+  tone = "default",
   className,
   ...props
 }: SettingRowProps): JSX.Element {
   const labelled = control !== undefined && control !== null;
   const below = Boolean(description) || (meta !== undefined && meta !== null);
-  // Only a description runs under the control on a phone; a row of values
-  // keeps them beside it, the control centred on the row as on a desktop.
-  const spans = Boolean(description);
+  const titleClass = cn(TITLE, tone === "danger" && "text-destructive");
   const body = (
     <>
       <span className="col-start-1 row-start-1 flex min-w-0 flex-wrap items-center gap-2 self-center leading-5">
         {labelled ? (
-          <FieldLabel htmlFor={ownId(control)} className={TITLE}>
+          <FieldLabel htmlFor={ownId(control)} className={titleClass}>
             {title}
           </FieldLabel>
         ) : (
-          <span className={TITLE}>{title}</span>
+          <span className={titleClass}>{title}</span>
         )}
         {badge}
       </span>
       {below ? (
         <span
-          className={cn(
-            "row-start-2 flex min-w-0 flex-col gap-[var(--werft-row-line-gap)] leading-4",
-            // Beside the control, a long address must break, not run under it.
-            spans ? "col-span-2 sm:col-span-1" : "col-start-1 wrap-anywhere",
-          )}
+          // Beside the control, a long address must break, not run under it.
+          className="col-start-1 row-start-2 flex min-w-0 flex-col gap-[var(--werft-row-line-gap)] wrap-anywhere leading-4"
         >
           {description ? (
             labelled ? (
@@ -95,9 +94,8 @@ export function SettingRow({
       {labelled || status || actions ? (
         <div
           className={cn(
-            "col-start-2 row-start-1 flex flex-wrap items-center justify-end gap-2",
-            spans ? "self-start sm:self-center sm:row-span-2" : "self-center",
-            below && !spans && "row-span-2",
+            "col-start-2 row-start-1 flex flex-wrap items-center justify-end gap-2 self-center",
+            below && "row-span-2",
           )}
         >
           {status ? <span className="hidden sm:contents">{status}</span> : null}
@@ -111,7 +109,7 @@ export function SettingRow({
     <RowListItem
       data-slot="setting-row"
       className={cn(
-        "grid grid-cols-[minmax(0,1fr)_auto] content-center items-start gap-y-[var(--werft-row-line-gap)] sm:items-center",
+        "grid grid-cols-[minmax(0,1fr)_auto] content-center items-center gap-y-[var(--werft-row-line-gap)]",
         className,
       )}
       {...props}
