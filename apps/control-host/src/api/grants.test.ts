@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describeGrantsResult, parseGrantsCommand } from "./grants.ts";
 
@@ -45,41 +47,48 @@ describe("grants CLI arguments", () => {
     ).toThrow("session_id must be a UUID");
   });
 
-  test("the CLI prints a refusal as a message and exits 1, without a stack trace", () => {
+  test("the CLI prints a refusal as a message and exits 1, without a stack trace", async () => {
     // Unreachable: a refusal that still connected would hang until the kill.
     const unreachable = "postgresql://postgres:dev@203.0.113.1:5432/sessions";
-    for (const [args, databaseUrl, message] of [
-      [["revoke", SESSION], unreachable, "--reason is required"],
-      [["revoke", "not-a-uuid", "--reason", "x"], unreachable, "session_id"],
-      [["delete", SESSION, "--reason", "x"], unreachable, "Usage"],
-      [["revoke", SESSION, "--reason", "x"], undefined, "DATABASE_URL"],
-    ] as const) {
-      // --no-env-file: a .env in the working directory must not supply the
-      // DATABASE_URL this case leaves out.
-      const result = Bun.spawnSync(
-        [
-          "bun",
-          "--no-env-file",
-          "run",
-          join(import.meta.dir, "grants.ts"),
-          ...args,
-        ],
-        {
-          env: {
-            PATH: process.env.PATH ?? "",
-            ...(databaseUrl ? { DATABASE_URL: databaseUrl } : {}),
+    // An empty working directory has no env file Bun could auto-load into the
+    // case that leaves DATABASE_URL out.
+    const cwd = await mkdtemp(join(tmpdir(), "grants-cli-"));
+    try {
+      expect(await readdir(cwd)).toHaveLength(0);
+      for (const [args, databaseUrl, message] of [
+        [["revoke", SESSION], unreachable, "--reason is required"],
+        [["revoke", "not-a-uuid", "--reason", "x"], unreachable, "session_id"],
+        [["delete", SESSION, "--reason", "x"], unreachable, "Usage"],
+        [["revoke", SESSION, "--reason", "x"], undefined, "DATABASE_URL"],
+      ] as const) {
+        const result = Bun.spawnSync(
+          [
+            "bun",
+            "--no-env-file",
+            "run",
+            join(import.meta.dir, "grants.ts"),
+            ...args,
+          ],
+          {
+            cwd,
+            env: {
+              PATH: process.env.PATH ?? "",
+              ...(databaseUrl ? { DATABASE_URL: databaseUrl } : {}),
+            },
+            stderr: "pipe",
+            stdout: "pipe",
+            timeout: 10_000,
           },
-          stderr: "pipe",
-          stdout: "pipe",
-          timeout: 10_000,
-        },
-      );
-      const stderr = result.stderr.toString();
-      expect(result.exitCode, args.join(" ")).toBe(1);
-      expect(result.stdout.toString()).toBe("");
-      expect(stderr.startsWith(message), stderr).toBe(true);
-      expect(stderr).not.toContain("throw new Error");
-      expect(stderr).not.toMatch(/^\s+at /m);
+        );
+        const stderr = result.stderr.toString();
+        expect(result.exitCode, args.join(" ")).toBe(1);
+        expect(result.stdout.toString()).toBe("");
+        expect(stderr.startsWith(message), stderr).toBe(true);
+        expect(stderr).not.toContain("throw new Error");
+        expect(stderr).not.toMatch(/^\s+at /m);
+      }
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
     }
     // Four cold spawns, each killed at 10 s: above that sum, not the 5 s default.
   }, 45_000);
