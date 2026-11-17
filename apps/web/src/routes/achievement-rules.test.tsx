@@ -814,7 +814,7 @@ describe("성과 규칙", () => {
     ]);
   });
 
-  test("규칙 표는 구분별로 묶이고, 지난 30일 수와 판정·사람 확인 표시를 보인다", async () => {
+  test("규칙 표는 구분별로 묶이고, 지난 30일 수·확인 대기 수와 판정·사람 확인 표시를 보인다", async () => {
     await opened();
     const table = within(section("규칙") as HTMLElement).getByRole("table");
     await waitFor(() =>
@@ -829,34 +829,55 @@ describe("성과 규칙", () => {
           ),
       ).toEqual([
         ["개발"],
-        ["머지된 PR", "pull_request", "Luna 판정 ", "v2", "41", ""],
-        ["버그 수정 PR", "bugfix_pr", "Luna 판정 ", "v1", "12", ""],
+        ["머지된 PR", "pull_request", "Luna 판정 ", "v2", "41", "0", ""],
+        ["버그 수정 PR", "bugfix_pr", "Luna 판정 ", "v1", "12", "0", ""],
         ["리뷰"],
-        ["코드 리뷰 제출", "code_review", "바로 인정 ", "v1", "0", ""],
+        ["코드 리뷰 제출", "code_review", "바로 인정 ", "v1", "0", "0", ""],
         ["문서"],
         [
           "설계 문서 작성",
           "document",
           "Luna 판정 사람 확인",
           "v3",
-          "2 +3 확인 대기",
+          "2",
+          "3",
           "",
         ],
       ]),
     );
-    // The 30-day count ends, header and cells, in tabular figures, and so
-    // does the 사용 switch under its header; every other column starts, and
-    // so does every value in the stacked phone layout. 제목 takes the
-    // leftover width and the rest are as narrow as their content.
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((cell) => cell.textContent),
+    ).toEqual([
+      "제목",
+      "성과 type",
+      "판정",
+      "버전",
+      "지난 30일",
+      "확인 대기",
+      "사용",
+    ]);
+    // A group's name row spans every column.
+    expect(
+      within(within(table).getAllByRole("row")[1] as HTMLElement)
+        .getByRole("cell")
+        .getAttribute("colspan"),
+    ).toBe("7");
+    // The 30-day and waiting counts end, header and cells, in tabular
+    // figures, and so does the 사용 switch under its header; every other
+    // column starts, and so does every value in the stacked phone layout.
+    // 제목 takes the leftover width and the rest are as narrow as their
+    // content.
     const head = within(table).getAllByRole("columnheader");
     const firstRow = within(table).getAllByRole("row")[2] as HTMLElement;
     const cells = within(firstRow).getAllByRole("cell");
     for (const [index, cell] of [...head, ...cells].entries()) {
       const classes = cell.className.split(/\s+/);
       const column = index % head.length;
-      if (column === 4 || column === 5) {
+      if (column >= 4) {
         expect(classes.includes("text-right")).toBe(true);
-        expect(classes.includes("tabular-nums")).toBe(column === 4);
+        expect(classes.includes("tabular-nums")).toBe(column !== 6);
         expect(classes.includes("text-left")).toBe(false);
       } else {
         expect(
@@ -865,13 +886,13 @@ describe("성과 규칙", () => {
         expect(classes.includes("text-left")).toBe(true);
       }
     }
-    for (const cell of [cells[4], cells[5]]) {
+    for (const cell of [cells[4], cells[5], cells[6]]) {
       expect(cell?.className.split(/\s+/).includes("max-md:text-left")).toBe(
         true,
       );
     }
     expect(
-      cells[5]?.className
+      cells[6]?.className
         .split(/\s+/)
         .includes("max-md:[&>[data-slot=switch]]:ml-0"),
     ).toBe(true);
@@ -886,6 +907,7 @@ describe("성과 규칙", () => {
       "nowrap",
       "nowrap",
       "nowrap",
+      "numeric",
       "numeric",
       "switch",
     ]);

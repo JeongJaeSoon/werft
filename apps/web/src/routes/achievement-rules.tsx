@@ -1359,6 +1359,7 @@ function RulesCard({
     judge: t("achievementRules.rules.judge"),
     version: t("achievementRules.rules.version"),
     recent: t("achievementRules.rules.recent"),
+    waiting: t("achievements.column.waiting"),
     use: t("achievementRules.rules.use"),
   };
 
@@ -1388,9 +1389,14 @@ function RulesCard({
                 {k.version}
               </TableHead>
               {usage.readable ? (
-                <TableHead scope="col" variant="numeric">
-                  {k.recent}
-                </TableHead>
+                <>
+                  <TableHead scope="col" variant="numeric">
+                    {k.recent}
+                  </TableHead>
+                  <TableHead scope="col" variant="numeric">
+                    {k.waiting}
+                  </TableHead>
+                </>
               ) : null}
               <TableHead scope="col" variant="switch">
                 {k.use}
@@ -1401,7 +1407,7 @@ function RulesCard({
             {groups.map((group) => (
               <RuleGroup
                 key={group.id}
-                columns={usage.readable ? 6 : 5}
+                columns={usage.readable ? 7 : 5}
                 name={
                   categories.find((category) => category.id === group.id)
                     ?.name ?? ""
@@ -1462,23 +1468,24 @@ function RulesCard({
                         {t("achievements.version", { version: rule.version })}
                       </TableCell>
                       {usage.readable ? (
-                        <TableCell
-                          data-k={k.recent}
-                          variant="numeric"
-                          className={STACK_CELL}
-                        >
-                          {usage.data ? (count?.achievement_count ?? 0) : "—"}
-                          {count && count.needs_review_count > 0 ? (
-                            <>
-                              {" "}
-                              <Text as="span" variant="meta">
-                                {t("achievementRules.rules.waiting", {
-                                  count: count.needs_review_count,
-                                })}
-                              </Text>
-                            </>
-                          ) : null}
-                        </TableCell>
+                        <>
+                          <TableCell
+                            data-k={k.recent}
+                            variant="numeric"
+                            className={STACK_CELL}
+                          >
+                            {usage.data ? (count?.achievement_count ?? 0) : "—"}
+                          </TableCell>
+                          <TableCell
+                            data-k={k.waiting}
+                            variant="numeric"
+                            className={STACK_CELL}
+                          >
+                            {usage.data
+                              ? (count?.needs_review_count ?? 0)
+                              : "—"}
+                          </TableCell>
+                        </>
                       ) : null}
                       <TableCell
                         data-k={k.use}
