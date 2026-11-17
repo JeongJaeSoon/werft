@@ -239,6 +239,26 @@ describe("로그인 공급자 목록", () => {
 });
 
 describe("로그인 공급자 상세", () => {
+  test("목록을 못 읽어 이름을 모르면 제목과 위치의 마지막 칸이 '공급자'이고, 부모 '로그인'을 되풀이하지 않는다", async () => {
+    renderAt(PAGE, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${API}`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "storage down"),
+    });
+    await screen.findByRole("button", { name: "다시 시도" });
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "공급자",
+    );
+    const trail = [
+      ...screen
+        .getByRole("navigation", { name: "위치" })
+        .querySelectorAll("li"),
+    ]
+      .map((li) => li.textContent?.trim())
+      .filter((text) => text !== "/");
+    expect(trail).toEqual(["로그인", "공급자"]);
+  });
+
   test("a draft shows what to register at the provider, and withholds the test and turning on with the reason", async () => {
     renderAt(PAGE, routes([provider()]));
     await screen.findByRole("heading", { level: 1, name: "Acme SSO" });
