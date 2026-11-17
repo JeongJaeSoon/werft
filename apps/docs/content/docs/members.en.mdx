@@ -1,0 +1,75 @@
+---
+title: "Inviting members"
+description: Create an invite link and hand it over, and accept it with a password or a sign-in provider
+---
+
+People join a workspace through an invite link. An owner or admin creates a link for the person's email and role and hands it over directly. When that person opens the link and accepts, they become a member. The platform does not send email.
+
+## Creating an invite link
+
+On the **Members** screen of the web console, click **Invite member**, enter the email and role, and click **Create invite link**. Calling `POST /v1/invites` (`email`, `role`) with the web login cookie does the same.
+
+- Owners and admins invite. A member calling it gets 403 `FORBIDDEN`.
+- The role list shows only the roles you can invite to now. An admin cannot invite an owner (403 `OWNER_PROTECTED`).
+- The link is shown once, at the moment it is created. The server stores only a hash of the token. If you close the window without copying it, you cannot see it again; revoke the invite and create a new one.
+- The link can be used for 7 days. The expiry time is shown under the link and in the list of pending invites.
+- Addresses are compared trimmed and in lower case. Inviting the same address again revokes the earlier invite, and only the new link works.
+- An address that is already a member gets 409 `ALREADY_EXISTS` (`reason_code: already_member`). The same goes for a suspended member.
+- Do not invite a deactivated member again; reactivate them from the list. An account that only signed in with a provider has no password and cannot accept with a password.
+
+Each invite leaves an `invite_member` receipt.
+
+## Revoking an invite
+
+Click **Revoke** next to a pending invite. Through the API it is `DELETE /v1/invites/{id}`, which returns 204.
+
+| Situation | Response |
+| --- | --- |
+| A pending invite | 204. The link can no longer be accepted (410) |
+| An invite already revoked | 204. Nothing changes |
+| An invite already accepted | 409 `INVITE_USED` |
+| An unknown id | 404 |
+
+Revoking leaves a `revoke_invite` receipt.
+
+## Accepting with a password
+
+When the person opens the link, the **Accept invite** screen appears. They first choose whether they already have an account under the invited email.
+
+- **No, I am new here**: enter a new password (12 characters or more) and a name. An account is created under that email and joins with the invite's role. A blank name is taken from the email.
+- **Yes, I have an account**: enter the password you use now. The password does not change. A wrong password gets 401 and the invite is not spent.
+
+Accepting signs the person in right away. An invite token is used once.
+
+## Accepting with a sign-in provider
+
+When a [sign-in provider](/run-server/self-hosting/sso) is on, the accept screen also shows a button per provider (for example **Join with Keycloak**) under **Join without a password**. When the installation has turned password login off, only the provider buttons appear.
+
+The button goes to the provider's sign-in screen and comes back. When the provider vouches for an account that is not yet linked to any user, an account is created and the invite is spent. The account's email is the invited address, not the one the provider sent, and its role is the invite's role. An account created through a provider has no password.
+
+When the provider side refuses, the callback screen says why. In every case the invite is not spent, so the person can open the link again and retry.
+
+| What the screen says | Why |
+| --- | --- |
+| This account cannot join here | The account is outside the provider's allowed domains |
+| You can't join with this sign-in provider right now | The provider was deleted or turned off |
+| Joining started at a different address than the one it came back to | The provider sent the browser back to a different address than the one the link was opened at, or the person stayed on the provider's screen for more than 10 minutes and the flow ended. Open the link again at the console's canonical address |
+| This provider account is already connected to another user | 409 `ALREADY_EXISTS`. Another user already signs in with that provider account |
+| Could not join | 401. The provider said `email_verified: false` for the account (whatever the setting), or a provider that requires a verified email did not send an address or `email_verified: true`, or the provider's answer could not be verified, or the invite was revoked or expired meanwhile. The server does not say which |
+| Joining was not completed | The person gave up on the provider's screen |
+
+The allowed domain and verified email rules, and what happens when an account with the invited address already exists, are in [Configure SSO sign-in](/run-server/self-hosting/sso).
+
+## Links that cannot be used
+
+| Screen | Response | Why |
+| --- | --- | --- |
+| This invite cannot be used | 410 `INVITE_EXPIRED` | It was revoked, replaced by a new invite to the same address, or 7 days passed. An unknown token gets the same answer |
+| This invite was already accepted | 409 `INVITE_USED` | This link was already accepted. Sign in on the login screen |
+| You are already a member of this workspace | — | The account signed in now is already a member. To accept with another account, log out and open the link again |
+
+If needed, ask the person who invited you for a new link. Accepting leaves an `accept_invite` receipt.
+
+## Where to read next
+
+[API key](/api-keys), [Configure SSO sign-in](/run-server/self-hosting/sso).
