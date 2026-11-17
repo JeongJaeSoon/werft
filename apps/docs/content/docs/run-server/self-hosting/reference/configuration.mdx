@@ -156,6 +156,10 @@ worker는 claim 때 자기 이미지가 실제로 싣는 조합을 보낸다. �
 | `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker daemon 주소 |
 | `DOCKER_API_VERSION` | `v1.44` | 요청에 쓰는 Engine API 버전 |
 | `EXECUTION_EGRESS_CREDENTIAL_PORT` | 3129 | proxy credential route의 포트. proxy의 `EGRESS_CREDENTIAL_PORT`와 같아야 하고, `EXECUTION_EGRESS_PROXY_URL`의 포트와는 달라야 한다 |
+| `EXECUTION_VOLUME_LABEL_NAMESPACE` | `werft` | 세션 workspace volume label 키의 앞부분(`<값>.managed`, `<값>.installation` 등). 소문자·숫자·`.`·`-`로 1–62자이고 처음과 끝은 소문자나 숫자다. 이 앞부분의 label만 읽는다 |
+| `EXECUTION_VOLUME_NAME_PREFIX` | `werft-ws-` | 세션 workspace volume 이름의 앞부분(`<값><installation id>-<session id>-…`). 소문자·숫자·`.`·`-`로 2–32자이고 `-`로 끝난다 |
+
+두 값은 비워 두면 기본값이다. Docker는 volume의 label을 바꿀 수 없으므로, 다른 이름으로 workspace를 만든 설치는 그때의 두 값을 그대로 준다. 값을 바꾸면 기존 workspace를 찾지 못해 세션이 빈 workspace에서 시작한다. 형식이 틀리면 기동을 거부한다.
 
 `EXECUTION_DOCKER_NETWORK`·`EXECUTION_DOCKER_NETWORK_ALLOWLIST`는 더 이상 읽지 않는다. 값이 있으면 기동을 거부한다.
 
@@ -217,10 +221,11 @@ scheduler는 `EXECUTION_BACKEND`로 backend를 고른다. 값은 `local_docker`(
 
 readOnlyRootFilesystem인 Pod에서는 status file을 쓰기 가능한 경로에 둔다. 기본 경로 `/tmp/scheduler-status.json`·`/tmp/reconciler-status.json`은 `/tmp`에 emptyDir를 마운트하면 그대로 쓸 수 있다. 다른 경로라면 `SCHEDULER_STATUS_FILE`·`RECONCILER_STATUS_FILE`로 바꾼다. 루프는 status file과 같은 디렉터리에 임시 파일(`<status file>.<pid>.tmp`)을 쓴 뒤 rename한다. scheduler는 그 옆에 `.quota-verified` 기록도 둔다. 그래서 파일 하나가 아니라 디렉터리 전체가 쓰기 가능해야 한다.
 
-공유 env(`WORKER_IMAGE`, `WORKER_GATEWAY_URL`, `EXECUTION_EGRESS_PROXY_URL`, `EXECUTION_EGRESS_CREDENTIAL_PORT`, `EXECUTION_INSTALLATION_ID`, `EXECUTION_WORKSPACE_QUOTA_MB`, `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`, `S3_BUCKET`, `AWS_REGION`)는 Docker backend와 같다. kubernetes 모드에서는 다음 두 값에 제약이 더 붙는다.
+공유 env(`WORKER_IMAGE`, `WORKER_GATEWAY_URL`, `EXECUTION_EGRESS_PROXY_URL`, `EXECUTION_EGRESS_CREDENTIAL_PORT`, `EXECUTION_INSTALLATION_ID`, `EXECUTION_WORKSPACE_QUOTA_MB`, `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`, `S3_BUCKET`, `AWS_REGION`)는 Docker backend와 같다. kubernetes 모드에서는 다음 값에 제약이 더 붙는다.
 
 - `WORKER_IMAGE`는 `repository@sha256:<digest>` 형식이어야 한다.
 - `EXECUTION_INSTALLATION_ID`는 32자 이하의 소문자 DNS label이어야 한다.
+- `EXECUTION_VOLUME_NAME_PREFIX`(기본 `werft-ws-`)는 workspace PVC 이름의 앞부분이다. 소문자·숫자·`-`만 받는다(`.`은 받지 않는다). chart는 이 값을 넣지 않는다. `EXECUTION_VOLUME_LABEL_NAMESPACE`는 읽지 않는다.
 
 kubernetes 모드에서만 읽는 설정은 다음과 같다.
 
