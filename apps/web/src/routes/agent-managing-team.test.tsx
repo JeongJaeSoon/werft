@@ -400,6 +400,32 @@ describe("새 에이전트의 담당 팀", () => {
       ).toBe(TEAM_ID),
     );
   });
+
+  test("빈 채로 다음을 누르면 이름·식별자와 함께 담당 팀 오류도 한 번에 보인다", async () => {
+    const { api } = renderAt("/agents/new", {
+      ...meAs(memberMe()),
+      ...agentServer().routes,
+      "GET /v1/my-teams": () =>
+        json(200, {
+          items: [
+            { id: OTHER_TEAM.id, name: OTHER_TEAM.name, role: "member" },
+            { id: TEAM_ID, name: TEAM.name, role: "member" },
+          ],
+          next_cursor: null,
+        }),
+    });
+    const user = await setupUser();
+    await screen.findByLabelText("이름");
+    await user.click(screen.getByRole("button", { name: "다음" }));
+    expect(await screen.findByText("담당 팀을 고르세요.")).toBeDefined();
+    expect(screen.getAllByText("필수 항목입니다.")).toHaveLength(2);
+    expect(
+      (screen.getByLabelText("담당 팀") as HTMLSelectElement).getAttribute(
+        "aria-invalid",
+      ),
+    ).toBe("true");
+    expect(api.calls.some((c) => c.method === "POST")).toBe(false);
+  });
 });
 
 describe("목록의 담당 팀", () => {
