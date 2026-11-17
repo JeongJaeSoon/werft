@@ -850,10 +850,12 @@ describe("성과 규칙", () => {
       '[data-slot="text"][data-variant="meta"] > span',
     );
     expect(parts.length).toBe(4);
-    for (const part of parts) {
+    for (const [index, part] of [...parts].entries()) {
       const names = part.className.split(/\s+/);
       expect(names.includes("inline-block")).toBe(true);
       expect(names.includes("[overflow-wrap:anywhere]")).toBe(true);
+      // Each separator wraps with the part after it, never at a line end.
+      expect(part.textContent?.startsWith("· ")).toBe(index > 0);
     }
     // A type name without spaces breaks before the rename button.
     const name = within(

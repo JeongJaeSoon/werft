@@ -426,8 +426,10 @@ function MetaLine({
     <Text as="div" variant="meta">
       {shown.map(([key, part], index) => (
         <Fragment key={key}>
-          {index > 0 ? " · " : null}
+          {index > 0 ? " " : null}
           <span className="inline-block max-w-full [overflow-wrap:anywhere]">
+            {/* The separator leads its part so a wrapped line never ends on "·". */}
+            {index > 0 ? "· " : null}
             {part}
           </span>
         </Fragment>
