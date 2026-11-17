@@ -376,21 +376,19 @@ function DecisionModelLock() {
   const { t } = useI18n();
   const titleId = useId();
   return (
-    // overflow-clip, not hidden: the blur below may not widen the page, and a
-    // scroll container here would stop the notice sticking.
-    <div className="absolute inset-0 flex justify-center overflow-clip rounded-card bg-muted/70">
+    <div className="absolute inset-0 flex justify-center rounded-card bg-muted/85">
       {/* Sticky, so the notice stays in view over a long page. */}
       {/* biome-ignore lint/a11y/useSemanticElements: a fieldset groups form controls, this is a notice */}
       <div
         role="group"
         aria-labelledby={titleId}
-        className="sticky top-[30vh] isolate mx-4 mt-16 flex max-w-prose flex-col items-center gap-2 self-start text-center text-muted-foreground before:absolute before:-inset-x-16 before:-inset-y-12 before:-z-10 before:backdrop-blur-lg before:[mask-image:radial-gradient(closest-side,#000_80%,transparent)]"
+        className="sticky top-[30vh] mx-4 mt-16 flex max-w-prose flex-col items-center gap-2 self-start text-center text-foreground"
       >
         <Lock aria-hidden="true" className="size-6" />
-        <Text id={titleId} weight="medium" className="text-muted-foreground">
+        <Text id={titleId} weight="medium">
           {t("decisionModel.lock.title")}
         </Text>
-        <Text variant="sub">{t("decisionModel.lock.body")}</Text>
+        <Text weight="medium">{t("decisionModel.lock.body")}</Text>
       </div>
     </div>
   );
