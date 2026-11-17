@@ -216,6 +216,21 @@ describe("keys CLI arguments", () => {
     expect(() => parseKeysCommand(["rotate", "owner-a"])).toThrow("Usage");
   });
 
+  test("a refused --scopes value comes with the usage, like any other argument", () => {
+    expect(() =>
+      parseKeysCommand(["create", "owner-a", "--scopes", "sessions:admin"]),
+    ).toThrow(/^Unknown scope sessions:admin;.*\nUsage/s);
+    expect(() =>
+      parseKeysCommand(["create", "owner-a", "--scopes", ","]),
+    ).toThrow(/^--scopes must name at least one scope\nUsage/);
+  });
+
+  test("a blank owner_id is refused while parsing, before any database", () => {
+    expect(() =>
+      parseKeysCommand(["create", "   ", "--scopes", "sessions:read"]),
+    ).toThrow(/^owner_id must not be empty\nUsage/);
+  });
+
   test("revoke <key_id> takes one UUID and no scopes", () => {
     const keyId = "0B9F1C2E-6A4D-4E8B-9C3F-1D2E3F4A5B6C";
     expect(parseKeysCommand(["revoke", keyId])).toEqual({
@@ -237,6 +252,10 @@ describe("keys CLI arguments", () => {
       [["create", "owner-a"], "--scopes is required"],
       [["revoke", "owner-a"], "key_id must be a UUID"],
       [["rotate", "owner-a"], "Usage"],
+      [
+        ["create", "   ", "--scopes", "sessions:read"],
+        "owner_id must not be empty",
+      ],
     ] as const) {
       const result = Bun.spawnSync(
         ["bun", "run", join(import.meta.dir, "keys.ts"), ...args],
@@ -248,6 +267,9 @@ describe("keys CLI arguments", () => {
           },
           stderr: "pipe",
           stdout: "pipe",
+          // A refusal that reached the database would wait on the address;
+          // the kill turns that into a failed assertion, not a hung suite.
+          timeout: 4_000,
         },
       );
       const stderr = result.stderr.toString();
