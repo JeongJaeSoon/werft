@@ -75,7 +75,7 @@ const STATE_BADGE = {
   rejected: ["gray", "achievements.state.rejected"],
 } as const;
 
-const NUM = "w-px whitespace-nowrap text-right tabular-nums";
+const NUM = "tabular-nums";
 
 export function AchievementsScreen() {
   const { t, locale } = useI18n();
@@ -281,19 +281,27 @@ export function AchievementsScreen() {
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead scope="col">
+                            <TableHead scope="col" variant="nowrap">
                               {t("achievements.column.category")}
                             </TableHead>
                             <TableHead scope="col">
                               {t("achievements.column.rule")}
                             </TableHead>
-                            <TableHead scope="col">
+                            <TableHead scope="col" variant="nowrap">
                               {t("achievements.column.type")}
                             </TableHead>
-                            <TableHead scope="col" className={NUM}>
+                            <TableHead
+                              scope="col"
+                              variant="nowrap"
+                              className={NUM}
+                            >
                               {t("achievements.column.achievements")}
                             </TableHead>
-                            <TableHead scope="col" className={NUM}>
+                            <TableHead
+                              scope="col"
+                              variant="nowrap"
+                              className={NUM}
+                            >
                               {t("achievements.column.waiting")}
                             </TableHead>
                           </TableRow>
@@ -301,7 +309,9 @@ export function AchievementsScreen() {
                         <TableBody>
                           {data.by_rule.map((rule) => (
                             <TableRow key={rule.id}>
-                              <TableCell>{rule.category_name}</TableCell>
+                              <TableCell variant="nowrap">
+                                {rule.category_name}
+                              </TableCell>
                               <TableCell>
                                 {rule.title}{" "}
                                 <Text as="span" variant="meta">
@@ -310,13 +320,13 @@ export function AchievementsScreen() {
                                   })}
                                 </Text>
                               </TableCell>
-                              <TableCell>
+                              <TableCell variant="nowrap">
                                 <Code>{rule.type_key}</Code>
                               </TableCell>
-                              <TableCell className={NUM}>
+                              <TableCell variant="nowrap" className={NUM}>
                                 {format.count(rule.achievement_count)}
                               </TableCell>
-                              <TableCell className={NUM}>
+                              <TableCell variant="nowrap" className={NUM}>
                                 {format.count(rule.needs_review_count)}
                               </TableCell>
                             </TableRow>
@@ -337,16 +347,32 @@ export function AchievementsScreen() {
                             <TableHead scope="col">
                               {t("achievements.column.agent")}
                             </TableHead>
-                            <TableHead scope="col" className={NUM}>
+                            <TableHead
+                              scope="col"
+                              variant="nowrap"
+                              className={NUM}
+                            >
                               {t("achievements.column.sessions")}
                             </TableHead>
-                            <TableHead scope="col" className={NUM}>
+                            <TableHead
+                              scope="col"
+                              variant="nowrap"
+                              className={NUM}
+                            >
                               {t("achievements.column.achievements")}
                             </TableHead>
-                            <TableHead scope="col" className={NUM}>
+                            <TableHead
+                              scope="col"
+                              variant="nowrap"
+                              className={NUM}
+                            >
                               {t("achievements.column.sessionCost")}
                             </TableHead>
-                            <TableHead scope="col" className={NUM}>
+                            <TableHead
+                              scope="col"
+                              variant="nowrap"
+                              className={NUM}
+                            >
                               {t("achievements.column.perAchievement")}
                             </TableHead>
                           </TableRow>
@@ -359,16 +385,16 @@ export function AchievementsScreen() {
                                   OPERATIONS_MESSAGES[locale].usageCostTable
                                     .noAgent}
                               </TableCell>
-                              <TableCell className={NUM}>
+                              <TableCell variant="nowrap" className={NUM}>
                                 {format.count(agent.session_count)}
                               </TableCell>
-                              <TableCell className={NUM}>
+                              <TableCell variant="nowrap" className={NUM}>
                                 {format.count(agent.achievement_count)}
                               </TableCell>
-                              <TableCell className={NUM}>
+                              <TableCell variant="nowrap" className={NUM}>
                                 {format.usd(agent.cost_usd)}
                               </TableCell>
-                              <TableCell className={NUM}>
+                              <TableCell variant="nowrap" className={NUM}>
                                 {usdOrDash(agent.cost_per_achievement_usd)}
                               </TableCell>
                             </TableRow>
@@ -392,7 +418,7 @@ export function AchievementsScreen() {
                     <Table className="min-w-[44rem]">
                       <TableHeader>
                         <TableRow>
-                          <TableHead scope="col">
+                          <TableHead scope="col" variant="nowrap">
                             {t("achievements.column.at")}
                           </TableHead>
                           <TableHead scope="col">
@@ -404,10 +430,10 @@ export function AchievementsScreen() {
                           <TableHead scope="col">
                             {t("achievements.column.evidence")}
                           </TableHead>
-                          <TableHead scope="col">
+                          <TableHead scope="col" variant="nowrap">
                             {t("achievements.column.judge")}
                           </TableHead>
-                          <TableHead scope="col">
+                          <TableHead scope="col" variant="nowrap">
                             {t("achievements.column.state")}
                           </TableHead>
                         </TableRow>
@@ -437,7 +463,7 @@ function RecentRow({ row }: { readonly row: Recent }) {
     row.evidence_kind === "github_review";
   return (
     <TableRow>
-      <TableCell className="w-px whitespace-nowrap">
+      <TableCell variant="nowrap">
         <time dateTime={row.created_at}>
           {formatRelativeTime(row.created_at, locale)}
         </time>
@@ -470,12 +496,12 @@ function RecentRow({ row }: { readonly row: Recent }) {
           row.title
         )}
       </TableCell>
-      <TableCell className="w-px whitespace-nowrap">
+      <TableCell variant="nowrap">
         {row.judge === "luna"
           ? t("achievements.judge.luna")
           : t("achievements.judge.always")}
       </TableCell>
-      <TableCell className="w-px whitespace-nowrap">
+      <TableCell variant="nowrap">
         <Badge variant={variant}>{t(state)}</Badge>
       </TableCell>
     </TableRow>

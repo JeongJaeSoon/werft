@@ -267,6 +267,38 @@ describe("성과", () => {
         "거절됨",
       ],
     ]);
+    // Every header and cell is left-aligned, numbers too. Short columns are
+    // as narrow as their content; the text columns take what they leave and
+    // wrap between words.
+    for (const [name, variants] of [
+      ["규칙별", ["nowrap", "default", "nowrap", "nowrap", "nowrap"]],
+      ["에이전트별", ["default", "nowrap", "nowrap", "nowrap", "nowrap"]],
+      [
+        "최근 성과",
+        ["nowrap", "default", "default", "default", "nowrap", "nowrap"],
+      ],
+    ] as const) {
+      const table = screen
+        .getAllByRole("region", { name })
+        .at(-1) as HTMLElement;
+      const head = within(table).getAllByRole("columnheader");
+      expect(head.map((cell) => cell.getAttribute("data-variant"))).toEqual([
+        ...variants,
+      ]);
+      for (const row of within(table).getAllByRole("row").slice(1))
+        expect(
+          within(row)
+            .getAllByRole("cell")
+            .map((cell) => cell.getAttribute("data-variant")),
+        ).toEqual([...variants]);
+      for (const cell of [...head, ...within(table).getAllByRole("cell")]) {
+        const classes = cell.className.split(/\s+/);
+        expect(
+          classes.filter((c) => /text-(right|end)|justify-end/.test(c)),
+        ).toEqual([]);
+        expect(classes.includes("text-left")).toBe(true);
+      }
+    }
     expect(
       screen.getByRole("link", { name: /acme\/shop#412/ }).getAttribute("href"),
     ).toBe("https://github.com/acme/shop/pull/412");
