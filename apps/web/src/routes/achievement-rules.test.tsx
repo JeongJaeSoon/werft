@@ -1394,11 +1394,11 @@ describe("성과 규칙", () => {
     expect(section("판정 설정")?.closest("[inert]") === covered).toBe(true);
     expect(covered?.contains(lock)).toBe(false);
     expect(lock.closest("[inert]") === null).toBe(true);
-    expect(
-      within(lock)
-        .getByRole("button", { name: "판정 모델 설정" })
-        .getAttribute("aria-disabled") === null,
-    ).toBe(true);
+    // The way out is the header's button alone; the notice holds none.
+    expect(within(lock).queryAllByRole("button")).toHaveLength(0);
+    const setup = screen.getByRole("button", { name: "판정 모델 설정" });
+    expect(setup.closest("[inert]") === null).toBe(true);
+    expect(setup.getAttribute("aria-disabled") === null).toBe(true);
 
     const add = screen.getByRole("button", { name: "규칙 추가" });
     expect(add.closest("[inert]") === null).toBe(true);
@@ -1437,10 +1437,8 @@ describe("성과 규칙", () => {
       },
     });
     const user = await setupUser();
-    const lock = await screen.findByRole("group", { name: "사용할 수 없음" });
-    const opener = within(lock).getByRole("button", {
-      name: "판정 모델 설정",
-    });
+    await screen.findByRole("group", { name: "사용할 수 없음" });
+    const opener = screen.getByRole("button", { name: "판정 모델 설정" });
     await user.click(opener);
     const dialog = await screen.findByRole("dialog", {
       name: "판정 모델 연결 추가",
@@ -1465,9 +1463,7 @@ describe("성과 규칙", () => {
     })) as HTMLSelectElement;
     await waitFor(() => expect(judge.value).toBe("luna-main"));
     expect(document.querySelector("[inert]") === null).toBe(true);
-    // The lock's button left with the lock; the header's takes the focus.
-    const header = screen.getByRole("button", { name: "판정 모델 설정" });
-    await waitFor(() => expect(document.activeElement === header).toBe(true));
+    await waitFor(() => expect(document.activeElement === opener).toBe(true));
     expect(
       screen
         .getByRole("button", { name: "규칙 추가" })
@@ -1517,10 +1513,8 @@ describe("성과 규칙", () => {
       },
     });
     const user = await setupUser();
-    const lock = await screen.findByRole("group", { name: "사용할 수 없음" });
-    await user.click(
-      within(lock).getByRole("button", { name: "판정 모델 설정" }),
-    );
+    await screen.findByRole("group", { name: "사용할 수 없음" });
+    await user.click(screen.getByRole("button", { name: "판정 모델 설정" }));
     const dialog = await screen.findByRole("dialog", {
       name: "판정 모델 연결 추가",
     });
