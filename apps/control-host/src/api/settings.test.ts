@@ -235,6 +235,35 @@ describe("settings CLI arguments", () => {
       dir: "/l",
     });
   });
+
+  test("the CLI prints a refusal as a message and exits 1, without a stack trace", () => {
+    // Unreachable: a refusal that still connected would hang until the kill.
+    const unreachable = "postgresql://postgres:dev@203.0.113.1:5432/sessions";
+    for (const [args, databaseUrl, message] of [
+      [["import"], unreachable, "name one of --document or --from-dir"],
+      [["import", "--document", "a", "--force"], unreachable, "Unknown option"],
+      [["export"], undefined, "DATABASE_URL"],
+    ] as const) {
+      const result = Bun.spawnSync(
+        ["bun", "run", join(import.meta.dir, "settings.ts"), ...args],
+        {
+          env: {
+            PATH: process.env.PATH ?? "",
+            ...(databaseUrl ? { DATABASE_URL: databaseUrl } : {}),
+          },
+          stderr: "pipe",
+          stdout: "pipe",
+          timeout: 4_000,
+        },
+      );
+      const stderr = result.stderr.toString();
+      expect(result.exitCode, args.join(" ")).toBe(1);
+      expect(result.stdout.toString()).toBe("");
+      expect(stderr.startsWith(message), stderr).toBe(true);
+      expect(stderr).not.toContain("throw new Error");
+      expect(stderr).not.toMatch(/^\s+at /m);
+    }
+  });
 });
 
 describe("settings seed", () => {

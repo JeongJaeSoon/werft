@@ -98,10 +98,20 @@ export function describeGrantsResult(
 }
 
 async function main(): Promise<void> {
-  const command = parseGrantsCommand(Bun.argv.slice(2));
+  let command: GrantsCommand;
+  try {
+    command = parseGrantsCommand(Bun.argv.slice(2));
+  } catch (error) {
+    // An operator's typo, not a crash: the message and usage, no stack.
+    console.error(messageOf(error));
+    process.exitCode = 1;
+    return;
+  }
   const databaseUrl = Bun.env.DATABASE_URL;
   if (!databaseUrl) {
-    throw new Error("DATABASE_URL is required");
+    console.error("DATABASE_URL is required");
+    process.exitCode = 1;
+    return;
   }
   await withJobDatabase(
     "grants",
