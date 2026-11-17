@@ -402,7 +402,7 @@ describe("성과 규칙", () => {
       }),
     ],
   ] as const) {
-    test(`${who}에게는 판정 비용 줄과 지난 30일 칸을 숨긴다`, async () => {
+    test(`${who}에게는 판정 비용 줄과 지난 30일·확인 대기 칸을 숨긴다`, async () => {
       const { who: principal, overrides } = setup();
       const { api } = await opened(overrides, principal);
       const table = within(section("규칙") as HTMLElement).getByRole("table");
@@ -416,6 +416,12 @@ describe("성과 규칙", () => {
           .getAllByRole("columnheader")
           .map((cell) => cell.textContent),
       ).toEqual(["제목", "성과 type", "판정", "버전", "사용"]);
+      expect(
+        within(table)
+          .getAllByRole("row")[1]
+          ?.querySelector("td")
+          ?.getAttribute("colspan"),
+      ).toBe("5");
       expect(section("판정 설정")?.textContent).not.toContain("오늘 판정 비용");
       expect(
         api.calls.some(
