@@ -220,7 +220,11 @@ export function SessionChat({
           item.kind === "tools" ? (
             <li key={item.id}>
               <ChatToolGroup
-                summary={t("session.chat.tools", { count: item.calls.length })}
+                summary={
+                  item.calls.length === 1
+                    ? t("session.chat.tools.one")
+                    : t("session.chat.tools", { count: item.calls.length })
+                }
                 status={
                   item.calls.some((call) => call.result?.error) ? (
                     <Badge variant="red">{t("session.chat.failed")}</Badge>

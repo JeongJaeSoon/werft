@@ -1795,6 +1795,26 @@ describe("session detail", () => {
     ).toHaveLength(1);
   });
 
+  test("in en a lone tool call reads in the singular", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, detailRoutes, "en");
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    act(() =>
+      stream.emit("ev_call", "tool_use", {
+        type: "assistant",
+        tool_call: { id: "tu_1", name: "Bash", input: {} },
+      }),
+    );
+    expect(await screen.findByText("1 tool call")).toBeTruthy();
+    act(() =>
+      stream.emit("ev_call_2", "tool_use", {
+        type: "assistant",
+        tool_call: { id: "tu_2", name: "Read", input: {} },
+      }),
+    );
+    expect(await screen.findByText("2 tool calls")).toBeTruthy();
+  });
+
   test("each instruction is the person's message on the right, read again as turns start", async () => {
     const turn = (
       turn_id: string,
