@@ -52,6 +52,7 @@ Earlier cards had "Role" (`role`) and "Instructions" (`instructions`) fields, an
 | `capabilities.forbidden` | | MCP tool names to forbid (`mcp__<server>__<tool>`). The web console puts `[]` on a new card, and only shows and clears an existing value |
 | `capabilities.tool_policy` | | `allow`, `ask`, or `deny` per MCP tool, under `per_tool` |
 | `capabilities.credential_refs` | | Names of the credentials to use (not the values). [Permissions](/agents/permissions) |
+| `capabilities.env` | | Names of the variables a session takes, such as `[{ "name": "DEPLOY_ENV" }]`. Write upper-case names only; the values live in the agent's variables. Only the variables listed here reach a session |
 | `language` | | Reply language: `follow-user` (default; follow the person's language), `ko`, `en` or `ja`. Left out, it is `follow-user`. `ko`, `en` and `ja` always answer in that language, even when the person writes in another one; it applies from the next release, and sessions already started keep theirs |
 | `rules` | | List of `{id, text, source}`. `source` is `user` or `correction` |
 | `role`, `instructions` | | Values from earlier cards. Not passed to the model. New cards do not send them |
