@@ -82,6 +82,7 @@ function service(answers: Partial<Record<StoreMethod, unknown>> = {}) {
   const store = {
     read: answering("read", RECORD),
     emergencyAdminCandidates: answering("emergencyAdminCandidates", []),
+    hasProviderAccount: answering("hasProviderAccount", true),
     setPasswordLogin: answering("setPasswordLogin", {
       outcome: "unchanged",
       settings: RECORD,
@@ -139,19 +140,23 @@ describe("sign-in settings service", () => {
       emergency_admin_candidates: [
         { user_id: USERS.owner, email: "owner@example.com", display_name: "O" },
       ],
+      caller_has_provider_account: true,
     });
-    // The candidates of the caller's workspace, nobody else's.
-    expect(asked.at(-1)).toEqual({
-      method: "emergencyAdminCandidates",
-      input: WORKSPACE,
-    });
+    // The candidates of the caller's workspace, and the caller's own
+    // provider account, nobody else's.
+    expect(asked.slice(-2)).toEqual([
+      { method: "emergencyAdminCandidates", input: WORKSPACE },
+      { method: "hasProviderAccount", input: USERS.owner },
+    ]);
     expect(
       await service({
         read: { ...RECORD, emergencyAdmin: null, enabledProviders: 0 },
+        hasProviderAccount: false,
       }).admin.read(caller("owner")),
     ).toEqual({
       settings: { ...VIEW, emergency_admin: null, enabled_providers: 0 },
       emergency_admin_candidates: [],
+      caller_has_provider_account: false,
     });
   });
 

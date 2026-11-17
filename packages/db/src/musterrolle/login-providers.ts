@@ -33,7 +33,7 @@ import {
   writeSecretInTx,
 } from "../secrets/secret-values.ts";
 import { deletedBy, notDeleted } from "../soft-delete.ts";
-import { findLiveMembership } from "./identity.ts";
+import { findLiveMembership, verifiedEmailJoinOf } from "./identity.ts";
 import {
   lockLoginSettings,
   openPasswordsAsOperator,
@@ -797,11 +797,14 @@ export function createPostgresLoginProviderAdminStore(
       }
       if (input.email === null) return "none";
       const [account] = await db
-        .select({ disabledAt: users.disabledAt })
+        .select({ id: users.id, disabledAt: users.disabledAt })
         .from(users)
         .where(eq(users.email, input.email));
       if (!account) return "none";
-      return account.disabledAt === null ? "account_exists" : "refused";
+      if (account.disabledAt !== null) return "refused";
+      const join = await verifiedEmailJoinOf(db, account.id, input.issuer);
+      if (join === "rejected") return "refused";
+      return join === "link_required" ? "account_exists" : "linkable";
     },
   };
 }

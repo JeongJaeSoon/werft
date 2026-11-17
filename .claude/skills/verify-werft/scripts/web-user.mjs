@@ -10,7 +10,7 @@
 //   web-user.mjs <run> login <who>                  cookie → cookie.<who> and cookie
 //   web-user.mjs <run> login-wrong <who>            a wrong password (401)
 //   web-user.mjs <run> login-no-csrf <who>          without x-requested-with (403)
-//   web-user.mjs <run> invite <inviter> <who> <role>  token → users/<who>.invite, credentials → users/<who>
+//   web-user.mjs <run> invite <inviter> <who> <role> [email]  email defaults to <who>@example.test; token → users/<who>.invite, credentials → users/<who>
 //   web-user.mjs <run> accept <who>                 accept users/<who>.invite, cookie as login
 //   web-user.mjs <run> key <who> <personal|agent> <scope,scope> [agent id]  secret → keys/<who>
 //   web-user.mjs <run> demo-login <owner|member>  source-defined demo credentials
@@ -55,14 +55,14 @@ for (const dir of ["users", "keys"])
 
 const userFile = (name) => join(run, "users", name);
 const fresh = () => randomBytes(16).toString("hex");
-function creds(name, create) {
+function creds(name, create, email = `${name}@example.test`) {
   const file = userFile(name);
   if (existsSync(file)) return JSON.parse(readFileSync(file, "utf8"));
   if (!create)
     throw new Error(
       `no credentials for '${name}' yet: bootstrap or accept first`,
     );
-  const made = { email: `${name}@example.test`, password: fresh() };
+  const made = { email, password: fresh() };
   writeFileSync(file, JSON.stringify(made), { mode: 0o600, flag: "wx" });
   return made;
 }
@@ -393,13 +393,13 @@ switch (cmd) {
     break;
   }
   case "invite": {
-    const [invitee, role] = rest;
+    const [invitee, role, address = `${invitee}@example.test`] = rest;
     if (!invitee || !role)
-      throw new Error("usage: invite <inviter> <who> <role>");
+      throw new Error("usage: invite <inviter> <who> <role> [email]");
     const r = await call(
       "POST",
       "/v1/invites",
-      { email: `${invitee}@example.test`, role },
+      { email: address, role },
       { cookie: cookieOf(who) },
     );
     if (r.json?.invite_token) {
@@ -407,7 +407,7 @@ switch (cmd) {
         mode: 0o600,
       });
       // Made now so the invitee can accept here or in browser.mjs alike.
-      creds(invitee, true);
+      creds(invitee, true, address);
       r.note = `invite token saved as users/${invitee}.invite, credentials as users/${invitee}`;
     }
     report(r, ["invite_token"]);

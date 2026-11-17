@@ -818,12 +818,135 @@ async function insertWebSession(
 }
 
 /**
+ * Whether an enabled account may have an external account of `issuer`
+ * linked to it by its verified address, and the membership it then signs
+ * in through. Also what a provider test previews, so the two cannot drift.
+ */
+export async function verifiedEmailJoinOf(
+  db: Database,
+  userId: string,
+  issuer: string,
+): Promise<LiveMembership | "rejected" | "link_required"> {
+  const membership = await findLiveMembership(db, userId);
+  if (!membership) return "rejected";
+  // The emergency admin is joined too: the link adds a way in and leaves
+  // the password, so the break-glass sign-in stays as it was.
+  const [sameIssuer] = await db
+    .select({ id: loginMethods.id })
+    .from(loginMethods)
+    .where(
+      and(
+        eq(loginMethods.userId, userId),
+        eq(loginMethods.kind, "oidc"),
+        eq(loginMethods.issuer, issuer),
+        notDeleted(loginMethods),
+      ),
+    );
+  return sameIssuer ? "link_required" : membership;
+}
+
+type VerifiedEmailLink =
+  | {
+      outcome: "signed_in";
+      userId: string;
+      workspaceId: string;
+      role: MembershipRole;
+      expiresAt: Date;
+    }
+  | { outcome: "no_account" }
+  | { outcome: "link_required" }
+  | { outcome: "rejected" };
+
+/**
+ * Links an external account with no link yet to the one account that has
+ * the address the provider vouches for, and signs that account in. The
+ * only path that joins by email, for a sign-in and an invite's sign-up
+ * alike. `vouchedEmail` must be normalized and owned by the person by the
+ * provider's word (ownsAddress); without one nothing is joined.
+ *
+ * The caller holds the subject lock, the provider row FOR SHARE and the
+ * address lock; this locks the user, then writes the method, receipt and
+ * session.
+ *
+ * Refused: a disabled account or one with no live membership (`rejected`,
+ * which says nothing of the account); an account that already has another
+ * subject of this issuer, as a link refuses (`link_required`).
+ */
+async function linkByVerifiedEmail(
+  tx: Database,
+  input: {
+    vouchedEmail: string;
+    issuer: string;
+    subject: string;
+    providerId: string;
+    newLoginMethodId: string;
+    receiptId: string;
+    session: Omit<WebSessionInput, "userId" | "loginMethodId">;
+  },
+): Promise<VerifiedEmailLink> {
+  const [user] = await tx
+    .select({ id: users.id, disabledAt: users.disabledAt })
+    .from(users)
+    .where(eq(users.email, input.vouchedEmail))
+    .for("update");
+  if (!user) return { outcome: "no_account" };
+  if (user.disabledAt !== null) return { outcome: "rejected" };
+  const membership = await verifiedEmailJoinOf(tx, user.id, input.issuer);
+  if (membership === "rejected" || membership === "link_required") {
+    return { outcome: membership };
+  }
+  await tx.insert(loginMethods).values({
+    id: input.newLoginMethodId,
+    userId: user.id,
+    kind: "oidc",
+    issuer: input.issuer,
+    subject: input.subject,
+    emailAtLink: input.vouchedEmail,
+    lastLoginAt: DB_NOW,
+  });
+  // The receipt a link from a session writes, marked as made by address.
+  await tx.insert(receipts).values({
+    id: input.receiptId,
+    ownerId: membership.workspaceId,
+    operation: "link_login_method",
+    targetRef: {
+      resource: { kind: "workspace", id: membership.workspaceId },
+      workspace_id: membership.workspaceId,
+    },
+    status: "succeeded",
+    result: {
+      login_method_id: input.newLoginMethodId,
+      provider_id: input.providerId,
+      issuer: input.issuer,
+      via: "verified_email",
+    },
+    actor: {
+      principal: { kind: "user", id: user.id },
+      actor_user_id: user.id,
+      agent_id: null,
+    },
+  });
+  const { expiresAt } = await insertWebSession(tx, {
+    ...input.session,
+    userId: user.id,
+    loginMethodId: input.newLoginMethodId,
+  });
+  return {
+    outcome: "signed_in",
+    userId: user.id,
+    ...membership,
+    expiresAt,
+  };
+}
+
+/**
  * The first-entry rules for an external login (design 3.1, A.7), first
  * match wins: a linked (issuer, subject) signs in as its user; otherwise an
- * address that already has an account is never joined to it by email, and
- * only an address with no account may be admitted by a live invite or by
- * JIT. Concurrent first logins of one external account are serialised by
- * the advisory lock, so the second one finds the link the first made.
+ * address the provider vouches for that already has an account is linked
+ * to it (linkByVerifiedEmail), and only an address with no account may be
+ * admitted by a live invite or by JIT. Concurrent first logins of one
+ * external account are serialised by the advisory lock, so the second one
+ * finds the link the first made.
  *
  * Locks run subject, then provider row, then email, invite, user, login
  * method, session. The provider row is held FOR SHARE to the end, so
@@ -913,11 +1036,28 @@ export async function signInWithExternalIdentity(
       .from(users)
       .where(eq(users.email, email));
     if (existing) {
-      // Only someone the provider says owns the address now may learn it
-      // has one.
-      return existing.disabledAt === null && input.ownsEmail
-        ? { outcome: "link_required" }
-        : { outcome: "rejected" };
+      // Only someone the provider says owns the address now may join it or
+      // learn it has one.
+      if (existing.disabledAt !== null || !input.ownsEmail) {
+        return { outcome: "rejected" };
+      }
+      const joined = await linkByVerifiedEmail(tx, {
+        vouchedEmail: email,
+        issuer: input.issuer,
+        subject: input.subject,
+        providerId: input.provider.id,
+        newLoginMethodId: input.newLoginMethodId,
+        receiptId: input.receiptId,
+        session: input.session,
+      });
+      if (joined.outcome !== "signed_in") {
+        // The account was read before its row lock; one removed meanwhile
+        // admits nobody by the rules below either.
+        return joined.outcome === "no_account"
+          ? { outcome: "rejected" }
+          : joined;
+      }
+      return { ...joined, via: "verified_email" };
     }
     const [invite] = !input.ownsEmail
       ? []
@@ -1144,7 +1284,34 @@ export async function signUpWithInvite(
       // knows the address already, so saying so tells them nothing new. The
       // insert may have waited for that account to be made, past the expiry.
       if (created.length === 0) {
-        return { outcome: (await expired()) ? "invite_gone" : "link_required" };
+        if (await expired()) return { outcome: "invite_gone" };
+        // The token names the address, never the account: only the
+        // provider vouching for that same address joins it, as a sign-in
+        // would. The invite admits nobody new, so it stays unspent.
+        if (input.vouchedEmail !== invite.email) {
+          return { outcome: "link_required" };
+        }
+        // The link below takes this lock too; waiting for it here lets the
+        // expiry be judged after the wait, before anything is written.
+        await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.email, invite.email))
+          .for("update");
+        if (await expired()) return { outcome: "invite_gone" };
+        const joined = await linkByVerifiedEmail(tx, {
+          vouchedEmail: invite.email,
+          issuer: input.issuer,
+          subject: input.subject,
+          providerId: input.provider.id,
+          newLoginMethodId: input.newLoginMethodId,
+          receiptId: input.receiptId,
+          session: input.session,
+        });
+        // The insert above found the account, so it cannot be missing; a
+        // disabled one stays as before, a refusal the token holder may see.
+        if (joined.outcome !== "signed_in") return { outcome: "link_required" };
+        return { ...joined, via: "verified_email" };
       }
       await tx.insert(memberships).values({
         workspaceId: invite.workspaceId,
@@ -1197,6 +1364,7 @@ export async function signUpWithInvite(
       });
       return {
         outcome: "signed_in",
+        via: "invite",
         userId: input.newUserId,
         workspaceId: invite.workspaceId,
         role,

@@ -925,14 +925,14 @@ describe("공급자 가입의 콜백", () => {
     expect(sessionStorage.getItem("ap.inviteFlow")).toBeNull();
   });
 
-  test("초대 주소의 계정이 이미 있으면 그렇게 말하고 로그인 화면으로 이끈다", async () => {
+  test("초대 주소의 계정에 자동으로 연결할 수 없으면 그렇게 말하고 로그인 화면으로 이끈다", async () => {
     sessionStorage.setItem("ap.inviteFlow", "s1");
     renderAt(`${CALLBACK}?code=c1&state=s1`, {
       "POST /v1/auth/oidc/callback": () =>
         apiError(409, "LOGIN_LINK_REQUIRED", "An account exists"),
     });
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "이미 이 이메일로 만든 계정이 있습니다 — 그 계정에 쓰던 수단으로 로그인하세요. 이 공급자로 로그인하려면 오너에게 요청하세요.",
+      "이 공급자 계정을 같은 이메일의 콘솔 계정에 자동으로 연결할 수 없습니다 — 그 계정에 쓰던 수단으로 로그인하거나 오너에게 요청하세요.",
     );
     expect(
       screen

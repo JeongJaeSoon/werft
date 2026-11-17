@@ -14637,6 +14637,7 @@
                         "type": "string",
                         "enum": [
                           "signs_in",
+                          "links",
                           "link_required",
                           "joins",
                           "invite_only",
@@ -15531,11 +15532,15 @@
               ],
               "additionalProperties": false
             }
+          },
+          "caller_has_provider_account": {
+            "type": "boolean"
           }
         },
         "required": [
           "settings",
-          "emergency_admin_candidates"
+          "emergency_admin_candidates",
+          "caller_has_provider_account"
         ],
         "additionalProperties": false
       },
@@ -32992,7 +32997,7 @@
           "Auth"
         ],
         "summary": "Finish sign-in with a provider; sets the session cookie",
-        "description": "Posts what the provider returned to the redirect URI: `code`, `state`, `iss` when it sent one, and the `provider_id` from the redirect path. The flow cookie must open, match `state` and `provider_id`, be no older than ten minutes, and the provider must still be on with the settings the flow started under. The first matching rule then decides: an account already linked to the provider's (issuer, subject) signs in as its user; an address the provider vouches for that already has an account answers 409 LOGIN_LINK_REQUIRED and is never joined by email; otherwise a live invite for that address, or the provider's JIT setting, creates the account. Anything else answers 401 without saying why or whether an account exists; only a flow the browser did not bring back is told apart (see 401). An account outside the provider's allowed domains answers 403. Calls to providers share a concurrency limit, past which this answers 429. A flow started for an invite ends differently: the invite it was started with, if still live, makes the account with the invite's address and role whatever address the provider reports; an (issuer, subject) some user already has answers 409 ALREADY_EXISTS, an account that already has the invite's address answers 409 LOGIN_LINK_REQUIRED, and neither spends the invite or makes a session. A flow started from POST /v1/auth/me/login-methods/{provider_id}/link/start ends only in the session it was started from: it adds the (issuer, subject) to that session's user, makes no new session, and answers `outcome: \"linked\"`; an (issuer, subject) a user already has, or a second account of the same issuer for this user, answers 409 ALREADY_EXISTS.\n\n**Auth:** public; no credential. **Idempotency-Key:** ignored.",
+        "description": "Posts what the provider returned to the redirect URI: `code`, `state`, `iss` when it sent one, and the `provider_id` from the redirect path. The flow cookie must open, match `state` and `provider_id`, be no older than ten minutes, and the provider must still be on with the settings the flow started under. The first matching rule then decides: an account already linked to the provider's (issuer, subject) signs in as its user; an address the provider vouches for (`email_verified` true) that already has an account is linked to that account, which signs in and gets a `link_login_method` receipt, the emergency admin included, unless the account is turned off or in no workspace (401), or already has another account of this issuer (409 LOGIN_LINK_REQUIRED, nothing joined); otherwise a live invite for that address, or the provider's JIT setting, creates the account. Anything else answers 401 without saying why or whether an account exists; only a flow the browser did not bring back is told apart (see 401). An account outside the provider's allowed domains answers 403. Calls to providers share a concurrency limit, past which this answers 429. A flow started for an invite ends differently: the invite it was started with, if still live, makes the account with the invite's address and role whatever address the provider reports; an (issuer, subject) some user already has answers 409 ALREADY_EXISTS, an account that already has the invite's address is linked and signs in by the same rule as above only when the provider vouches for that same address, and otherwise answers 409 LOGIN_LINK_REQUIRED; none of these spends the invite, and only the link makes a session. A flow started from POST /v1/auth/me/login-methods/{provider_id}/link/start ends only in the session it was started from: it adds the (issuer, subject) to that session's user, makes no new session, and answers `outcome: \"linked\"`; an (issuer, subject) a user already has, or a second account of the same issuer for this user, answers 409 ALREADY_EXISTS.\n\n**Auth:** public; no credential. **Idempotency-Key:** ignored.",
         "security": [],
         "parameters": [
           {
@@ -33230,7 +33235,7 @@
             }
           },
           "409": {
-            "description": "- `LOGIN_LINK_REQUIRED`: The verified address already has an account. It is never joined by email: sign in with the existing account and link the external login there.\n- `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique. An invite or a link flow only. `details.reason_code` is `login_method_linked` when a user already has this (issuer, subject), `issuer_linked` when the user linking already has another account of this issuer.",
+            "description": "- `LOGIN_LINK_REQUIRED`: The verified address has an account this external login cannot be joined to: it already has another account of this issuer, or, for an invite, the provider vouches for another address. Nothing is joined; sign in with the existing account, or ask an owner.\n- `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique. An invite or a link flow only. `details.reason_code` is `login_method_linked` when a user already has this (issuer, subject), `issuer_linked` when the user linking already has another account of this issuer.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -47580,7 +47585,7 @@
           "Auth"
         ],
         "summary": "Who may sign in with a password, and the emergency admin",
-        "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. `password_login` is `on` (everyone with a password) or `emergency_only` (the emergency admin alone; everyone else comes in through a provider). The emergency admin is the one owner whose password sign-in stays open either way; `eligible: false` says they are no longer an owner who can sign in with a password, so another has to be named before passwords can be closed. `emergency_admin_candidates` are the owners of the caller's workspace who can be named (on, with a password), oldest membership first, at most 100; the one named is listed like any other, while still eligible and within those 100.\n\n**Auth:** cookie session only; no scope.",
+        "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. `password_login` is `on` (everyone with a password) or `emergency_only` (the emergency admin alone; everyone else comes in through a provider). The emergency admin is the one owner whose password sign-in stays open either way; `eligible: false` says they are no longer an owner who can sign in with a password, so another has to be named before passwords can be closed. `emergency_admin_candidates` are the owners of the caller's workspace who can be named (on, with a password), oldest membership first, at most 100; the one named is listed like any other, while still eligible and within those 100. `caller_has_provider_account` says whether the caller has an account of a provider that is on; without one, PATCH refuses to close passwords (`locks_out_actor`) unless the caller is the emergency admin. The emergency admin's password is their own way back, not the caller's.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
@@ -47589,7 +47594,7 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": "The password switch, the emergency admin, how many providers are on, and who can be named emergency admin.",
+            "description": "The password switch, the emergency admin, how many providers are on, who can be named emergency admin, and whether the caller could come back through a provider.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -47614,7 +47619,8 @@
                       "email": "owner@example.com",
                       "display_name": "Owner"
                     }
-                  ]
+                  ],
+                  "caller_has_provider_account": true
                 },
                 "schema": {
                   "$ref": "#/components/schemas/LoginSettingsResponse"
@@ -47944,7 +47950,7 @@
             }
           },
           "409": {
-            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. `details.reason_code` says why. Closing passwords: `no_provider` (no provider is on), `no_emergency_admin` (none is named, or the one named can no longer sign in with a password), `locks_out_actor` (the caller is not the emergency admin and has no account of a provider that is on). Naming the emergency admin: `not_eligible` (not an owner who is on and has a password), `locks_out_actor` (passwords are closed, and the caller is the one being replaced with no provider account to come back with).",
+            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. `details.reason_code` says why. Closing passwords: `no_provider` (no provider is on), `no_emergency_admin` (none is named, or the one named can no longer sign in with a password), `locks_out_actor` (the caller is not the emergency admin and has no account of a provider that is on; GET answers this ahead as `caller_has_provider_account: false`). Naming the emergency admin: `not_eligible` (not an owner who is on and has a password), `locks_out_actor` (passwords are closed, and the caller is the one being replaced with no provider account to come back with).",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"

@@ -127,6 +127,79 @@ describe("로그인 공급자 목록", () => {
     ).toBe(LIST_PAGE);
   });
 
+  test("every column starts at its left edge, header and cells alike, the last one too", async () => {
+    renderAt(
+      LIST_PAGE,
+      routes([provider(), filled({ state: "enabled", tested_at: AT })]),
+    );
+    const table = await screen.findByRole("table", { name: "로그인" });
+    const placed = [
+      ...table.querySelectorAll<HTMLElement>(
+        "[role=columnheader], [role=cell], [role=columnheader] *, [role=cell] *",
+      ),
+    ].filter(
+      (element) =>
+        /(^|\s)(\S*:)?(justify-end|justify-self-end|justify-items-end|self-end|place-self-end|text-end|text-right|ml-auto|ms-auto)(\s|$)/.test(
+          element.getAttribute("class") ?? "",
+        ) ||
+        /(justify|text-align|margin-left|margin-inline-start)[^;]*(end|right|auto)/.test(
+          element.getAttribute("style") ?? "",
+        ),
+    );
+    expect(placed.map((element) => element.outerHTML)).toEqual([]);
+    // The short columns are as wide as their content, the last at the right
+    // edge; the name column takes what is left.
+    expect(
+      ["--grid-table-columns", "--grid-table-narrow-columns"].map((name) =>
+        table.style.getPropertyValue(name),
+      ),
+    ).toEqual([
+      "minmax(0,1fr) fit-content(220px) fit-content(180px)",
+      "minmax(0,1fr) fit-content(55%)",
+    ]);
+    // Each row is a grid of its own, so a content-sized track is as wide in
+    // every row only when the header and each cell of the column hold the
+    // same content: their own, and the column's others, unseen.
+    const unseen = (column: number) => {
+      const cells = [
+        ...table.querySelectorAll<HTMLElement>(
+          `[role=columnheader]:nth-child(${column}), [role=cell]:nth-child(${column})`,
+        ),
+      ];
+      expect(cells).toHaveLength(3);
+      return cells.map((cell) =>
+        [
+          ...cell.querySelectorAll<HTMLElement>(
+            "[data-slot=same-width] > [aria-hidden=true]",
+          ),
+        ].map((ghost) => {
+          expect(ghost.className).toContain("invisible");
+          expect(ghost.textContent).toBe("");
+          return ghost.dataset.text;
+        }),
+      );
+    };
+    expect(unseen(2)).toEqual(
+      Array.from({ length: 3 }, () => ["상태", "초안", "켜짐"]),
+    );
+    const tested = unseen(3);
+    const time = table.querySelector("time");
+    expect(time?.textContent).toBeTruthy();
+    expect(tested[0]).toEqual([
+      "마지막 테스트",
+      "테스트한 적 없음",
+      time?.textContent,
+    ]);
+    // The header row is set in medium; the values must not take it there.
+    const header = table.querySelector("[role=columnheader]:nth-child(3)");
+    expect(
+      [
+        ...(header?.querySelectorAll<HTMLElement>("[aria-hidden=true]") ?? []),
+      ].map((ghost) => ghost.className.includes("font-normal")),
+    ).toEqual([false, true, true]);
+    for (const cell of tested) expect(cell).toEqual(tested[0] ?? []);
+  });
+
   test("without CONSOLE_ORIGIN the page says why and offers no way to add one", async () => {
     renderAt(LIST_PAGE, routes([], false));
     await screen.findByText(/CONSOLE_ORIGIN/);
@@ -541,6 +614,7 @@ describe("로그인 공급자 상세", () => {
           enabled_providers,
         },
         emergency_admin_candidates: [],
+        caller_has_provider_account: false,
       }),
   });
   const LAST =
@@ -830,6 +904,12 @@ describe("테스트 로그인이 돌아온 화면", () => {
         "거절됩니다. 연결된 계정이 꺼져 있거나, 공급자가 주소를 증명하지 않습니다.",
       ],
     ]);
+    // Labels and values in their own left-aligned columns, a long value
+    // wrapping in its own, stacked on a phone.
+    const list = document.querySelector("dl") as HTMLElement;
+    expect(list.dataset.variant).toBe("grid");
+    expect(list.dataset.stack).toBe("sm");
+    expect(list.innerHTML).not.toContain("text-right");
     expect(
       screen
         .getByRole("link", { name: "공급자 설정으로" })

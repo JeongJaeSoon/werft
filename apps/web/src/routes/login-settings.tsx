@@ -23,7 +23,7 @@ import {
   SettingsSection,
   Skeleton,
 } from "@werft-ai/ui";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useMe, useRole } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
@@ -54,6 +54,7 @@ function refusal(
   t: Translate,
   error: ApiError,
   role: string | undefined,
+  closing: boolean,
 ): string {
   const reason = (error.details as { reason_code?: unknown } | null)
     ?.reason_code;
@@ -64,7 +65,11 @@ function refusal(
     if (reason === "no_emergency_admin")
       return t("loginProviders.access.reason.lapsed");
     if (reason === "locks_out_actor")
-      return t("loginProviders.access.error.locksOut");
+      return t(
+        closing
+          ? "loginProviders.access.reason.locksOut"
+          : "loginProviders.access.error.locksOut",
+      );
     if (reason === "not_eligible")
       return t("loginProviders.emergency.error.notEligible");
   }
@@ -93,6 +98,11 @@ export function PasswordLoginSettings() {
   const [opener, setOpener] = useState<HTMLElement | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
+  const lockedOutId = useId();
+  const readCount = () =>
+    queryClient.getQueryState(loginSettingsKey(client))?.dataUpdateCount ?? 0;
+  // How many reads had answered when the server last refused.
+  const [refusedAtRead, setRefusedAtRead] = useState(0);
 
   const change = useMutation<UpdateLoginSettingsResponse, ApiError, Change>({
     mutationFn: (body) => unwrap(client.PATCH("/v1/login-settings", { body })),
@@ -111,7 +121,17 @@ export function PasswordLoginSettings() {
             : t("loginProviders.access.done.opened"),
       });
     },
-    onError: (error) => setDialogError(refusal(t, error, role)),
+    onError: (error, body) => {
+      setRefusedAtRead(readCount());
+      setDialogError(
+        refusal(
+          t,
+          error,
+          role,
+          "password_login" in body && body.password_login === "emergency_only",
+        ),
+      );
+    },
     // A refusal is often news: a provider went off, another owner was named.
     onSettled: () =>
       queryClient.invalidateQueries({ queryKey: loginSettingsKey(client) }),
@@ -133,6 +153,11 @@ export function PasswordLoginSettings() {
   const { settings, emergency_admin_candidates: candidates } = read.data;
   const admin = settings.emergency_admin;
   const closed = settings.password_login === "emergency_only";
+  const actionLabels = [
+    t("loginProviders.access.open"),
+    t("loginProviders.access.close"),
+    t("loginProviders.emergency.change"),
+  ];
   const others = candidates.filter((owner) => owner.user_id !== admin?.user_id);
   const closeReason =
     settings.enabled_providers === 0
@@ -147,6 +172,29 @@ export function PasswordLoginSettings() {
       <AlertDescription>{dialogError}</AlertDescription>
     </Alert>
   ) : null;
+  // The server's rule: the emergency admin keeps a password; anyone else
+  // closing passwords needs a provider account to come back with.
+  const lockedOutText = t("loginProviders.access.reason.locksOut");
+  // A refusal holds until the read that follows it answers for itself: a
+  // provider account linked, or the caller named, since then lifts it.
+  const refusedLockedOut = dialogError === lockedOutText;
+  // Read so a read that changed nothing still renders anew.
+  void read.dataUpdatedAt;
+  const refusalOutdated = refusedLockedOut && readCount() > refusedAtRead;
+  const lockedOut =
+    (refusedLockedOut && !refusalOutdated) ||
+    (admin?.user_id !== me?.user?.id && !read.data.caller_has_provider_account);
+  const closeNotice = lockedOut ? (
+    <Alert
+      variant="red"
+      id={lockedOutId}
+      role={refusedLockedOut ? "alert" : undefined}
+    >
+      <AlertDescription>{lockedOutText}</AlertDescription>
+    </Alert>
+  ) : refusalOutdated ? null : (
+    failure
+  );
 
   return (
     <div className="flex flex-col gap-[var(--werft-space-block)]">
@@ -165,6 +213,7 @@ export function PasswordLoginSettings() {
                     label={t("loginProviders.access.open")}
                     name={t("loginProviders.access.open.name")}
                     busy={change.isPending}
+                    alike={actionLabels}
                     onClick={(button) => open("open", button)}
                   />
                 ) : (
@@ -173,6 +222,7 @@ export function PasswordLoginSettings() {
                     name={t("loginProviders.access.close.name")}
                     reason={closeReason}
                     busy={change.isPending}
+                    alike={actionLabels}
                     onClick={(button) => open("close", button)}
                   />
                 )
@@ -207,6 +257,7 @@ export function PasswordLoginSettings() {
                       : undefined
                   }
                   busy={change.isPending}
+                  alike={actionLabels}
                   onClick={(button) => open("admin", button)}
                 />
               }
@@ -229,9 +280,11 @@ export function PasswordLoginSettings() {
         cancelLabel={t("common.cancel")}
         tone="danger"
         busy={change.isPending}
+        confirmDisabled={lockedOut}
+        confirmDescribedBy={lockedOut ? lockedOutId : undefined}
         onConfirm={() => change.mutate({ password_login: "emergency_only" })}
       >
-        {failure}
+        {closeNotice}
       </ConfirmDialog>
       <ConfirmDialog
         open={editing === "open"}

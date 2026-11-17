@@ -378,6 +378,12 @@ export function createPostgresLoginSettingsStore(
         .limit(EMERGENCY_ADMIN_CANDIDATES);
     },
 
+    hasProviderAccount(userId) {
+      return db.transaction(async (tx) =>
+        signsInThroughProvider(tx, userId, await enabledIssuers(tx)),
+      );
+    },
+
     setPasswordLogin({ value, audit }) {
       return db.transaction(async (tx) => {
         const settings = await lockLoginSettings(tx, "update");

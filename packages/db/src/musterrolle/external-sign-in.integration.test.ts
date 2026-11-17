@@ -6,18 +6,21 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "../schema.ts";
 import {
   invites,
   loginMethods,
+  loginSettings,
   memberships,
   receipts,
   users,
+  webSessions,
   workspaces,
 } from "../schema.ts";
+import { deletedBy } from "../soft-delete.ts";
 import { seedLoginProvider } from "../testing/login-provider.ts";
 import { signInWithExternalIdentity } from "./identity.ts";
 import { createPostgresMemberStore } from "./members.ts";
@@ -138,14 +141,185 @@ integration("external sign-in first-entry rules", () => {
     });
   });
 
-  test("an address with an account is never joined by email", async () => {
-    await invite("owner@example.com");
+  const account = async (
+    email: string,
+    role: "owner" | "member" = "member",
+  ) => {
+    const id = randomUUID();
+    await db.insert(users).values({
+      id,
+      email,
+      passwordHash: "argon2id$placeholder",
+      displayName: email,
+    });
+    await db.insert(memberships).values({ workspaceId, userId: id, role });
+    return id;
+  };
+  const methodsOf = (userId: string) =>
+    db.select().from(loginMethods).where(eq(loginMethods.userId, userId));
+
+  test("an address the provider does not vouch for joins no account and learns nothing", async () => {
+    const pat = await account("pat@example.com");
+    await invite("pat@example.com");
     expect(
-      await signIn("sub-impostor", "owner@example.com", { jitRole: "member" }),
-    ).toEqual({ outcome: "link_required" });
-    expect(
-      await signIn("sub-impostor", "owner@example.com", { ownsEmail: false }),
+      await signIn("sub-pat", "pat@example.com", {
+        ownsEmail: false,
+        jitRole: "member",
+      }),
     ).toEqual({ outcome: "rejected" });
+    expect(await methodsOf(pat)).toHaveLength(0);
+  });
+
+  test("a verified address links its account, signs it in with a receipt, and the next sign-in uses the link", async () => {
+    const pat = (await userByEmail("pat@example.com"))?.id as string;
+    const result = await signIn("sub-pat", "pat@example.com");
+    expect(result).toMatchObject({
+      outcome: "signed_in",
+      via: "verified_email",
+      userId: pat,
+      workspaceId,
+      role: "member",
+    });
+    const methods = await methodsOf(pat);
+    expect(methods).toHaveLength(1);
+    const [method] = methods;
+    expect(method).toMatchObject({
+      kind: "oidc",
+      issuer: ISSUER,
+      subject: "sub-pat",
+      emailAtLink: "pat@example.com",
+    });
+    expect(method?.lastLoginAt).not.toBeNull();
+    // The password stays: the link adds a way in and takes none away.
+    expect((await userByEmail("pat@example.com"))?.passwordHash).toBe(
+      "argon2id$placeholder",
+    );
+    expect(
+      await db.$count(
+        webSessions,
+        and(
+          eq(webSessions.userId, pat),
+          eq(webSessions.loginMethodId, method?.id as string),
+        ),
+      ),
+    ).toBe(1);
+    const [receipt] = await db
+      .select()
+      .from(receipts)
+      .where(
+        and(
+          eq(receipts.operation, "link_login_method"),
+          eq(receipts.ownerId, workspaceId),
+          sql`${receipts.actor}->>'actor_user_id' = ${pat}`,
+        ),
+      );
+    expect(receipt?.result).toEqual({
+      login_method_id: method?.id,
+      provider_id: provider.id,
+      issuer: ISSUER,
+      via: "verified_email",
+    });
+    expect(JSON.stringify(receipt)).not.toContain("sub-pat");
+    expect(JSON.stringify(receipt)).not.toContain("pat@example.com");
+
+    expect(await signIn("sub-pat", "pat.renamed@example.com")).toMatchObject({
+      outcome: "signed_in",
+      via: "linked",
+      userId: pat,
+    });
+    expect(await methodsOf(pat)).toHaveLength(1);
+  });
+
+  test("an account turned off, or in no workspace, is refused by address and gets no link", async () => {
+    const quinn = await account("quinn@example.com");
+    await db
+      .update(memberships)
+      .set({ disabledAt: new Date() })
+      .where(eq(memberships.userId, quinn));
+    expect(await signIn("sub-quinn", "quinn@example.com")).toEqual({
+      outcome: "rejected",
+    });
+    expect(await methodsOf(quinn)).toHaveLength(0);
+    const rita = await account("rita@example.com");
+    await db
+      .update(users)
+      .set({ disabledAt: new Date() })
+      .where(eq(users.id, rita));
+    expect(await signIn("sub-rita", "rita@example.com")).toEqual({
+      outcome: "rejected",
+    });
+    expect(await methodsOf(rita)).toHaveLength(0);
+  });
+
+  test("the emergency admin is linked by address too, and keeps the password", async () => {
+    const sam = await account("sam@example.com", "owner");
+    await db.update(loginSettings).set({ emergencyAdminUserId: sam });
+    try {
+      expect(await signIn("sub-sam", "sam@example.com")).toMatchObject({
+        outcome: "signed_in",
+        via: "verified_email",
+        userId: sam,
+        role: "owner",
+      });
+      expect((await methodsOf(sam)).map((row) => row.subject)).toEqual([
+        "sub-sam",
+      ]);
+      expect((await userByEmail("sam@example.com"))?.passwordHash).toBe(
+        "argon2id$placeholder",
+      );
+      const [settings] = await db.select().from(loginSettings);
+      expect(settings?.emergencyAdminUserId).toBe(sam);
+    } finally {
+      await db.update(loginSettings).set({ emergencyAdminUserId: null });
+    }
+  });
+
+  test("an account with another subject of this issuer is not linked to a second one", async () => {
+    const tara = await account("tara@example.com");
+    expect(await signIn("sub-tara-1", "tara@example.com")).toMatchObject({
+      outcome: "signed_in",
+      via: "verified_email",
+      userId: tara,
+    });
+    expect(await signIn("sub-tara-2", "tara@example.com")).toEqual({
+      outcome: "link_required",
+    });
+    expect((await methodsOf(tara)).map((row) => row.subject)).toEqual([
+      "sub-tara-1",
+    ]);
+  });
+
+  test("a deleted link of this issuer is no other subject, so the address links the new one", async () => {
+    const vera = await account("vera@example.com");
+    expect(await signIn("sub-vera-1", "vera@example.com")).toMatchObject({
+      outcome: "signed_in",
+      via: "verified_email",
+      userId: vera,
+    });
+    await db
+      .update(loginMethods)
+      .set(deletedBy(vera))
+      .where(eq(loginMethods.userId, vera));
+    expect(await signIn("sub-vera-2", "vera@example.com")).toMatchObject({
+      outcome: "signed_in",
+      via: "verified_email",
+      userId: vera,
+    });
+    expect(
+      (await methodsOf(vera))
+        .map((row) => [row.subject, row.deletedAt === null])
+        .sort(),
+    ).toEqual([
+      ["sub-vera-1", false],
+      ["sub-vera-2", true],
+    ]);
+  });
+
+  test("one address names at most one account, so a match is never ambiguous", async () => {
+    await account("uma@example.com");
+    await expect(account("uma@example.com")).rejects.toThrow();
+    // Stored lower-cased only; the provider's address is normalized alike.
+    await expect(account("Uma@Example.com")).rejects.toThrow();
   });
 
   test("an address the provider no longer vouches for takes no invite", async () => {

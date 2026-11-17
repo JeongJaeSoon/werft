@@ -103,13 +103,18 @@ integration("a person's ways to sign in", () => {
     });
     return id;
   };
-  const signUp = (inviteId: string, subject: string, provider = providerA) =>
+  const signUp = (
+    inviteId: string,
+    subject: string,
+    provider = providerA,
+    vouchedEmail: string | null = null,
+  ) =>
     store.signUpWithInvite({
       provider: flowOf(provider),
       inviteId,
       issuer: provider.issuer,
       subject,
-      vouchedEmail: null,
+      vouchedEmail,
       name: null,
       newUserId: randomUUID(),
       newLoginMethodId: randomUUID(),
@@ -314,18 +319,42 @@ integration("a person's ways to sign in", () => {
       expect(await db.$count(webSessions)).toBe(sessionsBefore);
     });
 
-    test("an address that has an account is never joined to the provider's account", async () => {
+    test("an address that has an account is joined only when the provider vouches for it", async () => {
       const dave = await person("dave@example.com");
       const inviteId = await invite("dave@example.com");
       const sessionsBefore = await db.$count(webSessions);
       expect(await signUp(inviteId, "sub-dave")).toEqual({
         outcome: "link_required",
       });
-      expect((await inviteRow(inviteId))?.acceptedAt).toBeNull();
+      expect(
+        await signUp(inviteId, "sub-dave", providerA, "other@example.com"),
+      ).toEqual({ outcome: "link_required" });
       expect((await methodsOf(dave.id)).map((row) => row.kind)).toEqual([
         "password",
       ]);
       expect(await db.$count(webSessions)).toBe(sessionsBefore);
+
+      const joined = await signUp(
+        inviteId,
+        "sub-dave",
+        providerA,
+        "dave@example.com",
+      );
+      expect(joined).toMatchObject({
+        outcome: "signed_in",
+        userId: dave.id,
+        via: "verified_email",
+      });
+      expect((await inviteRow(inviteId))?.acceptedAt).toBeNull();
+      const linked = (await methodsOf(dave.id)).find(
+        (row) => row.kind === "oidc",
+      );
+      expect(linked).toMatchObject({
+        issuer: providerA.issuer,
+        subject: "sub-dave",
+        emailAtLink: "dave@example.com",
+      });
+      expect(await db.$count(webSessions)).toBe(sessionsBefore + 1);
     });
 
     test("a provider turned off, or changed since the flow started, ends the sign-up", async () => {
@@ -441,6 +470,38 @@ integration("a person's ways to sign in", () => {
       expect(await userByEmail("kay@example.com")).toBeUndefined();
     });
 
+    test("an invite that expires while the vouched account is locked joins nobody", async () => {
+      const lou = await person("lou@example.com");
+      const inviteId = await invite("lou@example.com");
+      await dying(inviteId, 1_000);
+      const holder = await pool.connect();
+      try {
+        await holder.query("BEGIN");
+        await holder.query("SELECT 1 FROM users WHERE id = $1 FOR UPDATE", [
+          lou.id,
+        ]);
+        const pending = signUp(
+          inviteId,
+          "sub-lou",
+          providerA,
+          "lou@example.com",
+        );
+        await lockWaiters(1);
+        await dead(inviteId);
+        await holder.query("COMMIT");
+        expect(await pending).toEqual({ outcome: "invite_gone" });
+      } finally {
+        await holder.query("ROLLBACK");
+        holder.release();
+      }
+      expect(
+        (await methodsOf(lou.id)).filter((row) => row.kind === "oidc"),
+      ).toEqual([]);
+      expect(await db.$count(webSessions, eq(webSessions.userId, lou.id))).toBe(
+        0,
+      );
+    });
+
     test("one invite makes one account, and one external account joins once", async () => {
       const shared = await invite("frank@example.com");
       const sameInvite = await Promise.all([
@@ -486,10 +547,17 @@ integration("a person's ways to sign in", () => {
       expect(await db.$count(webSessions, eq(webSessions.userId, ivy.id))).toBe(
         1,
       );
-      const written = await db
-        .select()
-        .from(receipts)
-        .where(eq(receipts.operation, "link_login_method"));
+      // dave's invite above linked by address and wrote one too.
+      const written = (
+        await db
+          .select()
+          .from(receipts)
+          .where(eq(receipts.operation, "link_login_method"))
+      ).filter(
+        (row) =>
+          (row.actor as { actor_user_id?: string } | null)?.actor_user_id ===
+          ivy.id,
+      );
       expect(written).toHaveLength(1);
       expect(written[0]?.actor).toMatchObject({ actor_user_id: ivy.id });
       expect(written[0]?.result).toMatchObject({

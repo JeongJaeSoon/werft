@@ -308,7 +308,7 @@ describe("공급자 콜백", () => {
           "LOGIN_LINK_REQUIRED",
           "Sign in with your existing account",
         ),
-        "이미 이 이메일로 만든 계정이 있습니다 — 그 계정에 쓰던 수단으로 로그인하세요. 이 공급자로 로그인하려면 오너에게 요청하세요.",
+        "이 공급자 계정을 같은 이메일의 콘솔 계정에 자동으로 연결할 수 없습니다 — 그 계정에 쓰던 수단으로 로그인하거나 오너에게 요청하세요.",
       ],
     ];
     for (const [response, text] of cases) {

@@ -240,7 +240,7 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
   RELEASE_SPEC_UNAVAILABLE:
     "The release's connection is disabled or gone, or its model left the connection's list; release the agent again. `error.details.reason_code` is `connection_missing` or `model_removed`.",
   LOGIN_LINK_REQUIRED:
-    "The verified address already has an account. It is never joined by email: sign in with the existing account and link the external login there.",
+    "The verified address has an account this external login cannot be joined to: it already has another account of this issuer, or, for an invite, the provider vouches for another address. Nothing is joined; sign in with the existing account, or ask an owner.",
   PUSH_SOURCE_MISSING:
     "The session has no repository, or no committed checkpoint, to push.",
   PUSH_REQUEST_OPEN:

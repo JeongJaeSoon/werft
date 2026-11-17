@@ -72,6 +72,7 @@ function entryOf(
   // anything: without one no account is named, no invite found, nobody
   // joins.
   if (known === "refused" || !admission.ownsEmail) return "refused";
+  if (known === "linkable") return "links";
   if (known === "account_exists") return "link_required";
   return admission.jitRole !== null ? "joins" : "invite_only";
 }

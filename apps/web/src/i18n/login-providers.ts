@@ -191,8 +191,10 @@ export const loginProvidersKo = {
     "공급자가 이 주소를 증명하지 않습니다. 이 주소로는 계정을 찾지도, 가입시키지도 않습니다.",
   "loginProviders.result.entry": "이 계정이 로그인하면",
   "loginProviders.result.entry.signs_in": "연결된 계정으로 로그인됩니다.",
+  "loginProviders.result.entry.links":
+    "같은 주소의 계정에 자동으로 연결되어 그 계정으로 로그인됩니다.",
   "loginProviders.result.entry.link_required":
-    "같은 주소의 계정이 있지만 이 공급자와 연결되어 있지 않아 로그인되지 않습니다.",
+    "같은 주소의 계정이 있지만 이 공급자의 다른 계정과 이미 연결되어 있어, 연결하지 않고 로그인되지 않습니다.",
   "loginProviders.result.entry.joins": "새 멤버로 가입됩니다.",
   "loginProviders.result.entry.invite_only":
     "이 주소로 온 초대가 있어야 들어옵니다.",
@@ -227,8 +229,10 @@ export const loginProvidersKo = {
     "비상 관리자가 없습니다. 먼저 지정하세요.",
   "loginProviders.access.reason.lapsed":
     "비상 관리자가 더는 비밀번호로 로그인할 수 없습니다. 다른 오너를 지정하세요.",
+  "loginProviders.access.reason.locksOut":
+    "아직 닫을 수 없습니다. 켜진 공급자가 내 계정에 연결되어 있지 않아, 닫으면 내가 다시 들어올 수 없습니다. 켜진 공급자로 한 번 로그인해 내 계정에 연결하세요. 공급자가 확인한 이메일이 내 계정의 이메일과 같으면 자동으로 연결됩니다.",
   "loginProviders.access.error.locksOut":
-    "이대로는 내가 다시 들어올 수 없습니다. 켜진 공급자의 계정을 내 로그인 수단에 먼저 연결하세요.",
+    "이대로는 내가 다시 들어올 수 없습니다. 켜진 공급자로 먼저 한 번 로그인해 내 계정에 연결하세요. 공급자가 확인한 이메일이 내 계정의 이메일과 같으면 자동으로 연결됩니다.",
   "loginProviders.access.done.closed":
     "비밀번호 로그인을 닫았습니다. 세션 {count}개를 끊었습니다.",
   "loginProviders.access.done.opened": "비밀번호 로그인을 열었습니다.",
@@ -441,8 +445,10 @@ export const loginProvidersEn: Record<keyof typeof loginProvidersKo, string> = {
   "loginProviders.result.entry": "If this account signs in",
   "loginProviders.result.entry.signs_in":
     "It signs in as the account it is connected to.",
+  "loginProviders.result.entry.links":
+    "It is connected to the account with this address and signs in as it.",
   "loginProviders.result.entry.link_required":
-    "An account with this address exists but is not connected to this provider, so it does not sign in.",
+    "An account with this address exists, but it is already connected to another account of this provider, so it is not connected and does not sign in.",
   "loginProviders.result.entry.joins": "It joins as a new member.",
   "loginProviders.result.entry.invite_only":
     "It comes in only with an invite sent to this address.",
@@ -477,8 +483,10 @@ export const loginProvidersEn: Record<keyof typeof loginProvidersKo, string> = {
     "There is no emergency admin. Name one first.",
   "loginProviders.access.reason.lapsed":
     "The emergency admin can no longer log in with a password. Name another owner.",
+  "loginProviders.access.reason.locksOut":
+    "You can't close it yet. No provider that is on is connected to your account, so you would not be able to get back in. Log in once with a provider that is on to connect it to your account. It connects by itself when the email the provider verified is your account's email.",
   "loginProviders.access.error.locksOut":
-    "You would not be able to get back in. Link an account of a provider that is on to your login methods first.",
+    "You would not be able to get back in. Sign in once with a provider that is on first, so it is connected to your account. It connects by itself when the email the provider verified is your account's email.",
   "loginProviders.access.done.closed":
     "Password login is closed. {count} sessions ended.",
   "loginProviders.access.done.opened": "Password login is open.",
@@ -695,8 +703,10 @@ export const loginProvidersJa: Record<keyof typeof loginProvidersKo, string> = {
   "loginProviders.result.entry": "このアカウントがログインすると",
   "loginProviders.result.entry.signs_in":
     "連携済みのアカウントでログインします。",
+  "loginProviders.result.entry.links":
+    "同じアドレスのアカウントに自動で連携され、そのアカウントでログインします。",
   "loginProviders.result.entry.link_required":
-    "同じアドレスのアカウントがありますが、このプロバイダーと連携していないためログインできません。",
+    "同じアドレスのアカウントがありますが、このプロバイダーの別のアカウントとすでに連携しているため、連携せずログインできません。",
   "loginProviders.result.entry.joins": "新しいメンバーとして参加します。",
   "loginProviders.result.entry.invite_only":
     "このアドレス宛ての招待がある場合のみ入れます。",
@@ -731,8 +741,10 @@ export const loginProvidersJa: Record<keyof typeof loginProvidersKo, string> = {
     "緊急管理者がいません。先に指定してください。",
   "loginProviders.access.reason.lapsed":
     "緊急管理者はパスワードでログインできなくなっています。別のオーナーを指定してください。",
+  "loginProviders.access.reason.locksOut":
+    "まだ閉じられません。オンのプロバイダーが自分のアカウントに連携されていないため、閉じると自分が入れなくなります。オンのプロバイダーで一度ログインして、自分のアカウントに連携してください。プロバイダーが確認したメールアドレスが自分のアカウントのものと同じなら自動で連携されます。",
   "loginProviders.access.error.locksOut":
-    "このままでは自分が入れなくなります。先に、オンのプロバイダーのアカウントを自分のログイン方法に連携してください。",
+    "このままでは自分が入れなくなります。先にオンのプロバイダーで一度ログインして、自分のアカウントに連携してください。プロバイダーが確認したメールアドレスが自分のアカウントのものと同じなら自動で連携されます。",
   "loginProviders.access.done.closed":
     "パスワードログインを閉じました。セッションを {count} 件終了しました。",
   "loginProviders.access.done.opened": "パスワードログインを開きました。",

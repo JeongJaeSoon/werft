@@ -430,28 +430,45 @@ integration("provider sign-in first-entry rules on PostgreSQL", () => {
     expect(await userByEmail("zed@example.com")).toBeUndefined();
   });
 
-  test("rule 4: an address that has an account is never joined by email, invite or JIT notwithstanding", async () => {
-    await invite("owner@example.com");
+  test("rule 4: an address that has an account is linked to it when the provider vouches for it, invite or JIT notwithstanding", async () => {
+    const inviteId = await invite("owner@example.com");
     const sessionsBefore = await db.$count(webSessions);
-    const response = await (
-      await google({ allowedDomains: ["example.com"], jitRole: "member" })
-    ).signIn({
-      sub: "sub-impostor",
+    const app = await google({
+      allowedDomains: ["example.com"],
+      jitRole: "member",
+    });
+    const response = await app.signIn({
+      sub: "sub-owner",
       email: "owner@example.com",
       hd: "example.com",
     });
-    expect(response.status).toBe(409);
-    expect(await errorOf(response)).toEqual({
-      code: "LOGIN_LINK_REQUIRED",
-      message:
-        "Sign in with your existing account, then connect this provider in settings",
+    expect(response.status).toBe(200);
+    expect(await signedInBody(response)).toMatchObject({
+      user_id: ownerId,
+      workspace_id: workspaceId,
+      role: "owner",
     });
-    expect(sessionCookie(response)).toBe("");
-    expect(await db.$count(webSessions)).toBe(sessionsBefore);
-    expect(await methodsOf(ownerId)).toHaveLength(1);
+    expect(sessionCookie(response)).not.toBe("");
+    expect(await db.$count(webSessions)).toBe(sessionsBefore + 1);
     expect(
-      await db.$count(loginMethods, eq(loginMethods.subject, "sub-impostor")),
-    ).toBe(0);
+      (await methodsOf(ownerId)).map((row) => [row.kind, row.subject]).sort(),
+    ).toEqual([
+      ["oidc", "sub-owner"],
+      ["password", null],
+    ]);
+    const [spent] = await db
+      .select({ acceptedAt: invites.acceptedAt })
+      .from(invites)
+      .where(eq(invites.id, inviteId));
+    expect(spent?.acceptedAt).toBeNull();
+
+    const again = await app.signIn({
+      sub: "sub-owner",
+      email: "owner@example.com",
+      hd: "example.com",
+    });
+    expect(again.status).toBe(200);
+    expect(await methodsOf(ownerId)).toHaveLength(2);
   });
 
   test("rule 5: refusals read the same whether or not an account exists", async () => {
@@ -665,7 +682,7 @@ integration("provider sign-in first-entry rules on PostgreSQL", () => {
     expect(await userByEmail("june@corp.example")).toBeUndefined();
   });
 
-  test("the same subject at another issuer is another person, and the same address is never joined across issuers", async () => {
+  test("the same subject at another issuer is another person; the same vouched address joins the account", async () => {
     // sub-bob is Bob at Google; at the other provider it is nobody yet.
     const stranger = await (await other()).signIn({
       sub: "sub-bob",
@@ -674,16 +691,42 @@ integration("provider sign-in first-entry rules on PostgreSQL", () => {
     expect(stranger.status).toBe(401);
 
     const bob = await userByEmail("bob@example.com");
+    const unvouched = await (await other({ jitRole: "member" })).signIn({
+      sub: "kc-bob",
+      email: "bob@example.com",
+      email_verified: false,
+    });
+    expect(unvouched.status).toBe(401);
+    expect(await errorOf(unvouched)).toEqual(REJECTED);
+    expect(await methodsOf(bob?.id as string)).toHaveLength(1);
+
     const sameAddress = await (await other({ jitRole: "member" })).signIn({
       sub: "kc-bob",
       email: "bob@example.com",
     });
-    expect(sameAddress.status).toBe(409);
-    expect((await errorOf(sameAddress)).code).toBe("LOGIN_LINK_REQUIRED");
-    expect(sessionCookie(sameAddress)).toBe("");
-    expect(await methodsOf(bob?.id as string)).toMatchObject([
-      { issuer: GOOGLE_ISSUER, subject: "sub-bob" },
-    ]);
+    expect(sameAddress.status).toBe(200);
+    expect(await signedInBody(sameAddress)).toMatchObject({
+      user_id: bob?.id,
+    });
+    expect(
+      (await methodsOf(bob?.id as string))
+        .map((row) => [row.issuer, row.subject])
+        .sort(),
+    ).toEqual(
+      [
+        [GOOGLE_ISSUER, "sub-bob"],
+        [otherIdp.issuer, "kc-bob"],
+      ].sort(),
+    );
+
+    // A second account of the same provider is not linked beside it.
+    const second = await (await other({ jitRole: "member" })).signIn({
+      sub: "kc-bob-2",
+      email: "bob@example.com",
+    });
+    expect(second.status).toBe(409);
+    expect((await errorOf(second)).code).toBe("LOGIN_LINK_REQUIRED");
+    expect(sessionCookie(second)).toBe("");
   });
 
   test("turning a provider off ends its sessions at once and refuses its sign-ins; the rest stay", async () => {

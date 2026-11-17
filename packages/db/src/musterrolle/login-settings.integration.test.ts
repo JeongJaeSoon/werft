@@ -29,6 +29,7 @@ import {
   webSessions,
   workspaces,
 } from "../schema.ts";
+import { deletedBy } from "../soft-delete.ts";
 import { seedLoginProvider } from "../testing/login-provider.ts";
 import {
   bootstrapOwner,
@@ -383,6 +384,8 @@ integration("who may sign in with a password", () => {
     const other = await person("owner");
     // Not the emergency admin, and no account of a provider that is on.
     expect(await close(other.id)).toEqual({ outcome: "locks_out_actor" });
+    // What the page reads ahead is what the close goes by.
+    expect(await store.hasProviderAccount(other.id)).toBe(false);
     const stale = await provider();
     await account(other.id, stale);
     await db
@@ -390,16 +393,44 @@ integration("who may sign in with a password", () => {
       .set({ enabled: false })
       .where(eq(loginProviders.id, stale.id));
     expect(await close(other.id)).toEqual({ outcome: "locks_out_actor" });
+    expect(await store.hasProviderAccount(other.id)).toBe(false);
 
+    await account(other.id, idp);
+    expect(await store.hasProviderAccount(other.id)).toBe(true);
     // Nobody named: an installation whose owners never had a password.
     await db.update(loginSettings).set({ emergencyAdminUserId: null });
-    await account(other.id, idp);
     expect(await close(other.id)).toEqual({ outcome: "no_emergency_admin" });
     // Named, but no longer able to sign in with a password. No path here
     // leaves one so; a row written by hand does.
     const lapsed = await person("owner", false);
     await db.update(loginSettings).set({ emergencyAdminUserId: lapsed.id });
     expect(await close(other.id)).toEqual({ outcome: "no_emergency_admin" });
+    expect((await settingsRow()).passwordLogin).toBe("on");
+  });
+
+  test("a deleted account, or an account of a deleted provider, is no way back for the one asking", async () => {
+    const close = (by: string) =>
+      store.setPasswordLogin({ value: "emergency_only", audit: audit(by) });
+    const idp = await provider();
+    const other = await person("owner");
+    const method = await account(other.id, idp);
+    expect(await store.hasProviderAccount(other.id)).toBe(true);
+    await db
+      .update(loginMethods)
+      .set(deletedBy(other.id))
+      .where(eq(loginMethods.id, method));
+    expect(await store.hasProviderAccount(other.id)).toBe(false);
+    expect(await close(other.id)).toEqual({ outcome: "locks_out_actor" });
+
+    // A provider row deleted while still marked on is no provider at all.
+    const gone = await provider();
+    await account(other.id, gone);
+    await db
+      .update(loginProviders)
+      .set(deletedBy(first))
+      .where(eq(loginProviders.id, gone.id));
+    expect(await store.hasProviderAccount(other.id)).toBe(false);
+    expect(await close(other.id)).toEqual({ outcome: "locks_out_actor" });
     expect((await settingsRow()).passwordLogin).toBe("on");
   });
 
@@ -423,6 +454,7 @@ integration("who may sign in with a password", () => {
       await session(member.id, member.passwordMethodId),
       await session(member.id, null),
     ];
+    expect(await store.hasProviderAccount(owner.id)).toBe(true);
     const result = await store.setPasswordLogin({
       value: "emergency_only",
       audit: audit(owner.id),

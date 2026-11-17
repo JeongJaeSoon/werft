@@ -36,6 +36,8 @@ export interface ConfirmDialogProps {
    */
   readonly busy?: boolean | undefined;
   readonly confirmDisabled?: boolean | undefined;
+  /** The id of what says why the confirm button is disabled. */
+  readonly confirmDescribedBy?: string | undefined;
   readonly tone?: "default" | "danger" | undefined;
   /**
    * `alertdialog` when the dialog interrupts a flow to demand a decision,
@@ -58,6 +60,7 @@ export function ConfirmDialog({
   cancelLabel = "취소",
   busy = false,
   confirmDisabled = false,
+  confirmDescribedBy,
   tone = "default",
   role = "dialog",
   children,
@@ -159,6 +162,7 @@ export function ConfirmDialog({
             variant={tone === "danger" ? "destructive" : "default"}
             onClick={onConfirm}
             disabled={busy || confirmDisabled}
+            aria-describedby={confirmDescribedBy}
           >
             {busy ? (
               <span className="werft-button__spinner" aria-hidden="true" />

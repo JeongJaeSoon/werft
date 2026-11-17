@@ -420,11 +420,46 @@ integration(
         expect(await liveSessions(bob?.id ?? "")).toBe(sessionsBefore);
       });
 
-      test("an invite to an address that has an account answers LOGIN_LINK_REQUIRED and joins nothing", async () => {
+      test("an invite to an address that has an account joins it only when the provider vouches for that address", async () => {
+        const gwen = randomUUID();
+        await db.insert(users).values({
+          id: gwen,
+          email: "gwen@example.com",
+          passwordHash: "argon2id$placeholder",
+          displayName: "Gwen",
+        });
+        await db
+          .insert(memberships)
+          .values({ workspaceId, userId: gwen, role: "member" });
+        const { id, token } = await invite("gwen@example.com");
+        const finish = await started(await inviteStart(a, token), a, {
+          sub: "gwen-at-a",
+          email: "gwen@example.com",
+        });
+        const response = await finish();
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({
+          outcome: "signed_in",
+          user_id: gwen,
+          role: "member",
+        });
+        expect(sessionOf(response)).not.toBe("");
+        expect((await inviteRow(id))?.acceptedAt).toBeNull();
+        expect(await methodsOf(gwen)).toMatchObject([
+          {
+            kind: "oidc",
+            issuer: a.idp.issuer,
+            subject: "gwen-at-a",
+            emailAtLink: "gwen@example.com",
+          },
+        ]);
+      });
+
+      test("an invite to an address that has an account, brought by another address, answers LOGIN_LINK_REQUIRED and joins nothing", async () => {
         const { id, token } = await invite("owner@example.com");
         const finish = await started(await inviteStart(a, token), a, {
           sub: "owner-by-invite",
-          email: "owner@example.com",
+          email: "someone@elsewhere.example",
         });
         const response = await finish();
         expect(response.status).toBe(409);
@@ -548,10 +583,17 @@ integration(
           },
         ]);
         expect(mine.linkable.map((row) => row.display_name)).toEqual(["B"]);
-        const written = await db
-          .select()
-          .from(receipts)
-          .where(eq(receipts.operation, "link_login_method"));
+        // gwen's sign-in above linked by address and wrote one too.
+        const written = (
+          await db
+            .select()
+            .from(receipts)
+            .where(eq(receipts.operation, "link_login_method"))
+        ).filter(
+          (row) =>
+            (row.actor as { actor_user_id?: string } | null)?.actor_user_id ===
+            ownerId,
+        );
         expect(written).toHaveLength(1);
         expect(written[0]?.actor).toMatchObject({ actor_user_id: ownerId });
         expect(JSON.stringify(written[0])).not.toContain("owner-at-a");
