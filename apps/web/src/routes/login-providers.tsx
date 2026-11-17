@@ -387,7 +387,7 @@ export function LoginProviderScreen() {
   });
   const list = useQuery(loginProvidersQuery(client, owns));
   const provider = list.data?.providers.find((item) => item.id === providerId);
-  const title = provider?.display_name ?? t("loginProviders.title");
+  const title = provider?.display_name ?? t("loginProviders.detailTitle");
   const breadcrumb = (
     <PageBreadcrumb label={t("shell.breadcrumb")}>
       <PageBreadcrumbLink asChild>

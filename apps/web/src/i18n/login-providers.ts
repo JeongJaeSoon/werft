@@ -5,6 +5,7 @@
 export const loginProvidersKo = {
   "loginProviders.nav": "로그인",
   "loginProviders.title": "로그인",
+  "loginProviders.detailTitle": "공급자",
   "loginProviders.description":
     "워크스페이스에 로그인할 때 쓰는 OIDC 공급자입니다. 공급자는 꺼진 채로 만들어지고, 지금 설정으로 테스트 로그인이 통과해야 켤 수 있습니다.",
   "loginProviders.add": "공급자 추가",
@@ -256,6 +257,7 @@ export const loginProvidersKo = {
 export const loginProvidersEn: Record<keyof typeof loginProvidersKo, string> = {
   "loginProviders.nav": "Login",
   "loginProviders.title": "Login",
+  "loginProviders.detailTitle": "Provider",
   "loginProviders.description":
     "The OIDC providers people sign in to this workspace with. A provider is made off, and can be turned on once a test sign-in passes with its settings as they are.",
   "loginProviders.add": "Add provider",
@@ -510,6 +512,7 @@ export const loginProvidersEn: Record<keyof typeof loginProvidersKo, string> = {
 export const loginProvidersJa: Record<keyof typeof loginProvidersKo, string> = {
   "loginProviders.nav": "ログイン",
   "loginProviders.title": "ログイン",
+  "loginProviders.detailTitle": "プロバイダー",
   "loginProviders.description":
     "ワークスペースへのログインに使う OIDC プロバイダーです。プロバイダーはオフの状態で作成され、現在の設定でテストログインが通るとオンにできます。",
   "loginProviders.add": "プロバイダーを追加",
