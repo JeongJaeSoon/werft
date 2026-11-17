@@ -13,6 +13,7 @@ import {
   GridTableHeader,
   GridTableRow,
   Link,
+  RELATIVE_TIME_TRACK,
   RelativeTime,
   RowAction,
   RowLines,
@@ -327,7 +328,13 @@ export function SlackAppSection({
   }
   const appName = t("slack.appName", { name });
   const state = slackState(slack.readError, identity, record);
-  const updated = <RelativeTime value={record.updated_at} locale={locale} />;
+  const updated = (
+    <RelativeTime
+      value={record.updated_at}
+      locale={locale}
+      className="whitespace-nowrap"
+    />
+  );
   const badge =
     record.state === "creating" ? (
       <Badge>{t("workspace.slackAppsCreating")}</Badge>
@@ -339,9 +346,9 @@ export function SlackAppSection({
   return section(
     <GridTable
       aria-label={t("workspace.slackAppsList")}
-      columns={COLUMNS[0]}
+      columns={columns(locale)[0]}
       narrowAt={640}
-      narrowColumns={COLUMNS[1]}
+      narrowColumns={columns(locale)[1]}
       align={["start", "start", "start", "action"]}
       framed
     >
@@ -518,7 +525,8 @@ export function SlackDangerSection({ slack }: { readonly slack: SlackApp }) {
 
 // App, state, updated, actions; a phone keeps the app (with the state and
 // the time under it) and the actions.
-const COLUMNS = [
-  "minmax(0,1.4fr) minmax(0,1fr) 120px 160px",
-  "minmax(0,1fr) 160px",
-] as const;
+const columns = (locale: keyof typeof RELATIVE_TIME_TRACK) =>
+  [
+    `minmax(0,1.4fr) minmax(0,1fr) ${RELATIVE_TIME_TRACK[locale]} 160px`,
+    "minmax(0,1fr) 160px",
+  ] as const;

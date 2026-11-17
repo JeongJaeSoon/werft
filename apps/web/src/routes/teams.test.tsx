@@ -251,6 +251,37 @@ describe("팀 화면", () => {
     ).toBeDefined();
   });
 
+  // Owner, 2026-11-17: the 구성원 column stays where it was, its header and
+  // its count starting at one x; only the chevron sits at the row's end.
+  test("팀 표는 머리글과 셀이 열마다 시작에 붙고, 화살표만 행 끝에 붙는다", async () => {
+    const starts = (cell: HTMLElement) =>
+      cell.dataset.align === "start" &&
+      !/\b(justify-end|text-end|text-right|ml-auto)\b/.test(cell.className);
+    const server = teamServer();
+    renderAt("/members/teams", server.routes);
+    await screen.findByRole("link", { name: "팀 열기: 결제팀" });
+    const teams = screen.getByRole("table", { name: "팀 표" });
+    expect(teams.style.getPropertyValue("--grid-table-columns")).toBe(
+      "minmax(0,1fr) 9rem",
+    );
+    for (const row of within(teams).getAllByRole("row")) {
+      const cells = [
+        ...row.querySelectorAll<HTMLElement>(
+          "[role=columnheader], [role=cell]",
+        ),
+      ];
+      expect(cells.map(starts)).toEqual([true, true]);
+    }
+    const count = within(teams).getAllByText(
+      /^구성원 \d+명$/,
+    )[0] as HTMLElement;
+    expect(count.className).not.toContain("ml-auto");
+    expect(count.parentElement?.firstElementChild === count).toBe(true);
+    expect(
+      count.parentElement?.querySelector("svg")?.getAttribute("class"),
+    ).toContain("ml-auto");
+  });
+
   test("헤더의 팀 만들기가 대화상자를 열어 만든다. 같은 이름은 대화상자 안에서 말한다", async () => {
     const server = teamServer();
     const { api } = renderAt("/members/teams", server.routes);
@@ -1003,6 +1034,22 @@ describe("팀 화면", () => {
       ),
     ).toBe(false);
     const mateRow = within(table).getAllByRole("row")[1] as HTMLElement;
+    // Every header and cell starts its column; only the row menu sits at the end.
+    for (const row of within(table).getAllByRole("row")) {
+      const cells = [
+        ...row.querySelectorAll<HTMLElement>(
+          "[role=columnheader], [role=cell]",
+        ),
+      ];
+      expect(
+        cells.map((cell) =>
+          cell.dataset.align === "start" &&
+          !/\b(justify-end|text-end|text-right|ml-auto)\b/.test(cell.className)
+            ? "start"
+            : cell.dataset.align,
+        ),
+      ).toEqual(["start", "start", "start", "start", "start", "action"]);
+    }
     // One line per cell, as on 구성원: the team role is a badge, not a select.
     expect(
       within(mateRow)

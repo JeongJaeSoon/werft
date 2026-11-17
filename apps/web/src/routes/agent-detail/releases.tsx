@@ -32,8 +32,10 @@ import { previousRelease, releaseChanges } from "./release-changes.ts";
 import { ReleaseChangesSummary } from "./release-changes-view.tsx";
 import { type RollbackPreview, rollbackPreview } from "./rollback-preview.ts";
 
+// The version, whose description runs longest, takes most of the leftover;
+// the time range and the author fit in a fifth each.
 const COLUMNS = [
-  "minmax(10rem,1.6fr) 96px minmax(0,1.2fr) minmax(0,1fr) 120px",
+  "minmax(10rem,3fr) 96px minmax(0,1fr) minmax(0,1fr) 120px",
   "minmax(0,1fr) 120px",
 ] as const;
 

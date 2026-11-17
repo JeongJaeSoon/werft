@@ -98,7 +98,11 @@ export {
   PopoverTrigger,
 } from "./popover.tsx";
 export { RadioGroup, RadioGroupItem } from "./radio-group.tsx";
-export { RelativeTime, type RelativeTimeProps } from "./relative-time.tsx";
+export {
+  RELATIVE_TIME_TRACK,
+  RelativeTime,
+  type RelativeTimeProps,
+} from "./relative-time.tsx";
 export { RemoveButton, type RemoveButtonProps } from "./remove-button.tsx";
 export {
   OPENS_ROW,

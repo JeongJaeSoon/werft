@@ -18,6 +18,18 @@ export interface RelativeTimeProps
 }
 
 /**
+ * A GridTable track for a column of RelativeTime and nothing wider: it fits
+ * the longest phrase each locale writes ("2025/12/31", "Yesterday 23:59") at
+ * body size, unwrapped. Every row of a GridTable is a grid of its own, so a
+ * column cannot size itself to its content; this width stands in for it.
+ */
+export const RELATIVE_TIME_TRACK: Readonly<Record<TimestampLocale, string>> = {
+  ko: "72px",
+  ja: "72px",
+  en: "100px",
+};
+
+/**
  * "N분 전" in a focusable <time>, with the exact instant in a Tooltip. Font
  * size, colour and alignment come from the caller.
  */
