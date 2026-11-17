@@ -267,7 +267,7 @@ export function ProviderCallbackScreen() {
       </AuthPage>
     );
   return (
-    <AuthPage title={t("login.provider.title")}>
+    <AuthPage title={t(joining ? "invite.title" : "login.provider.title")}>
       {failure || finish.error ? (
         <>
           <FormError>

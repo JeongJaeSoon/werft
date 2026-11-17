@@ -916,6 +916,23 @@ describe("공급자 가입의 콜백", () => {
     ).toHaveLength(0);
   });
 
+  test("가입이 돌아온 화면의 제목은 초대 수락이다", async () => {
+    sessionStorage.setItem("ap.inviteFlow", "s1");
+    renderAt(`${CALLBACK}?state=s1`, notAccepted);
+    await screen.findByRole("alert");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "초대 수락",
+    );
+  });
+
+  test("로그인이 돌아온 화면의 제목은 SSO 로그인이다", async () => {
+    renderAt(`${CALLBACK}?state=s1`, notAccepted);
+    await screen.findByRole("alert");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "SSO 로그인",
+    );
+  });
+
   test("시작했다가 그만둔 가입은 그 탭의 다음 로그인을 가입으로 읽게 하지 않는다", async () => {
     sessionStorage.setItem("ap.inviteFlow", "given-up");
     renderAt(`${CALLBACK}?code=c1&state=s1`, notAccepted);
