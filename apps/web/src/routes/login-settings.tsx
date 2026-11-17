@@ -153,6 +153,11 @@ export function PasswordLoginSettings() {
   const { settings, emergency_admin_candidates: candidates } = read.data;
   const admin = settings.emergency_admin;
   const closed = settings.password_login === "emergency_only";
+  const actionLabels = [
+    t("loginProviders.access.open"),
+    t("loginProviders.access.close"),
+    t("loginProviders.emergency.change"),
+  ];
   const others = candidates.filter((owner) => owner.user_id !== admin?.user_id);
   const closeReason =
     settings.enabled_providers === 0
@@ -208,6 +213,7 @@ export function PasswordLoginSettings() {
                     label={t("loginProviders.access.open")}
                     name={t("loginProviders.access.open.name")}
                     busy={change.isPending}
+                    alike={actionLabels}
                     onClick={(button) => open("open", button)}
                   />
                 ) : (
@@ -216,6 +222,7 @@ export function PasswordLoginSettings() {
                     name={t("loginProviders.access.close.name")}
                     reason={closeReason}
                     busy={change.isPending}
+                    alike={actionLabels}
                     onClick={(button) => open("close", button)}
                   />
                 )
@@ -250,6 +257,7 @@ export function PasswordLoginSettings() {
                       : undefined
                   }
                   busy={change.isPending}
+                  alike={actionLabels}
                   onClick={(button) => open("admin", button)}
                 />
               }

@@ -94,6 +94,32 @@ describe("비밀번호 로그인 설정", () => {
     ).toBe(null);
   });
 
+  test("두 행의 버튼은 서로의 글자를 안 보이게 품어 같은 폭이다", async () => {
+    renderAt(LIST_PAGE, routes(read()));
+    const area = await section();
+    const buttons = [
+      within(area).getByRole("button", { name: "비밀번호 로그인 닫기" }),
+      within(area).getByRole("button", { name: "비상 관리자 바꾸기" }),
+    ];
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      "닫기",
+      "바꾸기",
+    ]);
+    for (const button of buttons)
+      expect(
+        [
+          ...button.querySelectorAll<HTMLElement>(
+            "[data-slot=same-width] > [aria-hidden=true]",
+          ),
+        ].map((ghost) => [ghost.className, ghost.dataset.text]),
+      ).toEqual(
+        ["열기", "닫기", "바꾸기"].map((text) => [
+          "invisible before:content-[attr(data-text)]",
+          text,
+        ]),
+      );
+  });
+
   const refusedAhead: Array<[string, LoginSettingsResponse, string]> = [
     [
       "켜진 공급자가 없으면",

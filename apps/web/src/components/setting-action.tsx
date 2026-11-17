@@ -1,4 +1,5 @@
 import { DisabledReason, RowAction } from "@werft-ai/ui";
+import { Ghost, SameWidth } from "./same-width.tsx";
 
 /** A row's action; one that is withheld stays on the page and says why. */
 export function Action({
@@ -6,6 +7,7 @@ export function Action({
   name,
   reason,
   busy,
+  alike,
   onClick,
 }: {
   readonly label: string;
@@ -13,6 +15,8 @@ export function Action({
   readonly name?: string | undefined;
   readonly reason?: string | undefined;
   readonly busy: boolean;
+  /** The labels of the buttons in the rows around, to be as wide as. */
+  readonly alike?: readonly string[] | undefined;
   readonly onClick: (button: HTMLElement) => void;
 }) {
   const button = (
@@ -27,7 +31,16 @@ export function Action({
         if (!busy) onClick(event.currentTarget);
       }}
     >
-      {label}
+      {alike ? (
+        <SameWidth
+          center
+          alike={alike.map((text) => <Ghost key={text} text={text} />)}
+        >
+          {label}
+        </SameWidth>
+      ) : (
+        label
+      )}
     </RowAction>
   );
   return reason === undefined ? (

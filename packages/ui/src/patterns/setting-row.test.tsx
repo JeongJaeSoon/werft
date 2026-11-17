@@ -153,4 +153,29 @@ describe("SettingRow", () => {
     const slot = getByRole("switch").parentElement;
     expect(slot?.className.split(" ")).not.toContain("sm:row-span-2");
   });
+
+  test("값 줄만 있는 행은 폰에서도 값을 제목 아래 왼쪽 열에 두고, 버튼을 두 줄의 가운데에 둔다", () => {
+    const { getByRole, getByText } = render(
+      <RowList variant="joined">
+        <SettingRow
+          title="비상 관리자"
+          meta="Dana · dana@example.test"
+          actions={<Button size="sm">바꾸기</Button>}
+        />
+      </RowList>,
+    );
+    const classes = (element: Element | null | undefined) =>
+      element?.className.split(" ") ?? [];
+    const slot = getByRole("button").parentElement;
+    for (const name of ["col-start-2", "row-start-1", "row-span-2"]) {
+      expect(classes(slot)).toContain(name);
+    }
+    expect(classes(slot)).toContain("self-center");
+    expect(classes(slot)).not.toContain("self-start");
+    const lines = getByText("Dana · dana@example.test");
+    expect(classes(lines)).toContain("col-start-1");
+    expect(classes(lines)).toContain("row-start-2");
+    expect(classes(lines)).not.toContain("col-span-2");
+    expect(classes(lines)).toContain("wrap-anywhere");
+  });
 });

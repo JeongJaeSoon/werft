@@ -144,17 +144,35 @@ describe("로그인 공급자 목록", () => {
         ),
     );
     expect(placed.map((element) => element.outerHTML)).toEqual([]);
-    // Each row is a grid of its own: a track sized by its content (auto,
-    // fit-content, min/max-content) puts the header and each row's cell at a
-    // different place, the last one pushed to the right edge.
-    const tracks = ["--grid-table-columns", "--grid-table-narrow-columns"].map(
-      (name) => table.style.getPropertyValue(name),
-    );
+    // Narrow, the state column is as wide as its content, at the right edge.
     expect(
-      tracks.filter((template) =>
-        /\b(auto|fit-content|max-content|min-content)\b/.test(template),
+      ["--grid-table-columns", "--grid-table-narrow-columns"].map((name) =>
+        table.style.getPropertyValue(name),
       ),
-    ).toEqual([]);
+    ).toEqual(["minmax(0,1fr) 220px 180px", "minmax(0,1fr) fit-content(55%)"]);
+    // Each row is a grid of its own, so a content-sized track is as wide in
+    // every row only when the header and each state cell hold the same
+    // content: their own, and the column's widest, unseen.
+    const states = [
+      ...table.querySelectorAll<HTMLElement>(
+        "[role=columnheader]:nth-child(2), [role=cell]:nth-child(2)",
+      ),
+    ];
+    expect(states).toHaveLength(3);
+    const unseen = states.map((cell) =>
+      [
+        ...cell.querySelectorAll<HTMLElement>(
+          "[data-slot=same-width] > [aria-hidden=true]",
+        ),
+      ].map((ghost) => {
+        expect(ghost.className).toContain("invisible");
+        expect(ghost.textContent).toBe("");
+        return ghost.dataset.text;
+      }),
+    );
+    expect(unseen).toEqual(
+      Array.from({ length: 3 }, () => ["상태", "초안", "켜짐"]),
+    );
   });
 
   test("without CONSOLE_ORIGIN the page says why and offers no way to add one", async () => {

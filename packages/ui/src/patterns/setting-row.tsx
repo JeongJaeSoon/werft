@@ -39,9 +39,10 @@ function ownId(control: ReactNode): string | undefined {
 
 /**
  * One setting in a `RowList variant="joined"`: title and description on the
- * left, the control on the right. Below 640px the control stays on the
- * title's first line and the description runs under both, full width; the
- * status words drop out there, since the control's own state says the same.
+ * left, the control on the right, centred on the row. Below 640px a row with
+ * a description keeps the control on the title's first line and runs the
+ * description under both, full width; the status words drop out there, since
+ * the control's own state says the same.
  */
 export function SettingRow({
   title,
@@ -56,6 +57,9 @@ export function SettingRow({
 }: SettingRowProps): JSX.Element {
   const labelled = control !== undefined && control !== null;
   const below = Boolean(description) || (meta !== undefined && meta !== null);
+  // Only a description runs under the control on a phone; a row of values
+  // keeps them beside it, the control centred on the row as on a desktop.
+  const spans = Boolean(description);
   const body = (
     <>
       <span className="col-start-1 row-start-1 flex min-w-0 flex-wrap items-center gap-2 self-center leading-5">
@@ -69,7 +73,13 @@ export function SettingRow({
         {badge}
       </span>
       {below ? (
-        <span className="col-span-2 row-start-2 flex min-w-0 flex-col gap-[var(--werft-row-line-gap)] leading-4 sm:col-span-1">
+        <span
+          className={cn(
+            "row-start-2 flex min-w-0 flex-col gap-[var(--werft-row-line-gap)] leading-4",
+            // Beside the control, a long address must break, not run under it.
+            spans ? "col-span-2 sm:col-span-1" : "col-start-1 wrap-anywhere",
+          )}
+        >
           {description ? (
             labelled ? (
               <FieldDescription className={cn(DESCRIPTION, "nth-last-2:mt-0")}>
@@ -85,8 +95,9 @@ export function SettingRow({
       {labelled || status || actions ? (
         <div
           className={cn(
-            "col-start-2 row-start-1 flex flex-wrap items-center justify-end gap-2 self-start sm:self-center",
-            below && "sm:row-span-2",
+            "col-start-2 row-start-1 flex flex-wrap items-center justify-end gap-2",
+            spans ? "self-start sm:self-center sm:row-span-2" : "self-center",
+            below && !spans && "row-span-2",
           )}
         >
           {status ? <span className="hidden sm:contents">{status}</span> : null}

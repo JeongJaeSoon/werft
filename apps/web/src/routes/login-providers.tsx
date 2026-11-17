@@ -52,11 +52,12 @@ import {
   Link as TextLink,
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
-import { Fragment, useRef, useState } from "react";
+import { Fragment, type ReactNode, useRef, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useHasPermission, useRole } from "../auth/guard.tsx";
 import { LOGIN_DOMAIN_PATTERN, LOGIN_DOMAINS_MAX } from "../auth/limits.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { GHOST, Ghost, SameWidth } from "../components/same-width.tsx";
 import { Action } from "../components/setting-action.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { isMessageKey, type Translate, useI18n } from "../i18n/i18n.tsx";
@@ -177,13 +178,46 @@ function StateBadge({ state }: { readonly state: LoginProviderState }) {
 const isOn = (provider: LoginProviderView) =>
   provider.state === "enabled" || provider.state === "enabled_secret_pending";
 
-// Name and issuer, state, last test; a phone keeps the name and the state.
-// Every row is a grid of its own, so no track may size to its content: the
-// state would start at another place in each row, hugging the right edge.
+// Name and issuer, state, last test; narrow, the name and the state, which
+// is as wide as its widest content and so ends at the table's right edge.
+// Every row is a grid of its own: StateWidth gives each state cell and its
+// header that same content, so the track is as wide in every row.
 const COLUMNS = [
   "minmax(0,1fr) 220px 180px",
-  "minmax(0,1fr) min(220px,55%)",
+  "minmax(0,1fr) fit-content(55%)",
 ] as const;
+
+function StateWidth({
+  states,
+  children,
+}: {
+  readonly states: readonly LoginProviderState[];
+  readonly children: ReactNode;
+}) {
+  const { t } = useI18n();
+  return (
+    <SameWidth
+      alike={
+        <>
+          <Ghost
+            text={t("loginProviders.column.state")}
+            className="font-medium text-caption"
+          />
+          {states.map((state) => (
+            <Badge
+              key={state}
+              aria-hidden="true"
+              data-text={t(`loginProviders.state.${state}`)}
+              className={GHOST}
+            />
+          ))}
+        </>
+      }
+    >
+      {children}
+    </SameWidth>
+  );
+}
 
 export function LoginProvidersScreen() {
   const { t, locale } = useI18n();
@@ -199,6 +233,9 @@ export function LoginProvidersScreen() {
         <StatusScreen kind="forbidden" />
       </Page>
     );
+  const states = [
+    ...new Set(list.data?.providers.map((provider) => provider.state)),
+  ];
 
   return (
     <Page
@@ -247,7 +284,9 @@ export function LoginProvidersScreen() {
                 {t("loginProviders.column.name")}
               </GridTableColumnHeader>
               <GridTableColumnHeader>
-                {t("loginProviders.column.state")}
+                <StateWidth states={states}>
+                  {t("loginProviders.column.state")}
+                </StateWidth>
               </GridTableColumnHeader>
               <GridTableColumnHeader hideNarrow>
                 {t("loginProviders.column.tested")}
@@ -269,7 +308,9 @@ export function LoginProvidersScreen() {
                   </div>
                 </GridTableCell>
                 <GridTableCell>
-                  <StateBadge state={provider.state} />
+                  <StateWidth states={states}>
+                    <StateBadge state={provider.state} />
+                  </StateWidth>
                 </GridTableCell>
                 <GridTableCell hideNarrow>
                   <Text as="span" variant="meta">
