@@ -1,0 +1,52 @@
+---
+title: "表の揃え"
+description: "GridTable と Table の列を先頭と末尾のどちらに揃えるかを決める"
+---
+
+`@werft-ai/ui` の表は列ごとに揃えを 1 つ決め、その列の見出しとセルを同じ側に揃える。先頭揃えの列は見出しとセルの先頭の x が、末尾揃えの列は末尾の x が一致する。中央揃えは使わない。
+
+## 列ごとの揃え
+
+| 列 | 揃え | `GridTable` の `align` | `Table` の `variant` |
+| --- | --- | --- | --- |
+| 文字: 名前、リポジトリ、状態、日付、相対時刻 | 先頭 | `"start"` | `default`、`text`、`nowrap` |
+| 数値: 件数、費用、トークン、時間、比率 | 末尾。桁幅が揃った数字（`tabular-nums`）で、折り返さない | `"end"` | `numeric` |
+| 見える見出しが設定名のスイッチ | 最後の列の末尾。スイッチの右端と見出しの右端が同じ x | `"end"` | `switch` |
+| 行の操作（ボタン、メニュー） | 最後の列の末尾。見出しはスクリーンリーダーだけが読む | `"action"` | `actions` |
+
+数値を末尾に揃えると同じ位の数字が縦一列に並び、大小をすぐに比べられる。見出しも数値と同じ側に置くことで、狭い列でもどの値の見出しかがぼやけない。
+
+`align` を指定しない列は先頭に揃う。揃えは `GridTable` が決め、`GridTableColumnHeader` と `GridTableCell` が列の順に読むので、セルに `text-right` のようなクラスを個別に付けない。`Table` では列の見出しとセルに同じ `variant` を渡す。
+
+```tsx
+<GridTable
+  aria-label="모델별"
+  columns="minmax(0,1fr) 64px 96px"
+  align={["start", "end", "end"]}
+>
+  <GridTableHeader>
+    <GridTableColumnHeader>모델</GridTableColumnHeader>
+    <GridTableColumnHeader>세션</GridTableColumnHeader>
+    <GridTableColumnHeader>비용</GridTableColumnHeader>
+  </GridTableHeader>
+  <GridTableRow>
+    <GridTableCell>claude-sonnet</GridTableCell>
+    <GridTableCell>12</GridTableCell>
+    <GridTableCell>$4.20</GridTableCell>
+  </GridTableRow>
+</GridTable>
+```
+
+## 狭い画面
+
+`narrowCards` を有効にした `GridTable` が行をカードとして積むと、すべての列が先頭に揃う。カードの中では列名と値が 1 行ずつ並ぶため、末尾揃えは比較の助けにならない。`Table` をカードとして積む画面もセルを先頭に戻す。
+
+## 根拠
+
+複数のデザインシステムが同じ規則を置いている。数値の列は末尾に、見出しはその列の値と同じ側に置く。
+
+- [Material Design: Data tables](https://m2.material.io/components/data-tables)
+- [Elastic UI: Tables](https://eui.elastic.co/docs/components/tables/basic/)
+- [NHS digital service manual: Table](https://service-manual.nhs.uk/design-system/components/table)
+- [Siemens Mindsphere: Data table](https://design.mindsphere.io/patterns/datatable.html)
+- [Ripple design system: Table](https://ripple.sdp.vic.gov.au/design-system/components/table)
