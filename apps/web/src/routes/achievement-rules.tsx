@@ -1044,7 +1044,13 @@ function TypesCard({
         return (
           <SettingRow
             key={type.id}
-            title={type.name}
+            title={
+              // A 40-character name without spaces must break, not run
+              // under the rename button.
+              <span className="min-w-0 [overflow-wrap:anywhere]">
+                {type.name}
+              </span>
+            }
             badge={
               type.builtin ? (
                 <Badge variant="gray">

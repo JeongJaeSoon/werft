@@ -855,6 +855,13 @@ describe("성과 규칙", () => {
       expect(names.includes("inline-block")).toBe(true);
       expect(names.includes("[overflow-wrap:anywhere]")).toBe(true);
     }
+    // A type name without spaces breaks before the rename button.
+    const name = within(
+      screen.getByRole("list", { name: "성과 type" }),
+    ).getByText("버그 수정 PR");
+    expect(
+      name.className.split(/\s+/).includes("[overflow-wrap:anywhere]"),
+    ).toBe(true);
   });
 
   test("규칙 편집: 다른 사용 중 규칙이 쓰지 않는 type만 고르고, 저장하면 새 버전을 보낸다", async () => {
