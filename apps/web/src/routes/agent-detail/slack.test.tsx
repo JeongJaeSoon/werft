@@ -1244,25 +1244,27 @@ describe("Slack management", () => {
         await waitFor(() =>
           expect(document.querySelector("[data-slot=toast]")?.textContent).toBe(
             refused
-              ? "클립보드에 복사하지 못했습니다. 선택된 명령을 직접 복사하세요."
+              ? "클립보드에 복사하지 못했습니다. 명령 줄을 직접 선택해 복사하세요."
               : "복사됨",
           ),
         );
         expect(copied).toEqual(refused ? [] : ["/invite @billing"]);
         expect(within(advanced).getByText("채널에 초대")).toBeDefined();
-        if (refused) {
-          const field = within(advanced).getByRole("textbox", {
-            name: "/invite 명령",
-          }) as HTMLInputElement;
-          expect(field.value).toBe("/invite @billing");
-          await waitFor(() =>
-            expect(document.activeElement === field).toBe(true),
-          );
-          expect([field.selectionStart, field.selectionEnd]).toEqual([
-            0,
-            field.value.length,
-          ]);
-        } else expect(document.activeElement === button).toBe(true);
+        // A refused copy opens no field: the code line under the hint stays
+        // for the reader to select, and the button's column holds the button
+        // alone.
+        expect(
+          within(advanced).queryByRole("textbox", { name: "/invite 명령" }) ===
+            null,
+        ).toBe(true);
+        const line = within(advanced).getByText("/invite @billing");
+        expect(line.tagName).toBe("CODE");
+        expect(line.parentElement?.textContent).toContain(
+          "Slack 채널 입력창에 붙여 넣어 보내면 봇이 그 채널에 초대됩니다.",
+        );
+        expect(line.parentElement?.contains(button)).toBe(false);
+        expect(button.parentElement?.children.length).toBe(1);
+        expect(document.activeElement === button).toBe(true);
         await user.click(screen.getByRole("button", { name: "Slack 앱 메뉴" }));
         const open = await screen.findByRole("menuitem", {
           name: "Slack에서 열기 (새 탭에서 열림)",

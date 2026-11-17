@@ -676,44 +676,25 @@ function InviteRow({
   readonly notify: Notify;
 }) {
   const { t } = useI18n();
-  const [manual, setManual] = useState(false);
-  const field = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (manual) field.current?.focus();
-  }, [manual]);
   return (
     <SettingRow
       title={t("slack.inviteTitle")}
       description={t("slack.inviteHint")}
+      // On a refused copy the reader selects this line by hand.
       meta={<Code>{command}</Code>}
       actions={
-        <>
-          <CopyButton
-            value={command}
-            variant="outline"
-            size="sm"
-            aria-label={t("slack.copyInvite")}
-            label={t("slack.copy")}
-            icon="copy"
-            iconClassName="stroke-[1.5]"
-            fallbackField={field}
-            onResult={(ok) => {
-              setManual(!ok);
-              notify(t(ok ? "slack.copied" : "slack.copyFailed"));
-            }}
-          />
-          {manual ? (
-            <Input
-              ref={field}
-              readOnly
-              value={command}
-              size={command.length}
-              aria-label={t("slack.inviteCommand")}
-              className="h-8 w-auto px-2 font-mono text-caption"
-              onFocus={(event) => event.currentTarget.select()}
-            />
-          ) : null}
-        </>
+        <CopyButton
+          value={command}
+          variant="outline"
+          size="sm"
+          aria-label={t("slack.copyInvite")}
+          label={t("slack.copy")}
+          icon="copy"
+          iconClassName="stroke-[1.5]"
+          onResult={(ok) =>
+            notify(t(ok ? "slack.copied" : "slack.copyInviteFailed"))
+          }
+        />
       }
     />
   );

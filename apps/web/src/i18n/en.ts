@@ -212,6 +212,8 @@ export const slackEn = {
   "slack.newTab": "(opens in a new tab)",
   "slack.copyFailed":
     "Couldn't copy to the clipboard. Copy the selected command yourself.",
+  "slack.copyInviteFailed":
+    "Couldn't copy to the clipboard. Select the command line and copy it yourself.",
 } as const;
 
 export const en: Record<MessageKey, string> = {
