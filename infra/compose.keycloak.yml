@@ -8,9 +8,12 @@
 # only while CONSOLE_ORIGIN is on loopback too.
 #
 # The realm (infra/keycloak/werft-realm.json) signs with ES256 and has the
-# client `werft-console`, two users whose email is verified (ana, bo) and
-# one whose email is not (uma). The client secret and the users' password
-# come from the environment and are in no file.
+# client `werft-console`, users whose email is verified (ana, bo, ivy at
+# acme.example; oz at other.example) and one whose email is not (uma). ivy
+# and oz have no werft account in any scripted flow, so an invite's sign-up
+# and an address outside the allowed domains can be tried by hand. The
+# client secret and the users' password come from the environment and are
+# in no file.
 #
 # Never layer this over a real deployment: it publishes a development-mode
 # Keycloak beside the API.

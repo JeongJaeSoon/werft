@@ -21,7 +21,7 @@
 
 - owner: 설정 > 워크스페이스 > "로그인"(`/settings/workspace/login`) → "공급자 추가" → 상세 화면에서 client 값, "테스트 로그인", "켜기", "규칙 바꾸기", "끄기".
 - 누구나: `/login`의 "Keycloak 계정으로 로그인". 비밀번호 계정은 Keycloak이 검증한 이메일이 같으면 그 로그인에서 자동으로 연결된다. 자기 계정에 Keycloak을 연결하는 화면은 없고 API만 있다.
-- realm의 사람은 ana·bo(주소 검증됨)와 uma(검증 안 됨), 모두 `@acme.example`이고 비밀번호는 이 run의 한 값이다. Keycloak의 폼에는 `type '#username' <이름>`, `type-state '#password' KEYCLOAK_WERFT_USER_PASSWORD`, `click '#kc-login'`으로 들어간다.
+- realm의 사람은 ana·bo·ivy(`@acme.example`, 주소 검증됨), oz(`@other.example`, 주소 검증됨), uma(`@acme.example`, 검증 안 됨)이고 비밀번호는 이 run의 한 값이다. 스크립트는 ana·bo·uma만 쓴다. ivy는 초대받아 공급자로 가입하는 경로, oz는 허용 도메인 밖 계정이 거절되는 경로를 손으로 시험할 때 쓴다. Keycloak의 폼에는 `type '#username' <이름>`, `type-state '#password' KEYCLOAK_WERFT_USER_PASSWORD`, `click '#kc-login'`으로 들어간다.
 
 ## Driving it with lib.sh
 
