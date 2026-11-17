@@ -50,8 +50,11 @@ import {
   Skeleton,
   Text,
   Link as TextLink,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@werft-ai/ui";
-import { Plus } from "lucide-react";
+import { CircleAlert, Plus } from "lucide-react";
 import { Fragment, useRef, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useHasPermission, useRole } from "../auth/guard.tsx";
@@ -172,24 +175,6 @@ function StateBadge({ state }: { readonly state: LoginProviderState }) {
       {t(`loginProviders.state.${state}`)}
     </Badge>
   );
-}
-
-/**
- * An address that may wrap after a `/`, `.`, `?`, `&` or `=` (and, as
- * browsers do anyway, a `-`), never inside a word. `<wbr>` rather than a
- * zero-width space, which a copy would carry into the pasted address.
- */
-function BreakAfterSeparators({ value }: { readonly value: string }) {
-  let at = 0;
-  return value.split(/(?<=[/.?&=])/).map((part) => {
-    at += part.length;
-    return (
-      <Fragment key={at}>
-        {part}
-        {at < value.length ? <wbr /> : null}
-      </Fragment>
-    );
-  });
 }
 
 const isOn = (provider: LoginProviderView) =>
@@ -649,11 +634,23 @@ function ProviderSettings({
             <SettingRow
               title={t("loginProviders.issuer")}
               meta={
-                // The row breaks anywhere; here only a word longer than the
-                // line may still be cut.
-                <Code className="wrap-break-word">
-                  <BreakAfterSeparators value={provider.issuer} />
+                <Code className="max-w-full truncate" title={provider.issuer}>
+                  {provider.issuer}
                 </Code>
+              }
+              actions={
+                <CopyButton
+                  value={provider.issuer}
+                  variant="outline"
+                  size="sm"
+                  label={t("loginProviders.copy")}
+                  description={t("loginProviders.issuer")}
+                  copiedMessage={t("loginProviders.copied")}
+                  icon="copy"
+                  onResult={(ok) => {
+                    if (!ok) refused(t("loginProviders.copyFailed"));
+                  }}
+                />
               }
             />
           </>
@@ -680,6 +677,7 @@ function ProviderSettings({
                     variant="outline"
                     size="sm"
                     label={t("loginProviders.copy")}
+                    description={t("loginProviders.redirectUri")}
                     copiedMessage={t("loginProviders.copied")}
                     icon="copy"
                     onResult={(ok) => {
@@ -831,15 +829,59 @@ function ProviderSettings({
           <>
             <SettingRow
               title={t("loginProviders.test")}
-              meta={
-                provider.tested_at ? (
-                  <Text as="span" variant="meta">
-                    {t("loginProviders.testedAt")}{" "}
-                    <RelativeTime value={provider.tested_at} locale={locale} />
-                  </Text>
-                ) : (
-                  t("loginProviders.neverTested")
+              badge={
+                provider.tested_at ? null : (
+                  <Tooltip>
+                    <TooltipTrigger asChild={true}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="size-6 text-(color:--werft-tone-caution-fg)"
+                        aria-label={t("loginProviders.neverTested")}
+                        data-slot="never-tested"
+                      >
+                        <CircleAlert aria-hidden="true" className="size-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("loginProviders.error.notTested")}
+                    </TooltipContent>
+                  </Tooltip>
                 )
+              }
+              meta={
+                provider.tested_at || elsewhere ? (
+                  <>
+                    {provider.tested_at ? (
+                      <Text as="span" variant="meta">
+                        {t("loginProviders.testedAt")}{" "}
+                        <RelativeTime
+                          value={provider.tested_at}
+                          locale={locale}
+                        />
+                      </Text>
+                    ) : null}
+                    {elsewhere ? (
+                      <Text
+                        as="span"
+                        variant="meta"
+                        data-slot="test-elsewhere"
+                        className="text-(color:--werft-tone-caution-fg)"
+                      >
+                        {t("loginProviders.testElsewhere", {
+                          origin: elsewhere,
+                        })}{" "}
+                        <TextLink
+                          underline="always"
+                          href={`${elsewhere}${router.history.createHref(location.href)}`}
+                        >
+                          {t("loginProviders.testElsewhereLink")}
+                        </TextLink>
+                      </Text>
+                    ) : null}
+                  </>
+                ) : null
               }
               description={t("loginProviders.testHint")}
               actions={
@@ -888,21 +930,7 @@ function ProviderSettings({
             )}
           </>
         }
-      >
-        {elsewhere ? (
-          <Alert variant="amber">
-            <AlertDescription>
-              {t("loginProviders.testElsewhere", { origin: elsewhere })}{" "}
-              <TextLink
-                underline="always"
-                href={`${elsewhere}${router.history.createHref(location.href)}`}
-              >
-                {t("loginProviders.testElsewhereLink", { origin: elsewhere })}
-              </TextLink>
-            </AlertDescription>
-          </Alert>
-        ) : null}
-      </SettingsSection>
+      />
       {/* Sections here sit a block apart; the danger zone sits a section apart. */}
       <DangerZone
         title={t("workspace.danger")}

@@ -254,43 +254,51 @@ describe("로그인 공급자 상세", () => {
     );
   });
 
-  test("the issuer is shown whole and breaks only after a separator, never inside a word", async () => {
+  test("the issuer keeps to one line, whole in its title, and is copied with its own button", async () => {
     const issuer =
       "https://sso.example.test/application/o/fakeworkspace/?a=b&c";
     renderAt(PAGE, routes([provider({ issuer })]));
     await screen.findByRole("heading", { level: 1, name: "Acme SSO" });
     const code = screen.getByText(issuer);
     expect(code.tagName).toBe("CODE");
-    expect(code.className).toContain("wrap-break-word");
-    // Each text run ends at a separator, a <wbr> after it; the last ends the value.
-    const runs = [...code.childNodes].map((node) =>
-      node.nodeType === 3 ? node.textContent : `<${node.nodeName}>`,
+    expect(code.className).toContain("truncate");
+    expect(code.getAttribute("title")).toBe(issuer);
+    const copies = screen.getAllByRole("button", { name: "복사" });
+    expect(
+      copies.map((button) =>
+        (button.getAttribute("aria-describedby") ?? "")
+          .split(" ")
+          .map((id) => document.getElementById(id)?.textContent ?? "")
+          .join(""),
+      ),
+    ).toEqual(["Issuer", "Redirect URI"]);
+  });
+
+  test("a provider never tested says so with a focusable warning, and turning on stays withheld", async () => {
+    renderAt(PAGE, routes([filled()]));
+    const warning = await screen.findByRole("button", {
+      name: "테스트한 적 없음",
+    });
+    expect(warning.getAttribute("aria-describedby")).toBeTruthy();
+    expect(
+      (warning.getAttribute("aria-describedby") ?? "")
+        .split(" ")
+        .map((id) => document.getElementById(id)?.textContent ?? "")
+        .join(""),
+    ).toBe("지금 설정으로 테스트 로그인이 통과해야 켤 수 있습니다.");
+    warning.focus();
+    expect(document.activeElement === warning).toBe(true);
+    expect(withheld(screen.getByRole("button", { name: "켜기" }))).toBe(
+      "지금 설정으로 테스트 로그인이 통과해야 켤 수 있습니다.",
     );
-    expect(runs).toEqual([
-      "https:/",
-      "<WBR>",
-      "/",
-      "<WBR>",
-      "sso.",
-      "<WBR>",
-      "example.",
-      "<WBR>",
-      "test/",
-      "<WBR>",
-      "application/",
-      "<WBR>",
-      "o/",
-      "<WBR>",
-      "fakeworkspace/",
-      "<WBR>",
-      "?",
-      "<WBR>",
-      "a=",
-      "<WBR>",
-      "b&",
-      "<WBR>",
-      "c",
-    ]);
+  });
+
+  test("a provider whose test passed has no never-tested warning", async () => {
+    renderAt(PAGE, routes([filled({ state: "ready", tested_at: AT })]));
+    await screen.findByRole("button", { name: "테스트 로그인" });
+    expect(
+      screen.queryByRole("button", { name: "테스트한 적 없음" }) === null,
+    ).toBe(true);
   });
 
   test("the client is changed at the revision that was read", async () => {
@@ -527,12 +535,15 @@ describe("로그인 공급자 상세", () => {
   test("opened on another origin than the redirect URI's, the test says so and links to this page there", async () => {
     renderAt(PAGE, routes([filled()]));
     const link = await screen.findByRole("link", {
-      name: "https://console.test에서 이 화면 열기",
+      name: "그 주소에서 이 화면 열기",
     });
     expect(link.getAttribute("href")).toBe(`https://console.test${PAGE}`);
-    expect(link.closest("[data-variant=amber]")?.textContent).toContain(
-      "지금 주소는 redirect URI의 주소(https://console.test)와 다릅니다. 여기서 테스트 로그인을 시작하면 공급자가 https://console.test(으)로 돌려보내 실패합니다.",
+    const warning = link.closest("[data-slot=test-elsewhere]");
+    expect(warning?.textContent).toBe(
+      "여기서 시작하면 공급자가 https://console.test(으)로 돌려보내 실패합니다. 그 주소에서 이 화면 열기",
     );
+    // One line inside the test row, no separate alert.
+    expect(document.querySelector("[data-variant=amber]") === null).toBe(true);
     // Said, not withheld: the owner may know a way this page cannot see.
     expect(
       screen
@@ -549,7 +560,7 @@ describe("로그인 공급자 상세", () => {
       const { container } = renderAt(PAGE, routes([filled({ redirect_uri })]));
       await screen.findByRole("button", { name: "테스트 로그인" });
       expect(container.textContent).not.toContain("이 화면 열기");
-      expect(container.textContent).not.toContain("redirect URI의 주소");
+      expect(container.textContent).not.toContain("돌려보내");
       container.remove();
     }
   });
