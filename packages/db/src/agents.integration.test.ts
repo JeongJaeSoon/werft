@@ -516,16 +516,13 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       .where(eq(memberships.userId, userId));
     // A disabled member reads no agent either.
     expect(
-      await createPostgresAgentStore(db).count(workspaceId, {
-        userId,
-        outsideAccess: "use",
-      }),
+      await createPostgresAgentStore(db).count(workspaceId, { userId }),
     ).toEqual({ all: 0, administered: 0, active: 0, draft: 0 });
 
-    // A member outside every agent counts what they find in the list.
+    // A member outside every agent finds none of them, in the list or counts.
     const member = await person(workspaceId, "member");
     expect(await agentsService.countAgents(member)).toEqual({
-      counts: { all: 6, administered: 0, active: 0, draft: 5 },
+      counts: { all: 0, administered: 0, active: 0, draft: 0 },
     });
     expect(
       await codeOf(agentsService.countAgents(serviceKey(workspaceId))),
@@ -1027,19 +1024,21 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       [idle.agentId, 0, 0],
     ]);
 
-    // A member outside the agent gets its row without a card; as one of its
-    // admins, the card.
+    // A member outside the agents lists neither; as one of its admins, the
+    // agent and its card.
     expect(
       counts(
         await agentsService.listAgents(member, { ...PAGE, include: "summary" }),
       ),
-    ).toEqual([
-      [busy.agentId, undefined, undefined],
-      [idle.agentId, undefined, undefined],
-    ]);
+    ).toEqual([]);
     await db
       .insert(agentAdmins)
       .values({ workspaceId, agentId: busy.agentId, userId: memberId });
+    expect(
+      counts(
+        await agentsService.listAgents(member, { ...PAGE, include: "summary" }),
+      ),
+    ).toEqual([[busy.agentId, 1, 2]]);
 
     // What GET /v1/sessions?agent_id=&status= lists to each of them.
     const reader = createPostgresSessionReader(db);
@@ -2073,18 +2072,21 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const agentsService = service();
     const created = await newAgent(agentsService, owner);
 
-    // A member outside the agent finds it, and reads nothing behind it.
+    // To a member outside the agent it is not there, listed or read.
     expect(
       (await agentsService.listAgents(member, PAGE)).items.map((a) => a.id),
-    ).toEqual([created.agent.id]);
+    ).toEqual([]);
+    expect(await codeOf(agentsService.getAgent(member, created.agent.id))).toBe(
+      "NOT_FOUND",
+    );
     expect(
       await codeOf(agentsService.listAgents(serviceKey(workspaceId), PAGE)),
     ).toBe("FORBIDDEN");
-    for (const caller of [member, serviceKey(workspaceId)]) {
-      expect(
-        await codeOf(agentsService.getAgent(caller, created.agent.id)),
-      ).toBe("FORBIDDEN");
-    }
+    expect(
+      await codeOf(
+        agentsService.getAgent(serviceKey(workspaceId), created.agent.id),
+      ),
+    ).toBe("FORBIDDEN");
     // Any member creates an agent (D3); no key does.
     expect(
       await codeOf(

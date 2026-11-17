@@ -20,12 +20,7 @@ import {
   teamQuery,
   teamsQuery,
 } from "../api/queries.ts";
-import {
-  refusalText,
-  useHasPermission,
-  useMe,
-  useRole,
-} from "../auth/guard.tsx";
+import { refusalText, useHasPermission, useRole } from "../auth/guard.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { LoadFailure } from "./load-failure.tsx";
 import type { Outcome } from "./outcome.tsx";
@@ -53,14 +48,6 @@ export function useTeamChoices() {
   };
 }
 
-export function ManagingTeamName({ agent }: { readonly agent: Agent }) {
-  return (
-    <Text as="span" className="[overflow-wrap:anywhere]">
-      {agent.managing_team_name}
-    </Text>
-  );
-}
-
 export function ManagingTeam({
   agent,
   manages,
@@ -75,9 +62,6 @@ export function ManagingTeam({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
-  const limited =
-    useMe()?.workspace?.settings.agent_outsider_session_visibility ===
-    "managing_team";
   return (
     <Section
       title={t("managingTeam.title")}
@@ -98,7 +82,7 @@ export function ManagingTeam({
           ) : null}
         </div>
         <NoLeadNotice teamId={agent.managing_team_id} />
-        {manages && limited ? (
+        {manages ? (
           <Text variant="meta">{t("managingTeam.audience")}</Text>
         ) : null}
       </div>

@@ -29,7 +29,10 @@ import {
   users,
   workspaces,
 } from "@werft-ai/db";
-import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
+import {
+  fixtureTeam,
+  joinFixtureTeam,
+} from "@werft-ai/db/testing/fixture-team";
 import {
   releaseSpecColumns,
   TEST_CONNECTION_ID,
@@ -127,6 +130,8 @@ integration("usage summary on PostgreSQL", () => {
         userId: id,
         role: who === "owner" ? "owner" : who === "admin" ? "admin" : "member",
       });
+      // Inside the test agents, so a member's start is taken.
+      await joinFixtureTeam(db, workspaceId, id);
     }
     await db.insert(schema.agents).values({
       id: agentId,

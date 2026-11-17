@@ -20,6 +20,7 @@ import {
   users,
   workspaces,
 } from "@werft-ai/db";
+import { joinFixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import {
   type Caller,
@@ -94,6 +95,8 @@ integration("usage series on PostgreSQL", () => {
         userId: id,
         role: who === "owner" ? "owner" : who === "admin" ? "admin" : "member",
       });
+      // Inside the test agents, so a member's start is taken.
+      await joinFixtureTeam(db, workspaceId, id);
     }
   }, 60_000);
 

@@ -486,7 +486,7 @@ describe("GET /v1/agents/counts", () => {
     const api = app(
       store({
         count: async (workspaceId, reader) => {
-          asked.push(workspaceId, reader.userId, reader.outsideAccess);
+          asked.push(workspaceId, reader.userId);
           return {
             all: 501,
             administered: 3,
@@ -569,7 +569,7 @@ describe("GET /v1/usable-agents", () => {
     expect(asked).toEqual([
       {
         workspaceId: "owner-a",
-        who: { userId: OWNER_USER, keyAgentId: null, outsideUse: true },
+        who: { userId: OWNER_USER, keyAgentId: null },
         limit: 200,
       },
     ]);

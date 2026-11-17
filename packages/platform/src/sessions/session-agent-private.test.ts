@@ -52,6 +52,8 @@ function setup(options: {
   /** What the policy says about the start; absent, `ok`. */
   decides?: AuthorizationReason;
   usage?: UsageDecision;
+  /** On the agent's managing team (or exempt); absent, true. */
+  inside?: boolean;
   accept?: AcceptSessionResult["outcome"];
   append?: AppendMessageResult["outcome"];
   /** The release reads fine; absent, its integrity check fails. */
@@ -72,6 +74,7 @@ function setup(options: {
           usageOfRelease: async () => ({
             agentId: AGENT,
             usage: options.usage as UsageDecision,
+            inside: options.inside ?? true,
           }),
         }),
   };
@@ -260,6 +263,26 @@ describe("a start of a private agent by someone outside it", () => {
   }
 });
 
+describe("a start of an open agent by someone outside its managing team", () => {
+  test("is a missing release and never reads the release's integrity", async () => {
+    const { service, resolved, accepted } = setup({
+      usage: { allowed: true, basis: "public", teamId: null },
+      inside: false,
+      decides: "role",
+      accept: "agent_private",
+    });
+    const hidden = await failure(
+      service.createSession(actor, start("rel-1") as never),
+    );
+    const missing = await failure(
+      setup({}).service.createSession(actor, start("rel-gone") as never),
+    );
+    expect(shapeOf(hidden)).toBe(shapeOf(missing));
+    expect(resolved()).toBe(0);
+    expect(accepted[0]).toMatchObject({ agentPrivate: true });
+  });
+});
+
 describe("an agent that turned private after the release was read", () => {
   test("someone who may see the agent meets the integrity check", async () => {
     const open = setup({
@@ -291,6 +314,21 @@ describe("an agent that turned private after the release was read", () => {
     expect(accepted[0]).toMatchObject({ agentPrivate: true });
     // Judged for the start, then again for the log of the hidden one.
     expect(asked).toHaveLength(2);
+  });
+
+  test("a requester the write finds outside the agent is a missing release", async () => {
+    const { service, accepted } = setup({
+      usage: { allowed: true, basis: "public", teamId: null },
+      releaseResolves: true,
+      accept: "agent_use_refused",
+    });
+    const error = await failure(
+      service.createSession(actor, start("rel-1") as never),
+    );
+    expect(accepted).toHaveLength(1);
+    expect(shapeOf(error)).toBe(
+      shapeOf(new SessionServiceError("NOT_FOUND", "Resource not found")),
+    );
   });
 });
 

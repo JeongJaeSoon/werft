@@ -1,25 +1,17 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
-  AgentAccessResponse,
-  AgentAccessSettings,
   AuditRetentionRequest,
-  AuthMeResponse,
   SlackGuestRequest,
 } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
 import {
   buttonVariants,
   Field,
-  FieldContent,
   FieldDescription,
   FieldLabel,
-  FieldLegend,
-  FieldSet,
   Input,
   Page,
-  RadioGroup,
-  RadioGroupItem,
   SecretField,
   SettingRow,
   SettingsSection,
@@ -38,7 +30,7 @@ import {
 } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
-import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
+import { useI18n } from "../i18n/i18n.tsx";
 
 // The server's bounds; the web takes contracts as types only, so a test
 // keeps these equal to the contract's values.
@@ -79,15 +71,9 @@ export function WorkspaceSettingsScreen() {
       <OutcomeLine outcome={outcome} />
       <Basics />
       {editable ? (
-        <>
-          <AgentAccess onOutcome={setOutcome} />
-          <AuditRetention onOutcome={setOutcome} />
-        </>
+        <AuditRetention onOutcome={setOutcome} />
       ) : (
-        <>
-          <AgentAccessValues />
-          <ReadOnlySettings />
-        </>
+        <ReadOnlySettings />
       )}
     </WorkspacePage>
   );
@@ -299,276 +285,6 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
         <FieldDescription>{t("workspace.retentionHint")}</FieldDescription>
         <FieldDescription>{t("workspace.retentionFoot")}</FieldDescription>
       </Field>
-    </SettingsSection>
-  );
-}
-
-type AgentAccessKey = keyof AgentAccessSettings;
-
-interface AccessChoice<V extends string> {
-  readonly value: V;
-  readonly label: MessageKey;
-  readonly help: MessageKey;
-}
-
-// The contract's values in the order the card lists them.
-const AGENT_ACCESS: {
-  readonly [K in AgentAccessKey]: {
-    readonly legend: MessageKey;
-    readonly foot: MessageKey;
-    readonly choices: readonly AccessChoice<AgentAccessSettings[K]>[];
-  };
-} = {
-  agent_outsider_access: {
-    legend: "workspace.accessAgent",
-    foot: "workspace.accessAgentFoot",
-    choices: [
-      {
-        value: "use",
-        label: "workspace.accessAgent.use",
-        help: "workspace.accessAgent.use.help",
-      },
-      {
-        value: "view",
-        label: "workspace.accessAgent.view",
-        help: "workspace.accessAgent.view.help",
-      },
-      {
-        value: "none",
-        label: "workspace.accessAgent.none",
-        help: "workspace.accessAgent.none.help",
-      },
-    ],
-  },
-  agent_outsider_session_visibility: {
-    legend: "workspace.accessSessions",
-    foot: "workspace.accessSessionsFoot",
-    choices: [
-      {
-        value: "managing_team",
-        label: "workspace.accessSessions.managing_team",
-        help: "workspace.accessSessions.managing_team.help",
-      },
-      {
-        value: "workspace",
-        label: "workspace.accessSessions.workspace",
-        help: "workspace.accessSessions.workspace.help",
-      },
-    ],
-  },
-};
-
-const AGENT_ACCESS_KEYS = Object.keys(AGENT_ACCESS) as AgentAccessKey[];
-
-// Web takes the contracts as types only, so a test keeps these equal to theirs.
-export const AGENT_ACCESS_CHOICES = Object.fromEntries(
-  AGENT_ACCESS_KEYS.map((key) => [
-    key,
-    AGENT_ACCESS[key].choices.map((choice) => choice.value),
-  ]),
-);
-
-/** What `picked` holds that `from` does not. */
-function differing(
-  picked: Partial<AgentAccessSettings>,
-  from: Partial<AgentAccessSettings>,
-): Partial<AgentAccessSettings> {
-  const out: Partial<AgentAccessSettings> = {};
-  if (
-    picked.agent_outsider_access !== undefined &&
-    picked.agent_outsider_access !== from.agent_outsider_access
-  )
-    out.agent_outsider_access = picked.agent_outsider_access;
-  if (
-    picked.agent_outsider_session_visibility !== undefined &&
-    picked.agent_outsider_session_visibility !==
-      from.agent_outsider_session_visibility
-  )
-    out.agent_outsider_session_visibility =
-      picked.agent_outsider_session_visibility;
-  return out;
-}
-
-function agentAccessOf(me: ReturnType<typeof useMe>): AgentAccessSettings {
-  const settings = me?.workspace?.settings;
-  return {
-    agent_outsider_access: settings?.agent_outsider_access ?? "use",
-    agent_outsider_session_visibility:
-      settings?.agent_outsider_session_visibility ?? "managing_team",
-  };
-}
-
-/**
- * What members outside an agent's managing team may do with it, and whether
- * its workspace-shared sessions reach them (agent-rbac (c)). Both radios save
- * together with 저장: an arrow key moves the choice, and a save per step
- * would leave a receipt for every value passed on the way.
- */
-function AgentAccess({ onOutcome }: { readonly onOutcome: OnOutcome }) {
-  const { t } = useI18n();
-  const { client } = useWerft();
-  const queryClient = useQueryClient();
-  const me = useMe();
-  const role = useRole();
-  const workspaceId = me?.workspace?.id ?? "";
-  const current = agentAccessOf(me);
-  // Untouched, each choice follows the server's value as it refreshes.
-  const [draft, setDraft] = useState<Partial<AgentAccessSettings>>({});
-  const changed = differing(draft, current);
-  const reason = useHasPermission("workspace.manage")
-    ? undefined
-    : permissionReason(t, "workspace.manage", role);
-
-  const save = useMutation<
-    AgentAccessResponse,
-    ApiError,
-    Partial<AgentAccessSettings>
-  >({
-    mutationFn: (body) =>
-      unwrap(
-        client.PATCH("/v1/workspaces/{id}/agent-access", {
-          params: { path: { id: workspaceId } },
-          body,
-        }),
-      ),
-    onMutate: () => onOutcome(null),
-    onSuccess: async (saved, sent) => {
-      onOutcome({ kind: "notice", text: t("workspace.accessSaved") });
-      // The saved values show even when the /me refetch below fails.
-      queryClient.setQueryData<AuthMeResponse>(queryKeys.me, (old) =>
-        old?.workspace
-          ? {
-              ...old,
-              workspace: {
-                ...old.workspace,
-                settings: {
-                  ...old.workspace.settings,
-                  agent_outsider_access: saved.agent_outsider_access,
-                  agent_outsider_session_visibility:
-                    saved.agent_outsider_session_visibility,
-                },
-              },
-            }
-          : old,
-      );
-      // Keep a choice made while the save was in flight.
-      setDraft((picked) => differing(picked, sent));
-      await queryClient.invalidateQueries({ queryKey: queryKeys.me });
-    },
-    onError: (error) =>
-      onOutcome({
-        kind: "error",
-        text: refusalText(t, error, "workspace.manage", role),
-      }),
-  });
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    if (save.isPending || Object.keys(changed).length === 0) return;
-    save.mutate(changed);
-  };
-
-  return (
-    <SettingsSection
-      title={t("workspace.access")}
-      description={t("workspace.accessHint")}
-      box
-      onSubmit={submit}
-      foot={
-        <ReasonButton
-          type="submit"
-          className={buttonVariants({ size: "sm" })}
-          reason={reason}
-          aria-disabled={save.isPending || undefined}
-          disabled={Object.keys(changed).length === 0}
-        >
-          {t("workspace.save")}
-        </ReasonButton>
-      }
-    >
-      {AGENT_ACCESS_KEYS.map((key) => (
-        <AgentAccessChoice
-          key={key}
-          setting={key}
-          value={draft[key] ?? current[key]}
-          disabled={reason !== undefined || me?.workspace === undefined}
-          onChange={(value) =>
-            setDraft((picked) => ({ ...picked, [key]: value }))
-          }
-        />
-      ))}
-    </SettingsSection>
-  );
-}
-
-function AgentAccessChoice({
-  setting,
-  value,
-  disabled,
-  onChange,
-}: {
-  readonly setting: AgentAccessKey;
-  readonly value: string;
-  readonly disabled: boolean;
-  readonly onChange: (value: string) => void;
-}) {
-  const { t } = useI18n();
-  const legendId = useId();
-  const footId = useId();
-  const text = AGENT_ACCESS[setting];
-  return (
-    <FieldSet>
-      <FieldLegend id={legendId} variant="label">
-        {t(text.legend)}
-      </FieldLegend>
-      <RadioGroup
-        value={value}
-        onValueChange={onChange}
-        disabled={disabled}
-        aria-labelledby={legendId}
-        aria-describedby={footId}
-      >
-        {text.choices.map((choice) => (
-          <Field
-            key={choice.value}
-            orientation="horizontal"
-            className="items-start"
-          >
-            <RadioGroupItem value={choice.value} />
-            <FieldContent className="gap-1">
-              <FieldLabel>{t(choice.label)}</FieldLabel>
-              <FieldDescription>{t(choice.help)}</FieldDescription>
-            </FieldContent>
-          </Field>
-        ))}
-      </RadioGroup>
-      <FieldDescription id={footId}>{t(text.foot)}</FieldDescription>
-    </FieldSet>
-  );
-}
-
-/** The agent access settings as they stand, for someone who may not change them. */
-function AgentAccessValues() {
-  const { t } = useI18n();
-  const current = agentAccessOf(useMe());
-  return (
-    <SettingsSection
-      title={t("workspace.access")}
-      description={t("workspace.accessHint")}
-      box
-    >
-      {AGENT_ACCESS_KEYS.map((key) => {
-        const { legend, choices } = AGENT_ACCESS[key];
-        const chosen = choices.find((choice) => choice.value === current[key]);
-        return (
-          <div key={key}>
-            {t("workspace.accessValue", {
-              setting: t(legend),
-              value: chosen ? t(chosen.label) : current[key],
-            })}
-          </div>
-        );
-      })}
     </SettingsSection>
   );
 }

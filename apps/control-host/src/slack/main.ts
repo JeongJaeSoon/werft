@@ -4,7 +4,6 @@ import {
   agentGitHubSettingsOf,
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
-  createPostgresAgentAccessSetting,
   createPostgresAgentIdentityStore,
   createPostgresAgentStore,
   createPostgresCallerLimitGate,
@@ -175,7 +174,6 @@ export function slackSessionHandler(deps: {
     agents: createDatabaseAgentAuthority(db),
     credentials,
     slackGuests: createPostgresSlackGuestSetting(db),
-    outsideAgents: createPostgresAgentAccessSetting(db),
     sessions: createPostgresSessionShareStore(db),
     decisions: createPostgresDecisionLog(db),
   });

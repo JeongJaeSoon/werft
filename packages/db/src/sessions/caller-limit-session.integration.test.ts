@@ -41,7 +41,7 @@ import {
   users,
   workspaces,
 } from "../schema.ts";
-import { fixtureTeam } from "../testing/fixture-team.ts";
+import { fixtureTeam, joinFixtureTeam } from "../testing/fixture-team.ts";
 import {
   releaseSpecColumns,
   TEST_CONNECTION_ID,
@@ -88,12 +88,7 @@ integration("caller limits on session create and input", () => {
   async function workspace() {
     const id = randomUUID();
     const slug = `ws-${id.slice(0, 8)}`;
-    await db.insert(workspaces).values({
-      id,
-      slug,
-      name: slug,
-      settings: { agent_outsider_session_visibility: "workspace" },
-    });
+    await db.insert(workspaces).values({ id, slug, name: slug });
     return id;
   }
 
@@ -106,6 +101,8 @@ integration("caller limits on session create and input", () => {
       displayName: role,
     });
     await db.insert(memberships).values({ workspaceId, userId, role });
+    // The fixture team manages every test agent: everyone is inside them.
+    await joinFixtureTeam(db, workspaceId, userId);
     return callerFor(
       {
         kind: "user",
@@ -735,7 +732,7 @@ integration("caller limits on session create and input", () => {
         (
           await store.listUsable(
             ws,
-            { userId: idOf(who), keyAgentId: null, outsideUse: true },
+            { userId: idOf(who), keyAgentId: null },
             50,
           )
         ).map((agent) => agent.id);

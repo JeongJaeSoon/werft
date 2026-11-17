@@ -63,26 +63,6 @@ export const auditRetentionDaysSchema = z
   .min(AUDIT_RETENTION_MIN_DAYS)
   .max(AUDIT_RETENTION_MAX_DAYS);
 
-/**
- * What a member outside an agent may do with it (agent-rbac (c), axis A):
- * `use` reads and runs it, `view` only reads it, `none` hides it.
- */
-export const AGENT_OUTSIDER_ACCESS_VALUES = ["use", "view", "none"] as const;
-export const agentOutsiderAccessSchema = z.enum(AGENT_OUTSIDER_ACCESS_VALUES);
-/**
- * Who sees a `workspace`-scoped session of an agent (axis B):
- * `managing_team` only those inside the agent, `workspace` every member. An
- * agent still held by the "Unassigned agents" team of migration 0243 is not
- * limited either way until it moves to a real team.
- */
-export const AGENT_OUTSIDER_SESSION_VISIBILITY_VALUES = [
-  "managing_team",
-  "workspace",
-] as const;
-export const agentOutsiderSessionVisibilitySchema = z.enum(
-  AGENT_OUTSIDER_SESSION_VISIBILITY_VALUES,
-);
-
 export const ACHIEVEMENT_TRANSCRIPT_VALUES = ["none", "recent"] as const;
 
 /** How the workspace's achievement judge runs (achievement-rules.md §3). */
@@ -118,9 +98,6 @@ export const workspaceSettingsSchema = z
      * to link their Slack account like anyone else.
      */
     slack_guest_enabled: z.boolean().default(false),
-    agent_outsider_access: agentOutsiderAccessSchema.default("use"),
-    agent_outsider_session_visibility:
-      agentOutsiderSessionVisibilitySchema.default("managing_team"),
     achievement_judge: achievementJudgeSettingsSchema.prefault({}),
   })
   .strict();
@@ -153,26 +130,6 @@ export const slackGuestRequestSchema = z
   .object({ slack_guest_enabled: z.boolean() })
   .strict();
 export const slackGuestResponseSchema = slackGuestRequestSchema;
-
-export const agentAccessSettingsSchema = z
-  .object({
-    agent_outsider_access: agentOutsiderAccessSchema,
-    agent_outsider_session_visibility: agentOutsiderSessionVisibilitySchema,
-  })
-  .strict();
-/** A key left out keeps its value. */
-export const agentAccessRequestSchema = agentAccessSettingsSchema
-  .partial()
-  .strict()
-  .refine((body) => Object.keys(body).length > 0, {
-    message: "Name at least one setting",
-  });
-export const agentAccessResponseSchema = agentAccessSettingsSchema
-  .extend({
-    /** Null when both settings already were what was asked. */
-    receipt_id: receiptIdSchema.nullable(),
-  })
-  .strict();
 
 export const workspaceSchema = z
   .object({
@@ -434,9 +391,6 @@ export const listInvitesResponseSchema = z
 
 export type AuditRetentionRequest = z.infer<typeof auditRetentionRequestSchema>;
 export type SlackGuestRequest = z.infer<typeof slackGuestRequestSchema>;
-export type AgentOutsiderAccess = z.infer<typeof agentOutsiderAccessSchema>;
-export type AgentAccessSettings = z.infer<typeof agentAccessSettingsSchema>;
-export type AgentAccessResponse = z.infer<typeof agentAccessResponseSchema>;
 export type AchievementJudgeSettings = z.infer<
   typeof achievementJudgeSettingsSchema
 >;

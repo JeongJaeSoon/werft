@@ -6,9 +6,6 @@ export {
   type Caller,
   deciderKeyOf,
   MANAGEMENT_ROLES,
-  type OutsideAgentAccess,
-  type OutsideAgentAccessSetting,
-  outsideAgentsUse,
   type Principal,
   receiptActorOf,
 } from "./policy.ts";

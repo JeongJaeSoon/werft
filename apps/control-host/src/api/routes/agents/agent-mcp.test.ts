@@ -223,12 +223,13 @@ describe("the agent MCP settings API", () => {
     });
   });
 
-  test("a member who manages no agent cannot read or save; an API key cannot save", async () => {
+  test("a member outside the agent finds none and cannot save; an API key cannot read or save", async () => {
     const call = appWith();
     const member = cookieFor("member");
     expect((await call("GET", settingsPath(), { cookie: member })).status).toBe(
-      403,
+      404,
     );
+    expect((await call("GET", settingsPath(), { key: true })).status).toBe(403);
     expect(
       (await call("PUT", settingsPath(), { cookie: member, body: body() }))
         .status,

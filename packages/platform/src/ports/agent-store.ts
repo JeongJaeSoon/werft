@@ -12,13 +12,12 @@ import type {
   WorkspaceRole,
 } from "@werft-ai/contracts";
 import type { ReleaseSpecRecord } from "../agents/release-spec.ts";
-import type { OutsideAgentAccess, Principal } from "../musterrolle/index.ts";
+import type { Principal } from "../musterrolle/index.ts";
 import type { SessionViewer } from "../sessions/ports/session-share-store.ts";
 
-/** Who lists agents, and what the workspace lets members outside one see. */
+/** Who lists agents: they see only the agents they are inside. */
 export interface AgentReader {
   userId: string;
-  outsideAccess: OutsideAgentAccess;
 }
 
 /** A release as the service builds it; the store stamps the times. */
@@ -176,17 +175,15 @@ export interface AgentStore {
   /**
    * The active agents `who` could start a session with, as of this read: the
    * store's `agentUsable`, the one the start decision's
-   * re-read agrees with. `outsideUse` is axis A: when false only those inside
-   * an agent start on it. A key bound to an agent lists that agent alone.
-   * The release's connection and spec checks and the credential bindings
-   * are the service's.
+   * re-read agrees with, among the agents `who` is inside. A key bound to an
+   * agent lists that agent alone. The release's connection and spec checks
+   * and the credential bindings are the service's.
    */
   listUsable(
     workspaceId: string,
     who: {
       userId: string | null;
       keyAgentId: string | null;
-      outsideUse: boolean;
     },
     limit: number,
   ): Promise<Agent[]>;

@@ -19,7 +19,6 @@ import {
   users,
 } from "../schema.ts";
 import { usageOf } from "../usage/agent-usage.ts";
-import { lockAgentAccessSettings } from "../workspace-settings.ts";
 
 // A session create, input or answer is decided by the policy before its
 // write opens, so the write judges the requester and their reach again over
@@ -34,8 +33,6 @@ import { lockAgentAccessSettings } from "../workspace-settings.ts";
 //
 // A team's archive takes the agent_usage rows of the agents that list it,
 // in id order, before the team (member-teams.ts, delete).
-// The workspace row carries the agent access settings and is held FOR KEY
-// SHARE (lockAgentAccessSettings); a create has no session row yet.
 
 const MANAGERS: readonly WorkspaceRole[] = ["owner", "admin"];
 
@@ -187,9 +184,9 @@ export async function lockAgentUsage(
 
 /**
  * Whether the requester may start a session of `releaseId`'s agent, judged
- * again under the rows the policy's axis A decision rests on: inside the
- * agent, or axis A is `use` (agent-rbac (b)). After keyReaches, so an agent
- * key is already held to its own agent.
+ * again under the rows the policy's decision rests on: only those inside
+ * the agent start it (agent-rbac (b)). After keyReaches, so an agent key is
+ * already held to its own agent.
  */
 export async function lockAgentUse(
   tx: Database,
@@ -198,8 +195,6 @@ export async function lockAgentUse(
   releaseId: string,
 ): Promise<boolean> {
   if (requester.keyAgentId !== null) return true;
-  const settings = await lockAgentAccessSettings(tx, workspaceId);
-  if (settings.agent_outsider_access === "use") return true;
   if (requester.role !== null && MANAGERS.includes(requester.role)) {
     return true;
   }
@@ -358,16 +353,14 @@ export async function lockSessionReach(
     !owns && !named && scope === "team" && userId !== null
       ? targets.flatMap((t) => (t.teamId === null ? [] : [t.teamId]))
       : [];
-  // Axis B, as sessionVisibleTo has it: a workspace-wide session of an agent
-  // reaches only those inside the agent, unless the holding team of migration
-  // 0243 still holds it.
+  // As sessionVisibleTo has it: a workspace-wide session of an agent reaches
+  // only those inside the agent, unless the holding team of migration 0243
+  // still holds it.
   let gated =
     scope === "workspace" &&
     !owns &&
     !manager &&
-    (await lockAgentAccessSettings(tx, workspaceId))
-      .agent_outsider_session_visibility !== "workspace";
-  if (gated && session.agentReleaseId === null) gated = false;
+    session.agentReleaseId !== null;
 
   let agentId: string | null = null;
   let managingTeamId: string | null = null;

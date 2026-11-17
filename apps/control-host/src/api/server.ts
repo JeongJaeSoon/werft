@@ -7,7 +7,6 @@ import {
   createDatabaseIdentityReader,
   createPostgresAchievementJudgments,
   createPostgresAchievementRuleStore,
-  createPostgresAgentAccessSetting,
   createPostgresAgentAdminStore,
   createPostgresAgentCallerLimitsStore,
   createPostgresAgentGitHubStore,
@@ -488,7 +487,6 @@ const checkpoints = createApiCheckpoints(
 );
 const credentialBindings = createPostgresCredentialBindingStore(db);
 const slackGuests = createPostgresSlackGuestSetting(db);
-const agentAccess = createPostgresAgentAccessSetting(db);
 const sessionShares = createPostgresSessionShareStore(db);
 const authorization = createAuthorizationPolicy({
   ...(authMode === "none"
@@ -497,7 +495,6 @@ const authorization = createAuthorizationPolicy({
   agents: createDatabaseAgentAuthority(db),
   credentials: credentialBindings,
   slackGuests,
-  outsideAgents: agentAccess,
   sessions: sessionShares,
   decisions: createPostgresDecisionLog(db),
 });
@@ -530,7 +527,6 @@ const agents = createAgentService({
     workspaceRepositoryCeiling(db, workspaceId),
   welcome: slackWelcome,
   keys: createPostgresWorkspaceKeyStore(db),
-  outsideAgents: agentAccess,
   runtimes: installedRuntimeVersions,
   extensions: extensionDeps,
 });
@@ -1311,7 +1307,6 @@ const app = createApiApp({
       authorization,
       retention: createPostgresAuditRetention(db),
       slackGuests,
-      agentAccess,
     });
     registerSlackSecretRoutes(router, slackSecrets);
     registerGitHubAppRoutes(router, githubApps, logger);

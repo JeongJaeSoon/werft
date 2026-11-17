@@ -228,7 +228,7 @@ curl -sS "$API/v1/sessions/$SID/share" -H "Authorization: Bearer $KEY" | jq -c '
 </Tab>
 </Tabs>
 
-`scope`는 `private`(만든 사람만), `people`(`user_ids`의 사람), `team`(`team_ids` 팀의 지금 구성원), `workspace`(모든 구성원) 중 하나다. 한 번도 바꾸지 않은 세션은 `workspace`, `revision` 0이다. 에이전트의 세션은 워크스페이스 설정에 따라 `workspace`여도 에이전트 안쪽만 볼 수 있고, 그때 `audience_limited`가 `true`다([바깥 member가 할 수 있는 일](/agents/permissions#바깥-member가-할-수-있는-일)). 콘솔의 세션 화면은 **운영** 칸의 **공유 범위**에 이 값을 읽기 전용으로 보이고, `audience_limited`이면 `워크스페이스(담당 팀 밖 사람은 보지 못함, 워크스페이스 설정)`이라 적는다. 범위를 바꾸는 `POST /v1/sessions/{id}/share`는 웹 로그인으로만 부르므로 SDK 메서드가 없다([`setSessionShare`](/reference/http-api/sessions/setSessionShare)).
+`scope`는 `private`(만든 사람만), `people`(`user_ids`의 사람), `team`(`team_ids` 팀의 지금 구성원), `workspace`(모든 구성원) 중 하나다. 한 번도 바꾸지 않은 세션은 `workspace`, `revision` 0이다. 에이전트의 세션은 `workspace`여도 에이전트 안쪽만 볼 수 있고(보관 팀의 에이전트는 예외), 그때 `audience_limited`가 `true`다([담당 팀 밖 member](/agents/permissions#담당-팀-밖-member)). 콘솔의 세션 화면은 **운영** 칸의 **공유 범위**에 이 값을 읽기 전용으로 보이고, `audience_limited`이면 `워크스페이스(담당 팀 밖 사람은 보지 못함)`이라 적는다. 범위를 바꾸는 `POST /v1/sessions/{id}/share`는 웹 로그인으로만 부르므로 SDK 메서드가 없다([`setSessionShare`](/reference/http-api/sessions/setSessionShare)).
 
 ## 제목
 
@@ -289,7 +289,8 @@ try {
 | --- | --- |
 | 400 | 본문이 schema와 다르거나 `Idempotency-Key`가 없다 |
 | 401 | key가 없거나 틀렸거나 폐기됐다 |
-| 403 | key에 `sessions:write`가 없다. 또는 에이전트 바깥의 사람(개인 key면 만든 사람)이고 워크스페이스의 `agent_outsider_access`가 `use`가 아니다(`details.reason_code`가 `role`) |
+| 403 | key에 `sessions:write`가 없다 |
+| 404 | release가 없다. 에이전트 바깥의 사람(개인 key면 만든 사람)도 같은 답을 받는다 |
 | 409 `IDEMPOTENCY_CONFLICT` | 같은 key에 다른 본문 |
 | 413 | 메시지가 32,768바이트를 넘는다. 저장소 상한이면 `STORAGE_LIMIT_EXCEEDED` |
 | 403 `GITHUB_REFUSED` | 명시한 `repository_id`가 에이전트의 GitHub 설정 목록이나 워크스페이스 상한 밖이다(`details.reason_code`가 `repository_not_allowed`) |

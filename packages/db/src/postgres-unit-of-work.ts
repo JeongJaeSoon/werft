@@ -103,7 +103,7 @@ import {
 import { captureGitHubPolicyStart } from "./github-settings.ts";
 import { admitInput } from "./input-limits.ts";
 import { readArchivedWorkspaceLimit } from "./limits/workspace-limit.ts";
-import { agentUsable } from "./musterrolle/administers.ts";
+import { agentReachable } from "./musterrolle/administers.ts";
 import {
   inputRefusal,
   lockCallerLimit,
@@ -390,7 +390,13 @@ export function createPostgresSessionUnitOfWork(
           if (input.agentPrivate || !usage.allowed) {
             return { outcome: "agent_private" };
           }
+          // Before every refusal that names a limit or the agent's state: the
+          // caller may have left the agent since the policy decided.
+          const releaseId = input.agentReleaseId;
+          const useRefused = async () =>
+            !(await lockAgentUse(tx, requester, workspaceId, releaseId));
           if (input.callerLimited !== undefined) {
+            if (await useRefused()) return { outcome: "agent_use_refused" };
             return {
               outcome: "caller_limited",
               dimension: input.callerLimited,
@@ -407,6 +413,7 @@ export function createPostgresSessionUnitOfWork(
               channelId: input.callerSubject?.surface.channel_id ?? null,
             });
           }
+          if (await useRefused()) return { outcome: "agent_use_refused" };
         }
         if (input.notRunnableReason !== undefined) {
           return {
@@ -421,18 +428,6 @@ export function createPostgresSessionUnitOfWork(
         }
         if (input.repository === null || input.extensionsRefused) {
           return { outcome: "unsupported" };
-        }
-        if (
-          input.agentReleaseId !== undefined &&
-          workspaceId &&
-          !(await lockAgentUse(
-            tx,
-            requester,
-            workspaceId,
-            input.agentReleaseId,
-          ))
-        ) {
-          return { outcome: "agent_use_refused" };
         }
         // After the requester's rows, so the agent row is never taken before
         // a key row (a key revoke locks the key, then the agent).
@@ -1310,7 +1305,7 @@ export function createPostgresSessionReader(
                 .where(
                   and(
                     inArray(agents.id, agentIds),
-                    agentUsable(
+                    agentReachable(
                       executor,
                       agents.workspaceId,
                       {
@@ -1477,9 +1472,9 @@ export function createPostgresSessionReader(
                         .where(
                           and(
                             eq(agentReleases.agentId, query.agent_id),
-                            // An agent the viewer may not use filters like one
-                            // that is not there.
-                            agentUsable(
+                            // An agent the viewer may not use, or is outside,
+                            // filters like one that is not there.
+                            agentReachable(
                               db,
                               agents.workspaceId,
                               {
@@ -1845,7 +1840,7 @@ export function createPostgresSessionReader(
         userId: viewer.userId,
         keyAgentId: viewer.keyAgentId ?? null,
       };
-      const unusable = not(agentUsable(db, ownerId, who, agents.id));
+      const unusable = not(agentReachable(db, ownerId, who, agents.id));
       const named = refs.agentIds.filter(isUuid).map((id) => id.toLowerCase());
       if (named.length > 0) {
         for (const row of await db

@@ -52,45 +52,26 @@ Who sees what of an agent:
 | Owners and admins | Read | Read | Change |
 | Agent administrators (the responsible team's `lead` included) | Read | Read | Change |
 | The responsible team's `member` | Read | Read | No (`403`) |
-| Any other member | Read (hidden when the setting below is `none`) | No (`403`, or `404` when the setting is `none`) | No (`403`) |
+| Any other member | No (missing from lists; reading it is `404`) | No (`404`) | No (`403`) |
 
 <Callout>
-Before, a member could not list agents they did not administer, and the responsible team's `member` could not read the settings either. Now every member finds the workspace's agents with `GET /v1/agents` and `GET /v1/agents/counts`, and the responsible team's `member` reads the settings. The `include=summary` summary (administrators, credential connections) comes only on the agents whose settings the caller reads. A receipt that changed an agent's settings is likewise read only by those who read the settings.
+The responsible team's `member` finds the agents their team is responsible for with `GET /v1/agents` and `GET /v1/agents/counts`, and reads their settings. The `include=summary` summary (administrators, credential connections) comes only on the agents whose settings the caller reads. A receipt that changed an agent's settings is likewise read only by those who read the settings.
 </Callout>
 
-### What members outside an agent can do
+### Members outside the responsible team
 
-Owners, admins, the agent's administrators and its responsible team's members are inside the agent; every other member is outside it. Two workspace settings decide what those outside can do with it. Only owners and admins change them, with `PATCH /v1/workspaces/{id}/agent-access`, and every change leaves a receipt. The current values are `workspace.settings` in `GET /v1/auth/me`.
+Owners, admins, the agent's administrators and its responsible team's members are inside the agent; every other member is outside it. Only those inside use the agent. No setting changes this.
 
-| Setting | Value | For a member outside |
-| --- | --- | --- |
-| `agent_outsider_access` | `use` (default) | Reads the agent's information and starts its sessions |
-| | `view` | Only reads its information. Starting a session is `403 FORBIDDEN` (`reason_code: role`) |
-| | `none` | The agent is missing from lists and reading it is `404`; starting a session is `403` |
-| `agent_outsider_session_visibility` | `managing_team` (default) | `workspace`-shared sessions of an agent are left out of lists, counts, details, events and the usage recent list for members outside its responsible team |
-| | `workspace` | Every member sees those sessions too |
-
-- `agent_outsider_access` and `agent_outsider_session_visibility` apply to every agent. An agent always has a responsible team. Agents that had no team before it became required went to a memberless holding team (the server recognizes it even if it is renamed), and their `workspace` sessions stay visible to every member, as before, until the agent moves to the right team.
+- To a member outside, the agent does not exist, on the web or in Slack. It is missing from lists and counts, reading it is `404`, and starting a session is the same `404` as a release that does not exist. A session shared with them still shows, with its agent hidden.
+- When a member outside mentions the agent or sends it a DM in Slack, no session starts; they get a short notice that they lack the right. A Slack user who has not linked a Werft account gets a notice to link one.
+- Only those inside see the agent's `workspace`-shared sessions. They are left out of lists, counts, details, events and the usage recent list for members outside. Agents that had no team before a responsible team became required went to a memberless holding team (the server recognizes it even if it is renamed), and their `workspace` sessions stay visible to every member, as before, until the agent moves to the right team.
 - A member outside still sees the sessions they started and the ones shared with them or their team (`people`, `team`).
-- Both settings apply from the next request, to sessions already made too. An open event stream ends at its next check. Changing the responsible team, or leaving it, works the same way.
+- Changing the responsible team, or leaving it, applies from the next request, to sessions already made too. An open event stream ends at its next check.
 - Usage totals (session count, cost, achievement count) stay the same; only the rows of sessions the caller cannot see drop out of the recent achievements list.
 - A session shared with `workspace` that members outside cannot see reads `audience_limited: true` in `GET /v1/sessions/{id}/share`.
 
-```bash
-curl -sS -X PATCH "$API/v1/workspaces/$WID/agent-access" "${WEB[@]}" \
-  -d '{"agent_outsider_access": "view"}' | jq -c '{agent_outsider_access, agent_outsider_session_visibility, changed: (.receipt_id != null)}'
-```
-
-```text
-{"agent_outsider_access":"view","agent_outsider_session_visibility":"managing_team","changed":true}
-```
-
-`WID` is `workspace.id` from `GET /v1/auth/me`.
-
-In the console, change them under **Agent access** in **Workspace settings**. **Agent access for members outside the responsible team** is **View and run** (`use`), **View only** (`view`) or **Hidden** (`none`); **Workspace-shared sessions** is **Responsible team only** (`managing_team`) or **Every member** (`workspace`). Only the changed values are sent, and after a save the screen reads `GET /v1/auth/me` again. Members who are not owners or admins see the current values without the choices.
-
 <Callout>
-Before, every member saw `workspace`-shared sessions. The default is now `managing_team`, so the sessions of an agent are seen only by those inside it right away (agents still in a holding team are the exception). To see them as before, set `agent_outsider_session_visibility` to `workspace`.
+Before, two workspace settings (`agent_outsider_access`, `agent_outsider_session_visibility`) chose how far members outside could see and use an agent. Those settings and `PATCH /v1/workspaces/{id}/agent-access` are gone, and the behaviour is always that of `none` and `managing_team`. Stored values stay but are not read, so a workspace that had `use` or `view` now hides its agents from members outside too.
 </Callout>
 
 This continues with `AID` and `WEB` from [Create](/agents/create).

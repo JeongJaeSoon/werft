@@ -17,7 +17,6 @@ import {
   authzDecisions,
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
-  createPostgresAgentAccessSetting,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresInviteStore,
@@ -36,6 +35,7 @@ import {
   sessions,
   users,
 } from "@werft-ai/db";
+import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   type Caller,
@@ -51,7 +51,7 @@ import {
   type SessionCatalog,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { testCatalog } from "../testing/catalog.ts";
@@ -131,7 +131,6 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
       identity: createDatabaseIdentityReader(db),
       agents: createDatabaseAgentAuthority(db),
       credentials: createPostgresCredentialBindingStore(db),
-      outsideAgents: createPostgresAgentAccessSetting(db),
       sessions: createPostgresSessionShareStore(db),
       decisions: createPostgresDecisionLog(db),
     });
@@ -471,15 +470,21 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
     cookies.owner = await login("owner@example.com");
     releaseId = await releaseIn(db, workspaceId);
     await allowRepositories(db, workspaceId, ["sample-app"]);
-    // Every session runs an agent now; with outsiders seeing agent sessions,
-    // its share alone decides who sees it, as for a person's own session.
-    await db.execute(
-      sql`UPDATE workspaces SET settings = settings || '{"agent_outsider_session_visibility":"workspace"}'::jsonb WHERE id = ${workspaceId}`,
-    );
     await addMember("admin", "admin");
     await addMember("creator", "member");
     await addMember("teammate", "member");
     await addMember("outsider", "member");
+    // Every session runs an agent; with every member inside it (its managing
+    // team), the share alone decides who sees a session.
+    const managingTeamId = await fixtureTeam(db, workspaceId);
+    for (const who of ["creator", "teammate", "outsider"] as const) {
+      await db.insert(memberTeamMembers).values({
+        id: crypto.randomUUID(),
+        workspaceId,
+        teamId: managingTeamId,
+        userId: ids[who],
+      });
+    }
     teamId = crypto.randomUUID();
     await db
       .insert(memberTeams)

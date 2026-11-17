@@ -22,9 +22,6 @@ import {
   memberships,
   memberTeamMembers,
   memberTeams,
-  receipts,
-  sessionShares,
-  sessionShareTargets,
   sessions,
   users,
   workspaces,
@@ -40,13 +37,13 @@ import {
   TEST_CONNECTION_ID,
   TEST_MODEL,
 } from "./testing/spec-pins.ts";
-import { createPostgresAgentAccessSetting } from "./workspace-settings.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-// agent-rbac (b)(c): axis A (agent_outsider_access) and axis B
-// (agent_outsider_session_visibility), judged where the data is.
-integration("agent access settings on PostgreSQL", () => {
+// agent-rbac (b)(c): only those inside an agent start it or see its
+// workspace-wide sessions, judged where the data is. A workspace may still
+// hold the retired agent_outsider_* settings; nothing reads them.
+integration("agent access on PostgreSQL", () => {
   let database: TempDatabase;
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
@@ -63,7 +60,6 @@ integration("agent access settings on PostgreSQL", () => {
   }, 60_000);
 
   const shares = () => createPostgresSessionShareStore(db);
-  const settings = () => createPostgresAgentAccessSetting(db);
 
   async function workspace() {
     const workspaceId = randomUUID();
@@ -196,10 +192,8 @@ integration("agent access settings on PostgreSQL", () => {
     return id;
   }
 
-  function setVisibility(
-    workspaceId: string,
-    value: "managing_team" | "workspace",
-  ) {
+  // The retired settings, as a workspace from before may still hold them.
+  function setVisibility(workspaceId: string, value: string) {
     return db
       .update(workspaces)
       .set({
@@ -208,7 +202,7 @@ integration("agent access settings on PostgreSQL", () => {
       .where(eq(workspaces.id, workspaceId));
   }
 
-  function setAccess(workspaceId: string, value: "use" | "view" | "none") {
+  function setAccess(workspaceId: string, value: string) {
     return db
       .update(workspaces)
       .set({
@@ -324,7 +318,6 @@ integration("agent access settings on PostgreSQL", () => {
       .update(agents)
       .set({ managingTeamId: holding })
       .where(eq(agents.id, c.agentId));
-    await setVisibility(c.ws, "managing_team");
     expect(await whoSees(c)).toEqual(everyone);
     expect(await shares().get(c.ws, c.id)).toMatchObject({
       scope: "workspace",
@@ -433,31 +426,24 @@ integration("agent access settings on PostgreSQL", () => {
     expect(await reaches(c.ws, c.id, viewer(newcomer), "member")).toBe("ok");
   });
 
-  test("axis B workspace gives the sessions back to everyone, and managing_team takes them again", async () => {
+  test("a stored retired visibility setting gives no session back to those outside the agent", async () => {
     const c = await cast();
     await db
       .update(agents)
       .set({ managingTeamId: c.managing })
       .where(eq(agents.id, c.agentId));
-    await setVisibility(c.ws, "workspace");
-    expect(await whoSees(c)).toEqual(everyone);
-    expect(await shares().get(c.ws, c.id)).toMatchObject({
-      audienceLimited: false,
-    });
-    expect(await reaches(c.ws, c.id, viewer(c.outsider), "member")).toBe("ok");
-    await setVisibility(c.ws, "managing_team");
-    expect(await whoSees(c)).toEqual(insideOnly);
-    // A value no write stores keeps them inside (fail-closed).
-    await db
-      .update(workspaces)
-      .set({
-        settings: sql`${workspaces.settings} || '{"agent_outsider_session_visibility": "everyone"}'::jsonb`,
-      })
-      .where(eq(workspaces.id, c.ws));
-    expect(await whoSees(c)).toEqual(insideOnly);
-    expect(await reaches(c.ws, c.id, viewer(c.outsider), "member")).toBe(
-      "not_found",
-    );
+    for (const value of ["workspace", "managing_team", "everyone"]) {
+      await setVisibility(c.ws, value);
+      expect(await whoSees(c), value).toEqual(insideOnly);
+      expect(await shares().get(c.ws, c.id)).toMatchObject({
+        audienceLimited: true,
+      });
+      expect(await reaches(c.ws, c.id, viewer(c.outsider), "member")).toBe(
+        "not_found",
+      );
+      expect(await reaches(c.ws, c.id, viewer(c.owner), "owner")).toBe("ok");
+      expect(await reaches(c.ws, c.id, viewer(c.admin), "member")).toBe("ok");
+    }
   });
 
   test("a member leaving the managing team loses the sessions at the next read", async () => {
@@ -514,7 +500,7 @@ integration("agent access settings on PostgreSQL", () => {
     expect(await sees(c.ws, c.id, await creatorKey(c.outsider))).toBe(false);
   });
 
-  describe("axis A in the session's create", () => {
+  describe("who the session's create lets start the agent", () => {
     const inputs = () => createPostgresSessionUnitOfWork(db);
     const create = (caller: Caller, releaseId: string) =>
       inputs().acceptInputAtomic({
@@ -528,13 +514,17 @@ integration("agent access settings on PostgreSQL", () => {
         message: "hello",
       });
 
-    test("view and none refuse those outside the agent; use and those inside start", async () => {
+    test("those outside the agent are refused whatever the retired setting says; those inside start", async () => {
       const c = await cast();
       await db
         .update(agents)
         .set({ managingTeamId: c.managing })
         .where(eq(agents.id, c.agentId));
-      for (const access of ["view", "none"] as const) {
+      const before = await db.$count(
+        sessions,
+        eq(sessions.agentReleaseId, c.releaseId),
+      );
+      for (const access of ["use", "view", "none"]) {
         await setAccess(c.ws, access);
         expect((await create(c.outsider, c.releaseId)).outcome, access).toBe(
           "agent_use_refused",
@@ -546,197 +536,18 @@ integration("agent access settings on PostgreSQL", () => {
           ).toBe("accepted");
         }
       }
-      await setAccess(c.ws, "use");
-      expect((await create(c.outsider, c.releaseId)).outcome).toBe("accepted");
-      // An agent whose managing team has no one in it: only W and L are inside.
+      // Four starts under each of the three values, none by the outsider.
+      expect(
+        await db.$count(sessions, eq(sessions.agentReleaseId, c.releaseId)),
+      ).toBe(before + 12);
+      // An agent whose managing team has no one in it: only the workspace's
+      // owners and admins are inside.
       const bare = await agent(c.ws);
-      await setAccess(c.ws, "view");
+      await setAccess(c.ws, "use");
       expect((await create(c.member, bare.releaseId)).outcome).toBe(
         "agent_use_refused",
       );
       expect((await create(c.owner, bare.releaseId)).outcome).toBe("accepted");
     });
-
-    test("a create waits for a settings change in flight and is judged on what it committed", async () => {
-      const c = await cast();
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
-        await client.query(
-          "SELECT 1 FROM workspaces WHERE id = $1 FOR UPDATE",
-          [c.ws],
-        );
-        await client.query(
-          `UPDATE workspaces SET settings = settings || '{"agent_outsider_access": "view"}'::jsonb WHERE id = $1`,
-          [c.ws],
-        );
-        let settled = false;
-        const creating = create(c.outsider, c.releaseId).finally(() => {
-          settled = true;
-        });
-        await Bun.sleep(300);
-        expect(settled).toBe(false);
-        await client.query("COMMIT");
-        expect((await creating).outcome).toBe("agent_use_refused");
-      } finally {
-        client.release();
-      }
-      const made = await db
-        .select({ id: sessions.id })
-        .from(sessions)
-        .where(eq(sessions.agentReleaseId, c.releaseId));
-      // Only the session cast() wrote.
-      expect(made).toHaveLength(1);
-    });
-
-    test("a settings change waits for a create in flight", async () => {
-      const c = await cast();
-      const owner = c.owner;
-      let settled = false;
-      let changing: Promise<unknown> = Promise.resolve();
-      await db.transaction(async (tx) => {
-        await tx
-          .select({ id: workspaces.id })
-          .from(workspaces)
-          .where(eq(workspaces.id, c.ws))
-          .for("key share");
-        changing = settings()
-          .setAgentAccess({
-            principal: owner,
-            workspaceId: c.ws,
-            actorUserId: idOf(owner),
-            settings: { agent_outsider_access: "none" },
-            receiptId: randomUUID(),
-          })
-          .finally(() => {
-            settled = true;
-          });
-        await Bun.sleep(300);
-        expect(settled).toBe(false);
-      });
-      expect(await changing).toMatchObject({ outcome: "set" });
-    });
-  });
-
-  describe("the settings store", () => {
-    test("a change writes the keys asked for and a receipt of what changed; asking again changes nothing", async () => {
-      const ws = await workspace();
-      const owner = await person(ws, "owner");
-      expect(await settings().access(ws)).toBe("use");
-      const receiptId = randomUUID();
-      expect(
-        await settings().setAgentAccess({
-          principal: owner,
-          workspaceId: ws,
-          actorUserId: idOf(owner),
-          settings: { agent_outsider_access: "view" },
-          receiptId,
-        }),
-      ).toEqual({
-        outcome: "set",
-        settings: {
-          agent_outsider_access: "view",
-          agent_outsider_session_visibility: "managing_team",
-        },
-      });
-      expect(await settings().access(ws)).toBe("view");
-      const [receipt] = await db
-        .select()
-        .from(receipts)
-        .where(eq(receipts.id, receiptId));
-      expect(receipt).toMatchObject({
-        operation: "set_agent_access_settings",
-        targetRef: { resource: { kind: "workspace", id: ws } },
-        result: {
-          from: { agent_outsider_access: "use" },
-          to: { agent_outsider_access: "view" },
-        },
-      });
-      const again = randomUUID();
-      expect(
-        await settings().setAgentAccess({
-          principal: owner,
-          workspaceId: ws,
-          actorUserId: idOf(owner),
-          settings: {
-            agent_outsider_access: "view",
-            agent_outsider_session_visibility: "managing_team",
-          },
-          receiptId: again,
-        }),
-      ).toMatchObject({ outcome: "unchanged" });
-      expect(
-        await db.select().from(receipts).where(eq(receipts.id, again)),
-      ).toEqual([]);
-      const [row] = await db
-        .select({ settings: workspaces.settings })
-        .from(workspaces)
-        .where(eq(workspaces.id, ws));
-      // Only the key that changed is stored; the other stays its default.
-      expect(row?.settings).toEqual({ agent_outsider_access: "view" });
-    });
-
-    test("a member, or an admin disabled since, writes nothing", async () => {
-      const ws = await workspace();
-      const member = await person(ws);
-      const admin = await person(ws, "admin");
-      await db
-        .update(memberships)
-        .set({ disabledAt: new Date() })
-        .where(eq(memberships.userId, idOf(admin)));
-      for (const actor of [member, admin]) {
-        expect(
-          await settings().setAgentAccess({
-            principal: actor,
-            workspaceId: ws,
-            actorUserId: idOf(actor),
-            settings: { agent_outsider_access: "none" },
-            receiptId: randomUUID(),
-          }),
-        ).toEqual({ outcome: "inactive" });
-      }
-      expect(await settings().access(ws)).toBe("use");
-    });
-
-    test("a stored value no write makes hides agents (fail-closed)", async () => {
-      const ws = await workspace();
-      await db
-        .update(workspaces)
-        .set({ settings: { agent_outsider_access: "everyone" } })
-        .where(eq(workspaces.id, ws));
-      expect(await settings().access(ws)).toBe("none");
-      await db
-        .update(workspaces)
-        .set({ settings: { agent_outsider_access: null } })
-        .where(eq(workspaces.id, ws));
-      expect(await settings().access(ws)).toBe("none");
-      await db
-        .update(workspaces)
-        .set({ settings: {} })
-        .where(eq(workspaces.id, ws));
-      expect(await settings().access(ws)).toBe("use");
-    });
-  });
-
-  test("session shares and targets are untouched by axis B", async () => {
-    const c = await cast();
-    await db
-      .update(agents)
-      .set({ managingTeamId: c.managing })
-      .where(eq(agents.id, c.agentId));
-    await setVisibility(c.ws, "workspace");
-    await setVisibility(c.ws, "managing_team");
-    expect(
-      await db
-        .select()
-        .from(sessionShares)
-        .where(eq(sessionShares.sessionId, c.id)),
-    ).toEqual([]);
-    expect(
-      await db
-        .select()
-        .from(sessionShareTargets)
-        .where(eq(sessionShareTargets.sessionId, c.id)),
-    ).toEqual([]);
   });
 });

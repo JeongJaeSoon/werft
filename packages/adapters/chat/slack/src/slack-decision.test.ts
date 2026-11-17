@@ -43,7 +43,6 @@ type Account = {
 // Slack user id → the account it links to, as the stores would read it now.
 let accounts: Map<string, Account>;
 let guestsEnabled: boolean;
-let outsideAccess: "use" | "view" | "none";
 let recorded: Parameters<DecisionLog["record"]>[0][];
 let recordFails: boolean;
 // Channel id (null for the DM row) → the live binding the store resolves.
@@ -51,6 +50,9 @@ let stored: Map<string | null, SurfaceBindingRecord>;
 
 const userId = (n: number) =>
   `019a0000-0000-7000-8000-0000000001${String(n).padStart(2, "0")}`;
+// Everyone else here is on the agents' managing teams.
+const OUTSIDER = 9;
+const AGENT_ADMIN = 8;
 
 function link(slackUser: string, n: number, role: WorkspaceRole = "member") {
   accounts.set(slackUser, {
@@ -65,7 +67,6 @@ function link(slackUser: string, n: number, role: WorkspaceRole = "member") {
 beforeEach(() => {
   accounts = new Map();
   guestsEnabled = false;
-  outsideAccess = "use";
   recorded = [];
   recordFails = false;
   stored = new Map();
@@ -101,7 +102,6 @@ const deps = () => ({
   authorization: createAuthorizationPolicy({
     identity,
     slackGuests: { enabled: async () => guestsEnabled },
-    outsideAgents: { access: async () => outsideAccess },
     credentials: { unboundRefs: async () => [] },
     sessions: {
       async visibleTo(_ownerId, sessionId, viewer) {
@@ -124,8 +124,11 @@ const deps = () => ({
         if (releaseId === "rel-other") return OTHER_AGENT;
         return releaseId === "rel-1" ? AGENT : null;
       },
-      async isAdmin() {
-        return false;
+      async isAdmin(_workspaceId, _agentId, who) {
+        return who === userId(AGENT_ADMIN);
+      },
+      async isInside(_workspaceId, _agentId, who) {
+        return who !== userId(OUTSIDER);
       },
     },
     decisions: {
@@ -369,33 +372,63 @@ describe("the channel's stored binding (94S-177)", () => {
     });
   });
 
-  test("a member outside the agent starts nothing unless axis A is use; a reply in a thread still goes", async () => {
-    link("U0B", 1);
-    link("U0A", 2, "admin");
-    for (const access of ["view", "none"] as const) {
-      outsideAccess = access;
-      const start = { kind: "surface_binding", releaseId: "rel-1" } as const;
-      expect(
-        await judge(input(slackUser("U0B"), { resource: start })),
-      ).toMatchObject({
+  test("a mention or DM from a member outside the managing team starts nothing and is told so", async () => {
+    link("U0Z", OUTSIDER);
+    const start = { kind: "surface_binding", releaseId: "rel-1" } as const;
+    bind(null, {});
+    for (const dm of [false, true]) {
+      const refused = await judge(
+        input(slackUser("U0Z"), {
+          resource: start,
+          channel: { id: dm ? "D0OUT" : CHANNEL, dm },
+        }),
+      );
+      expect(refused).toMatchObject({
+        actorUserId: null,
+        subject: { actor_user_id: userId(OUTSIDER) },
         decision: { outcome: "deny", reason_code: "role" },
         notice: { message: "noRequestRight" },
       });
-      // An owner or admin is inside every agent.
+    }
+    expect(
+      recorded.map((entry) => entry.request.subject.surface?.channel_kind),
+    ).toEqual(["public_channel", "dm"]);
+  });
+
+  test("the owner, an admin, the agent's admin and its team start it; an unlinked Slack user is told to link", async () => {
+    link("U0O", 3, "owner");
+    link("U0A", OUTSIDER, "admin");
+    link("U0L", AGENT_ADMIN);
+    link("U0B", 1);
+    const start = { kind: "surface_binding", releaseId: "rel-1" } as const;
+    // The admin is user 9 too: a workspace manager is inside every agent.
+    for (const who of ["U0O", "U0A", "U0L", "U0B"]) {
       expect(
-        (await judge(input(slackUser("U0A"), { resource: start }))).decision
+        (await judge(input(slackUser(who), { resource: start }))).decision
           .outcome,
-      ).toBe("allow");
-      expect(
-        (
-          await judge(
-            input(slackUser("U0B"), {
-              resource: { kind: "session_link", id: SESSION },
-            }),
-          )
-        ).decision.outcome,
+        who,
       ).toBe("allow");
     }
+    expect(
+      await judge(input(slackUser("U0N"), { resource: start })),
+    ).toMatchObject({
+      actorUserId: null,
+      decision: { outcome: "deny", reason_code: "unlinked" },
+      notice: { message: "connect", link_url: CONNECT_URL },
+    });
+  });
+
+  test("a reply in a thread already started is no start: the session's own visibility judges it", async () => {
+    link("U0Z", OUTSIDER);
+    expect(
+      (
+        await judge(
+          input(slackUser("U0Z"), {
+            resource: { kind: "session_link", id: SESSION },
+          }),
+        )
+      ).decision.outcome,
+    ).toBe("allow");
   });
 
   test("a release of another agent, or none, is refused at the agent ceiling", async () => {

@@ -257,11 +257,16 @@ integration("agent_usable on PostgreSQL", () => {
     const lentMember = await person(ws);
     const managingMember = await person(ws);
     const former = await person(ws);
-    const { agentId, releaseId, managingTeamId } = await agent(ws);
+    const { agentId, releaseId } = await agent(ws);
     const other = await agent(ws);
     const usageTeam = await team(owner, [insider, former]);
     const lentTeam = await team(owner, [lentMember]);
-    await addMember(owner, managingTeamId, managingMember);
+    // Its own managing team, so its members are inside this agent alone.
+    const managingTeamId = await team(owner, [managingMember]);
+    await db
+      .update(agents)
+      .set({ managingTeamId })
+      .where(eq(agents.id, agentId));
     await setUsage(owner, agentId, "private", [usageTeam]);
     await admin(owner, agentId, { kind: "user", id: idOf(directAdmin) });
     await admin(owner, agentId, { kind: "team", id: lentTeam });
@@ -381,106 +386,96 @@ integration("agent_usable on PostgreSQL", () => {
     const w = await world();
     const store = createPostgresAgentStore(db);
     const list = async (userId: string | null, keyAgentId: string | null) =>
-      (
-        await store.listUsable(
-          w.ws,
-          { userId, keyAgentId, outsideUse: true },
-          200,
-        )
-      )
+      (await store.listUsable(w.ws, { userId, keyAgentId }, 200))
         .map((item) => item.id)
         .sort();
-    const open = [w.other.agentId];
-    expect(await list(idOf(w.insider), null)).toEqual(
-      [w.agentId, ...open].sort(),
-    );
-    expect(await list(idOf(w.outsider), null)).toEqual(open);
-    expect(await list(null, null)).toEqual(open);
+    const both = [w.agentId, w.other.agentId].sort();
+    // Only those inside an agent start it: its managing team, its admins,
+    // and the workspace's owners and admins. A usage grant alone is not in.
+    expect(await list(idOf(w.owner), null)).toEqual(both);
+    expect(await list(idOf(w.wsAdmin), null)).toEqual(both);
+    expect(await list(idOf(w.managingMember), null)).toEqual([w.agentId]);
+    expect(await list(idOf(w.directAdmin), null)).toEqual([w.agentId]);
+    expect(await list(idOf(w.lentMember), null)).toEqual([w.agentId]);
+    expect(await list(idOf(w.insider), null)).toEqual([]);
+    expect(await list(idOf(w.outsider), null)).toEqual([]);
+    expect(await list(null, null)).toEqual([]);
     expect(await list(null, w.agentId)).toEqual([w.agentId]);
-    expect(await list(idOf(w.owner), null)).toEqual(
-      [w.agentId, ...open].sort(),
-    );
-
-    // Axis A: outside an agent a start needs `use`.
-    const closed = await store.listUsable(
-      w.ws,
-      { userId: idOf(w.outsider), keyAgentId: null, outsideUse: false },
-      200,
-    );
-    expect(closed).toEqual([]);
 
     // Only active agents with an active release are listed.
     await db
       .update(agents)
       .set({ status: "paused" })
       .where(eq(agents.id, w.other.agentId));
-    expect(await list(idOf(w.outsider), null)).toEqual([]);
+    expect(await list(idOf(w.owner), null)).toEqual([w.agentId]);
   });
 
-  // 94S-1512: the agent list and its counts answer the same question as the
-  // start decision, for every kind of requester, on the same rows.
-  test("the agent list and counts hide exactly what the start decision refuses", async () => {
+  // The agent list and its counts show an agent only to those inside it, and
+  // of a private one only to those its usage also lets in.
+  test("the agent list and counts show an agent only to those inside it", async () => {
     const w = await world();
     const store = createPostgresAgentStore(db);
     const hidden = await db
       .select({ name: agents.name, slug: agents.slug })
       .from(agents)
       .where(eq(agents.id, w.agentId));
-    const table: [string, Caller][] = [
-      ["member of the usage team", w.insider],
-      ["member outside the usage team", w.outsider],
-      ["workspace owner", w.owner],
-      ["workspace admin", w.wsAdmin],
-      ["direct agent admin", w.directAdmin],
-      ["member of a lent admin team", w.lentMember],
-      ["member of the managing team", w.managingMember],
-      ["member who left the usage team", w.former],
+    // [who, sees the private agent, sees the other agent]
+    const table: [string, Caller, boolean, boolean][] = [
+      ["workspace owner", w.owner, true, true],
+      ["workspace admin", w.wsAdmin, true, true],
+      ["direct agent admin", w.directAdmin, true, false],
+      ["member of a lent admin team", w.lentMember, true, false],
+      ["member of the managing team", w.managingMember, true, false],
+      ["member of the usage team", w.insider, false, false],
+      ["member outside both teams", w.outsider, false, false],
+      ["member who left the usage team", w.former, false, false],
     ];
-    for (const outsideAccess of ["use", "view"] as const) {
-      for (const [name, caller] of table) {
-        const reader = { userId: idOf(caller), outsideAccess };
-        const decision = (
-          await both(
-            w.ws,
-            { userId: idOf(caller), keyAgentId: null },
-            w.agentId,
-          )
-        ).decision;
-        const listed = (await store.list(w.ws, { limit: 50 }, reader)).items;
-        const counted = await store.count(w.ws, reader);
-        expect({
-          name,
-          outsideAccess,
-          listed: listed.some((item) => item.id === w.agentId),
-          all: counted.all,
-        }).toEqual({
-          name,
-          outsideAccess,
-          listed: decision,
-          all: decision ? 2 : 1,
-        });
-        // The open agent stays for everyone.
-        expect(listed.some((item) => item.id === w.other.agentId)).toBe(true);
+    for (const [name, caller, mine, other] of table) {
+      const reader = { userId: idOf(caller) };
+      const listed = (await store.list(w.ws, { limit: 50 }, reader)).items;
+      const counted = await store.count(w.ws, reader);
+      expect({
+        name,
+        mine: listed.some((item) => item.id === w.agentId),
+        other: listed.some((item) => item.id === w.other.agentId),
+        all: counted.all,
+      }).toEqual({ name, mine, other, all: Number(mine) + Number(other) });
+      // What the list shows, the start decision's usage check lets in.
+      if (mine) {
+        expect(
+          (
+            await both(
+              w.ws,
+              { userId: idOf(caller), keyAgentId: null },
+              w.agentId,
+            )
+          ).decision,
+        ).toBe(true);
       }
     }
 
     // Nothing narrows its way back to a hidden agent, and a page boundary
     // does not show one.
-    const outside = { userId: idOf(w.outsider), outsideAccess: "use" } as const;
+    const outside = { userId: idOf(w.outsider) };
     for (const query of [
       { limit: 50, q: hidden[0]?.name ?? "" },
       { limit: 50, q: hidden[0]?.slug ?? "" },
       { limit: 50, ids: [w.agentId] },
+      { limit: 1 },
     ]) {
-      expect((await store.list(w.ws, query, outside)).items).toEqual([]);
+      const page = await store.list(w.ws, query, outside);
+      expect(page.items).toEqual([]);
+      expect(page.next_cursor).toBeNull();
     }
-    const first = await store.list(w.ws, { limit: 1 }, outside);
-    expect(first.items.map((item) => item.id)).toEqual([w.other.agentId]);
-    expect(first.next_cursor).toBeNull();
   });
 
   test("a session of an agent the viewer may not use shows no agent, in the list and in the detail", async () => {
     const w = await world();
+    // Inside the open agent only, so its sessions show their agent.
+    await admin(w.owner, w.other.agentId, {
+      kind: "user",
+      id: idOf(w.outsider),
+    });
     const start = async (by: Caller, releaseId: string) => {
       const created = await uow().acceptInputAtomic({
         principal: by,
@@ -500,16 +495,18 @@ integration("agent_usable on PostgreSQL", () => {
         workspaceId: w.ws,
         scope: "people",
       });
-      await db.insert(sessionShareTargets).values({
-        id: randomUUID(),
-        workspaceId: w.ws,
-        sessionId,
-        userId: idOf(w.outsider),
-      });
+      await db.insert(sessionShareTargets).values(
+        [w.outsider, w.insider].map((to) => ({
+          id: randomUUID(),
+          workspaceId: w.ws,
+          sessionId,
+          userId: idOf(to),
+        })),
+      );
       return sessionId;
     };
-    const privateId = await start(w.insider, w.releaseId);
-    const publicId = await start(w.insider, w.other.releaseId);
+    const privateId = await start(w.owner, w.releaseId);
+    const publicId = await start(w.owner, w.other.releaseId);
     const viewer = (caller: Caller) => ({
       userId: idOf(caller),
       apiKeyId: null,
@@ -550,10 +547,17 @@ integration("agent_usable on PostgreSQL", () => {
     expect(outside.detail?.agent_hidden).toBe(true);
     expect(JSON.stringify(outside)).not.toContain(w.agentId);
 
-    const inside = await seenBy(w.insider);
-    expect(inside.byId.get(privateId)?.agent?.id).toBe(w.agentId);
-    expect(inside.byId.get(privateId)?.agent_hidden).toBe(false);
+    const inside = await seenBy(w.managingMember);
     expect(inside.detail?.agent?.id).toBe(w.agentId);
+    expect(inside.detail?.agent_hidden).toBe(false);
+
+    // On the usage team but outside both managing teams: the sessions shared
+    // with them show no agent, the open agent's included.
+    const usageOnly = await seenBy(w.insider);
+    expect(usageOnly.byId.get(privateId)?.agent).toBeNull();
+    expect(usageOnly.byId.get(privateId)?.agent_hidden).toBe(true);
+    expect(usageOnly.byId.get(publicId)?.agent_hidden).toBe(true);
+    expect(usageOnly.detail?.agent_hidden).toBe(true);
 
     // A read with no viewer (internal) shows it.
     expect(
@@ -572,9 +576,8 @@ integration("agent_usable on PostgreSQL", () => {
     expect(await filtered(w.outsider, w.agentId)).toEqual(
       await filtered(w.outsider, randomUUID()),
     );
-    expect(
-      (await filtered(w.insider, w.agentId)).items.map((item) => item.id),
-    ).toEqual([privateId]);
+    // Someone on the usage team alone filters by it as by nothing.
+    expect((await filtered(w.insider, w.agentId)).items).toEqual([]);
     expect(
       (await filtered(w.outsider, w.other.agentId)).items.map(
         (item) => item.id,
@@ -584,6 +587,10 @@ integration("agent_usable on PostgreSQL", () => {
 
   test("hiddenAgentRefs names the agents, releases and session agent a viewer may not use", async () => {
     const w = await world();
+    await admin(w.owner, w.other.agentId, {
+      kind: "user",
+      id: idOf(w.outsider),
+    });
     const reader = createPostgresSessionReader(db);
     const viewer = (caller: Caller) => ({
       userId: idOf(caller),
@@ -602,14 +609,30 @@ integration("agent_usable on PostgreSQL", () => {
     );
     expect([...outside.agentIds]).toEqual([w.agentId]);
     expect([...outside.releaseIds]).toEqual([w.releaseId]);
-    const inside = await reader.hiddenAgentRefs(w.ws, viewer(w.insider), asked);
+    const inside = await reader.hiddenAgentRefs(w.ws, viewer(w.owner), asked);
     expect([...inside.agentIds]).toEqual([]);
     expect([...inside.releaseIds]).toEqual([]);
+    // A managing team reaches its own agent only.
+    const managing = await reader.hiddenAgentRefs(
+      w.ws,
+      viewer(w.managingMember),
+      asked,
+    );
+    expect([...managing.agentIds]).toEqual([w.other.agentId]);
+    // A usage team alone does not reach an agent outside its managing team.
+    const usageOnly = await reader.hiddenAgentRefs(
+      w.ws,
+      viewer(w.insider),
+      asked,
+    );
+    expect([...usageOnly.agentIds].sort()).toEqual(
+      [w.agentId, w.other.agentId].sort(),
+    );
 
     // A session of the private agent hides its agent and release too, with
     // nothing else named.
     const created = await uow().acceptInputAtomic({
-      principal: w.insider,
+      principal: w.owner,
       idempotencyKey: randomUUID(),
       payloadHash: "create",
       model: TEST_MODEL,

@@ -40,7 +40,6 @@ import { actorStillMember, containsPattern, UUID } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import {
   administers,
-  agentReadable,
   agentUsable,
   credentialsAllowed,
   insideAgent,
@@ -438,16 +437,12 @@ export async function lockAgentToChange(
   return { agent };
 }
 
-// A private agent the reader may not use is not in their list or counts, the
-// same predicate the start decision and /v1/usable-agents read.
-function visibleTo(
-  db: Database,
-  workspaceId: string,
-  userId: string,
-  outsideAccess: Parameters<typeof agentReadable>[4],
-) {
+// Only the agents the reader is inside are in their list or counts, and of
+// those not a private one they may not use: the same predicate the start
+// decision and /v1/usable-agents read.
+function visibleTo(db: Database, workspaceId: string, userId: string) {
   return and(
-    agentReadable(db, workspaceId, userId, agents.id, outsideAccess),
+    insideAgent(db, workspaceId, userId, agents.id),
     agentUsable(db, workspaceId, { userId, keyAgentId: null }, agents.id),
   );
 }
@@ -467,12 +462,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           and(
             eq(agents.workspaceId, workspaceId),
             isNull(agents.deletedAt),
-            visibleTo(
-              db,
-              workspaceId,
-              reader.userId.toLowerCase(),
-              reader.outsideAccess,
-            ),
+            visibleTo(db, workspaceId, reader.userId.toLowerCase()),
             query.q === undefined
               ? undefined
               : or(
@@ -539,9 +529,9 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             keyAgentId === null ? undefined : eq(agents.id, keyAgentId),
             agentUsable(db, workspaceId, who, agents.id),
             credentialsAllowed(workspaceId, who.userId, agents.id),
-            // Axis A: outside an agent a start needs `use`, as the policy has it.
-            // An agent key is inside its own agent, the only one it lists.
-            who.outsideUse || keyAgentId !== null
+            // Only those inside an agent start it, as the policy has it. An
+            // agent key is inside its own agent, the only one it lists.
+            keyAgentId !== null
               ? undefined
               : who.userId === null
                 ? sql`false`
@@ -575,7 +565,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           and(
             eq(agents.workspaceId, workspaceId),
             isNull(agents.deletedAt),
-            visibleTo(db, workspaceId, person, reader.outsideAccess),
+            visibleTo(db, workspaceId, person),
           ),
         );
       return {

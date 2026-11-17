@@ -154,7 +154,7 @@ async function readers(
 }
 
 test("a receipt on an agent's settings is read by those inside it", async () => {
-  const inside = { W: "ok", L: "ok", T: "ok", O: "FORBIDDEN" };
+  const inside = { W: "ok", L: "ok", T: "ok", O: "NOT_FOUND" };
   expect(await readers(onAgent)).toEqual(inside);
   expect(await readers(onBinding)).toEqual(inside);
 });

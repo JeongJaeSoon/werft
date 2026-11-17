@@ -24,6 +24,7 @@ import {
   type IdentityReader,
   MANAGEMENT_ROLES,
   mustRecord,
+  noAgentAuthority,
   RECORDED_ALLOW_ACTIONS,
   receiptActorOf,
 } from "./policy.ts";
@@ -741,6 +742,8 @@ describe("credentials a starting session needs", () => {
         release_id,
       },
     });
+  // The starter is on the agent's managing team: only the bindings decide.
+  const onTeam = { ...noAgentAuthority, isInside: async () => true };
 
   function withBindings(unbound: Record<string, string[]>) {
     const entries: Parameters<DecisionLog["record"]>[0][] = [];
@@ -749,6 +752,7 @@ describe("credentials a starting session needs", () => {
       entries,
       asked,
       policy: createAuthorizationPolicy({
+        agents: onTeam,
         credentials: {
           async unboundRefs(workspaceId, releaseId) {
             asked.push([workspaceId, releaseId]);
@@ -797,7 +801,9 @@ describe("credentials a starting session needs", () => {
   });
 
   test("with no binding store a release cannot be shown bound", async () => {
-    expect(await decide(starting())).toMatchObject({
+    expect(
+      await decide(starting(), createAuthorizationPolicy({ agents: onTeam })),
+    ).toMatchObject({
       outcome: "deny",
       reason_code: "error",
     });

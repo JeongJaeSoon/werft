@@ -35,7 +35,7 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
-import { fixtureTeam } from "./testing/fixture-team.ts";
+import { fixtureTeam, joinFixtureTeam } from "./testing/fixture-team.ts";
 import {
   releaseSpecColumns,
   sessionPinColumns,
@@ -103,8 +103,6 @@ integration("session list relations, search and counts on PostgreSQL", () => {
       id: workspaceId,
       slug: `ws-${workspaceId.slice(0, 8)}`,
       name: "ws",
-      // Outsiders of an agent's team keep seeing its workspace sessions.
-      settings: { agent_outsider_session_visibility: "workspace" },
     });
     for (const [who, name] of [
       ["alice", "Alice Kim"],
@@ -196,6 +194,9 @@ integration("session list relations, search and counts on PostgreSQL", () => {
       .update(agents)
       .set({ activeReleaseId: releaseX2, activationRevision: 0 })
       .where(eq(agents.id, agentX));
+    // bob is on the managing team of both, inside them without
+    // administering either.
+    await joinFixtureTeam(db, workspaceId, people.bob.id);
     // alice administers X directly, dave through a team; nobody Y.
     await db
       .insert(agentAdmins)
@@ -386,7 +387,9 @@ integration("session list relations, search and counts on PostgreSQL", () => {
       // bobPrivateX is X's too, but outside alice's and dave's share.
       ["alice", agentX, ["bobWorkspaceX", "mine"]],
       ["dave", agentX, ["bobWorkspaceX", "mine"]],
-      ["alice", agentY, ["toAlice"]],
+      // alice is outside Y: its filter finds nothing, not even toAlice.
+      ["alice", agentY, []],
+      ["bob", agentY, ["toAlice"]],
       ["dave", agentY, []],
       ["alice", randomUUID(), []],
     ];
@@ -450,30 +453,39 @@ integration("session list relations, search and counts on PostgreSQL", () => {
     });
   });
 
-  test("a member who manages no agent reads only the agent's id, name and version on someone else's session", async () => {
+  test("a member inside an agent who administers none reads only its id, name and version on someone else's session", async () => {
     const page = await reader().listSessions(
       workspaceId,
-      { limit: 50, q: "fix_flaky" },
-      viewer("carol"),
+      { limit: 50, q: "100%" },
+      viewer("bob"),
     );
-    expect(page.items.map((item) => item.id)).toEqual([
-      ids.bobWorkspaceX ?? "",
-    ]);
+    expect(page.items.map((item) => item.id)).toEqual([ids.mine ?? ""]);
     expect(page.items[0]?.agent).toEqual({
       id: agentX,
       name: "Checkout fixer",
       release_version_no: 3,
-      release_label: "2026-10-30_14:30:28-2",
-      release_is_active: true,
+      release_label: "2026-10-30_14:30:28",
+      release_is_active: false,
     });
     expect(page.items[0]?.created_by).toEqual({
-      user_id: people.bob.id,
-      display_name: "Bob Lee",
+      user_id: people.alice.id,
+      display_name: "Alice Kim",
     });
+  });
+
+  test("a member outside an agent finds none of its sessions but those shared with them", async () => {
+    for (const q of ["fix_flaky", "100%", "bobPrivateX"]) {
+      expect(await readAll(viewer("carol"), { q })).toEqual([]);
+    }
     expect(
       await readAll(viewer("carol"), { relation: "administered" }),
     ).toEqual([]);
-    expect(await readAll(viewer("carol"), { q: "bobPrivateX" })).toEqual([]);
+    // Neither has an agent: serviceKey is workspace-wide, toReviewers shared
+    // with a team carol is on.
+    expect(named(await readAll(viewer("carol"), {}))).toEqual([
+      "serviceKey",
+      "toReviewers",
+    ]);
   });
 
   test("summary and detail carry the agent, who started it and the channel", async () => {

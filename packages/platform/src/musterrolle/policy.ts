@@ -227,24 +227,6 @@ export const noAgentAuthority: AgentAuthority = {
   },
 };
 
-/**
- * What a member outside an agent may do with it (agent-rbac (c), axis A):
- * `none` hides it, `view` shows its information, `use` also runs it.
- */
-export type OutsideAgentAccess = "use" | "view" | "none";
-
-/** The workspace's axis A, read for every decision that needs it. */
-export interface OutsideAgentAccessSetting {
-  access(workspaceId: string): Promise<OutsideAgentAccess>;
-}
-
-// Without a settings store axis A is its default.
-export const outsideAgentsUse: OutsideAgentAccessSetting = {
-  async access() {
-    return "use";
-  },
-};
-
 /** The credential names a release needs that its agent has no binding for. */
 export interface CredentialCheck {
   unboundRefs(workspaceId: string, releaseId: string): Promise<string[]>;
@@ -288,16 +270,17 @@ export const POLICY_VERSION = "m16";
 
 export interface AuthorizationPolicy {
   /**
-   * The agent a release belongs to and whether this subject may use it, for a
-   * start that must answer as a missing release when they may not. Null when
-   * the release or the subject cannot be resolved: the caller goes on as for
-   * any other release. Records nothing.
+   * The agent a release belongs to, whether this subject may use it and
+   * whether they are inside it, for a start that must answer as a missing
+   * release when they may not. Null when the release or the subject cannot
+   * be resolved: the caller goes on as for any other release. Records
+   * nothing.
    */
   usageOfRelease?(
     subject: AuthorizationSubject,
     ownerScope: string,
     releaseId: string,
-  ): Promise<{ agentId: string; usage: UsageDecision } | null>;
+  ): Promise<{ agentId: string; usage: UsageDecision; inside: boolean } | null>;
   /**
    * `record: false` decides without keeping the decision: for what a screen
    * offers, never for an act.
@@ -474,13 +457,11 @@ export function createAuthorizationPolicy(
     credentials?: CredentialCheck;
     slackGuests?: SlackGuestSetting;
     sessions?: SessionAccess;
-    outsideAgents?: OutsideAgentAccessSetting;
     newDecisionId?: () => string;
     decisions?: DecisionLog;
   } = {},
 ): AuthorizationPolicy {
   const identity = deps.identity ?? authenticatedIdentity;
-  const outsideAccess = deps.outsideAgents ?? outsideAgentsUse;
   const agents = deps.agents ?? noAgentAuthority;
   const credentials = deps.credentials ?? noCredentialCheck;
   const slackGuests = deps.slackGuests ?? slackGuestsDisabled;
@@ -571,6 +552,26 @@ export function createAuthorizationPolicy(
       ? "ok"
       : "role";
   }
+  // A person starts as themselves, a personal key as its creator; an agent
+  // key is inside its own agent, the only one its ceiling lets it reach.
+  async function startsInside(
+    reading: Extract<IdentityReading, { status: "ok" }>,
+    workspaceId: string,
+    agentId: string,
+  ): Promise<boolean> {
+    if (reading.keyAgentId !== undefined) return true;
+    const { principal } = reading;
+    const starter =
+      principal.kind === "user"
+        ? { userId: principal.id, role: principal.role }
+        : reading.keyCreator;
+    if (starter === undefined) return false;
+    if (WORKSPACE_MANAGERS.includes(starter.role)) return true;
+    return agents.isInside
+      ? agents.isInside(workspaceId, agentId, starter.userId)
+      : agents.isAdmin(workspaceId, agentId, starter.userId);
+  }
+
   // A personal key uses an agent as its creator; an agent's key as that
   // agent; any other key has no person.
   async function usageFor(
@@ -709,18 +710,8 @@ export function createAuthorizationPolicy(
             ? agents.isInside(resource.owner_scope, agentId, reader.userId)
             : agents.isAdmin(resource.owner_scope, agentId, reader.userId)))
         ) {
-          // Axis A `none` hides the agent itself, its settings included.
-          if ((await outsideAccess.access(resource.owner_scope)) === "none") {
-            return ["not_found", scopes];
-          }
-          // A private agent the reader may not use reads as a missing one,
-          // checked before any answer that names it.
-          if (
-            !(await usageFor(reading, resource.owner_scope, agentId)).allowed
-          ) {
-            return ["not_found", scopes];
-          }
-          if (action === "agent.settings_read") return ["role", scopes];
+          // An agent is its managing team's: outside it, it does not exist.
+          return ["not_found", scopes];
         }
       }
     } else if (roles !== undefined) {
@@ -810,37 +801,27 @@ export function createAuthorizationPolicy(
         if (!usage.allowed) return ["agent_private", scopes];
       }
     }
+    if (resource.release_id !== undefined && action !== "session.submit") {
+      return ["error", []];
+    }
+    // A start on web, api and Slack alike: only those inside the agent run
+    // it (agent-rbac (b)). An agent key is inside its own agent, the only
+    // one the ceiling above lets it reach. A Slack start on an agent with no
+    // release is judged too, so only those inside learn it has none.
+    if (
+      (resource.release_id !== undefined ||
+        (action === "session.submit" && resource.kind === "surface_binding")) &&
+      reading.keyAgentId === undefined
+    ) {
+      const agentId = await agentOfResource(resource);
+      if (agentId === null) return ["error", []];
+      if (!(await startsInside(reading, resource.owner_scope, agentId))) {
+        return ["role", scopes];
+      }
+    }
     // Re-read at every start: a binding revoked since activation stops the
     // next session.
     if (resource.release_id !== undefined) {
-      if (action !== "session.submit") return ["error", []];
-      // A start on web, api and Slack alike: those outside the agent run it
-      // only while axis A is `use` (agent-rbac (b)). An agent key is inside
-      // its own agent, the only one the ceiling above lets it reach.
-      if (reading.keyAgentId === undefined) {
-        const starter =
-          principal.kind === "user"
-            ? { userId: principal.id, role: principal.role }
-            : reading.keyCreator;
-        const agentId = await agentOfResource(resource);
-        if (agentId === null) return ["error", []];
-        const inside =
-          starter !== undefined &&
-          (WORKSPACE_MANAGERS.includes(starter.role) ||
-            (await (agents.isInside
-              ? agents.isInside(resource.owner_scope, agentId, starter.userId)
-              : agents.isAdmin(
-                  resource.owner_scope,
-                  agentId,
-                  starter.userId,
-                ))));
-        if (
-          !inside &&
-          (await outsideAccess.access(resource.owner_scope)) !== "use"
-        ) {
-          return ["role", scopes];
-        }
-      }
       if (resource.kind !== "session") {
         if (agents.agentOfRelease === undefined) return ["error", []];
         const releaseAgent = await agents.agentOfRelease(
@@ -889,6 +870,7 @@ export function createAuthorizationPolicy(
       return {
         agentId,
         usage: await usageFor(reading, ownerScope, agentId.toLowerCase()),
+        inside: await startsInside(reading, ownerScope, agentId.toLowerCase()),
       };
     },
     async authorize(request, options) {

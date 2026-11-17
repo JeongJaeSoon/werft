@@ -608,6 +608,50 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(await inboxStatuses()).toEqual(["processed"]);
   });
 
+  test("a linked member outside the managing team is refused before the agent's release state", async () => {
+    const fixture = await agentInSlack("main", { activate: false });
+    const outsiderId = randomUUID();
+    await db.insert(users).values({
+      id: outsiderId,
+      email: `${outsiderId}@example.invalid`,
+      passwordHash: "argon2id$placeholder",
+      displayName: "outsider",
+    });
+    await db.insert(memberships).values({
+      workspaceId: fixture.workspaceId,
+      userId: outsiderId,
+      role: "member",
+    });
+    await db.insert(linkedAccounts).values({
+      id: randomUUID(),
+      workspaceId: fixture.workspaceId,
+      userId: outsiderId,
+      provider: "slack",
+      externalTenant: TEAM,
+      externalUserId: "U0OUTSIDER",
+      verifiedVia: "slack_oidc",
+      verifiedAt: new Date(),
+    });
+    const { handle, notices } = handler();
+    await deliver(fixture, mention("100.000100", { user: "U0OUTSIDER" }));
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]?.reason).toBe("role");
+    expect(notices[0]?.notice.message).toBe("noRequestRight");
+  });
+
+  test("an unlinked person on an agent with no active release gets the link prompt", async () => {
+    const fixture = await agentInSlack("main", { activate: false });
+    const { handle, notices } = handler();
+    await deliver(fixture, mention("100.000100", { user: "U0STRANGER" }));
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]?.reason).toBe("unlinked");
+    expect(notices[0]?.notice.message).toBe("connect");
+  });
+
   test("a release whose connection left the catalog says so in the thread", async () => {
     const fixture = await agentInSlack("retired", {
       releasedUnder: (loaded) => ({

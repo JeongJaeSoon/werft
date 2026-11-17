@@ -102,7 +102,7 @@ const bindings = createPostgresCredentialBindingStore(
 );
 // Workspace 1's owner, who reads every agent's row and summary.
 const OWNER = "00000000-0000-4000-9000-000000000001";
-const READER = { userId: OWNER, outsideAccess: "use" } as const;
+const READER = { userId: OWNER } as const;
 const page = await agents.list(WORKSPACE, { limit: PAGE }, READER);
 const ids = page.items.map((agent) => agent.id);
 const VIEWER = { userId: OWNER, apiKeyId: null };

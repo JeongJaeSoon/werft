@@ -31,8 +31,7 @@ export const sessionListKo = {
   "session.share.people": "지정한 사람 {count}명",
   "session.share.team": "지정한 팀 {count}개",
   "session.share.workspace": "워크스페이스",
-  "session.share.workspaceLimited":
-    "워크스페이스(담당 팀 밖 사람은 보지 못함, 워크스페이스 설정)",
+  "session.share.workspaceLimited": "워크스페이스(담당 팀 밖 사람은 보지 못함)",
   "session.share.failed": "공유 범위를 확인하지 못했습니다.",
   "session.release.title": "이 세션이 쓰는 릴리스",
   "session.release.version": "버전 {version}",
@@ -76,7 +75,7 @@ export const sessionListEn: Record<keyof typeof sessionListKo, string> = {
   "session.share.team": "Named teams: {count}",
   "session.share.workspace": "Workspace",
   "session.share.workspaceLimited":
-    "Workspace (people outside the responsible team cannot see it, by workspace setting)",
+    "Workspace (people outside the responsible team cannot see it)",
   "session.share.failed": "Could not read who this session is shared with.",
   "session.release.title": "Release this session uses",
   "session.release.version": "Version {version}",
@@ -120,7 +119,7 @@ export const sessionListJa: Record<keyof typeof sessionListKo, string> = {
   "session.share.team": "指定したチーム: {count}",
   "session.share.workspace": "ワークスペース",
   "session.share.workspaceLimited":
-    "ワークスペース(担当チーム外の人は見られません。ワークスペース設定)",
+    "ワークスペース(担当チーム外の人は見られません)",
   "session.share.failed": "共有範囲を確認できませんでした。",
   "session.release.title": "このセッションが使うリリース",
   "session.release.version": "バージョン {version}",

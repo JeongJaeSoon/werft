@@ -766,8 +766,15 @@ integration("linked_accounts on PostgreSQL", () => {
     test("a live link is judged as its person, under the channel's ceiling", async () => {
       const { ws, team, user } = await setup();
       const { account: row } = await linked(ws, user, slack(team));
+      // A Slack start is judged on who is inside the agent: this person is.
       const policy = createAuthorizationPolicy({
         identity: createDatabaseIdentityReader(db),
+        agents: {
+          agentOf: async () => null,
+          isAdmin: async () => false,
+          isInside: async (_ws, agent, person) =>
+            agent === agentId && person === user,
+        },
       });
       const subject = installationSubject(ws, user, {
         id: row.id,

@@ -324,33 +324,24 @@ describe("담당 팀 구성원과 바깥 구성원", () => {
     ).toBeDefined();
   });
 
-  test("바깥 구성원은 상세 대신 이름·담당 팀과 안내를 본다", async () => {
+  test("바깥 구성원에게는 에이전트가 없는 것처럼 찾을 수 없음 화면만 보인다", async () => {
     const server = await managedServer();
     const { api } = renderAt(DETAIL, {
       ...meAs(memberMe()),
       ...server.routes,
       "GET /v1/my-teams": () => myTeams(null),
       [`GET /v1/agents/${AGENT_ID}`]: () =>
-        apiError(403, "FORBIDDEN", "This principal may not read the agent"),
-      "GET /v1/agents": () =>
-        json(200, { items: [server.detail().agent], next_cursor: null }),
+        apiError(404, "NOT_FOUND", "Agent not found"),
     });
     expect(
-      await screen.findByText(
-        "이 에이전트의 설정은 담당 팀 구성원과 관리자만 봅니다.",
-      ),
+      await screen.findByRole("heading", {
+        name: "에이전트를 찾을 수 없습니다",
+      }),
     ).toBeDefined();
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toContain(
-      "결제 담당",
-    );
-    expect(screen.getByText("재무")).toBeDefined();
-    expect(screen.queryByRole("tab")).toBeNull();
-    expect(
-      screen.getByRole("link", { name: "에이전트 목록" }).getAttribute("href"),
-    ).toBe("/agents");
-    expect(api.calls.find((c) => c.path === "/v1/agents")?.search).toContain(
-      `ids=${AGENT_ID}`,
-    );
+    expect(document.body.textContent).not.toContain("결제 담당");
+    expect(document.body.textContent).not.toContain("재무");
+    expect(screen.queryByRole("tab") === null).toBe(true);
+    expect(api.calls.some((c) => c.path === "/v1/agents")).toBe(false);
   });
 });
 

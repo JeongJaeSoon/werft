@@ -310,28 +310,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/workspaces/{id}/agent-access": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Set what members outside an agent may do with it and its sessions (owner or admin)
-         * @description Inside an agent are owners, admins, the agent's admins (its admin rows, its admin teams' members and its managing team's leads) and its managing team's other members; every other member is outside it. `agent_outsider_access` (default `use`): `use` lets those outside read the agent's information and start its sessions, `view` only read its information (a start is 403 FORBIDDEN, `details.reason_code` `role`), `none` hides the agent from them (absent from GET /v1/agents, 404 on reads of it, and a start is 403). It applies to every agent. `agent_outsider_session_visibility` (default `managing_team`): `managing_team` keeps the `workspace`-scoped sessions of an agent from those outside it, in every list, count, read, stream and usage list; `workspace` lets every member see them. A session the member holds, and a `people` or `team` share naming them, still reach them; an agent still held by the 'Unassigned agents' team that migration 0243 made for agents that had no managing team is not limited, until it is moved to a real team. Both apply from the next request to sessions already made, and an open event stream ends at its next page. A key left out keeps its value; name at least one. Writes a `set_agent_access_settings` receipt with what changed unless nothing did (`receipt_id` null). The current values are `workspace.settings` in GET /v1/auth/me.
-         *
-         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
-         */
-        patch: operations["setAgentAccess"];
-        trace?: never;
-    };
     "/v1/workspaces/{id}/slack/config-token": {
         parameters: {
             query?: never;
@@ -1275,7 +1253,7 @@ export interface paths {
         put?: never;
         /**
          * Durably accept a session and its first input
-         * @description Creates a session of an agent release (`agent_release_id`, required) and queues `message` as turn `1`. A private agent (`GET /v1/agents/{id}/usage`) is used only by the members of its teams, the workspace's owners and admins, its admins and the members of its managing team; for anyone else its release answers 404, the very answer of a release that does not exist, before the integrity and state refusals below and whatever else the caller lacks (a key without the scope, or bound to another agent, or a Slack channel past its ceiling, included). The session runs the release's spec: its connection, runtime and the card's model. `repository_id` is optional; a repository named here is checked against the agent's GitHub settings list where those apply and against the workspace ceiling, else 403 GITHUB_REFUSED. A session created without one starts in an empty workspace, has no default push target (`POST /v1/sessions/{id}/push-requests` must name an attached repository, else it answers 409 PUSH_SOURCE_MISSING) and its detail's `repository_id` is null. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the release's connection offers; omitted, the model of the release's card runs. The session's detail reports it as `model`. A session waits in `queued` while no execution slot is free; it is never refused for that. A key bound to the agent may create it (it reads the agent's `active_release_id` from `GET /v1/agents`). Omitted, an agent with GitHub settings starts without a repository and attaches what it needs, and an agent with none uses the release's `repository_id`. A release whose connection is disabled or gone, or whose model left the connection's list, answers 409 RELEASE_SPEC_UNAVAILABLE. An agent that is paused or archived answers 409 AGENT_NOT_RUNNABLE with `details.reason_code` `agent_inactive`, and a release no activation ever approved answers it with `release_unapproved`; an older release that was approved still starts while the agent is active, and a retry of a session made earlier gets its first answer. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The caller limits of the agent (`GET /v1/agents/{id}/caller-limits`) that reach the caller are merged (the workspace's, those of the teams the caller is in, and the Slack channel's) and fixed on the session as `caller_limit`; the first turn runs under the creator's limit, so a start is checked on all four dimensions the way an input is: a repository outside the merged `repositories`, a credential the merged `credentials_deny` names, an MCP server outside `mcp_servers`, or a tool the release loads that `tools_deny` names answers 403 `FORBIDDEN` with `details` `{reason_code: caller_limited, dimension: repository | credential | mcp_server | tool}` and no session. The write merges the limits again under lock, and its result wins over a rule changed since. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.
+         * @description Creates a session of an agent release (`agent_release_id`, required) and queues `message` as turn `1`. A private agent (`GET /v1/agents/{id}/usage`) is used only by the members of its teams, the workspace's owners and admins, its admins and the members of its managing team; for anyone else its release answers 404, the very answer of a release that does not exist, before the integrity and state refusals below and whatever else the caller lacks (a key without the scope, or bound to another agent, or a Slack channel past its ceiling, included). Only those inside the agent start it: the workspace's owners and admins, its admins and its managing team's live members, or a personal key's creator who is one of them; anyone else is refused with 403 `FORBIDDEN`, `details.reason_code` `role`. The session runs the release's spec: its connection, runtime and the card's model. `repository_id` is optional; a repository named here is checked against the agent's GitHub settings list where those apply and against the workspace ceiling, else 403 GITHUB_REFUSED. A session created without one starts in an empty workspace, has no default push target (`POST /v1/sessions/{id}/push-requests` must name an attached repository, else it answers 409 PUSH_SOURCE_MISSING) and its detail's `repository_id` is null. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the release's connection offers; omitted, the model of the release's card runs. The session's detail reports it as `model`. A session waits in `queued` while no execution slot is free; it is never refused for that. A key bound to the agent may create it (it reads the agent's `active_release_id` from `GET /v1/agents`). Omitted, an agent with GitHub settings starts without a repository and attaches what it needs, and an agent with none uses the release's `repository_id`. A release whose connection is disabled or gone, or whose model left the connection's list, answers 409 RELEASE_SPEC_UNAVAILABLE. An agent that is paused or archived answers 409 AGENT_NOT_RUNNABLE with `details.reason_code` `agent_inactive`, and a release no activation ever approved answers it with `release_unapproved`; an older release that was approved still starts while the agent is active, and a retry of a session made earlier gets its first answer. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The caller limits of the agent (`GET /v1/agents/{id}/caller-limits`) that reach the caller are merged (the workspace's, those of the teams the caller is in, and the Slack channel's) and fixed on the session as `caller_limit`; the first turn runs under the creator's limit, so a start is checked on all four dimensions the way an input is: a repository outside the merged `repositories`, a credential the merged `credentials_deny` names, an MCP server outside `mcp_servers`, or a tool the release loads that `tools_deny` names answers 403 `FORBIDDEN` with `details` `{reason_code: caller_limited, dimension: repository | credential | mcp_server | tool}` and no session. The write merges the limits again under lock, and its result wins over a rule changed since. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.
          *
          *     **Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.
          */
@@ -1345,7 +1323,7 @@ export interface paths {
         };
         /**
          * Who sees the session
-         * @description Readable by whoever sees the session. A session never re-shared reads `workspace` at revision 0. `audience_limited` is true when `workspace` does not reach every member: the session is an agent's, the agent is not held by the 'Unassigned agents' team of migration 0243, and the workspace's `agent_outsider_session_visibility` is `managing_team`, so only those inside the agent see it (PATCH /v1/workspaces/{id}/agent-access).
+         * @description Readable by whoever sees the session. A session never re-shared reads `workspace` at revision 0. `audience_limited` is true when `workspace` does not reach every member: the session is an agent's, and the agent is not held by the 'Unassigned agents' team of migration 0243, so only those inside the agent see it.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -2584,7 +2562,7 @@ export interface paths {
         };
         /**
          * The workspace's agents
-         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. Every member of the workspace lists it, except that a private agent the caller may not use is left out, as if it did not exist (the same rule as `GET /v1/usable-agents` and a session start; owners, admins, the agent's admins and its managing team's members keep it), each agent's row being its information (name, slug, description, managing team id and name, status, active release id). `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its connection, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once, only on the agents whose settings the caller reads (`GET /v1/agents/{id}`); the other items come without it. Without `include` the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, `ids` the agents named (at most 100; an id of no agent in the workspace is left out); each narrows the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.
+         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. A member lists only the agents they are inside (owners and admins every agent, anyone else the agents they administer or whose managing team they are a live member of), and of those not a private agent they may not use, as if it did not exist (the same rule as `GET /v1/usable-agents` and a session start), each agent's row being its information (name, slug, description, managing team id and name, status, active release id). `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its connection, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once, only on the agents whose settings the caller reads (`GET /v1/agents/{id}`); the other items come without it. Without `include` the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, `ids` the agents named (at most 100; an id of no agent in the workspace is left out); each narrows the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.
          *
          *     **Scope:** `sessions:write` (API key or cookie session).
          */
@@ -2634,7 +2612,7 @@ export interface paths {
         };
         /**
          * An agent with its versions, releases and active release
-         * @description The agent's settings: its card versions, releases and active release. Read by the workspace's owners and admins and by those inside the agent: its admins and the live members of its managing team. A member outside it gets 403 and reads the agent's row from `GET /v1/agents` (`ids`) instead, or 404 while the workspace's `agent_outsider_access` is `none`, since the agent is then hidden from them; an id of no agent in the workspace is 404. A private agent the caller may not use is 404 too, with the body of an id of no agent, whatever the caller's other rights outside it. It changes nothing.
+         * @description The agent's settings: its card versions, releases and active release. Read by the workspace's owners and admins and by those inside the agent: its admins and the live members of its managing team. A member outside it gets 404, the answer of an id of no agent in the workspace: the agent is hidden from them. A private agent the caller may not use is 404 too, with the body of an id of no agent, whatever the caller's other rights outside it. It changes nothing.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -3998,7 +3976,7 @@ export interface paths {
         };
         /**
          * The agents the caller could start a session with now
-         * @description Every agent `POST /v1/sessions` would accept a start on for this caller at this request, oldest first, at most 200: the agent is `active` with an `active_release_id`, the caller may use it (open to the workspace; or a private agent whose teams the caller is in, or that the caller administers or manages, or a workspace owner or admin), the release's connection is still in the catalog and its spec verified, and every credential the release names is bound. Where the workspace limits agents to those inside them (axis A is not `use`), only agents the caller is inside are listed. A key bound to an agent lists that agent alone when it could start there, and a service key bound to none lists the agents open to the workspace. A private agent the caller may not use is not in the list, and nothing in the answer tells that it exists. An agent whose active release needs a credential that the caller's caller limits (`GET /v1/agents/{id}/caller-limits`: the workspace's rule, or that of a team the caller is in) deny in `credentials_deny` is not listed either, since every start would be refused; a limit on repositories never removes an agent, for a session without a repository still starts. Needs `sessions:write`. `active_release_id` is what to send as `agent_release_id`.
+         * @description Every agent `POST /v1/sessions` would accept a start on for this caller at this request, oldest first, at most 200: the agent is `active` with an `active_release_id`, the caller may use it (open to the workspace; or a private agent whose teams the caller is in, or that the caller administers or manages, or a workspace owner or admin), the release's connection is still in the catalog and its spec verified, and every credential the release names is bound. Only agents the caller is inside are listed: owners, admins, the agent's admins and its managing team's live members. A key bound to an agent lists that agent alone when it could start there, and a service key bound to none lists the agents open to the workspace. A private agent the caller may not use is not in the list, and nothing in the answer tells that it exists. An agent whose active release needs a credential that the caller's caller limits (`GET /v1/agents/{id}/caller-limits`: the workspace's rule, or that of a team the caller is in) deny in `credentials_deny` is not listed either, since every start would be refused; a limit on repositories never removes an agent, for a session without a repository still starts. Needs `sessions:write`. `active_release_id` is what to send as `agent_release_id`.
          *
          *     **Scope:** `sessions:write` (API key or cookie session).
          */
@@ -4714,7 +4692,7 @@ export interface paths {
          *
          *     `achievement_count` counts the achievements in force whose review state is `auto` or `confirmed`; `needs_review_count` and `rejected_count` count the others. `cost_per_achievement_usd` is every session's cost, those without an achievement included, over `achievement_count` (null with none). `judge_cost_usd`, `judge_calls` and `judgment_count` are the judge's spend on the same sessions, apart from the sessions' cost; `judgment_count` counts the judgments that called the judge.
          *
-         *     `type_id` and `category_id` narrow the achievements, never the sessions, their cost or the judge's cost. `by_category`, `by_type` and `by_rule` list the rows with an achievement counted or waiting for review, a category or type under its current name and a rule family once, under its latest version's category, title and `version` and with every version's achievements; `by_agent` lists every agent with a session in the period; `recent` the latest 20 achievements in force, rejected ones included. An achievement of a session the caller may not read (one in another owner, one not shared with the caller, or a `workspace`-scoped session of an agent whose managing team the caller is outside while `agent_outsider_session_visibility` is `managing_team`) is left out of `recent`, since a conversation's achievement carries its session's title and link; the counts still include it. The period cuts on when each session was created. It changes nothing.
+         *     `type_id` and `category_id` narrow the achievements, never the sessions, their cost or the judge's cost. `by_category`, `by_type` and `by_rule` list the rows with an achievement counted or waiting for review, a category or type under its current name and a rule family once, under its latest version's category, title and `version` and with every version's achievements; `by_agent` lists every agent with a session in the period; `recent` the latest 20 achievements in force, rejected ones included. An achievement of a session the caller may not read (one in another owner, one not shared with the caller, or a `workspace`-scoped session of an agent whose managing team the caller is outside) is left out of `recent`, since a conversation's achievement carries its session's title and link; the counts still include it. The period cuts on when each session was created. It changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -4815,7 +4793,7 @@ export interface paths {
          * Recent or slowest calls of one tool, and its calls per day
          * @description Lists the calls of the tool `name` whose `tool_use` event was stored in `[since, until)`, with the scopes, period and `agent_id` of `GET /v1/usage/tools`; the period spans at most 366 days. `sort=recent` (the default) lists the latest `occurred_at` first, `sort=slowest` the longest `duration_ms` first with untimed calls last; ties go to the later event. Read the next page with `next_cursor`, which is null on the last page; a cursor from the other sort is 400.
          *
-         *     `session_id` and `title` are null for a session the caller may not read (one in another owner, one not shared with the caller, or a `workspace`-scoped session of an agent whose managing team the caller is outside while `agent_outsider_session_visibility` is `managing_team`); the call's time, duration, outcome and agent still show. `agent` is null for a session made without an agent. `outcome` is `unknown` while no result is paired or when the result's `is_error` is not a boolean; `duration_ms` is null without a paired result or with either time missing, and set even when `outcome` is `unknown`. `per_day` counts the tool's calls on every UTC date the period touches, zeros included. Calls show up within one reconciler pass of being stored. It changes nothing.
+         *     `session_id` and `title` are null for a session the caller may not read (one in another owner, one not shared with the caller, or a `workspace`-scoped session of an agent whose managing team the caller is outside); the call's time, duration, outcome and agent still show. `agent` is null for a session made without an agent. `outcome` is `unknown` while no result is paired or when the result's `is_error` is not a boolean; `duration_ms` is null without a paired result or with either time missing, and set even when `outcome` is `unknown`. `per_day` counts the tool's calls on every UTC date the period touches, zeros included. Calls show up within one reconciler pass of being stored. It changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -5413,12 +5391,6 @@ export interface components {
         };
         SlackGuestRequest: {
             slack_guest_enabled: boolean;
-        };
-        AgentAccessRequest: {
-            /** @enum {string} */
-            agent_outsider_access?: "use" | "view" | "none";
-            /** @enum {string} */
-            agent_outsider_session_visibility?: "managing_team" | "workspace";
         };
         CreateAchievementCategoryRequest: {
             name: string;
@@ -6634,7 +6606,7 @@ export interface components {
             revision: number;
             updated_by: string | null;
             updated_at: string | null;
-            /** @description True when `workspace` reaches only those inside the session's agent, whatever `scope` is now: the workspace's `agent_outsider_session_visibility` is `managing_team` and the agent's managing team is not the holding team that took agents which had none (those stay visible to every member until moved to a real team). Owners, admins, the agent's admins and its managing team's members are inside. `people` and `team` still reach whom they name. */
+            /** @description True when `workspace` reaches only those inside the session's agent, whatever `scope` is now: the agent's managing team is not the holding team that took agents which had none (those stay visible to every member until moved to a real team). Owners, admins, the agent's admins and its managing team's members are inside. `people` and `team` still reach whom they name. */
             audience_limited: boolean;
         };
         SetSessionShareResponse: {
@@ -6766,16 +6738,6 @@ export interface components {
                     audit_retention_days: number;
                     /** @default false */
                     slack_guest_enabled: boolean;
-                    /**
-                     * @default use
-                     * @enum {string}
-                     */
-                    agent_outsider_access: "use" | "view" | "none";
-                    /**
-                     * @default managing_team
-                     * @enum {string}
-                     */
-                    agent_outsider_session_visibility: "managing_team" | "workspace";
                     achievement_judge: {
                         /** @default null */
                         connection_id: string | null;
@@ -7783,16 +7745,6 @@ export interface components {
                     audit_retention_days: number;
                     /** @default false */
                     slack_guest_enabled: boolean;
-                    /**
-                     * @default use
-                     * @enum {string}
-                     */
-                    agent_outsider_access: "use" | "view" | "none";
-                    /**
-                     * @default managing_team
-                     * @enum {string}
-                     */
-                    agent_outsider_session_visibility: "managing_team" | "workspace";
                     achievement_judge: {
                         /** @default null */
                         connection_id: string | null;
@@ -8109,13 +8061,6 @@ export interface components {
         };
         SlackGuestResponse: {
             slack_guest_enabled: boolean;
-        };
-        AgentAccessResponse: {
-            /** @enum {string} */
-            agent_outsider_access: "use" | "view" | "none";
-            /** @enum {string} */
-            agent_outsider_session_visibility: "managing_team" | "workspace";
-            receipt_id: string | null;
         };
         SlackSecretSummary: {
             configured: boolean;
@@ -9068,16 +9013,6 @@ export interface components {
                     audit_retention_days: number;
                     /** @default false */
                     slack_guest_enabled: boolean;
-                    /**
-                     * @default use
-                     * @enum {string}
-                     */
-                    agent_outsider_access: "use" | "view" | "none";
-                    /**
-                     * @default managing_team
-                     * @enum {string}
-                     */
-                    agent_outsider_session_visibility: "managing_team" | "workspace";
                     achievement_judge: {
                         /** @default null */
                         connection_id: string | null;
@@ -12490,156 +12425,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SlackGuestResponse"];
-                };
-            };
-            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
-            400: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "BAD_REQUEST";
-                        };
-                    };
-                };
-            };
-            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
-            401: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "UNAUTHORIZED";
-                        };
-                    };
-                };
-            };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
-            403: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "FORBIDDEN";
-                        };
-                    };
-                };
-            };
-            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
-            404: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "NOT_FOUND";
-                        };
-                    };
-                };
-            };
-            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
-            408: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "REQUEST_TIMEOUT";
-                        };
-                    };
-                };
-            };
-            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
-            413: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "PAYLOAD_TOO_LARGE";
-                        };
-                    };
-                };
-            };
-            500: components["responses"]["InternalError"];
-            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
-            503: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    "Retry-After": components["headers"]["RetryAfter"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "BACKEND_UNAVAILABLE";
-                        };
-                    };
-                };
-            };
-        };
-    };
-    setAgentAccess: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Required with a cookie session: the literal `werft-web`. */
-                "X-Requested-With"?: "werft-web";
-            };
-            path: {
-                /** @description The workspace's id. */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                /**
-                 * @example {
-                 *       "agent_outsider_access": "view"
-                 *     }
-                 */
-                "application/json": components["schemas"]["AgentAccessRequest"];
-            };
-        };
-        responses: {
-            /** @description Both settings as they now stand. */
-            200: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "agent_outsider_access": "view",
-                     *       "agent_outsider_session_visibility": "managing_team",
-                     *       "receipt_id": "b3c4d5e6-f7a8-4b9c-8d0e-1f2a3b4c5d6e"
-                     *     }
-                     */
-                    "application/json": components["schemas"]["AgentAccessResponse"];
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */

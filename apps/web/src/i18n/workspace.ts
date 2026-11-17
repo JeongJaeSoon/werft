@@ -34,31 +34,6 @@ export const workspaceKo = {
   "workspace.retentionValue": "감사 기록을 {days}일 보존합니다.",
   "workspace.guestValueOn": "Slack 게스트도 에이전트를 쓸 수 있습니다.",
   "workspace.guestValueOff": "Slack 게스트는 에이전트를 쓸 수 없습니다.",
-  "workspace.access": "에이전트 접근",
-  "workspace.accessHint":
-    "담당 팀 밖 구성원이 에이전트와 그 세션을 어디까지 다루는지 정합니다. 오너·어드민, 에이전트 관리자, 담당 팀 구성원에게는 적용되지 않습니다.",
-  "workspace.accessAgent": "담당 팀 밖 구성원의 에이전트 접근",
-  "workspace.accessAgentFoot": "모든 에이전트에 적용됩니다.",
-  "workspace.accessAgent.use": "보고 실행",
-  "workspace.accessAgent.use.help":
-    "에이전트 정보(이름·설명·담당 팀)를 보고 세션을 시작합니다. 설정은 보지 못합니다.",
-  "workspace.accessAgent.view": "보기만",
-  "workspace.accessAgent.view.help":
-    "에이전트 정보를 보지만 세션을 시작하지 못합니다.",
-  "workspace.accessAgent.none": "숨김",
-  "workspace.accessAgent.none.help":
-    "에이전트 목록에 보이지 않고 세션도 시작하지 못합니다.",
-  "workspace.accessSessions": "워크스페이스 공개 세션",
-  "workspace.accessSessionsFoot":
-    "모든 에이전트의 세션에 적용됩니다. 다만 담당 팀이 필수가 되기 전에 팀이 없던 에이전트를 맡은 보관 팀에 아직 남아 있는 에이전트는 예외라, 실제 담당 팀으로 옮기기 전에는 이전처럼 모두에게 보입니다. 바꾸면 이미 있는 세션에도 바로 적용됩니다.",
-  "workspace.accessSessions.managing_team": "담당 팀 안에만",
-  "workspace.accessSessions.managing_team.help":
-    "공유 범위가 워크스페이스인 세션을 오너·어드민, 에이전트 관리자, 담당 팀 구성원만 봅니다. 담당 팀 밖 구성원은 자기 세션과 이름·팀으로 공유받은 세션만 봅니다.",
-  "workspace.accessSessions.workspace": "모든 구성원",
-  "workspace.accessSessions.workspace.help":
-    "공유 범위가 워크스페이스인 세션을 모든 구성원이 봅니다.",
-  "workspace.accessValue": "{setting}: {value}",
-  "workspace.accessSaved": "에이전트 접근 설정을 저장했습니다.",
   "workspace.general": "일반",
   "integrations.nav": "연동",
   "integrations.title": "연동",
@@ -213,32 +188,6 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.retentionValue": "Audit records are kept for {days} days.",
   "workspace.guestValueOn": "Slack guests can use agents.",
   "workspace.guestValueOff": "Slack guests cannot use agents.",
-  "workspace.access": "Agent access",
-  "workspace.accessHint":
-    "Sets how far members outside an agent's responsible team go with the agent and its sessions. It does not apply to owners, admins, the agent's admins or its responsible team's members.",
-  "workspace.accessAgent":
-    "Agent access for members outside the responsible team",
-  "workspace.accessAgentFoot": "Applies to every agent.",
-  "workspace.accessAgent.use": "View and run",
-  "workspace.accessAgent.use.help":
-    "They see the agent's details (name, description, responsible team) and start sessions with it. They do not see its settings.",
-  "workspace.accessAgent.view": "View only",
-  "workspace.accessAgent.view.help":
-    "They see the agent's details but cannot start sessions with it.",
-  "workspace.accessAgent.none": "Hidden",
-  "workspace.accessAgent.none.help":
-    "The agent is not in their agent list, and they cannot start sessions with it.",
-  "workspace.accessSessions": "Workspace-shared sessions",
-  "workspace.accessSessionsFoot":
-    "Applies to the sessions of every agent, except agents still held by the holding team that took in agents that had no team before one became required: they stay visible to everyone until given a real responsible team. A change applies to existing sessions at once.",
-  "workspace.accessSessions.managing_team": "Responsible team only",
-  "workspace.accessSessions.managing_team.help":
-    "Sessions shared with the workspace are seen only by owners, admins, the agent's admins and its responsible team's members. Members outside the responsible team see their own sessions and those shared with them by name or team.",
-  "workspace.accessSessions.workspace": "Every member",
-  "workspace.accessSessions.workspace.help":
-    "Sessions shared with the workspace are seen by every member.",
-  "workspace.accessValue": "{setting}: {value}",
-  "workspace.accessSaved": "Saved the agent access settings.",
   "workspace.general": "General",
   "integrations.nav": "Integrations",
   "integrations.title": "Integrations",
@@ -395,31 +344,6 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.retentionValue": "監査ログを {days} 日間保存します。",
   "workspace.guestValueOn": "Slack ゲストはエージェントを利用できます。",
   "workspace.guestValueOff": "Slack ゲストはエージェントを利用できません。",
-  "workspace.access": "エージェントへのアクセス",
-  "workspace.accessHint":
-    "担当チーム外のメンバーがエージェントとそのセッションをどこまで扱えるかを決めます。オーナー・アドミン、エージェント管理者、担当チームのメンバーには適用されません。",
-  "workspace.accessAgent": "担当チーム外のメンバーのエージェントへのアクセス",
-  "workspace.accessAgentFoot": "すべてのエージェントに適用されます。",
-  "workspace.accessAgent.use": "表示と実行",
-  "workspace.accessAgent.use.help":
-    "エージェントの情報(名前・説明・担当チーム)を見て、セッションを開始します。設定は見られません。",
-  "workspace.accessAgent.view": "表示のみ",
-  "workspace.accessAgent.view.help":
-    "エージェントの情報は見られますが、セッションは開始できません。",
-  "workspace.accessAgent.none": "非表示",
-  "workspace.accessAgent.none.help":
-    "エージェント一覧に表示されず、セッションも開始できません。",
-  "workspace.accessSessions": "ワークスペース公開のセッション",
-  "workspace.accessSessionsFoot":
-    "すべてのエージェントのセッションに適用されます。ただし、担当チームが必須になる前にチームがなかったエージェントを引き受けた保管チームに残っているエージェントは例外で、実際の担当チームへ移すまで従来どおり全員に見えます。変更すると既存のセッションにもすぐ適用されます。",
-  "workspace.accessSessions.managing_team": "担当チーム内のみ",
-  "workspace.accessSessions.managing_team.help":
-    "共有範囲がワークスペースのセッションは、オーナー・アドミン、エージェント管理者、担当チームのメンバーだけが見られます。担当チーム外のメンバーは、自分のセッションと名前・チームで共有されたセッションだけを見ます。",
-  "workspace.accessSessions.workspace": "すべてのメンバー",
-  "workspace.accessSessions.workspace.help":
-    "共有範囲がワークスペースのセッションを、すべてのメンバーが見られます。",
-  "workspace.accessValue": "{setting}: {value}",
-  "workspace.accessSaved": "エージェントへのアクセス設定を保存しました。",
   "workspace.general": "一般",
   "integrations.nav": "連携",
   "integrations.title": "連携",

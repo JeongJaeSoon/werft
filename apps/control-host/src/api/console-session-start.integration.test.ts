@@ -11,7 +11,6 @@ import * as schema from "@werft-ai/db";
 import {
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
-  createPostgresAgentAccessSetting,
   createPostgresAgentStore,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
@@ -93,7 +92,8 @@ integration("starting an agent's session from the console", () => {
   let app: ReturnType<typeof createApiApp>;
   let workspaceId = "";
   let releaseId = "";
-  let outsiderId = "";
+  let teammateId = "";
+  let agentId = "";
   const cookies = { owner: "", teammate: "", outsider: "" };
 
   const send = (
@@ -173,7 +173,6 @@ integration("starting an agent's session from the console", () => {
       identity: createDatabaseIdentityReader(db),
       agents: createDatabaseAgentAuthority(db),
       credentials,
-      outsideAgents: createPostgresAgentAccessSetting(db),
       decisions: createPostgresDecisionLog(db),
     });
     const agents = createAgentService({
@@ -228,8 +227,8 @@ integration("starting an agent's session from the console", () => {
     );
     expect(boot.status).toBe(201);
     workspaceId = bootstrapResponseSchema.parse(await boot.json()).workspace.id;
-    const teammateId = await addMember("teammate@example.com");
-    outsiderId = await addMember("outsider@example.com");
+    teammateId = await addMember("teammate@example.com");
+    await addMember("outsider@example.com");
     cookies.owner = await login("owner@example.com");
     cookies.teammate = await login("teammate@example.com");
     cookies.outsider = await login("outsider@example.com");
@@ -255,6 +254,7 @@ integration("starting an agent's session from the console", () => {
       agent: { id: string };
       versions: { id: string }[];
     };
+    agentId = detail.agent.id;
     const released = await send(
       "POST",
       `/v1/agents/${detail.agent.id}/releases`,
@@ -288,9 +288,8 @@ integration("starting an agent's session from the console", () => {
     expect(refused.status).toBe(403);
   });
 
-  test("a member outside the agent starts while axis A is `use`, as themselves, and reads the session", async () => {
-    await setAccess("use");
-    const response = await start(asCookie(cookies.outsider));
+  test("a member of the managing team starts as themselves and reads the session", async () => {
+    const response = await start(asCookie(cookies.teammate));
     expect(response.status).toBe(201);
     const created = createSessionResponseSchema.parse(await response.json());
     const [row] = await db
@@ -303,7 +302,7 @@ integration("starting an agent's session from the console", () => {
       .where(eq(sessions.id, created.session_id));
     // A session started on a release runs that release's spec.
     expect(row).toEqual({
-      creator: outsiderId,
+      creator: teammateId,
       channel: "web",
       release: releaseId,
     });
@@ -315,24 +314,51 @@ integration("starting an agent's session from the console", () => {
     const read = await send(
       "GET",
       `/v1/sessions/${created.session_id}`,
-      asCookie(cookies.outsider),
+      asCookie(cookies.teammate),
     );
     expect(read.status).toBe(200);
   });
 
-  for (const access of ["view", "none"] as const) {
-    test(`axis A \`${access}\` refuses the member outside and no one inside`, async () => {
+  // A workspace may still hold the retired agent_outsider_access value;
+  // whatever it says, nobody outside the managing team starts the agent.
+  for (const access of ["use", "view", "none"] as const) {
+    test(`a member outside the managing team is refused, the owner and the team are not (stored \`${access}\`)`, async () => {
       await setAccess(access);
       const before = await db.$count(sessions);
+      // Answered as a release that is not there.
       const refused = await start(asCookie(cookies.outsider));
-      expect(refused.status).toBe(403);
+      expect(refused.status).toBe(404);
       const { error } = apiErrorResponseSchema.parse(await refused.json());
-      expect(error.code).toBe("FORBIDDEN");
-      expect(error.details).toMatchObject({ reason_code: "role" });
+      expect(error.code).toBe("NOT_FOUND");
       expect(await db.$count(sessions)).toBe(before);
 
       expect((await start(asCookie(cookies.teammate))).status).toBe(201);
       expect((await start(asCookie(cookies.owner))).status).toBe(201);
     });
   }
+
+  test("to a member outside the managing team the agent does not exist, in the list or by id", async () => {
+    await setAccess("use");
+    const ids = async (cookie: string, path: string) => {
+      const response = await send("GET", path, asCookie(cookie));
+      expect(response.status).toBe(200);
+      const { items } = (await response.json()) as { items: { id: string }[] };
+      return items.map((item) => item.id);
+    };
+    for (const path of ["/v1/agents", "/v1/usable-agents"]) {
+      expect(await ids(cookies.outsider, path)).toEqual([]);
+      expect(await ids(cookies.teammate, path)).toEqual([agentId]);
+      expect(await ids(cookies.owner, path)).toEqual([agentId]);
+    }
+    const detail = await send(
+      "GET",
+      `/v1/agents/${agentId}`,
+      asCookie(cookies.outsider),
+    );
+    expect(detail.status).toBe(404);
+    expect(
+      (await send("GET", `/v1/agents/${agentId}`, asCookie(cookies.teammate)))
+        .status,
+    ).toBe(200);
+  });
 });

@@ -285,8 +285,6 @@ export const agentsKo = {
     "일시정지된 에이전트라 세션을 시작할 수 없습니다.",
   "agent.newSession.blocked.noRelease":
     "활성 릴리스가 없어 세션을 시작할 수 없습니다. 상세 설정에서 모델 연결과 모델을 골라 저장하면 시작할 수 있습니다.",
-  "agent.newSession.blocked.outsider":
-    "담당 팀 구성원과 관리자만 이 에이전트로 세션을 시작할 수 있습니다.",
   "agent.glance.label": "에이전트 현황",
   "agent.glance.cost": "최근 7일 비용",
   "agent.glance.waiting": "답변 대기",
@@ -384,15 +382,13 @@ export const agentsKo = {
     "보관용으로 만들어진 팀이라 담당 팀으로 고를 수 없습니다. 다른 팀을 고르세요.",
   "managingTeam.saving": "저장하는 중…",
   "managingTeam.audience":
-    "담당 팀 밖 사람은 이 에이전트의 세션 가운데 자기 세션과 공유받은 것만 봅니다(워크스페이스 설정).",
+    "담당 팀 밖 사람에게는 이 에이전트가 보이지 않고, 이 에이전트의 세션 가운데 자기 세션과 공유받은 것만 보입니다.",
   "managingTeam.saved": "담당 팀을 {name}(으)로 정했습니다.",
   "managingTeam.notAllowed": "내가 속한 팀만 담당 팀으로 정할 수 있습니다.",
   "managingTeam.noChoices": "담당 팀으로 고를 수 있는 다른 팀이 없습니다.",
   "agents.column.team": "담당 팀",
   "agent.readOnly":
     "담당 팀 구성원은 이 에이전트의 설정을 볼 수만 있습니다. 바꾸는 것은 팀 관리자와 에이전트 관리자입니다.",
-  "agent.outsider.body":
-    "이 에이전트의 설정은 담당 팀 구성원과 관리자만 봅니다.",
   "agents.flow.team": "담당 팀",
   "agents.flow.teamHint":
     "이 팀의 팀 관리자가 에이전트를 관리하고, 구성원은 설정을 보고 사용합니다.",
@@ -716,8 +712,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "This agent is paused, so no session can start.",
   "agent.newSession.blocked.noRelease":
     "This agent has no active release, so no session can start. Choose a model connection and model in Settings and save to start one.",
-  "agent.newSession.blocked.outsider":
-    "Only the responsible team's members and the agent's admins can start a session with it.",
   "agent.glance.label": "Agent at a glance",
   "agent.glance.cost": "Cost, last 7 days",
   "agent.glance.waiting": "Waiting for an answer",
@@ -813,15 +807,13 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "This team was made to hold unassigned agents and cannot be picked. Pick another team.",
   "managingTeam.saving": "Saving…",
   "managingTeam.audience":
-    "People outside the responsible team see only their own sessions of this agent and the ones shared with them (workspace setting).",
+    "People outside the responsible team do not see this agent, and of its sessions they see only their own and the ones shared with them.",
   "managingTeam.saved": "The responsible team is now {name}.",
   "managingTeam.notAllowed": "You can only pick a team you are in.",
   "managingTeam.noChoices": "There is no other team you can pick.",
   "agents.column.team": "Responsible team",
   "agent.readOnly":
     "As a member of the responsible team you can see this agent's settings but not change them. Team leads and the agent's admins change them.",
-  "agent.outsider.body":
-    "Only the responsible team's members and the agent's admins see its settings.",
   "agents.flow.team": "Responsible team",
   "agents.flow.teamHint":
     "This team's leads manage the agent; its members see its settings and use it.",
@@ -1125,8 +1117,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "一時停止中のエージェントのため、セッションを開始できません。",
   "agent.newSession.blocked.noRelease":
     "有効なリリースがないため、セッションを開始できません。「詳細設定」でモデル接続とモデルを選んで保存すると開始できます。",
-  "agent.newSession.blocked.outsider":
-    "このエージェントでセッションを開始できるのは、担当チームのメンバーと管理者だけです。",
   "agent.glance.label": "エージェントの状況",
   "agent.glance.cost": "直近7日のコスト",
   "agent.glance.waiting": "回答待ち",
@@ -1246,15 +1236,13 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "保管用に作られたチームなので、担当チームには選べません。ほかのチームを選んでください。",
   "managingTeam.saving": "保存中…",
   "managingTeam.audience":
-    "担当チーム外の人は、このエージェントのセッションのうち自分のセッションと共有されたものだけを見ます（ワークスペース設定）。",
+    "担当チーム外の人にはこのエージェントが表示されず、このエージェントのセッションのうち自分のセッションと共有されたものだけが見えます。",
   "managingTeam.saved": "担当チームを「{name}」にしました。",
   "managingTeam.notAllowed": "自分が所属するチームだけを担当チームにできます。",
   "managingTeam.noChoices": "担当チームに選べるほかのチームがありません。",
   "agents.column.team": "担当チーム",
   "agent.readOnly":
     "担当チームのメンバーはこのエージェントの設定を見るだけです。変更するのはチーム管理者とエージェント管理者です。",
-  "agent.outsider.body":
-    "このエージェントの設定は担当チームのメンバーと管理者だけが見られます。",
   "agents.flow.team": "担当チーム",
   "agents.flow.teamHint":
     "このチームのチーム管理者がエージェントを管理し、メンバーは設定を見て使います。",

@@ -230,10 +230,12 @@ const TABLE: [
   ["보관한 에이전트 되살리기", "agent.restore", onAgentA, "oxxxxx"],
   // Every agent, across the workspace, is the roles' alone.
   ["모든 에이전트 관리", "agent.manage", onWorkspace, "ooxxxx"],
-  // agent-rbac (b): every member finds agents; a personal key as its
-  // creator, an agent key only its own row through session.submit.
+  // agent-rbac (b): every member lists agents, the store keeping the rows to
+  // those they are inside; one agent reads only for those inside it. A
+  // personal key reads as its creator, an agent key only its own row through
+  // session.submit.
   ["에이전트 목록·개수", "agent.read", onWorkspace, "ooooxo"],
-  ["에이전트 정보 읽기", "agent.read", onAgentA, "ooooxo"],
+  ["에이전트 정보 읽기", "agent.read", onAgentA, "ooxoxo"],
   ["에이전트 설정 읽기", "agent.settings_read", onAgentA, "ooxoxo"],
   [
     "복구 결정",
@@ -446,17 +448,12 @@ describe("reading an agent: who is inside it (agent-rbac (b))", () => {
     O: user("member", USERS.member),
   };
 
-  async function reasons(
-    action: AuthorizationAction,
-    agentId: string,
-    access: "use" | "view" | "none" = "use",
-  ) {
+  async function reasons(action: AuthorizationAction, agentId: string) {
     const policy = createAuthorizationPolicy({
       identity: {
         reread: async (s) => ({ status: "ok", principal: s.principal }),
       },
       agents: inside,
-      outsideAgents: { access: async () => access },
     });
     const got: Record<string, string> = {};
     for (const [who, principal] of Object.entries(WHO)) {
@@ -473,12 +470,12 @@ describe("reading an agent: who is inside it (agent-rbac (b))", () => {
     return got;
   }
 
-  test("settings: W, L and T read them; O is refused", async () => {
+  test("settings: W, L and T read them; to O the agent does not exist", async () => {
     expect(await reasons("agent.settings_read", AGENT_A)).toEqual({
       W: "ok",
       L: "ok",
       T: "ok",
-      O: "role",
+      O: "not_found",
     });
     // T only reads: changing the agent stays with W and L.
     expect(await reasons("agent.manage", AGENT_A)).toEqual({
@@ -489,23 +486,13 @@ describe("reading an agent: who is inside it (agent-rbac (b))", () => {
     });
   });
 
-  test("information: everyone while axis A shows agents to those outside", async () => {
-    for (const access of ["use", "view"] as const) {
-      expect(await reasons("agent.read", AGENT_A, access)).toEqual({
-        W: "ok",
-        L: "ok",
-        T: "ok",
-        O: "ok",
-      });
-    }
-  });
-
-  test("axis A none hides the agent from O, its settings included", async () => {
-    const hidden = { W: "ok", L: "ok", T: "ok", O: "not_found" };
-    expect(await reasons("agent.read", AGENT_A, "none")).toEqual(hidden);
-    expect(await reasons("agent.settings_read", AGENT_A, "none")).toEqual(
-      hidden,
-    );
+  test("information: only those inside read it; O gets not_found", async () => {
+    expect(await reasons("agent.read", AGENT_A)).toEqual({
+      W: "ok",
+      L: "ok",
+      T: "ok",
+      O: "not_found",
+    });
   });
 
   test("no such agent is not_found to everyone, the owner too", async () => {
@@ -549,7 +536,7 @@ describe("reading an agent: who is inside it (agent-rbac (b))", () => {
       ).reason_code;
     };
     expect(await decide(TEAM_MEMBER)).toBe("ok");
-    expect(await decide(USERS.member)).toBe("role");
+    expect(await decide(USERS.member)).toBe("not_found");
     expect(await decide(TEAM_MEMBER, AGENT_A)).toBe("role");
   });
 
@@ -575,11 +562,11 @@ describe("reading an agent: who is inside it (agent-rbac (b))", () => {
         request_id: "r",
       });
     }
-    expect(recorded).toEqual(["role"]);
+    expect(recorded).toEqual(["not_found"]);
   });
 });
 
-describe("starting a session: axis A (agent-rbac (b))", () => {
+describe("starting a session: only those inside the agent (agent-rbac (b))", () => {
   const TEAM_MEMBER = "019a0000-0000-7000-8000-0000000000c5";
   const RELEASE = "019a0000-0000-7000-8000-00000000d0a1";
   const inside: AgentAuthority = {
@@ -598,7 +585,6 @@ describe("starting a session: axis A (agent-rbac (b))", () => {
 
   async function reason(
     principal: Principal,
-    access: "use" | "view" | "none",
     options: {
       resource?: Omit<AuthorizationResource, "owner_scope">;
       keyCreator?: { userId: string; role: WorkspaceRole };
@@ -616,7 +602,6 @@ describe("starting a session: axis A (agent-rbac (b))", () => {
       },
       agents: inside,
       credentials: { unboundRefs: async () => [] },
-      outsideAgents: { access: async () => access },
     });
     const caller = callerFor(
       principal,
@@ -640,46 +625,39 @@ describe("starting a session: axis A (agent-rbac (b))", () => {
   }
 
   const WHO = {
+    owner: user("owner", USERS.owner),
     W: user("admin", USERS.admin),
     L: user("member", USERS.agent_admin),
     T: user("member", TEAM_MEMBER),
     O: user("member", USERS.member),
   };
 
-  test("use: everyone starts it; view and none: only those inside", async () => {
-    const expected = {
-      use: { W: "ok", L: "ok", T: "ok", O: "ok" },
-      view: { W: "ok", L: "ok", T: "ok", O: "role" },
-      none: { W: "ok", L: "ok", T: "ok", O: "role" },
-    };
-    for (const access of ["use", "view", "none"] as const) {
-      const got: Record<string, string> = {};
-      for (const [who, principal] of Object.entries(WHO)) {
-        got[who] = await reason(principal, access);
-      }
-      expect(got, access).toEqual(expected[access]);
+  test("the owner, an admin, the agent's admin and its team start it; a member outside does not", async () => {
+    const got: Record<string, string> = {};
+    for (const [who, principal] of Object.entries(WHO)) {
+      got[who] = await reason(principal);
     }
+    expect(got).toEqual({ owner: "ok", W: "ok", L: "ok", T: "ok", O: "role" });
   });
 
   test("a personal key starts as its creator; an agent key is inside its agent; a key with neither is outside", async () => {
     expect(
-      await reason(key(), "view", {
+      await reason(key(), {
         keyCreator: { userId: TEAM_MEMBER, role: "member" },
       }),
     ).toBe("ok");
     expect(
-      await reason(key(), "view", {
+      await reason(key(), {
         keyCreator: { userId: USERS.member, role: "member" },
       }),
     ).toBe("role");
-    expect(await reason(key(), "none", { keyAgentId: AGENT_A })).toBe("ok");
-    expect(await reason(key(), "view")).toBe("role");
-    expect(await reason(key(), "use")).toBe("ok");
+    expect(await reason(key(), { keyAgentId: AGENT_A })).toBe("ok");
+    expect(await reason(key())).toBe("role");
   });
 
   test("a message to a session already started is not a start", async () => {
     expect(
-      await reason(WHO.O, "none", {
+      await reason(WHO.O, {
         resource: { kind: "session", id: SESSION_A },
       }),
     ).toBe("ok");

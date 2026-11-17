@@ -35,7 +35,7 @@ import {
   webSessions,
   workspaces,
 } from "./schema.ts";
-import { fixtureTeam } from "./testing/fixture-team.ts";
+import { fixtureTeam, joinFixtureTeam } from "./testing/fixture-team.ts";
 import { launchSession } from "./testing/launches.ts";
 import {
   fixtureRelease,
@@ -243,6 +243,9 @@ integration("members, identity and takeover on PostgreSQL", () => {
   }
 
   async function createSession(principal: Principal, agentReleaseId?: string) {
+    // Only those inside an agent start it.
+    const starter = principal.actor?.userId;
+    if (starter) await joinFixtureTeam(db, principal.ownerId, starter);
     const result = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal,

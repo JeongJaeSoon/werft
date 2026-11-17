@@ -432,7 +432,8 @@ integration("agent identities over HTTP on PostgreSQL", () => {
     const body = { channel_id: "C0X", channel_kind: "public_channel" };
     for (const [cookie, path, request, status, code] of [
       [member, bindingsOf, { ...body, mode: "on" }, 403, "FORBIDDEN"],
-      [member, bindingsOf, undefined, 403, "FORBIDDEN"],
+      // Outside the agent's managing team, the agent is not there to read.
+      [member, bindingsOf, undefined, 404, "NOT_FOUND"],
       [admin, bindingsOf, { ...body, mode: "all" }, 400, "BAD_REQUEST"],
       [
         admin,
@@ -468,9 +469,9 @@ integration("agent identities over HTTP on PostgreSQL", () => {
       ]);
     }
 
-    // The channel search refuses a member outside the agent the way the
-    // binding list does. An id of no agent is 404 to the list, a settings
-    // read, and 403 to the search, which is judged as binding like the PUT.
+    // A member outside the agent and an id of no agent are 404 to the list,
+    // a settings read, and 403 to the search, which is judged as binding
+    // like the PUT.
     // To an owner, neither finds another workspace's agent.
     const elsewhere = crypto.randomUUID();
     await db
@@ -485,7 +486,7 @@ integration("agent identities over HTTP on PostgreSQL", () => {
       name: "x",
     });
     for (const [cookie, agent, listStatus] of [
-      [member, agentId, 403],
+      [member, agentId, 404],
       [admin, crypto.randomUUID(), 404],
     ] as const) {
       const listed = await send(

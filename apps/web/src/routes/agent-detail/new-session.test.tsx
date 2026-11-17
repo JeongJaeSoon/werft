@@ -533,69 +533,25 @@ describe("이 에이전트로 새 세션", () => {
     await openDialog();
   });
 
-  describe("설정을 읽지 못하는 바깥 멤버", () => {
-    const outsider = async (access: "use" | "view") => {
-      const server = await released();
-      const who = memberMe();
-      const workspace = who.workspace as NonNullable<typeof who.workspace>;
-      return {
-        server,
-        routes: {
-          ...meAs({
-            ...who,
-            workspace: {
-              ...workspace,
-              settings: {
-                ...workspace.settings,
-                agent_outsider_access: access,
-              },
-            },
-          }),
-          ...server.routes,
-          "GET /v1/my-teams": () => json(200, { items: [], next_cursor: null }),
-          [`GET ${PATH}`]: () =>
-            apiError(403, "FORBIDDEN", "This principal may not read the agent"),
-          "GET /v1/agents": () =>
-            json(200, { items: [server.detail().agent], next_cursor: null }),
-          "POST /v1/sessions": created,
-        },
-      };
-    };
-
-    test("`use`면 요약의 릴리스로 세션을 시작한다", async () => {
-      const { server, routes } = await outsider("use");
-      const { api, history } = renderAt(DETAIL, routes);
-      const { user, dialog } = await openDialog();
-      expect(within(dialog).queryByText(/저장소/)).toBeNull();
-      await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
-      await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
-      await waitFor(() =>
-        expect(history.location.pathname).toBe(`/sessions/${SESSION_ID}`),
-      );
-      expect(
-        api.calls.find(
-          (call) => call.method === "POST" && call.path === "/v1/sessions",
-        )?.body,
-      ).toEqual({
-        agent_release_id: server.detail().agent.active_release_id,
-        message: "요약해 줘",
-      });
+  test("담당 팀 밖 멤버에게는 에이전트가 없는 것으로 보이고, 새 세션 버튼도 없다", async () => {
+    const server = await released();
+    const { api } = renderAt(DETAIL, {
+      ...meAs(memberMe()),
+      ...server.routes,
+      "GET /v1/my-teams": () => json(200, { items: [], next_cursor: null }),
+      [`GET ${PATH}`]: () => apiError(404, "NOT_FOUND", "Agent not found"),
+      "POST /v1/sessions": created,
     });
-
-    test("`view`면 이유를 보이고 시작하지 못한다", async () => {
-      const { routes } = await outsider("view");
-      renderAt(DETAIL, routes);
-      await expectBlocked(
-        "담당 팀 구성원과 관리자만 이 에이전트로 세션을 시작할 수 있습니다.",
-      );
-    });
+    await screen.findByRole("heading", { name: "에이전트를 찾을 수 없습니다" });
+    expect(screen.queryByRole("button", { name: BUTTON }) === null).toBe(true);
+    expect(api.calls.some((call) => call.method === "POST")).toBe(false);
   });
 
   test("ko·en·ja에 대화상자와 이유 문구가 모두 있다", () => {
     const keys = Object.keys(agentsKo).filter((key) =>
       key.startsWith("agent.newSession."),
     ) as (keyof typeof agentsKo)[];
-    expect(keys).toHaveLength(13);
+    expect(keys).toHaveLength(12);
     for (const key of keys) {
       expect(agentsEn[key]?.trim()).toBeTruthy();
       expect(agentsJa[key]?.trim()).toBeTruthy();

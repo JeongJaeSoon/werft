@@ -223,6 +223,30 @@ export function agentUsable(
   return or(...branches) as SQL;
 }
 
+/**
+ * `agentUsable` for someone who is also inside the agent: what hides an
+ * agent's name and filter from a session reader. A key bound to the agent is
+ * inside it.
+ */
+export function agentReachable(
+  db: Database,
+  workspaceId: string | SQLWrapper,
+  who: { userId: string | null; keyAgentId: string | null },
+  agentId: string | SQLWrapper,
+): SQL {
+  const inside: SQL[] = [];
+  if (who.keyAgentId !== null && UUID.test(who.keyAgentId)) {
+    inside.push(sql`${agentId} = ${who.keyAgentId.toLowerCase()}::uuid`);
+  }
+  if (who.userId !== null && UUID.test(who.userId)) {
+    inside.push(
+      insideAgent(db, workspaceId, who.userId.toLowerCase(), agentId),
+    );
+  }
+  if (inside.length === 0) return sql`false`;
+  return and(agentUsable(db, workspaceId, who, agentId), or(...inside)) as SQL;
+}
+
 export function credentialsAllowed(
   workspaceId: string | SQLWrapper,
   userId: string | null,
@@ -251,22 +275,6 @@ export function credentialsAllowed(
         JOIN agent_versions v ON v.id = r.version_id
         LEFT JOIN agent_mcp_settings s ON s.agent_id = a.id
         WHERE a.id = ${agentId}))`;
-}
-
-/**
- * True where `userId` may read `agentId`'s list row (agent.read): every live
- * member, unless the workspace hides agents from those outside them.
- */
-export function agentReadable(
-  db: Database,
-  workspaceId: string,
-  userId: string,
-  agentId: string | SQLWrapper,
-  outsideAccess: "use" | "view" | "none",
-): SQL {
-  return outsideAccess === "none"
-    ? insideAgent(db, workspaceId, userId, agentId)
-    : liveMember(db, workspaceId, userId);
 }
 
 /** True while `userId` is an enabled member of `workspaceId`: a disabled member administers nothing. */
