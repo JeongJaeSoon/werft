@@ -171,7 +171,6 @@ export function PullRequestSettingsCard({
         </FieldLabel>
         <NativeSelect
           id={ids.mode}
-          className="w-auto max-w-full"
           value={draft.template_mode}
           disabled={reason !== undefined || draft.formatting === "off"}
           onChange={(event) =>
@@ -217,7 +216,6 @@ export function PullRequestSettingsCard({
         </FieldLabel>
         <NativeSelect
           id={ids.link}
-          className="w-auto max-w-full"
           value={draft.session_link}
           disabled={reason !== undefined}
           onChange={(event) =>

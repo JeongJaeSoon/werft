@@ -97,6 +97,19 @@ describe("GitHub 연결 › Pull request 설정", () => {
     ).toBeDefined();
   });
 
+  // The vertical Field stretches the select's wrapper, so a select narrower
+  // than its wrapper leaves the chevron at the far edge, off the box.
+  test("방식과 세션 링크 select는 칸을 채워 화살표가 상자 안에 있다", async () => {
+    renderAt(
+      PATH,
+      routes(() => json(200, saved())),
+    );
+    for (const label of ["템플릿을 고르는 방식", "세션 링크"]) {
+      const select = await screen.findByLabelText(label);
+      expect(select.className).not.toContain("w-auto");
+    }
+  });
+
   test("서식을 끄면 방식과 템플릿 칸이 잠긴다", async () => {
     renderAt(
       PATH,

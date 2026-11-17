@@ -2209,6 +2209,18 @@ describe("에이전트 GitHub 탭 › Pull request 서식", () => {
     expect(AGENT_TEMPLATE_MAX_BYTES).toBe(PULL_REQUEST_TEMPLATE_MAX_BYTES);
   });
 
+  // The vertical Field stretches the select's wrapper, so a select narrower
+  // than its wrapper leaves the chevron at the far edge, off the box.
+  test("서식 select는 칸을 채워 화살표가 상자 안에 있다", async () => {
+    const { server } = await activeAgent();
+    renderAt(
+      DETAIL,
+      routesFor(server, TAB, { [PUT]: () => json(200, saved()) }),
+    );
+    const select = await screen.findByLabelText("서식");
+    expect(select.className).not.toContain("w-auto");
+  });
+
   test("자기 버튼으로 자기 경로에만 저장한다: GitHub 설정 PUT은 부르지 않는다", async () => {
     const { server } = await activeAgent();
     const { api } = renderAt(
