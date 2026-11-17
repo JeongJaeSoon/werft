@@ -19,11 +19,12 @@ echo "$services" | sort
 # these running (and healthy where they have a healthcheck).
 # A Codex run's sessions call the fake Responses API; the overlay that builds
 # the Codex worker is what defines it for the run. The slack role delivers
-# every Slack reply and card; mock-slack is there only with its overlay.
+# every Slack reply and card, but the dev overlay moves it to a profile of its
+# own; mock-slack is there only with its overlay. config --services lists only
+# the services of the active profiles.
 defined=$(ap_compose config --services) || { echo "doctor: docker compose config failed" >&2; exit 1; }
-codex=$(echo "$defined" | grep -x fake-responses || true)
-mock_slack=$(echo "$defined" | grep -x mock-slack || true)
-for service in api scheduler reconciler slack postgres localstack fake-git egress-proxy fake-messages $codex $mock_slack; do
+optional=$(echo "$defined" | grep -x -e fake-responses -e slack -e mock-slack || true)
+for service in api scheduler reconciler postgres localstack fake-git egress-proxy fake-messages $optional; do
   line=$(echo "$services" | awk -v s="$service" '$1 == s')
   case "$line" in
     *" running unhealthy" | *" running starting") echo "doctor: $service is not healthy yet: $line" >&2; exit 1 ;;
