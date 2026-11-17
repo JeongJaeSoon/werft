@@ -162,7 +162,7 @@ worker は claim 時に、実際に自分のイメージに含む組み合わせ
 | `DOCKER_API_VERSION` | `v1.44` | 要求に使う Engine API バージョン |
 | `EXECUTION_EGRESS_CREDENTIAL_PORT` | 3129 | proxy credential route のポート。proxy の `EGRESS_CREDENTIAL_PORT` と一致し、`EXECUTION_EGRESS_PROXY_URL` のポートとは異なる必要があります |
 | `EXECUTION_VOLUME_LABEL_NAMESPACE` | `werft` | セッション workspace volume の label キーの接頭辞（`<値>.managed`、`<値>.installation` など）。小文字・数字・`.`・`-` で 1–62 文字、先頭と末尾は小文字か数字です。この接頭辞の label だけを読みます |
-| `EXECUTION_VOLUME_NAME_PREFIX` | `werft-ws-` | セッション workspace volume 名の接頭辞（`<値><installation id>-<session id>-…`）。小文字・数字・`.`・`-` で 2–32 文字、`-` で終わります |
+| `EXECUTION_VOLUME_NAME_PREFIX` | `werft-ws-` | セッション workspace volume 名の接頭辞（`<値><installation id>-<session id>-…`）。小文字・数字・`.`・`-` で 2–32 文字、先頭は小文字か数字、末尾は `-` です |
 
 二つとも空なら既定値です。Docker は volume の label を変えられないため、別の名前で workspace を作った設置はそのときの値を設定し続けます。値を変えると既存の workspace が見つからず、セッションは空の workspace で始まります。形式が誤っていれば起動を拒否します。
 

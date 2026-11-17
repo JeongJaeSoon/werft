@@ -157,7 +157,7 @@ worker는 claim 때 자기 이미지가 실제로 싣는 조합을 보낸다. �
 | `DOCKER_API_VERSION` | `v1.44` | 요청에 쓰는 Engine API 버전 |
 | `EXECUTION_EGRESS_CREDENTIAL_PORT` | 3129 | proxy credential route의 포트. proxy의 `EGRESS_CREDENTIAL_PORT`와 같아야 하고, `EXECUTION_EGRESS_PROXY_URL`의 포트와는 달라야 한다 |
 | `EXECUTION_VOLUME_LABEL_NAMESPACE` | `werft` | 세션 workspace volume label 키의 앞부분(`<값>.managed`, `<값>.installation` 등). 소문자·숫자·`.`·`-`로 1–62자이고 처음과 끝은 소문자나 숫자다. 이 앞부분의 label만 읽는다 |
-| `EXECUTION_VOLUME_NAME_PREFIX` | `werft-ws-` | 세션 workspace volume 이름의 앞부분(`<값><installation id>-<session id>-…`). 소문자·숫자·`.`·`-`로 2–32자이고 `-`로 끝난다 |
+| `EXECUTION_VOLUME_NAME_PREFIX` | `werft-ws-` | 세션 workspace volume 이름의 앞부분(`<값><installation id>-<session id>-…`). 소문자·숫자·`.`·`-`로 2–32자이고 처음은 소문자나 숫자, 끝은 `-`다 |
 
 두 값은 비워 두면 기본값이다. Docker는 volume의 label을 바꿀 수 없으므로, 다른 이름으로 workspace를 만든 설치는 그때의 두 값을 그대로 준다. 값을 바꾸면 기존 workspace를 찾지 못해 세션이 빈 workspace에서 시작한다. 형식이 틀리면 기동을 거부한다.
 

@@ -162,7 +162,7 @@ Deploy API first, then scheduler WORKER_IMAGE: new workers send claim image_runt
 | `DOCKER_API_VERSION` | `v1.44` | Engine API request version |
 | `EXECUTION_EGRESS_CREDENTIAL_PORT` | 3129 | Must equal proxy EGRESS_CREDENTIAL_PORT and differ from EXECUTION_EGRESS_PROXY_URL port |
 | `EXECUTION_VOLUME_LABEL_NAMESPACE` | `werft` | Prefix of the session workspace volume label keys (`<value>.managed`, `<value>.installation`, …). 1–62 lowercase letters, digits, `.` or `-`, starting and ending with a letter or digit. Only labels under this prefix are read |
-| `EXECUTION_VOLUME_NAME_PREFIX` | `werft-ws-` | Prefix of session workspace volume names (`<value><installation id>-<session id>-…`). 2–32 lowercase letters, digits, `.` or `-`, ending in `-` |
+| `EXECUTION_VOLUME_NAME_PREFIX` | `werft-ws-` | Prefix of session workspace volume names (`<value><installation id>-<session id>-…`). 2–32 lowercase letters, digits, `.` or `-`, starting with a letter or digit and ending in `-` |
 
 Leave both empty for the defaults. Docker cannot relabel a volume, so an install whose workspaces were made under other names keeps setting those values. Changing them loses sight of existing workspaces, and sessions start on empty ones. A malformed value rejects startup.
 
