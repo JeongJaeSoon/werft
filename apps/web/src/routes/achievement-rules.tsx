@@ -275,7 +275,6 @@ export function AchievementRulesScreen() {
   const locked =
     judge.data !== undefined && judge.data.connections.length === 0;
   const setup = useDecisionModelSetup(setOutcome);
-  const setupId = useId();
   const writeReason =
     reason ?? (locked ? t("decisionModel.lockedReason") : undefined);
   const open = (target: string) => {
@@ -290,7 +289,6 @@ export function AchievementRulesScreen() {
       actions={
         <>
           <ReasonButton
-            id={setupId}
             className={buttonVariants({ variant: "outline" })}
             reason={setup.reason}
             onClick={(event) => setup.open(event.currentTarget)}
@@ -365,16 +363,7 @@ export function AchievementRulesScreen() {
               <Skeleton height="12rem" />
             )}
           </div>
-          {locked ? (
-            <DecisionModelLock
-              reason={setup.reason}
-              // The focus goes back to the header's button: this one leaves
-              // with the lock once a model is set up.
-              onSetup={(from) =>
-                setup.open(document.getElementById(setupId) ?? from)
-              }
-            />
-          ) : null}
+          {locked ? <DecisionModelLock /> : null}
         </div>
       </div>
       {setup.dialogs}
@@ -382,36 +371,24 @@ export function AchievementRulesScreen() {
   );
 }
 
-function DecisionModelLock({
-  reason,
-  onSetup,
-}: {
-  readonly reason: Reason;
-  readonly onSetup: (opener: HTMLElement) => void;
-}) {
+// The header's "판정 모델 설정" is the way out; the notice only names the lock.
+function DecisionModelLock() {
   const { t } = useI18n();
   const titleId = useId();
   return (
-    <div className="absolute inset-0 flex justify-center rounded-card bg-muted/70">
+    <div className="absolute inset-0 flex justify-center rounded-card bg-background/90">
       {/* Sticky, so the notice stays in view over a long page. */}
-      {/* biome-ignore lint/a11y/useSemanticElements: a fieldset groups form controls, this is a notice with one button */}
+      {/* biome-ignore lint/a11y/useSemanticElements: a fieldset groups form controls, this is a notice */}
       <div
         role="group"
         aria-labelledby={titleId}
-        className="sticky top-[30vh] mx-4 mt-16 flex max-w-prose flex-col items-center gap-2 self-start rounded-card border bg-background p-6 text-center"
+        className="sticky top-[30vh] mx-4 mt-16 flex max-w-prose flex-col items-center gap-2 self-start text-center text-foreground"
       >
-        <Lock aria-hidden="true" className="size-6 text-muted-foreground" />
+        <Lock aria-hidden="true" className="size-6" />
         <Text id={titleId} weight="medium">
           {t("decisionModel.lock.title")}
         </Text>
-        <Text variant="sub">{t("decisionModel.lock.body")}</Text>
-        <ReasonButton
-          className={buttonVariants({ size: "sm" })}
-          reason={reason}
-          onClick={(event) => onSetup(event.currentTarget)}
-        >
-          {t("decisionModel.setup")}
-        </ReasonButton>
+        <Text weight="medium">{t("decisionModel.lock.body")}</Text>
       </div>
     </div>
   );
