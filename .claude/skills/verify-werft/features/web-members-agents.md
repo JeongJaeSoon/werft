@@ -68,7 +68,7 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select u.email, m.r
 ```sh
 node $B <run id> open /agents/new                    # /agents/new?new-agent.step=name
 node $B <run id> type @0 "Member Helper"             # 이름. 식별자(@1)는 member-helper로 채워진다
-node $B <run id> click 다음                          # → ?new-agent.step=job (@2 담당 팀은 첫 팀이 골라져 있다)
+node $B <run id> click 다음                          # → ?new-agent.step=job
 node $B <run id> select @1 claude-sonnet-5           # 모델 (@0은 모델 연결 fake-messages, @2는 답변 언어)
 node $B <run id> click "저장하고 다음"               # → ?new-agent.step=channels, 에이전트가 켜진 채 만들어진다
 node $B <run id> click "나중에 하기"                 # → /agents/<id>
