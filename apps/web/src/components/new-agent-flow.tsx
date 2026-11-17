@@ -556,14 +556,19 @@ function NameStep({
     <form
       className={AGENT_FORM}
       noValidate
-      onSubmit={form.handleSubmit((values) => {
-        if (!locked && team === "") {
-          setTeamMissing(true);
-          document.getElementById(teamSelect)?.focus();
-          return;
-        }
-        onNext(values);
-      })}
+      onSubmit={form.handleSubmit(
+        (values) => {
+          if (!locked && team === "") {
+            setTeamMissing(true);
+            document.getElementById(teamSelect)?.focus();
+            return;
+          }
+          onNext(values);
+        },
+        // The form keeps focus on its first invalid field; the team only
+        // needs its error shown alongside.
+        () => setTeamMissing(!locked && team === ""),
+      )}
     >
       {/* The name field's label right below says the same word; the step
           keeps its heading for readers and for focus. */}
