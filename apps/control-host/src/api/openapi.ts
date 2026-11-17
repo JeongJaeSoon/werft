@@ -794,7 +794,7 @@ export const OPENAPI_TAGS = [
   {
     name: "Workspace settings",
     description:
-      "How long authorization decisions are kept, GitHub App installations and the workspace's own remote MCP servers. Signed-in people only; who may read or change each one is in its description.",
+      "Settings of one workspace: how long authorization decisions are kept, its Slack apps, app configuration token and guest access, its GitHub Apps, repositories and Packages, and its own remote MCP servers. Signed-in people only; who may read or change each one is in its description.",
   },
   {
     name: "Achievements",
@@ -804,7 +804,7 @@ export const OPENAPI_TAGS = [
   {
     name: "Installation settings",
     description:
-      "Provider connections, repository credentials and the remote MCP server catalog of the whole installation, the settings document that exports and imports them, and the execution limits every workspace runs under. The operator (the workspace owner) only, signed in; API keys are refused.",
+      "Provider connections, repository credentials and the remote MCP server catalog of the whole installation, the settings document that exports and imports them, where Slack's events enter, and the execution limits every workspace runs under. The operator (the workspace owner), signed in; owners and admins also set a repository's credential. API keys are refused.",
   },
   {
     name: "Slack callbacks",
@@ -3301,7 +3301,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1/slack-settings",
     operationId: "getSlackSettings",
-    tag: "Workspace settings",
+    tag: "Installation settings",
     summary: "Where Slack's events enter, for the whole installation",
     description: `${SETTINGS_OWNER} \`events_public_url\` is the https base an owner saved because Slack's event and interaction requests enter apart from the console (another ingress, a funnel); null means \`computed_events_base\`, the console's origin from \`CONSOLE_ORIGIN\` (null when there is none or it is not https). \`events_url_template\` is what an agent app's event subscription is sent, \`{agent_id}\` standing for the agent's id; its interactions address is beside it under \`/v1/slack/interactions/\`. The value applies to every workspace of the installation.`,
     auth: "session",
@@ -3323,7 +3323,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "put",
     path: "/v1/slack-settings",
     operationId: "updateSlackSettings",
-    tag: "Workspace settings",
+    tag: "Installation settings",
     summary: "Save or clear where Slack's events enter",
     description: `${SETTINGS_OWNER} \`events_public_url\`: an absolute https URL without a query, fragment or credentials, at most 2048 characters; a path prefix is kept and a trailing slash dropped. Null or an empty string clears it, and the base is computed from \`CONSOLE_ORIGIN\` again. A change is one transaction and one receipt (\`update_slack_settings\`, the saved and the previous address); the value already saved answers 200 without \`receipt_id\` and leaves no receipt. Apps made before keep the address they were sent until their events are checked again (POST /v1/agents/{id}/slack/app/events/recheck).`,
     auth: "session",

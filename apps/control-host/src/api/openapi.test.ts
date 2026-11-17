@@ -294,7 +294,8 @@ describe("OpenAPI document", () => {
         const tag = (raw as { tags?: string[] }).tags?.[0];
         if (
           path.startsWith("/v1/installation/settings/") ||
-          path === "/v1/installation-config"
+          path === "/v1/installation-config" ||
+          path === "/v1/slack-settings"
         ) {
           expect(tag, `${method} ${path}`).toBe("Installation settings");
         } else if (/^\/v1\/slack\/(events|interactions)\//.test(path)) {
