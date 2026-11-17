@@ -828,30 +828,32 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select surface_ref 
 전제: P-SLACK-SETUP과 owner의 Slack 계정(`U0MOCK`) 연결([musterrolle.md](musterrolle.md) c의 4를 owner로), 에이전트 활성화, `C0SUP`에 `home` binding(P-SLACK-MENTION-ONLY의 첫 PUT). worker 슬롯이 기본 3개이고 idle 세션도 슬롯을 쥔다. 세션이 `queued`에 머물면 이미 끝난 세션을 `POST /v1/sessions/{id}/terminate`(`expected_revision`)로 닫는다. mock의 카드 기록에는 앱 표시가 없으므로 한 run에는 Slack 에이전트를 하나만 둔다(`slack-cards`·`slack-click`은 모든 카드를 본다). 이미 update된 카드는 답한 카드로 보고 건너뛴다. 서명은 mock이 자기 앱 secret으로 만든다. helper는 secret도 컨테이너 환경도 읽지 않는다.
 
 ```sh
-# Actor: owner. 세션 허용: 같은 규칙의 다음 호출은 카드 없이 지나간다.
+# Actor: owner. 묻기 규칙에 걸리는 같은 호출 두 번: 허용한 뒤에도 두 번째 호출에 카드가 다시 온다.
 ap_as owner
-SPEC='GATE-SPEC {"id":"s2","steps":[{"tool":"Bash","input":{"command":"touch a.txt","description":"touch a"}},{"tool":"Bash","input":{"command":"touch a.txt","description":"touch a"}}],"final":"done"}'
+SPEC='GATE-SPEC {"id":"s2","steps":[{"tool":"Bash","input":{"command":"sed -n \"w a.txt\" README.md","description":"write a"}},{"tool":"Bash","input":{"command":"sed -n \"w a.txt\" README.md","description":"write a"}}],"final":"done"}'
 node "$U" "$RUN" slack-event "$AID" mention C0SUP 11 "" "run $SPEC"
-node "$U" "$RUN" slack-cards "$AID"                      # 카드 한 장: permission.allow·allow_session·deny
-node "$U" "$RUN" slack-click "$AID" allow-session
-node "$U" "$RUN" slack-cards "$AID"                      # 그 카드의 last_update가 "이 세션 동안 허용됨", 카드 수는 그대로
-ap_compose exec -T postgres psql -U postgres -d sessions -c "select answer->>'remember' remember, settled_answer_result, payload->'remember_offer' from pending_requests where tool='Bash' order by created_at"
-# 대조: 일반 허용은 다음 호출에 카드가 다시 온다.
-node "$U" "$RUN" slack-event "$AID" mention C0SUP 12 "" "run $SPEC"     # 명령만 touch b.txt로
+node "$U" "$RUN" slack-cards "$AID"                      # 카드 한 장: permission.allow·permission.deny
 node "$U" "$RUN" slack-click "$AID" allow
-node "$U" "$RUN" slack-cards "$AID"                      # 같은 스레드에 두 번째 카드
-# push 승인: 세션 허용 뒤에도 push 카드는 따로 온다.
+node "$U" "$RUN" slack-cards "$AID"                      # 첫 카드의 last_update가 "허용됨", 같은 스레드에 두 번째 카드
+node "$U" "$RUN" slack-click "$AID" deny
+node "$U" "$RUN" slack-cards "$AID"                      # 두 번째 카드의 last_update가 "거부됨"
+ap_compose exec -T postgres psql -U postgres -d sessions -c "select answer->>'decision' decision, answer->>'remember' remember, settled_answer_result, payload->'remember_offer' from pending_requests where tool='Bash' order by created_at"
+# push 승인: 도구 허용과 따로 push 카드가 온다.
 node "$U" "$RUN" key owner personal sessions:read,sessions:write,sessions:approve; ap_as owner
 ap_post "/v1/sessions/$SID/push-requests" '{}'            # SID는 commit 대본(P-GITHUB-SANDBOX 4의 SPEC)이 끝난 Slack 세션
 node "$U" "$RUN" slack-cards "$AID"                      # push.approve·push.reject 카드
 node "$U" "$RUN" slack-click "$AID" push-approve
 node "$U" "$RUN" slack-cards "$AID"                      # last_update가 "push 승인됨"
+# 거절: 같은 스레드에 commit 대본을 한 번 더(reply) 보내고, 그 턴의 체크포인트가 저장된 뒤 다시 요청한다.
+ap_post "/v1/sessions/$SID/push-requests" '{}'
+node "$U" "$RUN" slack-click "$AID" push-reject
+node "$U" "$RUN" slack-cards "$AID"                      # last_update가 "push 거절됨"
 node "$U" "$RUN" slack-click-bad "$AID"                  # 401 UNAUTHORIZED
 ```
 
-기대: `slack-event`는 200 `ok:true`, 카드는 스레드마다 새로 온다(몇 초 걸린다. 필요하면 `slack-cards`를 다시). `slack-click`은 `{"ok":true,"status":200,"body":{"ok":true}}`. `pending_requests`에는 `remember: session`, `settled_answer_result: applied`, `remember_offer: [{"tool_name":"Bash","rule_content":"touch a.txt"}]` 한 행뿐이고(두 번째 호출은 요청이 없다) 세션은 turn 1 `completed`로 idle이 된다. 일반 허용은 카드가 `허용됨`으로 바뀌고 두 번째 카드가 온다. push 카드를 누르면 카드가 `push 승인됨`으로 바뀌고 push 요청은 `approved`를 지나 처리된다. GitHub 자격이 없는 기본 mock run에서는 `failed`(`no_push_credential`)로 끝나는 것이 정상이다. 틀린 서명은 401 `UNAUTHORIZED`.
+기대: `slack-event`는 200 `ok:true`, 카드는 스레드마다 새로 온다(몇 초 걸린다. 필요하면 `slack-cards`를 다시). `slack-click`은 `{"ok":true,"status":200,"body":{"ok":true}}`. 두 카드의 `last_update`는 각각 `*허용됨* · <@U0MOCK>`, `*거부됨* · <@U0MOCK>`으로 시작한다(뒤에 카드 요약이 붙는다). `pending_requests`에는 두 행이 생긴다. 하나는 `allow`이고 다른 하나는 `deny`이며, 둘 다 `remember`는 비어 있고 `settled_answer_result`는 `applied`, `remember_offer`는 비어 있다. 세션은 idle이 된다. push 카드를 누르면 카드가 `push 승인됨`으로 바뀌고 push 요청은 `approved`를 지나 처리된다. 기본 run에서는 fake-git이 받아 `pushed`가 되고 `agent/<SID>` 브랜치가 생긴다. push 자격이 없는 저장소면 `failed`(`no_push_credential`)로 끝난다. 거절 카드는 `push 거절됨`이 되고 요청은 `rejected`다. 틀린 서명은 401 `UNAUTHORIZED`.
 
-주의: 명령에 `|`나 `>` 같은 파이프·리다이렉션이 있으면(`echo alpha | tee hello.txt`) 엔진이 제안한 규칙(`echo alpha *`)이 그 명령 자체를 덮지 못해, 카드가 `이 세션 동안 허용됨`으로 바뀐 뒤에도 같은 호출에 카드가 다시 온다. 세션 허용을 증명하는 대본은 리다이렉션 없는 명령을 쓴다. 실제 SDK에 간 `updatedPermissions`는 worker 로그에 남지 않는다. 증거는 `pending_requests`의 `remember: session`·`applied`와 다음 호출에 요청이 없다는 사실이다. release에 `github` 설정(`push_approval`)을 넣으려면 GitHub App 등록이 필요해(`app_required`) 기본 mock run은 설정 없는 release, 곧 사람이 매 push를 승인하는 기본값으로 본다.
+주의: "이 세션 동안 허용" 버튼(`permission.allow_session`)은 엔진이 그 호출을 덮는 규칙을 제안할 때(`remember_offer`)만 붙고, 그 규칙 문장이 너무 길면 빠진다. fake 연결의 release는 `auto`로 돌아서 묻기 규칙에 걸린 명령만 카드가 된다. mock run에서 본 묻기 규칙 카드 11건은 파이프가 없는 명령(`sed -n "w a.txt" README.md`)까지 모두 제안이 비어 있었다. 엔진이 제안을 보내지 않은 것인지 werft가 거른 것인지는 확인하지 않았다. 그래서 기본 mock run에서 `slack-click allow-session`은 `no open card offers permission.allow_session`으로 끝난다. 세션 허용은 단계마다 시험이 지킨다. 제안 거르기는 `packages/adapters/runtimes/claude/src/runtime.test.ts`의 "canUseTool hands the host only the allow rules it may offer…"가 맡는다. 버튼은 `packages/adapters/chat/slack/src/slack-prompts.test.ts`의 "an offered rule adds a button…"과 "an allow kept for the session says so…"가 맡는다. 저장과 전달은 `packages/db/src/pending-requests.integration.test.ts`의 "a request that offered rules takes the answer…"가, worker가 엔진에 넘기는 일은 `apps/worker/src/pending-requests.test.ts`의 "hands the run the registered rules with an allow that asked to remember"가 맡는다. 클릭 처리 중 Slack 호출이 실패하면(예: `users.info` 429) 클릭은 200을 받지만 답은 반영되지 않는다. 그때 누른 사람에게 "지금은 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요" ephemeral이 가고 카드는 그대로다. release에 `github` 설정(`push_approval`)을 넣으려면 GitHub App 등록이 필요해(`app_required`) 기본 mock run은 설정 없는 release, 곧 사람이 매 push를 승인하는 기본값으로 본다.
 
 ## P-GITHUB-SANDBOX — 실제 GitHub 별도 run
 
