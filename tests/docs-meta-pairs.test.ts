@@ -214,6 +214,27 @@ describe("buildSidebarTree", () => {
     expect(buildSidebarTree(fallback, sidebarLabels.en)).toBe(fallback);
   });
 
+  test("every page the root meta lists reaches the sidebar", () => {
+    const slugs = pageSlots(join(docsRoot, "meta.json")).filter(
+      (s) => s !== "index" && s !== "contributing",
+    );
+    const listed: Root = {
+      name: "docs",
+      children: [
+        page("/en"),
+        ...slugs.map((s) =>
+          s === "run-server"
+            ? folder("Run", [folder("Self-hosting", [], "/en/run-server")])
+            : page(`/en/${s}`),
+        ),
+      ],
+    };
+    const shown = buildSidebarTree(listed, sidebarLabels.en).children.flatMap(
+      urls,
+    );
+    for (const s of slugs) expect(shown).toContain(`/en/${s}`);
+  });
+
   test("each page sits in exactly one section and contributing in none", () => {
     const use = all(useNodes);
     const deploy = all(deployNodes);

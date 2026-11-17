@@ -48,6 +48,7 @@ const FEATURES = [
   "approvals",
   "integrations",
   "api-keys",
+  "members",
   "achievements",
   "observability",
 ];
