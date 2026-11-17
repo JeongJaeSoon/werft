@@ -60,6 +60,7 @@ import {
 } from "./schema.ts";
 import { pauseBlocker } from "./sessions/pause-control.ts";
 import { commitCheckpoint } from "./testing/checkpoints.ts";
+import { insertDecisionModel } from "./testing/decision-model.ts";
 import {
   confirmExecutionGone,
   insertUnreservedLaunch,
@@ -126,6 +127,7 @@ integration("worker gateway on PostgreSQL", () => {
     database = await createTempDatabase({ prefix: "worker_gw_it" });
     pool = new Pool({ connectionString: database.url, max: 12 });
     db = drizzle(pool, { schema });
+    await insertDecisionModel(db);
     gateway = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
       github: {

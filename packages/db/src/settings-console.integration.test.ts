@@ -13,7 +13,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresInstallationSettingsStore } from "./installation-settings.ts";
@@ -29,6 +29,7 @@ import {
 } from "./schema.ts";
 import { writeSecretInTx } from "./secrets/secret-values.ts";
 import { createPostgresSettingsDocumentStore } from "./settings-document.ts";
+import { backendPid, waitsOn } from "./testing/lock-wait.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -60,6 +61,11 @@ const CONNECTION = {
   kind: "anthropic",
   endpoint: "http://fake-model:8080",
   billing: "none",
+  auth: { kind: "api_key", stored: true },
+};
+const DECISION = {
+  kind: "openai_decisions",
+  endpoint: "https://api.openai.com",
   auth: { kind: "api_key", stored: true },
 };
 const MCP = {
@@ -219,6 +225,147 @@ integration("settings console writes", () => {
         (row.result as { connection_id?: unknown }).connection_id === "raced",
     );
     expect(made).toHaveLength(1);
+  });
+
+  describe("a new decision model and the workspace's judge", () => {
+    const judgeOf = async () => {
+      const [row] = await db
+        .select({ settings: workspaces.settings })
+        .from(workspaces)
+        .where(eq(workspaces.id, workspaceId));
+      return (row?.settings as { achievement_judge?: Record<string, unknown> })
+        .achievement_judge;
+    };
+    const noJudge = () =>
+      db
+        .update(workspaces)
+        .set({ settings: sql`${workspaces.settings} - 'achievement_judge'` })
+        .where(eq(workspaces.id, workspaceId));
+    const judgeReceipts = async () =>
+      (await receiptsOf("set_achievement_judge")).map(
+        (row) =>
+          (row.result as { achievement_judge: unknown }).achievement_judge,
+      );
+
+    test("a judge that names none takes it with a receipt; one that names a connection keeps it", async () => {
+      const owner = await person("owner");
+      await noJudge();
+      expect(await judgeReceipts()).toEqual([]);
+      expect(
+        (
+          await store().create(
+            add("connections", "luna-first", DECISION),
+            "first-key-0001",
+            owner,
+          )
+        ).outcome,
+      ).toBe("done");
+      expect(await judgeOf()).toEqual({ connection_id: "luna-first" });
+      expect(await judgeReceipts()).toEqual([
+        expect.objectContaining({ connection_id: "luna-first" }),
+      ]);
+      expect(
+        (
+          await store().create(
+            add("connections", "luna-second", DECISION),
+            "second-key-0002",
+            owner,
+          )
+        ).outcome,
+      ).toBe("done");
+      expect(await judgeOf()).toEqual({ connection_id: "luna-first" });
+      expect(await judgeReceipts()).toHaveLength(1);
+      // Any other kind leaves the judge alone.
+      await noJudge();
+      await store().create(
+        add("connections", "not-a-judge", CONNECTION),
+        "third-key-0003",
+        owner,
+      );
+      expect(await judgeOf()).toBeUndefined();
+    });
+
+    test("a judge a person saves while the create waits on the workspace row is never overwritten", async () => {
+      const owner = await person("owner");
+      await noJudge();
+      let held: () => void = () => {};
+      const holding = new Promise<void>((resolve) => {
+        held = resolve;
+      });
+      let proceed: () => void = () => {};
+      const go = new Promise<void>((resolve) => {
+        proceed = resolve;
+      });
+      let blocker = 0;
+      // As a judge save: the workspace row locked, the judge set, not committed.
+      const save = db.transaction(async (tx) => {
+        await tx.execute(
+          sql`SELECT 1 FROM workspaces WHERE id = ${workspaceId} FOR NO KEY UPDATE`,
+        );
+        await tx
+          .update(workspaces)
+          .set({
+            settings: sql`jsonb_set(${workspaces.settings}, '{achievement_judge}', '{"connection_id":"luna-picked"}'::jsonb)`,
+          })
+          .where(eq(workspaces.id, workspaceId));
+        blocker = await backendPid(tx);
+        held();
+        await go;
+      });
+      let create: ReturnType<ReturnType<typeof store>["create"]> | null = null;
+      try {
+        await holding;
+        let settled = false;
+        create = store()
+          .create(
+            add("connections", "luna-raced", DECISION),
+            "raced-key-0004",
+            owner,
+          )
+          .finally(() => {
+            settled = true;
+          });
+        // The create's judge write waits on the save's row lock.
+        expect(await waitsOn(db, blocker, () => settled)).toBe(true);
+        proceed();
+        await save;
+        expect((await create).outcome).toBe("done");
+        expect(await judgeOf()).toEqual({ connection_id: "luna-picked" });
+      } finally {
+        proceed();
+        await save.catch(() => {});
+        await create?.catch(() => null);
+      }
+    });
+
+    test("a judge stored as JSON null, or naming no connection, takes the new decision model", async () => {
+      const owner = await person("owner");
+      for (const [id, judge] of [
+        ["luna-after-null", "null"],
+        ["luna-after-unset", '{"connection_id":null,"threshold":0.8}'],
+      ] as const) {
+        await db
+          .update(workspaces)
+          .set({
+            settings: sql`jsonb_set(${workspaces.settings}, '{achievement_judge}', ${judge}::jsonb)`,
+          })
+          .where(eq(workspaces.id, workspaceId));
+        expect(
+          (
+            await store().create(
+              add("connections", id, DECISION),
+              `${id}-key`,
+              owner,
+            )
+          ).outcome,
+        ).toBe("done");
+        expect(await judgeOf()).toEqual(
+          judge === "null"
+            ? { connection_id: id }
+            : { connection_id: id, threshold: 0.8 },
+        );
+      }
+    });
   });
 
   test("an admin or member may not write a connection or MCP server", async () => {

@@ -134,7 +134,7 @@ function evidenceOf(
     });
   }
   // A session has a conversation once its first message gave it a title.
-  if (context.session.title !== null) {
+  if (context.session.title !== null && context.since.conversation) {
     evidence.push({
       kind: "conversation",
       id: null,
@@ -172,7 +172,10 @@ function failureCodeOf(error: unknown): AchievementJudgmentError | null {
  * Judges each claimed judgment's session against the workspace's rules in
  * use (design achievement-rules.md §4). Each API replica runs one; a claim
  * leases its judgments, and the achievements and the result are written in
- * one transaction under that lease. An `always` rule counts each of its
+ * one transaction under that lease. With no decision model in the
+ * installation, each judgment is skipped and nothing is counted. Otherwise
+ * only evidence from since the decision model was on without a break is
+ * paired (`JudgmentContext.since`), and an `always` rule counts each of its
  * evidence at no cost. A `luna` rule's pairs wait for the next UTC day once
  * the workspace's judgments have spent the day's budget, and are skipped
  * for a session at its cap (`session_limit`) or without a judge it can
@@ -190,6 +193,8 @@ export function createAchievementJudge(deps: {
   >;
   outputs: Pick<SessionOutputSource, "readOutputs" | "openOutput">;
   logger: Logger;
+  /** The decision model: with no connection, every judgment is skipped. */
+  models: Pick<JudgeConnections, "ids">;
   /** Absent, `luna` pairs are skipped as `judge_unavailable`. */
   luna?: {
     connections: JudgeConnections;
@@ -276,7 +281,11 @@ export function createAchievementJudge(deps: {
   ): Promise<DecisionsRequest | null> {
     if (item.kind === "conversation") {
       if (context.judge.transcript === "none") return null;
-      const turns = await store.transcript(claimed.sessionId, TRANSCRIPT_TURNS);
+      const turns = await store.transcript(
+        claimed.sessionId,
+        TRANSCRIPT_TURNS,
+        context.since.at,
+      );
       return questionOf(rule.definition, item.kind, [
         `turns: ${transcriptExcerpt(turns)}`,
       ]);
@@ -317,7 +326,19 @@ export function createAchievementJudge(deps: {
       // The pairs that need no out/ list are counted all the same.
       if (listed.status === "unavailable") outputsUnavailable = true;
       if (listed.status === "ready") {
-        files = listed.outputs.map(({ path, bytes }) => ({ path, bytes }));
+        const { checkpoints } = context.since;
+        const listedSince = checkpoints.some(
+          ({ revision }) => revision === listed.revision,
+        );
+        files = listed.outputs
+          .filter((output) =>
+            "omitted" in output
+              ? listedSince
+              : checkpoints.some(({ directory }) =>
+                  output.key.startsWith(directory),
+                ),
+          )
+          .map(({ path, bytes }) => ({ path, bytes }));
       }
     }
     const evidence = evidenceOf(context, files);
@@ -342,6 +363,7 @@ export function createAchievementJudge(deps: {
       rules: [...rules],
       evidenceIds: [...evidenceIds],
       achievements,
+      since: context.since.at,
     };
     if (outputsUnavailable) {
       return { ...again(claimed, "outputs_unavailable"), ...paired };
@@ -463,6 +485,7 @@ export function createAchievementJudge(deps: {
   /** One pass. Returns how many judgments it finished. */
   async function runOnce(): Promise<number> {
     const claimed = await store.claim({ max: claimMax, leaseMs });
+    if (claimed.length === 0) return 0;
     let finished = 0;
     for (const judgment of claimed) {
       const nothing = { rules: [], evidenceIds: [], achievements: [] };
@@ -471,6 +494,15 @@ export function createAchievementJudge(deps: {
       // may have spent it.
       if (!(await store.renew(judgment, leaseMs))) {
         result = null;
+      } else if ((await deps.models.ids()).length === 0) {
+        // Asked per judgment: the model may go while the batch runs. Without
+        // one nothing is counted, `always` rules included, and what was
+        // queued before ends here rather than waiting for one.
+        result = {
+          status: "skipped",
+          errorCode: "judge_unavailable",
+          ...nothing,
+        };
       } else if (judgment.attempts > ACHIEVEMENT_JUDGMENT_RETRY_MS.length + 1) {
         // No try finished since: replicas died or lost the lease. The last
         // failure that was written says why.

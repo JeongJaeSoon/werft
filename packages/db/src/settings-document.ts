@@ -3,6 +3,7 @@ import {
   canonicalJson,
   type ReceiptActor,
   type ReceiptOperation,
+  workspaceSettingsSchema,
 } from "@werft-ai/contracts";
 import {
   type CatalogRepositoryConfig,
@@ -634,6 +635,36 @@ async function consoleReceipt(
   return id;
 }
 
+/**
+ * The actor's workspace judge takes a new decision model while it names
+ * none, so setting one up is enough to judge. One write that checks and
+ * sets: a judge a person saved meanwhile is read again once that save
+ * commits (the row lock), and is never overwritten. Lock order after the
+ * catalog lock and the people: the workspace row, as a judge save takes it.
+ */
+async function judgeWithFirstDecisionModel(
+  tx: Database,
+  actor: TeamActor,
+  connectionId: string,
+): Promise<void> {
+  const result = await tx.execute(sql`
+    UPDATE workspaces
+       SET settings = jsonb_set(settings, '{achievement_judge}',
+             coalesce(nullif(settings -> 'achievement_judge', 'null'::jsonb), '{}'::jsonb)
+               || jsonb_build_object('connection_id', ${connectionId}::text))
+     WHERE id = ${actor.workspaceId}
+       AND settings -> 'achievement_judge' ->> 'connection_id' IS NULL
+    RETURNING settings -> 'achievement_judge' AS judge`);
+  const [row] = rowsOf<{ judge: unknown }>(result);
+  if (row === undefined) return;
+  await consoleReceipt(tx, actor, "set_achievement_judge", {
+    achievement_judge: workspaceSettingsSchema.shape.achievement_judge.parse(
+      row.judge,
+    ),
+    source: "console",
+  });
+}
+
 const CREATED: Record<SettingsKind, ReceiptOperation> = {
   connection: "create_connection",
   mcp: "create_mcp_server",
@@ -739,6 +770,12 @@ function consoleWrites(
           ...auditOf(add),
           source: "console",
         });
+        if (
+          add.kind === "connection" &&
+          add.entry.kind === "openai_decisions"
+        ) {
+          await judgeWithFirstDecisionModel(tx, actor, add.id);
+        }
         return { outcome: "done" as const, receiptId };
       });
     },

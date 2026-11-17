@@ -25,7 +25,8 @@
 - **성과 type도 사람이 만든다.** 사람이 만든 type은 이름·key와 **근거 종류**(PR·리뷰·`out/` 파일·대화, 코드에 고정된 목록) 하나로 이루어지고, 그 성과 행은 **공통 칸만** 가진다(제목·링크·근거 종류·근거 id). 내장 type 셋(`pull_request`·`code_review`·`document`)만 구조화 칸(`payload`)을 가진다. 자유 JSON 스키마는 두지 않는다([2절](#성과-type의-데이터-모양-세-후보)).
 - **규칙에는 PR에만 맞는 칸이 없다.** "머지된 PR만" 같은 조건은 성과 정의 문장에 쓰고, Luna가 근거의 상태를 보고 판정한다. PR 고유 정보는 근거 쪽에만 있다.
 - **판정 주기 기본값: 근거가 생기거나 바뀔 때만.** 근거 없는 세션은 판정하지 않으므로 비용 0이다. "N턴마다"(기본 10, 최소 5)와 "세션이 멈출 때"를 설정에서 켠다.
-- **엔드포인트는 새 설정 체계를 만들지 않는다.** 연결 표(`provider_connections`, 설정 DB 이전 S1)에 kind `openai_decisions` 하나를 더해 고른다. 모델은 `gpt-6-luna` 하나라 고르는 칸이 없다.
+- **엔드포인트는 새 설정 체계를 만들지 않는다.** 연결 표(`provider_connections`, 설정 DB 이전 S1)에 kind `openai_decisions` 하나를 더해 고른다. 모델은 `gpt-6-luna` 하나라 고르는 칸이 없다. 이 연결은 모델 연결 화면이 아니라 성과 규칙 화면의 "판정 모델 설정"에서 만들고 관리한다(설치 설정 권한, owner만).
+- **판정 모델이 없으면 성과 기능이 잠긴다.** 켜진 `openai_decisions` 연결이 하나도 없으면 구분·type·규칙·판정 설정·확인·다시 판정의 쓰기는 모두 `409 DECISION_MODEL_REQUIRED`로 거절되고 읽기만 된다. 판정도 넣지 않는다(바로 인정 규칙 포함). 있는 데이터는 지우지 않고, 나중에 연결을 끄면 다시 잠긴다([4절](#4-판정-흐름)).
 - **판정 비용은 세션 비용과 따로 센다.** 판정 1회(근거 요약) 약 $0.00025. 워크스페이스 하루 판정 예산을 둔다.
 - **PR·리뷰 근거의 성과는 바로 집계되고, `out/` 파일이나 대화로 인정한 성과는 사람이 확인해야 ROI에 들어간다.**
 
@@ -194,7 +195,7 @@ PR 행의 `metadata`에 `title`(200자)을 더한다. Luna가 "버그 수정 PR"
 
 | 칸 | 기본값 | 뜻 |
 |---|---|---|
-| `connection_id` | null | kind `openai_decisions` 연결 하나. null이면 `luna` 규칙은 판정하지 않고 "판정기 없음"으로 보인다. `always` 규칙은 늘 돈다 |
+| `connection_id` | null | kind `openai_decisions` 연결 하나. null이면 `luna` 규칙은 판정하지 않고 "판정기 없음"으로 보인다. 켜진 판정 모델이 하나라도 있으면 `always` 규칙은 돈다. 판정 모델을 만들 때 이 칸이 null이면 API가 만드는 트랜잭션 안에서 그 연결로 채운다. 채우기는 이 칸이 아직 null일 때만 쓰는 한 문장이라, 그사이 사람이 저장한 값은 덮어쓰지 않는다 |
 | `threshold` | 0.9 | "예"의 확률이 이 값 이상이면 성과 |
 | `on_evidence` | true | 근거가 생기거나 바뀔 때 판정 |
 | `every_n_turns` | null | 켜면 N턴마다(5~100). `conversation` 근거 type 규칙이 있을 때만 의미가 있다 |
@@ -259,6 +260,8 @@ N턴째 끝남 ───────┼─▶ achievement_judgments (queued, 세
      5. 성과 행 + 판정 결과를 한 트랜잭션으로
 ```
 
+- **판정 모델이 없으면 넣지 않는다.** 켜진 `openai_decisions` 연결이 없으면 근거는 그대로 남기되 판정을 넣지 않는다(수동 다시 판정도 `409 DECISION_MODEL_REQUIRED`). 판정을 넣는 INSERT 문 안의 확인 하나가 연결 행을 `FOR SHARE`로 잡으므로, 사용 중지가 커밋되기 전에 읽은 판정이 큐에 남지 않는다. 잠금 순서는 세션 행(`FOR KEY SHARE`) → 연결 행 → 대기 판정이고, 콘솔 쓰기는 catalog 잠금 → 연결 행이며 세션·판정은 잡지 않는다. 이미 들어간 판정을 판정기가 집었을 때 판정 모델이 없으면 아무것도 세지 않고 `skipped`(`judge_unavailable`)로 끝낸다. 판정 모델을 만들었다고 지난 세션을 거슬러 판정하지 않는다.
+- **판정 모델이 켜진 뒤의 근거만 본다(오너 결정, 2026-11-17).** `openai_decisions` 연결 행의 `judging_since`(0291)가 "판정 모델이 끊김 없이 켜져 있던 시작 시각"이다. 행을 만들거나 다시 켤 때 trigger가 채운다: 다른 켜진 판정 모델이 있으면 그 가장 이른 값을 물려받고, 없으면 지금이다(`clock_timestamp()`: 카탈로그 잠금을 기다린 동안의 근거는 새 창에 넣지 않는다). 그래서 판정 모델이 모두 꺼졌다가 다시 켜지면 창이 그 시점부터 다시 시작하고, 여럿 가운데 하나만 껐다 켜면 이어진다. 판정은 켜진 행의 가장 이른 `judging_since` 이후의 근거만 읽는다: PR은 머지·닫힘이면 GitHub의 그 시각, 아니면 이 서버가 상태를 본 시각(`state_changed_at`), 리뷰는 기록 시각, 대화는 그 뒤에 끝난 턴(전사도 그 턴들만), `out/` 파일은 그 뒤에 커밋된 체크포인트가 처음 올린 것(객체 key가 그 체크포인트 디렉터리 아래)이다. 크기 초과로 올리지 않은 파일은 key가 없으므로, 목록을 준 체크포인트가 그 뒤에 커밋됐을 때만 본다. 창 밖 근거는 "아니오"가 아니라 빠질 뿐이라 전에 센 성과는 그대로 남는다. 같은 근거 id라도(대화는 id가 없다) 지금 창의 "아니오"는 지금 창에서 센 성과만 내린다. 판정은 시작할 때 창 시작 시각을 한 번 읽어 모든 조회에 쓰고, 저장할 때 판정 모델 행을 잠근 채 그 창이 아직 그대로인지 본다. 그사이 창이 끝났거나 다시 시작했으면 성과·내림·digest를 쓰지 않고 `skipped`(`judge_unavailable`)로 끝난다. 마이그레이션 때 이미 켜져 있던 판정 모델은 마이그레이션 시각에서 창을 시작한다.
 - **합치기.** 세션에 `queued` 판정이 이미 있으면 새로 만들지 않고, 그 판정의 trigger를 가장 최근 trigger로 바꾼다. 마지막 trigger 뒤 2분이 지난 것만 집는다.
 - **N턴.** 턴이 끝날 때 control-host가 끝난 턴 수를 보고 `% N = 0`이면 넣는다. 세션 제목을 짓는 지점과 같은 곳이다(`worker-gateway.ts:1980`). `conversation` 근거 type 규칙이 없으면 넣지 않는다.
 - **무엇을 다시 보나.** 근거가 바뀌면(PR 머지) 그 근거와 짝인 규칙만 다시 판정한다. 같은 규칙 버전·같은 `input_digest`는 다시 보내지 않는다. "아니오"였던 PR이 머지되면 입력(상태)이 바뀌었으므로 다시 묻는다.
@@ -336,6 +339,7 @@ input:    <definition>{규칙의 성과 정의}</definition>
 | `POST /v1/achievements/{id}/review` | `achievement.review` + `session.read` | `{ action: confirm|reject, note? }` |
 | `GET /v1/usage/achievements` | `GET /v1/usage/summary`와 같은 범위 규칙 | 구분·type·규칙·에이전트별 수, 세션 비용, 판정 비용, 성과당 비용 |
 
+- 위 표의 쓰기(`GET`이 아닌 것)는 켜진 판정 모델이 없으면 권한 확인 뒤 `409 DECISION_MODEL_REQUIRED`다. 판정 모델을 만드는 길(`POST /v1/installation/settings/connections`)은 막지 않는다.
 - 새 action 둘을 `packages/platform/src/musterrolle/policy.ts`에 더한다: `achievement_rule.manage`(owner·admin, `workspace.manage`와 같은 역할 표 `:275`), `achievement.review`(owner·admin과 그 에이전트의 관리자). 관리 action이므로 API key는 거절한다(`docs/contributing/architecture.md:86`).
 - 쓰기마다 receipt: 구분·type·규칙의 만들기·고치기·보관·사용 중지, `set_achievement_judge`, `review_achievement`, `rejudge_session`. 정의 본문은 receipt에 싣지 않고 id·버전만 싣는다.
 - 성과당 비용: `cost_per_achievement_usd = 기간 모든 세션 비용 / 집계되는 성과 수`(`auto` + `confirmed`). github-agent.md 10절의 `cost_per_merged_pr_usd`와 같은 이유로 성과 없는 세션 비용도 넣는다. 판정 비용은 `judge_cost_usd`로 따로.

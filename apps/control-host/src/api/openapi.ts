@@ -1198,7 +1198,7 @@ const ACHIEVEMENT_RULE_EXAMPLE = {
 };
 const ACHIEVEMENT_JUDGE_EXAMPLE = EXAMPLE_WORKSPACE.settings.achievement_judge;
 const ACHIEVEMENT_MANAGERS =
-  "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused.";
+  "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED.";
 
 const SETTINGS_DOCUMENT_EXAMPLE = {
   version: 1,
@@ -4661,7 +4661,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "What the workspace's achievement rules counted in the session",
     description:
-      "The session's achievements in force, oldest first, and its latest judgment. Only the platform's judge writes achievements: when the session's evidence appears or changes (a pull request opened, merged or closed, a review submitted, a checkpoint whose `out/` files differ from its parent's) a judgment is queued in the same transaction, one queued per session, and the judge takes it once two minutes have passed since the last such change. It pairs each rule in use with the session's evidence of its type's `evidence_kind`. An `always` rule counts every pair at no cost; one rule family counts a piece of evidence of a session once (`evidence_id`: the outcome id, the `out/` path, or null for the conversation). `title` and `link` are the pull request or review as `owner/repo#number` and its URL, the file's path and the session's console path, or the session's title and console path. `payload` is set only for the built-in types (`pull_request`, `code_review`, `document`). `review_state` is `auto` for pull request and review evidence, counted at once, and `needs_review` for `out/` files and the conversation, counted once a person confirms them; `confirmed` and `rejected` are a person's decision (`POST /v1/achievements/{id}/review`), which a later judgment never changes. `rule_title`, `rule_version` and `type_key` name the rule version that counted it and its type. `threshold` is the workspace threshold its judgment held a `luna` rule's `probability` against, kept with that judgment; null when that judgment asked the judge nothing. `rejudged_after_merge` is true for pull request evidence counted by a judgment made after the pull request merged, in a session with a judgment made before the merge.\n\n`judgment_count` is the session's finished judgments and `judge_cost_usd` what their judge calls cost, apart from the session's own cost.\n\n`judgment` is null before the session's first. Its `trigger` is `evidence`, `turns` (every `every_n_turns` turns, with a rule of `conversation` evidence in use), `idle` (the session's run ended idle, paused or closed, with `on_idle` on) or `manual`; `evidence_change` is `pr_merged` for an `evidence` judgment when one of the session's pull requests merged after the judgment before it was made and by the time this one was, and null otherwise. Its `status` is `queued`, `running`, `succeeded` (with `error_code: judge_refused` when the judge refused a pair, which then is no achievement and is not asked again), `failed`, `deferred` (the workspace's judgment calls spent `daily_budget_usd` for the UTC day; taken again after the next UTC midnight, or two minutes after a new trigger, when `always` rules count the new evidence and `luna` pairs wait again) or `skipped` (`error_code: judge_unavailable`: a `luna` rule had evidence and the workspace's connection does not reach a judge; `session_limit`: the session's other judgments that called the judge reached `max_per_session`). A try that fails is queued again 1, 5 and 30 minutes later, then ends `failed`, with the `error_code` of its last failure: `judge_timeout` (no answer within 10 seconds), `judge_http_error` (an error status, or the judge was not reached), `judge_bad_response` (an answer of another shape); `error_code: outputs_unavailable` says the checkpoint's `out/` list could not be read, and the achievements that need no `out/` list are written all the same. Reading changes nothing.",
+      "The session's achievements in force, oldest first, and its latest judgment. Only the platform's judge writes achievements: when the session's evidence appears or changes (a pull request opened, merged or closed, a review submitted, a checkpoint whose `out/` files differ from its parent's) a judgment is queued in the same transaction, one queued per session, while the installation has a decision model (an enabled `openai_decisions` connection); without one nothing is queued, and a judgment already queued ends `skipped` with `judge_unavailable` and counts nothing, `always` rules included. The judge takes a queued judgment once two minutes have passed since the last such change. It pairs each rule in use with the session's evidence of its type's `evidence_kind`. An `always` rule counts every pair at no cost; one rule family counts a piece of evidence of a session once (`evidence_id`: the outcome id, the `out/` path, or null for the conversation). `title` and `link` are the pull request or review as `owner/repo#number` and its URL, the file's path and the session's console path, or the session's title and console path. `payload` is set only for the built-in types (`pull_request`, `code_review`, `document`). `review_state` is `auto` for pull request and review evidence, counted at once, and `needs_review` for `out/` files and the conversation, counted once a person confirms them; `confirmed` and `rejected` are a person's decision (`POST /v1/achievements/{id}/review`), which a later judgment never changes. `rule_title`, `rule_version` and `type_key` name the rule version that counted it and its type. `threshold` is the workspace threshold its judgment held a `luna` rule's `probability` against, kept with that judgment; null when that judgment asked the judge nothing. `rejudged_after_merge` is true for pull request evidence counted by a judgment made after the pull request merged, in a session with a judgment made before the merge.\n\n`judgment_count` is the session's finished judgments and `judge_cost_usd` what their judge calls cost, apart from the session's own cost.\n\n`judgment` is null before the session's first. Its `trigger` is `evidence`, `turns` (every `every_n_turns` turns, with a rule of `conversation` evidence in use), `idle` (the session's run ended idle, paused or closed, with `on_idle` on) or `manual`; `evidence_change` is `pr_merged` for an `evidence` judgment when one of the session's pull requests merged after the judgment before it was made and by the time this one was, and null otherwise. Its `status` is `queued`, `running`, `succeeded` (with `error_code: judge_refused` when the judge refused a pair, which then is no achievement and is not asked again), `failed`, `deferred` (the workspace's judgment calls spent `daily_budget_usd` for the UTC day; taken again after the next UTC midnight, or two minutes after a new trigger, when `always` rules count the new evidence and `luna` pairs wait again) or `skipped` (`error_code: judge_unavailable`: a `luna` rule had evidence and the workspace's connection does not reach a judge; `session_limit`: the session's other judgments that called the judge reached `max_per_session`). A try that fails is queued again 1, 5 and 30 minutes later, then ends `failed`, with the `error_code` of its last failure: `judge_timeout` (no answer within 10 seconds), `judge_http_error` (an error status, or the judge was not reached), `judge_bad_response` (an answer of another shape); `error_code: outputs_unavailable` says the checkpoint's `out/` list could not be read, and the achievements that need no `out/` list are written all the same. Reading changes nothing.",
     scope: "read",
     success: {
       status: 200,
@@ -4737,7 +4737,8 @@ export const API_ROUTE_DECLARATIONS = [
         receipt_id: EXAMPLE_RECEIPT_ID,
       },
     },
-    errors: [401, 403, 404, 503],
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: { 409: ["DECISION_MODEL_REQUIRED"] },
     idempotent: false,
   },
   {
@@ -4747,7 +4748,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "Confirm or reject one of a session's achievements",
     description:
-      "Owners, admins and the admins of the achievement's agent (`achievement.review`), signed in, who can also read its session; API keys are refused. `confirm` counts a `needs_review` achievement (`review_state: confirmed`); `reject` drops an `auto` or `needs_review` one from the count (`rejected`). A review is final: a later judgment never changes it, and a second review, or confirming an `auto` one, is 409 REVISION_CONFLICT with `details.reason_code: not_reviewable`. `note` is kept on the achievement as `review_note`, not in the receipt. Writes a `review_achievement` receipt naming the achievement and its new state. An achievement of another owner, or one a later judgment replaced, is 404.",
+      "Owners, admins and the admins of the achievement's agent (`achievement.review`), signed in, who can also read its session; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. `confirm` counts a `needs_review` achievement (`review_state: confirmed`); `reject` drops an `auto` or `needs_review` one from the count (`rejected`). A review is final: a later judgment never changes it, and a second review, or confirming an `auto` one, is 409 REVISION_CONFLICT with `details.reason_code: not_reviewable`. `note` is kept on the achievement as `review_note`, not in the receipt. Writes a `review_achievement` receipt naming the achievement and its new state. An achievement of another owner, or one a later judgment replaced, is 404.",
     auth: "session",
     body: "ReviewAchievementRequest",
     requestExample: { action: "confirm" },
@@ -4787,7 +4788,7 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [400, 401, 403, 404, 409, 413, 503],
-    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    errorCodes: { 409: ["REVISION_CONFLICT", "DECISION_MODEL_REQUIRED"] },
     idempotent: false,
   },
   {
@@ -7536,7 +7537,7 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [400, 401, 403, 409, 413, 503],
-    errorCodes: { 409: ["ALREADY_EXISTS"] },
+    errorCodes: { 409: ["ALREADY_EXISTS", "DECISION_MODEL_REQUIRED"] },
     idempotent: false,
   },
   {
@@ -7559,7 +7560,7 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [400, 401, 403, 404, 409, 413, 503],
-    errorCodes: { 409: ["ALREADY_EXISTS"] },
+    errorCodes: { 409: ["ALREADY_EXISTS", "DECISION_MODEL_REQUIRED"] },
     idempotent: false,
   },
   {
@@ -7584,7 +7585,7 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [401, 403, 404, 409, 503],
-    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    errorCodes: { 409: ["REVISION_CONFLICT", "DECISION_MODEL_REQUIRED"] },
     idempotent: false,
   },
   {
@@ -7628,7 +7629,9 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [400, 401, 403, 409, 413, 503],
-    errorCodes: { 409: ["ALREADY_EXISTS", "REVISION_CONFLICT"] },
+    errorCodes: {
+      409: ["ALREADY_EXISTS", "REVISION_CONFLICT", "DECISION_MODEL_REQUIRED"],
+    },
     idempotent: false,
   },
   {
@@ -7650,7 +7653,8 @@ export const API_ROUTE_DECLARATIONS = [
         receipt_id: EXAMPLE_RECEIPT_ID,
       },
     },
-    errors: [400, 401, 403, 404, 413, 503],
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["DECISION_MODEL_REQUIRED"] },
     idempotent: false,
   },
   {
@@ -7675,7 +7679,7 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [401, 403, 404, 409, 503],
-    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    errorCodes: { 409: ["REVISION_CONFLICT", "DECISION_MODEL_REQUIRED"] },
     idempotent: false,
   },
   {
@@ -7715,7 +7719,7 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [400, 401, 403, 409, 413, 503],
-    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    errorCodes: { 409: ["REVISION_CONFLICT", "DECISION_MODEL_REQUIRED"] },
     idempotent: false,
   },
   {
@@ -7746,7 +7750,7 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [400, 401, 403, 404, 409, 413, 503],
-    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    errorCodes: { 409: ["REVISION_CONFLICT", "DECISION_MODEL_REQUIRED"] },
     idempotent: false,
   },
   {
@@ -7770,7 +7774,8 @@ export const API_ROUTE_DECLARATIONS = [
         receipt_id: EXAMPLE_RECEIPT_ID,
       },
     },
-    errors: [401, 403, 404, 503],
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: { 409: ["DECISION_MODEL_REQUIRED"] },
     idempotent: false,
   },
   {
@@ -7791,7 +7796,7 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [400, 401, 403, 404, 409, 503],
-    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    errorCodes: { 409: ["REVISION_CONFLICT", "DECISION_MODEL_REQUIRED"] },
     idempotent: false,
   },
   {
@@ -7836,7 +7841,8 @@ export const API_ROUTE_DECLARATIONS = [
         receipt_id: EXAMPLE_RECEIPT_ID,
       },
     },
-    errors: [400, 401, 403, 404, 413, 503],
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["DECISION_MODEL_REQUIRED"] },
     idempotent: false,
   },
 

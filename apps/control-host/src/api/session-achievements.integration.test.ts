@@ -10,6 +10,7 @@ import {
 import * as schema from "@werft-ai/db";
 import {
   achievementJudgments,
+  checkpoints,
   createPostgresAchievementJudgments,
   createPostgresAchievementRuleStore,
   insertBuiltinAchievementTypes,
@@ -20,6 +21,7 @@ import {
   users,
   workspaces,
 } from "@werft-ai/db";
+import { insertDecisionModel } from "@werft-ai/db/testing/decision-model";
 import {
   callerFor,
   createAchievementJudge,
@@ -52,6 +54,7 @@ integration("a session's achievement reviews on PostgreSQL", () => {
   const sessionId = crypto.randomUUID();
   const webSessions = new Map<string, ResolvedWebSession>();
   const people: Partial<Record<WorkspaceRole, string>> = {};
+  const checkpointDirectory = `sessions/${sessionId}/checkpoints/1/attempt/`;
   const outputs = {
     status: "ready" as const,
     revision: 1,
@@ -60,10 +63,11 @@ integration("a session's achievement reviews on PostgreSQL", () => {
         path: "out/report.md",
         bytes: 42,
         sha256: "b".repeat(64),
-        key: `sessions/${sessionId}/outputs/${"b".repeat(64)}`,
+        key: `${checkpointDirectory}outputs/${"b".repeat(64)}`,
       },
     ],
   };
+  const decisionModel = { ids: async () => ["luna-main"] };
   const judge = () =>
     createAchievementJudge({
       store: createPostgresAchievementJudgments(db),
@@ -72,6 +76,7 @@ integration("a session's achievement reviews on PostgreSQL", () => {
         openOutput: async () => ({ status: "missing" }),
       },
       logger: { info() {}, warn() {} },
+      models: decisionModel,
     });
   // As if the quiet time had passed since the session's last trigger.
   const quietPassed = () =>
@@ -89,6 +94,7 @@ integration("a session's achievement reviews on PostgreSQL", () => {
     database = await createTempDatabase({ prefix: "session_achievements_it" });
     pool = new Pool({ connectionString: database.url, max: 5 });
     db = drizzle(pool, { schema });
+    await insertDecisionModel(db);
     await db
       .insert(workspaces)
       .values({ id: workspaceId, slug: "acme", name: "Acme" });
@@ -153,6 +159,12 @@ integration("a session's achievement reviews on PostgreSQL", () => {
       executionGeneration: 1,
       leaseEpoch: 1,
     });
+    await db.insert(checkpoints).values({
+      sessionId,
+      revision: 1,
+      manifestRef: `${checkpointDirectory}manifest.json`,
+      manifestSha256: "a".repeat(64),
+    });
     const receiptId = crypto.randomUUID();
     await db.insert(receipts).values({
       id: receiptId,
@@ -203,6 +215,7 @@ integration("a session's achievement reviews on PostgreSQL", () => {
           createSessionAchievementService({
             authorization: createAuthorizationPolicy(),
             store: createPostgresAchievementJudgments(db),
+            judgeConnections: decisionModel,
           }),
         ),
     });

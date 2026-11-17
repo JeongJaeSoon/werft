@@ -19,6 +19,7 @@ import {
   ACHIEVEMENT_JUDGMENT_QUIET_MS,
   type AchievementJudgmentStore,
   type JudgmentEgressStore,
+  type JudgmentResult,
   MANAGEMENT_ROLES,
   type OutcomeEvidence,
   receiptActorOf,
@@ -46,6 +47,7 @@ import {
   achievementRules,
   achievementTypes,
   agentReleases,
+  checkpoints,
   receipts,
   sessionAchievements,
   sessionOutcomes,
@@ -67,6 +69,25 @@ export type JudgmentCause =
   | { trigger: "manual" };
 
 const JUDGE = sql`w.settings -> 'achievement_judge'`;
+
+// An enabled openai_decisions connection; the judge pass checks again that
+// its credential resolves. FOR SHARE: a disable holding the row (FOR UPDATE)
+// is waited out and the row read again, so nothing is queued after the last
+// model went; a later disable waits for this transaction. Lock order: the
+// session (FOR KEY SHARE), this row, the pending judgment. A console write
+// takes the catalog lock, then this row, and never a session or a judgment.
+const DECISION_MODEL = sql`EXISTS (
+  SELECT 1 FROM provider_connections pc
+  WHERE pc.definition ->> 'kind' = 'openai_decisions' AND pc.disabled_at IS NULL
+  FOR SHARE)`;
+
+// Since when the installation has had a decision model without a break
+// (0291). NULL without one, and nothing compares as since NULL. FOR SHARE as
+// DECISION_MODEL, so a window cannot end or restart before finish commits.
+const JUDGING_SINCE = sql`(SELECT min(s.judging_since) FROM (
+  SELECT pc.judging_since FROM provider_connections pc
+  WHERE pc.definition ->> 'kind' = 'openai_decisions' AND pc.disabled_at IS NULL
+  FOR SHARE) s)`;
 
 function gateOf(cause: JudgmentCause): SQL {
   switch (cause.trigger) {
@@ -97,8 +118,10 @@ function gateOf(cause: JudgmentCause): SQL {
  * queued again after the quiet time, so its `always` pairs are counted
  * without waiting for the next day's budget and its `luna` pairs deferred
  * again. A retry it was becomes a first try, as a new trigger counts
- * afresh. Nothing is queued for a session without a workspace. Returns the
- * pending judgment's id, or null when nothing was queued.
+ * afresh. Nothing is queued for a session without a workspace, nor while the
+ * installation has no decision model: the evidence itself is still written
+ * for the screens that show it, but no judgment waits to count it later.
+ * Returns the pending judgment's id, or null when nothing was queued.
  */
 export async function queueAchievementJudgment(
   tx: Database,
@@ -119,7 +142,7 @@ export async function queueAchievementJudgment(
            clock_timestamp() + make_interval(secs => ${ACHIEVEMENT_JUDGMENT_QUIET_MS / 1000})
     FROM sessions s
     JOIN workspaces w ON w.id = s.workspace_id
-    WHERE s.id = ${sessionId} AND ${gateOf(cause)}
+    WHERE s.id = ${sessionId} AND ${gateOf(cause)} AND ${DECISION_MODEL}
     ON CONFLICT (session_id) WHERE status IN ('queued', 'deferred')
     DO UPDATE SET trigger = EXCLUDED.trigger,
                   status = 'queued',
@@ -410,6 +433,13 @@ export function createPostgresAchievementJudgments(
         throw new Error("judged session has no workspace");
       }
       const agentId = session.agentId ?? null;
+      // Read once, as text to keep every microsecond: a window that restarts
+      // while the judgment reads is not mixed into it.
+      const [window] = rowsOf<{ at: string | null }>(
+        await db.execute(sql`SELECT ${JUDGING_SINCE}::text AS at`),
+      );
+      const at = window?.at ?? null;
+      const since = sql`${at}::timestamptz`;
       const rules = await db
         .select({
           id: achievementRules.id,
@@ -437,11 +467,43 @@ export function createPostgresAchievementJudgments(
           ),
         )
         .orderBy(asc(achievementRules.createdAt), asc(achievementRules.id));
+      // When the outcome reached its state: GitHub's merge or close time,
+      // else when this server saw the state.
       const outcomes = await db
         .select()
         .from(sessionOutcomes)
-        .where(eq(sessionOutcomes.sessionId, judgment.sessionId))
+        .where(
+          and(
+            eq(sessionOutcomes.sessionId, judgment.sessionId),
+            sql`COALESCE(CASE ${sessionOutcomes.state}
+                  WHEN 'merged' THEN ${sessionOutcomes.mergedAt}
+                  WHEN 'closed' THEN ${sessionOutcomes.closedAt} END,
+                ${sessionOutcomes.stateChangedAt}) >= ${since}`,
+          ),
+        )
         .orderBy(asc(sessionOutcomes.createdAt), asc(sessionOutcomes.id));
+      const [conversation] = await db
+        .select({ id: turns.id })
+        .from(turns)
+        .where(
+          and(
+            eq(turns.sessionId, judgment.sessionId),
+            sql`${turns.endedAt} >= ${since}`,
+          ),
+        )
+        .limit(1);
+      const checkpointsSince = await db
+        .select({
+          revision: checkpoints.revision,
+          manifestRef: checkpoints.manifestRef,
+        })
+        .from(checkpoints)
+        .where(
+          and(
+            eq(checkpoints.sessionId, judgment.sessionId),
+            sql`${checkpoints.committedAt} >= ${since}`,
+          ),
+        );
       const settings = judgeSettingsOf(session.settings);
       const [called] = await db
         .select({ count: count() })
@@ -495,6 +557,17 @@ export function createPostgresAchievementJudgments(
           const evidence = outcomeEvidenceOf(row);
           return evidence === null ? [] : [evidence];
         }),
+        since: {
+          at,
+          conversation: conversation !== undefined,
+          // Never an empty directory: it would take every key as new.
+          checkpoints: checkpointsSince.flatMap(({ revision, manifestRef }) => {
+            const end = manifestRef.lastIndexOf("/");
+            return end <= 0
+              ? []
+              : [{ revision, directory: manifestRef.slice(0, end + 1) }];
+          }),
+        },
       };
     },
 
@@ -515,7 +588,7 @@ export function createPostgresAchievementJudgments(
       return renewed.length > 0;
     },
 
-    async transcript(sessionId, limit) {
+    async transcript(sessionId, limit, since) {
       // The person's message and the engine's final answer; tool calls and
       // their results live in events and are never read here.
       const rows = await db
@@ -525,7 +598,12 @@ export function createPostgresAchievementJudgments(
           resultJson: turns.resultJson,
         })
         .from(turns)
-        .where(and(eq(turns.sessionId, sessionId), isNotNull(turns.endedAt)))
+        .where(
+          and(
+            eq(turns.sessionId, sessionId),
+            sql`${turns.endedAt} >= ${since}::timestamptz`,
+          ),
+        )
         .orderBy(desc(turns.sequence))
         .limit(limit);
       return rows.reverse().map((row) => ({
@@ -535,12 +613,32 @@ export function createPostgresAchievementJudgments(
       }));
     },
 
-    finish(judgment, result) {
+    finish(judgment, judged) {
       return db.transaction(async (tx) => {
         // Before any judgment or achievement row, as queueAchievementJudgment.
         await tx.execute(
           sql`SELECT 1 FROM sessions WHERE id = ${judgment.sessionId} FOR KEY SHARE`,
         );
+        // Then the decision models, as queueAchievementJudgment: evidence
+        // read in a window that ended or restarted since counts for nothing.
+        const [window] =
+          judged.since === undefined
+            ? [{ same: true }]
+            : rowsOf<{ same: boolean | null }>(
+                await tx.execute(
+                  sql`SELECT ${JUDGING_SINCE} = ${judged.since}::timestamptz AS same`,
+                ),
+              );
+        const result: JudgmentResult =
+          window?.same === true
+            ? judged
+            : {
+                status: "skipped",
+                errorCode: "judge_unavailable",
+                rules: judged.rules,
+                evidenceIds: judged.evidenceIds,
+                achievements: [],
+              };
         const [held] = await tx
           .select({
             workspaceId: achievementJudgments.workspaceId,
@@ -640,7 +738,9 @@ export function createPostgresAchievementJudgments(
         for (const { ruleFamilyId, evidenceId } of result.luna?.declined ??
           []) {
           // The answer changed: the earlier row is taken down, never
-          // rewritten, and a person's confirmation or rejection stands.
+          // rewritten, and a person's confirmation or rejection stands. One
+          // counted in an earlier window was judged on evidence this one
+          // leaves out, so it stands too.
           await tx
             .update(sessionAchievements)
             .set({ supersededAt: sql`now()`, supersededBy: judgment.id })
@@ -652,6 +752,7 @@ export function createPostgresAchievementJudgments(
                   ? isNull(sessionAchievements.evidenceId)
                   : eq(sessionAchievements.evidenceId, evidenceId),
                 isNull(sessionAchievements.supersededAt),
+                sql`${sessionAchievements.createdAt} >= ${result.since ?? null}::timestamptz`,
                 inArray(sessionAchievements.reviewState, [
                   "auto",
                   "needs_review",

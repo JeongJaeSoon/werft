@@ -144,9 +144,12 @@ const store = {
 } as AchievementRuleStore;
 
 const LUNA_CONNECTION = "luna-main";
+// The installation's enabled openai_decisions connections; empty is no
+// decision model.
+let lunaIds = [LUNA_CONNECTION];
 const judgeConnections: JudgeConnections = {
   upstream: async () => null,
-  ids: async () => [LUNA_CONNECTION],
+  ids: async () => lunaIds,
 };
 
 const sessions = new Map<string, ResolvedWebSession>();
@@ -302,9 +305,44 @@ beforeEach(() => {
   calls.length = 0;
   recorded.length = 0;
   storageDown = false;
+  lunaIds = [LUNA_CONNECTION];
 });
 
 describe("achievement rule management", () => {
+  test("without a decision model every write is 409 DECISION_MODEL_REQUIRED and nothing reaches the store", async () => {
+    lunaIds = [];
+    for (const role of ["owner", "admin"] as const) {
+      for (const [method, path, body] of WRITES) {
+        const response = await call(method, path, role, body);
+        expect(response.status, `${role} ${method} ${path}`).toBe(409);
+        expect((await refusal(response)).code).toBe("DECISION_MODEL_REQUIRED");
+      }
+    }
+    expect(calls).toEqual([]);
+  });
+
+  test("without a decision model the reads still answer", async () => {
+    lunaIds = [];
+    for (const path of READS) {
+      const response = await call("GET", path, "admin");
+      expect(response.status, path).toBe(200);
+    }
+    const judge = await call(
+      "GET",
+      `/v1/workspaces/${WORKSPACE}/achievement-judge`,
+      "admin",
+    );
+    expect((await judge.json()).connections).toEqual([]);
+  });
+
+  test("a member is still 403 without a decision model, not told to set one up", async () => {
+    lunaIds = [];
+    for (const [method, path, body] of WRITES) {
+      const response = await call(method, path, "member", body);
+      expect(response.status, `${method} ${path}`).toBe(403);
+    }
+  });
+
   test("owners and admins write; each write asks for achievement_rule.manage", async () => {
     for (const role of ["owner", "admin"] as const) {
       for (const [method, path, body] of WRITES) {
@@ -862,6 +900,7 @@ describe("a session's achievements", () => {
             rejudge: async () => ({ outcome: "not_found" }),
             ...NO_REVIEWS,
           },
+          judgeConnections,
         }),
       ),
   });
@@ -921,6 +960,7 @@ describe("a session's achievements", () => {
               rejudge: async () => ({ outcome: "not_found" }),
               ...NO_REVIEWS,
             },
+            judgeConnections,
           }),
         ),
     });
@@ -995,6 +1035,7 @@ describe("POST /v1/sessions/{id}/achievement-judgments", () => {
                 : { outcome };
             },
           },
+          judgeConnections,
         }),
       ),
   });
@@ -1024,6 +1065,16 @@ describe("POST /v1/sessions/{id}/achievement-judgments", () => {
         receiptId: body.receipt_id,
       });
     }
+  });
+
+  test("without a decision model a manager's rejudge is 409 DECISION_MODEL_REQUIRED and nothing is queued", async () => {
+    lunaIds = [];
+    for (const who of ["owner", "admin"] as const) {
+      const response = await rejudge(SESSION, who);
+      expect(response.status).toBe(409);
+      expect((await refusal(response)).code).toBe("DECISION_MODEL_REQUIRED");
+    }
+    expect(asked).toEqual([]);
   });
 
   test("a member or an API key is 403 and nothing is queued; no login 401", async () => {
@@ -1169,6 +1220,7 @@ describe("POST /v1/achievements/{id}/review", () => {
                 : { outcome };
             },
           },
+          judgeConnections,
         }),
       ),
   });
@@ -1209,6 +1261,16 @@ describe("POST /v1/achievements/{id}/review", () => {
       (await review(ACHIEVEMENT, "owner", { action: "reject" })).status,
     ).toBe(200);
     expect(asked.at(-1)?.note).toBeNull();
+  });
+
+  test("without a decision model a review is 409 DECISION_MODEL_REQUIRED and nothing is written", async () => {
+    lunaIds = [];
+    for (const who of ["owner", "admin"] as const) {
+      const response = await review(ACHIEVEMENT, who, { action: "reject" });
+      expect(response.status).toBe(409);
+      expect((await refusal(response)).code).toBe("DECISION_MODEL_REQUIRED");
+    }
+    expect(asked).toEqual([]);
   });
 
   test("asks for achievement.review on the achievement's agent", async () => {

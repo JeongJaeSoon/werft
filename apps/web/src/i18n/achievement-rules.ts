@@ -5,17 +5,26 @@ export const achievementRulesKo = {
     "세션이 한 일 가운데 무엇을 성과로 셀지 정합니다. 규칙은 구분 아래 한 줄이고, 제목·성과 type·성과 정의를 하나씩 가집니다.",
   "achievementRules.addRule": "규칙 추가",
   "achievementRules.save": "저장",
+  "decisionModel.setup": "판정 모델 설정",
+  "decisionModel.title": "판정 모델",
+  "decisionModel.description":
+    "성과 판정기 Luna가 부르는 OpenAI Decisions API 연결입니다. 켜진 연결이 하나도 없으면 성과 규칙을 바꿀 수 없고, 어떤 세션도 판정하지 않습니다.",
+  "decisionModel.add": "판정 모델 연결 추가",
+  "decisionModel.addConnection": "연결 추가",
+  "decisionModel.model": "모델",
+  "decisionModel.lock.title": "사용할 수 없음",
+  "decisionModel.lock.body": "판정 모델을 설정해야 성과 규칙을 쓸 수 있습니다",
+  "decisionModel.lockedReason":
+    "판정 모델을 설정해야 성과 규칙을 바꿀 수 있습니다.",
   "achievementRules.judge.title": "판정 설정",
   "achievementRules.judge.description":
-    "Luna 판정 규칙에만 쓰입니다. 바로 인정 규칙은 비용 없이 늘 돕니다.",
+    "판정 시점과 예산은 Luna 판정 규칙에만 쓰입니다. 바로 인정 규칙은 비용 없이 돌지만, 판정 모델이 있어야 돕니다.",
   "achievementRules.judge.judge": "판정기",
   "achievementRules.judge.judgeHint":
     "Luna(OpenAI Decisions API, gpt-6-luna). 예·아니오와 확률만 답합니다.",
   "achievementRules.judge.connection": "Luna 연결",
   "achievementRules.judge.noConnection":
     "연결 없음 · Luna 규칙은 판정하지 않습니다",
-  "achievementRules.judge.noConnections":
-    "설치 owner가 설정 > 에이전트 연결 > 모델 연결에서 openai_decisions 연결을 추가하면 고를 수 있습니다.",
   "achievementRules.judge.unavailable": "{id} · 쓸 수 없음",
   "achievementRules.judge.sent":
     "PR 제목·저장소 이름과, 규칙에 따라 out/ 파일 앞부분·최근 대화가 OpenAI로 갑니다.",
@@ -135,17 +144,26 @@ export const achievementRulesEn: Record<
     "Decide which of the things sessions do count as achievements. A rule is one line under a category, with one title, one achievement type and one definition.",
   "achievementRules.addRule": "Add rule",
   "achievementRules.save": "Save",
+  "decisionModel.setup": "Set up decision model",
+  "decisionModel.title": "Decision model",
+  "decisionModel.description":
+    "The OpenAI Decisions API connection the achievement judge Luna calls. While no connection is enabled, achievement rules can't change and no session is judged.",
+  "decisionModel.add": "Add decision model connection",
+  "decisionModel.addConnection": "Add connection",
+  "decisionModel.model": "Model",
+  "decisionModel.lock.title": "Unavailable",
+  "decisionModel.lock.body": "Set up a decision model to use achievement rules",
+  "decisionModel.lockedReason":
+    "Set up a decision model to change achievement rules.",
   "achievementRules.judge.title": "Judging",
   "achievementRules.judge.description":
-    "Used only by Luna-judged rules. Rules that count at once always run, at no cost.",
+    "When to judge and the budget apply only to Luna-judged rules. Rules that count at once run at no cost, but only with a decision model.",
   "achievementRules.judge.judge": "Judge",
   "achievementRules.judge.judgeHint":
     "Luna (OpenAI Decisions API, gpt-6-luna). It answers only yes or no, with a probability.",
   "achievementRules.judge.connection": "Luna connection",
   "achievementRules.judge.noConnection":
     "No connection · Luna rules are not judged",
-  "achievementRules.judge.noConnections":
-    "You can pick one once the installation owner adds an openai_decisions connection under Settings > Agent connections > Model connections.",
   "achievementRules.judge.unavailable": "{id} · unavailable",
   "achievementRules.judge.sent":
     "Pull request titles and repository names go to OpenAI, and, depending on the rules, the start of out/ files and the recent conversation.",
@@ -272,16 +290,25 @@ export const achievementRulesJa: Record<
     "セッションがしたことのうち、何を成果として数えるかを決めます。ルールは区分の下の 1 行で、タイトル・成果 type・成果の定義を 1 つずつ持ちます。",
   "achievementRules.addRule": "ルールを追加",
   "achievementRules.save": "保存",
+  "decisionModel.setup": "判定モデルを設定",
+  "decisionModel.title": "判定モデル",
+  "decisionModel.description":
+    "成果判定器 Luna が呼び出す OpenAI Decisions API の接続です。有効な接続が 1 つもない間は、成果ルールを変更できず、どのセッションも判定しません。",
+  "decisionModel.add": "判定モデルの接続を追加",
+  "decisionModel.addConnection": "接続を追加",
+  "decisionModel.model": "モデル",
+  "decisionModel.lock.title": "利用できません",
+  "decisionModel.lock.body": "判定モデルを設定すると成果ルールを使えます",
+  "decisionModel.lockedReason":
+    "判定モデルを設定すると成果ルールを変更できます。",
   "achievementRules.judge.title": "判定設定",
   "achievementRules.judge.description":
-    "Luna 判定のルールにだけ使います。そのまま認定のルールは費用なしで常に動きます。",
+    "判定のタイミングと予算は Luna 判定のルールにだけ使います。そのまま認定のルールは費用なしで動きますが、判定モデルが必要です。",
   "achievementRules.judge.judge": "判定器",
   "achievementRules.judge.judgeHint":
     "Luna（OpenAI Decisions API、gpt-6-luna）。はい・いいえと確率だけを答えます。",
   "achievementRules.judge.connection": "Luna 接続",
   "achievementRules.judge.noConnection": "接続なし · Luna ルールは判定しません",
-  "achievementRules.judge.noConnections":
-    "インストールの owner が「設定 > エージェント接続 > モデル接続」で openai_decisions 接続を追加すると選べます。",
   "achievementRules.judge.unavailable": "{id} · 使用不可",
   "achievementRules.judge.sent":
     "PR のタイトル・リポジトリ名と、ルールに応じて out/ ファイルの冒頭・最近の会話が OpenAI に送られます。",

@@ -1957,7 +1957,7 @@ export interface paths {
         };
         /**
          * What the workspace's achievement rules counted in the session
-         * @description The session's achievements in force, oldest first, and its latest judgment. Only the platform's judge writes achievements: when the session's evidence appears or changes (a pull request opened, merged or closed, a review submitted, a checkpoint whose `out/` files differ from its parent's) a judgment is queued in the same transaction, one queued per session, and the judge takes it once two minutes have passed since the last such change. It pairs each rule in use with the session's evidence of its type's `evidence_kind`. An `always` rule counts every pair at no cost; one rule family counts a piece of evidence of a session once (`evidence_id`: the outcome id, the `out/` path, or null for the conversation). `title` and `link` are the pull request or review as `owner/repo#number` and its URL, the file's path and the session's console path, or the session's title and console path. `payload` is set only for the built-in types (`pull_request`, `code_review`, `document`). `review_state` is `auto` for pull request and review evidence, counted at once, and `needs_review` for `out/` files and the conversation, counted once a person confirms them; `confirmed` and `rejected` are a person's decision (`POST /v1/achievements/{id}/review`), which a later judgment never changes. `rule_title`, `rule_version` and `type_key` name the rule version that counted it and its type. `threshold` is the workspace threshold its judgment held a `luna` rule's `probability` against, kept with that judgment; null when that judgment asked the judge nothing. `rejudged_after_merge` is true for pull request evidence counted by a judgment made after the pull request merged, in a session with a judgment made before the merge.
+         * @description The session's achievements in force, oldest first, and its latest judgment. Only the platform's judge writes achievements: when the session's evidence appears or changes (a pull request opened, merged or closed, a review submitted, a checkpoint whose `out/` files differ from its parent's) a judgment is queued in the same transaction, one queued per session, while the installation has a decision model (an enabled `openai_decisions` connection); without one nothing is queued, and a judgment already queued ends `skipped` with `judge_unavailable` and counts nothing, `always` rules included. The judge takes a queued judgment once two minutes have passed since the last such change. It pairs each rule in use with the session's evidence of its type's `evidence_kind`. An `always` rule counts every pair at no cost; one rule family counts a piece of evidence of a session once (`evidence_id`: the outcome id, the `out/` path, or null for the conversation). `title` and `link` are the pull request or review as `owner/repo#number` and its URL, the file's path and the session's console path, or the session's title and console path. `payload` is set only for the built-in types (`pull_request`, `code_review`, `document`). `review_state` is `auto` for pull request and review evidence, counted at once, and `needs_review` for `out/` files and the conversation, counted once a person confirms them; `confirmed` and `rejected` are a person's decision (`POST /v1/achievements/{id}/review`), which a later judgment never changes. `rule_title`, `rule_version` and `type_key` name the rule version that counted it and its type. `threshold` is the workspace threshold its judgment held a `luna` rule's `probability` against, kept with that judgment; null when that judgment asked the judge nothing. `rejudged_after_merge` is true for pull request evidence counted by a judgment made after the pull request merged, in a session with a judgment made before the merge.
          *
          *     `judgment_count` is the session's finished judgments and `judge_cost_usd` what their judge calls cost, apart from the session's own cost.
          *
@@ -1985,7 +1985,7 @@ export interface paths {
         put?: never;
         /**
          * Judge the session again against the achievement rules
-         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. The caller must also be able to read the session. Queues a `manual` judgment of the session, or, when one is already pending (queued, or `deferred` to the next UTC day's budget), merges into it, makes its trigger `manual` and answers its id; the judge takes it once two minutes have passed since the session's last trigger. Rules changed since are applied as they are now; nothing else is rejudged. Writes a `rejudge_session` receipt naming the judgment. Another owner's session is 404.
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. The caller must also be able to read the session. Queues a `manual` judgment of the session, or, when one is already pending (queued, or `deferred` to the next UTC day's budget), merges into it, makes its trigger `manual` and answers its id; the judge takes it once two minutes have passed since the session's last trigger. Rules changed since are applied as they are now; nothing else is rejudged. Writes a `rejudge_session` receipt naming the judgment. Another owner's session is 404.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -2007,7 +2007,7 @@ export interface paths {
         put?: never;
         /**
          * Confirm or reject one of a session's achievements
-         * @description Owners, admins and the admins of the achievement's agent (`achievement.review`), signed in, who can also read its session; API keys are refused. `confirm` counts a `needs_review` achievement (`review_state: confirmed`); `reject` drops an `auto` or `needs_review` one from the count (`rejected`). A review is final: a later judgment never changes it, and a second review, or confirming an `auto` one, is 409 REVISION_CONFLICT with `details.reason_code: not_reviewable`. `note` is kept on the achievement as `review_note`, not in the receipt. Writes a `review_achievement` receipt naming the achievement and its new state. An achievement of another owner, or one a later judgment replaced, is 404.
+         * @description Owners, admins and the admins of the achievement's agent (`achievement.review`), signed in, who can also read its session; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. `confirm` counts a `needs_review` achievement (`review_state: confirmed`); `reject` drops an `auto` or `needs_review` one from the count (`rejected`). A review is final: a later judgment never changes it, and a second review, or confirming an `auto` one, is 409 REVISION_CONFLICT with `details.reason_code: not_reviewable`. `note` is kept on the achievement as `review_note`, not in the receipt. Writes a `review_achievement` receipt naming the achievement and its new state. An achievement of another owner, or one a later judgment replaced, is 404.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4050,7 +4050,7 @@ export interface paths {
         put?: never;
         /**
          * Make an achievement category
-         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. The name (1 to 32 characters) is unique among the workspace's categories that are not archived (409 ALREADY_EXISTS, `details.reason_code: name_taken`). The new category goes after the last one. Writes a `create_achievement_category` receipt.
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. The name (1 to 32 characters) is unique among the workspace's categories that are not archived (409 ALREADY_EXISTS, `details.reason_code: name_taken`). The new category goes after the last one. Writes a `create_achievement_category` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4076,7 +4076,7 @@ export interface paths {
         head?: never;
         /**
          * Rename or reorder an achievement category
-         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Changes `name`, `position` or both. A name another category that is not archived holds is 409 ALREADY_EXISTS (`details.reason_code: name_taken`). Writes an `update_achievement_category` receipt unless nothing changed (`receipt_id` null). Another workspace's category is 404.
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. Changes `name`, `position` or both. A name another category that is not archived holds is 409 ALREADY_EXISTS (`details.reason_code: name_taken`). Writes an `update_achievement_category` receipt unless nothing changed (`receipt_id` null). Another workspace's category is 404.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4094,7 +4094,7 @@ export interface paths {
         put?: never;
         /**
          * Archive an achievement category
-         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. A category with a rule in use (its latest version, not disabled) is 409 REVISION_CONFLICT with `details.reason_code: category_in_use`. Archiving one already archived changes nothing and answers a null `receipt_id`; otherwise writes an `archive_achievement_category` receipt. Another workspace's category is 404.
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. A category with a rule in use (its latest version, not disabled) is 409 REVISION_CONFLICT with `details.reason_code: category_in_use`. Archiving one already archived changes nothing and answers a null `receipt_id`; otherwise writes an `archive_achievement_category` receipt. Another workspace's category is 404.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4122,7 +4122,7 @@ export interface paths {
         put?: never;
         /**
          * Make an achievement type
-         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. `key` matches `[a-z][a-z0-9_]{1,40}` and is unique in the workspace, archived types included (409 ALREADY_EXISTS, `details.reason_code: key_taken`); `key` and `evidence_kind` never change afterwards. A workspace holds at most 50 types that are not archived (409 REVISION_CONFLICT, `details.reason_code: limit_reached`). Writes a `create_achievement_type` receipt.
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. `key` matches `[a-z][a-z0-9_]{1,40}` and is unique in the workspace, archived types included (409 ALREADY_EXISTS, `details.reason_code: key_taken`); `key` and `evidence_kind` never change afterwards. A workspace holds at most 50 types that are not archived (409 REVISION_CONFLICT, `details.reason_code: limit_reached`). Writes a `create_achievement_type` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4148,7 +4148,7 @@ export interface paths {
         head?: never;
         /**
          * Rename an achievement type
-         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Only `name` changes; a body naming `key` or `evidence_kind` is 400. To count under another key or evidence kind, make a new type and move the rule to it in a new version. Writes an `update_achievement_type` receipt unless the name is unchanged (`receipt_id` null). Another workspace's type is 404.
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. Only `name` changes; a body naming `key` or `evidence_kind` is 400. To count under another key or evidence kind, make a new type and move the rule to it in a new version. Writes an `update_achievement_type` receipt unless the name is unchanged (`receipt_id` null). Another workspace's type is 404.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4166,7 +4166,7 @@ export interface paths {
         put?: never;
         /**
          * Archive an achievement type
-         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. A built-in type is never archived (409 REVISION_CONFLICT, `details.reason_code: builtin`), nor is one a rule in use counts (`details.reason_code: type_in_use`). Archiving one already archived changes nothing and answers a null `receipt_id`; otherwise writes an `archive_achievement_type` receipt. Another workspace's type is 404.
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. A built-in type is never archived (409 REVISION_CONFLICT, `details.reason_code: builtin`), nor is one a rule in use counts (`details.reason_code: type_in_use`). Archiving one already archived changes nothing and answers a null `receipt_id`; otherwise writes an `archive_achievement_type` receipt. Another workspace's type is 404.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4194,7 +4194,7 @@ export interface paths {
         put?: never;
         /**
          * Make an achievement rule
-         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Version 1 of a new rule. `category_id` and `type_id` name a category and a type of the workspace that are not archived (400, `details.reason_code: unknown_category` or `unknown_type`); `agent_ids` takes only null. A type is counted by one rule in use at a time: a type another rule in use counts is 409 REVISION_CONFLICT with `details.reason_code: type_in_use`. A workspace has at most 30 rules in use (`details.reason_code: limit_reached`). Writes a `create_achievement_rule` receipt naming the rule's id, family and version, never its definition.
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. Version 1 of a new rule. `category_id` and `type_id` name a category and a type of the workspace that are not archived (400, `details.reason_code: unknown_category` or `unknown_type`); `agent_ids` takes only null. A type is counted by one rule in use at a time: a type another rule in use counts is 409 REVISION_CONFLICT with `details.reason_code: type_in_use`. A workspace has at most 30 rules in use (`details.reason_code: limit_reached`). Writes a `create_achievement_rule` receipt naming the rule's id, family and version, never its definition.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4216,7 +4216,7 @@ export interface paths {
         put?: never;
         /**
          * Edit an achievement rule as its next version
-         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. The body is the whole rule, as for a new one. A rule's rows never change: this makes version + 1 under a new id and sets the previous version's `superseded_by` to it; achievements already counted keep pointing at the version they were judged by. A disabled rule's new version is disabled too. 400 and 409 `type_in_use` as for a new rule; two edits at once are saved one after the other, each as its own version. Writes an `update_achievement_rule` receipt with the new and previous version ids, never the definition. Another workspace's rule is 404.
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. The body is the whole rule, as for a new one. A rule's rows never change: this makes version + 1 under a new id and sets the previous version's `superseded_by` to it; achievements already counted keep pointing at the version they were judged by. A disabled rule's new version is disabled too. 400 and 409 `type_in_use` as for a new rule; two edits at once are saved one after the other, each as its own version. Writes an `update_achievement_rule` receipt with the new and previous version ids, never the definition. Another workspace's rule is 404.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4238,7 +4238,7 @@ export interface paths {
         put?: never;
         /**
          * Stop using an achievement rule
-         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Disables the rule's latest version: it counts nothing from now on, and its type is free for another rule. Disabling one already disabled changes nothing and answers a null `receipt_id`; otherwise writes a `disable_achievement_rule` receipt. Another workspace's rule is 404.
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. Disables the rule's latest version: it counts nothing from now on, and its type is free for another rule. Disabling one already disabled changes nothing and answers a null `receipt_id`; otherwise writes a `disable_achievement_rule` receipt. Another workspace's rule is 404.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4260,7 +4260,7 @@ export interface paths {
         put?: never;
         /**
          * Use a disabled achievement rule again
-         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Enables the rule's latest version. If another rule in use counts its type now, 409 REVISION_CONFLICT with `details.reason_code: type_in_use`; at 30 rules in use, `limit_reached`; a category or type archived since is 400 (`unknown_category`, `unknown_type`). Enabling one already in use changes nothing and answers a null `receipt_id`; otherwise writes an `enable_achievement_rule` receipt. Another workspace's rule is 404.
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. Enables the rule's latest version. If another rule in use counts its type now, 409 REVISION_CONFLICT with `details.reason_code: type_in_use`; at 30 rules in use, `limit_reached`; a category or type archived since is 400 (`unknown_category`, `unknown_type`). Enabling one already in use changes nothing and answers a null `receipt_id`; otherwise writes an `enable_achievement_rule` receipt. Another workspace's rule is 404.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4287,7 +4287,7 @@ export interface paths {
         get: operations["getAchievementJudge"];
         /**
          * Change how the workspace's achievement judge runs
-         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Replaces the settings; a field left out takes its default. `threshold` is between 0 and 1, `every_n_turns` null or 5 to 100, `transcript` `none` or `recent`. `connection_id` names one of the read's `connections`, else 400 `unknown_connection`; one named before it was disabled is kept as it is. Writes a `set_achievement_judge` receipt with the settings saved. Another workspace is 404.
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. Replaces the settings; a field left out takes its default. `threshold` is between 0 and 1, `every_n_turns` null or 5 to 100, `transcript` `none` or `recent`. `connection_id` names one of the read's `connections`, else 400 `unknown_connection`; one named before it was disabled is kept as it is. Writes a `set_achievement_judge` receipt with the settings saved. Another workspace is 404.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -5792,7 +5792,7 @@ export interface components {
         ApiErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "WORKSPACE_QUOTA_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "CREDENTIAL_UNBOUND" | "AGENT_NOT_RUNNABLE" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "RELEASE_SPEC_UNAVAILABLE" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "PULL_REQUEST_MERGED" | "PULL_REQUEST_MERGE_BLOCKED" | "PULL_REQUEST_CLOSED" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_LIMIT" | "TEAM_MANAGES_AGENTS" | "VARIABLE_NAME_INVALID" | "VARIABLE_NAME_RESERVED" | "VARIABLE_VALUE_INVALID" | "VARIABLE_VALUE_TOO_LARGE" | "VARIABLE_QUOTA_EXCEEDED" | "MCP_SERVER_QUOTA_EXCEEDED" | "VARIABLE_UNRESOLVED" | "SECRET_ACK_REQUIRED" | "SECRET_GRANT_ALL_FORBIDDEN" | "SECRET_ENV_UNSUPPORTED" | "VERSION_MISMATCH" | "PRECONDITION_REQUIRED";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "WORKSPACE_QUOTA_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "CREDENTIAL_UNBOUND" | "AGENT_NOT_RUNNABLE" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "RELEASE_SPEC_UNAVAILABLE" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "PULL_REQUEST_MERGED" | "PULL_REQUEST_MERGE_BLOCKED" | "PULL_REQUEST_CLOSED" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_LIMIT" | "TEAM_MANAGES_AGENTS" | "VARIABLE_NAME_INVALID" | "VARIABLE_NAME_RESERVED" | "VARIABLE_VALUE_INVALID" | "VARIABLE_VALUE_TOO_LARGE" | "VARIABLE_QUOTA_EXCEEDED" | "MCP_SERVER_QUOTA_EXCEEDED" | "VARIABLE_UNRESOLVED" | "SECRET_ACK_REQUIRED" | "SECRET_GRANT_ALL_FORBIDDEN" | "SECRET_ENV_UNSUPPORTED" | "VERSION_MISMATCH" | "PRECONDITION_REQUIRED" | "DECISION_MODEL_REQUIRED";
                 message: string;
                 retryable: boolean;
                 request_id: string;
@@ -7754,7 +7754,7 @@ export interface components {
             result: unknown | null;
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "WORKSPACE_QUOTA_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "CREDENTIAL_UNBOUND" | "AGENT_NOT_RUNNABLE" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "RELEASE_SPEC_UNAVAILABLE" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "PULL_REQUEST_MERGED" | "PULL_REQUEST_MERGE_BLOCKED" | "PULL_REQUEST_CLOSED" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_LIMIT" | "TEAM_MANAGES_AGENTS" | "VARIABLE_NAME_INVALID" | "VARIABLE_NAME_RESERVED" | "VARIABLE_VALUE_INVALID" | "VARIABLE_VALUE_TOO_LARGE" | "VARIABLE_QUOTA_EXCEEDED" | "MCP_SERVER_QUOTA_EXCEEDED" | "VARIABLE_UNRESOLVED" | "SECRET_ACK_REQUIRED" | "SECRET_GRANT_ALL_FORBIDDEN" | "SECRET_ENV_UNSUPPORTED" | "VERSION_MISMATCH" | "PRECONDITION_REQUIRED";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "WORKSPACE_QUOTA_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "CREDENTIAL_UNBOUND" | "AGENT_NOT_RUNNABLE" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "RELEASE_SPEC_UNAVAILABLE" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "PULL_REQUEST_MERGED" | "PULL_REQUEST_MERGE_BLOCKED" | "PULL_REQUEST_CLOSED" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_LIMIT" | "TEAM_MANAGES_AGENTS" | "VARIABLE_NAME_INVALID" | "VARIABLE_NAME_RESERVED" | "VARIABLE_VALUE_INVALID" | "VARIABLE_VALUE_TOO_LARGE" | "VARIABLE_QUOTA_EXCEEDED" | "MCP_SERVER_QUOTA_EXCEEDED" | "VARIABLE_UNRESOLVED" | "SECRET_ACK_REQUIRED" | "SECRET_GRANT_ALL_FORBIDDEN" | "SECRET_ENV_UNSUPPORTED" | "VERSION_MISMATCH" | "PRECONDITION_REQUIRED" | "DECISION_MODEL_REQUIRED";
                 message: string;
             } | null;
             /** Format: date-time */
@@ -25467,6 +25467,21 @@ export interface operations {
                     };
                 };
             };
+            /** @description - `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "DECISION_MODEL_REQUIRED";
+                        };
+                    };
+                };
+            };
             500: components["responses"]["InternalError"];
             /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
@@ -25630,7 +25645,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            /**
+             * @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
+             *     - `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.
+             */
             409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -25640,7 +25658,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "REVISION_CONFLICT";
+                            code?: "REVISION_CONFLICT" | "DECISION_MODEL_REQUIRED";
                         };
                     };
                 };
@@ -40956,7 +40974,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique. */
+            /**
+             * @description - `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique.
+             *     - `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.
+             */
             409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -40966,7 +40987,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "ALREADY_EXISTS";
+                            code?: "ALREADY_EXISTS" | "DECISION_MODEL_REQUIRED";
                         };
                     };
                 };
@@ -41129,7 +41150,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique. */
+            /**
+             * @description - `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique.
+             *     - `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.
+             */
             409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -41139,7 +41163,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "ALREADY_EXISTS";
+                            code?: "ALREADY_EXISTS" | "DECISION_MODEL_REQUIRED";
                         };
                     };
                 };
@@ -41277,7 +41301,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            /**
+             * @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
+             *     - `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.
+             */
             409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -41287,7 +41314,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "REVISION_CONFLICT";
+                            code?: "REVISION_CONFLICT" | "DECISION_MODEL_REQUIRED";
                         };
                     };
                 };
@@ -41508,6 +41535,7 @@ export interface operations {
             /**
              * @description - `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique.
              *     - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
+             *     - `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.
              */
             409: {
                 headers: {
@@ -41518,7 +41546,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "ALREADY_EXISTS" | "REVISION_CONFLICT";
+                            code?: "ALREADY_EXISTS" | "REVISION_CONFLICT" | "DECISION_MODEL_REQUIRED";
                         };
                     };
                 };
@@ -41682,6 +41710,21 @@ export interface operations {
                     };
                 };
             };
+            /** @description - `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "DECISION_MODEL_REQUIRED";
+                        };
+                    };
+                };
+            };
             /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
             413: {
                 headers: {
@@ -41817,7 +41860,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            /**
+             * @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
+             *     - `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.
+             */
             409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -41827,7 +41873,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "REVISION_CONFLICT";
+                            code?: "REVISION_CONFLICT" | "DECISION_MODEL_REQUIRED";
                         };
                     };
                 };
@@ -42057,7 +42103,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            /**
+             * @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
+             *     - `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.
+             */
             409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -42067,7 +42116,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "REVISION_CONFLICT";
+                            code?: "REVISION_CONFLICT" | "DECISION_MODEL_REQUIRED";
                         };
                     };
                 };
@@ -42240,7 +42289,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            /**
+             * @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
+             *     - `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.
+             */
             409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -42250,7 +42302,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "REVISION_CONFLICT";
+                            code?: "REVISION_CONFLICT" | "DECISION_MODEL_REQUIRED";
                         };
                     };
                 };
@@ -42395,6 +42447,21 @@ export interface operations {
                     };
                 };
             };
+            /** @description - `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "DECISION_MODEL_REQUIRED";
+                        };
+                    };
+                };
+            };
             500: components["responses"]["InternalError"];
             /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
@@ -42535,7 +42602,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            /**
+             * @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
+             *     - `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.
+             */
             409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -42545,7 +42615,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "REVISION_CONFLICT";
+                            code?: "REVISION_CONFLICT" | "DECISION_MODEL_REQUIRED";
                         };
                     };
                 };
@@ -42799,6 +42869,21 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "DECISION_MODEL_REQUIRED";
                         };
                     };
                 };

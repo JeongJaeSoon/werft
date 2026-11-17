@@ -138,6 +138,7 @@ export const pathFixed: readonly string[] = [
   "packages/db/src/migrate.ts",
   "packages/db/src/pool.ts",
   "packages/db/src/testing/checkpoints.ts",
+  "packages/db/src/testing/decision-model.ts",
   "packages/db/src/testing/fixture-team.ts",
   "packages/db/src/testing/launches.ts",
   "packages/db/src/testing/login-provider.ts",

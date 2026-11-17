@@ -26,7 +26,10 @@ import {
 } from "../../musterrolle/index.ts";
 import type { TeamActor } from "../../ports/team-store.ts";
 import type { AchievementRuleStore } from "./achievement-store.ts";
-import type { JudgeConnections } from "./judge-connections.ts";
+import {
+  type JudgeConnections,
+  requireDecisionModel,
+} from "./judge-connections.ts";
 
 const conflict = (reasonCode: string, message: string, extra = {}) =>
   new SessionServiceError("REVISION_CONFLICT", message, undefined, {
@@ -92,6 +95,7 @@ export function createAchievementRuleService(deps: {
         { reason_code: "role" },
       );
     }
+    await requireDecisionModel(judgeConnections);
     return { principal: caller, workspaceId, userId };
   }
 

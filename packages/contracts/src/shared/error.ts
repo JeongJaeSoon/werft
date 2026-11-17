@@ -172,6 +172,9 @@ export const API_ERROR_CODE_VALUES = [
   // write that sent no If-Match or If-None-Match at all.
   "VERSION_MISMATCH",
   "PRECONDITION_REQUIRED",
+  // An achievement write while the installation has no decision model (an
+  // enabled openai_decisions connection).
+  "DECISION_MODEL_REQUIRED",
 ] as const;
 
 export const apiErrorCodeSchema = z.enum(API_ERROR_CODE_VALUES);

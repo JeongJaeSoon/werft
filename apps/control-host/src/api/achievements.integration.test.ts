@@ -89,7 +89,11 @@ integration("achievement rule routes on PostgreSQL", () => {
           createAchievementRuleService({
             authorization: createAuthorizationPolicy(),
             store: createPostgresAchievementRuleStore(db),
-            judgeConnections: NO_JUDGE_CONNECTIONS,
+            // A decision model, without which every write is refused.
+            judgeConnections: {
+              ...NO_JUDGE_CONNECTIONS,
+              ids: async () => ["luna-main"],
+            },
           }),
         ),
     });

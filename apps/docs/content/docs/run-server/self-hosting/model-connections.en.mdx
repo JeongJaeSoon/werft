@@ -40,7 +40,7 @@ Starting a session on a release of this connection before providing a key produc
 
 To run OpenAI models on the Codex engine, choose the kind `openai_responses` on the same screen. The default address is `https://api.openai.com`, and an API key is the only way to authenticate. Sessions on this connection run on the Codex worker image. For the image and the proxy allowlist (`api.openai.com:443`), follow the [configuration reference](/run-server/self-hosting/reference/configuration).
 
-For the connection the achievement judge Luna (OpenAI Decisions API) uses, choose the kind `openai_decisions`. The default address is `https://api.openai.com`, an API key is the only way to authenticate, and judging is always charged on its own ledger. No agent runs on this connection, so it has no model list. It is picked in the judging settings of [Achievement rules](/achievements).
+The connection the achievement judge Luna (OpenAI Decisions API) uses, of kind `openai_decisions`, is not listed on this screen. It is created, given a new key and disabled under **Set up decision model** on the [Achievement rules](/achievements) screen. The default address is `https://api.openai.com`, an API key is the only way to authenticate, and judging is always charged on its own ledger.
 
 <a id="2-설정-문서로-연결-더하기" />
 ### 2. Add connections through the settings document

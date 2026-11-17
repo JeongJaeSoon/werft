@@ -56,6 +56,7 @@ import {
   Text,
   Textarea,
 } from "@werft-ai/ui";
+import { Lock } from "lucide-react";
 import {
   type FormEvent,
   type ReactNode,
@@ -79,6 +80,10 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { type Translate, useI18n } from "../i18n/i18n.tsx";
 import { achievementPeriod } from "./achievements.tsx";
+import {
+  useAchievementJudge,
+  useDecisionModelSetup,
+} from "./decision-model.tsx";
 
 // The server's ceilings; the web takes contracts as types only, so a test
 // keeps these equal to the contract's values.
@@ -118,9 +123,12 @@ const STACK_TABLE =
 // control, so -m-1 p-1 leaves the ring's 4px inside the clip (as members.tsx).
 const TABLE_FRAME =
   "-m-1 rounded-none border-0 p-1 [--werft-row-padding-x:var(--werft-space-4)]";
+// The name takes a fixed width so every value starts at one x, left-aligned
+// as in the table. max-w-none and whitespace-normal undo the `text` and
+// `nowrap` column widths, which mean nothing once a cell is a line.
 const STACK_CELL =
-  "max-md:flex max-md:w-full max-md:min-w-0 max-md:flex-wrap max-md:items-center max-md:justify-end max-md:gap-x-1.5 max-md:gap-y-1 max-md:px-0 max-md:py-0.5 max-md:text-right max-md:first:pl-0 max-md:last:pr-0 max-md:[overflow-wrap:anywhere] max-md:before:mr-auto max-md:before:flex-none max-md:before:text-caption max-md:before:text-subtle-foreground max-md:before:content-[attr(data-k)]";
-const NUM = "text-right tabular-nums";
+  "max-md:flex max-md:w-full max-md:min-w-0 max-md:max-w-none max-md:whitespace-normal max-md:items-center max-md:gap-x-1.5 max-md:px-0 max-md:py-0.5 max-md:first:pl-0 max-md:last:pr-0 max-md:[overflow-wrap:anywhere] max-md:before:w-24 max-md:before:flex-none max-md:before:text-caption max-md:before:text-subtle-foreground max-md:before:content-[attr(data-k)]";
+const NUM = "tabular-nums";
 const SMALL_BUTTON = buttonVariants({ variant: "outline", size: "sm" });
 
 type Reason = string | undefined;
@@ -262,6 +270,14 @@ export function AchievementRulesScreen() {
   const [editing, setEditing] = useState<string | null>(null);
   const { categories, types, rules } = useCatalog();
   const failed = [categories, types, rules].find((query) => query.isError);
+  const judge = useAchievementJudge();
+  // The server refuses every change until a decision model is enabled.
+  const locked =
+    judge.data !== undefined && judge.data.connections.length === 0;
+  const setup = useDecisionModelSetup(setOutcome);
+  const setupId = useId();
+  const writeReason =
+    reason ?? (locked ? t("decisionModel.lockedReason") : undefined);
   const open = (target: string) => {
     setOutcome(null);
     setEditing(target);
@@ -272,69 +288,132 @@ export function AchievementRulesScreen() {
       title={t("achievementRules.title")}
       description={t("achievementRules.description")}
       actions={
-        <ReasonButton
-          className={buttonVariants()}
-          reason={reason}
-          onClick={() => open("new")}
-        >
-          {t("achievementRules.addRule")}
-        </ReasonButton>
+        <>
+          <ReasonButton
+            id={setupId}
+            className={buttonVariants({ variant: "outline" })}
+            reason={setup.reason}
+            onClick={(event) => setup.open(event.currentTarget)}
+          >
+            {t("decisionModel.setup")}
+          </ReasonButton>
+          <ReasonButton
+            className={buttonVariants()}
+            reason={writeReason}
+            onClick={() => open("new")}
+          >
+            {t("achievementRules.addRule")}
+          </ReasonButton>
+        </>
       }
     >
       <div className="flex min-w-0 flex-col gap-[var(--werft-space-section)]">
         <OutcomeLine outcome={outcome} />
-        <JudgeCard reason={reason} onOutcome={setOutcome} />
-        {failed ? (
-          <div>
-            <LoadFailure
-              error={failed.error}
-              onRetry={() => {
-                for (const query of [categories, types, rules]) {
-                  if (query.isError) void query.refetch();
-                }
-              }}
-            />
-          </div>
-        ) : categories.data && types.data && rules.data ? (
-          <>
-            <CategoriesCard
-              categories={categories.data.items}
-              rules={rules.data.items}
-              reason={reason}
-            />
-            <TypesCard
-              types={types.data.items}
-              rules={rules.data.items}
-              reason={reason}
-            />
-            <RulesCard
-              categories={categories.data.items}
-              types={types.data.items}
-              rules={rules.data.items}
-              reason={reason}
-              onEdit={open}
-              onOutcome={setOutcome}
-            />
-            {editing === null ? null : (
-              <RuleEditor
-                key={editing}
-                rule={rules.data.items.find(
-                  (rule) => rule.family_id === editing,
+        <div className="relative min-w-0">
+          <div
+            inert={locked}
+            className="flex min-w-0 flex-col gap-[var(--werft-space-section)]"
+          >
+            <JudgeCard reason={writeReason} onOutcome={setOutcome} />
+            {failed ? (
+              <div>
+                <LoadFailure
+                  error={failed.error}
+                  onRetry={() => {
+                    for (const query of [categories, types, rules]) {
+                      if (query.isError) void query.refetch();
+                    }
+                  }}
+                />
+              </div>
+            ) : categories.data && types.data && rules.data ? (
+              <>
+                <CategoriesCard
+                  categories={categories.data.items}
+                  rules={rules.data.items}
+                  reason={writeReason}
+                />
+                <TypesCard
+                  types={types.data.items}
+                  rules={rules.data.items}
+                  reason={writeReason}
+                />
+                <RulesCard
+                  categories={categories.data.items}
+                  types={types.data.items}
+                  rules={rules.data.items}
+                  reason={writeReason}
+                  onEdit={open}
+                  onOutcome={setOutcome}
+                />
+                {editing === null ? null : (
+                  <RuleEditor
+                    key={editing}
+                    rule={rules.data.items.find(
+                      (rule) => rule.family_id === editing,
+                    )}
+                    categories={categories.data.items}
+                    types={types.data.items}
+                    rules={rules.data.items}
+                    reason={writeReason}
+                    onClose={() => setEditing(null)}
+                    onOutcome={setOutcome}
+                  />
                 )}
-                categories={categories.data.items}
-                types={types.data.items}
-                rules={rules.data.items}
-                reason={reason}
-                onClose={() => setEditing(null)}
-                onOutcome={setOutcome}
-              />
+              </>
+            ) : (
+              <Skeleton height="12rem" />
             )}
-          </>
-        ) : (
-          <Skeleton height="12rem" />
-        )}
+          </div>
+          {locked ? (
+            <DecisionModelLock
+              reason={setup.reason}
+              // The focus goes back to the header's button: this one leaves
+              // with the lock once a model is set up.
+              onSetup={(from) =>
+                setup.open(document.getElementById(setupId) ?? from)
+              }
+            />
+          ) : null}
+        </div>
       </div>
+      {setup.dialogs}
     </Page>
+  );
+}
+
+function DecisionModelLock({
+  reason,
+  onSetup,
+}: {
+  readonly reason: Reason;
+  readonly onSetup: (opener: HTMLElement) => void;
+}) {
+  const { t } = useI18n();
+  const titleId = useId();
+  return (
+    <div className="absolute inset-0 flex justify-center rounded-card bg-muted/70">
+      {/* Sticky, so the notice stays in view over a long page. */}
+      {/* biome-ignore lint/a11y/useSemanticElements: a fieldset groups form controls, this is a notice with one button */}
+      <div
+        role="group"
+        aria-labelledby={titleId}
+        className="sticky top-[30vh] mx-4 mt-16 flex max-w-prose flex-col items-center gap-2 self-start rounded-card border bg-background p-6 text-center"
+      >
+        <Lock aria-hidden="true" className="size-6 text-muted-foreground" />
+        <Text id={titleId} weight="medium">
+          {t("decisionModel.lock.title")}
+        </Text>
+        <Text variant="sub">{t("decisionModel.lock.body")}</Text>
+        <ReasonButton
+          className={buttonVariants({ size: "sm" })}
+          reason={reason}
+          onClick={(event) => onSetup(event.currentTarget)}
+        >
+          {t("decisionModel.setup")}
+        </ReasonButton>
+      </div>
+    </div>
   );
 }
 
@@ -434,17 +513,7 @@ function JudgeCard({
   const format = OPERATIONS_MESSAGES[locale].format;
   const workspaceId = useMe()?.workspace?.id ?? "";
   const key = scopedKey(client, "achievement-judge");
-  const judge = useQuery({
-    queryKey: key,
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/workspaces/{id}/achievement-judge", {
-          params: { path: { id: workspaceId } },
-        }),
-      ) as Promise<AchievementJudgeResponse>,
-    enabled: workspaceId !== "",
-    retry: false,
-  });
+  const judge = useAchievementJudge();
   const today = useUsage("1");
   const month = useUsage("month");
   const settings = judge.data?.achievement_judge;
@@ -568,11 +637,6 @@ function JudgeCard({
               )}
             </NativeSelect>
           </div>
-          {connections.length === 0 ? (
-            <Text variant="meta">
-              {t("achievementRules.judge.noConnections")}
-            </Text>
-          ) : null}
           <Text variant="meta">{t("achievementRules.judge.sent")}</Text>
         </FormRow>
         <FormRow
@@ -1022,13 +1086,21 @@ function TypesCard({
         <Table className={STACK_TABLE}>
           <TableHeader>
             <TableRow>
-              <TableHead scope="col">{k.name}</TableHead>
-              <TableHead scope="col">{k.key}</TableHead>
-              <TableHead scope="col">{k.evidence}</TableHead>
-              <TableHead scope="col">
+              <TableHead scope="col" variant="nowrap">
+                {k.name}
+              </TableHead>
+              <TableHead scope="col" variant="nowrap">
+                {k.key}
+              </TableHead>
+              <TableHead scope="col" variant="nowrap">
+                {k.evidence}
+              </TableHead>
+              <TableHead scope="col" variant="nowrap">
                 {t("achievementRules.type.fields")}
               </TableHead>
-              <TableHead scope="col">
+              {/* The other columns keep their content's width; the text
+                  column's 10rem floor would push the buttons out of view. */}
+              <TableHead scope="col" variant="text" className="min-w-24">
                 {t("achievementRules.type.rules")}
               </TableHead>
               <TableHead scope="col" variant="actions">
@@ -1041,7 +1113,11 @@ function TypesCard({
           <TableBody>
             {shown.map((type) => (
               <TableRow key={type.id}>
-                <TableCell data-k={k.name} className={STACK_CELL}>
+                <TableCell
+                  data-k={k.name}
+                  variant="nowrap"
+                  className={STACK_CELL}
+                >
                   {type.name}{" "}
                   {type.builtin ? (
                     <Badge variant="gray">
@@ -1049,18 +1125,31 @@ function TypesCard({
                     </Badge>
                   ) : null}
                 </TableCell>
-                <TableCell data-k={k.key} className={STACK_CELL}>
+                <TableCell
+                  data-k={k.key}
+                  variant="nowrap"
+                  className={STACK_CELL}
+                >
                   <Code>{type.key}</Code>
                 </TableCell>
-                <TableCell data-k={k.evidence} className={STACK_CELL}>
+                <TableCell
+                  data-k={k.evidence}
+                  variant="nowrap"
+                  className={STACK_CELL}
+                >
                   {t(`achievementRules.evidence.${type.evidence_kind}`)}
                 </TableCell>
-                <TableCell data-k={k.fields} className={STACK_CELL}>
+                <TableCell
+                  data-k={k.fields}
+                  variant="nowrap"
+                  className={STACK_CELL}
+                >
                   {typeFields(t, type)}
                 </TableCell>
                 <TableCell
                   data-k={k.rules}
-                  className={`${STACK_CELL} [overflow-wrap:anywhere]`}
+                  variant="text"
+                  className={`${STACK_CELL} min-w-24 [overflow-wrap:anywhere]`}
                 >
                   {rules
                     .filter((rule) => rule.type_id === type.id)
@@ -1308,18 +1397,26 @@ function RulesCard({
         <Table className={STACK_TABLE}>
           <TableHeader>
             <TableRow>
-              <TableHead scope="col">{k.title}</TableHead>
-              <TableHead scope="col">
+              <TableHead scope="col" variant="text">
+                {k.title}
+              </TableHead>
+              <TableHead scope="col" variant="nowrap">
                 {t("achievementRules.rules.type")}
               </TableHead>
-              <TableHead scope="col">{k.judge}</TableHead>
-              <TableHead scope="col">{k.version}</TableHead>
+              <TableHead scope="col" variant="nowrap">
+                {k.judge}
+              </TableHead>
+              <TableHead scope="col" variant="nowrap">
+                {k.version}
+              </TableHead>
               {usage.readable ? (
-                <TableHead scope="col" className={NUM}>
+                <TableHead scope="col" variant="nowrap" className={NUM}>
                   {k.recent}
                 </TableHead>
               ) : null}
-              <TableHead scope="col">{k.use}</TableHead>
+              <TableHead scope="col" variant="nowrap">
+                {k.use}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1337,21 +1434,33 @@ function RulesCard({
                   const count = counts.get(rule.family_id);
                   return (
                     <TableRow key={rule.family_id}>
-                      <TableCell data-k={k.title} className={STACK_CELL}>
+                      <TableCell
+                        data-k={k.title}
+                        variant="text"
+                        className={STACK_CELL}
+                      >
                         <Button
                           type="button"
                           variant="link"
-                          className="h-auto min-w-0 shrink whitespace-normal p-0 text-left font-normal [overflow-wrap:anywhere] max-md:text-right"
+                          className="h-auto min-w-0 shrink whitespace-normal p-0 text-left font-normal [overflow-wrap:anywhere]"
                           aria-controls={EDITOR_ID}
                           onClick={() => onEdit(rule.family_id)}
                         >
                           {rule.title}
                         </Button>
                       </TableCell>
-                      <TableCell data-k={k.type} className={STACK_CELL}>
+                      <TableCell
+                        data-k={k.type}
+                        variant="nowrap"
+                        className={STACK_CELL}
+                      >
                         <Code>{type?.key ?? ""}</Code>
                       </TableCell>
-                      <TableCell data-k={k.judge} className={STACK_CELL}>
+                      <TableCell
+                        data-k={k.judge}
+                        variant="nowrap"
+                        className={STACK_CELL}
+                      >
                         {rule.judge === "luna" ? (
                           <Badge variant="blue">
                             {t("achievementRules.rules.luna")}
@@ -1367,12 +1476,17 @@ function RulesCard({
                           </Badge>
                         ) : null}
                       </TableCell>
-                      <TableCell data-k={k.version} className={STACK_CELL}>
+                      <TableCell
+                        data-k={k.version}
+                        variant="nowrap"
+                        className={STACK_CELL}
+                      >
                         {t("achievements.version", { version: rule.version })}
                       </TableCell>
                       {usage.readable ? (
                         <TableCell
                           data-k={k.recent}
+                          variant="nowrap"
                           className={`${STACK_CELL} ${NUM}`}
                         >
                           {usage.data ? (count?.achievement_count ?? 0) : "—"}
@@ -1388,8 +1502,14 @@ function RulesCard({
                           ) : null}
                         </TableCell>
                       ) : null}
-                      <TableCell data-k={k.use} className={STACK_CELL}>
+                      <TableCell
+                        data-k={k.use}
+                        variant="nowrap"
+                        className={STACK_CELL}
+                      >
                         <Switch
+                          // Inline, it sits on the cell's text baseline, 1.8px above centre.
+                          className="flex"
                           aria-label={t("achievementRules.rules.useOf", {
                             title: rule.title,
                           })}

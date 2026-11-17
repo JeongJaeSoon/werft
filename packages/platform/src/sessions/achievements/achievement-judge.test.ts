@@ -80,10 +80,21 @@ const NO_JUDGE: JudgeInForce = {
   lastInputDigest: null,
 };
 
+/** The checkpoint of revision 3, committed since the decision model went on. */
+const OUTPUTS_DIRECTORY = "p/checkpoints/r3/";
+const OUTPUT_KEY = `${OUTPUTS_DIRECTORY}outputs/a`;
+const WINDOW = "2026-11-17 00:00:00.123456+00";
+const ALL_SINCE: JudgmentContext["since"] = {
+  at: WINDOW,
+  conversation: true,
+  checkpoints: [{ revision: 3, directory: OUTPUTS_DIRECTORY }],
+};
+
 function judgeOf(
-  context: Omit<JudgmentContext, "session" | "judge"> & {
+  context: Omit<JudgmentContext, "session" | "judge" | "since"> & {
     title?: string | null;
     judge?: Partial<JudgeInForce>;
+    since?: JudgmentContext["since"];
   },
   outputs: SessionOutputsResult = { status: "none" },
   options: {
@@ -97,8 +108,15 @@ function judgeOf(
     renewals?: number;
     /** The last finished try's failure. */
     errorCode?: ClaimedJudgment["errorCode"];
+    /** The installation has no decision model. */
+    noModel?: boolean;
+    /** The decision model is gone after this many reads of it. */
+    modelReads?: number;
+    /** How many judgments one claim takes; one by default. */
+    claims?: number;
   } = {},
 ) {
+  let modelReads = 0;
   const finished: JudgmentResult[] = [];
   const warnings: string[] = [];
   const logged: unknown[] = [];
@@ -107,13 +125,13 @@ function judgeOf(
     AchievementJudgmentStore,
     "claim" | "context" | "finish" | "transcript" | "renew"
   > = {
-    claim: async () => [
-      {
+    claim: async () =>
+      Array.from({ length: options.claims ?? 1 }, (_, at) => ({
         ...CLAIMED,
+        id: at === 0 ? CLAIMED.id : `${CLAIMED.id}-${at}`,
         attempts: options.attempts ?? 1,
         errorCode: options.errorCode ?? null,
-      },
-    ],
+      })),
     renew: async () => {
       renewed += 1;
       return renewed <= (options.renewals ?? Number.POSITIVE_INFINITY);
@@ -130,14 +148,17 @@ function judgeOf(
         rules: context.rules,
         outcomes: context.outcomes,
         judge: { ...NO_JUDGE, ...context.judge },
+        since: context.since ?? ALL_SINCE,
       };
     },
     finish: async (_judgment, result) => {
       finished.push(result);
       return true;
     },
-    transcript: async (_sessionId, turns) =>
-      (options.turns ?? []).slice(-turns),
+    transcript: async (_sessionId, turns, since) =>
+      since === (context.since ?? ALL_SINCE).at
+        ? (options.turns ?? []).slice(-turns)
+        : [],
   };
   const reads: string[] = [];
   const judge = createAchievementJudge({
@@ -175,12 +196,123 @@ function judgeOf(
         logged.push(message, fields);
       },
     },
+    models: {
+      ids: async () => {
+        modelReads += 1;
+        const gone =
+          options.noModel ||
+          (options.modelReads !== undefined && modelReads > options.modelReads);
+        return gone ? [] : ["luna-main"];
+      },
+    },
     ...(options.luna === undefined ? {} : { luna: options.luna }),
   });
   return { judge, finished, warnings, reads, logged, renewals: () => renewed };
 }
 
 describe("achievement judge", () => {
+  test("without a decision model the judgment is skipped and counts nothing, always rules included", async () => {
+    const { judge, finished, reads } = judgeOf(
+      {
+        rules: [
+          rule("pull_request", "github_pull_request"),
+          rule("code_review", "github_review"),
+        ],
+        outcomes: [PULL_REQUEST, REVIEW],
+      },
+      { status: "none" },
+      { noModel: true },
+    );
+    expect(await judge.runOnce()).toBe(1);
+    expect(reads).toEqual([]);
+    expect(finished).toEqual([
+      {
+        status: "skipped",
+        errorCode: "judge_unavailable",
+        rules: [],
+        evidenceIds: [],
+        achievements: [],
+      },
+    ]);
+  });
+
+  test("out/ files and the conversation from before the decision model went on are not paired", async () => {
+    const outputs: SessionOutputsResult = {
+      status: "ready",
+      revision: 3,
+      outputs: [
+        {
+          path: "out/old.md",
+          bytes: 5,
+          sha256: "b",
+          key: "p/checkpoints/r1/outputs/b",
+        },
+        { path: "out/new.md", bytes: 5, sha256: "a", key: OUTPUT_KEY },
+      ] as never,
+    };
+    const rules = [
+      rule("file_made", "out_file"),
+      rule("talked", "conversation"),
+    ];
+    const before = judgeOf(
+      {
+        rules,
+        outcomes: [],
+        title: "Fix the payment retry",
+        since: { ...ALL_SINCE, conversation: false },
+      },
+      outputs,
+    );
+    await before.judge.runOnce();
+    expect(before.finished[0]?.evidenceIds).toEqual(["out/new.md"]);
+    expect(before.finished[0]?.achievements.map((a) => a.evidenceKind)).toEqual(
+      ["out_file"],
+    );
+
+    // An omitted file has no key: it is new only with its listed revision.
+    const omitted = (revision: number) =>
+      judgeOf(
+        { rules, outcomes: [] },
+        {
+          status: "ready",
+          revision,
+          outputs: [
+            { path: "out/huge.bin", bytes: 9e9, omitted: "too_large" },
+          ] as never,
+        },
+      );
+    const old = omitted(2);
+    await old.judge.runOnce();
+    expect(old.finished[0]?.evidenceIds).toEqual([]);
+    const listedSince = omitted(3);
+    await listedSince.judge.runOnce();
+    expect(listedSince.finished[0]?.evidenceIds).toEqual(["out/huge.bin"]);
+  });
+
+  test("a decision model disabled while a batch runs stops the judgments after it", async () => {
+    const { judge, finished } = judgeOf(
+      {
+        rules: [rule("code_review", "github_review")],
+        outcomes: [REVIEW],
+      },
+      { status: "none" },
+      { claims: 2, modelReads: 1 },
+    );
+    expect(await judge.runOnce()).toBe(2);
+    expect(finished.map((result) => result.status)).toEqual([
+      "succeeded",
+      "skipped",
+    ]);
+    expect(finished[0]?.achievements.length).toBe(1);
+    expect(finished[1]).toEqual({
+      status: "skipped",
+      errorCode: "judge_unavailable",
+      rules: [],
+      evidenceIds: [],
+      achievements: [],
+    });
+  });
+
   test("an always rule counts each evidence of its kind, with the built-in payload and the review state of the kind", async () => {
     const { judge, finished, reads } = judgeOf(
       {
@@ -316,6 +448,7 @@ describe("achievement judge", () => {
         rules: ["rule-pull_request"],
         evidenceIds: ["outcome-pr"],
         achievements: [],
+        since: WINDOW,
       },
     ]);
   });
@@ -914,7 +1047,7 @@ describe("achievement judge with Luna", () => {
         status: "ready",
         revision: 3,
         outputs: [
-          { path: "out/report.md", bytes: 7000, sha256: "a" },
+          { path: "out/report.md", bytes: 7000, sha256: "a", key: OUTPUT_KEY },
           { path: "out/huge.bin", bytes: 9e9, omitted: "too_large" },
         ] as never,
       },
@@ -957,7 +1090,9 @@ describe("achievement judge with Luna", () => {
       {
         status: "ready",
         revision: 3,
-        outputs: [{ path: "out/report.md", bytes: 10, sha256: "a" }] as never,
+        outputs: [
+          { path: "out/report.md", bytes: 10, sha256: "a", key: OUTPUT_KEY },
+        ] as never,
       },
       { luna, files: { "out/report.md": "unavailable" } },
     );
@@ -1132,7 +1267,7 @@ describe("achievement judge with Luna", () => {
       {
         status: "ready",
         revision: 3,
-        outputs: [{ path, bytes: 10, sha256: "a" }] as never,
+        outputs: [{ path, bytes: 10, sha256: "a", key: OUTPUT_KEY }] as never,
       },
       { luna },
     );

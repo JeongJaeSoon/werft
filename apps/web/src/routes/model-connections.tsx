@@ -79,6 +79,10 @@ export function ModelConnections() {
   const [listing, setListing] = useState<string | null>(null);
   const [opener, setOpener] = useState<HTMLElement | null>(null);
   const rows = useRowActions("connection", setOutcome);
+  // The judge's connections are managed on the achievement rules screen.
+  const items = connections.data?.items.filter(
+    (item) => item.kind !== DECISION_KIND,
+  );
 
   return (
     <Page
@@ -106,7 +110,7 @@ export function ModelConnections() {
             error={connections.error}
             onRetry={() => void connections.refetch()}
           />
-        ) : connections.data.items.length === 0 ? (
+        ) : items === undefined || items.length === 0 ? (
           <EmptyState framed title={t("settings.connections.empty")} />
         ) : (
           <GridTable
@@ -141,7 +145,7 @@ export function ModelConnections() {
                 {t("settings.column.actions")}
               </GridTableColumnHeader>
             </GridTableHeader>
-            {connections.data.items.map((item) => (
+            {items.map((item) => (
               <ConnectionRow
                 key={item.id}
                 item={item}
@@ -203,17 +207,12 @@ function ConnectionRow({
 }) {
   const { t } = useI18n();
   const actions = entryActions(item);
-  // No agent runs on it, so it has no models.
-  const judgeOnly = item.kind === "openai_decisions";
   const disabled = item.state === "disabled";
   const credentialKind = t(`settings.connections.authKind.${item.auth_kind}`);
-  const detail = judgeOnly
-    ? item.kind
-    : `${item.kind} · ${t(`settings.connections.billing.${item.billing}`)}`;
+  const detail = `${item.kind} · ${t(`settings.connections.billing.${item.billing}`)}`;
   const credential = `${credentialKind} · ${credentialText(t, item.credential)}`;
-  const models = judgeOnly
-    ? t("settings.connections.judgeOnly")
-    : item.models.length === 0
+  const models =
+    item.models.length === 0
       ? t("settings.connections.noModels")
       : item.models.join(", ");
   // A disabled connection with no value takes its first, so it can be
@@ -233,12 +232,11 @@ function ConnectionRow({
       }),
       open: onValue,
     },
-    !disabled &&
-      !judgeOnly && {
-        label: t("settings.models.setFor", { id: item.id }),
-        text: t("settings.models.set"),
-        open: onModels,
-      },
+    !disabled && {
+      label: t("settings.models.setFor", { id: item.id }),
+      text: t("settings.models.set"),
+      open: onModels,
+    },
   ].filter((entry) => entry !== false);
   return (
     <GridTableRow className={disabled ? INACTIVE_ROW_CLASS : undefined}>
@@ -659,6 +657,11 @@ const CONNECTION_KINDS = Object.keys({
   openai_decisions: true,
 } satisfies Record<ConnectionKind, true>) as ConnectionKind[];
 
+/** The achievement judge's kind, managed from the achievement rules screen. */
+export const DECISION_KIND = "openai_decisions" satisfies ConnectionKind;
+
+const AGENT_KINDS = CONNECTION_KINDS.filter((kind) => kind !== DECISION_KIND);
+
 /** `host:port` of an endpoint, the port spelled out as the proxy lists it. */
 function endpointHost(endpoint: string): string | null {
   try {
@@ -671,13 +674,15 @@ function endpointHost(endpoint: string): string | null {
   }
 }
 
-function AddConnection({
+export function AddConnection({
   open,
   onOpenChange,
   hosts,
   defaults,
   onOutcome,
   onCreated,
+  decision = false,
+  opener = null,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
@@ -687,10 +692,17 @@ function AddConnection({
   readonly defaults: Readonly<Record<string, string>>;
   readonly onOutcome: (outcome: Outcome) => void;
   /** Opens the new connection's models, read from its provider. */
-  readonly onCreated: (id: string) => void;
+  readonly onCreated?: (id: string) => void;
+  /**
+   * Creates the achievement judge's connection, and nothing else; the API
+   * names it in a judge that names none.
+   */
+  readonly decision?: boolean;
+  readonly opener?: HTMLElement | null;
 }) {
   const { t } = useI18n();
-  const [kind, setKind] = useState<ConnectionKind>("anthropic");
+  const initialKind: ConnectionKind = decision ? DECISION_KIND : "anthropic";
+  const [kind, setKind] = useState<ConnectionKind>(initialKind);
   // What the person typed; null until they touch the field, so the kind's
   // default shows through and a kind change can swap it.
   const [edited, setEdited] = useState<string | null>(null);
@@ -715,8 +727,7 @@ function AddConnection({
           kind: "notice",
           text: t("settings.done.created", { id: answer.id }),
         });
-        // An achievement judge's connection has no models to pick.
-        if (kind !== "openai_decisions") onCreated(answer.id);
+        onCreated?.(answer.id);
       },
       onRefused: setError,
     },
@@ -727,17 +738,18 @@ function AddConnection({
   return (
     <FormDialog
       open={open}
+      opener={opener}
       onOpenChange={(next) => {
         setError(null);
         setEndpointMissing(false);
         if (!next) {
-          setKind("anthropic");
+          setKind(initialKind);
           setEdited(null);
         }
         onOpenChange(next);
       }}
       pending={create.isPending}
-      title={t("settings.connections.add")}
+      title={t(decision ? "decisionModel.add" : "settings.connections.add")}
       description={t("settings.immutable")}
       gated
       error={error}
@@ -778,33 +790,37 @@ function AddConnection({
         />
         <FieldDescription>{t("settings.idHint")}</FieldDescription>
       </Field>
-      <Field>
-        <FieldLabel>{t("settings.connections.kind")}</FieldLabel>
-        <NativeSelect
-          name="kind"
-          value={kind}
-          onChange={(event) => {
-            // A cleared field hands the new kind's default back.
-            if (edited === "") setEdited(null);
-            setEndpointMissing(false);
-            const next = CONNECTION_KINDS.find(
-              (known) => known === event.target.value,
-            );
-            if (next !== undefined) setKind(next);
-          }}
-        >
-          {CONNECTION_KINDS.map((known) => (
-            <NativeSelectOption key={known} value={known}>
-              {known}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
-        {kind === "openai_responses" || kind === "openai_decisions" ? (
-          <FieldDescription>
-            {t(`settings.connections.kindHint.${kind}`)}
-          </FieldDescription>
-        ) : null}
-      </Field>
+      {decision ? (
+        <DecisionModelField />
+      ) : (
+        <Field>
+          <FieldLabel>{t("settings.connections.kind")}</FieldLabel>
+          <NativeSelect
+            name="kind"
+            value={kind}
+            onChange={(event) => {
+              // A cleared field hands the new kind's default back.
+              if (edited === "") setEdited(null);
+              setEndpointMissing(false);
+              const next = AGENT_KINDS.find(
+                (known) => known === event.target.value,
+              );
+              if (next !== undefined) setKind(next);
+            }}
+          >
+            {AGENT_KINDS.map((known) => (
+              <NativeSelectOption key={known} value={known}>
+                {known}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+          {kind === "openai_responses" ? (
+            <FieldDescription>
+              {t("settings.connections.kindHint.openai_responses")}
+            </FieldDescription>
+          ) : null}
+        </Field>
+      )}
       <Field>
         <FieldLabel>{t("settings.connections.endpoint")}</FieldLabel>
         <Input
@@ -865,5 +881,23 @@ function AddConnection({
       ) : null}
       <SecretInput label={t("settings.connections.key")} />
     </FormDialog>
+  );
+}
+
+/** The judge's one model, which no field picks. */
+function DecisionModelField() {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3">
+        <Text as="span" variant="meta">
+          {t("decisionModel.model")}
+        </Text>
+        <Code>gpt-6-luna</Code>
+      </div>
+      <Text variant="meta">
+        {t("settings.connections.kindHint.openai_decisions")}
+      </Text>
+    </div>
   );
 }

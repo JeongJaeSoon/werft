@@ -14,6 +14,10 @@ import {
 } from "../../musterrolle/index.ts";
 import type { TeamActor } from "../../ports/team-store.ts";
 import type { AchievementJudgmentStore } from "./achievement-judgment-store.ts";
+import {
+  type JudgeConnections,
+  requireDecisionModel,
+} from "./judge-connections.ts";
 
 function personOf(caller: Caller, refusal: string): TeamActor {
   const userId = caller.actor?.userId;
@@ -33,6 +37,8 @@ function personOf(caller: Caller, refusal: string): TeamActor {
 export function createSessionAchievementService(deps: {
   authorization: AuthorizationPolicy;
   store: Pick<AchievementJudgmentStore, "list" | "rejudge" | "find" | "review">;
+  /** Without a decision model a review and a rejudge are refused. */
+  judgeConnections: Pick<JudgeConnections, "ids">;
   newId?: () => string;
 }) {
   const newId = deps.newId ?? (() => crypto.randomUUID());
@@ -77,6 +83,7 @@ export function createSessionAchievementService(deps: {
         caller,
         "Only a signed-in person reviews an achievement",
       );
+      await requireDecisionModel(deps.judgeConnections);
       const receiptId = newId();
       const result = await deps.store.review({
         actor,
@@ -124,6 +131,7 @@ export function createSessionAchievementService(deps: {
         caller,
         "Only a signed-in person rejudges a session",
       );
+      await requireDecisionModel(deps.judgeConnections);
       const receiptId = newId();
       const result = await deps.store.rejudge({
         actor,

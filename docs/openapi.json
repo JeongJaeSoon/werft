@@ -4292,7 +4292,8 @@
                   "SECRET_GRANT_ALL_FORBIDDEN",
                   "SECRET_ENV_UNSUPPORTED",
                   "VERSION_MISMATCH",
-                  "PRECONDITION_REQUIRED"
+                  "PRECONDITION_REQUIRED",
+                  "DECISION_MODEL_REQUIRED"
                 ]
               },
               "message": {
@@ -14183,7 +14184,8 @@
                       "SECRET_GRANT_ALL_FORBIDDEN",
                       "SECRET_ENV_UNSUPPORTED",
                       "VERSION_MISMATCH",
-                      "PRECONDITION_REQUIRED"
+                      "PRECONDITION_REQUIRED",
+                      "DECISION_MODEL_REQUIRED"
                     ]
                   },
                   "message": {
@@ -60654,7 +60656,7 @@
           "Sessions"
         ],
         "summary": "What the workspace's achievement rules counted in the session",
-        "description": "The session's achievements in force, oldest first, and its latest judgment. Only the platform's judge writes achievements: when the session's evidence appears or changes (a pull request opened, merged or closed, a review submitted, a checkpoint whose `out/` files differ from its parent's) a judgment is queued in the same transaction, one queued per session, and the judge takes it once two minutes have passed since the last such change. It pairs each rule in use with the session's evidence of its type's `evidence_kind`. An `always` rule counts every pair at no cost; one rule family counts a piece of evidence of a session once (`evidence_id`: the outcome id, the `out/` path, or null for the conversation). `title` and `link` are the pull request or review as `owner/repo#number` and its URL, the file's path and the session's console path, or the session's title and console path. `payload` is set only for the built-in types (`pull_request`, `code_review`, `document`). `review_state` is `auto` for pull request and review evidence, counted at once, and `needs_review` for `out/` files and the conversation, counted once a person confirms them; `confirmed` and `rejected` are a person's decision (`POST /v1/achievements/{id}/review`), which a later judgment never changes. `rule_title`, `rule_version` and `type_key` name the rule version that counted it and its type. `threshold` is the workspace threshold its judgment held a `luna` rule's `probability` against, kept with that judgment; null when that judgment asked the judge nothing. `rejudged_after_merge` is true for pull request evidence counted by a judgment made after the pull request merged, in a session with a judgment made before the merge.\n\n`judgment_count` is the session's finished judgments and `judge_cost_usd` what their judge calls cost, apart from the session's own cost.\n\n`judgment` is null before the session's first. Its `trigger` is `evidence`, `turns` (every `every_n_turns` turns, with a rule of `conversation` evidence in use), `idle` (the session's run ended idle, paused or closed, with `on_idle` on) or `manual`; `evidence_change` is `pr_merged` for an `evidence` judgment when one of the session's pull requests merged after the judgment before it was made and by the time this one was, and null otherwise. Its `status` is `queued`, `running`, `succeeded` (with `error_code: judge_refused` when the judge refused a pair, which then is no achievement and is not asked again), `failed`, `deferred` (the workspace's judgment calls spent `daily_budget_usd` for the UTC day; taken again after the next UTC midnight, or two minutes after a new trigger, when `always` rules count the new evidence and `luna` pairs wait again) or `skipped` (`error_code: judge_unavailable`: a `luna` rule had evidence and the workspace's connection does not reach a judge; `session_limit`: the session's other judgments that called the judge reached `max_per_session`). A try that fails is queued again 1, 5 and 30 minutes later, then ends `failed`, with the `error_code` of its last failure: `judge_timeout` (no answer within 10 seconds), `judge_http_error` (an error status, or the judge was not reached), `judge_bad_response` (an answer of another shape); `error_code: outputs_unavailable` says the checkpoint's `out/` list could not be read, and the achievements that need no `out/` list are written all the same. Reading changes nothing.\n\n**Scope:** `sessions:read` (API key or cookie session).",
+        "description": "The session's achievements in force, oldest first, and its latest judgment. Only the platform's judge writes achievements: when the session's evidence appears or changes (a pull request opened, merged or closed, a review submitted, a checkpoint whose `out/` files differ from its parent's) a judgment is queued in the same transaction, one queued per session, while the installation has a decision model (an enabled `openai_decisions` connection); without one nothing is queued, and a judgment already queued ends `skipped` with `judge_unavailable` and counts nothing, `always` rules included. The judge takes a queued judgment once two minutes have passed since the last such change. It pairs each rule in use with the session's evidence of its type's `evidence_kind`. An `always` rule counts every pair at no cost; one rule family counts a piece of evidence of a session once (`evidence_id`: the outcome id, the `out/` path, or null for the conversation). `title` and `link` are the pull request or review as `owner/repo#number` and its URL, the file's path and the session's console path, or the session's title and console path. `payload` is set only for the built-in types (`pull_request`, `code_review`, `document`). `review_state` is `auto` for pull request and review evidence, counted at once, and `needs_review` for `out/` files and the conversation, counted once a person confirms them; `confirmed` and `rejected` are a person's decision (`POST /v1/achievements/{id}/review`), which a later judgment never changes. `rule_title`, `rule_version` and `type_key` name the rule version that counted it and its type. `threshold` is the workspace threshold its judgment held a `luna` rule's `probability` against, kept with that judgment; null when that judgment asked the judge nothing. `rejudged_after_merge` is true for pull request evidence counted by a judgment made after the pull request merged, in a session with a judgment made before the merge.\n\n`judgment_count` is the session's finished judgments and `judge_cost_usd` what their judge calls cost, apart from the session's own cost.\n\n`judgment` is null before the session's first. Its `trigger` is `evidence`, `turns` (every `every_n_turns` turns, with a rule of `conversation` evidence in use), `idle` (the session's run ended idle, paused or closed, with `on_idle` on) or `manual`; `evidence_change` is `pr_merged` for an `evidence` judgment when one of the session's pull requests merged after the judgment before it was made and by the time this one was, and null otherwise. Its `status` is `queued`, `running`, `succeeded` (with `error_code: judge_refused` when the judge refused a pair, which then is no achievement and is not asked again), `failed`, `deferred` (the workspace's judgment calls spent `daily_budget_usd` for the UTC day; taken again after the next UTC midnight, or two minutes after a new trigger, when `always` rules count the new evidence and `luna` pairs wait again) or `skipped` (`error_code: judge_unavailable`: a `luna` rule had evidence and the workspace's connection does not reach a judge; `session_limit`: the session's other judgments that called the judge reached `max_per_session`). A try that fails is queued again 1, 5 and 30 minutes later, then ends `failed`, with the `error_code` of its last failure: `judge_timeout` (no answer within 10 seconds), `judge_http_error` (an error status, or the judge was not reached), `judge_bad_response` (an answer of another shape); `error_code: outputs_unavailable` says the checkpoint's `out/` list could not be read, and the achievements that need no `out/` list are written all the same. Reading changes nothing.\n\n**Scope:** `sessions:read` (API key or cookie session).",
         "x-scope": "sessions:read",
         "security": [
           {
@@ -60903,7 +60905,7 @@
           "Sessions"
         ],
         "summary": "Judge the session again against the achievement rules",
-        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. The caller must also be able to read the session. Queues a `manual` judgment of the session, or, when one is already pending (queued, or `deferred` to the next UTC day's budget), merges into it, makes its trigger `manual` and answers its id; the judge takes it once two minutes have passed since the session's last trigger. Rules changed since are applied as they are now; nothing else is rejudged. Writes a `rejudge_session` receipt naming the judgment. Another owner's session is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. The caller must also be able to read the session. Queues a `manual` judgment of the session, or, when one is already pending (queued, or `deferred` to the next UTC day's budget), merges into it, makes its trigger `manual` and answers its id; the judge takes it once two minutes have passed since the session's last trigger. Rules changed since are applied as they are now; nothing else is rejudged. Writes a `rejudge_session` receipt naming the judgment. Another owner's session is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -61094,6 +61096,41 @@
               }
             }
           },
+          "409": {
+            "description": "- `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "DECISION_MODEL_REQUIRED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
           "500": {
             "$ref": "#/components/responses/InternalError"
           },
@@ -61145,7 +61182,7 @@
           "Sessions"
         ],
         "summary": "Confirm or reject one of a session's achievements",
-        "description": "Owners, admins and the admins of the achievement's agent (`achievement.review`), signed in, who can also read its session; API keys are refused. `confirm` counts a `needs_review` achievement (`review_state: confirmed`); `reject` drops an `auto` or `needs_review` one from the count (`rejected`). A review is final: a later judgment never changes it, and a second review, or confirming an `auto` one, is 409 REVISION_CONFLICT with `details.reason_code: not_reviewable`. `note` is kept on the achievement as `review_note`, not in the receipt. Writes a `review_achievement` receipt naming the achievement and its new state. An achievement of another owner, or one a later judgment replaced, is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners, admins and the admins of the achievement's agent (`achievement.review`), signed in, who can also read its session; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. `confirm` counts a `needs_review` achievement (`review_state: confirmed`); `reject` drops an `auto` or `needs_review` one from the count (`rejected`). A review is final: a later judgment never changes it, and a second review, or confirming an `auto` one, is 409 REVISION_CONFLICT with `details.reason_code: not_reviewable`. `note` is kept on the achievement as `review_note`, not in the receipt. Writes a `review_achievement` receipt naming the achievement and its new state. An achievement of another owner, or one a later judgment replaced, is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -61414,7 +61451,7 @@
             }
           },
           "409": {
-            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.",
+            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.\n- `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -61436,7 +61473,8 @@
                             "code": {
                               "type": "string",
                               "enum": [
-                                "REVISION_CONFLICT"
+                                "REVISION_CONFLICT",
+                                "DECISION_MODEL_REQUIRED"
                               ]
                             }
                           }
@@ -93918,7 +93956,7 @@
           "Workspace settings"
         ],
         "summary": "Make an achievement category",
-        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. The name (1 to 32 characters) is unique among the workspace's categories that are not archived (409 ALREADY_EXISTS, `details.reason_code: name_taken`). The new category goes after the last one. Writes a `create_achievement_category` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. The name (1 to 32 characters) is unique among the workspace's categories that are not archived (409 ALREADY_EXISTS, `details.reason_code: name_taken`). The new category goes after the last one. Writes a `create_achievement_category` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -94120,7 +94158,7 @@
             }
           },
           "409": {
-            "description": "- `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique.",
+            "description": "- `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique.\n- `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -94142,7 +94180,8 @@
                             "code": {
                               "type": "string",
                               "enum": [
-                                "ALREADY_EXISTS"
+                                "ALREADY_EXISTS",
+                                "DECISION_MODEL_REQUIRED"
                               ]
                             }
                           }
@@ -94240,7 +94279,7 @@
           "Workspace settings"
         ],
         "summary": "Rename or reorder an achievement category",
-        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Changes `name`, `position` or both. A name another category that is not archived holds is 409 ALREADY_EXISTS (`details.reason_code: name_taken`). Writes an `update_achievement_category` receipt unless nothing changed (`receipt_id` null). Another workspace's category is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. Changes `name`, `position` or both. A name another category that is not archived holds is 409 ALREADY_EXISTS (`details.reason_code: name_taken`). Writes an `update_achievement_category` receipt unless nothing changed (`receipt_id` null). Another workspace's category is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -94489,7 +94528,7 @@
             }
           },
           "409": {
-            "description": "- `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique.",
+            "description": "- `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique.\n- `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -94511,7 +94550,8 @@
                             "code": {
                               "type": "string",
                               "enum": [
-                                "ALREADY_EXISTS"
+                                "ALREADY_EXISTS",
+                                "DECISION_MODEL_REQUIRED"
                               ]
                             }
                           }
@@ -94609,7 +94649,7 @@
           "Workspace settings"
         ],
         "summary": "Archive an achievement category",
-        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. A category with a rule in use (its latest version, not disabled) is 409 REVISION_CONFLICT with `details.reason_code: category_in_use`. Archiving one already archived changes nothing and answers a null `receipt_id`; otherwise writes an `archive_achievement_category` receipt. Another workspace's category is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. A category with a rule in use (its latest version, not disabled) is 409 REVISION_CONFLICT with `details.reason_code: category_in_use`. Archiving one already archived changes nothing and answers a null `receipt_id`; otherwise writes an `archive_achievement_category` receipt. Another workspace's category is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -94809,7 +94849,7 @@
             }
           },
           "409": {
-            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.",
+            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.\n- `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -94831,7 +94871,8 @@
                             "code": {
                               "type": "string",
                               "enum": [
-                                "REVISION_CONFLICT"
+                                "REVISION_CONFLICT",
+                                "DECISION_MODEL_REQUIRED"
                               ]
                             }
                           }
@@ -95059,7 +95100,7 @@
           "Workspace settings"
         ],
         "summary": "Make an achievement type",
-        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. `key` matches `[a-z][a-z0-9_]{1,40}` and is unique in the workspace, archived types included (409 ALREADY_EXISTS, `details.reason_code: key_taken`); `key` and `evidence_kind` never change afterwards. A workspace holds at most 50 types that are not archived (409 REVISION_CONFLICT, `details.reason_code: limit_reached`). Writes a `create_achievement_type` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. `key` matches `[a-z][a-z0-9_]{1,40}` and is unique in the workspace, archived types included (409 ALREADY_EXISTS, `details.reason_code: key_taken`); `key` and `evidence_kind` never change afterwards. A workspace holds at most 50 types that are not archived (409 REVISION_CONFLICT, `details.reason_code: limit_reached`). Writes a `create_achievement_type` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -95265,7 +95306,7 @@
             }
           },
           "409": {
-            "description": "- `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique.\n- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.",
+            "description": "- `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique.\n- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.\n- `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -95288,7 +95329,8 @@
                               "type": "string",
                               "enum": [
                                 "ALREADY_EXISTS",
-                                "REVISION_CONFLICT"
+                                "REVISION_CONFLICT",
+                                "DECISION_MODEL_REQUIRED"
                               ]
                             }
                           }
@@ -95386,7 +95428,7 @@
           "Workspace settings"
         ],
         "summary": "Rename an achievement type",
-        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Only `name` changes; a body naming `key` or `evidence_kind` is 400. To count under another key or evidence kind, make a new type and move the rule to it in a new version. Writes an `update_achievement_type` receipt unless the name is unchanged (`receipt_id` null). Another workspace's type is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. Only `name` changes; a body naming `key` or `evidence_kind` is 400. To count under another key or evidence kind, make a new type and move the rule to it in a new version. Writes an `update_achievement_type` receipt unless the name is unchanged (`receipt_id` null). Another workspace's type is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -95635,6 +95677,41 @@
               }
             }
           },
+          "409": {
+            "description": "- `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "DECISION_MODEL_REQUIRED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
           "413": {
             "description": "- `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB.",
             "headers": {
@@ -95721,7 +95798,7 @@
           "Workspace settings"
         ],
         "summary": "Archive an achievement type",
-        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. A built-in type is never archived (409 REVISION_CONFLICT, `details.reason_code: builtin`), nor is one a rule in use counts (`details.reason_code: type_in_use`). Archiving one already archived changes nothing and answers a null `receipt_id`; otherwise writes an `archive_achievement_type` receipt. Another workspace's type is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. A built-in type is never archived (409 REVISION_CONFLICT, `details.reason_code: builtin`), nor is one a rule in use counts (`details.reason_code: type_in_use`). Archiving one already archived changes nothing and answers a null `receipt_id`; otherwise writes an `archive_achievement_type` receipt. Another workspace's type is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -95923,7 +96000,7 @@
             }
           },
           "409": {
-            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.",
+            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.\n- `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -95945,7 +96022,8 @@
                             "code": {
                               "type": "string",
                               "enum": [
-                                "REVISION_CONFLICT"
+                                "REVISION_CONFLICT",
+                                "DECISION_MODEL_REQUIRED"
                               ]
                             }
                           }
@@ -96178,7 +96256,7 @@
           "Workspace settings"
         ],
         "summary": "Make an achievement rule",
-        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Version 1 of a new rule. `category_id` and `type_id` name a category and a type of the workspace that are not archived (400, `details.reason_code: unknown_category` or `unknown_type`); `agent_ids` takes only null. A type is counted by one rule in use at a time: a type another rule in use counts is 409 REVISION_CONFLICT with `details.reason_code: type_in_use`. A workspace has at most 30 rules in use (`details.reason_code: limit_reached`). Writes a `create_achievement_rule` receipt naming the rule's id, family and version, never its definition.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. Version 1 of a new rule. `category_id` and `type_id` name a category and a type of the workspace that are not archived (400, `details.reason_code: unknown_category` or `unknown_type`); `agent_ids` takes only null. A type is counted by one rule in use at a time: a type another rule in use counts is 409 REVISION_CONFLICT with `details.reason_code: type_in_use`. A workspace has at most 30 rules in use (`details.reason_code: limit_reached`). Writes a `create_achievement_rule` receipt naming the rule's id, family and version, never its definition.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -96391,7 +96469,7 @@
             }
           },
           "409": {
-            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.",
+            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.\n- `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -96413,7 +96491,8 @@
                             "code": {
                               "type": "string",
                               "enum": [
-                                "REVISION_CONFLICT"
+                                "REVISION_CONFLICT",
+                                "DECISION_MODEL_REQUIRED"
                               ]
                             }
                           }
@@ -96511,7 +96590,7 @@
           "Workspace settings"
         ],
         "summary": "Edit an achievement rule as its next version",
-        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. The body is the whole rule, as for a new one. A rule's rows never change: this makes version + 1 under a new id and sets the previous version's `superseded_by` to it; achievements already counted keep pointing at the version they were judged by. A disabled rule's new version is disabled too. 400 and 409 `type_in_use` as for a new rule; two edits at once are saved one after the other, each as its own version. Writes an `update_achievement_rule` receipt with the new and previous version ids, never the definition. Another workspace's rule is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. The body is the whole rule, as for a new one. A rule's rows never change: this makes version + 1 under a new id and sets the previous version's `superseded_by` to it; achievements already counted keep pointing at the version they were judged by. A disabled rule's new version is disabled too. 400 and 409 `type_in_use` as for a new rule; two edits at once are saved one after the other, each as its own version. Writes an `update_achievement_rule` receipt with the new and previous version ids, never the definition. Another workspace's rule is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -96770,7 +96849,7 @@
             }
           },
           "409": {
-            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.",
+            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.\n- `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -96792,7 +96871,8 @@
                             "code": {
                               "type": "string",
                               "enum": [
-                                "REVISION_CONFLICT"
+                                "REVISION_CONFLICT",
+                                "DECISION_MODEL_REQUIRED"
                               ]
                             }
                           }
@@ -96890,7 +96970,7 @@
           "Workspace settings"
         ],
         "summary": "Stop using an achievement rule",
-        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Disables the rule's latest version: it counts nothing from now on, and its type is free for another rule. Disabling one already disabled changes nothing and answers a null `receipt_id`; otherwise writes a `disable_achievement_rule` receipt. Another workspace's rule is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. Disables the rule's latest version: it counts nothing from now on, and its type is free for another rule. Disabling one already disabled changes nothing and answers a null `receipt_id`; otherwise writes a `disable_achievement_rule` receipt. Another workspace's rule is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -97096,6 +97176,41 @@
               }
             }
           },
+          "409": {
+            "description": "- `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "DECISION_MODEL_REQUIRED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
           "500": {
             "$ref": "#/components/responses/InternalError"
           },
@@ -97147,7 +97262,7 @@
           "Workspace settings"
         ],
         "summary": "Use a disabled achievement rule again",
-        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Enables the rule's latest version. If another rule in use counts its type now, 409 REVISION_CONFLICT with `details.reason_code: type_in_use`; at 30 rules in use, `limit_reached`; a category or type archived since is 400 (`unknown_category`, `unknown_type`). Enabling one already in use changes nothing and answers a null `receipt_id`; otherwise writes an `enable_achievement_rule` receipt. Another workspace's rule is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. Enables the rule's latest version. If another rule in use counts its type now, 409 REVISION_CONFLICT with `details.reason_code: type_in_use`; at 30 rules in use, `limit_reached`; a category or type archived since is 400 (`unknown_category`, `unknown_type`). Enabling one already in use changes nothing and answers a null `receipt_id`; otherwise writes an `enable_achievement_rule` receipt. Another workspace's rule is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -97389,7 +97504,7 @@
             }
           },
           "409": {
-            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.",
+            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.\n- `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -97411,7 +97526,8 @@
                             "code": {
                               "type": "string",
                               "enum": [
-                                "REVISION_CONFLICT"
+                                "REVISION_CONFLICT",
+                                "DECISION_MODEL_REQUIRED"
                               ]
                             }
                           }
@@ -97686,7 +97802,7 @@
           "Workspace settings"
         ],
         "summary": "Change how the workspace's achievement judge runs",
-        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Replaces the settings; a field left out takes its default. `threshold` is between 0 and 1, `every_n_turns` null or 5 to 100, `transcript` `none` or `recent`. `connection_id` names one of the read's `connections`, else 400 `unknown_connection`; one named before it was disabled is kept as it is. Writes a `set_achievement_judge` receipt with the settings saved. Another workspace is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Until the installation has a decision model (an enabled `openai_decisions` connection) this is 409 DECISION_MODEL_REQUIRED. Replaces the settings; a field left out takes its default. `threshold` is between 0 and 1, `every_n_turns` null or 5 to 100, `transcript` `none` or `recent`. `connection_id` names one of the read's `connections`, else 400 `unknown_connection`; one named before it was disabled is kept as it is. Writes a `set_achievement_judge` receipt with the settings saved. Another workspace is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -97930,6 +98046,41 @@
                               "type": "string",
                               "enum": [
                                 "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "- `DECISION_MODEL_REQUIRED`: The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "DECISION_MODEL_REQUIRED"
                               ]
                             }
                           }
