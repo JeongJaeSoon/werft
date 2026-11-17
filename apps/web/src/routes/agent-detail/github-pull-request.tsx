@@ -202,7 +202,6 @@ function Form({
           </FieldLabel>
           <NativeSelect
             id={ids.formatting}
-            className="w-auto max-w-full"
             value={formatting}
             disabled={!manages}
             onChange={(event) =>
