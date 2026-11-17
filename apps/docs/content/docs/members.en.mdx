@@ -15,7 +15,7 @@ On the **Members** screen of the web console, click **Invite member**, enter the
 - The link can be used for 7 days. The expiry time is shown under the link and in the invite list. An invite past its expiry stays in the list as **Expired**.
 - Addresses are compared trimmed and in lower case. Inviting the same address again revokes the earlier invite, and only the new link works.
 - An address that is already a member gets 409 `ALREADY_EXISTS` (`reason_code: already_member`). The same goes for a suspended member.
-- A deactivated member can be invited again, and accepting turns the membership back on. You can also reactivate them from the list without an invite. An account that only signed in with a provider, though, has no password and cannot accept with a password.
+- Reactivate a deactivated member from the list. The console says the same when you try to invite that address. An account with a password can also be invited again and accept with its password, which turns the membership back on, but it cannot accept with the provider button (409). An account that only signed in with a provider cannot come back through an invite: it has no password, so accepting with a password gets 401, and accepting with the provider gets 409.
 
 Each invite leaves an `invite_member` receipt.
 
@@ -57,7 +57,7 @@ When the provider side refuses, the callback screen says why. In every case the 
 | You can't join with this sign-in provider right now | The provider was deleted or turned off |
 | Joining started at a different address than the one it came back to | The provider sent the browser back to a different address than the one the link was opened at, or the person stayed on the provider's screen for more than 10 minutes and the flow ended. Open the link again at the console's canonical address |
 | This provider account is already connected to another user | 409 `ALREADY_EXISTS`. Another user already signs in with that provider account |
-| This provider account can't be connected to the console account with the same email | 409 `LOGIN_LINK_REQUIRED`. An account under the invited email already exists, and the provider proved a different address or none |
+| This provider account can't be connected to the console account with the same email | 409 `LOGIN_LINK_REQUIRED`. An account under the invited email already exists, and the provider did not prove that address (it proved a different one or none), or the account is suspended or a deactivated member, or another account of the same provider is already connected to it |
 | Could not join | 401. The provider said `email_verified: false` for the account (whatever the setting), or a provider that requires a verified email did not send an address or `email_verified: true`, or the provider's answer could not be verified, or the invite was revoked or expired meanwhile. The server does not say which |
 | Joining was not completed | The person gave up on the provider's screen |
 
