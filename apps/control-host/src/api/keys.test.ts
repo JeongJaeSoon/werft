@@ -229,6 +229,12 @@ describe("keys CLI arguments", () => {
     expect(() =>
       parseKeysCommand(["create", "   ", "--scopes", "sessions:read"]),
     ).toThrow(/^owner_id must not be empty\nUsage/);
+    expect(() =>
+      parseKeysCommand(["create", "", "--scopes", "sessions:read"]),
+    ).toThrow(/^owner_id must not be empty\nUsage/);
+    expect(() => parseKeysCommand(["revoke", ""])).toThrow(
+      /^key_id must be a UUID\nUsage/,
+    );
   });
 
   test("revoke <key_id> takes one UUID and no scopes", () => {
@@ -279,5 +285,6 @@ describe("keys CLI arguments", () => {
       expect(stderr).not.toContain("throw new Error");
       expect(stderr).not.toMatch(/^\s+at /m);
     }
-  });
+    // Four cold spawns, each killed at 4 s: above that sum, not the 5 s default.
+  }, 20_000);
 });

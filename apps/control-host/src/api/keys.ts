@@ -208,7 +208,8 @@ export function parseKeysCommand(argv: string[]): KeysCommand {
   if (personal !== undefined) {
     throw new Error(`--personal needs --workspace\n${USAGE}`);
   }
-  if (!target || extra.length > 0) {
+  // An empty target is still an argument: it gets the reason below.
+  if (target === undefined || extra.length > 0) {
     throw new Error(USAGE);
   }
   if (command === "revoke") {
