@@ -568,6 +568,11 @@ describe("공급자 계정으로 가입", () => {
       await screen.findByText(title);
       expect(shown()).toBe(0);
       expect(left).toEqual([]);
+      expect(
+        screen
+          .getByRole("link", { name: "로그인 화면으로" })
+          .getAttribute("href"),
+      ).toBe("/login");
     });
   }
 
