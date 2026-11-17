@@ -195,7 +195,8 @@ const oneDimensional = (column: unknown) =>
 // Identity (I0-2, 03 §3.1). One workspace per installation for now; every
 // row added by the interface track carries a workspace_id. Vocabularies are
 // CHECK constraints rather than pg enums so that widening one is a plain
-// additive migration; their values come from the contracts where one exists.
+// additive migration. Most take their values from the contracts;
+// RESOURCE_KIND_VALUES and AUDIENCE_KIND_VALUES above are still hand copies.
 export const workspaces = pgTable("workspaces", {
   id: uuid().primaryKey(),
   slug: text().notNull().unique(),
