@@ -844,10 +844,14 @@ ap_post "/v1/sessions/$SID/push-requests" '{}'            # SID는 commit 대본
 node "$U" "$RUN" slack-cards "$AID"                      # push.approve·push.reject 카드
 node "$U" "$RUN" slack-click "$AID" push-approve
 node "$U" "$RUN" slack-cards "$AID"                      # last_update가 "push 승인됨"
+# 거절: 같은 스레드에 commit 대본을 한 번 더(reply) 보내고, 그 턴의 체크포인트가 저장된 뒤 다시 요청한다.
+ap_post "/v1/sessions/$SID/push-requests" '{}'
+node "$U" "$RUN" slack-click "$AID" push-reject
+node "$U" "$RUN" slack-cards "$AID"                      # last_update가 "push 거절됨"
 node "$U" "$RUN" slack-click-bad "$AID"                  # 401 UNAUTHORIZED
 ```
 
-기대: `slack-event`는 200 `ok:true`, 카드는 스레드마다 새로 온다(몇 초 걸린다. 필요하면 `slack-cards`를 다시). `slack-click`은 `{"ok":true,"status":200,"body":{"ok":true}}`. 두 카드의 `last_update`는 각각 `*허용됨* · <@U0MOCK>`, `*거부됨* · <@U0MOCK>`으로 시작한다(뒤에 카드 요약이 붙는다). `pending_requests`에는 두 행이 생긴다. 하나는 `allow`이고 다른 하나는 `deny`이며, 둘 다 `remember`는 비어 있고 `settled_answer_result`는 `applied`, `remember_offer`는 비어 있다. 세션은 idle이 된다. push 카드를 누르면 카드가 `push 승인됨`으로 바뀌고 push 요청은 `approved`를 지나 처리된다. GitHub 자격이 없는 기본 mock run에서는 `failed`(`no_push_credential`)로 끝나는 것이 정상이다. 틀린 서명은 401 `UNAUTHORIZED`.
+기대: `slack-event`는 200 `ok:true`, 카드는 스레드마다 새로 온다(몇 초 걸린다. 필요하면 `slack-cards`를 다시). `slack-click`은 `{"ok":true,"status":200,"body":{"ok":true}}`. 두 카드의 `last_update`는 각각 `*허용됨* · <@U0MOCK>`, `*거부됨* · <@U0MOCK>`으로 시작한다(뒤에 카드 요약이 붙는다). `pending_requests`에는 두 행이 생긴다. 하나는 `allow`이고 다른 하나는 `deny`이며, 둘 다 `remember`는 비어 있고 `settled_answer_result`는 `applied`, `remember_offer`는 비어 있다. 세션은 idle이 된다. push 카드를 누르면 카드가 `push 승인됨`으로 바뀌고 push 요청은 `approved`를 지나 처리된다. 기본 run에서는 fake-git이 받아 `pushed`가 되고 `agent/<SID>` 브랜치가 생긴다. push 자격이 없는 저장소면 `failed`(`no_push_credential`)로 끝난다. 거절 카드는 `push 거절됨`이 되고 요청은 `rejected`다. 틀린 서명은 401 `UNAUTHORIZED`.
 
 주의: "이 세션 동안 허용" 버튼(`permission.allow_session`)은 엔진이 그 호출을 덮는 규칙을 제안할 때(`remember_offer`)만 붙고, 그 규칙 문장이 너무 길면 빠진다. fake 연결의 release는 `auto`로 돌아서 묻기 규칙에 걸린 명령만 카드가 된다. mock run에서 본 묻기 규칙 카드 11건은 파이프가 없는 명령(`sed -n "w a.txt" README.md`)까지 모두 제안이 비어 있었다. 엔진이 제안을 보내지 않은 것인지 werft가 거른 것인지는 확인하지 않았다. 그래서 기본 mock run에서 `slack-click allow-session`은 `no open card offers permission.allow_session`으로 끝난다. 세션 허용은 단계마다 시험이 지킨다. 제안 거르기는 `packages/adapters/runtimes/claude/src/runtime.test.ts`의 "canUseTool hands the host only the allow rules it may offer…"가 맡는다. 버튼은 `packages/adapters/chat/slack/src/slack-prompts.test.ts`의 "an offered rule adds a button…"과 "an allow kept for the session says so…"가 맡는다. 저장과 전달은 `packages/db/src/pending-requests.integration.test.ts`의 "a request that offered rules takes the answer…"가, worker가 엔진에 넘기는 일은 `apps/worker/src/pending-requests.test.ts`의 "hands the run the registered rules with an allow that asked to remember"가 맡는다. 클릭 처리 중 Slack 호출이 실패하면(예: `users.info` 429) 클릭은 200을 받지만 답은 반영되지 않는다. 그때 누른 사람에게 "지금은 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요" ephemeral이 가고 카드는 그대로다. release에 `github` 설정(`push_approval`)을 넣으려면 GitHub App 등록이 필요해(`app_required`) 기본 mock run은 설정 없는 release, 곧 사람이 매 push를 승인하는 기본값으로 본다.
 
