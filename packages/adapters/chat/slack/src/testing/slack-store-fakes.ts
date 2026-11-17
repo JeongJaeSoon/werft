@@ -305,9 +305,7 @@ export function createMemorySlackAppStore(input: {
       const row = rows.get(slackAppId);
       if (row?.workspaceId !== workspaceId || row.state !== "created") return;
       const events = row.events;
-      const kept =
-        events?.state === "verified" &&
-        (events.url === null || events.url === url);
+      const kept = events?.state === "verified";
       touch(row, {
         events: kept
           ? { ...events, url }

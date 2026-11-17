@@ -67,14 +67,12 @@ export const slackJa = {
   "slack.state.pending": "インストール待ち",
   "slack.state.connected": "接続済み",
   "slack.state.reinstall": "再インストールが必要",
-  "slack.eventsPending.title": "Slack が Request URL をまだ確認していません",
-  "slack.eventsPending.body":
-    "Slack がこのアプリの Request URL を確認するまで、招待・メンション・DM のイベントは届きません。「Slack アプリに入れるアドレス」の「再確認」で URL をもう一度送ってください。それでも残る場合は、アプリ設定の Event Subscriptions で Request URL の Verify(または Retry)を押してください。確認が届くとこの案内は消えます。",
-  "slack.eventsPending.open": "Event Subscriptions を開く",
   "slack.channelsLocked.title": "Request URL の確認前はチャンネルを選べません",
+  "slack.channelsLocked.bodyRecheck":
+    "Slack がこのアプリの Request URL を確認するまで、招待・メンション・DM・チャンネルのイベントは届きません。「再確認」で URL をもう一度送り、それでも変わらない場合は、アプリ設定の Event Subscriptions で Verify(または Retry)を押してください。確認されるとこの案内は自動で消えます。",
   "slack.channelsLocked.body":
-    "Slack がこのアプリの Request URL を確認するまで、チャンネルのイベントは届きません。「Slack アプリに入れるアドレス」の「再確認」で URL をもう一度送ってください。確認されるとすぐに解除されます。",
-  "slack.channelsLocked.action": "再確認へ移動",
+    "Slack がこのアプリの Request URL を確認するまで、招待・メンション・DM・チャンネルのイベントは届きません。アプリ設定の Event Subscriptions で Verify(または Retry)を押してください。確認されるとこの案内は自動で消えます。",
+  "slack.channelsLocked.open": "Event Subscriptions を開く",
   "slack.eventsUrl.title": "イベントの Request URL",
   "slack.eventsUrl.hint":
     "Slack が招待・メンション・DM を送る先です。再確認するとアプリ設定に URL をもう一度送り、Slack の確認要求に自動で応答します。",

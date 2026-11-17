@@ -476,7 +476,7 @@ integration("Slack apps and the config token on PostgreSQL", () => {
       ).toEqual({ ...events, url: null });
     });
 
-    test("a Request URL sent again keeps a verified app verified, and a new one is pending", async () => {
+    test("a Request URL sent again or moved keeps a verified app verified, and a pending app pending", async () => {
       const slack = fakeSlack();
       const { workspaceId, owner } = await withToken(slack);
       const agentId = await agent(workspaceId);
@@ -511,6 +511,7 @@ integration("Slack apps and the config token on PostgreSQL", () => {
         "2026-10-28T00:01:00.000Z",
       );
       expect((await read())?.state).toBe("verified");
+      // Slack moves a verified URL without checking the new one.
       const moved = `https://moved.example.test/v1/slack/events/${agentId}`;
       await store().registerEventsUrl(
         workspaceId,
@@ -519,9 +520,26 @@ integration("Slack apps and the config token on PostgreSQL", () => {
         "2026-10-28T00:02:00.000Z",
       );
       expect(await read()).toEqual({
-        state: "pending",
-        checked_at: "2026-10-28T00:02:00.000Z",
+        state: "verified",
+        checked_at: "2026-10-25T00:00:00.000Z",
         url: moved,
+      });
+      // An app Slack never checked stays pending wherever its URL goes.
+      await store().setEvents(workspaceId, id, {
+        state: "pending",
+        checked_at: "2026-10-28T00:03:00.000Z",
+      });
+      const again = `https://again.example.test/v1/slack/events/${agentId}`;
+      await store().registerEventsUrl(
+        workspaceId,
+        id,
+        again,
+        "2026-10-28T00:04:00.000Z",
+      );
+      expect(await read()).toEqual({
+        state: "pending",
+        checked_at: "2026-10-28T00:04:00.000Z",
+        url: again,
       });
     });
 

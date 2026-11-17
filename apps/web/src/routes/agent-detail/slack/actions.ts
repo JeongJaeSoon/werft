@@ -85,20 +85,21 @@ export function useSlackApp(agentId: string) {
   });
   const recheck = useMutation({
     onMutate: () => setNotice(""),
-    mutationFn: () =>
+    // The site is where the button was, so the outcome is read out there.
+    mutationFn: (_site: RecheckSite) =>
       unwrap(
         client.POST("/v1/agents/{id}/slack/app/events/recheck", {
           params: { path: { id: agentId } },
         }),
       ),
-    onSuccess: async (read) => {
+    onSuccess: async (read, site) => {
       setNotice(
         t(
           read.events.state === "verified"
             ? "slack.eventsUrl.done"
             : "slack.eventsUrl.sent",
         ),
-        "address",
+        site,
       );
       await refresh();
     },
@@ -133,4 +134,6 @@ export function useSlackApp(agentId: string) {
 
 export type SlackApp = ReturnType<typeof useSlackApp>;
 /** The tab section whose button an action is. */
-export type SlackActionSite = "address" | "app";
+export type SlackActionSite = "address" | "app" | "channels";
+/** Recheck sits in the address section and in the channels' notice. */
+export type RecheckSite = "address" | "channels";

@@ -316,8 +316,9 @@ export function createPostgresSlackAppStore(
         );
     },
     async registerEventsUrl(workspaceId, slackAppId, url, checkedAt) {
-      // A verified app stored before its URL was is taken to have this one.
-      const kept = sql`${slackApps.eventsState} = 'verified' AND (${slackApps.eventsUrl} IS NULL OR ${slackApps.eventsUrl} = ${url})`;
+      // Slack keeps a verified app's Request URL verified when a manifest
+      // update moves it, and sends no url_verification for the new one.
+      const kept = sql`${slackApps.eventsState} = 'verified'`;
       await db
         .update(slackApps)
         .set({

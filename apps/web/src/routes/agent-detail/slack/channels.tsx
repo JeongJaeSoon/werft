@@ -2,6 +2,10 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { unwrap } from "@werft-ai/client";
 import { useWerft } from "@werft-ai/react";
 import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
   Badge,
   Button,
   Code,
@@ -20,6 +24,7 @@ import {
   GridTableHeader,
   GridTableRow,
   Input,
+  Link,
   RowAction,
   RowList,
   RowListItem,
@@ -30,17 +35,26 @@ import {
   Text,
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
-import { type RefObject, useEffect, useId, useRef, useState } from "react";
+import {
+  type RefObject,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useHasPermission } from "../../../auth/guard.tsx";
 import { useManagesAgent } from "../../../components/agent-access.tsx";
 import { LoadFailure } from "../../../components/load-failure.tsx";
 import type { Notify } from "../../../components/toast.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
+import type { SlackApp } from "./actions.ts";
+import { Outcome, RecheckButton, RecheckError } from "./app.tsx";
 import { slackKey, useSlackBindings, useSlackChannels } from "./queries.ts";
 import {
   type Binding,
   type BindingChange,
-  RECHECK_ID,
+  eventSubscriptionsUrl,
   SECTION,
   SECTION_TARGET,
   slackFailure,
@@ -154,7 +168,9 @@ export function SlackChannels({
   invite,
   notify,
   homeStep = false,
-  locked = false,
+  slack,
+  lockedApp = null,
+  canRecheck = false,
   installed = true,
 }: {
   readonly agentId: string;
@@ -163,8 +179,15 @@ export function SlackChannels({
   readonly notify: Notify;
   /** Installed with no home yet: only picking the home is offered. */
   readonly homeStep?: boolean;
-  /** Slack has not checked the Request URL, so no channel would hear the bot. */
-  readonly locked?: boolean;
+  /** The app's actions, for the lock's Recheck. */
+  readonly slack: SlackApp;
+  /**
+   * The Slack app ID while Slack has not checked its Request URL, so no
+   * channel would hear the bot. The lock is the tab's one notice of it.
+   */
+  readonly lockedApp?: string | null;
+  /** This viewer may recheck: the address section offers it too. */
+  readonly canRecheck?: boolean;
   /**
    * An active bot to invite. After a disconnect the tab keeps its layout,
    * but `/invite` would add a bot that hears nothing.
@@ -180,8 +203,9 @@ export function SlackChannels({
   const [picking, setPicking] = useState(false);
   const [pickHome, setPickHome] = useState(false);
   const pickerOpener = useRef<HTMLButtonElement | null>(null);
-  const lockAction = useRef<HTMLButtonElement>(null);
-  // A lock that arrives with the picker open closes it; it sits outside inert.
+  const lockAction = useRef<HTMLDivElement>(null);
+  const locked = lockedApp !== null;
+  // A lock that arrives with the picker open closes it.
   useEffect(() => {
     if (locked) setPicking(false);
   }, [locked]);
@@ -343,11 +367,16 @@ export function SlackChannels({
           ) : undefined
         }
       >
-        <div className="grid">
-          <div
-            inert={locked}
-            className={`col-start-1 row-start-1 flex min-w-0 flex-col gap-[var(--werft-space-block)]${locked ? " invisible" : ""}`}
-          >
+        {/* Outside the lock: "verified" is said after the lock has gone. */}
+        <Outcome slack={slack} at="channels" />
+        {locked ? (
+          <ChannelsLock
+            appId={lockedApp}
+            slack={canRecheck ? slack : null}
+            action={lockAction}
+          />
+        ) : (
+          <div className="flex min-w-0 flex-col gap-[var(--werft-space-block)]">
             <output
               aria-live="polite"
               className={notice ? "text-control" : "sr-only"}
@@ -500,14 +529,16 @@ export function SlackChannels({
               </GridTable>
             )}
           </div>
-          {locked ? <ChannelsLock action={lockAction} /> : null}
-        </div>
+        )}
       </SettingsSection>
       <Dialog open={picking} onOpenChange={setPicking}>
         <DialogContent
           onCloseAutoFocus={(event) => {
             event.preventDefault();
-            (locked ? lockAction : pickerOpener).current?.focus();
+            (locked
+              ? lockAction.current?.querySelector<HTMLElement>("a, button")
+              : pickerOpener.current
+            )?.focus();
           }}
         >
           <DialogHeader>
@@ -688,49 +719,61 @@ function InviteRow({
   );
 }
 
-/** Covers the channels, pointing to the address section's Recheck. */
+/**
+ * The tab's one notice that Slack has not checked the Request URL, in place
+ * of the channels: Recheck here first, then Slack's own Verify.
+ */
 function ChannelsLock({
+  appId,
+  slack,
   action,
 }: {
-  readonly action: RefObject<HTMLButtonElement | null>;
+  readonly appId: string;
+  /** The app, when this viewer may recheck it. */
+  readonly slack: SlackApp | null;
+  readonly action: RefObject<HTMLDivElement | null>;
 }) {
   const { t } = useI18n();
   const titleId = useId();
+  const bodyId = useId();
+  // Runs before React detaches the card: focus in it would fall to <body>.
+  useLayoutEffect(
+    () => () => {
+      if (action.current?.contains(document.activeElement))
+        document
+          .getElementById(SECTION.channels)
+          ?.focus({ preventScroll: true });
+    },
+    [action],
+  );
   return (
-    // biome-ignore lint/a11y/useSemanticElements: a fieldset groups form controls, this is a notice with one button
-    <div
+    <Alert
+      ref={action}
+      variant="amber"
       role="group"
       aria-labelledby={titleId}
-      className="col-start-1 row-start-1 flex flex-col items-center justify-center gap-2 rounded-card border border-(color:--werft-tone-caution-border) bg-background p-4 text-center"
+      aria-describedby={bodyId}
     >
-      <Text id={titleId} className="font-medium">
-        {t("slack.channelsLocked.title")}
-      </Text>
-      <Text variant="sub" className="max-w-prose">
-        {t("slack.channelsLocked.body")}
-      </Text>
-      <Button
-        ref={action}
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() => {
-          const target =
-            document.getElementById(RECHECK_ID) ??
-            document.getElementById(SECTION.addresses) ??
-            // Without an event URL there is no address section.
-            document.getElementById(SECTION.app);
-          target?.scrollIntoView({
-            block: "center",
-            behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
-              ? "auto"
-              : "smooth",
-          });
-          target?.focus({ preventScroll: true });
-        }}
-      >
-        {t("slack.channelsLocked.action")}
-      </Button>
-    </div>
+      <AlertTitle id={titleId}>{t("slack.channelsLocked.title")}</AlertTitle>
+      <AlertDescription id={bodyId}>
+        {t(
+          slack
+            ? "slack.channelsLocked.bodyRecheck"
+            : "slack.channelsLocked.body",
+        )}
+      </AlertDescription>
+      {slack ? <RecheckError slack={slack} site="channels" /> : null}
+      <AlertActions>
+        {slack ? <RecheckButton slack={slack} site="channels" /> : null}
+        <Link
+          href={eventSubscriptionsUrl(appId)}
+          target="_blank"
+          newTabLabel={t("slack.newTab")}
+          underline="always"
+        >
+          {t("slack.channelsLocked.open")}
+        </Link>
+      </AlertActions>
+    </Alert>
   );
 }

@@ -64,8 +64,10 @@ export const SECTION_BOX =
   "flex scroll-mt-4 flex-col gap-[var(--werft-space-block)] outline-none";
 /** A section the side list jumps to, clear of the sticky header. */
 export const SECTION_TARGET = "scroll-mt-4 outline-none";
-export const RECHECK_ID = "slack-events-recheck";
-export const UNVERIFIED_POLL_MS = 10_000;
+export const UNVERIFIED_POLL_MS = 3_000;
+/** Where Slack shows, and re-checks, an app's Request URL. */
+export const eventSubscriptionsUrl = (appId: string) =>
+  `https://api.slack.com/apps/${encodeURIComponent(appId)}/event-subscriptions`;
 /** The tone of each `slackState`, in the card and the app's row alike. */
 export const STATE_BADGE = {
   connected: "green",

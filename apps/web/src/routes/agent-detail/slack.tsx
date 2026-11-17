@@ -66,7 +66,7 @@ export default function SlackTab({
   const slack = useSlackApp(agentId);
   const { app, identities } = slack;
   const bindings = useSlackBindings(agentId);
-  const unverified = unverifiedApp(app.data) !== null;
+  const unverified = unverifiedApp(app.data);
   const installed =
     identities.data?.items.some((item) => item.status === "active") ?? false;
   // An installed agent picks its home before anything else in the tab. A
@@ -127,7 +127,11 @@ export default function SlackTab({
             invite={`/invite @${slug}`}
             notify={notify}
             homeStep={homeStep}
-            locked={unverified && manages}
+            slack={slack}
+            // A managing-team member reads the app too and gets the notice.
+            lockedApp={unverified}
+            // The address section offers Recheck only for an installed app.
+            canRecheck={manages && installed && eventUrl(slack) !== null}
             installed={installed}
           />
         ) : null}
