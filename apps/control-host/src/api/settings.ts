@@ -6,6 +6,7 @@ import {
   messageOf,
   parseSettingsDocument,
   type SettingsDocument,
+  SettingsDocumentError,
   type SettingsDocumentStore,
   type SettingsEntries,
   type SettingsSeedDecision,
@@ -144,16 +145,23 @@ export async function documentFromDir(dir: string): Promise<{
   return { document: settingsDocumentOf(entries), notes, skipped };
 }
 
+/** An input file the operator named could not be read. */
+class SettingsFileError extends Error {
+  override name = "SettingsFileError";
+}
+
 /** `-` is stdin: the document reaches a container through `exec -T`. */
 async function readDocument(path: string): Promise<unknown> {
   const file = path === "-" ? Bun.stdin : Bun.file(path);
   if (path !== "-" && !(await file.exists())) {
-    throw new Error(`${path} is missing`);
+    throw new SettingsFileError(`${path} is missing`);
   }
   try {
     return JSON.parse(await file.text());
   } catch (error) {
-    throw new Error(`${path} is not valid JSON: ${messageOf(error)}`);
+    throw new SettingsFileError(
+      `${path} is not valid JSON: ${messageOf(error)}`,
+    );
   }
 }
 
@@ -309,7 +317,9 @@ async function readSource(
   output: Output,
 ): Promise<{ entries: SettingsEntries; skipped: string[] }> {
   if ("dir" in source) {
-    const read = await documentFromDir(source.dir);
+    const read = await documentFromDir(source.dir).catch((error: unknown) => {
+      throw new SettingsFileError(messageOf(error));
+    });
     for (const note of read.notes) output.err(`note: ${note}`);
     return {
       entries: parseSettingsDocument(read.document),
@@ -381,24 +391,37 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  await withJobDatabase(
-    "settings",
-    databaseUrl,
-    createLogger(),
-    async ({ db }) => {
-      const ok = await runSettingsCommand(
-        command,
-        {
-          settings: createPostgresSettingsDocumentStore(db),
-        },
-        {
-          out: (line) => process.stdout.write(`${line}\n`),
-          err: (line) => process.stderr.write(`${line}\n`),
-        },
-      );
-      if (!ok) process.exitCode = 1;
-    },
-  );
+  try {
+    await withJobDatabase(
+      "settings",
+      databaseUrl,
+      createLogger(),
+      async ({ db }) => {
+        const ok = await runSettingsCommand(
+          command,
+          {
+            settings: createPostgresSettingsDocumentStore(db),
+          },
+          {
+            out: (line) => process.stdout.write(`${line}\n`),
+            err: (line) => process.stderr.write(`${line}\n`),
+          },
+        );
+        if (!ok) process.exitCode = 1;
+      },
+    );
+  } catch (error) {
+    // A wrong input file is the operator's to fix: the message, no stack.
+    // Anything else is a fault and keeps its stack.
+    if (
+      !(error instanceof SettingsFileError) &&
+      !(error instanceof SettingsDocumentError)
+    ) {
+      throw error;
+    }
+    console.error(error.message);
+    process.exitCode = 1;
+  }
 }
 
 if (import.meta.main) {

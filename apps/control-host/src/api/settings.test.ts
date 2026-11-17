@@ -236,23 +236,22 @@ describe("settings CLI arguments", () => {
     });
   });
 
-  test("the CLI prints a refusal as a message and exits 1, without a stack trace", async () => {
-    // Unreachable: a refusal that still connected would hang until the kill.
-    const unreachable = "postgresql://postgres:dev@203.0.113.1:5432/sessions";
+  // Unreachable: a refusal that still connected would hang until the kill.
+  const unreachable = "postgresql://postgres:dev@203.0.113.1:5432/sessions";
+
+  async function expectRefusedAsMessage(
+    cases: readonly (readonly [
+      args: readonly string[],
+      databaseUrl: string | undefined,
+      message: string,
+    ])[],
+  ) {
     // An empty working directory has no env file Bun could auto-load into the
     // case that leaves DATABASE_URL out.
     const cwd = await mkdtemp(join(tmpdir(), "settings-cli-"));
     try {
       expect(await readdir(cwd)).toHaveLength(0);
-      for (const [args, databaseUrl, message] of [
-        [["import"], unreachable, "name one of --document or --from-dir"],
-        [
-          ["import", "--document", "a", "--force"],
-          unreachable,
-          "Unknown option",
-        ],
-        [["export"], undefined, "DATABASE_URL"],
-      ] as const) {
+      for (const [args, databaseUrl, message] of cases) {
         const result = Bun.spawnSync(
           [
             "bun",
@@ -282,8 +281,52 @@ describe("settings CLI arguments", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
+  }
+
+  test("the CLI prints a refusal as a message and exits 1, without a stack trace", async () => {
+    await expectRefusedAsMessage([
+      [["import"], unreachable, "name one of --document or --from-dir"],
+      [["import", "--document", "a", "--force"], unreachable, "Unknown option"],
+      [["export"], undefined, "DATABASE_URL"],
+    ]);
     // Three cold spawns, each killed at 10 s: above that sum, not the 5 s default.
   }, 35_000);
+
+  test("an import file that is missing, unreadable or invalid ends as a message, not a stack trace", async () => {
+    const inputs = await mkdtemp(join(tmpdir(), "settings-cli-inputs-"));
+    try {
+      await writeFile(join(inputs, "broken.json"), "{ not json");
+      await writeFile(join(inputs, "profiles.json"), '{ "profiles": {} }');
+      await mkdir(join(inputs, "catalog"));
+      await writeFile(join(inputs, "catalog", "repositories.yaml"), "a: [b");
+      const missing = join(inputs, "missing.json");
+      await expectRefusedAsMessage([
+        [
+          ["import", "--document", missing],
+          unreachable,
+          `${missing} is missing`,
+        ],
+        [
+          ["import", "--document", join(inputs, "broken.json")],
+          unreachable,
+          `${join(inputs, "broken.json")} is not valid JSON`,
+        ],
+        [
+          ["import", "--document", join(inputs, "profiles.json")],
+          unreachable,
+          "The settings document is invalid",
+        ],
+        [
+          ["import", "--from-dir", join(inputs, "catalog")],
+          unreachable,
+          `${join(inputs, "catalog", "repositories.yaml")} is not valid YAML`,
+        ],
+      ]);
+    } finally {
+      await rm(inputs, { recursive: true, force: true });
+    }
+    // Four cold spawns, each killed at 10 s: above that sum, not the 5 s default.
+  }, 45_000);
 });
 
 describe("settings seed", () => {
