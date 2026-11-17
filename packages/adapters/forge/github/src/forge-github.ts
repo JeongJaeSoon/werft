@@ -75,7 +75,7 @@ const unpaced = {
   }),
 } as never;
 
-/** One client per API base, built on first use and kept for the process. */
+/** One client per API base, built on first use and kept by the returned lookup. */
 function clientsByBase(
   logger: Logger | undefined,
   pacing: { retryAfterBaseMs?: number; paced?: boolean },
