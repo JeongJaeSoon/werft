@@ -254,15 +254,20 @@ describe("로그인 공급자 상세", () => {
     );
   });
 
-  test("the issuer is set to one line, whole in its title, beside a copy button described as the issuer's", async () => {
+  test("the issuer, redirect URI and client ID are set to one line, whole in their title, the URLs beside copy buttons described as theirs", async () => {
     const issuer =
       "https://sso.example.test/application/o/fakeworkspace/?a=b&c";
-    renderAt(PAGE, routes([provider({ issuer })]));
+    const clientId =
+      "123456789012-abcdefghijklmnopqrstuvwxyz0123.apps.example.test";
+    renderAt(PAGE, routes([filled({ issuer, client_id: clientId })]));
     await screen.findByRole("heading", { level: 1, name: "Acme SSO" });
-    const code = screen.getByText(issuer);
-    expect(code.tagName).toBe("CODE");
-    expect(code.className).toContain("truncate");
-    expect(code.getAttribute("title")).toBe(issuer);
+    for (const value of [issuer, REDIRECT, clientId]) {
+      const code = screen.getByText(value);
+      expect(code.tagName).toBe("CODE");
+      expect(code.className).toContain("truncate");
+      expect(code.className).not.toContain("wrap-anywhere");
+      expect(code.getAttribute("title")).toBe(value);
+    }
     const copies = screen.getAllByRole("button", { name: "복사" });
     expect(
       copies.map((button) =>

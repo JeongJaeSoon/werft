@@ -665,7 +665,12 @@ function ProviderSettings({
               title={t("loginProviders.redirectUri")}
               meta={
                 provider.redirect_uri ? (
-                  <Code className="wrap-anywhere">{provider.redirect_uri}</Code>
+                  <Code
+                    className="max-w-full truncate"
+                    title={provider.redirect_uri}
+                  >
+                    {provider.redirect_uri}
+                  </Code>
                 ) : (
                   t("loginProviders.redirectUriNone")
                 )
@@ -736,7 +741,12 @@ function ProviderSettings({
               title={t("loginProviders.clientId")}
               meta={
                 provider.client_id ? (
-                  <Code className="wrap-anywhere">{provider.client_id}</Code>
+                  <Code
+                    className="max-w-full truncate"
+                    title={provider.client_id}
+                  >
+                    {provider.client_id}
+                  </Code>
                 ) : (
                   t("loginProviders.unset")
                 )
