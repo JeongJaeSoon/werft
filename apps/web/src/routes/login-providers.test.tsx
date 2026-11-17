@@ -135,10 +135,12 @@ describe("로그인 공급자 목록", () => {
     const code = within(table).getByText(issuer);
     expect(code.tagName).toBe("CODE");
     expect(code.getAttribute("title")).toBe(issuer);
-    expect(code.className.split(" ")).toEqual(
-      expect.arrayContaining(["truncate", "max-w-full"]),
-    );
     expect(code.className).not.toContain("wrap-anywhere");
+    // A `lines` cell cuts every line after the name to one with an ellipsis.
+    const cell = code.parentElement as HTMLElement;
+    expect(cell.getAttribute("role")).toBe("cell");
+    expect(cell.dataset.lines).toBe("true");
+    expect(cell.firstElementChild?.textContent).toBe("Acme SSO");
   });
 
   test("every column starts at its left edge, header and cells alike, the last one too", async () => {

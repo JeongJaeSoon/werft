@@ -175,9 +175,9 @@ function StateBadge({ state }: { readonly state: LoginProviderState }) {
 }
 
 /**
- * An address that may wrap only after a `/`, `.`, `?`, `&` or `=`, never
- * inside a word. `<wbr>` rather than a zero-width space, which a copy would
- * carry into the pasted address.
+ * An address that may wrap after a `/`, `.`, `?`, `&` or `=` (and, as
+ * browsers do anyway, a `-`), never inside a word. `<wbr>` rather than a
+ * zero-width space, which a copy would carry into the pasted address.
  */
 function BreakAfterSeparators({ value }: { readonly value: string }) {
   let at = 0;
@@ -274,23 +274,16 @@ export function LoginProvidersScreen() {
             </GridTableHeader>
             {list.data.providers.map((provider) => (
               <GridTableRow key={provider.id}>
-                <GridTableCell>
-                  <div className="flex min-w-0 flex-col items-start gap-[var(--werft-row-line-gap)]">
-                    <TextLink asChild>
-                      <Link
-                        to="/settings/workspace/login/$providerId"
-                        params={{ providerId: provider.id }}
-                      >
-                        {provider.display_name}
-                      </Link>
-                    </TextLink>
-                    <Code
-                      className="max-w-full truncate"
-                      title={provider.issuer}
+                <GridTableCell lines>
+                  <TextLink asChild>
+                    <Link
+                      to="/settings/workspace/login/$providerId"
+                      params={{ providerId: provider.id }}
                     >
-                      {provider.issuer}
-                    </Code>
-                  </div>
+                      {provider.display_name}
+                    </Link>
+                  </TextLink>
+                  <Code title={provider.issuer}>{provider.issuer}</Code>
                 </GridTableCell>
                 <GridTableCell>
                   <StateBadge state={provider.state} />
