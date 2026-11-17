@@ -685,35 +685,37 @@ function InviteRow({
     <SettingRow
       title={t("slack.inviteTitle")}
       description={t("slack.inviteHint")}
-      meta={<Code>{command}</Code>}
-      actions={
-        <>
-          <CopyButton
+      meta={
+        // In the text column, so a long command scrolls inside the field
+        // instead of widening the button's column.
+        manual ? (
+          <Input
+            ref={field}
+            readOnly
             value={command}
-            variant="outline"
-            size="sm"
-            aria-label={t("slack.copyInvite")}
-            label={t("slack.copy")}
-            icon="copy"
-            iconClassName="stroke-[1.5]"
-            fallbackField={field}
-            onResult={(ok) => {
-              setManual(!ok);
-              notify(t(ok ? "slack.copied" : "slack.copyFailed"));
-            }}
+            aria-label={t("slack.inviteCommand")}
+            className="h-8 px-2 font-mono text-caption"
+            onFocus={(event) => event.currentTarget.select()}
           />
-          {manual ? (
-            <Input
-              ref={field}
-              readOnly
-              value={command}
-              size={command.length}
-              aria-label={t("slack.inviteCommand")}
-              className="h-8 w-auto px-2 font-mono text-caption"
-              onFocus={(event) => event.currentTarget.select()}
-            />
-          ) : null}
-        </>
+        ) : (
+          <Code>{command}</Code>
+        )
+      }
+      actions={
+        <CopyButton
+          value={command}
+          variant="outline"
+          size="sm"
+          aria-label={t("slack.copyInvite")}
+          label={t("slack.copy")}
+          icon="copy"
+          iconClassName="stroke-[1.5]"
+          fallbackField={field}
+          onResult={(ok) => {
+            setManual(!ok);
+            notify(t(ok ? "slack.copied" : "slack.copyFailed"));
+          }}
+        />
       }
     />
   );

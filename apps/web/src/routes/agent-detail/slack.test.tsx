@@ -1262,6 +1262,19 @@ describe("Slack management", () => {
             0,
             field.value.length,
           ]);
+          // Under the hint in the text column, in place of the code line; the
+          // button's column holds the button alone, so the field cannot widen it.
+          const text = field.parentElement;
+          expect(text?.textContent).toContain(
+            "Slack 채널 입력창에 붙여 넣어 보내면 봇이 그 채널에 초대됩니다.",
+          );
+          expect(text?.contains(button)).toBe(false);
+          expect(button.parentElement?.contains(field)).toBe(false);
+          expect(button.parentElement?.children.length).toBe(1);
+          expect(field.hasAttribute("size")).toBe(false);
+          expect(
+            within(advanced).queryByText("/invite @billing") === null,
+          ).toBe(true);
         } else expect(document.activeElement === button).toBe(true);
         await user.click(screen.getByRole("button", { name: "Slack 앱 메뉴" }));
         const open = await screen.findByRole("menuitem", {
