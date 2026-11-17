@@ -376,7 +376,9 @@ function DecisionModelLock() {
   const { t } = useI18n();
   const titleId = useId();
   return (
-    <div className="absolute inset-0 flex justify-center rounded-card bg-muted/70">
+    // overflow-clip, not hidden: the blur below may not widen the page, and a
+    // scroll container here would stop the notice sticking.
+    <div className="absolute inset-0 flex justify-center overflow-clip rounded-card bg-muted/70">
       {/* Sticky, so the notice stays in view over a long page. */}
       {/* biome-ignore lint/a11y/useSemanticElements: a fieldset groups form controls, this is a notice */}
       <div
