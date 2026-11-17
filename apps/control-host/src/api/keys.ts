@@ -170,6 +170,14 @@ function parseStrict(argv: string[]) {
   }
 }
 
+function scopesOption(value: string): SessionScope[] {
+  try {
+    return parseScopes(value);
+  } catch (error) {
+    throw new Error(`${messageOf(error)}\n${USAGE}`);
+  }
+}
+
 function uuidOption(value: string, name: string): string {
   if (!UUID.test(value)) throw new Error(`${name} must be a UUID\n${USAGE}`);
   return value.toLowerCase();
@@ -193,14 +201,15 @@ export function parseKeysCommand(argv: string[]): KeysCommand {
     return {
       command: "create",
       workspaceId,
-      scopes: parseScopes(parsed.values.scopes),
+      scopes: scopesOption(parsed.values.scopes),
       personalFor: uuidOption(personal, "--personal"),
     };
   }
   if (personal !== undefined) {
     throw new Error(`--personal needs --workspace\n${USAGE}`);
   }
-  if (!target || extra.length > 0) {
+  // An empty target is still an argument: it gets the reason below.
+  if (target === undefined || extra.length > 0) {
     throw new Error(USAGE);
   }
   if (command === "revoke") {
@@ -219,10 +228,14 @@ export function parseKeysCommand(argv: string[]): KeysCommand {
   if (parsed.values.scopes === undefined) {
     throw new Error(`--scopes is required\n${USAGE}`);
   }
+  const ownerId = target.trim();
+  if (!ownerId) {
+    throw new Error(`owner_id must not be empty\n${USAGE}`);
+  }
   return {
     command: "create",
-    ownerId: target.trim(),
-    scopes: parseScopes(parsed.values.scopes),
+    ownerId,
+    scopes: scopesOption(parsed.values.scopes),
   };
 }
 
