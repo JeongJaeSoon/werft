@@ -11,6 +11,7 @@ import {
   AGENT_IDENTITY_PROVIDER_VALUES,
   AGENT_IDENTITY_STATUS_VALUES,
   AGENT_STATUS_VALUES,
+  type AuthorizationAction,
   BINDING_MODE_VALUES,
   ENV_VARIABLE_KIND_VALUES,
   ENV_VARIABLE_NAME_PATTERN,
@@ -110,7 +111,7 @@ export const admissionState = pgEnum("admission_state", ADMISSION_STATE_VALUES);
 export const receiptStatus = pgEnum("receipt_status", RECEIPT_STATUS_VALUES);
 
 // The actions a grants row may hold, which its CHECK constraints pin: a
-// subset of the contract's AUTHORIZATION_ACTION_VALUES (schema.test.ts).
+// subset of the contract's AUTHORIZATION_ACTION_VALUES.
 export const GRANT_ACTION_VALUES = [
   "workspace.read",
   "workspace.manage",
@@ -127,7 +128,7 @@ export const GRANT_ACTION_VALUES = [
   "memory.write",
   "artifact.read",
   "delivery.send",
-] as const;
+] as const satisfies readonly AuthorizationAction[];
 export const RESOURCE_KIND_VALUES = [
   "workspace",
   "session",
@@ -194,8 +195,7 @@ const oneDimensional = (column: unknown) =>
 // Identity (I0-2, 03 §3.1). One workspace per installation for now; every
 // row added by the interface track carries a workspace_id. Vocabularies are
 // CHECK constraints rather than pg enums so that widening one is a plain
-// additive migration, and rather than contracts imports so that the schema
-// does not depend on a package that is still landing.
+// additive migration; their values come from the contracts where one exists.
 export const workspaces = pgTable("workspaces", {
   id: uuid().primaryKey(),
   slug: text().notNull().unique(),
