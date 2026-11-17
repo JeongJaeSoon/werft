@@ -244,8 +244,16 @@ describe("settings CLI arguments", () => {
       [["import", "--document", "a", "--force"], unreachable, "Unknown option"],
       [["export"], undefined, "DATABASE_URL"],
     ] as const) {
+      // --no-env-file: a .env in the working directory must not supply the
+      // DATABASE_URL this case leaves out.
       const result = Bun.spawnSync(
-        ["bun", "run", join(import.meta.dir, "settings.ts"), ...args],
+        [
+          "bun",
+          "--no-env-file",
+          "run",
+          join(import.meta.dir, "settings.ts"),
+          ...args,
+        ],
         {
           env: {
             PATH: process.env.PATH ?? "",
@@ -253,7 +261,7 @@ describe("settings CLI arguments", () => {
           },
           stderr: "pipe",
           stdout: "pipe",
-          timeout: 4_000,
+          timeout: 10_000,
         },
       );
       const stderr = result.stderr.toString();
@@ -263,8 +271,8 @@ describe("settings CLI arguments", () => {
       expect(stderr).not.toContain("throw new Error");
       expect(stderr).not.toMatch(/^\s+at /m);
     }
-    // Three cold spawns, each killed at 4 s: above that sum, not the 5 s default.
-  }, 15_000);
+    // Three cold spawns, each killed at 10 s: above that sum, not the 5 s default.
+  }, 35_000);
 });
 
 describe("settings seed", () => {

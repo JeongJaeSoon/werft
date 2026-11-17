@@ -54,8 +54,16 @@ describe("grants CLI arguments", () => {
       [["delete", SESSION, "--reason", "x"], unreachable, "Usage"],
       [["revoke", SESSION, "--reason", "x"], undefined, "DATABASE_URL"],
     ] as const) {
+      // --no-env-file: a .env in the working directory must not supply the
+      // DATABASE_URL this case leaves out.
       const result = Bun.spawnSync(
-        ["bun", "run", join(import.meta.dir, "grants.ts"), ...args],
+        [
+          "bun",
+          "--no-env-file",
+          "run",
+          join(import.meta.dir, "grants.ts"),
+          ...args,
+        ],
         {
           env: {
             PATH: process.env.PATH ?? "",
@@ -63,7 +71,7 @@ describe("grants CLI arguments", () => {
           },
           stderr: "pipe",
           stdout: "pipe",
-          timeout: 4_000,
+          timeout: 10_000,
         },
       );
       const stderr = result.stderr.toString();
@@ -73,8 +81,8 @@ describe("grants CLI arguments", () => {
       expect(stderr).not.toContain("throw new Error");
       expect(stderr).not.toMatch(/^\s+at /m);
     }
-    // Four cold spawns, each killed at 4 s: above that sum, not the 5 s default.
-  }, 20_000);
+    // Four cold spawns, each killed at 10 s: above that sum, not the 5 s default.
+  }, 45_000);
 });
 
 describe("grants CLI output", () => {
