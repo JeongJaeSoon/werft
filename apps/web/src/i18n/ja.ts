@@ -214,6 +214,8 @@ export const slackJa = {
   "slack.newTab": "(新しいタブで開きます)",
   "slack.copyFailed":
     "クリップボードにコピーできませんでした。選択されたコマンドを手動でコピーしてください。",
+  "slack.copyInviteFailed":
+    "クリップボードにコピーできませんでした。コマンドの行を選択して手動でコピーしてください。",
 } as const;
 
 export const ja: Record<MessageKey, string> = {

@@ -217,6 +217,8 @@ export const slackKo = {
   "slack.newTab": "(새 탭에서 열림)",
   "slack.copyFailed":
     "클립보드에 복사하지 못했습니다. 선택된 명령을 직접 복사하세요.",
+  "slack.copyInviteFailed":
+    "클립보드에 복사하지 못했습니다. 명령 줄을 직접 선택해 복사하세요.",
 } as const;
 
 export const ko = {

@@ -676,31 +676,12 @@ function InviteRow({
   readonly notify: Notify;
 }) {
   const { t } = useI18n();
-  const [manual, setManual] = useState(false);
-  const field = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (manual) field.current?.focus();
-  }, [manual]);
   return (
     <SettingRow
       title={t("slack.inviteTitle")}
       description={t("slack.inviteHint")}
-      meta={
-        // In the text column, so a long command scrolls inside the field
-        // instead of widening the button's column.
-        manual ? (
-          <Input
-            ref={field}
-            readOnly
-            value={command}
-            aria-label={t("slack.inviteCommand")}
-            className="h-8 px-2 font-mono text-caption"
-            onFocus={(event) => event.currentTarget.select()}
-          />
-        ) : (
-          <Code>{command}</Code>
-        )
-      }
+      // On a refused copy the reader selects this line by hand.
+      meta={<Code>{command}</Code>}
       actions={
         <CopyButton
           value={command}
@@ -710,11 +691,9 @@ function InviteRow({
           label={t("slack.copy")}
           icon="copy"
           iconClassName="stroke-[1.5]"
-          fallbackField={field}
-          onResult={(ok) => {
-            setManual(!ok);
-            notify(t(ok ? "slack.copied" : "slack.copyFailed"));
-          }}
+          onResult={(ok) =>
+            notify(t(ok ? "slack.copied" : "slack.copyInviteFailed"))
+          }
         />
       }
     />
