@@ -114,7 +114,10 @@ compose() {
 }
 
 usage() {
-  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' >&2
+  # The header through the blank line that ends its command list, however
+  # long that list grows.
+  awk 'NR > 1 { if (listed && /^#$/) exit; if (/^#   scripts\/local\.sh /) listed = 1; print }' "$0" |
+    sed 's/^# \{0,1\}//' >&2
   exit 2
 }
 

@@ -276,6 +276,22 @@ echo '{"status":"ready"}'
     expect(await calls("docker-calls")).toEqual([]);
   });
 
+  test("the usage lists every subcommand the header comment documents", async () => {
+    const header = await readFile(script, "utf8");
+    const documented = [
+      ...header.matchAll(/^# {3}scripts\/local\.sh (\S+)/gm),
+    ].map((match) => match[1]);
+    expect(documented.length).toBeGreaterThan(10);
+    const result = await run(["no-such-command"]);
+    expect(result.exitCode).toBe(2);
+    for (const name of new Set(documented)) {
+      expect(result.stderr, name).toContain(`scripts/local.sh ${name}`);
+    }
+    // The usage ends with the command list, not the notes after it.
+    expect(result.stderr).not.toContain("The local S3 server");
+    expect(await calls("docker-calls")).toEqual([]);
+  });
+
   test("down refuses any other argument without calling docker", async () => {
     const result = await run(["down", "-v"]);
     expect(result.exitCode).toBe(2);
