@@ -52,7 +52,7 @@ export function UsageTokenMix({
       <Card flush>
         <GridTable
           aria-label={messages.title}
-          columns="96px minmax(0,1fr) 80px 56px"
+          columns="112px minmax(0,1fr) 80px 72px"
           align={["start", "start", "end", "end"]}
         >
           {KINDS.map(([kind, column]) => {

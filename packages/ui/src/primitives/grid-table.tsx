@@ -176,7 +176,9 @@ export type GridTableProps = Omit<
      * cell or header, unwrapped. The longest text column takes
      * `minmax(0,1fr)` and with it the width left over. Keep every other track
      * `minmax(0,…)` or fixed, and `narrowAt` wide enough for the
-     * `max-content` columns, so no cell can push the table wider.
+     * `max-content` columns, so no cell can push the table wider. The row's
+     * inline padding sits inside the first and last tracks, so a fixed
+     * width there must count it.
      */
     readonly columns: string;
     /**

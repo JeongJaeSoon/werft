@@ -25,7 +25,7 @@ type Row = UsageBreakdownResponse["rows"][number];
 // model name; a phone still drops the column. The rows are subgrids of the
 // table, so the template changes on the table.
 const NARROW_TABLE =
-  "[@container(width<460px)]:grid-cols-[minmax(0,1fr)_48px_88px]";
+  "[@container(width<460px)]:grid-cols-[minmax(0,1fr)_48px_104px]";
 const NARROW_HIDE = "[@container(width<460px)]:hidden";
 
 export interface UsageCostTableProps {
@@ -74,7 +74,7 @@ export function UsageCostTable({
         aria-busy={loading || undefined}
         className={cn(tokens && NARROW_TABLE)}
         columns={
-          tokens ? "minmax(0,1fr) 56px 80px 96px" : "minmax(0,1fr) 64px 96px"
+          tokens ? "minmax(0,1fr) 56px 80px 112px" : "minmax(0,1fr) 64px 112px"
         }
         align={
           tokens ? ["start", "end", "end", "end"] : ["start", "end", "end"]

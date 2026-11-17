@@ -14,8 +14,10 @@ const MEMBER_COLUMNS =
   "minmax(0,1.3fr) minmax(0,1.5fr) max-content max-content max-content";
 // Name and email keep enough to read the start of each; status fits
 // "Suspended" with its dot, and "Expired"/"期限切れ" with the expiry icon.
+// The first and last tracks also hold the row's padding: the name keeps
+// 6rem, and the ⋯ track is the button plus that padding.
 const MEMBER_NARROW_COLUMNS =
-  "minmax(6rem,1fr) minmax(8rem,1fr) 72px 96px var(--werft-control-height-sm)";
+  "minmax(7rem,1fr) minmax(8rem,1fr) 72px 96px max-content";
 const MEMBER_ALIGN: readonly GridTableColumnAlign[] = [
   "start",
   "start",

@@ -45,6 +45,7 @@ Each `GridTable` row is a subgrid that shares the table's `columns` tracks. A `m
 - The longest text column takes the leftover with `minmax(0,1fr)`. Several text columns split it by their `fr` ratios.
 - The only gap between columns is the 16px that `GridTable` sets. No short column keeps spare width inside it, so the gaps look even.
 - A `max-content` column never wraps, so no word breaks in the middle. A column whose cells can grow without limit takes `minmax(0,…)` or a fixed width and truncates its cells.
+- The row's inline padding sits inside the first and last tracks. A fixed width there counts the padding too.
 - `narrowColumns` follows the same rule. Set `narrowAt` wide enough for the columns that remain.
 
 In a `Table`, the `nowrap`, `numeric`, `switch` and `actions` columns are already as wide as their content, and the other columns share the rest.
