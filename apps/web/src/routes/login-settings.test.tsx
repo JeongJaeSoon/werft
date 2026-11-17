@@ -81,7 +81,11 @@ describe("비밀번호 로그인 설정", () => {
     renderAt(LIST_PAGE, routes(read()));
     const area = await section();
     expect(area.textContent).toContain("비밀번호가 있는 모든 사람");
-    expect(area.textContent).toContain("Me · me@example.com");
+    expect(area.textContent).toContain("Me");
+    expect(area.textContent).not.toContain("me@example.com");
+    expect(within(area).getByText("Me").getAttribute("title")).toBe(
+      "me@example.com",
+    );
     expect(
       withheld(
         within(area).getByRole("button", { name: "비밀번호 로그인 닫기" }),
@@ -385,7 +389,11 @@ describe("비밀번호 로그인 설정", () => {
     });
     expect(document.activeElement === change).toBe(true);
     await waitFor(async () =>
-      expect((await section()).textContent).toContain("Eli · eli@example.com"),
+      expect(
+        within(await section())
+          .getByText("Eli")
+          .getAttribute("title"),
+      ).toBe("eli@example.com"),
     );
   });
 

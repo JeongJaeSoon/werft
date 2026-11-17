@@ -127,6 +127,22 @@ describe("로그인 공급자 목록", () => {
     ).toBe(LIST_PAGE);
   });
 
+  test("a long issuer keeps to one line cut with an ellipsis, the whole of it on hover", async () => {
+    const issuer =
+      "https://login.example.test/realms/very-long-workspace-name/protocol/openid-connect";
+    renderAt(LIST_PAGE, routes([provider({ issuer })]));
+    const table = await screen.findByRole("table", { name: "로그인" });
+    const code = within(table).getByText(issuer);
+    expect(code.tagName).toBe("CODE");
+    expect(code.getAttribute("title")).toBe(issuer);
+    expect(code.className).not.toContain("wrap-anywhere");
+    // A `lines` cell cuts every line after the name to one with an ellipsis.
+    const cell = code.parentElement as HTMLElement;
+    expect(cell.getAttribute("role")).toBe("cell");
+    expect(cell.dataset.lines).toBe("true");
+    expect(cell.firstElementChild?.textContent).toBe("Acme SSO");
+  });
+
   test("every column starts at its left edge, header and cells alike, the last one too", async () => {
     renderAt(
       LIST_PAGE,
@@ -236,6 +252,58 @@ describe("로그인 공급자 상세", () => {
     expect(withheld(screen.getByRole("button", { name: "켜기" }))).toBe(
       "지금 설정으로 테스트 로그인이 통과해야 켤 수 있습니다.",
     );
+  });
+
+  test("the issuer, redirect URI and client ID are set to one line, whole in their title, the URLs beside copy buttons described as theirs", async () => {
+    const issuer =
+      "https://sso.example.test/application/o/fakeworkspace/?a=b&c";
+    const clientId =
+      "123456789012-abcdefghijklmnopqrstuvwxyz0123.apps.example.test";
+    renderAt(PAGE, routes([filled({ issuer, client_id: clientId })]));
+    await screen.findByRole("heading", { level: 1, name: "Acme SSO" });
+    for (const value of [issuer, REDIRECT, clientId]) {
+      const code = screen.getByText(value);
+      expect(code.tagName).toBe("CODE");
+      expect(code.className).toContain("truncate");
+      expect(code.className).not.toContain("wrap-anywhere");
+      expect(code.getAttribute("title")).toBe(value);
+    }
+    const copies = screen.getAllByRole("button", { name: "복사" });
+    expect(
+      copies.map((button) =>
+        (button.getAttribute("aria-describedby") ?? "")
+          .split(" ")
+          .map((id) => document.getElementById(id)?.textContent ?? "")
+          .join(""),
+      ),
+    ).toEqual(["Issuer", "Redirect URI"]);
+  });
+
+  test("a provider never tested says so with a focusable warning, and turning on stays withheld", async () => {
+    renderAt(PAGE, routes([filled()]));
+    const warning = await screen.findByRole("button", {
+      name: "테스트한 적 없음",
+    });
+    expect(warning.getAttribute("aria-describedby")).toBeTruthy();
+    expect(
+      (warning.getAttribute("aria-describedby") ?? "")
+        .split(" ")
+        .map((id) => document.getElementById(id)?.textContent ?? "")
+        .join(""),
+    ).toBe("지금 설정으로 테스트 로그인이 통과해야 켤 수 있습니다.");
+    warning.focus();
+    expect(document.activeElement === warning).toBe(true);
+    expect(withheld(screen.getByRole("button", { name: "켜기" }))).toBe(
+      "지금 설정으로 테스트 로그인이 통과해야 켤 수 있습니다.",
+    );
+  });
+
+  test("a provider whose test passed has no never-tested warning", async () => {
+    renderAt(PAGE, routes([filled({ state: "ready", tested_at: AT })]));
+    await screen.findByRole("button", { name: "테스트 로그인" });
+    expect(
+      screen.queryByRole("button", { name: "테스트한 적 없음" }) === null,
+    ).toBe(true);
   });
 
   test("the client is changed at the revision that was read", async () => {
@@ -472,12 +540,15 @@ describe("로그인 공급자 상세", () => {
   test("opened on another origin than the redirect URI's, the test says so and links to this page there", async () => {
     renderAt(PAGE, routes([filled()]));
     const link = await screen.findByRole("link", {
-      name: "https://console.test에서 이 화면 열기",
+      name: "그 주소에서 이 화면 열기",
     });
     expect(link.getAttribute("href")).toBe(`https://console.test${PAGE}`);
-    expect(link.closest("[data-variant=amber]")?.textContent).toContain(
-      "지금 주소는 redirect URI의 주소(https://console.test)와 다릅니다. 여기서 테스트 로그인을 시작하면 공급자가 https://console.test(으)로 돌려보내 실패합니다.",
+    const warning = link.closest("[data-slot=test-elsewhere]");
+    expect(warning?.textContent).toBe(
+      "여기서 시작하면 공급자가 https://console.test(으)로 돌려보내 실패합니다. 그 주소에서 이 화면 열기",
     );
+    // One line inside the test row, no separate alert.
+    expect(document.querySelector("[data-variant=amber]") === null).toBe(true);
     // Said, not withheld: the owner may know a way this page cannot see.
     expect(
       screen
@@ -494,7 +565,7 @@ describe("로그인 공급자 상세", () => {
       const { container } = renderAt(PAGE, routes([filled({ redirect_uri })]));
       await screen.findByRole("button", { name: "테스트 로그인" });
       expect(container.textContent).not.toContain("이 화면 열기");
-      expect(container.textContent).not.toContain("redirect URI의 주소");
+      expect(container.textContent).not.toContain("돌려보내");
       container.remove();
     }
   });

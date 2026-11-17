@@ -144,8 +144,8 @@ export const loginProvidersKo = {
     "공급자의 로그인 화면으로 갑니다. 계정도 세션도 만들지 않습니다.",
   "loginProviders.testedAt": "마지막으로 통과한 테스트",
   "loginProviders.testElsewhere":
-    "지금 주소는 redirect URI의 주소({origin})와 다릅니다. 여기서 테스트 로그인을 시작하면 공급자가 {origin}(으)로 돌려보내 실패합니다.",
-  "loginProviders.testElsewhereLink": "{origin}에서 이 화면 열기",
+    "여기서 시작하면 공급자가 {origin}(으)로 돌려보내 실패합니다.",
+  "loginProviders.testElsewhereLink": "그 주소에서 이 화면 열기",
   "loginProviders.enable": "켜기",
   "loginProviders.enabling": "켜는 중…",
   "loginProviders.disable": "끄기",
@@ -396,8 +396,8 @@ export const loginProvidersEn: Record<keyof typeof loginProvidersKo, string> = {
     "Goes to the provider's sign-in page. No account and no session is made.",
   "loginProviders.testedAt": "Last test that passed",
   "loginProviders.testElsewhere":
-    "This address is not the redirect URI's ({origin}). A test sign-in started here fails, because the provider sends you back to {origin}.",
-  "loginProviders.testElsewhereLink": "Open this page at {origin}",
+    "Started here, it fails: the provider sends you back to {origin}.",
+  "loginProviders.testElsewhereLink": "Open this page there",
   "loginProviders.enable": "Turn on",
   "loginProviders.enabling": "Turning on…",
   "loginProviders.disable": "Turn off",
@@ -652,8 +652,8 @@ export const loginProvidersJa: Record<keyof typeof loginProvidersKo, string> = {
     "プロバイダーのログイン画面に移動します。アカウントもセッションも作成しません。",
   "loginProviders.testedAt": "最後に通ったテスト",
   "loginProviders.testElsewhere":
-    "今のアドレスは redirect URI のアドレス（{origin}）と異なります。ここでテストログインを始めると、プロバイダーが {origin} に戻すため失敗します。",
-  "loginProviders.testElsewhereLink": "{origin} でこの画面を開く",
+    "ここから始めると、プロバイダーが {origin} に戻すため失敗します。",
+  "loginProviders.testElsewhereLink": "そのアドレスでこの画面を開く",
   "loginProviders.enable": "オンにする",
   "loginProviders.enabling": "オンにしています…",
   "loginProviders.disable": "オフにする",

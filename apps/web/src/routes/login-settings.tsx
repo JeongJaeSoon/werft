@@ -233,7 +233,7 @@ export function PasswordLoginSettings() {
               meta={
                 admin ? (
                   <>
-                    {admin.display_name} · {admin.email}
+                    <span title={admin.email}>{admin.display_name}</span>
                     {admin.eligible ? null : (
                       <>
                         {" "}
