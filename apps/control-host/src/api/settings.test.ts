@@ -263,7 +263,8 @@ describe("settings CLI arguments", () => {
       expect(stderr).not.toContain("throw new Error");
       expect(stderr).not.toMatch(/^\s+at /m);
     }
-  });
+    // Three cold spawns, each killed at 4 s: above that sum, not the 5 s default.
+  }, 15_000);
 });
 
 describe("settings seed", () => {
