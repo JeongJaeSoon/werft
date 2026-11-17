@@ -186,7 +186,7 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 
 ## 유지
 
-기능이 바뀌면 [features/](features/)를 고친다. 주기 점검은 `maintain-verification-skill`로 한다.
+기능이 바뀌면 [features/](features/)를 고친다.
 
 ## 데모와 추가 드라이버
 

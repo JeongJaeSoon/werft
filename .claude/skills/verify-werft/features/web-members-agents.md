@@ -1,6 +1,6 @@
 # 웹 초대·구성원·에이전트
 
-owner·admin은 웹 콘솔 `/members`에서 초대 대화상자로 링크를 만들어 건네고, 받은 사람은 `/invite/{token}`에서 두 단계(계정 확인 → 비밀번호)로 들어온다. 같은 화면에서 역할을 바꾸고(확인 대화상자, owner 역할을 주거나 owner를 바꾸는 것은 owner만) 비활성화·재활성화한다. `/agents/new`는 다섯 단계 마법사(이름 → 하는 일 → 릴리스 → 켜기 → 채널 연결)로 에이전트를 만들어 바로 켠다(member도 만든다. 만든 사람이 그 에이전트의 관리자가 된다). `/agents/{id}`의 "카드" 탭에서 카드를 고쳐 새 version을 저장하고, "릴리스" 탭에서 release를 만들어 활성화한다. release의 `policy_pins`는 서버가 카드에서 정하고 승인 대기 상태는 없다(첫 활성화가 `approved_by`를 채운다). 두 탭이 같은 활성화를 다투면 늦은 탭은 덮어쓰지 않고 409를 안내한다. 홈 "시작하기"의 "구성원 초대하기"·"에이전트 준비하기"는 이 상태를 그대로 보인다.
+owner·admin은 웹 콘솔 `/members`에서 초대 대화상자로 링크를 만들어 건네고, 받은 사람은 `/invite/{token}`에서 두 단계(계정 확인 → 비밀번호)로 들어온다. 같은 화면에서 역할을 바꾸고(확인 대화상자, owner 역할을 주거나 owner를 바꾸는 것은 owner만) 비활성화·재활성화한다. `/agents/new`는 세 단계 마법사(이름 → 하는 일 → 채널 연결)로 에이전트를 만든다. "하는 일"을 저장하면 첫 release가 만들어져 바로 켜진다(member도 만든다. 만든 사람이 그 에이전트의 관리자가 된다). `/agents/{id}`의 "상세 설정" 탭(`?tab=card`)에서 카드를 고쳐 새 version을 저장하고, "릴리스" 탭에서 release를 만들어 활성화한다. release의 `policy_pins`는 서버가 카드에서 정하고 승인 대기 상태는 없다(첫 활성화가 `approved_by`를 채운다). 두 탭이 같은 활성화를 다투면 늦은 탭은 덮어쓰지 않고 409를 안내한다. 홈 "시작하기"의 "구성원 초대하기"·"에이전트 준비하기"는 이 상태를 그대로 보인다.
 
 ## Sub-features
 
@@ -12,7 +12,7 @@ owner·admin은 웹 콘솔 `/members`에서 초대 대화상자로 링크를 만
 - `member-forbidden` member로 `/members`를 열면 제목 "구성원"과 "구성원 초대와 관리는 워크스페이스 오너나 어드민이 합니다."만 보인다. 목록을 묻지 않아 서버 403도, 초대 버튼도 없다. 사이드바에도 "구성원"이 없다.
 - `role-change` 역할 select(`aria-label` "<이름>의 역할")를 바꾸면 확인 대화상자 "<이름>의 역할을 <역할>(으)로 바꿀까요?"가 뜨고 "역할 바꾸기"를 눌러야 PATCH한다 → "<이름>의 역할을 <역할>(으)로 바꿨습니다." 마지막 owner를 내리면 "마지막 오너는 역할을 바꾸거나 비활성화할 수 없습니다 — …".
 - `disable` "비활성화"(`aria-label` "<이름> 비활성화")는 확인 대화상자 "<이름> 계정을 비활성화할까요?"를 거친다 → "<이름> 계정을 비활성화했습니다." 비활성화된 사람의 cookie 세션은 바로 끊긴다(`ap_web`이 401). "다시 활성화"는 바로 된다 → "… 다시 활성화했습니다. 이제 다시 로그인할 수 있습니다."
-- `agent-create` `/agents/new`(`?new-agent.step=name|job|release|activate`). ① "이름": 이름·식별자(이름에서 채워진다), "다음". ② "하는 일": 역할·지시 사항·답변 언어(select `ko`|`en`)·모델(select, 로컬 스택은 `claude-sonnet-5`)·도구 radio·금지 도구, "초안 저장하고 다음"(여기서 `POST /v1/agents`, 이후 나가도 초안으로 남는다). ③ "릴리스": 모델 연결 select(`fake-messages`, 카드 모델을 제공하는 연결이 먼저 골라진다), "릴리스 만들기"(또는 "나중에 하기"). ④ "켜기": "에이전트 켜기" → "<이름>을(를) 켰습니다. 이제 새 세션이 이 에이전트를 씁니다."와 "에이전트 보기" 링크. owner·admin·member 모두 만든다(`me.permissions`의 `agent.create`).
+- `agent-create` `/agents/new`(`?new-agent.step=name|job|channels`). ① "이름": 이름·식별자(이름에서 채워진다)·설명(선택)·담당 팀(select), "다음". ② "하는 일": 모델 연결(select, 로컬 스택은 `fake-messages · anthropic`)·모델(select, 처음은 "모델을 고르세요", 로컬 스택은 `claude-sonnet-5`)·답변 언어(select, "사용자 언어 따라가기"·한국어·English·日本語), "저장하고 다음"(여기서 `POST /v1/agents`. 첫 release가 만들어져 바로 켜지고 `GET /v1/agents`의 `status`가 `active`다. 이후 나가도 에이전트는 남는다). ③ "채널 연결": "Slack 앱" 구역의 "Slack 앱 만들고 설치". 워크스페이스에 App Configuration Token이 없으면 "… 앱을 만들 수 없습니다. 연동 > Slack에서 토큰 등록"이 보인다. "나중에 하기"는 `/agents/<id>`로 간다. owner·admin·member 모두 만든다(`me.permissions`의 `agent.create`).
 - `agent-save` 상세의 "카드" 탭(`?tab=card`)에서 고쳐 "저장"하면 "저장했습니다 — 버전 N. 아직 활성화되지 않았습니다. 릴리스 탭에서 릴리스를 만들고 활성화해야 반영됩니다." 바뀐 것 없으면 "저장했습니다. 카드 내용이 같아 새 버전은 생기지 않았습니다." version이 둘 이상이면 "비교 기준"·"비교 대상" select가 생긴다.
 - `release-activate` "릴리스" 탭(`?tab=release`)의 release 폼은 version select와 모델 연결 select다. "릴리스 만들기" → "릴리스를 만들었습니다(<label>). 아직 활성화되지 않았습니다.", 그 release의 "활성화" → "활성화됐습니다 — 이제 새 세션은 릴리스 <label>(으)로 시작합니다."(화면 문구는 web 변경을 따라 다시 확인한다). `<label>`은 만든 시각(서울, `2026-10-30_14:30:28`, 같은 초는 `-2`…)이다. 표 열은 버전(label)·상태·활성화 시각(이전 릴리스는 `시작 ~ 끝`)·카드 버전·연결·저장소·만든 사람·메모이고, 머리 태그는 `<label> · 활성`이다. 저장·release·활성화 문구는 서로 다르다.
 - `activate-conflict` 다른 탭이 먼저 활성화했으면 409 "다른 곳에서 활성 릴리스를 먼저 바꿨습니다"와 "… 덮어쓰지 않고 멈췄습니다". "최신 상태 불러오기" 뒤 "보던 화면의 활성 릴리스: …. 지금 활성 릴리스: …."와 두 카드의 차이가 보이고, 그다음에야 다시 활성화된다.
@@ -68,16 +68,13 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select u.email, m.r
 ```sh
 node $B <run id> open /agents/new                    # /agents/new?new-agent.step=name
 node $B <run id> type @0 "Member Helper"             # 이름. 식별자(@1)는 member-helper로 채워진다
-node $B <run id> click 다음                          # → ?new-agent.step=job
-node $B <run id> type @0 "verify helper"; node $B <run id> type @1 "Answer briefly."   # 역할, 지시 사항
-node $B <run id> select @3 claude-sonnet-5           # 모델 (@2는 답변 언어, @4는 금지 도구)
-node $B <run id> click "초안 저장하고 다음"           # → ?new-agent.step=release, 연결 select @0 = fake-messages
-node $B <run id> click "릴리스 만들기"               # → ?new-agent.step=activate
-node $B <run id> click "에이전트 켜기"                # → "Member Helper을(를) 켰습니다. …"
-node $B <run id> click "에이전트 보기"                # → /agents/<id>
+node $B <run id> click 다음                          # → ?new-agent.step=job (@2 담당 팀은 첫 팀이 골라져 있다)
+node $B <run id> select @1 claude-sonnet-5           # 모델 (@0은 모델 연결 fake-messages, @2는 답변 언어)
+node $B <run id> click "저장하고 다음"               # → ?new-agent.step=channels, 에이전트가 켜진 채 만들어진다
+node $B <run id> click "나중에 하기"                 # → /agents/<id>
 ```
 
-상세는 탭 넷(개요·카드·릴리스·관리자)이고 패널이 모두 mount된 채 숨어 있어 `@N`은 숨은 칸까지 센다(한 version일 때 @0 이름·@1 역할·@2 지시 사항·@3 답변 언어·@4 모델·@5 금지 도구·@6 version·@7 연결·@8 관리자로 추가할 사람·@9 팀, version이 둘 이상이면 @6·@7에 비교 select가 끼어 뒤가 둘씩 밀린다). 숨은 칸에는 `type`이 들어가지 않으므로 탭을 주소로 연다: `open "/agents/<id>?tab=card"` → `type @2 "…"` → `click 저장`, `open "/agents/<id>?tab=release"` → `click "릴리스 만들기"` → `click 활성화`, `?tab=admins`에서 `select @<팀 칸> <team id>` → `click "팀 추가"`. 칸 순서는 `eval`로 label을 찍어 확인한다.
+상세는 탭 일곱(개요·상세 설정·릴리스·접근·관리자·Slack·GitHub, 주소 `?tab=card|release|access|admins|slack|github`)이다. `@N`은 탭과 상관없이 main 안의 칸을 센다(만든 직후 `?tab=card`에서도 @0 MCP 서버·@1 자격 증명 이름·@2 관리자로 추가할 사람이나 팀). 상세 설정은 "상세 설정 편집"으로 고친다. 숨은 칸에는 `type`이 들어가지 않으므로 탭을 주소로 연다: `open "/agents/<id>?tab=card"` → `type @2 "…"` → `click 저장`, `open "/agents/<id>?tab=release"` → `click "릴리스 만들기"` → `click 활성화`, `?tab=admins`에서 `select @<팀 칸> <team id>` → `click "팀 추가"`. 칸 순서는 `eval`로 label을 찍어 확인한다.
 
 충돌은 같은 상세를 두 탭에 띄우고, 두 탭 모두 활성화 전 상태에서 A로 활성화한 뒤 B로 다른 release를 활성화한다(두 탭은 Orca 탭 둘로 연다. `browser.mjs`는 탭 하나만 쓴다).
 
@@ -91,7 +88,7 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select a.slug, a.ac
 
 ## Gotchas
 
-- 마법사 ②단계를 넘기면 초안이 저장된다. 같은 식별자로 다시 만들면 거절되니 run마다 이름을 바꾸거나 새 run에서 한다.
+- 마법사 ②단계를 넘기면 에이전트가 켜진 채 저장된다. 같은 식별자로 다시 만들면 거절되니 run마다 이름을 바꾸거나 새 run에서 한다.
 - `orca click`이 접힌 영역 아래 버튼(상세의 "저장")을 누르지 못할 때가 있다. 겹친 요소는 없었다. `orca eval --expression "[...document.querySelectorAll('button')].find(b=>b.textContent==='저장').click()"`로 누른다. `browser.mjs click`은 처음부터 이렇게 누른다.
 - 비활성된 사람의 탭은 열린 채로는 `me`의 staleTime(30초)이 지나고 포커스가 돌아와야 로그인 화면으로 간다. 다시 열면 바로 간다.
 - `GET /v1/members`가 owner·admin(`member.manage`) 전용이라 member는 구성원 목록을 못 본다. 권한 없음 화면이 맞는 결과다.
