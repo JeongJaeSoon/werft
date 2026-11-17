@@ -154,9 +154,20 @@ function rowOf(name: string) {
     .closest("[role=row]") as HTMLElement;
 }
 
+/** A cell's text without the label a narrow card shows before it. */
+function cellText(cell: Element | undefined) {
+  if (cell === undefined) return undefined;
+  return [...cell.childNodes]
+    .filter(
+      (node) => (node as Element).getAttribute?.("aria-hidden") !== "true",
+    )
+    .map((node) => node.textContent)
+    .join("");
+}
+
 /** The role badge in a member's row: name | email | role | status | ⋯. */
 function roleIn(name: string) {
-  return rowOf(name).querySelectorAll("[role=cell]")[2]?.textContent;
+  return cellText(rowOf(name).querySelectorAll("[role=cell]")[2]);
 }
 
 /** Whether 구성원 편집 lets the role change, and the reason when not. */
@@ -263,13 +274,22 @@ describe("구성원 화면", () => {
     expect(headers.at(-1)?.querySelector(".sr-only")?.textContent).toBe("관리");
     const mateRow = rowOf("Mate");
     const cells = (row: HTMLElement) =>
-      [...row.querySelectorAll("[role=cell]")].map((cell) => cell.textContent);
+      [...row.querySelectorAll("[role=cell]")].map(cellText);
     expect(cells(mateRow).slice(0, 4)).toEqual([
       "Mate",
       "mate@example.com",
       "멤버",
       "활성",
     ]);
+    // On a phone each row is a card: the name and email head it, the other
+    // cells carry their column's name, hidden from screen readers.
+    expect(region.getAttribute("data-narrow-cards")).toBe("true");
+    expect(
+      [...mateRow.querySelectorAll("[role=cell]")].map(
+        (cell) =>
+          cell.querySelector(":scope > [aria-hidden=true]")?.textContent,
+      ),
+    ).toEqual([undefined, undefined, "역할", "상태", "관리"]);
     // No initials mark beside the name.
     expect(mateRow.querySelector("[data-slot=avatar]") === null).toBe(true);
     expect(roleIn("Mate")).toBe("멤버");
@@ -1720,7 +1740,11 @@ describe("구성원 · 팀 탭", () => {
     expect(descriptionOf(expiry)).toBe(note);
     expect(
       [...(cells[3]?.children ?? [])]
-        .filter((child) => !(child as HTMLElement).hidden)
+        .filter(
+          (child) =>
+            !(child as HTMLElement).hidden &&
+            child.getAttribute("aria-hidden") !== "true",
+        )
         .map((child) => child.textContent),
     ).toEqual(["초대 중", ""]);
     // A keyboard reaches the icon after the member row's ⋯ and opens the note.
