@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { SlackOutboxKind } from "../ports/slack-outbox-store.ts";
 import type {
   ClaimedOutboxRow,
   DeliveryInput,
@@ -25,9 +24,9 @@ export type ChannelAnswer =
  * What a delivery contract runs against: the port's holder wired to a channel
  * the harness can script. A contract never says which channel that is.
  */
-export type DeliverySubject = {
+export type DeliverySubject<Row = ClaimedOutboxRow> = {
   /** A row of `kind` the channel can address, as the sender leases it. */
-  row(kind: SlackOutboxKind): ClaimedOutboxRow;
+  row(kind: ClaimedOutboxRow["kind"]): Row;
   /** From now on every send is answered this way. */
   script(answer: ChannelAnswer): void;
   /** The channel's credential cannot be read: no request can be made. */
@@ -38,13 +37,13 @@ export type DeliverySubject = {
   maxAttempts: number;
 };
 
-type Deliver = (input: DeliveryInput) => Promise<DeliveryOutcome>;
+type Deliver<Row> = (input: DeliveryInput<Row>) => Promise<DeliveryOutcome>;
 
-function inputOf(
-  row: ClaimedOutboxRow,
+function inputOf<Row>(
+  row: Row,
   attempts: number,
   begin: () => Promise<boolean> = async () => true,
-): DeliveryInput {
+): DeliveryInput<Row> {
   return { row, attempts, begin };
 }
 
@@ -54,10 +53,10 @@ function inputOf(
  * outcomes and a send never throws. Re-sending and keeping the row are the
  * sender's and the store's (`outbox.integration.test.ts`), not a delivery's.
  */
-export function describeDeliveryContract(
+export function describeDeliveryContract<Row>(
   name: string,
-  kinds: readonly SlackOutboxKind[],
-  make: () => Promise<{ subject: DeliverySubject; deliver: Deliver }>,
+  kinds: readonly ClaimedOutboxRow["kind"][],
+  make: () => Promise<{ subject: DeliverySubject<Row>; deliver: Deliver<Row> }>,
 ) {
   describe(name, () => {
     test.each([...kinds])(

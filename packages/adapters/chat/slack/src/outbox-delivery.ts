@@ -1,9 +1,9 @@
 import type {
   Approvable,
-  ClaimedOutboxRow,
   DeliveryInput,
   DeliveryOutcome,
   Notifiable,
+  SlackOutboxClaim,
   SlackOutboxSettle,
 } from "@werft-ai/platform";
 import {
@@ -76,9 +76,9 @@ export function slackOutboxSettleFor(
  * instruction, a reply, a welcome), which the sender has always posted itself.
  */
 export type RowDelivery = {
-  notifiable: Notifiable;
-  approvable: Approvable;
-  direct: (input: DeliveryInput) => Promise<DeliveryOutcome>;
+  notifiable: Notifiable<SlackOutboxClaim>;
+  approvable: Approvable<SlackOutboxClaim>;
+  direct: (input: DeliveryInput<SlackOutboxClaim>) => Promise<DeliveryOutcome>;
 };
 
 export type RowDeliveryDeps = {
@@ -111,7 +111,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
   // installed before chat:write.customize may be refused the name; Slack
   // posted nothing then, so it goes once more as the app.
   // Read before begin, so a slow users.info spends no send lease.
-  const senderImage = (botToken: string, claim: ClaimedOutboxRow) =>
+  const senderImage = (botToken: string, claim: SlackOutboxClaim) =>
     claim.kind !== "instruction" ||
     claim.body.sender?.slack_user_id === undefined
       ? Promise.resolve(null)
@@ -120,7 +120,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
           .catch(() => null);
   const postMessage = async (
     botToken: string,
-    claim: ClaimedOutboxRow,
+    claim: SlackOutboxClaim,
     text: string,
     iconUrl: string | null,
   ) => {
@@ -168,7 +168,9 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     });
   };
 
-  const deliver = async (input: DeliveryInput): Promise<DeliveryOutcome> => {
+  const deliver = async (
+    input: DeliveryInput<SlackOutboxClaim>,
+  ): Promise<DeliveryOutcome> => {
     const { row: claim, attempts } = input;
     let botToken: string | null;
     try {

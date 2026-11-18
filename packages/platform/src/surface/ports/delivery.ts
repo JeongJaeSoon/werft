@@ -1,11 +1,20 @@
-import type { SlackOutboxClaim } from "../../ports/slack-outbox-store.ts";
+/** The rows a `Notifiable` is handed. */
+export type NoticeRowKind =
+  | "notice"
+  | "failure_notice"
+  | "action_notice"
+  | "model_notice";
+
+/** The row an `Approvable` is handed. */
+export type DecisionRequestRowKind = "input_notice";
 
 /**
- * A row the sender has leased from the outbox. Its address and rendered body
- * are in it: the card is drawn when the row is written, so a channel sends
- * what the row holds.
+ * A row the sender has leased from the outbox, as far as the ports read it:
+ * its kind picks the port. The address and the body, drawn when the row is
+ * written, are the channel's own, so a channel's row type extends this one
+ * and its implementation names that type (`Notifiable<TheChannelsRow>`).
  */
-export type ClaimedOutboxRow = SlackOutboxClaim;
+export type ClaimedOutboxRow = { kind: NoticeRowKind | DecisionRequestRowKind };
 
 /**
  * What the sender hands a channel for one row. `begin` is called once, right
@@ -13,8 +22,8 @@ export type ClaimedOutboxRow = SlackOutboxClaim;
  * needs before that (a credential, a profile image) is read first so a slow
  * read spends no send lease. False means the lease is gone: nothing went out.
  */
-export type DeliveryInput = {
-  row: ClaimedOutboxRow;
+export type DeliveryInput<Row = ClaimedOutboxRow> = {
+  row: Row;
   /** Attempts so far, this one included. */
   attempts: number;
   begin: () => Promise<boolean>;

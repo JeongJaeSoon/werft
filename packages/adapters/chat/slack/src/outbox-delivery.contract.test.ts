@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe } from "bun:test";
-import type { ClaimedOutboxRow, SlackOutboxKind } from "@werft-ai/platform";
+import type { SlackOutboxClaim, SlackOutboxKind } from "@werft-ai/platform";
 import { describeApprovableContract } from "@werft-ai/platform/testing/approvable";
 import type {
   ChannelAnswer,
@@ -24,7 +24,7 @@ const TOKEN = "xoxb-contract-token";
 const WORKSPACE = "ws-1";
 const SLACK_APP = "slack-app-1";
 
-const bodies: Record<SlackOutboxKind, ClaimedOutboxRow["body"]> = {
+const bodies: Record<SlackOutboxKind, SlackOutboxClaim["body"]> = {
   instruction: { text: "Do the thing", sender: { username: "Ada" } },
   reply: { text: "Done." },
   notice: { text: "Link your Slack account on the web", locale: "en" },
@@ -40,7 +40,7 @@ const bodies: Record<SlackOutboxKind, ClaimedOutboxRow["body"]> = {
   model_notice: { text: "The model is not on the list" },
 };
 
-function rowOf(kind: SlackOutboxKind): ClaimedOutboxRow {
+function rowOf(kind: SlackOutboxKind): SlackOutboxClaim {
   const direct = kind === "model_notice";
   return {
     id: `row-${kind}`,
@@ -72,7 +72,7 @@ function subjectOf(wiring: Wiring) {
     botToken: async () => token,
     consoleOrigin: "https://console.example",
   });
-  const subject: DeliverySubject = {
+  const subject: DeliverySubject<SlackOutboxClaim> = {
     row: rowOf,
     script: wiring.script,
     withoutCredential() {

@@ -1,10 +1,13 @@
 import type { Approvable } from "../surface/ports/approvable.ts";
+import type { ClaimedOutboxRow } from "../surface/ports/delivery.ts";
 import {
   type DeliverySubject,
   describeDeliveryContract,
 } from "./delivery-contract.ts";
 
-export type ApprovableSubject = DeliverySubject & { approvable: Approvable };
+export type ApprovableSubject<Row = ClaimedOutboxRow> = DeliverySubject<Row> & {
+  approvable: Approvable<Row>;
+};
 
 /**
  * What every `Approvable` promises: a decision-request row (`input_notice`,
@@ -12,8 +15,8 @@ export type ApprovableSubject = DeliverySubject & { approvable: Approvable };
  * the channel's answer says, and `requestDecision` never throws for a send.
  * The answer to the request is not here: it enters the decision service.
  */
-export function describeApprovableContract(
-  make: () => Promise<ApprovableSubject>,
+export function describeApprovableContract<Row>(
+  make: () => Promise<ApprovableSubject<Row>>,
 ) {
   describeDeliveryContract("Approvable", ["input_notice"], async () => {
     const subject = await make();
