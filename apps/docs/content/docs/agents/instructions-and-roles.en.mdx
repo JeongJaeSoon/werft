@@ -103,7 +103,7 @@ curl -sS -X PATCH "$API/v1/agents/$AID" "${WEB[@]}" -d '{
 {"version_no":2,"language":"en"}
 ```
 
-A new version does not change the active release. To use it, create a release from that version and activate it ([Create](/agents/create#create-a-release)). In the web console, "Save" in Settings does the same thing and shows the difference between the two versions.
+A PATCH that sends a card makes a release of it and activates it at once. The response's `release.status` is `applied`, the active release becomes the new version's, and `activation_revision` goes up. To activate a release yourself after that, send the new `activation_revision` as `expected_revision`. If the card equals what the agent runs now, or only the name or description changes, `release.status` is `unchanged` and no release is made. In the web console, "Save" in Settings does the same thing and shows the difference between the two versions.
 
 ## Next steps
 
