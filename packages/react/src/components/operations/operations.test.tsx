@@ -97,6 +97,17 @@ describe("ToolTable", () => {
     expect(document.querySelectorAll("[aria-selected]").length).toBe(0);
   });
 
+  test("opener는 여는 절을 aria-controls로 가리키고, 붙은 제목 위에서 멈추게 아래 여백을 둔다", () => {
+    const { getAllByRole } = withPlatform(
+      <ToolTable tools={TOOLS} label="도구" controls="picked-tool" />,
+    );
+    const openers = getAllByRole("button", { name: /자세히 보기$/ });
+    expect(
+      openers.map((opener) => opener.getAttribute("aria-controls")),
+    ).toEqual(TOOLS.map(() => "picked-tool"));
+    expect(openers[0]?.className).toContain("scroll-mb-18");
+  });
+
   test("호출·총 시간·보통·실패를 locale 형식으로 쓴다", () => {
     const { getAllByRole } = withPlatform(
       <ToolTable tools={TOOLS} label="도구" />,
@@ -255,8 +266,41 @@ describe("ToolDetail loading", () => {
       view.getByRole("heading", { level: 2, name: "Selected tool Bash" }),
     ).toBeTruthy();
     expect(
-      view.container.querySelector("[data-slot=tool-detail] h2")?.textContent,
+      view.container.querySelector("[data-slot=tool-detail-head] h2")
+        ?.textContent,
     ).toBe("Selected tool Bash");
+  });
+
+  test("고른 때에만 제목 문구를 한 번 알리고, 열린 절을 가리킬 id를 받는다", () => {
+    const SECTION_ID = "picked-tool";
+    const detail = (announce: boolean) => (
+      <ToolDetail
+        id={SECTION_ID}
+        announce={announce}
+        name="Bash"
+        tool={undefined}
+        perDay={undefined}
+        calls={undefined}
+        callSort="recent"
+        onCallSortChange={() => {}}
+      />
+    );
+    const view = withPlatform(detail(false), "en");
+    const said = () => view.container.querySelector("output")?.textContent;
+    expect(said()).toBe("");
+    view.rerender(
+      <WerftProvider
+        client={{} as ApiClient}
+        locale="en"
+        renderLink={() => null}
+      >
+        {detail(true)}
+      </WerftProvider>,
+    );
+    expect(said()).toBe("Selected tool Bash");
+    expect(view.getByRole("region", { name: "Selected tool Bash" }).id).toBe(
+      SECTION_ID,
+    );
   });
 });
 

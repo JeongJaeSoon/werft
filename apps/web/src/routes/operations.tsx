@@ -53,7 +53,7 @@ import {
   UsageTokenMix,
 } from "@werft-ai/react/components";
 import { Badge, Card, EmptyState, Section, Skeleton } from "@werft-ai/ui";
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
@@ -552,6 +552,7 @@ export function OperationsToolsScreen() {
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<string>();
   const [callSort, setCallSort] = useState<ToolCallSort>("recent");
+  const detailId = useId();
   const rows = tools.data?.tools;
   const tool = rows?.find((row) => row.name === picked) ?? rows?.[0];
   const calls = useQuery({
@@ -573,6 +574,10 @@ export function OperationsToolsScreen() {
   const detail =
     tools.isError || rows?.length === 0 ? undefined : (
       <ToolDetail
+        id={detailId}
+        // Said only for the reader's own pick: not the first row shown by
+        // default, nor the one that stands in when the pick leaves the list.
+        announce={picked !== undefined && tool?.name === picked}
         name={tool?.name}
         tool={tool}
         perDay={calls.data?.per_day}
@@ -644,6 +649,7 @@ export function OperationsToolsScreen() {
               label={t("operations.tools")}
               selected={tool?.name}
               onSelect={setPicked}
+              controls={detail ? detailId : undefined}
               describe={(name) =>
                 rows?.find((row) => row.name === name)?.description ??
                 builtinToolNote(locale, name)

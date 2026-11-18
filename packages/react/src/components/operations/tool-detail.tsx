@@ -1,5 +1,6 @@
 import {
   BarChart,
+  Heading,
   KeyValueList,
   Section,
   SegmentedControl,
@@ -7,7 +8,7 @@ import {
   Skeleton,
   Text,
 } from "@werft-ai/ui";
-import type { JSX, ReactNode } from "react";
+import { type JSX, type ReactNode, useId } from "react";
 
 import type { ToolCallSort, ToolDetailMessages } from "./messages.ts";
 import { ToolCalls } from "./tool-calls.tsx";
@@ -43,6 +44,10 @@ export interface ToolDetailProps {
   readonly timeZone?: string | undefined;
   /** Shown in place of the chart and calls when they could not be read. */
   readonly error?: ReactNode | undefined;
+  /** The section's id, for the list's openers to point at. */
+  readonly id?: string | undefined;
+  /** True once the reader picked this tool: its heading is then said once. */
+  readonly announce?: boolean | undefined;
   readonly messages?: Partial<ToolDetailMessages> | undefined;
 }
 
@@ -70,6 +75,10 @@ function Value({
  * One tool, under the list it was picked from: its figures, its calls per
  * day and its latest calls. Each part keeps its place while it is read, so
  * nothing moves when it comes; the host says once that the screen is loading.
+ *
+ * The heading is drawn before the section, not in it, so that it sticks to
+ * the screen's bottom while a long list above still hides the section: put
+ * both in the list's own box, 2rem (`gap-8`) after it.
  */
 export function ToolDetail({
   name,
@@ -81,8 +90,11 @@ export function ToolDetail({
   onCallSortChange,
   timeZone,
   error,
+  id,
+  announce = false,
   messages: override,
 }: ToolDetailProps): JSX.Element {
+  const titleId = useId();
   const { messages, format } = useOperationsMessages("toolDetail", override);
   const days = perDay?.slice(-TOOL_DETAIL_DAYS);
   const peak = days?.reduce(
@@ -91,110 +103,129 @@ export function ToolDetail({
   );
   const total = days?.reduce((sum, d) => sum + d.calls, 0) ?? 0;
   return (
-    <Section
-      data-slot="tool-detail"
-      className="min-w-0"
-      title={
-        <>
-          <span className="sr-only">{messages.label} </span>
+    <>
+      <div
+        data-slot="tool-detail-head"
+        className="sticky bottom-0 z-10 flex min-w-0 flex-col gap-1 border-border border-t bg-surface py-3"
+      >
+        <Heading id={titleId} className="truncate">
+          {messages.label}{" "}
           <Text as="span" mono className="text-body font-semibold leading-5">
             <Value width="5rem">{name}</Value>
             {name === undefined ? (
               <span className="sr-only">{messages.loading}</span>
             ) : null}
           </Text>
-        </>
-      }
-      description={note}
-    >
-      <div className="grid gap-6 @min-[48rem]:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-        <KeyValueList
-          items={[
-            {
-              label: messages.calls,
-              value: tool && messages.callsValue(format.count(tool.calls)),
-            },
-            {
-              label: messages.total,
-              value: tool && format.elapsed(tool.total_ms),
-            },
-            {
-              label: messages.median,
-              value: tool && format.elapsed(tool.median_ms),
-            },
-            {
-              label: messages.failed,
-              value:
-                tool &&
-                messages.failedValue(
-                  format.count(tool.failed),
-                  format.percent(tool.failed, tool.calls),
-                ),
-            },
-          ].map((item) => ({
-            label: item.label,
-            value: <Value>{item.value}</Value>,
-          }))}
-        />
-        <Section
-          titleAs="h3"
-          className="min-w-0"
-          title={messages.perDay}
-          description={messages.perDayNote(days?.length ?? TOOL_DETAIL_DAYS)}
-        >
-          {error ? (
-            error
-          ) : days === undefined || peak === undefined || name === undefined ? (
-            <Skeleton
-              decorative
-              shape="block"
-              height={CHART_HEIGHT}
-              className="justify-center"
-            />
-          ) : (
-            <BarChart
-              compact
-              data={days.map((d) => ({ x: d.date, y: d.calls }))}
-              yMax={peak.calls || undefined}
-              label={messages.perDayChart({
-                name,
-                days: days.length,
-                total: format.count(total),
-                peakDay: monthDay(peak.date),
-                peak: format.count(peak.calls),
-              })}
-              formatX={monthDay}
-            />
-          )}
-        </Section>
+        </Heading>
+        {note ? (
+          <Text as="p" variant="meta" className="truncate">
+            {note}
+          </Text>
+        ) : null}
+        <output className="sr-only">
+          {announce && name !== undefined ? `${messages.label} ${name}` : ""}
+        </output>
       </div>
-      {error ? null : (
-        <Section
-          titleAs="h3"
-          className="mt-6 min-w-0"
-          title={messages.recent}
-          actions={
-            <SegmentedControl
-              aria-label={messages.callSort}
-              value={callSort}
-              onValueChange={(value) => onCallSortChange(value as ToolCallSort)}
-            >
-              <SegmentedControlItem value="recent">
-                {messages.callSortBy.recent}
-              </SegmentedControlItem>
-              <SegmentedControlItem value="slowest">
-                {messages.callSortBy.slowest}
-              </SegmentedControlItem>
-            </SegmentedControl>
-          }
-        >
-          <ToolCalls
-            calls={calls}
-            loadingRows={TOOL_DETAIL_CALLS}
-            timeZone={timeZone}
+      {/* The host's 2rem gap falls between the head and its body. */}
+      <section
+        id={id}
+        aria-labelledby={titleId}
+        data-slot="tool-detail"
+        className="-mt-8 min-w-0"
+      >
+        <div className="grid gap-6 @min-[48rem]:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+          <KeyValueList
+            items={[
+              {
+                label: messages.calls,
+                value: tool && messages.callsValue(format.count(tool.calls)),
+              },
+              {
+                label: messages.total,
+                value: tool && format.elapsed(tool.total_ms),
+              },
+              {
+                label: messages.median,
+                value: tool && format.elapsed(tool.median_ms),
+              },
+              {
+                label: messages.failed,
+                value:
+                  tool &&
+                  messages.failedValue(
+                    format.count(tool.failed),
+                    format.percent(tool.failed, tool.calls),
+                  ),
+              },
+            ].map((item) => ({
+              label: item.label,
+              value: <Value>{item.value}</Value>,
+            }))}
           />
-        </Section>
-      )}
-    </Section>
+          <Section
+            titleAs="h3"
+            className="min-w-0"
+            title={messages.perDay}
+            description={messages.perDayNote(days?.length ?? TOOL_DETAIL_DAYS)}
+          >
+            {error ? (
+              error
+            ) : days === undefined ||
+              peak === undefined ||
+              name === undefined ? (
+              <Skeleton
+                decorative
+                shape="block"
+                height={CHART_HEIGHT}
+                className="justify-center"
+              />
+            ) : (
+              <BarChart
+                compact
+                data={days.map((d) => ({ x: d.date, y: d.calls }))}
+                yMax={peak.calls || undefined}
+                label={messages.perDayChart({
+                  name,
+                  days: days.length,
+                  total: format.count(total),
+                  peakDay: monthDay(peak.date),
+                  peak: format.count(peak.calls),
+                })}
+                formatX={monthDay}
+              />
+            )}
+          </Section>
+        </div>
+        {error ? null : (
+          <Section
+            titleAs="h3"
+            className="mt-6 min-w-0"
+            title={messages.recent}
+            actions={
+              <SegmentedControl
+                aria-label={messages.callSort}
+                value={callSort}
+                onValueChange={(value) =>
+                  onCallSortChange(value as ToolCallSort)
+                }
+              >
+                <SegmentedControlItem value="recent">
+                  {messages.callSortBy.recent}
+                </SegmentedControlItem>
+                <SegmentedControlItem value="slowest">
+                  {messages.callSortBy.slowest}
+                </SegmentedControlItem>
+              </SegmentedControl>
+            }
+          >
+            <ToolCalls
+              calls={calls}
+              loadingRows={TOOL_DETAIL_CALLS}
+              timeZone={timeZone}
+            />
+          </Section>
+        )}
+      </section>
+    </>
   );
 }
