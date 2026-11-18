@@ -467,13 +467,20 @@ integration("auth API on PostgreSQL", () => {
     expect(logout.status).toBe(204);
     const loggedOutAt = Date.now();
     expect(await endOf(loggedOut, loggedOutAt)).toBeLessThan(KEEPALIVE_MS + 50);
-    expect(
+    // The watchdog ends the response first; the record is written once the
+    // stream loop leaves what it was awaiting: a stalled write or credential
+    // check gives up within one keepalive.
+    const revoked = () =>
       sink.records.filter(
         (record) =>
           record.message === "SSE stream closed" &&
           record.fields?.reason === "credential_revoked",
-      ),
-    ).toHaveLength(2);
+      );
+    const recordedBy = Date.now() + KEEPALIVE_MS;
+    while (revoked().length < 2 && Date.now() < recordedBy) {
+      await Bun.sleep(10);
+    }
+    expect(revoked()).toHaveLength(2);
   }, 15_000);
 
   test("a disabled user or membership cannot log in and its cookie stops working", async () => {
