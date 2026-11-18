@@ -233,7 +233,7 @@ describe("OpenAPI document", () => {
     const document = buildOpenApiDocument();
     expect(document["x-tagGroups"]).toEqual([
       { name: "Getting started", tags: ["Auth", "API keys"] },
-      { name: "Agents", tags: ["Agents"] },
+      { name: "Agents", tags: ["Agents", "Slack callbacks"] },
       {
         name: "Sessions",
         tags: [
@@ -253,11 +253,15 @@ describe("OpenAPI document", () => {
           "Teams",
           "Linked accounts",
           "Workspace settings",
+          "Achievements",
           "Variables",
         ],
       },
       { name: "Administration", tags: ["Admin", "Recovery"] },
-      { name: "Operations", tags: ["Health", "Limits & receipts"] },
+      {
+        name: "Operations",
+        tags: ["Installation settings", "Health", "Limits & receipts"],
+      },
     ]);
     const grouped = document["x-tagGroups"].flatMap((group) => group.tags);
     expect([...grouped].sort()).toEqual(
@@ -284,6 +288,26 @@ describe("OpenAPI document", () => {
       tagOf("post", "/v1/workspaces/{id}/members/{userId}/password-reset"),
     ).toBe("Members");
     expect(tagOf("post", "/v1/invites/accept")).toBe("Auth");
+    const document = buildOpenApiDocument();
+    for (const [path, operations] of Object.entries(document.paths)) {
+      for (const [method, raw] of Object.entries(operations)) {
+        const tag = (raw as { tags?: string[] }).tags?.[0];
+        if (
+          path.startsWith("/v1/installation/settings/") ||
+          path === "/v1/installation-config" ||
+          path === "/v1/slack-settings"
+        ) {
+          expect(tag, `${method} ${path}`).toBe("Installation settings");
+        } else if (/^\/v1\/slack\/(events|interactions)\//.test(path)) {
+          expect(tag, `${method} ${path}`).toBe("Slack callbacks");
+        } else if (
+          /^\/v1\/achievement-(categories|types|rules)\b/.test(path) ||
+          path.endsWith("/achievement-judge")
+        ) {
+          expect(tag, `${method} ${path}`).toBe("Achievements");
+        }
+      }
+    }
   });
 
   const SETS_SESSION_COOKIE = new Set([
