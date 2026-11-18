@@ -40,6 +40,19 @@ function haeyo(clause: string): boolean {
   return !NOUNS_IN_YO.includes(end.split(/\s+/).at(-1) ?? "");
 }
 
+/** No-break and other unusual spaces, zero-width characters and the BOM. */
+const UNUSUAL_SPACE =
+  /[\u{a0}\u{2000}-\u{200d}\u{202f}\u{205f}\u{2060}\u{3000}\u{feff}]/u;
+
+/**
+ * A string with a letter in it that holds an unusual space, or doubled spaces
+ * or a tab. JSX text keeps its source's indentation, so only unusual spaces
+ * count there. A string of spaces alone holds a place in the layout.
+ */
+const badSpacing = (text: string, jsx = false) =>
+  /\S/.test(text) &&
+  (UNUSUAL_SPACE.test(text) || (!jsx && /\t| {2}/.test(text)));
+
 /** Every string and JSX text in the readers, with where it is. */
 async function texts() {
   const found = await Promise.all(
@@ -47,7 +60,7 @@ async function texts() {
       typescriptFiles(join(root, directory), () => true),
     ),
   );
-  const out: { at: string; text: string }[] = [];
+  const out: { at: string; text: string; jsx: boolean }[] = [];
   for (const file of found
     .flat()
     .map((path) => relative(root, path))
@@ -77,7 +90,11 @@ async function texts() {
         const { line } = source.getLineAndCharacterOfPosition(
           node.getStart(source),
         );
-        out.push({ at: `${file}:${line + 1}`, text: node.text });
+        out.push({
+          at: `${file}:${line + 1}`,
+          text: node.text,
+          jsx: ts.isJsxText(node),
+        });
       }
       ts.forEachChild(node, visit);
     };
@@ -135,6 +152,39 @@ describe("Korean copy", () => {
         .filter(haeyo)
         .map((clause) => `${at} ${clause}`),
     );
+    expect(found).toEqual([]);
+  }, 30_000);
+
+  test("the spacing check catches unusual spaces, doubled spaces and tabs in copy", () => {
+    expect(
+      [
+        "일시\u{a0}정지",
+        "저장\u{200b}하기",
+        "\u{feff}세션",
+        "一時\u{3000}停止",
+        "다시  시도하세요",
+        "이름\t값",
+      ].filter((text) => !badSpacing(text)),
+    ).toEqual([]);
+    expect(badSpacing("\n      일시\u{a0}정지\n    ", true)).toBe(true);
+    expect(
+      ["일시 정지", "추가: ", "\u{a0}", "  "].filter((text) =>
+        badSpacing(text),
+      ),
+    ).toEqual([]);
+    expect(badSpacing("\n      다시 시도\n    ", true)).toBe(false);
+  });
+
+  test("no string a user sees holds an unusual space, doubled spaces or a tab", async () => {
+    const found = (await scanned())
+      .filter(({ text, jsx }) => badSpacing(text, jsx))
+      .map(
+        ({ at, text }) =>
+          `${at} ${JSON.stringify(text).replace(
+            new RegExp(UNUSUAL_SPACE.source, "gu"),
+            (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+          )}`,
+      );
     expect(found).toEqual([]);
   }, 30_000);
 });
