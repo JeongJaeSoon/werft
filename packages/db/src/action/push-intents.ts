@@ -6,6 +6,8 @@ import {
   type PushIntent,
   type PushIntentRefusal,
   type ReceiptActor,
+  UNFINISHED_TURN_STATUSES,
+  WAITING_PUSH_INTENT_STATUSES,
 } from "@werft-ai/contracts";
 import type { PushIntentStore, PushIntentTransition } from "@werft-ai/platform";
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
@@ -20,6 +22,7 @@ import {
   turnContinuations,
   turns,
 } from "../schema.ts";
+import { sqlLiterals } from "../sql-literals.ts";
 import { rowsOf } from "../statement-rows.ts";
 
 type Row = typeof pushIntents.$inferSelect;
@@ -203,7 +206,7 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
                 WHERE earlier.session_id = ${pushIntents.sessionId}
                   AND earlier.repository_id = ${pushIntents.repositoryId}
                   AND earlier.target_branch = ${pushIntents.targetBranch}
-                  AND earlier.status IN ('deferred', 'pinned')
+                  AND earlier.status IN (${sqlLiterals(WAITING_PUSH_INTENT_STATUSES)})
                   AND (earlier.created_at, earlier.id)
                     < (${pushIntents.createdAt}, ${pushIntents.id}))`,
               // Held sessions stay pinned; a closed one is claimed so the
@@ -290,7 +293,7 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
         FROM ${sessions} s, ${turns} t
         WHERE i.status = 'deferred'
           AND s.id = i.session_id AND t.id = i.turn_id
-          AND ((t.status NOT IN ('queued', 'running', 'needs_input')
+          AND ((t.status NOT IN (${sqlLiterals(UNFINISHED_TURN_STATUSES)})
                 AND NOT EXISTS (
                   -- A parked turn whose group is not cancelled and not yet
                   -- carried on keeps its intent: the answer or a person's

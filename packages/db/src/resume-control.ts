@@ -13,6 +13,7 @@ import {
 } from "@werft-ai/platform";
 import { and, count, eq, gt, notInArray, sql } from "drizzle-orm";
 import {
+  ENDED_ATTEMPT_STATES,
   earliestUnknownTurn,
   type IdempotencyScope,
 } from "./control-shared.ts";
@@ -401,7 +402,7 @@ async function liveDrainer(tx: Database, session: SessionRow) {
     .where(
       and(
         eq(workerLaunches.executionId, session.executionId),
-        notInArray(attempts.state, ["exited", "lost"]),
+        notInArray(attempts.state, ENDED_ATTEMPT_STATES),
       ),
     )
     .limit(1);

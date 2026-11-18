@@ -52,6 +52,11 @@ export const SESSION_STATUS_VALUES = [
   "failed",
   "stopped",
 ] as const;
+/** The statuses a session stays in once it has ended. */
+export const ENDED_SESSION_STATUSES = [
+  "failed",
+  "stopped",
+] as const satisfies readonly (typeof SESSION_STATUS_VALUES)[number][];
 export const ADMISSION_STATE_VALUES = [
   "active",
   "pausing",
@@ -83,6 +88,12 @@ export const TERMINAL_TURN_STATUS_VALUES = [
   "cancelled",
   "outcome_unknown",
 ] as const;
+/** The rest of the turn statuses: waiting to run, or in flight. */
+export const UNFINISHED_TURN_STATUSES = [
+  "queued",
+  "running",
+  "needs_input",
+] as const satisfies readonly (typeof TURN_STATUS_VALUES)[number][];
 export const ATTEMPT_STATE_VALUES = [
   "allocated",
   "starting",

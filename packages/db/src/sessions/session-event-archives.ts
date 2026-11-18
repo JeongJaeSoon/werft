@@ -1,6 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { OPEN_PUSH_REQUEST_STATES } from "@werft-ai/contracts";
+import {
+  OPEN_PUSH_REQUEST_STATES,
+  UNFINISHED_TURN_STATUSES,
+  WAITING_PUSH_INTENT_STATUSES,
+} from "@werft-ai/contracts";
 import { type SQL, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import {
@@ -14,6 +18,7 @@ import {
   toolCallProgress,
   turns,
 } from "../schema.ts";
+import { sqlLiterals } from "../sql-literals.ts";
 import { rowsOf } from "../statement-rows.ts";
 
 /**
@@ -250,7 +255,7 @@ async function projectedThrough(db: Database): Promise<number> {
   return Number(row?.through ?? 0);
 }
 
-const UNSETTLED_TURN_STATUSES = sql`('queued', 'running', 'needs_input', 'outcome_unknown')`;
+const UNSETTLED_TURN_STATUSES = sql`(${sqlLiterals([...UNFINISHED_TURN_STATUSES, "outcome_unknown"])})`;
 
 /**
  * Nothing running or waiting on anyone in the session, and the projections
@@ -268,7 +273,7 @@ function settled(sessionId: SQL, cap: number): SQL {
     AND NOT EXISTS (SELECT 1 FROM ${pushRequests} p
       WHERE p.session_id = ${sessionId} AND p.state IN (${openPush}))
     AND NOT EXISTS (SELECT 1 FROM ${pushIntents} i
-      WHERE i.session_id = ${sessionId} AND i.status IN ('deferred', 'pinned'))
+      WHERE i.session_id = ${sessionId} AND i.status IN (${sqlLiterals(WAITING_PUSH_INTENT_STATUSES)}))
     AND NOT EXISTS (SELECT 1 FROM ${events} e
       WHERE e.session_id = ${sessionId} AND e.id > ${cap})`;
 }

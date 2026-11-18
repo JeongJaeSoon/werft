@@ -17,6 +17,7 @@ import {
   TURN_INPUT_WAIT_PARKED_REASON,
   TURN_WORKSPACE_QUOTA_EXCEEDED_REASON,
   terminalTurnStatusSchema,
+  UNFINISHED_TURN_STATUSES,
   type WorkerEvent,
 } from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
@@ -1735,7 +1736,7 @@ async function unspentGrants(
         eq(permissionGrants.sessionId, sessionId),
         isNull(permissionGrants.consumedAt),
         isNull(pendingRequests.settledAt),
-        inArray(turns.status, ["queued", ...OPEN_TURN_STATUSES]),
+        inArray(turns.status, UNFINISHED_TURN_STATUSES),
       ),
     )
     .orderBy(asc(permissionGrants.requestId));

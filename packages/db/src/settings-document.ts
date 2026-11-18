@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   canonicalJson,
+  ENDED_SESSION_STATUSES,
   type ReceiptActor,
   type ReceiptOperation,
   workspaceSettingsSchema,
@@ -46,6 +47,7 @@ import {
   workspaces,
 } from "./schema.ts";
 import { writeSecretInTx } from "./secrets/secret-values.ts";
+import { sqlLiterals } from "./sql-literals.ts";
 import { rowsOf } from "./statement-rows.ts";
 
 const PURPOSE = "settings_credential";
@@ -330,7 +332,7 @@ export function createPostgresSettingsDocumentStore(
                ) AS e
           WHERE s.attached_repository_ids IS NULL
         ) AS x(repository_id, via)
-        WHERE s.status NOT IN ('failed', 'stopped')
+        WHERE s.status NOT IN (${sqlLiterals(ENDED_SESSION_STATUSES)})
           -- A row, even an invalid one, is the claim gate's to judge.
           AND NOT EXISTS (
             SELECT 1 FROM catalog_repositories c
@@ -361,7 +363,7 @@ export function createPostgresSettingsDocumentStore(
             WHERE a.status = 'active' AND r.connection_id = ${connectionId}
           ) AS agents,
           (SELECT count(*) FROM sessions s
-            WHERE s.status NOT IN ('failed', 'stopped')
+            WHERE s.status NOT IN (${sqlLiterals(ENDED_SESSION_STATUSES)})
               AND s.runtime_spec -> 'connection' ->> 'id' = ${connectionId}
           ) AS sessions,
           EXISTS (
