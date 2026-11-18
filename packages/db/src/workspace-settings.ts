@@ -2,6 +2,7 @@ import type {
   SlackGuestSetting,
   SlackGuestSettingStore,
 } from "@werft-ai/platform";
+import { MANAGEMENT_ROLES } from "@werft-ai/platform";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { lockActorAccount } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
@@ -23,7 +24,7 @@ export async function lockManager(
       and(
         eq(memberships.workspaceId, workspaceId),
         eq(memberships.userId, actorUserId),
-        inArray(memberships.role, ["owner", "admin"]),
+        inArray(memberships.role, MANAGEMENT_ROLES["workspace.manage"] ?? []),
         isNull(memberships.disabledAt),
         isNull(users.disabledAt),
       ),

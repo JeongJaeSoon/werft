@@ -4,6 +4,7 @@ import type {
   CatalogRepositoryRow,
   CatalogRepositoryStore,
 } from "@werft-ai/platform";
+import { MANAGEMENT_ROLES } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { lockSettingsGeneration } from "./installation-settings.ts";
 import { holdsRight, lockedRole } from "./musterrolle/api-keys.ts";
@@ -50,7 +51,9 @@ export const lockCatalogWrites = async (tx: Database) => {
 const managerOf = async (tx: Database, workspaceId: string, userId: string) => {
   // A demotion or disable committed after the policy's check wins.
   const role = await lockedRole(tx, workspaceId, userId);
-  return role === "owner" || role === "admin";
+  return (
+    role !== null && (MANAGEMENT_ROLES["workspace.manage"] ?? []).includes(role)
+  );
 };
 
 async function receipt(

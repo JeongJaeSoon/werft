@@ -36,6 +36,11 @@ export const sessionScopeSchema = z.enum(SESSION_SCOPE_VALUES);
 
 export const WORKSPACE_ROLE_VALUES = ["owner", "admin", "member"] as const;
 export const workspaceRoleSchema = z.enum(WORKSPACE_ROLE_VALUES);
+/** The roles that manage the workspace and everything in it. */
+export const WORKSPACE_MANAGER_ROLES = [
+  "owner",
+  "admin",
+] as const satisfies readonly (typeof WORKSPACE_ROLE_VALUES)[number][];
 
 export type SessionScope = z.infer<typeof sessionScopeSchema>;
 export type WorkspaceRole = z.infer<typeof workspaceRoleSchema>;

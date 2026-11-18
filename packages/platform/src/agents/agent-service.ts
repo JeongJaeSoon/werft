@@ -30,6 +30,7 @@ import {
   type SaveRelease,
   TEAM_LIST_LIMIT,
   type UsableAgent,
+  WORKSPACE_MANAGER_ROLES,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import {
@@ -840,7 +841,7 @@ export function createAgentService(deps: {
 
   // The person a model migration acts for must still be an owner or admin; a
   // team right left over from a demotion is not enough.
-  const ROLLOUT_ROLES: readonly WorkspaceRole[] = ["owner", "admin"];
+  const ROLLOUT_ROLES: readonly WorkspaceRole[] = WORKSPACE_MANAGER_ROLES;
 
   const migrationPrincipal = (
     workspaceId: string,

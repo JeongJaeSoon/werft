@@ -12,7 +12,7 @@ import {
   workspaceSettingsSchema,
 } from "@werft-ai/contracts";
 import type { AchievementRuleStore, TeamActor } from "@werft-ai/platform";
-import { receiptActorOf } from "@werft-ai/platform";
+import { MANAGEMENT_ROLES, receiptActorOf } from "@werft-ai/platform";
 import { and, asc, count, desc, eq, isNull, max, ne, sql } from "drizzle-orm";
 import { findPgError, lockPeople } from "../control-shared.ts";
 import type { Database } from "../queries.ts";
@@ -24,7 +24,8 @@ import {
   workspaces,
 } from "../schema.ts";
 
-const RULE_MANAGERS = ["owner", "admin"];
+const RULE_MANAGERS: readonly string[] =
+  MANAGEMENT_ROLES["achievement_rule.manage"] ?? [];
 
 const iso = (at: Date | null) => at?.toISOString() ?? null;
 

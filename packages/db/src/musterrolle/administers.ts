@@ -1,3 +1,4 @@
+import { WORKSPACE_MANAGER_ROLES } from "@werft-ai/contracts";
 import {
   and,
   eq,
@@ -119,7 +120,6 @@ export function administers(
   ) as SQL;
 }
 
-const WORKSPACE_MANAGERS = ["owner", "admin"];
 const managerRow = alias(memberships, "manager_membership");
 
 /**
@@ -141,7 +141,7 @@ export function insideAgent(
         and(
           eq(managerRow.workspaceId, workspaceId),
           eq(managerRow.userId, userId),
-          inArray(managerRow.role, WORKSPACE_MANAGERS),
+          inArray(managerRow.role, WORKSPACE_MANAGER_ROLES),
         ),
       ),
   );
