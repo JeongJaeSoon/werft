@@ -1400,6 +1400,14 @@ export type AgentListItem = z.infer<typeof agentListItemSchema>;
 export type AgentVersion = z.infer<typeof agentVersionSchema>;
 export type EffectiveTools = z.infer<typeof effectiveToolsSchema>;
 export type AgentRelease = z.infer<typeof agentReleaseSchema>;
+
+// The model a release's sessions run unless they name another: its card's.
+export function releaseModel(
+  release: Pick<AgentRelease, "runtime_config_snapshot"> | null,
+): string | undefined {
+  const model = release?.runtime_config_snapshot.model;
+  return typeof model === "string" ? model : undefined;
+}
 export type CreateAgentRequest = z.infer<typeof createAgentRequestSchema>;
 export type UpdateAgentRequest = z.infer<typeof updateAgentRequestSchema>;
 export type AgentDetail = z.infer<typeof agentDetailSchema>;

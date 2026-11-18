@@ -8,6 +8,7 @@ import {
   repoRefOf,
 } from "../action/ports/forge.ts";
 import type { GitHubRateLimit } from "../action/ports/github-api.ts";
+import type { SessionCatalog } from "../catalog/index.ts";
 import {
   createGitHubConnectionResolver,
   type GitHubConnectionResolver,
@@ -19,7 +20,6 @@ import {
   GitHubGateError,
   GitHubUnavailableError,
 } from "../github/ports/github-gate.ts";
-import type { SessionCatalog } from "./catalog.ts";
 import type {
   ClaimedOutcome,
   OutcomeCheck,

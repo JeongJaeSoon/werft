@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import type { SessionCatalog } from "../catalog/catalog.ts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { AgentMcpStore } from "../ports/agent-mcp-store.ts";
-import type { SessionCatalog } from "../sessions/catalog.ts";
 import { createAgentMcpService } from "./agent-mcp-service.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";

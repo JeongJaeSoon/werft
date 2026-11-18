@@ -3,8 +3,8 @@ import {
   bootstrapClaimResponseSchema,
   runtimeMcpServerSchema,
 } from "@werft-ai/contracts";
+import { trustedGitHubTools } from "../catalog/catalog.ts";
 import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
-import { trustedGitHubTools } from "../sessions/catalog.ts";
 import type { WorkerPendingStore } from "../sessions/ports/pending-requests.ts";
 import { testBinding, testCatalog } from "../testing/catalog-fakes.ts";
 import { acceptAllCheckpoints } from "../testing/checkpoints.ts";

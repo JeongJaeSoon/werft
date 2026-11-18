@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import type { CatalogProvider } from "../catalog/catalog.ts";
 import {
   type OutboundRequest,
   type OutboundResponse,
   WorkspaceMcpOutboundError,
 } from "../ports/outbound-http.ts";
-import type { CatalogProvider } from "./catalog.ts";
 import { listProviderModels, ModelDiscoveryError } from "./model-discovery.ts";
 
 const KEY = "example-model-key";

@@ -3,7 +3,7 @@ import {
   type CatalogConnection,
   connectionOf,
   type SessionCatalog,
-} from "./catalog.ts";
+} from "../catalog/index.ts";
 import type { SessionTitleStore } from "./ports/session-title-store.ts";
 import { deriveSessionTitle } from "./session-title.ts";
 

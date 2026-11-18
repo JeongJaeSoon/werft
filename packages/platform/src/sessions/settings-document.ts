@@ -18,7 +18,7 @@ import {
   REMOVED_CREDENTIAL_MESSAGE,
   type StoredOwnerKind,
   sessionCatalogConfigSchema,
-} from "./catalog.ts";
+} from "../catalog/index.ts";
 
 /**
  * The installation's settings as one document without a secret value

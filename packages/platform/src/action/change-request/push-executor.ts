@@ -8,17 +8,17 @@ import {
   type PushReasonCode,
   type PushRefusal,
 } from "@werft-ai/contracts";
+import {
+  repositoryBinding,
+  repositoryUpstreamOf,
+  type SessionCatalog,
+} from "../../catalog/index.ts";
 import type { PushBundlesResult } from "../../checkpoints/index.ts";
 import {
   type GitHubGate,
   GitHubGateError,
   GitHubUnavailableError,
 } from "../../github/ports/github-gate.ts";
-import {
-  repositoryBinding,
-  repositoryUpstreamOf,
-  type SessionCatalog,
-} from "../../sessions/index.ts";
 import type { GrantWith, RepositoryReadable } from "../ports/capabilities.ts";
 import type { CommitAttributionLedger } from "../ports/commit-attributions.ts";
 import type { Pushable } from "../ports/git-push.ts";

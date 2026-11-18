@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { JudgeProvider } from "../catalog.ts";
+import type { JudgeProvider } from "../../catalog/catalog.ts";
 import { settingsJudgeConnections } from "./judge-connections.ts";
 
 const luna = (value: string): JudgeProvider => ({

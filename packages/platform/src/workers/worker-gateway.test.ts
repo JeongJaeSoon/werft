@@ -7,6 +7,11 @@ import {
 } from "@werft-ai/contracts";
 import type { SessionAttributionRecord } from "../action/ports/session-attribution.ts";
 import {
+  type CatalogRepository,
+  repositoryBinding,
+  type SessionCatalog,
+} from "../catalog/catalog.ts";
+import {
   type GitHubConnection,
   type GitHubGate,
   GitHubGateError,
@@ -27,11 +32,6 @@ import type {
   RestoreBaseResult,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
-import {
-  type CatalogRepository,
-  repositoryBinding,
-  type SessionCatalog,
-} from "../sessions/catalog.ts";
 import {
   TEST_CONNECTION_ID,
   testBinding,

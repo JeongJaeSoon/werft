@@ -15,14 +15,14 @@ import type {
   WorkspaceRepository,
 } from "@werft-ai/contracts";
 import type { ImageRuntime, RuntimeFingerprint } from "@werft-ai/runtime-core";
-import type { CheckpointPointer } from "../checkpoints/ports/checkpoint-store.ts";
-import type { CheckpointOutputObject } from "../checkpoints/ports/checkpoint-verifier.ts";
-import type { PricedBy, ProviderUsage } from "../limits/index.ts";
 import type {
   SessionGitHubMcp,
   SessionMcp,
   SessionWorkspaceMcp,
-} from "../sessions/catalog.ts";
+} from "../catalog/index.ts";
+import type { CheckpointPointer } from "../checkpoints/ports/checkpoint-store.ts";
+import type { CheckpointOutputObject } from "../checkpoints/ports/checkpoint-verifier.ts";
+import type { PricedBy, ProviderUsage } from "../limits/index.ts";
 
 // The identity every post-claim write is fenced on. The storage adapter puts
 // these values in the WHERE clause of each write; a row that no longer

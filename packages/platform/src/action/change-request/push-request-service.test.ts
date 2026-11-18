@@ -7,6 +7,7 @@ import {
   pushDecisionOf,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
+import type { SessionCatalog } from "../../catalog/catalog.ts";
 import type { PushSourceResult } from "../../checkpoints/checkpoint-service.ts";
 import { SessionServiceError } from "../../musterrolle/index.ts";
 import {
@@ -14,7 +15,6 @@ import {
   callerFor,
   createAuthorizationPolicy,
 } from "../../musterrolle/policy.ts";
-import type { SessionCatalog } from "../../sessions/catalog.ts";
 import type {
   CreatePushRequestInput,
   PushPolicyApproval,

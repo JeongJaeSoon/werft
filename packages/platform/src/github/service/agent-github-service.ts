@@ -23,6 +23,11 @@ import {
 } from "@werft-ai/contracts";
 import { repoRefOf } from "../../action/ports/forge.ts";
 import {
+  GITHUB_API_BASE,
+  repositoryInCeiling,
+  type SessionCatalog,
+} from "../../catalog/index.ts";
+import {
   ACTOR_INACTIVE,
   type AuthorizationPolicy,
   type Caller,
@@ -33,12 +38,7 @@ import {
   SessionServiceError,
 } from "../../musterrolle/index.ts";
 import type { AgentStore } from "../../ports/agent-store.ts";
-import {
-  GITHUB_API_BASE,
-  repositoryInCeiling,
-  type SessionCatalog,
-  viewerOf,
-} from "../../sessions/index.ts";
+import { viewerOf } from "../../sessions/index.ts";
 import type { AgentGitHubStore } from "../ports/agent-github-store.ts";
 import type {
   GitHubAppStore,

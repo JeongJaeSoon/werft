@@ -4,12 +4,12 @@ import {
   GITHUB_MCP_TOOLS,
   githubMcpToolNames,
 } from "@werft-ai/contracts";
+import type { CatalogConnection } from "../catalog/catalog.ts";
 import type {
   ClaimInput,
   WorkerBinding,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
-import type { CatalogConnection } from "../sessions/catalog.ts";
 import {
   testBinding,
   testCatalog,

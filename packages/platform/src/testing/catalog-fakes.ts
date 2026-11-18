@@ -2,15 +2,15 @@ import type { runtimeConfigSchema, SpecSource } from "@werft-ai/contracts";
 import type { z } from "zod";
 import type { InstalledRuntimes } from "../agents/release-run.ts";
 import { releaseSpecRecord } from "../agents/release-spec.ts";
-import type { WorkerBinding } from "../ports/worker-unit-of-work.ts";
 import type {
   CatalogConnection,
   CatalogProvider,
   CatalogRepository,
   CredentialRef,
   SessionCatalog,
-} from "../sessions/catalog.ts";
-import type { ToolCatalogs } from "../sessions/tool-names.ts";
+  ToolCatalogs,
+} from "../catalog/index.ts";
+import type { WorkerBinding } from "../ports/worker-unit-of-work.ts";
 
 export const TEST_CONNECTION_ID = "conn-1";
 

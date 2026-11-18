@@ -10,6 +10,10 @@ import {
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
 import {
+  repositoryBinding,
+  type SessionCatalog,
+} from "../../catalog/catalog.ts";
+import {
   GitHubCallError,
   type GitHubGate,
   GitHubGateError,
@@ -22,10 +26,6 @@ import {
   createAuthorizationPolicy,
   type SessionAccess,
 } from "../../musterrolle/policy.ts";
-import {
-  repositoryBinding,
-  type SessionCatalog,
-} from "../../sessions/catalog.ts";
 import {
   PULL_REQUEST_TAIL_END_MARKER,
   PULL_REQUEST_TAIL_MARKER,

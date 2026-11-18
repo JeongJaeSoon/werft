@@ -1,17 +1,17 @@
 import { canonicalJson } from "@werft-ai/contracts";
 import type {
-  CatalogRepositoryRow,
-  CatalogRepositoryStore,
-} from "../ports/catalog-repository-store.ts";
-import type {
   CatalogMcpServer,
   CatalogRepository,
   CatalogRepositoryView,
   RuntimeVersions,
   SessionCatalog,
-} from "./catalog.ts";
+  ToolCatalogs,
+} from "../catalog/index.ts";
+import type {
+  CatalogRepositoryRow,
+  CatalogRepositoryStore,
+} from "../ports/catalog-repository-store.ts";
 import type { SettingsSnapshot } from "./installation-settings.ts";
-import type { ToolCatalogs } from "./tool-names.ts";
 
 /** How often a process reads the installation's settings again. */
 export const CATALOG_REFRESH_MS = 10_000;

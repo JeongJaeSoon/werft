@@ -1,4 +1,4 @@
-import type { ModelFamilies } from "../sessions/catalog.ts";
+import type { ModelFamilies } from "../catalog/index.ts";
 import type {
   SettingsEntries,
   SettingsImportAdd,

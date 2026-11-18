@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import type { SessionCatalog } from "../catalog/catalog.ts";
 import { testCatalog, testConnection } from "../testing/catalog-fakes.ts";
-import type { SessionCatalog } from "./catalog.ts";
 import type {
   SessionTitleStore,
   TitleRequestIssue,

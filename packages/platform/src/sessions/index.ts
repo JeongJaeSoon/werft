@@ -6,17 +6,6 @@ export {
   additionalRepositoryAllowed,
 } from "./additional-repositories.ts";
 export {
-  type CatalogConnectionView,
-  connectionOf,
-  GITHUB_API_BASE,
-  type RuntimeVersions,
-  repositoryBinding,
-  repositoryInCeiling,
-  repositoryUpstreamOf,
-  runtimeKindOfProvider,
-  type SessionCatalog,
-} from "./catalog.ts";
-export {
   closeOpenBlocks,
   pullRequestTail,
   pushRequestMarkerOf,
@@ -26,7 +15,6 @@ export {
   withoutPullRequestTail,
   withPullRequestTail,
 } from "./git-attribution.ts";
-export { mcpToolDenied, mcpToolPermitted } from "./mcp-tool-decision.ts";
 export type { RepositoryAttachmentService } from "./repository-attachment-service.ts";
 export {
   idempotencyConflict,
@@ -34,4 +22,3 @@ export {
   selfApproval,
   viewerOf,
 } from "./session-service.ts";
-export type { ToolCatalogs } from "./tool-names.ts";

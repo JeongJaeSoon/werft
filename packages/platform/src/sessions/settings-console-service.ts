@@ -13,6 +13,20 @@ import type {
   SettingsEntryState,
   SettingsMcpServer,
 } from "@werft-ai/contracts";
+import {
+  BILLING_NONE_ENDPOINT_MESSAGE,
+  billingFitsEndpoint,
+  type CatalogConnection,
+  CatalogCredentialError,
+  type CatalogMcpServerConfig,
+  type CatalogProviderConfig,
+  CONNECTION_ENDPOINT_DEFAULTS,
+  isRegisteredGitHubApp,
+  MIN_CREDENTIAL_BYTES,
+  type ModelFamilies,
+  modelFamiliesSchema,
+  resolveCredential,
+} from "../catalog/index.ts";
 import { rsaPrivateKey } from "../github/index.ts";
 import {
   type AuthorizationPolicy,
@@ -28,20 +42,6 @@ import type {
   SettingsRow,
 } from "../ports/settings-document-store.ts";
 import type { TeamActor } from "../ports/team-store.ts";
-import {
-  BILLING_NONE_ENDPOINT_MESSAGE,
-  billingFitsEndpoint,
-  type CatalogConnection,
-  CatalogCredentialError,
-  type CatalogMcpServerConfig,
-  type CatalogProviderConfig,
-  CONNECTION_ENDPOINT_DEFAULTS,
-  isRegisteredGitHubApp,
-  MIN_CREDENTIAL_BYTES,
-  type ModelFamilies,
-  modelFamiliesSchema,
-  resolveCredential,
-} from "./catalog.ts";
 import { listProviderModels, ModelDiscoveryError } from "./model-discovery.ts";
 import {
   type SettingsKind as DocumentSettingsKind,

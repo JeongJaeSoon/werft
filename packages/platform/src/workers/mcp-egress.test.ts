@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { mcpBinding, type SessionCatalog } from "../catalog/catalog.ts";
+import { visibleMcpTools } from "../catalog/mcp-tool-decision.ts";
 import type {
   McpEgressStore,
   McpRefusalRecord,
   McpSessionState,
 } from "../github/ports/mcp-egress.ts";
-import { mcpBinding, type SessionCatalog } from "../sessions/catalog.ts";
-import { visibleMcpTools } from "../sessions/mcp-tool-decision.ts";
 import { createMcpEgress, uuidV5 } from "./mcp-egress.ts";
 
 const server = {
