@@ -14,11 +14,10 @@ Sessions run with the settings their release pinned (connection, model, runtime,
 The web console of the local stack is at `http://127.0.0.1:3000/`.
 
 1. The first time only, create the first owner and workspace at `/bootstrap`. How you get the first owner's token depends on the installation. On a single-server installation where you did not set the token yourself, `scripts/test-ops.sh bootstrap-token` shows it once. See [first owner and keys](/run-server/self-hosting/users-and-keys) for details.
-2. After logging in, open "Agents" in the left sidebar and click "New agent" at the top right. The "New agent" screen opens with five steps: Name → What it does → Release → Turn on → Connect channels.
-3. In the "Name" step, enter a name. The identifier (slug) is filled in from the name, and you can change it. If you like, write a short introduction for people in "Description (optional)". Click "Next".
-4. In the "What it does" step, choose the model, set the reply language, then click "Save draft and continue". The agent is saved as a draft and version 1 is created. Instructions for how it should work go in the repository's `AGENTS.md` or `CLAUDE.md`.
-5. In the "Release" step, choose a provider connection and click "Create release". The card's model must be on that connection's model list. An owner manages connections and their model lists in Settings → Model connections ([Model connections](/run-server/self-hosting/model-connections)).
-6. In the "Turn on" step, click "Turn the agent on". New sessions now start with this release. "Do this later" leaves the agent as a draft and opens its detail screen.
+2. After logging in, open "Agents" in the left sidebar and click "New agent" at the top right. The "New agent" screen opens with three steps: Name → What it does → Connect channels.
+3. In the "Name" step, enter a name. The identifier (slug) is filled in from the name, and you can change it. If you like, write a short introduction for people in "Description (optional)". The model does not see the name or the description. Pick the responsible team and click "Next".
+4. In the "What it does" step, choose the model connection and the model, set the reply language, then click "Save and continue". The agent is saved, and its first release is made with that connection and turned on at once. New sessions now start with this release. The model is chosen from the chosen connection's model list. An owner manages connections and their model lists in Settings → Model connections ([Model connections](/run-server/self-hosting/model-connections)). Instructions for how it should work go in the repository's `AGENTS.md` or `CLAUDE.md`.
+5. In the "Connect channels" step, add a Slack app with "Create and install Slack app", or click "Do this later". The agent stays on if you leave this step.
 
 Owners, admins, and members can all create agents, and the person who creates one becomes that agent's administrator.
 
@@ -56,7 +55,7 @@ agent=$(curl -sS "$API/v1/agents" "${WEB[@]}" -d '{
   "managing_team_id": "'"$TEAM"'",
   "card": {
     "model": "claude-sonnet-5",
-    "capabilities": { "tools": ["Read", "Grep", "Glob"], "mcp": null }
+    "capabilities": { "mcp": null }
   }
 }')
 AID=$(echo "$agent" | jq -r .agent.id)
@@ -146,10 +145,10 @@ The list returns agents oldest first, `limit` at a time (default 50, at most 100
 The responsible team is the team an agent belongs to. Its team leads manage the agent; its members see the settings and use it ([Permissions](/agents/permissions#agent-administrators)).
 
 - **New agent**: the first step requires a responsible team. Owners and admins pick from every team, members from the teams they are in. With a single team it is picked for you. A member in no team sees only “You are in no team, so you cannot make an agent. Ask a workspace admin to add you to a team.” and cannot go on.
-- **Agent list**: the table and the cards show the responsible team. The card of an agent whose settings you cannot read shows only its name, state and responsible team.
+- **Agent list**: the table shows the name, engine, status, channels and running sessions, not the responsible team. See the responsible team on the Admins tab of the agent's page.
 - **Admins tab**: the `Responsible team` group at the top shows the current team's name as a link to the team page. Whoever manages the agent picks a team in `Change` beside it and it applies at once; it cannot be cleared. A responsible team with no team lead is pointed out. The `Agent admins` list below shows people and teams as the same one-line rows, and choosing from the search results adds at once. When the responsible team is also an admin team, its row says that every member is an admin.
 - **Responsible team members**: they read every setting on the detail page but get no edit, release or connect buttons, and a notice at the top says they can only read.
-- **Outside members**: opening the detail address shows the name, state and responsible team with “Only the responsible team's members and the agent's admins see its settings.” instead of the settings.
+- **Outside members**: the agent is not in their list, and opening its detail address shows “Agent not found”, the same as for an agent that does not exist.
 
 ## Bind to a session
 

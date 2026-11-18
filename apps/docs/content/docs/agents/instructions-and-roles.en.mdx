@@ -48,10 +48,11 @@ Earlier cards had "Role" (`role`) and "Instructions" (`instructions`) fields, an
 | Field | Required | Content |
 | --- | --- | --- |
 | `model` | Yes | Model name. Must be on the model list of the connection chosen when you create a release |
-| `capabilities.mcp` | Yes | Only `null` is accepted for now |
-| `capabilities.forbidden` | | Tool names to forbid. The web console puts `[]` on a new card, and only shows and clears an existing value |
-| `capabilities.tool_policy` | | `allow`, `ask`, or `deny` per tool |
+| `capabilities.mcp` | Yes | One MCP server to use, by its operator catalog id, as `[{ "server": "<id>" }]`. `null` for none |
+| `capabilities.forbidden` | | MCP tool names to forbid (`mcp__<server>__<tool>`). The web console puts `[]` on a new card, and only shows and clears an existing value |
+| `capabilities.tool_policy` | | `allow`, `ask`, or `deny` per MCP tool, under `per_tool` |
 | `capabilities.credential_refs` | | Names of the credentials to use (not the values). [Permissions](/agents/permissions) |
+| `capabilities.env` | | Names of the variables a session takes, such as `[{ "name": "DEPLOY_ENV" }]`. Write upper-case names only; the values live in the agent's variables. Only the variables listed here reach a session |
 | `language` | | Reply language: `follow-user` (default; follow the person's language), `ko`, `en` or `ja`. Left out, it is `follow-user`. `ko`, `en` and `ja` always answer in that language, even when the person writes in another one; it applies from the next release, and sessions already started keep theirs |
 | `rules` | | List of `{id, text, source}`. `source` is `user` or `correction` |
 | `role`, `instructions` | | Values from earlier cards. Not passed to the model. New cards do not send them |
@@ -63,6 +64,7 @@ Name (1–120 characters) and description (0–2,000 characters) are fields of t
 A card does not choose built-in tools. A release pins every built-in tool of its connection's runtime, and what to ask a person about is set by the permission mode and the workspace rules built into the platform ([Permissions](/agents/permissions)).
 
 - An existing card's `forbidden` shows as a list, and "Clear blocked tools" empties it.
+- The older card form's `capabilities.tools`, built-in tool names in `forbidden` or `tool_policy.per_tool`, and `tool_policy.default` are accepted without an error but not stored. Only MCP tool entries stay.
 
 
 ## What the model reads today
@@ -90,7 +92,7 @@ curl -sS -X PATCH "$API/v1/agents/$AID" "${WEB[@]}" -d '{
   "card": {
     "model": "claude-sonnet-5",
     "language": "en",
-    "capabilities": { "tools": ["Read", "Grep", "Glob"], "mcp": null },
+    "capabilities": { "mcp": null },
     "rules": [{ "id": "no-guess", "text": "Never invent a file path.", "source": "user" }]
   }
 }' | jq -c '.versions[] | {version_no, language: .card.language}'
@@ -101,7 +103,7 @@ curl -sS -X PATCH "$API/v1/agents/$AID" "${WEB[@]}" -d '{
 {"version_no":2,"language":"en"}
 ```
 
-A new version does not change the active release. To use it, create a release from that version and activate it ([Create](/agents/create#create-a-release)). In the web console, "Save" in Settings does the same thing and shows the difference between the two versions.
+A PATCH that sends a card makes a release of it and activates it at once. The response's `release.status` is `applied`, the active release becomes the new version's, and `activation_revision` goes up. To activate a release yourself after that, send the new `activation_revision` as `expected_revision`. If the card equals what the agent runs now, or only the name or description changes, `release.status` is `unchanged` and no release is made. In the web console, "Save" in Settings does the same thing and shows the difference between the two versions.
 
 ## Next steps
 

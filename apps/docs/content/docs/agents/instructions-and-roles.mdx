@@ -48,10 +48,11 @@ description: 이름·설명과 저장소의 CLAUDE.md·AGENTS.md의 차이, 에�
 | 필드 | 필수 | 내용 |
 | --- | --- | --- |
 | `model` | 예 | 모델 이름. release를 만들 때 고른 연결의 모델 목록에 있어야 한다 |
-| `capabilities.mcp` | 예 | 지금은 `null`만 받는다 |
-| `capabilities.forbidden` | | 금지할 도구 이름. 웹 콘솔은 새 카드에 `[]`를 넣고, 기존 값은 보이고 지우기만 한다 |
-| `capabilities.tool_policy` | | 도구별 `allow`·`ask`·`deny` |
+| `capabilities.mcp` | 예 | 쓸 MCP 서버 하나를 운영자 카탈로그의 id로 `[{ "server": "<id>" }]`처럼 적는다. 없으면 `null` |
+| `capabilities.forbidden` | | 금지할 MCP 도구 이름(`mcp__<서버>__<도구>`). 웹 콘솔은 새 카드에 `[]`를 넣고, 기존 값은 보이고 지우기만 한다 |
+| `capabilities.tool_policy` | | `per_tool`에 MCP 도구별 `allow`·`ask`·`deny` |
 | `capabilities.credential_refs` | | 쓸 자격 증명의 이름(값이 아니다). [권한](/agents/permissions) |
+| `capabilities.env` | | 세션이 받을 변수 이름 목록. `[{ "name": "DEPLOY_ENV" }]`처럼 대문자 이름만 적고, 값은 에이전트 변수에 둔다. 여기 적은 변수만 세션에 전달된다 |
 | `language` | | 답변 언어: `follow-user`(기본, 사용자 언어를 따른다), `ko`, `en`, `ja`. 생략하면 `follow-user`다. `ko`·`en`·`ja`는 사용자가 다른 언어로 써도 그 언어로 답하게 하며, 새 릴리스부터 적용되고 이미 시작한 세션은 그대로다 |
 | `rules` | | `{id, text, source}` 목록. `source`는 `user` 또는 `correction` |
 | `role`·`instructions` | | 이전 카드의 값. 모델에 전달되지 않는다. 새 카드에는 보내지 않는다 |
@@ -63,6 +64,7 @@ description: 이름·설명과 저장소의 CLAUDE.md·AGENTS.md의 차이, 에�
 카드는 내장 도구를 고르지 않는다. release는 연결의 런타임이 가진 내장 도구 전부를 고정하고, 무엇을 사람에게 묻는지는 권한 모드와 플랫폼에 들어 있는 작업 공간 규칙이 정한다([권한](/agents/permissions)).
 
 - 기존 카드에 `forbidden`이 있으면 목록으로 보이고 "금지 도구 지우기"로 비울 수 있다.
+- 예전 카드 형식의 `capabilities.tools`, 내장 도구 이름이 든 `forbidden`·`tool_policy.per_tool` 항목, `tool_policy.default`는 오류 없이 받되 저장하지 않는다. MCP 도구 항목만 남는다.
 
 
 ## 지금 모델이 읽는 것
@@ -90,7 +92,7 @@ curl -sS -X PATCH "$API/v1/agents/$AID" "${WEB[@]}" -d '{
   "card": {
     "model": "claude-sonnet-5",
     "language": "en",
-    "capabilities": { "tools": ["Read", "Grep", "Glob"], "mcp": null },
+    "capabilities": { "mcp": null },
     "rules": [{ "id": "no-guess", "text": "Never invent a file path.", "source": "user" }]
   }
 }' | jq -c '.versions[] | {version_no, language: .card.language}'
@@ -101,7 +103,7 @@ curl -sS -X PATCH "$API/v1/agents/$AID" "${WEB[@]}" -d '{
 {"version_no":2,"language":"en"}
 ```
 
-새 version은 활성 release를 바꾸지 않는다. 쓰려면 그 version으로 release를 만들고 활성화한다([만들기](/agents/create#릴리스-만들기)). 웹 콘솔에서는 상세 설정의 "저장"이 같은 일을 하고, 두 version의 차이를 보여 준다.
+카드를 보낸 PATCH는 그 카드로 release를 만들어 바로 활성화한다. 응답의 `release.status`는 `applied`이고 활성 release가 새 version의 것으로 바뀌며 `activation_revision`이 오른다. 그 뒤 직접 활성화하려면 오른 `activation_revision`을 `expected_revision`으로 보낸다. 보낸 카드가 지금 도는 것과 같거나 이름·설명만 바꾸면 `release.status`는 `unchanged`이고 release가 생기지 않는다. 웹 콘솔에서는 상세 설정의 "저장"이 같은 일을 하고, 두 version의 차이를 보여 준다.
 
 ## 다음 단계
 

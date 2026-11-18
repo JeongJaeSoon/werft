@@ -48,10 +48,11 @@ description: 名前・説明とリポジトリの CLAUDE.md・AGENTS.md の違�
 | フィールド | 必須 | 内容 |
 | --- | --- | --- |
 | `model` | はい | モデル名。リリースを作成するときに選んだ接続のモデル一覧になければならない |
-| `capabilities.mcp` | はい | 現在は `null` のみ受け付ける |
-| `capabilities.forbidden` | | 禁止するツール名。Web コンソールは新しいカードに `[]` を入れ、既存の値は表示して消すことだけができる |
-| `capabilities.tool_policy` | | ツールごとの `allow`・`ask`・`deny` |
+| `capabilities.mcp` | はい | 使う MCP サーバー 1 つを、運用者カタログの id で `[{ "server": "<id>" }]` のように書く。なければ `null` |
+| `capabilities.forbidden` | | 禁止する MCP ツール名 (`mcp__<サーバー>__<ツール>`)。Web コンソールは新しいカードに `[]` を入れ、既存の値は表示して消すことだけができる |
+| `capabilities.tool_policy` | | `per_tool` に MCP ツールごとの `allow`・`ask`・`deny` |
 | `capabilities.credential_refs` | | 使う認証情報の名前 (値ではない)。[権限](/agents/permissions) |
+| `capabilities.env` | | セッションが受け取る変数名の一覧。`[{ "name": "DEPLOY_ENV" }]` のように大文字の名前だけを書き、値はエージェントの変数に置く。ここに書いた変数だけがセッションに渡される |
 | `language` | | 回答言語: `follow-user` (デフォルト、相手の言語に合わせる)、`ko`、`en`、`ja`。省略すると `follow-user`。`ko`・`en`・`ja` は相手が別の言語で書いてもその言語で答えさせる。次のリリースから適用され、開始済みのセッションは変わらない |
 | `rules` | | `{id, text, source}` の一覧。`source` は `user` または `correction` |
 | `role`・`instructions` | | 以前のカードの値。モデルには渡されない。新しいカードには送らない |
@@ -63,6 +64,7 @@ description: 名前・説明とリポジトリの CLAUDE.md・AGENTS.md の違�
 カードは組み込みツールを選ばない。リリースは接続のランタイムが持つ組み込みツールすべてを固定し、何を人に確認するかは、権限モードとプラットフォームに組み込まれた作業スペースのルールが決める ([権限](/agents/permissions))。
 
 - 既存のカードに `forbidden` があれば一覧で表示され、「禁止ツールを消す」で空にできる。
+- 以前のカード形式の `capabilities.tools`、`forbidden`・`tool_policy.per_tool` 内の組み込みツール名、`tool_policy.default` はエラーにならずに受け付けられるが、保存されない。MCP ツールの項目だけが残る。
 
 
 ## 現在モデルが読むもの
@@ -90,7 +92,7 @@ curl -sS -X PATCH "$API/v1/agents/$AID" "${WEB[@]}" -d '{
   "card": {
     "model": "claude-sonnet-5",
     "language": "en",
-    "capabilities": { "tools": ["Read", "Grep", "Glob"], "mcp": null },
+    "capabilities": { "mcp": null },
     "rules": [{ "id": "no-guess", "text": "Never invent a file path.", "source": "user" }]
   }
 }' | jq -c '.versions[] | {version_no, language: .card.language}'
@@ -101,7 +103,7 @@ curl -sS -X PATCH "$API/v1/agents/$AID" "${WEB[@]}" -d '{
 {"version_no":2,"language":"en"}
 ```
 
-新しいバージョンは有効なリリースを変更しない。使うには、そのバージョンでリリースを作成して有効化する ([作成](/agents/create#リリースの作成))。Web コンソールでは、詳細設定の「保存」が同じ処理を行い、2 つのバージョンの差分を表示する。
+カードを送った PATCH は、そのカードでリリースを作成してすぐに有効化する。レスポンスの `release.status` は `applied` になり、有効なリリースが新しいバージョンのものに替わって `activation_revision` が上がる。その後に自分で有効化するときは、上がった `activation_revision` を `expected_revision` として送る。送ったカードが今動いているものと同じ場合や、名前・説明だけを変えた場合は `release.status` が `unchanged` になり、リリースは作られない。Web コンソールでは、詳細設定の「保存」が同じ処理を行い、2 つのバージョンの差分を表示する。
 
 ## 次のステップ
 
