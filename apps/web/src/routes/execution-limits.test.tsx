@@ -723,7 +723,7 @@ describe("설정 › 실행 한도의 한 번 저장", () => {
 describe("설정 › 실행 한도의 문구", () => {
   test("한국어 문구는 내부 이름이나 영어 용어 대신 우리말과 용어집의 말을 쓴다", () => {
     const english =
-      /\b(control host|worker|scheduler|checkpoint|object store|object|restore|volume)\b/;
+      /\b(control[- ]host|workers?|schedulers?|checkpoints?|object stores?|objects?|restore[sd]?|volumes?)\b/i;
     const found = Object.entries(executionLimitsKo)
       .filter(([, text]) => english.test(text))
       .map(([key]) => key);
