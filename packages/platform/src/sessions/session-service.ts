@@ -41,9 +41,11 @@ import {
   startRepositoryOf,
 } from "@werft-ai/contracts";
 import {
+  claimCatalogOf,
   connectionModels,
   connectionOf,
   modelSuccessor,
+  placementRefusal,
   repositoryInCeiling,
   runtimeVersionAccepted,
   type SessionCatalogView,
@@ -358,37 +360,45 @@ export function createSessionService(deps: {
   const now = deps.now ?? (() => new Date());
 
   /**
-   * Whether a worker of this host would take the session: its connection
-   * runs its model (or the next of its series, when the agent moves), its
-   * runtime ships with the images, and its repository is still the one it
-   * was created on.
+   * Why no worker of this host would take the session, in words the reader
+   * can act on; null when one would. A session that follows its agent's
+   * model moves still runs once its model leaves for the next of its series.
    */
-  function catalogAllows(record: SessionDetailRecord): boolean {
+  function catalogMismatch(record: SessionDetailRecord): string | null {
     const spec = record.spec;
-    if (spec === null) return false;
-    const connection = connectionOf(catalog, spec.connection.id);
-    if (connection === undefined) return false;
-    if (!runtimeVersionAccepted(catalog, spec.runtime)) return false;
-    if (
-      !connectionModels(connection).includes(spec.model) &&
-      !(
-        record.auto_model_migration &&
-        modelSuccessor(connection, spec.model) !== null
-      )
-    ) {
-      return false;
+    if (spec === null) {
+      return "This session has no spec to run; start a new session on the agent's current release";
     }
-    if (record.repository_mode === "none" || record.repository_id === null) {
-      return true;
-    }
-    const repository = Object.hasOwn(catalog.repositories, record.repository_id)
-      ? catalog.repositories[record.repository_id]
-      : undefined;
-    return (
-      repository !== undefined &&
-      repository.url === record.repo_url &&
-      repository.branch === record.branch
+    const { runnable, modelMoves } = claimCatalogOf(catalog);
+    const refusal = placementRefusal(
+      {
+        connectionId: spec.connection.id,
+        model: spec.model,
+        runtime: spec.runtime,
+        repository:
+          record.repository_mode === "none"
+            ? null
+            : {
+                id: record.repository_id,
+                url: record.repo_url,
+                branch: record.branch,
+              },
+      },
+      runnable,
+      record.auto_model_migration ? modelMoves : [],
     );
+    switch (refusal) {
+      case null:
+        return null;
+      case "connection_missing":
+        return `Connection ${spec.connection.id}, which served model ${spec.model}, is disabled or no longer in this host's settings; messages will not run until an operator restores it, or you start a new session on another release`;
+      case "model_removed":
+        return `Model ${spec.model} was taken off the model list of connection ${spec.connection.id}; messages will not run until an operator adds it back, or you start a new session on another model`;
+      case "runtime_unshipped":
+        return `The session runs ${spec.runtime.kind} ${spec.runtime.version}, which the worker images no longer ship; start a new session on the agent's current release`;
+      case "repository_moved":
+        return "The session's repository is no longer in this host's catalog as the session was created on it; messages will not run until an operator restores it";
+    }
   }
 
   // A launch is what it waits for: a worker that is already up keeps
@@ -402,26 +412,6 @@ export function createSessionService(deps: {
       !record.holds_execution &&
       !deps.launchable(record.spec)
     );
-  }
-
-  // Says which model left when that is what moved, so the reader can act on
-  // it; any other mismatch keeps the general sentence.
-  function mismatchReason(record: SessionDetailRecord): string {
-    const spec = record.spec;
-    if (spec === null) {
-      return "This session has no spec to run; start a new session on the agent's current release";
-    }
-    const connection = connectionOf(catalog, spec.connection.id);
-    if (connection === undefined) {
-      return `Connection ${spec.connection.id}, which served model ${spec.model}, is disabled or no longer in this host's settings; messages will not run until an operator restores it, or you start a new session on another release`;
-    }
-    if (!connectionModels(connection).includes(spec.model)) {
-      return `Model ${spec.model} was taken off the model list of connection ${spec.connection.id}; messages will not run until an operator adds it back, or you start a new session on another model`;
-    }
-    if (!runtimeVersionAccepted(catalog, spec.runtime)) {
-      return `The session runs ${spec.runtime.kind} ${spec.runtime.version}, which the worker images no longer ship; start a new session on the agent's current release`;
-    }
-    return "The session's repository is no longer in this host's catalog as the session was created on it; messages will not run until an operator restores it";
   }
 
   function runtimeFor(spec: SpecSource | null): SessionRuntimeView | null {
@@ -619,19 +609,15 @@ export function createSessionService(deps: {
       detail.attached_repository_ids,
       catalog.repositories,
     );
+    const mismatch = detail.attention == null ? catalogMismatch(record) : null;
     return {
       ...detail,
       ...(attached === undefined ? {} : { attached_repositories: attached }),
       attention:
         detail.attention ??
-        // The claim matches the same values (runnablePairOf), so this says
-        // exactly when no worker of this host would take the session.
-        (catalogAllows(record)
+        (mismatch === null
           ? null
-          : {
-              code: "CATALOG_MISMATCH",
-              reason: mismatchReason(record),
-            }) ??
+          : { code: "CATALOG_MISMATCH", reason: mismatch }) ??
         // A session waiting for a launch that no listed image may take. One
         // whose checkpoint only a retracted image restores is stopped by the
         // scheduler instead, and shows RESTORE_FAILED above.

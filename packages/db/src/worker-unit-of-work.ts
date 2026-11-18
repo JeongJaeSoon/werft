@@ -55,6 +55,7 @@ import {
   type ProviderUsageInput,
   type ProviderUsageResult,
   payloadHash,
+  placementRefusal,
   publicStatus,
   type ReadyInput,
   type ReadyResult,
@@ -65,7 +66,9 @@ import {
   type RestoreBaseResult,
   runnableOfEngine,
   runtimeConfigOfSpec,
+  runtimeShipped,
   type SessionBudget,
+  type SessionPlacement,
   sameCombination,
   storedPendingReasonHoldsWork,
   TRANSCRIPT_LIMITS,
@@ -1055,19 +1058,6 @@ function specRuntime(session: {
     : null;
 }
 
-function runtimeShips(
-  runtime: { kind: string; version: string },
-  runnable: ClaimCatalog,
-): boolean {
-  return (
-    runnable.runtimeVersions === null ||
-    runnable.runtimeVersions.some(
-      (listed) =>
-        listed.kind === runtime.kind && listed.version === runtime.version,
-    )
-  );
-}
-
 function describeSpecRuntime(session: {
   runtimeSpec: Record<string, unknown> | null;
 }): string {
@@ -1075,60 +1065,32 @@ function describeSpecRuntime(session: {
   return runtime === null ? "(none)" : `${runtime.kind} ${runtime.version}`;
 }
 
-function repositoryHeld(session: RunnableFields, runnable: ClaimCatalog) {
-  return (
-    session.repositoryMode === "none" ||
-    runnable.repositories.some(
-      (repository) =>
-        repository.repositoryId === session.repositoryId &&
-        repository.url === session.repoUrl &&
-        repository.branch === session.branch,
-    )
-  );
+/** The session row as `placementRefusal` reads it. */
+function placementOf(session: RunnableFields): SessionPlacement {
+  return {
+    connectionId: specConnectionId(session),
+    model: session.model,
+    runtime: specRuntime(session),
+    repository:
+      session.repositoryMode === "none"
+        ? null
+        : {
+            id: session.repositoryId,
+            url: session.repoUrl,
+            branch: session.branch,
+          },
+  };
 }
 
 /**
- * Whether this host runs the session as it was created: its spec's
- * connection offers its model here, its runtime ships with the images, and
- * its repository row is the one it was created on. The same predicate as
- * `runnableCondition`.
+ * Whether this host runs the session as it was created, with no model move
+ * applied. `runnableCondition` is its SQL form.
  */
 export function runsHere(
   session: RunnableFields,
   runnable: ClaimCatalog,
 ): boolean {
-  const connectionId = specConnectionId(session);
-  const connection = runnable.connections.find(
-    (candidate) => candidate.id === connectionId,
-  );
-  const runtime = specRuntime(session);
-  return (
-    connection !== undefined &&
-    session.model !== null &&
-    connection.models.includes(session.model) &&
-    runtime !== null &&
-    runtimeShips(runtime, runnable) &&
-    repositoryHeld(session, runnable)
-  );
-}
-
-/**
- * The session's model when its connection is still offered here, with
- * models of its own, but none of them is the session's; null when anything
- * else moved.
- */
-export function removedModelOf(
-  session: RunnableFields,
-  runnable: ClaimCatalog,
-): string | null {
-  const { model } = session;
-  if (model === null) return null;
-  const connection = runnable.connections.find(
-    (candidate) => candidate.id === specConnectionId(session),
-  );
-  return connection !== undefined && !connection.models.includes(model)
-    ? model
-    : null;
+  return placementRefusal(placementOf(session), runnable) === null;
 }
 
 function replayableBinding(
@@ -1361,7 +1323,7 @@ function versionUnknownHere(
   runnable: ClaimCatalog,
 ): boolean {
   const runtime = specRuntime(session);
-  return runtime !== null && !runtimeShips(runtime, runnable);
+  return runtime !== null && !runtimeShipped(runnable, runtime);
 }
 
 async function giveUpOnCatalogMismatch(
@@ -1466,17 +1428,16 @@ async function giveUpOnCatalogMismatch(
       .where(eq(executions.id, launch.executionId));
     return "context_gap";
   }
-  const removed = removedModelOf(session, runnable);
+  const refusal = placementRefusal(placementOf(session), runnable);
+  const removed = refusal === "model_removed" ? session.model : null;
   // Names ids only: the stored URL may embed a credential.
   const connectionId = specConnectionId(session);
   const detail =
     removed !== null
       ? `model ${removed} was taken off the model list of connection ${connectionId}`
-      : !runnable.connections.some(
-            (connection) => connection.id === connectionId,
-          )
+      : refusal === "connection_missing"
         ? `connection ${connectionId ?? "(none)"} is not in this host's catalog`
-        : !repositoryHeld(session, runnable)
+        : refusal === "repository_moved"
           ? `repository ${session.repositoryId ?? "(none)"} at the session's URL and branch is not in this host's catalog`
           : `runtime ${describeSpecRuntime(session)} of the session is not shipped by this host's worker images`;
   await countLaunchGiveUp(tx, launch.executionId, detail);
