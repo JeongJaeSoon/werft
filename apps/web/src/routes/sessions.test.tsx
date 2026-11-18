@@ -4080,15 +4080,30 @@ describe("세션의 릴리스", () => {
     });
     return { meta, link, piece: link.parentElement as HTMLElement };
   };
+  /** What assistive technology is left with: the text minus hidden parts. */
+  const spoken = (element: HTMLElement) => {
+    const copy = element.cloneNode(true) as HTMLElement;
+    for (const hidden of copy.querySelectorAll("[aria-hidden=true]"))
+      hidden.remove();
+    return copy.textContent;
+  };
 
   test.each([
-    [{}, "2026-10-30_14:30:28-2"],
-    [{ release_label: null }, "버전 3"],
-    [{ release_is_active: false }, "2026-10-30_14:30:28-2 · 활성 릴리스 아님"],
-    [{ release_is_active: null }, "2026-10-30_14:30:28-2"],
+    [{}, "2026-10-30_14:30:28-2", "2026-10-30_14:30:28-2"],
+    [{ release_label: null }, "버전 3", "버전 3"],
+    [
+      { release_is_active: false },
+      "2026-10-30_14:30:28-2 · 활성 릴리스 아님",
+      "2026-10-30_14:30:28-2 활성 릴리스 아님",
+    ],
+    [
+      { release_is_active: null },
+      "2026-10-30_14:30:28-2",
+      "2026-10-30_14:30:28-2",
+    ],
   ])(
     "에이전트 이름 뒤에 그 세션이 쓰는 릴리스를 보이고, 활성이 아니라고 할 때만 그렇게 적는다: %o",
-    async (over, text) => {
+    async (over, text, said) => {
       renderAt(
         `/sessions/${SESSION_ID}`,
         withSession({ agent: { ...AGENT, ...over } }),
@@ -4096,6 +4111,10 @@ describe("세션의 릴리스", () => {
       const { piece, link } = await agentPiece();
       expect(piece.textContent).toBe(
         `에이전트: Release helper· 이 세션이 쓰는 릴리스: ${text}`,
+      );
+      // Hiding the dots keeps the spaces between the words they part.
+      expect(spoken(piece)).toBe(
+        `에이전트: Release helper 이 세션이 쓰는 릴리스: ${said}`,
       );
       // The release sits outside the link, whose name stays the agent's.
       expect(link.textContent).toBe("Release helper");
@@ -4130,6 +4149,9 @@ describe("세션의 릴리스", () => {
     const piece = within(meta).getByText("Release helper");
     expect(piece.textContent).toBe(
       "에이전트: Release helper· 이 세션이 쓰는 릴리스: 2026-10-30_14:30:28-2 · 활성 릴리스 아님",
+    );
+    expect(spoken(piece)).toBe(
+      "에이전트: Release helper 이 세션이 쓰는 릴리스: 2026-10-30_14:30:28-2 활성 릴리스 아님",
     );
   });
 

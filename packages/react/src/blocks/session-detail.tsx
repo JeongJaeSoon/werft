@@ -659,12 +659,13 @@ function AgentRelease({
     <Text
       as="span"
       variant="meta"
-      className="min-w-0 text-muted-foreground [overflow-wrap:anywhere]"
+      className={`min-w-0 ${MUTED} [overflow-wrap:anywhere]`}
     >
-      {/* Every part on the meta line's own size, line and grey. */}
+      {/* Every part on the meta line's own size, line and grey. Only the
+          dots are hidden; the spaces still part the words when read. */}
       <Text as="span" variant="meta" className={MUTED} aria-hidden="true">
-        {"· "}
-      </Text>
+        ·
+      </Text>{" "}
       <Text as="span" variant="meta" className="sr-only">
         {t("session.release.title")}:{" "}
       </Text>
@@ -673,8 +674,9 @@ function AgentRelease({
       </Text>
       {agent.release_is_active === false ? (
         <>
+          {" "}
           <Text as="span" variant="meta" className={MUTED} aria-hidden="true">
-            {" · "}
+            {"· "}
           </Text>
           {t("session.release.notActive")}
         </>
