@@ -13,7 +13,6 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-  useMediaQuery,
 } from "@werft-ai/ui";
 import {
   ChevronDown,
@@ -629,8 +628,6 @@ const CONTROL_ICON = {
   resume: Play,
   terminate: Power,
 } as const satisfies Record<ControlAction, LucideIcon>;
-/** Tailwind's `xl`, from which a command shows its label beside its icon. */
-const LABELLED_QUERY = "(min-width: 80rem)";
 
 export interface SessionControlsProps extends SessionActionProps {
   readonly session: SessionDetailData;
@@ -650,7 +647,6 @@ export function SessionControls({
   trailing,
 }: SessionControlsProps) {
   const { t } = useBlockText();
-  const labelled = useMediaQuery(LABELLED_QUERY, true);
   const control = useSessionControl(session.id);
   const refused = useRefusal(refusal);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -737,7 +733,7 @@ export function SessionControls({
         // The ui Tooltip opens on a press too, which a command cannot share;
         // the native one names the icon where the label is hidden. A
         // withheld command has nothing to press, so it shows the reason.
-        title={!labelled && reason === undefined ? label : undefined}
+        title={reason === undefined ? label : undefined}
         onClick={() => {
           if (reason !== undefined || control.isPending) return;
           if (action === "terminate") setConfirming(true);

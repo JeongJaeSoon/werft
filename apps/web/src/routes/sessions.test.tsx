@@ -3016,12 +3016,6 @@ describe("세션 상세 레이아웃", () => {
           "일시 정지",
           "세션 종료",
         ]);
-        // The native tooltip names the icon only where the label is hidden.
-        expect(buttons.map((button) => button.getAttribute("title"))).toEqual(
-          wide
-            ? [null, null, null]
-            : ["지금 턴 멈추기", "일시 정지", "세션 종료"],
-        );
 
         await user.click(
           within(controls).getByRole("button", { name: "일시 정지" }),
