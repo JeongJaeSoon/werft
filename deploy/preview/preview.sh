@@ -582,14 +582,14 @@ sync() {
       --jq ".[] | [.number, .headRefOid, .isCrossRepository,
         ((.labels // []) | any(.name == \"${PREVIEW_PUBLIC_LABEL}\"))] | @tsv" </dev/null)"; then
     echo "sync: GitHub could not be read; no preview changed"
-    close_all_public
+    close_all_public || true
     reap
     return
   fi
   count="$(grep -c . <<<"$pulls" || true)"
   if [ "$count" -ge "$LIMIT" ]; then
     echo "sync: ${count} labeled pull requests, the list may be cut; no preview changed"
-    close_all_public
+    close_all_public || true
     reap
     return
   fi
@@ -719,8 +719,9 @@ head \`${head}\`를 띄우지 못했다(exit ${code}). 로그는 미리보기를
 PUBLIC_SELECTOR=werft.dev/preview-public=true
 
 close_all_public() {
-  kubectl delete ingress -A -l "$PUBLIC_SELECTOR" --ignore-not-found >/dev/null ||
-    echo "sync: deleting the outside routes failed" >&2
+  kubectl delete ingress -A -l "$PUBLIC_SELECTOR" --ignore-not-found >/dev/null && return 0
+  echo "sync: deleting the outside routes failed" >&2
+  return 1
 }
 
 # Whether preview pr-$1 may have an outside route, from what this run read:
@@ -772,6 +773,13 @@ public_event() {
   [ -n "$event" ]
 }
 
+# The one rule both opening and keeping a route follow: the outside label's
+# last event (as public_event read it) is a labeled by this machine's own
+# login.
+public_label_ours() {
+  [ "$event" = labeled ] && [ "$actor" = "$gh_user" ]
+}
+
 PUBLIC_OPEN_LINE="바깥 경로: 열려 있다(오너 로그인 뒤)."
 
 # Rewrites the up comment of preview pr-$1 with the outside route's line $2.
@@ -815,15 +823,15 @@ settle_public() {
 sync_public() {
   local rows namespace name hosts n event label_at actor line open=" " service
   if [ -z "$PREVIEW_PUBLIC_DOMAIN" ]; then
-    if [ "$1" = close ]; then
-      close_all_public
+    # A comment says closed only once the routes are gone.
+    if [ "$1" = close ] && close_all_public; then
       settle_public
     fi
     return 0
   fi
   rows="$(kubectl get ingress -A -l "$PUBLIC_SELECTOR" -o json | jq -r '.items[]
     | [.metadata.namespace, .metadata.name, ([.spec.rules[]?.host] | join(" "))]
-    | join("\u001f")')" || { close_all_public; return 0; }
+    | join("\u001f")')" || { close_all_public || true; return 0; }
   if [ "$1" = close ]; then
     while IFS=$'\x1f' read -r namespace name hosts; do
       [ -n "$namespace" ] || continue
@@ -839,7 +847,7 @@ sync_public() {
       elif ! public_event "$n"; then
         echo "${namespace}: the outside label's events could not be read; outside route closed"
         line="바깥 경로: 닫혀 있다."
-      elif [ "$event" != labeled ] || [ "$actor" != "$gh_user" ]; then
+      elif ! public_label_ours; then
         echo "${namespace}: the outside label's last event is ${event} by ${actor}, not a labeled by this machine's login; outside route closed"
         line="바깥 경로: 닫혀 있다."
       elif ! gate_ok "$n"; then
@@ -868,13 +876,11 @@ sync_public() {
       echo "pr-${n}: the outside label's events could not be read; outside route not opened"
       continue
     fi
-    if [ "$event" != labeled ]; then
-      echo "pr-${n}: the outside label's last event is ${event}; outside route not opened"
-      continue
-    fi
-    if [ "$actor" != "$gh_user" ]; then
-      echo "pr-${n}: outside label put on by ${actor}, not this machine's login; outside route not opened"
-      if [ "$(cat "${PREVIEW_HOME}/sync/pr-${n}.public" 2>/dev/null)" != "$label_at" ]; then
+    if ! public_label_ours; then
+      echo "pr-${n}: the outside label's last event is ${event} by ${actor}, not a labeled by this machine's login; outside route not opened"
+      # Someone else's label is said once per label; an unlabeled says nothing.
+      if [ "$event" = labeled ] &&
+        [ "$(cat "${PREVIEW_HOME}/sync/pr-${n}.public" 2>/dev/null)" != "$label_at" ]; then
         printf '%s\n' "$label_at" >"${PREVIEW_HOME}/sync/pr-${n}.public"
         public_comment "$n" "바깥 경로: 열지 않았다. 라벨 \`${PREVIEW_PUBLIC_LABEL}\`를 마지막으로 붙인 ${actor}가 미리보기를 띄우는 기계의 GitHub 로그인이 아니다."
       fi

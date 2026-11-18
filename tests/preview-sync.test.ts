@@ -119,6 +119,7 @@ case "$1 $2" in
         '{metadata: {namespace: $ns, name: $name}, spec: {rules: ($hosts | split("\\n") | map({host: .}))}}'
     done | jq -s '{items: .}' ;;
   "delete ingress")
+    [ -z "\${STUB_INGRESS_DELETE_FAILS:-}" ] || exit 1
     if [ "$3" = -A ]; then rm -f "${dir}"/ingress/*.yaml; else rm -f "${dir}/ingress/$4.$5.yaml"; fi ;;
   *) exit 1 ;;
 esac
@@ -1017,6 +1018,37 @@ esac
       expect(posted).toHaveLength(2);
       expect(posted[0]).toContain(ROUTE_LINE);
       expect(posted[1]).toContain("바깥 경로: 닫혀 있다.");
+    });
+
+    test("off: says nothing while the routes cannot be deleted", async () => {
+      await upAtA();
+      await sync(ON);
+      const failed = await sync({ STUB_INGRESS_DELETE_FAILS: "1" });
+      expect(failed.exitCode).toBe(0);
+      expect(failed.stderr).toContain(
+        "sync: deleting the outside routes failed",
+      );
+      expect(await routes()).toEqual([ROUTE]);
+      expect(await writes()).toHaveLength(1);
+      expect(
+        await readFile(join(dir, "home", "sync", "pr-5.open"), "utf8"),
+      ).toBe("");
+
+      await sync();
+      expect(await routes()).toEqual([]);
+      const posted = await writes();
+      expect(posted).toHaveLength(2);
+      expect(posted[1]).toContain("바깥 경로: 닫혀 있다.");
+    });
+
+    test("goes on to reap when GitHub cannot be read and the routes cannot be deleted", async () => {
+      await upAtA();
+      await openRoute();
+      await rm(join(dir, "gh", "pulls.json"));
+      const result = await sync({ ...ON, STUB_INGRESS_DELETE_FAILS: "1" });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("reap deleted:");
+      expect(await writes()).toEqual([]);
     });
 
     test("says closed once GitHub can be read again after closing every route", async () => {
