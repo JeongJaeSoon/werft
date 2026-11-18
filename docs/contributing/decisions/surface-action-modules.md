@@ -50,7 +50,7 @@
 | 채널·연동 | ① 보여 주는 코드 | ② 답이 돌아오는 길 | 판정 |
 |---|---|---|---|
 | Slack 스레드 | 턴 답 `enqueueSlackTurnAnswers`(`packages/platform/src/musterrolle/slack-outbox.ts:328`), 결정 카드 `slackPromptMessage`(`slack-prompts.ts:556`), 스레드 상태 `writeSlackThreadStatuses`(`slack-session-status.ts:160`), 결과 알림 `actionNoticeText`(`action-notice.ts:111`) | 버튼·모달이 `deps.pending.answer`(`slack-interactions.ts:396`)와 `deps.pushes.decide`(`:485`)를 부른다. 지시는 `slack-session-handler.ts`가 세션으로 잇는다 | **surface IN.** 동시에 action의 출구다(카탈로그 T1 메시지, T3 결정 폼) |
-| 웹 콘솔 | `presentTurnEvent`를 그리는 타임라인(`packages/react/src/blocks/session-timeline.tsx:226`), `ApprovalCard`·`QuestionCard`(`packages/react/src/components/session/`), push 승인 화면(`apps/web/src/routes/session-github-work.tsx`) | REST `service.answer`(`apps/control-host/src/api/routes/pending.ts:36`), `service.decide`(`routes/push-requests.ts:68`) | **surface IN.** 코드는 옮기지 않는다 |
+| 웹 콘솔 | `presentTurnEvent`를 그리는 세션 대화(`packages/react/src/blocks/session-chat.tsx:103`), `ApprovalCard`·`QuestionCard`(`packages/react/src/components/session/`), push 승인 화면(`apps/web/src/routes/session-github-work.tsx`) | REST `service.answer`(`apps/control-host/src/api/routes/pending.ts:36`), `service.decide`(`routes/push-requests.ts:68`) | **surface IN.** 코드는 옮기지 않는다 |
 | 공개 API·SSE | SSE는 이벤트를 가공하지 않고 그대로 쓴다(`apps/control-host/src/api/routes/events.ts:300-306`). view model은 받는 쪽이 적용한다. pending·push 응답에는 표시용 필드가 붙는다(JeongJaeSoon/werft#1496의 `summary`, `approvability`) | 웹과 같은 REST 라우트. SDK 예제가 이 길로 승인한다(`examples/sdk-approver`) | **surface IN.** `api`는 이미 surface 종류다. 서버에서 문구를 만들지 않는 지금 모양을 유지한다 |
 | GitHub: push·PR 생성·닫기·리뷰·workflow | 해당 없음 | 해당 없음 | **action.** 모델의 도구 호출이 `packages/platform/src/sessions/github-mcp-server.ts:501-731`의 분기를 지나 서비스와 게이트로 간다 |
 | GitHub: PR 본문·코멘트 표시 | `renderPullRequestBody`(`packages/platform/src/sessions/pull-request-body.ts:249`)가 사람이 읽을 본문을 만든다 | **없다.** GitHub App은 webhook 없이 만든다(`packages/platform/src/musterrolle/github-app-service.ts:141`). PR 리뷰 코멘트가 세션으로 돌아오는 코드가 없다 | **OUT(action에 남긴다).** 본문은 `open_pull_request`라는 action의 내용물이다. **LATER**: PR 코멘트·리뷰가 세션 입력이 되는 경로(webhook 수신)가 생기면 GitHub 어댑터가 surface 능력도 구현한다 |
@@ -336,7 +336,7 @@ C안은 보통의 쓰임에서 서비스 코드에 데코레이터와 메타데�
 | 시스템 | 지시 받기 | 턴 답 전달 | 결정 요청 표시 (`Approvable`) | 결정 답 받기 | 진행 상태 | 결과 알림 (`Notifiable`) | 결정 뒤 정리 |
 |---|---|---|---|---|---|---|---|
 | Slack(어댑터) | ✓ `slack-session-handler.ts` | ✓ `slack-outbox.ts:328` | ✓ `slack-prompts.ts:556` | ✓ `slack-interactions.ts:396`, `:485` | ✓ `slack-session-status.ts:160` | ✓ `action-notice.ts:111` | ✓ `slack-outbox.ts:614` |
-| 웹(끌어감) | ✓ `composer.tsx` | ✓ `session-timeline.tsx:226` | ✓ `approval-card.tsx`, `question-card.tsx` | ✓ `routes/pending.ts:36`, `routes/push-requests.ts:68` | ✓ `stage-indicator.tsx` | 없음(화면이 행을 다시 읽는다) | 없음 |
+| 웹(끌어감) | ✓ `composer.tsx` | ✓ `session-chat.tsx:103` | ✓ `approval-card.tsx`, `question-card.tsx` | ✓ `routes/pending.ts:36`, `routes/push-requests.ts:68` | ✓ `stage-indicator.tsx` | 없음(화면이 행을 다시 읽는다) | 없음 |
 | API·SSE(끌어감) | ✓ REST | ✓ `routes/events.ts:300` | ✓ pending·push 응답 | ✓ 웹과 같은 라우트 | ✓ 이벤트 | 없음 | 없음 |
 | GitHub | 없음 | 없음 | 없음 | 없음 | 없음 | 없음 | 없음 |
 
