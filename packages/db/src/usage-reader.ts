@@ -44,6 +44,7 @@ import {
 } from "./schema.ts";
 import { toolCallDays, toolCallPage } from "./sessions/tool-call-pages.ts";
 import { toolCallTotals, toolDescriptionsOf } from "./sessions/tool-calls.ts";
+import { notDeleted } from "./soft-delete.ts";
 import { rowsOf } from "./statement-rows.ts";
 
 // An open period ends at the read, and never before it starts.
@@ -701,7 +702,7 @@ export function createPostgresUsageReader(db: Database): UsageReader {
           and(
             eq(agents.workspaceId, ownerId),
             eq(agents.id, agentId),
-            isNull(agents.deletedAt),
+            notDeleted(agents),
           ),
         );
       return row !== undefined;

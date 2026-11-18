@@ -78,7 +78,7 @@ export function createPostgresGitHubInstallationStore(
           ${JSON.stringify(installations)}::jsonb, ${snapshot.readAt}
         FROM ${githubApps}
         WHERE ${githubApps.id} = ${connectionId} AND ${githubApps.appId} = ${appId}
-          AND ${githubApps.deletedAt} IS NULL
+          AND ${notDeleted(githubApps)}
         ON CONFLICT (connection_id) DO UPDATE
           SET app_id = EXCLUDED.app_id,
             installations = EXCLUDED.installations,
@@ -146,7 +146,7 @@ export function createPostgresGitHubInstallationStore(
         WHERE ${githubApps.id} = ${input.connectionId}
           AND ${githubApps.workspaceId} = ${input.workspaceId}
           AND ${githubApps.appId} = ${input.appId}
-          AND ${githubApps.deletedAt} IS NULL
+          AND ${notDeleted(githubApps)}
         ON CONFLICT (connection_id, installation_id) DO NOTHING
         RETURNING installation_id`),
       );

@@ -1424,7 +1424,7 @@ export async function resolveWebSession(
             SELECT 1 FROM ${loginMethods}
             WHERE ${loginMethods.userId} = ${users.id}
               AND ${loginMethods.kind} <> 'password'
-              AND ${loginMethods.deletedAt} IS NULL
+              AND ${notDeleted(loginMethods)}
           )`,
         ),
       ),

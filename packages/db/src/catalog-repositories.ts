@@ -15,6 +15,7 @@ import {
   catalogRepositories,
   receipts,
 } from "./schema.ts";
+import { notDeleted } from "./soft-delete.ts";
 
 type Row = typeof catalogRepositories.$inferSelect;
 
@@ -318,7 +319,7 @@ export function createPostgresCatalogRepositoryStore(
           sql`LATERAL (SELECT jsonb_array_elements_text(coalesce(${agentReleases.policyPins} -> 'github' -> 'repositories', '[]'::jsonb)) UNION SELECT ${agentReleases.repositoryId} WHERE ${agentReleases.repositoryId} IS NOT NULL) AS ids(id)`,
           sql`true`,
         )
-        .where(isNull(agents.deletedAt))
+        .where(notDeleted(agents))
         .groupBy(sql`ids.id`);
       return new Map(
         rows.map((row) => [
