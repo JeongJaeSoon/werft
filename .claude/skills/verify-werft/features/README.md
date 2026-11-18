@@ -38,14 +38,14 @@
 - [실제 Keycloak으로 로그인 공급자 몰기](./keycloak-login.md): 별도 run(`scripts/keycloak-up.sh`)에서 화면으로 공급자 추가 → Keycloak의 폼을 거친 테스트 로그인 → 켜기 → 계정 연결 → 첫 가입 → 검증 안 된 주소 거절 → 끄기와 세션 끊김, 틀린 PKCE verifier 거절(`scripts/keycloak-pkce.sh`), 로그에 secret 없음. `scripts/keycloak-login.sh`가 전부 돌고, CI의 `Keycloak login` workflow도 같은 스크립트를 부른다.
 - [API key](./api-keys.md): key CLI로 운영자 key·workspace key 발급, scope 검사, 폐기 후 401. 웹의 권한별 key는 musterrolle d.
 - [세션](./sessions.md): fake model 대본으로 세션 생성·turn 완료·권한 요청·pause/resume (전체 경로는 `docs/quickstart.md` 3장), 웹 사용자가 개인 key로 만든 세션이 웹 `/sessions`에 보이기.
-- [운영 조회](./ops-endpoints.md): `/readyz`, `/docs`(API reference), `/v1/limits`(owner), `/v1/usage/summary`, 세션 usage.
+- [운영 조회](./ops-endpoints.md): `/readyz`, `/docs`(API reference), `/v1/limits`(owner, `scope=me`는 구성원), `/v1/usage/summary`, 세션 usage.
 - [GitHub sandbox](./github-sandbox.md): 실제 `JeongJaeSoon/werft-sandbox`. 별도 run(`github-sandbox/overlay.yml`, 버리는 master key)에서 App 등록(키는 파일 경로로만), 상한, 에이전트 릴리스의 GitHub 설정, clone·push(사람 cookie로 승인)·PR, 바로 인정 규칙의 PR 성과, workflow dispatch·rerun 거절, 게이트 receipt, 자기 PR 닫기와 volume 유지 정리.
 - [멤버·팀·권한 (Musterrolle)](./musterrolle.md): 시나리오 a–g 전부. a(초대·역할 변경·OWNER_PROTECTED·LAST_OWNER·비활성화와 재활성화), b(팀과 팀을 에이전트 관리자로), c(Slack 계정 연결과 멘션·승인 판정, mock IdP overlay), d(권한별 개인 key와 에이전트 key), e(판정 기록·보존 기간·공유 범위·SSE 끊김·감사 열람·관리 목록), f(자격 연결), g(에이전트의 Slack 앱 연결). DM 기본 "나만"만 경로가 없다.
 
 ## 현재 구현과 보류
 
 - 세션 목록: `relation`·`q`·`status` 필터와 `/v1/sessions/counts`. `channel`·`created_by`는 응답 필드이며 query 필터가 아니다. 목록·상세에 `agent`·`created_by`·`channel`·`model`·`repository`가 있다.
-- 사용량: `/operations/usage`의 내 사용량·설치 전체와 한도. 설치 전체·`/v1/limits`는 owner cookie만 허용한다.
+- 사용량: `/operations/usage`의 내 사용량·설치 전체, `/operations/limits`의 한도. 설치 전체와 `/v1/limits`(`scope` 없음 또는 `installation`)는 owner cookie만 허용한다. `/v1/limits?scope=me`는 로그인한 구성원 누구나 세션 한도만 읽는다.
 - Slack: 서명 검증 → inbox 중복 제거 → slack role claim·lease → binding·연결 계정이 맞으면 세션 생성(P-SLACK-MENTION-ONLY) → 세션이 기다리는 요청의 카드 → 카드 버튼의 서명된 interaction(P-SLACK-APPROVAL-CLICK).
 - 데모: `VERIFY_DEMO_ACCOUNTS=1`로 별도 run을 띄운다. 기본 run은 bootstrap을 위해 seed를 끈다.
 - 보류: API key 마지막 사용 시각·발급자 이름은 아직 main에 없다. 검증 절차를 만들지 않는다.
