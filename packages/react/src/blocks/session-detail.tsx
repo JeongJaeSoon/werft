@@ -21,7 +21,7 @@ import {
   KeyRound,
   UserRound,
 } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { Fragment, type ReactNode, useCallback, useState } from "react";
 import {
   OPERATIONS_MESSAGES,
   SessionStatusLabel,
@@ -81,12 +81,11 @@ export type SessionDetailTab = "chat" | "outputs";
 
 /** What the outputs tab lists, for its label. */
 export interface SessionOutputsSummary {
-  readonly count: number;
+  /** Undefined until every list has answered: a slow or failed one is not 0. */
+  readonly count: number | undefined;
   /** A GitHub refusal is among them: the count turns red and says so. */
   readonly refused: boolean;
 }
-
-const NO_OUTPUTS: SessionOutputsSummary = { count: 0, refused: false };
 
 // The chat keeps the composer on screen: the frame takes the screen under
 // the top bar and only the chat scrolls. min-content lets a screen too short
@@ -109,12 +108,20 @@ export function SessionDetail({
   const session = useSession(id);
   const [draft, setDraft] = useState("");
   const [draftFor, setDraftFor] = useState(id);
-  const [ownTab, setOwnTab] = useState<SessionDetailTab>("chat");
-  const [summary, setSummary] = useState(NO_OUTPUTS);
+  const [ownTab, setOwnTab] = useState<SessionDetailTab>(tab ?? "chat");
+  // Kept with the session it came from, so another session's never shows.
+  const [reported, setReported] = useState<{
+    readonly id: string;
+    readonly summary: SessionOutputsSummary;
+  } | null>(null);
+  const report = useCallback(
+    (summary: SessionOutputsSummary) => setReported({ id, summary }),
+    [id],
+  );
+  const summary = reported?.id === id ? reported.summary : undefined;
   if (draftFor !== id) {
     setDraftFor(id);
     setDraft("");
-    setSummary(NO_OUTPUTS);
   }
   const current = onTabChange ? (tab ?? "chat") : ownTab;
   const changeTab = onTabChange ?? setOwnTab;
@@ -239,13 +246,15 @@ export function SessionDetail({
 
   // Both panels stay mounted, so a reply being written, an answer in flight
   // and the outputs' own reads survive a switch; Radix leaves a
-  // force-mounted panel visible and in the tab order.
+  // force-mounted panel visible and in the tab order. The class hides it
+  // where the host has no Tailwind preflight to honour `hidden` over `flex`.
   const tabPanel = (name: SessionDetailTab) => ({
     value: name,
     forceMount: true as const,
     hidden: name !== current,
     tabIndex: name === current ? 0 : -1,
   });
+  const inactiveHidden = "data-[state=inactive]:hidden";
 
   return (
     <PageFrame className={current === "chat" ? CHAT_FRAME : undefined}>
@@ -302,13 +311,13 @@ export function SessionDetail({
             <TabsTrigger value="chat">{t("session.tabs.chat")}</TabsTrigger>
             <TabsTrigger
               value="outputs"
-              count={summary.count}
-              countTone={summary.refused ? "danger" : undefined}
+              count={summary?.count}
+              countTone={summary?.refused ? "danger" : undefined}
               countLabel={t(
-                summary.refused
+                summary?.refused
                   ? "session.tabs.outputs.refused"
                   : "session.tabs.outputs.count",
-                { count: summary.count },
+                { count: summary?.count ?? 0 },
               )}
             >
               {t("session.tabs.outputs")}
@@ -317,15 +326,16 @@ export function SessionDetail({
         </div>
         <TabsContent
           {...tabPanel("chat")}
-          className="flex min-h-0 min-w-0 flex-col"
+          className={`flex min-h-0 min-w-0 flex-col ${inactiveHidden}`}
         >
           {chat}
         </TabsContent>
         <TabsContent
           {...tabPanel("outputs")}
-          className="flex min-w-0 flex-col gap-[var(--werft-space-section)]"
+          className={`flex min-w-0 flex-col gap-[var(--werft-space-section)] ${inactiveHidden}`}
         >
-          {panelSections?.(detail, setSummary)}
+          {/* Mounted anew for another session, so it reports for that one. */}
+          <Fragment key={detail.id}>{panelSections?.(detail, report)}</Fragment>
         </TabsContent>
       </Tabs>
     </PageFrame>

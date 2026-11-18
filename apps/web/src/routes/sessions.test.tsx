@@ -124,8 +124,6 @@ beforeEach(() => {
   globalThis.localStorage?.clear();
 });
 
-/** Switches the timeline from focus to every event. */
-/** The session info card beside the chat. */
 /** The head's one line under the title: id, agent, channel, cost and tokens. */
 async function sessionMeta() {
   return waitFor(() => {
@@ -3307,7 +3305,7 @@ describe("세션 상세 레이아웃", () => {
     ).toBe("true");
     expect(
       within(tabs)
-        .getByRole("tab", { name: "성과물 0개" })
+        .getByRole("tab", { name: /^성과물/ })
         .getAttribute("aria-selected"),
     ).toBe("false");
     expect(within(tabs).getAllByRole("tab")).toHaveLength(2);
@@ -3347,58 +3345,154 @@ describe("세션 상세 레이아웃", () => {
     );
     expect(panel?.hidden).toBe(true);
     expect(panel?.getAttribute("tabindex")).toBe("-1");
+    // A host without Tailwind's preflight lets `flex` win over `hidden`;
+    // the class hides the inactive panel there too.
+    const chat = screen.getByRole("tabpanel", { name: "대화" });
+    for (const [each, state] of [
+      [panel, "inactive"],
+      [chat, "active"],
+    ] as const) {
+      expect(each?.getAttribute("data-state")).toBe(state);
+      expect(each?.className.split(" ")).toContain(
+        "data-[state=inactive]:hidden",
+      );
+    }
   });
 
-  test("성과물 탭의 개수는 PR·성과·out/ 파일을 세고, GitHub 거절이 있으면 위험 색과 이름으로 알린다", async () => {
+  const pull = (n: number) => ({
+    id: `019a0000-0000-7000-8000-0000000001${String(n).padStart(2, "0")}`,
+    type: "github_pull_request",
+    url: `https://github.com/acme/demo/pull/${n}`,
+    repository_id: "demo",
+    external_id: String(n),
+    state: "open",
+    state_changed_at: AT,
+    merged_at: null,
+    closed_at: null,
+    state_checked_at: AT,
+    check_error: null,
+    metadata: {
+      title: `Change ${n}`,
+      head: `agent/${SESSION_ID}`,
+      base: "main",
+      adopted: false,
+      merge_commit_sha: null,
+      additions: null,
+      deletions: null,
+      changed_files: null,
+      commits: null,
+    },
+    created_at: AT,
+  });
+  const refusal = (n: number) => ({
+    receipt_id: `019a0000-0000-7000-8000-0000000002${String(n).padStart(2, "0")}`,
+    operation: "mint_github_token",
+    purpose: "push",
+    reason_code: "github_disabled",
+    created_at: AT,
+  });
+  /** Every list the outputs tab counts, answered for one session. */
+  const outputsRoutes = (id: string, pulls: number, refusals: number) => ({
+    [`GET /v1/sessions/${id}/outcomes`]: () =>
+      json(200, { items: Array.from({ length: pulls }, (_, n) => pull(n)) }),
+    [`GET /v1/sessions/${id}/achievements`]: () =>
+      json(200, {
+        items: [],
+        judgment: null,
+        judgment_count: 0,
+        judge_cost_usd: 0,
+      }),
+    [`GET /v1/sessions/${id}/github/refusals`]: () =>
+      json(200, {
+        items: Array.from({ length: refusals }, (_, n) => refusal(n)),
+      }),
+  });
+  const outputsTab = () => screen.getByRole("tab", { name: /^성과물/ });
+  const toneOf = (tab: HTMLElement) =>
+    tab.querySelector("[data-tone]")?.getAttribute("data-tone") ?? null;
+
+  test("성과물 탭의 개수는 탭에 보이는 PR·성과·out/ 파일·GitHub 거절을 모두 세고, 거절이 있으면 위험 색과 이름으로 알린다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
-      [`GET /v1/sessions/${SESSION_ID}/outcomes`]: () =>
-        json(200, {
-          items: [
-            {
-              id: "019a0000-0000-7000-8000-000000000007",
-              type: "github_pull_request",
-              url: "https://github.com/acme/demo/pull/7",
-              repository_id: "demo",
-              external_id: "7",
-              state: "open",
-              state_changed_at: AT,
-              merged_at: null,
-              closed_at: null,
-              state_checked_at: AT,
-              check_error: null,
-              metadata: {
-                title: "Fix login",
-                head: `agent/${SESSION_ID}`,
-                base: "main",
-                adopted: false,
-                merge_commit_sha: null,
-                additions: null,
-                deletions: null,
-                changed_files: null,
-                commits: null,
-              },
-              created_at: AT,
-            },
-          ],
-        }),
-      [`GET /v1/sessions/${SESSION_ID}/github/refusals`]: () =>
-        json(200, {
-          items: [
-            {
-              receipt_id: "019a0000-0000-7000-8000-0000000000b1",
-              operation: "mint_github_token",
-              purpose: "push",
-              reason_code: "github_disabled",
-              created_at: AT,
-            },
-          ],
-        }),
+      ...outputsRoutes(SESSION_ID, 1, 1),
+    });
+    const tab = await screen.findByRole("tab", {
+      name: "성과물 2개, GitHub 거절 있음",
+    });
+    expect(tab.querySelector("[data-slot=item-count]")?.textContent).toBe("2");
+    expect(toneOf(tab)).toBe("danger");
+  });
+
+  test("거절만 있고 다른 성과물이 없어도 탭은 위험 색으로 알린다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      ...outputsRoutes(SESSION_ID, 0, 1),
     });
     const tab = await screen.findByRole("tab", {
       name: "성과물 1개, GitHub 거절 있음",
     });
-    expect(tab.querySelector("[data-tone]")?.getAttribute("data-tone")).toBe(
+    expect(toneOf(tab)).toBe("danger");
+  });
+
+  test.each(["loading", "failed"] as const)(
+    "%s: 아직 답하지 않은 목록이 있으면 개수를 0으로 그리지 않는다",
+    async (state) => {
+      const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+        ...detailRoutes,
+        ...outputsRoutes(SESSION_ID, 0, 0),
+        [`GET /v1/sessions/${SESSION_ID}/outcomes`]: () =>
+          state === "loading"
+            ? new Promise<Response>(() => {})
+            : apiError(503, "BACKEND_UNAVAILABLE", "down"),
+      });
+      await waitFor(() =>
+        expect(
+          ["outcomes", "achievements", "github/refusals"].every((list) =>
+            api.calls.some(
+              (call) => call.path === `/v1/sessions/${SESSION_ID}/${list}`,
+            ),
+          ),
+        ).toBe(true),
+      );
+      // The other lists answered empty; one unknown still leaves no number.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const tab = outputsTab();
+      expect(
+        tab.querySelector("[data-slot=item-count]")?.textContent ?? null,
+      ).toBe(null);
+      expect(screen.getByRole("tab", { name: "성과물" }) === tab).toBe(true);
+    },
+  );
+
+  test("세션을 옮겼다 돌아와도 탭의 개수와 거절 표시는 그 세션의 것이다", async () => {
+    const { history } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      ...outputsRoutes(SESSION_ID, 0, 1),
+      [`GET /v1/sessions/${OTHER_ID}`]: () =>
+        json(200, { ...detail, id: OTHER_ID }),
+      [`GET /v1/sessions/${OTHER_ID}/usage`]: () =>
+        json(200, { ...usage, session_id: OTHER_ID }),
+      [`GET /v1/sessions/${OTHER_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${OTHER_ID}/events`]: () =>
+        new Promise<Response>(() => {}),
+      // The same count as the first, so nothing about it changes on the way back.
+      ...outputsRoutes(OTHER_ID, 0, 1),
+    });
+    const NAME = "성과물 1개, GitHub 거절 있음";
+    await screen.findByRole("tab", { name: NAME });
+    act(() => history.push(`/sessions/${OTHER_ID}`));
+    await screen.findByRole("heading", {
+      name: new RegExp(`^${OTHER_ID.slice(0, 8)}`),
+    });
+    expect(toneOf(await screen.findByRole("tab", { name: NAME }))).toBe(
+      "danger",
+    );
+    act(() => history.push(`/sessions/${SESSION_ID}`));
+    await screen.findByRole("heading", {
+      name: new RegExp(`^${SESSION_ID.slice(0, 8)}`),
+    });
+    expect(toneOf(await screen.findByRole("tab", { name: NAME }))).toBe(
       "danger",
     );
   });

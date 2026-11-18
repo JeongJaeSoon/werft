@@ -394,6 +394,16 @@ function SessionGitHubRefusals({
   );
 }
 
+/** A list's length: 0 when it is not read for this session, unknown until it answers. */
+function listed(query: {
+  readonly data?: { readonly items: readonly unknown[] } | undefined;
+  readonly isPending: boolean;
+  readonly fetchStatus: string;
+}): number | undefined {
+  if (query.data) return query.data.items.length;
+  return query.isPending && query.fetchStatus === "idle" ? 0 : undefined;
+}
+
 /**
  * The outputs tab: the changed files as pull requests (the API has no
  * per-file diff), reviews, achievements, `out/` files, GitHub refusals, then
@@ -411,10 +421,12 @@ export function SessionOutputsPanel({
   const achievements = useSessionAchievements(session);
   const outputs = useSessionOutputs(session);
   const refusals = useSessionGitHubRefusals(session);
-  const count =
-    (outcomes.data?.items.length ?? 0) +
-    (achievements.data?.items.length ?? 0) +
-    (outputs.data?.items.length ?? 0);
+  // Every list the tab shows, refusals too: a refused push often leaves
+  // nothing else, and a red 0 is no badge at all.
+  const lengths = [outcomes, achievements, outputs, refusals].map(listed);
+  const count = lengths.includes(undefined)
+    ? undefined
+    : lengths.reduce<number>((sum, length) => sum + (length ?? 0), 0);
   const refused = (refusals.data?.items.length ?? 0) > 0;
   useEffect(() => onSummary?.({ count, refused }), [onSummary, count, refused]);
   // Only once every list answered empty: a slow or failed one is not "none".

@@ -152,7 +152,7 @@ function routes(
   };
 }
 
-/** The achievements sit in the session info card beside the chat. */
+/** The achievements sit in the session's outputs tab. */
 async function openCard() {
   await (await setupUser()).click(
     await screen.findByRole("tab", { name: /^성과물/ }),
