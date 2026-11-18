@@ -1,3 +1,4 @@
+import { startPolling } from "../../polling.ts";
 import {
   PULL_REQUEST_MAX_ATTEMPTS,
   type PullRequestDrainOutcome,
@@ -96,29 +97,16 @@ export function createPullRequestDrain(deps: {
    * them off each other's rows.
    */
   function start(intervalMs = PULL_REQUEST_POLL_INTERVAL_MS) {
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let running: Promise<void> = Promise.resolve();
-    const tick = () => {
-      running = (async () => {
-        try {
-          while (!stopped && (await runOnce())) {}
-        } catch (error) {
-          logger.warn("Pull request drain could not claim", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-        if (!stopped) timer = setTimeout(tick, intervalMs);
-      })();
-    };
-    timer = setTimeout(tick, intervalMs);
-    return {
-      async stop() {
-        stopped = true;
-        clearTimeout(timer);
-        await running;
+    return startPolling(
+      intervalMs,
+      async (stopped) => {
+        while (!stopped() && (await runOnce())) {}
       },
-    };
+      (error) =>
+        logger.warn("Pull request drain could not claim", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+    );
   }
 
   return { runOnce, start };

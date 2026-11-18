@@ -3,6 +3,7 @@ import {
   modelSuccessor,
   type SessionCatalogView,
 } from "../catalog/index.ts";
+import { startPolling } from "../polling.ts";
 import type { AgentStore } from "./ports/agent-store.ts";
 
 export const MODEL_MOVE_POLL_INTERVAL_MS = 60_000;
@@ -108,29 +109,11 @@ export function createModelMoveRunner(deps: {
   }
 
   function start(intervalMs = MODEL_MOVE_POLL_INTERVAL_MS) {
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let running: Promise<void> = Promise.resolve();
-    const tick = () => {
-      running = (async () => {
-        try {
-          await runOnce(() => stopped);
-        } catch (error) {
-          logger.warn("Model move runner could not read its candidates", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-        if (!stopped) timer = setTimeout(tick, intervalMs);
-      })();
-    };
-    timer = setTimeout(tick, intervalMs);
-    return {
-      async stop() {
-        stopped = true;
-        clearTimeout(timer);
-        await running;
-      },
-    };
+    return startPolling(intervalMs, runOnce, (error) =>
+      logger.warn("Model move runner could not read its candidates", {
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
   }
 
   return { runOnce, start };
