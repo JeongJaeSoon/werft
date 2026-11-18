@@ -372,8 +372,31 @@ function SessionGitHubRefusals({
 }) {
   const { t, locale } = useI18n();
   const refusals = useSessionGitHubRefusals(session);
+  // A query with no data forgets its error once it reads again; the failure
+  // and its retry, focus and all, stay until that read answers.
+  const [failed, setFailed] = useState<{ id: string; error: unknown }>();
+  useEffect(() => {
+    if (refusals.error) setFailed({ id: session.id, error: refusals.error });
+  }, [refusals.error, session.id]);
+  const error =
+    refusals.error ??
+    (failed?.id === session.id &&
+    refusals.errorUpdatedAt > refusals.dataUpdatedAt
+      ? failed.error
+      : null);
   const items = refusals.data?.items ?? [];
-  if (!hasRepository(session) || items.length === 0) return null;
+  if (!hasRepository(session)) return null;
+  // A list never read is not an empty one. A later read that fails keeps
+  // the refusals already shown; a session gone from view is the detail
+  // screen's to report.
+  if (error && !refusals.data && !isApiError(error, "NOT_FOUND")) {
+    return (
+      <Section className="min-w-0" title={t("session.refusals.title")}>
+        <LoadFailure error={error} onRetry={() => void refusals.refetch()} />
+      </Section>
+    );
+  }
+  if (items.length === 0) return null;
   return (
     <Section className="min-w-0" title={t("session.refusals.title")}>
       <CompactList>
