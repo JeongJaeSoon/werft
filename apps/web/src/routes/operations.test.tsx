@@ -487,7 +487,7 @@ describe("사용량·한도", () => {
     // from it: nothing pulls the section up under it, whatever the box's gap.
     expect(head?.parentElement?.contains(table)).toBe(true);
     expect(head?.className).toContain("mt-8");
-    expect(rail.className).not.toMatch(/(^|\s)-m[ty]?-/);
+    expect(detail.className).not.toMatch(/(^|\s)-m[ty]?-/);
     // The first row is shown by default; nothing is said for it.
     expect(head?.querySelector("output")?.textContent).toBe("");
     expect(
