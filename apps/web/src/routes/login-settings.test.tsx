@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { focusManager } from "@tanstack/react-query";
 import {
   type LoginSettingsResponse,
   loginSettingsResponseSchema,
@@ -64,6 +65,11 @@ const section = async () =>
   (await screen.findByRole("heading", { name: "비밀번호 로그인" })).closest(
     "section",
   ) as HTMLElement;
+const dangerZone = () => screen.findByRole("region", { name: "위험 구역" });
+const closeButton = async () =>
+  within(await dangerZone()).getByRole("button", {
+    name: "비밀번호 로그인 닫기",
+  });
 const closedDialog = () =>
   waitFor(() => expect(screen.queryByRole("dialog") === null).toBe(true));
 
@@ -86,11 +92,7 @@ describe("비밀번호 로그인 설정", () => {
     expect(within(area).getByText("Me").getAttribute("title")).toBe(
       "me@example.com",
     );
-    expect(
-      withheld(
-        within(area).getByRole("button", { name: "비밀번호 로그인 닫기" }),
-      ),
-    ).toBe(null);
+    expect(withheld(await closeButton())).toBe(null);
     expect(
       withheld(
         within(area).getByRole("button", { name: "비상 관리자 바꾸기" }),
@@ -98,15 +100,15 @@ describe("비밀번호 로그인 설정", () => {
     ).toBe(null);
   });
 
-  test("두 행의 버튼은 서로의 글자를 안 보이게 품어 같은 폭이다", async () => {
-    renderAt(LIST_PAGE, routes(read()));
+  test("두 행의 버튼은 서로의 글자를 안 보이게 품어 같은 폭이고, 위험 구역의 닫기는 제 글자 폭이다", async () => {
+    renderAt(LIST_PAGE, routes(read({ password_login: "emergency_only" })));
     const area = await section();
     const buttons = [
-      within(area).getByRole("button", { name: "비밀번호 로그인 닫기" }),
+      within(area).getByRole("button", { name: "비밀번호 로그인 열기" }),
       within(area).getByRole("button", { name: "비상 관리자 바꾸기" }),
     ];
     expect(buttons.map((button) => button.textContent)).toEqual([
-      "닫기",
+      "열기",
       "바꾸기",
     ]);
     for (const button of buttons)
@@ -117,11 +119,157 @@ describe("비밀번호 로그인 설정", () => {
           ),
         ].map((ghost) => [ghost.className, ghost.dataset.text]),
       ).toEqual(
-        ["열기", "닫기", "바꾸기"].map((text) => [
+        ["열기", "바꾸기"].map((text) => [
           "invisible before:content-[attr(data-text)]",
           text,
         ]),
       );
+    const close = await closeButton();
+    expect(close.textContent).toBe("닫기");
+    expect(close.querySelector("[data-slot=same-width]") === null).toBe(true);
+  });
+
+  test("닫기는 위험 구역의 위험 버튼이고, 열기와 바꾸기는 위험 구역 밖에 있다", async () => {
+    renderAt(LIST_PAGE, routes(read({ password_login: "emergency_only" })));
+    const zone = await dangerZone();
+    const area = await section();
+    const close = await closeButton();
+    expect(close.className.split(" ")).toContain("bg-destructive-solid");
+    expect(zone.textContent).toContain(
+      "비상 관리자 말고는 비밀번호로 로그인할 수 없게 되고, 그 밖의 비밀번호 세션이 모두 끊깁니다.",
+    );
+    expect(area.contains(close)).toBe(false);
+    for (const name of ["비밀번호 로그인 열기", "비상 관리자 바꾸기"]) {
+      expect(within(area).getByRole("button", { name })).toBeDefined();
+      expect(within(zone).queryByRole("button", { name }) === null).toBe(true);
+    }
+    // The state stays in the row above; the zone holds only what is lost.
+    expect(area.textContent).toContain("비상 관리자만");
+    expect(zone.textContent).not.toContain("비상 관리자만");
+  });
+
+  test("닫혀 있으면 위험 구역의 닫기를 이유와 함께 막는다", async () => {
+    renderAt(LIST_PAGE, routes(read({ password_login: "emergency_only" })));
+    expect(withheld(await closeButton())).toBe("이미 닫혀 있습니다.");
+  });
+
+  test("닫으면 키보드가 새로 나타난 열기로, 열면 위험 구역의 닫기로 간다", async () => {
+    let answer = read();
+    renderAt(LIST_PAGE, {
+      ...routes(answer),
+      [`GET ${API}`]: () => json(200, answer),
+      [`PATCH ${API}`]: async (request) => {
+        answer = read(await request.json());
+        return json(200, { settings: answer.settings, sessions_revoked: 0 });
+      },
+    });
+    const user = await setupUser();
+    await user.click(await closeButton());
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "닫기",
+      }),
+    );
+    await closedDialog();
+    const reopen = await within(await section()).findByRole("button", {
+      name: "비밀번호 로그인 열기",
+    });
+    await waitFor(() => expect(document.activeElement === reopen).toBe(true));
+    await user.click(reopen);
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "열기",
+      }),
+    );
+    await closedDialog();
+    // The button is drawn anew once the read lifts its reason.
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("닫기"),
+    );
+    expect((await dangerZone()).contains(document.activeElement)).toBe(true);
+  });
+
+  test("열었는데 닫기가 이유로 막혀 있으면 그 이유로 가고, 나중에 닫기가 풀려도 키보드를 끌어오지 않는다", async () => {
+    const lapsed = { emergency_admin: { ...owner(ME, "Me"), eligible: false } };
+    let answer = read({ password_login: "emergency_only", ...lapsed });
+    renderAt(LIST_PAGE, {
+      ...routes(answer),
+      [`GET ${API}`]: () => json(200, answer),
+      [`PATCH ${API}`]: async (request) => {
+        const body = await request.json();
+        answer =
+          "password_login" in body
+            ? read({ ...body, ...lapsed })
+            : read(DANA_NAMED);
+        return json(200, { settings: answer.settings, sessions_revoked: 0 });
+      },
+    });
+    const user = await setupUser();
+    await user.click(
+      await within(await section()).findByRole("button", {
+        name: "비밀번호 로그인 열기",
+      }),
+    );
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "열기",
+      }),
+    );
+    await closedDialog();
+    await waitFor(async () =>
+      expect(withheld(await closeButton())).toBe(
+        "비상 관리자가 더는 비밀번호로 로그인할 수 없습니다. 다른 오너를 지정하세요.",
+      ),
+    );
+    const reason = (await closeButton()).closest("[data-slot=disabled-reason]");
+    await waitFor(() => expect(document.activeElement === reason).toBe(true));
+    // The keyboard falls to the page, and a later read lifts the reason
+    // (another owner named elsewhere): it is not pulled to 닫기.
+    (document.activeElement as HTMLElement).blur();
+    answer = read(DANA_NAMED);
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+    await waitFor(async () => expect(withheld(await closeButton())).toBe(null));
+    expect(document.activeElement === document.body).toBe(true);
+    focusManager.setFocused(undefined);
+  });
+
+  test("다시 읽기가 오기 전에 다른 곳으로 옮긴 키보드는 끌어오지 않는다", async () => {
+    let answer = read();
+    let release = () => {};
+    let held: Promise<void> | null = null;
+    renderAt(LIST_PAGE, {
+      ...routes(answer),
+      [`GET ${API}`]: async () => {
+        if (held) await held;
+        return json(200, answer);
+      },
+      [`PATCH ${API}`]: async (request) => {
+        answer = read(await request.json());
+        held = new Promise((done) => {
+          release = done;
+        });
+        return json(200, { settings: answer.settings, sessions_revoked: 0 });
+      },
+    });
+    const user = await setupUser();
+    await user.click(await closeButton());
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "닫기",
+      }),
+    );
+    await closedDialog();
+    const change = within(await section()).getByRole("button", {
+      name: "비상 관리자 바꾸기",
+    });
+    change.focus();
+    held = null;
+    release();
+    await within(await section()).findByRole("button", {
+      name: "비밀번호 로그인 열기",
+    });
+    expect(document.activeElement === change).toBe(true);
   });
 
   const refusedAhead: Array<[string, LoginSettingsResponse, string]> = [
@@ -144,13 +292,7 @@ describe("비밀번호 로그인 설정", () => {
   for (const [when, answer, reason] of refusedAhead) {
     test(`${when} 닫기를 누르기 전에 이유와 함께 막는다`, async () => {
       renderAt(LIST_PAGE, routes(answer));
-      expect(
-        withheld(
-          within(await section()).getByRole("button", {
-            name: "비밀번호 로그인 닫기",
-          }),
-        ),
-      ).toBe(reason);
+      expect(withheld(await closeButton())).toBe(reason);
     });
   }
 
@@ -165,10 +307,7 @@ describe("비밀번호 로그인 설정", () => {
       },
     });
     const user = await setupUser();
-    const close = within(await section()).getByRole("button", {
-      name: "비밀번호 로그인 닫기",
-    });
-    await user.click(close);
+    await user.click(await closeButton());
     const dialog = await screen.findByRole("dialog");
     // The one asking is the emergency admin: their own session stays, and
     // their password is their way back without a provider account.
@@ -195,11 +334,7 @@ describe("비밀번호 로그인 설정", () => {
   test("비상 관리자가 아니고 공급자 계정도 없는 소유자는 닫을 수 없고, 왜인지와 무엇을 할지 본다", async () => {
     const { api } = renderAt(LIST_PAGE, routes(read(DANA_NAMED)));
     const user = await setupUser();
-    await user.click(
-      within(await section()).getByRole("button", {
-        name: "비밀번호 로그인 닫기",
-      }),
-    );
+    await user.click(await closeButton());
     const dialog = await screen.findByRole("dialog");
     // Dana's password is Dana's way back, not the one asking.
     expect(dialog.textContent).toContain("비상 관리자 Dana 말고는");
@@ -225,11 +360,7 @@ describe("비밀번호 로그인 설정", () => {
       },
     });
     const user = await setupUser();
-    await user.click(
-      within(await section()).getByRole("button", {
-        name: "비밀번호 로그인 닫기",
-      }),
-    );
+    await user.click(await closeButton());
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).not.toContain(LOCKED_OUT);
     const confirm = within(dialog).getByRole("button", { name: "닫기" });
@@ -257,11 +388,7 @@ describe("비밀번호 로그인 설정", () => {
       },
     });
     const user = await setupUser();
-    await user.click(
-      within(await section()).getByRole("button", {
-        name: "비밀번호 로그인 닫기",
-      }),
-    );
+    await user.click(await closeButton());
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).toContain("비상 관리자 Dana 말고는");
     // Dana's own password sessions are the ones that stay.
@@ -300,11 +427,7 @@ describe("비밀번호 로그인 설정", () => {
       },
     });
     const user = await setupUser();
-    await user.click(
-      within(await section()).getByRole("button", {
-        name: "비밀번호 로그인 닫기",
-      }),
-    );
+    await user.click(await closeButton());
     const dialog = await screen.findByRole("dialog");
     const confirm = within(dialog).getByRole("button", { name: "닫기" });
     await user.click(confirm);

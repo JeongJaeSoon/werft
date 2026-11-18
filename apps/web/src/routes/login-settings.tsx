@@ -15,6 +15,8 @@ import {
   AlertDescription,
   Badge,
   ConfirmDialog,
+  DangerZone,
+  DangerZoneRow,
   Field,
   FieldLabel,
   NativeSelect,
@@ -23,9 +25,10 @@ import {
   SettingsSection,
   Skeleton,
 } from "@werft-ai/ui";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useMe, useRole } from "../auth/guard.tsx";
+import { focusLeftBehind } from "../components/focus.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { Action } from "../components/setting-action.tsx";
@@ -103,11 +106,35 @@ export function PasswordLoginSettings() {
     queryClient.getQueryState(loginSettingsKey(client))?.dataUpdateCount ?? 0;
   // How many reads had answered when the server last refused.
   const [refusedAtRead, setRefusedAtRead] = useState(0);
+  // Closing and opening are apart: "Open" in the row above, "Close" in the
+  // danger zone. The button pressed is withheld or gone once the read
+  // answers, so the keyboard goes on to the other one, once: a later read
+  // that lifts a reason does not pull it there.
+  const openRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const focusTo = useRef<"open" | "close" | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: tried once each read answers
+  useEffect(() => {
+    const to = focusTo.current;
+    if (to === null) return;
+    focusTo.current = null;
+    // The confirm dialog may still be on its way out when the read answers.
+    if (!focusLeftBehind(true)) return;
+    const button = (to === "open" ? openRef : closeRef).current;
+    // A withheld button is reached through the box that says why.
+    (button?.disabled
+      ? button.closest<HTMLElement>("[data-slot=disabled-reason]")
+      : button
+    )?.focus();
+  }, [read.dataUpdatedAt]);
 
   const change = useMutation<UpdateLoginSettingsResponse, ApiError, Change>({
     mutationFn: (body) => unwrap(client.PATCH("/v1/login-settings", { body })),
     onSuccess: (answer, body) => {
       setEditing(null);
+      if ("password_login" in body)
+        focusTo.current =
+          body.password_login === "emergency_only" ? "open" : "close";
       setOutcome({
         kind: "notice",
         text: !("password_login" in body)
@@ -156,7 +183,6 @@ export function PasswordLoginSettings() {
   const closed = settings.password_login === "emergency_only";
   const actionLabels = [
     t("loginProviders.access.open"),
-    t("loginProviders.access.close"),
     t("loginProviders.emergency.change"),
   ];
   const others = candidates.filter((owner) => owner.user_id !== admin?.user_id);
@@ -209,24 +235,17 @@ export function PasswordLoginSettings() {
               title={t("loginProviders.access.state")}
               meta={t(`loginProviders.access.state.${settings.password_login}`)}
               actions={
+                // Opening loses nothing, so it stays out of the danger zone.
                 closed ? (
                   <Action
                     label={t("loginProviders.access.open")}
                     name={t("loginProviders.access.open.name")}
                     busy={change.isPending}
                     alike={actionLabels}
+                    buttonRef={openRef}
                     onClick={(button) => open("open", button)}
                   />
-                ) : (
-                  <Action
-                    label={t("loginProviders.access.close")}
-                    name={t("loginProviders.access.close.name")}
-                    reason={closeReason}
-                    busy={change.isPending}
-                    alike={actionLabels}
-                    onClick={(button) => open("close", button)}
-                  />
-                )
+                ) : null
               }
             />
             <SettingRow
@@ -266,6 +285,23 @@ export function PasswordLoginSettings() {
           </>
         }
       />
+      {/* Sections here sit a block apart; the danger zone sits a section apart. */}
+      <DangerZone
+        title={t("workspace.danger")}
+        className="mt-[calc(var(--werft-space-section)-var(--werft-space-block))]"
+      >
+        <DangerZoneRow
+          title={t("loginProviders.access.close.name")}
+          description={t("loginProviders.access.closeDescription")}
+          actionLabel={t("loginProviders.access.close")}
+          disabled={change.isPending}
+          reason={
+            closed ? t("loginProviders.access.closedReason") : closeReason
+          }
+          actionRef={closeRef}
+          onAction={() => open("close")}
+        />
+      </DangerZone>
       <ConfirmDialog
         open={editing === "close"}
         onOpenChange={(next) => open(next ? "close" : null)}

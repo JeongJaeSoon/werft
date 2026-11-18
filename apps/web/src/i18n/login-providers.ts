@@ -214,6 +214,9 @@ export const loginProvidersKo = {
   "loginProviders.access.state.emergency_only": "비상 관리자만",
   "loginProviders.access.close": "닫기",
   "loginProviders.access.close.name": "비밀번호 로그인 닫기",
+  "loginProviders.access.closeDescription":
+    "비상 관리자 말고는 비밀번호로 로그인할 수 없게 되고, 그 밖의 비밀번호 세션이 모두 끊깁니다.",
+  "loginProviders.access.closedReason": "이미 닫혀 있습니다.",
   "loginProviders.access.open": "열기",
   "loginProviders.access.open.name": "비밀번호 로그인 열기",
   "loginProviders.access.closeTitle": "비밀번호 로그인을 닫을까요?",
@@ -469,6 +472,9 @@ export const loginProvidersEn: Record<keyof typeof loginProvidersKo, string> = {
   "loginProviders.access.state.emergency_only": "The emergency admin only",
   "loginProviders.access.close": "Close",
   "loginProviders.access.close.name": "Close password login",
+  "loginProviders.access.closeDescription":
+    "Only the emergency admin can still log in with a password, and every other password session ends.",
+  "loginProviders.access.closedReason": "It is already closed.",
   "loginProviders.access.open": "Open",
   "loginProviders.access.open.name": "Open password login",
   "loginProviders.access.closeTitle": "Close password login?",
@@ -728,6 +734,9 @@ export const loginProvidersJa: Record<keyof typeof loginProvidersKo, string> = {
   "loginProviders.access.state.emergency_only": "緊急管理者のみ",
   "loginProviders.access.close": "閉じる",
   "loginProviders.access.close.name": "パスワードログインを閉じる",
+  "loginProviders.access.closeDescription":
+    "緊急管理者以外はパスワードでログインできなくなり、ほかのパスワードのセッションはすべて終了します。",
+  "loginProviders.access.closedReason": "すでに閉じています。",
   "loginProviders.access.open": "開く",
   "loginProviders.access.open.name": "パスワードログインを開く",
   "loginProviders.access.closeTitle": "パスワードログインを閉じますか？",
