@@ -18,6 +18,19 @@ beforeEach(() => {
     `#!/usr/bin/env bash
 echo "$*" >>"$FAKE_LOG"
 case "$1" in
+pull)
+  # FAKE_PULL lists what each try does, the last one repeating.
+  n=$(( $(cat "$FAKE_LOG.pulls" 2>/dev/null || echo 0) + 1 ))
+  echo "$n" >"$FAKE_LOG.pulls"
+  IFS=, read -ra tries <<<"\${FAKE_PULL:-ok}"
+  i=$(( n < \${#tries[@]} ? n - 1 : \${#tries[@]} - 1 ))
+  case "\${tries[$i]}" in
+  ok) echo "Status: Downloaded newer image for $2" ;;
+  stall) echo "6b37362b3da7: Pulling fs layer"; exec sleep 30 ;;
+  reset) echo "failed to copy: read tcp: read: connection reset by peer"; exit 1 ;;
+  missing) echo "Error response from daemon: manifest unknown"; exit 1 ;;
+  esac
+  ;;
 run) echo "run output of $4"; exit "\${FAKE_RUN_RC:-0}" ;;
 inspect) echo "\${FAKE_STATE:-running}" ;;
 exec) [ "\${FAKE_PROBE:-ok}" = hang ] && exec sleep 30; [ "\${FAKE_PROBE:-ok}" = ok ] ;;
@@ -112,6 +125,51 @@ describe("ci-services.sh", () => {
     expect(out).toContain("::error::postgres service not ready after 2s");
     expect(Date.now() - started).toBeLessThan(10_000);
   });
+});
+
+describe("ci-services.sh service image pull", () => {
+  // One service's launch, as `start` runs it in the background.
+  const launch = (pull: string) => {
+    const result = Bun.spawnSync(["bash", script, "launch-one", "postgres"], {
+      env: {
+        ...process.env,
+        DOCKER_CLI: join(dir, "docker"),
+        FAKE_LOG: join(dir, "calls"),
+        FAKE_PULL: pull,
+        POSTGRES_SERVICE_IMAGE: "mirror/postgres@sha256:2",
+        SERVICES_DIR: dir,
+        SERVICES_PULL_STALL: "1",
+      },
+      timeout: 20_000,
+    });
+    return {
+      code: result.exitCode,
+      out: result.stdout.toString(),
+      pulls: Number(readFileSync(join(dir, "calls.pulls"), "utf8")),
+    };
+  };
+  const started = () => calls().includes("run --detach --name ci-postgres");
+
+  test("cuts a pull that stopped moving, tries a reset one again, then starts the container", () => {
+    const { code, out, pulls } = launch("stall,reset,ok");
+    expect({ code, pulls }).toEqual({ code: 0, pulls: 3 });
+    expect(out).toContain("transfer stalled");
+    expect(out).toContain("connection reset by peer");
+    expect(started()).toBe(true);
+  }, 20_000);
+
+  test("fails a missing image on its first try without starting anything", () => {
+    const { code, out, pulls } = launch("missing");
+    expect({ code, pulls }).toEqual({ code: 1, pulls: 1 });
+    expect(out).toContain("manifest unknown");
+    expect(started()).toBe(false);
+  }, 20_000);
+
+  test("gives up after three pulls that stopped moving", () => {
+    const { code, pulls } = launch("stall");
+    expect({ code, pulls }).toEqual({ code: 1, pulls: 3 });
+    expect(started()).toBe(false);
+  }, 20_000);
 });
 
 describe("ci.yml integration jobs", () => {

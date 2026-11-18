@@ -14,6 +14,7 @@
 #        SERVICES_DIR                     launch records (default $RUNNER_TEMP/ci-services)
 #        SERVICES_WAIT_SECONDS            wait's deadline, pull included (default 180)
 #        SERVICES_CALL_TIMEOUT            seconds one docker call may take in wait (default 10)
+#        SERVICES_PULL_STALL              seconds a pull may print nothing before it is cut (default 45)
 #        DOCKER_CLI                       the docker command (tests replace it)
 set -euo pipefail
 
@@ -22,6 +23,40 @@ dir=$SERVICES_DIR
 docker=${DOCKER_CLI:-docker}
 # A stalled daemon must not hold wait past its deadline by more than this.
 bounded() { timeout "${SERVICES_CALL_TIMEOUT:-10}" "$docker" "$@"; }
+
+. "$(dirname "${BASH_SOURCE[0]}")/../../tests/e2e/fetch-retry.sh"
+
+# Without a terminal, docker pull prints a line each time a layer changes
+# state, so a pull silent for SERVICES_PULL_STALL seconds has stopped moving
+# (main run 44221838238: two layers sat for the whole 180s wait). It is cut
+# with a line fetch_retried treats as a transfer failure; the layers that
+# finished stay in the daemon for the next try. The wait deadline still
+# bounds every try together.
+pull_cut() {
+  local out="$dir/$service.pulling" pid size last=-1 idle=0 status=0
+  "$docker" pull "$1" >"$out" 2>&1 &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 1
+    size=$(wc -c <"$out")
+    if [ "$size" = "$last" ]; then
+      idle=$((idle + 1))
+    else
+      idle=0
+      last=$size
+    fi
+    if [ "$idle" -ge "${SERVICES_PULL_STALL:-45}" ]; then
+      kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      cat "$out"
+      echo "transfer stalled: the pull printed nothing for ${idle}s"
+      return 1
+    fi
+  done
+  wait "$pid" || status=$?
+  cat "$out"
+  return "$status"
+}
 
 enabled() {
   [ "${POSTGRES:-}" = true ] && echo postgres
@@ -49,6 +84,10 @@ launch() {
       "${LOCALSTACK_SERVICE_IMAGE:?}"
     ;;
   esac
+  local status=0
+  fetch_retried "$dir/$service.pull" pull_cut "${!#}" || status=$?
+  cat "$dir/$service.pull"
+  [ "$status" = 0 ] || return "$status"
   "$docker" run --detach --name "ci-$service" "$@"
 }
 
