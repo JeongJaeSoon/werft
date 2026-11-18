@@ -34,11 +34,12 @@ import {
 } from "./shared.ts";
 
 export function SlackSkeleton() {
+  const { t } = useI18n();
   return (
     <div className="flex min-h-96 flex-col gap-6" aria-busy="true">
-      <Skeleton className="h-10 w-64" />
-      <Skeleton className="h-32 w-full" />
-      <Skeleton className="h-40 w-full" />
+      <Skeleton className="h-10 w-64" label={t("status.loading.title")} />
+      <Skeleton className="h-32 w-full" label={t("status.loading.title")} />
+      <Skeleton className="h-40 w-full" label={t("status.loading.title")} />
     </div>
   );
 }

@@ -234,7 +234,9 @@ export function FeatureList({
   };
 
   const rows = settings.isPending ? (
-    <SettingRow title={<Skeleton width="40%" />} />
+    <SettingRow
+      title={<Skeleton width="40%" label={t("status.loading.title")} />}
+    />
   ) : settings.isError ? (
     <li className="list-none py-4">
       <LoadFailure

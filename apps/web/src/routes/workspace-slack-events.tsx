@@ -126,7 +126,7 @@ export function SlackEventsSetting({
   if (read.isPending) {
     return (
       <SettingsSection titleAs="h3" title={t("workspace.eventsTitle")} box>
-        <Skeleton width="50%" />
+        <Skeleton width="50%" label={t("status.loading.title")} />
       </SettingsSection>
     );
   }

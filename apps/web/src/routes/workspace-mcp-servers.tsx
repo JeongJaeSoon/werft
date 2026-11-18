@@ -156,7 +156,7 @@ export function WorkspaceMcpServers() {
         )}
         <OutcomeLine outcome={outcome} />
         {servers.isPending ? (
-          <Skeleton width="60%" />
+          <Skeleton width="60%" label={t("status.loading.title")} />
         ) : servers.isError ? (
           <LoadFailure
             error={servers.error}

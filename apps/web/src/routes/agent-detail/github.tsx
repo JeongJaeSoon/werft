@@ -336,7 +336,10 @@ function Activity({
         ) : null}
         {activity.data === undefined ? (
           activity.error ? null : (
-            <Skeleton className="h-32 w-full" />
+            <Skeleton
+              className="h-32 w-full"
+              label={t("status.loading.title")}
+            />
           )
         ) : activity.data.items.length === 0 ? (
           <EmptyState framed size="sm" title={t("agentGitHub.activityEmpty")} />
@@ -1263,9 +1266,9 @@ export default function GitHubTab({
   if (github.isPending) {
     return (
       <div className="flex min-h-96 flex-col gap-6" aria-busy="true">
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="h-32 w-full" />
-        <Skeleton className="h-40 w-full" />
+        <Skeleton className="h-10 w-64" label={t("status.loading.title")} />
+        <Skeleton className="h-32 w-full" label={t("status.loading.title")} />
+        <Skeleton className="h-40 w-full" label={t("status.loading.title")} />
       </div>
     );
   }

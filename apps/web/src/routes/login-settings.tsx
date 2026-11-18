@@ -144,7 +144,8 @@ export function PasswordLoginSettings() {
     setEditing(next);
   };
 
-  if (read.isPending) return <Skeleton width="40%" />;
+  if (read.isPending)
+    return <Skeleton width="40%" label={t("status.loading.title")} />;
   if (read.isError)
     return (
       <LoadFailure error={read.error} onRetry={() => void read.refetch()} />

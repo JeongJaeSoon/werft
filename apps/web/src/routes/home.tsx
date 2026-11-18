@@ -1038,12 +1038,12 @@ function HomeSkeleton() {
         aria-hidden="true"
         className="grid grid-cols-1 gap-4 @[720px]:grid-cols-3"
       >
-        <Skeleton shape="block" height="17rem" />
-        <Skeleton shape="block" height="17rem" />
-        <Skeleton shape="block" height="17rem" />
+        <Skeleton shape="block" height="17rem" decorative />
+        <Skeleton shape="block" height="17rem" decorative />
+        <Skeleton shape="block" height="17rem" decorative />
       </div>
       <div aria-hidden="true">
-        <Skeleton shape="block" height="12rem" />
+        <Skeleton shape="block" height="12rem" decorative />
       </div>
     </div>
   );

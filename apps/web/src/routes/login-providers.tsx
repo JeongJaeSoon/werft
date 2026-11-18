@@ -231,7 +231,7 @@ export function LoginProvidersScreen() {
           </Alert>
         ) : null}
         {list.isPending ? (
-          <Skeleton width="60%" />
+          <Skeleton width="60%" label={t("status.loading.title")} />
         ) : list.isError ? (
           <LoadFailure error={list.error} onRetry={() => void list.refetch()} />
         ) : list.data.providers.length === 0 ? (
@@ -409,7 +409,7 @@ export function LoginProviderScreen() {
   if (list.isPending)
     return (
       <Page title={title} breadcrumb={breadcrumb}>
-        <Skeleton width="60%" />
+        <Skeleton width="60%" label={t("status.loading.title")} />
       </Page>
     );
   if (list.isError)

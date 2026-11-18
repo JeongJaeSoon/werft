@@ -73,7 +73,7 @@ export function AgentPullRequestSettingsCard({
     return (
       <Anchor>
         <SettingsSection title={t("github.pullRequest.title")} box>
-          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" label={t("status.loading.title")} />
         </SettingsSection>
       </Anchor>
     );

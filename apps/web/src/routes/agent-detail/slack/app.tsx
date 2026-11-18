@@ -139,7 +139,7 @@ export function SlackTokenSection({ slack }: { readonly slack: SlackApp }) {
       title={t("workspace.tokenSection")}
       badge={
         slack.app.isPending ? (
-          <Skeleton className="h-4 w-20" />
+          <Skeleton className="h-4 w-20" label={t("status.loading.title")} />
         ) : state === "active" ? (
           <Badge variant="green">{t("workspace.tokenActive")}</Badge>
         ) : state === "needs_reentry" ? (
@@ -254,7 +254,7 @@ export function SlackAppSection({
     </SettingsSection>
   );
   if (app.isPending || identities.isPending)
-    return section(<Skeleton width="50%" />);
+    return section(<Skeleton width="50%" label={t("status.loading.title")} />);
   // A failed read says nothing about whether the app exists; the card above
   // reports the failure, so this offers only to read again.
   if (app.data === undefined)

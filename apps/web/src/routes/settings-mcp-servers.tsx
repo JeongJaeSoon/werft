@@ -140,7 +140,7 @@ function McpCatalog({
   return (
     <div className="flex flex-col gap-[var(--werft-space-block)]">
       {servers.isPending ? (
-        <Skeleton width="60%" />
+        <Skeleton width="60%" label={t("status.loading.title")} />
       ) : servers.isError ? (
         <LoadFailure
           error={servers.error}
