@@ -6,7 +6,6 @@ import type {
   SetManagingTeamResult,
   TeamActor,
 } from "@werft-ai/platform";
-import { receiptActorOf } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { agentOf, managingTeamName } from "../agents.ts";
 import { lockPeople, UUID } from "../control-shared.ts";
@@ -18,10 +17,10 @@ import {
   agents,
   memberTeamMembers,
   memberTeams,
-  receipts,
   users,
 } from "../schema.ts";
 import { notDeleted } from "../soft-delete.ts";
+import { writeSucceededReceipt } from "../succeeded-receipt.ts";
 import { administers, liveMember } from "./administers.ts";
 
 /**
@@ -245,18 +244,12 @@ async function setManagingTeam(
       .update(agents)
       .set({ managingTeamId: teamId, updatedAt: DB_NOW })
       .where(eq(agents.id, agentId));
-    await tx.insert(receipts).values({
+    await writeSucceededReceipt(tx, actor.principal, {
       id: input.receiptId,
-      ownerId: actor.principal.ownerId,
-      actor: receiptActorOf(actor.principal),
       operation: "set_agent_managing_team",
-      targetRef: {
-        resource: { kind: "agent", id: agentId },
-        workspace_id: workspaceId,
-      },
+      resource: { kind: "agent", id: agentId },
+      workspaceId,
       result: { from: before?.teamId ?? null, to: teamId },
-      status: "succeeded",
-      requestId: actor.principal.requestId ?? null,
     });
     return { outcome: "set", agent: await agentRow(tx, agentId) };
   });
@@ -446,18 +439,12 @@ async function change(
     }
 
     if (changed) {
-      await tx.insert(receipts).values({
+      await writeSucceededReceipt(tx, actor.principal, {
         id: input.receiptId,
-        ownerId: actor.principal.ownerId,
-        actor: receiptActorOf(actor.principal),
         operation: add ? "add_agent_admin" : "remove_agent_admin",
-        targetRef: {
-          resource: { kind: "agent", id: agentId },
-          workspace_id: workspaceId,
-        },
+        resource: { kind: "agent", id: agentId },
+        workspaceId,
         result: { subject: { kind: subject.kind, id: subjectId } },
-        status: "succeeded",
-        requestId: actor.principal.requestId ?? null,
       });
     }
     return {

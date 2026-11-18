@@ -1,10 +1,8 @@
-import { randomUUID } from "node:crypto";
 import type { WorkspaceMcpStart } from "@werft-ai/contracts";
 import type {
   AgentWorkspaceMcpServerRow,
   AgentWorkspaceMcpStore,
 } from "@werft-ai/platform";
-import { receiptActorOf } from "@werft-ai/platform";
 import { and, asc, eq, inArray, notInArray } from "drizzle-orm";
 import { lockAgentToChange } from "../agents.ts";
 import type { Database } from "../queries.ts";
@@ -12,12 +10,12 @@ import {
   agentReleases,
   agents,
   agentWorkspaceMcpServers,
-  receipts,
   users,
   workspaceMcpConnections,
   workspaceMcpServers,
 } from "../schema.ts";
 import { notDeleted } from "../soft-delete.ts";
+import { writeSucceededReceipt } from "../succeeded-receipt.ts";
 
 const SUBJECT = "workspace";
 
@@ -214,18 +212,10 @@ export function createPostgresAgentWorkspaceMcpStore(
             )
             .onConflictDoNothing();
         }
-        const receiptId = randomUUID();
-        await tx.insert(receipts).values({
-          id: receiptId,
-          ownerId: input.principal.ownerId,
-          actor: receiptActorOf(input.principal),
-          requestId: input.principal.requestId ?? null,
+        const receiptId = await writeSucceededReceipt(tx, input.principal, {
           operation: "set_agent_workspace_mcp",
-          targetRef: {
-            resource: { kind: "agent", id: agentId },
-            workspace_id: ws,
-          },
-          status: "succeeded",
+          resource: { kind: "agent", id: agentId },
+          workspaceId: ws,
           result: { agent_id: agentId, before, after },
         });
         return { outcome: "saved" as const, receiptId };

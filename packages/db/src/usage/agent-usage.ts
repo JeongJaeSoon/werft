@@ -5,7 +5,6 @@ import {
   type AgentUsageStore,
   decideUsage,
   type PutAgentUsageResult,
-  receiptActorOf,
   type UsageDecision,
   type UsageFacts,
 } from "@werft-ai/platform";
@@ -21,8 +20,8 @@ import {
   agentUsageTargets,
   memberTeamMembers,
   memberTeams,
-  receipts,
 } from "../schema.ts";
+import { writeSucceededReceipt } from "../succeeded-receipt.ts";
 
 // The edit takes rows in the order the notes' P1.6c gives (see also the list
 // in requester-locks.ts): user → membership → agent → agent_usage → admin rows
@@ -462,22 +461,16 @@ async function put(
       .where(eq(agentUsage.agentId, agentId));
     const next = await readState(tx, agentId);
     if (!next) throw new Error(`agent_usage ${agentId} vanished in its tx`);
-    await tx.insert(receipts).values({
+    await writeSucceededReceipt(tx, actor.principal, {
       id: input.receiptId,
-      ownerId: actor.principal.ownerId,
-      actor: receiptActorOf(actor.principal),
       operation: "set_agent_usage",
-      targetRef: {
-        resource: { kind: "agent", id: agentId },
-        workspace_id: workspaceId,
-      },
+      resource: { kind: "agent", id: agentId },
+      workspaceId,
       result: {
         from: { scope: stored.scope, team_ids: stored.teams.map((t) => t.id) },
         to: { scope: next.scope, team_ids: next.teams.map((t) => t.id) },
         revision: next.revision,
       },
-      status: "succeeded",
-      requestId: actor.principal.requestId ?? null,
     });
     return { outcome: "set", usage: next };
   });

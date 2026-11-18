@@ -14,7 +14,6 @@ import type {
   EnvVariableStore,
   Principal,
 } from "@werft-ai/platform";
-import { receiptActorOf } from "@werft-ai/platform";
 import {
   and,
   asc,
@@ -38,6 +37,7 @@ import {
 } from "../schema.ts";
 import { deletedBy, notDeleted } from "../soft-delete.ts";
 import { rowsOf } from "../statement-rows.ts";
+import { writeSucceededReceipt } from "../succeeded-receipt.ts";
 
 const NEXT_VERSION = sql<number>`nextval('env_variable_versions_seq')`;
 
@@ -64,17 +64,7 @@ async function lockEnvVariableScope(
   );
 }
 
-function receiptTarget(scope: EnvVariableScope) {
-  return {
-    resource:
-      scope.agentId === null
-        ? { kind: "workspace" as const, id: scope.workspaceId }
-        : { kind: "agent" as const, id: scope.agentId },
-    workspace_id: scope.workspaceId,
-  };
-}
-
-async function writeReceipt(
+function writeReceipt(
   tx: Database,
   principal: Principal,
   input: {
@@ -86,18 +76,16 @@ async function writeReceipt(
     result: Record<string, unknown>;
   },
 ): Promise<string> {
-  const id = randomUUID();
-  await tx.insert(receipts).values({
-    id,
-    ownerId: principal.ownerId,
-    actor: receiptActorOf(principal),
-    requestId: principal.requestId ?? null,
+  const { scope } = input;
+  return writeSucceededReceipt(tx, principal, {
     operation: input.operation,
-    targetRef: receiptTarget(input.scope),
-    status: "succeeded",
+    resource:
+      scope.agentId === null
+        ? { kind: "workspace", id: scope.workspaceId }
+        : { kind: "agent", id: scope.agentId },
+    workspaceId: scope.workspaceId,
     result: input.result,
   });
-  return id;
 }
 
 type VariableRow = typeof envVariables.$inferSelect;
