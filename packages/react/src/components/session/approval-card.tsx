@@ -10,8 +10,8 @@ import {
 import { ShieldCheck } from "lucide-react";
 import { type JSX, type ReactNode, useId } from "react";
 
+import { DenialForm, NoteForm, useAnswerForm } from "./answer-form.tsx";
 import { Busy } from "./busy.tsx";
-import { DenialForm, useDenial } from "./denial.tsx";
 import { useExpired, useExpiryFocus } from "./expiry.ts";
 import { RequestCard } from "./request-card.tsx";
 
@@ -35,16 +35,25 @@ export interface ApprovalCardMessages {
   readonly denyReason: string;
   readonly denySubmit: string;
   readonly cancel: string;
+  /** The button that opens the instruction field. */
+  readonly allowNote: string;
+  /** The label of the instruction field, which is required. */
+  readonly note: string;
+  readonly noteSubmit: string;
+  /** The field is blank: plain allow is the way without one. */
+  readonly noteRequired: string;
+  /** Over the API's 8 KiB of UTF-8. */
+  readonly noteTooLong: string;
 }
 
 export interface ApprovalCardProps {
   readonly request: PermissionRequest;
   readonly messages: ApprovalCardMessages;
   /**
-   * Takes no text: the worker drops an allow's reason and the runtime's
-   * allow has no room for one, so a field here would reach no model.
+   * Takes the trimmed instruction from "allow with instruction", which the
+   * API hands to the model with the approval; none from the plain allow.
    */
-  readonly onAllow: () => void;
+  readonly onAllow: (reason?: string) => void;
   /** Takes the trimmed reason; empty when the person gave none. */
   readonly onDeny: (reason: string) => void;
   /** An answer was sent and its receipt has not come back. */
@@ -83,7 +92,8 @@ export function ApprovalCard({
   className,
 }: ApprovalCardProps): JSX.Element {
   const titleId = useId();
-  const denial = useDenial();
+  const denial = useAnswerForm();
+  const note = useAnswerForm();
   const expired = useExpired(request.request_id, request.expires_at, now);
   const { noticeRef, within } = useExpiryFocus(expired);
   const blocked = pending || disabled;
@@ -143,11 +153,19 @@ export function ApprovalCard({
         </div>
       </details>
       <FieldError>{error}</FieldError>
-      {expired ? null : denial.denying ? (
+      {expired ? null : denial.shown ? (
         <DenialForm
-          denial={denial}
+          form={denial}
           messages={messages}
           onDeny={onDeny}
+          pending={pending}
+          blocked={blocked}
+        />
+      ) : note.shown ? (
+        <NoteForm
+          form={note}
+          messages={messages}
+          onAllow={onAllow}
           pending={pending}
           blocked={blocked}
         />
@@ -168,7 +186,21 @@ export function ApprovalCard({
             {messages.allow}
           </Button>
           <Button
-            ref={denial.denyRef}
+            ref={note.openerRef}
+            type="button"
+            variant="outline"
+            size="sm"
+            className="bg-card"
+            disabled={blocked && !pending}
+            aria-disabled={pending || undefined}
+            onClick={() => {
+              if (!blocked) note.open();
+            }}
+          >
+            {messages.allowNote}
+          </Button>
+          <Button
+            ref={denial.openerRef}
             type="button"
             variant="outline"
             size="sm"

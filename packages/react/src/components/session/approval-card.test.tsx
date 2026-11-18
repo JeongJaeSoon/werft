@@ -34,6 +34,11 @@ const MESSAGES: ApprovalCardMessages = {
   denyReason: "Reason",
   denySubmit: "Send denial",
   cancel: "Cancel",
+  allowNote: "Allow with instruction",
+  note: "Instruction",
+  noteSubmit: "Send approval",
+  noteRequired: "Type an instruction",
+  noteTooLong: "Too long",
 };
 
 describe("ApprovalCard", () => {

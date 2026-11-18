@@ -10,12 +10,12 @@ import {
 import { Hourglass } from "lucide-react";
 import { type JSX, type ReactNode, useId, useState } from "react";
 
+import { DenialForm, NoteForm, useAnswerForm } from "./answer-form.tsx";
 import type {
   ApprovalCardMessages,
   ApprovalCardProps,
 } from "./approval-card.tsx";
 import { Busy } from "./busy.tsx";
-import { DenialForm, useDenial } from "./denial.tsx";
 import { useExpired, useExpiryFocus } from "./expiry.ts";
 import { ToolSummary } from "./tool-summary.tsx";
 
@@ -25,6 +25,8 @@ export interface ApprovalRowMessages extends ApprovalCardMessages {
    * and the session's short id. Starts with `allow`, the visible word.
    */
   readonly allowName: (tool: string) => string;
+  /** Starts with `allowNote`, the visible words. */
+  readonly allowNoteName: (tool: string) => string;
   readonly denyName: (tool: string) => string;
 }
 
@@ -71,7 +73,9 @@ export function ApprovalRow({
   const titleId = useId();
   const inputId = useId();
   const [inputOpen, setInputOpen] = useState(false);
-  const denial = useDenial();
+  const denial = useAnswerForm();
+  const note = useAnswerForm();
+  const answering = denial.shown || note.shown;
   const expired = useExpired(request.request_id, request.expires_at, now);
   const { noticeRef, within } = useExpiryFocus(expired);
   const blocked = pending || disabled;
@@ -192,7 +196,7 @@ export function ApprovalRow({
             {inputToggle}
           </div>
         )}
-        {expired || denial.denying ? null : (
+        {expired || answering ? null : (
           <div className="flex shrink-0 gap-2">
             {/* While sending, not `disabled`: Chrome takes focus off a
                 disabled button, and the keyboard would lose its place. */}
@@ -209,7 +213,18 @@ export function ApprovalRow({
               {messages.allow}
             </RowAction>
             <RowAction
-              ref={denial.denyRef}
+              ref={note.openerRef}
+              disabled={blocked && !pending}
+              aria-disabled={pending || undefined}
+              aria-label={messages.allowNoteName(request.tool)}
+              onClick={() => {
+                if (!blocked) note.open();
+              }}
+            >
+              {messages.allowNote}
+            </RowAction>
+            <RowAction
+              ref={denial.openerRef}
               disabled={blocked && !pending}
               aria-disabled={pending || undefined}
               aria-label={messages.denyName(request.tool)}
@@ -228,15 +243,23 @@ export function ApprovalRow({
         </CodeBlock>
       ) : null}
       <FieldError>{error}</FieldError>
-      {expired || !denial.denying ? null : (
+      {expired ? null : denial.shown ? (
         <DenialForm
-          denial={denial}
+          form={denial}
           messages={messages}
           onDeny={onDeny}
           pending={pending}
           blocked={blocked}
         />
-      )}
+      ) : note.shown ? (
+        <NoteForm
+          form={note}
+          messages={messages}
+          onAllow={onAllow}
+          pending={pending}
+          blocked={blocked}
+        />
+      ) : null}
     </article>
   );
 }

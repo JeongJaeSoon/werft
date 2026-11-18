@@ -126,6 +126,13 @@ export const sessionsKo = {
   "session.answer.denyReason": "거부하는 이유 (선택)",
   "session.answer.denySubmit": "거부 보내기",
   "session.answer.cancel": "취소",
+  "session.answer.allowNote": "지시와 함께 승인",
+  "session.answer.allowNoteFor": "지시와 함께 승인: {tool} · {session}",
+  "session.answer.note": "에이전트에게 전할 지시",
+  "session.answer.noteSubmit": "승인 보내기",
+  "session.answer.noteRequired":
+    "지시를 입력해 주세요. 지시 없이 승인하려면 취소하고 승인을 누르세요.",
+  "session.answer.noteTooLong": "지시가 너무 깁니다. 줄여서 다시 보내 주세요.",
   "session.answer.freeText": "직접 적기",
   "session.answer.unanswered": "하나를 고르거나 답을 적어 주세요.",
   "session.answer.submit": "답 보내기",
@@ -156,6 +163,10 @@ export const sessionsKo = {
   "session.command.refused": "요청이 거절되었습니다.",
   "session.refused.REQUEST_EXPIRED":
     "이미 답했거나 만료되었거나 닫힌 요청입니다.",
+  "session.refused.note.note_not_accepted":
+    "이 세션은 지시를 에이전트에게 전할 수 없어 승인하지 않았습니다. 요청은 아직 열려 있습니다. 지시 없이 승인하거나 거부해 주세요.",
+  "session.refused.note.answer_too_long":
+    "이 지시까지 더하면 에이전트에게 보낼 답이 너무 길어져 승인하지 않았습니다. 요청은 아직 열려 있습니다. 지시를 줄여 다시 보내 주세요.",
   "session.refused.REQUEST_STALE":
     "세션이 그새 다음으로 넘어가 이 요청은 더 이상 유효하지 않습니다.",
   "session.refused.TURN_NOT_STARTED":
@@ -364,6 +375,14 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.answer.denyReason": "Why deny? (optional)",
   "session.answer.denySubmit": "Send denial",
   "session.answer.cancel": "Cancel",
+  "session.answer.allowNote": "Allow with instruction",
+  "session.answer.allowNoteFor": "Allow with instruction: {tool} · {session}",
+  "session.answer.note": "Instruction for the agent",
+  "session.answer.noteSubmit": "Send approval",
+  "session.answer.noteRequired":
+    "Type an instruction. To allow without one, cancel and press Allow.",
+  "session.answer.noteTooLong":
+    "The instruction is too long. Shorten it and send again.",
   "session.answer.freeText": "Write your own",
   "session.answer.unanswered": "Pick an option or write an answer.",
   "session.answer.submit": "Send answer",
@@ -394,6 +413,10 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.command.refused": "The request was refused.",
   "session.refused.REQUEST_EXPIRED":
     "This request was already answered, expired or closed.",
+  "session.refused.note.note_not_accepted":
+    "This session cannot hand an instruction to the agent, so nothing was allowed. The request is still open: allow it without an instruction, or deny it.",
+  "session.refused.note.answer_too_long":
+    "With this instruction the answers to the agent would be too long, so nothing was allowed. The request is still open: shorten the instruction and send again.",
   "session.refused.REQUEST_STALE":
     "The session moved on, so this request no longer stands.",
   "session.refused.TURN_NOT_STARTED":
@@ -601,6 +624,14 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.answer.denyReason": "拒否する理由(任意)",
   "session.answer.denySubmit": "拒否を送信",
   "session.answer.cancel": "キャンセル",
+  "session.answer.allowNote": "指示を付けて許可",
+  "session.answer.allowNoteFor": "指示を付けて許可: {tool} · {session}",
+  "session.answer.note": "エージェントへの指示",
+  "session.answer.noteSubmit": "許可を送信",
+  "session.answer.noteRequired":
+    "指示を入力してください。指示なしで許可するには、キャンセルして「許可」を押してください。",
+  "session.answer.noteTooLong":
+    "指示が長すぎます。短くしてもう一度送信してください。",
   "session.answer.freeText": "自由に入力",
   "session.answer.unanswered": "選択肢を選ぶか、回答を入力してください。",
   "session.answer.submit": "回答を送信",
@@ -632,6 +663,10 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.command.refused": "リクエストは拒否されました。",
   "session.refused.REQUEST_EXPIRED":
     "回答済み、期限切れ、またはクローズ済みのリクエストです。",
+  "session.refused.note.note_not_accepted":
+    "このセッションは指示をエージェントに渡せないため、許可していません。リクエストはまだ開いています。指示なしで許可するか、拒否してください。",
+  "session.refused.note.answer_too_long":
+    "この指示を加えるとエージェントに送る回答が長くなりすぎるため、許可していません。リクエストはまだ開いています。指示を短くしてもう一度送信してください。",
   "session.refused.REQUEST_STALE":
     "セッションが先に進んだため、このリクエストは無効になりました。",
   "session.refused.TURN_NOT_STARTED":
