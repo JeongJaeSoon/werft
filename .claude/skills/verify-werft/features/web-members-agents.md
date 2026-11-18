@@ -26,7 +26,7 @@ owner·admin은 웹 콘솔 `/members`에서 초대 대화상자로 링크를 만
 
 ## Driving it with lib.sh
 
-Preconditions: [web-login.md](./web-login.md)대로 owner를 `web-user.mjs`로 bootstrap·login했다. 에이전트를 만들려면 그 뒤 `ap_store_keys`로 설정 문서의 키를 넣는다(안 넣으면 마법사 ②단계에서 모델을 고른 뒤 "켜진 모델 연결이 없습니다."가 붙고 "저장하고 다음"이 꺼진다). `orch hold browser --note "<what>"`를 잡았다. 화면은 이 run의 headless Chrome(`browser.mjs`, [web-console.md](./web-console.md))으로 몬다. 비밀번호와 초대 token은 명령에 쓰지 않는다: `web-user.mjs invite`가 token을 `users/<who>.invite`에, 초대받는 사람의 무작위 비밀번호를 `users/<who>`에 두고, 수락은 API(`web-user.mjs accept`)나 화면(`browser.mjs accept`)이 그 파일에서 읽는다.
+Preconditions: [web-login.md](./web-login.md)대로 owner를 `web-user.mjs`로 bootstrap·login했다. 에이전트를 만들려면 그 뒤 `ap_store_keys`로 설정 문서의 키를 넣는다(안 넣으면 `GET /v1/connections`가 `{"items":[]}`이고, 마법사 ②단계의 모델 연결 칸 아래에 "켜진 모델 연결이 없습니다. …"가 바로 보인다. 모델 연결·모델 칸에는 고를 값이 없고, "저장하고 다음"은 켜져 있지만 누르면 모델 칸에 "필수 항목입니다."가 붙고 저장되지 않는다). `orch hold browser --note "<what>"`를 잡았다. 화면은 이 run의 headless Chrome(`browser.mjs`, [web-console.md](./web-console.md))으로 몬다. 비밀번호와 초대 token은 명령에 쓰지 않는다: `web-user.mjs invite`가 token을 `users/<who>.invite`에, 초대받는 사람의 무작위 비밀번호를 `users/<who>`에 두고, 수락은 API(`web-user.mjs accept`)나 화면(`browser.mjs accept`)이 그 파일에서 읽는다.
 
 ```sh
 . .claude/skills/verify-werft/scripts/lib.sh <run id>
