@@ -112,6 +112,7 @@ case "$1 $2" in
     y="$(cat)"
     printf '%s\\n' "$y" > "${dir}/ingress/$(sed -n 's/^  namespace: //p' <<<"$y").$(sed -n 's/^  name: //p' <<<"$y").yaml" ;;
   "get ingress")
+    [ -z "\${STUB_INGRESS_GET_FAILS:-}" ] || exit 1
     for f in "${dir}"/ingress/*.yaml; do
       [ -f "$f" ] || continue
       jq -n --arg ns "$(sed -n 's/^  namespace: //p' "$f")" --arg name "$(sed -n 's/^  name: //p' "$f")" \\
@@ -1041,15 +1042,86 @@ esac
       expect(posted[1]).toContain("바깥 경로: 닫혀 있다.");
     });
 
-    test("goes on to reap when GitHub cannot be read and the routes cannot be deleted", async () => {
+    for (const [name, setup, env] of [
+      ["GitHub cannot be read", () => rm(join(dir, "gh", "pulls.json")), {}],
+      [
+        "the list may be cut",
+        () =>
+          pulls(
+            Array.from({ length: 500 }, (_, i) => ({
+              number: i + 1,
+              head: HEAD_A,
+              labels: BOTH,
+            })),
+          ),
+        {},
+      ],
+      [
+        "the routes cannot be listed",
+        async () => {},
+        { STUB_INGRESS_GET_FAILS: "1" },
+      ],
+    ] as const) {
+      test(`goes on to reap when ${name} and the routes cannot be deleted`, async () => {
+        await upAtA();
+        await openRoute();
+        await setup();
+        const result = await sync({
+          ...ON,
+          ...env,
+          STUB_INGRESS_DELETE_FAILS: "1",
+        });
+        expect(result.exitCode).toBe(0);
+        expect(result.stderr).toContain(
+          "sync: deleting the outside routes failed",
+        );
+        expect(result.stdout).toContain("reap deleted:");
+        expect(await writes()).toEqual([]);
+      });
+    }
+
+    test("says nothing in the comment when the outside label's last event is unlabeled", async () => {
       await upAtA();
-      await openRoute();
-      await rm(join(dir, "gh", "pulls.json"));
-      const result = await sync({ ...ON, STUB_INGRESS_DELETE_FAILS: "1" });
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("reap deleted:");
+      await events(5, [
+        { label: "preview-public", at: LABELED_1, by: "someone" },
+        {
+          label: "preview-public",
+          event: "unlabeled",
+          at: LABELED_2,
+          by: "someone",
+        },
+      ]);
+      await sync(ON);
+      expect(await routes()).toEqual([]);
       expect(await writes()).toEqual([]);
     });
+
+    for (const [name, setup] of [
+      [
+        "this machine's login reads empty",
+        async () => {
+          await gh("api/user", { login: "" });
+          // No pusher but the (empty) login, so only the rule itself stops it.
+          await gh("repos/{owner}/{repo}/collaborators", []);
+          await events(5, [{ label: "preview-public", at: LABELED_1, by: "" }]);
+        },
+      ],
+      [
+        "the label's actor is empty",
+        () => events(5, [{ label: "preview-public", at: LABELED_1, by: "" }]),
+      ],
+    ] as const) {
+      test(`does not open, and closes, when ${name}`, async () => {
+        await upAtA();
+        await setup();
+        await sync(ON);
+        expect(await routes()).toEqual([]);
+
+        await openRoute();
+        await sync(ON);
+        expect(await routes()).toEqual([]);
+      });
+    }
 
     test("says closed once GitHub can be read again after closing every route", async () => {
       await upAtA();

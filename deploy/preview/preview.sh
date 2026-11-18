@@ -777,7 +777,7 @@ public_event() {
 # last event (as public_event read it) is a labeled by this machine's own
 # login.
 public_label_ours() {
-  [ "$event" = labeled ] && [ "$actor" = "$gh_user" ]
+  [ -n "$gh_user" ] && [ "$event" = labeled ] && [ "$actor" = "$gh_user" ]
 }
 
 PUBLIC_OPEN_LINE="바깥 경로: 열려 있다(오너 로그인 뒤)."
