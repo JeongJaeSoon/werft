@@ -63,6 +63,9 @@ export const ADMISSION_STATE_VALUES = [
   "closing",
   "closed",
 ] as const;
+// The admissions a session is ended in, whatever its status says.
+export const ENDED_ADMISSION_STATES: readonly (typeof ADMISSION_STATE_VALUES)[number][] =
+  ["stopping", "stopped", "closing", "closed"];
 export const TURN_STATUS_VALUES = [
   "queued",
   "running",

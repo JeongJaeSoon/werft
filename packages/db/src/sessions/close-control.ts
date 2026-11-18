@@ -6,6 +6,7 @@ import type {
 import {
   type CloseSessionInput,
   type CloseSessionResult,
+  publicStatus,
   receiptActorOf,
   storedPendingReasonBlocks,
   storedPendingReasonHoldsWork,
@@ -40,7 +41,7 @@ import { CLOSE } from "./drain.ts";
 import { closeParkedGroup } from "./parked-group.ts";
 import { pauseBlocker } from "./pause-control.ts";
 import { hasRestorePoint, restoreBaseRevision } from "./pause-policy.ts";
-import { awaitingInputAt, publicStatus } from "./pending-status.ts";
+import { awaitingInputAt } from "./pending-status.ts";
 import { recordEvent, recordStatus } from "./session-events.ts";
 
 const SESSION_CLOSED_SUBTYPE = "session_closed";

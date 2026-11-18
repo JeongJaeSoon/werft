@@ -1,3 +1,4 @@
+import { ENDED_ADMISSION_STATES } from "@werft-ai/contracts";
 import type { SessionBudget } from "@werft-ai/platform";
 import { type AnyColumn, and, eq, gt, isNull, lte, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
@@ -127,10 +128,6 @@ export async function readPlatformMetrics(
   };
 }
 
-// The admissions the `sessions` gauge files as ended whatever the status;
-// the rest of that judgement (a stopped status) is the renderer's.
-const ENDED_ADMISSIONS = ["stopping", "stopped", "closing", "closed"];
-
 async function readSessionWorkerImages(db: Database) {
   const rows = rowsOf<{
     image: string;
@@ -147,7 +144,7 @@ async function readSessionWorkerImages(db: Database) {
       JOIN ${sessions} s ON s.id = l.session_id
       WHERE l.image IS NOT NULL
         AND s.admission_state NOT IN (${sql.join(
-          ENDED_ADMISSIONS.map((admission) => sql`${admission}`),
+          ENDED_ADMISSION_STATES.map((admission) => sql`${admission}`),
           sql`, `,
         )})
       ORDER BY l.session_id, l.created_at DESC, l.generation DESC

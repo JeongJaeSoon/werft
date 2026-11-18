@@ -1,4 +1,8 @@
-import { deriveSessionTitle, type SessionTitleStore } from "@werft-ai/platform";
+import {
+  deriveSessionTitle,
+  publicStatus,
+  type SessionTitleStore,
+} from "@werft-ai/platform";
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import {
   lockSessionForControl,
@@ -7,7 +11,7 @@ import {
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import { sessions, sessionTitleRequests, turns } from "./schema.ts";
-import { awaitingInputAt, publicStatus } from "./sessions/pending-status.ts";
+import { awaitingInputAt } from "./sessions/pending-status.ts";
 import { recordStatus } from "./sessions/session-events.ts";
 
 export function createPostgresSessionTitleStore(

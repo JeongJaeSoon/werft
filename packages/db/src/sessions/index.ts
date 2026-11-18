@@ -6,7 +6,6 @@ export { hasRestorePoint } from "./pause-policy.ts";
 export {
   actionableOfSession,
   awaitingInputAt,
-  publicStatus,
 } from "./pending-status.ts";
 export type {
   ArchiveChunkRow,

@@ -5,16 +5,13 @@ import {
   type StatusEventPhase,
   sessionEventPayloadSchema,
 } from "@werft-ai/contracts";
+import { publicStatus } from "@werft-ai/platform";
 import { and, desc, eq, lt, notExists, sql } from "drizzle-orm";
 import type { ControlStageMeasure } from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import { events, sessionEventArchives, sessions } from "../schema.ts";
-import {
-  actionableOfSession,
-  awaitingInputAt,
-  publicStatus,
-} from "./pending-status.ts";
+import { actionableOfSession, awaitingInputAt } from "./pending-status.ts";
 
 /**
  * The `occurred_at` readers see on the session's last event, or on the last

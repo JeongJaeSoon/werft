@@ -5,7 +5,7 @@ import type {
   PauseReceiptResult,
 } from "@werft-ai/contracts";
 import type { PauseSessionInput, PauseSessionResult } from "@werft-ai/platform";
-import { receiptActorOf } from "@werft-ai/platform";
+import { publicStatus, receiptActorOf } from "@werft-ai/platform";
 import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   controlClock,
@@ -37,7 +37,7 @@ import {
   pausedReceiptResult,
   restoreBaseRevision,
 } from "./pause-policy.ts";
-import { awaitingInputAt, publicStatus } from "./pending-status.ts";
+import { awaitingInputAt } from "./pending-status.ts";
 import { recordStatus } from "./session-events.ts";
 
 type SessionRow = typeof sessions.$inferSelect;

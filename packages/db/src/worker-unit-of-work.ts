@@ -55,6 +55,7 @@ import {
   type ProviderUsageInput,
   type ProviderUsageResult,
   payloadHash,
+  publicStatus,
   type ReadyInput,
   type ReadyResult,
   type ReleaseInput,
@@ -220,7 +221,7 @@ import {
   parkTurnRequests,
   recordLostInputWait,
 } from "./sessions/pending-requests.ts";
-import { awaitingInputAt, publicStatus } from "./sessions/pending-status.ts";
+import { awaitingInputAt } from "./sessions/pending-status.ts";
 import {
   notBefore,
   recordEvent,

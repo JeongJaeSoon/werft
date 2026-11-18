@@ -11,7 +11,7 @@ import type {
   ResumeSessionInput,
   ResumeSessionResult,
 } from "@werft-ai/platform";
-import { receiptActorOf } from "@werft-ai/platform";
+import { publicStatus, receiptActorOf } from "@werft-ai/platform";
 import { isUnsupportedFeaturesReason } from "@werft-ai/runtime-core";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
@@ -59,7 +59,7 @@ import {
   restoreBaseRevision,
 } from "./sessions/pause-policy.ts";
 import { cancelParkedRequests } from "./sessions/pending-requests.ts";
-import { awaitingInputAt, publicStatus } from "./sessions/pending-status.ts";
+import { awaitingInputAt } from "./sessions/pending-status.ts";
 import { recordEvent, recordStatus } from "./sessions/session-events.ts";
 
 const RECOVERY_DECISION = "recovery_decision";
