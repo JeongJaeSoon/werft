@@ -91,6 +91,12 @@ export const PUSH_INTENT_STATUS_VALUES = [
 ] as const;
 export const pushIntentStatusSchema = z.enum(PUSH_INTENT_STATUS_VALUES);
 
+/** Intents still waiting on their turn. */
+export const WAITING_PUSH_INTENT_STATUSES = [
+  "deferred",
+  "pinned",
+] as const satisfies readonly (typeof PUSH_INTENT_STATUS_VALUES)[number][];
+
 /** Codes an intent ends with; the runner and finalize are the only writers. */
 export const PUSH_INTENT_REFUSAL_VALUES = [
   "turn_ended_without_checkpoint",

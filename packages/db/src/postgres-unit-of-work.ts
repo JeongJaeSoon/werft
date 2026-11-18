@@ -32,6 +32,7 @@ import {
   type TurnDetail,
   type TurnSummary,
   turnStatusSchema,
+  UNFINISHED_TURN_STATUSES,
   type WorkspaceLimitMode,
   workspaceLimitModeSchema,
 } from "@werft-ai/contracts";
@@ -1289,7 +1290,7 @@ export function createPostgresSessionReader(
       .where(
         and(
           inArray(turns.sessionId, ids),
-          inArray(turns.status, ["queued", "running", "needs_input"]),
+          inArray(turns.status, UNFINISHED_TURN_STATUSES),
         ),
       );
 

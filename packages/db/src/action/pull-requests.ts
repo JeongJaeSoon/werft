@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import {
   type GitHubPullRequestOutcomeMetadata,
+  OPEN_PULL_REQUEST_STAGES,
   PULL_REQUEST_OUTCOME_TITLE_MAX_LENGTH,
   type PullRequest,
   type PullRequestReceiptResult,
   type PullRequestRefusal,
   type PullRequestStage,
   type PushRequestState,
+  WAITING_PUSH_INTENT_STATUSES,
 } from "@werft-ai/contracts";
 import {
   PULL_REQUEST_REFUSAL_ERRORS,
@@ -355,7 +357,11 @@ export function createPostgresPullRequests(db: Database): PullRequestStore {
             .for("update");
           if (!intent) return refused("not_found");
           if (intent.pushRequestId === null) {
-            if (intent.status !== "deferred" && intent.status !== "pinned") {
+            if (
+              !(WAITING_PUSH_INTENT_STATUSES as readonly string[]).includes(
+                intent.status,
+              )
+            ) {
               return refused("intent_ended", {
                 details: { intent_refusal: intent.refusalCode },
               });
@@ -394,7 +400,8 @@ export function createPostgresPullRequests(db: Database): PullRequestStore {
         // opens at once as it always did.
         if (
           (await findPullRequest(tx, ownerId, request.id)) !== null ||
-          (stage !== null && stage !== "due" && stage !== "opening") ||
+          (stage !== null &&
+            !(OPEN_PULL_REQUEST_STAGES as readonly string[]).includes(stage)) ||
           (request.state === "pushed" &&
             request.flow === "legacy" &&
             stage === null)

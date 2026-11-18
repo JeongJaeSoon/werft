@@ -34,7 +34,9 @@ import {
   sessionStatusSchema,
   sessionSummarySchema,
   sseEventSchema,
+  TERMINAL_TURN_STATUS_VALUES,
   TURN_STATUS_VALUES,
+  UNFINISHED_TURN_STATUSES,
   unassignedSessionSignalSchema,
   workerScopeSchema,
 } from "./index.ts";
@@ -66,6 +68,10 @@ describe("session contracts", () => {
     ]);
     expect(TURN_STATUS_VALUES).toContain("outcome_unknown");
     expect(TURN_STATUS_VALUES).not.toContain("done");
+    // Every turn status is unfinished or terminal, never both.
+    expect(
+      [...UNFINISHED_TURN_STATUSES, ...TERMINAL_TURN_STATUS_VALUES].sort(),
+    ).toEqual([...TURN_STATUS_VALUES].sort());
     expect(sessionStatusSchema.safeParse("complete").success).toBe(false);
   });
 

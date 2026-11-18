@@ -3,6 +3,7 @@ import type {
   TurnStatus,
   WorkspaceRole,
 } from "@werft-ai/contracts";
+import { IN_FLIGHT_STATUSES } from "@werft-ai/platform";
 import {
   and,
   asc,
@@ -422,7 +423,7 @@ export async function reconcileOrphanedSessions(
       const status =
         action === "requeued"
           ? "queued"
-          : current.status === "running" || current.status === "needs_input"
+          : (IN_FLIGHT_STATUSES as string[]).includes(current.status)
             ? "failed"
             : current.status;
       await tx

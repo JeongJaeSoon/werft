@@ -63,6 +63,7 @@ import {
   actionableOfTurn,
   actionableRequest,
 } from "./sessions/pending-status.ts";
+import { sqlLiterals } from "./sql-literals.ts";
 import { rowsOf } from "./statement-rows.ts";
 import { channelLeft } from "./surface/slack-channel-left.ts";
 import { ms, type Raw, released } from "./surface/slack-shared.ts";
@@ -72,6 +73,13 @@ import {
 } from "./surface/slack-thread-status.ts";
 
 const t = slackOutbox;
+
+// A turn stopped before it had anything to post.
+const STOPPED_TURNS = sqlLiterals(["interrupted", "cancelled"]);
+// A turn that ended with something to post: its reply, its failure, or an
+// outcome an operator may yet confirm.
+const ENDED_WITH_POST = ["completed", "failed", "outcome_unknown"];
+const ENDED_WITH_POST_TURNS = sqlLiterals(ENDED_WITH_POST);
 
 const entry = {
   workspaceId: t.workspaceId,
@@ -732,8 +740,8 @@ export function createPostgresSlackOutboxStore(
              WHERE t.session_id = l2.session_id
                AND t.sequence > l2.answered_through
                AND NOT (
-                 t.status IN ('interrupted', 'cancelled')
-                 OR (t.status IN ('completed', 'failed', 'outcome_unknown')
+                 t.status IN (${STOPPED_TURNS})
+                 OR (t.status IN (${ENDED_WITH_POST_TURNS})
                    AND t.created_at < l2.created_at)
                  -- Not outcome_unknown: an operator may yet confirm it
                  -- completed, and then it owes its reply.
@@ -808,7 +816,7 @@ export function createPostgresSlackOutboxStore(
                 SELECT ot.id FROM ${turns} ot
                 WHERE ot.session_id = ol.session_id
                   AND ot.sequence > ol.answered_through
-                  AND ot.status NOT IN ('interrupted', 'cancelled')
+                  AND ot.status NOT IN (${STOPPED_TURNS})
                   AND ${owesInstruction(sql.raw("ot"), sql.raw("ol"))}
                 ORDER BY ot.sequence
                 LIMIT ${limit}
@@ -886,7 +894,7 @@ export function createPostgresSlackOutboxStore(
                 SELECT ot.id FROM ${turns} ot
                 WHERE ot.session_id = ol.session_id
                   AND ot.sequence > ol.answered_through
-                  AND ot.status IN ('completed', 'failed', 'outcome_unknown')
+                  AND ot.status IN (${ENDED_WITH_POST_TURNS})
                   AND ot.created_at >= ol.created_at
                   AND NOT EXISTS (
                     SELECT 1 FROM ${t} oo
@@ -907,7 +915,7 @@ export function createPostgresSlackOutboxStore(
             eq(sessionLinks.muted, false),
             eq(sessionLinks.visibility, "full"),
             ne(slackInstallations.status, "revoked"),
-            inArray(turns.status, ["completed", "failed", "outcome_unknown"]),
+            inArray(turns.status, ENDED_WITH_POST),
             // A turn from before the thread is not the thread's to answer.
             gte(turns.createdAt, sessionLinks.createdAt),
             sql`NOT EXISTS (

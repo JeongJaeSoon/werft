@@ -1,10 +1,11 @@
-import type { TurnStatus } from "@werft-ai/contracts";
-import type {
-  UsageAchievementCountsRecord,
-  UsageAchievementsFilter,
-  UsageAchievementsRecord,
-  UsageReader,
-  UsageTotalsFilter,
+import { TERMINAL_TURN_STATUS_VALUES } from "@werft-ai/contracts";
+import {
+  IN_FLIGHT_STATUSES,
+  type UsageAchievementCountsRecord,
+  type UsageAchievementsFilter,
+  type UsageAchievementsRecord,
+  type UsageReader,
+  type UsageTotalsFilter,
 } from "@werft-ai/platform";
 import {
   type AnyColumn,
@@ -49,15 +50,6 @@ import { rowsOf } from "./statement-rows.ts";
 const untilOf = (period: { since: Date; until?: Date }) =>
   period.until ?? new Date(Math.max(Date.now(), period.since.getTime()));
 
-const ENDED: TurnStatus[] = [
-  "completed",
-  "failed",
-  "interrupted",
-  "cancelled",
-  "outcome_unknown",
-];
-const OPEN: TurnStatus[] = ["running", "needs_input"];
-
 // Whether a turn reported a cost is read from the one field finalize writes
 // only when the worker had a figure, whatever status the turn ended in, so a
 // reclassified ending (interrupted, context lost) keeps its
@@ -71,16 +63,23 @@ const neverRan = sql`(${turns.status} = 'cancelled' AND ${turns.startedAt} IS NU
 
 // The turns that keep a session usage's `cost.complete` false.
 const incomplete = or(
-  and(inArray(turns.status, ENDED), not(costReported), not(neverRan)),
-  inArray(turns.status, OPEN),
+  and(
+    inArray(turns.status, TERMINAL_TURN_STATUS_VALUES),
+    not(costReported),
+    not(neverRan),
+  ),
+  inArray(turns.status, IN_FLIGHT_STATUSES),
 );
 // Wall clock from start to end; an open turn runs until the read.
-const runSeconds = sql`greatest(extract(epoch FROM (CASE WHEN ${inArray(turns.status, OPEN)} THEN now() ELSE ${turns.endedAt} END) - ${turns.startedAt}), 0)`;
+const runSeconds = sql`greatest(extract(epoch FROM (CASE WHEN ${inArray(turns.status, IN_FLIGHT_STATUSES)} THEN now() ELSE ${turns.endedAt} END) - ${turns.startedAt}), 0)`;
 const ran = and(
   sql`${turns.startedAt} IS NOT NULL`,
   or(
-    inArray(turns.status, OPEN),
-    and(inArray(turns.status, ENDED), sql`${turns.endedAt} IS NOT NULL`),
+    inArray(turns.status, IN_FLIGHT_STATUSES),
+    and(
+      inArray(turns.status, TERMINAL_TURN_STATUS_VALUES),
+      sql`${turns.endedAt} IS NOT NULL`,
+    ),
   ),
 );
 
@@ -717,12 +716,19 @@ export function createPostgresUsageReader(db: Database): UsageReader {
           costUsd: sql<string>`${sessions.costUsd}::text`,
           providerTokens: sessions.providerTokens,
           reportedTurnCount: counted(
-            and(inArray(turns.status, ENDED), costReported),
+            and(
+              inArray(turns.status, TERMINAL_TURN_STATUS_VALUES),
+              costReported,
+            ),
           ),
           unreportedTurnCount: counted(
-            and(inArray(turns.status, ENDED), not(costReported), not(neverRan)),
+            and(
+              inArray(turns.status, TERMINAL_TURN_STATUS_VALUES),
+              not(costReported),
+              not(neverRan),
+            ),
           ),
-          openTurnCount: counted(inArray(turns.status, OPEN)),
+          openTurnCount: counted(inArray(turns.status, IN_FLIGHT_STATUSES)),
           queuedInputCount: counted(eq(turns.status, "queued")),
         })
         .from(sessions)

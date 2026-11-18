@@ -1,4 +1,8 @@
 import type { AdmissionState, PushRequestOrigin } from "@werft-ai/contracts";
+import {
+  OPEN_PULL_REQUEST_STAGES,
+  WAITING_PUSH_INTENT_STATUSES,
+} from "@werft-ai/contracts";
 import type {
   SlackThreadStatusClaim,
   SlackThreadStatusFacts,
@@ -6,10 +10,12 @@ import type {
   SlackThreadStatusReconcile,
   SlackThreadStatusStore,
 } from "@werft-ai/platform";
+import { IN_FLIGHT_STATUSES } from "@werft-ai/platform";
 import { exists, type SQL, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { sessions } from "../schema.ts";
 import { actionableOfSession } from "../sessions/index.ts";
+import { sqlLiterals } from "../sql-literals.ts";
 import { rowsOf } from "../statement-rows.ts";
 import { channelLeft } from "./slack-channel-left.ts";
 import { ms, type Raw } from "./slack-shared.ts";
@@ -70,7 +76,7 @@ export function createPostgresSlackThreadStatusStore(
         executionRevoked: sql<boolean>`${sessions.executionRevokedAt} IS NOT NULL`,
         checkpointRevision: sessions.checkpointRevision,
         unknownTurn: turnIs(sql`'outcome_unknown'`),
-        runningTurn: turnIs(sql`'running', 'needs_input'`),
+        runningTurn: turnIs(sqlLiterals(IN_FLIGHT_STATUSES)),
         queuedTurn: turnIs(sql`'queued'`),
         answerableRequest: exists(actionableOfSession(db)),
         requestedPushes: sql<
@@ -89,11 +95,11 @@ export function createPostgresSlackThreadStatusStore(
           SELECT json_agg(stage ORDER BY stage.created_at) FROM (
             SELECT 'push_intent' AS kind, i.id, i.status AS state, i.created_at
             FROM push_intents i
-            WHERE i.session_id = ${SESSION_ID} AND i.status IN ('deferred', 'pinned')
+            WHERE i.session_id = ${SESSION_ID} AND i.status IN (${sqlLiterals(WAITING_PUSH_INTENT_STATUSES)})
             UNION ALL
             SELECT 'pull_request', p.id, p.pr_state, p.created_at
             FROM push_requests p
-            WHERE p.session_id = ${SESSION_ID} AND p.pr_state IN ('due', 'opening')
+            WHERE p.session_id = ${SESSION_ID} AND p.pr_state IN (${sqlLiterals(OPEN_PULL_REQUEST_STAGES)})
           ) stage
         ), '[]'::json)`,
       })

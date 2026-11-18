@@ -309,7 +309,7 @@ export async function liveDrainer(
     .where(
       and(
         eq(workerLaunches.executionId, executionId),
-        notInArray(attempts.state, ["exited", "lost"]),
+        notInArray(attempts.state, ENDED_ATTEMPT_STATES),
       ),
     )
     .limit(1);

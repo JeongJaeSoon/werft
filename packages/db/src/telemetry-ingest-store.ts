@@ -1,9 +1,10 @@
 import { and, eq, isNotNull } from "drizzle-orm";
+import { ENDED_ATTEMPT_STATES } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import { attempts, sessions, turns, workerCredentials } from "./schema.ts";
 
-const ENDED = new Set(["exited", "lost"]);
+const ENDED = new Set(ENDED_ATTEMPT_STATES);
 
 export interface TelemetryAttemptRecord {
   sessionId: string;

@@ -1,4 +1,7 @@
-import { OPEN_PUSH_REQUEST_STATES } from "@werft-ai/contracts";
+import {
+  OPEN_PUSH_REQUEST_STATES,
+  WAITING_PUSH_INTENT_STATUSES,
+} from "@werft-ai/contracts";
 import type {
   CheckpointCollectionFences,
   CheckpointCollectionStore,
@@ -42,6 +45,7 @@ import {
   recordEvent,
   recordStatus,
 } from "../sessions/index.ts";
+import { sqlLiterals } from "../sql-literals.ts";
 import { readCheckpointPointer } from "../worker-unit-of-work.ts";
 
 /**
@@ -348,7 +352,7 @@ export function createPostgresCheckpointStore(
             sql`NOT EXISTS (SELECT 1 FROM ${pushRequests} WHERE ${pushRequests.sessionId} = ${sessions.id} AND ${inArray(pushRequests.state, [...OPEN_PUSH_REQUEST_STATES])})`,
             // A deferred or pinned intent still becomes a request that
             // pins a revision; the collection is not over while one exists.
-            sql`NOT EXISTS (SELECT 1 FROM ${pushIntents} WHERE ${pushIntents.sessionId} = ${sessions.id} AND ${pushIntents.status} IN ('deferred','pinned'))`,
+            sql`NOT EXISTS (SELECT 1 FROM ${pushIntents} WHERE ${pushIntents.sessionId} = ${sessions.id} AND ${pushIntents.status} IN (${sqlLiterals(WAITING_PUSH_INTENT_STATUSES)}))`,
           ),
         )
         .returning({ id: sessions.id });
