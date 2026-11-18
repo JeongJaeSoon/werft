@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { GET_PULL_REQUEST_BODY_MAX_BYTES } from "@werft-ai/contracts";
-import { withoutPullRequestTail } from "../../sessions/index.ts";
+import { withoutPullRequestTail } from "./pull-request-tail.ts";
 import { lineRedactor } from "./pull-request-text.ts";
 
 /** The hash `get_pull_request` answers and `update_pull_request` compares. */

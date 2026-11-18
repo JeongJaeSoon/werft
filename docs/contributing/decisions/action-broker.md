@@ -27,7 +27,7 @@
 - **의사결정 카드.** 엔진의 승인 요청은 runtime-core `ApprovalRequested`(`packages/runtime-core/src/approval.ts:12`)로 나오고, 사람의 답은 `ApprovalAnswer`(`:49`), 끝나는 이유는 `CancelReason`(`:38`)이다. Slack은 이것을 `SlackPrompt`(`permission`·`question`·`push`, `packages/platform/src/musterrolle/slack-prompts.ts:16-43`)로 받아 `slackPromptMessage`(`:538`)로 그린다. 요약 한 줄은 `summarizeToolRequest`(`packages/platform/src/musterrolle/slack-prompt-summary.ts:170`), 최상위 `text`는 `slackCardText`(`slack-prompts.ts:460`)다.
 - **GitHub 도구.** 내장 MCP 서버 `github`는 release에 GitHub 설정이 있을 때만 세션에 붙는다(`packages/platform/src/workers/worker-gateway.ts:873-902`). 첫 checkpoint 전의 `request_push`는 모델에게 영어 안내문을 담은 `deferred` 결과를 주고, 오류도 `message`를 싣는다(`packages/platform/src/sessions/github-mcp-server.ts:284-300`). 거절 코드는 push가 `PUSH_REFUSAL_VALUES`(`packages/contracts/src/api/push-request.ts:145`), PR이 `PULL_REQUEST_REFUSAL_VALUES`(`packages/contracts/src/api/pull-request.ts:95`)다. GitHub 토큰은 게이트가 내주고 새로 받을 때 `mint_github_token` receipt를 남긴다(`packages/platform/src/sessions/github-gate.ts:359`).
 - **셸.** 이미지의 `gh`는 자격이 없고 `api.github.com`은 기본 allowlist 밖이다(`apps/worker/Dockerfile:135-137`). egress proxy에는 receive-pack 경로가 없어(`apps/egress-proxy/src/credential.ts:252`) `git push`는 404 "no such credential route"로 끝난다(`:1702`).
-- **귀속.** `Co-authored-by`는 세션 시작자 한 사람이다(`coAuthorOf`, `packages/platform/src/sessions/git-attribution.ts:29`. PR 꼬리는 `Started by` 줄, `:147`).
+- **귀속.** `Co-authored-by`는 세션 시작자 한 사람이다(`coAuthorOf`, `packages/platform/src/sessions/git-attribution.ts:29`. PR 꼬리는 `Started by` 줄, `packages/platform/src/action/change-request/pull-request-tail.ts:116`).
 
 ## 1. 위치와 이름
 
@@ -324,7 +324,7 @@ MCP에서 `not_pushed`는 flag on(actions 흐름)에서만 나오지 않는다(�
 | PR 작성자 | App bot | 같음 | 같음 |
 
 - 연결하지 않은 요청자의 이름은 어디에도 넣지 않는다. 공개 저장소 PR에 사람 이름이 남고, 플랫폼 표시 이름은 GitHub에서 아무 계정도 가리키지 않기 때문이다.
-- 꼬리는 `<!-- werft:pr-tail -->` 줄부터 `<!-- /werft:pr-tail -->` 줄까지이고 줄은 영어로 쓴다(`pullRequestTail`, `packages/platform/src/sessions/git-attribution.ts`). login 앞에 `@`를 붙이지 않는다. 꼬리가 사람에게 알림을 보내지 않게 하려는 것이다. 위 표의 값이 쓰는 그대로의 문구다.
+- 꼬리는 `<!-- werft:pr-tail -->` 줄부터 `<!-- /werft:pr-tail -->` 줄까지이고 줄은 영어로 쓴다(`pullRequestTail`, `packages/platform/src/action/change-request/pull-request-tail.ts`). login 앞에 `@`를 붙이지 않는다. 꼬리가 사람에게 알림을 보내지 않게 하려는 것이다. 위 표의 값이 쓰는 그대로의 문구다.
 - `<surface>`는 `Slack`·`web console`·`API key`·`platform`이다. 꼬리의 `Started by` 줄은 그대로 두고 `Requested by` 줄을 더한다. 꼬리 인식은 옛 꼬리와 새 꼬리를 둘 다 플랫폼 꼬리로 읽고, 다시 써도 두 번 붙지 않는다.
 - 예약된 PR(L5)은 예약한 턴의 호출자이고, 예약 행에 그 값을 저장한다. 여러 턴의 commit이 든 PR은 commit마다 그 턴의 호출자가 트레일러에 남는다.
 - 값이 가는 길: control-host가 턴 입력에 `co_author`와 `requester`를 싣고, worker가 그 턴을 시작할 때 `~/.werft/git-trailers`를 다시 쓴다. claim 하나에서 턴이 여럿 돌기 때문이다. PR 3의 세션별 발급값 기록에 턴마다 낸 값을 더해, 다른 사람 턴의 commit이 "발급되지 않은 공동 작성자"로 막히지 않게 한다. 트레일러는 귀속 표시이고 보안 경계가 아니다.

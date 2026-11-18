@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { UserLocale } from "@werft-ai/contracts";
 import {
-  PULL_REQUEST_TAIL_END_MARKER,
-  PULL_REQUEST_TAIL_MARKER,
-} from "../../sessions/git-attribution.ts";
-import {
   type PullRequestFields,
   renderPullRequestBody,
 } from "./pull-request-body.ts";
+import {
+  PULL_REQUEST_TAIL_END_MARKER,
+  PULL_REQUEST_TAIL_MARKER,
+} from "./pull-request-tail.ts";
 import { prepareTemplate } from "./pull-request-template.ts";
 
 const ZWSP = "​";

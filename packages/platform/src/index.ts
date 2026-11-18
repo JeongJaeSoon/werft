@@ -129,6 +129,7 @@ export * from "./sessions/catalog-registry.ts";
 export * from "./sessions/event-codecs.ts";
 export * from "./sessions/feature-gate.ts";
 export * from "./sessions/git-attribution.ts";
+export * from "./action/change-request/pull-request-tail.ts";
 export * from "./github/service/github-connection-resolver.ts";
 export * from "./github/service/github-gate.ts";
 export * from "./action/github/github-mcp-server.ts";

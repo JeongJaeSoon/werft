@@ -33,14 +33,7 @@ import {
   requirePermitted,
   SessionServiceError,
 } from "../../musterrolle/index.ts";
-import {
-  pullRequestTail,
-  pushRequestMarkerOf,
-  sessionUrlOf,
-  surfaceOfChannel,
-  type TailRequester,
-  withPullRequestTail,
-} from "../../sessions/index.ts";
+import { sessionUrlOf } from "../../sessions/index.ts";
 import type {
   Commentable,
   PullRequestMergeable,
@@ -76,6 +69,13 @@ import {
   type ResolvedPullRequestSettings,
   resolvePullRequestSettings,
 } from "./pull-request-settings.ts";
+import {
+  pullRequestTail,
+  pushRequestMarkerOf,
+  surfaceOfChannel,
+  type TailRequester,
+  withPullRequestTail,
+} from "./pull-request-tail.ts";
 import {
   type PreparedTemplate,
   prepareTemplateText,
