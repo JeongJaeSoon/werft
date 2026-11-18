@@ -34,6 +34,8 @@ export type ApprovalRequested = {
       kind: "permission";
       display: Record<string, unknown>;
       rememberOffer?: readonly RememberRule[];
+      /** The run hands an allow's `message` to the model; absent, a host refuses one. */
+      acceptsNote?: true;
     }
   | {
       kind: "question";
@@ -56,7 +58,8 @@ export type CancelReason =
 
 /**
  * `message` is what the engine is told on a refusal; absent, the run says
- * something for the reason. `remember` on an allow keeps the offered rules
+ * something for the reason. On an allow it is the approver's instruction,
+ * which the model is given once the call has run. `remember` on an allow keeps the offered rules
  * for the session: `rules` are the ones the person agreed to, and the run
  * installs a rule only if the engine's offer is still exactly those (a
  * resumed turn asks again, and may offer something else).
@@ -68,6 +71,7 @@ export type ApprovalAnswer =
       kind: "selected";
       optionKind: "allow_once";
       remember?: { scope: "session"; rules: readonly RememberRule[] };
+      message?: string;
     }
   | {
       localId: string;

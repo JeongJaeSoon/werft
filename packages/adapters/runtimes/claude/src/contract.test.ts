@@ -337,6 +337,23 @@ describe("claudeContractRun", () => {
       script.end();
     });
 
+    test("says a permission request takes a note, and hands an allow's note to the engine", async () => {
+      const { script, run, decision, request } = await asked(undefined);
+      expect(request).toMatchObject({ kind: "permission", acceptsNote: true });
+      await run.answer({
+        localId: request.localId,
+        inputHash: request.inputHash,
+        kind: "selected",
+        optionKind: "allow_once",
+        message: "Only touch the fixtures",
+      });
+      expect(await decision).toEqual({
+        behavior: "allow",
+        note: "Only touch the fixtures",
+      });
+      script.end();
+    });
+
     test("allows this one call only when nothing was offered", async () => {
       const { script, run, decision, request } = await asked(undefined);
       await run.answer({

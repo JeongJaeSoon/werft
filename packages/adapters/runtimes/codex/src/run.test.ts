@@ -266,6 +266,35 @@ describe("approvals", () => {
     expect(await reply).toEqual({ decision: "accept" });
   });
 
+  test("an allow's note is steered into the running turn after the accept", async () => {
+    const t = setup();
+    t.server.on("turn/steer", () => ({ turnId: "turn-1" }));
+    await started(t);
+    const reply = askCommand(t);
+    const asked = await t.until(t.ofType("approval.requested"));
+    if (asked.type !== "approval.requested") throw new Error("unreachable");
+    expect(asked.request).toMatchObject({ acceptsNote: true });
+    expect(t.server.started("turn/steer")).toBeUndefined();
+
+    await t.run.answer({
+      localId: asked.request.localId,
+      inputHash: asked.request.inputHash,
+      kind: "selected",
+      optionKind: "allow_once",
+      message: "Only touch the fixtures",
+    });
+    expect(await reply).toEqual({ decision: "accept" });
+    await t.until(() =>
+      t.server.started("turn/steer") ? ({ type: "x" } as never) : undefined,
+    );
+    const steer = t.server.started("turn/steer");
+    expect(steer).toMatchObject({
+      threadId: "thread-1",
+      expectedTurnId: "turn-1",
+    });
+    expect(JSON.stringify(steer?.input)).toContain("Only touch the fixtures");
+  });
+
   test("deny declines", async () => {
     const t = setup();
     await started(t);

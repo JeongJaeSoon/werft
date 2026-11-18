@@ -864,6 +864,7 @@ export class CodexRun implements AgentRun {
       askedAt: performance.now(),
       kind: "permission",
       display,
+      acceptsNote: true,
     };
     this.open.set(request.localId, {
       rpcId,
@@ -879,7 +880,45 @@ export class CodexRun implements AgentRun {
     this.events$.push({ type: "approval.requested", request });
     const answer = await answered;
     this.open.delete(request.localId);
-    return answer.kind === "selected" && answer.optionKind === "allow_once";
+    const allowed =
+      answer.kind === "selected" && answer.optionKind === "allow_once";
+    if (allowed && answer.message !== undefined) {
+      void this.steerNote(answer.message);
+    }
+    return allowed;
+  }
+
+  /**
+   * The approval reply has no room for words, so the note joins the running
+   * turn as input; the engine reads it at its next request, which comes after
+   * the call's result. One that cannot be steered in is said publicly.
+   */
+  private async steerNote(note: string): Promise<void> {
+    const threadId = this.threadId;
+    const turnId = this.turn?.id;
+    try {
+      if (threadId === undefined || turnId === undefined) {
+        throw new Error("no turn is running");
+      }
+      await this.options.transport.request("turn/steer", {
+        threadId,
+        expectedTurnId: turnId,
+        input: [
+          {
+            type: "text",
+            text: `The user approved your last tool call and gave you this instruction with the approval. Follow it from here on:\n${note}`,
+            text_elements: [],
+          },
+        ],
+      });
+    } catch (error) {
+      this.events$.push(
+        warningEvent(
+          `The approver's instruction could not be handed to the model: ${error instanceof Error ? error.message : String(error)}`,
+          this.inputs,
+        ),
+      );
+    }
   }
 
   private async decide(
@@ -941,6 +980,7 @@ export class CodexRun implements AgentRun {
           : { paths: input.paths, grant_root: params.grantRoot ?? null }),
         reason: params.reason ?? null,
       },
+      acceptsNote: true,
     };
     this.open.set(request.localId, {
       rpcId,
@@ -953,7 +993,9 @@ export class CodexRun implements AgentRun {
     this.open.delete(request.localId);
     switch (answer.kind) {
       case "selected":
-        return answer.optionKind === "allow_once" ? "accept" : "decline";
+        if (answer.optionKind !== "allow_once") return "decline";
+        if (answer.message !== undefined) void this.steerNote(answer.message);
+        return "accept";
       case "cancelled":
         return answer.reason === "interrupt" || answer.reason === "shutdown"
           ? "cancel"

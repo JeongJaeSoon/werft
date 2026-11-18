@@ -880,6 +880,9 @@ export const registerPendingRequestSchema = workerScopeSchema
           // what the API lists. An older worker leaves it out, and that
           // request offers nothing.
           remember_offer: z.array(rememberRuleSchema).min(1).optional(),
+          // The run hands an allow's `reason` to the model. Without it the
+          // server refuses an allow with a reason rather than drop the text.
+          accepts_note: z.literal(true).optional(),
         })
         .strict(),
       z

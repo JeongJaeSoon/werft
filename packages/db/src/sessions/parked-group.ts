@@ -415,7 +415,7 @@ export function continuationMessage(rows: GroupRow[], cut = true): string {
     }
     if (answer.kind === "permission") {
       return answer.decision === "allow"
-        ? `- Your ${tool} call: allowed. The allow is used by the next identical call.`
+        ? `- Your ${tool} call: allowed. The allow is used by the next identical call.${answer.reason === undefined ? "" : ` The approver's instruction for it: ${answer.reason}`}`
         : `- Your ${tool} call: denied.${answer.reason === undefined ? "" : ` Reason: ${answer.reason}`}`;
     }
     const questions = payload.kind === "question" ? payload.questions : [];

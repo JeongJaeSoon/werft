@@ -501,6 +501,7 @@ class ClaudeContractRun implements AgentRun {
       ...(view.kind === "permission" && shown.length > 0
         ? { rememberOffer: shown }
         : {}),
+      ...(view.kind === "permission" ? { acceptsNote: true as const } : {}),
     };
     const answered = this.channel.request(approval, request.signal);
     this.offer(approval);
@@ -701,7 +702,11 @@ function decisionOf(
   switch (answer.kind) {
     case "selected":
       return answer.optionKind === "allow_once"
-        ? { behavior: "allow", ...rememberedBy(answer.remember, offer) }
+        ? {
+            behavior: "allow",
+            ...rememberedBy(answer.remember, offer),
+            ...(answer.message === undefined ? {} : { note: answer.message }),
+          }
         : { behavior: "deny", message: personDenial(answer.message) };
     case "answered":
       return {

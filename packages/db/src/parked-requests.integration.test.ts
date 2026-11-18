@@ -1677,10 +1677,13 @@ integration("parked pending requests on PostgreSQL", () => {
   test("the last answer of a paused park resumes it, its allows granted to the turn that carries it on", async () => {
     const { owner, sessionId, requestIds, turnRowId } = await parked(2);
     const [allowed = "", denied = ""] = requestIds;
+    // A parked turn is carried on by a message the server writes, so its
+    // allow takes a note whatever the worker that registered it said.
     const first = await answerWith(owner, sessionId, {
       request_id: allowed,
       kind: "permission",
       decision: "allow",
+      reason: "only the fixtures",
     });
     expect(first).toMatchObject({ resumed: false, waiting_for: 1 });
     expect(await continuations(turnRowId)).toEqual([]);
@@ -1718,6 +1721,9 @@ integration("parked pending requests on PostgreSQL", () => {
     expect(last).toMatchObject({ resumed: true, waiting_for: 0 });
     const [carried] = await continuations(turnRowId);
     expect(carried?.message).toContain("Bash call: allowed");
+    expect(carried?.message).toContain(
+      "The approver's instruction for it: only the fixtures",
+    );
     expect(carried?.message).toContain(
       "Bash call: denied. Reason: not that one",
     );

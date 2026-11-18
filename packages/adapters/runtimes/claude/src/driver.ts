@@ -65,6 +65,8 @@ export type PermissionDecision =
       behavior: "allow";
       updatedInput?: Record<string, unknown>;
       updatedPermissions?: SessionRuleUpdate[];
+      /** The approver's instruction, given to the model with the call's result. */
+      note?: string;
     }
   | { behavior: "deny"; message: string; interrupt?: boolean };
 

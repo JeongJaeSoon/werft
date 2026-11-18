@@ -192,6 +192,12 @@ function resumedHistory(config: ClaudeRuntimeConfig): {
   };
 }
 
+// Marked as the person's so the model neither reads it as tool output nor
+// dismisses it as an injection riding on one.
+function approverNote(note: string): string {
+  return `The user approved this tool call and gave you this instruction with the approval. Follow it from here on:\n${note}`;
+}
+
 export function buildSdkOptions(
   config: ClaudeRuntimeConfig,
   hooks: RuntimeHooks,
@@ -218,15 +224,30 @@ export function buildSdkOptions(
     }),
   };
   const disallowed = [...(config.disallowedTools ?? [])];
+  const notes = new Map<string, string>();
   const settle: HookCallback = async (input) => {
-    if ("tool_use_id" in input) {
-      ledger.toolSettled(input.tool_use_id);
-      decisions.ran(input.tool_use_id);
+    if (!("tool_use_id" in input)) return {};
+    ledger.toolSettled(input.tool_use_id);
+    decisions.ran(input.tool_use_id);
+    const note = notes.get(input.tool_use_id);
+    notes.delete(input.tool_use_id);
+    if (
+      note === undefined ||
+      (input.hook_event_name !== "PostToolUse" &&
+        input.hook_event_name !== "PostToolUseFailure")
+    ) {
+      return {};
     }
-    return {};
+    return {
+      hookSpecificOutput: {
+        hookEventName: input.hook_event_name,
+        additionalContext: approverNote(note),
+      },
+    };
   };
   const settleRefused: HookCallback = async (input) => {
     if ("tool_use_id" in input) {
+      notes.delete(input.tool_use_id);
       ledger.toolSettled(input.tool_use_id);
       decisions.refusedByEngine(input.tool_use_id);
     }
@@ -294,6 +315,11 @@ export function buildSdkOptions(
           ...(suggestedRules.length === 0 ? {} : { suggestedRules }),
         });
         allowed = decision.behavior === "allow";
+        if (decision.behavior === "allow") {
+          const { note, ...engine } = decision;
+          if (note !== undefined) notes.set(options.toolUseID, note);
+          return { ...engine, toolUseID: options.toolUseID };
+        }
         return { ...decision, toolUseID: options.toolUseID };
       } finally {
         ledger.permissionSettled(options.toolUseID);
