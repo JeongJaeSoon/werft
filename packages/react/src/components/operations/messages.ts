@@ -234,7 +234,8 @@ export interface ToolsFilterMessages {
 
 export type ToolCallSort = "recent" | "slowest";
 
-export interface ToolRailMessages {
+export interface ToolDetailMessages {
+  /** Read before the tool's name in its heading. */
   readonly label: string;
   readonly calls: string;
   readonly total: string;
@@ -254,7 +255,7 @@ export interface ToolRailMessages {
   readonly recent: string;
   readonly callSort: string;
   readonly callSortBy: Readonly<Record<ToolCallSort, string>>;
-  /** Names the rail's heading while the tools are read. */
+  /** Names the section's heading while the tools are read. */
   readonly loading: string;
 }
 
@@ -266,7 +267,7 @@ export interface OperationsMessages {
   readonly toolsSummary: ToolsSummaryMessages;
   readonly toolCalls: ToolCallsMessages;
   readonly toolsFilter: ToolsFilterMessages;
-  readonly toolRail: ToolRailMessages;
+  readonly toolDetail: ToolDetailMessages;
   readonly head: OperationsHeadMessages;
   readonly usageFilters: UsageFiltersMessages;
   readonly usageKpis: UsageKpisMessages;
@@ -428,7 +429,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         search: "도구 찾기",
         placeholder: "도구나 명령 찾기",
       },
-      toolRail: {
+      toolDetail: {
         label: "선택한 도구",
         calls: "호출",
         total: "총 시간",
@@ -637,7 +638,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         search: "ツールを検索",
         placeholder: "ツールやコマンドを検索",
       },
-      toolRail: {
+      toolDetail: {
         label: "選択したツール",
         calls: "呼び出し",
         total: "合計時間",
@@ -847,7 +848,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         search: "Find a tool",
         placeholder: "Find a tool or command",
       },
-      toolRail: {
+      toolDetail: {
         label: "Selected tool",
         calls: "Calls",
         total: "Total",

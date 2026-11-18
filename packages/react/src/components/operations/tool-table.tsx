@@ -31,6 +31,8 @@ export interface ToolTableProps {
   /** The `name` of the row shown in the rail. */
   readonly selected?: string | undefined;
   readonly onSelect?: ((name: string) => void) | undefined;
+  /** The id of the section a row opens, which each opener points at. */
+  readonly controls?: string | undefined;
   /**
    * A short note under a name, such as "셸 명령"; not an API field. Loading
    * rows keep a note line whenever this is given.
@@ -53,6 +55,7 @@ export function ToolTable({
   label,
   selected,
   onSelect,
+  controls,
   describe,
   loadingRows = 3,
   searched = false,
@@ -128,6 +131,10 @@ export function ToolTable({
                     <GridTableRowOpener
                       aria-label={messages.open(tool.name)}
                       aria-pressed={pressed}
+                      aria-controls={controls}
+                      // The picked tool's heading sticks to the screen's
+                      // bottom; a row the keyboard reaches stops above it.
+                      className="scroll-mb-18"
                       onClick={() => onSelect?.(tool.name)}
                     />
                     <Text as="span" weight="medium">

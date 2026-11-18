@@ -10,7 +10,7 @@ const { Findings } = await import("./findings.tsx");
 const { SessionCounts } = await import("./session-counts.tsx");
 const { ToolCalls } = await import("./tool-calls.tsx");
 const { ToolTable } = await import("./tool-table.tsx");
-const { ToolRail } = await import("./tool-rail.tsx");
+const { ToolDetail } = await import("./tool-detail.tsx");
 const { ToolsSummary } = await import("./tools-summary.tsx");
 const { findTools, sortTools, TOOL_SEARCH_DEBOUNCE_MS, ToolsFilter } =
   await import("./tools-filter.tsx");
@@ -95,6 +95,17 @@ describe("ToolTable", () => {
     expect(opener("Edit").getAttribute("aria-pressed")).toBe("true");
     expect(opener("Bash").getAttribute("aria-pressed")).toBe("false");
     expect(document.querySelectorAll("[aria-selected]").length).toBe(0);
+  });
+
+  test("opener는 여는 절을 aria-controls로 가리키고, 붙은 제목 위에서 멈추게 아래 여백을 둔다", () => {
+    const { getAllByRole } = withPlatform(
+      <ToolTable tools={TOOLS} label="도구" controls="picked-tool" />,
+    );
+    const openers = getAllByRole("button", { name: /자세히 보기$/ });
+    expect(
+      openers.map((opener) => opener.getAttribute("aria-controls")),
+    ).toEqual(TOOLS.map(() => "picked-tool"));
+    expect(openers[0]?.className).toContain("scroll-mb-18");
   });
 
   test("호출·총 시간·보통·실패를 locale 형식으로 쓴다", () => {
@@ -187,7 +198,7 @@ describe("1분 미만 도구 시간", () => {
         />
         <ToolTable tools={[WRITE]} label="도구" />
         <ToolsSummary tools={[WRITE]} period="최근 30일" />
-        <ToolRail
+        <ToolDetail
           name="Write"
           tool={WRITE}
           perDay={[]}
@@ -215,15 +226,17 @@ describe("1분 미만 도구 시간", () => {
       "최근 30일 동안 에이전트가 도구를 1번 불렀고 모두 1.7초 동안 실행했습니다. 0번 실패했습니다 (0.0%).",
     );
     expect(
-      [...container.querySelectorAll("aside dd")].map((dd) => dd.textContent),
+      [...container.querySelectorAll("[data-slot=tool-detail] dd")].map(
+        (dd) => dd.textContent,
+      ),
     ).toEqual(["1번", "1.7초", "1.7초", "0번 (0.0%)"]);
   });
 });
 
-describe("ToolRail loading", () => {
-  test("도구 목록을 읽는 동안 첫 섹션 제목이 비지 않고, 이름이 오면 그 이름만 남는다", () => {
+describe("ToolDetail loading", () => {
+  test("도구 목록을 읽는 동안 절 제목이 비지 않고, 이름이 오면 읽는 중 안내가 빠진다", () => {
     const rail = (name: string | undefined) => (
-      <ToolRail
+      <ToolDetail
         name={name}
         tool={undefined}
         perDay={undefined}
@@ -235,7 +248,10 @@ describe("ToolRail loading", () => {
     const view = withPlatform(rail(undefined), "en");
     // The accessible name skips the aria-hidden skeleton.
     expect(
-      view.getByRole("heading", { level: 2, name: "Loading tools" }),
+      view.getByRole("heading", {
+        level: 2,
+        name: "Selected tool Loading tools",
+      }),
     ).toBeTruthy();
     view.rerender(
       <WerftProvider
@@ -246,8 +262,46 @@ describe("ToolRail loading", () => {
         {rail("Bash")}
       </WerftProvider>,
     );
-    expect(view.getByRole("heading", { level: 2, name: "Bash" })).toBeTruthy();
-    expect(view.container.querySelector("aside h2")?.textContent).toBe("Bash");
+    expect(
+      view.getByRole("heading", { level: 2, name: "Selected tool Bash" }),
+    ).toBeTruthy();
+    expect(
+      view.container.querySelector("[data-slot=tool-detail-head] h2")
+        ?.textContent,
+    ).toBe("Selected tool Bash");
+  });
+
+  test("고른 때에만 제목 문구를 한 번 알리고, 열린 절을 가리킬 id를 받는다", () => {
+    const SECTION_ID = "picked-tool";
+    const detail = (announce: boolean) => (
+      <ToolDetail
+        id={SECTION_ID}
+        announce={announce}
+        name="Bash"
+        tool={undefined}
+        perDay={undefined}
+        calls={undefined}
+        callSort="recent"
+        onCallSortChange={() => {}}
+      />
+    );
+    const view = withPlatform(detail(false), "en");
+    const said = () => view.container.querySelector("output")?.textContent;
+    expect(said()).toBe("");
+    view.rerender(
+      <WerftProvider
+        client={{} as ApiClient}
+        locale="en"
+        renderLink={() => null}
+      >
+        {detail(true)}
+      </WerftProvider>,
+    );
+    expect(said()).toBe("Selected tool Bash");
+    const section = view.getByRole("region", { name: "Selected tool Bash" });
+    expect(section.id).toBe(SECTION_ID);
+    // The section never reaches up under the stuck heading.
+    expect(section.className).not.toMatch(/(^|\s)-m[ty]?-/);
   });
 });
 
@@ -426,14 +480,14 @@ describe("tools tab loading", () => {
     expect(container.querySelector("[data-slot=tools-summary]")).toBeNull();
   });
 
-  test("ToolRail은 이름도 모를 때 자리표시로 서고, 값이 오면 같은 자리에 그린다", () => {
+  test("ToolDetail은 이름도 모를 때 자리표시로 서고, 값이 오면 같은 자리에 그린다", () => {
     const rail = (ready: boolean) => (
       <WerftProvider
         client={{} as ApiClient}
         locale="ko"
         renderLink={({ id, children }) => <a href={`/s/${id}`}>{children}</a>}
       >
-        <ToolRail
+        <ToolDetail
           name={ready ? "Bash" : undefined}
           tool={ready ? TOOLS[0] : undefined}
           perDay={
@@ -451,7 +505,9 @@ describe("tools tab loading", () => {
       </WerftProvider>
     );
     const { getByRole, queryByRole, rerender, container } = render(rail(false));
-    const aside = getByRole("complementary", { name: "선택한 도구" });
+    const section = getByRole("region", {
+      name: "선택한 도구 도구 목록을 읽는 중",
+    });
     expect(queryByRole("img")).toBeNull();
     expect(
       [...container.querySelectorAll("dd")].map(
@@ -459,10 +515,12 @@ describe("tools tab loading", () => {
       ),
     ).toEqual([true, true, true, true]);
     rerender(rail(true));
-    expect(getByRole("complementary", { name: "선택한 도구" }) === aside).toBe(
+    expect(getByRole("region", { name: "선택한 도구 Bash" }) === section).toBe(
       true,
     );
-    expect(getByRole("heading", { name: "Bash" })).toBeTruthy();
+    expect(
+      getByRole("heading", { level: 2, name: "선택한 도구 Bash" }),
+    ).toBeTruthy();
     expect(
       [...container.querySelectorAll("dd")].map((dd) => dd.textContent),
     ).toEqual(["1,840번", "3시간 42분", "3.1초", "21번 (1.1%)"]);
@@ -471,9 +529,9 @@ describe("tools tab loading", () => {
     );
   });
 
-  test("ToolRail error는 차트 자리에 서고 최근 호출 칸은 두지 않는다", () => {
+  test("ToolDetail error는 차트 자리에 서고 최근 호출 칸은 두지 않는다", () => {
     const { getByText, queryByRole } = withPlatform(
-      <ToolRail
+      <ToolDetail
         name="Bash"
         tool={TOOLS[0]}
         perDay={undefined}
@@ -487,9 +545,9 @@ describe("tools tab loading", () => {
     expect(queryByRole("heading", { name: "최근 호출" })).toBeNull();
   });
 
-  test("ToolRail은 14일 내내 호출이 없어도 막대 높이를 숫자로 쓴다", () => {
+  test("ToolDetail은 14일 내내 호출이 없어도 막대 높이를 숫자로 쓴다", () => {
     const { container } = withPlatform(
-      <ToolRail
+      <ToolDetail
         name="Bash"
         tool={TOOLS[0]}
         perDay={Array.from({ length: 14 }, (_, i) => ({

@@ -29,7 +29,6 @@ import {
 } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import {
-  DetailLayout,
   Findings,
   findTools,
   InstallationLimits,
@@ -38,9 +37,9 @@ import {
   type OperationsTab,
   SessionCounts,
   sortTools,
-  TOOL_RAIL_CALLS,
+  TOOL_DETAIL_CALLS,
   type ToolCallSort,
-  ToolRail,
+  ToolDetail,
   type ToolSort,
   ToolsFilter,
   ToolsSummary,
@@ -54,7 +53,7 @@ import {
   UsageTokenMix,
 } from "@werft-ai/react/components";
 import { Badge, Card, EmptyState, Section, Skeleton } from "@werft-ai/ui";
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
@@ -168,7 +167,7 @@ function usageToolCallsQuery(
               since,
               until,
               sort,
-              limit: TOOL_RAIL_CALLS,
+              limit: TOOL_DETAIL_CALLS,
               ...(agentId ? { agent_id: agentId } : {}),
             },
           },
@@ -240,11 +239,9 @@ function MenuHead() {
 }
 
 export function OperationsLayout() {
-  const { current } = useCurrentTab();
   return (
     <>
-      {/* The tools tab has a rail, so it draws the head inside its own body. */}
-      {current === "tools" ? null : <MenuHead />}
+      <MenuHead />
       <Outlet />
     </>
   );
@@ -555,6 +552,7 @@ export function OperationsToolsScreen() {
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<string>();
   const [callSort, setCallSort] = useState<ToolCallSort>("recent");
+  const detailId = useId();
   const rows = tools.data?.tools;
   const tool = rows?.find((row) => row.name === picked) ?? rows?.[0];
   const calls = useQuery({
@@ -573,9 +571,13 @@ export function OperationsToolsScreen() {
     staleTime: USAGE_STALE_MS,
   });
   const shown = rows && findTools(sortTools(rows, sort), query);
-  const rail =
+  const detail =
     tools.isError || rows?.length === 0 ? undefined : (
-      <ToolRail
+      <ToolDetail
+        id={detailId}
+        // Said only for the reader's own pick: not the first row shown by
+        // default, nor the one that stands in when the pick leaves the list.
+        announce={picked !== undefined && tool?.name === picked}
         name={tool?.name}
         tool={tool}
         perDay={calls.data?.per_day}
@@ -593,8 +595,7 @@ export function OperationsToolsScreen() {
       />
     );
   return (
-    <DetailLayout rail={rail}>
-      <MenuHead />
+    <>
       <UsageFilters
         {...(filters.operator
           ? { scope: filters.scope, onScopeChange: filters.setScope }
@@ -612,52 +613,58 @@ export function OperationsToolsScreen() {
             period={t("operations.recent", { days: filters.days })}
           />
         )}
-        <Section
-          title={t("operations.tools")}
-          badge={
-            <Badge>
-              {rows ? (
-                rows.length
-              ) : (
-                <Skeleton
-                  inline
-                  decorative
-                  width="0.75rem"
-                  height="1lh"
-                  className="justify-center"
-                />
-              )}
-            </Badge>
-          }
-        >
-          <ToolsFilter
-            sort={sort}
-            onSortChange={setSort}
-            onQueryChange={setQuery}
-          />
-          {tools.isError ? (
-            <Card className="py-0">
-              <LoadFailure
-                error={tools.error}
-                onRetry={() => void tools.refetch()}
-              />
-            </Card>
-          ) : (
-            <ToolTable
-              tools={shown}
-              label={t("operations.tools")}
-              selected={tool?.name}
-              onSelect={setPicked}
-              describe={(name) =>
-                rows?.find((row) => row.name === name)?.description ??
-                builtinToolNote(locale, name)
-              }
-              searched={query !== ""}
+        {/* No gap of its own: the picked tool keeps its space from the
+            table, and its heading sticks over the table in this box. */}
+        <div className="flex min-w-0 flex-col">
+          <Section
+            title={t("operations.tools")}
+            badge={
+              <Badge>
+                {rows ? (
+                  rows.length
+                ) : (
+                  <Skeleton
+                    inline
+                    decorative
+                    width="0.75rem"
+                    height="1lh"
+                    className="justify-center"
+                  />
+                )}
+              </Badge>
+            }
+          >
+            <ToolsFilter
+              sort={sort}
+              onSortChange={setSort}
+              onQueryChange={setQuery}
             />
-          )}
-        </Section>
+            {tools.isError ? (
+              <Card className="py-0">
+                <LoadFailure
+                  error={tools.error}
+                  onRetry={() => void tools.refetch()}
+                />
+              </Card>
+            ) : (
+              <ToolTable
+                tools={shown}
+                label={t("operations.tools")}
+                selected={tool?.name}
+                onSelect={setPicked}
+                controls={detail ? detailId : undefined}
+                describe={(name) =>
+                  rows?.find((row) => row.name === name)?.description ??
+                  builtinToolNote(locale, name)
+                }
+                searched={query !== ""}
+              />
+            )}
+          </Section>
+          {detail}
+        </div>
       </div>
-    </DetailLayout>
+    </>
   );
 }
 

@@ -443,7 +443,7 @@ describe("사용량·한도", () => {
     );
   });
 
-  test("도구 활동 탭: 표와 레일, 볼 수 없는 세션은 링크가 없고 결과 모름·시간 없음·에이전트 없음을 그대로 쓴다", async () => {
+  test("도구 활동 탭: 표와 그 아래 고른 도구, 볼 수 없는 세션은 링크가 없고 결과 모름·시간 없음·에이전트 없음을 그대로 쓴다", async () => {
     setSystemTime(NOW);
     const { api } = renderAt("/operations/tools", {
       "GET /v1/auth/me": () => json(200, me()),
@@ -469,9 +469,35 @@ describe("사용량·한도", () => {
         .getByRole("link", { name: "도구 활동" })
         .getAttribute("aria-current"),
     ).toBe("page");
-    expect(document.querySelector("[data-slot=page-flush]")).not.toBeNull();
-    const rail = screen.getByRole("complementary", { name: "선택한 도구" });
-    expect(within(rail).getByRole("heading", { name: "Bash" })).toBeTruthy();
+    expect(document.querySelector("[data-slot=page-flush]")).toBeNull();
+    expect(screen.queryByRole("complementary")).toBeNull();
+    const rail = screen.getByRole("region", { name: "선택한 도구 Bash" });
+    // The heading is read on screen, not only by name, and it sits outside
+    // the section so it can stick to the screen's bottom over a long table.
+    const heading = screen.getByRole("heading", {
+      level: 2,
+      name: "선택한 도구 Bash",
+    });
+    expect(rail.getAttribute("aria-labelledby")).toBe(heading.id);
+    expect(heading.querySelector(".sr-only")).toBeNull();
+    const head = heading.closest("[data-slot=tool-detail-head]");
+    expect(head?.className).toContain("sticky");
+    expect(head?.className).toContain("bottom-0");
+    // It sticks over the table in their shared box, and keeps its own space
+    // from it: nothing pulls the section up under it, whatever the box's gap.
+    expect(head?.parentElement?.contains(table)).toBe(true);
+    expect(head?.className).toContain("mt-8");
+    expect(rail.className).not.toMatch(/(^|\s)-m[ty]?-/);
+    // The first row is shown by default; nothing is said for it.
+    expect(head?.querySelector("output")?.textContent).toBe("");
+    expect(
+      within(table)
+        .getAllByRole("button", { name: /자세히 보기$/ })
+        .map((opener) => opener.getAttribute("aria-controls")),
+    ).toEqual([rail.id, rail.id, rail.id, rail.id]);
+    expect(
+      table.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     const items = await within(rail).findAllByRole("listitem");
     expect(items.map((item) => item.textContent)).toEqual([
       "Bash 리뷰리뷰 봇 · 12:39—결과 모름",
@@ -509,13 +535,23 @@ describe("사용량·한도", () => {
     });
     const table = await screen.findByRole("table", { name: "도구와 명령" });
     const user = await setupUser();
-    await user.click(
-      await within(table).findByRole("button", { name: "Edit 자세히 보기" }),
-    );
-    const rail = screen.getByRole("complementary", { name: "선택한 도구" });
+    const pick = await within(table).findByRole("button", {
+      name: "Edit 자세히 보기",
+    });
+    await user.click(pick);
+    const rail = await screen.findByRole("region", {
+      name: "선택한 도구 Edit",
+    });
     await waitFor(() =>
       expect(within(rail).getByText("Edit 리뷰")).toBeTruthy(),
     );
+    // The section fills in under the table; the keyboard stays on the row,
+    // and the pick is said once in the heading's words.
+    expect(document.activeElement === pick).toBe(true);
+    expect(
+      document.querySelector("[data-slot=tool-detail-head] output")
+        ?.textContent,
+    ).toBe("선택한 도구 Edit");
     const callsOf = (name: string) =>
       api.calls.filter((call) => call.path === `/v1/usage/tools/${name}/calls`);
     expect(callsOf("Edit")).toHaveLength(1);
@@ -574,6 +610,35 @@ describe("사용량·한도", () => {
     );
   });
 
+  test("도구 활동 탭: 고른 도구가 기간을 바꿔 목록에서 빠지면 첫 도구가 서고, 그것은 알리지 않는다", async () => {
+    setSystemTime(NOW);
+    renderAt("/operations/tools", {
+      "GET /v1/auth/me": () => json(200, me()),
+      ...usageRoutes,
+      "GET /v1/usage/tools": (request: Request) =>
+        json(200, {
+          ...TOOLS,
+          tools: new URL(request.url).searchParams
+            .get("since")
+            ?.startsWith("2026-10-18")
+            ? TOOLS.tools.filter(({ name }) => name !== "Edit")
+            : TOOLS.tools,
+        }),
+    });
+    const table = await screen.findByRole("table", { name: "도구와 명령" });
+    const user = await setupUser();
+    await user.click(
+      await within(table).findByRole("button", { name: "Edit 자세히 보기" }),
+    );
+    const said = () =>
+      document.querySelector("[data-slot=tool-detail-head] output")
+        ?.textContent;
+    await waitFor(() => expect(said()).toBe("선택한 도구 Edit"));
+    await user.click(screen.getByRole("button", { name: "7일" }));
+    await screen.findByRole("region", { name: "선택한 도구 Bash" });
+    expect(said()).toBe("");
+  });
+
   test("도구 활동 탭: agent_id search param은 두 API에 그대로 간다", async () => {
     setSystemTime(NOW);
     const agent = "33333333-3333-4333-8333-333333333333";
@@ -581,7 +646,7 @@ describe("사용량·한도", () => {
       "GET /v1/auth/me": () => json(200, memberMe()),
       ...usageRoutes,
     });
-    await screen.findByRole("complementary", { name: "선택한 도구" });
+    await screen.findByRole("region", { name: "선택한 도구 Bash" });
     await waitFor(() =>
       expect(
         api.calls.filter((call) => call.path.startsWith("/v1/usage/tools")),
