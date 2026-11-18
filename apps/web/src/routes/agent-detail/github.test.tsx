@@ -177,7 +177,7 @@ async function addWorkflow(
   const dialog = await screen.findByRole("dialog");
   await user.type(within(dialog).getByLabelText("워크플로 파일"), workflow);
   if (ref !== "") {
-    await user.type(within(dialog).getByLabelText("ref 패턴(선택)"), ref);
+    await user.type(within(dialog).getByLabelText("ref 패턴 (선택)"), ref);
   }
   await user.click(within(dialog).getByRole("button", { name: "추가" }));
   return dialog;
@@ -960,7 +960,7 @@ describe("에이전트 GitHub 탭", () => {
     );
     const dialog = await screen.findByRole("dialog");
     const file = within(dialog).getByLabelText("워크플로 파일");
-    const ref = within(dialog).getByLabelText("ref 패턴(선택)");
+    const ref = within(dialog).getByLabelText("ref 패턴 (선택)");
     const add = within(dialog).getByRole("button", { name: "추가" });
 
     await user.type(file, ".github/workflows/ci.yml");

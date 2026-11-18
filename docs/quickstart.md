@@ -398,7 +398,7 @@ scripts/local.sh up --fake-model           # 실제 Claude 스택이면 옵션 �
 | 세션이 `queued`에서 움직이지 않는다 | `docker compose logs scheduler`와 worker 로그(3장 끝의 루프)를 본다. `EXECUTION_SLOT_LIMIT`(기본 10)만큼 세션이 이미 실행 중일 수도 있다 |
 | POST가 401이다 | `Authorization` 헤더가 빠졌거나, key가 다른 스택의 DB에서 발급됐다. `reset`이나 `down` 뒤라면 key도 지워졌다. 1장의 `KEY=…`와 2장의 함수를 다시 설정한다 |
 | POST가 403이다 | key에 그 scope가 없다. `--scopes`를 1장과 같게 발급한다 |
-| ④의 allow가 409 `REQUEST_EXPIRED`다 | 권한 요청이 30분 안에 답을 받지 못해 거절로 끝났고 turn 1도 이미 끝났다. `hello.txt`가 만들어지지 않았으니 ⑧에서 `alpha`가 나오지 않는다. ①부터 새 세션으로 다시 하고 ②–④를 30분 안에 진행한다 |
+| ④의 allow가 409 `REQUEST_EXPIRED`다 | 권한 요청이 30분 안에 답을 받지 못해 거부로 끝났고 turn 1도 이미 끝났다. `hello.txt`가 만들어지지 않았으니 ⑧에서 `alpha`가 나오지 않는다. ①부터 새 세션으로 다시 하고 ②–④를 30분 안에 진행한다 |
 | 409 `REVISION_CONFLICT` | 그 사이 세션이 바뀌었다. `$(revision)`으로 다시 읽어 보낸다 |
 | pause가 오래 `pausing`이고 `attention.code`가 `PAUSE_BLOCKED`다 | worker가 60초 안에 drain하지 못했다. 진행 중인 turn을 interrupt하거나 기다린다 |
 | pull한 코드가 반영되지 않은 것 같다 | `scripts/local.sh up --fake-model`(실제 Claude 스택이면 옵션 없이)을 다시 실행한다. 이미지를 이 checkout에서 다시 빌드한다 |

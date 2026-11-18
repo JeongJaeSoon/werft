@@ -4,7 +4,7 @@ import type { ReactElement } from "react";
 import type { ApprovalCardProps, PermissionRequest } from "./approval-card.tsx";
 import type { ApprovalRowMessages } from "./approval-row.tsx";
 
-const { render } = await setupDom();
+const { render, within } = await setupDom();
 // After setupDom: these load @werft-ai/ui, whose Radix decides at import time
 // whether a DOM exists, for every later file in the run too.
 const { ApprovalCard } = await import("./approval-card.tsx");
@@ -140,6 +140,52 @@ for (const surface of SURFACES) {
           view.getByRole("button", { name: surface.deny }),
       ).toBe(true);
       expect(onDeny).not.toHaveBeenCalled();
+    });
+
+    test("취소한 뒤 다시 펼치면 이유 칸이 비어 있다", async () => {
+      const user = await setupUser();
+      const view = render(surface.draw(props()));
+      await user.click(view.getByRole("button", { name: surface.deny }));
+      await user.keyboard("not this file");
+      await user.click(view.getByRole("button", { name: "Cancel" }));
+      await user.click(view.getByRole("button", { name: surface.deny }));
+      const reason = view.getByRole("textbox", { name: "Reason" });
+      expect((reason as HTMLTextAreaElement).value).toBe("");
+    });
+
+    test("보내기가 거절되면 적은 이유가 칸에 남는다", async () => {
+      const user = await setupUser();
+      const onDeny = mock((_reason: string) => {});
+      const view = render(surface.draw(props({ onDeny })));
+      await user.click(view.getByRole("button", { name: surface.deny }));
+      await user.keyboard("not this file");
+      await user.click(view.getByRole("button", { name: "Send denial" }));
+      view.rerender(surface.draw(props({ onDeny, pending: true })));
+      view.rerender(surface.draw(props({ onDeny, error: "refused" })));
+      const reason = view.getByRole("textbox", { name: "Reason" });
+      expect((reason as HTMLTextAreaElement).value).toBe("not this file");
+      await user.click(view.getByRole("button", { name: "Send denial" }));
+      expect(onDeny.mock.calls).toEqual([["not this file"], ["not this file"]]);
+    });
+
+    test("한 요청을 취소해도 다른 요청의 이유는 그대로다", async () => {
+      const user = await setupUser();
+      const other = { ...REQUEST, request_id: "req_2" };
+      const view = render(
+        <>
+          <div data-testid="one">{surface.draw(props())}</div>
+          <div data-testid="two">{surface.draw(props({ request: other }))}</div>
+        </>,
+      );
+      const one = within(view.getByTestId("one"));
+      const two = within(view.getByTestId("two"));
+      await user.click(one.getByRole("button", { name: surface.deny }));
+      await user.keyboard("first");
+      await user.click(two.getByRole("button", { name: surface.deny }));
+      await user.keyboard("second");
+      await user.click(one.getByRole("button", { name: "Cancel" }));
+      const kept = two.getByRole("textbox", { name: "Reason" });
+      expect((kept as HTMLTextAreaElement).value).toBe("second");
     });
 
     test("보내는 중에는 두 번 보내지 않는다", async () => {

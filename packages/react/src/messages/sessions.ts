@@ -89,9 +89,9 @@ export const sessionsKo = {
   "session.pending.expired": "만료되어 더 이상 답할 수 없습니다.",
   "session.answer.input": "요청 내용 보기",
   "session.answer.allow": "승인",
-  "session.answer.deny": "거절",
+  "session.answer.deny": "거부",
   "session.answer.allowFor": "승인: {tool} · {session}",
-  "session.answer.denyFor": "거절: {tool} · {session}",
+  "session.answer.denyFor": "거부: {tool} · {session}",
   "session.pending.approval": "승인 대기",
   "session.chat.tools": "도구 호출 {count}개",
   "session.chat.tools.one": "도구 호출 1개",
@@ -123,7 +123,7 @@ export const sessionsKo = {
   "session.composer.placeholder": "메시지를 입력하세요",
   "session.answer.notAnswerer":
     "이 세션을 시작한 사람, 에이전트 관리자, 워크스페이스 오너·어드민만 답할 수 있습니다.",
-  "session.answer.denyReason": "거부하는 이유",
+  "session.answer.denyReason": "거부하는 이유 (선택)",
   "session.answer.denySubmit": "거부 보내기",
   "session.answer.cancel": "취소",
   "session.answer.freeText": "직접 적기",
@@ -361,7 +361,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.composer.placeholder": "Type a message",
   "session.answer.notAnswerer":
     "Only the session's creator, its agent's admins and the workspace's owners and admins can answer.",
-  "session.answer.denyReason": "Why deny?",
+  "session.answer.denyReason": "Why deny? (optional)",
   "session.answer.denySubmit": "Send denial",
   "session.answer.cancel": "Cancel",
   "session.answer.freeText": "Write your own",
@@ -598,7 +598,7 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.composer.placeholder": "メッセージを入力",
   "session.answer.notAnswerer":
     "このセッションを開始した人、エージェント管理者、ワークスペースのオーナー・アドミンのみ回答できます。",
-  "session.answer.denyReason": "拒否する理由",
+  "session.answer.denyReason": "拒否する理由(任意)",
   "session.answer.denySubmit": "拒否を送信",
   "session.answer.cancel": "キャンセル",
   "session.answer.freeText": "自由に入力",

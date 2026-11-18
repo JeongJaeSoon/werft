@@ -49,8 +49,10 @@ export function useDenial(): Denial {
     reason,
     setReason,
     reasonRef,
+    // A cancel drops the reason; a refused send keeps it for the retry.
     cancel: () => {
       returnFocus.current = true;
+      setReason("");
       setDenying(false);
     },
   };
