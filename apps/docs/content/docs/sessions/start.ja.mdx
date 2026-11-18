@@ -228,7 +228,7 @@ curl -sS "$API/v1/sessions/$SID/share" -H "Authorization: Bearer $KEY" | jq -c '
 </Tab>
 </Tabs>
 
-`scope` は `private`(作った人だけ)、`people`(`user_ids` の人)、`team`(`team_ids` のチームの現在のメンバー)、`workspace`(すべてのメンバー)のいずれかである。一度も変えていないセッションは `workspace`、`revision` 0 になる。エージェントのセッションは `workspace` でもエージェントの内側だけが見られ(保管チームのエージェントは例外)、そのとき `audience_limited` が `true` になる([担当チーム外の member](/agents/permissions#担当チーム外の-member))。コンソールのセッション画面はタイトルの下の 1 行(セッション ID、エージェント、開始した人、費用)の末尾にこの値を読み取り専用で示し、`audience_limited` なら `ワークスペース(担当チーム外の人は見られません)` と書く。範囲を変える `POST /v1/sessions/{id}/share` は Web ログインでしか呼べないため、SDK のメソッドはない([`setSessionShare`](/reference/http-api/sessions/setSessionShare))。
+`scope` は `private`(作った人だけ)、`people`(`user_ids` の人)、`team`(`team_ids` のチームの現在のメンバー)、`workspace`(すべてのメンバー)のいずれかである。一度も変えていないセッションは `workspace`、`revision` 0 になる。エージェントのセッションは `workspace` でもエージェントの内側だけが見られ(保管チームのエージェントは例外)、そのとき `audience_limited` が `true` になる([担当チーム外の member](/agents/permissions#担当チーム外の-member))。コンソールのセッション画面はタイトルの下の 1 行の末尾にこの値を読み取り専用で示し、`audience_limited` なら `ワークスペース(担当チーム外の人は見られません)` と書く。範囲を変える `POST /v1/sessions/{id}/share` は Web ログインでしか呼べないため、SDK のメソッドはない([`setSessionShare`](/reference/http-api/sessions/setSessionShare))。
 
 ## タイトル
 

@@ -25,7 +25,7 @@ import {
   UserRound,
   UsersRound,
 } from "lucide-react";
-import { Fragment, type ReactNode, useCallback, useState } from "react";
+import { Fragment, type ReactNode, useCallback, useId, useState } from "react";
 import {
   OPERATIONS_MESSAGES,
   SessionStatusLabel,
@@ -33,10 +33,10 @@ import {
   shortSessionId,
 } from "../components/index.ts";
 import { useFollowEnd } from "../components/session/follow-end.ts";
+import { useKeptFailure } from "../kept-failure.ts";
 import { useWerft } from "../provider.tsx";
 import {
   useAgentOpenable,
-  useKeptFailure,
   usePendingRequests,
   useSession,
   useSessionEvents,
@@ -143,6 +143,8 @@ export function SessionDetail({
   const pending = usePendingRequests(id, readable);
   const events = useSessionEvents(id, readable);
   const turns = useSessionTurns(id, readable);
+  const share = useSessionShare(id, readable);
+  const shareFailure = useKeptFailure(share, id);
   // The event window keeps its length once full, so the newest event's id
   // tells an arrival, not the count.
   const follow = useFollowEnd(
@@ -303,7 +305,13 @@ export function SessionDetail({
             refusal={refusal}
           />
         </div>
-        <SessionMeta session={detail} usage={usage.data} />
+        <SessionMeta
+          session={detail}
+          usage={usage.data}
+          share={share.data}
+          shareFailure={shareFailure}
+          retryShare={() => void share.refetch()}
+        />
         {usage.error
           ? renderError(usage.error, () => void usage.refetch())
           : null}
@@ -387,9 +395,15 @@ const CHANNEL_ICON: Record<
 function SessionMeta({
   session,
   usage,
+  share,
+  shareFailure,
+  retryShare,
 }: {
   readonly session: SessionDetailData;
   readonly usage: SessionUsageResponse | undefined;
+  readonly share: SessionShareView | undefined;
+  readonly shareFailure: unknown;
+  readonly retryShare: () => void;
 }) {
   const { t, locale } = useBlockText();
   const [copied, setCopied] = useState(false);
@@ -476,18 +490,21 @@ function SessionMeta({
           {new Intl.NumberFormat(locale).format(usage.token_count)}
         </span>
       ) : null}
-      <SessionShare id={session.id} />
+      <SessionShare share={share} failure={shareFailure} onRetry={retryShare} />
     </p>
   );
 }
 
-function shareText(t: BlockText, share: SessionShareView): string {
+/** Null for a scope this build does not know, which may reach fewer people than the workspace. */
+function shareText(t: BlockText, share: SessionShareView): string | null {
   if (share.scope === "people")
     return t("session.share.people", { count: share.user_ids.length });
   if (share.scope === "team")
     return t("session.share.team", { count: share.team_ids.length });
   if (share.scope === "private") return t("session.share.private");
-  // `workspace` that the agent's access setting keeps inside the agent.
+  if (share.scope !== "workspace") return null;
+  // Only those inside the agent see it when its managing team is not the
+  // holding team.
   return t(
     share.audience_limited
       ? "session.share.workspaceLimited"
@@ -500,13 +517,20 @@ function shareText(t: BlockText, share: SessionShareView): string {
  * who may no longer read it. A failed read says so in its place, even over
  * an earlier answer, which may no longer be true.
  */
-function SessionShare({ id }: { readonly id: string }) {
+function SessionShare({
+  share,
+  failure,
+  onRetry,
+}: {
+  readonly share: SessionShareView | undefined;
+  readonly failure: unknown;
+  readonly onRetry: () => void;
+}) {
   const { t } = useBlockText();
-  const share = useSessionShare(id, true);
-  const error = useKeptFailure(share, id);
-  if (isApiError(error, "NOT_FOUND") || isApiError(error, "FORBIDDEN"))
+  const failedId = useId();
+  if (isApiError(failure, "NOT_FOUND") || isApiError(failure, "FORBIDDEN"))
     return null;
-  if (error) {
+  if (failure) {
     return (
       <Text
         as="span"
@@ -516,6 +540,7 @@ function SessionShare({ id }: { readonly id: string }) {
         <Text
           as="span"
           variant="meta"
+          id={failedId}
           role="alert"
           className="text-muted-foreground"
         >
@@ -526,14 +551,16 @@ function SessionShare({ id }: { readonly id: string }) {
           variant="link"
           size="sm"
           className="h-auto px-0 text-caption"
-          onClick={() => void share.refetch()}
+          aria-describedby={failedId}
+          onClick={onRetry}
         >
           {t("session.share.retry")}
         </Button>
       </Text>
     );
   }
-  if (!share.data) return null;
+  const text = share ? shareText(t, share) : null;
+  if (text === null) return null;
   return (
     <Text
       as="span"
@@ -548,7 +575,7 @@ function SessionShare({ id }: { readonly id: string }) {
       <Text as="span" className="sr-only">
         {t("session.share.title")}:{" "}
       </Text>
-      {shareText(t, share.data)}
+      {text}
     </Text>
   );
 }

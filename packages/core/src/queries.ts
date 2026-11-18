@@ -806,7 +806,11 @@ export function sessionUsageQuery(client: ApiClient, id: string) {
   });
 }
 
-/** Who sees the session; read once, as no screen here changes it. */
+/**
+ * Who sees the session. With no `staleTime` it reads again each time a
+ * screen mounts it or the window regains focus, so a change made elsewhere
+ * shows on the next visit.
+ */
 export function sessionShareQuery(client: ApiClient, id: string) {
   return queryOptions({
     queryKey: queryKeysOf(client).sessionShare(id),

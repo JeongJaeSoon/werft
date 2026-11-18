@@ -3812,6 +3812,26 @@ describe("세션 공유 범위", () => {
     expect(within(meta).queryByRole("alert") === null).toBe(true);
   });
 
+  test("이 화면이 모르는 범위는 워크스페이스로 보이지 않고 그리지 않는다", async () => {
+    // A newer server's scope. The contract names four, and production only
+    // warns about the rest, so it reaches the screen.
+    const { api } = renderAt(
+      `/sessions/${SESSION_ID}`,
+      {
+        ...detailRoutes,
+        [SHARE_ROUTE]: () => json(200, share({ scope: "agent_only" })),
+      },
+      "ko",
+      "warn",
+    );
+    const meta = await sessionMeta();
+    await waitFor(() => expect(shareReads(api)).toBe(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect((meta.textContent ?? "").includes("공유 범위")).toBe(false);
+    expect((meta.textContent ?? "").includes("워크스페이스")).toBe(false);
+    expect(within(meta).queryByRole("alert") === null).toBe(true);
+  });
+
   test("읽지 못하면 그 자리에 실패와 다시 시도를 보이고, 다시 읽으면 공유 범위가 보인다", async () => {
     const user = await setupUser();
     let reads = 0;
@@ -3824,7 +3844,13 @@ describe("세션 공유 범위", () => {
     });
     const meta = await sessionMeta();
     expect((await within(meta).findByRole("alert")).textContent).toBe(FAILED);
-    await user.click(within(meta).getByRole("button", { name: "다시 시도" }));
+    const retry = within(meta).getByRole("button", { name: "다시 시도" });
+    // Another "다시 시도" can sit in the head; this one says what it reads.
+    expect(
+      document.getElementById(retry.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBe(FAILED);
+    await user.click(retry);
     expect(await within(meta).findByText(/세션을 가진 사람만/)).toBeTruthy();
     expect(within(meta).queryByRole("alert") === null).toBe(true);
     expect(
@@ -3832,7 +3858,7 @@ describe("세션 공유 범위", () => {
     ).toBe(true);
   });
 
-  test("다시 읽는 동안에도 실패 표시가 남고 초점은 다시 시도에 있으며, 두 번 눌러도 한 번 읽는다", async () => {
+  test("받은 값이 없을 때 다시 읽는 동안에도 실패 표시가 남고 초점은 다시 시도에 있으며, 두 번 눌러도 한 번 읽는다", async () => {
     const user = await setupUser();
     let answer: (response: Response) => void = () => {};
     let reads = 0;
@@ -3875,7 +3901,7 @@ describe("세션 공유 범위", () => {
     [`GET /v1/sessions/${OTHER_ID}/share`]: shareRoute,
   });
 
-  test("받은 값이 있어도 다시 읽기에 실패하면 낡은 값 대신 실패를 보인다", async () => {
+  test("돌아와 다시 읽은 것이 실패하면 받은 값이 있어도 낡은 값 대신 실패를 보인다(staleTime이 없어 돌아올 때 다시 읽는다)", async () => {
     let reads = 0;
     const { history } = renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,

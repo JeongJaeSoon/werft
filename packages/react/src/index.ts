@@ -61,7 +61,6 @@ export {
   type SessionControl,
   type SessionEventFrame,
   useAnswer,
-  useKeptFailure,
   usePendingRequests,
   useSendMessage,
   useSession,
