@@ -297,22 +297,14 @@ const detailRoutes = {
 };
 
 describe("approval inbox", () => {
-  // A line names its session on its one button.
-  const DETAIL = `${SESSION_ID.slice(0, 8)} 답하기`;
-  // The line opens the session in the rail, where the request is answered.
-  const allowInRail = async (user: Awaited<ReturnType<typeof setupUser>>) => {
-    await user.click(await screen.findByRole("button", { name: DETAIL }));
-    const rail = await screen.findByRole("complementary", {
-      name: SESSION_ID.slice(0, 8),
-    });
-    // The form waits for the stream to say where the request was asked.
-    await act(async () => stream.open());
-    return within(rail).findByRole("button", { name: /^승인/ });
-  };
+  // A request is answered on its own line; there is no rail to open.
+  const allowOnLine = async () =>
+    within(await screen.findByRole("region", { name: "답변 대기" })).findByRole(
+      "button",
+      { name: /^승인/ },
+    );
   const waitingRoutes = (items: unknown[], next_cursor: string | null) => ({
     "GET /v1/auth/me": () => json(200, me()),
-    [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, detail),
-    [EVENTS_ROUTE]: (request: Request) => stream.route(request),
     "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
     "GET /v1/sessions?status=needs_input": () =>
       json(200, { items, next_cursor }),
@@ -337,11 +329,11 @@ describe("approval inbox", () => {
       ),
     );
     const inbox = await screen.findByRole("region", { name: "답변 대기" });
+    // The line answers its request in place.
     expect(
-      await within(inbox).findAllByRole("button", { name: DETAIL }),
+      await within(inbox).findAllByRole("button", { name: /^승인/ }),
     ).toHaveLength(1);
-    // The line answers nothing itself.
-    expect(within(inbox).queryByRole("button", { name: /^승인/ })).toBeNull();
+    expect(screen.queryByRole("complementary") === null).toBe(true);
     // OTHER_ID was answered or lapsed since the waiting list was read: no
     // line of its own saying nothing waits, and not counted.
     expect(within(inbox).queryByText(/요청이 없습니다/)).toBeNull();
@@ -399,7 +391,7 @@ describe("approval inbox", () => {
     });
     const waitingReads = () =>
       api.calls.filter((call) => call.search === "?status=needs_input").length;
-    const allow = await allowInRail(user);
+    const allow = await allowOnLine();
     const before = waitingReads();
     await user.click(allow);
     expect(await screen.findByText("답을 보냈습니다.")).toBeTruthy();
@@ -434,13 +426,13 @@ describe("approval inbox", () => {
         ),
       ).length;
     await waitFor(() => expect(waitingReads()).toBe(2));
-    await user.click(await allowInRail(user));
+    await user.click(await allowOnLine());
     expect(await screen.findByText("답을 보냈습니다.")).toBeTruthy();
     // The inbox's page and the tab's list are separate queries: both read again.
     await waitFor(() => expect(waitingReads()).toBeGreaterThanOrEqual(4));
   });
 
-  test("a session answered in the rail leaves; closing the rail hands focus to the inbox heading", async () => {
+  test("a session answered on its line leaves, and the keyboard goes to the inbox heading", async () => {
     const user = await setupUser();
     let waiting = [summary(SESSION_ID, { status: "needs_input" })];
     renderAt("/sessions", {
@@ -455,28 +447,17 @@ describe("approval inbox", () => {
         });
       },
     });
-    (await screen.findByRole("button", { name: DETAIL })).focus();
-    await user.keyboard("{Enter}");
-    const rail = await screen.findByRole("complementary", {
-      name: SESSION_ID.slice(0, 8),
-    });
-    await waitFor(() =>
-      expect(document.activeElement).toBe(rail.querySelector("h2")),
-    );
-    await act(async () => stream.open());
-    (await within(rail).findByRole("button", { name: /^승인/ })).focus();
+    await screen.findByRole("region", { name: "답변 대기" });
+    (await allowOnLine()).focus();
     await user.keyboard("{Enter}");
     expect(
       await screen.findByText("답을 기다리는 세션이 없습니다."),
     ).toBeTruthy();
-    // The rail keeps the keyboard while the line leaves behind it.
-    expect(rail.contains(document.activeElement)).toBe(true);
-    await user.keyboard("{Escape}");
-    expect(screen.queryByRole("complementary")).toBeNull();
     await waitFor(() =>
-      expect(document.activeElement).toBe(
-        screen.getByRole("heading", { name: "답변 대기" }),
-      ),
+      expect(
+        document.activeElement ===
+          screen.getByRole("heading", { name: "답변 대기" }),
+      ).toBe(true),
     );
   });
 

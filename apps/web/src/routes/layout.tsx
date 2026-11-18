@@ -176,7 +176,7 @@ function LocaleSwitch() {
 // The router opens these with a trailing slash too.
 const SESSION_PATH = /^\/sessions\/([^/]+)\/?$/;
 const AGENT_PATH = /^\/agents\/([^/]+)\/?$/;
-const RAIL_PATH = /^\/(sessions(\/[^/]+)?|operations\/tools)?\/?$/;
+const RAIL_PATH = /^\/(sessions\/[^/]+|operations\/tools)\/?$/;
 
 export function AuthedLayout() {
   const me = useMe();
