@@ -35,6 +35,12 @@ const MESSAGES: ApprovalRowMessages = {
   denyReason: "Reason",
   denySubmit: "Send denial",
   cancel: "Cancel",
+  allowNote: "Allow with instruction",
+  allowNoteName: (tool) => `Allow with instruction: ${tool} · 0192f0c4`,
+  note: "Instruction",
+  noteSubmit: "Send approval",
+  noteRequired: "Type an instruction",
+  noteTooLong: "Too long",
 };
 
 type Props = Omit<ApprovalCardProps, "messages">;
@@ -45,18 +51,21 @@ const SURFACES: readonly {
   readonly name: string;
   readonly draw: (props: Props) => ReactElement;
   readonly allow: string;
+  readonly allowNote: string;
   readonly deny: string;
 }[] = [
   {
     name: "ApprovalCard",
     draw: (props) => <ApprovalCard {...props} messages={MESSAGES} />,
     allow: "Allow",
+    allowNote: "Allow with instruction",
     deny: "Deny",
   },
   {
     name: "ApprovalRow",
     draw: (props) => <ApprovalRow {...props} messages={MESSAGES} />,
     allow: "Allow: Bash · 0192f0c4",
+    allowNote: "Allow with instruction: Bash · 0192f0c4",
     deny: "Deny: Bash · 0192f0c4",
   },
 ];
@@ -244,6 +253,104 @@ for (const surface of SURFACES) {
           }) as HTMLTextAreaElement
         ).readOnly,
       ).toBe(true);
+    });
+
+    test("지시와 함께 승인은 칸을 펼치고 초점이 칸으로 간다", async () => {
+      const user = await setupUser();
+      const onAllow = mock((..._args: unknown[]) => {});
+      const view = render(surface.draw(props({ onAllow })));
+      await user.click(view.getByRole("button", { name: surface.allowNote }));
+      const note = view.getByRole("textbox", { name: "Instruction" });
+      expect(document.activeElement === note).toBe(true);
+      expect(view.queryByRole("button", { name: surface.allow })).toBeNull();
+      expect(view.queryByRole("button", { name: surface.deny })).toBeNull();
+      expect(onAllow).not.toHaveBeenCalled();
+    });
+
+    test("지시를 적어 보내면 앞뒤 공백을 뺀 지시와 함께 승인한다", async () => {
+      const user = await setupUser();
+      const onAllow = mock((..._args: unknown[]) => {});
+      const view = render(surface.draw(props({ onAllow })));
+      await user.click(view.getByRole("button", { name: surface.allowNote }));
+      await user.keyboard("  keep a.txt empty  ");
+      await user.click(view.getByRole("button", { name: "Send approval" }));
+      expect(onAllow.mock.calls).toEqual([["keep a.txt empty"]]);
+    });
+
+    test("빈 지시는 칸에서 막고 보내지 않는다", async () => {
+      const user = await setupUser();
+      const onAllow = mock((..._args: unknown[]) => {});
+      const view = render(surface.draw(props({ onAllow })));
+      await user.click(view.getByRole("button", { name: surface.allowNote }));
+      await user.keyboard("   ");
+      await user.click(view.getByRole("button", { name: "Send approval" }));
+      expect(onAllow).not.toHaveBeenCalled();
+      const note = view.getByRole("textbox", { name: "Instruction" });
+      expect(note.getAttribute("aria-invalid")).toBe("true");
+      expect(view.getByRole("alert").textContent).toBe("Type an instruction");
+      expect(document.activeElement === note).toBe(true);
+    });
+
+    test("8 KiB가 넘는 지시는 칸에서 막는다", async () => {
+      const user = await setupUser();
+      const onAllow = mock((..._args: unknown[]) => {});
+      const view = render(surface.draw(props({ onAllow })));
+      await user.click(view.getByRole("button", { name: surface.allowNote }));
+      // 2731 three-byte characters: 8193 bytes, though only 2731 long.
+      await user.paste("가".repeat(2731));
+      await user.click(view.getByRole("button", { name: "Send approval" }));
+      expect(onAllow).not.toHaveBeenCalled();
+      expect(view.getByRole("alert").textContent).toBe("Too long");
+      // The same 8192 bytes go.
+      await user.clear(view.getByRole("textbox", { name: "Instruction" }));
+      await user.paste(`${"가".repeat(2730)}ab`);
+      expect(view.queryByRole("alert")).toBeNull();
+      await user.click(view.getByRole("button", { name: "Send approval" }));
+      expect(onAllow).toHaveBeenCalledTimes(1);
+    });
+
+    test("지시 칸을 취소하면 초점이 지시 버튼으로 돌아가고 글은 지워진다", async () => {
+      const user = await setupUser();
+      const view = render(surface.draw(props()));
+      await user.click(view.getByRole("button", { name: surface.allowNote }));
+      await user.keyboard("not this");
+      await user.click(view.getByRole("button", { name: "Cancel" }));
+      const opener = view.getByRole("button", { name: surface.allowNote });
+      expect(document.activeElement === opener).toBe(true);
+      await user.click(opener);
+      expect(
+        (
+          view.getByRole("textbox", {
+            name: "Instruction",
+          }) as HTMLTextAreaElement
+        ).value,
+      ).toBe("");
+    });
+
+    test("지시와 함께 보낸 승인이 거절되면 적은 지시가 칸에 남는다", async () => {
+      const user = await setupUser();
+      const onAllow = mock((..._args: unknown[]) => {});
+      const view = render(surface.draw(props({ onAllow })));
+      await user.click(view.getByRole("button", { name: surface.allowNote }));
+      await user.keyboard("keep a.txt empty");
+      await user.click(view.getByRole("button", { name: "Send approval" }));
+      view.rerender(surface.draw(props({ onAllow, pending: true })));
+      expect(
+        (
+          view.getByRole("textbox", {
+            name: "Instruction",
+          }) as HTMLTextAreaElement
+        ).readOnly,
+      ).toBe(true);
+      view.rerender(surface.draw(props({ onAllow, error: "refused" })));
+      const note = view.getByRole("textbox", { name: "Instruction" });
+      expect((note as HTMLTextAreaElement).value).toBe("keep a.txt empty");
+      expect(view.getByText("refused")).toBeTruthy();
+      await user.click(view.getByRole("button", { name: "Send approval" }));
+      expect(onAllow.mock.calls).toEqual([
+        ["keep a.txt empty"],
+        ["keep a.txt empty"],
+      ]);
     });
 
     test("펼친 채 만료되면 폼이 사라지고 초점이 만료 안내로 간다", async () => {

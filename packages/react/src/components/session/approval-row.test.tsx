@@ -34,6 +34,12 @@ const MESSAGES: ApprovalRowMessages = {
   denyReason: "Reason",
   denySubmit: "Send denial",
   cancel: "Cancel",
+  allowNote: "Allow with instruction",
+  allowNoteName: (tool) => `Allow with instruction: ${tool} · 0192f0c4`,
+  note: "Instruction",
+  noteSubmit: "Send approval",
+  noteRequired: "Type an instruction",
+  noteTooLong: "Too long",
 };
 
 const ALLOW = "Allow: Bash · 0192f0c4";
@@ -181,7 +187,7 @@ describe("ApprovalRow", () => {
         now={now}
       />,
     );
-    expect(container.querySelectorAll("button").length).toBe(2);
+    expect(container.querySelectorAll("button").length).toBe(3);
     getByRole("button", { name: ALLOW }).focus();
     await waitFor(() =>
       expect(document.activeElement === getByText("expired")).toBe(true),

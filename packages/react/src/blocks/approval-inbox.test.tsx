@@ -79,7 +79,10 @@ function renderInbox({
   agentHidden = false,
   startedBy,
   relations: related = [],
+  refuse,
 }: {
+  /** What every answer gets back instead of a receipt. */
+  refuse?: { status: number; error: Record<string, unknown> };
   open: PendingRequest[];
   layout?: ApprovalLayout;
   unavailable?: { answer?: string };
@@ -163,6 +166,7 @@ function renderInbox({
       };
       posted.push({ path: url.pathname, body });
       if (hold) return new Promise<Response>(() => {});
+      if (refuse) return json(refuse.status, { error: refuse.error });
       items = items.filter((item) => item.request_id !== body.request_id);
       return json(202, { receipt_id: "rcpt_1", receipt_status: "accepted" });
     }
@@ -336,6 +340,68 @@ describe("ApprovalInbox", () => {
       reason: "not now",
     });
   });
+
+  for (const layout of ["card", "row"] as const) {
+    test(`${layout}에서 지시와 함께 승인하면 allow와 지시를 함께 보낸다`, async () => {
+      const user = await setupUser();
+      const view = renderInbox({ open: [permission("req_1", "Bash")], layout });
+      await user.click(
+        await view.findByRole("button", {
+          name:
+            layout === "card"
+              ? "Allow with instruction"
+              : `Allow with instruction: Bash · ${SHORT}`,
+        }),
+      );
+      await user.keyboard("keep a.txt empty");
+      await user.click(view.getByRole("button", { name: "Send approval" }));
+      await waitFor(() => expect(view.posted).toHaveLength(1));
+      expect(view.posted[0]?.body).toEqual({
+        request_id: "req_1",
+        kind: "permission",
+        action: "allow",
+        reason: "keep a.txt empty",
+      });
+    });
+  }
+
+  const NOTE_REFUSALS = [
+    {
+      reason_code: "note_not_accepted",
+      text: "This session cannot hand an instruction to the agent, so nothing was allowed. The request is still open: allow it without an instruction, or deny it.",
+    },
+    {
+      reason_code: "answer_too_long",
+      text: "With this instruction the answers to the agent would be too long, so nothing was allowed. The request is still open: shorten the instruction and send again.",
+    },
+    { reason_code: "something_else", text: "The request was refused." },
+  ];
+  for (const refusal of NOTE_REFUSALS) {
+    test(`지시가 ${refusal.reason_code}로 거절되면 그 까닭을 보이고 지시는 칸에 남는다`, async () => {
+      const user = await setupUser();
+      const view = renderInbox({
+        open: [permission("req_1", "Bash")],
+        refuse: {
+          status: 400,
+          error: {
+            code: "BAD_REQUEST",
+            message: "refused",
+            details: { reason_code: refusal.reason_code },
+          },
+        },
+      });
+      await user.click(
+        await view.findByRole("button", { name: "Allow with instruction" }),
+      );
+      await user.keyboard("keep a.txt empty");
+      await user.click(view.getByRole("button", { name: "Send approval" }));
+      await view.findByText(refusal.text);
+      const note = view.getByRole("textbox", {
+        name: "Instruction for the agent",
+      }) as HTMLTextAreaElement;
+      expect(note.value).toBe("keep a.txt empty");
+    });
+  }
 
   test("답할 수 없는 사람에게는 행의 버튼이 막히고 이유가 보인다", async () => {
     const view = renderInbox({

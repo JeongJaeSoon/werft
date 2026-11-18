@@ -259,11 +259,26 @@ const SESSION_REFUSALS = [
   "RECOVERY_REQUIRED",
 ] as const;
 
+// Why the API refused an allow's instruction, from `error.details.reason_code`.
+const NOTE_REFUSALS = ["note_not_accepted", "answer_too_long"] as const;
+
+function noteRefusal(error: ApiError) {
+  if (error.code !== "BAD_REQUEST") return undefined;
+  const { details } = error;
+  const reason =
+    typeof details === "object" && details !== null && "reason_code" in details
+      ? details.reason_code
+      : undefined;
+  return NOTE_REFUSALS.find((known) => known === reason);
+}
+
 function useRefusal(refusal: SessionActionProps["refusal"]) {
   const { t } = useBlockText();
   return (error: ApiError) => {
     const code = SESSION_REFUSALS.find((known) => known === error.code);
     if (code) return t(`session.refused.${code}`);
+    const note = noteRefusal(error);
+    if (note) return t(`session.refused.note.${note}`);
     return refusal?.(error) ?? t("session.command.refused");
   };
 }
@@ -513,12 +528,23 @@ export function PendingAnswers({
                     denyReason: t("session.answer.denyReason"),
                     denySubmit: t("session.answer.denySubmit"),
                     cancel: t("session.answer.cancel"),
+                    allowNote: t("session.answer.allowNote"),
+                    allowNoteName: (tool) =>
+                      t("session.answer.allowNoteFor", {
+                        tool,
+                        session: short,
+                      }),
+                    note: t("session.answer.note"),
+                    noteSubmit: t("session.answer.noteSubmit"),
+                    noteRequired: t("session.answer.noteRequired"),
+                    noteTooLong: t("session.answer.noteTooLong"),
                   }}
-                  onAllow={() =>
+                  onAllow={(text) =>
                     send({
                       request_id: request.request_id,
                       kind: "permission",
                       action: "allow",
+                      ...(text ? { reason: text } : {}),
                     })
                   }
                   onDeny={(text) =>
