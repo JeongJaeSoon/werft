@@ -279,10 +279,6 @@ describe("i18n", () => {
       "agent.releases.absent.workspaceRepositories",
       "agent.releases.changed",
       "agent.releases.secretsHidden",
-      "session.release.title",
-      "session.release.active",
-      "session.release.notActive",
-      "session.release.notActiveBody",
     ];
     for (const locale of LOCALES) {
       const catalog = catalogs[locale] as Record<string, string | undefined>;

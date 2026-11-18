@@ -450,7 +450,7 @@ function SessionMeta({
           {copied ? t("session.id.copied") : null}
         </output>
       </span>
-      <span className="inline-flex min-w-0 items-center gap-1.5">
+      <span className="inline-flex min-w-0 flex-wrap items-center gap-x-1.5">
         <Bot
           className="size-3.5 shrink-0"
           strokeWidth={1.5}
@@ -458,6 +458,7 @@ function SessionMeta({
         />
         <span className="sr-only">{t("session.info.agent")}: </span>
         <AgentName session={session} />
+        <AgentRelease agent={session.agent} />
       </span>
       <span
         className="inline-flex min-w-0 flex-wrap items-center gap-x-1.5"
@@ -631,6 +632,47 @@ function AgentName({ session }: { readonly session: SessionDetailData }) {
     className: "text-(color:--werft-color-link) underline underline-offset-2",
     children: agent.name,
   });
+}
+
+/**
+ * The release the session is pinned to, outside the agent's link. Not the
+ * agent's active release only when the server says so; an older server's
+ * null claims nothing, and an active one needs no word.
+ */
+function AgentRelease({
+  agent,
+}: {
+  readonly agent: SessionDetailData["agent"];
+}) {
+  const { t } = useBlockText();
+  if (!agent) return null;
+  const version = agent.release_version_no;
+  const name =
+    agent.release_label ??
+    (typeof version === "number"
+      ? t("session.release.version", { version })
+      : null);
+  if (name === null) return null;
+  return (
+    <Text
+      as="span"
+      variant="meta"
+      className="min-w-0 text-muted-foreground [overflow-wrap:anywhere]"
+    >
+      <Text as="span" aria-hidden="true">
+        {"· "}
+      </Text>
+      <Text as="span" className="sr-only">
+        {t("session.release.title")}:{" "}
+      </Text>
+      <Text as="span" mono>
+        {name}
+      </Text>
+      {agent.release_is_active === false
+        ? ` · ${t("session.release.notActive")}`
+        : null}
+    </Text>
+  );
 }
 
 /** The cost so far, and why it may still grow when it is not final. */
