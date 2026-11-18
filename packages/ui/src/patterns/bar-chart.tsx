@@ -38,7 +38,7 @@ export interface BarChartProps {
   /** The top of the y axis; by default the largest value rounded up. */
   readonly yMax?: number | undefined;
   /**
-   * The rail's summary: 64px, no y axis, first and last x labels, no focus.
+   * A summary beside other figures: 64px, no y axis, first and last x labels, no focus.
    * The label is then the only text a screen reader gets, so it should say
    * the period, the total and the busiest day.
    */
@@ -46,7 +46,7 @@ export interface BarChartProps {
   readonly className?: string | undefined;
 }
 
-// A full plot is 160px with a grid line every 40px; the rail's 64px every 16.
+// A full plot is 160px with a grid line every 40px; a compact one's 64px every 16.
 const PLOT_HEIGHT = {
   full: "h-40 bg-size-[100%_40px]",
   compact: "h-16 bg-size-[100%_16px]",

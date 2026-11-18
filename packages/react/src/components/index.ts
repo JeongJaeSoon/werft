@@ -10,17 +10,6 @@ export {
   guidanceFor,
 } from "./feedback/error-guidance.ts";
 export {
-  DETAIL_RAIL_WIDE,
-  DetailLayout,
-  type DetailLayoutProps,
-  DetailRail,
-  type DetailRailProps,
-  DetailRailSection,
-  type DetailRailSectionProps,
-  type DetailRailToggle,
-  useDetailRailToggle,
-} from "./layout/detail-layout.tsx";
-export {
   ListToolbar,
   type ListToolbarProps,
   type ListViewOption,

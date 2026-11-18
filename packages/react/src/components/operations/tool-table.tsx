@@ -28,7 +28,7 @@ export interface ToolTableProps {
   readonly tools: readonly UsageTool[] | undefined;
   /** Names the table, e.g. "도구와 명령". */
   readonly label: string;
-  /** The `name` of the row shown in the rail. */
+  /** The `name` of the row whose tool is shown below the list. */
   readonly selected?: string | undefined;
   readonly onSelect?: ((name: string) => void) | undefined;
   /** The id of the section a row opens, which each opener points at. */
@@ -46,7 +46,7 @@ export interface ToolTableProps {
 }
 
 /**
- * Tools by calls, time and failures. A row opens in the rail: its opener is a
+ * Tools by calls, time and failures. A row opens below the list: its opener is a
  * toggle button, pressed for the row shown, since the table is
  * role="table" and its rows cannot be selected.
  */

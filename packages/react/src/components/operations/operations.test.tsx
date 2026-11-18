@@ -4,7 +4,8 @@ import { setupDom, setupUser } from "@werft-ai/ui/test-support/dom";
 import { type ReactNode, useState } from "react";
 
 const { render, waitFor } = await setupDom();
-// After setupDom: these load @werft-ai/ui (see detail-layout.test.tsx).
+// After setupDom: these load @werft-ai/ui, whose Radix decides at import time
+// whether a DOM exists, for every later file in the run too.
 const { WerftProvider } = await import("../../provider.tsx");
 const { Findings } = await import("./findings.tsx");
 const { SessionCounts } = await import("./session-counts.tsx");
@@ -235,7 +236,7 @@ describe("1분 미만 도구 시간", () => {
 
 describe("ToolDetail loading", () => {
   test("도구 목록을 읽는 동안 절 제목이 비지 않고, 이름이 오면 읽는 중 안내가 빠진다", () => {
-    const rail = (name: string | undefined) => (
+    const detail = (name: string | undefined) => (
       <ToolDetail
         name={name}
         tool={undefined}
@@ -245,7 +246,7 @@ describe("ToolDetail loading", () => {
         onCallSortChange={() => {}}
       />
     );
-    const view = withPlatform(rail(undefined), "en");
+    const view = withPlatform(detail(undefined), "en");
     // The accessible name skips the aria-hidden skeleton.
     expect(
       view.getByRole("heading", {
@@ -259,7 +260,7 @@ describe("ToolDetail loading", () => {
         locale="en"
         renderLink={() => null}
       >
-        {rail("Bash")}
+        {detail("Bash")}
       </WerftProvider>,
     );
     expect(
@@ -481,7 +482,7 @@ describe("tools tab loading", () => {
   });
 
   test("ToolDetail은 이름도 모를 때 자리표시로 서고, 값이 오면 같은 자리에 그린다", () => {
-    const rail = (ready: boolean) => (
+    const detail = (ready: boolean) => (
       <WerftProvider
         client={{} as ApiClient}
         locale="ko"
@@ -504,7 +505,9 @@ describe("tools tab loading", () => {
         />
       </WerftProvider>
     );
-    const { getByRole, queryByRole, rerender, container } = render(rail(false));
+    const { getByRole, queryByRole, rerender, container } = render(
+      detail(false),
+    );
     const section = getByRole("region", {
       name: "선택한 도구 도구 목록을 읽는 중",
     });
@@ -514,7 +517,7 @@ describe("tools tab loading", () => {
         (dd) => dd.querySelector("[aria-hidden=true]") !== null,
       ),
     ).toEqual([true, true, true, true]);
-    rerender(rail(true));
+    rerender(detail(true));
     expect(getByRole("region", { name: "선택한 도구 Bash" }) === section).toBe(
       true,
     );

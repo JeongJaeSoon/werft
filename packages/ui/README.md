@@ -174,7 +174,7 @@ Tailwind에는 `theme.css`가 이어 붙인다(`--color-surface: var(--werft-col
 | 폼 필드 ↔ 필드 | 16px. 라디오·체크박스 묶음 안은 12px |
 | 카드 안 | padding 16px, 목록 행 padding 12px 16px |
 
-- 페이지 틀은 하나다(`PageFrame`, V4-PAGE-FRAME). 목록·설정·폼·상세 모두 좌우 여백 16px(768px부터 24px) 안에서 `--werft-w-page`(1620px)까지 넓어진 뒤 가운데에 놓인다. 화면마다 폭이나 여백을 따로 적지 않는다. 설정 내비 안의 화면(설정 탭 전부와 key 만들기)도 내비를 뺀 나머지를 틀 끝까지 써서, 구획 선·카드·표의 오른쪽 끝이 다른 화면과 같은 선에 놓인다. 입력칸과 설명 문단처럼 길어지면 읽기 어려운 요소만 각자 최대 폭(`max-w-80`, `--werft-layout-reading-width` 등)을 둔다. 세션 상세는 오른쪽 레일 때문에 `DetailLayout`이 본문만 같은 틀에 넣는다.
+- 페이지 틀은 하나다(`PageFrame`, V4-PAGE-FRAME). 목록·설정·폼·상세 모두 좌우 여백 16px(768px부터 24px) 안에서 `--werft-w-page`(1620px)까지 넓어진 뒤 가운데에 놓인다. 화면마다 폭이나 여백을 따로 적지 않는다. 설정 내비 안의 화면(설정 탭 전부와 key 만들기)도 내비를 뺀 나머지를 틀 끝까지 써서, 구획 선·카드·표의 오른쪽 끝이 다른 화면과 같은 선에 놓인다. 입력칸과 설명 문단처럼 길어지면 읽기 어려운 요소만 각자 최대 폭(`max-w-80`, `--werft-layout-reading-width` 등)을 둔다. 세션 상세는 대화 탭이 화면 높이를 쓰므로 같은 `PageFrame`을 자기가 그린다.
 - 화면마다 콘텐츠 왼쪽 선은 하나다. 제목, 설명, 탭 글자, 표 첫 열 글자, 카드 테두리가 같은 x에 선다. line 탭은 좌우 padding 없이 `gap-6`으로 띄워 첫 탭 글자가 선 위에 온다.
 - 목록으로 돌아가는 링크는 제목 위 줄이 아니라 `PageHeader`의 `actions`(outline sm 버튼, 왼쪽 화살표)에 둔다. 그래야 제목 y가 화면마다 같다.
 - 사이드바 머리는 topbar와 높이(`--werft-topbar-h`)와 아래 경계선이 같아 한 줄로 이어진다.
@@ -190,7 +190,7 @@ Tailwind에는 `theme.css`가 이어 붙인다(`--color-surface: var(--werft-col
 |---|---|---|
 | foundations · `src/foundations/` | 없음 | `tokens.css`·`styles.css`·`theme.css`·`fonts.css`(+`fonts/`), `cn`, `useReducedMotion`, `useMediaQuery`, `formatTimestamp` |
 | primitives · `src/primitives/` | foundations | shadcn 항목 `Button`·`Badge`·`Card*`·`Input`·`Textarea`·`NativeSelect*`·`Checkbox`·`RadioGroup*`·`Tabs*`·`Dialog*`·`Field*`, 그리고 `Skeleton`. 도메인을 모른다. 의미 있는 상태는 `Badge`가 아니라 `StatusLabel`로 |
-| patterns · `src/patterns/` | primitives | `ConfirmDialog`·`DestructiveActionDialog`(결과 설명이 필수이고, 파괴적 동작은 이름을 입력해야 열린다), `EmptyState`, `ErrorState`(제목·할 일·원문·재시도·증거 링크. 할 일 문구는 쓰는 쪽이 준다), 페이지 틀 `PageFrame`(여백 + 1620px 가운데 열)과 그 안의 `Page`(머리 + 32px 간격 섹션), 페이지 머리 `PageHeader`(h1 + 설명 + 동작 여러 개), `Stepper`, 상세 화면 두 칸 배치 `useDetailLayout`, 채팅 `ChatList`·`ChatMessage`(사람은 오른쪽 파란 말풍선, 상대는 왼쪽 글만)·`ChatToolGroup`·`ChatToolItem`(이어진 도구 호출을 한 줄로 접고 펼치면 목록), 좁은 목록 `CompactList`·`CompactRow`(끝에 값이나 버튼), 줄 수 `DiffStat`(+초록 −빨강) |
+| patterns · `src/patterns/` | primitives | `ConfirmDialog`·`DestructiveActionDialog`(결과 설명이 필수이고, 파괴적 동작은 이름을 입력해야 열린다), `EmptyState`, `ErrorState`(제목·할 일·원문·재시도·증거 링크. 할 일 문구는 쓰는 쪽이 준다), 페이지 틀 `PageFrame`(여백 + 1620px 가운데 열)과 그 안의 `Page`(머리 + 32px 간격 섹션), 페이지 머리 `PageHeader`(h1 + 설명 + 동작 여러 개), `Stepper`, 채팅 `ChatList`·`ChatMessage`(사람은 오른쪽 파란 말풍선, 상대는 왼쪽 글만)·`ChatToolGroup`·`ChatToolItem`(이어진 도구 호출을 한 줄로 접고 펼치면 목록), 좁은 목록 `CompactList`·`CompactRow`(끝에 값이나 버튼), 줄 수 `DiffStat`(+초록 −빨강) |
 
 계약 타입을 받는 도메인 조각은 `packages/react/src/components`(`@werft-ai/react/components`)에 있다: `StatusLabel`(admission·turn·receipt·execution **네 축**을 따로 그린다), `ReceiptSummary`·`ReceiptLink`(`unknown`은 성공으로 그리지 않는다), `ApiErrorState`(`error.code`별 "할 일"을 채운 `ErrorState`), `Session*`·`Timeline`·`Message`·`Composer`·`ApprovalCard`·`ApprovalRow`·`QuestionCard`·`StageIndicator`.
 

@@ -133,4 +133,3 @@ export {
   type StepsItemState,
   type StepsProps,
 } from "./steps.tsx";
-export { useDetailLayout } from "./use-detail-layout.ts";

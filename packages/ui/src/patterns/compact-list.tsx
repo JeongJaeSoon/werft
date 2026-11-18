@@ -8,7 +8,7 @@ export interface CompactRowProps extends ComponentProps<"li"> {
 }
 
 /**
- * One line of a narrow list, such as a detail rail's files: its text
+ * One line of a narrow list, such as a session's changed files: its text
  * truncates before `trailing`, which keeps its width.
  */
 export function CompactRow({
