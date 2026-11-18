@@ -10,23 +10,36 @@
 #   fetch_retried <log> <command> [args...]
 #
 # Every try's output is appended to <log>. Returns the command's last status.
+#
+# The failure is read from the end of the try's output, where compose and
+# BuildKit print the error that ended the command (the cache's 403 takes
+# about twenty lines); a transfer warning earlier in a try that then failed
+# for another reason is not a transfer failure.
 
 FETCH_TRIES="${FETCH_TRIES:-3}"
+FETCH_PAUSE="${FETCH_PAUSE:-5}"
+FETCH_TAIL=40
 FETCH_TRANSIENT='failed to copy|connection reset by peer|Client\.Timeout exceeded|TLS handshake timeout|i/o timeout|unexpected EOF|AuthenticationFailed|(500 Internal Server Error|502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout)'
 
+case "${FETCH_TRIES}${FETCH_PAUSE}" in
+*[!0-9]*)
+  echo "fetch-retry: FETCH_TRIES and FETCH_PAUSE must be whole numbers" >&2
+  return 2
+  ;;
+esac
+
 fetch_retried() {
-  local log="$1" try status
+  local log="$1" try status from last
   shift
   : >"$log"
   for ((try = 1; ; try++)); do
+    from=$(($(wc -l <"$log") + 1))
     status=0
-    "$@" >"$log.try" 2>&1 || status=$?
-    cat "$log.try" >>"$log"
-    if [ "$status" = 0 ] || [ "$try" -ge "$FETCH_TRIES" ] ||
-      ! grep -qE "$FETCH_TRANSIENT" "$log.try"; then
-      rm -f "$log.try"
-      return "$status"
-    fi
-    echo "== a registry or cache transfer failed; trying again (${try}/${FETCH_TRIES})" >&2
+    "$@" >>"$log" 2>&1 || status=$?
+    [ "$status" != 0 ] && [ "$try" -lt "$FETCH_TRIES" ] || return "$status"
+    last="$(tail -n +"$from" "$log" | tail -n "$FETCH_TAIL")"
+    grep -qE "$FETCH_TRANSIENT" <<<"$last" || return "$status"
+    echo "== try ${try} of ${FETCH_TRIES}: a registry or cache transfer failed; trying again" >&2
+    sleep $((FETCH_PAUSE * try))
   done
 }

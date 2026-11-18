@@ -42,7 +42,11 @@ function run(outputs: string[], exits: number[]) {
     EXITS=(${exits.join(" ")})
     fetch_retried "$PWD/step.log" step
   `;
-  const env: Record<string, string> = { PATH: process.env.PATH ?? "", LIB };
+  const env: Record<string, string> = {
+    PATH: process.env.PATH ?? "",
+    LIB,
+    FETCH_PAUSE: "0",
+  };
   outputs.forEach((out, i) => {
     env[`OUT${i}`] = out;
   });
@@ -71,7 +75,7 @@ describe("fetch_retried", () => {
       expect(result.log).toContain("AuthenticationFailed");
       expect(result.log).toContain("connection reset by peer");
       expect(result.log).toContain("Container up");
-      expect(result.stderr).toContain("trying again (2/3)");
+      expect(result.stderr).toContain("try 2 of 3: a registry or cache");
     },
     SPAWN_TIMEOUT_MS,
   );
@@ -80,6 +84,35 @@ describe("fetch_retried", () => {
     "fails a build error on its first try",
     () => {
       expect(run([BUILD_ERROR], [17])).toMatchObject({ status: 17, tries: 1 });
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+
+  test(
+    "fails at once when a transfer warning came early and something else ended the step",
+    () => {
+      // BuildKit goes on without a cache it could not import; the step then
+      // fails on its own build error.
+      const output = [
+        `WARNING: cache import: ${CACHE_EXPIRED}`,
+        ...Array.from({ length: 60 }, (_, i) => `#${i} building`),
+        BUILD_ERROR,
+      ].join("\n");
+      expect(run([output], [17])).toMatchObject({ status: 17, tries: 1 });
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+
+  test(
+    "refuses a try count that is not a whole number",
+    () => {
+      const result = Bun.spawnSync(["bash", "-c", '. "$LIB"'], {
+        cwd: dir,
+        env: { PATH: process.env.PATH ?? "", LIB, FETCH_TRIES: "three" },
+        timeout: SPAWN_TIMEOUT_MS,
+      });
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr.toString()).toContain("must be whole numbers");
     },
     SPAWN_TIMEOUT_MS,
   );

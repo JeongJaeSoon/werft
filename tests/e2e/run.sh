@@ -285,8 +285,24 @@ if [ "$conformance" = two_engines ]; then
 fi
 
 echo "== build + up (${project})" >&2
-# The command docs/quickstart.md gives, plus the overlay and project above.
-fetch_retried "$out/up.log" dc up -d --build || { tail -50 "$out/up.log" >&2; exit 1; }
+# docs/quickstart.md's `up -d --build`, plus the overlay and project above,
+# in its two halves: the transfers may be tried again, the start never is.
+# Pulled are the services whose image nothing here builds; the scheduler and
+# the others that run the api's image are left to `up`, which finds it built
+# (`pull --ignore-buildable` would look for that image in a registry).
+registry_services=()
+while IFS= read -r service; do
+  registry_services+=("$service")
+done < <(dc config --format json | jq -r '
+  [.services[] | select(.build) | .image] as $built
+  | .services | to_entries[]
+  | select((.value.build | not) and (.value.image as $i | $built | index($i) | not))
+  | .key')
+fetch_retried "$out/build-stack.log" dc build &&
+  { [ "${#registry_services[@]}" = 0 ] ||
+    fetch_retried "$out/pull.log" dc pull "${registry_services[@]}"; } ||
+  { tail -50 "$out/build-stack.log" "$out/pull.log" >&2 2>/dev/null; exit 1; }
+dc up -d >"$out/up.log" 2>&1 || { tail -50 "$out/up.log" >&2; exit 1; }
 
 echo "== key" >&2
 api_key="$(dc exec -T api bun run apps/control-host/src/api/keys.ts create e2e-owner \
