@@ -39,7 +39,11 @@ prior=
 labelled=$(teardown_volumes "$COMPOSE_PROJECT_NAME") || { echo "rm-volumes.sh: Docker could not list volumes; nothing was removed" >&2; exit 1; }
 TEARDOWN_VOLUMES=$(printf '%s\n%s\n' "$labelled" "$prior" | sed '/^$/d' | sort -u)
 
-workspaces=${EXECUTION_VOLUME_NAME_PREFIX:-werft-ws-}${EXECUTION_INSTALLATION_ID}-
+# The prefix is fixed: up.sh never sets EXECUTION_VOLUME_NAME_PREFIX, and this
+# shell's value need not be the one the stack ran with. The candidates above
+# are already scoped to this run's labels and targets file, which is what keeps
+# a hand-started installation named verify-ap-<run id>-x out.
+workspaces=werft-ws-${EXECUTION_INSTALLATION_ID}-
 failed=0
 out=$run/evidence/rm-volumes.txt
 # Names come from a file: no glob expansion in the loop below.

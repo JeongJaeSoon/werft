@@ -17,10 +17,13 @@ echo "$*" >>"$FAKE_DOCKER_LOG"
 [ "$1" != "${FAKE_DOCKER_FAIL:-}" ] || exit 1
 # FAKE_DOCKER_IN_USE names a volume that `ps --filter volume=` reports a container for.
 [ -z "${FAKE_DOCKER_IN_USE:-}" ] || [ "$*" != "ps -aq --filter volume=$FAKE_DOCKER_IN_USE" ] || echo c-in-use
+# FAKE_DOCKER_PS_VOLUME_FAIL fails only the in-use check, after every listing succeeded.
+[ -z "${FAKE_DOCKER_PS_VOLUME_FAIL:-}" ] || case "$*" in "ps -aq --filter volume="*) exit 1 ;; esac
 exit 0
 EOF
 chmod +x "$scratch/bin/docker"
 export FAKE_DOCKER_LOG=$log PATH="$scratch/bin:$PATH"
+unset EXECUTION_VOLUME_LABEL_NAMESPACE EXECUTION_VOLUME_NAME_PREFIX
 
 pass=0
 fail=0
@@ -142,8 +145,11 @@ grep -q "left (a container still uses it): werft-ws-$p-s2-cccc" "$scratch/rm.out
 grep -q "volume rm werft-ws-$p\$" "$log"; check "rm-volumes.sh: the bare prefix without its - is left" 1 $?
 : >"$VERIFY_AP_ROOT/$id/ports.yml"
 : >"$log"
-FAKE_DOCKER_FAIL=ps bash "$here/rm-volumes.sh" "$id" >/dev/null 2>&1; check "rm-volumes.sh: a failing in-use check refuses" 1 $?
+FAKE_DOCKER_PS_VOLUME_FAIL=1 bash "$here/rm-volumes.sh" "$id" >"$scratch/rm.out" 2>&1; check "rm-volumes.sh: a failing in-use check exits 1" 1 $?
+grep -q "ps -aq --filter volume=werft-ws-$p-s1-aaaa" "$log"; check "rm-volumes.sh: the in-use check ran" 0 $?
+grep -q "could not tell whether a container uses werft-ws-$p-s1-aaaa; left" "$scratch/rm.out"; check "rm-volumes.sh: a failing in-use check names the volume" 0 $?
 grep -q '^volume rm werft-ws-' "$log"; check "rm-volumes.sh: a failing in-use check removes no workspace" 1 $?
+[ -f "$VERIFY_AP_ROOT/$id/ports.yml" ]; check "rm-volumes.sh: a failing in-use check keeps ports.yml" 0 $?
 
 # The skill never tells the agent to build ids.sh from Bash (Write tool only).
 grep -rEq '>>? *"?\$(\{VERIFY_RUN\}|VERIFY_RUN)/ids\.sh' "$here/.." --include='*.md' --include='*.sh'; check "skill docs: no redirect into ids.sh" 1 $?
