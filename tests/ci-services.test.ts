@@ -136,6 +136,7 @@ describe("ci-services.sh service image pull", () => {
         DOCKER_CLI: join(dir, "docker"),
         FAKE_LOG: join(dir, "calls"),
         FAKE_PULL: pull,
+        FETCH_PAUSE: "0",
         POSTGRES_SERVICE_IMAGE: "mirror/postgres@sha256:2",
         SERVICES_DIR: dir,
         SERVICES_PULL_STALL: "1",
