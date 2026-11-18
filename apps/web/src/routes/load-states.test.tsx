@@ -38,6 +38,8 @@ describe("데이터 로딩", () => {
 
 describe("다른 언어의 불러오는 중 표시", () => {
   const hang = () => new Promise<Response>(() => {});
+  // `placeholders`: every spoken placeholder the screen shows while its reads
+  // are held, so one that mounts later is still checked.
   const SCREENS = [
     {
       path: "/settings/workspace/mcp-servers",
@@ -45,14 +47,17 @@ describe("다른 언어의 불러오는 중 표시", () => {
         "GET /v1/workspace/mcp-servers",
         "GET /v1/installation/settings/mcp-servers",
       ],
+      placeholders: 2,
     },
     {
       path: "/settings/workspace/login",
       reads: ["GET /v1/login-providers", "GET /v1/login-settings"],
+      placeholders: 2,
     },
     {
       path: "/settings/workspace/limits",
       reads: ["GET /v1/installation-config"],
+      placeholders: 1,
     },
   ];
   for (const locale of ["en", "ja"] as const) {
@@ -66,18 +71,17 @@ describe("다른 언어의 불러오는 중 표시", () => {
           },
           locale,
         );
-        const spoken = await waitFor(() => {
-          const found = [
+        const spoken = () =>
+          [
             ...document.querySelectorAll(
               "output.werft-skeleton:not([aria-hidden])",
             ),
-          ];
-          expect(found.length).toBeGreaterThan(0);
-          return found.map((node) => node.textContent);
-        });
-        for (const text of spoken) {
-          expect(text).toBe(translate(locale, "status.loading.title"));
-        }
+          ].map((node) => node.textContent);
+        const expected = Array(item.placeholders).fill(
+          translate(locale, "status.loading.title"),
+        );
+        await waitFor(() => expect(spoken()).toHaveLength(item.placeholders));
+        expect(spoken()).toEqual(expected);
       });
     }
   }
