@@ -2,8 +2,11 @@
 # The volume step of a verify run's cleanup, separate from down.sh on purpose.
 # Removes this run's volumes by exact name with `docker volume rm` (no -f, no
 # prune), and only names that start with verify-ap-<run id>_, the compose
-# volumes of this project. Other volumes of the run (anonymous worker volumes,
-# werft-ws-*) are printed and left.
+# volumes of this project, or with werft-ws-verify-ap-<run id>-, the session
+# workspaces of this installation (the trailing "-" keeps a run id that is a
+# prefix of another apart). A workspace a container still mounts is printed
+# and left. Anonymous worker volumes say nothing about their run by name, so
+# they are printed and left too.
 #
 # Names come from down.sh's evidence/teardown-targets.txt and from the labels
 # of the project, so it works after the containers are gone.
@@ -36,6 +39,7 @@ prior=
 labelled=$(teardown_volumes "$COMPOSE_PROJECT_NAME") || { echo "rm-volumes.sh: Docker could not list volumes; nothing was removed" >&2; exit 1; }
 TEARDOWN_VOLUMES=$(printf '%s\n%s\n' "$labelled" "$prior" | sed '/^$/d' | sort -u)
 
+workspaces=${EXECUTION_VOLUME_NAME_PREFIX:-werft-ws-}${EXECUTION_INSTALLATION_ID}-
 failed=0
 out=$run/evidence/rm-volumes.txt
 # Names come from a file: no glob expansion in the loop below.
@@ -46,7 +50,17 @@ set -f
       "$COMPOSE_PROJECT_NAME"_*)
         echo "\$ docker volume rm $name"
         docker volume rm "$name" 2>&1 || failed=1 ;;
-      *) echo "left (name does not start with ${COMPOSE_PROJECT_NAME}_): $name" ;;
+      "$workspaces"*)
+        if ! users=$(docker ps -aq --filter "volume=$name"); then
+          echo "could not tell whether a container uses $name; left"
+          failed=1
+        elif [ -n "$users" ]; then
+          echo "left (a container still uses it): $name"
+        else
+          echo "\$ docker volume rm $name"
+          docker volume rm "$name" 2>&1 || failed=1
+        fi ;;
+      *) echo "left (name starts with neither ${COMPOSE_PROJECT_NAME}_ nor $workspaces): $name" ;;
     esac
   done
   left=$(teardown_volumes_left) || failed=1

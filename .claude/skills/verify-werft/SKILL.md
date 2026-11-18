@@ -154,7 +154,7 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 
 - `down.sh` 뒤에 돌린다. 컨테이너가 아직 떠 있으면 아무것도 지우지 않고 exit 1이다.
 - 같은 가드(`COMPOSE_PROJECT_NAME`·installation id가 `verify-ap-<run id>`와 정확히 같음)를 통과해야 한다.
-- 대상은 `evidence/teardown-targets.txt`의 volume과 project label이 붙은 volume 중 이름이 `verify-ap-<run id>_`로 시작하는 것뿐이다. 하나씩 `docker volume rm <정확한 이름>`을 한다. `-f`, glob, prune은 쓰지 않는다. 이름이 다른 volume(worker의 익명 volume, `werft-ws-*`)은 `left (…)`로 출력하고 지우지 않는다.
+- 대상은 `evidence/teardown-targets.txt`의 volume과 label이 붙은 volume 중 이름이 `verify-ap-<run id>_`(compose volume) 또는 `werft-ws-verify-ap-<run id>-`(이 설치의 세션 작업공간)로 시작하는 것뿐이다. 끝의 `_`·`-`까지 맞추므로 run id가 다른 run id의 접두사여도 겹치지 않는다. 하나씩 `docker volume rm <정확한 이름>`을 한다. `-f`, glob, prune은 쓰지 않는다. 작업공간 volume은 그것을 쓰는 컨테이너가 하나라도 있으면 `left (a container still uses it): …`로 출력하고 남긴다. 그 확인이 실패하면 지우지 않고 exit 1이다. 이름으로 run을 알 수 없는 worker의 익명 volume과 그 밖의 이름은 `left (…)`로 출력하고 지우지 않는다.
 - 출력은 `evidence/rm-volumes.txt`에 남는다. 다 지워졌으면 `ports.yml`, cookie, `users/`·`keys/`를 지운다. 하나라도 실패하면 `ports.yml`을 남기고 exit 1이다. 성공하면 run은 목록에서 사라지므로 `left (…)`로 출력된 volume은 이 스킬이 더 추적하지 않는다. 그 이름은 `evidence/teardown-targets.txt`에만 남는다. `janitor.sh --apply`는 별도 도구라 오래된 run의 volume을 정확한 이름으로 `docker volume rm` 한다.
 - `lib.sh`와 `down.sh`는 run 상태(`state.env`, `verify-ap-*` project)를 읽지 못하면 아무 helper도 정의하지 않거나 아무것도 지우지 않고 멈춘다. 기본 project나 다른 세션의 run으로 넘어가지 않게 하려는 것이다.
 - 예전 판의 스킬은 공유 `latest` 파일을 따라가 인자 없는 `down.sh`가 다른 세션의 스택을 volume까지 지웠다. 지금 스크립트는 `latest`를 쓰지도 읽지도 않는다. root에 남은 `latest` 파일은 예전 판이 쓴 것이다.

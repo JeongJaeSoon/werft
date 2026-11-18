@@ -15,6 +15,8 @@ cat >"$scratch/bin/docker" <<'EOF'
 #!/usr/bin/env bash
 echo "$*" >>"$FAKE_DOCKER_LOG"
 [ "$1" != "${FAKE_DOCKER_FAIL:-}" ] || exit 1
+# FAKE_DOCKER_IN_USE names a volume that `ps --filter volume=` reports a container for.
+[ -z "${FAKE_DOCKER_IN_USE:-}" ] || [ "$*" != "ps -aq --filter volume=$FAKE_DOCKER_IN_USE" ] || echo c-in-use
 exit 0
 EOF
 chmod +x "$scratch/bin/docker"
@@ -120,6 +122,28 @@ printf 'export COMPOSE_PROJECT_NAME=%s\nexport EXECUTION_INSTALLATION_ID=%s\nVER
 : >"$log"
 bash "$here/rm-volumes.sh" "$id" >/dev/null 2>&1; check "rm-volumes.sh: another project's name refused" 1 $?
 grep -q '^volume rm' "$log"; check "rm-volumes.sh: refusal removed nothing" 1 $?
+printf 'export COMPOSE_PROJECT_NAME=\nexport EXECUTION_INSTALLATION_ID=\nVERIFY_REPO=%s\n' "$scratch" >"$VERIFY_AP_ROOT/$id/state.env"
+printf '  volume  werft-ws--s1-aaaa\n' >"$VERIFY_AP_ROOT/$id/evidence/teardown-targets.txt"
+: >"$log"
+bash "$here/rm-volumes.sh" "$id" >/dev/null 2>&1; check "rm-volumes.sh: empty project name refused" 1 $?
+grep -q '^volume rm' "$log"; check "rm-volumes.sh: empty project name removed nothing" 1 $?
+
+# rm-volumes.sh: the run's session workspaces, by the exact werft-ws-<project>- prefix.
+printf 'export COMPOSE_PROJECT_NAME=%s\nexport EXECUTION_INSTALLATION_ID=%s\nVERIFY_REPO=%s\n' \
+  "$p" "$p" "$scratch" >"$VERIFY_AP_ROOT/$id/state.env"
+printf '  volume  werft-ws-%s-s1-aaaa\n  volume  werft-ws-%s9-s1-bbbb\n  volume  werft-ws-%s-s2-cccc\n  volume  werft-ws-%s\n' \
+  "$p" "$p" "$p" "$p" >"$VERIFY_AP_ROOT/$id/evidence/teardown-targets.txt"
+: >"$VERIFY_AP_ROOT/$id/ports.yml"
+: >"$log"
+FAKE_DOCKER_IN_USE="werft-ws-$p-s2-cccc" bash "$here/rm-volumes.sh" "$id" >"$scratch/rm.out" 2>&1; check "rm-volumes.sh: workspaces exit 0" 0 $?
+[ "$(grep -c '^volume rm' "$log")" = 1 ] && grep -qx "volume rm werft-ws-$p-s1-aaaa" "$log"; check "rm-volumes.sh: removes only its own unused workspace" 0 $?
+grep -q "volume rm werft-ws-${p}9-" "$log"; check "rm-volumes.sh: another run whose id extends this one is left" 1 $?
+grep -q "left (a container still uses it): werft-ws-$p-s2-cccc" "$scratch/rm.out"; check "rm-volumes.sh: a workspace in use is named and left" 0 $?
+grep -q "volume rm werft-ws-$p\$" "$log"; check "rm-volumes.sh: the bare prefix without its - is left" 1 $?
+: >"$VERIFY_AP_ROOT/$id/ports.yml"
+: >"$log"
+FAKE_DOCKER_FAIL=ps bash "$here/rm-volumes.sh" "$id" >/dev/null 2>&1; check "rm-volumes.sh: a failing in-use check refuses" 1 $?
+grep -q '^volume rm werft-ws-' "$log"; check "rm-volumes.sh: a failing in-use check removes no workspace" 1 $?
 
 # The skill never tells the agent to build ids.sh from Bash (Write tool only).
 grep -rEq '>>? *"?\$(\{VERIFY_RUN\}|VERIFY_RUN)/ids\.sh' "$here/.." --include='*.md' --include='*.sh'; check "skill docs: no redirect into ids.sh" 1 $?
