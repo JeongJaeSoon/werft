@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { notifyManager, type QueryClient } from "@tanstack/react-query";
 import type {
   ListPushRequestsResponse,
   ListSessionOutputsResponse,
@@ -13,6 +14,35 @@ import { apiError, json, me } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
 const { act, renderAt, screen, waitFor, within } = await appHarness();
+
+/**
+ * Waits for the query cache to report `action` on the list whose key holds
+ * `name`, then for React to draw it. The cache tells its listeners at once
+ * but the screen's on the next notify tick, so this answers on that tick,
+ * queued behind the screen's: what stays on screen after this has stayed.
+ */
+function reported(
+  services: { readonly queryClient: QueryClient },
+  name: string,
+  action: "fetch" | "error",
+) {
+  const heard = new Promise<void>((resolve) => {
+    const stop = services.queryClient.getQueryCache().subscribe((event) => {
+      if (
+        event.type === "updated" &&
+        event.action.type === action &&
+        event.query.queryKey.includes(name)
+      ) {
+        stop();
+        notifyManager.schedule(resolve);
+      }
+    });
+  });
+  return () =>
+    act(async () => {
+      await heard;
+    });
+}
 
 async function openOutputs() {
   await (await setupUser()).click(
@@ -189,7 +219,7 @@ describe("session outputs", () => {
     const user = await setupUser();
     let answer: (response: Response) => void = () => {};
     let reads = 0;
-    renderAt(
+    const { services } = renderAt(
       `/sessions/${SESSION_ID}`,
       routes(() =>
         ++reads === 1
@@ -203,8 +233,9 @@ describe("session outputs", () => {
     const retry = await within(panel).findByRole("button", {
       name: "다시 시도",
     });
+    const reading = reported(services, "outputs", "fetch");
     await user.click(retry);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await reading();
     expect(reads).toBe(2);
     expect(retry.isConnected).toBe(true);
     expect(document.activeElement === retry).toBe(true);
@@ -606,7 +637,7 @@ describe("the session's GitHub pull requests", () => {
     const user = await setupUser();
     let answer: (response: Response) => void = () => {};
     let reads = 0;
-    renderAt(`/sessions/${SESSION_ID}`, {
+    const { services } = renderAt(`/sessions/${SESSION_ID}`, {
       ...pulled([], noFiles),
       [`GET /v1/sessions/${SESSION_ID}/outcomes`]: () =>
         ++reads === 1
@@ -620,8 +651,9 @@ describe("the session's GitHub pull requests", () => {
     const retry = await within(area).findByRole("button", {
       name: "다시 시도",
     });
+    const reading = reported(services, "outcomes", "fetch");
     await user.click(retry);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await reading();
     expect(reads).toBe(2);
     expect(retry.isConnected).toBe(true);
     expect(document.activeElement === retry).toBe(true);
@@ -656,18 +688,20 @@ describe("the session's GitHub pull requests", () => {
       name: "다시 시도",
     });
     act(() => retry.focus());
+    const reading = reported(services, "outcomes", "fetch");
     // What the minute's interval does: a read nobody asked for.
     act(() => {
       void services.queryClient.refetchQueries({
         predicate: (query) => query.queryKey.at(-1) === "outcomes",
       });
     });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await reading();
     expect(reads).toBe(2);
     expect(retry.isConnected).toBe(true);
     expect(document.activeElement === retry).toBe(true);
+    const failedAgain = reported(services, "outcomes", "error");
     act(() => answer(apiError(500, "INTERNAL", "boom")));
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await failedAgain();
     expect(retry.isConnected).toBe(true);
     expect(document.activeElement === retry).toBe(true);
   });
