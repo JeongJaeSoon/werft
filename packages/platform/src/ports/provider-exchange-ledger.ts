@@ -1,4 +1,4 @@
-import type { ProviderUsage } from "../limits/model-prices.ts";
+import type { ProviderUsage } from "../limits/index.ts";
 
 /**
  * The ledger of provider calls the egress proxy opened before calling

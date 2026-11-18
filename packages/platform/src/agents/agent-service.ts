@@ -31,11 +31,11 @@ import {
   type UsableAgent,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { ExtensionRefusal } from "../extensions/resolve.ts";
 import {
   checkAgentExtensions,
+  type ExtensionRefusal,
   type SessionExtensionsDeps,
-} from "../extensions/session-extensions.ts";
+} from "../extensions/index.ts";
 import type { GitHubSettingsStore } from "../github/ports/github-settings.ts";
 import {
   ACTOR_INACTIVE,

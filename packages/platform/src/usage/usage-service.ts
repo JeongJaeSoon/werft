@@ -27,7 +27,7 @@ import {
   type Setting,
   STORAGE_ACCOUNTED_CONTENT,
   sessionBudgetOf,
-} from "../limits/installation-limits.ts";
+} from "../limits/index.ts";
 import {
   type AuthorizationPolicy,
   type Caller,

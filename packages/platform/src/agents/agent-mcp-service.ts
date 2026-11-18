@@ -17,8 +17,7 @@ import {
   SessionServiceError,
 } from "../musterrolle/index.ts";
 import type { AgentMcpStore } from "../ports/agent-mcp-store.ts";
-import type { SessionCatalog } from "../sessions/catalog.ts";
-import { mcpToolDenied } from "../sessions/index.ts";
+import { mcpToolDenied, type SessionCatalog } from "../sessions/index.ts";
 import { mcpValuesOfCard } from "./mcp-release-values.ts";
 
 const refused = (field: string, reason: string) =>
