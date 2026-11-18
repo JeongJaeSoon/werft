@@ -26,7 +26,7 @@ owner·admin은 웹 콘솔 `/members`에서 초대 대화상자로 링크를 만
 
 ## Driving it with lib.sh
 
-Preconditions: [web-login.md](./web-login.md)대로 owner를 `web-user.mjs`로 bootstrap·login했다. 에이전트를 만들려면 그 뒤 `ap_store_keys`로 설정 문서의 키를 넣는다(안 넣으면 마법사 ②단계에 "켜진 모델 연결이 없습니다."만 보인다). `orch hold browser --note "<what>"`를 잡았다. 화면은 이 run의 headless Chrome(`browser.mjs`, [web-console.md](./web-console.md))으로 몬다. 비밀번호와 초대 token은 명령에 쓰지 않는다: `web-user.mjs invite`가 token을 `users/<who>.invite`에, 초대받는 사람의 무작위 비밀번호를 `users/<who>`에 두고, 수락은 API(`web-user.mjs accept`)나 화면(`browser.mjs accept`)이 그 파일에서 읽는다.
+Preconditions: [web-login.md](./web-login.md)대로 owner를 `web-user.mjs`로 bootstrap·login했다. 에이전트를 만들려면 그 뒤 `ap_store_keys`로 설정 문서의 키를 넣는다(안 넣으면 마법사 ②단계에서 모델을 고른 뒤 "켜진 모델 연결이 없습니다."가 붙고 "저장하고 다음"이 꺼진다). `orch hold browser --note "<what>"`를 잡았다. 화면은 이 run의 headless Chrome(`browser.mjs`, [web-console.md](./web-console.md))으로 몬다. 비밀번호와 초대 token은 명령에 쓰지 않는다: `web-user.mjs invite`가 token을 `users/<who>.invite`에, 초대받는 사람의 무작위 비밀번호를 `users/<who>`에 두고, 수락은 API(`web-user.mjs accept`)나 화면(`browser.mjs accept`)이 그 파일에서 읽는다.
 
 ```sh
 . .claude/skills/verify-werft/scripts/lib.sh <run id>
@@ -63,16 +63,18 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select u.email, m.r
 
 비활성 뒤 초대받은 사람으로 `node $B <run id> open /`을 다시 열면 `/login?redirect=%2F`.
 
-에이전트는 `/agents/new` 마법사로 만든다. 담당 팀이 필수라 member는 먼저 팀에 들어 있어야 한다. owner cookie로 팀을 만들고 member를 넣는다(`MID`는 member cookie의 `GET /v1/auth/me` `user.id`):
+에이전트는 `/agents/new` 마법사로 만든다. 담당 팀이 필수라 member는 먼저 팀에 들어 있어야 한다. 위 절차를 거쳤으면 이 사람은 어드민이고 cookie 세션도 끊겨 있다(비활성화가 끊고, 다시 활성화는 새 로그인만 허락한다). 그대로 두면 `MID`가 `null`이 되어 팀원 추가가 400이고, 어드민은 `my-teams`가 아니라 모든 팀을 고르므로 member 경로가 몰리지 않는다. 그래서 owner cookie로 역할을 member로 되돌리고, member로 다시 로그인한 뒤 팀을 만들어 넣는다(`MID`는 member cookie의 `GET /v1/auth/me` `user.id`):
 
 ```sh
+node $U <run id> login member                                                      # 200 role member, 새 cookie.member
 ap_as member; MID=$(ap_web GET /v1/auth/me | head -1 | jq -r .user.id)
 ap_as owner
+ap_web PATCH "/v1/members/$MID" '{"role":"member"}'                                # 200 (role-change를 건너뛰었으면 생략)
 TID=$(ap_web POST /v1/teams '{"name":"Member team"}' | head -1 | jq -r .team.id)   # 201
 ap_web POST "/v1/teams/$TID/members" "$(jq -nc --arg u "$MID" '{user_id:$u}')"     # 200, member_count 1
 ```
 
-단계마다 칸이 바뀌고 `@N`(main 안 N번째 칸, 0부터)은 지금 단계의 칸만 센다. member로 로그인한 브라우저에서:
+단계마다 칸이 바뀌고 `@N`(main 안 N번째 칸, 0부터)은 지금 단계의 칸만 센다. 브라우저를 로그아웃한 뒤(위 "다른 사람으로 화면을 보려면") `node $B <run id> login member`로 로그인한 브라우저에서:
 
 ```sh
 node $B <run id> open /agents/new                    # /agents/new?new-agent.step=name
@@ -84,9 +86,9 @@ node $B <run id> click "저장하고 다음"               # → ?new-agent.step
 node $B <run id> click "나중에 하기"                 # → /agents/<id>
 ```
 
-상세는 탭 일곱(개요·상세 설정·릴리스·접근·관리자·Slack·GitHub, 주소 `?tab=card|release|access|admins|slack|github`)이다. `@N`은 탭과 상관없이 main 안의 칸을 세고, 편집을 열면 칸 수가 바뀐다. 숨은 칸에는 `type`이 들어가지 않으므로 탭을 주소로 연다: `open "/agents/<id>?tab=card"` → `click "상세 설정 편집"` → `type @1 "…"`(설명) 또는 `select @4 en`(답변 언어) → `click 저장`. `open "/agents/<id>?tab=release"` → `click 되돌리기`(표의 첫 버튼). 대화상자의 같은 이름 버튼은 `click`이 표의 버튼을 먼저 잡으므로 CSS로 누른다: `click '[role=dialog] button:last-child'`. `?tab=admins`에서 `select @<팀 칸> <team id>` → `click "팀 추가"`. 칸 순서는 `eval`로 label을 찍어 확인한다.
+상세는 탭 일곱(개요·상세 설정·릴리스·접근·관리자·Slack·GitHub, 주소 `?tab=card|release|access|admins|slack|github`)이다. `@N`은 탭과 상관없이 main 안의 칸을 세고, 편집을 열면 칸 수가 바뀐다. 숨은 칸에는 `type`이 들어가지 않으므로 탭을 주소로 연다: `open "/agents/<id>?tab=card"` → `click "상세 설정 편집"` → `type @1 "…"`(설명) 또는 `select @4 en`(답변 언어) → `click 저장`. `open "/agents/<id>?tab=release"` → `click 되돌리기`(표의 첫 버튼). 대화상자의 같은 이름 버튼은 `click`이 표의 버튼을 먼저 잡으므로 CSS로 누른다: `click '[role=dialog] button:last-child'`. `?tab=admins`의 추가 칸은 고르는 즉시 추가하는 Combobox("이름·이메일·팀 이름으로 찾기")다. owner·admin 브라우저에서 `type '[role=combobox]' "<팀 이름>"` → `click '[role=option]'` → "<팀 이름>을(를) 관리자로 추가했습니다." member에게는 사람·팀 목록을 읽을 권한이 없어 칸이 꺼지고 "구성원 관리 권한이 있어야 할 수 있습니다. … 팀 관리 권한이 있어야 할 수 있습니다. …"가 붙는다.
 
-충돌에는 release가 셋 필요하다(카드의 답변 언어를 두 번 바꾸면 v2·v3가 생긴다). `browser.mjs`는 탭 하나만 쓰므로 B는 브라우저, A는 API다. 브라우저로 `?tab=release`를 열어 둔 채, A로 `ap_web GET "/v1/agents/<id>"`의 `agent.activation_revision`과 `releases[].id`를 읽고 `ap_web POST "/v1/agents/<id>/activate" '{"release_id":"<v2 id>","expected_revision":<revision>}'` → `200`. 그다음 B에서 v1 행의 되돌리기(`click '[aria-label*="<v1 label>"]'` → `click '[role=dialog] button:last-child'`) → `409 REVISION_CONFLICT`("Activation revision is N+1, not N")와 위 `activate-conflict` 안내.
+충돌에는 release가 셋 필요하다(카드의 답변 언어를 두 번 바꾸면 v2·v3가 생긴다). `browser.mjs`는 탭 하나만 쓰므로 B는 브라우저, A는 API다. 브라우저로 `?tab=release`를 열어 둔 채, A로 `ap_web GET "/v1/agents/<id>"`의 `agent.activation_revision`과 `releases[].id`를 읽고 `ap_web POST "/v1/agents/<id>/activate" '{"release_id":"<v2 id>","expected_revision":<revision>}'` → `200`. 그다음 B에서 v1 행의 되돌리기(`click '[aria-label="릴리스 <v1 label> · fake-messages(으)로 되돌리기"]'`. 같은 초에 만든 release는 label 끝에 `-2`가 붙으므로 부분 일치로 고르지 않는다 → `click '[role=dialog] button:last-child'`) → `409 REVISION_CONFLICT`("Activation revision is N+1, not N")와 위 `activate-conflict` 안내.
 
 ```sh
 ap_compose exec -T postgres psql -U postgres -d sessions -c "select a.slug, a.activation_revision, v.version_no as active_version, u.email as created_by from agents a left join agent_releases r on r.id=a.active_release_id left join agent_versions v on v.id=r.version_id left join users u on u.id=a.created_by" | tee "$EVIDENCE/agents-db.txt"
