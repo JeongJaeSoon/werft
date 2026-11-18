@@ -5,6 +5,7 @@ import {
   AUTO_REVIEWED_EVIDENCE_KIND_VALUES,
   BUILTIN_ACHIEVEMENT_PAYLOAD_SCHEMAS,
 } from "@werft-ai/contracts";
+import { startPolling } from "../../polling.ts";
 import type { SessionOutputSource } from "../output-service.ts";
 import {
   ACHIEVEMENT_JUDGMENT_RETRY_MS,
@@ -551,29 +552,14 @@ export function createAchievementJudge(deps: {
   }
 
   function start(intervalMs = ACHIEVEMENT_JUDGE_INTERVAL_MS) {
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let running: Promise<void> = Promise.resolve();
-    const tick = () => {
-      running = (async () => {
-        try {
-          await runOnce();
-        } catch (error) {
-          logger.warn("Achievement judge pass failed", {
-            error: error instanceof Error ? error.name : String(error),
-          });
-        }
-        if (!stopped) timer = setTimeout(tick, intervalMs);
-      })();
-    };
-    timer = setTimeout(tick, intervalMs);
-    return {
-      async stop() {
-        stopped = true;
-        clearTimeout(timer);
-        await running;
-      },
-    };
+    return startPolling(
+      intervalMs,
+      () => runOnce(),
+      (error) =>
+        logger.warn("Achievement judge pass failed", {
+          error: error instanceof Error ? error.name : String(error),
+        }),
+    );
   }
 
   return { runOnce, start };

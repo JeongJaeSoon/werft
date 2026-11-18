@@ -1,3 +1,4 @@
+import { startPolling } from "../../polling.ts";
 import type { PushIntentJob, PushIntentStore } from "../ports/push-intents.ts";
 
 export const PUSH_INTENT_LEASE_MS = 60_000;
@@ -50,29 +51,16 @@ export function createPushIntentRunner(deps: {
   }
 
   function start(intervalMs = PUSH_INTENT_POLL_INTERVAL_MS) {
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let running: Promise<void> = Promise.resolve();
-    const tick = () => {
-      running = (async () => {
-        try {
-          while (!stopped && (await runOnce())) {}
-        } catch (error) {
-          logger.warn("Push intent runner could not claim", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-        if (!stopped) timer = setTimeout(tick, intervalMs);
-      })();
-    };
-    timer = setTimeout(tick, intervalMs);
-    return {
-      async stop() {
-        stopped = true;
-        clearTimeout(timer);
-        await running;
+    return startPolling(
+      intervalMs,
+      async (stopped) => {
+        while (!stopped() && (await runOnce())) {}
       },
-    };
+      (error) =>
+        logger.warn("Push intent runner could not claim", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+    );
   }
 
   return { runOnce, start };

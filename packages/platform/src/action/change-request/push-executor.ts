@@ -19,6 +19,7 @@ import {
   GitHubGateError,
   GitHubUnavailableError,
 } from "../../github/ports/github-gate.ts";
+import { startPolling } from "../../polling.ts";
 import type { GrantWith, RepositoryReadable } from "../ports/capabilities.ts";
 import type { CommitAttributionLedger } from "../ports/commit-attributions.ts";
 import type { Pushable } from "../ports/git-push.ts";
@@ -247,29 +248,16 @@ export function createPushExecutor(deps: {
    * SKIP LOCKED keeps them off each other's rows.
    */
   function start(intervalMs = PUSH_POLL_INTERVAL_MS) {
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let running: Promise<void> = Promise.resolve();
-    const tick = () => {
-      running = (async () => {
-        try {
-          while (!stopped && (await runOnce())) {}
-        } catch (error) {
-          logger.warn("Push executor could not claim", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-        if (!stopped) timer = setTimeout(tick, intervalMs);
-      })();
-    };
-    timer = setTimeout(tick, intervalMs);
-    return {
-      async stop() {
-        stopped = true;
-        clearTimeout(timer);
-        await running;
+    return startPolling(
+      intervalMs,
+      async (stopped) => {
+        while (!stopped() && (await runOnce())) {}
       },
-    };
+      (error) =>
+        logger.warn("Push executor could not claim", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+    );
   }
 
   return { runOnce, start };

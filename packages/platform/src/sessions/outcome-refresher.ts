@@ -20,6 +20,7 @@ import {
   GitHubGateError,
   GitHubUnavailableError,
 } from "../github/ports/github-gate.ts";
+import { startPolling } from "../polling.ts";
 import type {
   ClaimedOutcome,
   OutcomeCheck,
@@ -341,29 +342,14 @@ export function createOutcomeRefresher(deps: {
   }
 
   function start(intervalMs = OUTCOME_REFRESH_INTERVAL_MS) {
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let running: Promise<void> = Promise.resolve();
-    const tick = () => {
-      running = (async () => {
-        try {
-          await runOnce();
-        } catch (error) {
-          logger.warn("Outcome refresh pass failed", {
-            error: error instanceof Error ? error.name : String(error),
-          });
-        }
-        if (!stopped) timer = setTimeout(tick, intervalMs);
-      })();
-    };
-    timer = setTimeout(tick, intervalMs);
-    return {
-      async stop() {
-        stopped = true;
-        clearTimeout(timer);
-        await running;
-      },
-    };
+    return startPolling(
+      intervalMs,
+      () => runOnce(),
+      (error) =>
+        logger.warn("Outcome refresh pass failed", {
+          error: error instanceof Error ? error.name : String(error),
+        }),
+    );
   }
 
   return { runOnce, start };
