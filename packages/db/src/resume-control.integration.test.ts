@@ -17,7 +17,6 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
-import { createPostgresWorkerPendingStore } from "./decision/pending-control.ts";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
@@ -34,6 +33,7 @@ import {
   unassignedSessions,
 } from "./schema.ts";
 import { reconcileExpiredLeases } from "./sessions/lease-reconcile.ts";
+import { createPostgresWorkerPendingStore } from "./sessions/pending-control.ts";
 import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
 import {
   fixtureRelease,

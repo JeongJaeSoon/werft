@@ -28,8 +28,6 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresPushIntents } from "./action/push-intents.ts";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
-import { createPostgresWorkerPendingStore } from "./decision/pending-control.ts";
-import { createPostgresPendingRequests } from "./decision/pending-requests.ts";
 import { createPostgresDecisionLog } from "./musterrolle/authz-decisions.ts";
 import {
   createPostgresSessionReader,
@@ -50,6 +48,8 @@ import {
 } from "./schema.ts";
 import { createPostgresTurnInterrupts } from "./sessions/interrupt-control.ts";
 import { reconcileExpiredLeases } from "./sessions/lease-reconcile.ts";
+import { createPostgresWorkerPendingStore } from "./sessions/pending-control.ts";
+import { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
 import { announceLapsedInputWaits } from "./sessions/session-events.ts";
 import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
 import {

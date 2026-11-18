@@ -21,7 +21,7 @@ import {
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type { Database } from "../queries.ts";
 import { checkpoints, sessions, workerLaunches } from "../schema.ts";
-import { hasRestorePoint } from "../sessions/pause-policy.ts";
+import { hasRestorePoint } from "../sessions/index.ts";
 
 export type RuntimeFingerprint = NonNullable<
   FinalizeInput["checkpointRuntime"]

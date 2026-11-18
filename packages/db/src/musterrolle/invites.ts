@@ -34,6 +34,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { containsPattern, lockActorAccount } from "../control-shared.ts";
+import { decodeMemberCursor, encodeMemberCursor } from "../cursors.ts";
 import { DB_NOW, dbNow, fromDbNow } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -49,7 +50,6 @@ import {
   users,
   webSessions,
 } from "../schema.ts";
-import { decodeMemberCursor, encodeMemberCursor } from "../sessions/cursors.ts";
 import { createWebSession } from "./identity.ts";
 import { keepsOwnerSignIn, lockLoginSettings } from "./login-settings.ts";
 

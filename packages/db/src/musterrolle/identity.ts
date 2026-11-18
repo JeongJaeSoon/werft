@@ -49,7 +49,7 @@ import {
   webSessions,
   workspaces,
 } from "../schema.ts";
-import { insertBuiltinAchievementTypes } from "../sessions/achievement-rules.ts";
+import { insertBuiltinAchievementTypes } from "../sessions/index.ts";
 import { notDeleted } from "../soft-delete.ts";
 import { rowsOf } from "../statement-rows.ts";
 import {

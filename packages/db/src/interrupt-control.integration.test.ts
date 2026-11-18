@@ -25,8 +25,6 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresWorkerPendingStore } from "./decision/pending-control.ts";
-import { createPostgresPendingRequests } from "./decision/pending-requests.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {
@@ -39,6 +37,8 @@ import {
 } from "./schema.ts";
 import { createPostgresTurnInterrupts } from "./sessions/interrupt-control.ts";
 import { reconcileOverdueInterrupts } from "./sessions/lease-reconcile.ts";
+import { createPostgresWorkerPendingStore } from "./sessions/pending-control.ts";
+import { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
 import { expireOverdueInterrupts } from "./sessions/turn-interrupts.ts";
 import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
 import {

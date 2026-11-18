@@ -22,7 +22,6 @@ import {
   transactionWithBindingRetry,
 } from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
-import { awaitingInputAt, publicStatus } from "../decision/pending-status.ts";
 import type { Database } from "../queries.ts";
 import {
   cancelQueuedInput,
@@ -41,6 +40,7 @@ import { CLOSE } from "./drain.ts";
 import { closeParkedGroup } from "./parked-group.ts";
 import { pauseBlocker } from "./pause-control.ts";
 import { hasRestorePoint, restoreBaseRevision } from "./pause-policy.ts";
+import { awaitingInputAt, publicStatus } from "./pending-status.ts";
 import { recordEvent, recordStatus } from "./session-events.ts";
 
 const SESSION_CLOSED_SUBTYPE = "session_closed";

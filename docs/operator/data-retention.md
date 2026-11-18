@@ -60,7 +60,7 @@
 - **승인·질문 요청** — `pending_requests`(`schema.ts`의 `pendingRequests`)와 `approval_checkpoints`, `permission_grants`, `turn_continuations`
   - 담는 것: 요청 본문 `payload`(`schema.ts`의 `payload`), 답 `answer`(`schema.ts`의 `answer`), 답한 주체 `answered_by`와 답을 허용한 판정 id `answer_decision_id`(`schema.ts`의 `answeredBy`·`answerDecisionId`), 닫힌 방식(`settled_outcome`·`settled_reason`).
   - 판정 행(`authz_decisions`)은 감사 보존 기간이 지나면 지워지지만 `answered_by`는 이 행에 남는다. 그래서 기간이 지난 뒤에도 누가 답했는지는 남고, 그 판정의 세부만 사라진다.
-  - 만드는 시점: worker가 요청을 등록할 때(`packages/db/src/decision/pending-control.ts`의 `registerAtomic`).
+  - 만드는 시점: worker가 요청을 등록할 때(`packages/db/src/sessions/pending-control.ts`의 `registerAtomic`).
   - 보존 기간: 무기한. close는 열린 요청에 `resolved_at`만 적는다(`close-control.ts`의 `finishClose`).
   - 삭제 조건: `pending_requests`는 없음. `permission_grants`·`turn_continuations`는 대기 중인 turn을 취소할 때 지운다(`packages/db/src/control-unit-of-work.ts`의 `stopExecution`).
 - **실행 이력** — `attempts`(`schema.ts`의 `attempts`), `executions`, `worker_launches`, `worker_credentials`

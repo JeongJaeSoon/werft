@@ -15,7 +15,6 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
-import { createPostgresWorkerPendingStore } from "./decision/pending-control.ts";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
@@ -34,6 +33,7 @@ import {
   turns,
   unassignedSessions,
 } from "./schema.ts";
+import { createPostgresWorkerPendingStore } from "./sessions/pending-control.ts";
 import { confirmExecutionGone } from "./testing/launches.ts";
 import {
   fixtureRelease,

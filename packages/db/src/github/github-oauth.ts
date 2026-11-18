@@ -11,7 +11,7 @@ import { githubWorkspaceSettings, receipts, workspaces } from "../schema.ts";
 import {
   createPostgresSecretStore,
   secretAuditRefusal,
-} from "../secrets/secret-values.ts";
+} from "../secrets/index.ts";
 import {
   lockGitHubApps,
   oauthSecretSlot,

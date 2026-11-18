@@ -18,7 +18,7 @@ import {
 } from "@werft-ai/platform";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { DB_NOW } from "../db-clock.ts";
-import { lockedRole } from "../musterrolle/api-keys.ts";
+import { lockedRole } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import { receipts, secretValues, users, workspaces } from "../schema.ts";
 

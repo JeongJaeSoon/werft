@@ -1196,12 +1196,23 @@ export async function contractsDirection(repo: string): Promise<string[]> {
 }
 
 /**
- * A2: a platform domain (first directory under src, other than testing/), and
- * the shared ports/ too, imports another domain only through that domain's
- * ports/ or its index.ts. Returns "<file> -> <target>" pairs, tests excluded.
+ * A2: a domain (first directory under src, other than testing/), and the
+ * shared ports/ too, imports another domain only through that domain's ports/
+ * or its index.ts. Applies to platform and to db, which is split by the same
+ * domains. Returns "<file> -> <target>" pairs, tests excluded; db pairs carry
+ * the packages/db/src/ prefix.
  */
 export async function crossDomainImports(repo: string): Promise<string[]> {
-  const src = platformSrc(repo);
+  return [
+    ...(await domainImportsIn(platformSrc(repo), "")),
+    ...(await domainImportsIn(
+      join(repo, "packages", "db", "src"),
+      "packages/db/src/",
+    )),
+  ].sort();
+}
+
+async function domainImportsIn(src: string, prefix: string): Promise<string[]> {
   const found: string[] = [];
   for (const file of await productSourcesIn(src)) {
     const from = slashed(relative(src, file)).split("/");
@@ -1221,12 +1232,12 @@ export async function crossDomainImports(repo: string): Promise<string[]> {
       const surface =
         to[1] === "ports" ||
         (to.length === 2 && /^index\.tsx?$/.test(to[1] ?? ""));
-      if (!surface) found.push(`${from.join("/")} -> ${target}`);
+      if (!surface) found.push(`${prefix}${from.join("/")} -> ${target}`);
     }
   }
   // A pair, not an import statement: a type import and a value import of the
   // same file are one dependency.
-  return [...new Set(found)].sort();
+  return [...new Set(found)];
 }
 
 /** A3: nothing under a ports/ directory imports from a tools/ directory. */
@@ -3498,7 +3509,7 @@ describe("architecture", () => {
     ]);
   });
 
-  test("A2: platform domains reach each other only through ports/ or index.ts, and the pairs only shrink", async () => {
+  test("A2: platform and db domains reach each other only through ports/ or index.ts, and the pairs only shrink", async () => {
     expect(
       baselineRatchet(
         "A2",
@@ -3508,7 +3519,7 @@ describe("architecture", () => {
     ).toEqual([]);
   });
 
-  test("A2 catches another domain's internals, from a domain or the shared ports/, but not its ports/, its index.ts or the shared dirs", async () => {
+  test("A2 catches another domain's internals, from a platform or db domain or the shared ports/, but not its ports/, its index.ts or the shared dirs", async () => {
     expect(
       await inFixture(
         {
@@ -3536,12 +3547,21 @@ describe("architecture", () => {
           ].join("\n"),
           [platformFile("ports/other.ts")]: stub,
           [platformFile("testing/fake.ts")]: 'import "../beta/policy.ts";',
+          "packages/db/src/alpha/store.ts": [
+            'import "../beta/inner.ts";',
+            'import "../beta/index.ts";',
+            'import "../shared.ts";',
+          ].join("\n"),
+          "packages/db/src/beta/inner.ts": stub,
+          "packages/db/src/beta/index.ts": stub,
+          "packages/db/src/shared.ts": 'import "./beta/inner.ts";',
         },
         crossDomainImports,
       ),
     ).toEqual([
       "alpha/service.ts -> beta/deep/inner.ts",
       "alpha/service.ts -> beta/policy.ts",
+      "packages/db/src/alpha/store.ts -> beta/inner.ts",
       "ports/shared.ts -> beta/policy.ts",
     ]);
   });

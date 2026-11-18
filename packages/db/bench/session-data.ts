@@ -319,7 +319,7 @@ const middle = await pool.query<{ id: string }>(
   `SELECT id FROM events WHERE session_id = $1 ORDER BY id OFFSET ${Math.floor(eventsPerListed / 2)} LIMIT 1`,
   [detail],
 );
-const { encodeEventCursor } = await import("../src/sessions/cursors.ts");
+const { encodeEventCursor } = await import("../src/cursors.ts");
 const middleCursor = encodeEventCursor(Number(middle.rows[0]?.id ?? 0));
 const page = (after: string | undefined) =>
   reader.readEvents(OWNER, detail, {

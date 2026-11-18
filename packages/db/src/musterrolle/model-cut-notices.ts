@@ -30,7 +30,7 @@ import {
   slackOutbox,
   users,
 } from "../schema.ts";
-import { recordEvent } from "../sessions/session-events.ts";
+import { recordEvent } from "../sessions/index.ts";
 import { administers } from "./administers.ts";
 
 /**

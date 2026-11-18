@@ -35,12 +35,6 @@ import {
 } from "drizzle-orm";
 import { releaseSuperseded } from "./agents.ts";
 import { UUID } from "./control-shared.ts";
-import { createPostgresPendingRequests } from "./decision/pending-requests.ts";
-import {
-  actionableNow,
-  actionableOfTurn,
-  actionableRequest,
-} from "./decision/pending-status.ts";
 import {
   catalogName,
   createPostgresPushRequests,
@@ -63,6 +57,12 @@ import {
   turns,
   users,
 } from "./schema.ts";
+import { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
+import {
+  actionableNow,
+  actionableOfTurn,
+  actionableRequest,
+} from "./sessions/pending-status.ts";
 import { rowsOf } from "./statement-rows.ts";
 import { channelLeft } from "./surface/slack-channel-left.ts";
 import { ms, type Raw, released } from "./surface/slack-shared.ts";

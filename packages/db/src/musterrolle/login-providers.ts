@@ -31,7 +31,7 @@ import {
   openSecretsOf,
   readSecretInTx,
   writeSecretInTx,
-} from "../secrets/secret-values.ts";
+} from "../secrets/index.ts";
 import { deletedBy, notDeleted } from "../soft-delete.ts";
 import { findLiveMembership, verifiedEmailJoinOf } from "./identity.ts";
 import {

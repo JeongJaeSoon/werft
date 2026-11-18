@@ -203,7 +203,7 @@ adapters/*  ──┘ (포트 타입만)         db  →  platform(포트), cont
 | # | 규칙 | 비고 |
 |---|---|---|
 | A1 | `contracts`는 `platform`·`db`·어댑터·앱을 import하지 않는다 | 이미 지킨다(`contracts/src`에 `@werft-ai/platform`·`@werft-ai/db` import 0건). 기준선 없이 바로 막는다 |
-| A2 | 도메인 디렉터리는 다른 도메인의 **`ports/`와 `index.ts`**만 import한다. `service/`·`policy/`·`tools/`는 도메인 안에서만 | 현재 위반을 **(소스 파일 → 대상 모듈) 쌍**으로 기준선에 박는다. 파일 전체를 예외로 두면 허용된 파일이 다른 도메인 내부 import를 더해도 통과한다(`musterrolle/slack-outbox.ts:22`는 정책 함수를, `:23`은 서비스 타입을 부른다). 쌍의 수는 **늘 수 없다**. 순수 이동은 쌍의 경로만 바꾸므로 감소를 강제하지 않는다 |
+| A2 | 도메인 디렉터리는 다른 도메인의 **`ports/`와 `index.ts`**만 import한다. `service/`·`policy/`·`tools/`는 도메인 안에서만. `platform/src`와 같은 도메인으로 나눈 `db/src`에 모두 걸고, 공유 `ports/`도 검사한다(`testing/`만 뺀다) | 현재 위반을 **(소스 파일 → 대상 모듈) 쌍**으로 기준선에 박는다. 파일 전체를 예외로 두면 허용된 파일이 다른 도메인 내부 import를 더해도 통과한다(`musterrolle/slack-outbox.ts:22`는 정책 함수를, `:23`은 서비스 타입을 부른다). 쌍의 수는 **늘 수 없다**. 순수 이동은 쌍의 경로만 바꾸므로 감소를 강제하지 않는다 |
 | A3 | `tools/`는 contracts의 정의를 import하고, `ports/`는 `tools/`를 import하지 않는다 | 의존 사이클 방지 |
 | A4 | `contracts`에는 `class`·함수 본문 handler를 두지 않는다. `export const` 데이터와 zod 스키마, 순수 변환만 | 현재 `contracts/src`의 비테스트 `export class`는 0개다. 함수 본문 handler 여부는 S1에서 TS AST로 센다(정규식 스캔 금지, 시험이 이미 쓰는 `typescript` 파서). 위반이 있으면 목록으로 시작한다 |
 | A5 | 모든 도구 이름은 정의와 handler 양쪽에 있다 | 타입(`satisfies`)과 시험으로 이중 |

@@ -26,7 +26,7 @@ import {
 } from "drizzle-orm";
 import { UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
-import { holdsRight, lockedRole } from "../musterrolle/api-keys.ts";
+import { holdsRight, lockedRole } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import {
   agentIdentities,
@@ -42,7 +42,7 @@ import {
   readSecretInTx,
   secretSummaryKey,
   writeSecretInTx,
-} from "../secrets/secret-values.ts";
+} from "../secrets/index.ts";
 
 type Row = typeof slackApps.$inferSelect;
 

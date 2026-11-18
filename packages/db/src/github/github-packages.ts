@@ -26,7 +26,7 @@ import {
   readSecretInTx,
   secretAuditRefusal,
   writeSecretInTx,
-} from "../secrets/secret-values.ts";
+} from "../secrets/index.ts";
 import { creatorOf } from "./mcp-egress.ts";
 
 const tokenSlot = (workspaceId: string): SecretSlot => ({

@@ -10,7 +10,7 @@ import {
   sessions,
   turns,
 } from "../schema.ts";
-import { enqueueWithin } from "../sessions/enqueue.ts";
+import { enqueueWithin } from "../sessions/index.ts";
 
 export type PushFollowUpHold = "now" | "held" | "pull_request";
 

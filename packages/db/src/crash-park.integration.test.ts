@@ -23,8 +23,6 @@ import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { readPointerRuntime } from "./checkpoints/checkpoint-runtime.ts";
-import { createPostgresWorkerPendingStore } from "./decision/pending-control.ts";
-import { createPostgresPendingRequests } from "./decision/pending-requests.ts";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
@@ -43,6 +41,8 @@ import {
   unassignedSessions,
   workspaces,
 } from "./schema.ts";
+import { createPostgresWorkerPendingStore } from "./sessions/pending-control.ts";
+import { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
 import { insertDecisionModel } from "./testing/decision-model.ts";
 import { launchSession } from "./testing/launches.ts";
 import {

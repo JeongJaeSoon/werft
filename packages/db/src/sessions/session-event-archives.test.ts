@@ -6,11 +6,11 @@ import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/pglite";
+import { encodeEventCursor } from "../cursors.ts";
 import { createPostgresSessionReader } from "../postgres-unit-of-work.ts";
 import type { Database } from "../queries.ts";
 import * as schema from "../schema.ts";
 import { createPostgresUsageReader } from "../usage-reader.ts";
-import { encodeEventCursor } from "./cursors.ts";
 import {
   ARCHIVE_CHUNK_EVENTS,
   type ArchiveChunkRow,

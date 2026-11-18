@@ -17,7 +17,7 @@ import {
   secretAuditRefusal,
   secretReceiptRow,
   writeSecretInTx,
-} from "../secrets/secret-values.ts";
+} from "../secrets/index.ts";
 import { deletedBy, notDeleted } from "../soft-delete.ts";
 
 type Row = typeof slackConfigTokens.$inferSelect;

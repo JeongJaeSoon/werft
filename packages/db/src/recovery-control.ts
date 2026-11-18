@@ -27,8 +27,6 @@ import {
   transactionWithBindingRetry,
 } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
-import { cancelParkedRequests } from "./decision/pending-requests.ts";
-import { awaitingInputAt, publicStatus } from "./decision/pending-status.ts";
 import type { Database } from "./queries.ts";
 import {
   INCOMPATIBLE_CHECKPOINT_REASON,
@@ -60,6 +58,8 @@ import {
   hasRestorePoint,
   restoreBaseRevision,
 } from "./sessions/pause-policy.ts";
+import { cancelParkedRequests } from "./sessions/pending-requests.ts";
+import { awaitingInputAt, publicStatus } from "./sessions/pending-status.ts";
 import { recordEvent, recordStatus } from "./sessions/session-events.ts";
 
 const RECOVERY_DECISION = "recovery_decision";

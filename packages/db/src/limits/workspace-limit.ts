@@ -2,10 +2,7 @@ import {
   type WorkspaceLimitMode,
   workspaceLimitModeSchema,
 } from "@werft-ai/contracts";
-import type {
-  ArchiveChunkRow,
-  ArchivedEventCache,
-} from "../sessions/session-event-archives.ts";
+import type { ArchiveChunkRow, ArchivedEventCache } from "../sessions/index.ts";
 
 export async function readArchivedWorkspaceLimit(
   archive: Pick<ArchivedEventCache, "lines"> | undefined,
