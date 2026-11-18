@@ -310,6 +310,24 @@ describe("OpenAPI document", () => {
     }
   });
 
+  test("the introduction names every operation that takes no credential", () => {
+    const document = buildOpenApiDocument();
+    const named = new Set(
+      [...(document.info.description ?? "").matchAll(/`(\/[^`\s]*)`/g)].map(
+        (match) => match[1],
+      ),
+    );
+    const open = Object.entries(document.paths).flatMap(([path, operations]) =>
+      Object.values(operations).some(
+        (raw) => (raw as { security?: unknown[] }).security?.length === 0,
+      )
+        ? [path]
+        : [],
+    );
+    expect(open.length).toBeGreaterThan(0);
+    for (const path of open) expect(named.has(path), path).toBe(true);
+  });
+
   const SETS_SESSION_COOKIE = new Set([
     "/v1/auth/login",
     "/v1/auth/providers/{id}/start",
