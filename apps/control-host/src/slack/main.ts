@@ -176,6 +176,7 @@ export function slackSessionHandler(deps: {
     slackGuests: createPostgresSlackGuestSetting(db),
     sessions: createPostgresSessionShareStore(db),
     decisions: createPostgresDecisionLog(db),
+    logger,
   });
   const agentStore = createPostgresAgentStore(db);
   const sessions = createSessionService({

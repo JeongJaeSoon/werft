@@ -493,6 +493,7 @@ const authorization = createAuthorizationPolicy({
   slackGuests,
   sessions: sessionShares,
   decisions: createPostgresDecisionLog(db),
+  logger,
 });
 const agentStore = createPostgresAgentStore(db);
 const surfaceBindingStore = createPostgresSurfaceBindingStore(db);
@@ -743,7 +744,13 @@ const settingsDocumentStore = createPostgresSettingsDocumentStore(
   db,
   secretKey,
 );
-const rereadSettings = () => catalogRegistry.refresh().catch(() => undefined);
+// The write already committed; the periodic refresh picks it up if this fails.
+const rereadSettings = () =>
+  catalogRegistry.refresh().catch((error: unknown) => {
+    logger.warn("Installation settings could not be reread after a write", {
+      error_name: error instanceof Error ? error.name : typeof error,
+    });
+  });
 const settingsDocument = createSettingsDocumentService({
   authorization,
   store: settingsDocumentStore,
