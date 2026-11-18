@@ -240,10 +240,20 @@ describe("i18n", () => {
       ...Object.values(RECEIPT_OPERATION_LABEL),
       ...Object.values(ERROR_GUIDANCE),
     ].map(String);
-    // 일시중지 and 일시 중지 are other words for the same pause.
-    expect(korean.filter((text) => /일시정지|일시\s?중지/.test(text))).toEqual(
-      [],
-    );
+    // 일시중지 and 일시 중지 are other words for the same pause; only one
+    // plain space between 일시 and 정지 is the glossary's.
+    const otherSpelling = /일시(?! 정지)\s*[정중]지/;
+    expect(
+      ["일시정지", "일시중지", "일시 중지", "일시  정지", "일시 정지"].filter(
+        (text) => !otherSpelling.test(text),
+      ),
+    ).toEqual([]);
+    expect(
+      ["일시 정지", "일시 정지됨", "일시적", "정지"].filter((text) =>
+        otherSpelling.test(text),
+      ),
+    ).toEqual([]);
+    expect(korean.filter((text) => otherSpelling.test(text))).toEqual([]);
   });
 
   test("no message sends people to the Release tab to make or turn on a release", () => {
