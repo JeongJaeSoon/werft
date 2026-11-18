@@ -199,7 +199,8 @@
         "input": {
           "command": "ls -la",
           "description": "List files"
-        }
+        },
+        "accepts_note": true
       },
       "announce": {
         "tool_use_id": "toolu_allow",
@@ -219,7 +220,8 @@
         "tool": "Bash",
         "input": {
           "command": "rm -rf /"
-        }
+        },
+        "accepts_note": true
       },
       "announce": {
         "tool_use_id": "toolu_deny",

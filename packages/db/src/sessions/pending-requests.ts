@@ -81,6 +81,7 @@ type StoredPayload =
       input: NonNullable<unknown> | null;
       /** The rules the run offered to keep for the session; never listed by the API. */
       remember_offer?: PendingRememberRule[];
+      accepts_note?: true;
     }
   | { kind: "question"; questions: PendingQuestion[] };
 
@@ -432,6 +433,7 @@ function publicPendingRequest(row: {
 function answerMismatch(
   payload: StoredPayload,
   answer: AnswerRequestInput["answer"],
+  parked: boolean,
 ): string | null {
   if (payload.kind !== answer.kind) {
     return `A ${answer.kind} answer cannot settle a ${payload.kind} request`;
@@ -439,10 +441,23 @@ function answerMismatch(
   if (answer.kind === "permission") {
     // Nothing offered, nothing to keep: the worker would drop it, and the
     // person would believe a rule exists that does not.
-    return answer.remember !== undefined &&
+    if (
+      answer.remember !== undefined &&
       (payload as { remember_offer?: unknown[] }).remember_offer === undefined
-      ? "This request offered nothing to allow for the session"
-      : null;
+    ) {
+      return "This request offered nothing to allow for the session";
+    }
+    // Likewise a note its worker would drop. A parked turn is carried on by
+    // the server's own message, which says it.
+    if (
+      answer.decision === "allow" &&
+      answer.reason !== undefined &&
+      !parked &&
+      (payload as { accepts_note?: true }).accepts_note !== true
+    ) {
+      return "This session's worker cannot hand an approval note to the model; allow without a reason";
+    }
+    return null;
   }
   const questions = pendingQuestionSchema
     .array()
@@ -789,6 +804,7 @@ export function createPostgresPendingRequests(
         const mismatch = answerMismatch(
           pending.payload as StoredPayload,
           input.answer,
+          pending.parkedAt !== null,
         );
         if (mismatch !== null) return { outcome: "invalid", reason: mismatch };
         // Judged on every answer, not only the one that would close the

@@ -603,6 +603,7 @@ export class PendingRequestRegistry {
                     }),
                   ),
                 }),
+            ...(request.acceptsNote === true ? { accepts_note: true } : {}),
           }
         : { kind: "question", questions: shown ?? [] };
     const turnId = this.options.scope().turn_id;
@@ -919,6 +920,9 @@ export class PendingRequestRegistry {
                       rules: entry.rememberOffer,
                     },
                   }),
+              ...(answer.reason === undefined
+                ? {}
+                : { message: answer.reason }),
             }
           : {
               kind: "selected",

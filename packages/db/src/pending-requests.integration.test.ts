@@ -677,6 +677,54 @@ integration("pending requests and answers on PostgreSQL", () => {
     expect(good.receipt_status).toBe("accepted");
   });
 
+  describe("an allow's note to the model", () => {
+    const noted = (requestId: string): PostSessionAnswerRequest => ({
+      request_id: requestId,
+      kind: "permission",
+      decision: "allow",
+      reason: "Only touch the test fixtures",
+    });
+
+    test("is refused for a request whose worker did not say it takes one, and takes nothing", async () => {
+      const { owner, sessionId, worker } = await runningSession();
+      const { requestId } = await register(worker, permission("ls"));
+      expect(await failure(answer(owner, sessionId, noted(requestId)))).toBe(
+        "BAD_REQUEST",
+      );
+      const plain = await answer(owner, sessionId, {
+        request_id: requestId,
+        kind: "permission",
+        decision: "allow",
+      });
+      expect(plain.receipt_status).toBe("accepted");
+    });
+
+    test("reaches a worker that said the request takes one", async () => {
+      const { owner, sessionId, worker } = await runningSession();
+      const { requestId } = await register(worker, {
+        ...permission("ls"),
+        accepts_note: true,
+      } as RegisterPendingRequest["request"]);
+      await answer(owner, sessionId, noted(requestId));
+      const polled = await poll(worker);
+      expect(polled.answers.map((item) => item.answer)).toEqual([
+        noted(requestId),
+      ]);
+    });
+
+    test("leaves a denial's reason as it was, whatever the worker said", async () => {
+      const { owner, sessionId, worker } = await runningSession();
+      const { requestId } = await register(worker, permission("ls"));
+      const denied = await answer(owner, sessionId, {
+        request_id: requestId,
+        kind: "permission",
+        decision: "deny",
+        reason: "Not on production",
+      });
+      expect(denied.receipt_status).toBe("accepted");
+    });
+  });
+
   describe("allowing for the session", () => {
     const offer = [{ tool_name: "Bash", rule_content: "git status:*" }];
     const remembering = (requestId: string): PostSessionAnswerRequest => ({

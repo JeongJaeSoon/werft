@@ -196,7 +196,7 @@ get "/v1/sessions/$SID/turns/1" | jq -e '.status == "completed"'
 get_as "/v1/receipts/$(echo "$answer" | jq -r .receipt_id)" | jq '{operation, status}'
 ```
 
-답은 세션을 연 key(`KEY`)가 아닌 다른 key(`APPROVER_KEY`)로 보낸다. workspace key는 자기가 연 세션의 요청에 답하지 못한다(403 `self_approval`). 거절은 `{"action":"deny","reason":"…"}`(reason 필수)이다. `AskUserQuestion`에서 오는 `kind: "question"` 요청은 `answers: [{question_id, selected_option_ids}]`로 답한다.
+답은 세션을 연 key(`KEY`)가 아닌 다른 key(`APPROVER_KEY`)로 보낸다. workspace key는 자기가 연 세션의 요청에 답하지 못한다(403 `self_approval`). 거절은 `{"action":"deny","reason":"…"}`이다(reason은 선택). 승인에도 `reason`을 실을 수 있다. 그 글은 승인한 사람의 지시로 표시되어, 승인한 도구가 실행된 뒤 모델에 전해진다. 세션의 워커가 그 글을 전하지 못하면 API는 글을 버리지 않고 `400`으로 거절한다. `AskUserQuestion`에서 오는 `kind: "question"` 요청은 `answers: [{question_id, selected_option_ids}]`로 답한다.
 
 ### ⑤ 후속 메시지
 

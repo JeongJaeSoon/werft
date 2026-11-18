@@ -47,7 +47,12 @@ import type {
   PermissionRequest,
   RuntimeHooks,
 } from "./driver.ts";
-import { approvalView, rememberView, sdkAnswers } from "./mapper.ts";
+import {
+  approvalView,
+  noteUndeliveredEvent,
+  rememberView,
+  sdkAnswers,
+} from "./mapper.ts";
 import {
   CLAUDE_PROFILE_DIGEST_SCHEME,
   CLAUDE_RESTORABLE_SCHEMES,
@@ -350,6 +355,8 @@ class ClaudeContractRun implements AgentRun {
   private readonly unaskedCalls = new Map<string, number>();
   private readonly emitted = new Set<string>();
   private readonly answered = new Set<string>();
+  /** Notes handed to the engine whose call has not settled yet: tool by call id. */
+  private readonly notes = new Map<string, string>();
   private wake: (() => void) | undefined;
   private consumed = false;
   private latestInput: string | undefined;
@@ -359,7 +366,23 @@ class ClaudeContractRun implements AgentRun {
     private readonly toolCallWaitMs: number,
     private readonly toolDecisions?: ToolDecisionObserver,
   ) {
-    this.driver = start({ onPermission: (request) => this.ask(request) });
+    this.driver = start({
+      onPermission: (request) => this.ask(request),
+      noteSettled: (toolUseId, delivered) => {
+        const tool = this.notes.get(toolUseId);
+        if (tool === undefined) return;
+        this.notes.delete(toolUseId);
+        if (!delivered) {
+          this.push(
+            this.noteUndelivered(
+              tool,
+              toolUseId,
+              "the engine refused the call",
+            ),
+          );
+        }
+      },
+    });
   }
 
   async ready(): Promise<NegotiatedCapabilities> {
@@ -394,11 +417,24 @@ class ClaudeContractRun implements AgentRun {
         });
         next ??= frames.next();
         if (this.outbox.length > 0) this.wake?.();
-        const frame = await Promise.race([next, askedWhilePulling]);
+        let frame: IteratorResult<AgentFrame> | undefined;
+        try {
+          frame = await Promise.race([next, askedWhilePulling]);
+        } catch (error) {
+          yield* this.unsettledNotes(
+            "the run failed before the call returned a result",
+          );
+          throw error;
+        }
         this.wake = undefined;
         if (frame === undefined) continue;
         next = undefined;
-        if (frame.done === true) return;
+        if (frame.done === true) {
+          yield* this.unsettledNotes(
+            "the run ended before the call returned a result",
+          );
+          return;
+        }
         yield* this.eventsOf(frame.value);
       }
     } finally {
@@ -501,6 +537,7 @@ class ClaudeContractRun implements AgentRun {
       ...(view.kind === "permission" && shown.length > 0
         ? { rememberOffer: shown }
         : {}),
+      ...(view.kind === "permission" ? { acceptsNote: true as const } : {}),
     };
     const answered = this.channel.request(approval, request.signal);
     this.offer(approval);
@@ -514,7 +551,30 @@ class ClaudeContractRun implements AgentRun {
         outcome: "withdrawn",
       });
     }
-    return decisionOf(answer, request.input, { offered, shown });
+    const decision = decisionOf(answer, request.input, { offered, shown });
+    if (decision.behavior === "allow" && decision.note !== undefined) {
+      this.notes.set(request.toolUseId, request.tool);
+    }
+    return decision;
+  }
+
+  private noteUndelivered(
+    tool: string,
+    toolUseId: string,
+    why: string,
+  ): RuntimeEvent {
+    return {
+      type: "public",
+      event: noteUndeliveredEvent(randomUUID(), tool, toolUseId, why),
+    };
+  }
+
+  private *unsettledNotes(why: string): Generator<RuntimeEvent> {
+    const unsettled = [...this.notes];
+    this.notes.clear();
+    for (const [toolUseId, tool] of unsettled) {
+      yield this.noteUndelivered(tool, toolUseId, why);
+    }
   }
 
   /**
@@ -701,7 +761,11 @@ function decisionOf(
   switch (answer.kind) {
     case "selected":
       return answer.optionKind === "allow_once"
-        ? { behavior: "allow", ...rememberedBy(answer.remember, offer) }
+        ? {
+            behavior: "allow",
+            ...rememberedBy(answer.remember, offer),
+            ...(answer.message === undefined ? {} : { note: answer.message }),
+          }
         : { behavior: "deny", message: personDenial(answer.message) };
     case "answered":
       return {

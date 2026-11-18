@@ -35,7 +35,11 @@ export const permissionAnswerSchema = z
     request_id: requestIdSchema,
     kind: z.literal("permission"),
     decision: permissionActionSchema,
-    /** Optional even on a denial; the worker tells the model it was denied. */
+    /**
+     * On a denial, why; optional, the worker tells the model it was denied
+     * either way. On an allow, the approver's instruction, which the model
+     * is given once the call has run.
+     */
     reason: z.string().min(1).optional(),
     /**
      * Allow, and keep allowing the rules the request offered until the
@@ -73,7 +77,9 @@ export const answerTextInputSchema = z
 const permissionAnswerFields = {
   request_id: requestIdSchema,
   kind: z.literal("permission"),
-  reason: answerTextInputSchema.optional(),
+  reason: answerTextInputSchema.optional().meta({
+    description: `On \`deny\`, why the call was refused. On \`allow\`, an instruction the model is given once the approved call has run, marked as the approver's. A waiting request whose session cannot hand it to the model refuses an allow with a reason (400) instead of dropping it. At most ${ANSWER_TEXT_MAX_BYTES} bytes of UTF-8, not whitespace alone.`,
+  }),
   remember: rememberSchema.optional(),
 };
 

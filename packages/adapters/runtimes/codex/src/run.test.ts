@@ -6,6 +6,7 @@ import {
 
 import { CodexRun, type CodexRunOptions } from "./run.ts";
 import { FakeAppServer } from "./testing/fake-app-server.ts";
+import { JsonlTransport } from "./transport.ts";
 
 type Answers = "ask" | "edits" | "none";
 
@@ -33,11 +34,13 @@ function setup(answers: Answers = "ask", extra: Partial<CodexRunOptions> = {}) {
   });
   const seen: RuntimeEvent[] = [];
   const waiters: Array<() => void> = [];
+  let ended = false;
   void (async () => {
     for await (const event of run.events()) {
       seen.push(event);
       for (const wake of waiters.splice(0)) wake();
     }
+    ended = true;
     for (const wake of waiters.splice(0)) wake();
   })();
   const until = async (found: () => RuntimeEvent | undefined) => {
@@ -56,7 +59,15 @@ function setup(answers: Answers = "ask", extra: Partial<CodexRunOptions> = {}) {
   };
   const ofType = (type: RuntimeEvent["type"]) => () =>
     seen.find((event) => event.type === type);
-  return { server, run, seen, until, ofType, killed: () => killed };
+  return {
+    server,
+    run,
+    seen,
+    until,
+    ofType,
+    killed: () => killed,
+    ended: () => ended,
+  };
 }
 
 const COMMAND = {
@@ -264,6 +275,157 @@ describe("approvals", () => {
     });
     expect(result).toBe("applied");
     expect(await reply).toEqual({ decision: "accept" });
+  });
+
+  async function allowWithNote(t: ReturnType<typeof setup>) {
+    await started(t);
+    const reply = askCommand(t);
+    const asked = await t.until(t.ofType("approval.requested"));
+    if (asked.type !== "approval.requested") throw new Error("unreachable");
+    expect(asked.request).toMatchObject({ acceptsNote: true });
+    expect(t.server.started("turn/steer")).toBeUndefined();
+    await t.run.answer({
+      localId: asked.request.localId,
+      inputHash: asked.request.inputHash,
+      kind: "selected",
+      optionKind: "allow_once",
+      message: "Only touch the fixtures",
+    });
+    return reply;
+  }
+
+  const noteWarning = (t: ReturnType<typeof setup>) => () =>
+    t.seen.find(
+      (event) =>
+        event.type === "public" &&
+        JSON.stringify(event.event).includes("was not handed to the model"),
+    );
+
+  test("an allow's note is steered into the running turn", async () => {
+    const t = setup();
+    t.server.on("turn/steer", () => ({ turnId: "turn-1" }));
+    const reply = await allowWithNote(t);
+    expect(await reply).toEqual({ decision: "accept" });
+    const steer = t.server.started("turn/steer");
+    expect(steer).toMatchObject({
+      threadId: "thread-1",
+      expectedTurnId: "turn-1",
+    });
+    expect(JSON.stringify(steer?.input)).toContain("Only touch the fixtures");
+  });
+
+  // The engine reads steered input at its next model request, which comes
+  // after the approved call's result; the steer itself goes out first.
+  test("on the JSON-lines wire, the note's steer is written before the accept", async () => {
+    const peer = new FakeAppServer();
+    peer.on("turn/steer", () => ({ turnId: "turn-1" }));
+    const written: string[] = [];
+    const transport: JsonlTransport = new JsonlTransport({
+      write(line) {
+        const message = JSON.parse(line) as Record<string, unknown>;
+        if (message.id === "srv-1") {
+          written.push(
+            String((message.result as { decision?: unknown }).decision),
+          );
+          return;
+        }
+        if (message.method === "turn/steer") written.push("steer");
+        if (typeof message.method !== "string" || message.id === undefined) {
+          return;
+        }
+        peer.request(message.method, message.params).then(
+          (result) =>
+            transport.receive(JSON.stringify({ id: message.id, result })),
+          (error: Error) =>
+            transport.receive(
+              JSON.stringify({
+                id: message.id,
+                error: { message: error.message },
+              }),
+            ),
+        );
+      },
+      end() {},
+    });
+    const t = setup("ask", { transport });
+    await t.run.ready();
+    t.run.send({ uuid: "in-1", message: "hello" });
+    await t.until(() =>
+      peer.started("turn/start") ? ({ type: "x" } as never) : undefined,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    transport.receive(
+      JSON.stringify({
+        method: "item/started",
+        params: { threadId: "thread-1", item: COMMAND },
+      }),
+    );
+    transport.receive(
+      JSON.stringify({
+        id: "srv-1",
+        method: "item/commandExecution/requestApproval",
+        params: {
+          threadId: "thread-1",
+          itemId: "call-1",
+          command: "touch x",
+          cwd: "/work",
+        },
+      }),
+    );
+    const asked = await t.until(t.ofType("approval.requested"));
+    if (asked.type !== "approval.requested") throw new Error("unreachable");
+    await t.run.answer({
+      localId: asked.request.localId,
+      inputHash: asked.request.inputHash,
+      kind: "selected",
+      optionKind: "allow_once",
+      message: "Only touch the fixtures",
+    });
+    await t.until(() =>
+      written.length >= 2 ? ({ type: "x" } as never) : undefined,
+    );
+    expect(written).toEqual(["steer", "accept"]);
+  });
+
+  test("a steer that fails after the turn ended is said publicly before the stream ends", async () => {
+    const t = setup();
+    let refuse: ((error: Error) => void) | undefined;
+    t.server.on(
+      "turn/steer",
+      () =>
+        new Promise((_resolve, reject) => {
+          refuse = reject;
+        }),
+    );
+    expect(await await allowWithNote(t)).toEqual({ decision: "accept" });
+    t.run.finishInput();
+    t.server.emit("turn/completed", {
+      threadId: "thread-1",
+      turn: { id: "turn-1", status: "completed" },
+    });
+    await t.until(t.ofType("turn.ended"));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(t.ended()).toBe(false);
+
+    refuse?.(new Error("no active turn"));
+    const warned = await t.until(noteWarning(t));
+    expect(JSON.stringify(warned)).toContain("exec_command call call-1");
+    expect(JSON.stringify(warned)).toContain("no active turn");
+    await t.until(() => (t.ended() ? ({ type: "x" } as never) : undefined));
+  });
+
+  test("an abort while a steer is out says the note was not handed over", async () => {
+    const t = setup();
+    t.server.on("turn/steer", () => new Promise(() => {}));
+    await allowWithNote(t);
+    await t.until(() =>
+      t.server.started("turn/steer") ? ({ type: "x" } as never) : undefined,
+    );
+    t.run.abort();
+    await t.until(() => (t.ended() ? ({ type: "x" } as never) : undefined));
+    expect(JSON.stringify(noteWarning(t)())).toContain(
+      "exec_command call call-1",
+    );
   });
 
   test("deny declines", async () => {

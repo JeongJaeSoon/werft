@@ -50,7 +50,11 @@ function rig(
     },
   );
   const hook = (
-    event: "PreToolUse" | "PostToolUse" | "PermissionDenied",
+    event:
+      | "PreToolUse"
+      | "PostToolUse"
+      | "PostToolUseFailure"
+      | "PermissionDenied",
     tool: string,
     input: Record<string, unknown>,
     id: string,
@@ -191,5 +195,66 @@ describe("tool decisions the adapter reports", () => {
       onPermission: async () => ({ behavior: "allow" }),
     });
     expect(options.canUseTool).toBeDefined();
+  });
+});
+
+describe("an approver's note", () => {
+  const NOTE = "Only touch the test fixtures";
+  const noted = () =>
+    rig(configOf(), {
+      onPermission: async (request) =>
+        request.toolUseId === "toolu_noted"
+          ? { behavior: "allow", note: NOTE }
+          : { behavior: "allow" },
+    });
+
+  test("reaches the model with the approved call's result, once, framed as the approver's", async () => {
+    const { hook, ask } = noted();
+    const decision = await ask("Bash", { command: "ls" }, "toolu_noted");
+    expect(decision).not.toHaveProperty("note");
+    expect(await hook("PostToolUse", "Bash", {}, "toolu_other")).toEqual({});
+    const delivered = await hook("PostToolUse", "Bash", {}, "toolu_noted");
+    expect(delivered).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PostToolUse",
+        additionalContext: expect.stringContaining(NOTE),
+      },
+    });
+    expect(JSON.stringify(delivered)).toContain("approved");
+    expect(await hook("PostToolUse", "Bash", {}, "toolu_noted")).toEqual({});
+  });
+
+  test("reaches the model when the approved call fails", async () => {
+    const { hook, ask } = noted();
+    await ask("Bash", { command: "ls" }, "toolu_noted");
+    expect(await hook("PostToolUseFailure", "Bash", {}, "toolu_noted")).toEqual(
+      {
+        hookSpecificOutput: {
+          hookEventName: "PostToolUseFailure",
+          additionalContext: expect.stringContaining(NOTE),
+        },
+      },
+    );
+  });
+
+  test("tells the run whether each note was delivered, and a refused call's was not", async () => {
+    const settled: [string, boolean][] = [];
+    const { hook, ask } = rig(configOf(), {
+      onPermission: async () => ({ behavior: "allow", note: NOTE }),
+      noteSettled: (id, delivered) => settled.push([id, delivered]),
+    });
+    await ask("Bash", { command: "ls" }, "toolu_ran");
+    await ask("Bash", { command: "ls" }, "toolu_refused");
+    await hook("PostToolUse", "Bash", {}, "toolu_ran");
+    expect(await hook("PermissionDenied", "Bash", {}, "toolu_refused")).toEqual(
+      {},
+    );
+    expect(
+      await hook("PostToolUseFailure", "Bash", {}, "toolu_refused"),
+    ).toEqual({});
+    expect(settled).toEqual([
+      ["toolu_ran", true],
+      ["toolu_refused", false],
+    ]);
   });
 });

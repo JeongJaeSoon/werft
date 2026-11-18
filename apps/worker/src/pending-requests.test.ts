@@ -328,6 +328,38 @@ describe("PendingRequestRegistry", () => {
     });
   });
 
+  test("passes an allow's note to the callback", async () => {
+    const harness = registry();
+    const decision = harness.ask(permission("req-note"));
+    await harness.answer({
+      request_id: "req-note",
+      kind: "permission",
+      decision: "allow",
+      reason: "Only touch the test fixtures",
+    });
+
+    expect(await decision).toEqual({
+      kind: "selected",
+      optionKind: "allow_once",
+      message: "Only touch the test fixtures",
+    });
+  });
+
+  test("registers that the request takes a note only when the run says so", async () => {
+    const harness = registry();
+    const base = permission("req-takes-note");
+    void harness.ask(
+      base.kind === "permission" ? { ...base, acceptsNote: true } : base,
+    );
+    void harness.ask(permission("req-no-note"));
+    await harness.idFor("req-takes-note");
+    await harness.idFor("req-no-note");
+
+    const [takes, plain] = harness.gateway.registered();
+    expect(takes?.request).toMatchObject({ accepts_note: true });
+    expect(plain?.request).not.toHaveProperty("accepts_note");
+  });
+
   test("reports each decision to the observer, and an observer that throws does not hold the engine", async () => {
     const decided: { decision: string; answerSurface?: string }[] = [];
     const harness = registry({
