@@ -111,7 +111,7 @@ for name in PREVIEW_LABEL PREVIEW_PUBLIC_LABEL; do
     exit 1
   fi
 done
-if [ "$PREVIEW_PUBLIC_LABEL" = "$PREVIEW_LABEL" ]; then
+if [ -n "$PREVIEW_PUBLIC_DOMAIN" ] && [ "$PREVIEW_PUBLIC_LABEL" = "$PREVIEW_LABEL" ]; then
   echo "PREVIEW_PUBLIC_LABEL must not be PREVIEW_LABEL ('${PREVIEW_LABEL}')" >&2
   exit 1
 fi
@@ -568,8 +568,8 @@ other_pushers() {
 # next run (comment). The outside routes are sync_public()'s.
 sync() {
   local pulls n head cross public state_file tried status tried_at ns_head source
-  local labeled label_at actor code namespace up_at count refusal rows
-  local wanted=" " kept="" LIMIT=500
+  local labeled label_at actor code namespace up_at count refusal rows others
+  local wanted=" " kept="" public_wanted=" " heads=" " LIMIT=500
   lock_preview sync
   echo "sync $(date -u +%Y-%m-%dT%H:%M:%SZ): label ${PREVIEW_LABEL}"
   mkdir -p "${PREVIEW_HOME}/sync"
@@ -593,7 +593,6 @@ sync() {
     reap
     return
   fi
-  public_wanted=" " heads=" "
   while IFS=$'\t' read -r n head cross public; do
     [[ "$n" =~ ^[1-9][0-9]{0,6}$ ]] || continue
     wanted+="${n} "
@@ -755,28 +754,57 @@ recorded_up() {
 # not prove what an outside client gets, only that the front is not missing.
 gate_ok() {
   local out expected='^302 https://[a-z0-9-]+\.cloudflareaccess\.com/'
-  out="$(curl -sS -o /dev/null --max-time 5 -w '%{http_code} %{redirect_url}' \
+  # -q first: no ~/.curlrc to turn certificate checks off.
+  out="$(curl -q -sS -o /dev/null --max-time 5 -w '%{http_code} %{redirect_url}' \
     "https://pr-$1.${PREVIEW_PUBLIC_DOMAIN}/readyz" 2>/dev/null)" || return 1
   [[ "$out" =~ $expected ]]
 }
 
-# The last time the outside label went on or came off, and by whom:
-# "<labeled|unlabeled> <created_at> <login>", or nothing.
-last_public_event() {
+# Reads the last time the outside label went on or came off into the
+# caller's event (labeled or unlabeled), label_at and actor. Fails when the
+# events cannot be read or hold none.
+public_event() {
   local events
   events="$(cd "$root" && gh api --paginate "repos/{owner}/{repo}/issues/$1/events" \
     --jq ".[] | select((.event == \"labeled\" or .event == \"unlabeled\") and .label.name == \"${PREVIEW_PUBLIC_LABEL}\") | \"\(.event) \(.created_at) \(.actor.login)\"" \
     </dev/null)" || return 1
-  tail -n 1 <<<"$events"
+  read -r event label_at actor <<<"$(tail -n 1 <<<"$events")"
+  [ -n "$event" ]
 }
 
+PUBLIC_OPEN_LINE="바깥 경로: 열려 있다(오너 로그인 뒤)."
+
 # Rewrites the up comment of preview pr-$1 with the outside route's line $2.
+# PREVIEW_HOME/sync/pr-<N>.open marks a comment that says the route is open.
 public_comment() {
   local head
   head="$(kubectl get namespace "pr-$1" -o jsonpath='{.metadata.annotations.werft\.dev/preview-head}' 2>/dev/null)" || true
   if [ -n "$head" ]; then
     comment "$1" "$(up_body "$1" "$head" "$2")"
   fi
+  if [[ "$2" == "$PUBLIC_OPEN_LINE"* ]]; then
+    : >"${PREVIEW_HOME}/sync/pr-$1.open"
+  else
+    rm -f -- "${PREVIEW_HOME}/sync/pr-$1.open"
+  fi
+}
+
+# A comment that still says open while no route is (the feature turned off,
+# or every route closed in a run that could not read GitHub) says closed
+# once, in the next run that can write it. $open is " pr-<N> ..." of the
+# routes there now.
+settle_public() {
+  local marker n
+  for marker in "${PREVIEW_HOME}/sync"/pr-*.open; do
+    [[ "$(basename -- "$marker")" =~ ^pr-([1-9][0-9]{0,6})\.open$ ]] || continue
+    n="${BASH_REMATCH[1]}"
+    [[ "$open" == *" pr-${n} "* ]] && continue
+    if [ -n "$(recorded_up "$n")" ]; then
+      public_comment "$n" "바깥 경로: 닫혀 있다."
+    else
+      rm -f -- "$marker"
+    fi
+  done
 }
 
 # close (before the builds): deletes each outside route this run does not
@@ -785,9 +813,12 @@ public_comment() {
 # login in front answers. The domain's value never goes in a comment or the
 # log; a comment only says the route is open or closed.
 sync_public() {
-  local rows namespace name hosts n event label_at actor line open service
+  local rows namespace name hosts n event label_at actor line open=" " service
   if [ -z "$PREVIEW_PUBLIC_DOMAIN" ]; then
-    [ "$1" = close ] && close_all_public
+    if [ "$1" = close ]; then
+      close_all_public
+      settle_public
+    fi
     return 0
   fi
   rows="$(kubectl get ingress -A -l "$PUBLIC_SELECTOR" -o json | jq -r '.items[]
@@ -805,6 +836,12 @@ sync_public() {
       elif ! public_ready "$n"; then
         echo "${namespace}: outside label off, or not the recorded up preview; outside route closed"
         line="바깥 경로: 닫혀 있다."
+      elif ! public_event "$n"; then
+        echo "${namespace}: the outside label's events could not be read; outside route closed"
+        line="바깥 경로: 닫혀 있다."
+      elif [ "$event" != labeled ] || [ "$actor" != "$gh_user" ]; then
+        echo "${namespace}: the outside label's last event is ${event} by ${actor}, not a labeled by this machine's login; outside route closed"
+        line="바깥 경로: 닫혀 있다."
       elif ! gate_ok "$n"; then
         echo "${namespace}: the login in front of the outside domain did not answer as expected; outside route closed"
         line="바깥 경로: 닫았다. 앞단의 로그인 확인에 실패했다."
@@ -817,7 +854,6 @@ sync_public() {
     done <<<"$rows"
     return 0
   fi
-  open=" "
   while IFS=$'\x1f' read -r namespace name hosts; do
     open+="${namespace} "
   done <<<"$rows"
@@ -828,11 +864,10 @@ sync_public() {
       echo "pr-${n}: no ${PREVIEW_HOME}/pr-${n}/state/fullname; outside route not opened" >&2
       continue
     fi
-    if ! event="$(last_public_event "$n")" || [ -z "$event" ]; then
+    if ! public_event "$n"; then
       echo "pr-${n}: the outside label's events could not be read; outside route not opened"
       continue
     fi
-    read -r event label_at actor <<<"$event"
     if [ "$event" != labeled ]; then
       echo "pr-${n}: the outside label's last event is ${event}; outside route not opened"
       continue
@@ -866,9 +901,11 @@ EOF
       continue
     fi
     rm -f -- "${PREVIEW_HOME}/sync/pr-${n}.public"
+    open+="pr-${n} "
     echo "pr-${n}: outside route open"
-    public_comment "$n" "바깥 경로: 열려 있다(오너 로그인 뒤). 주소는 이 댓글에 적지 않는다. 라벨 \`${PREVIEW_PUBLIC_LABEL}\`를 떼면 다음 실행에서 바깥 경로만 닫힌다."
+    public_comment "$n" "${PUBLIC_OPEN_LINE} 주소는 이 댓글에 적지 않는다. 라벨 \`${PREVIEW_PUBLIC_LABEL}\`를 떼면 다음 실행에서 바깥 경로만 닫힌다."
   done
+  settle_public
 }
 
 up_body() {

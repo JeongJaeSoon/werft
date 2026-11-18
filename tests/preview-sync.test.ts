@@ -126,14 +126,16 @@ esac
       { mode: 0o755 },
     );
     await mkdir(join(dir, "ingress"));
-    // The front login's check asks for %{redirect_url}; STUB_GATE answers it.
+    // The front login's check asks for %{redirect_url}; STUB_GATE answers
+    // it, and STUB_GATE_EXIT is curl's exit (28: timed out).
     await writeFile(
       join(dir, "bin", "curl"),
       `#!/bin/sh
 case "$*" in
   *redirect_url*)
     echo "$*" >> "${dir}/curl-calls"
-    printf '%s' "\${STUB_GATE-302 https://team.cloudflareaccess.com/cdn-cgi/access/login/x}" ;;
+    printf '%s' "\${STUB_GATE-302 https://team.cloudflareaccess.com/cdn-cgi/access/login/x}"
+    exit "\${STUB_GATE_EXIT:-0}" ;;
   *) printf '%s' "\${STUB_READYZ:-200}" ;;
 esac
 `,
@@ -148,11 +150,11 @@ ns="${dir}/namespaces.json"
 case "$1" in
   up)
     code="\${STUB_UP_EXIT:-0}"
-    rm -f "${dir}/ingress/pr-$2."*
-    mkdir -p "$PREVIEW_HOME/pr-$2/state"
-    echo werft > "$PREVIEW_HOME/pr-$2/state/fullname"
     [ "$code" = 75 ] && echo "pr-$2: head is ${HEAD_B} now, not the $3 asked for" >&2
     if [ "$code" = 0 ]; then
+      rm -f "${dir}/ingress/pr-$2."*
+      mkdir -p "$PREVIEW_HOME/pr-$2/state"
+      echo werft > "$PREVIEW_HOME/pr-$2/state/fullname"
       jq --arg n "pr-$2" --arg h "$3" --arg s "\${PREVIEW_SOURCE:-}" \\
         '.items |= (map(select(.metadata.name != $n)) + [{metadata: {name: $n,
           labels: {"werft.dev/preview": "true"},
@@ -766,14 +768,66 @@ esac
       await openRoute();
       await sync(ON);
       expect(await routes()).toEqual([ROUTE]);
-      expect(await eventReads()).toBe(0);
+      expect(await eventReads()).toBe(1);
       expect(
         (await lines("kubectl-calls")).filter((call) =>
           call.startsWith("apply"),
         ),
       ).toEqual([]);
-      expect(await lines("curl-calls")).toHaveLength(1);
+      const checks = await lines("curl-calls");
+      expect(checks).toHaveLength(1);
+      // -q first, or ~/.curlrc could turn the certificate check off.
+      expect(checks[0]).toStartWith("-q ");
       expect(await writes()).toEqual([]);
+    });
+
+    for (const [name, list] of [
+      [
+        "someone else put it on again",
+        [
+          { label: "preview-public", at: LABELED_1, by: "owner" },
+          {
+            label: "preview-public",
+            event: "unlabeled",
+            at: LABELED_2,
+            by: "owner",
+          },
+          { label: "preview-public", at: LABELED_2, by: "someone" },
+        ],
+      ],
+      [
+        "its last event is unlabeled though the list has it",
+        [
+          { label: "preview-public", at: LABELED_1, by: "owner" },
+          {
+            label: "preview-public",
+            event: "unlabeled",
+            at: LABELED_2,
+            by: "owner",
+          },
+        ],
+      ],
+      ["its events are not there", []],
+    ] as const) {
+      test(`closes an open route when the outside label: ${name}`, async () => {
+        await upAtA();
+        await openRoute();
+        await events(5, [...list]);
+        await sync(ON);
+        expect(await routes()).toEqual([]);
+        expect(await lines("preview-calls")).toEqual([]);
+      });
+    }
+
+    test("closes an open route when the label's events cannot be read", async () => {
+      await upAtA();
+      await openRoute();
+      await rm(join(dir, "gh", "repos__owner___repo__issues_5_events.json"));
+      const result = await sync(ON);
+      expect(result.stdout).toContain(
+        "pr-5: the outside label's events could not be read; outside route closed",
+      );
+      expect(await routes()).toEqual([]);
     });
 
     test("closes the route when the outside label comes off, and keeps the preview", async () => {
@@ -914,6 +968,73 @@ esac
       });
     }
 
+    test("closes an open route when the head moved and its up did not go through", async () => {
+      await upAtA();
+      await openRoute();
+      await pulls([{ number: 5, head: HEAD_B, labels: BOTH }]);
+      // up ends 75 as for a head that moved again: it deletes nothing.
+      await sync({ ...ON, STUB_UP_EXIT: "75" });
+      expect(await lines("preview-calls")).toEqual([
+        `up 5 ${HEAD_B} source=label reap_up_at=unset`,
+      ]);
+      expect(await routes()).toEqual([]);
+    });
+
+    for (const gate of [
+      "302 https://evil.example/?u=https://t.cloudflareaccess.com/",
+      "302 https://t.cloudflareaccess.com.evil.dev/",
+      "302 https://evil.dev@t.cloudflareaccess.com/",
+      "302 https://t.cloudflareaccess.com:443/",
+      "302 https://T.cloudflareaccess.com/",
+      "302 http://t.cloudflareaccess.com/",
+      "301 https://t.cloudflareaccess.com/",
+      "3020 https://t.cloudflareaccess.com/",
+      "302 https://a.b.cloudflareaccess.com/",
+    ]) {
+      test(`closes an open route when the front login answers ${gate}`, async () => {
+        await upAtA();
+        await openRoute();
+        await sync({ ...ON, STUB_GATE: gate });
+        expect(await routes()).toEqual([]);
+      });
+    }
+
+    test("closes an open route when the front login check fails", async () => {
+      await upAtA();
+      await openRoute();
+      await sync({ ...ON, STUB_GATE_EXIT: "28" });
+      expect(await routes()).toEqual([]);
+    });
+
+    test("says closed once when the feature is turned off", async () => {
+      await upAtA();
+      await sync(ON);
+      expect(await routes()).toEqual([ROUTE]);
+      await sync();
+      await sync();
+      expect(await routes()).toEqual([]);
+      const posted = await writes();
+      expect(posted).toHaveLength(2);
+      expect(posted[0]).toContain(ROUTE_LINE);
+      expect(posted[1]).toContain("바깥 경로: 닫혀 있다.");
+    });
+
+    test("says closed once GitHub can be read again after closing every route", async () => {
+      await upAtA();
+      await sync(ON);
+      await rm(join(dir, "gh", "pulls.json"));
+      await sync(ON);
+      expect(await routes()).toEqual([]);
+      expect(await writes()).toHaveLength(1);
+
+      await pulls([{ number: 5, head: HEAD_A, labels: BOTH }]);
+      await sync({ ...ON, STUB_GATE: "200 " });
+      await sync({ ...ON, STUB_GATE: "200 " });
+      const posted = await writes();
+      expect(posted).toHaveLength(2);
+      expect(posted[1]).toContain("바깥 경로: 닫혀 있다.");
+    });
+
     for (const [name, setup] of [
       ["the list cannot be read", () => rm(join(dir, "gh", "pulls.json"))],
       ["the login cannot be read", () => rm(join(dir, "gh", "user.json"))],
@@ -1024,7 +1145,10 @@ esac
         { PREVIEW_PUBLIC_DOMAIN: "Public.Example.dev" },
         "PREVIEW_PUBLIC_DOMAIN",
       ],
-      [{ PREVIEW_PUBLIC_LABEL: "preview" }, "PREVIEW_PUBLIC_LABEL must not be"],
+      [
+        { ...ON, PREVIEW_PUBLIC_LABEL: "preview" },
+        "PREVIEW_PUBLIC_LABEL must not be",
+      ],
       [{ PREVIEW_PUBLIC_LABEL: "a b" }, "PREVIEW_PUBLIC_LABEL must be a label"],
     ] as const) {
       test(`refuses ${JSON.stringify(env)}`, async () => {
@@ -1034,5 +1158,17 @@ esac
         expect(await lines("preview-calls")).toEqual([]);
       });
     }
+
+    test("off: follows a PREVIEW_LABEL that is the outside label's default", async () => {
+      await pulls([{ number: 5, head: HEAD_A }]);
+      await events(5, [
+        { label: "preview-public", at: LABELED_1, by: "owner" },
+      ]);
+      const result = await sync({ PREVIEW_LABEL: "preview-public" });
+      expect(result.exitCode).toBe(0);
+      expect(await lines("preview-calls")).toEqual([
+        `up 5 ${HEAD_A} source=label reap_up_at=unset`,
+      ]);
+    });
   });
 });
