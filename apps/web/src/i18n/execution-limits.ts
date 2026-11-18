@@ -6,7 +6,7 @@ export const executionLimitsKo = {
   "limits.nav": "실행 한도",
   "limits.title": "실행 한도",
   "limits.description":
-    "이 설치의 모든 워크스페이스에 적용되는 실행 한도입니다. 전에는 control host의 환경 변수로 정하던 값입니다.",
+    "이 설치의 모든 워크스페이스에 적용되는 실행 한도입니다. 전에는 서버 환경 변수로 정하던 값입니다.",
   "limits.defaultApplies": "저장한 값이 없어 기본값({value})을 씁니다.",
   "limits.defaultIs": "기본값은 {value}입니다.",
   "limits.blocked":
@@ -41,9 +41,9 @@ export const executionLimitsKo = {
   "limits.turn.unit": "초",
   "limits.turn.value": "{value}초",
   "limits.turn.refused":
-    "새 worker를 띄우지 않습니다. 이미 값을 받은 worker는 그 값으로 계속 돕니다.",
+    "새 작업자를 띄우지 않습니다. 이미 값을 받은 작업자는 그 값으로 계속 돕니다.",
   "limits.turn.applies":
-    "저장하면 그 뒤에 띄우는 worker부터 적용됩니다. 쉬고 있는 worker는 바로 내리고, 턴을 돌고 있는 worker는 그 턴을 받을 때의 값으로 마친 뒤 내립니다. 세션은 다음에 worker를 받을 때 새 값을 씁니다.",
+    "저장하면 그 뒤에 띄우는 작업자부터 적용됩니다. 쉬고 있는 작업자는 바로 내리고, 턴을 돌고 있는 작업자는 그 턴을 받을 때의 값으로 마친 뒤 내립니다. 세션은 다음에 작업자를 받을 때 새 값을 씁니다.",
   "limits.turn.invalid": "1부터 {max}까지의 정수(초)를 적으세요.",
   "limits.turn.saved": "턴 시간 상한을 저장했습니다.",
   "limits.retries.title": "모델 요청 재시도",
@@ -54,9 +54,9 @@ export const executionLimitsKo = {
   "limits.retries.unit": "회",
   "limits.retries.value": "{value}회",
   "limits.retries.refused":
-    "새 worker를 띄우지 않습니다. 이미 값을 받은 worker는 그 값으로 계속 돕니다.",
+    "새 작업자를 띄우지 않습니다. 이미 값을 받은 작업자는 그 값으로 계속 돕니다.",
   "limits.retries.applies":
-    "저장하면 그 뒤에 띄우는 worker부터 적용됩니다. 쉬고 있는 worker는 바로 내리고, 턴을 돌고 있는 worker는 그 턴을 받을 때의 값으로 마친 뒤 내립니다. 세션은 다음에 worker를 받을 때 새 값을 씁니다.",
+    "저장하면 그 뒤에 띄우는 작업자부터 적용됩니다. 쉬고 있는 작업자는 바로 내리고, 턴을 돌고 있는 작업자는 그 턴을 받을 때의 값으로 마친 뒤 내립니다. 세션은 다음에 작업자를 받을 때 새 값을 씁니다.",
   "limits.retries.invalid": "0부터 {max}까지의 정수를 적으세요.",
   "limits.retries.saved": "재시도 횟수를 저장했습니다.",
   "limits.cost.title": "세션 비용",
@@ -69,7 +69,7 @@ export const executionLimitsKo = {
   "limits.cost.refused":
     "새 세션과 메시지를 받지 않고, 세션을 띄우지 않으며, 실행 중인 세션의 다음 모델 호출을 막습니다.",
   "limits.cost.applies":
-    "저장하면 10초 안에 적용됩니다. 내린 한도는 실행 중인 세션의 다음 모델 호출부터 막고, 올린 한도는 그 세션이 다음에 worker를 받을 때 닿습니다.",
+    "저장하면 10초 안에 적용됩니다. 내린 한도는 실행 중인 세션의 다음 모델 호출부터 막고, 올린 한도는 그 세션이 다음에 작업자를 받을 때 닿습니다.",
   "limits.cost.invalid": "0보다 크고 {max} 이하인 금액(USD)을 적으세요.",
   "limits.cost.saved": "세션 비용 한도를 저장했습니다.",
   "limits.tokens.title": "세션 토큰",
@@ -82,7 +82,7 @@ export const executionLimitsKo = {
   "limits.tokens.refused":
     "새 세션과 메시지를 받지 않고, 세션을 띄우지 않으며, 실행 중인 세션의 다음 모델 호출을 막습니다.",
   "limits.tokens.applies":
-    "저장하면 10초 안에 적용됩니다. 내린 한도는 실행 중인 세션의 다음 모델 호출부터 막고, 올린 한도는 그 세션이 다음에 worker를 받을 때 닿습니다.",
+    "저장하면 10초 안에 적용됩니다. 내린 한도는 실행 중인 세션의 다음 모델 호출부터 막고, 올린 한도는 그 세션이 다음에 작업자를 받을 때 닿습니다.",
   "limits.tokens.invalid":
     "0부터 {max}까지의 정수를 적으세요. 0이면 토큰 한도가 없습니다.",
   "limits.tokens.saved": "세션 토큰 한도를 저장했습니다.",
@@ -111,9 +111,9 @@ export const executionLimitsKo = {
   "limits.storage.saved": "입력 보관 한도를 저장했습니다.",
   "limits.stopped.title": "멈춘 세션의 작업 공간",
   "limits.stopped.hint":
-    "멈춘 세션의 작업 공간(Docker volume, Kubernetes PVC)을 남겨 두는 시간입니다.",
+    "멈춘 세션의 작업 공간(Docker 볼륨, Kubernetes PVC)을 남겨 두는 시간입니다.",
   "limits.stopped.detail":
-    "지나면 scheduler가 회수하고, 그 뒤 다시 시작하면 checkpoint에서 복원합니다. 0이면 다음 정리 때 바로 회수합니다.",
+    "지나면 작업 공간을 회수하고, 그 뒤 다시 시작하면 체크포인트에서 복원합니다. 0이면 다음 정리 때 바로 회수합니다.",
   "limits.stopped.label": "멈춘 뒤 남겨 두는 시간 (초)",
   "limits.stopped.unit": "초",
   "limits.stopped.value": "{value}초",
@@ -127,7 +127,7 @@ export const executionLimitsKo = {
   "limits.paused.hint":
     "일시정지한 세션의 작업 공간을 일시정지한 때부터 남겨 두는 시간입니다.",
   "limits.paused.detail":
-    "복원할 checkpoint가 있는 세션만 지나면 회수하고, 다시 시작하면 그 checkpoint에서 복원합니다. 0이면 다음 정리 때 바로 회수합니다.",
+    "복원할 체크포인트가 있는 세션만 지나면 회수하고, 다시 시작하면 그 체크포인트에서 복원합니다. 0이면 다음 정리 때 바로 회수합니다.",
   "limits.paused.label": "일시정지한 뒤 남겨 두는 시간 (초)",
   "limits.paused.unit": "초",
   "limits.paused.value": "{value}초",
@@ -139,7 +139,7 @@ export const executionLimitsKo = {
   "limits.paused.saved":
     "일시정지한 세션의 작업 공간 보존 시간을 저장했습니다.",
   "limits.enforce.title": "작업 공간 용량",
-  "limits.enforce.hint": "worker의 작업 공간이 용량을 넘었을 때 할 일입니다.",
+  "limits.enforce.hint": "작업자의 작업 공간이 용량을 넘었을 때 할 일입니다.",
   "limits.enforce.label": "용량을 넘으면",
   "limits.enforce.warn": "기록만 남김",
   "limits.enforce.fail": "턴을 멈춤",
@@ -147,15 +147,15 @@ export const executionLimitsKo = {
   "limits.enforce.options":
     "기록만 남김: 넘은 것을 로그에 남기고 턴은 계속합니다. 턴을 멈춤: 넘은 턴을 멈춥니다. 재지 않음: 용량을 보지 않습니다.",
   "limits.enforce.refused":
-    "worker가 세션을 받지 않아 세션이 시작되지 않습니다.",
+    "작업자가 세션을 받지 않아 세션이 시작되지 않습니다.",
   "limits.enforce.applies":
-    "저장하면 그 뒤에 세션을 받는 worker부터 적용됩니다. 이미 돌고 있는 worker는 받을 때의 값을 씁니다.",
+    "저장하면 그 뒤에 세션을 받는 작업자부터 적용됩니다. 이미 돌고 있는 작업자는 받을 때의 값을 씁니다.",
   "limits.enforce.saved": "작업 공간 용량 설정을 저장했습니다.",
   "limits.archive.title": "세션 기록 보관",
   "limits.archive.hint":
-    "오래 쉰 세션의 이벤트를 데이터베이스에서 object store의 보관 object로 옮깁니다.",
+    "오래 쉰 세션의 이벤트를 데이터베이스에서 오브젝트 스토리지로 옮겨 보관합니다.",
   "limits.archive.detail":
-    "옮긴 이벤트는 운영자가 restore 명령으로 되돌립니다. 보관 작업은 운영자가 정한 일정(기본 매주)에 돌고, 작업을 끈 설치에서는 이 값을 쓰지 않습니다.",
+    "옮긴 이벤트는 운영자가 복원 명령으로 되돌립니다. 보관 작업은 운영자가 정한 일정(기본 매주)에 돌고, 작업을 끈 설치에서는 이 값을 쓰지 않습니다.",
   "limits.archive.daysLabel": "보관까지 쉰 기간 (일)",
   "limits.archive.daysUnit": "일",
   "limits.archive.daysValue": "{value}일",
@@ -166,14 +166,14 @@ export const executionLimitsKo = {
   "limits.archive.count": "세기만 함",
   "limits.archive.move": "실제로 옮김",
   "limits.archive.options":
-    "세기만 함: 옮길 세션·이벤트·바이트 수만 로그에 남기고 아무것도 바꾸지 않습니다. 실제로 옮김: 이벤트를 보관 object로 옮기고 데이터베이스에서 지웁니다.",
+    "세기만 함: 옮길 세션·이벤트·바이트 수만 로그에 남기고 아무것도 바꾸지 않습니다. 실제로 옮김: 이벤트를 오브젝트 스토리지로 옮기고 데이터베이스에서 지웁니다.",
   "limits.archive.refused": "보관 작업이 아무것도 옮기지 않고 실패로 끝납니다.",
   "limits.archive.applies": "저장하면 다음 보관 실행부터 적용됩니다.",
   "limits.archive.saved": "세션 기록 보관 설정을 저장했습니다.",
   "limits.archive.unavailable.object_store_disabled":
-    "API의 object store 설정으로 보면 이 설치는 세션 기록을 보관하지 않습니다. object store가 꺼져 있습니다(CHECKPOINT_OBJECT_STORE=disabled). 값은 저장해 둘 수 있고, 보관할 수 있게 된 뒤의 실행부터 씁니다.",
+    "API의 오브젝트 스토리지 설정으로 보면 이 설치는 세션 기록을 보관하지 않습니다. 오브젝트 스토리지가 꺼져 있습니다(CHECKPOINT_OBJECT_STORE=disabled). 값은 저장해 둘 수 있고, 보관할 수 있게 된 뒤의 실행부터 씁니다.",
   "limits.archive.unavailable.unversioned":
-    "API의 object store 설정으로 보면 이 설치는 세션 기록을 보관하지 않습니다. object store가 버전을 잠그지 않아 옮긴 기록을 지켜 둘 수 없습니다(CHECKPOINT_OBJECT_PROTECTION=unversioned). 값은 저장해 둘 수 있고, 보관할 수 있게 된 뒤의 실행부터 씁니다.",
+    "API의 오브젝트 스토리지 설정으로 보면 이 설치는 세션 기록을 보관하지 않습니다. 오브젝트 스토리지가 버전을 잠그지 않아 옮긴 기록을 지켜 둘 수 없습니다(CHECKPOINT_OBJECT_PROTECTION=unversioned). 값은 저장해 둘 수 있고, 보관할 수 있게 된 뒤의 실행부터 씁니다.",
 };
 
 export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
@@ -181,7 +181,7 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
     "limits.nav": "Execution limits",
     "limits.title": "Execution limits",
     "limits.description":
-      "Limits for every workspace of this installation, once environment variables of the control host.",
+      "These limits apply to every workspace of this installation. They used to be set with server environment variables.",
     "limits.defaultApplies":
       "Nothing is saved, so the default of {value} applies.",
     "limits.defaultIs": "The default is {value}.",
