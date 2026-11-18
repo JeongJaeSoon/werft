@@ -836,6 +836,38 @@ describe("the session's GitHub pull requests", () => {
     expect(within(refusals).getAllByRole("listitem")).toHaveLength(1);
   });
 
+  test("a session read with no refusals shows the section's failure when a later read fails, without the stale sentence, and drops it once a read answers", async () => {
+    let failing = false;
+    const { services } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...pulled([], noFiles),
+      [`GET /v1/sessions/${SESSION_ID}/github/refusals`]: () =>
+        failing ? apiError(500, "INTERNAL", "boom") : json(200, { items: [] }),
+    });
+    await openOutputs();
+    const read = () =>
+      services.queryClient.getQueryCache().findAll({
+        predicate: (query) => query.queryKey.includes("github-refusals"),
+      })[0];
+    await waitFor(() => expect(read()?.state.data === undefined).toBe(false));
+    expect(
+      screen.queryByRole("region", { name: "최근 GitHub 거절" }) === null,
+    ).toBe(true);
+    failing = true;
+    await failAgain(services, "github-refusals");
+    const refusals = screen.getByRole("region", { name: "최근 GitHub 거절" });
+    const alert = within(refusals).getByRole("alert");
+    expect(alert.textContent).toContain("불러오지 못했습니다");
+    expect(alert.textContent?.includes(STALE)).toBe(false);
+    expect(within(refusals).queryAllByRole("listitem")).toHaveLength(0);
+    failing = false;
+    act(() => {
+      void services.queryClient.refetchQueries({
+        predicate: (query) => query.queryKey.includes("github-refusals"),
+      });
+    });
+    await waitFor(() => expect(refusals.isConnected).toBe(false));
+  });
+
   test("recent GitHub refusals name the reason, the work and when", async () => {
     renderAt(
       `/sessions/${SESSION_ID}`,
