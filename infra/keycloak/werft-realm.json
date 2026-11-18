@@ -63,6 +63,36 @@
           "temporary": false
         }
       ]
+    },
+    {
+      "username": "ivy",
+      "email": "ivy@acme.example",
+      "emailVerified": true,
+      "firstName": "Ivy",
+      "lastName": "Invited",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_WERFT_USER_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "oz",
+      "email": "oz@other.example",
+      "emailVerified": true,
+      "firstName": "Oz",
+      "lastName": "Outside",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_WERFT_USER_PASSWORD}",
+          "temporary": false
+        }
+      ]
     }
   ]
 }
