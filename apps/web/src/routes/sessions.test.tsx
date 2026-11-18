@@ -3945,6 +3945,79 @@ describe("세션 공유 범위", () => {
     expect((meta.textContent ?? "").includes("공유 범위")).toBe(false);
   });
 
+  test("받은 값이 있는 채 실패했을 때도 다시 시도를 두 번 누르면 한 번 읽는다", async () => {
+    const user = await setupUser();
+    let answer: (response: Response) => void = () => {};
+    let reads = 0;
+    const { history } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [SHARE_ROUTE]: () => {
+        reads += 1;
+        if (reads === 1) return json(200, share({ scope: "private" }));
+        if (reads === 2) return apiError(503, "BACKEND_UNAVAILABLE", "down");
+        return new Promise<Response>((resolve) => {
+          answer = resolve;
+        });
+      },
+      ...otherRoutes(() => json(200, share({ session_id: OTHER_ID }))),
+    });
+    await within(await sessionMeta()).findByText(/세션을 가진 사람만/);
+    act(() => history.push(`/sessions/${OTHER_ID}`));
+    await screen.findByRole("heading", {
+      name: new RegExp(`^${OTHER_ID.slice(0, 8)}`),
+    });
+    act(() => history.push(`/sessions/${SESSION_ID}`));
+    const meta = await sessionMeta();
+    const retry = await within(meta).findByRole("button", {
+      name: "다시 시도",
+    });
+    await user.click(retry);
+    await user.click(retry);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(reads).toBe(3);
+    expect(document.activeElement === retry).toBe(true);
+    act(() => answer(json(200, share({ scope: "private" }))));
+    expect(await within(meta).findByText(/세션을 가진 사람만/)).toBeTruthy();
+  });
+
+  test("돌아와 다시 읽는 동안 다른 세션의 실패를 이 세션의 자리에 보이지 않는다", async () => {
+    // This session's own failure draws nothing (404); the other session's
+    // draws the alert, so whose failure shows can be told apart.
+    let answer: (response: Response) => void = () => {};
+    let reads = 0;
+    const { history } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [SHARE_ROUTE]: () =>
+        ++reads === 1
+          ? apiError(404, "NOT_FOUND", "no")
+          : new Promise<Response>((resolve) => {
+              answer = resolve;
+            }),
+      ...otherRoutes(() => apiError(503, "BACKEND_UNAVAILABLE", "down")),
+    });
+    await sessionMeta();
+    await waitFor(() => expect(reads).toBe(1));
+    act(() => history.push(`/sessions/${OTHER_ID}`));
+    await screen.findByRole("heading", {
+      name: new RegExp(`^${OTHER_ID.slice(0, 8)}`),
+    });
+    await within(await sessionMeta()).findByRole("alert");
+    act(() => history.push(`/sessions/${SESSION_ID}`));
+    await screen.findByRole("heading", {
+      name: new RegExp(`^${SESSION_ID.slice(0, 8)}`),
+    });
+    await waitFor(() => expect(reads).toBe(2));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // While it reads again, its own earlier failure is forgotten too.
+    expect(within(await sessionMeta()).queryByRole("alert") === null).toBe(
+      true,
+    );
+    act(() => answer(json(200, share({ scope: "private" }))));
+    expect(
+      await within(await sessionMeta()).findByText(/세션을 가진 사람만/),
+    ).toBeTruthy();
+  });
+
   test("다른 세션의 실패가 옮긴 세션에 남지 않는다", async () => {
     const { history } = renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,

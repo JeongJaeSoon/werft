@@ -310,7 +310,8 @@ export function SessionDetail({
           usage={usage.data}
           share={share.data}
           shareFailure={shareFailure}
-          retryShare={() => void share.refetch()}
+          // A second press joins the read already going, data or not.
+          retryShare={() => void share.refetch({ cancelRefetch: false })}
         />
         {usage.error
           ? renderError(usage.error, () => void usage.refetch())
