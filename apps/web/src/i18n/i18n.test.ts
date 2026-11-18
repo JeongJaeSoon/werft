@@ -265,7 +265,7 @@ describe("i18n", () => {
     }
   });
 
-  test("release changes and the session's release are written in every locale", () => {
+  test("release changes are written in every locale", () => {
     const keys = [
       "agent.releases.changesFirst",
       "agent.releases.changesNone",

@@ -4099,8 +4099,39 @@ describe("세션의 릴리스", () => {
       );
       // The release sits outside the link, whose name stays the agent's.
       expect(link.textContent).toBe("Release helper");
+      // Every part on the meta line's size, line and grey, not the body's.
+      const parts = [...piece.querySelectorAll("[data-slot=text]")];
+      expect(parts.map((part) => part.getAttribute("data-variant"))).toEqual(
+        parts.map(() => "meta"),
+      );
+      const shown = parts.filter((part) => !part.matches(".sr-only"));
+      expect(
+        shown.map((part) => part.classList.contains("text-muted-foreground")),
+      ).toEqual(shown.map(() => true));
     },
   );
+
+  test("에이전트를 열 수 없는 사람에게도 이름 글 뒤에 릴리스를 보인다", async () => {
+    let asked = 0;
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...withSession({ agent: { ...AGENT, release_is_active: false } }),
+      [`GET /v1/agents/${AGENT_ID}`]: () => {
+        asked += 1;
+        return apiError(403, "FORBIDDEN", "may not read");
+      },
+    });
+    const meta = await sessionMeta();
+    await waitFor(() => expect(asked).toBe(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(
+      within(meta).queryByRole("link", { name: /Release helper/ }) === null,
+    ).toBe(true);
+    // The name is plain text, so its own element is the agent piece.
+    const piece = within(meta).getByText("Release helper");
+    expect(piece.textContent).toBe(
+      "에이전트: Release helper· 이 세션이 쓰는 릴리스: 2026-10-30_14:30:28-2 · 활성 릴리스 아님",
+    );
+  });
 
   test("라벨도 버전도 없으면 릴리스를 그리지 않는다", async () => {
     // A server answering outside the contract; production only warns.

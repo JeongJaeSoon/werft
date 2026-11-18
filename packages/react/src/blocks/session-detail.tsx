@@ -634,6 +634,8 @@ function AgentName({ session }: { readonly session: SessionDetailData }) {
   });
 }
 
+const MUTED = "text-muted-foreground";
+
 /**
  * The release the session is pinned to, outside the agent's link. Not the
  * agent's active release only when the server says so; an older server's
@@ -659,18 +661,24 @@ function AgentRelease({
       variant="meta"
       className="min-w-0 text-muted-foreground [overflow-wrap:anywhere]"
     >
-      <Text as="span" aria-hidden="true">
+      {/* Every part on the meta line's own size, line and grey. */}
+      <Text as="span" variant="meta" className={MUTED} aria-hidden="true">
         {"· "}
       </Text>
-      <Text as="span" className="sr-only">
+      <Text as="span" variant="meta" className="sr-only">
         {t("session.release.title")}:{" "}
       </Text>
-      <Text as="span" mono>
+      <Text as="span" variant="meta" className={MUTED} mono>
         {name}
       </Text>
-      {agent.release_is_active === false
-        ? ` · ${t("session.release.notActive")}`
-        : null}
+      {agent.release_is_active === false ? (
+        <>
+          <Text as="span" variant="meta" className={MUTED} aria-hidden="true">
+            {" · "}
+          </Text>
+          {t("session.release.notActive")}
+        </>
+      ) : null}
     </Text>
   );
 }
