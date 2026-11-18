@@ -12,6 +12,7 @@ import {
   surfaceBindings,
   users,
 } from "./schema.ts";
+import { notDeleted } from "./soft-delete.ts";
 import { usageOf as usageDecisionOf } from "./usage/agent-usage.ts";
 
 export function createDatabaseAgentAuthority(db: Database): AgentAuthority {
@@ -29,7 +30,7 @@ export function createDatabaseAgentAuthority(db: Database): AgentAuthority {
             and(
               eq(agents.id, id),
               eq(agents.workspaceId, workspaceId),
-              isNull(agents.deletedAt),
+              notDeleted(agents),
             ),
           )
           .limit(1);

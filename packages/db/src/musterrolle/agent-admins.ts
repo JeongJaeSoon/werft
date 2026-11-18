@@ -21,6 +21,7 @@ import {
   receipts,
   users,
 } from "../schema.ts";
+import { notDeleted } from "../soft-delete.ts";
 import { administers, liveMember } from "./administers.ts";
 
 /**
@@ -332,7 +333,7 @@ async function actorMayManage(
       and(
         eq(agents.workspaceId, actor.workspaceId),
         eq(agents.id, agentId),
-        isNull(agents.deletedAt),
+        notDeleted(agents),
       ),
     )
     .for("no key update");
@@ -489,7 +490,7 @@ export function createPostgresAgentAdminStore(db: Database): AgentAdminStore {
         .where(
           and(
             eq(agents.workspaceId, workspaceId),
-            isNull(agents.deletedAt),
+            notDeleted(agents),
             administers(db, workspaceId, userId.toLowerCase(), agents.id),
             liveMember(db, workspaceId, userId.toLowerCase()),
           ),

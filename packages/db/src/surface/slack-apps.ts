@@ -14,16 +14,7 @@ import {
   type SlackAppStore,
   secretOwnerRef,
 } from "@werft-ai/platform";
-import {
-  and,
-  desc,
-  eq,
-  inArray,
-  isNotNull,
-  isNull,
-  ne,
-  sql,
-} from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import { UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import { holdsRight, lockedRole } from "../musterrolle/index.ts";
@@ -43,6 +34,7 @@ import {
   secretSummaryKey,
   writeSecretInTx,
 } from "../secrets/index.ts";
+import { notDeleted } from "../soft-delete.ts";
 
 type Row = typeof slackApps.$inferSelect;
 
@@ -224,7 +216,7 @@ async function appAgentLive(
       and(
         eq(agents.id, app.agentId),
         eq(agents.workspaceId, workspaceId),
-        isNull(agents.deletedAt),
+        notDeleted(agents),
       ),
     )
     .for("key share");

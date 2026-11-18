@@ -30,6 +30,7 @@ import {
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import { agents, apiKeys, memberships, receipts, users } from "../schema.ts";
+import { notDeleted } from "../soft-delete.ts";
 import { administers } from "./administers.ts";
 import { lockedAdministers } from "./agent-admins.ts";
 
@@ -220,7 +221,7 @@ export function createPostgresWorkspaceKeyStore(
               and(
                 eq(agents.id, input.agentId),
                 eq(agents.workspaceId, input.workspaceId),
-                isNull(agents.deletedAt),
+                notDeleted(agents),
               ),
             )
             .limit(1)

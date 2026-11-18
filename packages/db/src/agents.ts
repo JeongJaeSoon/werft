@@ -72,6 +72,7 @@ import {
   receipts,
   surfaceBindings,
 } from "./schema.ts";
+import { notDeleted } from "./soft-delete.ts";
 import { destroyAgentSlackAppSecrets } from "./surface/slack-apps.ts";
 
 type AgentRow = typeof agents.$inferSelect;
@@ -241,7 +242,7 @@ async function detailOf(
       and(
         eq(agents.id, agentId),
         eq(agents.workspaceId, workspaceId),
-        isNull(agents.deletedAt),
+        notDeleted(agents),
       ),
     )
     .limit(1);
@@ -362,7 +363,7 @@ async function lockAgent(tx: Database, workspaceId: string, agentId: string) {
       and(
         eq(agents.id, agentId),
         eq(agents.workspaceId, workspaceId),
-        isNull(agents.deletedAt),
+        notDeleted(agents),
       ),
     )
     .limit(1)
@@ -461,7 +462,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         .where(
           and(
             eq(agents.workspaceId, workspaceId),
-            isNull(agents.deletedAt),
+            notDeleted(agents),
             visibleTo(db, workspaceId, reader.userId.toLowerCase()),
             query.q === undefined
               ? undefined
@@ -564,7 +565,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         .where(
           and(
             eq(agents.workspaceId, workspaceId),
-            isNull(agents.deletedAt),
+            notDeleted(agents),
             visibleTo(db, workspaceId, person),
           ),
         );
@@ -651,7 +652,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           })
           .onConflictDoNothing({
             target: [agents.workspaceId, agents.slug],
-            where: isNull(agents.deletedAt),
+            where: notDeleted(agents),
           })
           .returning({ id: agents.id });
         if (inserted.length === 0) return { outcome: "slug_taken" };
