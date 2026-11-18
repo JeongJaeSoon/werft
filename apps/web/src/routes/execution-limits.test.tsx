@@ -239,6 +239,19 @@ describe("설정 › 실행 한도의 세션 한도", () => {
     );
   });
 
+  test("입력 보관은 세는 것, 곧 입력 메시지만 말한다", async () => {
+    renderAt(
+      PAGE,
+      routes(() => DEFAULTS),
+    );
+    const area = await sectionOf("입력 보관");
+    expect(area.textContent).toContain(
+      "이 설치 전체에 보관하는 입력 메시지의 합입니다.",
+    );
+    // The charge is octet_length(message) per turn; nothing else is counted.
+    expect(area.textContent).not.toContain("첨부");
+  });
+
   test("막힌 키만 그 변수 이름과 멈추는 일을 알리고, 다른 칸은 그대로 둔다", async () => {
     renderAt(
       PAGE,

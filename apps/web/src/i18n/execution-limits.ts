@@ -99,8 +99,7 @@ export const executionLimitsKo = {
   "limits.queue.invalid": "1부터 {max}까지의 정수를 적으세요.",
   "limits.queue.saved": "대기 메시지 수를 저장했습니다.",
   "limits.storage.title": "입력 보관",
-  "limits.storage.hint":
-    "이 설치 전체에 보관하는 입력(메시지와 첨부)의 합입니다.",
+  "limits.storage.hint": "이 설치 전체에 보관하는 입력 메시지의 합입니다.",
   "limits.storage.detail": "넘으면 새 메시지를 받지 않습니다.",
   "limits.storage.label": "입력 보관 한도 (바이트)",
   "limits.storage.unit": "바이트",
@@ -278,8 +277,7 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
     "limits.queue.invalid": "Enter a whole number from 1 to {max}.",
     "limits.queue.saved": "Saved the waiting messages limit.",
     "limits.storage.title": "Kept input",
-    "limits.storage.hint":
-      "All the input (messages and attachments) this installation keeps.",
+    "limits.storage.hint": "All the input messages this installation keeps.",
     "limits.storage.detail": "Past that, no new message is taken.",
     "limits.storage.label": "Kept input limit (bytes)",
     "limits.storage.unit": "bytes",
@@ -458,7 +456,7 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
     "limits.queue.saved": "待機メッセージ数を保存しました。",
     "limits.storage.title": "入力の保管",
     "limits.storage.hint":
-      "このインストール全体で保管する入力 (メッセージと添付) の合計です。",
+      "このインストール全体で保管する入力メッセージの合計です。",
     "limits.storage.detail": "超えると新しいメッセージを受け付けません。",
     "limits.storage.label": "入力の保管上限 (バイト)",
     "limits.storage.unit": "バイト",
