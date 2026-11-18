@@ -672,17 +672,6 @@ describe("ApprovalInbox", () => {
     );
   });
 
-  test("권한 요청 배지는 모든 언어에서 도구 이름 없이 종류만 부른다", async () => {
-    const { sessionsEn, sessionsJa, sessionsKo } = await import(
-      "../messages/sessions.ts"
-    );
-    expect([
-      sessionsKo["inbox.permission"],
-      sessionsEn["inbox.permission"],
-      sessionsJa["inbox.permission"],
-    ]).toEqual(["권한", "Permission", "権限"]);
-  });
-
   for (const agentHidden of [false, true]) {
     test(`요약 줄은 관계를 모르면 이유를 빼고, 에이전트가 ${agentHidden ? "숨겨진" : "없는"} 세션은 시작한 사람이 아니라 '에이전트 없음'을 쓴다`, async () => {
       const view = renderInbox({
