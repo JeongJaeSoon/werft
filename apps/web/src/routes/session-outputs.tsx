@@ -373,7 +373,25 @@ function SessionGitHubRefusals({
   const { t, locale } = useI18n();
   const refusals = useSessionGitHubRefusals(session);
   const items = refusals.data?.items ?? [];
-  if (!hasRepository(session) || items.length === 0) return null;
+  if (!hasRepository(session)) return null;
+  // A list never read is not an empty one. A later read that fails keeps
+  // the refusals already shown; a session gone from view is the detail
+  // screen's to report.
+  if (
+    refusals.error &&
+    !refusals.data &&
+    !isApiError(refusals.error, "NOT_FOUND")
+  ) {
+    return (
+      <Section className="min-w-0" title={t("session.refusals.title")}>
+        <LoadFailure
+          error={refusals.error}
+          onRetry={() => void refusals.refetch()}
+        />
+      </Section>
+    );
+  }
+  if (items.length === 0) return null;
   return (
     <Section className="min-w-0" title={t("session.refusals.title")}>
       <CompactList>

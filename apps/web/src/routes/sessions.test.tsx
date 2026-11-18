@@ -3560,6 +3560,31 @@ describe("세션 상세 레이아웃", () => {
     );
   });
 
+  test("GitHub 거절 목록을 읽지 못하면 그 절에 실패와 다시 시도를 보이고, 다시 읽으면 거절이 보인다", async () => {
+    const user = await setupUser();
+    let reads = 0;
+    renderAt(`/sessions/${SESSION_ID}?tab=outputs`, {
+      ...detailRoutes,
+      ...outputsRoutes(SESSION_ID, 0, 0),
+      [`GET /v1/sessions/${SESSION_ID}/github/refusals`]: () =>
+        ++reads === 1
+          ? apiError(503, "BACKEND_UNAVAILABLE", "down")
+          : json(200, { items: [refusal(0)] }),
+    });
+    const section = await screen.findByRole("region", {
+      name: "최근 GitHub 거절",
+    });
+    // Not the same as an empty list: the reader is told it was not read.
+    const retry = await within(section).findByRole("button", {
+      name: "다시 시도",
+    });
+    await user.click(retry);
+    expect(await within(section).findByText("GitHub 사용 꺼짐")).toBeTruthy();
+    expect(within(section).queryByRole("button", { name: "다시 시도" })).toBe(
+      null,
+    );
+  });
+
   test("성과물이 하나도 없는 세션은 성과물 탭에 개수 0과 빈 상태 문장을 보인다", async () => {
     renderAt(`/sessions/${SESSION_ID}?tab=outputs`, {
       ...detailRoutes,
