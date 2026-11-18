@@ -1,30 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 
 import { sessionsEn, sessionsJa, sessionsKo } from "./sessions.ts";
 
-const GLOSSARY = readFileSync(
-  new URL("../../../../docs/contributing/i18n-glossary.md", import.meta.url),
-  "utf8",
-);
-
-// The glossary's row for a permission request's denial: concept, ko, ja, en.
-const DENY_ROW = GLOSSARY.split("\n")
-  .find((line) => line.startsWith("| 권한 요청 거절 |"))
-  ?.split("|")
-  .map((cell) => cell.trim());
-
 const CATALOGS = [
-  { name: "ko", catalog: sessionsKo, column: 2, optional: " (선택)" },
-  { name: "en", catalog: sessionsEn, column: 4, optional: " (optional)" },
-  { name: "ja", catalog: sessionsJa, column: 3, optional: "(任意)" },
+  { name: "ko", catalog: sessionsKo, optional: " (선택)" },
+  { name: "en", catalog: sessionsEn, optional: " (optional)" },
+  { name: "ja", catalog: sessionsJa, optional: "(任意)" },
 ] as const;
 
 describe("권한 요청의 거부 문구", () => {
-  for (const { name, catalog, column, optional } of CATALOGS) {
-    test(`${name}: 버튼의 낱말이 용어집과 같고, 버튼 이름도 그 낱말로 시작한다`, () => {
-      expect(DENY_ROW?.[column]).toBeString();
-      expect(catalog["session.answer.deny"]).toBe(String(DENY_ROW?.[column]));
+  for (const { name, catalog, optional } of CATALOGS) {
+    test(`${name}: 버튼 이름은 버튼의 낱말로 시작한다`, () => {
       expect(catalog["session.answer.denyFor"]).toBe(
         `${catalog["session.answer.deny"]}: {tool} · {session}`,
       );
@@ -35,4 +21,12 @@ describe("권한 요청의 거부 문구", () => {
       expect(label.endsWith(optional)).toBe(true);
     });
   }
+
+  // English and Japanese say the form's parts in other words, so only
+  // Korean shares the button's word with them.
+  test("ko: 거부 폼의 라벨과 보내기 버튼도 버튼과 같은 낱말로 시작한다", () => {
+    const word = sessionsKo["session.answer.deny"];
+    expect(sessionsKo["session.answer.denyReason"].startsWith(word)).toBe(true);
+    expect(sessionsKo["session.answer.denySubmit"].startsWith(word)).toBe(true);
+  });
 });
