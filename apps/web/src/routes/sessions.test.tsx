@@ -3481,6 +3481,28 @@ describe("세션 상세 레이아웃", () => {
     ).toBe("failed");
   });
 
+  test("GitHub 거절 목록 자체를 읽지 못하면 탭은 거절을 말하지 않는다", async () => {
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      ...outputsRoutes(SESSION_ID, 1, 0),
+      [`GET /v1/sessions/${SESSION_ID}/github/refusals`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "down"),
+    });
+    await waitFor(() =>
+      expect(
+        api.calls.some(
+          (call) => call.path === `/v1/sessions/${SESSION_ID}/github/refusals`,
+        ),
+      ).toBe(true),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Not known to be refused, so neither a dot nor a count.
+    const tab = outputsTab();
+    expect(tab.querySelector("[data-slot=status-dot]")).toBeNull();
+    expect(tab.querySelector("[data-slot=item-count]")).toBeNull();
+    expect(screen.getByRole("tab", { name: "성과물" }) === tab).toBe(true);
+  });
+
   test("늦던 목록이 답해 개수가 돌아오면 거절 점은 빨간 개수 배지로 바뀌고 둘이 함께 보이지 않는다", async () => {
     let answer: (response: Response) => void = () => {};
     renderAt(`/sessions/${SESSION_ID}`, {
