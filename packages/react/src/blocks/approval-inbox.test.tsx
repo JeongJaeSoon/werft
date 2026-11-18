@@ -509,7 +509,12 @@ describe("ApprovalInbox", () => {
       name: `Allow: Bash · ${SHORT}`,
     });
     await user.click(allow);
-    await waitFor(() => expect(allow.hasAttribute("disabled")).toBe(true));
+    // Off but not `disabled`, which would take the keyboard's focus away.
+    await waitFor(() =>
+      expect(allow.getAttribute("aria-disabled")).toBe("true"),
+    );
+    expect(allow.hasAttribute("disabled")).toBe(false);
+    expect(document.activeElement === allow).toBe(true);
     expect(allow.querySelector("[data-slot='busy']")).not.toBeNull();
     expect(allow.closest("[aria-busy='true']")).not.toBeNull();
     await user.click(allow);

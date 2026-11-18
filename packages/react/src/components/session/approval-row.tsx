@@ -194,20 +194,28 @@ export function ApprovalRow({
         )}
         {expired || denial.denying ? null : (
           <div className="flex shrink-0 gap-2">
+            {/* While sending, not `disabled`: Chrome takes focus off a
+                disabled button, and the keyboard would lose its place. */}
             <RowAction
               variant="default"
-              disabled={blocked}
+              disabled={blocked && !pending}
+              aria-disabled={pending || undefined}
               aria-label={messages.allowName(request.tool)}
-              onClick={() => onAllow()}
+              onClick={() => {
+                if (!blocked) onAllow();
+              }}
             >
               <Busy shown={pending} />
               {messages.allow}
             </RowAction>
             <RowAction
               ref={denial.denyRef}
-              disabled={blocked}
+              disabled={blocked && !pending}
+              aria-disabled={pending || undefined}
               aria-label={messages.denyName(request.tool)}
-              onClick={denial.open}
+              onClick={() => {
+                if (!blocked) denial.open();
+              }}
             >
               {messages.deny}
             </RowAction>

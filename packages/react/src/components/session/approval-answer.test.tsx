@@ -115,6 +115,16 @@ for (const surface of SURFACES) {
       expect(onDeny.mock.calls).toEqual([["not this file"]]);
     });
 
+    test("공백만 적으면 이유 없이 보낸다", async () => {
+      const user = await setupUser();
+      const onDeny = mock((_reason: string) => {});
+      const view = render(surface.draw(props({ onDeny })));
+      await user.click(view.getByRole("button", { name: surface.deny }));
+      await user.keyboard("   ");
+      await user.click(view.getByRole("button", { name: "Send denial" }));
+      expect(onDeny.mock.calls).toEqual([[""]]);
+    });
+
     test("취소하면 폼이 닫히고 초점이 거절 버튼으로 돌아간다", async () => {
       const user = await setupUser();
       const onDeny = mock((_reason: string) => {});
@@ -140,7 +150,7 @@ for (const surface of SURFACES) {
       await user.click(view.getByRole("button", { name: surface.deny }));
       view.rerender(surface.draw(props({ onAllow, onDeny, pending: true })));
       const submit = view.getByRole("button", { name: "Send denial" });
-      expect((submit as HTMLButtonElement).disabled).toBe(true);
+      expect(submit.getAttribute("aria-disabled")).toBe("true");
       await user.click(submit);
       expect(onDeny).not.toHaveBeenCalled();
       // Queries read the whole document: the next draw stands alone.
@@ -151,32 +161,55 @@ for (const surface of SURFACES) {
       );
       for (const name of [surface.allow, surface.deny]) {
         const button = sending.getByRole("button", { name });
-        expect((button as HTMLButtonElement).disabled).toBe(true);
+        expect(button.getAttribute("aria-disabled")).toBe("true");
         await user.click(button);
       }
       expect(onAllow).not.toHaveBeenCalled();
       expect(sending.queryByRole("textbox")).toBeNull();
     });
 
+    test("보내는 동안 초점이 누른 버튼에 남는다", async () => {
+      const user = await setupUser();
+      const view = render(surface.draw(props()));
+      const allow = view.getByRole("button", { name: surface.allow });
+      allow.focus();
+      await user.keyboard("{Enter}");
+      // As the block draws the request on its way: pending, and the rest off.
+      view.rerender(surface.draw(props({ pending: true, disabled: true })));
+      // This DOM keeps focus on a disabled button where Chrome drops it, so
+      // the button must also not be disabled.
+      expect((allow as HTMLButtonElement).disabled).toBe(false);
+      expect(document.activeElement === allow).toBe(true);
+      view.unmount();
+
+      const denying = render(surface.draw(props()));
+      await user.click(denying.getByRole("button", { name: surface.deny }));
+      const submit = denying.getByRole("button", { name: "Send denial" });
+      submit.focus();
+      await user.keyboard("{Enter}");
+      denying.rerender(surface.draw(props({ pending: true, disabled: true })));
+      expect((submit as HTMLButtonElement).disabled).toBe(false);
+      expect(document.activeElement === submit).toBe(true);
+      // Text typed while the denial is on its way would be dropped.
+      expect(
+        (
+          denying.getByRole("textbox", {
+            name: "Reason",
+          }) as HTMLTextAreaElement
+        ).readOnly,
+      ).toBe(true);
+    });
+
     test("펼친 채 만료되면 폼이 사라지고 초점이 만료 안내로 간다", async () => {
       const user = await setupUser();
-      const now = Date.now();
-      const view = render(
-        surface.draw(
-          props({
-            request: {
-              ...REQUEST,
-              expires_at: new Date(now + 300).toISOString(),
-            },
-            now,
-          }),
-        ),
-      );
+      const view = render(surface.draw(props()));
       await user.click(view.getByRole("button", { name: surface.deny }));
       expect(view.getByRole("textbox", { name: "Reason" })).toBeTruthy();
-      // The expiry timer's render did not reach waitFor's checks here, so
-      // the test waits past the expiry on the clock and then looks.
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      // The screen's clock at the expiry lapses the request at once, so the
+      // test needs no real time; the timer path has its own tests.
+      view.rerender(
+        surface.draw(props({ now: Date.parse(REQUEST.expires_at) })),
+      );
       expect(view.container.querySelector("textarea")).toBeNull();
       expect(document.activeElement === view.getByText("expired")).toBe(true);
     });

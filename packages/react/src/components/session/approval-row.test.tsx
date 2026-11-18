@@ -225,8 +225,8 @@ describe("ApprovalRow", () => {
       />,
     );
     expect(
-      (getByRole("button", { name: ALLOW }) as HTMLButtonElement).disabled,
-    ).toBe(true);
+      getByRole("button", { name: ALLOW }).getAttribute("aria-disabled"),
+    ).toBe("true");
     expect(getByRole("article").getAttribute("aria-busy")).toBe("true");
     expect(getByRole("alert").textContent).toBe("request expired");
     rerender(

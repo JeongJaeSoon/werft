@@ -89,11 +89,19 @@ export function DenialForm({
           ref={denial.reasonRef}
           value={denial.reason}
           maxLength={1000}
+          // What is typed while the denial is sent would go nowhere.
+          readOnly={pending}
           onChange={(event) => denial.setReason(event.target.value)}
         />
       </Field>
       <div className="flex flex-wrap justify-end gap-2">
-        <Button type="submit" variant="destructive" disabled={blocked}>
+        {/* Not `disabled`, which takes focus off the button just pressed. */}
+        <Button
+          type="submit"
+          variant="destructive"
+          disabled={blocked && !pending}
+          aria-disabled={pending || undefined}
+        >
           <Busy shown={pending} />
           {messages.denySubmit}
         </Button>

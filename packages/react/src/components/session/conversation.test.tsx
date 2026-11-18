@@ -173,8 +173,8 @@ describe("ApprovalCard", () => {
       />,
     );
     expect(
-      (getByRole("button", { name: "Allow" }) as HTMLButtonElement).disabled,
-    ).toBe(true);
+      getByRole("button", { name: "Allow" }).getAttribute("aria-disabled"),
+    ).toBe("true");
     expect(getByRole("alert").textContent).toBe("request expired");
   });
 });

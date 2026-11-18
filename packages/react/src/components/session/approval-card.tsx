@@ -153,11 +153,16 @@ export function ApprovalCard({
         />
       ) : (
         <div className="flex flex-wrap justify-end gap-2">
+          {/* While sending, not `disabled`: Chrome takes focus off a disabled
+              button, and the keyboard would lose its place. */}
           <Button
             type="button"
             size="sm"
-            disabled={blocked}
-            onClick={() => onAllow()}
+            disabled={blocked && !pending}
+            aria-disabled={pending || undefined}
+            onClick={() => {
+              if (!blocked) onAllow();
+            }}
           >
             <Busy shown={pending} />
             {messages.allow}
@@ -168,8 +173,11 @@ export function ApprovalCard({
             variant="outline"
             size="sm"
             className="bg-card"
-            disabled={blocked}
-            onClick={denial.open}
+            disabled={blocked && !pending}
+            aria-disabled={pending || undefined}
+            onClick={() => {
+              if (!blocked) denial.open();
+            }}
           >
             {messages.deny}
           </Button>
