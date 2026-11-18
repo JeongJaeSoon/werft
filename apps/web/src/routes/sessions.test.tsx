@@ -412,7 +412,7 @@ describe("approval inbox", () => {
     });
     const inbox = await screen.findByRole("region", { name: "답변 대기" });
     await user.click(
-      await within(inbox).findByRole("button", { name: /^거절/ }),
+      await within(inbox).findByRole("button", { name: /^거부/ }),
     );
     await user.click(
       within(inbox).getByRole("button", { name: "거부 보내기" }),
@@ -2371,9 +2371,9 @@ describe("session runtime", () => {
         apiError(409, "REQUEST_EXPIRED", "request expired"),
     });
     // Deny opens its form; the reason is optional and typed there.
-    await user.click(await screen.findByRole("button", { name: "거절" }));
+    await user.click(await screen.findByRole("button", { name: "거부" }));
     await user.type(
-      screen.getByRole("textbox", { name: "거부하는 이유" }),
+      screen.getByRole("textbox", { name: "거부하는 이유 (선택)" }),
       "not now",
     );
     await user.click(screen.getByRole("button", { name: "거부 보내기" }));
@@ -2919,7 +2919,7 @@ describe("session runtime", () => {
     const allow = await screen.findByRole("button", { name: "승인" });
     expect(allow.hasAttribute("disabled")).toBe(true);
     expect(
-      screen.getByRole("button", { name: "거절" }).hasAttribute("disabled"),
+      screen.getByRole("button", { name: "거부" }).hasAttribute("disabled"),
     ).toBe(true);
     expect(
       screen.getByText(

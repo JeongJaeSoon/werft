@@ -112,7 +112,7 @@ export const agentGitHubKo = {
   "agentGitHub.remove": "빼기",
   "agentGitHub.removeLabel": "{workflow} 빼기",
   "agentGitHub.workflow": "워크플로 파일",
-  "agentGitHub.ref": "ref 패턴(선택)",
+  "agentGitHub.ref": "ref 패턴 (선택)",
   "agentGitHub.refHint": "비우면 기본 브랜치만. * 는 / 를 넘지 않습니다.",
   "agentGitHub.add": "워크플로 추가",
   "agentGitHub.workflowInvalid":
