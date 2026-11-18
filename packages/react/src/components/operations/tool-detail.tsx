@@ -48,6 +48,17 @@ export interface ToolDetailProps {
   readonly id?: string | undefined;
   /** True once the reader picked this tool: its heading is then said once. */
   readonly announce?: boolean | undefined;
+  /**
+   * False when the picked tool is not in the period's list: the figures only
+   * its row holds are left out, not drawn as 0. The chart and the calls still
+   * come from its calls' answer.
+   */
+  readonly listed?: boolean | undefined;
+  /**
+   * The period's words, such as "7일", once its calls answered with none;
+   * a line under the name then says so.
+   */
+  readonly quietPeriod?: string | undefined;
   readonly messages?: Partial<ToolDetailMessages> | undefined;
 }
 
@@ -93,9 +104,12 @@ export function ToolDetail({
   error,
   id,
   announce = false,
+  listed = true,
+  quietPeriod,
   messages: override,
 }: ToolDetailProps): JSX.Element {
   const titleId = useId();
+  const quietId = useId();
   const { messages, format } = useOperationsMessages("toolDetail", override);
   const days = perDay?.slice(-TOOL_DETAIL_DAYS);
   const peak = days?.reduce(
@@ -103,6 +117,65 @@ export function ToolDetail({
     days[0] ?? { date: "", calls: 0 },
   );
   const total = days?.reduce((sum, d) => sum + d.calls, 0) ?? 0;
+  const figures = [
+    {
+      label: messages.calls,
+      value: tool && messages.callsValue(format.count(tool.calls)),
+    },
+    {
+      label: messages.total,
+      value: tool && format.elapsed(tool.total_ms),
+    },
+    {
+      label: messages.median,
+      value: tool && format.elapsed(tool.median_ms),
+    },
+    {
+      label: messages.failed,
+      value:
+        tool &&
+        messages.failedValue(
+          format.count(tool.failed),
+          format.percent(tool.failed, tool.calls),
+        ),
+    },
+  ].map((item) => ({
+    label: item.label,
+    value: <Value>{item.value}</Value>,
+  }));
+  const chart = (
+    <Section
+      titleAs="h3"
+      className="min-w-0"
+      title={messages.perDay}
+      description={messages.perDayNote(days?.length ?? TOOL_DETAIL_DAYS)}
+    >
+      {error ? (
+        error
+      ) : days === undefined || peak === undefined || name === undefined ? (
+        <Skeleton
+          decorative
+          shape="block"
+          height={CHART_HEIGHT}
+          className="justify-center"
+        />
+      ) : (
+        <BarChart
+          compact
+          data={days.map((d) => ({ x: d.date, y: d.calls }))}
+          yMax={peak.calls || undefined}
+          label={messages.perDayChart({
+            name,
+            days: days.length,
+            total: format.count(total),
+            peakDay: monthDay(peak.date),
+            peak: format.count(peak.calls),
+          })}
+          formatX={monthDay}
+        />
+      )}
+    </Section>
+  );
   return (
     <>
       <div
@@ -123,6 +196,16 @@ export function ToolDetail({
             {note}
           </Text>
         ) : null}
+        {quietPeriod === undefined ? null : (
+          <Text
+            as="p"
+            id={quietId}
+            variant="meta"
+            data-slot="tool-detail-quiet"
+          >
+            {messages.quiet(quietPeriod)}
+          </Text>
+        )}
         <output className="sr-only">
           {announce && name !== undefined ? `${messages.label} ${name}` : ""}
         </output>
@@ -130,72 +213,18 @@ export function ToolDetail({
       <section
         id={id}
         aria-labelledby={titleId}
+        aria-describedby={quietPeriod === undefined ? undefined : quietId}
         data-slot="tool-detail"
         className="min-w-0"
       >
-        <div className="grid gap-6 @min-[48rem]:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-          <KeyValueList
-            items={[
-              {
-                label: messages.calls,
-                value: tool && messages.callsValue(format.count(tool.calls)),
-              },
-              {
-                label: messages.total,
-                value: tool && format.elapsed(tool.total_ms),
-              },
-              {
-                label: messages.median,
-                value: tool && format.elapsed(tool.median_ms),
-              },
-              {
-                label: messages.failed,
-                value:
-                  tool &&
-                  messages.failedValue(
-                    format.count(tool.failed),
-                    format.percent(tool.failed, tool.calls),
-                  ),
-              },
-            ].map((item) => ({
-              label: item.label,
-              value: <Value>{item.value}</Value>,
-            }))}
-          />
-          <Section
-            titleAs="h3"
-            className="min-w-0"
-            title={messages.perDay}
-            description={messages.perDayNote(days?.length ?? TOOL_DETAIL_DAYS)}
-          >
-            {error ? (
-              error
-            ) : days === undefined ||
-              peak === undefined ||
-              name === undefined ? (
-              <Skeleton
-                decorative
-                shape="block"
-                height={CHART_HEIGHT}
-                className="justify-center"
-              />
-            ) : (
-              <BarChart
-                compact
-                data={days.map((d) => ({ x: d.date, y: d.calls }))}
-                yMax={peak.calls || undefined}
-                label={messages.perDayChart({
-                  name,
-                  days: days.length,
-                  total: format.count(total),
-                  peakDay: monthDay(peak.date),
-                  peak: format.count(peak.calls),
-                })}
-                formatX={monthDay}
-              />
-            )}
-          </Section>
-        </div>
+        {listed ? (
+          <div className="grid gap-6 @min-[48rem]:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+            <KeyValueList items={figures} />
+            {chart}
+          </div>
+        ) : (
+          chart
+        )}
         {error ? null : (
           <Section
             titleAs="h3"
