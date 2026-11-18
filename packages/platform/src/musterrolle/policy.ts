@@ -460,9 +460,15 @@ export function createAuthorizationPolicy(
     sessions?: SessionAccess;
     newDecisionId?: () => string;
     decisions?: DecisionLog;
+    /** Hears the failures that end in a refusal instead of an error. */
+    logger?: {
+      warn(message: string, fields?: Readonly<Record<string, unknown>>): void;
+    };
   } = {},
 ): AuthorizationPolicy {
   const identity = deps.identity ?? authenticatedIdentity;
+  const errorName = (error: unknown) =>
+    error instanceof Error ? error.name : typeof error;
   const agents = deps.agents ?? noAgentAuthority;
   const credentials = deps.credentials ?? noCredentialCheck;
   const slackGuests = deps.slackGuests ?? slackGuestsDisabled;
@@ -881,7 +887,11 @@ export function createAuthorizationPolicy(
       let redact: true | undefined;
       try {
         [reason, effective_scopes, redact] = await decide(request);
-      } catch {
+      } catch (error) {
+        deps.logger?.warn("Authorization could not decide; refusing", {
+          action: request.action,
+          error_name: errorName(error),
+        });
         [reason, effective_scopes, redact] = ["error", [], undefined];
       }
       const decision: AuthorizationDecision = redact
@@ -912,7 +922,12 @@ export function createAuthorizationPolicy(
       try {
         await decisions.record({ request: parsed.data, decision });
         return decision;
-      } catch {
+      } catch (error) {
+        deps.logger?.warn("Authorization decision could not be recorded", {
+          action: parsed.data.action,
+          outcome: decision.outcome,
+          error_name: errorName(error),
+        });
         // A redact grants a summary, so an unrecorded one is refused too.
         if (decision.outcome === "deny") return decision;
         const { redact: _summary, ...unrecorded } = decision;

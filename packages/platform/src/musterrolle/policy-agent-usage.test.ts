@@ -171,6 +171,53 @@ describe("a private agent's usage", () => {
     ]);
   });
 
+  test("a decision log that fails still refuses, and the failure is logged", async () => {
+    const warned: [string, unknown][] = [];
+    const { agents } = authority(CLOSED);
+    const policy = createAuthorizationPolicy({
+      agents,
+      decisions: {
+        async record() {
+          throw new TypeError("log down");
+        },
+      },
+      logger: { warn: (message, fields) => warned.push([message, fields]) },
+    });
+    expect(await policy.authorize(starting())).toMatchObject({
+      outcome: "deny",
+      reason_code: "agent_private",
+    });
+    expect(warned).toEqual([
+      [
+        "Authorization decision could not be recorded",
+        expect.objectContaining({ outcome: "deny", error_name: "TypeError" }),
+      ],
+    ]);
+  });
+
+  test("a decision that throws is a refusal, and the failure is logged", async () => {
+    const warned: [string, unknown][] = [];
+    const policy = createAuthorizationPolicy({
+      agents: authority(OPEN).agents,
+      credentials: {
+        unboundRefs: async () => {
+          throw new RangeError("credentials down");
+        },
+      },
+      logger: { warn: (message, fields) => warned.push([message, fields]) },
+    });
+    expect(await policy.authorize(starting())).toMatchObject({
+      outcome: "deny",
+      reason_code: "error",
+    });
+    expect(warned).toEqual([
+      [
+        "Authorization could not decide; refusing",
+        expect.objectContaining({ error_name: "RangeError" }),
+      ],
+    ]);
+  });
+
   test("a person with the grant meets the credential check after it", async () => {
     const { agents } = authority(OPEN);
     expect(
