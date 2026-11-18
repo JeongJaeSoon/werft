@@ -19,7 +19,6 @@ import { type ReactNode, useState } from "react";
 import {
   DetailLayout,
   DetailRail,
-  DetailRailSection,
   type DetailRailToggle,
   OPERATIONS_MESSAGES,
   SessionStatusLabel,
@@ -125,13 +124,6 @@ export function SessionDetail({
       </DetailLayout>
     );
   }
-  const controls = (
-    <SessionControls
-      session={detail}
-      unavailable={unavailable}
-      refusal={refusal}
-    />
-  );
   const waiting = pending.data ? (
     // Titled for screen readers: once the last request is answered and its
     // notice goes, the keyboard lands on this title.
@@ -227,9 +219,6 @@ export function SessionDetail({
       separator="space"
     >
       {panelSections?.(detail)}
-      <DetailRailSection title={t("session.controls.title")}>
-        {controls}
-      </DetailRailSection>
     </DetailRail>
   );
 
@@ -242,8 +231,10 @@ export function SessionDetail({
       className="[&>[data-slot=page-frame]]:h-[calc(100dvh-var(--werft-topbar-h))] [&>[data-slot=page-frame]]:min-h-min [&>[data-slot=page-frame]]:pb-4 [&_[data-slot=page-frame-body]]:min-h-0"
     >
       <header className="flex min-w-0 flex-col gap-2">
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
-          <h1 className="m-0 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 font-medium text-title">
+        {/* Top-aligned, so an outcome under the buttons does not move the
+            title down; the title is a button tall to stay level with them. */}
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <h1 className="m-0 flex min-h-[var(--werft-control-height-sm)] min-w-0 flex-wrap items-center gap-x-3 gap-y-1 font-medium text-title">
             {/* A server from before titles sends none at all. */}
             {detail.title ? (
               <span className="[overflow-wrap:anywhere]">{detail.title}</span>
@@ -269,8 +260,14 @@ export function SessionDetail({
               )}
             </span>
           </h1>
-          {/* Below 1280px the rail is a sheet, opened from here. */}
-          {panel.wide ? null : <PanelToggle panel={panel} />}
+          <SessionControls
+            variant="head"
+            session={detail}
+            unavailable={unavailable}
+            refusal={refusal}
+            // Below 1280px the rail is a sheet, opened from here.
+            trailing={panel.wide ? undefined : <PanelToggle panel={panel} />}
+          />
         </div>
         <SessionMeta session={detail} usage={usage.data} />
         {usage.error

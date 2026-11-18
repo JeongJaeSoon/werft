@@ -2963,7 +2963,7 @@ describe("세션 상세 레이아웃", () => {
     },
   );
 
-  test("넓은 화면의 머리는 제목과 상태만 두고 조작은 레일의 세션 조작 섹션에 둔다", async () => {
+  test("넓은 화면의 머리는 제목·상태 옆에 세션 조작 묶음을 두고, 레일에는 조작이 없다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     const heading = await screen.findByRole("heading", { level: 1 });
     const header = heading.closest("header") as HTMLElement;
@@ -2974,27 +2974,103 @@ describe("세션 상세 레이아웃", () => {
       within(trail).getByRole("link", { name: "세션" }).getAttribute("href"),
     ).toBe("/sessions");
     expect(heading.textContent).toContain("답변 대기");
-    // From 1280px the rail always shows: the head's one button copies the id.
+    // From 1280px the rail always shows: no fold button, only the commands
+    // and the id's copy button.
+    const controls = within(header).getByRole("group", { name: "세션 조작" });
+    expect(
+      within(controls)
+        .getAllByRole("button")
+        .map((button) => [button.dataset.action, button.textContent]),
+    ).toEqual([
+      ["interrupt", "지금 턴 멈추기"],
+      ["pause", "일시 정지"],
+      ["terminate", "세션 종료"],
+    ]);
     expect(
       within(header)
         .getAllByRole("button")
+        .filter((button) => !controls.contains(button))
         .map((button) => button.getAttribute("aria-label")),
     ).toEqual(["세션 ID 복사"]);
     expect(header.textContent).not.toContain("model-default");
 
     const card = await infoCard();
-    const controls = within(card).getByRole("region", { name: "세션 조작" });
+    expect(within(card).queryByRole("group", { name: "세션 조작" })).toBeNull();
     expect(
-      within(controls)
-        .getAllByRole("button")
-        .filter((button) => button.dataset.action !== undefined)
-        .map((button) => button.textContent),
-    ).toEqual(["지금 턴 멈추기", "일시 정지", "세션 종료"]);
+      within(card).queryByRole("region", { name: "세션 조작" }),
+    ).toBeNull();
+    expect(card.querySelector("[data-action]")).toBeNull();
     // The rail holds no overview: the meta line under the title has it.
     expect(card.textContent).not.toContain("에이전트");
     const meta = await sessionMeta();
     await waitFor(() => expect(meta.textContent).toContain("<$0.01"));
   });
+
+  // happy-dom lays nothing out, so this pins what keeps the boxes still; the
+  // PR measured the positions in a browser at 390 to 1920px.
+  test.each([
+    ["1280 이상", true],
+    ["390", false],
+  ] as const)(
+    "%s: 명령 결과 문장이 나와도 버튼과 제목이 움직이지 않는다",
+    async (_, wide) => {
+      const original = window.matchMedia;
+      window.matchMedia = ((query: string) => ({
+        matches: query === "(min-width: 80rem)" ? wide : false,
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+      })) as typeof window.matchMedia;
+      try {
+        const user = await setupUser();
+        renderAt(`/sessions/${SESSION_ID}`, {
+          ...detailRoutes,
+          [`POST /v1/sessions/${SESSION_ID}/pause`]: () =>
+            apiError(409, "PAUSE_COMMITTING", "pause committing"),
+        });
+        const heading = await screen.findByRole("heading", { level: 1 });
+        const header = heading.closest("header") as HTMLElement;
+        const controls = within(header).getByRole("group", {
+          name: "세션 조작",
+        });
+        const buttons = within(controls).getAllByRole("button");
+        // Below 1280px the labels hide but still name the buttons.
+        expect(buttons.map((button) => button.textContent)).toEqual([
+          "지금 턴 멈추기",
+          "일시 정지",
+          "세션 종료",
+        ]);
+        expect(
+          within(header).queryByRole("button", { name: "세션 정보 펼치기" }) !==
+            null,
+        ).toBe(!wide);
+
+        await user.click(
+          within(controls).getByRole("button", { name: "일시 정지" }),
+        );
+        const outcome = header.querySelector("output") as HTMLOutputElement;
+        await waitFor(() => expect(outcome.textContent).not.toBe(""));
+        expect(within(controls).getAllByRole("button")).toEqual(buttons);
+        // The outcome takes the buttons' width instead of setting it, and the
+        // row is top-aligned, so its height leaves the title where it was.
+        expect(outcome.classList.contains("w-0")).toBe(true);
+        expect(outcome.classList.contains("min-w-full")).toBe(true);
+        expect(heading.parentElement?.classList.contains("items-start")).toBe(
+          true,
+        );
+        // A button tall, so a one-line title stays level with the buttons.
+        expect(
+          heading.classList.contains("min-h-[var(--werft-control-height-sm)]"),
+        ).toBe(true);
+      } finally {
+        window.matchMedia = original;
+      }
+    },
+  );
 
   test("머리의 메타 줄은 에이전트, 호출한 사람과 채널, Slack 링크를 보인다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, {
@@ -3034,6 +3110,29 @@ describe("세션 상세 레이아웃", () => {
     );
     expect(meta.textContent).toContain(`채널: ${channel}`);
     expect(within(meta).queryByRole("link", { name: /Slack/ })).toBeNull();
+  });
+
+  test("닫힌 세션의 머리에는 조작 묶음도, 할 수 있는 조작이 없다는 문장도 없다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          status: "stopped",
+          admission_state: "closed",
+          current_turn_id: null,
+        }),
+    });
+    const heading = await screen.findByRole("heading", { level: 1 });
+    await waitFor(() => expect(heading.textContent).toContain("세션 상태"));
+    const header = heading.closest("header") as HTMLElement;
+    expect(
+      within(header).queryByRole("group", { name: "세션 조작" }),
+    ).toBeNull();
+    expect(document.querySelector("[data-action]")).toBeNull();
+    expect(document.body.textContent).not.toContain(
+      "지금 할 수 있는 제어가 없습니다.",
+    );
   });
 
   test.each([
