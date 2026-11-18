@@ -339,29 +339,24 @@ function WaitingSession({
         Math.floor((now - Date.parse(request.created_at)) / 60_000),
       ),
     });
-    // Untitled, the name line already is the short id. A session with no
-    // agent is named by its starter; the line ends with why the request
-    // came to the reader.
+    // Untitled, the name line already is the short id. The line ends with
+    // why the request came to the reader. A long agent name or reason wraps;
+    // the id and the wait stay whole.
     const parts = [
-      session.agent?.name ?? session.created_by?.display_name,
-      session.title ? short : undefined,
-      waited,
-      reason && t(`inbox.why.${reason}`),
-    ].filter((part) => part !== undefined);
+      { key: "agent", text: session.agent?.name ?? t("session.agent.none") },
+      { key: "id", text: session.title ? short : undefined, whole: true },
+      { key: "waited", text: waited, whole: true },
+      { key: "reason", text: reason && t(`inbox.why.${reason}`) },
+    ].filter((part) => part.text !== undefined);
     return (
       <>
         {parts.map((part, index) => (
-          // A long agent name or reason wraps; the id and the wait stay whole.
           <span
-            key={part}
-            className={
-              part === short || part === waited
-                ? "whitespace-nowrap"
-                : undefined
-            }
+            key={part.key}
+            className={part.whole ? "whitespace-nowrap" : undefined}
           >
             {index === 0 ? null : <span aria-hidden="true"> · </span>}
-            {part}
+            {part.text}
           </span>
         ))}
       </>

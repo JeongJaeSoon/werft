@@ -76,6 +76,7 @@ function renderInbox({
   stale = false,
   hold = false,
   agent,
+  agentHidden = false,
   startedBy,
   relations: related = [],
 }: {
@@ -93,6 +94,8 @@ function renderInbox({
   hold?: boolean;
   /** SESSION_ID's agent name. */
   agent?: string;
+  /** SESSION_ID has an agent the reader may not use. */
+  agentHidden?: boolean;
   /** SESSION_ID's starter name. */
   startedBy?: string;
   /** The relation filters whose waiting list names SESSION_ID. */
@@ -111,6 +114,7 @@ function renderInbox({
     ...(agent
       ? { agent: { id: "agt_1", name: agent, release_version_no: 1 } }
       : {}),
+    agent_hidden: agentHidden,
     ...(startedBy
       ? { created_by: { user_id: "usr_1", display_name: startedBy } }
       : {}),
@@ -679,21 +683,25 @@ describe("ApprovalInbox", () => {
     ]).toEqual(["권한", "Permission", "権限"]);
   });
 
-  test("요약 줄은 관계를 모르면 이유를 빼고, 에이전트 없는 세션은 시작한 사람의 이름을 쓴다", async () => {
-    const view = renderInbox({
-      open: [QUESTION],
-      layout: "summary",
-      title: "README",
-      startedBy: "Jaesoon Jeong",
+  for (const agentHidden of [false, true]) {
+    test(`요약 줄은 관계를 모르면 이유를 빼고, 에이전트가 ${agentHidden ? "숨겨진" : "없는"} 세션은 시작한 사람이 아니라 '에이전트 없음'을 쓴다`, async () => {
+      const view = renderInbox({
+        open: [QUESTION],
+        layout: "summary",
+        title: "README",
+        startedBy: "Jaesoon Jeong",
+        agentHidden,
+      });
+      const open = await view.findByRole("button", { name: "Answer" });
+      const line = open.parentElement as HTMLElement;
+      await waitFor(() =>
+        expect(line.textContent).toMatch(
+          new RegExp(`\\?No agent · ${SHORT} · Waiting \\d+ min · Expires `),
+        ),
+      );
+      expect(line.textContent).not.toContain("Jaesoon Jeong");
     });
-    const open = await view.findByRole("button", { name: "Answer" });
-    const line = open.parentElement as HTMLElement;
-    await waitFor(() =>
-      expect(line.textContent).toMatch(
-        new RegExp(`Jaesoon Jeong · ${SHORT} · Waiting \\d+ min · Expires `),
-      ),
-    );
-  });
+  }
 
   test("요약 배치에서 마지막 요청에 답해 세션이 빠지면 키보드는 받은편지함 제목으로 간다", async () => {
     const user = await setupUser();
