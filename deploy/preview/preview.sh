@@ -49,6 +49,14 @@
 #                      unchanged; its https address is the one printed
 #   PREVIEW_LABEL      the pull request label `sync` follows (default
 #                      preview)
+#   PREVIEW_PUBLIC_DOMAIN
+#                      optional: a second domain, for a tunnel that puts a
+#                      login in front of *.<PREVIEW_PUBLIC_DOMAIN>; `sync`
+#                      routes Host pr-<N>.<PREVIEW_PUBLIC_DOMAIN> only for the
+#                      previews whose PR also has PREVIEW_PUBLIC_LABEL (see
+#                      sync_public()). Empty: no preview answers it
+#   PREVIEW_PUBLIC_LABEL
+#                      that second label (default preview-public)
 #   PREVIEW_SOURCE     `up` writes it to the namespace's annotation
 #                      werft.dev/preview-source (`sync` sets label)
 set -euo pipefail
@@ -58,6 +66,8 @@ PREVIEW_MEMORY_MI="${PREVIEW_MEMORY_MI:-2560}"
 PREVIEW_TTL_HOURS="${PREVIEW_TTL_HOURS:-24}"
 PREVIEW_DOMAIN="${PREVIEW_DOMAIN:-}"
 PREVIEW_LABEL="${PREVIEW_LABEL:-preview}"
+PREVIEW_PUBLIC_DOMAIN="${PREVIEW_PUBLIC_DOMAIN:-}"
+PREVIEW_PUBLIC_LABEL="${PREVIEW_PUBLIC_LABEL:-preview-public}"
 INGRESS_NAMESPACE=preview-ingress
 TRAEFIK_CHART=oci://ghcr.io/traefik/helm/traefik
 TRAEFIK_VERSION=42.1.3
@@ -88,8 +98,21 @@ if [ -n "$PREVIEW_DOMAIN" ] &&
   echo "PREVIEW_DOMAIN must be a lowercase DNS name such as preview.example.dev, not '${PREVIEW_DOMAIN}'" >&2
   exit 1
 fi
-if ! [[ "$PREVIEW_LABEL" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,49}$ ]]; then
-  echo "PREVIEW_LABEL must be a label name of letters, digits, . _ -, not '${PREVIEW_LABEL}'" >&2
+if [ -n "$PREVIEW_PUBLIC_DOMAIN" ] &&
+  { ! [[ "$PREVIEW_PUBLIC_DOMAIN" =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]] ||
+    [[ "$PREVIEW_PUBLIC_DOMAIN" == *.localhost ]] ||
+    [ "$PREVIEW_PUBLIC_DOMAIN" = "$PREVIEW_DOMAIN" ]; }; then
+  echo "PREVIEW_PUBLIC_DOMAIN must be a lowercase DNS name such as public.example.dev, not under localhost and not PREVIEW_DOMAIN, not '${PREVIEW_PUBLIC_DOMAIN}'" >&2
+  exit 1
+fi
+for name in PREVIEW_LABEL PREVIEW_PUBLIC_LABEL; do
+  if ! [[ "${!name}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,49}$ ]]; then
+    echo "${name} must be a label name of letters, digits, . _ -, not '${!name}'" >&2
+    exit 1
+  fi
+done
+if [ -n "$PREVIEW_PUBLIC_DOMAIN" ] && [ "$PREVIEW_PUBLIC_LABEL" = "$PREVIEW_LABEL" ]; then
+  echo "PREVIEW_PUBLIC_LABEL must not be PREVIEW_LABEL ('${PREVIEW_LABEL}')" >&2
   exit 1
 fi
 
@@ -542,31 +565,39 @@ other_pushers() {
 # gone at the head it was up at (reap's TTL, a `down` by hand) keeps its
 # label and comes back on a push or a new label. Anything GitHub does not
 # answer changes nothing; a comment it did not take is written again on the
-# next run (comment).
+# next run (comment). The outside routes are sync_public()'s.
 sync() {
-  local pulls n head cross state_file tried status tried_at ns_head source
-  local labeled label_at actor others code namespace up_at count refusal rows
-  local wanted=" " kept="" LIMIT=500
+  local pulls n head cross public state_file tried status tried_at ns_head source
+  local labeled label_at actor code namespace up_at count refusal rows others
+  local wanted=" " kept="" public_wanted=" " heads=" " LIMIT=500
   lock_preview sync
   echo "sync $(date -u +%Y-%m-%dT%H:%M:%SZ): label ${PREVIEW_LABEL}"
   mkdir -p "${PREVIEW_HOME}/sync"
+  # A list that cannot be trusted closes every outside route: opening one
+  # again costs an apply, not a build.
   if ! gh_user="$(cd "$root" && gh api user --jq .login </dev/null)" ||
     ! others="$(other_pushers)" ||
     ! pulls="$(cd "$root" && GH_NO_UPDATE_NOTIFIER=1 gh pr list --label "$PREVIEW_LABEL" \
-      --state open --limit "$LIMIT" --json number,headRefOid,isCrossRepository \
-      --jq '.[] | [.number, .headRefOid, .isCrossRepository] | @tsv' </dev/null)"; then
+      --state open --limit "$LIMIT" --json number,headRefOid,isCrossRepository,labels \
+      --jq ".[] | [.number, .headRefOid, .isCrossRepository,
+        ((.labels // []) | any(.name == \"${PREVIEW_PUBLIC_LABEL}\"))] | @tsv" </dev/null)"; then
     echo "sync: GitHub could not be read; no preview changed"
+    close_all_public || true
     reap
     return
   fi
   count="$(grep -c . <<<"$pulls" || true)"
   if [ "$count" -ge "$LIMIT" ]; then
     echo "sync: ${count} labeled pull requests, the list may be cut; no preview changed"
+    close_all_public || true
     reap
     return
   fi
-  while IFS=$'\t' read -r n head cross; do
-    [[ "$n" =~ ^[1-9][0-9]{0,6}$ ]] && wanted+="${n} "
+  while IFS=$'\t' read -r n head cross public; do
+    [[ "$n" =~ ^[1-9][0-9]{0,6}$ ]] || continue
+    wanted+="${n} "
+    heads+="${n}=${head} "
+    [ "$public" = true ] && [ "$cross" = false ] && public_wanted+="${n} "
   done <<<"$pulls"
 
   # First what is no longer wanted (label off, closed, merged), so a long
@@ -598,9 +629,14 @@ $(date -u '+%Y-%m-%d %H:%M UTC')에 내렸다. 라벨 \`${PREVIEW_LABEL}\`가 �
     [[ "$wanted$kept" == *" ${n} "* ]] && continue
     rm -f -- "$state_file" "${state_file}.log"
   done
+  for state_file in "${PREVIEW_HOME}/sync"/pr-*.public; do
+    [[ "$(basename -- "$state_file")" =~ ^pr-([1-9][0-9]{0,6})\.public$ ]] || continue
+    [[ "$public_wanted" == *" ${BASH_REMATCH[1]} "* ]] || rm -f -- "$state_file"
+  done
   send_pending "$wanted$kept"
+  sync_public close
 
-  while IFS=$'\t' read -r n head cross; do
+  while IFS=$'\t' read -r n head cross public; do
     [ -n "$n" ] || continue
     if ! [[ "$n" =~ ^[1-9][0-9]{0,6}$ && "$head" =~ ^[0-9a-f]{40}$ ]]; then
       echo "sync: skipped a row that is not a pull request number and head: ${n} ${head}"
@@ -672,7 +708,210 @@ head \`${head}\`를 띄우지 못했다(exit ${code}). 로그는 미리보기를
         ;;
     esac
   done <<<"$pulls"
+  sync_public open
   reap
+}
+
+# The outside route of preview pr-<N> is its Ingress preview-public-pr-<N>,
+# labeled werft.dev/preview-public=true, with the one Host
+# pr-<N>.<PREVIEW_PUBLIC_DOMAIN>. The namespace carries it, so a down, reap
+# or reinstall takes it too.
+PUBLIC_SELECTOR=werft.dev/preview-public=true
+
+close_all_public() {
+  kubectl delete ingress -A -l "$PUBLIC_SELECTOR" --ignore-not-found >/dev/null && return 0
+  echo "sync: deleting the outside routes failed" >&2
+  return 1
+}
+
+# Whether preview pr-$1 may have an outside route, from what this run read:
+# both labels on an open PR from this repository, nobody else may push, and
+# the namespace is the label's preview at the PR head sync recorded as up
+# (an up that fails after writing preview-head leaves a failed record).
+public_ready() {
+  local n="$1" head
+  [[ "$public_wanted" == *" ${n} "* && -z "$others" ]] || return 1
+  [[ "$heads" =~ \ ${n}=([0-9a-f]{40})\  ]] || return 1
+  head="${BASH_REMATCH[1]}"
+  [ "$(recorded_up "$n")" = "$head" ] &&
+    [ "$(kubectl get namespace "pr-${n}" -o jsonpath='{.metadata.annotations.werft\.dev/preview-source}' 2>/dev/null)" = label ]
+}
+
+# The head sync recorded as up for pr-$1, while the namespace is at it.
+recorded_up() {
+  local tried status
+  [ -f "${PREVIEW_HOME}/sync/pr-$1" ] || return 0
+  read -r tried status _ <"${PREVIEW_HOME}/sync/pr-$1" || true
+  [ "$status" = up ] &&
+    [ "$(kubectl get namespace "pr-$1" -o jsonpath='{.metadata.annotations.werft\.dev/preview-head}' 2>/dev/null)" = "$tried" ] &&
+    printf '%s' "$tried"
+  return 0
+}
+
+# The login in front of the outside domain answers a request without its
+# cookie with a 302 to https://<team>.cloudflareaccess.com/. Anything else
+# (the preview itself, a 404, another redirect, no answer) means that login
+# is not there, and the route stays closed. Run from this machine, it does
+# not prove what an outside client gets, only that the front is not missing.
+gate_ok() {
+  local out expected='^302 https://[a-z0-9-]+\.cloudflareaccess\.com/'
+  # -q first: no ~/.curlrc to turn certificate checks off.
+  out="$(curl -q -sS -o /dev/null --max-time 5 -w '%{http_code} %{redirect_url}' \
+    "https://pr-$1.${PREVIEW_PUBLIC_DOMAIN}/readyz" 2>/dev/null)" || return 1
+  [[ "$out" =~ $expected ]]
+}
+
+# Reads the last time the outside label went on or came off into the
+# caller's event (labeled or unlabeled), label_at and actor. Fails when the
+# events cannot be read or hold none.
+public_event() {
+  local events
+  events="$(cd "$root" && gh api --paginate "repos/{owner}/{repo}/issues/$1/events" \
+    --jq ".[] | select((.event == \"labeled\" or .event == \"unlabeled\") and .label.name == \"${PREVIEW_PUBLIC_LABEL}\") | \"\(.event) \(.created_at) \(.actor.login)\"" \
+    </dev/null)" || return 1
+  read -r event label_at actor <<<"$(tail -n 1 <<<"$events")"
+  [ -n "$event" ]
+}
+
+# The one rule both opening and keeping a route follow: the outside label's
+# last event (as public_event read it) is a labeled by this machine's own
+# login.
+public_label_ours() {
+  [ -n "$gh_user" ] && [ "$event" = labeled ] && [ "$actor" = "$gh_user" ]
+}
+
+PUBLIC_OPEN_LINE="바깥 경로: 열려 있다(오너 로그인 뒤)."
+
+# Rewrites the up comment of preview pr-$1 with the outside route's line $2.
+# PREVIEW_HOME/sync/pr-<N>.open marks a comment that says the route is open.
+public_comment() {
+  local head
+  head="$(kubectl get namespace "pr-$1" -o jsonpath='{.metadata.annotations.werft\.dev/preview-head}' 2>/dev/null)" || true
+  if [ -n "$head" ]; then
+    comment "$1" "$(up_body "$1" "$head" "$2")"
+  fi
+  if [[ "$2" == "$PUBLIC_OPEN_LINE"* ]]; then
+    : >"${PREVIEW_HOME}/sync/pr-$1.open"
+  else
+    rm -f -- "${PREVIEW_HOME}/sync/pr-$1.open"
+  fi
+}
+
+# A comment that still says open while no route is (the feature turned off,
+# or every route closed in a run that could not read GitHub) says closed
+# once, in the next run that can write it. $open is " pr-<N> ..." of the
+# routes there now.
+settle_public() {
+  local marker n
+  for marker in "${PREVIEW_HOME}/sync"/pr-*.open; do
+    [[ "$(basename -- "$marker")" =~ ^pr-([1-9][0-9]{0,6})\.open$ ]] || continue
+    n="${BASH_REMATCH[1]}"
+    [[ "$open" == *" pr-${n} "* ]] && continue
+    if [ -n "$(recorded_up "$n")" ]; then
+      public_comment "$n" "바깥 경로: 닫혀 있다."
+    else
+      rm -f -- "$marker"
+    fi
+  done
+}
+
+# close (before the builds): deletes each outside route this run does not
+# keep. open (after them): adds the route of each ready preview whose last
+# outside-label event is a labeled by this machine's own login, once the
+# login in front answers. The domain's value never goes in a comment or the
+# log; a comment only says the route is open or closed.
+sync_public() {
+  local rows namespace name hosts n event label_at actor line open=" " service
+  if [ -z "$PREVIEW_PUBLIC_DOMAIN" ]; then
+    # A comment says closed only once the routes are gone.
+    if [ "$1" = close ] && close_all_public; then
+      settle_public
+    fi
+    return 0
+  fi
+  rows="$(kubectl get ingress -A -l "$PUBLIC_SELECTOR" -o json | jq -r '.items[]
+    | [.metadata.namespace, .metadata.name, ([.spec.rules[]?.host] | join(" "))]
+    | join("\u001f")')" || { close_all_public || true; return 0; }
+  if [ "$1" = close ]; then
+    while IFS=$'\x1f' read -r namespace name hosts; do
+      [ -n "$namespace" ] || continue
+      n=""
+      [[ "$namespace" =~ ^pr-([1-9][0-9]{0,6})$ ]] && n="${BASH_REMATCH[1]}"
+      line=""
+      if [ -z "$n" ] || [ "$name" != "preview-public-${namespace}" ] ||
+        [ "$hosts" != "${namespace}.${PREVIEW_PUBLIC_DOMAIN}" ]; then
+        echo "${namespace}/${name}: not this domain's outside route; deleted"
+      elif ! public_ready "$n"; then
+        echo "${namespace}: outside label off, or not the recorded up preview; outside route closed"
+        line="바깥 경로: 닫혀 있다."
+      elif ! public_event "$n"; then
+        echo "${namespace}: the outside label's events could not be read; outside route closed"
+        line="바깥 경로: 닫혀 있다."
+      elif ! public_label_ours; then
+        echo "${namespace}: the outside label's last event is ${event} by ${actor}, not a labeled by this machine's login; outside route closed"
+        line="바깥 경로: 닫혀 있다."
+      elif ! gate_ok "$n"; then
+        echo "${namespace}: the login in front of the outside domain did not answer as expected; outside route closed"
+        line="바깥 경로: 닫았다. 앞단의 로그인 확인에 실패했다."
+      else
+        continue
+      fi
+      kubectl delete ingress -n "$namespace" "$name" --ignore-not-found >/dev/null ||
+        { echo "${namespace}: deleting ${name} failed" >&2; continue; }
+      [ -n "$line" ] && [ -n "$(recorded_up "$n")" ] && public_comment "$n" "$line"
+    done <<<"$rows"
+    return 0
+  fi
+  while IFS=$'\x1f' read -r namespace name hosts; do
+    open+="${namespace} "
+  done <<<"$rows"
+  for n in $public_wanted; do
+    [[ "$open" == *" pr-${n} "* ]] && continue
+    public_ready "$n" || continue
+    if ! service="$(cat "${PREVIEW_HOME}/pr-${n}/state/fullname" 2>/dev/null)-api" || [ "$service" = -api ]; then
+      echo "pr-${n}: no ${PREVIEW_HOME}/pr-${n}/state/fullname; outside route not opened" >&2
+      continue
+    fi
+    if ! public_event "$n"; then
+      echo "pr-${n}: the outside label's events could not be read; outside route not opened"
+      continue
+    fi
+    if ! public_label_ours; then
+      echo "pr-${n}: the outside label's last event is ${event} by ${actor}, not a labeled by this machine's login; outside route not opened"
+      # Someone else's label is said once per label; an unlabeled says nothing.
+      if [ "$event" = labeled ] &&
+        [ "$(cat "${PREVIEW_HOME}/sync/pr-${n}.public" 2>/dev/null)" != "$label_at" ]; then
+        printf '%s\n' "$label_at" >"${PREVIEW_HOME}/sync/pr-${n}.public"
+        public_comment "$n" "바깥 경로: 열지 않았다. 라벨 \`${PREVIEW_PUBLIC_LABEL}\`를 마지막으로 붙인 ${actor}가 미리보기를 띄우는 기계의 GitHub 로그인이 아니다."
+      fi
+      continue
+    fi
+    if ! gate_ok "$n"; then
+      echo "pr-${n}: the login in front of the outside domain did not answer as expected; outside route not opened"
+      continue
+    fi
+    if ! kubectl apply -f - >/dev/null <<EOF; then
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: preview-public-pr-${n}
+  namespace: pr-${n}
+  labels:
+    ${PUBLIC_SELECTOR%=*}: "true"
+spec:
+  ingressClassName: preview
+  rules:
+$(ingress_rules "$service" "pr-${n}.${PREVIEW_PUBLIC_DOMAIN}")
+EOF
+      echo "pr-${n}: adding the outside route failed" >&2
+      continue
+    fi
+    rm -f -- "${PREVIEW_HOME}/sync/pr-${n}.public"
+    open+="pr-${n} "
+    echo "pr-${n}: outside route open"
+    public_comment "$n" "${PUBLIC_OPEN_LINE} 주소는 이 댓글에 적지 않는다. 라벨 \`${PREVIEW_PUBLIC_LABEL}\`를 떼면 다음 실행에서 바깥 경로만 닫힌다."
+  done
+  settle_public
 }
 
 up_body() {
@@ -682,7 +921,8 @@ up_body() {
 - 주소: $(url "pr-$1")
 - head: \`$2\`
 - 데모 계정: \`demo-owner@example.test\`(owner), \`demo-member@example.test\`(member). 비밀번호는 [quickstart](https://github.com/JeongJaeSoon/werft/blob/main/docs/quickstart.md)의 "웹 콘솔 데모 계정"과 같다.
-- 새 커밋을 push하면 다음 실행(1분 안팎)에서 새 head를 빌드해 다시 띄운다. 라벨 \`${PREVIEW_LABEL}\`를 떼거나 PR을 닫으면 내려간다. 마지막으로 띄운 지 ${PREVIEW_TTL_HOURS}시간이 지나면 내려간다. 라벨은 남으니, 다시 보려면 push하거나 라벨을 다시 붙인다.
+- 새 커밋을 push하면 다음 실행(1분 안팎)에서 새 head를 빌드해 다시 띄운다. 라벨 \`${PREVIEW_LABEL}\`를 떼거나 PR을 닫으면 내려간다. 마지막으로 띄운 지 ${PREVIEW_TTL_HOURS}시간이 지나면 내려간다. 라벨은 남으니, 다시 보려면 push하거나 라벨을 다시 붙인다.${3:+
+- $3}
 
 fake 모델이라 실제 모델·GitHub·Slack에는 닿지 않는다.
 EOF

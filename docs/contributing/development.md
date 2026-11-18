@@ -175,7 +175,32 @@ head마다 라벨 한 번에 한 번만 시도한다. `PREVIEW_HOME/sync/pr-<번
 - proxy는 Host 헤더를 바꾸지 않고 Mac의 Traefik http 포트로 넘긴다. control-host는 브라우저 요청의 Origin host가 Host와 같아야 받는다. 세션 쿠키(`__Host-`, Secure)는 https 주소의 host마다 따로 저장된다.
 - Traefik은 Mac의 `127.0.0.1:18180`에만 있다. `k8s.expose_services`를 켜지 말고, proxy가 tailnet에 있으면 `tailscale serve --bg --tcp 18180 tcp://127.0.0.1:18180`으로 그 포트를 tailnet에만 연다. proxy는 Mac의 tailnet 주소 `:18180`으로 보낸다.
 
-이 주소는 tailnet 같은 사설망 안에서만 연다. 데모 계정은 quickstart의 공개 비밀번호를 그대로 쓰고, PR 댓글도 그 문서를 가리킨다. 사설망에 든 기기는 누구나 데모 계정으로 로그인할 수 있다는 전제다. 미리보기를 인터넷에 열지 않는다.
+이 주소는 tailnet 같은 사설망 안에서만 연다. 데모 계정은 quickstart의 공개 비밀번호를 그대로 쓰고, PR 댓글도 그 문서를 가리킨다. 사설망에 든 기기는 누구나 데모 계정으로 로그인할 수 있다는 전제다. 미리보기를 인증 없이 인터넷에 열지 않는다. 사설망 밖에서 볼 PR만 아래 [바깥에서 열기](#바깥에서-열기)로 연다.
+
+#### 바깥에서 열기
+
+`PREVIEW_PUBLIC_DOMAIN`(예: `public.example.dev`)을 주면, 라벨 `preview`와 `PREVIEW_PUBLIC_LABEL`(기본 `preview-public`)이 모두 붙은 PR의 미리보기만 Host `pr-<번호>.<PREVIEW_PUBLIC_DOMAIN>`에도 답한다. 이 저장소는 그 Host의 규칙만 여닫는다. 바깥에서 그 Host로 들어오는 길과 그 앞의 로그인은 미리보기를 운영하는 사람이 Cloudflare Tunnel과 Access로 한 번만 설정한다(아래). 그 설정이 없으면 이 기능은 아무것도 열지 않는다. 비어 있으면 기능은 꺼져 있다.
+
+- 바깥 경로는 namespace `pr-<번호>` 안의 Ingress `preview-public-pr-<번호>`(label `werft.dev/preview-public=true`, Host는 바깥 것 하나)다. 그래서 `down`, `reap`의 TTL, 새 head의 재설치 때 미리보기와 함께 사라진다.
+- `sync`는 빌드보다 먼저, 다음 중 하나라도 맞는 바깥 경로를 닫는다: 바깥 라벨을 뗐다, PR이 닫혔다, 저장소에 그 Mac의 로그인 말고도 push 권한자가 있다, 미리보기가 PR head에서 `sync`가 `up`으로 기록한 것이 아니다(새 head가 거절되거나 실패했다), Host나 이름이 지금 설정과 다르다, 바깥 라벨의 마지막 이벤트가 그 Mac의 gh 로그인이 붙인 것이 아니다(뗐거나 다른 사람이 다시 붙였거나 이벤트를 읽지 못했다), 앞단의 로그인 확인(아래)이 실패했다. 열린 경로 하나마다 실행마다 라벨 이벤트를 한 번 읽는다.
+- `sync`는 빌드 뒤에, 위 조건을 모두 통과한 미리보기 가운데 바깥 라벨의 마지막 이벤트(붙임 또는 뗌)가 그 Mac의 gh 로그인이 붙인 것인 PR만 연다. 다른 사람이 붙인 라벨은 PR 댓글에 한 번 적고 열지 않는다. 라벨 이벤트를 읽지 못하면 열지 않는다.
+- GitHub을 읽지 못하거나 라벨 목록이 잘렸을 수 있으면(500개 이상) 바깥 경로를 모두 닫는다. 다시 여는 데는 빌드가 필요 없다. 이때는 댓글을 쓰지 않는다.
+- 앞단의 로그인 확인: 열기 직전과 열린 동안 실행마다, 그 Mac에서 쿠키 없이 `https://pr-<번호>.<PREVIEW_PUBLIC_DOMAIN>/readyz`를 요청한다. 응답이 Access 로그인(`https://<팀>.cloudflareaccess.com/`)으로 가는 302가 아니면(200, 404, 다른 곳으로 가는 302, 시간 초과) 열지 않고, 열려 있던 것은 닫는다. 닫을 때 PR 댓글에 적는다. 확인이 한 번 실패해도 닫으므로, 응답이 흔들리면 실행마다 닫혔다 열렸다 하고 댓글도 그때마다 바뀐다. 열린 경로의 라벨 이벤트를 읽지 못할 때도 같다. 이 확인은 Access가 빠진 상태를 잡을 뿐, Access 정책이 맞는지는 보지 않는다. Cloudflare 문서는 쿠키 없는 요청에 Access가 주는 상태 코드를 적지 않는다. 302는 아래 설정 4에서 실제 응답으로 확인할 가정이다. 그 응답이 302가 아니면 이 확인이 실패해 경로는 닫힌 채 남는다. 그때는 `gate_ok()`의 판정식을 고친다.
+- PR 댓글은 바깥 경로가 열렸는지, 닫혔는지만 적고 주소는 적지 않는다. 와일드카드 인증서와 DNS로 도메인은 알려진다고 보고, 안전은 Access에 둔다. 댓글이 "열려 있다"인데 경로가 없으면(기능을 껐다, GitHub을 읽지 못해 모두 닫았다) 댓글을 쓸 수 있는 다음 실행이 "닫혀 있다"로 고친다. `PREVIEW_HOME/sync/pr-<번호>.open`이 "열려 있다"라고 쓴 댓글의 표시다. 바깥 경로의 Ingress를 지우지 못한 실행에서는 고치지 않는다. 이 표시는 여닫기 판단에 쓰이지 않으므로, `PREVIEW_HOME`을 지우거나 옮겨 표시가 없어지면 어긋나는 것은 댓글뿐이다.
+- 기능이 꺼져 있어도 `sync`는 실행마다 남은 바깥 경로를 지우는 kubectl 호출을 하나 더 한다. `PREVIEW_PUBLIC_LABEL`과 `PREVIEW_LABEL`이 같은지는 기능이 켜져 있을 때만 본다.
+- 바깥 경로를 지우는 kubectl이 실패하면 그 실행에서는 열린 채 남고 로그에 적으며, 다음 실행이 다시 지운다. 그 사이의 대비책은 아래의 바로 닫는 방법이다.
+- 라벨을 뗀 뒤 닫히기까지는 다음 `sync`가 시작될 때까지다. 보통 1분 안이지만, 앞 실행이 빌드 중이면 그 실행이 끝날 때까지 밀린다. 빌드·fetch·gh 호출에는 시간 제한이 없으므로 상한도 없다. 바로 닫아야 하면 Tunnel의 public hostname을 끄거나 Access 정책을 Block으로 바꾼다.
+- 바깥 경로는 그 PR의 코드를 Access 뒤의 인터넷 쪽에 내놓는다. 협업자 목록에 나오지 않는 쓰기 주체(GitHub App, Actions 토큰)가 PR 브랜치에 push하면 그 head도 다음 `up` 뒤에 다시 열린다. 라벨 미리보기와 같은 전제다.
+
+운영자가 한 번 할 설정은 아래 순서를 지킨다. Access가 앞에 없는 순간이 생기지 않게 하려는 것이다. 예시 값만 적었다.
+
+1. 바깥용 도메인을 정한다. Full setup zone에서 Cloudflare의 Universal SSL은 zone과 그 바로 아래 한 단계만 덮는다. 그래서 `pr-<번호>.<PREVIEW_PUBLIC_DOMAIN>`이 zone 바로 아래 한 단계가 아니면 Advanced Certificate가 필요하다.
+2. **먼저** Access application(self-hosted)을 `*.<PREVIEW_PUBLIC_DOMAIN>`에 만든다. 정책은 Allow 하나이고, 포함 조건은 미리보기를 볼 사람의 이메일이다. 로그인 방법은 One-time PIN이다. Bypass·Everyone 정책과 service token은 두지 않는다. 세션 시간은 짧게 한다.
+3. 그다음 Tunnel에 public hostname `*.<PREVIEW_PUBLIC_DOMAIN>`을 더하고, DNS에 `*` CNAME(proxied)을 둔다. origin은 Traefik http 포트(18180)에 닿는 주소다(예: 위 `tailscale serve`로 연 Mac의 사설망 주소, 또는 내부 도메인용 reverse proxy). Host 헤더는 덮어쓰지 않는다. 덮어쓰면 Ingress가 404를 낸다. Tunnel 규칙의 마지막은 `http_status:404`이고, 같은 Tunnel의 다른 hostname이 같은 origin을 가리키지 않는지 확인한다. origin이 Mac이면 사설망의 접근 규칙이 Tunnel이 도는 기기에서 그 포트로 가는 것을 허용해야 한다.
+4. 쿠키 없이 `curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n'`로 `https://pr-1.<PREVIEW_PUBLIC_DOMAIN>/`, 없는 번호, 아무 이름(`foo.<PREVIEW_PUBLIC_DOMAIN>`)을 요청하고, `-I`(HEAD)로도 한 번 요청한다. 모두 Access 로그인으로 가는 302여야 한다. 두 단계 이름(`a.b.<PREVIEW_PUBLIC_DOMAIN>`)은 인증서 밖이라 TLS가 실패하는 것이 맞다. 200이나 404가 오면 바로 3의 hostname을 지우고 2를 고친다.
+5. 저장소에 라벨 `preview-public`을 만든다.
+6. `sync`를 거는 스케줄러에 `PREVIEW_PUBLIC_DOMAIN`을 더한다(라벨 이름을 바꾸면 `PREVIEW_PUBLIC_LABEL`도).
+7. 열린 PR에 두 라벨을 붙이고, 사설망 밖 기기에서 Access 로그인 뒤 열리는지 본다. 라벨을 떼고 다음 `sync` 뒤 Access를 통과해도 404인지 본다.
 
 #### 주기 실행
 
