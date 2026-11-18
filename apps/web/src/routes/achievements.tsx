@@ -447,7 +447,11 @@ function RecentRow({ row }: { readonly row: Recent }) {
           OPERATIONS_MESSAGES[locale].toolCalls.hidden
         ) : (
           <Link asChild variant="table">
-            <RouterLink to="/sessions/$id" params={{ id: row.session_id }}>
+            <RouterLink
+              to="/sessions/$id"
+              params={{ id: row.session_id }}
+              search={{ tab: "outputs" }}
+            >
               {row.session_title || shortSessionId(row.session_id)}
             </RouterLink>
           </Link>

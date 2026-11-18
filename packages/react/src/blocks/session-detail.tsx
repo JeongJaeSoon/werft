@@ -3,7 +3,15 @@ import type {
   SessionDetail as SessionDetailData,
   SessionUsageResponse,
 } from "@werft-ai/contracts";
-import { Button, formatClockTime } from "@werft-ai/ui";
+import {
+  Button,
+  formatClockTime,
+  PageFrame,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@werft-ai/ui";
 import {
   ArrowDown,
   Bot,
@@ -11,20 +19,14 @@ import {
   Gauge,
   Globe,
   KeyRound,
-  PanelRightClose,
-  PanelRightOpen,
   UserRound,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import {
-  DetailLayout,
-  DetailRail,
-  type DetailRailToggle,
   OPERATIONS_MESSAGES,
   SessionStatusLabel,
   StatusLabel,
   shortSessionId,
-  useDetailRailToggle,
 } from "../components/index.ts";
 import { useFollowEnd } from "../components/session/follow-end.ts";
 import { useWerft } from "../provider.tsx";
@@ -54,10 +56,19 @@ export interface SessionDetailProps extends SessionActionProps {
   /** The host's words for a read that failed, with the way to ask again. */
   readonly renderError: (error: unknown, retry: () => void) => ReactNode;
   /**
-   * The host's sections of the info card under the session's facts, such as
-   * its pull requests and `out/` files (`InfoCardSection`s).
+   * The host's sections of the outputs tab, such as the session's pull
+   * requests and `out/` files. The tab's label counts what `report` was
+   * last given; the panel stays mounted while the chat shows, so it keeps
+   * reading and reporting.
    */
-  readonly panel?: (session: SessionDetailData) => ReactNode;
+  readonly panel?: (
+    session: SessionDetailData,
+    report: (summary: SessionOutputsSummary) => void,
+  ) => ReactNode;
+  /** The open tab; the chat when absent. */
+  readonly tab?: SessionDetailTab | undefined;
+  /** A tab was picked; without it the block keeps the choice itself. */
+  readonly onTabChange?: ((tab: SessionDetailTab) => void) | undefined;
   /**
    * Drawn at the chat's end with the requests waiting for an answer, for
    * work that arrives after a turn ends and has no event of its own, such
@@ -66,11 +77,30 @@ export interface SessionDetailProps extends SessionActionProps {
   readonly timelineExtra?: (session: SessionDetailData) => ReactNode;
 }
 
+export type SessionDetailTab = "chat" | "outputs";
+
+/** What the outputs tab lists, for its label. */
+export interface SessionOutputsSummary {
+  readonly count: number;
+  /** A GitHub refusal is among them: the count turns red and says so. */
+  readonly refused: boolean;
+}
+
+const NO_OUTPUTS: SessionOutputsSummary = { count: 0, refused: false };
+
+// The chat keeps the composer on screen: the frame takes the screen under
+// the top bar and only the chat scrolls. min-content lets a screen too short
+// for that fall back to the page scroll. The outputs tab scrolls the page.
+const CHAT_FRAME =
+  "h-[calc(100dvh-var(--werft-topbar-h))] min-h-min pb-4 [&>[data-slot=page-frame-body]]:min-h-0";
+
 export function SessionDetail({
   id,
   loading,
   renderError,
   panel: panelSections,
+  tab,
+  onTabChange,
   timelineExtra,
   unavailable,
   refusal,
@@ -79,10 +109,15 @@ export function SessionDetail({
   const session = useSession(id);
   const [draft, setDraft] = useState("");
   const [draftFor, setDraftFor] = useState(id);
+  const [ownTab, setOwnTab] = useState<SessionDetailTab>("chat");
+  const [summary, setSummary] = useState(NO_OUTPUTS);
   if (draftFor !== id) {
     setDraftFor(id);
     setDraft("");
+    setSummary(NO_OUTPUTS);
   }
+  const current = onTabChange ? (tab ?? "chat") : ownTab;
+  const changeTab = onTabChange ?? setOwnTab;
   const lostAccess =
     isApiError(session.error, "NOT_FOUND") ||
     isApiError(session.error, "FORBIDDEN");
@@ -98,20 +133,10 @@ export function SessionDetail({
     id,
     `${events.events.at(-1)?.id ?? ""}/${turns.data?.items.length ?? 0}/${pending.data?.items.length ?? 0}`,
   );
-  const sheet = useDetailRailToggle({
-    id: PANEL_ID,
-    storageKey: PANEL_STORAGE_KEY,
-    closeLabel: t("session.panel.fold"),
-    // The route keeps this block mounted from one session to the next.
-    visit: id,
-  });
-  // From 1280px the rail is always there: the head has no button to fold it,
-  // so a fold remembered from before must not hide it.
-  const panel = sheet.wide ? { ...sheet, open: true } : sheet;
 
   if (detail === undefined) {
     return (
-      <DetailLayout>
+      <PageFrame>
         {session.isPending ? (
           loading
         ) : isApiError(session.error, "NOT_FOUND") ? (
@@ -121,7 +146,7 @@ export function SessionDetail({
         ) : (
           renderError(session.error, () => void session.refetch())
         )}
-      </DetailLayout>
+      </PageFrame>
     );
   }
   const waiting = pending.data ? (
@@ -212,24 +237,18 @@ export function SessionDetail({
     </div>
   );
 
-  const rail = (
-    <DetailRail
-      label={t("session.info.title")}
-      toggle={panel}
-      separator="space"
-    >
-      {panelSections?.(detail)}
-    </DetailRail>
-  );
+  // Both panels stay mounted, so a reply being written, an answer in flight
+  // and the outputs' own reads survive a switch; Radix leaves a
+  // force-mounted panel visible and in the tab order.
+  const tabPanel = (name: SessionDetailTab) => ({
+    value: name,
+    forceMount: true as const,
+    hidden: name !== current,
+    tabIndex: name === current ? 0 : -1,
+  });
 
   return (
-    <DetailLayout
-      rail={rail}
-      // The chat keeps the composer on screen: the body takes the screen
-      // under the top bar and only the chat scrolls. min-content lets a
-      // screen too short for that fall back to the page scroll.
-      className="[&>[data-slot=page-frame]]:h-[calc(100dvh-var(--werft-topbar-h))] [&>[data-slot=page-frame]]:min-h-min [&>[data-slot=page-frame]]:pb-4 [&_[data-slot=page-frame-body]]:min-h-0"
-    >
+    <PageFrame className={current === "chat" ? CHAT_FRAME : undefined}>
       <header className="flex min-w-0 flex-col gap-2">
         {/* Top-aligned, so an outcome under the buttons does not move the
             title down; the title is a button tall to stay level with them. */}
@@ -265,8 +284,6 @@ export function SessionDetail({
             session={detail}
             unavailable={unavailable}
             refusal={refusal}
-            // Below 1280px the rail is a sheet, opened from here.
-            trailing={panel.wide ? undefined : <PanelToggle panel={panel} />}
           />
         </div>
         <SessionMeta session={detail} usage={usage.data} />
@@ -274,38 +291,51 @@ export function SessionDetail({
           ? renderError(usage.error, () => void usage.refetch())
           : null}
       </header>
-      <div className="mt-[var(--werft-space-page-head)] flex min-h-0 min-w-0 flex-1 flex-col">
-        {chat}
-      </div>
-    </DetailLayout>
+      <Tabs
+        value={current}
+        onValueChange={(next) => changeTab(next as SessionDetailTab)}
+        className="mt-[var(--werft-space-page-head)] min-h-0 min-w-0 flex-1 gap-[var(--werft-space-block)]"
+      >
+        {/* overflow-y-hidden: the active underline overhangs the row by 1px. */}
+        <div className="overflow-x-auto overflow-y-hidden border-b">
+          <TabsList variant="line" aria-label={t("session.tabs.label")}>
+            <TabsTrigger value="chat">{t("session.tabs.chat")}</TabsTrigger>
+            <TabsTrigger
+              value="outputs"
+              count={summary.count}
+              countTone={summary.refused ? "danger" : undefined}
+              countLabel={t(
+                summary.refused
+                  ? "session.tabs.outputs.refused"
+                  : "session.tabs.outputs.count",
+                { count: summary.count },
+              )}
+            >
+              {t("session.tabs.outputs")}
+            </TabsTrigger>
+          </TabsList>
+        </div>
+        <TabsContent
+          {...tabPanel("chat")}
+          className="flex min-h-0 min-w-0 flex-col"
+        >
+          {chat}
+        </TabsContent>
+        <TabsContent
+          {...tabPanel("outputs")}
+          className="flex min-w-0 flex-col gap-[var(--werft-space-section)]"
+        >
+          {panelSections?.(detail, setSummary)}
+        </TabsContent>
+      </Tabs>
+    </PageFrame>
   );
 }
 
-/** One browser remembers whether the reader folds the session info away. */
+/** One browser remembered whether the reader folded the session info away. */
 export const PANEL_STORAGE_KEY = "ap.session.panel";
-const PANEL_ID = "session-panel";
 /** Names the chat's waiting requests, where focus lands once all are answered. */
 const WAITING_ID = "session-waiting";
-
-/** The head's one button: folds and opens the session info rail. */
-function PanelToggle({ panel }: { readonly panel: DetailRailToggle }) {
-  const { t } = useBlockText();
-  const Icon = panel.open ? PanelRightClose : PanelRightOpen;
-  return (
-    <Button
-      ref={panel.triggerRef}
-      type="button"
-      variant="outline"
-      size="sm"
-      aria-expanded={panel.open}
-      aria-controls={panel.id}
-      onClick={panel.toggle}
-    >
-      <Icon strokeWidth={1.5} aria-hidden="true" />
-      {panel.open ? t("session.panel.fold") : t("session.panel.unfold")}
-    </Button>
-  );
-}
 
 /** Each surface's mark, by the words that name it. */
 const CHANNEL_ICON: Record<

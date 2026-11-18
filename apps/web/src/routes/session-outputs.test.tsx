@@ -14,9 +14,11 @@ import { appHarness } from "../test-support/render-app.tsx";
 
 const { act, renderAt, screen, waitFor, within } = await appHarness();
 
-/** What was the outputs tab now sits in the session info card. */
 async function openOutputs() {
-  await screen.findByRole("complementary", { name: "세션 정보" });
+  await (await setupUser()).click(
+    await screen.findByRole("tab", { name: /^성과물/ }),
+  );
+  return screen.findByRole("tabpanel", { name: /^성과물/ });
 }
 
 const SESSION_ID = "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01";
@@ -176,9 +178,9 @@ describe("session outputs", () => {
       `/sessions/${SESSION_ID}`,
       routes(() => apiError(409, "CHECKPOINT_UNAVAILABLE", "manifest damaged")),
     );
-    await openOutputs();
+    const panel = await openOutputs();
     expect(
-      await screen.findByRole("button", { name: "다시 시도" }),
+      await within(panel).findByRole("button", { name: "다시 시도" }),
     ).toBeTruthy();
     expect(screen.queryByText(/out\/ 폴더에 남긴 파일을 셉니다/)).toBeNull();
   });
@@ -507,7 +509,8 @@ describe("the session's GitHub pull requests", () => {
         );
     expect(intervals("outcomes")).not.toHaveLength(0);
     expect(new Set(intervals("outcomes"))).toEqual(new Set([60_000]));
-    expect(intervals("github-refusals")).toEqual([60_000]);
+    expect(intervals("github-refusals")).not.toHaveLength(0);
+    expect(new Set(intervals("github-refusals"))).toEqual(new Set([60_000]));
   });
 
   test("pull requests without files show no files section", async () => {

@@ -184,4 +184,32 @@ describe("Tabs", () => {
       ),
     ).toBeNull();
   });
+
+  test("countTone은 1 이상일 때만 색 배지이고, 뜻은 countLabel로 읽힌다", () => {
+    const { getByRole } = render(
+      <Tabs defaultValue="a">
+        <TabsList variant="line">
+          <TabsTrigger
+            value="a"
+            count={3}
+            countTone="danger"
+            countLabel="3개, 거절 있음"
+          >
+            성과물
+          </TabsTrigger>
+          <TabsTrigger value="b" count={0} countTone="danger">
+            요청
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>,
+    );
+    const toned = getByRole("tab", { name: "성과물 3개, 거절 있음" });
+    const badge = toned.querySelector<HTMLElement>('[data-slot="item-count"]');
+    expect(badge?.dataset.tone).toBe("danger");
+    expect(badge?.className).toContain("bg-(color:--werft-tone-danger-bg)");
+    const zero = getByRole("tab", {
+      name: "요청 0",
+    }).querySelector<HTMLElement>('[data-slot="item-count"]');
+    expect(zero?.dataset.tone).toBeUndefined();
+  });
 });

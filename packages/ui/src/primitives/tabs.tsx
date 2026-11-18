@@ -9,7 +9,7 @@ import {
 } from "react";
 
 import { cn } from "../foundations/cn.ts";
-import { ItemCount } from "./item-count.tsx";
+import { ItemCount, type ItemCountTone } from "./item-count.tsx";
 
 /*
  * shadcn/ui new-york Tabs. Changed from upstream: no `dark:` variants, the
@@ -99,18 +99,25 @@ export type TabsTriggerProps = ComponentProps<typeof TabsPrimitive.Trigger> & {
    * itself is read after the label.
    */
   readonly countLabel?: ReactNode | undefined;
+  /**
+   * `attention` or `danger` draws a count above 0 as a toned badge, for a
+   * state someone has to act on. The colour says nothing to a screen
+   * reader, so `countLabel` has to say it too.
+   */
+  readonly countTone?: ItemCountTone | undefined;
 };
 
 export function TabsTrigger({
   className,
   count,
   countLabel,
+  countTone,
   children,
   ...props
 }: TabsTriggerProps): JSX.Element {
   const number =
     count === undefined ? null : (
-      <ItemCount count={count} countLabel={countLabel} />
+      <ItemCount count={count} countLabel={countLabel} tone={countTone} />
     );
   // Under asChild the Slot takes exactly one element, so the count goes
   // inside it, after its own children.
