@@ -14,6 +14,7 @@ import { dirname, join, posix, relative, resolve, sep } from "node:path";
 import { GITHUB_MCP_TOOL_ARGUMENTS } from "@werft-ai/contracts";
 import * as ts from "typescript";
 import { type Baseline, baseline, pathFixed } from "./architecture.baseline.ts";
+import { typescriptFiles } from "./typescript-files.ts";
 import { webUiAllowlist } from "./web-ui-allowlist.ts";
 
 const root = join(import.meta.dir, "..");
@@ -69,25 +70,6 @@ async function workspacePackages(repo = root): Promise<string[]> {
     }
   }
   return directories;
-}
-
-async function typescriptFiles(
-  directory: string,
-  keep: (name: string) => boolean,
-): Promise<string[]> {
-  const entries = await readdir(directory, {
-    recursive: true,
-    withFileTypes: true,
-  });
-  return entries
-    .filter(
-      (entry) =>
-        entry.isFile() &&
-        /\.tsx?$/.test(entry.name) &&
-        keep(entry.name) &&
-        !entry.parentPath.includes(`${join(directory, "node_modules")}`),
-    )
-    .map((entry) => join(entry.parentPath, entry.name));
 }
 
 function sourceFiles(directory: string): Promise<string[]> {
