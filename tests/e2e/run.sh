@@ -51,6 +51,7 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 . scripts/lib/real-model-key.sh
 . scripts/lib/seed-credentials.sh
+. tests/e2e/fetch-retry.sh
 
 settings_values() {
   sed -n "s/^ *\"$1\": \"\(.*\)\",\{0,1\}\$/\1/p" "$2" | sort -u
@@ -264,8 +265,9 @@ done <"$out/.events" &
 
 if [ "$conformance" = two_engines ]; then
   echo "== build both worker images" >&2
-  { dc_codex build worker && dc build worker; } >"$out/build.log" 2>&1 ||
-    { tail -50 "$out/build.log" >&2; exit 1; }
+  fetch_retried "$out/build.log" dc_codex build worker &&
+    fetch_retried "$out/build-claude.log" dc build worker ||
+    { tail -50 "$out"/build*.log >&2; exit 1; }
   # Read from each built image as .github/workflows/images.yml does, before
   # the stack starts: the scheduler, api and slack take them at start.
   image_runtime() {
@@ -284,7 +286,7 @@ fi
 
 echo "== build + up (${project})" >&2
 # The command docs/quickstart.md gives, plus the overlay and project above.
-dc up -d --build >"$out/up.log" 2>&1 || { tail -50 "$out/up.log" >&2; exit 1; }
+fetch_retried "$out/up.log" dc up -d --build || { tail -50 "$out/up.log" >&2; exit 1; }
 
 echo "== key" >&2
 api_key="$(dc exec -T api bun run apps/control-host/src/api/keys.ts create e2e-owner \
