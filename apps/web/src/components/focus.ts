@@ -12,3 +12,11 @@ export function focusLeftBehind(inDialog = false): boolean {
     (inDialog && at.closest('[role="dialog"], [role="alertdialog"]') !== null)
   );
 }
+
+/** Focus a button, or, when it is withheld, the box that says why. */
+export function focusOrReason(button: HTMLButtonElement | null): void {
+  (button?.disabled
+    ? button.closest<HTMLElement>("[data-slot=disabled-reason]")
+    : button
+  )?.focus();
+}

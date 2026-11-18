@@ -665,6 +665,102 @@ describe("로그인 공급자 상세", () => {
     ]);
   });
 
+  test.each([
+    ["ready", false],
+    ["needs_test", true],
+  ] as const)(
+    "once it is off the keyboard goes on to turning it back on, not to the page: %s",
+    async (state, withheldOn) => {
+      const on = filled({ state: "enabled", tested_at: AT });
+      const off = { ...on, state };
+      let current: LoginProviderView = on;
+      renderAt(PAGE, {
+        ...routes([]),
+        [`GET ${API}`]: () =>
+          json(200, { providers: [current], console_origin_configured: true }),
+        [`POST ${API}/${ID}/disable`]: () => {
+          current = off;
+          return json(200, { provider: off, sessions_revoked: 0 });
+        },
+      });
+      const user = await setupUser();
+      await user.click(
+        await screen.findByRole("button", { name: "이 공급자 끄기" }),
+      );
+      const dialog = await screen.findByRole("dialog");
+      await user.click(within(dialog).getByRole("button", { name: "끄기" }));
+      const turnOn = await screen.findByRole("button", { name: "켜기" });
+      // A withheld one is reached through the box that says why.
+      const target = withheldOn
+        ? turnOn.closest("[data-slot=disabled-reason]")
+        : turnOn;
+      expect(target === null).toBe(false);
+      await waitFor(() => expect(document.activeElement === target).toBe(true));
+    },
+  );
+
+  test("a keyboard moved elsewhere before the read answers is not pulled back", async () => {
+    const on = filled({ state: "enabled", tested_at: AT });
+    let current: LoginProviderView = on;
+    let release = () => {};
+    let held: Promise<void> | null = null;
+    renderAt(PAGE, {
+      ...routes([]),
+      [`GET ${API}`]: async () => {
+        if (held) await held;
+        return json(200, {
+          providers: [current],
+          console_origin_configured: true,
+        });
+      },
+      [`POST ${API}/${ID}/disable`]: () => {
+        current = { ...on, state: "ready" };
+        held = new Promise((done) => {
+          release = done;
+        });
+        return json(200, { provider: current, sessions_revoked: 0 });
+      },
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "이 공급자 끄기" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "끄기" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBe(null));
+    const rename = screen.getByRole("button", { name: "이름 바꾸기" });
+    rename.focus();
+    held = null;
+    release();
+    await screen.findByRole("button", { name: "켜기" });
+    expect(document.activeElement === rename).toBe(true);
+  });
+
+  test("a refused turning off leaves the keyboard in its dialog, even when the read shows it off", async () => {
+    // Someone else turned it off first; this request is refused as stale.
+    const on = filled({ state: "enabled", tested_at: AT });
+    let current: LoginProviderView = on;
+    renderAt(PAGE, {
+      ...routes([]),
+      [`GET ${API}`]: () =>
+        json(200, { providers: [current], console_origin_configured: true }),
+      [`POST ${API}/${ID}/disable`]: () => {
+        current = { ...on, state: "ready", revision: on.revision + 1 };
+        return apiError(409, "VERSION_MISMATCH", "stale");
+      },
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "이 공급자 끄기" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "끄기" }));
+    // Behind the open dialog, so out of the accessibility tree.
+    await screen.findByRole("button", { name: "켜기", hidden: true });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+
   const closedAccess = (enabled_providers: number) => ({
     "GET /v1/login-settings": () =>
       json(200, {

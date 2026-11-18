@@ -55,10 +55,11 @@ import {
   TooltipTrigger,
 } from "@werft-ai/ui";
 import { CircleAlert, Plus } from "lucide-react";
-import { Fragment, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useHasPermission, useRole } from "../auth/guard.tsx";
 import { LOGIN_DOMAIN_PATTERN, LOGIN_DOMAINS_MAX } from "../auth/limits.ts";
+import { focusLeftBehind, focusOrReason } from "../components/focus.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { Action } from "../components/setting-action.tsx";
@@ -426,7 +427,7 @@ export function LoginProviderScreen() {
       breadcrumb={breadcrumb}
       actions={<StateBadge state={provider.state} />}
     >
-      <ProviderSettings provider={provider} />
+      <ProviderSettings provider={provider} readAt={list.dataUpdatedAt} />
     </Page>
   );
 }
@@ -447,8 +448,11 @@ function redirectOriginElsewhere(redirectUri: string | null): string | null {
 
 function ProviderSettings({
   provider,
+  readAt,
 }: {
   readonly provider: LoginProviderView;
+  /** When the list read last answered, even with the same providers. */
+  readonly readAt: number;
 }) {
   const { t, locale } = useI18n();
   const { client } = useWerft();
@@ -574,11 +578,25 @@ function ProviderSettings({
       onRefused: refused,
     },
   );
+  // Turned off, the button pressed is withheld and the dialog has nothing to
+  // give the keyboard back to; it goes on to turning the provider back on.
+  // Tried once, on the first read that answers after: a read still showing
+  // it on drops the try, as the password login's danger zone does.
+  const enableRef = useRef<HTMLButtonElement>(null);
+  const focusEnable = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs each time the read answers
+  useEffect(() => {
+    if (!focusEnable.current) return;
+    focusEnable.current = false;
+    if (on || !focusLeftBehind(true)) return;
+    focusOrReason(enableRef.current);
+  }, [readAt]);
   const disable = useProviderWrite(
     (api, _: undefined) =>
       unwrap(api.POST("/v1/login-providers/{id}/disable", id)),
     {
       onDone: (answer) => {
+        focusEnable.current = true;
         setEditing(null);
         notice(
           t("loginProviders.done.disabled", { count: answer.sessions_revoked }),
@@ -926,6 +944,7 @@ function ProviderSettings({
                         : t("loginProviders.error.notTested")
                     }
                     busy={busy}
+                    buttonRef={enableRef}
                     onClick={() => {
                       setOutcome(null);
                       enable.mutate(undefined);
