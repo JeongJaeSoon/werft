@@ -999,8 +999,10 @@ describe("사용량·한도", () => {
       "GET /v1/limits": () => json(200, LIMITS),
     });
     const table = await screen.findByRole("table", { name: "한도" });
-    expect(await within(table).findByText("설정 안 됨")).toBeTruthy();
-    expect(within(table).getByText("7 / 10")).toBeTruthy();
+    // Wait on a figure from the response: the row labels render while loading.
+    expect(await within(table).findByText("7 / 10")).toBeTruthy();
+    const tokens = within(table).getByText("세션 토큰").closest("[role=row]");
+    expect(tokens?.textContent).toContain("한도 없음");
   });
 
   const MEMBER_LIMITS = {
@@ -1038,7 +1040,7 @@ describe("사용량·한도", () => {
         ["구성원당 월 비용", "—제공 안 됨", "설정 안 됨"],
         ["구성원당 성과물 저장", "미계측", "한도 없음"],
         ["세션 비용", "세션마다 셉니다", "$25.00"],
-        ["세션 토큰", "세션마다 셉니다", "설정 안 됨"],
+        ["세션 토큰", "세션마다 셉니다", "한도 없음"],
         ["대기 메시지", "세션마다 셉니다", "20건"],
         ["턴 시간", "세션마다 셉니다", "1시간 0분"],
       ]);

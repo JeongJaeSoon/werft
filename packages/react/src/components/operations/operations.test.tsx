@@ -657,7 +657,9 @@ const LIMITS = {
 };
 
 describe("InstallationLimits", () => {
-  test("한도 행마다 현재·한도를 쓰고, 토큰 한도가 null이면 '설정 안 됨', 성과물 저장은 '한도 없음'이다", () => {
+  // null means no token limit: every gate skips the token check
+  // (budgetExceeded), and the settings screen saves it as 0, "no limit".
+  test("한도 행마다 현재·한도를 쓰고, 토큰 한도가 null이면 성과물 저장처럼 '한도 없음'이다", () => {
     const { getByRole } = withPlatform(
       <InstallationLimits limits={LIMITS} timeZone="Asia/Seoul" />,
     );
@@ -675,7 +677,7 @@ describe("InstallationLimits", () => {
       ["입력 보관", "2 GB", "10 GB"],
       ["성과물 저장", "512 MB", "한도 없음"],
       ["세션 비용", "세션마다 셉니다", "$25.00"],
-      ["세션 토큰", "세션마다 셉니다", "설정 안 됨"],
+      ["세션 토큰", "세션마다 셉니다", "한도 없음"],
       ["대기 메시지", "세션마다 셉니다", "20건"],
       ["턴 시간", "세션마다 셉니다", "1시간 0분"],
     ]);
