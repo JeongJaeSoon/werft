@@ -44,6 +44,7 @@ import { type ReactNode, useEffect, useId, useState } from "react";
 import { useKeptFailure } from "../components/kept-failure.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { RowMenu, RowMenuLink } from "../components/row-menu.tsx";
+import { SECTION_BODY } from "../components/section-body.ts";
 import { useI18n } from "../i18n/i18n.tsx";
 import {
   OUT_FILES_ID,
@@ -389,30 +390,32 @@ function SessionGitHubRefusals({
   if (!failed && !kept) return null;
   return (
     <Section className="min-w-0" title={t("session.refusals.title")}>
-      {failed ? (
-        <LoadFailure
-          error={error}
-          kept={kept}
-          stale={kept ? t("session.outputs.stale") : undefined}
-          onRetry={() => void refusals.refetch()}
-        />
-      ) : null}
-      {kept ? (
-        <CompactList>
-          {items.map((refusal) => (
-            <CompactRow key={refusal.receipt_id}>
-              <Text as="span">
-                {t(`agentGitHub.refusal.${refusal.reason_code}`)}
-              </Text>
-              <Text as="span" variant="meta">
-                {t(`agentGitHub.purpose.${refusal.purpose}`)}
-                {" · "}
-                <RelativeTime value={refusal.created_at} locale={locale} />
-              </Text>
-            </CompactRow>
-          ))}
-        </CompactList>
-      ) : null}
+      <div className={SECTION_BODY}>
+        {failed ? (
+          <LoadFailure
+            error={error}
+            kept={kept}
+            stale={kept ? t("session.outputs.stale") : undefined}
+            onRetry={() => void refusals.refetch()}
+          />
+        ) : null}
+        {kept ? (
+          <CompactList>
+            {items.map((refusal) => (
+              <CompactRow key={refusal.receipt_id}>
+                <Text as="span">
+                  {t(`agentGitHub.refusal.${refusal.reason_code}`)}
+                </Text>
+                <Text as="span" variant="meta">
+                  {t(`agentGitHub.purpose.${refusal.purpose}`)}
+                  {" · "}
+                  <RelativeTime value={refusal.created_at} locale={locale} />
+                </Text>
+              </CompactRow>
+            ))}
+          </CompactList>
+        ) : null}
+      </div>
     </Section>
   );
 }
@@ -533,7 +536,11 @@ function SessionOutputs({ session }: { readonly session: SessionDetail }) {
   const summary = t("session.outputs.count", { count: items.length });
   // One line that opens to the files, each with its download.
   return (
-    <section id={OUT_FILES_ID} aria-label={summary} className="min-w-0">
+    <section
+      id={OUT_FILES_ID}
+      aria-label={summary}
+      className={cn("min-w-0", SECTION_BODY)}
+    >
       {failed ? (
         <LoadFailure
           error={error}
