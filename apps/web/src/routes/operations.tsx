@@ -554,20 +554,25 @@ export function OperationsToolsScreen() {
   const [callSort, setCallSort] = useState<ToolCallSort>("recent");
   const detailId = useId();
   const rows = tools.data?.tools;
-  const tool = rows?.find((row) => row.name === picked) ?? rows?.[0];
+  // A pick that left this period's list stays: its calls answer for it.
+  const tool =
+    picked === undefined ? rows?.[0] : rows?.find((row) => row.name === picked);
+  const name = rows && (picked ?? tool?.name);
+  const absent = name !== undefined && tool === undefined;
   const calls = useQuery({
     ...usageToolCallsQuery(
       client,
-      tool?.name ?? "",
+      name ?? "",
       filters.scope,
       since,
       until,
       agentId,
       callSort,
     ),
-    enabled: tool !== undefined,
+    enabled: name !== undefined,
+    // Another period's calls never stand in for a pick this period lacks.
     placeholderData: (previous, previousQuery) =>
-      previousQuery?.queryKey[2] === tool?.name ? previous : undefined,
+      !absent && previousQuery?.queryKey[2] === name ? previous : undefined,
     staleTime: USAGE_STALE_MS,
   });
   const shown = rows && findTools(sortTools(rows, sort), query);
@@ -575,10 +580,11 @@ export function OperationsToolsScreen() {
     tools.isError || rows?.length === 0 ? undefined : (
       <ToolDetail
         id={detailId}
-        // Said only for the reader's own pick: not the first row shown by
-        // default, nor the one that stands in when the pick leaves the list.
-        announce={picked !== undefined && tool?.name === picked}
-        name={tool?.name}
+        // Said only for the reader's own pick, not the first row shown by
+        // default; the words stay while the pick leaves the list and returns.
+        announce={picked !== undefined}
+        absentDays={absent ? filters.days : undefined}
+        name={name}
         tool={tool}
         perDay={calls.data?.per_day}
         calls={calls.data?.calls}

@@ -48,6 +48,12 @@ export interface ToolDetailProps {
   readonly id?: string | undefined;
   /** True once the reader picked this tool: its heading is then said once. */
   readonly announce?: boolean | undefined;
+  /**
+   * The period's days when the picked tool is not in that period's list.
+   * The figures only its row holds are then left out, not drawn as 0; the
+   * chart and the calls still come from its calls' answer.
+   */
+  readonly absentDays?: number | undefined;
   readonly messages?: Partial<ToolDetailMessages> | undefined;
 }
 
@@ -93,16 +99,46 @@ export function ToolDetail({
   error,
   id,
   announce = false,
+  absentDays,
   messages: override,
 }: ToolDetailProps): JSX.Element {
   const titleId = useId();
   const { messages, format } = useOperationsMessages("toolDetail", override);
+  // The period picker's own word for the period.
+  const period = useOperationsMessages("usageFilters", undefined).messages.days;
   const days = perDay?.slice(-TOOL_DETAIL_DAYS);
   const peak = days?.reduce(
     (a, b) => (b.calls > a.calls ? b : a),
     days[0] ?? { date: "", calls: 0 },
   );
   const total = days?.reduce((sum, d) => sum + d.calls, 0) ?? 0;
+  // The list's row alone holds these.
+  const figures = [
+    {
+      label: messages.calls,
+      value: tool && messages.callsValue(format.count(tool.calls)),
+    },
+    {
+      label: messages.total,
+      value: tool && format.elapsed(tool.total_ms),
+    },
+    {
+      label: messages.median,
+      value: tool && format.elapsed(tool.median_ms),
+    },
+    {
+      label: messages.failed,
+      value:
+        tool &&
+        messages.failedValue(
+          format.count(tool.failed),
+          format.percent(tool.failed, tool.calls),
+        ),
+    },
+  ].map((item) => ({
+    label: item.label,
+    value: <Value>{item.value}</Value>,
+  }));
   return (
     <>
       <div
@@ -123,6 +159,11 @@ export function ToolDetail({
             {note}
           </Text>
         ) : null}
+        {absentDays === undefined ? null : (
+          <Text as="p" variant="meta" data-slot="tool-detail-absent">
+            {messages.absent(period(absentDays))}
+          </Text>
+        )}
         <output className="sr-only">
           {announce && name !== undefined ? `${messages.label} ${name}` : ""}
         </output>
@@ -133,35 +174,14 @@ export function ToolDetail({
         data-slot="tool-detail"
         className="min-w-0"
       >
-        <div className="grid gap-6 @min-[48rem]:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-          <KeyValueList
-            items={[
-              {
-                label: messages.calls,
-                value: tool && messages.callsValue(format.count(tool.calls)),
-              },
-              {
-                label: messages.total,
-                value: tool && format.elapsed(tool.total_ms),
-              },
-              {
-                label: messages.median,
-                value: tool && format.elapsed(tool.median_ms),
-              },
-              {
-                label: messages.failed,
-                value:
-                  tool &&
-                  messages.failedValue(
-                    format.count(tool.failed),
-                    format.percent(tool.failed, tool.calls),
-                  ),
-              },
-            ].map((item) => ({
-              label: item.label,
-              value: <Value>{item.value}</Value>,
-            }))}
-          />
+        <div
+          className={
+            absentDays === undefined
+              ? "grid gap-6 @min-[48rem]:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]"
+              : undefined
+          }
+        >
+          {absentDays === undefined ? <KeyValueList items={figures} /> : null}
           <Section
             titleAs="h3"
             className="min-w-0"
