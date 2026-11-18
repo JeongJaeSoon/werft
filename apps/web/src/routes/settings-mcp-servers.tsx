@@ -138,6 +138,7 @@ function McpCatalog({
   const { t } = useI18n();
   return (
     <div className="flex flex-col gap-[var(--werft-space-block)]">
+      <OutcomeLine outcome={outcome} live />
       {servers.isPending ? (
         <Skeleton width="60%" label={t("status.loading.title")} />
       ) : servers.isError ? (
@@ -190,7 +191,6 @@ function McpCatalog({
           ))}
         </GridTable>
       )}
-      <OutcomeLine outcome={outcome} live />
     </div>
   );
 }

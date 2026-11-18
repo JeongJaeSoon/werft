@@ -101,6 +101,7 @@ export function ModelConnections() {
       }
     >
       <div className="flex flex-col gap-[var(--werft-space-block)]">
+        <OutcomeLine outcome={outcome} live />
         {connections.isPending ? (
           <Skeleton width="60%" label={t("status.loading.title")} />
         ) : connections.isError ? (
@@ -169,7 +170,6 @@ export function ModelConnections() {
             ))}
           </GridTable>
         )}
-        <OutcomeLine outcome={outcome} live />
       </div>
       <AddConnection
         open={adding}
