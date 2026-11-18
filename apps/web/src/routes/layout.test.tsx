@@ -221,8 +221,7 @@ describe("app shell", () => {
 
   // V4-PAGE-FRAME: settings and forms used to stop at 1100px. Home and the
   // sessions list answer waiting requests on the line, and the tools tab
-  // shows the picked tool under its table, with no rail to frame their own
-  // body beside.
+  // shows the picked tool under its table, so they sit in the shared frame.
   for (const [path, title] of [
     ["/", "홈"],
     ["/sessions", "세션"],

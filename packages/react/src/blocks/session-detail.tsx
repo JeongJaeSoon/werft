@@ -289,7 +289,6 @@ export function SessionDetail({
             </span>
           </h1>
           <SessionControls
-            variant="head"
             session={detail}
             unavailable={unavailable}
             refusal={refusal}
@@ -342,8 +341,6 @@ export function SessionDetail({
   );
 }
 
-/** One browser remembered whether the reader folded the session info away. */
-export const PANEL_STORAGE_KEY = "ap.session.panel";
 /** Names the chat's waiting requests, where focus lands once all are answered. */
 const WAITING_ID = "session-waiting";
 

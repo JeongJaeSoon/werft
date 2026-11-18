@@ -11,7 +11,6 @@ export {
   type SessionChatProps,
 } from "./session-chat.tsx";
 export {
-  PANEL_STORAGE_KEY,
   SessionDetail,
   type SessionDetailProps,
   type SessionDetailTab,

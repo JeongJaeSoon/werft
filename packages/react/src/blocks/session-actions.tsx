@@ -631,22 +631,19 @@ const CONTROL_ICON = {
 
 export interface SessionControlsProps extends SessionActionProps {
   readonly session: SessionDetailData;
-  /**
-   * `head`, for a page header, draws each command with its icon and label
-   * from 1280px and as a square icon below, where the body is too narrow to
-   * keep the title beside labelled buttons; `icons` draws square icon
-   * buttons at every width; `buttons` (the default) draws labelled buttons.
-   */
-  readonly variant?: "buttons" | "head" | "icons";
   /** Drawn after the commands at the right end of their row, such as a back link. */
   readonly trailing?: ReactNode;
 }
 
+/**
+ * The session's commands for its page header: each with its icon and label
+ * from 1280px, and as a square icon below, where the body is too narrow to
+ * keep the title beside labelled buttons.
+ */
 export function SessionControls({
   session,
   unavailable,
   refusal,
-  variant = "buttons",
   trailing,
 }: SessionControlsProps) {
   const { t } = useBlockText();
@@ -716,8 +713,6 @@ export function SessionControls({
     });
   };
 
-  const head = variant !== "buttons";
-  const icons = variant === "icons";
   const buttons = actions.map((action) => {
     const label = t(`session.control.${action}`);
     const Icon = CONTROL_ICON[action];
@@ -725,42 +720,28 @@ export function SessionControls({
       <Button
         type="button"
         data-action={action}
-        variant={action === "terminate" && !head ? "destructive" : "outline"}
+        variant="outline"
         // Not `disabled`: Chrome takes focus off a disabled button, and the
         // keyboard would lose its place while a command runs; a withheld one
         // still takes hover and focus to say why.
         aria-disabled={reason !== undefined || control.isPending || undefined}
-        size={icons ? "icon-sm" : "sm"}
+        size="sm"
         className={cn(
-          "aria-disabled:opacity-50",
-          head &&
-            action === "terminate" &&
-            "text-destructive hover:text-destructive",
-          head &&
-            !icons &&
-            "max-xl:w-[var(--werft-control-height-sm)] max-xl:px-0",
+          "aria-disabled:opacity-50 max-xl:w-[var(--werft-control-height-sm)] max-xl:px-0",
+          action === "terminate" && "text-destructive hover:text-destructive",
         )}
-        aria-label={icons ? label : undefined}
         // The ui Tooltip opens on a press too, which a command cannot share;
         // the native one names the icon where the label is hidden. A
         // withheld command has nothing to press, so it shows the reason.
-        title={head && reason === undefined ? label : undefined}
+        title={reason === undefined ? label : undefined}
         onClick={() => {
           if (reason !== undefined || control.isPending) return;
           if (action === "terminate") setConfirming(true);
           else run(action);
         }}
       >
-        {icons ? (
-          <Icon strokeWidth={1.5} aria-hidden="true" />
-        ) : head ? (
-          <>
-            <Icon strokeWidth={1.5} aria-hidden="true" />
-            <span className="max-xl:sr-only">{label}</span>
-          </>
-        ) : (
-          label
-        )}
+        <Icon strokeWidth={1.5} aria-hidden="true" />
+        <span className="max-xl:sr-only">{label}</span>
       </Button>
     );
     // One tree either way, so a reason that clears keeps the focus.
@@ -786,37 +767,24 @@ export function SessionControls({
 
   return (
     <>
-      {head ? (
-        // Under the title on a narrow page, the row starts at the left. Sized
-        // by its buttons, so a title that leaves too little room puts the
-        // whole row on a line of its own instead of folding the buttons.
-        <div className="flex min-w-0 flex-auto flex-col items-start gap-1 md:items-end">
-          <div className="flex flex-wrap items-center gap-2 self-stretch md:justify-end">
-            {actions.length === 0 ? null : group}
-            {trailing === undefined ? null : (
-              <div className="ms-auto flex">{trailing}</div>
-            )}
-          </div>
-          {/* No say in the width: a long outcome would push the buttons
-              under the title right after a press. */}
-          <OutcomeLine
-            ref={outcomeRef}
-            outcome={outcome}
-            className="w-0 min-w-full md:text-end"
-          />
-        </div>
-      ) : (
-        <>
-          {actions.length === 0 ? (
-            <p className="m-0 text-muted-foreground text-body">
-              {t("session.control.none")}
-            </p>
-          ) : (
-            group
+      {/* Under the title on a narrow page, the row starts at the left. Sized
+          by its buttons, so a title that leaves too little room puts the
+          whole row on a line of its own instead of folding the buttons. */}
+      <div className="flex min-w-0 flex-auto flex-col items-start gap-1 md:items-end">
+        <div className="flex flex-wrap items-center gap-2 self-stretch md:justify-end">
+          {actions.length === 0 ? null : group}
+          {trailing === undefined ? null : (
+            <div className="ms-auto flex">{trailing}</div>
           )}
-          <OutcomeLine ref={outcomeRef} outcome={outcome} />
-        </>
-      )}
+        </div>
+        {/* No say in the width: a long outcome would push the buttons
+            under the title right after a press. */}
+        <OutcomeLine
+          ref={outcomeRef}
+          outcome={outcome}
+          className="w-0 min-w-full md:text-end"
+        />
+      </div>
       <ConfirmDialog
         open={confirming}
         onOpenChange={(open) => {

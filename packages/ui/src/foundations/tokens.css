@@ -266,7 +266,6 @@
     /* The 768px reading column of 02 UX 설계 §6. */
     --werft-layout-reading-width: 48rem;
     --werft-layout-sidebar-width: 14.75rem;
-    --werft-layout-detail-panel-width: 21.25rem;
     /*
      * Table and list rows (console design v30): a row is at least 48px and a
      * header row 40px. Lines stacked in one cell sit 2px apart. A GridTable

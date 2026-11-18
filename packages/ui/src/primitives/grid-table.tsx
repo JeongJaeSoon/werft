@@ -27,8 +27,8 @@ import { cn } from "../foundations/cn.ts";
  * widths are the ones v4 uses, each a fixed class Tailwind can see.
  */
 const NARROW = {
-  // A table beside a 400px rail at 1280px is about 600px wide and keeps
-  // every column; only a phone's drops some. Exclusive, because a half of a
+  // A table about 600px wide keeps every column; only a phone's drops
+  // some. Exclusive, because a half of a
   // two-column row at 1280px is exactly 480px and keeps its columns.
   480: {
     table:

@@ -471,14 +471,14 @@ describe("사용량·한도", () => {
     ).toBe("page");
     expect(document.querySelector("[data-slot=page-flush]")).toBeNull();
     expect(screen.queryByRole("complementary")).toBeNull();
-    const rail = screen.getByRole("region", { name: "선택한 도구 Bash" });
+    const detail = screen.getByRole("region", { name: "선택한 도구 Bash" });
     // The heading is read on screen, not only by name, and it sits outside
     // the section so it can stick to the screen's bottom over a long table.
     const heading = screen.getByRole("heading", {
       level: 2,
       name: "선택한 도구 Bash",
     });
-    expect(rail.getAttribute("aria-labelledby")).toBe(heading.id);
+    expect(detail.getAttribute("aria-labelledby")).toBe(heading.id);
     expect(heading.querySelector(".sr-only")).toBeNull();
     const head = heading.closest("[data-slot=tool-detail-head]");
     expect(head?.className).toContain("sticky");
@@ -487,25 +487,25 @@ describe("사용량·한도", () => {
     // from it: nothing pulls the section up under it, whatever the box's gap.
     expect(head?.parentElement?.contains(table)).toBe(true);
     expect(head?.className).toContain("mt-8");
-    expect(rail.className).not.toMatch(/(^|\s)-m[ty]?-/);
+    expect(detail.className).not.toMatch(/(^|\s)-m[ty]?-/);
     // The first row is shown by default; nothing is said for it.
     expect(head?.querySelector("output")?.textContent).toBe("");
     expect(
       within(table)
         .getAllByRole("button", { name: /자세히 보기$/ })
         .map((opener) => opener.getAttribute("aria-controls")),
-    ).toEqual([rail.id, rail.id, rail.id, rail.id]);
+    ).toEqual([detail.id, detail.id, detail.id, detail.id]);
     expect(
-      table.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING,
+      table.compareDocumentPosition(detail) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    const items = await within(rail).findAllByRole("listitem");
+    const items = await within(detail).findAllByRole("listitem");
     expect(items.map((item) => item.textContent)).toEqual([
       "Bash 리뷰리뷰 봇 · 12:39—결과 모름",
       "볼 수 없는 세션배포 도우미 · 12:3641.2초완료",
       "에이전트 없는 세션12:313.4초실패",
     ]);
     expect(
-      within(rail)
+      within(detail)
         .getAllByRole("link")
         .map((a) => a.getAttribute("href")),
     ).toEqual([
@@ -513,7 +513,7 @@ describe("사용량·한도", () => {
       "/sessions/22222222-2222-4222-8222-222222222222",
     ]);
     expect(
-      within(rail)
+      within(detail)
         .getByRole("img", { name: /^Bash 일자별 호출/ })
         .getAttribute("aria-label"),
     ).toBe("Bash 일자별 호출, 최근 14일, 합계 329번, 가장 많은 날 10/24 30번");
@@ -539,11 +539,11 @@ describe("사용량·한도", () => {
       name: "Edit 자세히 보기",
     });
     await user.click(pick);
-    const rail = await screen.findByRole("region", {
+    const detail = await screen.findByRole("region", {
       name: "선택한 도구 Edit",
     });
     await waitFor(() =>
-      expect(within(rail).getByText("Edit 리뷰")).toBeTruthy(),
+      expect(within(detail).getByText("Edit 리뷰")).toBeTruthy(),
     );
     // The section fills in under the table; the keyboard stays on the row,
     // and the pick is said once in the heading's words.

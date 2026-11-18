@@ -297,7 +297,7 @@ const detailRoutes = {
 };
 
 describe("approval inbox", () => {
-  // A request is answered on its own line; there is no rail to open.
+  // A request is answered on its own line.
   const allowOnLine = async () =>
     within(await screen.findByRole("region", { name: "답변 대기" })).findByRole(
       "button",
@@ -2950,8 +2950,7 @@ describe("세션 상세 레이아웃", () => {
       within(trail).getByRole("link", { name: "세션" }).getAttribute("href"),
     ).toBe("/sessions");
     expect(heading.textContent).toContain("답변 대기");
-    // From 1280px the rail always shows: no fold button, only the commands
-    // and the id's copy button.
+    // The head holds only the commands and the id's copy button.
     const controls = within(header).getByRole("group", { name: "세션 조작" });
     expect(
       within(controls)
@@ -2970,7 +2969,7 @@ describe("세션 상세 레이아웃", () => {
     ).toEqual(["세션 ID 복사"]);
     expect(header.textContent).not.toContain("model-default");
 
-    // No rail any more: what it held is the body's outputs tab.
+    // Nothing sits beside the body: the session's info is its outputs tab.
     expect(screen.queryByRole("complementary")).toBeNull();
     expect(
       screen.getAllByRole("group", { name: "세션 조작", hidden: true }),
@@ -3017,10 +3016,6 @@ describe("세션 상세 레이아웃", () => {
           "일시 정지",
           "세션 종료",
         ]);
-        // The rail and its sheet are gone at every width.
-        expect(
-          within(header).queryByRole("button", { name: "세션 정보 펼치기" }),
-        ).toBeNull();
 
         await user.click(
           within(controls).getByRole("button", { name: "일시 정지" }),
