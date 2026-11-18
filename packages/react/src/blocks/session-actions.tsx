@@ -631,8 +631,6 @@ const CONTROL_ICON = {
 
 export interface SessionControlsProps extends SessionActionProps {
   readonly session: SessionDetailData;
-  /** Drawn after the commands at the right end of their row, such as a back link. */
-  readonly trailing?: ReactNode;
 }
 
 /**
@@ -644,7 +642,6 @@ export function SessionControls({
   session,
   unavailable,
   refusal,
-  trailing,
 }: SessionControlsProps) {
   const { t } = useBlockText();
   const control = useSessionControl(session.id);
@@ -773,9 +770,6 @@ export function SessionControls({
       <div className="flex min-w-0 flex-auto flex-col items-start gap-1 md:items-end">
         <div className="flex flex-wrap items-center gap-2 self-stretch md:justify-end">
           {actions.length === 0 ? null : group}
-          {trailing === undefined ? null : (
-            <div className="ms-auto flex">{trailing}</div>
-          )}
         </div>
         {/* No say in the width: a long outcome would push the buttons
             under the title right after a press. */}
