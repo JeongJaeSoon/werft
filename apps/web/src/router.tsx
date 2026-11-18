@@ -68,8 +68,10 @@ import {
 } from "./routes/provider-callback.tsx";
 import {
   SessionDetailScreen,
+  type SessionSearch,
   SessionsScreen,
   type SessionsSearch,
+  sessionSearch,
   sessionsSearch,
 } from "./routes/sessions.tsx";
 import { ConnectionsScreen } from "./routes/settings-connections.tsx";
@@ -218,6 +220,8 @@ const sessions = createRoute({
 const session = createRoute({
   getParentRoute: () => authed,
   path: "/sessions/$id",
+  validateSearch: (search: Record<string, unknown>): SessionSearch =>
+    sessionSearch(search),
   component: SessionDetailScreen,
 });
 

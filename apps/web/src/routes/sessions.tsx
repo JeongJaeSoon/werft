@@ -109,6 +109,15 @@ export function sessionsSearch(
   };
 }
 
+export interface SessionSearch {
+  /** Absent for the chat, so a plain session link opens it. */
+  readonly tab?: "outputs";
+}
+
+export function sessionSearch(search: Record<string, unknown>): SessionSearch {
+  return search.tab === "outputs" ? { tab: "outputs" } : {};
+}
+
 export function SessionsScreen() {
   const { t } = useI18n();
   const unavailable = useUnavailable();
@@ -450,15 +459,27 @@ export function useUnavailable(): SessionActionProps["unavailable"] {
 export function SessionDetailScreen() {
   const { t } = useI18n();
   const { id } = useParams({ from: "/authed/sessions/$id" });
+  const { tab } = sessionSearch(useSearch({ from: "/authed/sessions/$id" }));
+  const navigate = useNavigate({ from: "/sessions/$id" });
   const unavailable = useUnavailable();
   return (
     // The screen fills the area under the top bar, so the chat reaches the bottom.
     <div className="flex flex-1 flex-col">
       <SessionDetail
         id={id}
+        tab={tab ?? "chat"}
+        onTabChange={(next) =>
+          void navigate({
+            search: ({ tab: _, ...rest }) =>
+              next === "chat" ? rest : { ...rest, tab: next },
+            replace: true,
+          })
+        }
         loading={<StatusScreen kind="loading" />}
         renderError={loadError}
-        panel={(session) => <SessionOutputsPanel session={session} />}
+        panel={(session, report) => (
+          <SessionOutputsPanel session={session} onSummary={report} />
+        )}
         timelineExtra={(session) => <SessionGitHubWork session={session} />}
         unavailable={unavailable}
         refusal={(error) => t(errorKey(error.code))}

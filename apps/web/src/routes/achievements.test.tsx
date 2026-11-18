@@ -315,7 +315,7 @@ describe("성과", () => {
       screen
         .getAllByRole("link", { name: "결제 실패 시 주문이 두 번 생긴다" })[0]
         ?.getAttribute("href"),
-    ).toBe(`/sessions/${SESSION}`);
+    ).toBe(`/sessions/${SESSION}?tab=outputs`);
     expect(
       screen.getByText(
         "확인 필요 성과는 오너·어드민과 그 에이전트의 관리자가 확인합니다.",

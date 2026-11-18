@@ -178,6 +178,10 @@ export const sessionsKo = {
   "session.info.cost": "비용",
   "session.info.changes": "변경 파일",
   "session.controls.title": "세션 조작",
+  "session.tabs.chat": "대화",
+  "session.tabs.outputs": "성과물",
+  "session.tabs.outputs.count": "{count}개",
+  "session.tabs.outputs.refused": "{count}개, GitHub 거절 있음",
   "session.composer.placeholder": "메시지를 입력하세요",
   "session.answer.notAnswerer":
     "이 세션을 시작한 사람, 에이전트 관리자, 워크스페이스 오너·어드민만 답할 수 있습니다.",
@@ -512,6 +516,10 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.info.cost": "Cost",
   "session.info.changes": "Changed files",
   "session.controls.title": "Session controls",
+  "session.tabs.chat": "Conversation",
+  "session.tabs.outputs": "Outputs",
+  "session.tabs.outputs.count": "{count}",
+  "session.tabs.outputs.refused": "{count}, with GitHub refusals",
   "session.composer.placeholder": "Type a message",
   "session.answer.notAnswerer":
     "Only the session's creator, its agent's admins and the workspace's owners and admins can answer.",
@@ -848,6 +856,10 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.info.cost": "コスト",
   "session.info.changes": "変更ファイル",
   "session.controls.title": "セッション操作",
+  "session.tabs.chat": "会話",
+  "session.tabs.outputs": "成果物",
+  "session.tabs.outputs.count": "{count}件",
+  "session.tabs.outputs.refused": "{count}件、GitHub の拒否あり",
   "session.composer.placeholder": "メッセージを入力",
   "session.answer.notAnswerer":
     "このセッションを開始した人、エージェント管理者、ワークスペースのオーナー・アドミンのみ回答できます。",

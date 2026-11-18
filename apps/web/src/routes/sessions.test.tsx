@@ -124,11 +124,6 @@ beforeEach(() => {
   globalThis.localStorage?.clear();
 });
 
-/** Switches the timeline from focus to every event. */
-/** The session info card beside the chat. */
-async function infoCard() {
-  return screen.findByRole("complementary", { name: "세션 정보" });
-}
 /** The head's one line under the title: id, agent, channel, cost and tokens. */
 async function sessionMeta() {
   return waitFor(() => {
@@ -2101,7 +2096,7 @@ describe("session detail", () => {
           cost: { ...usage.cost, open_turn_count: 0, unreported_turn_count: 1 },
         }),
     });
-    await infoCard();
+    await sessionMeta();
     expect(
       await screen.findByText(/비용을 보고하지 않고 끝난 턴이 있어/),
     ).toBeTruthy();
@@ -2963,7 +2958,7 @@ describe("세션 상세 레이아웃", () => {
     },
   );
 
-  test("넓은 화면의 머리는 제목·상태 옆에 세션 조작 묶음을 두고, 레일에는 조작이 없다", async () => {
+  test("넓은 화면의 머리는 제목·상태 옆에 세션 조작 묶음을 두고, 레일은 없다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     const heading = await screen.findByRole("heading", { level: 1 });
     const header = heading.closest("header") as HTMLElement;
@@ -2994,14 +2989,11 @@ describe("세션 상세 레이아웃", () => {
     ).toEqual(["세션 ID 복사"]);
     expect(header.textContent).not.toContain("model-default");
 
-    const card = await infoCard();
-    expect(within(card).queryByRole("group", { name: "세션 조작" })).toBeNull();
+    // No rail any more: what it held is the body's outputs tab.
+    expect(screen.queryByRole("complementary")).toBeNull();
     expect(
-      within(card).queryByRole("region", { name: "세션 조작" }),
-    ).toBeNull();
-    expect(card.querySelector("[data-action]")).toBeNull();
-    // The rail holds no overview: the meta line under the title has it.
-    expect(card.textContent).not.toContain("에이전트");
+      screen.getAllByRole("group", { name: "세션 조작", hidden: true }),
+    ).toEqual([controls]);
     const meta = await sessionMeta();
     await waitFor(() => expect(meta.textContent).toContain("<$0.01"));
   });
@@ -3044,10 +3036,10 @@ describe("세션 상세 레이아웃", () => {
           "일시 정지",
           "세션 종료",
         ]);
+        // The rail and its sheet are gone at every width.
         expect(
-          within(header).queryByRole("button", { name: "세션 정보 펼치기" }) !==
-            null,
-        ).toBe(!wide);
+          within(header).queryByRole("button", { name: "세션 정보 펼치기" }),
+        ).toBeNull();
 
         await user.click(
           within(controls).getByRole("button", { name: "일시 정지" }),
@@ -3267,11 +3259,15 @@ describe("세션 상세 레이아웃", () => {
     expect(
       chat.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    const layout = document.querySelector('[data-slot="detail-layout"]');
-    const body = layout?.firstElementChild?.firstElementChild;
-    expect(body?.getAttribute("data-slot")).toBe("page-frame-body");
-    expect(body?.contains(composer)).toBe(true);
-    expect(layout?.lastElementChild?.tagName).toBe("ASIDE");
+    const panel = composer.closest('[role="tabpanel"]');
+    expect(panel?.getAttribute("aria-labelledby")).toBe(
+      screen.getByRole("tab", { name: "대화" }).id,
+    );
+    expect(panel?.contains(chat)).toBe(true);
+    expect(
+      panel?.closest('[data-slot="page-frame-body"]')?.contains(composer),
+    ).toBe(true);
+    expect(document.querySelector("aside")).toBeNull();
   });
   test.each([
     ["loading", () => new Promise<Response>(() => {})],
@@ -3298,23 +3294,237 @@ describe("세션 상세 레이아웃", () => {
     },
   );
 
-  test("세션 정보는 어느 폭에서나 본문 다음에 읽고, 요청이 없어도 작성창은 본문에 있다", async () => {
+  test("본문은 대화·성과물 탭이고, 주소의 ?tab=outputs가 성과물을 열며 탭을 바꾸면 주소를 바꿔 쓴다", async () => {
+    const user = await setupUser();
+    const { history } = renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    const tabs = await screen.findByRole("tablist", { name: "세션 상세" });
+    expect(
+      within(tabs)
+        .getByRole("tab", { name: "대화" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(
+      within(tabs)
+        .getByRole("tab", { name: /^성과물/ })
+        .getAttribute("aria-selected"),
+    ).toBe("false");
+    expect(within(tabs).getAllByRole("tab")).toHaveLength(2);
+    const before = history.length;
+    await user.click(within(tabs).getByRole("tab", { name: /^성과물/ }));
+    await waitFor(() => expect(history.location.search).toBe("?tab=outputs"));
+    await user.click(within(tabs).getByRole("tab", { name: "대화" }));
+    await waitFor(() => expect(history.location.search).toBe(""));
+    // Replaced, so Back leaves the session instead of walking the tabs.
+    expect(history.length).toBe(before);
+  });
+
+  test("?tab=outputs로 열면 성과물 탭이 열려 있다", async () => {
+    renderAt(`/sessions/${SESSION_ID}?tab=outputs`, detailRoutes);
+    const tab = await screen.findByRole("tab", { name: /^성과물/ });
+    expect(tab.getAttribute("aria-selected")).toBe("true");
+    expect(
+      await screen.findByRole("tabpanel", { name: /^성과물/ }),
+    ).toBeTruthy();
+  });
+
+  test("대화 탭을 보는 동안에도 성과물 패널은 마운트되어 읽기를 이어 간다", async () => {
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    await screen.findByRole("textbox", { name: "다음 지시" });
+    // The detail has a repository, so the panel asks for its pull requests.
+    await waitFor(() =>
+      expect(
+        api.calls.some(
+          (call) => call.path === `/v1/sessions/${SESSION_ID}/outcomes`,
+        ),
+      ).toBe(true),
+    );
+    const panel = document.getElementById(
+      screen
+        .getByRole("tab", { name: /^성과물/ })
+        .getAttribute("aria-controls") ?? "",
+    );
+    expect(panel?.hidden).toBe(true);
+    expect(panel?.getAttribute("tabindex")).toBe("-1");
+    // A host without Tailwind's preflight lets `flex` win over `hidden`;
+    // the class hides the inactive panel there too.
+    const chat = screen.getByRole("tabpanel", { name: "대화" });
+    for (const [each, state] of [
+      [panel, "inactive"],
+      [chat, "active"],
+    ] as const) {
+      expect(each?.getAttribute("data-state")).toBe(state);
+      expect(each?.className.split(" ")).toContain(
+        "data-[state=inactive]:hidden",
+      );
+    }
+  });
+
+  const pull = (n: number) => ({
+    id: `019a0000-0000-7000-8000-0000000001${String(n).padStart(2, "0")}`,
+    type: "github_pull_request",
+    url: `https://github.com/acme/demo/pull/${n}`,
+    repository_id: "demo",
+    external_id: String(n),
+    state: "open",
+    state_changed_at: AT,
+    merged_at: null,
+    closed_at: null,
+    state_checked_at: AT,
+    check_error: null,
+    metadata: {
+      title: `Change ${n}`,
+      head: `agent/${SESSION_ID}`,
+      base: "main",
+      adopted: false,
+      merge_commit_sha: null,
+      additions: null,
+      deletions: null,
+      changed_files: null,
+      commits: null,
+    },
+    created_at: AT,
+  });
+  const refusal = (n: number) => ({
+    receipt_id: `019a0000-0000-7000-8000-0000000002${String(n).padStart(2, "0")}`,
+    operation: "mint_github_token",
+    purpose: "push",
+    reason_code: "github_disabled",
+    created_at: AT,
+  });
+  /** Every list the outputs tab counts, answered for one session. */
+  const outputsRoutes = (id: string, pulls: number, refusals: number) => ({
+    [`GET /v1/sessions/${id}/outcomes`]: () =>
+      json(200, { items: Array.from({ length: pulls }, (_, n) => pull(n)) }),
+    [`GET /v1/sessions/${id}/achievements`]: () =>
+      json(200, {
+        items: [],
+        judgment: null,
+        judgment_count: 0,
+        judge_cost_usd: 0,
+      }),
+    [`GET /v1/sessions/${id}/github/refusals`]: () =>
+      json(200, {
+        items: Array.from({ length: refusals }, (_, n) => refusal(n)),
+      }),
+  });
+  const outputsTab = () => screen.getByRole("tab", { name: /^성과물/ });
+  const toneOf = (tab: HTMLElement) =>
+    tab.querySelector("[data-tone]")?.getAttribute("data-tone") ?? null;
+
+  test("성과물 탭의 개수는 탭에 보이는 PR·성과·out/ 파일·GitHub 거절을 모두 세고, 거절이 있으면 위험 색과 이름으로 알린다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
-      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
-        json(200, { answerable: true, items: [] }),
+      ...outputsRoutes(SESSION_ID, 1, 1),
     });
-    const composer = await screen.findByRole("textbox", { name: "다음 지시" });
-    expect(composer.closest("aside")).toBeNull();
-    await infoCard();
-    // One landmark, after the body in the DOM: below 1280px it is a sheet,
-    // never ahead of the body.
-    const [aside, ...others] = screen.getAllByRole("complementary");
-    expect(others).toHaveLength(0);
+    const tab = await screen.findByRole("tab", {
+      name: "성과물 2개, GitHub 거절 있음",
+    });
+    expect(tab.querySelector("[data-slot=item-count]")?.textContent).toBe("2");
+    expect(toneOf(tab)).toBe("danger");
+  });
+
+  test("거절만 있고 다른 성과물이 없어도 탭은 위험 색으로 알린다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      ...outputsRoutes(SESSION_ID, 0, 1),
+    });
+    const tab = await screen.findByRole("tab", {
+      name: "성과물 1개, GitHub 거절 있음",
+    });
+    expect(toneOf(tab)).toBe("danger");
+  });
+
+  test.each(["loading", "failed"] as const)(
+    "%s: 아직 답하지 않은 목록이 있으면 개수를 0으로 그리지 않는다",
+    async (state) => {
+      const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+        ...detailRoutes,
+        ...outputsRoutes(SESSION_ID, 0, 0),
+        [`GET /v1/sessions/${SESSION_ID}/outcomes`]: () =>
+          state === "loading"
+            ? new Promise<Response>(() => {})
+            : apiError(503, "BACKEND_UNAVAILABLE", "down"),
+      });
+      await waitFor(() =>
+        expect(
+          ["outcomes", "achievements", "github/refusals"].every((list) =>
+            api.calls.some(
+              (call) => call.path === `/v1/sessions/${SESSION_ID}/${list}`,
+            ),
+          ),
+        ).toBe(true),
+      );
+      // The other lists answered empty; one unknown still leaves no number.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const tab = outputsTab();
+      expect(
+        tab.querySelector("[data-slot=item-count]")?.textContent ?? null,
+      ).toBe(null);
+      expect(screen.getByRole("tab", { name: "성과물" }) === tab).toBe(true);
+    },
+  );
+
+  test("세션을 옮겼다 돌아와도 탭의 개수와 거절 표시는 그 세션의 것이다", async () => {
+    const { history } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      ...outputsRoutes(SESSION_ID, 0, 1),
+      [`GET /v1/sessions/${OTHER_ID}`]: () =>
+        json(200, { ...detail, id: OTHER_ID }),
+      [`GET /v1/sessions/${OTHER_ID}/usage`]: () =>
+        json(200, { ...usage, session_id: OTHER_ID }),
+      [`GET /v1/sessions/${OTHER_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${OTHER_ID}/events`]: () =>
+        new Promise<Response>(() => {}),
+      // The same count as the first, so nothing about it changes on the way back.
+      ...outputsRoutes(OTHER_ID, 0, 1),
+    });
+    const NAME = "성과물 1개, GitHub 거절 있음";
+    await screen.findByRole("tab", { name: NAME });
+    act(() => history.push(`/sessions/${OTHER_ID}`));
+    await screen.findByRole("heading", {
+      name: new RegExp(`^${OTHER_ID.slice(0, 8)}`),
+    });
+    expect(toneOf(await screen.findByRole("tab", { name: NAME }))).toBe(
+      "danger",
+    );
+    act(() => history.push(`/sessions/${SESSION_ID}`));
+    await screen.findByRole("heading", {
+      name: new RegExp(`^${SESSION_ID.slice(0, 8)}`),
+    });
+    expect(toneOf(await screen.findByRole("tab", { name: NAME }))).toBe(
+      "danger",
+    );
+  });
+
+  test("성과물이 하나도 없는 세션은 성과물 탭에 개수 0과 빈 상태 문장을 보인다", async () => {
+    renderAt(`/sessions/${SESSION_ID}?tab=outputs`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, { ...detail, repository_id: null, repository: null }),
+      [`GET /v1/sessions/${SESSION_ID}/achievements`]: () =>
+        json(200, {
+          items: [],
+          judgment: null,
+          judgment_count: 0,
+          judge_cost_usd: 0,
+        }),
+    });
+    const panel = await screen.findByRole("tabpanel", { name: /^성과물/ });
     expect(
-      composer.compareDocumentPosition(aside as Node) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
+      await within(panel).findByText("아직 성과물이 없습니다."),
     ).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "성과물 0개" })).toBeTruthy();
+  });
+});
+
+describe("sessionSearch", () => {
+  test("keeps only the outputs tab; the chat and anything else read as no tab", async () => {
+    const { sessionSearch } = await import("./sessions.tsx");
+    expect(sessionSearch({ tab: "outputs" })).toEqual({ tab: "outputs" });
+    expect(sessionSearch({ tab: "chat" })).toEqual({});
+    expect(sessionSearch({ tab: "nope", other: "x" })).toEqual({});
+    expect(sessionSearch({})).toEqual({});
   });
 });
 

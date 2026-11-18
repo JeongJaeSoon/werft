@@ -11,10 +11,8 @@ import type {
 } from "@werft-ai/contracts";
 import { queryKeysOf } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
-import {
-  DetailRailSection,
-  sessionRepositoriesOf,
-} from "@werft-ai/react/components";
+import type { SessionOutputsSummary } from "@werft-ai/react/blocks";
+import { sessionRepositoriesOf } from "@werft-ai/react/components";
 import {
   Button,
   Code,
@@ -25,6 +23,7 @@ import {
   Link,
   RelativeTime,
   RowAction,
+  Section,
   Text,
   Tooltip,
   TooltipContent,
@@ -41,11 +40,15 @@ import {
   type LucideIcon,
   MessageSquare,
 } from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { RowMenu, RowMenuLink } from "../components/row-menu.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { OUT_FILES_ID, SessionAchievements } from "./session-achievements.tsx";
+import {
+  OUT_FILES_ID,
+  SessionAchievements,
+  useSessionAchievements,
+} from "./session-achievements.tsx";
 
 const UNITS = ["byte", "kilobyte", "megabyte", "gigabyte"] as const;
 
@@ -286,7 +289,8 @@ function SessionChanges({
   const failed = outcomes.error && !isApiError(outcomes.error, "NOT_FOUND");
   const items = outcomes.data?.items ?? [];
   return (
-    <DetailRailSection
+    <Section
+      className="min-w-0"
       title={t("session.changes.title")}
       actions={
         <Button
@@ -340,19 +344,13 @@ function SessionChanges({
         )}
         <SessionAttribution session={session} />
       </div>
-    </DetailRailSection>
+    </Section>
   );
 }
 
-/** The session's latest GitHub gate refusals: why, for what, and when. */
-function SessionGitHubRefusals({
-  session,
-}: {
-  readonly session: SessionDetail;
-}) {
-  const { t, locale } = useI18n();
+function useSessionGitHubRefusals(session: SessionDetail) {
   const { client } = useWerft();
-  const refusals = useQuery({
+  return useQuery({
     queryKey: [...queryKeysOf(client).session(session.id), "github-refusals"],
     queryFn: () =>
       unwrap(
@@ -364,10 +362,20 @@ function SessionGitHubRefusals({
     enabled: hasRepository(session),
     refetchInterval: OUTCOMES_REFETCH_MS,
   });
+}
+
+/** The session's latest GitHub gate refusals: why, for what, and when. */
+function SessionGitHubRefusals({
+  session,
+}: {
+  readonly session: SessionDetail;
+}) {
+  const { t, locale } = useI18n();
+  const refusals = useSessionGitHubRefusals(session);
   const items = refusals.data?.items ?? [];
   if (!hasRepository(session) || items.length === 0) return null;
   return (
-    <DetailRailSection title={t("session.refusals.title")}>
+    <Section className="min-w-0" title={t("session.refusals.title")}>
       <CompactList>
         {items.map((refusal) => (
           <CompactRow key={refusal.receipt_id}>
@@ -382,27 +390,58 @@ function SessionGitHubRefusals({
           </CompactRow>
         ))}
       </CompactList>
-    </DetailRailSection>
+    </Section>
   );
 }
 
+/** A list's length: 0 when it is not read for this session, unknown until it answers. */
+function listed(query: {
+  readonly data?: { readonly items: readonly unknown[] } | undefined;
+  readonly isPending: boolean;
+  readonly fetchStatus: string;
+}): number | undefined {
+  if (query.data) return query.data.items.length;
+  return query.isPending && query.fetchStatus === "idle" ? 0 : undefined;
+}
+
 /**
- * The session info card's sections from what was the outputs tab: the
- * changed files as pull requests (the API has no per-file diff), reviews,
- * achievements, `out/` files, GitHub refusals, then whom commits name.
+ * The outputs tab: the changed files as pull requests (the API has no
+ * per-file diff), reviews, achievements, `out/` files, GitHub refusals, then
+ * whom commits name. Reports what the tab's count shows.
  */
 export function SessionOutputsPanel({
   session,
+  onSummary,
 }: {
   readonly session: SessionDetail;
+  readonly onSummary?: (summary: SessionOutputsSummary) => void;
 }) {
+  const { t } = useI18n();
   const outcomes = useSessionOutcomes(session);
+  const achievements = useSessionAchievements(session);
+  const outputs = useSessionOutputs(session);
+  const refusals = useSessionGitHubRefusals(session);
+  // Every list the tab shows, refusals too: a refused push often leaves
+  // nothing else, and a red 0 is no badge at all.
+  const lengths = [outcomes, achievements, outputs, refusals].map(listed);
+  const count = lengths.includes(undefined)
+    ? undefined
+    : lengths.reduce<number>((sum, length) => sum + (length ?? 0), 0);
+  const refused = (refusals.data?.items.length ?? 0) > 0;
+  useEffect(() => onSummary?.({ count, refused }), [onSummary, count, refused]);
+  // Only once every list answered empty: a slow or failed one is not "none".
+  const empty =
+    !hasRepository(session) &&
+    achievements.data?.items.length === 0 &&
+    !achievements.data.judgment &&
+    (session.checkpoint_revision === null || outputs.data?.items.length === 0);
   return (
     <>
       <SessionChanges session={session} outcomes={outcomes} />
       <SessionAchievements session={session} />
       <SessionOutputs session={session} />
       <SessionGitHubRefusals session={session} />
+      {empty ? <Text variant="meta">{t("session.outputs.empty")}</Text> : null}
     </>
   );
 }
@@ -476,12 +515,7 @@ function SessionOutputs({ session }: { readonly session: SessionDetail }) {
   const summary = t("session.outputs.count", { count: items.length });
   // One line that opens to the files, each with its download.
   return (
-    <section
-      id={OUT_FILES_ID}
-      aria-label={summary}
-      data-slot="detail-rail-section"
-      className="min-w-0"
-    >
+    <section id={OUT_FILES_ID} aria-label={summary} className="min-w-0">
       <details className="group/files min-w-0">
         <summary className="flex w-fit max-w-full cursor-pointer list-none items-center gap-2 rounded-control py-1 text-control [&::-webkit-details-marker]:hidden">
           <FileText

@@ -19,6 +19,8 @@ export {
   PANEL_STORAGE_KEY,
   SessionDetail,
   type SessionDetailProps,
+  type SessionDetailTab,
+  type SessionOutputsSummary,
 } from "./session-detail.tsx";
 export {
   type NamedSessionListProps,

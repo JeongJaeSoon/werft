@@ -152,9 +152,12 @@ function routes(
   };
 }
 
-/** The achievements sit in the session info card beside the chat. */
+/** The achievements sit in the session's outputs tab. */
 async function openCard() {
-  return screen.findByRole("region", { name: /^성과/ });
+  await (await setupUser()).click(
+    await screen.findByRole("tab", { name: /^성과물/ }),
+  );
+  return screen.findByRole("region", { name: /^성과$/ });
 }
 
 describe("session achievements", () => {
@@ -474,10 +477,15 @@ describe("session achievements", () => {
           : json(200, listed),
       ),
     );
-    const retry = await screen.findByRole("button", { name: "다시 시도" });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("tab", { name: /^성과물/ }));
+    const panel = await screen.findByRole("tabpanel", { name: /^성과물/ });
+    const retry = await within(panel).findByRole("button", {
+      name: "다시 시도",
+    });
     failing = false;
-    await (await setupUser()).click(retry);
-    expect(await screen.findByRole("region", { name: /^성과/ })).toBeTruthy();
+    await user.click(retry);
+    expect(await screen.findByRole("region", { name: /^성과$/ })).toBeTruthy();
   });
 
   test("a session with no achievements and no judgment shows no card", async () => {
@@ -495,7 +503,12 @@ describe("session achievements", () => {
     await waitFor(() =>
       expect(api.calls.some((call) => call.path === ACHIEVEMENTS)).toBe(true),
     );
-    await screen.findByRole("complementary", { name: "세션 정보" });
-    expect(screen.queryByRole("region", { name: /^성과/ }) === null).toBe(true);
+    await (await setupUser()).click(
+      await screen.findByRole("tab", { name: /^성과물/ }),
+    );
+    await screen.findByRole("tabpanel", { name: /^성과물/ });
+    expect(screen.queryByRole("region", { name: /^성과$/ }) === null).toBe(
+      true,
+    );
   });
 });
