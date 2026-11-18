@@ -3580,9 +3580,63 @@ describe("세션 상세 레이아웃", () => {
     });
     await user.click(retry);
     expect(await within(section).findByText("GitHub 사용 꺼짐")).toBeTruthy();
-    expect(within(section).queryByRole("button", { name: "다시 시도" })).toBe(
-      null,
+    expect(
+      within(section).queryByRole("button", { name: "다시 시도" }) === null,
+    ).toBe(true);
+  });
+
+  test("거절 목록을 다시 읽는 동안에도 절과 실패 표시가 남고 초점은 다시 시도에 있으며, 두 번 눌러도 한 번 읽는다", async () => {
+    const user = await setupUser();
+    let answer: (response: Response) => void = () => {};
+    let reads = 0;
+    renderAt(`/sessions/${SESSION_ID}?tab=outputs`, {
+      ...detailRoutes,
+      ...outputsRoutes(SESSION_ID, 0, 0),
+      [`GET /v1/sessions/${SESSION_ID}/github/refusals`]: () =>
+        ++reads === 1
+          ? apiError(503, "BACKEND_UNAVAILABLE", "down")
+          : new Promise<Response>((resolve) => {
+              answer = resolve;
+            }),
+    });
+    const section = await screen.findByRole("region", {
+      name: "최근 GitHub 거절",
+    });
+    const retry = await within(section).findByRole("button", {
+      name: "다시 시도",
+    });
+    await user.click(retry);
+    await user.click(retry);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(reads).toBe(2);
+    expect(section.isConnected).toBe(true);
+    expect(within(section).getByText("불러오지 못했습니다")).toBeTruthy();
+    expect(retry.isConnected).toBe(true);
+    expect(document.activeElement === retry).toBe(true);
+    act(() => answer(apiError(503, "BACKEND_UNAVAILABLE", "down")));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(retry.isConnected).toBe(true);
+    expect(document.activeElement === retry).toBe(true);
+  });
+
+  test("세션을 찾지 못한 404는 거절 절에 그리지 않는다", async () => {
+    const { api } = renderAt(`/sessions/${SESSION_ID}?tab=outputs`, {
+      ...detailRoutes,
+      ...outputsRoutes(SESSION_ID, 1, 0),
+      [`GET /v1/sessions/${SESSION_ID}/github/refusals`]: () =>
+        apiError(404, "NOT_FOUND", "gone"),
+    });
+    await waitFor(() =>
+      expect(
+        api.calls.some(
+          (call) => call.path === `/v1/sessions/${SESSION_ID}/github/refusals`,
+        ),
+      ).toBe(true),
     );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(
+      screen.queryByRole("region", { name: "최근 GitHub 거절" }) === null,
+    ).toBe(true);
   });
 
   test("성과물이 하나도 없는 세션은 성과물 탭에 개수 0과 빈 상태 문장을 보인다", async () => {
