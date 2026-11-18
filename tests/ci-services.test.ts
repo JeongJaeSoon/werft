@@ -27,6 +27,15 @@ pull)
   case "\${tries[$i]}" in
   ok) echo "Status: Downloaded newer image for $2" ;;
   stall) echo "6b37362b3da7: Pulling fs layer"; exec sleep 30 ;;
+  slow)
+    # A layer still coming in for longer than the stall. Like docker, only
+    # a terminal sees it redrawn as it grows; a pipe sees nothing until done.
+    echo "56d4d190ef07: Pulling fs layer"
+    for s in 1 2 3 4 5 6 7 8; do
+      [ -t 1 ] && printf '\\r56d4d190ef07: Downloading %sMB/113.2MB' "$s"
+      sleep 0.4
+    done
+    echo; echo "Status: Downloaded newer image for $2" ;;
   reset) echo "failed to copy: read tcp: read: connection reset by peer"; exit 1 ;;
   missing) echo "Error response from daemon: manifest unknown"; exit 1 ;;
   esac
@@ -145,24 +154,25 @@ describe("ci-services.sh service image pull", () => {
     });
     return {
       code: result.exitCode,
-      out: result.stdout.toString(),
+      // Every try's output, as the report shows it.
+      pulled: readFileSync(join(dir, "postgres.pull"), "utf8"),
       pulls: Number(readFileSync(join(dir, "calls.pulls"), "utf8")),
     };
   };
   const started = () => calls().includes("run --detach --name ci-postgres");
 
   test("cuts a pull that stopped moving, tries a reset one again, then starts the container", () => {
-    const { code, out, pulls } = launch("stall,reset,ok");
+    const { code, pulled, pulls } = launch("stall,reset,ok");
     expect({ code, pulls }).toEqual({ code: 0, pulls: 3 });
-    expect(out).toContain("transfer stalled");
-    expect(out).toContain("connection reset by peer");
+    expect(pulled).toContain("transfer stalled");
+    expect(pulled).toContain("connection reset by peer");
     expect(started()).toBe(true);
   }, 20_000);
 
   test("fails a missing image on its first try without starting anything", () => {
-    const { code, out, pulls } = launch("missing");
+    const { code, pulled, pulls } = launch("missing");
     expect({ code, pulls }).toEqual({ code: 1, pulls: 1 });
-    expect(out).toContain("manifest unknown");
+    expect(pulled).toContain("manifest unknown");
     expect(started()).toBe(false);
   }, 20_000);
 
@@ -171,6 +181,39 @@ describe("ci-services.sh service image pull", () => {
     expect({ code, pulls }).toEqual({ code: 1, pulls: 3 });
     expect(started()).toBe(false);
   }, 20_000);
+
+  test("keeps a pull whose layer is slow but still coming in", () => {
+    // Three seconds of progress against a one-second stall.
+    const { code, pulls } = launch("slow");
+    expect({ code, pulls }).toEqual({ code: 0, pulls: 1 });
+    expect(started()).toBe(true);
+  }, 20_000);
+
+  test("reports a failed pull as the pull, with its output", () => {
+    const env = { FAKE_PULL: "missing", LOCALSTACK: "false" };
+    services("start", env);
+    const { code, out } = services("wait", env);
+    expect(code).toBe(1);
+    expect(out).toContain(
+      "::error::postgres service could not be started (image pull exited 1)",
+    );
+    expect(out).toContain("manifest unknown");
+    expect(started()).toBe(false);
+  });
+
+  test("shows the pull still running when the wait runs out", () => {
+    const env = {
+      FAKE_PULL: "stall",
+      LOCALSTACK: "false",
+      SERVICES_PULL_STALL: "4",
+    };
+    services("start", env);
+    const { code, out } = services("wait", env);
+    expect(code).toBe(1);
+    expect(out).toContain("::error::postgres service not ready after 2s");
+    expect(out).toContain("-- the pull still running:");
+    expect(out).toContain("6b37362b3da7: Pulling fs layer");
+  });
 });
 
 describe("ci.yml integration jobs", () => {
