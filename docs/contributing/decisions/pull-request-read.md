@@ -14,7 +14,7 @@
 2. **기존 PR 꼬리 교체가 실제 GitHub에서 돈 적이 없다.** 같은 브랜치의 다음 push가 열린 PR을 다시 쓸 때, 플랫폼은 본문의 마지막 꼬리만 새 commit으로 바꾼다. 두 경로가 있다.
    - `opened`: `pull-request-service.ts:691-706`
    - `adopted`: `:884-890`
-   - 이 동작은 `withPullRequestTail` 단위 시험(`packages/platform/src/sessions/git-attribution.test.ts`)과 fake forge로만 확인됐다. 실제 GitHub의 본문 정규화(CRLF, 끝 공백, HTML 주석 처리)를 지난 왕복은 확인되지 않았다.
+   - 이 동작은 `withPullRequestTail` 단위 시험(`packages/platform/src/action/change-request/pull-request-tail.test.ts`)과 fake forge로만 확인됐다. 실제 GitHub의 본문 정규화(CRLF, 끝 공백, HTML 주석 처리)를 지난 왕복은 확인되지 않았다.
 
 ## 제안
 
@@ -80,7 +80,7 @@ verify-werft의 GitHub sandbox 절차([github-sandbox.md](../../../.claude/skill
   - `untrusted: true`는 봉투가 아니라 `result` 안에 있다. 봉투(`actionResultSchema`)는 `ok`와 `result`(또는 `refusal`)만 받는 strict 스키마이기 때문이다.
   - 본문 처리 순서는 꼬리 빼기 → 줄마다 마스킹 → 64 KiB 자르기다. 마스킹은 PR 본문을 쓸 때 쓰는 규칙(`lineRedactor`와 `sanitizeText`)을 그대로 쓴다. 비밀값 모양의 줄과 private key 블록은 `[REDACTED]`가 된다. 제목도 같은 규칙으로 마스킹한다. 자르기는 문자 경계에서 한다.
   - `body_sha256`은 GitHub가 돌려준 본문 전체(꼬리 포함, 마스킹 전)의 SHA-256이다.
-  - 꼬리 빼기는 `withPullRequestTail`과 같은 스캔(`withoutPullRequestTail`, `packages/platform/src/sessions/git-attribution.ts`)이다. 꼬리가 없거나 사람이 고친 꼬리면 본문을 그대로 준다.
+  - 꼬리 빼기는 `withPullRequestTail`과 같은 스캔(`withoutPullRequestTail`, `packages/platform/src/action/change-request/pull-request-tail.ts`)이다. 꼬리가 없거나 사람이 고친 꼬리면 본문을 그대로 준다.
 - **권한.** 새 목적 `pull_request_read`는 `pull_requests: read` 하나만 받는다. 게이트에서는 `pull_request`와 같이 에이전트 스위치, 범위, 상한을 모두 거친다. 붙인 저장소에도 허용한다. 서비스는 `update`와 같은 순서로 판단한다: 세션 공유 권한 → push 요청 → 기록된 PR → (submitter는) `pushed` → 게이트 → GitHub 읽기 → head 비교.
 - **receipt.** 읽기는 PR receipt를 남기지 않는다. 권한 거절도 receipt 없이 답한다. 게이트는 지금처럼 새로 발급한 토큰(`mint_github_token`)과 자기가 거절한 요청을 기록한다.
 - **B의 판정은 쓰기 직전에 다시 읽은 본문으로 한다.**

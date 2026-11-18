@@ -10,10 +10,6 @@ import {
 } from "../../github/ports/github-gate.ts";
 import { createAuthorizationPolicy } from "../../musterrolle/policy.ts";
 import {
-  pushRequestMarker,
-  pushRequestMarkerOf,
-} from "../../sessions/git-attribution.ts";
-import {
   type FakeFile,
   fakeRepositoryReads,
 } from "../../testing/repository-tree-fake.ts";
@@ -30,6 +26,7 @@ import {
 } from "../ports/pull-request-drain.ts";
 import { createPullRequestDrain } from "./pull-request-drain.ts";
 import { createPullRequestService } from "./pull-request-service.ts";
+import { pushRequestMarker, pushRequestMarkerOf } from "./pull-request-tail.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const PUSH = "22222222-2222-4222-8222-222222222222";

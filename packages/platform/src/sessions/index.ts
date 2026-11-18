@@ -6,14 +6,9 @@ export {
   additionalRepositoryAllowed,
 } from "./additional-repositories.ts";
 export {
-  closeOpenBlocks,
-  pullRequestTail,
-  pushRequestMarkerOf,
+  coAuthorOf,
+  coAuthorOfLink,
   sessionUrlOf,
-  surfaceOfChannel,
-  type TailRequester,
-  withoutPullRequestTail,
-  withPullRequestTail,
 } from "./git-attribution.ts";
 export type { RepositoryAttachmentService } from "./repository-attachment-service.ts";
 export {

@@ -26,10 +26,6 @@ import {
   createAuthorizationPolicy,
   type SessionAccess,
 } from "../../musterrolle/policy.ts";
-import {
-  PULL_REQUEST_TAIL_END_MARKER,
-  PULL_REQUEST_TAIL_MARKER,
-} from "../../sessions/git-attribution.ts";
 import { fakeRepositoryReads } from "../../testing/repository-tree-fake.ts";
 import { ForgeCredentialError, type ForgePullRequest } from "../ports/forge.ts";
 import type { GitHubApi } from "../ports/github-api.ts";
@@ -47,6 +43,10 @@ import {
   commentMarker,
   createPullRequestService,
 } from "./pull-request-service.ts";
+import {
+  PULL_REQUEST_TAIL_END_MARKER,
+  PULL_REQUEST_TAIL_MARKER,
+} from "./pull-request-tail.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const PUSH = "22222222-2222-4222-8222-222222222222";
