@@ -263,7 +263,7 @@ function engineShapeReadAllowed(hit: string): boolean {
     // Operator pages explain the cost and event fields they cite.
     isSiteDoc(path) ||
     // The usage reader's name for the platform's own cost sum.
-    (path === "packages/db/src/usage-reader.ts" &&
+    (path === "packages/db/src/usage/usage-reader.ts" &&
       /\btotal_cost_usd\b/.test(text) &&
       !text.includes("payload"))
   );

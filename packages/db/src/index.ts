@@ -103,6 +103,6 @@ export * from "./surface/slack-installations.ts";
 export * from "./telemetry-ingest-store.ts";
 export * from "./usage/agent-usage.ts";
 export * from "./usage/metrics-reader.ts";
-export * from "./usage-reader.ts";
+export * from "./usage/usage-reader.ts";
 export { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 export * from "./workspace-settings.ts";

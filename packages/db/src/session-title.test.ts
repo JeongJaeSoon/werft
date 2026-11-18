@@ -33,7 +33,7 @@ import {
   TEST_MODEL,
   testSessionCatalog,
 } from "./testing/spec-pins.ts";
-import { createPostgresUsageReader } from "./usage-reader.ts";
+import { createPostgresUsageReader } from "./usage/usage-reader.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const OWNER = testCaller("00000000-0000-4000-8000-00000000000a");

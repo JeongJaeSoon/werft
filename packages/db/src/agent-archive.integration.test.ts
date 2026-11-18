@@ -54,7 +54,7 @@ import {
   testSessionCatalog,
   testToolCatalogs,
 } from "./testing/spec-pins.ts";
-import { createPostgresUsageReader } from "./usage-reader.ts";
+import { createPostgresUsageReader } from "./usage/usage-reader.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
