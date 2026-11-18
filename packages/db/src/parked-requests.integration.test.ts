@@ -22,7 +22,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresPushIntents } from "./action/push-intents.ts";
@@ -350,12 +350,10 @@ integration("parked pending requests on PostgreSQL", () => {
         ),
       )
       .returning({ id: turns.id });
-    for (const requestId of requestIds) {
-      await db
-        .update(pendingRequests)
-        .set({ parkedAt: sql`now()` })
-        .where(eq(pendingRequests.requestId, requestId));
-    }
+    await db
+      .update(pendingRequests)
+      .set({ parkedAt: sql`now()` })
+      .where(inArray(pendingRequests.requestId, requestIds));
     if (!turn) throw new Error(`no turn ${sequence}`);
     // As finalize does for any outcome it knows.
     await db.delete(queueMessages).where(eq(queueMessages.turnId, turn.id));
