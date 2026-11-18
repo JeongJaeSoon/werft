@@ -3475,7 +3475,7 @@ describe("세션 상세 레이아웃", () => {
       name: "성과물 GitHub 거절 있음",
     });
     // The count stays unknown; only the refusal is certain.
-    expect(tab.querySelector("[data-slot=item-count]")).toBeNull();
+    expect(tab.querySelector("[data-slot=item-count]") === null).toBe(true);
     expect(
       tab.querySelector("[data-slot=status-dot]")?.getAttribute("data-status"),
     ).toBe("failed");
@@ -3498,8 +3498,8 @@ describe("세션 상세 레이아웃", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     // Not known to be refused, so neither a dot nor a count.
     const tab = outputsTab();
-    expect(tab.querySelector("[data-slot=status-dot]")).toBeNull();
-    expect(tab.querySelector("[data-slot=item-count]")).toBeNull();
+    expect(tab.querySelector("[data-slot=status-dot]") === null).toBe(true);
+    expect(tab.querySelector("[data-slot=item-count]") === null).toBe(true);
     expect(screen.getByRole("tab", { name: "성과물" }) === tab).toBe(true);
   });
 
@@ -3516,13 +3516,15 @@ describe("세션 상세 레이아웃", () => {
     const waiting = await screen.findByRole("tab", {
       name: "성과물 GitHub 거절 있음",
     });
-    expect(waiting.querySelector("[data-slot=status-dot]")).not.toBeNull();
+    expect(waiting.querySelector("[data-slot=status-dot]") === null).toBe(
+      false,
+    );
     act(() => answer(json(200, { items: [] })));
     const counted = await screen.findByRole("tab", {
       name: "성과물 1개, GitHub 거절 있음",
     });
     expect(toneOf(counted)).toBe("danger");
-    expect(counted.querySelector("[data-slot=status-dot]")).toBeNull();
+    expect(counted.querySelector("[data-slot=status-dot]") === null).toBe(true);
   });
 
   test("세션을 옮겼다 돌아와도 탭의 개수와 거절 표시는 그 세션의 것이다", async () => {
