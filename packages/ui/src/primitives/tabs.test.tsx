@@ -212,4 +212,37 @@ describe("Tabs", () => {
     }).querySelector<HTMLElement>('[data-slot="item-count"]');
     expect(zero?.dataset.tone).toBeUndefined();
   });
+
+  test("개수 없이 tone과 countLabel만 있으면 아이콘만 든 배지를 그리고, 뜻은 countLabel로 읽힌다", () => {
+    const { getByRole } = render(
+      <Tabs defaultValue="a">
+        <TabsList variant="line">
+          <TabsTrigger value="a" countTone="danger" countLabel="거절 있음">
+            성과물
+          </TabsTrigger>
+          <TabsTrigger value="b" countTone="danger">
+            요청
+          </TabsTrigger>
+          <TabsTrigger value="c" countLabel="모름">
+            기록
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>,
+    );
+    const toned = getByRole("tab", { name: "성과물 거절 있음" });
+    const badge = toned.querySelector<HTMLElement>('[data-slot="item-count"]');
+    expect(badge?.dataset.tone).toBe("danger");
+    expect(badge?.textContent).toBe("");
+    // As tall as the badge with a number, so the count arriving moves nothing.
+    expect(badge?.className.split(" ")).toContain("h-4");
+    const icon = badge?.querySelector("svg");
+    expect(icon?.classList.contains("lucide-circle-x")).toBe(true);
+    expect(icon?.getAttribute("aria-hidden")).toBe("true");
+    // Without words to say it the icon would mean nothing to a screen
+    // reader, and without a tone there is nothing to say.
+    for (const name of ["요청", "기록"]) {
+      const tab = getByRole("tab", { name });
+      expect(tab.querySelector('[data-slot="item-count"]') === null).toBe(true);
+    }
+  });
 });

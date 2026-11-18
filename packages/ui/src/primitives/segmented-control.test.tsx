@@ -316,6 +316,53 @@ describe("SegmentedControl", () => {
     expect(countOf("전체 12")?.dataset.tone).toBeUndefined();
   });
 
+  test("색 배지는 tone마다 다른 아이콘을 앞에 두고, 아이콘은 이름에 읽히지 않는다", () => {
+    const { getByRole } = render(
+      <SegmentedControl aria-label="상태" value="all" onValueChange={() => {}}>
+        <SegmentedControlItem value="wait" count={2} countTone="attention">
+          답변 대기
+        </SegmentedControlItem>
+        <SegmentedControlItem value="broken" count={1} countTone="danger">
+          깨짐
+        </SegmentedControlItem>
+        <SegmentedControlItem value="failed" count={0} countTone="danger">
+          실패
+        </SegmentedControlItem>
+      </SegmentedControl>,
+    );
+    const iconOf = (name: string) =>
+      getByRole("button", { name }).querySelector<SVGElement>(
+        '[data-slot="item-count"] svg',
+      );
+    const attention = iconOf("답변 대기 2");
+    const danger = iconOf("깨짐 1");
+    expect(attention?.classList.contains("lucide-triangle-alert")).toBe(true);
+    expect(danger?.classList.contains("lucide-circle-x")).toBe(true);
+    for (const icon of [attention, danger]) {
+      expect(icon?.getAttribute("aria-hidden")).toBe("true");
+      expect(icon?.classList.contains("size-3")).toBe(true);
+    }
+    // A quiet 0 has no badge, so no icon either.
+    expect(iconOf("실패 0") === null).toBe(true);
+  });
+
+  test("개수가 오기 전에는 tone이 있어도 아무것도 그리지 않는다", () => {
+    const { getByRole } = render(
+      <SegmentedControl aria-label="상태" value="all" onValueChange={() => {}}>
+        <SegmentedControlItem
+          value="failed"
+          count={undefined}
+          countTone="danger"
+        >
+          실패
+        </SegmentedControlItem>
+      </SegmentedControl>,
+    );
+    const item = getByRole("button", { name: "실패" });
+    expect(item.querySelector('[data-slot="item-count"]') === null).toBe(true);
+    expect(item.querySelector("svg") === null).toBe(true);
+  });
+
   test("두 진입점에서 같은 부품을 내보낸다", async () => {
     const root = await import("../index.ts");
     const primitives = await import("./index.ts");

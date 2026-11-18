@@ -3474,11 +3474,13 @@ describe("세션 상세 레이아웃", () => {
     const tab = await screen.findByRole("tab", {
       name: "성과물 GitHub 거절 있음",
     });
-    // The count stays unknown; only the refusal is certain.
-    expect(tab.querySelector("[data-slot=item-count]") === null).toBe(true);
-    expect(
-      tab.querySelector("[data-slot=status-dot]")?.getAttribute("data-status"),
-    ).toBe("failed");
+    // The count stays unknown; only the refusal is certain, so the badge
+    // holds its icon and no number.
+    const badge = tab.querySelector("[data-slot=item-count]");
+    expect(badge?.textContent).toBe("");
+    expect(toneOf(tab)).toBe("danger");
+    expect(badge?.querySelector("svg.lucide-circle-x") === null).toBe(false);
+    expect(tab.querySelector("[data-slot=status-dot]") === null).toBe(true);
   });
 
   test("GitHub 거절 목록 자체를 읽지 못하면 탭은 거절을 말하지 않는다", async () => {
@@ -3503,7 +3505,7 @@ describe("세션 상세 레이아웃", () => {
     expect(screen.getByRole("tab", { name: "성과물" }) === tab).toBe(true);
   });
 
-  test("늦던 목록이 답해 개수가 돌아오면 거절 점은 빨간 개수 배지로 바뀌고 둘이 함께 보이지 않는다", async () => {
+  test("늦던 목록이 답해 개수가 돌아오면 거절 아이콘 배지에 개수가 붙고 배지는 하나다", async () => {
     let answer: (response: Response) => void = () => {};
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
@@ -3516,7 +3518,10 @@ describe("세션 상세 레이아웃", () => {
     const waiting = await screen.findByRole("tab", {
       name: "성과물 GitHub 거절 있음",
     });
-    expect(waiting.querySelector("[data-slot=status-dot]") === null).toBe(
+    const before = waiting.querySelectorAll("[data-slot=item-count]");
+    expect(before.length).toBe(1);
+    expect(before[0]?.textContent).toBe("");
+    expect(before[0]?.querySelector("svg.lucide-circle-x") === null).toBe(
       false,
     );
     act(() => answer(json(200, { items: [] })));
@@ -3524,6 +3529,10 @@ describe("세션 상세 레이아웃", () => {
       name: "성과물 1개, GitHub 거절 있음",
     });
     expect(toneOf(counted)).toBe("danger");
+    const after = counted.querySelectorAll("[data-slot=item-count]");
+    expect(after.length).toBe(1);
+    expect(after[0]?.textContent).toBe("1");
+    expect(after[0]?.querySelector("svg.lucide-circle-x") === null).toBe(false);
     expect(counted.querySelector("[data-slot=status-dot]") === null).toBe(true);
   });
 

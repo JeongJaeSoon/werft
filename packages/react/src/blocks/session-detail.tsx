@@ -8,7 +8,6 @@ import {
   Button,
   formatClockTime,
   PageFrame,
-  StatusDot,
   Tabs,
   TabsContent,
   TabsList,
@@ -339,25 +338,22 @@ export function SessionDetail({
               value="outputs"
               count={summary?.count}
               countTone={summary?.refused ? "danger" : undefined}
-              countLabel={t(
-                summary?.refused
-                  ? "session.tabs.outputs.refused"
-                  : "session.tabs.outputs.count",
-                { count: summary?.count ?? 0 },
-              )}
+              // A refusal must not wait on a list that failed to read: with
+              // no count, the badge holds its icon alone.
+              countLabel={
+                summary?.count === undefined
+                  ? summary?.refused
+                    ? t("session.tabs.outputs.refusedUncounted")
+                    : undefined
+                  : t(
+                      summary.refused
+                        ? "session.tabs.outputs.refused"
+                        : "session.tabs.outputs.count",
+                      { count: summary.count },
+                    )
+              }
             >
               {t("session.tabs.outputs")}
-              {/* A refusal must not wait on a list that failed to read. The
-                  dot is the sidebar's size; the count's badge replaces it. */}
-              {summary?.count === undefined && summary?.refused ? (
-                <>
-                  {" "}
-                  <StatusDot status="failed" className="size-1.5" />
-                  <span className="sr-only">
-                    {t("session.tabs.outputs.refusedUncounted")}
-                  </span>
-                </>
-              ) : null}
             </TabsTrigger>
           </TabsList>
         </div>

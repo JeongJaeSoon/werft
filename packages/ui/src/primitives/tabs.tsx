@@ -102,7 +102,8 @@ export type TabsTriggerProps = ComponentProps<typeof TabsPrimitive.Trigger> & {
   /**
    * `attention` or `danger` draws a count above 0 as a toned badge, for a
    * state someone has to act on. The colour says nothing to a screen
-   * reader, so `countLabel` has to say it too.
+   * reader, so `countLabel` has to say it too. With no count yet, the badge
+   * holds the tone's icon alone, and only if `countLabel` is given.
    */
   readonly countTone?: ItemCountTone | undefined;
 };
@@ -116,7 +117,7 @@ export function TabsTrigger({
   ...props
 }: TabsTriggerProps): JSX.Element {
   const number =
-    count === undefined ? null : (
+    count === undefined && countTone === undefined ? null : (
       <ItemCount count={count} countLabel={countLabel} tone={countTone} />
     );
   // Under asChild the Slot takes exactly one element, so the count goes
