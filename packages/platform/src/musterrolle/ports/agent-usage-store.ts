@@ -1,5 +1,5 @@
 import type { AgentUsageScope, WorkspaceRole } from "@werft-ai/contracts";
-import type { TeamActor } from "./team-store.ts";
+import type { TeamActor } from "../../ports/team-store.ts";
 
 /** One agent's usage setting as stored; `teams` is empty for `workspace`. */
 export type AgentUsageState = {

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { MemberStore, SetAccessResult } from "../ports/member-store.ts";
 import { createMemberService } from "./member-service.ts";
 import { callerFor, createAuthorizationPolicy } from "./policy.ts";
+import type { MemberStore, SetAccessResult } from "./ports/member-store.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const OWNER = "019a0000-0000-7000-8000-0000000000a1";

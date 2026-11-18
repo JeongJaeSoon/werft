@@ -70,7 +70,7 @@ export const baseline: Baseline = {
   slackExports: {
     "musterrolle/agent-identity-service.ts": 1,
     "musterrolle/policy.ts": 2,
-    "ports/agent-identity-store.ts": 2,
+    "musterrolle/ports/agent-identity-store.ts": 2,
     "ports/slack-app-store.ts": 7,
     "ports/slack-config-token-store.ts": 1,
     "ports/slack-inbound-event-store.ts": 4,

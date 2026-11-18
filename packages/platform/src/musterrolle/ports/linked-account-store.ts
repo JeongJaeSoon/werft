@@ -3,7 +3,7 @@ import type {
   LinkedAccountStatus,
   WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { Principal } from "../musterrolle/index.ts";
+import type { Principal } from "../index.ts";
 
 export type LinkedAccountRecord = {
   id: string;

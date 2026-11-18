@@ -6,19 +6,19 @@ import {
   agentCardSchema,
 } from "@werft-ai/contracts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
-import type {
-  ActivateResult,
-  AgentRecord,
-  AgentStore,
-  InsertReleaseResult,
-  UpdateAgentResult,
-} from "../ports/agent-store.ts";
 import {
   TEST_CONNECTION_ID,
   TEST_RUNTIMES,
   testCatalog,
 } from "../testing/catalog-fakes.ts";
 import { createAgentService } from "./agent-service.ts";
+import type {
+  ActivateResult,
+  AgentRecord,
+  AgentStore,
+  InsertReleaseResult,
+  UpdateAgentResult,
+} from "./ports/agent-store.ts";
 import { cardContentSha256, deriveReleaseId } from "./release-ids.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";

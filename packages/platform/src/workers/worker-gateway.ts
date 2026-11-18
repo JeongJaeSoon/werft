@@ -144,7 +144,6 @@ import type {
   WorkerFence,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
-import type { WorkspaceMcpEgressStore } from "../ports/workspace-mcp-egress.ts";
 import type { JudgmentEgressStore } from "../sessions/achievements/achievement-judgment-store.ts";
 import type { JudgeConnections } from "../sessions/achievements/judge-connections.ts";
 import {
@@ -186,6 +185,7 @@ import {
   type PackageRegistry,
   PUBLIC_PACKAGE_REGISTRIES,
 } from "./package-registries.ts";
+import type { WorkspaceMcpEgressStore } from "./ports/workspace-mcp-egress.ts";
 import { runtimeConfigOfSpec } from "./runtime-config-of-spec.ts";
 import {
   createWorkspaceMcpEgress,

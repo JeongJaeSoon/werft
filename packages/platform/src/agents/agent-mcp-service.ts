@@ -17,8 +17,8 @@ import {
   requirePermitted,
   SessionServiceError,
 } from "../musterrolle/index.ts";
-import type { AgentMcpStore } from "../ports/agent-mcp-store.ts";
 import { mcpValuesOfCard } from "./mcp-release-values.ts";
+import type { AgentMcpStore } from "./ports/agent-mcp-store.ts";
 
 const refused = (field: string, reason: string) =>
   new SessionServiceError("BAD_REQUEST", `${field}: ${reason}`, undefined, {

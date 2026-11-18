@@ -61,18 +61,18 @@ import {
   TEAM_NOT_ALLOWED,
   TEAM_NOT_FOUND,
 } from "../musterrolle/index.ts";
+import type { WorkspaceKeyStore } from "../ports/api-key-store.ts";
+import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
+import { viewerOf } from "../sessions/index.ts";
+import type { AgentWelcomable } from "../surface/ports/agent-welcomable.ts";
+import type { ModelMoveStep } from "./model-move-runner.ts";
 import type {
   ActivationIntent,
   AgentReader,
   AgentRecord,
   AgentStore,
   ReleaseReason,
-} from "../ports/agent-store.ts";
-import type { WorkspaceKeyStore } from "../ports/api-key-store.ts";
-import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
-import { viewerOf } from "../sessions/index.ts";
-import type { AgentWelcomable } from "../surface/ports/agent-welcomable.ts";
-import type { ModelMoveStep } from "./model-move-runner.ts";
+} from "./ports/agent-store.ts";
 import {
   assertReleaseIdentity,
   cardContentSha256,

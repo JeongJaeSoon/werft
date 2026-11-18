@@ -1,6 +1,6 @@
-import type { HeldSpend } from "../ports/provider-exchange-ledger.ts";
 import { budgetExceeded, type SessionBudget } from "./installation-limits.ts";
 import { type ProviderUsage, priceProviderUsage } from "./model-prices.ts";
+import type { HeldSpend } from "./ports/provider-exchange-ledger.ts";
 
 /**
  * A reserve priced as the dearest call its request could turn out to be:

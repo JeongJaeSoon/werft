@@ -4,7 +4,7 @@ import type {
   CatalogRepositoryConfig,
   ModelFamilies,
   StoredOwnerKind,
-} from "../catalog/index.ts";
+} from "../../catalog/index.ts";
 
 /**
  * The installation's settings in one read (decision

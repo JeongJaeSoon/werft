@@ -34,6 +34,8 @@ import {
   requirePermitted,
   SessionServiceError,
 } from "../musterrolle/index.ts";
+import type { WorkerLimits } from "../scheduler/ports/execution-backend.ts";
+import { viewerOf } from "../sessions/index.ts";
 import type {
   UsageAchievementCountsRecord,
   UsageBreakdownFiguresRecord,
@@ -42,9 +44,7 @@ import type {
   UsageSummaryFilter,
   UsageSummaryRecord,
   UsageTotalsFilter,
-} from "../ports/usage-reader.ts";
-import type { WorkerLimits } from "../scheduler/ports/execution-backend.ts";
-import { viewerOf } from "../sessions/index.ts";
+} from "./ports/usage-reader.ts";
 
 /**
  * A limit as a decimal string without rounding it: the parser accepts more

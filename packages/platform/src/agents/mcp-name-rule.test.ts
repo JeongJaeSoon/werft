@@ -5,9 +5,9 @@ import {
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
-import type { AgentMcpStore } from "../ports/agent-mcp-store.ts";
 import { effectiveMcp } from "../sessions/mcp-settings.ts";
 import { createAgentMcpService } from "./agent-mcp-service.ts";
+import type { AgentMcpStore } from "./ports/agent-mcp-store.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const USER = "019a0000-0000-7000-8000-0000000000c1";

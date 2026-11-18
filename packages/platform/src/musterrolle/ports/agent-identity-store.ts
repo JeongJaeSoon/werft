@@ -4,7 +4,7 @@ import type {
   SlackEventDropReason,
   WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { Principal } from "../musterrolle/index.ts";
+import type { Principal } from "../index.ts";
 
 export type AgentIdentityRecord = {
   id: string;

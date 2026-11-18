@@ -8,8 +8,8 @@ import {
   requirePermitted,
   SessionServiceError,
 } from "../musterrolle/index.ts";
-import type { SettingsDocumentStore } from "../ports/settings-document-store.ts";
 import type { TeamActor } from "../ports/team-store.ts";
+import type { SettingsDocumentStore } from "./ports/settings-document-store.ts";
 import {
   parseSettingsDocument,
   SettingsDocumentError,

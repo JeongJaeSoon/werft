@@ -4,13 +4,13 @@ import {
   TAKEOVER_LIST_LIMIT,
   type TakeOverSessionResponse,
 } from "@werft-ai/contracts";
+import { memberView } from "./invite-service.ts";
+import type { AuthorizationPolicy, Caller } from "./policy.ts";
 import type {
   AccessEffects,
   AccessScope,
   MemberStore,
-} from "../ports/member-store.ts";
-import { memberView } from "./invite-service.ts";
-import type { AuthorizationPolicy, Caller } from "./policy.ts";
+} from "./ports/member-store.ts";
 import { requirePermitted } from "./require-permitted.ts";
 import { EMERGENCY_ADMIN, SessionServiceError } from "./service-errors.ts";
 

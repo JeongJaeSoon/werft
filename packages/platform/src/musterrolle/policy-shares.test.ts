@@ -12,7 +12,6 @@ import {
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import { createPendingRequestService } from "../decision/pending-service.ts";
-import type { DecisionLog } from "../ports/decision-log.ts";
 import type { PendingRequestStore } from "../sessions/ports/pending-requests.ts";
 import type { SessionViewer } from "../sessions/ports/session-share-store.ts";
 import {
@@ -23,6 +22,7 @@ import {
   type IdentityReader,
   type SessionAccess,
 } from "./policy.ts";
+import type { DecisionLog } from "./ports/decision-log.ts";
 import { SessionServiceError } from "./service-errors.ts";
 
 // Design 4.6 and A.3 step 2: a session outside its share does not exist,

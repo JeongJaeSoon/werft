@@ -4,7 +4,7 @@ import type {
   WorkspaceMcpEgressStore,
   WorkspaceMcpRefusalRecord,
   WorkspaceMcpSessionState,
-} from "../ports/workspace-mcp-egress.ts";
+} from "./ports/workspace-mcp-egress.ts";
 import {
   createWorkspaceMcpEgress,
   type WorkspaceMcpCallCredential,

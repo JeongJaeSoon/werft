@@ -15,7 +15,7 @@ import {
   requirePermitted,
   SessionServiceError,
 } from "../musterrolle/index.ts";
-import type { AgentStore } from "../ports/agent-store.ts";
+import type { AgentStore } from "./ports/agent-store.ts";
 
 export function createAgentPullRequestService(deps: {
   authorization: AuthorizationPolicy;

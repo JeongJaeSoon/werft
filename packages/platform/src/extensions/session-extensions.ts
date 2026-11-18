@@ -2,7 +2,7 @@ import type { RuntimeKind } from "@werft-ai/contracts";
 import type {
   ExtensionBundle,
   ExtensionBundleStore,
-} from "../ports/extension-bundle-store.ts";
+} from "./ports/extension-bundle-store.ts";
 import {
   type ExtensionRef,
   type ExtensionResolution,

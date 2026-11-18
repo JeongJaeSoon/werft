@@ -12,16 +12,16 @@ import {
   callerFor,
   createAuthorizationPolicy,
 } from "../musterrolle/policy.ts";
-import type {
-  SettingsConsoleResult,
-  SettingsDocumentStore,
-  SettingsRow,
-} from "../ports/settings-document-store.ts";
 import {
   type OutboundHttp,
   type OutboundRequest,
   WorkspaceMcpOutboundError,
 } from "../workspace-mcp/ports.ts";
+import type {
+  SettingsConsoleResult,
+  SettingsDocumentStore,
+  SettingsRow,
+} from "./ports/settings-document-store.ts";
 import { createSettingsConsoleService } from "./settings-console-service.ts";
 import type { SettingsKind } from "./settings-document.ts";
 

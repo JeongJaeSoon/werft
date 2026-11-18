@@ -3,7 +3,6 @@ import type {
   PutAgentUsageRequest,
   PutAgentUsageResponse,
 } from "@werft-ai/contracts";
-import type { AgentUsageStore } from "../ports/agent-usage-store.ts";
 import { personOf } from "./agent-admin-service.ts";
 import { ifMatchOf } from "./env-variable-service.ts";
 import {
@@ -11,6 +10,7 @@ import {
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
+import type { AgentUsageStore } from "./ports/agent-usage-store.ts";
 import { requirePermitted } from "./require-permitted.ts";
 import {
   NO_LONGER_MANAGER,

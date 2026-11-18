@@ -4,11 +4,6 @@ import {
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
-import type {
-  AgentAdminStore,
-  AgentAdminSubject,
-} from "../ports/agent-admin-store.ts";
-import type { DecisionLog } from "../ports/decision-log.ts";
 import type { Team, TeamStore } from "../ports/team-store.ts";
 import { createAgentAdminService } from "./agent-admin-service.ts";
 import {
@@ -18,6 +13,11 @@ import {
   createAuthorizationPolicy,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
+import type {
+  AgentAdminStore,
+  AgentAdminSubject,
+} from "./ports/agent-admin-store.ts";
+import type { DecisionLog } from "./ports/decision-log.ts";
 import { SessionServiceError } from "./service-errors.ts";
 import { createTeamService } from "./team-service.ts";
 

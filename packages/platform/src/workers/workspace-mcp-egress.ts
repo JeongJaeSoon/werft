@@ -1,9 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { mcpToolPermitted } from "../catalog/index.ts";
-import type {
-  WorkspaceMcpEgressStore,
-  WorkspaceMcpRefusalReason,
-} from "../ports/workspace-mcp-egress.ts";
 import {
   ALLOWED_MCP_METHODS,
   forbidden,
@@ -11,6 +7,10 @@ import {
   type McpEgressRequest,
   uuidV5,
 } from "./mcp-egress.ts";
+import type {
+  WorkspaceMcpEgressStore,
+  WorkspaceMcpRefusalReason,
+} from "./ports/workspace-mcp-egress.ts";
 
 /**
  * A workspace remote MCP server's route (mcp-credentials.md, decision 6),

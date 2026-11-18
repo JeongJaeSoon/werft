@@ -11,9 +11,9 @@ import type {
   ListAgentsResponse,
   WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { ReleaseSpecRecord } from "../agents/release-spec.ts";
-import type { Principal } from "../musterrolle/index.ts";
-import type { SessionViewer } from "../sessions/ports/session-share-store.ts";
+import type { Principal } from "../../musterrolle/index.ts";
+import type { SessionViewer } from "../../sessions/ports/session-share-store.ts";
+import type { ReleaseSpecRecord } from "../release-spec.ts";
 
 /** Who lists agents: they see only the agents they are inside. */
 export interface AgentReader {
