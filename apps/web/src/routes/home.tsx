@@ -17,9 +17,8 @@ import {
   waitingSessionsQuery,
 } from "@werft-ai/core";
 import { useSessions, useWerft } from "@werft-ai/react";
-import { ApprovalInbox, usePendingRail } from "@werft-ai/react/blocks";
+import { ApprovalInbox } from "@werft-ai/react/blocks";
 import {
-  DetailLayout,
   OPERATIONS_MESSAGES,
   SessionOverviewRow,
   SessionOverviewTable,
@@ -172,11 +171,6 @@ export function HomeScreen() {
   const now = useMinute(true);
   const unavailable = useUnavailable();
   const refusal = (error: { readonly code: string }) => t(errorKey(error.code));
-  const rail = usePendingRail({
-    renderError: loadError,
-    unavailable,
-    refusal,
-  });
   const { client } = useWerft();
   // The server refuses these lists to anyone else; a member asks for none.
   const managesMembers = useHasPermission("member.manage");
@@ -729,106 +723,101 @@ export function HomeScreen() {
             : null;
 
   return (
-    <DetailLayout rail={rail.rail}>
-      <Page
-        title={t("nav.home")}
-        description={
-          intros.length > 0 ? (
-            <span className="grid">
-              {intros.map((key) => (
-                <span
-                  key={key}
-                  className={
-                    key === reader
-                      ? "[grid-area:1/1]"
-                      : "invisible [grid-area:1/1]"
-                  }
-                  aria-hidden={key === reader ? undefined : true}
-                >
-                  {t(INTRO[key], { name })}
-                </span>
-              ))}
-            </span>
-          ) : undefined
-        }
-      >
-        {settled ? null : <HomeSkeleton />}
-        {/* Mounted from the start, so each section's own read is the one
-            already on its way rather than a second one asked when it shows. */}
-        <div hidden={!settled} className="contents">
-          {/* A failed refetch keeps the old page, which may name fixed agents. */}
-          {slackActions.data && !slackActions.isError ? (
-            <SlackTodo
-              agents={slackActions.data.items}
-              more={slackActions.data.more}
+    <Page
+      title={t("nav.home")}
+      description={
+        intros.length > 0 ? (
+          <span className="grid">
+            {intros.map((key) => (
+              <span
+                key={key}
+                className={
+                  key === reader
+                    ? "[grid-area:1/1]"
+                    : "invisible [grid-area:1/1]"
+                }
+                aria-hidden={key === reader ? undefined : true}
+              >
+                {t(INTRO[key], { name })}
+              </span>
+            ))}
+          </span>
+        ) : undefined
+      }
+    >
+      {settled ? null : <HomeSkeleton />}
+      {/* Mounted from the start, so each section's own read is the one
+          already on its way rather than a second one asked when it shows. */}
+      <div hidden={!settled} className="contents">
+        {/* A failed refetch keeps the old page, which may name fixed agents. */}
+        {slackActions.data && !slackActions.isError ? (
+          <SlackTodo
+            agents={slackActions.data.items}
+            more={slackActions.data.more}
+          />
+        ) : null}
+        {checklistShown ? <Checklist steps={steps} /> : null}
+        <ApprovalInbox
+          layout="summary"
+          title={t("home.requests.title")}
+          action={
+            <ArrowLink to="/sessions" search={{ status: "needs_input" }}>
+              {t("home.requests.all")}
+            </ArrowLink>
+          }
+          empty={<NoRequests />}
+          now={now}
+          limit={HOME_REQUESTS_LIMIT}
+          more={(count) => (
+            <ArrowLink to="/sessions" search={{ status: "needs_input" }}>
+              {t("home.requests.more", { count })}
+            </ArrowLink>
+          )}
+          renderError={loadError}
+          unavailable={unavailable}
+          refusal={refusal}
+        />
+        <Section
+          className="@container min-w-0"
+          title={t("home.overview.title")}
+          actions={
+            cards ? (
+              <Text variant="meta">{t("home.overview.basis")}</Text>
+            ) : undefined
+          }
+        >
+          {cards ? (
+            <ul className="m-0 grid list-none grid-cols-1 items-stretch gap-4 p-0 @[720px]:grid-cols-3">
+              {cards}
+            </ul>
+          ) : readerFailure ? (
+            <LoadFailure
+              error={readerFailure.error}
+              onRetry={readerFailure.retry}
             />
-          ) : null}
-          {checklistShown ? <Checklist steps={steps} /> : null}
-          <ApprovalInbox
-            layout="summary"
-            rail={rail}
-            title={t("home.requests.title")}
-            action={
-              <ArrowLink to="/sessions" search={{ status: "needs_input" }}>
-                {t("home.requests.all")}
-              </ArrowLink>
-            }
-            empty={<NoRequests />}
-            now={now}
-            limit={HOME_REQUESTS_LIMIT}
-            more={(count) => (
-              <ArrowLink to="/sessions" search={{ status: "needs_input" }}>
-                {t("home.requests.more", { count })}
-              </ArrowLink>
-            )}
-            renderError={loadError}
-            unavailable={unavailable}
-            refusal={refusal}
-          />
-          <Section
-            className="@container min-w-0"
-            title={t("home.overview.title")}
-            actions={
-              cards ? (
-                <Text variant="meta">{t("home.overview.basis")}</Text>
-              ) : undefined
-            }
-          >
-            {cards ? (
-              <ul className="m-0 grid list-none grid-cols-1 items-stretch gap-4 p-0 @[720px]:grid-cols-3">
-                {cards}
-              </ul>
-            ) : readerFailure ? (
-              <LoadFailure
-                error={readerFailure.error}
-                onRetry={readerFailure.retry}
-              />
-            ) : (
-              <StatusScreen kind="loading" />
-            )}
-          </Section>
-          <Section
-            className="@container min-w-0"
-            title={t("home.recent.title")}
-            actions={
-              <ArrowLink to="/sessions">{t("home.recent.all")}</ArrowLink>
-            }
-          >
-            <RecentSessionTable waitingSince={requests?.since} now={now} />
-          </Section>
-          <AdministeredAgents showEmpty={false} />
-          {/* Without member.manage there is no 구성원 item in the sidebar
-              (console v4 navWs); this is the way to the teams list, so it
-              stays even with no team. */}
-          <MyTeams
-            showEmpty={!managesMembers}
-            action={
-              <ArrowLink to="/members/teams">{t("home.teams.all")}</ArrowLink>
-            }
-          />
-        </div>
-      </Page>
-    </DetailLayout>
+          ) : (
+            <StatusScreen kind="loading" />
+          )}
+        </Section>
+        <Section
+          className="@container min-w-0"
+          title={t("home.recent.title")}
+          actions={<ArrowLink to="/sessions">{t("home.recent.all")}</ArrowLink>}
+        >
+          <RecentSessionTable waitingSince={requests?.since} now={now} />
+        </Section>
+        <AdministeredAgents showEmpty={false} />
+        {/* Without member.manage there is no 구성원 item in the sidebar
+            (console v4 navWs); this is the way to the teams list, so it
+            stays even with no team. */}
+        <MyTeams
+          showEmpty={!managesMembers}
+          action={
+            <ArrowLink to="/members/teams">{t("home.teams.all")}</ArrowLink>
+          }
+        />
+      </div>
+    </Page>
   );
 }
 

@@ -9,7 +9,7 @@ import {
   waitingSessionsByQuery,
   waitingSessionsQuery,
 } from "@werft-ai/core";
-import { Badge, cn, RowAction, Skeleton } from "@werft-ai/ui";
+import { Badge, cn, Skeleton } from "@werft-ai/ui";
 import {
   type ReactNode,
   useEffect,
@@ -21,7 +21,6 @@ import {
 import { shortSessionId } from "../components/session/session-overview.tsx";
 import { useMinute } from "../components/session/use-minute.ts";
 import { useWerft } from "../provider.tsx";
-import type { PendingRail } from "./pending-rail.tsx";
 import {
   type ApprovalLayout,
   focusLost,
@@ -56,12 +55,6 @@ export interface ApprovalInboxProps extends SessionActionProps {
    * first page: `count` is how many, with "+" when the page has more.
    */
   readonly more?: ((count: string) => ReactNode) | undefined;
-  /**
-   * Summary layout only: each line opens its session in the host's rail
-   * (`usePendingRail`), its timeline and its answers, instead of answering
-   * on the line.
-   */
-  readonly rail?: Pick<PendingRail, "open" | "openedId"> | undefined;
 }
 
 // Framed like the list it stands in for, one placeholder per line at a
@@ -125,7 +118,6 @@ export function ApprovalInbox({
   now: givenNow,
   limit,
   more: moreLine,
-  rail,
 }: ApprovalInboxProps) {
   const { t } = useBlockText();
   const { client } = useWerft();
@@ -154,16 +146,14 @@ export function ApprovalInbox({
   // Past `limit` a session is not drawn: it leaves the list as an answered
   // one does.
   const drawn = limit === undefined ? shown : shown.slice(0, limit);
-  // Rail lines are one per request, and one can leave while its session
-  // stays; answer forms move focus within their session themselves.
-  const railLines = rail !== undefined && layout === "summary";
+  const summary = layout === "summary";
   // Read only once a line is drawn, so a reader with nothing waiting pays
   // for none of them.
   const lineDrawn = lists.some((list) => (list.data?.items.length ?? 0) > 0);
   const related = useQueries({
     queries: REASONS.map((relation) => ({
       ...waitingSessionsByQuery(client, relation),
-      enabled: railLines && lineDrawn,
+      enabled: summary && lineDrawn,
     })),
   });
   // The waiting list is read again after an answer or a status change; the
@@ -182,14 +172,8 @@ export function ApprovalInbox({
     REASONS.find((_, index) =>
       related[index]?.data?.items.some((session) => session.id === id),
     );
-  const lineKey = drawn
-    .flatMap((session) => {
-      const items = railLines
-        ? lists[sessions.indexOf(session)]?.data?.items
-        : undefined;
-      return items?.map((request) => request.request_id) ?? [session.id];
-    })
-    .join();
+  // Answer forms move focus within their session themselves.
+  const lineKey = drawn.map((session) => session.id).join();
   const emptyKey = sessions
     .filter((_, index) => lists[index]?.data?.items.length === 0)
     .map((session) => session.id)
@@ -203,23 +187,13 @@ export function ApprovalInbox({
   }, [emptyKey, queryClient, client]);
 
   // A session answered from here leaves the list with the focus it held;
-  // the keyboard goes back to the inbox's heading. One answered in the open
-  // rail keeps it there: only focus last held in the list is given back.
-  // A removed element fires no blur, so the flag outlives its line.
-  const focusInList = useRef(false);
-  const railOpen = rail?.openedId != null;
+  // the keyboard goes back to the inbox's heading.
   useLayoutEffect(() => {
     const ids = lineKey === "" ? [] : lineKey.split(",");
     const left = drawnBefore.current.some((id) => !ids.includes(id));
     drawnBefore.current = ids;
-    if (
-      left &&
-      (!railOpen || focusInList.current) &&
-      focusLost(titleRef.current)
-    ) {
-      titleRef.current?.focus();
-    }
-  }, [lineKey, railOpen]);
+    if (left && focusLost(titleRef.current)) titleRef.current?.focus();
+  }, [lineKey]);
 
   let body: ReactNode;
   let count: ReactNode = null;
@@ -263,20 +237,8 @@ export function ApprovalInbox({
         <ul
           className={cn(
             "m-0 flex list-none flex-col p-0",
-            layout === "summary"
-              ? cn("divide-y", FRAME)
-              : "gap-[var(--werft-space-block)]",
+            summary ? cn("divide-y", FRAME) : "gap-[var(--werft-space-block)]",
           )}
-          onFocus={() => {
-            focusInList.current = true;
-          }}
-          onBlur={(event) => {
-            // Null when focus falls to the page, as when its line is removed.
-            const next = event.relatedTarget;
-            if (next !== null && !event.currentTarget.contains(next)) {
-              focusInList.current = false;
-            }
-          }}
         >
           {drawn.map((session) => (
             <WaitingSession
@@ -288,22 +250,11 @@ export function ApprovalInbox({
               layout={layout}
               now={givenNow ?? now}
               onAnswered={() => setSent((count) => count + 1)}
-              opened={rail?.openedId === session.id}
-              reason={railLines ? reasonOf(session.id) : undefined}
-              onOpen={
-                rail && layout === "summary"
-                  ? (opener) => rail.open(session, opener, titleRef.current)
-                  : undefined
-              }
+              reason={summary ? reasonOf(session.id) : undefined}
             />
           ))}
           {left > 0 && moreLine !== undefined ? (
-            <li
-              className={cn(
-                "text-control",
-                layout === "summary" ? FRAME_PADDING : null,
-              )}
-            >
+            <li className={cn("text-control", summary ? FRAME_PADDING : null)}>
               {moreLine(`${left}${more ? "+" : ""}`)}
             </li>
           ) : null}
@@ -349,21 +300,15 @@ function WaitingSession({
   layout,
   now,
   onAnswered,
-  opened,
   reason,
-  onOpen,
 }: SessionActionProps & {
   readonly session: SessionSummary;
   readonly renderError: ApprovalInboxProps["renderError"];
   readonly layout: ApprovalInboxProps["layout"];
   readonly now: number;
   readonly onAnswered: () => void;
-  /** Whether the rail shows this session. */
-  readonly opened: boolean;
   /** Why the session came to the reader, when a relation list names it. */
   readonly reason?: Reason | undefined;
-  /** Given, each line opens the rail instead of answering. */
-  readonly onOpen?: ((opener: HTMLElement) => void) | undefined;
 }) {
   const { t } = useBlockText();
   const { renderLink, client } = useWerft();
@@ -394,18 +339,15 @@ function WaitingSession({
         Math.floor((now - Date.parse(request.created_at)) / 60_000),
       ),
     });
-    // Untitled, the name line already is the short id. A rail line has no
-    // id: it names a session's starter when it has no agent, and ends with
-    // why the request came to the reader.
-    const parts = (
-      onOpen
-        ? [
-            session.agent?.name ?? session.created_by?.display_name,
-            waited,
-            reason && t(`inbox.why.${reason}`),
-          ]
-        : [session.agent?.name, session.title ? short : undefined, waited]
-    ).filter((part) => part !== undefined);
+    // Untitled, the name line already is the short id. A session with no
+    // agent is named by its starter; the line ends with why the request
+    // came to the reader.
+    const parts = [
+      session.agent?.name ?? session.created_by?.display_name,
+      session.title ? short : undefined,
+      waited,
+      reason && t(`inbox.why.${reason}`),
+    ].filter((part) => part !== undefined);
     return (
       <>
         {parts.map((part, index) => (
@@ -429,22 +371,7 @@ function WaitingSession({
   if (pending.data?.items.length === 0) return null;
   return (
     <li className={cn("flex min-w-0 flex-col", summary ? null : "gap-2")}>
-      {pending.data && onOpen ? (
-        <ul className="m-0 flex list-none flex-col divide-y p-0">
-          {pending.data.items.map((request) => (
-            <li key={request.request_id}>
-              <PanelLine
-                request={request}
-                heading={heading}
-                meta={meta(request)}
-                name={session.title ?? short}
-                opened={opened}
-                onOpen={onOpen}
-              />
-            </li>
-          ))}
-        </ul>
-      ) : pending.data ? (
+      {pending.data ? (
         <PendingAnswers
           sessionId={session.id}
           items={pending.data.items}
@@ -490,57 +417,5 @@ function WaitingSession({
         </div>
       )}
     </li>
-  );
-}
-
-/**
- * A waiting request as one list line whose one action opens the rail, where
- * what it asks and until when are shown.
- */
-function PanelLine({
-  request,
-  heading,
-  meta,
-  name,
-  opened,
-  onOpen,
-}: {
-  readonly request: PendingRequest;
-  readonly heading: ReactNode;
-  readonly meta: ReactNode;
-  /** The session as the button's accessible name says it. */
-  readonly name: string;
-  readonly opened: boolean;
-  readonly onOpen: (opener: HTMLElement) => void;
-}) {
-  const { t } = useBlockText();
-  return (
-    <div className="flex min-h-[var(--werft-row-min-height)] items-center gap-3 px-[var(--werft-row-padding-x)] py-[var(--werft-row-padding-y)]">
-      <div className="flex min-w-0 flex-1 flex-col gap-(--werft-row-line-gap)">
-        {/* On a narrow line the badge goes under the title rather than
-            both being cut; a long title takes two lines before it is cut. */}
-        <p className="m-0 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-medium text-control leading-(--werft-leading-body)">
-          <span className="line-clamp-2 min-w-16 max-w-full">{heading}</span>
-          <Badge variant="amber" className="min-w-0 max-w-full shrink">
-            <span className="truncate">
-              {request.kind === "question"
-                ? t("session.pending.question")
-                : t("inbox.permission")}
-            </span>
-          </Badge>
-        </p>
-        <p className="m-0 text-caption text-muted-foreground leading-(--werft-leading-caption) [overflow-wrap:anywhere]">
-          {meta}
-        </p>
-      </div>
-      <RowAction
-        className="shrink-0"
-        aria-expanded={opened}
-        aria-label={t("inbox.answerFor", { session: name })}
-        onClick={(event) => onOpen(event.currentTarget)}
-      >
-        {t("inbox.answer")}
-      </RowAction>
-    </div>
   );
 }

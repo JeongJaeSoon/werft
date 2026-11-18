@@ -19,9 +19,8 @@ import {
   ApprovalInbox,
   type SessionActionProps,
   SessionDetail,
-  usePendingRail,
 } from "@werft-ai/react/blocks";
-import { DetailLayout, ListToolbar } from "@werft-ai/react/components";
+import { ListToolbar } from "@werft-ai/react/components";
 import {
   Button,
   EmptyState,
@@ -132,11 +131,6 @@ export function SessionsScreen() {
   const search = useRef<HTMLInputElement>(null);
   const counts = useSessionCounts(relation, q);
   const refusal = (error: { readonly code: string }) => t(errorKey(error.code));
-  const rail = usePendingRail({
-    renderError: loadError,
-    unavailable,
-    refusal,
-  });
   // A new filter leaves `page` out, so it opens on the first page.
   const go = (next: SessionsSearch) =>
     void navigate({
@@ -177,88 +171,85 @@ export function SessionsScreen() {
     search.current?.focus();
   };
   return (
-    <DetailLayout rail={rail.rail}>
-      <Page title={t("sessions.title")} description={t("sessions.intro")}>
-        <div className="flex flex-col gap-[var(--werft-space-block)]">
-          <ApprovalInbox
-            layout="summary"
-            rail={rail}
-            renderError={loadError}
-            unavailable={unavailable}
-            refusal={refusal}
-          />
-          <div className="flex min-w-0 flex-col gap-4">
-            <ListToolbar
-              filter={
-                <SegmentedControl
-                  aria-label={t("sessionList.filter.label")}
-                  value={tab}
-                  onValueChange={pick}
-                  scroll={true}
-                >
-                  <SegmentedControlItem value="all" count={counts.data?.total}>
-                    {t("sessionList.filter.all")}
+    <Page title={t("sessions.title")} description={t("sessions.intro")}>
+      <div className="flex flex-col gap-[var(--werft-space-block)]">
+        <ApprovalInbox
+          layout="summary"
+          renderError={loadError}
+          unavailable={unavailable}
+          refusal={refusal}
+        />
+        <div className="flex min-w-0 flex-col gap-4">
+          <ListToolbar
+            filter={
+              <SegmentedControl
+                aria-label={t("sessionList.filter.label")}
+                value={tab}
+                onValueChange={pick}
+                scroll={true}
+              >
+                <SegmentedControlItem value="all" count={counts.data?.total}>
+                  {t("sessionList.filter.all")}
+                </SegmentedControlItem>
+                {SESSION_FILTERS.map((name) => (
+                  <SegmentedControlItem
+                    key={name}
+                    value={name}
+                    count={counts.data?.counts[name]}
+                    countTone={FILTER_COUNT_TONE[name]}
+                  >
+                    {t(`sessions.status.${name}`)}
                   </SegmentedControlItem>
-                  {SESSION_FILTERS.map((name) => (
-                    <SegmentedControlItem
-                      key={name}
-                      value={name}
-                      count={counts.data?.counts[name]}
-                      countTone={FILTER_COUNT_TONE[name]}
-                    >
-                      {t(`sessions.status.${name}`)}
-                    </SegmentedControlItem>
-                  ))}
-                </SegmentedControl>
-              }
-              filters={
-                <FilterMenu
-                  label={t("sessionList.relation.label")}
-                  options={[
-                    { value: "all", label: t("sessionList.relation.all") },
-                    ...SESSION_RELATIONS.map((name) => ({
-                      value: name,
-                      label: t(`sessionList.relation.${name}`),
-                    })),
-                  ]}
-                  value={relation ?? "all"}
-                  onValueChange={pickRelation}
-                />
-              }
-              search={{
-                ref: search,
-                type: "search",
-                "aria-label": t("sessionList.search"),
-                placeholder: t("sessionList.search"),
-                maxLength: SEARCH_MAX,
-                value: query,
-                onChange: (event) => {
-                  setQuery(event.target.value);
-                  if (address.page) goToPage(1, { replace: true });
-                },
-              }}
-            />
-            <SessionsView
-              filter={{
-                ...(tab === "all" ? {} : { status: tab }),
-                ...(relation ? { relation } : {}),
-                ...(q ? { q } : {}),
-              }}
-              total={
-                counts.isPlaceholderData || !counts.data
-                  ? undefined
-                  : tab === "all"
-                    ? counts.data.total
-                    : counts.data.counts[tab]
-              }
-              page={address.page ?? 1}
-              onPageChange={goToPage}
-              onClear={clear}
-            />
-          </div>
+                ))}
+              </SegmentedControl>
+            }
+            filters={
+              <FilterMenu
+                label={t("sessionList.relation.label")}
+                options={[
+                  { value: "all", label: t("sessionList.relation.all") },
+                  ...SESSION_RELATIONS.map((name) => ({
+                    value: name,
+                    label: t(`sessionList.relation.${name}`),
+                  })),
+                ]}
+                value={relation ?? "all"}
+                onValueChange={pickRelation}
+              />
+            }
+            search={{
+              ref: search,
+              type: "search",
+              "aria-label": t("sessionList.search"),
+              placeholder: t("sessionList.search"),
+              maxLength: SEARCH_MAX,
+              value: query,
+              onChange: (event) => {
+                setQuery(event.target.value);
+                if (address.page) goToPage(1, { replace: true });
+              },
+            }}
+          />
+          <SessionsView
+            filter={{
+              ...(tab === "all" ? {} : { status: tab }),
+              ...(relation ? { relation } : {}),
+              ...(q ? { q } : {}),
+            }}
+            total={
+              counts.isPlaceholderData || !counts.data
+                ? undefined
+                : tab === "all"
+                  ? counts.data.total
+                  : counts.data.counts[tab]
+            }
+            page={address.page ?? 1}
+            onPageChange={goToPage}
+            onClear={clear}
+          />
         </div>
-      </Page>
-    </DetailLayout>
+      </div>
+    </Page>
   );
 }
 

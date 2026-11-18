@@ -1,9 +1,4 @@
 export { ApprovalInbox, type ApprovalInboxProps } from "./approval-inbox.tsx";
-export {
-  type PendingRail,
-  type PendingRailOptions,
-  usePendingRail,
-} from "./pending-rail.tsx";
 export type {
   ApprovalLayout,
   SessionAction,
