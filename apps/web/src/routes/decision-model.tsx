@@ -130,7 +130,7 @@ export function useDecisionModelSetup(
               onRetry={() => void connections.refetch()}
             />
           ) : items === undefined ? (
-            <Skeleton height="4rem" />
+            <Skeleton height="4rem" label={t("status.loading.title")} />
           ) : (
             <RowList variant="joined">
               {items.map((item) => (

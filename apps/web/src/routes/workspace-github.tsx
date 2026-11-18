@@ -137,6 +137,7 @@ const reasonOf = (error: ApiError): unknown =>
 
 /** Integrations > GitHub: the Apps agents reach GitHub with and where they are installed. */
 function WorkspaceGitHubScreen() {
+  const { t } = useI18n();
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const settings = useGitHubSettings();
   useSetupReturn(setOutcome);
@@ -146,7 +147,7 @@ function WorkspaceGitHubScreen() {
       <OutcomeLine outcome={outcome} live />
       {settings.isPending ? (
         <div className={CARD}>
-          <Skeleton width="40%" />
+          <Skeleton width="40%" label={t("status.loading.title")} />
         </div>
       ) : settings.isError ? (
         <LoadFailure
@@ -979,7 +980,7 @@ function RemoveApp({
     read?.user_link === true &&
     otherAuthors(connections, connection).length > 0;
   const consequence: ReactNode = usage.isPending ? (
-    <Skeleton width="80%" />
+    <Skeleton width="80%" label={t("status.loading.title")} />
   ) : usage.isError ? (
     t("github.apps.removeUsageFailed")
   ) : held ? (

@@ -245,7 +245,7 @@ export function RepositorySheet({
           </DialogClose>
         </div>
         {list.isPending ? (
-          <Skeleton width="60%" />
+          <Skeleton width="60%" label={t("status.loading.title")} />
         ) : installationRequired(list.error) ? (
           // Several Apps of a role and none installed: no page to name.
           <Text variant="sub">{t("github.repo.pickNoInstallation")}</Text>
@@ -705,7 +705,7 @@ function PinsDialog({
         </DialogHeader>
         {error === null ? null : <FormError>{error}</FormError>}
         {candidates.isPending ? (
-          <Skeleton width="60%" />
+          <Skeleton width="60%" label={t("status.loading.title")} />
         ) : candidates.isError ? (
           <LoadFailure
             error={candidates.error}

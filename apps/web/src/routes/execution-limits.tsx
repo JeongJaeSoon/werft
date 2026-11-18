@@ -381,7 +381,8 @@ function Limits({
     },
   });
 
-  if (read.isPending) return <Skeleton width="50%" />;
+  if (read.isPending)
+    return <Skeleton width="50%" label={t("status.loading.title")} />;
   if (read.isError) {
     return (
       <LoadFailure error={read.error} onRetry={() => void read.refetch()} />

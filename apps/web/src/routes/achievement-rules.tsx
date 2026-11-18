@@ -344,7 +344,7 @@ export function AchievementRulesScreen() {
                 )}
               </>
             ) : (
-              <Skeleton height="12rem" />
+              <Skeleton height="12rem" label={t("status.loading.title")} />
             )}
           </div>
           {locked ? <DecisionModelLock /> : null}
@@ -549,7 +549,8 @@ function JudgeCard({
       </div>
     );
   }
-  if (!settings || !form) return <Skeleton height="16rem" />;
+  if (!settings || !form)
+    return <Skeleton height="16rem" label={t("status.loading.title")} />;
 
   const locked = reason !== undefined || save.isPending;
   const usd = (figures: typeof today) =>

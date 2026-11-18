@@ -103,7 +103,7 @@ export function ModelConnections() {
     >
       <div className="flex flex-col gap-[var(--werft-space-block)]">
         {connections.isPending ? (
-          <Skeleton width="60%" />
+          <Skeleton width="60%" label={t("status.loading.title")} />
         ) : connections.isError ? (
           <LoadFailure
             error={connections.error}
@@ -536,7 +536,7 @@ function ModelsDialog({
           {t("settings.connections.endpoint")}
         </Text>
         {item === undefined ? (
-          <Skeleton width="60%" />
+          <Skeleton width="60%" label={t("status.loading.title")} />
         ) : (
           <Code className="wrap-anywhere">{item.endpoint}</Code>
         )}

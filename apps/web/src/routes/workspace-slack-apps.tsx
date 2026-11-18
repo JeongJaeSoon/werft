@@ -85,7 +85,7 @@ export function SlackApps() {
       box={apps.isPending || apps.isError || apps.data.items.length === 0}
     >
       {apps.isPending ? (
-        <Skeleton width="50%" />
+        <Skeleton width="50%" label={t("status.loading.title")} />
       ) : apps.isError ? (
         <LoadFailure error={apps.error} onRetry={() => void apps.refetch()} />
       ) : apps.data.items.length === 0 ? (

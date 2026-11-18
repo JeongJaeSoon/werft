@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
+import { translate } from "../i18n/i18n.tsx";
 import { AGENT_ID, agentServer, TEAM } from "../test-support/fake-agents.ts";
 import { apiError, json, me, memberPage } from "../test-support/fake-api.ts";
 import { appHarness, type Routes } from "../test-support/render-app.tsx";
@@ -33,6 +34,57 @@ describe("데이터 로딩", () => {
     expect(placeholder?.getAttribute("aria-busy")).toBe("true");
     expect(screen.queryByText("로그인 상태를 확인하는 중입니다")).toBeNull();
   });
+});
+
+describe("다른 언어의 불러오는 중 표시", () => {
+  const hang = () => new Promise<Response>(() => {});
+  // `placeholders`: every spoken placeholder the screen shows while its reads
+  // are held, so one that mounts later is still checked.
+  const SCREENS = [
+    {
+      path: "/settings/workspace/mcp-servers",
+      reads: [
+        "GET /v1/workspace/mcp-servers",
+        "GET /v1/installation/settings/mcp-servers",
+      ],
+      placeholders: 2,
+    },
+    {
+      path: "/settings/workspace/login",
+      reads: ["GET /v1/login-providers", "GET /v1/login-settings"],
+      placeholders: 2,
+    },
+    {
+      path: "/settings/workspace/limits",
+      reads: ["GET /v1/installation-config"],
+      placeholders: 1,
+    },
+  ];
+  for (const locale of ["en", "ja"] as const) {
+    for (const item of SCREENS) {
+      test(`${locale} ${item.path}: 자리표시의 문구가 한국어로 새지 않는다`, async () => {
+        renderAt(
+          item.path,
+          {
+            ...meOk,
+            ...Object.fromEntries(item.reads.map((key) => [key, hang])),
+          },
+          locale,
+        );
+        const spoken = () =>
+          [
+            ...document.querySelectorAll(
+              "output.werft-skeleton:not([aria-hidden])",
+            ),
+          ].map((node) => node.textContent);
+        const expected = Array(item.placeholders).fill(
+          translate(locale, "status.loading.title"),
+        );
+        await waitFor(() => expect(spoken()).toHaveLength(item.placeholders));
+        expect(spoken()).toEqual(expected);
+      });
+    }
+  }
 });
 
 describe("없는 주소", () => {

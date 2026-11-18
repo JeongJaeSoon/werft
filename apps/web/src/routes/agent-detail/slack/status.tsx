@@ -51,7 +51,9 @@ export function SlackHeader({
     .flatMap((page) => page.items)
     .find((channel) => channel.id === home?.external_surface_id)?.name;
   const bindingsLost = bindings.isError && !bindings.data;
-  const placeholder = <Skeleton className="h-4 w-20" />;
+  const placeholder = (
+    <Skeleton className="h-4 w-20" label={t("status.loading.title")} />
+  );
   const reads = connected ? [app, identities, bindings] : [app, identities];
   const failed = reads.filter((read) => read.isError);
   const error = failed[0]?.error ?? null;

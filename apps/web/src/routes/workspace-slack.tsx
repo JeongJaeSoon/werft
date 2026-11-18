@@ -374,7 +374,7 @@ function SlackCard({
             rows={
               token.isPending || deciding ? (
                 <RowListItem>
-                  <Skeleton width="50%" />
+                  <Skeleton width="50%" label={t("status.loading.title")} />
                 </RowListItem>
               ) : token.isError ? (
                 <>
