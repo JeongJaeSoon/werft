@@ -22,11 +22,16 @@ describe("권한 요청의 거부 문구", () => {
     });
   }
 
-  // English and Japanese say the form's parts in other words, so only
-  // Korean shares the button's word with them.
-  test("ko: 거부 폼의 라벨과 보내기 버튼도 버튼과 같은 낱말로 시작한다", () => {
-    const word = sessionsKo["session.answer.deny"];
-    expect(sessionsKo["session.answer.denyReason"].startsWith(word)).toBe(true);
-    expect(sessionsKo["session.answer.denySubmit"].startsWith(word)).toBe(true);
-  });
+  // English says the form's parts in other words ("Why deny?", "Send
+  // denial"), so only Korean and Japanese share the button's word with them.
+  for (const { name, catalog } of [
+    { name: "ko", catalog: sessionsKo },
+    { name: "ja", catalog: sessionsJa },
+  ]) {
+    test(`${name}: 거부 폼의 라벨과 보내기 버튼도 버튼과 같은 낱말로 시작한다`, () => {
+      const word = catalog["session.answer.deny"];
+      expect(catalog["session.answer.denyReason"].startsWith(word)).toBe(true);
+      expect(catalog["session.answer.denySubmit"].startsWith(word)).toBe(true);
+    });
+  }
 });
