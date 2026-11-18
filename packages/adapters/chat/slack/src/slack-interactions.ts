@@ -698,8 +698,8 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     }
     const botToken = await deps.botToken(app.workspaceId, app.slackAppId);
     if (botToken === null) return ok("refused:no_bot_token");
-    // The trigger lasts three seconds: the loading modal waits on nothing
-    // but the token, so it speaks the default language.
+    // The trigger lasts three seconds: the loading modal waits only on the
+    // channel check above and the token, so it speaks the default language.
     const loading = DEFAULT_USER_LOCALE;
     const copy = SLACK_PROMPT_MESSAGES[loading];
     const { viewId } = await deps.slack.openView(botToken, {
