@@ -286,17 +286,15 @@ export function Releases({
                       <dl className="m-0 hidden flex-col gap-[var(--werft-row-line-gap)] text-caption [@container(max-width:860px)]:flex">
                         {(
                           [
-                            ["colActivated", listedActivated],
-                            ["colBy", by],
+                            ["agent.releases.colActivated", listedActivated],
+                            ["agent.releases.colBy", by],
                           ] as const
                         ).map(([key, value]) => (
                           <div
                             key={key}
                             className="flex min-w-0 flex-wrap gap-x-2"
                           >
-                            <dt className="text-muted-foreground">
-                              {t(`agent.releases.${key}`)}
-                            </dt>
+                            <dt className="text-muted-foreground">{t(key)}</dt>
                             <dd className="m-0 min-w-0 tabular-nums">
                               {value}
                             </dd>
