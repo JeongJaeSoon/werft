@@ -3851,11 +3851,33 @@ describe("세션 공유 범위", () => {
         ?.textContent,
     ).toBe(FAILED);
     await user.click(retry);
-    expect(await within(meta).findByText(/세션을 가진 사람만/)).toBeTruthy();
+    const shown = await within(meta).findByText(/세션을 가진 사람만/);
+    // The pressed retry is gone; focus lands on what it brought.
+    expect(document.activeElement === shown).toBe(true);
+    expect(shown.textContent).toBe("공유 범위: 세션을 가진 사람만");
+    expect(shown.getAttribute("tabindex")).toBe("-1");
     expect(within(meta).queryByRole("alert") === null).toBe(true);
     expect(
       within(meta).queryByRole("button", { name: "다시 시도" }) === null,
     ).toBe(true);
+  });
+
+  test("저절로 다시 읽어 공유 범위가 나타나면 초점을 옮기지 않는다", async () => {
+    let reads = 0;
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [SHARE_ROUTE]: () =>
+        ++reads === 1
+          ? apiError(503, "BACKEND_UNAVAILABLE", "down")
+          : json(200, share({ scope: "private" })),
+    });
+    const meta = await sessionMeta();
+    await within(meta).findByRole("alert");
+    // The window coming back into view reads again; no one pressed retry.
+    window.dispatchEvent(new Event("visibilitychange"));
+    const shown = await within(meta).findByText(/세션을 가진 사람만/);
+    expect(reads).toBe(2);
+    expect(document.activeElement === shown).toBe(false);
   });
 
   test("받은 값이 없을 때 다시 읽는 동안에도 실패 표시가 남고 초점은 다시 시도에 있으며, 두 번 눌러도 한 번 읽는다", async () => {
@@ -4008,7 +4030,7 @@ describe("세션 공유 범위", () => {
     });
     await waitFor(() => expect(reads).toBe(2));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    // While it reads again, its own earlier failure is forgotten too.
+    // The kept failure is the other session's, which never shows here.
     expect(within(await sessionMeta()).queryByRole("alert") === null).toBe(
       true,
     );

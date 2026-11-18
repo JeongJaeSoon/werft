@@ -25,7 +25,15 @@ import {
   UserRound,
   UsersRound,
 } from "lucide-react";
-import { Fragment, type ReactNode, useCallback, useId, useState } from "react";
+import {
+  Fragment,
+  type ReactNode,
+  useCallback,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   OPERATIONS_MESSAGES,
   SessionStatusLabel,
@@ -45,6 +53,7 @@ import {
   useSessionUsage,
 } from "../sessions.ts";
 import {
+  focusLost,
   PendingAnswers,
   type SessionActionProps,
   SessionComposer,
@@ -491,7 +500,12 @@ function SessionMeta({
           {new Intl.NumberFormat(locale).format(usage.token_count)}
         </span>
       ) : null}
-      <SessionShare share={share} failure={shareFailure} onRetry={retryShare} />
+      <SessionShare
+        key={session.id}
+        share={share}
+        failure={shareFailure}
+        onRetry={retryShare}
+      />
     </p>
   );
 }
@@ -514,9 +528,10 @@ function shareText(t: BlockText, share: SessionShareView): string | null {
 }
 
 /**
- * Who sees the session, read only. Nothing while it reads or for a viewer
+ * Who sees the session, read only. Nothing on its first read or for a viewer
  * who may no longer read it. A failed read says so in its place, even over
- * an earlier answer, which may no longer be true.
+ * an earlier answer, which may no longer be true, and keeps saying so while
+ * it reads again, unless another session has failed since.
  */
 function SessionShare({
   share,
@@ -529,6 +544,16 @@ function SessionShare({
 }) {
   const { t } = useBlockText();
   const failedId = useId();
+  const pressed = useRef(false);
+  const shown = useRef<HTMLElement | null>(null);
+  const text = share ? shareText(t, share) : null;
+  // A pressed retry takes its button away; focus lands on what it brought.
+  useLayoutEffect(() => {
+    if (!pressed.current) return;
+    pressed.current = false;
+    if (!failure && text !== null && focusLost(shown.current))
+      shown.current?.focus();
+  }, [failure, text]);
   if (isApiError(failure, "NOT_FOUND") || isApiError(failure, "FORBIDDEN"))
     return null;
   if (failure) {
@@ -553,17 +578,24 @@ function SessionShare({
           size="sm"
           className="h-auto px-0 text-caption"
           aria-describedby={failedId}
-          onClick={onRetry}
+          onClick={() => {
+            pressed.current = true;
+            onRetry();
+          }}
         >
           {t("session.share.retry")}
         </Button>
       </Text>
     );
   }
-  const text = share ? shareText(t, share) : null;
   if (text === null) return null;
   return (
     <Text
+      // Text types its ref as a paragraph whatever `as` says; this is a span.
+      ref={(node: HTMLElement | null) => {
+        shown.current = node;
+      }}
+      tabIndex={-1}
       as="span"
       variant="meta"
       className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground"
