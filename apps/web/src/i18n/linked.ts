@@ -7,7 +7,7 @@ export const linkedKo = {
   "linked.notLinked": "연결 안 됨",
   "linked.soon": "준비 중",
   "linked.use.github": "세션 commit에 공동 작성자로 표시",
-  "linked.github.unset": "어드민이 사용자 연결을 켜야 해요",
+  "linked.github.unset": "어드민이 사용자 연결을 켜야 합니다",
   "linked.github.connect": "GitHub 계정 연결",
   "linked.github.starting": "GitHub로 이동하는 중…",
   "linked.github.coAuthor": "commit에 들어가는 줄: Co-authored-by: {line}",

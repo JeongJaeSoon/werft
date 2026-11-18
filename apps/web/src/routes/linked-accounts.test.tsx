@@ -793,7 +793,7 @@ describe("연동 계정 — GitHub", () => {
       "GET /v1/linked-accounts": () => json(200, { items: [] }),
     });
     expect(
-      await screen.findByText("어드민이 사용자 연결을 켜야 해요"),
+      await screen.findByText("어드민이 사용자 연결을 켜야 합니다"),
     ).toBeDefined();
     const button = within(githubRow()).getByRole("button", { name: "연결" });
     expect(button.hasAttribute("disabled")).toBe(true);
