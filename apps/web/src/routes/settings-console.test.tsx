@@ -90,7 +90,34 @@ const expectNarrowActions = (table: HTMLElement) => {
   }
 };
 
+/** Result lines mounted with nothing in them yet, so a later result is read out. */
+const emptyLiveRegions = (scope: HTMLElement = screen.getByRole("main")) =>
+  [...scope.querySelectorAll<HTMLElement>('output[data-slot="alert"]')].filter(
+    (region) => region.textContent === "",
+  );
+
 type User = Awaited<ReturnType<typeof setupUser>>;
+
+/**
+ * The table's section has one result line, a status region above the table
+ * that is there before anything happens; the notice is written into it.
+ */
+async function expectNoticeInStandingRegion(
+  table: HTMLElement,
+  act: () => Promise<void>,
+  text: string,
+) {
+  const section = table.closest("section") ?? screen.getByRole("main");
+  const [region] = emptyLiveRegions(section);
+  if (!region) throw new Error("no empty live region");
+  expect(within(section).getAllByRole("status").includes(region)).toBe(true);
+  expect(
+    region.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  await act();
+  await waitFor(() => expect(region.textContent).toBe(text));
+  expect(region.isConnected).toBe(true);
+}
 
 /** Opens a connection's row menu and returns it. */
 const openMenu = async (user: User, table: HTMLElement, id: string) => {
@@ -1359,6 +1386,33 @@ describe("모델 연결", () => {
     expect(writes(api.calls)).toEqual([]);
   });
 
+  test("the result line is a live region before the first result arrives", async () => {
+    renderAt(CONNECTIONS_PAGE, routes());
+    await screen.findByRole("table", { name: "모델 연결" });
+    expect(emptyLiveRegions()).toHaveLength(1);
+  });
+
+  test("the result line sits above the table and the notice lands in the region already there", async () => {
+    renderAt(CONNECTIONS_PAGE, {
+      ...routes(),
+      [`POST ${CONNECTIONS}/console-key/disable`]: () =>
+        json(200, CHANGE("console-key")),
+    });
+    const user = await setupUser();
+    const table = await screen.findByRole("table", { name: "모델 연결" });
+    await expectNoticeInStandingRegion(
+      table,
+      async () => {
+        await choose(user, table, "console-key", "console-key 사용 중지");
+        const confirm = await screen.findByRole("dialog");
+        await user.click(
+          within(confirm).getByRole("button", { name: "사용 중지" }),
+        );
+      },
+      "console-key를 사용 중지했습니다.",
+    );
+  });
+
   test("a refusal names the server's reason", async () => {
     renderAt(CONNECTIONS_PAGE, {
       ...routes(),
@@ -1429,6 +1483,35 @@ describe("MCP 서버", () => {
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
     ).toEqual(["search 사용 중지"]);
+  });
+
+  test("the result line is a live region before the first result arrives", async () => {
+    renderAt("/settings/workspace/mcp-servers", routes());
+    await screen.findByRole("table", { name: "MCP 서버" });
+    const catalog = screen.getByRole("region", { name: "설치 카탈로그" });
+    expect(emptyLiveRegions(catalog)).toHaveLength(1);
+  });
+
+  test("the catalog result line sits above its table and the notice lands in the region already there", async () => {
+    renderAt("/settings/workspace/mcp-servers", {
+      ...routes(),
+      [`POST ${MCP}/docs/disable`]: () => json(200, CHANGE("docs")),
+    });
+    const user = await setupUser();
+    const table = await screen.findByRole("table", { name: "MCP 서버" });
+    await expectNoticeInStandingRegion(
+      table,
+      async () => {
+        await user.click(
+          within(table).getByRole("button", { name: "docs 사용 중지" }),
+        );
+        const confirm = await screen.findByRole("dialog");
+        await user.click(
+          within(confirm).getByRole("button", { name: "사용 중지" }),
+        );
+      },
+      "docs를 사용 중지했습니다.",
+    );
   });
 
   test("a narrow table keeps every row's actions", async () => {

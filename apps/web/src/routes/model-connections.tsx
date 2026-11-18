@@ -39,6 +39,7 @@ import { scopedKey } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
 import { INACTIVE_ROW_CLASS } from "../components/inactive-member.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { RowMenu, RowMenuItem } from "../components/row-menu.tsx";
 import { type Translate, useI18n } from "../i18n/i18n.tsx";
 import {
@@ -46,8 +47,6 @@ import {
   entryActions,
   FormDialog,
   NarrowState,
-  type Outcome,
-  OutcomeLine,
   SETTINGS_NARROW_COLUMNS,
   SecretInput,
   StateText,
@@ -102,6 +101,7 @@ export function ModelConnections() {
       }
     >
       <div className="flex flex-col gap-[var(--werft-space-block)]">
+        <OutcomeLine outcome={outcome} live />
         {connections.isPending ? (
           <Skeleton width="60%" label={t("status.loading.title")} />
         ) : connections.isError ? (
@@ -170,7 +170,6 @@ export function ModelConnections() {
             ))}
           </GridTable>
         )}
-        <OutcomeLine outcome={outcome} />
       </div>
       <AddConnection
         open={adding}

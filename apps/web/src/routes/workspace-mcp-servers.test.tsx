@@ -132,6 +132,16 @@ describe("워크스페이스 MCP 서버", () => {
     expect(tracker.textContent).toContain("wxyz");
   });
 
+  test("the result line is a live region before the first result arrives", async () => {
+    renderAt(PAGE, routes([oauthServer()]));
+    await rowOf("wiki");
+    const section = screen.getByRole("region", { name: "워크스페이스 서버" });
+    const empty = [
+      ...section.querySelectorAll('output[data-slot="alert"]'),
+    ].filter((region) => region.textContent === "");
+    expect(empty).toHaveLength(1);
+  });
+
   test("a server not yet connected shows no acting account", async () => {
     renderAt(PAGE, routes([oauthServer({ connection: UNCONNECTED })]));
     const wiki = await rowOf("wiki");

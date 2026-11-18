@@ -60,6 +60,7 @@ import { scopedKey } from "../api/queries.ts";
 import { refusalText, useHasPermission, useRole } from "../auth/guard.tsx";
 import { LOGIN_DOMAIN_PATTERN, LOGIN_DOMAINS_MAX } from "../auth/limits.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { Action } from "../components/setting-action.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { isMessageKey, type Translate, useI18n } from "../i18n/i18n.tsx";
@@ -69,12 +70,7 @@ import {
   loginSettingsQuery,
   PasswordLoginSettings,
 } from "./login-settings.tsx";
-import {
-  FormDialog,
-  type Outcome,
-  OutcomeLine,
-  SecretInput,
-} from "./settings-entries.tsx";
+import { FormDialog, SecretInput } from "./settings-entries.tsx";
 
 const PERMISSION = "installation.settings.manage";
 const LIST = "/settings/workspace/login";
@@ -615,7 +611,7 @@ function ProviderSettings({
 
   return (
     <div className="flex flex-col gap-[var(--werft-space-block)]">
-      <OutcomeLine outcome={outcome} />
+      <OutcomeLine outcome={outcome} live />
       <SettingsSection
         title={t("loginProviders.section.general")}
         rows={

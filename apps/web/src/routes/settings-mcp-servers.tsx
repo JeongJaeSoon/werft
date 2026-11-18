@@ -28,14 +28,13 @@ import { Plus } from "lucide-react";
 import { useState } from "react";
 import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import {
   credentialText,
   entryActions,
   FormDialog,
   NarrowState,
-  type Outcome,
-  OutcomeLine,
   SETTINGS_NARROW_COLUMNS,
   SecretInput,
   StateBadge,
@@ -139,6 +138,7 @@ function McpCatalog({
   const { t } = useI18n();
   return (
     <div className="flex flex-col gap-[var(--werft-space-block)]">
+      <OutcomeLine outcome={outcome} live />
       {servers.isPending ? (
         <Skeleton width="60%" label={t("status.loading.title")} />
       ) : servers.isError ? (
@@ -191,7 +191,6 @@ function McpCatalog({
           ))}
         </GridTable>
       )}
-      <OutcomeLine outcome={outcome} />
     </div>
   );
 }

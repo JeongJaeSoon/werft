@@ -40,6 +40,7 @@ import {
   refusalText,
   useRole,
 } from "../auth/guard.tsx";
+import type { Outcome } from "../components/outcome.tsx";
 import { focusBack } from "../components/row-menu.tsx";
 import { type Translate, useI18n } from "../i18n/i18n.tsx";
 
@@ -355,24 +356,6 @@ export function entryActions(entry: {
     disable: true,
     enable: false,
   };
-}
-
-/** The result line under a settings screen's table. */
-export type Outcome = {
-  readonly kind: "notice" | "error";
-  readonly text: string;
-};
-
-export function OutcomeLine({ outcome }: { readonly outcome: Outcome | null }) {
-  if (outcome === null) return null;
-  return (
-    <Alert
-      variant={outcome.kind === "error" ? "red" : "default"}
-      role={outcome.kind === "error" ? "alert" : "status"}
-    >
-      <AlertDescription>{outcome.text}</AlertDescription>
-    </Alert>
-  );
 }
 
 /** A form in a dialog that stays open until its request answers. */
