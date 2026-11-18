@@ -665,6 +665,40 @@ describe("로그인 공급자 상세", () => {
     ]);
   });
 
+  test.each([
+    ["ready", false],
+    ["needs_test", true],
+  ] as const)(
+    "once it is off the keyboard goes on to turning it back on, not to the page: %s",
+    async (state, withheldOn) => {
+      const on = filled({ state: "enabled", tested_at: AT });
+      const off = { ...on, state };
+      let current: LoginProviderView = on;
+      renderAt(PAGE, {
+        ...routes([]),
+        [`GET ${API}`]: () =>
+          json(200, { providers: [current], console_origin_configured: true }),
+        [`POST ${API}/${ID}/disable`]: () => {
+          current = off;
+          return json(200, { provider: off, sessions_revoked: 0 });
+        },
+      });
+      const user = await setupUser();
+      await user.click(
+        await screen.findByRole("button", { name: "이 공급자 끄기" }),
+      );
+      const dialog = await screen.findByRole("dialog");
+      await user.click(within(dialog).getByRole("button", { name: "끄기" }));
+      const turnOn = await screen.findByRole("button", { name: "켜기" });
+      // A withheld one is reached through the box that says why.
+      const target = withheldOn
+        ? turnOn.closest("[data-slot=disabled-reason]")
+        : turnOn;
+      expect(target === null).toBe(false);
+      await waitFor(() => expect(document.activeElement === target).toBe(true));
+    },
+  );
+
   const closedAccess = (enabled_providers: number) => ({
     "GET /v1/login-settings": () =>
       json(200, {

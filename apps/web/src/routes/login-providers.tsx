@@ -55,10 +55,11 @@ import {
   TooltipTrigger,
 } from "@werft-ai/ui";
 import { CircleAlert, Plus } from "lucide-react";
-import { Fragment, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useHasPermission, useRole } from "../auth/guard.tsx";
 import { LOGIN_DOMAIN_PATTERN, LOGIN_DOMAINS_MAX } from "../auth/limits.ts";
+import { focusLeftBehind } from "../components/focus.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { Action } from "../components/setting-action.tsx";
@@ -574,11 +575,29 @@ function ProviderSettings({
       onRefused: refused,
     },
   );
+  // Turned off, the button pressed is withheld and the dialog has nothing to
+  // give the keyboard back to; it goes on to turning the provider back on,
+  // once, when the read that shows it off answers.
+  const enableRef = useRef<HTMLButtonElement>(null);
+  const focusEnable = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: tried once each read answers
+  useEffect(() => {
+    if (!focusEnable.current) return;
+    focusEnable.current = false;
+    if (on || !focusLeftBehind(true)) return;
+    const button = enableRef.current;
+    // A withheld button is reached through the box that says why.
+    (button?.disabled
+      ? button.closest<HTMLElement>("[data-slot=disabled-reason]")
+      : button
+    )?.focus();
+  }, [provider]);
   const disable = useProviderWrite(
     (api, _: undefined) =>
       unwrap(api.POST("/v1/login-providers/{id}/disable", id)),
     {
       onDone: (answer) => {
+        focusEnable.current = true;
         setEditing(null);
         notice(
           t("loginProviders.done.disabled", { count: answer.sessions_revoked }),
@@ -926,6 +945,7 @@ function ProviderSettings({
                         : t("loginProviders.error.notTested")
                     }
                     busy={busy}
+                    buttonRef={enableRef}
                     onClick={() => {
                       setOutcome(null);
                       enable.mutate(undefined);
