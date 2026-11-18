@@ -14,6 +14,7 @@
 #        SERVICES_DIR                     launch records (default $RUNNER_TEMP/ci-services)
 #        SERVICES_WAIT_SECONDS            wait's deadline, pull included (default 180)
 #        SERVICES_CALL_TIMEOUT            seconds one docker call may take in wait (default 10)
+#        SERVICES_PULL_STALL              seconds a pull may go without progress before it is cut (default 45)
 #        DOCKER_CLI                       the docker command (tests replace it)
 set -euo pipefail
 
@@ -22,6 +23,60 @@ dir=$SERVICES_DIR
 docker=${DOCKER_CLI:-docker}
 # A stalled daemon must not hold wait past its deadline by more than this.
 bounded() { timeout "${SERVICES_CALL_TIMEOUT:-10}" "$docker" "$@"; }
+
+. "$(dirname "${BASH_SOURCE[0]}")/../../tests/e2e/fetch-retry.sh"
+
+# Pulls <image> into <out>, cutting a pull whose download has stopped (main
+# run 44221838238: two layers sat for the whole 180s wait) with a line
+# fetch_retried treats as a transfer failure. Without a terminal docker pull
+# prints a line only when a layer changes state, so a large layer that is
+# slow but moving would look stopped; on a terminal it redraws the progress
+# of every layer as bytes arrive. The pull therefore runs on a pseudo-terminal
+# (util-linux script), and SERVICES_PULL_STALL seconds without a redraw means
+# no bytes came in. Where that script is missing nothing is cut. A cut layer
+# is fetched from its start on the next try. The wait deadline still bounds
+# every try together.
+pull_cut() {
+  local out=$1 image=$2 pid size last=-1 idle=0 status=0 grace
+  if ! script --version 2>/dev/null | grep -q util-linux; then
+    "$docker" pull "$image"
+    return
+  fi
+  script -qfec "$(printf '%q ' "$docker" pull "$image")" /dev/null >"$out" 2>&1 &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 1
+    size=$(wc -c <"$out")
+    if [ "$size" = "$last" ]; then
+      idle=$((idle + 1))
+    else
+      idle=0
+      last=$size
+    fi
+    if [ "$idle" -ge "${SERVICES_PULL_STALL:-45}" ]; then
+      kill "$pid" 2>/dev/null || true
+      for ((grace = 0; grace < 10; grace++)); do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 1
+      done
+      kill -KILL "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      cat "$out"
+      rm -f "$out"
+      echo "transfer stalled: no pull progress for ${idle}s"
+      return 1
+    fi
+  done
+  wait "$pid" || status=$?
+  cat "$out"
+  rm -f "$out"
+  return "$status"
+}
+
+# The end of a pull's output as plain lines, without the terminal's redraws.
+pull_tail() {
+  tr '\r' '\n' <"$1" | sed $'s/\x1b\\[[0-9;]*[A-Za-z]//g' | grep -v '^[[:space:]]*$' | tail -n 60
+}
 
 enabled() {
   [ "${POSTGRES:-}" = true ] && echo postgres
@@ -49,6 +104,9 @@ launch() {
       "${LOCALSTACK_SERVICE_IMAGE:?}"
     ;;
   esac
+  echo "image pull" >"$dir/$service.step"
+  fetch_retried "$dir/$service.pull" pull_cut "$dir/$service.pulling" "${!#}"
+  echo "docker run" >"$dir/$service.step"
   "$docker" run --detach --name "ci-$service" "$@"
 }
 
@@ -67,6 +125,13 @@ probe() {
 report() {
   local service=$1 reason=$2
   echo "::error::${service} service ${reason}"
+  echo "::group::${service}: image pull"
+  [ ! -f "$dir/$service.pull" ] || pull_tail "$dir/$service.pull" || true
+  if [ -f "$dir/$service.pulling" ]; then
+    echo "-- the pull still running:"
+    pull_tail "$dir/$service.pulling" || true
+  fi
+  echo "::endgroup::"
   echo "::group::${service}: docker run"
   cat "$dir/$service.out" 2>/dev/null || true
   echo "::endgroup::"
@@ -107,7 +172,8 @@ wait)
       fi
       rc=$(cat "$dir/$service.rc")
       if [ "$rc" != 0 ]; then
-        report "$service" "could not be started (docker run exited ${rc})"
+        step=$(cat "$dir/$service.step" 2>/dev/null || echo launch)
+        report "$service" "could not be started (${step} exited ${rc})"
         exit 1
       fi
       state=$(bounded inspect --format '{{.State.Status}}' "ci-$service" 2>/dev/null || echo missing)

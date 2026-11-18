@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Sourced by tests/e2e/run.sh around the steps that pull images and build
-# them from the CI build cache. A registry or the cache can fail mid-transfer:
+# them from the CI build cache, and by .github/scripts/ci-services.sh around
+# its service image pulls. A registry or the cache can fail mid-transfer:
 # a reset connection, a 5xx, or a cache URL whose signature lapsed while
 # another layer stalled. The same command again usually gets through: images
 # that finished stay in the daemon, though a layer cut midway is fetched from
@@ -20,7 +21,9 @@
 FETCH_TRIES="${FETCH_TRIES:-3}"
 FETCH_PAUSE="${FETCH_PAUSE:-5}"
 FETCH_TAIL=40
-FETCH_TRANSIENT='failed to copy|connection reset by peer|Client\.Timeout exceeded|TLS handshake timeout|i/o timeout|unexpected EOF|AuthenticationFailed|(500 Internal Server Error|502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout)'
+# "transfer stalled" is the line .github/scripts/ci-services.sh prints when
+# it cut a pull that stopped moving.
+FETCH_TRANSIENT='transfer stalled|failed to copy|connection reset by peer|Client\.Timeout exceeded|TLS handshake timeout|i/o timeout|unexpected EOF|AuthenticationFailed|(500 Internal Server Error|502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout)'
 
 case "${FETCH_TRIES}${FETCH_PAUSE}" in
 *[!0-9]*)
