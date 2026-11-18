@@ -52,6 +52,7 @@ import {
   useRole,
 } from "../auth/guard.tsx";
 import { SlackTileMark } from "../components/brand-marks.tsx";
+import { focusLeftBehind } from "../components/focus.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { RowMenu, RowMenuItem } from "../components/row-menu.tsx";
@@ -196,14 +197,7 @@ function SlackCard({
       focusOnState.current = null;
       // Only when the focus went with what was swapped out (or sits in the
       // closing delete dialog), not when the user moved elsewhere.
-      const at = document.activeElement;
-      if (
-        !at ||
-        at === document.body ||
-        !at.isConnected ||
-        (after === "delete" &&
-          at.closest('[role="dialog"], [role="alertdialog"]'))
-      )
+      if (focusLeftBehind(after === "delete"))
         focusFirst(actionRef, menuRef, tokenHeadingRef);
     }
   }, [summary?.state]);

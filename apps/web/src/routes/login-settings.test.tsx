@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { focusManager } from "@tanstack/react-query";
 import {
   type LoginSettingsResponse,
   loginSettingsResponseSchema,
@@ -181,10 +182,94 @@ describe("비밀번호 로그인 설정", () => {
       }),
     );
     await closedDialog();
-    await waitFor(async () =>
-      expect(document.activeElement === (await closeButton())).toBe(true),
+    // The button is drawn anew once the read lifts its reason.
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("닫기"),
     );
-    expect(document.activeElement === document.body).toBe(false);
+    expect((await dangerZone()).contains(document.activeElement)).toBe(true);
+  });
+
+  test("열었는데 닫기가 이유로 막혀 있으면 그 이유로 가고, 나중에 닫기가 풀려도 키보드를 끌어오지 않는다", async () => {
+    const lapsed = { emergency_admin: { ...owner(ME, "Me"), eligible: false } };
+    let answer = read({ password_login: "emergency_only", ...lapsed });
+    renderAt(LIST_PAGE, {
+      ...routes(answer),
+      [`GET ${API}`]: () => json(200, answer),
+      [`PATCH ${API}`]: async (request) => {
+        const body = await request.json();
+        answer =
+          "password_login" in body
+            ? read({ ...body, ...lapsed })
+            : read(DANA_NAMED);
+        return json(200, { settings: answer.settings, sessions_revoked: 0 });
+      },
+    });
+    const user = await setupUser();
+    await user.click(
+      await within(await section()).findByRole("button", {
+        name: "비밀번호 로그인 열기",
+      }),
+    );
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "열기",
+      }),
+    );
+    await closedDialog();
+    await waitFor(async () =>
+      expect(withheld(await closeButton())).toBe(
+        "비상 관리자가 더는 비밀번호로 로그인할 수 없습니다. 다른 오너를 지정하세요.",
+      ),
+    );
+    const reason = (await closeButton()).closest("[data-slot=disabled-reason]");
+    await waitFor(() => expect(document.activeElement === reason).toBe(true));
+    // The keyboard falls to the page, and a later read lifts the reason
+    // (another owner named elsewhere): it is not pulled to 닫기.
+    (document.activeElement as HTMLElement).blur();
+    answer = read(DANA_NAMED);
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+    await waitFor(async () => expect(withheld(await closeButton())).toBe(null));
+    expect(document.activeElement === document.body).toBe(true);
+    focusManager.setFocused(undefined);
+  });
+
+  test("다시 읽기가 오기 전에 다른 곳으로 옮긴 키보드는 끌어오지 않는다", async () => {
+    let answer = read();
+    let release = () => {};
+    let held: Promise<void> | null = null;
+    renderAt(LIST_PAGE, {
+      ...routes(answer),
+      [`GET ${API}`]: async () => {
+        if (held) await held;
+        return json(200, answer);
+      },
+      [`PATCH ${API}`]: async (request) => {
+        answer = read(await request.json());
+        held = new Promise((done) => {
+          release = done;
+        });
+        return json(200, { settings: answer.settings, sessions_revoked: 0 });
+      },
+    });
+    const user = await setupUser();
+    await user.click(await closeButton());
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "닫기",
+      }),
+    );
+    await closedDialog();
+    const change = within(await section()).getByRole("button", {
+      name: "비상 관리자 바꾸기",
+    });
+    change.focus();
+    held = null;
+    release();
+    await within(await section()).findByRole("button", {
+      name: "비밀번호 로그인 열기",
+    });
+    expect(document.activeElement === change).toBe(true);
   });
 
   const refusedAhead: Array<[string, LoginSettingsResponse, string]> = [

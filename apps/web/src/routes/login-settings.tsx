@@ -28,6 +28,7 @@ import {
 import { useEffect, useId, useRef, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useMe, useRole } from "../auth/guard.tsx";
+import { focusLeftBehind } from "../components/focus.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { Action } from "../components/setting-action.tsx";
@@ -107,24 +108,33 @@ export function PasswordLoginSettings() {
   const [refusedAtRead, setRefusedAtRead] = useState(0);
   // Closing and opening are apart: "Open" in the row above, "Close" in the
   // danger zone. The button pressed is withheld or gone once the read
-  // answers, so the keyboard goes on to the other one.
+  // answers, so the keyboard goes on to the other one, once: a later read
+  // that lifts a reason does not pull it there.
   const openRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
-  const [focusTo, setFocusTo] = useState<"open" | "close" | null>(null);
+  const focusTo = useRef<"open" | "close" | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: tried once each read answers
   useEffect(() => {
-    const target = (focusTo === "open" ? openRef : closeRef).current;
-    // Until the read answers, "Open" is not there and "Close" is withheld.
-    if (focusTo === null || !target || target.disabled) return;
-    target.focus();
-    setFocusTo(null);
-  });
+    const to = focusTo.current;
+    if (to === null) return;
+    focusTo.current = null;
+    // The confirm dialog may still be on its way out when the read answers.
+    if (!focusLeftBehind(true)) return;
+    const button = (to === "open" ? openRef : closeRef).current;
+    // A withheld button is reached through the box that says why.
+    (button?.disabled
+      ? button.closest<HTMLElement>("[data-slot=disabled-reason]")
+      : button
+    )?.focus();
+  }, [read.dataUpdatedAt]);
 
   const change = useMutation<UpdateLoginSettingsResponse, ApiError, Change>({
     mutationFn: (body) => unwrap(client.PATCH("/v1/login-settings", { body })),
     onSuccess: (answer, body) => {
       setEditing(null);
       if ("password_login" in body)
-        setFocusTo(body.password_login === "emergency_only" ? "open" : "close");
+        focusTo.current =
+          body.password_login === "emergency_only" ? "open" : "close";
       setOutcome({
         kind: "notice",
         text: !("password_login" in body)
