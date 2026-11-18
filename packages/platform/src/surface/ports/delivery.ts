@@ -11,8 +11,10 @@ export type DecisionRequestRowKind = "input_notice";
 /**
  * A row the sender has leased from the outbox, as far as the ports read it:
  * its kind picks the port. The address and the body, drawn when the row is
- * written, are the channel's own, so a channel's row type extends this one
- * and its implementation names that type (`Notifiable<TheChannelsRow>`).
+ * written, are the channel's own, so a channel binds the ports to its own row
+ * type (`Notifiable<TheChannelsRow>`). `Row` is not bounded by this type and
+ * cannot be: one channel row goes through both ports and the sender's direct
+ * path, so its `kind` is wider than this one. This is the default, not a bound.
  */
 export type ClaimedOutboxRow = { kind: NoticeRowKind | DecisionRequestRowKind };
 
