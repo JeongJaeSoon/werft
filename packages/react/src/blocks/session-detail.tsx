@@ -1,6 +1,7 @@
 import { isApiError } from "@werft-ai/client";
 import type {
   SessionDetail as SessionDetailData,
+  SessionShareView,
   SessionUsageResponse,
 } from "@werft-ai/contracts";
 import {
@@ -12,6 +13,7 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  Text,
 } from "@werft-ai/ui";
 import {
   ArrowDown,
@@ -21,6 +23,7 @@ import {
   Globe,
   KeyRound,
   UserRound,
+  UsersRound,
 } from "lucide-react";
 import { Fragment, type ReactNode, useCallback, useState } from "react";
 import {
@@ -33,9 +36,11 @@ import { useFollowEnd } from "../components/session/follow-end.ts";
 import { useWerft } from "../provider.tsx";
 import {
   useAgentOpenable,
+  useKeptFailure,
   usePendingRequests,
   useSession,
   useSessionEvents,
+  useSessionShare,
   useSessionTurns,
   useSessionUsage,
 } from "../sessions.ts";
@@ -48,7 +53,7 @@ import {
 import { SessionChat } from "./session-chat.tsx";
 import { SlackMark } from "./slack-mark.tsx";
 import { SlackMessageLink } from "./slack-message-link.tsx";
-import { useBlockText } from "./text.ts";
+import { type BlockText, useBlockText } from "./text.ts";
 
 export interface SessionDetailProps extends SessionActionProps {
   readonly id: string;
@@ -471,7 +476,80 @@ function SessionMeta({
           {new Intl.NumberFormat(locale).format(usage.token_count)}
         </span>
       ) : null}
+      <SessionShare id={session.id} />
     </p>
+  );
+}
+
+function shareText(t: BlockText, share: SessionShareView): string {
+  if (share.scope === "people")
+    return t("session.share.people", { count: share.user_ids.length });
+  if (share.scope === "team")
+    return t("session.share.team", { count: share.team_ids.length });
+  if (share.scope === "private") return t("session.share.private");
+  // `workspace` that the agent's access setting keeps inside the agent.
+  return t(
+    share.audience_limited
+      ? "session.share.workspaceLimited"
+      : "session.share.workspace",
+  );
+}
+
+/**
+ * Who sees the session, read only. Nothing while it reads or for a viewer
+ * who may no longer read it. A failed read says so in its place, even over
+ * an earlier answer, which may no longer be true.
+ */
+function SessionShare({ id }: { readonly id: string }) {
+  const { t } = useBlockText();
+  const share = useSessionShare(id, true);
+  const error = useKeptFailure(share, id);
+  if (isApiError(error, "NOT_FOUND") || isApiError(error, "FORBIDDEN"))
+    return null;
+  if (error) {
+    return (
+      <Text
+        as="span"
+        variant="meta"
+        className="inline-flex flex-wrap items-center gap-x-1.5 text-muted-foreground"
+      >
+        <Text
+          as="span"
+          variant="meta"
+          role="alert"
+          className="text-muted-foreground"
+        >
+          {t("session.share.failed")}
+        </Text>
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="h-auto px-0 text-caption"
+          onClick={() => void share.refetch()}
+        >
+          {t("session.share.retry")}
+        </Button>
+      </Text>
+    );
+  }
+  if (!share.data) return null;
+  return (
+    <Text
+      as="span"
+      variant="meta"
+      className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground"
+    >
+      <UsersRound
+        className="size-3.5 shrink-0"
+        strokeWidth={1.5}
+        aria-hidden="true"
+      />
+      <Text as="span" className="sr-only">
+        {t("session.share.title")}:{" "}
+      </Text>
+      {shareText(t, share.data)}
+    </Text>
   );
 }
 

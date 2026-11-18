@@ -3742,3 +3742,197 @@ describe("세션 상세 머리 경로", () => {
     expect(bar.queryByText("/")).toBeNull();
   });
 });
+
+describe("세션 공유 범위", () => {
+  const SHARE_ROUTE = `GET /v1/sessions/${SESSION_ID}/share`;
+  const share = (over: Record<string, unknown> = {}) => ({
+    session_id: SESSION_ID,
+    scope: "workspace",
+    user_ids: [],
+    team_ids: [],
+    revision: 0,
+    updated_by: null,
+    updated_at: null,
+    audience_limited: false,
+    ...over,
+  });
+  const USER = (n: number) =>
+    `00000000-0000-4000-8000-0000000001${String(n).padStart(2, "0")}`;
+  const TEAM = (n: number) =>
+    `00000000-0000-4000-8000-0000000002${String(n).padStart(2, "0")}`;
+  const shareReads = (api: { calls: { path: string }[] }) =>
+    api.calls.filter((call) => call.path === `/v1/sessions/${SESSION_ID}/share`)
+      .length;
+  const FAILED = "공유 범위를 확인하지 못했습니다.";
+
+  test.each([
+    [share(), "워크스페이스"],
+    [
+      share({ audience_limited: true }),
+      "워크스페이스(담당 팀 밖 사람은 보지 못함)",
+    ],
+    [share({ scope: "private" }), "세션을 가진 사람만"],
+    [
+      share({ scope: "people", user_ids: [USER(1), USER(2), USER(3)] }),
+      "지정한 사람 3명",
+    ],
+    [share({ scope: "team", team_ids: [TEAM(1), TEAM(2)] }), "지정한 팀 2개"],
+  ])(
+    "머리의 메타 줄 끝에 공유 범위를 읽기 전용으로 보인다: %o → %s",
+    async (body, text) => {
+      renderAt(`/sessions/${SESSION_ID}`, {
+        ...detailRoutes,
+        [SHARE_ROUTE]: () => json(200, body),
+      });
+      const meta = await sessionMeta();
+      const shown = await within(meta).findByText(text, { exact: false });
+      // Named for assistive technology; the icon says nothing.
+      expect(shown.textContent).toBe(`공유 범위: ${text}`);
+      expect(shown.querySelector("svg")?.getAttribute("aria-hidden")).toBe(
+        "true",
+      );
+      expect(
+        within(meta).queryByRole("button", { name: "다시 시도" }) === null,
+      ).toBe(true);
+    },
+  );
+
+  test.each([
+    [404, "NOT_FOUND"],
+    [403, "FORBIDDEN"],
+  ] as const)("%i이면 공유 범위를 그리지 않는다", async (status, code) => {
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [SHARE_ROUTE]: () => apiError(status, code, "no"),
+    });
+    const meta = await sessionMeta();
+    await waitFor(() => expect(shareReads(api)).toBe(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect((meta.textContent ?? "").includes("공유 범위")).toBe(false);
+    expect(within(meta).queryByRole("alert") === null).toBe(true);
+  });
+
+  test("읽지 못하면 그 자리에 실패와 다시 시도를 보이고, 다시 읽으면 공유 범위가 보인다", async () => {
+    const user = await setupUser();
+    let reads = 0;
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [SHARE_ROUTE]: () =>
+        ++reads === 1
+          ? apiError(503, "BACKEND_UNAVAILABLE", "down")
+          : json(200, share({ scope: "private" })),
+    });
+    const meta = await sessionMeta();
+    expect((await within(meta).findByRole("alert")).textContent).toBe(FAILED);
+    await user.click(within(meta).getByRole("button", { name: "다시 시도" }));
+    expect(await within(meta).findByText(/세션을 가진 사람만/)).toBeTruthy();
+    expect(within(meta).queryByRole("alert") === null).toBe(true);
+    expect(
+      within(meta).queryByRole("button", { name: "다시 시도" }) === null,
+    ).toBe(true);
+  });
+
+  test("다시 읽는 동안에도 실패 표시가 남고 초점은 다시 시도에 있으며, 두 번 눌러도 한 번 읽는다", async () => {
+    const user = await setupUser();
+    let answer: (response: Response) => void = () => {};
+    let reads = 0;
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [SHARE_ROUTE]: () =>
+        ++reads === 1
+          ? apiError(503, "BACKEND_UNAVAILABLE", "down")
+          : new Promise<Response>((resolve) => {
+              answer = resolve;
+            }),
+    });
+    const meta = await sessionMeta();
+    const retry = await within(meta).findByRole("button", {
+      name: "다시 시도",
+    });
+    await user.click(retry);
+    await user.click(retry);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(reads).toBe(2);
+    expect(retry.isConnected).toBe(true);
+    expect(document.activeElement === retry).toBe(true);
+    expect(within(meta).getByRole("alert").textContent).toBe(FAILED);
+    act(() => answer(apiError(503, "BACKEND_UNAVAILABLE", "down")));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(retry.isConnected).toBe(true);
+    expect(document.activeElement === retry).toBe(true);
+  });
+
+  /** The other session's routes, so the screen can move there and back. */
+  const otherRoutes = (shareRoute: () => Response | Promise<Response>) => ({
+    [`GET /v1/sessions/${OTHER_ID}`]: () =>
+      json(200, { ...detail, id: OTHER_ID }),
+    [`GET /v1/sessions/${OTHER_ID}/usage`]: () =>
+      json(200, { ...usage, session_id: OTHER_ID }),
+    [`GET /v1/sessions/${OTHER_ID}/pending-requests`]: () =>
+      json(200, { answerable: true, items: [] }),
+    [`GET /v1/sessions/${OTHER_ID}/events`]: () =>
+      new Promise<Response>(() => {}),
+    [`GET /v1/sessions/${OTHER_ID}/share`]: shareRoute,
+  });
+
+  test("받은 값이 있어도 다시 읽기에 실패하면 낡은 값 대신 실패를 보인다", async () => {
+    let reads = 0;
+    const { history } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [SHARE_ROUTE]: () =>
+        ++reads === 1
+          ? json(200, share({ scope: "private" }))
+          : apiError(503, "BACKEND_UNAVAILABLE", "down"),
+      ...otherRoutes(() => json(200, share({ session_id: OTHER_ID }))),
+    });
+    await within(await sessionMeta()).findByText(/세션을 가진 사람만/);
+    // Coming back reads the share again; that read fails.
+    act(() => history.push(`/sessions/${OTHER_ID}`));
+    await screen.findByRole("heading", {
+      name: new RegExp(`^${OTHER_ID.slice(0, 8)}`),
+    });
+    act(() => history.push(`/sessions/${SESSION_ID}`));
+    await screen.findByRole("heading", {
+      name: new RegExp(`^${SESSION_ID.slice(0, 8)}`),
+    });
+    const meta = await sessionMeta();
+    expect((await within(meta).findByRole("alert")).textContent).toBe(FAILED);
+    expect(reads).toBe(2);
+    expect((meta.textContent ?? "").includes("세션을 가진 사람만")).toBe(false);
+  });
+
+  test("다른 세션으로 옮기면 앞 세션의 공유 범위가 보이지 않는다", async () => {
+    const { history } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [SHARE_ROUTE]: () =>
+        json(200, share({ scope: "people", user_ids: [USER(1)] })),
+      // The other session's share never answers.
+      ...otherRoutes(() => new Promise<Response>(() => {})),
+    });
+    await within(await sessionMeta()).findByText(/지정한 사람 1명/);
+    act(() => history.push(`/sessions/${OTHER_ID}`));
+    await screen.findByRole("heading", {
+      name: new RegExp(`^${OTHER_ID.slice(0, 8)}`),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const meta = await sessionMeta();
+    expect((meta.textContent ?? "").includes("공유 범위")).toBe(false);
+  });
+
+  test("다른 세션의 실패가 옮긴 세션에 남지 않는다", async () => {
+    const { history } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [SHARE_ROUTE]: () => apiError(503, "BACKEND_UNAVAILABLE", "down"),
+      ...otherRoutes(() => new Promise<Response>(() => {})),
+    });
+    await within(await sessionMeta()).findByRole("alert");
+    act(() => history.push(`/sessions/${OTHER_ID}`));
+    await screen.findByRole("heading", {
+      name: new RegExp(`^${OTHER_ID.slice(0, 8)}`),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(within(await sessionMeta()).queryByRole("alert") === null).toBe(
+      true,
+    );
+  });
+});

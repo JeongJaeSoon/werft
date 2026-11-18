@@ -29,6 +29,7 @@ import type {
   LoginMethodsResponse,
   SessionDetail,
   SessionRelation,
+  SessionShareView,
   SessionUsageResponse,
   TeamDetail,
   UsageBreakdownBy,
@@ -191,6 +192,7 @@ export function queryKeysOf(client: ApiClient) {
       [s, "sessions", { list: "agent", agent_id: agentId }] as const,
     session: (id: string) => [s, "sessions", id] as const,
     sessionUsage: (id: string) => [s, "sessions", id, "usage"] as const,
+    sessionShare: (id: string) => [s, "sessions", id, "share"] as const,
     pendingRequests: (id: string) =>
       [s, "sessions", id, "pending-requests"] as const,
     sessionTurns: (id: string) => [s, "sessions", id, "turns"] as const,
@@ -801,6 +803,18 @@ export function sessionUsageQuery(client: ApiClient, id: string) {
       ) as Promise<SessionUsageResponse>,
     retry: false,
     refetchInterval: LIVE_REFETCH_MS,
+  });
+}
+
+/** Who sees the session; read once, as no screen here changes it. */
+export function sessionShareQuery(client: ApiClient, id: string) {
+  return queryOptions({
+    queryKey: queryKeysOf(client).sessionShare(id),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/sessions/{id}/share", { params: { path: { id } } }),
+      ) as Promise<SessionShareView>,
+    retry: false,
   });
 }
 

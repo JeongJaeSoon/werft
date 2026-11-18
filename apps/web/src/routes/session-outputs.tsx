@@ -10,7 +10,7 @@ import type {
   SessionOutcome,
 } from "@werft-ai/contracts";
 import { queryKeysOf } from "@werft-ai/core";
-import { useWerft } from "@werft-ai/react";
+import { useKeptFailure, useWerft } from "@werft-ai/react";
 import type { SessionOutputsSummary } from "@werft-ai/react/blocks";
 import { sessionRepositoriesOf } from "@werft-ai/react/components";
 import {
@@ -372,18 +372,7 @@ function SessionGitHubRefusals({
 }) {
   const { t, locale } = useI18n();
   const refusals = useSessionGitHubRefusals(session);
-  // A query with no data forgets its error once it reads again; the failure
-  // and its retry, focus and all, stay until that read answers.
-  const [failed, setFailed] = useState<{ id: string; error: unknown }>();
-  useEffect(() => {
-    if (refusals.error) setFailed({ id: session.id, error: refusals.error });
-  }, [refusals.error, session.id]);
-  const error =
-    refusals.error ??
-    (failed?.id === session.id &&
-    refusals.errorUpdatedAt > refusals.dataUpdatedAt
-      ? failed.error
-      : null);
+  const error = useKeptFailure(refusals, session.id);
   const items = refusals.data?.items ?? [];
   if (!hasRepository(session)) return null;
   // A list never read is not an empty one. A later read that fails keeps
