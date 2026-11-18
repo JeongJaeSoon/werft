@@ -26,12 +26,6 @@ export const sessionListKo = {
   "sessionList.relation.administered": "관리하는 에이전트",
   "sessionList.open": "세션 열기: {name}",
   "sessionList.unknown": "—",
-  "session.release.title": "이 세션이 쓰는 릴리스",
-  "session.release.version": "버전 {version}",
-  "session.release.active": "활성 릴리스",
-  "session.release.notActive": "활성 릴리스 아님",
-  "session.release.notActiveBody":
-    "이 세션은 시작할 때의 릴리스를 계속 씁니다. 에이전트의 지금 설정은 새 세션부터 쓰입니다.",
 };
 
 export const sessionListEn: Record<keyof typeof sessionListKo, string> = {
@@ -62,12 +56,6 @@ export const sessionListEn: Record<keyof typeof sessionListKo, string> = {
   "sessionList.relation.administered": "Agents I manage",
   "sessionList.open": "Open session: {name}",
   "sessionList.unknown": "—",
-  "session.release.title": "Release this session uses",
-  "session.release.version": "Version {version}",
-  "session.release.active": "Active release",
-  "session.release.notActive": "Not the active release",
-  "session.release.notActiveBody":
-    "This session keeps the release it started on. The agent's current settings apply from new sessions.",
 };
 
 export const sessionListJa: Record<keyof typeof sessionListKo, string> = {
@@ -98,10 +86,4 @@ export const sessionListJa: Record<keyof typeof sessionListKo, string> = {
   "sessionList.relation.administered": "管理するエージェント",
   "sessionList.open": "セッションを開く: {name}",
   "sessionList.unknown": "—",
-  "session.release.title": "このセッションが使うリリース",
-  "session.release.version": "バージョン {version}",
-  "session.release.active": "有効なリリース",
-  "session.release.notActive": "有効なリリースではない",
-  "session.release.notActiveBody":
-    "このセッションは開始時のリリースを使い続けます。エージェントの現在の設定は新しいセッションから使われます。",
 };

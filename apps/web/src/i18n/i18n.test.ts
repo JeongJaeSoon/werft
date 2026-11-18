@@ -265,7 +265,7 @@ describe("i18n", () => {
     }
   });
 
-  test("release changes and the session's release are written in every locale", () => {
+  test("release changes are written in every locale", () => {
     const keys = [
       "agent.releases.changesFirst",
       "agent.releases.changesNone",
@@ -279,10 +279,6 @@ describe("i18n", () => {
       "agent.releases.absent.workspaceRepositories",
       "agent.releases.changed",
       "agent.releases.secretsHidden",
-      "session.release.title",
-      "session.release.active",
-      "session.release.notActive",
-      "session.release.notActiveBody",
     ];
     for (const locale of LOCALES) {
       const catalog = catalogs[locale] as Record<string, string | undefined>;

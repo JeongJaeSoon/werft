@@ -4057,3 +4057,128 @@ describe("세션 공유 범위", () => {
     );
   });
 });
+
+describe("세션의 릴리스", () => {
+  const AGENT = {
+    id: AGENT_ID,
+    name: "Release helper",
+    release_version_no: 3,
+    release_label: "2026-10-30_14:30:28-2",
+    release_is_active: true,
+  };
+  const withSession = (body: Record<string, unknown>) => ({
+    ...detailRoutes,
+    [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, { ...detail, ...body }),
+    [`GET /v1/agents/${AGENT_ID}`]:
+      agentServer().routes[`GET /v1/agents/${AGENT_ID}`],
+  });
+  /** The agent piece of the meta line: its link (or name) and the release. */
+  const agentPiece = async () => {
+    const meta = await sessionMeta();
+    const link = await within(meta).findByRole("link", {
+      name: "Release helper",
+    });
+    return { meta, link, piece: link.parentElement as HTMLElement };
+  };
+  /** What assistive technology is left with: the text minus hidden parts. */
+  const spoken = (element: HTMLElement) => {
+    const copy = element.cloneNode(true) as HTMLElement;
+    for (const hidden of copy.querySelectorAll("[aria-hidden=true]"))
+      hidden.remove();
+    return copy.textContent;
+  };
+
+  test.each([
+    [{}, "2026-10-30_14:30:28-2", "2026-10-30_14:30:28-2"],
+    [{ release_label: null }, "버전 3", "버전 3"],
+    [
+      { release_is_active: false },
+      "2026-10-30_14:30:28-2 · 활성 릴리스 아님",
+      "2026-10-30_14:30:28-2 활성 릴리스 아님",
+    ],
+    [
+      { release_is_active: null },
+      "2026-10-30_14:30:28-2",
+      "2026-10-30_14:30:28-2",
+    ],
+  ])(
+    "에이전트 이름 뒤에 그 세션이 쓰는 릴리스를 보이고, 활성이 아니라고 할 때만 그렇게 적는다: %o",
+    async (over, text, said) => {
+      renderAt(
+        `/sessions/${SESSION_ID}`,
+        withSession({ agent: { ...AGENT, ...over } }),
+      );
+      const { piece, link } = await agentPiece();
+      expect(piece.textContent).toBe(
+        `에이전트: Release helper· 이 세션이 쓰는 릴리스: ${text}`,
+      );
+      // Hiding the dots keeps the spaces between the words they part.
+      expect(spoken(piece)).toBe(
+        `에이전트: Release helper 이 세션이 쓰는 릴리스: ${said}`,
+      );
+      // The release sits outside the link, whose name stays the agent's.
+      expect(link.textContent).toBe("Release helper");
+      // Every part on the meta line's size, line and grey, not the body's.
+      const parts = [...piece.querySelectorAll("[data-slot=text]")];
+      expect(parts.map((part) => part.getAttribute("data-variant"))).toEqual(
+        parts.map(() => "meta"),
+      );
+      const shown = parts.filter((part) => !part.matches(".sr-only"));
+      expect(
+        shown.map((part) => part.classList.contains("text-muted-foreground")),
+      ).toEqual(shown.map(() => true));
+    },
+  );
+
+  test("에이전트를 열 수 없는 사람에게도 이름 글 뒤에 릴리스를 보인다", async () => {
+    let asked = 0;
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...withSession({ agent: { ...AGENT, release_is_active: false } }),
+      [`GET /v1/agents/${AGENT_ID}`]: () => {
+        asked += 1;
+        return apiError(403, "FORBIDDEN", "may not read");
+      },
+    });
+    const meta = await sessionMeta();
+    await waitFor(() => expect(asked).toBe(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(
+      within(meta).queryByRole("link", { name: /Release helper/ }) === null,
+    ).toBe(true);
+    // The name is plain text, so its own element is the agent piece.
+    const piece = within(meta).getByText("Release helper");
+    expect(piece.textContent).toBe(
+      "에이전트: Release helper· 이 세션이 쓰는 릴리스: 2026-10-30_14:30:28-2 · 활성 릴리스 아님",
+    );
+    expect(spoken(piece)).toBe(
+      "에이전트: Release helper 이 세션이 쓰는 릴리스: 2026-10-30_14:30:28-2 활성 릴리스 아님",
+    );
+  });
+
+  test("라벨도 버전도 없으면 릴리스를 그리지 않는다", async () => {
+    // A server answering outside the contract; production only warns.
+    renderAt(
+      `/sessions/${SESSION_ID}`,
+      withSession({
+        agent: { ...AGENT, release_label: null, release_version_no: null },
+      }),
+      "ko",
+      "warn",
+    );
+    const { piece } = await agentPiece();
+    expect(piece.textContent).toBe("에이전트: Release helper");
+    expect((piece.textContent ?? "").includes("null")).toBe(false);
+  });
+
+  test.each([
+    ["에이전트 없이 만든 세션", { agent: null }],
+    ["볼 수 없는 에이전트의 세션", { agent: null, agent_hidden: true }],
+  ])("%s에는 릴리스를 그리지 않는다", async (_, body) => {
+    renderAt(`/sessions/${SESSION_ID}`, withSession(body));
+    const meta = await sessionMeta();
+    expect((meta.textContent ?? "").includes("이 세션이 쓰는 릴리스")).toBe(
+      false,
+    );
+    expect((meta.textContent ?? "").includes("릴리스")).toBe(false);
+  });
+});
