@@ -231,8 +231,10 @@ export function SessionDetail({
       className="[&>[data-slot=page-frame]]:h-[calc(100dvh-var(--werft-topbar-h))] [&>[data-slot=page-frame]]:min-h-min [&>[data-slot=page-frame]]:pb-4 [&_[data-slot=page-frame-body]]:min-h-0"
     >
       <header className="flex min-w-0 flex-col gap-2">
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
-          <h1 className="m-0 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 font-medium text-title">
+        {/* Top-aligned, so an outcome under the buttons does not move the
+            title down; the title is a button tall to stay level with them. */}
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <h1 className="m-0 flex min-h-[var(--werft-control-height-sm)] min-w-0 flex-wrap items-center gap-x-3 gap-y-1 font-medium text-title">
             {/* A server from before titles sends none at all. */}
             {detail.title ? (
               <span className="[overflow-wrap:anywhere]">{detail.title}</span>

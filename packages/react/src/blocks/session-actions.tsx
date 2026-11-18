@@ -797,7 +797,13 @@ export function SessionControls({
               <div className="ms-auto flex">{trailing}</div>
             )}
           </div>
-          <OutcomeLine ref={outcomeRef} outcome={outcome} />
+          {/* No say in the width: a long outcome would push the buttons
+              under the title right after a press. */}
+          <OutcomeLine
+            ref={outcomeRef}
+            outcome={outcome}
+            className="w-0 min-w-full md:text-end"
+          />
         </div>
       ) : (
         <>

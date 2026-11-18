@@ -3006,6 +3006,68 @@ describe("세션 상세 레이아웃", () => {
     await waitFor(() => expect(meta.textContent).toContain("<$0.01"));
   });
 
+  // happy-dom lays nothing out, so this pins what keeps the boxes still; the
+  // PR measured the positions in a browser at 390 to 1920px.
+  test.each([
+    ["1280 이상", true],
+    ["390", false],
+  ] as const)(
+    "%s: 명령 결과 문장이 나와도 버튼과 제목이 움직이지 않는다",
+    async (_, wide) => {
+      const original = window.matchMedia;
+      window.matchMedia = ((query: string) => ({
+        matches: query === "(min-width: 80rem)" ? wide : false,
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+      })) as typeof window.matchMedia;
+      try {
+        const user = await setupUser();
+        renderAt(`/sessions/${SESSION_ID}`, {
+          ...detailRoutes,
+          [`POST /v1/sessions/${SESSION_ID}/pause`]: () =>
+            apiError(409, "PAUSE_COMMITTING", "pause committing"),
+        });
+        const heading = await screen.findByRole("heading", { level: 1 });
+        const header = heading.closest("header") as HTMLElement;
+        const controls = within(header).getByRole("group", {
+          name: "세션 조작",
+        });
+        const buttons = within(controls).getAllByRole("button");
+        // Below 1280px the labels hide but still name the buttons.
+        expect(buttons.map((button) => button.textContent)).toEqual([
+          "지금 턴 멈추기",
+          "일시 정지",
+          "세션 종료",
+        ]);
+        expect(
+          within(header).queryByRole("button", { name: "세션 정보 펼치기" }) !==
+            null,
+        ).toBe(!wide);
+
+        await user.click(
+          within(controls).getByRole("button", { name: "일시 정지" }),
+        );
+        const outcome = header.querySelector("output") as HTMLOutputElement;
+        await waitFor(() => expect(outcome.textContent).not.toBe(""));
+        expect(within(controls).getAllByRole("button")).toEqual(buttons);
+        // The outcome takes the buttons' width instead of setting it, and the
+        // row is top-aligned, so its height leaves the title where it was.
+        expect(outcome.classList.contains("w-0")).toBe(true);
+        expect(outcome.classList.contains("min-w-full")).toBe(true);
+        expect(heading.parentElement?.classList.contains("items-start")).toBe(
+          true,
+        );
+      } finally {
+        window.matchMedia = original;
+      }
+    },
+  );
+
   test("머리의 메타 줄은 에이전트, 호출한 사람과 채널, Slack 링크를 보인다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
