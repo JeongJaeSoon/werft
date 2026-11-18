@@ -96,6 +96,16 @@ type Queued = { input: AgentInput };
 /** The approvals a person is asked, and what they stand for in the engine. */
 type OpenRequest = { rpcId: RpcId; localId: string; answeredByUs: boolean };
 
+/** An approver's note on its way into the turn, and the inputs it was given for. */
+type Steer = { call: string; inputs: readonly string[] };
+
+function undelivered(steer: Steer, why: string): RuntimeEvent {
+  return warningEvent(
+    `The approver's instruction for the ${steer.call} was not handed to the model: ${why}`,
+    steer.inputs,
+  );
+}
+
 class EventQueue {
   private readonly items: RuntimeEvent[] = [];
   private waiting: (() => void) | undefined;
@@ -158,6 +168,7 @@ export class CodexRun implements AgentRun {
   private readonly queue: Queued[] = [];
   private readonly sent = new Set<string>();
   private readonly open = new Map<string, OpenRequest>();
+  private readonly steers = new Set<Steer>();
   private readonly announced = new Set<string>();
   private readonly running = new Set<string>();
   private readyPromise: Promise<NegotiatedCapabilities> | undefined;
@@ -196,7 +207,7 @@ export class CodexRun implements AgentRun {
         `The Codex app-server ended (${info.signal ?? `code ${String(info.code)}`})`,
       );
       this.channel.cancelAll("shutdown");
-      this.events$.end();
+      this.endEvents("the Codex app-server ended");
     });
   }
 
@@ -355,7 +366,7 @@ export class CodexRun implements AgentRun {
     this.channel.cancelAll("shutdown");
     this.options.kill();
     this.options.mcp?.release();
-    this.events$.end();
+    this.endEvents("the run was stopped");
   }
 
   async close(): Promise<void> {
@@ -568,7 +579,8 @@ export class CodexRun implements AgentRun {
       this.queue.length === 0 &&
       this.turn === undefined &&
       !this.leased &&
-      !this.checkpointing
+      !this.checkpointing &&
+      this.steers.size === 0
     ) {
       this.events$.end();
     }
@@ -883,42 +895,58 @@ export class CodexRun implements AgentRun {
     const allowed =
       answer.kind === "selected" && answer.optionKind === "allow_once";
     if (allowed && answer.message !== undefined) {
-      void this.steerNote(answer.message);
+      this.steerNote(answer.message, tool, itemId);
     }
     return allowed;
   }
 
   /**
    * The approval reply has no room for words, so the note joins the running
-   * turn as input; the engine reads it at its next request, which comes after
-   * the call's result. One that cannot be steered in is said publicly.
+   * turn as input. It goes out before the accept is written; the engine reads
+   * it at its next model request, which comes after the call's result. One
+   * that cannot be steered in is said publicly, and the event stream does not
+   * end while one is still out (`endEvents`).
    */
-  private async steerNote(note: string): Promise<void> {
+  private steerNote(note: string, tool: string, toolCallId: string): void {
+    const steer: Steer = {
+      call: `${tool} call ${toolCallId}`,
+      inputs: this.inputs,
+    };
+    this.steers.add(steer);
     const threadId = this.threadId;
     const turnId = this.turn?.id;
-    try {
-      if (threadId === undefined || turnId === undefined) {
-        throw new Error("no turn is running");
+    void (async () => {
+      let failure: string | undefined;
+      try {
+        if (threadId === undefined || turnId === undefined) {
+          throw new Error("no turn is running");
+        }
+        await this.options.transport.request("turn/steer", {
+          threadId,
+          expectedTurnId: turnId,
+          input: [
+            {
+              type: "text",
+              text: `The user approved your last tool call and gave you this instruction with the approval. Follow it from here on:\n${note}`,
+              text_elements: [],
+            },
+          ],
+        });
+      } catch (error) {
+        failure = error instanceof Error ? error.message : String(error);
       }
-      await this.options.transport.request("turn/steer", {
-        threadId,
-        expectedTurnId: turnId,
-        input: [
-          {
-            type: "text",
-            text: `The user approved your last tool call and gave you this instruction with the approval. Follow it from here on:\n${note}`,
-            text_elements: [],
-          },
-        ],
-      });
-    } catch (error) {
-      this.events$.push(
-        warningEvent(
-          `The approver's instruction could not be handed to the model: ${error instanceof Error ? error.message : String(error)}`,
-          this.inputs,
-        ),
-      );
-    }
+      // Already said, by an end that could not wait for it.
+      if (!this.steers.delete(steer)) return;
+      if (failure !== undefined) this.events$.push(undelivered(steer, failure));
+      this.maybeFinish();
+    })();
+  }
+
+  /** Ends the stream, first saying of every note still being steered in that it was not. */
+  private endEvents(why: string): void {
+    for (const steer of this.steers) this.events$.push(undelivered(steer, why));
+    this.steers.clear();
+    this.events$.end();
   }
 
   private async decide(
@@ -994,7 +1022,9 @@ export class CodexRun implements AgentRun {
     switch (answer.kind) {
       case "selected":
         if (answer.optionKind !== "allow_once") return "decline";
-        if (answer.message !== undefined) void this.steerNote(answer.message);
+        if (answer.message !== undefined) {
+          this.steerNote(answer.message, tool, itemId);
+        }
         return "accept";
       case "cancelled":
         return answer.reason === "interrupt" || answer.reason === "shutdown"

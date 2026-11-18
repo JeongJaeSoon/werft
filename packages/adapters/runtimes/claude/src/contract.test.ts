@@ -98,6 +98,10 @@ function scriptedDriver() {
       ended = true;
       wake?.();
     },
+    noteSettled(toolUseId: string, delivered: boolean) {
+      if (hooks === undefined) throw new Error("not started");
+      hooks.noteSettled?.(toolUseId, delivered);
+    },
     ask(
       toolUseId: string,
       signal = new AbortController().signal,
@@ -352,6 +356,66 @@ describe("claudeContractRun", () => {
         note: "Only touch the fixtures",
       });
       script.end();
+    });
+
+    describe("a note that does not reach the model", () => {
+      const warningIn = (events: RuntimeEvent[]) =>
+        events.filter(
+          (event) =>
+            event.type === "public" &&
+            JSON.stringify(event.event).includes("was not handed to the model"),
+        );
+
+      test("is said publicly, naming the call, when the engine refused it", async () => {
+        const script = scriptedDriver();
+        const run = claudeContractRun((hooks) => script.start(hooks));
+        const events = run.events()[Symbol.asyncIterator]();
+        script.push(toolUseFrame("toolu_1"));
+        await collect(events, 2);
+        const decision = script.ask("toolu_1");
+        const request = requestOf((await collect(events, 1))[0]);
+        await run.answer({
+          localId: request.localId,
+          inputHash: request.inputHash,
+          kind: "selected",
+          optionKind: "allow_once",
+          message: "Only touch the fixtures",
+        });
+        await decision;
+        script.noteSettled("toolu_1", false);
+        const [warning] = await collect(events, 1);
+        expect(warningIn(warning === undefined ? [] : [warning])).toHaveLength(
+          1,
+        );
+        expect(JSON.stringify(warning)).toContain("Bash call toolu_1");
+        script.end();
+      });
+
+      test("is said publicly when the run ends before the call settles, and not for one delivered", async () => {
+        const script = scriptedDriver();
+        const run = claudeContractRun((hooks) => script.start(hooks));
+        const events = run.events()[Symbol.asyncIterator]();
+        for (const id of ["toolu_1", "toolu_2"]) {
+          script.push(toolUseFrame(id));
+          await collect(events, 2);
+          const decision = script.ask(id);
+          const request = requestOf((await collect(events, 1))[0]);
+          await run.answer({
+            localId: request.localId,
+            inputHash: request.inputHash,
+            kind: "selected",
+            optionKind: "allow_once",
+            message: "Only touch the fixtures",
+          });
+          await decision;
+        }
+        script.noteSettled("toolu_2", true);
+        script.end();
+        const rest = await collect(events, 10);
+        const warnings = warningIn(rest);
+        expect(warnings).toHaveLength(1);
+        expect(JSON.stringify(warnings[0])).toContain("Bash call toolu_1");
+      });
     });
 
     test("allows this one call only when nothing was offered", async () => {

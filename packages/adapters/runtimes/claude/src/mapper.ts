@@ -166,6 +166,20 @@ export function projectPublicEvents(
   ];
 }
 
+/** The public warning that an approver's note never reached the model. */
+export function noteUndeliveredEvent(
+  id: string,
+  tool: string,
+  toolUseId: string,
+  why: string,
+): SessionEvent {
+  return event(id, "system", {
+    type: "system",
+    subtype: "warning",
+    message: `The approver's instruction for the ${tool} call ${toolUseId} was not handed to the model: ${why}`,
+  });
+}
+
 const QUESTION_TOOL = "AskUserQuestion";
 
 /**

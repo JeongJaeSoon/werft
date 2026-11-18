@@ -231,13 +231,15 @@ export function buildSdkOptions(
     decisions.ran(input.tool_use_id);
     const note = notes.get(input.tool_use_id);
     notes.delete(input.tool_use_id);
+    if (note === undefined) return {};
     if (
-      note === undefined ||
-      (input.hook_event_name !== "PostToolUse" &&
-        input.hook_event_name !== "PostToolUseFailure")
+      input.hook_event_name !== "PostToolUse" &&
+      input.hook_event_name !== "PostToolUseFailure"
     ) {
+      hooks.noteSettled?.(input.tool_use_id, false);
       return {};
     }
+    hooks.noteSettled?.(input.tool_use_id, true);
     return {
       hookSpecificOutput: {
         hookEventName: input.hook_event_name,
@@ -247,7 +249,9 @@ export function buildSdkOptions(
   };
   const settleRefused: HookCallback = async (input) => {
     if ("tool_use_id" in input) {
-      notes.delete(input.tool_use_id);
+      if (notes.delete(input.tool_use_id)) {
+        hooks.noteSettled?.(input.tool_use_id, false);
+      }
       ledger.toolSettled(input.tool_use_id);
       decisions.refusedByEngine(input.tool_use_id);
     }

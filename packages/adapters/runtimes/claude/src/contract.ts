@@ -47,7 +47,12 @@ import type {
   PermissionRequest,
   RuntimeHooks,
 } from "./driver.ts";
-import { approvalView, rememberView, sdkAnswers } from "./mapper.ts";
+import {
+  approvalView,
+  noteUndeliveredEvent,
+  rememberView,
+  sdkAnswers,
+} from "./mapper.ts";
 import {
   CLAUDE_PROFILE_DIGEST_SCHEME,
   CLAUDE_RESTORABLE_SCHEMES,
@@ -350,6 +355,8 @@ class ClaudeContractRun implements AgentRun {
   private readonly unaskedCalls = new Map<string, number>();
   private readonly emitted = new Set<string>();
   private readonly answered = new Set<string>();
+  /** Notes handed to the engine whose call has not settled yet: tool by call id. */
+  private readonly notes = new Map<string, string>();
   private wake: (() => void) | undefined;
   private consumed = false;
   private latestInput: string | undefined;
@@ -359,7 +366,23 @@ class ClaudeContractRun implements AgentRun {
     private readonly toolCallWaitMs: number,
     private readonly toolDecisions?: ToolDecisionObserver,
   ) {
-    this.driver = start({ onPermission: (request) => this.ask(request) });
+    this.driver = start({
+      onPermission: (request) => this.ask(request),
+      noteSettled: (toolUseId, delivered) => {
+        const tool = this.notes.get(toolUseId);
+        if (tool === undefined) return;
+        this.notes.delete(toolUseId);
+        if (!delivered) {
+          this.push(
+            this.noteUndelivered(
+              tool,
+              toolUseId,
+              "the engine refused the call",
+            ),
+          );
+        }
+      },
+    });
   }
 
   async ready(): Promise<NegotiatedCapabilities> {
@@ -398,7 +421,17 @@ class ClaudeContractRun implements AgentRun {
         this.wake = undefined;
         if (frame === undefined) continue;
         next = undefined;
-        if (frame.done === true) return;
+        if (frame.done === true) {
+          for (const [toolUseId, tool] of this.notes) {
+            yield this.noteUndelivered(
+              tool,
+              toolUseId,
+              "the run ended before the call returned a result",
+            );
+          }
+          this.notes.clear();
+          return;
+        }
         yield* this.eventsOf(frame.value);
       }
     } finally {
@@ -515,7 +548,22 @@ class ClaudeContractRun implements AgentRun {
         outcome: "withdrawn",
       });
     }
-    return decisionOf(answer, request.input, { offered, shown });
+    const decision = decisionOf(answer, request.input, { offered, shown });
+    if (decision.behavior === "allow" && decision.note !== undefined) {
+      this.notes.set(request.toolUseId, request.tool);
+    }
+    return decision;
+  }
+
+  private noteUndelivered(
+    tool: string,
+    toolUseId: string,
+    why: string,
+  ): RuntimeEvent {
+    return {
+      type: "public",
+      event: noteUndeliveredEvent(randomUUID(), tool, toolUseId, why),
+    };
   }
 
   /**

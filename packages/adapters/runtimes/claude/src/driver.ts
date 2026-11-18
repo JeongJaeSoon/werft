@@ -72,6 +72,8 @@ export type PermissionDecision =
 
 export type RuntimeHooks = {
   onPermission(request: PermissionRequest): Promise<PermissionDecision>;
+  /** An allow's note was handed to the model with its call's result, or its call ended without one. */
+  noteSettled?: (toolUseId: string, delivered: boolean) => void;
   /** A string refuses the call before it runs (`RuntimeHostDeps`). */
   precheckTool?: (
     tool: string,

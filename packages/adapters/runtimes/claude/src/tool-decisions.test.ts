@@ -236,4 +236,25 @@ describe("an approver's note", () => {
       },
     );
   });
+
+  test("tells the run whether each note was delivered, and a refused call's was not", async () => {
+    const settled: [string, boolean][] = [];
+    const { hook, ask } = rig(configOf(), {
+      onPermission: async () => ({ behavior: "allow", note: NOTE }),
+      noteSettled: (id, delivered) => settled.push([id, delivered]),
+    });
+    await ask("Bash", { command: "ls" }, "toolu_ran");
+    await ask("Bash", { command: "ls" }, "toolu_refused");
+    await hook("PostToolUse", "Bash", {}, "toolu_ran");
+    expect(await hook("PermissionDenied", "Bash", {}, "toolu_refused")).toEqual(
+      {},
+    );
+    expect(
+      await hook("PostToolUseFailure", "Bash", {}, "toolu_refused"),
+    ).toEqual({});
+    expect(settled).toEqual([
+      ["toolu_ran", true],
+      ["toolu_refused", false],
+    ]);
+  });
 });
