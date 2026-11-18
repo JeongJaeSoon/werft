@@ -483,6 +483,11 @@ describe("사용량·한도", () => {
     const head = heading.closest("[data-slot=tool-detail-head]");
     expect(head?.className).toContain("sticky");
     expect(head?.className).toContain("bottom-0");
+    // It sticks over the table in their shared box, and keeps its own space
+    // from it: nothing pulls the section up under it, whatever the box's gap.
+    expect(head?.parentElement?.contains(table)).toBe(true);
+    expect(head?.className).toContain("mt-8");
+    expect(rail.className).not.toMatch(/(^|\s)-m[ty]?-/);
     // The first row is shown by default; nothing is said for it.
     expect(head?.querySelector("output")?.textContent).toBe("");
     expect(

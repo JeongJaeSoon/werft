@@ -298,9 +298,10 @@ describe("ToolDetail loading", () => {
       </WerftProvider>,
     );
     expect(said()).toBe("Selected tool Bash");
-    expect(view.getByRole("region", { name: "Selected tool Bash" }).id).toBe(
-      SECTION_ID,
-    );
+    const section = view.getByRole("region", { name: "Selected tool Bash" });
+    expect(section.id).toBe(SECTION_ID);
+    // The section never reaches up under the stuck heading.
+    expect(section.className).not.toMatch(/(^|\s)-m[ty]?-/);
   });
 });
 

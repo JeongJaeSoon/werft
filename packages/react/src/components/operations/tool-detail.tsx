@@ -78,7 +78,8 @@ function Value({
  *
  * The heading is drawn before the section, not in it, so that it sticks to
  * the screen's bottom while a long list above still hides the section: put
- * both in the list's own box, 2rem (`gap-8`) after it.
+ * both right after the list, in a box of its own. They keep their own space
+ * from it; a box that adds a gap only widens it.
  */
 export function ToolDetail({
   name,
@@ -106,7 +107,7 @@ export function ToolDetail({
     <>
       <div
         data-slot="tool-detail-head"
-        className="sticky bottom-0 z-10 flex min-w-0 flex-col gap-1 border-border border-t bg-surface py-3"
+        className="sticky bottom-0 z-10 mt-8 flex min-w-0 flex-col gap-1 border-border border-t bg-surface py-3"
       >
         <Heading id={titleId} className="truncate">
           {messages.label}{" "}
@@ -126,12 +127,11 @@ export function ToolDetail({
           {announce && name !== undefined ? `${messages.label} ${name}` : ""}
         </output>
       </div>
-      {/* The host's 2rem gap falls between the head and its body. */}
       <section
         id={id}
         aria-labelledby={titleId}
         data-slot="tool-detail"
-        className="-mt-8 min-w-0"
+        className="min-w-0"
       >
         <div className="grid gap-6 @min-[48rem]:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
           <KeyValueList

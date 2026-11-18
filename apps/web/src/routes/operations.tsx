@@ -613,52 +613,56 @@ export function OperationsToolsScreen() {
             period={t("operations.recent", { days: filters.days })}
           />
         )}
-        <Section
-          title={t("operations.tools")}
-          badge={
-            <Badge>
-              {rows ? (
-                rows.length
-              ) : (
-                <Skeleton
-                  inline
-                  decorative
-                  width="0.75rem"
-                  height="1lh"
-                  className="justify-center"
-                />
-              )}
-            </Badge>
-          }
-        >
-          <ToolsFilter
-            sort={sort}
-            onSortChange={setSort}
-            onQueryChange={setQuery}
-          />
-          {tools.isError ? (
-            <Card className="py-0">
-              <LoadFailure
-                error={tools.error}
-                onRetry={() => void tools.refetch()}
-              />
-            </Card>
-          ) : (
-            <ToolTable
-              tools={shown}
-              label={t("operations.tools")}
-              selected={tool?.name}
-              onSelect={setPicked}
-              controls={detail ? detailId : undefined}
-              describe={(name) =>
-                rows?.find((row) => row.name === name)?.description ??
-                builtinToolNote(locale, name)
-              }
-              searched={query !== ""}
+        {/* No gap of its own: the picked tool keeps its space from the
+            table, and its heading sticks over the table in this box. */}
+        <div className="flex min-w-0 flex-col">
+          <Section
+            title={t("operations.tools")}
+            badge={
+              <Badge>
+                {rows ? (
+                  rows.length
+                ) : (
+                  <Skeleton
+                    inline
+                    decorative
+                    width="0.75rem"
+                    height="1lh"
+                    className="justify-center"
+                  />
+                )}
+              </Badge>
+            }
+          >
+            <ToolsFilter
+              sort={sort}
+              onSortChange={setSort}
+              onQueryChange={setQuery}
             />
-          )}
-        </Section>
-        {detail}
+            {tools.isError ? (
+              <Card className="py-0">
+                <LoadFailure
+                  error={tools.error}
+                  onRetry={() => void tools.refetch()}
+                />
+              </Card>
+            ) : (
+              <ToolTable
+                tools={shown}
+                label={t("operations.tools")}
+                selected={tool?.name}
+                onSelect={setPicked}
+                controls={detail ? detailId : undefined}
+                describe={(name) =>
+                  rows?.find((row) => row.name === name)?.description ??
+                  builtinToolNote(locale, name)
+                }
+                searched={query !== ""}
+              />
+            )}
+          </Section>
+          {detail}
+        </div>
       </div>
     </>
   );
