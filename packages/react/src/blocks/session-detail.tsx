@@ -98,8 +98,8 @@ export interface SessionOutputsSummary {
   /** Undefined until every list has answered: a slow or failed one is not 0. */
   readonly count: number | undefined;
   /**
-   * A GitHub refusal is among them: the count turns red and says so, and
-   * with no count a red dot says it alone.
+   * A GitHub refusal is among them: the count's badge turns danger and says
+   * so, and with no count the badge's icon says it alone.
    */
   readonly refused: boolean;
 }

@@ -233,7 +233,7 @@ describe("Tabs", () => {
     const badge = toned.querySelector<HTMLElement>('[data-slot="item-count"]');
     expect(badge?.dataset.tone).toBe("danger");
     expect(badge?.textContent).toBe("");
-    // As tall as the badge with a number, so the count arriving moves nothing.
+    // As tall as the badge with a number; the count arriving widens it only.
     expect(badge?.className.split(" ")).toContain("h-4");
     const icon = badge?.querySelector("svg");
     expect(icon?.classList.contains("lucide-circle-x")).toBe(true);

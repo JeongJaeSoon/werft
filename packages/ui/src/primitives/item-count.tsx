@@ -61,7 +61,7 @@ export function ItemCount({
             ? cn(
                 // 14px line + 1px edge each side: a 16px pill that fits the
                 // 26px item without moving the label. h-4 keeps the icon
-                // alone at that height, so a count arriving moves nothing.
+                // alone at that height, so a count arriving keeps the height.
                 "inline-flex h-4 min-w-4 items-center justify-center gap-0.5 rounded-full border font-medium text-2xs leading-[14px]",
                 count === undefined ? "px-px" : "px-1.5",
                 BADGE[tone],
