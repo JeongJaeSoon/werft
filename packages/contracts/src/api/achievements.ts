@@ -22,6 +22,12 @@ export const ACHIEVEMENT_EVIDENCE_KIND_VALUES = [
   "conversation",
 ] as const;
 
+/** Read from GitHub rather than written by the agent, so it counts without a person confirming it. */
+export const AUTO_REVIEWED_EVIDENCE_KIND_VALUES = [
+  "github_pull_request",
+  "github_review",
+] as const satisfies readonly (typeof ACHIEVEMENT_EVIDENCE_KIND_VALUES)[number][];
+
 /** `always` counts without asking the judge; `luna` asks it. */
 export const ACHIEVEMENT_RULE_JUDGE_VALUES = ["always", "luna"] as const;
 
@@ -266,6 +272,16 @@ export const ACHIEVEMENT_JUDGMENT_STATUS_VALUES = [
   "deferred",
   "skipped",
 ] as const;
+/** At most one per session; a newer trigger folds into it. */
+export const PENDING_ACHIEVEMENT_JUDGMENT_STATUSES = [
+  "queued",
+  "deferred",
+] as const satisfies readonly (typeof ACHIEVEMENT_JUDGMENT_STATUS_VALUES)[number][];
+export const UNFINISHED_ACHIEVEMENT_JUDGMENT_STATUSES = [
+  "queued",
+  "running",
+  "deferred",
+] as const satisfies readonly (typeof ACHIEVEMENT_JUDGMENT_STATUS_VALUES)[number][];
 
 export const ACHIEVEMENT_JUDGE_BACKEND_VALUES = ["luna"] as const;
 

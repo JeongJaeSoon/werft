@@ -1,4 +1,5 @@
 import {
+  ENDED_ATTEMPT_STATES,
   OPEN_PUSH_REQUEST_STATES,
   WAITING_PUSH_INTENT_STATUSES,
 } from "@werft-ai/contracts";
@@ -24,7 +25,6 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { ENDED_ATTEMPT_STATES } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import { RESTORE_FAILURES_CLEARED } from "../restore-failures.ts";

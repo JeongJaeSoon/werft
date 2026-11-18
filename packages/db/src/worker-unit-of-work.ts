@@ -3,7 +3,9 @@ import {
   type CheckpointBlockReason,
   type CheckpointRef,
   checkpointBlockReasonSchema,
+  ENDED_ATTEMPT_STATES,
   type EnvRefusal,
+  KILL_RECEIPT_OPERATIONS,
   MODEL_NOT_ALLOWED_EVENT_CODE,
   type ModelCutCause,
   type PendingRememberRule,
@@ -112,7 +114,6 @@ import {
   logControlResult,
 } from "./control-observability.ts";
 import {
-  ENDED_ATTEMPT_STATES,
   earliestUnknownTurn,
   INPUT_RECEIPT_OPERATIONS,
   LAUNCHABLE_ADMISSION_STATES,
@@ -120,10 +121,7 @@ import {
   parseTurnSequence,
   withinBudget,
 } from "./control-shared.ts";
-import {
-  KILL_RECEIPT_OPERATIONS,
-  terminateReceiptResult,
-} from "./control-unit-of-work.ts";
+import { terminateReceiptResult } from "./control-unit-of-work.ts";
 import { encodeEventCursor } from "./cursors.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { sessionGitHubMcpOf, sessionMcpOf } from "./github/mcp-egress.ts";

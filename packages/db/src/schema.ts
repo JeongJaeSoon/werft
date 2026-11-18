@@ -6,16 +6,22 @@ import {
   ACHIEVEMENT_JUDGMENT_TRIGGER_VALUES,
   ACHIEVEMENT_REVIEW_STATE_VALUES,
   ACHIEVEMENT_RULE_JUDGE_VALUES,
+  ACTOR_KIND_VALUES,
   ADMISSION_STATE_VALUES,
   AGENT_DESCRIPTION_MAX_LENGTH,
   AGENT_IDENTITY_PROVIDER_VALUES,
   AGENT_IDENTITY_STATUS_VALUES,
+  AGENT_PULL_REQUEST_FORMATTING_VALUES,
   AGENT_STATUS_VALUES,
+  AUTHORIZATION_OUTCOME_VALUES,
+  AUTO_REVIEWED_EVIDENCE_KIND_VALUES,
   type AuthorizationAction,
   BINDING_MODE_VALUES,
+  ENDED_ATTEMPT_STATES,
   ENV_VARIABLE_KIND_VALUES,
   ENV_VARIABLE_NAME_PATTERN,
   ENV_VARIABLE_VALUE_MAX_BYTES,
+  GITHUB_APP_ROLE_VALUES,
   GITHUB_POLICY_SOURCE_VALUES,
   GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES,
   GITHUB_REVIEW_OUTCOME_STATE_VALUES,
@@ -23,8 +29,14 @@ import {
   type GitHubCeiling,
   type GitHubFeatures,
   type GitHubPackagesAllowEntry,
+  KILL_RECEIPT_OPERATIONS,
+  LINKED_ACCOUNT_PROVIDER_VALUES,
+  LINKED_ACCOUNT_REVOKED_REASON_VALUES,
+  LINKED_ACCOUNT_STATUS_VALUES,
   MEMORY_WRITE_POLICY_VALUES,
   OPEN_PUSH_REQUEST_STATES,
+  PAUSE_REASON_VALUES,
+  PENDING_ACHIEVEMENT_JUDGMENT_STATUSES,
   type PlatformPrompt,
   PULL_REQUEST_STAGE_VALUES,
   PUSH_APPROVAL_BASIS_VALUES,
@@ -34,9 +46,12 @@ import {
   PUSH_REQUEST_ORIGIN_VALUES,
   PUSH_REQUEST_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
+  SESSION_LINK_ROLE_VALUES,
+  SESSION_LINK_VISIBILITY_VALUES,
   SESSION_OUTCOME_CHECK_ERROR_VALUES,
   SESSION_OUTCOME_TYPE_VALUES,
   SESSION_SCOPE_VALUES,
+  SESSION_SHARE_SCOPE_VALUES,
   SESSION_STATUS_VALUES,
   type SessionOutcome,
   type SessionOutcomeCheckError,
@@ -59,8 +74,16 @@ import {
   type SurfaceKind,
   type SurfaceMembershipState,
   TEAM_MEMBER_ROLE_VALUES,
+  TOOL_AUDIT_DECISION_VALUES,
+  TOOL_AUDIT_PHASE_VALUES,
+  TOOL_AUDIT_SOURCE_VALUES,
+  UNFINISHED_ACHIEVEMENT_JUDGMENT_STATUSES,
+  USAGE_TOOL_CALL_OUTCOME_VALUES,
   USER_LOCALE_VALUES,
   type UserLocale,
+  WAITING_PUSH_INTENT_STATUSES,
+  WORKSPACE_MCP_RESERVED_NAMES,
+  WORKSPACE_ROLE_VALUES,
 } from "@werft-ai/contracts";
 import type {
   ProviderUsage,
@@ -96,6 +119,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { sqlLiterals } from "./sql-literals.ts";
 
 const bytea = customType<{ data: Uint8Array }>({
   dataType() {
@@ -259,7 +283,7 @@ export const memberships = pgTable(
     index("memberships_user_idx").on(table.userId),
     check(
       "memberships_role_check",
-      sql`${table.role} IN ('owner', 'admin', 'member')`,
+      sql`${table.role} IN (${sqlLiterals(WORKSPACE_ROLE_VALUES)})`,
     ),
   ],
 );
@@ -294,7 +318,7 @@ export const invites = pgTable(
       .where(sql`${table.acceptedAt} IS NULL AND ${table.revokedAt} IS NULL`),
     check(
       "invites_role_check",
-      sql`${table.role} IN ('owner', 'admin', 'member')`,
+      sql`${table.role} IN (${sqlLiterals(WORKSPACE_ROLE_VALUES)})`,
     ),
     // Same rule as users.email, or the live-invite unique above would let
     // two spellings of one address stay redeemable at once.
@@ -769,7 +793,7 @@ export const githubApps = pgTable(
     check("github_apps_app_id_check", sql`${table.appId} > 0`),
     check(
       "github_apps_role_check",
-      sql`${table.role} IN ('author', 'reviewer')`,
+      sql`${table.role} IN (${sqlLiterals(GITHUB_APP_ROLE_VALUES)})`,
     ),
     check(
       "github_apps_permissions_check",
@@ -802,7 +826,7 @@ export const githubAppManifestStates = pgTable(
     index("github_app_manifest_states_expires_idx").on(table.expiresAt),
     check(
       "github_app_manifest_states_role_check",
-      sql`${table.role} IN ('author', 'reviewer')`,
+      sql`${table.role} IN (${sqlLiterals(GITHUB_APP_ROLE_VALUES)})`,
     ),
   ],
 );
@@ -933,7 +957,7 @@ export const catalogRepositoryGitHubApps = pgTable(
     ),
     check(
       "catalog_repository_github_apps_role_check",
-      sql`${table.role} IN ('author', 'reviewer')`,
+      sql`${table.role} IN (${sqlLiterals(GITHUB_APP_ROLE_VALUES)})`,
     ),
     check(
       "catalog_repository_github_apps_pinned_by_check",
@@ -1223,11 +1247,11 @@ export const linkedAccounts = pgTable(
     ),
     check(
       "linked_accounts_provider_check",
-      sql`${table.provider} IN ('slack', 'github')`,
+      sql`${table.provider} IN (${sqlLiterals(LINKED_ACCOUNT_PROVIDER_VALUES)})`,
     ),
     check(
       "linked_accounts_status_check",
-      sql`${table.status} IN ('active', 'stale', 'revoked')`,
+      sql`${table.status} IN (${sqlLiterals(LINKED_ACCOUNT_STATUS_VALUES)})`,
     ),
     check(
       "linked_accounts_revoked_check",
@@ -1235,7 +1259,7 @@ export const linkedAccounts = pgTable(
     ),
     check(
       "linked_accounts_revoked_reason_check",
-      sql`${table.revokedReason} IS NULL OR ${table.revokedReason} IN ('unlinked', 'offboarded')`,
+      sql`${table.revokedReason} IS NULL OR ${table.revokedReason} IN (${sqlLiterals(LINKED_ACCOUNT_REVOKED_REASON_VALUES)})`,
     ),
   ],
 );
@@ -1282,7 +1306,7 @@ export const grants = pgTable(
       .where(sql`${table.revokedAt} IS NULL`),
     check(
       "grants_actor_kind_check",
-      sql`${table.actorKind} IN ('user', 'service')`,
+      sql`${table.actorKind} IN (${sqlLiterals(ACTOR_KIND_VALUES)})`,
     ),
     check(
       "grants_resource_kind_check",
@@ -1607,7 +1631,7 @@ export const sessions = pgTable(
     ),
     check(
       "sessions_pause_reason_check",
-      sql`${table.pauseReason} IS NULL OR (${table.pauseReason} IN ('awaiting_input') AND ${table.admissionState} IN ('pausing', 'paused'))`,
+      sql`${table.pauseReason} IS NULL OR (${table.pauseReason} IN (${sqlLiterals(PAUSE_REASON_VALUES)}) AND ${table.admissionState} IN ('pausing', 'paused'))`,
     ),
     check(
       "sessions_channel_check",
@@ -2006,7 +2030,7 @@ export const toolCalls = pgTable(
     primaryKey({ columns: [table.useEventId, table.ord] }),
     check(
       "tool_calls_outcome_check",
-      sql`${table.outcome} IN ('ok', 'failed', 'unknown')`,
+      sql`${table.outcome} IN (${sqlLiterals(USAGE_TOOL_CALL_OUTCOME_VALUES)})`,
     ),
     check("tool_calls_ms_check", sql`${table.ms} >= 0`),
     // tool_use id before attempt, so a denied permission request, which may
@@ -2225,7 +2249,7 @@ export const receipts = pgTable(
     index("receipts_open_terminate_idx")
       .on(table.createdAt)
       .where(
-        sql`${table.operation} IN ('terminate', 'revoke_execution') AND ${table.status} = 'accepted'`,
+        sql`${table.operation} IN (${sqlLiterals(KILL_RECEIPT_OPERATIONS)}) AND ${table.status} = 'accepted'`,
       ),
   ],
 );
@@ -2261,7 +2285,7 @@ export const authzDecisions = pgTable(
     index("authz_decisions_at_idx").on(table.at),
     check(
       "authz_decisions_outcome_check",
-      sql`${table.outcome} IN ('allow', 'deny', 'redact', 'require_approval')`,
+      sql`${table.outcome} IN (${sqlLiterals(AUTHORIZATION_OUTCOME_VALUES)})`,
     ),
     check(
       "authz_decisions_principal_check",
@@ -2319,11 +2343,11 @@ export const toolCallAudits = pgTable(
     index("tool_call_audits_at_idx").on(table.at),
     check(
       "tool_call_audits_phase_check",
-      sql`${table.phase} IN ('asked', 'decided')`,
+      sql`${table.phase} IN (${sqlLiterals(TOOL_AUDIT_PHASE_VALUES)})`,
     ),
     check(
       "tool_call_audits_decision_check",
-      sql`${table.decision} IN ('allow', 'deny', 'require_approval', 'unknown')`,
+      sql`${table.decision} IN (${sqlLiterals(TOOL_AUDIT_DECISION_VALUES)})`,
     ),
     check(
       "tool_call_audits_phase_decision_check",
@@ -2331,7 +2355,7 @@ export const toolCallAudits = pgTable(
     ),
     check(
       "tool_call_audits_source_check",
-      sql`${table.source} IN ('platform', 'worker_report')`,
+      sql`${table.source} IN (${sqlLiterals(TOOL_AUDIT_SOURCE_VALUES)})`,
     ),
     check(
       "tool_call_audits_principal_check",
@@ -2461,7 +2485,7 @@ export const pendingRequests = pgTable(
       ),
     check(
       "pending_requests_answer_surface_check",
-      sql`${table.answerSurface} IN ('web', 'slack', 'api')`,
+      sql`${table.answerSurface} IN (${sqlLiterals(SURFACE_KIND_VALUES)})`,
     ),
     check(
       "pending_requests_approval_check",
@@ -2778,7 +2802,9 @@ export const pushIntents = pgTable(
     // The runner and the keep-set read the unfinished ones only.
     index("push_intents_open_idx")
       .on(table.status, table.createdAt)
-      .where(sql`${table.status} IN ('deferred','pinned')`),
+      .where(
+        sql`${table.status} IN (${sql.raw(sqlList(WAITING_PUSH_INTENT_STATUSES))})`,
+      ),
   ],
 );
 
@@ -3134,7 +3160,7 @@ export const attempts = pgTable(
     // expiry order; ended ones accumulate and stay out of the index.
     index("attempts_open_lease_idx")
       .on(table.leaseExpiresAt, table.id)
-      .where(sql`${table.state} NOT IN ('exited', 'lost')`),
+      .where(sql`${table.state} NOT IN (${sqlLiterals(ENDED_ATTEMPT_STATES)})`),
   ],
 );
 
@@ -3887,7 +3913,7 @@ export const workspaceMcpServers = pgTable(
     ),
     check(
       "workspace_mcp_servers_name_check",
-      sql`${table.name} ~ '^[a-z0-9](?:[a-z0-9-]|_(?!_)){0,31}$' AND ${table.name} NOT IN ('github', 'browser')`,
+      sql`${table.name} ~ '^[a-z0-9](?:[a-z0-9-]|_(?!_)){0,31}$' AND ${table.name} NOT IN (${sqlLiterals(WORKSPACE_MCP_RESERVED_NAMES)})`,
     ),
     check(
       "workspace_mcp_servers_auth_kind_check",
@@ -4139,7 +4165,7 @@ export const agentPullRequestSettings = pgTable(
     }),
     check(
       "agent_pull_request_settings_formatting_check",
-      sql`${table.formatting} IN ('inherit', 'on', 'off')`,
+      sql`${table.formatting} IN (${sqlLiterals(AGENT_PULL_REQUEST_FORMATTING_VALUES)})`,
     ),
   ],
 );
@@ -4435,7 +4461,7 @@ export const sessionShares = pgTable(
     ),
     check(
       "session_shares_scope_check",
-      sql`${table.scope} IN ('private', 'people', 'team', 'workspace')`,
+      sql`${table.scope} IN (${sqlLiterals(SESSION_SHARE_SCOPE_VALUES)})`,
     ),
   ],
 );
@@ -4853,11 +4879,11 @@ export const sessionLinks = pgTable(
     check("session_links_surface_check", sql`${table.surface} = 'slack'`),
     check(
       "session_links_role_check",
-      sql`${table.role} IN ('primary', 'mirror')`,
+      sql`${table.role} IN (${sqlLiterals(SESSION_LINK_ROLE_VALUES)})`,
     ),
     check(
       "session_links_visibility_check",
-      sql`${table.visibility} IN ('full', 'summary')`,
+      sql`${table.visibility} IN (${sqlLiterals(SESSION_LINK_VISIBILITY_VALUES)})`,
     ),
     check("session_links_revision_check", sql`${table.revision} >= 1`),
   ],
@@ -5525,10 +5551,14 @@ export const achievementJudgments = pgTable(
     }),
     uniqueIndex("achievement_judgments_pending_uniq")
       .on(table.sessionId)
-      .where(sql`${table.status} IN ('queued', 'deferred')`),
+      .where(
+        sql`${table.status} IN (${sqlLiterals(PENDING_ACHIEVEMENT_JUDGMENT_STATUSES)})`,
+      ),
     index("achievement_judgments_pending_due_idx")
       .on(table.nextAttemptAt)
-      .where(sql`${table.status} IN ('queued', 'running', 'deferred')`),
+      .where(
+        sql`${table.status} IN (${sqlLiterals(UNFINISHED_ACHIEVEMENT_JUDGMENT_STATUSES)})`,
+      ),
     uniqueIndex("achievement_judgments_token_uniq")
       .on(table.tokenHash)
       .where(sql`${table.tokenHash} IS NOT NULL`),
@@ -5681,7 +5711,7 @@ export const sessionAchievements = pgTable(
     // Evidence an agent wrote counts only once a person confirms it.
     check(
       "session_achievements_auto_check",
-      sql`${table.reviewState} <> 'auto' OR ${table.evidenceKind} IN ('github_pull_request', 'github_review')`,
+      sql`${table.reviewState} <> 'auto' OR ${table.evidenceKind} IN (${sqlLiterals(AUTO_REVIEWED_EVIDENCE_KIND_VALUES)})`,
     ),
     check(
       "session_achievements_reviewed_check",

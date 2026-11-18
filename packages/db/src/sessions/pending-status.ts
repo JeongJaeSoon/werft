@@ -1,3 +1,4 @@
+import { ENDED_ATTEMPT_STATES } from "@werft-ai/contracts";
 import { IN_FLIGHT_STATUSES } from "@werft-ai/platform";
 import {
   and,
@@ -11,7 +12,6 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
-import { ENDED_ATTEMPT_STATES } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import { attempts, pendingRequests, sessions, turns } from "../schema.ts";
