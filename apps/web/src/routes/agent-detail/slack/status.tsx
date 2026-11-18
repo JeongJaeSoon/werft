@@ -53,12 +53,13 @@ export function SlackHeader({
   const bindingsLost = bindings.isError && !bindings.data;
   // Only the first placeholder in reading order says it is loading. The DM
   // one shows only beside the home channel's, so it never speaks.
-  const placeholder = (spoken: boolean) =>
-    spoken ? (
-      <Skeleton className="h-4 w-20" label={t("status.loading.title")} />
-    ) : (
-      <Skeleton className="h-4 w-20" decorative />
-    );
+  const placeholder = (spoken: boolean) => (
+    <Skeleton
+      className="h-4 w-20"
+      label={t("status.loading.title")}
+      decorative={!spoken}
+    />
+  );
   const reads = connected ? [app, identities, bindings] : [app, identities];
   const failed = reads.filter((read) => read.isError);
   const error = failed[0]?.error ?? null;

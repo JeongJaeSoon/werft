@@ -2847,7 +2847,12 @@ describe("Slack management", () => {
     await waitFor(() =>
       expect(status.querySelectorAll("output.werft-skeleton")).toHaveLength(2),
     );
-    expect(status.querySelectorAll(SPOKEN)).toHaveLength(1);
+    const spoken = status.querySelectorAll(SPOKEN);
+    expect(spoken).toHaveLength(1);
+    // The home channel comes before DM in the row.
+    expect(spoken[0] === status.querySelector("output.werft-skeleton")).toBe(
+      true,
+    );
   });
 });
 
