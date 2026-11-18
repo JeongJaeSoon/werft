@@ -51,7 +51,7 @@ scrape마다 DB를 읽어 값을 집계한다. scrape 간격을 짧게 잡을수
 | `state` | 조건 | 사용자에게 보이는 상태 |
 |---|---|---|
 | `ended` | `admission`이 `stopping`·`stopped`·`closing`·`closed`, 또는 저장된 status가 `stopped` | 종료 |
-| `paused` | `admission`이 `pausing`·`paused` | 일시정지 |
+| `paused` | `admission`이 `pausing`·`paused` | 일시 정지 |
 | `recovery_required` | `admission`이 `recovery_required` | — |
 | `awaiting_approval` | API status가 `needs_input`이고 사람이 답할 수 있는 permission 요청이 있다 | 승인 대기 |
 | `awaiting_answer` | API status가 `needs_input`이고 사람이 답할 수 있는 요청이 question뿐이다 | — |
