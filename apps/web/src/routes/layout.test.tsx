@@ -220,11 +220,13 @@ describe("app shell", () => {
   }
 
   // V4-PAGE-FRAME: settings and forms used to stop at 1100px. Home and the
-  // sessions list answer waiting requests on the line, with no rail to frame
-  // their own body beside.
+  // sessions list answer waiting requests on the line, and the tools tab
+  // shows the picked tool under its table, with no rail to frame their own
+  // body beside.
   for (const [path, title] of [
     ["/", "홈"],
     ["/sessions", "세션"],
+    ["/operations/tools", "사용량·한도"],
     ["/settings/api-keys", "API 키"],
     ["/settings/workspace", "일반"],
     ["/settings/workspace/", "일반"],

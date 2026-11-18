@@ -1,6 +1,7 @@
 import {
   BarChart,
   KeyValueList,
+  Section,
   SegmentedControl,
   SegmentedControlItem,
   Skeleton,
@@ -8,23 +9,22 @@ import {
 } from "@werft-ai/ui";
 import type { JSX, ReactNode } from "react";
 
-import { DetailRail, DetailRailSection } from "../layout/detail-layout.tsx";
-import type { ToolCallSort, ToolRailMessages } from "./messages.ts";
+import type { ToolCallSort, ToolDetailMessages } from "./messages.ts";
 import { ToolCalls } from "./tool-calls.tsx";
 import type { UsageTool, UsageToolCall } from "./tools.ts";
 import { useOperationsMessages } from "./use-messages.ts";
 
-/** The calls the rail lists; a host asks the API for this many. */
-export const TOOL_RAIL_CALLS = 7;
+/** The calls the section lists; a host asks the API for this many. */
+export const TOOL_DETAIL_CALLS = 7;
 /** The days the chart draws, the period's last. */
-export const TOOL_RAIL_DAYS = 14;
+export const TOOL_DETAIL_DAYS = 14;
 
 const CHART_HEIGHT = "5.25rem";
 
 const monthDay = (date: string) =>
   `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
 
-export interface ToolRailProps {
+export interface ToolDetailProps {
   /** The tool shown; undefined until the tools are read. */
   readonly name: string | undefined;
   /** Its GET /v1/usage/tools row; undefined while read. */
@@ -43,7 +43,7 @@ export interface ToolRailProps {
   readonly timeZone?: string | undefined;
   /** Shown in place of the chart and calls when they could not be read. */
   readonly error?: ReactNode | undefined;
-  readonly messages?: Partial<ToolRailMessages> | undefined;
+  readonly messages?: Partial<ToolDetailMessages> | undefined;
 }
 
 function Value({
@@ -67,11 +67,11 @@ function Value({
 }
 
 /**
- * One tool in the rail: its figures, its calls per day and its latest
- * calls. Each part keeps its place while it is read, so nothing moves when
- * it comes; the host says once that the screen is loading.
+ * One tool, under the list it was picked from: its figures, its calls per
+ * day and its latest calls. Each part keeps its place while it is read, so
+ * nothing moves when it comes; the host says once that the screen is loading.
  */
-export function ToolRail({
+export function ToolDetail({
   name,
   tool,
   note,
@@ -82,27 +82,32 @@ export function ToolRail({
   timeZone,
   error,
   messages: override,
-}: ToolRailProps): JSX.Element {
-  const { messages, format } = useOperationsMessages("toolRail", override);
-  const days = perDay?.slice(-TOOL_RAIL_DAYS);
+}: ToolDetailProps): JSX.Element {
+  const { messages, format } = useOperationsMessages("toolDetail", override);
+  const days = perDay?.slice(-TOOL_DETAIL_DAYS);
   const peak = days?.reduce(
     (a, b) => (b.calls > a.calls ? b : a),
     days[0] ?? { date: "", calls: 0 },
   );
   const total = days?.reduce((sum, d) => sum + d.calls, 0) ?? 0;
   return (
-    <DetailRail label={messages.label}>
-      <DetailRailSection
-        title={
+    <Section
+      data-slot="tool-detail"
+      className="min-w-0"
+      title={
+        <>
+          <span className="sr-only">{messages.label} </span>
           <Text as="span" mono className="text-body font-semibold leading-5">
             <Value width="5rem">{name}</Value>
             {name === undefined ? (
               <span className="sr-only">{messages.loading}</span>
             ) : null}
           </Text>
-        }
-        description={note}
-      >
+        </>
+      }
+      description={note}
+    >
+      <div className="grid gap-6 @min-[48rem]:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
         <KeyValueList
           items={[
             {
@@ -131,38 +136,42 @@ export function ToolRail({
             value: <Value>{item.value}</Value>,
           }))}
         />
-      </DetailRailSection>
-      <DetailRailSection
-        title={messages.perDay}
-        description={messages.perDayNote(days?.length ?? TOOL_RAIL_DAYS)}
-      >
-        {error ? (
-          error
-        ) : days === undefined || peak === undefined || name === undefined ? (
-          <Skeleton
-            decorative
-            shape="block"
-            height={CHART_HEIGHT}
-            className="justify-center"
-          />
-        ) : (
-          <BarChart
-            compact
-            data={days.map((d) => ({ x: d.date, y: d.calls }))}
-            yMax={peak.calls || undefined}
-            label={messages.perDayChart({
-              name,
-              days: days.length,
-              total: format.count(total),
-              peakDay: monthDay(peak.date),
-              peak: format.count(peak.calls),
-            })}
-            formatX={monthDay}
-          />
-        )}
-      </DetailRailSection>
+        <Section
+          titleAs="h3"
+          className="min-w-0"
+          title={messages.perDay}
+          description={messages.perDayNote(days?.length ?? TOOL_DETAIL_DAYS)}
+        >
+          {error ? (
+            error
+          ) : days === undefined || peak === undefined || name === undefined ? (
+            <Skeleton
+              decorative
+              shape="block"
+              height={CHART_HEIGHT}
+              className="justify-center"
+            />
+          ) : (
+            <BarChart
+              compact
+              data={days.map((d) => ({ x: d.date, y: d.calls }))}
+              yMax={peak.calls || undefined}
+              label={messages.perDayChart({
+                name,
+                days: days.length,
+                total: format.count(total),
+                peakDay: monthDay(peak.date),
+                peak: format.count(peak.calls),
+              })}
+              formatX={monthDay}
+            />
+          )}
+        </Section>
+      </div>
       {error ? null : (
-        <DetailRailSection
+        <Section
+          titleAs="h3"
+          className="mt-6 min-w-0"
           title={messages.recent}
           actions={
             <SegmentedControl
@@ -181,11 +190,11 @@ export function ToolRail({
         >
           <ToolCalls
             calls={calls}
-            loadingRows={TOOL_RAIL_CALLS}
+            loadingRows={TOOL_DETAIL_CALLS}
             timeZone={timeZone}
           />
-        </DetailRailSection>
+        </Section>
       )}
-    </DetailRail>
+    </Section>
   );
 }

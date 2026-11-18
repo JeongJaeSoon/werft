@@ -29,7 +29,6 @@ import {
 } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import {
-  DetailLayout,
   Findings,
   findTools,
   InstallationLimits,
@@ -38,9 +37,9 @@ import {
   type OperationsTab,
   SessionCounts,
   sortTools,
-  TOOL_RAIL_CALLS,
+  TOOL_DETAIL_CALLS,
   type ToolCallSort,
-  ToolRail,
+  ToolDetail,
   type ToolSort,
   ToolsFilter,
   ToolsSummary,
@@ -168,7 +167,7 @@ function usageToolCallsQuery(
               since,
               until,
               sort,
-              limit: TOOL_RAIL_CALLS,
+              limit: TOOL_DETAIL_CALLS,
               ...(agentId ? { agent_id: agentId } : {}),
             },
           },
@@ -240,11 +239,9 @@ function MenuHead() {
 }
 
 export function OperationsLayout() {
-  const { current } = useCurrentTab();
   return (
     <>
-      {/* The tools tab has a rail, so it draws the head inside its own body. */}
-      {current === "tools" ? null : <MenuHead />}
+      <MenuHead />
       <Outlet />
     </>
   );
@@ -573,9 +570,9 @@ export function OperationsToolsScreen() {
     staleTime: USAGE_STALE_MS,
   });
   const shown = rows && findTools(sortTools(rows, sort), query);
-  const rail =
+  const detail =
     tools.isError || rows?.length === 0 ? undefined : (
-      <ToolRail
+      <ToolDetail
         name={tool?.name}
         tool={tool}
         perDay={calls.data?.per_day}
@@ -593,8 +590,7 @@ export function OperationsToolsScreen() {
       />
     );
   return (
-    <DetailLayout rail={rail}>
-      <MenuHead />
+    <>
       <UsageFilters
         {...(filters.operator
           ? { scope: filters.scope, onScopeChange: filters.setScope }
@@ -656,8 +652,9 @@ export function OperationsToolsScreen() {
             />
           )}
         </Section>
+        {detail}
       </div>
-    </DetailLayout>
+    </>
   );
 }
 

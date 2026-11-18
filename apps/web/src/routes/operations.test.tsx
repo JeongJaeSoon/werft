@@ -443,7 +443,7 @@ describe("사용량·한도", () => {
     );
   });
 
-  test("도구 활동 탭: 표와 레일, 볼 수 없는 세션은 링크가 없고 결과 모름·시간 없음·에이전트 없음을 그대로 쓴다", async () => {
+  test("도구 활동 탭: 표와 그 아래 고른 도구, 볼 수 없는 세션은 링크가 없고 결과 모름·시간 없음·에이전트 없음을 그대로 쓴다", async () => {
     setSystemTime(NOW);
     const { api } = renderAt("/operations/tools", {
       "GET /v1/auth/me": () => json(200, me()),
@@ -469,9 +469,15 @@ describe("사용량·한도", () => {
         .getByRole("link", { name: "도구 활동" })
         .getAttribute("aria-current"),
     ).toBe("page");
-    expect(document.querySelector("[data-slot=page-flush]")).not.toBeNull();
-    const rail = screen.getByRole("complementary", { name: "선택한 도구" });
-    expect(within(rail).getByRole("heading", { name: "Bash" })).toBeTruthy();
+    expect(document.querySelector("[data-slot=page-flush]")).toBeNull();
+    expect(screen.queryByRole("complementary")).toBeNull();
+    const rail = screen.getByRole("region", { name: "선택한 도구 Bash" });
+    expect(
+      within(rail).getByRole("heading", { level: 2, name: "선택한 도구 Bash" }),
+    ).toBeTruthy();
+    expect(
+      table.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     const items = await within(rail).findAllByRole("listitem");
     expect(items.map((item) => item.textContent)).toEqual([
       "Bash 리뷰리뷰 봇 · 12:39—결과 모름",
@@ -509,13 +515,18 @@ describe("사용량·한도", () => {
     });
     const table = await screen.findByRole("table", { name: "도구와 명령" });
     const user = await setupUser();
-    await user.click(
-      await within(table).findByRole("button", { name: "Edit 자세히 보기" }),
-    );
-    const rail = screen.getByRole("complementary", { name: "선택한 도구" });
+    const pick = await within(table).findByRole("button", {
+      name: "Edit 자세히 보기",
+    });
+    await user.click(pick);
+    const rail = await screen.findByRole("region", {
+      name: "선택한 도구 Edit",
+    });
     await waitFor(() =>
       expect(within(rail).getByText("Edit 리뷰")).toBeTruthy(),
     );
+    // The section fills in under the table; the keyboard stays on the row.
+    expect(document.activeElement === pick).toBe(true);
     const callsOf = (name: string) =>
       api.calls.filter((call) => call.path === `/v1/usage/tools/${name}/calls`);
     expect(callsOf("Edit")).toHaveLength(1);
@@ -581,7 +592,7 @@ describe("사용량·한도", () => {
       "GET /v1/auth/me": () => json(200, memberMe()),
       ...usageRoutes,
     });
-    await screen.findByRole("complementary", { name: "선택한 도구" });
+    await screen.findByRole("region", { name: "선택한 도구 Bash" });
     await waitFor(() =>
       expect(
         api.calls.filter((call) => call.path.startsWith("/v1/usage/tools")),

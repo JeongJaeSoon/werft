@@ -48,7 +48,7 @@ export {
   type SessionCountsMessages,
   type ToolCallSort,
   type ToolCallsMessages,
-  type ToolRailMessages,
+  type ToolDetailMessages,
   type ToolSort,
   type ToolsFilterMessages,
   type ToolsSummaryMessages,
@@ -70,11 +70,11 @@ export {
 } from "./operations/session-counts.tsx";
 export { ToolCalls, type ToolCallsProps } from "./operations/tool-calls.tsx";
 export {
-  TOOL_RAIL_CALLS,
-  TOOL_RAIL_DAYS,
-  ToolRail,
-  type ToolRailProps,
-} from "./operations/tool-rail.tsx";
+  TOOL_DETAIL_CALLS,
+  TOOL_DETAIL_DAYS,
+  ToolDetail,
+  type ToolDetailProps,
+} from "./operations/tool-detail.tsx";
 export { ToolTable, type ToolTableProps } from "./operations/tool-table.tsx";
 export type {
   UsageTool,
