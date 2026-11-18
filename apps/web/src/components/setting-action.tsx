@@ -1,4 +1,5 @@
 import { DisabledReason, RowAction } from "@werft-ai/ui";
+import type { Ref } from "react";
 import { Ghost, SameWidth } from "./same-width.tsx";
 
 /** A row's action; one that is withheld stays on the page and says why. */
@@ -8,6 +9,7 @@ export function Action({
   reason,
   busy,
   alike,
+  buttonRef,
   onClick,
 }: {
   readonly label: string;
@@ -17,6 +19,7 @@ export function Action({
   readonly busy: boolean;
   /** The labels of the buttons in the rows around, to be as wide as. */
   readonly alike?: readonly string[] | undefined;
+  readonly buttonRef?: Ref<HTMLButtonElement> | undefined;
   readonly onClick: (button: HTMLElement) => void;
 }) {
   const button = (
@@ -24,6 +27,7 @@ export function Action({
     // closes on a saved change gives the keyboard back to it while the
     // re-read is still out.
     <RowAction
+      ref={buttonRef}
       aria-label={name}
       disabled={reason !== undefined}
       aria-disabled={busy || undefined}
