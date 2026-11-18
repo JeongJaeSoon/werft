@@ -102,6 +102,11 @@ export const ATTEMPT_STATE_VALUES = [
   "exited",
   "lost",
 ] as const;
+/** Typed as plain strings: callers test raw row states against it and pass it to `notInArray`. */
+export const ENDED_ATTEMPT_STATES: string[] = [
+  "exited",
+  "lost",
+] satisfies (typeof ATTEMPT_STATE_VALUES)[number][];
 export const EXECUTION_STATE_VALUES = [
   "pending",
   "running",

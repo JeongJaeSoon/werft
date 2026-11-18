@@ -243,6 +243,16 @@ export const RECEIPT_OPERATION_VALUES = [
   "connect_workspace_mcp_server",
   "disconnect_workspace_mcp_server",
 ] as const;
+/**
+ * Receipts that settle on the observed absence of the execution they asked
+ * to kill, and go `unknown` when that is not observed in time. A session
+ * cannot be bound again while either is open (terminate stops dispatch, a
+ * revocation blocks it), so the session identifies the execution.
+ */
+export const KILL_RECEIPT_OPERATIONS = [
+  "terminate",
+  "revoke_execution",
+] as const satisfies readonly (typeof RECEIPT_OPERATION_VALUES)[number][];
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);
 export const receiptOperationSchema = z.enum(RECEIPT_OPERATION_VALUES);

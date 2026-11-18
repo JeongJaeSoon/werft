@@ -3,6 +3,7 @@ import type {
   ControlAcceptedResponse,
   TerminateReceiptResult,
 } from "@werft-ai/contracts";
+import { KILL_RECEIPT_OPERATIONS } from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   CloseSessionInput,
@@ -68,11 +69,6 @@ import { rowsOf } from "./statement-rows.ts";
 
 const TERMINATE = "terminate";
 export const REVOKE_EXECUTION = "revoke_execution";
-// Receipts that settle on the observed absence of the execution they asked
-// to kill, and go `unknown` when that is not observed in time. A session
-// cannot be bound again while either is open (terminate stops dispatch, a
-// revocation blocks it), so the session identifies the execution.
-export const KILL_RECEIPT_OPERATIONS = [TERMINATE, REVOKE_EXECUTION];
 
 export { earliestUnknownTurn } from "./control-shared.ts";
 

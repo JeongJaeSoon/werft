@@ -6,6 +6,7 @@ import type {
   ReceiptStatus,
   ResumeReceiptResult,
 } from "@werft-ai/contracts";
+import { ENDED_ATTEMPT_STATES } from "@werft-ai/contracts";
 import {
   publicStatus,
   type ResumeSessionResult,
@@ -13,7 +14,6 @@ import {
 } from "@werft-ai/platform";
 import { and, count, eq, gt, notInArray, sql } from "drizzle-orm";
 import {
-  ENDED_ATTEMPT_STATES,
   earliestUnknownTurn,
   type IdempotencyScope,
 } from "./control-shared.ts";

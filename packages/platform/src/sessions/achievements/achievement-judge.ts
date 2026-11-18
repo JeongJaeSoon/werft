@@ -2,6 +2,7 @@ import {
   type AchievementJudgmentError,
   type AchievementPayload,
   type AchievementReviewState,
+  AUTO_REVIEWED_EVIDENCE_KIND_VALUES,
   BUILTIN_ACHIEVEMENT_PAYLOAD_SCHEMAS,
 } from "@werft-ai/contracts";
 import type { SessionOutputSource } from "../output-service.ts";
@@ -147,9 +148,10 @@ function evidenceOf(
   return evidence;
 }
 
-/** Agent-written evidence never counts before a person confirms it. */
 function reviewStateOf(kind: Evidence["kind"]): AchievementReviewState {
-  return kind === "github_pull_request" || kind === "github_review"
+  return (AUTO_REVIEWED_EVIDENCE_KIND_VALUES as readonly string[]).includes(
+    kind,
+  )
     ? "auto"
     : "needs_review";
 }

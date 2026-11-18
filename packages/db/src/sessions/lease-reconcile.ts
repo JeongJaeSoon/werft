@@ -1,3 +1,4 @@
+import { ENDED_ATTEMPT_STATES } from "@werft-ai/contracts";
 import {
   and,
   asc,
@@ -9,7 +10,7 @@ import {
   ne,
   notInArray,
 } from "drizzle-orm";
-import { ENDED_ATTEMPT_STATES, OPEN_TURN_STATUSES } from "../control-shared.ts";
+import { OPEN_TURN_STATUSES } from "../control-shared.ts";
 import { DB_NOW, dbNow, fromDbNow } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {

@@ -1,6 +1,6 @@
+import { ENDED_ATTEMPT_STATES } from "@werft-ai/contracts";
 import type { FenceRejection, WorkerFence } from "@werft-ai/platform";
 import { and, eq } from "drizzle-orm";
-import { ENDED_ATTEMPT_STATES } from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import { attempts, sessions } from "../schema.ts";

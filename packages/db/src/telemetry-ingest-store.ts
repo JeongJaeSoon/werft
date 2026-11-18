@@ -1,5 +1,5 @@
+import { ENDED_ATTEMPT_STATES } from "@werft-ai/contracts";
 import { and, eq, isNotNull } from "drizzle-orm";
-import { ENDED_ATTEMPT_STATES } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import { attempts, sessions, turns, workerCredentials } from "./schema.ts";

@@ -11,7 +11,9 @@ import {
   GITHUB_REVIEW_EVENT_VALUES,
   type GitHubPullRequestOutcomeState,
   type GitHubReviewEvent,
+  PENDING_ACHIEVEMENT_JUDGMENT_STATUSES,
   type SessionAchievement,
+  UNFINISHED_ACHIEVEMENT_JUDGMENT_STATUSES,
   type WorkspaceRole,
   workspaceSettingsSchema,
 } from "@werft-ai/contracts";
@@ -56,6 +58,7 @@ import {
   workspaces,
 } from "../schema.ts";
 import { resultTextOf } from "../session-titles.ts";
+import { sqlLiterals } from "../sql-literals.ts";
 import { rowsOf } from "../statement-rows.ts";
 import { managing } from "./achievement-rules.ts";
 import { lockSessionReach } from "./requester-locks.ts";
@@ -143,7 +146,7 @@ export async function queueAchievementJudgment(
     FROM sessions s
     JOIN workspaces w ON w.id = s.workspace_id
     WHERE s.id = ${sessionId} AND ${gateOf(cause)} AND ${DECISION_MODEL}
-    ON CONFLICT (session_id) WHERE status IN ('queued', 'deferred')
+    ON CONFLICT (session_id) WHERE status IN (${sqlLiterals(PENDING_ACHIEVEMENT_JUDGMENT_STATUSES)})
     DO UPDATE SET trigger = EXCLUDED.trigger,
                   status = 'queued',
                   next_attempt_at = CASE achievement_judgments.status
@@ -399,7 +402,7 @@ export function createPostgresAchievementJudgments(
           tokenHash: null,
         })
         .where(
-          sql`${achievementJudgments.id} IN (SELECT ${achievementJudgments.id} FROM ${achievementJudgments} WHERE ${achievementJudgments.status} IN ('queued', 'running', 'deferred') AND ${achievementJudgments.nextAttemptAt} <= now() AND (${achievementJudgments.leaseExpiresAt} IS NULL OR ${achievementJudgments.leaseExpiresAt} < now()) ORDER BY ${achievementJudgments.nextAttemptAt} LIMIT ${max} FOR UPDATE SKIP LOCKED)`,
+          sql`${achievementJudgments.id} IN (SELECT ${achievementJudgments.id} FROM ${achievementJudgments} WHERE ${achievementJudgments.status} IN (${sqlLiterals(UNFINISHED_ACHIEVEMENT_JUDGMENT_STATUSES)}) AND ${achievementJudgments.nextAttemptAt} <= now() AND (${achievementJudgments.leaseExpiresAt} IS NULL OR ${achievementJudgments.leaseExpiresAt} < now()) ORDER BY ${achievementJudgments.nextAttemptAt} LIMIT ${max} FOR UPDATE SKIP LOCKED)`,
         )
         .returning({
           id: achievementJudgments.id,
@@ -680,7 +683,10 @@ export function createPostgresAchievementJudgments(
         // time and defer its luna pairs itself.
         const pending = and(
           eq(achievementJudgments.sessionId, held.sessionId),
-          inArray(achievementJudgments.status, ["queued", "deferred"]),
+          inArray(
+            achievementJudgments.status,
+            PENDING_ACHIEVEMENT_JUDGMENT_STATUSES,
+          ),
         );
         const fold = async (at: SQL, deferred: boolean) => {
           const [other] = deferred

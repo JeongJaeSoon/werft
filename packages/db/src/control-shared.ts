@@ -1,4 +1,5 @@
 import type { ReceiptActor } from "@werft-ai/contracts";
+import { ENDED_ATTEMPT_STATES } from "@werft-ai/contracts";
 import {
   IN_FLIGHT_STATUSES,
   type Principal,
@@ -58,7 +59,6 @@ export function parseTurnSequence(turnId: string): number | null {
 
 // An open turn is one in flight.
 export const OPEN_TURN_STATUSES: string[] = IN_FLIGHT_STATUSES;
-export const ENDED_ATTEMPT_STATES = ["exited", "lost"];
 
 // What a worker may be launched for and claim: an active session, and a
 // resuming one, whose new worker restores the pause's checkpoint first.
