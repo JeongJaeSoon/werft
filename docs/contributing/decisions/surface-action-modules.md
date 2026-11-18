@@ -421,7 +421,8 @@ U3은 앞의 타입 셋을 Slack 파일에서 `surface/ports/`로 옮기고 이�
 - **기존 `SlackNoticeSink`와의 관계.** 지금의 `SlackNoticeSink.record()`는 거절 안내를 **outbox에 넣는** 함수이고(`void` 반환, 중복 제거는 enqueue의 `dedupeKey`, `slack-outbox.ts:292`) 보내지 않는다. 이 넣는 일은 어댑터 안쪽의 함수로 남고(`createOutboxSlackNoticeSink`), `Notifiable`은 그 행을 **보내는** 쪽을 채널 중립 이름으로 세운 것이다. 그래서 `onceKey` 한 번의 보장은 `Notifiable`이 아니라 넣는 함수와 그 가짜의 계약이다([9.4절](#94-지울-후보) D1).
 
 ```ts
-// packages/platform/src/surface/ports/delivery.ts (as U5-seam, JeongJaeSoon/werft#1532, fixed it)
+// packages/platform/src/surface/ports/delivery.ts (as U5-seam, JeongJaeSoon/werft#1532, fixed it;
+// the neutral row and the `Row` parameter came after)
 export type DeliveryOutcome =
   | { kind: "sent"; ref: string }                       // channel-side reference, e.g. the Slack message ts
   | { kind: "retry"; code: string; retryAfterMs: number } // transient; the channel says how long to wait
@@ -429,26 +430,38 @@ export type DeliveryOutcome =
   | { kind: "uncertain"; code: string }                 // may have gone out: never sent again
   | { kind: "lease_lost" };                             // `begin` refused: nothing went out, the row is not settled
 
-// What the sender hands over: the claimed row (address and rendered body are in it,
-// the schema is unchanged), how many attempts it has had, and `begin`.
-export type DeliveryInput = {
-  row: ClaimedOutboxRow;
+export type NoticeRowKind = "notice" | "failure_notice" | "action_notice" | "model_notice";
+export type DecisionRequestRowKind = "input_notice";
+
+// The claimed row as the ports read it: its kind picks the port. Address and
+// rendered body are in the channel's own row. `Row` has no bound: the channel
+// row's kind is wider (it also carries the rows the sender posts directly),
+// so this is the default, not an upper bound.
+export type ClaimedOutboxRow = { kind: NoticeRowKind | DecisionRequestRowKind };
+
+// What the sender hands over: the claimed row (the channel's row type, the
+// schema is unchanged), how many attempts it has had, and `begin`.
+export type DeliveryInput<Row = ClaimedOutboxRow> = {
+  row: Row;
   attempts: number;
   /** Called once, right before the request leaves. False: the send lease is gone. */
   begin: () => Promise<boolean>;
 };
 
 // packages/platform/src/surface/ports/notifiable.ts (the sending side of today's SlackNoticeSink)
-export interface Notifiable {
+export interface Notifiable<Row = ClaimedOutboxRow> {
   /** Delivers one notice row (notice, failure_notice, action_notice, model_notice). */
-  notify(input: DeliveryInput): Promise<DeliveryOutcome>;
+  notify(input: DeliveryInput<Row>): Promise<DeliveryOutcome>;
 }
 
 // packages/platform/src/surface/ports/approvable.ts
-export interface Approvable {
+export interface Approvable<Row = ClaimedOutboxRow> {
   /** Delivers one decision-request row (input_notice) in this channel's own shape. */
-  requestDecision(input: DeliveryInput): Promise<DeliveryOutcome>;
+  requestDecision(input: DeliveryInput<Row>): Promise<DeliveryOutcome>;
 }
+
+// packages/adapters/chat/slack/src/outbox-delivery.ts
+// notifiable: Notifiable<SlackOutboxClaim>; approvable: Approvable<SlackOutboxClaim>;
 ```
 
 **U5-seam이 초안과 다르게 정한 네 가지.** 초안은 `DeliveryInput`을 `{ row, attempts }`, 결과를 네 가지로 적었다. 구현(JeongJaeSoon/werft#1532)에서 코드가 요구한 대로 아래 넷이 달라졌다.
@@ -458,7 +471,7 @@ export interface Approvable {
 3. **`retry.retryAfterMs`는 필수.** 채널이 다음 시도까지의 간격을 정해서 내준다. 선택이면 전송기가 채널의 백오프 규칙을 다시 계산해야 해서 채널 지식이 전송기로 새어 나온다.
 4. **구현 파일 이름은 `outbox-delivery.ts`.** 초안은 어댑터 안의 `slack-notifiable.ts`·`slack-approvable.ts` 둘을 말했다. 이동 전에는 R8이 platform에 `slack`이 든 새 파일 이름과 export를 막아서 `outbox-delivery.ts` 하나(`createRowDelivery`)로 두었다. U5a가 이 파일을 어댑터로 옮길 때 이름을 **바꾸지 않았다**. 이름을 바꾸는 일은 이동 순도를 깨고, 파일을 둘로 나누는 일은 U9 ②의 책임 분리 몫이다. 어댑터 안에는 R8이 없으므로 그때 `slack-` 접두로 바꿀 수 있다.
 
-`ClaimedOutboxRow`는 지금의 `SlackOutboxClaim`(`ports/slack-outbox-store.ts`)의 별칭으로, 채널 주소와 렌더된 본문을 그대로 싣는다. 행이 렌더된 `text`·`blocks`를 담으므로(카드를 만드는 일은 넣을 때 끝난다, `slack-outbox.ts:328`), 첫 단계의 `Approvable`은 "카드를 만든다"가 아니라 "만들어 둔 카드를 보낸다"다. 렌더를 보내는 쪽으로 옮겨 `DecisionRequest` view model을 입력으로 받게 하는 일은 U9 ②의 책임 분리 몫이고 이 설계는 정하지 않는다. 선택 메서드는 두지 않는다(R9).
+**행 모양은 채널 중립으로 미리 둔다.** 처음에는 `ClaimedOutboxRow`를 `SlackOutboxClaim`(`ports/slack-outbox-store.ts`)의 별칭으로 두고, 중립 모양은 두 번째 밀어 보내는 채널이 생길 때 정하기로 했다. 오너가 추상화를 미리 두는 방향을 정했고(2026-11-10), 그 가운데 이 안을 골라(2026-11-18) 지금 바꿨다. 중립 행에는 포트를 쓰는 쪽이 실제로 읽는 것만 둔다. 전송기는 `kind`로 포트를 고르고, 계약 시험은 `kind`로 행을 만들어 달라고 할 뿐 행의 다른 필드를 읽지 않는다. 그래서 중립 행은 `kind`(알림 넷, 결정 요청 하나)뿐이다. 채널 주소(`channelId`, `threadTs`, `slackUserId`), 렌더된 본문(`text`, `blocks`, `sender`), lease 펜스, 설치·앱 id는 Slack 행에 남는다. 포트와 계약 시험은 행 타입을 타입 인자로 받고(`Notifiable<Row>`, `describeNotifiableContract<Row>`), Slack 어댑터는 `SlackOutboxClaim`으로 묶는다. `Row`에는 제약을 붙이지 않았고 붙일 수 없다. Slack 행 하나가 포트 경로와 전송기가 직접 보내는 경로(`instruction`, `reply`, `welcome`)를 함께 지나서, 그 `kind`가 중립 행의 `kind`보다 넓기 때문이다. 그래서 중립 행은 타입 인자의 기본값이고 상한이 아니다. 포트는 kind별 경로를 타입으로 막아 주지 않으며, 행 종류로 포트를 고르는 일은 전송기의 `switch`가 한다. Slack 행이 그대로 넘어가므로 실행 시 바꾸는 코드는 없고, 저장 스키마와 Slack으로 나가는 payload도 그대로다. 두 번째 채널이 오면 그 채널의 요구(주소와 본문을 중립 행으로 올릴지)를 보고 이 모양을 다시 본다. 행이 렌더된 `text`·`blocks`를 담으므로(카드를 만드는 일은 넣을 때 끝난다, `slack-outbox.ts:328`), 첫 단계의 `Approvable`은 "카드를 만든다"가 아니라 "만들어 둔 카드를 보낸다"다. 렌더를 보내는 쪽으로 옮겨 `DecisionRequest` view model을 입력으로 받게 하는 일은 U9 ②의 책임 분리 몫이고 이 설계는 정하지 않는다. 선택 메서드는 두지 않는다(R9).
 
 **결정 응답은 `Approvable`이 받지 않는다.** 사람의 답은 채널이 무엇이든 결정 서비스(`decision/`) 두 입구로 들어간다(R5). `Approvable`은 묻는 쪽, `decision/`은 답을 받는 쪽이고 둘은 서로를 부르지 않는다.
 

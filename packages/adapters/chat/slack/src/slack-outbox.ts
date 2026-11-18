@@ -2,6 +2,7 @@ import { DEFAULT_USER_LOCALE } from "@werft-ai/contracts";
 import type {
   DeliveryInput,
   DeliveryOutcome,
+  SlackOutboxClaim,
   SlackOutboxLost,
   SlackOutboxSettle,
   SlackOutboxStore,
@@ -121,7 +122,7 @@ export async function drainSlackOutbox(deps: {
   };
   // The notice kinds go through Notifiable, a decision request through
   // Approvable; the rest the sender posts itself.
-  const deliver = (input: DeliveryInput) => {
+  const deliver = (input: DeliveryInput<SlackOutboxClaim>) => {
     switch (input.row.kind) {
       case "notice":
       case "failure_notice":
