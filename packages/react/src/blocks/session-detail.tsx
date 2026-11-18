@@ -7,6 +7,7 @@ import {
   Button,
   formatClockTime,
   PageFrame,
+  StatusDot,
   Tabs,
   TabsContent,
   TabsList,
@@ -83,7 +84,10 @@ export type SessionDetailTab = "chat" | "outputs";
 export interface SessionOutputsSummary {
   /** Undefined until every list has answered: a slow or failed one is not 0. */
   readonly count: number | undefined;
-  /** A GitHub refusal is among them: the count turns red and says so. */
+  /**
+   * A GitHub refusal is among them: the count turns red and says so, and
+   * with no count a red dot says it alone.
+   */
   readonly refused: boolean;
 }
 
@@ -320,6 +324,17 @@ export function SessionDetail({
               )}
             >
               {t("session.tabs.outputs")}
+              {/* A refusal must not wait on a list that failed to read. The
+                  dot is the sidebar's size; the count's badge replaces it. */}
+              {summary?.count === undefined && summary?.refused ? (
+                <>
+                  {" "}
+                  <StatusDot status="failed" className="size-1.5" />
+                  <span className="sr-only">
+                    {t("session.tabs.outputs.refusedUncounted")}
+                  </span>
+                </>
+              ) : null}
             </TabsTrigger>
           </TabsList>
         </div>
