@@ -3464,6 +3464,69 @@ describe("세션 상세 레이아웃", () => {
     },
   );
 
+  test("다른 목록 하나를 읽지 못해도 GitHub 거절이 있으면 탭은 개수 없이 위험 표시와 이름으로 알린다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      ...outputsRoutes(SESSION_ID, 0, 1),
+      [`GET /v1/sessions/${SESSION_ID}/outcomes`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "down"),
+    });
+    const tab = await screen.findByRole("tab", {
+      name: "성과물 GitHub 거절 있음",
+    });
+    // The count stays unknown; only the refusal is certain.
+    expect(tab.querySelector("[data-slot=item-count]") === null).toBe(true);
+    expect(
+      tab.querySelector("[data-slot=status-dot]")?.getAttribute("data-status"),
+    ).toBe("failed");
+  });
+
+  test("GitHub 거절 목록 자체를 읽지 못하면 탭은 거절을 말하지 않는다", async () => {
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      ...outputsRoutes(SESSION_ID, 1, 0),
+      [`GET /v1/sessions/${SESSION_ID}/github/refusals`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "down"),
+    });
+    await waitFor(() =>
+      expect(
+        api.calls.some(
+          (call) => call.path === `/v1/sessions/${SESSION_ID}/github/refusals`,
+        ),
+      ).toBe(true),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Not known to be refused, so neither a dot nor a count.
+    const tab = outputsTab();
+    expect(tab.querySelector("[data-slot=status-dot]") === null).toBe(true);
+    expect(tab.querySelector("[data-slot=item-count]") === null).toBe(true);
+    expect(screen.getByRole("tab", { name: "성과물" }) === tab).toBe(true);
+  });
+
+  test("늦던 목록이 답해 개수가 돌아오면 거절 점은 빨간 개수 배지로 바뀌고 둘이 함께 보이지 않는다", async () => {
+    let answer: (response: Response) => void = () => {};
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      ...outputsRoutes(SESSION_ID, 0, 1),
+      [`GET /v1/sessions/${SESSION_ID}/outcomes`]: () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    });
+    const waiting = await screen.findByRole("tab", {
+      name: "성과물 GitHub 거절 있음",
+    });
+    expect(waiting.querySelector("[data-slot=status-dot]") === null).toBe(
+      false,
+    );
+    act(() => answer(json(200, { items: [] })));
+    const counted = await screen.findByRole("tab", {
+      name: "성과물 1개, GitHub 거절 있음",
+    });
+    expect(toneOf(counted)).toBe("danger");
+    expect(counted.querySelector("[data-slot=status-dot]") === null).toBe(true);
+  });
+
   test("세션을 옮겼다 돌아와도 탭의 개수와 거절 표시는 그 세션의 것이다", async () => {
     const { history } = renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
