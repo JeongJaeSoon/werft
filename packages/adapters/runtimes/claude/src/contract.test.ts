@@ -58,6 +58,7 @@ function scriptedDriver() {
   const frames: AgentFrame[] = [];
   let wake: (() => void) | undefined;
   let ended = false;
+  let failure: Error | undefined;
   let hooks: RuntimeHooks | undefined;
   const driver: DriverRun = {
     abort: () => {},
@@ -69,6 +70,7 @@ function scriptedDriver() {
           yield frame;
           continue;
         }
+        if (failure !== undefined) throw failure;
         if (ended) return;
         await new Promise<void>((resolve) => {
           wake = resolve;
@@ -96,6 +98,10 @@ function scriptedDriver() {
     },
     end() {
       ended = true;
+      wake?.();
+    },
+    fail(error: Error) {
+      failure = error;
       wake?.();
     },
     noteSettled(toolUseId: string, delivered: boolean) {
@@ -415,6 +421,31 @@ describe("claudeContractRun", () => {
         const warnings = warningIn(rest);
         expect(warnings).toHaveLength(1);
         expect(JSON.stringify(warnings[0])).toContain("Bash call toolu_1");
+      });
+
+      test("is said publicly when the engine's stream fails before the call settles, and the failure still surfaces", async () => {
+        const script = scriptedDriver();
+        const run = claudeContractRun((hooks) => script.start(hooks));
+        const events = run.events()[Symbol.asyncIterator]();
+        script.push(toolUseFrame("toolu_1"));
+        await collect(events, 2);
+        const decision = script.ask("toolu_1");
+        const request = requestOf((await collect(events, 1))[0]);
+        await run.answer({
+          localId: request.localId,
+          inputHash: request.inputHash,
+          kind: "selected",
+          optionKind: "allow_once",
+          message: "Only touch the fixtures",
+        });
+        await decision;
+        const crash = new Error("engine process exited");
+        script.fail(crash);
+        const warning = await events.next();
+        expect(warning.done).toBe(false);
+        expect(warningIn(warning.done ? [] : [warning.value])).toHaveLength(1);
+        expect(JSON.stringify(warning.value)).toContain("Bash call toolu_1");
+        await expect(events.next()).rejects.toBe(crash);
       });
     });
 

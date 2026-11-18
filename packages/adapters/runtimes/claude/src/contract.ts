@@ -417,19 +417,22 @@ class ClaudeContractRun implements AgentRun {
         });
         next ??= frames.next();
         if (this.outbox.length > 0) this.wake?.();
-        const frame = await Promise.race([next, askedWhilePulling]);
+        let frame: IteratorResult<AgentFrame> | undefined;
+        try {
+          frame = await Promise.race([next, askedWhilePulling]);
+        } catch (error) {
+          yield* this.unsettledNotes(
+            "the run failed before the call returned a result",
+          );
+          throw error;
+        }
         this.wake = undefined;
         if (frame === undefined) continue;
         next = undefined;
         if (frame.done === true) {
-          for (const [toolUseId, tool] of this.notes) {
-            yield this.noteUndelivered(
-              tool,
-              toolUseId,
-              "the run ended before the call returned a result",
-            );
-          }
-          this.notes.clear();
+          yield* this.unsettledNotes(
+            "the run ended before the call returned a result",
+          );
           return;
         }
         yield* this.eventsOf(frame.value);
@@ -564,6 +567,14 @@ class ClaudeContractRun implements AgentRun {
       type: "public",
       event: noteUndeliveredEvent(randomUUID(), tool, toolUseId, why),
     };
+  }
+
+  private *unsettledNotes(why: string): Generator<RuntimeEvent> {
+    const unsettled = [...this.notes];
+    this.notes.clear();
+    for (const [toolUseId, tool] of unsettled) {
+      yield this.noteUndelivered(tool, toolUseId, why);
+    }
   }
 
   /**
