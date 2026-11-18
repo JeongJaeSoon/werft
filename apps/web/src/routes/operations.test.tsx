@@ -999,11 +999,10 @@ describe("사용량·한도", () => {
       "GET /v1/limits": () => json(200, LIMITS),
     });
     const table = await screen.findByRole("table", { name: "한도" });
-    const tokens = (await within(table).findByText("세션 토큰")).closest(
-      "[role=row]",
-    );
+    // Wait on a figure from the response: the row labels render while loading.
+    expect(await within(table).findByText("7 / 10")).toBeTruthy();
+    const tokens = within(table).getByText("세션 토큰").closest("[role=row]");
     expect(tokens?.textContent).toContain("한도 없음");
-    expect(within(table).getByText("7 / 10")).toBeTruthy();
   });
 
   const MEMBER_LIMITS = {
