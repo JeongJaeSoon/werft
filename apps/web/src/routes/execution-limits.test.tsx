@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { InstallationConfig } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
+import {
+  executionLimitsEn,
+  executionLimitsKo,
+} from "../i18n/execution-limits.ts";
 import { apiError, json, me } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 import {
@@ -284,7 +288,7 @@ describe("설정 › 실행 한도의 세션 한도", () => {
   });
 });
 
-describe("설정 › 실행 한도의 worker 한도", () => {
+describe("설정 › 실행 한도의 작업자 한도", () => {
   test("턴 시간과 재시도는 각각 그 키만 보내 저장하고, 재시도 0도 받는다", async () => {
     let current = DEFAULTS;
     const { api } = renderAt(PAGE, {
@@ -318,7 +322,7 @@ describe("설정 › 실행 한도의 worker 한도", () => {
     const turnField = () => field(turn, "턴 시간 상한 (초)");
     await waitFor(() => expect(turnField().value).toBe("3600"));
     expect(turn.textContent).toContain(
-      "턴을 돌고 있는 worker는 그 턴을 받을 때의 값으로 마친 뒤 내립니다.",
+      "턴을 돌고 있는 작업자는 그 턴을 받을 때의 값으로 마친 뒤 내립니다.",
     );
     await user.clear(turnField());
     await user.type(turnField(), "604801");
@@ -352,7 +356,7 @@ describe("설정 › 실행 한도의 worker 한도", () => {
     ).toEqual([{ max_turn_seconds: 1200 }, { provider_max_retries: 0 }]);
   });
 
-  test("막힌 턴 시간은 옮겨 오지 못한 변수 이름과 새 worker를 띄우지 않는다는 것을 알린다", async () => {
+  test("막힌 턴 시간은 옮겨 오지 못한 변수 이름과 새 작업자를 띄우지 않는다는 것을 알린다", async () => {
     renderAt(
       PAGE,
       routes(() => ({
@@ -363,7 +367,7 @@ describe("설정 › 실행 한도의 worker 한도", () => {
     const area = await sectionOf("턴 시간");
     const status = within(area).getByRole("status").textContent ?? "";
     expect(status).toContain("MAX_TURN_SECONDS");
-    expect(status).toContain("값을 저장할 때까지 새 worker를 띄우지 않습니다.");
+    expect(status).toContain("값을 저장할 때까지 새 작업자를 띄우지 않습니다.");
     const retries = await sectionOf("모델 요청 재시도");
     expect(within(retries).queryByRole("status") === null).toBe(true);
   });
@@ -713,6 +717,23 @@ describe("설정 › 실행 한도의 한 번 저장", () => {
     );
     expect(within(wait).queryByRole("alert") === null).toBe(true);
     expect(field(wait).value).toBe("60");
+  });
+});
+
+describe("설정 › 실행 한도의 문구", () => {
+  test("한국어 문구는 내부 이름이나 영어 용어 대신 우리말과 용어집의 말을 쓴다", () => {
+    const english =
+      /\b(control host|worker|scheduler|checkpoint|object store|object|restore|volume)\b/;
+    const found = Object.entries(executionLimitsKo)
+      .filter(([, text]) => english.test(text))
+      .map(([key]) => key);
+    expect(found).toEqual([]);
+  });
+
+  test("영어 부제는 두 문장으로, 무엇인지와 전에는 어디서 정했는지를 말한다", () => {
+    expect(executionLimitsEn["limits.description"]).toBe(
+      "These limits apply to every workspace of this installation. They used to be set with server environment variables.",
+    );
   });
 });
 
