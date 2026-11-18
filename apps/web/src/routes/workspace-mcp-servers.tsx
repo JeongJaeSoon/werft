@@ -43,9 +43,10 @@ import { refusalText, useHasPermission, useRole } from "../auth/guard.tsx";
 import { WORKSPACE_MCP_RESERVED_NAMES } from "../auth/limits.ts";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { isMessageKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { useLeave } from "../services.tsx";
-import { FormDialog, type Outcome, OutcomeLine } from "./settings-entries.tsx";
+import { FormDialog } from "./settings-entries.tsx";
 
 declare module "@tanstack/react-router" {
   interface HistoryState {
@@ -154,7 +155,7 @@ export function WorkspaceMcpServers() {
         {manages ? null : (
           <Text variant="sub">{t("workspaceMcp.readOnly")}</Text>
         )}
-        <OutcomeLine outcome={outcome} />
+        <OutcomeLine outcome={outcome} live />
         {servers.isPending ? (
           <Skeleton width="60%" label={t("status.loading.title")} />
         ) : servers.isError ? (

@@ -259,6 +259,15 @@ describe("로그인 공급자 상세", () => {
     expect(trail).toEqual(["로그인", "공급자"]);
   });
 
+  test("the result line is a live region before the first result arrives", async () => {
+    renderAt(PAGE, routes([provider()]));
+    await screen.findByRole("heading", { level: 1, name: "Acme SSO" });
+    const empty = [
+      ...screen.getByRole("main").querySelectorAll('output[data-slot="alert"]'),
+    ].filter((region) => region.textContent === "");
+    expect(empty).toHaveLength(1);
+  });
+
   test("a draft shows what to register at the provider, and withholds the test and turning on with the reason", async () => {
     renderAt(PAGE, routes([provider()]));
     await screen.findByRole("heading", { level: 1, name: "Acme SSO" });

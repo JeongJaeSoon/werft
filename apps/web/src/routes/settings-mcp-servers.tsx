@@ -28,14 +28,13 @@ import { Plus } from "lucide-react";
 import { useState } from "react";
 import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import {
   credentialText,
   entryActions,
   FormDialog,
   NarrowState,
-  type Outcome,
-  OutcomeLine,
   SETTINGS_NARROW_COLUMNS,
   SecretInput,
   StateBadge,
@@ -191,7 +190,7 @@ function McpCatalog({
           ))}
         </GridTable>
       )}
-      <OutcomeLine outcome={outcome} />
+      <OutcomeLine outcome={outcome} live />
     </div>
   );
 }

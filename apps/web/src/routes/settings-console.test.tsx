@@ -90,6 +90,12 @@ const expectNarrowActions = (table: HTMLElement) => {
   }
 };
 
+/** Result lines mounted with nothing in them yet, so a later result is read out. */
+const emptyLiveRegions = (scope: HTMLElement = screen.getByRole("main")) =>
+  [...scope.querySelectorAll('output[data-slot="alert"]')].filter(
+    (region) => region.textContent === "",
+  );
+
 type User = Awaited<ReturnType<typeof setupUser>>;
 
 /** Opens a connection's row menu and returns it. */
@@ -1359,6 +1365,12 @@ describe("모델 연결", () => {
     expect(writes(api.calls)).toEqual([]);
   });
 
+  test("the result line is a live region before the first result arrives", async () => {
+    renderAt(CONNECTIONS_PAGE, routes());
+    await screen.findByRole("table", { name: "모델 연결" });
+    expect(emptyLiveRegions()).toHaveLength(1);
+  });
+
   test("a refusal names the server's reason", async () => {
     renderAt(CONNECTIONS_PAGE, {
       ...routes(),
@@ -1429,6 +1441,13 @@ describe("MCP 서버", () => {
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
     ).toEqual(["search 사용 중지"]);
+  });
+
+  test("the result line is a live region before the first result arrives", async () => {
+    renderAt("/settings/workspace/mcp-servers", routes());
+    await screen.findByRole("table", { name: "MCP 서버" });
+    const catalog = screen.getByRole("region", { name: "설치 카탈로그" });
+    expect(emptyLiveRegions(catalog)).toHaveLength(1);
   });
 
   test("a narrow table keeps every row's actions", async () => {

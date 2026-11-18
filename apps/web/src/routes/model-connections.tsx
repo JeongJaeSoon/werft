@@ -39,6 +39,7 @@ import { scopedKey } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
 import { INACTIVE_ROW_CLASS } from "../components/inactive-member.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { RowMenu, RowMenuItem } from "../components/row-menu.tsx";
 import { type Translate, useI18n } from "../i18n/i18n.tsx";
 import {
@@ -46,8 +47,6 @@ import {
   entryActions,
   FormDialog,
   NarrowState,
-  type Outcome,
-  OutcomeLine,
   SETTINGS_NARROW_COLUMNS,
   SecretInput,
   StateText,
@@ -170,7 +169,7 @@ export function ModelConnections() {
             ))}
           </GridTable>
         )}
-        <OutcomeLine outcome={outcome} />
+        <OutcomeLine outcome={outcome} live />
       </div>
       <AddConnection
         open={adding}
