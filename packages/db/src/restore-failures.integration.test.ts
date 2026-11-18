@@ -100,8 +100,7 @@ integration("startup failures before ready on PostgreSQL", () => {
       },
       pending: createPostgresWorkerPendingStore(db),
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 60_000,
         sleep: async () => {},
       },
@@ -119,8 +118,7 @@ integration("startup failures before ready on PostgreSQL", () => {
   const scheduler = () =>
     createPostgresSchedulerStore(db, {
       connectForLock: () => pool.connect(),
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: 1_000, tokens: null },
     });
 
   type Worker = {

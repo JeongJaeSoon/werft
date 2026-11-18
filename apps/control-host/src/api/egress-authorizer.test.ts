@@ -66,8 +66,7 @@ beforeEach(async () => {
     }),
     checkpoints: acceptAllCheckpoints,
     options: {
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: 1_000, tokens: null },
       leaseTtlMs: 60_000,
     },
   });
@@ -721,8 +720,7 @@ describe("the judgment route", () => {
         upstream: async () => LUNA,
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 60_000,
       },
     });

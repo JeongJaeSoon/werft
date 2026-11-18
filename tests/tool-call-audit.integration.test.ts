@@ -113,8 +113,7 @@ integration("tool call audit end to end", () => {
       onToolAudit: (finding) => findings.push(finding),
       options: {
         leaseTtlMs: 60_000,
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
       },
     });
     const app = createApiApp({

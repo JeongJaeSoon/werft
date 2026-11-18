@@ -102,9 +102,7 @@ export type PostgresSchedulerStoreOptions = {
    * another, round and round. Read for each page of demand and each
    * reservation, outside the transaction; a failed read fails that call.
    */
-  sessionCostLimitUsd: Setting<number>;
-  /** Provider tokens, for the same reason; null, none. */
-  sessionTokenLimit: Setting<number | null>;
+  sessionBudget: Setting<SessionBudget>;
   logger?: StructuredLogger;
 };
 
@@ -176,13 +174,7 @@ export function createPostgresSchedulerStore(
   options: PostgresSchedulerStoreOptions,
 ): SchedulerStore {
   const nonceTtlMs = options.nonceTtlMs ?? DEFAULT_NONCE_TTL_MS;
-  const budgetNow = async (): Promise<SessionBudget> => {
-    const [costUsd, tokens] = await Promise.all([
-      readSetting(options.sessionCostLimitUsd),
-      readSetting(options.sessionTokenLimit),
-    ]);
-    return { costUsd, tokens };
-  };
+  const budgetNow = () => readSetting(options.sessionBudget);
   const work = createPostgresWorkerUnitOfWork(db, {
     ...(options.logger ? { logger: options.logger } : {}),
   });

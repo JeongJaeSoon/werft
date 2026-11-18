@@ -108,8 +108,7 @@ class ClaimingBackend implements ExecutionBackend {
         unsettledRepositoryIds: new Set(),
         unsettledConnectionIds: new Set(),
         runnable: this.runnable,
-        costLimitUsd: 1_000,
-        tokenLimit: null,
+        budget: { costUsd: 1_000, tokens: null },
         nonceHash: hashWorkerToken(nonce),
         executionId: intent.executionId,
         executionGeneration: intent.generation,
@@ -187,8 +186,7 @@ integration("claim against a catalog that dropped the pair", () => {
   const store = () =>
     createPostgresSchedulerStore(db, {
       connectForLock: () => pool.connect(),
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: 1_000, tokens: null },
     });
 
   async function queuedSession(url = REGISTERED) {
@@ -387,8 +385,7 @@ integration("claim against a catalog that dropped the pair", () => {
       unsettledRepositoryIds: new Set(),
       unsettledConnectionIds: new Set(),
       runnable: catalogAt(REGISTERED),
-      costLimitUsd: 1_000,
-      tokenLimit: null,
+      budget: { costUsd: 1_000, tokens: null },
       nonceHash: hashWorkerToken(nonce),
       executionId: intent.executionId,
       executionGeneration: intent.generation,
@@ -465,8 +462,7 @@ integration("claim against a catalog that dropped the pair", () => {
       unsettledRepositoryIds: new Set(),
       unsettledConnectionIds: new Set(),
       runnable: catalogAt(REGISTERED),
-      costLimitUsd: 1_000,
-      tokenLimit: null,
+      budget: { costUsd: 1_000, tokens: null },
       nonceHash: hashWorkerToken(nonce),
       executionId: intent.executionId,
       executionGeneration: intent.generation,
@@ -554,8 +550,7 @@ integration("claim against a catalog that dropped the pair", () => {
           ...catalogAt(REGISTERED),
           runtimeVersions: settings.runtimeVersions ?? null,
         },
-        costLimitUsd,
-        tokenLimit: null,
+        budget: { costUsd: costLimitUsd, tokens: null },
         ...(settings.imageRuntime === undefined
           ? {}
           : { imageRuntime: settings.imageRuntime }),

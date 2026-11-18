@@ -195,8 +195,7 @@ integration("worker gateway on PostgreSQL", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: LEASE_TTL_MS,
         now,
         sleep: async () => {},
@@ -238,8 +237,7 @@ integration("worker gateway on PostgreSQL", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs,
         now: () => clock,
         sleep: async () => {},
@@ -343,8 +341,7 @@ integration("worker gateway on PostgreSQL", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs,
         now: () => new Date(Date.now() + offsetMs),
         sleep: async () => {},
@@ -1804,8 +1801,7 @@ integration("worker gateway on PostgreSQL", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 400,
         now: () => clock,
         sleep: async () => {},
@@ -1858,8 +1854,7 @@ integration("worker gateway on PostgreSQL", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: LEASE_TTL_MS,
         now: () => clock,
         sleep: async () => {},
@@ -1902,8 +1897,7 @@ integration("worker gateway on PostgreSQL", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: LEASE_TTL_MS,
         now: () => clock,
         sleep: async () => {},
@@ -2075,8 +2069,7 @@ integration("worker gateway on PostgreSQL", () => {
           },
         },
         options: {
-          sessionCostLimitUsd: 1_000,
-          sessionTokenLimit: null,
+          sessionBudget: { costUsd: 1_000, tokens: null },
           leaseTtlMs: LEASE_TTL_MS,
           sessionTokenTtlMs,
           now: () => clock,
@@ -2401,8 +2394,7 @@ integration("worker gateway on PostgreSQL", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: LEASE_TTL_MS,
         now: () => clock,
         sleep: async () => {},
@@ -3172,8 +3164,7 @@ integration("worker gateway on PostgreSQL", () => {
           },
         },
         options: {
-          sessionCostLimitUsd: 1_000,
-          sessionTokenLimit: null,
+          sessionBudget: { costUsd: 1_000, tokens: null },
           leaseTtlMs: LEASE_TTL_MS,
           now,
           sleep: async () => {},
@@ -4027,8 +4018,7 @@ integration("worker gateway on PostgreSQL", () => {
     expect(
       await createPostgresSchedulerStore(db, {
         connectForLock: () => pool.connect(),
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
       }).pointerRuntimeOf(session.session_id),
     ).toEqual({
       pointer: recordedPointer(VERIFIED_RUNTIME, 2),

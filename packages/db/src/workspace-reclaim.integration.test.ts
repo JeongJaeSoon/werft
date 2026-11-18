@@ -55,8 +55,7 @@ integration("stopped workspace reclaim against resume on PostgreSQL", () => {
   const store = () =>
     createPostgresSchedulerStore(db, {
       connectForLock: () => pool.connect(),
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: 1_000, tokens: null },
     });
 
   /** Stopped a day and a minute ago, with a checkpoint to resume from. */

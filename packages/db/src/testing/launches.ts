@@ -45,8 +45,7 @@ export async function launchSession(
   const store = createPostgresSchedulerStore(db, {
     connectForLock: () =>
       Promise.reject(new Error("launchSession takes no pass lock")),
-    sessionCostLimitUsd: Number.POSITIVE_INFINITY,
-    sessionTokenLimit: null,
+    sessionBudget: { costUsd: Number.POSITIVE_INFINITY, tokens: null },
     ...(input.nonceTtlMs === undefined ? {} : { nonceTtlMs: input.nonceTtlMs }),
   });
   const intent = await store.reserveLaunch({

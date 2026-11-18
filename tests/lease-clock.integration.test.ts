@@ -157,8 +157,7 @@ integration("worker lease on the monotonic clock end to end", () => {
         pending: createPostgresWorkerPendingStore(db),
         options: {
           leaseTtlMs,
-          sessionCostLimitUsd: 1_000,
-          sessionTokenLimit: null,
+          sessionBudget: { costUsd: 1_000, tokens: null },
         },
       });
       const app = createApiApp({

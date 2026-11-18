@@ -245,8 +245,7 @@ integration(
         checkpoints: acceptAllCheckpoints,
         options: {
           leaseTtlMs: 60_000,
-          sessionCostLimitUsd: 25,
-          sessionTokenLimit: null,
+          sessionBudget: { costUsd: 25, tokens: null },
         },
       });
       const app = createApiApp({

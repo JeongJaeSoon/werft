@@ -95,8 +95,7 @@ integration("members, identity and takeover on PostgreSQL", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 5_000,
         sleep: async () => {},
       },
@@ -1012,8 +1011,7 @@ integration("members, identity and takeover on PostgreSQL", () => {
         .values({ sessionId, partition, signaledAt: new Date() })
         .onConflictDoNothing();
       const store = createPostgresSchedulerStore(db, {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         connectForLock: () => pool.connect(),
       });
       const demand = await store.inspectDemand({ limit: 1_000 });

@@ -83,8 +83,7 @@ function harness(options: {
     checkpoints: acceptAllCheckpoints,
     titles: { store, titler },
     options: {
-      sessionCostLimitUsd: options.costLimitUsd ?? 1_000,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: options.costLimitUsd ?? 1_000, tokens: null },
       leaseTtlMs: 30_000,
     },
   });

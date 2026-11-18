@@ -609,8 +609,7 @@ describe("a launch that moves off a retracted worker image", () => {
   const FIXED = "sha256:fixed";
   const schedulerStore = () =>
     createPostgresSchedulerStore(db, {
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: 1_000, tokens: null },
       connectForLock: async () => ({
         query: async (text: string) => ({
           rows: (await client.query<Record<string, unknown>>(text)).rows,

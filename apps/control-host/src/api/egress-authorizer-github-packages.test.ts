@@ -80,8 +80,7 @@ beforeEach(async () => {
     }),
     checkpoints: acceptAllCheckpoints,
     options: {
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: 1_000, tokens: null },
       leaseTtlMs: 60_000,
     },
     githubPackages: { store, upstreams: { npm: "http://fake-npm.invalid" } },

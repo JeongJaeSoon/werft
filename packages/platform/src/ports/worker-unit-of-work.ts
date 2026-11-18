@@ -22,7 +22,11 @@ import type {
 } from "../catalog/index.ts";
 import type { CheckpointPointer } from "../checkpoints/ports/checkpoint-store.ts";
 import type { CheckpointOutputObject } from "../checkpoints/ports/checkpoint-verifier.ts";
-import type { PricedBy, ProviderUsage } from "../limits/index.ts";
+import type {
+  PricedBy,
+  ProviderUsage,
+  SessionBudget,
+} from "../limits/index.ts";
 
 // The identity every post-claim write is fenced on. The storage adapter puts
 // these values in the WHERE clause of each write; a row that no longer
@@ -167,9 +171,7 @@ export type ClaimInput = {
   unsettledConnectionIds: ReadonlySet<string>;
   // A session that has spent this much is not bound: it would only be told
   // to release again at its first nextInput.
-  costLimitUsd: number;
-  // SESSION_TOKEN_LIMIT, held the same way; null, none.
-  tokenLimit: number | null;
+  budget: SessionBudget;
   nonceHash: Uint8Array;
   executionId: string;
   executionGeneration: number;
@@ -339,8 +341,7 @@ export type NextInputInput = {
   fence: WorkerFence;
   now: Date;
   // A session that has spent this much is handed no new turn.
-  costLimitUsd: number;
-  tokenLimit: number | null;
+  budget: SessionBudget;
 };
 export type DeliveredInput = {
   turnId: string;
@@ -439,8 +440,7 @@ export type FinalizeInput = {
   checkpoint: CheckpointRef | null;
   // A provider failure on a session that has spent this much is recorded as
   // the budget ending the turn, whatever the engine made of the refusal.
-  costLimitUsd: number;
-  tokenLimit: number | null;
+  budget: SessionBudget;
   // The verifier's verdict on `checkpoint`, never the worker's say.
   checkpointVersionsHeld?: boolean;
   checkpointTranscriptBytes?: number;
@@ -474,10 +474,7 @@ export type FinalizeResult =
 export type PeekFinalizeResult = FinalizeResult | { outcome: "open" };
 
 /** A settled turn is read without the limits, so it answers while they cannot be. */
-export type PeekFinalizeInput = Omit<
-  FinalizeInput,
-  "costLimitUsd" | "tokenLimit"
->;
+export type PeekFinalizeInput = Omit<FinalizeInput, "budget">;
 
 export type CheckpointStateInput = {
   fence: WorkerFence;

@@ -65,8 +65,7 @@ integration("telemetry ingest store on PostgreSQL", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 5_000,
         sleep: async () => {},
       },

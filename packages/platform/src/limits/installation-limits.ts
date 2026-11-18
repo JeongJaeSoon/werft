@@ -138,15 +138,23 @@ export function sessionBudgetOf(
 }
 
 /**
- * The one budget predicate every gate uses: spent is over once it reaches
- * either limit.
+ * The one budget predicate every gate uses: a limit is reached once spend
+ * gets to it. db's `withinBudget` is its SQL form, held to it by a test.
  */
+export function limitsReached(
+  spend: SessionSpend,
+  budget: SessionBudget,
+): { cost: boolean; tokens: boolean } {
+  return {
+    cost: spend.costUsd >= budget.costUsd,
+    tokens: budget.tokens !== null && spend.providerTokens >= budget.tokens,
+  };
+}
+
 export function budgetExceeded(
   spend: SessionSpend,
   budget: SessionBudget,
 ): boolean {
-  return (
-    spend.costUsd >= budget.costUsd ||
-    (budget.tokens !== null && spend.providerTokens >= budget.tokens)
-  );
+  const reached = limitsReached(spend, budget);
+  return reached.cost || reached.tokens;
 }

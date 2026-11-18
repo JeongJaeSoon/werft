@@ -248,8 +248,7 @@ integration(
         pending: createPostgresWorkerPendingStore(db),
         options: {
           leaseTtlMs: 30_000,
-          sessionCostLimitUsd: 1_000,
-          sessionTokenLimit: null,
+          sessionBudget: { costUsd: 1_000, tokens: null },
         },
       });
       const app = createApiApp({

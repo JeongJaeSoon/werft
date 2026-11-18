@@ -69,8 +69,7 @@ function build(costLimitUsd: number) {
     },
     checkpoints: acceptAllCheckpoints,
     options: {
-      sessionCostLimitUsd: costLimitUsd,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: costLimitUsd, tokens: null },
       leaseTtlMs: 60_000,
     },
   });

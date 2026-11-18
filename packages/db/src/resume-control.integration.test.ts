@@ -112,8 +112,7 @@ integration(
         },
         pending: createPostgresWorkerPendingStore(db),
         options: {
-          sessionCostLimitUsd: 1_000,
-          sessionTokenLimit: null,
+          sessionBudget: { costUsd: 1_000, tokens: null },
           leaseTtlMs: 60_000,
           sleep: async () => {},
         },
@@ -131,8 +130,7 @@ integration(
     const scheduler = () =>
       createPostgresSchedulerStore(db, {
         connectForLock: () => pool.connect(),
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
       });
 
     type Worker = {
@@ -1130,8 +1128,7 @@ integration(
       // An operator raising the limit lets the same resume go on.
       const raised = createPostgresSchedulerStore(db, {
         connectForLock: () => pool.connect(),
-        sessionCostLimitUsd: 2_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 2_000, tokens: null },
       });
       expect(
         (await raised.inspectDemand({ limit: 1_000 })).eligibleSessionIds,

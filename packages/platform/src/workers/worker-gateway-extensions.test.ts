@@ -66,8 +66,7 @@ function gatewayOver(
     checkpoints: acceptAllCheckpoints,
     ...(extensions === undefined ? {} : { extensions }),
     options: {
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: 1_000, tokens: null },
       leaseTtlMs: 30_000,
       now: () => new Date("2026-09-22T00:00:00Z"),
     },

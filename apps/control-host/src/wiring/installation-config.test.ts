@@ -280,10 +280,9 @@ describe("createInstallationConfigSource", () => {
   test("a saved token limit of 0 sets none; any other is the limit", async () => {
     const memory = memoryStore({ session_token_limit: 0 });
     const { source, advance } = sourceOver(memory);
-    expect(await source.sessionTokenLimit()).toBeNull();
+    expect((await source.sessionBudget()).tokens).toBeNull();
     memory.saved.session_token_limit = 500_000;
     advance(10_000);
-    expect(await source.sessionTokenLimit()).toBe(500_000);
     expect(await source.sessionBudget()).toEqual({
       costUsd: 25,
       tokens: 500_000,

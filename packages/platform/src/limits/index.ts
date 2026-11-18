@@ -4,6 +4,7 @@ export {
   budgetExceeded,
   InstallationConfigUnavailableError,
   type InstallationLimits,
+  limitsReached,
   MAX_PROVIDER_RETRIES,
   MAX_TURN_SECONDS_CEILING,
   readSetting,

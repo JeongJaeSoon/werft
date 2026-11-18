@@ -124,8 +124,7 @@ integration("pending requests and answers on PostgreSQL", () => {
       },
       pending: createPostgresWorkerPendingStore(db),
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: LEASE_TTL_MS,
         sleep: async () => {},
         ...(pendingTtlMs === undefined ? {} : { pendingTtlMs }),

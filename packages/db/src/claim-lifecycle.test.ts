@@ -235,8 +235,7 @@ function claim(ref: ExecutionRef, nonce: string) {
     settingsGeneration: null,
     unsettledRepositoryIds: new Set(),
     unsettledConnectionIds: new Set(),
-    costLimitUsd: 1_000,
-    tokenLimit: null,
+    budget: { costUsd: 1_000, tokens: null },
     credentialHash: hashWorkerToken(`wkt-${crypto.randomUUID()}`),
     credentialTtlMs: 60_000,
     egress: {
@@ -270,8 +269,7 @@ beforeEach(async () => {
   client = await migratedPGlite();
   db = drizzle(client, { schema });
   store = createPostgresSchedulerStore(db, {
-    sessionCostLimitUsd: 1_000,
-    sessionTokenLimit: null,
+    sessionBudget: { costUsd: 1_000, tokens: null },
     connectForLock: async () => ({
       query: async (text: string) => {
         const result = await client.query<Record<string, unknown>>(text);
