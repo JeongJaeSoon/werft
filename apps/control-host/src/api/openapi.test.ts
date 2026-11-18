@@ -312,10 +312,12 @@ describe("OpenAPI document", () => {
 
   test("the introduction names every operation that takes no credential", () => {
     const document = buildOpenApiDocument();
+    const sentence =
+      /These take no credential:[^\n]*/.exec(
+        document.info.description ?? "",
+      )?.[0] ?? "";
     const named = new Set(
-      [...(document.info.description ?? "").matchAll(/`(\/[^`\s]*)`/g)].map(
-        (match) => match[1],
-      ),
+      [...sentence.matchAll(/`(\/[^`\s]*)`/g)].map((match) => match[1]),
     );
     const open = Object.entries(document.paths).flatMap(([path, operations]) =>
       Object.values(operations).some(
@@ -325,7 +327,7 @@ describe("OpenAPI document", () => {
         : [],
     );
     expect(open.length).toBeGreaterThan(0);
-    for (const path of open) expect(named.has(path), path).toBe(true);
+    expect([...named].sort()).toEqual([...open].sort());
   });
 
   const SETS_SESSION_COOKIE = new Set([
