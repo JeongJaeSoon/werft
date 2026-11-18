@@ -2184,6 +2184,23 @@ describe("에이전트 GitHub 탭", () => {
       within(rows).getByRole("link", { name: /세션/ }).getAttribute("href"),
     ).toBe(`/sessions/${SESSION}`);
   });
+
+  test("설정을 읽는 동안 자리표시 셋 중 하나만 불러오는 중이라고 읽는다", async () => {
+    const { server } = await activeAgent();
+    renderAt(DETAIL, {
+      ...routesFor(server, TAB),
+      [`GET ${PATH}/github`]: () => new Promise<Response>(() => {}),
+    });
+    const busy = await waitFor(() => {
+      const found = document.querySelector('main div[aria-busy="true"]');
+      if (!found) throw new Error("no loading block");
+      return found;
+    });
+    expect(busy.querySelectorAll("output.werft-skeleton")).toHaveLength(3);
+    expect(
+      busy.querySelectorAll('output.werft-skeleton:not([aria-hidden="true"])'),
+    ).toHaveLength(1);
+  });
 });
 
 describe("에이전트 GitHub 탭 › Pull request 서식", () => {

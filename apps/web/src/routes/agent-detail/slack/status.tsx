@@ -51,8 +51,14 @@ export function SlackHeader({
     .flatMap((page) => page.items)
     .find((channel) => channel.id === home?.external_surface_id)?.name;
   const bindingsLost = bindings.isError && !bindings.data;
-  const placeholder = (
-    <Skeleton className="h-4 w-20" label={t("status.loading.title")} />
+  // Only the first placeholder in reading order says it is loading. The DM
+  // one shows only beside the home channel's, so it never speaks.
+  const placeholder = (spoken: boolean) => (
+    <Skeleton
+      className="h-4 w-20"
+      label={t("status.loading.title")}
+      decorative={!spoken}
+    />
   );
   const reads = connected ? [app, identities, bindings] : [app, identities];
   const failed = reads.filter((read) => read.isError);
@@ -82,7 +88,7 @@ export function SlackHeader({
         ? item(
             t("slack.homeChannel"),
             bindings.isPending || (home && channels.isPending)
-              ? placeholder
+              ? placeholder(!app.isPending)
               : bindingsLost
                 ? "—"
                 : homeName
@@ -96,7 +102,7 @@ export function SlackHeader({
         ? item(
             t("slack.dmSetting"),
             bindings.isPending
-              ? placeholder
+              ? placeholder(false)
               : bindingsLost
                 ? "—"
                 : t(dmOn(dm) ? "slack.on" : "slack.off"),
@@ -117,7 +123,7 @@ export function SlackHeader({
         titleId={titleId}
         status={
           app.isPending ? (
-            placeholder
+            placeholder(true)
           ) : (
             <Badge variant={STATE_BADGE[state]}>
               {t(`slack.state.${state}`)}

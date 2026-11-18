@@ -2806,6 +2806,54 @@ describe("Slack management", () => {
     );
     expect(document.getElementById("slack-danger")).toBeNull();
   });
+
+  const SPOKEN = 'output.werft-skeleton:not([aria-hidden="true"])';
+  const hold = () => new Promise<Response>(() => {});
+
+  test("says it is loading once while the app is read before the first install", async () => {
+    renderAt(DETAIL, { ...routes(), [`GET ${PATH}/slack/app`]: hold });
+    const busy = await waitFor(() => {
+      const found = document.querySelector('main div[aria-busy="true"]');
+      if (!found) throw new Error("no loading block");
+      return found;
+    });
+    expect(busy.querySelectorAll("output.werft-skeleton")).toHaveLength(3);
+    expect(busy.querySelectorAll(SPOKEN)).toHaveLength(1);
+  });
+
+  test("the status row says it is loading once, at its first placeholder", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app`]: hold,
+      [`GET ${PATH}/slack-bindings`]: hold,
+    });
+    const status = await screen.findByRole("region", { name: "Slack" });
+    await waitFor(() =>
+      expect(status.querySelectorAll("output.werft-skeleton")).toHaveLength(3),
+    );
+    const spoken = status.querySelectorAll(SPOKEN);
+    expect(spoken).toHaveLength(1);
+    expect(spoken[0] === status.querySelector("output.werft-skeleton")).toBe(
+      true,
+    );
+  });
+
+  test("once the app is read, the home channel placeholder alone says it is loading", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: hold,
+    });
+    const status = await screen.findByRole("region", { name: "Slack" });
+    await waitFor(() =>
+      expect(status.querySelectorAll("output.werft-skeleton")).toHaveLength(2),
+    );
+    const spoken = status.querySelectorAll(SPOKEN);
+    expect(spoken).toHaveLength(1);
+    // The home channel comes before DM in the row.
+    expect(spoken[0] === status.querySelector("output.werft-skeleton")).toBe(
+      true,
+    );
+  });
 });
 
 describe("Slack private channel states", () => {
