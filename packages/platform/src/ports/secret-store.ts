@@ -1,9 +1,6 @@
 import type { SecretPurpose, WorkspaceRole } from "@werft-ai/contracts";
+import { STORED_OWNER_KINDS, type StoredOwnerKind } from "../catalog/index.ts";
 import type { Principal } from "../musterrolle/index.ts";
-import {
-  STORED_OWNER_KINDS,
-  type StoredOwnerKind,
-} from "../sessions/catalog.ts";
 
 /**
  * Who a secret belongs to: the workspace itself (the App Configuration

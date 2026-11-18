@@ -20,6 +20,7 @@ import {
   type UpdatePullRequestRequest,
   type UpdatePullRequestResponse,
 } from "@werft-ai/contracts";
+import { repositoryBinding, type SessionCatalog } from "../../catalog/index.ts";
 import {
   GitHubCallError,
   type GitHubGate,
@@ -35,8 +36,6 @@ import {
 import {
   pullRequestTail,
   pushRequestMarkerOf,
-  repositoryBinding,
-  type SessionCatalog,
   sessionUrlOf,
   surfaceOfChannel,
   type TailRequester,

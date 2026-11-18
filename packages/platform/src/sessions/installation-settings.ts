@@ -1,4 +1,3 @@
-import type { InstallationSettings } from "../ports/installation-settings-store.ts";
 import {
   type CatalogConnection,
   type CatalogMcpServer,
@@ -10,7 +9,8 @@ import {
   type JudgeProvider,
   resolveProvider,
   resolveSessionCatalog,
-} from "./catalog.ts";
+} from "../catalog/index.ts";
+import type { InstallationSettings } from "../ports/installation-settings-store.ts";
 
 /**
  * What the registry runs from one read of the installation's settings

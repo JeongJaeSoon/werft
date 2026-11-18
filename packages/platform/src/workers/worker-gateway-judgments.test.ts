@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import type { SessionCatalog } from "../catalog/catalog.ts";
 import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
 import type { JudgmentEgressStore } from "../sessions/achievements/achievement-judgment-store.ts";
 import { hashJudgmentToken } from "../sessions/achievements/judgment-token.ts";
-import type { SessionCatalog } from "../sessions/catalog.ts";
 import { acceptAllCheckpoints } from "../testing/checkpoints.ts";
 import { createWorkerGateway } from "./worker-gateway.ts";
 

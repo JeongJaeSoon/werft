@@ -19,15 +19,7 @@ import {
   connectionModels,
   pinnedMcpTools,
   type SessionCatalog,
-} from "../sessions/catalog.ts";
-
-// The model a release's sessions run unless they name another: its card's.
-export function releaseModel(
-  release: Pick<AgentRelease, "runtime_config_snapshot"> | null,
-): string | undefined {
-  const model = release?.runtime_config_snapshot.model;
-  return typeof model === "string" ? model : undefined;
-}
+} from "../catalog/index.ts";
 
 /**
  * Whether a connection of `kind` serves `model` as a Claude model. The Claude

@@ -41,13 +41,7 @@ export type Baseline = {
 export const baseline: Baseline = {
   crossDomainImports: [
     "action/change-request/push-decision.ts -> decision/push-approvability.ts",
-    "agents/agent-service.ts -> sessions/catalog.ts",
-    "agents/mcp-release-values.ts -> sessions/catalog.ts",
-    "agents/model-move-runner.ts -> sessions/catalog.ts",
-    "agents/release-ids.ts -> sessions/catalog.ts",
-    "sessions/session-service.ts -> agents/release-ids.ts",
     "workers/github-mcp-egress.ts -> action/github/github-mcp-server.ts",
-    "workers/mcp-egress.ts -> sessions/catalog.ts",
     "workers/worker-gateway.ts -> checkpoints/checkpoint-service.ts",
     "workers/worker-gateway.ts -> checkpoints/checkpoint-support.ts",
     "workers/worker-gateway.ts -> checkpoints/durability.ts",
@@ -55,7 +49,6 @@ export const baseline: Baseline = {
     "workers/worker-gateway.ts -> sessions/achievements/achievement-judgment-store.ts",
     "workers/worker-gateway.ts -> sessions/achievements/judge-connections.ts",
     "workers/worker-gateway.ts -> sessions/achievements/judgment-token.ts",
-    "workers/worker-gateway.ts -> sessions/catalog.ts",
     "workers/worker-gateway.ts -> sessions/event-codecs.ts",
     "workers/worker-gateway.ts -> sessions/git-attribution.ts",
     "workers/worker-gateway.ts -> sessions/session-titler.ts",

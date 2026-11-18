@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { bootstrapClaimResponseSchema } from "@werft-ai/contracts";
+import { withoutDeniedTools } from "../catalog/catalog.ts";
 import type {
   WorkerBinding,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
-import { withoutDeniedTools } from "../sessions/catalog.ts";
 import {
   testBinding,
   testCatalog,

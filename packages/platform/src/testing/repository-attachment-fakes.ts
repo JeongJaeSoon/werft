@@ -1,15 +1,15 @@
 import type { AgentGitHub } from "@werft-ai/contracts";
+import {
+  resolveSessionCatalog,
+  type SessionCatalog,
+  sessionCatalogConfigSchema,
+} from "../catalog/index.ts";
 import type { GitHubSessionContext } from "../github/ports/github-gate.ts";
 import type {
   RepositoryAttachmentRefusal,
   RepositoryAttachmentRow,
   RepositoryAttachmentStore,
 } from "../ports/repository-attachments.ts";
-import {
-  resolveSessionCatalog,
-  type SessionCatalog,
-  sessionCatalogConfigSchema,
-} from "../sessions/catalog.ts";
 import { storedCredentials } from "./catalog-fakes.ts";
 import { releasePolicy } from "./github-fakes.ts";
 

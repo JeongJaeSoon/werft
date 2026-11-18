@@ -1,9 +1,9 @@
+import { type CatalogProvider, providerUpstreamOf } from "../catalog/index.ts";
 import {
   type OutboundHttp,
   type OutboundResponse,
   WorkspaceMcpOutboundError,
 } from "../ports/outbound-http.ts";
-import { type CatalogProvider, providerUpstreamOf } from "./catalog.ts";
 
 // Asks a connection's provider which models it serves, with the connection's
 // own key. Only parsed ids and display names leave this module: never the

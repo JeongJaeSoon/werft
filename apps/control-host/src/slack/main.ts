@@ -1,3 +1,4 @@
+import { releaseModel } from "@werft-ai/contracts";
 import { integerSetting } from "@werft-ai/contracts/settings";
 import * as schema from "@werft-ai/db";
 import {
@@ -44,7 +45,6 @@ import {
   createCatalogRegistry,
   createSessionService,
   registryCatalog,
-  releaseModel,
   releaseNotRunnableReason,
   releaseStartable,
   repositoryView,

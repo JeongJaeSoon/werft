@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_PULL_REQUEST_SETTINGS } from "@werft-ai/contracts";
 import {
+  repositoryBinding,
+  type SessionCatalog,
+} from "../../catalog/catalog.ts";
+import {
   type GitHubGate,
   GitHubGateError,
 } from "../../github/ports/github-gate.ts";
 import { createAuthorizationPolicy } from "../../musterrolle/policy.ts";
-import {
-  repositoryBinding,
-  type SessionCatalog,
-} from "../../sessions/catalog.ts";
 import {
   pushRequestMarker,
   pushRequestMarkerOf,

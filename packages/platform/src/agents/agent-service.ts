@@ -25,12 +25,22 @@ import {
   githubFeaturesOverCeiling,
   type ListUsableAgentsResponse,
   type RepositoryCeiling,
+  releaseModel,
   type SaveAgentResponse,
   type SaveRelease,
   TEAM_LIST_LIMIT,
   type UsableAgent,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
+import {
+  connectionModels,
+  connectionOf,
+  modelMoves,
+  modelSuccessor,
+  repositoryInCeiling,
+  type SessionCatalog,
+  type SessionCatalogView,
+} from "../catalog/index.ts";
 import {
   checkAgentExtensions,
   type ExtensionRefusal,
@@ -60,15 +70,6 @@ import type {
 } from "../ports/agent-store.ts";
 import type { WorkspaceKeyStore } from "../ports/api-key-store.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
-import {
-  connectionModels,
-  connectionOf,
-  modelMoves,
-  modelSuccessor,
-  repositoryInCeiling,
-  type SessionCatalog,
-  type SessionCatalogView,
-} from "../sessions/catalog.ts";
 import { viewerOf } from "../sessions/index.ts";
 import type { AgentWelcomable } from "../surface/ports/agent-welcomable.ts";
 import type { ModelMoveStep } from "./model-move-runner.ts";
@@ -77,7 +78,6 @@ import {
   cardContentSha256,
   deriveReleaseId,
   type ReleaseRun,
-  releaseModel,
   resolveReleaseContent,
 } from "./release-ids.ts";
 import { type InstalledRuntimes, releaseRunOf } from "./release-run.ts";

@@ -37,9 +37,17 @@ import {
   CREDENTIAL_UNBOUND_GUIDANCE,
   newSessionGitHubPolicy,
   normalizeSessionTitle,
+  releaseModel,
   startRepositoryOf,
 } from "@werft-ai/contracts";
-import { releaseModel } from "../agents/release-ids.ts";
+import {
+  connectionModels,
+  connectionOf,
+  modelSuccessor,
+  repositoryInCeiling,
+  runtimeVersionAccepted,
+  type SessionCatalogView,
+} from "../catalog/index.ts";
 import {
   type ExtensionRefusal,
   resolveSessionExtensions,
@@ -69,14 +77,6 @@ import type {
 } from "../ports/agent-caller-limits-store.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
 import { additionalRepositoryAllowed } from "./additional-repositories.ts";
-import {
-  connectionModels,
-  connectionOf,
-  modelSuccessor,
-  repositoryInCeiling,
-  runtimeVersionAccepted,
-  type SessionCatalogView,
-} from "./catalog.ts";
 import type { SessionControl } from "./ports/session-control.ts";
 import type { SessionViewer } from "./ports/session-share-store.ts";
 import type {

@@ -1,5 +1,5 @@
 import { mcpStartSchema } from "@werft-ai/contracts";
-import { visibleMcpTools } from "./mcp-tool-decision.ts";
+import { visibleMcpTools } from "../catalog/index.ts";
 
 /** The agent's saved MCP settings, as the readers need them. */
 export type AgentMcpSettingsView = {

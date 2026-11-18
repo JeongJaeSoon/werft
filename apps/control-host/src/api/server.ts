@@ -1,4 +1,4 @@
-import { REQUEST_BODY_MAX_BYTES } from "@werft-ai/contracts";
+import { REQUEST_BODY_MAX_BYTES, releaseModel } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   agentDeleted,
@@ -152,7 +152,6 @@ import {
   installationLimitsFromEnv,
   messageOf,
   registryCatalog,
-  releaseModel,
   releaseStartable,
   resolveAgentRelease,
   SessionServiceError,

@@ -1,15 +1,15 @@
 import { createHash } from "node:crypto";
+import {
+  type EgressUpstream,
+  mcpBinding,
+  mcpToolPermitted,
+  mcpUpstreamOf,
+  type SessionCatalog,
+} from "../catalog/index.ts";
 import type {
   McpEgressStore,
   McpRefusalReason,
 } from "../github/ports/mcp-egress.ts";
-import {
-  type EgressUpstream,
-  mcpBinding,
-  mcpUpstreamOf,
-  type SessionCatalog,
-} from "../sessions/catalog.ts";
-import { mcpToolPermitted } from "../sessions/index.ts";
 
 /**
  * The remote MCP route's decision, made on every exchange the egress proxy

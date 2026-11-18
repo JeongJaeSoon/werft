@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { mcpToolPermitted } from "../catalog/index.ts";
 import type {
   WorkspaceMcpEgressStore,
   WorkspaceMcpRefusalReason,
 } from "../ports/workspace-mcp-egress.ts";
-import { mcpToolPermitted } from "../sessions/index.ts";
 import {
   ALLOWED_MCP_METHODS,
   forbidden,

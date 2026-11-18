@@ -17,7 +17,7 @@ import {
   type RepoRef,
 } from "../../action/ports/forge.ts";
 import type { GitHubApi } from "../../action/ports/github-api.ts";
-import type { SessionCatalog } from "../../sessions/catalog.ts";
+import type { SessionCatalog } from "../../catalog/catalog.ts";
 import { agentPolicy, releasePolicy } from "../../testing/github-fakes.ts";
 import type {
   GitHubPinStore,

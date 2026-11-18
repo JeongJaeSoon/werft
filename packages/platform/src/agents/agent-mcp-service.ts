@@ -6,6 +6,7 @@ import {
   type PutAgentMcpSettingsRequest,
   type PutAgentMcpSettingsResponse,
 } from "@werft-ai/contracts";
+import { mcpToolDenied, type SessionCatalog } from "../catalog/index.ts";
 import {
   ACTOR_INACTIVE,
   type AuthorizationPolicy,
@@ -17,7 +18,6 @@ import {
   SessionServiceError,
 } from "../musterrolle/index.ts";
 import type { AgentMcpStore } from "../ports/agent-mcp-store.ts";
-import { mcpToolDenied, type SessionCatalog } from "../sessions/index.ts";
 import { mcpValuesOfCard } from "./mcp-release-values.ts";
 
 const refused = (field: string, reason: string) =>

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import type { SessionCatalog } from "../catalog/catalog.ts";
 import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
-import type { SessionCatalog } from "../sessions/catalog.ts";
 import type {
   SessionTitleStore,
   TitleEgressAuthorization,

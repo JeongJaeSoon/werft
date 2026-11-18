@@ -15,11 +15,13 @@ import {
   repoRefOf,
 } from "../../action/ports/forge.ts";
 import {
+  repositoryInCeiling,
+  type SessionCatalog,
+} from "../../catalog/index.ts";
+import {
   additionalContextOf,
   additionalRepositoriesOf,
   additionalRepositoryAllowed,
-  repositoryInCeiling,
-  type SessionCatalog,
 } from "../../sessions/index.ts";
 import {
   type GitHubConnections,

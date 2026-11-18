@@ -4,8 +4,11 @@ import {
   type GitHubPolicySource,
   type RepositoryCeiling,
 } from "@werft-ai/contracts";
+import {
+  type CatalogRepositoryView,
+  repositoryInCeiling,
+} from "../catalog/index.ts";
 import type { GitHubSessionContext } from "../github/ports/github-gate.ts";
-import { type CatalogRepositoryView, repositoryInCeiling } from "./catalog.ts";
 
 /**
  * What decides whether a session may work on a repository other than its

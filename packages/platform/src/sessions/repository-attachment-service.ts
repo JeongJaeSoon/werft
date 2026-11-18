@@ -9,6 +9,7 @@ import {
   type RepositoryAttachment,
   type RepositoryAttachRefusal,
 } from "@werft-ai/contracts";
+import type { SessionCatalog } from "../catalog/index.ts";
 import type {
   GitHubGateStore,
   GitHubSessionContext,
@@ -25,7 +26,6 @@ import {
   additionalRepositoryAllowed,
   ownRepositoryRevoked,
 } from "./additional-repositories.ts";
-import type { SessionCatalog } from "./catalog.ts";
 import { pathNameOf } from "./session-repository.ts";
 
 const ATTACH_POLL_MS = 500;

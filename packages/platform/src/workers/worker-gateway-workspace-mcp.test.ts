@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { bootstrapClaimResponseSchema } from "@werft-ai/contracts";
+import {
+  mcpBinding,
+  type SessionWorkspaceMcp,
+  workspaceMcpBinding,
+} from "../catalog/catalog.ts";
 import type { McpEgressStore } from "../github/ports/mcp-egress.ts";
 import type {
   ClaimInput,
@@ -11,11 +16,6 @@ import type {
   WorkspaceMcpEgressStore,
   WorkspaceMcpSessionState,
 } from "../ports/workspace-mcp-egress.ts";
-import {
-  mcpBinding,
-  type SessionWorkspaceMcp,
-  workspaceMcpBinding,
-} from "../sessions/catalog.ts";
 import type { WorkerPendingStore } from "../sessions/ports/pending-requests.ts";
 import { testBinding, testCatalog } from "../testing/catalog-fakes.ts";
 import { acceptAllCheckpoints } from "../testing/checkpoints.ts";

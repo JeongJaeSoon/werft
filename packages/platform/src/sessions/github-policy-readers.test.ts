@@ -9,6 +9,12 @@ import {
   startRepositoryOf,
 } from "@werft-ai/contracts";
 import {
+  connectionRefusal,
+  releaseStartable,
+  repositoryInCeiling,
+  type SessionCatalog,
+} from "../catalog/catalog.ts";
+import {
   TEST_CONNECTION_ID,
   testCatalog,
   testConnection,
@@ -18,12 +24,6 @@ import {
   additionalRepositoriesOf,
   additionalRepositoryAllowed,
 } from "./additional-repositories.ts";
-import {
-  connectionRefusal,
-  releaseStartable,
-  repositoryInCeiling,
-  type SessionCatalog,
-} from "./catalog.ts";
 
 const repository = (
   name: string,

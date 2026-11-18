@@ -12,6 +12,7 @@ import {
   sessionCredentialUnboundDetailsSchema,
 } from "@werft-ai/contracts";
 import { releaseNotRunnableReason } from "../agents/agent-service.ts";
+import type { SessionCatalogView } from "../catalog/catalog.ts";
 import {
   InstallationConfigUnavailableError,
   type SessionLimits,
@@ -34,7 +35,6 @@ import {
   attachmentContext,
   memoryAttachmentStore,
 } from "../testing/repository-attachment-fakes.ts";
-import type { SessionCatalogView } from "./catalog.ts";
 import {
   type AcceptSessionInput,
   type AcceptSessionResult,

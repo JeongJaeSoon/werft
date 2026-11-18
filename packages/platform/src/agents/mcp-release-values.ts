@@ -1,5 +1,5 @@
 import { MCP_TOOL_PREFIX } from "@werft-ai/contracts";
-import { pinnedMcpTools } from "../sessions/catalog.ts";
+import { pinnedMcpTools } from "../catalog/index.ts";
 
 /**
  * What a release says about MCP, as an agent's settings would hold it: the

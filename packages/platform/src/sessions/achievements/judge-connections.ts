@@ -1,5 +1,5 @@
+import { type EgressUpstream, judgeUpstreamOf } from "../../catalog/index.ts";
 import { SessionServiceError } from "../../musterrolle/index.ts";
-import { type EgressUpstream, judgeUpstreamOf } from "../catalog.ts";
 import type { SettingsSnapshot } from "../installation-settings.ts";
 
 /**

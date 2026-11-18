@@ -5,6 +5,7 @@ import {
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
+import type { CatalogConnection } from "../catalog/catalog.ts";
 import { SessionServiceError } from "../musterrolle/index.ts";
 import {
   type Caller,
@@ -21,7 +22,6 @@ import {
   type OutboundRequest,
   WorkspaceMcpOutboundError,
 } from "../workspace-mcp/ports.ts";
-import type { CatalogConnection } from "./catalog.ts";
 import { createSettingsConsoleService } from "./settings-console-service.ts";
 import type { SettingsKind } from "./settings-document.ts";
 

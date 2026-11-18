@@ -10,7 +10,7 @@ import {
   connectionOf,
   runtimeKindOfProvider,
   type ToolCatalogs,
-} from "../sessions/index.ts";
+} from "../catalog/index.ts";
 import type { ReleaseRun } from "./release-ids.ts";
 
 /**

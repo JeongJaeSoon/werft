@@ -1,9 +1,9 @@
-import type { AgentStore } from "../ports/agent-store.ts";
 import {
   connectionOf,
   modelSuccessor,
   type SessionCatalogView,
-} from "../sessions/catalog.ts";
+} from "../catalog/index.ts";
+import type { AgentStore } from "../ports/agent-store.ts";
 
 export const MODEL_MOVE_POLL_INTERVAL_MS = 60_000;
 export const MODEL_MOVE_PAGE = 200;
