@@ -706,6 +706,120 @@ describe("the session's GitHub pull requests", () => {
     expect(document.activeElement === retry).toBe(true);
   });
 
+  const STALE = "아래는 앞서 받은 목록입니다. 지금과 다를 수 있습니다.";
+  const refusal: SessionGitHubRefusal = {
+    receipt_id: "019a0000-0000-7000-8000-0000000000b1",
+    operation: "mint_github_token",
+    purpose: "push",
+    reason_code: "github_disabled",
+    created_at: AT,
+  };
+  /** Reads the lists whose key holds `name` again, as the minute does. */
+  const readAgain = (services: { queryClient: QueryClient }, name: string) =>
+    act(() =>
+      services.queryClient.refetchQueries({
+        predicate: (query) => query.queryKey.includes(name),
+      }),
+    );
+  /** Whether `first` comes before `second` in the page. */
+  const above = (first: Element, second: Element) =>
+    (first.compareDocumentPosition(second) & 4) !== 0;
+
+  test("pull requests already shown stay when a later read fails, under an alert that says they are from before", async () => {
+    let failing = false;
+    const { services } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...pulled(pulls, noFiles),
+      [`GET /v1/sessions/${SESSION_ID}/outcomes`]: () =>
+        failing
+          ? apiError(500, "INTERNAL", "boom")
+          : json(200, { items: pulls }),
+    });
+    await openOutputs();
+    const area = await screen.findByRole("region", { name: "변경 사항" });
+    expect(await within(area).findAllByRole("listitem")).toHaveLength(3);
+    failing = true;
+    await readAgain(services, "outcomes");
+    const alert = await within(area).findByRole("alert");
+    expect(alert.textContent).toContain("불러오지 못했습니다");
+    expect(alert.textContent).toContain(STALE);
+    expect(within(area).getAllByRole("listitem")).toHaveLength(3);
+    expect(above(alert, within(area).getByRole("list"))).toBe(true);
+    // Said once, inside the one alert; the rows' links still reachable.
+    expect(within(area).getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getAllByText(STALE)).toHaveLength(1);
+    expect(
+      within(area).getAllByRole("link", { name: "Retry failed payments" }),
+    ).toHaveLength(3);
+    failing = false;
+    await (await setupUser()).click(
+      within(alert).getByRole("button", { name: "다시 시도" }),
+    );
+    await waitFor(() =>
+      expect(within(area).queryByRole("alert") === null).toBe(true),
+    );
+    expect(within(area).getAllByRole("listitem")).toHaveLength(3);
+  });
+
+  test("out/ files already shown stay when a later read fails, under an alert that says they are from before", async () => {
+    let failing = false;
+    const { services } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...pulled([]),
+      [`GET /v1/sessions/${SESSION_ID}/outputs`]: () =>
+        failing ? apiError(500, "INTERNAL", "boom") : json(200, outputs),
+    });
+    const panel = await openOutputs();
+    const files = await within(panel).findByRole("region", {
+      name: "out/ 파일 3개",
+    });
+    failing = true;
+    await readAgain(services, "outputs");
+    const alert = await within(files).findByRole("alert");
+    expect(alert.textContent).toContain("불러오지 못했습니다");
+    expect(alert.textContent).toContain(STALE);
+    expect(files.isConnected).toBe(true);
+    const list = files.querySelector("details");
+    expect(list === null).toBe(false);
+    expect(above(alert, list as Element)).toBe(true);
+    failing = false;
+    await (await setupUser()).click(
+      within(alert).getByRole("button", { name: "다시 시도" }),
+    );
+    await waitFor(() =>
+      expect(within(panel).queryByRole("alert") === null).toBe(true),
+    );
+    expect(files.isConnected).toBe(true);
+  });
+
+  test("refusals already shown stay when a later read fails, under an alert that says they are from before", async () => {
+    let failing = false;
+    const { services } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...pulled([], noFiles),
+      [`GET /v1/sessions/${SESSION_ID}/github/refusals`]: () =>
+        failing
+          ? apiError(500, "INTERNAL", "boom")
+          : json(200, { items: [refusal] }),
+    });
+    await openOutputs();
+    const refusals = await screen.findByRole("region", {
+      name: "최근 GitHub 거절",
+    });
+    failing = true;
+    await readAgain(services, "github-refusals");
+    const alert = await within(refusals).findByRole("alert");
+    expect(alert.textContent).toContain("불러오지 못했습니다");
+    expect(alert.textContent).toContain(STALE);
+    expect(within(refusals).getAllByRole("listitem")).toHaveLength(1);
+    expect(above(alert, within(refusals).getByRole("list"))).toBe(true);
+    failing = false;
+    await (await setupUser()).click(
+      within(alert).getByRole("button", { name: "다시 시도" }),
+    );
+    await waitFor(() =>
+      expect(within(refusals).queryByRole("alert") === null).toBe(true),
+    );
+    expect(within(refusals).getAllByRole("listitem")).toHaveLength(1);
+  });
+
   test("recent GitHub refusals name the reason, the work and when", async () => {
     renderAt(
       `/sessions/${SESSION_ID}`,

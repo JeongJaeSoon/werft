@@ -73,6 +73,8 @@ export const outputsKo = {
   "session.changes.menu": "{name} 메뉴",
   "session.changes.openOnGitHub": "GitHub에서 열기",
   "session.outputs.count": "out/ 파일 {count}개",
+  "session.outputs.stale":
+    "아래는 앞서 받은 목록입니다. 지금과 다를 수 있습니다.",
   "session.outcomes.notChecked": "아직 상태를 확인하지 않음",
   "session.outcomes.checkError.not_found":
     "마지막 확인에서 GitHub가 이 PR을 찾지 못했습니다. 상태는 그 전에 확인한 값입니다.",
@@ -247,6 +249,8 @@ export const outputsJa: Record<keyof typeof outputsKo, string> = {
   "session.changes.menu": "{name} のメニュー",
   "session.changes.openOnGitHub": "GitHub で開く",
   "session.outputs.count": "out/ のファイル {count} 件",
+  "session.outputs.stale":
+    "以下は前回読み込んだ一覧です。今とは異なる場合があります。",
   "session.outcomes.notChecked": "まだ状態を確認していません",
   "session.outcomes.checkError.not_found":
     "前回の確認で GitHub がこの PR を見つけられませんでした。状態はその前に確認した値です。",
@@ -425,6 +429,8 @@ export const outputsEn: Record<keyof typeof outputsKo, string> = {
   "session.changes.menu": "{name} menu",
   "session.changes.openOnGitHub": "Open on GitHub",
   "session.outputs.count": "{count} out/ files",
+  "session.outputs.stale":
+    "The list below is from an earlier read and may be out of date.",
   "session.outcomes.notChecked": "Not checked yet",
   "session.outcomes.checkError.not_found":
     "At the last check GitHub could not find this pull request. The state shown is from the check before.",

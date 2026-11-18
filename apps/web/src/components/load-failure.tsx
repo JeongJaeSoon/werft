@@ -24,12 +24,15 @@ export function LoadFailure({
   onRetry,
   guidance,
   kept = false,
+  stale,
 }: {
   readonly error: unknown;
   readonly onRetry: () => void;
   /** The screen's own instruction, where it knows more than the code. */
   readonly guidance?: string | undefined;
   readonly kept?: boolean;
+  /** With `kept`: says in words that what stays below is from before. */
+  readonly stale?: string | undefined;
 }) {
   const { t, locale } = useI18n();
   const code = error instanceof ApiError ? error.code : undefined;
@@ -46,6 +49,7 @@ export function LoadFailure({
         <AlertDescription>
           {said ?? guidanceFor(code, locale) ?? t("error.UNKNOWN")}
         </AlertDescription>
+        {stale ? <AlertDescription>{stale}</AlertDescription> : null}
         <AlertActions>
           <Button type="button" variant="outline" size="sm" onClick={onRetry}>
             {t("common.retry")}
