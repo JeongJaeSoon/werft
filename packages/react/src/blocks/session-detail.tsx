@@ -19,7 +19,6 @@ import { type ReactNode, useState } from "react";
 import {
   DetailLayout,
   DetailRail,
-  DetailRailSection,
   type DetailRailToggle,
   OPERATIONS_MESSAGES,
   SessionStatusLabel,
@@ -125,13 +124,6 @@ export function SessionDetail({
       </DetailLayout>
     );
   }
-  const controls = (
-    <SessionControls
-      session={detail}
-      unavailable={unavailable}
-      refusal={refusal}
-    />
-  );
   const waiting = pending.data ? (
     // Titled for screen readers: once the last request is answered and its
     // notice goes, the keyboard lands on this title.
@@ -227,9 +219,6 @@ export function SessionDetail({
       separator="space"
     >
       {panelSections?.(detail)}
-      <DetailRailSection title={t("session.controls.title")}>
-        {controls}
-      </DetailRailSection>
     </DetailRail>
   );
 
@@ -269,8 +258,14 @@ export function SessionDetail({
               )}
             </span>
           </h1>
-          {/* Below 1280px the rail is a sheet, opened from here. */}
-          {panel.wide ? null : <PanelToggle panel={panel} />}
+          <SessionControls
+            variant="head"
+            session={detail}
+            unavailable={unavailable}
+            refusal={refusal}
+            // Below 1280px the rail is a sheet, opened from here.
+            trailing={panel.wide ? undefined : <PanelToggle panel={panel} />}
+          />
         </div>
         <SessionMeta session={detail} usage={usage.data} />
         {usage.error

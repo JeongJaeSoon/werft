@@ -772,8 +772,11 @@ export function SessionControls({
     );
   });
   const group = (
+    // biome-ignore lint/a11y/useSemanticElements: a fieldset groups form fields, these are commands named by aria-label
     <div
       ref={groupRef}
+      role="group"
+      aria-label={t("session.controls.title")}
       data-slot="session-controls"
       className="flex flex-wrap gap-2"
     >
@@ -784,8 +787,10 @@ export function SessionControls({
   return (
     <>
       {head ? (
-        // Under the title on a narrow page, the row starts at the left.
-        <div className="flex min-w-0 flex-1 flex-col items-start gap-1 md:items-end">
+        // Under the title on a narrow page, the row starts at the left. Sized
+        // by its buttons, so a title that leaves too little room puts the
+        // whole row on a line of its own instead of folding the buttons.
+        <div className="flex min-w-0 flex-auto flex-col items-start gap-1 md:items-end">
           <div className="flex flex-wrap items-center gap-2 self-stretch md:justify-end">
             {actions.length === 0 ? null : group}
             {trailing === undefined ? null : (

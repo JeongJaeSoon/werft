@@ -2963,7 +2963,7 @@ describe("세션 상세 레이아웃", () => {
     },
   );
 
-  test("넓은 화면의 머리는 제목과 상태만 두고 조작은 레일의 세션 조작 섹션에 둔다", async () => {
+  test("넓은 화면의 머리는 제목·상태 옆에 세션 조작 묶음을 두고, 레일에는 조작이 없다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     const heading = await screen.findByRole("heading", { level: 1 });
     const header = heading.closest("header") as HTMLElement;
@@ -2974,22 +2974,32 @@ describe("세션 상세 레이아웃", () => {
       within(trail).getByRole("link", { name: "세션" }).getAttribute("href"),
     ).toBe("/sessions");
     expect(heading.textContent).toContain("답변 대기");
-    // From 1280px the rail always shows: the head's one button copies the id.
+    // From 1280px the rail always shows: no fold button, only the commands
+    // and the id's copy button.
+    const controls = within(header).getByRole("group", { name: "세션 조작" });
+    expect(
+      within(controls)
+        .getAllByRole("button")
+        .map((button) => [button.dataset.action, button.textContent]),
+    ).toEqual([
+      ["interrupt", "지금 턴 멈추기"],
+      ["pause", "일시 정지"],
+      ["terminate", "세션 종료"],
+    ]);
     expect(
       within(header)
         .getAllByRole("button")
+        .filter((button) => !controls.contains(button))
         .map((button) => button.getAttribute("aria-label")),
     ).toEqual(["세션 ID 복사"]);
     expect(header.textContent).not.toContain("model-default");
 
     const card = await infoCard();
-    const controls = within(card).getByRole("region", { name: "세션 조작" });
+    expect(within(card).queryByRole("group", { name: "세션 조작" })).toBeNull();
     expect(
-      within(controls)
-        .getAllByRole("button")
-        .filter((button) => button.dataset.action !== undefined)
-        .map((button) => button.textContent),
-    ).toEqual(["지금 턴 멈추기", "일시 정지", "세션 종료"]);
+      within(card).queryByRole("region", { name: "세션 조작" }),
+    ).toBeNull();
+    expect(card.querySelector("[data-action]")).toBeNull();
     // The rail holds no overview: the meta line under the title has it.
     expect(card.textContent).not.toContain("에이전트");
     const meta = await sessionMeta();
@@ -3034,6 +3044,29 @@ describe("세션 상세 레이아웃", () => {
     );
     expect(meta.textContent).toContain(`채널: ${channel}`);
     expect(within(meta).queryByRole("link", { name: /Slack/ })).toBeNull();
+  });
+
+  test("닫힌 세션의 머리에는 조작 묶음도, 할 수 있는 조작이 없다는 문장도 없다", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          status: "stopped",
+          admission_state: "closed",
+          current_turn_id: null,
+        }),
+    });
+    const heading = await screen.findByRole("heading", { level: 1 });
+    await waitFor(() => expect(heading.textContent).toContain("세션 상태"));
+    const header = heading.closest("header") as HTMLElement;
+    expect(
+      within(header).queryByRole("group", { name: "세션 조작" }),
+    ).toBeNull();
+    expect(document.querySelector("[data-action]")).toBeNull();
+    expect(document.body.textContent).not.toContain(
+      "지금 할 수 있는 제어가 없습니다.",
+    );
   });
 
   test.each([
