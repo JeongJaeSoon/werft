@@ -108,14 +108,35 @@ case "$1 $2" in
         '(.items[] | select(.metadata.name == $n) | .metadata.annotations[$k]) = $v' "$ns" >"$ns.tmp"
       mv "$ns.tmp" "$ns"
     done ;;
+  "apply -f")
+    y="$(cat)"
+    printf '%s\\n' "$y" > "${dir}/ingress/$(sed -n 's/^  namespace: //p' <<<"$y").$(sed -n 's/^  name: //p' <<<"$y").yaml" ;;
+  "get ingress")
+    for f in "${dir}"/ingress/*.yaml; do
+      [ -f "$f" ] || continue
+      jq -n --arg ns "$(sed -n 's/^  namespace: //p' "$f")" --arg name "$(sed -n 's/^  name: //p' "$f")" \\
+        --arg hosts "$(sed -n 's/^    - host: //p' "$f")" \\
+        '{metadata: {namespace: $ns, name: $name}, spec: {rules: ($hosts | split("\\n") | map({host: .}))}}'
+    done | jq -s '{items: .}' ;;
+  "delete ingress")
+    if [ "$3" = -A ]; then rm -f "${dir}"/ingress/*.yaml; else rm -f "${dir}/ingress/$4.$5.yaml"; fi ;;
   *) exit 1 ;;
 esac
 `,
       { mode: 0o755 },
     );
+    await mkdir(join(dir, "ingress"));
+    // The front login's check asks for %{redirect_url}; STUB_GATE answers it.
     await writeFile(
       join(dir, "bin", "curl"),
-      `#!/bin/sh\nprintf '%s' "\${STUB_READYZ:-200}"\n`,
+      `#!/bin/sh
+case "$*" in
+  *redirect_url*)
+    echo "$*" >> "${dir}/curl-calls"
+    printf '%s' "\${STUB_GATE-302 https://team.cloudflareaccess.com/cdn-cgi/access/login/x}" ;;
+  *) printf '%s' "\${STUB_READYZ:-200}" ;;
+esac
+`,
       { mode: 0o755 },
     );
     // up adds the namespace as the real one would; down deletes it.
@@ -127,6 +148,9 @@ ns="${dir}/namespaces.json"
 case "$1" in
   up)
     code="\${STUB_UP_EXIT:-0}"
+    rm -f "${dir}/ingress/pr-$2."*
+    mkdir -p "$PREVIEW_HOME/pr-$2/state"
+    echo werft > "$PREVIEW_HOME/pr-$2/state/fullname"
     [ "$code" = 75 ] && echo "pr-$2: head is ${HEAD_B} now, not the $3 asked for" >&2
     if [ "$code" = 0 ]; then
       jq --arg n "pr-$2" --arg h "$3" --arg s "\${PREVIEW_SOURCE:-}" \\
@@ -139,6 +163,7 @@ case "$1" in
     exit "$code" ;;
   down)
     [ "\${STUB_DOWN_EXIT:-0}" = 0 ] || { echo "pr-$2: up again" >&2; exit "$STUB_DOWN_EXIT"; }
+    rm -f "${dir}/ingress/pr-$2."*
     jq --arg n "pr-$2" '.items |= map(select(.metadata.name != $n))' "$ns" >"$ns.tmp"
     mv "$ns.tmp" "$ns" ;;
 esac
@@ -170,14 +195,17 @@ esac
       JSON.stringify(body),
     );
 
-  const pulls = (rows: { number: number; head: string; fork?: boolean }[]) =>
+  const pulls = (
+    rows: { number: number; head: string; fork?: boolean; labels?: string[] }[],
+  ) =>
     writeFile(
       join(dir, "gh", "pulls.json"),
       JSON.stringify(
-        rows.map(({ number, head, fork }) => ({
+        rows.map(({ number, head, fork, labels }) => ({
           number,
           headRefOid: head,
           isCrossRepository: fork ?? false,
+          ...(labels ? { labels: labels.map((name) => ({ name })) } : {}),
         })),
       ),
     );
@@ -242,6 +270,8 @@ esac
           PREVIEW_HOME: join(dir, "home"),
           PREVIEW_DOMAIN: "preview.example.dev",
           PREVIEW_LABEL: "",
+          PREVIEW_PUBLIC_DOMAIN: "",
+          PREVIEW_PUBLIC_LABEL: "",
           PREVIEW_TTL_HOURS: "",
           ...env,
         },
@@ -612,5 +642,397 @@ esac
     expect(result.stderr).toContain(
       "PREVIEW_DOMAIN must be a lowercase DNS name",
     );
+  });
+
+  describe("outside route", () => {
+    const ON = { PREVIEW_PUBLIC_DOMAIN: "public.example.dev" };
+    const BOTH = ["preview", "preview-public"];
+    const ROUTE = "pr-5.preview-public-pr-5.yaml";
+    const ROUTE_LINE = "바깥 경로: 열려 있다";
+
+    const events = (
+      n: number,
+      list: { label?: string; event?: string; at: string; by: string }[],
+    ) =>
+      gh(
+        `repos/{owner}/{repo}/issues/${n}/events`,
+        list.map(({ label = "preview", event = "labeled", at, by }) => ({
+          event,
+          label: { name: label },
+          created_at: at,
+          actor: { login: by },
+        })),
+      );
+
+    // Both labels on PR 5, by owner, and its preview up at HEAD_A.
+    async function upAtA(publicBy = "owner") {
+      await pulls([{ number: 5, head: HEAD_A, labels: BOTH }]);
+      await events(5, [
+        { at: LABELED_1, by: "owner" },
+        { label: "preview-public", at: LABELED_1, by: publicBy },
+      ]);
+      await namespaces([{ name: "pr-5", head: HEAD_A, source: "label" }]);
+      await state(5, `${HEAD_A} up ${LABELED_1}`);
+      await mkdir(join(dir, "home", "pr-5", "state"), { recursive: true });
+      await writeFile(join(dir, "home", "pr-5", "state", "fullname"), "werft");
+    }
+
+    const route = (file: string, namespace: string, host: string) =>
+      writeFile(
+        join(dir, "ingress", file),
+        `metadata:\n  name: ${file.split(".")[1]}\n  namespace: ${namespace}\nspec:\n  rules:\n    - host: ${host}\n`,
+      );
+    const openRoute = () => route(ROUTE, "pr-5", "pr-5.public.example.dev");
+
+    const routes = () =>
+      Array.fromAsync(new Bun.Glob("*.yaml").scan(join(dir, "ingress")));
+
+    const eventReads = async () =>
+      (await lines("gh-calls")).filter((call) =>
+        call.includes("issues/5/events"),
+      ).length;
+
+    test("off: two labels change nothing but one route delete", async () => {
+      await pulls([{ number: 5, head: HEAD_A, labels: BOTH }]);
+      await labeled(5, [{ at: LABELED_1, by: "owner" }]);
+      await openRoute();
+      await sync();
+      expect(await lines("preview-calls")).toEqual([
+        `up 5 ${HEAD_A} source=label reap_up_at=unset`,
+      ]);
+      expect(await routes()).toEqual([]);
+      expect(
+        (await lines("kubectl-calls")).filter((call) =>
+          call.includes("ingress"),
+        ),
+      ).toEqual([
+        "delete ingress -A -l werft.dev/preview-public=true --ignore-not-found",
+      ]);
+      expect(await eventReads()).toBe(1);
+      expect(await lines("curl-calls")).toEqual([]);
+      const posted = await writes();
+      expect(posted).toHaveLength(2);
+      expect(posted[1]).toContain(
+        "라벨을 다시 붙인다.\n\nfake 모델이라 실제 모델·GitHub·Slack에는 닿지 않는다.",
+      );
+      expect(posted.join("")).not.toContain("바깥 경로");
+    });
+
+    test("opens a labeled PR's route after its up, without the domain in any comment or log", async () => {
+      await pulls([{ number: 5, head: HEAD_A, labels: BOTH }]);
+      await events(5, [
+        { at: LABELED_1, by: "owner" },
+        { label: "preview-public", at: LABELED_1, by: "owner" },
+      ]);
+      const result = await sync(ON);
+      expect(result.exitCode).toBe(0);
+      expect(await lines("preview-calls")).toHaveLength(1);
+      const yaml = await readFile(join(dir, "ingress", ROUTE), "utf8");
+      expect(yaml.match(/- host: .*/g)).toEqual([
+        "- host: pr-5.public.example.dev",
+      ]);
+      expect(yaml).toContain("name: werft-api");
+      expect(yaml).toContain('werft.dev/preview-public: "true"');
+      const posted = await writes();
+      expect(posted).toHaveLength(3);
+      expect(posted[2]).toContain(ROUTE_LINE);
+      expect(posted[2]).toContain("https://pr-5.preview.example.dev/");
+      for (const text of [posted.join(""), result.stdout, result.stderr]) {
+        expect(text).not.toContain("public.example.dev");
+      }
+    });
+
+    test("leaves a PR with only the preview label as it was", async () => {
+      await pulls([{ number: 5, head: HEAD_A, labels: ["preview"] }]);
+      await labeled(5, [{ at: LABELED_1, by: "owner" }]);
+      await sync(ON);
+      expect(await lines("preview-calls")).toHaveLength(1);
+      expect(await routes()).toEqual([]);
+      expect(await eventReads()).toBe(1);
+      expect(await lines("curl-calls")).toEqual([]);
+      expect((await writes()).join("")).not.toContain("바깥 경로");
+    });
+
+    test("brings nothing up for the outside label alone", async () => {
+      // gh pr list --label preview leaves the PR out.
+      await pulls([]);
+      await sync(ON);
+      expect(await lines("preview-calls")).toEqual([]);
+      expect(await routes()).toEqual([]);
+    });
+
+    test("does nothing more for an open route", async () => {
+      await upAtA();
+      await openRoute();
+      await sync(ON);
+      expect(await routes()).toEqual([ROUTE]);
+      expect(await eventReads()).toBe(0);
+      expect(
+        (await lines("kubectl-calls")).filter((call) =>
+          call.startsWith("apply"),
+        ),
+      ).toEqual([]);
+      expect(await lines("curl-calls")).toHaveLength(1);
+      expect(await writes()).toEqual([]);
+    });
+
+    test("closes the route when the outside label comes off, and keeps the preview", async () => {
+      await upAtA();
+      await openRoute();
+      await pulls([{ number: 5, head: HEAD_A, labels: ["preview"] }]);
+      await sync(ON);
+      expect(await routes()).toEqual([]);
+      expect(await lines("preview-calls")).toEqual([]);
+      const posted = await writes();
+      expect(posted).toHaveLength(1);
+      expect(posted[0]).toContain("PR 미리보기: 떠 있다");
+      expect(posted[0]).toContain("바깥 경로: 닫혀 있다.");
+    });
+
+    for (const [name, list] of [
+      [
+        "the label's last event is unlabeled",
+        [
+          { label: "preview-public", at: LABELED_1, by: "owner" },
+          {
+            label: "preview-public",
+            event: "unlabeled",
+            at: LABELED_2,
+            by: "owner",
+          },
+        ],
+      ],
+      [
+        "someone else put the label on last",
+        [
+          { label: "preview-public", at: LABELED_1, by: "owner" },
+          { label: "preview-public", at: LABELED_2, by: "someone" },
+        ],
+      ],
+      ["the label's events are not there", []],
+    ] as const) {
+      test(`does not open when ${name}`, async () => {
+        await upAtA();
+        await events(5, [...list]);
+        await sync(ON);
+        expect(await routes()).toEqual([]);
+      });
+    }
+
+    test("opens when this machine's login put the label on last", async () => {
+      await upAtA();
+      await events(5, [
+        { label: "preview-public", at: LABELED_1, by: "someone" },
+        { label: "preview-public", at: LABELED_2, by: "owner" },
+      ]);
+      await sync(ON);
+      expect(await routes()).toEqual([ROUTE]);
+    });
+
+    test("does not open when the label's events cannot be read", async () => {
+      await upAtA();
+      await rm(join(dir, "gh", "repos__owner___repo__issues_5_events.json"));
+      const result = await sync(ON);
+      expect(result.stdout).toContain(
+        "pr-5: the outside label's events could not be read",
+      );
+      expect(await routes()).toEqual([]);
+    });
+
+    test("says once why someone else's label opens nothing", async () => {
+      await upAtA("someone");
+      await sync(ON);
+      await sync(ON);
+      expect(await routes()).toEqual([]);
+      const posted = await writes();
+      expect(posted).toHaveLength(1);
+      expect(posted[0]).toContain("바깥 경로: 열지 않았다");
+      expect(posted[0]).toContain("someone");
+    });
+
+    test("opens nothing for a fork's PR", async () => {
+      await pulls([{ number: 5, head: HEAD_A, fork: true, labels: BOTH }]);
+      await events(5, [
+        { at: LABELED_1, by: "owner" },
+        { label: "preview-public", at: LABELED_1, by: "owner" },
+      ]);
+      await sync(ON);
+      expect(await lines("preview-calls")).toEqual([]);
+      expect(await routes()).toEqual([]);
+    });
+
+    for (const [name, setup] of [
+      [
+        "a failed record at the namespace's head",
+        () => state(5, `${HEAD_A} failed ${LABELED_1}`),
+      ],
+      [
+        "a preview brought up by hand",
+        () => namespaces([{ name: "pr-5", head: HEAD_A }]),
+      ],
+    ] as const) {
+      test(`does not open ${name}`, async () => {
+        await upAtA();
+        await setup();
+        await sync({ ...ON, STUB_UP_EXIT: "75" });
+        expect(await routes()).toEqual([]);
+      });
+    }
+
+    for (const [name, setup] of [
+      [
+        "someone else may push now",
+        () =>
+          gh("repos/{owner}/{repo}/collaborators", [
+            { login: "owner", permissions: { push: true } },
+            { login: "helper", permissions: { push: true } },
+          ]),
+      ],
+      [
+        "the head moved and was refused",
+        async () => {
+          await pulls([{ number: 5, head: HEAD_B, labels: BOTH }]);
+          await gh("repos/{owner}/{repo}/collaborators", [
+            { login: "owner", permissions: { push: true } },
+            { login: "helper", permissions: { push: true } },
+          ]);
+        },
+      ],
+      [
+        "the PR is closed",
+        async () => {
+          await pulls([]);
+        },
+      ],
+    ] as const) {
+      test(`closes an open route when ${name}`, async () => {
+        await upAtA();
+        await openRoute();
+        await setup();
+        await sync(ON);
+        expect(await routes()).toEqual([]);
+      });
+    }
+
+    for (const [name, setup] of [
+      ["the list cannot be read", () => rm(join(dir, "gh", "pulls.json"))],
+      ["the login cannot be read", () => rm(join(dir, "gh", "user.json"))],
+      [
+        "the pushers cannot be read",
+        () => rm(join(dir, "gh", "repos__owner___repo__collaborators.json")),
+      ],
+      [
+        "the list may be cut",
+        () =>
+          pulls(
+            Array.from({ length: 500 }, (_, i) => ({
+              number: i + 1,
+              head: HEAD_A,
+              labels: BOTH,
+            })),
+          ),
+      ],
+    ] as const) {
+      test(`closes every route, writes nothing and keeps the preview when ${name}`, async () => {
+        await upAtA();
+        await openRoute();
+        await setup();
+        await sync(ON);
+        expect(await routes()).toEqual([]);
+        expect(await lines("preview-calls")).toEqual([]);
+        expect(await writes()).toEqual([]);
+        expect(
+          await readFile(
+            join(dir, "home", "sync", "pr-5.comment"),
+            "utf8",
+          ).catch(() => null),
+        ).toBeNull();
+      });
+    }
+
+    test("deletes routes of another domain, name or namespace", async () => {
+      await upAtA();
+      await route(ROUTE, "pr-5", "pr-5.old.example.dev");
+      await route("x.preview-public-x.yaml", "x", "x.public.example.dev");
+      await route("pr-6.other.yaml", "pr-6", "pr-6.public.example.dev");
+      await sync(ON);
+      // pr-5's is opened again under the current domain.
+      expect(await routes()).toEqual([ROUTE]);
+      expect(
+        (await readFile(join(dir, "ingress", ROUTE), "utf8")).match(
+          /- host: .*/g,
+        ),
+      ).toEqual(["- host: pr-5.public.example.dev"]);
+    });
+
+    test("does not open, and closes once, while the front login does not answer", async () => {
+      await upAtA();
+      await sync({ ...ON, STUB_GATE: "200 " });
+      expect(await routes()).toEqual([]);
+      expect(await writes()).toEqual([]);
+
+      await sync(ON);
+      expect(await routes()).toEqual([ROUTE]);
+      for (const gate of ["404 ", "302 https://example.dev/login", ""]) {
+        await sync({ ...ON, STUB_GATE: gate });
+        expect(await routes()).toEqual([]);
+      }
+      const posted = await writes();
+      expect(posted).toHaveLength(2);
+      expect(posted[1]).toContain(
+        "바깥 경로: 닫았다. 앞단의 로그인 확인에 실패했다.",
+      );
+    });
+
+    test("forgets a refusal once the PR is no longer wanted", async () => {
+      await upAtA("someone");
+      await sync(ON);
+      expect(
+        await readFile(join(dir, "home", "sync", "pr-5.public"), "utf8"),
+      ).toBe(`${LABELED_1}\n`);
+      await pulls([{ number: 5, head: HEAD_A, labels: ["preview"] }]);
+      await sync(ON);
+      expect(
+        await readFile(join(dir, "home", "sync", "pr-5.public"), "utf8").catch(
+          () => null,
+        ),
+      ).toBeNull();
+    });
+
+    test("says down without the route line when the preview is gone", async () => {
+      await upAtA();
+      await openRoute();
+      await sync(ON);
+      // reap's TTL takes the namespace and its route.
+      await namespaces([]);
+      await rm(join(dir, "ingress", ROUTE));
+      await sync(ON);
+      const posted = await writes();
+      expect(posted).toHaveLength(1);
+      expect(posted[0]).toContain("PR 미리보기: 내려갔다");
+      expect(posted[0]).not.toContain("바깥 경로");
+    });
+
+    for (const [env, message] of [
+      [
+        { PREVIEW_PUBLIC_DOMAIN: "preview.example.dev" },
+        "PREVIEW_PUBLIC_DOMAIN",
+      ],
+      [{ PREVIEW_PUBLIC_DOMAIN: "localhost" }, "PREVIEW_PUBLIC_DOMAIN"],
+      [{ PREVIEW_PUBLIC_DOMAIN: "pr.localhost" }, "PREVIEW_PUBLIC_DOMAIN"],
+      [
+        { PREVIEW_PUBLIC_DOMAIN: "Public.Example.dev" },
+        "PREVIEW_PUBLIC_DOMAIN",
+      ],
+      [{ PREVIEW_PUBLIC_LABEL: "preview" }, "PREVIEW_PUBLIC_LABEL must not be"],
+      [{ PREVIEW_PUBLIC_LABEL: "a b" }, "PREVIEW_PUBLIC_LABEL must be a label"],
+    ] as const) {
+      test(`refuses ${JSON.stringify(env)}`, async () => {
+        const result = await sync(env);
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain(message);
+        expect(await lines("preview-calls")).toEqual([]);
+      });
+    }
   });
 });
