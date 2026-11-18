@@ -28,8 +28,8 @@ export const sessionsKo = {
   "sessions.status.stopped": "멈춤",
 
   "sessions.admission.active": "열림",
-  "sessions.admission.pausing": "일시정지 중",
-  "sessions.admission.paused": "일시정지됨",
+  "sessions.admission.pausing": "일시 정지 중",
+  "sessions.admission.paused": "일시 정지됨",
   "sessions.admission.resuming": "복원 중",
   "sessions.admission.stopping": "종료 중",
   "sessions.admission.stopped": "종료됨",

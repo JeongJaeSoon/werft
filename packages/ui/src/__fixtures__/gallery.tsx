@@ -339,9 +339,9 @@ export function Gallery({ openDialog }: GalleryProps = {}): JSX.Element {
       <ConfirmDialog
         open={openDialog === "confirm"}
         onOpenChange={noop}
-        title="세션을 일시정지할까요?"
+        title="세션을 일시 정지할까요?"
         consequence="실행 중인 턴은 마무리하고, 대기 중인 지시는 그대로 남습니다."
-        confirmLabel="일시정지"
+        confirmLabel="일시 정지"
         onConfirm={noop}
       />
       <DestructiveActionDialog

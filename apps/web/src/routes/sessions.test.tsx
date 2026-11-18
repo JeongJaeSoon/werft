@@ -2500,7 +2500,7 @@ describe("session runtime", () => {
       ),
     ).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1 }).textContent).toContain(
-      "작업 상태: 쉬는 중세션 상태: 일시정지됨",
+      "작업 상태: 쉬는 중세션 상태: 일시 정지됨",
     );
   });
 
@@ -3049,8 +3049,8 @@ describe("세션 상세 레이아웃", () => {
   });
 
   test.each([
-    ["paused", "일시정지됨"],
-    ["pausing", "일시정지 중"],
+    ["paused", "일시 정지됨"],
+    ["pausing", "일시 정지 중"],
     ["resuming", "복원 중"],
     ["stopping", "종료 중"],
     ["stopped", "종료됨"],

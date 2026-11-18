@@ -30,7 +30,7 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "같은 요청이 이미 접수됐습니다 — 접수 결과를 확인하세요.",
   REQUEST_EXPIRED: "요청이 만료됐습니다 — 다시 요청하세요.",
   REQUEST_STALE: "화면이 오래됐습니다 — 새로 고친 뒤 다시 시도하세요.",
-  SESSION_PAUSED: "세션이 일시정지 상태입니다 — 재개한 뒤 보내세요.",
+  SESSION_PAUSED: "세션이 일시 정지 상태입니다 — 재개한 뒤 보내세요.",
   SESSION_RESUMING: "세션을 복원하는 중입니다 — 잠시 뒤 다시 시도하세요.",
   SESSION_CLOSED: "보관된 세션입니다 — 새 세션으로 이어가세요.",
   SESSION_CLOSING: "세션을 보관하는 중입니다 — 끝날 때까지 기다리세요.",
@@ -38,8 +38,9 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   RECOVERY_REQUIRED: "결과를 확인해야 합니다 — 복구 결정을 내리세요.",
   CHECKPOINT_UNAVAILABLE:
     "이어갈 저장 지점이 없거나 저장이 멈춰 처리하지 못했습니다 — 세션 상세의 안내를 확인하세요.",
-  PAUSE_COMMITTING: "일시정지를 마무리하는 중입니다 — 잠시 뒤 다시 시도하세요.",
-  PAUSE_CANCELLED: "일시정지가 취소됐습니다 — 현재 상태를 확인하세요.",
+  PAUSE_COMMITTING:
+    "일시 정지를 마무리하는 중입니다 — 잠시 뒤 다시 시도하세요.",
+  PAUSE_CANCELLED: "일시 정지가 취소됐습니다 — 현재 상태를 확인하세요.",
   CONTROL_SUPERSEDED:
     "더 최근 제어가 먼저 적용됐습니다 — 현재 상태를 확인하세요.",
   TURN_NOT_STARTED:
@@ -61,7 +62,7 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   CREDENTIAL_UNBOUND:
     "연결 설정이 바뀌어 시작하지 못했어요 — 에이전트 관리자에게 문의하세요.",
   AGENT_NOT_RUNNABLE:
-    "이 에이전트는 지금 새 세션을 시작할 수 없어요(일시중지·보관됐거나 release가 승인되지 않았어요) — 에이전트 관리자에게 문의하세요.",
+    "이 에이전트는 지금 새 세션을 시작할 수 없어요(일시 정지·보관됐거나 release가 승인되지 않았어요) — 에이전트 관리자에게 문의하세요.",
   CREDENTIAL_REF_IN_USE:
     "이 자격 이름은 이미 다른 곳(에이전트 또는 Slack 앱 연결)에 묶여 있어 쓸 수 없어요 — 다른 이름을 고르세요.",
   SELF_PROTECTED:

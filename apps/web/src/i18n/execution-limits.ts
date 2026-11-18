@@ -118,26 +118,26 @@ export const executionLimitsKo = {
   "limits.stopped.unit": "초",
   "limits.stopped.value": "{value}초",
   "limits.stopped.refused":
-    "멈춘 세션과 일시정지한 세션의 작업 공간을 회수하지 않습니다. 끝난 세션의 작업 공간은 계속 회수합니다.",
+    "멈춘 세션과 일시 정지한 세션의 작업 공간을 회수하지 않습니다. 끝난 세션의 작업 공간은 계속 회수합니다.",
   "limits.stopped.applies":
     "저장하면 10초 안에 다음 정리부터 적용됩니다. 줄이면 이미 그 시간을 넘긴 작업 공간을 다음 정리 때 회수합니다.",
   "limits.stopped.invalid": "0부터 {max}까지의 정수(초)를 적으세요.",
   "limits.stopped.saved": "멈춘 세션의 작업 공간 보존 시간을 저장했습니다.",
-  "limits.paused.title": "일시정지한 세션의 작업 공간",
+  "limits.paused.title": "일시 정지한 세션의 작업 공간",
   "limits.paused.hint":
-    "일시정지한 세션의 작업 공간을 일시정지한 때부터 남겨 두는 시간입니다.",
+    "일시 정지한 세션의 작업 공간을 일시 정지한 때부터 남겨 두는 시간입니다.",
   "limits.paused.detail":
     "복원할 체크포인트가 있는 세션만 지나면 회수하고, 다시 시작하면 그 체크포인트에서 복원합니다. 0이면 다음 정리 때 바로 회수합니다.",
-  "limits.paused.label": "일시정지한 뒤 남겨 두는 시간 (초)",
+  "limits.paused.label": "일시 정지한 뒤 남겨 두는 시간 (초)",
   "limits.paused.unit": "초",
   "limits.paused.value": "{value}초",
   "limits.paused.refused":
-    "멈춘 세션과 일시정지한 세션의 작업 공간을 회수하지 않습니다. 끝난 세션의 작업 공간은 계속 회수합니다.",
+    "멈춘 세션과 일시 정지한 세션의 작업 공간을 회수하지 않습니다. 끝난 세션의 작업 공간은 계속 회수합니다.",
   "limits.paused.applies":
     "저장하면 10초 안에 다음 정리부터 적용됩니다. 줄이면 이미 그 시간을 넘긴 작업 공간을 다음 정리 때 회수합니다.",
   "limits.paused.invalid": "0부터 {max}까지의 정수(초)를 적으세요.",
   "limits.paused.saved":
-    "일시정지한 세션의 작업 공간 보존 시간을 저장했습니다.",
+    "일시 정지한 세션의 작업 공간 보존 시간을 저장했습니다.",
   "limits.enforce.title": "작업 공간 용량",
   "limits.enforce.hint": "작업자의 작업 공간이 용량을 넘었을 때 할 일입니다.",
   "limits.enforce.label": "용량을 넘으면",

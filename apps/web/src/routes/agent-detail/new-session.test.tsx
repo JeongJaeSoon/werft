@@ -412,7 +412,7 @@ describe("이 에이전트로 새 세션", () => {
 
     for (const [status, reason] of [
       ["archived", "보관된 에이전트라 세션을 시작할 수 없습니다."],
-      ["paused", "일시정지된 에이전트라 세션을 시작할 수 없습니다."],
+      ["paused", "일시 정지된 에이전트라 세션을 시작할 수 없습니다."],
     ] as const) {
       test(`에이전트가 ${status}다`, async () => {
         const server = await released();

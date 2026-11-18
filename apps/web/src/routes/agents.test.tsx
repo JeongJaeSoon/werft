@@ -345,7 +345,7 @@ describe("에이전트 목록", () => {
     expect(row.textContent).toContain("식별자 billing");
   });
 
-  test("배지는 초안·릴리스·일시정지·보관됨을 이름만으로 서로 다르게 보인다", async () => {
+  test("배지는 초안·릴리스·일시 정지·보관됨을 이름만으로 서로 다르게 보인다", async () => {
     const base = agentServer().detail().agent;
     const agent = (
       name: string,
@@ -384,7 +384,7 @@ describe("에이전트 목록", () => {
       expect(states()).toEqual([
         ["초안", "draft"],
         ["활성", "active"],
-        ["일시정지", "paused"],
+        ["일시 정지", "paused"],
         ["보관됨", "archived"],
       ]),
     );

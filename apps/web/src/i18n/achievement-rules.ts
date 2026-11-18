@@ -34,7 +34,7 @@ export const achievementRulesKo = {
     "근거가 생기거나 바뀔 때 (PR 열림·머지, 리뷰 제출, out/ 파일)",
   "achievementRules.judge.turns": "턴 수",
   "achievementRules.judge.everyTurns": "턴마다",
-  "achievementRules.judge.onIdle": "세션이 멈출 때 (대기·일시정지·종료)",
+  "achievementRules.judge.onIdle": "세션이 멈출 때 (대기·일시 정지·종료)",
   "achievementRules.judge.transcript": "대화 보내기",
   "achievementRules.judge.transcriptHint":
     "근거 종류가 '대화'인 규칙을 판정할 때만 보냅니다.",
