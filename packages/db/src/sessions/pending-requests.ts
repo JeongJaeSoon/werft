@@ -430,6 +430,9 @@ function publicPendingRequest(row: {
     : { ...base, kind: "question", questions: payload.questions };
 }
 
+const NOTE_NOT_ACCEPTED =
+  "This session's worker cannot hand an approval note to the model; allow without a reason";
+
 function answerMismatch(
   payload: StoredPayload,
   answer: AnswerRequestInput["answer"],
@@ -455,7 +458,7 @@ function answerMismatch(
       !parked &&
       (payload as { accepts_note?: true }).accepts_note !== true
     ) {
-      return "This session's worker cannot hand an approval note to the model; allow without a reason";
+      return NOTE_NOT_ACCEPTED;
     }
     return null;
   }
@@ -806,7 +809,15 @@ export function createPostgresPendingRequests(
           input.answer,
           pending.parkedAt !== null,
         );
-        if (mismatch !== null) return { outcome: "invalid", reason: mismatch };
+        if (mismatch !== null) {
+          return {
+            outcome: "invalid",
+            reason: mismatch,
+            ...(mismatch === NOTE_NOT_ACCEPTED
+              ? { reasonCode: "note_not_accepted" as const }
+              : {}),
+          };
+        }
         // Judged on every answer, not only the one that would close the
         // group: a resume refused at the last answer would leave the others
         // kept for a turn that cannot carry them on.
@@ -864,6 +875,7 @@ export function createPostgresPendingRequests(
               outcome: "invalid",
               reason:
                 "The answers to this parked turn no longer fit in one message; answer with less text",
+              reasonCode: "answer_too_long",
             };
           }
         }

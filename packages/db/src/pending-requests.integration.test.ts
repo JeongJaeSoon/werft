@@ -688,9 +688,15 @@ integration("pending requests and answers on PostgreSQL", () => {
     test("is refused for a request whose worker did not say it takes one, and takes nothing", async () => {
       const { owner, sessionId, worker } = await runningSession();
       const { requestId } = await register(worker, permission("ls"));
-      expect(await failure(answer(owner, sessionId, noted(requestId)))).toBe(
-        "BAD_REQUEST",
+      const refused = await answer(owner, sessionId, noted(requestId)).then(
+        () => null,
+        (error: unknown) => error,
       );
+      expect(refused).toBeInstanceOf(SessionServiceError);
+      expect((refused as SessionServiceError).code).toBe("BAD_REQUEST");
+      expect((refused as SessionServiceError).details).toEqual({
+        reason_code: "note_not_accepted",
+      });
       const plain = await answer(owner, sessionId, {
         request_id: requestId,
         kind: "permission",

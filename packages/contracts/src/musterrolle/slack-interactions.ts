@@ -13,6 +13,8 @@ export const SLACK_INTERACTIONS_BODY_MAX_BYTES = 256 * 1024;
 export const SLACK_INTERACTION_ACTIONS = {
   permissionAllow: "permission.allow",
   permissionAllowSession: "permission.allow_session",
+  /** Opens a modal for an instruction that goes to the model with the allow. */
+  permissionAllowNote: "permission.allow_note",
   permissionDeny: "permission.deny",
   questionOption: "question.option",
   questionOpen: "question.open",
@@ -20,6 +22,7 @@ export const SLACK_INTERACTION_ACTIONS = {
   pushReject: "push.reject",
 } as const;
 export const SLACK_QUESTION_VIEW_CALLBACK = "question.answer";
+export const SLACK_NOTE_VIEW_CALLBACK = "permission.allow_note";
 
 const slackId = z
   .string()
@@ -41,7 +44,7 @@ export const slackInteractionValueSchema = z
   })
   .strict();
 
-/** What a question modal carries back: its request and the card to update. */
+/** What a modal carries back: its request and the card to update. */
 export const slackQuestionViewMetadataSchema = z
   .object({
     s: z.uuid(),

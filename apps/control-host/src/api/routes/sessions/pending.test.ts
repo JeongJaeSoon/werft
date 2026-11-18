@@ -168,6 +168,35 @@ describe("pending-request routes", () => {
     }
   });
 
+  test("POST names why an answer was refused when the store says so, and only then", async () => {
+    const detailsOf = async (result: AnswerRequestResult) =>
+      (
+        (await (await answer(result).response).json()) as {
+          error: { details: unknown };
+        }
+      ).error.details;
+    expect(
+      await detailsOf({
+        outcome: "invalid",
+        reason: "This session's worker cannot hand an approval note",
+        reasonCode: "note_not_accepted",
+      }),
+    ).toEqual({ reason_code: "note_not_accepted" });
+    expect(
+      await detailsOf({
+        outcome: "invalid",
+        reason: "answer with less text",
+        reasonCode: "answer_too_long",
+      }),
+    ).toEqual({ reason_code: "answer_too_long" });
+    expect(
+      await detailsOf({
+        outcome: "invalid",
+        reason: "Question q0 has no option x",
+      }),
+    ).toBeNull();
+  });
+
   test("POST needs an Idempotency-Key and a well-formed answer", async () => {
     const accepted: AnswerRequestResult = { outcome: "not_found" };
     expect(await errorOf(answer(accepted, undefined, {}).response)).toEqual({

@@ -4,6 +4,7 @@ import {
   type QuestionAnswer,
   questionAnswerMismatch,
   SLACK_INTERACTION_ACTIONS,
+  SLACK_NOTE_VIEW_CALLBACK,
   SLACK_QUESTION_VIEW_CALLBACK,
   type SlackInteractionValue,
   type SlackQuestionViewMetadata,
@@ -80,6 +81,22 @@ type PromptCopy = {
   allowSession: string;
   /** The confirm dialog's text; `{rule}` is the rules, in plain words. */
   allowSessionConfirm: string;
+  /** Allowing with an instruction the model reads with the call's result. */
+  note: {
+    button: string;
+    title: string;
+    label: string;
+    loading: string;
+    /** Blank or missing: Allow on the card is the way without one. */
+    required: string;
+    tooLong: string;
+    /** The session cannot hand it over; nothing was allowed. */
+    refused: string;
+    /** With it, the parked turn's answers no longer fit in one message. */
+    tooLongForTurn: string;
+    /** Another answer settled the request first. */
+    lost: string;
+  };
   deny: string;
   approve: string;
   reject: string;
@@ -138,6 +155,20 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     allowSession: "이 세션 동안 허용",
     allowSessionConfirm:
       "이 세션이 끝날 때까지 다음을 묻지 않고 허용해요: {rule}",
+    note: {
+      button: "지시와 함께 허용",
+      title: "지시와 함께 허용",
+      label: "에이전트에게 전할 지시",
+      loading: "요청을 확인하고 있어요…",
+      required:
+        "지시를 입력해 주세요. 지시 없이 허용하려면 카드의 허용을 눌러 주세요",
+      tooLong: "지시가 너무 길어요. 줄여서 다시 보내 주세요",
+      refused:
+        "이 세션은 지시를 에이전트에게 전할 수 없어서 허용하지 않았어요. 요청은 아직 열려 있어요. 지시 없이 허용하거나 거부해 주세요",
+      tooLongForTurn:
+        "이 지시까지 더하면 에이전트에게 보낼 답이 너무 길어져서 허용하지 않았어요. 요청은 아직 열려 있어요. 지시를 줄여 다시 보내 주세요",
+      lost: "다른 답이 먼저 처리돼서 이 지시는 에이전트에게 전달되지 않았어요",
+    },
     deny: "거부",
     approve: "승인",
     reject: "거절",
@@ -209,6 +240,20 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     allowSession: "このセッション中は許可",
     allowSessionConfirm:
       "このセッションが終わるまで、次を確認せずに許可します: {rule}",
+    note: {
+      button: "指示を付けて許可",
+      title: "指示を付けて許可",
+      label: "エージェントへの指示",
+      loading: "リクエストを確認しています…",
+      required:
+        "指示を入力してください。指示なしで許可するには、カードの「許可」を押してください",
+      tooLong: "指示が長すぎます。短くしてもう一度送信してください",
+      refused:
+        "このセッションは指示をエージェントに渡せないため、許可していません。リクエストはまだ開いています。指示なしで許可するか、拒否してください",
+      tooLongForTurn:
+        "この指示を加えるとエージェントに送る回答が長くなりすぎるため、許可していません。リクエストはまだ開いています。指示を短くしてもう一度送信してください",
+      lost: "別の回答が先に処理されたため、この指示はエージェントに渡されていません",
+    },
     deny: "拒否",
     approve: "承認",
     reject: "却下",
@@ -280,6 +325,20 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     allowSession: "Allow for session",
     allowSessionConfirm:
       "Until this session ends, this is allowed without asking: {rule}",
+    note: {
+      button: "Allow with instruction",
+      title: "Allow with instruction",
+      label: "Instruction for the agent",
+      loading: "Checking the request…",
+      required:
+        "Type an instruction. To allow without one, press Allow on the card",
+      tooLong: "The instruction is too long. Shorten it and send again",
+      refused:
+        "This session cannot hand an instruction to the agent, so nothing was allowed. The request is still open: allow it without an instruction, or deny it",
+      tooLongForTurn:
+        "With this instruction the answers to the agent would be too long, so nothing was allowed. The request is still open: Shorten the instruction and send again",
+      lost: "Another answer was taken first, so this instruction was not handed to the agent",
+    },
     deny: "Deny",
     approve: "Approve",
     reject: "Reject",
@@ -616,6 +675,11 @@ export function slackPromptMessage(
           SLACK_INTERACTION_ACTIONS.permissionAllow,
           value,
           "primary",
+        ),
+        button(
+          copy.note.button,
+          SLACK_INTERACTION_ACTIONS.permissionAllowNote,
+          value,
         ),
         // Agreeing covers every offered rule, so the dialog must be able to
         // name all of them; a longer offer gets no button.
@@ -1165,14 +1229,68 @@ export function slackQuestionView(
 export function slackNoticeView(
   text: string,
   locale: UserLocale,
+  title = SLACK_PROMPT_MESSAGES[locale].modalTitle,
 ): Record<string, unknown> {
   const copy = SLACK_PROMPT_MESSAGES[locale];
   return {
     type: "modal",
-    title: plain(copy.modalTitle, MODAL_TITLE_MAX),
+    title: plain(title, MODAL_TITLE_MAX),
     close: plain(copy.cancel, MODAL_TITLE_MAX),
     blocks: [{ type: "section", text: plain(text) }],
   };
+}
+
+const NOTE_BLOCK = "note";
+
+/**
+ * The modal for allowing a permission request with an instruction. The
+ * input is optional to Slack so that a blank one gets this platform's words,
+ * not Slack's.
+ */
+export function slackNoteView(
+  metadata: SlackQuestionViewMetadata,
+  locale: UserLocale,
+): Record<string, unknown> {
+  const copy = SLACK_PROMPT_MESSAGES[locale];
+  return {
+    type: "modal",
+    callback_id: SLACK_NOTE_VIEW_CALLBACK,
+    private_metadata: JSON.stringify(metadata),
+    title: plain(copy.note.title, MODAL_TITLE_MAX),
+    submit: plain(copy.allow, MODAL_TITLE_MAX),
+    close: plain(copy.cancel, MODAL_TITLE_MAX),
+    blocks: [
+      {
+        type: "input",
+        block_id: NOTE_BLOCK,
+        optional: true,
+        label: plain(copy.note.label, LABEL_MAX),
+        element: {
+          type: "plain_text_input",
+          action_id: VALUE_ACTION,
+          multiline: true,
+        },
+      },
+    ],
+  };
+}
+
+/** The instruction a submitted note modal gives, or the error to show. */
+export function slackNoteText(
+  values: ViewValues,
+  locale: UserLocale,
+): { ok: true; text: string } | { ok: false; errors: Record<string, string> } {
+  const copy = SLACK_PROMPT_MESSAGES[locale].note;
+  const typed = (
+    values[NOTE_BLOCK]?.[VALUE_ACTION] as { value?: unknown } | undefined
+  )?.value;
+  const text = typeof typed === "string" ? typed.trim() : "";
+  if (text === "")
+    return { ok: false, errors: { [NOTE_BLOCK]: copy.required } };
+  if (!answerTextInputSchema.safeParse(text).success) {
+    return { ok: false, errors: { [NOTE_BLOCK]: copy.tooLong } };
+  }
+  return { ok: true, text };
 }
 
 type ViewValues = Record<string, Record<string, unknown>>;

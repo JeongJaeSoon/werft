@@ -135,8 +135,30 @@ describe("Slack prompt cards", () => {
         });
         expect(actionsOf(blocks).map((b) => b.action_id)).toEqual([
           SLACK_INTERACTION_ACTIONS.permissionAllow,
+          SLACK_INTERACTION_ACTIONS.permissionAllowNote,
           SLACK_INTERACTION_ACTIONS.permissionDeny,
         ]);
+      }
+    });
+
+    test("allow with an instruction is a button of its own, plain, next to Allow", () => {
+      const labels = {
+        ko: "지시와 함께 허용",
+        ja: "指示を付けて許可",
+        en: "Allow with instruction",
+      } as const;
+      for (const locale of ["ko", "ja", "en"] as const) {
+        const { blocks } = slackPromptMessage(permission({ command: "ls" }), {
+          locale,
+          requesterSlackUserId: null,
+        });
+        const note = actionsOf(blocks)[1];
+        expect(note?.action_id).toBe(
+          SLACK_INTERACTION_ACTIONS.permissionAllowNote,
+        );
+        expect(note?.text.text).toBe(labels[locale]);
+        expect(note?.style).toBeUndefined();
+        expect(note?.confirm).toBeUndefined();
       }
     });
 
@@ -159,10 +181,11 @@ describe("Slack prompt cards", () => {
         const elements = actionsOf(blocks);
         expect(elements.map((b) => b.action_id)).toEqual([
           SLACK_INTERACTION_ACTIONS.permissionAllow,
+          SLACK_INTERACTION_ACTIONS.permissionAllowNote,
           SLACK_INTERACTION_ACTIONS.permissionAllowSession,
           SLACK_INTERACTION_ACTIONS.permissionDeny,
         ]);
-        const session = elements[1];
+        const session = elements[2];
         expect(session?.text.text).toBe(labels[locale]);
         // Not primary, not danger: Allow stays the one safe default.
         expect(session?.style).toBeUndefined();
@@ -194,7 +217,7 @@ describe("Slack prompt cards", () => {
         ),
         { locale: "en", requesterSlackUserId: null },
       );
-      const confirm = actionsOf(blocks)[1]?.confirm;
+      const confirm = actionsOf(blocks)[2]?.confirm;
       expect(confirm?.text.type).toBe("plain_text");
       expect(confirm?.text.text).toContain("<!channel> <@U1> ok");
       expect(confirm?.text.text.length).toBeLessThanOrEqual(300);
@@ -246,7 +269,7 @@ describe("Slack prompt cards", () => {
           ),
           { locale: "en", requesterSlackUserId: null },
         );
-        expect(actionsOf(blocks)[1]?.confirm?.text.text).toContain(
+        expect(actionsOf(blocks)[2]?.confirm?.text.text).toContain(
           `Bash(${content})`,
         );
       }
@@ -267,6 +290,7 @@ describe("Slack prompt cards", () => {
       );
       expect(actionsOf(blocks).map((b) => b.action_id)).toEqual([
         SLACK_INTERACTION_ACTIONS.permissionAllow,
+        SLACK_INTERACTION_ACTIONS.permissionAllowNote,
         SLACK_INTERACTION_ACTIONS.permissionDeny,
       ]);
       expect(JSON.stringify(blocks)).not.toContain("Allow for session");

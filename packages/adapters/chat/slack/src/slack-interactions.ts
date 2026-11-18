@@ -4,6 +4,7 @@ import {
   type PushDecision,
   type QuestionAnswer,
   SLACK_INTERACTION_ACTIONS,
+  SLACK_NOTE_VIEW_CALLBACK,
   SLACK_NOTICE_MESSAGES,
   SLACK_QUESTION_VIEW_CALLBACK,
   type SlackBlockActionsPayload,
@@ -55,6 +56,8 @@ import { slackOutboxText } from "./slack-outbox-render.ts";
 import {
   SLACK_PROMPT_MESSAGES,
   type SlackPromptResult,
+  slackNoteText,
+  slackNoteView,
   slackNoticeView,
   slackOptionAnswer,
   slackQuestionAnswers,
@@ -369,6 +372,16 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     return request?.kind === "question" ? request.questions : null;
   }
 
+  async function permissionOpen(
+    caller: Caller,
+    value: SlackInteractionValue,
+  ): Promise<boolean> {
+    const listed = await deps.pending.listPendingRequests(caller, value.s);
+    return listed.items.some(
+      (item) => item.request_id === value.r && item.kind === "permission",
+    );
+  }
+
   async function standing(
     caller: Caller,
     value: SlackInteractionValue,
@@ -389,6 +402,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
           kind: "permission";
           decision: "allow" | "deny";
           remember?: "session";
+          reason?: string;
         }
       | { kind: "question"; answers: QuestionAnswer[] },
     card: SettleCard,
@@ -405,6 +419,33 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       if (error.code === "FORBIDDEN") {
         await notice(pressed, "noApproveRight");
         return "refused";
+      }
+      // A refused note leaves the request open; any other bad request gets
+      // the plain failure below.
+      const reasonCode =
+        error.code === "BAD_REQUEST" &&
+        body.kind === "permission" &&
+        body.reason !== undefined
+          ? (error.details as { reason_code?: unknown } | null)?.reason_code
+          : undefined;
+      if (
+        reasonCode === "note_not_accepted" ||
+        reasonCode === "answer_too_long"
+      ) {
+        deps.logger.warn("Slack note not taken", {
+          agent_id: pressed.agentId,
+          reason_code: reasonCode,
+        });
+        const copy = SLACK_PROMPT_MESSAGES[pressed.locale].note;
+        await tell(
+          pressed,
+          reasonCode === "note_not_accepted"
+            ? copy.refused
+            : copy.tooLongForTurn,
+        );
+        return reasonCode === "note_not_accepted"
+          ? "note_refused"
+          : "note_too_long";
       }
       const now = REQUEST_GONE_CODES.has(error.code)
         ? await standing(caller, value)
@@ -632,7 +673,13 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     // The token is read first, like the signing secret, so a press that
     // cannot reach Slack fails where Slack shows it; the language, the
     // decision and the card come after the answer.
-    if (action.action_id !== SLACK_INTERACTION_ACTIONS.questionOpen) {
+    const form =
+      action.action_id === SLACK_INTERACTION_ACTIONS.questionOpen
+        ? "question"
+        : action.action_id === SLACK_INTERACTION_ACTIONS.permissionAllowNote
+          ? "note"
+          : null;
+    if (form === null) {
       const botToken = await deps.botToken(app.workspaceId, app.slackAppId);
       if (botToken === null) return ok("refused:no_bot_token");
       defer(async () => {
@@ -649,17 +696,36 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     if (await channelLeftFor(agentId, app, input)) {
       return ok("refused:channel_left");
     }
-    const pressed = await pressedFor(agentId, app, input);
-    if (pressed === null) return ok("refused:no_bot_token");
-    const { viewId } = await deps.slack.openView(pressed.botToken, {
+    const botToken = await deps.botToken(app.workspaceId, app.slackAppId);
+    if (botToken === null) return ok("refused:no_bot_token");
+    // The trigger lasts three seconds: the loading modal waits only on the
+    // channel check above and the token, so it speaks the default language.
+    const loading = DEFAULT_USER_LOCALE;
+    const copy = SLACK_PROMPT_MESSAGES[loading];
+    const { viewId } = await deps.slack.openView(botToken, {
       triggerId: payload.trigger_id,
-      view: slackNoticeView(
-        SLACK_PROMPT_MESSAGES[pressed.locale].loading,
-        pressed.locale,
-      ),
+      view:
+        form === "note"
+          ? slackNoticeView(copy.note.loading, loading, copy.note.title)
+          : slackNoticeView(copy.loading, loading),
     });
     defer(async () =>
-      handled(agentId, await fillView(pressed, viewId, payload, value)),
+      handled(
+        agentId,
+        await fillView(
+          {
+            agentId,
+            ...app,
+            ...input,
+            botToken,
+            locale: await localeOf(agentId, app, input),
+          },
+          viewId,
+          payload,
+          value,
+          form,
+        ),
+      ),
     );
     return ok("view_opened");
   }
@@ -675,13 +741,24 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     viewId: string,
     payload: SlackBlockActionsPayload,
     value: SlackInteractionValue,
+    form: "question" | "note",
   ): Promise<SlackInteractionOutcome> {
     const copy = SLACK_PROMPT_MESSAGES[pressed.locale];
+    const metadata = {
+      s: value.s,
+      r: value.r,
+      c: pressed.channelId,
+      m: payload.message.ts,
+      t: pressed.threadTs,
+    };
     const show = (text: string) =>
       deps.slack
         .updateView(pressed.botToken, {
           viewId,
-          view: slackNoticeView(text, pressed.locale),
+          view:
+            form === "note"
+              ? slackNoticeView(text, pressed.locale, copy.note.title)
+              : slackNoticeView(text, pressed.locale),
         })
         .catch((error: unknown) => {
           failedQuietly(pressed, error, value);
@@ -693,25 +770,25 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         await show(copy.unavailable);
         return ok(`refused:${admitted.refused}`);
       }
-      const questions = await pendingQuestions(admitted.caller, value);
-      if (questions === null) {
+      const questions =
+        form === "question"
+          ? await pendingQuestions(admitted.caller, value)
+          : null;
+      const open =
+        form === "note"
+          ? await permissionOpen(admitted.caller, value)
+          : questions !== null;
+      if (!open) {
         const state = await standing(admitted.caller, value);
         const result = state === "open" ? "closed" : state;
         await cardOf(pressed, payload)(value)();
         await show(copy.already[result]);
         return ok("already");
       }
-      const view = slackQuestionView(
-        questions,
-        {
-          s: value.s,
-          r: value.r,
-          c: pressed.channelId,
-          m: payload.message.ts,
-          t: pressed.threadTs,
-        },
-        pressed.locale,
-      );
+      const view =
+        questions === null
+          ? slackNoteView(metadata, pressed.locale)
+          : slackQuestionView(questions, metadata, pressed.locale);
       if (view === null) {
         await show(copy.unavailable);
         return ok("failed");
@@ -806,9 +883,13 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     app: { workspaceId: string; slackAppId: string; appId: string },
     payload: SlackViewSubmissionPayload,
   ): Promise<SlackInteractionOutcome> {
-    if (payload.view.callback_id !== SLACK_QUESTION_VIEW_CALLBACK) {
-      return ok("ignored", CLEAR);
-    }
+    const form =
+      payload.view.callback_id === SLACK_QUESTION_VIEW_CALLBACK
+        ? "question"
+        : payload.view.callback_id === SLACK_NOTE_VIEW_CALLBACK
+          ? "note"
+          : null;
+    if (form === null) return ok("ignored", CLEAR);
     let metadata: SlackQuestionViewMetadata;
     try {
       metadata = slackQuestionViewMetadataSchema.parse(
@@ -837,8 +918,15 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       if ("refused" in admitted) {
         return ok(`refused:${admitted.refused}`, CLEAR);
       }
-      const questions = await pendingQuestions(admitted.caller, value);
-      if (questions === null) {
+      const questions =
+        form === "question"
+          ? await pendingQuestions(admitted.caller, value)
+          : null;
+      const open =
+        form === "note"
+          ? await permissionOpen(admitted.caller, value)
+          : questions !== null;
+      if (!open) {
         const state = await standing(admitted.caller, value);
         defer(() =>
           tell(
@@ -850,30 +938,38 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         );
         return ok("already", CLEAR);
       }
-      const parsed = slackQuestionAnswers(
-        questions,
-        payload.view.state.values,
-        pressed.locale,
-      );
+      const values = payload.view.state.values;
+      const parsed =
+        questions === null
+          ? slackNoteText(values, pressed.locale)
+          : slackQuestionAnswers(questions, values, pressed.locale);
       if (!parsed.ok) {
         return ok("invalid", {
           response_action: "errors",
           errors: parsed.errors,
         });
       }
+      const body =
+        "text" in parsed
+          ? {
+              kind: "permission" as const,
+              decision: "allow" as const,
+              reason: parsed.text,
+            }
+          : { kind: "question" as const, answers: parsed.answers };
       return async () => {
         try {
-          handled(
-            agentId,
-            ok(
-              await answer(
-                admitted,
-                value,
-                { kind: "question", answers: parsed.answers },
-                () => settle(pressed, metadata.m, value),
-              ),
-            ),
+          const result = await answer(admitted, value, body, () =>
+            settle(pressed, metadata.m, value),
           );
+          // The form closed on an open request; its note went nowhere.
+          if (result === "already" && body.kind === "permission") {
+            await tell(
+              pressed,
+              SLACK_PROMPT_MESSAGES[pressed.locale].note.lost,
+            );
+          }
+          handled(agentId, ok(result));
         } catch (error) {
           failedQuietly(pressed, error, value);
           await notice(pressed, "failed");

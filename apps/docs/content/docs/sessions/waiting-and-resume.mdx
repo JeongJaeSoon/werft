@@ -108,7 +108,7 @@ curl -sS "$API/v1/sessions/$SID/answers" \
 </Tab>
 </Tabs>
 
-허락은 `"action": "allow"`다. `reason`은 거절에서만 쓰고 선택이다. 모델은 그 이유를 도구 결과로 받고 turn을 이어 간다. 응답의 `approval`에는 누가(`answered_by`), 어디서(`surface`: `api`·`web`·`slack`) 답했는지가 남는다.
+허락은 `"action": "allow"`다. `reason`은 선택이다. 거절이면 모델이 그 이유를 도구 결과로 받고 turn을 이어 간다. 허용이면 모델이 그 글을 승인한 사람의 지시로 받는다. 지시를 모델에 전할 수 없는 세션이 연 요청에 허용 `reason`을 보내면 `400`으로 거절되고 요청은 열린 채 남는다. 이때 `error.details.reason_code`는 `note_not_accepted`다. 멈춘 turn의 답을 모두 합친 글이 한 메시지에 들어가지 않을 때는 `answer_too_long`이다. Slack 카드의 **지시와 함께 허용**도 같은 답을 보낸다. 응답의 `approval`에는 누가(`answered_by`), 어디서(`surface`: `api`·`web`·`slack`) 답했는지가 남는다.
 
 ## 질문에 답하기
 

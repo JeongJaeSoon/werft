@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import {
   type PendingQuestion,
   SLACK_INTERACTION_ACTIONS,
+  SLACK_NOTE_VIEW_CALLBACK,
   SLACK_QUESTION_VIEW_CALLBACK,
   scopesForRole,
   type WorkspaceRole,
@@ -993,6 +994,293 @@ describe("Slack interactions", () => {
     await new Promise((r) => setTimeout(r, 80));
     await drain();
     expect(called("answer")).toEqual([]);
+  });
+
+  describe("allow with an instruction", () => {
+    const permission = {
+      request_id: "toolu_1",
+      kind: "permission",
+      tool: "Bash",
+    };
+    const metadata = {
+      s: SESSION,
+      r: "toolu_1",
+      c: CHANNEL,
+      m: CARD_TS,
+      t: THREAD_TS,
+    };
+    const submitNote = (value: unknown) =>
+      form({
+        type: "view_submission",
+        api_app_id: APP,
+        team: { id: TEAM },
+        user: { id: LINKED },
+        view: {
+          callback_id: SLACK_NOTE_VIEW_CALLBACK,
+          private_metadata: JSON.stringify(metadata),
+          state: {
+            values: { note: { v: { type: "plain_text_input", value } } },
+          },
+        },
+      });
+
+    test("the button opens a loading modal at once, then fills it with one text input; nothing is answered", async () => {
+      listed = [permission];
+      const result = await send(
+        press(SLACK_INTERACTION_ACTIONS.permissionAllowNote, {
+          s: SESSION,
+          r: "toolu_1",
+        }),
+      );
+      expect(result).toMatchObject({ result: "view_opened" });
+      const opened = called("view")[0]?.args[1] as {
+        triggerId: string;
+        view: { callback_id?: string };
+      };
+      expect(opened.triggerId).toBe("trigger-1");
+      expect(opened.view.callback_id).toBeUndefined();
+      const filled = called("viewUpdate")[0]?.args[1] as {
+        viewId: string;
+        view: {
+          callback_id: string;
+          private_metadata: string;
+          blocks: {
+            type: string;
+            block_id?: string;
+            optional?: boolean;
+            element?: { type: string; action_id: string; multiline: boolean };
+          }[];
+        };
+      };
+      expect(filled.viewId).toBe("V1");
+      expect(filled.view.callback_id).toBe(SLACK_NOTE_VIEW_CALLBACK);
+      expect(JSON.parse(filled.view.private_metadata)).toEqual(metadata);
+      const inputs = filled.view.blocks.filter((b) => b.type === "input");
+      expect(inputs).toHaveLength(1);
+      expect(inputs[0]).toMatchObject({
+        block_id: "note",
+        optional: true,
+        element: {
+          type: "plain_text_input",
+          action_id: "v",
+          multiline: true,
+        },
+      });
+      expect(called("answer")).toEqual([]);
+    });
+
+    test("the button on a request no longer open says so in the modal and settles the card", async () => {
+      listed = [];
+      outcome = {
+        state: "answered",
+        kind: "permission",
+        decision: "allow",
+      } as never;
+      const result = await send(
+        press(SLACK_INTERACTION_ACTIONS.permissionAllowNote, {
+          s: SESSION,
+          r: "toolu_1",
+        }),
+      );
+      expect(result).toMatchObject({ result: "view_opened" });
+      expect(results).toEqual(["already"]);
+      const shown = JSON.stringify(called("viewUpdate")[0]?.args[1]);
+      expect(shown).toContain("This request was already allowed");
+      expect(shown).not.toContain(SLACK_NOTE_VIEW_CALLBACK);
+      expect(called("update")).toHaveLength(1);
+    });
+
+    test("a submitted instruction answers allow with it as the reason, closes, and settles the card as a plain allow", async () => {
+      listed = [permission];
+      const result = await send(
+        submitNote("  Only touch the fixtures\nthen list them  "),
+      );
+      expect(result).toEqual({
+        kind: "ok",
+        body: { response_action: "clear" },
+        result: "answered",
+      });
+      expect(called("answer")[0]?.args[2]).toEqual({
+        idempotencyKey: `slack:toolu_1:${LINKED}`,
+        body: {
+          request_id: "toolu_1",
+          kind: "permission",
+          decision: "allow",
+          reason: "Only touch the fixtures\nthen list them",
+        },
+      });
+      const update = called("update")[0]?.args[1] as {
+        ts: string;
+        blocks: { elements: { text: string }[] }[];
+      };
+      expect(update.ts).toBe(CARD_TS);
+      expect(update.blocks[0]?.elements[0]?.text).toBe(
+        `:white_check_mark: *許可済み* · <@${LINKED}>`,
+      );
+      // The instruction was the presser's to see, not the thread's.
+      expect(JSON.stringify(update)).not.toContain("fixtures");
+    });
+
+    test("a blank, missing or oversized instruction keeps the modal open with an error and answers nothing", async () => {
+      listed = [permission];
+      for (const value of ["   \n ", null, "가".repeat(3000)]) {
+        const result = await send(submitNote(value));
+        expect(result).toMatchObject({
+          body: {
+            response_action: "errors",
+            errors: { note: expect.any(String) },
+          },
+        });
+      }
+      expect(called("answer")).toEqual([]);
+    });
+
+    test("the blank and oversized errors say different things, in the presser's language", async () => {
+      listed = [permission];
+      const errorOf = async (value: string) => {
+        const outcome = await send(submitNote(value));
+        if (outcome.kind !== "ok" || !("errors" in outcome.body)) {
+          throw new Error(`no error: ${JSON.stringify(outcome)}`);
+        }
+        return outcome.body.errors.note;
+      };
+      const blank = await errorOf(" ");
+      const long = await errorOf("a".repeat(8193));
+      expect(blank).toContain("Allow");
+      expect(long).toContain("too long");
+      expect(blank).not.toBe(long);
+    });
+
+    test("a session that cannot carry the instruction is told why in Slack, and the request and card stay open", async () => {
+      listed = [permission];
+      answerError = new SessionServiceError(
+        "BAD_REQUEST",
+        "This session's worker cannot hand an approval note to the model; allow without a reason",
+        undefined,
+        { reason_code: "note_not_accepted" },
+      );
+      const result = await send(submitNote("Only touch the fixtures"));
+      expect(result).toMatchObject({
+        body: { response_action: "clear" },
+        result: "note_refused",
+      });
+      expect(called("answer")).toHaveLength(1);
+      expect(called("update")).toEqual([]);
+      const told = called("ephemeral");
+      expect(told).toHaveLength(1);
+      const text = (told[0]?.args[1] as { text: string; userId: string }).text;
+      expect((told[0]?.args[1] as { userId: string }).userId).toBe(LINKED);
+      expect(text).toContain("cannot hand an instruction");
+      expect(text).toContain("still open");
+    });
+
+    const toldText = () =>
+      called("ephemeral").map((c) => (c.args[1] as { text: string }).text);
+
+    test("answers too long for the parked turn's message ask for a shorter instruction, not a plain allow", async () => {
+      listed = [permission];
+      answerError = new SessionServiceError(
+        "BAD_REQUEST",
+        "The answers to this parked turn no longer fit in one message; answer with less text",
+        undefined,
+        { reason_code: "answer_too_long" },
+      );
+      const result = await send(submitNote("Only touch the fixtures"));
+      expect(result).toMatchObject({ result: "note_too_long" });
+      expect(called("update")).toEqual([]);
+      const [text] = toldText();
+      expect(text).toContain("Shorten");
+      expect(text).toContain("still open");
+      expect(text).not.toContain("cannot hand an instruction");
+    });
+
+    test("any other bad request on a noted allow gets the plain failure, not a claim about the session", async () => {
+      listed = [permission];
+      answerError = new SessionServiceError("BAD_REQUEST", "Something else");
+      const result = await send(submitNote("Only touch the fixtures"));
+      expect(result).toMatchObject({ result: "failed" });
+      expect(called("update")).toEqual([]);
+      const [text] = toldText();
+      expect(text).toBeDefined();
+      expect(text).not.toContain("cannot hand an instruction");
+      expect(text).not.toContain("Shorten");
+    });
+
+    test("a submit that loses to another answer says the instruction was not handed over", async () => {
+      for (const code of [
+        "REQUEST_EXPIRED",
+        "REQUEST_STALE",
+        "IDEMPOTENCY_CONFLICT",
+      ] as const) {
+        calls = [];
+        results = [];
+        listed = [permission];
+        outcome = {
+          state: "answered",
+          kind: "permission",
+          decision: "allow",
+        } as never;
+        answerError = new SessionServiceError(code, "taken");
+        const result = await send(submitNote("Only touch the fixtures"));
+        expect(result).toMatchObject({
+          body: { response_action: "clear" },
+          result: "already",
+        });
+        expect(called("update")).toHaveLength(1);
+        const told = toldText();
+        expect(told).toHaveLength(1);
+        expect(told[0]).toContain("Another answer");
+        expect(told[0]).toContain("not handed");
+      }
+    });
+
+    test("the loading modal opens before a slow language lookup, in the default language, and fills in the presser's", async () => {
+      listed = [permission];
+      let localeRead = false;
+      const base = deps();
+      const service = createSlackInteractionService({
+        ...base,
+        outbox: {
+          ...base.outbox,
+          readerLocale: async () => {
+            await new Promise((r) => setTimeout(r, 40));
+            localeRead = true;
+            return "ja";
+          },
+        },
+      });
+      const body = press(SLACK_INTERACTION_ACTIONS.permissionAllowNote, {
+        s: SESSION,
+        r: "toolu_1",
+      });
+      const outcome = await service.receive({
+        agentId: AGENT,
+        rawBody: new TextEncoder().encode(body),
+        ...signed(body),
+      });
+      expect(outcome).toMatchObject({ result: "view_opened" });
+      expect(localeRead).toBe(false);
+      expect(JSON.stringify(called("view")[0]?.args[1])).toContain(
+        "Allow with instruction",
+      );
+      await drain();
+      expect(localeRead).toBe(true);
+      expect(JSON.stringify(called("viewUpdate")[0]?.args[1])).toContain(
+        "指示を付けて許可",
+      );
+    });
+
+    test("a submit for a request no longer open answers nothing and tells the presser", async () => {
+      listed = [];
+      outcome = { state: "expired", kind: "permission" } as never;
+      const result = await send(submitNote("Only touch the fixtures"));
+      expect(result).toMatchObject({
+        body: { response_action: "clear" },
+        result: "already",
+      });
+      expect(called("answer")).toEqual([]);
+      expect(called("ephemeral")).toHaveLength(1);
+    });
   });
 
   test("approving a push decides it with the stored commit and queues a turn telling the session", async () => {
