@@ -5055,7 +5055,7 @@ export interface components {
             request_id: string;
             /** @constant */
             kind: "permission";
-            /** @description At most 8192 bytes of UTF-8, not whitespace alone */
+            /** @description On `deny`, why the call was refused. On `allow`, an instruction the model is given once the approved call has run, marked as the approver's. A waiting request whose session cannot hand it to the model refuses an allow with a reason (400) instead of dropping it. At most 8192 bytes of UTF-8, not whitespace alone. */
             reason?: string;
             /** @constant */
             remember?: "session";
