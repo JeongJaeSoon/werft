@@ -500,8 +500,6 @@ export function PendingAnswers({
                   messages={{
                     title: (tool) => t("session.pending.permission", { tool }),
                     heading: t("session.pending.approval"),
-                    answer: t("session.answer.optional"),
-                    answerPlaceholder: t("session.answer.placeholder"),
                     summary: (verb) => t(verb.key, verb.params),
                     input: t("session.answer.input"),
                     expires,
@@ -516,12 +514,11 @@ export function PendingAnswers({
                     denySubmit: t("session.answer.denySubmit"),
                     cancel: t("session.answer.cancel"),
                   }}
-                  onAllow={(text) =>
+                  onAllow={() =>
                     send({
                       request_id: request.request_id,
                       kind: "permission",
                       action: "allow",
-                      ...(text ? { reason: text } : {}),
                     })
                   }
                   onDeny={(text) =>

@@ -153,44 +153,6 @@ describe("ApprovalRow", () => {
     expect(onAllow).toHaveBeenCalledTimes(1);
   });
 
-  test("거부는 이유를 적어야 보내지고, 취소하면 거부 버튼으로 돌아간다", async () => {
-    const user = await setupUser();
-    const onDeny = mock((_reason: string) => {});
-    const { getByRole, getByLabelText } = render(
-      <ApprovalRow
-        request={REQUEST}
-        messages={MESSAGES}
-        onAllow={() => {}}
-        onDeny={onDeny}
-        now={NOW}
-      />,
-    );
-    getByRole("button", { name: DENY }).focus();
-    await user.keyboard("{Enter}");
-    const reason = getByLabelText("Reason");
-    expect(document.activeElement === reason).toBe(true);
-    // The answer buttons give way to the form while it is open.
-    expect(document.querySelector(`[aria-label="${ALLOW}"]`)).toBeNull();
-    const submit = getByRole("button", { name: "Send denial" });
-    expect((submit as HTMLButtonElement).disabled).toBe(true);
-    await user.keyboard("   ");
-    expect((submit as HTMLButtonElement).disabled).toBe(true);
-    await user.tab();
-    expect(document.activeElement?.textContent).toBe("Cancel");
-    await user.keyboard("{Enter}");
-    expect(document.activeElement === getByRole("button", { name: DENY })).toBe(
-      true,
-    );
-    expect(onDeny).not.toHaveBeenCalled();
-
-    await user.keyboard("{Enter}");
-    await user.keyboard("  not this file  ");
-    await user.tab();
-    expect(document.activeElement?.textContent).toBe("Send denial");
-    await user.keyboard("{Enter}");
-    expect(onDeny).toHaveBeenCalledWith("not this file");
-  });
-
   test("만료되면 답할 버튼 없이 만료로 읽힌다", () => {
     const { container } = render(
       <ApprovalRow
@@ -263,8 +225,8 @@ describe("ApprovalRow", () => {
       />,
     );
     expect(
-      (getByRole("button", { name: ALLOW }) as HTMLButtonElement).disabled,
-    ).toBe(true);
+      getByRole("button", { name: ALLOW }).getAttribute("aria-disabled"),
+    ).toBe("true");
     expect(getByRole("article").getAttribute("aria-busy")).toBe("true");
     expect(getByRole("alert").textContent).toBe("request expired");
     rerender(

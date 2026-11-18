@@ -403,6 +403,28 @@ describe("approval inbox", () => {
     await waitFor(() => expect(waitingReads()).toBeGreaterThan(before));
   });
 
+  test("denies from the inbox without a reason; the body leaves the reason out", async () => {
+    const user = await setupUser();
+    const { api } = renderAt("/sessions", {
+      ...waitingRoutes([summary(SESSION_ID, { status: "needs_input" })], null),
+      [`POST /v1/sessions/${SESSION_ID}/answers`]: () =>
+        json(202, { receipt_id: RECEIPT_ID, receipt_status: "accepted" }),
+    });
+    const inbox = await screen.findByRole("region", { name: "답변 대기" });
+    await user.click(
+      await within(inbox).findByRole("button", { name: /^거절/ }),
+    );
+    await user.click(
+      within(inbox).getByRole("button", { name: "거부 보내기" }),
+    );
+    expect(await screen.findByText("답을 보냈습니다.")).toBeTruthy();
+    expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({
+      request_id: "req_1",
+      kind: "permission",
+      action: "deny",
+    });
+  });
+
   test("an answer from the inbox reads the waiting tab again", async () => {
     const user = await setupUser();
     const waiting = waitingRoutes(
@@ -2348,11 +2370,13 @@ describe("session runtime", () => {
       [`POST /v1/sessions/${SESSION_ID}/answers`]: () =>
         apiError(409, "REQUEST_EXPIRED", "request expired"),
     });
+    // Deny opens its form; the reason is optional and typed there.
+    await user.click(await screen.findByRole("button", { name: "거절" }));
     await user.type(
-      await screen.findByRole("textbox", { name: "답변 (선택)" }),
+      screen.getByRole("textbox", { name: "거부하는 이유" }),
       "not now",
     );
-    await user.click(screen.getByRole("button", { name: "거절" }));
+    await user.click(screen.getByRole("button", { name: "거부 보내기" }));
     expect(
       await screen.findByText("이미 답했거나 만료되었거나 닫힌 요청입니다."),
     ).toBeTruthy();

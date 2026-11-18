@@ -2,24 +2,16 @@ import type { PendingRequest, ToolVerbMessage } from "@werft-ai/contracts";
 import {
   Button,
   CodeBlock,
-  Field,
   FieldError,
-  FieldLabel,
   formatTimestamp,
-  Input,
   Text,
   type TimestampLocale,
 } from "@werft-ai/ui";
 import { ShieldCheck } from "lucide-react";
-import {
-  type FormEvent,
-  type JSX,
-  type ReactNode,
-  useId,
-  useState,
-} from "react";
+import { type JSX, type ReactNode, useId } from "react";
 
 import { Busy } from "./busy.tsx";
+import { DenialForm, useDenial } from "./denial.tsx";
 import { useExpired, useExpiryFocus } from "./expiry.ts";
 import { RequestCard } from "./request-card.tsx";
 
@@ -39,23 +31,21 @@ export interface ApprovalCardMessages {
   readonly expired: string;
   readonly allow: string;
   readonly deny: string;
-  /** The denial form's reason label, where a caller still opens one. */
+  /** The label of the denial form's reason field, which is optional. */
   readonly denyReason: string;
-  /** The optional answer field's label: "답변 (선택)". */
-  readonly answer?: string | undefined;
-  /** The answer field's placeholder. */
-  readonly answerPlaceholder?: string | undefined;
-  /** Kept for callers that still pass it; the card no longer opens a form. */
-  readonly denySubmit?: string | undefined;
-  readonly cancel?: string | undefined;
+  readonly denySubmit: string;
+  readonly cancel: string;
 }
 
 export interface ApprovalCardProps {
   readonly request: PermissionRequest;
   readonly messages: ApprovalCardMessages;
-  /** Takes what the person typed in the answer field, if anything. */
-  readonly onAllow: (reason?: string) => void;
-  /** Takes what the person typed; empty when they gave no reason. */
+  /**
+   * Takes no text: the worker drops an allow's reason and the runtime's
+   * allow has no room for one, so a field here would reach no model.
+   */
+  readonly onAllow: () => void;
+  /** Takes the trimmed reason; empty when the person gave none. */
   readonly onDeny: (reason: string) => void;
   /** An answer was sent and its receipt has not come back. */
   readonly pending?: boolean | undefined;
@@ -93,20 +83,14 @@ export function ApprovalCard({
   className,
 }: ApprovalCardProps): JSX.Element {
   const titleId = useId();
-  const [answer, setAnswer] = useState("");
+  const denial = useDenial();
   const expired = useExpired(request.request_id, request.expires_at, now);
   const { noticeRef, within } = useExpiryFocus(expired);
   const blocked = pending || disabled;
-  const reason = answer.trim();
   const summary =
     request.summary !== undefined && messages.summary !== undefined
       ? request.summary
       : undefined;
-
-  const allow = (event: FormEvent) => {
-    event.preventDefault();
-    if (!blocked) onAllow(reason || undefined);
-  };
 
   return (
     <RequestCard
@@ -159,38 +143,45 @@ export function ApprovalCard({
         </div>
       </details>
       <FieldError>{error}</FieldError>
-      {expired ? null : (
-        <form className="flex flex-wrap items-center gap-2" onSubmit={allow}>
-          <Field className="min-w-48 flex-1">
-            <FieldLabel className="sr-only">
-              {messages.answer ?? messages.denyReason}
-            </FieldLabel>
-            <Input
-              value={answer}
-              maxLength={1000}
-              placeholder={messages.answerPlaceholder}
-              disabled={disabled}
-              className="bg-card"
-              onChange={(event) => setAnswer(event.target.value)}
-            />
-          </Field>
-          <div className="flex gap-2">
-            <Button type="submit" size="sm" disabled={blocked}>
-              <Busy shown={pending} />
-              {messages.allow}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="bg-card"
-              disabled={blocked}
-              onClick={() => onDeny(reason)}
-            >
-              {messages.deny}
-            </Button>
-          </div>
-        </form>
+      {expired ? null : denial.denying ? (
+        <DenialForm
+          denial={denial}
+          messages={messages}
+          onDeny={onDeny}
+          pending={pending}
+          blocked={blocked}
+        />
+      ) : (
+        <div className="flex flex-wrap justify-end gap-2">
+          {/* While sending, not `disabled`: Chrome takes focus off a disabled
+              button, and the keyboard would lose its place. */}
+          <Button
+            type="button"
+            size="sm"
+            disabled={blocked && !pending}
+            aria-disabled={pending || undefined}
+            onClick={() => {
+              if (!blocked) onAllow();
+            }}
+          >
+            <Busy shown={pending} />
+            {messages.allow}
+          </Button>
+          <Button
+            ref={denial.denyRef}
+            type="button"
+            variant="outline"
+            size="sm"
+            className="bg-card"
+            disabled={blocked && !pending}
+            aria-disabled={pending || undefined}
+            onClick={() => {
+              if (!blocked) denial.open();
+            }}
+          >
+            {messages.deny}
+          </Button>
+        </div>
       )}
     </RequestCard>
   );

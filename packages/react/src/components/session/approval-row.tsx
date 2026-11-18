@@ -1,32 +1,21 @@
 import {
   Badge,
-  Button,
   CodeBlock,
   cn,
-  Field,
   FieldError,
-  FieldLabel,
   formatTimestamp,
   RowAction,
   Text,
-  Textarea,
 } from "@werft-ai/ui";
 import { Hourglass } from "lucide-react";
-import {
-  type FormEvent,
-  type JSX,
-  type ReactNode,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from "react";
+import { type JSX, type ReactNode, useId, useState } from "react";
 
 import type {
   ApprovalCardMessages,
   ApprovalCardProps,
 } from "./approval-card.tsx";
 import { Busy } from "./busy.tsx";
+import { DenialForm, useDenial } from "./denial.tsx";
 import { useExpired, useExpiryFocus } from "./expiry.ts";
 import { ToolSummary } from "./tool-summary.tsx";
 
@@ -82,23 +71,10 @@ export function ApprovalRow({
   const titleId = useId();
   const inputId = useId();
   const [inputOpen, setInputOpen] = useState(false);
-  const [denying, setDenying] = useState(false);
-  const [reason, setReason] = useState("");
-  const reasonRef = useRef<HTMLTextAreaElement>(null);
-  const denyRef = useRef<HTMLButtonElement>(null);
-  // Set when a cancel should hand focus back to the button that opened it.
-  const returnFocus = useRef(false);
+  const denial = useDenial();
   const expired = useExpired(request.request_id, request.expires_at, now);
   const { noticeRef, within } = useExpiryFocus(expired);
   const blocked = pending || disabled;
-
-  useEffect(() => {
-    if (denying) reasonRef.current?.focus();
-    else if (returnFocus.current) {
-      returnFocus.current = false;
-      denyRef.current?.focus();
-    }
-  }, [denying]);
 
   const notice = (
     <Text ref={noticeRef} variant="meta" tabIndex={expired ? -1 : undefined}>
@@ -121,12 +97,6 @@ export function ApprovalRow({
       </summary>
     </details>
   );
-
-  const submitDenial = (event: FormEvent) => {
-    event.preventDefault();
-    const trimmed = reason.trim();
-    if (trimmed) onDeny(trimmed);
-  };
 
   return (
     <article
@@ -222,22 +192,30 @@ export function ApprovalRow({
             {inputToggle}
           </div>
         )}
-        {expired || denying ? null : (
+        {expired || denial.denying ? null : (
           <div className="flex shrink-0 gap-2">
+            {/* While sending, not `disabled`: Chrome takes focus off a
+                disabled button, and the keyboard would lose its place. */}
             <RowAction
               variant="default"
-              disabled={blocked}
+              disabled={blocked && !pending}
+              aria-disabled={pending || undefined}
               aria-label={messages.allowName(request.tool)}
-              onClick={() => onAllow()}
+              onClick={() => {
+                if (!blocked) onAllow();
+              }}
             >
               <Busy shown={pending} />
               {messages.allow}
             </RowAction>
             <RowAction
-              ref={denyRef}
-              disabled={blocked}
+              ref={denial.denyRef}
+              disabled={blocked && !pending}
+              aria-disabled={pending || undefined}
               aria-label={messages.denyName(request.tool)}
-              onClick={() => setDenying(true)}
+              onClick={() => {
+                if (!blocked) denial.open();
+              }}
             >
               {messages.deny}
             </RowAction>
@@ -250,39 +228,14 @@ export function ApprovalRow({
         </CodeBlock>
       ) : null}
       <FieldError>{error}</FieldError>
-      {expired || !denying ? null : (
-        <form className="flex flex-col gap-3" onSubmit={submitDenial}>
-          <Field>
-            <FieldLabel>{messages.denyReason}</FieldLabel>
-            <Textarea
-              ref={reasonRef}
-              value={reason}
-              required
-              onChange={(event) => setReason(event.target.value)}
-            />
-          </Field>
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button
-              type="submit"
-              variant="destructive"
-              disabled={blocked || !reason.trim()}
-            >
-              <Busy shown={pending} />
-              {messages.denySubmit}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={pending}
-              onClick={() => {
-                returnFocus.current = true;
-                setDenying(false);
-              }}
-            >
-              {messages.cancel}
-            </Button>
-          </div>
-        </form>
+      {expired || !denial.denying ? null : (
+        <DenialForm
+          denial={denial}
+          messages={messages}
+          onDeny={onDeny}
+          pending={pending}
+          blocked={blocked}
+        />
       )}
     </article>
   );
