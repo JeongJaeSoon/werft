@@ -1156,6 +1156,8 @@ describe("Slack interactions", () => {
       answerError = new SessionServiceError(
         "BAD_REQUEST",
         "This session's worker cannot hand an approval note to the model; allow without a reason",
+        undefined,
+        { reason_code: "note_not_accepted" },
       );
       const result = await send(submitNote("Only touch the fixtures"));
       expect(result).toMatchObject({
@@ -1170,6 +1172,102 @@ describe("Slack interactions", () => {
       expect((told[0]?.args[1] as { userId: string }).userId).toBe(LINKED);
       expect(text).toContain("cannot hand an instruction");
       expect(text).toContain("still open");
+    });
+
+    const toldText = () =>
+      called("ephemeral").map((c) => (c.args[1] as { text: string }).text);
+
+    test("answers too long for the parked turn's message ask for a shorter instruction, not a plain allow", async () => {
+      listed = [permission];
+      answerError = new SessionServiceError(
+        "BAD_REQUEST",
+        "The answers to this parked turn no longer fit in one message; answer with less text",
+        undefined,
+        { reason_code: "answer_too_long" },
+      );
+      const result = await send(submitNote("Only touch the fixtures"));
+      expect(result).toMatchObject({ result: "note_too_long" });
+      expect(called("update")).toEqual([]);
+      const [text] = toldText();
+      expect(text).toContain("Shorten");
+      expect(text).toContain("still open");
+      expect(text).not.toContain("cannot hand an instruction");
+    });
+
+    test("any other bad request on a noted allow gets the plain failure, not a claim about the session", async () => {
+      listed = [permission];
+      answerError = new SessionServiceError("BAD_REQUEST", "Something else");
+      const result = await send(submitNote("Only touch the fixtures"));
+      expect(result).toMatchObject({ result: "failed" });
+      expect(called("update")).toEqual([]);
+      const [text] = toldText();
+      expect(text).toBeDefined();
+      expect(text).not.toContain("cannot hand an instruction");
+      expect(text).not.toContain("Shorten");
+    });
+
+    test("a submit that loses to another answer says the instruction was not handed over", async () => {
+      for (const code of [
+        "REQUEST_EXPIRED",
+        "REQUEST_STALE",
+        "IDEMPOTENCY_CONFLICT",
+      ] as const) {
+        calls = [];
+        results = [];
+        listed = [permission];
+        outcome = {
+          state: "answered",
+          kind: "permission",
+          decision: "allow",
+        } as never;
+        answerError = new SessionServiceError(code, "taken");
+        const result = await send(submitNote("Only touch the fixtures"));
+        expect(result).toMatchObject({
+          body: { response_action: "clear" },
+          result: "already",
+        });
+        expect(called("update")).toHaveLength(1);
+        const told = toldText();
+        expect(told).toHaveLength(1);
+        expect(told[0]).toContain("Another answer");
+        expect(told[0]).toContain("not handed");
+      }
+    });
+
+    test("the loading modal opens before a slow language lookup, in the default language, and fills in the presser's", async () => {
+      listed = [permission];
+      let localeRead = false;
+      const base = deps();
+      const service = createSlackInteractionService({
+        ...base,
+        outbox: {
+          ...base.outbox,
+          readerLocale: async () => {
+            await new Promise((r) => setTimeout(r, 40));
+            localeRead = true;
+            return "ja";
+          },
+        },
+      });
+      const body = press(SLACK_INTERACTION_ACTIONS.permissionAllowNote, {
+        s: SESSION,
+        r: "toolu_1",
+      });
+      const outcome = await service.receive({
+        agentId: AGENT,
+        rawBody: new TextEncoder().encode(body),
+        ...signed(body),
+      });
+      expect(outcome).toMatchObject({ result: "view_opened" });
+      expect(localeRead).toBe(false);
+      expect(JSON.stringify(called("view")[0]?.args[1])).toContain(
+        "Allow with instruction",
+      );
+      await drain();
+      expect(localeRead).toBe(true);
+      expect(JSON.stringify(called("viewUpdate")[0]?.args[1])).toContain(
+        "指示を付けて許可",
+      );
     });
 
     test("a submit for a request no longer open answers nothing and tells the presser", async () => {

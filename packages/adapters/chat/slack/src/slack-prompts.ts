@@ -92,6 +92,10 @@ type PromptCopy = {
     tooLong: string;
     /** The session cannot hand it over; nothing was allowed. */
     refused: string;
+    /** With it, the parked turn's answers no longer fit in one message. */
+    tooLongForTurn: string;
+    /** Another answer settled the request first. */
+    lost: string;
   };
   deny: string;
   approve: string;
@@ -161,6 +165,9 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
       tooLong: "지시가 너무 길어요. 줄여서 다시 보내 주세요",
       refused:
         "이 세션은 지시를 에이전트에게 전할 수 없어서 허용하지 않았어요. 요청은 아직 열려 있어요. 지시 없이 허용하거나 거부해 주세요",
+      tooLongForTurn:
+        "이 지시까지 더하면 에이전트에게 보낼 답이 너무 길어져서 허용하지 않았어요. 요청은 아직 열려 있어요. 지시를 줄여 다시 보내 주세요",
+      lost: "다른 답이 먼저 처리돼서 이 지시는 에이전트에게 전달되지 않았어요",
     },
     deny: "거부",
     approve: "승인",
@@ -243,6 +250,9 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
       tooLong: "指示が長すぎます。短くしてもう一度送信してください",
       refused:
         "このセッションは指示をエージェントに渡せないため、許可していません。リクエストはまだ開いています。指示なしで許可するか、拒否してください",
+      tooLongForTurn:
+        "この指示を加えるとエージェントに送る回答が長くなりすぎるため、許可していません。リクエストはまだ開いています。指示を短くしてもう一度送信してください",
+      lost: "別の回答が先に処理されたため、この指示はエージェントに渡されていません",
     },
     deny: "拒否",
     approve: "承認",
@@ -325,6 +335,9 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
       tooLong: "The instruction is too long. Shorten it and send again",
       refused:
         "This session cannot hand an instruction to the agent, so nothing was allowed. The request is still open: allow it without an instruction, or deny it",
+      tooLongForTurn:
+        "With this instruction the answers to the agent would be too long, so nothing was allowed. The request is still open: Shorten the instruction and send again",
+      lost: "Another answer was taken first, so this instruction was not handed to the agent",
     },
     deny: "Deny",
     approve: "Approve",

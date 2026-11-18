@@ -134,7 +134,14 @@ export function createPendingRequestService(deps: {
             "The attempt that asked no longer owns the session",
           );
         case "invalid":
-          throw new SessionServiceError("BAD_REQUEST", result.reason);
+          throw new SessionServiceError(
+            "BAD_REQUEST",
+            result.reason,
+            undefined,
+            result.reasonCode === undefined
+              ? null
+              : { reason_code: result.reasonCode },
+          );
         case "recovery_required":
           throw new SessionServiceError(
             "RECOVERY_REQUIRED",

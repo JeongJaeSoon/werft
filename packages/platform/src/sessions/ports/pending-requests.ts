@@ -37,7 +37,12 @@ export type AnswerRequestResult =
   // gone even if the row is still open.
   | { outcome: "stale" }
   // The answer names something the request never offered.
-  | { outcome: "invalid"; reason: string }
+  | {
+      outcome: "invalid";
+      reason: string;
+      /** For refusals a client may explain in its own words. */
+      reasonCode?: "note_not_accepted" | "answer_too_long";
+    }
   // A parked request whose session could not be resumed from it: refused
   // before the answer is kept, so no group is left closed on a session
   // that cannot carry it on.

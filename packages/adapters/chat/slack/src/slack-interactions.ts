@@ -420,19 +420,32 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         await notice(pressed, "noApproveRight");
         return "refused";
       }
-      // The form checked the text, so an allow with one refused as a bad
-      // request is a session that cannot hand it to the model.
-      if (
+      // A refused note leaves the request open; any other bad request gets
+      // the plain failure below.
+      const reasonCode =
         error.code === "BAD_REQUEST" &&
         body.kind === "permission" &&
         body.reason !== undefined
+          ? (error.details as { reason_code?: unknown } | null)?.reason_code
+          : undefined;
+      if (
+        reasonCode === "note_not_accepted" ||
+        reasonCode === "answer_too_long"
       ) {
         deps.logger.warn("Slack note not taken", {
           agent_id: pressed.agentId,
-          error: error.message,
+          reason_code: reasonCode,
         });
-        await tell(pressed, SLACK_PROMPT_MESSAGES[pressed.locale].note.refused);
-        return "note_refused";
+        const copy = SLACK_PROMPT_MESSAGES[pressed.locale].note;
+        await tell(
+          pressed,
+          reasonCode === "note_not_accepted"
+            ? copy.refused
+            : copy.tooLongForTurn,
+        );
+        return reasonCode === "note_not_accepted"
+          ? "note_refused"
+          : "note_too_long";
       }
       const now = REQUEST_GONE_CODES.has(error.code)
         ? await standing(caller, value)
@@ -683,18 +696,36 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     if (await channelLeftFor(agentId, app, input)) {
       return ok("refused:channel_left");
     }
-    const pressed = await pressedFor(agentId, app, input);
-    if (pressed === null) return ok("refused:no_bot_token");
-    const copy = SLACK_PROMPT_MESSAGES[pressed.locale];
-    const { viewId } = await deps.slack.openView(pressed.botToken, {
+    const botToken = await deps.botToken(app.workspaceId, app.slackAppId);
+    if (botToken === null) return ok("refused:no_bot_token");
+    // The trigger lasts three seconds: the loading modal waits on nothing
+    // but the token, so it speaks the default language.
+    const loading = DEFAULT_USER_LOCALE;
+    const copy = SLACK_PROMPT_MESSAGES[loading];
+    const { viewId } = await deps.slack.openView(botToken, {
       triggerId: payload.trigger_id,
       view:
         form === "note"
-          ? slackNoticeView(copy.note.loading, pressed.locale, copy.note.title)
-          : slackNoticeView(copy.loading, pressed.locale),
+          ? slackNoticeView(copy.note.loading, loading, copy.note.title)
+          : slackNoticeView(copy.loading, loading),
     });
     defer(async () =>
-      handled(agentId, await fillView(pressed, viewId, payload, value, form)),
+      handled(
+        agentId,
+        await fillView(
+          {
+            agentId,
+            ...app,
+            ...input,
+            botToken,
+            locale: await localeOf(agentId, app, input),
+          },
+          viewId,
+          payload,
+          value,
+          form,
+        ),
+      ),
     );
     return ok("view_opened");
   }
@@ -928,14 +959,17 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
           : { kind: "question" as const, answers: parsed.answers };
       return async () => {
         try {
-          handled(
-            agentId,
-            ok(
-              await answer(admitted, value, body, () =>
-                settle(pressed, metadata.m, value),
-              ),
-            ),
+          const result = await answer(admitted, value, body, () =>
+            settle(pressed, metadata.m, value),
           );
+          // The form closed on an open request; its note went nowhere.
+          if (result === "already" && body.kind === "permission") {
+            await tell(
+              pressed,
+              SLACK_PROMPT_MESSAGES[pressed.locale].note.lost,
+            );
+          }
+          handled(agentId, ok(result));
         } catch (error) {
           failedQuietly(pressed, error, value);
           await notice(pressed, "failed");
