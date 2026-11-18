@@ -42,7 +42,7 @@ const APPROVAL: ApprovalCardMessages = {
 describe("ApprovalCard", () => {
   test("키보드만으로 허용한다", async () => {
     const user = await setupUser();
-    const onAllow = mock((_reason?: string) => {});
+    const onAllow = mock(() => {});
     render(
       <ApprovalCard
         request={REQUEST}
@@ -52,14 +52,12 @@ describe("ApprovalCard", () => {
         now={NOW}
       />,
     );
-    // The folded input, the answer field, then the actions.
-    await user.tab();
+    // The folded input, then the actions.
     await user.tab();
     await user.tab();
     expect(document.activeElement?.textContent).toBe("Allow");
     await user.keyboard("{Enter}");
     expect(onAllow).toHaveBeenCalledTimes(1);
-    expect(onAllow).toHaveBeenCalledWith(undefined);
   });
 
   test("제목 줄에 승인 대기와 기한을 두고, 도구 이름 칩과 답 버튼은 각자 줄에 내용 폭으로 둔다", () => {
@@ -84,28 +82,6 @@ describe("ApprovalCard", () => {
     expect(deny.className).not.toContain("flex-1");
     const row = allow.parentElement as HTMLElement;
     expect(row.contains(view.getByText("input"))).toBe(false);
-  });
-
-  test("답변 칸은 선택이다: 적으면 승인·거절에 실어 보내고, 비우면 이유 없이 거절한다", async () => {
-    const user = await setupUser();
-    const onAllow = mock((_reason?: string) => {});
-    const onDeny = mock((_reason: string) => {});
-    const view = render(
-      <ApprovalCard
-        request={REQUEST}
-        messages={{ ...APPROVAL, answer: "Answer" }}
-        onAllow={onAllow}
-        onDeny={onDeny}
-        now={NOW}
-      />,
-    );
-    await user.click(view.getByRole("button", { name: "Deny" }));
-    expect(onDeny).toHaveBeenCalledWith("");
-    await user.type(view.getByLabelText("Answer"), "  not this file  ");
-    await user.click(view.getByRole("button", { name: "Deny" }));
-    expect(onDeny).toHaveBeenLastCalledWith("not this file");
-    await user.click(view.getByRole("button", { name: "Allow" }));
-    expect(onAllow).toHaveBeenCalledWith("not this file");
   });
 
   test("만료되면 답할 버튼 없이 만료로 읽힌다", () => {
