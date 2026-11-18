@@ -39,7 +39,7 @@ const renderLink: RenderLink = ({ to: _to, id, children, ...rest }) => (
   </a>
 );
 
-const loading = <Skeleton lines={3} />;
+const loading = <Skeleton lines={3} label="불러오는 중입니다" />;
 const renderError = (_error: unknown, retry: () => void) => (
   <ErrorState message="불러오지 못했다." retry={retry} retryLabel="다시 시도" />
 );

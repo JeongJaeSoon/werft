@@ -3,7 +3,7 @@ import type { CSSProperties, JSX } from "react";
 import { cn } from "../foundations/cn.ts";
 import { useReducedMotion } from "../foundations/use-reduced-motion.ts";
 
-export interface SkeletonProps {
+interface SkeletonLook {
   readonly shape?: "text" | "block" | "circle" | undefined;
   /** Only for `shape="text"`: how many lines to stand in for. */
   readonly lines?: number | undefined;
@@ -11,15 +11,30 @@ export interface SkeletonProps {
   readonly width?: string | undefined;
   readonly height?: string | undefined;
   readonly className?: string | undefined;
-  readonly label?: string | undefined;
   /** Sit on a line of text, as one value in "7 / 10", keeping the line's box. */
   readonly inline?: boolean | undefined;
-  /**
-   * Hidden from assistive tech, for a screen that says it is loading once
-   * rather than at every placeholder.
-   */
-  readonly decorative?: boolean | undefined;
 }
+
+/**
+ * A placeholder either says what is loading or is declared decorative; the
+ * package has no wording of its own to fall back on.
+ */
+export type SkeletonProps = SkeletonLook &
+  (
+    | {
+        /** What is loading, in the reader's language. */
+        readonly label: string;
+        readonly decorative?: false | undefined;
+      }
+    | {
+        /**
+         * Hidden from assistive tech, for a screen that says it is loading
+         * once rather than at every placeholder.
+         */
+        readonly decorative: true;
+        readonly label?: undefined;
+      }
+  );
 
 export function Skeleton({
   shape = "text",
@@ -27,7 +42,7 @@ export function Skeleton({
   width,
   height,
   className,
-  label = "불러오는 중",
+  label,
   inline = false,
   decorative = false,
 }: SkeletonProps): JSX.Element {

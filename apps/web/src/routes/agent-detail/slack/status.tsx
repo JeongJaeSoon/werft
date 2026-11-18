@@ -56,8 +56,9 @@ export function SlackHeader({
   const placeholder = (spoken: boolean) => (
     <Skeleton
       className="h-4 w-20"
-      label={t("status.loading.title")}
-      decorative={!spoken}
+      {...(spoken
+        ? { label: t("status.loading.title") }
+        : { decorative: true })}
     />
   );
   const reads = connected ? [app, identities, bindings] : [app, identities];

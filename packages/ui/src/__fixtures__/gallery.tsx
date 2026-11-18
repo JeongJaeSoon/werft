@@ -126,9 +126,9 @@ export function Gallery({ openDialog }: GalleryProps = {}): JSX.Element {
         retry={noop}
         evidenceLink={{ href: "/sessions/01J8Z5/journal" }}
       />
-      <Skeleton lines={3} />
-      <Skeleton shape="circle" />
-      <Skeleton shape="block" height="6rem" />
+      <Skeleton lines={3} label="불러오는 중" />
+      <Skeleton shape="circle" label="불러오는 중" />
+      <Skeleton shape="block" height="6rem" label="불러오는 중" />
 
       <h2>Button · Badge · Card</h2>
       {/* Each variant at rest, disabled and aria-disabled (busy): one 0.5 fade. */}

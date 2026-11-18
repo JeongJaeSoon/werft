@@ -93,7 +93,11 @@ export function SessionCounts({
                   </span>
                 ) : (
                   <span aria-hidden="true" className="inline-block w-16">
-                    <Skeleton height="1lh" className="justify-center" />
+                    <Skeleton
+                      height="1lh"
+                      className="justify-center"
+                      decorative
+                    />
                   </span>
                 )}
               </div>
@@ -105,7 +109,11 @@ export function SessionCounts({
                 />
               ) : (
                 <span aria-hidden="true" className="block">
-                  <Skeleton height="0.5rem" className="justify-center" />
+                  <Skeleton
+                    height="0.5rem"
+                    className="justify-center"
+                    decorative
+                  />
                 </span>
               )}
             </div>
@@ -143,7 +151,7 @@ function SessionCount({
       </span>
       {count === undefined ? (
         <span aria-hidden="true" className="block">
-          <Skeleton className="my-1.5 h-5 w-8" />
+          <Skeleton className="my-1.5 h-5 w-8" decorative />
         </span>
       ) : (
         <span className="font-semibold text-number tabular-nums">
