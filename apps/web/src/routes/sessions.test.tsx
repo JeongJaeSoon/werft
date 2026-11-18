@@ -3062,6 +3062,10 @@ describe("세션 상세 레이아웃", () => {
         expect(heading.parentElement?.classList.contains("items-start")).toBe(
           true,
         );
+        // A button tall, so a one-line title stays level with the buttons.
+        expect(
+          heading.classList.contains("min-h-[var(--werft-control-height-sm)]"),
+        ).toBe(true);
       } finally {
         window.matchMedia = original;
       }
