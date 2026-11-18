@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  DockerApiError,
   DockerClient,
   DockerTimeoutError,
+  PULL_ATTEMPTS,
   parseDockerHost,
   parseImageReference,
 } from "./docker-client.ts";
@@ -81,5 +83,74 @@ describe("DockerClient deadlines", () => {
     } finally {
       daemon.stop(true);
     }
+  });
+});
+
+describe("DockerClient.pullImage", () => {
+  // Each pull answers with the next of `answers`; the last one repeats.
+  async function pulls(
+    answers: ("ok" | "stall" | number)[],
+    run: (client: DockerClient) => Promise<void>,
+  ): Promise<number> {
+    let count = 0;
+    const daemon = Bun.serve({
+      port: 0,
+      fetch() {
+        const answer = answers[Math.min(count, answers.length - 1)] ?? "ok";
+        count += 1;
+        if (answer === "stall") {
+          // Progress starts, then the registry goes quiet.
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode('{"status":"x"}'));
+              },
+            }),
+          );
+        }
+        return new Response(answer === "ok" ? '{"status":"done"}' : "{}", {
+          status: answer === "ok" ? 200 : answer,
+        });
+      },
+    });
+    try {
+      await run(
+        new DockerClient(`tcp://127.0.0.1:${daemon.port}`, "v1.43", {
+          timeoutMs: 100,
+        }),
+      );
+    } finally {
+      daemon.stop(true);
+    }
+    return count;
+  }
+
+  test("asks again after a registry error or a stall, and ends once pulled", async () => {
+    expect(
+      await pulls([500, "stall", "ok"], (client) =>
+        client.pullImage("ghcr.io/org/bun@sha256:abc"),
+      ),
+    ).toBe(3);
+  });
+
+  test(`gives up after ${PULL_ATTEMPTS} failed pulls with the last error`, async () => {
+    expect(
+      await pulls([503], async (client) => {
+        await expect(client.pullImage("busybox")).rejects.toMatchObject({
+          name: "DockerApiError",
+          status: 503,
+        });
+      }),
+    ).toBe(PULL_ATTEMPTS);
+  });
+
+  test("does not ask again for an image the registry does not have", async () => {
+    expect(
+      await pulls([404], async (client) => {
+        await expect(client.pullImage("busybox")).rejects.toBeInstanceOf(
+          DockerApiError,
+        );
+      }),
+    ).toBe(1);
   });
 });
