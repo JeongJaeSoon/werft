@@ -240,7 +240,10 @@ describe("i18n", () => {
       ...Object.values(RECEIPT_OPERATION_LABEL),
       ...Object.values(ERROR_GUIDANCE),
     ].map(String);
-    expect(korean.filter((text) => text.includes("일시정지"))).toEqual([]);
+    // 일시중지 and 일시 중지 are other words for the same pause.
+    expect(korean.filter((text) => /일시정지|일시\s?중지/.test(text))).toEqual(
+      [],
+    );
   });
 
   test("no message sends people to the Release tab to make or turn on a release", () => {

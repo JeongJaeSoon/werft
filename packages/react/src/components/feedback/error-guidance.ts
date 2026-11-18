@@ -62,7 +62,7 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   CREDENTIAL_UNBOUND:
     "연결 설정이 바뀌어 시작하지 못했어요 — 에이전트 관리자에게 문의하세요.",
   AGENT_NOT_RUNNABLE:
-    "이 에이전트는 지금 새 세션을 시작할 수 없어요(일시중지·보관됐거나 release가 승인되지 않았어요) — 에이전트 관리자에게 문의하세요.",
+    "이 에이전트는 지금 새 세션을 시작할 수 없어요(일시 정지·보관됐거나 release가 승인되지 않았어요) — 에이전트 관리자에게 문의하세요.",
   CREDENTIAL_REF_IN_USE:
     "이 자격 이름은 이미 다른 곳(에이전트 또는 Slack 앱 연결)에 묶여 있어 쓸 수 없어요 — 다른 이름을 고르세요.",
   SELF_PROTECTED:
