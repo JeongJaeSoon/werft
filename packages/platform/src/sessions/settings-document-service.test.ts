@@ -9,11 +9,11 @@ import {
   callerFor,
   createAuthorizationPolicy,
 } from "../musterrolle/policy.ts";
+import { refusal } from "../testing/refusal.ts";
 import type {
   SettingsDocumentStore,
   SettingsImportResult,
-} from "../ports/settings-document-store.ts";
-import { refusal } from "../testing/refusal.ts";
+} from "./ports/settings-document-store.ts";
 import type { SettingsEntries } from "./settings-document.ts";
 import { createSettingsDocumentService } from "./settings-document-service.ts";
 

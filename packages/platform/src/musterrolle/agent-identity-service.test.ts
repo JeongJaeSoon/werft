@@ -1,12 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import type { WorkspaceRole } from "@werft-ai/contracts";
-import type {
-  AgentIdentityRecord,
-  AgentIdentityStore,
-  LinkAgentIdentityResult,
-  RevokeAgentIdentityResult,
-  SlackEventAgent,
-} from "../ports/agent-identity-store.ts";
 import {
   agentForSlackEvent,
   createAgentIdentityService,
@@ -16,6 +9,13 @@ import {
   callerFor,
   createAuthorizationPolicy,
 } from "./policy.ts";
+import type {
+  AgentIdentityRecord,
+  AgentIdentityStore,
+  LinkAgentIdentityResult,
+  RevokeAgentIdentityResult,
+  SlackEventAgent,
+} from "./ports/agent-identity-store.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const PERSON = "019a0000-0000-7000-8000-0000000000a1";

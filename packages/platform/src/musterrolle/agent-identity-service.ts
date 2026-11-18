@@ -8,17 +8,17 @@ import {
   type RevokeAgentIdentityResponse,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
-import type {
-  AgentIdentityRecord,
-  AgentIdentityStore,
-  SlackEventAgent,
-  SlackEventKey,
-} from "../ports/agent-identity-store.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
+import type {
+  AgentIdentityRecord,
+  AgentIdentityStore,
+  SlackEventAgent,
+  SlackEventKey,
+} from "./ports/agent-identity-store.ts";
 import { requirePermitted } from "./require-permitted.ts";
 import {
   ACTOR_INACTIVE,

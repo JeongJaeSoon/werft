@@ -1,11 +1,11 @@
-import type { ModelFamilies } from "../catalog/index.ts";
+import type { ModelFamilies } from "../../catalog/index.ts";
+import type { TeamActor } from "../../ports/team-store.ts";
 import type {
   SettingsEntries,
   SettingsImportAdd,
   SettingsImportPlan,
   SettingsKind,
-} from "../sessions/settings-document.ts";
-import type { TeamActor } from "./team-store.ts";
+} from "../settings-document.ts";
 
 export type SettingsImportResult =
   | (SettingsImportPlan & {

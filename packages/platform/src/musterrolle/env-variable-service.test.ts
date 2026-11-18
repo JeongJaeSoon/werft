@@ -4,14 +4,6 @@ import {
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
-import type {
-  DeleteEnvVariableResult,
-  EnvVariableRecord,
-  EnvVariableScope,
-  EnvVariableStore,
-  PutEnvVariableResult,
-  SetEnvVariableGrantsResult,
-} from "../ports/env-variable-store.ts";
 import {
   createEnvVariableService,
   envVariableViewOf,
@@ -24,6 +16,14 @@ import {
   callerFor,
   createAuthorizationPolicy,
 } from "./policy.ts";
+import type {
+  DeleteEnvVariableResult,
+  EnvVariableRecord,
+  EnvVariableScope,
+  EnvVariableStore,
+  PutEnvVariableResult,
+  SetEnvVariableGrantsResult,
+} from "./ports/env-variable-store.ts";
 import { SessionServiceError } from "./service-errors.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";

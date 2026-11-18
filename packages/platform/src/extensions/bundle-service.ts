@@ -7,14 +7,6 @@ import {
   unpackBundleTar,
 } from "@werft-ai/runtime-core";
 import type { Principal } from "../musterrolle/index.ts";
-import type {
-  AttachmentReceiptResult,
-  ExtensionAttachment,
-  ExtensionBundle,
-  ExtensionBundleSource,
-  ExtensionBundleStore,
-  ReviewExtensionBundleResult,
-} from "../ports/extension-bundle-store.ts";
 import {
   type BundleInputFile,
   type BundleIssue,
@@ -23,6 +15,14 @@ import {
   type ValidatedBundle,
   validateExtensionBundle,
 } from "./bundle-validator.ts";
+import type {
+  AttachmentReceiptResult,
+  ExtensionAttachment,
+  ExtensionBundle,
+  ExtensionBundleSource,
+  ExtensionBundleStore,
+  ReviewExtensionBundleResult,
+} from "./ports/extension-bundle-store.ts";
 import type { ExtensionMode } from "./resolve.ts";
 
 /** Who may register, review and attach bundles; the web console and API routes say the same. */

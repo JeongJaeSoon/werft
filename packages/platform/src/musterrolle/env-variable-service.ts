@@ -10,12 +10,12 @@ import {
   type PutEnvVariableGrantsResponse,
   type PutEnvVariableResponse,
 } from "@werft-ai/contracts";
+import type { AuthorizationPolicy, Caller } from "./policy.ts";
 import type {
   EnvVariableRecord,
   EnvVariableScope,
   EnvVariableStore,
-} from "../ports/env-variable-store.ts";
-import type { AuthorizationPolicy, Caller } from "./policy.ts";
+} from "./ports/env-variable-store.ts";
 import { requirePermitted } from "./require-permitted.ts";
 import { NOT_FOUND, SessionServiceError } from "./service-errors.ts";
 

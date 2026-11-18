@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
+import { createAgentWorkspaceMcpService } from "./agent-workspace-mcp-service.ts";
 import type {
   AgentWorkspaceMcpStore,
   PutAgentWorkspaceMcpServersResult,
-} from "../ports/agent-workspace-mcp-store.ts";
-import { createAgentWorkspaceMcpService } from "./agent-workspace-mcp-service.ts";
+} from "./ports/agent-workspace-mcp-store.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const AGENT = "019a0000-0000-7000-8000-0000000000c1";

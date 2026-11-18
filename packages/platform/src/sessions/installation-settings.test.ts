@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { InstallationSettings } from "../ports/installation-settings-store.ts";
 import { settingsSnapshot, settingsView } from "./installation-settings.ts";
+import type { InstallationSettings } from "./ports/installation-settings-store.ts";
 
 const settings: InstallationSettings = {
   generation: 3,

@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { packBundleTar } from "@werft-ai/runtime-core";
 import { createMemoryCheckpointObjectStore } from "@werft-ai/testkit/checkpoint-objects";
-import type {
-  ExtensionBundle,
-  ExtensionBundleStore,
-  RegisterExtensionBundleResult,
-} from "../ports/extension-bundle-store.ts";
 import {
   BundleIntegrityError,
   bundleObjectKey,
   createExtensionBundleService,
 } from "./bundle-service.ts";
 import type { BundleInputFile } from "./bundle-validator.ts";
+import type {
+  ExtensionBundle,
+  ExtensionBundleStore,
+  RegisterExtensionBundleResult,
+} from "./ports/extension-bundle-store.ts";
 
 const WS_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const WS_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";

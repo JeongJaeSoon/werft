@@ -22,6 +22,7 @@ import {
   repositoryRefOf,
 } from "@werft-ai/contracts";
 import { repoRefOf } from "../../action/ports/forge.ts";
+import type { AgentStore } from "../../agents/ports/agent-store.ts";
 import {
   GITHUB_API_BASE,
   repositoryInCeiling,
@@ -37,7 +38,6 @@ import {
   requirePermitted,
   SessionServiceError,
 } from "../../musterrolle/index.ts";
-import type { AgentStore } from "../../ports/agent-store.ts";
 import { viewerOf } from "../../sessions/index.ts";
 import type { AgentGitHubStore } from "../ports/agent-github-store.ts";
 import type {

@@ -18,13 +18,13 @@ import {
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { DecisionLog } from "../ports/decision-log.ts";
 import type {
   SessionOrigin,
   SessionShareStore,
   SessionViewer,
 } from "../sessions/ports/session-share-store.ts";
 import type { UsageDecision } from "./agent-usage-decision.ts";
+import type { DecisionLog } from "./ports/decision-log.ts";
 
 export type RecordedActor = {
   principal: PrincipalRef;

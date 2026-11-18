@@ -1,5 +1,5 @@
 import type { WorkspaceRole } from "@werft-ai/contracts";
-import type { Principal } from "../musterrolle/index.ts";
+import type { Principal } from "../../musterrolle/index.ts";
 
 /** A workspace server as an agent's tab lists it. */
 export type AgentWorkspaceMcpServerRow = {

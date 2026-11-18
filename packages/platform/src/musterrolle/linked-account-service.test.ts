@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { createLinkedAccountService } from "./linked-account-service.ts";
+import { callerFor, createAuthorizationPolicy } from "./policy.ts";
 import type {
   LinkAccountResult,
   LinkedAccountRecord,
   LinkedAccountStore,
-} from "../ports/linked-account-store.ts";
-import { createLinkedAccountService } from "./linked-account-service.ts";
-import { callerFor, createAuthorizationPolicy } from "./policy.ts";
+} from "./ports/linked-account-store.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const PERSON = "019a0000-0000-7000-8000-0000000000a1";

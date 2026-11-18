@@ -7,11 +7,11 @@ import {
   type SlackLinkCallbackResponse,
   type UnlinkAccountResponse,
 } from "@werft-ai/contracts";
+import type { AuthorizationPolicy, Caller } from "./policy.ts";
 import type {
   LinkedAccountRecord,
   LinkedAccountStore,
-} from "../ports/linked-account-store.ts";
-import type { AuthorizationPolicy, Caller } from "./policy.ts";
+} from "./ports/linked-account-store.ts";
 import { requirePermitted } from "./require-permitted.ts";
 import { SessionServiceError } from "./service-errors.ts";
 

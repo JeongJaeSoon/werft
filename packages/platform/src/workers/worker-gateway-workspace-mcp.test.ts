@@ -12,13 +12,13 @@ import type {
   EgressIssue,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
-import type {
-  WorkspaceMcpEgressStore,
-  WorkspaceMcpSessionState,
-} from "../ports/workspace-mcp-egress.ts";
 import type { WorkerPendingStore } from "../sessions/ports/pending-requests.ts";
 import { testBinding, testCatalog } from "../testing/catalog-fakes.ts";
 import { acceptAllCheckpoints } from "../testing/checkpoints.ts";
+import type {
+  WorkspaceMcpEgressStore,
+  WorkspaceMcpSessionState,
+} from "./ports/workspace-mcp-egress.ts";
 import { createWorkerGateway } from "./worker-gateway.ts";
 
 const SESSION = "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d";

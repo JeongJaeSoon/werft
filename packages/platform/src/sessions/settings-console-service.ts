@@ -36,13 +36,13 @@ import {
   SessionServiceError,
 } from "../musterrolle/index.ts";
 import type { OutboundHttp } from "../ports/outbound-http.ts";
+import type { TeamActor } from "../ports/team-store.ts";
+import { listProviderModels, ModelDiscoveryError } from "./model-discovery.ts";
 import type {
   SettingsConsoleResult,
   SettingsDocumentStore,
   SettingsRow,
-} from "../ports/settings-document-store.ts";
-import type { TeamActor } from "../ports/team-store.ts";
-import { listProviderModels, ModelDiscoveryError } from "./model-discovery.ts";
+} from "./ports/settings-document-store.ts";
 import {
   type SettingsKind as DocumentSettingsKind,
   parseSettingsDocument,

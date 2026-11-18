@@ -17,7 +17,7 @@ import {
 import type {
   AgentWorkspaceMcpServerRow,
   AgentWorkspaceMcpStore,
-} from "../ports/agent-workspace-mcp-store.ts";
+} from "./ports/agent-workspace-mcp-store.ts";
 
 const refused = (field: string, reason: string) =>
   new SessionServiceError("BAD_REQUEST", `${field}: ${reason}`, undefined, {

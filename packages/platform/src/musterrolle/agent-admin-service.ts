@@ -6,15 +6,15 @@ import {
   type SetAgentManagingTeamResponse,
   TEAM_LIST_LIMIT,
 } from "@werft-ai/contracts";
-import type {
-  AgentAdminStore,
-  AgentAdmins,
-} from "../ports/agent-admin-store.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
+import type {
+  AgentAdminStore,
+  AgentAdmins,
+} from "./ports/agent-admin-store.ts";
 import { requirePermitted } from "./require-permitted.ts";
 import {
   NOT_FOUND,

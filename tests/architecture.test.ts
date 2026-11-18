@@ -1196,8 +1196,8 @@ export async function contractsDirection(repo: string): Promise<string[]> {
 }
 
 /**
- * A2: a platform domain (first directory under src, other than the shared
- * ports/ and testing/) imports another domain only through that domain's
+ * A2: a platform domain (first directory under src, other than testing/), and
+ * the shared ports/ too, imports another domain only through that domain's
  * ports/ or its index.ts. Returns "<file> -> <target>" pairs, tests excluded.
  */
 export async function crossDomainImports(repo: string): Promise<string[]> {
@@ -1206,7 +1206,7 @@ export async function crossDomainImports(repo: string): Promise<string[]> {
   for (const file of await productSourcesIn(src)) {
     const from = slashed(relative(src, file)).split("/");
     const domain = from[0];
-    if (from.length < 2 || !domain || sharedPlatformDirs.has(domain)) continue;
+    if (from.length < 2 || !domain || domain === "testing") continue;
     for (const target of await relativeTargets(file, src)) {
       const to = target.split("/");
       const other = to[0];
@@ -3508,7 +3508,7 @@ describe("architecture", () => {
     ).toEqual([]);
   });
 
-  test("A2 catches another domain's internals but not its ports/, its index.ts or the shared dirs", async () => {
+  test("A2 catches another domain's internals, from a domain or the shared ports/, but not its ports/, its index.ts or the shared dirs", async () => {
     expect(
       await inFixture(
         {
@@ -3528,13 +3528,21 @@ describe("architecture", () => {
           [platformFile("beta/deep/inner.ts")]: stub,
           [platformFile("beta/ports/store.ts")]: stub,
           [platformFile("beta/index.ts")]: stub,
-          [platformFile("ports/shared.ts")]: stub,
+          [platformFile("ports/shared.ts")]: [
+            'import "../beta/policy.ts";',
+            'import "../beta/ports/store.ts";',
+            'import "../beta/index.ts";',
+            'import "./other.ts";',
+          ].join("\n"),
+          [platformFile("ports/other.ts")]: stub,
+          [platformFile("testing/fake.ts")]: 'import "../beta/policy.ts";',
         },
         crossDomainImports,
       ),
     ).toEqual([
       "alpha/service.ts -> beta/deep/inner.ts",
       "alpha/service.ts -> beta/policy.ts",
+      "ports/shared.ts -> beta/policy.ts",
     ]);
   });
 

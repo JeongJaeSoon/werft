@@ -6,14 +6,9 @@ import {
   storedAgentCardSchema,
 } from "@werft-ai/contracts";
 import type { CatalogConnection } from "../catalog/catalog.ts";
+import type { ExtensionAttachment } from "../extensions/ports/extension-bundle-store.ts";
 import { SessionServiceError } from "../musterrolle/index.ts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
-import type {
-  AgentReader,
-  AgentRecord,
-  AgentStore,
-} from "../ports/agent-store.ts";
-import type { ExtensionAttachment } from "../ports/extension-bundle-store.ts";
 import {
   TEST_RUNTIMES,
   testCatalog,
@@ -21,6 +16,11 @@ import {
   testToolCatalogs,
 } from "../testing/catalog-fakes.ts";
 import { createAgentService } from "./agent-service.ts";
+import type {
+  AgentReader,
+  AgentRecord,
+  AgentStore,
+} from "./ports/agent-store.ts";
 import { deriveReleaseId } from "./release-ids.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";

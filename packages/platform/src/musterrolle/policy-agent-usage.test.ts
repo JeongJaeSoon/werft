@@ -5,7 +5,6 @@ import {
   SESSION_SCOPE_VALUES,
   type SessionScope,
 } from "@werft-ai/contracts";
-import type { DecisionLog } from "../ports/decision-log.ts";
 import type { UsageDecision } from "./agent-usage-decision.ts";
 import {
   type AgentAuthority,
@@ -15,6 +14,7 @@ import {
   type IdentityReader,
   type UsageRequester,
 } from "./policy.ts";
+import type { DecisionLog } from "./ports/decision-log.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const USER = "019a0000-0000-7000-8000-0000000000c1";

@@ -10,7 +10,7 @@ import {
   resolveProvider,
   resolveSessionCatalog,
 } from "../catalog/index.ts";
-import type { InstallationSettings } from "../ports/installation-settings-store.ts";
+import type { InstallationSettings } from "./ports/installation-settings-store.ts";
 
 /**
  * What the registry runs from one read of the installation's settings
