@@ -18,7 +18,8 @@
 //   web-user.mjs <run> slack-install <who> <agent id>  mock OAuth with the person's cookie
 //   web-user.mjs <run> slack-event <agent> <mode> [channel seq [parent]]  signed mock inbound request (join|leave: the bot enters or leaves channel; a higher seq is later)
 //   web-user.mjs <run> slack-cards <agent>           the mock's cards: ts, buttons, updates so far
-//   web-user.mjs <run> slack-click <agent> <allow|allow-session|deny|push-approve|push-reject>  press that button on the newest card, signed by the mock
+//   web-user.mjs <run> slack-click <agent> <allow|allow-session|allow-note|deny|push-approve|push-reject>  press that button on the newest card, signed by the mock
+//   web-user.mjs <run> slack-submit-note <agent> <text>  submit the newest filled note modal with that instruction, signed by the mock
 //   web-user.mjs <run> slack-click-bad <agent>       a press with a wrong signature (401)
 //   web-user.mjs <run> github-app <who> <workspace> <app id> [connection id]  register the App, or a new key for that connection; key read from its file
 //   web-user.mjs <run> github-app-stranger-key <who> <workspace> <app id> <connection id>  a fresh RSA key GitHub does not know (400)
@@ -297,7 +298,8 @@ switch (cmd) {
     break;
   }
   case "slack-cards":
-  case "slack-click": {
+  case "slack-click":
+  case "slack-submit-note": {
     if (!/^[0-9a-f-]{36}$/i.test(who)) throw new Error("agent UUID required");
     const action = rest[0] ?? "";
     if (
@@ -305,14 +307,17 @@ switch (cmd) {
       ![
         "allow",
         "allow-session",
+        "allow-note",
         "deny",
         "push-approve",
         "push-reject",
       ].includes(action)
     )
       throw new Error(
-        "action must be allow, allow-session, deny, push-approve or push-reject",
+        "action must be allow, allow-session, allow-note, deny, push-approve or push-reject",
       );
+    if (cmd === "slack-submit-note" && action === "")
+      throw new Error("the instruction text is required");
     // The app id is public: the owner reads it from the agent's Slack app.
     const app = await call("GET", `/v1/agents/${who}/slack/app`, undefined, {
       cookie: cookieOf("owner"),
@@ -323,7 +328,13 @@ switch (cmd) {
     console.log(
       composeBun(
         readFileSync(new URL("./slack-click.ts", import.meta.url), "utf8"),
-        [cmd === "slack-cards" ? "cards" : "click", appId, who, action],
+        [
+          { "slack-cards": "cards", "slack-click": "click" }[cmd] ??
+            "submit-note",
+          appId,
+          who,
+          action,
+        ],
       ),
     );
     break;

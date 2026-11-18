@@ -7,6 +7,7 @@ const MOCK = "http://mock-slack:4020";
 const ACTIONS: Record<string, string> = {
   allow: "permission.allow",
   "allow-session": "permission.allow_session",
+  "allow-note": "permission.allow_note",
   deny: "permission.deny",
   "push-approve": "push.approve",
   "push-reject": "push.reject",
@@ -91,6 +92,42 @@ if (mode === "cards") {
   });
   console.log(`card ${card.ts} ${actionId}`);
   console.log(await response.text());
+} else if (mode === "submit-note") {
+  // Submits the newest note modal the API filled, with `pick` as the text,
+  // the way Slack posts a view_submission.
+  const { viewUpdates } = (await get("/fake/updates")) as {
+    viewUpdates: {
+      viewId: string;
+      view: { callback_id?: string; private_metadata?: string };
+    }[];
+  };
+  const filled = viewUpdates.findLast(
+    (update) => update.view.callback_id === "permission.allow_note",
+  );
+  if (!filled) throw new Error("no note modal was filled");
+  const payload = {
+    type: "view_submission",
+    team: { id: "T0MOCK" },
+    user: { id: "U0MOCK" },
+    view: {
+      id: filled.viewId,
+      callback_id: filled.view.callback_id,
+      private_metadata: filled.view.private_metadata,
+      state: {
+        values: { note: { v: { type: "plain_text_input", value: pick } } },
+      },
+    },
+  };
+  console.log(`view ${filled.viewId} submitted: ${JSON.stringify(payload)}`);
+  const response = await fetch(`${MOCK}/fake/interactions`, {
+    method: "POST",
+    body: JSON.stringify({
+      url: `http://api:3000/v1/slack/interactions/${agentId}`,
+      app_id: appId,
+      payload,
+    }),
+  });
+  console.log(await response.text());
 } else {
-  throw new Error("mode must be cards or click");
+  throw new Error("mode must be cards, click or submit-note");
 }

@@ -108,7 +108,7 @@ Reference: [`POST /v1/sessions/{id}/answers`](/reference/http-api/pending-reques
 </Tab>
 </Tabs>
 
-To allow, use `"action": "allow"`. `reason` is used only for a denial and is optional. The model receives that reason as the tool result and continues the turn. The response's `approval` records who answered (`answered_by`) and where (`surface`: `api`, `web`, `slack`).
+To allow, use `"action": "allow"`. `reason` is optional. On a denial, the model receives it as the tool result and continues the turn. On an allow, the model receives it as the approver's instruction. An allow `reason` for a request opened by a session that cannot hand an instruction to the model is refused with `400`, and the request stays open. **Allow with instruction** on the Slack card sends the same answer. The response's `approval` records who answered (`answered_by`) and where (`surface`: `api`, `web`, `slack`).
 
 ## Answer a question
 

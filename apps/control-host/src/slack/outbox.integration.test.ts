@@ -1427,6 +1427,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     if (!card) throw new Error("no card");
     expect(actionsOf(card).map((button) => button.action_id)).toEqual([
       "permission.allow",
+      "permission.allow_note",
       "permission.deny",
     ]);
     expect(JSON.parse(actionsOf(card)[0]?.value ?? "{}")).toEqual({

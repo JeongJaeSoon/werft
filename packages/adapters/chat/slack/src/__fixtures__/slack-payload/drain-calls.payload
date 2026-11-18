@@ -59,6 +59,16 @@
                 "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"toolu_1\"}"
               },
               {
+                "action_id": "permission.allow_note",
+                "text": {
+                  "emoji": false,
+                  "text": "Allow with instruction",
+                  "type": "plain_text"
+                },
+                "type": "button",
+                "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"toolu_1\"}"
+              },
+              {
                 "action_id": "permission.deny",
                 "style": "danger",
                 "text": {
