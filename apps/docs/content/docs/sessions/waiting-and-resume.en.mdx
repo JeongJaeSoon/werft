@@ -61,7 +61,7 @@ A request is one of two kinds.
 
 If a request is not answered within 30 minutes, it ends as a denial. Answering after that gets 409 `REQUEST_EXPIRED`.
 
-For a tool permission whose calls the engine would keep asking about, an allow can carry `remember: "session"` so the same rule is not asked again until the session ends. It is accepted only when the request proposed such a rule, and not on a deny or on a request with no proposal. It never widens past the server allowlist, a push approval or a question, and the allowlist check still applies to every call whatever this answer says. A request opened by an older worker that does not know `remember` carries no proposal, so its Slack card shows no **Allow for session** button. The web console has no such button; for now it is available only from the Slack card and this API field.
+For a tool permission whose calls the engine would keep asking about, an allow can carry `remember: "session"` so the same rule is not asked again until the session ends. It is accepted only when the request proposed such a rule, and not on a deny or on a request with no proposal. It never widens past the server allowlist, a push approval or a question, and the allowlist check still applies to every call whatever this answer says. A request opened by an older worker that does not know `remember` carries no proposal, so its Slack card shows no **Allow for session** button. A request a Claude model release (`auto`) opens for a call caught by the ask list carries no proposal either, so `remember` cannot be used there and a person answers every such call. The web console has no such button; for now it is available only from the Slack card and this API field.
 
 ## Deny
 
