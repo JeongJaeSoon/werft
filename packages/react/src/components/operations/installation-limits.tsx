@@ -90,7 +90,7 @@ export function InstallationLimits({
       messages.sessionTokens,
       perSession,
       session === undefined ? null : session.session_token_limit === null ? (
-        <Badge key="unset">{messages.notSet}</Badge>
+        <Badge key="none">{messages.noLimit}</Badge>
       ) : (
         format.count(session.session_token_limit)
       ),
