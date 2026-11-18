@@ -714,32 +714,37 @@ describe("the session's GitHub pull requests", () => {
     reason_code: "github_disabled",
     created_at: AT,
   };
-  /** Reads the lists whose key holds `name` again, as the minute does. */
-  const readAgain = (services: { queryClient: QueryClient }, name: string) =>
-    act(() =>
-      services.queryClient.refetchQueries({
+  /** Reads the lists whose key holds `name` again, as the minute does, and
+   * waits until that read's failure is drawn. */
+  const failAgain = async (
+    services: { readonly queryClient: QueryClient },
+    name: string,
+  ) => {
+    const failed = reported(services, name, "error");
+    act(() => {
+      void services.queryClient.refetchQueries({
         predicate: (query) => query.queryKey.includes(name),
-      }),
-    );
+      });
+    });
+    await failed();
+  };
   /** Whether `first` comes before `second` in the page. */
   const above = (first: Element, second: Element) =>
     (first.compareDocumentPosition(second) & 4) !== 0;
 
   test("pull requests already shown stay when a later read fails, under an alert that says they are from before", async () => {
-    let failing = false;
+    let next: () => Response | Promise<Response> = () =>
+      json(200, { items: pulls });
     const { services } = renderAt(`/sessions/${SESSION_ID}`, {
       ...pulled(pulls, noFiles),
-      [`GET /v1/sessions/${SESSION_ID}/outcomes`]: () =>
-        failing
-          ? apiError(500, "INTERNAL", "boom")
-          : json(200, { items: pulls }),
+      [`GET /v1/sessions/${SESSION_ID}/outcomes`]: () => next(),
     });
     await openOutputs();
     const area = await screen.findByRole("region", { name: "변경 사항" });
     expect(await within(area).findAllByRole("listitem")).toHaveLength(3);
-    failing = true;
-    await readAgain(services, "outcomes");
-    const alert = await within(area).findByRole("alert");
+    next = () => apiError(500, "INTERNAL", "boom");
+    await failAgain(services, "outcomes");
+    const alert = within(area).getByRole("alert");
     expect(alert.textContent).toContain("불러오지 못했습니다");
     expect(alert.textContent).toContain(STALE);
     expect(within(area).getAllByRole("listitem")).toHaveLength(3);
@@ -750,10 +755,21 @@ describe("the session's GitHub pull requests", () => {
     expect(
       within(area).getAllByRole("link", { name: "Retry failed payments" }),
     ).toHaveLength(3);
-    failing = false;
-    await (await setupUser()).click(
-      within(alert).getByRole("button", { name: "다시 시도" }),
-    );
+    // While the retry reads, the alert, its button with the focus, and the
+    // list all stay; the answer takes the alert away.
+    let answer: (response: Response) => void = () => {};
+    next = () =>
+      new Promise<Response>((resolve) => {
+        answer = resolve;
+      });
+    const retry = within(alert).getByRole("button", { name: "다시 시도" });
+    const reading = reported(services, "outcomes", "fetch");
+    await (await setupUser()).click(retry);
+    await reading();
+    expect(alert.isConnected).toBe(true);
+    expect(document.activeElement === retry).toBe(true);
+    expect(within(area).getAllByRole("listitem")).toHaveLength(3);
+    act(() => answer(json(200, { items: pulls })));
     await waitFor(() =>
       expect(within(area).queryByRole("alert") === null).toBe(true),
     );
@@ -772,8 +788,8 @@ describe("the session's GitHub pull requests", () => {
       name: "out/ 파일 3개",
     });
     failing = true;
-    await readAgain(services, "outputs");
-    const alert = await within(files).findByRole("alert");
+    await failAgain(services, "outputs");
+    const alert = within(files).getByRole("alert");
     expect(alert.textContent).toContain("불러오지 못했습니다");
     expect(alert.textContent).toContain(STALE);
     expect(files.isConnected).toBe(true);
@@ -804,8 +820,8 @@ describe("the session's GitHub pull requests", () => {
       name: "최근 GitHub 거절",
     });
     failing = true;
-    await readAgain(services, "github-refusals");
-    const alert = await within(refusals).findByRole("alert");
+    await failAgain(services, "github-refusals");
+    const alert = within(refusals).getByRole("alert");
     expect(alert.textContent).toContain("불러오지 못했습니다");
     expect(alert.textContent).toContain(STALE);
     expect(within(refusals).getAllByRole("listitem")).toHaveLength(1);
