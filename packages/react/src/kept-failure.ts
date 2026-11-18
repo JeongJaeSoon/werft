@@ -1,3 +1,5 @@
+// apps/web/src/components/kept-failure.ts holds the same hook for the web
+// app, as this one is not exported; change both together.
 import type { UseQueryResult } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 

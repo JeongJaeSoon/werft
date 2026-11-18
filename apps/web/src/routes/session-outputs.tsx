@@ -41,6 +41,7 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { type ReactNode, useEffect, useId, useState } from "react";
+import { useKeptFailure } from "../components/kept-failure.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { RowMenu, RowMenuLink } from "../components/row-menu.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
@@ -372,18 +373,7 @@ function SessionGitHubRefusals({
 }) {
   const { t, locale } = useI18n();
   const refusals = useSessionGitHubRefusals(session);
-  // A query with no data forgets its error once it reads again; the failure
-  // and its retry, focus and all, stay until that read answers.
-  const [failed, setFailed] = useState<{ id: string; error: unknown }>();
-  useEffect(() => {
-    if (refusals.error) setFailed({ id: session.id, error: refusals.error });
-  }, [refusals.error, session.id]);
-  const error =
-    refusals.error ??
-    (failed?.id === session.id &&
-    refusals.errorUpdatedAt > refusals.dataUpdatedAt
-      ? failed.error
-      : null);
+  const error = useKeptFailure(refusals, `refusals:${session.id}`);
   const items = refusals.data?.items ?? [];
   if (!hasRepository(session)) return null;
   // A list never read is not an empty one. A later read that fails keeps
