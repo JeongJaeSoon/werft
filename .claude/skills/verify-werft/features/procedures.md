@@ -491,18 +491,22 @@ ap_get "/v1/sessions/$SID/outputs"
 # Actor: owner.
 ap_as owner
 node "$B" "$RUN" open /operations/usage
-node "$B" "$RUN" shot usage-owner
-node "$B" "$RUN" click '설치 전체'
 node "$B" "$RUN" shot usage-installation
+node "$B" "$RUN" click '내 사용량'
+node "$B" "$RUN" shot usage-owner
+node "$B" "$RUN" open /operations/limits
+node "$B" "$RUN" shot limits-owner
 node "$B" "$RUN" open /
 node "$B" "$RUN" click 'Verify Owner'
 node "$B" "$RUN" click 로그아웃
 node "$B" "$RUN" login member
 node "$B" "$RUN" open /operations/usage
 node "$B" "$RUN" shot usage-member
+node "$B" "$RUN" open /operations/limits
+node "$B" "$RUN" shot limits-member
 ```
 
-기대: 제목 “사용량·한도”, 집계 범위 “내 사용량”·owner만 “설치 전체”. 세션·실행 시간·비용(추정)·토큰 KPI. 기간 UTC, “내가 시작한 세션 기준” 설명. owner의 한도 표는 동시 실행 slot·입력 메시지 저장·세션당 비용·세션당 토큰·세션당 대기 입력·turn 최대 시간. member는 설치 전체 선택·한도 표가 없고 자신의 기록이 없으면 “아직 사용 기록이 없습니다”. API 수치와 같은 범위·기간으로 비교한다. 소스: `apps/web/src/routes/usage.tsx`, `i18n/usage.ts`.
+기대: 제목 “사용량·한도”, 탭은 개요·사용량·도구 활동·한도(`/operations`, `/operations/usage`, `/operations/tools`, `/operations/limits`). 사용량 탭은 세션·실행 시간·비용(추정)·토큰 KPI와 기간(7일·30일·90일)이다. KPI 아래 줄은 “<범위> · <시작일> – <끝일> (UTC) · 비용·토큰·실행 시간은 세션을 시작한 날에 붙습니다 · <시각>에 읽은 값”이다. owner에게는 집계 범위 “내 사용량”·“설치 전체”가 있고 처음은 “설치 전체”다. member에게는 집계 범위 선택이 없고 범위는 “내 사용량”이다. 한도 탭은 owner에게 “실행 용량” 카드(사용 중인 슬롯, 입력 메시지 저장)와 한도 표를 보인다. 표는 설치 행 셋(동시 실행 슬롯·입력 메시지 저장·성과물 저장)과 세션 행 넷(비용·토큰·대기 입력·턴 시간)이다. member에게는 용량 카드가 없고 “내 세션에 적용됩니다”가 붙은 표만 있다. 그 표는 구성원 행 셋(동시 실행 슬롯·월 비용·성과물 저장, 모두 상한 없음)과 같은 세션 행 넷이다. 행 이름은 `packages/react/src/components/operations/messages.ts`의 `installationLimits`를 그대로 쓰므로 그 파일과 대조한다. API 수치와 같은 범위·기간으로 비교한다. 소스: `apps/web/src/routes/operations.tsx`, `packages/react/src/components/operations/installation-limits.tsx`.
 
 ## P-WEB-SETTINGS — 연동·key·언어·워크스페이스
 
@@ -750,6 +754,8 @@ ap_web GET "/v1/agents/$AID/identities"
 ```
 
 기대: config 200 `configured:true`, app 200 `created:true`, `slack_app.app_id`가 A0FAKE로 시작한다. helper 내부 install start 200 authorize_url·expires_at(출력하지 않음). complete 200 `installation.status:"verified"`, `agent_identity`. mock overlay의 `CONSOLE_ORIGIN`(`http://127.0.0.1:3000`, 로컬 호스트라 http 허용)에서 이벤트 주소를 계산하므로 `GET /v1/agents/{id}/slack/app`의 `event_url`이 `http://127.0.0.1:3000/v1/slack/events/<agent_id>`이고 `warnings:[]`, `events.state:"pending"`이다(`events_url_unset`은 콘솔 주소가 없거나 https가 아닌 비로컬 주소일 때만 온다). config token GET·PUT의 `urls`는 `redirect_url`(`http://127.0.0.1:3000/settings/linked-accounts/slack`)과 `events_url_template`(`…/v1/slack/events/{agent_id}`)이다. identities에는 active `slack_bot` 한 행이 남고 P-SLACK-INBOUND의 로컬 signed POST도 동작한다. `finalized:true`는 이벤트 주소(`CONSOLE_ORIGIN`에서 계산한 값, 이벤트 입구를 콘솔과 따로 둘 때만 owner가 설정 > 연동 > Slack의 "이벤트 입구 주소"에 저장한 값, `PUT /v1/slack-settings`)가 있고 이벤트 구독 URL을 포함한 앱 manifest 갱신이 성공할 때 반환된다(권한이 변경되면 `reinstall_required` warning이 함께 올 수 있다). 소스: `packages/adapters/chat/slack/src/slack-events-finalize.ts`. 실제 Slack 배달에는 Slack이 닿는 HTTPS 콘솔 주소(`CONSOLE_ORIGIN`, 이벤트 입구가 따로면 그 저장한 주소)와 설치 finalize가 필요하다.
+
+`mock-slack`은 앱·토큰·사용자를 메모리에만 둔다(`packages/testkit/src/fake-slack-api.ts`). 그래서 재시작하면 앞서 만든 앱과 토큰이 사라진다. 그 뒤 이벤트는 `users.info: invalid_auth`로, 설치는 409 `SLACK_APP_GONE`으로 실패한다. 이렇게 되면 에이전트의 Slack 앱을 지우고 다시 만든 뒤 설치한다. 재시작이 필요한 시험은 이 절을 다시 돌리는 데서 시작한다.
 
 ## P-SLACK-INBOUND — 서명·inbox·중복·claim/lease
 
