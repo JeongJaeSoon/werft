@@ -13,7 +13,7 @@ import { receiptActorOf } from "@werft-ai/platform";
 import { and, eq, sql } from "drizzle-orm";
 import { lockAgentToChange } from "../agents.ts";
 import { UUID } from "../control-shared.ts";
-import { lockedRole } from "../musterrolle/api-keys.ts";
+import { lockedRole } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import {
   agentPullRequestSettings,

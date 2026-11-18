@@ -9,7 +9,7 @@ import {
   type PullRequestSettled,
 } from "@werft-ai/platform";
 import { and, eq, notInArray, sql } from "drizzle-orm";
-import { enqueueActionNotice } from "../musterrolle/action-notices.ts";
+import { enqueueActionNotice } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import { pushRequests, sessions, slackOutbox } from "../schema.ts";
 import { findPullRequest, savePullRequestIn } from "./pull-requests.ts";

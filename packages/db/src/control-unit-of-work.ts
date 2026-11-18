@@ -34,12 +34,6 @@ import {
   lockSessionForControl,
 } from "./control-shared.ts";
 import { dbNow, fromDbNow } from "./db-clock.ts";
-import {
-  cancelParkedRequests,
-  closeWorkerRequests,
-  recordLostInputWait,
-} from "./decision/pending-requests.ts";
-import { awaitingInputAt, publicStatus } from "./decision/pending-status.ts";
 import type { Database } from "./queries.ts";
 import { decideRecoveryAtomic, resumeAtomic } from "./recovery-control.ts";
 import { openResumeReceipt } from "./resume-control.ts";
@@ -59,6 +53,12 @@ import {
 import { closeAtomic } from "./sessions/close-control.ts";
 import { drainOf, openDrainReceipt } from "./sessions/drain.ts";
 import { pauseAtomic } from "./sessions/pause-control.ts";
+import {
+  cancelParkedRequests,
+  closeWorkerRequests,
+  recordLostInputWait,
+} from "./sessions/pending-requests.ts";
+import { awaitingInputAt, publicStatus } from "./sessions/pending-status.ts";
 import {
   announceInputWaitEnded,
   inputWaitBefore,

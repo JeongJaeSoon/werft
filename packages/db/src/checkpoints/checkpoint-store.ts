@@ -36,9 +36,12 @@ import {
   turns,
   unassignedSessions,
 } from "../schema.ts";
-import { openDrainReceipt } from "../sessions/drain.ts";
-import { hasRestorePoint } from "../sessions/pause-policy.ts";
-import { recordEvent, recordStatus } from "../sessions/session-events.ts";
+import {
+  hasRestorePoint,
+  openDrainReceipt,
+  recordEvent,
+  recordStatus,
+} from "../sessions/index.ts";
 import { readCheckpointPointer } from "../worker-unit-of-work.ts";
 
 /**

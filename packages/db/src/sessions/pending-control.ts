@@ -22,7 +22,7 @@ import type {
   WorkerPendingStore,
 } from "@werft-ai/platform";
 import { and, asc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
-import { runtimeColumns } from "../checkpoints/checkpoint-runtime.ts";
+import { runtimeColumns } from "../checkpoints/index.ts";
 import { OPEN_TURN_STATUSES, parseTurnSequence } from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
@@ -34,29 +34,19 @@ import {
   sessions,
   turns,
 } from "../schema.ts";
-import {
-  DRAINING_STATES,
-  drainOf,
-  openDrainReceipt,
-} from "../sessions/drain.ts";
-import { acquireFence, leaseHeld } from "../sessions/fence.ts";
-import {
-  lockDeliveredParked,
-  settleParkedDeliveries,
-} from "../sessions/parked-group.ts";
-import { openPauseReceipt, openSystemPark } from "../sessions/pause-control.ts";
+import { DRAINING_STATES, drainOf, openDrainReceipt } from "./drain.ts";
+import { acquireFence, leaseHeld } from "./fence.ts";
+import { lockDeliveredParked, settleParkedDeliveries } from "./parked-group.ts";
+import { openPauseReceipt, openSystemPark } from "./pause-control.ts";
+import { awaitingInputAt, publicStatus } from "./pending-status.ts";
 import {
   announceInputWaitEnded,
   inputWaitBefore,
   recordEvent,
   recordStatus,
-} from "../sessions/session-events.ts";
-import { insertAskedToolCallAudit } from "../sessions/tool-call-audit.ts";
-import {
-  openInterruptFor,
-  turnInterruptPending,
-} from "../sessions/turn-interrupts.ts";
-import { awaitingInputAt, publicStatus } from "./pending-status.ts";
+} from "./session-events.ts";
+import { insertAskedToolCallAudit } from "./tool-call-audit.ts";
+import { openInterruptFor, turnInterruptPending } from "./turn-interrupts.ts";
 
 const CANCELLED_BEFORE_ANSWER = {
   park: "the turn was parked before the answer reached the request",

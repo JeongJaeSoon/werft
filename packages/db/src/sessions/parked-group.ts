@@ -22,8 +22,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { dbNow } from "../db-clock.ts";
-import { cancelParkedRequests } from "../decision/pending-requests.ts";
-import { enqueueEndedIntentNotices } from "../musterrolle/action-notices.ts";
+import { enqueueEndedIntentNotices } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import { moveToResuming } from "../resume-control.ts";
 import {
@@ -36,6 +35,7 @@ import {
   turns,
 } from "../schema.ts";
 import { enqueueWithin } from "./enqueue.ts";
+import { cancelParkedRequests } from "./pending-requests.ts";
 import { recordInputWaitStage } from "./session-events.ts";
 
 type SessionRow = typeof sessions.$inferSelect;

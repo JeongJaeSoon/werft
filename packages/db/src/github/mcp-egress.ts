@@ -21,7 +21,7 @@ import {
   visibleMcpTools,
 } from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { mcpSettingsOfRelease } from "../agents/mcp-settings.ts";
+import { mcpSettingsOfRelease } from "../agents/index.ts";
 import { githubPolicyColumns, githubPolicyOfRow } from "../github-settings.ts";
 import type { Database } from "../queries.ts";
 import {

@@ -7,13 +7,17 @@ import { and, eq, inArray, lte, sql } from "drizzle-orm";
 import { fromDbNow } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import { receipts, type sessions } from "../schema.ts";
-import {
-  PAUSE,
-  PAUSE_DRAIN_DEADLINE_MS,
-  pauseBlocker,
-} from "./pause-control.ts";
+import { pauseBlocker } from "./pause-control.ts";
 
+export const PAUSE = "pause";
 export const CLOSE = "close";
+
+/**
+ * The initial drain observation deadline.
+ * Past it a pause still short of its safe boundary shows why; nothing is
+ * killed on account of it.
+ */
+export const PAUSE_DRAIN_DEADLINE_MS = 60_000;
 
 /**
  * The admission states a bound worker drains in, and where a drain that

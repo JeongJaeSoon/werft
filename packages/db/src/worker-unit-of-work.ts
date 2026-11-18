@@ -119,14 +119,8 @@ import {
   KILL_RECEIPT_OPERATIONS,
   terminateReceiptResult,
 } from "./control-unit-of-work.ts";
+import { encodeEventCursor } from "./cursors.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
-import {
-  abandonUndeliveredAnswers,
-  closeWorkerRequests,
-  parkTurnRequests,
-  recordLostInputWait,
-} from "./decision/pending-requests.ts";
-import { awaitingInputAt, publicStatus } from "./decision/pending-status.ts";
 import { sessionGitHubMcpOf, sessionMcpOf } from "./github/mcp-egress.ts";
 import {
   catalogMismatchCause,
@@ -195,7 +189,6 @@ import {
   contextGap,
   raiseContextGap,
 } from "./sessions/context-gap.ts";
-import { encodeEventCursor } from "./sessions/cursors.ts";
 import {
   CLOSE,
   drainBlocker,
@@ -221,6 +214,13 @@ import {
   hasRestorePoint,
   restoreBaseRevision,
 } from "./sessions/pause-policy.ts";
+import {
+  abandonUndeliveredAnswers,
+  closeWorkerRequests,
+  parkTurnRequests,
+  recordLostInputWait,
+} from "./sessions/pending-requests.ts";
+import { awaitingInputAt, publicStatus } from "./sessions/pending-status.ts";
 import {
   notBefore,
   recordEvent,

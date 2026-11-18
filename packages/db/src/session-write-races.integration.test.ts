@@ -14,7 +14,6 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresPendingRequests } from "./decision/pending-requests.ts";
 import { createPostgresAgentAdminStore } from "./musterrolle/agent-admins.ts";
 import { createPostgresWorkspaceKeyStore } from "./musterrolle/api-keys.ts";
 import { createPostgresInviteStore } from "./musterrolle/invites.ts";
@@ -38,6 +37,7 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
+import { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
 import { fixtureTeam, joinFixtureTeam } from "./testing/fixture-team.ts";
 import {
   fixtureRelease,

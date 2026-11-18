@@ -39,7 +39,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { findPgError, lockPeople } from "../control-shared.ts";
-import { lockedAdministers } from "../musterrolle/agent-admins.ts";
+import { lockedAdministers } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import {
   achievementJudgments,

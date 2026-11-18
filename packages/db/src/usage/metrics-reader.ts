@@ -1,8 +1,7 @@
 import type { SessionBudget } from "@werft-ai/platform";
 import { type AnyColumn, and, eq, gt, isNull, lte, sql } from "drizzle-orm";
-import { actionableOfSession } from "../decision/pending-status.ts";
 import type { Database } from "../queries.ts";
-import { awaitingLaunch } from "../scheduler/scheduler-store.ts";
+import { awaitingLaunch } from "../scheduler/index.ts";
 import {
   providerUsageTotals,
   queueMessages,
@@ -11,6 +10,7 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "../schema.ts";
+import { actionableOfSession } from "../sessions/index.ts";
 import { rowsOf } from "../statement-rows.ts";
 
 // Endings a turn keeps. outcome_unknown is left out: an operator's recovery

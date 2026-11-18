@@ -14,11 +14,11 @@ import { testCaller } from "@werft-ai/testkit/callers";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { createPostgresWorkerPendingStore } from "./decision/pending-control.ts";
-import { createPostgresPendingRequests } from "./decision/pending-requests.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import { pendingRequests } from "./schema.ts";
+import { createPostgresWorkerPendingStore } from "./sessions/pending-control.ts";
+import { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
 import { launchSession } from "./testing/launches.ts";
 import {
   fixtureRelease,

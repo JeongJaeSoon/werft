@@ -16,6 +16,7 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { encodeMemberCursor } from "../cursors.ts";
 import { dbNow } from "../db-clock.ts";
 import * as schema from "../schema.ts";
 import {
@@ -32,7 +33,6 @@ import {
   webSessions,
   workspaces,
 } from "../schema.ts";
-import { encodeMemberCursor } from "../sessions/cursors.ts";
 import { fixtureTeam } from "../testing/fixture-team.ts";
 import { bootstrapOwner, createWebSession } from "./identity.ts";
 import { createPostgresInviteStore } from "./invites.ts";

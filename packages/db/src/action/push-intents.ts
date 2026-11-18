@@ -9,7 +9,7 @@ import {
 } from "@werft-ai/contracts";
 import type { PushIntentStore, PushIntentTransition } from "@werft-ai/platform";
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
-import { enqueueEndedIntentNotices } from "../musterrolle/action-notices.ts";
+import { enqueueEndedIntentNotices } from "../musterrolle/index.ts";
 import { createPostgresPushRequests } from "../push-requests.ts";
 import type { Database } from "../queries.ts";
 import {

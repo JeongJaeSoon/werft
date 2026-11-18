@@ -30,7 +30,7 @@ import {
   deleteSecretInTx,
   readSecretInTx,
   writeSecretInTx,
-} from "../secrets/secret-values.ts";
+} from "../secrets/index.ts";
 import { deletedBy, notDeleted } from "../soft-delete.ts";
 import { lockedRole } from "./api-keys.ts";
 

@@ -12,7 +12,7 @@ import {
   type WorkspaceMcpSessionState,
 } from "@werft-ai/platform";
 import { and, eq, inArray } from "drizzle-orm";
-import { creatorOf, releaseMcpOf } from "../github/mcp-egress.ts";
+import { creatorOf, releaseMcpOf } from "../github/index.ts";
 import type { Database } from "../queries.ts";
 import {
   agentWorkspaceMcpServers,

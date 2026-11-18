@@ -1,6 +1,6 @@
 import type { SlackInstallStore } from "@werft-ai/platform";
 import { and, eq, lt } from "drizzle-orm";
-import { revokeInstallationIdentities } from "../musterrolle/agent-identities.ts";
+import { revokeInstallationIdentities } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import { slackInstallations, slackInstallStates } from "../schema.ts";
 import {

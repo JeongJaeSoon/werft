@@ -26,6 +26,11 @@ import {
   lockPeople,
   UUID,
 } from "../control-shared.ts";
+import {
+  decodeTeamCursor,
+  encodeTeamCursor,
+  type TeamCursor,
+} from "../cursors.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -40,11 +45,6 @@ import {
   receipts,
   users,
 } from "../schema.ts";
-import {
-  decodeTeamCursor,
-  encodeTeamCursor,
-  type TeamCursor,
-} from "../sessions/cursors.ts";
 
 // Teams (design 4.7). Lock order, everywhere here: the people
 // involved (users, then memberships, in user_id order), the team, then team

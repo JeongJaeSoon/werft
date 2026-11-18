@@ -9,10 +9,6 @@ import {
 import type { SessionViewer } from "@werft-ai/platform";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { earlierInSecond, releaseLabel } from "./agents/release-labels.ts";
-import {
-  actionableOfSession,
-  IN_FLIGHT_STATUSES,
-} from "./decision/pending-status.ts";
 import { insideAgent } from "./musterrolle/administers.ts";
 import { sessionVisibleTo } from "./musterrolle/session-shares.ts";
 import type { Database } from "./queries.ts";
@@ -33,6 +29,10 @@ import {
   surfaceBindings,
   users,
 } from "./schema.ts";
+import {
+  actionableOfSession,
+  IN_FLIGHT_STATUSES,
+} from "./sessions/pending-status.ts";
 
 // Postgres `left` counts code points; the contract counts UTF-16 units.
 function clip(text: string) {

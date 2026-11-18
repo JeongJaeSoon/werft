@@ -49,28 +49,25 @@ import {
   sessions,
   turns,
 } from "../schema.ts";
-import { contextCoverage, contextGap } from "../sessions/context-gap.ts";
-import {
-  closeParkedGroup,
-  continuationMessage,
-} from "../sessions/parked-group.ts";
-import { hasRestorePoint } from "../sessions/pause-policy.ts";
-import {
-  keyReaches,
-  lockRequester,
-  lockSessionReach,
-} from "../sessions/requester-locks.ts";
-import {
-  announceInputWaitEnded,
-  inputWaitBefore,
-  recordInputWaitStage,
-} from "../sessions/session-events.ts";
+import { contextCoverage, contextGap } from "./context-gap.ts";
+import { closeParkedGroup, continuationMessage } from "./parked-group.ts";
+import { hasRestorePoint } from "./pause-policy.ts";
 import {
   actionable,
   actionablePendingWhere,
   actionableRequest,
   askerIsLive,
 } from "./pending-status.ts";
+import {
+  keyReaches,
+  lockRequester,
+  lockSessionReach,
+} from "./requester-locks.ts";
+import {
+  announceInputWaitEnded,
+  inputWaitBefore,
+  recordInputWaitStage,
+} from "./session-events.ts";
 
 const ANSWER = "answer";
 

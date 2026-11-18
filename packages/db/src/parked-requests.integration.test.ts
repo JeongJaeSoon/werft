@@ -27,12 +27,6 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresPushIntents } from "./action/push-intents.ts";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
-import { createPostgresWorkerPendingStore } from "./decision/pending-control.ts";
-import {
-  cancelParkedRequests,
-  createPostgresPendingRequests,
-  readInputWaits,
-} from "./decision/pending-requests.ts";
 import { createPostgresGitHubMcpStore } from "./github/mcp-egress.ts";
 import { launchFailedCause, quarantineLaunch } from "./launch-quarantine.ts";
 import {
@@ -64,6 +58,12 @@ import {
 import { createPostgresTurnInterrupts } from "./sessions/interrupt-control.ts";
 import { expireParkedGroups } from "./sessions/parked-group.ts";
 import { pauseBlocker } from "./sessions/pause-control.ts";
+import { createPostgresWorkerPendingStore } from "./sessions/pending-control.ts";
+import {
+  cancelParkedRequests,
+  createPostgresPendingRequests,
+  readInputWaits,
+} from "./sessions/pending-requests.ts";
 import { announceLapsedInputWaits } from "./sessions/session-events.ts";
 import { launchSession } from "./testing/launches.ts";
 import {

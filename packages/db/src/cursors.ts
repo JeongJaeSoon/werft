@@ -6,7 +6,7 @@ import {
   sessionIdSchema as uuidSchema,
 } from "@werft-ai/contracts";
 import { InvalidCursorError } from "@werft-ai/platform";
-import { SEQUENCE_MAX } from "../control-shared.ts";
+import { SEQUENCE_MAX } from "./control-shared.ts";
 
 // The public SSE `id:` and the worker's append cursor are the same value: the
 // events row id in base36 behind an `ev_` prefix. Opaque to clients, but

@@ -25,7 +25,7 @@ import {
   sessionOutcomes,
   sessions,
 } from "../schema.ts";
-import { queueAchievementJudgment } from "../sessions/achievement-judgments.ts";
+import { queueAchievementJudgment } from "../sessions/index.ts";
 
 type Row = typeof pullRequests.$inferSelect;
 

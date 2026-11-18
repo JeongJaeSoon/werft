@@ -19,7 +19,6 @@ import {
   transactionWithBindingRetry,
 } from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
-import { awaitingInputAt, publicStatus } from "../decision/pending-status.ts";
 import type { Database } from "../queries.ts";
 import {
   executions,
@@ -31,22 +30,15 @@ import {
   workerLaunches,
 } from "../schema.ts";
 import { contextCoverage } from "./context-gap.ts";
+import { PAUSE } from "./drain.ts";
 import {
   hasRestorePoint,
   pauseCoverageBlocker,
   pausedReceiptResult,
   restoreBaseRevision,
 } from "./pause-policy.ts";
+import { awaitingInputAt, publicStatus } from "./pending-status.ts";
 import { recordStatus } from "./session-events.ts";
-
-export const PAUSE = "pause";
-
-/**
- * The initial drain observation deadline.
- * Past it a pause still short of its safe boundary shows why; nothing is
- * killed on account of it.
- */
-export const PAUSE_DRAIN_DEADLINE_MS = 60_000;
 
 type SessionRow = typeof sessions.$inferSelect;
 

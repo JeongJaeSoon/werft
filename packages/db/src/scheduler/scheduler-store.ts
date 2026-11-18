@@ -50,7 +50,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
-import { readPointerImageRuntime } from "../checkpoints/checkpoint-runtime.ts";
+import { readPointerImageRuntime } from "../checkpoints/index.ts";
 import {
   LAUNCHABLE_ADMISSION_STATES,
   OPEN_TURN_STATUSES,
@@ -60,7 +60,7 @@ import {
 import { expireOverdueTerminations } from "../control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "../db-clock.ts";
 import { launchFailedCause, quarantineLaunch } from "../launch-quarantine.ts";
-import { enqueueWorkerImageReplacedNotices } from "../musterrolle/model-cut-notices.ts";
+import { enqueueWorkerImageReplacedNotices } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import {
   holdIncompatibleBeforeLaunch,
@@ -74,8 +74,7 @@ import {
   workerImageRefusals,
   workerLaunches,
 } from "../schema.ts";
-import { hasRestorePoint } from "../sessions/pause-policy.ts";
-import { recordEvent } from "../sessions/session-events.ts";
+import { hasRestorePoint, recordEvent } from "../sessions/index.ts";
 import { createPostgresWorkerUnitOfWork } from "../worker-unit-of-work.ts";
 
 /** A connection the pass lock can live on for as long as the pass runs. */

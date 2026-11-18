@@ -18,7 +18,7 @@ import {
   sessionShareTargets,
   users,
 } from "../schema.ts";
-import { usageOf } from "../usage/agent-usage.ts";
+import { usageOf } from "../usage/index.ts";
 
 // A session create, input or answer is decided by the policy before its
 // write opens, so the write judges the requester and their reach again over

@@ -10,10 +10,13 @@ import {
   transactionWithBindingRetry,
 } from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
-import { awaitingInputAt, publicStatus } from "../decision/pending-status.ts";
 import type { Database } from "../queries.ts";
 import { sessions } from "../schema.ts";
-import { recordStatus } from "../sessions/session-events.ts";
+import {
+  awaitingInputAt,
+  publicStatus,
+  recordStatus,
+} from "../sessions/index.ts";
 
 export function renameAtomic(
   db: Database,

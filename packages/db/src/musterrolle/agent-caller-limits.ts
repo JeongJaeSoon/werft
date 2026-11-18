@@ -28,11 +28,10 @@ import {
   withLiveRepositories,
 } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
-import { captureWorkspaceMcpStart } from "../agents/agent-workspace-mcp.ts";
-import { captureMcpStart } from "../agents/mcp-settings.ts";
+import { captureMcpStart, captureWorkspaceMcpStart } from "../agents/index.ts";
 import { lockPeople, UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
-import { sessionGitHubMcpOf, sessionMcpOf } from "../github/mcp-egress.ts";
+import { sessionGitHubMcpOf, sessionMcpOf } from "../github/index.ts";
 import { agentGitHubSettingsOf } from "../github-settings.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -46,7 +45,7 @@ import {
   memberTeams,
   receipts,
 } from "../schema.ts";
-import { lockEditRight } from "../usage/agent-usage.ts";
+import { lockEditRight } from "../usage/index.ts";
 import { createPostgresDecisionLog } from "./authz-decisions.ts";
 
 // An edit takes rows in the order of agent-usage.ts: user → membership →

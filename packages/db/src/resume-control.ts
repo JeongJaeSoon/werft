@@ -16,7 +16,6 @@ import {
   type IdempotencyScope,
 } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
-import { awaitingInputAt, publicStatus } from "./decision/pending-status.ts";
 import type { Database } from "./queries.ts";
 import {
   attempts,
@@ -32,6 +31,7 @@ import { pinRefusesLive } from "./session-spec-pin.ts";
 import { closeParkedGroup } from "./sessions/parked-group.ts";
 import { openPauseReceipt } from "./sessions/pause-control.ts";
 import { pausedResumeRefusal } from "./sessions/pause-policy.ts";
+import { awaitingInputAt, publicStatus } from "./sessions/pending-status.ts";
 import { recordStatus } from "./sessions/session-events.ts";
 
 export const RESUME = "resume";

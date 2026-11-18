@@ -15,7 +15,7 @@ import {
 } from "@werft-ai/contracts";
 import type { ClaimedOutcome, SessionOutcomeStore } from "@werft-ai/platform";
 import { and, asc, eq, sql } from "drizzle-orm";
-import { insertPullRequestOutcome } from "../action/pull-requests.ts";
+import { insertPullRequestOutcome } from "../action/index.ts";
 import type { Database } from "../queries.ts";
 import { outcomeRefreshQuotas, sessionOutcomes, sessions } from "../schema.ts";
 import { rowsOf } from "../statement-rows.ts";

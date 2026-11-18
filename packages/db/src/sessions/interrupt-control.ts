@@ -24,7 +24,6 @@ import {
   parseTurnSequence,
 } from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
-import { cancelParkedRequests } from "../decision/pending-requests.ts";
 import type { Database } from "../queries.ts";
 import {
   controlIntents,
@@ -36,6 +35,7 @@ import {
   turns,
 } from "../schema.ts";
 import { closeParkedGroup } from "./parked-group.ts";
+import { cancelParkedRequests } from "./pending-requests.ts";
 import { announceInputWaitEnded, inputWaitBefore } from "./session-events.ts";
 import { interruptReceiptResult } from "./turn-interrupts.ts";
 
