@@ -11,6 +11,7 @@ import {
   credentialSourceOf,
   type ExistingSettings,
   type ExistingSettingsEntry,
+  MANAGEMENT_ROLES,
   modelFamiliesSchema,
   planSettingsImport,
   receiptActorOf,
@@ -535,7 +536,7 @@ async function liveIn(
 const WRITERS: Record<SettingsKind, readonly string[]> = {
   connection: ["owner"],
   mcp: ["owner"],
-  repository: ["owner", "admin"],
+  repository: MANAGEMENT_ROLES["workspace.manage"] ?? [],
 };
 
 type HeldRow = {

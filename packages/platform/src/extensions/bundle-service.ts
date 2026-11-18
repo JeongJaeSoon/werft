@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { WorkspaceRole } from "@werft-ai/contracts";
+import { WORKSPACE_MANAGER_ROLES } from "@werft-ai/contracts";
 import {
   BundleArchiveError,
   type CheckpointObjectStore,
@@ -26,10 +27,8 @@ import type {
 import type { ExtensionMode } from "./resolve.ts";
 
 /** Who may register, review and attach bundles; the web console and API routes say the same. */
-export const EXTENSION_MANAGER_ROLES: readonly WorkspaceRole[] = [
-  "owner",
-  "admin",
-];
+export const EXTENSION_MANAGER_ROLES: readonly WorkspaceRole[] =
+  WORKSPACE_MANAGER_ROLES;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const DIGEST = /^[0-9a-f]{64}$/;

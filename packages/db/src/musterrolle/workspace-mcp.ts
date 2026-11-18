@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { SecretPurpose, WorkspaceRole } from "@werft-ai/contracts";
 import {
+  MANAGEMENT_ROLES,
   type Principal,
   receiptActorOf,
   type SecretKey,
@@ -40,7 +41,8 @@ import { lockedRole } from "./api-keys.ts";
 // carries a credential.
 
 const SUBJECT = "workspace";
-const MANAGERS: readonly WorkspaceRole[] = ["owner", "admin"];
+const MANAGERS: readonly WorkspaceRole[] =
+  MANAGEMENT_ROLES["workspace.manage"] ?? [];
 /** The person's: they go on disconnect and on a new client. */
 const PERSON_PURPOSES = [
   "mcp_access_token",

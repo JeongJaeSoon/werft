@@ -16,6 +16,7 @@ import {
   type SessionScope,
   SLACK_SURFACE_ACTION_VALUES,
   scopesForRole,
+  WORKSPACE_MANAGER_ROLES,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import type {
@@ -340,7 +341,7 @@ export const MANAGEMENT_ROLES: Partial<
   "achievement.review": ["owner", "admin"],
 };
 
-const WORKSPACE_MANAGERS: readonly WorkspaceRole[] = ["owner", "admin"];
+const WORKSPACE_MANAGERS: readonly WorkspaceRole[] = WORKSPACE_MANAGER_ROLES;
 
 // What a manager may do on a session outside its share, given a reason
 // (A.3 step 2): read it under audit, take it over, end it, recover it.

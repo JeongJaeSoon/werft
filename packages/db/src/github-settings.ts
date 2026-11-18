@@ -18,6 +18,7 @@ import type {
   GitHubSettingsStore,
   GitHubWorkStore,
 } from "@werft-ai/platform";
+import { MANAGEMENT_ROLES } from "@werft-ai/platform";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { lockedRole } from "./musterrolle/api-keys.ts";
 import type { Database } from "./queries.ts";
@@ -596,7 +597,10 @@ export function createPostgresGitHubSettingsStore(
       return db.transaction(async (tx) => {
         // A demotion or disable committed after the policy's check wins.
         const role = await lockedRole(tx, input.workspaceId, input.updatedBy);
-        if (role !== "owner" && role !== "admin") {
+        if (
+          role === null ||
+          !(MANAGEMENT_ROLES["workspace.manage"] ?? []).includes(role)
+        ) {
           return { outcome: "actor_inactive" as const };
         }
         const [held] = await tx

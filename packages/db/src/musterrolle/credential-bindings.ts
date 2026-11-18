@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ReceiptActor } from "@werft-ai/contracts";
+import { WORKSPACE_MANAGER_ROLES } from "@werft-ai/contracts";
 import type {
   AgentContact,
   CredentialBinding,
@@ -493,7 +494,7 @@ export function createPostgresCredentialBindingStore(
         .select(columns)
         .from(memberships)
         .innerJoin(users, eq(users.id, memberships.userId))
-        .where(and(live, inArray(memberships.role, ["owner", "admin"])))
+        .where(and(live, inArray(memberships.role, WORKSPACE_MANAGER_ROLES)))
         .orderBy(asc(users.email));
     },
   };

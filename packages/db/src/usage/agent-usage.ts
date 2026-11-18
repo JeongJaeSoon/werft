@@ -1,4 +1,5 @@
 import type { AgentUsageScope } from "@werft-ai/contracts";
+import { WORKSPACE_MANAGER_ROLES } from "@werft-ai/contracts";
 import {
   type AgentUsageState,
   type AgentUsageStore,
@@ -35,7 +36,7 @@ type Lockable<R> = PromiseLike<R> & {
   for(strength: "share"): PromiseLike<R>;
 };
 
-const MANAGERS: readonly string[] = ["owner", "admin"];
+const MANAGERS: readonly string[] = WORKSPACE_MANAGER_ROLES;
 
 /**
  * Whether `who` may use the agent, as of this read, or as of these locks.

@@ -9,7 +9,7 @@ import {
   pullRequestSettingsSchema,
 } from "@werft-ai/contracts";
 import type { PullRequestSettingsStore } from "@werft-ai/platform";
-import { receiptActorOf } from "@werft-ai/platform";
+import { MANAGEMENT_ROLES, receiptActorOf } from "@werft-ai/platform";
 import { and, eq, sql } from "drizzle-orm";
 import { lockAgentToChange } from "../agents.ts";
 import { UUID } from "../control-shared.ts";
@@ -217,7 +217,10 @@ export function createPostgresPullRequestSettingsStore(
       return db.transaction(async (tx) => {
         // A demotion or disable committed after the policy's check wins.
         const role = await lockedRole(tx, input.workspaceId, input.updatedBy);
-        if (role !== "owner" && role !== "admin") {
+        if (
+          role === null ||
+          !(MANAGEMENT_ROLES["workspace.manage"] ?? []).includes(role)
+        ) {
           return { outcome: "actor_inactive" as const };
         }
         const [held] = await tx

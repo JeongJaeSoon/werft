@@ -7,7 +7,7 @@ import type {
   TeamPage,
   TeamStore,
 } from "@werft-ai/platform";
-import { receiptActorOf } from "@werft-ai/platform";
+import { MANAGEMENT_ROLES, receiptActorOf } from "@werft-ai/platform";
 import {
   and,
   asc,
@@ -121,7 +121,7 @@ function joinedTeams(
 }
 
 // D23: changing a team is the workspace's managers' alone.
-const TEAM_MANAGERS = ["owner", "admin"];
+const TEAM_MANAGERS: readonly string[] = MANAGEMENT_ROLES["team.manage"] ?? [];
 
 type TeamOperation =
   | "create_team"

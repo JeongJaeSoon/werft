@@ -1,4 +1,5 @@
 import type { SessionScope, WorkspaceRole } from "@werft-ai/contracts";
+import { WORKSPACE_MANAGER_ROLES } from "@werft-ai/contracts";
 import type { Principal, UsageDecision } from "@werft-ai/platform";
 import { and, arrayContains, asc, eq, inArray, isNull } from "drizzle-orm";
 import { lockActorAccount } from "../control-shared.ts";
@@ -34,7 +35,7 @@ import { usageOf } from "../usage/index.ts";
 // A team's archive takes the agent_usage rows of the agents that list it,
 // in id order, before the team (member-teams.ts, delete).
 
-const MANAGERS: readonly WorkspaceRole[] = ["owner", "admin"];
+const MANAGERS: readonly WorkspaceRole[] = WORKSPACE_MANAGER_ROLES;
 
 export type Requester = {
   userId: string | null;
