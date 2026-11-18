@@ -49,9 +49,9 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   LAUNCH_FAILED:
     "작업 환경을 여러 번 띄우지 못해 입력이 처리되지 않았습니다 — 담당자에게 알린 뒤 다시 보내세요.",
   LOGIN_LINK_REQUIRED:
-    "이 이메일로 만든 계정이 이미 있어요 — 기존 계정으로 로그인한 뒤 설정에서 Google을 연결하세요.",
+    "이 이메일로 만든 계정이 이미 있습니다 — 기존 계정으로 로그인한 뒤 설정에서 Google을 연결하세요.",
   TAKEOVER_REQUIRED:
-    "요청한 분이 떠나 오너나 어드민이 이어받을 때까지 멈춰요 — 워크스페이스 오너나 어드민에게 인수를 요청하세요.",
+    "요청한 분이 떠나 오너나 어드민이 이어받을 때까지 멈춥니다 — 워크스페이스 오너나 어드민에게 인수를 요청하세요.",
   INVITE_EXPIRED:
     "초대가 회수됐거나 새 초대로 바뀌었거나 만료됐습니다 — 오너나 어드민에게 새 초대를 요청하세요.",
   INVITE_USED: "이미 사용한 초대입니다 — 로그인 화면으로 가세요.",
@@ -60,11 +60,11 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   SCOPE_NOT_GRANTABLE:
     "발급하는 사람이 지금 가진 권한보다 넓은 key는 만들 수 없고, 에이전트 key는 승인 권한을 갖지 못합니다 — scope를 줄여 다시 발급하세요.",
   CREDENTIAL_UNBOUND:
-    "연결 설정이 바뀌어 시작하지 못했어요 — 에이전트 관리자에게 문의하세요.",
+    "연결 설정이 바뀌어 시작하지 못했습니다 — 에이전트 관리자에게 문의하세요.",
   AGENT_NOT_RUNNABLE:
-    "이 에이전트는 지금 새 세션을 시작할 수 없어요(일시 정지·보관됐거나 release가 승인되지 않았어요) — 에이전트 관리자에게 문의하세요.",
+    "이 에이전트는 지금 새 세션을 시작할 수 없습니다(일시 정지·보관됐거나 release가 승인되지 않았습니다) — 에이전트 관리자에게 문의하세요.",
   CREDENTIAL_REF_IN_USE:
-    "이 자격 이름은 이미 다른 곳(에이전트 또는 Slack 앱 연결)에 묶여 있어 쓸 수 없어요 — 다른 이름을 고르세요.",
+    "이 자격 이름은 이미 다른 곳(에이전트 또는 Slack 앱 연결)에 묶여 있어 쓸 수 없습니다 — 다른 이름을 고르세요.",
   SELF_PROTECTED:
     "자기 역할이나 접근은 직접 바꿀 수 없습니다 — 다른 오너나 어드민에게 요청하세요.",
   MEMBER_DISABLED:
@@ -79,14 +79,14 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   CATALOG_MISMATCH:
     "이 세션의 연결·모델·저장소가 더 이상 카탈로그에 없어 입력이 처리되지 않았습니다 — 운영자가 카탈로그를 되돌린 뒤 다시 보내세요.",
   SLACK_NOT_INSTALLED:
-    "Slack이 아직 설치되지 않았어요 — 오너·어드민에게 Slack 설치를 요청하세요.",
+    "Slack이 아직 설치되지 않았습니다 — 오너·어드민에게 Slack 설치를 요청하세요.",
   LINK_TEAM_MISMATCH:
-    "연결된 Slack 워크스페이스가 아니에요 — 안내된 워크스페이스 계정으로 다시 시도하세요.",
+    "연결된 Slack 워크스페이스가 아닙니다 — 안내된 워크스페이스 계정으로 다시 시도하세요.",
   LINK_TAKEN:
-    "이 Slack 계정은 다른 사용자에게 연결돼 있어요 — 오너·어드민에게 문의하세요.",
-  LINK_EXISTS: "이미 연결된 Slack 계정이 있어요 — 해제한 뒤 다시 연결하세요.",
+    "이 Slack 계정은 다른 사용자에게 연결돼 있습니다 — 오너·어드민에게 문의하세요.",
+  LINK_EXISTS: "이미 연결된 Slack 계정이 있습니다 — 해제한 뒤 다시 연결하세요.",
   AGENT_IDENTITY_TAKEN:
-    "이 Slack 앱은 다른 에이전트에 연결돼 있어요 — 그 연결을 회수한 뒤 다시 연결하세요.",
+    "이 Slack 앱은 다른 에이전트에 연결돼 있습니다 — 그 연결을 회수한 뒤 다시 연결하세요.",
   NOT_READY: "아직 준비되지 않았습니다 — 잠시 뒤 다시 시도하세요.",
   CURSOR_EXPIRED: "이어보기 위치가 만료됐습니다 — 처음부터 다시 불러오세요.",
   LEASE_EXPIRED: "실행 점유가 만료됐습니다 — 현재 상태를 확인하세요.",
@@ -121,49 +121,49 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   TEAM_MANAGES_AGENTS:
     "이 팀이 담당 팀인 에이전트가 있습니다 — 그 에이전트들의 담당 팀을 먼저 옮기세요.",
   VARIABLE_NAME_INVALID:
-    "변수 이름은 대문자·숫자·밑줄만 쓰고 대문자로 시작해야 해요 — 64자까지입니다.",
+    "변수 이름은 대문자·숫자·밑줄만 쓰고 대문자로 시작해야 합니다 — 64자까지입니다.",
   VARIABLE_NAME_RESERVED:
-    "플랫폼이 직접 쓰는 이름이라 변수로 등록할 수 없어요 — 다른 이름을 고르세요.",
+    "플랫폼이 직접 쓰는 이름이라 변수로 등록할 수 없습니다 — 다른 이름을 고르세요.",
   VARIABLE_VALUE_INVALID:
-    "값에 쓸 수 없는 문자가 있어요 — NUL 문자와 잘못된 문자를 빼고 다시 저장하세요.",
-  VARIABLE_VALUE_TOO_LARGE: "값이 너무 커요 — 48 KB 이하로 줄이세요.",
+    "값에 쓸 수 없는 문자가 있습니다 — NUL 문자와 잘못된 문자를 빼고 다시 저장하세요.",
+  VARIABLE_VALUE_TOO_LARGE: "값이 너무 큽니다 — 48 KB 이하로 줄이세요.",
   VARIABLE_QUOTA_EXCEEDED:
-    "변수를 더 만들 수 없어요 — 쓰지 않는 변수를 지운 뒤 다시 시도하세요.",
+    "변수를 더 만들 수 없습니다 — 쓰지 않는 변수를 지운 뒤 다시 시도하세요.",
   MCP_SERVER_QUOTA_EXCEEDED:
-    "MCP 서버를 더 등록할 수 없어요 — 쓰지 않는 서버를 지운 뒤 다시 시도하세요.",
+    "MCP 서버를 더 등록할 수 없습니다 — 쓰지 않는 서버를 지운 뒤 다시 시도하세요.",
   DECISION_MODEL_REQUIRED:
-    "판정 모델이 없어 성과 규칙을 바꿀 수 없어요 — 워크스페이스 오너가 성과 규칙 화면에서 판정 모델을 설정하세요.",
+    "판정 모델이 없어 성과 규칙을 바꿀 수 없습니다 — 워크스페이스 오너가 성과 규칙 화면에서 판정 모델을 설정하세요.",
   VARIABLE_UNRESOLVED:
-    "이 에이전트가 쓰는 변수를 지금 받을 수 없어요 — 워크스페이스 어드민에게 문의하세요.",
+    "이 에이전트가 쓰는 변수를 지금 받을 수 없습니다 — 워크스페이스 어드민에게 문의하세요.",
   SECRET_ACK_REQUIRED:
-    "엔진에 시크릿을 전달하면 모든 요청자와 도구가 읽을 수 있어요 — 위험 안내를 확인한 뒤 다시 저장하세요.",
+    "엔진에 시크릿을 전달하면 모든 요청자와 도구가 읽을 수 있습니다 — 위험 안내를 확인한 뒤 다시 저장하세요.",
   SECRET_GRANT_ALL_FORBIDDEN:
-    "시크릿은 모든 에이전트에게 줄 수 없어요 — 받을 에이전트를 하나씩 고르세요.",
+    "시크릿은 모든 에이전트에게 줄 수 없습니다 — 받을 에이전트를 하나씩 고르세요.",
   SECRET_ENV_UNSUPPORTED:
-    "아직 시크릿을 엔진에 전달하는 런타임이 없어요 — 일반 변수만 저장할 수 있습니다.",
+    "아직 시크릿을 엔진에 전달하는 런타임이 없습니다 — 일반 변수만 저장할 수 있습니다.",
   VERSION_MISMATCH:
-    "다른 사람이 먼저 바꿨어요 — 새로 고쳐 최신 내용을 확인한 뒤 다시 저장하세요.",
+    "다른 사람이 먼저 바꿨습니다 — 새로 고쳐 최신 내용을 확인한 뒤 다시 저장하세요.",
   PRECONDITION_REQUIRED:
-    "저장하려면 읽은 버전이 필요해요 — 새로 고친 뒤 다시 시도하세요.",
+    "저장하려면 읽은 버전이 필요합니다 — 새로 고친 뒤 다시 시도하세요.",
   CONFIG_TOKEN_INVALID:
-    "Slack App Configuration Token을 쓸 수 없어요 — 오너·어드민이 새 token을 붙여 넣으세요.",
-  SLACK_APP_CREATING: "Slack 앱을 만드는 중이에요 — 잠시 뒤 다시 확인하세요.",
+    "Slack App Configuration Token을 쓸 수 없습니다 — 오너·어드민이 새 token을 붙여 넣으세요.",
+  SLACK_APP_CREATING: "Slack 앱을 만드는 중입니다 — 잠시 뒤 다시 확인하세요.",
   SLACK_APP_GONE:
-    "Slack에 이 앱이 없어요 — Slack 탭에서 앱을 삭제하고 다시 설치하세요.",
+    "Slack에 이 앱이 없습니다 — Slack 탭에서 앱을 삭제하고 다시 설치하세요.",
   SLACK_LINK_NOT_CONFIGURED:
-    "Slack 계정 연결을 아직 쓸 수 없어요 — 워크스페이스 어드민에게 연동 > Slack 설정을 요청하세요.",
+    "Slack 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 어드민에게 연동 > Slack 설정을 요청하세요.",
   GITHUB_LINK_NOT_CONFIGURED:
-    "GitHub 계정 연결을 아직 쓸 수 없어요 — 워크스페이스 어드민에게 연동 > GitHub의 사용자 연결 설정을 요청하세요.",
+    "GitHub 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 어드민에게 연동 > GitHub의 사용자 연결 설정을 요청하세요.",
   AGENT_NOT_ACTIVE:
-    "활성 release가 없는 에이전트예요 — release를 활성화한 뒤 다시 시도하세요.",
+    "활성 release가 없는 에이전트입니다 — release를 활성화한 뒤 다시 시도하세요.",
   SLACK_INSTALL_STATE_INVALID:
-    "설치 링크가 만료됐거나 이미 썼어요 — 설치를 처음부터 다시 시작하세요.",
+    "설치 링크가 만료됐거나 이미 썼습니다 — 설치를 처음부터 다시 시작하세요.",
   SLACK_INSTALL_DENIED:
-    'Slack에서 설치를 허용하지 않았어요 — 다시 시작해 "Allow"를 누르세요.',
+    'Slack에서 설치를 허용하지 않았습니다 — 다시 시작해 "Allow"를 누르세요.',
   SLACK_INSTALL_REJECTED:
-    "Slack 응답이 이 에이전트의 앱·workspace와 맞지 않아 저장하지 않았어요 — 설치를 다시 시작하세요.",
+    "Slack 응답이 이 에이전트의 앱·workspace와 맞지 않아 저장하지 않았습니다 — 설치를 다시 시작하세요.",
   SLACK_INSTALL_CONFLICT:
-    "이 Slack 앱은 다른 workspace에 이미 설치돼 있어요 — 그쪽 설치를 먼저 해제하세요.",
+    "이 Slack 앱은 다른 workspace에 이미 설치돼 있습니다 — 그쪽 설치를 먼저 해제하세요.",
 };
 
 const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
