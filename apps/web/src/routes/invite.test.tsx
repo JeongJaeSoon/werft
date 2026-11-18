@@ -349,7 +349,8 @@ describe("단계 이동", () => {
     await user.click(newcomer);
     await focusedHeading("새 계정으로 수락");
     await user.click(screen.getByRole("button", { name: "이전" }));
-    await focusedHeading("초대받은 이메일로 쓰는 계정이 있나요?");
+    const { ko } = await import("../i18n/ko.ts");
+    await focusedHeading(ko["invite.account.question"]);
     await user.click(
       screen.getByRole("button", { name: "네, 계정이 있습니다" }),
     );
@@ -746,6 +747,7 @@ describe("공급자 계정으로 가입", () => {
             providers: [],
           }),
       });
+      const { ko } = await import("../i18n/ko.ts");
       const user = await setupUser();
       await user.click(
         await screen.findByRole("button", { name: "다시 시도" }),
@@ -755,7 +757,7 @@ describe("공급자 계정으로 가입", () => {
           document.activeElement ===
             screen.getByRole("heading", {
               level: 2,
-              name: "초대받은 이메일로 쓰는 계정이 있나요?",
+              name: ko["invite.account.question"],
             }),
         ).toBe(true),
       );

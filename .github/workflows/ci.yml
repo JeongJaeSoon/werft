@@ -406,6 +406,7 @@ jobs:
               - tests/agent-sdk-compat/
               - tests/architecture.
               - tests/message-keys.
+              - tests/korean-copy.
               - tests/ci-images.
               - tests/ci-services.
               - tests/ci-plan.

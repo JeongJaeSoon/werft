@@ -78,7 +78,7 @@ export const authKo = {
   "invite.steps": "초대 수락 단계",
   "invite.step.account": "계정 확인",
   "invite.step.password": "비밀번호 입력",
-  "invite.account.question": "초대받은 이메일로 쓰는 계정이 있나요?",
+  "invite.account.question": "초대받은 이메일로 쓰는 계정이 있습니까?",
   "invite.account.existing": "네, 계정이 있습니다",
   "invite.account.new": "아니요, 처음입니다",
   "invite.provider.alternatives": "비밀번호 없이 가입",
