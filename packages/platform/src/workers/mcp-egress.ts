@@ -9,7 +9,7 @@ import {
   mcpUpstreamOf,
   type SessionCatalog,
 } from "../sessions/catalog.ts";
-import { mcpToolPermitted } from "../sessions/mcp-tool-decision.ts";
+import { mcpToolPermitted } from "../sessions/index.ts";
 
 /**
  * The remote MCP route's decision, made on every exchange the egress proxy

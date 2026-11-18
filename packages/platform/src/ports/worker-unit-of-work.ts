@@ -17,7 +17,7 @@ import type {
 import type { ImageRuntime, RuntimeFingerprint } from "@werft-ai/runtime-core";
 import type { CheckpointPointer } from "../checkpoints/ports/checkpoint-store.ts";
 import type { CheckpointOutputObject } from "../checkpoints/ports/checkpoint-verifier.ts";
-import type { PricedBy, ProviderUsage } from "../limits/model-prices.ts";
+import type { PricedBy, ProviderUsage } from "../limits/index.ts";
 import type {
   SessionGitHubMcp,
   SessionMcp,

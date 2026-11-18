@@ -40,11 +40,11 @@ import {
   startRepositoryOf,
 } from "@werft-ai/contracts";
 import { releaseModel } from "../agents/release-ids.ts";
-import type { ExtensionRefusal } from "../extensions/resolve.ts";
 import {
+  type ExtensionRefusal,
   resolveSessionExtensions,
   type SessionExtensionsDeps,
-} from "../extensions/session-extensions.ts";
+} from "../extensions/index.ts";
 import {
   budgetExceeded,
   InstallationConfigUnavailableError,
@@ -54,7 +54,7 @@ import {
   type SessionSpend,
   type Setting,
   sessionBudgetOf,
-} from "../limits/installation-limits.ts";
+} from "../limits/index.ts";
 import {
   type AuthorizationPolicy,
   agentPrivateError,

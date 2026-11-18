@@ -9,7 +9,7 @@ import {
   type SpecSource,
   specSourceSchema,
 } from "@werft-ai/contracts";
-import type { CatalogConnectionView } from "../sessions/catalog.ts";
+import type { CatalogConnectionView } from "../sessions/index.ts";
 
 // What a release runs as: a `spec_source` made once from its connection and
 // the snapshot its id was hashed over, and the `runtime_spec` it means. The

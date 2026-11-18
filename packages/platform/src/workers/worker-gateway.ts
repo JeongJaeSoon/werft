@@ -98,16 +98,14 @@ import type { GitHubPackagesStore } from "../github/ports/github-packages.ts";
 import type { McpEgressStore } from "../github/ports/mcp-egress.ts";
 import {
   budgetExceeded,
-  readSetting,
-  type SessionBudget,
-  type Setting,
-} from "../limits/installation-limits.ts";
-import {
   type PricedBy,
   type ProviderUsage,
   priceJudgmentUsage,
   priceProviderUsage,
-} from "../limits/model-prices.ts";
+  readSetting,
+  type SessionBudget,
+  type Setting,
+} from "../limits/index.ts";
 import type {
   RepositoryAttachmentStore,
   RepositoryPinStore,
