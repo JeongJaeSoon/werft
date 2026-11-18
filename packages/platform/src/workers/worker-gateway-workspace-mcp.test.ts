@@ -5,7 +5,6 @@ import {
   type SessionWorkspaceMcp,
   workspaceMcpBinding,
 } from "../catalog/catalog.ts";
-import type { McpEgressStore } from "../github/ports/mcp-egress.ts";
 import type {
   ClaimInput,
   ClaimResult,
@@ -15,6 +14,7 @@ import type {
 import type { WorkerPendingStore } from "../sessions/ports/pending-requests.ts";
 import { testBinding, testCatalog } from "../testing/catalog-fakes.ts";
 import { acceptAllCheckpoints } from "../testing/checkpoints.ts";
+import type { McpEgressStore } from "./ports/mcp-egress.ts";
 import type {
   WorkspaceMcpEgressStore,
   WorkspaceMcpSessionState,

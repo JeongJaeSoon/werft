@@ -117,7 +117,6 @@ import {
 } from "../github/ports/github-gate.ts";
 import type { GitHubMcpStore } from "../github/ports/github-mcp.ts";
 import type { GitHubPackagesStore } from "../github/ports/github-packages.ts";
-import type { McpEgressStore } from "../github/ports/mcp-egress.ts";
 import {
   budgetExceeded,
   type PricedBy,
@@ -185,6 +184,7 @@ import {
   type PackageRegistry,
   PUBLIC_PACKAGE_REGISTRIES,
 } from "./package-registries.ts";
+import type { McpEgressStore } from "./ports/mcp-egress.ts";
 import type { WorkspaceMcpEgressStore } from "./ports/workspace-mcp-egress.ts";
 import { runtimeConfigOfSpec } from "./runtime-config-of-spec.ts";
 import {

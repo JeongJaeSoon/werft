@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { mcpToolPermitted } from "../catalog/index.ts";
 import {
-  ALLOWED_MCP_METHODS,
   forbidden,
   type McpEgressDecision,
   type McpEgressRequest,
+  mcpMethodRouted,
   uuidV5,
 } from "./mcp-egress.ts";
 import type {
@@ -116,11 +116,7 @@ export function createWorkspaceMcpEgress(deps: {
       return refuse("credential_unavailable");
     }
     const { method, tool } = request.rpc;
-    if (
-      method !== null &&
-      !ALLOWED_MCP_METHODS.has(method) &&
-      !method.startsWith("notifications/")
-    ) {
+    if (method !== null && !mcpMethodRouted(method)) {
       return forbidden(`JSON-RPC method ${method} is not routed`);
     }
     if (method === "tools/call") {

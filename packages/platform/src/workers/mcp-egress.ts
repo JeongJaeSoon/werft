@@ -6,10 +6,7 @@ import {
   mcpUpstreamOf,
   type SessionCatalog,
 } from "../catalog/index.ts";
-import type {
-  McpEgressStore,
-  McpRefusalReason,
-} from "../github/ports/mcp-egress.ts";
+import type { McpEgressStore, McpRefusalReason } from "./ports/mcp-egress.ts";
 
 /**
  * The remote MCP route's decision, made on every exchange the egress proxy
@@ -42,12 +39,17 @@ export type McpEgressDecision =
 
 // The JSON-RPC methods a tool call takes. Resources, prompts, completions
 // and the rest would reach the service account's data past the tool pins.
-export const ALLOWED_MCP_METHODS: ReadonlySet<string> = new Set([
+const ALLOWED_MCP_METHODS: ReadonlySet<string> = new Set([
   "initialize",
   "ping",
   "tools/list",
   "tools/call",
 ]);
+
+/** Whether the egress routes a JSON-RPC method at all; a notification always passes. */
+export function mcpMethodRouted(method: string): boolean {
+  return ALLOWED_MCP_METHODS.has(method) || method.startsWith("notifications/");
+}
 
 const REFUSAL_MESSAGES: Record<McpRefusalReason, string> = {
   credential_unbound:
@@ -155,11 +157,7 @@ export function createMcpEgress(deps: {
       };
     }
     const { method, tool } = request.rpc;
-    if (
-      method !== null &&
-      !ALLOWED_MCP_METHODS.has(method) &&
-      !method.startsWith("notifications/")
-    ) {
+    if (method !== null && !mcpMethodRouted(method)) {
       return forbidden(`JSON-RPC method ${method} is not routed`);
     }
     if (method === "tools/call") {

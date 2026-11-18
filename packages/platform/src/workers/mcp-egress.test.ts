@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { mcpBinding, type SessionCatalog } from "../catalog/catalog.ts";
 import { visibleMcpTools } from "../catalog/mcp-tool-decision.ts";
+import { createMcpEgress, uuidV5 } from "./mcp-egress.ts";
 import type {
   McpEgressStore,
   McpRefusalRecord,
   McpSessionState,
-} from "../github/ports/mcp-egress.ts";
-import { createMcpEgress, uuidV5 } from "./mcp-egress.ts";
+} from "./ports/mcp-egress.ts";
 
 const server = {
   url: "http://fake-mcp:4020/mcp",

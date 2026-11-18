@@ -2,10 +2,10 @@ import { GITHUB_MCP_FIXED_TOOLS, githubMcpTools } from "@werft-ai/contracts";
 import { signGitHubMcpGrant } from "../action/github/github-mcp-server.ts";
 import type { GitHubMcpStore } from "../github/ports/github-mcp.ts";
 import {
-  ALLOWED_MCP_METHODS,
   forbidden,
   type McpEgressDecision,
   type McpEgressRequest,
+  mcpMethodRouted,
 } from "./mcp-egress.ts";
 
 /**
@@ -45,11 +45,7 @@ export function createGitHubMcpEgress(deps: {
       return forbidden("The session names no one who started it");
     }
     const { method, tool } = request.rpc;
-    if (
-      method !== null &&
-      !ALLOWED_MCP_METHODS.has(method) &&
-      !method.startsWith("notifications/")
-    ) {
+    if (method !== null && !mcpMethodRouted(method)) {
       return forbidden(`JSON-RPC method ${method} is not routed`);
     }
     const exposed: readonly string[] =
