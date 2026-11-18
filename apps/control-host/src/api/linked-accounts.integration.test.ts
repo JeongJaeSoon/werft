@@ -5,6 +5,7 @@ import {
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
   getReceiptResponseSchema,
+  LINK_MESSAGES,
   listLinkedAccountsResponseSchema,
   slackLinkCallbackResponseSchema,
   startSlackLinkResponseSchema,
@@ -276,8 +277,7 @@ integration("Sign in with Slack over HTTP on PostgreSQL", () => {
     expect(response.status).toBe(409);
     expect(await errorOf(response)).toMatchObject({
       code: "LINK_TEAM_MISMATCH",
-      message:
-        "이 Slack 워크스페이스는 연결된 곳이 아니에요. Acme 워크스페이스 계정으로 다시 시도하세요",
+      message: LINK_MESSAGES.teamMismatch("Acme"),
     });
   });
 
@@ -287,8 +287,7 @@ integration("Sign in with Slack over HTTP on PostgreSQL", () => {
     expect(response.status).toBe(409);
     expect(await errorOf(response)).toMatchObject({
       code: "LINK_TAKEN",
-      message:
-        "이 Slack 계정은 다른 사용자에게 연결돼 있어요. 오너·어드민에게 문의하세요",
+      message: LINK_MESSAGES.taken,
     });
     const subject = await resolveLinkedSubject(db, {
       provider: "slack",

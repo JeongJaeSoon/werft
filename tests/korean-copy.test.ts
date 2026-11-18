@@ -12,6 +12,13 @@ const root = join(import.meta.dir, "..");
  */
 const READERS = ["apps/web/src", "packages/react/src", "packages/ui/src"];
 
+/**
+ * Server copy the web shows as it is: the linked-accounts screen prints the
+ * API error's message for a refused link. Only these files; the rest of the
+ * contracts is not screen copy.
+ */
+const SHOWN_AS_SENT = ["packages/contracts/src/musterrolle/linked-accounts.ts"];
+
 /** Inside the readers, files that draw nothing a user sees. */
 const NOT_READERS =
   /(^|\/)(test-support|testing|fixtures|__fixtures__)\/|\.test\.tsx?$|\.gen\.ts$/;
@@ -61,10 +68,13 @@ async function texts() {
     ),
   );
   const out: { at: string; text: string; jsx: boolean }[] = [];
-  for (const file of found
-    .flat()
-    .map((path) => relative(root, path))
-    .filter((path) => !NOT_READERS.test(path))) {
+  for (const file of [
+    ...found
+      .flat()
+      .map((path) => relative(root, path))
+      .filter((path) => !NOT_READERS.test(path)),
+    ...SHOWN_AS_SENT,
+  ]) {
     const source = ts.createSourceFile(
       file,
       await readFile(join(root, file), "utf8"),
