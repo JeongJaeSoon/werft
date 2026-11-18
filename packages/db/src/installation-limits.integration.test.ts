@@ -92,8 +92,7 @@ integration("installation limits on PostgreSQL", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: COST_LIMIT_USD,
-        sessionTokenLimit,
+        sessionBudget: { costUsd: COST_LIMIT_USD, tokens: sessionTokenLimit },
         leaseTtlMs: 30_000,
         sleep: async () => {},
       },
@@ -115,8 +114,7 @@ integration("installation limits on PostgreSQL", () => {
   const inputs = () => createPostgresSessionUnitOfWork(db);
   const store = (sessionTokenLimit: number | null = null) =>
     createPostgresSchedulerStore(db, {
-      sessionCostLimitUsd: COST_LIMIT_USD,
-      sessionTokenLimit,
+      sessionBudget: { costUsd: COST_LIMIT_USD, tokens: sessionTokenLimit },
       connectForLock: () => pool.connect(),
     });
 

@@ -233,8 +233,7 @@ beforeAll(async () => {
     pending: createPostgresWorkerPendingStore(db),
     options: {
       leaseTtlMs: 30_000,
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: 1_000, tokens: null },
     },
   });
   app = createApiApp({
@@ -278,8 +277,7 @@ integration(
     const backend = new WorkerBackend(() => `http://127.0.0.1:${server.port}`);
     const store = createPostgresSchedulerStore(db, {
       connectForLock: () => pool.connect(),
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: 1_000, tokens: null },
     });
     const pass = () =>
       runScheduler({

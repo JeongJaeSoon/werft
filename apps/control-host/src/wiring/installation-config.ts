@@ -272,10 +272,6 @@ export function createInstallationConfigSource(options: {
       };
     },
 
-    async sessionTokenLimit(): Promise<number | null> {
-      return tokenLimitOf(readOf(await saved()).get("session_token_limit"));
-    },
-
     /** What a launch reserved now is pinned to, both from one read. */
     async workerLimits(): Promise<WorkerLimits> {
       const read = readOf(await saved());
@@ -334,15 +330,4 @@ export function installationConfigOf(
     store: createPostgresInstallationConfigStore(db),
     warn: (message, fields) => logger.warn(message, fields ?? {}),
   });
-}
-
-/** The spend limits as the gateway and the scheduler store read them. */
-export function spendLimitSettings(source: InstallationConfigSource): {
-  sessionCostLimitUsd: () => Promise<number>;
-  sessionTokenLimit: () => Promise<number | null>;
-} {
-  return {
-    sessionCostLimitUsd: () => source.get("session_cost_limit_usd"),
-    sessionTokenLimit: source.sessionTokenLimit,
-  };
 }

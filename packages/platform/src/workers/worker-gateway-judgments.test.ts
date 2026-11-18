@@ -81,8 +81,7 @@ function harness(
       ...(upstream === null ? {} : { upstream }),
     },
     options: {
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: 1_000, tokens: null },
       leaseTtlMs: 30_000,
       now: () => NOW,
     },

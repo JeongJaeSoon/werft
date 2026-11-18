@@ -75,8 +75,7 @@ beforeEach(async () => {
   db = drizzle(client, { schema });
   logSink = new MemoryLogSink();
   store = createPostgresSchedulerStore(db, {
-    sessionCostLimitUsd: 1_000,
-    sessionTokenLimit: null,
+    sessionBudget: { costUsd: 1_000, tokens: null },
     connectForLock: async () => ({
       query: async (text: string) => {
         const result = await client.query<Record<string, unknown>>(text);

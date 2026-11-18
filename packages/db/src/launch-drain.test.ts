@@ -66,8 +66,7 @@ beforeEach(async () => {
       },
     },
     options: {
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: 1_000, tokens: null },
       leaseTtlMs: 60_000,
       sleep: async () => {},
     },
@@ -80,8 +79,7 @@ afterEach(async () => {
 
 function schedulerStore() {
   return createPostgresSchedulerStore(db, {
-    sessionCostLimitUsd: 1_000,
-    sessionTokenLimit: null,
+    sessionBudget: { costUsd: 1_000, tokens: null },
     connectForLock: async () => {
       throw new Error("not used");
     },

@@ -88,8 +88,7 @@ integration("execution Grant revocation on PostgreSQL", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: LEASE_TTL_MS,
         now,
         sleep: async () => {},
@@ -106,8 +105,7 @@ integration("execution Grant revocation on PostgreSQL", () => {
   const controls = () => createPostgresSessionControl(db);
   const store = () =>
     createPostgresSchedulerStore(db, {
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: 1_000, tokens: null },
       connectForLock: () => pool.connect(),
     });
   const revoke = (sessionId: string) =>

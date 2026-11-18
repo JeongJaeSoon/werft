@@ -56,6 +56,7 @@ import {
 import {
   budgetExceeded,
   InstallationConfigUnavailableError,
+  limitsReached,
   readSetting,
   type SessionBudget,
   type SessionLimits,
@@ -348,13 +349,10 @@ export function createSessionService(deps: {
   // Names only the limits reached: an unmetered session spends no dollars,
   // so its message never shows a dollar limit it cannot reach.
   function reachedLimits(spend: SessionSpend, budget: SessionBudget): string {
+    const at = limitsReached(spend, budget);
     const reached: string[] = [];
-    if (spend.costUsd >= budget.costUsd) {
-      reached.push(`${budget.costUsd} USD cost limit`);
-    }
-    if (budget.tokens !== null && spend.providerTokens >= budget.tokens) {
-      reached.push(`${budget.tokens} token limit`);
-    }
+    if (at.cost) reached.push(`${budget.costUsd} USD cost limit`);
+    if (at.tokens) reached.push(`${budget.tokens} token limit`);
     return reached.join(" and its ");
   }
   const now = deps.now ?? (() => new Date());

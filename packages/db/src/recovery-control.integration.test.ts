@@ -98,8 +98,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 2_000,
         now,
         sleep: async () => {},
@@ -116,8 +115,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
   const inputs = () => createPostgresSessionUnitOfWork(db);
   const store = () =>
     createPostgresSchedulerStore(db, {
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: 1_000, tokens: null },
       connectForLock: () => pool.connect(),
     });
 

@@ -40,8 +40,7 @@ async function claim(mode: PermissionMode, extra: Partial<WorkerBinding> = {}) {
     catalog: testCatalog(),
     checkpoints: acceptAllCheckpoints,
     options: {
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: 1_000, tokens: null },
       leaseTtlMs: 30_000,
     },
   });

@@ -108,8 +108,7 @@ function gateway(
     catalog: { connections: {}, repositories: {} },
     checkpoints: acceptAllCheckpoints,
     options: {
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: 1_000, tokens: null },
       leaseTtlMs: 30_000,
       maxWaitMs: 1_000,
       pollIntervalMs: 100,
@@ -235,8 +234,7 @@ describe("WorkerGateway", () => {
             }
           : {}),
         options: {
-          sessionCostLimitUsd: 1_000,
-          sessionTokenLimit: null,
+          sessionBudget: { costUsd: 1_000, tokens: null },
           leaseTtlMs: 30_000,
         },
       });
@@ -292,8 +290,7 @@ describe("WorkerGateway", () => {
         consoleOrigin: null,
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -339,8 +336,7 @@ describe("WorkerGateway", () => {
       catalog: { connections: {}, repositories: {} },
       checkpoints: acceptAllCheckpoints,
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
         maxWaitMs: 25_000,
         pollIntervalMs: 100,
@@ -419,8 +415,7 @@ describe("WorkerGateway", () => {
           : event;
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
         maxWaitMs: 1_000,
         pollIntervalMs: 100,
@@ -469,8 +464,7 @@ describe("WorkerGateway", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -544,8 +538,7 @@ describe("WorkerGateway", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -591,8 +584,7 @@ describe("WorkerGateway", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -644,8 +636,7 @@ describe("WorkerGateway", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -693,8 +684,7 @@ describe("WorkerGateway", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
         pollIntervalMs: 250,
         now: () => at,
@@ -778,8 +768,7 @@ describe("WorkerGateway", () => {
       }),
       checkpoints: acceptAllCheckpoints,
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
         workspaceEnforce: "fail",
       },
@@ -907,8 +896,7 @@ describe("WorkerGateway", () => {
       catalog: testCatalog(),
       checkpoints: acceptAllCheckpoints,
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -930,8 +918,7 @@ describe("WorkerGateway", () => {
       catalog: testCatalog(),
       checkpoints: acceptAllCheckpoints,
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -1014,8 +1001,7 @@ describe("WorkerGateway", () => {
         consoleOrigin: "https://console.example.com",
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -1094,8 +1080,7 @@ describe("WorkerGateway", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -1122,8 +1107,7 @@ describe("WorkerGateway", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -1183,8 +1167,7 @@ describe("WorkerGateway", () => {
           },
         },
         options: {
-          sessionCostLimitUsd: 1_000,
-          sessionTokenLimit: null,
+          sessionBudget: { costUsd: 1_000, tokens: null },
           leaseTtlMs: 30_000,
         },
       });
@@ -1303,8 +1286,7 @@ describe("WorkerGateway", () => {
           },
         },
         options: {
-          sessionCostLimitUsd: 1_000,
-          sessionTokenLimit: null,
+          sessionBudget: { costUsd: 1_000, tokens: null },
           leaseTtlMs: 30_000,
         },
       });
@@ -1442,8 +1424,7 @@ describe("WorkerGateway", () => {
       },
       checkpoints: acceptAllCheckpoints,
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -1483,8 +1464,7 @@ describe("WorkerGateway", () => {
       catalog: testCatalog(),
       checkpoints: acceptAllCheckpoints,
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     }).bootstrapClaim(
@@ -1589,8 +1569,7 @@ describe("WorkerGateway", () => {
       catalog,
       checkpoints: acceptAllCheckpoints,
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -1705,8 +1684,7 @@ describe("WorkerGateway", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -1787,8 +1765,7 @@ describe("WorkerGateway", () => {
         checkpoints: acceptAllCheckpoints,
         ...(protocol === undefined ? {} : { checkpointProtocol: protocol }),
         options: {
-          sessionCostLimitUsd: 1_000,
-          sessionTokenLimit: null,
+          sessionBudget: { costUsd: 1_000, tokens: null },
           leaseTtlMs: 30_000,
         },
       });
@@ -1846,8 +1823,7 @@ describe("WorkerGateway", () => {
         getRestorePlan: unimplemented,
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -1914,8 +1890,7 @@ describe("WorkerGateway", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -1963,8 +1938,7 @@ describe("WorkerGateway", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -2252,8 +2226,7 @@ describe("WorkerGateway", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -2345,8 +2318,7 @@ describe("WorkerGateway", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -2467,8 +2439,7 @@ describe("heartbeat control_pending", () => {
         Parameters<typeof createWorkerGateway>[0]["pending"]
       >,
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -2549,8 +2520,7 @@ describe("authorizeEgress", () => {
       },
       checkpoints: acceptAllCheckpoints,
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -2612,8 +2582,7 @@ describe("authorizeEgress", () => {
       onModelCutError: (error, cut) =>
         reported.push({ error, sessionId: cut.sessionId }),
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -2774,8 +2743,7 @@ describe("authorizeEgress through a forge", () => {
       checkpoints: acceptAllCheckpoints,
       ...(github === undefined ? {} : { github }),
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -2948,8 +2916,7 @@ describe("unmetered sessions", () => {
       catalog: { connections: {}, repositories: {} },
       checkpoints: acceptAllCheckpoints,
       options: {
-        sessionCostLimitUsd: 1,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
@@ -3014,8 +2981,7 @@ describe("unmetered sessions", () => {
         }),
         checkpoints: acceptAllCheckpoints,
         options: {
-          sessionCostLimitUsd: 1,
-          sessionTokenLimit: null,
+          sessionBudget: { costUsd: 1, tokens: null },
           leaseTtlMs: 30_000,
         },
       });
@@ -3041,7 +3007,7 @@ describe("unmetered sessions", () => {
     const instance = createWorkerGateway({
       work: work({
         claimAtomic: async (input) => {
-          judged.push(input.costLimitUsd);
+          judged.push(input.budget.costUsd);
           return {
             outcome: "claimed",
             binding: testBinding({
@@ -3064,13 +3030,12 @@ describe("unmetered sessions", () => {
       catalog: testCatalog({}),
       checkpoints: acceptAllCheckpoints,
       options: {
-        sessionCostLimitUsd: async () => {
+        sessionBudget: async () => {
           if (unreadable) {
             throw new Error("the installation settings could not be read");
           }
-          return costLimit;
+          return { costUsd: costLimit, tokens: null };
         },
-        sessionTokenLimit: async () => null,
         workspaceEnforce: async () => enforce,
         leaseTtlMs: 30_000,
       },
@@ -3130,10 +3095,9 @@ describe("unmetered sessions", () => {
       catalog: { connections: {}, repositories: {} },
       checkpoints: acceptAllCheckpoints,
       options: {
-        sessionCostLimitUsd: async () => {
+        sessionBudget: async () => {
           throw new Error("the installation settings could not be read");
         },
-        sessionTokenLimit: null,
         leaseTtlMs: 30_000,
       },
     });
@@ -3289,8 +3253,7 @@ describe("egress and claim through the real GitHub gate", () => {
       github: gate,
       checkpoints: acceptAllCheckpoints,
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });

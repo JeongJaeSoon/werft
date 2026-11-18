@@ -194,8 +194,7 @@ async function topology(
     },
     checkpoints: acceptAllCheckpoints,
     options: {
-      sessionCostLimitUsd: SESSION_COST_LIMIT_USD,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: SESSION_COST_LIMIT_USD, tokens: null },
       leaseTtlMs: 60_000,
     },
   });

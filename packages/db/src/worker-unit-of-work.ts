@@ -1185,13 +1185,6 @@ export function runnableCondition(runnable: ClaimCatalog): SQL {
   return sql`(${onConnection} AND ${onRuntime} AND ${onRepository})`;
 }
 
-function budgetOf(input: {
-  costLimitUsd: number;
-  tokenLimit: number | null;
-}): SessionBudget {
-  return { costUsd: input.costLimitUsd, tokens: input.tokenLimit };
-}
-
 /**
  * The proxy refuses a spent session's calls, and the engine reports that as
  * whatever the refusal looked like to it: a 403 it calls an authentication
@@ -1380,8 +1373,7 @@ async function giveUpOnCatalogMismatch(
     | "settingsGeneration"
     | "unsettledRepositoryIds"
     | "unsettledConnectionIds"
-    | "costLimitUsd"
-    | "tokenLimit"
+    | "budget"
   >,
   now: Date,
 ): Promise<"catalog_mismatch" | "context_gap" | null> {
@@ -1399,7 +1391,7 @@ async function giveUpOnCatalogMismatch(
     !LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState) ||
     // Reserved for this launch and no later one.
     session.executionId !== launch.executionId ||
-    budgetExceeded(session, budgetOf(input)) ||
+    budgetExceeded(session, input.budget) ||
     runsHere(session, runnable) ||
     // A runtime version this image does not ship is a newer replica's
     // session during a rolling upgrade, not a catalog mismatch: it is left
@@ -2189,7 +2181,7 @@ export function createPostgresWorkerUnitOfWork(
                 isNull(sessions.executionRevokedAt),
                 isNull(sessions.takeoverRequiredAt),
                 runnableCondition(runnable),
-                withinBudget(budgetOf(input)),
+                withinBudget(input.budget),
                 restoreRetryDue(),
                 ...(launch.sessionId === null
                   ? []
@@ -2673,7 +2665,7 @@ export function createPostgresWorkerUnitOfWork(
         }
         // Read under the session lock the fence holds, and finalize adds to
         // it under the same lock, so a turn cannot start on a stale total.
-        const overBudget = budgetExceeded(fenced.session, budgetOf(input));
+        const overBudget = budgetExceeded(fenced.session, input.budget);
         const none = {
           outcome: "ok" as const,
           input: null,
@@ -3174,11 +3166,7 @@ export function createPostgresWorkerUnitOfWork(
           checkpointRevision = advanced.revision;
         }
 
-        const ended = budgetEnded(
-          input.terminal,
-          fenced.session,
-          budgetOf(input),
-        );
+        const ended = budgetEnded(input.terminal, fenced.session, input.budget);
         const unknownOutcome = input.terminal.status === "outcome_unknown";
         const [terminal] = await tx
           .update(turns)

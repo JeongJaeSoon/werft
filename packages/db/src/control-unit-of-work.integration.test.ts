@@ -89,8 +89,7 @@ integration("session terminate on PostgreSQL", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: LEASE_TTL_MS,
         now,
         sleep: async () => {},
@@ -107,8 +106,7 @@ integration("session terminate on PostgreSQL", () => {
   const inputs = () => createPostgresSessionUnitOfWork(db);
   const store = () =>
     createPostgresSchedulerStore(db, {
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: 1_000, tokens: null },
       connectForLock: () => pool.connect(),
     });
 

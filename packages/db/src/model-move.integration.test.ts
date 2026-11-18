@@ -110,8 +110,7 @@ integration("a model moved at the next turn's claim", () => {
         },
       },
       options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+        sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
         now: () => new Date("2026-09-24T00:00:00.000Z"),
         sleep: async () => {},

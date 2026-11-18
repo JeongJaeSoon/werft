@@ -108,8 +108,7 @@ beforeEach(async () => {
     mcp: createPostgresMcpEgressStore(db),
     githubMcp: { store, grantKey: GRANT_KEY },
     options: {
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: 1_000, tokens: null },
       leaseTtlMs: 60_000,
     },
   });

@@ -168,10 +168,7 @@ import {
   wireGitHubRegistry,
   wireGitPusher,
 } from "../wiring/github-api.ts";
-import {
-  createInstallationConfigSource,
-  spendLimitSettings,
-} from "../wiring/installation-config.ts";
+import { createInstallationConfigSource } from "../wiring/installation-config.ts";
 import {
   type SlackServicesStageDeps,
   wireSlackBot,
@@ -1156,7 +1153,7 @@ const workers = createWorkerGateway({
         },
       }),
   options: {
-    ...spendLimitSettings(installationConfig),
+    sessionBudget: installationConfig.sessionBudget,
     workspaceEnforce: () => installationConfig.get("workspace_enforce"),
     leaseTtlMs: settings.leaseTtlMs,
     // How long a permission or question takes answers. The worker waits

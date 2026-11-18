@@ -754,8 +754,7 @@ integration("API server on PostgreSQL", () => {
         }),
         checkpoints: acceptAllCheckpoints,
         options: {
-          sessionCostLimitUsd: 25,
-          sessionTokenLimit: null,
+          sessionBudget: { costUsd: 25, tokens: null },
           leaseTtlMs: 30_000,
         },
       });

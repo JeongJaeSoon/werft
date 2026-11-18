@@ -282,9 +282,7 @@ export type WorkerGatewayOptions = {
    * exchange, input and finalize, so a saved change applies to the next
    * one; one that cannot read it is a retryable 503.
    */
-  sessionCostLimitUsd: Setting<number>;
-  /** Provider tokens, held the same way; null, none. */
-  sessionTokenLimit: Setting<number | null>;
+  sessionBudget: Setting<SessionBudget>;
   /** Lifetime of the session token handed out by bootstrapClaim. */
   sessionTokenTtlMs?: number;
   /**
@@ -1077,11 +1075,7 @@ export function createWorkerGateway(deps: {
     );
   const budgetNow = async (): Promise<SessionBudget> => {
     try {
-      const [costUsd, tokens] = await Promise.all([
-        readSetting(deps.options.sessionCostLimitUsd),
-        readSetting(deps.options.sessionTokenLimit),
-      ]);
-      return { costUsd, tokens };
+      return await readSetting(deps.options.sessionBudget);
     } catch (error) {
       throw unreadable("The session's cost and token limits", error);
     }
@@ -1669,8 +1663,7 @@ export function createWorkerGateway(deps: {
       const mcpServers = catalog.mcp_servers;
       const result = await work.claimAtomic({
         ...claimable,
-        costLimitUsd: budget.costUsd,
-        tokenLimit: budget.tokens,
+        budget,
         nonceHash: hashWorkerToken(request.credential.nonce),
         executionId: request.execution_id,
         executionGeneration: request.execution_generation,
@@ -2384,8 +2377,7 @@ export function createWorkerGateway(deps: {
         const result = await work.nextInputAtomic({
           fence,
           now: now(),
-          costLimitUsd: budget.costUsd,
-          tokenLimit: budget.tokens,
+          budget,
         });
         if (result.outcome !== "ok") rejected(result);
         // A draining attempt is never handed new input, and neither is a
@@ -2791,8 +2783,7 @@ export function createWorkerGateway(deps: {
       // request started with.
       const finalized = await work.finalizeAtomic({
         ...attempt,
-        costLimitUsd: budget.costUsd,
-        tokenLimit: budget.tokens,
+        budget,
         checkpointVersionsHeld,
         ...(checkpointTranscriptBytes === undefined
           ? {}

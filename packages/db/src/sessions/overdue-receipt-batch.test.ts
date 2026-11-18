@@ -247,8 +247,7 @@ describe("overdue receipt expiry takes one batch per call", () => {
     await client.exec("DROP INDEX receipts_open_terminate_idx");
     const sink = new MemoryLogSink();
     const store = createPostgresSchedulerStore(db, {
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: 1_000, tokens: null },
       connectForLock: () => Promise.reject(new Error("not used")),
       logger: new StructuredLogger({ sinks: [sink] }),
     });

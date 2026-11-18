@@ -14,10 +14,7 @@ import {
 import { installedDescriptors } from "@werft-ai/runtime-codecs";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { PASS_DEGRADED_EXIT, PASS_SKIPPED_EXIT } from "../pass-loop/loop.ts";
-import {
-  installationConfigOf,
-  spendLimitSettings,
-} from "../wiring/installation-config.ts";
+import { installationConfigOf } from "../wiring/installation-config.ts";
 import { schedulerBackendFor } from "./backend.ts";
 import {
   CODEX_SANDBOX_DISABLED_WARNING,
@@ -66,7 +63,7 @@ export async function main(
       createPostgresSchedulerStore(db, {
         connectForLock: () => pool.connect(),
         logger,
-        ...spendLimitSettings(installationConfig),
+        sessionBudget: installationConfig.sessionBudget,
       }),
       (error) => {
         logger.error("Database connection lost; failing the rest of the pass", {

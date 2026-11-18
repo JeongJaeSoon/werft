@@ -140,8 +140,7 @@ integration("scheduler launch failures on PostgreSQL", () => {
     backend.broken.add(badB.session_id);
     const store = createPostgresSchedulerStore(db, {
       connectForLock: () => pool.connect(),
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
+      sessionBudget: { costUsd: 1_000, tokens: null },
     });
     const logged: string[] = [];
     // The default backoff is judged on the database clock; a test spends it
