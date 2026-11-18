@@ -59,7 +59,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useHasPermission, useRole } from "../auth/guard.tsx";
 import { LOGIN_DOMAIN_PATTERN, LOGIN_DOMAINS_MAX } from "../auth/limits.ts";
-import { focusLeftBehind } from "../components/focus.ts";
+import { focusLeftBehind, focusOrReason } from "../components/focus.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { Action } from "../components/setting-action.tsx";
@@ -427,7 +427,7 @@ export function LoginProviderScreen() {
       breadcrumb={breadcrumb}
       actions={<StateBadge state={provider.state} />}
     >
-      <ProviderSettings provider={provider} />
+      <ProviderSettings provider={provider} readAt={list.dataUpdatedAt} />
     </Page>
   );
 }
@@ -448,8 +448,11 @@ function redirectOriginElsewhere(redirectUri: string | null): string | null {
 
 function ProviderSettings({
   provider,
+  readAt,
 }: {
   readonly provider: LoginProviderView;
+  /** When the list read last answered, even with the same providers. */
+  readonly readAt: number;
 }) {
   const { t, locale } = useI18n();
   const { client } = useWerft();
@@ -576,22 +579,18 @@ function ProviderSettings({
     },
   );
   // Turned off, the button pressed is withheld and the dialog has nothing to
-  // give the keyboard back to; it goes on to turning the provider back on,
-  // once, when the read that shows it off answers.
+  // give the keyboard back to; it goes on to turning the provider back on.
+  // Tried once, on the first read that answers after: a read still showing
+  // it on drops the try, as the password login's danger zone does.
   const enableRef = useRef<HTMLButtonElement>(null);
   const focusEnable = useRef(false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: tried once each read answers
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs each time the read answers
   useEffect(() => {
     if (!focusEnable.current) return;
     focusEnable.current = false;
     if (on || !focusLeftBehind(true)) return;
-    const button = enableRef.current;
-    // A withheld button is reached through the box that says why.
-    (button?.disabled
-      ? button.closest<HTMLElement>("[data-slot=disabled-reason]")
-      : button
-    )?.focus();
-  }, [provider]);
+    focusOrReason(enableRef.current);
+  }, [readAt]);
   const disable = useProviderWrite(
     (api, _: undefined) =>
       unwrap(api.POST("/v1/login-providers/{id}/disable", id)),

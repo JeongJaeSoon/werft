@@ -28,7 +28,7 @@ import {
 import { useEffect, useId, useRef, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useMe, useRole } from "../auth/guard.tsx";
-import { focusLeftBehind } from "../components/focus.ts";
+import { focusLeftBehind, focusOrReason } from "../components/focus.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { Action } from "../components/setting-action.tsx";
@@ -120,12 +120,7 @@ export function PasswordLoginSettings() {
     focusTo.current = null;
     // The confirm dialog may still be on its way out when the read answers.
     if (!focusLeftBehind(true)) return;
-    const button = (to === "open" ? openRef : closeRef).current;
-    // A withheld button is reached through the box that says why.
-    (button?.disabled
-      ? button.closest<HTMLElement>("[data-slot=disabled-reason]")
-      : button
-    )?.focus();
+    focusOrReason((to === "open" ? openRef : closeRef).current);
   }, [read.dataUpdatedAt]);
 
   const change = useMutation<UpdateLoginSettingsResponse, ApiError, Change>({
