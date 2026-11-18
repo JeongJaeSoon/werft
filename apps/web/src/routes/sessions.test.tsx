@@ -4087,6 +4087,18 @@ describe("세션의 릴리스", () => {
       hidden.remove();
     return copy.textContent;
   };
+  /** Every part on the meta line's size, line and grey, not the body's. */
+  const expectMetaParts = (piece: HTMLElement) => {
+    const parts = [...piece.querySelectorAll("[data-slot=text]")];
+    expect(parts.length > 0).toBe(true);
+    expect(parts.map((part) => part.getAttribute("data-variant"))).toEqual(
+      parts.map(() => "meta"),
+    );
+    const shown = parts.filter((part) => !part.matches(".sr-only"));
+    expect(
+      shown.map((part) => part.classList.contains("text-muted-foreground")),
+    ).toEqual(shown.map(() => true));
+  };
 
   test.each([
     [{}, "2026-10-30_14:30:28-2", "2026-10-30_14:30:28-2"],
@@ -4118,15 +4130,7 @@ describe("세션의 릴리스", () => {
       );
       // The release sits outside the link, whose name stays the agent's.
       expect(link.textContent).toBe("Release helper");
-      // Every part on the meta line's size, line and grey, not the body's.
-      const parts = [...piece.querySelectorAll("[data-slot=text]")];
-      expect(parts.map((part) => part.getAttribute("data-variant"))).toEqual(
-        parts.map(() => "meta"),
-      );
-      const shown = parts.filter((part) => !part.matches(".sr-only"));
-      expect(
-        shown.map((part) => part.classList.contains("text-muted-foreground")),
-      ).toEqual(shown.map(() => true));
+      expectMetaParts(piece);
     },
   );
 
@@ -4153,6 +4157,7 @@ describe("세션의 릴리스", () => {
     expect(spoken(piece)).toBe(
       "에이전트: Release helper 이 세션이 쓰는 릴리스: 2026-10-30_14:30:28-2 활성 릴리스 아님",
     );
+    expectMetaParts(piece);
   });
 
   test("라벨도 버전도 없으면 릴리스를 그리지 않는다", async () => {
@@ -4173,12 +4178,19 @@ describe("세션의 릴리스", () => {
   test.each([
     ["에이전트 없이 만든 세션", { agent: null }],
     ["볼 수 없는 에이전트의 세션", { agent: null, agent_hidden: true }],
-  ])("%s에는 릴리스를 그리지 않는다", async (_, body) => {
-    renderAt(`/sessions/${SESSION_ID}`, withSession(body));
-    const meta = await sessionMeta();
-    expect((meta.textContent ?? "").includes("이 세션이 쓰는 릴리스")).toBe(
-      false,
-    );
-    expect((meta.textContent ?? "").includes("릴리스")).toBe(false);
-  });
+  ])(
+    "%s의 에이전트 조각은 '에이전트 없음'뿐이고 릴리스를 그리지 않는다",
+    async (_, body) => {
+      renderAt(`/sessions/${SESSION_ID}`, withSession(body));
+      const meta = await sessionMeta();
+      // The words stand alone, so their own element is the agent piece.
+      const piece = await within(meta).findByText("에이전트 없음");
+      expect(piece.textContent).toBe("에이전트: 에이전트 없음");
+      expect(spoken(piece)).toBe("에이전트: 에이전트 없음");
+      expect(within(piece).queryByRole("link") === null).toBe(true);
+      expect(piece.querySelectorAll("[data-slot=text]")).toHaveLength(0);
+      // Nor anywhere else on the line, outside the piece.
+      expect((meta.textContent ?? "").includes("릴리스")).toBe(false);
+    },
+  );
 });
