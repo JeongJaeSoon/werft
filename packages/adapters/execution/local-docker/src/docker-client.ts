@@ -58,6 +58,16 @@ export class DockerApiError extends Error {
   }
 }
 
+export const PULL_ATTEMPTS = 3;
+
+// The daemon reports a registry it could not reach as a 500. A stall shows up
+// as the deadline passing before the answer, or while its stream drains.
+export function isTransientPullFailure(error: unknown): boolean {
+  if (error instanceof DockerApiError) return error.status >= 500;
+  if (error instanceof DockerTimeoutError) return true;
+  return error instanceof Error && error.name === "TimeoutError";
+}
+
 export type ContainerCreateBody = {
   Cmd?: string[];
   /** Replaces the image's; the image's `Cmd` is then dropped as well. */
@@ -249,16 +259,24 @@ export class DockerClient {
   /**
    * Pulls `image` if the daemon does not have it. The backend never calls
    * this (the worker image is provisioned out of band); tests do, so a fresh
-   * daemon can run them.
+   * daemon can run them. A registry that errors or stalls past the deadline
+   * is asked again, up to PULL_ATTEMPTS times in all.
    */
   async pullImage(image: string): Promise<void> {
     const { name, tag } = parseImageReference(image);
-    const response = await this.request(
-      "POST",
-      `/images/create?fromImage=${encodeURIComponent(name)}&tag=${encodeURIComponent(tag)}`,
-    );
-    // The pull streams progress JSON until it is done; drain it.
-    await response.text();
+    const path = `/images/create?fromImage=${encodeURIComponent(name)}&tag=${encodeURIComponent(tag)}`;
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        const response = await this.request("POST", path);
+        // The pull streams progress JSON until it is done; drain it.
+        await response.text();
+        return;
+      } catch (error) {
+        if (attempt >= PULL_ATTEMPTS || !isTransientPullFailure(error)) {
+          throw error;
+        }
+      }
+    }
   }
 
   /** Idempotent: 304 (already started) is success. */
