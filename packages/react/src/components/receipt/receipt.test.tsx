@@ -113,7 +113,7 @@ describe("ReceiptSummary", () => {
     ) as Element;
     const detail = container.querySelector(".werft-receipt__detail") as Element;
     expect(guidance.textContent).toBe(
-      "세션이 일시정지 상태입니다 — 재개한 뒤 보내세요.",
+      "세션이 일시 정지 상태입니다 — 재개한 뒤 보내세요.",
     );
     expect(detail.textContent).toContain("session is paused");
     // 할 일이 원문보다 먼저 온다 (§9).

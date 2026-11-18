@@ -455,7 +455,7 @@ describe("에이전트 상세 탭", () => {
       [
         "1a2b3c4d",
         "작업 상태: 쉬는 중",
-        "세션 상태: 일시정지됨",
+        "세션 상태: 일시 정지됨",
         "릴리스: 버전 2",
       ],
     ]);
@@ -793,7 +793,7 @@ describe("에이전트 상세 탭", () => {
     );
   });
 
-  test("일시정지된 에이전트는 최신 release가 켜져 있어도 켜짐이라 하지 않는다", async () => {
+  test("일시 정지된 에이전트는 최신 release가 켜져 있어도 켜짐이라 하지 않는다", async () => {
     const server = agentServer();
     const path = `/v1/agents/${AGENT_ID}`;
     await released(server);
@@ -816,10 +816,10 @@ describe("에이전트 상세 탭", () => {
     expect(within(section).queryByText("켜짐")).toBeNull();
     expect(
       screen.getByRole("heading", { level: 1 }).nextElementSibling?.textContent,
-    ).toBe("일시정지");
+    ).toBe("일시 정지");
     expect(
       within(section).getByText(
-        "에이전트가 일시정지 상태라 새 세션이 이 에이전트를 쓰지 않습니다.",
+        "에이전트가 일시 정지 상태라 새 세션이 이 에이전트를 쓰지 않습니다.",
       ),
     ).toBeDefined();
     expect(
@@ -834,13 +834,13 @@ describe("에이전트 상세 탭", () => {
       name: "에이전트 카드",
     });
     expect(
-      within(summary).getByText(/일시정지 상태라 새 세션은 쓰지 않습니다/),
+      within(summary).getByText(/일시 정지 상태라 새 세션은 쓰지 않습니다/),
     ).toBeDefined();
     expect(within(summary).queryByText(/새 세션에 쓰이는/)).toBeNull();
   });
 
   for (const [status, label] of [
-    ["paused", "일시정지"],
+    ["paused", "일시 정지"],
     ["archived", "보관됨"],
   ] as const) {
     test(`${label} 에이전트는 최신 version이 더 새로워도 새 세션이 활성 version으로 시작한다고 하지 않는다`, async () => {

@@ -29,7 +29,7 @@ describe("StatusLabel", () => {
       </>,
     );
 
-    const admission = getByText("일시정지됨").closest(".werft-status");
+    const admission = getByText("일시 정지됨").closest(".werft-status");
     const turn = getByText("답변 대기").closest(".werft-status");
 
     expect(admission?.getAttribute("data-axis")).toBe("admission");

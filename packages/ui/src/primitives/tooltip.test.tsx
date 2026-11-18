@@ -14,7 +14,7 @@ function renderTooltip() {
     <div>
       <Tooltip>
         <TooltipTrigger asChild={true}>
-          <button type="button" aria-label="일시정지">
+          <button type="button" aria-label="일시 정지">
             ||
           </button>
         </TooltipTrigger>
@@ -23,7 +23,7 @@ function renderTooltip() {
       <button type="button">다른 곳</button>
     </div>,
   );
-  const trigger = result.getByRole("button", { name: "일시정지" });
+  const trigger = result.getByRole("button", { name: "일시 정지" });
   const elsewhere = result.getByRole("button", { name: "다른 곳" });
   const note = () => document.querySelector('[data-slot="popover-content"]');
   return { ...result, trigger, elsewhere, note };

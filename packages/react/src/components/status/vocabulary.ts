@@ -75,8 +75,8 @@ const session: Record<SessionStatus, StatusDescriptor> = {
 // An open session takes work; that is the state worth a colour.
 const admission: Record<AdmissionState, StatusDescriptor> = {
   active: { label: "활성", tone: "positive", inFlight: false },
-  pausing: { label: "일시정지 중", tone: "caution", inFlight: true },
-  paused: { label: "일시정지됨", tone: "caution", inFlight: false },
+  pausing: { label: "일시 정지 중", tone: "caution", inFlight: true },
+  paused: { label: "일시 정지됨", tone: "caution", inFlight: false },
   resuming: { label: "복원 중", tone: "progress", inFlight: true },
   stopping: { label: "종료 중", tone: "neutral", inFlight: true },
   stopped: { label: "종료됨", tone: "neutral", inFlight: false },

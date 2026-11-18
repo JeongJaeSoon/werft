@@ -23,9 +23,9 @@ function ConfirmHarness({
     <ConfirmDialog
       open={open}
       onOpenChange={setOpen}
-      title="세션을 일시정지할까요?"
+      title="세션을 일시 정지할까요?"
       consequence="실행 중인 턴은 마무리하고, 대기 중인 지시는 그대로 남습니다."
-      confirmLabel="일시정지"
+      confirmLabel="일시 정지"
       onConfirm={onConfirm}
       busy={busy}
     />
@@ -100,7 +100,7 @@ describe("ConfirmDialog", () => {
     expect(labelledBy).toBeTruthy();
     expect(describedBy).toBeTruthy();
     expect(baseElement.querySelector(`#${labelledBy}`)?.textContent).toBe(
-      "세션을 일시정지할까요?",
+      "세션을 일시 정지할까요?",
     );
     expect(baseElement.querySelector(`#${describedBy}`)?.textContent).toContain(
       "대기 중인 지시는 그대로 남습니다",
@@ -271,7 +271,7 @@ describe("ConfirmDialog", () => {
       <ConfirmHarness onConfirm={() => calls.push("confirm")} />,
     );
 
-    await user.click(getByText("일시정지"));
+    await user.click(getByText("일시 정지"));
 
     expect(calls).toEqual(["confirm"]);
     // 서버 응답 전에는 열린 채로 둔다 (§1 optimistic 금지).
@@ -285,7 +285,7 @@ describe("ConfirmDialog", () => {
       <ConfirmHarness busy={true} onConfirm={() => calls.push("confirm")} />,
     );
 
-    const button = getByText("일시정지").closest("button");
+    const button = getByText("일시 정지").closest("button");
     expect(button?.disabled).toBe(true);
     await user.click(button as HTMLButtonElement);
     expect(calls).toEqual([]);

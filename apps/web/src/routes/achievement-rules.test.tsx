@@ -513,7 +513,7 @@ describe("성과 규칙", () => {
     await user.type(turns, "15");
     await user.click(
       within(card).getByRole("checkbox", {
-        name: "세션이 멈출 때 (대기·일시정지·종료)",
+        name: "세션이 멈출 때 (대기·일시 정지·종료)",
       }),
     );
     await user.click(within(card).getByRole("radio", { name: "보내지 않음" }));

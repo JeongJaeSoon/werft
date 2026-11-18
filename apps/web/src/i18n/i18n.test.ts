@@ -10,6 +10,11 @@ import {
   sessionsJa,
   sessionsKo,
 } from "@werft-ai/react";
+import {
+  ERROR_GUIDANCE,
+  RECEIPT_OPERATION_LABEL,
+  STATUS_VOCABULARY,
+} from "@werft-ai/react/components";
 import { OPERATIONS_MESSAGES } from "../../../../packages/react/src/components/operations/messages.ts";
 import {
   achievementRulesEn,
@@ -223,6 +228,19 @@ describe("i18n", () => {
         .map(([key]) => `${locale}:${key}`),
     );
     expect(withChevron).toEqual([]);
+  });
+
+  test("Korean copy spells pause one way, 일시 정지, as the glossary does", () => {
+    const statusLabels = Object.values(STATUS_VOCABULARY).flatMap((axis) =>
+      Object.values(axis).map((state) => state.label),
+    );
+    const korean = [
+      ...Object.values(ko),
+      ...statusLabels,
+      ...Object.values(RECEIPT_OPERATION_LABEL),
+      ...Object.values(ERROR_GUIDANCE),
+    ].map(String);
+    expect(korean.filter((text) => text.includes("일시정지"))).toEqual([]);
   });
 
   test("no message sends people to the Release tab to make or turn on a release", () => {

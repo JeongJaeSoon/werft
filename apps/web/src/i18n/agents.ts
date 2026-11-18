@@ -42,7 +42,7 @@ export const agentsKo = {
   "agents.state.draft": "초안",
   "agents.state.released": "릴리스",
   "agents.status.active": "활성",
-  "agents.status.paused": "일시정지",
+  "agents.status.paused": "일시 정지",
   "agents.status.archived": "보관됨",
   "agents.newTitle": "새 에이전트",
   "agents.newIntro":
@@ -282,7 +282,7 @@ export const agentsKo = {
   "agent.newSession.blocked.archived":
     "보관된 에이전트라 세션을 시작할 수 없습니다.",
   "agent.newSession.blocked.paused":
-    "일시정지된 에이전트라 세션을 시작할 수 없습니다.",
+    "일시 정지된 에이전트라 세션을 시작할 수 없습니다.",
   "agent.newSession.blocked.noRelease":
     "활성 릴리스가 없어 세션을 시작할 수 없습니다. 상세 설정에서 모델 연결과 모델을 골라 저장하면 시작할 수 있습니다.",
   "agent.glance.label": "에이전트 현황",
