@@ -158,6 +158,7 @@ export {
 export * from "./action/change-request/push-request-service.ts";
 export * from "./sessions/session-outcome-service.ts";
 export * from "./sessions/session-repository.ts";
+export * from "./sessions/public-status.ts";
 export * from "./sessions/receipt-agent-refs.ts";
 export * from "./sessions/session-service.ts";
 export * from "./sessions/settings-document.ts";

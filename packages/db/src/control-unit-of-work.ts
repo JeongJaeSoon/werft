@@ -14,7 +14,7 @@ import type {
   TerminateSessionInput,
   TerminateSessionResult,
 } from "@werft-ai/platform";
-import { receiptActorOf } from "@werft-ai/platform";
+import { publicStatus, receiptActorOf } from "@werft-ai/platform";
 import { and, eq, inArray, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { PoolClient } from "pg";
@@ -58,7 +58,7 @@ import {
   closeWorkerRequests,
   recordLostInputWait,
 } from "./sessions/pending-requests.ts";
-import { awaitingInputAt, publicStatus } from "./sessions/pending-status.ts";
+import { awaitingInputAt } from "./sessions/pending-status.ts";
 import {
   announceInputWaitEnded,
   inputWaitBefore,

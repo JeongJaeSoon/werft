@@ -7,6 +7,7 @@ import type {
   ResumeReceiptResult,
 } from "@werft-ai/contracts";
 import {
+  publicStatus,
   type ResumeSessionResult,
   storedPendingReasonHoldsWork,
 } from "@werft-ai/platform";
@@ -31,7 +32,7 @@ import { pinRefusesLive } from "./session-spec-pin.ts";
 import { closeParkedGroup } from "./sessions/parked-group.ts";
 import { openPauseReceipt } from "./sessions/pause-control.ts";
 import { pausedResumeRefusal } from "./sessions/pause-policy.ts";
-import { awaitingInputAt, publicStatus } from "./sessions/pending-status.ts";
+import { awaitingInputAt } from "./sessions/pending-status.ts";
 import { recordStatus } from "./sessions/session-events.ts";
 
 export const RESUME = "resume";

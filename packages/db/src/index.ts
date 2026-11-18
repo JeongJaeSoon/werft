@@ -79,7 +79,6 @@ export * from "./sessions/lease-reconcile.ts";
 export { expireParkedGroups } from "./sessions/parked-group.ts";
 export * from "./sessions/pending-control.ts";
 export { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
-export { publicStatus } from "./sessions/pending-status.ts";
 export * from "./sessions/session-attribution.ts";
 export {
   type ArchivedEventSource,

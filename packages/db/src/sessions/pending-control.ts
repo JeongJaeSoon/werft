@@ -21,6 +21,7 @@ import type {
   WorkerFence,
   WorkerPendingStore,
 } from "@werft-ai/platform";
+import { publicStatus } from "@werft-ai/platform";
 import { and, asc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { runtimeColumns } from "../checkpoints/index.ts";
 import { OPEN_TURN_STATUSES, parseTurnSequence } from "../control-shared.ts";
@@ -38,7 +39,7 @@ import { DRAINING_STATES, drainOf, openDrainReceipt } from "./drain.ts";
 import { acquireFence, leaseHeld } from "./fence.ts";
 import { lockDeliveredParked, settleParkedDeliveries } from "./parked-group.ts";
 import { openPauseReceipt, openSystemPark } from "./pause-control.ts";
-import { awaitingInputAt, publicStatus } from "./pending-status.ts";
+import { awaitingInputAt } from "./pending-status.ts";
 import {
   announceInputWaitEnded,
   inputWaitBefore,

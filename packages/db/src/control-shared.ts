@@ -1,5 +1,9 @@
 import type { ReceiptActor } from "@werft-ai/contracts";
-import type { Principal, SessionBudget } from "@werft-ai/platform";
+import {
+  IN_FLIGHT_STATUSES,
+  type Principal,
+  type SessionBudget,
+} from "@werft-ai/platform";
 import {
   and,
   asc,
@@ -52,7 +56,8 @@ export function parseTurnSequence(turnId: string): number | null {
   return sequence <= SEQUENCE_MAX ? sequence : null;
 }
 
-export const OPEN_TURN_STATUSES = ["running", "needs_input"];
+// An open turn is one in flight.
+export const OPEN_TURN_STATUSES: string[] = IN_FLIGHT_STATUSES;
 export const ENDED_ATTEMPT_STATES = ["exited", "lost"];
 
 // What a worker may be launched for and claim: an active session, and a

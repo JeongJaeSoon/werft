@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   type ApprovalRecord,
   approvalRecordSchema,
+  ENDED_ADMISSION_STATES,
   type InputWait,
   PENDING_REQUEST_KIND_VALUES,
   type PendingQuestion,
@@ -450,12 +451,9 @@ function answerMismatch(
 }
 
 // A request closed while its session stood here was closed with it.
-const SESSION_ENDED_STATES: ReadonlySet<string> = new Set([
-  "stopping",
-  "stopped",
-  "closing",
-  "closed",
-]);
+const SESSION_ENDED_STATES: ReadonlySet<string> = new Set(
+  ENDED_ADMISSION_STATES,
+);
 
 export function createPostgresPendingRequests(
   db: Database,

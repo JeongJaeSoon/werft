@@ -1,7 +1,9 @@
 // The platform metrics in the Prometheus text exposition format (0.0.4).
 // Every name, label and help line lives here; apps/docs/content/docs/run-server/self-hosting/reference/metrics.mdx is
 // their reference for operators.
-import { type PlatformMetricsSnapshot, publicStatus } from "@werft-ai/db";
+import { ENDED_ADMISSION_STATES } from "@werft-ai/contracts";
+import type { PlatformMetricsSnapshot } from "@werft-ai/db";
+import { publicStatus } from "@werft-ai/platform";
 
 /** The one place the metric prefix is set (94S-1101, decision d95). */
 export const METRIC_PREFIX = "werft";
@@ -28,7 +30,7 @@ export type SessionState =
   | "idle"
   | "failed";
 
-const ENDED_ADMISSIONS = new Set(["stopping", "stopped", "closing", "closed"]);
+const ENDED_ADMISSIONS = new Set<string>(ENDED_ADMISSION_STATES);
 const PAUSED_ADMISSIONS = new Set(["pausing", "paused"]);
 
 /** The session's public status and the state the `sessions` gauge files it under. */

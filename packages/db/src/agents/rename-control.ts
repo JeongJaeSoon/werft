@@ -2,6 +2,7 @@ import type {
   RenameSessionInput,
   RenameSessionResult,
 } from "@werft-ai/platform";
+import { publicStatus } from "@werft-ai/platform";
 import { eq } from "drizzle-orm";
 import {
   actorStillMember,
@@ -12,11 +13,7 @@ import {
 import { dbNow } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import { sessions } from "../schema.ts";
-import {
-  awaitingInputAt,
-  publicStatus,
-  recordStatus,
-} from "../sessions/index.ts";
+import { awaitingInputAt, recordStatus } from "../sessions/index.ts";
 
 export function renameAtomic(
   db: Database,
