@@ -74,7 +74,7 @@ const outputs: ListSessionOutputsResponse = {
   ],
 };
 
-function routes(answer: () => Response) {
+function routes(answer: () => Response | Promise<Response>) {
   return {
     "GET /v1/auth/me": () => json(200, me()),
     "GET /v1/connections": () => json(200, { items: [] }),
@@ -183,6 +183,38 @@ describe("session outputs", () => {
       await within(panel).findByRole("button", { name: "다시 시도" }),
     ).toBeTruthy();
     expect(screen.queryByText(/out\/ 폴더에 남긴 파일을 셉니다/)).toBeNull();
+  });
+
+  test("while a files list that failed is read again, the failure and its retry stay with the focus on it, and go once it answers", async () => {
+    const user = await setupUser();
+    let answer: (response: Response) => void = () => {};
+    let reads = 0;
+    renderAt(
+      `/sessions/${SESSION_ID}`,
+      routes(() =>
+        ++reads === 1
+          ? apiError(409, "CHECKPOINT_UNAVAILABLE", "manifest damaged")
+          : new Promise<Response>((resolve) => {
+              answer = resolve;
+            }),
+      ),
+    );
+    const panel = await openOutputs();
+    const retry = await within(panel).findByRole("button", {
+      name: "다시 시도",
+    });
+    await user.click(retry);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(reads).toBe(2);
+    expect(retry.isConnected).toBe(true);
+    expect(document.activeElement === retry).toBe(true);
+    act(() => answer(json(200, outputs)));
+    expect(
+      await within(panel).findByRole("region", { name: "out/ 파일 3개" }),
+    ).toBeTruthy();
+    expect(
+      within(panel).queryByRole("button", { name: "다시 시도" }) === null,
+    ).toBe(true);
   });
 });
 
@@ -568,6 +600,76 @@ describe("the session's GitHub pull requests", () => {
       await screen.findByRole("button", { name: "다시 시도" }),
     ).toBeTruthy();
     expect(screen.queryAllByText("아직 변경한 PR이 없습니다.")).toHaveLength(0);
+  });
+
+  test("while pull requests that failed are read again, the failure and its retry stay with the focus on it, and go once they answer", async () => {
+    const user = await setupUser();
+    let answer: (response: Response) => void = () => {};
+    let reads = 0;
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...pulled([], noFiles),
+      [`GET /v1/sessions/${SESSION_ID}/outcomes`]: () =>
+        ++reads === 1
+          ? apiError(500, "INTERNAL", "boom")
+          : new Promise<Response>((resolve) => {
+              answer = resolve;
+            }),
+    });
+    await openOutputs();
+    const area = await screen.findByRole("region", { name: "변경 사항" });
+    const retry = await within(area).findByRole("button", {
+      name: "다시 시도",
+    });
+    await user.click(retry);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(reads).toBe(2);
+    expect(retry.isConnected).toBe(true);
+    expect(document.activeElement === retry).toBe(true);
+    expect(within(area).getByText("불러오지 못했습니다")).toBeTruthy();
+    expect(
+      within(area).queryAllByText("아직 변경한 PR이 없습니다."),
+    ).toHaveLength(0);
+    act(() => answer(json(200, { items: [] })));
+    expect(
+      await within(area).findByText("아직 변경한 PR이 없습니다."),
+    ).toBeTruthy();
+    expect(
+      within(area).queryByRole("button", { name: "다시 시도" }) === null,
+    ).toBe(true);
+  });
+
+  test("the minute's own read of pull requests that failed leaves the failure and the focus where they are", async () => {
+    let answer: (response: Response) => void = () => {};
+    let reads = 0;
+    const { services } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...pulled([], noFiles),
+      [`GET /v1/sessions/${SESSION_ID}/outcomes`]: () =>
+        ++reads === 1
+          ? apiError(500, "INTERNAL", "boom")
+          : new Promise<Response>((resolve) => {
+              answer = resolve;
+            }),
+    });
+    await openOutputs();
+    const area = await screen.findByRole("region", { name: "변경 사항" });
+    const retry = await within(area).findByRole("button", {
+      name: "다시 시도",
+    });
+    act(() => retry.focus());
+    // What the minute's interval does: a read nobody asked for.
+    act(() => {
+      void services.queryClient.refetchQueries({
+        predicate: (query) => query.queryKey.at(-1) === "outcomes",
+      });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(reads).toBe(2);
+    expect(retry.isConnected).toBe(true);
+    expect(document.activeElement === retry).toBe(true);
+    act(() => answer(apiError(500, "INTERNAL", "boom")));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(retry.isConnected).toBe(true);
+    expect(document.activeElement === retry).toBe(true);
   });
 
   test("recent GitHub refusals name the reason, the work and when", async () => {

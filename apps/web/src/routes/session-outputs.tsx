@@ -286,8 +286,9 @@ function SessionChanges({
   const { t } = useI18n();
   const [open, setOpen] = useState(true);
   const bodyId = useId();
+  const error = useKeptFailure(outcomes, session.id);
   if (!hasRepository(session)) return null;
-  const failed = outcomes.error && !isApiError(outcomes.error, "NOT_FOUND");
+  const failed = error && !isApiError(error, "NOT_FOUND");
   const items = outcomes.data?.items ?? [];
   return (
     <Section
@@ -320,10 +321,7 @@ function SessionChanges({
     >
       <div id={bodyId} hidden={!open} className="flex min-w-0 flex-col gap-1">
         {failed ? (
-          <LoadFailure
-            error={outcomes.error}
-            onRetry={() => void outcomes.refetch()}
-          />
+          <LoadFailure error={error} onRetry={() => void outcomes.refetch()} />
         ) : items.length === 0 ? (
           <Text variant="meta">
             {outcomes.data ? t("session.outcomes.noChanges") : null}
@@ -510,15 +508,11 @@ function SessionAttribution({ session }: { readonly session: SessionDetail }) {
 function SessionOutputs({ session }: { readonly session: SessionDetail }) {
   const { t, locale } = useI18n();
   const outputs = useSessionOutputs(session);
+  const error = useKeptFailure(outputs, session.id);
 
   // A session gone from view is the detail screen's to report.
-  if (outputs.error && !isApiError(outputs.error, "NOT_FOUND")) {
-    return (
-      <LoadFailure
-        error={outputs.error}
-        onRetry={() => void outputs.refetch()}
-      />
-    );
+  if (error && !isApiError(error, "NOT_FOUND")) {
+    return <LoadFailure error={error} onRetry={() => void outputs.refetch()} />;
   }
   if (outputs.isPending && session.checkpoint_revision !== null) {
     return null;
