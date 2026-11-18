@@ -567,6 +567,37 @@ describe("tools tab loading", () => {
     ].map((bar) => bar.style.height);
     expect(heights).toEqual(Array(14).fill("0.0%"));
   });
+
+  test("ToolDetail은 목록에 없는 도구의 수치 넷을 그리지 않고, 기간 낱말이 오면 부르지 않았다고 적어 절을 설명한다", () => {
+    const detail = (quietPeriod?: string) => (
+      <ToolDetail
+        name="Edit"
+        tool={undefined}
+        listed={false}
+        quietPeriod={quietPeriod}
+        perDay={[{ date: "2026-10-24", calls: 0 }]}
+        calls={[]}
+        callSort="recent"
+        onCallSortChange={() => {}}
+      />
+    );
+    const view = withPlatform(detail());
+    const section = view.getByRole("region", { name: "선택한 도구 Edit" });
+    expect(section.querySelectorAll("dt")).toHaveLength(0);
+    expect(section.hasAttribute("aria-describedby")).toBe(false);
+    expect(
+      view.container.querySelector("[data-slot=tool-detail-quiet]") === null,
+    ).toBe(true);
+    view.unmount();
+
+    const quiet = withPlatform(detail("7일"));
+    const line = quiet.getByText("최근 7일 동안 부르지 않았습니다.");
+    expect(
+      quiet
+        .getByRole("region", { name: "선택한 도구 Edit" })
+        .getAttribute("aria-describedby"),
+    ).toBe(line.id);
+  });
 });
 
 describe("tools sort and search", () => {

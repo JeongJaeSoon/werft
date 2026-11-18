@@ -33,6 +33,7 @@ import {
   findTools,
   InstallationLimits,
   MoreLink,
+  OPERATIONS_MESSAGES,
   OperationsHead,
   type OperationsTab,
   SessionCounts,
@@ -558,23 +559,37 @@ export function OperationsToolsScreen() {
   const tool =
     picked === undefined ? rows?.[0] : rows?.find((row) => row.name === picked);
   const name = rows && (picked ?? tool?.name);
-  const absent = name !== undefined && tool === undefined;
+  // Another period's list cannot say the pick is missing from this one.
+  const unlisted =
+    name !== undefined && tool === undefined && !tools.isPlaceholderData;
+  const callsQuery = usageToolCallsQuery(
+    client,
+    name ?? "",
+    filters.scope,
+    since,
+    until,
+    agentId,
+    callSort,
+  );
   const calls = useQuery({
-    ...usageToolCallsQuery(
-      client,
-      name ?? "",
-      filters.scope,
-      since,
-      until,
-      agentId,
-      callSort,
-    ),
-    enabled: name !== undefined,
-    // Another period's calls never stand in for a pick this period lacks.
+    ...callsQuery,
+    // Asked once the period's own list came and holds a tool.
+    enabled:
+      name !== undefined && !tools.isPlaceholderData && rows?.length !== 0,
+    // Only a sort change keeps the old answer: it is the same tool and days.
     placeholderData: (previous, previousQuery) =>
-      !absent && previousQuery?.queryKey[2] === name ? previous : undefined,
+      previousQuery?.queryKey.slice(0, -1).join("\n") ===
+      callsQuery.queryKey.slice(0, -1).join("\n")
+        ? previous
+        : undefined,
     staleTime: USAGE_STALE_MS,
   });
+  // Said only once this period's calls answered with none: a tool cut off a
+  // long list was still called.
+  const quiet =
+    unlisted &&
+    calls.data !== undefined &&
+    calls.data.per_day.every((day) => day.calls === 0);
   const shown = rows && findTools(sortTools(rows, sort), query);
   const detail =
     tools.isError || rows?.length === 0 ? undefined : (
@@ -583,7 +598,12 @@ export function OperationsToolsScreen() {
         // Said only for the reader's own pick, not the first row shown by
         // default; the words stay while the pick leaves the list and returns.
         announce={picked !== undefined}
-        absentDays={absent ? filters.days : undefined}
+        listed={!unlisted}
+        quietPeriod={
+          quiet
+            ? OPERATIONS_MESSAGES[locale].usageFilters.days(filters.days)
+            : undefined
+        }
         name={name}
         tool={tool}
         perDay={calls.data?.per_day}

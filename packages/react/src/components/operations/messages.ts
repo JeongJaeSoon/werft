@@ -257,8 +257,8 @@ export interface ToolDetailMessages {
   readonly callSortBy: Readonly<Record<ToolCallSort, string>>;
   /** Names the section's heading while the tools are read. */
   readonly loading: string;
-  /** The picked tool is not in this period's list; `period` is the picker's word. */
-  readonly absent: (period: string) => string;
+  /** The tool was not called in the period, such as "7일". */
+  readonly quiet: (period: string) => string;
 }
 
 export interface OperationsMessages {
@@ -447,7 +447,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         callSort: "호출 정렬",
         callSortBy: { recent: "최근", slowest: "느린 순" },
         loading: "도구 목록을 읽는 중",
-        absent: (period) => `${period} 동안 부르지 않았습니다.`,
+        quiet: (period) => `최근 ${period} 동안 부르지 않았습니다.`,
       },
       head: {
         title: "사용량·한도",
@@ -657,7 +657,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         callSort: "呼び出しの並べ替え",
         callSortBy: { recent: "最近", slowest: "遅い順" },
         loading: "ツール一覧を読み込み中",
-        absent: (period) => `${period}のあいだ呼ばれていません。`,
+        quiet: (period) => `${period}のあいだ呼ばれていません。`,
       },
       head: {
         title: "使用量・上限",
@@ -868,7 +868,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         callSort: "Sort calls",
         callSortBy: { recent: "Recent", slowest: "Slowest" },
         loading: "Loading tools",
-        absent: (period) => `Not called in the last ${period}.`,
+        quiet: (period) => `Not called in the last ${period}.`,
       },
       head: {
         title: "Usage & limits",

@@ -611,28 +611,29 @@ describe("사용량·한도", () => {
   });
 
   describe("도구 활동 탭: 고른 도구가 기간을 바꿔 목록에서 빠지면", () => {
-    /** Edit is not in the 7-day list; its calls answer as `editCalls` says. */
+    const daysOf = (request: Request) => {
+      const params = new URL(request.url).searchParams;
+      const since = Date.parse(params.get("since") ?? "");
+      return (Date.parse(params.get("until") ?? "") - since) / 86_400_000;
+    };
+    /** Edit is not in the 7-day list; the lists and its calls answer by days. */
     const leavingEdit = (
-      editCalls: (week: boolean) => Response | Promise<Response>,
-    ) => {
-      const week = (request: Request) =>
-        new URL(request.url).searchParams
-          .get("since")
-          ?.startsWith("2026-10-18") ?? false;
-      return {
-        "GET /v1/auth/me": () => json(200, me()),
-        ...usageRoutes,
-        "GET /v1/usage/tools": (request: Request) =>
-          json(200, {
-            ...TOOLS,
-            tools: week(request)
+      editCalls: (days: number) => Response | Promise<Response>,
+      list: (days: number) => Response | Promise<Response> = (days) =>
+        json(200, {
+          ...TOOLS,
+          tools:
+            days === 7
               ? TOOLS.tools.filter(({ name }) => name !== "Edit")
               : TOOLS.tools,
-          }),
-        "GET /v1/usage/tools/Edit/calls": (request: Request) =>
-          editCalls(week(request)),
-      };
-    };
+        }),
+    ) => ({
+      "GET /v1/auth/me": () => json(200, me()),
+      ...usageRoutes,
+      "GET /v1/usage/tools": (request: Request) => list(daysOf(request)),
+      "GET /v1/usage/tools/Edit/calls": (request: Request) =>
+        editCalls(daysOf(request)),
+    });
     /** No calls in the last 7 days, as the API answers: every date, 0. */
     const noCalls = {
       calls: [],
@@ -666,17 +667,16 @@ describe("사용량·한도", () => {
     const rowFigures = ["호출", "총 시간", "보통", "실패"];
     /** A count or a rate drawn anywhere in the section. */
     const COUNTED = /\d+번|%/;
-    /** The line under the heading, outside the section, that says why. */
-    const absentLine = async () => {
+    /** The line under the heading that says the tool went uncalled. */
+    const QUIET = "[data-slot=tool-detail-quiet]";
+    const quietLine = async () => {
       await waitFor(() =>
-        expect(
-          document.querySelector("[data-slot=tool-detail-absent]") === null,
-        ).toBe(false),
+        expect(document.querySelector(QUIET) === null).toBe(false),
       );
-      return document.querySelector(
-        "[data-slot=tool-detail-absent]",
-      ) as HTMLElement;
+      return document.querySelector(QUIET) as HTMLElement;
     };
+    const noQuietLine = () =>
+      expect(document.querySelector(QUIET) === null).toBe(true);
     const terms = (detail: HTMLElement) =>
       [...detail.querySelectorAll("dt")].map((term) => term.textContent);
 
@@ -684,7 +684,9 @@ describe("사용량·한도", () => {
       setSystemTime(NOW);
       renderAt(
         "/operations/tools",
-        leavingEdit((week) => json(200, week ? noCalls : toolCalls("Edit"))),
+        leavingEdit((days) =>
+          json(200, days === 7 ? noCalls : toolCalls("Edit")),
+        ),
       );
       const { table, user, week } = await pickEditThenWeek();
       const detail = await screen.findByRole("region", {
@@ -692,9 +694,10 @@ describe("사용량·한도", () => {
       });
       expect(said()).toBe("선택한 도구 Edit");
       expect(table.querySelector("[data-selected]") === null).toBe(true);
-      // Said in the period picker's own word.
-      const absent = await absentLine();
-      expect((absent.textContent ?? "").startsWith(`${week} `)).toBe(true);
+      // Said in the period picker's own word, and describes the section.
+      const quiet = await quietLine();
+      expect(quiet.textContent).toBe(`최근 ${week} 동안 부르지 않았습니다.`);
+      expect(detail.getAttribute("aria-describedby")).toBe(quiet.id);
       expect(
         terms(detail).filter((term) => rowFigures.includes(term ?? "")),
       ).toEqual([]);
@@ -726,26 +729,34 @@ describe("사용량·한도", () => {
       setSystemTime(NOW);
       renderAt(
         "/operations/tools",
-        leavingEdit((week) =>
-          week ? new Promise<Response>(() => {}) : json(200, toolCalls("Edit")),
+        leavingEdit((days) =>
+          days === 7
+            ? new Promise<Response>(() => {})
+            : json(200, toolCalls("Edit")),
         ),
       );
       await pickEditThenWeek();
       const detail = await screen.findByRole("region", {
         name: "선택한 도구 Edit",
       });
-      await absentLine();
+      await waitFor(() =>
+        expect(terms(detail).some((t) => rowFigures.includes(t ?? ""))).toBe(
+          false,
+        ),
+      );
       expect(within(detail).queryByRole("img") === null).toBe(true);
       expect(detail.querySelector(".werft-skeleton") === null).toBe(false);
       expect(COUNTED.test(detail.textContent ?? "")).toBe(false);
+      // Not said before the period's calls answered.
+      noQuietLine();
     });
 
     test("호출 읽기가 실패하면 0이 아니라 실패를 그린다", async () => {
       setSystemTime(NOW);
       renderAt(
         "/operations/tools",
-        leavingEdit((week) =>
-          week
+        leavingEdit((days) =>
+          days === 7
             ? apiError(503, "BACKEND_UNAVAILABLE", "down")
             : json(200, toolCalls("Edit")),
         ),
@@ -758,6 +769,116 @@ describe("사용량·한도", () => {
       expect(within(detail).queryByRole("img") === null).toBe(true);
       expect(within(detail).queryAllByRole("listitem")).toHaveLength(0);
       expect(COUNTED.test(detail.textContent ?? "")).toBe(false);
+      noQuietLine();
+    });
+
+    test("아직 읽지 않은 기간의 목록을 기다리는 동안에는 부르지 않았다고 말하지 않는다", async () => {
+      setSystemTime(NOW);
+      renderAt(
+        "/operations/tools",
+        leavingEdit(
+          (days) => json(200, days === 7 ? noCalls : toolCalls("Edit")),
+          (days) =>
+            days === 90
+              ? new Promise<Response>(() => {})
+              : json(200, {
+                  ...TOOLS,
+                  tools:
+                    days === 7
+                      ? TOOLS.tools.filter(({ name }) => name !== "Edit")
+                      : TOOLS.tools,
+                }),
+        ),
+      );
+      const { user } = await pickEditThenWeek();
+      await quietLine();
+      await user.click(screen.getByRole("button", { name: "90일" }));
+      // The 7-day list stands in while the 90-day one is read; it cannot say
+      // that Edit went uncalled in 90 days.
+      await waitFor(noQuietLine);
+      const detail = screen.getByRole("region", { name: "선택한 도구 Edit" });
+      // Its figures are being read, not left out.
+      expect(terms(detail)).toEqual(rowFigures);
+      expect(detail.querySelector("dd .werft-skeleton") === null).toBe(false);
+      expect(COUNTED.test(detail.textContent ?? "")).toBe(false);
+    });
+
+    test("목록에 없어도 호출이 있으면 부르지 않았다고 말하지 않는다", async () => {
+      setSystemTime(NOW);
+      // A tool cut off a long list: absent from it, yet called.
+      renderAt(
+        "/operations/tools",
+        leavingEdit(() => json(200, toolCalls("Edit"))),
+      );
+      await pickEditThenWeek();
+      const detail = await screen.findByRole("region", {
+        name: "선택한 도구 Edit",
+      });
+      await within(detail).findByRole("img", { name: /^Edit 일자별 호출/ });
+      expect(within(detail).getAllByRole("listitem").length).toBeGreaterThan(0);
+      noQuietLine();
+      expect(
+        terms(detail).filter((term) => rowFigures.includes(term ?? "")),
+      ).toEqual([]);
+    });
+
+    test("새 기간의 목록이 비면 상세를 그리지 않고, 목록이 있는 기간으로 돌아오면 고른 도구가 선다", async () => {
+      setSystemTime(NOW);
+      const { api } = renderAt(
+        "/operations/tools",
+        leavingEdit(
+          () => json(200, toolCalls("Edit")),
+          (days) => json(200, days === 7 ? { ...TOOLS, tools: [] } : TOOLS),
+        ),
+      );
+      const table = await screen.findByRole("table", { name: "도구와 명령" });
+      const user = await setupUser();
+      await user.click(
+        await within(table).findByRole("button", { name: "Edit 자세히 보기" }),
+      );
+      await waitFor(() => expect(said()).toBe("선택한 도구 Edit"));
+      await user.click(screen.getByRole("button", { name: "7일" }));
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("region", { name: /^선택한 도구/ }) === null,
+        ).toBe(true),
+      );
+      // No calls are asked for a period that lists no tool.
+      expect(
+        api.calls.some(
+          (call) =>
+            call.path === "/v1/usage/tools/Edit/calls" &&
+            new URLSearchParams(call.search)
+              .get("since")
+              ?.startsWith("2026-10-18"),
+        ),
+      ).toBe(false);
+      await user.click(screen.getByRole("button", { name: "30일" }));
+      expect(
+        await screen.findByRole("region", { name: "선택한 도구 Edit" }),
+      ).toBeTruthy();
+    });
+
+    test("목록에 있는 도구도 기간을 옮기면 앞 기간의 그래프를 새 기간에 세우지 않는다", async () => {
+      setSystemTime(NOW);
+      renderAt("/operations/tools", {
+        "GET /v1/auth/me": () => json(200, me()),
+        ...usageRoutes,
+        "GET /v1/usage/tools/Bash/calls": (request: Request) =>
+          daysOf(request) === 7
+            ? new Promise<Response>(() => {})
+            : json(200, toolCalls("Bash")),
+      });
+      const detail = await screen.findByRole("region", {
+        name: "선택한 도구 Bash",
+      });
+      await within(detail).findByRole("img", { name: /^Bash 일자별 호출/ });
+      const user = await setupUser();
+      await user.click(screen.getByRole("button", { name: "7일" }));
+      await waitFor(() =>
+        expect(within(detail).queryByRole("img") === null).toBe(true),
+      );
+      expect(detail.querySelector(".werft-skeleton") === null).toBe(false);
     });
   });
 
