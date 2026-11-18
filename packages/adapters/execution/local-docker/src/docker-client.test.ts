@@ -3,6 +3,7 @@ import {
   DockerApiError,
   DockerClient,
   DockerTimeoutError,
+  isTransientPullFailure,
   PULL_ATTEMPTS,
   parseDockerHost,
   parseImageReference,
@@ -87,9 +88,11 @@ describe("DockerClient deadlines", () => {
 });
 
 describe("DockerClient.pullImage", () => {
-  // Each pull answers with the next of `answers`; the last one repeats.
+  // Each pull answers with the next of `answers`; the last one repeats. The
+  // deadline is far past any answer, so no count here depends on the clock;
+  // which failures count as a stall is checked on its own below.
   async function pulls(
-    answers: ("ok" | "stall" | number)[],
+    answers: ("ok" | number)[],
     run: (client: DockerClient) => Promise<void>,
   ): Promise<number> {
     let count = 0;
@@ -98,16 +101,6 @@ describe("DockerClient.pullImage", () => {
       fetch() {
         const answer = answers[Math.min(count, answers.length - 1)] ?? "ok";
         count += 1;
-        if (answer === "stall") {
-          // Progress starts, then the registry goes quiet.
-          return new Response(
-            new ReadableStream({
-              start(controller) {
-                controller.enqueue(new TextEncoder().encode('{"status":"x"}'));
-              },
-            }),
-          );
-        }
         return new Response(answer === "ok" ? '{"status":"done"}' : "{}", {
           status: answer === "ok" ? 200 : answer,
         });
@@ -116,7 +109,7 @@ describe("DockerClient.pullImage", () => {
     try {
       await run(
         new DockerClient(`tcp://127.0.0.1:${daemon.port}`, "v1.43", {
-          timeoutMs: 100,
+          timeoutMs: 60_000,
         }),
       );
     } finally {
@@ -125,12 +118,32 @@ describe("DockerClient.pullImage", () => {
     return count;
   }
 
-  test("asks again after a registry error or a stall, and ends once pulled", async () => {
+  test("asks again after registry errors, and ends once pulled", async () => {
     expect(
-      await pulls([500, "stall", "ok"], (client) =>
+      await pulls([500, 502, "ok"], (client) =>
         client.pullImage("ghcr.io/org/bun@sha256:abc"),
       ),
     ).toBe(3);
+  });
+
+  test("takes a deadline that passed, before the answer or while it drained, for a stall", () => {
+    const drained = new DOMException(
+      "The operation timed out.",
+      "TimeoutError",
+    );
+    expect(
+      isTransientPullFailure(
+        new DockerTimeoutError("POST", "/images/create", 1),
+      ),
+    ).toBe(true);
+    expect(isTransientPullFailure(drained)).toBe(true);
+    expect(
+      isTransientPullFailure(new DockerApiError(500, "POST", "/", "")),
+    ).toBe(true);
+    expect(
+      isTransientPullFailure(new DockerApiError(404, "POST", "/", "")),
+    ).toBe(false);
+    expect(isTransientPullFailure(new TypeError("fetch failed"))).toBe(false);
   });
 
   test(`gives up after ${PULL_ATTEMPTS} failed pulls with the last error`, async () => {

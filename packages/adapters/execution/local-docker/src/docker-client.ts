@@ -62,7 +62,7 @@ export const PULL_ATTEMPTS = 3;
 
 // The daemon reports a registry it could not reach as a 500. A stall shows up
 // as the deadline passing before the answer, or while its stream drains.
-function isTransientPullFailure(error: unknown): boolean {
+export function isTransientPullFailure(error: unknown): boolean {
   if (error instanceof DockerApiError) return error.status >= 500;
   if (error instanceof DockerTimeoutError) return true;
   return error instanceof Error && error.name === "TimeoutError";
