@@ -16,6 +16,8 @@ import type {
 } from "@werft-ai/contracts";
 import type { ImageRuntime, RuntimeFingerprint } from "@werft-ai/runtime-core";
 import type {
+  ClaimCatalog,
+  ModelMove,
   SessionGitHubMcp,
   SessionMcp,
   SessionWorkspaceMcp,
@@ -101,56 +103,6 @@ export type WorkerBinding = {
   // The plain values the session took when it was accepted, by name. Absent
   // when it took none, so a session without variables binds as before.
   env?: Readonly<Record<string, string>>;
-};
-
-/**
- * What this host can run: the connections it holds with the models each
- * offers, the repositories it holds as they are registered now, and the
- * runtime kinds at the versions its images ship (null: any). A session binds only when
- * its spec's connection runs its model here, its runtime ships, and its
- * repository row matches one exactly, so a repository id re-pointed at
- * another URL does not carry the old grant to the new one.
- */
-export type ClaimCatalog = {
-  connections: ReadonlyArray<{ id: string; models: readonly string[] }>;
-  repositories: ReadonlyArray<{
-    repositoryId: string;
-    url: string;
-    branch: string;
-  }>;
-  /** `engine`: the engine of the image that ships the pair. */
-  runtimeVersions: ReadonlyArray<{
-    kind: string;
-    version: string;
-    engine?: string;
-  }> | null;
-};
-
-/**
- * The pairs a worker of `engine` runs: the one it reports, else the one its
- * launch was reserved for. With neither, every pair, as on a host of one
- * engine.
- */
-export function runnableOfEngine(
-  runnable: ClaimCatalog,
-  engine: string | null | undefined,
-): ClaimCatalog {
-  if (typeof engine !== "string" || runnable.runtimeVersions === null) {
-    return runnable;
-  }
-  return {
-    ...runnable,
-    runtimeVersions: runnable.runtimeVersions.filter(
-      (pair) => pair.engine === engine,
-    ),
-  };
-}
-
-/** A session on `from` over the connection moves to `to` at its claim. */
-export type ModelMove = {
-  connectionId: string;
-  from: string;
-  to: string;
 };
 
 export type ClaimInput = {

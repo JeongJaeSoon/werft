@@ -69,13 +69,13 @@ import type {
 } from "../action/ports/session-attribution.ts";
 import {
   type ClaimedMcpServer,
+  claimCatalogOf,
   connectionModels,
   connectionOf,
   type EgressUpstream,
   GITHUB_MCP_ENDPOINT,
   githubMcpBinding,
   mcpBinding,
-  modelMoves,
   providerPathAllowed,
   providerUpstreamOf,
   repositoryBinding,
@@ -1132,29 +1132,7 @@ export function createWorkerGateway(deps: {
         repositories,
         settingsGeneration,
         input: {
-          runnable: {
-            connections: Object.entries(connections).map(
-              ([id, connection]) => ({
-                id,
-                models: connectionModels(connection),
-              }),
-            ),
-            repositories: Object.entries(repositories).map(
-              ([repositoryId, repository]) => ({
-                repositoryId,
-                url: repository.url,
-                branch: repository.branch,
-              }),
-            ),
-            runtimeVersions: catalog.runtime_versions?.accepted ?? null,
-          },
-          modelMoves: Object.entries(connections).flatMap(([id, connection]) =>
-            modelMoves(connection).map(({ from, to }) => ({
-              connectionId: id,
-              from,
-              to,
-            })),
-          ),
+          ...claimCatalogOf(catalog),
           settingsGeneration,
           unsettledRepositoryIds:
             catalog.unavailable_repositories ?? new Set<string>(),

@@ -134,6 +134,7 @@ export * from "./github/service/github-gate.ts";
 export * from "./action/github/github-mcp-server.ts";
 export * from "./sessions/mcp-settings.ts";
 export * from "./catalog/mcp-tool-decision.ts";
+export * from "./catalog/placement.ts";
 export * from "./sessions/repository-attachment-service.ts";
 export * from "./action/github/github-work-service.ts";
 export * from "./sessions/installation-settings.ts";

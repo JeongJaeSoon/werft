@@ -67,4 +67,14 @@ export {
   mcpToolPermitted,
   visibleMcpTools,
 } from "./mcp-tool-decision.ts";
+export {
+  type ClaimCatalog,
+  claimCatalogOf,
+  type ModelMove,
+  type PlacementRefusal,
+  placementRefusal,
+  runnableOfEngine,
+  runtimeShipped,
+  type SessionPlacement,
+} from "./placement.ts";
 export type { ToolCatalogs } from "./tool-names.ts";
