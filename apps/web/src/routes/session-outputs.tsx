@@ -44,6 +44,7 @@ import { type ReactNode, useEffect, useId, useState } from "react";
 import { useKeptFailure } from "../components/kept-failure.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { RowMenu, RowMenuLink } from "../components/row-menu.tsx";
+import { SECTION_BODY } from "../components/section-body.ts";
 import { useI18n } from "../i18n/i18n.tsx";
 import {
   OUT_FILES_ID,
@@ -290,6 +291,7 @@ function SessionChanges({
   if (!hasRepository(session)) return null;
   const failed = error && !isApiError(error, "NOT_FOUND");
   const items = outcomes.data?.items ?? [];
+  const kept = items.length > 0;
   return (
     <Section
       className="min-w-0"
@@ -321,8 +323,14 @@ function SessionChanges({
     >
       <div id={bodyId} hidden={!open} className="flex min-w-0 flex-col gap-1">
         {failed ? (
-          <LoadFailure error={error} onRetry={() => void outcomes.refetch()} />
-        ) : items.length === 0 ? (
+          <LoadFailure
+            error={error}
+            kept={kept}
+            stale={kept ? t("session.outputs.stale") : undefined}
+            onRetry={() => void outcomes.refetch()}
+          />
+        ) : null}
+        {failed && !kept ? null : items.length === 0 ? (
           <Text variant="meta">
             {outcomes.data ? t("session.outcomes.noChanges") : null}
           </Text>
@@ -374,33 +382,40 @@ function SessionGitHubRefusals({
   const error = useKeptFailure(refusals, `refusals:${session.id}`);
   const items = refusals.data?.items ?? [];
   if (!hasRepository(session)) return null;
-  // A list never read is not an empty one. A later read that fails keeps
-  // the refusals already shown; a session gone from view is the detail
-  // screen's to report.
-  if (error && !refusals.data && !isApiError(error, "NOT_FOUND")) {
-    return (
-      <Section className="min-w-0" title={t("session.refusals.title")}>
-        <LoadFailure error={error} onRetry={() => void refusals.refetch()} />
-      </Section>
-    );
-  }
-  if (items.length === 0) return null;
+  // A list never read, or read empty, is not shown as none once a read
+  // fails; refusals already shown stay under the failure. A session gone
+  // from view is the detail screen's to report.
+  const failed = error && !isApiError(error, "NOT_FOUND");
+  const kept = items.length > 0;
+  if (!failed && !kept) return null;
   return (
     <Section className="min-w-0" title={t("session.refusals.title")}>
-      <CompactList>
-        {items.map((refusal) => (
-          <CompactRow key={refusal.receipt_id}>
-            <Text as="span">
-              {t(`agentGitHub.refusal.${refusal.reason_code}`)}
-            </Text>
-            <Text as="span" variant="meta">
-              {t(`agentGitHub.purpose.${refusal.purpose}`)}
-              {" · "}
-              <RelativeTime value={refusal.created_at} locale={locale} />
-            </Text>
-          </CompactRow>
-        ))}
-      </CompactList>
+      <div className={SECTION_BODY}>
+        {failed ? (
+          <LoadFailure
+            error={error}
+            kept={kept}
+            stale={kept ? t("session.outputs.stale") : undefined}
+            onRetry={() => void refusals.refetch()}
+          />
+        ) : null}
+        {kept ? (
+          <CompactList>
+            {items.map((refusal) => (
+              <CompactRow key={refusal.receipt_id}>
+                <Text as="span">
+                  {t(`agentGitHub.refusal.${refusal.reason_code}`)}
+                </Text>
+                <Text as="span" variant="meta">
+                  {t(`agentGitHub.purpose.${refusal.purpose}`)}
+                  {" · "}
+                  <RelativeTime value={refusal.created_at} locale={locale} />
+                </Text>
+              </CompactRow>
+            ))}
+          </CompactList>
+        ) : null}
+      </div>
     </Section>
   );
 }
@@ -509,20 +524,31 @@ function SessionOutputs({ session }: { readonly session: SessionDetail }) {
   const { t, locale } = useI18n();
   const outputs = useSessionOutputs(session);
   const error = useKeptFailure(outputs, session.id);
-
-  // A session gone from view is the detail screen's to report.
-  if (error && !isApiError(error, "NOT_FOUND")) {
-    return <LoadFailure error={error} onRetry={() => void outputs.refetch()} />;
-  }
-  if (outputs.isPending && session.checkpoint_revision !== null) {
-    return null;
-  }
   const items = outputs.data?.items ?? [];
+  // A session gone from view is the detail screen's to report.
+  const failed = error && !isApiError(error, "NOT_FOUND");
+  const retry = () => void outputs.refetch();
+
+  if (failed && items.length === 0) {
+    return <LoadFailure error={error} onRetry={retry} />;
+  }
   if (items.length === 0) return null;
   const summary = t("session.outputs.count", { count: items.length });
   // One line that opens to the files, each with its download.
   return (
-    <section id={OUT_FILES_ID} aria-label={summary} className="min-w-0">
+    <section
+      id={OUT_FILES_ID}
+      aria-label={summary}
+      className={cn("min-w-0", SECTION_BODY)}
+    >
+      {failed ? (
+        <LoadFailure
+          error={error}
+          kept
+          stale={t("session.outputs.stale")}
+          onRetry={retry}
+        />
+      ) : null}
       <details className="group/files min-w-0">
         <summary className="flex w-fit max-w-full cursor-pointer list-none items-center gap-2 rounded-control py-1 text-control [&::-webkit-details-marker]:hidden">
           <FileText
