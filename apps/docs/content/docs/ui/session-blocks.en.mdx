@@ -93,7 +93,7 @@ cd ui-demo
 ../node_modules/.bin/vite --host 127.0.0.1 --port 5173
 ```
 
-Sign in to the web console in the same browser, then open `http://127.0.0.1:5173`. The list shows the sessions the signed-in person created, and when you click a session id, `SessionDetail` at `/sessions/<id>` renders the status, waiting requests, an input for follow-up instructions, usage, session controls, and progress events. Progress events keep arriving over the event stream.
+Sign in to the web console in the same browser, then open `http://127.0.0.1:5173`. The list shows the sessions the signed-in person created, and when you click a session id, `SessionDetail` at `/sessions/<id>` renders the status, waiting requests, an input for follow-up instructions, usage, the share scope (who sees the session), session controls, and progress events. Progress events keep arriving over the event stream. The share scope comes from a read of its own, `GET /v1/sessions/{id}/share`, so the block makes one more request for it, and it cannot be changed there (read-only).
 
 If you are not signed in, the error rendered by `renderError` and a retry button appear where the list would be.
 

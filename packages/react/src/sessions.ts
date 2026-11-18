@@ -31,6 +31,7 @@ import {
   pendingRequestsQuery,
   sessionGithubWorkQuery,
   sessionQuery,
+  sessionShareQuery,
   sessionsQuery,
   sessionTurnsQuery,
   sessionUsageQuery,
@@ -74,6 +75,11 @@ export function useSession(id: string) {
 export function useSessionUsage(id: string, enabled: boolean) {
   const { client } = useWerft();
   return useQuery({ ...sessionUsageQuery(client, id), enabled });
+}
+
+export function useSessionShare(id: string, enabled: boolean) {
+  const { client } = useWerft();
+  return useQuery({ ...sessionShareQuery(client, id), enabled });
 }
 
 export function useSessionGithubWork(id: string, enabled: boolean) {

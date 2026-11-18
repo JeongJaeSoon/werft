@@ -214,6 +214,15 @@ exports[`query keys 1`] = `
     "id-1",
     "github-work",
   ],
+  "sessionShare": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
+    "sessions",
+    "id-1",
+    "share",
+  ],
   "sessionTurns": [
     {
       "actor": "user:u-1",
@@ -846,6 +855,32 @@ exports[`query options and the request each query makes 1`] = `
         "id-1",
       ],
       "refetchInterval": 5000,
+      "retry": false,
+    },
+  },
+  "sessionShareQuery": {
+    "calls": [
+      [
+        "/v1/sessions/{id}/share",
+        {
+          "params": {
+            "path": {
+              "id": "id-1",
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
+        "sessions",
+        "id-1",
+        "share",
+      ],
       "retry": false,
     },
   },

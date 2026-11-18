@@ -29,6 +29,7 @@ export {
   scopedKey,
   sessionGithubWorkQuery,
   sessionQuery,
+  sessionShareQuery,
   sessionsQuery,
   sessionTurnsQuery,
   sessionUsageQuery,

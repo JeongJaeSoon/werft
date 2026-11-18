@@ -1,6 +1,7 @@
 import { isApiError } from "@werft-ai/client";
 import type {
   SessionDetail as SessionDetailData,
+  SessionShareView,
   SessionUsageResponse,
 } from "@werft-ai/contracts";
 import {
@@ -12,6 +13,7 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  Text,
 } from "@werft-ai/ui";
 import {
   ArrowDown,
@@ -21,8 +23,17 @@ import {
   Globe,
   KeyRound,
   UserRound,
+  UsersRound,
 } from "lucide-react";
-import { Fragment, type ReactNode, useCallback, useState } from "react";
+import {
+  Fragment,
+  type ReactNode,
+  useCallback,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   OPERATIONS_MESSAGES,
   SessionStatusLabel,
@@ -30,16 +41,19 @@ import {
   shortSessionId,
 } from "../components/index.ts";
 import { useFollowEnd } from "../components/session/follow-end.ts";
+import { useKeptFailure } from "../kept-failure.ts";
 import { useWerft } from "../provider.tsx";
 import {
   useAgentOpenable,
   usePendingRequests,
   useSession,
   useSessionEvents,
+  useSessionShare,
   useSessionTurns,
   useSessionUsage,
 } from "../sessions.ts";
 import {
+  focusLost,
   PendingAnswers,
   type SessionActionProps,
   SessionComposer,
@@ -48,7 +62,7 @@ import {
 import { SessionChat } from "./session-chat.tsx";
 import { SlackMark } from "./slack-mark.tsx";
 import { SlackMessageLink } from "./slack-message-link.tsx";
-import { useBlockText } from "./text.ts";
+import { type BlockText, useBlockText } from "./text.ts";
 
 export interface SessionDetailProps extends SessionActionProps {
   readonly id: string;
@@ -138,6 +152,8 @@ export function SessionDetail({
   const pending = usePendingRequests(id, readable);
   const events = useSessionEvents(id, readable);
   const turns = useSessionTurns(id, readable);
+  const share = useSessionShare(id, readable);
+  const shareFailure = useKeptFailure(share, id);
   // The event window keeps its length once full, so the newest event's id
   // tells an arrival, not the count.
   const follow = useFollowEnd(
@@ -298,7 +314,14 @@ export function SessionDetail({
             refusal={refusal}
           />
         </div>
-        <SessionMeta session={detail} usage={usage.data} />
+        <SessionMeta
+          session={detail}
+          usage={usage.data}
+          share={share.data}
+          shareFailure={shareFailure}
+          // A second press joins the read already going, data or not.
+          retryShare={() => void share.refetch({ cancelRefetch: false })}
+        />
         {usage.error
           ? renderError(usage.error, () => void usage.refetch())
           : null}
@@ -382,9 +405,15 @@ const CHANNEL_ICON: Record<
 function SessionMeta({
   session,
   usage,
+  share,
+  shareFailure,
+  retryShare,
 }: {
   readonly session: SessionDetailData;
   readonly usage: SessionUsageResponse | undefined;
+  readonly share: SessionShareView | undefined;
+  readonly shareFailure: unknown;
+  readonly retryShare: () => void;
 }) {
   const { t, locale } = useBlockText();
   const [copied, setCopied] = useState(false);
@@ -471,7 +500,116 @@ function SessionMeta({
           {new Intl.NumberFormat(locale).format(usage.token_count)}
         </span>
       ) : null}
+      <SessionShare
+        key={session.id}
+        share={share}
+        failure={shareFailure}
+        onRetry={retryShare}
+      />
     </p>
+  );
+}
+
+/** Null for a scope this build does not know, which may reach fewer people than the workspace. */
+function shareText(t: BlockText, share: SessionShareView): string | null {
+  if (share.scope === "people")
+    return t("session.share.people", { count: share.user_ids.length });
+  if (share.scope === "team")
+    return t("session.share.team", { count: share.team_ids.length });
+  if (share.scope === "private") return t("session.share.private");
+  if (share.scope !== "workspace") return null;
+  // Only those inside the agent see it when its managing team is not the
+  // holding team.
+  return t(
+    share.audience_limited
+      ? "session.share.workspaceLimited"
+      : "session.share.workspace",
+  );
+}
+
+/**
+ * Who sees the session, read only. Nothing on its first read or for a viewer
+ * who may no longer read it. A failed read says so in its place, even over
+ * an earlier answer, which may no longer be true, and keeps saying so while
+ * it reads again, unless another session has failed since.
+ */
+function SessionShare({
+  share,
+  failure,
+  onRetry,
+}: {
+  readonly share: SessionShareView | undefined;
+  readonly failure: unknown;
+  readonly onRetry: () => void;
+}) {
+  const { t } = useBlockText();
+  const failedId = useId();
+  const pressed = useRef(false);
+  const shown = useRef<HTMLElement | null>(null);
+  const text = share ? shareText(t, share) : null;
+  // A pressed retry takes its button away; focus lands on what it brought.
+  useLayoutEffect(() => {
+    if (!pressed.current) return;
+    pressed.current = false;
+    if (!failure && text !== null && focusLost(shown.current))
+      shown.current?.focus();
+  }, [failure, text]);
+  if (isApiError(failure, "NOT_FOUND") || isApiError(failure, "FORBIDDEN"))
+    return null;
+  if (failure) {
+    return (
+      <Text
+        as="span"
+        variant="meta"
+        className="inline-flex flex-wrap items-center gap-x-1.5 text-muted-foreground"
+      >
+        <Text
+          as="span"
+          variant="meta"
+          id={failedId}
+          role="alert"
+          className="text-muted-foreground"
+        >
+          {t("session.share.failed")}
+        </Text>
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="h-auto px-0 text-caption"
+          aria-describedby={failedId}
+          onClick={() => {
+            pressed.current = true;
+            onRetry();
+          }}
+        >
+          {t("session.share.retry")}
+        </Button>
+      </Text>
+    );
+  }
+  if (text === null) return null;
+  return (
+    <Text
+      // Text types its ref as a paragraph whatever `as` says; this is a span.
+      ref={(node: HTMLElement | null) => {
+        shown.current = node;
+      }}
+      tabIndex={-1}
+      as="span"
+      variant="meta"
+      className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground"
+    >
+      <UsersRound
+        className="size-3.5 shrink-0"
+        strokeWidth={1.5}
+        aria-hidden="true"
+      />
+      <Text as="span" className="sr-only">
+        {t("session.share.title")}:{" "}
+      </Text>
+      {text}
+    </Text>
   );
 }
 

@@ -66,6 +66,7 @@ export {
   useSession,
   useSessionControl,
   useSessionEvents,
+  useSessionShare,
   useSessions,
   useSessionTurns,
   useSessionUsage,
