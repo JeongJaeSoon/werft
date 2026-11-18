@@ -1,6 +1,6 @@
 # 웹 초대·구성원·에이전트
 
-owner·admin은 웹 콘솔 `/members`에서 초대 대화상자로 링크를 만들어 건네고, 받은 사람은 `/invite/{token}`에서 두 단계(계정 확인 → 비밀번호)로 들어온다. 같은 화면에서 역할을 바꾸고(확인 대화상자, owner 역할을 주거나 owner를 바꾸는 것은 owner만) 비활성화·재활성화한다. `/agents/new`는 세 단계 마법사(이름 → 하는 일 → 채널 연결)로 에이전트를 만든다. "하는 일"을 저장하면 첫 release가 만들어져 바로 켜진다(member도 만든다. 만든 사람이 그 에이전트의 관리자가 된다). `/agents/{id}`의 "상세 설정" 탭(`?tab=card`)에서 카드를 고쳐 새 version을 저장하고, "릴리스" 탭에서 release를 만들어 활성화한다. release의 `policy_pins`는 서버가 카드에서 정하고 승인 대기 상태는 없다(첫 활성화가 `approved_by`를 채운다). 두 탭이 같은 활성화를 다투면 늦은 탭은 덮어쓰지 않고 409를 안내한다. 홈 "시작하기"의 "구성원 초대하기"·"에이전트 준비하기"는 이 상태를 그대로 보인다.
+owner·admin은 웹 콘솔 `/members`에서 초대 대화상자로 링크를 만들어 건네고, 받은 사람은 `/invite/{token}`에서 두 단계(계정 확인 → 비밀번호)로 들어온다. 같은 화면에서 역할을 바꾸고(확인 대화상자, owner 역할을 주거나 owner를 바꾸는 것은 owner만) 비활성화·재활성화한다. `/agents/new`는 세 단계 마법사(이름 → 하는 일 → 채널 연결)로 에이전트를 만든다. "하는 일"을 저장하면 첫 release가 만들어져 바로 켜진다(member도 만든다. 만든 사람이 그 에이전트의 관리자가 된다). `/agents/{id}`의 "상세 설정" 탭(`?tab=card`)에서 카드를 고쳐 새 version을 저장한다(실행 값이 바뀌면 release가 자동으로 만들어져 켜진다). "릴리스" 탭에서는 다른 release로 되돌린다. release의 `policy_pins`는 서버가 카드에서 정하고 승인 대기 상태는 없다(첫 활성화가 `approved_by`를 채운다). 두 탭이 같은 상세에서 되돌리기를 다투면 늦은 탭은 덮어쓰지 않고 409를 안내한다. 홈 "시작하기"의 "구성원 초대하기"·"에이전트 준비하기"는 이 상태를 그대로 보인다.
 
 ## Sub-features
 
@@ -12,21 +12,21 @@ owner·admin은 웹 콘솔 `/members`에서 초대 대화상자로 링크를 만
 - `member-forbidden` member로 `/members`를 열면 제목 "구성원"과 "구성원 초대와 관리는 워크스페이스 오너나 어드민이 합니다."만 보인다. 목록을 묻지 않아 서버 403도, 초대 버튼도 없다. 사이드바에도 "구성원"이 없다.
 - `role-change` 역할 select(`aria-label` "<이름>의 역할")를 바꾸면 확인 대화상자 "<이름>의 역할을 <역할>(으)로 바꿀까요?"가 뜨고 "역할 바꾸기"를 눌러야 PATCH한다 → "<이름>의 역할을 <역할>(으)로 바꿨습니다." 마지막 owner를 내리면 "마지막 오너는 역할을 바꾸거나 비활성화할 수 없습니다 — …".
 - `disable` "비활성화"(`aria-label` "<이름> 비활성화")는 확인 대화상자 "<이름> 계정을 비활성화할까요?"를 거친다 → "<이름> 계정을 비활성화했습니다." 비활성화된 사람의 cookie 세션은 바로 끊긴다(`ap_web`이 401). "다시 활성화"는 바로 된다 → "… 다시 활성화했습니다. 이제 다시 로그인할 수 있습니다."
-- `agent-create` `/agents/new`(`?new-agent.step=name|job|channels`). ① "이름": 이름·식별자(이름에서 채워진다)·설명(선택)·담당 팀(select), "다음". ② "하는 일": 모델 연결(select, 로컬 스택은 `fake-messages · anthropic`)·모델(select, 처음은 "모델을 고르세요", 로컬 스택은 `claude-sonnet-5`)·답변 언어(select, "사용자 언어 따라가기"·한국어·English·日本語), "저장하고 다음"(여기서 `POST /v1/agents`. 첫 release가 만들어져 바로 켜지고 `GET /v1/agents`의 `status`가 `active`다. 이후 나가도 에이전트는 남는다). ③ "채널 연결": "Slack 앱" 구역의 "Slack 앱 만들고 설치". 워크스페이스에 App Configuration Token이 없으면 "… 앱을 만들 수 없습니다."가 보인다. 그 뒤에 owner·admin에게는 "연동 > Slack에서 토큰 등록"이, member에게는 "오너나 어드민에게 토큰 등록을 요청하세요."가 붙는다. "나중에 하기"는 `/agents/<id>`로 간다. owner·admin·member 모두 만든다(`me.permissions`의 `agent.create`).
+- `agent-create` `/agents/new`(`?new-agent.step=name|job|channels`). ① "이름": 이름·식별자(이름에서 채워진다)·설명(선택)·담당 팀(select), "다음". 담당 팀은 필수다. 고를 수 있는 팀은 owner·admin에게는 모든 팀, member에게는 자기가 든 팀(`GET /v1/my-teams`)이다. 하나뿐이면 저절로 골라지고, 둘 이상이면 비어 있어 "다음"이 "담당 팀을 고르세요."로 멈춘다. 없으면 폼 대신 member에게 "속한 팀이 없어 에이전트를 만들 수 없습니다. …", owner·admin에게 "팀이 없어 … 팀 화면에서 먼저 팀을 만드세요."(링크 "팀으로")만 보인다. ② "하는 일": 모델 연결(select, 로컬 스택은 `fake-messages · anthropic`)·모델(select, 처음은 "모델을 고르세요", 로컬 스택은 `claude-sonnet-5`)·답변 언어(select, "사용자 언어 따라가기"·한국어·English·日本語), "저장하고 다음"(여기서 `POST /v1/agents`. 첫 release가 만들어져 바로 켜지고 `GET /v1/agents`의 `status`가 `active`다. 이후 나가도 에이전트는 남는다). ③ "채널 연결": "Slack 앱" 구역의 "Slack 앱 만들고 설치". 워크스페이스에 App Configuration Token이 없으면 "… 앱을 만들 수 없습니다."가 보인다. 그 뒤에 owner·admin에게는 "연동 > Slack에서 토큰 등록"이, member에게는 "오너나 어드민에게 토큰 등록을 요청하세요."가 붙는다. "나중에 하기"는 `/agents/<id>`로 간다. owner·admin·member 모두 만든다(`me.permissions`의 `agent.create`).
 - `agent-save` 상세의 "상세 설정" 탭(`?tab=card`)에서 "상세 설정 편집"을 누르고 고쳐 "저장"한다. 이름·설명만 바꾸면 바로 반영되고 새 버전은 생기지 않는다("이름과 설명을 저장했습니다. …"). 모델·답변 언어 같은 실행 값을 바꾸면 새 버전과 release가 만들어져 바로 적용된다: "저장하고 새 세션에 적용했습니다. 카드는 버전 N입니다." 적용하지 못하면 "저장했습니다 — 버전 N. 새 세션에는 적용하지 못했습니다: <이유>".
-- `release-rollback` "릴리스" 탭(`?tab=release`)에는 release를 만드는 폼이 없다("릴리스는 연결이나 카드가 바뀌면 자동으로 만들어집니다."). 표 열은 버전·상태·활성화 시각·만든 사람·동작이다. 버전 칸은 `<label> v<카드 버전>`이고 그 아래에 "첫 릴리스"나 "바뀐 것: …"이 있다. `<label>`은 만든 시각(서울, `2026-11-18_09:08:45`)이다. 상태는 활성·이전이다. 이전 release의 "되돌리기"를 누르면 확인 대화상자 "<label>(으)로 되돌릴까요?"가 뜬다. 대화상자의 "되돌리기"를 누르면 "릴리스 <label> · <연결>(으)로 되돌렸습니다. 저장소와 GitHub 설정은 지금 그대로입니다."가 나오고, 그 release가 활성이 된다.
-- `activate-conflict` 다른 탭이 먼저 활성화했으면 409 "다른 곳에서 활성 릴리스를 먼저 바꿨습니다"와 "… 덮어쓰지 않고 멈췄습니다". "최신 상태 불러오기" 뒤 "보던 화면의 활성 릴리스: …. 지금 활성 릴리스: …."와 두 카드의 차이가 보이고, 그다음에야 다시 활성화된다.
+- `release-rollback` "릴리스" 탭(`?tab=release`)에는 release를 만드는 폼이 없다("릴리스는 연결이나 카드가 바뀌면 자동으로 만들어집니다."). 표 열은 버전·상태·활성화 시각·만든 사람·동작이다. 버전 칸은 `<label> v<카드 버전>`이고 그 아래에 "첫 릴리스"나 "바뀐 것: …"이 있다. `<label>`은 만든 시각(서울, `2026-11-18_09:08:45`)이다. 상태는 활성·이전·활성화 전(한 번도 켜진 적 없는 release)이다. 관리하는 사람에게는 활성이 아닌 모든 행에 "되돌리기"가 있다. "되돌리기"를 누르면 확인 대화상자 "<label>(으)로 되돌릴까요?"가 뜬다. 대화상자의 "되돌리기"를 누르면 "릴리스 <label> · <연결>(으)로 되돌렸습니다. 저장소와 GitHub 설정은 지금 그대로입니다."가 나오고, 그 release가 활성이 된다.
+- `activate-conflict` 다른 탭이 먼저 되돌렸으면 409 "다른 곳에서 활성 릴리스를 먼저 바꿨습니다"와 "… 덮어쓰지 않고 멈췄습니다". "최신 상태 불러오기" 뒤 "보던 화면의 활성 릴리스: …. 지금 활성 릴리스: …."와 두 카드의 차이가 보이고, 그다음에야 다시 활성화된다.
 - `checklist` 홈 "시작하기"의 "구성원 초대하기"는 구성원이 둘 이상이거나 초대가 있으면, "에이전트 준비하기"는 활성 release가 있는 에이전트가 있으면 완료. 조회가 실패하면(member는 구성원 목록을 못 본다) "확인할 수 없음".
 
 ## How to get to it (user POV)
 
 - owner로 `$VERIFY_API/`에 로그인해 왼쪽 사이드바의 "구성원"·"에이전트"로 간다. member도 "에이전트" → "새 에이전트"로 `/agents/new`에 간다.
 - 초대받는 사람은 owner와 cookie를 나누지 않는 다른 브라우저(profile)로 링크를 연다.
-- release 폼의 모델 연결은 `GET /v1/connections`에서 고른다. 카드 모델이 연결의 모델 목록에 없으면 서버가 거절하므로 폼이 카드 모델을 제공하는 연결을 먼저 고른다.
+- 마법사 ②단계의 모델 연결은 `GET /v1/connections`에서 고른다. 카드 모델이 연결의 모델 목록에 없으면 서버가 거절한다.
 
 ## Driving it with lib.sh
 
-Preconditions: [web-login.md](./web-login.md)대로 owner를 `web-user.mjs`로 bootstrap·login했다. `orch hold browser --note "<what>"`를 잡았다. 화면은 이 run의 headless Chrome(`browser.mjs`, [web-console.md](./web-console.md))으로 몬다. 비밀번호와 초대 token은 명령에 쓰지 않는다: `web-user.mjs invite`가 token을 `users/<who>.invite`에, 초대받는 사람의 무작위 비밀번호를 `users/<who>`에 두고, 수락은 API(`web-user.mjs accept`)나 화면(`browser.mjs accept`)이 그 파일에서 읽는다.
+Preconditions: [web-login.md](./web-login.md)대로 owner를 `web-user.mjs`로 bootstrap·login했다. 에이전트를 만들려면 그 뒤 `ap_store_keys`로 설정 문서의 키를 넣는다(안 넣으면 마법사 ②단계에 "켜진 모델 연결이 없습니다."만 보인다). `orch hold browser --note "<what>"`를 잡았다. 화면은 이 run의 headless Chrome(`browser.mjs`, [web-console.md](./web-console.md))으로 몬다. 비밀번호와 초대 token은 명령에 쓰지 않는다: `web-user.mjs invite`가 token을 `users/<who>.invite`에, 초대받는 사람의 무작위 비밀번호를 `users/<who>`에 두고, 수락은 API(`web-user.mjs accept`)나 화면(`browser.mjs accept`)이 그 파일에서 읽는다.
 
 ```sh
 . .claude/skills/verify-werft/scripts/lib.sh <run id>
@@ -63,26 +63,36 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select u.email, m.r
 
 비활성 뒤 초대받은 사람으로 `node $B <run id> open /`을 다시 열면 `/login?redirect=%2F`.
 
-에이전트는 `/agents/new` 마법사로 만든다. 단계마다 칸이 바뀌고 `@N`(main 안 N번째 칸, 0부터)은 지금 단계의 칸만 센다. member로 로그인한 브라우저에서:
+에이전트는 `/agents/new` 마법사로 만든다. 담당 팀이 필수라 member는 먼저 팀에 들어 있어야 한다. owner cookie로 팀을 만들고 member를 넣는다(`MID`는 member cookie의 `GET /v1/auth/me` `user.id`):
+
+```sh
+ap_as member; MID=$(ap_web GET /v1/auth/me | head -1 | jq -r .user.id)
+ap_as owner
+TID=$(ap_web POST /v1/teams '{"name":"Member team"}' | head -1 | jq -r .team.id)   # 201
+ap_web POST "/v1/teams/$TID/members" "$(jq -nc --arg u "$MID" '{user_id:$u}')"     # 200, member_count 1
+```
+
+단계마다 칸이 바뀌고 `@N`(main 안 N번째 칸, 0부터)은 지금 단계의 칸만 센다. member로 로그인한 브라우저에서:
 
 ```sh
 node $B <run id> open /agents/new                    # /agents/new?new-agent.step=name
 node $B <run id> type @0 "Member Helper"             # 이름. 식별자(@1)는 member-helper로 채워진다
+                                                     # 담당 팀(@3)은 팀이 하나면 저절로 골라진다. 둘 이상이면 select @3 "$TID"
 node $B <run id> click 다음                          # → ?new-agent.step=job
 node $B <run id> select @1 claude-sonnet-5           # 모델 (@0은 모델 연결 fake-messages, @2는 답변 언어)
 node $B <run id> click "저장하고 다음"               # → ?new-agent.step=channels, 에이전트가 켜진 채 만들어진다
 node $B <run id> click "나중에 하기"                 # → /agents/<id>
 ```
 
-상세는 탭 일곱(개요·상세 설정·릴리스·접근·관리자·Slack·GitHub, 주소 `?tab=card|release|access|admins|slack|github`)이다. `@N`은 탭과 상관없이 main 안의 칸을 세고, 편집을 열면 칸 수가 바뀐다. 숨은 칸에는 `type`이 들어가지 않으므로 탭을 주소로 연다: `open "/agents/<id>?tab=card"` → `click "상세 설정 편집"` → `type @1 "…"`(설명) 또는 `select @4 en`(답변 언어) → `click 저장`. `open "/agents/<id>?tab=release"` → `click 되돌리기`(표의 첫 버튼). 대화상자의 같은 이름 버튼은 `click`이 표의 버튼을 먼저 잡으므로 `eval`로 `[role=alertdialog]` 안의 버튼을 누른다. `?tab=admins`에서 `select @<팀 칸> <team id>` → `click "팀 추가"`. 칸 순서는 `eval`로 label을 찍어 확인한다.
+상세는 탭 일곱(개요·상세 설정·릴리스·접근·관리자·Slack·GitHub, 주소 `?tab=card|release|access|admins|slack|github`)이다. `@N`은 탭과 상관없이 main 안의 칸을 세고, 편집을 열면 칸 수가 바뀐다. 숨은 칸에는 `type`이 들어가지 않으므로 탭을 주소로 연다: `open "/agents/<id>?tab=card"` → `click "상세 설정 편집"` → `type @1 "…"`(설명) 또는 `select @4 en`(답변 언어) → `click 저장`. `open "/agents/<id>?tab=release"` → `click 되돌리기`(표의 첫 버튼). 대화상자의 같은 이름 버튼은 `click`이 표의 버튼을 먼저 잡으므로 CSS로 누른다: `click '[role=dialog] button:last-child'`. `?tab=admins`에서 `select @<팀 칸> <team id>` → `click "팀 추가"`. 칸 순서는 `eval`로 label을 찍어 확인한다.
 
-충돌은 같은 상세의 릴리스 탭을 두 탭에 띄우고, A에서 되돌린 뒤 B에서 다른 release로 되돌린다(되돌리기로 충돌을 낸 결과는 아직 확인하지 않았다. 두 탭은 Orca 탭 둘로 연다. `browser.mjs`는 탭 하나만 쓴다).
+충돌에는 release가 셋 필요하다(카드의 답변 언어를 두 번 바꾸면 v2·v3가 생긴다). `browser.mjs`는 탭 하나만 쓰므로 B는 브라우저, A는 API다. 브라우저로 `?tab=release`를 열어 둔 채, A로 `ap_web GET "/v1/agents/<id>"`의 `agent.activation_revision`과 `releases[].id`를 읽고 `ap_web POST "/v1/agents/<id>/activate" '{"release_id":"<v2 id>","expected_revision":<revision>}'` → `200`. 그다음 B에서 v1 행의 되돌리기(`click '[aria-label*="<v1 label>"]'` → `click '[role=dialog] button:last-child'`) → `409 REVISION_CONFLICT`("Activation revision is N+1, not N")와 위 `activate-conflict` 안내.
 
 ```sh
 ap_compose exec -T postgres psql -U postgres -d sessions -c "select a.slug, a.activation_revision, v.version_no as active_version, u.email as created_by from agents a left join agent_releases r on r.id=a.active_release_id left join agent_versions v on v.id=r.version_id left join users u on u.id=a.created_by" | tee "$EVIDENCE/agents-db.txt"
 ```
 
-409 직후에는 revision과 version이 A가 활성화한 그대로여야 한다. B에서 "최신 상태 불러오기"를 누르면 보던·지금 활성 release와 카드 차이가 보이고, 그 뒤 활성화는 성공한다(revision +1).
+409 직후에는 revision과 version이 A가 활성화한 그대로여야 한다. B에서 "최신 상태 불러오기"를 누르면 보던·지금 활성 release와 카드 차이가 보이고, 그 뒤 같은 되돌리기는 성공한다("릴리스 <label> · fake-messages(으)로 되돌렸습니다. …", revision +1).
 
 끝나면 `node $B <run id> stop`(`down.sh`도 부른다). Orca 탭을 열었으면 `orca tab close --page <id>`, profile은 `orca tab profile delete --profile <id>`로 지운다.
 
@@ -92,7 +102,7 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select a.slug, a.ac
 - `orca click`이 접힌 영역 아래 버튼(상세의 "저장")을 누르지 못할 때가 있다. 겹친 요소는 없었다. `orca eval --expression "[...document.querySelectorAll('button')].find(b=>b.textContent==='저장').click()"`로 누른다. `browser.mjs click`은 처음부터 이렇게 누른다.
 - 비활성된 사람의 탭은 열린 채로는 `me`의 staleTime(30초)이 지나고 포커스가 돌아와야 로그인 화면으로 간다. 다시 열면 바로 간다.
 - `GET /v1/members`가 owner·admin(`member.manage`) 전용이라 member는 구성원 목록을 못 본다. 권한 없음 화면이 맞는 결과다.
-- 웹 카드 폼에는 `credential_refs`가 없어 웹에서 만든 에이전트는 바로 활성화된다. API로 `capabilities.credential_refs`를 넣은 카드는 연결 전 활성화가 `409 CREDENTIAL_UNBOUND`다. 자격 연결은 릴리스 탭에 있다. Slack 앱 설치 설정은 API로 한다([musterrolle.md](./musterrolle.md) f·g).
+- 웹 카드 폼에는 `credential_refs`가 없어 웹에서 만든 에이전트는 바로 활성화된다. API로 `capabilities.credential_refs`를 넣은 카드는 연결 전 활성화가 `409 CREDENTIAL_UNBOUND`다. 자격 연결은 접근 탭(`?tab=access`)에 있다. Slack 앱 설치 설정은 API로 한다([musterrolle.md](./musterrolle.md) f·g).
 - 초대 token은 URL 경로에 있다. 텍스트 증거에는 링크를 남기지 않는다. 초대 링크 스크린샷의 token은 수락이나 회수 뒤 무효다.
 - 같은 사람을 두 번 초대하지 않는다. `invite`는 그 사람의 `users/<who>`가 이미 있으면 새 비밀번호를 만들지 않고 그대로 쓴다.
 
