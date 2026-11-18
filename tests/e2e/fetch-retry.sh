@@ -2,8 +2,9 @@
 # Sourced by tests/e2e/run.sh around the steps that pull images and build
 # them from the CI build cache. A registry or the cache can fail mid-transfer:
 # a reset connection, a 5xx, or a cache URL whose signature lapsed while
-# another layer stalled. What already arrived stays in the daemon, so the
-# same command again picks up from there. Only such transfer failures are
+# another layer stalled. The same command again usually gets through: images
+# that finished stay in the daemon, though a layer cut midway is fetched from
+# its start again. Only such failures are
 # tried again; anything else, a build error or a service that never gets
 # healthy, fails on the first try as before.
 #
