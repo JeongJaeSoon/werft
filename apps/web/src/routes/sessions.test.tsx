@@ -4189,6 +4189,8 @@ describe("세션의 릴리스", () => {
       expect(spoken(piece)).toBe("에이전트: 에이전트 없음");
       expect(within(piece).queryByRole("link") === null).toBe(true);
       expect(piece.querySelectorAll("[data-slot=text]")).toHaveLength(0);
+      // Nor anywhere else on the line, outside the piece.
+      expect((meta.textContent ?? "").includes("릴리스")).toBe(false);
     },
   );
 });
