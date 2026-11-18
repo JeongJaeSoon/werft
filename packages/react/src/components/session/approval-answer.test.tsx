@@ -82,7 +82,7 @@ for (const surface of SURFACES) {
       expect(view.queryByRole("textbox")).toBeNull();
     });
 
-    test("거절은 폼을 펼치고 초점이 이유 칸으로 간다", async () => {
+    test("거부는 폼을 펼치고 초점이 이유 칸으로 간다", async () => {
       const user = await setupUser();
       const onDeny = mock((_reason: string) => {});
       const view = render(surface.draw(props({ onDeny })));
@@ -94,7 +94,7 @@ for (const surface of SURFACES) {
       expect(onDeny).not.toHaveBeenCalled();
     });
 
-    test("이유 없이 거절을 보낼 수 있다", async () => {
+    test("이유 없이 거부를 보낼 수 있다", async () => {
       const user = await setupUser();
       const onDeny = mock((_reason: string) => {});
       const view = render(surface.draw(props({ onDeny })));
@@ -125,7 +125,7 @@ for (const surface of SURFACES) {
       expect(onDeny.mock.calls).toEqual([[""]]);
     });
 
-    test("취소하면 폼이 닫히고 초점이 거절 버튼으로 돌아간다", async () => {
+    test("취소하면 폼이 닫히고 초점이 거부 버튼으로 돌아간다", async () => {
       const user = await setupUser();
       const onDeny = mock((_reason: string) => {});
       const view = render(surface.draw(props({ onDeny })));
