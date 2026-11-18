@@ -149,36 +149,49 @@ describe("ErrorState", () => {
 
 describe("Skeleton", () => {
   test("줄 수만큼 막대를 만든다", () => {
-    const { container } = render(<Skeleton lines={3} />);
+    const { container } = render(<Skeleton lines={3} label="불러오는 중" />);
     expect(container.querySelectorAll(".werft-skeleton__bar")).toHaveLength(3);
     expect(htmlOf(container.firstElementChild)).toMatchSnapshot();
   });
 
   test("text가 아니면 막대는 하나다", () => {
-    const { container } = render(<Skeleton shape="circle" lines={5} />);
+    const { container } = render(
+      <Skeleton shape="circle" lines={5} decorative />,
+    );
     expect(container.querySelectorAll(".werft-skeleton__bar")).toHaveLength(1);
   });
 
-  test("읽는 사람에게 로딩 중임을 알린다", () => {
-    const { container } = render(<Skeleton />);
+  test("읽는 사람에게 무엇을 불러오는지 알린다", () => {
+    const { container } = render(<Skeleton label="채널을 불러오는 중입니다" />);
     const root = container.querySelector(".werft-skeleton");
     // <output> is role="status" without spelling it out.
     expect(root?.tagName).toBe("OUTPUT");
     expect(root?.getAttribute("aria-busy")).toBe("true");
-    expect(root?.textContent).toContain("불러오는 중");
+    expect(root?.getAttribute("aria-hidden")).toBeNull();
+    expect(root?.textContent).toBe("채널을 불러오는 중입니다");
   });
 
-  test("decorative면 보조기술에서 숨는다", () => {
+  test("뜻을 말하는 글과 decorative 가운데 하나만 받는다", () => {
+    // The checks are the type errors; typecheck fails if one stops erring.
+    // @ts-expect-error neither says what is loading nor is decorative
+    const neither = <Skeleton />;
+    // @ts-expect-error a decorative placeholder has nothing to say
+    const both = <Skeleton label="채널을 불러오는 중입니다" decorative />;
+    expect([neither, both]).toHaveLength(2);
+  });
+
+  test("decorative면 보조기술에서 숨고 글을 그리지 않는다", () => {
     const { container } = render(<Skeleton decorative inline />);
     const root = container.querySelector(".werft-skeleton");
     expect(root?.getAttribute("aria-hidden")).toBe("true");
     expect(root?.getAttribute("data-inline")).toBe("true");
+    expect(root?.textContent).toBe("");
   });
 
   test("prefers-reduced-motion이면 깜빡이지 않는다", () => {
     const restore = stubPrefersReducedMotion(true);
     try {
-      const { container } = render(<Skeleton />);
+      const { container } = render(<Skeleton decorative />);
       expect(
         container
           .querySelector(".werft-skeleton")

@@ -880,13 +880,26 @@ describe("InstallationLimits", () => {
     const { getByRole, getAllByRole } = withPlatform(
       <InstallationLimits scope="me" limits={undefined} />,
     );
-    const rows = tableRows(getByRole);
-    expect(rows.slice(0, 3)).toEqual(STATIC_MEMBER_ROWS);
-    expect(rows.slice(3).map((row) => row.slice(1, 3))).toEqual([
-      ["세션마다 셉니다", "불러오는 중"],
-      ["세션마다 셉니다", "불러오는 중"],
-      ["세션마다 셉니다", "불러오는 중"],
-      ["세션마다 셉니다", "불러오는 중"],
+    expect(tableRows(getByRole).slice(0, 3)).toEqual(STATIC_MEMBER_ROWS);
+    // The value cell holds a decorative skeleton and no value yet; the one
+    // status below is what a screen reader hears.
+    const pending = [
+      ...getByRole("table", { name: "한도" }).querySelectorAll("[role=row]"),
+    ]
+      .slice(4)
+      .map((row) => {
+        const cells = row.querySelectorAll("[role=cell]");
+        return [
+          cells[1]?.textContent,
+          cells[2]?.querySelector(".werft-skeleton") !== null,
+          cells[2]?.textContent,
+        ];
+      });
+    expect(pending).toEqual([
+      ["세션마다 셉니다", true, ""],
+      ["세션마다 셉니다", true, ""],
+      ["세션마다 셉니다", true, ""],
+      ["세션마다 셉니다", true, ""],
     ]);
     expect(getAllByRole("status").map((s) => s.textContent)).toEqual([
       "한도를 읽는 중",
