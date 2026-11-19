@@ -99,7 +99,7 @@
   2. 잠금 아래 다시 맞추는 안쪽 판정(`requester-locks.ts:192-200`, `:510-520`). 담당 팀 구성원을 따로 다시 세므로 같은 조건을 넣는다.
   3. 사용 판정의 사실 모으기. 미게시면 `managingMember`와 `usageTeams`를 비우고, `scope: workspace`의 `public` 근거도 쓰지 않는다(`agent-usage-decision.ts:58-86`의 입력을 만드는 쪽).
   4. 정책의 `isInside`(`agent-authority.ts:148`)는 1을 부르므로 따로 바꿀 것이 없음을 시험으로 확인한다.
-  - 판정식("게시됐거나, 관리자이거나, 워크스페이스 관리자")은 SQL 함수로 두고 1과 2의 안쪽 재판정이 그것을 부른다. 게시 여부만 보는 SQL 함수도 하나 두어 `agentUsable`의 공개·사용 범위 팀 갈래가 쓴다. 3과 2의 사용 사실은 잠근 에이전트 행의 `active_release_id`로 따로 계산한다. 같은 SQL을 부르지 않는 경로가 있으므로 같은 답은 맞춤 시험으로 고정한다. 미게시 에이전트, `workspace` 공유 세션, 사람 지정 공유, 에이전트 key 각각에 대해 네 경로가 같은 답을 내는지 맞춤 시험을 두고, 목록·상세·`GET /v1/usable-agents`·세션 만들기 endpoint 시험도 둔다.
+  - 판정식("게시됐거나, 관리자이거나, 워크스페이스 관리자")은 SQL 함수로 두고 1과 2의 안쪽 재판정이 그것을 부른다. 게시 여부만 보는 SQL 함수도 하나 두어 `agentUsable`의 공개·사용 범위 팀 갈래가 쓴다. 3과 2의 사용 사실은 읽은 에이전트 행의 `active_release_id`로 따로 계산한다. transaction 안의 재판정(2)은 그 행을 잠그고 읽고, 사전 판정(3)은 잠그지 않는다. 같은 SQL을 부르지 않는 경로가 있으므로 같은 답은 맞춤 시험으로 고정한다. 미게시 에이전트, `workspace` 공유 세션, 사람 지정 공유, 에이전트 key 각각에 대해 네 경로가 같은 답을 내는지 맞춤 시험을 두고, 목록·상세·`GET /v1/usable-agents`·세션 만들기 endpoint 시험도 둔다.
 - **에이전트 key.** 에이전트 key는 지금처럼 자기 에이전트 행 하나를 읽는다(`keysOwnAgent`, `agent-service.ts:399-438`). 그 key는 그 에이전트의 관리자가 발급했고, 사람에게 에이전트를 보여 주는 길이 아니다. 미게시 에이전트에서는 `active_release_id`가 `null`이라 key로 시작할 세션이 없고, 미리보기는 웹 로그인만 하므로 key로 켜지 않은 release를 돌릴 길도 없다. 그래서 이 경로는 막지 않고, 이 동작을 endpoint 시험으로 고정한다.
 - 게시된 뒤의 "권한 있는 사용자"는 지금 규칙 그대로다. 사용 판정은 근거의 합집합이고(사용 범위가 `private`이면 그 팀들에 워크스페이스 관리자·관리자·담당 팀 구성원이 더해진다), 세션 시작은 거기에 안쪽 조건을 더한다. 사용 범위 설정을 공개 상태로 쓰지 않는 이유: 사용 범위는 게시된 에이전트를 누가 쓰는지를 정하는 것이고, `private`도 팀을 하나 이상 골라야 해서 "관리자만"을 표현하지 못한다.
 - 활성화 실패로 활성 release가 아직 없는 에이전트(counts `draft`)도 미게시다. 지금도 담당 팀 구성원은 이 에이전트를 쓰지 못한다. 바뀌는 것은 목록과 설정 읽기(카드, 버전, release, `agents.ts:251-260`)다. 담당 팀 `member`는 첫 게시 전까지 이것도 보지 못한다.
@@ -172,7 +172,7 @@
 |---|---|
 | contracts | `packages/contracts/src/api/session.ts`의 `preview`, `packages/contracts/src/kollegium/agents.ts`의 `activate`와 `release.status: saved`, Slack 안내 문구(`musterrolle/slack-notices.ts`) |
 | db: 공유하는 SQL 함수 (`packages/db/src/musterrolle/administers.ts`) | `reachesBeforePublish`("게시됐거나, 관리자이거나, 워크스페이스 관리자")를 `insideAgent`와 잠금 아래 안쪽 재판정(`reachesBeforePublishNow`)이 부른다. `agentPublished`(게시 여부)를 `agentUsable`의 공개·사용 범위 팀 갈래가 부른다 |
-| db: 따로 계산하고 시험으로 맞추는 곳 | 잠금 아래 사용 재판정(`sessions/requester-locks.ts`)과 사용 판정 사실 모으기(`usage/agent-usage.ts`)는 잠근 행의 `active_release_id`로 게시 여부를 직접 본다. 세션 공유 가시성(`musterrolle/session-shares.ts`)은 `insideAgent`를 거친다 |
+| db: 따로 계산하고 시험으로 맞추는 곳 | 잠금 아래 사용 재판정(`sessions/requester-locks.ts`)과 사용 판정 사실 모으기(`usage/agent-usage.ts`)는 읽은 에이전트 행의 `active_release_id`로 게시 여부를 직접 본다(잠금 아래 재판정은 잠근 행, 사전 판정은 잠그지 않은 행). 세션 공유 가시성(`musterrolle/session-shares.ts`)은 `insideAgent`를 거친다 |
 | db: 미리보기 재판정 | 입력 수락(`postgres-unit-of-work.ts`), 대기 요청 답변(`sessions/pending-requests.ts`), push 승인(`push-requests.ts`)에서 같은 transaction 안에 웹 로그인과 지금의 관리자 여부를 본다 |
 | db: 저장 전이 (`agents.ts`) | `activate: false`의 draft 전이, 잠금 아래 `superseded` 판정, 활성화 때 draft 비우기 |
 | db: 그 밖 | migration(`sessions.preview`), 성과 판정에서 미리보기 제외(`sessions/achievement-judgments.ts`) |
@@ -180,7 +180,7 @@
 | adapters (`packages/adapters/chat/slack`) | 요청자 판정을 통과한 사람에게만 "아직 게시되지 않은 에이전트" 안내 |
 | web (P2) | 새 에이전트 화면, 목록·상세의 미게시 표시, release 탭, 세션의 미리보기 표시 |
 
-- **port와 adapter.** 판단 순서(무엇을 먼저 거절하나)는 platform 서비스가 갖는다. 잠금 아래 다시 보는 일은 db 어댑터가 port 메서드로 맡는다. 같은 판정을 여러 경로가 한다. 그중 SQL 질의 안에서 판정하는 곳은 공유 SQL 함수를 부르고, 잠근 행을 이미 읽은 곳은 그 행으로 직접 계산한다. 어느 쪽이든 경로마다 같은 답을 내는지 맞춤 시험으로 고정한다.
+- **port와 adapter.** 판단 순서(무엇을 먼저 거절하나)는 platform 서비스가 갖는다. 잠금 아래 다시 보는 일은 db 어댑터가 port 메서드로 맡는다. 같은 판정을 여러 경로가 한다. 그중 SQL 질의 안에서 판정하는 곳은 공유 SQL 함수를 부르고, 에이전트 행을 이미 읽은 곳은 그 행으로 직접 계산한다. 어느 쪽이든 경로마다 같은 답을 내는지 맞춤 시험으로 고정한다.
 - **데이터 모델.** `sessions.preview boolean NOT NULL DEFAULT false` 하나를 더한다. 공개 상태는 `agents.active_release_id`, 저장만 한 변경은 지금의 draft 칸(`draft_version_id`, `draft_connection_id`, `draft_failure`)을 그대로 쓴다.
 - **통합 접근 판정과의 관계.** 미게시 조건은 새 정책 action이 아니라 안쪽·사용 판정식 자체에 들어간다. 그래서 목록, 상세, 사용 가능 목록, 세션 시작이 같은 규칙으로 답한다(공유 함수 또는 맞춤 시험). 미리보기 허가는 지금의 `agent.manage` 판정을 쓴다. 판정 기록 쪽 파일은 고치지 않는다.
 
@@ -200,7 +200,7 @@
 
 | 단계 | 내용 | 끝나는 조건 |
 |---|---|---|
-| P1 서버 (PR 하나) | 미게시 가시성(네 경로와 `agentUsable`의 모든 갈래가 같은 규칙을 공유 함수나 맞춤 시험으로 지킨다, 에이전트 key 경로 고정), 세션 `preview`(migration, 조건·거절 모양, 턴·재개·대기 요청 답변마다 재판정, 공유 고정, Slack 거절과 안내 순서, 성과 제외), 저장 `activate: false`(draft 전이, 부분 저장의 바탕, 활성화 때 draft 비우기)와 `release.status: saved`, OpenAPI·문서 | CI의 db·platform 시험이 통과한다: 경로 맞춤 시험, 관리자 해제 뒤 턴 거절과 대기 요청 답변 거절, release를 만들지 못한 `activate: false` 저장, 바깥쪽 `404`, 오래된 저장의 `superseded`(저장만 하는 저장 A의 release가 더 새 저장 B 뒤에 만들어지는 경우 포함), 롤백 뒤 draft 유지. 실제 스택에서 API로 만들기 → 미리보기 → 게시 → 담당 팀 구성원 접근. PR에는 역할(관리자, 담당 팀 구성원, 개인 key)마다 보낸 요청과 받은 상태 코드·`reason_code`, 그리고 CI의 integration job에서 옮긴 시험 개수를 적는다. 확인하지 못한 단계가 있으면 이유와 함께 "미확인"으로 적는다. 교차 리뷰 지적(ACT-ON) 0 |
+| P1 서버 (PR 하나) | 미게시 가시성(네 경로와 `agentUsable`의 모든 갈래가 같은 규칙을 공유 함수나 맞춤 시험으로 지킨다, 에이전트 key 경로 고정), 세션 `preview`(migration, 조건·거절 모양, 턴·재개·대기 요청 답변마다 재판정, 공유 고정, Slack 거절과 안내 순서, 성과 제외), 저장 `activate: false`(draft 전이, 부분 저장의 바탕, 활성화 때 draft 비우기)와 `release.status: saved`, OpenAPI·문서 | CI의 db·platform 시험이 통과한다: 경로 맞춤 시험, 관리자 해제 뒤 턴 거절과 대기 요청 답변 거절, release를 만들지 못한 `activate: false` 저장, 바깥쪽 `404`, 오래된 저장의 `superseded`(저장만 하는 저장 A의 release가 더 새 저장 B 뒤에 만들어지는 경우 포함), 롤백 뒤 draft 유지. 실제 스택에서 API로 만들기 → 미리보기 → 게시 → 담당 팀 구성원 접근. PR에는 역할(관리자, 담당 팀 구성원, 개인 key)마다 보낸 요청과 받은 상태 코드·`reason_code`, 그리고 CI의 integration job에서 옮긴 시험 개수와 그 job 로그 링크, 새로 더한 시험 파일 이름을 적는다. 확인하지 못한 단계가 있으면 이유와 함께 "미확인"으로 적는다. 교차 리뷰 지적(ACT-ON) 0 |
 | P2 콘솔 (PR 하나 또는 둘: 새 에이전트 화면 / 목록·상세·release 탭) | 새 에이전트 화면 재설계와 미리 써 보기 단계·게시, 미게시 표시, release 탭의 미리 써 보기와 "켜지 않은 변경", "저장만 하고 미리 써 보기", 세션의 미리보기 표시 | web 시험 통과. 실제 스택에서 같은 흐름을 화면으로 확인하고 넓은 화면과 390px 스크린샷을 PR에 남긴다. 키보드만으로 새 에이전트 화면을 끝까지 지날 수 있다. ACT-ON 0 |
 
 - 이 계획 밖의 후속: 게시 전 승인, 사용 범위를 넓힐 때의 승인, 다른 사람에게 미리보기를 보여 주는 검토자 초대. 요청이 생기면 따로 설계한다.
