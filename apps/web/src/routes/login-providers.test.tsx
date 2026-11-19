@@ -614,6 +614,39 @@ describe("로그인 공급자 상세", () => {
     ]);
   });
 
+  test.each([
+    ["another provider on", false],
+    ["the last one while passwords are closed", true],
+  ] as const)(
+    "once it is on the keyboard goes on to turning it off, not to the page: %s",
+    async (_, withheldOff) => {
+      const ready = filled({ state: "ready", tested_at: AT });
+      const on = { ...ready, state: "enabled" as const };
+      let current: LoginProviderView = ready;
+      renderAt(PAGE, {
+        ...routes([]),
+        [`GET ${API}`]: () =>
+          json(200, { providers: [current], console_origin_configured: true }),
+        ...(withheldOff ? closedAccess(1) : {}),
+        [`POST ${API}/${ID}/enable`]: () => {
+          current = on;
+          return json(200, { provider: on });
+        },
+      });
+      const user = await setupUser();
+      await user.click(await screen.findByRole("button", { name: "켜기" }));
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: "켜기" })).toBe(null),
+      );
+      const turnOff = screen.getByRole("button", { name: "이 공급자 끄기" });
+      const target = withheldOff
+        ? turnOff.closest("[data-slot=disabled-reason]")
+        : turnOff;
+      expect(target === null).toBe(false);
+      await waitFor(() => expect(document.activeElement === target).toBe(true));
+    },
+  );
+
   test("while it is on, how it connects is withheld with the reason; a new secret is said to wait", async () => {
     renderAt(
       PAGE,

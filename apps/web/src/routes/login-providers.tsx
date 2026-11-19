@@ -570,33 +570,39 @@ function ProviderSettings({
       ),
     { onDone: () => {}, onRefused: refused, step: "test" },
   );
+  // Turned on or off, the button pressed leaves the screen (or the dialog
+  // has nothing to give the keyboard back to); it goes on to the switch the
+  // other way. Tried once, on the first read that answers after: a read
+  // still showing the old state drops the try, as the password login's
+  // danger zone does.
+  const enableRef = useRef<HTMLButtonElement>(null);
+  const disableRef = useRef<HTMLButtonElement>(null);
+  const focusSwitch = useRef<"enable" | "disable" | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs each time the read answers
+  useEffect(() => {
+    const to = focusSwitch.current;
+    if (to === null) return;
+    focusSwitch.current = null;
+    if (on !== (to === "disable") || !focusLeftBehind(true)) return;
+    focusOrReason((to === "enable" ? enableRef : disableRef).current);
+  }, [readAt]);
   const enable = useProviderWrite(
     (api, _: undefined) =>
       unwrap(api.POST("/v1/login-providers/{id}/enable", id)),
     {
-      onDone: () => notice(t("loginProviders.done.enabled")),
+      onDone: () => {
+        focusSwitch.current = "disable";
+        notice(t("loginProviders.done.enabled"));
+      },
       onRefused: refused,
     },
   );
-  // Turned off, the button pressed is withheld and the dialog has nothing to
-  // give the keyboard back to; it goes on to turning the provider back on.
-  // Tried once, on the first read that answers after: a read still showing
-  // it on drops the try, as the password login's danger zone does.
-  const enableRef = useRef<HTMLButtonElement>(null);
-  const focusEnable = useRef(false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: runs each time the read answers
-  useEffect(() => {
-    if (!focusEnable.current) return;
-    focusEnable.current = false;
-    if (on || !focusLeftBehind(true)) return;
-    focusOrReason(enableRef.current);
-  }, [readAt]);
   const disable = useProviderWrite(
     (api, _: undefined) =>
       unwrap(api.POST("/v1/login-providers/{id}/disable", id)),
     {
       onDone: (answer) => {
-        focusEnable.current = true;
+        focusSwitch.current = "enable";
         setEditing(null);
         notice(
           t("loginProviders.done.disabled", { count: answer.sessions_revoked }),
@@ -972,6 +978,7 @@ function ProviderSettings({
           title={t("loginProviders.disableRow")}
           description={t("loginProviders.disableDescription")}
           actionLabel={t("loginProviders.disable")}
+          actionRef={disableRef}
           disabled={busy}
           reason={
             on

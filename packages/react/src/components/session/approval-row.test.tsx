@@ -88,6 +88,29 @@ describe("ApprovalRow", () => {
     expect(line.className).toContain("justify-end");
   });
 
+  test("메타가 줄을 바꾸면 구분점은 첫 줄 끝에 남고, 둘째 줄은 구분점으로 시작하지 않는다", () => {
+    const view = render(
+      <ApprovalRow
+        request={REQUEST}
+        messages={MESSAGES}
+        onAllow={() => {}}
+        onDeny={() => {}}
+        now={NOW}
+        locale="en"
+        heading="Deploy check"
+        meta="Started by me"
+      />,
+    );
+    // Each child of the meta line wraps as a whole; the dot rides with the
+    // item before it.
+    const line = view.getByText(/^expires /).parentElement as HTMLElement;
+    expect(line.className).toContain("flex-wrap");
+    const parts = [...line.children].map((part) => part.textContent ?? "");
+    expect(parts).toHaveLength(2);
+    expect(parts[0]?.endsWith("·")).toBe(true);
+    expect(parts[1]?.startsWith("expires ")).toBe(true);
+  });
+
   test("heading이 있으면 좁은 줄에서 배지가 제목 아래로 내려가고 둘 다 줄 폭을 넘지 않는다", () => {
     const view = render(
       <ApprovalRow
