@@ -27,9 +27,9 @@ import { createPostgresPushIntents } from "./action/push-intents.ts";
 import { createPostgresGitHubGateStore } from "./github/github-settings.ts";
 import { createPostgresGitHubMcpStore } from "./github/mcp-egress.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
-import { createPostgresRepositoryAttachments } from "./repository-attachments.ts";
 import * as schema from "./schema.ts";
 import { pushIntents, pushRequests, sessions } from "./schema.ts";
+import { createPostgresRepositoryAttachments } from "./sessions/repository-attachments.ts";
 import {
   RELEASE_SPEC_SQL_COLUMNS,
   releaseSpecSqlValues,

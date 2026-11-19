@@ -1,5 +1,7 @@
 export {
   agentGitHubSettingsOf,
+  agentGitHubSettingsRowOf,
+  agentSettingsColumns,
   ensureInstalledRepositoryCeiling,
 } from "./github-settings.ts";
 export {
