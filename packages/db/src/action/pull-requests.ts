@@ -28,6 +28,7 @@ import {
   sessions,
 } from "../schema.ts";
 import { queueAchievementJudgment } from "../sessions/index.ts";
+import { lockPreviewFeed, lockRequester } from "../sessions/requester-locks.ts";
 
 type Row = typeof pullRequests.$inferSelect;
 
@@ -298,13 +299,35 @@ export async function savePullRequestIn(
 
 export function createPostgresPullRequests(db: Database): PullRequestStore {
   return {
-    schedule({ ownerId, sessionId: rawSessionId, ref, content, actor }) {
+    schedule({
+      ownerId,
+      sessionId: rawSessionId,
+      ref,
+      content,
+      actor,
+      principal,
+    }) {
       const sessionId = rawSessionId.toLowerCase();
       const refused = (
         refusal: PullRequestRefusal,
         extra: Partial<Extract<ScheduleOutcome, { kind: "refused" }>> = {},
       ): ScheduleOutcome => ({ kind: "refused", refusal, ...extra });
       return db.transaction(async (tx): Promise<ScheduleOutcome> => {
+        // Fixed at create, so read before the session lock: a preview's
+        // requester rows are taken first, in the order requester-locks.ts gives.
+        const [kind] = await tx
+          .select({
+            preview: sessions.preview,
+            workspaceId: sessions.workspaceId,
+            agentReleaseId: sessions.agentReleaseId,
+          })
+          .from(sessions)
+          .where(and(eq(sessions.id, sessionId), eq(sessions.ownerId, ownerId)))
+          .limit(1);
+        const requester =
+          kind?.preview && principal !== undefined
+            ? await lockRequester(tx, principal, "sessions:write")
+            : null;
         // Lock order: session row, intent row, push request row.
         const [session] = await tx
           .select({ id: sessions.id })
@@ -313,6 +336,13 @@ export function createPostgresPullRequests(db: Database): PullRequestStore {
           .limit(1)
           .for("update");
         if (!session) return refused("not_found");
+        if (
+          kind?.preview &&
+          (principal === undefined ||
+            !(await lockPreviewFeed(tx, principal, requester, kind)))
+        ) {
+          return { kind: "preview_refused" };
+        }
         const scheduled = async (
           repositoryId: string,
           pushRequestId: string | null,
@@ -457,6 +487,22 @@ export function createPostgresPullRequests(db: Database): PullRequestStore {
         }
         return await scheduled(request.repositoryId, request.id, intentId);
       });
+    },
+
+    async previewAgent(ownerId, sessionId) {
+      const [row] = await db
+        .select({ agentId: agentReleases.agentId })
+        .from(sessions)
+        .innerJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
+        .where(
+          and(
+            eq(sessions.id, sessionId.toLowerCase()),
+            eq(sessions.ownerId, ownerId),
+            eq(sessions.preview, true),
+          ),
+        )
+        .limit(1);
+      return row?.agentId ?? null;
     },
 
     async findSource(ownerId, sessionId, pushRequestId) {

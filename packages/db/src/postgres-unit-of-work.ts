@@ -768,25 +768,28 @@ export function createPostgresSessionUnitOfWork(
                 channelId: input.callerSubject?.surface.channel_id ?? null,
               })
             : null;
-        if ((await lockSessionReach(tx, requester, session)) !== "ok") {
-          return { outcome: "not_found" };
-        }
-        if (input.agentPrivate || (usage !== null && !usage.allowed)) {
-          return { outcome: "agent_private" };
-        }
-        if (
-          session.preview &&
-          (limitedAgentId === null ||
-            session.workspaceId === null ||
-            !(await lockPreviewManager(
+        // Taken before the reach so the admin rows come before its team
+        // member rows; said after it, and before the usage refusal, so a
+        // creator who lost the agent hears why their preview stopped.
+        const previewHeld =
+          !session.preview ||
+          (limitedAgentId !== null &&
+            session.workspaceId !== null &&
+            (await lockPreviewManager(
               tx,
               input.principal,
               requester,
               session.workspaceId,
               limitedAgentId,
-            )))
-        ) {
+            )));
+        if ((await lockSessionReach(tx, requester, session)) !== "ok") {
+          return { outcome: "not_found" };
+        }
+        if (!previewHeld) {
           return { outcome: "preview_refused" };
+        }
+        if (input.agentPrivate || (usage !== null && !usage.allowed)) {
+          return { outcome: "agent_private" };
         }
         if (
           senderLimit !== null &&

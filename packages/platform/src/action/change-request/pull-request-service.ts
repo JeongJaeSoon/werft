@@ -411,7 +411,33 @@ export function createPullRequestService(deps: {
     // a session the caller cannot see is NOT_FOUND.
     const forbidden = (error: unknown) =>
       error instanceof SessionServiceError && error.code === "FORBIDDEN";
+    // A preview session's pull requests are written only by a person signed
+    // in on the web who manages its agent now, as its answers are.
+    const previewHeld = async () => {
+      if (operation === null) return;
+      const agentId = await store.previewAgent(actor.ownerId, sessionId);
+      if (agentId === null) return;
+      const refused = new SessionServiceError(
+        "FORBIDDEN",
+        "Only a person who manages this agent, signed in to the console, acts on its preview session",
+        undefined,
+        { reason_code: "role" },
+      );
+      if (
+        actor.caller.subject.principal?.kind !== "user" ||
+        actor.caller.subject.surface.kind !== "web"
+      ) {
+        throw refused;
+      }
+      await requirePermitted(authorization, actor.caller, "agent.manage", {
+        kind: "agent",
+        id: agentId,
+      }).catch((error: unknown) => {
+        throw forbidden(error) ? refused : error;
+      });
+    };
     if (scopeRefusal === null) {
+      let submitter = false;
       try {
         await requirePermitted(
           authorization,
@@ -419,7 +445,6 @@ export function createPullRequestService(deps: {
           "session.approve",
           session,
         );
-        return { sessionId, pushRequestId, receipt, refuse, submitter: false };
       } catch (error) {
         if (!forbidden(error)) throw error;
         // The share may let this caller submit without approving.
@@ -433,8 +458,10 @@ export function createPullRequestService(deps: {
         } catch (submitError) {
           throw forbidden(submitError) ? error : submitError;
         }
-        return { sessionId, pushRequestId, receipt, refuse, submitter: true };
+        submitter = true;
       }
+      await previewHeld();
+      return { sessionId, pushRequestId, receipt, refuse, submitter };
     }
     // What was pushed is what a person or the release's policy approved; a
     // pull request opens from exactly that branch and commit, so whoever may
@@ -450,6 +477,7 @@ export function createPullRequestService(deps: {
       if (forbidden(error)) await refuse(scopeRefusal);
       throw error;
     }
+    await previewHeld();
     return { sessionId, pushRequestId, receipt, refuse, submitter: true };
   }
 
@@ -553,6 +581,7 @@ export function createPullRequestService(deps: {
         ref,
         content: body,
         actor: receipt.actor,
+        principal: actor.caller,
       });
       switch (outcome.kind) {
         case "scheduled":
@@ -573,6 +602,13 @@ export function createPullRequestService(deps: {
             requestId === null ? {} : { push_request_id: requestId },
             outcome.pushRequestState,
             outcome.details,
+          );
+        case "preview_refused":
+          throw new SessionServiceError(
+            "FORBIDDEN",
+            "Only a person who manages this agent, signed in to the console, acts on its preview session",
+            undefined,
+            { reason_code: "role" },
           );
       }
     },

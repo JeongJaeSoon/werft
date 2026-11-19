@@ -47,6 +47,7 @@ import {
   PULL_REQUEST_TAIL_END_MARKER,
   PULL_REQUEST_TAIL_MARKER,
 } from "./pull-request-tail.ts";
+import type { PushActor } from "./push-decision.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const PUSH = "22222222-2222-4222-8222-222222222222";
@@ -131,6 +132,8 @@ function harness(
     layout?: Partial<PullRequestSettings>;
     /** The row of the agent the session ran under; none when absent. */
     agent?: AgentPullRequestSettings;
+    /** The agent of a preview session; not a preview when absent. */
+    previewAgent?: string;
   } = {},
 ) {
   const attribution =
@@ -162,6 +165,7 @@ function harness(
   };
   const failed: Array<Record<string, unknown>> = [];
   const store: PullRequestStore = {
+    previewAgent: async () => options.previewAgent ?? null,
     failHeadMoved: async ({ details }) => {
       failed.push(details);
       source.prState = "failed";
@@ -563,6 +567,74 @@ describe("opening a pull request", () => {
     expect(sourceReads).toEqual([]);
     expect(receipts).toEqual([]);
     expect(calls).toEqual([]);
+  });
+
+  describe("on a preview session", () => {
+    const person: Principal = {
+      kind: "user",
+      id: "user-1",
+      workspace_id: "ws-1",
+      role: "member",
+      scopes: ["sessions:approve", "sessions:write", "sessions:read"],
+    };
+    const webPerson = {
+      caller: {
+        ownerId: "owner-a",
+        subject: { principal: person, surface: { kind: "web" as const } },
+        requestId: crypto.randomUUID(),
+      },
+      principal: person,
+      ownerId: "owner-a",
+      verified: true,
+    };
+    // Lets every session action through; `agent.manage` as `manages` says.
+    const policy = (manages: boolean): AuthorizationPolicy => ({
+      authorize: async (request) => ({
+        outcome:
+          request.action !== "agent.manage" || manages ? "allow" : "deny",
+        reason_code: "role",
+        effective_scopes: [],
+        policy_version: "test",
+        decision_id: crypto.randomUUID(),
+      }),
+    });
+    const refusedFor = async (caller: PushActor, manages: boolean) => {
+      const { service, calls, sourceReads } = harness({
+        previewAgent: "agent-1",
+        authorization: policy(manages),
+      });
+      const error = await refusal(
+        service.open(caller, SESSION, PUSH, { readBody: async () => ({}) }),
+      );
+      expect(sourceReads).toEqual([]);
+      expect(calls).toEqual([]);
+      return error;
+    };
+
+    test("a key, even one the session's creator holds, writes none of its pull requests", async () => {
+      const error = await refusedFor(actor, true);
+      expect(error.code).toBe("FORBIDDEN");
+      expect(error.details).toMatchObject({ reason_code: "role" });
+    });
+
+    test("a person signed in on the web who no longer manages the agent is refused", async () => {
+      const error = await refusedFor(webPerson, false);
+      expect(error.code).toBe("FORBIDDEN");
+      expect(error.details).toMatchObject({ reason_code: "role" });
+    });
+
+    test("a person signed in on the web who manages the agent opens one", async () => {
+      const { service, calls } = harness({
+        previewAgent: "agent-1",
+        authorization: policy(true),
+      });
+      expect(
+        await service.open(webPerson, SESSION, PUSH, {
+          readBody: async () => ({}),
+        }),
+      ).toMatchObject({ created: true });
+      expect(calls).toEqual([`find ${HEAD}`, `create ${HEAD}`]);
+    });
   });
 
   test("opens one from agent/<session-id> into the catalog branch with cleaned text, then answers it again", async () => {

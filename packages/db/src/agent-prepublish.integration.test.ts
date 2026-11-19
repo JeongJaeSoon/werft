@@ -10,6 +10,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresPullRequests } from "./action/pull-requests.ts";
 import { createPostgresAgentStore } from "./agents.ts";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
 import { agentUsable } from "./musterrolle/administers.ts";
@@ -37,6 +38,7 @@ import {
 import { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
 import {
   lockAgentUse,
+  lockPreviewManager,
   lockRequester,
   lockSessionReach,
 } from "./sessions/requester-locks.ts";
@@ -531,6 +533,89 @@ integration("unpublished agents and preview sessions on PostgreSQL", () => {
       now: new Date(),
     });
     expect(resumed.outcome).toBe("preview_refused");
+  });
+
+  test("before publishing too, an admin removed from the agent is refused as a preview's feeder, not as an outsider", async () => {
+    const w = await world();
+    const started = await startPreview(w.directAdmin, w.releaseId);
+    if (started.outcome !== "accepted") throw new Error(started.outcome);
+    const sessionId = started.response.session_id;
+    const schedule = () =>
+      createPostgresPullRequests(db).schedule({
+        ownerId: w.ws,
+        sessionId,
+        ref: { pushRequestId: randomUUID() },
+        content: {},
+        actor: null,
+        principal: w.directAdmin,
+      });
+    // Past the preview judgement, the push request itself is not there.
+    expect(await schedule()).toMatchObject({
+      kind: "refused",
+      refusal: "not_found",
+    });
+    expect(
+      await createPostgresPullRequests(db).previewAgent(w.ws, sessionId),
+    ).toBe(w.agentId);
+
+    await admins().remove({
+      actor: acting(w.owner),
+      receiptId: randomUUID(),
+      agentId: w.agentId,
+      subject: { kind: "user", id: idOf(w.directAdmin) },
+      managerRoles: MANAGERS,
+    });
+    const sent = await uow().appendInputAtomic({
+      principal: w.directAdmin,
+      sessionId,
+      idempotencyKey: randomUUID(),
+      payloadHash: randomUUID(),
+      message: "again",
+      limits: LIMITS,
+    });
+    expect(sent.outcome).toBe("preview_refused");
+    expect(await schedule()).toEqual({ kind: "preview_refused" });
+  });
+
+  test("a preview's admin rows stay held until the write commits: the lead's demotion waits", async () => {
+    const w = await world();
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let judged = (_: boolean) => {};
+    const judgement = new Promise<boolean>((resolve) => {
+      judged = resolve;
+    });
+    const writer = db.transaction(async (tx) => {
+      const requester = await lockRequester(tx, w.lead, "sessions:write");
+      if (!requester) throw new Error("no requester");
+      judged(await lockPreviewManager(tx, w.lead, requester, w.ws, w.agentId));
+      await held;
+    });
+    expect(await judgement).toBe(true);
+
+    const client = await pool.connect();
+    try {
+      await client.query("begin");
+      await client.query("set local lock_timeout = '300ms'");
+      const demoted = await client
+        .query(
+          "update member_team_members set role = 'member' where user_id = $1 and removed_at is null",
+          [idOf(w.lead)],
+        )
+        .then(
+          () => "updated",
+          (error: { code?: string }) => error.code,
+        );
+      // 55P03: lock_not_available, the share lock above still holds the row.
+      expect(demoted).toBe("55P03");
+      await client.query("rollback");
+    } finally {
+      client.release();
+    }
+    release();
+    await writer;
   });
 
   test("an unapproved release runs only as a preview, and a preview is never shared wider", async () => {

@@ -4,10 +4,7 @@ import type { Principal, UsageDecision } from "@werft-ai/platform";
 import { and, arrayContains, asc, eq, inArray, isNull } from "drizzle-orm";
 import { lockActorAccount } from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
-import {
-  administersNow,
-  reachesBeforePublishNow,
-} from "../musterrolle/administers.ts";
+import { reachesBeforePublishNow } from "../musterrolle/administers.ts";
 import type { Database } from "../queries.ts";
 import {
   agentAdmins,
@@ -309,9 +306,9 @@ export async function lockAgentUse(
 /**
  * Whether the requester may feed a preview session of `agentId` now: a
  * person signed in themselves (no key, no Slack link) who manages the agent,
- * as a workspace owner or admin or one of its admins. Called after the
- * requester's rows and the reach or use judgement, so the admin rows it
- * reads are held.
+ * as a workspace owner or admin or one of its admins (`administers`). The
+ * admin rows are share-locked here in the documented order, so a demotion
+ * that commits after this either waits for the write or is seen by it.
  */
 export async function lockPreviewManager(
   tx: Database,
@@ -331,7 +328,91 @@ export async function lockPreviewManager(
   if (requester.role !== null && MANAGERS.includes(requester.role)) {
     return true;
   }
-  return administersNow(tx, workspaceId, userId, agentId);
+  const [agent] = await tx
+    .select({ managingTeamId: agents.managingTeamId })
+    .from(agents)
+    .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)))
+    .limit(1)
+    .for("share");
+  if (!agent) return false;
+  const direct = await tx
+    .select({ userId: agentAdmins.userId })
+    .from(agentAdmins)
+    .where(
+      and(
+        eq(agentAdmins.workspaceId, workspaceId),
+        eq(agentAdmins.agentId, agentId),
+        eq(agentAdmins.userId, userId),
+      ),
+    )
+    .limit(1)
+    .for("share");
+  if (direct.length > 0) return true;
+  const adminTeams = (
+    await tx
+      .select({ teamId: agentAdminTeams.teamId })
+      .from(agentAdminTeams)
+      .where(
+        and(
+          eq(agentAdminTeams.workspaceId, workspaceId),
+          eq(agentAdminTeams.agentId, agentId),
+        ),
+      )
+  ).map((row) => row.teamId);
+  const teamIds = [...new Set([...adminTeams, agent.managingTeamId])].sort();
+  const liveTeams = new Set(
+    (
+      await tx
+        .select({ id: memberTeams.id })
+        .from(memberTeams)
+        .where(
+          and(
+            eq(memberTeams.workspaceId, workspaceId),
+            inArray(memberTeams.id, teamIds),
+            isNull(memberTeams.archivedAt),
+          ),
+        )
+        .orderBy(asc(memberTeams.id))
+        .for("share")
+    ).map((row) => row.id),
+  );
+  if (liveTeams.size === 0) return false;
+  const liveAdminTeams = adminTeams.filter((id) => liveTeams.has(id));
+  // A team removed from the agent since the read above is not lent any more.
+  const lending =
+    liveAdminTeams.length === 0
+      ? []
+      : (
+          await tx
+            .select({ teamId: agentAdminTeams.teamId })
+            .from(agentAdminTeams)
+            .where(
+              and(
+                eq(agentAdminTeams.workspaceId, workspaceId),
+                eq(agentAdminTeams.agentId, agentId),
+                inArray(agentAdminTeams.teamId, liveAdminTeams),
+              ),
+            )
+            .orderBy(asc(agentAdminTeams.teamId))
+            .for("share")
+        ).map((row) => row.teamId);
+  const member = await tx
+    .select({ teamId: memberTeamMembers.teamId, role: memberTeamMembers.role })
+    .from(memberTeamMembers)
+    .where(
+      and(
+        inArray(memberTeamMembers.teamId, [...liveTeams]),
+        eq(memberTeamMembers.userId, userId),
+        isNull(memberTeamMembers.removedAt),
+      ),
+    )
+    .orderBy(asc(memberTeamMembers.id))
+    .for("share");
+  return member.some(
+    (row) =>
+      lending.includes(row.teamId) ||
+      (row.teamId === agent.managingTeamId && row.role === "lead"),
+  );
 }
 
 /**

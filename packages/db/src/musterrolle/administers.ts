@@ -228,22 +228,6 @@ export async function reachesBeforePublishNow(
   return rowsOf<{ ok: boolean }>(result)[0]?.ok === true;
 }
 
-/** `administers` for a live member, read now over the rows the caller holds. */
-export async function administersNow(
-  tx: Database,
-  workspaceId: string,
-  userId: string,
-  agentId: string,
-): Promise<boolean> {
-  const result = await tx.execute(
-    sql`select ${and(
-      liveMember(tx, workspaceId, userId),
-      administers(tx, workspaceId, userId, agentId),
-    )} as ok`,
-  );
-  return rowsOf<{ ok: boolean }>(result)[0]?.ok === true;
-}
-
 /**
  * True where `userId`, a live member of `workspaceId`, is inside `agentId`:
  * an owner or admin, one of its admins (`administers`), or a live member of
