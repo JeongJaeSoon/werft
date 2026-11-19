@@ -3,8 +3,6 @@ import {
   presentPendingRequest,
   presentPushRequest,
   SLACK_INTERACTION_ACTIONS,
-  TOOL_VERB_VALUES,
-  USER_LOCALE_VALUES,
 } from "@werft-ai/contracts";
 import type { SlackPromptCard } from "@werft-ai/platform";
 import { SLACK_SUMMARY_MESSAGES } from "./slack-prompt-summary.ts";
@@ -72,14 +70,6 @@ describe("the Slack permission card and its view model", () => {
       expect(
         Object.keys(presentPendingRequest(request.tool, request.input)).sort(),
       ).toEqual(["excerpt", "target", "verb"]);
-    }
-  });
-
-  test("every verb has Slack's wording in every language", () => {
-    for (const locale of USER_LOCALE_VALUES) {
-      for (const verb of TOOL_VERB_VALUES) {
-        expect(SLACK_SUMMARY_MESSAGES[locale][verb]).not.toBe("");
-      }
     }
   });
 

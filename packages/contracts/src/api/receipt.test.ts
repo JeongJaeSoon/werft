@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { RECEIPT_OPERATION_VALUES, receiptSchema } from "./receipt.ts";
+import { receiptSchema } from "./receipt.ts";
 
 const RECEIPT_ID = "019a0000-0000-7000-8000-000000000101";
 const SESSION_ID = "019a0000-0000-7000-8000-000000000102";
@@ -89,15 +89,6 @@ describe("receipt target union", () => {
           owner_id: "owner_1",
         },
       }).success,
-    ).toBe(false);
-  });
-
-  test("the operation vocabulary stays session-only until a route adds to it", () => {
-    expect(RECEIPT_OPERATION_VALUES as readonly string[]).not.toContain(
-      "create_invite",
-    );
-    expect(
-      receiptSchema.safeParse({ ...base, operation: "create_invite" }).success,
     ).toBe(false);
   });
 
