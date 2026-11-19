@@ -16,9 +16,9 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresAgentGitHubStore } from "./agent-github.ts";
 import { createPostgresAgentMcpStore } from "./agents/agent-mcp.ts";
 import { captureMcpStart } from "./agents/mcp-settings.ts";
+import { createPostgresAgentGitHubStore } from "./github/agent-github.ts";
 import { createPostgresMcpEgressStore } from "./github/mcp-egress.ts";
 import { createDatabaseIdentityReader } from "./musterrolle/identity-reader.ts";
 import * as schema from "./schema.ts";
