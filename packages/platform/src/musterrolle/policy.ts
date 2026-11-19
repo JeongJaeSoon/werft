@@ -7,6 +7,7 @@ import {
   type AuthorizationResource,
   type AuthorizationSubject,
   type AuthorizationSurface,
+  accessAxisOf,
   actionAppliesTo,
   authorizationRequestSchema,
   type DeciderKey,
@@ -441,6 +442,7 @@ export function mustRecord(
   return (
     decision.outcome !== "allow" ||
     RECORDED_ALLOW_ACTIONS.has(request.action) ||
+    accessAxisOf(request.action) !== null ||
     request.subject.justification !== undefined ||
     (request.subject.surface.kind === "slack" &&
       request.action === "session.submit")
@@ -914,6 +916,15 @@ export function createAuthorizationPolicy(
           };
       const parsed = authorizationRequestSchema.safeParse(request);
       if (
+        !decisions &&
+        options?.record !== false &&
+        accessAxisOf(request.action) !== null
+      ) {
+        // An access act takes effect only once recorded, so a policy
+        // assembled without its log refuses every one.
+        return refusedUnrecorded(decision);
+      }
+      if (
         !decisions ||
         options?.record === false ||
         (options?.record === "deny" && decision.outcome === "allow") ||
@@ -931,16 +942,23 @@ export function createAuthorizationPolicy(
           outcome: decision.outcome,
           error_name: errorName(error),
         });
-        // A redact grants a summary, so an unrecorded one is refused too.
-        if (decision.outcome === "deny") return decision;
-        const { redact: _summary, ...unrecorded } = decision;
-        return {
-          ...unrecorded,
-          outcome: "deny",
-          reason_code: "error",
-          effective_scopes: [],
-        };
+        return refusedUnrecorded(decision);
       }
     },
+  };
+}
+
+// A redact grants a summary, so an unrecorded one is refused too.
+function refusedUnrecorded(
+  decision: AuthorizationDecision,
+): AuthorizationDecision {
+  if (decision.outcome === "deny") return decision;
+  const { redact: _summary, access, ...unrecorded } = decision;
+  return {
+    ...unrecorded,
+    outcome: "deny",
+    reason_code: "error",
+    effective_scopes: [],
+    ...(access && { access: { ...access, granted: null } }),
   };
 }
