@@ -133,7 +133,7 @@ packages/contracts/src/
 packages/platform/src/
   surface/
     ports/                    # surface 능력 인터페이스 다섯(6.2절: AgentWelcomable, ChannelJoinable, ChannelKindReadable, Notifiable, Approvable) + db가 구현하는 Slack 저장소 포트 여섯(4.4절)
-    action-notice.ts  model-cut-notice.ts  model-move-notice.ts   # 채널과 무관한 알림 문구
+    action-notice.ts  model-cut-notice.ts  model-move-notice.ts  runtime-retired-notice.ts  worker-image-replaced-notice.ts   # 채널과 무관한 알림 문구
   action/
     ports/                    # action 능력 인터페이스: git-push.ts, forge.ts, GitHubApi와 능력 별칭
     refusal.ts                # 서비스 오류 → 봉투 (지금 action-broker/refusal.ts)
@@ -178,7 +178,7 @@ apps/control-host/src/
 | `contracts/src/api/action-broker.ts`, `github-mcp.ts` | `contracts/src/action/` | 도구 표 `GITHUB_MCP_TOOLS`(`github-mcp.ts:431`)가 여기 있다 |
 | `platform/src/musterrolle/slack-*.ts`(27개)와 시험 | `adapters/chat/slack/src/` 같은 이름 | [Musterrolle 모듈 경계](musterrolle-boundary.md)가 "어디에 둘지는 나중에 정한다"고 미룬 Slack 파일의 자리다. musterrolle에는 신원·권한만 남는다 |
 | `platform/src/testing/slack-fakes.ts` | `adapters/chat/slack/src/testing/` | 패키지의 `./testing/*` export |
-| `platform/src/musterrolle/action-notice.ts`, `model-cut-notice.ts`, `model-move-notice.ts` | `platform/src/surface/` | 블록이 아닌 평문 문구이고 `db`가 트랜잭션 안에서 부른다(`packages/db/src/action-notices.ts:3-8`). 어댑터로 보내면 `db`가 어댑터를 import하게 된다 |
+| `platform/src/musterrolle/action-notice.ts`, `model-cut-notice.ts`, `model-move-notice.ts`, `runtime-retired-notice.ts`, `worker-image-replaced-notice.ts` | `platform/src/surface/` | 블록이 아닌 평문 문구이고 `db`가 트랜잭션 안에서 부른다(`packages/db/src/action-notices.ts:3-8`). 어댑터로 보내면 `db`가 어댑터를 import하게 된다 |
 | `platform/src/ports/slack-{app,config-token,inbound-event,install,outbox}-store.ts`, `surface-binding-store.ts` | `platform/src/surface/ports/` | `db`가 구현하는 여섯 개다([4.4절](#44-slack-저장소-포트는-platform에-남는다)) |
 | `platform/src/ports/slack-notice-sink.ts`의 `SlackNoticeSink` | `platform/src/surface/ports/notifiable.ts`의 `Notifiable` | Slack 이름을 떼고 채널 중립 포트로 일반화한다([6.2절](#62-능력-인터페이스)). 호출자는 outbox 전송기, 구현은 Slack 어댑터다. 거절 안내 행을 넣는 함수는 포트 없이 어댑터 안쪽에 남는다([6.2절](#62-능력-인터페이스)). 이름이 `slack`이 아니게 되므로 R8 기준선에 들어가지 않는다 |
 | (새 파일) | `platform/src/surface/ports/approvable.ts`의 `Approvable` | 결정 요청 카드 전송 포트. 지금은 `slack-outbox.ts`의 결정 요청 행 분기가 Slack 렌더·전송을 직접 부른다. 결정 응답 쪽(`decision/`)은 건드리지 않는다 |
@@ -206,7 +206,7 @@ apps/control-host/src/
 
 일곱째 `slack-notice-sink.ts`는 다르다. `SlackNoticeSink`의 구현은 `db`가 아니라 Slack 파일에 있다(`musterrolle/slack-outbox.ts:292`, `slack-notice-log.ts:8`). 저장소 포트가 아니므로 `db`에 묶이지 않고, 이름에서 `Slack`을 뗀 채널 중립 능력 인터페이스 `Notifiable`이 되어 `platform/src/surface/ports/`로 간다([6.2절](#62-능력-인터페이스)). 구현은 Slack 어댑터에 남는다. 이 파일이 가는 곳이 달라졌을 뿐 platform에 `slack`이라는 이름이 남는 파일은 늘지 않는다.
 
-platform에 Slack이라는 이름이 남는 곳은 이 여섯 포트 파일과 그 타입 이름, 그리고 알림 문구 세 파일이 받는 값뿐이다. [8절](#8-의존-방향-규칙) R8이 파일 이름과 export 이름의 기준선을 각각 고정한다.
+platform에 Slack이라는 이름이 남는 곳은 이 여섯 포트 파일과 그 타입 이름, 그리고 알림 문구 다섯 파일이 받는 값뿐이다. [8절](#8-의존-방향-규칙) R8이 파일 이름과 export 이름의 기준선을 각각 고정한다.
 
 포트를 채널 중립 이름(`OutboxStore`)으로 일반화하는 것은 하지 않는다. 열 구성이 Slack 고유이고(팀, 채널, 스레드 ts, 블록), 테이블 `slack_outbox`를 바꾸는 일은 스키마 변경이다. 두 번째 push 채널이 실제로 생길 때 그 채널의 열을 보고 정한다.
 
@@ -792,7 +792,8 @@ U9 ①과 [4.2절](#42-현재-경로--목표-경로) 표에는 옮기지 않은 
 
 - `db/src/` 루트: `agents.ts`, `agent-summaries.ts`, `session-links.ts`, `session-titles.ts`, `telemetry-ingest-store.ts`, `session-spec-pin.ts`, `provider-exchanges.ts`, `input-limits.ts`, `push-requests.ts`, `recovery-control.ts`, `resume-control.ts`, `control-observability.ts`
 - `platform/src/ports/`의 Slack 저장소 포트 다섯 개: `slack-{app,config-token,inbound-event,install,outbox}-store.ts`. `surface-binding-store.ts`만 `surface/ports/`로 옮겼다.
-- 알림 문구 파일(`musterrolle/*-notice.ts`): Slack outbox의 중복 제거 키를 만든다. 옮길지는 따로 정한다.
+
+알림 문구 파일 다섯 개는 `platform/src/surface/`로 옮겼다. 이 파일들은 Slack outbox의 중복 제거 키를 만든다. 옮기기 전과 뒤에 키 문자열이 같다는 것을 `surface/notice-dedupe-keys.test.ts`가 고정한다.
 
 ### 10.1 Slack 이동의 순서와 재수출
 
@@ -866,7 +867,7 @@ platform index에 한 PR 주기 동안 재수출을 둘 수는 **없다.** platf
 | 능력 인터페이스를 `contracts/src/{action,surface}/`에 둔다 | 인터페이스는 `platform/src/{action,surface}/ports/`, contracts에는 view model과 도구 정의 | 인터페이스의 메서드 타입이 platform의 타입이다(`GitPushInput`·`GitPushResult`는 `ports/git-push.ts`, `ForgePullRequest`는 `ports/forge.ts`). contracts로 올리면 서버 전용 타입이 웹과 공유하는 패키지에 들어간다. 의존성 역전의 "쓰는 쪽이 소유한다"에서 쓰는 쪽은 platform의 서비스다 |
 | `packages/adapters/stream/api-sse` | 패키지를 만들지 않는다. `apps/control-host/src/api/routes/surface/` | SSE 라우트는 앱의 라우터·인증·알림 대기에 묶여 있다(`routes/events.ts:8-10`이 `../app.ts`, `../session-notifier.ts`, `./errors.ts`를 import). 패키지는 앱을 import할 수 없다. 그리고 API·SSE는 끌어가는 채널이라 서버가 구현할 능력이 없다. 빈 어댑터가 된다 |
 | platform은 어댑터 이름을 모른다 | import와 바깥 호출로 강제한다(R1, R7). 이름은 `slack`만 기준선으로 막는다(R8) | `github`은 어댑터 이름이기 전에 내장 MCP 서버의 계약 이름(`mcp__github__<tool>`)이고 게이트·설정·App 등록이라는 도메인이다. 이름으로 막으면 platform의 GitHub 도메인 전체가 걸린다 |
-| Slack 코드는 모두 `adapters/chat/slack`으로 | Slack 파일 27개는 간다. `SlackNoticeSink` 포트는 어댑터로 가지 않고 채널 중립 `Notifiable`이 되어 platform `surface/ports/`에 선다. `db`가 구현하는 저장소 포트 여섯 개와 알림 문구 세 파일은 platform에 남는다 | `db`가 그것들을 import하고(`packages/db/src/action-notices.ts:3-8`, `slack-outbox.ts:11-23`) `db`는 어댑터를 import할 수 없다([4.4절](#44-slack-저장소-포트는-platform에-남는다)) |
+| Slack 코드는 모두 `adapters/chat/slack`으로 | Slack 파일 27개는 간다. `SlackNoticeSink` 포트는 어댑터로 가지 않고 채널 중립 `Notifiable`이 되어 platform `surface/ports/`에 선다. `db`가 구현하는 저장소 포트 여섯 개와 알림 문구 다섯 파일은 platform에 남는다 | `db`가 그것들을 import하고(`packages/db/src/action-notices.ts:3-8`, `slack-outbox.ts:11-23`) `db`는 어댑터를 import할 수 없다([4.4절](#44-slack-저장소-포트는-platform에-남는다)) |
 
 **정정: 되돌린 두 곳(2026-11-10, 오너 확정).**
 
