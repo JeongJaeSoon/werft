@@ -76,7 +76,7 @@
 - 공유 범위 바깥이면 관리자도 보통 화면에서는 404다. 볼 수 있는 길은 사유를 남기는 감사 열람뿐이다(`policy.ts:566-576`). 에이전트 관리자에게는 공유 밖 세션을 보는 길이 없다. 운영자 문서에도 그렇게 적혀 있다(`docs/operator/api-server.md:629`).
 - 세션을 만들 때 공유 행을 쓰는 것은 `shareScope`가 있을 때뿐이다(`postgres-unit-of-work.ts:310-320`). 웹·API 라우트는 이 값을 넘기지 않는다(`routes/sessions.ts:42-50`). 그래서 웹·API 세션은 공유 행 없이 `workspace`로 시작한다. 이 값을 넘기는 곳은 Slack DM의 `private`(`slack-session-handler.ts:415`)뿐이다.
 - 에이전트별 사용량은 공유와 상관없이 그 에이전트의 모든 세션을 합한 수치다(`packages/db/src/usage/usage-reader.ts:105-109`). 최근 성과 항목은 볼 수 없는 세션의 `session_id`만 가린다(`usage-reader.ts:528`). 같은 행의 세션 제목(`:529`)과 성과 제목·링크(`:530`)는 그대로 돌려주고, 서비스도 그대로 싣는다(`packages/platform/src/usage/usage-service.ts:433-438`). 에이전트 관리자는 공유 밖 세션의 제목을 여기서 본다.
-- Slack 채널 세션의 답은 채널 스레드에 올라간다. 보내기 전에 보는 것은 링크가 살아 있는지, 설치가 폐기되지 않았는지 정도다(`packages/db/src/slack-outbox.ts:100-112`). 받는 사람은 정하지 않는다(`packages/platform/src/musterrolle/slack-outbox.ts:270-272`). 채널에 있는 사람은 공유 범위와 상관없이 답을 읽는다.
+- Slack 채널 세션의 답은 채널 스레드에 올라간다. 보내기 전에 보는 것은 링크가 살아 있는지, 설치가 폐기되지 않았는지 정도다(`packages/db/src/surface/slack-outbox.ts:100-112`). 받는 사람은 정하지 않는다(`packages/platform/src/musterrolle/slack-outbox.ts:270-272`). 채널에 있는 사람은 공유 범위와 상관없이 답을 읽는다.
 - 세션을 만드는 쓰기 안의 재확인(`packages/db/src/postgres-unit-of-work.ts:248-252`의 `lockRequester`)은 요청자와 key의 에이전트 범위만 다시 본다. 승인 쓰기 안의 재확인(`lockSessionReach`, `packages/db/src/requester-locks.ts:215-337`, 호출 `packages/db/src/pending-requests.ts:670`)은 개인 관리자와 관리자 팀을 따로 구현한다. `administers()`를 부르지 않는다.
 
 ### 정리하면
