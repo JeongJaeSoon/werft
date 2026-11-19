@@ -20,6 +20,7 @@ import {
   workspaces,
 } from "../schema.ts";
 import { fixtureTeam } from "../testing/fixture-team.ts";
+import { allowOf } from "../testing/member-manage-allow.ts";
 import { createPostgresAgentAdminStore } from "./agent-admins.ts";
 import { createDatabaseAgentAuthority } from "./agent-authority.ts";
 import { createPostgresWorkspaceKeyStore } from "./api-keys.ts";
@@ -392,6 +393,11 @@ integration("teams as agent admins on PostgreSQL", () => {
     const keys = createPostgresWorkspaceKeyStore(db);
     const issue = () =>
       keys.issue({
+        decision: allowOf({
+          workspaceId,
+          actorUserId: idOf(managed),
+          action: "api_key.manage",
+        }),
         principal: managed,
         id: randomUUID(),
         workspaceId,
@@ -448,6 +454,11 @@ integration("teams as agent admins on PostgreSQL", () => {
         [team.id],
       );
       const issued = createPostgresWorkspaceKeyStore(db).issue({
+        decision: allowOf({
+          workspaceId,
+          actorUserId: idOf(managed),
+          action: "api_key.manage",
+        }),
         principal: managed,
         id: randomUUID(),
         workspaceId,

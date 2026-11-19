@@ -39,7 +39,7 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
-import { allowFor } from "./testing/member-manage-allow.ts";
+import { allowFor, allowOf } from "./testing/member-manage-allow.ts";
 import {
   releaseSpecColumns,
   sessionPinColumns,
@@ -344,6 +344,11 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
       agentId: string | null,
     ) =>
       store.issue({
+        decision: allowOf({
+          workspaceId,
+          actorUserId: by.actor?.userId ?? "",
+          action: kind === "personal" ? "api_key.manage_own" : "api_key.manage",
+        }),
         principal: by,
         id: randomUUID(),
         workspaceId,
@@ -482,6 +487,11 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
     ).toBe("agent_ceiling");
 
     const revoked = await store.revoke({
+      decision: allowOf({
+        workspaceId,
+        actorUserId: member.actor?.userId ?? "",
+        action: "api_key.manage",
+      }),
       principal: member,
       workspaceId,
       keyId: bound.key.id,
@@ -491,6 +501,11 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
     expect(revoked).toMatchObject({ outcome: "revoked" });
     expect(
       await store.revoke({
+        decision: allowOf({
+          workspaceId,
+          actorUserId: member.actor?.userId ?? "",
+          action: "api_key.manage",
+        }),
         principal: member,
         workspaceId,
         keyId: bound.key.id,
@@ -547,6 +562,11 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
     });
     const store = createPostgresWorkspaceKeyStore(db);
     const othersKey = await store.issue({
+      decision: allowOf({
+        workspaceId,
+        actorUserId: owner.actor?.userId ?? "",
+        action: "api_key.manage",
+      }),
       principal: owner,
       id: randomUUID(),
       workspaceId,
@@ -576,6 +596,11 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
       scopes: ("sessions:read" | "sessions:recover")[],
     ) =>
       store.issue({
+        decision: allowOf({
+          workspaceId,
+          actorUserId: userId,
+          action: "api_key.manage",
+        }),
         principal: demoted,
         id: randomUUID(),
         workspaceId,
@@ -604,6 +629,7 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
     });
     expect(await issue(agent.agent.id, ["sessions:recover"])).toEqual({
       outcome: "scope_not_grantable",
+      beyond: ["sessions:recover"],
     });
     const bound = await issue(agent.agent.id, ["sessions:read"]);
     if (bound.outcome !== "issued") throw new Error(bound.outcome);
@@ -624,6 +650,11 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
     if (othersKey.outcome !== "issued") throw new Error("not issued");
     const revoke = (keyId: string) =>
       store.revoke({
+        decision: allowOf({
+          workspaceId,
+          actorUserId: userId,
+          action: "api_key.manage",
+        }),
         principal: demoted,
         workspaceId,
         keyId,

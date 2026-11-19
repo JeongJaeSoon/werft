@@ -4,11 +4,17 @@ import {
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import type {
+  IssueKeyResult,
   Principal,
+  RevokeKeyResult,
   WorkspaceKey,
   WorkspaceKeyStore,
 } from "@werft-ai/platform";
-import { receiptActorOf } from "@werft-ai/platform";
+import {
+  keyIssueRefusal,
+  keyRevokeRefusal,
+  receiptActorOf,
+} from "@werft-ai/platform";
 import {
   and,
   desc,
@@ -33,6 +39,7 @@ import { agents, apiKeys, memberships, receipts, users } from "../schema.ts";
 import { notDeleted } from "../soft-delete.ts";
 import { administers } from "./administers.ts";
 import { lockedAdministers } from "./agent-admins.ts";
+import { decidedTransaction } from "./authz-decisions.ts";
 
 // Keys issued from the web or the API. Lock order: the actor's
 // membership, then the agent, then the key, as the agent store takes them.
@@ -200,7 +207,12 @@ export function createPostgresWorkspaceKeyStore(
 
   return {
     issue(input) {
-      return db.transaction(async (tx) => {
+      const decided = decidedTransaction<IssueKeyResult>(
+        db,
+        input.decision,
+        keyIssueRefusal,
+      );
+      return decided(async (tx) => {
         if (input.agentId !== null) await lockAgentKeyIssue(tx, input.agentId);
         const role = await lockedRole(
           tx,
@@ -237,9 +249,15 @@ export function createPostgresWorkspaceKeyStore(
         ) {
           return { outcome: "outranked" };
         }
+        // Both what the policy found held at its decision and what the role
+        // held under this lock allows.
+        const granted = new Set(input.decision.decision.effective_scopes);
         const ceiling = new Set(scopesForRole(role));
-        if (input.scopes.some((scope) => !ceiling.has(scope))) {
-          return { outcome: "scope_not_grantable" };
+        const beyond = input.scopes.filter(
+          (scope) => !ceiling.has(scope) || !granted.has(scope),
+        );
+        if (beyond.length > 0) {
+          return { outcome: "scope_not_grantable", beyond };
         }
         const [row] = await tx
           .insert(apiKeys)
@@ -330,7 +348,12 @@ export function createPostgresWorkspaceKeyStore(
     },
 
     revoke(input) {
-      return db.transaction(async (tx) => {
+      const decided = decidedTransaction<RevokeKeyResult>(
+        db,
+        input.decision,
+        keyRevokeRefusal,
+      );
+      return decided(async (tx) => {
         const userId = input.principal.actor?.userId;
         const role =
           userId === undefined || userId === null
