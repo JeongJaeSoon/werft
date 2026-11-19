@@ -6,11 +6,11 @@ import {
   updateSlackSettingsResponseSchema,
 } from "@werft-ai/contracts";
 import { SessionServiceError } from "@werft-ai/platform";
-import { recordRouteErrors } from "../route-error-coverage.ts";
-import type { SlackSettingsAdmin } from "../slack-settings.ts";
+import { recordRouteErrors } from "../../route-error-coverage.ts";
+import type { SlackSettingsAdmin } from "../../slack-settings.ts";
 import { registerSlackSettingsRoutes } from "./slack-settings.ts";
 
-const createApiApp = recordRouteErrors("routes/slack-settings.test.ts");
+const createApiApp = recordRouteErrors("routes/surface/slack-settings.test.ts");
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const PATH = "/v1/slack-settings";

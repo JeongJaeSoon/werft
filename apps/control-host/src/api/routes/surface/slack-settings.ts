@@ -8,9 +8,9 @@ import {
   apiRoute,
   jsonWithSchema,
   parseJsonBody,
-} from "../app.ts";
-import type { SlackSettingsAdmin } from "../slack-settings.ts";
-import { mapped } from "./errors.ts";
+} from "../../app.ts";
+import type { SlackSettingsAdmin } from "../../slack-settings.ts";
+import { mapped } from "../errors.ts";
 
 export function registerSlackSettingsRoutes(
   router: ApiRouter,
