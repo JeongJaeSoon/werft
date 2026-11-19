@@ -738,6 +738,21 @@ async function botLeft(
         );
     }
     const current = await lockBinding(tx, channelOf(installation, channelId));
+    // A public channel has no approval to void: the bot is out until it is
+    // invited again, which is what its membership says. The binding stays.
+    if (current?.channelKind === "public_channel") {
+      if (latest) {
+        await tx
+          .update(surfaceBindings)
+          .set({
+            membership: "awaiting_invite",
+            membershipError: null,
+            updatedAt: DB_NOW,
+          })
+          .where(eq(surfaceBindings.id, current.id));
+      }
+      return latest;
+    }
     if (
       !current ||
       current.channelKind !== "private_channel" ||

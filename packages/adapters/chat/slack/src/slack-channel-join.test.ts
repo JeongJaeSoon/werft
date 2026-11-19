@@ -531,6 +531,18 @@ describe("the bot's removal", () => {
     expect(h.passed).toEqual([]);
   });
 
+  // Real Slack sent no member_left_channel when the bot was removed; these
+  // go to the bot itself and name no user.
+  test.each([
+    ["channel_left", "C1"],
+    ["group_left", "G1"],
+  ])("%s is the bot's own removal from that channel", async (type, channel) => {
+    const h = handler();
+    await h.handle(claim({ type, channel, event_ts: "1700000100.000000" }));
+    expect(h.left).toEqual([[INSTALLATION, channel, 1_700_000_100_000_000]]);
+    expect(h.passed).toEqual([]);
+  });
+
   test("another member leaving, or an event of another type, is not the bot's removal", async () => {
     const h = handler();
     await h.handle(

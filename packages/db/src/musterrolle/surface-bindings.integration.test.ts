@@ -1276,19 +1276,45 @@ integration("surface bindings on PostgreSQL", () => {
       ).toBe(true);
     });
 
-    test("a leave of a public or unbound channel binds nothing and touches no public binding", async () => {
-      const { owner, agentId, installationId } = await waiting();
-      await setAs(owner, agentId, { channelId: "C0OPEN", home: true });
-      expect(await store().botLeft(installationId, "C0OPEN", at(2))).toBe(true);
+    test("a leave of an unbound channel binds nothing", async () => {
+      const { installationId } = await waiting();
       expect(await store().botLeft(installationId, "G0NEVER", at(2))).toBe(
         true,
       );
       expect(
-        await store().resolveSlackChannel(installationId, "C0OPEN"),
-      ).toMatchObject({ status: "ready", home: true });
-      expect(
         await store().findLiveSlackChannel(installationId, "G0NEVER"),
       ).toBeNull();
+    });
+
+    test("a public channel the bot left stays ready and home and waits for an invite; an older leave changes nothing and a later join brings it back", async () => {
+      const { owner, agentId, installationId } = await waiting();
+      await setAs(owner, agentId, { channelId: "C0OPEN", home: true });
+      expect(await store().botLeft(installationId, "C0OPEN", at(2))).toBe(true);
+      const left = await store().resolveSlackChannel(installationId, "C0OPEN");
+      expect(left).toMatchObject({
+        status: "ready",
+        home: true,
+        membership: { state: "awaiting_invite", error: null },
+      });
+      if (left === null) throw new Error("no binding");
+      await store().setMembership(left.id, { state: "joined", error: null });
+      expect(await store().botLeft(installationId, "C0OPEN", at(1))).toBe(
+        false,
+      );
+      expect(
+        await store().resolveSlackChannel(installationId, "C0OPEN"),
+      ).toMatchObject({ membership: { state: "joined", error: null } });
+      await store().botLeft(installationId, "C0OPEN", at(4));
+      expect(
+        await store().recordJoin(installationId, "C0OPEN", left.id, at(5)),
+      ).toBe(true);
+      expect(
+        await store().resolveSlackChannel(installationId, "C0OPEN"),
+      ).toMatchObject({
+        status: "ready",
+        home: true,
+        membership: { state: "joined", error: null },
+      });
     });
 
     test("an event with no time cannot be ordered: the leave applies and nothing is noted", async () => {

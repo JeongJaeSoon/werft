@@ -189,8 +189,9 @@ export interface SurfaceBindingStore {
    * join means the bot is back in: the binding is not `left`, and a `ready`
    * one waits for approval (`request_surface_binding`) unless its approval
    * already knew of this leave (`at` not after the newest event noted when
-   * it was given). A public channel's binding is left alone. False when the
-   * leave is older than a noted event.
+   * it was given). A public channel's binding keeps its status and approval;
+   * its membership becomes `awaiting_invite` when the leave is the newest
+   * event noted. False when the leave is older than a noted event.
    */
   botLeft(
     installationId: string,

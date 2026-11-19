@@ -894,7 +894,8 @@ export function createFakeSlackWebApi(
         return Response.json({ ok: true, bot_user_id: `U${appId}BOT` });
       }
       // For curl on the local stack: `/remove` of `app_id`'s bot from a
-      // channel. The member_left_channel event is sent with /fake/events.
+      // channel. The channel_left or group_left event Slack sends the bot
+      // is sent with /fake/events.
       if (url.pathname === "/fake/removals" && request.method === "POST") {
         const input = (await request.json().catch(() => null)) as {
           app_id?: unknown;

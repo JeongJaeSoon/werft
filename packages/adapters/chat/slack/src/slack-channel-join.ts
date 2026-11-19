@@ -172,11 +172,19 @@ export function createSlackMemberJoinedHandler(deps: {
   };
 }
 
-const memberLeftSchema = z.object({
-  type: z.literal("member_left_channel"),
-  user: z.string().min(1),
-  channel: z.string().min(1),
-});
+const memberLeftSchema = z.union([
+  z.object({
+    type: z.literal("member_left_channel"),
+    user: z.string().min(1),
+    channel: z.string().min(1),
+  }),
+  // Sent to the bot itself, so it names no user: the one who left is the
+  // bot whose app received it.
+  z.object({
+    type: z.enum(["channel_left", "group_left"]),
+    channel: z.string().min(1),
+  }),
+]);
 
 // join and leave events carry no `ts`; `event_ts` ("<seconds>.<micros>") is
 // the time Slack stamped them, and the envelope's time is the fallback. An
@@ -198,11 +206,12 @@ function lifecycleTime(claim: SlackInboundClaim): number | null {
 }
 
 /**
- * The `slack` role's handler for `member_left_channel`: when the one who
- * left is this app's bot (it was removed, or left), a private channel's
- * binding becomes `left`: inactive until the bot is invited again, and then
- * it waits for approval, so the old approval does not come back. Every other
- * event goes to `next`.
+ * The `slack` role's handler for the bot leaving a channel (it was removed,
+ * or left): `channel_left` or `group_left`, or `member_left_channel` naming
+ * this app's bot. A private channel's binding becomes `left`: inactive until
+ * the bot is invited again, and then it waits for approval, so the old
+ * approval does not come back. A public channel's binding waits for an
+ * invite. Every other event goes to `next`.
  */
 export function createSlackMemberLeftHandler(deps: {
   agents: Pick<AgentIdentityStore, "resolveSlackEvent">;
@@ -219,7 +228,11 @@ export function createSlackMemberLeftHandler(deps: {
       teamId: claim.teamId,
       agentId: claim.agentId,
     });
-    if (agent.status === "dropped" || parsed.data.user !== agent.botUserId) {
+    if (
+      agent.status === "dropped" ||
+      (parsed.data.type === "member_left_channel" &&
+        parsed.data.user !== agent.botUserId)
+    ) {
       return;
     }
     await deps.bindings.botLeft(

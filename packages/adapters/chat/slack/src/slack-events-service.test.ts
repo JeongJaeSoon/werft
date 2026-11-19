@@ -464,6 +464,8 @@ describe("Slack events service", () => {
         "received",
         undefined,
       ],
+      [{ type: "channel_left", channel: "C0CHAN" }, "received", undefined],
+      [{ type: "group_left", channel: "G0CHAN" }, "received", undefined],
       [{ type: "reaction_added", user: "U0P" }, "dropped", "unsupported_event"],
     ] as const;
     for (const [fields, status, reason] of cases) {
