@@ -642,7 +642,7 @@ e2e의 Keycloak은 API 컨테이너와 네트워크 이름공간을 함께 쓰�
 - 실패한 테스트는 `200`에 `passed: false`와 까닭(`audience_mismatch`, `code_refused` 등 `oidc/`의 거절 이름)을 준다. 로그인의 콜백은 같은 경우에 까닭 없는 `401`을 준다. 설정하는 owner에게는 까닭이 필요하고, 로그인하려는 사람에게는 알려 주지 않는다.
 - 켜진 공급자의 교체 후보 secret은 `config_revision`을 올리지 않는다. 테스트는 후보가 있으면 후보로 돌고, 통과하면 같은 트랜잭션에서 후보가 secret이 된다. 공급자를 끄면 후보는 지운다.
 - 이미 켜진 것을 켜기, 이미 꺼진 것을 끄기는 성공이고 receipt를 남기지 않는다.
-- 6.2·6.3절의 Google 제한은 PATCH가 지킨다. Google(`https://accounts.google.com`)에는 `require_verified_email: false`와, 허용 도메인 없는 `jit_role`을 저장하지 않는다(`400`, `details.problem`이 `verified_email_required`·`jit_requires_domains`). 판정은 바뀐 뒤의 규칙 전체를 놓고 공급자 행을 잠근 채로 한다. 그래서 JIT가 켜진 Google 공급자의 허용 도메인을 비우는 변경도 거절된다.
+- 6.2·6.3절의 제한은 PATCH가 지킨다. Google(`https://accounts.google.com`)에는 `require_verified_email: false`를 저장하지 않는다(`400`, `details.problem: verified_email_required`). 허용 도메인 없는 `jit_role`은 issuer와 상관없이 저장하지 않는다(`jit_requires_domains`). 처음에는 Google에만 적용했지만, 회사 IdP에도 게스트·협력사 계정이 섞이므로 모든 issuer로 넓혔다. 판정은 바뀐 뒤의 규칙 전체를 놓고 공급자 행을 잠근 채로 한다. 그래서 JIT가 켜진 공급자의 허용 도메인을 비우는 변경도 거절된다. 다만 JIT 규칙은 `jit_role`이나 `allowed_domains`를 바꾸는 요청에만 판정한다. 넓히기 전에 도메인 없이 JIT를 켠 공급자는 마이그레이션으로 바꾸지 않는다. 그 공급자의 이름·client·secret은 전처럼 바꿀 수 있고, 화면이 경고를 보인다.
 - receipt의 `result`에는 공급자 id와 바뀐 칸의 이름, secret은 끝 네 글자까지만 적는다. 값은 적지 않는다.
 
 3b에서 정한 것은 다음과 같다.

@@ -834,6 +834,13 @@ function ProviderSettings({
             <SettingRow
               title={t("loginProviders.jit")}
               meta={t(`loginProviders.jit.${provider.jit_role ?? "off"}`)}
+              // Saved before every issuer needed a domain list for this.
+              description={
+                provider.jit_role !== null &&
+                provider.allowed_domains.length === 0
+                  ? t("loginProviders.jitOpen")
+                  : undefined
+              }
             />
             <SettingRow
               title={t("loginProviders.verified")}

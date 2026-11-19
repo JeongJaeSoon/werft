@@ -292,7 +292,12 @@ export function createProviderAdmin(deps: {
         id,
         ifMatch: ifMatchOf(ifMatch),
         changes,
-        refuse: (next) => policyProblem(next.issuer, next),
+        refuse: (next) =>
+          policyProblem(
+            next.issuer,
+            next,
+            body.jit_role !== undefined || body.allowed_domains !== undefined,
+          ),
         audit,
       });
       if (updated.outcome === "not_found") throw NOT_FOUND();

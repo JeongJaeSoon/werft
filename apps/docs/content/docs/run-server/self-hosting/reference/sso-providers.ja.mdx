@@ -35,10 +35,22 @@ outcome: "プロバイダーごとの入力値と画面の理由コードを調�
 | Google Workspace | `https://accounts.google.com` | `email_verified` と Workspace のドメイン（`hd`） | 許可ドメインがあるときだけ |
 | OneLogin | `https://<subdomain>.onelogin.com/oidc/2` | 既定の設定ではない | 既定の設定ではできない |
 | Microsoft Entra ID | `https://login.microsoftonline.com/<tenant-id>/v2.0` | ない | できない |
-| Okta | `https://<org>.okta.com` または `https://<org>.okta.com/oauth2/<server>` | `email_verified`（UserInfo） | できる |
-| Keycloak | `https://<host>/realms/<realm>` | `email_verified` | できる |
+| Okta | `https://<org>.okta.com` または `https://<org>.okta.com/oauth2/<server>` | `email_verified`（UserInfo） | 許可ドメインがあるときだけ |
+| Keycloak | `https://<host>/realms/<realm>` | `email_verified` | 許可ドメインがあるときだけ |
 
 「アドレスの証明」がないプロバイダーの人は、招待リンクかアカウントの接続でだけ入ります。そうしたプロバイダーに許可ドメインを入れると、すべてのログインが拒否されます（`403`）。
+
+**招待なしで参加**は、どのプロバイダーでも許可ドメインが一つ以上あるときだけオンにできます。会社の IdP にもゲストや協力会社のアカウントが混ざりやすく、ドメインなしでオンにすると、その IdP のアカウントなら誰でも member として入るためです。
+
+<a id="허용-도메인-없이-초대-없이-가입이-켜진-공급자" />
+### 許可ドメインなしで招待なしで参加がオンのプロバイダー
+
+このルールの前に、許可ドメインなしで**招待なしで参加**をオンにしたプロバイダーはそのままです。ログインも参加も以前どおりです。プロバイダーの画面の**招待なしで参加**の行に警告が表示されます。こうしたプロバイダーでは、プロバイダーがメールアドレスを保証したアカウントなら誰でも招待なしで member として入ります。アドレスを保証しないプロバイダー（上の表で「アドレスの証明」がないもの）では、招待なしの参加は起きません。
+
+- 名前、client ID、secret など、ほかの設定は以前どおり変更できます。
+- **誰が入れるか**のルールを保存するには、許可ドメインを一つ以上書くか、**招待なしで参加**をオフにします。どちらでもなければ `400 jit_requires_domains` で拒否されます。
+- アドレスを保証するプロバイダー（Okta、Keycloak など）では許可ドメインを書きます。その前に、メンバー一覧ですでに参加したメンバーのメールドメインを確認してください。すでに参加したアカウントは残りますが、許可ドメインの外のアカウントは次のログインから拒否されます（接続済みのアカウントも同じです）。
+- アドレスを保証しないプロバイダー（Entra ID、既定の設定の OneLogin）では許可ドメインを書かず、**招待なしで参加**をオフにします。許可ドメインを書くとアドレスが証明されていないアカウントはすべて拒否されるため、接続済みのアカウントもログインできなくなります。
 
 ### Google Workspace
 
@@ -187,7 +199,7 @@ Keycloak はユーザーごとに `email_verified` を送ります。Keycloak �
 | 状態とコード | 値 | 意味 |
 | --- | --- | --- |
 | `400` | `verified_email_required` | Google のプロバイダーで**検証済みメール**をオフにしようとしました |
-| `400` | `jit_requires_domains` | Google のプロバイダーで、許可ドメインなしで**招待なしで参加**をオンにしようとしました |
+| `400` | `jit_requires_domains` | 許可ドメインなしで**招待なしで参加**をオンにしようとした、またはオンのまま許可ドメインを空にしようとしました |
 | `409 REVISION_CONFLICT` | `not_tested` | client の値がないか、今の設定で通ったテストがないのにテスト・オンをしようとしました |
 | `409 REVISION_CONFLICT` | `provider_enabled` | オンのプロバイダーの client ID・認証方式・設定ドキュメントを変えるか、削除しようとしました |
 | `409 REVISION_CONFLICT` | `last_provider` | パスワードログインが閉じている間に、オンの最後のプロバイダーをオフにしようとしました |
