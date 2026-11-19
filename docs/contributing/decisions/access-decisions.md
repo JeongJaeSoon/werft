@@ -1,6 +1,6 @@
 # 결정(설계): 접근 판정 하나로 기억 범위, MCP 자격, 에이전트 답변을 정한다
 
-- 상태: 설계. 코드는 바꾸지 않는다. 단계는 [11절](#11-단계-계획)에 있다.
+- 상태: 설계. 코드는 바꾸지 않는다. 단계는 [11절](#11-단계별-구현-계획)에 있다.
 - 기준 커밋: `origin/main` `f3c650f4e`. `파일:줄`은 이 커밋에서 읽었다.
 - 오너 원문(2026-11-20, 터미널):
   - "결국 메모리 같은 경우에도 개인 메모리에 누가 접근해도 되냐 안되냐 이런개념으로 놓고 봣을때 mcp 와 동일하게 권한 접근에 대ㅏㄴ 추상활를 하고 각 단계별로 (개인,팀, 조직 - 메모리 / 개인, 에이전트 연동- mcp / private, dm, public 채널, 팀멤버인지 안니지 - 에이저느 호출 ) 이런식으로 agent 를 사용하고 agent 가 동작하는것의 권한 제어의 범위안에 놓고 설계해야할듯 ?"
@@ -8,6 +8,7 @@
   - "idp 그룹도 팀으로쓰고 따로 지정할수도 잇게 하면되지"
 - 관련 결정: [에이전트 담당 팀과 액션 RBAC](agent-rbac.md), [워크스페이스 원격 MCP 서버](mcp-credentials.md), [관측과 도구 호출 감사](observability-otel-and-tool-call-audit.md), [Musterrolle 모듈 경계](musterrolle-boundary.md), [범용 OIDC 로그인 공급자](oidc-login-providers.md).
 - 검토 중인 설계 두 개와의 관계: 스킬·MCP 서버 설계([JeongJaeSoon/werft#1949](https://github.com/JeongJaeSoon/werft/pull/1949))의 6절 "데이터 접근 정책"과 기억 레이어 설계([JeongJaeSoon/werft#1952](https://github.com/JeongJaeSoon/werft/pull/1952))의 5절 "집행 순서"는 이 문서의 판정을 부르는 쪽이 된다([12절](#12-다른-설계-문서가-어떻게-바뀌나)). 두 문서는 아직 main에 없으므로 PR로 가리킨다.
+- 조사: 공개 자료 조사(2026-11-20)의 요약과, 무엇을 따르고 무엇을 다르게 가는지, werft 안의 자리는 [14절](#14-조사-요약과-시장-동향), [15절](#15-따를-것과-다르게-갈-것), [16절](#16-werft-아키텍처-적용)에 있다. 단계와 끝난 조건은 [11절](#11-단계별-구현-계획)이다.
 - 티켓 번호: 저장소의 마크다운은 티켓 번호를 적지 못한다(`tests/docs-links.test.ts`). 번호는 이 문서를 들인 PR 본문에 있다.
 
 ## 요약
@@ -34,7 +35,7 @@
 | 판정 기록 | `authz_decisions` (`packages/db/migrations/0137_authz_decisions.sql`). append-only 트리거, 주체·actor·에이전트·release·surface·action·대상·결과·이유·`policy_version`·`request_id` | 축별 칸을 더한다([7절](#7-기록)) |
 | 무엇을 기록하나 | `mustRecord` (`policy.ts:425-446`): 거절은 모두, 허용은 관리 동작과 `session.approve`·`session.share`·사유가 있는 요청·Slack 제출. 기록하지 못한 허용은 `error` 거절로 바꾼다(`policy.ts:913-942`) | 새 축의 동작을 기록 대상에 넣는다. 그러면 "모두 기록, 못 쓰면 거절"을 그대로 물려받는다 |
 | 판정 계약 | 요청 `{subject, action, resource, request_id}`, 결과 `{outcome, reason_code, effective_scopes, redact?, approval?, policy_version, decision_id}` (`packages/contracts/src/musterrolle/authorization.ts:653-748`). 결과 종류는 `allow`·`deny`·`redact`·`require_approval` (`:542-548`) | 결과에 축별 허용 내용 칸을 더한다. 답변 요약은 지금의 `redact`(`view: "summary"`)를 쓴다 |
-| 이미 있는 액션 | `memory.read`·`memory.write`·`delivery.send` (`authorization.ts:387-390`). 이 표는 grant가 **어떤 대상 종류에 붙을 수 있나**만 정한다: 기억은 `workspace`·`agent`·`memory`, 전달은 `session`·`session_link`·`surface_binding` (`packages/db/src/schema.ts:192-195`). `grants` 표(`schema.ts:1271`)는 있지만 지금 판정은 그것을 읽지 않고, 기억의 역할 기본값도 없다 | **정책 규칙이 아직 없어서** 지금 부르면 `error` 거절이다. 물려받을 기억 권한이 없으므로 최소 판정기가 권한 표를 새로 정한다([11절](#11-단계-계획)) |
+| 이미 있는 액션 | `memory.read`·`memory.write`·`delivery.send` (`authorization.ts:387-390`). 이 표는 grant가 **어떤 대상 종류에 붙을 수 있나**만 정한다: 기억은 `workspace`·`agent`·`memory`, 전달은 `session`·`session_link`·`surface_binding` (`packages/db/src/schema.ts:192-195`). `grants` 표(`schema.ts:1271`)는 있지만 지금 판정은 그것을 읽지 않고, 기억의 역할 기본값도 없다 | **정책 규칙이 아직 없어서** 지금 부르면 `error` 거절이다. 물려받을 기억 권한이 없으므로 최소 판정기가 권한 표를 새로 정한다([11절](#11-단계별-구현-계획)) |
 | 요청자 없음 | 주체 `principal: null`은 언제나 `no_requester` 거절(`policy.ts:623`, 계약 주석 `authorization.ts:554-555`) | 루틴이 생길 때까지 그대로 둔다 |
 | 입구 | Slack 채널 종류 `public_channel`·`private_channel`·`dm` (`packages/contracts/src/kollegium/surfaces.ts:45-49`), 채널 상한의 공개 정도 `full`·`summary` (`:116`), binding의 `memory_write_policy` (`:159`) | 맥락 입력 |
 | 세션 공유 범위 | `private`·`people`·`team`·`workspace` (`packages/contracts/src/musterrolle/session-shares.ts:26-31`) | 맥락 입력이자 공개 범위 목록의 원본([2절](#대상과-범위-목록-둘)) |
@@ -96,7 +97,7 @@ type AccessAsk =
 - 표시가 있는 세션에서 나온 세션 범위보다 넓은 쓰기(에이전트·워크스페이스·공간 기억)는 언제나 후보이고, 그 세션의 `personal_subjects`를 출처 표시로 이어받는다(#1952 4절의 taint와 같다). 표시된 사람 모두가 공개를 확인하기 전에는 채택할 수 없다. 규칙으로 넓힐 수 없다.
 - 세션 요약과 정리(드리밍) 결과도 같은 출처 표시를 이어받는다.
 - 표시가 있는 세션이 바깥으로 내보내는 일(답 게시, 다른 에이전트에 위임)은 답변 전달 축의 판정을 받는다([5절](#답변-전달)).
-- 위 셋이 구현되기 전에는 개인 기억과 개인 연결을 켜지 않는다. 최소 판정기 단계에서 개인 범위는 꺼져 있다([11절](#11-단계-계획)).
+- 위 셋이 구현되기 전에는 개인 기억과 개인 연결을 켜지 않는다. 최소 판정기 단계에서 개인 범위는 꺼져 있다([11절](#11-단계별-구현-계획)).
 
 ### 대상과 범위 목록 둘
 
@@ -305,42 +306,54 @@ egress 판정(`workspace-mcp-egress.ts`)이 지금 자리에서 `mcp.use`를 묻
 - egress의 actor를 세션 만든 사람에서 턴 요청자로 바꾸는 일은 지금 기록되는 값이 바뀌는 것이므로 릴리스 노트에 적는다.
 - IdP 그룹 팀은 공급자마다 켤 때만 생긴다. 켜지 않은 워크스페이스는 바뀌지 않는다.
 
-## 11. 단계 계획
+## 11. 단계별 구현 계획
+
+단계 하나는 PR 한두 개이고, 단계마다 티켓 하나를 만든다. 구현은 오너가 시작을 정한 뒤 티켓 순서대로 한다. 아래 "앞선 단계"가 티켓의 blocked-by다.
 
 ### 지금
 
-1. **최소 판정기.** 기억 축만. `memory.read`·`memory.write`에 아래 고정 권한 표(`rule_mode = fixed`)를 넣고, 판정 결과로 `memory_scopes`를 돌려주고, 기록 대상에 넣는다(기록기 없으면 거절, 7절). 물려받을 기억 권한은 없다. `grants` 표는 이 단계에서 읽지 않는다. 워크스페이스 규칙 표도 아직 없다. **기억 도구와 기억 주입은 이것이 머지되기 전에 열지 않는다.**
-
-   | 범위 | 실행 중 도구 호출(주체는 2절의 인증 근거) | 콘솔(로그인한 사람) | API key |
-   |---|---|---|---|
-   | 세션 | 그 attempt의 세션만. 읽기·쓰기 | 읽기 `session.read`, 쓰기 `session.submit`의 지금 판정 | 개인 key: 그 key의 scope로 `session.read`(읽기)·`session.submit`(쓰기)가 허용될 때. 에이전트 key: 그 에이전트 세션만 같은 조건 |
-   | 개인 | **이 단계에서 꺼짐**(2절의 표시 commit·출처 표시가 들어오기 전) | 본인만 읽기·편집·삭제 | 거절 |
-   | 에이전트 | 읽기: 에이전트 설정이 기억을 켰고, 사람 요청자면 그 사람이 그 에이전트의 안쪽(담당 팀 구성원, 에이전트 관리자, `owner`·`admin`). 요청자 없음·에이전트 key는 설정만. 쓰기: 후보만, binding `memory_write_policy`가 `allow_explicit`일 때(binding 없는 콘솔·API 턴은 `allow_explicit`) | 읽기: 그 에이전트의 안쪽. 채택·편집·삭제: 에이전트 관리자와 `owner`·`admin` | 거절(읽기 전용 key 접근은 "다음") |
-   | 워크스페이스 | 읽기: 에이전트 설정이 워크스페이스 기억 읽기를 켰고, 사람 요청자면 그 워크스페이스 구성원. 쓰기: 후보만, 위와 같은 `memory_write_policy` 조건 | 읽기: 구성원. 채택·편집·삭제: `owner`·`admin` | 거절 |
-
-   - 결과는 부분 허용이다. 검색이 범위 여럿을 물으면 위 표로 허용되는 범위만 `memory_scopes`에 넣고, 하나도 없을 때만 `deny`다.
-   - 쓰기 순서: 위 표의 권한 → `memory_write_policy`(영속 범위 후보만) → 2절 출처 표시. 앞 단계의 거절이 이긴다. key의 scope와 에이전트 상한은 언제나 좁히기만 한다.
-   - 이 표의 역할 기본값(구성원 = 워크스페이스 읽기, 관리자 = 쓰기, 에이전트 안쪽 = 읽기, 에이전트 관리자 = 쓰기)은 이 단계에서 처음 생기는 것이다. 사람·팀별 grant로 넓히거나 좁히는 일은 워크스페이스 규칙("다음")이 한다.
-2. 판정 계약에 `access` 요청 칸과 결과 칸, 범위 목록 둘, 새 이유 코드를 더한다(contracts).
-3. `authz_decisions`에 7절의 칸을 더한다.
-4. 턴 행에 인증 근거를 남긴다(2절). 판정은 그것을 다시 확인한다.
-5. MCP egress 판정을 `authorize`의 `mcp.use`로 옮긴다. 지금 egress 검사는 그대로 두고 이행 모드(`agent` 연결)로 기록을 새로 남긴다. 요청자를 턴의 인증 근거로 바꾸고 에이전트 RBAC를 호출마다 본다(4절의 동작 변경 둘). `tool_call_audits`에 `access_decision_id`.
-6. 호환 릴리스와 DB 쪽 울타리(10절). 이것이 나가야 다음 단계의 "켜는 일"을 할 수 있다.
+| 단계 | 내용 | PR | 끝난 조건 | 앞선 단계 |
+|---|---|---|---|---|
+| A1 계약과 기록 칸 | contracts에 `access` 요청·결과 칸, 범위 목록 둘, 새 이유 코드. `authz_decisions`에 7절 칸(nullable). 축 셋의 행위 판정은 기록기가 없으면 거절 | 1 | 계약 시험(스키마 왕복, 축별 결과 모양, 기록기 없는 조립 거절), migration 안전 시험. 동작 변경 없음 | — |
+| A2 턴의 인증 근거 | 턴 행에 근거 칸, 턴을 넣는 모든 경로에서 채움, 재확인 함수(`requester_revoked`·"확인되지 않음"·`error` 구분) | 1 | 근거별(로그인 세션, 개인 key, 에이전트 key, Slack) 시험과 폐기·만료·연결 revision 변경·조회 실패 시험 | A1 |
+| A3 최소 판정기(기억 축) | 아래 고정 권한 표, 부분 허용, 쓰기 순서, 기록 | 1–2 | 표의 칸마다 시험. 오케스트레이터가 정한 계약 시험 넷: 규칙 없음 → 지금 동작, 공개 채널의 개인 기억 → 거절, 요청자가 아닌 사람의 개인 연결 → 거절, 요청자 없는 일정 실행 → 에이전트 연결만. 기억 도구는 여전히 열지 않음 | A1, A2 |
+| A4 MCP egress를 판정으로 | `mcp.use`, 지금 egress 검사 유지, 이행 모드 기록, 요청자 근거와 호출마다 RBAC, `tool_call_audits.access_decision_id` | 1–2 | egress 통합 시험(지금 통과하던 호출이 그대로 통과하고 기록이 남음, 4절 동작 변경 둘의 시험), 9절 지연 예산 측정 | A1, A2 |
+| A5 호환 릴리스와 DB 울타리 | 10절 1–3. 정책 모드·개인 표시를 아는 경로, 최소 control-host 버전, contract migration | 1–2 | 옛 host가 울타리 뒤에서 거절로 실패하는 시험, 되돌리기 금지 운영 문서 | A3, A4 |
 
 ### 다음
 
-- 개인 범위의 전제(2절의 표시 commit, 넓은 범위 쓰기의 출처 표시, 표시된 세션의 답변 전달 고정 규칙). 이것이 들어온 뒤에 개인 기억을 켠다.
-- 워크스페이스 규칙 표와 정책 모드, 콘솔 규칙 편집기와 규칙 시험.
-- 요청자 개인 MCP 연결: 만들기·읽기·끊기, subject를 관통시키는 연결 조회·잠금·receipt, 그 뒤에 MCP 축의 `personal` 결과.
-- IdP 그룹 → 팀 동기화(3절). 다음 단계의 앞쪽.
-- Slack 채널 구성원 대응과 받는 쪽 기준 답변 규칙.
-- 위임 사슬(`subject.via`)을 에이전트끼리 부르는 경로에 채운다.
+| 단계 | 내용 | PR | 끝난 조건 | 앞선 단계 |
+|---|---|---|---|---|
+| B1 개인 범위 전제 | 2절의 표시 commit, 넓은 범위 쓰기의 출처 표시, 표시된 세션의 답변 전달 고정 규칙(`delivery.send`) | 2 | 경합 시험(공유 쓰기와 판정), 세탁 경로 시험(개인 → 에이전트 기억 채택 막힘). 이 뒤에 개인 기억을 켠다 | A5 |
+| B2 워크스페이스 규칙과 정책 모드 | 규칙 표(revision 행), 첫 일치, 정책 모드 진입, 규칙 시험 API(`record: false`) | 2 | 규칙 판정 시험, 정책 모드에서 맞는 규칙 없음 → 거절, revision별 설명 | A5 |
+| B3 콘솔 규칙 편집기 | 규칙 편집·순서·시험 화면, 정책 모드 진입 때 미리 채운 마지막 규칙 | 1–2 | 화면 시험과 실제 스택에서 규칙 저장 → 판정 확인 | B2 |
+| B4 IdP 그룹 팀 | 공급자 설정(그룹 claim, 팀으로 쓸 그룹, 최대 나이), (사람, 공급자) 그룹 스냅샷, 팀 출처 칸, `membership_stale` | 2 | 스냅샷 시험(빈 집합 포함), 최대 나이 넘으면 소속·비소속 모두 모름, 실제 IdP로 로그인 → 팀 반영 | A5 |
+| B5 개인 MCP 연결 | 사람별 연결 만들기·읽기·끊기, subject 관통(조회·잠금·비밀·receipt `generation`), MCP 축 `personal` 결과 | 2 | 본인 OAuth 흐름, 관리자 끊기, 탈퇴 때 자동 끊기, 남의 개인 연결 거절 | B1, B2 |
+| B6 Slack 채널 구성원과 받는 쪽 규칙 | binding별 구성원 캐시, 연결된 구성원 → 팀 대응, 받는 쪽 기준 전달 규칙 | 1–2 | 캐시 없음·낡음 → 바깥, 게스트·Slack Connect → 바깥 | B2 |
+| B7 위임 사슬 | `subject.via`를 에이전트끼리 부르는 경로에 채움, 사슬마다 RBAC, 첫 단계 밖 개인 범위 거절 | 1 | 사슬 시험 | A3 |
 
 ### 나중
 
-- 공유 지식 공간과 구성원 스냅샷 계약(3절).
-- 루틴(요청자 없는 실행)과 루틴 주인 기록.
-- 외부 게이트웨이용 서명 단언(13절 7, 필요가 생기면).
+| 단계 | 내용 | 앞선 단계 |
+|---|---|---|
+| C1 공유 지식 공간 | 구성원 스냅샷 계약(3절), 공간 기억 범위 | B1, B4 |
+| C2 루틴 | 요청자 없는 실행, 루틴 주인 기록 | A3 |
+| C3 게이트웨이 단언 | 13절 7, 요구가 생기면 | B5 |
+
+### A3의 고정 권한 표
+
+기억 축만. `memory.read`·`memory.write`에 아래 고정 권한 표(`rule_mode = fixed`)를 넣고, 판정 결과로 `memory_scopes`를 돌려주고, 기록 대상에 넣는다(기록기 없으면 거절, 7절). 물려받을 기억 권한은 없다. `grants` 표는 이 단계에서 읽지 않는다. 워크스페이스 규칙 표도 아직 없다. **기억 도구와 기억 주입은 이것이 머지되기 전에 열지 않는다.**
+
+| 범위 | 실행 중 도구 호출(주체는 2절의 인증 근거) | 콘솔(로그인한 사람) | API key |
+|---|---|---|---|
+| 세션 | 그 attempt의 세션만. 읽기·쓰기 | 읽기 `session.read`, 쓰기 `session.submit`의 지금 판정 | 개인 key: 그 key의 scope로 `session.read`(읽기)·`session.submit`(쓰기)가 허용될 때. 에이전트 key: 그 에이전트 세션만 같은 조건 |
+| 개인 | **이 단계에서 꺼짐**(2절의 표시 commit·출처 표시가 들어오기 전) | 본인만 읽기·편집·삭제 | 거절 |
+| 에이전트 | 읽기: 에이전트 설정이 기억을 켰고, 사람 요청자면 그 사람이 그 에이전트의 안쪽(담당 팀 구성원, 에이전트 관리자, `owner`·`admin`). 요청자 없음·에이전트 key는 설정만. 쓰기: 후보만, binding `memory_write_policy`가 `allow_explicit`일 때(binding 없는 콘솔·API 턴은 `allow_explicit`) | 읽기: 그 에이전트의 안쪽. 채택·편집·삭제: 에이전트 관리자와 `owner`·`admin` | 거절(읽기 전용 key 접근은 "다음") |
+| 워크스페이스 | 읽기: 에이전트 설정이 워크스페이스 기억 읽기를 켰고, 사람 요청자면 그 워크스페이스 구성원. 쓰기: 후보만, 위와 같은 `memory_write_policy` 조건 | 읽기: 구성원. 채택·편집·삭제: `owner`·`admin` | 거절 |
+
+- 결과는 부분 허용이다. 검색이 범위 여럿을 물으면 위 표로 허용되는 범위만 `memory_scopes`에 넣고, 하나도 없을 때만 `deny`다.
+- 쓰기 순서: 위 표의 권한 → `memory_write_policy`(영속 범위 후보만) → 2절 출처 표시. 앞 단계의 거절이 이긴다. key의 scope와 에이전트 상한은 언제나 좁히기만 한다.
+- 이 표의 역할 기본값(구성원 = 워크스페이스 읽기, 관리자 = 쓰기, 에이전트 안쪽 = 읽기, 에이전트 관리자 = 쓰기)은 이 단계에서 처음 생기는 것이다. 사람·팀별 grant로 넓히거나 좁히는 일은 워크스페이스 규칙("다음")이 한다.
 
 ## 12. 다른 설계 문서가 어떻게 바뀌나
 
@@ -359,6 +372,93 @@ egress 판정(`workspace-mcp-egress.ts`)이 지금 자리에서 `mcp.use`를 묻
 6. **호출자 상한을 규칙 표로 합칠까.** 추천: 지금은 합치지 않는다(6절). 정책 모드가 자리 잡은 뒤 같은 콘솔 화면에 나란히 보이는 것까지만 한다.
 7. **외부 게이트웨이에 요청자 신원을 알릴까.** 추천: 지금은 하지 않는다. 개인 연결의 token이 신원이고, 에이전트 연결은 에이전트로 보이는 것이 맞다. 게이트웨이 쪽 정책이 요청자를 꼭 알아야 한다는 요구가 생기면 egress가 서명한 짧은 단언 헤더(요청자 id, `decision_id`, 만료)를 더한다.
 8. **정책 모드에서 이행 모드로 돌아갈 수 있게 할까.** 추천: 돌아가지 않는다(#1949와 같다). 같은 결과를 원하면 맨 아래 규칙으로 명시한다. 되돌리기는 "기록에 남지 않는 허용"을 다시 만들 뿐이다.
+
+## 14. 조사 요약과 시장 동향
+
+2026-11-20에 공개 자료로 조사했다. 이 판정에 닿는 것만 적는다. 기억·스킬 형식 자체는 기억 레이어 설계와 스킬·MCP 서버 설계가 다룬다.
+
+### 표준
+
+- **에이전트 권한·위임의 표준은 없다.** Linux Foundation의 Agentic AI Foundation(AAIF)은 MCP, AGENTS.md, Agent Skills, A2A, agentgateway 등 10개 프로젝트를 둔다. 위임과 권한 흐름은 "Identity & Trust" 작업 그룹의 주제일 뿐, 낸 명세가 없다([AAIF](https://aaif.io/), [LF 발표 2026-10-22](https://www.linuxfoundation.org/press/agentic-ai-foundation-announces-four-new-projects-agent-skills-open-responses-openenv-and-opensandbox)).
+- **기억의 표준도 없다.** AAIF에는 기억 프로젝트가 없다. W3C AI Agent Memory Interoperability Community Group은 2026-06에 charter를 채택했지만 낸 명세가 없다([W3C CG](https://www.w3.org/community/ai-agent-memory-interop/)).
+- **MCP 2026-07-28 개정**: 핵심을 stateless로 바꿨다(`initialize` 없이 요청 메타데이터에 버전과 능력을 싣는다). OAuth issuer 검증을 더했다([changelog](https://modelcontextprotocol.io/specification/2026-07-28/changelog)). 최종 GA 여부는 출처마다 다르게 적혀 있다.
+
+### 제품들이 하는 것
+
+| 제품 | 이 판정과 닿는 점 | 출처 |
+|---|---|---|
+| Claude Managed Agents 기억 저장소 | 워크스페이스 범위, 세션을 만들 때 붙이고 저장소마다 `read_write`(기본) 또는 `read_only`. 프롬프트 인젝션이 저장소에 쓴 내용을 나중 세션이 믿는 위험을 문서가 직접 경고한다 | [memory](https://platform.claude.com/docs/en/managed-agents/memory) |
+| claude.ai Team/Enterprise 기억 | 소유자가 조직 전체 기억을 켜고 끄지만 개인 기억을 보거나 고칠 수는 없다. incognito 대화는 기억에 남지 않는다 | [도움말](https://support.claude.com/en/articles/11817273-use-claude-s-chat-search-and-memory-to-build-on-previous-context) |
+| Claude Plugins API | 설치 값(required / auto_install / available / not_available)을 조직과 그룹에 둔다. 여러 그룹에 든 사람은 **가장 넓은 값**을 받는다 | [Plugins API](https://platform.claude.com/docs/en/manage-claude/plugins-api) |
+| Claude Skills API | 공유 단위가 워크스페이스다. 그 워크스페이스에 닿는 key는 모든 사용자 스킬을 읽고 지울 수 있다 | [skills guide](https://platform.claude.com/docs/en/build-with-claude/skills-guide) |
+| Claude API memory tool | 저장, 범위, 경로 검사는 모두 통합하는 쪽이 맡는다 | [memory tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool) |
+| Mem0 | `user_id`·`agent_id`·`app_id`·`run_id` 범위 열쇠. 범위 없이 검색하면 사람 사이로 샌다고 문서가 적는다 | [entity-scoped memory](https://docs.mem0.ai/platform/features/entity-scoped-memory.md) |
+| OpenAI Codex 기억 | 기계마다 따로 두는 로컬 저장소. `disable_on_external_context`로 MCP·웹 도구를 쓴 대화를 기억 추출에서 뺀다 | [memories](https://learn.chatgpt.com/docs/customization/memories.md?surface=app) |
+| ChatGPT | Temporary Chat은 기억을 읽지도 쓰지도 않는다 | [FAQ](https://help.openai.com/en/articles/8590148-memory-in-chatgpt-faq) |
+| Codex MCP 설정 | HTTP 서버 자격은 env var **이름**으로만 준다(`bearer_token_env_var`). 도구 allow/deny 목록이 있다 | [Codex MCP](https://developers.openai.com/codex/mcp) |
+
+**흐름.** 범위는 사람 / 에이전트 / 프로젝트(워크스페이스) / 실행으로 모이고 있다. 격리 경계는 워크스페이스다. 공유 기억은 읽기 전용을 기본으로 둔다. "기억 없는 대화"를 제공하고, 바깥 데이터를 만진 실행을 기억에서 뺀다. 반면 누가 무엇을 받는지 판정하고 남기는 공통 층은 어느 제품에도 공개 형식으로 없다. 제품마다 관리 콘솔 안의 자기 설정이다.
+
+## 15. 따를 것과 다르게 갈 것
+
+| 구분 | 무엇 | 이 문서에서 |
+|---|---|---|
+| 표준을 그대로 저장 | MCP: 서버 등록, 도구 이름 `mcp__<서버>__<도구>`, OAuth | 규칙의 서버·도구 칸이 MCP 이름을 그대로 쓴다. 개인 연결 OAuth(B5)는 2026-07-28의 issuer 검증을 따른다. 2026-07-28의 stateless 핵심은 판정에 영향이 없다. 판정은 요청마다 하기 때문이다. 다만 #1949 6절이 `initialize`와 `Mcp-Session-Id`에 묶은 (서버, 턴) subject 고정은 그 개정을 쓰는 서버에서 요청 메타데이터 기준으로 옮겨야 한다. 그 일은 그 문서에 남긴다 |
+| 표준을 그대로 저장 | Agent Skills: 스킬 `name`과 내용 digest | 규칙의 스킬 칸이 그 이름(선택으로 digest)을 쓴다 |
+| 엔진별 어댑터 | 엔진이 도구를 부르는 모양, 자체 기억, 자체 MCP 연결 | 판정은 control-host에 있으므로 엔진마다 다르지 않다. 어댑터가 할 일은 엔진 자체 기억·자체 MCP·OAuth를 끄고(Claude 자동 기억, Codex memories), relay만 보이게 하는 것이다(#1949 6절 "자격"). Codex는 relay 비밀을 env var 이름으로 받는다 |
+| 우리 모델, 포트 뒤 | 접근 판정, 규칙 형식, 판정 기록 | 표준이 없다. 판정 함수, 사실 읽기, 규칙 저장, 기록을 포트로 나눠([16절](#16-werft-아키텍처-적용)) 표준이 생기면 바깥 경계(게이트웨이 단언 C3, 위임 사슬)에서 맞춘다 |
+
+**따르는 것.**
+
+- 워크스페이스를 격리 경계로 둔다(Claude 스킬·기억 저장소, Mem0의 app).
+- 범위를 사람 / 에이전트 / 워크스페이스 / 세션으로 둔다. 업계가 모인 모양과 같다.
+- 공유 범위의 기억은 실행에서 읽기 전용이 기본이고, 쓰기는 후보다. Managed Agents가 경고한 인젝션 오염을 채택 단계로 막는다.
+- 바깥 데이터를 만진 실행을 넓은 범위에서 빼는 Codex의 방식을, 개인 데이터의 출처 표시(2절)로 일반화한다.
+- 자격은 엔진에 값으로 주지 않는다(Codex `bearer_token_env_var`와 같은 생각, 우리는 relay 비밀만 준다).
+
+**다르게 가는 것과 이유.**
+
+- **여러 그룹이면 가장 넓은 값**(Claude Plugins API) 대신 **순서 있는 첫 일치 규칙**을 쓴다. 오너 결정이 "누가 호출했는지에 따라 막기"를 요구하고, 가장 넓은 값 합치기로는 거절을 표현할 수 없다.
+- claude.ai는 소유자가 개인 기억을 보지 못한다. werft는 워크스페이스 관리자의 사유 있는 감사 열람이 이미 있다(`session.audit_read`). 업무 플랫폼의 감사 요구 때문에 그대로 두고, 개인 데이터를 켜는 화면에 알린다(13절 3).
+- Claude Skills API처럼 워크스페이스 key 하나가 모든 것을 읽고 지우게 하지 않는다. key는 언제나 판정의 상한으로 좁히기만 한다(11절 A3 표).
+- 엔진 자체 기억을 기록의 원본으로 쓰지 않는다. 판정과 기록 밖에 쌓이기 때문이다(기억 레이어 설계 10절과 같다).
+- "기억 없는 세션"은 따로 두지 않고, 비공개 세션과 개인 범위 끄기, 입구의 `memory_write_policy`로 같은 효과를 낸다. 필요가 보이면 세션 옵션으로 더한다.
+
+## 16. werft 아키텍처 적용
+
+### 누가 무엇을 갖나
+
+| 무엇 | 어디 | 비고 |
+|---|---|---|
+| 판정 계약(`access` 요청·결과, 범위 목록 둘, 이유 코드) | `packages/contracts/src/musterrolle/authorization.ts` | 지금 판정 계약 옆 |
+| 판정 진입점 | `packages/platform/src/musterrolle/policy.ts`의 `authorize` | action으로 축을 고른다 |
+| 축별 판정과 규칙 평가 | 새 디렉터리 `packages/platform/src/musterrolle/access/`: 순수 규칙 평가(첫 일치), 축 셋, 요청자 근거 재확인 | 순수 함수. I/O는 포트로만 |
+| 포트 | `packages/platform/src/musterrolle/ports/`: 판정 사실 읽기(세션, 턴 근거, 공유, 소유자, 에이전트 RBAC, 팀 스냅샷, 개인 표시), 규칙 저장(revision), 지금 `DecisionLog` | 사실은 판정기가 읽고, 부른 쪽이 싣지 않는다 |
+| DB 어댑터 | `packages/db/src/musterrolle/`: `authz-decisions.ts`(칸), 새 규칙 저장, IdP 그룹 스냅샷. 턴 근거 칸과 세션의 개인 표시는 세션 저장소 쪽 | [Musterrolle 모듈 경계](musterrolle-boundary.md)를 따른다 |
+| 부르는 쪽 | egress(`packages/platform/src/workers/workspace-mcp-egress.ts`), 기억 서비스(기억 레이어 설계의 `MemoryService`), 답 게시(surface 모듈), 콘솔 API | 모두 서버 쪽 |
+
+**transaction.** 잠금이 필요한 판정(개인 표시 commit, 쓰기 재판정)은 부르는 쪽 unit of work 안에서 같은 판정 함수를 부르고, 기록도 그 transaction에 쓴다. 지금 `postgres-unit-of-work.ts`가 호출자 상한 거절을 transaction 안에서 기록하는 것(`recordCallerLimited`, `:474`)과 같은 모양이다. 잠금이 필요 없는 판정은 지금처럼 `authorize`가 기록기를 부른다.
+
+**엔진 중립.** 판정은 control-host에만 있다. Claude, Codex, 나중의 다른 엔진은 relay 주소와 도구 오류만 본다. 그래서 엔진을 더해도 판정은 바뀌지 않고, 엔진 어댑터는 #1949 5·6절의 매핑(자체 기억·MCP 끄기, relay 주입)만 맡는다.
+
+### 데이터 모델
+
+| 표·칸 | 내용 | 단계 |
+|---|---|---|
+| `authz_decisions` + 7절 칸 | nullable 칸, append-only 그대로 | A1 |
+| 턴의 인증 근거 | principal 종류·id, Slack 설치·연결 계정 id·revision, 에이전트 | A2 |
+| 설치의 최소 control-host 버전 | 한 행 설정 | A5 |
+| 세션의 `personal_subjects` | 개인 데이터를 쓴 사람 목록 | B1 |
+| 워크스페이스 접근 정책 | (워크스페이스, revision) 불변 행, 규칙 목록, 저장한 사람·시각. 행이 있으면 정책 모드 | B2 |
+| IdP 그룹 스냅샷 | (사람, 공급자) → 그룹 집합(빈 집합 포함), `synced_at` | B4 |
+| `member_teams` 출처 칸 | `manual` 또는 `idp_group`(공급자 id, 그룹 값) | B4 |
+| 개인 MCP 연결 | 연결 행 `subject = 'user:<id>'`, 비밀 owner_ref | B5 |
+
+### 고른 것과 고르지 않은 것
+
+- **범용 정책 엔진**([Cedar](https://www.cedarpolicy.com/), [OpenFGA](https://openfga.dev/) 같은 것)을 판정기로 쓰지 않는다. 판정이 세션 행 잠금과 개인 표시 commit에 같은 transaction으로 묶여야 하고, 규칙 모양이 작다(칸 여섯, 첫 일치). 규칙 평가를 순수 함수 포트로 두었으므로, 규칙이 커지면 그 자리에 엔진을 끼울 수 있다.
+- **엔진 쪽 훅에서 판정**하지 않는다. 엔진마다 훅의 모양이 다르고, 엔진 프로세스는 프롬프트 인젝션에 놓여 있어 판정 입력을 믿을 수 없다.
+- **외부 게이트웨이에서 판정**하지 않는다. werft는 게이트웨이 없이도 동작해야 하고(5절), 기억과 답변 전달은 게이트웨이를 지나지 않는다.
 
 ## 범위 밖
 
