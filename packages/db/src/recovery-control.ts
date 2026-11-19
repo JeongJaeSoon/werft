@@ -54,10 +54,7 @@ import {
 } from "./sessions/pause-policy.ts";
 import { cancelParkedRequests } from "./sessions/pending-requests.ts";
 import { awaitingInputAt } from "./sessions/pending-status.ts";
-import {
-  lockPreviewFeed,
-  lockRequester,
-} from "./sessions/requester-locks.ts";
+import { lockPreviewFeed, lockRequester } from "./sessions/requester-locks.ts";
 import {
   INCOMPATIBLE_CHECKPOINT_REASON,
   RESTORE_FAILURE_LIMIT,

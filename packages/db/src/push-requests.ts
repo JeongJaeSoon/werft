@@ -43,10 +43,6 @@ import {
 import { enqueueActionNotice } from "./musterrolle/action-notices.ts";
 import type { Database } from "./queries.ts";
 import {
-  lockPreviewFeed,
-  lockRequester,
-} from "./sessions/requester-locks.ts";
-import {
   agentGitHubSettings,
   agentReleases,
   agents,
@@ -59,6 +55,7 @@ import {
   receipts,
   sessions,
 } from "./schema.ts";
+import { lockPreviewFeed, lockRequester } from "./sessions/requester-locks.ts";
 
 type Row = typeof pushRequests.$inferSelect;
 

@@ -15,7 +15,6 @@ import {
 import { alias } from "drizzle-orm/pg-core";
 import { UUID } from "../control-shared.ts";
 import type { Database } from "../queries.ts";
-import { rowsOf } from "../statement-rows.ts";
 import {
   agentAdmins,
   agentAdminTeams,
@@ -27,6 +26,7 @@ import {
   memberTeams,
   users,
 } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 
 // Aliased: callers pass an outer `agents.id` as `agentId`.
 const managed = alias(agents, "managed_agent");

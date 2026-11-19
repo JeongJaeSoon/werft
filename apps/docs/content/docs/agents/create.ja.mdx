@@ -140,6 +140,26 @@ curl -sS "$API/v1/agents/counts" "${WEB[@]}" | jq -c
 
 一覧は古いエージェントから `limit` 件ずつ(既定 50、最大 100)返る。レスポンスの `next_cursor` を `cursor` として送ると次のページになり、最後のページでは `null` である。`cursor` なしで呼ぶと最初のページだけが返る。`q`(最大 200 文字)を渡すと名前か識別子にその文字列を含むエージェントだけが大文字小文字を区別せずに返り、`ids` にエージェント ID をカンマでつないで(最大 100 件)渡すとそのエージェントだけが返る。`connection_id` を渡すと、有効な release がその接続で動くエージェントだけが返り、有効な release のないエージェントは除かれる。いずれも同じ `cursor` で次のページを読む。`GET /v1/agents/counts` は、一覧を最後まで読んだときの件数(`all`)、そのうち自分が直接またはチームで管理している件数(`administered`)、有効な release で動いている件数(`active`)、アーカイブされていないがまだ有効な release のない下書きの件数(`draft`)、管理する人のいない件数(`ownerless`)を返す。どちらも一覧と同じ権限が必要で、API キーは拒否される。`ownerless=true` を渡すと、管理する人のいないエージェントだけが返る([管理者のいないエージェント](/agents/permissions#管理者のいないエージェント))。
 
+## 公開する前に試す
+
+有効な release があるエージェントは**公開済み**、ないエージェントは**未公開**である。未公開のエージェントは、そのエージェントの管理者(個人の管理者、管理者チームのメンバー、担当チームのチーム管理者)とワークスペースの owner・admin にだけ見える。担当チームのメンバーと利用範囲のチームには一覧と件数に出ず、詳細は 404 である。公開されると今の規則どおりに見える。
+
+保存リクエスト(`POST /v1/agents`、`PATCH /v1/agents/{id}`)に `"activate": false` を送ると、release を作るが有効にしない。レスポンスの `release.status` は `saved` で、`release_id` がその release である。変更はエージェントの `draft` に残り、次の保存でカードや接続を省くと、有効な release ではなくこの `draft` から続ける。その間にもっと新しい保存が入っていれば `superseded`、release を作れなければ `failed` と理由が返る。`activate` を省くと今までどおりすぐ有効にする。
+
+```bash
+curl -sS "$API/v1/agents/$AID" -X PATCH "${WEB[@]}" -d '{
+  "card": { "model": "claude-sonnet-5", "capabilities": { "mcp": null } },
+  "connection_id": "fake-messages",
+  "activate": false
+}' | jq -c '.release | {status, release_id}'
+```
+
+```text
+{"status":"saved","release_id":"sha256:…"}
+```
+
+その release はプレビューセッション(`POST /v1/sessions` に `"preview": true`、[セッションの開始](/sessions/start#プレビュー))で試す。一度も有効にしていない release でもよい。試し終えたら[有効化](#有効化)で有効にする。これが公開である。有効にした release が `draft` と同じなら `draft` は空になり、前の release に戻した場合は `draft` が残る。
+
 ## コンソールの担当チーム
 
 担当チームはエージェントを受け持つチームである。そのチームのチーム管理者はエージェントを管理し、メンバーは設定を見て使う([権限](/agents/permissions#エージェント管理者))。
