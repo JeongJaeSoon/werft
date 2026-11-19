@@ -161,9 +161,11 @@ export const memoryRevisionSchema = z
   });
 
 /**
- * The adoption request on a candidate document. A candidate from a session or
- * another document must first be released by the source's owner, who decides
- * whether its content may reach the wider target scope.
+ * The adoption request on a candidate document. The source's owner
+ * (`releaser_user_id`) releases it first, deciding whether its content may
+ * reach the wider target scope; then every person in the document's
+ * `personal_subjects` must release it too (taint, §4). Only then may anyone
+ * adopt it. An expired candidate leaves the queue.
  */
 export const memoryCandidateSchema = z
   .object({
@@ -172,9 +174,6 @@ export const memoryCandidateSchema = z
     source_document_id: memoryIdSchema.nullable(),
     source_revision: revisionSchema.nullable(),
     releaser_user_id: userIdSchema,
-    released_by: userIdSchema.nullable(),
-    released_at: timestampSchema.nullable(),
-    released_body_sha256: sha256HexSchema.nullable(),
     expires_at: timestampSchema,
     created_at: timestampSchema,
   })
@@ -182,11 +181,19 @@ export const memoryCandidateSchema = z
   .refine(
     (c) =>
       (c.source_session_id === null || c.source_document_id === null) &&
-      (c.source_document_id === null) === (c.source_revision === null) &&
-      (c.released_by === null) === (c.released_at === null) &&
-      (c.released_by === null) === (c.released_body_sha256 === null),
-    { message: "source and release fields are filled together" },
+      (c.source_document_id === null) === (c.source_revision === null),
+    { message: "a candidate has at most one source, named whole" },
   );
+
+/** One person's release of a candidate, naming the exact body released. */
+export const memoryCandidateReleaseSchema = z
+  .object({
+    document_id: memoryIdSchema,
+    user_id: userIdSchema,
+    released_body_sha256: sha256HexSchema,
+    released_at: timestampSchema,
+  })
+  .strict();
 
 /**
  * Written in the adoption transaction: what was released, by whom, and the
@@ -239,6 +246,9 @@ export type MemoryOperation = z.infer<typeof memoryOperationSchema>;
 export type MemoryDocument = z.infer<typeof memoryDocumentSchema>;
 export type MemoryRevision = z.infer<typeof memoryRevisionSchema>;
 export type MemoryCandidate = z.infer<typeof memoryCandidateSchema>;
+export type MemoryCandidateRelease = z.infer<
+  typeof memoryCandidateReleaseSchema
+>;
 export type MemoryPromotion = z.infer<typeof memoryPromotionSchema>;
 export type MemoryTombstone = z.infer<typeof memoryTombstoneSchema>;
 

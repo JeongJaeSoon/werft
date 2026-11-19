@@ -7882,6 +7882,73 @@
       },
       "isRLSEnabled": false
     },
+    "public.memory_candidate_releases": {
+      "name": "memory_candidate_releases",
+      "schema": "",
+      "columns": {
+        "document_id": {
+          "name": "document_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "released_body_sha256": {
+          "name": "released_body_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "released_at": {
+          "name": "released_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "memory_candidate_releases_document_id_memory_candidates_document_id_fk": {
+          "name": "memory_candidate_releases_document_id_memory_candidates_document_id_fk",
+          "tableFrom": "memory_candidate_releases",
+          "tableTo": "memory_candidates",
+          "columnsFrom": ["document_id"],
+          "columnsTo": ["document_id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "memory_candidate_releases_user_id_users_id_fk": {
+          "name": "memory_candidate_releases_user_id_users_id_fk",
+          "tableFrom": "memory_candidate_releases",
+          "tableTo": "users",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "memory_candidate_releases_pk": {
+          "name": "memory_candidate_releases_pk",
+          "columns": ["document_id", "user_id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "memory_candidate_releases_sha256_check": {
+          "name": "memory_candidate_releases_sha256_check",
+          "value": "\"memory_candidate_releases\".\"released_body_sha256\" ~ '^[0-9a-f]{64}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.memory_candidates": {
       "name": "memory_candidates",
       "schema": "",
@@ -7922,24 +7989,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "released_by": {
-          "name": "released_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "released_at": {
-          "name": "released_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "released_body_sha256": {
-          "name": "released_body_sha256",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "expires_at": {
           "name": "expires_at",
           "type": "timestamp with time zone",
@@ -7965,15 +8014,6 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "memory_candidates_released_by_users_id_fk": {
-          "name": "memory_candidates_released_by_users_id_fk",
-          "tableFrom": "memory_candidates",
-          "tableTo": "users",
-          "columnsFrom": ["released_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
         "memory_candidates_document_fk": {
           "name": "memory_candidates_document_fk",
           "tableFrom": "memory_candidates",
@@ -7991,10 +8031,6 @@
         "memory_candidates_source_check": {
           "name": "memory_candidates_source_check",
           "value": "(\"memory_candidates\".\"source_session_id\" IS NULL OR \"memory_candidates\".\"source_document_id\" IS NULL) AND (\"memory_candidates\".\"source_document_id\" IS NULL) = (\"memory_candidates\".\"source_revision\" IS NULL)"
-        },
-        "memory_candidates_release_check": {
-          "name": "memory_candidates_release_check",
-          "value": "(\"memory_candidates\".\"released_by\" IS NULL) = (\"memory_candidates\".\"released_at\" IS NULL) AND (\"memory_candidates\".\"released_by\" IS NULL) = (\"memory_candidates\".\"released_body_sha256\" IS NULL) AND (\"memory_candidates\".\"released_body_sha256\" IS NULL OR \"memory_candidates\".\"released_body_sha256\" ~ '^[0-9a-f]{64}$')"
         }
       },
       "isRLSEnabled": false
@@ -8110,6 +8146,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "session_owner_id": {
+          "name": "session_owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "subject_user_id": {
           "name": "subject_user_id",
           "type": "uuid",
@@ -8173,15 +8215,6 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "memory_documents_session_id_sessions_id_fk": {
-          "name": "memory_documents_session_id_sessions_id_fk",
-          "tableFrom": "memory_documents",
-          "tableTo": "sessions",
-          "columnsFrom": ["session_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "memory_documents_subject_user_id_users_id_fk": {
           "name": "memory_documents_subject_user_id_users_id_fk",
           "tableFrom": "memory_documents",
@@ -8189,6 +8222,15 @@
           "columnsFrom": ["subject_user_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "memory_documents_session_fk": {
+          "name": "memory_documents_session_fk",
+          "tableFrom": "memory_documents",
+          "tableTo": "sessions",
+          "columnsFrom": ["session_id", "session_owner_id", "workspace_id"],
+          "columnsTo": ["id", "owner_id", "workspace_id"],
+          "onDelete": "cascade",
           "onUpdate": "no action"
         },
         "memory_documents_agent_fk": {
@@ -8220,6 +8262,10 @@
       },
       "policies": {},
       "checkConstraints": {
+        "memory_documents_session_check": {
+          "name": "memory_documents_session_check",
+          "value": "(\"memory_documents\".\"session_id\" IS NULL) = (\"memory_documents\".\"session_owner_id\" IS NULL)"
+        },
         "memory_documents_scope_check": {
           "name": "memory_documents_scope_check",
           "value": "\"memory_documents\".\"scope\" IN ('session', 'personal', 'agent', 'workspace')"

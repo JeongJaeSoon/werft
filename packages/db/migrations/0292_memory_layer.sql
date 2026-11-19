@@ -1,3 +1,12 @@
+CREATE TABLE "memory_candidate_releases" (
+	"document_id" uuid NOT NULL,
+	"user_id" uuid NOT NULL,
+	"released_body_sha256" text NOT NULL,
+	"released_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "memory_candidate_releases_pk" PRIMARY KEY("document_id","user_id"),
+	CONSTRAINT "memory_candidate_releases_sha256_check" CHECK ("memory_candidate_releases"."released_body_sha256" ~ '^[0-9a-f]{64}$')
+);
+--> statement-breakpoint
 CREATE TABLE "memory_candidates" (
 	"document_id" uuid PRIMARY KEY NOT NULL,
 	"workspace_id" uuid NOT NULL,
@@ -5,13 +14,9 @@ CREATE TABLE "memory_candidates" (
 	"source_document_id" uuid,
 	"source_revision" integer,
 	"releaser_user_id" uuid NOT NULL,
-	"released_by" uuid,
-	"released_at" timestamp with time zone,
-	"released_body_sha256" text,
 	"expires_at" timestamp with time zone NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "memory_candidates_source_check" CHECK (("memory_candidates"."source_session_id" IS NULL OR "memory_candidates"."source_document_id" IS NULL) AND ("memory_candidates"."source_document_id" IS NULL) = ("memory_candidates"."source_revision" IS NULL)),
-	CONSTRAINT "memory_candidates_release_check" CHECK (("memory_candidates"."released_by" IS NULL) = ("memory_candidates"."released_at" IS NULL) AND ("memory_candidates"."released_by" IS NULL) = ("memory_candidates"."released_body_sha256" IS NULL) AND ("memory_candidates"."released_body_sha256" IS NULL OR "memory_candidates"."released_body_sha256" ~ '^[0-9a-f]{64}$'))
+	CONSTRAINT "memory_candidates_source_check" CHECK (("memory_candidates"."source_session_id" IS NULL OR "memory_candidates"."source_document_id" IS NULL) AND ("memory_candidates"."source_document_id" IS NULL) = ("memory_candidates"."source_revision" IS NULL))
 );
 --> statement-breakpoint
 CREATE TABLE "memory_derivations" (
@@ -28,6 +33,7 @@ CREATE TABLE "memory_documents" (
 	"workspace_id" uuid NOT NULL,
 	"scope" text NOT NULL,
 	"session_id" uuid,
+	"session_owner_id" text,
 	"subject_user_id" uuid,
 	"agent_id" uuid,
 	"state" text NOT NULL,
@@ -37,6 +43,7 @@ CREATE TABLE "memory_documents" (
 	"expires_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "memory_documents_workspace_id_key" UNIQUE("workspace_id","id"),
+	CONSTRAINT "memory_documents_session_check" CHECK (("memory_documents"."session_id" IS NULL) = ("memory_documents"."session_owner_id" IS NULL)),
 	CONSTRAINT "memory_documents_scope_check" CHECK ("memory_documents"."scope" IN ('session', 'personal', 'agent', 'workspace')),
 	CONSTRAINT "memory_documents_state_check" CHECK ("memory_documents"."state" IN ('candidate', 'active', 'quarantined', 'superseded', 'deleted')),
 	CONSTRAINT "memory_documents_scope_key_check" CHECK (CASE "memory_documents"."scope"
@@ -99,13 +106,14 @@ CREATE TABLE "memory_tombstones" (
 );
 --> statement-breakpoint
 ALTER TABLE "sessions" ADD COLUMN "personal_subjects" uuid[] DEFAULT '{}'::uuid[] NOT NULL;--> statement-breakpoint
+ALTER TABLE "memory_candidate_releases" ADD CONSTRAINT "memory_candidate_releases_document_id_memory_candidates_document_id_fk" FOREIGN KEY ("document_id") REFERENCES "public"."memory_candidates"("document_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "memory_candidate_releases" ADD CONSTRAINT "memory_candidate_releases_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "memory_candidates" ADD CONSTRAINT "memory_candidates_releaser_user_id_users_id_fk" FOREIGN KEY ("releaser_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "memory_candidates" ADD CONSTRAINT "memory_candidates_released_by_users_id_fk" FOREIGN KEY ("released_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "memory_candidates" ADD CONSTRAINT "memory_candidates_document_fk" FOREIGN KEY ("workspace_id","document_id") REFERENCES "public"."memory_documents"("workspace_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "memory_derivations" ADD CONSTRAINT "memory_derivations_document_fk" FOREIGN KEY ("workspace_id","document_id") REFERENCES "public"."memory_documents"("workspace_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "memory_derivations" ADD CONSTRAINT "memory_derivations_derives_from_fk" FOREIGN KEY ("workspace_id","derives_from_id") REFERENCES "public"."memory_documents"("workspace_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "memory_documents" ADD CONSTRAINT "memory_documents_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "memory_documents" ADD CONSTRAINT "memory_documents_session_id_sessions_id_fk" FOREIGN KEY ("session_id") REFERENCES "public"."sessions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "memory_documents" ADD CONSTRAINT "memory_documents_session_fk" FOREIGN KEY ("session_id","session_owner_id","workspace_id") REFERENCES "public"."sessions"("id","owner_id","workspace_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "memory_documents" ADD CONSTRAINT "memory_documents_subject_user_id_users_id_fk" FOREIGN KEY ("subject_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "memory_documents" ADD CONSTRAINT "memory_documents_agent_fk" FOREIGN KEY ("workspace_id","agent_id") REFERENCES "public"."agents"("workspace_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "memory_documents" ADD CONSTRAINT "memory_documents_current_revision_fk" FOREIGN KEY ("id","current_revision") REFERENCES "public"."memory_revisions"("document_id","revision") ON DELETE no action ON UPDATE no action;--> statement-breakpoint

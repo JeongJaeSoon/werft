@@ -2,6 +2,7 @@ import type { MemoryDocumentOperation, MemoryViewer } from "@werft-ai/platform";
 import { inArray, type SQL, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
+  memoryCandidateReleases,
   memoryCandidates,
   memoryDocuments,
   memoryRevisions,
@@ -72,16 +73,29 @@ export function memoryDocumentVisibleSql(
         AND EXISTS (SELECT 1 FROM ${memoryRevisions} WHERE ${memoryRevisions.documentId} = ${document.id} AND ${memoryRevisions.revision} = ${document.currentRevision} AND ${memoryRevisions.scanStatus} = 'clean')
         AND ${lineageClean(at)})`;
     case "candidate_queue": {
-      const releaser =
+      const isReleaser =
         viewer.userId === null
           ? sql`false`
           : sql`${memoryCandidates.releaserUserId} = ${viewer.userId}::uuid`;
+      const isReleaserOrSubject =
+        viewer.userId === null
+          ? sql`false`
+          : sql`(${memoryCandidates.releaserUserId} = ${viewer.userId}::uuid OR ${viewer.userId}::uuid = ANY(${document.personalSubjects}))`;
+      const releasedBy = (user: SQL) =>
+        sql`EXISTS (SELECT 1 FROM ${memoryCandidateReleases} WHERE ${memoryCandidateReleases.documentId} = ${memoryCandidates.documentId} AND ${memoryCandidateReleases.userId} = ${user})`;
       return sql`(${document.state} = 'candidate'
         AND ${lineageClean(at)}
         AND EXISTS (
           SELECT 1 FROM ${memoryCandidates}
           WHERE ${memoryCandidates.documentId} = ${document.id}
-            AND CASE WHEN ${memoryCandidates.releasedAt} IS NULL THEN ${releaser} ELSE ${canAdopt(viewer)} END
+            AND ${memoryCandidates.expiresAt} > ${timestamptz(at)}
+            AND CASE
+              WHEN NOT ${releasedBy(sql`${memoryCandidates.releaserUserId}`)} THEN ${isReleaser}
+              WHEN EXISTS (
+                SELECT 1 FROM unnest(${document.personalSubjects}) AS memory_subject(id)
+                WHERE NOT ${releasedBy(sql`memory_subject.id`)}
+              ) THEN ${isReleaserOrSubject}
+              ELSE ${canAdopt(viewer)} END
         ))`;
     }
     case "quarantine_review":

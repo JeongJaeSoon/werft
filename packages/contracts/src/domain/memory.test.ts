@@ -123,9 +123,6 @@ describe("candidate and promotion", () => {
     source_document_id: null,
     source_revision: null,
     releaser_user_id: USER_ID,
-    released_by: null,
-    released_at: null,
-    released_body_sha256: null,
     expires_at: AT,
     created_at: AT,
   };
@@ -146,11 +143,14 @@ describe("candidate and promotion", () => {
     adopted_at: AT,
   };
 
-  test("a release is recorded whole or not at all", () => {
+  test("a candidate has at most one source", () => {
     expect(memoryCandidateSchema.safeParse(candidate).success).toBe(true);
     expect(
-      memoryCandidateSchema.safeParse({ ...candidate, released_by: USER_ID })
-        .success,
+      memoryCandidateSchema.safeParse({
+        ...candidate,
+        source_document_id: SOURCE_ID,
+        source_revision: 1,
+      }).success,
     ).toBe(false);
   });
 

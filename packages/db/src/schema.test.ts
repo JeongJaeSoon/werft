@@ -193,6 +193,7 @@ describe("database schema", () => {
       "member_team_members",
       "member_teams",
       "memberships",
+      "memory_candidate_releases",
       "memory_candidates",
       "memory_derivations",
       "memory_documents",

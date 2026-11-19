@@ -17,11 +17,14 @@ export interface MemoryDocumentFacts extends MemoryLineageFacts {
   readonly subjectUserId: string | null;
   readonly agentId: string | null;
   readonly ancestorIds: readonly string[];
+  readonly personalSubjects: readonly string[];
   /** The scan result of `current_revision`; null when there is none. */
   readonly currentScanStatus: MemoryScanStatus | null;
   readonly candidate: {
     readonly releaserUserId: string;
-    readonly releasedAt: Date | null;
+    readonly expiresAt: Date;
+    /** Everyone who has released it so far. */
+    readonly releasedBy: readonly string[];
   } | null;
 }
 
@@ -107,8 +110,10 @@ function canAdopt(document: MemoryDocumentFacts, viewer: MemoryViewer) {
 /**
  * Step 4 of memory-layer.md §5 for one document. Search, read and injection
  * see only active, clean documents whose whole lineage is alive and
- * unexpired; the candidate queue shows a candidate to its releaser until it
- * is released and to the target scope's adopters after; quarantine is for
+ * unexpired. The candidate queue shows an unexpired candidate to its source's
+ * owner until they release it, then to them and the people in its
+ * `personal_subjects` until all of those have, and only then to the target
+ * scope's adopters (taint, §4). Quarantine is for
  * the adopters' review only. The db package's `memoryDocumentVisibleSql` is
  * the same rule as a query condition.
  */
@@ -131,13 +136,24 @@ export function memoryDocumentVisible(
       if (
         document.state !== "candidate" ||
         candidate === null ||
+        candidate.expiresAt <= at ||
         !lineageClean(document, ancestors, at)
       ) {
         return false;
       }
-      return candidate.releasedAt === null
-        ? viewer.userId !== null && viewer.userId === candidate.releaserUserId
-        : canAdopt(document, viewer);
+      const released = (userId: string) =>
+        candidate.releasedBy.includes(userId);
+      if (!released(candidate.releaserUserId)) {
+        return viewer.userId === candidate.releaserUserId;
+      }
+      if (!document.personalSubjects.every(released)) {
+        return (
+          viewer.userId !== null &&
+          (viewer.userId === candidate.releaserUserId ||
+            document.personalSubjects.includes(viewer.userId))
+        );
+      }
+      return canAdopt(document, viewer);
     }
     case "quarantine_review":
       return (

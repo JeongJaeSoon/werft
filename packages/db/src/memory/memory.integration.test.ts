@@ -23,6 +23,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "../schema.ts";
 import {
+  memoryCandidateReleases,
   memoryCandidates,
   memoryDocuments,
   memoryRevisions,
@@ -37,6 +38,7 @@ import {
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
 const HASH = "b".repeat(64);
+const SESSION_OWNER = "svc";
 const AT = new Date("2026-11-20T00:00:00Z");
 const PAST = new Date("2026-11-19T00:00:00Z");
 const FUTURE = new Date("2026-11-21T00:00:00Z");
@@ -49,6 +51,7 @@ integration("memory schema (0292)", () => {
   const otherWorkspaceId = randomUUID();
   const alice = randomUUID();
   const bob = randomUUID();
+  const carol = randomUUID();
   const agentId = randomUUID();
   const otherAgentId = randomUUID();
   const sessionId = randomUUID();
@@ -60,7 +63,11 @@ integration("memory schema (0292)", () => {
     key?: Partial<
       Record<"session_id" | "subject_user_id" | "agent_id", string>
     >;
+    // The session's owner_id, which a session document carries; `null`
+    // leaves it out to probe the session check.
+    sessionOwner?: string | null;
     ancestors?: string[];
+    subjects?: string[];
     expiresAt?: Date | null;
     revisions?: { scan: MemoryScanStatus; adopted: boolean }[];
   };
@@ -78,17 +85,25 @@ integration("memory schema (0292)", () => {
         agent: { agent_id: agentId },
         workspace: {},
       }[scope];
+    const sessionOwner =
+      spec.sessionOwner === undefined
+        ? key.session_id
+          ? SESSION_OWNER
+          : null
+        : spec.sessionOwner;
     await pool.query(
-      `INSERT INTO memory_documents (id, workspace_id, scope, session_id, subject_user_id, agent_id, state, ancestor_ids, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6, 'candidate', $7::uuid[], $8)`,
+      `INSERT INTO memory_documents (id, workspace_id, scope, session_id, session_owner_id, subject_user_id, agent_id, state, ancestor_ids, personal_subjects, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'candidate', $8::uuid[], $9::uuid[], $10)`,
       [
         id,
         spec.workspace ?? workspaceId,
         scope,
         key.session_id ?? null,
+        sessionOwner,
         key.subject_user_id ?? null,
         key.agent_id ?? null,
         spec.ancestors ?? [],
+        spec.subjects ?? [],
         spec.expiresAt ?? null,
       ],
     );
@@ -118,24 +133,33 @@ integration("memory schema (0292)", () => {
     return id;
   }
 
+  // `releasedBy` lists everyone who has released it; the releaser is alice
+  // unless named.
   async function candidate(
-    spec: Doc & { released?: boolean; releaser?: string },
+    spec: Doc & {
+      releaser?: string;
+      releasedBy?: string[];
+      candidateExpiresAt?: Date;
+    },
   ): Promise<string> {
     const id = await doc({ ...spec, state: "candidate", revisions: [] });
     await pool.query(
-      `INSERT INTO memory_candidates (document_id, workspace_id, source_session_id, releaser_user_id, released_by, released_at, released_body_sha256, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      `INSERT INTO memory_candidates (document_id, workspace_id, source_session_id, releaser_user_id, expires_at)
+       VALUES ($1, $2, $3, $4, $5)`,
       [
         id,
         workspaceId,
         sessionId,
         spec.releaser ?? alice,
-        spec.released ? alice : null,
-        spec.released ? PAST : null,
-        spec.released ? HASH : null,
-        FUTURE,
+        spec.candidateExpiresAt ?? FUTURE,
       ],
     );
+    for (const user of spec.releasedBy ?? []) {
+      await pool.query(
+        "INSERT INTO memory_candidate_releases (document_id, user_id, released_body_sha256, released_at) VALUES ($1, $2, $3, $4)",
+        [id, user, HASH, PAST],
+      );
+    }
     return id;
   }
 
@@ -155,7 +179,7 @@ integration("memory schema (0292)", () => {
         [id, `ws-${id.slice(0, 8)}`],
       );
     }
-    for (const id of [alice, bob]) {
+    for (const id of [alice, bob, carol]) {
       await pool.query(
         "INSERT INTO users (id, email, display_name) VALUES ($1, $2, 'u')",
         [id, `${id}@example.invalid`],
@@ -173,8 +197,8 @@ integration("memory schema (0292)", () => {
     }
     await pool.query(
       `INSERT INTO sessions (id, owner_id, repo_url, branch, workspace_id, created_by_user_id, status)
-       VALUES ($1, 'svc', 'https://example.invalid/r.git', 'main', $2, $3, 'stopped')`,
-      [sessionId, workspaceId, alice],
+       VALUES ($1, $4, 'https://example.invalid/r.git', 'main', $2, $3, 'stopped')`,
+      [sessionId, workspaceId, alice, SESSION_OWNER],
     );
   }, 120_000);
 
@@ -247,6 +271,33 @@ integration("memory schema (0292)", () => {
         [workspaceId, here, there],
       ),
     ).rejects.toThrow(/memory_derivations_derives_from_fk/);
+  });
+
+  test("a session document stays in its session's workspace and goes with the session", async () => {
+    await expect(
+      doc({ scope: "session", workspace: otherWorkspaceId }),
+    ).rejects.toThrow(/memory_documents_session_fk/);
+    // Without the owner, MATCH SIMPLE would skip the FK; the check refuses it.
+    await expect(
+      doc({
+        scope: "session",
+        workspace: otherWorkspaceId,
+        sessionOwner: null,
+      }),
+    ).rejects.toThrow(/memory_documents_session_check/);
+    const purged = randomUUID();
+    await pool.query(
+      `INSERT INTO sessions (id, owner_id, repo_url, branch, workspace_id, created_by_user_id, status)
+       VALUES ($1, $2, 'https://example.invalid/r.git', 'main', $3, $4, 'stopped')`,
+      [purged, SESSION_OWNER, workspaceId, alice],
+    );
+    const id = await doc({ scope: "session", key: { session_id: purged } });
+    await pool.query("DELETE FROM sessions WHERE id = $1", [purged]);
+    const { rows } = await pool.query(
+      "SELECT count(*)::int AS n FROM memory_documents WHERE id = $1",
+      [id],
+    );
+    expect(rows).toEqual([{ n: 0 }]);
   });
 
   test("a revision's content never changes and it is not deleted on its own", async () => {
@@ -329,20 +380,40 @@ integration("memory schema (0292)", () => {
         }),
         unreleased: await candidate({}),
         unreleasedForBob: await candidate({ releaser: bob }),
-        releasedAgent: await candidate({ released: true }),
+        releasedAgent: await candidate({ releasedBy: [alice] }),
         releasedPersonalBob: await candidate({
-          released: true,
+          releasedBy: [alice],
           scope: "personal",
           key: { subject_user_id: bob },
         }),
         releasedWorkspace: await candidate({
-          released: true,
+          releasedBy: [alice],
           scope: "workspace",
         }),
-        releasedExpired: await candidate({ released: true, expiresAt: PAST }),
+        releasedExpired: await candidate({
+          releasedBy: [alice],
+          expiresAt: PAST,
+        }),
+        candidateOnlyExpired: await candidate({
+          releasedBy: [alice],
+          candidateExpiresAt: PAST,
+        }),
         releasedChildOfQuarantined: await candidate({
-          released: true,
+          releasedBy: [alice],
           ancestors: [quarantinedAncestor],
+        }),
+        // Carol's personal memory reached these: bob's release alone is not
+        // enough for an adopter to see one.
+        unreleasedTaint: await candidate({ releaser: bob, subjects: [carol] }),
+        taintPartial: await candidate({
+          releaser: bob,
+          releasedBy: [bob],
+          subjects: [carol],
+        }),
+        taintFull: await candidate({
+          releaser: bob,
+          releasedBy: [bob, carol],
+          subjects: [carol],
         }),
         candidateWithoutRow: await doc({ state: "candidate", revisions: [] }),
       });
@@ -361,6 +432,7 @@ integration("memory schema (0292)", () => {
         adoptWorkspace: true,
       },
       aliceOnly: { userId: alice, adoptAgentIds: [], adoptWorkspace: false },
+      carol: { userId: carol, adoptAgentIds: [], adoptWorkspace: false },
     } satisfies Record<string, MemoryViewer>;
 
     async function facts() {
@@ -378,6 +450,7 @@ integration("memory schema (0292)", () => {
           row,
         ]),
       );
+      const releases = await db.select().from(memoryCandidateReleases);
       const byId = new Map<string, MemoryDocumentFacts>();
       for (const row of documents) {
         const current = revisions.find(
@@ -392,13 +465,17 @@ integration("memory schema (0292)", () => {
           subjectUserId: row.subjectUserId,
           agentId: row.agentId,
           ancestorIds: row.ancestorIds,
+          personalSubjects: row.personalSubjects,
           expiresAt: row.expiresAt,
           tombstoned: tombstoned.has(row.id),
           currentScanStatus: (current?.scanStatus as MemoryScanStatus) ?? null,
           candidate: pending
             ? {
                 releaserUserId: pending.releaserUserId,
-                releasedAt: pending.releasedAt,
+                expiresAt: pending.expiresAt,
+                releasedBy: releases
+                  .filter((release) => release.documentId === row.id)
+                  .map((release) => release.userId),
               }
             : null,
         });
@@ -469,15 +546,21 @@ integration("memory schema (0292)", () => {
       );
       expect(
         names(await sqlVisible("candidate_queue", viewers.aliceAgentAdopter)),
-      ).toEqual(sorted(["releasedAgent", "unreleased"]));
+      ).toEqual(sorted(["releasedAgent", "taintFull", "unreleased"]));
       expect(
         names(await sqlVisible("candidate_queue", viewers.bobWorkspaceAdopter)),
       ).toEqual(
         sorted([
           "releasedPersonalBob",
           "releasedWorkspace",
+          "taintPartial",
           "unreleasedForBob",
+          "unreleasedTaint",
         ]),
+      );
+      // A marked person sees it once its source's owner released it.
+      expect(names(await sqlVisible("candidate_queue", viewers.carol))).toEqual(
+        ["taintPartial"],
       );
       expect(
         names(await sqlVisible("quarantine_review", viewers.aliceAgentAdopter)),

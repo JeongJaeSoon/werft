@@ -6015,10 +6015,10 @@ export const memoryDocuments = pgTable(
       .notNull()
       .references(() => workspaces.id),
     scope: text().notNull(),
-    // Session memory follows its session's retention.
-    sessionId: uuid("session_id").references(() => sessions.id, {
-      onDelete: "cascade",
-    }),
+    sessionId: uuid("session_id"),
+    // The session's owner_id, so the FK below can use the session's
+    // (id, owner_id, workspace_id) key and pin the session to this workspace.
+    sessionOwnerId: text("session_owner_id"),
     subjectUserId: uuid("subject_user_id").references(() => users.id),
     agentId: uuid("agent_id"),
     state: text().notNull(),
@@ -6041,6 +6041,17 @@ export const memoryDocuments = pgTable(
   },
   (table) => [
     unique("memory_documents_workspace_id_key").on(table.workspaceId, table.id),
+    // Session memory follows its session's retention. With MATCH SIMPLE a
+    // NULL owner would skip this check, so the session check below pairs it.
+    foreignKey({
+      name: "memory_documents_session_fk",
+      columns: [table.sessionId, table.sessionOwnerId, table.workspaceId],
+      foreignColumns: [sessions.id, sessions.ownerId, sessions.workspaceId],
+    }).onDelete("cascade"),
+    check(
+      "memory_documents_session_check",
+      sql`(${table.sessionId} IS NULL) = (${table.sessionOwnerId} IS NULL)`,
+    ),
     foreignKey({
       name: "memory_documents_agent_fk",
       columns: [table.workspaceId, table.agentId],
@@ -6194,8 +6205,9 @@ export const memoryTombstones = pgTable(
 );
 
 // What a `candidate` document waits on. Its source's owner releases it
-// (agrees it may reach the target scope) before anyone may adopt it; the
-// source columns are a record, not a key, so they outlive the source.
+// (agrees it may reach the target scope) first, then every person in the
+// document's `personal_subjects` does, before anyone may adopt it. The source
+// columns are a record, not a key, so they outlive the source.
 export const memoryCandidates = pgTable(
   "memory_candidates",
   {
@@ -6207,9 +6219,6 @@ export const memoryCandidates = pgTable(
     releaserUserId: uuid("releaser_user_id")
       .notNull()
       .references(() => users.id),
-    releasedBy: uuid("released_by").references(() => users.id),
-    releasedAt: timestamp("released_at", { withTimezone: true }),
-    releasedBodySha256: text("released_body_sha256"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -6225,9 +6234,33 @@ export const memoryCandidates = pgTable(
       "memory_candidates_source_check",
       sql`(${table.sourceSessionId} IS NULL OR ${table.sourceDocumentId} IS NULL) AND (${table.sourceDocumentId} IS NULL) = (${table.sourceRevision} IS NULL)`,
     ),
+  ],
+);
+
+// One person's release of a candidate: the source's owner, or someone whose
+// personal memory reached it. Each names the exact body they released.
+export const memoryCandidateReleases = pgTable(
+  "memory_candidate_releases",
+  {
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => memoryCandidates.documentId, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    releasedBodySha256: text("released_body_sha256").notNull(),
+    releasedAt: timestamp("released_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "memory_candidate_releases_pk",
+      columns: [table.documentId, table.userId],
+    }),
     check(
-      "memory_candidates_release_check",
-      sql`(${table.releasedBy} IS NULL) = (${table.releasedAt} IS NULL) AND (${table.releasedBy} IS NULL) = (${table.releasedBodySha256} IS NULL) AND (${table.releasedBodySha256} IS NULL OR ${table.releasedBodySha256} ~ ${SHA256_HEX_SQL})`,
+      "memory_candidate_releases_sha256_check",
+      sql`${table.releasedBodySha256} ~ ${SHA256_HEX_SQL}`,
     ),
   ],
 );
