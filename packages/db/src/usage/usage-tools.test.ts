@@ -14,7 +14,7 @@ import { migrate } from "../migrate.ts";
 import * as schema from "../schema.ts";
 import { events, sessions, users } from "../schema.ts";
 import { projectToolCalls } from "../sessions/tool-calls.ts";
-import { createPostgresUsageReader } from "../usage-reader.ts";
+import { createPostgresUsageReader } from "./usage-reader.ts";
 
 const OWNER = "owner-a";
 const ME = "00000000-0000-4000-8000-000000000001";

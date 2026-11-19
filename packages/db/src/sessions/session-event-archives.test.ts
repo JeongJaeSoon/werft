@@ -10,7 +10,7 @@ import { encodeEventCursor } from "../cursors.ts";
 import { createPostgresSessionReader } from "../postgres-unit-of-work.ts";
 import type { Database } from "../queries.ts";
 import * as schema from "../schema.ts";
-import { createPostgresUsageReader } from "../usage-reader.ts";
+import { createPostgresUsageReader } from "../usage/usage-reader.ts";
 import {
   ARCHIVE_CHUNK_EVENTS,
   type ArchiveChunkRow,

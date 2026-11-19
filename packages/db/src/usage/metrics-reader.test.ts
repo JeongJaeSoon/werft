@@ -13,9 +13,9 @@ import { migrate } from "../migrate.ts";
 import type { Database } from "../queries.ts";
 import * as schema from "../schema.ts";
 import { MAX_SESSION_COST_USD } from "../schema.ts";
-import { createPostgresUsageReader } from "../usage-reader.ts";
 import { createPostgresWorkerUnitOfWork } from "../worker-unit-of-work.ts";
 import { readPlatformMetrics } from "./metrics-reader.ts";
+import { createPostgresUsageReader } from "./usage-reader.ts";
 
 const BUDGET = { costUsd: 25, tokens: null };
 const BUCKETS = [1, 60, 3600];

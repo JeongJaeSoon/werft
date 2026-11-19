@@ -11,7 +11,7 @@ import { createPostgresCheckpointStore } from "../checkpoints/checkpoint-store.t
 import * as schema from "../schema.ts";
 import { attempts, checkpoints, sessions } from "../schema.ts";
 import { commitCheckpoint } from "../testing/checkpoints.ts";
-import { createPostgresUsageReader } from "../usage-reader.ts";
+import { createPostgresUsageReader } from "../usage/usage-reader.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
