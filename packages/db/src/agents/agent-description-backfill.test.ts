@@ -1,35 +1,21 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  cpSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "../migrate.ts";
-import { MIGRATIONS_FOLDER } from "../migration-journal.ts";
+import { MIGRATIONS_FOLDER, readJournal } from "../migration-journal.ts";
+import { migrationsThrough } from "../testing/migrations-through.ts";
 
 let client: PGlite;
 let before: string;
 
 // Every migration before the backfill, through the migrator.
 async function migrateBefore(): Promise<void> {
-  before = mkdtempSync(join(tmpdir(), "agent-description-"));
-  cpSync(MIGRATIONS_FOLDER, before, { recursive: true });
-  const journalPath = join(before, "meta/_journal.json");
-  const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
-    entries: { tag: string }[];
-  };
-  const at = journal.entries.findIndex((entry) =>
+  const tag = readJournal(MIGRATIONS_FOLDER).find((entry) =>
     entry.tag.endsWith("_agent_description"),
-  );
-  if (at < 0) throw new Error("agent_description is not in the journal");
-  journal.entries = journal.entries.slice(0, at);
-  writeFileSync(journalPath, JSON.stringify(journal));
+  )?.tag;
+  if (!tag) throw new Error("agent_description is not in the journal");
+  before = migrationsThrough(tag, { exclusive: true });
   await migrate(drizzle(client), { migrationsFolder: before });
 }
 
