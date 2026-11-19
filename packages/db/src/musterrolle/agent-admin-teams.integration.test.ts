@@ -10,7 +10,6 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createDatabaseAgentAuthority } from "../agent-authority.ts";
 import * as schema from "../schema.ts";
 import {
   agentAdminTeams,
@@ -22,6 +21,7 @@ import {
 } from "../schema.ts";
 import { fixtureTeam } from "../testing/fixture-team.ts";
 import { createPostgresAgentAdminStore } from "./agent-admins.ts";
+import { createDatabaseAgentAuthority } from "./agent-authority.ts";
 import { createPostgresWorkspaceKeyStore } from "./api-keys.ts";
 import { createPostgresTeamStore } from "./member-teams.ts";
 

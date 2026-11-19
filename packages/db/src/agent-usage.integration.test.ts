@@ -20,11 +20,11 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool, type PoolClient } from "pg";
-import { createDatabaseAgentAuthority } from "./agent-authority.ts";
 import { createPostgresAgentStore } from "./agents.ts";
 import { migrate } from "./migrate.ts";
 import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
 import { createPostgresAgentAdminStore } from "./musterrolle/agent-admins.ts";
+import { createDatabaseAgentAuthority } from "./musterrolle/agent-authority.ts";
 import { createPostgresCredentialBindingStore } from "./musterrolle/credential-bindings.ts";
 import { createDatabaseIdentityReader } from "./musterrolle/identity-reader.ts";
 import { createPostgresTeamStore } from "./musterrolle/member-teams.ts";

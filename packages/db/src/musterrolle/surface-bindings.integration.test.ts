@@ -15,7 +15,6 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createDatabaseAgentAuthority } from "../agent-authority.ts";
 import * as schema from "../schema.ts";
 import {
   agents,
@@ -31,6 +30,7 @@ import {
   verifySlackInstallation,
 } from "../surface/slack-installations.ts";
 import { fixtureTeam } from "../testing/fixture-team.ts";
+import { createDatabaseAgentAuthority } from "./agent-authority.ts";
 import { createPostgresAgentIdentityStore } from "./agent-identities.ts";
 import { createPostgresSurfaceBindingStore } from "./surface-bindings.ts";
 

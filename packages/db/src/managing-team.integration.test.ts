@@ -28,7 +28,6 @@ import {
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool, type PoolClient } from "pg";
-import { createDatabaseAgentAuthority } from "./agent-authority.ts";
 import { createPostgresAgentStore } from "./agents.ts";
 import { createPostgresCatalogRepositoryStore } from "./catalog-repositories.ts";
 import { createPostgresAgentGitHubStore } from "./github/agent-github.ts";
@@ -36,6 +35,7 @@ import { migrate } from "./migrate.ts";
 import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
 import { insideAgent } from "./musterrolle/administers.ts";
 import { createPostgresAgentAdminStore } from "./musterrolle/agent-admins.ts";
+import { createDatabaseAgentAuthority } from "./musterrolle/agent-authority.ts";
 import { createPostgresAgentIdentityStore } from "./musterrolle/agent-identities.ts";
 import { createPostgresCredentialBindingStore } from "./musterrolle/credential-bindings.ts";
 import { createDatabaseIdentityReader } from "./musterrolle/identity-reader.ts";

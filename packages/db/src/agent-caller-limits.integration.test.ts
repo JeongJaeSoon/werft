@@ -20,8 +20,8 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createDatabaseAgentAuthority } from "./agent-authority.ts";
 import { createPostgresAgentStore } from "./agents.ts";
+import { createDatabaseAgentAuthority } from "./musterrolle/agent-authority.ts";
 import {
   callerLimitsOf,
   createPostgresAgentCallerLimitsStore,
