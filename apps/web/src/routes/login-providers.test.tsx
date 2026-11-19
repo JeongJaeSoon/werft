@@ -627,7 +627,20 @@ describe("로그인 공급자 상세", () => {
         ...routes([]),
         [`GET ${API}`]: () =>
           json(200, { providers: [current], console_origin_configured: true }),
-        ...(withheldOff ? closedAccess(1) : {}),
+        // Slower than the list, as a real read can be: the list shows it on
+        // while the write still waits, its turning-off button held busy.
+        "GET /v1/login-settings": async () => {
+          await new Promise((done) => setTimeout(done, 100));
+          return json(200, {
+            settings: {
+              password_login: withheldOff ? "emergency_only" : "on",
+              emergency_admin: null,
+              enabled_providers: withheldOff ? 1 : 2,
+            },
+            emergency_admin_candidates: [],
+            caller_has_provider_account: false,
+          });
+        },
         [`POST ${API}/${ID}/enable`]: () => {
           current = on;
           return json(200, { provider: on });
@@ -638,12 +651,14 @@ describe("로그인 공급자 상세", () => {
       await waitFor(() =>
         expect(screen.queryByRole("button", { name: "켜기" })).toBe(null),
       );
-      const turnOff = screen.getByRole("button", { name: "이 공급자 끄기" });
-      const target = withheldOff
-        ? turnOff.closest("[data-slot=disabled-reason]")
-        : turnOff;
-      expect(target === null).toBe(false);
-      await waitFor(() => expect(document.activeElement === target).toBe(true));
+      await waitFor(() => {
+        const turnOff = screen.getByRole("button", { name: "이 공급자 끄기" });
+        const target = withheldOff
+          ? turnOff.closest("[data-slot=disabled-reason]")
+          : turnOff;
+        expect(target === null).toBe(false);
+        expect(document.activeElement === target).toBe(true);
+      });
     },
   );
 
