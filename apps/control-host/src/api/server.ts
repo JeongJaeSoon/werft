@@ -1,8 +1,7 @@
-import { REQUEST_BODY_MAX_BYTES, releaseModel } from "@werft-ai/contracts";
+import { REQUEST_BODY_MAX_BYTES } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   agentDeleted,
-  agentGitHubSettingsOf,
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
   createPostgresAchievementJudgments,
@@ -153,7 +152,6 @@ import {
   installationLimitsFromEnv,
   messageOf,
   registryCatalog,
-  releaseStartable,
   resolveAgentRelease,
   SessionServiceError,
   settingsJudgeConnections,
@@ -170,6 +168,7 @@ import {
   wireGitPusher,
 } from "../wiring/github-api.ts";
 import { createInstallationConfigSource } from "../wiring/installation-config.ts";
+import { releaseStartableIn } from "../wiring/release-startable.ts";
 import {
   type SlackServicesStageDeps,
   wireSlackBot,
@@ -651,12 +650,7 @@ const slackActiveReleaseWarning: SlackServicesStageDeps["activeReleaseWarning"] 
       throw error;
     }
     // Missing and dropped from the catalog take the same fix: a new release.
-    return releaseStartable(
-      catalog,
-      { ...release, model: releaseModel(release) },
-      await agentGitHubSettingsOf(db, agentId),
-      await workspaceRepositoryCeiling(db, workspaceId),
-    )
+    return (await releaseStartableIn(db, catalog, workspaceId, release))
       ? null
       : { code: "repository_required", release_id: release.id };
   };

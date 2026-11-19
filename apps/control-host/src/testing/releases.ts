@@ -19,11 +19,9 @@ import {
 } from "@werft-ai/db/testing/spec-pins";
 import {
   type AuthorizationPolicy,
-  agentEnvNames,
+  agentReleaseReaders,
   type Caller,
   deriveReleaseId,
-  releaseNotRunnableReason,
-  resolveAgentRelease,
   type SessionCatalogView,
 } from "@werft-ai/platform";
 
@@ -186,16 +184,8 @@ export function sessionReleases(
   db: Database,
   catalog: Pick<SessionCatalogView, "connections">,
 ) {
-  const store = createPostgresAgentStore(db);
   return {
-    resolveRelease: (workspaceId: string, releaseId: string) =>
-      resolveAgentRelease({ store, catalog }, workspaceId, releaseId),
-    envNames: (workspaceId: string, releaseId: string) =>
-      agentEnvNames(store, workspaceId, releaseId),
-    notRunnableReason: (
-      workspaceId: string,
-      release: Parameters<typeof releaseNotRunnableReason>[2],
-    ) => releaseNotRunnableReason(store, workspaceId, release),
+    ...agentReleaseReaders(createPostgresAgentStore(db), catalog),
     ...newSessionGitHubReaders(db),
   };
 }
