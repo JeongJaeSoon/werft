@@ -1,0 +1,216 @@
+# 결정(설계): 게시 전 시험 — 에이전트 공개 상태와 미리보기
+
+- 상태: 설계. 오너 승인 2026-11-20. 원문: "게시 전 시험 — 에이전트를 만들고 미리 테스트해보는 용도인지 확인이 필요해. 에이전트 생성 후 공개/미공개 상태 지정이나 미리보기 같은 기능을 어떻게 구성할지 검토해 봐야겠어."
+- 시안 오너 승인(2026-11-20, 원문): "전체적으로 좋네 지금의 에이전트 생성화면 별로니까 개선해줘". 새 에이전트 화면 재설계를 콘솔 단위에 넣는다([콘솔](#콘솔)).
+- 기준 커밋: `origin/main` `f3c650f4e`. 아래 `파일:줄`은 이 커밋 기준이다.
+- 관련 결정: [에이전트 담당 팀과 액션 RBAC](agent-rbac.md)(안쪽·바깥쪽), 에이전트 소유·회수·승계 설계(별도 PR, 같은 세션 시작 판정 자리를 쓴다).
+- 시안: 오케스트레이터가 게시한 HTML 시안(PR 본문에 링크).
+
+## 요약
+
+| 항목 | 결론 |
+|---|---|
+| 용도 | 맞다. 만든 사람이 팀에 내놓기 전에 직접 돌려 보는 기능이다. 지금은 저장하는 순간 팀 전체가 쓰는 상태가 되어 그 단계가 없다 |
+| 공개 상태 | 새 칸을 만들지 않는다. **게시됨** = 활성 release가 있다. **미게시** = 없다. 미게시 에이전트는 그 에이전트의 관리자와 워크스페이스 `owner`·`admin`에게만 보인다. 게시되면 지금 규칙대로 보인다 |
+| 미리보기 | 켜지 않은 release로 관리자가 혼자 돌리는 세션. 세션 만들기 요청의 `preview: true`. 웹 로그인만, 개인 key·에이전트 key·Slack은 안 된다. 공유 범위는 만든 사람 하나로 고정되고, 턴마다 지금도 관리자인지 다시 본다 |
+| 게시 | 시험한 release를 지금의 활성화(`POST /v1/agents/{id}/activate`)로 켠다. 버전·롤백 흐름은 그대로다 |
+| 저장과 게시 분리 | 저장 요청에 `activate: false`를 더한다. 지금의 저장 대기(draft) 상태로 남기고 release를 만들되 켜지 않는다. 기본값은 지금처럼 켠다 |
+| 콘솔 | 새 에이전트 화면을 다시 만든다. 이름 → 하는 일 → **미리 써 보기** → 채널 연결. 게시된 에이전트는 설정 저장 옆에 "저장만 하고 미리 써 보기", release 탭의 켜지 않은 release에 "미리 써 보기" |
+
+## 조사 요약과 시장 동향
+
+조사일 2026-11-20. 대상 기간은 2026년 5–11월이고, 기준이 되는 옛 자료만 그 전 것을 썼다. 제품 문서를 먼저 봤다. 2차 자료나 검색 요약에만 있는 것은 "(확인 안 됨)"으로 적었다.
+
+| 제품 | 고친 것과 쓰는 것 | 게시 전 시험 | 미게시를 보는 사람 | 버전·되돌리기·승인 | 채널 |
+|---|---|---|---|---|---|
+| Microsoft Copilot Studio | 저장해도 Publish 전에는 사용자에게 가지 않는다. 게시는 연결된 모든 채널에 한 번에 간다 | 만드는 화면의 test pane. 넓히기 전에 "나에게만 게시"를 권한다 | 소유자, 공동 작성자, 관리자 | 되돌리기 없음(확인 안 됨, Q&A). 조직 전체 공개는 관리자 승인 | 첫 게시 뒤에 채널을 더한다. 관리자가 채널을 막을 수 있다 |
+| Microsoft 365 Agent Builder | 자동 저장, Update를 눌러야 반영 | build-and-test pane | 소유자들 | 버전 기록 없음. 카탈로그 등록은 관리자 승인 | 공유와 카탈로그 등록은 따로다 |
+| Salesforce Agentforce | draft → Commit Version(잠김) → Activate. 활성 버전 하나 | Preview: Simulate(동작·데이터 변경 없음)와 Live Test(실제 변경) | 만드는 권한이 있는 사람(확인 안 됨) | 버전 여럿, 하나를 켜면 이전 것은 꺼진다 | 채널마다 Connections 탭 |
+| Google Gemini Enterprise | Private / Enabled / Suspended / Disabled 상태. draft 상태의 에이전트는 공유하지 못한다 | 만드는 화면의 Preview 탭 | Private이면 만든 사람만. 관리자는 보기만 한다 | 버전 기록 찾지 못함. 공유 승인을 켤 수 있다 | 찾지 못함 |
+| ChatGPT Workspace Agents | 고치면 draft가 바뀌고, 사용자는 Update 전까지 게시본을 쓴다 | 만드는 화면의 Preview | 소유자와 편집자 | 이전 버전을 다시 게시(확인 안 됨). 관리자가 게시·공유 권한을 정한다 | ChatGPT 자체가 채널. Slack은 따로 연결 |
+| Glean Agents | Draft와 Publish. draft는 사용자에게 보이지 않는다 | Preview와 정답 시험 묶음, "Beta 에이전트" 방식 | 소유자, 편집자, moderator(보기 권한자는 못 본다) | 게시본 30개, 옛 버전을 새 draft로 복원. 공개 범위에 따라 moderator 승인 | Slack 게시는 별도 옵션이고 moderator가 한다 |
+| Dust | 게시 / 미게시 전환. 게시된 에이전트의 draft는 찾지 못함 | 만드는 화면 옆 Preview 패널 | 편집자만. 관리자는 "숨은 에이전트" 거름으로 본다 | 버전 기록 찾지 못함. 관리자가 게시할 수 있는 그룹을 정한다 | Slack "Manage channels" |
+
+근거:
+
+- Copilot Studio: [Publish and channels](https://learn.microsoft.com/en-us/microsoft-copilot-studio/publication-fundamentals-publish-channels)(2026-09-16), [Share agents](https://learn.microsoft.com/en-us/microsoft-copilot-studio/admin-share-bots)(2026-07-30), [Agent registry](https://learn.microsoft.com/en-us/microsoft-365/admin/manage/agent-registry)(2026-11-06), 되돌리기 없음은 [Q&A](https://learn.microsoft.com/en-us/answers/questions/5948819/copilot-agent-overwritten)(2026, 확인 안 됨).
+- Agent Builder: [Share and manage agents](https://learn.microsoft.com/en-us/microsoft-365-copilot/extensibility/agent-builder-share-manage-agents)(2026-11-12).
+- Agentforce: [New Agentforce Builder](https://trailhead.salesforce.com/content/learn/modules/new-agentforce-builder-quick-look/explore-the-new-agentforce-builder)(2026-11-20 확인), [agent activate](https://developer.salesforce.com/docs/platform/salesforce-cli-reference/guide/cli_reference_agent_activate.html)(2026-11-20 확인).
+- Gemini Enterprise: [Agents overview](https://docs.cloud.google.com/gemini/enterprise/docs/agents-overview), [Share an agent](https://docs.cloud.google.com/gemini/enterprise/docs/agent-designer/share-agent)(둘 다 2026-11-20 확인).
+- ChatGPT: [Workspace agents](https://help.openai.com/en/articles/20001143-chatgpt-workspace-agents-for-enterprise-and-business)(확인 안 됨, 문서를 열지 못해 검색 요약만 봤다), [예시 cookbook](https://developers.openai.com/cookbook/articles/chatgpt-agents-sales-meeting-prep)(2026-11-20 확인).
+- Glean: [Drafts and versions](https://docs.glean.com/agents/concepts/agents-draft-version)(2026-09-21), [Manage drafts and rollbacks](https://docs.glean.com/agents/agent-development-lifecycle/manage-drafts-versions-and-rollbacks)(2026-09-25), [Agent access](https://docs.glean.com/administration/managing-agents/agent-access)(2026-10-12), [Publish to Slack](https://docs.glean.com/agents/concepts/publish-slack)(2026-11-20 확인).
+- Dust: [Quickstart](https://docs.dust.tt/docs/quickstart-agent), [Agents management](https://docs.dust.tt/docs/user-documentation/admins/agents-management)(날짜 없음), [Changelog](https://docs.dust.tt/docs/changelog)(2026-07-27 게시 그룹 제한).
+
+동향:
+
+- **고친 것과 쓰는 것을 나누는 것이 표준이다.** Copilot Studio, Agent Builder, Agentforce, Glean, ChatGPT Workspace Agents 모두 사용자는 다음 게시 전까지 마지막 게시본을 쓴다. Dust와 Google은 에이전트 전체의 공개 여부만 바꾸고, 게시된 에이전트의 고친 내용을 따로 두는 것은 찾지 못했다.
+- **게시 전 시험은 늘 만드는 화면 안의 미리보기이고 사용자 채널과 떨어져 있다.** Salesforce만 안전한 Simulate와 실제로 쓰는 Live Test를 나눈다.
+- **미게시 에이전트는 만든 사람과 공동 편집자가 본다.** 관리자도 볼 수 있다(Dust, Google). Glean은 보기 권한자에게 draft를 감춘다.
+- **승인은 공개 범위가 넓어질 때 붙는다.** Microsoft 조직 카탈로그, Glean 공개 범위, Google 그룹 공유. 이미 승인된 에이전트를 고치는 것은 보통 다시 승인받지 않는다(Glean은 범위 안에서 게시마다 승인).
+- **채널 연결은 따로 하는 단계다.** Copilot Studio는 첫 게시 뒤, Agentforce는 Connections, Glean은 moderator의 Slack 게시.
+- **버전**은 Glean(게시본 30개)과 Agentforce(여럿, 하나만 켬)에 있다. **되돌리기**는 Glean이 옛 버전을 새 draft로 복원하는 것만 확인했다. Agentforce의 전용 되돌리기 화면은 찾지 못했고(새 버전을 만드는 것 말고는 쉬운 길이 없다는 2차 자료가 있다, 확인 안 됨), Copilot Studio와 Dust에서도 문서화된 되돌리기를 찾지 못했다.
+- 미게시 에이전트가 사용자에게 새어 나간 공개 사고는 찾지 못했다. Microsoft Defender 연구는 "30일 동안 게시도 수정도 안 된 draft"를 숨은 공격면으로 꼽았다([2026-02-12](https://www.microsoft.com/en-us/security/blog/?p=145270)).
+- 이번 조사에서 에이전트의 공개 상태나 게시를 정하는 공통 형식은 확인하지 못했다.
+
+## 따를 것 / 다르게 갈 것
+
+이번 조사에서 공개 상태와 게시를 정하는 공통 형식을 확인하지 못했다. 그래서 werft가 자기 모델을 갖는다. 공통 형식이 생기면 그때 맞춘다. 엔진 중립에는 영향이 없다. release는 카드와 연결의 묶음이고, 엔진 어댑터는 release를 실행할 뿐이다. 미리보기도 같은 어댑터로 돈다.
+
+| 따를 것 | 이 설계에서 |
+|---|---|
+| 고친 것과 쓰는 것을 나눈다(대부분) | `activate: false` 저장은 켜지 않은 release를 만들고, 활성 release가 게시본이다. Agentforce의 Commit Version(잠긴 버전) → Activate와 같은 모양이다 |
+| 미리보기는 사용자 채널과 떨어져 있다(모두) | 미리보기는 웹 로그인만 하고 Slack 링크를 갖지 않는다 |
+| 미게시는 만든 쪽과 관리자만 본다(Copilot Studio, Dust, Google) | 그 에이전트의 관리자와 워크스페이스 관리자만 본다. Glean처럼 담당 팀 `member`(쓰기만 하는 사람)에게는 감춘다 |
+| 채널은 게시 뒤에 붙인다(Copilot Studio) | 새 에이전트 화면의 채널 연결은 게시 뒤에만 연다 |
+| 버전을 남기고 하나만 켠다(Glean, Agentforce), 옛 버전으로 돌아간다(Glean) | 지금의 release 목록과 이전 release 활성화를 그대로 쓴다 |
+
+| 다르게 갈 것 | 이유 |
+|---|---|
+| 공개 상태 칸(Private/Enabled 같은)을 두지 않는다 | 활성 release가 있는지가 곧 게시 여부다. 칸을 두면 같은 사실을 두 곳에 적고, 둘이 어긋나는 경우를 따로 막아야 한다 |
+| 안전 모드(Simulate)를 두지 않는다 | 다르게 돌면 게시 뒤의 동작을 시험한 것이 아니다. 외부 쓰기(push 등)는 release 설정대로 사람에게 묻는다. Salesforce도 실제로 쓰는 Live Test를 함께 둔다. 필요해지면 후속으로 연다 |
+| 게시 전 승인 단계를 두지 않는다 | 시장의 승인은 대개 범위를 넓힐 때 붙지만, Glean은 승인 범위 안의 게시마다 moderator 승인을 받게 할 수 있다. werft는 그 방식을 따르지 않는다. 게시 범위가 이미 담당 팀과 사용 범위로 정해져 있고, 게시(활성화)는 그 에이전트 관리자의 `agent.manage` 판정을 지난다. 관리자와 별도의 검토자 역할은 지금 werft에 없고, 이번 요청(만든 사람이 내놓기 전에 시험하기)에도 없다. 게시마다 승인이나 범위를 넓힐 때의 승인이 필요해지면 따로 설계한다 |
+| 저장만 한 설정은 담당 팀 구성원이 읽는다 | Glean은 보기 권한자에게 draft를 감춘다. werft에서 그렇게 하려면 버전·release 읽기를 관리자 여부로 거르는 일이 따로 필요하고, 지금 요청에 없다. 감추는 것은 미리보기 결과와 미게시 에이전트 자체다 |
+| 게시 취소(비공개로 되돌리기)를 두지 않는다 | Dust와 Google은 공개 여부를 오간다. werft에서는 쓰던 사람의 Slack·API 경로가 한꺼번에 끊기므로, 멈추는 것은 지금의 일시 정지로 한다 |
+
+## 지금 있는 것과 없는 것 (실측)
+
+| 있음 | 근거 |
+|---|---|
+| 카드 버전과 변하지 않는 release, 활성 release 하나 | `packages/db/src/schema.ts:4736`(버전), `:4766`(release), `agents.active_release_id`·`activation_revision`(`:3666-3667`) |
+| 켜지 않은 release 만들기와 활성화(승인)의 분리 | `createRelease`(`packages/platform/src/agents/agent-service.ts:1190`), 활성화가 `approved_at`을 적는다(`packages/db/src/agents.ts:1199`). 활성화 요청은 `release_id`와 `expected_revision`(지금 `activation_revision`)을 함께 보낸다(`agent-service.ts:1344`) |
+| 승인된 옛 release로 새 세션 | `releaseNotRunnableReason`(`agent-service.ts:129-145`). 승인은 "한 번이라도 활성화됐다"이다 |
+| 저장 대기(draft) | `agents.draft_version_id`·`draft_connection_id`·`draft_failure`(`schema.ts:3676-3682`). 저장했지만 아직 켜지지 않은 변경이다. 저장은 `behavior_revision`을 하나 올리고 draft를 채운 뒤(`packages/db/src/agents.ts:804-830`) 활성화하고, 활성화는 그 revision과 draft가 그대로일 때만 끝난다(`agents.ts:1130-1137`). 그래서 더 새 저장이 들어오면 앞선 저장은 `superseded`로 끝난다. 활성화가 실패하면 `draft_failure`가 남는다 |
+| 활성 release가 없는 에이전트 수 | counts의 `draft`(`packages/db/src/agents.ts:562`) |
+| 누가 보고 쓰는가 | 보기는 안쪽(워크스페이스 관리자, 관리자, 담당 팀 구성원, `insideAgent`, `packages/db/src/musterrolle/administers.ts:130`). 쓰기는 사용 판정(`packages/platform/src/musterrolle/agent-usage-decision.ts:58-86`)이 여러 근거의 합집합으로 허락하고(공개, 사용 범위 팀, 워크스페이스 관리자, 관리자, 담당 팀 구성원), 세션 시작은 거기에 안쪽 조건을 더한다(`packages/db/src/sessions/requester-locks.ts:191-200`) |
+| 설정 읽기 | 담당 팀 구성원은 설정(카드, 모든 버전과 release)을 읽는다(`agents.ts:251`) |
+
+| 없음 | 결과 |
+|---|---|
+| 저장과 게시의 구분 | 콘솔의 새 에이전트 흐름은 저장하면서 첫 release를 바로 켠다(`apps/web/src/components/new-agent-flow.tsx:340-415`, 문서 `apps/docs/content/docs/agents/create.en.mdx:19`). 게시된 에이전트의 설정 저장도 바로 적용된다(`agent-service.ts:784-845`) |
+| 켜지 않은 release로 돌려 보기 | 승인되지 않은 release는 `409 AGENT_NOT_RUNNABLE`(`release_unapproved`)이다. 켜기 전에는 아무도 돌려 보지 못한다 |
+| 미게시 동안 숨기기 | 활성 release가 없어도 담당 팀 구성원 모두에게 목록과 상세가 보인다. 다만 쓸 수는 없다 |
+
+## 결정 1: 공개 상태는 활성 release로 정한다
+
+- **게시됨**: `active_release_id`가 있다. **미게시**: 없다. 새 칸(`published_at`, `visibility`)을 만들지 않는다. 활성 release를 비우는 동작이 없으므로, 한 번 게시된 에이전트는 계속 게시됨이다. 그래서 미게시 에이전트에는 승인된 release가 없고, 그 에이전트의 세션은 미리보기 세션뿐이다.
+- 미게시 에이전트에서는 담당 팀 구성원과 사용 범위 팀을 안쪽·사용 근거에서 뺀다. 남는 것은 그 에이전트의 관리자(개인 관리자, 관리자 팀 구성원, 담당 팀 `lead`)와 워크스페이스 `owner`·`admin`이다. 담당 팀 `member`에게는 지금 바깥쪽이 받는 답과 같다. 목록과 counts에 없고, 상세는 `404`다.
+- **같은 판정을 하는 모든 곳을 함께 바꾼다.** 한 곳만 바꾸면 경로마다 답이 달라진다. 바꾸는 곳은 넷이다.
+  1. SQL 안쪽 판정 `insideAgent`(`administers.ts:130`). 목록·counts·상세·세션 공유 가시성(`session-shares.ts:131`)이 이것을 쓴다. SQL 사용 판정 `agentUsable`(`administers.ts:175-220`)은 `insideAgent` 말고도 갈래가 셋 더 있다. 공개(`workspace` 범위), 사용 범위 팀, 에이전트 key. 미게시면 공개와 사용 범위 팀 갈래도 막는다. 에이전트 key 갈래는 아래 규칙대로 둔다.
+  2. 잠금 아래 다시 맞추는 안쪽 판정(`requester-locks.ts:192-200`, `:510-520`). 담당 팀 구성원을 따로 다시 세므로 같은 조건을 넣는다.
+  3. 사용 판정의 사실 모으기. 미게시면 `managingMember`와 `usageTeams`를 비우고, `scope: workspace`의 `public` 근거도 쓰지 않는다(`agent-usage-decision.ts:58-86`의 입력을 만드는 쪽).
+  4. 정책의 `isInside`(`agent-authority.ts:148`)는 1을 부르므로 따로 바꿀 것이 없음을 시험으로 확인한다.
+  - 판정식("게시됐거나, 관리자이거나, 워크스페이스 관리자")은 SQL 함수로 두고 1과 2의 안쪽 재판정이 그것을 부른다. 게시 여부만 보는 SQL 함수도 하나 두어 `agentUsable`의 공개·사용 범위 팀 갈래가 쓴다. 3과 2의 사용 사실은 읽은 에이전트 행의 `active_release_id`로 따로 계산한다. transaction 안의 재판정(2)은 그 행을 잠그고 읽고, 사전 판정(3)은 잠그지 않는다. 같은 SQL을 부르지 않는 경로가 있으므로 같은 답은 맞춤 시험으로 고정한다. 미게시 에이전트, `workspace` 공유 세션, 사람 지정 공유, 에이전트 key 각각에 대해 네 경로가 같은 답을 내는지 맞춤 시험을 두고, 목록·상세·`GET /v1/usable-agents`·세션 만들기 endpoint 시험도 둔다.
+- **에이전트 key.** 에이전트 key는 지금처럼 자기 에이전트 행 하나를 읽는다(`keysOwnAgent`, `agent-service.ts:399-438`). 그 key는 그 에이전트의 관리자가 발급했고, 사람에게 에이전트를 보여 주는 길이 아니다. 미게시 에이전트에서는 `active_release_id`가 `null`이라 key로 시작할 세션이 없고, 미리보기는 웹 로그인만 하므로 key로 켜지 않은 release를 돌릴 길도 없다. 그래서 이 경로는 막지 않고, 이 동작을 endpoint 시험으로 고정한다.
+- 게시된 뒤의 "권한 있는 사용자"는 지금 규칙 그대로다. 사용 판정은 근거의 합집합이고(사용 범위가 `private`이면 그 팀들에 워크스페이스 관리자·관리자·담당 팀 구성원이 더해진다), 세션 시작은 거기에 안쪽 조건을 더한다. 사용 범위 설정을 공개 상태로 쓰지 않는 이유: 사용 범위는 게시된 에이전트를 누가 쓰는지를 정하는 것이고, `private`도 팀을 하나 이상 골라야 해서 "관리자만"을 표현하지 못한다.
+- 활성화 실패로 활성 release가 아직 없는 에이전트(counts `draft`)도 미게시다. 지금도 담당 팀 구성원은 이 에이전트를 쓰지 못한다. 바뀌는 것은 목록과 설정 읽기(카드, 버전, release, `agents.ts:251-260`)다. 담당 팀 `member`는 첫 게시 전까지 이것도 보지 못한다.
+- 게시를 되돌리는 "비공개로 돌리기"는 만들지 않는다. 쓰던 사람의 Slack·API 경로가 한꺼번에 끊긴다. 멈추는 것은 지금의 일시 정지(`paused`)로 한다.
+
+## 결정 2: 미리보기는 켜지 않은 release로 관리자가 혼자 돌리는 세션이다
+
+- 세션 만들기(`POST /v1/sessions`)에 `preview: true`를 더한다. 이때만 승인되지 않은 release로 시작할 수 있다.
+- **조건.**
+  1. 요청자가 웹 로그인한 사람이다. 개인 key, 에이전트 key, Slack은 `preview`를 보내면 `400`이다. 관리 action은 지금 사람 아닌 주체를 모두 거절한다(`packages/platform/src/musterrolle/policy.ts:724-725`). 개인 key까지 열려면 key의 만든 사람을 관리자로 보는 판정을 새로 만들어야 하는데, 그만한 필요가 아직 없다.
+  2. 그 release의 에이전트를 관리한다(`agent.manage`, 워크스페이스 관리자 포함).
+  3. release가 그 에이전트의 것이고 연결·모델이 지금 쓸 수 있다(`RELEASE_SPEC_UNAVAILABLE`은 그대로).
+  4. 에이전트가 `active`다. 소유자 없음으로 막힌 에이전트도 미리보기는 된다. 승계하려는 사람이 확인할 길이 있어야 하기 때문이다(관리자가 없으면 워크스페이스 관리자만 해당한다).
+- **거절의 모양.** 거절은 이 순서로 한다. ① 웹 로그인이 아니면 에이전트를 찾기 전에 `400`(`reason_code: preview_web_only`)이다. 요청 모양만 보므로 에이전트에 대해 아무것도 드러내지 않는다. ② 웹 로그인한 사람 중 바깥쪽(그 에이전트를 볼 수 없는 사람)은 지금처럼 release를 찾기 전에 `404`로 숨긴다(`packages/platform/src/sessions/session-service.ts:528`, `:644`). 미리보기라고 해서 승인·연결·모델 진단을 먼저 보여 주지 않는다. ③ 안쪽이지만 관리자가 아닌 사람(게시된 에이전트의 담당 팀 `member`)이 `preview: true`를 보내면 `403 FORBIDDEN`(`reason_code: role`)이다. 이 사람은 이미 설정 화면에서 release를 읽으므로 감출 것이 없다. `preview` 없이 승인 안 된 release를 보내면 지금처럼 `release_unapproved`다.
+- **턴마다 다시 본다.** 미리보기 세션에 입력을 더하거나 이어 가는 모든 요청(턴 제출, 재개)은 그 순간에도 2를 만족해야 한다. 관리자에서 빠진 뒤에는 자기가 만든 미리보기 세션이라도 새 턴을 돌리지 못하고 `403`(`reason_code: role`)이다. 판정은 입력을 받아들이는 transaction 안에서, 사용 판정을 잠금 아래 다시 하는 자리(`requester-locks.ts`)에서 한다.
+- **대기 요청 답변도 같다.** 미리보기 세션의 질문·권한 요청에 답하거나 push·PR을 승인하는 것도 멈춘 턴을 이어 가게 한다(`packages/platform/src/decision/pending-service.ts:82-86`, 잠금 아래 재판정 `packages/db/src/sessions/pending-requests.ts:747-750`, 재개 `:928-946`). 지금은 세션을 만든 사람이면 관리자가 아니어도 답할 수 있다(`policy.ts:545-550`). 미리보기 세션에서는 답하는 사람이 웹 로그인한 사람이고 지금도 그 에이전트를 관리해야 한다. 같은 쓰기 transaction 안에서 본다. 관리자에서 빠진 뒤 멈춘 요청에 답하는 시험을 둔다.
+- **세션에서 바로 하는 PR 쓰기는 GitHub 호출 직전에 다시 본다.** 미리보기 세션에서 PR을 열고, 고치고, 병합하고, 댓글을 다는 요청은 GitHub를 부른다. 이 요청은 시작할 때와 GitHub 호출 바로 앞에서 웹 로그인과 지금의 관리자 여부를 본다. 잠금을 잡은 채 GitHub를 부르지는 않는다. 그러면 관리자를 빼는 쓰기가 GitHub 응답을 기다리고, 멈춘 호출이 잠금을 붙잡는다. 그래서 마지막 확인과 호출 사이의 짧은 틈은 남는다. 이 틈은 미리보기가 아닌 세션의 PR 쓰기가 지금 갖는 것과 같다. 예약(`schedule`)처럼 DB에만 쓰는 요청은 그 transaction 안에서 다시 본다.
+- transcript 읽기는 이 조건과 따로이고 지금의 세션 공유 규칙을 따른다.
+- 승인된 release(활성 또는 옛 release)에도 `preview: true`를 보낼 수 있다. 같은 표시와 같은 조건이 붙을 뿐이다.
+- 세션 행에 `preview boolean NOT NULL DEFAULT false`를 둔다. 상세·목록에 `preview`로 나온다. release가 나중에 게시돼도 이 값은 바뀌지 않는다.
+- **공유 범위는 만든 사람 하나로 고정한다.** 미리보기 세션의 공유를 넓히는 요청은 `409`다. 아직 팀에 내놓지 않은 동작과 그 transcript가 담당 팀에 보이지 않게 하려는 것이다. 워크스페이스 관리자의 감사 읽기(`session.audit_read`)는 지금처럼 된다.
+- 미리보기 세션도 진짜 세션이다. 같은 worker, 같은 도구·권한 모드·GitHub 설정·자격 증명 연결·호출자 상한으로 돈다. 사용량과 비용도 그대로 센다. 따로 sandbox를 만들지 않는 이유: 다르게 돌면 게시 뒤의 동작을 시험한 것이 아니다. push 승인 같은 외부 쓰기 확인은 release 설정대로 사람에게 묻는다.
+- **Slack.** Slack 세션은 에이전트의 활성 release로만 시작하고, 미리보기 세션은 Slack 링크를 갖지 않는다. 미게시 에이전트에 Slack 앱을 붙이는 것은 지금처럼 된다(설치 준비). 멘션과 DM은 지금처럼 요청자를 먼저 판정한다(`packages/adapters/chat/slack/src/slack-session-handler.ts:335-345`). 그 판정을 통과하는 사람(관리자, 워크스페이스 관리자)만 "아직 게시되지 않은 에이전트" 안내를 받고, 나머지는 지금의 숨김 답을 그대로 받는다. 안내를 판정보다 앞에 두지 않는다.
+- 성과 판정(achievements)에서는 미리보기 세션을 뺀다. 시험 실행이 팀 성과로 세어지지 않게 한다.
+
+## 결정 3: 저장과 게시를 나눈다
+
+- `POST /v1/agents`와 `PATCH /v1/agents/{id}`의 저장 요청에 `activate`(기본 `true`)를 더한다. 기본값을 `true`로 두는 이유: 지금의 API 사용자와 SDK는 저장이 곧 적용이라고 믿고 있다. 콘솔이 `false`를 보낸다.
+- **`activate: false`의 상태 전이.** 지금의 저장 기계를 그대로 쓰고, 마지막 활성화만 하지 않는다.
+  1. 지금처럼 `behavior_revision`을 하나 올리고 draft(`draft_version_id`, `draft_connection_id`)를 채운다. `draft_failure`는 비운다. 이 revision이 오르므로 앞서 진행 중이던 저장의 활성화는 지금처럼 `superseded`로 끝난다. 그래서 더 오래된 저장이 나중에 켜지는 일이 없다.
+  2. 그 버전과 연결로 release를 만든다(`createRelease`와 같은 검사). 켜지 않는다. release를 만들지 못하면(연결이 꺼짐, 모델이 목록에 없음, 확장 거절 등, `agent-service.ts:491-531`) 지금의 저장 실패와 같이 처리한다. draft는 남기고, 그 revision이 아직 지금 것일 때만 `draft_failure`를 적고 `failed`(이유 포함)를 답한다. 더 새 저장이 있으면 `superseded`다(`agent-service.ts:812-836`과 같은 규칙). 콘솔은 이유를 보여 주고 같은 저장을 다시 하게 한다.
+  3. release를 만든 뒤, 에이전트 행을 잠그고 그 저장의 `behavior_revision`과 `draft_version_id`가 아직 그대로인지 본다(활성화가 `agents.ts:1130-1135`에서 하는 것과 같은 검사). 그 사이 더 새 저장이 들어왔으면 `superseded`를 답한다. 만든 release는 켜지 않은 release로 남을 뿐이다. 그대로이면 응답의 `release.status`는 새 값 `saved`이고 `release_id`가 있다. draft는 남는다. 즉 draft의 뜻을 "저장했지만 아직 켜지 않은 변경"으로 그대로 쓰고, `draft_failure`가 없으면 "켜기를 기다린다", 있으면 "켜기에 실패했다"다.
+  4. 저장한 카드와 연결이 지금 활성 release와 같으면 지금처럼 draft를 비우고 `unchanged`다.
+- **다음 저장.** draft가 있으면, 카드나 연결을 생략한 부분 저장은 활성 release가 아니라 draft의 카드와 연결을 바탕으로 한다(지금은 활성 release가 먼저다, `agent-service.ts:700-712`). 그래야 저장만 해 둔 변경 위에 이어서 고칠 수 있다. 실패한 draft 위의 저장도 같은 규칙이다.
+- **게시(활성화)와 draft.** 게시는 지금의 활성화다(`POST /v1/agents/{id}/activate` `{"release_id", "expected_revision"}`). 화면에서 본 `activation_revision`을 보내고, 경합이면(`REVISION_CONFLICT`) 새로 읽고 사람이 다시 누른다. 자격 증명 연결 확인(`CREDENTIAL_UNBOUND`)도 그대로다. 켠 release의 버전과 연결이 draft와 같으면 활성화 transaction에서 draft를 비운다. 다르면(예: 이전 release로 롤백) draft는 남고, 콘솔은 "켜지 않은 변경이 있습니다"를 계속 보여 준다.
+- 게시된 에이전트에서 `activate: false`로 저장한 변경은 활성 release를 건드리지 않는다. 팀은 계속 이전 release를 쓰고, 관리자는 새 release를 미리 써 본 뒤 release 탭에서 켠다.
+- **설정 읽기는 지금 그대로다.** 저장만 한 버전과 release는 설정을 읽는 사람(게시된 에이전트의 담당 팀 구성원 포함)에게 지금처럼 보인다. 이 설계가 팀에 감추는 것은 켜지 않은 동작을 돌린 결과(미리보기 transcript)와 미게시 에이전트 자체다. 저장만 한 설정까지 감추려면 버전·release 읽기를 관리자 여부로 거르는 일이 따로 필요하고, 지금 요청에는 없다.
+- 첫 게시로 활성 release가 생기면 [결정 1](#결정-1-공개-상태는-활성-release로-정한다)에 따라 팀에 보인다.
+
+## 콘솔
+
+시안: 오케스트레이터가 게시한 HTML 시안. 오너가 시안을 승인하며 지금의 새 에이전트 화면을 다시 만들라고 했다.
+
+1. **새 에이전트 화면(재설계).** 이름 → 하는 일 → 미리 써 보기 → 채널 연결.
+   - 지금 넓은 화면에서 보이는 문제와 고칠 점: 입력 칸이 화면 끝까지 늘어난다(폼 폭을 640–720px로 제한). 오른쪽이 비어 있다(만드는 에이전트의 요약과 다음에 일어날 일을 보여 주는 패널로 쓴다. 좁은 화면에서는 폼 아래로 내린다). 페이지 제목에 focus ring 상자가 그려진다(단계 이동 때 제목에 focus를 옮기되 상자를 그리지 않는다). 식별자 도움말이 한 줄로 길다(짧게 줄이고 이름에서 만든 값을 바로 옆에 보여 준다). "다음" 버튼이 작게 홀로 있다(모든 단계에 뒤로·다음이 같은 자리에 있는 하단 줄).
+   - `packages/ui` 부품을 쓰고, 단계 이동 때 제목 focus, 오류 연결(`aria-describedby`), 키보드 순서를 지킨다.
+   - "하는 일"의 버튼은 "저장하고 미리 써 보기"다(`activate: false`).
+   - "미리 써 보기" 단계: 위에 "아직 게시하지 않았습니다. 이 에이전트의 관리자와 워크스페이스 관리자만 이 에이전트를 봅니다." 알림. 메시지를 보내면 미리보기 세션이 시작되고, 답과 세션 링크가 보인다. 같은 세션에 이어 보낼 수 있다. "설정 고치기"는 이전 단계로 돌아가 새 release를 만들고, 다음 메시지는 새 미리보기 세션으로 간다.
+   - "게시" 버튼: 확인 창 "게시하면 담당 팀 {팀}이 이 에이전트를 쓸 수 있습니다." → 활성화. "나중에 게시"를 누르면 미게시 상태로 에이전트 상세로 간다.
+   - 채널 연결은 게시 뒤에만 연다.
+2. **에이전트 목록.** 미게시 에이전트는 상태 칸에 "미게시"로 보인다(관리자에게만 보이는 행이다).
+3. **에이전트 상세(미게시).** 위에 알림 "아직 게시하지 않았습니다"와 "미리 써 보기", "게시" 버튼.
+4. **release 탭.** 켜지 않은 release의 행에 "미리 써 보기"(미리보기 세션 시작)와 지금의 "켜기"(=게시). 설정 저장 버튼 옆에 "저장만 하고 미리 써 보기". draft가 있으면 위에 "켜지 않은 변경이 있습니다"를 보여 준다.
+- 미리보기 세션은 세션 목록과 상세에 "미리보기" 표시가 붙는다.
+
+## 하지 않는 것
+
+- 별도 sandbox 실행 환경, 가짜 도구, 외부 쓰기를 막는 모드. 미리보기는 진짜 실행이다.
+- 공개 상태 칸, 게시 취소, 게시 예약.
+- 개인 key로 하는 미리보기.
+- 저장만 한 버전·release를 담당 팀 구성원에게서 감추기.
+- 다른 사람에게 미리보기를 보여 주는 공유(검토자 초대). 필요해지면 미리보기 세션의 공유를 지정한 사람까지 여는 것으로 연다.
+- 미리보기용 비용 상한. 지금의 세션 상한과 호출자 상한이 그대로 적용된다.
+
+## werft 아키텍처 적용
+
+아래 파일 이름은 기준 커밋에 없는 변경을 포함한다. P1 구현 PR이 고친 위치다.
+
+| 층 | 맡는 것 |
+|---|---|
+| contracts | `packages/contracts/src/api/session.ts`의 `preview`, `packages/contracts/src/kollegium/agents.ts`의 `activate`와 `release.status: saved`, Slack 안내 문구(`musterrolle/slack-notices.ts`) |
+| db: 공유하는 SQL 함수 (`packages/db/src/musterrolle/administers.ts`) | `reachesBeforePublish`("게시됐거나, 관리자이거나, 워크스페이스 관리자")를 `insideAgent`와 잠금 아래 안쪽 재판정(`reachesBeforePublishNow`)이 부른다. `agentPublished`(게시 여부)를 `agentUsable`의 공개·사용 범위 팀 갈래가 부른다 |
+| db: 따로 계산하고 시험으로 맞추는 곳 | 잠금 아래 사용 재판정(`sessions/requester-locks.ts`)과 사용 판정 사실 모으기(`usage/agent-usage.ts`)는 읽은 에이전트 행의 `active_release_id`로 게시 여부를 직접 본다(잠금 아래 재판정은 잠근 행, 사전 판정은 잠그지 않은 행). 세션 공유 가시성(`musterrolle/session-shares.ts`)은 `insideAgent`를 거친다 |
+| db: 미리보기 재판정 | 입력 수락(`postgres-unit-of-work.ts`), 대기 요청 답변(`sessions/pending-requests.ts`), push 승인(`push-requests.ts`)에서 같은 transaction 안에 웹 로그인과 지금의 관리자 여부를 본다 |
+| db: 저장 전이 (`agents.ts`) | `activate: false`의 draft 전이, 잠금 아래 `superseded` 판정, 활성화 때 draft 비우기 |
+| db: 그 밖 | migration(`sessions.preview`), 성과 판정에서 미리보기 제외(`sessions/achievement-judgments.ts`) |
+| platform | `agents/agent-service.ts`(저장만 하는 흐름), `sessions/session-service.ts`(미리보기 조건과 거절 순서: 웹 로그인 `400` → 바깥쪽 `404` → `agent.manage`). port는 `agents/ports/agent-store.ts`, `sessions/ports/session-unit-of-work.ts`, `session-control.ts`, `session-share-store.ts`, `action/ports/push-requests.ts`에 메서드나 칸을 더한다 |
+| adapters (`packages/adapters/chat/slack`) | 요청자 판정을 통과한 사람에게만 "아직 게시되지 않은 에이전트" 안내 |
+| web (P2) | 새 에이전트 화면, 목록·상세의 미게시 표시, release 탭, 세션의 미리보기 표시 |
+
+- **port와 adapter.** 판단 순서(무엇을 먼저 거절하나)는 platform 서비스가 갖는다. 잠금 아래 다시 보는 일은 db 어댑터가 port 메서드로 맡는다. 같은 판정을 여러 경로가 한다. 그중 SQL 질의 안에서 판정하는 곳은 공유 SQL 함수를 부르고, 에이전트 행을 이미 읽은 곳은 그 행으로 직접 계산한다. 어느 쪽이든 경로마다 같은 답을 내는지 맞춤 시험으로 고정한다.
+- **데이터 모델.** `sessions.preview boolean NOT NULL DEFAULT false` 하나를 더한다. 공개 상태는 `agents.active_release_id`, 저장만 한 변경은 지금의 draft 칸(`draft_version_id`, `draft_connection_id`, `draft_failure`)을 그대로 쓴다.
+- **통합 접근 판정과의 관계.** 미게시 조건은 새 정책 action이 아니라 안쪽·사용 판정식 자체에 들어간다. 그래서 목록, 상세, 사용 가능 목록, 세션 시작이 같은 규칙으로 답한다(공유 함수 또는 맞춤 시험). 미리보기 허가는 지금의 `agent.manage` 판정을 쓴다. 판정 기록 쪽 파일은 고치지 않는다.
+
+검토한 대안:
+
+| 대안 | 버린 이유 |
+|---|---|
+| `visibility`·`published_at` 칸 | [따를 것 / 다르게 갈 것](#따를-것--다르게-갈-것)의 첫 줄 |
+| 사용 범위 설정을 공개 상태로 쓰기 | `private`도 팀을 하나 이상 골라야 해서 "관리자만"을 표현하지 못한다([결정 1](#결정-1-공개-상태는-활성-release로-정한다)) |
+| 미리보기 전용 sandbox나 Simulate 모드 | 같은 표의 둘째 줄 |
+| 시험용 사본 에이전트를 만들어 돌리기 | 연결·자격 증명·Slack 설정이 사본과 원본으로 갈라지고, 게시 때 다시 합쳐야 한다. release가 이미 변하지 않는 시험 단위다 |
+| 개인 key로 미리보기 | key의 만든 사람을 관리자로 보는 판정을 새로 만들어야 한다([결정 2](#결정-2-미리보기는-켜지-않은-release로-관리자가-혼자-돌리는-세션이다)) |
+
+## 단계별 구현 계획
+
+다음 단계는 앞 단계가 병합된 뒤 시작한다.
+
+| 단계 | 내용 | 끝나는 조건 |
+|---|---|---|
+| P1 서버 (PR 하나) | 미게시 가시성(네 경로와 `agentUsable`의 모든 갈래가 같은 규칙을 공유 함수나 맞춤 시험으로 지킨다, 에이전트 key 경로 고정), 세션 `preview`(migration, 조건·거절 모양, 턴·재개·대기 요청 답변마다 재판정, 공유 고정, Slack 거절과 안내 순서, 성과 제외), 저장 `activate: false`(draft 전이, 부분 저장의 바탕, 활성화 때 draft 비우기)와 `release.status: saved`, OpenAPI·문서 | CI의 db·platform 시험이 통과한다: 경로 맞춤 시험, 관리자 해제 뒤 턴 거절과 대기 요청 답변 거절, release를 만들지 못한 `activate: false` 저장, 바깥쪽 `404`, 오래된 저장의 `superseded`(저장만 하는 저장 A의 release가 더 새 저장 B 뒤에 만들어지는 경우 포함), 롤백 뒤 draft 유지. 실제 스택에서 API로 만들기 → 미리보기 → 게시 → 담당 팀 구성원 접근. PR에는 역할(관리자, 담당 팀 구성원, 개인 key)마다 보낸 요청과 받은 상태 코드·`reason_code`, 그리고 CI의 integration job에서 옮긴 시험 개수와 그 job 로그 링크, 새로 더한 시험 파일 이름을 적는다. 확인하지 못한 단계가 있으면 이유와 함께 "미확인"으로 적는다. 교차 리뷰 지적(ACT-ON) 0 |
+| P2 콘솔 (PR 하나 또는 둘: 새 에이전트 화면 / 목록·상세·release 탭) | 새 에이전트 화면 재설계와 미리 써 보기 단계·게시, 미게시 표시, release 탭의 미리 써 보기와 "켜지 않은 변경", "저장만 하고 미리 써 보기", 세션의 미리보기 표시 | web 시험 통과. 실제 스택에서 같은 흐름을 화면으로 확인하고 넓은 화면과 390px 스크린샷을 PR에 남긴다. 키보드만으로 새 에이전트 화면을 끝까지 지날 수 있다. ACT-ON 0 |
+
+- 이 계획 밖의 후속: 게시 전 승인, 사용 범위를 넓힐 때의 승인, 다른 사람에게 미리보기를 보여 주는 검토자 초대. 요청이 생기면 따로 설계한다.
+
+## 오너 확인이 필요한 것
+
+아래는 이 문서가 정한 기본값이다. 바뀌면 후속 PR로 고친다.
+
+- 공개 상태는 활성 release 유무로 정하고 별도 칸을 두지 않는다.
+- 미게시 에이전트는 담당 팀 `member`에게도 보이지 않는다.
+- 미리보기는 진짜 실행이다(sandbox 없음). 비용·외부 쓰기도 실제와 같다.
+- 미리보기는 웹 로그인만 한다(개인 key 없음).
+- 저장만 한 설정은 지금처럼 설정을 읽는 사람에게 보인다.
