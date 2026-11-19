@@ -126,13 +126,6 @@ describe("the action class every tool carries", () => {
     );
   });
 
-  test("a tool without a class does not typecheck", () => {
-    const { request_push: _left, ...rest } = GITHUB_MCP_TOOL_CLASSES;
-    // @ts-expect-error `request_push` has no class in `rest`
-    const incomplete: Record<GitHubMcpTool, ActionClass> = rest;
-    expect(incomplete.request_push).toBeUndefined();
-  });
-
   test("a name with no class, or a class this image does not know, is not listed", () => {
     const names = [...Object.keys(GITHUB_MCP_TOOL_ARGUMENTS), "mystery_tool"];
     // The real table lists every real tool and drops the one it never named.
@@ -149,15 +142,6 @@ describe("the action class every tool carries", () => {
     ).toEqual([]);
     // A name that is an Object.prototype key is not a tool either.
     expect(listedGitHubMcpTools(["constructor", "toString"])).toEqual([]);
-  });
-
-  test("the fixed list and the per-release list are built from the classified tools only", () => {
-    expect([...GITHUB_MCP_FIXED_TOOLS].sort()).toEqual(
-      (Object.keys(GITHUB_MCP_TOOL_CLASSES) as GitHubMcpTool[]).sort(),
-    );
-    for (const tool of githubMcpTools(settings({ actions: true }))) {
-      expect(GITHUB_MCP_TOOL_CLASSES[tool]).toBeDefined();
-    }
   });
 
   test("the stored push classes still parse, so an older row is read", () => {

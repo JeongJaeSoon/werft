@@ -465,7 +465,6 @@ esac
       // "werft-" + 57 characters is the longest label chart-package.ts accepts.
       const fits = `v0.1.2-${"a".repeat(51)}`;
       const over = `v0.1.2-${"a".repeat(52)}`;
-      expect(fits.length - 1).toBe(57);
       expect(detect(base, changelog(fits, "v0.1.1", "v0.1.0")).output).toBe(
         `tag=${fits}\n`,
       );

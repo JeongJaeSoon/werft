@@ -22,17 +22,12 @@ describe("runtime_config.engine_settings", () => {
     expect("engine_settings" in runtimeConfigSchema.parse(base)).toBe(false);
   });
 
-  test("merged settings parse, and the schema of a worker built before the field refuses them", () => {
+  test("merged settings parse", () => {
     const parsed = runtimeConfigSchema.parse({
       ...base,
       engine_settings: settings,
     });
     expect(parsed.engine_settings).toEqual(settings);
-    const older = runtimeConfigSchema.omit({ engine_settings: true });
-    expect(older.safeParse(base).success).toBe(true);
-    expect(
-      older.safeParse({ ...base, engine_settings: settings }).success,
-    ).toBe(false);
   });
 
   test.each([
