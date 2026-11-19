@@ -7,7 +7,7 @@ import type {
   SurfaceMembership,
   WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { Principal } from "../musterrolle/index.ts";
+import type { Principal } from "../../musterrolle/index.ts";
 
 export type SurfaceBindingRecord = {
   id: string;

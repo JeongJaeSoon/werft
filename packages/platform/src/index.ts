@@ -110,7 +110,7 @@ export * from "./ports/slack-config-token-store.ts";
 export * from "./ports/slack-inbound-event-store.ts";
 export * from "./ports/slack-install-store.ts";
 export * from "./ports/slack-outbox-store.ts";
-export * from "./ports/surface-binding-store.ts";
+export * from "./surface/ports/surface-binding-store.ts";
 export * from "./ports/team-store.ts";
 export * from "./sessions/ports/turn-interrupts.ts";
 export * from "./limits/ports/provider-exchange-ledger.ts";

@@ -1,5 +1,5 @@
 import type { SurfaceMembership } from "@werft-ai/contracts";
-import type { SurfaceBindingRecord } from "../../ports/surface-binding-store.ts";
+import type { SurfaceBindingRecord } from "./surface-binding-store.ts";
 
 /**
  * Joins a live channel binding's channel and answers what the channel said.

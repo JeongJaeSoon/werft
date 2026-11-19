@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { SurfaceMembership } from "@werft-ai/contracts";
-import type { SurfaceBindingRecord } from "../ports/surface-binding-store.ts";
 import type { ChannelJoinable } from "../surface/ports/channel-joinable.ts";
+import type { SurfaceBindingRecord } from "../surface/ports/surface-binding-store.ts";
 
 export type ChannelJoinSubject = {
   join: ChannelJoinable;

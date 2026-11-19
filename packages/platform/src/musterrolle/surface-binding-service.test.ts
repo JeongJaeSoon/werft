@@ -7,7 +7,7 @@ import { testCaller } from "@werft-ai/testkit/callers";
 import type {
   SurfaceBindingRecord,
   SurfaceBindingStore,
-} from "../ports/surface-binding-store.ts";
+} from "../surface/ports/surface-binding-store.ts";
 import { SessionServiceError } from "./service-errors.ts";
 import { createSurfaceBindingService } from "./surface-binding-service.ts";
 
