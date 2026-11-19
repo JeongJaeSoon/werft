@@ -18,6 +18,62 @@
 | 팀 출처 | IdP 그룹에서 온 팀과 직접 만든 팀을 소유 판정에서 똑같이 다룬다. 다만 IdP 팀은 관리자 팀으로 빌려주지 않는다(기본값). 동기화가 구성원을 빼면 팀 이탈과 같고, 그룹이 사라지면 그 팀을 보관한다 |
 | 알림 | 콘솔: 워크스페이스 관리자에게 에이전트 목록의 "소유자 없음" 묶음과 상세 화면의 경고(차단 날짜 포함). API: 에이전트 행의 `ownerless_since`, `GET /v1/agents?ownerless=true`, counts의 `ownerless` |
 
+## 조사 요약과 시장 동향
+
+조사일 2026-11-20. 대상 기간은 2026년 5–11월이고, 기준이 되는 옛 자료만 그 전 것을 썼다. 제품 문서를 먼저 봤다. 2차 자료나 검색 요약에만 있는 것은 "(확인 안 됨)"으로 적었다.
+
+| 제품 | 소유자 | 소유자가 떠나면 | 누가 넘기나 | 주인 없는 에이전트 |
+|---|---|---|---|---|
+| Microsoft Copilot Studio | 소유자 한 명과 개인 공동 작성자 | 에이전트는 남고 "소유자 없음"이 된다 | 관리자만. 이전 소유자는 접근을 모두 잃는다 | 관리 센터의 "Agents without owners" 카드와 필터. 자동 조치·유예 없음 |
+| Microsoft 365 Agent Builder | 동등한 소유자 여럿(개인만). 마지막 소유자는 뺄 수 없다 | 만든 사람을 지우면 소유자 없음 | 소유자 누구나 소유자 추가. 관리자는 새 소유자 지정 | 위와 같은 목록 |
+| Microsoft Entra Agent ID | 기술 소유자(선택)와 sponsor(필수, 그룹 가능) | sponsor가 떠나면 그 사람의 manager에게 자동으로 넘어간다 | 소유자·sponsor·관리자. 감사 로그에 남는다 | 소유자·sponsor 목록, 위험 에이전트 보고서 |
+| Salesforce Agentforce | 사람 소유자가 없다. 조직 메타데이터이고 권한 집합으로 쓴다 | 찾지 못함 | 해당 없음 | 찾지 못함 |
+| Google Gemini Enterprise | 소유자 정확히 한 명 | 에이전트는 그대로 남고 관리자가 직접 지워야 한다 | 관리자만(공유된 에이전트만). 넘기면 예약·이벤트 trigger가 꺼진다 | 찾지 못함 |
+| ChatGPT custom GPT | 소유자 한 명과 편집 공유 | 워크스페이스 owner에게 자동으로 넘어가고 "unassigned"로 표시된다 | 워크스페이스 owner | "unassigned" 표시 |
+| ChatGPT Workspace Agents | 소유자, 편집자, 사용자 | 찾지 못함(지원팀에 문의하라고 한다, 확인 안 됨) | 소유자만(확인 안 됨) | 찾지 못함 |
+| Glean Agents | 소유자 한 명(공동 소유자 모델을 없애는 중) | 그 사람의 manager에게, 없으면 Agent Moderator에게 넘어가고 메일이 간다 | 소유자, moderator, 관리자. 이전 소유자는 편집자가 된다 | 비활성 에이전트 보고서(30/60/90일 실행 0) |
+| Dust | 소유자 없이 편집자 집합 | 그 사람이 만든 trigger를 영구 삭제한다. 에이전트는 남는다 | 관리자가 "편집자 되기" | 관리자의 "숨은 에이전트" 거름 |
+
+근거:
+
+- Copilot Studio 소유자 재지정: [Reassign ownership of orphaned agents](https://learn.microsoft.com/en-us/microsoft-copilot-studio/admin-api-reassign-ownership-orphaned-agent)(2026-09-11), [Agent actions](https://learn.microsoft.com/en-us/microsoft-365/admin/manage/agent-actions)(2026-09-23), [Agent registry](https://learn.microsoft.com/en-us/microsoft-365/admin/manage/agent-registry)(2026-11-06).
+- Agent Builder 소유자: [Share and manage agents](https://learn.microsoft.com/en-us/microsoft-365-copilot/extensibility/agent-builder-share-manage-agents)(2026-11-12).
+- Entra sponsor: [Owners, sponsors, and managers](https://learn.microsoft.com/en-us/entra/agent-id/agent-owners-sponsors-managers)(2026-09-03), [Manage agent identities](https://learn.microsoft.com/en-us/entra/agent-id/manage-agent-identities-admin)(2026-11-06).
+- Agentforce 권한: [Agentforce permissions explained](https://www.salesforceben.com/agentforce-permissions-explained-agent-users-access-and-security/)(2026-09-11, 2차 자료).
+- Gemini Enterprise: [Release notes](https://docs.cloud.google.com/gemini/enterprise/docs/release-notes)(2026-09-21 항목), [Share custom agents](https://docs.cloud.google.com/gemini/enterprise/docs/share-custom-agents)(2026-11-20 확인), [사용자 제거 시](https://support.google.com/g/answer/17571220)(2025-08, Business edition).
+- ChatGPT: [User lifecycle](https://learn.chatgpt.com/docs/enterprise/user-lifecycle)(2026-11-20 확인), [Workspace agents](https://help.openai.com/en/articles/20001143-chatgpt-workspace-agents-for-enterprise-and-business)(확인 안 됨, 문서를 열지 못해 검색 요약만 봤다).
+- Glean: [Sharing and permissions](https://docs.glean.com/agents/concepts/sharing-permissions)(2026-11-17).
+- Dust: [Agents management](https://docs.dust.tt/docs/user-documentation/admins/agents-management)(날짜 없음).
+
+동향:
+
+- **책임질 사람이 한 명 이상 있어야 한다**는 쪽으로 모인다. Entra는 sponsor를 필수로 두고, Google과 Glean은 소유자를 한 명으로 강제한다. 사람 소유자가 없는 곳은 Agentforce(조직 메타데이터)와 Dust(편집자 집합)다.
+- **그룹은 소유자가 아니라 쓰는 대상이다.** IdP 그룹이 에이전트를 소유하게 하는 제품은 찾지 못했다. 그룹은 사용자나 보기 권한, 많아야 편집자(Glean)다. 예외는 Entra의 그룹 sponsor인데, 이것은 편집 권한이 아니라 책임 표시다.
+- 소유자가 떠날 때 셋으로 갈린다. ① 다른 사람에게 자동으로 넘긴다(manager, 워크스페이스 owner). ② 에이전트를 "소유자 없음"으로 두고 관리자가 처리한다(Microsoft, Google). ③ 딸린 자동 실행을 없앤다(Dust는 trigger 삭제, Google은 넘길 때 trigger를 끈다).
+- **유예 기간이나 자동 차단을 둔 제품은 찾지 못했다.** 정리는 관리자가 직접 한다(차단, 삭제, 재지정). 도구는 소유자 없음 목록(Microsoft)이나 비활성 보고서(Glean)다.
+- 문서화된 위험은 떠난 사람의 권한과 자격 증명으로 에이전트가 계속 도는 것이다. Microsoft Defender 연구는 "소유자가 떠났거나 비활성화된 에이전트"를 숨은 공격면으로 꼽고 찾는 질의를 내놓았다([2026-02-12](https://www.microsoft.com/en-us/security/blog/?p=145270)). Delinea의 2026 보고서도 배포한 사람이 떠난 뒤에도 도는 에이전트를 짚었다([Redmond, 2026-10-29](https://redmondmag.com/articles/2026/10/29/delinea-finds-widespread-ai-problems.aspx)).
+- 소유를 다루는 공통 형식은 없다. MCP, Agent Skills, AGENTS.md 모두 에이전트의 소유자나 승계를 정하지 않는다.
+
+## 따를 것 / 다르게 갈 것
+
+소유는 공통 형식이 없는 영역이다. 그래서 werft가 자기 모델을 갖는다. 소유는 control plane의 데이터이고 엔진이 읽지 않으므로 엔진별 어댑터도 없다.
+
+| 따를 것 | 이 설계에서 |
+|---|---|
+| 책임질 사람이 있다(Entra, Google, Glean) | 소유자는 그 에이전트를 관리할 수 있는 살아 있는 사람이다([결정 1](#결정-1-소유자는-담당-팀과-관리자다-새-칸을-만들지-않는다)) |
+| 그룹은 소유자가 아니다(Microsoft, Google, Glean) | IdP 팀은 관리자 팀으로 빌려주지 않는다. 담당 팀이어도 관리 권한은 werft가 정한 `lead`에게만 간다([결정 6](#결정-6-idp-그룹에서-온-팀도-똑같이-다룬다)) |
+| 소유자 없음 목록과 거름(Microsoft) | 에이전트 목록의 알림, `?ownerless=true`, counts의 `ownerless` |
+| 넘기는 일은 관리자가 하고 기록이 남는다(Microsoft, Google) | 워크스페이스 관리자가 지금의 관리자·담당 팀 변경으로 승계하고, 판정 기록과 receipt가 남는다([결정 4](#결정-4-승계는-지금-있는-변경으로-한다)) |
+| 에이전트를 자동으로 지우거나 멈추지 않는다(모두) | 상태를 바꾸지 않는다. 막는 것은 14일 뒤의 새 세션뿐이다 |
+| 떠난 사람에 딸린 자동 실행을 끊는다(Dust, Google) | 비활성화가 이미 그 사람의 개인 key, 웹 세션, 연결 계정을 끊는다(`members.ts:53-104`) |
+
+| 다르게 갈 것 | 이유 |
+|---|---|
+| 소유자 칸 하나 대신 담당 팀과 관리자 목록으로 판정한다 | werft에는 이미 필수 담당 팀과 관리자 목록이 있다. 칸을 두면 같은 사실을 두 번 적고, 그 사람이 떠날 때 넘기는 절차가 또 필요하다. 오너 요청도 팀이 오래 가는 소유 단위가 되는 것이다 |
+| manager나 워크스페이스 owner에게 자동으로 넘기지 않는다 | werft에는 조직도(manager)가 없다. 워크스페이스 owner에게 자동으로 넘기면(ChatGPT GPT) 받은 사람이 모르는 에이전트의 관리자가 되어, "아무도 모른다"는 문제가 이름만 바뀐다. 대신 표시하고 알린다 |
+| 14일 뒤 새 실행을 막는다 | 시장에 없는 동작이다. 위 위험(떠난 사람이 묶어 둔 자격 증명과 설정으로 계속 도는 것)을 관리자의 손 정리에만 맡기지 않으려는 것이고, 오너가 수락한 정책이다. 진행 중인 세션은 끊지 않고 에이전트 상태도 바꾸지 않아, 되돌리기는 관리자 한 명 지정으로 끝난다 |
+| 팀(IdP 그룹 포함)을 담당 팀으로 둔다 | 그룹을 소유자로 두지 않는다는 시장 원칙은 지키되, 사람이 바뀌어도 소유 단위가 남게 한다. 팀 구성원 전원이 아니라 `lead`만 소유자다 |
+
 ## 지금 구조 (실측)
 
 - **담당 팀은 이미 필수다.** `agents.managing_team_id`는 `NOT NULL`이다(`packages/db/src/schema.ts:3673`). 맡은 에이전트가 있는 팀은 보관하지 못한다(`packages/db/src/musterrolle/member-teams.ts:402`, `409 TEAM_MANAGES_AGENTS`).
@@ -42,7 +98,7 @@
 - 반대 방향(지우기)은 에이전트 쪽 승계 쓰기에서도 한다. 관리자 추가, 관리자 팀 추가, 담당 팀 변경(`packages/db/src/musterrolle/agent-admins.ts`)은 쓰기 뒤 소유자가 있으면 같은 transaction에서 `ownerless_since`를 `NULL`로 만든다. 그래서 승계 직후 다음 pass 전에 소유자가 다시 빠져도 새 14일이 시작된다. `lead` 지정처럼 팀 쪽에서 일어나는 승계는 다음 pass(10초 안)에 지워진다.
 - **유예는 관찰한 기간을 따른다.** 성공한 두 pass 사이에 소유자가 생겼다가 다시 빠지고, 그 사이에 에이전트 쪽 승계 쓰기도 없었다면 같은 기간으로 이어 본다. pass 간격은 보통 10초지만, pass가 오래 걸리거나 실패하거나 reconciler가 멈춘 동안에는 더 길다. 그동안 팀 쪽에서만 일어난 승계는 관찰되지 않을 수 있다. 확실히 새 기간을 시작하려면 에이전트 쪽 승계(관리자 추가, 관리자 팀 추가, 담당 팀 변경)를 쓴다. 콘솔의 승계 버튼은 모두 이쪽이다.
 - `agent_admins` 행은 지우지 않는다. 지금처럼 비활성화된 사람은 판정에서 빠지고, 다시 활성화하면 돌아온다. "회수"를 행 삭제로 하면 잘못 비활성화한 계정을 되돌릴 때 관리자 목록도 다시 만들어야 한다.
-- 담당 팀 필수 전에 만들어져 보관 팀(구성원 없는 팀, migration `0243_agent_managing_team_required`)에 들어간 에이전트는 개인 관리자도 관리자 팀도 없으면 첫 pass에 표시된다. 이 경우가 정확히 찾아야 할 대상이다. 그래서 차단은 경고 화면보다 늦게 켠다([구현 단위](#구현-단위)).
+- 담당 팀 필수 전에 만들어져 보관 팀(구성원 없는 팀, migration `0243_agent_managing_team_required`)에 들어간 에이전트는 개인 관리자도 관리자 팀도 없으면 첫 pass에 표시된다. 이 경우가 정확히 찾아야 할 대상이다. 그래서 차단은 경고 화면보다 늦게 켠다([단계별 구현 계획](#단계별-구현-계획)).
 
 ## 결정 3: 14일 유예 뒤 새 실행을 막는다
 
@@ -63,7 +119,7 @@
 - 누가 하나: 소유자가 없으면 에이전트 관리자가 없으므로 워크스페이스 `owner`·`admin`이 한다. 담당 팀 쪽 승계는 4번이다. 팀 `lead` 지정은 지금처럼 워크스페이스 관리자가 한다. 담당 팀 구성원이 스스로 소유자가 되는 경로는 만들지 않는다. 팀에 들어온 것만으로 관리 권한(자격 증명 연결, key 발급)을 가져가게 되기 때문이다.
 - 판정 기록과 감사: 넷 모두 `agent.admin.manage` 또는 `team.manage` 판정이고 허용도 `authz_decisions`에 남는다. 그리고 각자의 receipt가 남는다. 승계 전용 기록 종류는 만들지 않는다. 판정 기록의 의미를 바꾸는 작업(규칙 거절을 deny로 남기기)이 따로 진행 중이라, 이 설계는 그 판정 API(`requirePermitted`)를 부르기만 하고 판정 기록 쪽 파일은 고치지 않는다.
 - 콘솔은 상세 화면의 경고에서 관리자 탭으로 바로 보낸다. 거기서 1~3을 한다. 4는 팀 화면에서 한다.
-- **세션 인계는 따로다.** 에이전트 승계는 비활성화된 사람이 요청자였던 세션의 인계 대기를 풀지 않는다. 세션 인계(지금의 takeover, 그 권한과 사유 요구 그대로)는 요청자를 바꿀 뿐 에이전트 관리자를 정하지 않는다. 둘은 서로 독립된 복구 단계이고 어느 순서로 해도 된다. 승계 뒤에도 남은 인계 대기 세션 수를 상세 경고에 보이는 일은 O1, O2 다음으로 미룬다. 지금 인계 목록(`GET /v1/takeovers`) 행에는 에이전트가 없어 에이전트별로 셀 수 없고, 콘솔에는 인계 화면도 없다. 그 목록을 만드는 코드는 계정 쪽에서 고치는 중이라 그 변경이 끝난 뒤 행에 `agent_id`와 거름을 더한다. 인계 목록을 읽을 권한은 그대로 두고, 그 권한이 없는 사람에게는 수를 보여 주지 않는다. 그때까지 O1의 상세 경고는 승계 방법 옆에 "요청자가 비활성화된 기존 세션은 따로 인계해야 할 수 있습니다"를 늘 같은 문구로 보인다. 특정 세션이 있는지는 드러내지 않는다. 시험은 두 순서(승계 → 인계, 인계 → 승계)를 모두 본다.
+- **세션 인계는 따로다.** 에이전트 승계는 비활성화된 사람이 요청자였던 세션의 인계 대기를 풀지 않는다. 세션 인계(지금의 takeover, 그 권한과 사유 요구 그대로)는 요청자를 바꿀 뿐 에이전트 관리자를 정하지 않는다. 둘은 서로 독립된 복구 단계이고 어느 순서로 해도 된다. 승계 뒤에도 남은 인계 대기 세션 수를 상세 경고에 보이는 일은 O3으로 미룬다([단계별 구현 계획](#단계별-구현-계획)). 지금 인계 목록(`GET /v1/takeovers`) 행에는 에이전트가 없어 에이전트별로 셀 수 없고, 콘솔에는 인계 화면도 없다. 그 목록을 만드는 코드는 계정 쪽에서 고치는 중이라 그 변경이 끝난 뒤 행에 `agent_id`와 거름을 더한다. 인계 목록을 읽을 권한은 그대로 두고, 그 권한이 없는 사람에게는 수를 보여 주지 않는다. 그때까지 O1의 상세 경고는 승계 방법 옆에 "요청자가 비활성화된 기존 세션은 따로 인계해야 할 수 있습니다"를 늘 같은 문구로 보인다. 특정 세션이 있는지는 드러내지 않는다. 시험은 두 순서(승계 → 인계, 인계 → 승계)를 모두 본다.
 
 ## 결정 5: 팀 개념과 기억 설계에 맞추기
 
@@ -110,12 +166,45 @@
 - Slack DM이나 메일 알림. 워크스페이스 관리자에게 보내는 경로가 아직 없다. 필요하면 후속으로 연다.
 - 유예 기간 설정.
 
-## 구현 단위
+## werft 아키텍처 적용
 
-| 단위 | 내용 | 확인 |
+아래 파일 이름은 기준 커밋에 없는 새 파일을 포함한다. O1 구현 PR이 만든 위치다.
+
+| 층 | 맡는 것 |
+|---|---|
+| contracts (`packages/contracts/src/kollegium/agents.ts`) | 에이전트 행의 `ownerless`, `ownerless_since`, 상수 `AGENT_OWNERLESS_GRACE_DAYS`. O2에서 `reason_code` `agent_ownerless` |
+| db: 판정식 (`packages/db/src/musterrolle/administers.ts`) | 소유자 판정식 하나. `administers()`의 세 갈래에 계정·멤버십이 살아 있는지를 더한 SQL 조각이다. reconciler, 목록 거름, counts, O2의 세션 수락이 모두 이것을 쓴다 |
+| db: 표시 (`packages/db/src/musterrolle/agent-ownership.ts`) | reconciler 한 번에 표시와 해제를 한 질의로 맞춘다 |
+| db: 승계 쓰기 (`packages/db/src/musterrolle/agent-admins.ts`) | 관리자 추가, 관리자 팀 추가, 담당 팀 변경 뒤 같은 transaction에서 표시를 지운다 |
+| db: 읽기 (`packages/db/src/agents.ts`, `packages/core/src/queries.ts`) | 목록 거름 `ownerless`와 counts |
+| db: 세션 수락 (`packages/db/src/postgres-unit-of-work.ts`, O2) | 에이전트 행을 잠그는 자리에서 지금 판정과 표시 시각을 함께 읽는다 |
+| control-host (`apps/control-host/src/reconciler/reconcile.ts`) | pass마다 db의 표시 단계를 부르고, 표시한 수를 로그로 남긴다 |
+| platform (`packages/platform/src/agents/agent-service.ts`) | 행 필드를 그대로 넘긴다. 새 port는 없다 |
+| web (`apps/web/src/components/agent-ownerless.tsx`, `routes/agents.tsx`, `routes/agent-detail.tsx`) | 목록 알림·거름·상태 표시, 상세 경고 |
+
+- **port와 adapter.** 소유자 판정은 SQL이 필요한 곳(목록 거름, counts, 잠금 아래 판정)에서 똑같이 써야 하므로 db 패키지의 SQL 조각으로 둔다. platform은 AgentStore port가 돌려주는 행 필드로만 본다. 엔진 어댑터와는 관계가 없다.
+- **데이터 모델.** `agents.ownerless_since timestamptz NULL` 하나를 더한다. 새 표는 없다. 소유자 자체는 지금의 `agents.managing_team_id`, `agent_admins`, `agent_admin_teams`, 팀 구성원 행에서 판정한다.
+- **통합 접근 판정과의 관계.** 소유자 판정은 판정(`authorize`)이 아니다. 판정이 쓰는 관리자 판정식(`administers()`)을 같이 읽는 상태다. 승계 쓰기는 지금처럼 `requirePermitted`(`agent.admin.manage`, `team.manage`)를 지나고 허용도 기록된다. O2의 차단은 정책 거절이 아니라 `agent_inactive`와 같은 실행 가능성 이유(`AGENT_NOT_RUNNABLE`)다. 그래서 판정 기록 쪽 파일은 고치지 않는다.
+
+검토한 대안:
+
+| 대안 | 버린 이유 |
+|---|---|
+| 소유자 칸과 소유권 이전 API(시장 다수) | [따를 것 / 다르게 갈 것](#따를-것--다르게-갈-것)의 첫 줄 |
+| 소유자를 없애는 쓰기마다 표시하기 | 경로가 일곱 곳이고 하나를 빠뜨리면 표시가 영원히 생기지 않는다([결정 2](#결정-2-회수는-표시다)) |
+| DB trigger로 표시하기 | 판정식이 여러 표를 읽는다. 계정·멤버십·팀 변경마다 영향받는 에이전트를 다시 계산해야 하고, 그 계산이 쓰기 transaction을 길게 만든다. reconciler가 이미 10초마다 돈다 |
+| 다른 사람에게 자동으로 넘기기(manager, 워크스페이스 owner) | 같은 표의 둘째 줄 |
+| 소유자 없는 에이전트를 자동으로 멈추거나 보관하기 | 쓰던 사람의 Slack·API 경로가 한꺼번에 끊기고, 되돌릴 때 상태 복구가 따로 필요하다. 시장도 자동 정지를 하지 않는다 |
+
+## 단계별 구현 계획
+
+단계마다 PR 하나다. 다음 단계는 앞 단계가 병합된 뒤 시작한다.
+
+| 단계 | 내용 | 끝나는 조건 |
 |---|---|---|
-| O1 | migration(`ownerless_since`), 소유자 판정식 하나, reconciler pass, 에이전트 쪽 승계 쓰기의 즉시 해제, API 필드·필터·counts, 콘솔 목록 알림·필터·상태 표시와 상세 경고(차단 예정 날짜, 승계 방법), OpenAPI·문서. **차단은 넣지 않는다** | db integration 시험: 일곱 가지 제거 경로 각각 → 표시, 다른 갈래 관리자가 남으면 표시 안 됨, 승계 네 가지 → 해제, 에이전트 쪽 승계 직후 다시 제거 → 새 기간, 관찰되지 않은 팀 쪽 승계 → 같은 기간. web 시험, 실제 스택, 스크린샷 |
-| O2 | 세션 시작 차단(`agent_ownerless`, 세션을 쓰는 transaction 안의 단일 판정), Slack 안내, 문서 | O1이 배포된 뒤. db 시험: 14일 경계, transaction 전 판정과 승계가 엇갈리는 경우, 마지막 관리자 제거와 동시에 들어온 시작(받아들이는 동작을 기록하는 시험), 승계 → 인계 / 인계 → 승계 두 순서. 실제 스택에서 비활성화 → 표시 → (시각 조정) 차단 → 승계 → 실행 재개 |
+| O1 표시 | migration(`ownerless_since`), 소유자 판정식 하나, reconciler pass, 에이전트 쪽 승계 쓰기의 즉시 해제, API 필드·거름·counts, 콘솔 목록 알림·거름·상태 표시와 상세 경고(차단 예정 날짜, 승계 방법, 인계 안내 고정 문구), OpenAPI·문서. **차단은 넣지 않는다** | CI의 db integration 시험이 통과한다: 일곱 가지 제거 경로 각각 → 표시, 다른 갈래 관리자가 남으면 표시 안 됨, 승계 네 가지 → 해제, 에이전트 쪽 승계 직후 다시 제거 → 새 기간, 관찰되지 않은 팀 쪽 승계 → 같은 기간. web 시험 통과. 실제 스택에서 비활성화 → 목록 알림·상세 경고 → 승계 → 해제를 화면으로 확인하고 스크린샷을 PR에 남긴다. 교차 리뷰 지적(ACT-ON) 0 |
+| O2 차단 | 세션 시작 차단(`agent_ownerless`, 세션을 쓰는 transaction 안의 단일 판정), Slack 안내, 문서 | O1이 배포된 뒤 시작한다. db 시험: 14일 경계, transaction 전 판정과 승계가 엇갈리는 경우, 마지막 관리자 제거와 동시에 들어온 시작(받아들이는 동작을 기록하는 시험), 승계 → 인계 / 인계 → 승계 두 순서. 실제 스택에서 비활성화 → 표시 → (시각 조정) 차단 → 승계 → 실행 재개. ACT-ON 0 |
+| O3 인계 대기 수 | 인계 목록 행에 `agent_id`와 `?agent_id` 거름, 상세 경고의 인계 대기 세션 수와 세션 목록 링크 | 계정 쪽 판정 기록 변경이 병합된 뒤 시작한다. 인계 목록 권한이 없는 사람에게 수가 보이지 않는 시험, 두 복구 순서 시험, 실제 스택 스크린샷. ACT-ON 0 |
 
 - 배포 순서: O1이 먼저 나가 표시와 경고가 보이게 한 뒤 O2로 차단을 켠다. O1 배포 때 이미 소유자가 없는 에이전트(보관 팀의 옛 에이전트 포함)는 첫 pass 시각이 `ownerless_since`가 되므로, O2가 같은 날 나가도 실제 차단은 그로부터 14일 뒤다. O1의 pass는 표시한 에이전트 수를 로그로 남겨, 설치마다 영향받을 에이전트 수를 차단 전에 알 수 있게 한다.
 - IdP 동기화 자체는 이 단위들에 없다. 동기화를 만들 때 [결정 6](#결정-6-idp-그룹에서-온-팀도-똑같이-다룬다)의 규칙(관리자 팀 거절, 그룹 삭제 = 보관, 담당 팀이어도 보관)을 지킨다.
@@ -130,3 +219,5 @@
 - 워크스페이스 관리자는 소유자로 세지 않는다.
 - 담당 팀 구성원이 스스로 소유자가 되는 경로는 없다(워크스페이스 관리자가 `lead`를 지정한다).
 - 유예는 14일 고정이다.
+- 소유자가 없어져도 다른 사람(워크스페이스 owner 등)에게 자동으로 넘기지 않는다.
+- 유예 뒤 새 실행 차단은 조사한 제품 어디에도 없는 동작이다. 오너가 수락한 정책이라 그대로 두되, 이 점을 기록해 둔다.
