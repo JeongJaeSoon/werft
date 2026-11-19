@@ -284,11 +284,13 @@ export interface AuthorizationPolicy {
   ): Promise<{ agentId: string; usage: UsageDecision; inside: boolean } | null>;
   /**
    * `record: false` decides without keeping the decision: for what a screen
-   * offers, never for an act.
+   * offers, never for an act. `record: "deny"` keeps every outcome but an
+   * allow, which it hands back unrecorded for an act whose store keeps it
+   * with the change (`UnrecordedAllow`).
    */
   authorize(
     request: AuthorizationRequest,
-    options?: { record?: false },
+    options?: { record?: false | "deny" },
   ): Promise<AuthorizationDecision>;
 }
 
@@ -914,6 +916,7 @@ export function createAuthorizationPolicy(
       if (
         !decisions ||
         options?.record === false ||
+        (options?.record === "deny" && decision.outcome === "allow") ||
         !parsed.success ||
         !mustRecord(parsed.data, decision)
       ) {

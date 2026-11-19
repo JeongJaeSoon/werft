@@ -1029,6 +1029,21 @@ describe("decision log", () => {
     expect((await decide(request(web), using)).outcome).toBe("allow");
   });
 
+  test('record: "deny" keeps a refusal and leaves an allow to its store', async () => {
+    const { entries, policy: using } = logged();
+    const approval = await using.authorize(
+      request(web, { action: "session.approve" }),
+      { record: "deny" },
+    );
+    expect(approval.outcome).toBe("allow");
+    expect(entries).toEqual([]);
+    const refused = await using.authorize(
+      request(web, { action: "session.recover" }),
+      { record: "deny" },
+    );
+    expect(entries.map((entry) => entry.decision)).toEqual([refused]);
+  });
+
   test("a refusal stays a refusal when it cannot be kept", async () => {
     const { policy: using } = logged(true);
     const decision = await decide(

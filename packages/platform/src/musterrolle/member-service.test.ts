@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { createMemberService } from "./member-service.ts";
 import { callerFor, createAuthorizationPolicy } from "./policy.ts";
-import type { MemberStore, SetAccessResult } from "./ports/member-store.ts";
+import type { DecisionEntry } from "./ports/decision-log.ts";
+import {
+  accessRefusal,
+  type MemberStore,
+  type SetAccessResult,
+} from "./ports/member-store.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const OWNER = "019a0000-0000-7000-8000-0000000000a1";
@@ -19,8 +24,11 @@ const member = {
 
 function serviceAnswering(result: SetAccessResult) {
   const calls: Parameters<MemberStore["setAccess"]>[0][] = [];
+  const recorded: DecisionEntry[] = [];
   const service = createMemberService({
-    authorization: createAuthorizationPolicy(),
+    authorization: createAuthorizationPolicy({
+      decisions: { record: async (entry) => void recorded.push(entry) },
+    }),
     store: {
       setAccess: async (input) => {
         calls.push(input);
@@ -30,7 +38,7 @@ function serviceAnswering(result: SetAccessResult) {
       takeOver: async () => ({ outcome: "not_found" }),
     },
   });
-  return { service, calls };
+  return { service, calls, recorded };
 }
 
 function asOwner() {
@@ -59,7 +67,9 @@ describe("member access", () => {
   });
 
   test("a member and an API key never reach the store", async () => {
-    const { service, calls } = serviceAnswering({ outcome: "not_found" });
+    const { service, calls, recorded } = serviceAnswering({
+      outcome: "not_found",
+    });
     const asMember = callerFor(
       {
         kind: "user",
@@ -89,6 +99,56 @@ describe("member access", () => {
       });
     }
     expect(calls).toEqual([]);
+    expect(
+      recorded.map(({ decision }) => [decision.outcome, decision.reason_code]),
+    ).toEqual([
+      ["deny", "role"],
+      ["deny", "role"],
+    ]);
+  });
+
+  test("an allow is left for the store to keep with the change", async () => {
+    const { service, calls, recorded } = serviceAnswering({
+      outcome: "self_protected",
+    });
+    await expect(service.disableMember(asOwner(), OWNER)).rejects.toThrow();
+    expect(recorded).toEqual([]);
+    expect(calls[0]?.decision).toMatchObject({
+      request: {
+        action: "member.manage",
+        resource: { owner_scope: WORKSPACE },
+      },
+      decision: { outcome: "allow", reason_code: "ok" },
+    });
+  });
+
+  test("the rules among the store's outcomes are refusals; the rest let the allow stand", () => {
+    const outcomes: SetAccessResult["outcome"][] = [
+      "changed",
+      "unchanged",
+      "not_found",
+      "account_disabled",
+      "actor_inactive",
+      "elsewhere",
+      "outranked",
+      "self_protected",
+      "last_owner",
+      "emergency_admin",
+    ];
+    expect(
+      Object.fromEntries(outcomes.map((o) => [o, accessRefusal(o)])),
+    ).toEqual({
+      changed: null,
+      unchanged: null,
+      not_found: null,
+      account_disabled: null,
+      actor_inactive: "role",
+      elsewhere: "role",
+      outranked: "owner_protected",
+      self_protected: "self_protected",
+      last_owner: "last_owner",
+      emergency_admin: "emergency_admin",
+    });
   });
 
   test("the store is asked as the acting owner, in the caller's workspace, with the reason", async () => {

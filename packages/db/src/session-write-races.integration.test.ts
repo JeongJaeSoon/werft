@@ -39,6 +39,7 @@ import {
 } from "./schema.ts";
 import { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
 import { fixtureTeam, joinFixtureTeam } from "./testing/fixture-team.ts";
+import { allowFor } from "./testing/member-manage-allow.ts";
 import {
   fixtureRelease,
   releaseSpecColumns,
@@ -344,6 +345,7 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
 
   const setDisabled = (by: Caller, who: Caller, disabled: boolean) =>
     members().setAccess({
+      decision: allowFor(acting(by)),
       actor: acting(by),
       userId: idOf(who),
       scope: "membership",

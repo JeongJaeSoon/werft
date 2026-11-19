@@ -37,6 +37,7 @@ import {
 } from "./schema.ts";
 import { fixtureTeam, joinFixtureTeam } from "./testing/fixture-team.ts";
 import { launchSession } from "./testing/launches.ts";
+import { memberManageAllow } from "./testing/member-manage-allow.ts";
 import {
   fixtureRelease,
   releaseSpecColumns,
@@ -328,6 +329,7 @@ integration("members, identity and takeover on PostgreSQL", () => {
     } = {},
   ) {
     return createPostgresMemberStore(db).setAccess({
+      decision: memberManageAllow({ workspaceId, actorUserId: actingUserId }),
       actor: {
         principal: { ...asUser(workspaceId, actingUserId), requestId: "req-1" },
         workspaceId,

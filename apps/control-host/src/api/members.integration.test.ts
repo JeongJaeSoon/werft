@@ -26,6 +26,7 @@ import {
   users,
 } from "@werft-ai/db";
 import { joinFixtureTeam } from "@werft-ai/db/testing/fixture-team";
+import { memberManageAllow } from "@werft-ai/db/testing/member-manage-allow";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
@@ -460,15 +461,18 @@ integration("members and actors over HTTP on PostgreSQL", () => {
     const kept = await db
       .select({
         outcome: schema.authzDecisions.outcome,
+        reason: schema.authzDecisions.reasonCode,
         actor: schema.authzDecisions.actorUserId,
       })
       .from(schema.authzDecisions)
       .where(eq(schema.authzDecisions.action, "member.manage"))
       .orderBy(schema.authzDecisions.at);
+    // One row per request: the owner turning themselves off is kept as the
+    // refusal it was, not as the role's allow.
     expect(kept.slice(decisionsBefore)).toEqual([
-      { outcome: "deny", actor: memberId },
-      { outcome: "allow", actor: ownerId },
-      { outcome: "allow", actor: ownerId },
+      { outcome: "deny", reason: "role", actor: memberId },
+      { outcome: "deny", reason: "self_protected", actor: ownerId },
+      { outcome: "allow", reason: "ok", actor: ownerId },
     ]);
 
     expect(await endOf(cookieStream, offboardedAt)).toBeLessThan(
@@ -662,5 +666,127 @@ integration("members and actors over HTTP on PostgreSQL", () => {
       "enable_user",
     ]);
     await login("two-places@example.com");
+  });
+
+  // The request's decision rows, by the id the response names.
+  async function decisionsOf(response: Response) {
+    const requestId = response.headers.get("X-Request-Id") ?? "";
+    return db
+      .select({
+        outcome: schema.authzDecisions.outcome,
+        reason: schema.authzDecisions.reasonCode,
+      })
+      .from(schema.authzDecisions)
+      .where(eq(schema.authzDecisions.requestId, requestId));
+  }
+
+  const access = (
+    action: "disable" | "enable",
+    userId: string,
+    cookie: string,
+  ) =>
+    app.request(`/v1/members/${userId}/${action}`, {
+      method: "POST",
+      headers: { ...asCookie(cookie), "Content-Type": "application/json" },
+      body: "{}",
+    });
+
+  test("a rule the store refuses under its locks is the request's one decision, a deny", async () => {
+    const adminId = await addMember("admin@example.com");
+    await db
+      .update(memberships)
+      .set({ role: "admin" })
+      .where(sql`workspace_id = ${workspaceId} AND user_id = ${adminId}`);
+    const adminCookie = await login("admin@example.com");
+
+    const outranked = await access("disable", ownerId, adminCookie);
+    expect(outranked.status).toBe(403);
+    expect(await decisionsOf(outranked)).toEqual([
+      { outcome: "deny", reason: "owner_protected" },
+    ]);
+    const self = await access("disable", adminId, adminCookie);
+    expect(self.status).toBe(403);
+    expect(await decisionsOf(self)).toEqual([
+      { outcome: "deny", reason: "self_protected" },
+    ]);
+    // Already enabled: the act was allowed and found nothing to change.
+    const unchanged = await access("enable", adminId, ownerCookie);
+    expect(unchanged.status).toBe(200);
+    expect(await decisionsOf(unchanged)).toEqual([
+      { outcome: "allow", reason: "ok" },
+    ]);
+  });
+
+  async function owner(email: string) {
+    const userId = await addMember(email);
+    await db
+      .update(memberships)
+      .set({ role: "owner" })
+      .where(sql`workspace_id = ${workspaceId} AND user_id = ${userId}`);
+    return userId;
+  }
+
+  test("the emergency admin is not turned off, and that refusal is the one row", async () => {
+    // The bootstrap owner is the emergency admin.
+    await owner("third-owner@example.com");
+    const otherCookie = await login("third-owner@example.com");
+    const refused = await access("disable", ownerId, otherCookie);
+    expect(refused.status).toBe(409);
+    expect(await decisionsOf(refused)).toEqual([
+      { outcome: "deny", reason: "emergency_admin" },
+    ]);
+  });
+
+  test("two owners turning each other off at once: one change, one refusal, a row each", async () => {
+    const a = await owner("owner-a@example.com");
+    const b = await owner("owner-b@example.com");
+    const store = createPostgresMemberStore(db);
+    // Both past the policy, so the store's locks decide between them.
+    const off = (by: string, target: string) => {
+      const allowed = memberManageAllow({ workspaceId, actorUserId: by });
+      return store
+        .setAccess({
+          decision: allowed,
+          actor: {
+            principal: {
+              ownerId: workspaceId,
+              requestId: allowed.request.request_id,
+              actor: {
+                principal: { kind: "user", id: by },
+                userId: by,
+                workspaceId,
+                apiKeyId: null,
+              },
+            },
+            workspaceId,
+            userId: by,
+          },
+          userId: target,
+          scope: "membership",
+          disabled: true,
+          reason: null,
+          receiptId: crypto.randomUUID(),
+        })
+        .then((result) => ({ result, requestId: allowed.request.request_id }));
+    };
+    const settled = await Promise.all([off(a, b), off(b, a)]);
+    expect(settled.map(({ result }) => result.outcome).sort()).toEqual([
+      "actor_inactive",
+      "changed",
+    ]);
+    for (const { result, requestId } of settled) {
+      const rows = await db
+        .select({
+          outcome: schema.authzDecisions.outcome,
+          reason: schema.authzDecisions.reasonCode,
+        })
+        .from(schema.authzDecisions)
+        .where(eq(schema.authzDecisions.requestId, requestId));
+      expect(rows).toEqual([
+        result.outcome === "changed"
+          ? { outcome: "allow", reason: "ok" }
+          : { outcome: "deny", reason: "role" },
+      ]);
+    }
   });
 });

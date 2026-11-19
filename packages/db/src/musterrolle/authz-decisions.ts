@@ -3,7 +3,13 @@ import {
   AUDIT_RETENTION_MIN_DAYS,
   auditRetentionDaysSchema,
 } from "@werft-ai/contracts";
-import type { AuditRetentionStore, DecisionLog } from "@werft-ai/platform";
+import type {
+  AuditRetentionStore,
+  DecisionEntry,
+  DecisionLog,
+  RefusalOf,
+  UnrecordedAllow,
+} from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { lockActorAccount } from "../control-shared.ts";
 import type { Database } from "../queries.ts";
@@ -16,33 +22,76 @@ import {
 } from "../schema.ts";
 import { rowsOf } from "../statement-rows.ts";
 
+function decisionRow({ request, decision }: DecisionEntry) {
+  const { subject, resource } = request;
+  return {
+    id: decision.decision_id,
+    ownerId: resource.owner_scope,
+    workspaceId: subject.principal?.workspace_id ?? null,
+    principalKind: subject.principal?.kind ?? null,
+    principalId: subject.principal?.id ?? null,
+    actorUserId: subject.actor_user_id ?? null,
+    agentId: subject.agent?.agent_id ?? null,
+    agentReleaseId: subject.agent?.release_id ?? null,
+    linkedAccountId: subject.linked_account?.id ?? null,
+    linkedAccountRevision: subject.linked_account?.revision ?? null,
+    surface: subject.surface,
+    action: request.action,
+    resourceKind: resource.kind,
+    resourceId: resource.id,
+    outcome: decision.outcome,
+    reasonCode: decision.reason_code,
+    justification: subject.justification ?? null,
+    policyVersion: decision.policy_version,
+    requestId: request.request_id,
+  };
+}
+
 export function createPostgresDecisionLog(db: Database): DecisionLog {
   return {
-    async record({ request, decision }) {
-      const { subject, resource } = request;
-      await db.insert(authzDecisions).values({
-        id: decision.decision_id,
-        ownerId: resource.owner_scope,
-        workspaceId: subject.principal?.workspace_id ?? null,
-        principalKind: subject.principal?.kind ?? null,
-        principalId: subject.principal?.id ?? null,
-        actorUserId: subject.actor_user_id ?? null,
-        agentId: subject.agent?.agent_id ?? null,
-        agentReleaseId: subject.agent?.release_id ?? null,
-        linkedAccountId: subject.linked_account?.id ?? null,
-        linkedAccountRevision: subject.linked_account?.revision ?? null,
-        surface: subject.surface,
-        action: request.action,
-        resourceKind: resource.kind,
-        resourceId: resource.id,
-        outcome: decision.outcome,
-        reasonCode: decision.reason_code,
-        justification: subject.justification ?? null,
-        policyVersion: decision.policy_version,
-        requestId: request.request_id,
-      });
+    async record(entry) {
+      await db.insert(authzDecisions).values(decisionRow(entry));
     },
   };
+}
+
+/**
+ * Runs a store's body in a transaction that also keeps the request's one
+ * decision row: the allow, or a deny for the rule `refusalOf` reads in the
+ * outcome. The row commits with the change or not at all, so no refusal
+ * decided under the store's locks is left on record as an allow.
+ */
+export function decidedTransaction<Result extends { outcome: string }>(
+  db: Database,
+  allowed: UnrecordedAllow,
+  refusalOf: RefusalOf<Result["outcome"]>,
+): (body: (tx: Database) => Promise<Result>) => Promise<Result> {
+  if (allowed.decision.outcome !== "allow") {
+    throw new Error("only an allow is left for the store to keep");
+  }
+  return (body) =>
+    db.transaction(async (tx) => {
+      const result = await body(tx);
+      const reason = refusalOf(result.outcome);
+      const { decision } = allowed;
+      await tx.insert(authzDecisions).values(
+        decisionRow(
+          reason === null
+            ? allowed
+            : {
+                request: allowed.request,
+                decision: {
+                  outcome: "deny",
+                  reason_code: reason,
+                  effective_scopes: [],
+                  policy_version: decision.policy_version,
+                  decision_id: decision.decision_id,
+                },
+              },
+        ),
+      );
+      return result;
+    });
 }
 
 export function createPostgresAuditRetention(

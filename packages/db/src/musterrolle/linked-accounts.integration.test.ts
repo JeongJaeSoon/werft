@@ -28,6 +28,7 @@ import {
   registerSlackInstallation,
   verifySlackInstallation,
 } from "../surface/slack-installations.ts";
+import { memberManageAllow } from "../testing/member-manage-allow.ts";
 import { createDatabaseIdentityReader } from "./identity-reader.ts";
 import {
   createPostgresLinkedAccountStore,
@@ -105,6 +106,7 @@ integration("linked_accounts on PostgreSQL", () => {
 
   function offboard(ws: string, userId: string, ownerId: string) {
     return createPostgresMemberStore(db).setAccess({
+      decision: memberManageAllow({ workspaceId: ws, actorUserId: ownerId }),
       actor: {
         principal: { ...asUser(ws, ownerId), requestId: "req-offboard" },
         workspaceId: ws,
@@ -585,6 +587,7 @@ integration("linked_accounts on PostgreSQL", () => {
           [receiptId, ws],
         );
         const offboarding = createPostgresMemberStore(db).setAccess({
+          decision: memberManageAllow({ workspaceId: ws, actorUserId: owner }),
           actor: {
             principal: { ...asUser(ws, owner), requestId: "req-offboard" },
             workspaceId: ws,

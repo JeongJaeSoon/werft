@@ -11,7 +11,10 @@ import type {
   AccessScope,
   MemberStore,
 } from "./ports/member-store.ts";
-import { requirePermitted } from "./require-permitted.ts";
+import {
+  requireAllowedUnrecorded,
+  requirePermitted,
+} from "./require-permitted.ts";
 import { EMERGENCY_ADMIN, SessionServiceError } from "./service-errors.ts";
 
 /** `receiptId` and `effects` are null when the state was already as asked. */
@@ -49,10 +52,12 @@ export function createMemberService(deps: {
       reason: string | null;
     },
   ): Promise<AccessChange> {
-    await requirePermitted(authorization, caller, "member.manage", {
-      kind: "workspace",
-      id: caller.ownerId,
-    });
+    const decision = await requireAllowedUnrecorded(
+      authorization,
+      caller,
+      "member.manage",
+      { kind: "workspace", id: caller.ownerId },
+    );
     const actingUserId = personOf(caller);
     const workspaceId = caller.actor?.workspaceId;
     if (!workspaceId) {
@@ -62,6 +67,7 @@ export function createMemberService(deps: {
       );
     }
     const result = await store.setAccess({
+      decision,
       actor: { principal: caller, workspaceId, userId: actingUserId },
       userId: input.userId.toLowerCase(),
       scope: input.scope,

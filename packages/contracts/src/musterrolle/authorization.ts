@@ -573,6 +573,16 @@ export const AUTHORIZATION_REASON_VALUES = [
   "justification_required",
   // An approval by the very key that started the session (GA-8).
   "self_approval",
+  // A member rule the store decides under its row locks, after the role
+  // allowed the act: only an owner touches an owner or grants the owner
+  // role; nobody turns off or demotes themselves; the last live owner
+  // stays; the emergency admin stays an enabled owner; a key holds no scope
+  // its issuer lacks.
+  "owner_protected",
+  "self_protected",
+  "last_owner",
+  "emergency_admin",
+  "scope_not_grantable",
   // Fail-closed: a throw, a storage error, a malformed request or an
   // action/resource pair the policy has no rule for.
   "error",
