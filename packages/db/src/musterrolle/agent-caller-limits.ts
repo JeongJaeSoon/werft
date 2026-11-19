@@ -11,6 +11,7 @@ import {
   type WorkspaceMcpStart,
   workspaceMcpStartSchema,
 } from "@werft-ai/contracts";
+import type { StructuredLogger } from "@werft-ai/observability";
 import {
   type AgentCallerLimitsStore,
   type CallerLimit,
@@ -501,7 +502,10 @@ export async function recordCallerLimited(
   );
 }
 
-export function createPostgresCallerLimitGate(db: Database): CallerLimitGate {
+export function createPostgresCallerLimitGate(
+  db: Database,
+  logger: Pick<StructuredLogger, "warn">,
+): CallerLimitGate {
   return {
     async startRefusal(input) {
       const limit = await callerLimitOf(db, input, false);
@@ -523,7 +527,18 @@ export function createPostgresCallerLimitGate(db: Database): CallerLimitGate {
           agentId: input.agentId,
           releaseId: input.releaseId,
           sessionId: null,
-        }).catch(() => undefined);
+        }).catch((error: unknown) =>
+          // The start is refused either way; only its decision row is lost.
+          // The name only: a failed insert's message carries its parameters.
+          logger.warn("Caller limit refusal could not be recorded", {
+            workspace_id: input.workspaceId,
+            agent_id: input.agentId,
+            release_id: input.releaseId,
+            request_id: input.requestId,
+            dimension,
+            error_name: error instanceof Error ? error.name : typeof error,
+          }),
+        );
       }
       return dimension;
     },

@@ -189,7 +189,7 @@ export function slackSessionHandler(deps: {
     },
     extensions: extensionDepsFor(db),
     credentials,
-    callerLimits: createPostgresCallerLimitGate(db),
+    callerLimits: createPostgresCallerLimitGate(db, logger),
     limits: installationConfigOf(db, logger).sessionLimits,
   });
   const { secretKey } = deps;
