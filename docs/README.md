@@ -80,5 +80,6 @@ API로 세션을 만들고 쓰는 사람.
 | [결정(설계): 범용 OIDC 로그인 공급자](contributing/decisions/oidc-login-providers.md) | 공급자를 설정 행으로 두는 OIDC 모듈 구조, 검증 순서와 거절 경우, endpoint 고정과 주소 검사, 봉인한 흐름 cookie, `login_providers`·`login_methods`·세션의 로그인 수단 칸, 증명된 주소와 초대 token 가입·계정 연결 규칙, 관리자 화면과 테스트 로그인, 공급자 끄기와 세션 끊기, 비밀번호 끄기·비상 관리자·CLI 복구, 공급자별 차이, `GOOGLE_OIDC_*` 제거, 단계별 PR (Codex 설계 리뷰 승인, 구현 중) |
 | [결정(설계): 새 control-host와 지원 창 안 옛 worker의 호환 계약](contributing/decisions/worker-compat.md) | 요청·응답·JSON 밖의 약속·DB의 expand → contract 규칙, 직전 지원 릴리스의 worker protocol 고정본과 두 방향 계약 시험, 실제 이미지 매트릭스와 릴리스 gate, migration 삭제 검사 |
 | [결정(설계): egress proxy forward 연결 이어 쓰기](contributing/decisions/egress-proxy-keep-alive.md) | Bun fetch가 닫힐 proxy 연결을 다시 써서 끊기는 문제, 요청을 하나씩 받는 안을 고른 이유, 이어 쓰는 조건, 지키는 smuggling 방어와 시험 사례 |
+| [결정(설계): 에이전트 기억 레이어](contributing/decisions/memory-layer.md) | 세션·개인·에이전트·워크스페이스 네 범위와 개인 ≠ 에이전트인 이유, 승격 흐름, 읽기·쓰기 집행 순서(RBAC → `memoryWritePolicy` → 데이터 접근 정책 → 가시성 → 감사), MCP 도구 넷, `MemoryService` 포트와 계약 시험, 정리(드리밍), 주입·개인 정보·삭제, 엔진 자체 기억 끄기, 단계 계획 |
 | [결정(설계): 에이전트 지도 뷰 선택(폐기)](contributing/decisions/agent-map-views.md) | 그래프를 두고 줌 캔버스를 두 번째 뷰로 고르게 하던 설계의 기록. 에이전트 지도는 2026-11-14 오너 결정으로 지웠다 |
 | [실제 Claude로 확인하기](real-claude.md) | 실제 Claude로 스택 확인 |
