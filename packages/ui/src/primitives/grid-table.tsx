@@ -380,9 +380,10 @@ export function GridTableColumnHeader({
 export type GridTableCellProps = Omit<ComponentProps<"div">, "role"> &
   GridTableCellLayout & {
     /**
-     * v4 `.cell.col`: the children stacked, a 20px first line then 16px lines
-     * that end in "…" instead of wrapping. The ellipsis is visual only; give
-     * the line a `title` or Tooltip with the full text.
+     * v4 `.cell.col`: the children stacked, a 20px first line that wraps
+     * (anywhere, if a word is wider than the cell) then 16px lines that end
+     * in "…" instead of wrapping. The ellipsis is visual only; give the line
+     * a `title` or Tooltip with the full text.
      */
     readonly lines?: boolean | undefined;
     /**
@@ -420,9 +421,12 @@ export function GridTableCell({
       data-raised={raised || undefined}
       className={cn(
         cellClasses(narrow, align, hideNarrow),
-        // The lines after the first that is not the row opener.
+        // Every line stays in the cell: an item of a column that starts its
+        // items is as wide as its content, so a name with no break in it
+        // (`mcp__docs__find_page`) would run over the next column. The first
+        // line wraps anywhere; the lines after it end in "…".
         lines &&
-          "flex-col items-start gap-[var(--werft-row-line-gap)] leading-5 [&>:not([data-slot=grid-table-row-opener])~*]:max-w-full [&>:not([data-slot=grid-table-row-opener])~*]:truncate [&>:not([data-slot=grid-table-row-opener])~*]:leading-4",
+          "flex-col items-start gap-[var(--werft-row-line-gap)] leading-5 [&>:not([data-slot=grid-table-row-opener])]:max-w-full [&>:not([data-slot=grid-table-row-opener])]:[overflow-wrap:anywhere] [&>:not([data-slot=grid-table-row-opener])~*]:truncate [&>:not([data-slot=grid-table-row-opener])~*]:leading-4",
         raised && "relative z-1",
         className,
       )}
