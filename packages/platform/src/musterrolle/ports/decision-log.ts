@@ -26,6 +26,16 @@ export type RefusalOf<Outcome extends string> = (
   outcome: Outcome,
 ) => AuthorizationReason | null;
 
+/**
+ * A store's rules among its outcomes. The outcomes left out answer for the
+ * state the allowed act met (gone, already so, disabled), so the allow stands.
+ */
+export function refusals<Outcome extends string>(
+  table: Partial<Record<Outcome, AuthorizationReason>>,
+): RefusalOf<Outcome> {
+  return (outcome) => table[outcome] ?? null;
+}
+
 export interface AuditRetentionStore {
   /**
    * False when the workspace does not exist or `ownerUserId` is no longer an

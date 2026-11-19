@@ -356,6 +356,7 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
 
   const setRole = (by: Caller, who: Caller, role: "admin" | "member") =>
     invites().changeMemberRole({
+      decision: allowFor(acting(by)),
       actor: acting(by),
       userId: idOf(who),
       role,

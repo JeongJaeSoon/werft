@@ -34,6 +34,7 @@ import {
   workspaces,
 } from "../schema.ts";
 import { fixtureTeam } from "../testing/fixture-team.ts";
+import { allowFor, memberManageAllow } from "../testing/member-manage-allow.ts";
 import { bootstrapOwner, createWebSession } from "./identity.ts";
 import { createPostgresInviteStore } from "./invites.ts";
 
@@ -115,6 +116,7 @@ integration("invite store on PostgreSQL", () => {
     const token = `apv_${randomUUID()}`;
     const receiptId = randomUUID();
     const result = await store.createInvite({
+      decision: allowFor(actor),
       id: randomUUID(),
       actor,
       email,
@@ -361,10 +363,20 @@ integration("invite store on PostgreSQL", () => {
     if (pending.result.outcome !== "created") throw new Error("not created");
     const id = pending.result.invite.id;
     expect(
-      await store.revokeInvite({ id, actor, receiptId: randomUUID() }),
+      await store.revokeInvite({
+        decision: allowFor(actor),
+        id,
+        actor,
+        receiptId: randomUUID(),
+      }),
     ).toEqual({ outcome: "revoked" });
     expect(
-      await store.revokeInvite({ id, actor, receiptId: randomUUID() }),
+      await store.revokeInvite({
+        decision: allowFor(actor),
+        id,
+        actor,
+        receiptId: randomUUID(),
+      }),
     ).toEqual({ outcome: "already_revoked" });
     expect(await store.peekInvite(hashOf(pending.token))).toEqual({
       outcome: "expired",
@@ -374,6 +386,7 @@ integration("invite store on PostgreSQL", () => {
     await store.acceptInvite(newAccount(used.token));
     expect(
       await store.revokeInvite({
+        decision: allowFor(actor),
         id: used.result.invite.id,
         actor,
         receiptId: randomUUID(),
@@ -381,6 +394,7 @@ integration("invite store on PostgreSQL", () => {
     ).toEqual({ outcome: "accepted" });
     expect(
       await store.revokeInvite({
+        decision: allowFor(actor),
         id: randomUUID(),
         actor,
         receiptId: randomUUID(),
@@ -538,6 +552,7 @@ integration("invite store on PostgreSQL", () => {
         ),
       async (owner: string) =>
         store.changeMemberRole({
+          decision: allowFor(acting(ws, owner)),
           userId: await member(ws, "member"),
           role: "owner",
           actor: acting(ws, owner),
@@ -584,6 +599,7 @@ integration("invite store on PostgreSQL", () => {
         [target],
       );
       const changing = store.changeMemberRole({
+        decision: allowFor(acting(ws, owner)),
         userId: target,
         role: "admin",
         actor: acting(ws, owner),
@@ -617,6 +633,7 @@ integration("invite store on PostgreSQL", () => {
     const first = await member(ws, "owner");
     expect(
       await store.changeMemberRole({
+        decision: allowFor(acting(ws, first)),
         userId: first,
         role: "member",
         actor: acting(ws, first),
@@ -625,6 +642,7 @@ integration("invite store on PostgreSQL", () => {
     ).toEqual({ outcome: "self_protected" });
     expect(
       await store.changeMemberRole({
+        decision: allowFor(acting(ws, first)),
         userId: randomUUID(),
         role: "member",
         actor: acting(ws, first),
@@ -634,12 +652,14 @@ integration("invite store on PostgreSQL", () => {
     const second = await member(ws, "owner");
     const results = await Promise.all([
       store.changeMemberRole({
+        decision: allowFor(acting(ws, first)),
         userId: second,
         role: "member",
         actor: acting(ws, first),
         receiptId: randomUUID(),
       }),
       store.changeMemberRole({
+        decision: allowFor(acting(ws, second)),
         userId: first,
         role: "member",
         actor: acting(ws, second),
@@ -1046,6 +1066,7 @@ integration("invites across owner recovery on PostgreSQL", () => {
       .values({ workspaceId: ws, userId: owner, role: "owner" });
     const token = `apv_${randomUUID()}`;
     const created = await store.createInvite({
+      decision: memberManageAllow({ workspaceId: ws, actorUserId: owner }),
       id: randomUUID(),
       actor: {
         principal: callerFor(

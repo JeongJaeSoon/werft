@@ -49,6 +49,7 @@ import { createBootstrapGate, DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import { registerInviteRoutes } from "./routes/musterrolle/invites.ts";
 import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
 import { registerEventRoutes } from "./routes/sessions/events.ts";
 import { registerReceiptRoutes } from "./routes/sessions/receipts.ts";
@@ -116,6 +117,10 @@ integration("members and actors over HTTP on PostgreSQL", () => {
       authorization,
       store: createPostgresMemberStore(db),
     });
+    const invites = createInviteService({
+      authorization,
+      store: createPostgresInviteStore(db),
+    });
     app = createApiApp({
       authMode: "api-key",
       logger,
@@ -126,14 +131,8 @@ integration("members and actors over HTTP on PostgreSQL", () => {
         registerAuthRoutes(router, auth);
         registerSessionRoutes(router, service);
         registerReceiptRoutes(router, service);
-        registerMemberRoutes(
-          router,
-          members,
-          createInviteService({
-            authorization,
-            store: createPostgresInviteStore(db),
-          }),
-        );
+        registerMemberRoutes(router, members, invites);
+        registerInviteRoutes(router, invites);
         registerEventRoutes(router, service, {
           wakeup: {
             wait: (_, signal) =>
@@ -831,5 +830,93 @@ integration("members and actors over HTTP on PostgreSQL", () => {
       .from(memberships)
       .where(sql`workspace_id = ${workspaceId} AND user_id = ${ownerId}`);
     expect(kept?.role).toBe("owner");
+  });
+
+  const managing = (
+    method: "POST" | "PATCH" | "DELETE",
+    path: string,
+    cookie: string,
+    body: unknown = {},
+  ) =>
+    app.request(path, {
+      method,
+      headers: { ...asCookie(cookie), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  test("invites and roles: each refusal the store decides is the request's one row, a deny", async () => {
+    const adminId = await addMember("role-admin@example.com");
+    await db
+      .update(memberships)
+      .set({ role: "admin" })
+      .where(sql`workspace_id = ${workspaceId} AND user_id = ${adminId}`);
+    const adminCookie = await login("role-admin@example.com");
+    await owner("role-owner@example.com");
+    const otherOwnerCookie = await login("role-owner@example.com");
+    await addMember("role-member@example.com");
+    const memberCookie = await login("role-member@example.com");
+
+    const cases: [Response, number, { outcome: string; reason: string }][] = [
+      [
+        await managing("POST", "/v1/invites", memberCookie, {
+          email: "by-member@example.com",
+          role: "member",
+        }),
+        403,
+        { outcome: "deny", reason: "role" },
+      ],
+      [
+        await managing("POST", "/v1/invites", adminCookie, {
+          email: "new-owner@example.com",
+          role: "owner",
+        }),
+        403,
+        { outcome: "deny", reason: "owner_protected" },
+      ],
+      [
+        await managing("PATCH", `/v1/members/${ownerId}`, adminCookie, {
+          role: "member",
+        }),
+        403,
+        { outcome: "deny", reason: "owner_protected" },
+      ],
+      [
+        await managing("PATCH", `/v1/members/${adminId}`, adminCookie, {
+          role: "member",
+        }),
+        403,
+        { outcome: "deny", reason: "self_protected" },
+      ],
+      [
+        // The bootstrap owner is the emergency admin.
+        await managing("PATCH", `/v1/members/${ownerId}`, otherOwnerCookie, {
+          role: "admin",
+        }),
+        409,
+        { outcome: "deny", reason: "emergency_admin" },
+      ],
+      [
+        await managing("POST", "/v1/invites", ownerCookie, {
+          email: "by-owner@example.com",
+          role: "member",
+        }),
+        201,
+        { outcome: "allow", reason: "ok" },
+      ],
+      [
+        // Gone already: the act was allowed and found nothing to revoke.
+        await managing(
+          "DELETE",
+          `/v1/invites/${crypto.randomUUID()}`,
+          ownerCookie,
+        ),
+        404,
+        { outcome: "allow", reason: "ok" },
+      ],
+    ];
+    for (const [response, status, row] of cases) {
+      expect(response.status).toBe(status);
+      expect(await decisionsOf(response)).toEqual([row]);
+    }
   });
 });

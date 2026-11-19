@@ -16,7 +16,7 @@ import type {
 } from "../ports/identity-store.ts";
 import { assignableRoles, memberActions } from "./member-rules.ts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
-import { requirePermitted } from "./require-permitted.ts";
+import { managingWrite, requirePermitted } from "./require-permitted.ts";
 import { EMERGENCY_ADMIN, SessionServiceError } from "./service-errors.ts";
 
 export const INVITE_TTL_MS = INVITE_TTL_DAYS * 24 * 60 * 60 * 1000;
@@ -59,7 +59,8 @@ const OWNER_PROTECTED = () =>
  * Invites and roles. Every entry point asks the policy for
  * `member.manage` first, so which roles may manage members is the policy's
  * table, not this file's. That an admin cannot touch the owner role is the
- * store's to say: it reads both roles inside the change's transaction.
+ * store's to say: it reads both roles inside the change's transaction, and
+ * keeps a write's decision there.
  */
 export function createInviteService(deps: {
   authorization: AuthorizationPolicy;
@@ -90,15 +91,18 @@ export function createInviteService(deps: {
       caller: Caller,
       input: { email: string; role: WorkspaceRole; tokenHash: Uint8Array },
     ): Promise<InviteRecord> {
-      const actor = await actingOwner(caller);
+      const id = newId();
+      const receiptId = newId();
+      const { actor, decision } = await managingWrite(authorization, caller);
       const result = await store.createInvite({
-        id: newId(),
+        decision,
+        id,
         actor,
         email: input.email,
         role: input.role,
         tokenHash: input.tokenHash,
         ttlMs: INVITE_TTL_MS,
-        receiptId: newId(),
+        receiptId,
       });
       switch (result.outcome) {
         case "already_member":
@@ -127,11 +131,13 @@ export function createInviteService(deps: {
     },
 
     async revokeInvite(caller: Caller, inviteId: string): Promise<void> {
-      const actor = await actingOwner(caller);
+      const receiptId = newId();
+      const { actor, decision } = await managingWrite(authorization, caller);
       const result = await store.revokeInvite({
+        decision,
         id: inviteId,
         actor,
-        receiptId: newId(),
+        receiptId,
       });
       switch (result.outcome) {
         case "not_found":
@@ -180,12 +186,14 @@ export function createInviteService(deps: {
       userId: string,
       role: WorkspaceRole,
     ): Promise<MemberView> {
-      const actor = await actingOwner(caller);
+      const receiptId = newId();
+      const { actor, decision } = await managingWrite(authorization, caller);
       const result = await store.changeMemberRole({
+        decision,
         userId,
         role,
         actor,
-        receiptId: newId(),
+        receiptId,
       });
       switch (result.outcome) {
         case "not_found":

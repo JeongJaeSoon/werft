@@ -675,6 +675,7 @@ integration("who may sign in with a password", () => {
       });
     const demote = () =>
       createPostgresInviteStore(db).changeMemberRole({
+        decision: allowFor(acting(owner.id)),
         actor: acting(owner.id),
         userId: target.id,
         role: "admin",
