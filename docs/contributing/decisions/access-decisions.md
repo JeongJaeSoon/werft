@@ -407,8 +407,8 @@ egress 판정(`workspace-mcp-egress.ts`)이 지금 자리에서 `mcp.use`를 묻
 | IdP가 MCP 접근을 정함 | MCP Enterprise-Managed Authorization(ID-JAG / Cross App Access): IdP SSO로 받은 ID-JAG를 MCP 서버의 인가 서버에서 audience가 묶인 token으로 바꾼다. 서버마다 동의 화면이 없다. 성숙도는 출처마다 다르게 적혀 있다 | [MCP 확장](https://modelcontextprotocol.io/extensions/auth/enterprise-managed-authorization) |
 | 도구 호출마다 정책 판정, 기본 거절 | AWS AgentCore Policy가 Gateway에서 도구 호출마다 Cedar로 판정하고 기본은 거절이다. 2026-08에는 기억 동작 12가지를 Cedar 액션으로 더했다. OpenFGA는 에이전트용 ReBAC 모델링 안내를 낸다 | [AgentCore Memory FGAC](https://aws.amazon.com/about-aws/whats-new/2026/08/agentcorememory-fine-grained-access-control) (2026-08-28), [OpenFGA agents](https://openfga.dev/docs/modeling/agents) |
 | 권한 거울 검색 | 요청자가 볼 수 있는 것만 꺼낸다. Slack Real-Time Search API·MCP 서버, Glean 권한 인지 색인. 다만 공유 채널에 올라가는 **답**을 받는 쪽 기준으로 거르는 것은 대부분 "원본 권한을 따른다"로 남겨 둔 빈자리다 | [Slack MCP](https://docs.slack.dev/changelog/2026/02/17/slack-mcp) (2026-02-17) |
-| 기억은 사람 × 에이전트가 기본 | 공유 기억은 드물고 명시적이다. Copilot Studio 기억은 사람·에이전트별이고 **그룹 채팅과 Teams 채널에서는 꺼진다**. Microsoft Work IQ MCP는 인증된 본인의 기억 프로필만, 관리자 정책이 허용한 에이전트에게 읽기 전용으로 준다 | [Copilot Studio memory](https://learn.microsoft.com/en-us/microsoft-copilot-studio/agents-experience/memory-overview), [MC1539004](https://mc.merill.net/message/MC1539004) (2026-11-05) |
-| 공유 전 검토는 없다 | 제품들은 자동 추출로 기억을 만들고, 사람이 보고 지우는 것과 관리자 켜고 끄기만 준다. 공유 범위로 올리기 전의 검토 대기열은 사실상 없다 | 조사의 1.3절 |
+| 기억은 사람 × 에이전트가 기본 | 공유 기억은 드물고 명시적이다. Copilot Studio 기억은 사람·에이전트별이고 **그룹 채팅과 Teams 채널에서는 꺼진다**. Microsoft는 Work IQ MCP로 인증된 본인의 기억 프로필만, 관리자 정책이 허용한 에이전트에게 읽기 전용으로 주겠다고 2026-11-05에 공지했다(GA는 2026-12 예정) | [Copilot Studio memory](https://learn.microsoft.com/en-us/microsoft-copilot-studio/agents-experience/memory-overview), [MC1539004](https://mc.merill.net/message/MC1539004) (2026-11-05) |
+| 공유 전 검토는 없다 | 제품들은 기억을 대개 자동 추출로 만들고, 사람이 보고 지우는 것과 관리자 켜고 끄기만 준다. 공유 기억은 드물고 명시적이며, 그 앞의 검토 대기열은 사실상 없다 | 위 제품 문서들의 비교 |
 | 기억 오염 사고와 방어 | 메일·파일에 심은 지시가 연결 도구를 거쳐 기억에 남는 ZombieAgent(2026-01, Radware), "AI로 요약" 버튼으로 기억에 심는 AI Recommendation Poisoning(Microsoft, 2026-02-10). 연구는 내용 추정보다 **출처 기반 신뢰**가 강하다고 보고, 믿을 수 없는 입력이 들어온 뒤의 기억 쓰기를 막는 것이 방어로 나온다 | [Microsoft](https://www.microsoft.com/en-us/security/blog/2026/02/10/ai-recommendation-poisoning/), [arXiv 2606.04329](https://arxiv.org/pdf/2606.04329) |
 | 범위 빠진 조회 | 사람 범위 없이 기억을 검색하면 모두의 기록이 나오는 버그 부류(Mem0 문서가 경고). 인프라 층의 테넌트 간 유출 사고도 같은 부류다(Cloudflare Workers AI, 2026-10 공개) | [Mem0](https://docs.mem0.ai/skill.md) |
 | 원칙 | OWASP Top 10 for Agentic Applications 2026의 "Least Agency": 자율성, 도구, 기억 범위를 최소로 | [OWASP](https://genai.owasp.org/resource/2025-12-09/owasp-top-10-for-agentic-applications-for-2026) |
@@ -431,7 +431,7 @@ egress 판정(`workspace-mcp-egress.ts`)이 지금 자리에서 `mcp.use`를 묻
 - 바깥 데이터를 만진 실행을 넓은 범위에서 빼는 Codex의 방식을, 개인 데이터의 출처 표시(2절)로 일반화한다.
 - 자격은 엔진에 값으로 주지 않는다(Codex `bearer_token_env_var`와 같은 생각, 우리는 relay 비밀만 준다).
 - **이중 신원.** 판정 주체는 요청자(principal)와 지금 일하는 에이전트, 위임 사슬을 함께 갖고, 기록은 둘을 함께 남긴다(Entra OBO와 같은 모양). 요청자 없는 실행은 에이전트 신원만이다.
-- **기억은 사람 × 에이전트가 기본이고 채널에서는 개인 범위를 끈다.** Copilot Studio가 그룹 채팅·채널에서 기억을 끄고, Work IQ MCP가 본인 기억만 주는 것과 같은 결론이다(2절 개인 데이터 전제).
+- **기억은 사람 × 에이전트가 기본이고 채널에서는 개인 범위를 끈다.** Copilot Studio가 그룹 채팅·채널에서 기억을 끄는 것, 2026-12 GA로 공지된 Work IQ MCP가 본인 기억만 주는 것과 같은 결론이다(2절 개인 데이터 전제).
 - **범위 없는 조회를 막는다.** 기억 서비스는 판정이 돌려준 `memory_scopes` 없이 검색하지 못한다. 판정을 거치지 않은 호출은 범위가 비어 있으므로 아무것도 돌려주지 않는다(Mem0 부류의 버그를 구조로 막는다).
 - **받는 쪽 기준 답변 판정.** 시장이 비워 둔 자리이고 오너가 명시한 축이다. Slack 채널 구성원 대응(B6)으로 채운다.
 - **정책 모드는 기본 거절**이다. 맞는 규칙이 없으면 거절이다(AgentCore Policy와 같다).
@@ -445,7 +445,7 @@ egress 판정(`workspace-mcp-egress.ts`)이 지금 자리에서 `mcp.use`를 묻
 - **"기억 없는 세션"은 지금 없다.** ChatGPT Temporary Chat은 기억을 읽지도 쓰지도 않는다. 이 설계의 비공개 세션과 개인 범위 끄기는 개인 범위만 막고, 에이전트·워크스페이스 기억 읽기는 남는다. `memory_write_policy`도 영속 범위 후보만 다룬다. 그래서 같은 효과를 낸다고 하지 않는다. 모든 영속 범위의 읽기·쓰기·후보·정리 입력을 끄는 세션 옵션은 "나중"의 C5로 둔다.
 - **규칙이 없을 때는 기본 거절이 아니라 지금 동작이다.** AgentCore Policy는 처음부터 기본 거절이다. 하지만 이 설계는 규칙 없는 워크스페이스가 지금처럼 움직여야 한다는 조건을 진다. 그래서 이행 모드는 지금 동작을 기록과 함께 그대로 두고, 기본 거절은 관리자가 규칙을 저장해 정책 모드에 들어갈 때 시작한다.
 - **판정을 별도 게이트웨이가 아니라 control-host에 둔다.** 시장은 게이트웨이와 런타임 중 어디가 판정 자리인지 다투고 있다. werft는 게이트웨이 없이도 동작해야 하고, 기억과 답변 전달은 게이트웨이를 지나지 않는다. werft의 egress가 MCP 축의 집행 자리(PEP)다.
-- **공유 범위로 올리는 기억은 검토를 거친다.** 제품들은 자동 추출로 바로 공유하고 검토 대기열을 두지 않는다. Claude Managed Agents 저장소도 기본이 `read_write`다. 공유 범위의 기억을 실행에서 읽기 전용으로 두는 것은 업계 관행이 아니라 werft의 선택이다. 이 설계는 세션보다 넓은 범위의 쓰기를 모두 후보로 두고, 개인 데이터 출처가 있으면 그 사람의 확인까지 받는다(2절). 기억 오염 사고(ZombieAgent, AI Recommendation Poisoning)와 출처 기반 신뢰를 지지하는 연구가 그 이유다. 한 번의 오염된 쓰기가 그 범위를 쓰는 모든 실행에 퍼지기 때문이다. 승격 흐름 자체는 기억 레이어 설계 4절이 정본이다.
+- **공유 범위로 올리는 기억은 검토를 거친다.** 조사한 제품들은 기억을 대개 자동으로 추출하고, 공유 기억은 드물며 공유 프로젝트·공유 블록처럼 명시적으로 만든다. 그리고 공유 기억에 올리기 전의 검토 대기열은 대체로 없다. Claude Managed Agents 저장소도 기본이 `read_write`다. 공유 범위의 기억을 실행에서 읽기 전용으로 두는 것은 업계 관행이 아니라 werft의 선택이다. 이 설계는 세션보다 넓은 범위의 쓰기를 모두 후보로 두고, 개인 데이터 출처가 있으면 그 사람의 확인까지 받는다(2절). 기억 오염 사고(ZombieAgent, AI Recommendation Poisoning)와 출처 기반 신뢰를 지지하는 연구가 그 이유다. 한 번의 오염된 쓰기가 그 범위를 쓰는 모든 실행에 퍼지기 때문이다. 승격 흐름 자체는 기억 레이어 설계 4절이 정본이다.
 - **IdP 중심의 MCP 인가(ID-JAG)는 지금 따르지 않고 지켜본다.** 개인 연결(B5)은 먼저 사람별 OAuth로 만든다. ID-JAG는 성숙도가 출처마다 다르고 IdP와 MCP 서버 양쪽의 지원이 있어야 한다. 개인 연결의 연결 행과 판정 결과(`credential: personal`)는 token을 얻는 방법과 무관하므로, ID-JAG가 자리 잡으면 token 얻기 경로만 더한다(C4).
 
 ## 16. werft 아키텍처 적용
