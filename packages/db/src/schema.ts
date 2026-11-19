@@ -33,6 +33,12 @@ import {
   LINKED_ACCOUNT_PROVIDER_VALUES,
   LINKED_ACCOUNT_REVOKED_REASON_VALUES,
   LINKED_ACCOUNT_STATUS_VALUES,
+  MEMORY_BODY_MAX_BYTES,
+  MEMORY_SCAN_STATUS_VALUES,
+  MEMORY_SCOPE_VALUES,
+  MEMORY_STATE_VALUES,
+  MEMORY_TITLE_MAX_LENGTH,
+  MEMORY_TOMBSTONE_KIND_VALUES,
   MEMORY_WRITE_POLICY_VALUES,
   OPEN_PUSH_REQUEST_STATES,
   PAUSE_REASON_VALUES,
@@ -1618,6 +1624,13 @@ export const sessions = pgTable(
     // older checkpoint still hashes to a digest a worker can match. Null
     // while the session ran one config only.
     legacyRuntimeConfigs: jsonb("legacy_runtime_configs").$type<unknown>(),
+    // The people whose personal memory this session has read. Only its owner
+    // may share or hand it over, and what it produces carries them as taint
+    // (memory-layer.md §2, §4).
+    personalSubjects: uuid("personal_subjects")
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
   },
   (table) => [
     check(
@@ -5986,5 +5999,321 @@ export const sessionCommitAttributions = pgTable(
       "session_commit_attributions_co_author_check",
       sql`(${table.coAuthorName} IS NULL) = (${table.coAuthorEmail} IS NULL)`,
     ),
+  ],
+);
+
+const SHA256_HEX_SQL = sql.raw(`'^[0-9a-f]{64}$'`);
+
+// Agent memory (memory-layer.md). A document lives in one scope and fills
+// that scope's key only; widening a scope is a new document plus a
+// promotion, never an update of this row. Nothing reads or writes these yet.
+export const memoryDocuments = pgTable(
+  "memory_documents",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    scope: text().notNull(),
+    sessionId: uuid("session_id"),
+    // The session's owner_id, so the FK below can use the session's
+    // (id, owner_id, workspace_id) key and pin the session to this workspace.
+    sessionOwnerId: text("session_owner_id"),
+    subjectUserId: uuid("subject_user_id").references(() => users.id),
+    agentId: uuid("agent_id"),
+    state: text().notNull(),
+    currentRevision: integer("current_revision"),
+    // Every document this one derives from through `memory_derivations`,
+    // roots included, filled when the lineage is made: a tombstone anywhere
+    // up the line hides this document with one condition.
+    ancestorIds: uuid("ancestor_ids")
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    personalSubjects: uuid("personal_subjects")
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("memory_documents_workspace_id_key").on(table.workspaceId, table.id),
+    // Session memory follows its session's retention. With MATCH SIMPLE a
+    // NULL owner would skip this check, so the session check below pairs it.
+    foreignKey({
+      name: "memory_documents_session_fk",
+      columns: [table.sessionId, table.sessionOwnerId, table.workspaceId],
+      foreignColumns: [sessions.id, sessions.ownerId, sessions.workspaceId],
+    }).onDelete("cascade"),
+    check(
+      "memory_documents_session_check",
+      sql`(${table.sessionId} IS NULL) = (${table.sessionOwnerId} IS NULL)`,
+    ),
+    foreignKey({
+      name: "memory_documents_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    foreignKey({
+      name: "memory_documents_current_revision_fk",
+      columns: [table.id, table.currentRevision],
+      foreignColumns: [memoryRevisions.documentId, memoryRevisions.revision],
+    }),
+    check(
+      "memory_documents_scope_check",
+      sql`${table.scope} IN (${sqlLiterals(MEMORY_SCOPE_VALUES)})`,
+    ),
+    check(
+      "memory_documents_state_check",
+      sql`${table.state} IN (${sqlLiterals(MEMORY_STATE_VALUES)})`,
+    ),
+    check(
+      "memory_documents_scope_key_check",
+      sql`CASE ${table.scope}
+        WHEN 'session' THEN ${table.sessionId} IS NOT NULL AND ${table.subjectUserId} IS NULL AND ${table.agentId} IS NULL
+        WHEN 'personal' THEN ${table.sessionId} IS NULL AND ${table.subjectUserId} IS NOT NULL AND ${table.agentId} IS NULL
+        WHEN 'agent' THEN ${table.sessionId} IS NULL AND ${table.subjectUserId} IS NULL AND ${table.agentId} IS NOT NULL
+        WHEN 'workspace' THEN ${table.sessionId} IS NULL AND ${table.subjectUserId} IS NULL AND ${table.agentId} IS NULL
+        ELSE false END`,
+    ),
+    check(
+      "memory_documents_active_revision_check",
+      sql`${table.state} <> 'active' OR ${table.currentRevision} IS NOT NULL`,
+    ),
+    check(
+      "memory_documents_arrays_check",
+      sql`${oneDimensional(table.ancestorIds)} AND ${oneDimensional(table.personalSubjects)} AND NOT (${table.id} = ANY(${table.ancestorIds}))`,
+    ),
+  ],
+);
+
+// Immutable once written (trigger `memory_revisions_immutable`): an edit is
+// the next revision. Only the scan result and the adoption time are filled
+// in later.
+export const memoryRevisions = pgTable(
+  "memory_revisions",
+  {
+    documentId: uuid("document_id")
+      .notNull()
+      .references((): AnyPgColumn => memoryDocuments.id, {
+        onDelete: "cascade",
+      }),
+    revision: integer().notNull(),
+    title: text().notNull(),
+    body: text().notNull(),
+    bodySha256: text("body_sha256").notNull(),
+    scanStatus: text("scan_status").notNull().default("unscanned"),
+    // Null when a model wrote it from a session run.
+    authorUserId: uuid("author_user_id").references(() => users.id),
+    authorSessionId: uuid("author_session_id"),
+    adoptedAt: timestamp("adopted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "memory_revisions_pk",
+      columns: [table.documentId, table.revision],
+    }),
+    check("memory_revisions_revision_check", sql`${table.revision} >= 1`),
+    check(
+      "memory_revisions_title_check",
+      sql`char_length(${table.title}) BETWEEN 1 AND ${sql.raw(String(MEMORY_TITLE_MAX_LENGTH))}`,
+    ),
+    check(
+      "memory_revisions_body_check",
+      sql`octet_length(${table.body}) BETWEEN 1 AND ${sql.raw(String(MEMORY_BODY_MAX_BYTES))}`,
+    ),
+    check(
+      "memory_revisions_body_sha256_check",
+      sql`${table.bodySha256} ~ ${SHA256_HEX_SQL}`,
+    ),
+    check(
+      "memory_revisions_scan_status_check",
+      sql`${table.scanStatus} IN (${sqlLiterals(MEMORY_SCAN_STATUS_VALUES)})`,
+    ),
+    check(
+      "memory_revisions_author_check",
+      sql`${table.authorUserId} IS NOT NULL OR ${table.authorSessionId} IS NOT NULL`,
+    ),
+  ],
+);
+
+// `derives_from`: a summary, translation, redaction or promotion keeps its
+// line back to what it was made from. Both ends are in one workspace.
+export const memoryDerivations = pgTable(
+  "memory_derivations",
+  {
+    workspaceId: uuid("workspace_id").notNull(),
+    documentId: uuid("document_id").notNull(),
+    derivesFromId: uuid("derives_from_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "memory_derivations_pk",
+      columns: [table.documentId, table.derivesFromId],
+    }),
+    foreignKey({
+      name: "memory_derivations_document_fk",
+      columns: [table.workspaceId, table.documentId],
+      foreignColumns: [memoryDocuments.workspaceId, memoryDocuments.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "memory_derivations_derives_from_fk",
+      columns: [table.workspaceId, table.derivesFromId],
+      foreignColumns: [memoryDocuments.workspaceId, memoryDocuments.id],
+    }).onDelete("cascade"),
+    check(
+      "memory_derivations_not_self_check",
+      sql`${table.documentId} <> ${table.derivesFromId}`,
+    ),
+    index("memory_derivations_derives_from_idx").on(table.derivesFromId),
+  ],
+);
+
+// Committed with the deletion. From then on the per-operation filters hide
+// the document and every document whose `ancestor_ids` names it.
+export const memoryTombstones = pgTable(
+  "memory_tombstones",
+  {
+    documentId: uuid("document_id").primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    kind: text().notNull(),
+    deletedBy: uuid("deleted_by").references(() => users.id),
+    deletedAt: timestamp("deleted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "memory_tombstones_document_fk",
+      columns: [table.workspaceId, table.documentId],
+      foreignColumns: [memoryDocuments.workspaceId, memoryDocuments.id],
+    }).onDelete("cascade"),
+    check(
+      "memory_tombstones_kind_check",
+      sql`${table.kind} IN (${sqlLiterals(MEMORY_TOMBSTONE_KIND_VALUES)})`,
+    ),
+  ],
+);
+
+// What a `candidate` document waits on. Its source's owner releases it
+// (agrees it may reach the target scope) first, then every person in the
+// document's `personal_subjects` does, before anyone may adopt it. The source
+// columns are a record, not a key, so they outlive the source.
+export const memoryCandidates = pgTable(
+  "memory_candidates",
+  {
+    documentId: uuid("document_id").primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    sourceSessionId: uuid("source_session_id"),
+    sourceDocumentId: uuid("source_document_id"),
+    sourceRevision: integer("source_revision"),
+    releaserUserId: uuid("releaser_user_id")
+      .notNull()
+      .references(() => users.id),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "memory_candidates_document_fk",
+      columns: [table.workspaceId, table.documentId],
+      foreignColumns: [memoryDocuments.workspaceId, memoryDocuments.id],
+    }).onDelete("cascade"),
+    check(
+      "memory_candidates_source_check",
+      sql`(${table.sourceSessionId} IS NULL OR ${table.sourceDocumentId} IS NULL) AND (${table.sourceDocumentId} IS NULL) = (${table.sourceRevision} IS NULL)`,
+    ),
+  ],
+);
+
+// One person's release of a candidate: the source's owner, or someone whose
+// personal memory reached it. Each names the exact body they released.
+export const memoryCandidateReleases = pgTable(
+  "memory_candidate_releases",
+  {
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => memoryCandidates.documentId, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    releasedBodySha256: text("released_body_sha256").notNull(),
+    releasedAt: timestamp("released_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "memory_candidate_releases_pk",
+      columns: [table.documentId, table.userId],
+    }),
+    check(
+      "memory_candidate_releases_sha256_check",
+      sql`${table.releasedBodySha256} ~ ${SHA256_HEX_SQL}`,
+    ),
+  ],
+);
+
+// Written in the adoption transaction: who released which body from where,
+// and who adopted it into which revision.
+export const memoryPromotions = pgTable(
+  "memory_promotions",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    targetDocumentId: uuid("target_document_id").notNull(),
+    targetRevision: integer("target_revision").notNull(),
+    targetScope: text("target_scope").notNull(),
+    sourceSessionId: uuid("source_session_id"),
+    sourceDocumentId: uuid("source_document_id"),
+    sourceRevision: integer("source_revision"),
+    sourceBodySha256: text("source_body_sha256"),
+    releasedBodySha256: text("released_body_sha256").notNull(),
+    releasedBy: uuid("released_by")
+      .notNull()
+      .references(() => users.id),
+    releasedAt: timestamp("released_at", { withTimezone: true }).notNull(),
+    adoptedBy: uuid("adopted_by")
+      .notNull()
+      .references(() => users.id),
+    adoptedAt: timestamp("adopted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "memory_promotions_target_document_fk",
+      columns: [table.workspaceId, table.targetDocumentId],
+      foreignColumns: [memoryDocuments.workspaceId, memoryDocuments.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "memory_promotions_target_revision_fk",
+      columns: [table.targetDocumentId, table.targetRevision],
+      foreignColumns: [memoryRevisions.documentId, memoryRevisions.revision],
+    }).onDelete("cascade"),
+    check(
+      "memory_promotions_target_scope_check",
+      sql`${table.targetScope} IN (${sqlLiterals(MEMORY_SCOPE_VALUES.filter((scope) => scope !== "session"))})`,
+    ),
+    check(
+      "memory_promotions_source_check",
+      sql`(${table.sourceSessionId} IS NULL OR ${table.sourceDocumentId} IS NULL) AND (${table.sourceDocumentId} IS NULL) = (${table.sourceRevision} IS NULL) AND (${table.sourceDocumentId} IS NULL) = (${table.sourceBodySha256} IS NULL)`,
+    ),
+    check(
+      "memory_promotions_sha256_check",
+      sql`${table.releasedBodySha256} ~ ${SHA256_HEX_SQL} AND (${table.sourceBodySha256} IS NULL OR ${table.sourceBodySha256} ~ ${SHA256_HEX_SQL})`,
+    ),
+    index("memory_promotions_target_idx").on(table.targetDocumentId),
   ],
 );
