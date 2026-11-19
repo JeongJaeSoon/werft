@@ -16,10 +16,13 @@ import {
 import { sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Client, Pool } from "pg";
-import { fillNeutralFields, NEUTRAL_FILL_LOCK_KEY } from "./neutral-fields.ts";
 import { createPostgresSessionReader } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import { sessions } from "./schema.ts";
+import {
+  fillNeutralFields,
+  NEUTRAL_FILL_LOCK_KEY,
+} from "./sessions/neutral-fields.ts";
 import { projectToolCalls } from "./sessions/tool-calls.ts";
 import { rowsOf } from "./statement-rows.ts";
 import { sessionPinColumns } from "./testing/spec-pins.ts";

@@ -41,7 +41,7 @@ export type ReconcilerLogger = {
   warn(message: string, fields?: Readonly<Record<string, unknown>>): void;
 };
 
-// The fill (packages/db neutral-fields.ts) passes rows once 60 seconds old
+// The fill (packages/db sessions/neutral-fields.ts) passes rows once 60 seconds old
 // and runs every 15 seconds; held this long, it has stopped.
 const FILL_HOLD_WARN_SECONDS = 300;
 
