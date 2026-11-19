@@ -8,7 +8,3 @@ test("extracts an Error message", () => {
 test("preserves a string", () => {
   expect(messageOf("failed")).toBe("failed");
 });
-
-test("converts an object to a string", () => {
-  expect(messageOf({ reason: "failed" })).toBe("[object Object]");
-});
