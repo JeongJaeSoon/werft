@@ -1,7 +1,7 @@
-import type { AuthorizationReason, SessionStatus } from "@werft-ai/contracts";
+import type { SessionStatus } from "@werft-ai/contracts";
 import type { ActingOwner, MemberRecord } from "../../ports/identity-store.ts";
 import type { Principal } from "../index.ts";
-import type { RefusalOf, UnrecordedAllow } from "./decision-log.ts";
+import { refusals, type UnrecordedAllow } from "./decision-log.ts";
 
 /** A workspace membership, or the account across every workspace. */
 export type AccessScope = "membership" | "account";
@@ -36,23 +36,14 @@ export type SetAccessResult =
   | { outcome: "self_protected" | "account_disabled" }
   | { outcome: "actor_inactive" };
 
-const ACCESS_REFUSALS: Partial<
-  Record<SetAccessResult["outcome"], AuthorizationReason>
-> = {
+export const accessRefusal = refusals<SetAccessResult["outcome"]>({
   actor_inactive: "role",
   elsewhere: "role",
   outranked: "owner_protected",
   self_protected: "self_protected",
   last_owner: "last_owner",
   emergency_admin: "emergency_admin",
-};
-
-/**
- * The rules among the outcomes. The rest answer for the state the allowed
- * act met (gone, already so, suspended), so the allow stands.
- */
-export const accessRefusal: RefusalOf<SetAccessResult["outcome"]> = (outcome) =>
-  ACCESS_REFUSALS[outcome] ?? null;
+});
 
 export type TakeoverRecord = {
   sessionId: string;

@@ -4,10 +4,13 @@ import {
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
-import type {
-  InviteRecord,
-  InviteStore,
-  MemberRecord,
+import {
+  type InviteRecord,
+  type InviteStore,
+  inviteRefusal,
+  type MemberRecord,
+  revokeRefusal,
+  roleRefusal,
 } from "../ports/identity-store.ts";
 import { createInviteService, INVITE_TTL_MS } from "./invite-service.ts";
 import { type Caller, callerFor, createAuthorizationPolicy } from "./policy.ts";
@@ -131,6 +134,67 @@ describe("invite service", () => {
       workspaceId: WORKSPACE,
     });
     expect(asked?.receiptId).not.toBe(asked?.id);
+    // The allow goes to the store unrecorded, for it to keep or turn down.
+    expect(asked?.decision.decision.outcome).toBe("allow");
+    expect(asked?.decision.request.action).toBe("member.manage");
+  });
+
+  test("each write's rule outcomes are its refusals; the rest leave the allow", () => {
+    const table = <O extends string>(of: (o: O) => unknown, outcomes: O[]) =>
+      Object.fromEntries(outcomes.map((o) => [o, of(o)]));
+    expect(
+      table(inviteRefusal, [
+        "created",
+        "already_member",
+        "actor_inactive",
+        "owner_protected",
+      ]),
+    ).toEqual({
+      created: null,
+      already_member: null,
+      actor_inactive: "role",
+      owner_protected: "owner_protected",
+    });
+    expect(
+      table(revokeRefusal, [
+        "revoked",
+        "already_revoked",
+        "not_found",
+        "accepted",
+        "actor_inactive",
+      ]),
+    ).toEqual({
+      revoked: null,
+      already_revoked: null,
+      not_found: null,
+      accepted: null,
+      actor_inactive: "role",
+    });
+    expect(
+      table(roleRefusal, [
+        "changed",
+        "unchanged",
+        "not_found",
+        "member_disabled",
+        "account_disabled",
+        "actor_inactive",
+        "owner_protected",
+        "self_protected",
+        "last_owner",
+        "emergency_admin",
+      ]),
+    ).toEqual({
+      changed: null,
+      unchanged: null,
+      not_found: null,
+      member_disabled: null,
+      account_disabled: null,
+      actor_inactive: "role",
+      owner_protected: "owner_protected",
+      self_protected: "self_protected",
+      last_owner: "last_owner",
+      emergency_admin: "emergency_admin",
+    });
   });
 
   test("store outcomes become the API's error codes", async () => {

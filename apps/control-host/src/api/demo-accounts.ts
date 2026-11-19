@@ -9,13 +9,21 @@ import {
 import {
   bootstrapOwner,
   countUsers,
+  createDatabaseIdentityReader,
+  createPostgresDecisionLog,
   createPostgresInviteStore,
   type Database,
   memberships,
   users,
 } from "@werft-ai/db";
 import { createLogger } from "@werft-ai/observability";
-import { callerFor, INVITE_TTL_MS, messageOf } from "@werft-ai/platform";
+import {
+  callerFor,
+  createAuthorizationPolicy,
+  INVITE_TTL_MS,
+  managingWrite,
+  messageOf,
+} from "@werft-ai/platform";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { withJobDatabase } from "../job-database.ts";
 import {
@@ -280,23 +288,30 @@ export async function seedDemoAccounts(
     }
     const store = createPostgresInviteStore(db);
     const inviteToken = generateInviteToken();
-    const invited = await store.createInvite({
-      id: randomUUID(),
-      actor: {
-        principal: callerFor(
-          {
-            kind: "user",
-            id: owner.userId,
-            workspace_id: owner.workspaceId,
-            role: "owner",
-            scopes: [...scopesForRole("owner")],
-          },
-          { kind: "web" },
-          randomUUID(),
-        ),
-        workspaceId: owner.workspaceId,
-        userId: owner.userId,
+    const id = randomUUID();
+    const caller = callerFor(
+      {
+        kind: "user",
+        id: owner.userId,
+        workspace_id: owner.workspaceId,
+        role: "owner",
+        scopes: [...scopesForRole("owner")],
       },
+      { kind: "web" },
+      randomUUID(),
+    );
+    // The owner's invite as the console's: the policy decides, the store keeps it.
+    const { actor, decision } = await managingWrite(
+      createAuthorizationPolicy({
+        identity: createDatabaseIdentityReader(db),
+        decisions: createPostgresDecisionLog(db),
+      }),
+      caller,
+    );
+    const invited = await store.createInvite({
+      decision,
+      id,
+      actor,
       email: account.email,
       role: account.role,
       tokenHash: hashWebSessionToken(inviteToken),

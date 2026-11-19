@@ -4,6 +4,7 @@ import type {
   AuthorizationRequest,
   AuthorizationResource,
 } from "@werft-ai/contracts";
+import type { ActingOwner } from "../ports/identity-store.ts";
 import { type AuthorizationPolicy, type Caller, scopeOf } from "./policy.ts";
 import type { UnrecordedAllow } from "./ports/decision-log.ts";
 import { SessionServiceError } from "./service-errors.ts";
@@ -75,6 +76,34 @@ export async function requireAllowedUnrecorded(
     .catch(() => null);
   if (decision?.outcome === "allow") return { request, decision };
   refuse(action, decision);
+}
+
+/**
+ * A person's `member.manage` write, whose store re-checks them under its
+ * locks and keeps the returned allow. A caller with no person is refused,
+ * the policy's refusal being the request's one row.
+ */
+export async function managingWrite(
+  authorization: AuthorizationPolicy,
+  caller: Caller,
+): Promise<{ actor: ActingOwner; decision: UnrecordedAllow }> {
+  const workspace = { kind: "workspace", id: caller.ownerId } as const;
+  const userId = caller.actor?.userId;
+  const workspaceId = caller.actor?.workspaceId;
+  if (!userId || !workspaceId) {
+    await requirePermitted(authorization, caller, "member.manage", workspace);
+    throw new SessionServiceError(
+      "FORBIDDEN",
+      "This principal does not hold member.manage",
+    );
+  }
+  const decision = await requireAllowedUnrecorded(
+    authorization,
+    caller,
+    "member.manage",
+    workspace,
+  );
+  return { actor: { principal: caller, workspaceId, userId }, decision };
 }
 
 function requestOf(

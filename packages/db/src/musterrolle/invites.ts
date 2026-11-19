@@ -14,11 +14,14 @@ import type {
 } from "@werft-ai/platform";
 import {
   InvalidCursorError,
+  inviteRefusal,
   MEMBER_MANAGER_ROLES,
   managesMembers,
   mayGrantRole,
   memberVerdict,
   receiptActorOf,
+  revokeRefusal,
+  roleRefusal,
 } from "@werft-ai/platform";
 import {
   and,
@@ -50,6 +53,7 @@ import {
   users,
   webSessions,
 } from "../schema.ts";
+import { decidedTransaction } from "./authz-decisions.ts";
 import { createWebSession } from "./identity.ts";
 import { keepsOwnerSignIn, lockLoginSettings } from "./login-settings.ts";
 
@@ -162,7 +166,12 @@ async function createInvite(
   input: Parameters<InviteStore["createInvite"]>[0],
 ): Promise<CreateInviteResult> {
   const { actor } = input;
-  return db.transaction(async (tx) => {
+  const decided = decidedTransaction<CreateInviteResult>(
+    db,
+    input.decision,
+    inviteRefusal,
+  );
+  return decided(async (tx) => {
     // The live-invite unique index would turn two owners inviting the same
     // address at once into a 500; this makes the second one wait and
     // replace the first instead. Taken before any row lock.
@@ -235,7 +244,12 @@ async function revokeInvite(
 ): Promise<RevokeInviteResult> {
   const { actor } = input;
   const id = input.id.toLowerCase();
-  return db.transaction(async (tx) => {
+  const decided = decidedTransaction<RevokeInviteResult>(
+    db,
+    input.decision,
+    revokeRefusal,
+  );
+  return decided(async (tx) => {
     const [invite] = await tx
       .select()
       .from(invites)
@@ -482,7 +496,12 @@ async function changeMemberRole(
 ): Promise<ChangeRoleResult> {
   const { actor } = input;
   const userId = input.userId.toLowerCase();
-  return db.transaction(async (tx) => {
+  const decided = decidedTransaction<ChangeRoleResult>(
+    db,
+    input.decision,
+    roleRefusal,
+  );
+  return decided(async (tx) => {
     // Ahead of the user rows (design 5.6): naming another emergency admin
     // waits for this, and this sees who it named.
     const settings = await lockLoginSettings(tx, "share");

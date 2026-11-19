@@ -4,6 +4,10 @@ import type {
   WorkspaceRole,
 } from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/index.ts";
+import {
+  refusals,
+  type UnrecordedAllow,
+} from "../musterrolle/ports/decision-log.ts";
 
 export type IdentityUser = {
   id: string;
@@ -293,6 +297,23 @@ export type ChangeRoleResult =
         | "account_disabled";
     };
 
+export const inviteRefusal = refusals<CreateInviteResult["outcome"]>({
+  actor_inactive: "role",
+  owner_protected: "owner_protected",
+});
+
+export const revokeRefusal = refusals<RevokeInviteResult["outcome"]>({
+  actor_inactive: "role",
+});
+
+export const roleRefusal = refusals<ChangeRoleResult["outcome"]>({
+  actor_inactive: "role",
+  owner_protected: "owner_protected",
+  self_protected: "self_protected",
+  last_owner: "last_owner",
+  emergency_admin: "emergency_admin",
+});
+
 /** What redeeming a token would do, read before any password is hashed. */
 export type InvitePeek =
   | {
@@ -344,9 +365,14 @@ export type AcceptInviteResult =
   /** It would move the emergency admin's sign-in off their owner's membership. */
   | { outcome: "emergency_admin" };
 
+/**
+ * Each write keeps its `decision` in its own transaction, as `inviteRefusal`,
+ * `revokeRefusal` and `roleRefusal` read the outcome.
+ */
 export interface InviteStore {
   /** Revokes the address's live invite, if any, in the same transaction. */
   createInvite(input: {
+    decision: UnrecordedAllow;
     id: string;
     actor: ActingOwner;
     email: string;
@@ -357,6 +383,7 @@ export interface InviteStore {
   }): Promise<CreateInviteResult>;
   listInvites(workspaceId: string, limit: number): Promise<InviteRecord[]>;
   revokeInvite(input: {
+    decision: UnrecordedAllow;
     id: string;
     actor: ActingOwner;
     receiptId: string;
@@ -369,6 +396,7 @@ export interface InviteStore {
     query: ListMembersQuery,
   ): Promise<{ items: MemberRowRecord[]; next_cursor: string | null }>;
   changeMemberRole(input: {
+    decision: UnrecordedAllow;
     userId: string;
     role: MembershipRole;
     actor: ActingOwner;

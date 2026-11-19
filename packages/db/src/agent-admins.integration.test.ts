@@ -39,6 +39,7 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
+import { allowFor } from "./testing/member-manage-allow.ts";
 import {
   releaseSpecColumns,
   sessionPinColumns,
@@ -223,6 +224,7 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
     const store = createPostgresInviteStore(db);
     const change = (by: Caller, target: Caller, role: WorkspaceRole) =>
       store.changeMemberRole({
+        decision: allowFor(acting(by)),
         userId: target.actor?.userId ?? "",
         role,
         actor: acting(by),
@@ -237,6 +239,7 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
     });
     expect(
       await store.createInvite({
+        decision: allowFor(acting(admin)),
         id: randomUUID(),
         actor: acting(admin),
         email: "new-owner@example.invalid",
