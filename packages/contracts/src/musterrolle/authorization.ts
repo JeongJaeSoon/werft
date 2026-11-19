@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { toolNameSchema } from "../kollegium/agents.ts";
 import {
   surfaceCeilingSchema,
   surfaceChannelKindSchema,
@@ -8,11 +9,14 @@ import {
 import {
   agentIdSchema,
   agentReleaseIdSchema,
+  attemptIdSchema,
   grantIdSchema,
+  INT4_MAX,
   installationIdSchema,
   opaqueIdSchema,
   ownerScopeSchema,
   revisionSchema,
+  sessionIdSchema,
   surfaceBindingIdSchema,
   timestampSchema,
   userIdSchema,
@@ -296,6 +300,8 @@ export const RESOURCE_KIND_VALUES = [
   "memory",
   "routine",
   "artifact",
+  // A workspace MCP server; its id is the server's uuid.
+  "mcp_server",
   // Receipt targets only: no action is granted on a key or a team.
   "api_key",
   "team",
@@ -388,6 +394,8 @@ export const AUTHORIZATION_ACTION_VALUES = [
   "memory.write",
   "artifact.read",
   "delivery.send",
+  // A run's call to a workspace MCP server, and which connection it uses.
+  "mcp.use",
 ] as const;
 export const authorizationActionSchema = z.enum(AUTHORIZATION_ACTION_VALUES);
 
@@ -440,6 +448,7 @@ const ACTION_RESOURCE_KINDS: Record<
   "memory.write": new Set(["workspace", "agent", "memory"]),
   "artifact.read": new Set(["artifact", "session"]),
   "delivery.send": new Set(["session", "session_link", "surface_binding"]),
+  "mcp.use": new Set(["mcp_server"]),
 };
 
 export function actionAppliesTo(
@@ -583,6 +592,19 @@ export const AUTHORIZATION_REASON_VALUES = [
   "last_owner",
   "emergency_admin",
   "scope_not_grantable",
+  // Access decisions (docs/contributing/decisions/access-decisions.md §2).
+  // A workspace rule refused, or the policy could not be read.
+  "access_policy_denied",
+  "access_policy_unavailable",
+  // The requester's authentication basis is absent, or present and no
+  // longer valid: a revoked or expired key, a changed link, a disabled user.
+  "requester_unresolved",
+  "requester_revoked",
+  // An IdP group membership the decision needs is older than its max age.
+  "membership_stale",
+  "personal_scope_unavailable",
+  "personal_connection_unavailable",
+  "delivery_audience_outside",
   // Fail-closed: a throw, a storage error, a malformed request or an
   // action/resource pair the policy has no rule for.
   "error",
@@ -718,12 +740,183 @@ export const authorizationResourceSchema = z
     }
   });
 
+// ---------------------------------------------------------------------------
+// Access decisions: memory, MCP connection and answer delivery
+// (docs/contributing/decisions/access-decisions.md §2)
+// ---------------------------------------------------------------------------
+
+export const ACCESS_AXIS_VALUES = ["memory", "mcp", "delivery"] as const;
+export const accessAxisSchema = z.enum(ACCESS_AXIS_VALUES);
+export type AccessAxis = z.infer<typeof accessAxisSchema>;
+
+const ACCESS_AXIS_OF_ACTION = {
+  "memory.read": "memory",
+  "memory.write": "memory",
+  "mcp.use": "mcp",
+  "delivery.send": "delivery",
+} as const satisfies Partial<Record<AuthorizationAction, AccessAxis>>;
+
+/** The access axis an action decides, or null for every other action. */
+export function accessAxisOf(action: AuthorizationAction): AccessAxis | null {
+  return action in ACCESS_AXIS_OF_ACTION
+    ? ACCESS_AXIS_OF_ACTION[action as keyof typeof ACCESS_AXIS_OF_ACTION]
+    : null;
+}
+
+/**
+ * Whose data or connection: a memory scope, and an MCP connection kind
+ * (`agent` is the workspace's connection, `personal` the requester's own).
+ * Who may see something is the other list, SESSION_SHARE_SCOPE_VALUES.
+ */
+export const TARGET_SCOPE_VALUES = [
+  "session",
+  "personal",
+  "agent",
+  "workspace",
+] as const;
+export const targetScopeSchema = z.enum(TARGET_SCOPE_VALUES);
+
+const distinctScopes = z
+  .array(targetScopeSchema)
+  .min(1)
+  .refine((scopes) => new Set(scopes).size === scopes.length, {
+    message: "names each scope once",
+  });
+
+// The turn's public 1-based position in its session.
+const accessTurnIdSchema = z.number().int().positive().max(INT4_MAX);
+
+/**
+ * What a decision on an access axis asks for. Server code fills the ids from
+ * the authenticated run (relay token, lease, running turn), never from what
+ * a caller sent. A delivery names no audience: the decision reads it from
+ * the session's binding and delegation.
+ */
+export const accessAskSchema = z.discriminatedUnion("axis", [
+  z
+    .object({
+      axis: z.literal("memory"),
+      scopes: distinctScopes,
+      session_id: sessionIdSchema,
+      turn_id: accessTurnIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      axis: z.literal("mcp"),
+      server_id: z.uuid(),
+      /** The server's own tool name; null for a request that is no call. */
+      tool: toolNameSchema.nullable(),
+      session_id: sessionIdSchema,
+      turn_id: accessTurnIdSchema,
+      attempt_id: attemptIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      axis: z.literal("delivery"),
+      session_id: sessionIdSchema,
+      turn_id: accessTurnIdSchema,
+    })
+    .strict(),
+]);
+
 export const authorizationRequestSchema = z
   .object({
     subject: authorizationSubjectSchema,
     action: authorizationActionSchema,
     resource: authorizationResourceSchema,
     request_id: z.string().min(1).max(512),
+    access: accessAskSchema.optional(),
+  })
+  .strict()
+  .superRefine((request, ctx) => {
+    const { access, resource } = request;
+    if (access === undefined) return;
+    if (access.axis !== accessAxisOf(request.action)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["access", "axis"],
+        message: `${request.action} does not decide ${access.axis} access`,
+      });
+      return;
+    }
+    // The resource and the ask name one thing; a mismatch would record a
+    // decision about something other than what was used.
+    const named =
+      access.axis === "mcp"
+        ? resource.kind === "mcp_server"
+          ? access.server_id
+          : undefined
+        : resource.kind === "session"
+          ? access.session_id
+          : undefined;
+    if (named !== undefined && resource.id !== null && resource.id !== named) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["resource", "id"],
+        message: "must be what the access ask names",
+      });
+    }
+  });
+
+/**
+ * Which rule decided an access axis: the transition mode that keeps today's
+ * behaviour, the fixed table of the minimal decider, or a workspace rule.
+ */
+export const accessRuleSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("transition") }).strict(),
+  z.object({ mode: z.literal("fixed") }).strict(),
+  z
+    .object({
+      mode: z.literal("policy"),
+      revision: revisionSchema,
+      rule_id: z.uuid(),
+      position: z.number().int().nonnegative().max(INT4_MAX),
+    })
+    .strict(),
+]);
+
+export const mcpCredentialSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("agent") }).strict(),
+  z
+    .object({
+      kind: z.literal("personal"),
+      user_id: userIdSchema,
+      /** The connection's generation, so a later disconnect is seen. */
+      generation: z.number().int().nonnegative().max(INT4_MAX),
+    })
+    .strict(),
+]);
+
+/** What an allow (or a delivery's summary) hands out on its axis. */
+export const accessGrantedSchema = z.discriminatedUnion("axis", [
+  z
+    .object({
+      axis: z.literal("memory"),
+      /** The asked scopes this decision lets through. */
+      memory_scopes: distinctScopes,
+    })
+    .strict(),
+  z
+    .object({
+      axis: z.literal("mcp"),
+      credential: mcpCredentialSchema,
+      /** True when a personal rule fell back to the agent connection. */
+      fallback: z.boolean(),
+    })
+    .strict(),
+  // How much is delivered is the decision's outcome: allow or redact.
+  z
+    .object({ axis: z.literal("delivery") })
+    .strict(),
+]);
+
+export const accessResultSchema = z
+  .object({
+    rule: accessRuleSchema,
+    /** Null when nothing is handed out: every deny. */
+    granted: accessGrantedSchema.nullable(),
   })
   .strict();
 
@@ -742,6 +935,7 @@ export const authorizationDecisionSchema = z
       .optional(),
     policy_version: z.string().min(1),
     decision_id: z.uuid(),
+    access: accessResultSchema.optional(),
   })
   .strict()
   .superRefine((decision, ctx) => {
@@ -755,6 +949,18 @@ export const authorizationDecisionSchema = z
         message: `${decision.outcome} cannot carry ${decision.reason_code}`,
       });
     }
+    const granted = decision.access?.granted;
+    if (granted === undefined) return;
+    const handsOut =
+      decision.outcome === "allow" ||
+      (decision.outcome === "redact" && granted?.axis === "delivery");
+    if (handsOut !== (granted !== null)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["access", "granted"],
+        message: `${decision.outcome} cannot hand out ${granted?.axis ?? "nothing"}`,
+      });
+    }
   });
 
 export type AuthorizationReason = z.infer<typeof authorizationReasonSchema>;
@@ -765,3 +971,8 @@ export type AuthorizationSubject = z.infer<typeof authorizationSubjectSchema>;
 export type AuthorizationResource = z.infer<typeof authorizationResourceSchema>;
 export type AuthorizationRequest = z.infer<typeof authorizationRequestSchema>;
 export type AuthorizationDecision = z.infer<typeof authorizationDecisionSchema>;
+export type TargetScope = z.infer<typeof targetScopeSchema>;
+export type AccessAsk = z.infer<typeof accessAskSchema>;
+export type AccessRule = z.infer<typeof accessRuleSchema>;
+export type AccessGranted = z.infer<typeof accessGrantedSchema>;
+export type AccessResult = z.infer<typeof accessResultSchema>;

@@ -1072,3 +1072,92 @@ describe("decision log", () => {
     expect(entries[0]?.decision.decision_id).toBe(decision.decision_id);
   });
 });
+
+describe("access axes", () => {
+  const web = callerFor(member, { kind: "web" }, "req-access");
+  const SERVER = "019a0000-0000-7000-8000-0000000000f1";
+  const turn = { session_id: SESSION, turn_id: 1 };
+  const acts: AuthorizationRequest[] = [
+    request(web, {
+      action: "memory.read",
+      resource: { kind: "memory", id: null, owner_scope: web.ownerId },
+      access: { axis: "memory", scopes: ["session", "agent"], ...turn },
+    }),
+    request(web, {
+      action: "memory.write",
+      resource: { kind: "memory", id: null, owner_scope: web.ownerId },
+      access: { axis: "memory", scopes: ["session"], ...turn },
+    }),
+    request(web, {
+      action: "mcp.use",
+      resource: { kind: "mcp_server", id: SERVER, owner_scope: web.ownerId },
+      access: {
+        axis: "mcp",
+        server_id: SERVER,
+        tool: "search",
+        attempt_id: "att-1",
+        ...turn,
+      },
+    }),
+    request(web, {
+      action: "delivery.send",
+      access: { axis: "delivery", ...turn },
+    }),
+  ];
+
+  function logged() {
+    const entries: Parameters<DecisionLog["record"]>[0][] = [];
+    const decisions: DecisionLog = {
+      async record(entry) {
+        entries.push(entry);
+      },
+    };
+    return { entries, policy: createAuthorizationPolicy({ decisions }) };
+  }
+
+  test("an access act is refused by a policy assembled without its log", async () => {
+    const unlogged = createAuthorizationPolicy();
+    for (const act of acts) {
+      for (const record of [undefined, "deny"] as const) {
+        const decision = authorizationDecisionSchema.parse(
+          await unlogged.authorize(act, record ? { record } : undefined),
+        );
+        expect(decision).toMatchObject({
+          outcome: "deny",
+          reason_code: "error",
+        });
+      }
+    }
+  });
+
+  test("every axis is still refused, and the refusal is kept with its ask", async () => {
+    for (const act of acts) {
+      const { entries, policy: using } = logged();
+      const decision = await decide(act, using);
+      expect(decision).toMatchObject({ outcome: "deny", reason_code: "error" });
+      expect(entries).toEqual([{ request: act, decision }]);
+    }
+  });
+
+  test("an allow on an access axis must be kept", () => {
+    const allowed: AuthorizationDecision = {
+      outcome: "allow",
+      reason_code: "ok",
+      effective_scopes: [],
+      policy_version: "m16",
+      decision_id: crypto.randomUUID(),
+    };
+    for (const act of acts) {
+      expect(mustRecord(act, allowed)).toBe(true);
+    }
+    expect(mustRecord(request(web), allowed)).toBe(false);
+  });
+
+  test("what a screen asks with record: false leaves no row", async () => {
+    const { entries, policy: screen } = logged();
+    for (const act of acts) {
+      await screen.authorize(act, { record: false });
+    }
+    expect(entries).toEqual([]);
+  });
+});

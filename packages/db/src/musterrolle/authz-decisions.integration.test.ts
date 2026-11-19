@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import type { Principal } from "@werft-ai/contracts";
+import type { AuthorizationRequest, Principal } from "@werft-ai/contracts";
 import { callerFor, createAuthorizationPolicy } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -163,6 +163,116 @@ integration("authz_decisions on PostgreSQL", () => {
     );
     const [row] = await rowsFor(caller.requestId);
     expect(row?.outcome).toBe("deny");
+  });
+
+  test("an access decision keeps its axis, turn, grant and rule; others leave them null", async () => {
+    const workspaceId = await workspace();
+    const caller = callerFor(
+      member(workspaceId),
+      { kind: "web" },
+      randomUUID(),
+    );
+    const sessionId = randomUUID();
+    const serverId = randomUUID();
+    const ruleId = randomUUID();
+    const request: AuthorizationRequest = {
+      subject: caller.subject,
+      action: "mcp.use",
+      resource: {
+        kind: "mcp_server",
+        id: serverId,
+        owner_scope: caller.ownerId,
+      },
+      request_id: caller.requestId,
+      access: {
+        axis: "mcp",
+        server_id: serverId,
+        tool: "search",
+        session_id: sessionId,
+        turn_id: 2,
+        attempt_id: "att-1",
+      },
+    };
+    const granted = {
+      axis: "mcp",
+      credential: { kind: "agent" },
+      fallback: true,
+    } as const;
+    await createPostgresDecisionLog(db).record({
+      request,
+      decision: {
+        outcome: "allow",
+        reason_code: "ok",
+        effective_scopes: [],
+        policy_version: "m1",
+        decision_id: randomUUID(),
+        access: {
+          rule: { mode: "policy", revision: 3, rule_id: ruleId, position: 1 },
+          granted,
+        },
+      },
+    });
+    expect(await rowsFor(caller.requestId)).toMatchObject([
+      {
+        action: "mcp.use",
+        resourceKind: "mcp_server",
+        resourceId: serverId,
+        accessAxis: "mcp",
+        sessionId,
+        turnId: 2,
+        granted,
+        ruleMode: "policy",
+        accessPolicyRevision: 3,
+        ruleId,
+        rulePosition: 1,
+        via: null,
+        teamSnapshot: null,
+      },
+    ]);
+
+    // Today's policy has no rule for the axis yet: a refusal, kept with
+    // its ask and nothing granted.
+    const refusal = callerFor(
+      member(workspaceId),
+      { kind: "web" },
+      randomUUID(),
+    );
+    await createAuthorizationPolicy({
+      decisions: createPostgresDecisionLog(db),
+    }).authorize({
+      ...request,
+      subject: refusal.subject,
+      request_id: refusal.requestId,
+    });
+    expect(await rowsFor(refusal.requestId)).toMatchObject([
+      {
+        outcome: "deny",
+        reasonCode: "error",
+        accessAxis: "mcp",
+        sessionId,
+        turnId: 2,
+        granted: null,
+        ruleMode: null,
+      },
+    ]);
+
+    const plain = callerFor(member(workspaceId), { kind: "web" }, randomUUID());
+    await createAuthorizationPolicy({
+      decisions: createPostgresDecisionLog(db),
+    }).authorize({
+      subject: plain.subject,
+      action: "session.recover",
+      resource: { kind: "session", id: null, owner_scope: plain.ownerId },
+      request_id: plain.requestId,
+    });
+    const [other] = await rowsFor(plain.requestId);
+    expect(other).toMatchObject({
+      accessAxis: null,
+      sessionId: null,
+      turnId: null,
+      granted: null,
+      ruleMode: null,
+    });
   });
 
   test("rows past their workspace's retention are deleted, younger ones stay", async () => {
