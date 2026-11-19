@@ -21,7 +21,7 @@ import {
   agentGitHubSettingsOf,
   ensureRepositoryCeilingWhenUnset,
   workspaceRepositoryCeiling,
-} from "./github-settings.ts";
+} from "./github/github-settings.ts";
 import { sessionVisibleTo } from "./musterrolle/session-shares.ts";
 import { receiptFromRow } from "./postgres-unit-of-work.ts";
 import type { Database } from "./queries.ts";

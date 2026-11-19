@@ -78,7 +78,7 @@
   - 담는 것: 명령(입력, 제어, 공유 변경, GitHub 게이트 등)마다 결과 한 행. 응답의 `X-Request-Id`가 `request_id`로 남는다.
   - 보존 기간: 무기한. 삭제 조건: 없음.
 - **GitHub 작업** — `push_requests`(`schema.ts`의 `pushRequests`), `pull_requests`(`schema.ts`의 `pullRequests`), `github_workflow_dispatches`(`schema.ts`의 `githubWorkflowDispatches`)
-  - 만드는 시점: push 요청 생성(`packages/db/src/push-requests.ts`의 `createPostgresPushRequests`), PR 열기(`packages/db/src/action/pull-requests.ts`의 `savePullRequestIn`), workflow dispatch(`packages/db/src/github-settings.ts`의 `recordDispatch`).
+  - 만드는 시점: push 요청 생성(`packages/db/src/push-requests.ts`의 `createPostgresPushRequests`), PR 열기(`packages/db/src/action/pull-requests.ts`의 `savePullRequestIn`), workflow dispatch(`packages/db/src/github/github-settings.ts`의 `recordDispatch`).
   - 보존 기간: 무기한. 삭제 조건: 없음.
 - **Slack 입출력** — `slack_inbound_events`(`schema.ts`의 `slackInboundEvents`), `slack_outbox`(`schema.ts`의 `slackOutbox`), `session_links`
   - 담는 것: 받은 Slack 이벤트(본문 `payload`, `schema.ts`의 `slackInboundEvents`), 보낼 메시지, Slack 대화와 세션의 연결.
@@ -163,7 +163,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml`, `deplo
 - **세션 성과물** — `session_outcomes`, `outcome_refresh_quotas`
   - 표를 만든 migration은 `packages/db/migrations/0200_session_outcomes.sql`이고, 리뷰는 `0209_session_outcome_reviews.sql`이 더했다.
   - 담는 것: 세션이 남긴 GitHub PR(`github_pull_request`)과 리뷰(`github_review`) 한 건마다 URL, 저장소, release·에이전트, 상태와 그 시각(`state_changed_at`, `merged_at`, `closed_at`). PR 상태는 `open`·`merged`·`closed`이고, 다시 읽은 시각(`state_checked_at`)과 읽기 실패(`check_error`)도 남는다. `metadata`에는 PR이면 제목(최대 200자), head·base 브랜치, merge commit SHA, 변경 규모가, 리뷰면 리뷰한 PR 번호, 리뷰 종류, commit, 그 PR을 연 세션이 들어간다. 리뷰 본문은 남기지 않는다. `outcome_refresh_quotas`는 PR 상태를 다시 읽는 GitHub 호출의 rate limit 창이다.
-  - 만드는 시점: PR을 열거나 리뷰를 남기는 트랜잭션에서(`packages/db/src/action/pull-requests.ts`, `packages/db/src/github-settings.ts`의 `insert(sessionOutcomes)`). push 요청이 연 PR 중 성과물 행이 없는 것은 refresher가 `pull_requests` 행에서 나중에 채운다(`packages/db/src/sessions/session-outcomes.ts`의 `fillMissing`). 열린 PR과 닫힌 지 30일이 안 된 PR은 주기적으로 상태를 다시 읽어 행을 고친다. 머지된 PR과 리뷰는 다시 읽지 않는다.
+  - 만드는 시점: PR을 열거나 리뷰를 남기는 트랜잭션에서(`packages/db/src/action/pull-requests.ts`, `packages/db/src/github/github-settings.ts`의 `insert(sessionOutcomes)`). push 요청이 연 PR 중 성과물 행이 없는 것은 refresher가 `pull_requests` 행에서 나중에 채운다(`packages/db/src/sessions/session-outcomes.ts`의 `fillMissing`). 열린 PR과 닫힌 지 30일이 안 된 PR은 주기적으로 상태를 다시 읽어 행을 고친다. 머지된 PR과 리뷰는 다시 읽지 않는다.
   - 보존 기간: **정해지지 않음.** 설계에도 없다. 지우는 경로도 없다.
 
 ## 내용이 남는 곳과 마스킹

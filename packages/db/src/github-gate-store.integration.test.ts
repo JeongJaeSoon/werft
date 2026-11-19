@@ -15,7 +15,7 @@ import { Pool } from "pg";
 import {
   createPostgresGitHubGateStore,
   createPostgresGitHubSettingsStore,
-} from "./github-settings.ts";
+} from "./github/github-settings.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
 import {

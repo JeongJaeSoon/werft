@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { GITHUB_FEATURES_NONE } from "@werft-ai/contracts";
-import { githubPolicyOfRow } from "../github-settings.ts";
+import { githubPolicyOfRow } from "./github-settings.ts";
 
 // The session row's own attached list reaches the policy through this one
 // function, so a caller that drops it silently brings the old intersection

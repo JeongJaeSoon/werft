@@ -24,7 +24,7 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresPullRequests } from "./action/pull-requests.ts";
-import { createPostgresGitHubGateStore } from "./github-settings.ts";
+import { createPostgresGitHubGateStore } from "./github/github-settings.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
 import {

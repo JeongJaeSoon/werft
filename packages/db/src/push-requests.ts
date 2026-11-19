@@ -36,7 +36,10 @@ import {
   lockIdempotencyScope,
   UUID,
 } from "./control-shared.ts";
-import { githubPolicyColumns, githubPolicyOfRow } from "./github-settings.ts";
+import {
+  githubPolicyColumns,
+  githubPolicyOfRow,
+} from "./github/github-settings.ts";
 import { enqueueActionNotice } from "./musterrolle/action-notices.ts";
 import type { Database } from "./queries.ts";
 import {

@@ -20,8 +20,8 @@ import type {
 } from "@werft-ai/platform";
 import { MANAGEMENT_ROLES } from "@werft-ai/platform";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { lockedRole } from "./musterrolle/api-keys.ts";
-import type { Database } from "./queries.ts";
+import { lockedRole } from "../musterrolle/index.ts";
+import type { Database } from "../queries.ts";
 import {
   agentGitHubSettings,
   agentReleases,
@@ -34,9 +34,9 @@ import {
   sessionOutcomes,
   sessions,
   turns,
-} from "./schema.ts";
-import { queueAchievementJudgment } from "./sessions/achievement-judgments.ts";
-import { notDeleted } from "./soft-delete.ts";
+} from "../schema.ts";
+import { queueAchievementJudgment } from "../sessions/index.ts";
+import { notDeleted } from "../soft-delete.ts";
 
 /** No row reads all false; a row a later image wrote in another shape, too. */
 function ceilingOf(stored: unknown): GitHubCeiling {

@@ -28,7 +28,6 @@ import {
   sql,
 } from "drizzle-orm";
 import { DB_NOW } from "../db-clock.ts";
-import { ensureRepositoryCeilingWhenUnset } from "../github-settings.ts";
 import type { Database } from "../queries.ts";
 import {
   agentReleases,
@@ -51,6 +50,7 @@ import {
   writeSecretInTx,
 } from "../secrets/index.ts";
 import { deletedBy, notDeleted } from "../soft-delete.ts";
+import { ensureRepositoryCeilingWhenUnset } from "./github-settings.ts";
 
 type Row = typeof githubApps.$inferSelect;
 
