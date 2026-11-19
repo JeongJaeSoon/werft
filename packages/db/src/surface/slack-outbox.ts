@@ -33,14 +33,14 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
-import { releaseSuperseded } from "./agents.ts";
-import { UUID } from "./control-shared.ts";
+import { releaseSuperseded } from "../agents.ts";
+import { UUID } from "../control-shared.ts";
 import {
   catalogName,
   createPostgresPushRequests,
   toolSummaryContext,
-} from "./push-requests.ts";
-import type { Database } from "./queries.ts";
+} from "../push-requests.ts";
+import type { Database } from "../queries.ts";
 import {
   agents,
   attempts,
@@ -56,21 +56,21 @@ import {
   surfaceBindings,
   turns,
   users,
-} from "./schema.ts";
-import { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
+} from "../schema.ts";
 import {
   actionableNow,
   actionableOfTurn,
   actionableRequest,
-} from "./sessions/pending-status.ts";
-import { sqlLiterals } from "./sql-literals.ts";
-import { rowsOf } from "./statement-rows.ts";
-import { channelLeft } from "./surface/slack-channel-left.ts";
-import { ms, type Raw, released } from "./surface/slack-shared.ts";
+  createPostgresPendingRequests,
+} from "../sessions/index.ts";
+import { sqlLiterals } from "../sql-literals.ts";
+import { rowsOf } from "../statement-rows.ts";
+import { channelLeft } from "./slack-channel-left.ts";
+import { ms, type Raw, released } from "./slack-shared.ts";
 import {
   createPostgresSlackThreadStatusStore,
   touchSlackThreadStatus,
-} from "./surface/slack-thread-status.ts";
+} from "./slack-thread-status.ts";
 
 const t = slackOutbox;
 

@@ -202,7 +202,7 @@ apps/control-host/src/
 
 ### 4.4 Slack 저장소 포트는 platform에 남는다
 
-`platform/src/ports/`의 Slack 관련 파일은 일곱 개이고 그중 여섯 개가 저장소 포트다: `slack-app-store.ts`, `slack-config-token-store.ts`, `slack-inbound-event-store.ts`, `slack-install-store.ts`, `slack-outbox-store.ts`, `surface-binding-store.ts`. 이 여섯은 `db`가 구현한다(`packages/db/src/slack-outbox.ts:11-23`, `slack-config-tokens.ts:2-8`, `surface-bindings.ts:7-14` 등). `db`가 의존하는 워크스페이스 패키지는 `contracts`·`observability`·`platform`·`system`뿐이다(`packages/db/package.json:25-28`). 포트를 Slack 어댑터로 옮기면 `db`가 어댑터 패키지를 import해야 한다. 그래서 여섯 포트는 `platform/src/surface/ports/`에 둔다.
+`platform/src/ports/`의 Slack 관련 파일은 일곱 개이고 그중 여섯 개가 저장소 포트다: `slack-app-store.ts`, `slack-config-token-store.ts`, `slack-inbound-event-store.ts`, `slack-install-store.ts`, `slack-outbox-store.ts`, `surface-binding-store.ts`. 이 여섯은 `db`가 구현한다(`packages/db/src/surface/slack-outbox.ts:11-23`, `slack-config-tokens.ts:2-8`, `surface-bindings.ts:7-14` 등). `db`가 의존하는 워크스페이스 패키지는 `contracts`·`observability`·`platform`·`system`뿐이다(`packages/db/package.json:25-28`). 포트를 Slack 어댑터로 옮기면 `db`가 어댑터 패키지를 import해야 한다. 그래서 여섯 포트는 `platform/src/surface/ports/`에 둔다.
 
 일곱째 `slack-notice-sink.ts`는 다르다. `SlackNoticeSink`의 구현은 `db`가 아니라 Slack 파일에 있다(`musterrolle/slack-outbox.ts:292`, `slack-notice-log.ts:8`). 저장소 포트가 아니므로 `db`에 묶이지 않고, 이름에서 `Slack`을 뗀 채널 중립 능력 인터페이스 `Notifiable`이 되어 `platform/src/surface/ports/`로 간다([6.2절](#62-능력-인터페이스)). 구현은 Slack 어댑터에 남는다. 이 파일이 가는 곳이 달라졌을 뿐 platform에 `slack`이라는 이름이 남는 파일은 늘지 않는다.
 
