@@ -1,10 +1,5 @@
-import * as schema from "@werft-ai/db";
 import { createPostgresSchedulerStore } from "@werft-ai/db";
-import {
-  createEnforcedPool,
-  JOB_POOL_TIMEOUTS,
-  SEQUENTIAL_ROLE_POOL_MAX,
-} from "@werft-ai/db/pool";
+import { SEQUENTIAL_ROLE_POOL_MAX } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
 import {
   messageOf,
@@ -12,7 +7,7 @@ import {
   type SchedulerRunSummary,
 } from "@werft-ai/platform";
 import { installedDescriptors } from "@werft-ai/runtime-codecs";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { withJobDatabase } from "../job-database.ts";
 import { PASS_DEGRADED_EXIT, PASS_SKIPPED_EXIT } from "../pass-loop/loop.ts";
 import { installationConfigOf } from "../wiring/installation-config.ts";
 import { schedulerBackendFor } from "./backend.ts";
@@ -45,73 +40,72 @@ export async function main(
   }
   // The pass-lock client comes out of this pool too, so a frozen database
   // fails the lock query as well instead of holding the pass open.
-  const pool = createEnforcedPool(
+  return withJobDatabase(
+    "scheduler",
     config.databaseUrl,
     logger,
-    "scheduler",
-    JOB_POOL_TIMEOUTS,
+    async ({ db, pool }) => {
+      const { backend, preflight } = await schedulerBackendFor(
+        config.execution,
+        environment,
+      );
+      const installationConfig = installationConfigOf(db, logger);
+      const latch = latchOnConnectionLoss(
+        createPostgresSchedulerStore(db, {
+          connectForLock: () => pool.connect(),
+          logger,
+          sessionBudget: installationConfig.sessionBudget,
+        }),
+        (error) => {
+          logger.error(
+            "Database connection lost; failing the rest of the pass",
+            {
+              error: messageOf(error),
+            },
+          );
+        },
+      );
+      const store = latch.store;
+      await preflight({
+        logger,
+        quotaMarker: environment[QUOTA_PREFLIGHT_MARKER_ENV],
+        // Listed digests are unique: `image` is retracted only when all are.
+        probeQuota: !config.retractedImages.some(
+          ({ image }) => image === config.image,
+        ),
+        store,
+        workspaceTtls: installationConfig.workspaceTtls,
+      });
+      const summary = await runScheduler({
+        backend,
+        drainDeadlineMs: config.drainDeadlineMs,
+        image: config.image,
+        ...(config.imageRuntime === undefined
+          ? {}
+          : { imageRuntime: config.imageRuntime }),
+        olderImages: config.olderImages,
+        retractedImages: config.retractedImages,
+        engineOfKind: (kind) =>
+          installedDescriptors.find((descriptor) => descriptor.kind === kind)
+            ?.checkpointEngine,
+        logger,
+        resources: config.resources,
+        workerLimits: installationConfig.workerLimits,
+        slotLimit: config.slotLimit,
+        stopDeadlineMs: stopDeadlineMsOf(config.execution),
+        store,
+        workspaceTtls: installationConfig.workspaceTtls,
+        ...(options.stop === undefined ? {} : { stop: options.stop }),
+      });
+      // The pass records a lost connection against each execution it was
+      // reconciling and can still come back with a summary; the database being
+      // gone is the process's failure, not theirs.
+      const lost = latch.lost();
+      if (lost !== undefined) throw lost;
+      return summary;
+    },
     { max: SEQUENTIAL_ROLE_POOL_MAX },
   );
-  try {
-    const db = drizzle(pool, { schema });
-    const { backend, preflight } = await schedulerBackendFor(
-      config.execution,
-      environment,
-    );
-    const installationConfig = installationConfigOf(db, logger);
-    const latch = latchOnConnectionLoss(
-      createPostgresSchedulerStore(db, {
-        connectForLock: () => pool.connect(),
-        logger,
-        sessionBudget: installationConfig.sessionBudget,
-      }),
-      (error) => {
-        logger.error("Database connection lost; failing the rest of the pass", {
-          error: messageOf(error),
-        });
-      },
-    );
-    const store = latch.store;
-    await preflight({
-      logger,
-      quotaMarker: environment[QUOTA_PREFLIGHT_MARKER_ENV],
-      // Listed digests are unique: `image` is retracted only when all are.
-      probeQuota: !config.retractedImages.some(
-        ({ image }) => image === config.image,
-      ),
-      store,
-      workspaceTtls: installationConfig.workspaceTtls,
-    });
-    const summary = await runScheduler({
-      backend,
-      drainDeadlineMs: config.drainDeadlineMs,
-      image: config.image,
-      ...(config.imageRuntime === undefined
-        ? {}
-        : { imageRuntime: config.imageRuntime }),
-      olderImages: config.olderImages,
-      retractedImages: config.retractedImages,
-      engineOfKind: (kind) =>
-        installedDescriptors.find((descriptor) => descriptor.kind === kind)
-          ?.checkpointEngine,
-      logger,
-      resources: config.resources,
-      workerLimits: installationConfig.workerLimits,
-      slotLimit: config.slotLimit,
-      stopDeadlineMs: stopDeadlineMsOf(config.execution),
-      store,
-      workspaceTtls: installationConfig.workspaceTtls,
-      ...(options.stop === undefined ? {} : { stop: options.stop }),
-    });
-    // The pass records a lost connection against each execution it was
-    // reconciling and can still come back with a summary; the database being
-    // gone is the process's failure, not theirs.
-    const lost = latch.lost();
-    if (lost !== undefined) throw lost;
-    return summary;
-  } finally {
-    await pool.end();
-  }
 }
 
 /**

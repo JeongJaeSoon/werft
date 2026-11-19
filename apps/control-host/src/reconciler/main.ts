@@ -1,4 +1,4 @@
-import * as schema from "@werft-ai/db";
+import type * as schema from "@werft-ai/db";
 import {
   announceLapsedInputWaits,
   deleteExpiredWebSessions,
@@ -14,19 +14,16 @@ import {
   reconcileOverdueInterrupts,
   reconcileProviderExchanges,
 } from "@werft-ai/db";
-import {
-  createEnforcedPool,
-  JOB_POOL_TIMEOUTS,
-  SEQUENTIAL_ROLE_POOL_MAX,
-} from "@werft-ai/db/pool";
+import { SEQUENTIAL_ROLE_POOL_MAX } from "@werft-ai/db/pool";
 import { createLogger, logLevelFromEnv } from "@werft-ai/observability";
 import {
   INTERRUPT_RECEIPT_DEADLINE_MS,
   INTERRUPT_SETTLE_DEADLINE_MS,
   TERMINATE_DEADLINE_MS,
 } from "@werft-ai/platform";
-import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { queueDatabaseUrl } from "../database-url.ts";
+import { withJobDatabase } from "../job-database.ts";
 import { runProviderExchangeReconciler } from "./provider-exchanges.ts";
 import {
   type ReconcilerLogger,
@@ -48,31 +45,27 @@ export async function main(
   const logger = createLogger({
     level: logLevelFromEnv(environment.LOG_LEVEL),
   });
-  const pool = createEnforcedPool(
+  await withJobDatabase(
+    "reconciler",
     databaseUrl,
     logger,
-    "reconciler",
-    JOB_POOL_TIMEOUTS,
+    async ({ db }) => {
+      await reconcileOnce(db, environment, logger);
+      await runProviderExchangeReconciler({
+        environment: {
+          ...(environment.RECONCILER_BATCH_SIZE === undefined
+            ? {}
+            : { RECONCILER_BATCH_SIZE: environment.RECONCILER_BATCH_SIZE }),
+          ...(environment.RECONCILER_DRY_RUN === undefined
+            ? {}
+            : { RECONCILER_DRY_RUN: environment.RECONCILER_DRY_RUN }),
+        },
+        logger,
+        reconcile: (options) => reconcileProviderExchanges(db, options),
+      });
+    },
     { max: SEQUENTIAL_ROLE_POOL_MAX },
   );
-  try {
-    const db = drizzle(pool, { schema });
-    await reconcileOnce(db, environment, logger);
-    await runProviderExchangeReconciler({
-      environment: {
-        ...(environment.RECONCILER_BATCH_SIZE === undefined
-          ? {}
-          : { RECONCILER_BATCH_SIZE: environment.RECONCILER_BATCH_SIZE }),
-        ...(environment.RECONCILER_DRY_RUN === undefined
-          ? {}
-          : { RECONCILER_DRY_RUN: environment.RECONCILER_DRY_RUN }),
-      },
-      logger,
-      reconcile: (options) => reconcileProviderExchanges(db, options),
-    });
-  } finally {
-    await pool.end();
-  }
 }
 
 /** One pass over `db`; every write in it is re-judged under row locks. */
