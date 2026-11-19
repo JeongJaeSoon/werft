@@ -194,6 +194,9 @@ export function runtimeEnvironment(
       ? {}
       : assertUserEnvironment(config.userEnvironment)),
     ANTHROPIC_BASE_URL: normalizeEndpoint(config.profile.endpoint),
+    // Memory is the platform's, under its own scopes and audit; what the
+    // engine would keep sits beside the transcripts and travels with them.
+    CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
     CLAUDE_CONFIG_DIR: config.claudeConfigDir,
     HOME: config.home,

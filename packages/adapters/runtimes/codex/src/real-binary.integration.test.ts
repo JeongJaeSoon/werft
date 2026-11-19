@@ -14,6 +14,7 @@ import { createMemoryCheckpointObjectStore } from "@werft-ai/testkit/checkpoint-
 import { sha256Hex, startFakeMcp } from "@werft-ai/testkit/fake-mcp";
 
 import { codexExecutable } from "./binary.ts";
+import { codexHomeOf } from "./config.ts";
 import { CodexAgentRuntime, codexRuntimeModule } from "./contract.ts";
 import {
   assistantMessage,
@@ -529,5 +530,56 @@ describe.skipIf(!available)("the pinned codex app-server", () => {
     );
     expect(asked).toBe("call_1");
     expect(await Bun.file(join(work, "ruled.txt")).exists()).toBe(false);
+  }, 60_000);
+
+  test("keeps no memory of its own: none written, none read on a new or resumed session", async () => {
+    const seen: Seen[] = [];
+    const server = fakeResponses(seen, () => [assistantMessage("noted")]);
+    const port = server.port as number;
+    const work = join(root, "memory-work");
+    await Bun.write(join(work, ".keep"), "");
+    const fresh = join(root, "memory-fresh");
+    const left = join(root, "memory-left");
+    // The v1 store a session with Memories on would have left in its home.
+    const store = join(codexHomeOf(left), "memories");
+    await Bun.write(join(store, "memory_summary.md"), "v1\n- ENGINE_MEMORY\n");
+    await Bun.write(
+      join(store, "MEMORY.md"),
+      "# Task Group\n- ENGINE_MEMORY\n",
+    );
+    const session = async (stateDir: string, resume?: string) => {
+      const run = new CodexAgentRuntime({ stateDir } as never).start(
+        startOf({
+          port,
+          work,
+          egressToken: EGRESS,
+          ...(resume === undefined ? {} : { mode: "resume" as const, resume }),
+        }),
+      );
+      try {
+        const events = await turn(run, crypto.randomUUID(), "remember this");
+        const init = events.find(
+          (e) => e.type === "public" && e.event.event === "system",
+        ) as { event: { data: { session_id?: string } } } | undefined;
+        return String(init?.event.data.session_id);
+      } finally {
+        await run.close();
+      }
+    };
+    try {
+      await session(fresh);
+      for (const name of ["memories", "memories_v2"]) {
+        expect(
+          await stat(join(codexHomeOf(fresh), name)).catch(() => null),
+        ).toBeNull();
+      }
+      const threadId = await session(left);
+      await session(left, threadId);
+      expect(seen.length).toBeGreaterThanOrEqual(3);
+      expect(seen.some((s) => s.body.includes("remember this"))).toBe(true);
+      expect(seen.filter((s) => s.body.includes("ENGINE_MEMORY"))).toEqual([]);
+    } finally {
+      await server.stop(true);
+    }
   }, 60_000);
 });

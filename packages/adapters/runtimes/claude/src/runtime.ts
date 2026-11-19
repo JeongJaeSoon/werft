@@ -17,7 +17,6 @@ import type {
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import type { DriverRun, RuntimeHooks } from "./driver.ts";
 import { modeSettings } from "./engine-settings.ts";
-import { MEMORY_READ_GUIDANCE, readsOnlyMemory } from "./memory-read.ts";
 import { MirrorProgress } from "./mirror-progress.ts";
 import { expectedPluginSkills } from "./plugin-skills.ts";
 import {
@@ -257,12 +256,7 @@ export function buildSdkOptions(
     }
     return {};
   };
-  const append = [
-    systemPromptAppend(config),
-    unattended ? undefined : MEMORY_READ_GUIDANCE,
-  ]
-    .filter((part) => part !== undefined)
-    .join("\n\n");
+  const append = systemPromptAppend(config) ?? "";
   return {
     abortController,
     canUseTool: async (tool, toolInput, options) => {
@@ -285,18 +279,6 @@ export function buildSdkOptions(
       };
       if (!permittedTools.has(tool)) {
         return deny("Tool is outside the server allowlist", "not_permitted");
-      }
-      // PreToolUse already admitted it past any checkpoint lease, and no
-      // person is asked, so there is no prompt for the ledger to track.
-      if (await readsOnlyMemory(config, tool, toolInput)) {
-        decisions.decide({
-          toolUseId: options.toolUseID,
-          tool,
-          input: toolInput,
-          decision: "allow",
-          basis: "memory_read",
-        });
-        return { behavior: "allow", toolUseID: options.toolUseID };
       }
       const admission = ledger.permissionStarting(options.toolUseID);
       if (!admission.allowed) return deny(admission.message, "hook_deny");
