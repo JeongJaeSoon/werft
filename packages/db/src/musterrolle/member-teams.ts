@@ -45,6 +45,7 @@ import {
   receipts,
   users,
 } from "../schema.ts";
+import { writeSucceededReceipt } from "../succeeded-receipt.ts";
 
 // Teams (design 4.7). Lock order, everywhere here: the people
 // involved (users, then memberships, in user_id order), the team, then team
@@ -265,10 +266,6 @@ async function writeReceipt(
   });
 }
 
-function teamTarget(teamId: string, workspaceId: string) {
-  return { resource: { kind: "team", id: teamId }, workspace_id: workspaceId };
-}
-
 // Two renames racing to one free name: the live-name index refuses the
 // second. Any other unique violation (a reused receipt id) is not a name clash.
 function isLiveNameTaken(error: unknown): boolean {
@@ -304,10 +301,11 @@ export function createPostgresTeamStore(db: Database): TeamStore {
             .onConflictDoNothing()
             .returning();
           if (!row) return { outcome: "name_taken" as const };
-          await writeReceipt(tx, actor, {
+          await writeSucceededReceipt(tx, actor.principal, {
             id: input.receiptId,
             operation: "create_team",
-            targetRef: teamTarget(row.id, actor.workspaceId),
+            resource: { kind: "team", id: row.id },
+            workspaceId: actor.workspaceId,
             result: { name: row.name },
           });
           return { outcome: "created" as const, team: await teamOf(tx, row) };
@@ -353,10 +351,11 @@ export function createPostgresTeamStore(db: Database): TeamStore {
             .where(eq(memberTeams.id, team.id))
             .returning();
           if (!row) throw new Error(`team ${team.id} vanished under its lock`);
-          await writeReceipt(tx, actor, {
+          await writeSucceededReceipt(tx, actor.principal, {
             id: input.receiptId,
             operation: "rename_team",
-            targetRef: teamTarget(team.id, actor.workspaceId),
+            resource: { kind: "team", id: team.id },
+            workspaceId: actor.workspaceId,
             result: { from: team.name, to: row.name },
           });
           return { outcome: "renamed" as const, team: await teamOf(tx, row) };
@@ -445,10 +444,11 @@ export function createPostgresTeamStore(db: Database): TeamStore {
               revision: sql`${memberTeams.revision} + 1`,
             })
             .where(eq(memberTeams.id, team.id));
-          await writeReceipt(tx, actor, {
+          await writeSucceededReceipt(tx, actor.principal, {
             id: input.receiptId,
             operation: "delete_team",
-            targetRef: teamTarget(team.id, actor.workspaceId),
+            resource: { kind: "team", id: team.id },
+            workspaceId: actor.workspaceId,
             result: {
               name: team.name,
               agent_ids: dropped.map((row) => row.agentId),

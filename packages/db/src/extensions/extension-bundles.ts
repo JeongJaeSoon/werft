@@ -9,18 +9,13 @@ import type {
   ExtensionMode,
   Principal,
 } from "@werft-ai/platform";
-import { receiptActorOf } from "@werft-ai/platform";
 import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import { UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import { lockedRole } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
-import {
-  agents,
-  extensionAttachments,
-  extensionBundles,
-  receipts,
-} from "../schema.ts";
+import { agents, extensionAttachments, extensionBundles } from "../schema.ts";
+import { writeSucceededReceipt } from "../succeeded-receipt.ts";
 
 type Row = typeof extensionBundles.$inferSelect;
 
@@ -70,14 +65,11 @@ async function writeReceipt(
     result: Record<string, unknown>;
   },
 ) {
-  await tx.insert(receipts).values({
+  await writeSucceededReceipt(tx, principal, {
     id: input.id,
-    ownerId: principal.ownerId,
-    actor: receiptActorOf(principal),
-    requestId: principal.requestId ?? null,
     operation: input.operation,
-    targetRef: { resource: input.target, workspace_id: principal.ownerId },
-    status: "succeeded",
+    resource: input.target,
+    workspaceId: principal.ownerId,
     result: input.result,
   });
 }

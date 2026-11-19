@@ -1,9 +1,7 @@
-import { randomUUID } from "node:crypto";
 import type { SecretPurpose, WorkspaceRole } from "@werft-ai/contracts";
 import {
   MANAGEMENT_ROLES,
   type Principal,
-  receiptActorOf,
   type SecretKey,
   type SecretOwnerRef,
   type SecretSlot,
@@ -21,7 +19,6 @@ import type { Database } from "../queries.ts";
 import {
   agentWorkspaceMcpServers,
   mcpServers,
-  receipts,
   secretValues,
   users,
   workspaceMcpConnections,
@@ -33,6 +30,7 @@ import {
   writeSecretInTx,
 } from "../secrets/index.ts";
 import { deletedBy, notDeleted } from "../soft-delete.ts";
+import { writeSucceededReceipt } from "../succeeded-receipt.ts";
 import { lockedRole } from "./api-keys.ts";
 
 // Workspace MCP servers and their one connection (decision
@@ -115,17 +113,10 @@ async function writeReceipt(
     | "disconnect_workspace_mcp_server",
   result: Record<string, unknown>,
 ): Promise<void> {
-  await tx.insert(receipts).values({
-    id: randomUUID(),
-    ownerId: principal.ownerId,
-    actor: receiptActorOf(principal),
-    requestId: principal.requestId ?? null,
+  await writeSucceededReceipt(tx, principal, {
     operation,
-    targetRef: {
-      resource: { kind: "workspace", id: workspaceId },
-      workspace_id: workspaceId,
-    },
-    status: "succeeded",
+    resource: { kind: "workspace", id: workspaceId },
+    workspaceId,
     result,
   });
 }

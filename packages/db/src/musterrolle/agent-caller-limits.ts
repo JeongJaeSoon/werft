@@ -23,7 +23,6 @@ import {
   mergeCallerLimit,
   narrowReach,
   type PutAgentCallerLimitsResult,
-  receiptActorOf,
   type SessionReach,
   withLiveRepositories,
 } from "@werft-ai/platform";
@@ -43,8 +42,8 @@ import {
   catalogRepositories,
   memberTeamMembers,
   memberTeams,
-  receipts,
 } from "../schema.ts";
+import { writeSucceededReceipt } from "../succeeded-receipt.ts";
 import { lockEditRight } from "../usage/index.ts";
 import { createPostgresDecisionLog } from "./authz-decisions.ts";
 
@@ -678,22 +677,16 @@ async function put(
       .where(eq(agentUsage.agentId, agentId));
     const next = await readFacts(tx, agentId, false);
     if (!next) throw new Error(`agent_usage ${agentId} vanished in its tx`);
-    await tx.insert(receipts).values({
+    await writeSucceededReceipt(tx, actor.principal, {
       id: input.receiptId,
-      ownerId: actor.principal.ownerId,
-      actor: receiptActorOf(actor.principal),
       operation: "set_agent_caller_limits",
-      targetRef: {
-        resource: { kind: "agent", id: agentId },
-        workspace_id: workspaceId,
-      },
+      resource: { kind: "agent", id: agentId },
+      workspaceId,
       result: {
         from: { rules: stored.rules },
         to: { rules: next.rules },
         revision: next.revision,
       },
-      status: "succeeded",
-      requestId: actor.principal.requestId ?? null,
     });
     return { outcome: "set", limits: toLimits(next) };
   });

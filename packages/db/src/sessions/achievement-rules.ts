@@ -12,7 +12,7 @@ import {
   workspaceSettingsSchema,
 } from "@werft-ai/contracts";
 import type { AchievementRuleStore, TeamActor } from "@werft-ai/platform";
-import { MANAGEMENT_ROLES, receiptActorOf } from "@werft-ai/platform";
+import { MANAGEMENT_ROLES } from "@werft-ai/platform";
 import { and, asc, count, desc, eq, isNull, max, ne, sql } from "drizzle-orm";
 import { findPgError, lockPeople } from "../control-shared.ts";
 import type { Database } from "../queries.ts";
@@ -20,9 +20,9 @@ import {
   achievementCategories,
   achievementRules,
   achievementTypes,
-  receipts,
   workspaces,
 } from "../schema.ts";
+import { writeSucceededReceipt } from "../succeeded-receipt.ts";
 
 const RULE_MANAGERS: readonly string[] =
   MANAGEMENT_ROLES["achievement_rule.manage"] ?? [];
@@ -122,18 +122,12 @@ async function writeReceipt(
   >,
   result: Record<string, unknown>,
 ) {
-  await tx.insert(receipts).values({
+  await writeSucceededReceipt(tx, actor.principal, {
     id,
-    ownerId: actor.principal.ownerId,
-    actor: receiptActorOf(actor.principal),
     operation,
-    targetRef: {
-      resource: { kind: "workspace", id: actor.workspaceId },
-      workspace_id: actor.workspaceId,
-    },
+    resource: { kind: "workspace", id: actor.workspaceId },
+    workspaceId: actor.workspaceId,
     result,
-    status: "succeeded",
-    requestId: actor.principal.requestId ?? null,
   });
 }
 

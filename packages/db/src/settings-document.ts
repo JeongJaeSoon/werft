@@ -50,6 +50,7 @@ import {
 import { writeSecretInTx } from "./secrets/secret-values.ts";
 import { sqlLiterals } from "./sql-literals.ts";
 import { rowsOf } from "./statement-rows.ts";
+import { writeSucceededReceipt } from "./succeeded-receipt.ts";
 
 const PURPOSE = "settings_credential";
 
@@ -621,21 +622,12 @@ async function consoleReceipt(
   operation: ReceiptOperation,
   result: Record<string, unknown>,
 ): Promise<string> {
-  const id = randomUUID();
-  await tx.insert(receipts).values({
-    id,
-    ownerId: actor.principal.ownerId,
-    actor: receiptActorOf(actor.principal),
+  return writeSucceededReceipt(tx, actor.principal, {
     operation,
-    targetRef: {
-      resource: { kind: "workspace", id: actor.workspaceId },
-      workspace_id: actor.workspaceId,
-    },
+    resource: { kind: "workspace", id: actor.workspaceId },
+    workspaceId: actor.workspaceId,
     result,
-    status: "succeeded",
-    requestId: actor.principal.requestId ?? null,
   });
-  return id;
 }
 
 /**
