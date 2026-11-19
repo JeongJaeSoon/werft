@@ -532,21 +532,27 @@ describe.skipIf(!available)("the pinned codex app-server", () => {
     expect(await Bun.file(join(work, "ruled.txt")).exists()).toBe(false);
   }, 60_000);
 
-  test("keeps no memory of its own: none written, none read on a new or resumed session", async () => {
+  test("keeps no memory of its own: none written, none read on a new or restored session", async () => {
     const seen: Seen[] = [];
     const server = fakeResponses(seen, () => [assistantMessage("noted")]);
     const port = server.port as number;
     const work = join(root, "memory-work");
     await Bun.write(join(work, ".keep"), "");
     const fresh = join(root, "memory-fresh");
+    const restored = join(root, "memory-restored");
     const left = join(root, "memory-left");
     // The v1 store a session with Memories on would have left in its home.
-    const store = join(codexHomeOf(left), "memories");
-    await Bun.write(join(store, "memory_summary.md"), "v1\n- ENGINE_MEMORY\n");
-    await Bun.write(
-      join(store, "MEMORY.md"),
-      "# Task Group\n- ENGINE_MEMORY\n",
-    );
+    const leaveMemory = async (stateDir: string) => {
+      const store = join(codexHomeOf(stateDir), "memories");
+      await Bun.write(
+        join(store, "memory_summary.md"),
+        "v1\n- ENGINE_MEMORY\n",
+      );
+      await Bun.write(
+        join(store, "MEMORY.md"),
+        "# Task Group\n- ENGINE_MEMORY\n",
+      );
+    };
     const session = async (stateDir: string, resume?: string) => {
       const run = new CodexAgentRuntime({ stateDir } as never).start(
         startOf({
@@ -557,7 +563,11 @@ describe.skipIf(!available)("the pinned codex app-server", () => {
         }),
       );
       try {
-        const events = await turn(run, crypto.randomUUID(), "remember this");
+        const events = await turn(
+          run,
+          crypto.randomUUID(),
+          resume === undefined ? "remember this" : "go on",
+        );
         const init = events.find(
           (e) => e.type === "public" && e.event.event === "system",
         ) as { event: { data: { session_id?: string } } } | undefined;
@@ -567,16 +577,44 @@ describe.skipIf(!available)("the pinned codex app-server", () => {
       }
     };
     try {
-      await session(fresh);
+      const threadId = await session(fresh);
       for (const name of ["memories", "memories_v2"]) {
         expect(
           await stat(join(codexHomeOf(fresh), name)).catch(() => null),
         ).toBeNull();
       }
-      const threadId = await session(left);
-      await session(left, threadId);
-      expect(seen.length).toBeGreaterThanOrEqual(3);
-      expect(seen.some((s) => s.body.includes("remember this"))).toBe(true);
+
+      // The checkpoint path: capture the rollout, restore it into another
+      // state directory whose home also holds a memory store, resume there.
+      const objects = createMemoryCheckpointObjectStore();
+      const captured = await codexRuntimeModule
+        .openTranscriptStore({
+          generation: 1,
+          objects,
+          prefix: "sessions/memory/mirror",
+          engineDirectory: join(fresh, "projects"),
+        })
+        .captureTranscripts(threadId);
+      if (captured === null) throw new Error("the engine wrote no rollout");
+      const reader = codexRuntimeModule.openTranscriptStore({
+        generation: 2,
+        objects,
+        prefix: "sessions/memory/mirror",
+        engineDirectory: join(restored, "projects"),
+        inherit: { sessionId: threadId, transcripts: captured },
+      });
+      await reader.verifyInherited();
+      await reader.materialize(join(restored, "projects"));
+      await leaveMemory(restored);
+      const before = seen.length;
+      await session(restored, threadId);
+      const resumed = seen.slice(before);
+      expect(resumed.length).toBeGreaterThan(0);
+      expect(resumed[0]?.body).toContain("remember this");
+      expect(resumed[0]?.body).toContain("go on");
+
+      await leaveMemory(left);
+      await session(left);
       expect(seen.filter((s) => s.body.includes("ENGINE_MEMORY"))).toEqual([]);
     } finally {
       await server.stop(true);
