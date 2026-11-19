@@ -1,6 +1,6 @@
 # 결정(설계): 에이전트 기억 레이어 — 범위, 집행 순서, MCP 도구, MemoryService 포트
 
-- 상태: 설계. 코드는 바꾸지 않는다. 구현 단위는 [11절](#11-단계-계획과-구현-단위)에 있다.
+- 상태: 설계. 코드는 바꾸지 않는다. 구현 단계는 [14절](#14-단계별-구현-계획)에 있다.
 - 기준 커밋: `origin/main` `f3c650f4e`. `파일:줄`은 이 커밋에서 읽었다.
 - 관련 결정: [에이전트 담당 팀과 액션 RBAC](agent-rbac.md), [워크스페이스 원격 MCP 서버](mcp-credentials.md), [번들 stdio MCP 서버를 worker relay 뒤에 둔다](stdio-mcp-relay.md), [관측과 도구 호출 감사](observability-otel-and-tool-call-audit.md), [세션 사용량 장부](provider-usage-ledger.md). 데이터 접근 정책은 스킬·MCP 서버 설계 문서의 6절(별도 PR에서 검토 중)을 따른다. 이 문서에서는 "데이터 접근 정책"이라 부른다.
 - 티켓 번호: 저장소의 마크다운은 티켓 번호를 적지 못한다(`tests/docs-links.test.ts`). 번호와 단위의 대응은 이 문서를 들인 PR 본문에 있다.
@@ -18,7 +18,9 @@
 | 모양 | control-host의 기억 서비스가 정본을 갖고, 엔진은 플랫폼 relay 뒤의 내장 MCP 서버 `memory`의 도구 넷(`memory_search`·`memory_read`·`memory_write`·`memory_propose`)만 본다. 폴더 mount는 없다([6절](#6-mcp-도구)) |
 | 저장소 | `MemoryService` 포트와 계약 시험을 지금 만들고 구현은 Postgres 하나다. 외부 백엔드(Mem0, Zep 등)는 tombstone·revision CAS·권한 재검사 계약 시험을 통과할 때만 붙인다([7절](#7-memoryservice-포트)) |
 | 드리밍 | 따로 만들지 않고 증분 정리(consolidation)를 드리밍이라 부른다. 결과는 언제나 **새 후보 + 지금 문서와의 diff**이고 사람이 채택한다. 범위별 예산을 둔다. 정해진 시각에 도는 범위별 실행은 루틴이 생긴 뒤다([8절](#8-정리드리밍)) |
-| 엔진 자체 기억 | Claude의 자동 기억, Codex의 Memories는 정책으로 끈다. ACL·tombstone·감사 밖에 기억이 쌓이기 때문이다. 이것은 기억을 켜는 조건의 하나다. 나머지는 공통 판정기와 판정 기록, 검사와 격리, tombstone 삭제와 삭제 장부, 비활성 사용자의 개인 기억 삭제다([10절](#10-엔진-자체-기억), [11절](#11-단계-계획과-구현-단위)) |
+| 엔진 자체 기억 | Claude의 자동 기억, Codex의 Memories는 정책으로 끈다. ACL·tombstone·감사 밖에 기억이 쌓이기 때문이다. 이것은 기억을 켜는 조건의 하나다. 나머지는 공통 판정기와 판정 기록, 검사와 격리, tombstone 삭제와 삭제 장부, 비활성 사용자의 개인 기억 삭제다([10절](#10-엔진-자체-기억), [14절](#14-단계별-구현-계획)) |
+| 표준과 다른 제품 | 엔진 사이에 채택된 기억 표준은 없다(AAIF에 기억 프로젝트가 없고, W3C CG는 명세가 없다). 그래서 기억은 우리 모델을 포트 뒤에 두고, 전달은 표준인 MCP로, 규칙은 AGENTS.md·스킬로 둔다. 불변 version, 새 결과를 만드는 정리, 승인 전 미적용은 다른 제품에서 가져오고, 모델이 영속 기억을 바로 쓰는 것은 따르지 않는다([11–12절](#11-조사-요약과-시장-동향)) |
+| 아키텍처와 단계 | contracts·platform·db·testkit·control-host·adapter로 나누고(13절), P1 계약·스키마부터 P9 켜기까지 아홉 단계로 간다. 단계마다 PR 하나나 둘과 끝나는 조건이 있다([14절](#14-단계별-구현-계획)) |
 | 순서 | 오너 방향(2026-10-28)대로 요청-응답 기반 위에 먼저 놓는다. 상시 실행과 워크플로우는 그 뒤다 |
 
 ## 1. 지금 있는 것
@@ -135,7 +137,7 @@
 - **근거 재검사.** 채택 화면은 채택자가 읽을 수 있는 근거만 펼친다. 읽을 수 없는 근거는 "출처 비공개(확인자: 누구)"로만 표시한다. 채택 transaction은 근거 문서·세션이 아직 살아 있는지(지워지지 않았는지)와 출처 확인 뒤 본문이 바뀌지 않았는지를 다시 본다.
 - **개인 정보 taint.** 개인 기억을 읽은 세션(2절 전제 4)에서 나온 요약·후보, 그것을 입력으로 쓴 정리 결과, 그 결과의 다음 승격은 `personal_subjects`를 이어받는다. taint가 있는 후보를 공유 범위(에이전트·공간·워크스페이스)에 채택하려면 표시된 사람 전원의 출처 확인이 필요하다. 후보의 명목상 출처 범위(세션, 에이전트)와 상관없이 그렇다. 개인 기억은 소유자 = 요청자 = 본인인 세션에서만 읽히므로, 보통은 세션 소유자의 출처 확인이 곧 본인 확인이다.
 - **워크스페이스는 승격으로만.** 워크스페이스 문서는 활성 개인·에이전트 문서를 원본으로 한 승격 기록이 있어야 만들어진다. 도구로 워크스페이스 후보를 바로 만들 수 없다.
-- 세션 → 에이전트 자동 채택(사람 없이)은 지금 하지 않는다. 필요해지면 에이전트별 설정으로, 채택 receipt에 "정책 자동"을 남기는 방식으로 연다([11절](#11-단계-계획과-구현-단위) 나중).
+- 세션 → 에이전트 자동 채택(사람 없이)은 지금 하지 않는다. 필요해지면 에이전트별 설정으로, 채택 receipt에 "정책 자동"을 남기는 방식으로 연다([14절](#14-단계별-구현-계획) 나중).
 - **개인 기억을 읽은 세션은 에이전트 기억에 후보로만 쓴다.** `personal_subjects`가 있는 세션(또는 그 taint를 이어받은 정리 결과)에서 나온 공유 범위 문서는 어떤 설정에서도 바로 활성이 되지 않는다. 나중에 여는 정책 자동 채택도 taint가 있는 후보에는 쓰지 않는다. 그렇지 않으면 A의 개인 기억이 승격 없이 에이전트 기억을 거쳐 B의 실행에 들어간다.
 
 ## 5. 집행 순서
@@ -320,20 +322,139 @@ interface MemoryService {
 
 시험: (1) 같은 세션 안에서 엔진이 기억 파일을 만들지 않는다. (2) checkpoint에서 이어 간 세션에 엔진 쪽 기억이 없다. (3) 같은 에이전트로 세션을 두 번 돌려, 첫 세션이 남긴 것이 두 번째 세션에 보이지 않는다.
 
-## 11. 단계 계획과 구현 단위
+## 11. 조사 요약과 시장 동향
 
-### 지금 (요청-응답 기반 위)
+2026-11-20에 공개 문서만 보고 조사했다. 공식 문서가 확인해 주지 않는 것은 쓰지 않았다.
 
-| 단위 | 내용 | 선행 |
+**표준.**
+
+- 에이전트 표준을 모으는 곳은 Linux Foundation 아래의 Agentic AI Foundation(AAIF)이다. MCP, AGENTS.md, goose로 시작했고([2025-12 발표](https://www.linuxfoundation.org/press/linux-foundation-announces-the-formation-of-the-agentic-ai-foundation)), 2026-10에 Agent Skills 등 넷을 더해 열 개 프로젝트가 되었다([2026-10 발표](https://www.linuxfoundation.org/press/agentic-ai-foundation-announces-four-new-projects-agent-skills-open-responses-openenv-and-opensandbox)). **기억 프로젝트나 기억 작업 그룹은 없다**([aaif.io](https://aaif.io/)).
+- W3C에 [AI Agent Memory Interoperability Community Group](https://www.w3.org/community/ai-agent-memory-interop/)이 있다(2026-06 charter). 아직 낸 명세가 없고, CG 보고서는 W3C 권고가 아니다.
+- 그 밖의 "기억 표준"(OAMS, Engram, [Letta Agent File](https://github.com/letta-ai/agent-file))은 회사 하나의 초안이거나 에이전트 전체를 내보내는 형식이다.
+- 결론: 2026-11 지금 엔진 사이에 채택된 기억 표준은 없다. 엔진에 기억을 전달하는 통로(MCP)와 규칙 파일(AGENTS.md), 절차의 형식(Agent Skills)은 표준이 있다.
+
+**엔진과 제품이 기억을 다루는 방식.**
+
+| 제품 | 저장과 범위 | 쓰기 | 삭제·개인 정보 |
+|---|---|---|---|
+| [Claude API memory 도구](https://platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool) | 클라이언트 쪽. `/memories` 경로를 앱이 저장소에 잇는다. 범위·색인·상한은 앱이 정한다 | 모델이 파일 명령(view, create, str_replace, insert, delete, rename)으로 직접 쓴다 | 경로 탈출 검사와 크기 상한을 앱이 한다 |
+| [Claude Code](https://code.claude.com/docs/en/memory) | CLAUDE.md 계층(관리·프로젝트·사용자·로컬)과 자동 기억. 자동 기억은 git 저장소별이고 기계에만 있다. 색인 `MEMORY.md`의 앞 200줄 또는 25KB가 매 세션 들어간다 | 모델이 직접 쓴다 | 설정으로 끈다 |
+| [Claude Managed Agents memory store](https://platform.claude.com/docs/en/managed-agents/memory)(beta) | 워크스페이스 범위 저장소를 세션에 붙인다(기본 read_write, read_only 선택). 기억 하나 100 kB, 저장소당 10,000개 | 모든 변경이 불변 version. `content_sha256` 선행 조건, redaction | 문서가 "주입이 성공하면 악성 내용이 저장소에 쓰이고, 다음 세션이 그것을 믿을 만한 기억으로 읽는다"고 경고한다 |
+| [Claude Dreams](https://platform.claude.com/docs/en/managed-agents/dreams)(연구 미리보기) | 저장소 하나와 세션 1–100개를 입력으로 **새 저장소**를 만든다. 입력은 바꾸지 않는다 | — | — |
+| [claude.ai](https://support.claude.com/en/articles/11817273-use-claude-s-chat-search-and-memory-to-build-on-previous-context) | 개인 기억, 프로젝트마다 갈린 기억. incognito 대화는 저장하지 않는다. Team·Enterprise 소유자는 조직 단위로 켜고 끄지만 개인 기억을 읽지 못한다 | 자동 | 대화를 지워도 기억은 남는다 |
+| [OpenAI Codex](https://learn.chatgpt.com/docs/customization/memories.md?surface=app) | 기계별 로컬 파일. 쉬는 대화에서 추출하고 비밀을 가린다. 외부 문맥(MCP·웹 도구) 대화를 추출에서 빼는 설정이 있다 | 자동 | 전체 초기화 |
+| [OpenAI Agents SDK sandbox memory](https://openai.github.io/openai-agents-python/sandbox/memory/) | `memories/` 아래 요약(주입)·색인·`skills/` 파일. 추출 → 정리 두 단계 | 자동 | 삭제 API가 없고 오래된 것부터 버린다 |
+| [ChatGPT](https://help.openai.com/en/articles/8590148-memory-in-chatgpt-faq) | 저장된 기억과 대화 기록 참조, 프로젝트 기억 | 자동 | Temporary Chat은 기억을 읽지도 쓰지도 않는다. 지운 기억은 로그에 최대 30일 남는다 |
+| [Gemini CLI](https://geminicli.com/docs/cli/auto-memory.md) | `save_memory`가 `GEMINI.md`에 덧붙인다. 실험 기능 Auto Memory는 기억 고침과 SKILL.md 후보를 프로젝트별 inbox에 만든다 | **승인 전에는 적용하지 않는다** | inbox에서 버린다 |
+| [Mem0](https://docs.mem0.ai/platform/features/entity-scoped-memory.md) | 범위 열쇠 `user_id`·`agent_id`·`app_id`·`run_id`(하나 이상 필수). 범위 없는 검색은 사용자 사이로 샌다고 문서가 적는다 | API | 필터 삭제, 묶음 삭제 |
+| [LangGraph Store](https://docs.langchain.com/oss/python/concepts/memory.md) | namespace tuple + key. 기억 종류(semantic·episodic·procedural) | API | 저장소 삭제 |
+| [MCP 참조 memory 서버](https://cdn.jsdelivr.net/npm/@modelcontextprotocol/server-memory@2026.1.26/README.md) | 로컬 JSON 지식 그래프(entity, relation, observation). 문서가 "교육용, 운영용 아님"이라 적는다 | 도구 | 삭제 도구 |
+
+**흐름.**
+
+- 범위는 사용자 / 에이전트 / 프로젝트·워크스페이스 / 실행·세션으로 모인다. 조직 범위는 기억이 아니라 관리 설정의 층으로 나타난다.
+- 기억의 모양은 "정리된 Markdown과 작은 색인"으로 굳어 간다(Claude Code, Codex, Agents SDK, Gemini).
+- 공급자 모두 "기억은 회상이지 규칙이 아니다"라고 적는다. 꼭 지켜야 할 규칙은 AGENTS.md·CLAUDE.md·스킬에 둔다.
+- 쓰기를 사람이 승인하는 길(Gemini의 inbox)과 저장소 version, read_only 선택(Managed Agents)이 늘었다. 이유는 같다: 기억 오염이다.
+- 정리(Dreams, Agents SDK의 정리 단계)는 원본을 고치지 않고 새 결과를 만든다.
+- 기억과 스킬의 경계가 흐려진다. 추출된 절차가 SKILL.md 후보가 된다(Gemini, Agents SDK).
+
+## 12. 따를 것 / 다르게 갈 것
+
+**형식과 통로.**
+
+| 대상 | 결정 | 이유 |
 |---|---|---|
-| M1 | 이 문서 | 없음 |
-| M2 | 계약·스키마: 범위 넷(`session`/`personal`/`agent`/`workspace`)과 열쇠 XOR, `subject_user_id`, 상태(`candidate`/`active`/`quarantined`/`superseded`/`deleted`), 불변 revision, tombstone, 승격 기록(출처 확인자 포함), 계보 링크와 조상 root 목록, `personal_subjects` taint, 세션 행의 개인 기억 표시. 동작별 거름(5절)을 TS 함수와 SQL 조건 두 형태로 두고 같은 결과를 시험한다. 공간 범위는 `space_scope_unavailable` | M1 |
-| M3 | `MemoryService` 포트, Postgres 구현, 계약 시험 다섯(7절). 기본 검색은 FTS + `pg_trgm` | M2 |
-| M4 | MCP 도구 넷과 집행 순서 0–5단계: 내장 서버 `memory`(이름 예약, claim 항목, token), 요청자 해석, 범위별 권한과 기본 grant, `memoryWritePolicy` 집행(1–3단계는 공통 접근 판정 API의 규칙과 호출로), transaction 안 재판정, 도구 감사 칸·receipt. 기억을 켜고 끄는 에이전트 설정 | M3 |
-| M5 | 엔진 자체 기억 끄기(10절)와 그 시험 세 가지 | 없음 |
-| M6 | 출처 확인·채택·승격·편집·삭제 API(콘솔 세션만)와 최소 콘솔: 후보 큐(본문·읽을 수 있는 근거·diff), 문서 목록·편집(CAS)·삭제, 개인 기억 화면(본인), 1:1 개인 에이전트의 합친 목록, 웹·API 세션을 `private`로 시작하는 선택, 일반·오염 삭제 | M4 |
-| M7 | scanner 최소 집합(비밀 거절, 주입 패턴, PII를 개인 범위로 돌리기)을 모든 쓰기 경로에 | M3 |
-| M8 | 삭제 장부와 복원 뒤 재적용(`memory_restoring`), 사용자 비활성·이탈 때 개인 기억과 개인 후보 삭제 | M3 |
+| 기억의 저장 모델 | 표준이 없으므로 **우리 모델을 `MemoryService` 포트 뒤에** 둔다(2·7절). 엔진 자체 기억이나 외부 기억 서비스를 정본으로 쓰지 않는다 | 범위별 권한, tombstone, revision, 감사가 플랫폼의 계약이다. W3C CG, OAMS, Letta Agent File은 지켜보다가 명세가 나오면 내보내기·가져오기 adapter로 붙인다. 포트 안쪽은 바꾸지 않는다 |
+| 엔진에 전달 | **MCP**(AAIF 표준)의 내장 서버 `memory`(6절)와 실행 시작 때의 데이터 블록 주입(9절). 둘 다 엔진 중립이다 | Claude와 Codex 모두 MCP를 읽는다. Codex에는 Claude API memory 도구 같은 것이 없다 |
+| 규칙과 회상 | 기억은 회상이다. 꼭 지켜야 할 규칙은 AGENTS.md·스킬·에이전트 지시에 둔다. 기억은 정책과 도구 권한을 바꾸지 못한다(9절) | 공급자 모두 같은 선을 긋는다 |
+| 절차 기억 | 반복되는 절차가 후보로 오면, 기억으로 채택하는 대신 **Agent Skills 형식의 스킬 후보**로 스킬 라이브러리에 넘기는 길을 둔다(14절 나중) | 표준 형식이 있는 것은 그 형식으로 둔다. 절차를 기억에 쌓으면 스킬의 version과 검사를 비켜 간다 |
+
+**엔진별 adapter.**
+
+| 엔진 | 할 일 |
+|---|---|
+| Claude | 자동 기억 끄기, `settingSources: []` 유지, API memory 도구와 Managed Agents memory store를 도구 목록에 넣지 않기, MCP 설정(JSON `mcpServers`)에 `memory` 넣기(10절) |
+| Codex | Memories 기능과 그 생성·사용 설정 끄기(고정 빌드가 아는 키만. 모르는 키는 지금의 통합 시험이 실패로 잡는다), MCP 설정(TOML `[mcp_servers]`)에 `memory` 넣기(10절) |
+| 공통 | 주입 블록의 모양은 엔진 중립 실행 계약에 두고, adapter는 그 블록을 엔진의 시스템 지시 자리에 넣기만 한다 |
+
+**가져오는 것.**
+
+- Managed Agents의 불변 version과 `content_sha256` 선행 조건 → 불변 revision과 `expected_revision` CAS(7절 시험 2).
+- Managed Agents의 공유 저장소 read_only 선택 → 더 좁게 간다. 모델은 영속 범위에 후보만 만든다(4절).
+- Dreams의 "입력을 고치지 않고 새 결과" → 정리 결과는 언제나 후보와 diff다(8절).
+- Claude Code의 색인 상한, Agents SDK의 주입 요약 → 자동 주입 상한 1,200 tokens(9절).
+- claude.ai incognito, ChatGPT Temporary Chat → 개인 기억은 `private` 세션에서만 쓰고, 에이전트 설정으로 기억을 끌 수 있다(2절, 오너 결정).
+- claude.ai에서 조직 소유자가 개인 기억을 읽지 못하는 것 → 관리자의 남의 개인 기억 열람은 범위 밖이다.
+- Gemini Auto Memory의 "승인 전 미적용" → 후보 큐(4절).
+- Mem0 문서의 경고(범위 없는 검색이 샌다) → 범위 열쇠 XOR CHECK와 반환 직전 거름(2·7절).
+
+**다르게 가는 것.**
+
+| 그들 | 우리 | 이유 |
+|---|---|---|
+| 모델이 기억을 직접 쓰고 다음 실행이 바로 쓴다(Claude Code 자동 기억, Claude API memory 도구, Managed Agents 기본 read_write, Codex, ChatGPT) | 모델은 세션 범위에만 쓴다. 영속 범위는 후보 → 출처 확인 → 사람 채택 | 여러 사람이 같이 쓰는 에이전트에서는 한 사람의 대화나 주입 공격이 다른 사람의 실행으로 번진다. Managed Agents 문서가 경고한 바로 그 길이다 |
+| 파일·경로 모델(`/memories`, `/mnt/memory/<slug>/`, `MEMORY.md`) | 문서 id·revision과 MCP 도구 넷. 폴더 mount는 없다 | 문서마다 권한, tombstone, 감사를 붙여야 한다. 경로 탈출이라는 공격 종류가 아예 없다 |
+| 기계·저장소별 로컬 기억(Claude Code, Codex) | control-host가 정본이고 worker에는 남지 않는다 | worker는 실행마다 버려진다. 기억이 기계에 남으면 지우거나 감사할 수 없다 |
+| 외부 문맥 대화를 추출에서 뺀다(Codex) | 빼지 않는다. scanner, 출처 확인, 사람 채택으로 거른다 | 외부 도구를 쓴 세션에서 나오는 일의 지식이 많다. 대신 자동 채택이 없다 |
+| 지식 그래프(MCP 참조 서버) | 문서와 계보 링크 | 그래프가 필요한 질의가 보이지 않았다. 계보는 삭제 전파에 필요한 만큼만 둔다 |
+| 조직 범위가 관리 설정으로만 있다 | 워크스페이스 범위를 승격으로만 채우는 정리된 KB로 둔다 | 오너 질문의 "개인·에이전트·조직" 세 층 |
+| 지운 기억이 로그에 남거나(ChatGPT, 30일) 정리가 오래된 것을 버린다(Agents SDK) | tombstone이 commit 순간부터 막고, 삭제 장부가 복원 뒤에도 다시 적용된다(9절) | 개인 정보 삭제 요청에 답할 수 있어야 한다 |
+
+## 13. werft 아키텍처 적용
+
+**누가 무엇을 갖나.**
+
+| 자리 | 맡는 것 |
+|---|---|
+| `packages/contracts` | 기억 계약: 범위, 상태, 문서, revision, 후보, 승격 기록, MCP 도구 입출력, 거절 이유. 판정 결과의 기억 범위 칸(5절)은 `musterrolle/authorization.ts`에 더한다 |
+| `packages/platform` | `MemoryService` 포트와 영역 규칙(동작별 거름의 TS 함수, 승격·taint·삭제 규칙). 권한은 같은 패키지의 판정 정책(`musterrolle/policy.ts:454`의 `createAuthorizationPolicy`)에 기억 규칙을 더해 묻는다 |
+| `packages/db` | Postgres 구현: 테이블, migration, 동작별 거름의 SQL 조건, 검색(FTS와 `pg_trgm`), 통합 시험 |
+| `packages/testkit` | 계약 시험 다섯을 구현과 상관없는 묶음으로 둔다. Postgres 구현과 나중의 외부 백엔드가 같은 묶음을 돈다 |
+| `apps/control-host` | 기억 서비스 조립, relay 뒤의 내부 기억 endpoint, 출처 확인·채택·편집·삭제 API, 정리 작업, 삭제 장부 재적용 |
+| `apps/egress-proxy` | `/mcp/memory`를 control-host 내부 endpoint로 보낸다(6절) |
+| `packages/runtime-core` | 주입 블록과 묶음 기록의 엔진 중립 계약 |
+| `packages/adapters/runtimes/claude`, `codex` | 엔진 자체 기억 끄기, MCP 설정에 `memory` 넣기, 주입 블록을 엔진의 자리에 넣기 |
+| `apps/web` | 후보 큐, 문서 목록·편집·삭제, 개인 기억 화면, `private` 시작 선택 |
+
+**포트와 adapter.**
+
+- 안쪽 포트는 둘이다: `MemoryService`(저장과 문서 거름, 7절)와 공통 접근 판정(5절). 기억 서비스는 권한을 스스로 정하지 않고 판정 포트를 부른다. 시험에서는 판정 포트를 가짜로 바꿔 끼운다.
+- 바깥 adapter는 넷이다: 저장소(지금 Postgres, 나중에 외부 백엔드), 엔진(Claude, Codex), 전달(MCP 서버, 주입 블록), 나중의 내보내기·가져오기(표준이 생기면).
+
+**데이터 모델.** 이름은 구현에서 정한다.
+
+- 문서: 워크스페이스, 범위, 범위 열쇠 하나(CHECK XOR), 상태, 지금 revision, 조상 root 목록, `personal_subjects`, 만료.
+- revision: 불변. 본문, 본문 hash, scanner 결과, 쓴 주체, 시각.
+- 승격 기록: 원본과 대상, 본문 hash 둘, 출처 확인자, 채택자(4절).
+- 계보 링크(`derives_from`), tombstone, 그리고 DB 밖의 append-only 삭제 장부(9절).
+- 묶음 기록: 어느 세션이 주입이나 도구 결과로 어느 revision을 보았는가(9절의 "그 문서를 본 세션").
+- 세션 행: `personal_subjects`, 나중에 `space_ids`.
+
+**공통 접근 판정에 놓이는 자리.** 기억 동작은 `AuthorizationRequest`(주체: 요청자·에이전트·입구, 동작: `memory.read`·`memory.write`, 자원: `memory`와 범위)로 판정을 묻고, `AuthorizationDecision`의 기억 범위 목록만큼 검색과 쓰기를 좁힌다. 판정 기록은 지금의 판정 기록 경로에 남는다. MCP 자격 선택과 에이전트 응답 권한도 같은 판정을 쓰므로, 개인 연결과 개인 기억의 전제(요청자가 본인, 비공개 입구)는 한 규칙으로 적는다.
+
+**고려한 대안.**
+
+- Managed Agents memory store를 정본으로: Claude 전용이라 Codex 실행에 없다. 워크스페이스 데이터가 공급자 쪽에 쌓이고, 문서상 ZDR 대상이 아니다(자체 호스팅 제외).
+- 파일 mount(경로 모델): 문서별 권한과 삭제 전파를 파일 시스템으로 지키기 어렵다.
+- 기억 전용 ACL: 오너 결정으로 버렸다(5절).
+- 엔진 자체 기억 수집, 외부 기억 서비스 정본: 대안 절.
+
+## 14. 단계별 구현 계획
+
+단계마다 티켓 하나, PR 하나나 둘이다. 단계의 "끝나는 조건"을 PR에 증거로 남긴다. M 번호는 앞선 판의 구현 단위와 같다.
+
+| 단계 | 내용 | PR | 끝나는 조건 | 선행 |
+|---|---|---|---|---|
+| P1 계약·스키마(M2) | 범위 넷(`session`/`personal`/`agent`/`workspace`)과 열쇠 XOR, `subject_user_id`, 상태(`candidate`/`active`/`quarantined`/`superseded`/`deleted`), 불변 revision, tombstone, 승격 기록(출처 확인자 포함), 계보 링크와 조상 root 목록, `personal_subjects`, 세션 행의 개인 기억 표시. 동작별 거름(5절)을 TS 함수와 SQL 조건 두 형태로. 공간 범위는 `space_scope_unavailable` | 1 | CI의 DB 통합 시험에서 migration이 적용되고, XOR·상태 CHECK 위반이 거절되며, 거름의 TS와 SQL이 같은 결과를 낸다 | 이 문서 |
+| P2 포트·Postgres·계약 시험(M3) | `MemoryService` 포트, Postgres 구현, 계약 시험 다섯(7절, testkit), FTS와 `pg_trgm`. 권한은 가짜 판정 포트 | 1–2 | 계약 시험 다섯이 CI의 DB 통합 시험에서 통과한다. 이 포트를 부르는 곳은 아직 없다 | P1 |
+| P3 엔진 자체 기억 끄기(M5) | Claude·Codex adapter(10절, 12절) | 1 | 10절의 시험 셋이 통과한다 | 없음 |
+| P4 검사와 격리(M7) | scanner 최소 집합(비밀 거절, 주입 패턴, PII를 개인 범위로 돌리기)을 포트의 모든 쓰기 경로와 주입 직전에. `quarantined` 거름 | 1 | 주입 패턴·비밀·PII 시험 문장이 각각 격리·거절·개인 범위 제안으로 가고, scanner 시간 초과도 막힌다 | P2 |
+| P5 삭제 장부와 개인 기억 삭제(M8) | 삭제 장부, 복원 뒤 재적용(`memory_restoring`), 사용자 비활성·이탈 때 개인 기억과 개인 후보 삭제 | 1–2 | 복원 시험에서 재적용 전 읽기가 `memory_restoring`이고 재적용 뒤 지운 문서가 돌아오지 않는다. 비활성 시험에서 그 사람의 개인 문서와 후보가 tombstone이 된다 | P2 |
+| P6 판정의 기억 축 | 공통 접근 판정에 기억 규칙과 결과의 기억 범위 칸(5절). 최소 판정기는 별도의 접근 판정 설계에서 먼저 들어온다 | 1 | 판정 시험: 공개 채널에서 개인 기억 거절, 요청자 없는 실행은 개인 기억 없음, `memoryWritePolicy: deny`면 후보 거절, 이행 모드 예외, 판정기를 쓸 수 없으면 거절. 판정마다 기록이 남는다 | P2, 최소 판정기 |
+| P7 MCP 도구와 집행(M4) | 내장 서버 `memory`(이름 예약, claim 항목, token), 도구 넷, 0–5단계, transaction 안 재판정, 도구 감사 칸·receipt. 에이전트 설정은 꺼진 채로 | 1–2 | fake model 실행에서 도구 호출과 거절이 감사에 남고, 설정이 꺼진 에이전트에는 서버가 붙지 않는다 | P6 |
+| P8 API와 최소 콘솔(M6) | 출처 확인·채택·승격·편집·삭제 API(콘솔 세션만), 후보 큐(본문·읽을 수 있는 근거·diff), 문서 목록·편집(CAS)·삭제, 개인 기억 화면, 1:1 개인 에이전트의 합친 목록, `private` 시작 선택, 일반·오염 삭제 | 2(API, 화면) | API key와 relay token의 채택이 거절되고, 화면에서 후보 → 출처 확인 → 채택이 이어진다. 화면 기록을 PR에 남긴다 | P7 |
+| P9 켜기 | 에이전트 설정의 기억 켜기를 드러낸다 | 1 | 아래 켜는 조건이 모두 들어갔다. 돌아가는 stack에서 `private` 세션에는 개인 기억이 쓰이고 `workspace` 세션에는 쓰이지 않는다 | P3, P4, P5, P8 |
 
 **켜는 조건.** 사용자에게 기억을 드러내는 것(에이전트 설정의 기억 켜기, 실행 중 주입·도구, 개인 기억 화면)은 아래가 모두 들어간 뒤에만 연다.
 
@@ -350,7 +471,6 @@ interface MemoryService {
 - 세션 요약기: 끝난 턴의 요약과 기억 후보를 한 번의 모델 호출로(세션 digest와 같은 계약). taint를 잇는다.
 - 실행 시작 때의 문맥 주입(1,200 tokens, 묶음 기록), 검색 순위 평가(한·일·영 골든셋).
 - 정리(드리밍): 수동·세션 종료 이벤트, 후보 + diff, 범위별 예산.
-- 데이터 접근 정책 연결: 공통 접근 판정 모델의 기억 축으로 `memory`, 개인 기억을 `allow personal`로. 데이터 접근 정책을 그 공통 모델로 구현할 때 같이.
 - 기억 화면 확장(revision diff, 계보, 정리 실행 이력)과 순환 전체 e2e.
 
 ### 나중
@@ -358,7 +478,8 @@ interface MemoryService {
 - 공유 지식 공간(3절 끝): 사람만의 팀 범위를 대신한다. 워크스페이스 범위 다음에 연다. 조율 상태는 세션 팀의 스레드·작업 보드가 맡는다.
 - 정해진 시각에 도는 범위별 정리(루틴 뒤).
 - 세션 → 에이전트 정책 자동 채택(에이전트별 설정). taint가 있는 후보는 제외한다(4절).
-- 벡터 검색, 외부 백엔드 구현, 내보내기·가져오기.
+- 벡터 검색, 외부 백엔드 구현, 내보내기·가져오기(기억 표준이 생기면 그 형식으로, 12절).
+- 절차 기억 → 스킬 후보: 반복 절차 후보를 Agent Skills 형식의 스킬 후보로 스킬 라이브러리에 넘긴다(12절).
 - 상시 실행·워크플로우가 기억을 쓰는 경로(오너 방향: 요청-응답 기반 뒤).
 
 ## 오너 결정 (2026-11-20)
