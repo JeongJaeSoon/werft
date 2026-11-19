@@ -6,7 +6,6 @@ export * from "./action/push-intents.ts";
 export * from "./agents/agent-mcp.ts";
 export * from "./agents/agent-workspace-mcp.ts";
 export * from "./agents.ts";
-export * from "./catalog-repositories.ts";
 export {
   listUnreleasedLaunchImages,
   listUpgradeSessions,
@@ -18,6 +17,7 @@ export * from "./control-unit-of-work.ts";
 export { decodeEventCursor, encodeEventCursor } from "./cursors.ts";
 export * from "./extensions/extension-bundles.ts";
 export * from "./github/agent-github.ts";
+export * from "./github/catalog-repositories.ts";
 export * from "./github/github-app-manifest-states.ts";
 export * from "./github/github-apps.ts";
 export * from "./github/github-installations.ts";

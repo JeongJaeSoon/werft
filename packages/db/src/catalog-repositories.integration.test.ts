@@ -9,8 +9,8 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresCatalogRepositoryStore } from "./catalog-repositories.ts";
 import { createPostgresAgentGitHubStore } from "./github/agent-github.ts";
+import { createPostgresCatalogRepositoryStore } from "./github/catalog-repositories.ts";
 import * as schema from "./schema.ts";
 import {
   agentAdmins,

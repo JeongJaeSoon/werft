@@ -6,16 +6,16 @@ import type {
 } from "@werft-ai/platform";
 import { MANAGEMENT_ROLES } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { lockSettingsGeneration } from "./installation-settings.ts";
-import { holdsRight, lockedRole } from "./musterrolle/api-keys.ts";
-import type { Database } from "./queries.ts";
+import { lockSettingsGeneration } from "../installation-settings.ts";
+import { holdsRight, lockedRole } from "../musterrolle/index.ts";
+import type { Database } from "../queries.ts";
 import {
   agentReleases,
   agents,
   catalogRepositories,
   receipts,
-} from "./schema.ts";
-import { notDeleted } from "./soft-delete.ts";
+} from "../schema.ts";
+import { notDeleted } from "../soft-delete.ts";
 
 type Row = typeof catalogRepositories.$inferSelect;
 

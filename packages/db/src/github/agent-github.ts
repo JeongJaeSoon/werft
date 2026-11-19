@@ -11,10 +11,6 @@ import type {
 import { receiptActorOf } from "@werft-ai/platform";
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { lockAgentToChange } from "../agents.ts";
-import {
-  createPostgresCatalogRepositoryStore,
-  lockCatalogWrites,
-} from "../catalog-repositories.ts";
 import { sessionVisibleTo } from "../musterrolle/index.ts";
 import { receiptFromRow } from "../postgres-unit-of-work.ts";
 import type { Database } from "../queries.ts";
@@ -26,6 +22,10 @@ import {
   receipts,
   sessions,
 } from "../schema.ts";
+import {
+  createPostgresCatalogRepositoryStore,
+  lockCatalogWrites,
+} from "./catalog-repositories.ts";
 import { lockGitHubApps } from "./github-apps.ts";
 import { createPostgresGitHubPinStore } from "./github-pins.ts";
 import {

@@ -27,7 +27,7 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresCatalogRepositoryStore } from "./catalog-repositories.ts";
+import { createPostgresCatalogRepositoryStore } from "./github/catalog-repositories.ts";
 import { createPostgresInstallationSettingsStore } from "./installation-settings.ts";
 import { migrate } from "./migrate.ts";
 import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
