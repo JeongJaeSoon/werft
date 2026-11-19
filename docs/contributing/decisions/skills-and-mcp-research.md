@@ -1,7 +1,7 @@
 # 조사: 엔진과 관리 콘솔이 스킬·MCP·플러그인을 다루는 방법
 
 - 조사일: 2026-11-20. 공개 문서와 공개 저장소만 읽었다. 확인하지 못한 것은 "확인 못 함"으로 적었다.
-- 이 조사를 근거로 한 설계는 [스킬과 MCP 서버, 두 개념으로 엔진에 상관없이 등록·지정한다](skills-and-mcp.md)에 있다.
+- 이 조사를 근거로 한 설계는 [스킬과 MCP 서버를 엔진에 상관없이 등록·지정하고, werft 플러그인으로 묶는다](skills-and-mcp.md)에 있다.
 - 1부는 Claude Team/Enterprise와 Claude Code·Agent SDK, 2부는 Codex·pi·Oh My Pi다.
 
 # 1부. Claude Team / Enterprise
