@@ -623,14 +623,15 @@ describe("opening a pull request", () => {
       expect(error.details).toMatchObject({ reason_code: "role" });
     });
 
-    test("a removal committed after the entry check refuses the write at the last check before GitHub", async () => {
-      let manageAsks = 0;
-      const revokedAfterEntry: AuthorizationPolicy = {
+    // Manages at the entry check, removed before any later one.
+    const revokedAfterEntry = () => {
+      const asks = { manage: 0 };
+      const policy: AuthorizationPolicy = {
         authorize: async (request) => {
-          if (request.action === "agent.manage") manageAsks += 1;
+          if (request.action === "agent.manage") asks.manage += 1;
           return {
             outcome:
-              request.action === "agent.manage" && manageAsks > 1
+              request.action === "agent.manage" && asks.manage > 1
                 ? "deny"
                 : "allow",
             reason_code: "role",
@@ -640,18 +641,47 @@ describe("opening a pull request", () => {
           };
         },
       };
+      return { asks, policy };
+    };
+
+    test("a removal committed after the entry check refuses the write at the last check before GitHub", async () => {
+      const { asks, policy } = revokedAfterEntry();
       const { service, calls } = harness({
         previewAgent: "agent-1",
-        authorization: revokedAfterEntry,
+        authorization: policy,
       });
       const error = await refusal(
         service.open(webPerson, SESSION, PUSH, { readBody: async () => ({}) }),
       );
       expect(error.code).toBe("FORBIDDEN");
       expect(error.details).toMatchObject({ reason_code: "role" });
-      expect(manageAsks).toBe(2);
+      expect(asks.manage).toBe(2);
       // The branch was looked up; nothing was created.
       expect(calls).toEqual([`find ${HEAD}`]);
+    });
+
+    test("adopting the branch's open pull request after such a removal writes no tail", async () => {
+      const { asks, policy } = revokedAfterEntry();
+      const { service, calls, setOpen, receipts } = harness({
+        previewAgent: "agent-1",
+        authorization: policy,
+      });
+      setOpen({
+        number: 3,
+        url: "https://github.com/acme/app/pull/3",
+        state: "open",
+        head: HEAD,
+        base: "develop",
+      });
+      const error = await refusal(
+        service.open(webPerson, SESSION, PUSH, { readBody: async () => ({}) }),
+      );
+      expect(error.code).toBe("FORBIDDEN");
+      expect(asks.manage).toBe(2);
+      expect(calls).toEqual([`find ${HEAD}`]);
+      expect(
+        receipts.filter((r) => r.operation === "open_pull_request"),
+      ).toEqual([]);
     });
 
     test("a person signed in on the web who manages the agent opens one", async () => {

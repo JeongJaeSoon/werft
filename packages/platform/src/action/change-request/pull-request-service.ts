@@ -767,6 +767,7 @@ export function createPullRequestService(deps: {
       // names this push's commit from now on. The pull request is open
       // whether or not this lands, so a failure is only logged.
       if (!created) {
+        await recheck();
         try {
           await forge.updatePullRequestBody(opened.number, (current) =>
             withPullRequestTail(current, tail),
