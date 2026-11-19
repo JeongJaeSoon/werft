@@ -127,9 +127,11 @@
 
 ### 페이지
 
-- 순서는 `(at, kind, id)` 역순이다. 같은 밀리초의 행도 순서가 하나로 정해진다.
+- 순서는 `(at, kind, id)` 역순이다. `kind`의 순서는 문자열 순서(`decision` < `receipt`)다. 같은 밀리초의 행도 순서가 하나로 정해진다.
 - cursor는 마지막 행의 `(at, kind, id)`를 담은 불투명한 문자열이다. offset은 쓰지 않는다. 쓰는 동안 행이 늘어도 페이지가 밀리지 않는다.
-- 두 표를 각각 `WHERE owner_id = $1 AND (at, id) < cursor ORDER BY at DESC, id DESC LIMIT n+1`로 읽고 합쳐 n개를 자른다. `kind` 거름이 하나면 한 표만 읽는다.
+- 경계 조건은 표마다 **세 칸 전체**를 비교한다. 각 표는 자기 `kind`를 상수로 넣는다: receipts는 `(created_at, 'receipt', id) < ($at, $kind, $id)`, 판정은 `(at, 'decision', id) < ($at, $kind, $id)`. 두 칸 `(at, id)`만 비교하면 같은 시각의 다른 표 행이 id 크기에 따라 빠지거나 두 번 나온다. 두 표를 각각 이 조건과 `ORDER BY at DESC, id DESC LIMIT n+1`로 읽고, 합쳐 `(at, kind, id)` 역순으로 정렬한 뒤 n개를 자른다. `kind` 거름이 하나면 한 표만 읽는다.
+- 시험 fixture: 같은 시각에 두 표의 행을 두고, id 크기가 receipt 쪽이 큰 경우와 판정 쪽이 큰 경우를 모두 만든다. 페이지 크기 1로 넘기며 목록과 내보내기 이어 받기 모두에서 빠짐과 겹침이 없음을 본다.
+- 늦게 commit되는 행: 먼저 시작해 늦게 끝난 transaction의 행은 이미 지나간 cursor보다 앞 시각일 수 있다. 사람이 보는 목록과 한 번의 내보내기에서는 다음에 다시 읽으면 보인다. 같은 cursor로 계속 당겨 가는 쪽(C1)에는 최근 몇 초를 늦게 내는 지연 창이 필요하고, 그 단계에서 정한다.
 - `limit` 기본 50, 최대 200.
 - 인덱스: `receipts`는 `(owner_id, created_at)`이 이미 있다. `authz_decisions`에는 `(owner_id, at)` 인덱스를 새로 둔다(1단계의 migration). 지금 있는 `(at)` 인덱스만으로는 워크스페이스 하나의 행을 찾으려고 모든 워크스페이스의 최근 행을 훑는다.
 
@@ -138,8 +140,12 @@
 - 같은 경로, 같은 거름에 `Accept: application/x-ndjson`. 응답은 `200`과 `Content-Type: application/x-ndjson`이고, 한 줄에 위 모양의 행 하나다. 서버는 페이지(500행)를 이어 읽어 흘려 보내고, 메모리에 전부 모으지 않는다.
 - 마지막 줄은 끝 표시 `{"kind":"end","rows":N,"truncated":false}`다. 끝 줄이 없으면 받는 쪽은 중간에 끊긴 것을 안다.
 - 한 번에 최대 100,000행. 넘으면 끝 줄이 `truncated: true`와 `next_cursor`를 준다. 이어 받으려면 그 cursor로 다시 부른다.
-- 한 워크스페이스에 동시 내보내기는 하나. 두 번째는 `429`다.
-- 내보내기는 판정 한 번이고, 그 허용 행이 남는다. 거름은 판정 행에 넣지 않는다(판정 행에는 본문 칸이 없다).
+- 한 워크스페이스에 동시 내보내기는 하나. 두 번째는 `429`다. 한 번의 내보내기는 최대 10분이다. 넘으면 끝 줄 없이 끊고, 받은 마지막 행의 cursor로 이어 받는다.
+- 허용 기록은 시작할 때 한 번 남긴다. 거름은 판정 행에 넣지 않는다(판정 행에는 본문 칸이 없다).
+- **흘려 보내는 동안 권한을 다시 본다.** 판정 한 번으로 오래 흘려 보내면, 그사이 owner가 강등되거나 로그아웃해도 남은 행을 계속 받는다. 그래서 두 가지를 한다.
+  - 로그인: 세션 이벤트 스트림의 credential watchdog(`apps/control-host/src/api/routes/sessions/events.ts:164`)과 같은 방식으로 `reauthenticate`를 주기적으로 부른다. DB를 기다리거나 출력이 막혀(backpressure) 있어도 타이머가 따로 돈다. 확인이 유효한 시각을 넘으면 다음 줄을 쓰지 않는다.
+  - 역할: 페이지(500행)를 읽기 전마다 `audit_log.read`를 기록 없이(`record: false`) 다시 묻는다. 거절이면 끝 줄 없이 끊는다.
+  - 둘 다 실패를 거절로 다룬다. 끊긴 내보내기는 끝 줄이 없으므로 받는 쪽이 완전하지 않음을 안다.
 
 ### 고른 것과 고르지 않은 것
 
@@ -157,7 +163,8 @@
 - 판정 실패(DB 오류 등)는 거절이다. 지금 `authorize`와 같다.
 - 보존 기간을 읽지 못하면 거절한다. 기본 90일로 대신하면 줄인 기간보다 오래된 행을 보일 수 있다.
 - 스트리밍 도중 DB 오류는 연결을 끊는다. 끝 줄이 없으므로 받는 쪽이 안다.
-- 같은 시각 행이 페이지 경계에 걸려도 `(at, kind, id)` 순서로 빠지거나 겹치지 않는다(통합 시험으로 확인).
+- 같은 시각 행이 페이지 경계에 걸려도 표마다 세 칸 전체를 비교하므로 빠지거나 겹치지 않는다(4절 시험 fixture).
+- 내보내기 도중 강등·로그아웃·세션 폐기는 끝 줄 없는 종료다. 10분을 넘긴 내보내기도 같다.
 
 ## 6. 단계별 구현 계획
 
@@ -167,7 +174,7 @@
 
 | 단계 | 내용 | PR | 끝난 조건 | 앞선 단계 |
 |---|---|---|---|---|
-| A 읽기 API와 내보내기 | `authz_decisions (owner_id, at)` 인덱스 migration, contracts 모양, `audit_log.read` 판정(owner만, 허용 기록), `AuditLogService`, db reader, `GET /v1/audit/events`(JSON 페이지와 NDJSON), OpenAPI와 운영 문서 | 1 | db 통합 시험(두 표 합치기, 같은 시각 경계, 보존 창, 다른 워크스페이스 안 보임), route 통합 시험(owner 200, admin·member·API key 403과 그 거절 행 하나, 허용 행 하나), NDJSON 끝 줄과 상한. 실제 스택에서 demo owner로 목록·내보내기 확인 | — |
+| A 읽기 API와 내보내기 | `authz_decisions (owner_id, at)` 인덱스 migration, contracts 모양, `audit_log.read` 판정(owner만, 허용 기록), `AuditLogService`, db reader, `GET /v1/audit/events`(JSON 페이지와 NDJSON), OpenAPI와 운영 문서 | 1 | db 통합 시험(두 표 합치기, 같은 시각 경계에서 id 크기가 양쪽으로 뒤집힌 fixture로 빠짐·겹침 없음, 보존 창, 다른 워크스페이스 안 보임), route 통합 시험(owner 200, admin·member·API key 403과 그 거절 행 하나, 허용 행 하나), NDJSON 끝 줄과 상한, 느린 내보내기 도중 강등·로그아웃 → 끝 줄 없이 종료. 실제 스택에서 demo owner로 목록·내보내기 확인 | — |
 | B 콘솔 화면 | 설정 > 워크스페이스 > 감사 기록: 기간·종류·사람 거름, 페이지 넘김, 같은 `request_id` 묶음 표시, 내보내기 단추, 보존 기간 안내. owner가 아니면 메뉴도 경로도 없음 | 1 | 화면 시험(빈 상태, 거절 행, 긴 값), 390px·1280px light·dark 캡처, 실제 스택에서 거절을 만든 뒤 화면에서 찾기 | A |
 
 ### 나중
