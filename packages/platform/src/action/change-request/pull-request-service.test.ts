@@ -623,6 +623,37 @@ describe("opening a pull request", () => {
       expect(error.details).toMatchObject({ reason_code: "role" });
     });
 
+    test("a removal committed after the entry check refuses the write at the last check before GitHub", async () => {
+      let manageAsks = 0;
+      const revokedAfterEntry: AuthorizationPolicy = {
+        authorize: async (request) => {
+          if (request.action === "agent.manage") manageAsks += 1;
+          return {
+            outcome:
+              request.action === "agent.manage" && manageAsks > 1
+                ? "deny"
+                : "allow",
+            reason_code: "role",
+            effective_scopes: [],
+            policy_version: "test",
+            decision_id: crypto.randomUUID(),
+          };
+        },
+      };
+      const { service, calls } = harness({
+        previewAgent: "agent-1",
+        authorization: revokedAfterEntry,
+      });
+      const error = await refusal(
+        service.open(webPerson, SESSION, PUSH, { readBody: async () => ({}) }),
+      );
+      expect(error.code).toBe("FORBIDDEN");
+      expect(error.details).toMatchObject({ reason_code: "role" });
+      expect(manageAsks).toBe(2);
+      // The branch was looked up; nothing was created.
+      expect(calls).toEqual([`find ${HEAD}`]);
+    });
+
     test("a person signed in on the web who manages the agent opens one", async () => {
       const { service, calls } = harness({
         previewAgent: "agent-1",
