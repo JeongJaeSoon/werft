@@ -23,16 +23,18 @@ function notGone(): SQL {
   return sql`${document.state} <> 'deleted' AND NOT EXISTS (SELECT 1 FROM ${memoryTombstones} WHERE ${memoryTombstones.documentId} = ${document.id})`;
 }
 
+// An alias in a raw template renders as its name alone, so the FROM clauses
+// below spell out the table before it.
 // Every id in `ancestor_ids` must name a live row: one that was hard-deleted
 // (a purged session's memory) hides its descendants like a tombstone does.
 function ancestorsAll(condition: SQL): SQL {
   return sql`NOT EXISTS (
     SELECT 1 FROM unnest(${document.ancestorIds}) AS memory_lineage(id)
     WHERE NOT EXISTS (
-      SELECT 1 FROM ${ancestor}
+      SELECT 1 FROM ${memoryDocuments} ${ancestor}
       WHERE ${ancestor.id} = memory_lineage.id
         AND ${ancestor.state} <> 'deleted'
-        AND NOT EXISTS (SELECT 1 FROM ${ancestorTombstone} WHERE ${ancestorTombstone.documentId} = ${ancestor.id})
+        AND NOT EXISTS (SELECT 1 FROM ${memoryTombstones} ${ancestorTombstone} WHERE ${ancestorTombstone.documentId} = ${ancestor.id})
         AND ${condition}
     )
   )`;
