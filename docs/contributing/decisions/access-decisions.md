@@ -316,8 +316,8 @@ egress 판정(`workspace-mcp-egress.ts`)이 지금 자리에서 `mcp.use`를 묻
 |---|---|---|---|---|
 | A1 계약과 기록 칸 | contracts에 `access` 요청·결과 칸, 범위 목록 둘, 새 이유 코드. `authz_decisions`에 7절 칸(nullable). 축 셋의 행위 판정은 기록기가 없으면 거절 | 1 | 계약 시험(스키마 왕복, 축별 결과 모양, 기록기 없는 조립 거절), migration 안전 시험. 동작 변경 없음 | — |
 | A2 턴의 인증 근거 | 턴 행에 근거 칸, 턴을 넣는 모든 경로에서 채움, 재확인 함수(`requester_revoked`·"확인되지 않음"·`error` 구분) | 1 | 근거별(로그인 세션, 개인 key, 에이전트 key, Slack) 시험과 폐기·만료·연결 revision 변경·조회 실패 시험 | A1 |
-| A3 최소 판정기(기억 축) | 아래 고정 권한 표, 부분 허용, 쓰기 순서, 기록 | 1–2 | 표의 칸마다 시험. 오케스트레이터가 정한 계약 시험 넷: 규칙 없음 → 지금 동작, 공개 채널의 개인 기억 → 거절, 요청자가 아닌 사람의 개인 연결 → 거절, 요청자 없는 일정 실행 → 에이전트 연결만. 기억 도구는 여전히 열지 않음 | A1, A2 |
-| A4 MCP egress를 판정으로 | `mcp.use`, 지금 egress 검사 유지, 이행 모드 기록, 요청자 근거와 호출마다 RBAC, `tool_call_audits.access_decision_id` | 1–2 | egress 통합 시험(지금 통과하던 호출이 그대로 통과하고 기록이 남음, 4절 동작 변경 둘의 시험), 9절 지연 예산 측정 | A1, A2 |
+| A3 최소 판정기(기억 축) | 아래 고정 권한 표, 부분 허용, 쓰기 순서, 기록 | 1–2 | 표의 칸마다 판정기 시험(사실 포트에 fixture를 넣는 순수 시험). 공개 채널 세션의 개인 기억 → 거절. 요청자 없음 → 개인 범위 없음. 기억 도구는 여전히 열지 않음 | A1, A2 |
+| A4 MCP egress를 판정으로 | `mcp.use`, 지금 egress 검사 유지, 이행 모드 기록, 요청자 근거와 호출마다 RBAC, `tool_call_audits.access_decision_id` | 1–2 | egress 통합 시험: 규칙 없음 → 지금 통과하던 호출이 그대로 통과하고 기록이 남음, 4절 동작 변경 둘. 요청자 없음 fixture(에이전트 key 턴과 principal 없는 판정 요청) → 에이전트 연결만, 개인 연결 결과 없음. 9절 지연 예산 측정. 실제 일정 실행의 통합 시험은 C2 | A1, A2 |
 | A5 호환 릴리스와 DB 울타리 | 10절 1–3. 정책 모드·개인 표시를 아는 경로, 최소 control-host 버전, contract migration | 1–2 | 옛 host가 울타리 뒤에서 거절로 실패하는 시험, 되돌리기 금지 운영 문서 | A3, A4 |
 
 ### 다음
@@ -328,7 +328,7 @@ egress 판정(`workspace-mcp-egress.ts`)이 지금 자리에서 `mcp.use`를 묻
 | B2 워크스페이스 규칙과 정책 모드 | 규칙 표(revision 행), 첫 일치, 정책 모드 진입, 규칙 시험 API(`record: false`) | 2 | 규칙 판정 시험, 정책 모드에서 맞는 규칙 없음 → 거절, revision별 설명 | A5 |
 | B3 콘솔 규칙 편집기 | 규칙 편집·순서·시험 화면, 정책 모드 진입 때 미리 채운 마지막 규칙 | 1–2 | 화면 시험과 실제 스택에서 규칙 저장 → 판정 확인 | B2 |
 | B4 IdP 그룹 팀 | 공급자 설정(그룹 claim, 팀으로 쓸 그룹, 최대 나이), (사람, 공급자) 그룹 스냅샷, 팀 출처 칸, `membership_stale` | 2 | 스냅샷 시험(빈 집합 포함), 최대 나이 넘으면 소속·비소속 모두 모름, 실제 IdP로 로그인 → 팀 반영 | A5 |
-| B5 개인 MCP 연결 | 사람별 연결 만들기·읽기·끊기, subject 관통(조회·잠금·비밀·receipt `generation`), MCP 축 `personal` 결과 | 2 | 본인 OAuth 흐름, 관리자 끊기, 탈퇴 때 자동 끊기, 남의 개인 연결 거절 | B1, B2 |
+| B5 개인 MCP 연결 | 사람별 연결 만들기·읽기·끊기, subject 관통(조회·잠금·비밀·receipt `generation`), MCP 축 `personal` 결과 | 2 | 본인 OAuth 흐름, 관리자 끊기, 탈퇴 때 자동 끊기. 요청자가 아닌 사람(세션 소유자가 아닌 요청자, 관리자가 남의 세션에 보낸 턴)의 개인 연결 → 거절 | B1, B2 |
 | B6 Slack 채널 구성원과 받는 쪽 규칙 | binding별 구성원 캐시, 연결된 구성원 → 팀 대응, 받는 쪽 기준 전달 규칙 | 1–2 | 캐시 없음·낡음 → 바깥, 게스트·Slack Connect → 바깥 | B2 |
 | B7 위임 사슬 | `subject.via`를 에이전트끼리 부르는 경로에 채움, 사슬마다 RBAC, 첫 단계 밖 개인 범위 거절 | 1 | 사슬 시험 | A3 |
 
@@ -339,6 +339,8 @@ egress 판정(`workspace-mcp-egress.ts`)이 지금 자리에서 `mcp.use`를 묻
 | C1 공유 지식 공간 | 구성원 스냅샷 계약(3절), 공간 기억 범위 | B1, B4 |
 | C2 루틴 | 요청자 없는 실행, 루틴 주인 기록 | A3 |
 | C3 게이트웨이 단언 | 13절 7, 요구가 생기면 | B5 |
+| C4 IdP 중심 MCP 인가 | 개인 연결의 token을 ID-JAG로 얻는 경로(15절) | B4, B5 |
+| C5 기억 없는 세션 | 세션 옵션 하나로 모든 영속 범위(개인·에이전트·워크스페이스·공간)의 읽기, 쓰기, 후보, 정리 입력을 끈다(15절) | A3 |
 
 ### A3의 고정 권한 표
 
@@ -397,14 +399,28 @@ egress 판정(`workspace-mcp-egress.ts`)이 지금 자리에서 `mcp.use`를 묻
 | ChatGPT | Temporary Chat은 기억을 읽지도 쓰지도 않는다 | [FAQ](https://help.openai.com/en/articles/8590148-memory-in-chatgpt-faq) |
 | Codex MCP 설정 | HTTP 서버 자격은 env var **이름**으로만 준다(`bearer_token_env_var`). 도구 allow/deny 목록이 있다 | [Codex MCP](https://developers.openai.com/codex/mcp) |
 
-**흐름.** 범위는 사람 / 에이전트 / 프로젝트(워크스페이스) / 실행으로 모이고 있다. 격리 경계는 워크스페이스다. 공유 기억은 읽기 전용을 기본으로 둔다. "기억 없는 대화"를 제공하고, 바깥 데이터를 만진 실행을 기억에서 뺀다. 반면 누가 무엇을 받는지 판정하고 남기는 공통 층은 어느 제품에도 공개 형식으로 없다. 제품마다 관리 콘솔 안의 자기 설정이다.
+### 시장 동향 (대략 2026-05 ~ 2026-11)
+
+| 흐름 | 무엇 | 출처 |
+|---|---|---|
+| 이중 신원 | 에이전트가 자기 신원을 갖고, 사람을 대신할 때는 on-behalf-of(OBO)로 움직이고, 감사는 둘을 함께 남긴다. Microsoft Entra Agent ID가 자율 실행, 대화형 OBO, 에이전트 사용자 계정의 세 흐름을 정의한다 | [Entra OBO 흐름](https://learn.microsoft.com/en-us/entra/agent-id/agent-on-behalf-of-oauth-flow) (2026-08 갱신) |
+| IdP가 MCP 접근을 정함 | MCP Enterprise-Managed Authorization(ID-JAG / Cross App Access): IdP SSO로 받은 ID-JAG를 MCP 서버의 인가 서버에서 audience가 묶인 token으로 바꾼다. 서버마다 동의 화면이 없다. 성숙도는 출처마다 다르게 적혀 있다 | [MCP 확장](https://modelcontextprotocol.io/extensions/auth/enterprise-managed-authorization) |
+| 도구 호출마다 정책 판정, 기본 거절 | AWS AgentCore Policy가 Gateway에서 도구 호출마다 Cedar로 판정하고 기본은 거절이다. 2026-08에는 기억 동작 12가지를 Cedar 액션으로 더했다. OpenFGA는 에이전트용 ReBAC 모델링 안내를 낸다 | [AgentCore Memory FGAC](https://aws.amazon.com/about-aws/whats-new/2026/08/agentcorememory-fine-grained-access-control) (2026-08-28), [OpenFGA agents](https://openfga.dev/docs/modeling/agents) |
+| 권한 거울 검색 | 요청자가 볼 수 있는 것만 꺼낸다. Slack Real-Time Search API·MCP 서버, Glean 권한 인지 색인. 다만 공유 채널에 올라가는 **답**을 받는 쪽 기준으로 거르는 것은 대부분 "원본 권한을 따른다"로 남겨 둔 빈자리다 | [Slack MCP](https://docs.slack.dev/changelog/2026/02/17/slack-mcp) (2026-02-17) |
+| 기억은 사람 × 에이전트가 기본 | 공유 기억은 드물고 명시적이다. Copilot Studio 기억은 사람·에이전트별이고 **그룹 채팅과 Teams 채널에서는 꺼진다**. Microsoft Work IQ MCP는 인증된 본인의 기억 프로필만, 관리자 정책이 허용한 에이전트에게 읽기 전용으로 준다 | [Copilot Studio memory](https://learn.microsoft.com/en-us/microsoft-copilot-studio/agents-experience/memory-overview), [MC1539004](https://mc.merill.net/message/MC1539004) (2026-11-05) |
+| 공유 전 검토는 없다 | 제품들은 자동 추출로 기억을 만들고, 사람이 보고 지우는 것과 관리자 켜고 끄기만 준다. 공유 범위로 올리기 전의 검토 대기열은 사실상 없다 | 조사의 1.3절 |
+| 기억 오염 사고와 방어 | 메일·파일에 심은 지시가 연결 도구를 거쳐 기억에 남는 ZombieAgent(2026-01, Radware), "AI로 요약" 버튼으로 기억에 심는 AI Recommendation Poisoning(Microsoft, 2026-02-10). 연구는 내용 추정보다 **출처 기반 신뢰**가 강하다고 보고, 믿을 수 없는 입력이 들어온 뒤의 기억 쓰기를 막는 것이 방어로 나온다 | [Microsoft](https://www.microsoft.com/en-us/security/blog/2026/02/10/ai-recommendation-poisoning/), [arXiv 2606.04329](https://arxiv.org/pdf/2606.04329) |
+| 범위 빠진 조회 | 사람 범위 없이 기억을 검색하면 모두의 기록이 나오는 버그 부류(Mem0 문서가 경고). 인프라 층의 테넌트 간 유출 사고도 같은 부류다(Cloudflare Workers AI, 2026-10 공개) | [Mem0](https://docs.mem0.ai/skill.md) |
+| 원칙 | OWASP Top 10 for Agentic Applications 2026의 "Least Agency": 자율성, 도구, 기억 범위를 최소로 | [OWASP](https://genai.owasp.org/resource/2025-12-09/owasp-top-10-for-agentic-applications-for-2026) |
+
+**흐름.** 범위는 사람 / 에이전트 / 프로젝트(워크스페이스) / 실행으로 모이고 있다. 격리 경계는 워크스페이스다. "기억 없는 대화"를 제공하고, 바깥 데이터를 만진 실행을 기억에서 뺀다. 신원은 IdP 중심의 이중 신원으로, 판정은 도구 호출마다 기본 거절로 모인다. 반면 기억, 자격, 답변 전달을 한 자리에서 판정하고 남기는 공통 층은 어느 제품에도 공개 형식으로 없다. 제품마다 관리 콘솔이나 게이트웨이 안의 자기 설정이다.
 
 ## 15. 따를 것과 다르게 갈 것
 
 | 구분 | 무엇 | 이 문서에서 |
 |---|---|---|
-| 표준을 그대로 저장 | MCP: 서버 등록, 도구 이름 `mcp__<서버>__<도구>`, OAuth | 규칙의 서버·도구 칸이 MCP 이름을 그대로 쓴다. 개인 연결 OAuth(B5)는 2026-07-28의 issuer 검증을 따른다. 2026-07-28의 stateless 핵심은 판정에 영향이 없다. 판정은 요청마다 하기 때문이다. 다만 #1949 6절이 `initialize`와 `Mcp-Session-Id`에 묶은 (서버, 턴) subject 고정은 그 개정을 쓰는 서버에서 요청 메타데이터 기준으로 옮겨야 한다. 그 일은 그 문서에 남긴다 |
-| 표준을 그대로 저장 | Agent Skills: 스킬 `name`과 내용 digest | 규칙의 스킬 칸이 그 이름(선택으로 digest)을 쓴다 |
+| 표준을 그대로 저장 | MCP: 서버가 알리는 도구 이름, OAuth | 규칙의 도구 칸은 서버가 `tools/list`로 알린 도구 이름을 그대로 쓴다. 서버 칸은 werft에 등록한 서버 이름이다. `mcp__<서버>__<도구>`는 werft와 엔진이 서버 이름을 붙여 만든 이름이고 MCP 규약이 아니다. 어댑터와 판정은 이 붙인 이름을 프로토콜 요구로 다루지 않는다. 개인 연결 OAuth(B5)는 2026-07-28의 issuer 검증을 따른다. 2026-07-28의 stateless 핵심은 판정에 영향이 없다. 판정은 요청마다 하기 때문이다. 다만 #1949 6절이 `initialize`와 `Mcp-Session-Id`에 묶은 (서버, 턴) subject 고정은 그 개정을 쓰는 서버에서 요청 메타데이터 기준으로 옮겨야 한다. 그 일은 그 문서에 남긴다 |
+| 표준을 그대로 저장 | Agent Skills: 스킬 `name`(명세 필드) | 규칙의 스킬 칸이 그 이름을 쓴다. 선택으로 붙이는 내용 digest는 werft의 버전 규약이다. 명세에는 버전 필드가 없고 `metadata`만 있다 |
 | 엔진별 어댑터 | 엔진이 도구를 부르는 모양, 자체 기억, 자체 MCP 연결 | 판정은 control-host에 있으므로 엔진마다 다르지 않다. 어댑터가 할 일은 엔진 자체 기억·자체 MCP·OAuth를 끄고(Claude 자동 기억, Codex memories), relay만 보이게 하는 것이다(#1949 6절 "자격"). Codex는 relay 비밀을 env var 이름으로 받는다 |
 | 우리 모델, 포트 뒤 | 접근 판정, 규칙 형식, 판정 기록 | 표준이 없다. 판정 함수, 사실 읽기, 규칙 저장, 기록을 포트로 나눠([16절](#16-werft-아키텍처-적용)) 표준이 생기면 바깥 경계(게이트웨이 단언 C3, 위임 사슬)에서 맞춘다 |
 
@@ -412,9 +428,13 @@ egress 판정(`workspace-mcp-egress.ts`)이 지금 자리에서 `mcp.use`를 묻
 
 - 워크스페이스를 격리 경계로 둔다(Claude 스킬·기억 저장소, Mem0의 app).
 - 범위를 사람 / 에이전트 / 워크스페이스 / 세션으로 둔다. 업계가 모인 모양과 같다.
-- 공유 범위의 기억은 실행에서 읽기 전용이 기본이고, 쓰기는 후보다. Managed Agents가 경고한 인젝션 오염을 채택 단계로 막는다.
 - 바깥 데이터를 만진 실행을 넓은 범위에서 빼는 Codex의 방식을, 개인 데이터의 출처 표시(2절)로 일반화한다.
 - 자격은 엔진에 값으로 주지 않는다(Codex `bearer_token_env_var`와 같은 생각, 우리는 relay 비밀만 준다).
+- **이중 신원.** 판정 주체는 요청자(principal)와 지금 일하는 에이전트, 위임 사슬을 함께 갖고, 기록은 둘을 함께 남긴다(Entra OBO와 같은 모양). 요청자 없는 실행은 에이전트 신원만이다.
+- **기억은 사람 × 에이전트가 기본이고 채널에서는 개인 범위를 끈다.** Copilot Studio가 그룹 채팅·채널에서 기억을 끄고, Work IQ MCP가 본인 기억만 주는 것과 같은 결론이다(2절 개인 데이터 전제).
+- **범위 없는 조회를 막는다.** 기억 서비스는 판정이 돌려준 `memory_scopes` 없이 검색하지 못한다. 판정을 거치지 않은 호출은 범위가 비어 있으므로 아무것도 돌려주지 않는다(Mem0 부류의 버그를 구조로 막는다).
+- **받는 쪽 기준 답변 판정.** 시장이 비워 둔 자리이고 오너가 명시한 축이다. Slack 채널 구성원 대응(B6)으로 채운다.
+- **정책 모드는 기본 거절**이다. 맞는 규칙이 없으면 거절이다(AgentCore Policy와 같다).
 
 **다르게 가는 것과 이유.**
 
@@ -422,7 +442,11 @@ egress 판정(`workspace-mcp-egress.ts`)이 지금 자리에서 `mcp.use`를 묻
 - claude.ai는 소유자가 개인 기억을 보지 못한다. werft는 워크스페이스 관리자의 사유 있는 감사 열람이 이미 있다(`session.audit_read`). 업무 플랫폼의 감사 요구 때문에 그대로 두고, 개인 데이터를 켜는 화면에 알린다(13절 3).
 - Claude Skills API처럼 워크스페이스 key 하나가 모든 것을 읽고 지우게 하지 않는다. key는 언제나 판정의 상한으로 좁히기만 한다(11절 A3 표).
 - 엔진 자체 기억을 기록의 원본으로 쓰지 않는다. 판정과 기록 밖에 쌓이기 때문이다(기억 레이어 설계 10절과 같다).
-- "기억 없는 세션"은 따로 두지 않고, 비공개 세션과 개인 범위 끄기, 입구의 `memory_write_policy`로 같은 효과를 낸다. 필요가 보이면 세션 옵션으로 더한다.
+- **"기억 없는 세션"은 지금 없다.** ChatGPT Temporary Chat은 기억을 읽지도 쓰지도 않는다. 이 설계의 비공개 세션과 개인 범위 끄기는 개인 범위만 막고, 에이전트·워크스페이스 기억 읽기는 남는다. `memory_write_policy`도 영속 범위 후보만 다룬다. 그래서 같은 효과를 낸다고 하지 않는다. 모든 영속 범위의 읽기·쓰기·후보·정리 입력을 끄는 세션 옵션은 "나중"의 C5로 둔다.
+- **규칙이 없을 때는 기본 거절이 아니라 지금 동작이다.** AgentCore Policy는 처음부터 기본 거절이다. 하지만 이 설계는 규칙 없는 워크스페이스가 지금처럼 움직여야 한다는 조건을 진다. 그래서 이행 모드는 지금 동작을 기록과 함께 그대로 두고, 기본 거절은 관리자가 규칙을 저장해 정책 모드에 들어갈 때 시작한다.
+- **판정을 별도 게이트웨이가 아니라 control-host에 둔다.** 시장은 게이트웨이와 런타임 중 어디가 판정 자리인지 다투고 있다. werft는 게이트웨이 없이도 동작해야 하고, 기억과 답변 전달은 게이트웨이를 지나지 않는다. werft의 egress가 MCP 축의 집행 자리(PEP)다.
+- **공유 범위로 올리는 기억은 검토를 거친다.** 제품들은 자동 추출로 바로 공유하고 검토 대기열을 두지 않는다. Claude Managed Agents 저장소도 기본이 `read_write`다. 공유 범위의 기억을 실행에서 읽기 전용으로 두는 것은 업계 관행이 아니라 werft의 선택이다. 이 설계는 세션보다 넓은 범위의 쓰기를 모두 후보로 두고, 개인 데이터 출처가 있으면 그 사람의 확인까지 받는다(2절). 기억 오염 사고(ZombieAgent, AI Recommendation Poisoning)와 출처 기반 신뢰를 지지하는 연구가 그 이유다. 한 번의 오염된 쓰기가 그 범위를 쓰는 모든 실행에 퍼지기 때문이다. 승격 흐름 자체는 기억 레이어 설계 4절이 정본이다.
+- **IdP 중심의 MCP 인가(ID-JAG)는 지금 따르지 않고 지켜본다.** 개인 연결(B5)은 먼저 사람별 OAuth로 만든다. ID-JAG는 성숙도가 출처마다 다르고 IdP와 MCP 서버 양쪽의 지원이 있어야 한다. 개인 연결의 연결 행과 판정 결과(`credential: personal`)는 token을 얻는 방법과 무관하므로, ID-JAG가 자리 잡으면 token 얻기 경로만 더한다(C4).
 
 ## 16. werft 아키텍처 적용
 
@@ -456,7 +480,7 @@ egress 판정(`workspace-mcp-egress.ts`)이 지금 자리에서 `mcp.use`를 묻
 
 ### 고른 것과 고르지 않은 것
 
-- **범용 정책 엔진**([Cedar](https://www.cedarpolicy.com/), [OpenFGA](https://openfga.dev/) 같은 것)을 판정기로 쓰지 않는다. 판정이 세션 행 잠금과 개인 표시 commit에 같은 transaction으로 묶여야 하고, 규칙 모양이 작다(칸 여섯, 첫 일치). 규칙 평가를 순수 함수 포트로 두었으므로, 규칙이 커지면 그 자리에 엔진을 끼울 수 있다.
+- **범용 정책 엔진**([Cedar](https://www.cedarpolicy.com/), [OpenFGA](https://openfga.dev/) 같은 것)을 판정기로 쓰지 않는다. 시장에서는 AWS AgentCore가 Cedar를, Auth0 FGA가 OpenFGA를 에이전트 판정에 쓴다(14절). 그래도 고르지 않은 이유는 셋이다. 판정이 세션 행 잠금과 개인 표시 commit에 같은 transaction으로 묶여야 한다. 사실(팀 스냅샷, 인증 근거, 공유)을 엔진 쪽으로 동기화하면 그 사이의 어긋남이 새 실패 경로가 된다(OPA를 쓰는 곳이 배포 도구를 따로 두는 이유와 같다). 규칙 모양이 작다(칸 여섯, 첫 일치). 규칙 평가를 순수 함수 포트로 두었으므로, 규칙이 커지면 그 자리에 엔진을 끼울 수 있다.
 - **엔진 쪽 훅에서 판정**하지 않는다. 엔진마다 훅의 모양이 다르고, 엔진 프로세스는 프롬프트 인젝션에 놓여 있어 판정 입력을 믿을 수 없다.
 - **외부 게이트웨이에서 판정**하지 않는다. werft는 게이트웨이 없이도 동작해야 하고(5절), 기억과 답변 전달은 게이트웨이를 지나지 않는다.
 
