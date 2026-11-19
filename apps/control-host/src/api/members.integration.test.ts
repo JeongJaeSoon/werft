@@ -668,17 +668,18 @@ integration("members and actors over HTTP on PostgreSQL", () => {
     await login("two-places@example.com");
   });
 
-  // The request's decision rows, by the id the response names.
-  async function decisionsOf(response: Response) {
-    const requestId = response.headers.get("X-Request-Id") ?? "";
-    return db
+  const rowsFor = (requestId: string) =>
+    db
       .select({
         outcome: schema.authzDecisions.outcome,
         reason: schema.authzDecisions.reasonCode,
       })
       .from(schema.authzDecisions)
       .where(eq(schema.authzDecisions.requestId, requestId));
-  }
+
+  // The request's decision rows, by the id the response names.
+  const decisionsOf = (response: Response) =>
+    rowsFor(response.headers.get("X-Request-Id") ?? "");
 
   const access = (
     action: "disable" | "enable",
@@ -769,24 +770,66 @@ integration("members and actors over HTTP on PostgreSQL", () => {
         })
         .then((result) => ({ result, requestId: allowed.request.request_id }));
     };
-    const settled = await Promise.all([off(a, b), off(b, a)]);
+    // Both owners' rows held, so the two changes are sure to queue on them
+    // together rather than run one after the other.
+    const holder = await pool.connect();
+    let settled: Awaited<ReturnType<typeof off>>[];
+    try {
+      await holder.query("BEGIN");
+      await holder.query(
+        "SELECT 1 FROM memberships WHERE workspace_id = $1 AND user_id = ANY($2) FOR UPDATE",
+        [workspaceId, [a, b]],
+      );
+      const racing = Promise.all([off(a, b), off(b, a)]);
+      for (let waited = 0; ; waited += 20) {
+        const { rows } = await pool.query(
+          "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+        );
+        if (rows[0].n >= 2) break;
+        if (waited > 5_000) throw new Error("the two changes never queued");
+        await Bun.sleep(20);
+      }
+      await holder.query("COMMIT");
+      settled = await racing;
+    } finally {
+      holder.release();
+    }
     expect(settled.map(({ result }) => result.outcome).sort()).toEqual([
       "actor_inactive",
       "changed",
     ]);
     for (const { result, requestId } of settled) {
-      const rows = await db
-        .select({
-          outcome: schema.authzDecisions.outcome,
-          reason: schema.authzDecisions.reasonCode,
-        })
-        .from(schema.authzDecisions)
-        .where(eq(schema.authzDecisions.requestId, requestId));
-      expect(rows).toEqual([
+      expect(await rowsFor(requestId)).toEqual([
         result.outcome === "changed"
           ? { outcome: "allow", reason: "ok" }
           : { outcome: "deny", reason: "role" },
       ]);
     }
+  });
+
+  test("a store that throws leaves the request a deny error, and nothing it wrote", async () => {
+    const allowed = memberManageAllow({ workspaceId, actorUserId: ownerId });
+    const run = schema.decidedTransaction<{ outcome: "changed" }>(
+      db,
+      allowed,
+      () => null,
+    );
+    await expect(
+      run(async (tx) => {
+        await tx
+          .update(memberships)
+          .set({ role: "admin" })
+          .where(sql`workspace_id = ${workspaceId} AND user_id = ${ownerId}`);
+        throw new Error("receipt insert failed");
+      }),
+    ).rejects.toThrow("receipt insert failed");
+    expect(await rowsFor(allowed.request.request_id)).toEqual([
+      { outcome: "deny", reason: "error" },
+    ]);
+    const [kept] = await db
+      .select({ role: memberships.role })
+      .from(memberships)
+      .where(sql`workspace_id = ${workspaceId} AND user_id = ${ownerId}`);
+    expect(kept?.role).toBe("owner");
   });
 });

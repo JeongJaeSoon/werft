@@ -1,6 +1,7 @@
 import {
   AUDIT_RETENTION_DEFAULT_DAYS,
   AUDIT_RETENTION_MIN_DAYS,
+  type AuthorizationReason,
   auditRetentionDaysSchema,
 } from "@werft-ai/contracts";
 import type {
@@ -55,11 +56,26 @@ export function createPostgresDecisionLog(db: Database): DecisionLog {
   };
 }
 
+function denied(allowed: UnrecordedAllow, reason: AuthorizationReason) {
+  const { decision } = allowed;
+  return decisionRow({
+    request: allowed.request,
+    decision: {
+      outcome: "deny",
+      reason_code: reason,
+      effective_scopes: [],
+      policy_version: decision.policy_version,
+      decision_id: decision.decision_id,
+    },
+  });
+}
+
 /**
  * Runs a store's body in a transaction that also keeps the request's one
  * decision row: the allow, or a deny for the rule `refusalOf` reads in the
  * outcome. The row commits with the change or not at all, so no refusal
- * decided under the store's locks is left on record as an allow.
+ * decided under the store's locks is left on record as an allow. A throw
+ * leaves the request a deny `error` instead, written after the rollback.
  */
 export function decidedTransaction<Result extends { outcome: string }>(
   db: Database,
@@ -69,29 +85,30 @@ export function decidedTransaction<Result extends { outcome: string }>(
   if (allowed.decision.outcome !== "allow") {
     throw new Error("only an allow is left for the store to keep");
   }
-  return (body) =>
-    db.transaction(async (tx) => {
-      const result = await body(tx);
-      const reason = refusalOf(result.outcome);
-      const { decision } = allowed;
-      await tx.insert(authzDecisions).values(
-        decisionRow(
-          reason === null
-            ? allowed
-            : {
-                request: allowed.request,
-                decision: {
-                  outcome: "deny",
-                  reason_code: reason,
-                  effective_scopes: [],
-                  policy_version: decision.policy_version,
-                  decision_id: decision.decision_id,
-                },
-              },
-        ),
-      );
-      return result;
-    });
+  return async (body) => {
+    try {
+      return await db.transaction(async (tx) => {
+        const result = await body(tx);
+        const reason = refusalOf(result.outcome);
+        await tx
+          .insert(authzDecisions)
+          .values(
+            reason === null ? decisionRow(allowed) : denied(allowed, reason),
+          );
+        return result;
+      });
+    } catch (error) {
+      // A commit whose answer was lost may have kept its row; the same
+      // decision id keeps this one from being a second. When storage is
+      // down this fails too, and the request's own error is what surfaces.
+      await db
+        .insert(authzDecisions)
+        .values(denied(allowed, "error"))
+        .onConflictDoNothing({ target: authzDecisions.id })
+        .catch(() => undefined);
+      throw error;
+    }
+  };
 }
 
 export function createPostgresAuditRetention(
