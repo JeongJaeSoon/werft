@@ -197,7 +197,7 @@
 
 #### 전송 세션
 
-`initialize`·`tools/list`·GET 스트림은 도구 단위가 아니므로, 연결은 위처럼 **(서버, 턴)** 단위로 정한다. 그 턴에서 그 서버의 첫 요청 때 정책을 도구 없이 평가해 subject를 고르고, 그 턴 동안의 모든 요청에 같은 subject를 쓴다. `tools/call`은 같은 subject 아래에서 도구 규칙(`deny`)만 더 본다.
+`initialize`·`tools/list`·GET 스트림은 도구 단위가 아니므로, 연결은 위처럼 **(서버, 턴)** 단위로 정한다. 턴 동안 고정하는 것은 **subject(어느 연결)뿐이고 허용 판정은 고정하지 않는다.** 그 턴에서 그 서버의 첫 요청 때 정책을 도구 없이 평가해 subject를 고른다. 그 뒤의 모든 요청과 `regrant`도 지금 정책(지금 `revision`)과 `personal` 전제를 처음부터 다시 평가한다. 결과가 거절이면 그 요청을 바로 거절한다(턴 도중 규칙을 지우거나 서버를 막으면 다음 요청부터 막힌다). 결과가 고정한 것과 다른 subject를 요구하면(예: 개인 연결이 끊겨 `fallback: agent`로 바뀜) 그 요청을 `mcp_session_subject_changed`로 거절하고, relay가 다시 `initialize`할 때 새 subject로 고정한다. `tools/call`은 여기에 도구 규칙(`deny`)을 더 본다.
 
 지금 relay는 서버마다 upstream MCP client 하나를 다시 쓴다(`claude/src/remote-mcp.ts:65-79`, `codex/src/mcp-relay.ts:69-89`). 다른 계정으로 초기화한 MCP 세션·캐시·스트림을 다른 subject가 이어 쓰지 않도록 다음을 정한다.
 
