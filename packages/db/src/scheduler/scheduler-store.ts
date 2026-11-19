@@ -59,7 +59,6 @@ import {
 } from "../control-shared.ts";
 import { expireOverdueTerminations } from "../control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "../db-clock.ts";
-import { launchFailedCause, quarantineLaunch } from "../launch-quarantine.ts";
 import { enqueueWorkerImageReplacedNotices } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -77,6 +76,7 @@ import {
   restoreRetryDue,
 } from "../sessions/index.ts";
 import { createPostgresWorkerUnitOfWork } from "../worker-unit-of-work.ts";
+import { launchFailedCause, quarantineLaunch } from "./launch-quarantine.ts";
 
 /** A connection the pass lock can live on for as long as the pass runs. */
 export type PassLockClient = {

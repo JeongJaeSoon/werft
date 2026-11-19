@@ -125,11 +125,6 @@ import { terminateReceiptResult } from "./control-unit-of-work.ts";
 import { encodeEventCursor } from "./cursors.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { sessionGitHubMcpOf, sessionMcpOf } from "./github/mcp-egress.ts";
-import {
-  catalogMismatchCause,
-  quarantineLaunch,
-  variablesRefusedCause,
-} from "./launch-quarantine.ts";
 import { builtinToolsDenyOf } from "./musterrolle/agent-caller-limits.ts";
 import {
   envStartRefusal,
@@ -151,6 +146,11 @@ import {
   RESUME_LAUNCH_LIMIT,
   resumeLaunchesSpent,
 } from "./resume-control.ts";
+import {
+  catalogMismatchCause,
+  quarantineLaunch,
+  variablesRefusedCause,
+} from "./scheduler/launch-quarantine.ts";
 import {
   achievementJudgments,
   agentReleases,
