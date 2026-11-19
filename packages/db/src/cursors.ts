@@ -1,6 +1,8 @@
 // Every public page cursor is minted and checked here. Anything a decoder
 // does not recognise is InvalidCursorError, which the routes answer with 400.
 import {
+  type AuditEventKind,
+  auditEventKindSchema,
   TEAM_NAME_MAX,
   userIdSchema,
   sessionIdSchema as uuidSchema,
@@ -63,6 +65,30 @@ export function decodeCreatedAtCursor(value: string): CreatedAtCursor {
     PG_TIMESTAMPTZ_TEXT.test(parsed.created_at) &&
     uuidSchema.safeParse(parsed.id).success
       ? (parsed as CreatedAtCursor)
+      : undefined,
+  );
+}
+
+// The audit log pages two tables on (at, kind, id), newest first. `at` is
+// the UTC text the reader renders, microseconds included.
+export type AuditCursor = {
+  at: string;
+  kind: AuditEventKind;
+  id: string;
+};
+const AUDIT_AT_TEXT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+
+export function encodeAuditCursor(cursor: AuditCursor): string {
+  return encodeJsonCursor(cursor);
+}
+
+export function decodeAuditCursor(value: string): AuditCursor {
+  return decodeJsonCursor(value, (parsed) =>
+    typeof parsed.at === "string" &&
+    AUDIT_AT_TEXT.test(parsed.at) &&
+    auditEventKindSchema.safeParse(parsed.kind).success &&
+    uuidSchema.safeParse(parsed.id).success
+      ? (parsed as AuditCursor)
       : undefined,
   );
 }

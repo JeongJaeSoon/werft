@@ -267,7 +267,7 @@ export const workspaceWideSessions: SessionAccess = {
   },
 };
 
-export const POLICY_VERSION = "m16";
+export const POLICY_VERSION = "m17";
 
 export interface AuthorizationPolicy {
   /**
@@ -319,6 +319,7 @@ export const MANAGEMENT_ROLES: Partial<
 > = {
   "workspace.manage": ["owner", "admin"],
   "audit_retention.manage": ["owner"],
+  "audit_log.read": ["owner"],
   "member.manage": ["owner", "admin"],
   "team.manage": ["owner", "admin"],
   "api_key.manage": ["owner", "admin"],

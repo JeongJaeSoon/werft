@@ -323,6 +323,9 @@ export const AUTHORIZATION_ACTION_VALUES = [
   "workspace.manage",
   // Owner-only, unlike the rest of the workspace settings.
   "audit_retention.manage",
+  // Listing and exporting the workspace's decision rows and receipts:
+  // the owner's alone, and each read is itself on record.
+  "audit_log.read",
   // Invites, roles, offboarding and taking over what a member leaves behind.
   "member.manage",
   "team.manage",
@@ -404,6 +407,7 @@ const ACTION_RESOURCE_KINDS: Record<
   "workspace.read": new Set(["workspace"]),
   "workspace.manage": new Set(["workspace"]),
   "audit_retention.manage": new Set(["workspace"]),
+  "audit_log.read": new Set(["workspace"]),
   "member.manage": new Set(["workspace", "session"]),
   "team.manage": new Set(["workspace"]),
   "api_key.manage": new Set(["workspace", "agent"]),

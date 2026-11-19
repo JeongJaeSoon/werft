@@ -1262,7 +1262,7 @@ Slack 채널은 멘션·스레드 답글·승인 버튼마다 `authorizeSlackInp
 | 세션이 이 워크스페이스에 없다 | `not_found` | 이 세션은 공유 범위 밖이라 요청할 수 없어요. 세션을 만든 사람에게 공유를 요청하세요 |
 | 새 세션의 자격 연결이 없다 | `credential_unbound` | 연결 설정이 바뀌어 시작하지 못했어요. 에이전트 관리자에게 문의하세요 |
 
-공개 상한이 요약까지(`disclosure: "summary"`)인 채널의 읽기는 거절이 아니라 `redact`(`reason_code: surface_ceiling`, `redact: {view: "summary"}`)다. 채널은 본문 대신 요약과 웹 링크를 보이고, 웹은 링크를 연 사람을 다시 판정한다. 같은 채널의 요청·승인은 좁아지지 않는다. Slack 입력과 승인은 허용도 모두 `authz_decisions`에 남고, 거절과 redact도 남는다. 이 기록을 쓰지 못하면 허용과 redact 모두 `error`로 거절한다(안내는 "지금은 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요"). 판정 행의 `policy_version`은 `m16`다.
+공개 상한이 요약까지(`disclosure: "summary"`)인 채널의 읽기는 거절이 아니라 `redact`(`reason_code: surface_ceiling`, `redact: {view: "summary"}`)다. 채널은 본문 대신 요약과 웹 링크를 보이고, 웹은 링크를 연 사람을 다시 판정한다. 같은 채널의 요청·승인은 좁아지지 않는다. Slack 입력과 승인은 허용도 모두 `authz_decisions`에 남고, 거절과 redact도 남는다. 이 기록을 쓰지 못하면 허용과 redact 모두 `error`로 거절한다(안내는 "지금은 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요"). 판정 행의 `policy_version`은 `m17`이다.
 
 guest 사용 설정은 `workspace.settings.slack_guest_enabled`(기본 `false`)다. owner·admin이 cookie 세션으로 바꾼다.
 
@@ -1276,7 +1276,7 @@ member는 `403`(`details.reason_code: role`), 다른 workspace는 `404`다. 켜�
 
 ### 판정 감사와 보존 기간
 
-권한 판정(`authorize`)은 기록할 것을 `authz_decisions`에 한 행씩 남긴다. 거절(`deny`)·`redact`·`require_approval`은 모두 남는다. 허용은 관리 action(`workspace.manage`·`audit_retention.manage`·`member.manage`·`team.manage`·`api_key.manage`·`api_key.manage_own`·`agent.create`·`agent.manage`·`agent.restore`·`agent.admin.manage`·`credential.bind`·`binding.manage`·`routine.manage`·`account.link`), 승인(`session.approve`), Slack 입력(Slack 표면의 `session.submit`)만 남는다. 에이전트 읽기(`agent.read`·`agent.settings_read`)의 허용은 남지 않는다. route edge의 scope 부족 403도 같은 판정을 거쳐 남는다. 행의 `request_id`는 응답의 `X-Request-Id`이고, 그 요청이 만든 receipt의 `receipts.request_id`와 같다. 그래서 "누가 시켰나"는 receipt에서 `request_id`로 판정 행을 찾아 답한다.
+권한 판정(`authorize`)은 기록할 것을 `authz_decisions`에 한 행씩 남긴다. 거절(`deny`)·`redact`·`require_approval`은 모두 남는다. 허용은 관리 action(`workspace.manage`·`audit_retention.manage`·`audit_log.read`·`member.manage`·`team.manage`·`api_key.manage`·`api_key.manage_own`·`agent.create`·`agent.manage`·`agent.restore`·`agent.admin.manage`·`credential.bind`·`binding.manage`·`routine.manage`·`account.link`), 승인(`session.approve`), Slack 입력(Slack 표면의 `session.submit`)만 남는다. 에이전트 읽기(`agent.read`·`agent.settings_read`)의 허용은 남지 않는다. route edge의 scope 부족 403도 같은 판정을 거쳐 남는다. 행의 `request_id`는 응답의 `X-Request-Id`이고, 그 요청이 만든 receipt의 `receipts.request_id`와 같다. 그래서 "누가 시켰나"는 receipt에서 `request_id`로 판정 행을 찾아 답한다.
 
 ```sql
 SELECT d.at, d.principal_kind, d.principal_id, d.actor_user_id, d.action, d.outcome, d.reason_code, r.id AS receipt_id, r.operation
@@ -1292,6 +1292,34 @@ WHERE d.request_id = '<X-Request-Id>';
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/audit-retention" \
   -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' \
   -d '{"audit_retention_days":60}'
+```
+
+#### 감사 기록 읽기와 내보내기
+
+owner는 DB를 열지 않고 `GET /v1/audit/events`로 판정 행과 receipt를 함께 읽는다. cookie 세션으로만 읽는다. admin·member와 모든 API key는 `403`이고, 허용과 거절 모두 `audit_log.read` 판정 행으로 남는다.
+
+- 한 행: `kind`(`decision` 또는 `receipt`), `at`, `request_id`, `actor`, `action`(receipt는 operation), `target`, `outcome`(receipt는 status), `reason_code`(판정만), `surface`(판정만). receipt의 `result`·`error`는 싣지 않는다. 그 내용은 `GET /v1/receipts/{id}`로 읽는다.
+- 순서: `at`·`kind`·`id` 역순. 같은 요청의 행은 `request_id`가 같다.
+- 거름: `from`·`to`·`kind`·`actor_user_id`·`action`·`outcome`. `limit`은 기본 50, 최대 200이다. 다음 페이지는 `next_cursor`를 `cursor`로 보낸다.
+- 보존 창: 두 원천 모두 `audit_retention_days` 안의 행만 나온다. receipts는 지우지 않으므로 DB에는 더 오래된 행이 있어도 이 API로는 나오지 않는다. 응답의 `retention_start`가 창의 시작이다.
+
+```bash
+curl -s -b jar "http://127.0.0.1:3000/v1/audit/events?kind=decision&outcome=deny&limit=20"
+```
+
+`Accept: application/x-ndjson`을 주면 같은 거름의 행 전체를 한 줄에 하나씩 흘려 보낸다. 각 줄에는 그 행 다음부터 이어 받을 `cursor`가 붙는다. 마지막 줄은 `{"kind":"end","rows":N,"truncated":false,"next_cursor":null}`이다.
+
+- 상한: 한 번에 100,000행. 넘으면 끝 줄이 `truncated: true`와 `next_cursor`를 준다.
+- 동시 실행: 한 워크스페이스에 하나. 두 번째는 `429`(`Retry-After: 60`)다.
+- 시간: 10분이 지나면 끊는다.
+- 권한 재확인: 15초마다 로그인을 다시 확인하고, 500행을 읽기 전마다 `audit_log.read`를 기록 없이 다시 묻는다. 로그아웃·강등·세션 폐기·DB 오류가 생기면 끝 줄 없이 끊는다.
+- 끝 줄이 없는 파일은 완전하지 않다. 받은 마지막 줄의 `cursor`로 다시 부르면 이어 받는다.
+- 판정 행: 허용 행은 시작할 때 한 번만 남는다.
+
+```bash
+curl -s -b jar -H 'Accept: application/x-ndjson' \
+  "http://127.0.0.1:3000/v1/audit/events?from=2026-11-01T00:00:00Z" > audit.ndjson
+tail -n 1 audit.ndjson   # {"kind":"end",…}
 ```
 
 ### 세션 실행 권한 회수와 복구

@@ -2283,6 +2283,8 @@ export const authzDecisions = pgTable(
   (table) => [
     index("authz_decisions_request_idx").on(table.requestId),
     index("authz_decisions_at_idx").on(table.at),
+    // The owner's audit list reads one workspace's rows newest first.
+    index("authz_decisions_owner_at_idx").on(table.ownerId, table.at),
     check(
       "authz_decisions_outcome_check",
       sql`${table.outcome} IN (${sqlLiterals(AUTHORIZATION_OUTCOME_VALUES)})`,

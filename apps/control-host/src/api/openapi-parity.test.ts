@@ -19,6 +19,7 @@ import type {
   AgentUsageService,
   AgentWorkspaceMcpService,
   ApiKeyService,
+  AuditLogService,
   CredentialBindingService,
   EnvVariableService,
   GitHubAppService,
@@ -86,6 +87,7 @@ import { registerAgentCallerLimitsRoutes } from "./routes/musterrolle/agent-call
 import { registerAgentIdentityRoutes } from "./routes/musterrolle/agent-identities.ts";
 import { registerAgentUsageRoutes } from "./routes/musterrolle/agent-usage.ts";
 import { registerApiKeyRoutes } from "./routes/musterrolle/api-keys.ts";
+import { registerAuditLogRoutes } from "./routes/musterrolle/audit-log.ts";
 import { registerCredentialBindingRoutes } from "./routes/musterrolle/credential-bindings.ts";
 import { registerEnvVariableRoutes } from "./routes/musterrolle/env-variables.ts";
 import {
@@ -208,6 +210,7 @@ function apiApp() {
       registerSlackSettingsRoutes(router, {} as SlackSettingsAdmin);
       registerInstallationConfigRoutes(router, {} as InstallationConfigAdmin);
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);
+      registerAuditLogRoutes(router, {} as AuditLogService);
       registerAchievementRoutes(router, {} as AchievementRuleService);
       registerSessionAchievementRoutes(router, {} as SessionAchievementService);
       registerSlackSecretRoutes(router, {} as SlackSecretService);

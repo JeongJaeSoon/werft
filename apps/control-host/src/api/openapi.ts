@@ -38,6 +38,7 @@ import {
   apiErrorResponseSchema,
   apiKeyIdParamsSchema,
   apiRootResponseSchema,
+  auditExportLineSchema,
   auditReadRequestSchema,
   auditReadResponseSchema,
   auditRetentionRequestSchema,
@@ -148,6 +149,8 @@ import {
   listAgentsResponseSchema,
   listApiKeysQuerySchema,
   listApiKeysResponseSchema,
+  listAuditEventsQuerySchema,
+  listAuditEventsResponseSchema,
   listConnectionOptionsResponseSchema,
   listCredentialBindingsResponseSchema,
   listGitHubAppsResponseSchema,
@@ -461,6 +464,7 @@ const requestComponents = {
   UpdateInstallationConfigRequest: updateInstallationConfigRequestSchema,
   SetLoginProviderSecretRequest: setLoginProviderSecretRequestSchema,
   AuditRetentionRequest: auditRetentionRequestSchema,
+  ListAuditEventsQuery: listAuditEventsQuerySchema,
   SlackGuestRequest: slackGuestRequestSchema,
   CreateAchievementCategoryRequest: createAchievementCategoryRequestSchema,
   UpdateAchievementCategoryRequest: updateAchievementCategoryRequestSchema,
@@ -586,6 +590,8 @@ const responseComponents = {
   IssuePasswordResetRequest: issuePasswordResetRequestSchema,
   IssuePasswordResetResponse: issuePasswordResetResponseSchema,
   AuditRetentionResponse: auditRetentionResponseSchema,
+  ListAuditEventsResponse: listAuditEventsResponseSchema,
+  AuditExportLine: auditExportLineSchema,
   SlackGuestResponse: slackGuestResponseSchema,
   SlackSecretSummary: slackSecretSummarySchema,
   PutSlackSecretResponse: putSlackSecretResponseSchema,
@@ -797,6 +803,11 @@ export const OPENAPI_TAGS = [
       "Settings of one workspace: how long authorization decisions are kept, its Slack apps, app configuration token and guest access, its GitHub Apps, repositories and Packages, and its own remote MCP servers. Signed-in people only; who may read or change each one is in its description.",
   },
   {
+    name: "Audit log",
+    description:
+      "The workspace's access decisions and command receipts, newest first, as pages or as one NDJSON export. The owner's alone, signed in; reading it is itself recorded.",
+  },
+  {
     name: "Achievements",
     description:
       "The workspace's achievement categories, types and rules, and the judge that decides the rules it asks. Every member reads them; owners and admins change them, signed in.",
@@ -867,6 +878,7 @@ const OPENAPI_TAG_GROUPS = [
       "Teams",
       "Linked accounts",
       "Workspace settings",
+      "Audit log",
       "Achievements",
       "Variables",
     ],
@@ -904,6 +916,9 @@ export type RouteDeclaration = {
         status: 200 | 201 | 202;
         schema: ComponentName;
         sse?: boolean;
+        // Also answered as `application/x-ndjson` (on `Accept`), one line of
+        // this schema each.
+        ndjson?: ComponentName;
         description?: string;
         // Parsed with `schema` by openapi.test.ts.
         example?: unknown;
@@ -1802,6 +1817,58 @@ export const API_ROUTE_DECLARATIONS = [
     success: { status: 200, schema: "AuditRetentionResponse" },
     errors: [400, 401, 403, 404, 413, 503],
     idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/audit/events",
+    operationId: "listAuditEvents",
+    tag: "Audit log",
+    summary: "List or export the workspace's audit log (owner only)",
+    description:
+      'Lists the caller\'s workspace\'s access decisions (`kind: decision`: who tried what, and whether it was allowed or why it was refused) and command receipts (`kind: receipt`: what was changed), newest first by `at`, `kind` and `id`. Rows of one request share `request_id`, the `X-Request-Id` of that request. Only rows inside the workspace\'s retention window (`audit_retention_days`) are listed, from both sources; `retention_start` is its start, and an earlier `from` reads as it. A receipt\'s `result` and `error` are not listed: read them with GET /v1/receipts/{id}. Pass `next_cursor` back as `cursor` for the next page; it is null on the last one.\n\nWith `Accept: application/x-ndjson` the same filters stream every matching row, one JSON object per line and `limit` ignored, starting after `cursor` when one is sent. Each row also carries `cursor`, its own position. The last line is `{"kind":"end","rows":N,"truncated":bool,"next_cursor":…}`; a stream without it was cut short (the owner signed out, lost the role, storage failed, or the export ran 10 minutes) and resumes with the `cursor` of the last row received. One export holds at most 100,000 rows; past that `truncated` is true and `next_cursor` continues it. One export per workspace runs at a time.\n\nOnly the workspace owner, signed in, reads it; every other member and every API key get 403, and each read, allowed or refused, leaves a decision row (`audit_log.read`). It changes nothing else.',
+    scope: "read",
+    // An API key reaches the policy, which refuses it whatever its scopes
+    // and records the refusal.
+    scopeCheckedBy: "service",
+    query: "ListAuditEventsQuery",
+    success: {
+      status: 200,
+      schema: "ListAuditEventsResponse",
+      ndjson: "AuditExportLine",
+      description:
+        "One page of audit rows, or with `Accept: application/x-ndjson` the export: one row per line and the end line last.",
+      example: {
+        items: [
+          {
+            kind: "decision",
+            id: "019a0000-0000-7000-8000-0000000000d1",
+            at: "2026-11-20T06:51:25.123456Z",
+            request_id: "req_01",
+            actor: {
+              principal_kind: "user",
+              principal_id: "019a0000-0000-7000-8000-0000000000e1",
+              user_id: "019a0000-0000-7000-8000-0000000000e1",
+              agent_id: null,
+            },
+            action: "member.manage",
+            target: {
+              kind: "workspace",
+              id: "019a0000-0000-7000-8000-0000000000a1",
+            },
+            outcome: "deny",
+            reason_code: "owner_protected",
+            surface: "web",
+          },
+        ],
+        next_cursor: null,
+        retention_start: "2026-08-22T06:51:25.000000Z",
+      },
+    },
+    errors: [400, 401, 403, 429, 503],
+    errorNotes: {
+      RATE_LIMITED:
+        "An export of this workspace is already running; `Retry-After` is 60.",
+    },
   },
   {
     method: "post",
@@ -9164,7 +9231,16 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
                         : { example: success.example }),
                     },
                   }
-                : jsonContent(success.schema, success.example),
+                : {
+                    ...jsonContent(success.schema, success.example),
+                    ...(success.ndjson === undefined
+                      ? {}
+                      : {
+                          "application/x-ndjson": {
+                            schema: ref(success.ndjson),
+                          },
+                        }),
+                  },
             },
   };
   if (route.alsoSucceeds !== undefined) {
