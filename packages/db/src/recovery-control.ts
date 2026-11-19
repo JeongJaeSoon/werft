@@ -29,12 +29,6 @@ import {
 import { dbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
-  INCOMPATIBLE_CHECKPOINT_REASON,
-  RESTORE_FAILURE_LIMIT,
-  RESTORE_FAILURES_CLEARED,
-  RUNTIME_RETIRED_REASON,
-} from "./restore-failures.ts";
-import {
   queuedTurnCount,
   RESUME,
   resumePauseFamily,
@@ -60,6 +54,12 @@ import {
 } from "./sessions/pause-policy.ts";
 import { cancelParkedRequests } from "./sessions/pending-requests.ts";
 import { awaitingInputAt } from "./sessions/pending-status.ts";
+import {
+  INCOMPATIBLE_CHECKPOINT_REASON,
+  RESTORE_FAILURE_LIMIT,
+  RESTORE_FAILURES_CLEARED,
+  RUNTIME_RETIRED_REASON,
+} from "./sessions/restore-failures.ts";
 import { recordEvent, recordStatus } from "./sessions/session-events.ts";
 
 const RECOVERY_DECISION = "recovery_decision";

@@ -6,5 +6,8 @@ export { lockedAdministers } from "./agent-admins.ts";
 export { revokeInstallationIdentities } from "./agent-identities.ts";
 export { holdsRight, lockedRole } from "./api-keys.ts";
 export { expireByAuditRetention } from "./authz-decisions.ts";
-export { enqueueWorkerImageReplacedNotices } from "./model-cut-notices.ts";
+export {
+  enqueueRuntimeRetiredNotices,
+  enqueueWorkerImageReplacedNotices,
+} from "./model-cut-notices.ts";
 export { sessionVisibleTo } from "./session-shares.ts";

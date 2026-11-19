@@ -27,7 +27,6 @@ import {
 } from "drizzle-orm";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
-import { RESTORE_FAILURES_CLEARED } from "../restore-failures.ts";
 import { openResumeReceipt } from "../resume-control.ts";
 import {
   attempts,
@@ -42,6 +41,7 @@ import {
 import {
   hasRestorePoint,
   openDrainReceipt,
+  RESTORE_FAILURES_CLEARED,
   recordEvent,
   recordStatus,
 } from "../sessions/index.ts";

@@ -7,6 +7,11 @@ export {
   actionableOfSession,
   awaitingInputAt,
 } from "./pending-status.ts";
+export {
+  holdIncompatibleBeforeLaunch,
+  RESTORE_FAILURES_CLEARED,
+  restoreRetryDue,
+} from "./restore-failures.ts";
 export type {
   ArchiveChunkRow,
   ArchivedEventCache,

@@ -130,7 +130,6 @@ import {
   sessionVisibleTo,
 } from "./musterrolle/session-shares.ts";
 import type { Database } from "./queries.ts";
-import { startupFailedAttention } from "./restore-failures.ts";
 import {
   agentReleases,
   agents,
@@ -166,6 +165,7 @@ import {
   lockSessionReach,
   type Requester,
 } from "./sessions/requester-locks.ts";
+import { startupFailedAttention } from "./sessions/restore-failures.ts";
 import {
   type ArchivedEventCache,
   type ArchivedEventSource,
