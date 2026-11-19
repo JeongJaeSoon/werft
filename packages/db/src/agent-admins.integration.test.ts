@@ -21,8 +21,8 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createDatabaseAgentAuthority } from "./agent-authority.ts";
 import { createPostgresAgentStore } from "./agents.ts";
+import { createDatabaseAgentAuthority } from "./musterrolle/agent-authority.ts";
 import { createPostgresWorkspaceKeyStore } from "./musterrolle/api-keys.ts";
 import { createPostgresCredentialBindingStore } from "./musterrolle/credential-bindings.ts";
 import { createDatabaseIdentityReader } from "./musterrolle/identity-reader.ts";

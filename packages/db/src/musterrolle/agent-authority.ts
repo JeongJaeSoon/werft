@@ -1,8 +1,7 @@
 import type { AgentAuthority } from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { UUID } from "./control-shared.ts";
-import { administers, insideAgent } from "./musterrolle/administers.ts";
-import type { Database } from "./queries.ts";
+import { UUID } from "../control-shared.ts";
+import type { Database } from "../queries.ts";
 import {
   agentReleases,
   agents,
@@ -11,9 +10,10 @@ import {
   sessions,
   surfaceBindings,
   users,
-} from "./schema.ts";
-import { notDeleted } from "./soft-delete.ts";
-import { usageOf as usageDecisionOf } from "./usage/agent-usage.ts";
+} from "../schema.ts";
+import { notDeleted } from "../soft-delete.ts";
+import { usageOf as usageDecisionOf } from "../usage/index.ts";
+import { administers, insideAgent } from "./administers.ts";
 
 export function createDatabaseAgentAuthority(db: Database): AgentAuthority {
   return {
