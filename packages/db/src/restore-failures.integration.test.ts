@@ -19,11 +19,6 @@ import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
 } from "./postgres-unit-of-work.ts";
-import {
-  INCOMPATIBLE_CHECKPOINT_REASON,
-  RESTORE_FAILURE_LIMIT,
-  RUNTIME_RETIRED_REASON,
-} from "./restore-failures.ts";
 import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
@@ -34,6 +29,11 @@ import {
   unassignedSessions,
 } from "./schema.ts";
 import { createPostgresWorkerPendingStore } from "./sessions/pending-control.ts";
+import {
+  INCOMPATIBLE_CHECKPOINT_REASON,
+  RESTORE_FAILURE_LIMIT,
+  RUNTIME_RETIRED_REASON,
+} from "./sessions/restore-failures.ts";
 import { confirmExecutionGone } from "./testing/launches.ts";
 import {
   fixtureRelease,

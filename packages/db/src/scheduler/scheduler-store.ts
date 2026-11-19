@@ -63,10 +63,6 @@ import { launchFailedCause, quarantineLaunch } from "../launch-quarantine.ts";
 import { enqueueWorkerImageReplacedNotices } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import {
-  holdIncompatibleBeforeLaunch,
-  restoreRetryDue,
-} from "../restore-failures.ts";
-import {
   executions,
   sessions,
   turns,
@@ -74,7 +70,12 @@ import {
   workerImageRefusals,
   workerLaunches,
 } from "../schema.ts";
-import { hasRestorePoint, recordEvent } from "../sessions/index.ts";
+import {
+  hasRestorePoint,
+  holdIncompatibleBeforeLaunch,
+  recordEvent,
+  restoreRetryDue,
+} from "../sessions/index.ts";
 import { createPostgresWorkerUnitOfWork } from "../worker-unit-of-work.ts";
 
 /** A connection the pass lock can live on for as long as the pass runs. */

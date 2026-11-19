@@ -146,13 +146,6 @@ import {
 } from "./provider-exchanges.ts";
 import type { Database } from "./queries.ts";
 import {
-  boundedReason,
-  RESTORE_FAILURES_CLEARED,
-  recordStartupFailure,
-  restoreRetryDue,
-  unsupportedFeaturesEndReason,
-} from "./restore-failures.ts";
-import {
   completeResume,
   failResume,
   RESUME_LAUNCH_LIMIT,
@@ -224,6 +217,13 @@ import {
   recordLostInputWait,
 } from "./sessions/pending-requests.ts";
 import { awaitingInputAt } from "./sessions/pending-status.ts";
+import {
+  boundedReason,
+  RESTORE_FAILURES_CLEARED,
+  recordStartupFailure,
+  restoreRetryDue,
+  unsupportedFeaturesEndReason,
+} from "./sessions/restore-failures.ts";
 import {
   notBefore,
   recordEvent,

@@ -10,7 +10,6 @@ import {
   enqueueSessionModelMoveNotices,
 } from "./musterrolle/model-cut-notices.ts";
 import type { Database } from "./queries.ts";
-import { holdIncompatibleBeforeLaunch } from "./restore-failures.ts";
 import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
@@ -32,6 +31,7 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
+import { holdIncompatibleBeforeLaunch } from "./sessions/restore-failures.ts";
 import {
   releaseSpecColumns,
   sessionPinColumns,
