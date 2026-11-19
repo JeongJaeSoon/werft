@@ -324,7 +324,7 @@ record_version    integer NOT NULL  -- 이 레코드 모양의 버전(1). authz_
 |---|---|---|---|
 | `decided` | `allow` | `trusted_tool` | 신뢰된 도구 목록(`trustedTools`)에 있다 |
 | `decided` | `allow` | `permission_mode` | `bypassPermissions`·`auto` 모드가 묻지 않고 통과시켰다 |
-| `decided` | `allow` | `memory_read` | 메모리만 읽는 호출이라 묻지 않고 허용했다(`runtime.ts:192`) |
+| `decided` | `allow` | `memory_read` | 메모리만 읽는 호출이라 묻지 않고 허용했다. 엔진 자체 기억을 끈 뒤로는 만들지 않는다. 지난 기록에 남아 있어 값은 계약에 둔다 |
 | `decided` | `allow` | `approval` | 사람이 승인했다(`pending_request_id`, `answered_by` 필수, 7.3.1절 검증) |
 | `decided` | `deny` | `not_permitted` | 세션의 허용 목록(`tools`) 밖이다(`canUseTool`과 `PreToolUse` 어느 쪽이든) |
 | `decided` | `deny` | `hook_deny` | 호스트의 사전 검사(`precheckTool`)나 checkpoint 정지 구간이 거절했다 |

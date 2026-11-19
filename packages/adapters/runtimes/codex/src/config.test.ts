@@ -117,6 +117,19 @@ describe("codexLaunch", () => {
     }
   });
 
+  // The pinned build has Memories off by default, so the real-binary test
+  // alone would still pass without these.
+  test("turns the engine's own memory off explicitly", () => {
+    const args = codexLaunch(startOf(), DEPS, {}).args;
+    for (const setting of [
+      "features.memories=false",
+      "memories.generate_memories=false",
+      "memories.use_memories=false",
+    ]) {
+      expect(args).toContain(setting);
+    }
+  });
+
   test("the response language is not put into the prompt", () => {
     const launch = codexLaunch(startOf({ responseLanguage: "ko" }), DEPS, {});
     expect(launch.developerInstructions).toBeUndefined();

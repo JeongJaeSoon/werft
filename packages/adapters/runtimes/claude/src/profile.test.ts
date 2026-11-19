@@ -149,6 +149,7 @@ describe("runtime profiles", () => {
     expect(environment).toEqual({
       ANTHROPIC_BASE_URL: "https://api.anthropic.com",
       CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR: "3",
+      CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
       CLAUDE_CONFIG_DIR: "/tenant/config",
       HOME: "/tenant/home",
@@ -257,6 +258,7 @@ describe("runtime profiles", () => {
     expect(environment).toEqual({
       ANTHROPIC_BASE_URL: "https://api.anthropic.com",
       CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR: "3",
+      CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
       CLAUDE_CONFIG_DIR: "/tenant/config",
       HOME: "/tenant/home",

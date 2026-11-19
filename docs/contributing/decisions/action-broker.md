@@ -473,7 +473,7 @@ L0 머지 전에는 L1~L16 가운데 L13a만 시작한다. L13a는 프록시의 
 | A3 | 결과물 위치(`out/`) | L(2단계) | 현재 계약 + 후속 | 지금은 `out/` 규칙이 맞다: 저장소 없는 세션의 안내 `OUT_DIRECTORY_PROMPT`(`apps/worker/src/composition.ts:265`), 색인 `apps/worker/src/workspace-outputs.ts`, 판정 쪽 목록 `achievement-judge.ts:311`. `declare_deliverable`(L8)이 대신할 수 있으나 호환을 위해 `out/` 안내는 남긴다(설계 5절 A3) |
 | E1 | 엔진 기본 동작 그대로 씀 | E(어댑터가 끔) | 현재 계약 | G3과 같다. 끌 것의 목록은 서명 하나다([9절](#9-어댑터-적합성-항목) 1번) |
 | E2 | 관리자 지시·저장소 `CLAUDE.md` | E | 현재 계약 | 형식·정책을 이 경로에 두지 않는다. worker가 저장소 루트의 `AGENTS.md`(없으면 `CLAUDE.md`)를 git 객체에서 읽어 세션 지시의 정본으로 쓴다(`apps/worker/src/workspace.ts:851`, `apps/worker/src/instruction-files.ts`) |
-| E3 | 메모리 읽기 안내 | E | 현재 계약 | Claude 어댑터 안의 안내다: `MEMORY_READ_GUIDANCE`(`packages/adapters/runtimes/claude/src/memory-read.ts:11`), 적용 `runtime.ts:128`. 플랫폼 계약이 아니다 |
+| E3 | 메모리 읽기 안내 | E | 없앰 | 엔진 자체 기억을 끄면서([기억 설계 10절](memory-layer.md#10-엔진-자체-기억)) Claude 어댑터의 안내와 묻지 않는 메모리 읽기 예외를 지웠다. 엔진이 기억 디렉터리를 만들지도 읽지도 않으니 안내할 것이 없다 |
 | E4 | 첨부 저장소 지시 파일 무시 | E | 현재 계약(문서 근거) | 사용자 문서가 "붙인 저장소의 CLAUDE.md는 지시문으로 읽지 않는다"고 적는다(`apps/docs/content/docs/integrations/github.mdx:124`, 영어·일본어판 같음). 설계가 근거로 든 문장(`github-mcp-server.ts:120`)은 main의 서버·계약 설명에 없고, worker는 주 저장소 루트의 지시 파일만 읽는다(E2). 첨부 저장소는 remote ref로만 fetch한다(`github-mcp.ts:463`) |
 | E5 | 멈춘 턴 뒤 허용된 호출 다시 하기 | E | 현재 계약 + 후속 | [6절](#6-행동-부류-정책) 끝줄과 [9절](#9-어댑터-적합성-항목) 3번: L2가 뺀 세 부류는 park되지 않고, 리뷰·workflow는 park될 수 있다. park된 push 의도는 `carryPushIntents`(`packages/db/src/parked-group.ts:354`)가 잇고, 허용된 엔진 호출을 다시 하라는 재개 안내는 `continuationMessage`(같은 파일 `:396`, 허용된 호출을 다시 하라는 문장 `:408`)가 만든다. 이 재개 문구를 구조화하는 일은 main에 없다. 문구를 쓰는 것은 엔진이 아니라 플랫폼의 park 흐름(`continuationMessage`)이므로 담당은 흐름 쪽이다. 이 일은 [11절](#11-도구-위에-얹는-것) F6이 맡는다. F2의 후속 PR은 push 이어 턴 제거라 이 문구를 다루지 않는다 |
 | E6 | 도구 시작 기록 실패 뒤 재시도 | E | 현재 계약 | 어댑터 내부 문구다: `ADMISSION_GUARD_REFUSED`(`runtime.ts:42`, 사용 `:219`). 플랫폼 도구 봉투의 `retryable`과는 별개다 |
@@ -495,7 +495,6 @@ L0 머지 전에는 L1~L16 가운데 L13a만 시작한다. L13a는 프록시의 
 |---|---|---|
 | 성과 의미 판정(A1) | 플랫폼이 엔진 밖의 판정 모델을 부른다. 모델은 아무것도 넘기지 않는다 | `achievement-judge.ts`, `achievement-rules.md` |
 | 관리자 지시·저장소 지시(E2) | 사람의 글이다. 레이어는 형식·정책을 더하지 않는다 | `instruction-files.ts` |
-| 메모리 안내(E3) | Claude 어댑터의 안내다 | `memory-read.ts` |
 | 세션 제목(E7) | 플랫폼이 엔진 밖에서 부른다 | `session-titler.ts` |
 
 ## 대안

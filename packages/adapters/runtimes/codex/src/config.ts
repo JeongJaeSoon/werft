@@ -315,6 +315,11 @@ export function codexLaunch(
     ["features.skill_mcp_dependency_install", false],
     ["features.tool_suggest", false],
     ["features.daemon_auto_start", false],
+    // Memory is the platform's, under its own scopes and audit; off by default
+    // in this build, pinned here so a newer default cannot turn it on.
+    ["features.memories", false],
+    ["memories.generate_memories", false],
+    ["memories.use_memories", false],
     // The repository's instructions come from the bundle, as committed.
     ["project_doc_max_bytes", 0],
     // An untrusted project's own `.codex` layer (config and exec rules) is
