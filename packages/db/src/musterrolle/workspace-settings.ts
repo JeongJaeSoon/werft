@@ -4,9 +4,9 @@ import type {
 } from "@werft-ai/platform";
 import { MANAGEMENT_ROLES } from "@werft-ai/platform";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
-import { lockActorAccount } from "./control-shared.ts";
-import type { Database } from "./queries.ts";
-import { memberships, users, workspaces } from "./schema.ts";
+import { lockActorAccount } from "../control-shared.ts";
+import type { Database } from "../queries.ts";
+import { memberships, users, workspaces } from "../schema.ts";
 
 // Holds the actor's membership under a share lock: the same lock offboarding
 // takes, so a manager disabled mid-request cannot still write a setting.

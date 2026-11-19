@@ -53,6 +53,7 @@ export * from "./musterrolle/session-shares.ts";
 export * from "./musterrolle/slack-settings.ts";
 export * from "./musterrolle/surface-bindings.ts";
 export * from "./musterrolle/workspace-mcp.ts";
+export * from "./musterrolle/workspace-settings.ts";
 export * from "./neutral-fields.ts";
 export * from "./postgres-unit-of-work.ts";
 export {
@@ -105,4 +106,3 @@ export * from "./usage/agent-usage.ts";
 export * from "./usage/metrics-reader.ts";
 export * from "./usage/usage-reader.ts";
 export { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
-export * from "./workspace-settings.ts";
