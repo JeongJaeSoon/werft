@@ -54,7 +54,6 @@ export * from "./musterrolle/slack-settings.ts";
 export * from "./musterrolle/surface-bindings.ts";
 export * from "./musterrolle/workspace-mcp.ts";
 export * from "./musterrolle/workspace-settings.ts";
-export * from "./neutral-fields.ts";
 export * from "./postgres-unit-of-work.ts";
 export {
   createProviderExchangeLedger,
@@ -76,6 +75,7 @@ export * from "./sessions/commit-attributions.ts";
 export * from "./sessions/execution-revocation.ts";
 export * from "./sessions/interrupt-control.ts";
 export * from "./sessions/lease-reconcile.ts";
+export * from "./sessions/neutral-fields.ts";
 export { expireParkedGroups } from "./sessions/parked-group.ts";
 export * from "./sessions/pending-control.ts";
 export { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
