@@ -124,6 +124,12 @@ const NOTICE_FOR: Record<
   justification_required: "noRight",
   credential_unbound: "credentialUnbound",
   self_approval: "noRight",
+  // Member and key rules: decided on the web, never for a Slack action.
+  owner_protected: "noRight",
+  self_protected: "noRight",
+  last_owner: "noRight",
+  emergency_admin: "noRight",
+  scope_not_grantable: "noRight",
   no_requester: "failed",
   error: "failed",
 };

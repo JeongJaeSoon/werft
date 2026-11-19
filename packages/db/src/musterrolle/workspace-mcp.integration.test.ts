@@ -25,6 +25,7 @@ import {
   workspaceMcpServers,
   workspaces,
 } from "../schema.ts";
+import { memberManageAllow } from "../testing/member-manage-allow.ts";
 import { createPostgresMemberStore } from "./members.ts";
 import {
   createPostgresWorkspaceMcpStore,
@@ -660,6 +661,7 @@ integration("workspace MCP servers on PostgreSQL", () => {
     // A sign-in the admin only started, on a server the owner connected.
     await startedFlow(ws, admin, ownerServer.id, new Date(Date.now() + HOUR));
     const offboarded = await createPostgresMemberStore(db).setAccess({
+      decision: memberManageAllow({ workspaceId: ws, actorUserId: owner }),
       actor: {
         principal: asUser(ws, owner).principal,
         workspaceId: ws,

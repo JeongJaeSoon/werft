@@ -22,6 +22,7 @@ import {
 } from "../schema.ts";
 import { deletedBy } from "../soft-delete.ts";
 import { seedLoginProvider } from "../testing/login-provider.ts";
+import { memberManageAllow } from "../testing/member-manage-allow.ts";
 import { signInWithExternalIdentity } from "./identity.ts";
 import { createPostgresMemberStore } from "./members.ts";
 
@@ -361,6 +362,7 @@ integration("external sign-in first-entry rules", () => {
     const store = createPostgresMemberStore(db);
     const change = (disabled: boolean) =>
       store.setAccess({
+        decision: memberManageAllow({ workspaceId, actorUserId: ownerId }),
         actor: {
           principal: {
             ownerId: workspaceId,

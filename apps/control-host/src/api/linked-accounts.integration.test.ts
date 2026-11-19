@@ -23,6 +23,7 @@ import {
   users,
   verifySlackInstallation,
 } from "@werft-ai/db";
+import { memberManageAllow } from "@werft-ai/db/testing/member-manage-allow";
 import {
   createAuthorizationPolicy,
   createLinkedAccountService,
@@ -388,6 +389,7 @@ integration("Sign in with Slack over HTTP on PostgreSQL", () => {
     expect((await resolveLinkedSubject(db, account)).status).toBe("stale");
 
     const offboarded = await createPostgresMemberStore(db).setAccess({
+      decision: memberManageAllow({ workspaceId, actorUserId: ownerId }),
       actor: {
         principal: {
           ownerId: workspaceId,

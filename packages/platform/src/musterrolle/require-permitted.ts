@@ -1,9 +1,11 @@
 import type {
   AuthorizationAction,
   AuthorizationDecision,
+  AuthorizationRequest,
   AuthorizationResource,
 } from "@werft-ai/contracts";
 import { type AuthorizationPolicy, type Caller, scopeOf } from "./policy.ts";
+import type { UnrecordedAllow } from "./ports/decision-log.ts";
 import { SessionServiceError } from "./service-errors.ts";
 
 // No admin contact: whoever may not use a private agent is not told who to ask.
@@ -50,18 +52,52 @@ export async function requireAllowed(
   // the decision.
   justification?: string,
 ): Promise<AuthorizationDecision> {
-  const decision = await authorization
-    .authorize({
-      subject:
-        justification === undefined
-          ? caller.subject
-          : { ...caller.subject, justification },
-      action,
-      resource: { ...resource, owner_scope: caller.ownerId },
-      request_id: caller.requestId,
-    })
-    .catch(() => null);
+  const request = requestOf(caller, action, resource, justification);
+  const decision = await authorization.authorize(request).catch(() => null);
   if (decision?.outcome === "allow") return decision;
+  refuse(action, decision);
+}
+
+/**
+ * requireAllowed for an act whose store decides more under its locks: the
+ * allow comes back unrecorded, for the store to keep as the request's one
+ * decision row. A refusal here is the policy's to keep.
+ */
+export async function requireAllowedUnrecorded(
+  authorization: AuthorizationPolicy,
+  caller: Caller,
+  action: AuthorizationAction,
+  resource: Omit<AuthorizationResource, "owner_scope">,
+): Promise<UnrecordedAllow> {
+  const request = requestOf(caller, action, resource);
+  const decision = await authorization
+    .authorize(request, { record: "deny" })
+    .catch(() => null);
+  if (decision?.outcome === "allow") return { request, decision };
+  refuse(action, decision);
+}
+
+function requestOf(
+  caller: Caller,
+  action: AuthorizationAction,
+  resource: Omit<AuthorizationResource, "owner_scope">,
+  justification?: string,
+): AuthorizationRequest {
+  return {
+    subject:
+      justification === undefined
+        ? caller.subject
+        : { ...caller.subject, justification },
+    action,
+    resource: { ...resource, owner_scope: caller.ownerId },
+    request_id: caller.requestId,
+  };
+}
+
+function refuse(
+  action: AuthorizationAction,
+  decision: AuthorizationDecision | null,
+): never {
   if (decision?.reason_code === "not_found") {
     throw new SessionServiceError("NOT_FOUND", "Resource not found");
   }

@@ -1,14 +1,30 @@
 import type {
   AuthorizationDecision,
+  AuthorizationReason,
   AuthorizationRequest,
 } from "@werft-ai/contracts";
 
+export type DecisionEntry = {
+  request: AuthorizationRequest;
+  decision: AuthorizationDecision;
+};
+
 export interface DecisionLog {
-  record(entry: {
-    request: AuthorizationRequest;
-    decision: AuthorizationDecision;
-  }): Promise<void>;
+  record(entry: DecisionEntry): Promise<void>;
 }
+
+/**
+ * An allow the policy left unrecorded for the store that acts on it. The
+ * store keeps it, in the transaction that makes the change, as the one row
+ * of the request: the allow, or a deny with `refusalOf` its outcome when a
+ * rule decided under its locks refuses.
+ */
+export type UnrecordedAllow = DecisionEntry;
+
+/** The reason a store outcome refuses for, or null when the allow stands. */
+export type RefusalOf<Outcome extends string> = (
+  outcome: Outcome,
+) => AuthorizationReason | null;
 
 export interface AuditRetentionStore {
   /**

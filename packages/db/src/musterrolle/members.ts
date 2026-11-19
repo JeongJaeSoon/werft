@@ -8,6 +8,7 @@ import type {
   TakeoverRecord,
 } from "@werft-ai/platform";
 import {
+  accessRefusal,
   managesMembers,
   memberVerdict,
   receiptActorOf,
@@ -34,6 +35,7 @@ import {
   users,
   webSessions,
 } from "../schema.ts";
+import { decidedTransaction } from "./authz-decisions.ts";
 import { memberColumns, memberRecord } from "./invites.ts";
 import { revokeUserLinkedAccounts } from "./linked-accounts.ts";
 import { keepsOwnerSignIn, lockLoginSettings } from "./login-settings.ts";
@@ -138,7 +140,12 @@ async function setAccess(
   const { actor, scope, disabled } = input;
   const userId = input.userId.toLowerCase();
   const workspaceId = actor.workspaceId;
-  return db.transaction(async (tx) => {
+  const decided = decidedTransaction<SetAccessResult>(
+    db,
+    input.decision,
+    accessRefusal,
+  );
+  return decided(async (tx) => {
     // Ahead of the user rows (design 5.6): naming another emergency admin
     // waits for this, and this sees who it named.
     const settings = await lockLoginSettings(tx, "share");

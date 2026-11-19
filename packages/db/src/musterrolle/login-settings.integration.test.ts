@@ -31,6 +31,7 @@ import {
 } from "../schema.ts";
 import { deletedBy } from "../soft-delete.ts";
 import { seedLoginProvider } from "../testing/login-provider.ts";
+import { allowFor, memberManageAllow } from "../testing/member-manage-allow.ts";
 import {
   bootstrapOwner,
   consumePasswordReset,
@@ -664,6 +665,7 @@ integration("who may sign in with a password", () => {
     const members = createPostgresMemberStore(db);
     const off = (scope: "membership" | "account") =>
       members.setAccess({
+        decision: allowFor(acting(owner.id)),
         actor: acting(owner.id),
         userId: target.id,
         scope,
@@ -726,6 +728,7 @@ integration("who may sign in with a password", () => {
     const answer = await afterSettingsChange(
       () =>
         createPostgresMemberStore(db).setAccess({
+          decision: allowFor(acting(owner.id)),
           actor: acting(owner.id),
           userId: target.id,
           scope: "membership",
@@ -1024,6 +1027,10 @@ integration("who may sign in with a password", () => {
       expect((await name()).outcome).toBe("changed");
       expect(
         await createPostgresMemberStore(db).setAccess({
+          decision: memberManageAllow({
+            workspaceId: elsewhere,
+            actorUserId: boss.id,
+          }),
           actor: {
             ...acting(boss.id),
             workspaceId: elsewhere,

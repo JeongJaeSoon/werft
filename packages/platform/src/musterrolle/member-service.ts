@@ -11,7 +11,10 @@ import type {
   AccessScope,
   MemberStore,
 } from "./ports/member-store.ts";
-import { requirePermitted } from "./require-permitted.ts";
+import {
+  requireAllowedUnrecorded,
+  requirePermitted,
+} from "./require-permitted.ts";
 import { EMERGENCY_ADMIN, SessionServiceError } from "./service-errors.ts";
 
 /** `receiptId` and `effects` are null when the state was already as asked. */
@@ -49,25 +52,33 @@ export function createMemberService(deps: {
       reason: string | null;
     },
   ): Promise<AccessChange> {
-    await requirePermitted(authorization, caller, "member.manage", {
-      kind: "workspace",
-      id: caller.ownerId,
-    });
-    const actingUserId = personOf(caller);
+    const workspace = { kind: "workspace", id: caller.ownerId } as const;
+    const actingUserId = caller.actor?.userId;
     const workspaceId = caller.actor?.workspaceId;
-    if (!workspaceId) {
+    if (!actingUserId || !workspaceId) {
+      // No person acts: the policy's refusal is the request's one row.
+      await requirePermitted(authorization, caller, "member.manage", workspace);
       throw new SessionServiceError(
         "FORBIDDEN",
         "This principal does not hold member.manage",
       );
     }
+    const receiptId = newId();
+    // From here the store keeps the decision, whatever it answers.
+    const decision = await requireAllowedUnrecorded(
+      authorization,
+      caller,
+      "member.manage",
+      workspace,
+    );
     const result = await store.setAccess({
+      decision,
       actor: { principal: caller, workspaceId, userId: actingUserId },
       userId: input.userId.toLowerCase(),
       scope: input.scope,
       disabled: input.disabled,
       reason: input.reason,
-      receiptId: newId(),
+      receiptId,
     });
     switch (result.outcome) {
       case "not_found":

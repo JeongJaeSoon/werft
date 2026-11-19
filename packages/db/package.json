@@ -13,6 +13,7 @@
     "./testing/decision-model": "./src/testing/decision-model.ts",
     "./testing/fixture-team": "./src/testing/fixture-team.ts",
     "./testing/launches": "./src/testing/launches.ts",
+    "./testing/member-manage-allow": "./src/testing/member-manage-allow.ts",
     "./testing/login-provider": "./src/testing/login-provider.ts",
     "./testing/spec-pins": "./src/testing/spec-pins.ts"
   },
