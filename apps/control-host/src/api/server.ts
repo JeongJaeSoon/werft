@@ -91,6 +91,7 @@ import {
   type Tracer,
 } from "@werft-ai/observability";
 import {
+  type AuthorizationPolicy,
   admitsReservations,
   CATALOG_REFRESH_MS,
   createAchievementJudge,
@@ -860,12 +861,14 @@ const github = createGitHubGate({
   connections: githubConnections,
   resolver: githubResolver,
 });
-const githubWork = createGitHubWorkService({
-  authorization,
-  gate: github,
-  store: githubGateStore,
-  redact: sanitizeText,
-});
+const githubWorkFor = (authorization: AuthorizationPolicy) =>
+  createGitHubWorkService({
+    authorization,
+    gate: github,
+    store: githubGateStore,
+    redact: sanitizeText,
+  });
+const githubWork = githubWorkFor(authorization);
 const githubOAuth = createPostgresGitHubOAuthStore(db, secretKey);
 const githubCallback = githubCallbackUrl(consoleOrigin);
 const pullRequestSettings = createPostgresPullRequestSettingsStore(db);
@@ -919,25 +922,29 @@ const agentPullRequest = createAgentPullRequestService({
 });
 const pushStore = createPostgresPushRequests(db);
 const pushIntentStore = createPostgresPushIntents(db);
-const pushRequests = createPushRequestService({
-  authorization,
-  store: pushStore,
-  intents: pushIntentStore,
-  source: checkpoints.pushSource,
-  catalog,
-});
+const pushRequestsFor = (authorization: AuthorizationPolicy) =>
+  createPushRequestService({
+    authorization,
+    store: pushStore,
+    intents: pushIntentStore,
+    source: checkpoints.pushSource,
+    catalog,
+  });
+const pushRequests = pushRequestsFor(authorization);
 const pullRequestStore = createPostgresPullRequests(db);
-const pullRequests = createPullRequestService({
-  authorization,
-  store: pullRequestStore,
-  catalog,
-  gate: github,
-  redact: sanitizeText,
-  attribution: sessionAttribution,
-  settings: pullRequestSettings,
-  consoleOrigin,
-  logger,
-});
+const pullRequestsFor = (authorization: AuthorizationPolicy) =>
+  createPullRequestService({
+    authorization,
+    store: pullRequestStore,
+    catalog,
+    gate: github,
+    redact: sanitizeText,
+    attribution: sessionAttribution,
+    settings: pullRequestSettings,
+    consoleOrigin,
+    logger,
+  });
+const pullRequests = pullRequestsFor(authorization);
 // The built-in `github` MCP server: the same services as the session API,
 // each made with the authorization of the one session a grant names.
 const githubMcpStore = createPostgresGitHubMcpStore(db);
@@ -961,30 +968,9 @@ const githubMcp = createGitHubMcpServer({
       error: error instanceof Error ? error.name : "error",
     }),
   services: (bound) => ({
-    pushRequests: createPushRequestService({
-      authorization: bound,
-      store: pushStore,
-      intents: pushIntentStore,
-      source: checkpoints.pushSource,
-      catalog,
-    }),
-    pullRequests: createPullRequestService({
-      authorization: bound,
-      store: pullRequestStore,
-      catalog,
-      gate: github,
-      redact: sanitizeText,
-      attribution: sessionAttribution,
-      settings: pullRequestSettings,
-      consoleOrigin,
-      logger,
-    }),
-    githubWork: createGitHubWorkService({
-      authorization: bound,
-      gate: github,
-      store: githubGateStore,
-      redact: sanitizeText,
-    }),
+    pushRequests: pushRequestsFor(bound),
+    pullRequests: pullRequestsFor(bound),
+    githubWork: githubWorkFor(bound),
     attachments: repositoryAttachments,
   }),
 });
