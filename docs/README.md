@@ -85,7 +85,7 @@ API로 세션을 만들고 쓰는 사람.
 | [결정(설계): 새 control-host와 지원 창 안 옛 worker의 호환 계약](contributing/decisions/worker-compat.md) | 요청·응답·JSON 밖의 약속·DB의 expand → contract 규칙, 직전 지원 릴리스의 worker protocol 고정본과 두 방향 계약 시험, 실제 이미지 매트릭스와 릴리스 gate, migration 삭제 검사 |
 | [결정(설계): egress proxy forward 연결 이어 쓰기](contributing/decisions/egress-proxy-keep-alive.md) | Bun fetch가 닫힐 proxy 연결을 다시 써서 끊기는 문제, 요청을 하나씩 받는 안을 고른 이유, 이어 쓰는 조건, 지키는 smuggling 방어와 시험 사례 |
 | [결정(설계): 에이전트 기억 레이어](contributing/decisions/memory-layer.md) | 세션·개인·에이전트·워크스페이스 네 범위와 개인 ≠ 에이전트인 이유, 에이전트 팀의 공유 지식 공간, 승격 흐름, 읽기·쓰기 집행 순서(RBAC → `memoryWritePolicy` → 데이터 접근 정책 → 가시성 → 감사), MCP 도구 넷, `MemoryService` 포트와 계약 시험, 정리(드리밍), 주입·개인 정보·삭제, 엔진 자체 기억 끄기, 단계 계획 |
-| [결정(설계): 스킬과 MCP 서버, 엔진 중립 등록·지정](contributing/decisions/skills-and-mcp.md) | 플러그인 없이 스킬(`SKILL.md` 하나)과 MCP 서버 두 개념으로 등록(업로드·Git 커밋 고정)·승인·지정(`required`/`optional`/`forbidden`)·버전 고정·배포, Claude·Codex·pi 어댑터 매핑, 권한·receipt·콘솔 메뉴, pi coding agent와 Oh My Pi 검토와 추천 |
+| [결정(설계): 스킬과 MCP 서버, 엔진 중립 등록·지정](contributing/decisions/skills-and-mcp.md) | 플러그인 없이 스킬(`SKILL.md` 하나)과 MCP 서버 두 개념으로 등록(업로드·Git 커밋 고정)·승인·지정(`required`/`optional`/`forbidden`)·버전 고정·배포, Claude·Codex·pi 어댑터 매핑, 요청자·에이전트·스킬로 MCP 호출의 데이터 접근과 연결(에이전트/개인)을 정하는 규칙 기반 정책, 권한·receipt·콘솔 메뉴, pi coding agent와 Oh My Pi 검토와 추천 |
 | [조사: 엔진과 관리 콘솔이 스킬·MCP·플러그인을 다루는 방법](contributing/decisions/skills-and-mcp-research.md) | Claude Team/Enterprise 관리 화면·권한·버전·감사, Claude Agent SDK 로딩, Codex 스킬·MCP·관리 설정, pi와 Oh My Pi의 구조·스킬·MCP·권한 모델(공개 자료, 2026-11-20) |
 | [결정(설계): 에이전트 지도 뷰 선택(폐기)](contributing/decisions/agent-map-views.md) | 그래프를 두고 줌 캔버스를 두 번째 뷰로 고르게 하던 설계의 기록. 에이전트 지도는 2026-11-14 오너 결정으로 지웠다 |
 | [실제 Claude로 확인하기](real-claude.md) | 실제 Claude로 스택 확인 |
