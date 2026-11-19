@@ -70,13 +70,13 @@ export const slackEn = {
   "slack.channelsLocked.title":
     "Channels can't be picked until Slack checks the Request URL",
   "slack.channelsLocked.bodyRecheck":
-    "No invite, mention, DM or channel events arrive until Slack has checked this app's Request URL. Send the URL again with Recheck; if it stays unchecked, press Verify (or Retry) on the app's Event Subscriptions page. This notice goes away on its own once Slack checks.",
+    "No invite, mention, DM or channel events arrive until Slack has checked this app's Request URL. Recheck only sends the current URL to Slack again, and Slack may not check an unchanged URL again. If it stays unchecked, press Verify (or Retry) on the app's Event Subscriptions page. This notice goes away on its own once Slack checks.",
   "slack.channelsLocked.body":
     "No invite, mention, DM or channel events arrive until Slack has checked this app's Request URL. Press Verify (or Retry) on the app's Event Subscriptions page. This notice goes away on its own once Slack checks.",
   "slack.channelsLocked.open": "Open Event Subscriptions",
   "slack.eventsUrl.title": "Events Request URL",
   "slack.eventsUrl.hint":
-    "Where Slack sends invites, mentions and DMs. Recheck sends the URL to the app's settings again and answers Slack's check automatically.",
+    "Where Slack sends invites, mentions and DMs. Recheck sends the current URL to the app's settings again. When Slack sends its check, it is answered automatically.",
   "slack.eventsUrl.verified": "Checked by Slack",
   "slack.eventsUrl.pending": "Waiting for Slack",
   "slack.eventsUrl.failed": "Registration failed",
@@ -84,7 +84,7 @@ export const slackEn = {
   "slack.eventsUrl.recheck": "Recheck",
   "slack.eventsUrl.done": "Slack has checked the Request URL.",
   "slack.eventsUrl.sent":
-    "The Request URL was sent to Slack again. The status changes once Slack checks it.",
+    "The Request URL was sent to Slack again. Slack may not check an unchanged URL again. If it keeps waiting, press Retry on the app's Event Subscriptions page.",
   "slack.repositoryRequired.title": "Sessions can't start from Slack",
   "slack.repositoryRequired.body":
     "Slack sessions can't start from the active release ({release}). The release's repository left the catalog or is not allowed by the workspace ceiling, or the agent's GitHub settings can't be read. Slack mentions and DMs are refused and only a notice is left in the thread. You can still connect. Check the GitHub settings and save again in Settings, and a new release is made.",

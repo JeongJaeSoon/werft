@@ -69,13 +69,13 @@ export const slackJa = {
   "slack.state.reinstall": "再インストールが必要",
   "slack.channelsLocked.title": "Request URL の確認前はチャンネルを選べません",
   "slack.channelsLocked.bodyRecheck":
-    "Slack がこのアプリの Request URL を確認するまで、招待・メンション・DM・チャンネルのイベントは届きません。「再確認」で URL をもう一度送り、それでも変わらない場合は、アプリ設定の Event Subscriptions で Verify(または Retry)を押してください。確認されるとこの案内は自動で消えます。",
+    "Slack がこのアプリの Request URL を確認するまで、招待・メンション・DM・チャンネルのイベントは届きません。「再確認」は今の URL を Slack にもう一度送るだけで、URL が変わらなければ Slack は再び確認しないことがあります。変わらない場合は、アプリ設定の Event Subscriptions で Verify(または Retry)を押してください。確認されるとこの案内は自動で消えます。",
   "slack.channelsLocked.body":
     "Slack がこのアプリの Request URL を確認するまで、招待・メンション・DM・チャンネルのイベントは届きません。アプリ設定の Event Subscriptions で Verify(または Retry)を押してください。確認されるとこの案内は自動で消えます。",
   "slack.channelsLocked.open": "Event Subscriptions を開く",
   "slack.eventsUrl.title": "イベントの Request URL",
   "slack.eventsUrl.hint":
-    "Slack が招待・メンション・DM を送る先です。再確認するとアプリ設定に URL をもう一度送り、Slack の確認要求に自動で応答します。",
+    "Slack が招待・メンション・DM を送る先です。再確認するとアプリ設定に今の URL をもう一度送ります。Slack が確認要求を送ると自動で応答します。",
   "slack.eventsUrl.verified": "Slack が確認済み",
   "slack.eventsUrl.pending": "Slack の確認待ち",
   "slack.eventsUrl.failed": "登録に失敗",
@@ -83,7 +83,7 @@ export const slackJa = {
   "slack.eventsUrl.recheck": "再確認",
   "slack.eventsUrl.done": "Slack が Request URL を確認しました。",
   "slack.eventsUrl.sent":
-    "Request URL を Slack にもう一度送りました。Slack が確認すると状態が変わります。",
+    "Request URL を Slack にもう一度送りました。URL が変わらなければ Slack は再び確認しないことがあります。確認待ちが続く場合は、アプリ設定の Event Subscriptions で Retry を押してください。",
   "slack.repositoryRequired.title": "Slack からはセッションを開始できません",
   "slack.repositoryRequired.body":
     "有効なリリース（{release}）では Slack のセッションを開始できません。リリースのリポジトリがカタログから外れているかワークスペースの上限が許可していない、またはエージェントの GitHub 設定を読み取れないためです。Slack のメンションと DM は拒否され、スレッドに案内だけが残ります。接続はできます。GitHub 設定を確認し、「詳細設定」で保存し直すと、新しいリリースが作成されます。",
