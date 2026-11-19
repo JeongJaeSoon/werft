@@ -356,14 +356,14 @@ interface MemoryService {
 - 기억의 모양은 "정리된 Markdown과 작은 색인"으로 굳어 간다(Claude Code, Codex, Agents SDK, Gemini).
 - 공급자 모두 "기억은 회상이지 규칙이 아니다"라고 적는다. 꼭 지켜야 할 규칙은 AGENTS.md·CLAUDE.md·스킬에 둔다.
 - 쓰기를 사람이 승인하는 길(Gemini의 inbox)과 저장소 version, read_only 선택(Managed Agents)이 늘었다. 이유는 같다: 기억 오염이다.
-- 정리(Dreams, Agents SDK의 정리 단계)는 원본을 고치지 않고 새 결과를 만든다.
+- Dreams는 원본 저장소를 고치지 않고 새 저장소를 만든다. Agents SDK도 추출과 정리를 두 단계로 나눈다.
 - 기억과 스킬의 경계가 흐려진다. 추출된 절차가 SKILL.md 후보가 된다(Gemini, Agents SDK).
 
 **기업용 에이전트 플랫폼의 흐름(2026-05–11).**
 
-- 기본 범위는 **사용자 × 에이전트**다. 팀·조직이 같이 쓰는 기억은 드물고, 있으면 명시적인 그릇이다. 예: ChatGPT의 공유 프로젝트는 프로젝트 기억만 쓰고 구성원의 개인 기억을 보지 않는다. [Copilot Studio](https://learn.microsoft.com/en-us/microsoft-copilot-studio/agents-experience/memory-overview)는 사용자·에이전트별이고 그룹 대화와 Teams 채널에서는 꺼진다. [Letta](https://docs.letta.com/guides/core-concepts/memory/shared-memory/index.md)는 공유 블록을 붙인다.
+- 기본 범위는 **사용자 × 에이전트**다. 팀·조직이 같이 쓰는 기억은 드물고, 있으면 명시적인 그릇이다. 예: [Copilot Studio](https://learn.microsoft.com/en-us/microsoft-copilot-studio/agents-experience/memory-overview)는 사용자·에이전트별이고 그룹 대화와 Teams 채널에서는 꺼진다. [Letta](https://docs.letta.com/guides/core-concepts/memory/shared-memory/index.md)는 공유 블록을 붙인다.
 - 쓰기는 거의 **자동 추출**이다. 공유 범위로 가기 전의 검토 큐를 둔 큰 제품은 찾지 못했다. 사용자 보기·삭제와 관리자 켜기·끄기, 비활성 기간 TTL이 통제의 전부다.
-- **기억을 MCP로 내보낸다.** [Notion](https://www.notion.com/help/view-your-notion-agent-memories)은 MCP로 연결된 에이전트가 기억을 읽고 쓰게 하고, Microsoft는 [Work IQ MCP](https://mc.merill.net/message/MC1539004)로 사용자 자신의 기억 프로필을 허가된 에이전트에 읽기 전용으로 내준다(관리자 정책, 2026-11 공지). 기억이 엔진에서 떨어져 서비스가 된다.
+- **기억을 MCP로 내보낸다.** [Notion](https://www.notion.com/help/view-your-notion-agent-memories)은 MCP로 연결된 에이전트가 기억을 읽고 쓰게 하고, Microsoft는 [Work IQ MCP](https://mc.merill.net/message/MC1539004)로 사용자 자신의 기억 프로필을 허가된 에이전트에 읽기 전용으로 내준다고 2026-11에 공지했다(관리자 정책, 2026-12 GA 예정). 기억이 엔진에서 떨어져 서비스가 되는 쪽으로 간다.
 - 권한은 **도구 호출마다 한 판정 지점**으로 모인다. AWS는 [AgentCore Memory의 기억 동작 12개를 Cedar 동작으로](https://aws.amazon.com/about-aws/whats-new/2026/08/agentcorememory-fine-grained-access-control) 판정한다(2026-08).
 - "끄기는 지우기가 아니다"가 함정으로 지적된다. Copilot Studio에서 기억을 꺼도 지워지지 않는다(위 Copilot Studio 문서).
 
@@ -401,7 +401,7 @@ interface MemoryService {
 - claude.ai incognito, ChatGPT Temporary Chat → 개인 기억은 `private` 세션에서만 쓰고, 에이전트 설정으로 기억을 끌 수 있다(2절, 오너 결정).
 - claude.ai에서 조직 소유자가 개인 기억을 읽지 못하는 것 → 관리자의 남의 개인 기억 열람은 범위 밖이다.
 - Gemini Auto Memory의 "승인 전 미적용" → 후보 큐(4절).
-- Mem0 문서의 경고(범위 없는 검색이 샌다) → 범위 열쇠 XOR CHECK와 반환 직전 거름(2·7절). 주체 없는 기억 질의는 0단계에서 끝난다.
+- Mem0 문서의 경고(범위 없는 검색이 샌다) → 범위 열쇠 XOR CHECK와 반환 직전 거름(2·7절). 0단계가 호출 주체(attempt token의 세션과 에이전트, 콘솔 사용자, key)를 확인하지 못한 질의는 거절한다. 요청자가 `none`인 자율 실행은 확인된 주체이므로 세션·에이전트·워크스페이스 기억을 쓰고, 개인 기억만 없다(2·5절).
 - 기본 범위가 사용자 × 에이전트이고 공유는 명시적인 그릇이라는 흐름 → 개인·에이전트가 기본이고, 워크스페이스와 나중의 공간은 승격과 구성원 판정으로만 채운다(2·3·4절).
 - 기억을 MCP로 내보내는 흐름(Notion, Work IQ) → 내장 MCP 서버 `memory`(6절).
 - 기억 동작을 정책 판정에 거는 것(AgentCore의 Cedar 동작) → 기억 동작을 공통 접근 판정의 동작으로 묻는다(5절).
@@ -414,7 +414,7 @@ interface MemoryService {
 | 모델이 기억을 직접 쓰고 다음 실행이 바로 쓴다(Claude Code 자동 기억, Claude API memory 도구, Managed Agents 기본 read_write, Codex, ChatGPT) | 모델은 세션 범위에만 쓴다. 영속 범위는 후보 → 출처 확인 → 사람 채택 | 여러 사람이 같이 쓰는 에이전트에서는 한 사람의 대화나 주입 공격이 다른 사람의 실행으로 번진다. Managed Agents 문서가 경고한 바로 그 길이다 |
 | 파일·경로 모델(`/memories`, `/mnt/memory/<slug>/`, `MEMORY.md`) | 문서 id·revision과 MCP 도구 넷. 폴더 mount는 없다 | 문서마다 권한, tombstone, 감사를 붙여야 한다. 경로 탈출이라는 공격 종류가 아예 없다 |
 | 기계·저장소별 로컬 기억(Claude Code, Codex) | control-host가 정본이고 worker에는 남지 않는다 | worker는 실행마다 버려진다. 기억이 기계에 남으면 지우거나 감사할 수 없다 |
-| 외부 문맥 대화를 추출에서 뺀다(Codex) | 빼지 않는다. scanner, 출처 확인, 사람 채택으로 거른다. 근거 세션이 외부 도구(웹, MCP) 결과를 읽었으면 후보 화면이 그것을 보인다(도구 감사에서 읽는다, P8) | 외부 도구를 쓴 세션에서 나오는 일의 지식이 많다. 기억 오염 사례(11절)가 외부 입력에서 왔으므로 출처를 채택자에게 보인다. 자동 채택은 없다 |
+| 설정으로 외부 문맥 대화를 추출에서 뺄 수 있다(Codex) | 빼지 않는다. scanner, 출처 확인, 사람 채택으로 거른다. 근거 세션이 외부 도구(웹, MCP) 결과를 읽었으면 후보 화면이 그것을 보인다(도구 감사에서 읽는다, P8) | 외부 도구를 쓴 세션에서 나오는 일의 지식이 많다. 기억 오염 사례(11절)가 외부 입력에서 왔으므로 출처를 채택자에게 보인다. 자동 채택은 없다 |
 | 공유 범위로 가기 전 검토가 없다(조사한 제품 모두) | 개인 → 에이전트·워크스페이스(나중에 공간)는 출처가 붙은 후보 → 출처 확인 → 채택으로만 간다(4절) | 시장의 기본은 사용자 × 에이전트라 한 사람의 기억이 남에게 가지 않는다. 우리 에이전트는 여러 사람이 같이 쓰고 워크스페이스 KB가 있으므로, 공유 범위에 들어간 것은 다른 사람의 실행에 들어간다. 그때 막아야 할 것이 둘이다: 한 사람의 개인 정보가 동의 없이 퍼지는 것(출처 확인과 taint), 외부 입력이 심은 지시가 모두의 기억이 되는 것(오염 사례, 11절). 연구가 말하는 출처 기반 신뢰를 사람 채택으로 구현한 것이다. 비용은 화면이므로, 1:1 개인 에이전트는 출처 확인과 채택을 한 번에 하고 세션 범위 쓰기는 검토 없이 둔다 |
 | 지식 그래프(MCP 참조 서버) | 문서와 계보 링크 | 그래프가 필요한 질의가 보이지 않았다. 계보는 삭제 전파에 필요한 만큼만 둔다 |
 | 조직 범위가 관리 설정으로만 있다 | 워크스페이스 범위를 승격으로만 채우는 정리된 KB로 둔다 | 오너 질문의 "개인·에이전트·조직" 세 층 |
@@ -466,10 +466,10 @@ interface MemoryService {
 | 단계 | 내용 | PR | 끝나는 조건 | 선행 |
 |---|---|---|---|---|
 | P1 계약·스키마(M2) | 범위 넷(`session`/`personal`/`agent`/`workspace`)과 열쇠 XOR, `subject_user_id`, 상태(`candidate`/`active`/`quarantined`/`superseded`/`deleted`), 불변 revision, tombstone, 승격 기록(출처 확인자 포함), 계보 링크와 조상 root 목록, `personal_subjects`, 세션 행의 개인 기억 표시. 동작별 거름(5절)을 TS 함수와 SQL 조건 두 형태로. 공간 범위는 `space_scope_unavailable` | 1 | CI의 DB 통합 시험에서 migration이 적용되고, XOR·상태 CHECK 위반이 거절되며, 거름의 TS와 SQL이 같은 결과를 낸다 | 이 문서 |
-| P2 포트·Postgres·계약 시험(M3) | `MemoryService` 포트, Postgres 구현, 계약 시험 다섯(7절, testkit), FTS와 `pg_trgm`. 권한은 가짜 판정 포트 | 1–2 | 계약 시험 다섯이 CI의 DB 통합 시험에서 통과한다. 이 포트를 부르는 곳은 아직 없다 | P1 |
+| P2 포트·Postgres·계약 시험(M3) | `MemoryService` 포트, Postgres 구현, 계약 시험 다섯(7절, testkit), FTS와 `pg_trgm`. 권한은 가짜 판정 포트 | 1–2 | 계약 시험 다섯이 CI의 DB 통합 시험에서 통과한다. 시험 1은 tombstone과 조상 차단, 재색인 뒤에도 돌아오지 않음까지이고, 백업 복원 부분은 P5에서 더한다. 이 포트를 부르는 곳은 아직 없다 | P1 |
 | P3 엔진 자체 기억 끄기(M5) | Claude·Codex adapter(10절, 12절) | 1 | 10절의 시험 셋이 통과한다 | 없음 |
 | P4 검사와 격리(M7) | scanner 최소 집합(비밀 거절, 주입 패턴, PII를 개인 범위로 돌리기)을 포트의 모든 쓰기 경로와 주입 직전에. `quarantined` 거름 | 1 | 주입 패턴·비밀·PII 시험 문장이 각각 격리·거절·개인 범위 제안으로 가고, scanner 시간 초과도 막힌다 | P2 |
-| P5 삭제 장부와 개인 기억 삭제(M8) | 삭제 장부, 복원 뒤 재적용(`memory_restoring`), 사용자 비활성·이탈 때 개인 기억과 개인 후보 삭제 | 1–2 | 복원 시험에서 재적용 전 읽기가 `memory_restoring`이고 재적용 뒤 지운 문서가 돌아오지 않는다. 비활성 시험에서 그 사람의 개인 문서와 후보가 tombstone이 된다 | P2 |
+| P5 삭제 장부와 개인 기억 삭제(M8) | 삭제 장부, 복원 뒤 재적용(`memory_restoring`), 사용자 비활성·이탈 때 개인 기억과 개인 후보 삭제 | 1–2 | 복원 시험에서 재적용 전 읽기가 `memory_restoring`이고 재적용 뒤 지운 문서가 돌아오지 않는다(계약 시험 1의 복원 부분이 계약 묶음에 들어간다). 비활성 시험에서 그 사람의 개인 문서와 후보가 tombstone이 된다 | P2 |
 | P6 판정의 기억 축 | 공통 접근 판정에 기억 규칙과 결과의 기억 범위 칸(5절). 최소 판정기는 별도의 접근 판정 설계에서 먼저 들어온다 | 1 | 판정 시험: 공개 채널에서 개인 기억 거절, 요청자 없는 실행은 개인 기억 없음, `memoryWritePolicy: deny`면 후보 거절, 이행 모드 예외, 판정기를 쓸 수 없으면 거절. 판정마다 기록이 남는다 | P2, 최소 판정기 |
 | P7 MCP 도구와 집행(M4) | 내장 서버 `memory`(이름 예약, claim 항목, token), 도구 넷, 0–5단계, transaction 안 재판정, 도구 감사 칸·receipt. 에이전트 설정은 꺼진 채로 | 1–2 | fake model 실행에서 도구 호출과 거절이 감사에 남고, 설정이 꺼진 에이전트에는 서버가 붙지 않는다 | P6 |
 | P8 API와 최소 콘솔(M6) | 출처 확인·채택·승격·편집·삭제 API(콘솔 세션만), 후보 큐(본문·읽을 수 있는 근거·diff, 근거 세션이 외부 도구 결과를 읽었는지), 문서 목록·편집(CAS)·삭제, 개인 기억 화면, 1:1 개인 에이전트의 합친 목록, `private` 시작 선택, 일반·오염 삭제, 기억 끄기 화면의 "끄기는 지우기가 아니다" 안내 | 2(API, 화면) | API key와 relay token의 채택이 거절되고, 화면에서 후보 → 출처 확인 → 채택이 이어진다. 화면 기록을 PR에 남긴다 | P7 |
