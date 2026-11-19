@@ -30,8 +30,8 @@ import {
   type TeamActor,
 } from "@werft-ai/platform";
 import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
-import { lockCatalogWrites } from "./catalog-repositories.ts";
 import { lockPeople } from "./control-shared.ts";
+import { lockCatalogWrites } from "./github/catalog-repositories.ts";
 import { rebindCarriedPushes } from "./installation-settings.ts";
 import {
   lockMcpServerName,
