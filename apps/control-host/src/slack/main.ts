@@ -1,8 +1,6 @@
-import { releaseModel } from "@werft-ai/contracts";
 import { integerSetting } from "@werft-ai/contracts/settings";
 import * as schema from "@werft-ai/db";
 import {
-  agentGitHubSettingsOf,
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
   createPostgresAgentIdentityStore,
@@ -27,7 +25,6 @@ import {
   type Database,
   getSlackAppSettings,
   newSessionGitHubReaders,
-  workspaceRepositoryCeiling,
 } from "@werft-ai/db";
 import {
   createEnforcedPool,
@@ -40,15 +37,12 @@ import {
   type StructuredLogger,
 } from "@werft-ai/observability";
 import {
-  agentEnvNames,
+  agentReleaseReaders,
   createAuthorizationPolicy,
   createCatalogRegistry,
   createSessionService,
   registryCatalog,
-  releaseNotRunnableReason,
-  releaseStartable,
   repositoryView,
-  resolveAgentRelease,
   type SecretKey,
   type SlackInboundEventStore,
   settingsView,
@@ -74,6 +68,7 @@ import {
   type SlackNoticeSink,
 } from "../wiring/chat-slack.ts";
 import { installationConfigOf } from "../wiring/installation-config.ts";
+import { releaseStartableIn } from "../wiring/release-startable.ts";
 import {
   wireSlackInbound,
   wireSlackOutbound,
@@ -192,16 +187,7 @@ export function slackSessionHandler(deps: {
     }),
     catalog,
     releases: {
-      resolveRelease: (workspaceId, releaseId) =>
-        resolveAgentRelease(
-          { store: agentStore, catalog },
-          workspaceId,
-          releaseId,
-        ),
-      envNames: (workspaceId, releaseId) =>
-        agentEnvNames(agentStore, workspaceId, releaseId),
-      notRunnableReason: (workspaceId, release) =>
-        releaseNotRunnableReason(agentStore, workspaceId, release),
+      ...agentReleaseReaders(agentStore, catalog),
       ...newSessionGitHubReaders(db),
     },
     extensions: extensionDepsFor(db),
@@ -235,12 +221,7 @@ export function slackSessionHandler(deps: {
       const release = await agentStore.findRelease(workspaceId, releaseId);
       return (
         release !== null &&
-        !releaseStartable(
-          catalog,
-          { ...release, model: releaseModel(release) },
-          await agentGitHubSettingsOf(db, release.agent_id),
-          await workspaceRepositoryCeiling(db, workspaceId),
-        )
+        !(await releaseStartableIn(db, catalog, workspaceId, release))
       );
     },
     notices: deps.notices,

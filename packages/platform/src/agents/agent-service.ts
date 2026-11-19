@@ -182,6 +182,26 @@ export async function agentEnvNames(
   return version ? declaredEnvNames(version.card) : [];
 }
 
+/** The release readers a session service takes, over one agent store. */
+export function agentReleaseReaders(
+  store: Pick<
+    AgentStore,
+    "findRelease" | "findVersion" | "autoModelMigration" | "agentStatus"
+  >,
+  catalog: Pick<SessionCatalogView, "connections">,
+) {
+  return {
+    resolveRelease: (workspaceId: string, releaseId: string) =>
+      resolveAgentRelease({ store, catalog }, workspaceId, releaseId),
+    envNames: (workspaceId: string, releaseId: string) =>
+      agentEnvNames(store, workspaceId, releaseId),
+    notRunnableReason: (
+      workspaceId: string,
+      release: Pick<AgentRelease, "agent_id" | "approved_at">,
+    ) => releaseNotRunnableReason(store, workspaceId, release),
+  };
+}
+
 export function createAgentService(deps: {
   authorization: AuthorizationPolicy;
   store: AgentStore;
@@ -836,8 +856,8 @@ export function createAgentService(deps: {
     }
   }
 
-  const resolveRelease = (workspaceId: string, releaseId: string) =>
-    resolveAgentRelease({ store, catalog }, workspaceId, releaseId);
+  const releaseReaders = agentReleaseReaders(store, catalog);
+  const { resolveRelease } = releaseReaders;
 
   // The person a model migration acts for must still be an owner or admin; a
   // team right left over from a demotion is not enough.
@@ -950,14 +970,8 @@ export function createAgentService(deps: {
   }
 
   return {
-    resolveRelease,
-    notRunnableReason: (
-      workspaceId: string,
-      release: Pick<AgentRelease, "agent_id" | "approved_at">,
-    ) => releaseNotRunnableReason(store, workspaceId, release),
+    ...releaseReaders,
     migrateModel,
-    envNames: (workspaceId: string, releaseId: string) =>
-      agentEnvNames(store, workspaceId, releaseId),
 
     async listAgents(
       caller: Caller,
