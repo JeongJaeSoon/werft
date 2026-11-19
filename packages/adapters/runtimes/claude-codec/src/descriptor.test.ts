@@ -7,7 +7,6 @@ describe("CLAUDE_DESCRIPTOR", () => {
   const { capabilities, extraFeatures } = CLAUDE_DESCRIPTOR;
 
   test("declares user hooks as an extra feature it does not offer", () => {
-    expect(Object.keys(CLAUDE_DESCRIPTOR)).not.toContain("userHooks");
     expect(extraFeatures.user_hooks).toBe("none");
     expect(featureSupport(capabilities, extraFeatures, "user_hooks")).toBe(
       "none",

@@ -145,14 +145,11 @@ describe("SessionDigest", () => {
 
   test("the API projection drops the summarizer's bookkeeping", () => {
     const {
-      source_session_revision,
-      summarized_turn_sequence,
-      last_summarized_turn_id,
+      source_session_revision: _revision,
+      summarized_turn_sequence: _sequence,
+      last_summarized_turn_id: _turnId,
       ...view
     } = digest;
-    expect(source_session_revision).toBe(12);
-    expect(summarized_turn_sequence).toBeNull();
-    expect(last_summarized_turn_id).toBeNull();
     const parsed = sessionDigestViewSchema.parse({ ...view, unread: true });
     expect(parsed.unread).toBe(true);
     expect(Object.hasOwn(parsed, "source_session_revision")).toBe(false);

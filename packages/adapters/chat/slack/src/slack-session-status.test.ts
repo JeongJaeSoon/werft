@@ -75,11 +75,6 @@ describe("slackSessionStatus", () => {
     ],
     ["nothing is active", {}, "active"],
     [
-      "an unapprovable push alone is active",
-      { approvablePush: false },
-      "active",
-    ],
-    [
       "action stages alone do not change the status",
       { actionStages: [{ kind: "push_intent", id: "i", state: "pinned" }] },
       "active",

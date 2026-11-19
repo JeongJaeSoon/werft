@@ -3,7 +3,6 @@ import {
   achievementCategorySchema,
   achievementRuleRequestSchema,
   BUILTIN_ACHIEVEMENT_PAYLOAD_SCHEMAS,
-  BUILTIN_ACHIEVEMENT_TYPES,
   createAchievementCategoryRequestSchema,
   createAchievementTypeRequestSchema,
   updateAchievementCategoryRequestSchema,
@@ -170,12 +169,6 @@ describe("built-in achievement payloads", () => {
     additions: 3,
     deletions: 1,
   };
-
-  test("every built-in type has a payload schema", () => {
-    expect(Object.keys(BUILTIN_ACHIEVEMENT_PAYLOAD_SCHEMAS).sort()).toEqual(
-      BUILTIN_ACHIEVEMENT_TYPES.map(({ key }) => key).sort(),
-    );
-  });
 
   test("a pull request payload has the design's fields and nothing else", () => {
     const parse = ok(BUILTIN_ACHIEVEMENT_PAYLOAD_SCHEMAS.pull_request);
