@@ -59,7 +59,7 @@ try {
               : uninstalled
                 ? `EvVerifyUninstall${mode.replace("-", "")}${seq}`
                 : posted || lifecycle
-                  ? `EvVerify${mode}${channel}${seq}`
+                  ? `EvVerify${mode.replace("-", "")}${channel}${seq}`
                   : "EvVerify1",
           event: uninstalled
             ? { type: "app_uninstalled" }

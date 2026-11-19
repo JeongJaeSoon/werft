@@ -47,13 +47,15 @@ function refused(
 
 /**
  * Asks Slack whether the bot is in the channel and joins it when it is
- * public. A private channel waits for an invite (`member_joined_channel`).
- * Null when Slack could not be asked; joining twice is harmless.
+ * public and `join` allows. A private channel waits for an invite
+ * (`member_joined_channel`). Null when Slack could not be asked; joining
+ * twice is harmless.
  */
 export async function joinSlackChannel(
   slack: Pick<SlackBotApi, "channelMembership" | "joinChannel">,
   botToken: string,
   channelId: string,
+  join = true,
 ): Promise<SurfaceMembership | null> {
   let seen: Awaited<ReturnType<SlackBotApi["channelMembership"]>>;
   try {
@@ -64,7 +66,7 @@ export async function joinSlackChannel(
   }
   if (seen.isArchived) return { state: "join_failed", error: "is_archived" };
   if (seen.isMember) return JOINED;
-  if (seen.kind !== "public_channel") {
+  if (seen.kind !== "public_channel" || !join) {
     return { state: "awaiting_invite", error: null };
   }
   try {
@@ -257,10 +259,18 @@ export function createSlackChannelJoiner(deps: {
     if (binding.channelId === null || binding.mode === "off") return null;
     const botToken = await deps.botToken(binding.workspaceId, binding.agentId);
     if (botToken === null) return null;
+    // A bound public channel waits for an invite with no error only after
+    // the bot was removed from it: a person took it out, so only an invite
+    // brings it back, not a release going live, a reinstall or a settings
+    // change. Slack is still asked, so an invite whose event was lost shows.
+    const removed =
+      binding.membership?.state === "awaiting_invite" &&
+      binding.membership.error === null;
     const membership = await joinSlackChannel(
       deps.slack,
       botToken,
       binding.channelId,
+      !removed,
     );
     if (
       membership !== null &&

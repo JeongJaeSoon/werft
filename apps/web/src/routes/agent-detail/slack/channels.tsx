@@ -62,9 +62,10 @@ import {
 } from "./shared.ts";
 
 /**
- * The server joins a public channel once its response is on, so only a
- * private channel waits for `/invite`. The binding's membership wins; a
- * channel not bound or not checked yet falls back to the channel list.
+ * The server joins a public channel once its response is on, so a private
+ * channel waits for `/invite`, and a public one only after a person removed
+ * the bot from it. The binding's membership wins; a channel not bound or
+ * not checked yet falls back to the channel list.
  */
 function awaitsInvite(
   binding: Binding | undefined,

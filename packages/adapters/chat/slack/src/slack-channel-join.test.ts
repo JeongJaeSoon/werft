@@ -182,6 +182,46 @@ describe("joining a bound channel", () => {
   });
 });
 
+test("a public channel the bot was removed from is asked about but not joined again; an invite Slack shows is recorded", async () => {
+  const recorded: [string, SurfaceMembership][] = [];
+  let member = false;
+  const calls: string[] = [];
+  const joiner = createSlackChannelJoiner({
+    bindings: {
+      setMembership: async (id, membership) => {
+        recorded.push([id, membership]);
+      },
+    },
+    slack: {
+      async channelMembership(_token, channelId) {
+        calls.push(`info:${channelId}`);
+        return { kind: "public_channel", isMember: member, isArchived: false };
+      },
+      async joinChannel(_token, channelId) {
+        calls.push(`join:${channelId}`);
+      },
+    },
+    botToken: async () => "bot-credential",
+  });
+  const removed = {
+    id: "b1",
+    workspaceId: WORKSPACE,
+    agentId: AGENT,
+    channelId: "C1",
+    mode: "on",
+    membership: { state: "awaiting_invite", error: null },
+  } as SurfaceBindingRecord;
+  expect(await joiner(removed)).toEqual({
+    state: "awaiting_invite",
+    error: null,
+  });
+  expect(recorded).toEqual([]);
+  member = true;
+  expect(await joiner(removed)).toEqual({ state: "joined", error: null });
+  expect(recorded).toEqual([["b1", { state: "joined", error: null }]]);
+  expect(calls).toEqual(["info:C1", "info:C1"]);
+});
+
 describe("the bot's invite", () => {
   function handler(
     bound: Partial<SurfaceBindingRecord> | null,
