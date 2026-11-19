@@ -786,7 +786,13 @@ surface·action 범위 밖의 시험은 이 문서가 후보를 고르지 않는
 | **W1** | 구조 변경 | `apps/control-host/src/wiring/`에서 역할별 조립 코드를 타입이 붙은 wiring 모듈로 정리한다. DI 컨테이너는 넣지 않는다([5.6절](#56-oop-상속-없이-구조적-인터페이스와-합성)). 동작은 그대로다 | U4~U8 | 새 단계. 오너 결정 d279 |
 | **U9** | ① 이동 ② 책임 분리 | ① `db/src/`와 `control-host/routes/`가 같은 이름을 따라간다. ② 5.3절의 파일 쪼개기(`slack-outbox.ts`, `push-request-service.ts`의 `decide`). ②는 파일마다 별도 PR이다 | U5, U6 | S7 |
 
-U1~U9와 W1은 모두 끝났다. 쪼개기의 결과와 `decide`를 `decision/`으로 옮기지 않은 이유는 [5.3절](#53-단일-책임srp)에 있다.
+U1~U8, W1, U9 ②는 끝났다. 쪼개기의 결과와 `decide`를 `decision/`으로 옮기지 않은 이유는 [5.3절](#53-단일-책임srp)에 있다.
+
+U9 ①과 [4.2절](#42-현재-경로--목표-경로) 표에는 옮기지 않은 것이 남아 있다. 모두 토큰·비밀값·자격 증명·멱등 키·해시를 다루는 코드이거나, 그런 코드가 있는 파일을 고쳐야 옮길 수 있다. 그래서 일반 이동과 따로 다룬다.
+
+- `db/src/` 루트: `agents.ts`, `agent-summaries.ts`, `session-links.ts`, `session-titles.ts`, `telemetry-ingest-store.ts`, `session-spec-pin.ts`, `provider-exchanges.ts`, `input-limits.ts`, `push-requests.ts`, `recovery-control.ts`, `resume-control.ts`, `control-observability.ts`
+- `platform/src/ports/`의 Slack 저장소 포트 다섯 개: `slack-{app,config-token,inbound-event,install,outbox}-store.ts`. `surface-binding-store.ts`만 `surface/ports/`로 옮겼다.
+- 알림 문구 파일(`musterrolle/*-notice.ts`): Slack outbox의 중복 제거 키를 만든다. 옮길지는 따로 정한다.
 
 ### 10.1 Slack 이동의 순서와 재수출
 
