@@ -65,7 +65,6 @@ export {
 } from "./provider-exchanges.ts";
 export * from "./push-requests.ts";
 export * from "./queries.ts";
-export * from "./repository-attachments.ts";
 export * from "./scheduler/scheduler-store.ts";
 export * from "./schema.ts";
 export { createPostgresSecretStore } from "./secrets/secret-values.ts";
@@ -80,6 +79,7 @@ export * from "./sessions/lease-reconcile.ts";
 export { expireParkedGroups } from "./sessions/parked-group.ts";
 export * from "./sessions/pending-control.ts";
 export { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
+export * from "./sessions/repository-attachments.ts";
 export * from "./sessions/session-attribution.ts";
 export {
   type ArchivedEventSource,

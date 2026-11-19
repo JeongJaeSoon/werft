@@ -13,11 +13,11 @@ import {
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresGitHubGateStore } from "./github/github-settings.ts";
+import * as schema from "./schema.ts";
 import {
   createPostgresRepositoryAttachments,
   createPostgresRepositoryPins,
-} from "./repository-attachments.ts";
-import * as schema from "./schema.ts";
+} from "./sessions/repository-attachments.ts";
 import {
   releaseSpecColumns,
   SESSION_PIN_SQL_COLUMNS,

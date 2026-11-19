@@ -14,8 +14,8 @@ import { alias } from "drizzle-orm/pg-core";
 import {
   agentGitHubSettingsRowOf,
   agentSettingsColumns,
-} from "./github/github-settings.ts";
-import type { Database } from "./queries.ts";
+} from "../github/index.ts";
+import type { Database } from "../queries.ts";
 import {
   agentGitHubSettings,
   agentReleases,
@@ -25,9 +25,9 @@ import {
   sessionRepositoryAttachments,
   sessionRepositoryPins,
   sessions,
-} from "./schema.ts";
-import { acquireFence } from "./sessions/fence.ts";
-import { recordEvent } from "./sessions/session-events.ts";
+} from "../schema.ts";
+import { acquireFence } from "./fence.ts";
+import { recordEvent } from "./session-events.ts";
 
 const sessionRelease = alias(agentReleases, "session_release");
 const activeRelease = alias(agentReleases, "active_release");
