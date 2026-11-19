@@ -71,6 +71,8 @@ const MIGRATIONS_ONLY = [
   // 0249: a session's copied variable values go when it closes, by one write
   // every close path passes through.
   "function env_start_without_values(snapshot jsonb) jsonb language sql volatility=i parallel=u body md5 961af7aed215f5220cdabdca4a5a3e41",
+  // 0292: a memory revision's content never changes.
+  "function memory_revisions_immutable() trigger language plpgsql volatility=v parallel=u body md5 c481264f119362c48c6f1f5ef599601d",
   // 0291: a decision model turned on with none other on starts the judging window.
   "function provider_connections_judging_since() trigger language plpgsql volatility=v parallel=u body md5 7e25c026fad58f740bc09a4cd195d22c",
   "function provider_usage_totals_add() trigger language plpgsql volatility=v parallel=u body md5 51a5dbe75562562eb9d0788546a19357",
@@ -138,6 +140,7 @@ const MIGRATIONS_ONLY = [
   "trigger CREATE TRIGGER checkpoints_count_release AFTER UPDATE ON public.checkpoints REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION checkpoint_output_objects_release() enabled=O",
   "trigger CREATE TRIGGER credential_bindings_exclusive_target BEFORE INSERT OR UPDATE ON public.credential_bindings FOR EACH ROW EXECUTE FUNCTION credential_bindings_exclusive_target() enabled=O",
   "trigger CREATE TRIGGER mcp_servers_settings_generation AFTER INSERT OR DELETE OR UPDATE ON public.mcp_servers FOR EACH ROW EXECUTE FUNCTION bump_settings_generation() enabled=O",
+  "trigger CREATE TRIGGER memory_revisions_immutable BEFORE DELETE OR UPDATE ON public.memory_revisions FOR EACH ROW EXECUTE FUNCTION memory_revisions_immutable() enabled=O",
   "trigger CREATE TRIGGER provider_connections_judging_since BEFORE INSERT OR UPDATE OF disabled_at ON public.provider_connections FOR EACH ROW WHEN ((((new.definition ->> 'kind'::text) = 'openai_decisions'::text) AND (new.disabled_at IS NULL))) EXECUTE FUNCTION provider_connections_judging_since() enabled=O",
   "trigger CREATE TRIGGER provider_connections_settings_generation AFTER INSERT OR DELETE OR UPDATE ON public.provider_connections FOR EACH ROW EXECUTE FUNCTION bump_settings_generation() enabled=O",
   "trigger CREATE TRIGGER provider_usage_count_delete AFTER DELETE ON public.provider_usage REFERENCING OLD TABLE AS removed_rows FOR EACH STATEMENT EXECUTE FUNCTION provider_usage_totals_recount() enabled=O",
