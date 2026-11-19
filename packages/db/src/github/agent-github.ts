@@ -10,21 +10,14 @@ import type {
 } from "@werft-ai/platform";
 import { receiptActorOf } from "@werft-ai/platform";
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
-import { lockAgentToChange } from "./agents.ts";
+import { lockAgentToChange } from "../agents.ts";
 import {
   createPostgresCatalogRepositoryStore,
   lockCatalogWrites,
-} from "./catalog-repositories.ts";
-import { lockGitHubApps } from "./github/github-apps.ts";
-import { createPostgresGitHubPinStore } from "./github/github-pins.ts";
-import {
-  agentGitHubSettingsOf,
-  ensureRepositoryCeilingWhenUnset,
-  workspaceRepositoryCeiling,
-} from "./github/github-settings.ts";
-import { sessionVisibleTo } from "./musterrolle/session-shares.ts";
-import { receiptFromRow } from "./postgres-unit-of-work.ts";
-import type { Database } from "./queries.ts";
+} from "../catalog-repositories.ts";
+import { sessionVisibleTo } from "../musterrolle/index.ts";
+import { receiptFromRow } from "../postgres-unit-of-work.ts";
+import type { Database } from "../queries.ts";
 import {
   agentGitHubSettings,
   agentReleases,
@@ -32,7 +25,14 @@ import {
   catalogRepositories,
   receipts,
   sessions,
-} from "./schema.ts";
+} from "../schema.ts";
+import { lockGitHubApps } from "./github-apps.ts";
+import { createPostgresGitHubPinStore } from "./github-pins.ts";
+import {
+  agentGitHubSettingsOf,
+  ensureRepositoryCeilingWhenUnset,
+  workspaceRepositoryCeiling,
+} from "./github-settings.ts";
 
 const AGENT_OPERATIONS = [
   "set_agent_github",
