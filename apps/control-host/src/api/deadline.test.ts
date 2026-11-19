@@ -150,6 +150,22 @@ describe("request deadline", () => {
     expect(response.status).toBe(408);
     expect(calls.at(-1)).toBe(CLOSING_IDLE_TIMEOUT_SECONDS);
   });
+
+  test("an NDJSON export leaves the idle clock off, like an event stream", async () => {
+    const { app } = appWith({
+      registerRoutes: (router) => {
+        router.get("/export", (context) => {
+          context.header("Content-Type", "application/x-ndjson");
+          return context.body("{}\n");
+        });
+      },
+    });
+    const calls: number[] = [];
+    const env = { setIdleTimeout: (seconds: number) => calls.push(seconds) };
+    const response = await app.request("/v1/export", { headers: owner }, env);
+    expect(response.status).toBe(200);
+    expect(calls.at(-1)).toBe(0);
+  });
 });
 
 describe("readBodyWithin", () => {

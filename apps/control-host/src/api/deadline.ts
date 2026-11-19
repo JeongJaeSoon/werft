@@ -1,3 +1,4 @@
+import { AUDIT_EXPORT_MEDIA_TYPE } from "@werft-ai/contracts";
 import { RequestDeadline, runWithDeadline } from "@werft-ai/db/pool";
 import type { StructuredLogger } from "@werft-ai/observability";
 import type { Context, Next } from "hono";
@@ -22,6 +23,8 @@ export const RESPONSE_IDLE_TIMEOUT_SECONDS = 10;
 // ~4 s ticks, so the 10 s default held a stalled sender's socket 8-12 s past
 // the 408.
 export const CLOSING_IDLE_TIMEOUT_SECONDS = 1;
+
+const STREAM_MEDIA_TYPES = ["text/event-stream", AUDIT_EXPORT_MEDIA_TYPE];
 
 export interface RequestDeadlineOptions {
   deadlineMs?: number;
@@ -66,9 +69,12 @@ export function requestDeadline(options: RequestDeadlineOptions) {
     // Anything that keeps running for the response (an SSE stream) runs on
     // its own clocks, as it did before the deadline existed.
     deadline.finish();
-    const streaming = context.res.headers
-      .get("Content-Type")
-      ?.startsWith("text/event-stream");
+    // An audit export can sit between pages longer than the default idle
+    // clock; its own deadline and watchdog bound it.
+    const contentType = context.res.headers.get("Content-Type") ?? "";
+    const streaming = STREAM_MEDIA_TYPES.some((type) =>
+      contentType.startsWith(type),
+    );
     const closing = context.res.headers.get("Connection") === "close";
     setIdleTimeout(
       streaming
