@@ -8,9 +8,9 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresSlackGuestSetting } from "./musterrolle/workspace-settings.ts";
 import * as schema from "./schema.ts";
 import { memberships, users, workspaces } from "./schema.ts";
-import { createPostgresSlackGuestSetting } from "./workspace-settings.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
