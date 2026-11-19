@@ -155,8 +155,12 @@ function AdminList({
       );
       notify(t(add ? "agentAdmins.added" : "agentAdmins.removed", { name }));
       // Naming or dropping the caller (or their team) changes what they
-      // administer; the list's summaries name the admins.
+      // administer; the list's summaries name the admins, and the agent's
+      // own row says whether anyone administers it.
       await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeysOf(client).agent(agentId),
+        }),
         queryClient.invalidateQueries({
           queryKey: queryKeysOf(client).administeredAgents,
         }),

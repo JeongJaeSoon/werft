@@ -429,4 +429,27 @@ integration("agent ownership on PostgreSQL", () => {
     expect(await since(archived)).toBeNull();
     expect(await since(deleted)).toBeNull();
   });
+
+  test("a dry run keeps a mark it would clear, and each side stops at the limit", async () => {
+    const ctx = await flagged();
+    await db.insert(agentAdmins).values({
+      workspaceId: ctx.workspaceId,
+      agentId: ctx.agentId,
+      userId: ctx.userId,
+    });
+    const dry = await reconcileAgentOwnership(db, {
+      limit: 1000,
+      dryRun: true,
+    });
+    expect(dry.cleared).toContain(ctx.agentId);
+    expect(await since(ctx.agentId)).toBeInstanceOf(Date);
+
+    const leaderless = await team(ctx.workspaceId);
+    await agent(ctx.workspaceId, leaderless);
+    await agent(ctx.workspaceId, leaderless);
+    const one = await reconcileAgentOwnership(db, { limit: 1, dryRun: false });
+    expect(one.flagged).toHaveLength(1);
+    expect(one.cleared).toHaveLength(1);
+    expect(await since(ctx.agentId)).toBeNull();
+  });
 });

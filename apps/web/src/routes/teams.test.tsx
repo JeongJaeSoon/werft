@@ -2063,6 +2063,63 @@ describe("에이전트 관리자", () => {
     );
   });
 
+  test("관리자 없는 에이전트에 관리자를 추가하면 상세 경고가 바로 사라진다", async () => {
+    const server = agentServer({ ownerlessSince: AT });
+    let named = false;
+    let current = admins({ users: [] });
+    renderAt(`/agents/${AGENT_ID}?tab=admins`, {
+      ...server.routes,
+      ...teamServer().routes,
+      [`GET /v1/agents/${AGENT_ID}`]: () => {
+        const detail = server.detail();
+        return json(
+          200,
+          named
+            ? {
+                ...detail,
+                agent: {
+                  ...detail.agent,
+                  ownerless: false,
+                  ownerless_since: null,
+                },
+              }
+            : detail,
+        );
+      },
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, current),
+      [`POST /v1/agents/${AGENT_ID}/admins`]: async (request: Request) => {
+        const body = (await request.json()) as { team_id?: string };
+        named = true;
+        current = admins({
+          users: [],
+          teams: [
+            {
+              team_id: body.team_id ?? "",
+              name: "결제팀",
+              created_by: USER_ID,
+              created_at: AT,
+            },
+          ],
+        });
+        return json(200, { admins: current, receipt_id: RECEIPT_ID });
+      },
+    });
+    expect(
+      await screen.findByText("이 에이전트를 관리할 사람이 없습니다"),
+    ).toBeDefined();
+    const user = await setupUser();
+    const picker = (await screen.findByRole("combobox", {
+      name: "관리자로 추가할 사람이나 팀",
+    })) as HTMLInputElement;
+    await pick(user, picker, "결제");
+    expect(await toastSaid()).toBe("결제팀을(를) 관리자로 추가했습니다.");
+    await waitFor(() =>
+      expect(
+        screen.queryByText("이 에이전트를 관리할 사람이 없습니다"),
+      ).toBeNull(),
+    );
+  });
+
   test("관리자를 추가하는 동안 칸이 잠겨, 그사이 고른 사람이 말없이 사라지지 않는다", async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((resolve) => {

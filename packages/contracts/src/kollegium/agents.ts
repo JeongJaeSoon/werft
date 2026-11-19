@@ -396,9 +396,9 @@ export const agentSchema = z
     ownerless: z.boolean(),
     /**
      * When the agent was first seen with no one to administer it, cleared
-     * once someone is. New runs are refused from this plus
-     * `AGENT_OWNERLESS_GRACE_DAYS` while it is still ownerless. Can lag
-     * `ownerless` by one reconciler pass.
+     * once someone is. Can lag `ownerless` by one reconciler pass. This plus
+     * `AGENT_OWNERLESS_GRACE_DAYS` is the date a later release starts
+     * refusing new runs of an agent still ownerless; nothing is refused yet.
      */
     ownerless_since: timestampSchema.nullable(),
     created_by: userIdSchema.nullable(),
