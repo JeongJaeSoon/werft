@@ -57,12 +57,9 @@ import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createApiApp } from "./app.ts";
-import {
-  createBootstrapGate,
-  DatabaseIdentityStore,
-  LoginLockout,
-} from "./auth.ts";
+import { createBootstrapGate, DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
+import { PasswordChecks } from "./password-checks.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerLinkedAccountRoutes } from "./routes/musterrolle/linked-accounts.ts";
 import { registerSlackAppRoutes } from "./routes/surface/slack-apps.ts";
@@ -107,7 +104,7 @@ integration("the workspace's link app, made on the first Slack link", () => {
     const auth = {
       identity,
       bootstrap: createBootstrapGate(bootstrapToken),
-      lockout: new LoginLockout(),
+      passwords: new PasswordChecks(),
     };
     const authorization = createAuthorizationPolicy({
       identity: createDatabaseIdentityReader(db),

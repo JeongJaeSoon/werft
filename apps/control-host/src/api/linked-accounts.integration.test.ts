@@ -36,12 +36,9 @@ import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createApiApp } from "./app.ts";
-import {
-  createBootstrapGate,
-  DatabaseIdentityStore,
-  LoginLockout,
-} from "./auth.ts";
+import { createBootstrapGate, DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
+import { PasswordChecks } from "./password-checks.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerLinkedAccountRoutes } from "./routes/musterrolle/linked-accounts.ts";
 import { SLACK_LINK_COOKIE_NAME } from "./slack-link.ts";
@@ -77,7 +74,7 @@ integration("Sign in with Slack over HTTP on PostgreSQL", () => {
     const auth = {
       identity,
       bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
-      lockout: new LoginLockout(),
+      passwords: new PasswordChecks(),
     };
     const authorization = createAuthorizationPolicy({
       identity: createDatabaseIdentityReader(db),

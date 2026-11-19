@@ -1,4 +1,4 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   bootstrapTokenSchema,
   CSRF_HEADER_NAME,
@@ -120,6 +120,17 @@ export class DatabaseIdentityStore implements IdentityStore {
 // Same shape as API keys: a prefixed random token whose sha256 is stored.
 export function generateWebSessionToken(): string {
   return `aps_${randomBytes(32).toString("base64url")}`;
+}
+
+/** The new web session every sign-in path creates for `token`. */
+export function webSessionInput(context: Context, token: string) {
+  return {
+    id: randomUUID(),
+    tokenHash: hashWebSessionToken(token),
+    ttlMs: WEB_SESSION_TTL_MS,
+    userAgent: context.req.header("User-Agent")?.slice(0, 512) ?? null,
+    maxLive: WEB_SESSIONS_PER_USER,
+  };
 }
 
 export const hashWebSessionToken = hashApiKey;

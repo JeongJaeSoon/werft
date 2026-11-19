@@ -22,6 +22,7 @@ import {
 } from "@werft-ai/platform";
 import { errorOf } from "../../../testing/api-error.ts";
 import { hashPassword, hashWebSessionToken, LoginLockout } from "../../auth.ts";
+import { PasswordChecks } from "../../password-checks.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerInviteRoutes, registerPublicInviteRoutes } from "./invites.ts";
 
@@ -149,7 +150,7 @@ function app(
       registerPublicInviteRoutes(router, {
         invites: store,
         identity: { findWorkspace: async () => WORKSPACE_ROW },
-        ...(options.lockout ? { lockout: options.lockout } : {}),
+        passwords: new PasswordChecks(options.lockout),
         ...(options.loginSettings
           ? { loginSettings: options.loginSettings }
           : {}),

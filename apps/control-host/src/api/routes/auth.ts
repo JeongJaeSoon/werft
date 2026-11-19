@@ -66,14 +66,13 @@ import {
   generateWebSessionToken,
   hashPassword,
   hashWebSessionToken,
-  LoginLockout,
   setWebSessionCookie,
   verifyPassword,
-  WEB_SESSION_TTL_MS,
-  WEB_SESSIONS_PER_USER,
   WorkGate,
   webSessionCookie,
+  webSessionInput,
 } from "../auth.ts";
+import type { PasswordChecks } from "../password-checks.ts";
 import { type ProviderLogin, ProviderLoginError } from "../provider-login.ts";
 import { rateLimited, requireParams } from "./errors.ts";
 
@@ -95,9 +94,8 @@ export function setLoginFlowCookie(context: Context, value: string): void {
 export interface AuthRouteDeps {
   identity: IdentityStore;
   bootstrap: BootstrapGate;
-  /** Shared with reset issuance, which re-checks the issuer's password. */
-  lockout?: LoginLockout;
-  passwordWork?: WorkGate;
+  /** The same instance as invite acceptance's: one window for every account. */
+  passwords: PasswordChecks;
   logger?: StructuredLogger;
   /** Absent: no provider sign-in; the list is empty and its routes 404. */
   providers?: ProviderLogin;
@@ -205,58 +203,36 @@ export function workspaceView(row: IdentityWorkspace): Workspace {
  */
 async function reauthenticate(
   deps: {
-    lockout: LoginLockout;
-    passwordWork: WorkGate;
+    passwords: PasswordChecks;
     identity: IdentityStore;
     logger: StructuredLogger | undefined;
   },
   who: { userId: string; email: string },
   password: string,
 ): Promise<string> {
-  const lockedFor = deps.lockout.retryAfterMs(who.email);
-  if (lockedFor > 0) {
-    throw rateLimited(lockedFor, "Too many failed password checks");
+  const {
+    value: { found, verified },
+  } = await deps.passwords.guess(who.email, async () => {
+    const found = await storageMapped(() =>
+      deps.identity.findUserForLogin(who.email),
+    );
+    const verified = await verifyPassword(
+      password,
+      found?.passwordHash ?? null,
+    );
+    return { found, verified };
+  });
+  if (
+    !found ||
+    found.id !== who.userId ||
+    found.passwordHash === null ||
+    !verified
+  ) {
+    deps.logger?.warn("Password check failed", { user_id: who.userId });
+    throw new ApiHttpError(403, "FORBIDDEN", "Current password is incorrect");
   }
-  const slot = deps.passwordWork.tryAcquire();
-  if (!slot) {
-    throw rateLimited(1000, "Too many password checks in progress");
-  }
-  const releaseSlot = await slot;
-  let hash: string;
-  try {
-    const reservation = deps.lockout.reserve(who.email);
-    if (reservation.retryAfterMs > 0) {
-      throw rateLimited(
-        reservation.retryAfterMs,
-        "Too many failed password checks",
-      );
-    }
-    let found: Awaited<ReturnType<IdentityStore["findUserForLogin"]>>;
-    let verified: boolean;
-    try {
-      found = await storageMapped(() =>
-        deps.identity.findUserForLogin(who.email),
-      );
-      verified = await verifyPassword(password, found?.passwordHash ?? null);
-    } catch (error) {
-      reservation.release();
-      throw error;
-    }
-    if (
-      !found ||
-      found.id !== who.userId ||
-      found.passwordHash === null ||
-      !verified
-    ) {
-      deps.logger?.warn("Password check failed", { user_id: who.userId });
-      throw new ApiHttpError(403, "FORBIDDEN", "Current password is incorrect");
-    }
-    hash = found.passwordHash;
-  } finally {
-    releaseSlot();
-  }
-  deps.lockout.clear(who.email);
-  return hash;
+  deps.passwords.succeeded(who.email);
+  return found.passwordHash;
 }
 
 /** Mounted outside the auth middleware (03 §3.2 public allowlist). */
@@ -264,9 +240,7 @@ export function registerPublicAuthRoutes(
   router: ApiRouter,
   deps: AuthRouteDeps,
 ) {
-  const lockout = deps.lockout ?? new LoginLockout();
-  const passwordWork = deps.passwordWork ?? new WorkGate();
-
+  const { passwords } = deps;
   const providerWork = deps.providerWork ?? new WorkGate();
 
   apiRoute(router, "listLoginMethods", ingestThenStopClock, async (context) => {
@@ -367,25 +341,17 @@ export function registerPublicAuthRoutes(
 
   apiRoute(router, "resetPassword", ingestThenStopClock, async (context) => {
     const body = await parseJsonBody(context, passwordResetRequestSchema);
-    const slot = passwordWork.tryAcquire();
-    if (!slot) {
-      throw rateLimited(1000, "Too many password changes in progress");
-    }
-    const releaseSlot = await slot;
-    let reset: Awaited<ReturnType<IdentityStore["consumePasswordReset"]>>;
     const receiptId = randomUUID();
-    try {
+    const reset = await passwords.hashing(async () => {
       const passwordHash = await hashPassword(body.password);
-      reset = await storageMapped(() =>
+      return storageMapped(() =>
         deps.identity.consumePasswordReset({
           tokenHash: hashWebSessionToken(body.token),
           passwordHash,
           receiptId,
         }),
       );
-    } finally {
-      releaseSlot();
-    }
+    });
     if (!reset) {
       deps.logger?.warn("Password reset refused: link invalid or expired");
       throw new ApiHttpError(
@@ -411,86 +377,46 @@ export function registerPublicAuthRoutes(
     }
     const body = await parseJsonBody(context, loginRequestSchema);
     const email = normalizeEmail(body.email);
-    const lockedFor = lockout.retryAfterMs(email);
-    if (lockedFor > 0) {
-      throw rateLimited(lockedFor, "Too many failed logins");
+    const {
+      value: { found, verified, live },
+      reservation,
+    } = await passwords.guess(email, async () => {
+      const found = await storageMapped(() =>
+        deps.identity.findUserForLogin(email),
+      );
+      const closed = await passwordClosedTo(
+        deps.loginSettings,
+        found?.id ?? null,
+      );
+      // The hash is checked either way and, while passwords are closed to
+      // this person, its answer dropped: right or wrong, the request does
+      // the same work and ends the same way.
+      const verified =
+        (await verifyPassword(body.password, found?.passwordHash ?? null)) &&
+        !closed;
+      const live =
+        verified && found
+          ? await storageMapped(() =>
+              deps.identity.findLiveMembership(found.id),
+            )
+          : null;
+      return { found, verified, live };
+    });
+    if (!found || !verified || !live || found.passwordHash === null) {
+      // A user with no live workspace fails like a wrong password; the guess
+      // stays counted, so probing is bounded.
+      deps.logger?.warn("Login failed", { has_user: found !== null });
+      throw new ApiHttpError(401, "UNAUTHORIZED", INVALID_CREDENTIALS);
     }
-    // Shed before any lookup or hash: the per-email lockout alone does not
-    // bound work when every attempt names a new address.
-    const slot = passwordWork.tryAcquire();
-    if (!slot) {
-      throw rateLimited(1000, "Too many logins in progress");
-    }
-    const releaseSlot = await slot;
-    let user: NonNullable<
-      Awaited<ReturnType<IdentityStore["findUserForLogin"]>>
-    >;
-    let membership: NonNullable<
-      Awaited<ReturnType<IdentityStore["findLiveMembership"]>>
-    >;
-    let verifiedPasswordHash: string;
-    let reservation: ReturnType<LoginLockout["reserve"]>;
-    try {
-      // Counted as a failure before the password is checked, in the same
-      // synchronous step as the lockout check: a burst of concurrent
-      // guesses cannot all see the window open while their hashes are
-      // still running. Success clears it below.
-      reservation = lockout.reserve(email);
-      if (reservation.retryAfterMs > 0) {
-        throw rateLimited(reservation.retryAfterMs, "Too many failed logins");
-      }
-      let found: Awaited<ReturnType<IdentityStore["findUserForLogin"]>>;
-      let verified: boolean;
-      let live: Awaited<ReturnType<IdentityStore["findLiveMembership"]>>;
-      try {
-        found = await storageMapped(() =>
-          deps.identity.findUserForLogin(email),
-        );
-        const closed = await passwordClosedTo(
-          deps.loginSettings,
-          found?.id ?? null,
-        );
-        // The hash is checked either way and, while passwords are closed to
-        // this person, its answer dropped: right or wrong, the request does
-        // the same work and ends the same way.
-        verified =
-          (await verifyPassword(body.password, found?.passwordHash ?? null)) &&
-          !closed;
-        const candidate = found;
-        live =
-          verified && candidate
-            ? await storageMapped(() =>
-                deps.identity.findLiveMembership(candidate.id),
-              )
-            : null;
-      } catch (error) {
-        // An outage is not a guess: without this, five 503s in a row would
-        // lock the account out for the whole window after the DB recovers.
-        reservation.release();
-        throw error;
-      }
-      if (!found || !verified || !live || found.passwordHash === null) {
-        // A user with no live workspace fails like a wrong password; the
-        // reservation above already counted it, so probing is bounded.
-        deps.logger?.warn("Login failed", { has_user: found !== null });
-        throw new ApiHttpError(401, "UNAUTHORIZED", INVALID_CREDENTIALS);
-      }
-      user = found;
-      membership = live;
-      verifiedPasswordHash = found.passwordHash;
-    } finally {
-      releaseSlot();
-    }
+    const user = found;
+    const membership = live;
+    const verifiedPasswordHash = found.passwordHash;
     const token = generateWebSessionToken();
     const created = await storageMapped(() =>
       deps.identity.createWebSession({
-        id: randomUUID(),
+        ...webSessionInput(context, token),
         userId: user.id,
         verifiedPasswordHash,
-        tokenHash: hashWebSessionToken(token),
-        ttlMs: WEB_SESSION_TTL_MS,
-        userAgent: context.req.header("User-Agent")?.slice(0, 512) ?? null,
-        maxLive: WEB_SESSIONS_PER_USER,
       }),
     ).catch((error: unknown) => {
       // An outage is not a guess here either.
@@ -505,7 +431,7 @@ export function registerPublicAuthRoutes(
       deps.logger?.warn("Login failed", { has_user: true });
       throw new ApiHttpError(401, "UNAUTHORIZED", INVALID_CREDENTIALS);
     }
-    lockout.clear(email);
+    passwords.succeeded(email);
     const { expiresAt } = created;
     setWebSessionCookie(context, token, expiresAt);
     return jsonWithSchema(context, loginResponseSchema, {
@@ -696,13 +622,6 @@ export function registerPublicAuthRoutes(
   );
 
   type Answer = Awaited<ReturnType<ProviderLogin["finish"]>>;
-  const sessionInput = (context: Context, token: string) => ({
-    id: randomUUID(),
-    tokenHash: hashWebSessionToken(token),
-    ttlMs: WEB_SESSION_TTL_MS,
-    userAgent: context.req.header("User-Agent")?.slice(0, 512) ?? null,
-    maxLive: WEB_SESSIONS_PER_USER,
-  });
   const refusedAfterAnswer = (providerId: string, reason: string) =>
     deps.logger?.warn("Provider sign-in refused", {
       provider_id: providerId,
@@ -759,7 +678,7 @@ export function registerPublicAuthRoutes(
         newUserId: randomUUID(),
         newLoginMethodId,
         receiptId: randomUUID(),
-        session: sessionInput(context, token),
+        session: webSessionInput(context, token),
       }),
     );
     switch (result.outcome) {
@@ -865,7 +784,7 @@ export function registerPublicAuthRoutes(
         newUserId: randomUUID(),
         newLoginMethodId,
         receiptId: randomUUID(),
-        session: sessionInput(context, token),
+        session: webSessionInput(context, token),
       }),
     );
     if (result.outcome === "provider_off") {
@@ -985,8 +904,6 @@ function displayNameFor(identity: {
 
 /** Mounted inside the auth middleware. */
 export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
-  const lockout = deps.lockout ?? new LoginLockout();
-  const passwordWork = deps.passwordWork ?? new WorkGate();
   apiRoute(router, "logout", async (context) => {
     const principal = context.get("principal");
     const cookie = webSessionCookie(context);
@@ -1210,7 +1127,11 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
     }
     const body = await parseJsonBody(context, issuePasswordResetRequestSchema);
     const issuerPasswordHash = await reauthenticate(
-      { lockout, passwordWork, identity: deps.identity, logger: deps.logger },
+      {
+        passwords: deps.passwords,
+        identity: deps.identity,
+        logger: deps.logger,
+      },
       { userId: principal.id, email: session.email },
       body.current_password,
     );

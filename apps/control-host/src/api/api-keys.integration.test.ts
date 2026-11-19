@@ -48,17 +48,14 @@ import {
   testCatalog,
 } from "../testing/catalog.ts";
 import { createApiApp } from "./app.ts";
-import {
-  createBootstrapGate,
-  DatabaseIdentityStore,
-  LoginLockout,
-} from "./auth.ts";
+import { createBootstrapGate, DatabaseIdentityStore } from "./auth.ts";
 import {
   DatabaseApiKeyStore,
   generateApiKey,
   hashApiKey,
   issueApiKey,
 } from "./keys.ts";
+import { PasswordChecks } from "./password-checks.ts";
 import { registerAgentRoutes } from "./routes/agents/agents.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerApiKeyRoutes } from "./routes/musterrolle/api-keys.ts";
@@ -115,7 +112,7 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
     const auth = {
       identity,
       bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
-      lockout: new LoginLockout(),
+      passwords: new PasswordChecks(),
       logger,
     };
     const credentials = createPostgresCredentialBindingStore(db);

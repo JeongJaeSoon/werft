@@ -59,6 +59,7 @@ import {
   RESPONSE_IDLE_TIMEOUT_SECONDS,
 } from "./deadline.ts";
 import { hashApiKey } from "./keys.ts";
+import { PasswordChecks } from "./password-checks.ts";
 import { recordRouteErrors } from "./route-error-coverage.ts";
 import {
   permissionsOf,
@@ -407,8 +408,7 @@ function harness(
     identity,
     bootstrap: createBootstrapGate(options.bootstrapToken ?? BOOTSTRAP_TOKEN),
     logger,
-    ...(options.lockout ? { lockout: options.lockout } : {}),
-    ...(options.passwordWork ? { passwordWork: options.passwordWork } : {}),
+    passwords: new PasswordChecks(options.lockout, options.passwordWork),
     ...(options.loginSettings ? { loginSettings: options.loginSettings } : {}),
   };
   const app = createApiApp({

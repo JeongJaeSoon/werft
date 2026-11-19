@@ -38,9 +38,9 @@ import {
   createBootstrapGate,
   DatabaseIdentityStore,
   hashWebSessionToken,
-  LoginLockout,
 } from "./auth.ts";
 import { GOOGLE_ISSUER } from "./oidc/index.ts";
+import { PasswordChecks } from "./password-checks.ts";
 import { createProviderLogin } from "./provider-login.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 
@@ -78,7 +78,7 @@ integration("provider sign-in first-entry rules on PostgreSQL", () => {
     const auth = {
       identity,
       bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
-      lockout: new LoginLockout(),
+      passwords: new PasswordChecks(),
       logger: new StructuredLogger({ sinks: [new MemoryLogSink()] }),
       providers: createProviderLogin({
         providers: createPostgresLoginProviderStore(db, KEY),

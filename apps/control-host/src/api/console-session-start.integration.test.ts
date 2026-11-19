@@ -42,12 +42,9 @@ import {
   testCatalog,
 } from "../testing/catalog.ts";
 import { createApiApp } from "./app.ts";
-import {
-  createBootstrapGate,
-  DatabaseIdentityStore,
-  LoginLockout,
-} from "./auth.ts";
+import { createBootstrapGate, DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
+import { PasswordChecks } from "./password-checks.ts";
 import { registerAgentRoutes } from "./routes/agents/agents.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerSessionRoutes } from "./routes/sessions/sessions.ts";
@@ -165,7 +162,7 @@ integration("starting an agent's session from the console", () => {
     const auth = {
       identity,
       bootstrap: createBootstrapGate(SETUP_TOKEN),
-      lockout: new LoginLockout(),
+      passwords: new PasswordChecks(),
       logger,
     };
     const credentials = createPostgresCredentialBindingStore(db);

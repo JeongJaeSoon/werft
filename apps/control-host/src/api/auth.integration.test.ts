@@ -46,6 +46,7 @@ import {
   WEB_SESSIONS_PER_USER,
 } from "./auth.ts";
 import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
+import { PasswordChecks } from "./password-checks.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerEventRoutes } from "./routes/sessions/events.ts";
 import { registerSessionRoutes } from "./routes/sessions/sessions.ts";
@@ -100,7 +101,7 @@ integration("auth API on PostgreSQL", () => {
     const auth = {
       identity,
       bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
-      lockout: new LoginLockout({ now: () => now }),
+      passwords: new PasswordChecks(new LoginLockout({ now: () => now })),
       logger,
     };
     const catalog = testCatalog({

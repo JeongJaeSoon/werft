@@ -40,11 +40,11 @@ import {
   DatabaseIdentityStore,
   hashPassword,
   hashWebSessionToken,
-  LoginLockout,
   WorkGate,
 } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { createLoginSettingsAdmin } from "./login-settings.ts";
+import { PasswordChecks } from "./password-checks.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerLoginSettingsRoutes } from "./routes/login-settings.ts";
 import {
@@ -70,14 +70,12 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
     pool = new Pool({ connectionString: database.url, max: 12 });
     db = drizzle(pool, { schema });
     const identity = new DatabaseIdentityStore(db);
-    const lockout = new LoginLockout();
     // Wide enough that the race tests below are not shed.
-    const passwordWork = new WorkGate(8, 8);
+    const passwords = new PasswordChecks(undefined, new WorkGate(8, 8));
     const auth = {
       identity,
       bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
-      lockout,
-      passwordWork,
+      passwords,
     };
     const authorization = createAuthorizationPolicy({
       identity: createDatabaseIdentityReader(db),
@@ -96,8 +94,7 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
         registerPublicInviteRoutes(router, {
           invites: inviteStore,
           identity,
-          lockout,
-          passwordWork,
+          passwords,
         });
       },
       registerRoutes: (router) => {

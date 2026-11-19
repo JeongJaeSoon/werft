@@ -184,12 +184,7 @@ import {
   apiSettingsFromEnv,
 } from "./api-settings.ts";
 import { createApiApp } from "./app.ts";
-import {
-  bootstrapGateFromEnv,
-  DatabaseIdentityStore,
-  LoginLockout,
-  WorkGate,
-} from "./auth.ts";
+import { bootstrapGateFromEnv, DatabaseIdentityStore } from "./auth.ts";
 import {
   installedRuntimeVersions,
   launchableKindsFromEnv,
@@ -230,6 +225,7 @@ import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { createLoginSettingsAdmin } from "./login-settings.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
 import { endpointProblem } from "./oidc/provider-http.ts";
+import { PasswordChecks } from "./password-checks.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createProviderAdmin } from "./provider-admin.ts";
 import { createProviderLogin } from "./provider-login.ts";
@@ -1190,11 +1186,7 @@ if (authorizerListener === undefined) {
 const notifier = new PostgresSessionNotifier(databaseUrl, logger);
 void notifier.start();
 const identity = new DatabaseIdentityStore(db);
-// One window and one hashing gate for every account password check (login,
-// the reset issuer's re-check, invite accept), so no route resets another's
-// count.
-const lockout = new LoginLockout();
-const passwordWork = new WorkGate();
+const passwords = new PasswordChecks();
 // Providers are settings rows; nothing about them is read from the
 // environment. The redirect URIs are built on CONSOLE_ORIGIN itself.
 const loginProviderAdminStore = createPostgresLoginProviderAdminStore(
@@ -1223,8 +1215,7 @@ const auth = {
   providers: providerLogin,
   loginMethods: createPostgresLoginMethodStore(db),
   loginSettings: loginSettingsStore,
-  lockout,
-  passwordWork,
+  passwords,
   bootstrap: await bootstrapGateFromEnv(
     process.env.BOOTSTRAP_TOKEN,
     identity,
@@ -1275,8 +1266,7 @@ const app = createApiApp({
       invites: inviteStore,
       identity,
       loginSettings: loginSettingsStore,
-      lockout,
-      passwordWork,
+      passwords,
       logger,
     });
   },

@@ -41,8 +41,8 @@ import {
   DatabaseIdentityStore,
   hashPassword,
   hashWebSessionToken,
-  LoginLockout,
 } from "./auth.ts";
+import { PasswordChecks } from "./password-checks.ts";
 import { createProviderLogin } from "./provider-login.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 
@@ -217,7 +217,7 @@ integration(
       const auth = {
         identity,
         bootstrap: createBootstrapGate(BOOTSTRAP),
-        lockout: new LoginLockout(),
+        passwords: new PasswordChecks(),
         logger: new StructuredLogger({ sinks: [new MemoryLogSink()] }),
         loginMethods: createPostgresLoginMethodStore(db),
         providers: createProviderLogin({
