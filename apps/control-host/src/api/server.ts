@@ -544,7 +544,7 @@ const sessions = createSessionService({
   releases: { ...agents, ...newSessionGitHubReaders(db) },
   extensions: extensionDeps,
   credentials: credentialBindings,
-  callerLimits: createPostgresCallerLimitGate(db),
+  callerLimits: createPostgresCallerLimitGate(db, logger),
   launchable: (spec) => launchableKind(spec.runtime.kind),
   limits: installationConfig.sessionLimits,
 });
