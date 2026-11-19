@@ -885,7 +885,7 @@ describe("로그인 공급자 상세", () => {
       (screen.getByText("초대 없이 가입").closest("li") as HTMLElement)
         .textContent,
     ).toContain(
-      "허용 도메인이 없어 이 공급자의 계정이면 누구나 초대 없이 가입합니다.",
+      "허용 도메인이 없어, 이 공급자가 이메일 주소를 보증한 계정이면 누구나 초대 없이 가입합니다.",
     );
   });
 

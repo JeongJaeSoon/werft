@@ -44,11 +44,12 @@ On every provider, **Join without an invite** turns on only with at least one al
 
 ### Providers that let people join without an invite and have no allowed domains
 
-A provider that had **Join without an invite** on with no allowed domains before this rule is left as it is. Sign-in and joining work as before. On the provider's page, the **Join without an invite** row says "With no allowed domains, anyone with an account at this provider joins without an invite".
+A provider that had **Join without an invite** on with no allowed domains before this rule is left as it is. Sign-in and joining work as before. The **Join without an invite** row on the provider's page shows a warning. On such a provider anyone whose email address the provider vouches for joins as a member without an invite. On a provider that does not vouch for addresses (one without "address proof" in the table above) nobody joins without an invite.
 
 - Other settings, such as the name, client ID and secret, can be changed as before.
 - To save the rules under **Who can come in**, list at least one allowed domain or turn **Join without an invite** off. Otherwise the save is refused with `400 jit_requires_domains`.
-- Before changing it, check the email domains of the members who already joined in the member list. Accounts that already joined stay, but an account outside the allowed domains is refused from its next sign-in (a linked account too).
+- On a provider that vouches for addresses (Okta, Keycloak and so on), list allowed domains. Before that, check the email domains of the members who already joined in the member list. Accounts that already joined stay, but an account outside the allowed domains is refused from its next sign-in (a linked account too).
+- On a provider that does not vouch for addresses (Entra ID, OneLogin by default), do not list domains; turn **Join without an invite** off. With a domain list, every account without a proven address is refused, so even accounts already linked could not sign in.
 
 ### Google Workspace
 

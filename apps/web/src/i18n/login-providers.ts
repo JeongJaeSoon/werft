@@ -124,7 +124,7 @@ export const loginProvidersKo = {
   "loginProviders.jitHint":
     "켜면 허용 도메인의 이메일 주소를 공급자가 보증한 사람은 초대 없이 member로 들어옵니다. 켜려면 허용 도메인이 하나 이상 있어야 합니다. 끄면 초대받은 사람만 가입합니다.",
   "loginProviders.jitOpen":
-    "허용 도메인이 없어 이 공급자의 계정이면 누구나 초대 없이 가입합니다. 허용 도메인을 적거나 초대 없이 가입을 끄세요.",
+    "허용 도메인이 없어, 이 공급자가 이메일 주소를 보증한 계정이면 누구나 초대 없이 가입합니다. 주소를 보증하는 공급자면 허용 도메인을 적고, 아니면 초대 없이 가입을 끄세요. 허용 도메인을 적으면 그 밖의 계정은 이미 연결된 계정도 로그인이 거절됩니다.",
   "loginProviders.verified": "검증된 이메일",
   "loginProviders.verified.required": "요구함",
   "loginProviders.verified.optional": "요구하지 않음",
@@ -382,7 +382,7 @@ export const loginProvidersEn: Record<keyof typeof loginProvidersKo, string> = {
   "loginProviders.jitHint":
     "When on, a person whose email address on an allowed domain the provider vouches for joins as a member without an invite. It needs at least one allowed domain. When off, only invited people join.",
   "loginProviders.jitOpen":
-    "With no allowed domains, anyone with an account at this provider joins without an invite. List allowed domains or turn joining without an invite off.",
+    "With no allowed domains, anyone whose email address this provider vouches for joins without an invite. If the provider vouches for addresses, list allowed domains; if not, turn joining without an invite off. Once domains are listed, any other account is refused at sign-in, linked accounts too.",
   "loginProviders.verified": "Verified email",
   "loginProviders.verified.required": "Required",
   "loginProviders.verified.optional": "Not required",
@@ -643,7 +643,7 @@ export const loginProvidersJa: Record<keyof typeof loginProvidersKo, string> = {
   "loginProviders.jitHint":
     "オンにすると、許可ドメインのメールアドレスをプロバイダーが保証した人は招待なしで member として参加します。オンにするには許可ドメインが1つ以上必要です。オフにすると、招待された人だけが参加します。",
   "loginProviders.jitOpen":
-    "許可ドメインがないため、このプロバイダーのアカウントなら誰でも招待なしで参加します。許可ドメインを書くか、招待なしで参加をオフにしてください。",
+    "許可ドメインがないため、このプロバイダーがメールアドレスを保証したアカウントなら誰でも招待なしで参加します。アドレスを保証するプロバイダーなら許可ドメインを書き、そうでなければ招待なしで参加をオフにしてください。許可ドメインを書くと、それ以外のアカウントは接続済みでもログインが拒否されます。",
   "loginProviders.verified": "検証済みメール",
   "loginProviders.verified.required": "要求する",
   "loginProviders.verified.optional": "要求しない",
