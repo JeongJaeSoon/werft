@@ -28,7 +28,7 @@ import { Pool } from "pg";
 import { readPointerRuntime } from "./checkpoints/checkpoint-runtime.ts";
 import { createPostgresCheckpointStore } from "./checkpoints/checkpoint-store.ts";
 import { fromDbNow } from "./db-clock.ts";
-import { createPostgresGitHubGateStore } from "./github-settings.ts";
+import { createPostgresGitHubGateStore } from "./github/github-settings.ts";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,

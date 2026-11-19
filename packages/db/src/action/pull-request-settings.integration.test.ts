@@ -14,7 +14,7 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresGitHubSettingsStore } from "../github-settings.ts";
+import { createPostgresGitHubSettingsStore } from "../github/github-settings.ts";
 import * as schema from "../schema.ts";
 import { createPostgresPullRequestSettingsStore } from "./pull-request-settings.ts";
 

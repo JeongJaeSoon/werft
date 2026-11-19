@@ -10,7 +10,7 @@ import {
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresAgentGitHubStore } from "./agent-github.ts";
-import { workspaceRepositoryCeiling } from "./github-settings.ts";
+import { workspaceRepositoryCeiling } from "./github/github-settings.ts";
 import * as schema from "./schema.ts";
 import { fixtureTeamSql } from "./testing/fixture-team.ts";
 import {

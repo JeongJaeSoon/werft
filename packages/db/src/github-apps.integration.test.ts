@@ -29,7 +29,7 @@ import { createPostgresGitHubAppManifestStore } from "./github/github-app-manife
 import { createPostgresGitHubAppStore } from "./github/github-apps.ts";
 import { createPostgresGitHubOAuthStore } from "./github/github-oauth.ts";
 import { createPostgresGitHubPinStore } from "./github/github-pins.ts";
-import { createPostgresGitHubSettingsStore } from "./github-settings.ts";
+import { createPostgresGitHubSettingsStore } from "./github/github-settings.ts";
 import * as schema from "./schema.ts";
 import {
   agentReleases,

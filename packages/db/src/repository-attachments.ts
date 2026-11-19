@@ -14,7 +14,7 @@ import { alias } from "drizzle-orm/pg-core";
 import {
   agentGitHubSettingsRowOf,
   agentSettingsColumns,
-} from "./github-settings.ts";
+} from "./github/github-settings.ts";
 import type { Database } from "./queries.ts";
 import {
   agentGitHubSettings,

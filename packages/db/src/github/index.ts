@@ -1,4 +1,8 @@
 export {
+  agentGitHubSettingsOf,
+  ensureInstalledRepositoryCeiling,
+} from "./github-settings.ts";
+export {
   creatorOf,
   releaseMcpOf,
   sessionGitHubMcpOf,

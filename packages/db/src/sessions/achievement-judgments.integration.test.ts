@@ -32,7 +32,7 @@ import {
   insertPullRequestOutcome,
 } from "../action/pull-requests.ts";
 import { findPgError } from "../control-shared.ts";
-import { createPostgresGitHubGateStore } from "../github-settings.ts";
+import { createPostgresGitHubGateStore } from "../github/github-settings.ts";
 import { createPostgresPushRequests } from "../push-requests.ts";
 import type { Database } from "../queries.ts";
 import * as schema from "../schema.ts";

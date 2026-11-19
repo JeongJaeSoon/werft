@@ -30,8 +30,11 @@ import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { captureMcpStart, captureWorkspaceMcpStart } from "../agents/index.ts";
 import { lockPeople, UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
-import { sessionGitHubMcpOf, sessionMcpOf } from "../github/index.ts";
-import { agentGitHubSettingsOf } from "../github-settings.ts";
+import {
+  agentGitHubSettingsOf,
+  sessionGitHubMcpOf,
+  sessionMcpOf,
+} from "../github/index.ts";
 import type { Database } from "../queries.ts";
 import {
   agentCallerLimits,

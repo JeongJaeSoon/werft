@@ -22,7 +22,6 @@ import {
 } from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { mcpSettingsOfRelease } from "../agents/index.ts";
-import { githubPolicyColumns, githubPolicyOfRow } from "../github-settings.ts";
 import type { Database } from "../queries.ts";
 import {
   agentGitHubSettings,
@@ -35,6 +34,7 @@ import {
   turns,
   workspaces,
 } from "../schema.ts";
+import { githubPolicyColumns, githubPolicyOfRow } from "./github-settings.ts";
 
 type ReleaseMcp = {
   agentId: string;

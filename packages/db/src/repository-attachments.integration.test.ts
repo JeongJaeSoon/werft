@@ -12,7 +12,7 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresGitHubGateStore } from "./github-settings.ts";
+import { createPostgresGitHubGateStore } from "./github/github-settings.ts";
 import {
   createPostgresRepositoryAttachments,
   createPostgresRepositoryPins,

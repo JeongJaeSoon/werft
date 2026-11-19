@@ -34,7 +34,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { DB_NOW, fromDbNow } from "../db-clock.ts";
-import { ensureInstalledRepositoryCeiling } from "../github-settings.ts";
+import { ensureInstalledRepositoryCeiling } from "../github/index.ts";
 import type { Database } from "../queries.ts";
 import {
   bootstrapTokenUses,

@@ -104,7 +104,7 @@ import {
   encodeTurnCursor,
   rethrowCursorCastError,
 } from "./cursors.ts";
-import { captureGitHubPolicyStart } from "./github-settings.ts";
+import { captureGitHubPolicyStart } from "./github/github-settings.ts";
 import { admitInput } from "./input-limits.ts";
 import { readArchivedWorkspaceLimit } from "./limits/workspace-limit.ts";
 import { agentReachable } from "./musterrolle/administers.ts";
