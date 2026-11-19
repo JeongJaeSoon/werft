@@ -1,0 +1,251 @@
+# 결정(설계): 스킬과 MCP 서버, 두 개념으로 엔진에 상관없이 등록·지정한다
+
+- 상태: 설계. 코드는 바꾸지 않는다. 구현 단위는 [9절](#9-구현-단위)에 있다.
+- 기준 커밋: `origin/main` `20d42022d`. `파일:줄`은 이 커밋에서 읽었다.
+- 조사 근거: [조사: 엔진과 관리 콘솔이 스킬·MCP·플러그인을 다루는 방법](skills-and-mcp-research.md). 이 문서에서 바깥 제품을 말할 때는 그 조사의 절을 가리킨다.
+- 관련 결정: [워크스페이스 원격 MCP 서버](mcp-credentials.md), [번들 stdio MCP 서버를 worker relay 뒤에 둔다](stdio-mcp-relay.md), [Agent SDK 버전](agent-sdk.md), [에이전트 담당 팀과 액션 RBAC](agent-rbac.md), [엔진별 worker 이미지](engine-worker-images.md).
+- 티켓 번호: 저장소의 마크다운은 티켓 번호를 적지 못한다(`tests/docs-links.test.ts`). 번호는 이 문서를 들인 PR 본문에 있다.
+
+## 요약
+
+| 항목 | 결론 |
+|---|---|
+| 개념 | 조직이 엔진에 주는 것은 **스킬**과 **MCP 서버** 둘뿐이다. "플러그인"이라는 개념은 두지 않는다. 플러그인은 엔진마다 형식이 다르고(Claude `.claude-plugin/plugin.json`, Codex `plugin.json`, pi 패키지) 훅·명령·서브에이전트처럼 엔진 하나에만 뜻이 있는 것을 함께 싣기 때문이다 |
+| 스킬 | [Agent Skills 사양](https://agentskills.io/specification)의 `SKILL.md` 디렉터리 하나가 단위다. 세 엔진 모두 이 형식을 읽는다(조사 1-6.1, 2-1.2, 2-2.6). 등록은 업로드 또는 Git(커밋 고정), 버전은 내용 digest |
+| MCP 서버 | 지금의 워크스페이스 원격 MCP 서버([mcp-credentials.md](mcp-credentials.md))를 그대로 쓴다. 엔진은 어느 쪽이든 플랫폼의 relay만 보고, 자격은 egress가 붙인다 |
+| 지정 | 워크스페이스 → 에이전트 → 세션 범위를 `required` / `optional` / `forbidden`으로 접는 지금의 해석기(`packages/platform/src/extensions/resolve.ts`)를 스킬에 그대로 쓴다. 바깥 범위는 안쪽을 좁히기만 한다 |
+| 버전 고정과 배포 | 지정 행이 digest 하나를 가리킨다. 세션은 시작할 때 고른 digest를 `sessions.extensions`에 고정한다. 새 버전은 승인 → 에이전트 하나에 지정 → 워크스페이스 지정 교체 순으로 넓힌다 |
+| 엔진 매핑 | 어댑터가 세션 작업 공간에 엔진이 읽는 자리로 펼친다. Claude는 합성한 로컬 plugin 트리 하나, Codex는 세션 전용 `CODEX_HOME` 아래 스킬 폴더, pi는 세션 전용 agent dir의 `skills/`. MCP는 셋 다 플랫폼 relay 주소 하나씩 |
+| 권한과 기록 | 등록·승인은 워크스페이스 관리자, 에이전트 범위 지정은 에이전트 관리자. 모든 변경은 지금의 receipt(`attach_extension` 등)로 남고, 세션은 무엇을 썼는지 digest로 남긴다 |
+| 콘솔 | 워크스페이스 설정의 "에이전트 연결" 묶음에 **스킬**을 **MCP 서버** 옆에 둔다. 에이전트 상세의 "접근" 탭에 스킬 칸을 MCP 칸 옆에 둔다 |
+| pi | 세 번째 엔진으로 붙일 가치는 있다(MIT, SDK·RPC 임베딩, 스킬·MCP 내장, 공급자 30종 이상). 다만 내장 권한·샌드박스가 없어 플랫폼이 승인 경로를 확장으로 새로 만들어야 한다. **추천: 지금은 구현하지 않고, 스파이크 하나로 승인 게이트와 체크포인트가 붙는지만 확인한다.** Oh My Pi는 엔진으로 쓰지 않는다([8절](#8-pi-coding-agent를-세-번째-엔진으로)) |
+
+## 1. 지금 있는 것
+
+**스킬 쪽: "확장 번들".** 이름은 확장이지만 내용은 스킬만 받는다.
+
+- 등록 검사: 업로드한 트리를 버리고 허용 목록으로 다시 만든 트리만 해시·저장한다. `hooks/`, `.mcp.json`, `bin/`, `agents/`, `commands/`, `settings*.json`은 경로째 거절한다(`packages/platform/src/extensions/bundle-validator.ts:9-17`, `:104-117`). 한 번들은 slug 하나 아래 스킬 여러 개를 담는다(`BundleManifest.skills`, `:64-69`).
+- 저장: `extension_bundles`(digest, `source` `upload`|`github`, `review` `pending`|`approved`|`rejected`, 등록·승인한 사람)와 `extension_attachments`(범위 `workspace`|`agent`, `mode`)다(migration `0247`, `0251`). 객체는 `workspaces/<id>/bundles/<digest>.tar`(`bundle-service.ts:37-50`).
+- 해석: 범위를 바깥부터 접는다. `required`는 안쪽이 빼거나 버전을 바꿀 수 없고, `forbidden`은 되살릴 수 없고, `optional`은 세션이 켤 때만 켜진다(`resolve.ts:70-200`). 엔진이 스킬을 못 하면 `feature_unsupported`, 도구 목록에 `Skill`이 없으면 `skill_tool_not_allowed`로 거절한다(`resolve.ts:207-223`).
+- 기록: 승인과 지정·해제는 같은 transaction에서 receipt를 쓴다(`ports/extension-bundle-store.ts:102-121`).
+- **빈 곳.** 등록·승인·지정 서비스는 있지만 HTTP 경로와 콘솔 화면이 없다. control-host가 쓰는 것은 archive 읽기뿐이다(`apps/control-host/src/api/checkpoints.ts:312-328`).
+
+**엔진 쪽.**
+
+- Claude: claim의 `extensions`를 로컬 plugin 경로로 넘기고 digest를 identity로 둔다(`packages/adapters/runtimes/claude/src/contract.ts:130-140`). 시작할 때 엔진이 `<slug>:<skill>`을 모두 보고했는지 확인한다(`plugin-skills.ts`).
+- Codex: 번들과 관리자가 등록한 MCP 서버를 둘 다 거절한다(`packages/adapters/runtimes/codex/src/config.ts:179-181`). 엔진 표의 `skills`가 `none`이다(`packages/adapters/runtimes/codex-codec/src/descriptor.ts:37`). 플러그인·스킬 검색·스킬 MCP 설치 기능은 꺼 둔다(`config.ts:307-315`).
+
+**MCP 쪽.** 설치 카탈로그 서버(`mcp_servers`, `agent_mcp_settings`)와 워크스페이스 서버(`workspace_mcp_servers`, `agent_workspace_mcp_servers`, migration `0286`, `0287`)가 있고, 콘솔에 "워크스페이스 설정 > MCP 서버"와 에이전트 "접근" 탭이 있다(`apps/web/src/routes/workspace-mcp-servers.tsx`, `agent-detail/workspace-mcp.tsx`). 엔진에는 relay만 보인다: Claude는 `type: "sdk"` in-process 서버(`claude/src/remote-mcp.ts`), Codex는 이 프로세스의 loopback relay와 `enabled_tools`(`codex/src/config.ts:325-342`, `mcp-relay.ts`). 토큰은 egress proxy가 붙인다.
+
+정리하면, 모델과 판정은 거의 다 있다. 없는 것은 (1) 스킬의 엔진 중립 단위와 Codex·pi 매핑, (2) Codex의 워크스페이스 MCP, (3) 스킬의 API·콘솔이다.
+
+## 2. 두 개념
+
+### 스킬
+
+**결정.** 스킬 하나 = `SKILL.md`를 가진 디렉터리 하나. 이름은 frontmatter `name`이고 워크스페이스 안에서 유일하다. 사양 밖의 엔진 전용 파일(Codex `agents/openai.yaml`, Claude plugin manifest)은 받지 않는다.
+
+- **지금 번들과의 관계.** 저장·해석·receipt는 그대로 쓰고, 등록 단위만 "스킬 하나"로 좁힌다. 새 등록은 스킬이 정확히 하나인 번들이고 slug = 스킬 이름이다. 이미 있는 여러 스킬 번들은 읽기·실행을 그대로 두고 새로 만들지 못하게 한다. 테이블 이름(`extension_*`)은 바꾸지 않는다. 바꾸는 비용(migration, 혼합 버전 worker 호환)에 비해 얻는 것이 화면의 낱말뿐이라, API와 콘솔에서만 "스킬"이라 부른다.
+- **왜 하나씩인가.** 엔진마다 스킬 이름공간이 다르다. Claude는 plugin 이름을 붙여 `<plugin>:<skill>`로, Codex와 pi는 이름만으로 부른다(조사 1-6.1, 2-1.2, 2-2.6). 스킬 하나가 단위면 어느 엔진에서든 `<name>` 하나로 부를 수 있고, Claude 쪽 접두사는 어댑터가 정한다([5절](#5-엔진-매핑)). 여러 스킬을 한 번에 배포하는 편의는 콘솔의 "여러 개 업로드"로 준다.
+- **스크립트.** `scripts/`는 지금처럼 받는다(`has_scripts`). 실행은 에이전트 Bash와 같은 샌드박스·env에서 엔진이 한다. 스킬은 비밀 값을 싣지 않는다. 비밀이 필요한 일은 MCP 서버로 한다.
+- **MCP 의존.** 스킬은 MCP 서버를 싣지 않는다(`.mcp.json` 거절 유지). 스킬이 어떤 서버를 전제하면 frontmatter 밖의 플랫폼 메타데이터 `requires_mcp: [이름…]`를 등록 때 받는다. 해석기는 세션의 MCP 목록에 그 이름이 없으면 경고만 하고 막지 않는다(서버가 연결 전이어도 스킬의 다른 부분은 쓸 수 있다). 엔진이 의존을 스스로 설치하는 기능은 계속 끈다(Codex `features.skill_mcp_dependency_install`).
+
+### MCP 서버
+
+**결정.** 새 개념을 만들지 않는다. 조직이 쓰는 MCP 서버는 [mcp-credentials.md](mcp-credentials.md)의 워크스페이스 서버(원격, OAuth 또는 정적 token)다. 설치 카탈로그 서버는 운영자 경로로 남긴다. 번들 stdio 서버([stdio-mcp-relay.md](stdio-mcp-relay.md))는 "번들"이 아니라 **MCP 서버의 한 종류(`stdio`, 패키지 digest로 고정)**로 다시 정의한다. 스킬 번들이 서버를 싣지 않으므로, 그 설계의 "승인된 번들이 선언한 서버"는 "승인된 stdio MCP 서버 패키지"로 읽는다. 프로세스 수명·relay·판정 결정은 그대로 유효하다. 구현 순서는 바꾸지 않는다(원격 먼저, stdio는 그 설계의 선행 티켓을 따른다).
+
+### 플러그인을 두지 않는 이유
+
+- 세 엔진의 플러그인 형식이 다르고(조사 1-2, 2-1.6, 2-2.8), 그 안의 훅·명령·서브에이전트·확장 코드는 엔진 하나에만 뜻이 있다. 공통분모를 뽑으면 스킬과 MCP만 남는다.
+- 플러그인은 코드 실행면이다. Claude plugin 디렉터리는 `settingSources: []`여도 `hooks/hooks.json`과 `.mcp.json`을 실행한다(`bundle-validator.ts:12-15`). 플랫폼 승인 경로 밖의 실행을 열지 않으려고 지금도 거절한다.
+- Claude와 Codex의 관리 콘솔도 결국 플러그인 안의 connector·MCP를 따로 추가하게 한다(조사 1-2.1 "Plugin에 connector가 들어 있어도…", 2-1.7 "플러그인을 설치해도 커넥터나 MCP 접근 권한이 생기지 않는다"). 우리는 처음부터 둘로 나눈다.
+
+## 3. 등록
+
+| 출처 | 동작 |
+|---|---|
+| 업로드 | zip 또는 디렉터리 업로드. 지금 검사기를 지나면 digest가 정해지고 `review = pending`으로 들어간다. 같은 digest를 다시 올리면 `already_registered` |
+| Git | GitHub 저장소·경로·ref를 받아, 등록 때 ref를 **커밋 SHA로 고정**해 읽는다. 읽기는 워크스페이스의 GitHub App 연결로 한다(멤버가 저장소 권한을 가질 필요 없다, 조사 1-2.1과 같은 모양). 저장하는 것은 검사기가 다시 만든 트리이고, 원본 위치(`repo`, `path`, `commit`)는 메타데이터로 남는다. "새 커밋 확인"은 같은 경로의 최신 커밋을 읽어 digest가 다르면 **새 버전 후보**를 `pending`으로 만든다. 자동 sync는 하지 않는다: 승인 없이 내용이 바뀌는 길이 된다 |
+
+- 이름: 첫 등록이 이름을 정하고, 같은 이름의 다른 digest는 같은 스킬의 다음 버전이다. 버전 표시는 등록 순번(v1, v2…)과 digest 앞 12자다. `SKILL.md`의 `version` 같은 자기 신고 값은 쓰지 않는다.
+- 승인: 등록한 사람과 다른 관리자가 승인한다(조사 1-1.2의 "자기가 제출한 요청은 승인할 수 없다"와 같다). 관리자가 한 사람뿐인 워크스페이스는 본인 승인을 허용하고 receipt에 그 사실을 남긴다.
+- 지우기: 지정된 버전은 지우지 못한다. 지정이 없고 진행 중 세션이 쓰지 않는 버전만 "보관"한다. 객체는 체크포인트가 그 digest를 참조하는 동안 남긴다.
+
+## 4. 지정, 버전 고정, 배포
+
+**지정.** 지금 해석기를 그대로 쓴다. 범위는 워크스페이스 → 에이전트 → 세션이고, 한 범위에 한 이름당 한 버전이다.
+
+| 모드 | 뜻 | Claude 조직 설정과의 대응(조사 1-2.1) |
+|---|---|---|
+| `required` | 항상 켜짐. 안쪽 범위가 빼거나 다른 버전으로 바꾸지 못함 | Required |
+| `optional` | 세션을 만드는 사람이 켤 때만 켜짐 | Available to install |
+| `forbidden` | 안쪽 범위가 켜지 못함 | Not available |
+
+"Installed by default"(기본으로 켜고 끌 수 있음)는 두지 않는다. 세션 생성 화면의 기본 선택은 콘솔이 정할 일이고 해석 규칙을 늘릴 일이 아니다. Claude Enterprise는 그룹 설정이 겹치면 가장 관대한 값을 쓰지만, 우리는 바깥이 안쪽을 좁히기만 하는 지금 규칙을 지킨다. 결과가 범위 순서만으로 정해져 receipt로 설명할 수 있다.
+
+**팀.** 팀 범위는 두지 않는다. 에이전트마다 담당 팀이 있고([agent-rbac.md](agent-rbac.md)), 팀 lead는 그 에이전트의 관리자다. 팀이 쓰는 스킬은 팀이 맡은 에이전트에 지정하는 것으로 충분하다. 사람 단위 차등(같은 에이전트를 쓰는 사람마다 다른 스킬)은 세션 transcript를 여러 사람이 읽는 구조와 맞지 않아 두지 않는다.
+
+**버전 고정.** 지정 행은 digest 하나를 가리킨다. 세션은 시작할 때 해석 결과를 `sessions.extensions`에 남기고 그 세션 내내 그 digest만 쓴다. checkpoint fingerprint에 digest가 들어가므로(`ComponentIdentities.plugins`, `claude/src/config.ts:58-70`) 다른 버전으로 resume하지 않는다. 지정을 바꾸면 새 세션부터 적용된다. MCP는 이미 정해진 규칙(좁히는 변경은 진행 중 세션에 바로, 넓히는 변경은 다음 세션부터)을 그대로 쓴다.
+
+**배포 순서(권장, 강제하지 않음).**
+
+1. 새 버전을 등록하고 다른 관리자가 승인한다.
+2. 시험할 에이전트 하나의 에이전트 범위에 새 버전을 `required`로 지정한다. 워크스페이스 범위가 그 이름을 `optional`로 두었을 때만 가능하다(바깥 `required`는 안쪽이 버전을 바꾸지 못한다).
+3. 괜찮으면 워크스페이스 범위의 지정을 새 버전으로 바꾸고 2의 에이전트 지정을 지운다.
+4. 되돌리기는 지정을 옛 digest로 바꾸는 것이다. 옛 버전이 보관되지 않았으면 바로 된다.
+
+콘솔은 스킬 상세에 "버전별로 지정된 곳"을 보여 이 순서를 돕는다. 자동 단계 배포(비율, 시간차)는 하지 않는다.
+
+## 5. 엔진 매핑
+
+어댑터의 일은 "고정된 스킬 트리 목록과 relay 주소 목록"을 엔진이 읽는 자리로 놓는 것뿐이다. 엔진의 다른 탐색 경로는 모두 닫는다(사용자·프로젝트 스킬, 엔진 자체의 MCP 설정, 플러그인 마켓). 세션 작업 공간의 저장소가 가진 `.agents/skills`, `.claude/skills`, `.pi/skills`도 엔진에 보이지 않게 한다. 저장소 내용이 승인 없이 스킬이 되는 길이기 때문이다.
+
+| | Claude (Agent SDK) | Codex (app-server) | pi (가정, 구현 안 함) |
+|---|---|---|---|
+| 스킬을 놓는 자리 | 세션의 스킬을 담은 **합성 로컬 plugin** 하나(`werft`)를 만들어 `plugins: [{type:"local", path}]`로 준다. 엔진에는 `werft:<name>`으로 보인다. identity는 포함한 digest 목록의 해시 | 세션 전용 `CODEX_HOME` 아래 `skills/<name>/`. 지금 어댑터가 `CODEX_HOME`을 세션마다 따로 만든다(`codex/src/config.ts` env 조립). 이 경로는 문서에서 빠진 deprecated 경로라(조사 2-1.2), app-server의 `skills/extraRoots/set`으로 세션 스킬 루트를 지정하는 쪽을 먼저 시험한다 | 세션 전용 agent dir의 `skills/`, 또는 SDK의 `skills` 설정 |
+| 다른 탐색 닫기 | 지금처럼 `settingSources: []`, tenant 전용 `HOME`·`CLAUDE_CONFIG_DIR`([agent-sdk.md](agent-sdk.md) 운영 제약 2). `skills` 옵션은 세션 스킬 이름만 | `$HOME/.agents/skills`가 비어 있는 세션 전용 `HOME`, 저장소 루트 `.agents/skills`는 `[[skills.config]]`로 끄거나 탐색 대상에서 빼는 방법을 시험으로 확인. 번들 시스템 스킬은 `[skills.bundled] enabled = false` | project trust를 주지 않음(`--no-approve`), agent dir을 세션 전용으로 |
+| 시작 확인 | 지금처럼 init이 보고한 이름과 기대 이름을 대조(`plugin-skills.ts`) | `skills/list`로 같은 대조 | RPC/SDK의 스킬 목록으로 같은 대조 |
+| MCP | `type: "sdk"` relay(지금) | `mcp_servers.<name>`에 loopback relay URL과 `enabled_tools`(지금 플랫폼 서버만, 워크스페이스 서버로 넓힘) | pi MCP 설정에 relay URL. 노출 방식은 `direct`(codemode는 QuickJS가 도구를 대신 부르므로 도구 호출 기록과 승인이 한 단계 멀어진다) |
+| 엔진 표 | `skills: native`, `mcp: native` | `skills: none` → `native`로 바꾼다 | 새 descriptor |
+
+- **Claude에서 합성 plugin을 쓰는 이유.** SDK는 스킬을 코드로 등록하는 API가 없고 파일만 읽는다(조사 1-6.1). project 스킬(`.claude/skills`)은 `settingSources: ["project"]`가 있어야 읽히는데, 그러면 저장소의 `settings.json`과 훅까지 읽힌다. 지금 경로(로컬 plugin)가 project 설정 없이 스킬을 넣는 유일한 길이다. 합성 트리에는 `skills/`와 manifest만 있고, 검사기를 지난 트리만 들어간다. Claude의 in-process `sdk` 서버는 조직 managed 정책의 MCP 허용 목록 검사에서 빠지므로(조사 1-6.3), 고객 조직이 관리 정책을 두어도 플랫폼 MCP가 막히지 않는다. 반대로 `disableSideloadFlags`는 SDK `plugins` 옵션을 거부하므로, worker가 조직 credential로 managed settings를 받는 구성에서는 스킬이 막힌다. worker는 tenant 전용 config tree를 쓰므로 지금 구성에서는 해당하지 않는다고 운영 문서에 적는다.
+- **Codex의 MCP를 넓히는 일.** 지금 거절 이유는 "관리자가 이름 붙인 원격 서버에는 호출마다 판정하는 길이 없다"이다(`codex/src/config.ts:177-180`). 워크스페이스 서버는 egress가 요청마다 DB로 판정하므로([mcp-credentials.md](mcp-credentials.md) 결정 6) 그 길이 생겼다. relay가 `/mcp/<name>`으로 보내고 `enabled_tools`로 claim의 도구만 보이면 Claude와 같은 경계가 된다.
+- **이름.** 스킬 이름과 MCP 서버 이름은 각자의 이름공간이다. 엔진 하나 안에서 겹치는 것은 스킬끼리(`skill_name_collision`, 지금 있음)와 MCP 서버끼리(지금 있음)뿐이다.
+
+## 6. MCP 자격
+
+새로 정하지 않는다. [mcp-credentials.md](mcp-credentials.md)의 결정을 세 엔진에 같게 적용한다.
+
+- 자격 주체는 워크스페이스 하나이고, 엔진과 worker는 token을 보지 못한다. 엔진이 보는 것은 relay 주소와 attempt 범위의 relay 비밀뿐이다(Codex는 `bearer_token_env_var`가 relay 비밀을 가리킨다).
+- 엔진 스스로의 OAuth는 막는다. proxy가 upstream 401을 403으로 바꾸고 `www-authenticate`를 지운다. Codex의 `codex mcp login`, pi의 `pi mcp login`에 해당하는 흐름은 엔진 안에서 일어나지 않는다.
+- 스킬은 자격을 갖지 않는다. 스킬이 외부 서비스를 써야 하면 그 서비스의 MCP 서버를 `requires_mcp`로 가리킨다.
+
+## 7. 권한, receipt, 콘솔
+
+### 권한
+
+| 동작 | 누가 | 근거 |
+|---|---|---|
+| 스킬 등록·새 버전·Git 새 커밋 확인 | 워크스페이스 관리자(`owner`·`admin`) | 지금 `EXTENSION_MANAGER_ROLES`(`bundle-service.ts:29-31`) |
+| 승인·거절, 보관 | 워크스페이스 관리자, 등록한 사람이 아닌 사람([3절](#3-등록)) | 위와 같음 |
+| 워크스페이스 범위 지정 | 워크스페이스 관리자 | 위와 같음 |
+| 에이전트 범위 지정(승인된 버전만) | 그 에이전트의 관리자(담당 팀 lead, 개인 관리자, 관리자 팀 구성원)와 워크스페이스 관리자 | 에이전트 MCP 켜기·끄기(`agent.manage`)와 같은 축. 지금 서비스는 워크스페이스 관리자만 받으므로 넓힌다 |
+| 세션에서 `optional` 켜기 | 그 에이전트를 실행할 수 있는 사람 | 세션 생성 권한 |
+| 보기(목록, 버전, 지정된 곳) | 워크스페이스 구성원 | `workspace.read` |
+
+모든 쓰기는 콘솔 세션(사용자 주체)에서만 받는다. API key로는 할 수 없다([mcp-credentials.md](mcp-credentials.md) 결정 2와 같은 규칙).
+
+### receipt와 결정 기록
+
+- 등록·승인·거절·지정·해제·보관은 각각 receipt를 같은 transaction에서 쓴다. 지금 있는 `attach_extension`·`detach_extension`과 승인 receipt를 그대로 쓰고, 없는 것(`register_skill`, `archive_skill`)을 더한다. 대상에는 이름·digest·출처(Git이면 커밋)를 남긴다.
+- 세션은 시작 때 해석 결과(이름, digest, 범위)를 이벤트로 남긴다. 그래서 "이 세션은 어떤 스킬의 어느 버전으로 돌았나"를 receipt와 세션 이벤트만으로 답할 수 있다. Claude Enterprise의 Compliance API가 스킬·플러그인 이벤트를 남기는 것(조사 1-5)과 같은 수준이고, 엔진 로컬 기록에 기대지 않는다는 점은 Codex 문서가 Compliance API의 한계로 적은 것(조사 2-1.7)을 피한다.
+- 스킬 사용 자체(엔진이 스킬을 읽거나 부른 것)는 도구 호출 감사([관측과 도구 호출 감사](observability-otel-and-tool-call-audit.md))가 다룬다. 이 설계는 새 감사 레코드를 만들지 않는다.
+
+### 콘솔 메뉴
+
+```text
+워크스페이스 설정
+  └ 에이전트 연결
+      ├ 통합 (Slack, GitHub)        지금
+      ├ 모델 연결                    지금
+      ├ MCP 서버                     지금
+      └ 스킬                         새로
+          ├ 목록: 이름, 최신 승인 버전, 대기 중 버전 수, 워크스페이스 지정 모드, 쓰는 에이전트 수
+          ├ 추가: 업로드 / GitHub에서
+          ├ 승인 대기: 버전별 diff(파일 목록과 SKILL.md 본문), 승인·거절
+          └ 스킬 상세: 버전 기록(digest, 출처, 등록·승인한 사람), 버전별 지정된 곳, 워크스페이스 지정 모드, 보관
+
+에이전트 상세 > 접근 탭
+  ├ MCP 서버                         지금
+  └ 스킬                             새로
+      워크스페이스가 준 것(모드, 버전, 바꿀 수 없음 표시)과 이 에이전트가 더하거나 좁힌 것
+
+새 세션
+  └ 이 에이전트의 optional 스킬 켜기
+```
+
+Claude는 스킬과 플러그인을 한 화면(Plugins & skills)에, connector를 다른 화면에 둔다(조사 1-0). 우리는 플러그인이 없으므로 "MCP 서버"와 "스킬"을 같은 묶음의 이웃 항목으로 둔다. 둘 다 "에이전트에 주는 능력"이라 한 묶음이 맞고, 자격(MCP)과 내용 승인(스킬)은 일의 모양이 달라 한 화면에 합치지 않는다.
+
+## 8. pi coding agent를 세 번째 엔진으로
+
+### 무엇인가(조사 2-2)
+
+MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `badlogic/pi-mono`)이고 패키지는 `@earendil-works/pi-coding-agent`다. 1.0(2026-10-01) 뒤 거의 매주 릴리스한다. 임베딩은 SDK(`createAgentSession`), `--mode rpc`(stdin/stdout JSONL), `--mode json` 셋이다. 세션은 `id`/`parentId` 트리의 JSONL 파일이다. 공급자는 30종 이상이다. 스킬은 Agent Skills 사양을 구현하고, MCP는 0.99.0(2026-09-29)부터 내장 확장으로 지원한다(그 전에는 "지원하지 않는다"가 공식 입장이었다). **내장 권한·샌드박스가 없다.** 도구 호출 게이트는 확장의 `tool_call` 훅으로 만든다.
+
+### 가치
+
+- **공급자 중립.** Claude 어댑터는 Anthropic Messages(직접 또는 LiteLLM), Codex는 OpenAI Responses에 묶여 있다. pi는 공급자 30종 이상을 엔진 하나로 받는다. 고객이 쓰는 모델이 둘 밖일 때의 길이 된다.
+- **스킬·MCP 모델과 잘 맞는다.** 이 설계의 두 개념을 pi가 그대로 읽는다. 플러그인 대신 "pi 패키지"가 있지만 쓰지 않으면 된다.
+- **임베딩이 깨끗하다.** RPC 모드는 Codex app-server와 같은 모양(프로세스 하나, JSONL)이라 codec-kit의 이벤트 codec 구조(`packages/adapters/runtimes/codec-kit`)와 registry의 descriptor 방식에 들어간다.
+
+### 비용과 맞춤
+
+| 항목 | 해야 할 일 | 크기 |
+|---|---|---|
+| 승인·권한 | pi에는 승인 경로가 없다. worker 안에서 도는 확장을 만들어 `tool_call` 훅에서 플랫폼 판정(묻기·막기·승인 대기)을 하고, 승인 대기 동안 프로세스를 살려 둔다([agent-sdk.md](agent-sdk.md) 운영 제약 1과 같은 요구). 확장은 pi 프로세스와 같은 권한이라 엔진 쪽 코드가 플랫폼 경계 안에 들어온다 | 큼 |
+| 샌드박스 | pi는 격리를 하지 않는다. 지금 worker 컨테이너·supervisor 경계([worker-supervisor-boundary.md](worker-supervisor-boundary.md))가 그대로 격리가 된다. Codex의 bubblewrap 같은 엔진 내부 샌드박스는 없다 | 중간 |
+| 체크포인트·resume | JSONL 세션 파일을 체크포인트에 담고 되살리는 일. 트리 구조라 Claude transcript mirror보다 단순할 수 있으나 확인 필요 | 중간 |
+| 이벤트 codec | RPC 이벤트를 공개 SSE 이벤트로 바꾸는 codec과 계약 시험 | 중간 |
+| 엔진 이미지 | Node 22.19 이상 이미지 하나 더([engine-worker-images.md](engine-worker-images.md)) | 작음 |
+| 지시 파일 | pi는 `AGENTS.md`·`CLAUDE.md`를 trust와 무관하게 읽는다. 지시 파일을 어떻게 넣을지는 실행 규칙·지시 파일 설계가 정한다([10절](#10-실행-규칙지시-파일-설계와의-관계)) | 그 설계에 따름 |
+
+### 위험
+
+- **보안 모델의 차이.** Claude·Codex는 엔진이 묻고 플랫폼이 답한다. pi는 엔진이 묻지 않으므로 플랫폼이 엔진 안에 게이트를 심어야 한다. 게이트가 빠진 도구(새 버전이 더한 내장 도구, MCP `codemode`가 대신 부르는 호출)는 묻지 않고 돈다. 엔진 버전을 올릴 때마다 도구 목록을 대조하는 시험이 필요하다.
+- **변화 속도.** 1.0 뒤 매주 릴리스이고 MCP 입장도 1년 안에 뒤집혔다. [agent-sdk.md](agent-sdk.md)처럼 정확한 버전 고정과 호환 harness가 필요하다.
+- **기여 정책.** 새 기여자의 이슈·PR을 자동으로 닫는다. 상류에 고칠 것이 생기면 우회해야 한다.
+
+### Oh My Pi
+
+`can1357/oh-my-pi`, MIT, pi의 fork다(README가 그렇게 적는다). Rust 네이티브 코어, LSP·DAP, worktree 서브에이전트, 네이티브 MCP, 승인 모드(기본 `yolo`)를 더했다. Claude·Codex·Gemini·OpenCode의 MCP 설정과 스킬을 **자동으로 가져오고**, 저장소를 열면 설정·확장·훅·스킬·MCP를 "의도대로" 불러온다(조사 2-3). 월 40건 넘게 릴리스한다.
+
+**쓰지 않는다.** 이 설계가 막으려는 것(저장소 내용이 승인 없이 스킬·MCP·훅이 되는 것)을 기본 동작으로 한다. 끌 수는 있지만 끌 것이 많고 릴리스 속도가 빨라 매번 확인해야 한다. 엔진으로 붙인다면 pi 본체가 맞다. Oh My Pi의 기능(LSP, 서브에이전트) 중 필요한 것이 생기면 그때 기능 단위로 다시 본다.
+
+### 추천
+
+**지금은 구현하지 않는다.** 먼저 이 설계의 Claude·Codex 단위([9절](#9-구현-단위))를 끝내 두 엔진에서 스킬·MCP 모델이 같게 동작함을 보인다. 그 뒤 **스파이크 하나**(코드는 머지하지 않음)로 다음 셋을 확인하고, 셋 다 되면 pi 엔진을 별도 설계로 올린다.
+
+1. `tool_call` 훅 확장이 내장 도구와 MCP 도구 호출을 **모두** 받고, 플랫폼 승인 대기 동안 프로세스를 살린 채 막을 수 있다.
+2. RPC 모드에서 세션 JSONL을 체크포인트로 담고 다른 컨테이너에서 resume할 수 있다.
+3. 사용자·프로젝트 탐색을 끄고 세션 전용 스킬 루트와 relay MCP만 보이게 할 수 있다.
+
+엔진을 하나 더 붙이는 이유가 "공급자 중립"이라면, 고객 요구(둘 밖의 모델)가 생기는 때가 시작 조건이다.
+
+## 9. 구현 단위
+
+| 단위 | 내용 | 선행 |
+|---|---|---|
+| S1 | 이 문서 | 없음 |
+| S2 | 스킬 API: 등록(업로드, 스킬 하나로 좁힘), 버전, 승인(본인 승인 규칙), 지정·해제, 보관, `requires_mcp` 메타데이터, receipt 추가, `packages/core` 응답 표 | S1 |
+| S3 | Git 출처: 저장소·경로·ref를 커밋으로 고정해 읽기, "새 커밋 확인" | S2 |
+| S4 | 콘솔: 워크스페이스 설정 > 스킬, 에이전트 접근 탭의 스킬 칸, 새 세션의 optional 켜기 | S2 |
+| S5 | Claude 어댑터: 세션 스킬을 합성 plugin 하나로(`werft:<name>`), identity 규칙, 시작 확인. 옛 여러 스킬 번들도 같은 합성으로 | S2 |
+| S6 | Codex 어댑터: 스킬 루트(extraRoots 우선, 안 되면 세션 `CODEX_HOME/skills`), 다른 탐색 닫기 시험, `skills/list` 대조, descriptor `skills: native` | S2 |
+| S7 | Codex 어댑터: 워크스페이스 MCP 서버를 relay로(`assertStartable` 거절 해제, `enabled_tools`) | 워크스페이스 MCP 구현 |
+| S8 | E2E: 같은 스킬과 MCP 서버를 Claude·Codex 에이전트에 지정하고 둘 다 같은 이름으로 쓰는지, 저장소의 `.agents/skills`가 보이지 않는지 | S4–S7 |
+| S9 | pi 스파이크(머지 안 함), 결과를 이 문서의 후속으로 기록 | S8 |
+
+## 10. 실행 규칙·지시 파일 설계와의 관계
+
+명령·도구의 allow/deny 규칙과 지시 파일(`CLAUDE.md`·`AGENTS.md`)을 엔진에 어떻게 넣을지는 별도의 실행 규칙·지시 파일 설계가 정한다. 이 문서는 그 둘을 다루지 않는다. 겹치는 곳은 두 가지뿐이다.
+
+- MCP 도구를 좁히는 것은 이 문서에서 claim의 도구 목록(Codex `enabled_tools`, Claude relay의 고정 목록)으로 한다. deny 문법이 엔진마다 어떻게 표현되는지는 그 설계의 몫이다.
+- 스킬 경로를 놓을 때 엔진의 project 설정 로딩을 켜지 않는다는 이 문서의 전제(Claude `settingSources: []`, Codex 저장소 `.codex` 미신뢰, pi project trust 없음)는 지시 파일을 엔진이 아니라 플랫폼이 넣는다는 지금 방식과 같은 방향이다. 그 설계가 이 전제를 바꾸면 5절의 "다른 탐색 닫기"를 다시 본다.
+
+## 범위 밖
+
+- 플러그인, 훅, 슬래시 명령, 서브에이전트 정의, 엔진 확장 코드(pi 확장, Codex 앱).
+- 마켓플레이스 탐색과 외부 카탈로그 가져오기(Anthropic 카탈로그, Codex 마켓플레이스).
+- 사람별 개인 스킬과 멤버 간 공유. 스킬은 조직이 승인한 것만 엔진에 간다.
+- 콘솔 안의 스킬 작성기.
+- 엔진의 자동 의존 설치(스킬이 MCP 서버를 깔게 하는 기능).
+- 보안 스캔(Claude Enterprise의 스킬 스캔에 해당). 승인 사람 검토로 대신하고, 필요해지면 다시 본다.
+- pi 엔진 구현([8절](#8-pi-coding-agent를-세-번째-엔진으로) 추천에 따라 오너 결정 뒤).
+
+## 대안 (고르지 않음)
+
+- **플러그인을 단위로 하고 엔진별 변환기를 둔다.** 엔진마다 다른 훅·명령을 승인하고 판정할 길이 필요하고, 변환할 수 없는 부분이 매번 생긴다. 오너 지시(스킬 + MCP)와도 다르다.
+- **번들(여러 스킬)을 계속 등록 단위로 둔다.** Claude 외 엔진에서 이름공간을 흉내 내야 하고(`<slug>-<skill>` 같은 이름 바꾸기), 버전이 스킬 하나가 아니라 묶음 단위로 움직여 한 스킬만 고치는 배포가 무거워진다.
+- **저장소의 `.agents/skills`를 그대로 읽게 한다.** 엔진 셋이 다 읽는 자리라 가장 쉽지만, 저장소에 push할 수 있는 사람이 승인 없이 에이전트 능력을 바꾼다.
+- **Git 출처를 push마다 자동 sync한다.** Claude 조직 설정이 이렇게 한다(조사 1-2.1). 우리는 승인이 버전 단위라, 자동 sync는 승인 대기 버전을 늘릴 뿐 배포를 빠르게 하지 않는다.
+- **가장 관대한 값 규칙(Claude Enterprise 그룹).** 결과를 설명하려면 모든 그룹 소속을 봐야 한다. 범위 순서 규칙이 receipt로 설명하기 쉽다.
