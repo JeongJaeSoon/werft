@@ -1,125 +1,172 @@
 import { describe, expect, test } from "bun:test";
-import { MEMORY_VISIBILITY_VALUES, memoryRecordSchema } from "./memory.ts";
+import {
+  MEMORY_BODY_MAX_BYTES,
+  memoryCandidateSchema,
+  memoryDocumentSchema,
+  memoryPromotionSchema,
+  memoryRevisionSchema,
+  resolveMemoryScope,
+} from "./memory.ts";
 
-const AGENT_ID = "019a0000-0000-7000-8000-0000000000e1";
-const WORKSPACE_ID = "019a0000-0000-7000-8000-0000000000e2";
-const MEMORY_ID = "019a0000-0000-7000-8000-0000000000e3";
-const BINDING_ID = "019a0000-0000-7000-8000-0000000000e4";
-const SESSION_ID = "019a0000-0000-7000-8000-0000000000e5";
-const AT = "2026-09-22T01:00:00Z";
+const WORKSPACE_ID = "019a0000-0000-7000-8000-0000000000e1";
+const DOCUMENT_ID = "019a0000-0000-7000-8000-0000000000e2";
+const SESSION_ID = "019a0000-0000-7000-8000-0000000000e3";
+const USER_ID = "019a0000-0000-7000-8000-0000000000e4";
+const AGENT_ID = "019a0000-0000-7000-8000-0000000000e5";
+const SOURCE_ID = "019a0000-0000-7000-8000-0000000000e6";
+const HASH = "a".repeat(64);
+const AT = "2026-11-20T01:00:00Z";
 
-const record = {
-  id: MEMORY_ID,
+const document = {
+  id: DOCUMENT_ID,
   workspace_id: WORKSPACE_ID,
+  scope: "agent",
+  session_id: null,
+  subject_user_id: null,
   agent_id: AGENT_ID,
-  type: "semantic",
-  visibility: "agent",
-  visibility_ref: null,
-  content: "분기 마감은 매 분기 마지막 영업일이다.",
-  source_session_id: SESSION_ID,
-  source_binding_id: BINDING_ID,
-  source_message_ref: null,
-  sensitivity: "normal",
-  confidence: 0.9,
-  valid_until: null,
-  status: "active",
-  revision: 0,
-  created_by: "user:someone",
+  state: "active",
+  current_revision: 1,
+  ancestor_ids: [],
+  personal_subjects: [],
+  expires_at: null,
   created_at: AT,
-} satisfies Record<string, unknown>;
+};
 
-describe("MemoryRecord", () => {
-  test("keeps the agent as the widest scope an agent can write", () => {
-    expect(MEMORY_VISIBILITY_VALUES).toContain("agent");
-    expect(MEMORY_VISIBILITY_VALUES as readonly string[]).not.toContain(
-      "kollege",
-    );
-    expect(MEMORY_VISIBILITY_VALUES as readonly string[]).not.toContain(
-      "organization",
-    );
-    expect(memoryRecordSchema.safeParse(record).success).toBe(true);
-  });
-
-  test("a scoped visibility must name what it is scoped to", () => {
-    for (const visibility of ["session", "channel", "user"] as const) {
+describe("memoryDocumentSchema", () => {
+  test("each scope fills exactly its own key", () => {
+    const keys = {
+      session: { session_id: SESSION_ID },
+      personal: { subject_user_id: USER_ID },
+      agent: { agent_id: AGENT_ID },
+      workspace: {},
+    } as const;
+    const empty = { session_id: null, subject_user_id: null, agent_id: null };
+    for (const [scope, key] of Object.entries(keys)) {
       expect(
-        memoryRecordSchema.safeParse({
-          ...record,
-          visibility,
-          visibility_ref: null,
-        }).success,
-      ).toBe(false);
-      expect(
-        memoryRecordSchema.safeParse({
-          ...record,
-          visibility,
-          visibility_ref: BINDING_ID,
-        }).success,
+        memoryDocumentSchema.safeParse({ ...document, ...empty, ...key, scope })
+          .success,
       ).toBe(true);
-    }
-  });
-
-  test("each visibility decides what its ref is, not just that it has one", () => {
-    // Without a per-variant id schema a surface binding id would stand in for
-    // a session and still parse, quietly widening who can read the row.
-    expect(
-      memoryRecordSchema.safeParse({
-        ...record,
-        visibility: "session",
-        visibility_ref: "C01",
-      }).success,
-    ).toBe(false);
-    expect(
-      memoryRecordSchema.safeParse({
-        ...record,
-        visibility: "channel",
-        visibility_ref: "C01",
-      }).success,
-    ).toBe(false);
-    // A scoped actor id is minted by the surface, so it is not a uuid.
-    expect(
-      memoryRecordSchema.safeParse({
-        ...record,
-        visibility: "user",
-        visibility_ref: "slack:T01:U02",
-      }).success,
-    ).toBe(true);
-  });
-
-  test("an unscoped visibility must not carry a ref", () => {
-    for (const visibility of ["agent", "workspace"] as const) {
       expect(
-        memoryRecordSchema.safeParse({
-          ...record,
-          visibility,
-          visibility_ref: BINDING_ID,
+        memoryDocumentSchema.safeParse({ ...document, ...empty, scope })
+          .success,
+      ).toBe(scope === "workspace");
+      // A second key would let one row answer to two owners.
+      expect(
+        memoryDocumentSchema.safeParse({
+          ...document,
+          ...empty,
+          ...key,
+          scope,
+          ...(scope === "session"
+            ? { agent_id: AGENT_ID }
+            : { session_id: SESSION_ID }),
         }).success,
       ).toBe(false);
     }
   });
 
-  test("a record is superseded, never rewritten in place", () => {
-    const parsed = memoryRecordSchema.parse({
-      ...record,
-      status: "superseded",
-      revision: 3,
-    });
-    expect(parsed.status).toBe("superseded");
+  test("refuses a state outside the lifecycle", () => {
     expect(
-      memoryRecordSchema.safeParse({ ...record, status: "purged" }).success,
+      memoryDocumentSchema.safeParse({ ...document, state: "purged" }).success,
     ).toBe(false);
   });
+});
 
-  test("rejects an empty or oversized body and a confidence outside 0..1", () => {
+describe("resolveMemoryScope", () => {
+  test("refuses the space scope until shared spaces open", () => {
+    expect(resolveMemoryScope("space")).toEqual({
+      ok: false,
+      reason: "space_scope_unavailable",
+    });
+    expect(resolveMemoryScope("personal")).toEqual({
+      ok: true,
+      scope: "personal",
+    });
+  });
+});
+
+describe("memoryRevisionSchema", () => {
+  const revision = {
+    document_id: DOCUMENT_ID,
+    revision: 1,
+    title: "Release notes",
+    body: "Tag releases from main only.",
+    body_sha256: HASH,
+    scan_status: "unscanned",
+    author_user_id: null,
+    author_session_id: SESSION_ID,
+    adopted_at: null,
+    created_at: AT,
+  };
+
+  test("caps the body in bytes, not characters", () => {
+    expect(memoryRevisionSchema.safeParse(revision).success).toBe(true);
+    // 3 bytes per character: under the cap by length, over it in bytes.
+    const body = "한".repeat(MEMORY_BODY_MAX_BYTES / 3 + 1);
+    expect(memoryRevisionSchema.safeParse({ ...revision, body }).success).toBe(
+      false,
+    );
+  });
+
+  test("names who wrote it", () => {
     expect(
-      memoryRecordSchema.safeParse({ ...record, content: "" }).success,
-    ).toBe(false);
-    expect(
-      memoryRecordSchema.safeParse({ ...record, content: "a".repeat(10_001) })
+      memoryRevisionSchema.safeParse({ ...revision, author_session_id: null })
         .success,
     ).toBe(false);
+  });
+});
+
+describe("candidate and promotion", () => {
+  const candidate = {
+    document_id: DOCUMENT_ID,
+    source_session_id: SESSION_ID,
+    source_document_id: null,
+    source_revision: null,
+    releaser_user_id: USER_ID,
+    released_by: null,
+    released_at: null,
+    released_body_sha256: null,
+    expires_at: AT,
+    created_at: AT,
+  };
+  const promotion = {
+    id: SOURCE_ID,
+    workspace_id: WORKSPACE_ID,
+    target_document_id: DOCUMENT_ID,
+    target_revision: 1,
+    target_scope: "agent",
+    source_session_id: SESSION_ID,
+    source_document_id: null,
+    source_revision: null,
+    source_body_sha256: null,
+    released_body_sha256: HASH,
+    released_by: USER_ID,
+    released_at: AT,
+    adopted_by: USER_ID,
+    adopted_at: AT,
+  };
+
+  test("a release is recorded whole or not at all", () => {
+    expect(memoryCandidateSchema.safeParse(candidate).success).toBe(true);
     expect(
-      memoryRecordSchema.safeParse({ ...record, confidence: 1.1 }).success,
+      memoryCandidateSchema.safeParse({ ...candidate, released_by: USER_ID })
+        .success,
+    ).toBe(false);
+  });
+
+  test("a promotion keeps the releaser and the adopter, and one source", () => {
+    expect(memoryPromotionSchema.safeParse(promotion).success).toBe(true);
+    expect(
+      memoryPromotionSchema.safeParse({
+        ...promotion,
+        source_document_id: SOURCE_ID,
+        source_revision: 1,
+        source_body_sha256: HASH,
+      }).success,
+    ).toBe(false);
+    expect(
+      memoryPromotionSchema.safeParse({ ...promotion, target_scope: "session" })
+        .success,
     ).toBe(false);
   });
 });
