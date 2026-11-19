@@ -11,13 +11,13 @@ import {
   type SurfaceBinding,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
-import type {
-  SurfaceBindingRecord,
-  SurfaceBindingStore,
-} from "../ports/surface-binding-store.ts";
 import type { AgentWelcomable } from "../surface/ports/agent-welcomable.ts";
 import type { ChannelJoinable } from "../surface/ports/channel-joinable.ts";
 import type { ChannelKindReadable } from "../surface/ports/channel-kind-readable.ts";
+import type {
+  SurfaceBindingRecord,
+  SurfaceBindingStore,
+} from "../surface/ports/surface-binding-store.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
