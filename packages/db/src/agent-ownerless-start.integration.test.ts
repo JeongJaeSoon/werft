@@ -134,10 +134,10 @@ integration("starting an ownerless agent on PostgreSQL", () => {
     return { ws, owner, keeper, agentId, releaseId };
   }
 
-  const create = (by: Caller, releaseId: string) =>
+  const create = (by: Caller, releaseId: string, key = randomUUID()) =>
     uow().acceptInputAtomic({
       principal: by,
-      idempotencyKey: randomUUID(),
+      idempotencyKey: key,
       payloadHash: "create",
       model: TEST_MODEL,
       repository: "none",
@@ -213,6 +213,31 @@ integration("starting an ownerless agent on PostgreSQL", () => {
     expect(await create(w.owner, w.releaseId)).toMatchObject({
       outcome: "accepted",
     });
+  });
+
+  test("a retry of an earlier start and input to an open session still go through", async () => {
+    const w = await world();
+    const key = randomUUID();
+    const first = await create(w.owner, w.releaseId, key);
+    if (first.outcome !== "accepted") throw new Error(first.outcome);
+    expect(await removeKeeper(w)).toMatchObject({ outcome: "removed" });
+    await markedAgo(w.agentId, "30 days");
+    expect(await create(w.owner, w.releaseId)).toEqual(REFUSED);
+
+    expect(await create(w.owner, w.releaseId, key)).toMatchObject({
+      outcome: "replayed",
+      response: { session_id: first.response.session_id },
+    });
+    expect(
+      await uow().appendInputAtomic({
+        principal: w.owner,
+        sessionId: first.response.session_id,
+        idempotencyKey: randomUUID(),
+        payloadHash: "append",
+        message: "more",
+        limits: LIMITS,
+      }),
+    ).toMatchObject({ outcome: "accepted" });
   });
 
   test("a paused agent answers agent_inactive first", async () => {

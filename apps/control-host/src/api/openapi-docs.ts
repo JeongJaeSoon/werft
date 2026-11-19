@@ -238,7 +238,7 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
   CREDENTIAL_UNBOUND:
     "The release names a credential its agent has no live binding for; an agent admin must bind it first.",
   AGENT_NOT_RUNNABLE:
-    "A new session cannot start: `error.details.reason_code` is `agent_inactive` (the agent is paused or archived), `agent_ownerless` (no one has administered the agent for 14 days since its `ownerless_since`) or `release_unapproved` (the release named was never approved by an activation). A session pinned to an older release that was approved still starts while the agent is active.",
+    "A new session cannot start: `error.details.reason_code` is `agent_inactive` (the agent is paused or archived), `agent_ownerless` (no one has administered the agent for 14 days since its `ownerless_since`) or `release_unapproved` (the release named was never approved by an activation). A session pinned to an older release that was approved still starts while the agent is active and not refused as `agent_ownerless`.",
   RELEASE_SPEC_UNAVAILABLE:
     "The release's connection is disabled or gone, or its model left the connection's list; release the agent again. `error.details.reason_code` is `connection_missing` or `model_removed`.",
   LOGIN_LINK_REQUIRED:
