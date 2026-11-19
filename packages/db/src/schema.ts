@@ -7,6 +7,9 @@ import {
   ACHIEVEMENT_REVIEW_STATE_VALUES,
   ACHIEVEMENT_RULE_JUDGE_VALUES,
   ACTOR_KIND_VALUES,
+  type AccessAxis,
+  type AccessGranted,
+  type AccessRule,
   ADMISSION_STATE_VALUES,
   AGENT_DESCRIPTION_MAX_LENGTH,
   AGENT_IDENTITY_PROVIDER_VALUES,
@@ -2283,6 +2286,19 @@ export const authzDecisions = pgTable(
     justification: text(),
     policyVersion: text("policy_version").notNull(),
     requestId: text("request_id").notNull(),
+    // Access decisions (docs/contributing/decisions/access-decisions.md §7);
+    // null on every other row.
+    accessAxis: text("access_axis").$type<AccessAxis>(),
+    sessionId: uuid("session_id"),
+    turnId: integer("turn_id"),
+    // The delegation chain, earliest agent first.
+    via: jsonb().$type<{ agent_id: string; release_id: string }[]>(),
+    granted: jsonb().$type<AccessGranted>(),
+    ruleMode: text("rule_mode").$type<AccessRule["mode"]>(),
+    accessPolicyRevision: integer("access_policy_revision"),
+    ruleId: uuid("rule_id"),
+    rulePosition: integer("rule_position"),
+    teamSnapshot: jsonb("team_snapshot"),
   },
   (table) => [
     index("authz_decisions_request_idx").on(table.requestId),
