@@ -1,13 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import {
-  cpSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle } from "drizzle-orm/pglite";
@@ -306,16 +298,8 @@ describe("session data rollups", () => {
       entry.tag.endsWith("_session_data_rollups"),
     )?.tag;
     if (!tag) throw new Error("session_data_rollups is not in the journal");
-    const before = mkdtempSync(join(tmpdir(), "rollups-"));
+    const before = migrationsThrough(tag, { exclusive: true });
     folders.push(before);
-    cpSync(MIGRATIONS_FOLDER, before, { recursive: true });
-    const journalPath = join(before, "meta/_journal.json");
-    const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
-      entries: { tag: string }[];
-    };
-    const at = journal.entries.findIndex((entry) => entry.tag === tag);
-    journal.entries = journal.entries.slice(0, at);
-    writeFileSync(journalPath, JSON.stringify(journal));
 
     const client = new PGlite();
     clients.push(client);
