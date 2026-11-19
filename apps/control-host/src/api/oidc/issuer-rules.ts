@@ -13,9 +13,12 @@ export function tokenIssuers(issuer: string): string[] {
 
 /**
  * Why these rules for who may come in cannot be saved for this provider;
- * null when they can. Anyone can make a Google account and Google always
- * says whether the address is verified, so there the address must be
- * verified, and nobody joins by themselves without a domain list.
+ * null when they can. On every issuer nobody joins by themselves without a
+ * domain list: even a company's IdP holds guest and partner accounts. That
+ * is judged when a change names who may join (`admissionChanged`), so a
+ * provider saved before the rule keeps its other settings editable. Anyone
+ * can make a Google account and Google always says whether the address is
+ * verified, so there the address must be verified.
  */
 export function policyProblem(
   issuer: string,
@@ -24,10 +27,14 @@ export function policyProblem(
     jitRole: "member" | null;
     requireVerifiedEmail: boolean;
   },
+  admissionChanged: boolean,
 ): "verified_email_required" | "jit_requires_domains" | null {
-  if (issuer !== GOOGLE_ISSUER) return null;
-  if (!policy.requireVerifiedEmail) return "verified_email_required";
-  return policy.jitRole !== null && policy.allowedDomains.length === 0
+  if (issuer === GOOGLE_ISSUER && !policy.requireVerifiedEmail) {
+    return "verified_email_required";
+  }
+  return admissionChanged &&
+    policy.jitRole !== null &&
+    policy.allowedDomains.length === 0
     ? "jit_requires_domains"
     : null;
 }

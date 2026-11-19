@@ -542,7 +542,7 @@ curl -s -X POST http://127.0.0.1:3000/v1/auth/password-reset -H 'Content-Type: a
 
 켜진 공급자는 이름과 정책(허용 도메인, JIT 역할, 검증된 이메일 요구)만 바로 바꿀 수 있다. client ID, token 인증 방식, endpoint를 바꾸려면 먼저 끈다. secret은 켠 채로 바꿀 수 있다. 새 값은 교체 후보로 들어가고, 테스트 로그인이 그 값으로 통과하면 그때 바뀐다. 그 전까지 로그인은 원래 secret을 쓴다. 잘못 넣은 후보는 다른 값을 넣어 바꾸거나, 지금 쓰는 secret을 다시 넣어 거둔다.
 
-Google(`https://accounts.google.com`)은 누구나 계정을 만들 수 있어서 두 가지를 받지 않는다(`400`): 검증된 이메일 요구를 끄는 것(`verified_email_required`), 허용 도메인 없이 JIT 역할을 주는 것(`jit_requires_domains`).
+어느 issuer든 허용 도메인 없이 JIT 역할을 주는 것은 받지 않는다(`400 jit_requires_domains`). 회사 IdP에도 게스트·협력사 계정이 섞이기 때문이다. 이 판정은 `jit_role`이나 `allowed_domains`를 바꾸는 요청에만 한다. 이 규칙 전에 허용 도메인 없이 JIT를 켠 공급자는 그대로 동작하고, 다른 칸은 전처럼 바꿀 수 있으며, 화면이 경고를 보인다. Google(`https://accounts.google.com`)은 누구나 계정을 만들 수 있어서 검증된 이메일 요구를 끄는 것도 받지 않는다(`verified_email_required`).
 
 로그인 화면은 공개 `GET /v1/auth/login-methods`(`{"password":"on","providers":[{"id":"…","display_name":"Google"}]}`, 켜진 공급자가 없으면 `providers`가 빈 목록, 비밀번호 로그인이 닫혀 있으면 `password`가 `emergency_only`)로 고를 수 있는 수단을 받는다. 흐름: 웹이 `POST /v1/auth/providers/{id}/start`(`X-Requested-With` 필요)로 `authorization_url`을 받아 연다. 응답은 `__Host-werft_login_flow` cookie(10분)를 세운다. 이 cookie는 state·nonce·PKCE verifier·공급자 id·그때의 설정 revision을 `PLATFORM_SECRET_KEY`에서 낸 키로 봉인한 값이라 브라우저가 읽거나 바꿀 수 없다. 공급자가 리디렉션 URI로 `code`·`state`(공급자에 따라 `iss`도)를 돌려주면 웹이 공급자 id와 함께 `POST /v1/auth/oidc/callback`에 보낸다. API는 cookie를 지우고, 열어서 state·10분·공급자 id·설정 revision이 맞는지 본 뒤 code를 교환하고 id_token의 서명(JWKS)·iss·aud·exp·nonce·`email_verified`를 확인한다. 그다음 허용 도메인을 보고(`403`) 첫 진입 규칙을 위에서부터 적용한다.
 

@@ -32,10 +32,20 @@ outcome: "공급자별 입력 값과 화면의 이유 코드를 찾는다"
 | Google Workspace | `https://accounts.google.com` | `email_verified`와 Workspace 도메인(`hd`) | 허용 도메인이 있을 때만 |
 | OneLogin | `https://<subdomain>.onelogin.com/oidc/2` | 기본 설정은 없다 | 기본 설정은 안 된다 |
 | Microsoft Entra ID | `https://login.microsoftonline.com/<tenant-id>/v2.0` | 없다 | 안 된다 |
-| Okta | `https://<org>.okta.com` 또는 `https://<org>.okta.com/oauth2/<server>` | `email_verified`(UserInfo) | 된다 |
-| Keycloak | `https://<host>/realms/<realm>` | `email_verified` | 된다 |
+| Okta | `https://<org>.okta.com` 또는 `https://<org>.okta.com/oauth2/<server>` | `email_verified`(UserInfo) | 허용 도메인이 있을 때만 |
+| Keycloak | `https://<host>/realms/<realm>` | `email_verified` | 허용 도메인이 있을 때만 |
 
 "주소 증명"이 없는 공급자의 사람은 초대 링크나 계정 연결로만 들어온다. 그런 공급자에 허용 도메인을 넣으면 모든 로그인이 거절된다(`403`).
+
+**초대 없이 가입**은 어느 공급자에서나 허용 도메인이 하나 이상 있어야 켜진다. 회사 IdP에도 게스트나 협력사 계정이 섞이기 쉬워서, 도메인 없이 켜면 그 IdP의 계정이면 누구나 member로 들어온다.
+
+### 허용 도메인 없이 초대 없이 가입이 켜진 공급자
+
+이 규칙 전에 허용 도메인 없이 **초대 없이 가입**을 켠 공급자는 그대로 둔다. 로그인도 가입도 전처럼 된다. 공급자 화면의 **초대 없이 가입** 줄에 "허용 도메인이 없어 이 공급자의 계정이면 누구나 초대 없이 가입합니다"가 보인다.
+
+- 이름, client ID, secret 같은 다른 설정은 전처럼 바꿀 수 있다.
+- **누가 들어올 수 있나**의 규칙을 저장하려면 허용 도메인을 하나 이상 적거나 **초대 없이 가입**을 끈다. 둘 다 아니면 `400 jit_requires_domains`로 거절된다.
+- 바꾸기 전에 이미 들어온 member를 확인하려면 구성원 목록에서 이메일 도메인을 본다. 허용 도메인을 적어도 이미 가입한 계정은 그대로 남지만, 허용 도메인 밖의 계정은 다음 로그인부터 거절된다(연결된 계정도 같다).
 
 ### Google Workspace
 
@@ -180,7 +190,7 @@ Keycloak은 사용자마다 `email_verified`를 보낸다. Keycloak에서 주소
 | 상태와 코드 | 값 | 뜻 |
 | --- | --- | --- |
 | `400` | `verified_email_required` | Google 공급자에서 **검증된 이메일**을 끄려 했다 |
-| `400` | `jit_requires_domains` | Google 공급자에서 허용 도메인 없이 **초대 없이 가입**을 켜려 했다 |
+| `400` | `jit_requires_domains` | 허용 도메인 없이 **초대 없이 가입**을 켜려 했거나, 켜진 채로 허용 도메인을 비우려 했다 |
 | `409 REVISION_CONFLICT` | `not_tested` | client 값이 없거나 지금 설정으로 통과한 테스트가 없는데 테스트·켜기를 했다 |
 | `409 REVISION_CONFLICT` | `provider_enabled` | 켜진 공급자의 client ID·인증 방식·설정 문서를 바꾸거나 지우려 했다 |
 | `409 REVISION_CONFLICT` | `last_provider` | 비밀번호 로그인이 닫힌 동안 켜진 마지막 공급자를 끄려 했다 |

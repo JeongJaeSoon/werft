@@ -49,7 +49,7 @@ export const loginProvidersKo = {
   "loginProviders.problem.verified_email_required":
     "Google 공급자는 검증된 이메일 요구를 끌 수 없습니다.",
   "loginProviders.problem.jit_requires_domains":
-    "Google 공급자는 허용 도메인 없이 자동 가입을 켤 수 없습니다.",
+    "초대 없이 가입을 켜려면 허용 도메인을 하나 이상 적으세요.",
   "loginProviders.error.exists": "같은 issuer의 공급자가 이미 있습니다.",
   "loginProviders.error.enabled":
     "켜진 공급자에서는 할 수 없습니다. 먼저 끄세요.",
@@ -122,7 +122,9 @@ export const loginProvidersKo = {
   "loginProviders.jit.off": "받지 않음",
   "loginProviders.jit.member": "member로 가입",
   "loginProviders.jitHint":
-    "켜면 공급자가 이메일 주소를 보증한 사람은 초대 없이 member로 들어옵니다. 끄면 초대받은 사람만 가입합니다.",
+    "켜면 허용 도메인의 이메일 주소를 공급자가 보증한 사람은 초대 없이 member로 들어옵니다. 켜려면 허용 도메인이 하나 이상 있어야 합니다. 끄면 초대받은 사람만 가입합니다.",
+  "loginProviders.jitOpen":
+    "허용 도메인이 없어 이 공급자의 계정이면 누구나 초대 없이 가입합니다. 허용 도메인을 적거나 초대 없이 가입을 끄세요.",
   "loginProviders.verified": "검증된 이메일",
   "loginProviders.verified.required": "요구함",
   "loginProviders.verified.optional": "요구하지 않음",
@@ -304,7 +306,7 @@ export const loginProvidersEn: Record<keyof typeof loginProvidersKo, string> = {
   "loginProviders.problem.verified_email_required":
     "A Google provider always requires a verified email.",
   "loginProviders.problem.jit_requires_domains":
-    "A Google provider cannot let people join by themselves without allowed domains.",
+    "List at least one allowed domain to let people join without an invite.",
   "loginProviders.error.exists": "A provider with this issuer already exists.",
   "loginProviders.error.enabled":
     "This cannot be done while the provider is on. Turn it off first.",
@@ -378,7 +380,9 @@ export const loginProvidersEn: Record<keyof typeof loginProvidersKo, string> = {
   "loginProviders.jit.off": "Not accepted",
   "loginProviders.jit.member": "Join as a member",
   "loginProviders.jitHint":
-    "When on, a person whose email address the provider vouches for joins as a member without an invite. When off, only invited people join.",
+    "When on, a person whose email address on an allowed domain the provider vouches for joins as a member without an invite. It needs at least one allowed domain. When off, only invited people join.",
+  "loginProviders.jitOpen":
+    "With no allowed domains, anyone with an account at this provider joins without an invite. List allowed domains or turn joining without an invite off.",
   "loginProviders.verified": "Verified email",
   "loginProviders.verified.required": "Required",
   "loginProviders.verified.optional": "Not required",
@@ -562,7 +566,7 @@ export const loginProvidersJa: Record<keyof typeof loginProvidersKo, string> = {
   "loginProviders.problem.verified_email_required":
     "Google プロバイダーでは検証済みメールの要求をオフにできません。",
   "loginProviders.problem.jit_requires_domains":
-    "Google プロバイダーでは許可ドメインなしで自動参加をオンにできません。",
+    "招待なしで参加をオンにするには、許可ドメインを1つ以上書いてください。",
   "loginProviders.error.exists": "同じ issuer のプロバイダーがすでにあります。",
   "loginProviders.error.enabled":
     "オンのプロバイダーではできません。先にオフにしてください。",
@@ -637,7 +641,9 @@ export const loginProvidersJa: Record<keyof typeof loginProvidersKo, string> = {
   "loginProviders.jit.off": "受け入れない",
   "loginProviders.jit.member": "member として参加",
   "loginProviders.jitHint":
-    "オンにすると、プロバイダーがメールアドレスを保証した人は招待なしで member として参加します。オフにすると、招待された人だけが参加します。",
+    "オンにすると、許可ドメインのメールアドレスをプロバイダーが保証した人は招待なしで member として参加します。オンにするには許可ドメインが1つ以上必要です。オフにすると、招待された人だけが参加します。",
+  "loginProviders.jitOpen":
+    "許可ドメインがないため、このプロバイダーのアカウントなら誰でも招待なしで参加します。許可ドメインを書くか、招待なしで参加をオフにしてください。",
   "loginProviders.verified": "検証済みメール",
   "loginProviders.verified.required": "要求する",
   "loginProviders.verified.optional": "要求しない",

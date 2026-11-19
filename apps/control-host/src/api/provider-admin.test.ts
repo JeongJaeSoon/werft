@@ -409,43 +409,62 @@ describe("sign-in provider settings service", () => {
     ).toEqual(["jitRole"]);
   });
 
-  test("update has the store refuse the rules Google's accounts cannot be given, as they would stand", async () => {
-    const { admin, asked } = service();
-    await admin.update(caller("owner"), ID, "5", {
-      require_verified_email: false,
-    });
-    const { refuse } = asked[0]?.input as Parameters<
-      LoginProviderAdminStore["update"]
-    >[0];
+  test("update has the store refuse the rules a provider's accounts cannot be given, as they would stand", async () => {
+    const refuseOf = async (
+      body: Parameters<ReturnType<typeof service>["admin"]["update"]>[3],
+    ) => {
+      const { admin, asked } = service();
+      await admin.update(caller("owner"), ID, "5", body);
+      return (
+        asked[0]?.input as Parameters<LoginProviderAdminStore["update"]>[0]
+      ).refuse;
+    };
     const google = {
       issuer: "https://accounts.google.com",
       allowedDomains: [] as string[],
       jitRole: null,
       requireVerifiedEmail: true,
     };
-    expect(refuse?.(google)).toBeNull();
-    expect(refuse?.({ ...google, requireVerifiedEmail: false })).toBe(
+    const company = { ...google, issuer: "https://idp.example.test" };
+    const admission = await refuseOf({ jit_role: "member" });
+    expect(admission?.(google)).toBeNull();
+    expect(admission?.({ ...google, requireVerifiedEmail: false })).toBe(
       "verified_email_required",
     );
-    expect(refuse?.({ ...google, jitRole: "member" })).toBe(
-      "jit_requires_domains",
-    );
+    // Nobody joins by themselves without a domain list, whoever the issuer.
+    for (const provider of [google, company]) {
+      expect(admission?.({ ...provider, jitRole: "member" })).toBe(
+        "jit_requires_domains",
+      );
+      expect(
+        admission?.({
+          ...provider,
+          jitRole: "member",
+          allowedDomains: ["example.com"],
+        }),
+      ).toBeNull();
+    }
     expect(
-      refuse?.({
-        ...google,
+      (await refuseOf({ allowed_domains: [] }))?.({
+        ...company,
         jitRole: "member",
-        allowedDomains: ["example.com"],
       }),
-    ).toBeNull();
+    ).toBe("jit_requires_domains");
     // Any other provider says for itself whether an address is verified.
     expect(
-      refuse?.({
-        issuer: "https://idp.example.test",
-        allowedDomains: [],
+      admission?.({
+        ...company,
+        allowedDomains: ["example.com"],
         jitRole: "member",
         requireVerifiedEmail: false,
       }),
     ).toBeNull();
+    // A provider saved before the rule keeps the rest of its settings editable.
+    const rename = await refuseOf({ display_name: "Renamed" });
+    expect(rename?.({ ...company, jitRole: "member" })).toBeNull();
+    expect(rename?.({ ...google, requireVerifiedEmail: false })).toBe(
+      "verified_email_required",
+    );
   });
 
   test("update needs If-Match, and says which refusal it met", async () => {

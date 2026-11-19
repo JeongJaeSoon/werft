@@ -35,10 +35,20 @@ Every provider takes four values in werft: Issuer, Client ID, Client secret, and
 | Google Workspace | `https://accounts.google.com` | `email_verified` and the Workspace domain (`hd`) | Only with allowed domains |
 | OneLogin | `https://<subdomain>.onelogin.com/oidc/2` | None by default | Not by default |
 | Microsoft Entra ID | `https://login.microsoftonline.com/<tenant-id>/v2.0` | None | No |
-| Okta | `https://<org>.okta.com` or `https://<org>.okta.com/oauth2/<server>` | `email_verified` (UserInfo) | Yes |
-| Keycloak | `https://<host>/realms/<realm>` | `email_verified` | Yes |
+| Okta | `https://<org>.okta.com` or `https://<org>.okta.com/oauth2/<server>` | `email_verified` (UserInfo) | Only with allowed domains |
+| Keycloak | `https://<host>/realms/<realm>` | `email_verified` | Only with allowed domains |
 
 People from a provider without "address proof" come in only through invite links or account linking. Putting allowed domains on such a provider refuses every sign-in (`403`).
+
+On every provider, **Join without an invite** turns on only with at least one allowed domain. A company IdP often holds guest and partner accounts too, so without a domain anyone with an account at that IdP would join as a member.
+
+### Providers that let people join without an invite and have no allowed domains
+
+A provider that had **Join without an invite** on with no allowed domains before this rule is left as it is. Sign-in and joining work as before. On the provider's page, the **Join without an invite** row says "With no allowed domains, anyone with an account at this provider joins without an invite".
+
+- Other settings, such as the name, client ID and secret, can be changed as before.
+- To save the rules under **Who can come in**, list at least one allowed domain or turn **Join without an invite** off. Otherwise the save is refused with `400 jit_requires_domains`.
+- Before changing it, check the email domains of the members who already joined in the member list. Accounts that already joined stay, but an account outside the allowed domains is refused from its next sign-in (a linked account too).
 
 ### Google Workspace
 
@@ -187,7 +197,7 @@ The screen shows the refusals below as sentences. When calling the API directly,
 | Status and code | Value | Meaning |
 | --- | --- | --- |
 | `400` | `verified_email_required` | Tried to turn **Verified email** off on a Google provider |
-| `400` | `jit_requires_domains` | Tried to turn **Join without an invite** on for a Google provider without allowed domains |
+| `400` | `jit_requires_domains` | Tried to turn **Join without an invite** on without allowed domains, or to empty the allowed domains while it is on |
 | `409 REVISION_CONFLICT` | `not_tested` | Tested or turned on without client values, or without a test that passed with the current settings |
 | `409 REVISION_CONFLICT` | `provider_enabled` | Tried to change the client ID, authentication method, or configuration document of a provider that is on, or to delete it |
 | `409 REVISION_CONFLICT` | `last_provider` | Tried to turn off the last provider that is on while password sign-in is closed |

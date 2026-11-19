@@ -857,6 +857,7 @@ describe("로그인 공급자 상세", () => {
     await screen.findByText("허용 도메인");
     expect(shown("허용 도메인")).toContain("example.com");
     expect(shown("초대 없이 가입")).toContain("받지 않음");
+    expect(shown("초대 없이 가입")).not.toContain("누구나");
     expect(shown("검증된 이메일")).toContain("요구함");
 
     const dialog = await openRules(user);
@@ -875,6 +876,17 @@ describe("로그인 공급자 상세", () => {
       jit_role: "member",
       require_verified_email: false,
     });
+  });
+
+  test("a join without an invite saved with no domain list says anyone at the provider joins", async () => {
+    renderAt(PAGE, routes([filled({ jit_role: "member" })]));
+    await screen.findByText("초대 없이 가입");
+    expect(
+      (screen.getByText("초대 없이 가입").closest("li") as HTMLElement)
+        .textContent,
+    ).toContain(
+      "허용 도메인이 없어 이 공급자의 계정이면 누구나 초대 없이 가입합니다.",
+    );
   });
 
   test("an emptied domain list and a turned-off join are sent as such, not left out", async () => {
@@ -1000,7 +1012,7 @@ describe("로그인 공급자 상세", () => {
     await user.selectOptions(named(dialog, "jit_role"), "member");
     await user.click(within(dialog).getByRole("button", { name: "저장" }));
     expect((await within(dialog).findByRole("alert")).textContent).toBe(
-      "Google 공급자는 허용 도메인 없이 자동 가입을 켤 수 없습니다.",
+      "초대 없이 가입을 켜려면 허용 도메인을 하나 이상 적으세요.",
     );
     // What the form does not hold is not sent: the stored value stands.
     expect(writes(api.calls)[0]?.body).toEqual({
