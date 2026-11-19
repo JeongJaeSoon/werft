@@ -61,6 +61,7 @@ import { consoleOriginFrom, slackApiUrlFrom } from "../api/slack-config.ts";
 import { queueDatabaseUrl } from "../database-url.ts";
 import { PASS_LOOP_ROLES, passLoopConfigFromEnv } from "../pass-loop/loop.ts";
 import {
+  createOutboxSlackNoticeSink,
   drainSlackInbox,
   drainSlackOutbox,
   type SlackInboundHandler,
@@ -69,11 +70,7 @@ import {
 } from "../wiring/chat-slack.ts";
 import { installationConfigOf } from "../wiring/installation-config.ts";
 import { releaseStartableIn } from "../wiring/release-startable.ts";
-import {
-  wireSlackInbound,
-  wireSlackOutbound,
-  wireSlackOutboxNotices,
-} from "../wiring/slack-worker.ts";
+import { wireSlackInbound, wireSlackOutbound } from "../wiring/slack-worker.ts";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
@@ -275,7 +272,7 @@ export async function main(
         logger,
         secretKey,
         leaseMs: settings.leaseMs,
-        notices: wireSlackOutboxNotices(outbox),
+        notices: createOutboxSlackNoticeSink(outbox),
         catalog,
       }),
       logger,

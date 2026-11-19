@@ -6,7 +6,6 @@ import type {
   SurfaceBindingStore,
 } from "@werft-ai/platform";
 import {
-  createOutboxSlackNoticeSink,
   createRowDelivery,
   createSlackBotApi,
   createSlackMemberJoinedHandler,
@@ -87,13 +86,6 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
     bindings: deps.bindings,
     next: memberJoined,
   });
-}
-
-/** The notice sink for the pass child: a notice becomes an outbox row. */
-export function wireSlackOutboxNotices(
-  outbox: Param<typeof createOutboxSlackNoticeSink>,
-): SlackNoticeSink {
-  return createOutboxSlackNoticeSink(outbox);
 }
 
 export interface SlackOutboundDeps {
