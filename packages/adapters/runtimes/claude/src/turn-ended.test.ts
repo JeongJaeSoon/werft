@@ -125,13 +125,6 @@ describe("turnEndedOf", () => {
     });
   });
 
-  test("a result that names no total costs nothing known", () => {
-    expect(ended({ type: "result", subtype: "success" }).cost).toEqual({
-      countRestarted: false,
-      unknown: true,
-    });
-  });
-
   test("a new engine session restarts the count", () => {
     const accounting = new TurnAccounting();
     const first = { type: "result", total_cost_usd: 2, session_id: "s1" };

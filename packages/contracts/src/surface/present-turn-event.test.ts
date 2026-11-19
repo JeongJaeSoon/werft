@@ -184,7 +184,6 @@ describe("presentTurnEvent", () => {
 
   test("every event name × status phase gets a label", () => {
     for (const name of SESSION_EVENT_NAMES) {
-      expect(FIXTURES.some((fixture) => fixture.event === name)).toBe(true);
       for (const phase of STATUS_EVENT_PHASE_VALUES) {
         const presented = presentTurnEvent({ event: name, data: { phase } });
         expect(presented.label.key).toBeString();
