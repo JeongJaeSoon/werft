@@ -431,25 +431,36 @@ integration("agent ownership on PostgreSQL", () => {
   });
 
   test("a dry run keeps a mark it would clear, and each side stops at the limit", async () => {
-    const ctx = await flagged();
-    await db.insert(agentAdmins).values({
-      workspaceId: ctx.workspaceId,
-      agentId: ctx.agentId,
-      userId: ctx.userId,
-    });
+    const first = await flagged();
+    const owned = [first, await flagged()];
+    for (const ctx of owned) {
+      await db.insert(agentAdmins).values({
+        workspaceId: ctx.workspaceId,
+        agentId: ctx.agentId,
+        userId: ctx.userId,
+      });
+    }
+    const ids = owned.map(({ agentId }) => agentId);
     const dry = await reconcileAgentOwnership(db, {
       limit: 1000,
       dryRun: true,
     });
-    expect(dry.cleared).toContain(ctx.agentId);
-    expect(await since(ctx.agentId)).toBeInstanceOf(Date);
+    expect(dry.cleared).toEqual(expect.arrayContaining(ids));
+    for (const id of ids) expect(await since(id)).toBeInstanceOf(Date);
 
-    const leaderless = await team(ctx.workspaceId);
-    await agent(ctx.workspaceId, leaderless);
-    await agent(ctx.workspaceId, leaderless);
+    const leaderless = await team(first.workspaceId);
+    await agent(first.workspaceId, leaderless);
+    await agent(first.workspaceId, leaderless);
     const one = await reconcileAgentOwnership(db, { limit: 1, dryRun: false });
     expect(one.flagged).toHaveLength(1);
     expect(one.cleared).toHaveLength(1);
-    expect(await since(ctx.agentId)).toBeNull();
+    const next = await reconcileAgentOwnership(db, {
+      limit: 1,
+      dryRun: false,
+    });
+    expect(next.flagged).toHaveLength(1);
+    expect(next.cleared).toHaveLength(1);
+    expect([...one.cleared, ...next.cleared].sort()).toEqual([...ids].sort());
+    for (const id of ids) expect(await since(id)).toBeNull();
   });
 });
