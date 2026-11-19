@@ -21,12 +21,9 @@ import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createApiApp } from "./app.ts";
-import {
-  createBootstrapGate,
-  DatabaseIdentityStore,
-  LoginLockout,
-} from "./auth.ts";
+import { createBootstrapGate, DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
+import { PasswordChecks } from "./password-checks.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
 
@@ -90,7 +87,7 @@ integration("who may disable a member or suspend an account", () => {
     const auth = {
       identity,
       bootstrap: createBootstrapGate(crypto.randomUUID()),
-      lockout: new LoginLockout(),
+      passwords: new PasswordChecks(),
       logger,
     };
     const authorization = createAuthorizationPolicy({

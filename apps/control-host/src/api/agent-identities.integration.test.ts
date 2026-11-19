@@ -48,12 +48,9 @@ import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createApiApp } from "./app.ts";
-import {
-  createBootstrapGate,
-  DatabaseIdentityStore,
-  LoginLockout,
-} from "./auth.ts";
+import { createBootstrapGate, DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
+import { PasswordChecks } from "./password-checks.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerAgentIdentityRoutes } from "./routes/musterrolle/agent-identities.ts";
 import { registerSlackBindingRoutes } from "./routes/surface/slack-bindings.ts";
@@ -80,7 +77,7 @@ integration("agent identities over HTTP on PostgreSQL", () => {
     const auth = {
       identity,
       bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
-      lockout: new LoginLockout(),
+      passwords: new PasswordChecks(),
     };
     authorization = createAuthorizationPolicy({
       identity: createDatabaseIdentityReader(db),

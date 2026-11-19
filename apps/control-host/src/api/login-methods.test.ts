@@ -27,6 +27,7 @@ import {
 import { createBootstrapGate, hashWebSessionToken, WorkGate } from "./auth.ts";
 import { generateApiKey, hashApiKey } from "./keys.ts";
 import { createFlowSealer } from "./oidc/flow-cookie.ts";
+import { PasswordChecks } from "./password-checks.ts";
 import { createProviderLogin } from "./provider-login.ts";
 import { recordRouteErrors } from "./route-error-coverage.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -164,6 +165,7 @@ function harness(
       flowKey: FLOW_KEY,
     }),
     loginMethods: methods,
+    passwords: new PasswordChecks(),
     ...(options.providerWork ? { providerWork: options.providerWork } : {}),
   };
   const app = createApiApp({

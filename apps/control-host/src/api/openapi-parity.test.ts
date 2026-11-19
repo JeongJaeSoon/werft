@@ -52,6 +52,7 @@ import type { BootstrapGate } from "./auth.ts";
 import type { InstallationConfigAdmin } from "./installation-config.ts";
 import type { LoginSettingsAdmin } from "./login-settings.ts";
 import { buildOpenApiDocument, DOCUMENTED_ROUTE_SCOPES } from "./openapi.ts";
+import { PasswordChecks } from "./password-checks.ts";
 import type { ProviderAdmin } from "./provider-admin.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { ROUTE_ERROR_TESTS } from "./route-error-coverage.ts";
@@ -139,6 +140,7 @@ function apiApp() {
   const auth = {
     identity: {} as IdentityStore,
     bootstrap: {} as BootstrapGate,
+    passwords: new PasswordChecks(),
   };
   return createApiApp({
     authMode: "none",
@@ -147,6 +149,7 @@ function apiApp() {
       registerPublicInviteRoutes(router, {
         invites: {} as InviteStore,
         identity: auth.identity,
+        passwords: auth.passwords,
       });
       registerSlackEventRoutes(router, {
         events: {} as SlackEventsService,

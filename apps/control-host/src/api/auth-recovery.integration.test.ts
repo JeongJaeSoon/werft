@@ -41,8 +41,8 @@ import {
   DatabaseIdentityStore,
   hashPassword,
   hashWebSessionToken,
-  LoginLockout,
 } from "./auth.ts";
+import { PasswordChecks } from "./password-checks.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerReceiptRoutes } from "./routes/sessions/receipts.ts";
 
@@ -93,7 +93,7 @@ integration("account recovery on PostgreSQL", () => {
       const auth = {
         identity,
         bootstrap: createBootstrapGate(bootstrapToken),
-        lockout: new LoginLockout(),
+        passwords: new PasswordChecks(),
         logger,
       };
       const app = createApiApp({

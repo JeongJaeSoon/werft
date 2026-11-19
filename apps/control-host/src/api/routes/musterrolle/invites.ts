@@ -30,15 +30,14 @@ import {
   generateWebSessionToken,
   hashPassword,
   hashWebSessionToken,
-  LoginLockout,
+  type LoginReservation,
   setWebSessionCookie,
   verifyPassword,
-  WEB_SESSION_TTL_MS,
-  WEB_SESSIONS_PER_USER,
-  WorkGate,
+  webSessionInput,
 } from "../../auth.ts";
+import type { PasswordChecks } from "../../password-checks.ts";
 import { passwordClosedTo, workspaceView } from "../auth.ts";
-import { mapped, rateLimited, requireParams } from "../errors.ts";
+import { mapped, requireParams } from "../errors.ts";
 
 // 32 random bytes, base64url, like every other one-time token here.
 export function generateInviteToken(): string {
@@ -91,9 +90,8 @@ export interface PublicInviteRouteDeps {
   identity: Pick<IdentityStore, "findWorkspace">;
   /** Absent: passwords are taken to be open; the store still decides. */
   loginSettings?: Pick<LoginSettingsStore, "read">;
-  /** The login lockout: a wrong password here is a guess at that account. */
-  lockout?: LoginLockout;
-  passwordWork?: WorkGate;
+  /** The login's instance: a wrong password here is a guess at that account. */
+  passwords: PasswordChecks;
   logger?: StructuredLogger;
 }
 
@@ -133,9 +131,6 @@ export function registerPublicInviteRoutes(
   router: ApiRouter,
   deps: PublicInviteRouteDeps,
 ) {
-  const lockout = deps.lockout ?? new LoginLockout();
-  const passwordWork = deps.passwordWork ?? new WorkGate();
-
   apiRoute(router, "acceptInvite", ingestThenStopClock, async (context) => {
     // It sets the session cookie, so it needs the login CSRF checks.
     const violation = browserRequestViolation(context);
@@ -160,55 +155,40 @@ export function registerPublicInviteRoutes(
     if (await passwordClosedTo(deps.loginSettings, null)) {
       throw passwordClosed();
     }
-    if (existing) {
-      const lockedFor = lockout.retryAfterMs(peek.email);
-      if (lockedFor > 0) throw rateLimited(lockedFor, "Too many failed logins");
-    }
-    const slot = passwordWork.tryAcquire();
-    if (!slot) throw rateLimited(1000, "Too many password checks in progress");
-    const releaseSlot = await slot;
     let account: AcceptInviteInput["account"];
     // The existing account's guess, counted until the invite is accepted.
-    let reservation: ReturnType<LoginLockout["reserve"]> | undefined;
-    try {
-      if (existing) {
-        reservation = lockout.reserve(peek.email);
-        if (reservation.retryAfterMs > 0) {
-          throw rateLimited(reservation.retryAfterMs, "Too many failed logins");
-        }
-        if (!(await verifyPassword(password, existing.passwordHash))) {
-          deps.logger?.warn("Invite accept refused: wrong password");
-          throw new ApiHttpError(401, "UNAUTHORIZED", ACCEPT_REFUSED);
-        }
-        account = {
-          kind: "existing",
-          userId: existing.id,
-          verifiedPasswordHash: existing.passwordHash,
-        };
-      } else {
-        account = {
-          kind: "new",
-          userId: randomUUID(),
-          passwordHash: await hashPassword(password),
-          displayName: body.display_name ?? defaultDisplayName(peek.email),
-          loginMethodId: randomUUID(),
-        };
+    let reservation: LoginReservation | undefined;
+    if (existing) {
+      const guessed = await deps.passwords.guess(peek.email, () =>
+        verifyPassword(password, existing.passwordHash),
+      );
+      reservation = guessed.reservation;
+      if (!guessed.value) {
+        deps.logger?.warn("Invite accept refused: wrong password");
+        throw new ApiHttpError(401, "UNAUTHORIZED", ACCEPT_REFUSED);
       }
-    } finally {
-      releaseSlot();
+      account = {
+        kind: "existing",
+        userId: existing.id,
+        verifiedPasswordHash: existing.passwordHash,
+      };
+    } else {
+      account = {
+        kind: "new",
+        userId: randomUUID(),
+        passwordHash: await deps.passwords.hashing(() =>
+          hashPassword(password),
+        ),
+        displayName: body.display_name ?? defaultDisplayName(peek.email),
+        loginMethodId: randomUUID(),
+      };
     }
     const sessionToken = generateWebSessionToken();
     const result = await deps.invites
       .acceptInvite({
         tokenHash,
         account,
-        session: {
-          id: randomUUID(),
-          tokenHash: hashWebSessionToken(sessionToken),
-          ttlMs: WEB_SESSION_TTL_MS,
-          userAgent: context.req.header("User-Agent")?.slice(0, 512) ?? null,
-          maxLive: WEB_SESSIONS_PER_USER,
-        },
+        session: webSessionInput(context, sessionToken),
         receiptId: randomUUID(),
       })
       .catch((error: unknown) => {
@@ -217,7 +197,7 @@ export function registerPublicInviteRoutes(
         throw error;
       });
     if (result.outcome === "accepted") {
-      if (existing) lockout.clear(peek.email);
+      if (existing) deps.passwords.succeeded(peek.email);
     } else if (
       result.outcome !== "account_changed" &&
       result.outcome !== "password_closed"
