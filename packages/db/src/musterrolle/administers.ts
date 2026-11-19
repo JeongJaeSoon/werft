@@ -120,6 +120,38 @@ export function administers(
   ) as SQL;
 }
 
+const ownerRow = alias(memberships, "owner_membership");
+const ownerUser = alias(users, "owner_user");
+
+/**
+ * True where someone live administers `agentId`: an enabled user, an enabled
+ * member of `workspaceId`, for whom `administers` holds. Workspace owners and
+ * admins do not count unless it holds for them too. Negated, it is what makes
+ * an agent ownerless.
+ */
+export function hasOwner(
+  db: Database,
+  workspaceId: string | SQLWrapper,
+  agentId: string | SQLWrapper,
+): SQL {
+  return exists(
+    db
+      .select({ one: sql`1` })
+      .from(ownerRow)
+      .innerJoin(
+        ownerUser,
+        and(eq(ownerUser.id, ownerRow.userId), isNull(ownerUser.disabledAt)),
+      )
+      .where(
+        and(
+          eq(ownerRow.workspaceId, workspaceId),
+          isNull(ownerRow.disabledAt),
+          administers(db, workspaceId, ownerRow.userId, agentId),
+        ),
+      ),
+  );
+}
+
 const managerRow = alias(memberships, "manager_membership");
 
 /**

@@ -451,10 +451,11 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const owner = await person(workspaceId, "owner");
     const userId = owner.actor?.userId ?? "";
     const agentsService = service();
-    const [direct, viaTeam, archivedTeam, removedFromTeam] = await seedAgents(
+    const seeded = await seedAgents(
       workspaceId,
       Array.from({ length: 6 }, () => "2026-01-01 00:00:00+00"),
     );
+    const [direct, viaTeam, archivedTeam, removedFromTeam] = seeded;
     await seedAgents(await workspace(), ["2026-01-01 00:00:00+00"]);
     await db.insert(agentAdmins).values({
       workspaceId,
@@ -489,17 +490,30 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     await team([archivedTeam], { archived: true });
     await team([removedFromTeam], { removed: true });
 
-    // Seeded agents have no release: drafts, until one is archived.
+    // Seeded agents have no release: drafts, until one is archived. The
+    // fixture team has no lead, so only the two the owner administers have
+    // someone; the owner's role counts for none of the others.
     expect(await agentsService.countAgents(owner)).toEqual({
-      counts: { all: 6, administered: 2, active: 0, draft: 6 },
+      counts: { all: 6, administered: 2, active: 0, draft: 6, ownerless: 4 },
     });
     await db
       .update(agents)
       .set({ status: "archived" })
       .where(eq(agents.id, removedFromTeam ?? ""));
     expect(await agentsService.countAgents(owner)).toEqual({
-      counts: { all: 6, administered: 2, active: 0, draft: 5 },
+      counts: { all: 6, administered: 2, active: 0, draft: 5, ownerless: 3 },
     });
+    expect(
+      (
+        await agentsService.listAgents(owner, { limit: 50, ownerless: "true" })
+      ).items
+        .map((agent) => agent.id)
+        .sort(),
+    ).toEqual(
+      seeded
+        .filter((id) => ![direct, viaTeam, removedFromTeam].includes(id))
+        .sort(),
+    );
     const listed = await createPostgresAgentAdminStore(db).listAdministered(
       workspaceId,
       userId,
@@ -517,12 +531,12 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     // A disabled member reads no agent either.
     expect(
       await createPostgresAgentStore(db).count(workspaceId, { userId }),
-    ).toEqual({ all: 0, administered: 0, active: 0, draft: 0 });
+    ).toEqual({ all: 0, administered: 0, active: 0, draft: 0, ownerless: 0 });
 
     // A member outside every agent finds none of them, in the list or counts.
     const member = await person(workspaceId, "member");
     expect(await agentsService.countAgents(member)).toEqual({
-      counts: { all: 0, administered: 0, active: 0, draft: 0 },
+      counts: { all: 0, administered: 0, active: 0, draft: 0, ownerless: 0 },
     });
     expect(
       await codeOf(agentsService.countAgents(serviceKey(workspaceId))),

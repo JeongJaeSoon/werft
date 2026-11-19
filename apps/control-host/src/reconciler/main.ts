@@ -9,6 +9,7 @@ import {
   expireToolCallAudits,
   projectToolCalls,
   purgeExpiredEnvStart,
+  reconcileAgentOwnership,
   reconcileExpiredLeases,
   reconcileOrphanedSessions,
   reconcileOverdueInterrupts,
@@ -113,6 +114,7 @@ export function reconcileOnce(
     deleteExpiredWebSessions: (options) =>
       deleteExpiredWebSessions(db, options),
     purgeExpiredEnvStart: (options) => purgeExpiredEnvStart(db, options),
+    reconcileOwnership: (options) => reconcileAgentOwnership(db, options),
     projectToolCalls: () =>
       projectToolCalls(db, {
         batchSize: TOOL_CALL_BATCH_SIZE,

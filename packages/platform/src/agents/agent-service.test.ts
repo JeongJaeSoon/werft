@@ -90,6 +90,8 @@ const detail: AgentRecord = {
     active_release_id: null,
     activation_revision: -1,
     auto_model_migration: true,
+    ownerless: false,
+    ownerless_since: null,
     created_by: OWNER,
     created_at: AT,
     updated_at: AT,
@@ -117,6 +119,7 @@ function memoryStore(
       administered: 0,
       active: 1,
       draft: 0,
+      ownerless: 0,
     }),
     summaries: async () => new Map(),
     get: async () => detail,
@@ -239,7 +242,7 @@ describe("agent service", () => {
       count: async (_workspace, reader) => {
         reached = true;
         readers.push(reader);
-        return { all: 0, administered: 0, active: 0, draft: 0 };
+        return { all: 0, administered: 0, active: 0, draft: 0, ownerless: 0 };
       },
     });
     const key = callerFor(

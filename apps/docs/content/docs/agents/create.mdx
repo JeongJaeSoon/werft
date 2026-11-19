@@ -135,10 +135,10 @@ curl -sS "$API/v1/agents/counts" "${WEB[@]}" | jq -c
 
 ```text
 {"n":1,"next_cursor":null}
-{"counts":{"all":1,"administered":1,"active":1,"draft":0}}
+{"counts":{"all":1,"administered":1,"active":1,"draft":0,"ownerless":0}}
 ```
 
-목록은 오래된 에이전트부터 `limit`개(기본 50, 최대 100)씩 온다. 응답의 `next_cursor`를 `cursor`로 보내면 다음 페이지이고, 마지막 페이지에서는 `null`이다. `cursor` 없이 부르면 첫 페이지만 온다. `q`(최대 200자)를 주면 이름이나 식별자에 그 글자가 든 에이전트만 대소문자 구분 없이 오고, `ids`에 에이전트 ID를 쉼표로 이어(최대 100개) 주면 그 에이전트만 온다. `connection_id`를 주면 활성 release가 그 연결로 도는 에이전트만 오고, 활성 release가 없는 에이전트는 빠진다. 모두 같은 `cursor`로 다음 페이지를 읽는다. `GET /v1/agents/counts`는 목록을 끝까지 읽었을 때의 개수(`all`), 그중 내가 직접 또는 팀으로 관리하는 개수(`administered`), 활성 release로 켜진 개수(`active`), 보관되지 않았지만 아직 활성 release가 없는 초안 개수(`draft`)를 준다. 둘 다 목록과 같은 권한이 있어야 하고 API key는 거절된다.
+목록은 오래된 에이전트부터 `limit`개(기본 50, 최대 100)씩 온다. 응답의 `next_cursor`를 `cursor`로 보내면 다음 페이지이고, 마지막 페이지에서는 `null`이다. `cursor` 없이 부르면 첫 페이지만 온다. `q`(최대 200자)를 주면 이름이나 식별자에 그 글자가 든 에이전트만 대소문자 구분 없이 오고, `ids`에 에이전트 ID를 쉼표로 이어(최대 100개) 주면 그 에이전트만 온다. `connection_id`를 주면 활성 release가 그 연결로 도는 에이전트만 오고, 활성 release가 없는 에이전트는 빠진다. 모두 같은 `cursor`로 다음 페이지를 읽는다. `GET /v1/agents/counts`는 목록을 끝까지 읽었을 때의 개수(`all`), 그중 내가 직접 또는 팀으로 관리하는 개수(`administered`), 활성 release로 켜진 개수(`active`), 보관되지 않았지만 아직 활성 release가 없는 초안 개수(`draft`), 관리할 사람이 없는 개수(`ownerless`)를 준다. 둘 다 목록과 같은 권한이 있어야 하고 API key는 거절된다. `ownerless=true`를 주면 관리할 사람이 없는 에이전트만 온다([관리자 없는 에이전트](/agents/permissions#관리자-없는-에이전트)).
 
 ## 콘솔의 담당 팀
 

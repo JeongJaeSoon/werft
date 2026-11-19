@@ -732,6 +732,7 @@ describe("에이전트 목록 탭과 검색", () => {
             administered: 250,
             active: 0,
             draft: 1,
+            ownerless: 0,
           },
         }),
     });
@@ -770,9 +771,11 @@ describe("에이전트 목록 페이지", () => {
         next_cursor: to < matched.length ? `c${to}` : null,
       });
     };
-  const counted = (all: number, administered = 0) => ({
+  const counted = (all: number, administered = 0, ownerless = 0) => ({
     "GET /v1/agents/counts": () =>
-      json(200, { counts: { all, administered, active: 0, draft: all } }),
+      json(200, {
+        counts: { all, administered, active: 0, draft: all, ownerless },
+      }),
   });
   const listedNames = () =>
     [

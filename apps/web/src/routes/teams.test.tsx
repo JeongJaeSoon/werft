@@ -1651,6 +1651,8 @@ describe("팀 화면", () => {
               active_release_id: null,
               activation_revision: 0,
               auto_model_migration: true,
+              ownerless: false,
+              ownerless_since: null,
               created_by: USER_ID,
               created_at: AT,
               updated_at: AT,

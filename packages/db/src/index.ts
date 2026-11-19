@@ -33,6 +33,7 @@ export * from "./musterrolle/agent-admins.ts";
 export * from "./musterrolle/agent-authority.ts";
 export * from "./musterrolle/agent-caller-limits.ts";
 export * from "./musterrolle/agent-identities.ts";
+export * from "./musterrolle/agent-ownership.ts";
 export * from "./musterrolle/api-keys.ts";
 export * from "./musterrolle/audit-events.ts";
 export * from "./musterrolle/authz-decisions.ts";

@@ -3673,6 +3673,12 @@ export const agents = pgTable(
     autoModelMigration: boolean("auto_model_migration").notNull().default(true),
     /** Its leads administer the agent. An agent is never without one. */
     managingTeamId: uuid("managing_team_id").notNull(),
+    /**
+     * When a pass first saw the agent with no one live to administer it;
+     * cleared once someone is. The grace before new runs are refused counts
+     * from here.
+     */
+    ownerlessSince: timestamp("ownerless_since", { withTimezone: true }),
     /** Counts the intents to change behavior; a stale result is told apart by it. */
     behaviorRevision: integer("behavior_revision").notNull().default(0),
     /**

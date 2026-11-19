@@ -27,6 +27,7 @@ import {
   useAgentAccess,
 } from "../components/agent-access.tsx";
 import { AgentAvatar } from "../components/agent-avatar.tsx";
+import { OwnerlessAlert } from "../components/agent-ownerless.tsx";
 import { AgentStateBadge } from "../components/agent-state.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
@@ -291,6 +292,7 @@ function AgentView({
     >
       <NewSessionReason reason={newSessionReason} />
       <OutcomeLine outcome={placed?.at === "page" ? placed.outcome : null} />
+      <OwnerlessAlert agent={agent} onAdmins={() => open("admins")} />
       {access === "read" ? (
         <Alert>
           <AlertDescription>{t("agent.readOnly")}</AlertDescription>

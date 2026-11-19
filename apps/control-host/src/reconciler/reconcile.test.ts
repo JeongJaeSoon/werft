@@ -106,6 +106,10 @@ describe("reconciler run", () => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return 4;
       },
+      reconcileOwnership: async (options) => {
+        expect(options).toEqual({ dryRun: false, limit: 12 });
+        return { flagged: ["agent-a"], cleared: ["agent-b", "agent-c"] };
+      },
       projectToolCalls: async () => ({
         eventsRead: 40,
         batches: 2,
@@ -207,6 +211,16 @@ describe("reconciler run", () => {
       }),
       expect.objectContaining({
         level: "info",
+        message: "Agent ownership reconciled",
+        fields: {
+          dry_run: false,
+          flagged_count: 1,
+          cleared_count: 2,
+          flagged_agent_ids: ["agent-a"],
+        },
+      }),
+      expect.objectContaining({
+        level: "info",
         message: "Tool calls projected",
         fields: {
           dry_run: false,
@@ -280,12 +294,17 @@ describe("reconciler run", () => {
         seen.push(dryRun);
         return 2;
       },
+      reconcileOwnership: async ({ dryRun }) => {
+        seen.push(dryRun);
+        return { flagged: [], cleared: [] };
+      },
       projectToolCalls: async () => {
         throw new Error("a dry run projects nothing");
       },
     });
 
     expect(seen).toEqual([
+      true,
       true,
       true,
       true,
@@ -346,6 +365,7 @@ describe("reconciler run", () => {
         expireToolAudits: async () => 0,
         deleteExpiredWebSessions: async () => 0,
         purgeExpiredEnvStart: async () => 0,
+        reconcileOwnership: async () => ({ flagged: [], cleared: [] }),
         projectToolCalls: async () => ({
           eventsRead: 10,
           batches: 1,
@@ -381,6 +401,7 @@ describe("reconciler run", () => {
     const expireToolAudits = async () => 0;
     const deleteExpiredWebSessions = async () => 0;
     const purgeExpiredEnvStart = async () => 0;
+    const reconcileOwnership = async () => ({ flagged: [], cleared: [] });
     const projectToolCalls = async () => ({
       eventsRead: 0,
       batches: 0,
@@ -412,6 +433,7 @@ describe("reconciler run", () => {
           expireToolAudits,
           deleteExpiredWebSessions,
           purgeExpiredEnvStart,
+          reconcileOwnership,
           projectToolCalls,
         }),
       ).rejects.toThrow("HEARTBEAT_TTL_SEC is read by the API only");
@@ -432,6 +454,7 @@ describe("reconciler run", () => {
         expireToolAudits,
         deleteExpiredWebSessions,
         purgeExpiredEnvStart,
+        reconcileOwnership,
         projectToolCalls,
       }),
     ).rejects.toThrow("RECONCILER_BATCH_SIZE");
@@ -450,6 +473,7 @@ describe("reconciler run", () => {
         expireToolAudits,
         deleteExpiredWebSessions,
         purgeExpiredEnvStart,
+        reconcileOwnership,
         projectToolCalls,
       }),
     ).rejects.toThrow("RECONCILER_DRY_RUN");

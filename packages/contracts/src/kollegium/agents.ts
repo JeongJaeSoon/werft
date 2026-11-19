@@ -388,11 +388,27 @@ export const agentSchema = z
      * at their next turn, nor a new session.
      */
     auto_model_migration: z.boolean(),
+    /**
+     * No one live administers the agent now: no admin of its own, no live
+     * member of an admin team, no lead of its managing team. Workspace owners
+     * and admins do not count.
+     */
+    ownerless: z.boolean(),
+    /**
+     * When the agent was first seen with no one to administer it, cleared
+     * once someone is. New runs are refused from this plus
+     * `AGENT_OWNERLESS_GRACE_DAYS` while it is still ownerless. Can lag
+     * `ownerless` by one reconciler pass.
+     */
+    ownerless_since: timestampSchema.nullable(),
     created_by: userIdSchema.nullable(),
     created_at: timestampSchema,
     updated_at: timestampSchema,
   })
   .strict();
+
+/** Days an ownerless agent keeps starting new sessions. */
+export const AGENT_OWNERLESS_GRACE_DAYS = 14;
 
 /** Insert-only. `content_sha256` is sha256 over the canonical JSON of the card. */
 export const agentVersionSchema = z
@@ -1249,6 +1265,10 @@ export const listAgentsQuerySchema = paginationQuerySchema.extend({
     description:
       "Keeps the agents whose active release runs on this provider connection. An agent with no active release is left out, and so is one whose settings the caller does not read: the connection is one of them.",
   }),
+  ownerless: z.literal("true").optional().meta({
+    description:
+      "Keeps the agents no one live administers now (`ownerless` true).",
+  }),
 });
 export const listAgentsResponseSchema = pageSchema(agentListItemSchema);
 const agentCountSchema = z.number().int().nonnegative();
@@ -1270,6 +1290,10 @@ export const countAgentsResponseSchema = z.object({
       draft: agentCountSchema.meta({
         description:
           "How many of `all` are not `archived` and have no `active_release_id` yet.",
+      }),
+      ownerless: agentCountSchema.meta({
+        description:
+          "How many of `all` no one live administers now (`ownerless` true).",
       }),
     })
     .strict(),

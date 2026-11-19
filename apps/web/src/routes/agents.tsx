@@ -9,6 +9,9 @@ import type {
 import { useWerft } from "@werft-ai/react";
 import { ListToolbar } from "@werft-ai/react/components";
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
   Button,
   buttonVariants,
   cn,
@@ -44,6 +47,10 @@ import {
   AgentSlug,
   SlackActionMark,
 } from "../components/agent-columns.tsx";
+import {
+  OWNERLESS_GRACE_DAYS,
+  OwnerlessBadge,
+} from "../components/agent-ownerless.tsx";
 import { agentRefusal } from "../components/agent-refusal.ts";
 import { AgentStateText, agentState } from "../components/agent-state.tsx";
 import {
@@ -152,12 +159,15 @@ function AgentList({
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
-  const [scope, setScope] = useState<"all" | "administered">("all");
+  const role = useRole();
+  const [scope, setScope] = useState<"all" | "administered" | "ownerless">(
+    "all",
+  );
   const [query, setQuery] = useState("");
   const q = useSearchTerm(query);
   const paged = scope !== "administered";
   const pages = useInfiniteQuery({
-    ...agentPagesQuery(client, q, AGENTS_PAGE_SIZE),
+    ...agentPagesQuery(client, q, AGENTS_PAGE_SIZE, scope === "ownerless"),
     enabled: paged,
   });
   // A new tab or search opens on the first page.
@@ -192,7 +202,11 @@ function AgentList({
     page,
     pageSize: AGENTS_PAGE_SIZE,
     // The counts know no search.
-    total: q ? undefined : counts.all,
+    total: q
+      ? undefined
+      : scope === "ownerless"
+        ? counts.ownerless
+        : counts.all,
     stale: !paged,
     onPageChange,
   });
@@ -207,17 +221,40 @@ function AgentList({
   const listed = paged ? listedPage : minePage;
   const read = paged ? pages.data !== undefined : mine !== undefined;
   const shown = read ? (listed.total ?? listed.items.length) : undefined;
+  const pickScope = (next: typeof scope) => {
+    setScope(next);
+    toFirstPage();
+  };
+  // Workspace managers are the ones who name a successor.
+  const manager = role === "owner" || role === "admin";
   return (
     <div className="flex flex-col gap-4">
+      {manager && counts.ownerless > 0 && scope !== "ownerless" ? (
+        <Alert variant="amber" className="border-0">
+          <AlertTitle>
+            {t("agents.ownerless.alert", { count: counts.ownerless })}
+          </AlertTitle>
+          <AlertDescription>
+            {t("agents.ownerless.alertText", { days: OWNERLESS_GRACE_DAYS })}
+            <span className="mt-2 flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => pickScope("ownerless")}
+              >
+                {t("agents.ownerless.show")}
+              </Button>
+            </span>
+          </AlertDescription>
+        </Alert>
+      ) : null}
       <ListToolbar
         filter={
           <SegmentedControl
             aria-label={t("agents.tabs.label")}
             value={scope}
-            onValueChange={(next) => {
-              setScope(next as typeof scope);
-              toFirstPage();
-            }}
+            onValueChange={(next) => pickScope(next as typeof scope)}
           >
             <SegmentedControlItem value="all" count={counts.all}>
               {t("agents.tabs.all")}
@@ -228,6 +265,11 @@ function AgentList({
             >
               {t("agents.tabs.administered")}
             </SegmentedControlItem>
+            {counts.ownerless > 0 || scope === "ownerless" ? (
+              <SegmentedControlItem value="ownerless" count={counts.ownerless}>
+                {t("agents.tabs.ownerless")}
+              </SegmentedControlItem>
+            ) : null}
           </SegmentedControl>
         }
         search={{
@@ -409,8 +451,9 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
           <GridTableCell cardLabel={column.engine}>
             <AgentEngine agent={agent} />
           </GridTableCell>
-          <GridTableCell cardLabel={column.state}>
+          <GridTableCell cardLabel={column.state} className="gap-2">
             <AgentStateText agent={agent} />
+            <OwnerlessBadge agent={agent} />
           </GridTableCell>
           <GridTableCell cardLabel={column.channels} className="gap-2">
             <AgentChannels agent={agent} />

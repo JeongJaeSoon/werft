@@ -78,7 +78,10 @@ export function agentServer({
   releaseRepository = null,
   mcpSettings,
   availableServers = ["docs", "wiki"],
+  ownerlessSince,
 }: {
+  /** Set: no one administers the agent; null when no pass has marked it yet. */
+  ownerlessSince?: string | null;
   mcpSettings?: AgentMcpSettings;
   availableServers?: readonly string[];
   description?: string | null;
@@ -182,6 +185,8 @@ export function agentServer({
         active_release_id: active,
         activation_revision: revision,
         auto_model_migration: true,
+        ownerless: ownerlessSince !== undefined,
+        ownerless_since: ownerlessSince ?? null,
         created_by: USER_ID,
         created_at: "2026-10-11T00:00:00.000Z",
         updated_at: "2026-10-11T00:00:00.000Z",

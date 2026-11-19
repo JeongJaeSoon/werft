@@ -47,6 +47,7 @@ import {
   administers,
   agentUsable,
   credentialsAllowed,
+  hasOwner,
   insideAgent,
   liveMember,
 } from "./musterrolle/administers.ts";
@@ -116,7 +117,19 @@ export async function releaseSuperseded(
   return row !== undefined;
 }
 
-export function agentOf(row: AgentRow, managingTeamName: string): Agent {
+/**
+ * Whether no one live administers the selected agent now (`hasOwner`). An
+ * archived agent runs nothing, so it is never ownerless.
+ */
+export function ownerlessNow(db: Database) {
+  return sql<boolean>`(${agents.status} <> 'archived' and not ${hasOwner(db, agents.workspaceId, agents.id)})`;
+}
+
+export function agentOf(
+  row: AgentRow,
+  managingTeamName: string,
+  ownerless: boolean,
+): Agent {
   return {
     id: row.id,
     workspace_id: row.workspaceId,
@@ -129,6 +142,8 @@ export function agentOf(row: AgentRow, managingTeamName: string): Agent {
     active_release_id: row.activeReleaseId,
     activation_revision: row.activationRevision,
     auto_model_migration: row.autoModelMigration,
+    ownerless,
+    ownerless_since: row.ownerlessSince?.toISOString() ?? null,
     created_by: row.createdBy,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
@@ -236,7 +251,11 @@ async function detailOf(
   agentId: string,
 ): Promise<AgentRecord | null> {
   const [row] = await db
-    .select({ agent: agents, teamName: managingTeamName })
+    .select({
+      agent: agents,
+      teamName: managingTeamName,
+      ownerless: ownerlessNow(db),
+    })
     .from(agents)
     .where(
       and(
@@ -255,7 +274,7 @@ async function detailOf(
     .orderBy(asc(agentVersions.versionNo));
   const releases = await readReleases(db, eq(agentReleases.agentId, agent.id));
   return {
-    agent: agentOf(agent, row.teamName),
+    agent: agentOf(agent, row.teamName, row.ownerless),
     versions: versions.map(versionOf),
     releases,
     active_release:
@@ -456,6 +475,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         .select({
           agent: agents,
           teamName: managingTeamName,
+          ownerless: ownerlessNow(db),
           cursorAt: sql<string>`${agents.createdAt}::text`,
         })
         .from(agents)
@@ -479,6 +499,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             // The release's connection is a setting: filtering on it keeps
             // only the agents whose settings the reader reads, so the rows
             // never tell anyone else which connection an agent runs on.
+            query.ownerless === undefined ? undefined : ownerlessNow(db),
             query.connection_id === undefined
               ? undefined
               : and(
@@ -501,7 +522,9 @@ export function createPostgresAgentStore(db: Database): AgentStore {
       const page = rows.slice(0, query.limit);
       const last = page[page.length - 1];
       return {
-        items: page.map((row) => agentOf(row.agent, row.teamName)),
+        items: page.map((row) =>
+          agentOf(row.agent, row.teamName, row.ownerless),
+        ),
         next_cursor:
           rows.length > query.limit && last
             ? encodeCreatedAtCursor({
@@ -520,7 +543,11 @@ export function createPostgresAgentStore(db: Database): AgentStore {
       // A key bound to an agent reaches that agent and nothing else.
       if (who.keyAgentId !== null && keyAgentId === null) return [];
       const rows = await db
-        .select({ agent: agents, teamName: managingTeamName })
+        .select({
+          agent: agents,
+          teamName: managingTeamName,
+          ownerless: ownerlessNow(db),
+        })
         .from(agents)
         .where(
           and(
@@ -546,7 +573,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         )
         .orderBy(asc(agents.createdAt), asc(agents.id))
         .limit(limit);
-      return rows.map((row) => agentOf(row.agent, row.teamName));
+      return rows.map((row) => agentOf(row.agent, row.teamName, row.ownerless));
     },
 
     async count(workspaceId, reader) {
@@ -560,6 +587,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           )}))::int`,
           active: sql<number>`(count(*) filter (where ${agents.status} = 'active' and ${agents.activeReleaseId} is not null))::int`,
           draft: sql<number>`(count(*) filter (where ${agents.status} <> 'archived' and ${agents.activeReleaseId} is null))::int`,
+          ownerless: sql<number>`(count(*) filter (where ${ownerlessNow(db)}))::int`,
         })
         .from(agents)
         .where(
@@ -574,6 +602,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         administered: row?.administered ?? 0,
         active: row?.active ?? 0,
         draft: row?.draft ?? 0,
+        ownerless: row?.ownerless ?? 0,
       };
     },
 

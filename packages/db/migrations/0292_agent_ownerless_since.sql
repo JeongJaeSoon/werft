@@ -1,0 +1,1 @@
+ALTER TABLE "agents" ADD COLUMN "ownerless_since" timestamp with time zone;

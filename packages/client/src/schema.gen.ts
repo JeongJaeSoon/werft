@@ -2588,7 +2588,7 @@ export interface paths {
         };
         /**
          * The workspace's agents
-         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. A member lists only the agents they are inside (owners and admins every agent, anyone else the agents they administer or whose managing team they are a live member of), and of those not a private agent they may not use, as if it did not exist (the same rule as `GET /v1/usable-agents` and a session start), each agent's row being its information (name, slug, description, managing team id and name, status, active release id). `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its connection, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once, only on the agents whose settings the caller reads (`GET /v1/agents/{id}`); the other items come without it. Without `include` the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, `ids` the agents named (at most 100; an id of no agent in the workspace is left out); each narrows the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.
+         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. A member lists only the agents they are inside (owners and admins every agent, anyone else the agents they administer or whose managing team they are a live member of), and of those not a private agent they may not use, as if it did not exist (the same rule as `GET /v1/usable-agents` and a session start), each agent's row being its information (name, slug, description, managing team id and name, status, active release id). `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its connection, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once, only on the agents whose settings the caller reads (`GET /v1/agents/{id}`); the other items come without it. Without `include` the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, `ids` the agents named (at most 100; an id of no agent in the workspace is left out), `ownerless=true` the agents no one live administers now (`ownerless` true: no admin of its own, no live member of an admin team and no lead of its live managing team; workspace owners and admins do not count); each narrows the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.
          *
          *     **Scope:** `sessions:write` (API key or cookie session).
          */
@@ -2616,7 +2616,7 @@ export interface paths {
         };
         /**
          * How many agents the workspace has, by state, and how many the caller administers
-         * @description `all` is how many agents GET /v1/agents lists read to the last page; `administered` is how many of them the caller administers now, directly or through a team they are a live member of; `active` is how many are `active` with an `active_release_id`, and `draft` how many are not `archived` and have none yet. Answered for the same callers as the list, over the same agents: every member counts what the list shows them, so a private agent the caller may not use is in no count. API keys are refused. It changes nothing.
+         * @description `all` is how many agents GET /v1/agents lists read to the last page; `administered` is how many of them the caller administers now, directly or through a team they are a live member of; `active` is how many are `active` with an `active_release_id`, and `draft` how many are not `archived` and have none yet; `ownerless` how many no one live administers now, the rows `ownerless=true` lists. Answered for the same callers as the list, over the same agents: every member counts what the list shows them, so a private agent the caller may not use is in no count. API keys are refused. It changes nothing.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -4932,6 +4932,11 @@ export interface components {
             ids?: string;
             /** @description Keeps the agents whose active release runs on this provider connection. An agent with no active release is left out, and so is one whose settings the caller does not read: the connection is one of them. */
             connection_id?: string;
+            /**
+             * @description Keeps the agents no one live administers now (`ownerless` true).
+             * @constant
+             */
+            ownerless?: "true";
         };
         ListApiKeysQuery: {
             cursor?: string;
@@ -9498,6 +9503,8 @@ export interface components {
                 active_release_id: string | null;
                 activation_revision: number;
                 auto_model_migration: boolean;
+                ownerless: boolean;
+                ownerless_since: string | null;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -9535,6 +9542,8 @@ export interface components {
                 active: number;
                 /** @description How many of `all` are not `archived` and have no `active_release_id` yet. */
                 draft: number;
+                /** @description How many of `all` no one live administers now (`ownerless` true). */
+                ownerless: number;
             };
         };
         ListAchievementCategoriesResponse: {
@@ -9865,6 +9874,8 @@ export interface components {
                 active_release_id: string | null;
                 activation_revision: number;
                 auto_model_migration: boolean;
+                ownerless: boolean;
+                ownerless_since: string | null;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -10056,6 +10067,8 @@ export interface components {
                 active_release_id: string | null;
                 activation_revision: number;
                 auto_model_migration: boolean;
+                ownerless: boolean;
+                ownerless_since: string | null;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -10552,6 +10565,8 @@ export interface components {
                 active_release_id: string | null;
                 activation_revision: number;
                 auto_model_migration: boolean;
+                ownerless: boolean;
+                ownerless_since: string | null;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -10577,6 +10592,8 @@ export interface components {
                 active_release_id: string | null;
                 activation_revision: number;
                 auto_model_migration: boolean;
+                ownerless: boolean;
+                ownerless_since: string | null;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -29344,6 +29361,7 @@ export interface operations {
                 q?: string;
                 ids?: string;
                 connection_id?: string;
+                ownerless?: "true";
             };
             header?: never;
             path?: never;
@@ -29373,6 +29391,8 @@ export interface operations {
                      *           "active_release_id": null,
                      *           "activation_revision": -1,
                      *           "auto_model_migration": true,
+                     *           "ownerless": false,
+                     *           "ownerless_since": null,
                      *           "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                      *           "created_at": "2026-10-11T08:00:00Z",
                      *           "updated_at": "2026-10-11T08:00:00Z"
@@ -29620,7 +29640,8 @@ export interface operations {
                      *         "all": 128,
                      *         "administered": 3,
                      *         "active": 97,
-                     *         "draft": 24
+                     *         "draft": 24,
+                     *         "ownerless": 1
                      *       }
                      *     }
                      */
@@ -39868,6 +39889,8 @@ export interface operations {
                      *         "active_release_id": null,
                      *         "activation_revision": -1,
                      *         "auto_model_migration": true,
+                     *         "ownerless": false,
+                     *         "ownerless_since": null,
                      *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                      *         "created_at": "2026-10-11T08:00:00Z",
                      *         "updated_at": "2026-10-11T08:00:00Z"
