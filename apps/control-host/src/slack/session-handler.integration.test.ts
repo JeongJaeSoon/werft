@@ -608,6 +608,27 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(await inboxStatuses()).toEqual(["processed"]);
   });
 
+  test("an agent no one has administered past the grace period says so in the thread", async () => {
+    const fixture = await agentInSlack("main");
+    await db
+      .delete(schema.agentAdmins)
+      .where(eq(schema.agentAdmins.agentId, fixture.agentId));
+    await db
+      .update(agents)
+      .set({ ownerlessSince: sql`now() - interval '15 days'` })
+      .where(eq(agents.id, fixture.agentId));
+    const { handle, notices } = handler();
+    await deliver(fixture, mention("100.000100"));
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      reason: "agent_ownerless",
+      notice: { message: "agentOwnerless" },
+    });
+    expect(await inboxStatuses()).toEqual(["processed"]);
+  });
+
   test("a linked member outside the managing team is refused before the agent's release state", async () => {
     const fixture = await agentInSlack("main", { activate: false });
     const outsiderId = randomUUID();

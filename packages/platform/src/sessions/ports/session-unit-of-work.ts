@@ -131,7 +131,14 @@ export type AcceptSessionResult =
   /** The agent is private and the requester is not among those who use it. */
   | { outcome: "agent_private" }
   | { outcome: "caller_limited"; dimension: CallerLimitDimension }
-  | { outcome: "not_runnable"; reason: "agent_inactive" | "release_unapproved" }
+  /**
+   * `agent_ownerless`: no one has administered the agent for the whole grace
+   * period, judged in the write alone.
+   */
+  | {
+      outcome: "not_runnable";
+      reason: "agent_inactive" | "agent_ownerless" | "release_unapproved";
+    }
   | { outcome: "credential_unbound"; receiptId: string }
   /** A declared name has no value for this agent; no session was created. */
   | { outcome: "variables_refused"; reason: EnvRefusal; receiptId: string }

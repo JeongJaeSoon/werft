@@ -496,6 +496,8 @@ export function createSlackSessionHandler(
         await notice("repository_required", { message: "repositoryRequired" });
       } else if (error.code === "RELEASE_SPEC_UNAVAILABLE") {
         await notice("release_unavailable", { message: "releaseUnavailable" });
+      } else if (reasonCodeOf(error.details) === "agent_ownerless") {
+        await notice("agent_ownerless", { message: "agentOwnerless" });
       } else if (reasonCodeOf(error.details) === "caller_limited") {
         await notice("caller_limited", {
           message: CALLER_LIMITED_NOTICE[callerLimitDimensionOf(error.details)],

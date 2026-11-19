@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  AGENT_OWNERLESS_GRACE_DAYS,
   type AuthorizationSubject,
   attemptStateSchema,
   type CheckpointBlockReason,
@@ -104,10 +105,11 @@ import {
   encodeTurnCursor,
   rethrowCursorCastError,
 } from "./cursors.ts";
+import { DB_NOW } from "./db-clock.ts";
 import { captureGitHubPolicyStart } from "./github/github-settings.ts";
 import { admitInput } from "./input-limits.ts";
 import { readArchivedWorkspaceLimit } from "./limits/workspace-limit.ts";
-import { agentReachable } from "./musterrolle/administers.ts";
+import { agentReachable, hasOwner } from "./musterrolle/administers.ts";
 import {
   inputRefusal,
   lockCallerLimit,
@@ -305,23 +307,34 @@ async function insertQueuedTurn(
 }
 
 /**
- * Whether the release's agent is paused or archived, read under a share lock
- * on the agent row so a pause that commits later waits for this acceptance,
- * and one that committed earlier is seen. Approval is not read again: it is
- * recorded once and never withdrawn, so what the service saw cannot go stale.
+ * Whether the release's agent is paused or archived, or has had no one to
+ * administer it for the whole grace period, read under a share lock on the
+ * agent row so a pause that commits later waits for this acceptance, and one
+ * that committed earlier is seen. Approval is not read again: it is recorded
+ * once and never withdrawn, so what the service saw cannot go stale.
+ *
+ * Ownership is judged here and nowhere earlier, so a succession that commits
+ * before this read lets the start through without waiting for the reconciler.
+ * A removal of the last admin locks none of the rows read here; starts that
+ * read before it commits go through, which the grace period makes harmless.
  */
-async function lockedAgentInactive(
+async function lockedNotRunnable(
   tx: Database,
   releaseId: string,
-): Promise<"agent_inactive" | null> {
+): Promise<"agent_inactive" | "agent_ownerless" | null> {
   const [row] = await tx
-    .select({ status: agents.status })
+    .select({
+      status: agents.status,
+      ownerless: sql<boolean>`(${agents.ownerlessSince} <= ${DB_NOW} - make_interval(days => ${AGENT_OWNERLESS_GRACE_DAYS}) and not ${hasOwner(tx, agents.workspaceId, agents.id)})`,
+    })
     .from(agentReleases)
     .innerJoin(agents, eq(agents.id, agentReleases.agentId))
     .where(eq(agentReleases.id, releaseId))
     .limit(1)
     .for("share", { of: agents });
-  return row !== undefined && row.status !== "active" ? "agent_inactive" : null;
+  if (row === undefined) return null;
+  if (row.status !== "active") return "agent_inactive";
+  return row.ownerless ? "agent_ownerless" : null;
 }
 
 export function createPostgresSessionUnitOfWork(
@@ -423,7 +436,7 @@ export function createPostgresSessionUnitOfWork(
           };
         }
         if (input.credentialsUnbound && input.agentReleaseId !== undefined) {
-          const reason = await lockedAgentInactive(tx, input.agentReleaseId);
+          const reason = await lockedNotRunnable(tx, input.agentReleaseId);
           if (reason !== null) return { outcome: "not_runnable", reason };
           return unbound(input.agentReleaseId);
         }
@@ -433,7 +446,7 @@ export function createPostgresSessionUnitOfWork(
         // After the requester's rows, so the agent row is never taken before
         // a key row (a key revoke locks the key, then the agent).
         if (input.agentReleaseId !== undefined) {
-          const reason = await lockedAgentInactive(tx, input.agentReleaseId);
+          const reason = await lockedNotRunnable(tx, input.agentReleaseId);
           if (reason !== null) return { outcome: "not_runnable", reason };
         }
         // The settings are locked and read before the names are judged, so

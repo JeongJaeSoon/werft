@@ -220,6 +220,14 @@ const CLOSE_REJECTIONS: Record<
   closed: ["SESSION_CLOSED", "Session is closed"],
 };
 
+const NOT_RUNNABLE_MESSAGES = {
+  agent_inactive: "This agent is paused or archived and starts no new session",
+  agent_ownerless:
+    "No one has administered this agent for the grace period, so it starts no new session until someone does",
+  release_unapproved:
+    "This release was never approved; activate it before starting a session on it",
+} as const;
+
 // Not a prediction of when the queue drains — turns wait on approvals and run
 // for minutes — only a floor that keeps clients from retrying in a tight loop.
 export const QUEUE_FULL_RETRY_AFTER_SECONDS = 5;
@@ -555,14 +563,12 @@ export function createSessionService(deps: {
   }
 
   function notRunnable(
-    reason: "agent_inactive" | "release_unapproved",
+    reason: "agent_inactive" | "agent_ownerless" | "release_unapproved",
     release: { id: string; agent_id: string },
   ) {
     return new SessionServiceError(
       "AGENT_NOT_RUNNABLE",
-      reason === "agent_inactive"
-        ? "This agent is paused or archived and starts no new session"
-        : "This release was never approved; activate it before starting a session on it",
+      NOT_RUNNABLE_MESSAGES[reason],
       undefined,
       {
         reason_code: reason,
