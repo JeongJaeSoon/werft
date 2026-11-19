@@ -240,8 +240,15 @@ Contents of the instruction file (AGENTS.md, else CLAUDE.md) at the root of the 
 - **MCP 도구 대상의 이름.** 규칙의 MCP 서버는 워크스페이스에 등록한 서버 목록에서 고른다(자유 입력이 아니다). 그래서 스킬·MCP 설계의 서버 식별자를 그대로 쓴다. 서버 이름이 바뀌어도 규칙은 서버 id를 따라간다.
 - **MCP 거부의 집행.** egress의 호출별 판정은 엔진과 상관없다. 그래서 그 설계의 "엔진 중립" 원칙과 같은 자리에 둔다. 릴리스 MCP deny 핀과 사용자 거부 규칙은 한 판정 함수에서 합친다.
 - **통합 접근 판정과의 관계.** 오너는 2026-11-20에 메모리 범위, MCP 인증정보, 에이전트 답변 권한을 하나의 접근 판정 모델로 판정하기로 했다. 모델의 입력은 주체(요청자, 에이전트, 팀 소속), 대상, 맥락(비공개 세션, DM, 공개 채널)이다. 결과는 허용 또는 거부이고, 모두 감사에 남긴다. 실행 규칙은 이 모델을 새로 설계하지 않고 다음처럼 놓는다.
-  - **MCP 도구 호출은 한 진입점에서 판정한다.** egress의 `tools/call` 판정이 이미 호출마다 서버를 거친다. 그 자리에서 접근 판정(어느 인증정보로 부를지)과 실행 규칙의 MCP 거부를 한 판정 호출로 묶는다. 결과는 한 번만 기록한다.
-  - **명령·파일 규칙은 진입점을 공유하지 않는다.** 이 규칙은 claim 때 엔진 설정으로 바뀌고, 호출마다 엔진(pi는 werft 확장)이 판정한다. 그래서 호출마다 서버의 판정 API를 부르는 구조가 아니다. 공유하는 것은 판정 기록의 형식이다. claim 때 합친 규칙과 세션 snapshot을 같은 감사 레코드(주체·대상·근거 규칙·결과)로 남긴다. 엔진이 거부한 호출은 지금의 도구 판정 기록(`tool-decisions.ts`)에 근거 규칙과 함께 남긴다.
+  - **MCP 도구 호출은 한 진입점에서 판정한다.** egress의 `tools/call` 판정이 이미 호출마다 서버를 거친다. 그 자리에서 접근 판정(어느 인증정보로 부를지)과 실행 규칙의 MCP 거부를 한 판정 호출로 묶고, 결과는 한 번만 기록한다. 이것은 지금 감사 경로를 바꾸는 일이다.
+    - 지금 설치 카탈로그 경로는 인증정보 관련 거부 일부만 기록하고, 도구 거부와 허용은 기록 없이 돌려준다(`packages/platform/src/workers/mcp-egress.ts:117`, `:159-168`).
+    - 워크스페이스 MCP 경로는 허용 호출을 따로 기록한다(`packages/platform/src/workers/workspace-mcp-egress.ts:137`).
+    - 합칠 때는 두 경로가 같은 판정 함수와 같은 기록 한 줄을 쓴다. 열린 스트림의 재판정(`regrant`)은 같은 호출의 재확인으로 묶어, 거부로 바뀔 때만 새 줄을 남긴다.
+  - **명령·파일 규칙은 진입점을 공유하지 않는다.** 이 규칙은 claim 때 엔진 설정으로 바뀌고, 호출마다 엔진(pi는 werft 확장)이 판정한다. 그래서 호출마다 서버의 판정 API를 부르는 구조가 아니다. 공유하는 것은 판정 기록의 형식이다. claim 때 합친 규칙과 세션 snapshot을 같은 감사 레코드(주체·대상·근거 규칙·결과)로 남긴다. 엔진이 거부한 호출을 남기는 길은 **지금 없다.**
+    - Claude 어댑터는 엔진 거부(`PermissionDenied`)를 받으면 대기 항목을 지울 뿐 관측을 내보내지 않는다(`packages/adapters/runtimes/claude/src/runtime.ts:250-256`, `:447`, `tool-decisions.ts:68-70`).
+    - 관측 계약에는 맞은 규칙을 담는 칸이 없다(`packages/runtime-core/src/tool-decision.ts:8-25`).
+    - 구현 단위에 둘을 넣는다. 첫째, 엔진 거부를 `decision: "deny"`로 내보낸다. 둘째, 관측에 근거 규칙(공통 규칙 id 또는 "내장 규칙")을 담는 선택 칸을 더한다.
+    - 엔진이 어느 규칙에 걸렸는지 알려 주지 않을 때(Claude·Codex 모두 거부 사유만 준다)는 werft가 같은 호출을 snapshot 규칙에 다시 맞춰 근거를 채운다. 그래도 못 찾으면 "엔진 거부, 근거 미상"으로 남긴다.
   - **규칙을 고칠 수 있는 사람**(워크스페이스 소유자·관리자, 에이전트 관리자)은 지금의 RBAC가 판정한다. 이것은 접근 판정 모델의 대상이 아니다.
 - **스킬.** 스킬은 규칙 대상이 아니다. 스킬이 실행하는 스크립트는 명령이므로 명령 규칙을 그대로 받는다. 지시문은 항상 실리는 글이고, 스킬은 필요할 때 불러오는 글이다. 조직 지시문에 스킬 본문을 붙여 넣지 말라는 안내를 편집기 설명에 둔다.
 - **pi.** 이 문서는 pi를 세 번째 엔진으로 가정하고 변환을 적었다. 붙일지와 비용은 스킬·MCP 설계 문서가 정한다. 붙인다면 이 문서의 pi 열이 확장의 요구 사항이 된다. 권한 판정, 묻기를 werft 승인으로 돌리기, `--no-context-files`가 그 내용이다.
@@ -264,6 +271,6 @@ Contents of the instruction file (AGENTS.md, else CLAUDE.md) at the root of the 
 
 1. contracts·db: 규칙 행(`workspace_run_rules`, `agent_run_rules`), 지시문 행, 저장 API, receipt. 옛 `*_engine_settings` 표는 건드리지 않는다.
 2. worker 계약: `run_rules`·`instructions` capability와 선택 필드(expand). 이 이미지가 롤백 하한이 된 뒤에 3을 켠다.
-3. platform: 합치기, 세션 snapshot(규칙·지시문), capability가 있는 worker에만 싣기와 없을 때 거절, claim·재개 때 엔진 표현 능력 검사, egress MCP 판정에 도구 이름 prefix 더하기.
-4. 어댑터: Claude 변환(flag settings allow·deny, 루트 고정 경로), Codex 변환(`.rules` allow·forbidden, `unexpressed`와 겹치는 허용 빼기, 펼친 `disabled_tools`, deny 거절 조건 갱신), 저장소 파일 `CLAUDE.md` fallback을 Codex에도, 저장소 파일 32 KiB 자르기. 복구 검증 도구(`scripts/lib/checkpoint-pins.ts`)가 snapshot으로 지문을 만들게.
+3. platform: 합치기, 세션 snapshot(규칙·지시문), capability가 있는 worker에만 싣기와 없을 때 거절, claim·재개 때 엔진 표현 능력 검사, egress MCP 판정에 도구 이름 prefix 더하기, 두 egress 경로의 판정·기록을 한 함수와 한 줄로 합치기.
+4. 어댑터: Claude 변환(flag settings allow·deny, 루트 고정 경로), Codex 변환(`.rules` allow·forbidden, 원본 내장 묻기 패턴과 겹치는 허용 빼기, 펼친 `disabled_tools`, deny 거절 조건 갱신), 저장소 파일 `CLAUDE.md` fallback을 Codex에도, 저장소 파일 32 KiB 자르기. 복구 검증 도구(`scripts/lib/checkpoint-pins.ts`)가 snapshot으로 지문을 만들게. 엔진 거부를 `deny` 관측으로 내보내고, 관측 계약에 근거 규칙 칸을 더한다.
 5. web: 규칙 편집기, 조직 지시문 카드, 에이전트 지시문과 합친 결과, i18n(ko·en·ja), 문서.
