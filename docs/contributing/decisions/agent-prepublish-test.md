@@ -60,7 +60,7 @@
   4. 에이전트가 `active`다. 소유자 없음으로 막힌 에이전트도 미리보기는 된다. 승계하려는 사람이 확인할 길이 있어야 하기 때문이다(관리자가 없으면 워크스페이스 관리자만 해당한다).
 - **거절의 모양.** 바깥쪽(그 에이전트를 볼 수 없는 사람)은 지금처럼 release를 찾기 전에 `404`로 숨긴다(`packages/platform/src/sessions/session-service.ts:528`, `:644`). 미리보기라고 해서 승인·연결·모델 진단을 먼저 보여 주지 않는다. 안쪽이지만 관리자가 아닌 사람(게시된 에이전트의 담당 팀 `member`)이 `preview: true`를 보내면 `403 FORBIDDEN`(`reason_code: role`)이다. 이 사람은 이미 설정 화면에서 release를 읽으므로 감출 것이 없다. `preview` 없이 승인 안 된 release를 보내면 지금처럼 `release_unapproved`다.
 - **턴마다 다시 본다.** 미리보기 세션에 입력을 더하거나 이어 가는 모든 요청(턴 제출, 재개)은 그 순간에도 2를 만족해야 한다. 관리자에서 빠진 뒤에는 자기가 만든 미리보기 세션이라도 새 턴을 돌리지 못하고 `403`(`reason_code: role`)이다. 판정은 입력을 받아들이는 transaction 안에서, 사용 판정을 잠금 아래 다시 하는 자리(`requester-locks.ts`)에서 한다.
-- **대기 요청 답변도 같다.** 미리보기 세션의 질문·권한 요청에 답하거나 push·PR을 승인하는 것도 멈춘 턴을 이어 가게 한다(`packages/platform/src/sessions/pending-service.ts:82-86`, 잠금 아래 재판정 `packages/db/src/sessions/pending-requests.ts:747-750`, 재개 `:928-946`). 지금은 세션을 만든 사람이면 관리자가 아니어도 답할 수 있다(`policy.ts:545-550`). 미리보기 세션에서는 답하는 사람이 웹 로그인한 사람이고 지금도 그 에이전트를 관리해야 한다. 같은 쓰기 transaction 안에서 본다. 관리자에서 빠진 뒤 멈춘 요청에 답하는 시험을 둔다.
+- **대기 요청 답변도 같다.** 미리보기 세션의 질문·권한 요청에 답하거나 push·PR을 승인하는 것도 멈춘 턴을 이어 가게 한다(`packages/platform/src/decision/pending-service.ts:82-86`, 잠금 아래 재판정 `packages/db/src/sessions/pending-requests.ts:747-750`, 재개 `:928-946`). 지금은 세션을 만든 사람이면 관리자가 아니어도 답할 수 있다(`policy.ts:545-550`). 미리보기 세션에서는 답하는 사람이 웹 로그인한 사람이고 지금도 그 에이전트를 관리해야 한다. 같은 쓰기 transaction 안에서 본다. 관리자에서 빠진 뒤 멈춘 요청에 답하는 시험을 둔다.
 - transcript 읽기는 이 조건과 따로이고 지금의 세션 공유 규칙을 따른다.
 - 승인된 release(활성 또는 옛 release)에도 `preview: true`를 보낼 수 있다. 같은 표시와 같은 조건이 붙을 뿐이다.
 - 세션 행에 `preview boolean NOT NULL DEFAULT false`를 둔다. 상세·목록에 `preview`로 나온다. release가 나중에 게시돼도 이 값은 바뀌지 않는다.
@@ -75,7 +75,7 @@
 - **`activate: false`의 상태 전이.** 지금의 저장 기계를 그대로 쓰고, 마지막 활성화만 하지 않는다.
   1. 지금처럼 `behavior_revision`을 하나 올리고 draft(`draft_version_id`, `draft_connection_id`)를 채운다. `draft_failure`는 비운다. 이 revision이 오르므로 앞서 진행 중이던 저장의 활성화는 지금처럼 `superseded`로 끝난다. 그래서 더 오래된 저장이 나중에 켜지는 일이 없다.
   2. 그 버전과 연결로 release를 만든다(`createRelease`와 같은 검사). 켜지 않는다. release를 만들지 못하면(연결이 꺼짐, 모델이 목록에 없음, 확장 거절 등, `agent-service.ts:491-531`) 지금의 저장 실패와 같이 처리한다. draft는 남기고, 그 revision이 아직 지금 것일 때만 `draft_failure`를 적고 `failed`(이유 포함)를 답한다. 더 새 저장이 있으면 `superseded`다(`agent-service.ts:812-836`과 같은 규칙). 콘솔은 이유를 보여 주고 같은 저장을 다시 하게 한다.
-  3. 응답의 `release.status`는 새 값 `saved`이고 `release_id`가 있다. draft는 남는다. 즉 draft의 뜻을 "저장했지만 아직 켜지 않은 변경"으로 그대로 쓰고, `draft_failure`가 없으면 "켜기를 기다린다", 있으면 "켜기에 실패했다"다.
+  3. release를 만든 뒤, 에이전트 행을 잠그고 그 저장의 `behavior_revision`과 `draft_version_id`가 아직 그대로인지 본다(활성화가 `agents.ts:1130-1135`에서 하는 것과 같은 검사). 그 사이 더 새 저장이 들어왔으면 `superseded`를 답한다. 만든 release는 켜지 않은 release로 남을 뿐이다. 그대로이면 응답의 `release.status`는 새 값 `saved`이고 `release_id`가 있다. draft는 남는다. 즉 draft의 뜻을 "저장했지만 아직 켜지 않은 변경"으로 그대로 쓰고, `draft_failure`가 없으면 "켜기를 기다린다", 있으면 "켜기에 실패했다"다.
   4. 저장한 카드와 연결이 지금 활성 release와 같으면 지금처럼 draft를 비우고 `unchanged`다.
 - **다음 저장.** draft가 있으면, 카드나 연결을 생략한 부분 저장은 활성 release가 아니라 draft의 카드와 연결을 바탕으로 한다(지금은 활성 release가 먼저다, `agent-service.ts:700-712`). 그래야 저장만 해 둔 변경 위에 이어서 고칠 수 있다. 실패한 draft 위의 저장도 같은 규칙이다.
 - **게시(활성화)와 draft.** 게시는 지금의 활성화다(`POST /v1/agents/{id}/activate` `{"release_id", "expected_revision"}`). 화면에서 본 `activation_revision`을 보내고, 경합이면(`REVISION_CONFLICT`) 새로 읽고 사람이 다시 누른다. 자격 증명 연결 확인(`CREDENTIAL_UNBOUND`)도 그대로다. 켠 release의 버전과 연결이 draft와 같으면 활성화 transaction에서 draft를 비운다. 다르면(예: 이전 release로 롤백) draft는 남고, 콘솔은 "켜지 않은 변경이 있습니다"를 계속 보여 준다.
@@ -112,7 +112,7 @@
 
 | 단위 | 내용 | 확인 |
 |---|---|---|
-| P1 | 미게시 가시성(판정식 하나를 네 경로와 `agentUsable`의 모든 갈래가 공유, 에이전트 key 경로 고정), 세션 `preview`(migration, 조건·거절 모양, 턴·재개·대기 요청 답변마다 재판정, 공유 고정, Slack 거절과 안내 순서, 성과 제외), 저장 `activate: false`(draft 전이, 부분 저장의 바탕, 활성화 때 draft 비우기)와 `release.status: saved`, OpenAPI·문서 | db·platform 시험(경로 맞춤 시험, 관리자 해제 뒤 턴 거절과 대기 요청 답변 거절, release를 만들지 못한 `activate: false` 저장, 바깥쪽 `404`, 오래된 저장의 `superseded`, 롤백 뒤 draft 유지), 실제 스택에서 API로 만들기 → 미리보기 → 게시 → 담당 팀 구성원 접근 |
+| P1 | 미게시 가시성(판정식 하나를 네 경로와 `agentUsable`의 모든 갈래가 공유, 에이전트 key 경로 고정), 세션 `preview`(migration, 조건·거절 모양, 턴·재개·대기 요청 답변마다 재판정, 공유 고정, Slack 거절과 안내 순서, 성과 제외), 저장 `activate: false`(draft 전이, 부분 저장의 바탕, 활성화 때 draft 비우기)와 `release.status: saved`, OpenAPI·문서 | db·platform 시험(경로 맞춤 시험, 관리자 해제 뒤 턴 거절과 대기 요청 답변 거절, release를 만들지 못한 `activate: false` 저장, 바깥쪽 `404`, 오래된 저장의 `superseded`(저장만 하는 저장 A의 release가 더 새 저장 B 뒤에 만들어지는 경우 포함), 롤백 뒤 draft 유지), 실제 스택에서 API로 만들기 → 미리보기 → 게시 → 담당 팀 구성원 접근 |
 | P2 | 콘솔: 새 에이전트 화면 재설계와 미리 써 보기 단계·게시, 미게시 표시, release 탭의 미리 써 보기와 "켜지 않은 변경", "저장만 하고 미리 써 보기", 세션의 미리보기 표시 | web 시험, 실제 스택에서 같은 흐름을 화면으로, 넓은 화면과 390px 스크린샷 |
 
 ## 오너 확인이 필요한 것
