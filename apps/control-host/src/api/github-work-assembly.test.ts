@@ -2,10 +2,10 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 
-// server.ts builds the review service twice: for the session API and, per
-// grant, for the built-in `github` MCP server. Both must pass the shared
-// redactor, or a review body would reach GitHub uncleaned on one path.
-test("both assemblies of the GitHub work service pass the shared redactor", () => {
+// server.ts builds the review service from one factory, for the session API
+// and, per grant, for the built-in `github` MCP server. It must pass the
+// shared redactor, or a review body would reach GitHub uncleaned.
+test("the one GitHub work service factory passes the shared redactor", () => {
   const path = new URL("./server.ts", import.meta.url);
   const source = ts.createSourceFile(
     "server.ts",
@@ -36,5 +36,5 @@ test("both assemblies of the GitHub work service pass the shared redactor", () =
   };
   visit(source);
   console.log("createGitHubWorkService redact arguments:", redactors);
-  expect(redactors).toEqual(["sanitizeText", "sanitizeText"]);
+  expect(redactors).toEqual(["sanitizeText"]);
 });
