@@ -47,6 +47,7 @@ import {
 } from "./schema.ts";
 import { writeSecretInTx } from "./secrets/secret-values.ts";
 import { createPostgresSlackAppStore } from "./surface/slack-apps.ts";
+import { allowOf } from "./testing/member-manage-allow.ts";
 import {
   sessionPinColumns,
   TEST_CONNECTION_ID,
@@ -281,6 +282,11 @@ integration("deleting an agent on PostgreSQL", () => {
       await createPostgresUsageReader(db).agentExists(workspaceId, agentId),
     ).toBe(false);
     const issued = await createPostgresWorkspaceKeyStore(db).issue({
+      decision: allowOf({
+        workspaceId,
+        actorUserId: userId,
+        action: "api_key.manage",
+      }),
       principal: owner,
       id: randomUUID(),
       workspaceId,
@@ -536,6 +542,11 @@ integration("deleting an agent on PostgreSQL", () => {
         [pid],
       );
       issued = createPostgresWorkspaceKeyStore(db).issue({
+        decision: allowOf({
+          workspaceId,
+          actorUserId: userId,
+          action: "api_key.manage",
+        }),
         principal: owner,
         id: randomUUID(),
         workspaceId,

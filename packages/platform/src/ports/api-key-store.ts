@@ -4,6 +4,10 @@ import type {
   WorkspaceRole,
 } from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/index.ts";
+import {
+  refusals,
+  type UnrecordedAllow,
+} from "../musterrolle/ports/decision-log.ts";
 
 export type WorkspaceKey = {
   id: string;
@@ -24,6 +28,11 @@ export type WorkspaceKey = {
 };
 
 export type IssueKeyInput = {
+  /**
+   * Kept in the issue's transaction as `keyIssueRefusal` reads the outcome.
+   * Its effective scopes cap the key along with the role's ceiling.
+   */
+  decision: UnrecordedAllow;
   principal: Principal;
   id: string;
   workspaceId: string;
@@ -45,17 +54,23 @@ export type IssueKeyInput = {
 
 export type IssueKeyResult =
   | { outcome: "issued"; key: WorkspaceKey }
-  | {
-      outcome:
-        | "actor_inactive"
-        | "agent_not_found"
-        | "outranked"
-        | "scope_not_grantable";
-    };
+  | { outcome: "actor_inactive" | "agent_not_found" | "outranked" }
+  | { outcome: "scope_not_grantable"; beyond: SessionScope[] };
 
 export type RevokeKeyResult =
   | { outcome: "revoked" | "already_revoked"; key: WorkspaceKey }
   | { outcome: "not_found" | "actor_inactive" | "outranked" };
+
+export const keyIssueRefusal = refusals<IssueKeyResult["outcome"]>({
+  actor_inactive: "role",
+  outranked: "role",
+  scope_not_grantable: "scope_not_grantable",
+});
+
+export const keyRevokeRefusal = refusals<RevokeKeyResult["outcome"]>({
+  actor_inactive: "role",
+  outranked: "role",
+});
 
 /**
  * Which keys a list shows: the caller's own personal keys, plus every
@@ -77,6 +92,8 @@ export interface WorkspaceKeyStore {
     query: PaginationQuery,
   ): Promise<{ items: WorkspaceKey[]; nextCursor: string | null }>;
   revoke(input: {
+    /** Kept in the revoke's transaction as `keyRevokeRefusal` reads it. */
+    decision: UnrecordedAllow;
     principal: Principal;
     workspaceId: string;
     keyId: string;

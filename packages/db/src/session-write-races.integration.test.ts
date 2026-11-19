@@ -39,7 +39,7 @@ import {
 } from "./schema.ts";
 import { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
 import { fixtureTeam, joinFixtureTeam } from "./testing/fixture-team.ts";
-import { allowFor } from "./testing/member-manage-allow.ts";
+import { allowFor, allowOf } from "./testing/member-manage-allow.ts";
 import {
   fixtureRelease,
   releaseSpecColumns,
@@ -328,6 +328,11 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
 
   const revokeKey = (by: Caller, keyId: string) =>
     keys().revoke({
+      decision: allowOf({
+        workspaceId: by.ownerId,
+        actorUserId: idOf(by),
+        action: "api_key.manage",
+      }),
       principal: by,
       workspaceId: by.ownerId,
       keyId,

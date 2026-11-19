@@ -17,7 +17,10 @@ import {
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
-import { requireAllowed, requirePermitted } from "./require-permitted.ts";
+import {
+  requireAllowedUnrecorded,
+  requirePermitted,
+} from "./require-permitted.ts";
 import {
   ACTOR_INACTIVE,
   NOT_FOUND,
@@ -76,6 +79,19 @@ export function createApiKeyService(deps: {
     return userId;
   }
 
+  // The issuer of a key write. A caller with no person is refused here, the
+  // policy's refusal being the request's one row.
+  async function personFor(
+    caller: Caller,
+    action: AuthorizationAction,
+    resource: Omit<AuthorizationResource, "owner_scope">,
+  ): Promise<string> {
+    if (caller.subject.principal?.kind !== "user" || !caller.actor?.userId) {
+      await requirePermitted(authorization, caller, action, resource);
+    }
+    return personOf(caller);
+  }
+
   // The right that issuing or revoking this kind of key takes.
   function rightFor(
     caller: Caller,
@@ -96,23 +112,6 @@ export function createApiKeyService(deps: {
     ): Promise<CreateApiKeyResponse> {
       const agentId = body.agent_id?.toLowerCase() ?? null;
       const [action, resource] = rightFor(caller, { kind: body.kind, agentId });
-      const decision = await requireAllowed(
-        authorization,
-        caller,
-        action,
-        resource,
-      );
-      const userId = personOf(caller);
-      // Read at this decision, so a role lowered a moment ago already caps
-      // the key (design 4.1: never more than the issuer holds now).
-      const held = new Set(decision.effective_scopes);
-      const beyond = body.scopes.filter((scope) => !held.has(scope));
-      if (beyond.length > 0) {
-        throw new SessionServiceError(
-          "SCOPE_NOT_GRANTABLE",
-          `The issuer does not hold ${beyond.join(", ")}`,
-        );
-      }
       const expiresAt =
         body.expires_at === undefined ? null : new Date(body.expires_at);
       if (expiresAt !== null && expiresAt.getTime() <= now().getTime()) {
@@ -122,10 +121,22 @@ export function createApiKeyService(deps: {
         );
       }
       const { secret, hash } = deps.mint();
+      const id = newId();
       const receiptId = newId();
+      const userId = await personFor(caller, action, resource);
+      // From here the store keeps the decision, whatever it answers. It caps
+      // the key by the scopes held at this decision and by the role held
+      // under its lock (design 4.1: never more than the issuer holds now).
+      const decision = await requireAllowedUnrecorded(
+        authorization,
+        caller,
+        action,
+        resource,
+      );
       const result = await store.issue({
+        decision,
         principal: caller,
-        id: newId(),
+        id,
         workspaceId: caller.ownerId,
         keyHash: hash,
         kind: body.kind,
@@ -147,7 +158,7 @@ export function createApiKeyService(deps: {
         case "scope_not_grantable":
           throw new SessionServiceError(
             "SCOPE_NOT_GRANTABLE",
-            "The issuer no longer holds these scopes",
+            `The issuer does not hold ${result.beyond.join(", ")}`,
           );
         default:
           throw NOT_FOUND();
@@ -179,16 +190,25 @@ export function createApiKeyService(deps: {
     },
 
     async revoke(caller: Caller, keyId: string): Promise<RevokeApiKeyResponse> {
-      const userId = personOf(caller);
+      const userId = await personFor(caller, "api_key.manage_own", {
+        kind: "workspace",
+        id: caller.ownerId,
+      });
       const key = await store.find(caller.ownerId, keyId);
       // Another person's personal key is not the caller's to see.
       if (!key || (key.kind === "personal" && key.createdByUserId !== userId)) {
         throw NOT_FOUND();
       }
       const [action, resource] = rightFor(caller, key);
-      await requirePermitted(authorization, caller, action, resource);
       const receiptId = newId();
+      const decision = await requireAllowedUnrecorded(
+        authorization,
+        caller,
+        action,
+        resource,
+      );
       const result = await store.revoke({
+        decision,
         principal: caller,
         workspaceId: caller.ownerId,
         keyId: key.id,

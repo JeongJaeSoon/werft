@@ -5,10 +5,12 @@ import {
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
-import type {
-  IssueKeyInput,
-  WorkspaceKey,
-  WorkspaceKeyStore,
+import {
+  type IssueKeyInput,
+  keyIssueRefusal,
+  keyRevokeRefusal,
+  type WorkspaceKey,
+  type WorkspaceKeyStore,
 } from "../ports/api-key-store.ts";
 import { createApiKeyService } from "./api-key-service.ts";
 import {
@@ -53,6 +55,10 @@ function fakeStore() {
   const store: WorkspaceKeyStore = {
     async issue(input) {
       issued.push(input);
+      // The store's cap, as far as the decision it is handed says.
+      const held = new Set(input.decision.decision.effective_scopes);
+      const beyond = input.scopes.filter((scope) => !held.has(scope));
+      if (beyond.length > 0) return { outcome: "scope_not_grantable", beyond };
       const key: WorkspaceKey = {
         id: input.id,
         workspaceId: input.workspaceId,
@@ -227,7 +233,7 @@ describe("issuing a key", () => {
       const fake = fakeStore();
       fake.store.issue = async (input) => {
         fake.issued.push(input);
-        return { outcome };
+        return outcome === "outranked" ? { outcome } : { outcome, beyond: [] };
       };
       const { keys } = service(fake);
       expect(
@@ -239,6 +245,44 @@ describe("issuing a key", () => {
     const { keys, issued: own } = service();
     await keys.issue(user(MEMBER, "member"), personal);
     expect(own[0]?.issuerRoles).toEqual(["owner", "admin", "member"]);
+    // The allow goes to the store unrecorded, for it to keep or turn down.
+    expect(own[0]?.decision.decision.outcome).toBe("allow");
+    expect(own[0]?.decision.request.action).toBe("api_key.manage_own");
+  });
+
+  test("the store's rule outcomes are its refusals; the rest leave the allow", () => {
+    const table = <O extends string>(of: (o: O) => unknown, outcomes: O[]) =>
+      Object.fromEntries(outcomes.map((o) => [o, of(o)]));
+    expect(
+      table(keyIssueRefusal, [
+        "issued",
+        "agent_not_found",
+        "actor_inactive",
+        "outranked",
+        "scope_not_grantable",
+      ]),
+    ).toEqual({
+      issued: null,
+      agent_not_found: null,
+      actor_inactive: "role",
+      outranked: "role",
+      scope_not_grantable: "scope_not_grantable",
+    });
+    expect(
+      table(keyRevokeRefusal, [
+        "revoked",
+        "already_revoked",
+        "not_found",
+        "actor_inactive",
+        "outranked",
+      ]),
+    ).toEqual({
+      revoked: null,
+      already_revoked: null,
+      not_found: null,
+      actor_inactive: "role",
+      outranked: "role",
+    });
   });
 
   test("a past expiry is refused", async () => {

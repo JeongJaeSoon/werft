@@ -338,6 +338,21 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
       );
   }
 
+  // The request's decision rows, by the id the response names.
+  const decisionsOf = (response: Response) =>
+    db
+      .select({
+        outcome: authzDecisions.outcome,
+        reason: authzDecisions.reasonCode,
+      })
+      .from(authzDecisions)
+      .where(
+        eq(
+          authzDecisions.requestId,
+          response.headers.get("X-Request-Id") ?? "",
+        ),
+      );
+
   test("setup: an owner, a member who makes an agent, an admin", async () => {
     const boot = await send(
       "POST",
@@ -607,13 +622,22 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
       scopes: ["sessions:read", "sessions:recover"],
     });
     expect(refused.status).toBe(403);
-    expect((await errorOf(refused)).code).toBe("SCOPE_NOT_GRANTABLE");
+    const error = await errorOf(refused);
+    expect(error.code).toBe("SCOPE_NOT_GRANTABLE");
+    expect(error.message).toContain("sessions:recover");
+    // The refusal is the request's one decision, not an allow before it.
+    expect(await decisionsOf(refused)).toEqual([
+      { outcome: "deny", reason: "scope_not_grantable" },
+    ]);
     const approve = await issue(asCookie(cookies.owner), {
       kind: "agent",
       agent_id: agentIds.owners,
       scopes: ["sessions:approve"],
     });
     expect(approve.status).toBe(201);
+    expect(await decisionsOf(approve)).toEqual([
+      { outcome: "allow", reason: "ok" },
+    ]);
     expect(
       (
         await issue(asCookie(cookies.admin), {
