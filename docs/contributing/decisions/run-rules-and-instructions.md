@@ -28,6 +28,37 @@
   - worker는 플랫폼 지시문을 작업 디렉터리에 `AGENTS.md`로 두고 `CLAUDE.md`를 그 링크로 둔다. 세션 안에서 파일을 직접 여는 도구를 위한 것이다. 저장소가 그 이름을 이미 쓰면 손대지 않는다(`apps/worker/src/instruction-files.ts:16-44`).
 - **에이전트 지시문.** 한 번 만들었다가 2026-11-09 오너 결정으로 없앴다. 동작 지시는 저장소 파일 하나로만 남았다([에이전트 마법사 재작업](agent-wizard-rework.md) 머리말). 이 문서는 그 자리를 다시 연다. 그때 정리한 checkpoint 지문과 worker 호환 조건(같은 문서의 "동작 지시를 둘 자리", "worker 호환")은 그대로 따른다.
 
+## 조사 요약과 시장 동향 (2026-11-20 확인)
+
+이 절은 다른 제품이 관리자에게 "에이전트가 무엇을 실행해도 되는지"를 어떻게 맡기는지 정리한다. 기간은 최근 3~6개월이고, 기준선이 되는 이전 자료도 포함했다. 엔진 세 개의 세부 문법은 다음 절 "엔진 조사"에 있다. [P]는 vendor 문서·changelog, [S]는 2차 출처다.
+
+| 제품 | 관리자가 정하는 곳 | 규칙 모양과 결합 | 출처 |
+|---|---|---|---|
+| Claude Code | managed settings(파일·MDM, Team/Enterprise는 claude.ai 관리 화면에 JSON을 붙여 넣는 server-managed settings) | allow·ask·deny, deny → ask → allow. 목록은 scope를 가로질러 합쳐진다. `allowManagedPermissionRulesOnly`를 켜면 user·project·local 규칙과 `--allowedTools`를 무시한다 | [P] [managed settings](https://code.claude.com/docs/en/managed-settings), [server-managed](https://code.claude.com/docs/en/server-managed-settings), [settings](https://code.claude.com/docs/en/settings) |
+| Codex | `requirements.toml`, ChatGPT Admin Console의 Agent security(워크스페이스 기본 + 사용자·그룹 override). 클라우드에서 못 받으면 시작하지 않는다 | 관리자 `[rules]`의 decision은 `prompt`나 `forbidden`만 된다(`allow` 금지). 관리자는 좁히기만 한다. approval policy와 sandbox mode를 허용 목록으로 제한한다 | [P] [managed configuration](https://learn.chatgpt.com/docs/enterprise/managed-configuration.md), [approvals·security](https://learn.chatgpt.com/docs/agent-approvals-security.md) |
+| GitHub Copilot cloud agent | org 설정(2026-04-03): firewall 켜기, 권장 allowlist, org 공통 allowlist, **저장소 관리자가 항목을 더할 수 있는지** | 기본값은 "저장소가 정한다". 차단하면 막힌 주소를 PR에 남긴다. MCP는 enterprise managed settings의 allow·deny(2026-08-06 GA)이고, 서버를 이름이 아니라 URL·명령으로 식별한다 | [P] [firewall changelog](https://github.blog/changelog/2026-04-03-organization-firewall-settings-for-copilot-cloud-agent/), [MCP allowlist](https://github.blog/changelog/2026-08-06-mcp-allowlists-in-enterprise-managed-settings/) |
+| Cursor | team dashboard, managed·저장소별 `permissions.json` | 실행 모드는 Auto-review / Allowlist / Run Everything이다. Ask Every Time은 3.5(2026-05)에서 없앴다. 관리자는 쓸 수 있는 모드를 줄이고, 관리자가 정한 칸에는 "controlled by the admin"이 붙는다. 상위 출처가 범주째 대체한다. 문서 제목이 "Auto-review is not a security boundary"다 | [P] [run modes](https://cursor.com/docs/agent/security/run-modes), [deployment](https://cursor.com/docs/enterprise/deployment-patterns) |
+| Gemini CLI | admin policy 디렉터리(TOML policy engine), enterprise controls | `allow`·`deny`·`ask_user`에 숫자 priority가 붙고 admin tier가 가장 높다. 사용자가 admin 통제를 덮지 못하고, 확장 정책은 `allow`를 줄 수 없다 | [P] [policy engine](https://geminicli.com/docs/reference/policy-engine.md), [enterprise](https://geminicli.com/docs/admin/enterprise-controls/) |
+| AWS AgentCore Policy | gateway | 도구 호출마다 Cedar로 판정하고 기본은 거부다 | [S] [구현 안내](https://hidekazu-konishi.com/entry/amazon_bedrock_agentcore_policy_implementation_guide.html), [P] [preview 발표](https://aws.amazon.com/about-aws/whats-new/2025/12/amazon-bedrock-agentcore-policy-evaluations-preview) |
+
+**이 기간의 사고와 비판**
+- 텍스트 매칭 allowlist의 우회
+  - Cursor CVE-2026-22708(2026-01, 2.3에서 수정): `export` 같은 셸 내장 명령이 allowlist 검사를 거치지 않았다. `PAGER`를 바꿔 두면 허용된 `git branch`가 임의 코드를 실행했다. [P] [advisory](https://github.com/cursor/cursor/security/advisories/GHSA-82wg-qcm4-fp2w)
+  - Roo Code CVE-2026-110202~110206(2026-10): 명령 치환·따옴표·리다이렉트 해석 차이로 자동 승인을 우회했다. [P] [VulnCheck](https://www.vulncheck.com/advisories/roo-code-through-3.54.0-auto-approve-bypass-via-command-substitution-at-command-position)
+  - Claude Code·Codex·Gemini CLI에서는 같은 기간의 공개 CVE를 찾지 못했다. 다만 두 문서 모두 텍스트 규칙의 한계를 스스로 적는다.
+- 저장소 설정 파일을 믿어서 생긴 실행: Gemini CLI가 workspace trust와 allowlist를 우회당해 RCE가 났다(GHSA-wpqr-6v78-jr5g, 2026). [S] [요약](https://labs.cloudsecurityalliance.org/research/csa-research-note-gemini-cli-rce-cvss10-ai-tool-security-202/)
+- MCP 도구 설명 바꿔치기(rug pull): 승인한 뒤에 설명이 조용히 바뀐다. 대응은 도구 정의 해시 고정과 바뀌면 다시 승인하는 것이다. [S] [CSA](https://labs.cloudsecurityalliance.org/research/csa-research-note-mcp-tool-description-poisoning-20260711-cs/)
+
+**모이는 방향**
+1. **모드와 규칙 목록, 두 층.** 모드(Claude permission mode, Codex approval × sandbox, Cursor run mode) 위에 allow·ask·deny 목록이 얹힌다. 관리자 화면은 "쓸 수 있는 모드"와 "강제하는 목록"을 따로 둔다.
+2. **거부가 이긴다.** Claude, Codex, Copilot MCP 모두 그렇다. Gemini만 숫자 priority를 쓴다.
+3. **조직 층은 좁히는 쪽이다.** Codex는 관리자 규칙에서 `allow`를 막았다. Claude는 "managed 규칙만" 잠금을 둔다. Copilot은 "하위가 더해도 되는가"를 따로 켠다. 결과적으로 "강제 / 위임 / 하위 추가 허용" 세 단계가 보편적이다.
+4. **잠긴 규칙과 그 출처를 사용자에게 보인다.** Cursor "controlled by the admin", Claude `/status`·`/permissions`, Copilot PR 경고.
+5. **정책을 못 받으면 멈춘다(fail-closed).** Codex 클라우드 요구, Claude `forceRemoteSettingsRefresh`, Copilot의 잘못된 정책이 그렇다.
+6. **텍스트 규칙은 경계가 아니다.** 실제 강제는 sandbox와 egress에 두고, classifier(Auto-review, auto mode)도 경계가 아니라고 vendor가 명시한다.
+7. **도구 호출의 판정은 gateway로 모인다.** Cedar나 ReBAC로 호출마다 판정하고 기본은 거부다. MCP 서버는 이름이 아니라 URL·명령으로 식별한다.
+8. **엔진 사이의 권한 규칙 표준은 없다.** AAIF가 표준화한 것은 MCP, Agent Skills, AGENTS.md다. Agent Skills의 `allowed-tools`는 실험 필드이고 Claude 문법을 쓴다([spec](https://agentskills.io/specification)). 지시 파일은 AGENTS.md가 가장 넓게 채택됐다(Codex, Copilot, Cursor, Gemini CLI, goose 등, [agents.md](https://agents.md/)).
+
 ## 엔진 조사 (공개 자료, 2026-11-20 확인)
 
 pi는 `badlogic/pi-mono`에서 `earendil-works/pi`로 옮겼다. 인용은 `earendil-works/pi@1e34c3b` 기준이다. Codex 소스 인용은 `openai/codex@6eea328` 기준이다.
@@ -61,6 +92,41 @@ pi는 `badlogic/pi-mono`에서 `earendil-works/pi`로 옮겼다. 인용은 `eare
 
 **확인 못 한 것.** Agent SDK 세션이 AGENTS.md를 읽는지(SDK 문서의 `settingSources` 표에는 CLAUDE.md만 있다). Codex MCP `approval_mode` 값 네 개의 뜻. pi 지시 파일의 크기 한도와 `@import` 지원. werft는 앞의 둘에 기대지 않는다. Claude는 `settingSources: []`로 엔진 읽기를 끄고, Codex MCP는 `disabled_tools`와 egress로만 다룬다.
 
+## 따를 것 / 다르게 갈 것
+
+권한 규칙에는 엔진 사이 표준이 없다. 지시 파일만 AGENTS.md라는 표준이 있다. 그래서 세 가지 방식을 대상마다 나눠 쓴다.
+
+| 방식 | 대상 | 이유 |
+|---|---|---|
+| **표준 그대로** | 저장소 지시 파일 이름(`AGENTS.md` 우선), MCP 도구 이름(`mcp__<서버>__<도구>`, 어댑터 안에서만) | 둘 다 여러 엔진이 같은 뜻으로 받는다. 저장소 쪽 사용자는 이미 이 이름을 쓴다 |
+| **엔진별 어댑터** | 규칙 변환(Claude flag settings, Codex `.rules`·`disabled_tools`, pi 확장), 지시문 전달(시스템 프롬프트 뒤, developer instructions), 엔진의 지시 파일 직접 읽기 끄기 | 엔진마다 문법과 표현 능력이 다르다. 차이는 어댑터와 코덱 descriptor가 갖고 화면에 새지 않는다 |
+| **werft 모델 + 포트** | 규칙 모델과 저장, 합치기와 판정 순서, 세션 snapshot, 판정 기록 | 표준이 없고, 저장 모양이 한 엔진 문법이면 다른 엔진이 못 받는다(지운 화면의 실패) |
+
+**따르는 업계 관행**
+- 거부가 이긴다(Claude, Codex, Copilot MCP). 조직 층은 좁히는 쪽으로 쓴다.
+- 물려받은 규칙은 출처와 함께 보이고, 아래 층에서 지우지 못한다(Cursor "controlled by the admin", Claude `/permissions`).
+- 정책을 싣지 못하면 실행하지 않는다(Codex 클라우드 요구, Claude `forceRemoteSettingsRefresh`). 이 문서의 "capable worker가 없으면 claim 거절", "표현 못 하는 거부면 그 엔진으로 실행하지 않음"이 이것이다.
+- 텍스트 규칙을 경계로 부르지 않는다(Claude, Cursor 문서). 경계는 컨테이너와 egress다.
+- 판정은 엔진 밖 gateway에서 한다(AgentCore, Copilot MCP). werft에서는 MCP egress가 그 자리다.
+
+**다르게 가는 것과 이유**
+
+| 다른 제품 | werft | 이유 |
+|---|---|---|
+| 엔진 문법 문자열을 저장한다(Claude `Bash(...)`, Codex `prefix_rule`) | 엔진 중립 모양으로 저장하고 claim 때 바꾼다 | 엔진이 셋이다. 지운 화면은 Claude 문법을 저장해서 Codex가 받지 못했다 |
+| 효과에 ask가 있다(Claude, Gemini, Codex `prompt`) | v1은 허용·거부만 | 오너 지시. 모델은 ask를 더할 자리를 막지 않는다(고르지 않은 것) |
+| 모드와 규칙을 한 화면에서 고른다(Cursor run modes, Codex approval × sandbox) | 이 화면은 규칙만. 권한 모드는 지금처럼 릴리스 값이다 | auto 모드를 이번에 다루지 않는다. 모드 선택이 들어가면 화면이 지운 것만큼 길어진다 |
+| 네트워크 규칙을 같은 목록에 둔다(Claude `WebFetch(domain:)`, Codex network permissions) | v1 대상에서 뺀다 | 실제 경계는 설치의 egress allowlist다. 엔진 규칙에 넣으면 경계처럼 보이지만 경계가 아니다 |
+| 관리자 층은 allow를 줄 수 없다(Codex `requirements.toml`, Gemini 확장 정책) | 워크스페이스 허용을 둔다 | werft의 워크스페이스 관리자는 그 워크스페이스의 실행 주체다. 묻기를 줄이는 허용을 조직이 정하는 것이 오너 요구다. 대신 아래 "에이전트 관리자가 허용을 더할 수 있음"으로 위임을 조절한다 |
+| 하위 층 추가 허용은 따로 켠다(Copilot firewall, Claude `allowManagedPermissionRulesOnly`) | 워크스페이스 설정 하나: **에이전트 관리자가 허용을 더할 수 있음**(기본 켬). 끄면 에이전트 규칙은 거부만 받는다 | 업계의 "강제 / 위임 / 하위 추가 허용" 세 단계 중 werft에 필요한 것은 하위 허용의 켜고 끄기 하나다. 거부 추가는 언제나 좁히는 일이라 막을 이유가 없다. **오너 결정 필요(5번).** |
+| 엔진이 저장소의 설정·지시 파일을 직접 읽는다 | 엔진의 직접 읽기를 끄고 worker가 읽어 프롬프트로 넣는다(지금과 같음) | 저장소 설정을 믿어서 생긴 실행 사고(Gemini CLI GHSA-wpqr-6v78-jr5g)와 같은 종류를 막는다. 저장소 파일은 지시문으로만 들어가고 설정이나 규칙으로는 들어가지 않는다 |
+
+**사고에서 가져오는 규칙**
+- **허용은 환경을 바꾸는 명령에 맞지 않는다.** 실행 단위가 변수 대입(`X=1 cmd`)이나 환경·별칭을 바꾸는 내장 명령(`export`, `env`, `alias`, `typeset`, `declare`, `set`, `source`, `.`, `eval`, `exec`)으로 시작하면, 어떤 사용자 허용에도 맞지 않은 것으로 본다. 거부 판정은 그대로 한다. Cursor CVE-2026-22708이 바로 이 모양이었다. 허용 칸에 이런 명령을 넣으면 저장하지 않는다.
+- **나눌 수 없는 명령은 허용에 맞지 않는다.** 앞 절의 "실행 단위"와 같다. Roo Code CVE들은 명령 치환과 따옴표 해석 차이로 자동 승인을 우회했다.
+- **MCP 서버는 등록 id로 가리킨다.** 이름 문자열이 아니다(Copilot MCP allowlist가 URL·명령으로 식별하는 것과 같은 이유). 도구 정의가 바뀌었을 때 다시 승인하는 일(rug pull 대응)은 스킬·MCP 설계의 몫이다.
+- **세션은 적용된 규칙의 digest를 기록한다.** 사고 뒤에 "그때 어떤 규칙이었나"를 답할 수 있어야 한다.
+
 ## 공통 규칙 모델
 
 ```
@@ -75,7 +141,7 @@ Scope = workspace | agent
 
 | 대상 | 패턴 | 예 | 받지 않는 것 |
 |---|---|---|---|
-| 명령 | 공백으로 나눈 단어의 **앞부분**. 실행 단위 하나가 그 단어들로 시작하면 맞는다 | `git push --force` | 단어 안의 `*`, 셸 연산자, 따옴표, 환경 변수 |
+| 명령 | 공백으로 나눈 단어의 **앞부분**. 실행 단위 하나가 그 단어들로 시작하면 맞는다 | `git push --force` | 단어 안의 `*`, 셸 연산자, 따옴표, 환경 변수. 허용에서는 변수 대입이나 환경을 바꾸는 내장 명령으로 시작하는 패턴(앞 절) |
 | 파일 읽기·수정 | 저장소 루트 기준 경로. `*`(한 단계), `**`(여러 단계), 끝의 `/`(디렉터리) | `.github/workflows/**` | `..`, 절대 경로, 홈(`~`), 부정(`!`), 이스케이프 |
 | MCP 도구 | 워크스페이스에 등록한 서버 하나 + 도구 이름. 도구 이름 끝에만 `*` | `github / delete_*` | 서버 이름의 `*` |
 
@@ -235,6 +301,34 @@ Contents of the instruction file (AGENTS.md, else CLAUDE.md) at the root of the 
   - 외부 이미지는 불러오지 않고 링크로 보인다. 미리보기를 연 사람이 추적되지 않게 하려는 것이다.
   - 의존성 추가는 구현 PR에서 따로 승인받는다.
 
+## werft 아키텍처 적용
+
+[패키지 구조](package-structure.md)의 원칙을 따른다. 플랫폼 도메인은 디렉터리 하나다. 포트는 그 포트를 부르는 도메인이 갖는다. contracts에는 데이터와 스키마만 둔다. db는 같은 도메인 이름으로 나눈다.
+
+| 자리 | 하는 일 |
+|---|---|
+| `packages/contracts/src/shared/run-rules.ts`(새 파일) | 규칙과 지시문의 zod 스키마. 패턴 문법 검사(앞의 "패턴"과 "사고에서 가져오는 규칙"), 개수·길이·32 KiB 한도. 웹과 서버가 같은 검사를 쓴다 |
+| `packages/contracts/src/worker-protocol` | capability `run_rules`·`instructions`(`workerCapabilitiesSchema`, `index.ts:114-126`)와 claim의 선택 필드. 필드에는 엔진 중립 규칙 목록, 그 digest, 이어 붙일 지시문 겹을 싣는다. 엔진 문법은 싣지 않는다 |
+| `packages/platform/src/run-rules/`(새 도메인) | `ports/`: 규칙·지시문 저장소 포트. `policy/`: 합치기, 판정 순서, 엔진 표현 능력 검사(순수 함수). `service/`: 저장(receipt 포함), 세션 snapshot 만들기, claim에 싣기 |
+| `packages/db/src/run-rules/` | 포트 구현. 표 `workspace_run_rules`, `agent_run_rules`, 지시문 표 둘, 워크스페이스의 "에이전트 허용 위임" 값, 세션 snapshot 칸 |
+| 코덱 descriptor(`packages/adapters/runtimes/{claude,codex}-codec/src/descriptor.ts`) | 엔진마다 어떤 대상·효과를 표현하는지 선언한다. platform의 표현 능력 검사가 이것을 읽는다. 엔진 이름으로 분기하는 코드를 platform에 두지 않는다 |
+| 런타임 어댑터(`packages/adapters/runtimes/{claude,codex}`) | 엔진 중립 규칙을 엔진 설정으로 바꾼다. 지시문 겹을 엔진 입력에 넣는다. 엔진 거부를 `deny` 관측으로 내보낸다 |
+| `apps/worker` | 값을 그대로 어댑터에 넘기고 capability를 알린다. 판정하지 않는다 |
+| egress(`packages/platform/src/workers/mcp-egress.ts`, `workspace-mcp-egress.ts`) | MCP 도구 판정을 한 함수로 합친다. 도구 이름 prefix를 판정에 더한다. 통합 접근 판정이 생기면 그 판정 호출의 한 입력이 된다 |
+| `apps/control-host` API, `apps/web` | 저장 API(새 경로는 `packages/core/src/schemas/responses.ts` 응답 표에 더한다), 워크스페이스 설정 화면, 에이전트 상세 화면 |
+
+**통합 접근 판정과의 접점.** MCP 호출은 egress에서 접근 판정과 같은 호출로 판정한다(앞 절). 명령·파일 규칙은 엔진이 판정한다. 그래서 `run-rules/`는 접근 판정 도메인에 의존하지 않는다. 판정 기록 형식(주체·대상·근거 규칙·결과)만 공유한다. 접근 판정 도메인이 기록 포트를 먼저 만들면 그것을 쓰고, 아니면 `run-rules/`가 같은 형식으로 시작하고 나중에 옮긴다.
+
+**검토한 다른 구조**
+
+| 안 | 고르지 않은 이유 |
+|---|---|
+| platform에서 엔진 문법으로 바꿔 worker에 보낸다 | 엔진 차이가 platform으로 샌다. 이미지마다 엔진 버전이 다르면 문법도 달라질 수 있다. 바꾸기는 엔진을 아는 어댑터가 한다 |
+| 모든 도구 호출을 hook으로 서버에 물어 판정한다(중앙 판정점) | 호출마다 왕복이 생기고, 서버가 멈추면 세션이 멈춘다. Claude `auto`와 `trustedTools`는 hook을 건너뛰는 경로가 있다. 이미 서버를 거치는 MCP만 중앙에서 판정한다 |
+| 규칙을 에이전트 카드·릴리스에 고정한다 | 워크스페이스 기본과 합치는 모델과 맞지 않는다. 좁히는 변경이 다음 릴리스까지 기다린다 |
+| Cedar·OPA 같은 정책 언어를 사용자에게 보인다 | 오너 요구가 "한 줄씩 추가"다. 판정 대상이 넷이고 효과가 둘이라 표 하나로 충분하다. 통합 접근 판정이 정책 엔진을 쓰게 되면, 이 규칙은 그 엔진의 입력 데이터가 될 수 있다 |
+| 옛 `*_engine_settings` 표를 고쳐 쓴다 | 엔진 문법 문자열을 담는 표라 모양이 다르다. 새 표를 만들고, 옛 표는 별도 정리 결정까지 그대로 둔다 |
+
 ## 스킬·MCP 설계와 맞물리는 곳
 
 - **MCP 도구 대상의 이름.** 규칙의 MCP 서버는 워크스페이스에 등록한 서버 목록에서 고른다(자유 입력이 아니다). 그래서 스킬·MCP 설계의 서버 식별자를 그대로 쓴다. 서버 이름이 바뀌어도 규칙은 서버 id를 따라간다.
@@ -247,7 +341,7 @@ Contents of the instruction file (AGENTS.md, else CLAUDE.md) at the root of the 
   - **명령·파일 규칙은 진입점을 공유하지 않는다.** 이 규칙은 claim 때 엔진 설정으로 바뀌고, 호출마다 엔진(pi는 werft 확장)이 판정한다. 그래서 호출마다 서버의 판정 API를 부르는 구조가 아니다. 공유하는 것은 판정 기록의 형식이다. claim 때 합친 규칙과 세션 snapshot을 같은 감사 레코드(주체·대상·근거 규칙·결과)로 남긴다. 엔진이 거부한 호출을 남기는 길은 **지금 없다.**
     - Claude 어댑터는 엔진 거부(`PermissionDenied`)를 받으면 대기 항목을 지울 뿐 관측을 내보내지 않는다(`packages/adapters/runtimes/claude/src/runtime.ts:250-256`, `:447`, `tool-decisions.ts:68-70`).
     - 관측 계약에는 맞은 규칙을 담는 칸이 없다(`packages/runtime-core/src/tool-decision.ts:8-25`).
-    - 구현 단위에 둘을 넣는다. 첫째, 엔진 거부를 `decision: "deny"`로 내보낸다. 둘째, 관측에 근거 규칙(공통 규칙 id 또는 "내장 규칙")을 담는 선택 칸을 더한다.
+    - 구현 계획(4단계)에 둘을 넣는다. 첫째, 엔진 거부를 `decision: "deny"`로 내보낸다. 둘째, 관측에 근거 규칙(공통 규칙 id 또는 "내장 규칙")을 담는 선택 칸을 더한다.
     - 엔진이 어느 규칙에 걸렸는지 알려 주지 않을 때(Claude·Codex 모두 거부 사유만 준다)는 werft가 같은 호출을 snapshot 규칙에 다시 맞춰 근거를 채운다. 그래도 못 찾으면 "엔진 거부, 근거 미상"으로 남긴다.
   - **규칙을 고칠 수 있는 사람**(워크스페이스 소유자·관리자, 에이전트 관리자)은 지금의 RBAC가 판정한다. 이것은 접근 판정 모델의 대상이 아니다.
 - **스킬.** 스킬은 규칙 대상이 아니다. 스킬이 실행하는 스크립트는 명령이므로 명령 규칙을 그대로 받는다. 지시문은 항상 실리는 글이고, 스킬은 필요할 때 불러오는 글이다. 조직 지시문에 스킬 본문을 붙여 넣지 말라는 안내를 편집기 설명에 둔다.
@@ -266,11 +360,22 @@ Contents of the instruction file (AGENTS.md, else CLAUDE.md) at the root of the 
 2. 지시문 화면: A 카드 + 합친 결과 보기(추천) / B 탭
 3. 에이전트 지시문을 설정(추천)으로 둘지 카드·릴리스로 고정할지
 4. 미리보기를 위한 마크다운 렌더러 의존성 추가(`react-markdown`, 필요하면 `remark-gfm`)
+5. 워크스페이스 설정 "에이전트 관리자가 허용을 더할 수 있음": 둔다·기본 켬(추천) / 두지 않음(에이전트는 늘 허용을 더할 수 있다)
 
-## 구현 단위(고른 뒤)
+## 단계별 구현 계획
 
-1. contracts·db: 규칙 행(`workspace_run_rules`, `agent_run_rules`), 지시문 행, 저장 API, receipt. 옛 `*_engine_settings` 표는 건드리지 않는다.
-2. worker 계약: `run_rules`·`instructions` capability와 선택 필드(expand). 이 이미지가 롤백 하한이 된 뒤에 3을 켠다.
-3. platform: 합치기, 세션 snapshot(규칙·지시문), capability가 있는 worker에만 싣기와 없을 때 거절, claim·재개 때 엔진 표현 능력 검사, egress MCP 판정에 도구 이름 prefix 더하기, 두 egress 경로의 판정·기록을 한 함수와 한 줄로 합치기.
-4. 어댑터: Claude 변환(flag settings allow·deny, 루트 고정 경로), Codex 변환(`.rules` allow·forbidden, 원본 내장 묻기 패턴과 겹치는 허용 빼기, 펼친 `disabled_tools`, deny 거절 조건 갱신), 저장소 파일 `CLAUDE.md` fallback을 Codex에도, 저장소 파일 32 KiB 자르기. 복구 검증 도구(`scripts/lib/checkpoint-pins.ts`)가 snapshot으로 지문을 만들게. 엔진 거부를 `deny` 관측으로 내보내고, 관측 계약에 근거 규칙 칸을 더한다.
-5. web: 규칙 편집기, 조직 지시문 카드, 에이전트 지시문과 합친 결과, i18n(ko·en·ja), 문서.
+오너가 위 다섯 가지를 고른 뒤에 시작한다. 단계마다 PR 하나나 둘이다. 앞 단계가 끝나야 다음 단계를 시작한다(괄호는 막는 단계). 화면에 보이는 변화는 7단계에서 처음 생긴다. 그 전 단계는 값이 없으면 지금과 똑같이 동작한다.
+
+| 단계 | 내용 | 끝났다고 보는 조건 |
+|---|---|---|
+| 1. 계약과 저장소 | `shared/run-rules.ts` 스키마와 패턴 검사. `run-rules/` 도메인의 포트와 `policy/`(합치기·판정 순서·표현 능력). db 표와 migration, 포트 구현. 옛 `*_engine_settings` 표는 건드리지 않는다 | 패턴 검사 시험이 사고 사례(`export X=… && git …`, 명령 치환, `..`, 서버 이름 `*`)를 거절한다. 판정 순서 시험이 "내장 허용이 사용자 거부를 이기지 않음"을 보인다. db integration 시험 통과 |
+| 2. 저장 API와 권한 (1) | 워크스페이스·에이전트 규칙과 지시문의 읽기·저장 API, receipt, 소유자·관리자·에이전트 관리자 RBAC, "에이전트 허용 위임" 값. 응답 표와 OpenAPI | 권한 없는 사람의 저장이 거절되는 시험. 위임을 끄면 에이전트 허용 저장이 거절되는 시험. receipt가 남는다 |
+| 3. worker 계약 expand (1) | capability `run_rules`·`instructions`와 claim 선택 필드. worker는 받은 값을 어댑터까지 넘기기만 한다 | strict 계약 시험 통과. 이 이미지가 배포되어 롤백 하한이 된다. 값이 없는 claim의 바이트가 지금과 같다 |
+| 4. Claude 어댑터 (3) | flag settings allow·deny 변환, 루트 고정 경로, 지시문 겹 이어 붙이기, 엔진 거부를 `deny` 관측으로, 관측의 근거 규칙 칸 | `bypassPermissions`에서도 거부가 지켜지는 시험. 규칙·지시문이 비면 프로필 지문이 지금과 같은 golden 시험. 압축 뒤에도 같은 지시문이 실리는 시험 |
+| 5. Codex 어댑터 (3) | `.rules` allow·forbidden, 원본 내장 묻기와 겹치는 허용 빼기, 펼친 `disabled_tools`, deny 거절 조건 갱신, 저장소 파일 `CLAUDE.md` fallback, 32 KiB 자르기(새 세션만) | 실제 Codex 바이너리의 `execpolicy check`로 변환 결과를 확인하는 시험. 옛 세션의 지문이 바뀌지 않는 시험 |
+| 6. 플랫폼에서 켜기 (2, 4, 5) | 합치기와 세션 snapshot·digest, capable worker에만 싣기와 없을 때 claim 거절, claim·재개 때 표현 능력 검사, egress MCP 판정에 도구 이름 prefix, 두 egress 경로의 판정·기록 합치기, `checkpoint-pins.ts`가 snapshot으로 지문 만들기 | 표현 못 하는 거부가 진행 중에 생기면 다음 claim이 이유와 함께 멈추는 시험. capable worker가 없으면 거부를 잃고 실행하지 않는 시험. MCP 호출 하나가 기록 한 줄만 남기는 시험 |
+| 7. 화면 (6) | 규칙 편집기(고른 안), 조직 지시문 카드, 에이전트 지시문과 합친 결과 보기, 미리보기(의존성 승인 뒤), 위임 스위치, i18n(ko·en·ja) | PR에 390px·1280px 전후 화면. 접근성 검사. 저장 안내가 "언제 적용되나" 표와 같은 문장이다 |
+| 8. 사용자 문서와 실제 확인 (7) | 사용 문서. 로컬 스택에서 Claude·Codex 세션으로 허용·거부와 지시문을 확인 | 실제 세션에서 거부된 명령, 기록 줄, 세션이 받은 지시문을 PR에 붙인다 |
+
+- 6단계의 egress 합치기는 통합 접근 판정의 판정 호출이 먼저 생기면 그 위에 얹는다. 그 일정이 늦으면 MCP 판정만 지금 함수에서 합치고, 접근 판정이 생길 때 옮긴다. 어느 쪽이든 6단계를 막지 않는다.
+- pi는 이 계획에 넣지 않는다. 스킬·MCP 설계가 pi를 붙이기로 하면, 이 문서의 pi 열을 요구 사항으로 하는 단계를 그때 더한다.
