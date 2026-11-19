@@ -267,6 +267,7 @@ export function createPushDecision(deps: {
               ? { revision: latest.revision, gitCommit: latest.gitCommit }
               : null,
           deciderKey,
+          principal: actor.caller,
         }),
       );
     },

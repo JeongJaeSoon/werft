@@ -1,0 +1,1 @@
+ALTER TABLE "sessions" ADD COLUMN "preview" boolean DEFAULT false NOT NULL;

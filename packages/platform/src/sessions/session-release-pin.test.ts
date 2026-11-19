@@ -1204,6 +1204,7 @@ function sessionOn(): SessionDetailRecord {
     id: SESSION,
     title: "On a ceiling",
     agent: null,
+    preview: false,
     agent_hidden: false,
     created_by: null,
     channel: null,

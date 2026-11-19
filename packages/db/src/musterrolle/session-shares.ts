@@ -237,7 +237,7 @@ async function setShare(
     // takes it (requester-locks.ts), so an input is judged wholly before or
     // wholly after this change, a first one with no share row included.
     const [session] = await tx
-      .select({ id: sessions.id })
+      .select({ id: sessions.id, preview: sessions.preview })
       .from(sessions)
       .where(
         and(
@@ -249,6 +249,11 @@ async function setShare(
       .limit(1)
       .for("update");
     if (!session) return { outcome: "not_found" };
+    // A preview stays its creator's alone: what the agent does before it is
+    // published is not shown to the team.
+    if (session.preview && input.scope !== "private") {
+      return { outcome: "preview_fixed" };
+    }
     if (teamIds.length > 0) {
       const teams = await tx
         .select({ id: memberTeams.id })

@@ -562,6 +562,22 @@ export function createSessionService(deps: {
     return deps.releases.resolveRelease(actor.ownerId, body.agent_release_id);
   }
 
+  function signedInPerson(actor: Caller): boolean {
+    return (
+      actor.subject.principal?.kind === "user" &&
+      actor.subject.surface.kind === "web"
+    );
+  }
+
+  function previewRefused() {
+    return new SessionServiceError(
+      "FORBIDDEN",
+      "Only a person who manages this agent, signed in to the console, feeds its preview session",
+      undefined,
+      { reason_code: "role" },
+    );
+  }
+
   function notRunnable(
     reason: "agent_inactive" | "agent_ownerless" | "release_unapproved",
     release: { id: string; agent_id: string },
@@ -687,15 +703,35 @@ export function createSessionService(deps: {
         traceContext?: string;
       },
     ): Promise<CreateSessionResponse> {
+      const preview = input.body.preview === true;
+      if (preview && !signedInPerson(actor)) {
+        throw new SessionServiceError(
+          "BAD_REQUEST",
+          "Only a person signed in to the console starts a preview session",
+          undefined,
+          { reason_code: "preview_web_only" },
+        );
+      }
       const pinned = await pinnedRelease(actor, input.body);
       if (pinned.hidden) return hiddenStart(actor, input, pinned);
       const { release } = pinned;
+      // After the hidden answer: someone outside the agent learns nothing
+      // more of it from a preview than from any start.
+      if (preview) {
+        await requirePermitted(authorization, actor, "agent.manage", {
+          kind: "agent",
+          id: release.agent_id,
+        });
+      }
       // Judged here but refused by the acceptance, after it finds no earlier
       // acceptance of this key: a retry of a session made before the agent
-      // was paused still gets its original answer.
-      const notRunnableReason = deps.releases
+      // was paused still gets its original answer. A preview runs a release
+      // its admin has not activated yet.
+      const judged = deps.releases
         ? await deps.releases.notRunnableReason(actor.ownerId, release)
         : null;
+      const notRunnableReason =
+        preview && judged === "release_unapproved" ? null : judged;
       // An unbound name refuses a new session but not the replay of one
       // accepted before the unbind, which only the acceptance can tell.
       const credentialsUnbound = await requirePermitted(
@@ -919,9 +955,11 @@ export function createSessionService(deps: {
           : {}),
         ...(notRunnableReason === null ? {} : { notRunnableReason }),
         ...(envNames.length === 0 ? {} : { envNames }),
-        ...(input.shareScope === undefined
-          ? {}
-          : { shareScope: input.shareScope }),
+        ...(preview
+          ? { preview: true as const, shareScope: "private" as const }
+          : input.shareScope === undefined
+            ? {}
+            : { shareScope: input.shareScope }),
         ...(input.slackMessage === undefined
           ? {}
           : { slackMessage: input.slackMessage }),
@@ -944,6 +982,8 @@ export function createSessionService(deps: {
           throw new SessionServiceError("NOT_FOUND", "Resource not found");
         case "caller_limited":
           throw callerLimitedError(result.dimension);
+        case "preview_refused":
+          throw previewRefused();
         case "not_runnable":
           throw notRunnable(result.reason, release);
         case "credential_unbound":
@@ -1033,6 +1073,8 @@ export function createSessionService(deps: {
           throw agentPrivate ?? agentPrivateError();
         case "caller_limited":
           throw callerLimitedError(result.dimension);
+        case "preview_refused":
+          throw previewRefused();
         case "not_found":
           throw new SessionServiceError("NOT_FOUND", "Resource not found");
         case "rejected": {
@@ -1373,6 +1415,8 @@ export function createSessionService(deps: {
           throw new SessionServiceError("NOT_FOUND", "Resource not found");
         case "revision_conflict":
           return revisionConflict(result.currentRevision);
+        case "preview_refused":
+          throw previewRefused();
         case "rejected":
           throw new SessionServiceError(
             ...RESUME_REJECTIONS[result.admissionState],

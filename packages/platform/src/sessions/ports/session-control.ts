@@ -156,7 +156,9 @@ export type ResumeSessionResult =
   | { outcome: "execution_revoked" }
   // The parked turn still waits on requests nobody answered and that have
   // not expired.
-  | { outcome: "pending_requests_open"; waitingFor: number };
+  | { outcome: "pending_requests_open"; waitingFor: number }
+  // A preview session's requester no longer manages its agent.
+  | { outcome: "preview_refused" };
 
 export type RenameSessionInput = {
   principal: Principal;

@@ -100,6 +100,13 @@ export function createSessionShareService(deps: {
             "REVISION_CONFLICT",
             `expected_revision does not match the current revision ${result.currentRevision}`,
           );
+        case "preview_fixed":
+          throw new SessionServiceError(
+            "REVISION_CONFLICT",
+            "A preview session is shared with its creator alone",
+            undefined,
+            { reason_code: "preview_session" },
+          );
         case "unchanged":
           return { share: shareView(result.share), receipt_id: null };
         default:

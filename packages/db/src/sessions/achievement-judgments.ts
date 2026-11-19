@@ -121,7 +121,8 @@ function gateOf(cause: JudgmentCause): SQL {
  * queued again after the quiet time, so its `always` pairs are counted
  * without waiting for the next day's budget and its `luna` pairs deferred
  * again. A retry it was becomes a first try, as a new trigger counts
- * afresh. Nothing is queued for a session without a workspace, nor while the
+ * afresh. Nothing is queued for a preview session, whose runs are its
+ * admin's tries and no team's work, nor for a session without a workspace, nor while the
  * installation has no decision model: the evidence itself is still written
  * for the screens that show it, but no judgment waits to count it later.
  * Returns the pending judgment's id, or null when nothing was queued.
@@ -145,7 +146,7 @@ export async function queueAchievementJudgment(
            clock_timestamp() + make_interval(secs => ${ACHIEVEMENT_JUDGMENT_QUIET_MS / 1000})
     FROM sessions s
     JOIN workspaces w ON w.id = s.workspace_id
-    WHERE s.id = ${sessionId} AND ${gateOf(cause)} AND ${DECISION_MODEL}
+    WHERE s.id = ${sessionId} AND NOT s.preview AND ${gateOf(cause)} AND ${DECISION_MODEL}
     ON CONFLICT (session_id) WHERE status IN (${sqlLiterals(PENDING_ACHIEVEMENT_JUDGMENT_STATUSES)})
     DO UPDATE SET trigger = EXCLUDED.trigger,
                   status = 'queued',

@@ -55,6 +55,10 @@ import {
 import { cancelParkedRequests } from "./sessions/pending-requests.ts";
 import { awaitingInputAt } from "./sessions/pending-status.ts";
 import {
+  lockPreviewFeed,
+  lockRequester,
+} from "./sessions/requester-locks.ts";
+import {
   INCOMPATIBLE_CHECKPOINT_REASON,
   RESTORE_FAILURE_LIMIT,
   RESTORE_FAILURES_CLEARED,
@@ -835,12 +839,34 @@ export function resumeAtomic(
     const existing = await findIdempotent(tx, scope);
     const replay = controlReplay(existing, input.payloadHash);
     if (replay) return replay;
+    // Fixed at create, so read before the session lock: a preview's requester
+    // rows are taken first, in the order requester-locks.ts gives.
+    const [kind] = await tx
+      .select({
+        preview: sessions.preview,
+        workspaceId: sessions.workspaceId,
+        agentReleaseId: sessions.agentReleaseId,
+      })
+      .from(sessions)
+      .where(
+        and(eq(sessions.id, sessionId), eq(sessions.ownerId, scope.principal)),
+      )
+      .limit(1);
+    const requester = kind?.preview
+      ? await lockRequester(tx, input.principal, "sessions:write")
+      : null;
     const session = await lockSessionForControl(tx, {
       sessionId,
       ownerId: scope.principal,
       attempt,
     });
     if (!session) return { outcome: "not_found" };
+    if (
+      kind?.preview &&
+      !(await lockPreviewFeed(tx, input.principal, requester, kind))
+    ) {
+      return { outcome: "preview_refused" };
+    }
     const now = controlClock(input.now, startedAt);
     if (session.admissionState === "closed") {
       return { outcome: "rejected", admissionState: "closed" };

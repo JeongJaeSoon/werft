@@ -18,6 +18,7 @@ import type {
   RepositoryCeiling,
 } from "@werft-ai/contracts";
 import { GITHUB_SETTINGS_UNSUPPORTED } from "../../github/ports/github-settings.ts";
+import type { Principal } from "../../musterrolle/policy.ts";
 
 /** What every refused push operation answers, and its receipt records. */
 export const PUSH_REFUSAL_ERRORS: Record<
@@ -27,6 +28,11 @@ export const PUSH_REFUSAL_ERRORS: Record<
   missing_scope: {
     code: "FORBIDDEN",
     message: "This credential does not hold sessions:approve",
+  },
+  preview_role: {
+    code: "FORBIDDEN",
+    message:
+      "Only a person who manages this agent, signed in to the console, decides its preview session's push requests",
   },
   self_approval: {
     code: "FORBIDDEN",
@@ -214,6 +220,8 @@ export type DecidePushRequestInput = {
   latest?: { revision: number; gitCommit: string } | null;
   /** The deciding API key, for the receipt; null for a person. */
   deciderKey?: DeciderKey | null;
+  /** Who decides: a preview session's decider is judged again under lock. */
+  principal?: Principal;
 };
 
 export type PushWriteResult =

@@ -43,6 +43,10 @@ import {
 import { enqueueActionNotice } from "./musterrolle/action-notices.ts";
 import type { Database } from "./queries.ts";
 import {
+  lockPreviewFeed,
+  lockRequester,
+} from "./sessions/requester-locks.ts";
+import {
   agentGitHubSettings,
   agentReleases,
   agents,
@@ -825,7 +829,8 @@ export function createPostgresPushRequests(
             | "not_found"
             | "already_resolved"
             | "checkpoint_moved"
-            | "commit_mismatch",
+            | "commit_mismatch"
+            | "preview_role",
           row: Row | null,
         ): Promise<PushWriteResult> => ({
           outcome: "refused",
@@ -864,6 +869,26 @@ export function createPostgresPushRequests(
           if (row)
             return { outcome: "replayed", request: publicPushRequest(row) };
         }
+        // Fixed at create, so read before the session lock: a preview's
+        // decider rows are taken first, in the order requester-locks.ts gives.
+        const [kind] = await tx
+          .select({
+            preview: sessions.preview,
+            workspaceId: sessions.workspaceId,
+            agentReleaseId: sessions.agentReleaseId,
+          })
+          .from(sessions)
+          .where(
+            and(
+              eq(sessions.id, sessionId),
+              eq(sessions.ownerId, input.ownerId),
+            ),
+          )
+          .limit(1);
+        const requester =
+          kind?.preview && input.principal !== undefined
+            ? await lockRequester(tx, input.principal, "sessions:approve")
+            : null;
         // FOR SHARE holds the checkpoint pointer still until the decision
         // commits, so an approval can never land on a moved pointer.
         const [session] = await tx
@@ -881,6 +906,13 @@ export function createPostgresPushRequests(
           .limit(1)
           .for("share");
         if (!session) return refuse("not_found", null);
+        if (
+          kind?.preview &&
+          (input.principal === undefined ||
+            !(await lockPreviewFeed(tx, input.principal, requester, kind)))
+        ) {
+          return refuse("preview_role", null);
+        }
         const [row] = await tx
           .select()
           .from(pushRequests)

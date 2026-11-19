@@ -4892,6 +4892,8 @@ export interface components {
             agent_release_id: string;
             /** @description One of the models the release's connection offers. Omitted, the model of the agent release's card. */
             model?: string;
+            /** @description Starts a preview: the agent's admin tries `agent_release_id` before publishing it, including a release never activated. Only a person signed in to the console may send it (400 for an API key or Slack), and only one who manages the release's agent (403 `FORBIDDEN` with `reason_code: role`; someone who cannot see the agent gets 404 as for a release that is not there). The session is shared with its creator alone and cannot be widened (409), every later message and answer needs the sender to still manage the agent, and it counts toward no achievement. Omitted, false. */
+            preview?: boolean;
             /** @description How long the session's permission and question requests wait for an answer, in seconds: `park_after_seconds` before the platform parks the turn and frees its worker (0 parks at once), `expire_after_seconds` from the request until it stops taking answers and is denied. Each can only shorten the installation's value; a longer one is 400 `PERMISSION_WAIT_ABOVE_LIMIT`. Omitted, the installation's values apply. A request takes the values in force when it is raised. */
             permission_wait?: {
                 park_after_seconds?: number;
@@ -5660,6 +5662,8 @@ export interface components {
                 }[];
             };
             connection_id?: string;
+            /** @description Whether a save that changes what the agent does activates the release it makes. Omitted, true. With false the release is made but not activated (`release.status: saved`): the agent's draft keeps the change, a preview session (`POST /v1/sessions` with `preview: true`) can try it, and `POST /v1/agents/{id}/activate` publishes it. An agent with no active release is unpublished: only its admins and the workspace's owners and admins see it. */
+            activate?: boolean;
         };
         UpdateAgentRequest: {
             name?: string;
@@ -5699,6 +5703,8 @@ export interface components {
                 }[];
             };
             connection_id?: string;
+            /** @description Whether a save that changes what the agent does activates the release it makes. Omitted, true. With false the release is made but not activated (`release.status: saved`): the agent's draft keeps the change, a preview session (`POST /v1/sessions` with `preview: true`) can try it, and `POST /v1/agents/{id}/activate` publishes it. An agent with no active release is unpublished: only its admins and the workspace's owners and admins see it. */
+            activate?: boolean;
         };
         CreateAgentReleaseRequest: {
             /** Format: uuid */
@@ -5922,6 +5928,11 @@ export interface components {
                 release_is_active: boolean | null;
             } | null;
             /**
+             * @description True for a preview session: started with `preview: true` by an agent's admin to try a release before publishing it. Fixed at create. False from a server older than the field.
+             * @default false
+             */
+            preview: boolean;
+            /**
              * @description True when the session has an agent the caller may not use (a private agent outside the caller's teams): `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. False otherwise, including a session with no agent.
              * @default false
              */
@@ -6045,6 +6056,11 @@ export interface components {
                 /** @default null */
                 release_is_active: boolean | null;
             } | null;
+            /**
+             * @description True for a preview session: started with `preview: true` by an agent's admin to try a release before publishing it. Fixed at create. False from a server older than the field.
+             * @default false
+             */
+            preview: boolean;
             /**
              * @description True when the session has an agent the caller may not use (a private agent outside the caller's teams): `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. False otherwise, including a session with no agent.
              * @default false
@@ -10260,7 +10276,7 @@ export interface components {
             };
             release: {
                 /** @enum {string} */
-                status: "applied" | "failed" | "unchanged" | "superseded";
+                status: "applied" | "saved" | "failed" | "unchanged" | "superseded";
                 reason: string | null;
                 release_id: string | null;
                 version_id: string | null;
@@ -20484,6 +20500,7 @@ export interface operations {
                      *             "release_label": "2026-10-11_17:00:00",
                      *             "release_is_active": true
                      *           },
+                     *           "preview": false,
                      *           "agent_hidden": false,
                      *           "created_by": {
                      *             "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
@@ -20927,6 +20944,7 @@ export interface operations {
                      *         "release_label": "2026-10-11_17:00:00",
                      *         "release_is_active": true
                      *       },
+                     *       "preview": false,
                      *       "agent_hidden": false,
                      *       "created_by": {
                      *         "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
@@ -21085,6 +21103,7 @@ export interface operations {
                      *         "release_label": "2026-10-11_17:00:00",
                      *         "release_is_active": true
                      *       },
+                     *       "preview": false,
                      *       "agent_hidden": false,
                      *       "created_by": {
                      *         "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",

@@ -45,6 +45,7 @@ const DETAIL: SessionDetail = {
   id: SESSION,
   title: null,
   agent: null,
+  preview: false,
   agent_hidden: false,
   created_by: null,
   channel: null,

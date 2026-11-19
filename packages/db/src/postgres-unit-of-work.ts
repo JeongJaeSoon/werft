@@ -163,6 +163,7 @@ import {
   keyReaches,
   lockAgentUsage,
   lockAgentUse,
+  lockPreviewManager,
   lockRequester,
   lockSessionReach,
   type Requester,
@@ -435,6 +436,21 @@ export function createPostgresSessionUnitOfWork(
             });
           }
           if (await useRefused()) return { outcome: "agent_use_refused" };
+          if (
+            input.preview &&
+            (limitedAgentId === null ||
+              !(await lockPreviewManager(
+                tx,
+                input.principal,
+                requester,
+                workspaceId,
+                limitedAgentId,
+              )))
+          ) {
+            return { outcome: "preview_refused" };
+          }
+        } else if (input.preview) {
+          return { outcome: "preview_refused" };
         }
         if (input.notRunnableReason !== undefined) {
           return {
@@ -589,6 +605,7 @@ export function createPostgresSessionUnitOfWork(
           model: input.model ?? null,
           unmetered: input.unmetered ?? false,
           agentReleaseId: input.agentReleaseId,
+          preview: input.preview === true,
           ...((await newSessionPin(
             tx,
             input.agentReleaseId,
@@ -709,6 +726,7 @@ export function createPostgresSessionUnitOfWork(
             githubPolicySource: sessions.githubPolicySource,
             githubPolicyStart: sessions.githubPolicyStart,
             callerLimit: sessions.callerLimit,
+            preview: sessions.preview,
           })
           .from(sessions)
           .where(
@@ -755,6 +773,20 @@ export function createPostgresSessionUnitOfWork(
         }
         if (input.agentPrivate || (usage !== null && !usage.allowed)) {
           return { outcome: "agent_private" };
+        }
+        if (
+          session.preview &&
+          (limitedAgentId === null ||
+            session.workspaceId === null ||
+            !(await lockPreviewManager(
+              tx,
+              input.principal,
+              requester,
+              session.workspaceId,
+              limitedAgentId,
+            )))
+        ) {
+          return { outcome: "preview_refused" };
         }
         if (
           senderLimit !== null &&
@@ -1351,6 +1383,7 @@ export function createPostgresSessionReader(
       return {
         id: row.id,
         title: row.title,
+        preview: row.preview,
         agent_hidden:
           release !== undefined && usable?.has(release.id) === false,
         agent:

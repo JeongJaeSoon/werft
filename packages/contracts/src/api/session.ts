@@ -489,6 +489,10 @@ export const sessionSummarySchema = z.object({
       description:
         "The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.",
     }),
+  preview: z.boolean().default(false).meta({
+    description:
+      "True for a preview session: started with `preview: true` by an agent's admin to try a release before publishing it. Fixed at create. False from a server older than the field.",
+  }),
   agent_hidden: z.boolean().default(false).meta({
     description:
       "True when the session has an agent the caller may not use (a private agent outside the caller's teams): `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. False otherwise, including a session with no agent.",
@@ -659,6 +663,10 @@ export const createSessionRequestSchema = z
     model: z.string().min(1).optional().meta({
       description:
         "One of the models the release's connection offers. Omitted, the model of the agent release's card.",
+    }),
+    preview: z.boolean().optional().meta({
+      description:
+        "Starts a preview: the agent's admin tries `agent_release_id` before publishing it, including a release never activated. Only a person signed in to the console may send it (400 for an API key or Slack), and only one who manages the release's agent (403 `FORBIDDEN` with `reason_code: role`; someone who cannot see the agent gets 404 as for a release that is not there). The session is shared with its creator alone and cannot be widened (409), every later message and answer needs the sender to still manage the agent, and it counts toward no achievement. Omitted, false.",
     }),
     permission_wait: permissionWaitRequestSchema.optional().meta({
       description:

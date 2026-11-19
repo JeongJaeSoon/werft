@@ -115,6 +115,9 @@ export type AcceptSessionInput = {
   // A Slack DM's session starts seen by its creator alone (design 4.6);
   // left out, by the whole workspace.
   shareScope?: "private";
+  // A preview: the write refuses it unless the requester, a person, still
+  // manages the release's agent over the locked rows.
+  preview?: true;
   // The session's own waits, kept as given: a request takes the lower of
   // them and the installation's when it is raised.
   permissionWait?: PermissionWaitRequest;
@@ -131,6 +134,8 @@ export type AcceptSessionResult =
   /** The agent is private and the requester is not among those who use it. */
   | { outcome: "agent_private" }
   | { outcome: "caller_limited"; dimension: CallerLimitDimension }
+  /** A preview by someone who no longer manages the agent. */
+  | { outcome: "preview_refused" }
   /**
    * `agent_ownerless`: no one has administered the agent for the whole grace
    * period, judged in the write alone.
@@ -168,6 +173,8 @@ export type AppendMessageResult =
   /** A session the requester sees, of an agent they may not use. */
   | { outcome: "agent_private" }
   | { outcome: "caller_limited"; dimension: CallerLimitDimension }
+  /** A preview session's sender no longer manages its agent. */
+  | { outcome: "preview_refused" }
   // The session exists but its admission state does not take new input.
   | { outcome: "rejected"; admissionState: Exclude<AdmissionState, "active"> }
   // The session cannot be checkpointed (blocking pending reason): a turn run
