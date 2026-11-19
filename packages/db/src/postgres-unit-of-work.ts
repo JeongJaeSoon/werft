@@ -315,8 +315,10 @@ async function insertQueuedTurn(
  *
  * Ownership is judged here and nowhere earlier, so a succession that commits
  * before this read lets the start through without waiting for the reconciler.
- * A removal of the last admin locks none of the rows read here; starts that
- * read before it commits go through, which the grace period makes harmless.
+ * Losing the last owner through a disable or a team change locks none of the
+ * rows read here (an admin removed on the agent itself waits on the agent
+ * row); starts that read before it commits go through, which the grace
+ * period makes harmless.
  */
 async function lockedNotRunnable(
   tx: Database,

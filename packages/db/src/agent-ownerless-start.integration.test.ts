@@ -229,16 +229,19 @@ integration("starting an ownerless agent on PostgreSQL", () => {
     });
   });
 
-  test("a start that read before the last admin's removal committed goes through", async () => {
-    // Accepted on purpose: the removal locks no row the start reads.
+  test("a start that read before the last admin's disable committed goes through", async () => {
+    // Accepted on purpose. Disabling a member writes only their membership
+    // (or account) row, which the start reads without a lock; removing an
+    // admin on the agent itself locks the agent row and is waited for.
     const w = await world();
     await markedAgo(w.agentId, "30 days");
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      await client.query("DELETE FROM agent_admins WHERE agent_id = $1", [
-        w.agentId,
-      ]);
+      await client.query(
+        "UPDATE memberships SET disabled_at = now() WHERE workspace_id = $1 AND user_id = $2",
+        [w.ws, idOf(w.keeper)],
+      );
       expect(await create(w.owner, w.releaseId)).toMatchObject({
         outcome: "accepted",
       });
