@@ -35,6 +35,20 @@ async function scopesOf(
   });
   const scopes = { workspace: [] as ScopeEntry[], agent: [] as ScopeEntry[] };
   for (const attachment of attachments) {
+    // A following row is the skill's current version as of this start.
+    if (attachment.bundle === null) {
+      if (attachment.mode === "required") {
+        return {
+          ok: false,
+          refusal: {
+            code: "no_current_version",
+            name: attachment.name,
+            message: `"${attachment.name}" is required but the skill has no current version`,
+          },
+        };
+      }
+      continue;
+    }
     if (
       attachment.mode !== "forbidden" &&
       attachment.bundle.review !== "approved"

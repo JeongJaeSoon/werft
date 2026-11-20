@@ -124,6 +124,41 @@ export const skillIssueSchema = z
   .object({ path: z.string(), code: z.string(), message: z.string() })
   .strict();
 
+export const SKILL_AUTO_APPROVAL_REASON_VALUES = [
+  // The ref is a tag or a commit.
+  "not_branch",
+  // No rule on the branch requires a pull request with an approving review.
+  "protection_missing",
+  // The commit came in by no merged pull request whose reviews approve it.
+  "no_reviewed_pull_request",
+  // GitHub did not answer.
+  "github_unreachable",
+] as const;
+export const skillAutoApprovalReasonSchema = z.enum(
+  SKILL_AUTO_APPROVAL_REASON_VALUES,
+);
+export type SkillAutoApprovalReason = z.infer<
+  typeof skillAutoApprovalReasonSchema
+>;
+
+export const skillProtectionRuleSchema = z
+  .object({
+    kind: z.enum(["ruleset", "branch_protection"]),
+    required_reviews: z.number().int().positive(),
+  })
+  .strict();
+
+export const skillAutoApprovalSchema = z
+  .object({
+    result: z.enum(["approved", "pending"]),
+    /** Why it stayed `pending`; null once approved. */
+    reason: skillAutoApprovalReasonSchema.nullable(),
+    /** The rule that required review; null when none was found. */
+    rule: skillProtectionRuleSchema.nullable(),
+    pull_request: z.number().int().positive().nullable(),
+  })
+  .strict();
+
 export const skillSyncCheckSchema = z
   .object({
     at: timestampSchema,
@@ -135,6 +170,10 @@ export const skillSyncCheckSchema = z
     version_id: skillVersionIdSchema.nullable(),
     issues: z.array(skillIssueSchema).meta({
       description: "Why the checker refused the tree; empty otherwise.",
+    }),
+    auto_approval: skillAutoApprovalSchema.nullable().meta({
+      description:
+        "How the new version's auto-approval went (`created` with auto-approve on); null otherwise.",
     }),
   })
   .strict();
@@ -161,6 +200,17 @@ export const skillGitSourceSchema = z
     ref: z.string(),
     sync_enabled: z.boolean(),
     webhook: z.enum(SKILL_WEBHOOK_STATE_VALUES),
+    auto_approve: z
+      .object({
+        state: z.enum(["off", "requested", "on"]),
+        requested_by: userIdSchema.nullable(),
+        consented_by: userIdSchema.nullable(),
+      })
+      .strict()
+      .meta({
+        description:
+          "Protected-branch auto-approve: one manager requests, another consents.",
+      }),
     last_check: skillSyncCheckSchema.nullable(),
   })
   .strict();
@@ -186,15 +236,29 @@ export const skillVersionSchema = z
         "Who registered it; null for a version the Git sync made (`git.trigger` says what started it).",
     }),
     registered_at: timestampSchema,
-    reviewed_by: userIdSchema.nullable(),
+    reviewed_by: userIdSchema.nullable().meta({
+      description:
+        "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve.",
+    }),
     reviewed_at: timestampSchema.nullable(),
     archived_at: timestampSchema.nullable(),
+    current: z.boolean().meta({
+      description:
+        "The skill's current version: what a following attachment uses in a new session.",
+    }),
   })
   .strict();
 export type SkillVersion = z.infer<typeof skillVersionSchema>;
 
 export const skillWorkspaceAttachmentSchema = z
-  .object({ version_id: skillVersionIdSchema, mode: skillAttachmentModeSchema })
+  .object({
+    version_id: skillVersionIdSchema.nullable().meta({
+      description:
+        "The version named; for a following attachment the current version, null while there is none.",
+    }),
+    follows: z.boolean(),
+    mode: skillAttachmentModeSchema,
+  })
   .strict();
 
 export const skillSchema = z
@@ -336,9 +400,23 @@ export type SkillVersionChangeResponse = z.infer<
   typeof skillVersionChangeResponseSchema
 >;
 
-export const putSkillAttachmentRequestSchema = z
-  .object({ version_id: skillVersionIdSchema, mode: skillAttachmentModeSchema })
-  .strict();
+export const putSkillAttachmentRequestSchema = z.union([
+  z
+    .object({
+      version_id: skillVersionIdSchema,
+      mode: skillAttachmentModeSchema,
+    })
+    .strict(),
+  z
+    .object({
+      follow: z.literal(true).meta({
+        description:
+          "Follow the skill's current version: each new session takes the one current when it starts.",
+      }),
+      mode: z.enum(["required", "optional"]),
+    })
+    .strict(),
+]);
 export type PutSkillAttachmentRequest = z.infer<
   typeof putSkillAttachmentRequestSchema
 >;
@@ -369,13 +447,39 @@ export const agentSkillListSchema = z
           name: skillNameSchema,
           scope: z.enum(["workspace", "agent"]),
           mode: skillAttachmentModeSchema,
-          version: skillVersionSchema,
+          follows: z.boolean(),
+          version: skillVersionSchema.nullable().meta({
+            description:
+              "The version named; for a following attachment the current version, null while there is none.",
+          }),
         })
         .strict(),
     ),
   })
   .strict();
 export type AgentSkillList = z.infer<typeof agentSkillListSchema>;
+
+export const putSkillAutoApproveRequestSchema = z
+  .object({
+    action: z.enum(["request", "consent", "off"]).meta({
+      description:
+        "`request` and `consent` are by two managers (one, when the workspace has one); `off` turns it off at once.",
+    }),
+  })
+  .strict();
+export type PutSkillAutoApproveRequest = z.infer<
+  typeof putSkillAutoApproveRequestSchema
+>;
+
+export const revertSkillResponseSchema = z
+  .object({
+    name: skillNameSchema,
+    from: skillVersionSchema,
+    to: skillVersionSchema,
+    receipt_id: receiptIdSchema,
+  })
+  .strict();
+export type RevertSkillResponse = z.infer<typeof revertSkillResponseSchema>;
 
 export const skillFileSchema = z
   .object({

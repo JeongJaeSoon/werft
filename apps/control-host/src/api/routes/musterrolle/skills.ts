@@ -4,10 +4,12 @@ import {
   agentSkillParamsSchema,
   checkSkillResponseSchema,
   putSkillAttachmentRequestSchema,
+  putSkillAutoApproveRequestSchema,
   putSkillSyncRequestSchema,
   registerGitHubSkillRequestSchema,
   registerSkillRequestSchema,
   registerSkillResponseSchema,
+  revertSkillResponseSchema,
   reviewSkillVersionRequestSchema,
   SKILL_UPLOAD_BODY_MAX_BYTES,
   skillAttachmentResponseSchema,
@@ -87,7 +89,27 @@ export function registerSkillRoutes(
       );
       return jsonWithSchema(context, skillSyncResponseSchema, changed);
     });
+
+    apiRoute(router, "putSkillAutoApprove", async (context) => {
+      const params = requireParams(context, skillNameParamsSchema);
+      const body = await parseJsonBody(
+        context,
+        putSkillAutoApproveRequestSchema,
+      );
+      const changed = await mapped(() =>
+        sync.setAutoApprove(context.get("caller"), params.name, body.action),
+      );
+      return jsonWithSchema(context, skillSyncResponseSchema, changed);
+    });
   }
+
+  apiRoute(router, "revertSkill", async (context) => {
+    const params = requireParams(context, skillNameParamsSchema);
+    const reverted = await mapped(() =>
+      service.revert(context.get("caller"), params.name),
+    );
+    return jsonWithSchema(context, revertSkillResponseSchema, reverted);
+  });
 
   apiRoute(router, "getSkillVersionFiles", async (context) => {
     const params = requireParams(context, skillVersionParamsSchema);

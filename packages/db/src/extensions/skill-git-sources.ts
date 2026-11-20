@@ -1,11 +1,16 @@
 import { randomUUID } from "node:crypto";
 import {
+  SKILL_AUTO_APPROVAL_REASON_VALUES,
   SKILL_SYNC_RESULT_VALUES,
   SKILL_SYNC_TRIGGER_VALUES,
+  type SkillAutoApprovalReason,
   type SkillSyncResult,
   type SkillSyncTriggerKind,
+  type WorkspaceRole,
 } from "@werft-ai/contracts";
 import type {
+  SkillAutoApproval,
+  SkillAutoApproveState,
   SkillGitLocation,
   SkillGitSource,
   SkillGitSourceStore,
@@ -13,10 +18,11 @@ import type {
   SkillSyncTrigger,
 } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { lockActorAccount } from "../control-shared.ts";
 import { DB_NOW, fromDbNow } from "../db-clock.ts";
 import { lockedRole } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
-import { skillGitSources } from "../schema.ts";
+import { memberships, skillGitSources, users } from "../schema.ts";
 import { writeSucceededReceipt } from "../succeeded-receipt.ts";
 
 type Row = typeof skillGitSources.$inferSelect;
@@ -79,6 +85,7 @@ export function gitVersionOf(
 }
 
 export function checkJson(check: SkillSyncCheck) {
+  const auto = check.autoApproval;
   return {
     at: check.at.toISOString(),
     trigger: triggerJson(check.trigger),
@@ -86,6 +93,48 @@ export function checkJson(check: SkillSyncCheck) {
     result: check.result,
     version_id: check.versionId,
     issues: check.issues,
+    auto_approval:
+      auto === null
+        ? null
+        : {
+            result: auto.result,
+            reason: auto.reason,
+            rule:
+              auto.rule === null
+                ? null
+                : {
+                    kind: auto.rule.kind,
+                    required_reviews: auto.rule.requiredReviews,
+                  },
+            pull_request: auto.pullRequest,
+          },
+  };
+}
+
+function autoApprovalOf(value: unknown): SkillAutoApproval | null {
+  if (value === null || value === undefined) return null;
+  const json = record(value);
+  const rule = json.rule === null ? null : record(json.rule);
+  const reason = (
+    SKILL_AUTO_APPROVAL_REASON_VALUES as readonly unknown[]
+  ).includes(json.reason)
+    ? (json.reason as SkillAutoApprovalReason)
+    : null;
+  return {
+    result: json.result === "approved" ? "approved" : "pending",
+    reason,
+    rule:
+      rule === null
+        ? null
+        : {
+            kind:
+              rule.kind === "branch_protection"
+                ? "branch_protection"
+                : "ruleset",
+            requiredReviews: Number(rule.required_reviews ?? 0),
+          },
+    pullRequest:
+      typeof json.pull_request === "number" ? json.pull_request : null,
   };
 }
 
@@ -113,6 +162,7 @@ function checkOf(value: unknown): SkillSyncCheck | null {
           };
         })
       : [],
+    autoApproval: autoApprovalOf(json.auto_approval),
   };
 }
 
@@ -127,6 +177,12 @@ export function sourceOf(row: Row): SkillGitSource {
     path: row.path,
     ref: row.ref,
     syncEnabled: row.syncEnabled,
+    autoApprove: {
+      state: row.autoApprove as SkillAutoApproveState["state"],
+      requestedBy: row.autoApproveRequestedBy,
+      consentedBy: row.autoApproveConsentedBy,
+      grantId: row.autoApproveGrantId,
+    },
     lastCheck: checkOf(row.lastCheck),
   };
 }
@@ -165,6 +221,51 @@ export async function lockedSource(
     .limit(1)
     .for("update");
   return row;
+}
+
+/**
+ * The actor's live role, and whether another live manager exists (decision
+ * skills-and-mcp.md 3). The actor's user row, then the memberships of the
+ * actor and of every manager in user_id order, as a suspension and a role
+ * change take them, so the "only manager" rule queues behind those instead
+ * of deadlocking them; none of them loses the role before this commits.
+ */
+export async function lockedManagers(
+  tx: Database,
+  workspaceId: string,
+  userId: string,
+  roles: readonly WorkspaceRole[],
+): Promise<{ role: WorkspaceRole | null; another: boolean }> {
+  await lockActorAccount(tx, userId);
+  const rows = await tx
+    .select({
+      userId: memberships.userId,
+      role: memberships.role,
+      live: sql<boolean>`${memberships.disabledAt} is null and ${users.disabledAt} is null`,
+    })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
+    .where(
+      and(
+        eq(memberships.workspaceId, workspaceId),
+        or(
+          eq(memberships.userId, userId),
+          inArray(memberships.role, [...roles]),
+        ),
+      ),
+    )
+    .orderBy(asc(memberships.userId))
+    .for("share", { of: memberships });
+  const mine = rows.find((row) => row.userId === userId && row.live);
+  return {
+    role: (mine?.role as WorkspaceRole | undefined) ?? null,
+    another: rows.some(
+      (row) =>
+        row.userId !== userId &&
+        row.live &&
+        roles.includes(row.role as WorkspaceRole),
+    ),
+  };
 }
 
 export async function recordCheckInTx(
@@ -355,7 +456,14 @@ export function createPostgresSkillGitSourceStore(
         }
         const [updated] = await tx
           .update(skillGitSources)
-          .set({ syncEnabled: input.enabled, updatedAt: DB_NOW })
+          .set({
+            syncEnabled: input.enabled,
+            // A check that read GitHub before this approves nothing.
+            ...(row.autoApprove === "on"
+              ? { autoApproveGrantId: input.receiptId }
+              : {}),
+            updatedAt: DB_NOW,
+          })
           .where(byName(input.workspaceId, input.name))
           .returning();
         if (!updated) throw new Error("skill git source vanished in its tx");
@@ -367,6 +475,86 @@ export function createPostgresSkillGitSourceStore(
           result: {
             name: input.name,
             action: input.enabled ? "resume" : "pause",
+          },
+        });
+        return {
+          outcome: "updated",
+          source: sourceOf(updated),
+          receiptId: input.receiptId,
+        };
+      });
+    },
+
+    setAutoApprove(input) {
+      return db.transaction(async (tx) => {
+        const userId = input.principal.actor?.userId;
+        if (!userId) return { outcome: "actor_inactive" };
+        const { role, another } = await lockedManagers(
+          tx,
+          input.workspaceId,
+          userId,
+          input.managerRoles,
+        );
+        if (role === null) return { outcome: "actor_inactive" };
+        if (!input.managerRoles.includes(role)) return { outcome: "outranked" };
+        const row = await lockedSource(tx, input.workspaceId, input.name);
+        if (!row) return { outcome: "not_found" };
+        let set: Partial<typeof skillGitSources.$inferInsert>;
+        let selfConsent = false;
+        switch (input.action) {
+          case "off":
+            if (row.autoApprove === "off") {
+              return { outcome: "unchanged", source: sourceOf(row) };
+            }
+            set = {
+              autoApprove: "off",
+              autoApproveRequestedBy: null,
+              autoApproveConsentedBy: null,
+              autoApproveGrantId: null,
+            };
+            break;
+          case "request":
+            if (row.autoApprove !== "off") {
+              return { outcome: "unchanged", source: sourceOf(row) };
+            }
+            set = { autoApprove: "requested", autoApproveRequestedBy: userId };
+            break;
+          case "consent":
+            if (row.autoApprove === "on") {
+              return { outcome: "unchanged", source: sourceOf(row) };
+            }
+            if (row.autoApprove !== "requested") {
+              return { outcome: "not_requested" };
+            }
+            // The same rule as a version's review: another manager consents,
+            // unless the requester is the workspace's only one.
+            selfConsent = row.autoApproveRequestedBy === userId;
+            if (selfConsent && another) return { outcome: "self_consent" };
+            set = {
+              autoApprove: "on",
+              autoApproveConsentedBy: userId,
+              autoApproveGrantId: input.receiptId,
+            };
+            break;
+        }
+        const [updated] = await tx
+          .update(skillGitSources)
+          .set({ ...set, updatedAt: DB_NOW })
+          .where(byName(input.workspaceId, input.name))
+          .returning();
+        if (!updated) throw new Error("skill git source vanished in its tx");
+        await writeSucceededReceipt(tx, input.principal, {
+          id: input.receiptId,
+          operation: "update_extension_sync",
+          resource: { kind: "skill", id: input.name },
+          workspaceId: input.workspaceId,
+          result: {
+            name: input.name,
+            action: `auto_approve_${input.action}`,
+            ...(input.action === "consent"
+              ? { requested_by: row.autoApproveRequestedBy }
+              : {}),
+            ...(selfConsent ? { self_consent: "sole_manager" } : {}),
           },
         });
         return {

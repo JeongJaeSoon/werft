@@ -654,7 +654,7 @@ export const createSessionRequestSchema = z
       .optional()
       .meta({
         description:
-          "Turns extension bundles on or off for this session, by the bundle ids the workspace registered. Only a bundle its agent or workspace left `optional` can be named; a `required` one is always on and a `forbidden` one cannot be turned on, else `UNSUPPORTED_CAPABILITY` with `details.reason_code` naming why (`required_removed`, `required_replaced`, `forbidden_revived`, `not_optional`, `bundle_not_found`, `bundle_not_approved`, `skill_name_collision`, `feature_unsupported`) and `details.bundle` the bundle name. An `optional` bundle not named in `enable` stays off. The resolved list is fixed at create and returned as `extensions`.",
+          "Turns extension bundles on or off for this session, by the bundle ids the workspace registered. Only a bundle its agent or workspace left `optional` can be named; a `required` one is always on and a `forbidden` one cannot be turned on, else `UNSUPPORTED_CAPABILITY` with `details.reason_code` naming why (`required_removed`, `required_replaced`, `forbidden_revived`, `not_optional`, `bundle_not_found`, `bundle_not_approved`, `no_current_version`, `skill_name_collision`, `feature_unsupported`) and `details.bundle` the bundle name. An attachment that follows a skill's current version uses the version current at create, and is left out (`optional`) or refused with `no_current_version` (`required`) while the skill has none. An `optional` bundle not named in `enable` stays off. The resolved list is fixed at create and returned as `extensions`.",
       }),
     message: messageInputSchema,
     // Pins the session to this release of an agent: the session belongs to

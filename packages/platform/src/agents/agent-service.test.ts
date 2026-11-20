@@ -948,6 +948,8 @@ describe("activation and the agent's extension bundles", () => {
   const scripted: ExtensionAttachment = {
     scope: "agent",
     mode: "optional",
+    name: "tools",
+    follows: false,
     bundle: {
       id: "019a0000-0000-7000-8000-0000000e0001",
       workspaceId: WORKSPACE,
@@ -969,6 +971,7 @@ describe("activation and the agent's extension bundles", () => {
       reviewedAt: new Date(0),
       version: null,
       archivedAt: null,
+      current: false,
     },
   };
   const extensions = {

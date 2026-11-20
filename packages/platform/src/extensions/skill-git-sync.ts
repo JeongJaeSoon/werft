@@ -24,9 +24,11 @@ import {
   EXTENSION_MANAGER_ROLES,
 } from "./bundle-service.ts";
 import type { BundleInputFile, BundleIssue } from "./bundle-validator.ts";
+import type { GitVersionInput } from "./ports/extension-bundle-store.ts";
 import type {
   SkillGitSource,
   SkillGitSourceStore,
+  SkillProtectionEvidence,
   SkillSyncCheck,
   SkillSyncIssue,
   SkillSyncTrigger,
@@ -73,6 +75,18 @@ export interface GitHubSkillReader {
     commit: string,
     path: string,
   ): Promise<GitHubSkillTree>;
+  /**
+   * Whether `ref` is a branch whose rules require a pull request with an
+   * approving review, and, given `commit`, whether it came in by a merged
+   * pull request whose reviews approve it (decision skills-and-mcp.md 3).
+   */
+  protection(
+    app: AppKey,
+    installationId: number,
+    repositoryId: number,
+    ref: string,
+    commit: string | null,
+  ): Promise<SkillProtectionEvidence>;
 }
 
 /** A connection that may receive webhooks, with its stored secret. */
@@ -185,6 +199,11 @@ export function skillGitSourceView(
     ref: source.ref,
     sync_enabled: source.syncEnabled,
     webhook,
+    auto_approve: {
+      state: source.autoApprove.state,
+      requested_by: source.autoApprove.requestedBy,
+      consented_by: source.autoApprove.consentedBy,
+    },
     last_check:
       check === null
         ? null
@@ -199,6 +218,22 @@ export function skillGitSourceView(
             result: check.result,
             version_id: check.versionId,
             issues: check.issues,
+            auto_approval:
+              check.autoApproval === null
+                ? null
+                : {
+                    result: check.autoApproval.result,
+                    reason: check.autoApproval.reason,
+                    rule:
+                      check.autoApproval.rule === null
+                        ? null
+                        : {
+                            kind: check.autoApproval.rule.kind,
+                            required_reviews:
+                              check.autoApproval.rule.requiredReviews,
+                          },
+                    pull_request: check.autoApproval.pullRequest,
+                  },
           },
   };
 }
@@ -236,6 +271,26 @@ export function createSkillGitSync(
     );
   }
 
+  /** The auto-approve conditions on GitHub; a GitHub failure fails them. */
+  async function protectionOf(
+    app: GitHubAppCredential,
+    source: SkillGitSource,
+    commit: string | null,
+  ): Promise<SkillProtectionEvidence> {
+    try {
+      return await reader.protection(
+        app,
+        source.installationId,
+        source.repositoryId,
+        source.ref,
+        commit,
+      );
+    } catch (error) {
+      if (!(error instanceof GitHubAppCheckError)) throw error;
+      return { met: false, reason: "github_unreachable" };
+    }
+  }
+
   /** One run of the check; records its outcome, throws only off GitHub. */
   async function once(
     workspaceId: string,
@@ -257,7 +312,15 @@ export function createSkillGitSync(
       sources.recordCheck(
         workspaceId,
         name,
-        { at, trigger, commit, result, versionId: null, issues },
+        {
+          at,
+          trigger,
+          commit,
+          result,
+          versionId: null,
+          issues,
+          autoApproval: null,
+        },
         token,
       );
     const app = await credentialOf(source);
@@ -290,6 +353,20 @@ export function createSkillGitSync(
     }
     if (tree.kind === "missing") return record("source_missing", commit);
     if (tree.kind === "refused") return record("rejected", commit, tree.issues);
+    // Read only while auto-approve is on; the write reads the settings
+    // again under the source row's lock before it approves anything.
+    let protection: GitVersionInput["protection"];
+    const grantId = source.autoApprove.grantId;
+    if (
+      source.autoApprove.state === "on" &&
+      source.syncEnabled &&
+      grantId !== null
+    ) {
+      protection = {
+        grantId,
+        evidence: await protectionOf(app, source, commit),
+      };
+    }
     const result = await deps.bundles.register({
       principal: { ownerId: workspaceId },
       slug: name,
@@ -306,6 +383,7 @@ export function createSkillGitSync(
         },
         trigger,
         checkedAt: at,
+        ...(protection === undefined ? {} : { protection }),
         leaseToken: token,
       },
     });
@@ -683,6 +761,79 @@ export function createSkillGitSync(
             receipt_id: result.receiptId,
           };
         }
+      }
+    },
+
+    /**
+     * Protected-branch auto-approve (decision skills-and-mcp.md 3): a
+     * request and a consent each check the branch and its rule on GitHub
+     * first, and neither passes while they fail; turning it off needs none.
+     */
+    async setAutoApprove(
+      caller: Caller,
+      name: string,
+      action: "request" | "consent" | "off",
+    ): Promise<SkillSyncResponse> {
+      await manager(caller);
+      if (action !== "off") {
+        const source = await sources.get(caller.ownerId, name);
+        if (source === null) throw NOT_FOUND();
+        const app = await credentialOf(source);
+        if (app === null) {
+          throw unavailable(new GitHubAppCheckError("github_rejected"));
+        }
+        const conditions = await protectionOf(app, source, null);
+        if (!conditions.met) {
+          if (conditions.reason === "github_unreachable") {
+            throw unavailable(new GitHubAppCheckError("github_unreachable"));
+          }
+          throw refused(
+            conditions.reason,
+            conditions.reason === "not_branch"
+              ? "Auto-approve is for a branch; a tag or a commit is never auto-approved"
+              : "No rule on the branch requires a pull request with an approving review",
+          );
+        }
+      }
+      const result = await sources.setAutoApprove({
+        workspaceId: caller.ownerId,
+        name,
+        action,
+        receiptId: newId(),
+        principal: caller,
+        managerRoles: EXTENSION_MANAGER_ROLES,
+      });
+      switch (result.outcome) {
+        case "not_found":
+          throw NOT_FOUND();
+        case "actor_inactive":
+          throw ACTOR_INACTIVE();
+        case "outranked":
+          throw OUTRANKED();
+        case "self_consent":
+          throw new SessionServiceError(
+            "FORBIDDEN",
+            "Another workspace manager consents to the auto-approve you requested",
+            undefined,
+            { reason_code: "self_consent" },
+          );
+        case "not_requested":
+          throw refused(
+            "auto_approve_not_requested",
+            "Auto-approve is consented to once another manager requested it",
+          );
+        case "unchanged":
+          return {
+            name,
+            git: await sourceView(result.source),
+            receipt_id: null,
+          };
+        case "updated":
+          return {
+            name,
+            git: await sourceView(result.source),
+            receipt_id: result.receiptId,
+          };
       }
     },
   };

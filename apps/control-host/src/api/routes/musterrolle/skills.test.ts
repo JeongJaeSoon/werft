@@ -6,6 +6,7 @@ import {
   checkSkillResponseSchema,
   REQUEST_BODY_MAX_BYTES,
   registerSkillResponseSchema,
+  revertSkillResponseSchema,
   SKILL_UPLOAD_BODY_MAX_BYTES,
   SKILL_UPLOAD_FILES_MAX,
   type SkillVersion,
@@ -50,6 +51,7 @@ const VERSION: SkillVersion = {
   reviewed_by: null,
   reviewed_at: null,
   archived_at: null,
+  current: false,
 };
 
 type Code = ConstructorParameters<typeof SessionServiceError>[0];
@@ -380,7 +382,11 @@ describe("workspace skills", () => {
           name,
           scope: "workspace",
           agent_id: null,
-          attachment: request,
+          attachment: {
+            version_id: "version_id" in request ? request.version_id : null,
+            follows: !("version_id" in request),
+            mode: request.mode,
+          },
           receipt_id: null,
         }),
       },
@@ -391,7 +397,7 @@ describe("workspace skills", () => {
     expect(attached.status).toBe(200);
     expect(
       skillAttachmentResponseSchema.parse(await attached.json()).attachment,
-    ).toEqual({ version_id: VERSION_ID, mode: "required" });
+    ).toEqual({ version_id: VERSION_ID, follows: false, mode: "required" });
     expect((await send({}, "PUT", `${base}/Bad/attachment`, body)).status).toBe(
       404,
     );
@@ -474,6 +480,11 @@ describe("GitHub skills", () => {
     path: "skills/research",
     ref: "v1.2.0",
     sync_enabled: false,
+    auto_approve: {
+      state: "off" as const,
+      requested_by: null,
+      consented_by: null,
+    },
     webhook: "no_public_url" as const,
     last_check: null,
   };
@@ -596,6 +607,84 @@ describe("GitHub skills", () => {
       ).toBe(expected);
     }
   });
+
+  test("auto-approve takes an action; its refusals keep their codes", async () => {
+    const path = `${base}/research/sync/auto-approve`;
+    const requested = await sendSync(
+      {
+        setAutoApprove: async (_caller, name, action) => {
+          expect([name, action]).toEqual(["research", "request"]);
+          return { name, git: SOURCE, receipt_id: VERSION_ID };
+        },
+      },
+      "PUT",
+      path,
+      JSON.stringify({ action: "request" }),
+    );
+    expect(requested.status).toBe(200);
+    skillSyncResponseSchema.parse(await requested.json());
+    expect(
+      (await sendSync({}, "PUT", path, JSON.stringify({ action: "on" })))
+        .status,
+    ).toBe(400);
+    for (const [code, reason, expected] of [
+      ["FORBIDDEN", "self_consent", 403],
+      ["BAD_REQUEST", "not_branch", 400],
+      ["BAD_REQUEST", "protection_missing", 400],
+      ["GITHUB_UNAVAILABLE", "github_unreachable", 502],
+      ["NOT_FOUND", undefined, 404],
+    ] as const) {
+      const answered = await sendSync(
+        { setAutoApprove: fail(code, reason) },
+        "PUT",
+        path,
+        JSON.stringify({ action: "consent" }),
+      );
+      expect(answered.status).toBe(expected);
+      if (reason !== undefined) {
+        expect(
+          ((await errorOf(answered)).details as { reason_code?: string })
+            .reason_code,
+        ).toBe(reason);
+      }
+    }
+  });
+});
+
+describe("skill revert", () => {
+  const path = `${base}/research/revert`;
+
+  test("answers both versions, and no_previous_version as 400", async () => {
+    const reverted = await send(
+      {
+        revert: async (_caller, name) => ({
+          name,
+          from: { ...VERSION, version: 2, review: "approved" },
+          to: { ...VERSION, review: "approved", current: true },
+          receipt_id: VERSION_ID,
+        }),
+      },
+      "POST",
+      path,
+    );
+    expect(reverted.status).toBe(200);
+    expect(
+      revertSkillResponseSchema.parse(await reverted.json()).to.current,
+    ).toBe(true);
+    expect(
+      await status(
+        send(
+          { revert: fail("BAD_REQUEST", "no_previous_version") },
+          "POST",
+          path,
+        ),
+      ),
+    ).toEqual([400, "BAD_REQUEST", "no_previous_version"]);
+    expect(
+      (await send({ revert: fail("NOT_FOUND") }, "POST", path)).status,
+    ).toBe(404);
+    expect((await send({}, "POST", `${base}/Bad/revert`)).status).toBe(404);
+  });
 });
 
 describe("agent skills", () => {
@@ -615,7 +704,11 @@ describe("agent skills", () => {
           name,
           scope: "agent",
           agent_id: agentId,
-          attachment: request,
+          attachment: {
+            version_id: "version_id" in request ? request.version_id : null,
+            follows: !("version_id" in request),
+            mode: request.mode,
+          },
           receipt_id: null,
         }),
       },

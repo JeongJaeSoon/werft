@@ -212,6 +212,7 @@ GitHub에서 등록한 스킬은 push webhook, 하루 한 번 확인, 콘솔의 
 - 받는 경로는 인증 없는 `POST /v1/github/webhook` 하나다. `X-GitHub-Hook-Installation-Target-ID` 헤더의 App ID로 secret을 찾고, `X-Hub-Signature-256`이 그 가운데 하나로 맞을 때만 본문을 읽는다. 서명이 없거나 틀리면 `401`, 본문이 64 KiB를 넘으면 `413`, App마다 분당 상한을 넘으면 `429`다. 확인을 기다리지 않고 `202`로 답한다.
 - 하루 확인은 replica마다 10분 간격으로 마지막 확인이 하루 지난 스킬을 찾는다. 같은 스킬을 두 replica가 함께 확인하지 않는다. 스킬을 잡은 replica가 확인을 마치지 못하고 죽으면 30분 뒤 다른 replica가 다시 잡는다.
 - 한 스킬의 확인은 잠금 시간 동안만 그 스킬을 쥔다. 잠금 시간이 지나도록 끝나지 않은 확인은 다음 확인이 넘겨받고, 늦게 끝난 확인은 버전도 확인 결과도 쓰지 않는다.
+- 보호된 브랜치 자동 승인은 브랜치의 규칙을 작성용 App으로 읽는다. ruleset(Settings → Rules → Rulesets의 "Require a pull request before merging", 승인 리뷰 1개 이상)은 위 권한으로 읽힌다. 예전 방식의 branch protection rule은 GitHub가 **Administration: Read-only** 권한이 있는 App에만 보여 주므로, 그 권한 없이 branch protection만 둔 저장소에서는 자동 승인을 켤 수 없다(`protection_missing`). ruleset을 쓰거나 App에 그 권한을 더한다. 머지된 pull request와 그 리뷰는 **Pull requests** 권한으로 읽는다.
 
 #### 저장소 route와 egress
 

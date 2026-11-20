@@ -63,6 +63,7 @@ function bundle(
     reviewedAt: new Date(0),
     version: null,
     archivedAt: null,
+    current: false,
   };
 }
 
@@ -74,7 +75,12 @@ function extensionDeps(
   attachments: ExtensionAttachment[],
   skills = true,
 ): SessionExtensionsDeps {
-  const all = [lint, tools, docs, ...attachments.map((a) => a.bundle)];
+  const all = [
+    lint,
+    tools,
+    docs,
+    ...attachments.flatMap((a) => (a.bundle === null ? [] : [a.bundle])),
+  ];
   return {
     store: {
       async find(_workspaceId, id) {
@@ -92,7 +98,13 @@ const attach = (
   bundle: ExtensionBundle,
   mode: ExtensionAttachment["mode"],
   scope: ExtensionAttachment["scope"] = "agent",
-): ExtensionAttachment => ({ scope, mode, bundle });
+): ExtensionAttachment => ({
+  scope,
+  mode,
+  name: bundle.name,
+  follows: false,
+  bundle,
+});
 
 const unreached = async () => {
   throw new Error("not reached");
@@ -407,6 +419,50 @@ describe("what is offered", () => {
     expect(required.ok === false && required.refusal.code).toBe(
       "bundle_not_approved",
     );
+  });
+
+  test("a following attachment runs the current version a new session sees; with none, a required one refuses", async () => {
+    const v1 = { ...bundle(5, "review"), version: 1, current: true };
+    const v2 = { ...bundle(6, "review"), version: 2, current: true };
+    const following: ExtensionAttachment = {
+      scope: "workspace",
+      mode: "required",
+      name: "review",
+      follows: true,
+      bundle: v1,
+    };
+    const attachments = [following];
+    const { service, caller, accepted } = setup({
+      extensions: extensionDeps(attachments),
+    });
+    await service.createSession(caller, { idempotencyKey: "k1", body });
+    attachments[0] = { ...following, bundle: v2 };
+    await service.createSession(caller, { idempotencyKey: "k2", body });
+    expect(accepted.map((one) => one.extensions?.[0]?.digest)).toEqual([
+      v1.digest,
+      v2.digest,
+    ]);
+
+    const input = {
+      workspaceId: WORKSPACE,
+      agentId: AGENT,
+      runtimeKind: "claude_agent_sdk" as const,
+      tools: ["Read", "Skill"],
+    };
+    const none = { ...following, bundle: null };
+    const required = await resolveSessionExtensions(
+      extensionDeps([none]),
+      input,
+    );
+    expect(required.ok === false && required.refusal.code).toBe(
+      "no_current_version",
+    );
+    expect(
+      await resolveSessionExtensions(
+        extensionDeps([{ ...none, mode: "optional" }]),
+        input,
+      ),
+    ).toEqual({ ok: true, extensions: [] });
   });
 
   test("a workspace requirement the agent cannot drop is refused at create", async () => {

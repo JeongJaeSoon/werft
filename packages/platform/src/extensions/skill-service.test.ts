@@ -7,6 +7,7 @@ import type {
   ExtensionAttachment,
   ExtensionBundle,
   ExtensionBundleStore,
+  RevertSkillResult,
   ReviewExtensionBundleResult,
 } from "./ports/extension-bundle-store.ts";
 import { createSkillService } from "./skill-service.ts";
@@ -56,6 +57,9 @@ function setup(options: { ownIds?: boolean } = {}) {
     review?: ReviewExtensionBundleResult;
     archive?: ArchiveExtensionBundleResult;
     attach?: AttachmentReceiptResult;
+    revert?: RevertSkillResult;
+    /** Another manager's write landing while the attachment is written. */
+    duringAttach?: () => void;
   } = {};
   let n = 0;
   const newId = () =>
@@ -86,6 +90,7 @@ function setup(options: { ownIds?: boolean } = {}) {
         reviewedAt: null,
         version: rows.filter((r) => r.name === input.name).length + 1,
         archivedAt: null,
+        current: false,
       };
       rows.push(bundle);
       return { outcome: "registered", bundle, receiptId: input.receiptId };
@@ -104,6 +109,7 @@ function setup(options: { ownIds?: boolean } = {}) {
     },
     async recordAttachment(input) {
       calls.push(input);
+      outcomes.duringAttach?.();
       if (outcomes.attach) return outcomes.attach;
       return { outcome: "recorded", receiptId: input.receiptId };
     },
@@ -111,6 +117,9 @@ function setup(options: { ownIds?: boolean } = {}) {
     async archive(input) {
       archives.push(input);
       return outcomes.archive ?? { outcome: "not_found" };
+    },
+    async revert() {
+      return outcomes.revert ?? { outcome: "not_found" };
     },
   };
   const service = createSkillService({
@@ -328,6 +337,85 @@ describe("the skill service", () => {
     ).toBe("BAD_REQUEST:version_name_mismatch");
   });
 
+  test("a following attachment names the skill and answers its current version; revert and archive refusals keep their codes", async () => {
+    const { service, calls, attachments, rows, outcomes } = setup();
+    const web = caller("web");
+    const { version } = await service.register(web, upload("research"));
+    expect(
+      await service.putWorkspaceAttachment(web, "research", {
+        follow: true,
+        mode: "required",
+      }),
+    ).toMatchObject({
+      attachment: { version_id: null, follows: true, mode: "required" },
+    });
+    expect(calls[0]).toMatchObject({ follow: true, bundleId: version.id });
+    // Approved and made current while the attachment was being written.
+    outcomes.duringAttach = () => {
+      (rows[0] as ExtensionBundle).current = true;
+    };
+    expect(
+      (
+        await service.putWorkspaceAttachment(web, "research", {
+          follow: true,
+          mode: "optional",
+        })
+      ).attachment?.version_id,
+    ).toBe(version.id);
+    expect(
+      await refusal(
+        service.putWorkspaceAttachment(web, "missing", {
+          follow: true,
+          mode: "optional",
+        }),
+      ),
+    ).toBe("NOT_FOUND:");
+    attachments.push({
+      scope: "workspace",
+      mode: "optional",
+      name: "research",
+      follows: true,
+      bundle: null,
+    });
+    await service.deleteWorkspaceAttachment(web, "research");
+    expect(calls.at(-1)).toMatchObject({
+      kind: "detach",
+      follow: true,
+      bundleId: version.id,
+    });
+
+    outcomes.archive = { outcome: "current" };
+    expect(await refusal(service.archive(web, version.id))).toBe(
+      "BAD_REQUEST:version_current",
+    );
+    for (const [result, expected] of [
+      [{ outcome: "no_previous_version" }, "BAD_REQUEST:no_previous_version"],
+      [{ outcome: "not_found" }, "NOT_FOUND:"],
+      [{ outcome: "outranked" }, "FORBIDDEN:role"],
+    ] as const) {
+      outcomes.revert = result;
+      expect(await refusal(service.revert(web, "research"))).toBe(expected);
+    }
+    expect(await refusal(service.revert(caller("api"), "research"))).toBe(
+      "FORBIDDEN:web_session_required",
+    );
+    const row = rows[0] as ExtensionBundle;
+    const before = { ...row, current: false };
+    const after = { ...row, current: true };
+    outcomes.revert = {
+      outcome: "reverted",
+      from: before,
+      to: after,
+      receiptId: "r-1",
+    };
+    expect(await service.revert(web, "research")).toMatchObject({
+      name: "research",
+      from: { id: version.id, current: false },
+      to: { current: true },
+      receipt_id: "r-1",
+    });
+  });
+
   test("an agent attachment goes to the store with the agent's manager roles", async () => {
     const { service, calls, attachments, rows, outcomes } = setup();
     const web = caller("web");
@@ -349,6 +437,8 @@ describe("the skill service", () => {
     attachments.push({
       scope: "agent",
       mode: "optional",
+      name: "research",
+      follows: false,
       bundle: rows[0] as ExtensionBundle,
     });
     const taken = await service.deleteAgentAttachment(web, AGENT, "research");
@@ -378,6 +468,8 @@ describe("the skill service", () => {
     attachments.push({
       scope: "workspace",
       mode: "required",
+      name: "research",
+      follows: false,
       bundle: rows[0] as ExtensionBundle,
     });
     expect(

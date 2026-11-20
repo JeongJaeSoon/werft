@@ -146,6 +146,7 @@ import {
   rejudgeSessionResponseSchema,
   rerunWorkflowResponseSchema,
   resolveSlackBindingResponseSchema,
+  revertSkillResponseSchema,
   reviewAchievementResponseSchema,
   revokeAgentIdentityResponseSchema,
   revokeApiKeyResponseSchema,
@@ -434,6 +435,8 @@ export const responseSchemas = {
   "POST /v1/workspace/skills/github": registerSkillResponseSchema,
   "POST /v1/workspace/skills/{name}/sync/check": checkSkillResponseSchema,
   "PUT /v1/workspace/skills/{name}/sync": skillSyncResponseSchema,
+  "PUT /v1/workspace/skills/{name}/sync/auto-approve": skillSyncResponseSchema,
+  "POST /v1/workspace/skills/{name}/revert": revertSkillResponseSchema,
   "GET /v1/workspace/skills/versions/{id}/files": skillVersionFilesSchema,
   "POST /v1/workspace/skills/versions/{id}/review":
     skillVersionChangeResponseSchema,

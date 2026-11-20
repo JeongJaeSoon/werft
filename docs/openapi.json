@@ -212,7 +212,7 @@
             }
           },
           "extensions": {
-            "description": "Turns extension bundles on or off for this session, by the bundle ids the workspace registered. Only a bundle its agent or workspace left `optional` can be named; a `required` one is always on and a `forbidden` one cannot be turned on, else `UNSUPPORTED_CAPABILITY` with `details.reason_code` naming why (`required_removed`, `required_replaced`, `forbidden_revived`, `not_optional`, `bundle_not_found`, `bundle_not_approved`, `skill_name_collision`, `feature_unsupported`) and `details.bundle` the bundle name. An `optional` bundle not named in `enable` stays off. The resolved list is fixed at create and returned as `extensions`.",
+            "description": "Turns extension bundles on or off for this session, by the bundle ids the workspace registered. Only a bundle its agent or workspace left `optional` can be named; a `required` one is always on and a `forbidden` one cannot be turned on, else `UNSUPPORTED_CAPABILITY` with `details.reason_code` naming why (`required_removed`, `required_replaced`, `forbidden_revived`, `not_optional`, `bundle_not_found`, `bundle_not_approved`, `no_current_version`, `skill_name_collision`, `feature_unsupported`) and `details.bundle` the bundle name. An attachment that follows a skill's current version uses the version current at create, and is left out (`optional`) or refused with `no_current_version` (`required`) while the skill has none. An `optional` bundle not named in `enable` stays off. The resolved list is fixed at create and returned as `extensions`.",
             "type": "object",
             "properties": {
               "enable": {
@@ -14010,6 +14010,7 @@
               "attach_extension",
               "detach_extension",
               "archive_extension",
+              "revert_extension",
               "update_extension_sync",
               "create_login_provider",
               "update_login_provider",
@@ -30696,6 +30697,50 @@
                             "no_secret"
                           ]
                         },
+                        "auto_approve": {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "off",
+                                "requested",
+                                "on"
+                              ]
+                            },
+                            "requested_by": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "consented_by": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "state",
+                            "requested_by",
+                            "consented_by"
+                          ],
+                          "additionalProperties": false,
+                          "description": "Protected-branch auto-approve: one manager requests, another consents."
+                        },
                         "last_check": {
                           "anyOf": [
                             {
@@ -30802,6 +30847,90 @@
                                     "additionalProperties": false
                                   },
                                   "description": "Why the checker refused the tree; empty otherwise."
+                                },
+                                "auto_approval": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "result": {
+                                          "type": "string",
+                                          "enum": [
+                                            "approved",
+                                            "pending"
+                                          ]
+                                        },
+                                        "reason": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "not_branch",
+                                                "protection_missing",
+                                                "no_reviewed_pull_request",
+                                                "github_unreachable"
+                                              ]
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "rule": {
+                                          "anyOf": [
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "kind": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "ruleset",
+                                                    "branch_protection"
+                                                  ]
+                                                },
+                                                "required_reviews": {
+                                                  "type": "integer",
+                                                  "exclusiveMinimum": 0,
+                                                  "maximum": 9007199254740991
+                                                }
+                                              },
+                                              "required": [
+                                                "kind",
+                                                "required_reviews"
+                                              ],
+                                              "additionalProperties": false
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "pull_request": {
+                                          "anyOf": [
+                                            {
+                                              "type": "integer",
+                                              "exclusiveMinimum": 0,
+                                              "maximum": 9007199254740991
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "result",
+                                        "reason",
+                                        "rule",
+                                        "pull_request"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "description": "How the new version's auto-approval went (`created` with auto-approve on); null otherwise."
                                 }
                               },
                               "required": [
@@ -30810,7 +30939,8 @@
                                 "commit",
                                 "result",
                                 "version_id",
-                                "issues"
+                                "issues",
+                                "auto_approval"
                               ],
                               "additionalProperties": false
                             },
@@ -30829,6 +30959,7 @@
                         "ref",
                         "sync_enabled",
                         "webhook",
+                        "auto_approve",
                         "last_check"
                       ],
                       "additionalProperties": false
@@ -30999,7 +31130,8 @@
                           {
                             "type": "null"
                           }
-                        ]
+                        ],
+                        "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
                       },
                       "reviewed_at": {
                         "anyOf": [
@@ -31024,6 +31156,10 @@
                             "type": "null"
                           }
                         ]
+                      },
+                      "current": {
+                        "type": "boolean",
+                        "description": "The skill's current version: what a following attachment uses in a new session."
                       }
                     },
                     "required": [
@@ -31040,7 +31176,8 @@
                       "registered_at",
                       "reviewed_by",
                       "reviewed_at",
-                      "archived_at"
+                      "archived_at",
+                      "current"
                     ],
                     "additionalProperties": false
                   },
@@ -31052,9 +31189,20 @@
                       "type": "object",
                       "properties": {
                         "version_id": {
-                          "type": "string",
-                          "format": "uuid",
-                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "The version named; for a following attachment the current version, null while there is none."
+                        },
+                        "follows": {
+                          "type": "boolean"
                         },
                         "mode": {
                           "type": "string",
@@ -31067,6 +31215,7 @@
                       },
                       "required": [
                         "version_id",
+                        "follows",
                         "mode"
                       ],
                       "additionalProperties": false
@@ -31303,7 +31452,8 @@
                   {
                     "type": "null"
                   }
-                ]
+                ],
+                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
               },
               "reviewed_at": {
                 "anyOf": [
@@ -31328,6 +31478,10 @@
                     "type": "null"
                   }
                 ]
+              },
+              "current": {
+                "type": "boolean",
+                "description": "The skill's current version: what a following attachment uses in a new session."
               }
             },
             "required": [
@@ -31344,7 +31498,8 @@
               "registered_at",
               "reviewed_by",
               "reviewed_at",
-              "archived_at"
+              "archived_at",
+              "current"
             ],
             "additionalProperties": false
           },
@@ -31525,6 +31680,90 @@
                       "additionalProperties": false
                     },
                     "description": "Why the checker refused the tree; empty otherwise."
+                  },
+                  "auto_approval": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "result": {
+                            "type": "string",
+                            "enum": [
+                              "approved",
+                              "pending"
+                            ]
+                          },
+                          "reason": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "not_branch",
+                                  "protection_missing",
+                                  "no_reviewed_pull_request",
+                                  "github_unreachable"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "rule": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "ruleset",
+                                      "branch_protection"
+                                    ]
+                                  },
+                                  "required_reviews": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "required_reviews"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "pull_request": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "result",
+                          "reason",
+                          "rule",
+                          "pull_request"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How the new version's auto-approval went (`created` with auto-approve on); null otherwise."
                   }
                 },
                 "required": [
@@ -31533,7 +31772,8 @@
                   "commit",
                   "result",
                   "version_id",
-                  "issues"
+                  "issues",
+                  "auto_approval"
                 ],
                 "additionalProperties": false
               },
@@ -31605,6 +31845,50 @@
                   "no_public_url",
                   "no_secret"
                 ]
+              },
+              "auto_approve": {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "off",
+                      "requested",
+                      "on"
+                    ]
+                  },
+                  "requested_by": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "consented_by": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "state",
+                  "requested_by",
+                  "consented_by"
+                ],
+                "additionalProperties": false,
+                "description": "Protected-branch auto-approve: one manager requests, another consents."
               },
               "last_check": {
                 "anyOf": [
@@ -31712,6 +31996,90 @@
                           "additionalProperties": false
                         },
                         "description": "Why the checker refused the tree; empty otherwise."
+                      },
+                      "auto_approval": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "result": {
+                                "type": "string",
+                                "enum": [
+                                  "approved",
+                                  "pending"
+                                ]
+                              },
+                              "reason": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "not_branch",
+                                      "protection_missing",
+                                      "no_reviewed_pull_request",
+                                      "github_unreachable"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "rule": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "enum": [
+                                          "ruleset",
+                                          "branch_protection"
+                                        ]
+                                      },
+                                      "required_reviews": {
+                                        "type": "integer",
+                                        "exclusiveMinimum": 0,
+                                        "maximum": 9007199254740991
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "required_reviews"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "pull_request": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "result",
+                              "reason",
+                              "rule",
+                              "pull_request"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "How the new version's auto-approval went (`created` with auto-approve on); null otherwise."
                       }
                     },
                     "required": [
@@ -31720,7 +32088,8 @@
                       "commit",
                       "result",
                       "version_id",
-                      "issues"
+                      "issues",
+                      "auto_approval"
                     ],
                     "additionalProperties": false
                   },
@@ -31739,6 +32108,7 @@
               "ref",
               "sync_enabled",
               "webhook",
+              "auto_approve",
               "last_check"
             ],
             "additionalProperties": false
@@ -31760,6 +32130,455 @@
         "required": [
           "name",
           "git",
+          "receipt_id"
+        ],
+        "additionalProperties": false
+      },
+      "PutSkillAutoApproveRequest": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "request",
+              "consent",
+              "off"
+            ],
+            "description": "`request` and `consent` are by two managers (one, when the workspace has one); `off` turns it off at once."
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "RevertSkillResponse": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+          },
+          "from": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+              },
+              "version": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The registration order of this name: 1, 2, … Null on a bundle registered before skills, which no new version can join."
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "upload",
+                  "github"
+                ]
+              },
+              "git": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "repository_id": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "ref": {
+                        "type": "string"
+                      },
+                      "commit": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{40}$"
+                      },
+                      "trigger": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "register",
+                              "webhook",
+                              "daily",
+                              "manual",
+                              "resume"
+                            ]
+                          },
+                          "delivery_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "user_id": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "delivery_id",
+                          "user_id"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "repository_id",
+                      "path",
+                      "ref",
+                      "commit",
+                      "trigger"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "size_bytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "has_scripts": {
+                "type": "boolean"
+              },
+              "review": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "approved",
+                  "rejected"
+                ]
+              },
+              "registered_by": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Who registered it; null for a version the Git sync made (`git.trigger` says what started it)."
+              },
+              "registered_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "reviewed_by": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
+              },
+              "reviewed_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "archived_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "current": {
+                "type": "boolean",
+                "description": "The skill's current version: what a following attachment uses in a new session."
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "version",
+              "digest",
+              "source",
+              "git",
+              "size_bytes",
+              "has_scripts",
+              "review",
+              "registered_by",
+              "registered_at",
+              "reviewed_by",
+              "reviewed_at",
+              "archived_at",
+              "current"
+            ],
+            "additionalProperties": false
+          },
+          "to": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+              },
+              "version": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The registration order of this name: 1, 2, … Null on a bundle registered before skills, which no new version can join."
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "upload",
+                  "github"
+                ]
+              },
+              "git": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "repository_id": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "ref": {
+                        "type": "string"
+                      },
+                      "commit": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{40}$"
+                      },
+                      "trigger": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "register",
+                              "webhook",
+                              "daily",
+                              "manual",
+                              "resume"
+                            ]
+                          },
+                          "delivery_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "user_id": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "delivery_id",
+                          "user_id"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "repository_id",
+                      "path",
+                      "ref",
+                      "commit",
+                      "trigger"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "size_bytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "has_scripts": {
+                "type": "boolean"
+              },
+              "review": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "approved",
+                  "rejected"
+                ]
+              },
+              "registered_by": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Who registered it; null for a version the Git sync made (`git.trigger` says what started it)."
+              },
+              "registered_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "reviewed_by": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
+              },
+              "reviewed_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "archived_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "current": {
+                "type": "boolean",
+                "description": "The skill's current version: what a following attachment uses in a new session."
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "version",
+              "digest",
+              "source",
+              "git",
+              "size_bytes",
+              "has_scripts",
+              "review",
+              "registered_by",
+              "registered_at",
+              "reviewed_by",
+              "reviewed_at",
+              "archived_at",
+              "current"
+            ],
+            "additionalProperties": false
+          },
+          "receipt_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "name",
+          "from",
+          "to",
           "receipt_id"
         ],
         "additionalProperties": false
@@ -31934,7 +32753,8 @@
                   {
                     "type": "null"
                   }
-                ]
+                ],
+                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
               },
               "reviewed_at": {
                 "anyOf": [
@@ -31959,6 +32779,10 @@
                     "type": "null"
                   }
                 ]
+              },
+              "current": {
+                "type": "boolean",
+                "description": "The skill's current version: what a following attachment uses in a new session."
               }
             },
             "required": [
@@ -31975,7 +32799,8 @@
               "registered_at",
               "reviewed_by",
               "reviewed_at",
-              "archived_at"
+              "archived_at",
+              "current"
             ],
             "additionalProperties": false
           },
@@ -32135,7 +32960,8 @@
                       {
                         "type": "null"
                       }
-                    ]
+                    ],
+                    "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
                   },
                   "reviewed_at": {
                     "anyOf": [
@@ -32160,6 +32986,10 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "current": {
+                    "type": "boolean",
+                    "description": "The skill's current version: what a following attachment uses in a new session."
                   }
                 },
                 "required": [
@@ -32176,7 +33006,8 @@
                   "registered_at",
                   "reviewed_by",
                   "reviewed_at",
-                  "archived_at"
+                  "archived_at",
+                  "current"
                 ],
                 "additionalProperties": false
               },
@@ -32452,7 +33283,8 @@
                   {
                     "type": "null"
                   }
-                ]
+                ],
+                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
               },
               "reviewed_at": {
                 "anyOf": [
@@ -32477,6 +33309,10 @@
                     "type": "null"
                   }
                 ]
+              },
+              "current": {
+                "type": "boolean",
+                "description": "The skill's current version: what a following attachment uses in a new session."
               }
             },
             "required": [
@@ -32493,7 +33329,8 @@
               "registered_at",
               "reviewed_by",
               "reviewed_at",
-              "archived_at"
+              "archived_at",
+              "current"
             ],
             "additionalProperties": false
           },
@@ -32518,27 +33355,53 @@
         "additionalProperties": false
       },
       "PutSkillAttachmentRequest": {
-        "type": "object",
-        "properties": {
-          "version_id": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "version_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "required",
+                  "optional",
+                  "forbidden"
+                ]
+              }
+            },
+            "required": [
+              "version_id",
+              "mode"
+            ],
+            "additionalProperties": false
           },
-          "mode": {
-            "type": "string",
-            "enum": [
-              "required",
-              "optional",
-              "forbidden"
-            ]
+          {
+            "type": "object",
+            "properties": {
+              "follow": {
+                "type": "boolean",
+                "const": true,
+                "description": "Follow the skill's current version: each new session takes the one current when it starts."
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "required",
+                  "optional"
+                ]
+              }
+            },
+            "required": [
+              "follow",
+              "mode"
+            ],
+            "additionalProperties": false
           }
-        },
-        "required": [
-          "version_id",
-          "mode"
-        ],
-        "additionalProperties": false
+        ]
       },
       "SkillAttachmentResponse": {
         "type": "object",
@@ -32572,9 +33435,20 @@
                 "type": "object",
                 "properties": {
                   "version_id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The version named; for a following attachment the current version, null while there is none."
+                  },
+                  "follows": {
+                    "type": "boolean"
                   },
                   "mode": {
                     "type": "string",
@@ -32587,6 +33461,7 @@
                 },
                 "required": [
                   "version_id",
+                  "follows",
                   "mode"
                 ],
                 "additionalProperties": false
@@ -32647,210 +33522,228 @@
                     "forbidden"
                   ]
                 },
+                "follows": {
+                  "type": "boolean"
+                },
                 "version": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string",
-                      "format": "uuid",
-                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                    },
-                    "name": {
-                      "type": "string",
-                      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
-                    },
-                    "version": {
-                      "anyOf": [
-                        {
-                          "type": "integer",
-                          "exclusiveMinimum": 0,
-                          "maximum": 9007199254740991
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                         },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "description": "The registration order of this name: 1, 2, … Null on a bundle registered before skills, which no new version can join."
-                    },
-                    "digest": {
-                      "type": "string",
-                      "pattern": "^[0-9a-f]{64}$"
-                    },
-                    "source": {
-                      "type": "string",
-                      "enum": [
-                        "upload",
-                        "github"
-                      ]
-                    },
-                    "git": {
-                      "anyOf": [
-                        {
-                          "type": "object",
-                          "properties": {
-                            "repository_id": {
+                        "name": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+                        },
+                        "version": {
+                          "anyOf": [
+                            {
                               "type": "integer",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991
                             },
-                            "path": {
-                              "type": "string"
-                            },
-                            "ref": {
-                              "type": "string"
-                            },
-                            "commit": {
-                              "type": "string",
-                              "pattern": "^[0-9a-f]{40}$"
-                            },
-                            "trigger": {
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "The registration order of this name: 1, 2, … Null on a bundle registered before skills, which no new version can join."
+                        },
+                        "digest": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "upload",
+                            "github"
+                          ]
+                        },
+                        "git": {
+                          "anyOf": [
+                            {
                               "type": "object",
                               "properties": {
-                                "kind": {
+                                "repository_id": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "path": {
+                                  "type": "string"
+                                },
+                                "ref": {
+                                  "type": "string"
+                                },
+                                "commit": {
                                   "type": "string",
-                                  "enum": [
-                                    "register",
-                                    "webhook",
-                                    "daily",
-                                    "manual",
-                                    "resume"
-                                  ]
+                                  "pattern": "^[0-9a-f]{40}$"
                                 },
-                                "delivery_id": {
-                                  "type": [
-                                    "string",
-                                    "null"
-                                  ]
-                                },
-                                "user_id": {
-                                  "anyOf": [
-                                    {
+                                "trigger": {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
                                       "type": "string",
-                                      "format": "uuid",
-                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                      "enum": [
+                                        "register",
+                                        "webhook",
+                                        "daily",
+                                        "manual",
+                                        "resume"
+                                      ]
                                     },
-                                    {
-                                      "type": "null"
+                                    "delivery_id": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "user_id": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "format": "uuid",
+                                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
                                     }
-                                  ]
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "delivery_id",
+                                    "user_id"
+                                  ],
+                                  "additionalProperties": false
                                 }
                               },
                               "required": [
-                                "kind",
-                                "delivery_id",
-                                "user_id"
+                                "repository_id",
+                                "path",
+                                "ref",
+                                "commit",
+                                "trigger"
                               ],
                               "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
                             }
-                          },
-                          "required": [
-                            "repository_id",
-                            "path",
-                            "ref",
-                            "commit",
-                            "trigger"
+                          ]
+                        },
+                        "size_bytes": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "has_scripts": {
+                          "type": "boolean"
+                        },
+                        "review": {
+                          "type": "string",
+                          "enum": [
+                            "pending",
+                            "approved",
+                            "rejected"
+                          ]
+                        },
+                        "registered_by": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
                           ],
-                          "additionalProperties": false
+                          "description": "Who registered it; null for a version the Git sync made (`git.trigger` says what started it)."
                         },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "size_bytes": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "has_scripts": {
-                      "type": "boolean"
-                    },
-                    "review": {
-                      "type": "string",
-                      "enum": [
-                        "pending",
-                        "approved",
-                        "rejected"
-                      ]
-                    },
-                    "registered_by": {
-                      "anyOf": [
-                        {
+                        "registered_at": {
                           "type": "string",
-                          "format": "uuid",
-                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
                         },
-                        {
-                          "type": "null"
+                        "reviewed_by": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
+                        },
+                        "reviewed_at": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "archived_at": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "current": {
+                          "type": "boolean",
+                          "description": "The skill's current version: what a following attachment uses in a new session."
                         }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "version",
+                        "digest",
+                        "source",
+                        "git",
+                        "size_bytes",
+                        "has_scripts",
+                        "review",
+                        "registered_by",
+                        "registered_at",
+                        "reviewed_by",
+                        "reviewed_at",
+                        "archived_at",
+                        "current"
                       ],
-                      "description": "Who registered it; null for a version the Git sync made (`git.trigger` says what started it)."
+                      "additionalProperties": false
                     },
-                    "registered_at": {
-                      "type": "string",
-                      "format": "date-time",
-                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
-                    },
-                    "reviewed_by": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "format": "uuid",
-                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "reviewed_at": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "format": "date-time",
-                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "archived_at": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "format": "date-time",
-                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
+                    {
+                      "type": "null"
                     }
-                  },
-                  "required": [
-                    "id",
-                    "name",
-                    "version",
-                    "digest",
-                    "source",
-                    "git",
-                    "size_bytes",
-                    "has_scripts",
-                    "review",
-                    "registered_by",
-                    "registered_at",
-                    "reviewed_by",
-                    "reviewed_at",
-                    "archived_at"
                   ],
-                  "additionalProperties": false
+                  "description": "The version named; for a following attachment the current version, null while there is none."
                 }
               },
               "required": [
                 "name",
                 "scope",
                 "mode",
+                "follows",
                 "version"
               ],
               "additionalProperties": false
@@ -80264,11 +81157,13 @@
                           "registered_at": "2026-11-20T09:00:00.000Z",
                           "reviewed_by": "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21",
                           "reviewed_at": "2026-11-20T10:00:00.000Z",
-                          "archived_at": null
+                          "archived_at": null,
+                          "current": true
                         }
                       ],
                       "workspace_attachment": {
                         "version_id": "7c3e9a1f-2d4b-4e6a-8f0c-5b1d3e7a9c20",
+                        "follows": true,
                         "mode": "required"
                       }
                     }
@@ -80464,7 +81359,8 @@
                     "registered_at": "2026-11-20T09:00:00.000Z",
                     "reviewed_by": null,
                     "reviewed_at": null,
-                    "archived_at": null
+                    "archived_at": null,
+                    "current": true
                   },
                   "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
                 },
@@ -80807,7 +81703,8 @@
                     "registered_at": "2026-11-20T09:00:00.000Z",
                     "reviewed_by": null,
                     "reviewed_at": null,
-                    "archived_at": null
+                    "archived_at": null,
+                    "current": true
                   },
                   "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
                 },
@@ -81130,7 +82027,8 @@
                     "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
                     "result": "unchanged",
                     "version_id": null,
-                    "issues": []
+                    "issues": [],
+                    "auto_approval": null
                   }
                 },
                 "schema": {
@@ -81404,6 +82302,11 @@
                     "path": "skills/release-notes",
                     "ref": "main",
                     "sync_enabled": false,
+                    "auto_approve": {
+                      "state": "off",
+                      "requested_by": null,
+                      "consented_by": null
+                    },
                     "webhook": "no_public_url",
                     "last_check": {
                       "at": "2026-11-21T09:00:00.000Z",
@@ -81415,7 +82318,8 @@
                       "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
                       "result": "unchanged",
                       "version_id": null,
-                      "issues": []
+                      "issues": [],
+                      "auto_approval": null
                     }
                   },
                   "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
@@ -81428,6 +82332,679 @@
           },
           "400": {
             "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspace/skills/{name}/sync/auto-approve": {
+      "put": {
+        "operationId": "putSkillAutoApprove",
+        "tags": [
+          "Workspace settings"
+        ],
+        "summary": "Request, consent to or turn off a GitHub skill's auto-approve",
+        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Auto-approve lets the sync approve a new version itself when its commit came in through a reviewed pull request on a protected branch. One manager `request`s it and another `consent`s (403 `self_consent` for the requester while another manager can; a workspace's only manager may, and the receipt says so); `off` turns it off at once. A request and a consent each check GitHub first: the ref must be a branch (400 `not_branch` for a tag or a commit) and a ruleset or classic branch protection on it must require a pull request with at least one approving review (400 `protection_missing`; classic protection is read only when the App may read administration, so without it the rule counts as missing); GitHub not answering is 502 `GITHUB_UNAVAILABLE`. A consent with nothing requested is 400 `auto_approve_not_requested`. While on, every check that makes a version reads the branch's rule and the pull requests of the commit: a merged pull request into that branch whose reviewers' last reviews include an approval by someone other than its author and no request for changes. The version is approved by the sync (an `approve_extension` receipt with who enabled and consented, the commit, the pull request and the rule); otherwise it stays `pending` and `last_check.auto_approval.reason` says why (`not_branch`, `protection_missing`, `no_reviewed_pull_request`, `github_unreachable`). Paused sync never auto-approves, not even POST …/sync/check. Each change writes an `update_extension_sync` receipt with the action; the state it already has answers `receipt_id: null`. A skill that is not from GitHub is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** required.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The skill's name.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `werft-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "werft-web"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "action": "request"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/PutSkillAutoApproveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The skill's source as it is now.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "name": "release-notes",
+                  "git": {
+                    "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                    "installation_id": 4242,
+                    "repository_id": 123456789,
+                    "repository": "acme/skills",
+                    "path": "skills/release-notes",
+                    "ref": "main",
+                    "sync_enabled": true,
+                    "auto_approve": {
+                      "state": "requested",
+                      "requested_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                      "consented_by": null
+                    },
+                    "webhook": "no_public_url",
+                    "last_check": {
+                      "at": "2026-11-21T09:00:00.000Z",
+                      "trigger": {
+                        "kind": "webhook",
+                        "delivery_id": "72d3162e-cc78-11e3-81ab-4c9367dc0958",
+                        "user_id": null
+                      },
+                      "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                      "result": "unchanged",
+                      "version_id": null,
+                      "issues": [],
+                      "auto_approval": null
+                    }
+                  },
+                  "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/SkillSyncResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "502": {
+            "description": "- `GITHUB_UNAVAILABLE`: GitHub did not give the App's installations or repositories. `error.details.reason_code` is `github_unavailable` (GitHub did not answer, answered 5xx, or rate-limited the App; try again later) or `github_app_auth_failed` (GitHub refused the App's JWT: the key was revoked or the App deleted; a retry does not help).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "GITHUB_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspace/skills/{name}/revert": {
+      "post": {
+        "operationId": "revertSkill",
+        "tags": [
+          "Workspace settings"
+        ],
+        "summary": "Move a skill's current version one step back",
+        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. The current version moves to the highest approved version below it that is not archived; refused with 400 `no_previous_version` when there is none (or no current version). New sessions of a following attachment then take that version; running ones keep theirs. The reverted version stays approved and becomes current again only through a higher version's approval, so it never comes back by itself. Sync and auto-approve stay as they are. Writes a `revert_extension` receipt with both versions.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The skill's name.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `werft-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "werft-web"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The version it left and the one now current.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "name": "release-notes",
+                  "from": {
+                    "id": "7c3e9a1f-2d4b-4e6a-8f0c-5b1d3e7a9c20",
+                    "name": "release-notes",
+                    "version": 3,
+                    "digest": "9f2c4e6a8b0d1f3e5a7c9b2d4f6e8a0c1b3d5f7e9a2c4b6d8f0e1a3c5b7d9f2e",
+                    "source": "upload",
+                    "git": null,
+                    "size_bytes": 4608,
+                    "has_scripts": true,
+                    "review": "approved",
+                    "registered_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                    "registered_at": "2026-11-20T09:00:00.000Z",
+                    "reviewed_by": "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21",
+                    "reviewed_at": "2026-11-20T10:00:00.000Z",
+                    "archived_at": null,
+                    "current": false
+                  },
+                  "to": {
+                    "id": "7c3e9a1f-2d4b-4e6a-8f0c-5b1d3e7a9c20",
+                    "name": "release-notes",
+                    "version": 2,
+                    "digest": "9f2c4e6a8b0d1f3e5a7c9b2d4f6e8a0c1b3d5f7e9a2c4b6d8f0e1a3c5b7d9f2e",
+                    "source": "upload",
+                    "git": null,
+                    "size_bytes": 4608,
+                    "has_scripts": true,
+                    "review": "approved",
+                    "registered_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                    "registered_at": "2026-11-20T09:00:00.000Z",
+                    "reviewed_by": "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21",
+                    "reviewed_at": "2026-11-20T10:00:00.000Z",
+                    "archived_at": null,
+                    "current": true
+                  },
+                  "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/RevertSkillResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: . Fix the request before retrying.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -81696,7 +83273,8 @@
                     "registered_at": "2026-11-20T09:00:00.000Z",
                     "reviewed_by": null,
                     "reviewed_at": null,
-                    "archived_at": null
+                    "archived_at": null,
+                    "current": true
                   },
                   "previous_approved": null,
                   "files": [
@@ -81874,7 +83452,7 @@
           "Workspace settings"
         ],
         "summary": "Approve or reject a skill version",
-        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. The one who registered the version may not review it while another live owner or admin can (403 `reason_code` `self_review`); a workspace with one manager lets that person review, and the `approve_extension` receipt then says `self_review: \"sole_manager\"`. An archived version is not reviewed (400 `version_archived`). The same decision again changes nothing and answers `receipt_id: null`. Rejecting a version a scope attaches stays allowed, as a recall: a `required` attachment then refuses every session start it reaches and an `optional` one is left out, until the attachment is taken back.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. The one who registered the version may not review it while another live owner or admin can (403 `reason_code` `self_review`); a workspace with one manager lets that person review, and the `approve_extension` receipt then says `self_review: \"sole_manager\"`. An archived version is not reviewed (400 `version_archived`). The same decision again changes nothing and answers `receipt_id: null`. Rejecting a version a scope attaches stays allowed, as a recall: a `required` attachment then refuses every session start it reaches and an `optional` one is left out, until the attachment is taken back. Approving a version whose number is higher than the skill's current version makes it current; rejecting the current version moves it back to the highest approved version below that is not archived, or to none. The receipt then records `current` with both version numbers.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -81943,7 +83521,8 @@
                     "registered_at": "2026-11-20T09:00:00.000Z",
                     "reviewed_by": "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21",
                     "reviewed_at": "2026-11-20T10:00:00.000Z",
-                    "archived_at": null
+                    "archived_at": null,
+                    "current": true
                   },
                   "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
                 },
@@ -82214,7 +83793,7 @@
           "Workspace settings"
         ],
         "summary": "Archive a skill version",
-        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. An archived version is never attached again and is not reviewed; its tree stays, so a session that ran it can still be read. Refused with 400 while a workspace or agent scope names it (`version_attached`) or a session that has not ended runs it (`version_in_use`), and with 403 `self_review` for the one who registered it while another manager can. Writes an `archive_extension` receipt; an archived version again answers `receipt_id: null`.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. An archived version is never attached again and is not reviewed; its tree stays, so a session that ran it can still be read. Refused with 400 while a workspace or agent scope names it (`version_attached`), while it is the skill's current version (`version_current`: revert or reject it first) or a session that has not ended runs it (`version_in_use`), and with 403 `self_review` for the one who registered it while another manager can. Writes an `archive_extension` receipt; an archived version again answers `receipt_id: null`.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -82270,7 +83849,8 @@
                     "registered_at": "2026-11-20T09:00:00.000Z",
                     "reviewed_by": "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21",
                     "reviewed_at": "2026-11-20T10:00:00.000Z",
-                    "archived_at": "2026-11-21T09:00:00.000Z"
+                    "archived_at": "2026-11-21T09:00:00.000Z",
+                    "current": true
                   },
                   "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
                 },
@@ -82506,7 +84086,7 @@
           "Workspace settings"
         ],
         "summary": "Name the skill version every agent of the workspace gets",
-        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. `version_id` must be a version of `name` (400 `version_name_mismatch`), approved (`version_not_approved`) and not archived (`version_archived`); `mode: forbidden` takes any version that is not archived, approved or not, since it only keeps the name out. Replaces what the scope named before. A session takes it when it starts. Writes an `attach_extension` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. `version_id` must be a version of `name` (400 `version_name_mismatch`), approved (`version_not_approved`) and not archived (`version_archived`); `mode: forbidden` takes any version that is not archived, approved or not, since it only keeps the name out. `follow: true` (with `required` or `optional`) instead follows the skill's current version: each new session takes the version current when it starts, so approving a higher version or reverting moves what the next session gets and never a running one. Replaces what the scope named before. A session takes it when it starts. Writes an `attach_extension` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -82566,6 +84146,7 @@
                   "agent_id": null,
                   "attachment": {
                     "version_id": "7c3e9a1f-2d4b-4e6a-8f0c-5b1d3e7a9c20",
+                    "follows": false,
                     "mode": "required"
                   },
                   "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
@@ -83114,6 +84695,7 @@
                       "name": "release-notes",
                       "scope": "workspace",
                       "mode": "required",
+                      "follows": true,
                       "version": {
                         "id": "7c3e9a1f-2d4b-4e6a-8f0c-5b1d3e7a9c20",
                         "name": "release-notes",
@@ -83128,7 +84710,8 @@
                         "registered_at": "2026-11-20T09:00:00.000Z",
                         "reviewed_by": "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21",
                         "reviewed_at": "2026-11-20T10:00:00.000Z",
-                        "archived_at": null
+                        "archived_at": null,
+                        "current": true
                       }
                     }
                   ]
@@ -83366,6 +84949,7 @@
                   "agent_id": "8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d",
                   "attachment": {
                     "version_id": "7c3e9a1f-2d4b-4e6a-8f0c-5b1d3e7a9c20",
+                    "follows": false,
                     "mode": "optional"
                   },
                   "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
