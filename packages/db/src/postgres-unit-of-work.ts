@@ -315,20 +315,19 @@ async function insertQueuedTurn(
  *
  * Ownership is judged here and nowhere earlier, so a succession that commits
  * before this read lets the start through without waiting for the reconciler.
- * Losing the last owner through a disable or a team change locks none of the
- * rows read here (an admin removed on the agent itself waits on the agent
- * row); starts that read before it commits go through, which the grace
- * period makes harmless.
+ * It is judged in a statement of its own after the lock: a statement that
+ * waited for the lock still reads every other row from the snapshot it took
+ * before waiting, so an admin removed on the agent itself (which holds the
+ * agent row) would still count. Losing the last owner through a disable or a
+ * team change locks none of the rows read here; starts that read before it
+ * commits go through, which the grace period makes harmless.
  */
 async function lockedNotRunnable(
   tx: Database,
   releaseId: string,
 ): Promise<"agent_inactive" | "agent_ownerless" | null> {
   const [row] = await tx
-    .select({
-      status: agents.status,
-      ownerless: sql<boolean>`(${agents.ownerlessSince} <= ${DB_NOW} - make_interval(days => ${AGENT_OWNERLESS_GRACE_DAYS}) and not ${hasOwner(tx, agents.workspaceId, agents.id)})`,
-    })
+    .select({ id: agents.id, status: agents.status })
     .from(agentReleases)
     .innerJoin(agents, eq(agents.id, agentReleases.agentId))
     .where(eq(agentReleases.id, releaseId))
@@ -336,7 +335,13 @@ async function lockedNotRunnable(
     .for("share", { of: agents });
   if (row === undefined) return null;
   if (row.status !== "active") return "agent_inactive";
-  return row.ownerless ? "agent_ownerless" : null;
+  const [judged] = await tx
+    .select({
+      ownerless: sql<boolean>`(${agents.ownerlessSince} <= ${DB_NOW} - make_interval(days => ${AGENT_OWNERLESS_GRACE_DAYS}) and not ${hasOwner(tx, agents.workspaceId, agents.id)})`,
+    })
+    .from(agents)
+    .where(eq(agents.id, row.id));
+  return judged?.ownerless ? "agent_ownerless" : null;
 }
 
 export function createPostgresSessionUnitOfWork(

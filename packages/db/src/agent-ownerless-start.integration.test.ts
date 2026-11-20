@@ -15,6 +15,7 @@ import { createPostgresMemberStore } from "./musterrolle/members.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {
+  agentMcpSettings,
   agentReleases,
   agents,
   agentVersions,
@@ -277,6 +278,61 @@ integration("starting an ownerless agent on PostgreSQL", () => {
     expect(await create(w.owner, w.releaseId)).toEqual(REFUSED);
   });
 
+  test("a start that waited on an admin removal judges the rows it committed", async () => {
+    // The removal holds the agent row as the agent-side delete does.
+    const w = await world();
+    await markedAgo(w.agentId, "30 days");
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        "SELECT 1 FROM agents WHERE id = $1 FOR NO KEY UPDATE",
+        [w.agentId],
+      );
+      await client.query("DELETE FROM agent_admins WHERE agent_id = $1", [
+        w.agentId,
+      ]);
+      const start = create(w.owner, w.releaseId);
+      expect(await settledWithin(start)).toBe(false);
+      await client.query("COMMIT");
+      expect(await start).toEqual(REFUSED);
+    } finally {
+      client.release();
+    }
+  });
+
+  test("an admin removal waits for a start that holds the agent row", async () => {
+    // Holding the agent's MCP settings parks the start right after its agent
+    // lock, before it commits.
+    const w = await world();
+    await markedAgo(w.agentId, "30 days");
+    await db.insert(agentMcpSettings).values({
+      agentId: w.agentId,
+      workspaceId: w.ws,
+      server: null,
+      allowedTools: [],
+      credentialRefs: [],
+    });
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        "SELECT 1 FROM agent_mcp_settings WHERE agent_id = $1 FOR UPDATE",
+        [w.agentId],
+      );
+      const start = create(w.owner, w.releaseId);
+      expect(await settledWithin(start)).toBe(false);
+      const removal = removeKeeper(w);
+      expect(await settledWithin(removal)).toBe(false);
+      await client.query("COMMIT");
+      expect(await start).toMatchObject({ outcome: "accepted" });
+      expect(await removal).toMatchObject({ outcome: "removed" });
+    } finally {
+      client.release();
+    }
+    expect(await create(w.owner, w.releaseId)).toEqual(REFUSED);
+  });
+
   test("succession first, then takeover: each recovers its own part", async () => {
     const w = await world();
     const sessionId = await started(w.keeper, w.releaseId);
@@ -324,6 +380,13 @@ integration("starting an ownerless agent on PostgreSQL", () => {
       outcome: "accepted",
     });
   });
+
+  async function settledWithin(work: Promise<unknown>, ms = 500) {
+    const timeout = new Promise<false>((resolve) =>
+      setTimeout(() => resolve(false), ms),
+    );
+    return Promise.race([work.then(() => true), timeout]);
+  }
 
   async function started(by: Caller, releaseId: string) {
     const created = await create(by, releaseId);
