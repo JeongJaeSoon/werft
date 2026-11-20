@@ -327,7 +327,7 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 
 ### werft 플러그인
 
-**결정.** 공유와 지정의 단위를 **werft 플러그인**로 둔다. 플러그인는 엔진 중립인 werft 고유 manifest 하나이고, 이 manifest는 다른 것을 **가리키기만** 한다.
+**결정.** 공유와 지정의 단위를 **werft 플러그인**으로 둔다. 플러그인은 엔진 중립인 werft 고유 manifest 하나이고, 이 manifest는 다른 것을 **가리키기만** 한다.
 
 | manifest 칸 | 뜻 | 누가 정의하나 |
 |---|---|---|
@@ -335,18 +335,18 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 | `skills` | 스킬 이름과 digest의 목록. 플러그인 버전이 스킬 버전을 고정한다 | 이 문서([2절](#2-두-개념)의 스킬) |
 | `requires.mcp` | 필요한 MCP 서버 이름, 선택으로 도구 이름(`mcp__<서버>__<도구>`) | 이 문서([6절](#6-mcp-자격과-데이터-접근-정책)의 서버) |
 | `requires.rules` | 필요한 실행 규칙(예: 어떤 명령을 허용해야 한다) | 규칙의 문법과 "충족"의 판정은 실행 규칙 설계([9절](#9-실행-규칙지시-파일-설계와의-관계))가 정한다. 이 문서는 칸과 확인 시점만 정한다 |
-| `instructions` | 플러그인가 에이전트에 더하는 지시 조각 | 지시를 엔진에 넣는 방법은 실행 규칙·지시 파일 설계가 정한다. 플러그인는 텍스트만 싣는다 |
+| `instructions` | 플러그인이 에이전트에 더하는 지시 조각 | 지시를 엔진에 넣는 방법은 실행 규칙·지시 파일 설계가 정한다. 플러그인은 텍스트만 싣는다 |
 | `engines` | 지원 엔진 목록(`claude`, `codex`, 나중에 `pi`). 비우면 "스킬과 MCP만 쓰므로 모든 엔진" | 이 문서 |
 
 - **저장.** manifest는 정규화한 JSON으로 저장하고 그 해시가 플러그인 digest다. 스킬 digest를 담으므로 플러그인 digest 하나가 내용 전체를 고정한다. 등록·승인·버전·보관은 [3절](#3-등록)의 스킬 규칙과 같다(새 버전 = 새 digest, 다른 사람이 승인). manifest에 든 칸은 위 표가 전부이고, 모두 실행에 영향이 있으므로 바뀌면 새 버전과 승인을 거친다. 태그·분류·공개 범위는 manifest에 넣지 않는다(아래 "스킬 라이브러리").
 - **엔진 형식은 받지 않는다.** Claude `plugin.json`, Codex `plugin.json`·`config.toml` 조각, pi 패키지·확장은 원본으로 받지 않는다. werft 플러그인은 manifest JSON 하나로 제출하고 파일 트리를 받지 않으므로, 엔진 형식이 들어올 자리가 없다. 스킬 트리 쪽은 [2절](#2-두-개념)대로다: 지금 검사기는 `.claude-plugin/plugin.json`을 키 셋만 남겨 받고 루트 `plugin.json`·`agents/`는 거절하며, 새 스킬 등록은 올린 `.claude-plugin/plugin.json`도 거절한다. 저장 트리의 고정 `.claude-plugin/plugin.json`은 검사기가 스킬 이름만으로 만든다.
-- **지정 단위.** [4절](#4-지정-버전-고정-배포)의 해석기는 플러그인 이름을 단위로 접는다(`required`/`optional`/`forbidden`, 범위 순서 그대로). 스킬 하나만 쓰고 싶으면 스킬을 등록할 때 같은 이름의 단일 스킬 werft 플러그인이 함께 만들어진다. 그래서 스킬 이름과 werft 플러그인 이름은 워크스페이스 안에서 한 이름공간을 쓴다. 같은 이름의 플러그인이 이미 있으면 스킬 등록을 거절하고, 반대도 거절한다(이유는 이름이 겹친다는 것 하나). 스킬의 새 버전을 등록하면 단일 스킬 플러그인의 새 버전도 함께 만들어진다. 그 플러그인은 스킬 digest 하나만 담으므로, 스킬 버전의 승인이 곧 플러그인 버전의 승인이다. 사람이 고칠 수 있는 칸이 없다.
+- **지정 단위.** [4절](#4-지정-버전-고정-배포)의 해석기는 플러그인 이름을 단위로 접는다(`required`/`optional`/`forbidden`, 범위 순서 그대로). 스킬 하나만 쓰고 싶으면 스킬을 등록할 때 같은 이름의 단일 스킬 werft 플러그인이 함께 만들어진다. 그래서 스킬 이름과 werft 플러그인 이름은 워크스페이스 안에서 한 이름공간을 쓴다. 같은 이름의 플러그인이 이미 있으면 스킬 등록을 거절하고, 반대도 거절한다(이유는 이름이 겹친다는 것 하나). 단일 스킬 플러그인의 `name`·`description`·`skills`는 스킬에서 정해지고 사람이 고치지 않는다. `requires`·`engines`·`instructions`는 등록한 사람이 스킬을 등록할 때 함께 적고, 나중에 고칠 수 있다. 어느 쪽이 바뀌든 플러그인의 새 버전이고, 다른 플러그인과 같이 다른 사람이 승인한다([3절](#3-등록)). 스킬의 새 버전을 등록하면 이전 버전의 `requires`·`engines`·`instructions`를 이어받은(등록 화면에서 고칠 수 있다) 플러그인 새 버전이 함께 만들어지고, 둘을 한 번에 승인한다. 스킬만 승인하고 플러그인을 남기는 길은 없다.
 - **`forbidden`은 펼친 결과에도 걸린다.** 플러그인 이름으로만 접으면, 바깥 범위가 스킬 `foo`(그 단일 스킬 플러그인 `foo`)를 `forbidden`으로 두어도 `foo`를 담은 다른 승인 플러그인 `bar`를 안쪽 범위에 지정해 `foo`를 되살릴 수 있다. 그래서 정한다. 어떤 범위가 플러그인 P를 `forbidden`으로 두면 P의 이름과 **P가 담은 스킬 이름 모두**가 그 범위와 안쪽에서 금지된다(버전과 상관없이 이름으로). 해석기는 접은 뒤 플러그인을 스킬로 펼치고, 펼친 스킬 이름 가운데 금지된 것이 있으면 그 스킬을 담은 플러그인을 거절한다. 지정 때(`required`면 저장 거절, `optional`이면 "켤 수 없음"과 이유), release 활성화 때, 세션 시작 때 같은 검사를 한다. 이유는 `extension_forbidden`이고 금지한 범위와 플러그인을 이름으로 말한다. 여러 스킬 플러그인을 금지하면 그 안의 스킬 모두가 금지되는 것은 의도한 것이다. 금지는 안전 장치라 넓게 걸리는 쪽이 맞다. 지금의 `extension_bundles`·`extension_attachments`는 "스킬 트리 저장"과 "플러그인 지정"으로 역할이 나뉜다. 지정 행이 플러그인 digest를 가리키게 바꾸는 migration은 S8의 일이다. 옛 번들 지정은 그대로 읽는다.
-- **겹침.** 한 세션에 펼쳐진 플러그인들의 스킬 이름이 엔진 이름 기준으로 겹치면 거절한다([5절](#5-엔진-매핑)의 검사를 그대로 쓴다). 두 플러그인가 같은 스킬의 같은 digest를 담으면 한 번만 펼친다. 다른 digest를 담으면 겹침으로 거절한다.
+- **겹침.** 한 세션에 펼쳐진 플러그인들의 스킬 이름이 엔진 이름 기준으로 겹치면 거절한다([5절](#5-엔진-매핑)의 검사를 그대로 쓴다). 두 플러그인이 같은 스킬의 같은 digest를 담으면 한 번만 펼친다. 다른 digest를 담으면 겹침으로 거절한다.
 
 ### 엔진 어댑터가 하는 변환
 
-플러그인는 해석이 끝나면 "스킬 트리 목록 + MCP 서버 목록(relay) + 실행 규칙 + 지시 조각"으로 펼쳐진다. 어댑터는 이것을 엔진의 형식으로 **출력**한다.
+플러그인은 해석이 끝나면 "스킬 트리 목록 + MCP 서버 목록(relay) + 실행 규칙 + 지시 조각"으로 펼쳐진다. 어댑터는 이것을 엔진의 형식으로 **출력**한다.
 
 | | Claude | Codex | pi(가정) |
 |---|---|---|---|
@@ -354,7 +354,7 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 | MCP | `type: "sdk"` relay | `mcp_servers.<name>` override | MCP 확장 설정 |
 | 실행 규칙·지시 | 실행 규칙·지시 파일 설계의 Claude 출력 | 같은 설계의 Codex 출력 | 같은 설계의 pi 출력(확장의 `tool_call` 게이트) |
 
-그래서 엔진이 늘어도 바뀌는 것은 어댑터의 출력 한 열이다. 플러그인와 라이브러리와 해석기는 그대로다.
+그래서 엔진이 늘어도 바뀌는 것은 어댑터의 출력 한 열이다. 플러그인과 라이브러리와 해석기는 그대로다.
 
 ### 의존성 확인
 
@@ -362,7 +362,7 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 
 | 시점 | 확인 | 빠졌을 때 |
 |---|---|---|
-| 지정(워크스페이스·에이전트 범위) | `requires.mcp`의 서버가 워크스페이스에 등록돼 있고 이 에이전트(워크스페이스 범위면 지정 화면이 고른 에이전트)가 켰는가. 도구 이름이 저장된 도구 목록에 있고 deny에 걸리지 않는가. `requires.rules`를 실행 규칙 판정기가 충족한다고 하는가. 에이전트의 엔진이 `engines`에 있는가 | `required`: 저장 거절, 빠진 것 목록(`missing: [{kind: "mcp", server, tool?}, {kind: "rule", …}, {kind: "engine", …}]`). `optional`: 저장은 하되 그 에이전트에서는 "켤 수 없음"과 이유를 보인다 |
+| 지정(워크스페이스·에이전트 범위) | `requires.mcp`의 서버가 워크스페이스에 등록돼 있고 이 에이전트가 켰는가. 워크스페이스 범위 지정은 그 워크스페이스의 에이전트 모두를 보고, 빠진 것을 에이전트 이름과 함께 담는다(`required`는 한 에이전트라도 빠지면 저장 거절). 나중에 생기는 에이전트는 release 활성화 때 걸린다. 도구 이름이 저장된 도구 목록에 있고 deny에 걸리지 않는가. `requires.rules`를 실행 규칙 판정기가 충족한다고 하는가. 에이전트의 엔진이 `engines`에 있는가 | `required`: 저장 거절, 빠진 것 목록(`missing: [{kind: "mcp", server, tool?}, {kind: "rule", …}, {kind: "engine", …}]`). `optional`: 저장은 하되 그 에이전트에서는 "켤 수 없음"과 이유를 보인다 |
 | release 활성화 | 위와 같다. 지금 `checkAgentExtensions`(`agent-service.ts:225-240`)가 하는 거절 경로에 더한다 | 활성화 거절, 같은 목록 |
 | 세션 시작 | 위와 같고, 더해 MCP 연결 상태(`active`인가, 정책이 이 요청자에게 허용하는가) | 서버 미등록·꺼짐·엔진 불일치·규칙 불충족은 시작 거절. 연결이 `needs_reauth`이거나 정책이 이 요청자를 막는 것은 시작은 하되 세션 시작 이벤트와 화면에 "이 플러그인의 MCP가 지금 쓸 수 없음"을 남긴다(런타임 상태라 지정 때는 알 수 없다) |
 
@@ -370,7 +370,7 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 
 ### 스킬 라이브러리
 
-라이브러리는 워크스페이스의 승인된 플러그인와 스킬을 찾아보는 화면과 API다. 새 저장소가 아니라 위 manifest와 지정·세션 기록을 읽는다.
+라이브러리는 워크스페이스의 승인된 플러그인과 스킬을 찾아보는 화면과 API다. 새 저장소가 아니라 위 manifest와 지정·세션 기록을 읽는다.
 
 - **찾기.** 이름·설명 검색, 태그(자유 입력, 워크스페이스 안), 분류(관리자가 정한 목록에서 하나), 지원 엔진, 필요한 MCP 서버로 거른다.
 - **보이는 것.** 소유자(등록한 사람과 관리 팀), 버전 기록(digest, 출처, 승인한 사람), 필요한 것(`requires`), 사용 현황. 사용 현황은 "쓰는 에이전트 수"와 "최근 30일 세션 수"이고, 둘 다 보는 사람이 읽을 수 있는 에이전트·세션만 센다([7절](#7-권한-receipt-콘솔)의 에이전트 읽기 거름과 같다).
@@ -378,14 +378,14 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 - **태그.** 그 플러그인을 볼 수 있는 구성원 누구나 승인된 플러그인에 태그를 달고 뗄 수 있다. 승인을 거치지 않는다.
 - **분류.** 워크스페이스 관리자가 정한 목록에서 하나를 관리자가 고른다.
 - **공개 범위.** [접근 판정](access-decisions.md) 2절의 공개 범위 목록을 그대로 쓴다: `private`(제출한 사람과 워크스페이스 관리자), `people`(지정한 구성원), `team`(지정한 팀), `workspace`(구성원 모두, 기본값). 라이브러리 목록·검색·상세와 지정 화면에서 누가 그 플러그인을 보고 고를 수 있나만 정한다. 제출한 사람은 제출 때 범위를 제안하고 좁힐 수 있다. 넓히는 것과 승인 때의 확정은 워크스페이스 관리자만 한다. 공개 범위를 좁혀도 이미 있는 지정은 그대로 돌고(지정이 실행을 정한다), 워크스페이스 범위에 지정된 플러그인은 범위와 상관없이 구성원 모두에게 보인다. 바꾸는 화면이 이것을 알린다.
-- **기여.** 구성원 누구나 플러그인와 스킬을 제출할 수 있다(`pending`). 승인은 지금처럼 워크스페이스 관리자, 제출한 사람이 아닌 사람이다. Claude 조직 설정의 "Publishing: Requires review"와 같은 모양이다(조사 1-1.6). 지정은 [7절](#7-권한-receipt-콘솔)의 권한 그대로다.
+- **기여.** 구성원 누구나 플러그인과 스킬을 제출할 수 있다(`pending`). 승인은 지금처럼 워크스페이스 관리자, 제출한 사람이 아닌 사람이다. Claude 조직 설정의 "Publishing: Requires review"와 같은 모양이다(조사 1-1.6). 지정은 [7절](#7-권한-receipt-콘솔)의 권한 그대로다.
 - **쓰기.** 라이브러리에서 "이 에이전트에 지정"을 누르면 의존성 확인을 거친 지정 화면으로 간다.
 
 ### werft 플러그인과 엔진 플러그인
 
 이 절은 "엔진 플러그인을 원본으로 두지 않는다"는 [2절](#2-두-개념)의 결정을 바꾸지 않는다. 오너의 질문("그러면 플러그인 개념이 필요한가")에 대한 답은 이렇다. **플러그인 개념은 둔다. 다만 원본은 엔진 중립의 werft 플러그인 하나이고, 엔진마다 다른 플러그인은 그것의 출력 형식이다.** 이름: 사용자에게는 "werft 플러그인", 엔진 쪽 결과물은 이 문서에서 "엔진 플러그인(출력)"이라 부른다.
 
-- **원본 개념**은 스킬, MCP 서버, werft 플러그인 셋이다. 플러그인는 스킬과 MCP·규칙·지시를 **가리키는** manifest일 뿐이고, 훅·명령·서브에이전트·엔진 확장 코드를 싣지 않는다. 엔진 하나에만 뜻이 있는 것을 담지 않으므로, 2절이 플러그인을 버린 두 이유(엔진마다 형식이 다름, 승인 밖의 실행면)에 해당하지 않는다.
+- **원본 개념**은 스킬, MCP 서버, werft 플러그인 셋이다. 플러그인은 스킬과 MCP·규칙·지시를 **가리키는** manifest일 뿐이고, 훅·명령·서브에이전트·엔진 확장 코드를 싣지 않는다. 엔진 하나에만 뜻이 있는 것을 담지 않으므로, 2절이 플러그인을 버린 두 이유(엔진마다 형식이 다름, 승인 밖의 실행면)에 해당하지 않는다.
 - **엔진 플러그인(출력)**인 Claude plugin, Codex config 조각, pi 확장 설정은 어댑터가 세션마다 만들고 버린다. 저장하지 않고, 사람이 편집하지 않고, 승인 대상도 아니다. 승인 대상은 그 원본인 werft 플러그인 digest다.
 - 그래서 엔진 하나를 더 붙이는 비용은 어댑터의 출력 하나다. 반대로 플러그인을 원본으로 두면 엔진 수만큼 형식과 승인 경로가 생긴다.
 
@@ -419,7 +419,7 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 | 형식은 하나로 모였다 | 스킬은 Agent Skills, 도구·데이터는 MCP다. 둘 다 AAIF 아래에 있고, 엔진들이 서로의 디렉터리(`.agents/skills`, `.claude/skills`)와 manifest(Codex의 `.claude-plugin/marketplace.json` 읽기)를 읽는다 | 위 표, [LF 발표](https://www.linuxfoundation.org/press/agentic-ai-foundation-announces-four-new-projects-agent-skills-open-responses-openenv-and-opensandbox) |
 | 배포 단위는 plugin | 스킬 + MCP + 훅·명령을 묶은 plugin을 git 기반 조직 marketplace로 내보내고, 관리자 허용 목록, required·default on, "관리 출처만" 잠금으로 다스린다. plugin 형식은 엔진마다 다르다 | [Claude Plugins API](https://platform.claude.com/docs/en/manage-claude/plugins-api), [Cursor plugins](https://cursor.com/docs/plugins), [Codex plugins](https://developers.openai.com/codex/plugins/build) |
 | 고정은 있지만 기본이 아니다 | 커밋 SHA 고정(`gh skill --pin`, marketplace `sha`)과 버전 고정(Plugins API `served_version_id`)이 생겼지만, 많은 경로의 기본은 자동 갱신이나 `latest`다. Trail of Bits는 버전 고정, 추가·갱신할 수 있는 사람 제한, 선별한 내부 marketplace를 권한다 | [Trail of Bits, 2026-06-03](https://blog.trailofbits.com/2026/06/03/the-sorry-state-of-skill-distribution/) |
-| 자동 검사는 필요하지만 모자라다 | Snyk는 공개 레지스트리 두 곳의 스킬 3,984개에서 악성 76개를 확인했다(2026-02). Trail of Bits는 레지스트리 검사기들을 패딩, `.pyc` 페이로드, 레지스트리 주소 바꾸기로 비켜 갔다. 검사보다 출처(누가, 어느 커밋)와 선별이 더 강한 통제로 보인다 | [Snyk ToxicSkills](https://snyk.io/blog/toxicskills-malicious-ai-agent-skills-clawhub/), [Trail of Bits](https://blog.trailofbits.com/2026/06/03/the-sorry-state-of-skill-distribution/) |
+| 자동 검사는 필요하지만 모자라다 | Snyk는 공개 레지스트리 두 곳의 스킬 3,984개에서 악성 76개를 확인했다(2026-02). Trail of Bits는 레지스트리 검사기들을 패딩, `.pyc` 페이로드, 레지스트리 주소 바꾸기로 비켜 갔고, 버전 고정과 선별한 내부 출처를 권했다. 두 출처가 보인 것은 검사만으로는 모자라다는 것까지다. 출처(누가, 어느 커밋)와 승인을 통제의 중심에 두는 것은 werft의 판단이다(12절) | [Snyk ToxicSkills](https://snyk.io/blog/toxicskills-malicious-ai-agent-skills-clawhub/), [Trail of Bits](https://blog.trailofbits.com/2026/06/03/the-sorry-state-of-skill-distribution/) |
 | MCP 공급망 사고 | 승인 뒤 도구 설명을 몰래 바꾸는 rug pull과 도구 설명 오염, 작업 공간 파일의 MCP 설정이 trust 없이 실행되는 RCE(Gemini CLI). 방어로 도구 정의 고정과 바뀌면 재승인, 조직 허용 목록, 저장소 설정 자동 로드 금지가 나온다 | [CSA, 2026-07-11](https://labs.cloudsecurityalliance.org/research/csa-research-note-mcp-tool-description-poisoning-20260711-cs/), [CSA Gemini CLI](https://labs.cloudsecurityalliance.org/research/csa-research-note-gemini-cli-rce-cvss10-ai-tool-security-202/) |
 | 자격 값을 설정 밖에 | Codex는 token을 설정에 쓰지 않고 env var 이름으로 가리키는 방식(`bearer_token_env_var`, `env_http_headers`)을 준다(고정 `http_headers`도 있다). MCP 인가는 IdP 중심(ID-JAG)으로 간다 | [Codex MCP](https://developers.openai.com/codex/mcp), [MCP 확장](https://modelcontextprotocol.io/extensions/auth/enterprise-managed-authorization) |
 
@@ -516,7 +516,7 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 |---|---|---|---|---|
 | S1 스킬 API | 관리자 등록(업로드, 스킬 하나로 좁힘, 올린 `.claude-plugin/plugin.json` 거절, 명세 칸 `license`·`compatibility`·`metadata` 받기와 `allowed-tools` 거절. 구성원 제출은 S10), 버전(등록 순번 + digest), 승인(본인 승인 규칙), 워크스페이스·에이전트 범위 지정·해제(에이전트 관리자까지 넓힘), 보관, receipt `archive_extension`, `packages/core` 응답 표 | 1–2 | 서비스·API 시험: 스킬 둘 이상 트리 거절, 엔진 manifest 거절, 명세 칸 세 개가 든 스킬 등록과 `allowed-tools` 거절, 본인 승인 거절(관리자 한 사람이면 허용과 receipt), 지정된 버전 보관 거절, API key 쓰기 거절 | — |
 | S2 Git 출처 | 저장소·경로·ref를 커밋 SHA로 풀어 읽기(워크스페이스 GitHub App), 원본 위치 메타데이터, "새 커밋 확인"이 digest가 다를 때만 `pending` 후보 | 1 | fake-git 통합 시험: 태그 → 커밋 고정, 같은 내용이면 후보 없음, 다른 내용이면 `pending` | S1 |
-| S3 해석기와 Claude 어댑터 | descriptor의 스킬 호출 도구, 엔진 이름 기준 겹침 검사, 시작 확인 두 단계(5절 "Claude의 시작 확인"), `strictMcpConfig`. plugin 매핑과 fingerprint는 그대로 | 1–2 | 시작 확인 시험: 빠진 스킬·남는 스킬·내장 명령 섞임·숨은 스킬 불일치가 각각 거절되고, 숨은 스킬 불일치 세션에서 도구가 돌지 않음. 기존 체크포인트 resume 시험 | S1 |
+| S3 해석기와 Claude 어댑터 | descriptor의 스킬 호출 도구, 엔진 이름 기준 겹침 검사, 시작 확인 두 단계(5절 "Claude의 시작 확인"), `strictMcpConfig`. plugin 매핑과 fingerprint는 그대로 | 1–2 | 시작 확인 시험: 빠진 스킬·남는 스킬·숨은 스킬 불일치가 각각 거절되고, 내장 명령이 섞인 정상 `commands`는 비교에서 빠져 통과하고, 숨은 스킬 불일치 세션에서 도구가 돌지 않음. 기존 체크포인트 resume 시험 | S1 |
 | S4 Codex 스킬 | 스킬 루트(extraRoots 먼저), 고정 버전에서 루트별 탐색 닫기와 `skills/changed` 처리, `skills/list` 정확 일치, `codexProfileDigest`에 스킬 digest와 매핑 버전, descriptor `skills: native`(닫기를 확인하지 못하면 `none`) | 1–2 | 통합 시험: 저장소·사용자·ADMIN·시스템 스킬이 보이지 않음, 실행 중 새 `SKILL.md`가 생기면 그 턴이 중단되어 남은 도구 호출이 돌지 않고 다음 턴 전에 꺼짐, 스킬 없는 세션의 fingerprint가 그대로 | S1, S3 |
 | S5 Codex 워크스페이스 MCP | 워크스페이스 MCP 서버를 relay로(`assertStartable` 거절 해제, `enabled_tools`) | 1 | fake MCP 서버로 Codex 세션이 도구를 부르고, claim 밖 도구가 보이지 않음 | — |
 | S6 콘솔(스킬) | 워크스페이스 설정 > 스킬, 에이전트 접근 탭의 스킬 칸, 새 세션의 optional 켜기 | 1–2 | 화면 시험과 실제 스택 화면 기록(PR에 전후 캡처) | S1 |
@@ -526,8 +526,8 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 
 | 단계 | 내용 | PR | 끝난 조건 | 앞선 단계 |
 |---|---|---|---|---|
-| S8 werft 플러그인 | manifest 스키마와 digest, 단일 스킬 플러그인 자동 생성, 지정 행이 플러그인 digest를 가리키는 migration(옛 번들 지정은 읽기 유지), 해석기의 플러그인 단위 접기·펼치기·`forbidden` 펼친 결과 검사·펼친 뒤 겹침 검사, 어댑터별 엔진 plugin 출력 | 2 | 해석기 시험: 스킬 `foo` 금지 아래에서 `foo`를 담은 다른 플러그인 지정이 지정·활성화·세션 시작 모두에서 `extension_forbidden`, 같은 digest 중복은 한 번 펼침, 다른 digest는 겹침, 스킬과 플러그인의 같은 이름 등록 거절, 스킬 새 버전이 단일 스킬 플러그인 새 버전을 함께 만듦. migration 시험: 옛 지정이 그대로 해석됨 | S1, S3, S4 |
-| S9 의존성 확인 | 지정·release 활성화·세션 시작의 세 시점, `missing` 목록 응답, 실행 규칙 충족 판정 호출 | 1 | 시점마다 빠진 MCP 서버·도구·규칙·엔진이 이름으로 나오는 시험, 세션 시작의 런타임 상태(재인증 필요)는 시작하고 이벤트를 남김 | S8, 실행 규칙 설계의 판정기 |
+| S8 werft 플러그인 | manifest 스키마와 digest, 단일 스킬 플러그인 자동 생성, 지정 행이 플러그인 digest를 가리키는 migration(옛 번들 지정은 읽기 유지), 해석기의 플러그인 단위 접기·펼치기·`forbidden` 펼친 결과 검사·펼친 뒤 겹침 검사, 어댑터별 엔진 plugin 출력 | 2 | 해석기 시험: 스킬 `foo` 금지 아래에서 `foo`를 담은 다른 플러그인 지정이 지정·활성화·세션 시작 모두에서 `extension_forbidden`, 같은 digest 중복은 한 번 펼침, 다른 digest는 겹침, 스킬과 플러그인의 같은 이름 등록 거절, 스킬 새 버전이 앞 버전의 `requires`·`engines`를 이어받은 단일 스킬 플러그인 새 버전을 함께 만들고 한 번에 승인됨, 단일 스킬 플러그인의 `requires` 수정이 새 버전이 되어 본인 승인이 거절됨. migration 시험: 옛 지정이 그대로 해석됨 | S1, S3, S4 |
+| S9 의존성 확인 | 지정·release 활성화·세션 시작의 세 시점, `missing` 목록 응답, 실행 규칙 충족 판정 호출 | 1 | 시점마다 빠진 MCP 서버·도구·규칙·엔진이 이름으로 나오는 시험, 워크스페이스 범위 `required`가 한 에이전트에서만 빠져도 그 에이전트 이름과 함께 거절되는 시험, 세션 시작의 런타임 상태(재인증 필요)는 시작하고 이벤트를 남김 | S8, 실행 규칙 설계의 판정기 |
 | S10 라이브러리 | 검색·태그·분류·공개 범위·사용 현황(에이전트·세션 읽기 거름), 구성원 제출, receipt `update_extension_metadata`, 콘솔 화면 | 2 | 공개 범위 밖 구성원에게 목록·검색·상세·지정 화면에서 보이지 않음, 워크스페이스 범위 지정은 범위와 상관없이 보임, 사용 현황이 숨긴 에이전트를 세지 않음, 화면 기록 | S8, S6 |
 | S11 MCP 2026-07-28 개정 지원 | 6절 "전송 세션"의 세 자리: 등록 확인이 `server/discover`를 먼저 부르고 옛 개정이면 `initialize`로 되돌아감, egress가 `server/discover`와 `subscriptions/listen`(`toolsListChanged`만)을 라우팅, relay가 두 개정을 감지 | 1 | 두 개정의 fake 서버 각각을 등록·도구 호출까지 몰아 같은 결과, `subscriptions/listen`의 리소스 구독 거절, 옛 개정 서버의 기존 시험이 그대로 통과 | S5 |
 | S12 MCP 전송 세션의 subject 고정 | 6절 "언제 무엇을 묻나"(도구 없는 첫 판정, `tools/call` 판정)와 "전송 세션": (서버, 턴) subject 고정, 옛 개정의 `Mcp-Session-Id` 묶음, 2026-07-28 개정의 요청별 비교와 `subscriptions/listen` 묶음, 목록 캐시의 subject 분리, relay 재시작(Claude·Codex) | 1–2 | egress 통합 시험: 턴 도중 규칙 삭제 → 다음 요청 거절, subject가 바뀌는 판정 → `mcp_session_subject_changed`와 relay 재시작, 다른 subject의 세션 id 거절, 두 개정의 fake 서버에서 같은 결과. 개인 연결 결과(B5)를 켜기 전에 머지한다 | A4, B2, S5, S11 |
