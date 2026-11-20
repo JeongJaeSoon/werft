@@ -396,8 +396,15 @@ integration("starting an ownerless agent on PostgreSQL", () => {
       await client.query("BEGIN");
       await body(client, started);
     } finally {
-      await client.query("ROLLBACK");
-      client.release();
+      // A client whose ROLLBACK failed is destroyed, which ends its
+      // transaction on the server too.
+      let broken: Error | undefined;
+      try {
+        await client.query("ROLLBACK");
+      } catch (error) {
+        broken = error instanceof Error ? error : new Error(String(error));
+      }
+      client.release(broken);
       await Promise.allSettled(started);
     }
   }
