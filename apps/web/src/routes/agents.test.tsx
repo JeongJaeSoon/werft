@@ -2261,6 +2261,23 @@ describe("게시 전 에이전트", () => {
     ).toBe(server.releases.at(-1)?.id ?? "missing");
   });
 
+  test("키보드로 연 미리보기를 닫으면 연 버튼으로 돌아간다", async () => {
+    const server = agentServer();
+    await seedRelease(server);
+    await saveOnly(server, { ...CARD, language: "en" });
+    renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
+    const user = await setupUser();
+    const open = await screen.findByRole("button", {
+      name: /^미리 써 보기: /,
+    });
+    open.focus();
+    await user.keyboard("{Enter}");
+    await screen.findByRole("dialog");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement === open).toBe(true));
+  });
+
   test("저장만 하고 미리 써 보기는 켜지 않고 저장해 그 릴리스로 미리보기를 연다", async () => {
     const server = agentServer();
     await seedRelease(server);

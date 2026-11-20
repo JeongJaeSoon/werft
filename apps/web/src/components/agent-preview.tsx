@@ -31,7 +31,13 @@ import {
   Text,
   Textarea,
 } from "@werft-ai/ui";
-import { type FormEvent, useId, useRef, useState } from "react";
+import {
+  type FormEvent,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { queryKeysOf } from "../api/queries.ts";
 import { useRole } from "../auth/guard.tsx";
 import { MESSAGE_MAX_BYTES } from "../auth/limits.ts";
@@ -294,14 +300,30 @@ export function PreviewDialog({
   readonly onClose: () => void;
 }) {
   const { t } = useI18n();
+  const open = release !== null;
+  // The screens open it from their own buttons, with no Dialog.Trigger for
+  // Radix to give focus back to. A layout effect runs before Radix's focus
+  // move, so what holds focus then is the opener.
+  const opener = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    if (open) opener.current = document.activeElement as HTMLElement | null;
+  }, [open]);
   return (
     <Dialog
-      open={release !== null}
+      open={open}
       onOpenChange={(next) => {
         if (!next) onClose();
       }}
     >
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[40rem]">
+      <DialogContent
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[40rem]"
+        onCloseAutoFocus={(event) => {
+          // An opener gone with its form leaves Radix's fallback.
+          if (!opener.current?.isConnected) return;
+          event.preventDefault();
+          opener.current.focus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>
             {t("agents.preview.dialogTitle", {
