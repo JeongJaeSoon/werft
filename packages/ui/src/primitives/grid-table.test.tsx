@@ -120,6 +120,20 @@ describe("GridTable", () => {
     }
   });
 
+  // Structure only, as above: at 390px a 60-character name with no break
+  // in it was measured in a browser to stay in its cell.
+  test("lines 셀의 첫 줄은 셀 폭을 넘지 않고 어디서든 줄을 바꾸며, 둘째 줄부터는 말줄임이다", () => {
+    const { getAllByRole } = render(<Sessions />);
+    const cell = getAllByRole("cell")[0] as HTMLElement;
+    const line = "&>:not([data-slot=grid-table-row-opener])";
+    for (const name of [
+      `[${line}]:max-w-full`,
+      `[${line}]:[overflow-wrap:anywhere]`,
+      `[${line}~*]:truncate`,
+    ])
+      expect(cell.classList.contains(name)).toBe(true);
+  });
+
   test("narrowAt이 없으면 좁은 폭 클래스가 없고 hideNarrow 열도 남는다", () => {
     const { getAllByRole } = render(
       <GridTable aria-label="구성원" columns="minmax(0,1fr) 120px">
