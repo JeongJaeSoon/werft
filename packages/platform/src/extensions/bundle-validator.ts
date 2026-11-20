@@ -733,7 +733,23 @@ function metadataBlock(
   return { entries, next: at, problem };
 }
 
+// The stored tree holds each string quoted, and the stored check measures
+// that form, so an upload is measured the same way.
 function parseFrontmatterLine(
+  line: string,
+): [string, string | boolean] | string {
+  const parsed = parseFrontmatterValue(line);
+  if (
+    typeof parsed !== "string" &&
+    typeof parsed[1] === "string" &&
+    JSON.stringify(parsed[1]).length > MAX_FRONTMATTER_VALUE
+  ) {
+    return `"${parsed[0]}" is too long.`;
+  }
+  return parsed;
+}
+
+function parseFrontmatterValue(
   line: string,
 ): [string, string | boolean] | string {
   const match = /^([A-Za-z][A-Za-z0-9-]*):[ \t]+(.+?)[ \t]*$/.exec(line);

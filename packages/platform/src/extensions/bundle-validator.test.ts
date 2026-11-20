@@ -643,4 +643,18 @@ describe("Agent Skills specification fields", () => {
   ])("metadata or a field with %s is refused", (_label, extra) => {
     expect(rejected(one(extra)).some((i) => i.path === path)).toBe(true);
   });
+
+  test("a value that grows past the limit once quoted is refused as too long", () => {
+    const quotes = `'${'"'.repeat(600)}'`;
+    expect(rejected(one(`metadata:\n  a: ${quotes}\n`))).toContainEqual(
+      expect.objectContaining({
+        path,
+        code: "bad_frontmatter",
+        message: 'metadata: "a" is too long.',
+      }),
+    );
+    expect(rejected(one(`license: ${quotes}\n`))).toContainEqual(
+      expect.objectContaining({ path, message: '"license" is too long.' }),
+    );
+  });
 });
