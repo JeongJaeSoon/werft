@@ -81,7 +81,8 @@ function setup(
       | "replayed"
       | "credential_unbound"
       | "unsupported"
-      | "variables_refused";
+      | "variables_refused"
+      | "agent_ownerless";
     /** The names release rel-1's card declares; absent, the dep is left out. */
     envNames?: string[];
     catalog?: SessionCatalogView;
@@ -181,6 +182,9 @@ function setup(
         // Like the database, after it finds no earlier acceptance of the key.
         if (input.notRunnableReason && options.accept !== "replayed") {
           return { outcome: "not_runnable", reason: input.notRunnableReason };
+        }
+        if (options.accept === "agent_ownerless") {
+          return { outcome: "not_runnable", reason: "agent_ownerless" };
         }
         if (
           options.accept === "credential_unbound" ||
@@ -878,6 +882,19 @@ describe("a session pinned to an agent release", () => {
       expect(accepted[0]?.notRunnableReason).toBe("agent_inactive");
     },
   );
+
+  test("an agent the write finds ownerless past its grace period is refused with agent_ownerless", async () => {
+    const { service, caller, accepted } = setup({ accept: "agent_ownerless" });
+    const error = await service
+      .createSession(caller, { idempotencyKey: "k", body })
+      .catch((e: unknown) => e);
+    expect(error).toMatchObject({
+      code: "AGENT_NOT_RUNNABLE",
+      details: { reason_code: "agent_ownerless", agent_id: AGENT },
+    });
+    // Judged in the write alone; the service passes no reason of its own.
+    expect(accepted[0]?.notRunnableReason).toBeUndefined();
+  });
 
   test("a retry of a session made before the agent was paused gets its first answer", async () => {
     const { service, caller } = setup({

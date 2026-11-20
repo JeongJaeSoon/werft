@@ -107,7 +107,7 @@ An agent has no administrator when no live person administers it: no enabled ind
 - An administrator is named again through the changes that already exist: add a person or a team as administrator, move the responsible team to a team with a lead, or make a member of the responsible team its lead. The first three clear the mark in the same request; a team role change clears it a few seconds later.
 - Existing sessions whose requester was disabled stay waiting for a takeover after a new administrator is named. Take them over separately.
 
-For now the platform only marks and warns. Blocking new runs of an agent that still has no administrator 14 days after `ownerless_since` is turned on in a later release; the date in the console warning is that point.
+An agent that still has no administrator 14 days after `ownerless_since` starts no new session. The web, the API, Slack and agent keys all get `409 AGENT_NOT_RUNNABLE` with `details.reason_code` `agent_ownerless`, and a Slack mention or DM gets a short notice. The date in the console warning is that point. Sessions already running are not stopped. Whether anyone administers the agent is checked again when the session is created, so naming an administrator lets new sessions start at once.
 
 ## Credential bindings
 
