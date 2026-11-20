@@ -102,6 +102,7 @@ export type SkillServiceDeps = {
 
 export function createSkillService(deps: SkillServiceDeps) {
   const { authorization, store } = deps;
+  const newId = deps.newId ?? (() => crypto.randomUUID());
   const bundles = createExtensionBundleService(deps);
   const workspace = (caller: Caller) =>
     ({ kind: "workspace", id: caller.ownerId }) as const;
@@ -173,7 +174,7 @@ export function createSkillService(deps: SkillServiceDeps) {
   ): Promise<SkillAttachmentResponse> {
     const bundle = await versionOfName(caller, name, request.version_id);
     const result = await store.recordAttachment({
-      receiptId: (deps.newId ?? crypto.randomUUID)(),
+      receiptId: newId(),
       workspaceId: caller.ownerId,
       bundleId: bundle.id,
       ...(scope === null
@@ -218,7 +219,7 @@ export function createSkillService(deps: SkillServiceDeps) {
     };
     if (attached === undefined) return { ...response, receipt_id: null };
     const result = await store.recordAttachment({
-      receiptId: (deps.newId ?? crypto.randomUUID)(),
+      receiptId: newId(),
       workspaceId: caller.ownerId,
       bundleId: attached.bundle.id,
       ...(scope === null
@@ -451,7 +452,7 @@ export function createSkillService(deps: SkillServiceDeps) {
         ...workspace(caller),
       });
       const result = await store.archive({
-        receiptId: (deps.newId ?? crypto.randomUUID)(),
+        receiptId: newId(),
         workspaceId: caller.ownerId,
         bundleId: id,
         principal: caller,

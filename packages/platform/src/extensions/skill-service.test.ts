@@ -47,10 +47,11 @@ const upload = (name: string, body?: string) => ({
   ],
 });
 
-function setup() {
+function setup(options: { ownIds?: boolean } = {}) {
   const rows: ExtensionBundle[] = [];
   const attachments: ExtensionAttachment[] = [];
   const calls: Parameters<ExtensionBundleStore["recordAttachment"]>[0][] = [];
+  const archives: Parameters<ExtensionBundleStore["archive"]>[0][] = [];
   const outcomes: {
     review?: ReviewExtensionBundleResult;
     archive?: ArchiveExtensionBundleResult;
@@ -106,15 +107,18 @@ function setup() {
       return { outcome: "recorded", receiptId: input.receiptId };
     },
     listAttachments: async () => [...attachments],
-    archive: async () => outcomes.archive ?? { outcome: "not_found" },
+    async archive(input) {
+      archives.push(input);
+      return outcomes.archive ?? { outcome: "not_found" };
+    },
   };
   const service = createSkillService({
     authorization: createAuthorizationPolicy({}),
     store,
     objects: createMemoryCheckpointObjectStore(),
-    newId,
+    ...(options.ownIds === false ? {} : { newId }),
   });
-  return { service, rows, attachments, calls, outcomes };
+  return { service, rows, attachments, calls, outcomes, archives };
 }
 
 const refusal = async (promise: Promise<unknown>) => {
@@ -354,5 +358,33 @@ describe("the skill service", () => {
     expect(
       await service.deleteAgentAttachment(web, AGENT, "research"),
     ).toMatchObject({ attachment: null, receipt_id: null });
+  });
+
+  test("without an id source of its own, every write still gets a receipt id", async () => {
+    const { service, rows, attachments, outcomes, archives } = setup({
+      ownIds: false,
+    });
+    const web = caller("web");
+    const { version } = await service.register(web, upload("research"));
+    const uuid = expect.stringMatching(/^[0-9a-f-]{36}$/);
+    expect(
+      await service.putWorkspaceAttachment(web, "research", {
+        version_id: version.id,
+        mode: "required",
+      }),
+    ).toMatchObject({ receipt_id: uuid });
+    attachments.push({
+      scope: "workspace",
+      mode: "required",
+      bundle: rows[0] as ExtensionBundle,
+    });
+    expect(
+      await service.deleteWorkspaceAttachment(web, "research"),
+    ).toMatchObject({ receipt_id: uuid });
+    outcomes.archive = { outcome: "in_use" };
+    expect(await refusal(service.archive(web, version.id))).toBe(
+      "BAD_REQUEST:version_in_use",
+    );
+    expect(archives[0]?.receiptId).toEqual(uuid);
   });
 });

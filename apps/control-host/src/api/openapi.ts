@@ -6339,7 +6339,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "deleteAgentSkillAttachment",
     tag: "Agents",
     summary: "Take a skill back from the agent",
-    description: `The agent's managers signed in to the console. Writes a \`detach_extension\` receipt on the agent; when it names nothing for \`name\`, nothing is written and \`receipt_id\` is null. An agent that does not exist or was deleted holds nothing, so an owner or admin gets the same answer.`,
+    description: `The agent's managers signed in to the console. Writes a \`detach_extension\` receipt on the agent; when it names nothing for \`name\`, nothing is written and \`receipt_id\` is null. An agent that never existed holds nothing, so an owner or admin gets the same answer; a deleted agent is 404, as on every agent route, and one deleted while the request runs gets the answer for nothing named.`,
     auth: "session",
     success: {
       status: 200,
