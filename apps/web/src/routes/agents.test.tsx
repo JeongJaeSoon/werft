@@ -2070,6 +2070,59 @@ describe("게시 전 에이전트", () => {
     expect(server.detail().agent.active_release_id).toBeNull();
   });
 
+  test("저장만 하기가 더 새 저장에 밀리면 미리보기를 열지 않는다", async () => {
+    const server = agentServer();
+    await seedRelease(server);
+    renderAt(CARD_TAB, {
+      ...meOk,
+      ...server.routes,
+      [`PATCH /v1/agents/${AGENT_ID}`]: () =>
+        json(200, {
+          ...server.detail(),
+          release: {
+            status: "superseded",
+            reason: null,
+            release_id: server.releases[0]?.id ?? null,
+            version_id: server.versions[0]?.id ?? null,
+          },
+        }),
+    });
+    const user = await setupUser();
+    await openCardEditor(user);
+    await user.click(
+      await screen.findByRole("button", { name: "저장만 하고 미리 써 보기" }),
+    );
+    expect(
+      await screen.findByText(/더 나중의 저장이 먼저 적용되어/),
+    ).toBeDefined();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  test("저장소에 쓰지 못해도 게시한 뒤 채널 연결로 간다", async () => {
+    const server = agentServer();
+    renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+      ...slackRoutes,
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await fillJob(user);
+    await atStep("미리 써 보기");
+    const write = sessionStorage.setItem;
+    sessionStorage.setItem = () => {
+      throw new DOMException("full", "QuotaExceededError");
+    };
+    try {
+      await user.click(screen.getByRole("button", { name: "게시" }));
+      const confirm = await screen.findByRole("dialog");
+      await user.click(within(confirm).getByRole("button", { name: "게시" }));
+      await atStep("채널 연결");
+    } finally {
+      sessionStorage.setItem = write;
+    }
+  });
+
   test("저장만 하고 미리 써 보기도 폼 검사를 거친다", async () => {
     const server = agentServer();
     await seedRelease(server);

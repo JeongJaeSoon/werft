@@ -240,7 +240,11 @@ export function CardEditor({
         queryKeysOf(client).agent(detail.agent.id),
         stored,
       );
-      if (submitted.saveOnly && release.status !== "failed") {
+      // A superseded save lost to a newer one: its release is not the draft.
+      if (
+        submitted.saveOnly &&
+        (release.status === "saved" || release.status === "unchanged")
+      ) {
         // A save that changed nothing made no release: the one already made
         // for what it saved is tried, the active one included. With no
         // connection sent the agent's own stays.

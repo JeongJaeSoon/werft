@@ -106,6 +106,8 @@ type Steps = {
     name: string;
     slug: string;
     agentId: string;
+    /** Set by the publish that led here; the history keeps it without storage. */
+    published?: true;
     card?: unknown;
   };
   preview: {
@@ -272,7 +274,8 @@ export function NewAgentFlow({
       channels: {
         guard: (data): data is Steps["channels"] =>
           ours(data, ["flow", "name", "slug", "agentId"]) &&
-          readDraft((data as { flow: string }).flow)?.published === true,
+          ((data as { published?: unknown }).published === true ||
+            readDraft((data as { flow: string }).flow)?.published === true),
       },
       preview: {
         guard: (data): data is Steps["preview"] =>
@@ -552,6 +555,7 @@ export function NewAgentFlow({
                   markPublished();
                   await history.push("channels", {
                     agentId: context.agentId,
+                    published: true,
                   });
                 }}
               />
