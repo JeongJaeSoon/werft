@@ -31,8 +31,8 @@ import {
   TableTime,
   Text,
 } from "@werft-ai/ui";
-import { useState } from "react";
-import { memberSummariesQuery, scopedKey } from "../api/queries.ts";
+import { useEffect, useRef, useState } from "react";
+import { scopedKey } from "../api/queries.ts";
 import { useHasPermission } from "../auth/guard.tsx";
 import {
   CursorListFailure,
@@ -112,14 +112,24 @@ function auditPagesQuery(client: ApiClient, filter: Filter) {
   });
 }
 
-/** The members a person can be picked from, by name. */
+/** Every member a person can be picked from, read 100 at a time to the end. */
 function auditActorsQuery(client: ApiClient) {
   return {
     queryKey: scopedKey(client, "audit-actors"),
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/members", { params: { query: { limit: 100 } } }),
-      ) as Promise<ListMembersResponse>,
+    queryFn: async () => {
+      const items: ListMembersResponse["items"][number][] = [];
+      let cursor: string | null = null;
+      do {
+        const page = (await unwrap(
+          client.GET("/v1/members", {
+            params: { query: { limit: 100, ...(cursor ? { cursor } : {}) } },
+          }),
+        )) as ListMembersResponse;
+        items.push(...page.items);
+        cursor = page.next_cursor;
+      } while (cursor !== null);
+      return items;
+    },
     retry: false,
   };
 }
@@ -150,22 +160,10 @@ function AuditLog() {
     pageSize: AUDIT_PAGE_SIZE,
     onPageChange: setPage,
   });
+  // A person no longer in the workspace is shown by id.
   const people = useQuery(auditActorsQuery(client));
-  const ids = [
-    ...new Set(
-      listed.items.flatMap((row) =>
-        row.actor.user_id ? [row.actor.user_id] : [],
-      ),
-    ),
-  ];
-  const names = useQuery({
-    ...memberSummariesQuery(client, ids),
-    enabled: ids.length > 0,
-  });
   const nameOf = new Map(
-    [...(people.data?.items ?? []), ...(names.data?.items ?? [])].map(
-      (member) => [member.user_id, member.display_name],
-    ),
+    (people.data ?? []).map((member) => [member.user_id, member.display_name]),
   );
   const pick = (next: Partial<Filter>) => {
     setFilter((current) => ({ ...current, ...next }));
@@ -225,7 +223,7 @@ function AuditLog() {
               label={t("auditLog.actor.label")}
               options={[
                 { value: "all", label: t("auditLog.actor.all") },
-                ...(people.data?.items ?? []).map((member) => ({
+                ...(people.data ?? []).map((member) => ({
                   value: member.user_id,
                   label: member.display_name,
                 })),
@@ -453,7 +451,13 @@ function ExportButton({
   const { client } = useWerft();
   const [busy, setBusy] = useState(false);
   const [next, setNext] = useState<string | null>(null);
+  // Other filters mount a new button: the export of the old ones is
+  // cancelled, so it neither saves a file nor speaks for the new ones.
+  const running = useRef<AbortController | null>(null);
+  useEffect(() => () => running.current?.abort(), []);
   const run = async (cursor: string | null) => {
+    const controller = new AbortController();
+    running.current = controller;
     setBusy(true);
     onOutcome(null);
     try {
@@ -462,11 +466,14 @@ function ExportButton({
           params: { query: { ...query, ...(cursor ? { cursor } : {}) } },
           headers: { Accept: AUDIT_EXPORT_MEDIA_TYPE },
           parseAs: "blob",
+          signal: controller.signal,
         }),
       )) as unknown as Blob;
       const end = await exportEnd(file);
+      if (controller.signal.aborted) return;
+      // A failure keeps the place to continue from: the rows before it are
+      // already saved.
       if (end === null) {
-        setNext(null);
         onOutcome({ kind: "error", text: t("auditLog.exportCut") });
         return;
       }
@@ -485,7 +492,7 @@ function ExportButton({
         ),
       });
     } catch (error) {
-      setNext(null);
+      if (controller.signal.aborted) return;
       onOutcome({
         kind: "error",
         text: isApiError(error, "RATE_LIMITED")
@@ -493,7 +500,7 @@ function ExportButton({
           : t(isApiError(error) ? errorKey(error.code) : "error.UNKNOWN"),
       });
     } finally {
-      setBusy(false);
+      if (!controller.signal.aborted) setBusy(false);
     }
   };
   return (

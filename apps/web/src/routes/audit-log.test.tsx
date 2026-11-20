@@ -212,6 +212,8 @@ describe("설정 › 감사 기록", () => {
       // Cut: no end line.
       `${line}\n`,
       `${line}\n{"kind":"end","rows":${AUDIT_EXPORT_MAX_ROWS},"truncated":true,"next_cursor":"c-next"}\n`,
+      // The rest, cut once, then whole.
+      `${line}\n`,
       `${line}\n{"kind":"end","rows":1,"truncated":false,"next_cursor":null}\n`,
     ];
     const saved: Blob[] = [];
@@ -249,13 +251,24 @@ describe("설정 › 감사 기록", () => {
       expect(await screen.findByText(/100,000행에서 멈췄습니다/)).toBeTruthy();
       expect(saved.length).toBe(1);
 
-      await user.click(screen.getByRole("button", { name: "이어서 내보내기" }));
+      const resume = () =>
+        screen.getByRole("button", { name: "이어서 내보내기" });
+      await user.click(resume());
+      expect(
+        await screen.findByText(
+          /내보내기가 끝까지 오지 않아 파일을 저장하지 않았습니다/,
+        ),
+      ).toBeTruthy();
+      expect(saved.length).toBe(1);
+
+      // The failure kept where to continue from.
+      await user.click(resume());
       expect(await screen.findByText("1행을 내보냈습니다.")).toBeTruthy();
       expect(saved.length).toBe(2);
       const resumed = api.calls
         .filter((call) => call.headers.get("accept") === CONTRACT_MEDIA_TYPE)
         .map((call) => new URLSearchParams(call.search).get("cursor"));
-      expect(resumed).toEqual([null, null, "c-next"]);
+      expect(resumed).toEqual([null, null, "c-next", "c-next"]);
       expect(
         screen.queryByRole("button", { name: "이어서 내보내기" }),
       ).toBeNull();
@@ -263,6 +276,87 @@ describe("설정 › 감사 기록", () => {
       URL.createObjectURL = create;
       URL.revokeObjectURL = revoke;
     }
+  });
+
+  test("화면을 떠나면 진행 중인 내보내기를 끊고 그 파일을 저장하지 않는다", async () => {
+    const user = await setupUser();
+    let answer: (response: Response) => void = () => {};
+    let signal: AbortSignal | undefined;
+    const saved: Blob[] = [];
+    const create = URL.createObjectURL;
+    URL.createObjectURL = (file: Blob) => {
+      saved.push(file);
+      return "blob:test";
+    };
+    try {
+      const { history } = renderAt(
+        PAGE,
+        routes((request?: Request) => {
+          if (request?.headers.get("accept") !== CONTRACT_MEDIA_TYPE) {
+            return page([row({})]);
+          }
+          signal = request.signal;
+          return new Promise<Response>((resolve) => {
+            answer = resolve;
+          }) as unknown as Response;
+        }),
+      );
+      await table();
+      await user.click(
+        screen.getByRole("button", { name: "내보내기 (NDJSON)" }),
+      );
+      await screen.findByRole("button", { name: "내보내는 중…" });
+      history.push("/settings/workspace/achievement-rules");
+      await screen.findByRole("heading", { level: 1, name: "성과 규칙" });
+      expect(signal?.aborted).toBe(true);
+      answer(
+        new Response(
+          `{"kind":"end","rows":0,"truncated":false,"next_cursor":null}\n`,
+          { headers: { "content-type": CONTRACT_MEDIA_TYPE } },
+        ),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(saved.length).toBe(0);
+    } finally {
+      URL.createObjectURL = create;
+    }
+  });
+
+  test("구성원 목록을 끝까지 읽어 두 번째 페이지의 사람도 이름으로 보인다", async () => {
+    const LATE = "0b1d0c7e-1f27-4a3e-8a8e-9c1b2d3e4f52";
+    const { api } = renderAt(PAGE, {
+      ...routes(() =>
+        page([
+          row({
+            actor: {
+              principal_kind: "user",
+              principal_id: LATE,
+              user_id: LATE,
+              agent_id: null,
+            },
+          }),
+        ]),
+      ),
+      "GET /v1/members": (request: Request) =>
+        new URL(request.url).searchParams.get("cursor") === "m2"
+          ? json(200, {
+              items: [member(LATE, "Late")],
+              next_cursor: null,
+              assignable_roles: ["owner", "admin", "member"],
+            })
+          : json(200, {
+              items: [member(USER_ID, "Owner")],
+              next_cursor: "m2",
+              assignable_roles: ["owner", "admin", "member"],
+            }),
+    });
+    const grid = await table();
+    await within(grid).findByText("Late");
+    expect(
+      api.calls
+        .filter((call) => call.path === "/v1/members")
+        .map((call) => new URLSearchParams(call.search).get("cursor")),
+    ).toEqual([null, "m2"]);
   });
 
   test("다른 내보내기가 진행 중이면 그렇다고 말한다", async () => {
