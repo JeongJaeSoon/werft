@@ -2130,7 +2130,11 @@ describe("게시 전 에이전트", () => {
       }),
     );
     expect(server.detail().draft?.failure).toBe("release_refused");
-    const { api } = renderAt(CARD_TAB, { ...meOk, ...server.routes });
+    const { api } = renderAt(CARD_TAB, {
+      ...meOk,
+      ...server.routes,
+      ...previewSession(),
+    });
     const user = await setupUser();
     await user.click(await screen.findByRole("button", { name: "다시 시도" }));
     await screen.findByText("저장했습니다 — 버전 2. 아직 켜지 않았습니다.");
@@ -2151,12 +2155,19 @@ describe("게시 전 에이전트", () => {
       within(card).queryByRole("button", { name: "다시 시도" }),
     ).toBeNull();
     const tryIt = within(card).getByRole("button", { name: "미리 써 보기" });
-    await waitFor(() => expect(document.activeElement).toBe(tryIt));
+    await waitFor(() => expect(document.activeElement === tryIt).toBe(true));
     await user.click(tryIt);
     const preview = await screen.findByRole("dialog");
-    expect(within(preview).getByText(/^미리 써 보기: /)).toBeDefined();
+    await user.type(within(preview).getByLabelText("보낼 메시지"), "확인");
+    await user.click(within(preview).getByRole("button", { name: "보내기" }));
+    await within(preview).findByRole("link", { name: "세션 열기" });
+    expect(
+      (posted(api, "/v1/sessions") as { agent_release_id: string })
+        .agent_release_id,
+    ).toBe(saved?.id ?? "missing");
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement === tryIt).toBe(true));
 
     // Only an explicit turn-on publishes it.
     await user.click(
@@ -2175,6 +2186,38 @@ describe("게시 전 에이전트", () => {
     await waitFor(() =>
       expect(server.detail().agent.active_release_id).toBe(saved?.id ?? ""),
     );
+  });
+
+  test("다시 시도의 답을 기다리는 사이 다른 곳으로 옮긴 포커스는 그대로 둔다", async () => {
+    const server = agentServer();
+    await seedRelease(server);
+    await server.routes[`PATCH /v1/agents/${AGENT_ID}`](
+      new Request("https://console.test/", {
+        method: "PATCH",
+        body: JSON.stringify({ card: { ...CARD, language: "en" } }),
+      }),
+    );
+    let answer = () => {};
+    const answered = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    renderAt(CARD_TAB, {
+      ...meOk,
+      ...server.routes,
+      [`PATCH /v1/agents/${AGENT_ID}`]: async (request: Request) => {
+        await answered;
+        return server.routes[`PATCH /v1/agents/${AGENT_ID}`](request);
+      },
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "다시 시도" }));
+    const edit = screen.getByRole("button", { name: "상세 설정 편집" });
+    edit.focus();
+    expect(document.activeElement === edit).toBe(true);
+    answer();
+    const card = screen.getByRole("tabpanel", { name: "상세 설정" });
+    await within(card).findByRole("button", { name: "미리 써 보기" });
+    expect(document.activeElement === edit).toBe(true);
   });
 
   test("저장만 하기가 더 새 저장에 밀리면 미리보기를 열지 않는다", async () => {

@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
   AgentDetail,
+  AgentRelease,
   BehaviorValues,
   SaveAgentResponse,
 } from "@werft-ai/contracts";
@@ -77,7 +78,9 @@ export function EffectiveBehavior({
   const role = useRole();
   const titleId = useId();
   const [outcome, setOutcome] = useState<string | null>(null);
-  const [previewing, setPreviewing] = useState(false);
+  // The release the button was pressed for: a later save does not swap it
+  // under an open preview.
+  const [previewing, setPreviewing] = useState<AgentRelease | null>(null);
   const { applied, draft } = detail.effective_behavior;
   const waiting = detail.draft;
   // A published agent's saved release waits to be tried and turned on, as an
@@ -88,13 +91,14 @@ export function EffectiveBehavior({
       : undefined;
   const previewButton = useRef<HTMLButtonElement>(null);
   // The retry button is gone once its save is kept; the keyboard goes on to
-  // the next step instead of the page.
+  // the next step instead of the page, unless it went elsewhere meanwhile.
   const retried = useRef(false);
   useEffect(() => {
-    if (saved && retried.current) {
-      retried.current = false;
+    if (!saved || !retried.current) return;
+    retried.current = false;
+    const focused = document.activeElement;
+    if (focused === null || focused === document.body)
       previewButton.current?.focus();
-    }
   }, [saved]);
 
   const resave = useMutation<SaveAgentResponse, ApiError, "retry" | "discard">({
@@ -207,7 +211,7 @@ export function EffectiveBehavior({
                     ref={previewButton}
                     type="button"
                     variant="outline"
-                    onClick={() => setPreviewing(true)}
+                    onClick={() => setPreviewing(saved)}
                   >
                     {t("agents.flow.preview")}
                   </Button>
@@ -240,9 +244,9 @@ export function EffectiveBehavior({
         <output>{outcome}</output>
       ) : null}
       <PreviewDialog
-        release={previewing ? (saved ?? null) : null}
+        release={previewing}
         agentName={detail.agent.name}
-        onClose={() => setPreviewing(false)}
+        onClose={() => setPreviewing(null)}
       />
     </div>
   );
