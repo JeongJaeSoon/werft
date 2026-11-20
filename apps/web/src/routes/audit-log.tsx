@@ -330,6 +330,8 @@ function AuditTable({
   };
   return (
     <GridTable
+      // The settings layout zeroes the row inset; a framed table needs it.
+      className="[--werft-row-padding-x:var(--werft-space-4)]"
       aria-label={t("auditLog.title")}
       columns={COLUMNS}
       align={ALIGN}
@@ -388,7 +390,8 @@ function AuditTable({
                 <StatusText status={OUTCOME_DOT[row.outcome] ?? "idle"}>
                   {outcomeLabel(t, row.outcome)}
                 </StatusText>
-                {row.reason_code ? (
+                {/* An allow's reason is always "ok"; only a refusal's says why. */}
+                {row.reason_code && row.outcome !== "allow" ? (
                   <Text variant="meta">{row.reason_code}</Text>
                 ) : null}
               </RowLines>
