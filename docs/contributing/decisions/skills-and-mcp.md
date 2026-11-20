@@ -153,7 +153,12 @@
 
 #### 언제 무엇을 묻나
 
-**턴 밖에서는 upstream에 가지 않는다.** 엔진은 첫 턴 전에 MCP를 연다. worker는 `run.ready()` 뒤에야 턴 loop에 들어가고(`apps/worker/src/worker-host.ts:1051`), Codex의 ready는 MCP 시작을 기다린다. 지금 relay는 엔진의 `initialize`에 스스로 답하지만, 엔진의 `tools/list`는 upstream에 보낸다(`codex/src/mcp-relay.ts:69-89`, `claude/src/remote-mcp.ts:85-90`). 이 요청에는 실행 중 턴이 없어서 요청자의 인증 근거가 없다. 접근 판정은 요청자가 없거나 확인되지 않으면 개인 연결을 언제나 거절한다(접근 판정 2절). 그래서 정한다. relay는 첫 턴 전(새 세션과 resume)의 `tools/list`에 등록 때 저장한 도구 정의로 답하고, upstream에는 아무 요청도 보내지 않는다. upstream으로 가는 첫 요청은 턴 안에서 생기고, 아래 표대로 판정된다. 지금 등록 확인은 도구의 이름과 설명만 저장하므로(`packages/platform/src/workspace-mcp/remote.ts:726-749`), S12가 입력 스키마도 함께 저장하게 한다. 턴 안에서 upstream의 목록이 저장한 정의와 다르면 relay는 `tools/list_changed`로 엔진에 알린다. 그때도 고정한 도구 이름 밖의 도구는 보이지 않는다.
+**턴 밖에서는 upstream에 가지 않는다.** 엔진은 첫 턴 전에 MCP를 연다. worker는 `run.ready()` 뒤에야 턴 loop에 들어가고(`apps/worker/src/worker-host.ts:1051`), Codex의 ready는 MCP 시작을 기다린다. 지금 relay는 엔진의 `initialize`에 스스로 답하지만, 엔진의 `tools/list`는 upstream에 보낸다(`codex/src/mcp-relay.ts:69-89`, `claude/src/remote-mcp.ts:85-90`). 이 요청에는 실행 중 턴이 없어서 요청자의 인증 근거가 없다. 접근 판정은 요청자가 없거나 확인되지 않으면 개인 연결을 언제나 거절한다(접근 판정 2절). 그래서 정한다. relay는 첫 턴 전(새 세션과 resume)의 `tools/list`에 등록 때 저장한 도구 정의로 답하고, upstream에는 아무 요청도 보내지 않는다. upstream으로 가는 첫 요청은 턴 안에서 생기고, 아래 표대로 판정된다. 지금 등록 확인은 도구의 이름과 설명만 저장하므로(`packages/platform/src/workspace-mcp/remote.ts:726-749`), S11이 입력 스키마도 함께 저장하게 한다. 접근 판정의 이행 모드(A4)는 요청자 없는 요청에 에이전트 연결을 그대로 주므로 지금 시작은 깨지지 않는다. 깨지는 것은 정책 모드(B2)와 개인 연결(B5)이 켜진 뒤이므로, S11은 B2·B5보다 먼저 머지한다.
+
+저장한 정의와 목록 캐시는 다른 것이다.
+
+- **저장한 정의**는 관리자가 등록 때 확인하고 고정한 도구 카탈로그다. 이름은 claim의 고정 목록이고, 설명과 입력 스키마는 등록 때 워크스페이스 연결로 읽은 것이다. subject의 데이터가 아니라 워크스페이스 설정이므로 `ttlMs`를 따르지 않고, 등록 화면의 "도구 다시 읽기"와 새 등록 때만 바뀐다. 등록 때 받은 `tools/list` 결과의 `cacheScope`가 `private`이면 설명과 스키마를 저장하지 않는다. 그러면 첫 턴 전 목록은 이름과 빈 스키마(`{"type": "object"}`)만 싣는다.
+- **목록 캐시**는 턴 안에서 upstream이 subject마다 준 목록이다. 아래 "전송 세션"의 규칙(subject마다 따로, `cacheScope`·`ttlMs`)을 따른다. 턴 안의 목록이 저장한 정의와 다르면 relay는 `notifications/tools/list_changed`로 엔진에 알리고, 고정한 이름 밖의 도구는 그때도 보이지 않는다. 엔진이 이 알림을 처리하지 않으면 그 세션은 저장한 정의를 계속 본다. 이름 집합은 같고 인자는 upstream이 검사하므로, 막히는 호출은 생겨도 넓어지는 권한은 없다.
 
 egress는 `mcp.use`를 다음 두 때에 묻는다. 매번 정책의 규칙 목록 **전체를 위에서부터 다시** 평가하고, 처음 맞는 규칙 하나가 결과다.
 
@@ -253,7 +258,7 @@ egress는 `mcp.use`를 다음 두 때에 묻는다. 매번 정책의 규칙 목�
       └ 스킬 라이브러리              새로(아래는 관리자에게만 보이는 칸 포함)
           ├ 목록: 이름, 최신 승인 버전, 대기 중 버전 수, 태그·분류, 공개 범위, 워크스페이스 지정 모드, 쓰는 에이전트 수(보는 사람이 읽을 수 있는 에이전트만)
           ├ 추가: 업로드 / GitHub에서
-          ├ 승인 대기: 버전별 diff(파일 목록과 SKILL.md 본문), 승인·거절
+          ├ 승인 대기: 저장될 트리의 모든 파일 내용과 앞 승인 버전과의 줄 단위 diff(`scripts/` 아래와 실행 비트가 있는 파일을 먼저 보임, 이진 파일은 크기와 해시), 승인·거절
           └ 스킬 상세: 버전 기록(digest, 출처, 등록·승인한 사람), 버전별 지정된 곳(읽을 수 있는 에이전트만), 워크스페이스 지정 모드, 보관
 
 에이전트 상세 > 접근 탭
@@ -503,7 +508,7 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 | 라이브러리 메타데이터 | 플러그인 이름 → 태그(단 사람), 분류, 공개 범위와 그 대상 | S10 |
 | `sessions.extensions` | 펼친 결과(플러그인 digest와 스킬 이름·digest) | S8 |
 | MCP 전송 묶음 | (attempt, 서버, 턴) → 고정한 subject·`generation`, 옛 개정 서버의 `Mcp-Session-Id` | S12 |
-| 워크스페이스 MCP 도구 정의 | 지금의 이름·설명에 입력 스키마를 더함(크기 상한) | S12 |
+| 워크스페이스 MCP 도구 정의 | 지금의 이름·설명에 입력 스키마를 더함(크기 상한, 등록 응답이 `private`이면 비움) | S11 |
 
 ### 고른 것과 고르지 않은 것
 
@@ -519,12 +524,12 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 
 | 단계 | 내용 | PR | 끝난 조건 | 앞선 단계 |
 |---|---|---|---|---|
-| S1 스킬 API | 관리자 등록(업로드, 스킬 하나로 좁힘, 올린 `.claude-plugin/plugin.json` 거절, 명세 칸 `license`·`compatibility`·`metadata` 받기와 `allowed-tools` 거절. 구성원 제출은 S10), 버전(등록 순번 + digest), 승인(본인 승인 규칙), 워크스페이스·에이전트 범위 지정·해제(에이전트 관리자까지 넓힘), 보관, receipt `archive_extension`, `packages/core` 응답 표 | 1–2 | 서비스·API 시험: 스킬 둘 이상 트리 거절, 엔진 manifest 거절, 명세 칸 세 개가 든 스킬 등록과 `allowed-tools` 거절, 본인 승인 거절(관리자 한 사람이면 허용과 receipt), 지정된 버전 보관 거절, API key 쓰기 거절 | — |
+| S1 스킬 API | 관리자 등록(업로드, 스킬 하나로 좁힘, 올린 `.claude-plugin/plugin.json` 거절, 명세 칸 `license`·`compatibility`·`metadata` 받기와 `allowed-tools` 거절. 구성원 제출은 S10), 버전(등록 순번 + digest), 승인(본인 승인 규칙), 워크스페이스·에이전트 범위 지정·해제(에이전트 관리자까지 넓힘), 보관, 버전 트리의 파일 내용과 앞 승인 버전과의 diff를 읽는 API(승인 권한이 있는 사람만), receipt `archive_extension`, `packages/core` 응답 표 | 1–2 | 서비스·API 시험: 스킬 둘 이상 트리 거절, 엔진 manifest 거절, 명세 칸 세 개가 든 스킬 등록과 `allowed-tools` 거절, 본인 승인 거절(관리자 한 사람이면 허용과 receipt), 지정된 버전 보관 거절, API key 쓰기 거절 | — |
 | S2 Git 출처 | 저장소·경로·ref를 커밋 SHA로 풀어 읽기(워크스페이스 GitHub App), 원본 위치 메타데이터, "새 커밋 확인"이 digest가 다를 때만 `pending` 후보 | 1 | fake-git 통합 시험: 태그 → 커밋 고정, 같은 내용이면 후보 없음, 다른 내용이면 `pending` | S1 |
 | S3 해석기와 Claude 어댑터 | descriptor의 스킬 호출 도구, 엔진 이름 기준 겹침 검사, 시작 확인 두 단계(5절 "Claude의 시작 확인"), `strictMcpConfig`. plugin 매핑과 fingerprint는 그대로 | 1–2 | 시작 확인 시험: 빠진 스킬·남는 스킬·숨은 스킬 불일치가 각각 거절되고, 내장 명령이 섞인 정상 `commands`는 비교에서 빠져 통과하고, 숨은 스킬 불일치 세션에서 도구가 돌지 않음. 기존 체크포인트 resume 시험 | S1 |
 | S4 Codex 스킬 | 스킬 루트(extraRoots 먼저), 고정 버전에서 루트별 탐색 닫기와 `skills/changed` 처리, `disable-model-invocation`을 세션 사본의 `agents/openai.yaml` 정책으로 옮기기(확인하지 못하면 그 스킬의 Codex 지정 거절), `skills/list` 정확 일치, `codexProfileDigest`에 스킬 digest와 매핑 버전, descriptor `skills: native`(닫기를 확인하지 못하면 `none`) | 1–2 | 통합 시험: 저장소·사용자·ADMIN·시스템 스킬이 보이지 않음, 실행 중 새 `SKILL.md`가 생기면 그 턴이 중단되어 남은 도구 호출이 돌지 않고 다음 턴 전에 꺼짐, 스킬 없는 세션의 fingerprint가 그대로 | S1, S3 |
 | S5 Codex 워크스페이스 MCP | 워크스페이스 MCP 서버를 relay로(`assertStartable` 거절 해제, `enabled_tools`) | 1 | fake MCP 서버로 Codex 세션이 도구를 부르고, claim 밖 도구가 보이지 않음 | — |
-| S6 콘솔(스킬) | 워크스페이스 설정 > 스킬, 에이전트 접근 탭의 스킬 칸, 새 세션의 optional 켜기 | 1–2 | 화면 시험과 실제 스택 화면 기록(PR에 전후 캡처) | S1 |
+| S6 콘솔(스킬) | 워크스페이스 설정 > 스킬(승인 대기 화면은 모든 파일 내용과 diff, 7절), 에이전트 접근 탭의 스킬 칸, 새 세션의 optional 켜기 | 1–2 | 화면 시험과 실제 스택 화면 기록(PR에 전후 캡처). 승인 화면에서 `scripts/` 파일의 바뀐 줄이 보이는 시험 | S1 |
 | S7 E2E | 같은 스킬과 MCP 서버를 Claude·Codex 에이전트에 지정하고 둘 다 쓰는지, 저장소의 `.agents/skills`·`.claude/skills`가 보이지 않는지, 저장소와 엔진 사용자 설정에 넣은 시험용 MCP 서버로 엔진이 직접 연결하거나 token을 저장하지 않는지, 담당 팀 밖 구성원에게 숨긴 에이전트의 지정이 보이지 않는지 | 1 | CI의 E2E가 두 엔진에서 통과 | S3, S4, S5, S6 |
 
 ### 다음: werft 플러그인, 라이브러리, MCP 전송 세션
@@ -534,8 +539,8 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 | S8 werft 플러그인 | manifest 스키마와 digest(`requires`·`instructions`는 비어 있어야 받는다. 채운 manifest는 `field_not_yet_supported`로 거절하고, `requires`는 S9가, `instructions`는 실행 규칙·지시 파일 설계의 지시 출력 단계가 연다. `engines`는 이 단계의 해석기가 엔진 불일치로 거절한다), 단일 스킬 플러그인 자동 생성, 지정 행이 플러그인 digest를 가리키는 migration(옛 번들 지정은 읽기 유지), 해석기의 플러그인 단위 접기·펼치기·`forbidden` 펼친 결과 검사·펼친 뒤 겹침 검사, 어댑터별 엔진 plugin 출력 | 2 | 해석기 시험: 스킬 `foo` 금지 아래에서 `foo`를 담은 다른 플러그인 지정이 지정·활성화·세션 시작 모두에서 `extension_forbidden`, 같은 digest 중복은 한 번 펼침, 다른 digest는 겹침, 스킬과 플러그인의 같은 이름 등록 거절, 스킬 새 버전이 앞 버전의 `requires`·`engines`를 이어받은 단일 스킬 플러그인 새 버전을 함께 만들고 한 번에 승인됨, 단일 스킬 플러그인의 `engines` 수정이 새 버전이 되어 본인 승인이 거절됨, `requires`·`instructions`를 채운 manifest가 `field_not_yet_supported`로 거절됨, `engines` 밖 엔진의 에이전트에 `required` 지정은 거절되고 `optional` 지정은 저장되되 그 에이전트에서 "켤 수 없음"과 이유가 보임, 워크스페이스의 Claude 전용 optional 플러그인이 있어도 Codex 에이전트의 release 활성화가 통과하고 그 세션에서 그 플러그인을 켜 달라는 요청은 거절됨, 금지된 스킬 `foo`를 담은 optional 플러그인 `bar`도 같은 결과(활성화 통과, 켜 달라는 요청은 `extension_forbidden`). migration 시험: 옛 지정이 그대로 해석됨 | S1, S3, S4 |
 | S9 의존성 확인 | manifest의 `requires` 칸을 열기, 지정·release 활성화·세션 시작의 세 시점, `missing` 목록 응답, 실행 규칙 충족 판정 호출 | 1 | 시점마다 빠진 MCP 서버·도구·규칙·엔진이 이름으로 나오는 시험, 워크스페이스 범위 `required`가 한 에이전트에서만 빠져도 그 에이전트 이름과 함께 거절되는 시험, 세션 시작의 런타임 상태(재인증 필요)는 시작하고 이벤트를 남김 | S8, 실행 규칙 설계의 판정기 |
 | S10 라이브러리 | 검색·태그·분류·공개 범위·사용 현황(에이전트·세션 읽기 거름), 구성원 제출, receipt `update_extension_metadata`, 콘솔 화면 | 2 | 공개 범위 밖 구성원에게 목록·검색·상세·지정 화면에서 보이지 않음, 워크스페이스 범위 지정은 범위와 상관없이 보임, 사용 현황이 숨긴 에이전트를 세지 않음, 화면 기록 | S8, S6 |
-| S11 MCP 2026-07-28 개정 지원 | 6절 "전송 세션"의 세 자리: 등록 확인이 `server/discover`를 먼저 부르고 옛 개정이면 `initialize`로 되돌아감, egress가 `server/discover`와 `subscriptions/listen`(`toolsListChanged`만)을 라우팅(proxy가 구독 종류를 인가 요청에 싣는다, 13절), relay가 두 개정을 감지 | 1 | 두 개정의 fake 서버 각각을 등록·도구 호출까지 몰아 같은 결과, `subscriptions/listen`의 리소스 구독 거절, 옛 개정 서버의 기존 시험이 그대로 통과 | S5 |
-| S12 MCP 전송 세션의 subject 고정 | 6절 "언제 무엇을 묻나"(턴 밖에서는 upstream에 가지 않음: 등록 확인이 입력 스키마도 저장하고 relay가 첫 턴 전 `tools/list`에 저장한 정의로 답함, 도구 없는 첫 판정, `tools/call` 판정)와 "전송 세션": (서버, 턴) subject 고정, 옛 개정의 `Mcp-Session-Id` 묶음(proxy가 upstream이 준 id와 요청이 실은 id를 인가 요청에 싣는다, 13절), 2026-07-28 개정의 요청별 비교와 `subscriptions/listen` 묶음, 목록 캐시의 subject 분리, relay 재시작(Claude·Codex) | 1–2 | egress 통합 시험: 새 세션과 resume 모두 첫 턴 전에는 upstream 요청이 없고 엔진이 저장한 정의로 도구를 봄(Claude·Codex), 턴 도중 규칙 삭제 → 다음 요청 거절, subject가 바뀌는 판정 → `mcp_session_subject_changed`와 relay 재시작, 다른 subject의 세션 id 거절, 열린 스트림 도중 같은 subject로 다시 연결해 `generation`이 바뀌면 다음 `regrant`에서 스트림이 끊김, 두 개정의 fake 서버에서 같은 결과. 개인 연결 결과(B5)를 켜기 전에 머지한다 | A4, B2, S5, S11 |
+| S11 MCP 등록 확인과 relay: 새 개정 지원과 턴 밖 차단 | 6절 "전송 세션"의 세 자리: 등록 확인이 `server/discover`를 먼저 부르고 옛 개정이면 `initialize`로 되돌아감, egress가 `server/discover`와 `subscriptions/listen`(`toolsListChanged`만)을 라우팅(proxy가 구독 종류를 인가 요청에 싣는다, 13절), relay가 두 개정을 감지. 6절 "턴 밖에서는 upstream에 가지 않는다": 등록 확인이 입력 스키마도 저장(`cacheScope: private`이면 저장하지 않음), relay가 첫 턴 전 `tools/list`에 저장한 정의로 답하고 턴 안의 목록과 다르면 `list_changed`. B2·B5보다 먼저 머지한다 | 1–2 | 두 개정의 fake 서버 각각을 등록·도구 호출까지 몰아 같은 결과, `subscriptions/listen`의 리소스 구독 거절, 옛 개정 서버의 기존 시험이 그대로 통과. 새 세션과 resume 모두 첫 턴 전에는 upstream 요청이 없고 엔진이 저장한 정의로 도구를 봄(Claude·Codex), `private` 목록이면 이름과 빈 스키마만 보임 | S5 |
+| S12 MCP 전송 세션의 subject 고정 | 6절 "언제 무엇을 묻나"(도구 없는 첫 판정, `tools/call` 판정)와 "전송 세션": (서버, 턴) subject 고정, 옛 개정의 `Mcp-Session-Id` 묶음(proxy가 upstream이 준 id와 요청이 실은 id를 인가 요청에 싣는다, 13절), 2026-07-28 개정의 요청별 비교와 `subscriptions/listen` 묶음, 목록 캐시의 subject 분리, relay 재시작(Claude·Codex) | 1–2 | egress 통합 시험: 턴 도중 규칙 삭제 → 다음 요청 거절, subject가 바뀌는 판정 → `mcp_session_subject_changed`와 relay 재시작, 다른 subject의 세션 id 거절, 열린 스트림 도중 같은 subject로 다시 연결해 `generation`이 바뀌면 다음 `regrant`에서 스트림이 끊김, 두 개정의 fake 서버에서 같은 결과. 개인 연결 결과(B5)를 켜기 전에 머지한다 | A4, B2, S5, S11 |
 
 ### 나중
 
