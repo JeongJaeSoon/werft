@@ -4,7 +4,7 @@ import type { Principal, UsageDecision } from "@werft-ai/platform";
 import { and, arrayContains, asc, eq, inArray, isNull } from "drizzle-orm";
 import { lockActorAccount } from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
-import { reachesBeforePublishNow } from "../musterrolle/administers.ts";
+import { reachesBeforePublishNow } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import {
   agentAdmins,

@@ -155,6 +155,10 @@ integration("usage summary on PostgreSQL", () => {
       runtimeConfigSnapshot: {},
       effectiveTools: [],
     });
+    await db
+      .update(schema.agents)
+      .set({ activeReleaseId: agentReleaseId, activationRevision: 0 })
+      .where(eq(schema.agents.id, agentId));
     for (const [id, creator] of [
       [personalKey, ids.alice],
       [ownersKey, ids.owner],
@@ -410,6 +414,10 @@ integration("usage summary on PostgreSQL", () => {
       name: "Other",
     });
     const otherRelease = await release(otherAgent);
+    await db
+      .update(schema.agents)
+      .set({ activeReleaseId: otherRelease, activationRevision: 0 })
+      .where(eq(schema.agents.id, otherAgent));
     const elsewhere = crypto.randomUUID();
     const foreignAgent = crypto.randomUUID();
     await db

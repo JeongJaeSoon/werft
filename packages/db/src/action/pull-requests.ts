@@ -27,8 +27,11 @@ import {
   sessionOutcomes,
   sessions,
 } from "../schema.ts";
-import { queueAchievementJudgment } from "../sessions/index.ts";
-import { lockPreviewFeed, lockRequester } from "../sessions/requester-locks.ts";
+import {
+  lockPreviewFeed,
+  lockRequester,
+  queueAchievementJudgment,
+} from "../sessions/index.ts";
 
 type Row = typeof pullRequests.$inferSelect;
 

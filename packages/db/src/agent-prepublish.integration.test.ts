@@ -45,6 +45,7 @@ import {
 import { fixtureTeam } from "./testing/fixture-team.ts";
 import {
   releaseSpecColumns,
+  sessionPinColumns,
   TEST_CONNECTION_ID,
   TEST_MODEL,
 } from "./testing/spec-pins.ts";
@@ -383,6 +384,7 @@ integration("unpublished agents and preview sessions on PostgreSQL", () => {
       workspaceId: w.ws,
       createdByUserId: idOf(w.owner),
       repositoryMode: "none",
+      ...sessionPinColumns(),
       agentReleaseId: w.releaseId,
     });
     await db.insert(sessionShares).values({
@@ -635,14 +637,16 @@ integration("unpublished agents and preview sessions on PostgreSQL", () => {
       receiptId: randomUUID(),
     });
     expect(widen.outcome).toBe("preview_fixed");
-    // Nobody else on the team sees the preview's transcript.
-    expect(
-      await createPostgresSessionReader(db).getSession(w.ws, sessionId, {
-        userId: idOf(w.lead),
+    // Nobody else on the team sees the preview, its admins included.
+    const visibleTo = (who: Caller) =>
+      createPostgresSessionShareStore(db).visibleTo(w.ws, sessionId, {
+        userId: idOf(who),
         apiKeyId: null,
         keyAgentId: null,
-      }),
-    ).toBeNull();
+      });
+    expect(await visibleTo(w.owner)).toBe(true);
+    expect(await visibleTo(w.lead)).toBe(false);
+    expect(await visibleTo(w.managingMember)).toBe(false);
   });
 
   test("activating the release the draft holds clears the draft; a rollback leaves it", async () => {

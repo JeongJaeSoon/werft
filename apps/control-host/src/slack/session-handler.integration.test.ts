@@ -658,7 +658,9 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     await drain(handle);
     expect(await sessionsOf(fixture)).toEqual([]);
     expect(notices).toHaveLength(1);
-    expect(notices[0]?.reason).toBe("role");
+    // Unpublished, the agent is not there for them at all; the notice reads
+    // as for a missing right either way.
+    expect(notices[0]?.reason).toBe("agent_private");
     expect(notices[0]?.notice.message).toBe("noRequestRight");
   });
 

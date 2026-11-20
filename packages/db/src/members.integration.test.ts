@@ -178,6 +178,10 @@ integration("members, identity and takeover on PostgreSQL", () => {
         runtimeConfigSnapshot: {},
         effectiveTools: [],
       });
+      await db
+        .update(agents)
+        .set({ activeReleaseId: releaseId, activationRevision: 0 })
+        .where(eq(agents.id, agentId));
       releaseOfKey.set(id, releaseId);
     }
     await db.insert(apiKeys).values({

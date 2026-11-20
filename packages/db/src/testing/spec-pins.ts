@@ -9,6 +9,7 @@ import {
   type SessionCatalog,
   type ToolCatalogs,
 } from "@werft-ai/platform";
+import { eq } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { agentReleases, agents, agentVersions, workspaces } from "../schema.ts";
 import { fixtureTeam } from "./fixture-team.ts";
@@ -181,6 +182,10 @@ export async function makeFixtureRelease(
     effectiveTools: { tools: spec.specSource.tools, mcp: [] },
     ...spec,
   });
+  await db
+    .update(agents)
+    .set({ activeReleaseId: releaseId, activationRevision: 0 })
+    .where(eq(agents.id, agentId));
   return releaseId;
 }
 

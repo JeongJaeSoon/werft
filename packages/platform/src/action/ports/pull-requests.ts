@@ -9,7 +9,7 @@ import type {
   ReceiptActor,
 } from "@werft-ai/contracts";
 import { GITHUB_SETTINGS_UNSUPPORTED } from "../../github/ports/github-settings.ts";
-import type { Principal } from "../../musterrolle/policy.ts";
+import type { Principal } from "../../musterrolle/index.ts";
 
 /** What every refused pull request operation answers, and its receipt records. */
 export const PULL_REQUEST_REFUSAL_ERRORS: Record<

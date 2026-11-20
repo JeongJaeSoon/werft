@@ -26,7 +26,6 @@ import {
   providerConnections,
   pushRequests,
   receipts,
-  sessions,
   workerCredentials,
   workspaces,
 } from "./schema.ts";
@@ -450,14 +449,16 @@ integration(
 
       const session = async (repositoryId: string) => {
         const id = randomUUID();
-        await db.insert(sessions).values({
-          id,
-          ownerId: "owner",
-          repoUrl: REPOSITORIES[repositoryId as keyof typeof REPOSITORIES].url,
-          branch: "main",
-          repositoryId,
-          checkpointRevision: 1,
-        });
+        // Raw: the schema of today names columns 0287 does not have yet.
+        await pool.query(
+          `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id, checkpoint_revision)
+         VALUES ($1, 'owner', $2, 'main', $3, 1)`,
+          [
+            id,
+            REPOSITORIES[repositoryId as keyof typeof REPOSITORIES].url,
+            repositoryId,
+          ],
+        );
         return id;
       };
       const push = async (repositoryId: string, binding: string) => {

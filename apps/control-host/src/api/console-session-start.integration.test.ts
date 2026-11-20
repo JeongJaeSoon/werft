@@ -16,6 +16,7 @@ import {
   createPostgresDecisionLog,
   createPostgresSessionControl,
   createPostgresSessionReader,
+  createPostgresSessionShareStore,
   createPostgresSessionUnitOfWork,
   createPostgresWorkspaceKeyStore,
   memberships,
@@ -173,6 +174,7 @@ integration("starting an agent's session from the console", () => {
       agents: createDatabaseAgentAuthority(db),
       credentials,
       decisions: createPostgresDecisionLog(db),
+      sessions: createPostgresSessionShareStore(db),
     });
     const agents = createAgentService({
       authorization,

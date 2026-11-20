@@ -11,6 +11,7 @@ export {
   actionableRequest,
   awaitingInputAt,
 } from "./pending-status.ts";
+export { lockPreviewFeed, lockRequester } from "./requester-locks.ts";
 export {
   holdIncompatibleBeforeLaunch,
   RESTORE_FAILURES_CLEARED,
