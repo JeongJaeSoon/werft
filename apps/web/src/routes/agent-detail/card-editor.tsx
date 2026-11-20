@@ -127,6 +127,7 @@ export function CardEditor({
       draft,
       sendsCard,
       saveOnly,
+      connection,
     }) => {
       const sentCard = draft ? cardFromDraft(draft, base?.card) : undefined;
       return unwrap(
@@ -145,9 +146,7 @@ export function CardEditor({
             ...(sendsCard && sentCard
               ? {
                   card: sentCard,
-                  ...(releaseConnection
-                    ? { connection_id: releaseConnection }
-                    : {}),
+                  ...(connection ? { connection_id: connection } : {}),
                   // An unpublished agent is published only by its own
                   // button, never by a settings save.
                   ...(saveOnly || unpublished ? { activate: false } : {}),
@@ -246,7 +245,7 @@ export function CardEditor({
         // for what it saved is tried, the active one included. With no
         // connection sent the agent's own stays.
         const connection =
-          releaseConnection ??
+          submitted.connection ??
           stored.draft?.connection_id ??
           stored.active_release?.connection_id;
         const tried =
@@ -274,9 +273,17 @@ export function CardEditor({
     connectionChanged ||
     (edit.name.trim() === edit.baseName &&
       edit.description.trim() === edit.baseDescription);
-  const submit = (event: FormEvent) => {
+  // Both save buttons submit the form, so its checks hold for either.
+  const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    save.mutate({ ...edit, sendsCard, saveOnly: false });
+    const saveOnly =
+      (event.nativeEvent as SubmitEvent).submitter?.dataset.saveOnly === "true";
+    save.mutate({
+      ...edit,
+      sendsCard: sendsCard || saveOnly,
+      saveOnly,
+      connection: releaseConnection,
+    });
   };
   const disabled =
     save.isPending ||
@@ -349,12 +356,10 @@ export function CardEditor({
             </Button>
             {draft !== null ? (
               <Button
-                type="button"
+                type="submit"
                 variant="outline"
+                data-save-only="true"
                 disabled={disabled}
-                onClick={() =>
-                  save.mutate({ ...edit, sendsCard: true, saveOnly: true })
-                }
               >
                 {t("agent.card.saveOnly")}
               </Button>
@@ -394,6 +399,8 @@ interface Submitted extends Edit {
   readonly sendsCard: boolean;
   /** Saves without turning the release on, then previews it. */
   readonly saveOnly: boolean;
+  /** The connection picked when it was sent; none keeps the agent's. */
+  readonly connection: string | undefined;
 }
 
 const sameEdit = (a: Edit, b: Edit) =>

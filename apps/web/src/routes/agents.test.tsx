@@ -2046,6 +2046,45 @@ describe("게시 전 에이전트", () => {
     ).toBe(on ?? "missing");
   });
 
+  test("게시 전 에이전트의 거절된 저장을 다시 시도해도 게시하지 않는다", async () => {
+    const server = agentServer();
+    await server.routes[`PATCH /v1/agents/${AGENT_ID}`](
+      new Request("https://console.test/", {
+        method: "PATCH",
+        body: JSON.stringify({
+          card: CARD,
+          connection_id: "connection_gone",
+          activate: false,
+        }),
+      }),
+    );
+    const { api } = renderAt(CARD_TAB, { ...meOk, ...server.routes });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "다시 시도" }));
+    await waitFor(() =>
+      expect(api.calls.some((c) => c.method === "PATCH")).toBe(true),
+    );
+    expect(api.calls.find((c) => c.method === "PATCH")?.body).toMatchObject({
+      activate: false,
+    });
+    expect(server.detail().agent.active_release_id).toBeNull();
+  });
+
+  test("저장만 하고 미리 써 보기도 폼 검사를 거친다", async () => {
+    const server = agentServer();
+    await seedRelease(server);
+    const { api } = renderAt(CARD_TAB, { ...meOk, ...server.routes });
+    const user = await setupUser();
+    await openCardEditor(user);
+    const name = await screen.findByLabelText("이름");
+    await user.clear(name);
+    await user.click(
+      screen.getByRole("button", { name: "저장만 하고 미리 써 보기" }),
+    );
+    expect(api.calls.some((c) => c.method === "PATCH")).toBe(false);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   test("상세는 게시 전이라고 알리고, 거기서 미리 써 보고 게시한다", async () => {
     const server = agentServer();
     await saveOnly(server, CARD);

@@ -88,6 +88,10 @@ export function EffectiveBehavior({
           body: {
             card: cardFromDraft(draftFromCard(source.card), source.card),
             connection_id: connection,
+            // An unpublished agent is published only by its own button.
+            ...(detail.agent.active_release_id === null
+              ? { activate: false }
+              : {}),
           },
         }),
       ) as Promise<SaveAgentResponse>;
@@ -101,7 +105,13 @@ export function EffectiveBehavior({
             })
           : release.status === "superseded"
             ? t("agent.save.superseded")
-            : t("agent.draft.done"),
+            : release.status === "saved"
+              ? t("agent.save.savedOnly", {
+                  version:
+                    updated.versions.find((v) => v.id === release.version_id)
+                      ?.version_no ?? "",
+                })
+              : t("agent.draft.done"),
       );
       queryClient.setQueryData(
         queryKeysOf(client).agent(detail.agent.id),
