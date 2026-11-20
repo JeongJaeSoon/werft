@@ -158,7 +158,7 @@ github.com과 GitHub Enterprise Server(GHES)의 저장소도 다른 host와 같�
 
 API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토큰을 proxy의 저장소 route에 내준다. 토큰은 1시간짜리라 API가 갱신한다. App은 콘솔에서 등록한다. 한 워크스페이스에 작성용·리뷰 승인용 App을 여럿 둘 수 있고, 저장소마다 어느 App이 토큰을 발급할지 고정한다([github-agent.md 결정 11](../contributing/decisions/github-agent.md#결정-11-같은-역할에-app-여럿)).
 
-- **App 만들기:** 조직(또는 계정) Settings → Developer settings → GitHub Apps → New GitHub App. Webhook은 끈다(플랫폼은 webhook을 받지 않는다). Repository permissions는 **Contents: Read and write**, **Pull requests: Read and write**, **Metadata: Read-only**(자동)다. clone은 Contents read만 쓰지만, push·PR(아래 절)이 같은 App을 쓰므로 처음부터 준다. 토큰을 발급할 때마다 그 요청이 쓰는 권한만 다시 좁히므로(아래) clone 토큰에는 쓰기 권한이 없다. 만든 뒤 페이지 위쪽의 **App ID**를 적어 두고, Private keys → Generate a private key로 PEM 파일을 받는다.
+- **App 만들기:** 조직(또는 계정) Settings → Developer settings → GitHub Apps → New GitHub App. Webhook은 Git 스킬 동기화(아래 "Git 스킬 webhook")를 쓸 때만 켜고, 아니면 끈다. Repository permissions는 **Contents: Read and write**, **Pull requests: Read and write**, **Metadata: Read-only**(자동)다. clone은 Contents read만 쓰지만, push·PR(아래 절)이 같은 App을 쓰므로 처음부터 준다. 토큰을 발급할 때마다 그 요청이 쓰는 권한만 다시 좁히므로(아래) clone 토큰에는 쓰기 권한이 없다. 만든 뒤 페이지 위쪽의 **App ID**를 적어 두고, Private keys → Generate a private key로 PEM 파일을 받는다.
 - **콘솔에 등록:** owner나 admin이 설정 > 워크스페이스 > 연동 > GitHub에서 App ID를 넣고 PEM 파일을 고른다. API는 키가 RSA private key인지 보고(`400 invalid_private_key`), 그 키로 서명한 JWT로 `GET {api_base}/app`을 불러 GitHub가 받아 주는지 확인한 뒤에만 저장한다(`400 github_app_rejected`, GitHub가 답하지 않으면 `503 github_unreachable`). 키는 `PLATFORM_SECRET_KEY`(master key)로 암호화해 `secret_values`에 두고, App 이름·주소와 함께 `github_apps` 표에 남는다. 등록·교체·삭제는 `set_github_app`·`delete_github_app` receipt로 남고, 키는 응답·receipt·로그 어디에도 나오지 않는다. 내려받은 PEM 파일은 등록한 뒤 지운다. 같은 App의 키를 바꾸려면 GitHub에서 새 키를 만들고, 그 App 행의 ⋯ 메뉴 "새 키 등록"으로 같은 연결에 저장한 뒤, 새 키로 동작하는 것을 확인하고 GitHub에서 옛 키를 지운다. API는 10초마다 DB를 다시 읽으므로 다른 replica도 곧 새 키를 쓴다(등록한 replica는 바로).
 - **설치:** 화면의 **조직 추가**(App이 여럿이면 설치할 App을 고른다)로 GitHub의 설치 화면에 가서 저장소 owner를 고르고 **Only select repositories**로 쓸 저장소만 고른다. 콘솔에서 시작해 콘솔로 돌아온 설치는 연결한 사람을 남긴다. 화면은 App의 JWT로 GitHub에 물어 설치 표(계정 · 유형 · 저장소 · App · 연결한 사람 · 상태)를 보여 준다. installation id는 적지 않는다. API가 토큰을 받을 때 `GET /repos/{owner}/{repo}/installation`으로 찾는다.
 - **저장소:** 콘솔의 App을 쓰는 저장소는 등록하지 않는다. 에이전트 관리자가 에이전트의 GitHub 탭에서 App 설치에 들어 있는 저장소를 고르면 카탈로그 행이 생긴다. URL과 기본 브랜치는 GitHub에서 읽는다. owner나 admin은 설정 > 워크스페이스 > 연동 > GitHub > **저장소 관리**에서 설치별 저장소를 보고, 행 메뉴로 기본 브랜치와 그 저장소를 맡을 App을 바꾼다. 바꾼 것은 `set_repository_branch`·`set_repository_github_app` receipt로 남는다. 저장소는 DB 표 `catalog_repositories`에 있고, 재배포나 재기동은 필요 없다(다른 replica는 10초 안에 읽는다). 결정 문서: [repository-catalog-db.md](../contributing/decisions/repository-catalog-db.md).
@@ -198,6 +198,20 @@ API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토�
 - **토큰:** 저장소 route가 요청마다 API에 물으면 API는 `POST {api_base}/app/installations/{installation_id}/access_tokens`에 `repositories: [<repo>]`, `permissions: { contents: read }`를 보내 그 저장소 하나·읽기 권한으로 좁힌 토큰을 받는다. 콘솔 App이면 그 앞에 `GET {api_base}/repos/{owner}/{repo}/installation`으로 installation id를 찾아 프로세스 메모리에 두고, 발급이 실패하면 다음에 다시 찾는다. 토큰은 저장소·권한별로 API 프로세스 메모리에 두고 `expires_at` 10분 전부터 새로 받는다. 같은 토큰을 동시에 묻는 요청은 발급 한 번을 같이 기다린다. 진행 중인 clone은 시작할 때의 토큰으로 끝까지 받는다. JWT는 `@octokit/auth-app`이 만든다(iat는 30초 앞당기고 수명은 10분).
 - **실패:** 발급이 실패하면(키·installation이 틀림, GitHub 장애, App 설치 해제) 저장소 route는 `503`으로 닫힌다. 남은 토큰이 아직 유효해도 갱신 시점이 지났으면 쓰지 않는다. clone은 시작 단계에서 실패해 세션 attention이 `STARTUP_FAILED`다. API 로그에는 `GitHub request failed`(`request: installation token request`, `status`, `error`)와 egress authorizer의 `Egress authorization refused`(`status: 503`, `code: BACKEND_UNAVAILABLE`)가 남는다. 토큰·JWT·키는 로그와 오류 메시지에 나오지 않는다. status가 401이면 App ID·키 짝, 404면 installation id와 그 설치에 저장소가 들어 있는지, 422면 저장소 이름을 확인한다. 콘솔 App이 그 저장소에 설치되어 있지 않으면 `GitHub App is not installed on <owner>/<repo>`로 같은 `503`이 되고, 콘솔 App이 없으면 forge가 없어 `503`이다. 콘솔의 GitHub 화면이 두 경우를 모두 보여 준다.
 - **allowlist:** 토큰 발급은 API가 직접 한다(`api.github.com:443` 또는 GHES의 `<ghes-host>:443`로 API 컨테이너의 outbound가 열려 있어야 한다). clone은 proxy의 `EGRESS_CREDENTIAL_ALLOWLIST`에 `github.com:443`(GHES는 `<ghes-host>:443`)을 더한다.
+
+#### Git 스킬 webhook
+
+GitHub에서 등록한 스킬은 push webhook, 하루 한 번 확인, 콘솔의 "지금 확인" 셋으로 새 버전을 찾는다([스킬과 MCP 결정](../contributing/decisions/skills-and-mcp.md) 3절). webhook은 GitHub가 이 API에 닿을 때만 쓴다. 닿지 않는 설치는 하루 확인과 "지금 확인"만으로 동작한다.
+
+| 변수 | 기본값 | 허용 범위 |
+|---|---|---|
+| `GITHUB_WEBHOOK_BASE_URL` | 없음(webhook 없음) | query·fragment·사용자 정보가 없는 `https` URL. GitHub가 인터넷에서 닿는 이 API의 주소이고, 경로 접두어가 있으면 그대로 둔다. webhook 주소는 `<이 값>/v1/github/webhook`이다. 다른 값이면 API가 시작하지 않는다 |
+
+- 이 값이 있을 때 콘솔에서 새로 만드는 작성용 App은 manifest에 webhook 주소와 `push` 이벤트가 들어가고, GitHub가 준 webhook secret이 App 키처럼 봉인돼 저장된다.
+- 이미 있는 App은 GitHub의 App 설정(General → Webhook)에서 **Active**를 켜고 **Webhook URL**에 위 주소를, **Secret**에 정한 값을 넣는다. Permissions & events → Subscribe to events에서 **Push**를 켠다. 같은 secret을 owner나 admin이 `PUT /v1/workspaces/{id}/github-apps/{role}/webhook-secret`(`{"secret": …}`)으로 넣는다. App 조회의 `webhook`이 넣을 주소와 secret이 있는지를 보인다.
+- 받는 경로는 인증 없는 `POST /v1/github/webhook` 하나다. `X-GitHub-Hook-Installation-Target-ID` 헤더의 App ID로 secret을 찾고, `X-Hub-Signature-256`이 그 가운데 하나로 맞을 때만 본문을 읽는다. 서명이 없거나 틀리면 `401`, 본문이 64 KiB를 넘으면 `413`, App마다 분당 상한을 넘으면 `429`다. 확인을 기다리지 않고 `202`로 답한다.
+- 하루 확인은 replica마다 10분 간격으로 마지막 확인이 하루 지난 스킬을 찾는다. 같은 스킬을 두 replica가 함께 확인하지 않는다. 스킬을 잡은 replica가 확인을 마치지 못하고 죽으면 30분 뒤 다른 replica가 다시 잡는다.
+- 한 스킬의 확인은 잠금 시간 동안만 그 스킬을 쥔다. 잠금 시간이 지나도록 끝나지 않은 확인은 다음 확인이 넘겨받고, 늦게 끝난 확인은 버전도 확인 결과도 쓰지 않는다.
 
 #### 저장소 route와 egress
 

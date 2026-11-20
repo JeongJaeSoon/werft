@@ -43,6 +43,7 @@ import type {
   SessionShareService,
   SettingsConsoleService,
   SettingsDocumentService,
+  SkillGitSync,
   SkillService,
   SurfaceBindingService,
   TeamService,
@@ -72,6 +73,7 @@ import { registerGitHubAppRoutes } from "./routes/github/github-app.ts";
 import { registerGitHubPackagesRoutes } from "./routes/github/github-packages.ts";
 import { registerGitHubRepositoryRoutes } from "./routes/github/github-repositories.ts";
 import { registerGitHubSettingsRoutes } from "./routes/github/github-settings.ts";
+import { registerGitHubWebhookRoutes } from "./routes/github/github-webhook.ts";
 import {
   registerGitHubWorkRoutes,
   registerSessionAttributionRoutes,
@@ -163,6 +165,10 @@ function apiApp() {
         interactions: {} as SlackInteractionService,
         limiter: createSlackEventsLimiter(),
       });
+      registerGitHubWebhookRoutes(router, {
+        sync: {} as SkillGitSync,
+        limiter: createSlackEventsLimiter(),
+      });
     },
     registerRoutes: (router) => {
       registerAuthRoutes(router, auth);
@@ -201,7 +207,7 @@ function apiApp() {
       registerCredentialBindingRoutes(router, {} as CredentialBindingService);
       registerEnvVariableRoutes(router, {} as EnvVariableService);
       registerWorkspaceMcpServerRoutes(router, {} as WorkspaceMcpService);
-      registerSkillRoutes(router, {} as SkillService);
+      registerSkillRoutes(router, {} as SkillService, {} as SkillGitSync);
       registerPauseRoutes(router, {} as SessionService);
       registerCloseRoutes(router, {} as SessionService);
       registerUsageRoutes(router, {} as UsageService);

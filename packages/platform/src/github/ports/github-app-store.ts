@@ -42,6 +42,8 @@ export type GitHubAppRecord = Omit<GitHubAppProfile, "permissions"> & {
     updatedAt: Date;
     updatedBy: { userId: string; displayName: string } | null;
   };
+  /** Whether the App's push webhook secret is stored (Git skill sync). */
+  webhookSecretSet: boolean;
 };
 
 /** What the server signs with: for its own GitHub calls only. */
@@ -173,6 +175,8 @@ export interface GitHubPinStore {
 /** What a manifest's code turned into on GitHub, secrets included. */
 export type GitHubAppManifestConversion = GitHubAppProfile & {
   privateKey: string;
+  /** Null when the manifest asked for no webhook. */
+  webhookSecret: string | null;
   clientSecret: string;
   /** The login that owns the App. */
   owner: string;
@@ -208,6 +212,8 @@ export type GitHubAppManifestPut = {
   clientSecret: string;
   owner: string;
   public: boolean;
+  /** Sealed like the key when the manifest asked for a webhook. */
+  webhookSecret?: string | null;
 };
 
 /**
@@ -270,6 +276,29 @@ export interface GitHubAppStore {
   list(
     workspaceId: string,
   ): Promise<Array<GitHubAppRecord & { role: GitHubAppRole }>>;
+  /**
+   * Stores the push webhook secret entered for a connection whose App was
+   * not made from this console's manifest, with its `set_github_app`
+   * receipt (`purpose: webhook_secret`).
+   */
+  setWebhookSecret(
+    workspaceId: string,
+    connectionId: string,
+    secret: string,
+    audit: SecretAudit,
+  ): Promise<
+    | { outcome: "stored"; receiptId: string }
+    | { outcome: "not_found" | "actor_inactive" | "outranked" }
+  >;
+  /**
+   * Every connection of App `appId`, in any workspace, with a webhook
+   * secret that opens: a delivery names only the App.
+   */
+  webhookSecrets(
+    appId: number,
+  ): Promise<
+    Array<{ workspaceId: string; connectionId: string; secret: string }>
+  >;
   /** Every registered App of `role` with its key, or one workspace's. */
   credentials(
     role: GitHubAppRole,

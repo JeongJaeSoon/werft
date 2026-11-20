@@ -3,6 +3,7 @@
 - 상태: 결정됨. 구현은 이 문서를 따른다.
 - 출처: GitHub 연결 설정 재구성 시안 v2 A절. 오너가 정할 것 3(새 App은 비공개 기본, 만들 때 공개 선택)은 추천안을 채택했다(2026-11-01).
 - 관련: [저장소 카탈로그 DB](repository-catalog-db.md), [GitHub 에이전트 연결](github-agent.md).
+- 고침(2026-11-21): Git 스킬 동기화([스킬과 MCP 결정](skills-and-mcp.md) 3절)를 위해, 공개 webhook 주소가 있는 설치는 manifest에 webhook을 넣고 `webhook_secret`을 저장한다(§4, §5).
 
 ## 1. 무엇을 골랐나
 
@@ -43,7 +44,8 @@ GitHub 연결 설정에 '새 App 만들기'를 주 버튼으로 둔다. '이미 
 - `github_apps` 행: 지금의 `put`과 같다. 키는 secret 저장소에 봉인한다.
 - client secret: 구성원 계정 연결(`putClientSecret`)과 같은 슬롯에 넣는다. 그래서 '구성원 GitHub 계정 연결'의 client secret 입력 단계가 사라진다.
 - receipt는 '이미 있는 App 추가'와 같은 `set_github_app`이다. `result`에 `source: "manifest"`, 소유 계정, 공개 여부를 더한다. 비밀값은 넣지 않는다. client secret을 따로 넣을 때 남기던 receipt는 쓰지 않는다. 같은 트랜잭션의 한 receipt가 App과 secret을 함께 말한다.
-- `webhook_secret`은 저장하지 않는다. manifest에 `hook_attributes`를 넣지 않아 webhook이 없다(§5).
+- `webhook_secret`: manifest에 webhook을 넣었을 때(§5) 교환 응답에 오는 값을 App 키처럼 secret 저장소에 봉인한다. 같은 트랜잭션이고 같은 receipt다. App이 바뀌면 이전 App의 secret을 지운다.
+- '이미 있는 App 추가'로 등록한 App과 webhook 없이 만든 App은 관리자가 GitHub의 App 설정에 webhook 주소와 secret을 넣고 push 이벤트를 켠 뒤, 같은 secret을 `PUT /v1/workspaces/{id}/github-apps/{role}/webhook-secret`으로 넣는다. App 조회의 `webhook`은 GitHub에 넣을 주소(`url`, 공개 주소가 없으면 null)와 secret이 있는지(`secret_set`)만 싣고, secret 값은 어디에도 싣지 않는다.
 - 교체: 작성용 App이 있을 때는 위험 구역의 '교체'에서 확인 창을 거친 뒤 '새 App 만들기'와 '이미 있는 App 추가' 가운데 고른다. 시작 요청은 `replace: true`를 보내야 하고, 없으면 409 `GITHUB_APP_CONFLICT`(`reason_code: author_app_exists`)다. 시작할 때의 App ID(없으면 null)를 state의 `replaces_app_id`에 둔다. 완료할 때 잠금 아래 지금의 App ID와 다르면(그사이 다른 사람이 등록·교체·삭제했으면) 저장하지 않고 409 `author_app_changed`를 돌려준다. 이때 GitHub에는 App이 만들어진 채 남으므로 `details.html_url`로 App 링크를 보여 관리자가 지울 수 있게 한다. 교체는 '이미 있는 App 추가'의 교체와 같다. 행 id는 그대로 두고, 이전 App의 client secret은 지운다.
 - 교환은 성공했는데 저장이 실패하면 키를 잃는다(code는 한 번만 교환된다). 이때는 503 `BACKEND_UNAVAILABLE`, `reason_code: store_failed`, `details.app_id`, `details.html_url`을 돌려준다. GitHub가 code를 거절하면(만료·이미 씀) 400 `BAD_REQUEST` `code_rejected`, 닿지 않으면 503 `github_unreachable`이다. 교환 요청은 다시 보내지 않는다. 첫 요청이 GitHub에서 성공했다면 두 번째 요청은 거절되고 키만 잃는다. 화면은 "App은 GitHub에 만들어졌지만 키를 저장하지 못했습니다. App 설정에서 새 키를 만들어 '이미 있는 App 추가'로 연결하세요"와 App 링크를 보인다.
 
@@ -58,8 +60,8 @@ GitHub 연결 설정에 '새 App 만들기'를 주 버튼으로 둔다. '이미 
 | `setup_url` | `{CONSOLE_ORIGIN}/settings/workspace/integrations/github` |
 | `public` | 기본 `false`. 관리자가 '여러 조직에서 쓰기'를 고르면 `true` |
 | `default_permissions` | `contents: write`, `pull_requests: write`, `metadata: read`. 고르면 `actions: write`, `workflows: write`를 더한다. administration과 조직 권한은 넣지 않는다 |
-| `hook_attributes` | 넣지 않는다. GitHub는 꺼 둔 webhook이어도 인터넷에서 닿지 않는 URL이면 manifest를 거절한다(`localhost` 콘솔에서 확인) |
-| `default_events` | `[]` |
+| `hook_attributes` | `GITHUB_WEBHOOK_BASE_URL`이 있으면 `{url: <그 주소>/v1/github/webhook, active: true}`. 없으면 넣지 않는다. GitHub는 꺼 둔 webhook이어도 인터넷에서 닿지 않는 URL이면 manifest를 거절한다(`localhost` 콘솔에서 확인) |
+| `default_events` | webhook을 넣으면 `["push"]`, 아니면 `[]` |
 | `request_oauth_on_install` | `false` |
 
 - 비공개 App은 소유 계정에만 설치된다. 여러 조직에서 쓰려면 공개로 만든다. 공개 App이어도 플랫폼은 '에이전트가 쓰는 저장소'에 더한 저장소에만 토큰을 받는다.

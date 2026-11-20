@@ -178,6 +178,11 @@ export type FakeGitHub = {
   ): void;
   /** The next `count` REST calls (not token issues) answer `status`. */
   failNext(count: number, status: number): void;
+  /**
+   * REST calls whose `/repos/{owner}/{name}/…` path matches wait, unanswered,
+   * until `release`; `waiting` counts the ones that arrived.
+   */
+  holdRest(path: RegExp): { waiting(): number; release(): void };
   /** Until unset, every call signed with App `appId`'s JWT answers `status`. */
   failApp(appId: number, status: number | undefined): void;
   /** While on, `GET /app/installations` lists every installation suspended. */
@@ -204,6 +209,23 @@ export type FakeGitHub = {
    * Returns the commit.
    */
   appendCommit(owner: string, name: string, branch: string): Promise<string>;
+  /**
+   * Commits on top of `branch`, which must exist: each path gets its text,
+   * or is removed when null. Returns the commit.
+   */
+  writeFiles(
+    owner: string,
+    name: string,
+    branch: string,
+    files: Record<string, string | null>,
+  ): Promise<string>;
+  /** Points a full ref (`refs/tags/v1`) at a commit, or deletes it on null. */
+  setRef(
+    owner: string,
+    name: string,
+    ref: string,
+    commit: string | null,
+  ): Promise<void>;
   /** What `GET /repos` and the git `HEAD` both report as the default. */
   setDefaultBranch(owner: string, name: string, branch: string): Promise<void>;
   stop(): Promise<void>;
@@ -468,6 +490,11 @@ export async function startFakeGitHub(
   }
 
   const apiRequests: FakeGitHubApiRequest[] = [];
+  const holds = new Set<{
+    path: RegExp;
+    waiting: number;
+    released: Promise<void>;
+  }>();
   let limited: {
     count: number;
     limit: "primary" | "secondary";
@@ -876,10 +903,45 @@ export async function startFakeGitHub(
             commit: { sha: commit, commit: { tree: { sha: tree } } },
           });
     }
+    const commitOf = /^\/commits\/(.+)$/.exec(rest);
+    if (commitOf?.[1] && method === "GET") {
+      if (!can("contents", "read")) return forbidden();
+      const ref = decodeURIComponent(commitOf[1]);
+      const sha = (
+        await gitOr404([
+          "rev-parse",
+          "--verify",
+          "--quiet",
+          "--end-of-options",
+          `${ref}^{commit}`,
+        ])
+      )?.trim();
+      return sha === undefined
+        ? Response.json(
+            { message: `No commit found for SHA: ${ref}` },
+            { status: 422 },
+          )
+        : Response.json({ sha });
+    }
+    const gitCommit = /^\/git\/commits\/([0-9a-f]{40})$/.exec(rest);
+    if (gitCommit?.[1] && method === "GET") {
+      if (!can("contents", "read")) return forbidden();
+      const tree = (
+        await gitOr404(["rev-parse", "--verify", `${gitCommit[1]}^{tree}`])
+      )?.trim();
+      return tree === undefined
+        ? notFound()
+        : Response.json({ sha: gitCommit[1], tree: { sha: tree } });
+    }
     const treeRead = /^\/git\/trees\/([0-9a-f]{40})$/.exec(rest);
     if (treeRead?.[1] && method === "GET") {
       if (!can("contents", "read")) return forbidden();
-      const listed = await gitOr404(["ls-tree", "-l", treeRead[1]]);
+      // GitHub's recursive listing names every tree as well as every blob.
+      const listed = await gitOr404(
+        url.searchParams.get("recursive") === null
+          ? ["ls-tree", "-l", treeRead[1]]
+          : ["ls-tree", "-r", "-t", "-l", treeRead[1]],
+      );
       if (listed === undefined) return notFound();
       return Response.json({
         sha: treeRead[1],
@@ -1181,7 +1243,24 @@ export async function startFakeGitHub(
         });
         return response;
       }
-      if (/^\/repos\//.test(path)) {
+      // `/repositories/{id}/…` is the same REST surface reached by id.
+      const viaId = /^\/repositories\/(\d+)(\/.+)$/.exec(path);
+      const viaIdKey =
+        viaId?.[1] === undefined
+          ? undefined
+          : [...served.entries()].find(
+              ([, repo]) => repo.id === Number(viaId[1]),
+            )?.[0];
+      const restPath =
+        viaId?.[2] === undefined
+          ? path
+          : `/repos/${viaIdKey ?? "-/-"}${viaId[2]}`;
+      if (/^\/repos\//.test(restPath)) {
+        for (const hold of holds) {
+          if (!hold.path.test(restPath)) continue;
+          hold.waiting += 1;
+          await hold.released;
+        }
         const carried = installationToken(
           request.headers.get("authorization"),
           "token",
@@ -1192,7 +1271,13 @@ export async function startFakeGitHub(
           request.method === "PUT"
             ? await request.json().catch(() => null)
             : undefined;
-        const response = await rest(request.method, path, url, carried, body);
+        const response = await rest(
+          request.method,
+          restPath,
+          url,
+          carried,
+          body,
+        );
         if (!response.headers.has("x-ratelimit-remaining")) {
           for (const [header, value] of Object.entries(rateHeaders)) {
             response.headers.set(header, value);
@@ -1333,6 +1418,24 @@ export async function startFakeGitHub(
     failNext(count, status) {
       failures = { count, status };
     },
+    holdRest(path) {
+      let release = () => {};
+      const hold = {
+        path,
+        waiting: 0,
+        released: new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+      };
+      holds.add(hold);
+      return {
+        waiting: () => hold.waiting,
+        release: () => {
+          holds.delete(hold);
+          release();
+        },
+      };
+    },
     addUser(pat, id) {
       users.set(pat, id);
     },
@@ -1432,6 +1535,54 @@ export async function startFakeGitHub(
       ).trim();
       await runTestGit(["update-ref", parent, commit], bare);
       return commit;
+    },
+    async writeFiles(owner, name, branch, files) {
+      const bare = join(root, owner, `${name}.git`);
+      const work = await mkdtemp(join(tmpdir(), "fake-github-work-"));
+      try {
+        await runTestGit(
+          ["clone", "--quiet", "--branch", branch, bare, work],
+          root,
+        );
+        for (const [path, contents] of Object.entries(files)) {
+          if (contents === null) {
+            await runTestGit(["rm", "--quiet", "--", path], work);
+          } else {
+            await mkdir(join(work, path, ".."), { recursive: true });
+            await Bun.write(join(work, path), contents);
+          }
+        }
+        await runTestGit(["add", "--all"], work);
+        await runTestGit(
+          [
+            "-c",
+            "user.name=testkit",
+            "-c",
+            "user.email=testkit@example.test",
+            "commit",
+            "--quiet",
+            "-m",
+            "files",
+          ],
+          work,
+        );
+        await runTestGit(
+          ["push", "--quiet", "origin", `HEAD:refs/heads/${branch}`],
+          work,
+        );
+        return (await runTestGit(["rev-parse", "HEAD"], work)).trim();
+      } finally {
+        await rm(work, { force: true, recursive: true });
+      }
+    },
+    async setRef(owner, name, ref, commit) {
+      const bare = join(root, owner, `${name}.git`);
+      await runTestGit(
+        commit === null
+          ? ["update-ref", "-d", ref]
+          : ["update-ref", ref, commit],
+        bare,
+      );
     },
     async setDefaultBranch(owner, name, branch) {
       const found = served.get(`${owner}/${name}`);

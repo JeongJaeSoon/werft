@@ -57,6 +57,115 @@ export const registerSkillRequestSchema = z
   .strict();
 export type RegisterSkillRequest = z.infer<typeof registerSkillRequestSchema>;
 
+// A skill from GitHub (decision skills-and-mcp.md 3, "Git 출처의 동기화"):
+// its source is fixed by its first registration, and every later version
+// comes from one check that resolves the ref again through the API.
+
+export const SKILL_SYNC_TRIGGER_VALUES = [
+  // The first registration, by a person.
+  "register",
+  "webhook",
+  "daily",
+  // "지금 확인", by a person.
+  "manual",
+  // Turning sync back on checks once, by a person.
+  "resume",
+] as const;
+export const skillSyncTriggerKindSchema = z.enum(SKILL_SYNC_TRIGGER_VALUES);
+export type SkillSyncTriggerKind = z.infer<typeof skillSyncTriggerKindSchema>;
+
+export const SKILL_SYNC_RESULT_VALUES = [
+  // A new `pending` version.
+  "created",
+  // The content is a version the skill already has.
+  "unchanged",
+  // The ref or the path is gone.
+  "source_missing",
+  // The checker refused the tree; `issues` says why.
+  "rejected",
+  // GitHub did not answer, refused the App, or the App connection is gone.
+  "github_unavailable",
+  // Sync was paused while GitHub was read; nothing was written.
+  "paused",
+] as const;
+export const skillSyncResultSchema = z.enum(SKILL_SYNC_RESULT_VALUES);
+export type SkillSyncResult = z.infer<typeof skillSyncResultSchema>;
+
+export const gitCommitSchema = z.string().regex(/^[0-9a-f]{40}$/);
+export const githubRepositoryIdSchema = z
+  .number()
+  .int()
+  .positive()
+  .max(Number.MAX_SAFE_INTEGER);
+
+export const skillSyncTriggerSchema = z
+  .object({
+    kind: skillSyncTriggerKindSchema,
+    /** The webhook delivery (`X-GitHub-Delivery`); null for other kinds. */
+    delivery_id: z.string().nullable(),
+    /** The person who registered, pressed or resumed; null for the sync. */
+    user_id: userIdSchema.nullable(),
+  })
+  .strict();
+export type SkillSyncTrigger = z.infer<typeof skillSyncTriggerSchema>;
+
+export const skillGitVersionSchema = z
+  .object({
+    repository_id: githubRepositoryIdSchema,
+    path: z.string(),
+    ref: z.string(),
+    commit: gitCommitSchema,
+    trigger: skillSyncTriggerSchema,
+  })
+  .strict();
+export type SkillGitVersion = z.infer<typeof skillGitVersionSchema>;
+
+export const skillIssueSchema = z
+  .object({ path: z.string(), code: z.string(), message: z.string() })
+  .strict();
+
+export const skillSyncCheckSchema = z
+  .object({
+    at: timestampSchema,
+    trigger: skillSyncTriggerSchema,
+    /** What the ref resolved to; null when it did not resolve. */
+    commit: gitCommitSchema.nullable(),
+    result: skillSyncResultSchema,
+    /** The version the content is (`created`, `unchanged`); null otherwise. */
+    version_id: skillVersionIdSchema.nullable(),
+    issues: z.array(skillIssueSchema).meta({
+      description: "Why the checker refused the tree; empty otherwise.",
+    }),
+  })
+  .strict();
+export type SkillSyncCheck = z.infer<typeof skillSyncCheckSchema>;
+
+export const SKILL_WEBHOOK_STATE_VALUES = [
+  // GitHub can call this installation, and the App's secret is stored.
+  "ready",
+  // The installation has no address GitHub reaches: daily checks only.
+  "no_public_url",
+  // The App connection has no webhook secret stored, or is gone.
+  "no_secret",
+] as const;
+
+export const skillGitSourceSchema = z
+  .object({
+    /** The workspace's author App connection that reads it. */
+    connection_id: z.uuid(),
+    installation_id: z.number().int().positive(),
+    repository_id: githubRepositoryIdSchema,
+    /** `owner/name` when it was registered; the id is what is matched. */
+    repository: z.string(),
+    path: z.string(),
+    ref: z.string(),
+    sync_enabled: z.boolean(),
+    webhook: z.enum(SKILL_WEBHOOK_STATE_VALUES),
+    last_check: skillSyncCheckSchema.nullable(),
+  })
+  .strict();
+export type SkillGitSource = z.infer<typeof skillGitSourceSchema>;
+
 export const skillVersionSchema = z
   .object({
     id: skillVersionIdSchema,
@@ -67,10 +176,15 @@ export const skillVersionSchema = z
     }),
     digest: sha256HexSchema,
     source: z.enum(["upload", "github"]),
+    /** Where a GitHub version was read; null for an upload. */
+    git: skillGitVersionSchema.nullable(),
     size_bytes: z.number().int().positive(),
     has_scripts: z.boolean(),
     review: skillReviewSchema,
-    registered_by: userIdSchema,
+    registered_by: userIdSchema.nullable().meta({
+      description:
+        "Who registered it; null for a version the Git sync made (`git.trigger` says what started it).",
+    }),
     registered_at: timestampSchema,
     reviewed_by: userIdSchema.nullable(),
     reviewed_at: timestampSchema.nullable(),
@@ -86,6 +200,12 @@ export const skillWorkspaceAttachmentSchema = z
 export const skillSchema = z
   .object({
     name: skillNameSchema,
+    /** Fixed by the first registration: a GitHub skill takes no upload. */
+    source: z.enum(["upload", "github"]),
+    /** The repository, path and ref and how its sync stands; null for an upload skill. */
+    git: skillGitSourceSchema.nullable(),
+    /** Versions waiting for review (not archived). */
+    pending_count: z.number().int().nonnegative(),
     versions: z.array(skillVersionSchema).meta({
       description: "Every version of the name, oldest first.",
     }),
@@ -93,6 +213,85 @@ export const skillSchema = z
   })
   .strict();
 export type Skill = z.infer<typeof skillSchema>;
+
+const gitPathSegment = /^(?!\.{1,2}$)[^/\0]+$/;
+export const skillGitPathSchema = z
+  .string()
+  .max(SKILL_UPLOAD_PATH_MAX)
+  .refine(
+    (path) =>
+      path === "" ||
+      path.split("/").every((segment) => gitPathSegment.test(segment)),
+    {
+      message:
+        "must be a directory in the repository without leading or trailing slashes, `.` or `..`; empty for its root",
+    },
+  );
+
+export const registerGitHubSkillRequestSchema = z
+  .object({
+    name: skillNameSchema.meta({
+      description:
+        "The skill's name; the `SKILL.md` at `path` must carry it as its frontmatter `name`.",
+    }),
+    repository: z
+      .string()
+      .regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/)
+      .meta({ description: "`owner/name` on GitHub." }),
+    path: skillGitPathSchema.meta({
+      description:
+        "The skill directory, holding `SKILL.md`; empty for the repository root.",
+    }),
+    ref: z
+      .string()
+      .min(1)
+      .max(255)
+      .regex(/^(?!\/)(?!.*\/$)(?!.*\.\.)[^\s~^:?*[\\\0]+$/)
+      .meta({
+        description:
+          "A branch, a tag or a 40-character commit. A commit never moves, so it is never synced.",
+      }),
+    connection_id: z.uuid().optional().meta({
+      description:
+        "The author App connection that reads it; may be left out while the workspace has one.",
+    }),
+  })
+  .strict();
+export type RegisterGitHubSkillRequest = z.infer<
+  typeof registerGitHubSkillRequestSchema
+>;
+
+export const putSkillSyncRequestSchema = z
+  .object({ enabled: z.boolean() })
+  .strict();
+export type PutSkillSyncRequest = z.infer<typeof putSkillSyncRequestSchema>;
+
+export const skillSyncResponseSchema = z
+  .object({
+    name: skillNameSchema,
+    git: skillGitSourceSchema,
+    receipt_id: receiptIdSchema.nullable().meta({
+      description: "Null when sync already was in that state.",
+    }),
+  })
+  .strict();
+export type SkillSyncResponse = z.infer<typeof skillSyncResponseSchema>;
+
+export const checkSkillResponseSchema = z
+  .object({
+    outcome: z.enum(["checked", "queued"]).meta({
+      description:
+        "`queued`: a check of the skill was running, and it runs once more when it ends.",
+    }),
+    last_check: skillSyncCheckSchema.nullable(),
+  })
+  .strict();
+export type CheckSkillResponse = z.infer<typeof checkSkillResponseSchema>;
+
+/** What GitHub is answered: the checks it starts run after the answer. */
+export const githubWebhookResponseSchema = z
+  .object({ accepted: z.literal(true) })
+  .strict();
 
 export const skillListSchema = z
   .object({ items: z.array(skillSchema) })

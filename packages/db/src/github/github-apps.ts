@@ -68,6 +68,12 @@ export const oauthSecretSlot = (
   purpose: "github_oauth_client_secret",
 });
 
+const webhookSlot = (row: Pick<Row, "id" | "workspaceId">): SecretSlot => ({
+  workspaceId: row.workspaceId,
+  owner: { kind: "github_app", id: row.id },
+  purpose: "github_app_webhook_secret",
+});
+
 /**
  * With none chosen, the only author connection: an earlier image registers
  * the first without choosing it.
@@ -211,6 +217,7 @@ async function recordOf(
 ): Promise<(GitHubAppRecord & { role: GitHubAppRole }) | null> {
   const key = await describeSecret(db, keySlot(row));
   if (key === null) return null;
+  const webhook = await describeSecret(db, webhookSlot(row));
   return {
     id: row.id,
     role: row.role,
@@ -226,6 +233,7 @@ async function recordOf(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     privateKey: { updatedAt: key.updatedAt, updatedBy: key.updatedBy },
+    webhookSecretSet: webhook !== null,
   };
 }
 
@@ -396,6 +404,8 @@ export function createPostgresGitHubAppStore(
               .returning({ id: catalogRepositoryGitHubApps.repositoryId })
           ).length;
           if (link?.id === current.id) await dropOAuthSecret(tx, current);
+          // Another App signs its deliveries with a secret of its own.
+          await deleteSecretInTx(tx, webhookSlot(current));
         }
         const [row] = current
           ? await tx
@@ -443,6 +453,15 @@ export function createPostgresGitHubAppStore(
         }
         if (manifest !== undefined && linked) {
           await writeOAuthSecret(tx, key, row, manifest.clientSecret, audit);
+        }
+        if (manifest?.webhookSecret) {
+          await writeSecretInTx(
+            tx,
+            key,
+            webhookSlot(row),
+            manifest.webhookSecret,
+            userId,
+          );
         }
         // Registering the console App is a workspace's first use of GitHub:
         // write the default repository ceiling if none is there (design 3.2).
@@ -522,6 +541,7 @@ export function createPostgresGitHubAppStore(
           .where(eq(githubApps.id, row.id));
         await deleteSecretInTx(tx, keySlot(row));
         await deleteSecretInTx(tx, oauthSecretSlot(row));
+        await deleteSecretInTx(tx, webhookSlot(row));
         await tx.insert(receipts).values(
           receiptRow(audit, workspaceId, "delete_github_app", {
             ...appResult(row, row.role),
@@ -580,6 +600,64 @@ export function createPostgresGitHubAppStore(
         );
         return { outcome: "stored", before, changed: true };
       });
+    },
+
+    setWebhookSecret(named, connectionId, secret, audit) {
+      const workspaceId = named.toLowerCase();
+      return db.transaction(async (tx) => {
+        const refused = await secretAuditRefusal(tx, workspaceId, audit);
+        if (refused) return { outcome: refused };
+        await lockGitHubApps(tx, workspaceId);
+        const [row] = await tx
+          .select()
+          .from(githubApps)
+          .where(byId(workspaceId, connectionId));
+        if (!row) return { outcome: "not_found" };
+        await writeSecretInTx(
+          tx,
+          key,
+          webhookSlot(row),
+          secret,
+          audit.principal.actor?.userId ?? null,
+        );
+        await tx.insert(receipts).values(
+          receiptRow(audit, workspaceId, "set_github_app", {
+            ...appResult(row, row.role),
+            purpose: "webhook_secret",
+          }),
+        );
+        return { outcome: "stored", receiptId: audit.receiptId };
+      });
+    },
+
+    async webhookSecrets(appId) {
+      const rows = await db
+        .select()
+        .from(githubApps)
+        .where(and(eq(githubApps.appId, appId), notDeleted(githubApps)));
+      const held: Array<{
+        workspaceId: string;
+        connectionId: string;
+        secret: string;
+      }> = [];
+      for (const row of rows) {
+        let secret: string | null;
+        try {
+          secret = await secrets.get(webhookSlot(row));
+        } catch (error) {
+          // One workspace's unreadable secret must not refuse another's push.
+          if (error instanceof SecretDecryptError) continue;
+          throw error;
+        }
+        if (secret !== null) {
+          held.push({
+            workspaceId: row.workspaceId,
+            connectionId: row.id,
+            secret,
+          });
+        }
+      }
+      return held;
     },
 
     async recordPermissions(id, appId, permissions, clientId) {

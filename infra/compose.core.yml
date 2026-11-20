@@ -311,6 +311,9 @@ services:
       # redirect, the Slack events address and the session URL in commits and
       # PRs (docs/operator/api-server.md). Unset keeps Slack linking off.
       CONSOLE_ORIGIN: ${CONSOLE_ORIGIN:-}
+      # The https address GitHub reaches this API at, for the push webhook
+      # Git skills sync from. Unset, they sync by the daily check only.
+      GITHUB_WEBHOOK_BASE_URL: ${GITHUB_WEBHOOK_BASE_URL:-}
       # The egress proxy's authorizer. Not published and not on
       # any worker allowlist: only the proxy, on this compose network, calls
       # it. Without both the API starts, and every worker's provider and

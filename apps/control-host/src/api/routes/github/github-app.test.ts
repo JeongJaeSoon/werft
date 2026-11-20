@@ -10,6 +10,7 @@ import {
   getGitHubAppResponseSchema,
   listGitHubAppsResponseSchema,
   putGitHubAppResponseSchema,
+  putGitHubAppWebhookSecretResponseSchema,
   REQUEST_BODY_MAX_BYTES,
   startGitHubInstallationResponseSchema,
   WEB_SESSION_COOKIE_NAME,
@@ -195,6 +196,7 @@ function memoryStore() {
             updatedAt: at,
             updatedBy: { userId: by, displayName: "owner" },
           },
+          webhookSecretSet: false,
         },
       };
       if (before === null) held.push(row);
@@ -249,6 +251,20 @@ function memoryStore() {
           };
         }
       }
+    },
+    async setWebhookSecret(workspaceId, connectionId, _secret, audit) {
+      const row = held.find(
+        (each) =>
+          each.record.id === connectionId &&
+          each.record.workspaceId === workspaceId,
+      );
+      if (!row) return { outcome: "not_found" };
+      row.record = { ...row.record, webhookSecretSet: true };
+      receipts.push({ operation: "set_github_app", app_id: row.record.appId });
+      return { outcome: "stored", receiptId: audit.receiptId };
+    },
+    async webhookSecrets() {
+      return [];
     },
     async credentials(
       role: GitHubAppRole,
@@ -899,6 +915,63 @@ describe("the GitHub App API by role", () => {
     expect(memory.reviewer()).toBeNull();
   });
 
+  test("a manager stores an App's webhook secret by role or id; it is never answered back", async () => {
+    memory.clear();
+    const owner = cookieFor("owner");
+    const secret = "w".repeat(40);
+    expect(
+      (
+        await call("PUT", {
+          cookie: owner,
+          path: "github-apps/author",
+          body: author,
+        })
+      ).status,
+    ).toBe(200);
+    const stored = await call("PUT", {
+      cookie: owner,
+      path: "github-apps/author/webhook-secret",
+      body: body({ secret }),
+    });
+    expect(stored.status).toBe(200);
+    expect(
+      putGitHubAppWebhookSecretResponseSchema.parse(stored.json).secret_set,
+    ).toBe(true);
+    expect(responses.at(-1)).not.toContain(secret);
+    expect(memory.held()?.record.webhookSecretSet).toBe(true);
+
+    for (const refused of ["short", "has a space in it, twenty plus"]) {
+      expect(
+        (
+          await call("PUT", {
+            cookie: owner,
+            path: "github-apps/author/webhook-secret",
+            body: body({ secret: refused }),
+          })
+        ).status,
+      ).toBe(400);
+    }
+    expect(
+      (
+        await call("PUT", {
+          cookie: cookieFor("member"),
+          path: "github-apps/author/webhook-secret",
+          body: body({ secret }),
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await call("PUT", {
+          cookie: owner,
+          path: `github-apps/${crypto.randomUUID()}/webhook-secret`,
+          body: body({ secret }),
+        })
+      ).status,
+    ).toBe(404);
+    memory.clear();
+  });
+
   test("several Apps a role: added, listed and addressed by id; the role address refuses while ambiguous", async () => {
     memory.clear();
     const owner = cookieFor("owner");
@@ -932,6 +1005,12 @@ describe("the GitHub App API by role", () => {
       REVIEWER_APP_ID,
     ]);
 
+    const secretWhileAmbiguous = await call("PUT", {
+      cookie: owner,
+      path: "github-apps/author/webhook-secret",
+      body: body({ secret: "s".repeat(32) }),
+    });
+    expect(secretWhileAmbiguous.status).toBe(409);
     for (const method of ["GET", "PUT", "DELETE"] as const) {
       const refused = await call(method, {
         cookie: owner,

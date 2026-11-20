@@ -73,6 +73,7 @@ export * from "./checkpoints/ports/checkpoint-verifier.ts";
 export * from "./ports/credential-binding-store.ts";
 export * from "./musterrolle/ports/env-variable-store.ts";
 export * from "./extensions/ports/extension-bundle-store.ts";
+export * from "./extensions/ports/skill-git-source-store.ts";
 export * from "./musterrolle/ports/decision-log.ts";
 export * from "./scheduler/ports/execution-backend.ts";
 export * from "./github/ports/github-app-store.ts";
@@ -183,6 +184,7 @@ export * from "./extensions/bundle-validator.ts";
 export * from "./extensions/resolve.ts";
 export * from "./extensions/session-extensions.ts";
 export * from "./extensions/skill-service.ts";
+export * from "./extensions/skill-git-sync.ts";
 export * from "./workspace-mcp/ports.ts";
 export {
   type WorkspaceMcpRemoteDeps,

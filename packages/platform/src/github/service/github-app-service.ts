@@ -16,6 +16,8 @@ import {
   type PostGitHubAppRequest,
   type PutGitHubAppRequest,
   type PutGitHubAppResponse,
+  type PutGitHubAppWebhookSecretRequest,
+  type PutGitHubAppWebhookSecretResponse,
   type StartGitHubAppManifestRequest,
   type StartGitHubAppManifestResponse,
   type StartGitHubInstallationResponse,
@@ -58,6 +60,8 @@ const refused = (reasonCode: string, message: string) =>
 export function githubAppOf(
   record: GitHubAppRecord,
   role: GitHubAppRole,
+  /** Undefined leaves `webhook` out (a server built without Git sync). */
+  webhookUrl?: string | null,
 ): GitHubApp {
   const { updatedBy } = record.privateKey;
   return {
@@ -79,6 +83,9 @@ export function githubAppOf(
     permissions: record.permissions,
     permissions_checked_at: record.permissionsCheckedAt?.toISOString() ?? null,
     warnings: githubAppWarnings(role, record.permissions),
+    ...(webhookUrl === undefined
+      ? {}
+      : { webhook: { url: webhookUrl, secret_set: record.webhookSecretSet } }),
   };
 }
 
@@ -115,6 +122,8 @@ export function githubAppManifest(input: {
   actions: boolean;
   /** Four hex characters: App names are unique across GitHub. */
   suffix: string;
+  /** Where GitHub sends pushes; null asks for no webhook. */
+  webhookUrl?: string | null;
 }) {
   const origin = input.origin.replace(/\/+$/, "");
   const owner = (input.login ?? "agent").slice(0, 22).toLowerCase();
@@ -131,9 +140,14 @@ export function githubAppManifest(input: {
       metadata: "read",
       ...(input.actions ? { actions: "write", workflows: "write" } : {}),
     },
-    // No hook_attributes: GitHub rejects a hook URL it cannot reach, even an
-    // inactive one, and the platform subscribes to no events.
-    default_events: [],
+    // GitHub rejects a hook URL it cannot reach, even an inactive one, so a
+    // server without a public address asks for no webhook at all.
+    ...(input.webhookUrl
+      ? {
+          hook_attributes: { url: input.webhookUrl, active: true },
+          default_events: ["push"],
+        }
+      : { default_events: [] }),
     request_oauth_on_install: false,
   };
 }
@@ -170,6 +184,11 @@ export function createGitHubAppService(deps: {
   /** Called after a change commits, so this replica's connections pick it up. */
   changed: () => Promise<void>;
   newId?: () => string;
+  /**
+   * The push webhook URL Git skills sync from: null without a public
+   * address, absent on a server that does not sync.
+   */
+  webhookUrl?: string | null;
   /** Making the author App from a manifest; absent, it is refused. */
   manifests?: {
     states: GitHubAppManifestStore;
@@ -352,6 +371,7 @@ export function createGitHubAppService(deps: {
                   clientId: profile.clientId,
                 },
             role,
+            deps.webhookUrl,
           ),
           owner: profile?.owner ?? null,
         },
@@ -368,7 +388,9 @@ export function createGitHubAppService(deps: {
       const store = await managedStore(caller, workspaceId);
       const records = await store.list(workspaceId);
       return {
-        github_apps: records.map((record) => githubAppOf(record, record.role)),
+        github_apps: records.map((record) =>
+          githubAppOf(record, record.role, deps.webhookUrl),
+        ),
       };
     },
 
@@ -468,6 +490,7 @@ export function createGitHubAppService(deps: {
             public: body.public,
             actions: body.actions,
             suffix: randomBytes(2).toString("hex"),
+            webhookUrl: deps.webhookUrl ?? null,
           }),
         ),
         expires_at: expiresAt.toISOString(),
@@ -555,6 +578,7 @@ export function createGitHubAppService(deps: {
             clientSecret: app.clientSecret,
             owner: app.owner,
             public: state.public,
+            webhookSecret: app.webhookSecret,
           },
         );
       } catch {
@@ -749,6 +773,37 @@ export function createGitHubAppService(deps: {
           throw NOT_FOUND();
       }
     },
+
+    /**
+     * For an App made outside this console's manifest, or before the server
+     * had a public address: the secret entered on GitHub's webhook form.
+     */
+    async setWebhookSecret(
+      caller: Caller,
+      workspaceId: string,
+      ref: GitHubAppRef,
+      body: PutGitHubAppWebhookSecretRequest,
+    ): Promise<PutGitHubAppWebhookSecretResponse> {
+      const store = await managedStore(caller, workspaceId);
+      const record = await recordOf(store, workspaceId, ref);
+      if (record === null) throw NOT_FOUND();
+      const result = await store.setWebhookSecret(
+        workspaceId,
+        record.id,
+        body.secret,
+        auditOf(caller),
+      );
+      switch (result.outcome) {
+        case "stored":
+          return { secret_set: true, receipt_id: result.receiptId };
+        case "actor_inactive":
+          throw ACTOR_INACTIVE();
+        case "outranked":
+          throw OUTRANKED();
+        default:
+          throw NOT_FOUND();
+      }
+    },
   };
 
   async function recordOf(
@@ -818,7 +873,7 @@ export function createGitHubAppService(deps: {
       case "stored":
         await reload();
         return {
-          github_app: githubAppOf(result.app, result.app.role),
+          github_app: githubAppOf(result.app, result.app.role, deps.webhookUrl),
           ...(result.pinsCleared > 0
             ? { pins_cleared: result.pinsCleared }
             : {}),

@@ -61,6 +61,7 @@ import {
   createPostgresSessionTitleStore,
   createPostgresSessionUnitOfWork,
   createPostgresSettingsDocumentStore,
+  createPostgresSkillGitSourceStore,
   createPostgresSlackAppStore,
   createPostgresSlackConfigTokenStore,
   createPostgresSlackGuestSetting,
@@ -113,6 +114,7 @@ import {
   createCredentialBindingService,
   createDecisionsClient,
   createEnvVariableService,
+  createExtensionBundleService,
   createGitHubAppService,
   createGitHubConnectionResolver,
   createGitHubGate,
@@ -144,6 +146,7 @@ import {
   createSessionTitler,
   createSettingsConsoleService,
   createSettingsDocumentService,
+  createSkillGitSync,
   createSkillService,
   createSurfaceBindingService,
   createTeamService,
@@ -158,6 +161,7 @@ import {
   registryCatalog,
   resolveAgentRelease,
   SessionServiceError,
+  SKILL_DAILY_CHECK_PASS_MS,
   settingsJudgeConnections,
   withConsoleRepositories,
 } from "@werft-ai/platform";
@@ -169,6 +173,7 @@ import {
   wireGitHubConnections,
   wireGitHubManifestConverter,
   wireGitHubRegistry,
+  wireGitHubSkillReader,
   wireGitPusher,
 } from "../wiring/github-api.ts";
 import { createInstallationConfigSource } from "../wiring/installation-config.ts";
@@ -254,6 +259,10 @@ import { registerGitHubAppRoutes } from "./routes/github/github-app.ts";
 import { registerGitHubPackagesRoutes } from "./routes/github/github-packages.ts";
 import { registerGitHubRepositoryRoutes } from "./routes/github/github-repositories.ts";
 import { registerGitHubSettingsRoutes } from "./routes/github/github-settings.ts";
+import {
+  githubWebhookUrlFrom,
+  registerGitHubWebhookRoutes,
+} from "./routes/github/github-webhook.ts";
 import {
   registerGitHubWorkRoutes,
   registerSessionAttributionRoutes,
@@ -811,11 +820,19 @@ const githubRepositories = createGitHubRepositoryService({
   changed: () => catalogRegistry.refresh(),
 });
 const githubInstallations = createPostgresGitHubInstallationStore(db);
+const githubWebhookUrl = githubWebhookUrlFrom(process.env);
+if (githubWebhookUrl === null) {
+  logger.info(
+    "GitHub skills sync without push webhooks (GITHUB_WEBHOOK_BASE_URL unset)",
+    {},
+  );
+}
 const githubApps = createGitHubAppService({
   authorization,
   store: githubAppStore,
   directory: githubAppDirectory,
   apiBase: GITHUB_API_BASE,
+  webhookUrl: githubWebhookUrl,
   repositories: () =>
     Object.entries(catalog.repositories)
       .filter(
@@ -1057,6 +1074,39 @@ const githubMcpGrantKey =
 const extensionBundles = extensionBundleSource(checkpointStorage, db);
 // Skill trees live in the checkpoint bucket; without one the routes are absent.
 const skillObjects = extensionBundleObjects(checkpointStorage);
+const skillGitSync =
+  skillObjects === undefined
+    ? undefined
+    : createSkillGitSync({
+        authorization,
+        sources: createPostgresSkillGitSourceStore(db),
+        bundles: createExtensionBundleService({
+          store: createPostgresExtensionBundleStore(db),
+          objects: skillObjects,
+        }),
+        reader: wireGitHubSkillReader({ logger }),
+        apps: (workspaceId) =>
+          githubAppStore.credentials("author", workspaceId),
+        installationFor: (app, repo) =>
+          githubAppDirectory.installationFor(app, repo),
+        webhookSecrets: (appId) => githubAppStore.webhookSecrets(appId),
+        webhookUrl: githubWebhookUrl,
+        failed: (error, fields) =>
+          logger.warn("A Git skill check failed", {
+            ...fields,
+            error_name: error instanceof Error ? error.name : typeof error,
+          }),
+      });
+if (skillGitSync !== undefined) {
+  const daily = () => {
+    void skillGitSync.daily().catch((error: unknown) =>
+      logger.warn("The daily Git skill check failed", {
+        error_name: error instanceof Error ? error.name : typeof error,
+      }),
+    );
+  };
+  setInterval(daily, SKILL_DAILY_CHECK_PASS_MS).unref();
+}
 const skills =
   skillObjects === undefined
     ? undefined
@@ -1064,6 +1114,9 @@ const skills =
         authorization,
         store: createPostgresExtensionBundleStore(db),
         objects: skillObjects,
+        ...(skillGitSync === undefined
+          ? {}
+          : { gitSources: (workspaceId) => skillGitSync.views(workspaceId) }),
       });
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),
@@ -1280,6 +1333,13 @@ const app = createApiApp({
       limiter: createSlackEventsLimiter(),
       logger,
     });
+    if (skillGitSync !== undefined) {
+      registerGitHubWebhookRoutes(router, {
+        sync: skillGitSync,
+        limiter: createSlackEventsLimiter(),
+        logger,
+      });
+    }
     registerPublicInviteRoutes(router, {
       invites: inviteStore,
       identity,
@@ -1386,7 +1446,7 @@ const app = createApiApp({
     registerCredentialBindingRoutes(router, credentialBindingService);
     registerEnvVariableRoutes(router, envVariableService);
     registerWorkspaceMcpServerRoutes(router, workspaceMcp);
-    if (skills !== undefined) registerSkillRoutes(router, skills);
+    if (skills !== undefined) registerSkillRoutes(router, skills, skillGitSync);
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,

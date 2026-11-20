@@ -14,6 +14,7 @@ export const SECRET_PURPOSE_VALUES = [
   "slack_bot_token",
   "github_app_private_key",
   "github_oauth_client_secret",
+  "github_app_webhook_secret",
   "github_packages_token",
   "settings_credential",
   "login_client_secret",

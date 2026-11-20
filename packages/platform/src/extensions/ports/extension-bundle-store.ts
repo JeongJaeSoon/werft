@@ -2,6 +2,30 @@ import type { WorkspaceRole } from "@werft-ai/contracts";
 import type { Principal } from "../../musterrolle/index.ts";
 import type { BundleManifest } from "../bundle-validator.ts";
 import type { ExtensionMode } from "../resolve.ts";
+import type {
+  SkillGitLocation,
+  SkillGitSource,
+  SkillSyncTrigger,
+} from "./skill-git-source-store.ts";
+
+/**
+ * A GitHub version of a skill (decision skills-and-mcp.md 3). With
+ * `newSource` it is the first registration, by a person, and the source row
+ * is written with it. Without, the principal is the sync: the version is
+ * written under the source row's lock once its settings are read again, and
+ * the outcome is recorded as the skill's last check.
+ */
+export type GitVersionInput = {
+  location: SkillGitLocation;
+  trigger: SkillSyncTrigger;
+  checkedAt: Date;
+  newSource?: Pick<
+    SkillGitSource,
+    "connectionId" | "installationId" | "repositoryId" | "repository"
+  >;
+  /** The sync's lease token; a check that lost its lease writes nothing. */
+  leaseToken?: string;
+};
 
 export const EXTENSION_BUNDLE_REVIEWS = [
   "pending",
@@ -29,7 +53,10 @@ export type ExtensionBundle = {
   sizeBytes: number;
   manifest: BundleManifest;
   review: ExtensionBundleReview;
-  registeredBy: string;
+  /** Null on a version the Git sync made. */
+  registeredBy: string | null;
+  /** Where a GitHub version was read and what started the check. */
+  git: (SkillGitLocation & { trigger: SkillSyncTrigger }) | null;
   registeredAt: Date;
   reviewedBy: string | null;
   reviewedAt: Date | null;
@@ -47,7 +74,17 @@ export type RegisterExtensionBundleResult =
   /** The same content was registered before: nothing changes, no receipt. */
   | { outcome: "already_registered"; bundle: ExtensionBundle }
   /** A bundle from before skills holds the name as its slug. */
-  | { outcome: "actor_inactive" | "outranked" | "name_taken" };
+  | { outcome: "actor_inactive" | "outranked" | "name_taken" }
+  /**
+   * The name's source is the other one: an upload to a GitHub skill, a
+   * GitHub registration of a name that has versions, or a sync of a source
+   * that is gone.
+   */
+  | { outcome: "source_mismatch" }
+  /** A version by any check but "지금 확인" while sync is paused. */
+  | { outcome: "paused" }
+  /** The sync's check whose lease another check took over. */
+  | { outcome: "lease_lost" };
 
 export type ReviewExtensionBundleResult =
   | {
@@ -108,6 +145,7 @@ export interface ExtensionBundleStore {
    */
   register(input: {
     skill?: boolean;
+    git?: GitVersionInput;
     id: string;
     receiptId: string;
     workspaceId: string;

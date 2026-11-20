@@ -5115,9 +5115,11 @@ export const extensionBundles = pgTable(
     sizeBytes: integer("size_bytes").notNull(),
     manifest: jsonb().notNull(),
     review: text().notNull().default("pending"),
-    registeredBy: uuid("registered_by")
-      .notNull()
-      .references(() => users.id),
+    // Null on a version the Git sync made; `git.trigger` says what started it.
+    registeredBy: uuid("registered_by").references(() => users.id),
+    // Where a GitHub version was read: repository id, path, ref, commit and
+    // what started the check.
+    git: jsonb(),
     registeredAt: timestamp("registered_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -5173,6 +5175,68 @@ export const extensionBundles = pgTable(
     check(
       "extension_bundles_manifest_check",
       sql`jsonb_typeof(${table.manifest}) = 'object'`,
+    ),
+    check(
+      "extension_bundles_git_check",
+      sql`(${table.git} IS NULL OR ${table.source} = 'github') AND (${table.registeredBy} IS NOT NULL OR ${table.git} IS NOT NULL)`,
+    ),
+  ],
+);
+
+// A skill registered from GitHub (decision skills-and-mcp.md 3): its source
+// is fixed by the first registration, and its later versions come only from
+// the sync's check, at most one of which runs for a skill at a time.
+export const skillGitSources = pgTable(
+  "skill_git_sources",
+  {
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    name: text().notNull(),
+    // The author App connection that reads it; a removed connection leaves
+    // its row soft-deleted, so the id stays and the check reports it gone.
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => githubApps.id),
+    installationId: bigint("installation_id", { mode: "number" }).notNull(),
+    repositoryId: bigint("repository_id", { mode: "number" }).notNull(),
+    repository: text().notNull(),
+    path: text().notNull(),
+    ref: text().notNull(),
+    syncEnabled: boolean("sync_enabled").notNull().default(true),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    lastCheck: jsonb("last_check"),
+    // A check holds the skill until then; a replica that died mid-check
+    // lets it go when it passes.
+    checkingUntil: timestamp("checking_until", { withTimezone: true }),
+    // Which check holds it: one whose lease was taken over writes nothing.
+    checkingToken: uuid("checking_token"),
+    // The trigger that arrived while a check ran: it runs once more after.
+    checkAgain: jsonb("check_again"),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.name] }),
+    index("skill_git_sources_push_idx").on(
+      table.installationId,
+      table.repositoryId,
+    ),
+    index("skill_git_sources_due_idx").on(table.lastCheckedAt),
+    check(
+      "skill_git_sources_name_check",
+      sql`${table.name} ~ '^[a-z0-9][a-z0-9-]{0,63}$'`,
+    ),
+    check(
+      "skill_git_sources_ids_check",
+      sql`${table.installationId} > 0 AND ${table.repositoryId} > 0`,
     ),
   ],
 );

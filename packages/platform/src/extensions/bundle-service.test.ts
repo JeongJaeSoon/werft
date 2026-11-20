@@ -61,6 +61,7 @@ function fakeStore() {
         digest: input.digest,
         label: input.label,
         source: input.source,
+        git: null,
         sizeBytes: input.sizeBytes,
         manifest: input.manifest,
         review: "pending",

@@ -49,6 +49,7 @@ function bundle(
     digest: n.toString(16).padStart(2, "0").repeat(32),
     label: name,
     source: "upload",
+    git: null,
     sizeBytes: 10,
     manifest: {
       schema: 1,

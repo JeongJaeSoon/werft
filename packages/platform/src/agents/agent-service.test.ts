@@ -955,6 +955,7 @@ describe("activation and the agent's extension bundles", () => {
       digest: "ab".repeat(32),
       label: "tools",
       source: "upload",
+      git: null,
       sizeBytes: 10,
       manifest: {
         schema: 1,

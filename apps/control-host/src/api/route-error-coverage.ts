@@ -180,6 +180,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/workspaces/{id}/github-apps/{role}",
     "PUT /v1/workspaces/{id}/github-apps/{role}",
     "DELETE /v1/workspaces/{id}/github-apps/{role}",
+    "PUT /v1/workspaces/{id}/github-apps/{role}/webhook-secret",
     "GET /v1/workspaces/{id}/github-apps",
     "POST /v1/workspaces/{id}/github-apps",
     "POST /v1/workspaces/{id}/github-apps/{connectionId}/installations/start",
@@ -278,6 +279,9 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/musterrolle/skills.test.ts": [
     "GET /v1/workspace/skills",
     "POST /v1/workspace/skills",
+    "POST /v1/workspace/skills/github",
+    "POST /v1/workspace/skills/{name}/sync/check",
+    "PUT /v1/workspace/skills/{name}/sync",
     "GET /v1/workspace/skills/versions/{id}/files",
     "POST /v1/workspace/skills/versions/{id}/review",
     "POST /v1/workspace/skills/versions/{id}/archive",
@@ -344,6 +348,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/slack/install/complete",
   ],
   "routes/surface/slack-events.test.ts": ["POST /v1/slack/events/{agent_id}"],
+  "routes/github/github-webhook.test.ts": ["POST /v1/github/webhook"],
   "routes/surface/slack-interactions.test.ts": [
     "POST /v1/slack/interactions/{agent_id}",
   ],

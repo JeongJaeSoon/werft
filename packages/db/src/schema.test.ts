@@ -225,6 +225,7 @@ describe("database schema", () => {
       "session_title_requests",
       "sessions",
       "settings_generation",
+      "skill_git_sources",
       "slack_apps",
       "slack_channel_lifecycle",
       "slack_config_tokens",

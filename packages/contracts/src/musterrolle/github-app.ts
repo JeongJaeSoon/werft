@@ -62,6 +62,25 @@ export const GITHUB_APP_PRIVATE_KEY_MAX_LENGTH = 16_384;
 
 export const githubAppIdSchema = z.number().int().positive().max(2_147_483_647);
 
+/**
+ * The webhook secret entered on GitHub for an App not made from this
+ * console's manifest. GitHub takes any string; the console asks for one of
+ * at least 20 printable characters.
+ */
+export const putGitHubAppWebhookSecretRequestSchema = z
+  .object({
+    secret: z
+      .string()
+      .min(20)
+      .max(256)
+      .regex(/^[\x21-\x7e]+$/, "must be printable ASCII without spaces"),
+  })
+  .strict();
+
+export const putGitHubAppWebhookSecretResponseSchema = z
+  .object({ secret_set: z.literal(true), receipt_id: receiptIdSchema })
+  .strict();
+
 export const putGitHubAppRequestSchema = z
   .object({
     app_id: githubAppIdSchema,
@@ -184,6 +203,16 @@ export const githubAppSchema = z
      */
     permissions: githubAppPermissionsSchema.nullable().optional(),
     permissions_checked_at: timestampSchema.nullable().optional(),
+    /**
+     * The push webhook Git skills sync from (decision skills-and-mcp.md 3).
+     * `url` is what the App's webhook is set to on GitHub, null when this
+     * installation has no address GitHub reaches; `secret_set` says whether
+     * the App's webhook secret is stored here.
+     */
+    webhook: z
+      .object({ url: z.url().nullable(), secret_set: z.boolean() })
+      .strict()
+      .optional(),
     /** Permissions wider than the role's guidance. */
     warnings: z.array(githubAppWarningSchema).optional(),
     /**
@@ -420,6 +449,12 @@ export type CompleteGitHubInstallationResponse = z.infer<
   typeof completeGitHubInstallationResponseSchema
 >;
 export type PutGitHubAppResponse = z.infer<typeof putGitHubAppResponseSchema>;
+export type PutGitHubAppWebhookSecretRequest = z.infer<
+  typeof putGitHubAppWebhookSecretRequestSchema
+>;
+export type PutGitHubAppWebhookSecretResponse = z.infer<
+  typeof putGitHubAppWebhookSecretResponseSchema
+>;
 export type DeleteGitHubAppResponse = z.infer<
   typeof deleteGitHubAppResponseSchema
 >;

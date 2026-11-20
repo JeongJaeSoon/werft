@@ -7,6 +7,7 @@ import {
   createAppBotUsers,
   createGitHubAppDirectory,
   createGitHubManifestConverter,
+  createGitHubSkillReader,
   createGitPusher,
   createRegisteredGitHubConnections,
 } from "./forge-github.ts";
@@ -46,6 +47,12 @@ export function wireGitHubManifestConverter(deps: {
   logger: StructuredLogger;
 }): GitHubManifestConverter {
   return createGitHubManifestConverter({ logger: deps.logger });
+}
+
+export function wireGitHubSkillReader(deps: {
+  logger: StructuredLogger;
+}): ReturnType<typeof createGitHubSkillReader> {
+  return createGitHubSkillReader({ logger: deps.logger });
 }
 
 export interface GitHubConnectionsDeps {

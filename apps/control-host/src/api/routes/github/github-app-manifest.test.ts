@@ -112,6 +112,7 @@ function memoryStore() {
       createdAt: at,
       updatedAt: at,
       privateKey: { updatedAt: at, updatedBy: null },
+      webhookSecretSet: false,
     };
   };
   const authors = () =>
@@ -152,6 +153,12 @@ function memoryStore() {
       return { outcome: "not_found" };
     },
     async recordPermissions() {},
+    async setWebhookSecret() {
+      return { outcome: "not_found" };
+    },
+    async webhookSecrets() {
+      return [];
+    },
     async credentials() {
       return [];
     },
@@ -215,12 +222,17 @@ async function convert(
     clientSecret: CLIENT_SECRET,
     privateKey: PEM,
     owner: "acme",
+    webhookSecret: null,
   };
 }
 
 function appWith(
   memory: ReturnType<typeof memoryStore>,
-  options: { origin?: string | null; enabled?: boolean } = {},
+  options: {
+    origin?: string | null;
+    enabled?: boolean;
+    webhookUrl?: string;
+  } = {},
 ) {
   const origin = options.origin === undefined ? ORIGIN : options.origin;
   const logger = new StructuredLogger({ sinks: [logs], level: "debug" });
@@ -239,6 +251,7 @@ function appWith(
           apiBase: "https://api.github.com",
           repositories: () => [],
           changed: async () => {},
+          webhookUrl: options.webhookUrl ?? null,
           manifests: {
             states: memory.states,
             convert,
@@ -340,6 +353,21 @@ describe("making the author GitHub App from a manifest", () => {
     });
   });
 
+  test("with a public webhook URL the manifest asks GitHub for pushes there", async () => {
+    memory.clear();
+    const hooked = appWith(memory, {
+      webhookUrl: "https://werft.example.com/v1/github/webhook",
+    });
+    const manifest = JSON.parse(
+      (await started(hooked, cookieFor("owner"))).manifest,
+    );
+    expect(manifest.hook_attributes).toEqual({
+      url: "https://werft.example.com/v1/github/webhook",
+      active: true,
+    });
+    expect(manifest.default_events).toEqual(["push"]);
+  });
+
   test("a personal account posts to the user's own new-App page; public and Actions are opt-in", async () => {
     memory.clear();
     const start = await started(call, cookieFor("admin"), {
@@ -385,6 +413,7 @@ describe("making the author GitHub App from a manifest", () => {
         clientSecret: CLIENT_SECRET,
         owner: "acme",
         public: false,
+        webhookSecret: null,
       },
     });
     expect(conversions.at(-1)).toBe(code);
@@ -646,7 +675,9 @@ describe("the manifest conversion call", () => {
       clientSecret: CLIENT_SECRET,
       privateKey: PEM.trim(),
       owner: "acme",
+      webhookSecret: expect.any(String),
     });
+    expect(app.webhookSecret?.length).toBeGreaterThan(0);
 
     for (const [status, reason] of [
       [404, "github_rejected"],

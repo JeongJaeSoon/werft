@@ -114,7 +114,7 @@
   - 설치가 GitHub에서 닿는 공개 주소(새 설정)를 가지면, manifest에 `hook_attributes.url`(그 주소의 webhook 경로)과 `default_events: ["push"]`를 넣는다. 교환 응답의 `webhook_secret`([출처](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest))은 App 키처럼 봉인해 저장한다.
   - '이미 있는 App 추가'로 등록한 App과 이미 만든 App은 관리자가 GitHub의 App 설정에서 webhook 주소와 secret을 넣고 push 이벤트를 켠다. 콘솔은 넣을 주소를 보이고 secret을 받는다.
   - 공개 주소가 없는 설치는 webhook 없이 하루 확인과 "지금 확인"만 쓴다. 스킬 상세가 이것을 알린다.
-- 받는 자리는 App마다 하나인 인증 없는 경로다. 서명 헤더 `X-Hub-Signature-256`(본문의 HMAC-SHA256, [출처](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries))을 저장한 secret으로 상수 시간에 비교한 뒤에만 본문을 해석한다. 서명이 없거나 틀리면 401이고 아무것도 하지 않는다.
+- 받는 자리는 인증 없는 경로 하나(`POST /v1/github/webhook`)이고, GitHub가 보내는 `X-GitHub-Hook-Installation-Target-ID` 헤더(App ID)로 App을 고른다. App마다 경로를 두지 않는 이유: manifest에 webhook 주소를 넣는 때는 App이 아직 없어 App ID도 연결 id도 모른다. 헤더는 서명 전이라 믿지 않는다. 그 App의 저장된 secret 가운데 서명이 맞는 것이 없으면 그 헤더로 아무것도 하지 않는다. 서명 헤더 `X-Hub-Signature-256`(본문의 HMAC-SHA256, [출처](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries))을 저장한 secret으로 상수 시간에 비교한 뒤에만 본문을 해석한다. 서명이 없거나 틀리면 401이고 아무것도 하지 않는다.
 - 본문 상한은 다른 인증 없는 경로와 같다(지금 64 KiB, 위 "업로드 크기"). push 본문은 25 MB까지 올 수 있으므로([출처](https://docs.github.com/en/webhooks/webhook-events-and-payloads#push)) 커밋이 아주 많은 push는 413으로 잘린다. 그 push는 하루 확인이 잡는다. 상한을 올리지 않는 이유는 업로드 크기와 같다.
 - 본문에서 쓰는 것은 `installation.id`, 저장소 id, `ref` 셋뿐이다. 이 셋에 맞고 동기화가 켜진 Git 스킬에 확인을 건다. GitHub는 10초 안에 답을 받지 못하면 전달을 실패로 기록하므로, 확인을 기다리지 않고 202로 답한다. 맞는 스킬이 없어도 같은 답이다.
 - webhook은 계기일 뿐이라 같은 전달이 다시 오거나 순서가 바뀌어도 결과가 같다. 그래서 전달 id로 중복을 거르지 않는다.

@@ -22,6 +22,7 @@ import type {
   ExtensionBundle,
   ExtensionBundleSource,
   ExtensionBundleStore,
+  GitVersionInput,
   ReviewExtensionBundleResult,
 } from "./ports/extension-bundle-store.ts";
 import type { ExtensionMode } from "./resolve.ts";
@@ -60,7 +61,15 @@ export type RegisterBundleResult =
   | { outcome: "rejected"; issues: BundleIssue[] }
   | { outcome: "registered"; bundle: ExtensionBundle; receiptId: string }
   | { outcome: "already_registered"; bundle: ExtensionBundle }
-  | { outcome: "actor_inactive" | "outranked" | "name_taken" };
+  | {
+      outcome:
+        | "actor_inactive"
+        | "outranked"
+        | "name_taken"
+        | "source_mismatch"
+        | "paused"
+        | "lease_lost";
+    };
 
 /**
  * The only way a bundle gets into the store. The upload is thrown away after
@@ -90,6 +99,8 @@ export function createExtensionBundleService(deps: {
       label: string;
       source: ExtensionBundleSource;
       skill?: boolean;
+      /** A GitHub version; without `newSource`, the principal is the sync. */
+      git?: GitVersionInput;
     }): Promise<RegisterBundleResult> {
       const workspaceId = input.principal.ownerId;
       const skill = input.skill === true;
@@ -123,12 +134,19 @@ export function createExtensionBundleService(deps: {
           "The validated tree does not validate to its own digest.",
         );
       }
-      const may = await store.mayManage({
-        workspaceId,
-        principal: input.principal,
-        managerRoles: EXTENSION_MANAGER_ROLES,
-      });
-      if (may !== "ok") return { outcome: may };
+      // A GitHub version is a skill version: the source checks run there.
+      if (input.git !== undefined && !skill) {
+        throw new Error("a GitHub version must be registered as a skill");
+      }
+      const synced = input.git !== undefined && !input.git.newSource;
+      if (!synced) {
+        const may = await store.mayManage({
+          workspaceId,
+          principal: input.principal,
+          managerRoles: EXTENSION_MANAGER_ROLES,
+        });
+        if (may !== "ok") return { outcome: may };
+      }
       const tar = packBundleTar(bundle.files);
       // Object first: a row without its object is a bundle nothing can serve,
       // while an object without a row is only garbage for the sweep to find.
@@ -154,6 +172,7 @@ export function createExtensionBundleService(deps: {
         principal: input.principal,
         managerRoles: EXTENSION_MANAGER_ROLES,
         ...(skill ? { skill: true } : {}),
+        ...(input.git === undefined ? {} : { git: input.git }),
       });
       switch (result.outcome) {
         case "registered":
