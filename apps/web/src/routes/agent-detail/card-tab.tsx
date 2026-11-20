@@ -92,6 +92,8 @@ export function CardTab({
         release={previewing}
         agentName={detail.agent.name}
         onClose={() => setPreviewing(null)}
+        // The save that opened it closed the form and its button.
+        returnTo={editButton}
       />
     </>
   );

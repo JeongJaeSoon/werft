@@ -2308,6 +2308,12 @@ describe("게시 전 에이전트", () => {
         .agent_release_id,
     ).toBe(server.releases.at(-1)?.id ?? "missing");
     expect(server.releases.at(-1)?.id).not.toBe(on);
+    // The save closed the form and its button: focus goes to the edit button.
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("상세 설정 편집"),
+    );
   });
 });
 

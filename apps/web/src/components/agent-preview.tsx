@@ -33,6 +33,7 @@ import {
 } from "@werft-ai/ui";
 import {
   type FormEvent,
+  type RefObject,
   useId,
   useLayoutEffect,
   useRef,
@@ -293,11 +294,14 @@ export function PreviewDialog({
   release,
   agentName,
   onClose,
+  returnTo,
 }: {
   /** Open while set. */
   readonly release: AgentRelease | null;
   readonly agentName: string;
   readonly onClose: () => void;
+  /** Where focus goes on close when the button that opened it is gone. */
+  readonly returnTo?: RefObject<HTMLElement | null>;
 }) {
   const { t } = useI18n();
   const open = release !== null;
@@ -318,10 +322,17 @@ export function PreviewDialog({
       <DialogContent
         className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[40rem]"
         onCloseAutoFocus={(event) => {
-          // An opener gone with its form leaves Radix's fallback.
-          if (!opener.current?.isConnected) return;
+          // An opener gone with its form, or one that lost focus while it
+          // was disabled (focus then sat on <body>), gives way to the
+          // caller's fallback.
+          const own = opener.current;
+          const back =
+            own?.isConnected && own !== own.ownerDocument.body
+              ? own
+              : returnTo?.current;
+          if (!back?.isConnected) return;
           event.preventDefault();
-          opener.current.focus();
+          back.focus();
         }}
       >
         <DialogHeader>

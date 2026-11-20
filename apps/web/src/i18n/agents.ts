@@ -65,7 +65,7 @@ export const agentsKo = {
   "agents.flow.job": "하는 일",
   "agents.flow.next": "다음",
   "agents.flow.jobIntro":
-    "에이전트가 쓸 모델 연결과 모델을 정합니다. 저장하면 이 연결로 첫 릴리스가 만들어져 바로 쓰입니다. 동작 지시는 저장소의 CLAUDE.md나 AGENTS.md에 적습니다.",
+    "에이전트가 쓸 모델 연결과 모델을 정합니다. 저장하면 이 연결로 첫 릴리스가 만들어지고, 게시하기 전에 미리 써 볼 수 있습니다. 동작 지시는 저장소의 CLAUDE.md나 AGENTS.md에 적습니다.",
   "agents.flow.saveNext": "저장하고 미리 써 보기",
   "agents.flow.saving": "저장하는 중…",
   "agents.flow.releaseFailed":
@@ -75,7 +75,7 @@ export const agentsKo = {
     "{name}을(를) 게시했습니다. 이제 담당 팀 {team}이(가) 이 에이전트를 씁니다.",
   "agents.flow.leaveTitle": "저장하지 않고 나갈까요?",
   "agents.flow.leaveConsequence":
-    "여기서 쓰고 저장하지 않은 내용은 사라집니다. 남기려면 '저장하고 다음'을 누르세요.",
+    "여기서 쓰고 저장하지 않은 내용은 사라집니다. 남기려면 '저장하고 미리 써 보기'를 누르세요.",
   "agents.flow.leave": "나가기",
   "agents.flow.stay": "계속 쓰기",
   "agents.flow.preview": "미리 써 보기",
@@ -560,7 +560,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.flow.job": "What it does",
   "agents.flow.next": "Next",
   "agents.flow.jobIntro":
-    "Choose the model connection and model the agent uses. Saving makes the first release on that connection and it starts working right away. Instructions for how it works go in the repository's CLAUDE.md or AGENTS.md.",
+    "Choose the model connection and model the agent uses. Saving makes the first release on that connection, which you can try before you publish it. Instructions for how it works go in the repository's CLAUDE.md or AGENTS.md.",
   "agents.flow.saveNext": "Save and preview",
   "agents.flow.saving": "Saving…",
   "agents.flow.releaseFailed":
@@ -570,7 +570,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "{name} is published. The responsible team {team} now uses this agent.",
   "agents.flow.leaveTitle": "Leave without saving?",
   "agents.flow.leaveConsequence":
-    "What you typed here and did not save is lost. To keep it, press 'Save and continue'.",
+    "What you typed here and did not save is lost. To keep it, press 'Save and preview'.",
   "agents.flow.leave": "Leave",
   "agents.flow.stay": "Keep editing",
   "agents.flow.preview": "Preview",
@@ -1044,7 +1044,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.flow.job": "役割",
   "agents.flow.next": "次へ",
   "agents.flow.jobIntro":
-    "エージェントが使うモデル接続とモデルを選びます。保存するとその接続で最初のリリースが作成され、すぐに使えます。動作の指示は、リポジトリの CLAUDE.md や AGENTS.md に書きます。",
+    "エージェントが使うモデル接続とモデルを選びます。保存するとその接続で最初のリリースが作成され、公開する前に試せます。動作の指示は、リポジトリの CLAUDE.md や AGENTS.md に書きます。",
   "agents.flow.saveNext": "保存してプレビュー",
   "agents.flow.saving": "保存中…",
   "agents.flow.releaseFailed":
@@ -1054,7 +1054,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "{name}を公開しました。担当チーム {team} がこのエージェントを使えます。",
   "agents.flow.leaveTitle": "保存せずに移動しますか？",
   "agents.flow.leaveConsequence":
-    "ここで入力して保存していない内容は失われます。残すには「保存して次へ」を押してください。",
+    "ここで入力して保存していない内容は失われます。残すには「保存してプレビュー」を押してください。",
   "agents.flow.leave": "移動する",
   "agents.flow.stay": "編集を続ける",
   "agents.flow.preview": "プレビュー",
