@@ -1415,6 +1415,13 @@
       "when": 1795131017678,
       "tag": "0292_authz_decisions_owner_at_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 293,
+      "version": "7",
+      "when": 1795140870026,
+      "tag": "0293_agent_ownerless_since",
+      "breakpoints": true
     }
   ]
 }
