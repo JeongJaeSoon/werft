@@ -1306,6 +1306,9 @@ integration("surface bindings on PostgreSQL", () => {
       ).toMatchObject({ membership: { state: "joined", error: null } });
       await store().botLeft(installationId, "C0OPEN", at(4));
       expect(
+        await store().observeLifecycle(installationId, "C0OPEN", at(5)),
+      ).toBe(true);
+      expect(
         await store().recordJoin(installationId, "C0OPEN", left.id, at(5)),
       ).toBe(true);
       expect(
@@ -1347,7 +1350,79 @@ integration("surface bindings on PostgreSQL", () => {
       );
     });
 
-    test("an event with no time cannot be ordered: the leave applies and nothing is noted", async () => {
+    test("a public channel's join at the leave's own time records nothing, in either order", async () => {
+      const { owner, agentId, installationId } = await waiting();
+      await setAs(owner, agentId, { channelId: "C0TIE", home: true });
+      const bound = await store().resolveSlackChannel(installationId, "C0TIE");
+      if (bound === null) throw new Error("no binding");
+      // leave(2), then join(2)
+      await store().botLeft(installationId, "C0TIE", at(2));
+      await store().observeLifecycle(installationId, "C0TIE", at(2));
+      expect(
+        await store().recordJoin(installationId, "C0TIE", bound.id, at(2)),
+      ).toBe(false);
+      expect(
+        await store().resolveSlackChannel(installationId, "C0TIE"),
+      ).toMatchObject({
+        membership: { state: "awaiting_invite", error: null },
+      });
+      expect(await store().botRemovedFrom(installationId, "C0TIE")).toBe(true);
+      // join(3), then leave(3)
+      await store().observeLifecycle(installationId, "C0TIE", at(3));
+      expect(
+        await store().recordJoin(installationId, "C0TIE", bound.id, at(3)),
+      ).toBe(true);
+      await store().botLeft(installationId, "C0TIE", at(3));
+      expect(
+        await store().resolveSlackChannel(installationId, "C0TIE"),
+      ).toMatchObject({
+        membership: { state: "awaiting_invite", error: null },
+      });
+      expect(await store().botRemovedFrom(installationId, "C0TIE")).toBe(true);
+    });
+
+    test("a leave with no time is kept as a removal until a later join, whatever the membership says since", async () => {
+      const { owner, agentId, installationId } = await waiting();
+      await setAs(owner, agentId, { channelId: "C0UNTIMED", home: true });
+      const bound = await store().resolveSlackChannel(
+        installationId,
+        "C0UNTIMED",
+      );
+      if (bound === null) throw new Error("no binding");
+      await store().observeLifecycle(installationId, "C0UNTIMED", at(4));
+      await store().recordJoin(installationId, "C0UNTIMED", bound.id, at(4));
+      expect(await store().botLeft(installationId, "C0UNTIMED", null)).toBe(
+        true,
+      );
+      await store().setMembership(bound.id, {
+        state: "config_error",
+        error: "missing_scope",
+      });
+      expect(await store().botRemovedFrom(installationId, "C0UNTIMED")).toBe(
+        true,
+      );
+      // It orders nothing: a join at the newest time noted is still news,
+      // but it ties with the leave and so does not bring the bot back.
+      expect(
+        await store().observeLifecycle(installationId, "C0UNTIMED", at(4)),
+      ).toBe(true);
+      expect(await store().botRemovedFrom(installationId, "C0UNTIMED")).toBe(
+        true,
+      );
+      expect(
+        await store().observeLifecycle(installationId, "C0UNTIMED", at(5)),
+      ).toBe(true);
+      expect(await store().botRemovedFrom(installationId, "C0UNTIMED")).toBe(
+        false,
+      );
+      // A first event of a channel that is a leave with no time.
+      await store().botLeft(installationId, "C0FIRST", null);
+      expect(await store().botRemovedFrom(installationId, "C0FIRST")).toBe(
+        true,
+      );
+    });
+
+    test("an event with no time cannot be ordered: the leave applies and orders nothing", async () => {
       const { installationId } = await approved();
       expect(await store().botLeft(installationId, "G0SECRET", null)).toBe(
         true,

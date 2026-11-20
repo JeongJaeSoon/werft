@@ -421,28 +421,10 @@ export function createPostgresSurfaceBindingStore(
       observeJoin(db, installationId, channelId, at),
     botLeft: (installationId, channelId, at) =>
       botLeft(db, installationId, channelId, at),
-    async botRemovedFrom(installationId, channelId) {
-      if (!UUID.test(installationId)) return false;
-      const [noted] = await db
-        .select({
-          join: slackChannelLifecycle.lastJoinUs,
-          leave: slackChannelLifecycle.lastLeaveUs,
-        })
-        .from(slackChannelLifecycle)
-        .where(
-          and(
-            eq(
-              slackChannelLifecycle.installationId,
-              installationId.toLowerCase(),
-            ),
-            eq(slackChannelLifecycle.channelId, channelId),
-          ),
-        );
-      return (
-        noted?.leave != null &&
-        (noted.join === null || noted.leave >= noted.join)
-      );
-    },
+    botRemovedFrom: (installationId, channelId) =>
+      UUID.test(installationId)
+        ? removedByEvents(db, installationId.toLowerCase(), channelId)
+        : Promise.resolve(false),
     recordJoin: (installationId, channelId, bindingId, at) =>
       recordJoin(db, installationId, channelId, bindingId, at),
     approve: (input) => resolve(db, input, "approve"),
@@ -704,6 +686,16 @@ async function recordJoin(
       tx,
       and(eq(surfaceBindings.id, id), isNull(surfaceBindings.revokedAt)),
     );
+    // A public channel keeps its status when the bot leaves, so the order of
+    // join and leave is read here, by the rule `botRemovedFrom` reads: a join
+    // that does not come after the newest leave records nothing, whichever
+    // of the two was handled first.
+    if (
+      current?.channelKind === "public_channel" &&
+      (await removedByEvents(tx, installationId.toLowerCase(), channelId))
+    ) {
+      return false;
+    }
     if (current?.status === "left") {
       // Back in: only a join stamped strictly after the last leave brings the
       // channel back, and then it waits for approval. A tie or a join with no
@@ -759,6 +751,7 @@ async function botLeft(
           ),
         );
     }
+    if (at === null) await noteUntimedLeave(tx, installation, channelId);
     const current = await lockBinding(tx, channelOf(installation, channelId));
     // A public channel has no approval to void: the bot is out until it is
     // invited again, which is what its membership says. The binding stays.
@@ -803,6 +796,48 @@ async function botLeft(
     }
     return latest;
   });
+}
+
+// The newest join or leave noted for the channel is a leave; a tie is the
+// leave, since a join at the leave's own time cannot be told from its retry.
+async function removedByEvents(
+  db: Database,
+  installationId: string,
+  channelId: string,
+): Promise<boolean> {
+  const [noted] = await db
+    .select({
+      join: slackChannelLifecycle.lastJoinUs,
+      leave: slackChannelLifecycle.lastLeaveUs,
+    })
+    .from(slackChannelLifecycle)
+    .where(
+      and(
+        eq(slackChannelLifecycle.installationId, installationId),
+        eq(slackChannelLifecycle.channelId, channelId),
+      ),
+    );
+  return (
+    noted?.leave != null && (noted.join === null || noted.leave >= noted.join)
+  );
+}
+
+// A leave with no time orders nothing (the channel's newest time stays), yet
+// the bot is out: it is kept as a leave at the newest time noted, so a later
+// join brings the bot back and one that ties does not.
+async function noteUntimedLeave(
+  tx: Database,
+  installationId: string,
+  channelId: string,
+): Promise<void> {
+  await tx.execute(sql`
+    INSERT INTO ${slackChannelLifecycle} (installation_id, channel_id,
+      last_event_us, last_leave_us)
+    VALUES (${installationId}, ${channelId}, 0, 0)
+    ON CONFLICT (installation_id, channel_id) DO UPDATE
+      SET last_leave_us = GREATEST(${slackChannelLifecycle.lastEventUs},
+        COALESCE(${slackChannelLifecycle.lastJoinUs}, 0),
+        COALESCE(${slackChannelLifecycle.lastLeaveUs}, 0))`);
 }
 
 // The bot is out of a private channel: inactive, no home, no approval. The
