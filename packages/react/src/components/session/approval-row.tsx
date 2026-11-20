@@ -180,16 +180,17 @@ export function ApprovalRow({
                 <span className="truncate">{messages.title(request.tool)}</span>
               </Badge>
             </Text>
-            {/* A space either side of each dot, as inside `meta`; each dot
-                wraps with the item after it, never left trailing. */}
+            {/* A space either side of each dot, as inside `meta`; a dot
+                stays at the end of the line it ends, as in a question's
+                line, so a wrapped line never starts with one. */}
             <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-caption text-muted-foreground leading-4">
               {meta === undefined ? null : (
-                <span className="min-w-0 [overflow-wrap:anywhere]">{meta}</span>
+                <span className="min-w-0 [overflow-wrap:anywhere]">
+                  {meta}
+                  <span aria-hidden="true"> ·</span>
+                </span>
               )}
-              <span className="flex items-center gap-1">
-                {meta === undefined ? null : <span aria-hidden="true">·</span>}
-                {notice}
-              </span>
+              {notice}
             </div>
             <ToolSummary summary={request.summary} verb={messages.summary} />
             {/* Its own line: after a dot it wrapped alone on a narrow line. */}

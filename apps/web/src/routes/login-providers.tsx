@@ -570,33 +570,38 @@ function ProviderSettings({
       ),
     { onDone: () => {}, onRefused: refused, step: "test" },
   );
+  // Turned on or off, the button pressed leaves the screen (or the dialog
+  // has nothing to give the keyboard back to); it goes on to the switch the
+  // other way. Tried once, when both the write is over and a read newer
+  // than its answer is in, in whichever order they come: while the write
+  // is on its way the turning-off button is `disabled` and cannot take
+  // focus. A read still showing the old state drops the try, as the
+  // password login's danger zone does.
+  const enableRef = useRef<HTMLButtonElement>(null);
+  const disableRef = useRef<HTMLButtonElement>(null);
+  const focusSwitch = useRef<{
+    readonly to: "enable" | "disable";
+    readonly readAt: number;
+  } | null>(null);
+  const shownAt = useRef(readAt);
+  shownAt.current = readAt;
   const enable = useProviderWrite(
     (api, _: undefined) =>
       unwrap(api.POST("/v1/login-providers/{id}/enable", id)),
     {
-      onDone: () => notice(t("loginProviders.done.enabled")),
+      onDone: () => {
+        focusSwitch.current = { to: "disable", readAt: shownAt.current };
+        notice(t("loginProviders.done.enabled"));
+      },
       onRefused: refused,
     },
   );
-  // Turned off, the button pressed is withheld and the dialog has nothing to
-  // give the keyboard back to; it goes on to turning the provider back on.
-  // Tried once, on the first read that answers after: a read still showing
-  // it on drops the try, as the password login's danger zone does.
-  const enableRef = useRef<HTMLButtonElement>(null);
-  const focusEnable = useRef(false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: runs each time the read answers
-  useEffect(() => {
-    if (!focusEnable.current) return;
-    focusEnable.current = false;
-    if (on || !focusLeftBehind(true)) return;
-    focusOrReason(enableRef.current);
-  }, [readAt]);
   const disable = useProviderWrite(
     (api, _: undefined) =>
       unwrap(api.POST("/v1/login-providers/{id}/disable", id)),
     {
       onDone: (answer) => {
-        focusEnable.current = true;
+        focusSwitch.current = { to: "enable", readAt: shownAt.current };
         setEditing(null);
         notice(
           t("loginProviders.done.disabled", { count: answer.sessions_revoked }),
@@ -620,6 +625,14 @@ function ProviderSettings({
     enable.isPending ||
     disable.isPending ||
     remove.isPending;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when a read answers or a write ends
+  useEffect(() => {
+    const ask = focusSwitch.current;
+    if (ask === null || busy || readAt === ask.readAt) return;
+    focusSwitch.current = null;
+    if (on !== (ask.to === "disable") || !focusLeftBehind(true)) return;
+    focusOrReason((ask.to === "enable" ? enableRef : disableRef).current);
+  }, [readAt, busy]);
   const locked = on ? t("loginProviders.lockedWhileOn") : undefined;
   // The server keeps the last provider on while passwords are closed: with
   // it off, nobody but the emergency admin could sign in.
@@ -972,6 +985,7 @@ function ProviderSettings({
           title={t("loginProviders.disableRow")}
           description={t("loginProviders.disableDescription")}
           actionLabel={t("loginProviders.disable")}
+          actionRef={disableRef}
           disabled={busy}
           reason={
             on

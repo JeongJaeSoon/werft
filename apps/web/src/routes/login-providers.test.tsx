@@ -614,6 +614,54 @@ describe("로그인 공급자 상세", () => {
     ]);
   });
 
+  test.each([
+    ["another provider on", false],
+    ["the last one while passwords are closed", true],
+  ] as const)(
+    "once it is on the keyboard goes on to turning it off, not to the page: %s",
+    async (_, withheldOff) => {
+      const ready = filled({ state: "ready", tested_at: AT });
+      const on = { ...ready, state: "enabled" as const };
+      let current: LoginProviderView = ready;
+      renderAt(PAGE, {
+        ...routes([]),
+        [`GET ${API}`]: () =>
+          json(200, { providers: [current], console_origin_configured: true }),
+        // Slower than the list, as a real read can be: the list shows it on
+        // while the write still waits, its turning-off button held busy.
+        "GET /v1/login-settings": async () => {
+          await new Promise((done) => setTimeout(done, 100));
+          return json(200, {
+            settings: {
+              password_login: withheldOff ? "emergency_only" : "on",
+              emergency_admin: null,
+              enabled_providers: withheldOff ? 1 : 2,
+            },
+            emergency_admin_candidates: [],
+            caller_has_provider_account: false,
+          });
+        },
+        [`POST ${API}/${ID}/enable`]: () => {
+          current = on;
+          return json(200, { provider: on });
+        },
+      });
+      const user = await setupUser();
+      await user.click(await screen.findByRole("button", { name: "켜기" }));
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: "켜기" })).toBe(null),
+      );
+      await waitFor(() => {
+        const turnOff = screen.getByRole("button", { name: "이 공급자 끄기" });
+        const target = withheldOff
+          ? turnOff.closest("[data-slot=disabled-reason]")
+          : turnOff;
+        expect(target === null).toBe(false);
+        expect(document.activeElement === target).toBe(true);
+      });
+    },
+  );
+
   test("while it is on, how it connects is withheld with the reason; a new secret is said to wait", async () => {
     renderAt(
       PAGE,
