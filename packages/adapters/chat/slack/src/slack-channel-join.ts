@@ -252,7 +252,10 @@ export function createSlackMemberLeftHandler(deps: {
  * is off, an app with no bot token, or a Slack that did not answer.
  */
 export function createSlackChannelJoiner(deps: {
-  bindings: Pick<SurfaceBindingStore, "setMembership" | "botRemovedFrom">;
+  bindings: Pick<
+    SurfaceBindingStore,
+    "setMembership" | "botRemovedFrom" | "lastLeaveNoted"
+  >;
   slack: Pick<SlackBotApi, "channelMembership" | "joinChannel">;
   botToken(workspaceId: string, agentId: string): Promise<string | null>;
 }): ChannelJoinable {
@@ -268,13 +271,13 @@ export function createSlackChannelJoiner(deps: {
     // error recorded on the membership does not erase, and only once Slack
     // answered, so a leave noted while the question was out still counts.
     // A leave Slack delivers after the join call cannot be seen here at all.
-    // What the record said before the question guards the write: a leave
+    // The newest leave noted before the question guards the write: a leave
     // noted meanwhile drops this answer, even where the membership it left
     // is the one this run read.
-    const removedBefore =
+    const leaveNoted =
       installationId === null
         ? undefined
-        : await deps.bindings.botRemovedFrom(installationId, channelId);
+        : await deps.bindings.lastLeaveNoted(installationId, channelId);
     const mayJoin = async () =>
       !(
         (binding.membership?.state === "awaiting_invite" &&
@@ -297,7 +300,7 @@ export function createSlackChannelJoiner(deps: {
         binding.id,
         membership,
         binding.membership,
-        removedBefore,
+        leaveNoted,
       );
     }
     return membership;

@@ -205,6 +205,15 @@ export interface SurfaceBindingStore {
    * over. False for a channel with nothing noted.
    */
   botRemovedFrom(installationId: string, channelId: string): Promise<boolean>;
+  /**
+   * The time of the newest leave noted for the channel, null when none: read
+   * before Slack is asked, it is the mark `setMembership` checks the answer
+   * against.
+   */
+  lastLeaveNoted(
+    installationId: string,
+    channelId: string,
+  ): Promise<number | null>;
   approve(
     input: ResolveSurfaceBindingInput,
   ): Promise<ResolveSurfaceBindingResult>;
@@ -215,15 +224,15 @@ export interface SurfaceBindingStore {
    * Records what Slack said about the bot's place in a live binding's
    * channel. Observed state, not a setting: no revision, no receipt.
    * With `expected`, only while the binding still holds it, so a slow
-   * answer does not undo an invite recorded meanwhile. With `removed`, only
-   * while `botRemovedFrom` still says what it said before Slack was asked: a
-   * leave noted meanwhile can leave the membership as it was, and the value
-   * alone would not show it.
+   * answer does not undo an invite recorded meanwhile. With `leaveNoted`
+   * (`lastLeaveNoted` before Slack was asked), only while no newer leave was
+   * noted: a leave can leave the membership as it was, and the value alone
+   * would not show it.
    */
   setMembership(
     bindingId: string,
     membership: SurfaceMembership,
     expected?: SurfaceMembership | null,
-    removed?: boolean,
+    leaveNoted?: number | null,
   ): Promise<void>;
 }

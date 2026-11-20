@@ -1464,7 +1464,7 @@ integration("surface bindings on PostgreSQL", () => {
       ).toMatchObject({ membership: { state: "joined", error: null } });
     });
 
-    test("a Slack answer is written only while the removal on record is what it was before Slack was asked", async () => {
+    test("a Slack answer is written only while no leave newer than the one noted before Slack was asked arrived", async () => {
       const { owner, agentId, installationId } = await waiting();
       await setAs(owner, agentId, { channelId: "C0ASKED", home: true });
       const bound = await store().resolveSlackChannel(
@@ -1472,35 +1472,34 @@ integration("surface bindings on PostgreSQL", () => {
         "C0ASKED",
       );
       if (bound === null) throw new Error("no binding");
-      await store().setMembership(bound.id, {
-        state: "awaiting_invite",
-        error: null,
-      });
-      const before = await store().botRemovedFrom(installationId, "C0ASKED");
-      expect(before).toBe(false);
-      // A leave noted while Slack was asked writes the value already there.
+      const answer = { state: "joined", error: null } as const;
+      const waits = { state: "awaiting_invite", error: null } as const;
+      const membership = async () =>
+        (await store().resolveSlackChannel(installationId, "C0ASKED"))
+          ?.membership;
+      await store().setMembership(bound.id, waits);
+      // Nothing noted, then a first leave while Slack was asked: it writes
+      // the value already there.
+      const none = await store().lastLeaveNoted(installationId, "C0ASKED");
+      expect(none).toBeNull();
       await store().botLeft(installationId, "C0ASKED", at(2));
-      await store().setMembership(
-        bound.id,
-        { state: "joined", error: null },
-        { state: "awaiting_invite", error: null },
-        before,
-      );
-      expect(
-        await store().resolveSlackChannel(installationId, "C0ASKED"),
-      ).toMatchObject({
-        membership: { state: "awaiting_invite", error: null },
-      });
-      // Unchanged since the question (an invite whose event was lost): kept.
-      await store().setMembership(
-        bound.id,
-        { state: "joined", error: null },
-        { state: "awaiting_invite", error: null },
+      await store().setMembership(bound.id, answer, waits, none);
+      expect(await membership()).toEqual(waits);
+      // Removed already, an invite whose event was lost, then a second
+      // removal while Slack was asked: the removal said the same before and
+      // after, only its time moved.
+      const first = await store().lastLeaveNoted(installationId, "C0ASKED");
+      expect(first).toBe(at(2));
+      await store().botLeft(installationId, "C0ASKED", at(4));
+      expect(await store().botRemovedFrom(installationId, "C0ASKED")).toBe(
         true,
       );
-      expect(
-        await store().resolveSlackChannel(installationId, "C0ASKED"),
-      ).toMatchObject({ membership: { state: "joined", error: null } });
+      await store().setMembership(bound.id, answer, waits, first);
+      expect(await membership()).toEqual(waits);
+      // Nothing noted since the question (the lost invite alone): written.
+      const second = await store().lastLeaveNoted(installationId, "C0ASKED");
+      await store().setMembership(bound.id, answer, waits, second);
+      expect(await membership()).toEqual(answer);
     });
 
     test("an event with no time cannot be ordered: the leave applies and orders nothing", async () => {

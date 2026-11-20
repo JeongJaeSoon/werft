@@ -83,6 +83,7 @@ function service(
     observeLifecycle: async () => true,
     botLeft: async () => true,
     botRemovedFrom: async () => false,
+    lastLeaveNoted: async () => null,
     recordJoin: async () => true,
     ...overrides,
     list: async () => [],

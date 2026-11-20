@@ -433,15 +433,20 @@ export function createPostgresSurfaceBindingStore(
       UUID.test(installationId)
         ? removedByEvents(db, installationId.toLowerCase(), channelId)
         : Promise.resolve(false),
+    lastLeaveNoted: async (installationId, channelId) =>
+      UUID.test(installationId)
+        ? ((await noteOf(db, installationId.toLowerCase(), channelId))?.leave ??
+          null)
+        : null,
     recordJoin: (installationId, channelId, bindingId, at) =>
       recordJoin(db, installationId, channelId, bindingId, at),
     approve: (input) => resolve(db, input, "approve"),
     reject: (input) => resolve(db, input, "reject"),
-    async setMembership(bindingId, membership, expected, removed) {
+    async setMembership(bindingId, membership, expected, leaveNoted) {
       if (!UUID.test(bindingId)) return;
       const id = bindingId.toLowerCase();
       await db.transaction(async (tx) => {
-        if (removed !== undefined) {
+        if (leaveNoted !== undefined) {
           const [channel] = await tx
             .select({
               installationId: surfaceBindings.installationId,
@@ -449,15 +454,20 @@ export function createPostgresSurfaceBindingStore(
             })
             .from(surfaceBindings)
             .where(eq(surfaceBindings.id, id));
+          // A timed leave noted since moves the mark forward, and so does one
+          // with no time while the bot was in by the record. One with no time
+          // on a channel already left by the record leaves it where it was.
           if (
             channel?.installationId &&
             channel.channelId &&
-            (await removedByEvents(
-              tx,
-              channel.installationId.toLowerCase(),
-              channel.channelId,
-              { lock: true },
-            )) !== removed
+            ((
+              await noteOf(
+                tx,
+                channel.installationId.toLowerCase(),
+                channel.channelId,
+                { lock: true },
+              )
+            )?.leave ?? null) !== leaveNoted
           ) {
             return;
           }
@@ -832,14 +842,26 @@ async function botLeft(
 
 // The newest join or leave noted for the channel is a leave; a tie is the
 // leave, since a join at the leave's own time cannot be told from its retry.
-// With `lock`, the record is made if missing and held to the end of the
-// transaction, so a leave being noted is waited for, not read past.
 async function removedByEvents(
   db: Database,
   installationId: string,
   channelId: string,
-  { lock = false } = {},
+  options: { lock?: boolean } = {},
 ): Promise<boolean> {
+  const noted = await noteOf(db, installationId, channelId, options);
+  return (
+    noted?.leave != null && (noted.join === null || noted.leave >= noted.join)
+  );
+}
+
+// With `lock`, the record is made if missing and held to the end of the
+// transaction, so a leave being noted is waited for, not read past.
+async function noteOf(
+  db: Database,
+  installationId: string,
+  channelId: string,
+  { lock = false } = {},
+): Promise<{ join: number | null; leave: number | null } | undefined> {
   if (lock) {
     await db
       .insert(slackChannelLifecycle)
@@ -859,9 +881,7 @@ async function removedByEvents(
       ),
     );
   const [noted] = lock ? await query.for("update") : await query;
-  return (
-    noted?.leave != null && (noted.join === null || noted.leave >= noted.join)
-  );
+  return noted;
 }
 
 // A leave with no time orders nothing (the channel's newest time stays), yet
