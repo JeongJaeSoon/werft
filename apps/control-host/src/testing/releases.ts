@@ -24,6 +24,7 @@ import {
   deriveReleaseId,
   type SessionCatalogView,
 } from "@werft-ai/platform";
+import { eq } from "drizzle-orm";
 
 /**
  * A new workspace with an active agent and one release on the test
@@ -149,6 +150,10 @@ export async function releaseOnConnection(
     approvedAt: new Date(),
     ...spec,
   });
+  await db
+    .update(agents)
+    .set({ activeReleaseId: releaseId, activationRevision: 0 })
+    .where(eq(agents.id, agentId));
   return releaseId;
 }
 

@@ -9,6 +9,7 @@ import type {
   ReceiptActor,
 } from "@werft-ai/contracts";
 import { GITHUB_SETTINGS_UNSUPPORTED } from "../../github/ports/github-settings.ts";
+import type { Principal } from "../../musterrolle/index.ts";
 
 /** What every refused pull request operation answers, and its receipt records. */
 export const PULL_REQUEST_REFUSAL_ERRORS: Record<
@@ -145,7 +146,9 @@ export type ScheduleOutcome =
       /** Set for `not_pushed`, so the caller can tell rejected from failed. */
       pushRequestState?: PushRequestState;
       details?: Readonly<Record<string, unknown>>;
-    };
+    }
+  /** A preview session, and the caller does not manage its agent now. */
+  | { kind: "preview_refused" };
 
 export type PullRequestReceipt = {
   ownerId: string;
@@ -171,7 +174,10 @@ export interface PullRequestStore {
    * `due` here. A later request to the same repository and target refuses
    * `superseded`, judged by `created_at` under the session lock. The
    * `scheduled` receipt is written in the same transaction; a refusal or
-   * `open_now` writes none (the caller does).
+   * `open_now` writes none (the caller does). On a preview session the
+   * caller is judged again under the same transaction, its requester rows
+   * taken before the session row: a person signed in on the web who manages
+   * the agent now, else `preview_refused`.
    */
   schedule(input: {
     ownerId: string;
@@ -179,7 +185,10 @@ export interface PullRequestStore {
     ref: ScheduleRef;
     content: unknown;
     actor: ReceiptActor | null;
+    principal?: Principal;
   }): Promise<ScheduleOutcome>;
+  /** The agent of a preview session; null for any other session. */
+  previewAgent(ownerId: string, sessionId: string): Promise<string | null>;
   /** null when the owner has no such push request in the session. */
   findSource(
     ownerId: string,

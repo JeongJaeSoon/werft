@@ -61,6 +61,7 @@ import {
 } from "./pending-status.ts";
 import {
   keyReaches,
+  lockPreviewFeed,
   lockRequester,
   lockSessionReach,
 } from "./requester-locks.ts";
@@ -748,6 +749,14 @@ export function createPostgresPendingRequests(
           answer: !agentKey,
         });
         if (reach !== "ok") return { outcome: reach };
+        // A preview goes on only for a person who still manages its agent,
+        // whoever started it.
+        if (
+          session.preview &&
+          !(await lockPreviewFeed(tx, input.principal, requester, session))
+        ) {
+          return { outcome: "role" };
+        }
         const [pending] = await tx
           .select()
           .from(pendingRequests)

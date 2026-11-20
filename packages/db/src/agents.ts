@@ -375,6 +375,7 @@ async function lockAgent(tx: Database, workspaceId: string, agentId: string) {
       activationRevision: agents.activationRevision,
       behaviorRevision: agents.behaviorRevision,
       draftVersionId: agents.draftVersionId,
+      draftConnectionId: agents.draftConnectionId,
       autoModelMigration: agents.autoModelMigration,
     })
     .from(agents)
@@ -967,6 +968,28 @@ export function createPostgresAgentStore(db: Database): AgentStore {
       return failed.length > 0;
     },
 
+    holdsSave(input) {
+      return db.transaction(async (tx) => {
+        const [agent] = await tx
+          .select({
+            behaviorRevision: agents.behaviorRevision,
+            draftVersionId: agents.draftVersionId,
+          })
+          .from(agents)
+          .where(
+            and(
+              eq(agents.id, input.agentId),
+              eq(agents.workspaceId, input.workspaceId),
+            ),
+          )
+          .for("share");
+        return (
+          agent?.behaviorRevision === input.behaviorRevision &&
+          agent.draftVersionId === input.draftVersionId
+        );
+      });
+    },
+
     async hasGitHubSettings(agentId) {
       const [row] = await db
         .select({ agentId: agentGitHubSettings.agentId })
@@ -1173,16 +1196,40 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         ) {
           return { outcome: "superseded" };
         }
+        // A release that runs what the draft holds publishes that draft (a
+        // save made with `activate: false`); any other, a rollback say,
+        // leaves it waiting.
+        const [target] =
+          intent?.kind !== "save" && agent.draftVersionId !== null
+            ? await tx
+                .select({
+                  versionId: agentReleases.versionId,
+                  connectionId: agentReleases.connectionId,
+                })
+                .from(agentReleases)
+                .where(eq(agentReleases.id, input.releaseId))
+                .limit(1)
+            : [];
+        const draftPublished =
+          target !== undefined &&
+          target.versionId === agent.draftVersionId &&
+          target.connectionId === agent.draftConnectionId;
+        const clearDraft = {
+          draftVersionId: null,
+          draftConnectionId: null,
+          draftFailure: null,
+        };
         const intentColumns =
           intent?.kind === "save"
-            ? {
-                draftVersionId: null,
-                draftConnectionId: null,
-                draftFailure: null,
-              }
+            ? clearDraft
             : intent?.kind === "direct"
-              ? { behaviorRevision: sql`${agents.behaviorRevision} + 1` }
-              : {};
+              ? {
+                  behaviorRevision: sql`${agents.behaviorRevision} + 1`,
+                  ...(draftPublished ? clearDraft : {}),
+                }
+              : draftPublished
+                ? clearDraft
+                : {};
         // expected + 1: a retry of a request whose first attempt already swapped.
         if (
           agent.activeReleaseId === input.releaseId &&

@@ -356,6 +356,9 @@ export const PUSH_REFUSAL_VALUES = [
   // A request made from a pinned revision whose checkpoint no longer verifies
   // for this session, or whose commit is not the request's.
   "pinned_source_invalid",
+  // A preview session's push, decided by someone who is not a person signed
+  // in to the console who still manages its agent.
+  "preview_role",
 ] as const;
 export const pushRefusalSchema = z.enum(PUSH_REFUSAL_VALUES);
 

@@ -16,9 +16,11 @@ const BUDGET_BYTES: Record<string, number> = {
   // so it moves to 143. The input-only validation schemas (trimmed names,
   // non-blank messages and answers, the allow-list rules) put ./forms 416
   // bytes over 140, so it moves to 141. The takeover list's agent and its
-  // filter put ./schemas 58 bytes over 143, so it moves to 144.
+  // filter put ./schemas 58 bytes over 143, so it moves to 144. The agent's
+  // published flag and the preview session fields put ./forms 416 bytes over
+  // 141, so it moves to 142.
   "./schemas": 144 * 1024,
-  "./forms": 141 * 1024,
+  "./forms": 142 * 1024,
 };
 
 test("every entry has a budget", () => {

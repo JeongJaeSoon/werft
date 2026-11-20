@@ -411,7 +411,33 @@ export function createPullRequestService(deps: {
     // a session the caller cannot see is NOT_FOUND.
     const forbidden = (error: unknown) =>
       error instanceof SessionServiceError && error.code === "FORBIDDEN";
+    // A preview session's pull requests are written only by a person signed
+    // in on the web who manages its agent now, as its answers are.
+    const previewHeld = async () => {
+      if (operation === null) return;
+      const agentId = await store.previewAgent(actor.ownerId, sessionId);
+      if (agentId === null) return;
+      const refused = new SessionServiceError(
+        "FORBIDDEN",
+        "Only a person who manages this agent, signed in to the console, acts on its preview session",
+        undefined,
+        { reason_code: "role" },
+      );
+      if (
+        actor.caller.subject.principal?.kind !== "user" ||
+        actor.caller.subject.surface.kind !== "web"
+      ) {
+        throw refused;
+      }
+      await requirePermitted(authorization, actor.caller, "agent.manage", {
+        kind: "agent",
+        id: agentId,
+      }).catch((error: unknown) => {
+        throw forbidden(error) ? refused : error;
+      });
+    };
     if (scopeRefusal === null) {
+      let submitter = false;
       try {
         await requirePermitted(
           authorization,
@@ -419,7 +445,6 @@ export function createPullRequestService(deps: {
           "session.approve",
           session,
         );
-        return { sessionId, pushRequestId, receipt, refuse, submitter: false };
       } catch (error) {
         if (!forbidden(error)) throw error;
         // The share may let this caller submit without approving.
@@ -433,8 +458,17 @@ export function createPullRequestService(deps: {
         } catch (submitError) {
           throw forbidden(submitError) ? error : submitError;
         }
-        return { sessionId, pushRequestId, receipt, refuse, submitter: true };
+        submitter = true;
       }
+      await previewHeld();
+      return {
+        sessionId,
+        pushRequestId,
+        receipt,
+        refuse,
+        submitter,
+        recheck: previewHeld,
+      };
     }
     // What was pushed is what a person or the release's policy approved; a
     // pull request opens from exactly that branch and commit, so whoever may
@@ -450,7 +484,15 @@ export function createPullRequestService(deps: {
       if (forbidden(error)) await refuse(scopeRefusal);
       throw error;
     }
-    return { sessionId, pushRequestId, receipt, refuse, submitter: true };
+    await previewHeld();
+    return {
+      sessionId,
+      pushRequestId,
+      receipt,
+      refuse,
+      submitter: true,
+      recheck: previewHeld,
+    };
   }
 
   async function forgeFor(
@@ -553,6 +595,7 @@ export function createPullRequestService(deps: {
         ref,
         content: body,
         actor: receipt.actor,
+        principal: actor.caller,
       });
       switch (outcome.kind) {
         case "scheduled":
@@ -574,6 +617,13 @@ export function createPullRequestService(deps: {
             outcome.pushRequestState,
             outcome.details,
           );
+        case "preview_refused":
+          throw new SessionServiceError(
+            "FORBIDDEN",
+            "Only a person who manages this agent, signed in to the console, acts on its preview session",
+            undefined,
+            { reason_code: "role" },
+          );
       }
     },
 
@@ -583,12 +633,8 @@ export function createPullRequestService(deps: {
       rawPushRequestId: string,
       input: { readBody: () => Promise<OpenPullRequestRequest> },
     ): Promise<OpenPullRequestResponse> {
-      const { sessionId, pushRequestId, receipt, refuse } = await begin(
-        actor,
-        rawSessionId,
-        rawPushRequestId,
-        "open_pull_request",
-      );
+      const { sessionId, pushRequestId, receipt, refuse, recheck } =
+        await begin(actor, rawSessionId, rawPushRequestId, "open_pull_request");
       const body = await input.readBody();
       const source = await store.findSource(
         actor.ownerId,
@@ -658,6 +704,9 @@ export function createPullRequestService(deps: {
       });
       try {
         const found = await forge.findPullRequestForBranch(head);
+        // Judged again at the last moment before GitHub is written, not
+        // under a lock: no row lock is held across a forge call.
+        if (found?.state !== "open") await recheck();
         // An open one found, or GitHub answering a racing one with 422, is
         // a pull request the platform did not make: the outcome is adopted.
         opened =
@@ -718,6 +767,7 @@ export function createPullRequestService(deps: {
       // names this push's commit from now on. The pull request is open
       // whether or not this lands, so a failure is only logged.
       if (!created) {
+        await recheck();
         try {
           await forge.updatePullRequestBody(opened.number, (current) =>
             withPullRequestTail(current, tail),
@@ -1089,7 +1139,7 @@ export function createPullRequestService(deps: {
         expectedBodySha256?: string | undefined;
       },
     ): Promise<UpdatePullRequestResponse> {
-      const { sessionId, pushRequestId, receipt, refuse, submitter } =
+      const { sessionId, pushRequestId, receipt, refuse, submitter, recheck } =
         await begin(
           actor,
           rawSessionId,
@@ -1147,6 +1197,7 @@ export function createPullRequestService(deps: {
       const stop: { refusal: "body_changed" | "body_unverified" | null } = {
         refusal: null,
       };
+      await recheck();
       try {
         await forge.updatePullRequestBody(
           pullRequest.number,
@@ -1206,7 +1257,7 @@ export function createPullRequestService(deps: {
       rawPushRequestId: string,
       state: PullRequestState,
     ): Promise<SetPullRequestStateResponse> {
-      const { sessionId, pushRequestId, receipt, refuse, submitter } =
+      const { sessionId, pushRequestId, receipt, refuse, submitter, recheck } =
         await begin(
           actor,
           rawSessionId,
@@ -1253,6 +1304,7 @@ export function createPullRequestService(deps: {
       }
       let after = before.state;
       if (before.state !== state) {
+        await recheck();
         try {
           after = (await forge.setPullRequestState(pullRequest.number, state))
             .state;
@@ -1304,12 +1356,13 @@ export function createPullRequestService(deps: {
       rawSessionId: string,
       rawPushRequestId: string,
     ): Promise<MergePullRequestResponse> {
-      const { sessionId, pushRequestId, receipt, refuse } = await begin(
-        actor,
-        rawSessionId,
-        rawPushRequestId,
-        "merge_pull_request",
-      );
+      const { sessionId, pushRequestId, receipt, refuse, recheck } =
+        await begin(
+          actor,
+          rawSessionId,
+          rawPushRequestId,
+          "merge_pull_request",
+        );
       const source = await store.findSource(
         actor.ownerId,
         sessionId,
@@ -1431,6 +1484,7 @@ export function createPullRequestService(deps: {
             ),
           );
         }
+        await recheck();
         const merged = await forge.mergePullRequest({
           number: pullRequest.number,
           sha: source.gitCommit,
@@ -1516,7 +1570,7 @@ export function createPullRequestService(deps: {
       rawPushRequestId: string,
       input: { readBody: () => Promise<CommentPullRequestRequest> },
     ): Promise<CommentPullRequestResponse> {
-      const { sessionId, pushRequestId, receipt, refuse, submitter } =
+      const { sessionId, pushRequestId, receipt, refuse, submitter, recheck } =
         await begin(
           actor,
           rawSessionId,
@@ -1543,6 +1597,7 @@ export function createPullRequestService(deps: {
       );
       const hidden = commentMarker(source.sessionId, marker);
       let comment: { id: number; url: string; created: boolean };
+      await recheck();
       try {
         comment = await forge.upsertComment(
           pullRequest.number,

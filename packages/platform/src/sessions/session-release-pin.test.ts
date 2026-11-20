@@ -108,6 +108,10 @@ function setup(
     launchable?: () => boolean;
     /** Absent: a 1000 USD budget with no token limit. */
     limits?: Setting<SessionLimits>;
+    /** Whether the caller administers the agent; absent, not. */
+    agentAdmin?: boolean;
+    /** Where the caller comes from; absent, the console. */
+    surface?: "web" | "api";
   } = {},
 ) {
   const accepted: AcceptSessionInput[] = [];
@@ -115,7 +119,11 @@ function setup(
   const asked: AuthorizationRequest[] = [];
   const policy = createAuthorizationPolicy({
     // The caller is on the agent's managing team.
-    agents: { ...noAgentAuthority, isInside: async () => true },
+    agents: {
+      ...noAgentAuthority,
+      isInside: async () => true,
+      isAdmin: async () => options.agentAdmin ?? false,
+    },
     credentials: { unboundRefs: async () => options.unbound ?? [] },
   });
   const service = createSessionService({
@@ -269,7 +277,7 @@ function setup(
       role: "member",
       scopes: [...scopesForRole("member")],
     },
-    { kind: "web" },
+    { kind: options.surface ?? "web" },
     "r",
   );
   return { service, caller, accepted, appended, asked };
@@ -908,6 +916,53 @@ describe("a session pinned to an agent release", () => {
     expect(created.session_id).toBe("019a0000-0000-7000-8000-00000000e0a1");
   });
 
+  test("a preview by the agent's admin runs a release never approved, alone", async () => {
+    const { service, caller, accepted } = setup({
+      approvedAt: null,
+      agentAdmin: true,
+    });
+    await service.createSession(caller, {
+      idempotencyKey: "k",
+      body: { ...body, preview: true },
+    });
+    expect(accepted[0]?.notRunnableReason).toBeUndefined();
+    expect(accepted[0]?.preview).toBe(true);
+    expect(accepted[0]?.shareScope).toBe("private");
+  });
+
+  test("a preview from inside the agent but not its admin is 403 role, before the acceptance", async () => {
+    const { service, caller, accepted } = setup({ approvedAt: null });
+    const error = await service
+      .createSession(caller, {
+        idempotencyKey: "k",
+        body: { ...body, preview: true },
+      })
+      .catch((e: unknown) => e);
+    expect(error).toMatchObject({
+      code: "FORBIDDEN",
+      details: { reason_code: "role" },
+    });
+    expect(accepted).toEqual([]);
+  });
+
+  test("a preview from anything but the console is 400", async () => {
+    const { service, caller, accepted } = setup({
+      agentAdmin: true,
+      surface: "api",
+    });
+    const error = await service
+      .createSession(caller, {
+        idempotencyKey: "k",
+        body: { ...body, preview: true },
+      })
+      .catch((e: unknown) => e);
+    expect(error).toMatchObject({
+      code: "BAD_REQUEST",
+      details: { reason_code: "preview_web_only" },
+    });
+    expect(accepted).toEqual([]);
+  });
+
   test("refuses a release that was never approved with release_unapproved", async () => {
     const { service, caller, accepted } = setup({ approvedAt: null });
     const error = await service
@@ -1204,6 +1259,7 @@ function sessionOn(): SessionDetailRecord {
     id: SESSION,
     title: "On a ceiling",
     agent: null,
+    preview: false,
     agent_hidden: false,
     created_by: null,
     channel: null,

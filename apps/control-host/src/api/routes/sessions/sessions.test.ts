@@ -1269,6 +1269,7 @@ describe("session titles (94S-804)", () => {
     id: sessionId,
     title: "Renamed",
     agent: null,
+    preview: false,
     agent_hidden: false,
     created_by: null,
     channel: null,

@@ -152,6 +152,10 @@ integration("usage breakdown on PostgreSQL", () => {
         runtimeConfigSnapshot: {},
         effectiveTools: [],
       });
+      await db
+        .update(agents)
+        .set({ activeReleaseId: releaseOf[agentId], activationRevision: 0 })
+        .where(eq(agents.id, agentId));
     }
   }, 60_000);
 

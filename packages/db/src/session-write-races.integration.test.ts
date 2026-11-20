@@ -233,6 +233,10 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
       runtimeConfigSnapshot: {},
       effectiveTools: [],
     });
+    await db
+      .update(agents)
+      .set({ activeReleaseId: releaseId, activationRevision: 0 })
+      .where(eq(agents.id, agentId));
     return { agentId, releaseId };
   }
 

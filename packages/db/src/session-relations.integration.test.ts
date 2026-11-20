@@ -389,7 +389,8 @@ integration("session list relations, search and counts on PostgreSQL", () => {
       ["dave", agentX, ["bobWorkspaceX", "mine"]],
       // alice is outside Y: its filter finds nothing, not even toAlice.
       ["alice", agentY, []],
-      ["bob", agentY, ["toAlice"]],
+      // Y was never published, and bob administers none of it.
+      ["bob", agentY, []],
       ["dave", agentY, []],
       ["alice", randomUUID(), []],
     ];

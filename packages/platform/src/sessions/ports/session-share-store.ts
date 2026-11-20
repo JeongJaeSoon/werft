@@ -64,6 +64,8 @@ export type SetSessionShareInput = {
 export type SetSessionShareResult =
   | { outcome: "changed" | "unchanged"; share: SessionShare }
   | { outcome: "not_found" | "invalid_target" | "actor_inactive" }
+  /** A preview session, which no one widens past its creator. */
+  | { outcome: "preview_fixed" }
   | { outcome: "revision_conflict"; currentRevision: number };
 
 /** A session as a manager lists it: metadata only, never content. */

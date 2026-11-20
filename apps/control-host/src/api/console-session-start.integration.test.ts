@@ -16,6 +16,7 @@ import {
   createPostgresDecisionLog,
   createPostgresSessionControl,
   createPostgresSessionReader,
+  createPostgresSessionShareStore,
   createPostgresSessionUnitOfWork,
   createPostgresWorkspaceKeyStore,
   memberships,
@@ -28,6 +29,7 @@ import {
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   createAgentService,
+  createApiKeyService,
   createAuthorizationPolicy,
   createSessionService,
   type SessionCatalog,
@@ -43,10 +45,11 @@ import {
 } from "../testing/catalog.ts";
 import { createApiApp } from "./app.ts";
 import { createBootstrapGate, DatabaseIdentityStore } from "./auth.ts";
-import { DatabaseApiKeyStore } from "./keys.ts";
+import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import { registerAgentRoutes } from "./routes/agents/agents.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import { registerApiKeyRoutes } from "./routes/musterrolle/api-keys.ts";
 import { registerSessionRoutes } from "./routes/sessions/sessions.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
@@ -171,6 +174,7 @@ integration("starting an agent's session from the console", () => {
       agents: createDatabaseAgentAuthority(db),
       credentials,
       decisions: createPostgresDecisionLog(db),
+      sessions: createPostgresSessionShareStore(db),
     });
     const agents = createAgentService({
       authorization,
@@ -195,6 +199,14 @@ integration("starting an agent's session from the console", () => {
       releases: { ...agents, ...newSessionGitHubReaders(db) },
       credentials,
     });
+    const keys = createApiKeyService({
+      authorization,
+      store: createPostgresWorkspaceKeyStore(db),
+      mint: () => {
+        const minted = generateApiKey();
+        return { secret: minted, hash: hashApiKey(minted) };
+      },
+    });
     app = createApiApp({
       authMode: "api-key",
       logger,
@@ -206,6 +218,7 @@ integration("starting an agent's session from the console", () => {
         registerAuthRoutes(router, auth);
         registerSessionRoutes(router, service);
         registerAgentRoutes(router, agents);
+        registerApiKeyRoutes(router, keys);
       },
     });
 
@@ -357,5 +370,125 @@ integration("starting an agent's session from the console", () => {
       (await send("GET", `/v1/agents/${agentId}`, asCookie(cookies.teammate)))
         .status,
     ).toBe(200);
+  });
+
+  test("an agent saved with activate: false is its admins' to preview until it is published", async () => {
+    const [managed] = await db
+      .select({ teamId: schema.agents.managingTeamId })
+      .from(schema.agents)
+      .where(eq(schema.agents.id, agentId));
+    const created = await send("POST", "/v1/agents", asCookie(cookies.owner), {
+      slug: "draft-reviewer",
+      name: "draft reviewer",
+      managing_team_id: managed?.teamId,
+      card,
+      connection_id: TEST_CONNECTION_ID,
+      activate: false,
+    });
+    expect(created.status).toBe(201);
+    const saved = (await created.json()) as {
+      agent: { id: string; activation_revision: number };
+      release: { status: string; release_id: string };
+      draft: unknown;
+      active_release: unknown;
+    };
+    expect(saved.release.status).toBe("saved");
+    expect(saved.active_release).toBeNull();
+    expect(saved.draft).not.toBeNull();
+    const draftId = saved.agent.id;
+    const draftRelease = saved.release.release_id;
+    const listed = async (cookie: string, path: string) =>
+      (
+        (await (await send("GET", path, asCookie(cookie))).json()) as {
+          items: { id: string }[];
+        }
+      ).items.map((item) => item.id);
+    const startOn = (headers: HeadersInit, preview?: boolean) =>
+      send(
+        "POST",
+        "/v1/sessions",
+        { ...headers, "Idempotency-Key": crypto.randomUUID() },
+        {
+          agent_release_id: draftRelease,
+          message: "미리 써 볼게",
+          ...(preview === undefined ? {} : { preview }),
+        },
+      );
+
+    // The managing team's member does not see it anywhere.
+    expect(await listed(cookies.teammate, "/v1/agents")).not.toContain(draftId);
+    expect(
+      (await send("GET", `/v1/agents/${draftId}`, asCookie(cookies.teammate)))
+        .status,
+    ).toBe(404);
+    expect((await startOn(asCookie(cookies.teammate), true)).status).toBe(404);
+    expect(await listed(cookies.owner, "/v1/agents")).toContain(draftId);
+
+    // Outside a preview the release is not runnable yet.
+    const plain = await startOn(asCookie(cookies.owner));
+    expect(plain.status).toBe(409);
+    expect((await plain.json()).error.details.reason_code).toBe(
+      "release_unapproved",
+    );
+
+    const preview = await startOn(asCookie(cookies.owner), true);
+    expect(preview.status).toBe(201);
+    const { session_id } = createSessionResponseSchema.parse(
+      await preview.json(),
+    );
+    const read = await send(
+      "GET",
+      `/v1/sessions/${session_id}`,
+      asCookie(cookies.owner),
+    );
+    expect(((await read.json()) as { preview: boolean }).preview).toBe(true);
+    expect(
+      (
+        await send(
+          "GET",
+          `/v1/sessions/${session_id}`,
+          asCookie(cookies.teammate),
+        )
+      ).status,
+    ).toBe(404);
+
+    // The agent's own key reads its unpublished agent, and previews nothing.
+    const issued = await send("POST", "/v1/api-keys", asCookie(cookies.owner), {
+      kind: "agent",
+      agent_id: draftId,
+      scopes: ["sessions:read", "sessions:write"],
+    });
+    expect(issued.status).toBe(201);
+    const keyHeaders = {
+      Authorization: `Bearer ${((await issued.json()) as { secret: string }).secret}`,
+    };
+    const own = await send("GET", "/v1/agents", keyHeaders);
+    expect(own.status).toBe(200);
+    expect(
+      ((await own.json()) as { items: { id: string }[] }).items.map(
+        (item) => item.id,
+      ),
+    ).toEqual([draftId]);
+    expect((await startOn(keyHeaders, true)).status).toBe(400);
+
+    // Published, the team sees it and starts it as any agent.
+    const published = await send(
+      "POST",
+      `/v1/agents/${draftId}/activate`,
+      asCookie(cookies.owner),
+      {
+        release_id: draftRelease,
+        expected_revision: saved.agent.activation_revision,
+      },
+    );
+    expect(published.status).toBe(200);
+    const detail = await send(
+      "GET",
+      `/v1/agents/${draftId}`,
+      asCookie(cookies.teammate),
+    );
+    expect(detail.status).toBe(200);
+    expect(((await detail.json()) as { draft: unknown }).draft).toBeNull();
+    expect((await startOn(asCookie(cookies.teammate))).status).toBe(201);
   });
 });

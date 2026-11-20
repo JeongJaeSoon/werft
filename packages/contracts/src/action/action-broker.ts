@@ -130,6 +130,7 @@ export const ACTION_REFUSAL_CODES = {
   default_branch: byPolicy,
   target_refused: byPolicy,
   self_approval: byPolicy,
+  preview_role: byPolicy,
   // A person rejected the push; `details.reason` is their words.
   push_rejected: actionRefusalSpec("person"),
   github_refused: byGitHub,

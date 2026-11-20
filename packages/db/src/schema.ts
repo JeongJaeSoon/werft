@@ -1503,6 +1503,10 @@ export const sessions = pgTable(
     agentReleaseId: text("agent_release_id").references(
       (): AnyPgColumn => agentReleases.id,
     ),
+    // Started by an agent's admin to try a release before publishing it:
+    // shared with no one, and every input and answer is judged again against
+    // the agent's admins. Fixed at create.
+    preview: boolean().notNull().default(false),
     // The spec this session runs: its release's `spec_source` with the
     // session's own model, and what it derives. The release stays immutable;
     // a model move rewrites these four with `model` in one statement. Same

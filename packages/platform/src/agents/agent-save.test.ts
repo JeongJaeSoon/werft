@@ -123,6 +123,9 @@ type Script = {
   insert?: InsertReleaseResult["outcome"][];
   activate?: ActivateResult[];
   hasRow?: boolean;
+  /** What holdsSave answers, in order; true once they run out. */
+  holds?: boolean[];
+  record?: AgentRecord;
 };
 
 function scripted(script: Script) {
@@ -131,7 +134,9 @@ function scripted(script: Script) {
     insert: [] as unknown[],
     activate: [] as unknown[],
     failure: [] as unknown[],
+    holds: [] as unknown[],
   };
+  const holds = [...(script.holds ?? [])];
   const updates = [...(script.update ?? [])];
   const inserts = [...(script.insert ?? [])];
   const activations = [...(script.activate ?? [])];
@@ -151,7 +156,7 @@ function scripted(script: Script) {
       ownerless: 0,
     }),
     summaries: async () => new Map(),
-    get: async () => record(),
+    get: async () => script.record ?? record(),
     findVersion: async () => version,
     findRelease: async () => null,
     agentStatus: async () => "active",
@@ -165,6 +170,10 @@ function scripted(script: Script) {
     recordDraftFailure: async (input) => {
       calls.failure.push(input);
       return true;
+    },
+    holdsSave: async (input) => {
+      calls.holds.push(input);
+      return holds.shift() ?? true;
     },
     hasGitHubSettings: async () => script.hasRow ?? false,
     autoModelMigration: async () => true,
@@ -231,13 +240,102 @@ const caller = callerFor(
   crypto.randomUUID(),
 );
 
-const save = (script: Script, body = { card }) => {
+const save = (
+  script: Script,
+  body: {
+    card?: typeof card;
+    connection_id?: string;
+    activate?: boolean;
+  } = { card },
+) => {
   const { service, calls } = scripted(script);
   return {
     calls,
     result: service.updateAgent(caller, AGENT, body),
   };
 };
+
+describe("a save with activate: false makes the release and leaves it off", () => {
+  test("it answers saved with the release and activates nothing", async () => {
+    const { calls, result } = save({}, { card, activate: false });
+    const saved = await result;
+    expect(saved.release.status).toBe("saved");
+    expect(saved.release.release_id).toBe(
+      (calls.insert as { release: AgentRelease }[])[0]?.release.id ?? null,
+    );
+    expect(calls.activate).toEqual([]);
+    expect(calls.holds).toEqual([
+      {
+        workspaceId: WORKSPACE,
+        agentId: AGENT,
+        behaviorRevision: 6,
+        draftVersionId: VERSION,
+      },
+    ]);
+  });
+
+  test("a newer save that lands while its release is made supersedes it", async () => {
+    // Save A's release is built after save B wrote the draft.
+    const { calls, result } = save(
+      { holds: [false] },
+      { card, activate: false },
+    );
+    expect((await result).release).toEqual({
+      status: "superseded",
+      reason: null,
+      release_id: null,
+      version_id: VERSION,
+    });
+    expect(calls.insert).toHaveLength(1);
+    expect(calls.activate).toEqual([]);
+    expect(calls.failure).toEqual([]);
+  });
+
+  test("a release it cannot make keeps the draft and records why", async () => {
+    const { calls, result } = save(
+      {},
+      { card, connection_id: "no-such-connection", activate: false },
+    );
+    const saved = await result;
+    expect(saved.release.status).toBe("failed");
+    expect(saved.release.release_id).toBeNull();
+    expect(calls.insert).toEqual([]);
+    expect(calls.failure).toHaveLength(1);
+  });
+
+  test("a save leaving the card out goes on from the draft, not the active release", async () => {
+    const draftCard = agentCardSchema.parse({
+      rules: [{ id: "r1", text: "draft", source: "user" }],
+      model: "claude-sonnet-5",
+      capabilities: { mcp: null, forbidden: [] },
+    });
+    const draftVersion: AgentVersion = {
+      ...version,
+      id: "019a0000-0000-7000-8000-0000000000a3",
+      version_no: 2,
+      card: draftCard,
+      content_sha256: cardContentSha256(draftCard),
+    };
+    const base = record();
+    const { calls, result } = save(
+      {
+        record: {
+          ...base,
+          versions: [version, draftVersion],
+          draft: {
+            version_id: draftVersion.id,
+            connection_id: TEST_CONNECTION_ID,
+            failure: null,
+          },
+        },
+      },
+      { connection_id: TEST_CONNECTION_ID, activate: false },
+    );
+    await result.catch(() => undefined);
+    const [first] = calls.update as { card: { contentSha256: string } }[];
+    expect(first?.card.contentSha256).toBe(cardContentSha256(draftCard));
+  });
+});
 
 describe("a card save asks releaseAgent for what the request changes", () => {
   test("it carries the active release's GitHub pin and repository when the agent has no settings row", async () => {

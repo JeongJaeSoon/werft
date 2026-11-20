@@ -288,6 +288,17 @@ export interface AgentStore {
     failure: string;
   }): Promise<boolean>;
   /**
+   * Whether the agent's `behavior_revision` and draft are still the save's
+   * own, read under the agent row's lock as activation judges a save. False:
+   * a newer save took over.
+   */
+  holdsSave(input: {
+    workspaceId: string;
+    agentId: string;
+    behaviorRevision: number;
+    draftVersionId: string;
+  }): Promise<boolean>;
+  /**
    * Inserts the release, a `release_created` event and a receipt in one
    * transaction, or returns the row already stored under that id.
    * `not_found` when the version is not the agent's.

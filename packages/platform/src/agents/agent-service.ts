@@ -450,6 +450,7 @@ export function createAgentService(deps: {
 
   type ReleaseOutcome =
     | { status: "applied"; releaseId: string }
+    | { status: "saved"; releaseId: string }
     | { status: "superseded" }
     | { status: "failed"; reason: string }
     | { status: "retry" };
@@ -473,6 +474,8 @@ export function createAgentService(deps: {
       intent: Exclude<ActivationIntent, { kind: "direct" }>;
       reason: ReleaseReason;
       requireRoles?: readonly WorkspaceRole[];
+      /** False: the release is made and left for its admin to try. */
+      activate?: boolean;
     },
   ): Promise<ReleaseOutcome> {
     const { version, connectionId, active } = input;
@@ -573,6 +576,17 @@ export function createAgentService(deps: {
       default:
         assertReleaseIdentity(inserted.release);
     }
+    if (input.activate === false && input.intent.kind === "save") {
+      // As activation judges a save: a newer save that landed while this
+      // release was made takes over, and the release stays unactivated.
+      const held = await store.holdsSave({
+        workspaceId: caller.ownerId,
+        agentId: input.agentId,
+        behaviorRevision: input.intent.behaviorRevision,
+        draftVersionId: input.intent.draftVersionId,
+      });
+      return held ? { status: "saved", releaseId } : { status: "superseded" };
+    }
     // The id it was inserted under, the one derived above.
     const missing = await credentials.unboundRefs(caller.ownerId, releaseId);
     if (missing.length > 0) return failed("credential_unbound");
@@ -657,6 +671,7 @@ export function createAgentService(deps: {
       auto_model_migration?: boolean;
       card?: AgentCard;
       connection_id?: string;
+      activate?: boolean;
     },
   ): Promise<SaveAgentResponse> {
     if (fields.card !== undefined) assertDeclaredEnvNames(fields.card);
@@ -704,18 +719,20 @@ export function createAgentService(deps: {
       const cardOf = (versionId: string | undefined) =>
         record.versions.find((version) => version.id === versionId)?.card;
       const newest = record.versions.at(-1)?.card;
+      // A draft is a saved change not activated yet: a save that leaves the
+      // card or connection out goes on from it, not from the active release.
       const base =
         fields.card ??
-        cardOf(active?.version_id) ??
         cardOf(draft?.version_id) ??
+        cardOf(active?.version_id) ??
         newest;
       // The card that would be released, sent or not: a save that names only
       // a connection re-releases the stored one.
       if (asked && base !== undefined) assertDeclaredEnvNames(base);
       const connectionId =
         fields.connection_id ??
-        active?.connection_id ??
         draft?.connection_id ??
+        active?.connection_id ??
         null;
       if (!asked || connectionId === null || base === undefined) {
         const result = await store.update({
@@ -803,6 +820,7 @@ export function createAgentService(deps: {
             active && connectionId !== active.connection_id
               ? "connection_changed"
               : "card_saved",
+          ...(fields.activate === false ? { activate: false } : {}),
         });
         if (outcome.status !== "retry") break;
         if (tries >= MAX_SAVE_ATTEMPTS) {
@@ -836,9 +854,9 @@ export function createAgentService(deps: {
               release_id: null,
               version_id: saved.versionId,
             };
-      } else if (outcome.status === "applied") {
+      } else if (outcome.status === "applied" || outcome.status === "saved") {
         release = {
-          status: "applied",
+          status: outcome.status,
           reason: null,
           release_id: outcome.releaseId,
           version_id: saved.versionId,
@@ -1139,6 +1157,9 @@ export function createAgentService(deps: {
           return saveAgent(caller, userId, result.detail.agent.id, {
             card,
             connection_id: request.connection_id,
+            ...(request.activate === undefined
+              ? {}
+              : { activate: request.activate }),
           });
       }
     },
@@ -1161,6 +1182,9 @@ export function createAgentService(deps: {
         ...(request.connection_id === undefined
           ? {}
           : { connection_id: request.connection_id }),
+        ...(request.activate === undefined
+          ? {}
+          : { activate: request.activate }),
       });
     },
 

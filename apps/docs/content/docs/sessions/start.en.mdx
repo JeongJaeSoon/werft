@@ -199,6 +199,16 @@ Reference: [`GET /v1/sessions/{id}`](/reference/http-api/sessions/getSession)
 </Tab>
 </Tabs>
 
+## Preview
+
+An agent's admin runs a release alone before publishing it. Add `"preview": true` to the create request for a preview session; it starts even on a release never turned on ([Try it before you publish](/agents/create#try-it-before-you-publish)).
+
+- Only a person signed in to the web console sends it. From an API key or Slack it is 400 `BAD_REQUEST` (`reason_code: preview_web_only`).
+- You must manage the release's agent. Someone who cannot see the agent gets the 404 of a release that is not there; someone who sees it but is not its admin gets 403 `FORBIDDEN` (`reason_code: role`).
+- The session is seen by its creator alone and its share cannot be widened (409 `REVISION_CONFLICT`, `reason_code: preview_session`). Every request that adds a message, resumes it or answers its pending requests checks again that the sender still manages the agent, else 403 (`reason_code: role`).
+- It is a real run, with the same tools and permissions, and its usage and cost are counted. It counts toward no achievement.
+- `preview` is `true` in the session list and detail.
+
 ## Share scope
 
 Read the share scope to see who can see a session. Anyone who can see the session can read it. The scope is `sessions:read`.

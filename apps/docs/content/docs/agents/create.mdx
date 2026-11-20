@@ -140,6 +140,26 @@ curl -sS "$API/v1/agents/counts" "${WEB[@]}" | jq -c
 
 목록은 오래된 에이전트부터 `limit`개(기본 50, 최대 100)씩 온다. 응답의 `next_cursor`를 `cursor`로 보내면 다음 페이지이고, 마지막 페이지에서는 `null`이다. `cursor` 없이 부르면 첫 페이지만 온다. `q`(최대 200자)를 주면 이름이나 식별자에 그 글자가 든 에이전트만 대소문자 구분 없이 오고, `ids`에 에이전트 ID를 쉼표로 이어(최대 100개) 주면 그 에이전트만 온다. `connection_id`를 주면 활성 release가 그 연결로 도는 에이전트만 오고, 활성 release가 없는 에이전트는 빠진다. 모두 같은 `cursor`로 다음 페이지를 읽는다. `GET /v1/agents/counts`는 목록을 끝까지 읽었을 때의 개수(`all`), 그중 내가 직접 또는 팀으로 관리하는 개수(`administered`), 활성 release로 켜진 개수(`active`), 보관되지 않았지만 아직 활성 release가 없는 초안 개수(`draft`), 관리할 사람이 없는 개수(`ownerless`)를 준다. 둘 다 목록과 같은 권한이 있어야 하고 API key는 거절된다. `ownerless=true`를 주면 관리할 사람이 없는 에이전트만 온다([관리자 없는 에이전트](/agents/permissions#관리자-없는-에이전트)).
 
+## 게시하기 전에 미리 써 보기
+
+활성 release가 있는 에이전트는 **게시됨**이고, 없으면 **미게시**다. 미게시 에이전트는 그 에이전트의 관리자(개인 관리자, 관리자 팀 구성원, 담당 팀의 팀 관리자)와 워크스페이스 owner·admin에게만 보인다. 담당 팀 구성원과 사용 범위 팀에게는 목록과 개수에 없고, 상세는 404다. 게시되면 지금 규칙대로 보인다.
+
+저장 요청(`POST /v1/agents`, `PATCH /v1/agents/{id}`)에 `"activate": false`를 보내면 release를 만들되 켜지 않는다. 응답의 `release.status`는 `saved`이고 `release_id`가 그 release다. 바뀐 내용은 에이전트의 `draft`에 남는다. 다음 저장이 카드나 연결을 빼면 활성 release가 아니라 이 `draft`에서 이어 간다. 그 사이 더 새 저장이 들어왔으면 `superseded`이고, release를 만들지 못하면 `failed`와 이유가 온다. `activate`를 빼면 지금처럼 바로 켠다.
+
+```bash
+curl -sS "$API/v1/agents/$AID" -X PATCH "${WEB[@]}" -d '{
+  "card": { "model": "claude-sonnet-5", "capabilities": { "mcp": null } },
+  "connection_id": "fake-messages",
+  "activate": false
+}' | jq -c '.release | {status, release_id}'
+```
+
+```text
+{"status":"saved","release_id":"sha256:…"}
+```
+
+그 release는 미리보기 세션(`POST /v1/sessions`에 `"preview": true`, [세션 시작](/sessions/start#미리보기))으로 돌려 본다. 켜지 않은 release도 된다. 다 보았으면 [활성화](#활성화)로 켠다. 이것이 게시다. 켠 release가 `draft`와 같으면 `draft`가 비워지고, 이전 release로 되돌리면 `draft`는 남는다.
+
 ## 콘솔의 담당 팀
 
 담당 팀은 에이전트를 맡는 팀이다. 그 팀의 팀 관리자는 에이전트를 관리하고, 구성원은 설정을 보고 쓴다([권한](/agents/permissions#에이전트-관리자)).

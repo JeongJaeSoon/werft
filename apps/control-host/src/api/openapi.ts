@@ -1388,6 +1388,7 @@ const EXAMPLE_SESSION_SUMMARY = {
     release_label: "2026-10-11_17:00:00",
     release_is_active: true,
   },
+  preview: false,
   agent_hidden: false,
   created_by: {
     user_id: "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",

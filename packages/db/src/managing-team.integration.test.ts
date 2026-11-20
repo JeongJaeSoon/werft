@@ -412,8 +412,9 @@ integration("the managing team on PostgreSQL", () => {
     });
 
   // An owner, the managing team's lead, a plain member of it, and a member
-  // outside it, over one agent the team manages.
-  async function cast() {
+  // outside it, over one agent the team manages. Unpublished unless asked:
+  // only its admins and the workspace's managers reach it until then.
+  async function cast(options: { published?: true } = {}) {
     const workspaceId = randomUUID();
     await db.insert(schema.workspaces).values({
       id: workspaceId,
@@ -433,6 +434,19 @@ integration("the managing team on PostgreSQL", () => {
       card: card("v1"),
       managing_team_id: teamId,
     });
+    if (options.published) {
+      const version = created.versions[0];
+      if (!version) throw new Error("no version");
+      const { release } = await service().createRelease(
+        owner,
+        created.agent.id,
+        { version_id: version.id, connection_id: TEST_CONNECTION_ID },
+      );
+      await service().activateAgent(owner, created.agent.id, {
+        release_id: release.id,
+        expected_revision: -1,
+      });
+    }
     return {
       workspaceId,
       owner,
@@ -465,7 +479,7 @@ integration("the managing team on PostgreSQL", () => {
       teamId,
       agentId,
       created,
-    } = await cast();
+    } = await cast({ published: true });
     expect(created.agent.managing_team_id).toBe(teamId);
 
     expect(await isAdmin(workspaceId, agentId, lead)).toBe(true);
@@ -530,7 +544,9 @@ integration("the managing team on PostgreSQL", () => {
   });
 
   test("W, L and T read the agent's settings and O finds no agent; T changes nothing (agent-rbac R2)", async () => {
-    const { owner, lead, member, outsider, agentId } = await cast();
+    const { owner, lead, member, outsider, agentId } = await cast({
+      published: true,
+    });
     const policy = createAuthorizationPolicy({
       identity: createDatabaseIdentityReader(db),
       agents: authority(),
@@ -628,7 +644,7 @@ integration("the managing team on PostgreSQL", () => {
 
   test("the list's rows and cards follow who is inside each agent now", async () => {
     const { workspaceId, owner, member, outsider, teamId, agentId } =
-      await cast();
+      await cast({ published: true });
     // A second agent whose managing team has no one in it: only W and its
     // creator inside.
     const other = (
@@ -690,15 +706,6 @@ integration("the managing team on PostgreSQL", () => {
           reader(who),
         )
       ).items.length;
-    const released = await service().createRelease(owner, agentId, {
-      version_id: (await service().getAgent(owner, agentId)).versions[0]
-        ?.id as string,
-      connection_id: TEST_CONNECTION_ID,
-    });
-    await service().activateAgent(owner, agentId, {
-      release_id: released.release.id,
-      expected_revision: -1,
-    });
     expect(await byConnection(member)).toBe(1);
     expect(await byConnection(outsider)).toBe(0);
 
@@ -773,7 +780,7 @@ integration("the managing team on PostgreSQL", () => {
 
   test("who may name the managing team, at creation and after", async () => {
     const { workspaceId, owner, lead, member, outsider, teamId, agentId } =
-      await cast();
+      await cast({ published: true });
     const otherTeam = await newTeam(owner);
     const outsiderTeam = await newTeam(owner);
     await join(owner, outsiderTeam, outsider);
@@ -1108,6 +1115,11 @@ integration("the managing team on PostgreSQL", () => {
     const { release } = await agentsService.createRelease(owner, agentId, {
       version_id: version.id,
       connection_id: TEST_CONNECTION_ID,
+    });
+    // Published, so a member reaches it and is refused only by role.
+    await agentsService.activateAgent(owner, agentId, {
+      release_id: release.id,
+      expected_revision: -1,
     });
     const reach = (who: Caller) =>
       db.transaction((tx) =>

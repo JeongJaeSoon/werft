@@ -199,6 +199,16 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -c .reposi
 </Tab>
 </Tabs>
 
+## プレビュー
+
+エージェントの管理者は、公開する前に release を一人で試す。作成リクエストに `"preview": true` を加えるとプレビューセッションになり、一度も有効にしていない release でも始まる([公開する前に試す](/agents/create#公開する前に試す))。
+
+- Web コンソールにログインした人だけが送れる。API キーや Slack から送ると 400 `BAD_REQUEST`(`reason_code: preview_web_only`)である。
+- その release のエージェントを管理している必要がある。エージェントを見られない人には存在しない release と同じ 404、見られるが管理者でない人には 403 `FORBIDDEN`(`reason_code: role`)を返す。
+- セッションは作った人にだけ見え、共有を広げられない(409 `REVISION_CONFLICT`、`reason_code: preview_session`)。メッセージの追加、再開、待機中のリクエストへの回答はどれも、その時点でも管理者かを確かめ直し、そうでなければ 403(`reason_code: role`)である。
+- 本物の実行である。同じツールと権限で動き、使用量と費用も数える。成果の判定には入らない。
+- セッション一覧と詳細の `preview` が `true` になる。
+
 ## 共有範囲
 
 セッションを誰が見られるかは、共有範囲で読む。セッションを見られる人なら誰でも読める。scope は `sessions:read` である。

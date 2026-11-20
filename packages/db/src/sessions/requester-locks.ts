@@ -4,6 +4,7 @@ import type { Principal, UsageDecision } from "@werft-ai/platform";
 import { and, arrayContains, asc, eq, inArray, isNull } from "drizzle-orm";
 import { lockActorAccount } from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
+import { reachesBeforePublishNow } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import {
   agentAdmins,
@@ -202,7 +203,11 @@ export async function lockAgentUse(
   const { userId } = requester;
   if (userId === null) return false;
   const [agent] = await tx
-    .select({ id: agents.id, managingTeamId: agents.managingTeamId })
+    .select({
+      id: agents.id,
+      managingTeamId: agents.managingTeamId,
+      activeReleaseId: agents.activeReleaseId,
+    })
     .from(agents)
     .innerJoin(agentReleases, eq(agentReleases.agentId, agents.id))
     .where(
@@ -211,6 +216,7 @@ export async function lockAgentUse(
     .limit(1)
     .for("share", { of: agents });
   if (!agent) return false;
+  const published = agent.activeReleaseId !== null;
   const direct = await tx
     .select({ userId: agentAdmins.userId })
     .from(agentAdmins)
@@ -289,7 +295,158 @@ export async function lockAgentUse(
     )
     .orderBy(asc(memberTeamMembers.id))
     .for("share");
-  return member.some((row) => reaching.includes(row.teamId));
+  if (!member.some((row) => reaching.includes(row.teamId))) return false;
+  // Over the rows held above: an unpublished agent lets in only its admins.
+  return (
+    published ||
+    (await reachesBeforePublishNow(tx, workspaceId, userId, agent.id))
+  );
+}
+
+/**
+ * Whether the requester may feed a preview session of `agentId` now: a
+ * person signed in themselves (no key, no Slack link) who manages the agent,
+ * as a workspace owner or admin or one of its admins (`administers`). The
+ * admin rows are share-locked here in the documented order, so a demotion
+ * that commits after this either waits for the write or is seen by it.
+ */
+export async function lockPreviewManager(
+  tx: Database,
+  principal: Principal,
+  requester: Requester,
+  workspaceId: string,
+  agentId: string,
+): Promise<boolean> {
+  const { userId } = requester;
+  if (
+    userId === null ||
+    requester.apiKeyId !== null ||
+    principal.actor?.linkedAccount !== undefined
+  ) {
+    return false;
+  }
+  if (requester.role !== null && MANAGERS.includes(requester.role)) {
+    return true;
+  }
+  const [agent] = await tx
+    .select({ managingTeamId: agents.managingTeamId })
+    .from(agents)
+    .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)))
+    .limit(1)
+    .for("share");
+  if (!agent) return false;
+  const direct = await tx
+    .select({ userId: agentAdmins.userId })
+    .from(agentAdmins)
+    .where(
+      and(
+        eq(agentAdmins.workspaceId, workspaceId),
+        eq(agentAdmins.agentId, agentId),
+        eq(agentAdmins.userId, userId),
+      ),
+    )
+    .limit(1)
+    .for("share");
+  if (direct.length > 0) return true;
+  const adminTeams = (
+    await tx
+      .select({ teamId: agentAdminTeams.teamId })
+      .from(agentAdminTeams)
+      .where(
+        and(
+          eq(agentAdminTeams.workspaceId, workspaceId),
+          eq(agentAdminTeams.agentId, agentId),
+        ),
+      )
+  ).map((row) => row.teamId);
+  const teamIds = [...new Set([...adminTeams, agent.managingTeamId])].sort();
+  const liveTeams = new Set(
+    (
+      await tx
+        .select({ id: memberTeams.id })
+        .from(memberTeams)
+        .where(
+          and(
+            eq(memberTeams.workspaceId, workspaceId),
+            inArray(memberTeams.id, teamIds),
+            isNull(memberTeams.archivedAt),
+          ),
+        )
+        .orderBy(asc(memberTeams.id))
+        .for("share")
+    ).map((row) => row.id),
+  );
+  if (liveTeams.size === 0) return false;
+  const liveAdminTeams = adminTeams.filter((id) => liveTeams.has(id));
+  // A team removed from the agent since the read above is not lent any more.
+  const lending =
+    liveAdminTeams.length === 0
+      ? []
+      : (
+          await tx
+            .select({ teamId: agentAdminTeams.teamId })
+            .from(agentAdminTeams)
+            .where(
+              and(
+                eq(agentAdminTeams.workspaceId, workspaceId),
+                eq(agentAdminTeams.agentId, agentId),
+                inArray(agentAdminTeams.teamId, liveAdminTeams),
+              ),
+            )
+            .orderBy(asc(agentAdminTeams.teamId))
+            .for("share")
+        ).map((row) => row.teamId);
+  const member = await tx
+    .select({ teamId: memberTeamMembers.teamId, role: memberTeamMembers.role })
+    .from(memberTeamMembers)
+    .where(
+      and(
+        inArray(memberTeamMembers.teamId, [...liveTeams]),
+        eq(memberTeamMembers.userId, userId),
+        isNull(memberTeamMembers.removedAt),
+      ),
+    )
+    .orderBy(asc(memberTeamMembers.id))
+    .for("share");
+  return member.some(
+    (row) =>
+      lending.includes(row.teamId) ||
+      (row.teamId === agent.managingTeamId && row.role === "lead"),
+  );
+}
+
+/**
+ * `lockPreviewManager` for a write that has not judged the requester's use of
+ * the agent yet (a resume, an answer): the use rows are taken first so the
+ * admin rows read are held. The caller took `lockRequester` before the
+ * session row.
+ */
+export async function lockPreviewFeed(
+  tx: Database,
+  principal: Principal,
+  requester: Requester | null,
+  session: { workspaceId: string | null; agentReleaseId: string | null },
+): Promise<boolean> {
+  const { workspaceId, agentReleaseId } = session;
+  if (requester === null || workspaceId === null || agentReleaseId === null) {
+    return false;
+  }
+  if (!(await lockAgentUse(tx, requester, workspaceId, agentReleaseId))) {
+    return false;
+  }
+  const [release] = await tx
+    .select({ agentId: agentReleases.agentId })
+    .from(agentReleases)
+    .where(eq(agentReleases.id, agentReleaseId))
+    .limit(1);
+  if (!release) return false;
+  return lockPreviewManager(
+    tx,
+    principal,
+    requester,
+    workspaceId,
+    release.agentId,
+  );
 }
 
 export type LockedSession = {
@@ -365,6 +522,7 @@ export async function lockSessionReach(
 
   let agentId: string | null = null;
   let managingTeamId: string | null = null;
+  let published = true;
   let directAdmin = false;
   let adminTeams: string[] = [];
   if (
@@ -376,6 +534,7 @@ export async function lockSessionReach(
       .select({
         id: agents.id,
         managingTeamId: agents.managingTeamId,
+        activeReleaseId: agents.activeReleaseId,
         holdsUnassigned: memberTeams.holdsUnassigned,
       })
       .from(agents)
@@ -391,6 +550,7 @@ export async function lockSessionReach(
       .for("share", { of: agents });
     agentId = agent?.id ?? null;
     managingTeamId = agent?.managingTeamId ?? null;
+    published = agent?.activeReleaseId != null;
     // The holding team of migration 0243 does not limit who sees its agents'
     // workspace sessions, as sessionVisibleTo has it. A null team is no longer
     // "an agent without a team" (the column is NOT NULL): it only means the
@@ -515,9 +675,14 @@ export async function lockSessionReach(
         );
 
   const inside =
-    directAdmin ||
-    [...lending].some((id) => memberOf.has(id)) ||
-    (managingTeamId !== null && memberOf.has(managingTeamId));
+    (directAdmin ||
+      [...lending].some((id) => memberOf.has(id)) ||
+      (managingTeamId !== null && memberOf.has(managingTeamId))) &&
+    // Over the rows held above: an unpublished agent lets in only its admins.
+    (published ||
+      agentId === null ||
+      userId === null ||
+      (await reachesBeforePublishNow(tx, workspaceId, userId, agentId)));
   const sees =
     owns ||
     named ||

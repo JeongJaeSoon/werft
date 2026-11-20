@@ -225,6 +225,7 @@ function app(
     consoleOrigin: null,
     logger: { warn: () => {} },
     store: {
+      previewAgent: async () => null,
       failHeadMoved: async () => {},
       schedule: async (input) => {
         scheduleCalls.push(input);

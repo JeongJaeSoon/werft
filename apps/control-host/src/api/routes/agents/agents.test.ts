@@ -155,6 +155,7 @@ function store(overrides: Partial<AgentStore> = {}): AgentStore {
     update: async () => ({ outcome: "updated", detail, saved: null }),
     archive: async () => ({ outcome: "archived", receiptId: RECEIPT }),
     recordDraftFailure: async () => true,
+    holdsSave: async () => true,
     hasGitHubSettings: async () => false,
     autoModelMigration: async () => true,
     modelMigrationCandidates: async () => [],

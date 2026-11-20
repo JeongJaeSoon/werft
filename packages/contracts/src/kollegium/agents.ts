@@ -1131,6 +1131,7 @@ export const agentDetailSchema = z
 
 export const RELEASE_STATUS_VALUES = [
   "applied",
+  "saved",
   "failed",
   "unchanged",
   "superseded",
@@ -1139,7 +1140,9 @@ export const releaseStatusSchema = z.enum(RELEASE_STATUS_VALUES);
 
 /**
  * How a save ended for the release it asked for. `superseded` is not a
- * failure: a newer save took over and this one changed nothing.
+ * failure: a newer save took over and this one changed nothing. `saved` is
+ * a save sent with `activate: false`: its release was made and not activated,
+ * and the agent's draft holds it.
  */
 export const saveReleaseSchema = z
   .object({
@@ -1299,6 +1302,11 @@ export const countAgentsResponseSchema = z.object({
     .strict(),
 });
 
+const saveActivateSchema = z.boolean().optional().meta({
+  description:
+    "Whether a save that changes what the agent does activates the release it makes. Omitted, true. With false the release is made but not activated (`release.status: saved`): the agent's draft keeps the change, a preview session (`POST /v1/sessions` with `preview: true`) can try it, and `POST /v1/agents/{id}/activate` publishes it. An agent with no active release is unpublished: only its admins and the workspace's owners and admins see it.",
+});
+
 /** Creates the agent and its first version; nothing is released. */
 export const createAgentRequestSchema = z
   .object({
@@ -1321,6 +1329,7 @@ export const createAgentRequestSchema = z
      * makes and activates that release; without it the agent stays a draft.
      */
     connection_id: z.string().min(1).max(128).optional(),
+    activate: saveActivateSchema,
   })
   .strict();
 /**
@@ -1337,8 +1346,9 @@ export const updateAgentRequestSchema = z
     /** Changes the row only, at once; no release is made. */
     auto_model_migration: z.boolean().optional(),
     card: agentCardRequestSchema.optional(),
-    /** Absent: the connection the agent runs on, else the one its draft names. */
+    /** Absent: the connection the agent's draft names, else the one it runs on. */
     connection_id: z.string().min(1).max(128).optional(),
+    activate: saveActivateSchema,
   })
   .strict()
   .refine(

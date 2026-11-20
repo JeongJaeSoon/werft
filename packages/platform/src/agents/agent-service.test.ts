@@ -139,6 +139,7 @@ function memoryStore(
     update: async () => ({ outcome: "updated", detail, saved: null }),
     archive: async () => ({ outcome: "not_found" }),
     recordDraftFailure: async () => true,
+    holdsSave: async () => true,
     hasGitHubSettings: async () => settingsRow,
     autoModelMigration: async () => true,
     modelMigrationCandidates: async () => [],

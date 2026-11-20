@@ -66,11 +66,18 @@ export async function usageOf(
     lock ? query.for("share") : query;
   const [agent] = await run(
     tx
-      .select({ managingTeamId: agents.managingTeamId })
+      .select({
+        managingTeamId: agents.managingTeamId,
+        activeReleaseId: agents.activeReleaseId,
+      })
       .from(agents)
       .where(and(eq(agents.workspaceId, workspaceId), eq(agents.id, agentId))),
   );
   if (!agent) return { allowed: false };
+  // An unpublished agent is reached only as `reachesBeforePublish` has it
+  // (administers.ts): its admins and the workspace's managers. So neither
+  // the workspace scope, a usage team nor managing-team membership counts.
+  const published = agent.activeReleaseId !== null;
   // An agent made by hand without its row reads as the default it would get.
   const [usage] = await run(
     tx
@@ -78,7 +85,9 @@ export async function usageOf(
       .from(agentUsage)
       .where(eq(agentUsage.agentId, agentId)),
   );
-  const scope = (usage?.scope ?? "workspace") as AgentUsageScope;
+  const scope: AgentUsageScope = published
+    ? ((usage?.scope ?? "workspace") as AgentUsageScope)
+    : "private";
   const agentKey =
     who.keyAgentId !== null && who.keyAgentId.toLowerCase() === agentId;
   const facts: UsageFacts = {
@@ -188,11 +197,11 @@ export async function usageOf(
   }
   const inLive = (ids: readonly string[]) =>
     ids.filter((id) => live.has(id) && roleIn.has(id));
-  facts.usageTeams = inLive(targets);
+  facts.usageTeams = published ? inLive(targets) : [];
   facts.adminTeams = inLive(lent);
   const managing = agent.managingTeamId;
   if (live.has(managing) && roleIn.has(managing)) {
-    facts.managingMember = managing;
+    if (published) facts.managingMember = managing;
     if (roleIn.get(managing) === "lead") facts.managingLead = managing;
   }
   return decideUsage(facts);

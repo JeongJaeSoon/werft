@@ -4,6 +4,7 @@ import {
   eq,
   exists,
   inArray,
+  isNotNull,
   isNull,
   ne,
   or,
@@ -25,6 +26,7 @@ import {
   memberTeams,
   users,
 } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 
 // Aliased: callers pass an outer `agents.id` as `agentId`.
 const managed = alias(agents, "managed_agent");
@@ -153,19 +155,14 @@ export function hasOwner(
 }
 
 const managerRow = alias(memberships, "manager_membership");
+const publishedAgent = alias(agents, "published_agent");
 
-/**
- * True where `userId`, a live member of `workspaceId`, is inside `agentId`:
- * an owner or admin, one of its admins (`administers`), or a live member of
- * its live managing team (agent-rbac design (b)).
- */
-export function insideAgent(
+function workspaceManager(
   db: Database,
   workspaceId: string | SQLWrapper,
   userId: string,
-  agentId: string | SQLWrapper,
 ): SQL {
-  const manager = exists(
+  return exists(
     db
       .select({ one: sql`1` })
       .from(managerRow)
@@ -177,13 +174,80 @@ export function insideAgent(
         ),
       ),
   );
+}
+
+/** True where `agentId` has an active release: it is published. */
+export function agentPublished(
+  db: Database,
+  agentId: string | SQLWrapper,
+): SQL {
+  return exists(
+    db
+      .select({ one: sql`1` })
+      .from(publishedAgent)
+      .where(
+        and(
+          eq(publishedAgent.id, agentId),
+          isNotNull(publishedAgent.activeReleaseId),
+        ),
+      ),
+  );
+}
+
+/**
+ * The one answer to "may `userId` reach this agent at all, published or
+ * not": it is published, or they administer it, or they are a workspace
+ * owner or admin. `insideAgent`, `agentUsable`, the locked re-judgements
+ * (requester-locks.ts) and the usage facts (agent-usage.ts) all hold to it,
+ * so an unpublished agent is hidden from its managing team's members and its
+ * usage teams on every path alike.
+ */
+export function reachesBeforePublish(
+  db: Database,
+  workspaceId: string | SQLWrapper,
+  userId: string,
+  agentId: string | SQLWrapper,
+): SQL {
+  return or(
+    agentPublished(db, agentId),
+    administers(db, workspaceId, userId, agentId),
+    workspaceManager(db, workspaceId, userId),
+  ) as SQL;
+}
+
+/** `reachesBeforePublish` read now, over the rows the caller already holds. */
+export async function reachesBeforePublishNow(
+  tx: Database,
+  workspaceId: string,
+  userId: string,
+  agentId: string,
+): Promise<boolean> {
+  const result = await tx.execute(
+    sql`select ${reachesBeforePublish(tx, workspaceId, userId, agentId)} as ok`,
+  );
+  return rowsOf<{ ok: boolean }>(result)[0]?.ok === true;
+}
+
+/**
+ * True where `userId`, a live member of `workspaceId`, is inside `agentId`:
+ * an owner or admin, one of its admins (`administers`), or a live member of
+ * its live managing team (agent-rbac design (b)) once the agent is published
+ * (`reachesBeforePublish`).
+ */
+export function insideAgent(
+  db: Database,
+  workspaceId: string | SQLWrapper,
+  userId: string,
+  agentId: string | SQLWrapper,
+): SQL {
   return and(
     liveMember(db, workspaceId, userId),
     or(
-      manager,
+      workspaceManager(db, workspaceId, userId),
       administers(db, workspaceId, userId, agentId),
       inManagingTeam(db, workspaceId, userId, agentId, false),
     ),
+    reachesBeforePublish(db, workspaceId, userId, agentId),
   ) as SQL;
 }
 
@@ -198,10 +262,10 @@ const usageMember = alias(memberTeamMembers, "usage_member");
  * tests run against this on the same rows), `GET /v1/usable-agents` and the
  * hiding of a private agent all read it.
  *
- * True where the key is bound to this very agent; or the agent is open to the
- * workspace (no usage row reads as open); or the requester is a live member
- * of the workspace and is inside the agent (`insideAgent`) or in a live team
- * the agent lists. A usage row without a team (a user row) lists no one. A
+ * True where the key is bound to this very agent; or the agent is published
+ * and open to the workspace (no usage row reads as open); or the requester is
+ * a live member of the workspace and is inside the agent (`insideAgent`) or,
+ * the agent published, in a live team the agent lists. A usage row without a team (a user row) lists no one. A
  * requester with no person and no matching key uses nothing private.
  */
 export function agentUsable(
@@ -218,7 +282,11 @@ export function agentUsable(
         and(eq(usageScope.agentId, agentId), ne(usageScope.scope, "workspace")),
       ),
   );
-  const branches: SQL[] = [sql`NOT ${closed}`];
+  // An unpublished agent is open to no one by its usage (agent key aside):
+  // only those `insideAgent` lets through, who reach it before publish.
+  const branches: SQL[] = [
+    and(sql`NOT ${closed}`, agentPublished(db, agentId)) as SQL,
+  ];
   // A malformed id names nobody; it must not reach a uuid comparison.
   if (who.keyAgentId !== null && UUID.test(who.keyAgentId)) {
     branches.push(sql`${agentId} = ${who.keyAgentId.toLowerCase()}::uuid`);
@@ -249,7 +317,11 @@ export function agentUsable(
     );
     branches.push(
       insideAgent(db, workspaceId, userId, agentId),
-      and(liveMember(db, workspaceId, userId), listed) as SQL,
+      and(
+        liveMember(db, workspaceId, userId),
+        listed,
+        agentPublished(db, agentId),
+      ) as SQL,
     );
   }
   return or(...branches) as SQL;

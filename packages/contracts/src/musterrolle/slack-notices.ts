@@ -23,7 +23,7 @@ const SLACK_NOTICE_MESSAGES_KO = {
   releaseUnavailable:
     "이 에이전트의 릴리스가 쓰는 연결이 꺼졌거나 그 모델이 연결 목록에서 빠져 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 쓸 수 있는 연결과 모델로 새 릴리스를 만들고 활성화해야 해요",
   noActiveRelease:
-    "이 에이전트는 아직 활성화된 릴리스가 없어요. 에이전트 관리자가 웹 콘솔에서 릴리스를 활성화해야 해요",
+    "이 에이전트는 아직 게시되지 않았어요. 웹 콘솔에서 미리 써 본 뒤 게시하면 Slack에서 쓸 수 있어요",
   agentOwnerless:
     "이 에이전트를 관리할 사람이 없어 새 세션을 시작할 수 없어요. 워크스페이스 관리자에게 에이전트 관리자를 정해 달라고 요청하세요",
   pendingApproval: "이 채널은 어드민 승인을 기다리고 있어요",
@@ -63,7 +63,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     releaseUnavailable:
       "このエージェントのリリースが使う接続が無効になったか、そのモデルが接続の一覧から外れたため、開始できませんでした。エージェントの管理者がWebコンソールで使える接続とモデルの新しいリリースを作成して有効化する必要があります",
     noActiveRelease:
-      "このエージェントにはまだ有効なリリースがありません。エージェントの管理者がWebコンソールでリリースを有効化する必要があります",
+      "このエージェントはまだ公開されていません。Webコンソールで試してから公開すると、Slackで使えるようになります",
     agentOwnerless:
       "このエージェントを管理する人がいないため、新しいセッションを開始できません。ワークスペースの管理者にエージェントの管理者を決めてもらってください",
     pendingApproval: "このチャンネルはアドミンの承認を待っています",
@@ -93,7 +93,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     releaseUnavailable:
       "The agent couldn't start because its release's connection was disabled or its model left the connection's list. An agent admin needs to create and activate a new release on an available connection and model in the web console",
     noActiveRelease:
-      "This agent has no active release yet. An agent admin needs to activate a release in the web console",
+      "This agent is not published yet. Try it in the web console and publish it to use it in Slack",
     agentOwnerless:
       "No one administers this agent, so it can't start a new session. Ask a workspace admin to assign an agent admin",
     pendingApproval: "This channel is waiting for an admin's approval",
