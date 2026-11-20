@@ -1406,12 +1406,21 @@ integration("surface bindings on PostgreSQL", () => {
       expect(
         await store().observeLifecycle(installationId, "C0UNTIMED", at(4)),
       ).toBe(true);
+      expect(
+        await store().recordJoin(installationId, "C0UNTIMED", bound.id, at(4)),
+      ).toBe(false);
       expect(await store().botRemovedFrom(installationId, "C0UNTIMED")).toBe(
         true,
       );
       expect(
         await store().observeLifecycle(installationId, "C0UNTIMED", at(5)),
       ).toBe(true);
+      expect(
+        await store().recordJoin(installationId, "C0UNTIMED", bound.id, at(5)),
+      ).toBe(true);
+      expect(
+        await store().resolveSlackChannel(installationId, "C0UNTIMED"),
+      ).toMatchObject({ membership: { state: "joined", error: null } });
       expect(await store().botRemovedFrom(installationId, "C0UNTIMED")).toBe(
         false,
       );
@@ -1420,6 +1429,78 @@ integration("surface bindings on PostgreSQL", () => {
       expect(await store().botRemovedFrom(installationId, "C0FIRST")).toBe(
         true,
       );
+    });
+
+    test("a public channel first bound by a join at its leave's own time waits for an invite", async () => {
+      const { installationId } = await waiting();
+      await store().botLeft(installationId, "C0FRESH", at(2));
+      await store().observeLifecycle(installationId, "C0FRESH", at(2));
+      const made = await store().ensureInvitedChannel(
+        installationId,
+        "C0FRESH",
+        "public_channel",
+      );
+      if (made === null) throw new Error("no binding");
+      expect(made.membership).toEqual({
+        state: "awaiting_invite",
+        error: null,
+      });
+      expect(
+        await store().recordJoin(installationId, "C0FRESH", made.id, at(2)),
+      ).toBe(false);
+      expect(
+        await store().resolveSlackChannel(installationId, "C0FRESH"),
+      ).toMatchObject({
+        membership: { state: "awaiting_invite", error: null },
+      });
+      // With no removal on record, an invited channel is bound joined.
+      await store().observeLifecycle(installationId, "C0INVITED", at(2));
+      expect(
+        await store().ensureInvitedChannel(
+          installationId,
+          "C0INVITED",
+          "public_channel",
+        ),
+      ).toMatchObject({ membership: { state: "joined", error: null } });
+    });
+
+    test("a Slack answer is written only while the removal on record is what it was before Slack was asked", async () => {
+      const { owner, agentId, installationId } = await waiting();
+      await setAs(owner, agentId, { channelId: "C0ASKED", home: true });
+      const bound = await store().resolveSlackChannel(
+        installationId,
+        "C0ASKED",
+      );
+      if (bound === null) throw new Error("no binding");
+      await store().setMembership(bound.id, {
+        state: "awaiting_invite",
+        error: null,
+      });
+      const before = await store().botRemovedFrom(installationId, "C0ASKED");
+      expect(before).toBe(false);
+      // A leave noted while Slack was asked writes the value already there.
+      await store().botLeft(installationId, "C0ASKED", at(2));
+      await store().setMembership(
+        bound.id,
+        { state: "joined", error: null },
+        { state: "awaiting_invite", error: null },
+        before,
+      );
+      expect(
+        await store().resolveSlackChannel(installationId, "C0ASKED"),
+      ).toMatchObject({
+        membership: { state: "awaiting_invite", error: null },
+      });
+      // Unchanged since the question (an invite whose event was lost): kept.
+      await store().setMembership(
+        bound.id,
+        { state: "joined", error: null },
+        { state: "awaiting_invite", error: null },
+        true,
+      );
+      expect(
+        await store().resolveSlackChannel(installationId, "C0ASKED"),
+      ).toMatchObject({ membership: { state: "joined", error: null } });
     });
 
     test("an event with no time cannot be ordered: the leave applies and orders nothing", async () => {

@@ -229,13 +229,16 @@ describe("a removal the membership no longer shows", () => {
     removed: () => boolean;
     onAsk?: () => void;
     lookup?: Error;
+    member?: boolean;
   }) {
     const calls: string[] = [];
     const recorded: SurfaceMembership[] = [];
+    const guards: (boolean | undefined)[] = [];
     const joiner = createSlackChannelJoiner({
       bindings: {
-        setMembership: async (_id, membership) => {
+        setMembership: async (_id, membership, _expected, removed) => {
           recorded.push(membership);
+          guards.push(removed);
         },
         botRemovedFrom: async (installationId, channelId) => {
           calls.push(`removed?:${installationId}:${channelId}`);
@@ -249,7 +252,7 @@ describe("a removal the membership no longer shows", () => {
           if (opts.lookup) throw opts.lookup;
           return {
             kind: "public_channel",
-            isMember: false,
+            isMember: opts.member ?? false,
             isArchived: false,
           };
         },
@@ -259,7 +262,7 @@ describe("a removal the membership no longer shows", () => {
       },
       botToken: async () => "bot-credential",
     });
-    return { joiner, calls, recorded };
+    return { joiner, calls, recorded, guards };
   }
   const binding = (membership: SurfaceMembership | null) =>
     ({
@@ -290,7 +293,11 @@ describe("a removal the membership no longer shows", () => {
         binding({ state: "config_error", error: "missing_scope" }),
       ),
     ).toEqual({ state: "awaiting_invite", error: null });
-    expect(next.calls).toEqual(["info:C1", `removed?:${INSTALLATION}:C1`]);
+    expect(next.calls).toEqual([
+      `removed?:${INSTALLATION}:C1`,
+      "info:C1",
+      `removed?:${INSTALLATION}:C1`,
+    ]);
   });
 
   test("a leave noted while Slack was being asked stops the join", async () => {
@@ -304,7 +311,31 @@ describe("a removal the membership no longer shows", () => {
     expect(await run.joiner(binding({ state: "joined", error: null }))).toEqual(
       { state: "awaiting_invite", error: null },
     );
-    expect(run.calls).toEqual(["info:C1", `removed?:${INSTALLATION}:C1`]);
+    expect(run.calls).toEqual([
+      `removed?:${INSTALLATION}:C1`,
+      "info:C1",
+      `removed?:${INSTALLATION}:C1`,
+    ]);
+    // The answer is written only while the record still says "not removed".
+    expect(run.guards).toEqual([false]);
+  });
+
+  test("Slack's answer from before a leave is written only while no removal is on record", async () => {
+    let left = false;
+    const run = joinerWith({
+      removed: () => left,
+      member: true,
+      onAsk: () => {
+        left = true;
+      },
+    });
+    expect(
+      await run.joiner(binding({ state: "awaiting_invite", error: null })),
+    ).toEqual({ state: "joined", error: null });
+    // The store refuses it: the leave noted meanwhile left the membership
+    // value as this run read it, so only the record shows the change.
+    expect(run.recorded).toEqual([{ state: "joined", error: null }]);
+    expect(run.guards).toEqual([false]);
   });
 
   test("with no removal noted, a public channel is joined", async () => {
@@ -314,6 +345,7 @@ describe("a removal the membership no longer shows", () => {
       error: null,
     });
     expect(run.calls).toEqual([
+      `removed?:${INSTALLATION}:C1`,
       "info:C1",
       `removed?:${INSTALLATION}:C1`,
       "join:C1",

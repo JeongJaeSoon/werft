@@ -358,6 +358,14 @@ export function createPostgresSurfaceBindingStore(
       const { actions, disclosure } = DEFAULT_SURFACE_CEILING;
       const bindingId = randomUUID();
       return db.transaction(async (tx) => {
+        // A public channel the bot was removed from at this join's own time
+        // or later is bound waiting for an invite, as `recordJoin` would leave
+        // it; a binding made `joined` here would outlive its refusal.
+        const membership =
+          channelKind === "public_channel" &&
+          (await removedByEvents(tx, id, channelId, { lock: true }))
+            ? "awaiting_invite"
+            : "joined";
         const inserted = rowsOf<{ id: string }>(
           await tx.execute(sql`
             INSERT INTO ${surfaceBindings} (id, workspace_id, agent_id, surface,
@@ -369,7 +377,7 @@ export function createPostgresSurfaceBindingStore(
               ARRAY[${sql.join(
                 actions.map((action) => sql`${action}`),
                 sql`, `,
-              )}]::text[], ${disclosure}, 'joined'
+              )}]::text[], ${disclosure}, ${membership}
             FROM ${agentIdentities} i
             WHERE i.installation_id = ${id} AND i.status = 'active'
             ON CONFLICT DO NOTHING
@@ -429,30 +437,54 @@ export function createPostgresSurfaceBindingStore(
       recordJoin(db, installationId, channelId, bindingId, at),
     approve: (input) => resolve(db, input, "approve"),
     reject: (input) => resolve(db, input, "reject"),
-    async setMembership(bindingId, membership, expected) {
+    async setMembership(bindingId, membership, expected, removed) {
       if (!UUID.test(bindingId)) return;
-      await db
-        .update(surfaceBindings)
-        .set({
-          membership: membership.state,
-          membershipError: membership.error,
-          updatedAt: DB_NOW,
-        })
-        .where(
-          and(
-            eq(surfaceBindings.id, bindingId.toLowerCase()),
-            isNull(surfaceBindings.revokedAt),
-            // A channel the bot left is known to hold no bot; a Slack answer
-            // that was in flight when it left must not write over that.
-            ne(surfaceBindings.status, "left"),
-            expected === undefined
-              ? undefined
-              : and(
-                  sql`${surfaceBindings.membership} IS NOT DISTINCT FROM ${expected?.state ?? null}`,
-                  sql`${surfaceBindings.membershipError} IS NOT DISTINCT FROM ${expected?.error ?? null}`,
-                ),
-          ),
-        );
+      const id = bindingId.toLowerCase();
+      await db.transaction(async (tx) => {
+        if (removed !== undefined) {
+          const [channel] = await tx
+            .select({
+              installationId: surfaceBindings.installationId,
+              channelId: surfaceBindings.externalSurfaceId,
+            })
+            .from(surfaceBindings)
+            .where(eq(surfaceBindings.id, id));
+          if (
+            channel?.installationId &&
+            channel.channelId &&
+            (await removedByEvents(
+              tx,
+              channel.installationId.toLowerCase(),
+              channel.channelId,
+              { lock: true },
+            )) !== removed
+          ) {
+            return;
+          }
+        }
+        await tx
+          .update(surfaceBindings)
+          .set({
+            membership: membership.state,
+            membershipError: membership.error,
+            updatedAt: DB_NOW,
+          })
+          .where(
+            and(
+              eq(surfaceBindings.id, id),
+              isNull(surfaceBindings.revokedAt),
+              // A channel the bot left is known to hold no bot; a Slack answer
+              // that was in flight when it left must not write over that.
+              ne(surfaceBindings.status, "left"),
+              expected === undefined
+                ? undefined
+                : and(
+                    sql`${surfaceBindings.membership} IS NOT DISTINCT FROM ${expected?.state ?? null}`,
+                    sql`${surfaceBindings.membershipError} IS NOT DISTINCT FROM ${expected?.error ?? null}`,
+                  ),
+            ),
+          );
+      });
     },
   };
 }
@@ -800,12 +832,21 @@ async function botLeft(
 
 // The newest join or leave noted for the channel is a leave; a tie is the
 // leave, since a join at the leave's own time cannot be told from its retry.
+// With `lock`, the record is made if missing and held to the end of the
+// transaction, so a leave being noted is waited for, not read past.
 async function removedByEvents(
   db: Database,
   installationId: string,
   channelId: string,
+  { lock = false } = {},
 ): Promise<boolean> {
-  const [noted] = await db
+  if (lock) {
+    await db
+      .insert(slackChannelLifecycle)
+      .values({ installationId, channelId, lastEventUs: 0 })
+      .onConflictDoNothing();
+  }
+  const query = db
     .select({
       join: slackChannelLifecycle.lastJoinUs,
       leave: slackChannelLifecycle.lastLeaveUs,
@@ -817,6 +858,7 @@ async function removedByEvents(
         eq(slackChannelLifecycle.channelId, channelId),
       ),
     );
+  const [noted] = lock ? await query.for("update") : await query;
   return (
     noted?.leave != null && (noted.join === null || noted.leave >= noted.join)
   );

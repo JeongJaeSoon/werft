@@ -268,6 +268,13 @@ export function createSlackChannelJoiner(deps: {
     // error recorded on the membership does not erase, and only once Slack
     // answered, so a leave noted while the question was out still counts.
     // A leave Slack delivers after the join call cannot be seen here at all.
+    // What the record said before the question guards the write: a leave
+    // noted meanwhile drops this answer, even where the membership it left
+    // is the one this run read.
+    const removedBefore =
+      installationId === null
+        ? undefined
+        : await deps.bindings.botRemovedFrom(installationId, channelId);
     const mayJoin = async () =>
       !(
         (binding.membership?.state === "awaiting_invite" &&
@@ -290,6 +297,7 @@ export function createSlackChannelJoiner(deps: {
         binding.id,
         membership,
         binding.membership,
+        removedBefore,
       );
     }
     return membership;

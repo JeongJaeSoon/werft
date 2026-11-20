@@ -215,11 +215,15 @@ export interface SurfaceBindingStore {
    * Records what Slack said about the bot's place in a live binding's
    * channel. Observed state, not a setting: no revision, no receipt.
    * With `expected`, only while the binding still holds it, so a slow
-   * answer does not undo an invite recorded meanwhile.
+   * answer does not undo an invite recorded meanwhile. With `removed`, only
+   * while `botRemovedFrom` still says what it said before Slack was asked: a
+   * leave noted meanwhile can leave the membership as it was, and the value
+   * alone would not show it.
    */
   setMembership(
     bindingId: string,
     membership: SurfaceMembership,
     expected?: SurfaceMembership | null,
+    removed?: boolean,
   ): Promise<void>;
 }
