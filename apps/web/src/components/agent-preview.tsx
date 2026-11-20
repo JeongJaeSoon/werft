@@ -68,6 +68,8 @@ export function releaseOf(
 export function previewRelease(detail: AgentDetail): AgentRelease | undefined {
   const { draft } = detail;
   if (draft) {
+    // A refused save left a release only for what was saved before it.
+    if (draft.failure !== null) return undefined;
     const drafted = releaseOf(detail, draft.version_id, draft.connection_id);
     return drafted?.id === detail.agent.active_release_id ? undefined : drafted;
   }

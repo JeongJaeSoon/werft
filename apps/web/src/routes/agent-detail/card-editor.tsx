@@ -282,6 +282,7 @@ export function CardEditor({
     event.preventDefault();
     const saveOnly =
       (event.nativeEvent as SubmitEvent).submitter?.dataset.saveOnly === "true";
+    if (saveOnly ? saveOnlyDisabled : disabled) return;
     save.mutate({
       ...edit,
       sendsCard: sendsCard || saveOnly,
@@ -294,6 +295,8 @@ export function CardEditor({
     // A save of the name or description alone sends no card,
     // so the run settings' checks do not hold it back.
     (draft !== null && sendsCard && !catalog.isSuccess);
+  // It always sends the card, so the checks always hold it.
+  const saveOnlyDisabled = save.isPending || !catalog.isSuccess;
 
   return (
     <Section
@@ -363,7 +366,7 @@ export function CardEditor({
                 type="submit"
                 variant="outline"
                 data-save-only="true"
-                disabled={disabled}
+                disabled={saveOnlyDisabled}
               >
                 {t("agent.card.saveOnly")}
               </Button>

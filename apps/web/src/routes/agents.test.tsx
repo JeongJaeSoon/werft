@@ -1980,6 +1980,53 @@ describe("게시 전 에이전트", () => {
     expect(within(notice).queryByRole("button")).toBeNull();
   });
 
+  test("같은 설정을 다시 저장했다가 거절되면 예전 릴리스로 미리 써 보게 하지 않는다", async () => {
+    const server = agentServer();
+    await saveOnly(server, CARD);
+    const refused = () => {
+      const detail = server.detail();
+      return json(200, {
+        ...detail,
+        draft: detail.draft && { ...detail.draft, failure: "release_refused" },
+      });
+    };
+    renderAt(DETAIL, {
+      ...meOk,
+      ...server.routes,
+      [`GET /v1/agents/${AGENT_ID}`]: refused,
+    });
+    const notice = (
+      await screen.findByText("아직 게시하지 않았습니다")
+    ).closest("[data-status=unpublished]") as HTMLElement;
+    expect(notice.textContent).toContain(
+      "마지막으로 저장한 설정으로 릴리스를 만들지 못했습니다",
+    );
+    expect(within(notice).queryByRole("button")).toBeNull();
+  });
+
+  test("모델 목록을 읽지 못하면 이름만 고쳐도 저장만 하고 미리 써 보기는 막힌다", async () => {
+    const server = agentServer();
+    await seedRelease(server);
+    renderAt(CARD_TAB, {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/connections": () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "The catalog cannot be read"),
+    });
+    const user = await setupUser();
+    await openCardEditor(user);
+    await user.type(await screen.findByLabelText("이름"), " 2");
+    const saveOnlyButton = (await screen.findByRole("button", {
+      name: "저장만 하고 미리 써 보기",
+    })) as HTMLButtonElement;
+    await waitFor(() => expect(saveOnlyButton.disabled).toBe(true));
+    // The name alone sends no card, so the plain save still goes.
+    expect(
+      (screen.getByRole("button", { name: "저장" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+
   test("답을 받지 못한 다음 메시지는 다시 보내도 같은 키로 간다", async () => {
     const server = agentServer();
     await saveOnly(server, CARD);
