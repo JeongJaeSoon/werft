@@ -44,7 +44,7 @@ import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {
   errorKey,
-  isMessageKey,
+  type MessageKey,
   type Translate,
   useI18n,
 } from "../i18n/i18n.tsx";
@@ -57,6 +57,12 @@ export const AUDIT_EXPORT_MAX_ROWS = 100_000;
 
 const PERIODS = { all: 0, day: 1, week: 7, month: 30 } as const;
 type Period = keyof typeof PERIODS;
+const PERIOD_LABEL: Record<Period, MessageKey> = {
+  all: "auditLog.period.all",
+  day: "auditLog.period.day",
+  week: "auditLog.period.week",
+  month: "auditLog.period.month",
+};
 
 export type Filter = {
   readonly period: Period;
@@ -187,7 +193,7 @@ function AuditLog() {
             label={t("auditLog.period.label")}
             options={(Object.keys(PERIODS) as Period[]).map((value) => ({
               value,
-              label: t(`auditLog.period.${value}`),
+              label: t(PERIOD_LABEL[value]),
             }))}
             value={filter.period}
             onValueChange={(value) => {
@@ -280,10 +286,20 @@ const OUTCOME_DOT: Record<string, StatusDotStatus> = {
   redact: "idle",
 };
 
+const OUTCOME_LABEL: Readonly<Record<string, MessageKey>> = {
+  allow: "auditLog.outcome.allow",
+  succeeded: "auditLog.outcome.succeeded",
+  deny: "auditLog.outcome.deny",
+  failed: "auditLog.outcome.failed",
+  require_approval: "auditLog.outcome.require_approval",
+  accepted: "auditLog.outcome.accepted",
+  redact: "auditLog.outcome.redact",
+};
+
 /** An outcome's name; one this build has no words for reads as sent. */
 function outcomeLabel(t: Translate, outcome: string): string {
-  const key = `auditLog.outcome.${outcome}`;
-  return isMessageKey(key) ? t(key) : outcome;
+  const key = OUTCOME_LABEL[outcome];
+  return key === undefined ? outcome : t(key);
 }
 
 const short = (id: string) => id.slice(0, 8);
