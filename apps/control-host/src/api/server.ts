@@ -14,6 +14,7 @@ import {
   createPostgresAgentStore,
   createPostgresAgentUsageStore,
   createPostgresAgentWorkspaceMcpStore,
+  createPostgresAuditLogReader,
   createPostgresAuditRetention,
   createPostgresCallerLimitGate,
   createPostgresCatalogRepositoryStore,
@@ -105,6 +106,7 @@ import {
   createAgentUsageService,
   createAgentWorkspaceMcpService,
   createApiKeyService,
+  createAuditLogService,
   createAuthorizationPolicy,
   createCatalogRegistry,
   createCredentialBindingService,
@@ -265,6 +267,7 @@ import { registerAgentCallerLimitsRoutes } from "./routes/musterrolle/agent-call
 import { registerAgentIdentityRoutes } from "./routes/musterrolle/agent-identities.ts";
 import { registerAgentUsageRoutes } from "./routes/musterrolle/agent-usage.ts";
 import { registerApiKeyRoutes } from "./routes/musterrolle/api-keys.ts";
+import { registerAuditLogRoutes } from "./routes/musterrolle/audit-log.ts";
 import { registerCredentialBindingRoutes } from "./routes/musterrolle/credential-bindings.ts";
 import { registerEnvVariableRoutes } from "./routes/musterrolle/env-variables.ts";
 import {
@@ -1281,6 +1284,13 @@ const app = createApiApp({
       retention: createPostgresAuditRetention(db),
       slackGuests,
     });
+    registerAuditLogRoutes(
+      router,
+      createAuditLogService({
+        authorization,
+        reader: createPostgresAuditLogReader(db),
+      }),
+    );
     registerSlackSecretRoutes(router, slackSecrets);
     registerGitHubAppRoutes(router, githubApps, logger);
     registerGitHubRepositoryRoutes(router, githubRepositories);

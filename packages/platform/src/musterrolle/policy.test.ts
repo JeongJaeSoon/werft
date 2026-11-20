@@ -310,7 +310,7 @@ describe("authorize", () => {
       outcome: "allow",
       reason_code: "ok",
       effective_scopes: without("sessions:recover"),
-      policy_version: "m16",
+      policy_version: "m17",
     });
   });
 
@@ -990,7 +990,7 @@ describe("decision log", () => {
       outcome: "allow",
       reason_code: "ok",
       effective_scopes: [],
-      policy_version: "m16",
+      policy_version: "m17",
       decision_id: crypto.randomUUID(),
     };
     expect(

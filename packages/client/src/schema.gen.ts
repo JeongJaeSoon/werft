@@ -288,6 +288,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/audit/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List or export the workspace's audit log (owner only)
+         * @description Lists the caller's workspace's access decisions (`kind: decision`: who tried what, and whether it was allowed or why it was refused) and command receipts (`kind: receipt`: what was changed), newest first by `at`, `kind` and `id`. Rows of one request share `request_id`, the `X-Request-Id` of that request. Only rows inside the workspace's retention window (`audit_retention_days`) are listed, from both sources; `retention_start` is its start, and an earlier `from` reads as it. A receipt's `result` and `error` are not listed: read them with GET /v1/receipts/{id}. Pass `next_cursor` back as `cursor` for the next page; it is null on the last one.
+         *
+         *     With `Accept: application/x-ndjson` the same filters stream every matching row, one JSON object per line and `limit` ignored, starting after `cursor` when one is sent. Each row also carries `cursor`, its own position. The last line is `{"kind":"end","rows":N,"truncated":bool,"next_cursor":…}`; a stream without it was cut short (the owner signed out, lost the role, storage failed, or the export ran 10 minutes) and resumes with the `cursor` of the last row received. One export holds at most 100,000 rows; past that `truncated` is true and `next_cursor` continues it. One export per workspace runs at a time.
+         *
+         *     Only the workspace owner, signed in, reads it; every other member and every API key get 403, and each read, allowed or refused, leaves a decision row (`audit_log.read`). It changes nothing else.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["listAuditEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/workspaces/{id}/slack-guest": {
         parameters: {
             query?: never;
@@ -5389,6 +5415,35 @@ export interface components {
         AuditRetentionRequest: {
             audit_retention_days: number;
         };
+        ListAuditEventsQuery: {
+            /**
+             * Format: date-time
+             * @description Keeps rows at or after this time. A time before the retention window reads as the window's start (`retention_start`).
+             */
+            from?: string;
+            /**
+             * Format: date-time
+             * @description Keeps rows before this time.
+             */
+            to?: string;
+            /**
+             * @description `decision` keeps the access decisions, `receipt` the commands. Both without it.
+             * @enum {string}
+             */
+            kind?: "decision" | "receipt";
+            /**
+             * Format: uuid
+             * @description Keeps the rows of what this person did or tried to do.
+             */
+            actor_user_id?: string;
+            /** @description Keeps one action: a decision's `action` or a receipt's operation. */
+            action?: string;
+            /** @description Keeps one outcome: a decision's (`allow`, `deny`, `redact`, `require_approval`) or a receipt's status. */
+            outcome?: string;
+            cursor?: string;
+            /** @default 50 */
+            limit: number;
+        };
         SlackGuestRequest: {
             slack_guest_enabled: boolean;
         };
@@ -8059,6 +8114,76 @@ export interface components {
         AuditRetentionResponse: {
             audit_retention_days: number;
         };
+        ListAuditEventsResponse: {
+            items: {
+                /** @enum {string} */
+                kind: "decision" | "receipt";
+                /** Format: uuid */
+                id: string;
+                /** Format: date-time */
+                at: string;
+                request_id: string | null;
+                actor: {
+                    principal_kind: ("api_key" | "user" | "installation") | null;
+                    principal_id: string | null;
+                    user_id: string | null;
+                    agent_id: string | null;
+                };
+                /** @description A decision's action, or a receipt's operation. */
+                action: string;
+                /** @description What the row is about: a decision's resource, or what a receipt's `target_ref` names (`session`, a resource kind, or `user`). */
+                target: {
+                    kind: string;
+                    id: string | null;
+                };
+                /** @description A decision's outcome, or a receipt's status. */
+                outcome: string;
+                reason_code: string | null;
+                /** @description Where a decision's request came from (`web`, `api`, `slack`, …); null on receipts. */
+                surface: string | null;
+            }[];
+            next_cursor: string | null;
+            /**
+             * Format: date-time
+             * @description The start of the workspace's retention window: nothing older is listed or exported.
+             */
+            retention_start: string;
+        };
+        AuditExportLine: {
+            /** @enum {string} */
+            kind: "decision" | "receipt";
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            at: string;
+            request_id: string | null;
+            actor: {
+                principal_kind: ("api_key" | "user" | "installation") | null;
+                principal_id: string | null;
+                user_id: string | null;
+                agent_id: string | null;
+            };
+            /** @description A decision's action, or a receipt's operation. */
+            action: string;
+            /** @description What the row is about: a decision's resource, or what a receipt's `target_ref` names (`session`, a resource kind, or `user`). */
+            target: {
+                kind: string;
+                id: string | null;
+            };
+            /** @description A decision's outcome, or a receipt's status. */
+            outcome: string;
+            reason_code: string | null;
+            /** @description Where a decision's request came from (`web`, `api`, `slack`, …); null on receipts. */
+            surface: string | null;
+            /** @description Send as `cursor` to continue after this row. */
+            cursor: string;
+        } | {
+            /** @constant */
+            kind: "end";
+            rows: number;
+            truncated: boolean;
+            next_cursor: string | null;
+        };
         SlackGuestResponse: {
             slack_guest_enabled: boolean;
         };
@@ -9039,7 +9164,7 @@ export interface components {
                 created_at: string;
             } | null;
             scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
-            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.read" | "agent.settings_read" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "agent.usage.manage" | "credential.bind" | "variable.workspace.manage" | "variable.agent.manage" | "binding.manage" | "binding.approve" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "usage.installation_read" | "usage.agent_read" | "installation.settings.manage" | "achievement_rule.manage" | "achievement.review" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send")[];
+            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "audit_log.read" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.read" | "agent.settings_read" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "agent.usage.manage" | "credential.bind" | "variable.workspace.manage" | "variable.agent.manage" | "binding.manage" | "binding.approve" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "usage.installation_read" | "usage.agent_read" | "installation.settings.manage" | "achievement_rule.manage" | "achievement.review" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send")[];
         };
         UpdateAuthMeRequest: {
             /** @enum {string} */
@@ -12375,6 +12500,145 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listAuditEvents: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+                kind?: "decision" | "receipt";
+                actor_user_id?: string;
+                action?: string;
+                outcome?: string;
+                /** @description The `next_cursor` of the page before; omit it for the first page. */
+                cursor?: string;
+                /** @description How many items a page holds at most. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of audit rows, or with `Accept: application/x-ndjson` the export: one row per line and the end line last. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "kind": "decision",
+                     *           "id": "019a0000-0000-7000-8000-0000000000d1",
+                     *           "at": "2026-11-20T06:51:25.123456Z",
+                     *           "request_id": "req_01",
+                     *           "actor": {
+                     *             "principal_kind": "user",
+                     *             "principal_id": "019a0000-0000-7000-8000-0000000000e1",
+                     *             "user_id": "019a0000-0000-7000-8000-0000000000e1",
+                     *             "agent_id": null
+                     *           },
+                     *           "action": "member.manage",
+                     *           "target": {
+                     *             "kind": "workspace",
+                     *             "id": "019a0000-0000-7000-8000-0000000000a1"
+                     *           },
+                     *           "outcome": "deny",
+                     *           "reason_code": "owner_protected",
+                     *           "surface": "web"
+                     *         }
+                     *       ],
+                     *       "next_cursor": null,
+                     *       "retention_start": "2026-08-22T06:51:25.000000Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ListAuditEventsResponse"];
+                    "application/x-ndjson": components["schemas"]["AuditExportLine"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. An export of this workspace is already running; `Retry-After` is 60. */
+            429: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "RATE_LIMITED";
                         };
                     };
                 };

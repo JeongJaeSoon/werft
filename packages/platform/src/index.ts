@@ -22,6 +22,8 @@ export * from "./limits/model-prices.ts";
 export * from "./limits/reservations.ts";
 export * from "./musterrolle/agent-admin-service.ts";
 export * from "./musterrolle/agent-caller-limits-service.ts";
+export * from "./musterrolle/audit-log-service.ts";
+export * from "./musterrolle/ports/audit-log-reader.ts";
 export * from "./musterrolle/agent-usage-decision.ts";
 export * from "./musterrolle/caller-limit.ts";
 export * from "./musterrolle/agent-usage-service.ts";
