@@ -9,10 +9,13 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import { createPostgresAgentAdminStore } from "./musterrolle/agent-admins.ts";
 import { createPostgresMemberStore } from "./musterrolle/members.ts";
-import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
+import {
+  createPostgresSessionUnitOfWork,
+  lockedNotRunnable,
+} from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {
   agentMcpSettings,
@@ -25,6 +28,7 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
+import { allowFor } from "./testing/member-manage-allow.ts";
 import {
   releaseSpecColumns,
   TEST_CONNECTION_ID,
@@ -169,6 +173,7 @@ integration("starting an ownerless agent on PostgreSQL", () => {
 
   const disable = (by: Caller, who: Caller) =>
     createPostgresMemberStore(db).setAccess({
+      decision: allowFor(acting(by)),
       actor: acting(by),
       userId: idOf(who),
       scope: "membership",
@@ -278,13 +283,16 @@ integration("starting an ownerless agent on PostgreSQL", () => {
     expect(await create(w.owner, w.releaseId)).toEqual(REFUSED);
   });
 
-  test("a start that waited on an admin removal judges the rows it committed", async () => {
-    // The removal holds the agent row as the agent-side delete does.
+  test("ownership is judged on what an admin removal committed while the lock waited", async () => {
+    // A start takes the agent row first in its usage check, so the judgement
+    // is called alone here to make its own lock the one that waits. The
+    // removal holds the agent row as the agent-side delete does.
     const w = await world();
     await markedAgo(w.agentId, "30 days");
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      const holder = await backendPid(client);
       await client.query(
         "SELECT 1 FROM agents WHERE id = $1 FOR NO KEY UPDATE",
         [w.agentId],
@@ -292,13 +300,14 @@ integration("starting an ownerless agent on PostgreSQL", () => {
       await client.query("DELETE FROM agent_admins WHERE agent_id = $1", [
         w.agentId,
       ]);
-      const start = create(w.owner, w.releaseId);
-      expect(await settledWithin(start)).toBe(false);
+      const judged = db.transaction((tx) => lockedNotRunnable(tx, w.releaseId));
+      await waiting(holder, { onHolder: 1, onOthers: 0 });
       await client.query("COMMIT");
-      expect(await start).toEqual(REFUSED);
+      expect(await judged).toBe("agent_ownerless");
     } finally {
       client.release();
     }
+    expect(await create(w.owner, w.releaseId)).toEqual(REFUSED);
   });
 
   test("an admin removal waits for a start that holds the agent row", async () => {
@@ -316,14 +325,16 @@ integration("starting an ownerless agent on PostgreSQL", () => {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      const holder = await backendPid(client);
       await client.query(
         "SELECT 1 FROM agent_mcp_settings WHERE agent_id = $1 FOR UPDATE",
         [w.agentId],
       );
       const start = create(w.owner, w.releaseId);
-      expect(await settledWithin(start)).toBe(false);
+      await waiting(holder, { onHolder: 1, onOthers: 0 });
+      // The removal waits on the start, not on the held settings row.
       const removal = removeKeeper(w);
-      expect(await settledWithin(removal)).toBe(false);
+      await waiting(holder, { onHolder: 1, onOthers: 1 });
       await client.query("COMMIT");
       expect(await start).toMatchObject({ outcome: "accepted" });
       expect(await removal).toMatchObject({ outcome: "removed" });
@@ -381,11 +392,42 @@ integration("starting an ownerless agent on PostgreSQL", () => {
     });
   });
 
-  async function settledWithin(work: Promise<unknown>, ms = 500) {
-    const timeout = new Promise<false>((resolve) =>
-      setTimeout(() => resolve(false), ms),
+  async function backendPid(client: PoolClient) {
+    const { rows } = await client.query<{ pid: number }>(
+      "SELECT pg_backend_pid() AS pid",
     );
-    return Promise.race([work.then(() => true), timeout]);
+    const pid = rows[0]?.pid;
+    if (pid === undefined) throw new Error("no backend pid");
+    return pid;
+  }
+
+  // Until as many backends wait on `holder`, and on anyone else, as given.
+  async function waiting(
+    holder: number,
+    want: { onHolder: number; onOthers: number },
+  ) {
+    let seen: unknown;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const { rows } = await pool.query<{ onHolder: number; onOthers: number }>(
+        `SELECT
+           count(*) FILTER (WHERE $1 = ANY(pg_blocking_pids(pid)))::int AS "onHolder",
+           count(*) FILTER (WHERE cardinality(pg_blocking_pids(pid)) > 0
+             AND NOT $1 = ANY(pg_blocking_pids(pid)))::int AS "onOthers"
+         FROM pg_stat_activity WHERE datname = current_database()`,
+        [holder],
+      );
+      seen = rows[0];
+      if (
+        rows[0]?.onHolder === want.onHolder &&
+        rows[0]?.onOthers === want.onOthers
+      ) {
+        return;
+      }
+      await Bun.sleep(50);
+    }
+    throw new Error(
+      `lock waits never became ${JSON.stringify(want)}: ${JSON.stringify(seen)}`,
+    );
   }
 
   async function started(by: Caller, releaseId: string) {

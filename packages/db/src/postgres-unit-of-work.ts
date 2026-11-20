@@ -322,7 +322,7 @@ async function insertQueuedTurn(
  * team change locks none of the rows read here; starts that read before it
  * commits go through, which the grace period makes harmless.
  */
-async function lockedNotRunnable(
+export async function lockedNotRunnable(
   tx: Database,
   releaseId: string,
 ): Promise<"agent_inactive" | "agent_ownerless" | null> {
