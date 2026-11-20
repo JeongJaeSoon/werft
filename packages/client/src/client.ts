@@ -117,6 +117,8 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
   return client;
 }
 
+const NDJSON_MEDIA_TYPE = "application/x-ndjson";
+
 function contractCheck(policy: ContractPolicy): Middleware {
   return {
     async onResponse({ request, response, schemaPath }) {
@@ -124,6 +126,9 @@ function contractCheck(policy: ContractPolicy): Middleware {
       const validator =
         policy.validators.responses?.[operation as OperationKey];
       if (!validator || !response.ok || response.status === 204) return;
+      // The schema is the JSON answer's; an NDJSON export asked for by name
+      // is lines, read by its caller, and copying it here doubles its size.
+      if (request.headers.get("accept")?.startsWith(NDJSON_MEDIA_TYPE)) return;
       const requestId = response.headers.get("x-request-id");
       // Parsed whatever the content type says, as openapi-fetch does: a
       // mislabelled body must not slip past the check.

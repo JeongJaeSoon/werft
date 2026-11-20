@@ -348,6 +348,29 @@ describe("validate", () => {
     expect(error.code).toBe("CLIENT_CONTRACT_MISMATCH");
   });
 
+  test("an NDJSON export the caller asked for is not checked as one JSON answer", async () => {
+    const lines = `${JSON.stringify(ME)}\n{"kind":"end","rows":1,"truncated":false,"next_cursor":null}\n`;
+    const api = recording(
+      () =>
+        new Response(lines, {
+          headers: { "content-type": "application/x-ndjson" },
+        }),
+    );
+    const client = createApiClient({
+      baseUrl: BASE,
+      fetch: api.fetch,
+      validate: "strict",
+      validators: { responses: { "GET /v1/auth/me": needsWorkspace } },
+    });
+    const file = await unwrap(
+      client.GET("/v1/auth/me", {
+        headers: { Accept: "application/x-ndjson" },
+        parseAs: "text",
+      }),
+    );
+    expect(file).toBe(lines);
+  });
+
   test("an error answer is not checked against the success schema", async () => {
     const api = recording(() =>
       json(401, { error: { code: "UNAUTHORIZED", message: "no" } }),

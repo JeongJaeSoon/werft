@@ -5,6 +5,7 @@ import { agentAccessJa } from "./agent-access.ts";
 import { agentGitHubJa } from "./agent-github.ts";
 import { agentsJa } from "./agents.ts";
 import { apiKeysJa } from "./api-keys.ts";
+import { auditLogJa } from "./audit-log.ts";
 import { authJa } from "./auth.ts";
 import { commonJa } from "./common.ts";
 import { errorsJa } from "./errors.ts";
@@ -236,6 +237,7 @@ export const ja: Record<MessageKey, string> = {
   ...loginMethodsJa,
   ...loginProvidersJa,
   ...executionLimitsJa,
+  ...auditLogJa,
   ...outputsJa,
   ...apiKeysJa,
   ...workspaceJa,

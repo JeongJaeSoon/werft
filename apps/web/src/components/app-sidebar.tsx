@@ -58,6 +58,7 @@ type NavPath =
   | "/settings/workspace/api-keys"
   | "/settings/workspace/login"
   | "/settings/workspace/limits"
+  | "/settings/workspace/audit-log"
   | "/settings/workspace/model-connections"
   | "/settings/workspace/mcp-servers"
   | "/settings/linked-accounts"
@@ -272,6 +273,13 @@ export function useWorkspaceSettingsNavGroups(): readonly NavGroup[] {
       to: "/settings/workspace/api-keys",
       label: "apiKeys.orgTitle",
       icon: KeyRound,
+    });
+  }
+  if (useHasPermission("audit_log.read")) {
+    workspace.push({
+      to: "/settings/workspace/audit-log",
+      label: "auditLog.nav",
+      icon: SettingsIcon,
     });
   }
   const groups: NavGroup[] = [

@@ -236,6 +236,7 @@ export const PERMISSIONS: Record<WorkspaceRole, AuthMeResponse["permissions"]> =
     owner: [
       ...ADMIN_PERMISSIONS,
       "audit_retention.manage",
+      "audit_log.read",
       "agent.restore",
       "usage.installation_read",
       "installation.settings.manage",

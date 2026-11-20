@@ -1298,6 +1298,8 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/audit-
 
 owner는 DB를 열지 않고 `GET /v1/audit/events`로 판정 행과 receipt를 함께 읽는다. cookie 세션으로만 읽는다. admin·member와 모든 API key는 `403`이고, 허용과 거절 모두 `audit_log.read` 판정 행으로 남는다.
 
+콘솔에서는 설정 > 워크스페이스 > 감사 기록이 같은 API를 읽는다. 기간·종류·사람으로 거르고, 같은 요청의 행을 이어 보이며, 지금 거름 그대로 NDJSON 파일로 내보낸다. 끝 줄이 오지 않은 내보내기는 파일로 저장하지 않는다. owner가 아니면 메뉴에 없고 주소로 열어도 없는 화면이다.
+
 - 한 행: `kind`(`decision` 또는 `receipt`), `at`, `request_id`, `actor`, `action`(receipt는 operation), `target`, `outcome`(receipt는 status), `reason_code`(판정만), `surface`(판정만). receipt의 `result`·`error`는 싣지 않는다. 그 내용은 `GET /v1/receipts/{id}`로 읽는다.
 - 순서: `at`·`kind`·`id` 역순. 같은 요청의 행은 `request_id`가 같다.
 - 거름: `from`·`to`·`kind`·`actor_user_id`·`action`·`outcome`. `limit`은 기본 50, 최대 200이다. 다음 페이지는 `next_cursor`를 `cursor`로 보낸다.
