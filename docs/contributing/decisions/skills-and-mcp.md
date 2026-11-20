@@ -1,6 +1,7 @@
 # 결정(설계): 스킬과 MCP 서버를 엔진에 상관없이 등록·지정하고, werft 플러그인으로 묶는다
 
 - 상태: 설계. 코드는 바꾸지 않는다. 단계와 끝난 조건은 [14절](#14-단계별-구현-계획)에 있다.
+- 고침(2026-11-21): 오너 결정으로 Git 출처의 자동 동기화, 현재 버전과 되돌리기, 보호된 브랜치 자동 승인을 더했다([3절](#git-출처의-동기화-오너-결정-2026-11-21)). S2는 S2a·S2b 두 단계가 됐고, 출처 아이콘은 S6에 넣었다.
 - 기준 커밋: `origin/main` `20d42022d`. `파일:줄`은 이 커밋에서 읽었다.
 - 조사 근거: [조사: 엔진과 관리 콘솔이 스킬·MCP·플러그인을 다루는 방법](skills-and-mcp-research.md). 이 문서에서 바깥 제품을 말할 때는 그 조사의 절을 가리킨다. 표준과 시장 동향(2026-05 ~ 2026-11)의 요약, 무엇을 따르고 무엇을 다르게 가는지, werft 안의 자리는 [11절](#11-조사-요약과-시장-동향), [12절](#12-따를-것과-다르게-갈-것), [13절](#13-werft-아키텍처-적용)에 있다.
 - 관련 결정: [접근 판정 하나로 기억 범위, MCP 자격, 에이전트 답변을 정한다](access-decisions.md)(데이터 접근 정책의 정본), [에이전트 기억 레이어](memory-layer.md), [워크스페이스 원격 MCP 서버](mcp-credentials.md), [번들 stdio MCP 서버를 worker relay 뒤에 둔다](stdio-mcp-relay.md), [Agent SDK 버전](agent-sdk.md), [에이전트 담당 팀과 액션 RBAC](agent-rbac.md), [엔진별 worker 이미지](engine-worker-images.md).
@@ -11,10 +12,10 @@
 | 항목 | 결론 |
 |---|---|
 | 개념 | 조직이 엔진에 주는 것은 **스킬**과 **MCP 서버**다. 이 둘과 실행 규칙·지시를 가리키는 엔진 중립 묶음인 **werft 플러그인**가 공유·지정의 단위다([10절](#10-스킬-라이브러리-의존성-werft-플러그인-오너-요청-2026-11-20)). 엔진 고유의 플러그인(Claude·Codex plugin, pi 패키지)은 원본 개념으로 두지 않고, 어댑터가 werft 플러그인에서 만드는 **엔진 플러그인(출력)**으로만 생긴다. 엔진 플러그인은 엔진마다 형식이 다르고(Claude `.claude-plugin/plugin.json`, Codex `plugin.json`, pi 패키지) 훅·명령·서브에이전트처럼 엔진 하나에만 뜻이 있는 것을 함께 싣기 때문이다 |
-| 스킬 | [Agent Skills 사양](https://agentskills.io/specification)의 `SKILL.md` 디렉터리 하나가 단위다. 세 엔진 모두 이 형식을 읽는다(조사 1-6.1, 2-1.2, 2-2.6). 등록은 업로드 또는 Git(커밋 고정), 버전은 내용 digest |
+| 스킬 | [Agent Skills 사양](https://agentskills.io/specification)의 `SKILL.md` 디렉터리 하나가 단위다. 세 엔진 모두 이 형식을 읽는다(조사 1-6.1, 2-1.2, 2-2.6). 등록은 업로드 또는 Git(커밋 고정), 버전은 내용 digest. Git 스킬은 push webhook과 하루 한 번 확인으로 바뀐 내용을 새 버전 후보로 만들고, 반영은 다른 관리자의 승인 뒤다. 보호된 브랜치의 자동 승인은 스킬마다 두 관리자가 켜는 opt-in이다([3절](#git-출처의-동기화-오너-결정-2026-11-21)) |
 | MCP 서버 | 지금의 워크스페이스 원격 MCP 서버([mcp-credentials.md](mcp-credentials.md))를 그대로 쓴다. 엔진은 어느 쪽이든 플랫폼의 relay만 보고, 자격은 egress가 붙인다 |
 | 지정 | 워크스페이스 → 에이전트 → 세션 범위를 `required` / `optional` / `forbidden`으로 접는 지금의 해석기(`packages/platform/src/extensions/resolve.ts`)를 쓴다. 바깥 범위는 안쪽을 좁히기만 한다. 지정 단위가 werft 플러그인이 된 뒤에도 `forbidden`은 그 플러그인이 담은 스킬 이름에까지 걸리고, 펼친 결과로 다시 확인한다. 다른 플러그인에 같은 이름의 스킬을 담아 금지를 비켜 가지 못한다 |
-| 버전 고정과 배포 | 지정 행이 digest 하나를 가리킨다. 세션은 시작할 때 고른 digest를 `sessions.extensions`에 고정한다. 새 버전은 승인 → 에이전트 하나에 지정 → 워크스페이스 지정 교체 순으로 넓힌다 |
+| 버전 고정과 배포 | 지정 행이 digest 하나를 가리키거나, 따라가기로 스킬의 현재 버전(새로 승인된 버전이 되고, 한 번에 앞 승인 버전으로 되돌릴 수 있음)을 가리킨다. 세션은 시작할 때 고른 digest를 `sessions.extensions`에 고정한다. 새 버전은 승인 → 에이전트 하나에 지정 → 워크스페이스 지정 교체 순으로 넓힌다 |
 | 엔진 매핑 | 어댑터가 세션 작업 공간에 엔진이 읽는 자리로 펼친다. Claude는 지금처럼 스킬마다 로컬 plugin 하나(체크포인트 호환), Codex는 세션 스킬 루트, pi는 세션 전용 agent dir의 `skills/`. 엔진의 다른 탐색 경로는 닫고, 엔진이 보고한 스킬 집합이 기대와 정확히 같아야 시작한다. MCP는 셋 다 플랫폼 relay 주소 하나씩 |
 | 데이터 접근 | 오너 결정(2026-11-20)의 규칙 기반 접근 정책은 [접근 판정](access-decisions.md)의 MCP 축(`mcp.use`)이다. 규칙 모양, 이행·정책 모드, 요청자(턴의 인증 근거), 개인 데이터 전제, 기록은 그 문서가 정본이다. 이 문서는 MCP에만 있는 것을 정한다: 언제 무엇을 묻는지(서버·턴의 첫 요청은 도구 없이, `tools/call`마다 도구와 함께, 매번 규칙 목록 전체를 첫 일치로), 개인 연결이 지나야 하는 경로, 전송 세션의 subject 고정, 엔진 자체 MCP 연결 막기([6절](#6-mcp-자격과-데이터-접근-정책)) |
 | 권한과 기록 | 제출은 구성원, 승인은 제출한 사람이 아닌 워크스페이스 관리자(관리자가 한 사람뿐이면 본인 승인을 허용하고 receipt에 남긴다, 3절), 에이전트 범위 지정은 에이전트 관리자. 라이브러리는 각 플러그인의 공개 범위([접근 판정](access-decisions.md) 2절의 목록) 안의 구성원에게 보이고, "어느 에이전트에 지정됐나"는 그 에이전트를 볼 수 있는 사람에게만 보인다. 모든 변경은 지금의 receipt(`register_extension`, `attach_extension` 등)로 남고, 세션은 무엇을 썼는지 digest로 남긴다 |
@@ -72,12 +73,77 @@
 | 출처 | 동작 |
 |---|---|
 | 업로드 | zip 또는 디렉터리 업로드. 지금 검사기를 지나면 digest가 정해지고 `review = pending`으로 들어간다. 같은 digest를 다시 올리면 `already_registered` |
-| Git | GitHub 저장소·경로·ref를 받아, 등록 때 ref를 **커밋 SHA로 고정**해 읽는다. 읽기는 워크스페이스의 GitHub App 연결로 한다(멤버가 저장소 권한을 가질 필요 없다, 조사 1-2.1과 같은 모양). 저장하는 것은 검사기가 다시 만든 트리이고, 원본 위치(`repo`, `path`, `commit`)는 메타데이터로 남는다. "새 커밋 확인"은 같은 경로의 최신 커밋을 읽어 digest가 다르면 **새 버전 후보**를 `pending`으로 만든다. 자동 sync는 하지 않는다: 승인 없이 내용이 바뀌는 길이 된다 |
+| Git | GitHub 저장소·경로·ref를 받아, ref를 **커밋 SHA로 풀어** 읽는다. 읽기는 워크스페이스의 GitHub App 연결로 한다(멤버가 저장소 권한을 가질 필요 없다, 조사 1-2.1과 같은 모양). 저장하는 것은 검사기가 다시 만든 트리이고, 원본 위치(`repo`, `path`, `ref`, `commit`)는 버전마다 메타데이터로 남는다. 등록 뒤에는 아래 "Git 출처의 동기화"대로 push가 오면 다시 읽고, digest가 다르면 **새 버전 후보**를 `pending`으로 만든다. 반영은 승인을 거친다 |
 
 - 업로드 크기: S1의 업로드 본문은 128 KiB까지다(콘솔의 owner·admin. 다른 사람은 다른 route처럼 64 KiB). 저장 트리는 8 MiB까지 담을 수 있지만, 업로드 한 번으로는 그만큼 받지 않는다. API 서버(Bun)의 전송 상한은 route별로 나눌 수 없는 값 하나다. 핸들러가 본문을 읽지 않고 거절하거나(401, 403, 404) 읽기를 취소해도, Bun은 그 상한까지 본문을 끝까지 받고 연결을 유지한다(Bun 1.3.14와 1.4.4에서 loopback 소켓으로 확인: 상한 24 MiB에서는 인증 없는 20 MiB POST를 다 받고 같은 연결의 다음 요청에 답한다. 128 KiB에서는 약 0.9 MB에서 413과 함께 연결을 끊는다). 그래서 업로드 하나를 위해 상한을 올리면 인증 없는 route까지 함께 올라간다. 더 큰 트리는 따로 띄운 listener나 객체 저장소·분할 업로드로 나중 단계에서 받는다.
 - 이름: 첫 등록이 이름을 정하고, 같은 이름의 다른 digest는 같은 스킬의 다음 버전이다. 버전 표시는 등록 순번(v1, v2…)과 digest 앞 12자다. `SKILL.md`의 `version` 같은 자기 신고 값은 쓰지 않는다.
 - 승인: 등록한 사람과 다른 관리자가 승인한다(조사 1-1.2의 "자기가 제출한 요청은 승인할 수 없다"와 같다). 관리자가 한 사람뿐인 워크스페이스는 본인 승인을 허용하고 receipt에 그 사실을 남긴다. 지정된 버전을 거절하는 것은 회수로 허용한다. 그 뒤 `required` 지정은 닿는 세션 시작을 모두 거절하고 `optional` 지정은 빠진다. 지정을 해제할 때까지 그렇다.
 - 지우기: 지정된 버전은 지우지 못한다. 지정이 없고 진행 중 세션이 쓰지 않는 버전만 "보관"한다. 객체는 체크포인트가 그 digest를 참조하는 동안 남긴다. werft 플러그인(10절)이 들어온 뒤에는 보관하지 않은 플러그인 버전의 manifest가 가리키는 스킬 버전도 지정된 것처럼 보관을 거절하고, 그 객체는 그 플러그인 버전이 보관될 때까지 남긴다. 지정 전에 승인만 된 플러그인이 나중에 지정될 때 깨지지 않게 하려는 것이다(S8). 알려진 한계: 세션 시작은 지정을 세션 행을 쓰는 transaction 밖에서 읽으므로, 그 사이 해제와 보관이 끝나면 보관된 버전을 담은 세션이 생길 수 있다. 보관은 객체를 지우지 않아 그 세션은 그대로 돈다. 보관을 객체 회수와 잇는 단계에서 세션 insert가 담는 번들 행을 잠그고 보관 여부를 다시 확인한다.
+
+### Git 출처의 동기화 (오너 결정, 2026-11-21)
+
+오너는 두 선택지를 함께 골랐다. 첫째, GitHub에 push가 오면 다시 읽어 바뀐 내용을 새 버전 후보로 만들고, 반영은 지금처럼 다른 관리자의 승인을 거친다. 둘째, 스킬마다 opt-in으로 보호된 브랜치의 커밋을 자동 승인할 수 있게 하고, 한 번에 되돌리기와 동기화 일시 중지를 둔다. 승인 없이 바로 반영하는 선택지는 고르지 않았다. 다른 제품이 어떻게 하는지는 [11절](#11-조사-요약과-시장-동향), 무엇을 따르고 무엇을 다르게 가는지는 [12절](#12-따를-것과-다르게-갈-것)에 있다.
+
+**출처는 스킬마다 하나다.** 스킬의 출처는 첫 등록이 정한다. Git 스킬의 새 버전은 동기화로만 생기고 업로드를 받지 않는다. 업로드 스킬은 Git 버전을 받지 않는다. 출처를 바꾸려면 다른 이름으로 등록한다. 그래서 API는 버전마다의 출처(지금 있음)에 더해 스킬의 출처 종류(`upload` 또는 `github`)와 Git 원본 위치를 스킬 단위로 돌려주고, 콘솔은 스킬마다 출처 아이콘 하나를 보인다([7절](#7-권한-receipt-콘솔) 콘솔 메뉴).
+
+**계기는 셋이고, 확인은 하나다.**
+
+| 계기 | 언제 | 비고 |
+|---|---|---|
+| push webhook | 등록한 저장소의 그 ref에 push가 오면 | 아래 "webhook" |
+| 하루 한 번 확인 | 동기화가 켜진 Git 스킬 가운데 마지막 확인에서 24시간이 지난 것 | 보조다. GitHub는 실패한 전달을 스스로 다시 보내지 않는다([출처](https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries)). webhook을 받을 수 없는 설치에서는 이것이 자동 계기의 전부다 |
+| "지금 확인" | 사람이 누를 때 | 처음 안의 수동 "새 커밋 확인"이다. 일시 중지 중에도 된다 |
+
+확인은 계기와 상관없이 같다.
+
+1. ref를 GitHub API로 다시 커밋 SHA로 푼다. webhook 본문의 커밋 SHA와 파일 내용은 쓰지 않는다. 본문은 어느 스킬을 확인할지 고르는 데만 쓴다.
+2. 그 커밋에서 등록한 경로 아래 트리를 읽어 업로드와 같은 검사기("업로드 입력" 모드, [2절](#2-두-개념))에 넣는다.
+3. digest가 그 스킬의 어느 버전과 같으면 버전을 만들지 않는다. 다르면 다음 순번의 버전을 `pending`으로 만들고 `register_extension` receipt를 쓴다. receipt의 주체는 동기화이고, 계기(webhook 전달 id, 하루 확인, 누른 사람)와 커밋을 남긴다. 검사기가 거절하면 버전 없이 거절 이유를 남긴다.
+4. 어느 경우든 스킬의 마지막 확인(시각, 계기, 커밋, 결과)을 남긴다. 콘솔이 이것을 보인다.
+5. 한 스킬의 확인은 한 번에 하나만 돈다(스킬 단위 잠금). 확인 중에 온 계기는 그 확인이 끝난 뒤 한 번 더 도는 것으로 합친다. 그래서 push가 몰려도 스킬마다 확인은 많아야 둘이다.
+
+- ref는 브랜치, 태그, 커밋 SHA 가운데 하나다. SHA는 움직이지 않으므로 동기화하지 않는다. 태그는 다시 풀어 커밋이 바뀌었으면 후보를 만든다. 자동 승인은 브랜치에만 켤 수 있다(아래).
+- ref나 경로가 사라지면(브랜치 삭제, 디렉터리 이동) 버전을 만들지 않고 마지막 확인을 `source_missing`으로 남긴다. 있는 버전과 지정은 그대로다.
+- force push로 ref가 앞 내용으로 돌아가면 digest가 앞 버전과 같아 새 버전이 생기지 않는다. 무엇이 반영되는지는 아래 "현재 버전"의 승인·되돌리기만 바꾼다.
+- 저장소는 이름이 아니라 GitHub 저장소 id로 맞춘다. 저장소 이름이 바뀌어도 따라가고, 같은 이름의 다른 저장소로 바뀌지 않는다.
+
+**webhook.**
+
+- 지금 작성용 App에는 webhook이 없다. [GitHub App manifest 결정](github-app-manifest.md) 5절이 manifest에 `hook_attributes`를 넣지 않고 `webhook_secret`을 저장하지 않기로 했다. GitHub가 인터넷에서 닿지 않는 webhook 주소를 거절하기 때문이다. S2a가 이것을 이렇게 바꾸고, 그 문서를 같은 PR에서 고친다.
+  - 설치가 GitHub에서 닿는 공개 주소(새 설정)를 가지면, manifest에 `hook_attributes.url`(그 주소의 webhook 경로)과 `default_events: ["push"]`를 넣는다. 교환 응답의 `webhook_secret`([출처](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest))은 App 키처럼 봉인해 저장한다.
+  - '이미 있는 App 추가'로 등록한 App과 이미 만든 App은 관리자가 GitHub의 App 설정에서 webhook 주소와 secret을 넣고 push 이벤트를 켠다. 콘솔은 넣을 주소를 보이고 secret을 받는다.
+  - 공개 주소가 없는 설치는 webhook 없이 하루 확인과 "지금 확인"만 쓴다. 스킬 상세가 이것을 알린다.
+- 받는 자리는 App마다 하나인 인증 없는 경로다. 서명 헤더 `X-Hub-Signature-256`(본문의 HMAC-SHA256, [출처](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries))을 저장한 secret으로 상수 시간에 비교한 뒤에만 본문을 해석한다. 서명이 없거나 틀리면 401이고 아무것도 하지 않는다.
+- 본문 상한은 다른 인증 없는 경로와 같다(지금 64 KiB, 위 "업로드 크기"). push 본문은 25 MB까지 올 수 있으므로([출처](https://docs.github.com/en/webhooks/webhook-events-and-payloads#push)) 커밋이 아주 많은 push는 413으로 잘린다. 그 push는 하루 확인이 잡는다. 상한을 올리지 않는 이유는 업로드 크기와 같다.
+- 본문에서 쓰는 것은 `installation.id`, 저장소 id, `ref` 셋뿐이다. 이 셋에 맞고 동기화가 켜진 Git 스킬에 확인을 건다. GitHub는 10초 안에 답을 받지 못하면 전달을 실패로 기록하므로, 확인을 기다리지 않고 202로 답한다. 맞는 스킬이 없어도 같은 답이다.
+- webhook은 계기일 뿐이라 같은 전달이 다시 오거나 순서가 바뀌어도 결과가 같다. 그래서 전달 id로 중복을 거르지 않는다.
+
+**알림.** 새 후보가 생기면 관리자에게 알린다. 지금 werft에는 관리자에게 따로 보내는 알림 통로가 없다. 그래서 S2a는 스킬 목록 응답에 승인 대기 버전 수와 마지막 확인을 싣고, 콘솔(S6)이 워크스페이스 설정 메뉴와 홈에서 관리자에게 승인 대기를 보인다. 콘솔 밖 알림(Slack, 메일)은 후속이다([범위 밖](#범위-밖)).
+
+**일시 중지.** 관리자 한 사람이 스킬마다 동기화를 멈추고 다시 켠다. 멈춘 동안 webhook과 하루 확인은 그 스킬을 건너뛰고, 자동 승인도 하지 않는다. "지금 확인"은 되지만 그 결과는 언제나 `pending`이다. 다시 켜면 바로 한 번 확인한다. 멈춤과 다시 켬은 각각 receipt를 남긴다.
+
+### 현재 버전과 따라가는 지정
+
+자동 동기화가 뜻을 가지려면 승인된 새 버전이 지정에 닿아야 한다. 지금 지정은 버전 하나에 고정되므로([4절](#4-지정-버전-고정-배포)) 승인만으로는 어떤 세션도 바뀌지 않는다. 그래서 스킬마다 **현재 버전**을 두고, 지정이 그것을 따라갈 수 있게 한다. 출처와 상관없이 모든 스킬에 같다.
+
+- 현재 버전은 그 스킬에서 승인됐고 보관되지 않은 버전 하나이거나 없음이다. 버전이 승인되면(사람이든 자동이든) 그 순번이 현재 버전보다 클 때만 그 버전이 현재 버전이 된다.
+- 지정 행은 지금처럼 버전 하나에 **고정**하거나, **따라가기**로 현재 버전을 가리킨다. 해석기는 세션 시작 때 따라가기를 그때의 현재 버전으로 바꾼 뒤 지금처럼 접고, 세션은 그 digest를 `sessions.extensions`에 고정한다(4절 "버전 고정"은 그대로다). 그래서 진행 중 세션은 바뀌지 않고, 새 세션부터 새 버전을 쓴다. 현재 버전이 없으면 따라가는 `required`는 세션 시작을 거절하고 `optional`은 빠진다. 거절된 버전을 지정했을 때와 같다.
+- **되돌리기.** 관리자 한 사람이 한 번에 현재 버전을 바로 앞 승인 버전(보관되지 않은 것 가운데 순번이 가장 큰 것)으로 옮긴다. 되돌린 버전은 승인 상태 그대로 둔다. 현재 버전은 그보다 순번이 큰 버전이 새로 승인될 때만 앞으로 가므로, 되돌린 버전이 저절로 돌아오지 않는다. receipt `revert_extension`에 옮기기 전후의 버전을 남긴다. 되돌리기는 동기화와 자동 승인을 끄지 않는다. 문제를 고친 다음 커밋이 다시 후보가 된다. 동기화도 멈추려면 일시 중지를 함께 누른다.
+- 현재 버전을 거절하면(위 "승인"의 회수) 현재 버전도 같은 방식으로 앞 승인 버전으로 돌아간다.
+- 현재 버전은 보관하지 못한다. 따라가는 지정이 하나라도 있으면 지정된 버전과 같다.
+- 4절의 배포 순서는 고정 지정으로 지금처럼 할 수 있다. 따라가기는 "승인되면 새 세션부터 쓴다"를 고른 지정이다.
+
+### 보호된 브랜치의 자동 승인 (스킬마다 opt-in)
+
+- **켜기와 끄기.** 관리자가 켜기를 요청하고 다른 관리자가 동의해야 켜진다. 버전 승인과 같은 규칙이다(관리자가 한 사람뿐이면 본인 동의를 허용하고 receipt에 남긴다). 끄기는 관리자 한 사람이 바로 한다. 요청, 동의, 끄기는 각각 receipt를 남긴다.
+- **조건.** 켤 때와 확인마다 GitHub API로 다시 본다. 셋을 모두 채워야 한다.
+  1. ref가 브랜치(`refs/heads/…`)다. 태그와 SHA에는 켤 수 없다.
+  2. GitHub가 그 브랜치에 적용 중인 규칙으로 pull request와 승인 리뷰 1개 이상을 요구한다고 답한다. 저장소 ruleset은 "브랜치에 적용되는 규칙" API의 `pull_request` 규칙(`required_approving_review_count` ≥ 1, [출처](https://docs.github.com/en/rest/repos/rules?apiVersion=2022-11-28#get-rules-for-a-branch))으로 본다. 이 API는 평가 모드나 꺼진 ruleset의 규칙을 돌려주지 않으므로 그런 규칙은 세지 않는다. 고전 branch protection은 브랜치 API의 보호 정보(`required_pull_request_reviews.required_approving_review_count` ≥ 1, [출처](https://docs.github.com/en/rest/branches/branches?apiVersion=2022-11-28#get-a-branch))로 본다.
+  3. 새 커밋을 그 브랜치에 들인 pull request가 머지됐고, 그 pull request에 작성자가 아닌 사람의 승인 리뷰가 있다("커밋에 연결된 pull request" API, [출처](https://docs.github.com/en/rest/commits/commits?apiVersion=2022-11-28#list-pull-requests-associated-with-a-commit), 그리고 그 pull request의 리뷰 목록). 우회 권한으로 직접 push했거나 리뷰 없이 머지한 커밋은 자동 승인하지 않는다.
+- **App 권한은 늘리지 않는다.** 지금 작성용 App은 `contents`, `pull_requests`, `metadata` 권한이고, administration은 manifest 결정 5절대로 넣지 않는다. 고전 branch protection의 리뷰 조건을 이 권한으로 읽지 못하면 그 보호는 조건 2를 채우지 못한 것으로 본다. 닫힌 쪽으로 실패하는 것이다. S2b는 sandbox 저장소에서 두 종류의 보호를 이 권한으로 읽을 수 있는지 확인하고, 결과를 시험과 콘솔 안내에 적는다.
+- **채우지 못하면 승인 대기로 돌아간다.** 확인에서 하나라도 채우지 못하거나 GitHub가 답하지 않으면 그 버전은 `pending`으로 남는다. 마지막 확인에 이유(`not_branch`, `protection_missing`, `no_reviewed_pull_request`, `github_unreachable`)를 남기고, 콘솔이 "보호를 확인하지 못해 승인 대기로 돌아감"을 보인다. 자동 승인 설정은 켜진 채 두므로 보호가 돌아오면 다음 커밋부터 다시 자동 승인한다. 켤 때 조건을 채우지 못하면 켜지 않는다.
+- **receipt.** 자동 승인은 지금 승인 receipt(`approve_extension`)를 쓴다. 주체는 동기화이고, 켠 사람과 동의한 사람, 커밋, pull request 번호, 본 규칙(종류와 리뷰 수)을 남긴다. 그래서 "누가 이 자동 승인을 허락했고 무엇을 보고 승인했나"를 receipt만으로 답할 수 있다.
+- **한계.** werft는 승인 리뷰가 머지된 마지막 커밋에 대한 것인지 다시 따지지 않는다. 오래된 리뷰를 무효로 하는 것은 저장소 규칙(dismiss stale reviews 등)의 일이다. 저장소의 규칙을 정하는 것은 저장소 관리자이고, werft는 규칙과 리뷰가 있는지를 보고 그 결과를 남긴다.
 
 ## 4. 지정, 버전 고정, 배포
 
@@ -93,7 +159,7 @@
 
 **팀.** 팀 범위는 두지 않는다. 에이전트마다 담당 팀이 있고([agent-rbac.md](agent-rbac.md)), 팀 lead는 그 에이전트의 관리자다. 팀이 쓰는 스킬은 팀이 맡은 에이전트에 지정하는 것으로 충분하다. 사람 단위 차등(같은 에이전트를 쓰는 사람마다 다른 스킬)은 세션 transcript를 여러 사람이 읽는 구조와 맞지 않아 두지 않는다.
 
-**버전 고정.** 지정 행은 digest 하나를 가리킨다. 세션은 시작할 때 해석 결과를 `sessions.extensions`에 남기고 그 세션 내내 그 digest만 쓴다. 지정을 바꾸면 새 세션부터 적용된다. checkpoint fingerprint가 digest를 담아야 다른 버전으로 resume하지 않는다.
+**버전 고정.** 지정 행은 digest 하나를 가리키거나, 따라가기로 그 스킬의 현재 버전을 가리킨다([3절](#현재-버전과-따라가는-지정)). 따라가기는 세션 시작 때 digest 하나로 풀린다. 세션은 시작할 때 해석 결과를 `sessions.extensions`에 남기고 그 세션 내내 그 digest만 쓴다. 지정을 바꾸면 새 세션부터 적용된다. checkpoint fingerprint가 digest를 담아야 다른 버전으로 resume하지 않는다.
 
 - Claude: 이미 담는다. plugin 경로와 identity(digest)가 fingerprint에 들어간다(`ComponentIdentities.plugins`, `claude/src/config.ts:58-70`, `profile-fingerprint.ts:75-88`). 이 설계는 Claude의 plugin 매핑을 바꾸지 않으므로([5절](#5-엔진-매핑)) 기존 체크포인트는 그대로 resume된다.
 - Codex: 지금 `codexProfileDigest`(`codex/src/config.ts:416-447`)는 번들을 해시하지 않는다(번들을 거절하므로 필요가 없었다). S4에서 정렬한 `(이름, digest)` 목록과 매핑 버전을 더한다. 스킬이 없는 세션은 그 필드를 넣지 않아 지금 체크포인트의 digest가 그대로다. 스킬이 있는 체크포인트를 다른 digest 목록으로 되살리려 하면 fingerprint가 달라 거절된다. MCP는 이미 정해진 규칙(좁히는 변경은 진행 중 세션에 바로, 넓히는 변경은 다음 세션부터)을 그대로 쓴다.
@@ -103,7 +169,7 @@
 1. 새 버전을 등록하고 다른 관리자가 승인한다.
 2. 시험할 에이전트 하나의 에이전트 범위에 새 버전을 `required`로 지정한다. 워크스페이스 범위가 그 이름을 `optional`로 두었을 때만 가능하다(바깥 `required`는 안쪽이 버전을 바꾸지 못한다).
 3. 괜찮으면 워크스페이스 범위의 지정을 새 버전으로 바꾸고 2의 에이전트 지정을 지운다.
-4. 되돌리기는 지정을 옛 digest로 바꾸는 것이다. 옛 버전이 보관되지 않았으면 바로 된다.
+4. 되돌리기는 지정을 옛 digest로 바꾸는 것이다. 옛 버전이 보관되지 않았으면 바로 된다. 따라가는 지정은 3절의 되돌리기 한 번으로 모두 앞 승인 버전으로 돌아간다.
 
 콘솔은 스킬 상세에 "버전별로 지정된 곳"(보는 사람이 읽을 수 있는 에이전트만, [7절](#7-권한-receipt-콘솔))을 보여 이 순서를 돕는다. 자동 단계 배포(비율, 시간차)는 하지 않는다.
 
@@ -228,12 +294,13 @@ egress는 `mcp.use`를 다음 두 때에 묻는다. 매번 정책의 규칙 목�
 
 | 동작 | 누가 | 근거 |
 |---|---|---|
-| 스킬·werft 플러그인 제출·새 버전·Git 새 커밋 확인 | 워크스페이스 구성원(`pending`으로 들어감) | 라이브러리 기여([10절](#10-스킬-라이브러리-의존성-werft-플러그인-오너-요청-2026-11-20)). 지금 서비스는 관리자만 받으므로 넓힌다. 승인 전에는 어디에도 지정되지 않는다 |
+| 스킬·werft 플러그인 제출·새 버전·Git 스킬의 "지금 확인" | 워크스페이스 구성원(`pending`으로 들어감) | 라이브러리 기여([10절](#10-스킬-라이브러리-의존성-werft-플러그인-오너-요청-2026-11-20)). 지금 서비스는 관리자만 받으므로 넓힌다. 승인 전에는 어디에도 지정되지 않는다 |
 | 태그 달기·떼기 | 그 플러그인을 볼 수 있는 구성원 | 라이브러리 메타데이터. digest와 승인에 들지 않고 실행에 영향이 없다. 누가 했는지 남김 |
 | 분류 정하기 | 워크스페이스 관리자 | 라이브러리 메타데이터(분류 목록도 관리자가 정한다) |
 | 공개 범위 정하기 | 제출한 사람은 제출 때 제안하고 좁힐 수 있다. 넓히기와 승인 때 확정은 워크스페이스 관리자 | 라이브러리 메타데이터. 넓어질 때 관리자를 거치는 것은 [10절](#10-스킬-라이브러리-의존성-werft-플러그인-오너-요청-2026-11-20) |
 | 승인·거절, 보관 | 워크스페이스 관리자, 등록한 사람이 아닌 사람([3절](#3-등록)) | 위와 같음 |
-| 워크스페이스 범위 지정 | 워크스페이스 관리자 | 위와 같음 |
+| Git 스킬의 동기화 멈춤·다시 켬, 현재 버전 되돌리기, 자동 승인 끄기 | 워크스페이스 관리자 한 사람 | 좁히거나 이미 승인된 버전으로 돌아가는 동작이다([3절](#git-출처의-동기화-오너-결정-2026-11-21)) |
+| 보호된 브랜치 자동 승인 켜기 | 워크스페이스 관리자가 요청하고 다른 관리자가 동의(관리자가 한 사람뿐이면 본인, receipt에 남김) | 앞으로의 버전 승인을 맡기는 일이라 버전 승인과 같은 규칙이다 || 워크스페이스 범위 지정 | 워크스페이스 관리자 | 위와 같음 |
 | 에이전트 범위 지정(승인된 버전만. `forbidden`은 이름만 막으므로 보관되지 않은 어느 버전이든) | 그 에이전트의 관리자(담당 팀 lead, 개인 관리자, 관리자 팀 구성원)와 워크스페이스 관리자 | 에이전트 MCP 켜기·끄기(`agent.manage`)와 같은 축. 지금 서비스는 워크스페이스 관리자만 받으므로 넓힌다 |
 | 세션에서 `optional` 켜기 | 그 에이전트를 실행할 수 있는 사람 | 세션 생성 권한 |
 | 카탈로그 보기(이름, 버전, 출처, 승인 상태, 워크스페이스 범위 지정) | 그 플러그인의 공개 범위 안의 구성원, 제출한 사람, 워크스페이스 관리자. 이미 워크스페이스 범위에 지정된 플러그인은 구성원 모두(실행에 닿는 것을 숨기지 않는다) | `workspace.read`와 공개 범위 |
@@ -244,7 +311,7 @@ egress는 `mcp.use`를 다음 두 때에 묻는다. 매번 정책의 규칙 목�
 
 ### receipt와 결정 기록
 
-- 등록·승인·거절·지정·해제·보관은 각각 receipt를 같은 transaction에서 쓴다. 지금 있는 `register_extension`(`ports/extension-bundle-store.ts:75-78`), 승인 receipt, `attach_extension`·`detach_extension`을 그대로 쓰고, 없는 것은 보관(`archive_extension`)과 라이브러리 메타데이터 변경(`update_extension_metadata`, [10절](#10-스킬-라이브러리-의존성-werft-플러그인-오너-요청-2026-11-20)) 둘만 더한다. 종류 이름을 "skill"로 바꾸지 않는다(지난 receipt 조회가 두 이름을 알아야 한다). 대상에는 이름·digest·출처(Git이면 커밋)를 남긴다.
+- 등록·승인·거절·지정·해제·보관은 각각 receipt를 같은 transaction에서 쓴다. 지금 있는 `register_extension`(`ports/extension-bundle-store.ts:75-78`), 승인 receipt, `attach_extension`·`detach_extension`을 그대로 쓰고, 없는 것은 보관(`archive_extension`), 현재 버전 되돌리기(`revert_extension`), Git 동기화 설정(멈춤·다시 켬, 자동 승인 켜기 요청·동의·끄기를 `update_extension_sync` 하나에 동작 칸으로, [3절](#git-출처의-동기화-오너-결정-2026-11-21)), 라이브러리 메타데이터 변경(`update_extension_metadata`, [10절](#10-스킬-라이브러리-의존성-werft-플러그인-오너-요청-2026-11-20))만 더한다. 동기화가 만든 버전과 자동 승인은 새 종류 없이 `register_extension`과 승인 receipt를 쓰고, 주체를 동기화로 적는다. 종류 이름을 "skill"로 바꾸지 않는다(지난 receipt 조회가 두 이름을 알아야 한다). 대상에는 이름·digest·출처(Git이면 커밋)를 남긴다.
 - 세션은 시작 때 해석 결과(이름, digest, 범위)를 이벤트로 남긴다. 그래서 "이 세션은 어떤 스킬의 어느 버전으로 돌았나"를 receipt와 세션 이벤트만으로 답할 수 있다. Claude Enterprise의 Compliance API가 스킬·플러그인 이벤트를 남기는 것(조사 1-5)과 같은 수준이고, 엔진 로컬 기록에 기대지 않는다는 점은 Codex 문서가 Compliance API의 한계로 적은 것(조사 2-1.7)을 피한다.
 - 스킬 사용 자체(엔진이 스킬을 읽거나 부른 것)와 MCP 도구 사용은 도구 호출 감사([관측과 도구 호출 감사](observability-otel-and-tool-call-audit.md))가 다룬다. 새 감사 레코드는 만들지 않고, MCP 호출 행은 접근 판정의 기록을 `access_decision_id`로 가리킨다([6절](#6-mcp-자격과-데이터-접근-정책)).
 
@@ -258,10 +325,11 @@ egress는 `mcp.use`를 다음 두 때에 묻는다. 매번 정책의 규칙 목�
       ├ MCP 서버                     지금
       ├ 접근 정책                    접근 판정 설계의 규칙 화면(그 문서 B3). MCP 축 규칙도 여기서 고친다
       └ 스킬 라이브러리              새로(아래는 관리자에게만 보이는 칸 포함)
-          ├ 목록: 이름, 최신 승인 버전, 대기 중 버전 수, 태그·분류, 공개 범위, 워크스페이스 지정 모드, 쓰는 에이전트 수(보는 사람이 읽을 수 있는 에이전트만)
+          ├ 목록: 출처 아이콘(GitHub 또는 웹 업로드), 이름, 현재 버전, 대기 중 버전 수, 태그·분류, 공개 범위, 워크스페이스 지정 모드, 쓰는 에이전트 수(보는 사람이 읽을 수 있는 에이전트만)
           ├ 추가: 업로드 / GitHub에서
-          ├ 승인 대기: 저장될 트리의 모든 파일 내용과 앞 승인 버전과의 줄 단위 diff(`scripts/` 아래와 실행 비트가 있는 파일을 먼저 보임, 이진 파일은 크기와 해시), 승인·거절
-          └ 스킬 상세: 버전 기록(digest, 출처, 등록·승인한 사람), 버전별 지정된 곳(읽을 수 있는 에이전트만), 워크스페이스 지정 모드, 보관
+          ├ 승인 대기: 저장될 트리의 모든 파일 내용과 앞 승인 버전과의 줄 단위 diff(`scripts/` 아래와 실행 비트가 있는 파일을 먼저 보임, 이진 파일은 크기와 해시), Git이면 커밋과 계기, 승인·거절
+          └ 스킬 상세: 버전 기록(digest, 출처·커밋, 등록·승인한 사람, 자동 승인이면 그 근거), 현재 버전과 되돌리기, 버전별 지정된 곳(읽을 수 있는 에이전트만), 워크스페이스 지정 모드, 보관
+              Git이면: 저장소·경로·ref, 마지막 확인(시각, 계기, 결과), 지금 확인, 동기화 멈춤·다시 켬, 자동 승인(켜기 요청·동의·끄기, 보호 확인 결과), webhook을 받지 못하는 설치라는 안내
 
 에이전트 상세 > 접근 탭
   ├ MCP 서버                         지금
@@ -435,6 +503,20 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 
 **흐름.** 형식(Agent Skills, MCP)은 엔진 사이에서 하나로 모였다. 그 위의 배포 단위(plugin)와 그것을 다스리는 방법(허용 목록, 버전 고정, 승인, 검사)은 제품마다 다르고 표준이 없다. 고정과 승인은 있되 기본값이 아니고, 자동 검사는 우회된다는 것이 같은 시기에 보였다. 조직 플랫폼이 할 일은 형식은 표준대로 받고, 배포와 통제는 자기 모델로 두는 것이다.
 
+### Git 출처 동기화 (2026-11-21 추가 조사)
+
+오너가 "GitHub에 갱신되면 자동으로 동기화"를 요청해, 관리 제품들이 Git 저장소의 플러그인·스킬을 어떻게 갱신하는지 공식 문서로 다시 봤다. 3절 "Git 출처의 동기화"의 근거다.
+
+| 제품 | 계기 | 고정 | 승인·되돌리기 | 출처 |
+|---|---|---|---|---|
+| Claude Team·Enterprise 조직 설정(Sync from GitHub) | "Sync automatically"를 켜면 저장소에 webhook을 만들고 기본 브랜치에 push가 올 때마다 동기화한다. 주기적 확인은 없고 수동 Re-sync가 있다. 도움말 문서 한 곳은 버전을 올린 pull request가 머지될 때만이라고 적어, 출처끼리 다르다 | 기본 브랜치만 읽는다. 태그는 읽지 않는다 | 이 동기화 경로에 사람 승인 단계를 문서에서 찾지 못했다. 보안 검사를 켜면 검사를 지난 버전만 내준다 | [org-sync](https://claude.com/docs/plugins/org-sync), [org-rollout](https://claude.com/docs/plugins/org-rollout), [도움말](https://support.claude.com/en/articles/13837433-manage-plugins-for-your-organization) |
+| Claude Plugins API(beta) | API로 올린 버전 | `served_version_id`로 고르면 새 버전은 저장만 되고 고를 때까지 내주지 않는다 | 고르는 것이 승인 역할이다 | [Plugins API](https://platform.claude.com/docs/en/manage-claude/plugins-api) |
+| Claude Code marketplace | 세션 시작 때 갱신. marketplace마다 `autoUpdate`, 관리 설정 `extraKnownMarketplaces`로 정한다 | `ref`·`sha` | 없음. 공식 marketplace는 따로 등록하지 않아도 쓰인다. 서드파티의 자동 갱신 기본값은 공식 문서에서 확인하지 못했다 | [marketplaces](https://code.claude.com/docs/en/plugin-marketplaces), [조직 배포](https://code.claude.com/docs/en/plugins/org) |
+| OpenAI Codex Enterprise(GitHub marketplace 가져오기) | 하루 한 번 자동 동기화, 관리자의 "Sync now" | 가져올 때 정한 저장소 | 없다. 새 버전이 잘못되면 마지막으로 동작한 버전을 남긴다. 문서는 "자동 동기화가 새 플러그인을 가져오므로 머지 전에 저장소 변경을 리뷰하라"고 한다 | [plugin management](https://learn.chatgpt.com/docs/enterprise/plugin-management), [도움말](https://help.openai.com/en/articles/20001504-importing-and-syncing-plugin-marketplaces-from-github) |
+| GitHub Copilot custom agents | 기본 브랜치에 머지되면 쓰인다 | 없음 | 통제는 저장소의 브랜치 규칙과 리뷰가 맡는다 | [create custom agents](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/create-custom-agents) |
+
+**정리.** 갱신을 아는 방법은 push webhook(Claude 조직 설정)과 주기적 확인(Codex 하루 한 번), 그리고 수동 동기화 셋이다. webhook은 빠르지만 GitHub가 실패한 전달을 다시 보내지 않으므로([출처](https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries)) 주기적 확인이 보조로 필요하다. 승인은 대부분 저장소의 리뷰에 맡기고(Copilot, Codex의 권고), 따로 두는 곳은 버전을 골라야 내주는 Plugins API의 pin뿐이다. werft는 webhook과 하루 확인을 함께 쓰고, 승인은 pin처럼 werft 안에 둔다. 저장소의 리뷰를 승인으로 쓰는 길은 보호된 브랜치 자동 승인으로 opt-in이다([12절](#12-따를-것과-다르게-갈-것)).
+
 ## 12. 따를 것과 다르게 갈 것
 
 | 구분 | 무엇 | 이 문서에서 |
@@ -449,6 +531,7 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 - **스킬 형식은 Agent Skills.** 세 엔진이 다 읽으므로 엔진마다 바꾸지 않는다. Codex `agents/openai.yaml` 같은 엔진 전용 파일은 받지 않는다. frontmatter는 명세 칸(`allowed-tools` 제외)과 지금도 받는 Claude 칸 둘(`disable-model-invocation`·`user-invocable`)만 받는다(2절).
 - **버전은 불변이고 기본이 고정이다.** Claude Plugins API의 불변 버전과 `served_version_id` 고정, `gh skill --pin`, Trail of Bits의 권고와 같다. 지정 행이 digest 하나를 가리키고 세션은 시작 때 digest를 고정한다(4절).
 - **Git 출처는 커밋 SHA로 고정한다.** marketplace `sha`, `gh skill --pin`과 같다. 태그를 받아도 등록 때 커밋으로 풀어 남긴다(3절).
+- **Git 변경은 push webhook으로 바로 안다.** Claude 조직 설정의 GitHub 동기화가 기본 브랜치 push를 webhook으로 받는 것과 같은 모델이다. 놓친 webhook은 Codex처럼 하루 한 번 확인과 수동 "지금 확인"으로 잡는다(3절 "Git 출처의 동기화", 11절 "Git 출처 동기화").
 - **설치 값의 모양.** `required`·`optional`·`forbidden`은 Claude의 Required·Available·Not available과 대응한다(4절).
 - **저장소 안의 스킬·MCP 설정을 엔진이 읽지 않게 한다.** Agent Skills 안내가 프로젝트 스킬을 trust로 막으라고 하고, 작업 공간 MCP 설정 RCE가 그 이유를 보였다. 우리는 trust 여부와 상관없이 닫는다(5절).
 - **자격은 엔진에 값으로 주지 않는다.** Codex `bearer_token_env_var`와 같은 생각이고, 우리는 relay 비밀만 준다(6절).
@@ -464,7 +547,7 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 |---|---|---|
 | 엔진 plugin이 배포 단위이고 원본이다(Claude·Codex·Cursor) | 원본은 엔진 중립의 werft 플러그인이고 엔진 plugin은 세션마다 만드는 출력이다(2·10절) | 엔진마다 형식이 다르고, 훅·명령·확장 코드는 엔진 하나에만 뜻이 있으며 플랫폼 승인 밖의 실행면이다. 원본이 하나여야 승인 경로가 하나다 |
 | plugin이 훅·명령·서브에이전트를 싣는다 | 싣지 않는다(범위 밖) | 훅은 엔진 프로세스 안에서 승인 경로 밖의 코드를 돌린다. Codex도 훅에는 사용자 trust를 따로 요구하고 훅이 있는 plugin을 공개 디렉터리에 올리지 않는다([Codex plugins](https://developers.openai.com/codex/plugins/build)). 명령·도구 규칙은 실행 규칙 설계가 다룬다 |
-| 자동 갱신, `latest` 기본(Claude Code marketplace, Managed Agents, 동기화 스킬) | 자동 갱신 없음, 새 커밋은 새 버전 후보(`pending`) | 승인 없이 내용이 바뀌는 길이 된다(3절) |
+| push가 오면 바로 반영한다. 사람 승인 단계를 문서에서 찾지 못했고, 기본 브랜치만 읽는다(Claude 조직 GitHub 동기화). 하루 한 번 가져오고 승인 없이 저장소 리뷰에 맡긴다(Codex Enterprise). merge가 곧 반영이다(Copilot custom agents). 버전을 빼면 `latest`다(Managed Agents) | push는 새 버전 후보(`pending`)를 만들 뿐이고, 반영은 다른 관리자의 승인 뒤다. ref는 브랜치·태그·SHA 어느 것이든 받고, 버전마다 커밋 SHA로 고정한다. 반영되는 것은 지정이 고른 digest나 스킬의 현재 버전이고, 현재 버전은 한 번에 되돌린다(3절) | 승인 없이 push 하나로 여러 사람의 실행이 바뀌는 길을 열지 않는다. 승인 게이트는 Plugins API의 pin(새 버전은 저장만 하고 고를 때까지 내주지 않음)과 같은 생각이다. 승인을 줄이고 싶은 저장소는 스킬마다 opt-in으로 보호된 브랜치 자동 승인을 켠다. 그때도 두 관리자가 켜고, 확인마다 GitHub의 보호와 리뷰를 다시 보고, receipt를 남긴다 |
 | 조직 전체 게시의 승인을 끌 수 있고, 자동 검사가 켜져 있으면 승인 없음(Open)이 기본이다(claude.ai 조직 스킬) | 모든 버전이 승인을 거치고, 공개 범위를 넓히는 것은 관리자만 한다(7·10절) | 라이브러리의 플러그인은 에이전트에 지정되어 여러 사람의 실행에 들어간다 |
 | 여러 그룹이면 가장 넓은 값(Claude Plugins API) | 바깥 범위가 안쪽을 좁히기만 한다. `forbidden`은 펼친 결과에도 걸린다(4·10절) | 결과를 범위 순서만으로 receipt로 설명할 수 있고, 금지를 다른 묶음으로 비켜 갈 수 없다 |
 | 자동 보안 검사를 통제 수단으로 내세운다(claude.ai Enterprise는 검사를 켜면 승인 없는 게시가 기본, Plugins API는 검사를 통과한 버전만 내줌, 공개 레지스트리의 검사기. 승인·출처 제한·버전 관리도 함께 둔다) | 이번 설계에는 자동 검사를 넣지 않는다. 허용 목록으로 다시 만든 트리만 저장하는 검사기, 다른 사람의 승인, 커밋 고정, 실행 샌드박스로 막는다(범위 밖) | 검사는 우회된다는 것이 같은 시기에 보였다. 넣을 때는 승인을 대신하지 않는 참고 결과로 넣는다. 지켜볼 것: Agent Skills의 보안 안내 |
@@ -485,7 +568,7 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 | `packages/platform/src/extensions/` | 검사기(`bundle-validator.ts`), 해석기(`resolve.ts`: 접기, 펼치기, `forbidden`, 엔진 이름 겹침), 등록·승인 서비스(`bundle-service.ts`), 의존성 확인, 저장 포트(`ports/extension-bundle-store.ts`) |
 | `packages/db/src/extensions/` | 저장 포트의 Postgres 구현 |
 | `packages/runtime-core` | 번들 digest와 archive(`extension-bundle-archive.ts`) |
-| `apps/control-host` | HTTP API(콘솔 세션만), Git 출처 읽기(워크스페이스 GitHub App), 세션 시작 때 해석 결과 고정 |
+| `apps/control-host` | HTTP API(콘솔 세션만. GitHub webhook 경로만 인증 없이 서명으로 받는다), Git 출처 읽기와 동기화 확인·하루 한 번 확인·보호 확인(워크스페이스 GitHub App), 세션 시작 때 해석 결과 고정 |
 | `packages/platform/src/workers/workspace-mcp-egress.ts`와 그 DB 쪽 | MCP 축 판정 요청(6절 "언제 무엇을 묻나"), (서버, 턴) subject 고정과 전송 세션 묶음 |
 | `apps/egress-proxy`와 인가 요청 계약(`apps/control-host/src/api/egress-authorizer.ts`) | 지금 proxy가 MCP 판정에 넘기는 것은 메서드와 도구 이름뿐이다(`egress-authorizer.ts:164-172`). S11은 `subscriptions/listen`의 구독 종류를, S12는 upstream이 준 `Mcp-Session-Id`와 요청이 실은 세션 id를 이 계약에 더한다. proxy가 JSON-RPC 본문과 응답 헤더에서 읽어 넘기고, 판정은 control-host가 한다. 엔진이 보내는 값을 그대로 믿지 않고 proxy가 실제 교환에서 읽은 값만 쓴다 |
 | `packages/adapters/runtimes/claude`, `codex`, `codex-codec` | 엔진 매핑과 탐색 닫기, 시작 확인, 엔진 plugin 출력, relay, descriptor의 스킬 칸 |
@@ -503,8 +586,13 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 
 | 표·칸 | 내용 | 단계 |
 |---|---|---|
-| `extension_bundles` | 스킬 트리 저장으로 역할을 좁힌다. 새 행은 스킬 하나. Git 출처의 저장소·경로·커밋 칸(없으면 더한다) | S1, S2 |
-| receipt 종류 | `archive_extension`, `update_extension_metadata` | S1, S10 |
+| `extension_bundles` | 스킬 트리 저장으로 역할을 좁힌다. 새 행은 스킬 하나. Git 출처 버전의 저장소 id·경로·ref·커밋과 계기 칸(없으면 더한다) | S1, S2a |
+| Git 스킬 출처 | (워크스페이스, 스킬 이름) → 출처 종류, 저장소 id·이름, 경로, ref, App, 동기화 켜짐, 마지막 확인(시각, 계기, 커밋, 결과) | S2a |
+| GitHub App webhook secret | App 키와 같은 봉인 저장. manifest 교환 응답이나 관리자 입력에서 | S2a |
+| 스킬 현재 버전 | (워크스페이스, 스킬 이름) → 현재 버전, 그 버전이 된 이유(승인·되돌리기) | S2b |
+| `extension_attachments` 따라가기 | 지정 행이 버전 대신 "현재 버전 따라가기"를 가리킬 수 있다. S8이 지정을 플러그인 digest로 옮길 때 따라가기는 단일 스킬 플러그인의 현재 버전을 따라가는 것으로 옮긴다 | S2b, S8 |
+| 자동 승인 설정 | (워크스페이스, 스킬 이름) → 켜짐, 요청한 사람, 동의한 사람, 마지막 보호 확인 결과 | S2b |
+| receipt 종류 | `archive_extension`, `update_extension_sync`, `revert_extension`, `update_extension_metadata` | S1, S2a·S2b, S2b, S10 |
 | werft 플러그인 | (워크스페이스, 이름, digest) → 정규화한 manifest, 승인 상태, 등록·승인한 사람 | S8 |
 | `extension_attachments` | 지정 행이 werft 플러그인 digest를 가리킨다(옛 번들 지정은 읽기 유지) | S8 |
 | 라이브러리 메타데이터 | 플러그인 이름 → 태그(단 사람), 분류, 공개 범위와 그 대상 | S10 |
@@ -514,7 +602,7 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 
 ### 고른 것과 고르지 않은 것
 
-- **엔진 plugin을 원본으로**, **공개 레지스트리에서 가져오기**, **push마다 자동 sync**, **가장 넓은 값 규칙**은 고르지 않았다. 이유는 12절과 대안 절이다.
+- **엔진 plugin을 원본으로**, **공개 레지스트리에서 가져오기**, **승인 없이 push를 바로 반영하기**, **가장 넓은 값 규칙**은 고르지 않았다. 이유는 12절과 대안 절이다.
 - **스킬 저장 테이블 이름을 바꾸지 않는다**(2절). 바꾸는 비용(migration, 섞인 버전 worker 호환)에 비해 얻는 것이 낱말뿐이다.
 - **MCP 판정을 엔진 쪽 훅에 두지 않는다.** 엔진 프로세스는 프롬프트 인젝션에 놓여 있다. 판정은 control-host egress에 있다(접근 판정 16절).
 
@@ -527,11 +615,12 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 | 단계 | 내용 | PR | 끝난 조건 | 앞선 단계 |
 |---|---|---|---|---|
 | S1 스킬 API | 관리자 등록(업로드, 본문 128 KiB까지, 스킬 하나로 좁힘, 올린 `.claude-plugin/plugin.json` 거절, 명세 칸 `license`·`compatibility`·`metadata` 받기와 `allowed-tools` 거절. 구성원 제출은 S10), 버전(등록 순번 + digest), 승인(본인 승인 규칙), 워크스페이스·에이전트 범위 지정·해제(에이전트 관리자까지 넓힘), 보관, 버전 트리의 파일 내용과 앞 승인 버전과의 diff를 읽는 API(owner·admin이 승인하는 콘솔에서 읽는다. API key는 쓰기처럼 거절), receipt `archive_extension`, `packages/core` 응답 표 | 1–2 | 서비스·API 시험: 스킬 둘 이상 트리 거절, 엔진 manifest 거절, 명세 칸 세 개가 든 스킬 등록과 `allowed-tools` 거절, `metadata`의 중첩·anchor·alias·중복 키·크기 초과 거절, 저장 트리를 다시 검사해 같은 digest, 본인 승인 거절(관리자 한 사람이면 허용과 receipt), 지정된 버전 보관 거절, API key 쓰기 거절 | — |
-| S2 Git 출처 | 저장소·경로·ref를 커밋 SHA로 풀어 읽기(워크스페이스 GitHub App), 원본 위치 메타데이터, "새 커밋 확인"이 digest가 다를 때만 `pending` 후보 | 1 | fake-git 통합 시험: 태그 → 커밋 고정, 같은 내용이면 후보 없음, 다른 내용이면 `pending` | S1 |
+| S2a Git 출처와 동기화 | 3절 "Git 출처의 동기화": 저장소·경로·ref를 커밋 SHA로 풀어 읽기(워크스페이스 GitHub App), 버전마다 원본 위치, 스킬 단위 출처 종류(`upload`·`github`)와 원본 위치를 API에 싣기, 확인 하나(계기 셋: push webhook, 하루 한 번 확인, "지금 확인")가 digest가 다를 때만 `pending` 후보, 스킬 단위 잠금과 계기 합치기, 마지막 확인 기록, webhook 경로(서명 검사, 본문 상한, 202), manifest의 `hook_attributes`·`push` 이벤트와 `webhook_secret` 저장(공개 주소가 있을 때만, [GitHub App manifest 결정](github-app-manifest.md)도 고침), 기존 App의 secret 입력, 승인 대기 수를 목록 응답에, 동기화 멈춤·다시 켬과 receipt `update_extension_sync` | 1–2 | fake-git·fake GitHub 통합 시험: 태그 → 커밋 고정, 같은 내용이면 후보 없음, 다른 내용이면 `pending`, 서명이 틀린 webhook은 401이고 아무 확인도 걸리지 않음, 본문의 커밋·내용이 아니라 API로 다시 푼 커밋을 읽음, 같은 전달을 두 번 받아도 버전 하나, 확인 중 push가 오면 한 번 더 돌아 마지막 커밋을 잡음, 멈춘 스킬은 webhook·하루 확인이 건너뜀, webhook 없이 하루 확인만으로 후보가 생김, ref 삭제는 `source_missing` | S1 |
+| S2b 현재 버전과 보호된 브랜치 자동 승인 | 3절 "현재 버전과 따라가는 지정"과 "보호된 브랜치의 자동 승인": 스킬 현재 버전, 지정의 따라가기와 세션 시작 때 digest로 풀기, 되돌리기와 receipt `revert_extension`, 현재 버전 거절 때 앞 승인 버전으로, 현재 버전·따라가는 지정의 보관 거절, 자동 승인 켜기 요청·동의·끄기, 켤 때와 확인마다 브랜치·보호 규칙·리뷰된 pull request 확인, 채우지 못하면 `pending`과 이유, 자동 승인 receipt | 1–2 | 서비스·통합 시험: 따라가는 지정이 승인 뒤 새 세션부터 새 digest, 진행 중 세션은 그대로, 되돌리기 뒤 새 세션이 앞 버전을 쓰고 되돌린 버전이 다음 승인으로 돌아오지 않음, 현재 버전이 없으면 따라가는 `required`가 시작 거절, 자동 승인 켜기를 요청한 사람이 동의하면 거절(관리자 한 사람이면 허용과 receipt), 태그 ref에 켜기 거절, fake GitHub에서 ruleset·고전 보호 각각의 리뷰 조건이 있으면 자동 승인, 보호 제거·직접 push·리뷰 없는 머지·GitHub 무응답은 `pending`과 이유. sandbox 저장소에서 지금 App 권한으로 두 보호를 읽을 수 있는지 확인한 결과를 PR에 기록 | S2a |
 | S3 해석기와 Claude 어댑터 | descriptor의 스킬 호출 도구, 엔진 이름 기준 겹침 검사, 시작 확인 두 단계(5절 "Claude의 시작 확인"), `strictMcpConfig`. plugin 매핑과 fingerprint는 그대로 | 1–2 | 시작 확인 시험: 빠진 스킬·남는 스킬·숨은 스킬 불일치가 각각 거절되고, 내장 명령이 섞인 정상 `commands`는 비교에서 빠져 통과하고, 숨은 스킬 불일치 세션에서 도구가 돌지 않음. 기존 체크포인트 resume 시험 | S1 |
 | S4 Codex 스킬 | 스킬 루트(extraRoots 먼저), 고정 버전에서 루트별 탐색 닫기와 `skills/changed` 처리, `disable-model-invocation`을 세션 사본의 `agents/openai.yaml` 정책으로 옮기기(확인하지 못하면 그 스킬의 Codex 지정 거절), `skills/list` 정확 일치, `codexProfileDigest`에 스킬 digest와 매핑 버전, descriptor `skills: native`(닫기를 확인하지 못하면 `none`) | 1–2 | 통합 시험: 저장소·사용자·ADMIN·시스템 스킬이 보이지 않음, 실행 중 새 `SKILL.md`가 생기면 그 턴이 중단되어 남은 도구 호출이 돌지 않고 다음 턴 전에 꺼짐, 스킬 없는 세션의 fingerprint가 그대로 | S1, S3 |
 | S5 Codex 워크스페이스 MCP | 워크스페이스 MCP 서버를 relay로(`assertStartable` 거절 해제, `enabled_tools`) | 1 | fake MCP 서버로 Codex 세션이 도구를 부르고, claim 밖 도구가 보이지 않음 | — |
-| S6 콘솔(스킬) | 워크스페이스 설정 > 스킬(승인 대기 화면은 모든 파일 내용과 diff, 7절), 에이전트 접근 탭의 스킬 칸, 새 세션의 optional 켜기 | 1–2 | 화면 시험과 실제 스택 화면 기록(PR에 전후 캡처). 승인 화면에서 `scripts/` 파일의 바뀐 줄이 보이는 시험 | S1 |
+| S6 콘솔(스킬) | 워크스페이스 설정 > 스킬(승인 대기 화면은 모든 파일 내용과 diff, 7절), 스킬 라이브러리 목록의 **출처 아이콘**(GitHub 또는 웹 업로드, 3절 "출처는 스킬마다 하나다"), 관리자에게 보이는 승인 대기 표시(설정 메뉴와 홈), Git 스킬 상세의 동기화 칸(마지막 확인, 지금 확인, 멈춤·다시 켬), 에이전트 접근 탭의 스킬 칸, 새 세션의 optional 켜기. 현재 버전·되돌리기·따라가기·자동 승인 화면은 S2b가 머지된 뒤 이 단계의 두 번째 PR이나 후속 PR로 한다 | 1–2 | 화면 시험과 실제 스택 화면 기록(PR에 전후 캡처). 승인 화면에서 `scripts/` 파일의 바뀐 줄이 보이는 시험, 목록에서 Git 스킬과 업로드 스킬의 아이콘과 접근 이름이 다른 시험 | S1, S2a |
 | S7 E2E | 같은 스킬과 MCP 서버를 Claude·Codex 에이전트에 지정하고 둘 다 쓰는지, 저장소의 `.agents/skills`·`.claude/skills`가 보이지 않는지, 저장소와 엔진 사용자 설정에 넣은 시험용 MCP 서버로 엔진이 직접 연결하거나 token을 저장하지 않는지, 담당 팀 밖 구성원에게 숨긴 에이전트의 지정이 보이지 않는지 | 1 | CI의 E2E가 두 엔진에서 통과 | S3, S4, S5, S6 |
 
 ### 다음: werft 플러그인, 라이브러리, MCP 전송 세션
@@ -560,11 +649,15 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 - 엔진의 자동 의존 설치(스킬이 MCP 서버를 깔게 하는 기능).
 - 자동 보안 검사(Claude Enterprise의 스킬 검사에 해당). 검사기의 허용 목록 재구성, 다른 사람의 승인, 커밋 고정으로 대신한다. 넣을 때는 승인을 대신하지 않는 참고 결과로 넣는다([12절](#12-따를-것과-다르게-갈-것)).
 - pi 엔진 구현([8절](#8-pi-coding-agent를-세-번째-엔진으로) 추천에 따라 오너 결정 뒤).
+- 승인 대기를 콘솔 밖(Slack, 메일)으로 알리기. 지금 관리자에게 보내는 알림 통로가 없어, S2a는 콘솔에 보일 데이터만 싣는다([3절](#git-출처의-동기화-오너-결정-2026-11-21) "알림"). 후속 티켓으로 둔다.
+- 스킬의 출처 바꾸기(업로드 스킬을 Git으로, 또는 반대). 다른 이름으로 다시 등록한다.
+- GitHub Enterprise Server 저장소의 Git 출처([GitHub App manifest 결정](github-app-manifest.md) 8절과 같다).
 
 ## 대안 (고르지 않음)
 
 - **엔진 플러그인을 원본 단위로 하고 엔진 사이 변환기를 둔다.** 엔진마다 다른 훅·명령을 승인하고 판정할 길이 필요하고, 변환할 수 없는 부분이 매번 생긴다. werft 플러그인이 같은 공유 단위를 엔진 중립으로 준다.
 - **번들(여러 스킬)을 계속 등록 단위로 둔다.** Claude 외 엔진에서 이름공간을 흉내 내야 하고(`<slug>-<skill>` 같은 이름 바꾸기), 버전이 스킬 하나가 아니라 묶음 단위로 움직여 한 스킬만 고치는 배포가 무거워진다.
 - **저장소의 `.agents/skills`를 그대로 읽게 한다.** 엔진 셋이 다 읽는 자리라 가장 쉽지만, 저장소에 push할 수 있는 사람이 승인 없이 에이전트 능력을 바꾼다.
-- **Git 출처를 push마다 자동 sync한다.** Claude 조직 설정이 이렇게 한다(조사 1-2.1). 우리는 승인이 버전 단위라, 자동 sync는 승인 대기 버전을 늘릴 뿐 배포를 빠르게 하지 않는다.
+- **Git push를 승인 없이 바로 반영하고, 검사에 실패한 버전만 막는다.** 오너에게 보인 세 번째 선택지다(2026-11-21). Claude 조직 설정의 GitHub 동기화와 Copilot custom agents가 이 모양이다(11절). push할 수 있는 사람이 승인 없이 여러 사람의 실행을 바꾸고, 자동 검사는 우회된다는 것이 같은 시기에 보였다. 대신 보호된 브랜치 자동 승인(3절)이 저장소의 리뷰를 승인으로 쓰는 길을 opt-in으로 준다.
+- **처음 안: 자동 sync 없이 수동 "새 커밋 확인"만.** 이 문서의 처음 판이다. 승인 대기 버전이 늘기만 하고 배포가 빨라지지 않는다고 보았으나, 오너는 GitHub에 갱신되면 자동으로 동기화되기를 원했다. 확인을 자동으로 하되 승인은 남기는 지금 안으로 바꿨다.
 - **가장 관대한 값 규칙(Claude Enterprise 그룹).** 결과를 설명하려면 모든 그룹 소속을 봐야 한다. 범위 순서 규칙이 receipt로 설명하기 쉽다.
