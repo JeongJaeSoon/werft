@@ -189,7 +189,9 @@ export const agentsKo = {
   "agent.draft.pendingTitle": "적용 대기",
   "agent.draft.failedTitle": "적용 실패",
   "agent.draft.pending":
-    "저장했지만 아직 적용되지 않은 내용입니다. 다시 시도하면 이어서 적용합니다.",
+    "저장했지만 아직 켜지 않은 내용입니다. 다시 시도하면 켜지 않고 저장하니, 미리 써 본 뒤 켜세요.",
+  "agent.draft.saved":
+    "저장만 한 설정은 아직 켜지 않았습니다. 미리 써 본 뒤 그 릴리스를 켜세요.",
   "agent.draft.retry": "다시 시도",
   "agent.draft.discard": "버리기",
   "agent.draft.done": "적용했습니다.",
@@ -691,7 +693,9 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.draft.pendingTitle": "Waiting to apply",
   "agent.draft.failedTitle": "Could not apply",
   "agent.draft.pending":
-    "This was saved but is not applied yet. Try again to finish applying it.",
+    "This was saved but is not on yet. Try again saves it without turning it on, so try it first, then turn it on.",
+  "agent.draft.saved":
+    "Settings that were only saved are not on yet. Try them, then turn that release on.",
   "agent.draft.retry": "Try again",
   "agent.draft.discard": "Discard",
   "agent.draft.done": "Applied.",
@@ -1184,7 +1188,9 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.draft.pendingTitle": "適用待ち",
   "agent.draft.failedTitle": "適用失敗",
   "agent.draft.pending":
-    "保存しましたが、まだ適用されていない内容です。再試行すると続きから適用します。",
+    "保存しましたが、まだ有効にしていない内容です。再試行しても有効にせずに保存するので、試してから有効にしてください。",
+  "agent.draft.saved":
+    "保存だけした設定はまだ有効ではありません。試してから、そのリリースを有効にしてください。",
   "agent.draft.retry": "再試行",
   "agent.draft.discard": "破棄",
   "agent.draft.done": "適用しました。",

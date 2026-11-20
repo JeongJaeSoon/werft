@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
   AgentDetail,
+  AgentRelease,
   BehaviorValues,
   SaveAgentResponse,
 } from "@werft-ai/contracts";
@@ -16,13 +17,17 @@ import {
   KeyValueList,
   Text,
 } from "@werft-ai/ui";
-import { useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { agentListsFilter, queryKeysOf } from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
 import {
   cardFromDraft,
   draftFromCard,
 } from "../../components/agent-card-form.tsx";
+import {
+  PreviewDialog,
+  previewRelease,
+} from "../../components/agent-preview.tsx";
 import { agentRefusal } from "../../components/agent-refusal.ts";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { draftVersion, shownVersion } from "./versions.tsx";
@@ -60,9 +65,12 @@ export function saveFailureText(t: Translate, reason: string | null): string {
 export function EffectiveBehavior({
   detail,
   manages,
+  toRelease,
 }: {
   readonly detail: AgentDetail;
   readonly manages: boolean;
+  /** Where a saved release is turned on. */
+  readonly toRelease: ReactNode;
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
@@ -70,8 +78,28 @@ export function EffectiveBehavior({
   const role = useRole();
   const titleId = useId();
   const [outcome, setOutcome] = useState<string | null>(null);
+  // The release the button was pressed for: a later save does not swap it
+  // under an open preview.
+  const [previewing, setPreviewing] = useState<AgentRelease | null>(null);
   const { applied, draft } = detail.effective_behavior;
   const waiting = detail.draft;
+  // A published agent's saved release waits to be tried and turned on, as an
+  // unpublished agent's waits to be published above the tabs.
+  const saved =
+    detail.active_release && waiting?.failure === null
+      ? previewRelease(detail)
+      : undefined;
+  const previewButton = useRef<HTMLButtonElement>(null);
+  // The retry button is gone once its save is kept; the keyboard goes on to
+  // the next step instead of the page, unless it went elsewhere meanwhile.
+  const retried = useRef(false);
+  useEffect(() => {
+    if (!saved || !retried.current) return;
+    retried.current = false;
+    const focused = document.activeElement;
+    if (focused === null || focused === document.body)
+      previewButton.current?.focus();
+  }, [saved]);
 
   const resave = useMutation<SaveAgentResponse, ApiError, "retry" | "discard">({
     mutationFn: (mode) => {
@@ -88,16 +116,16 @@ export function EffectiveBehavior({
           body: {
             card: cardFromDraft(draftFromCard(source.card), source.card),
             connection_id: connection,
-            // An unpublished agent is published only by its own button.
-            ...(detail.agent.active_release_id === null
-              ? { activate: false }
-              : {}),
+            // A retry saves what nobody has tried yet, so it is turned on
+            // only by its own button; a discard puts back what runs now.
+            ...(mode === "retry" ? { activate: false } : {}),
           },
         }),
       ) as Promise<SaveAgentResponse>;
     },
     onMutate: () => setOutcome(null),
-    onSuccess: async ({ release, ...updated }) => {
+    onSuccess: async ({ release, ...updated }, mode) => {
+      retried.current = mode === "retry" && release.status === "saved";
       setOutcome(
         release.status === "failed"
           ? t("agent.save.failed", {
@@ -149,19 +177,26 @@ export function EffectiveBehavior({
         ) : null}
       </Card>
       {waiting ? (
-        <Alert variant={waiting.failure ? "red" : "amber"}>
+        <Alert
+          variant={waiting.failure ? "red" : "amber"}
+          data-status={saved ? "saved" : undefined}
+        >
           <div className="flex min-w-0 flex-col gap-2">
             <Heading>
               {waiting.failure
                 ? t("agent.draft.failedTitle")
-                : t("agent.draft.pendingTitle")}
+                : saved
+                  ? t("agent.draftPending.title")
+                  : t("agent.draft.pendingTitle")}
             </Heading>
             <output>
               {waiting.failure
                 ? t("agent.save.failed", {
                     reason: saveFailureText(t, waiting.failure),
                   })
-                : t("agent.draft.pending")}
+                : saved
+                  ? t("agent.draft.saved")
+                  : t("agent.draft.pending")}
             </output>
             {draft ? (
               <KeyValueList variant="grid" stack="sm" items={values(draft)} />
@@ -170,14 +205,28 @@ export function EffectiveBehavior({
           </div>
           {manages ? (
             <AlertActions>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={resave.isPending}
-                onClick={() => resave.mutate("retry")}
-              >
-                {t("agent.draft.retry")}
-              </Button>
+              {saved ? (
+                <>
+                  <Button
+                    ref={previewButton}
+                    type="button"
+                    variant="outline"
+                    onClick={() => setPreviewing(saved)}
+                  >
+                    {t("agents.flow.preview")}
+                  </Button>
+                  {toRelease}
+                </>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={resave.isPending}
+                  onClick={() => resave.mutate("retry")}
+                >
+                  {t("agent.draft.retry")}
+                </Button>
+              )}
               {detail.active_release ? (
                 <Button
                   type="button"
@@ -194,6 +243,11 @@ export function EffectiveBehavior({
       ) : outcome ? (
         <output>{outcome}</output>
       ) : null}
+      <PreviewDialog
+        release={previewing}
+        agentName={detail.agent.name}
+        onClose={() => setPreviewing(null)}
+      />
     </div>
   );
 }

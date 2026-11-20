@@ -40,7 +40,11 @@ export function CardTab({
   }, [editing]);
   return (
     <>
-      <EffectiveBehavior detail={detail} manages={manages} />
+      <EffectiveBehavior
+        detail={detail}
+        manages={manages}
+        toRelease={toRelease}
+      />
       {/* The panel stays mounted, so an open editor keeps its input across tabs. */}
       {editing && manages ? (
         <CardEditor
