@@ -1,6 +1,7 @@
-import type { AgentDetail } from "@werft-ai/contracts";
+import type { AgentDetail, AgentRelease } from "@werft-ai/contracts";
 import { Button } from "@werft-ai/ui";
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { PreviewDialog } from "../../components/agent-preview.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { CardEditor } from "./card-editor.tsx";
@@ -27,6 +28,7 @@ export function CardTab({
   const { t } = useI18n();
   const [connectionId, setConnectionId] = useState<string>();
   const [editing, setEditing] = useState(false);
+  const [previewing, setPreviewing] = useState<AgentRelease | null>(null);
   const editButton = useRef<HTMLButtonElement>(null);
   // Closing the editor hands the keyboard back to the button that opened it.
   const editReturns = useRef(false);
@@ -47,6 +49,7 @@ export function CardTab({
           onConnectionChange={setConnectionId}
           result={<PlacedOutcome placed={placed} at="card" />}
           onOutcome={onOutcome}
+          onPreview={setPreviewing}
           onClose={(cancelled) => {
             setEditing(false);
             editReturns.current = cancelled;
@@ -85,6 +88,13 @@ export function CardTab({
         detail={detail}
       />
       {manages ? <AgentDangerZone agent={detail.agent} /> : null}
+      <PreviewDialog
+        release={previewing}
+        agentName={detail.agent.name}
+        onClose={() => setPreviewing(null)}
+        // The save that opened it closed the form and its button.
+        returnTo={editButton}
+      />
     </>
   );
 }

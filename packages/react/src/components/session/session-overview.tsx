@@ -17,6 +17,7 @@ import {
   GridTableRow,
   SlackMark,
   TableTime,
+  Text,
   type TimestampLocale,
 } from "@werft-ai/ui";
 import { Globe, SquareTerminal } from "lucide-react";
@@ -141,6 +142,8 @@ export interface SessionOverviewRowMessages {
   readonly unknown: string;
   /** Names the row's opener, e.g. "세션 열기: 배포 점검"; the name alone if unset. */
   readonly open?: ((name: string) => string) | undefined;
+  /** The mark beside a preview session's title: "미리보기"; none if unset. */
+  readonly preview?: string | undefined;
 }
 
 export interface SessionOverviewRowProps {
@@ -252,14 +255,22 @@ export function SessionOverviewRow({
           title={name}
           renderLink={renderLink}
         />
-        <span
-          className={cn(
-            "max-w-full truncate font-medium text-foreground",
-            session.title ? null : "font-mono",
-          )}
-        >
-          {session.title ?? shortId}
-        </span>
+        <Text as="span" className="flex min-w-0 max-w-full items-center gap-2">
+          <Text
+            as="span"
+            className={cn(
+              "min-w-0 truncate font-medium",
+              session.title ? null : "font-mono",
+            )}
+          >
+            {session.title ?? shortId}
+          </Text>
+          {session.preview && messages.preview ? (
+            <Badge variant="violet" className="shrink-0">
+              {messages.preview}
+            </Badge>
+          ) : null}
+        </Text>
         {session.title ? (
           // Above the opener, so hovering shows the whole id.
           <Code className="relative text-subtle-foreground" title={session.id}>

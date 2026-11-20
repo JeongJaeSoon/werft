@@ -39,14 +39,15 @@ export const agentsKo = {
   "agents.slackAction.reinstall": "다시 설치 필요",
   "agents.slackAction.home_unset": "홈 채널 지정 필요",
   "agents.updated": "{at} 수정",
-  "agents.state.draft": "초안",
+  "agents.state.draft": "미게시",
+  "agents.state.published": "게시됨",
   "agents.state.released": "릴리스",
   "agents.status.active": "활성",
   "agents.status.paused": "일시 정지",
   "agents.status.archived": "보관됨",
   "agents.newTitle": "새 에이전트",
   "agents.newIntro":
-    "빈 카드에서 세 단계로 만듭니다. '하는 일'에서 저장하면 첫 릴리스가 만들어져 바로 쓸 수 있고, 그 뒤에 나가도 에이전트는 남습니다.",
+    "네 단계로 만듭니다. '하는 일'에서 저장한 뒤 미리 써 보고, 게시하면 담당 팀이 씁니다. 게시하기 전에는 관리자만 이 에이전트를 봅니다.",
   "agents.name": "이름",
   "agents.slug": "식별자",
   "agents.description": "설명",
@@ -54,7 +55,8 @@ export const agentsKo = {
   "agents.descriptionHint":
     "목록과 상세 화면에 보입니다. 모델에게는 전해지지 않습니다.",
   "agents.slugHint":
-    "이 워크스페이스에서 에이전트를 구분하는 이름으로, 목록과 상세 화면에 보이고 다른 에이전트와 겹칠 수 없습니다. 영문 소문자, 숫자, 하이픈(-). 이름에서 채워지고 고칠 수 있습니다. 저장한 뒤에는 바꿀 수 없습니다",
+    "영문 소문자·숫자·하이픈(-). 워크스페이스에서 겹칠 수 없고, 저장한 뒤에는 바꿀 수 없습니다.",
+  "agents.slugFromName": "이름에서: {slug}",
   "agents.slugLocked": "저장해 식별자는 더 바꿀 수 없습니다",
   "agents.slugTaken":
     "이 식별자는 다른 에이전트가 이미 씁니다. '이름' 단계로 돌아가 식별자를 바꾸세요.",
@@ -63,19 +65,66 @@ export const agentsKo = {
   "agents.flow.job": "하는 일",
   "agents.flow.next": "다음",
   "agents.flow.jobIntro":
-    "에이전트가 쓸 모델 연결과 모델을 정합니다. 저장하면 이 연결로 첫 릴리스가 만들어져 바로 쓰입니다. 동작 지시는 저장소의 CLAUDE.md나 AGENTS.md에 적습니다.",
-  "agents.flow.saveNext": "저장하고 다음",
+    "에이전트가 쓸 모델 연결과 모델을 정합니다. 저장하면 이 연결로 첫 릴리스가 만들어지고, 게시하기 전에 미리 써 볼 수 있습니다. 동작 지시는 저장소의 CLAUDE.md나 AGENTS.md에 적습니다.",
+  "agents.flow.saveNext": "저장하고 미리 써 보기",
   "agents.flow.saving": "저장하는 중…",
   "agents.flow.releaseFailed":
     "에이전트는 저장했지만 첫 릴리스를 만들지 못했습니다: {reason}. 저장을 다시 누르면 같은 에이전트를 고쳐 다시 시도합니다.",
   "agents.flow.later": "나중에 하기",
   "agents.flow.done":
-    "{name}을(를) 켰습니다. 이제 새 세션이 이 에이전트를 씁니다.",
+    "{name}을(를) 게시했습니다. 이제 담당 팀 {team}이(가) 이 에이전트를 씁니다.",
   "agents.flow.leaveTitle": "저장하지 않고 나갈까요?",
   "agents.flow.leaveConsequence":
-    "여기서 쓰고 저장하지 않은 내용은 사라집니다. 남기려면 '저장하고 다음'을 누르세요.",
+    "여기서 쓰고 저장하지 않은 내용은 사라집니다. 남기려면 '저장하고 미리 써 보기'를 누르세요.",
   "agents.flow.leave": "나가기",
   "agents.flow.stay": "계속 쓰기",
+  "agents.flow.preview": "미리 써 보기",
+  "agents.flow.back": "이전",
+  "agents.flow.editSettings": "설정 고치기",
+  "agents.flow.publishLater": "나중에 게시",
+  "agents.preview.unpublished":
+    "아직 게시하지 않았습니다. 이 에이전트의 관리자와 워크스페이스 관리자만 이 에이전트를 봅니다.",
+  "agents.preview.empty":
+    "메시지를 보내면 미리보기 세션이 시작됩니다. 미리보기 세션은 나만 봅니다.",
+  "agents.preview.message": "보낼 메시지",
+  "agents.preview.send": "보내기",
+  "agents.preview.sending": "보내는 중…",
+  "agents.preview.openSession": "세션 열기",
+  "agents.preview.needsInput":
+    "에이전트가 답을 기다립니다. 세션을 열어 답하세요.",
+  "agents.preview.dialogTitle": "미리 써 보기: {release}",
+  "agents.preview.dialogDescription":
+    "이 릴리스를 켜기 전에 미리보기 세션으로 써 봅니다. 미리보기 세션은 나만 봅니다.",
+  "agents.publish.title": "이 에이전트를 게시할까요?",
+  "agents.publish.consequence":
+    "게시하면 담당 팀 {team}이(가) 이 에이전트를 쓸 수 있습니다.",
+  "agents.publish.confirm": "게시",
+  "agents.publish.publishing": "게시하는 중…",
+  "agents.summary.title": "만드는 에이전트",
+  "agents.summary.none": "아직 없음",
+  "agents.summary.state": "상태",
+  "agents.summary.next.name":
+    "다음: 하는 일을 정하고 저장합니다. 저장해도 게시되지 않습니다.",
+  "agents.summary.next.job": "다음: 저장한 설정을 미리보기 세션으로 써 봅니다.",
+  "agents.summary.next.preview":
+    "다음: 게시하면 담당 팀이 이 에이전트를 쓰고, 채널을 연결할 수 있습니다.",
+  "agents.summary.next.channels":
+    "Slack을 연결하면 채널에서 이 에이전트를 부릅니다. 나중에 에이전트 화면에서 해도 됩니다.",
+  "agent.unpublished.title": "아직 게시하지 않았습니다",
+  "agent.unpublished.body":
+    "이 에이전트의 관리자와 워크스페이스 관리자만 이 에이전트를 봅니다. 미리 써 본 뒤 게시하면 담당 팀이 씁니다.",
+  "agent.unpublished.failed":
+    "마지막으로 저장한 설정으로 릴리스를 만들지 못했습니다: {reason}. 상세 설정에서 다시 저장하면 미리 써 볼 수 있습니다.",
+  "agent.published":
+    "게시했습니다. 이제 담당 팀 {team}이(가) 이 에이전트를 씁니다.",
+  "agent.releases.preview": "미리 써 보기",
+  "agent.releases.previewFor": "미리 써 보기: {release}",
+  "agent.draftPending.title": "켜지 않은 변경이 있습니다",
+  "agent.draftPending.body":
+    "저장만 한 설정은 아직 켜지 않았습니다. 미리 써 본 뒤 아래에서 그 릴리스를 켜세요.",
+  "agent.card.saveOnly": "저장만 하고 미리 써 보기",
+  "agent.save.savedOnly":
+    "저장했습니다 — 버전 {version}. 아직 켜지 않았습니다.",
   "agentCard.language": "답변 언어",
   "agentCard.language.followUser": "사용자 언어 따라가기",
   "agentCard.language.hint":
@@ -170,7 +219,11 @@ export const agentsKo = {
   "agent.releases.rollback": "되돌리기",
   "agent.releases.rollbackFor": "{release}(으)로 되돌리기",
   "agent.releases.rollingBack": "되돌리는 중…",
+  "agent.releases.turnOn": "켜기",
+  "agent.releases.turnOnFor": "{release} 켜기",
+  "agent.releases.turningOn": "켜는 중…",
   "agent.rollback.title": "{release}(으)로 되돌릴까요?",
+  "agent.turnOn.title": "{release}을(를) 켤까요?",
   "agent.rollback.content":
     "새 세션이 이 릴리스의 모델·지시·도구로 시작합니다.",
   "agent.rollback.settingsKept": "저장소와 GitHub 설정은 지금 그대로입니다.",
@@ -182,6 +235,9 @@ export const agentsKo = {
   "agent.rollback.movedMeanwhile":
     "{release}(으)로 되돌렸는지 확인하지 못했습니다. 응답을 받지 못했고, 그 사이 활성 릴리스가 다른 릴리스로 바뀌었습니다. 릴리스 목록에서 지금 활성 릴리스를 확인하세요.",
   "agent.rolledBack": "{release}(으)로 되돌렸습니다.",
+  "agent.turnedOn": "{release}을(를) 켰습니다.",
+  "agent.turnedOn.unchecked":
+    "{release}을(를) 켰습니다. 켠 뒤 설정을 다시 읽지 못해 결과는 확인하지 못했습니다.",
   "agent.rolledBack.unchecked":
     "{release}(으)로 되돌렸습니다. 되돌린 뒤 설정을 다시 읽지 못해 결과는 확인하지 못했습니다.",
   "agent.releases.empty": "아직 릴리스가 없습니다.",
@@ -264,7 +320,7 @@ export const agentsKo = {
   "agent.panel.none": "없음",
   "agent.card.releasedAt": "릴리스 {at}",
   "agent.overview.notActive":
-    "아직 켜지지 않았습니다. 상세 설정에서 모델 연결과 모델을 골라 저장하면 첫 릴리스가 만들어지고 새 세션이 이 에이전트를 씁니다.",
+    "아직 게시하지 않았습니다. 저장한 릴리스를 미리 써 본 뒤 게시하면 담당 팀의 새 세션이 이 에이전트를 씁니다.",
   "agent.overview.newerVersion":
     "최신 버전 {latest}은(는) 아직 쓰이지 않습니다. 새 세션은 버전 {active}(으)로 시작합니다.",
   "agent.overview.upToDate": "새 세션은 최신 버전으로 시작합니다.",
@@ -284,7 +340,7 @@ export const agentsKo = {
   "agent.newSession.blocked.paused":
     "일시 정지된 에이전트라 세션을 시작할 수 없습니다.",
   "agent.newSession.blocked.noRelease":
-    "활성 릴리스가 없어 세션을 시작할 수 없습니다. 상세 설정에서 모델 연결과 모델을 골라 저장하면 시작할 수 있습니다.",
+    "게시하기 전에는 세션을 시작할 수 없습니다. 미리 써 본 뒤 게시하면 시작할 수 있습니다.",
   "agent.glance.label": "에이전트 현황",
   "agent.glance.cost": "최근 7일 비용",
   "agent.glance.waiting": "답변 대기",
@@ -484,14 +540,15 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.slackAction.reinstall": "reinstall needed",
   "agents.slackAction.home_unset": "pick a home channel",
   "agents.updated": "Updated {at}",
-  "agents.state.draft": "Draft",
+  "agents.state.draft": "Unpublished",
+  "agents.state.published": "Published",
   "agents.state.released": "Released",
   "agents.status.active": "Active",
   "agents.status.paused": "Paused",
   "agents.status.archived": "Archived",
   "agents.newTitle": "New agent",
   "agents.newIntro":
-    "Create an agent from a blank card in three steps. Saving in 'What it does' makes the first release and the agent is ready to use; it stays if you leave after that.",
+    "Create an agent in four steps. Save in 'What it does', try it in a preview, then publish it for the responsible team. Until it is published, only admins see it.",
   "agents.name": "Name",
   "agents.slug": "Identifier",
   "agents.description": "Description",
@@ -499,7 +556,8 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.descriptionHint":
     "It shows in the list and on the agent's page; the model does not see it.",
   "agents.slugHint":
-    "Tells this agent apart in the workspace, shows in the list and on its page, and no other agent can use it. Lowercase letters, digits and hyphens (-). Filled in from the name; you can change it. Cannot be changed once saved.",
+    "Lowercase letters, digits and hyphens (-). Unique in the workspace; it cannot be changed once saved.",
+  "agents.slugFromName": "From the name: {slug}",
   "agents.slugLocked":
     "The agent is saved, so the identifier can no longer change",
   "agents.slugTaken":
@@ -509,18 +567,66 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.flow.job": "What it does",
   "agents.flow.next": "Next",
   "agents.flow.jobIntro":
-    "Choose the model connection and model the agent uses. Saving makes the first release on that connection and it starts working right away. Instructions for how it works go in the repository's CLAUDE.md or AGENTS.md.",
-  "agents.flow.saveNext": "Save and continue",
+    "Choose the model connection and model the agent uses. Saving makes the first release on that connection, which you can try before you publish it. Instructions for how it works go in the repository's CLAUDE.md or AGENTS.md.",
+  "agents.flow.saveNext": "Save and preview",
   "agents.flow.saving": "Saving…",
   "agents.flow.releaseFailed":
     "The agent was saved, but its first release could not be made: {reason}. Saving again edits the same agent and tries again.",
   "agents.flow.later": "Do this later",
-  "agents.flow.done": "{name} is on. New sessions now use this agent.",
+  "agents.flow.done":
+    "{name} is published. The responsible team {team} now uses this agent.",
   "agents.flow.leaveTitle": "Leave without saving?",
   "agents.flow.leaveConsequence":
-    "What you typed here and did not save is lost. To keep it, press 'Save and continue'.",
+    "What you typed here and did not save is lost. To keep it, press 'Save and preview'.",
   "agents.flow.leave": "Leave",
   "agents.flow.stay": "Keep editing",
+  "agents.flow.preview": "Preview",
+  "agents.flow.back": "Back",
+  "agents.flow.editSettings": "Change settings",
+  "agents.flow.publishLater": "Publish later",
+  "agents.preview.unpublished":
+    "Not published yet. Only this agent's admins and the workspace's admins see this agent.",
+  "agents.preview.empty":
+    "Sending a message starts a preview session. Only you see preview sessions.",
+  "agents.preview.message": "Message",
+  "agents.preview.send": "Send",
+  "agents.preview.sending": "Sending…",
+  "agents.preview.openSession": "Open session",
+  "agents.preview.needsInput":
+    "The agent is waiting for an answer. Open the session to answer.",
+  "agents.preview.dialogTitle": "Preview: {release}",
+  "agents.preview.dialogDescription":
+    "Try this release in a preview session before turning it on. Only you see preview sessions.",
+  "agents.publish.title": "Publish this agent?",
+  "agents.publish.consequence":
+    "Once published, the responsible team {team} can use this agent.",
+  "agents.publish.confirm": "Publish",
+  "agents.publish.publishing": "Publishing…",
+  "agents.summary.title": "Agent being made",
+  "agents.summary.none": "Not yet",
+  "agents.summary.state": "State",
+  "agents.summary.next.name":
+    "Next: set what it does and save. Saving does not publish it.",
+  "agents.summary.next.job":
+    "Next: try the saved settings in a preview session.",
+  "agents.summary.next.preview":
+    "Next: once published, the responsible team uses this agent and channels can be connected.",
+  "agents.summary.next.channels":
+    "Connect Slack to call this agent from a channel. You can also do it later on the agent's page.",
+  "agent.unpublished.title": "Not published yet",
+  "agent.unpublished.body":
+    "Only this agent's admins and the workspace's admins see this agent. Try it, then publish it for the responsible team.",
+  "agent.unpublished.failed":
+    "The settings saved last could not be released: {reason}. Save them again in Settings to try the agent.",
+  "agent.published":
+    "Published. The responsible team {team} now uses this agent.",
+  "agent.releases.preview": "Preview",
+  "agent.releases.previewFor": "Preview: {release}",
+  "agent.draftPending.title": "There are changes not turned on",
+  "agent.draftPending.body":
+    "Settings that were only saved are not on yet. Try them, then turn that release on below.",
+  "agent.card.saveOnly": "Save only and preview",
+  "agent.save.savedOnly": "Saved version {version}. It is not on yet.",
   "agentCard.language": "Reply language",
   "agentCard.language.followUser": "Follow the user's language",
   "agentCard.language.hint":
@@ -615,7 +721,11 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.rollback": "Roll back",
   "agent.releases.rollbackFor": "Roll back to {release}",
   "agent.releases.rollingBack": "Rolling back…",
+  "agent.releases.turnOn": "Turn on",
+  "agent.releases.turnOnFor": "Turn on {release}",
+  "agent.releases.turningOn": "Turning on…",
   "agent.rollback.title": "Roll back to {release}?",
+  "agent.turnOn.title": "Turn on {release}?",
   "agent.rollback.content":
     "New sessions start with this release's model, instructions and tools.",
   "agent.rollback.settingsKept":
@@ -628,6 +738,9 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.rollback.movedMeanwhile":
     "Could not confirm whether it was rolled back to {release}. No answer came back, and the active release has changed to a different one since. Check the active release in the list.",
   "agent.rolledBack": "Rolled back to {release}.",
+  "agent.turnedOn": "Turned on {release}.",
+  "agent.turnedOn.unchecked":
+    "Turned on {release}. The settings could not be read again, so the result is not checked.",
   "agent.rolledBack.unchecked":
     "Rolled back to {release}. The settings could not be read again, so the result is not checked.",
   "agent.releases.empty": "No releases yet.",
@@ -710,7 +823,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.panel.none": "None",
   "agent.card.releasedAt": "Released {at}",
   "agent.overview.notActive":
-    "Not turned on yet. Choose a model connection and model in Settings and save, and the first release is made and new sessions will use this agent.",
+    "Not published yet. Try a saved release, then publish it, and the responsible team's new sessions will use this agent.",
   "agent.overview.newerVersion":
     "Version {latest}, the latest, is not in use yet. New sessions start on version {active}.",
   "agent.overview.upToDate": "New sessions start on the latest version.",
@@ -730,7 +843,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.newSession.blocked.paused":
     "This agent is paused, so no session can start.",
   "agent.newSession.blocked.noRelease":
-    "This agent has no active release, so no session can start. Choose a model connection and model in Settings and save to start one.",
+    "No session can start before the agent is published. Try it, then publish it to start one.",
   "agent.glance.label": "Agent at a glance",
   "agent.glance.cost": "Cost, last 7 days",
   "agent.glance.waiting": "Waiting for an answer",
@@ -919,14 +1032,15 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.slackAction.reinstall": "再インストールが必要",
   "agents.slackAction.home_unset": "ホームチャンネルの設定が必要",
   "agents.updated": "{at}に更新",
-  "agents.state.draft": "下書き",
+  "agents.state.draft": "未公開",
+  "agents.state.published": "公開済み",
   "agents.state.released": "リリース済み",
   "agents.status.active": "有効",
   "agents.status.paused": "一時停止",
   "agents.status.archived": "アーカイブ済み",
   "agents.newTitle": "新規エージェント",
   "agents.newIntro":
-    "空のカードから3ステップで作成します。「役割」で保存すると最初のリリースが作成されてすぐに使え、その後に離れてもエージェントは残ります。",
+    "4ステップで作成します。「役割」で保存したあとプレビューで試し、公開すると担当チームが使えます。公開するまでは管理者だけがこのエージェントを見られます。",
   "agents.name": "名前",
   "agents.slug": "識別子",
   "agents.description": "説明",
@@ -934,7 +1048,8 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.descriptionHint":
     "一覧と詳細画面に表示されます。モデルには渡されません。",
   "agents.slugHint":
-    "このワークスペースでエージェントを区別する名前で、一覧と詳細画面に表示され、ほかのエージェントと重複できません。英小文字・数字・ハイフン（-）。名前から自動入力され、変更できます。保存後は変更できません",
+    "英小文字・数字・ハイフン（-）。ワークスペース内で重複できず、保存後は変更できません。",
+  "agents.slugFromName": "名前から: {slug}",
   "agents.slugLocked": "保存したため、識別子は変更できません",
   "agents.slugTaken":
     "この識別子はほかのエージェントがすでに使っています。「名前」ステップに戻って変更してください。",
@@ -943,19 +1058,67 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.flow.job": "役割",
   "agents.flow.next": "次へ",
   "agents.flow.jobIntro":
-    "エージェントが使うモデル接続とモデルを選びます。保存するとその接続で最初のリリースが作成され、すぐに使えます。動作の指示は、リポジトリの CLAUDE.md や AGENTS.md に書きます。",
-  "agents.flow.saveNext": "保存して次へ",
+    "エージェントが使うモデル接続とモデルを選びます。保存するとその接続で最初のリリースが作成され、公開する前に試せます。動作の指示は、リポジトリの CLAUDE.md や AGENTS.md に書きます。",
+  "agents.flow.saveNext": "保存してプレビュー",
   "agents.flow.saving": "保存中…",
   "agents.flow.releaseFailed":
     "エージェントは保存しましたが、最初のリリースを作成できませんでした: {reason}。もう一度保存すると、同じエージェントを更新して再試行します。",
   "agents.flow.later": "あとで設定",
   "agents.flow.done":
-    "{name}を有効にしました。新しいセッションでこのエージェントが使われます。",
+    "{name}を公開しました。担当チーム {team} がこのエージェントを使えます。",
   "agents.flow.leaveTitle": "保存せずに移動しますか？",
   "agents.flow.leaveConsequence":
-    "ここで入力して保存していない内容は失われます。残すには「保存して次へ」を押してください。",
+    "ここで入力して保存していない内容は失われます。残すには「保存してプレビュー」を押してください。",
   "agents.flow.leave": "移動する",
   "agents.flow.stay": "編集を続ける",
+  "agents.flow.preview": "プレビュー",
+  "agents.flow.back": "戻る",
+  "agents.flow.editSettings": "設定を直す",
+  "agents.flow.publishLater": "あとで公開",
+  "agents.preview.unpublished":
+    "まだ公開していません。このエージェントの管理者とワークスペースの管理者だけがこのエージェントを見られます。",
+  "agents.preview.empty":
+    "メッセージを送るとプレビューセッションが始まります。プレビューセッションは自分だけが見られます。",
+  "agents.preview.message": "メッセージ",
+  "agents.preview.send": "送信",
+  "agents.preview.sending": "送信中…",
+  "agents.preview.openSession": "セッションを開く",
+  "agents.preview.needsInput":
+    "エージェントが回答を待っています。セッションを開いて回答してください。",
+  "agents.preview.dialogTitle": "プレビュー: {release}",
+  "agents.preview.dialogDescription":
+    "このリリースを有効にする前に、プレビューセッションで試します。プレビューセッションは自分だけが見られます。",
+  "agents.publish.title": "このエージェントを公開しますか？",
+  "agents.publish.consequence":
+    "公開すると、担当チーム {team} がこのエージェントを使えます。",
+  "agents.publish.confirm": "公開",
+  "agents.publish.publishing": "公開中…",
+  "agents.summary.title": "作成中のエージェント",
+  "agents.summary.none": "未設定",
+  "agents.summary.state": "状態",
+  "agents.summary.next.name":
+    "次: 役割を決めて保存します。保存しても公開はされません。",
+  "agents.summary.next.job":
+    "次: 保存した設定をプレビューセッションで試します。",
+  "agents.summary.next.preview":
+    "次: 公開すると担当チームがこのエージェントを使え、チャンネルを接続できます。",
+  "agents.summary.next.channels":
+    "Slack を接続するとチャンネルからこのエージェントを呼べます。あとでエージェント画面から接続してもかまいません。",
+  "agent.unpublished.title": "まだ公開していません",
+  "agent.unpublished.body":
+    "このエージェントの管理者とワークスペースの管理者だけがこのエージェントを見られます。試してから公開すると担当チームが使えます。",
+  "agent.unpublished.failed":
+    "最後に保存した設定でリリースを作れませんでした: {reason}。詳細設定で保存し直すと試せます。",
+  "agent.published":
+    "公開しました。担当チーム {team} がこのエージェントを使えます。",
+  "agent.releases.preview": "プレビュー",
+  "agent.releases.previewFor": "プレビュー: {release}",
+  "agent.draftPending.title": "有効にしていない変更があります",
+  "agent.draftPending.body":
+    "保存だけした設定はまだ有効ではありません。試してから、下でそのリリースを有効にしてください。",
+  "agent.card.saveOnly": "保存だけしてプレビュー",
+  "agent.save.savedOnly":
+    "バージョン {version} を保存しました。まだ有効にしていません。",
   "agentCard.language": "回答言語",
   "agentCard.language.followUser": "ユーザーの言語に合わせる",
   "agentCard.language.hint":
@@ -1051,7 +1214,11 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.rollback": "元に戻す",
   "agent.releases.rollbackFor": "{release}に戻す",
   "agent.releases.rollingBack": "戻しています…",
+  "agent.releases.turnOn": "有効にする",
+  "agent.releases.turnOnFor": "{release}を有効にする",
+  "agent.releases.turningOn": "有効にしています…",
   "agent.rollback.title": "{release}に戻しますか？",
+  "agent.turnOn.title": "{release}を有効にしますか？",
   "agent.rollback.content":
     "新しいセッションは、このリリースのモデル・指示・ツールで始まります。",
   "agent.rollback.settingsKept": "リポジトリと GitHub の設定は現在のままです。",
@@ -1063,6 +1230,9 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.rollback.movedMeanwhile":
     "{release}に戻したか確認できませんでした。応答を受け取れず、その間に有効なリリースが別のものに変わりました。一覧で現在有効なリリースを確認してください。",
   "agent.rolledBack": "{release}に戻しました。",
+  "agent.turnedOn": "{release}を有効にしました。",
+  "agent.turnedOn.unchecked":
+    "{release}を有効にしました。設定を読み直せなかったため、結果は確認できていません。",
   "agent.rolledBack.unchecked":
     "{release}に戻しました。設定を読み直せなかったため、結果は確認できていません。",
   "agent.releases.empty": "リリースはまだありません。",
@@ -1135,7 +1305,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.tabs.admins": "管理者",
   "agent.tabs.toRelease": "「リリース」タブへ移動",
   "agent.overview.notActive":
-    "まだ有効になっていません。「詳細設定」でモデル接続とモデルを選んで保存すると、最初のリリースが作成され、新しいセッションでこのエージェントが使われます。",
+    "まだ公開していません。保存したリリースを試してから公開すると、担当チームの新しいセッションでこのエージェントが使われます。",
   "agent.overview.newerVersion":
     "最新のバージョン {latest} はまだ使われていません。新しいセッションはバージョン {active} で開始します。",
   "agent.overview.upToDate": "新しいセッションは最新バージョンで開始します。",
@@ -1155,7 +1325,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.newSession.blocked.paused":
     "一時停止中のエージェントのため、セッションを開始できません。",
   "agent.newSession.blocked.noRelease":
-    "有効なリリースがないため、セッションを開始できません。「詳細設定」でモデル接続とモデルを選んで保存すると開始できます。",
+    "公開する前はセッションを開始できません。試してから公開すると開始できます。",
   "agent.glance.label": "エージェントの状況",
   "agent.glance.cost": "直近7日のコスト",
   "agent.glance.waiting": "回答待ち",

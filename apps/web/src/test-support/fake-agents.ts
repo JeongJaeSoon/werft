@@ -102,8 +102,13 @@ export function agentServer({
   let revision = -1;
   let draftId: string | null = null;
   let draftConnection = "anthropic-main";
+  // Null: the draft waits to be activated; set: its release was refused.
+  let draftFailure: string | null = "release_refused";
 
-  function saveRelease(body: { connection_id: string }, versionId: string) {
+  function saveRelease(
+    body: { connection_id: string; activate?: boolean },
+    versionId: string,
+  ) {
     const card = versions.find((v) => v.id === versionId)?.card;
     const connection = CONNECTIONS.find((c) => c.id === body.connection_id);
     draftConnection = body.connection_id;
@@ -116,6 +121,7 @@ export function agentServer({
           : null);
     if (refusal !== null) {
       draftId = versionId;
+      draftFailure = "release_refused";
       return {
         status: "failed" as const,
         reason: refusal,
@@ -123,7 +129,6 @@ export function agentServer({
         version_id: versionId,
       };
     }
-    draftId = null;
     const id = `rel-${versionId.slice(0, 8)}`;
     if (!releases.some((r) => r.id === id)) {
       releases.push(
@@ -136,6 +141,18 @@ export function agentServer({
         }),
       );
     }
+    // Saved, not activated: the draft keeps it until it is.
+    if (body.activate === false) {
+      draftId = versionId;
+      draftFailure = null;
+      return {
+        status: "saved" as const,
+        reason: null,
+        release_id: id,
+        version_id: versionId,
+      };
+    }
+    draftId = null;
     previousActive = active;
     active = id;
     revision += 1;
@@ -199,7 +216,7 @@ export function agentServer({
         ? {
             version_id: draftId,
             connection_id: draftConnection,
-            failure: "release_refused",
+            failure: draftFailure,
           }
         : null,
       effective_behavior: { applied: null, draft: null },
@@ -241,6 +258,7 @@ export function agentServer({
         managing_team_id?: string;
         card: AgentCard;
         connection_id?: string;
+        activate?: boolean;
       };
       if (
         body.managing_team_id !== undefined &&
@@ -260,7 +278,12 @@ export function agentServer({
               version_id: null,
             }
           : saveRelease(
-              { connection_id: body.connection_id },
+              {
+                connection_id: body.connection_id,
+                ...(body.activate === undefined
+                  ? {}
+                  : { activate: body.activate }),
+              },
               versions[0]?.id ?? "",
             );
       return json(201, { ...detail(), release });
@@ -351,6 +374,7 @@ export function agentServer({
         description?: string | null;
         card?: AgentCard;
         connection_id?: string;
+        activate?: boolean;
       };
       if (body.name !== undefined) name = body.name;
       if (body.description !== undefined) description = body.description;
@@ -367,7 +391,10 @@ export function agentServer({
       }
       if (body.connection_id !== undefined) {
         const release = saveRelease(
-          { connection_id: body.connection_id },
+          {
+            connection_id: body.connection_id,
+            ...(body.activate === undefined ? {} : { activate: body.activate }),
+          },
           saved?.id ?? versions.at(-1)?.id ?? "",
         );
         return json(200, { ...detail(), release });
@@ -437,6 +464,9 @@ export function agentServer({
       previousActive = previous;
       stamp(revision);
       const target = releases.find((r) => r.id === active);
+      // Turning on the release the draft holds empties the draft.
+      if (target?.version_id === draftId && draftFailure === null)
+        draftId = null;
       if (target) afterActivate?.(target);
       return json(200, {
         active_release_id: active,

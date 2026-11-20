@@ -100,7 +100,8 @@ const currentStep = () =>
 const STEP_NO = {
   이름: 1,
   "하는 일": 2,
-  "채널 연결": 3,
+  "미리 써 보기": 3,
+  "채널 연결": 4,
 } as const;
 const atStep = (label: keyof typeof STEP_NO) =>
   waitFor(() => expect(currentStep()).toBe(`${STEP_NO[label]}${label}`));
@@ -119,13 +120,85 @@ const pickModel = async (user: User) =>
 
 async function fillJob(user: User) {
   await pickModel(user);
-  await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
+  await user.click(
+    screen.getByRole("button", { name: "저장하고 미리 써 보기" }),
+  );
 }
 
 const connectionSelect = async () =>
   (await screen.findByLabelText("모델 연결")) as HTMLSelectElement;
 
 const meOk = { "GET /v1/auth/me": () => json(200, me()) };
+
+const PREVIEW_SESSION = "0a000000-0000-4000-8000-000000000001";
+
+/** A preview session the first message starts; its stream never opens. */
+function previewSession() {
+  const at = "2026-11-02T00:00:00.000Z";
+  const detail = {
+    id: PREVIEW_SESSION,
+    revision: 1,
+    admission_state: "active",
+    status: "idle",
+    runtime: null,
+    repository_id: null,
+    current_turn_id: "1",
+    queued_turn_count: 0,
+    model: null,
+    last_event_at: at,
+    created_at: at,
+    updated_at: at,
+    execution: null,
+    checkpoint_revision: null,
+    pending_request_count: 0,
+    attention: null,
+    preview: true,
+    agent: {
+      id: AGENT_ID,
+      name: "결제 담당",
+      release_version_no: 1,
+      release_label: null,
+      release_is_active: false,
+    },
+    durability: {
+      last_transcript_persisted_at: at,
+      checkpoint_committed_at: at,
+      checkpoint_revision: null,
+      last_completed_turn_id: "1",
+      last_checkpointed_turn_id: null,
+      checkpoint_pending_reason: null,
+      checkpoint_fallback_revision: null,
+      context_reset_turn_id: null,
+    },
+  };
+  return {
+    "POST /v1/sessions": () =>
+      json(201, {
+        session_id: PREVIEW_SESSION,
+        turn_id: "1",
+        receipt_id: crypto.randomUUID(),
+        receipt_status: "accepted",
+        status: "queued",
+      }),
+    [`GET /v1/sessions/${PREVIEW_SESSION}`]: () => json(200, detail),
+    [`GET /v1/sessions/${PREVIEW_SESSION}/turns`]: () =>
+      json(200, { items: [], next_cursor: null }),
+    [`GET /v1/sessions/${PREVIEW_SESSION}/pending-requests`]: () =>
+      json(200, { answerable: true, items: [] }),
+    [`GET /v1/sessions/${PREVIEW_SESSION}/events`]: (request: Request) =>
+      new Promise<Response>((_, reject) =>
+        request.signal.addEventListener("abort", () =>
+          reject(new DOMException("aborted", "AbortError")),
+        ),
+      ),
+    [`POST /v1/sessions/${PREVIEW_SESSION}/messages`]: () =>
+      json(202, {
+        turn_id: "2",
+        receipt_id: crypto.randomUUID(),
+        receipt_status: "accepted",
+      }),
+  };
+}
 const DETAIL = `/agents/${AGENT_ID}`;
 const CARD_TAB = `${DETAIL}?tab=card`;
 
@@ -341,11 +414,11 @@ describe("에이전트 목록", () => {
     expect(within(row).getAllByRole("link")).toHaveLength(1);
     expect(row.className).toContain("cursor-pointer");
     expect(link.className).toContain("after:inset-0");
-    expect(within(row).getByText("초안")).toBeDefined();
+    expect(within(row).getByText("미게시")).toBeDefined();
     expect(row.textContent).toContain("식별자 billing");
   });
 
-  test("배지는 초안·릴리스·일시 정지·보관됨을 이름만으로 서로 다르게 보인다", async () => {
+  test("배지는 미게시·릴리스·일시 정지·보관됨을 이름만으로 서로 다르게 보인다", async () => {
     const base = agentServer().detail().agent;
     const agent = (
       name: string,
@@ -382,7 +455,7 @@ describe("에이전트 목록", () => {
     // A row says a released agent's state as its status, "활성".
     await waitFor(() =>
       expect(states()).toEqual([
-        ["초안", "draft"],
+        ["미게시", "draft"],
         ["활성", "active"],
         ["일시 정지", "paused"],
         ["보관됨", "archived"],
@@ -1094,6 +1167,7 @@ describe("새 에이전트", () => {
     const { api } = renderAt("/agents/new", {
       ...meOk,
       ...server.routes,
+      ...previewSession(),
       [`GET /v1/agents/${AGENT_ID}/slack/app`]: () =>
         json(200, {
           slack_app: null,
@@ -1141,9 +1215,11 @@ describe("새 에이전트", () => {
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.queryByRole("button", { name: "릴리스 만들기" })).toBeNull();
     expect(screen.queryByRole("button", { name: "에이전트 켜기" })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
+    await user.click(
+      screen.getByRole("button", { name: "저장하고 미리 써 보기" }),
+    );
 
-    await atStep("채널 연결");
+    await atStep("미리 써 보기");
     expect(posted(api, "/v1/agents")).toEqual({
       slug: "billing",
       name: "결제 담당",
@@ -1156,17 +1232,71 @@ describe("새 에이전트", () => {
         capabilities: { mcp: null, forbidden: [] },
       },
       connection_id: CONNECTION,
+      activate: false,
     });
     expect(server.releases).toHaveLength(1);
-    expect(server.detail().agent.active_release_id).toBe(
-      server.releases[0]?.id ?? "missing",
-    );
+    expect(server.detail().agent.active_release_id).toBeNull();
     expect(
       api.calls.some(
         (c) => c.path.endsWith("/releases") || c.path.endsWith("/activate"),
       ),
     ).toBe(false);
-    expect(await screen.findByText(/결제 담당을\(를\) 켰습니다/)).toBeDefined();
+    expect(
+      screen.getByText(
+        "아직 게시하지 않았습니다. 이 에이전트의 관리자와 워크스페이스 관리자만 이 에이전트를 봅니다.",
+      ),
+    ).toBeDefined();
+    // Channels open once the agent is published.
+    expect(
+      (screen.getByRole("button", { name: /^채널 연결/ }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+
+    await user.type(
+      screen.getByLabelText("보낼 메시지"),
+      "환불 문의에 답해 봐",
+    );
+    await user.click(screen.getByRole("button", { name: "보내기" }));
+    const session = await screen.findByRole("link", { name: "세션 열기" });
+    expect(session.getAttribute("href")).toBe(`/sessions/${PREVIEW_SESSION}`);
+    expect(posted(api, "/v1/sessions")).toEqual({
+      agent_release_id: server.releases[0]?.id ?? "missing",
+      message: "환불 문의에 답해 봐",
+      preview: true,
+    });
+    // The next message goes to the same session.
+    await user.type(screen.getByLabelText("보낼 메시지"), "한 번 더");
+    await user.click(screen.getByRole("button", { name: "보내기" }));
+    await waitFor(() =>
+      expect(
+        posted(api, `/v1/sessions/${PREVIEW_SESSION}/messages`),
+      ).toMatchObject({ message: "한 번 더" }),
+    );
+    expect(
+      api.calls.filter((c) => c.method === "POST" && c.path === "/v1/sessions"),
+    ).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: "게시" }));
+    const confirm = await screen.findByRole("dialog");
+    expect(
+      within(confirm).getByText(
+        "게시하면 담당 팀 재무이(가) 이 에이전트를 쓸 수 있습니다.",
+      ),
+    ).toBeDefined();
+    await user.click(within(confirm).getByRole("button", { name: "게시" }));
+    await atStep("채널 연결");
+    expect(posted(api, `/v1/agents/${AGENT_ID}/activate`)).toEqual({
+      release_id: server.releases[0]?.id ?? "missing",
+      expected_revision: -1,
+    });
+    expect(server.detail().agent.active_release_id).toBe(
+      server.releases[0]?.id ?? "missing",
+    );
+    expect(
+      await screen.findByText(
+        "결제 담당을(를) 게시했습니다. 이제 담당 팀 재무이(가) 이 에이전트를 씁니다.",
+      ),
+    ).toBeDefined();
     expect(
       await screen.findByRole("button", { name: "Slack 앱 만들고 설치" }),
     ).toBeDefined();
@@ -1186,7 +1316,7 @@ describe("새 에이전트", () => {
       await screen.findByText("고른 연결은 이 모델을 제공하지 않습니다"),
     ).toBeDefined();
     const save = screen.getByRole("button", {
-      name: "저장하고 다음",
+      name: "저장하고 미리 써 보기",
     }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
     expect(posted(api, "/v1/agents")).toBeUndefined();
@@ -1202,8 +1332,10 @@ describe("새 에이전트", () => {
       await screen.findByLabelText("모델"),
       "claude-haiku-5",
     );
-    await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
-    await atStep("채널 연결");
+    await user.click(
+      screen.getByRole("button", { name: "저장하고 미리 써 보기" }),
+    );
+    await atStep("미리 써 보기");
     expect(
       (posted(api, "/v1/agents") as { connection_id: string }).connection_id,
     ).toBe("anthropic-fast");
@@ -1271,7 +1403,9 @@ describe("새 에이전트", () => {
     });
     const user = await setupUser();
     await toJobStep(user);
-    await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
+    await user.click(
+      screen.getByRole("button", { name: "저장하고 미리 써 보기" }),
+    );
     await waitFor(() =>
       expect(screen.getByLabelText("모델").getAttribute("aria-invalid")).toBe(
         "true",
@@ -1281,7 +1415,7 @@ describe("새 에이전트", () => {
     expect(currentStep()).toBe("2하는 일");
   });
 
-  test("하는 일까지 마치고 나가도 에이전트는 목록에 릴리스된 채로 남는다", async () => {
+  test("하는 일까지 마치고 나가면 에이전트는 목록에 미게시로 남는다", async () => {
     const server = agentServer();
     let saved = false;
     const { history } = renderAt("/agents/new", {
@@ -1300,13 +1434,14 @@ describe("새 에이전트", () => {
     const user = await setupUser();
     await toJobStep(user);
     await fillJob(user);
-    await atStep("채널 연결");
+    await atStep("미리 써 보기");
 
-    await user.click(screen.getByRole("link", { name: "나중에 하기" }));
+    await user.click(screen.getByRole("link", { name: "나중에 게시" }));
     await waitFor(() => expect(history.location.pathname).toBe(DETAIL));
     act(() => history.push("/agents"));
     const link = await screen.findByRole("link", { name: "결제 담당" });
-    expect(stateOf(link)?.getAttribute("data-state")).toBe("active");
+    expect(stateOf(link)?.getAttribute("data-state")).toBe("draft");
+    expect(stateOf(link)?.textContent).toBe("미게시");
   });
 
   test("초안을 다시 저장해도 다른 곳에서 넣은 규칙은 그대로 남는다", async () => {
@@ -1318,7 +1453,7 @@ describe("새 에이전트", () => {
     const user = await setupUser();
     await toJobStep(user);
     await fillJob(user);
-    await atStep("채널 연결");
+    await atStep("미리 써 보기");
     const first = server.versions[0] as (typeof server.versions)[number];
     const rules = [
       { id: "r1", text: " 환불은 사람에게 넘긴다 ", source: "user" as const },
@@ -1333,8 +1468,10 @@ describe("새 에이전트", () => {
     act(() => history.back());
     await atStep("하는 일");
     await user.selectOptions(screen.getByLabelText("답변 언어"), "en");
-    await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
-    await atStep("채널 연결");
+    await user.click(
+      screen.getByRole("button", { name: "저장하고 미리 써 보기" }),
+    );
+    await atStep("미리 써 보기");
     const patch = api.calls.find((c) => c.method === "PATCH");
     const card = (patch?.body as { card: { rules?: unknown } }).card;
     expect(card.rules).toEqual(rules);
@@ -1349,21 +1486,23 @@ describe("새 에이전트", () => {
     const user = await setupUser();
     await toJobStep(user);
     await fillJob(user);
-    await atStep("채널 연결");
-    // Past the save the stepper does not lead back.
+    await atStep("미리 써 보기");
+    // Until it is published the saved agent can still be changed.
     expect(
       (
         screen.getByRole("button", {
           name: /^하는 일\s*, 완료$/,
         }) as HTMLButtonElement
       ).disabled,
-    ).toBe(true);
+    ).toBe(false);
 
     act(() => history.back());
     await atStep("하는 일");
     await user.selectOptions(screen.getByLabelText("답변 언어"), "en");
-    await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
-    await atStep("채널 연결");
+    await user.click(
+      screen.getByRole("button", { name: "저장하고 미리 써 보기" }),
+    );
+    await atStep("미리 써 보기");
     expect(
       api.calls.filter((c) => c.method === "POST" && c.path === "/v1/agents"),
     ).toHaveLength(1);
@@ -1371,10 +1510,11 @@ describe("새 에이전트", () => {
     expect((patch?.body as { card: { language: string } }).card.language).toBe(
       "en",
     );
-    expect(patch?.body).toMatchObject({ connection_id: CONNECTION });
-    expect(server.detail().agent.active_release_id).toBe(
-      server.releases.at(-1)?.id ?? "missing",
-    );
+    expect(patch?.body).toMatchObject({
+      connection_id: CONNECTION,
+      activate: false,
+    });
+    expect(server.detail().agent.active_release_id).toBeNull();
     expect(server.releases.at(-1)?.version_id).toBe(
       server.versions[1]?.id ?? "missing",
     );
@@ -1395,21 +1535,23 @@ describe("새 에이전트", () => {
     const user = await setupUser();
     await toJobStep(user);
     await fillJob(user);
-    await atStep("채널 연결");
+    await atStep("미리 써 보기");
 
     // Leaving unmounts the flow; coming back mounts a new one.
-    await user.click(screen.getByRole("link", { name: "나중에 하기" }));
+    await user.click(screen.getByRole("link", { name: "나중에 게시" }));
     await waitFor(() => expect(history.location.pathname).toBe(DETAIL));
     act(() => history.back());
-    await atStep("채널 연결");
+    await atStep("미리 써 보기");
     act(() => history.back());
     await atStep("하는 일");
     expect((screen.getByLabelText("모델") as HTMLSelectElement).value).toBe(
       CARD.model,
     );
     await user.selectOptions(screen.getByLabelText("답변 언어"), "en");
-    await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
-    await atStep("채널 연결");
+    await user.click(
+      screen.getByRole("button", { name: "저장하고 미리 써 보기" }),
+    );
+    await atStep("미리 써 보기");
     expect(
       api.calls.filter((c) => c.method === "POST" && c.path === "/v1/agents"),
     ).toHaveLength(1);
@@ -1438,8 +1580,10 @@ describe("새 에이전트", () => {
     await user.click(screen.getByRole("button", { name: "다음" }));
     await atStep("하는 일");
     expect((await connectionSelect()).value).toBe("anthropic-fast");
-    await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
-    await atStep("채널 연결");
+    await user.click(
+      screen.getByRole("button", { name: "저장하고 미리 써 보기" }),
+    );
+    await atStep("미리 써 보기");
     expect(
       (posted(api, "/v1/agents") as { connection_id: string }).connection_id,
     ).toBe("anthropic-fast");
@@ -1454,7 +1598,7 @@ describe("새 에이전트", () => {
     const user = await setupUser();
     await toJobStep(user);
     await fillJob(user);
-    await atStep("채널 연결");
+    await atStep("미리 써 보기");
 
     act(() => history.go(-2));
     await atStep("이름");
@@ -1473,8 +1617,10 @@ describe("새 에이전트", () => {
     expect((screen.getByLabelText("모델") as HTMLSelectElement).value).toBe(
       CARD.model,
     );
-    await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
-    await atStep("채널 연결");
+    await user.click(
+      screen.getByRole("button", { name: "저장하고 미리 써 보기" }),
+    );
+    await atStep("미리 써 보기");
     expect(
       api.calls.filter((c) => c.method === "POST" && c.path === "/v1/agents"),
     ).toHaveLength(1);
@@ -1493,7 +1639,7 @@ describe("새 에이전트", () => {
     await user.click(screen.getByRole("button", { name: "다음" }));
     await atStep("하는 일");
     await fillJob(user);
-    await atStep("채널 연결");
+    await atStep("미리 써 보기");
     expect(
       (posted(api, "/v1/agents") as { description?: string }).description,
     ).toBe(DESCRIPTION);
@@ -1507,8 +1653,10 @@ describe("새 에이전트", () => {
     await user.clear(description);
     await user.click(screen.getByRole("button", { name: "다음" }));
     await atStep("하는 일");
-    await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
-    await atStep("채널 연결");
+    await user.click(
+      screen.getByRole("button", { name: "저장하고 미리 써 보기" }),
+    );
+    await atStep("미리 써 보기");
     const patch = api.calls.find((c) => c.method === "PATCH")?.body as {
       name?: string;
       description?: string;
@@ -1581,7 +1729,7 @@ describe("새 에이전트", () => {
     await toJobStep(await setupUser());
     const create = () =>
       screen.getByRole("button", {
-        name: "저장하고 다음",
+        name: "저장하고 미리 써 보기",
       }) as HTMLButtonElement;
     // The model select's slot waits as a skeleton that names what it waits for.
     expect(
@@ -1627,22 +1775,22 @@ describe("새 에이전트: 첫 릴리스", () => {
     );
     expect(currentStep()).toBe("2하는 일");
     expect(server.detail().agent.active_release_id).toBeNull();
-    expect(
-      screen.getByRole("link", { name: "나중에 하기" }).getAttribute("href"),
-    ).toBe(DETAIL);
 
-    await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
-    await atStep("채널 연결");
+    await user.click(
+      screen.getByRole("button", { name: "저장하고 미리 써 보기" }),
+    );
+    await atStep("미리 써 보기");
     expect(
       api.calls.filter((c) => c.method === "POST" && c.path === "/v1/agents"),
     ).toHaveLength(1);
     const patches = api.calls.filter((c) => c.method === "PATCH");
     expect(patches).toHaveLength(1);
-    expect(patches[0]?.body).toMatchObject({ connection_id: CONNECTION });
+    expect(patches[0]?.body).toMatchObject({
+      connection_id: CONNECTION,
+      activate: false,
+    });
     expect(server.releases).toHaveLength(1);
-    expect(server.detail().agent.active_release_id).toBe(
-      server.releases[0]?.id ?? "missing",
-    );
+    expect(server.detail().agent.active_release_id).toBeNull();
   });
 
   test("연결 칸은 하나이고 연결마다 id와 종류로 보인다", async () => {
@@ -1657,6 +1805,530 @@ describe("새 에이전트: 첫 릴리스", () => {
       CONNECTIONS.map((connection) => `${connection.id} · anthropic`),
     );
     expect(screen.queryByLabelText("저장소")).toBeNull();
+  });
+});
+
+describe("게시 전 에이전트", () => {
+  const slackRoutes = {
+    [`GET /v1/agents/${AGENT_ID}/slack/app`]: () =>
+      json(200, {
+        slack_app: null,
+        event_url: null,
+        events: { state: "pending", checked_at: null, url: null },
+        warnings: [],
+        config_token: null,
+      }),
+    [`GET /v1/agents/${AGENT_ID}/identities`]: () => json(200, { items: [] }),
+  };
+
+  /** Tab until `target` holds focus; fails if the tab order never reaches it. */
+  async function tabTo(user: User, target: HTMLElement) {
+    for (let i = 0; i < 120 && document.activeElement !== target; i++)
+      await user.tab();
+    expect(document.activeElement === target).toBe(true);
+  }
+
+  /** A saved release the agent has not turned on. */
+  async function saveOnly(
+    server: ReturnType<typeof agentServer>,
+    card: typeof CARD,
+  ) {
+    await server.routes[`PATCH /v1/agents/${AGENT_ID}`](
+      new Request("https://console.test/", {
+        method: "PATCH",
+        body: JSON.stringify({
+          card,
+          connection_id: CONNECTION,
+          activate: false,
+        }),
+      }),
+    );
+  }
+
+  test("새 에이전트는 키보드만으로 저장·미리 써 보기·게시까지 간다", async () => {
+    const server = agentServer();
+    const { api } = renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+      ...previewSession(),
+      ...slackRoutes,
+    });
+    const user = await setupUser();
+    await atStep("이름");
+    await tabTo(user, await screen.findByLabelText("이름"));
+    await user.keyboard("Billing Desk");
+    await tabTo(user, screen.getByLabelText("식별자"));
+    expect((document.activeElement as HTMLInputElement).value).toBe(
+      "billing-desk",
+    );
+    await tabTo(user, screen.getByRole("button", { name: "다음" }));
+    await user.keyboard("{Enter}");
+
+    await atStep("하는 일");
+    // The step's heading takes the keyboard, not the page top.
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toContain("하는 일"),
+    );
+    const model = screen.getByLabelText("모델") as HTMLSelectElement;
+    await tabTo(user, model);
+    // happy-dom's select has no arrow-key list; the focused select is picked.
+    await user.selectOptions(model, CARD.model);
+    await tabTo(
+      user,
+      screen.getByRole("button", { name: "저장하고 미리 써 보기" }),
+    );
+    await user.keyboard("{Enter}");
+
+    await atStep("미리 써 보기");
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toContain("미리 써 보기"),
+    );
+    await tabTo(user, screen.getByLabelText("보낼 메시지"));
+    await user.keyboard("안녕");
+    await tabTo(user, screen.getByRole("button", { name: "보내기" }));
+    await user.keyboard("{Enter}");
+    await screen.findByRole("link", { name: "세션 열기" });
+    expect(posted(api, "/v1/sessions")).toMatchObject({ preview: true });
+
+    await tabTo(user, screen.getByRole("button", { name: "게시" }));
+    await user.keyboard("{Enter}");
+    const confirm = await screen.findByRole("dialog");
+    await tabTo(user, within(confirm).getByRole("button", { name: "게시" }));
+    await user.keyboard("{Enter}");
+    await atStep("채널 연결");
+    expect(server.detail().agent.active_release_id).toBe(
+      server.releases[0]?.id ?? "missing",
+    );
+  });
+
+  const unchangedAt = (
+    server: ReturnType<typeof agentServer>,
+    versionId: string,
+  ) =>
+    json(200, {
+      ...server.detail(),
+      release: {
+        status: "unchanged",
+        reason: null,
+        release_id: null,
+        version_id: versionId,
+      },
+    });
+
+  test("다시 저장해 바뀐 것이 없다고 하면 그 버전의 릴리스를 미리 써 본다", async () => {
+    const server = agentServer();
+    const patch = server.routes[`PATCH /v1/agents/${AGENT_ID}`];
+    let unchanged = false;
+    const { api, history } = renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+      ...previewSession(),
+      [`PATCH /v1/agents/${AGENT_ID}`]: (request: Request) =>
+        unchanged ? unchangedAt(server, SECOND_VERSION) : patch(request),
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await fillJob(user);
+    await atStep("미리 써 보기");
+    // Another admin saved, as a release of its own, what this screen saves.
+    const first = server.versions[0] as (typeof server.versions)[number];
+    server.versions.push({
+      ...first,
+      id: SECOND_VERSION,
+      version_no: 2,
+      content_sha256: "f".repeat(64),
+    });
+    server.releases.push(
+      releaseFixture(5, { id: "rel-other", versionId: SECOND_VERSION }),
+    );
+    unchanged = true;
+    act(() => history.back());
+    await atStep("하는 일");
+    await user.click(
+      screen.getByRole("button", { name: "저장하고 미리 써 보기" }),
+    );
+    await atStep("미리 써 보기");
+    await user.type(screen.getByLabelText("보낼 메시지"), "안녕");
+    await user.click(screen.getByRole("button", { name: "보내기" }));
+    await screen.findByRole("link", { name: "세션 열기" });
+    expect(
+      (posted(api, "/v1/sessions") as { agent_release_id: string })
+        .agent_release_id,
+    ).toBe("rel-other");
+  });
+
+  test("마지막 저장의 릴리스를 만들지 못했으면 상세는 이전 릴리스 대신 이유를 보인다", async () => {
+    const server = agentServer();
+    await saveOnly(server, CARD);
+    await server.routes[`PATCH /v1/agents/${AGENT_ID}`](
+      new Request("https://console.test/", {
+        method: "PATCH",
+        body: JSON.stringify({
+          card: CARD,
+          connection_id: "connection_gone",
+          activate: false,
+        }),
+      }),
+    );
+    renderAt(DETAIL, { ...meOk, ...server.routes });
+    const notice = (
+      await screen.findByText("아직 게시하지 않았습니다")
+    ).closest("[data-status=unpublished]") as HTMLElement;
+    expect(notice.textContent).toContain(
+      "마지막으로 저장한 설정으로 릴리스를 만들지 못했습니다",
+    );
+    expect(within(notice).queryByRole("button")).toBeNull();
+  });
+
+  test("같은 설정을 다시 저장했다가 거절되면 예전 릴리스로 미리 써 보게 하지 않는다", async () => {
+    const server = agentServer();
+    await saveOnly(server, CARD);
+    const refused = () => {
+      const detail = server.detail();
+      return json(200, {
+        ...detail,
+        draft: detail.draft && { ...detail.draft, failure: "release_refused" },
+      });
+    };
+    renderAt(DETAIL, {
+      ...meOk,
+      ...server.routes,
+      [`GET /v1/agents/${AGENT_ID}`]: refused,
+    });
+    const notice = (
+      await screen.findByText("아직 게시하지 않았습니다")
+    ).closest("[data-status=unpublished]") as HTMLElement;
+    expect(notice.textContent).toContain(
+      "마지막으로 저장한 설정으로 릴리스를 만들지 못했습니다",
+    );
+    expect(within(notice).queryByRole("button")).toBeNull();
+  });
+
+  test("모델 목록을 읽지 못하면 이름만 고쳐도 저장만 하고 미리 써 보기는 막힌다", async () => {
+    const server = agentServer();
+    await seedRelease(server);
+    renderAt(CARD_TAB, {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/connections": () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "The catalog cannot be read"),
+    });
+    const user = await setupUser();
+    await openCardEditor(user);
+    await user.type(await screen.findByLabelText("이름"), " 2");
+    const saveOnlyButton = (await screen.findByRole("button", {
+      name: "저장만 하고 미리 써 보기",
+    })) as HTMLButtonElement;
+    await waitFor(() => expect(saveOnlyButton.disabled).toBe(true));
+    // The name alone sends no card, so the plain save still goes.
+    expect(
+      (screen.getByRole("button", { name: "저장" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+
+  test("답을 받지 못한 다음 메시지는 다시 보내도 같은 키로 간다", async () => {
+    const server = agentServer();
+    await saveOnly(server, CARD);
+    const session = previewSession();
+    const answers = [
+      () => Promise.reject(new TypeError("Failed to fetch")),
+      session[`POST /v1/sessions/${PREVIEW_SESSION}/messages`],
+    ];
+    const { api } = renderAt(DETAIL, {
+      ...meOk,
+      ...server.routes,
+      ...session,
+      [`POST /v1/sessions/${PREVIEW_SESSION}/messages`]: () =>
+        (answers.shift() as () => Response | Promise<Response>)(),
+    });
+    const user = await setupUser();
+    const notice = (
+      await screen.findByText("아직 게시하지 않았습니다")
+    ).closest("[data-status=unpublished]") as HTMLElement;
+    await user.click(
+      within(notice).getByRole("button", { name: "미리 써 보기" }),
+    );
+    const preview = await screen.findByRole("dialog");
+    const field = within(preview).getByLabelText("보낼 메시지");
+    const sendButton = within(preview).getByRole("button", { name: "보내기" });
+    await user.type(field, "처음");
+    await user.click(sendButton);
+    await within(preview).findByRole("link", { name: "세션 열기" });
+    await user.type(field, "다음");
+    await user.click(sendButton);
+    await within(preview).findByRole("alert");
+    await user.click(sendButton);
+    await waitFor(() => expect((field as HTMLTextAreaElement).value).toBe(""));
+    const keys = api.calls
+      .filter((c) => c.path === `/v1/sessions/${PREVIEW_SESSION}/messages`)
+      .map((c) => c.headers.get("idempotency-key"));
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(keys[1] ?? "missing");
+  });
+
+  test("바뀐 것 없이 저장만 하고 미리 써 보기는 켜져 있는 릴리스로 미리보기를 연다", async () => {
+    const server = agentServer();
+    await seedRelease(server);
+    const on = server.detail().agent.active_release_id;
+    const { api } = renderAt(CARD_TAB, {
+      ...meOk,
+      ...server.routes,
+      ...previewSession(),
+      [`PATCH /v1/agents/${AGENT_ID}`]: () =>
+        unchangedAt(server, server.versions[0]?.id ?? "missing"),
+    });
+    const user = await setupUser();
+    await openCardEditor(user);
+    await user.click(
+      await screen.findByRole("button", { name: "저장만 하고 미리 써 보기" }),
+    );
+    const preview = await screen.findByRole("dialog");
+    await user.type(within(preview).getByLabelText("보낼 메시지"), "확인");
+    await user.click(within(preview).getByRole("button", { name: "보내기" }));
+    await within(preview).findByRole("link", { name: "세션 열기" });
+    expect(
+      (posted(api, "/v1/sessions") as { agent_release_id: string })
+        .agent_release_id,
+    ).toBe(on ?? "missing");
+  });
+
+  test("게시 전 에이전트의 거절된 저장을 다시 시도해도 게시하지 않는다", async () => {
+    const server = agentServer();
+    await server.routes[`PATCH /v1/agents/${AGENT_ID}`](
+      new Request("https://console.test/", {
+        method: "PATCH",
+        body: JSON.stringify({
+          card: CARD,
+          connection_id: "connection_gone",
+          activate: false,
+        }),
+      }),
+    );
+    const { api } = renderAt(CARD_TAB, { ...meOk, ...server.routes });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "다시 시도" }));
+    await waitFor(() =>
+      expect(api.calls.some((c) => c.method === "PATCH")).toBe(true),
+    );
+    expect(api.calls.find((c) => c.method === "PATCH")?.body).toMatchObject({
+      activate: false,
+    });
+    expect(server.detail().agent.active_release_id).toBeNull();
+  });
+
+  test("저장만 하기가 더 새 저장에 밀리면 미리보기를 열지 않는다", async () => {
+    const server = agentServer();
+    await seedRelease(server);
+    renderAt(CARD_TAB, {
+      ...meOk,
+      ...server.routes,
+      [`PATCH /v1/agents/${AGENT_ID}`]: () =>
+        json(200, {
+          ...server.detail(),
+          release: {
+            status: "superseded",
+            reason: null,
+            release_id: server.releases[0]?.id ?? null,
+            version_id: server.versions[0]?.id ?? null,
+          },
+        }),
+    });
+    const user = await setupUser();
+    await openCardEditor(user);
+    await user.click(
+      await screen.findByRole("button", { name: "저장만 하고 미리 써 보기" }),
+    );
+    expect(
+      await screen.findByText(/더 나중의 저장이 먼저 적용되어/),
+    ).toBeDefined();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  test("저장소에 쓰지 못해도 게시한 뒤 채널 연결로 간다", async () => {
+    const server = agentServer();
+    renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+      ...slackRoutes,
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await fillJob(user);
+    await atStep("미리 써 보기");
+    const write = sessionStorage.setItem;
+    sessionStorage.setItem = () => {
+      throw new DOMException("full", "QuotaExceededError");
+    };
+    try {
+      await user.click(screen.getByRole("button", { name: "게시" }));
+      const confirm = await screen.findByRole("dialog");
+      await user.click(within(confirm).getByRole("button", { name: "게시" }));
+      await atStep("채널 연결");
+    } finally {
+      sessionStorage.setItem = write;
+    }
+  });
+
+  test("저장만 하고 미리 써 보기도 폼 검사를 거친다", async () => {
+    const server = agentServer();
+    await seedRelease(server);
+    const { api } = renderAt(CARD_TAB, { ...meOk, ...server.routes });
+    const user = await setupUser();
+    await openCardEditor(user);
+    const name = await screen.findByLabelText("이름");
+    await user.clear(name);
+    await user.click(
+      screen.getByRole("button", { name: "저장만 하고 미리 써 보기" }),
+    );
+    expect(api.calls.some((c) => c.method === "PATCH")).toBe(false);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  test("상세는 게시 전이라고 알리고, 거기서 미리 써 보고 게시한다", async () => {
+    const server = agentServer();
+    await saveOnly(server, CARD);
+    const { api } = renderAt(DETAIL, {
+      ...meOk,
+      ...server.routes,
+      ...previewSession(),
+    });
+    const user = await setupUser();
+    const notice = (
+      await screen.findByText("아직 게시하지 않았습니다")
+    ).closest("[data-status=unpublished]") as HTMLElement;
+    expect(notice).not.toBeNull();
+
+    await user.click(
+      within(notice).getByRole("button", { name: "미리 써 보기" }),
+    );
+    const preview = await screen.findByRole("dialog");
+    expect(
+      within(preview).getByRole("heading", { name: /^미리 써 보기: / }),
+    ).toBeDefined();
+    const field = within(preview).getByLabelText("보낼 메시지");
+    await user.type(field, "안녕");
+    await user.click(within(preview).getByRole("button", { name: "보내기" }));
+    await within(preview).findByRole("link", { name: "세션 열기" });
+    // The send button is disabled while pending; focus comes back to the field.
+    await waitFor(() => expect(document.activeElement === field).toBe(true));
+    expect(posted(api, "/v1/sessions")).toEqual({
+      agent_release_id: server.releases[0]?.id ?? "missing",
+      message: "안녕",
+      preview: true,
+    });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    await user.click(within(notice).getByRole("button", { name: "게시" }));
+    const confirm = await screen.findByRole("dialog");
+    await user.click(within(confirm).getByRole("button", { name: "게시" }));
+    expect(
+      await screen.findByText(
+        "게시했습니다. 이제 담당 팀 재무이(가) 이 에이전트를 씁니다.",
+      ),
+    ).toBeDefined();
+    expect(posted(api, `/v1/agents/${AGENT_ID}/activate`)).toEqual({
+      release_id: server.releases[0]?.id ?? "missing",
+      expected_revision: -1,
+    });
+    await waitFor(() =>
+      expect(screen.queryByText("아직 게시하지 않았습니다")).toBeNull(),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  test("게시한 에이전트에 저장만 한 변경은 릴리스 탭에 알리고 그 릴리스를 미리 써 본다", async () => {
+    const server = agentServer();
+    await seedRelease(server);
+    await saveOnly(server, { ...CARD, language: "en" });
+    const { api } = renderAt(RELEASE_TAB, {
+      ...meOk,
+      ...server.routes,
+      ...previewSession(),
+    });
+    const user = await setupUser();
+    expect(await screen.findByText("켜지 않은 변경이 있습니다")).toBeDefined();
+    expect(screen.queryByText("아직 게시하지 않았습니다")).toBeNull();
+    const tries = screen.getAllByRole("button", { name: /^미리 써 보기: / });
+    // Only the release that is not on can be tried.
+    expect(tries).toHaveLength(1);
+    // A release newer than the active one is turned on, not rolled back to.
+    expect(screen.queryByRole("button", { name: /되돌리기$/ })).toBeNull();
+    const turnOn = screen.getByRole("button", { name: /^릴리스 .+ 켜기$/ });
+    expect(turnOn.textContent).toBe("켜기");
+    await user.click(turnOn);
+    const confirm = await screen.findByRole("dialog");
+    expect(
+      within(confirm).getByRole("heading", { name: /을\(를\) 켤까요\?$/ }),
+    ).toBeDefined();
+    expect(within(confirm).getByRole("button", { name: "켜기" })).toBeDefined();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await user.click(tries[0] as HTMLElement);
+    const preview = await screen.findByRole("dialog");
+    await user.type(within(preview).getByLabelText("보낼 메시지"), "확인");
+    await user.click(within(preview).getByRole("button", { name: "보내기" }));
+    await within(preview).findByRole("link", { name: "세션 열기" });
+    expect(
+      (posted(api, "/v1/sessions") as { agent_release_id: string })
+        .agent_release_id,
+    ).toBe(server.releases.at(-1)?.id ?? "missing");
+  });
+
+  test("키보드로 연 미리보기를 닫으면 연 버튼으로 돌아간다", async () => {
+    const server = agentServer();
+    await seedRelease(server);
+    await saveOnly(server, { ...CARD, language: "en" });
+    renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
+    const user = await setupUser();
+    const open = await screen.findByRole("button", {
+      name: /^미리 써 보기: /,
+    });
+    open.focus();
+    await user.keyboard("{Enter}");
+    await screen.findByRole("dialog");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement === open).toBe(true));
+  });
+
+  test("저장만 하고 미리 써 보기는 켜지 않고 저장해 그 릴리스로 미리보기를 연다", async () => {
+    const server = agentServer();
+    await seedRelease(server);
+    const on = server.detail().agent.active_release_id;
+    const { api } = renderAt(CARD_TAB, {
+      ...meOk,
+      ...server.routes,
+      ...previewSession(),
+    });
+    const user = await setupUser();
+    await openCardEditor(user);
+    await user.selectOptions(await screen.findByLabelText("답변 언어"), "en");
+    await user.click(
+      screen.getByRole("button", { name: "저장만 하고 미리 써 보기" }),
+    );
+    const preview = await screen.findByRole("dialog");
+    expect(
+      within(preview).getByRole("heading", { name: /^미리 써 보기: / }),
+    ).toBeDefined();
+    const patch = api.calls.find((c) => c.method === "PATCH");
+    expect(patch?.body).toMatchObject({ activate: false });
+    expect(server.detail().agent.active_release_id).toBe(on);
+    await user.type(within(preview).getByLabelText("보낼 메시지"), "확인");
+    await user.click(within(preview).getByRole("button", { name: "보내기" }));
+    await within(preview).findByRole("link", { name: "세션 열기" });
+    expect(
+      (posted(api, "/v1/sessions") as { agent_release_id: string })
+        .agent_release_id,
+    ).toBe(server.releases.at(-1)?.id ?? "missing");
+    expect(server.releases.at(-1)?.id).not.toBe(on);
+    // The save closed the form and its button: focus goes to the edit button.
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("상세 설정 편집"),
+    );
   });
 });
 
@@ -1682,8 +2354,12 @@ describe("에이전트 상세", () => {
       ...CARD,
       language: "en",
     });
-    // Only the card changed: name and description stay off the request.
-    expect(Object.keys(patch?.body as object)).toEqual(["card"]);
+    // Only the card changed: name and description stay off the request, and
+    // a save never publishes an agent that is not yet published.
+    expect(patch?.body).toEqual({
+      card: { ...CARD, language: "en" },
+      activate: false,
+    });
     const diff = await screen.findByText("버전 1 → 버전 2");
     const figure = diff.closest("figure") as HTMLElement;
     expect(
@@ -1705,11 +2381,11 @@ describe("에이전트 상세", () => {
     // Set back, the card is version 1's card again.
     await user.selectOptions(screen.getByLabelText("답변 언어"), "ko");
     await user.click(screen.getByRole("button", { name: "저장" }));
+    // Not yet published, so the save keeps the release without turning it on.
     expect(
-      await screen.findByText(
-        "저장하고 새 세션에 적용했습니다. 카드는 버전 1입니다.",
-      ),
+      await screen.findByText("저장했습니다 — 버전 1. 아직 켜지 않았습니다."),
     ).toBeDefined();
+    expect(server.detail().agent.active_release_id).toBeNull();
     expect(screen.queryByLabelText("답변 언어")).toBeNull();
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
     expect(server.releases).toHaveLength(1);
@@ -2153,9 +2829,18 @@ describe("두 탭 동시 되돌리기", () => {
     ).toBeDefined();
     expect(b.getByText(`${label(2)} → ${label(1)}`)).toBeDefined();
 
-    await user.click(await b.findByRole("button", rollbackTo(2)));
-    await confirmRollback(user);
-    expect(await b.findByText(/되돌렸습니다/)).toBeDefined();
+    // Release 2 is now newer than the active one, so it is turned on.
+    await user.click(
+      await b.findByRole("button", { name: `${label(2)} 켜기` }),
+    );
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "켜기",
+      }),
+    );
+    expect(
+      await b.findByText(new RegExp(`${label(2)}을\\(를\\) 켰습니다`)),
+    ).toBeDefined();
     const retry = tabB.api.calls.filter((c) => c.path.endsWith("/activate"));
     expect(retry.at(-1)?.body).toEqual({
       release_id: second?.id,
@@ -3023,9 +3708,11 @@ describe("식별자와 상태 문구", () => {
     expect(
       document.getElementById(slug.getAttribute("aria-describedby") ?? "")
         ?.textContent,
-    ).toContain("다른 에이전트와 겹칠 수 없습니다");
+    ).toContain("워크스페이스에서 겹칠 수 없고");
     await user.type(screen.getByLabelText("이름"), "Billing Bot 2");
     expect(slug.value).toBe("billing-bot-2");
+    // What the name gives stays in sight beside the label.
+    expect(screen.getByText("이름에서: billing-bot-2")).toBeDefined();
     await user.clear(slug);
     await user.type(slug, "pay");
     await user.type(screen.getByLabelText("이름"), "!");
@@ -3056,7 +3743,7 @@ describe("식별자와 상태 문구", () => {
     renderAt(DETAIL, { ...meOk, ...describedAs(agentServer(), DESCRIPTION) });
     const heading = await screen.findByRole("heading", { level: 1 });
     const head = heading.closest("[data-slot=page-header]") as HTMLElement;
-    expect(within(head).getByText("초안")).toBeDefined();
+    expect(within(head).getByText("미게시")).toBeDefined();
     expect(within(head).getByText(DESCRIPTION)).toBeDefined();
     expect(within(head).queryByText(/billing/)).toBeNull();
     const card = screen.getByRole("region", {
@@ -3109,12 +3796,12 @@ describe("새 에이전트: 브라우저 history", () => {
     );
     await toJobStep(user);
     await fillJob(user);
-    await atStep("채널 연결");
-    expect(stepsInState()).toEqual(["name", "job", "channels"]);
+    await atStep("미리 써 보기");
+    expect(stepsInState()).toEqual(["name", "job", "preview"]);
 
     reload();
-    await atStep("채널 연결");
-    expect(stepsInState()).toEqual(["name", "job", "channels"]);
+    await atStep("미리 써 보기");
+    expect(stepsInState()).toEqual(["name", "job", "preview"]);
     await back();
     await atStep("하는 일");
     expect(stepsInState()).toEqual(["name", "job"]);
@@ -3237,9 +3924,9 @@ describe("새 에이전트: 브라우저 history", () => {
     await user.click(screen.getByRole("button", { name: "다음" }));
     await atStep("하는 일");
     await fillJob(user);
-    await atStep("채널 연결");
+    await atStep("미리 써 보기");
     expect(unloadBlocked()).toBe(false);
-    await user.click(screen.getByRole("link", { name: "나중에 하기" }));
+    await user.click(screen.getByRole("link", { name: "나중에 게시" }));
     await waitFor(() => expect(window.location.pathname).toBe(DETAIL));
     expect(screen.queryByText(LEAVE_TITLE)).toBeNull();
   });
@@ -3256,14 +3943,16 @@ describe("새 에이전트: 브라우저 history", () => {
       expect(JSON.stringify(window.history.state)).toContain(CARD.model),
     );
     await user.selectOptions(screen.getByLabelText("답변 언어"), "en");
-    await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
-    await atStep("채널 연결");
+    await user.click(
+      screen.getByRole("button", { name: "저장하고 미리 써 보기" }),
+    );
+    await atStep("미리 써 보기");
     const sent = (posted(api, "/v1/agents") as { card: { language: string } })
       .card.language;
     expect(sent).toBe("en");
 
     reload();
-    await atStep("채널 연결");
+    await atStep("미리 써 보기");
     expect(unloadBlocked()).toBe(false);
     await back();
     await atStep("하는 일");
@@ -3287,14 +3976,16 @@ describe("새 에이전트: 고른 연결", () => {
       await screen.findByLabelText("모델"),
       "claude-haiku-5",
     );
-    await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
-    await atStep("채널 연결");
+    await user.click(
+      screen.getByRole("button", { name: "저장하고 미리 써 보기" }),
+    );
+    await atStep("미리 써 보기");
     expect(
       (posted(api, "/v1/agents") as { connection_id: string }).connection_id,
     ).toBe("anthropic-fast");
 
     reload();
-    await atStep("채널 연결");
+    await atStep("미리 써 보기");
     act(() => window.history.back());
     await atStep("하는 일");
     expect((await connectionSelect()).value).toBe("anthropic-fast");

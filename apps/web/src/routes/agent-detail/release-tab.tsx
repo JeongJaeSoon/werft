@@ -24,7 +24,7 @@ import { CredentialUnbound, unboundRefs } from "./credentials.tsx";
 import { mcpSettingsQuery } from "./mcp-settings.ts";
 import { type Placed, PlacedOutcome, TakesFocus } from "./placement.tsx";
 import { Releases } from "./releases.tsx";
-import { rolledBackText } from "./rollback-preview.ts";
+import { movesForward, rolledBackText } from "./rollback-preview.ts";
 
 /** What the screen showed when its activation lost the race. */
 interface Conflict {
@@ -102,17 +102,33 @@ export function useReleaseActivation({
       setConflict(null);
       if (result.receipt_id === null) {
         onOutcome({ kind: "notice", text: t("agent.alreadyActive") });
+      } else if (result.previous_release_id === null) {
+        // The agent's first release: publishing, not a rollback.
+        await readAfterRollback();
+        onOutcome({
+          kind: "notice",
+          text: t("agent.published", { team: agent.managing_team_name }),
+        });
       } else {
         const after = await readAfterRollback();
+        const forward = movesForward(
+          detail.releases,
+          result.previous_release_id,
+          result.active_release_id,
+        );
         onOutcome({
           kind: "notice",
           text: after
             ? rolledBackText(t, {
                 release: releaseLabel(result.active_release_id),
+                forward,
               })
-            : t("agent.rolledBack.unchecked", {
-                release: releaseLabel(result.active_release_id),
-              }),
+            : t(
+                forward
+                  ? "agent.turnedOn.unchecked"
+                  : "agent.rolledBack.unchecked",
+                { release: releaseLabel(result.active_release_id) },
+              ),
         });
       }
       await queryClient.invalidateQueries({
@@ -138,6 +154,11 @@ export function useReleaseActivation({
                   kind: "notice",
                   text: rolledBackText(t, {
                     release: releaseLabel(release.id),
+                    forward: movesForward(
+                      detail.releases,
+                      seenActive,
+                      release.id,
+                    ),
                   }),
                 }
               : after.agent.activation_revision === expected
@@ -229,6 +250,15 @@ export function ReleaseTab({
       versionNo={versionNo}
       result={
         <>
+          {/* A refused save says so where it was made; this is one waiting. */}
+          {detail.draft && detail.draft.failure === null ? (
+            <Alert variant="amber" data-status="draft">
+              <AlertTitle>{t("agent.draftPending.title")}</AlertTitle>
+              <AlertDescription>
+                {t("agent.draftPending.body")}
+              </AlertDescription>
+            </Alert>
+          ) : null}
           <PlacedOutcome placed={placed} at="releases" />
           <TakesFocus on={unbound}>
             {unbound ? (

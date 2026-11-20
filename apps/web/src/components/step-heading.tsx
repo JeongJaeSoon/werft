@@ -38,7 +38,9 @@ export function StepHeading({
       id={id}
       aria-describedby={describedBy}
       tabIndex={-1}
-      className={hidden ? "sr-only outline-none" : "outline-none"}
+      // Important: the unlayered `[tabindex]:focus-visible` rule in
+      // styles.css would draw a ring round the heading it moves focus to.
+      className={hidden ? "sr-only outline-none!" : "outline-none!"}
     >
       {children}
     </Heading>

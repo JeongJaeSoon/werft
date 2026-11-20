@@ -449,6 +449,18 @@ const cellsOf = (row: Element | null | undefined) => [
 ];
 
 describe("SessionOverviewRow", () => {
+  test("미리보기 세션은 제목 셀에 미리보기 표시를 두고, 다른 세션은 두지 않는다", () => {
+    const messages = { ...OVERVIEW_MESSAGES, preview: "미리보기" };
+    const shown = overviewRow({ ...SESSION, preview: true }, { messages });
+    const title = cellsOf(shown.getAllByRole("row")[1])[0];
+    expect(title?.querySelector('[data-slot="badge"]')?.textContent).toBe(
+      "미리보기",
+    );
+    shown.unmount();
+    const plain = overviewRow(SESSION, { messages });
+    expect(plain.queryByText("미리보기")).toBeNull();
+  });
+
   test("머리는 제목·에이전트·채널·상태·시작 시각·소요 시간이고 행마다 셀이 여섯이다", () => {
     const { getAllByRole } = overviewRow(SESSION);
     const heads = getAllByRole("columnheader");
