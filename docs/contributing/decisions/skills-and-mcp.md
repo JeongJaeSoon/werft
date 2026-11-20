@@ -373,7 +373,7 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 |---|---|---|
 | 지정(워크스페이스·에이전트 범위) | `requires.mcp`의 서버가 워크스페이스에 등록돼 있고 이 에이전트가 켰는가. 워크스페이스 범위 지정은 그 워크스페이스의 에이전트 모두를 보고, 빠진 것을 에이전트 이름과 함께 담는다(`required`는 한 에이전트라도 빠지면 저장 거절). 나중에 생기는 에이전트는 release 활성화 때 걸린다. 도구 이름이 저장된 도구 목록에 있고 deny에 걸리지 않는가. `requires.rules`를 실행 규칙 판정기가 충족한다고 하는가. 에이전트의 엔진이 `engines`에 있는가 | `required`: 저장 거절, 빠진 것 목록(`missing: [{kind: "mcp", server, tool?}, {kind: "rule", …}, {kind: "engine", …}]`). `optional`: 저장은 하되 그 에이전트에서는 "켤 수 없음"과 이유를 보인다 |
 | release 활성화 | 위와 같다. 지금 `checkAgentExtensions`(`agent-service.ts:225-240`)가 하는 거절 경로에 더한다. 지금 확인은 `includeOptional: true`로 세션이 켤 수 있는 optional까지 본다(`session-extensions.ts:127`, `resolve.ts:82-90`). 엔진 불일치, 빠진 의존성, `forbidden`(펼친 결과의 금지 포함, 10절)으로 이 에이전트에서 "켤 수 없음"인 optional은 그 확인에서 빼고, 이 release의 세션이 켤 수 있는 목록에서도 뺀다. 그래서 다른 엔진 전용의 optional 지정 하나가 이 에이전트의 활성화를 막지 않는다 | `required`가 빠지면 활성화 거절, 같은 목록. "켤 수 없음"인 optional은 활성화를 막지 않고 목록에 이유와 함께 남긴다 |
-| 세션 시작 | 위와 같고, 더해 MCP 연결 상태(`active`인가, 정책이 이 요청자에게 허용하는가) | 서버 미등록·꺼짐·엔진 불일치·규칙 불충족은 시작 거절(`required`, 그리고 세션이 켜 달라고 한 optional. 켜 달라고 하지 않은 "켤 수 없음" optional은 보지 않는다). 연결이 `needs_reauth`이거나 정책이 이 요청자를 막는 것은 시작은 하되 세션 시작 이벤트와 화면에 "이 플러그인의 MCP가 지금 쓸 수 없음"을 남긴다(런타임 상태라 지정 때는 알 수 없다) |
+| 세션 시작 | 위와 같고, 더해 에이전트 연결의 상태(`active`인가). 접근 정책은 여기서 판정하지 않는다. 판정에는 실행 중인 턴과 그 인증 근거가 필요해서(접근 판정 2절, 6절 "턴 밖에서는 upstream에 가지 않는다") 턴 안의 요청마다 판정한다. 새 세션 화면이 "이 요청자에게 막힐 수 있음"을 보여 주는 것은 미리보기이고 효력이 없다 | 서버 미등록·꺼짐·엔진 불일치·규칙 불충족은 시작 거절(`required`, 그리고 세션이 켜 달라고 한 optional. 켜 달라고 하지 않은 "켤 수 없음" optional은 보지 않는다). 연결이 `needs_reauth`인 것은 시작은 하되 세션 시작 이벤트와 화면에 "이 플러그인의 MCP가 지금 쓸 수 없음"을 남긴다(런타임 상태라 지정 때는 알 수 없다). 정책이 막는 것은 턴 안의 판정이 거절하고 그 거절이 기록에 남는다 |
 
 이것이 처음 안의 스킬 메타데이터 `requires_mcp`(경고만)를 대신한다([2절](#2-두-개념)).
 
@@ -519,7 +519,7 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 
 ## 14. 단계별 구현 계획
 
-단계 하나는 PR 한두 개이고, 단계마다 티켓 하나를 만든다. 구현은 오너가 시작을 정한 뒤 티켓 순서대로 한다. 아래 "앞선 단계"가 티켓의 blocked-by다. A·B로 시작하는 단계는 [접근 판정](access-decisions.md) 11절의 것이다. 처음 판의 개인 MCP 연결과 데이터 접근 정책 단위는 그 문서의 B5(개인 MCP 연결)와 A4·B2·B3(MCP egress 판정, 규칙, 콘솔)로 옮겼고, 여기에는 MCP에만 있는 S11(새 개정 지원과 턴 밖 차단)과 S12(전송 세션의 subject 고정)만 남는다. 거꾸로 걸리는 것이 하나 있다. 그 문서의 A4는 이 문서의 S11에 막힌다(6절 "턴 밖에서는 upstream에 가지 않는다"). 티켓을 만들 때 A4의 blocked-by에 S11을 더한다.
+단계 하나는 PR 한두 개이고, 단계마다 티켓 하나를 만든다. 구현은 오너가 시작을 정한 뒤 티켓 순서대로 한다. 아래 "앞선 단계"가 티켓의 blocked-by다. A·B로 시작하는 단계는 [접근 판정](access-decisions.md) 11절의 것이다. 처음 판의 개인 MCP 연결과 데이터 접근 정책 단위는 그 문서의 B5(개인 MCP 연결)와 A4·B2·B3(MCP egress 판정, 규칙, 콘솔)로 옮겼고, 여기에는 MCP에만 있는 S11(새 개정 지원과 턴 밖 차단)과 S12(전송 세션의 subject 고정)만 남는다. 거꾸로 걸리는 것이 둘 있다. 그 문서의 A4는 이 문서의 S11에 막히고(6절 "턴 밖에서는 upstream에 가지 않는다"), B5(개인 MCP 연결)는 S12에 막힌다(subject 고정 없이 개인 연결을 켜면 한 계정으로 연 MCP 상태를 다른 subject가 이어 쓴다, 6절 "전송 세션"). 티켓을 만들 때 A4의 blocked-by에 S11을, B5의 blocked-by에 S12를 더한다.
 
 ### 지금: Claude·Codex에서 같은 스킬·MCP
 
@@ -541,7 +541,7 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 | S9 의존성 확인 | manifest의 `requires` 칸을 열기, 지정·release 활성화·세션 시작의 세 시점, `missing` 목록 응답, 실행 규칙 충족 판정 호출 | 1 | 시점마다 빠진 MCP 서버·도구·규칙·엔진이 이름으로 나오는 시험, 워크스페이스 범위 `required`가 한 에이전트에서만 빠져도 그 에이전트 이름과 함께 거절되는 시험, 세션 시작의 런타임 상태(재인증 필요)는 시작하고 이벤트를 남김 | S8, 실행 규칙 설계의 판정기 |
 | S10 라이브러리 | 검색·태그·분류·공개 범위·사용 현황(에이전트·세션 읽기 거름), 구성원 제출, receipt `update_extension_metadata`, 콘솔 화면 | 2 | 공개 범위 밖 구성원에게 목록·검색·상세·지정 화면에서 보이지 않음, 워크스페이스 범위 지정은 범위와 상관없이 보임, 사용 현황이 숨긴 에이전트를 세지 않음, 화면 기록 | S8, S6 |
 | S11 MCP 등록 확인과 relay: 새 개정 지원과 턴 밖 차단 | 6절 "전송 세션"의 세 자리: 등록 확인이 `server/discover`를 먼저 부르고 옛 개정이면 `initialize`로 되돌아감, egress가 `server/discover`와 `subscriptions/listen`(`toolsListChanged`만)을 라우팅(proxy가 구독 종류를 인가 요청에 싣는다, 13절), relay가 두 개정을 감지. 6절 "턴 밖에서는 upstream에 가지 않는다": 등록 확인이 입력 스키마도 저장(`cacheScope: private`이면 저장하지 않음), relay가 첫 턴 전 `tools/list`에 저장한 정의로 답하고, 정의가 빠진 서버는 턴 입력 전에 목록을 읽어 `list_changed`로 맞춘 뒤 입력을 넘김(엔진 버전마다 다시 읽기 확인). A4보다 먼저 머지한다(A4가 S11에 막힌다) | 1–2 | 두 개정의 fake 서버 각각을 등록·도구 호출까지 몰아 같은 결과, `subscriptions/listen`의 리소스 구독 거절, 옛 개정 서버의 기존 시험이 그대로 통과. 새 세션과 resume 모두 첫 턴 전에는 upstream 요청이 없고 엔진이 저장한 정의로 도구를 봄(Claude·Codex), `private` 목록이면 첫 턴 전에는 이름과 빈 스키마만 보이고, 필수 인자가 있는 그 서버의 도구를 모델이 첫 호출에서 바르게 부름(Claude·Codex) | S5 |
-| S12 MCP 전송 세션의 subject 고정 | 6절 "언제 무엇을 묻나"(도구 없는 첫 판정, `tools/call` 판정)와 "전송 세션": (서버, 턴) subject 고정, 옛 개정의 `Mcp-Session-Id` 묶음(proxy가 upstream이 준 id와 요청이 실은 id를 인가 요청에 싣는다, 13절), 2026-07-28 개정의 요청별 비교와 `subscriptions/listen` 묶음, 목록 캐시의 subject 분리, relay 재시작(Claude·Codex) | 1–2 | egress 통합 시험: 턴 도중 규칙 삭제 → 다음 요청 거절, subject가 바뀌는 판정 → `mcp_session_subject_changed`와 relay 재시작, 다른 subject의 세션 id 거절, 열린 스트림 도중 같은 subject로 다시 연결해 `generation`이 바뀌면 다음 `regrant`에서 스트림이 끊김, 두 개정의 fake 서버에서 같은 결과. 개인 연결 결과(B5)를 켜기 전에 머지한다 | A4, B2, S5, S11 |
+| S12 MCP 전송 세션의 subject 고정 | 6절 "언제 무엇을 묻나"(도구 없는 첫 판정, `tools/call` 판정)와 "전송 세션": (서버, 턴) subject 고정, 옛 개정의 `Mcp-Session-Id` 묶음(proxy가 upstream이 준 id와 요청이 실은 id를 인가 요청에 싣는다, 13절), 2026-07-28 개정의 요청별 비교와 `subscriptions/listen` 묶음, 목록 캐시의 subject 분리, relay 재시작(Claude·Codex) | 1–2 | egress 통합 시험: 턴 도중 규칙 삭제 → 다음 요청 거절, subject가 바뀌는 판정 → `mcp_session_subject_changed`와 relay 재시작, 다른 subject의 세션 id 거절, 열린 스트림 도중 같은 subject로 다시 연결해 `generation`이 바뀌면 다음 `regrant`에서 스트림이 끊김, 두 개정의 fake 서버에서 같은 결과. 개인 연결 결과(B5)를 켜기 전에 머지한다(B5가 S12에 막힌다) | A4, B2, S5, S11 |
 
 ### 나중
 
