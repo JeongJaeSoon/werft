@@ -3,6 +3,7 @@ import { connect } from "node:net";
 import {
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
+  checkSkillResponseSchema,
   REQUEST_BODY_MAX_BYTES,
   registerSkillResponseSchema,
   SKILL_UPLOAD_BODY_MAX_BYTES,
@@ -10,11 +11,13 @@ import {
   type SkillVersion,
   skillAttachmentResponseSchema,
   skillListSchema,
+  skillSyncResponseSchema,
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import {
   type IdentityStore,
   SessionServiceError,
+  type SkillGitSync,
   type SkillService,
 } from "@werft-ai/platform";
 import { errorOf } from "../../../testing/api-error.ts";
@@ -38,6 +41,7 @@ const VERSION: SkillVersion = {
   version: 1,
   digest: "a".repeat(64),
   source: "upload",
+  git: null,
   size_bytes: 120,
   has_scripts: false,
   review: "pending",
@@ -130,6 +134,9 @@ describe("workspace skills", () => {
           items: [
             {
               name: "research",
+              source: "upload",
+              git: null,
+              pending_count: 1,
               versions: [VERSION],
               workspace_attachment: null,
             },
@@ -432,6 +439,162 @@ describe("workspace skills", () => {
         )
       ).status,
     ).toBe(404);
+  });
+});
+
+describe("GitHub skills", () => {
+  const sendSync = (
+    sync: Partial<SkillGitSync>,
+    method: string,
+    path: string,
+    body?: string,
+  ): Promise<Response> =>
+    Promise.resolve(
+      createApiApp({
+        authMode: "none",
+        registerRoutes: (router) =>
+          registerSkillRoutes(router, {} as SkillService, sync as SkillGitSync),
+      }).request(path, {
+        method,
+        headers: owner,
+        ...(body === undefined ? {} : { body }),
+      }),
+    );
+  const register = JSON.stringify({
+    name: "research",
+    repository: "acme/skills",
+    path: "skills/research",
+    ref: "v1.2.0",
+  });
+  const SOURCE = {
+    connection_id: "019a0000-0000-7000-8000-0000000000b1",
+    installation_id: 42,
+    repository_id: 7,
+    repository: "acme/skills",
+    path: "skills/research",
+    ref: "v1.2.0",
+    sync_enabled: false,
+    webhook: "no_public_url" as const,
+    last_check: null,
+  };
+
+  test("registers from a repository; its refusals keep their codes", async () => {
+    const registered = await sendSync(
+      {
+        register: async (_caller, request) => {
+          expect(request).toEqual(JSON.parse(register));
+          return {
+            outcome: "registered",
+            version: VERSION,
+            receipt_id: VERSION_ID,
+          };
+        },
+      },
+      "POST",
+      `${base}/github`,
+      register,
+    );
+    expect(registered.status).toBe(201);
+    registerSkillResponseSchema.parse(await registered.json());
+    expect(
+      (
+        await sendSync(
+          {},
+          "POST",
+          `${base}/github`,
+          JSON.stringify({ name: "research", repository: "no-slash" }),
+        )
+      ).status,
+    ).toBe(400);
+    for (const [code, reason, expected] of [
+      ["FORBIDDEN", "web_session_required", 403],
+      ["ALREADY_EXISTS", "source_mismatch", 409],
+      ["GITHUB_UNAVAILABLE", "github_unavailable", 502],
+      ["BAD_REQUEST", "ref_not_found", 400],
+    ] as const) {
+      expect(
+        await status(
+          sendSync(
+            { register: fail(code, reason) },
+            "POST",
+            `${base}/github`,
+            register,
+          ),
+        ),
+      ).toEqual([expected, code, reason]);
+    }
+  });
+
+  test("checks now, and pauses or resumes", async () => {
+    const checked = await sendSync(
+      {
+        checkNow: async (_caller, name) => {
+          expect(name).toBe("research");
+          return { outcome: "queued", last_check: null };
+        },
+      },
+      "POST",
+      `${base}/research/sync/check`,
+    );
+    expect(checked.status).toBe(200);
+    expect(checkSkillResponseSchema.parse(await checked.json()).outcome).toBe(
+      "queued",
+    );
+    for (const [code, expected] of [
+      ["FORBIDDEN", 403],
+      ["NOT_FOUND", 404],
+    ] as const) {
+      expect(
+        (
+          await sendSync(
+            { checkNow: fail(code) },
+            "POST",
+            `${base}/research/sync/check`,
+          )
+        ).status,
+      ).toBe(expected);
+    }
+
+    const paused = await sendSync(
+      {
+        setSync: async (_caller, name, enabled) => {
+          expect([name, enabled]).toEqual(["research", false]);
+          return { name, git: SOURCE, receipt_id: VERSION_ID };
+        },
+      },
+      "PUT",
+      `${base}/research/sync`,
+      JSON.stringify({ enabled: false }),
+    );
+    expect(paused.status).toBe(200);
+    expect(skillSyncResponseSchema.parse(await paused.json()).git).toEqual(
+      SOURCE,
+    );
+    expect(
+      (
+        await sendSync(
+          {},
+          "PUT",
+          `${base}/research/sync`,
+          JSON.stringify({ enabled: "no" }),
+        )
+      ).status,
+    ).toBe(400);
+    for (const [code, expected] of [
+      ["FORBIDDEN", 403],
+      ["NOT_FOUND", 404],
+    ] as const) {
+      expect(
+        (
+          await sendSync(
+            { setSync: fail(code) },
+            "PUT",
+            `${base}/research/sync`,
+            JSON.stringify({ enabled: true }),
+          )
+        ).status,
+      ).toBe(expected);
+    }
   });
 });
 

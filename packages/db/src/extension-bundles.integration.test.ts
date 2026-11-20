@@ -152,7 +152,9 @@ integration("extension bundles on PostgreSQL", () => {
   }
 
   /** A fixture: only an approved version is attached. */
-  async function approve(...bundles: { id: string; registeredBy: string }[]) {
+  async function approve(
+    ...bundles: { id: string; registeredBy: string | null }[]
+  ) {
     for (const bundle of bundles) {
       await db
         .update(extensionBundles)

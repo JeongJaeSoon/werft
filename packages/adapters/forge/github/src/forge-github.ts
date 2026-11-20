@@ -9,6 +9,9 @@ import {
 } from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
 import {
+  type BundleInputFile,
+  type BundleLimits,
+  DEFAULT_BUNDLE_LIMITS,
   type ForgeComment,
   ForgeCredentialError,
   type ForgePullRequest,
@@ -29,6 +32,7 @@ import {
   GitHubPermissionError,
   type GitHubPermissions,
   type GitHubRateLimit,
+  type GitHubSkillReader,
   type GitHubWorkflowRun,
   type GitTreeEntry,
   type RegisteredGitHubConnection,
@@ -1186,6 +1190,205 @@ function installationRepositoryOf(repository: {
   };
 }
 
+const SKILL_BLOB_READS = 4;
+
+/**
+ * A skill directory read at one commit with an installation's token (decision
+ * skills-and-mcp.md 3). Everything is addressed by repository id, so a
+ * renamed repository is still followed and a new one under the old name is
+ * not. The tree's sizes are checked before any content is fetched.
+ */
+export function createGitHubSkillReader(
+  options: {
+    logger?: Logger;
+    retryAfterBaseMs?: number;
+    limits?: BundleLimits;
+  } = {},
+): GitHubSkillReader {
+  const clientFor = clientsByBase(options.logger, options);
+  const limits = options.limits ?? DEFAULT_BUNDLE_LIMITS;
+  type Request = (
+    route: string,
+    parameters: Record<string, unknown>,
+  ) => Promise<{ data: unknown }>;
+
+  async function asking<T>(
+    what: string,
+    app: { appId: number; apiBase: string; privateKey: string },
+    installationId: number,
+    ask: (request: Request, headers: Record<string, string>) => Promise<T>,
+  ): Promise<T> {
+    const client = clientFor(app.apiBase);
+    try {
+      const auth = createAppAuth({
+        appId: app.appId,
+        privateKey: app.privateKey,
+        request: client.request,
+      });
+      const { token } = await auth({ type: "installation", installationId });
+      // `/repositories/{id}/…` routes are not in octokit's route types.
+      return await ask(client.request as unknown as Request, {
+        authorization: `token ${token}`,
+      });
+    } catch (error) {
+      const status = statusOf(error);
+      failure(options.logger, what, error);
+      throw new GitHubAppCheckError(
+        status === 401 ? "github_rejected" : "github_unreachable",
+        status,
+      );
+    }
+  }
+
+  /** A 404 or 422 is the thing not being there; anything else throws. */
+  async function orNull<T>(read: () => Promise<T>): Promise<T | null> {
+    try {
+      return await read();
+    } catch (error) {
+      const status = statusOf(error);
+      if (status === 404 || status === 422 || status === 409) return null;
+      throw error;
+    }
+  }
+
+  type TreeItem = {
+    path?: string;
+    mode?: string;
+    type?: string;
+    sha?: string;
+    size?: number;
+  };
+
+  return {
+    repository: (app, installationId, owner, name) =>
+      asking("skill repository", app, installationId, (request, headers) =>
+        orNull(async () => {
+          const { data } = await request("GET /repos/{owner}/{repo}", {
+            owner,
+            repo: name,
+            headers,
+          });
+          const repo = data as { id: number; full_name: string };
+          return { id: Number(repo.id), fullName: repo.full_name };
+        }),
+      ),
+
+    resolve: (app, installationId, repositoryId, ref) =>
+      asking("skill ref lookup", app, installationId, (request, headers) =>
+        orNull(async () => {
+          const { data } = await request(
+            "GET /repositories/{id}/commits/{ref}",
+            { id: repositoryId, ref, headers },
+          );
+          const sha = (data as { sha?: unknown }).sha;
+          if (typeof sha !== "string" || !/^[0-9a-f]{40}$/.test(sha)) {
+            throw new Error("GitHub answered a commit without a sha");
+          }
+          return sha;
+        }),
+      ),
+
+    read: (app, installationId, repositoryId, commit, path) =>
+      asking("skill read", app, installationId, async (request, headers) => {
+        const tree = (sha: string, recursive: boolean) =>
+          orNull(async () => {
+            const { data } = await request(
+              "GET /repositories/{id}/git/trees/{sha}",
+              {
+                id: repositoryId,
+                sha,
+                ...(recursive ? { recursive: "1" } : {}),
+                headers,
+              },
+            );
+            return data as { tree: TreeItem[]; truncated?: boolean };
+          });
+        const head = await orNull(async () => {
+          const { data } = await request(
+            "GET /repositories/{id}/git/commits/{sha}",
+            { id: repositoryId, sha: commit, headers },
+          );
+          return (data as { tree: { sha: string } }).tree.sha;
+        });
+        if (head === null) return { kind: "missing" };
+        let at = head;
+        for (const segment of path === "" ? [] : path.split("/")) {
+          const level = await tree(at, false);
+          const next = level?.tree.find(
+            (item) => item.path === segment && item.type === "tree",
+          );
+          if (next?.sha === undefined) return { kind: "missing" };
+          at = next.sha;
+        }
+        const listed = await tree(at, true);
+        if (listed === null) return { kind: "missing" };
+        const entries = listed.tree.filter((item) => item.type !== "tree");
+        const refuse = (code: string, message: string, at = "") => ({
+          kind: "refused" as const,
+          issues: [{ path: at, code, message }],
+        });
+        // The stored tree adds a manifest of its own.
+        if (listed.truncated === true || entries.length > limits.maxFiles - 1) {
+          return refuse(
+            "too_many_files",
+            `A skill holds at most ${limits.maxFiles - 1} files`,
+          );
+        }
+        let total = 0;
+        for (const item of entries) {
+          if (item.type === "commit") {
+            return refuse(
+              "unsupported_entry_kind",
+              "A submodule is not a file",
+              item.path,
+            );
+          }
+          const size = item.size ?? 0;
+          if (size > limits.maxFileBytes) {
+            return refuse(
+              "file_too_large",
+              `A file is at most ${limits.maxFileBytes} bytes`,
+              item.path,
+            );
+          }
+          total += size;
+        }
+        if (total > limits.maxTotalBytes) {
+          return refuse(
+            "bundle_too_large",
+            `A skill is at most ${limits.maxTotalBytes} bytes`,
+          );
+        }
+        const files: BundleInputFile[] = [];
+        for (let start = 0; start < entries.length; start += SKILL_BLOB_READS) {
+          const batch = await Promise.all(
+            entries.slice(start, start + SKILL_BLOB_READS).map(async (item) => {
+              const { data } = await request(
+                "GET /repositories/{id}/git/blobs/{sha}",
+                { id: repositoryId, sha: item.sha, headers },
+              );
+              const blob = data as { content?: string; encoding?: string };
+              if (blob.encoding !== "base64" || blob.content === undefined) {
+                throw new Error("GitHub answered a blob that is not base64");
+              }
+              return {
+                path: item.path ?? "",
+                kind:
+                  item.mode === "120000"
+                    ? ("symlink" as const)
+                    : ("file" as const),
+                mode: item.mode === "100755" ? 0o755 : 0o644,
+                bytes: Uint8Array.from(Buffer.from(blob.content, "base64")),
+              };
+            }),
+          );
+          files.push(...batch);
+        }
+        return { kind: "files", files };
+      }),
+  };
+}
+
 /**
  * `POST /app-manifests/{code}/conversions`. The code is single-use: a retry
  * after GitHub made the App would be refused and lose the key, so none is
@@ -1213,6 +1416,11 @@ export function createGitHubManifestConverter(
         htmlUrl: data.html_url,
         permissions: permissionsOf(data.permissions),
         clientId: data.client_id,
+        // Set when the manifest asked for a webhook (hook_attributes).
+        webhookSecret:
+          typeof data.webhook_secret === "string" && data.webhook_secret !== ""
+            ? data.webhook_secret
+            : null,
         clientSecret: data.client_secret,
         privateKey: data.pem.replace(/\r\n?/g, "\n").trim(),
         owner: owner?.login ?? owner?.slug ?? String(data.id),

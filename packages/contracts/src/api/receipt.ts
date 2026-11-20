@@ -212,6 +212,8 @@ export const RECEIPT_OPERATION_VALUES = [
   "attach_extension",
   "detach_extension",
   "archive_extension",
+  // A Git skill's sync paused or turned back on, by one workspace manager.
+  "update_extension_sync",
   // Sign-in providers, by the owner. Field names and counts only: never a
   // client secret, and of a stored one the last four characters.
   "create_login_provider",

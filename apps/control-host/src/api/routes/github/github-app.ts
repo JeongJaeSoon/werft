@@ -11,6 +11,8 @@ import {
   postGitHubAppRequestSchema,
   putGitHubAppRequestSchema,
   putGitHubAppResponseSchema,
+  putGitHubAppWebhookSecretRequestSchema,
+  putGitHubAppWebhookSecretResponseSchema,
   startGitHubAppManifestRequestSchema,
   startGitHubAppManifestResponseSchema,
   startGitHubInstallationResponseSchema,
@@ -80,6 +82,22 @@ export function registerGitHubAppRoutes(
       return jsonWithSchema(context, deleteGitHubAppResponseSchema, deleted);
     });
   }
+
+  apiRoute(router, "putWorkspaceGitHubAppWebhookSecret", async (context) => {
+    const { workspaceId, ref } = target(context);
+    const body = await parseJsonBody(
+      context,
+      putGitHubAppWebhookSecretRequestSchema,
+    );
+    const set = await mapped(() =>
+      service.setWebhookSecret(context.get("caller"), workspaceId, ref, body),
+    );
+    return jsonWithSchema(
+      context,
+      putGitHubAppWebhookSecretResponseSchema,
+      set,
+    );
+  });
 
   apiRoute(router, "listWorkspaceGitHubApps", async (context) => {
     const { id } = requireParams(context, workspaceParamsSchema);

@@ -20,8 +20,10 @@ const BUDGET_BYTES: Record<string, number> = {
   // published flag and the preview session fields put ./forms 416 bytes over
   // 141, so it moves to 142. The skill API's schemas put ./schemas 499 bytes
   // over 144 and ./forms 298 bytes over 142, so they move to 145 and 143.
-  "./schemas": 145 * 1024,
-  "./forms": 143 * 1024,
+  // The Git skill source and sync schemas put ./schemas 487 bytes over 145
+  // and ./forms 257 bytes over 143, so they move to 146 and 144.
+  "./schemas": 146 * 1024,
+  "./forms": 144 * 1024,
 };
 
 test("every entry has a budget", () => {

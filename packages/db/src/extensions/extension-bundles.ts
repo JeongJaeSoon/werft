@@ -32,9 +32,16 @@ import {
   extensionBundles,
   memberships,
   sessions,
+  skillGitSources,
   users,
 } from "../schema.ts";
 import { writeSucceededReceipt } from "../succeeded-receipt.ts";
+import {
+  gitVersionJson,
+  gitVersionOf,
+  lockedSource,
+  recordCheckInTx,
+} from "./skill-git-sources.ts";
 
 type Row = typeof extensionBundles.$inferSelect;
 
@@ -50,6 +57,7 @@ function bundleOf(row: Row): ExtensionBundle {
     manifest: row.manifest as BundleManifest,
     review: row.review as ExtensionBundleReview,
     registeredBy: row.registeredBy,
+    git: gitVersionOf(row.git),
     registeredAt: row.registeredAt,
     reviewedBy: row.reviewedBy,
     reviewedAt: row.reviewedAt,
@@ -204,13 +212,38 @@ export function createPostgresExtensionBundleStore(
 
     register(input) {
       return db.transaction(async (tx) => {
-        const actor = await managerCheck(
-          tx,
-          input.workspaceId,
-          input.principal,
-          input.managerRoles,
-        );
-        if (typeof actor === "string") return { outcome: actor };
+        const git = input.git;
+        // A version the Git sync made has no person behind it; its source
+        // row, read again under its lock below, says whether it may.
+        const synced = git !== undefined && git.newSource === undefined;
+        if (git !== undefined && input.skill !== true) {
+          throw new Error("a GitHub version must be registered as a skill");
+        }
+        let userId: string | null = null;
+        if (!synced) {
+          const actor = await managerCheck(
+            tx,
+            input.workspaceId,
+            input.principal,
+            input.managerRoles,
+          );
+          if (typeof actor === "string") return { outcome: actor };
+          userId = actor.userId;
+        }
+        const checked = async (
+          result: "created" | "unchanged" | "paused",
+          versionId: string | null,
+        ) => {
+          if (git === undefined) return;
+          await recordCheckInTx(tx, input.workspaceId, input.name, {
+            at: git.checkedAt,
+            trigger: git.trigger,
+            commit: git.location.commit,
+            result,
+            versionId,
+            issues: [],
+          });
+        };
         const sameDigest = async () => {
           const [existing] = await tx
             .select()
@@ -231,12 +264,26 @@ export function createPostgresExtensionBundleStore(
           await tx.execute(
             sql`SELECT pg_advisory_xact_lock(hashtextextended(${`extension_bundles:${input.workspaceId}:${input.name}`}, 0))`,
           );
-          const existing = await sameDigest();
-          if (existing) {
-            return {
-              outcome: "already_registered",
-              bundle: bundleOf(existing),
-            };
+          // A skill's source is fixed by its first registration (decision
+          // skills-and-mcp.md 3, "출처는 스킬마다 하나다").
+          const source = await lockedSource(tx, input.workspaceId, input.name);
+          if ((git === undefined || git.newSource) && source) {
+            return { outcome: "source_mismatch" };
+          }
+          if (synced && !source) return { outcome: "source_mismatch" };
+          if (synced && source?.checkingToken !== git?.leaseToken) {
+            return { outcome: "lease_lost" };
+          }
+          // Only "지금 확인" runs while paused (decision skills-and-mcp.md 3).
+          if (
+            synced &&
+            git !== undefined &&
+            source &&
+            !source.syncEnabled &&
+            git.trigger.kind !== "manual"
+          ) {
+            await checked("paused", null);
+            return { outcome: "paused" };
           }
           const named = await tx
             .select({ version: extensionBundles.version })
@@ -250,8 +297,32 @@ export function createPostgresExtensionBundleStore(
           if (named.some((row) => row.version === null)) {
             return { outcome: "name_taken" };
           }
+          if (git?.newSource && named.length > 0) {
+            return { outcome: "source_mismatch" };
+          }
+          const existing = await sameDigest();
+          if (existing) {
+            await checked("unchanged", existing.id);
+            return {
+              outcome: "already_registered",
+              bundle: bundleOf(existing),
+            };
+          }
           version =
             Math.max(0, ...named.map((row) => row.version as number)) + 1;
+          if (git?.newSource && userId !== null) {
+            await tx.insert(skillGitSources).values({
+              workspaceId: input.workspaceId,
+              name: input.name,
+              connectionId: git.newSource.connectionId,
+              installationId: git.newSource.installationId,
+              repositoryId: git.newSource.repositoryId,
+              repository: git.newSource.repository,
+              path: git.location.path,
+              ref: git.location.ref,
+              createdBy: userId,
+            });
+          }
         }
         const [inserted] = await tx
           .insert(extensionBundles)
@@ -264,7 +335,11 @@ export function createPostgresExtensionBundleStore(
             source: input.source,
             sizeBytes: input.sizeBytes,
             manifest: input.manifest,
-            registeredBy: actor.userId,
+            registeredBy: userId,
+            git:
+              git === undefined
+                ? null
+                : gitVersionJson(git.location, git.trigger),
             version,
           })
           .onConflictDoNothing()
@@ -272,8 +347,10 @@ export function createPostgresExtensionBundleStore(
         if (!inserted) {
           const existing = await sameDigest();
           if (!existing) throw new Error("extension bundle vanished in its tx");
+          await checked("unchanged", existing.id);
           return { outcome: "already_registered", bundle: bundleOf(existing) };
         }
+        await checked("created", inserted.id);
         await writeReceipt(tx, input.principal, {
           id: input.receiptId,
           operation: "register_extension",
@@ -285,6 +362,15 @@ export function createPostgresExtensionBundleStore(
             size_bytes: inserted.sizeBytes,
             skills: input.manifest.skills.map((skill) => skill.name),
             ...(version === null ? {} : { version }),
+            ...(git === undefined
+              ? {}
+              : {
+                  // The sync is the subject of a version it made; the
+                  // trigger names the delivery, the daily check or the
+                  // person who pressed.
+                  by: synced ? "sync" : "user",
+                  git: gitVersionJson(git.location, git.trigger),
+                }),
           },
         });
         return {

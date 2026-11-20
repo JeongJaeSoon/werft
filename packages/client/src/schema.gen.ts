@@ -526,6 +526,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/workspaces/{id}/github-apps/{role}/webhook-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Store the push webhook secret of one of the workspace's GitHub Apps (owner or admin)
+         * @description For an App added with its key, or made before this server had a public address: the manager sets the App's webhook on GitHub to the URL the App's `webhook.url` shows, turns on the push event, and enters the same secret here. An App made from the console's manifest while `GITHUB_WEBHOOK_BASE_URL` is set already has both. `role` is a role or a connection id, as for PUT …/github-apps/{role}. The secret is sealed like the App's key and is in no response, receipt, log or error; a push delivery is read only when a stored secret of its App verifies `X-Hub-Signature-256`. Writes a `set_github_app` receipt with `purpose: webhook_secret`. API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** required.
+         */
+        put: operations["putWorkspaceGitHubAppWebhookSecret"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/workspaces/{id}/github-apps": {
         parameters: {
             query?: never;
@@ -3042,7 +3064,7 @@ export interface paths {
         };
         /**
          * List the workspace's skills and their versions
-         * @description Every skill name with all its versions, oldest first, and the version and mode the workspace scope names. A bundle registered before skills shows with `version: null`. Every member of the workspace reads it.
+         * @description Every skill name with all its versions, oldest first, and the version and mode the workspace scope names. A bundle registered before skills shows with `version: null`. `source` is the skill's one source (`upload` or `github`); a GitHub skill carries `git`: where it syncs from, whether sync is on, whether this installation can take its push webhook (`webhook`: `ready`, `no_public_url`, or `no_secret` when the App's webhook secret is not stored), and its last check. `pending_count` is how many of its versions wait for review. Every member of the workspace reads it.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -3055,6 +3077,72 @@ export interface paths {
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["registerSkill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspace/skills/github": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register a skill from a GitHub repository
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Reads `path` of `repository` at `ref` (a branch, a tag or a commit SHA) with the workspace's author App: `connection_id` names the connection, and may be left out while the workspace has one. The ref is resolved to a commit through the GitHub API and the directory at that commit is checked as an upload is; the version records the repository id, path, ref and commit. The source is fixed per skill: a name that already has versions is 409 `ALREADY_EXISTS` `source_mismatch`, and an upload to a GitHub skill is refused the same way. Refused with 400 `reason_code` `connection_required`, `connection_not_found`, `repository_not_installed` (the App cannot read it), `ref_not_found`, `path_not_found` or `skill_invalid` (with `details.issues`); GitHub unreachable or refusing the App is 502 `GITHUB_UNAVAILABLE`. Afterwards a push webhook, a daily check and POST …/sync/check each make the next `pending` version when the content changed. Writes a `register_extension` receipt.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["registerGitHubSkill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspace/skills/{name}/sync/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check a GitHub skill for a new version now
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Runs the same check a push webhook and the daily check run, and works while sync is paused: the ref is resolved to a commit again, the directory at that commit is checked, and a new `pending` version is made only when its digest is new. One check runs per skill at a time; while one runs this answers `queued` and that check runs once more when it ends. `last_check` records the time, the trigger, the commit and the result (`created`, `unchanged`, `source_missing` when the ref or path is gone, `rejected` with `issues`, `github_unavailable`). A skill that is not from GitHub is 404.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["checkSkill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspace/skills/{name}/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Pause or resume a GitHub skill's sync
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. While paused, push webhooks and the daily check skip the skill; POST …/sync/check still runs. Resuming checks once right away. Each change writes an `update_extension_sync` receipt; the state it already has answers `receipt_id: null`. A skill that is not from GitHub is 404.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** required.
+         */
+        put: operations["putSkillSync"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3825,6 +3913,28 @@ export interface paths {
          *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
          */
         post: operations["receiveSlackInteraction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/github/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * GitHub's webhook URL for the workspaces' GitHub Apps
+         * @description Called by GitHub, not by people: an App's webhook points here (`<GITHUB_WEBHOOK_BASE_URL>/v1/github/webhook`), one URL for every App. `X-GitHub-Hook-Installation-Target-ID` names the App; the raw body, read up to 64 KiB (413 above that), must carry an `X-Hub-Signature-256` that one stored webhook secret of that App verifies, compared in constant time, before anything in it is read. A missing or wrong signature, or an App with no secret stored, answers 401 and starts nothing. A signed `push` is read only for `installation.id`, `repository.id` and `ref`, and starts a check of every Git skill whose sync is on with that installation, repository (by id) and ref, for the workspaces whose secret verified it; the check resolves the ref through the GitHub API again and never uses the commit or files the body names. It answers 202 before the checks run. Any other event answers 202 and is ignored. Deliveries are not deduplicated by `X-GitHub-Delivery`: the check gives the same result however often a push arrives. Rate limited per App and overall before any database read (429).
+         *
+         *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
+         */
+        post: operations["receiveGitHubWebhook"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5698,6 +5808,15 @@ export interface components {
         PutGitHubAppRequest: {
             app_id: number;
             private_key: string;
+        };
+        PutGitHubAppWebhookSecretRequest: {
+            secret: string;
+        };
+        PutGitHubAppWebhookSecretResponse: {
+            /** @constant */
+            secret_set: true;
+            /** Format: uuid */
+            receipt_id: string;
         };
         PostGitHubAppRequest: {
             app_id: number;
@@ -7946,7 +8065,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "delete_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_agent_usage" | "set_agent_caller_limits" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "request_surface_binding" | "resolve_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "merge_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_github_pull_request_settings" | "set_agent_pull_request_settings" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "create_connection" | "create_mcp_server" | "set_settings_credential" | "set_connection_auto_mode" | "set_connection_models" | "disable_connection" | "enable_connection" | "disable_mcp_server" | "set_mcp_server_workspaces" | "resolve_repository" | "set_agent_github" | "set_agent_mcp" | "set_agent_workspace_mcp" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement" | "set_env_variable" | "delete_env_variable" | "set_env_variable_grants" | "resolve_session_env" | "reject_session_env" | "resolve_session_engine_settings" | "set_workspace_engine_settings" | "set_agent_engine_settings" | "register_extension" | "approve_extension" | "attach_extension" | "detach_extension" | "archive_extension" | "create_login_provider" | "update_login_provider" | "refresh_login_provider_discovery" | "set_login_provider_secret" | "test_login_provider" | "enable_login_provider" | "disable_login_provider" | "delete_login_provider" | "link_login_method" | "unlink_login_method" | "set_password_login" | "set_emergency_admin" | "update_slack_settings" | "update_installation_config" | "create_workspace_mcp_server" | "delete_workspace_mcp_server" | "set_workspace_mcp_credential" | "connect_workspace_mcp_server" | "disconnect_workspace_mcp_server";
+            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "delete_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_agent_usage" | "set_agent_caller_limits" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "request_surface_binding" | "resolve_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "merge_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_github_pull_request_settings" | "set_agent_pull_request_settings" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "create_connection" | "create_mcp_server" | "set_settings_credential" | "set_connection_auto_mode" | "set_connection_models" | "disable_connection" | "enable_connection" | "disable_mcp_server" | "set_mcp_server_workspaces" | "resolve_repository" | "set_agent_github" | "set_agent_mcp" | "set_agent_workspace_mcp" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement" | "set_env_variable" | "delete_env_variable" | "set_env_variable_grants" | "resolve_session_env" | "reject_session_env" | "resolve_session_engine_settings" | "set_workspace_engine_settings" | "set_agent_engine_settings" | "register_extension" | "approve_extension" | "attach_extension" | "detach_extension" | "archive_extension" | "update_extension_sync" | "create_login_provider" | "update_login_provider" | "refresh_login_provider_discovery" | "set_login_provider_secret" | "test_login_provider" | "enable_login_provider" | "disable_login_provider" | "delete_login_provider" | "link_login_method" | "unlink_login_method" | "set_password_login" | "set_emergency_admin" | "update_slack_settings" | "update_installation_config" | "create_workspace_mcp_server" | "delete_workspace_mcp_server" | "set_workspace_mcp_credential" | "connect_workspace_mcp_server" | "disconnect_workspace_mcp_server";
             target_ref: {
                 /** Format: uuid */
                 session_id: string;
@@ -8674,6 +8793,10 @@ export interface components {
                     [key: string]: "read" | "write" | "admin";
                 } | null;
                 permissions_checked_at?: string | null;
+                webhook?: {
+                    url: string | null;
+                    secret_set: boolean;
+                };
                 warnings?: {
                     permission: string;
                     /** @enum {string} */
@@ -8754,6 +8877,10 @@ export interface components {
                     [key: string]: "read" | "write" | "admin";
                 } | null;
                 permissions_checked_at?: string | null;
+                webhook?: {
+                    url: string | null;
+                    secret_set: boolean;
+                };
                 warnings?: {
                     permission: string;
                     /** @enum {string} */
@@ -8811,6 +8938,10 @@ export interface components {
                     [key: string]: "read" | "write" | "admin";
                 } | null;
                 permissions_checked_at?: string | null;
+                webhook?: {
+                    url: string | null;
+                    secret_set: boolean;
+                };
                 warnings?: {
                     permission: string;
                     /** @enum {string} */
@@ -8860,6 +8991,10 @@ export interface components {
                     [key: string]: "read" | "write" | "admin";
                 } | null;
                 permissions_checked_at?: string | null;
+                webhook?: {
+                    url: string | null;
+                    secret_set: boolean;
+                };
                 warnings?: {
                     permission: string;
                     /** @enum {string} */
@@ -11061,6 +11196,41 @@ export interface components {
         SkillList: {
             items: {
                 name: string;
+                /** @enum {string} */
+                source: "upload" | "github";
+                git: {
+                    /** Format: uuid */
+                    connection_id: string;
+                    installation_id: number;
+                    repository_id: number;
+                    repository: string;
+                    path: string;
+                    ref: string;
+                    sync_enabled: boolean;
+                    /** @enum {string} */
+                    webhook: "ready" | "no_public_url" | "no_secret";
+                    last_check: {
+                        /** Format: date-time */
+                        at: string;
+                        trigger: {
+                            /** @enum {string} */
+                            kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                            delivery_id: string | null;
+                            user_id: string | null;
+                        };
+                        commit: string | null;
+                        /** @enum {string} */
+                        result: "created" | "unchanged" | "source_missing" | "rejected" | "github_unavailable" | "paused";
+                        version_id: string | null;
+                        /** @description Why the checker refused the tree; empty otherwise. */
+                        issues: {
+                            path: string;
+                            code: string;
+                            message: string;
+                        }[];
+                    } | null;
+                } | null;
+                pending_count: number;
                 /** @description Every version of the name, oldest first. */
                 versions: {
                     /** Format: uuid */
@@ -11071,12 +11241,24 @@ export interface components {
                     digest: string;
                     /** @enum {string} */
                     source: "upload" | "github";
+                    git: {
+                        repository_id: number;
+                        path: string;
+                        ref: string;
+                        commit: string;
+                        trigger: {
+                            /** @enum {string} */
+                            kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                            delivery_id: string | null;
+                            user_id: string | null;
+                        };
+                    } | null;
                     size_bytes: number;
                     has_scripts: boolean;
                     /** @enum {string} */
                     review: "pending" | "approved" | "rejected";
-                    /** Format: uuid */
-                    registered_by: string;
+                    /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
+                    registered_by: string | null;
                     /** Format: date-time */
                     registered_at: string;
                     reviewed_by: string | null;
@@ -11114,12 +11296,24 @@ export interface components {
                 digest: string;
                 /** @enum {string} */
                 source: "upload" | "github";
+                git: {
+                    repository_id: number;
+                    path: string;
+                    ref: string;
+                    commit: string;
+                    trigger: {
+                        /** @enum {string} */
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        delivery_id: string | null;
+                        user_id: string | null;
+                    };
+                } | null;
                 size_bytes: number;
                 has_scripts: boolean;
                 /** @enum {string} */
                 review: "pending" | "approved" | "rejected";
-                /** Format: uuid */
-                registered_by: string;
+                /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
+                registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
                 reviewed_by: string | null;
@@ -11127,6 +11321,92 @@ export interface components {
                 archived_at: string | null;
             };
             receipt_id: string | null;
+        };
+        RegisterGitHubSkillRequest: {
+            /** @description The skill's name; the `SKILL.md` at `path` must carry it as its frontmatter `name`. */
+            name: string;
+            /** @description `owner/name` on GitHub. */
+            repository: string;
+            /** @description The skill directory, holding `SKILL.md`; empty for the repository root. */
+            path: string;
+            /** @description A branch, a tag or a 40-character commit. A commit never moves, so it is never synced. */
+            ref: string;
+            /**
+             * Format: uuid
+             * @description The author App connection that reads it; may be left out while the workspace has one.
+             */
+            connection_id?: string;
+        };
+        CheckSkillResponse: {
+            /**
+             * @description `queued`: a check of the skill was running, and it runs once more when it ends.
+             * @enum {string}
+             */
+            outcome: "checked" | "queued";
+            last_check: {
+                /** Format: date-time */
+                at: string;
+                trigger: {
+                    /** @enum {string} */
+                    kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                    delivery_id: string | null;
+                    user_id: string | null;
+                };
+                commit: string | null;
+                /** @enum {string} */
+                result: "created" | "unchanged" | "source_missing" | "rejected" | "github_unavailable" | "paused";
+                version_id: string | null;
+                /** @description Why the checker refused the tree; empty otherwise. */
+                issues: {
+                    path: string;
+                    code: string;
+                    message: string;
+                }[];
+            } | null;
+        };
+        PutSkillSyncRequest: {
+            enabled: boolean;
+        };
+        SkillSyncResponse: {
+            name: string;
+            git: {
+                /** Format: uuid */
+                connection_id: string;
+                installation_id: number;
+                repository_id: number;
+                repository: string;
+                path: string;
+                ref: string;
+                sync_enabled: boolean;
+                /** @enum {string} */
+                webhook: "ready" | "no_public_url" | "no_secret";
+                last_check: {
+                    /** Format: date-time */
+                    at: string;
+                    trigger: {
+                        /** @enum {string} */
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        delivery_id: string | null;
+                        user_id: string | null;
+                    };
+                    commit: string | null;
+                    /** @enum {string} */
+                    result: "created" | "unchanged" | "source_missing" | "rejected" | "github_unavailable" | "paused";
+                    version_id: string | null;
+                    /** @description Why the checker refused the tree; empty otherwise. */
+                    issues: {
+                        path: string;
+                        code: string;
+                        message: string;
+                    }[];
+                } | null;
+            };
+            /** @description Null when sync already was in that state. */
+            receipt_id: string | null;
+        };
+        GitHubWebhookResponse: {
+            /** @constant */
+            accepted: true;
         };
         SkillVersionFiles: {
             version: {
@@ -11138,12 +11418,24 @@ export interface components {
                 digest: string;
                 /** @enum {string} */
                 source: "upload" | "github";
+                git: {
+                    repository_id: number;
+                    path: string;
+                    ref: string;
+                    commit: string;
+                    trigger: {
+                        /** @enum {string} */
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        delivery_id: string | null;
+                        user_id: string | null;
+                    };
+                } | null;
                 size_bytes: number;
                 has_scripts: boolean;
                 /** @enum {string} */
                 review: "pending" | "approved" | "rejected";
-                /** Format: uuid */
-                registered_by: string;
+                /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
+                registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
                 reviewed_by: string | null;
@@ -11159,12 +11451,24 @@ export interface components {
                 digest: string;
                 /** @enum {string} */
                 source: "upload" | "github";
+                git: {
+                    repository_id: number;
+                    path: string;
+                    ref: string;
+                    commit: string;
+                    trigger: {
+                        /** @enum {string} */
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        delivery_id: string | null;
+                        user_id: string | null;
+                    };
+                } | null;
                 size_bytes: number;
                 has_scripts: boolean;
                 /** @enum {string} */
                 review: "pending" | "approved" | "rejected";
-                /** Format: uuid */
-                registered_by: string;
+                /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
+                registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
                 reviewed_by: string | null;
@@ -11209,12 +11513,24 @@ export interface components {
                 digest: string;
                 /** @enum {string} */
                 source: "upload" | "github";
+                git: {
+                    repository_id: number;
+                    path: string;
+                    ref: string;
+                    commit: string;
+                    trigger: {
+                        /** @enum {string} */
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        delivery_id: string | null;
+                        user_id: string | null;
+                    };
+                } | null;
                 size_bytes: number;
                 has_scripts: boolean;
                 /** @enum {string} */
                 review: "pending" | "approved" | "rejected";
-                /** Format: uuid */
-                registered_by: string;
+                /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
+                registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
                 reviewed_by: string | null;
@@ -11261,12 +11577,24 @@ export interface components {
                     digest: string;
                     /** @enum {string} */
                     source: "upload" | "github";
+                    git: {
+                        repository_id: number;
+                        path: string;
+                        ref: string;
+                        commit: string;
+                        trigger: {
+                            /** @enum {string} */
+                            kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                            delivery_id: string | null;
+                            user_id: string | null;
+                        };
+                    } | null;
                     size_bytes: number;
                     has_scripts: boolean;
                     /** @enum {string} */
                     review: "pending" | "approved" | "rejected";
-                    /** Format: uuid */
-                    registered_by: string;
+                    /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
+                    registered_by: string | null;
                     /** Format: date-time */
                     registered_at: string;
                     reviewed_by: string | null;
@@ -15057,6 +15385,159 @@ export interface operations {
                     };
                 };
             };
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    putWorkspaceGitHubAppWebhookSecret: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
+                "Idempotency-Key": string;
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                /** @description The workspace's id. */
+                id: string;
+                /** @description A GitHub App role, or the id of one connection of a role. */
+                role: ("author" | "reviewer") | string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "secret": "the-same-string-entered-on-github"
+                 *     }
+                 */
+                "application/json": components["schemas"]["PutGitHubAppWebhookSecretRequest"];
+            };
+        };
+        responses: {
+            /** @description Stored. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "secret_set": true,
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["PutGitHubAppWebhookSecretResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `GITHUB_APP_CONFLICT`: The App would clash with the workspace's other GitHub App. `error.details.reason_code` says how: `same_app` (the other role already holds this App; GitHub refuses an approval from the App that opened the pull request) or `no_author_app` (a reviewer App needs the author App first). */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "GITHUB_APP_CONFLICT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
             /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
@@ -33327,6 +33808,9 @@ export interface operations {
                      *       "items": [
                      *         {
                      *           "name": "release-notes",
+                     *           "source": "upload",
+                     *           "git": null,
+                     *           "pending_count": 0,
                      *           "versions": [
                      *             {
                      *               "id": "7c3e9a1f-2d4b-4e6a-8f0c-5b1d3e7a9c20",
@@ -33334,6 +33818,7 @@ export interface operations {
                      *               "version": 2,
                      *               "digest": "9f2c4e6a8b0d1f3e5a7c9b2d4f6e8a0c1b3d5f7e9a2c4b6d8f0e1a3c5b7d9f2e",
                      *               "source": "upload",
+                     *               "git": null,
                      *               "size_bytes": 4608,
                      *               "has_scripts": true,
                      *               "review": "approved",
@@ -33447,6 +33932,7 @@ export interface operations {
                      *         "version": 2,
                      *         "digest": "9f2c4e6a8b0d1f3e5a7c9b2d4f6e8a0c1b3d5f7e9a2c4b6d8f0e1a3c5b7d9f2e",
                      *         "source": "upload",
+                     *         "git": null,
                      *         "size_bytes": 4608,
                      *         "has_scripts": true,
                      *         "review": "pending",
@@ -33571,6 +34057,460 @@ export interface operations {
             };
         };
     };
+    registerGitHubSkill: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "name": "release-notes",
+                 *       "repository": "acme/skills",
+                 *       "path": "skills/release-notes",
+                 *       "ref": "main"
+                 *     }
+                 */
+                "application/json": components["schemas"]["RegisterGitHubSkillRequest"];
+            };
+        };
+        responses: {
+            /** @description The first version, pending review. */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "outcome": "registered",
+                     *       "version": {
+                     *         "id": "7c3e9a1f-2d4b-4e6a-8f0c-5b1d3e7a9c20",
+                     *         "name": "release-notes",
+                     *         "version": 2,
+                     *         "digest": "9f2c4e6a8b0d1f3e5a7c9b2d4f6e8a0c1b3d5f7e9a2c4b6d8f0e1a3c5b7d9f2e",
+                     *         "source": "github",
+                     *         "git": {
+                     *           "repository_id": 123456789,
+                     *           "path": "skills/release-notes",
+                     *           "ref": "main",
+                     *           "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                     *           "trigger": {
+                     *             "kind": "register",
+                     *             "delivery_id": null,
+                     *             "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                     *           }
+                     *         },
+                     *         "size_bytes": 4608,
+                     *         "has_scripts": true,
+                     *         "review": "pending",
+                     *         "registered_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "registered_at": "2026-11-20T09:00:00.000Z",
+                     *         "reviewed_by": null,
+                     *         "reviewed_at": null,
+                     *         "archived_at": null
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["RegisterSkillResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "ALREADY_EXISTS";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `GITHUB_UNAVAILABLE`: GitHub did not give the App's installations or repositories. `error.details.reason_code` is `github_unavailable` (GitHub did not answer, answered 5xx, or rate-limited the App; try again later) or `github_app_auth_failed` (GitHub refused the App's JWT: the key was revoked or the App deleted; a retry does not help). */
+            502: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "GITHUB_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    checkSkill: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                /** @description The skill's name. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The check ran, or was queued behind one that runs. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "outcome": "checked",
+                     *       "last_check": {
+                     *         "at": "2026-11-21T09:00:00.000Z",
+                     *         "trigger": {
+                     *           "kind": "webhook",
+                     *           "delivery_id": "72d3162e-cc78-11e3-81ab-4c9367dc0958",
+                     *           "user_id": null
+                     *         },
+                     *         "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                     *         "result": "unchanged",
+                     *         "version_id": null,
+                     *         "issues": []
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CheckSkillResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    putSkillSync: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
+                "Idempotency-Key": string;
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                /** @description The skill's name. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "enabled": false
+                 *     }
+                 */
+                "application/json": components["schemas"]["PutSkillSyncRequest"];
+            };
+        };
+        responses: {
+            /** @description The skill's source as it is now. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "name": "release-notes",
+                     *       "git": {
+                     *         "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                     *         "installation_id": 4242,
+                     *         "repository_id": 123456789,
+                     *         "repository": "acme/skills",
+                     *         "path": "skills/release-notes",
+                     *         "ref": "main",
+                     *         "sync_enabled": false,
+                     *         "webhook": "no_public_url",
+                     *         "last_check": {
+                     *           "at": "2026-11-21T09:00:00.000Z",
+                     *           "trigger": {
+                     *             "kind": "webhook",
+                     *             "delivery_id": "72d3162e-cc78-11e3-81ab-4c9367dc0958",
+                     *             "user_id": null
+                     *           },
+                     *           "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                     *           "result": "unchanged",
+                     *           "version_id": null,
+                     *           "issues": []
+                     *         }
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SkillSyncResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
     getSkillVersionFiles: {
         parameters: {
             query?: never;
@@ -33598,6 +34538,7 @@ export interface operations {
                      *         "version": 2,
                      *         "digest": "9f2c4e6a8b0d1f3e5a7c9b2d4f6e8a0c1b3d5f7e9a2c4b6d8f0e1a3c5b7d9f2e",
                      *         "source": "upload",
+                     *         "git": null,
                      *         "size_bytes": 4608,
                      *         "has_scripts": true,
                      *         "review": "pending",
@@ -33728,6 +34669,7 @@ export interface operations {
                      *         "version": 2,
                      *         "digest": "9f2c4e6a8b0d1f3e5a7c9b2d4f6e8a0c1b3d5f7e9a2c4b6d8f0e1a3c5b7d9f2e",
                      *         "source": "upload",
+                     *         "git": null,
                      *         "size_bytes": 4608,
                      *         "has_scripts": true,
                      *         "review": "approved",
@@ -33882,6 +34824,7 @@ export interface operations {
                      *         "version": 2,
                      *         "digest": "9f2c4e6a8b0d1f3e5a7c9b2d4f6e8a0c1b3d5f7e9a2c4b6d8f0e1a3c5b7d9f2e",
                      *         "source": "upload",
+                     *         "git": null,
                      *         "size_bytes": 4608,
                      *         "has_scripts": true,
                      *         "review": "approved",
@@ -34292,6 +35235,7 @@ export interface operations {
                      *             "version": 2,
                      *             "digest": "9f2c4e6a8b0d1f3e5a7c9b2d4f6e8a0c1b3d5f7e9a2c4b6d8f0e1a3c5b7d9f2e",
                      *             "source": "upload",
+                     *             "git": null,
                      *             "size_bytes": 4608,
                      *             "has_scripts": true,
                      *             "review": "approved",
@@ -39656,6 +40600,94 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    receiveGitHubWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signed; checks run after the answer. */
+            202: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "accepted": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["GitHubWebhookResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: The submitted credentials were rejected. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. */
+            429: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "RATE_LIMITED";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
         };
     };
     listApiKeys: {

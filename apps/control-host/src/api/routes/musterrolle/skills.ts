@@ -2,7 +2,10 @@ import {
   agentIdParamsSchema,
   agentSkillListSchema,
   agentSkillParamsSchema,
+  checkSkillResponseSchema,
   putSkillAttachmentRequestSchema,
+  putSkillSyncRequestSchema,
+  registerGitHubSkillRequestSchema,
   registerSkillRequestSchema,
   registerSkillResponseSchema,
   reviewSkillVersionRequestSchema,
@@ -10,11 +13,12 @@ import {
   skillAttachmentResponseSchema,
   skillListSchema,
   skillNameParamsSchema,
+  skillSyncResponseSchema,
   skillVersionChangeResponseSchema,
   skillVersionFilesSchema,
   skillVersionParamsSchema,
 } from "@werft-ai/contracts";
-import type { SkillService } from "@werft-ai/platform";
+import type { SkillGitSync, SkillService } from "@werft-ai/platform";
 import {
   type ApiRouter,
   apiRoute,
@@ -23,7 +27,11 @@ import {
 } from "../../app.ts";
 import { mapped, requireParams } from "../errors.ts";
 
-export function registerSkillRoutes(router: ApiRouter, service: SkillService) {
+export function registerSkillRoutes(
+  router: ApiRouter,
+  service: SkillService,
+  sync?: SkillGitSync,
+) {
   apiRoute(router, "listSkills", async (context) => {
     const listed = await mapped(() => service.list(context.get("caller")));
     return jsonWithSchema(context, skillListSchema, listed);
@@ -45,6 +53,41 @@ export function registerSkillRoutes(router: ApiRouter, service: SkillService) {
       registered.outcome === "registered" ? 201 : 200,
     );
   });
+
+  if (sync !== undefined) {
+    apiRoute(router, "registerGitHubSkill", async (context) => {
+      const body = await parseJsonBody(
+        context,
+        registerGitHubSkillRequestSchema,
+      );
+      const registered = await mapped(() =>
+        sync.register(context.get("caller"), body),
+      );
+      return jsonWithSchema(
+        context,
+        registerSkillResponseSchema,
+        registered,
+        201,
+      );
+    });
+
+    apiRoute(router, "checkSkill", async (context) => {
+      const params = requireParams(context, skillNameParamsSchema);
+      const checked = await mapped(() =>
+        sync.checkNow(context.get("caller"), params.name),
+      );
+      return jsonWithSchema(context, checkSkillResponseSchema, checked);
+    });
+
+    apiRoute(router, "putSkillSync", async (context) => {
+      const params = requireParams(context, skillNameParamsSchema);
+      const body = await parseJsonBody(context, putSkillSyncRequestSchema);
+      const changed = await mapped(() =>
+        sync.setSync(context.get("caller"), params.name, body.enabled),
+      );
+      return jsonWithSchema(context, skillSyncResponseSchema, changed);
+    });
+  }
 
   apiRoute(router, "getSkillVersionFiles", async (context) => {
     const params = requireParams(context, skillVersionParamsSchema);

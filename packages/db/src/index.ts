@@ -16,6 +16,7 @@ export * from "./checkpoints/checkpoint-store.ts";
 export * from "./control-unit-of-work.ts";
 export { decodeEventCursor, encodeEventCursor } from "./cursors.ts";
 export * from "./extensions/extension-bundles.ts";
+export { createPostgresSkillGitSourceStore } from "./extensions/skill-git-sources.ts";
 export * from "./github/agent-github.ts";
 export * from "./github/catalog-repositories.ts";
 export * from "./github/github-app-manifest-states.ts";

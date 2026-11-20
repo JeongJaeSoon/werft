@@ -5,6 +5,7 @@ import type {
   RegisterSkillResponse,
   ReviewSkillVersionRequest,
   SkillAttachmentResponse,
+  SkillGitSource,
   SkillList,
   SkillVersion,
   SkillVersionChangeResponse,
@@ -81,6 +82,20 @@ export function skillVersionViewOf(bundle: ExtensionBundle): SkillVersion {
     version: bundle.version,
     digest: bundle.digest,
     source: bundle.source,
+    git:
+      bundle.git === null
+        ? null
+        : {
+            repository_id: bundle.git.repositoryId,
+            path: bundle.git.path,
+            ref: bundle.git.ref,
+            commit: bundle.git.commit,
+            trigger: {
+              kind: bundle.git.trigger.kind,
+              delivery_id: bundle.git.trigger.deliveryId,
+              user_id: bundle.git.trigger.userId,
+            },
+          },
     size_bytes: bundle.sizeBytes,
     has_scripts: bundle.manifest.skills.some((skill) => skill.has_scripts),
     review: bundle.review,
@@ -98,6 +113,8 @@ export type SkillServiceDeps = {
   objects: Pick<CheckpointObjectStore, "get" | "putImmutable">;
   limits?: BundleLimits;
   newId?: () => string;
+  /** GitHub skills' sources as the list shows them, by name. */
+  gitSources?: (workspaceId: string) => Promise<Map<string, SkillGitSource>>;
 };
 
 export function createSkillService(deps: SkillServiceDeps) {
@@ -246,9 +263,11 @@ export function createSkillService(deps: SkillServiceDeps) {
       await requirePermitted(authorization, caller, "workspace.read", {
         ...workspace(caller),
       });
-      const [rows, attachments] = await Promise.all([
+      const [rows, attachments, sources] = await Promise.all([
         store.list(caller.ownerId),
         store.listAttachments({ workspaceId: caller.ownerId }),
+        deps.gitSources?.(caller.ownerId) ??
+          Promise.resolve(new Map<string, SkillGitSource>()),
       ]);
       const byName = new Map<string, ExtensionBundle[]>();
       for (const row of rows) {
@@ -261,8 +280,14 @@ export function createSkillService(deps: SkillServiceDeps) {
             const attached = attachments.find(
               (row) => row.scope === "workspace" && row.bundle.name === name,
             );
+            const git = sources.get(name) ?? null;
             return {
               name,
+              source: git === null ? ("upload" as const) : ("github" as const),
+              git,
+              pending_count: versions.filter(
+                (row) => row.review === "pending" && row.archivedAt === null,
+              ).length,
               versions: versions.sort(byVersion).map(skillVersionViewOf),
               workspace_attachment:
                 attached === undefined
@@ -314,10 +339,20 @@ export function createSkillService(deps: SkillServiceDeps) {
             undefined,
             { reason_code: "name_taken" },
           );
+        case "source_mismatch":
+          throw new SessionServiceError(
+            "ALREADY_EXISTS",
+            `"${request.name}" is a skill from GitHub; its versions come from its repository`,
+            undefined,
+            { reason_code: "source_mismatch" },
+          );
         case "actor_inactive":
           throw ACTOR_INACTIVE();
         case "outranked":
           throw OUTRANKED();
+        case "paused":
+        case "lease_lost":
+          throw new Error(`an upload reached the ${result.outcome} path`);
         case "registered":
           return {
             outcome: "registered",

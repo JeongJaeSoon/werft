@@ -5,6 +5,7 @@ export {
   createAppBotUsers,
   createGitHubAppDirectory,
   createGitHubManifestConverter,
+  createGitHubSkillReader,
   createGitPusher,
   createRegisteredGitHubConnections,
 } from "@werft-ai/forge-github";

@@ -49,6 +49,7 @@ import {
   BOT_SCOPES,
   bootstrapRequestSchema,
   bootstrapResponseSchema,
+  checkSkillResponseSchema,
   closeSessionRequestSchema,
   commentPullRequestRequestSchema,
   commentPullRequestResponseSchema,
@@ -122,6 +123,7 @@ import {
   githubRepositoryParamsSchema,
   githubRepositoryWriteResponseSchema,
   githubSettingsResponseSchema,
+  githubWebhookResponseSchema,
   githubWorkflowRunSchema,
   healthResponseSchema,
   INSTALLATION_CONFIG,
@@ -239,6 +241,8 @@ import {
   putEnvVariableResponseSchema,
   putGitHubAppRequestSchema,
   putGitHubAppResponseSchema,
+  putGitHubAppWebhookSecretRequestSchema,
+  putGitHubAppWebhookSecretResponseSchema,
   putGitHubOAuthClientSecretRequestSchema,
   putGitHubOAuthClientSecretResponseSchema,
   putGitHubPackagesAllowlistRequestSchema,
@@ -251,6 +255,7 @@ import {
   putGitHubUserLinkAppRequestSchema,
   putGitHubUserLinkAppResponseSchema,
   putSkillAttachmentRequestSchema,
+  putSkillSyncRequestSchema,
   putSlackBindingRequestSchema,
   putSlackBindingResponseSchema,
   putSlackConfigTokenResponseSchema,
@@ -262,6 +267,7 @@ import {
   receiptAcceptedResponseSchema,
   receiptIdParamsSchema,
   recoveryDecisionRequestSchema,
+  registerGitHubSkillRequestSchema,
   registerSkillRequestSchema,
   registerSkillResponseSchema,
   rejudgeSessionResponseSchema,
@@ -311,6 +317,7 @@ import {
   skillAttachmentResponseSchema,
   skillListSchema,
   skillNameParamsSchema,
+  skillSyncResponseSchema,
   skillVersionChangeResponseSchema,
   skillVersionFilesSchema,
   skillVersionParamsSchema,
@@ -489,6 +496,8 @@ const requestComponents = {
   ReviewAchievementRequest: reviewAchievementRequestSchema,
   PutSlackSecretRequest: putSlackSecretRequestSchema,
   PutGitHubAppRequest: putGitHubAppRequestSchema,
+  PutGitHubAppWebhookSecretRequest: putGitHubAppWebhookSecretRequestSchema,
+  PutGitHubAppWebhookSecretResponse: putGitHubAppWebhookSecretResponseSchema,
   PostGitHubAppRequest: postGitHubAppRequestSchema,
   PutGitHubUserLinkAppRequest: putGitHubUserLinkAppRequestSchema,
   PutGitHubRepositoryAppPinRequest: putGitHubRepositoryAppPinRequestSchema,
@@ -738,6 +747,11 @@ const responseComponents = {
   SkillList: skillListSchema,
   RegisterSkillRequest: registerSkillRequestSchema,
   RegisterSkillResponse: registerSkillResponseSchema,
+  RegisterGitHubSkillRequest: registerGitHubSkillRequestSchema,
+  CheckSkillResponse: checkSkillResponseSchema,
+  PutSkillSyncRequest: putSkillSyncRequestSchema,
+  SkillSyncResponse: skillSyncResponseSchema,
+  GitHubWebhookResponse: githubWebhookResponseSchema,
   SkillVersionFiles: skillVersionFilesSchema,
   ReviewSkillVersionRequest: reviewSkillVersionRequestSchema,
   SkillVersionChangeResponse: skillVersionChangeResponseSchema,
@@ -846,6 +860,11 @@ export const OPENAPI_TAGS = [
       "The request URLs Slack calls for each agent's app, for events and for interactivity. Slack signs every request; people and API keys do not call them.",
   },
   {
+    name: "GitHub callbacks",
+    description:
+      "The webhook URL GitHub calls for the workspaces' GitHub Apps, so Git skills learn of a push. GitHub signs every delivery; people and API keys do not call it.",
+  },
+  {
     name: "Agents",
     description:
       "Write agent cards, release a version on a provider connection, activate a release and bind the credential names it runs with. Owners, admins, and each agent's own admins.",
@@ -901,6 +920,7 @@ const OPENAPI_TAG_GROUPS = [
       "Teams",
       "Linked accounts",
       "Workspace settings",
+      "GitHub callbacks",
       "Audit log",
       "Achievements",
       "Variables",
@@ -1115,6 +1135,7 @@ const EXAMPLE_SKILL_VERSION = {
   version: 2,
   digest: "9f2c4e6a8b0d1f3e5a7c9b2d4f6e8a0c1b3d5f7e9a2c4b6d8f0e1a3c5b7d9f2e",
   source: "upload",
+  git: null,
   size_bytes: 4608,
   has_scripts: true,
   review: "approved",
@@ -1123,6 +1144,36 @@ const EXAMPLE_SKILL_VERSION = {
   reviewed_by: "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21",
   reviewed_at: "2026-11-20T10:00:00.000Z",
   archived_at: null,
+};
+const EXAMPLE_SKILL_GIT_VERSION = {
+  repository_id: 123456789,
+  path: "skills/release-notes",
+  ref: "main",
+  commit: "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+  trigger: { kind: "register", delivery_id: null, user_id: EXAMPLE_USER_ID },
+};
+const EXAMPLE_SKILL_LAST_CHECK = {
+  at: "2026-11-21T09:00:00.000Z",
+  trigger: {
+    kind: "webhook",
+    delivery_id: "72d3162e-cc78-11e3-81ab-4c9367dc0958",
+    user_id: null,
+  },
+  commit: "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+  result: "unchanged",
+  version_id: null,
+  issues: [],
+};
+const EXAMPLE_SKILL_GIT_SOURCE = {
+  connection_id: "019a0000-0000-7000-8000-0000000000b1",
+  installation_id: 4242,
+  repository_id: 123456789,
+  repository: "acme/skills",
+  path: "skills/release-notes",
+  ref: "main",
+  sync_enabled: true,
+  webhook: "no_public_url",
+  last_check: EXAMPLE_SKILL_LAST_CHECK,
 };
 const EXAMPLE_SKILL_ATTACHMENT = {
   name: "release-notes",
@@ -2387,6 +2438,27 @@ export const API_ROUTE_DECLARATIONS = [
     errors: [400, 401, 403, 404, 502, 503],
     errorCodes: { 502: ["GITHUB_UNAVAILABLE"] },
     idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/github-apps/{role}/webhook-secret",
+    operationId: "putWorkspaceGitHubAppWebhookSecret",
+    tag: "Workspace settings",
+    summary:
+      "Store the push webhook secret of one of the workspace's GitHub Apps (owner or admin)",
+    description:
+      "For an App added with its key, or made before this server had a public address: the manager sets the App's webhook on GitHub to the URL the App's `webhook.url` shows, turns on the push event, and enters the same secret here. An App made from the console's manifest while `GITHUB_WEBHOOK_BASE_URL` is set already has both. `role` is a role or a connection id, as for PUT …/github-apps/{role}. The secret is sealed like the App's key and is in no response, receipt, log or error; a push delivery is read only when a stored secret of its App verifies `X-Hub-Signature-256`. Writes a `set_github_app` receipt with `purpose: webhook_secret`. API keys are refused.",
+    auth: "session",
+    body: "PutGitHubAppWebhookSecretRequest",
+    requestExample: { secret: "the-same-string-entered-on-github" },
+    success: {
+      status: 200,
+      schema: "PutGitHubAppWebhookSecretResponse",
+      description: "Stored.",
+      example: { secret_set: true, receipt_id: EXAMPLE_RECEIPT_ID },
+    },
+    errors: [400, 401, 403, 404, 409, 503],
+    errorCodes: { 409: ["GITHUB_APP_CONFLICT"] },
   },
   {
     method: "delete",
@@ -6103,7 +6175,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary: "List the workspace's skills and their versions",
     description:
-      "Every skill name with all its versions, oldest first, and the version and mode the workspace scope names. A bundle registered before skills shows with `version: null`. Every member of the workspace reads it.",
+      "Every skill name with all its versions, oldest first, and the version and mode the workspace scope names. A bundle registered before skills shows with `version: null`. `source` is the skill's one source (`upload` or `github`); a GitHub skill carries `git`: where it syncs from, whether sync is on, whether this installation can take its push webhook (`webhook`: `ready`, `no_public_url`, or `no_secret` when the App's webhook secret is not stored), and its last check. `pending_count` is how many of its versions wait for review. Every member of the workspace reads it.",
     auth: "session",
     success: {
       status: 200,
@@ -6113,6 +6185,9 @@ export const API_ROUTE_DECLARATIONS = [
         items: [
           {
             name: "release-notes",
+            source: "upload",
+            git: null,
+            pending_count: 0,
             versions: [EXAMPLE_SKILL_VERSION],
             workspace_attachment: {
               version_id: EXAMPLE_SKILL_VERSION_ID,
@@ -6162,6 +6237,84 @@ export const API_ROUTE_DECLARATIONS = [
     errors: [400, 401, 403, 409, 413, 503],
     errorCodes: { 409: ["ALREADY_EXISTS"] },
     idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/workspace/skills/github",
+    operationId: "registerGitHubSkill",
+    tag: "Workspace settings",
+    summary: "Register a skill from a GitHub repository",
+    description: `${SKILL_MANAGERS} Reads \`path\` of \`repository\` at \`ref\` (a branch, a tag or a commit SHA) with the workspace's author App: \`connection_id\` names the connection, and may be left out while the workspace has one. The ref is resolved to a commit through the GitHub API and the directory at that commit is checked as an upload is; the version records the repository id, path, ref and commit. The source is fixed per skill: a name that already has versions is 409 \`ALREADY_EXISTS\` \`source_mismatch\`, and an upload to a GitHub skill is refused the same way. Refused with 400 \`reason_code\` \`connection_required\`, \`connection_not_found\`, \`repository_not_installed\` (the App cannot read it), \`ref_not_found\`, \`path_not_found\` or \`skill_invalid\` (with \`details.issues\`); GitHub unreachable or refusing the App is 502 \`GITHUB_UNAVAILABLE\`. Afterwards a push webhook, a daily check and POST …/sync/check each make the next \`pending\` version when the content changed. Writes a \`register_extension\` receipt.`,
+    auth: "session",
+    body: "RegisterGitHubSkillRequest",
+    requestExample: {
+      name: "release-notes",
+      repository: "acme/skills",
+      path: "skills/release-notes",
+      ref: "main",
+    },
+    success: {
+      status: 201,
+      schema: "RegisterSkillResponse",
+      description: "The first version, pending review.",
+      example: {
+        outcome: "registered",
+        version: {
+          ...EXAMPLE_SKILL_VERSION,
+          source: "github",
+          git: EXAMPLE_SKILL_GIT_VERSION,
+          review: "pending",
+          reviewed_by: null,
+          reviewed_at: null,
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 409, 502, 503],
+    errorCodes: { 409: ["ALREADY_EXISTS"], 502: ["GITHUB_UNAVAILABLE"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/workspace/skills/{name}/sync/check",
+    operationId: "checkSkill",
+    tag: "Workspace settings",
+    summary: "Check a GitHub skill for a new version now",
+    description: `${SKILL_MANAGERS} Runs the same check a push webhook and the daily check run, and works while sync is paused: the ref is resolved to a commit again, the directory at that commit is checked, and a new \`pending\` version is made only when its digest is new. One check runs per skill at a time; while one runs this answers \`queued\` and that check runs once more when it ends. \`last_check\` records the time, the trigger, the commit and the result (\`created\`, \`unchanged\`, \`source_missing\` when the ref or path is gone, \`rejected\` with \`issues\`, \`github_unavailable\`). A skill that is not from GitHub is 404.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "CheckSkillResponse",
+      description: "The check ran, or was queued behind one that runs.",
+      example: {
+        outcome: "checked",
+        last_check: EXAMPLE_SKILL_LAST_CHECK,
+      },
+    },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/workspace/skills/{name}/sync",
+    operationId: "putSkillSync",
+    tag: "Workspace settings",
+    summary: "Pause or resume a GitHub skill's sync",
+    description: `${SKILL_MANAGERS} While paused, push webhooks and the daily check skip the skill; POST …/sync/check still runs. Resuming checks once right away. Each change writes an \`update_extension_sync\` receipt; the state it already has answers \`receipt_id: null\`. A skill that is not from GitHub is 404.`,
+    auth: "session",
+    body: "PutSkillSyncRequest",
+    requestExample: { enabled: false },
+    success: {
+      status: 200,
+      schema: "SkillSyncResponse",
+      description: "The skill's source as it is now.",
+      example: {
+        name: "release-notes",
+        git: { ...EXAMPLE_SKILL_GIT_SOURCE, sync_enabled: false },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 503],
   },
   {
     method: "get",
@@ -7331,6 +7484,24 @@ export const API_ROUTE_DECLARATIONS = [
       example: { ok: true },
     },
     errors: [400, 401, 413, 429, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/github/webhook",
+    operationId: "receiveGitHubWebhook",
+    tag: "GitHub callbacks",
+    summary: "GitHub's webhook URL for the workspaces' GitHub Apps",
+    description:
+      "Called by GitHub, not by people: an App's webhook points here (`<GITHUB_WEBHOOK_BASE_URL>/v1/github/webhook`), one URL for every App. `X-GitHub-Hook-Installation-Target-ID` names the App; the raw body, read up to 64 KiB (413 above that), must carry an `X-Hub-Signature-256` that one stored webhook secret of that App verifies, compared in constant time, before anything in it is read. A missing or wrong signature, or an App with no secret stored, answers 401 and starts nothing. A signed `push` is read only for `installation.id`, `repository.id` and `ref`, and starts a check of every Git skill whose sync is on with that installation, repository (by id) and ref, for the workspaces whose secret verified it; the check resolves the ref through the GitHub API again and never uses the commit or files the body names. It answers 202 before the checks run. Any other event answers 202 and is ignored. Deliveries are not deduplicated by `X-GitHub-Delivery`: the check gives the same result however often a push arrives. Rate limited per App and overall before any database read (429).",
+    auth: "public",
+    success: {
+      status: 202,
+      schema: "GitHubWebhookResponse",
+      description: "Signed; checks run after the answer.",
+      example: { accepted: true },
+    },
+    errors: [401, 413, 429],
     idempotent: false,
   },
   {
@@ -9327,7 +9498,10 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path === "/v1/api-keys/{id}") return apiKeyIdParamsSchema;
   if (path.startsWith("/v1/members/{user_id}")) return memberUserParamsSchema;
   if (path.startsWith("/v1/users/{user_id}")) return memberUserParamsSchema;
-  if (path === "/v1/workspaces/{id}/github-apps/{role}") {
+  if (
+    path === "/v1/workspaces/{id}/github-apps/{role}" ||
+    path === "/v1/workspaces/{id}/github-apps/{role}/webhook-secret"
+  ) {
     return githubAppRoleParamsSchema;
   }
   if (
