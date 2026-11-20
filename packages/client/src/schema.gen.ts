@@ -3070,7 +3070,7 @@ export interface paths {
         };
         /**
          * Read a skill version's files and its diff from the last approved one
-         * @description Every file of the stored tree with its text (null for a binary file), its hash, and how it differs from the previous approved version of the name: `added`, `changed` with a unified line diff, or `unchanged`; `removed` lists what that version had and this one drops. Owners and admins read it, with a console session or an API key; reviewing it takes a console session.
+         * @description Every file of the stored tree with its text (null for a binary file), its hash, and how it differs from the previous approved version of the name: `added`, `changed` with a unified line diff, or `unchanged`; `removed` lists what that version had and this one drops. Owners and admins read it from a signed-in console session, where they review it; an API key is refused with 403 `web_session_required`.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -3195,7 +3195,7 @@ export interface paths {
         post?: never;
         /**
          * Take a skill back from the agent
-         * @description The agent's managers signed in to the console. Writes a `detach_extension` receipt on the agent; when it names nothing for `name`, nothing is written and `receipt_id` is null.
+         * @description The agent's managers signed in to the console. Writes a `detach_extension` receipt on the agent; when it names nothing for `name`, nothing is written and `receipt_id` is null. An agent that does not exist or was deleted holds nothing, so an owner or admin gets the same answer.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -11185,7 +11185,7 @@ export interface components {
                  * @enum {string}
                  */
                 change: "added" | "changed" | "unchanged";
-                /** @description A unified line diff from the previous approved version for a changed text file, empty when only the execute bit changed; null otherwise, and when the change is too large to show. */
+                /** @description A unified line diff from the previous approved version for a text file whose content changed; null otherwise (an execute bit alone shows in `executable`), and when the change is too large to show. */
                 diff: string | null;
             }[];
             /** @description Files of the previous approved version this one drops. */

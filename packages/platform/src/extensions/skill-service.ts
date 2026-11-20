@@ -171,7 +171,6 @@ export function createSkillService(deps: SkillServiceDeps) {
     name: string,
     request: PutSkillAttachmentRequest,
   ): Promise<SkillAttachmentResponse> {
-    webUser(caller);
     const bundle = await versionOfName(caller, name, request.version_id);
     const result = await store.recordAttachment({
       receiptId: (deps.newId ?? crypto.randomUUID)(),
@@ -201,7 +200,6 @@ export function createSkillService(deps: SkillServiceDeps) {
     scope: { agentId: string } | null,
     name: string,
   ): Promise<SkillAttachmentResponse> {
-    webUser(caller);
     const attached = (
       await store.listAttachments({
         workspaceId: caller.ownerId,
@@ -274,10 +272,10 @@ export function createSkillService(deps: SkillServiceDeps) {
       caller: Caller,
       request: RegisterSkillRequest,
     ): Promise<RegisterSkillResponse> {
+      webUser(caller);
       await requirePermitted(authorization, caller, "workspace.manage", {
         ...workspace(caller),
       });
-      webUser(caller);
       const root = `skills/${request.name}/`;
       const files: BundleInputFile[] = request.files.map((file) => ({
         path: `${root}${file.path}`,
@@ -335,6 +333,7 @@ export function createSkillService(deps: SkillServiceDeps) {
      * of the name last approved before this one: what a reviewer approves.
      */
     async files(caller: Caller, id: string): Promise<SkillVersionFiles> {
+      webUser(caller);
       await requirePermitted(authorization, caller, "workspace.manage", {
         ...workspace(caller),
       });
@@ -380,7 +379,10 @@ export function createSkillService(deps: SkillServiceDeps) {
             text,
             change,
             diff:
-              change === "changed" && text !== null && earlierText !== null
+              change === "changed" &&
+              earlier?.sha256 !== file.sha256 &&
+              text !== null &&
+              earlierText !== null
                 ? unifiedLineDiff(earlierText, text)
                 : null,
           };
@@ -400,10 +402,10 @@ export function createSkillService(deps: SkillServiceDeps) {
       id: string,
       request: ReviewSkillVersionRequest,
     ): Promise<SkillVersionChangeResponse> {
+      webUser(caller);
       await requirePermitted(authorization, caller, "workspace.manage", {
         ...workspace(caller),
       });
-      webUser(caller);
       const result = await bundles.review({
         principal: caller,
         bundleId: id,
@@ -440,10 +442,10 @@ export function createSkillService(deps: SkillServiceDeps) {
       caller: Caller,
       id: string,
     ): Promise<SkillVersionChangeResponse> {
+      webUser(caller);
       await requirePermitted(authorization, caller, "workspace.manage", {
         ...workspace(caller),
       });
-      webUser(caller);
       const result = await store.archive({
         receiptId: (deps.newId ?? crypto.randomUUID)(),
         workspaceId: caller.ownerId,
@@ -488,6 +490,7 @@ export function createSkillService(deps: SkillServiceDeps) {
       name: string,
       request: PutSkillAttachmentRequest,
     ): Promise<SkillAttachmentResponse> {
+      webUser(caller);
       await requirePermitted(authorization, caller, "workspace.manage", {
         ...workspace(caller),
       });
@@ -498,6 +501,7 @@ export function createSkillService(deps: SkillServiceDeps) {
       caller: Caller,
       name: string,
     ): Promise<SkillAttachmentResponse> {
+      webUser(caller);
       await requirePermitted(authorization, caller, "workspace.manage", {
         ...workspace(caller),
       });
@@ -529,6 +533,7 @@ export function createSkillService(deps: SkillServiceDeps) {
       name: string,
       request: PutSkillAttachmentRequest,
     ): Promise<SkillAttachmentResponse> {
+      webUser(caller);
       await requirePermitted(authorization, caller, "agent.manage", {
         kind: "agent",
         id: agentId,
@@ -541,6 +546,7 @@ export function createSkillService(deps: SkillServiceDeps) {
       agentId: string,
       name: string,
     ): Promise<SkillAttachmentResponse> {
+      webUser(caller);
       await requirePermitted(authorization, caller, "agent.manage", {
         kind: "agent",
         id: agentId,

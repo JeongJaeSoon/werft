@@ -131,30 +131,41 @@ const refusal = async (promise: Promise<unknown>) => {
 };
 
 describe("the skill service", () => {
-  test("no write goes through with an API key, and a member cannot register", async () => {
+  test("no write or file read goes through with an API key, and a member cannot register", async () => {
     const { service, rows, calls } = setup();
-    const api = caller("api");
-    expect(await refusal(service.register(api, upload("research")))).toBe(
-      "FORBIDDEN:web_session_required",
+    const key = callerFor(
+      {
+        kind: "api_key",
+        id: crypto.randomUUID(),
+        owner_id: WORKSPACE,
+        workspace_id: WORKSPACE,
+        scopes: ["sessions:read", "sessions:write"],
+      },
+      { kind: "api" },
+      crypto.randomUUID(),
     );
-    expect(rows).toHaveLength(0);
     const id = "00000000-0000-4000-8000-000000000001";
-    for (const write of [
-      service.review(api, id, { decision: "approved" }),
-      service.archive(api, id),
-      service.putWorkspaceAttachment(api, "research", {
-        version_id: id,
-        mode: "required",
-      }),
-      service.deleteWorkspaceAttachment(api, "research"),
-      service.putAgentAttachment(api, AGENT, "research", {
-        version_id: id,
-        mode: "optional",
-      }),
-      service.deleteAgentAttachment(api, AGENT, "research"),
-    ]) {
-      expect(await refusal(write)).toBe("FORBIDDEN:web_session_required");
+    for (const api of [caller("api"), key]) {
+      for (const write of [
+        service.register(api, upload("research")),
+        service.files(api, id),
+        service.review(api, id, { decision: "approved" }),
+        service.archive(api, id),
+        service.putWorkspaceAttachment(api, "research", {
+          version_id: id,
+          mode: "required",
+        }),
+        service.deleteWorkspaceAttachment(api, "research"),
+        service.putAgentAttachment(api, AGENT, "research", {
+          version_id: id,
+          mode: "optional",
+        }),
+        service.deleteAgentAttachment(api, AGENT, "research"),
+      ]) {
+        expect(await refusal(write)).toBe("FORBIDDEN:web_session_required");
+      }
     }
+    expect(rows).toHaveLength(0);
     expect(calls).toHaveLength(0);
     expect(
       await refusal(service.register(caller("web", "member"), upload("x"))),
@@ -251,6 +262,22 @@ describe("the skill service", () => {
     expect(
       await refusal(service.files(caller("web", "member"), second.version.id)),
     ).toStartWith("FORBIDDEN");
+
+    const modeOnly = await service.register(web, {
+      name: "research",
+      files: [
+        {
+          path: "SKILL.md",
+          content_base64: b64(skillMd("research", "one\ntwo\n")),
+        },
+        { path: "scripts/run.sh", content_base64: b64("echo hi\n") },
+      ],
+    });
+    const third = await service.files(web, modeOnly.version.id);
+    expect(third.previous_approved?.id).toBe(first.version.id);
+    expect(
+      third.files.find((f) => f.path.endsWith("run.sh")),
+    ).toMatchObject({ change: "changed", executable: false, diff: null });
   });
 
   test("store refusals map to their errors", async () => {

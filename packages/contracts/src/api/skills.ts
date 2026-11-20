@@ -196,7 +196,7 @@ export const skillFileSchema = z
     }),
     diff: z.string().nullable().meta({
       description:
-        "A unified line diff from the previous approved version for a changed text file, empty when only the execute bit changed; null otherwise, and when the change is too large to show.",
+        "A unified line diff from the previous approved version for a text file whose content changed; null otherwise (an execute bit alone shows in `executable`), and when the change is too large to show.",
     }),
   })
   .strict();

@@ -1052,12 +1052,13 @@ integration("extension bundles on PostgreSQL", () => {
       expect(done).toMatchObject({ outcome: "archived" });
       expect(await archive(running.id)).toMatchObject({ outcome: "unchanged" });
       const receipts = await receiptsOf(workspaceId, "archive_extension");
-      expect(receipts).toHaveLength(1);
-      expect(receipts[0]?.result).toEqual({
-        name: "research",
-        digest: running.digest,
-        version: 2,
-      });
+      expect(receipts).toHaveLength(2);
+      expect(receipts.map((row) => row.result)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "lint", digest: gone.digest }),
+          { name: "research", digest: running.digest, version: 2 },
+        ]),
+      );
       expect((await service.read(workspaceId, running.digest))?.digest).toBe(
         running.digest,
       );

@@ -6171,7 +6171,7 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "Read a skill version's files and its diff from the last approved one",
     description:
-      "Every file of the stored tree with its text (null for a binary file), its hash, and how it differs from the previous approved version of the name: `added`, `changed` with a unified line diff, or `unchanged`; `removed` lists what that version had and this one drops. Owners and admins read it, with a console session or an API key; reviewing it takes a console session.",
+      "Every file of the stored tree with its text (null for a binary file), its hash, and how it differs from the previous approved version of the name: `added`, `changed` with a unified line diff, or `unchanged`; `removed` lists what that version had and this one drops. Owners and admins read it from a signed-in console session, where they review it; an API key is refused with 403 `web_session_required`.",
     auth: "session",
     success: {
       status: 200,
@@ -6339,7 +6339,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "deleteAgentSkillAttachment",
     tag: "Agents",
     summary: "Take a skill back from the agent",
-    description: `The agent's managers signed in to the console. Writes a \`detach_extension\` receipt on the agent; when it names nothing for \`name\`, nothing is written and \`receipt_id\` is null.`,
+    description: `The agent's managers signed in to the console. Writes a \`detach_extension\` receipt on the agent; when it names nothing for \`name\`, nothing is written and \`receipt_id\` is null. An agent that does not exist or was deleted holds nothing, so an owner or admin gets the same answer.`,
     auth: "session",
     success: {
       status: 200,

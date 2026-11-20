@@ -677,10 +677,10 @@ function canonicalSkillFile(
     if (value instanceof Map) {
       head.push(`${key}:`);
       for (const [entry, text] of value) {
-        head.push(`  ${entry}: ${JSON.stringify(text)}`);
+        head.push(`  ${entry}: ${quoted(text)}`);
       }
     } else if (value !== undefined) {
-      head.push(`${key}: ${JSON.stringify(value)}`);
+      head.push(`${key}: ${quoted(value)}`);
     }
   }
   head.push("---");
@@ -731,6 +731,19 @@ function metadataBlock(
     problem = '"metadata" needs at least one indented key: value line.';
   }
   return { entries, next: at, problem };
+}
+
+// JSON.stringify leaves U+2028 and U+2029 raw, and the line parser does not
+// read them as part of a value.
+const LINE_SEPARATORS = new RegExp(
+  `[${String.fromCharCode(0x2028, 0x2029)}]`,
+  "g",
+);
+function quoted(value: string | boolean): string {
+  return JSON.stringify(value).replace(
+    LINE_SEPARATORS,
+    (char) => `\\u${char.charCodeAt(0).toString(16)}`,
+  );
 }
 
 // The value is measured, not the line: the stored tree re-quotes every string,

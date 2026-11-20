@@ -646,9 +646,10 @@ describe("Agent Skills specification fields", () => {
 
   test("a value is measured by its own length, in the upload and in its stored tree alike", () => {
     const quotes = `'${'"'.repeat(1024)}'`;
-    const { result } = emitted(
-      `license: ${quotes}\nmetadata:\n  a: ${quotes}\n  b: ${"m".repeat(1024)}\n`,
+    const { text, result } = emitted(
+      `license: ${quotes}\ncompatibility: "a\\u2028b\\u2029c"\nmetadata:\n  a: ${quotes}\n  b: ${"m".repeat(1024)}\n`,
     );
+    expect(text).toContain('compatibility: "a\\u2028b\\u2029c"');
     const stored = validateExtensionBundle({
       slug: "acme",
       files: result.bundle.files.map((f) => ({
