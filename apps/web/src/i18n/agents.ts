@@ -387,6 +387,20 @@ export const agentsKo = {
   "managingTeam.notAllowed": "내가 속한 팀만 담당 팀으로 정할 수 있습니다.",
   "managingTeam.noChoices": "담당 팀으로 고를 수 있는 다른 팀이 없습니다.",
   "agents.column.team": "담당 팀",
+  "agent.ownerless.badge": "관리자 없음",
+  "agent.ownerless.title": "이 에이전트를 관리할 사람이 없습니다",
+  "agent.ownerless.blockOn":
+    "{at}부터 새 실행이 막힙니다. 관리자를 지정하면 그대로 실행됩니다.",
+  "agent.ownerless.datePending":
+    "새 실행이 막히는 날짜는 곧 정해집니다. 관리자를 지정하면 그대로 실행됩니다.",
+  "agent.ownerless.toAdmins": "관리자 지정하기",
+  "agent.ownerless.takeoverHint":
+    "요청자가 비활성화된 기존 세션은 따로 인계해야 할 수 있습니다.",
+  "agents.ownerless.alert": "관리자가 없는 에이전트 {count}개",
+  "agents.ownerless.alertText":
+    "관리자를 지정하지 않으면 표시된 날부터 {days}일 뒤에 새 실행이 막힙니다.",
+  "agents.ownerless.show": "모아 보기",
+  "agents.tabs.ownerless": "관리자 없음",
   "agent.readOnly":
     "담당 팀 구성원은 이 에이전트의 설정을 볼 수만 있습니다. 바꾸는 것은 팀 관리자와 에이전트 관리자입니다.",
   "agents.flow.team": "담당 팀",
@@ -812,6 +826,20 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "managingTeam.notAllowed": "You can only pick a team you are in.",
   "managingTeam.noChoices": "There is no other team you can pick.",
   "agents.column.team": "Responsible team",
+  "agent.ownerless.badge": "No admin",
+  "agent.ownerless.title": "No one administers this agent",
+  "agent.ownerless.blockOn":
+    "New runs will be blocked from {at}. Name an admin and it keeps running.",
+  "agent.ownerless.datePending":
+    "The date new runs will be blocked is set shortly. Name an admin and it keeps running.",
+  "agent.ownerless.toAdmins": "Name an admin",
+  "agent.ownerless.takeoverHint":
+    "Existing sessions whose requester was disabled may need to be taken over separately.",
+  "agents.ownerless.alert": "{count} agents have no admin",
+  "agents.ownerless.alertText":
+    "Unless someone is named an admin, new runs are blocked {days} days after an agent is marked.",
+  "agents.ownerless.show": "Show them",
+  "agents.tabs.ownerless": "No admin",
   "agent.readOnly":
     "As a member of the responsible team you can see this agent's settings but not change them. Team leads and the agent's admins change them.",
   "agents.flow.team": "Responsible team",
@@ -1241,6 +1269,20 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "managingTeam.notAllowed": "自分が所属するチームだけを担当チームにできます。",
   "managingTeam.noChoices": "担当チームに選べるほかのチームがありません。",
   "agents.column.team": "担当チーム",
+  "agent.ownerless.badge": "管理者なし",
+  "agent.ownerless.title": "このエージェントを管理する人がいません",
+  "agent.ownerless.blockOn":
+    "{at}から新しい実行が止まります。管理者を指定すると、そのまま実行できます。",
+  "agent.ownerless.datePending":
+    "新しい実行が止まる日はまもなく決まります。管理者を指定すると、そのまま実行できます。",
+  "agent.ownerless.toAdmins": "管理者を指定",
+  "agent.ownerless.takeoverHint":
+    "依頼者が無効化された既存のセッションは、別途引き継ぎが必要な場合があります。",
+  "agents.ownerless.alert": "管理者がいないエージェント {count}件",
+  "agents.ownerless.alertText":
+    "管理者を指定しないと、表示された日から{days}日後に新しい実行が止まります。",
+  "agents.ownerless.show": "まとめて見る",
+  "agents.tabs.ownerless": "管理者なし",
   "agent.readOnly":
     "担当チームのメンバーはこのエージェントの設定を見るだけです。変更するのはチーム管理者とエージェント管理者です。",
   "agents.flow.team": "担当チーム",

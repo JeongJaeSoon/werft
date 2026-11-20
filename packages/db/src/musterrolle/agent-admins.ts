@@ -6,8 +6,8 @@ import type {
   SetManagingTeamResult,
   TeamActor,
 } from "@werft-ai/platform";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
-import { agentOf, managingTeamName } from "../agents.ts";
+import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { agentOf, managingTeamName, ownerlessNow } from "../agents.ts";
 import { lockPeople, UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
@@ -21,7 +21,7 @@ import {
 } from "../schema.ts";
 import { notDeleted } from "../soft-delete.ts";
 import { writeSucceededReceipt } from "../succeeded-receipt.ts";
-import { administers, liveMember } from "./administers.ts";
+import { administers, hasOwner, liveMember } from "./administers.ts";
 
 /**
  * `administers`, inside a write: the rows that make it true are share-locked
@@ -244,6 +244,7 @@ async function setManagingTeam(
       .update(agents)
       .set({ managingTeamId: teamId, updatedAt: DB_NOW })
       .where(eq(agents.id, agentId));
+    await clearOwnerless(tx, workspaceId, agentId);
     await writeSucceededReceipt(tx, actor.principal, {
       id: input.receiptId,
       operation: "set_agent_managing_team",
@@ -257,11 +258,36 @@ async function setManagingTeam(
 
 async function agentRow(tx: Database, agentId: string) {
   const [row] = await tx
-    .select({ agent: agents, teamName: managingTeamName })
+    .select({
+      agent: agents,
+      teamName: managingTeamName,
+      ownerless: ownerlessNow(tx),
+    })
     .from(agents)
     .where(eq(agents.id, agentId));
   if (!row) throw new Error(`agent ${agentId} vanished under its lock`);
-  return agentOf(row.agent, row.teamName);
+  return agentOf(row.agent, row.teamName, row.ownerless);
+}
+
+/**
+ * Ends an ownerless period at a succession, in its transaction: a removal
+ * right after it starts a fresh period, not the one a pass saw before.
+ */
+async function clearOwnerless(
+  tx: Database,
+  workspaceId: string,
+  agentId: string,
+): Promise<void> {
+  await tx
+    .update(agents)
+    .set({ ownerlessSince: null })
+    .where(
+      and(
+        eq(agents.id, agentId),
+        isNotNull(agents.ownerlessSince),
+        hasOwner(tx, workspaceId, agentId),
+      ),
+    );
 }
 
 async function listAdmins(
@@ -438,6 +464,7 @@ async function change(
       changed = deleted.length > 0;
     }
 
+    if (changed && add) await clearOwnerless(tx, workspaceId, agentId);
     if (changed) {
       await writeSucceededReceipt(tx, actor.principal, {
         id: input.receiptId,
@@ -472,7 +499,11 @@ export function createPostgresAgentAdminStore(db: Database): AgentAdminStore {
     async listAdministered(workspaceId, userId, limit) {
       if (!UUID.test(workspaceId) || !UUID.test(userId)) return [];
       const rows = await db
-        .select({ agent: agents, teamName: managingTeamName })
+        .select({
+          agent: agents,
+          teamName: managingTeamName,
+          ownerless: ownerlessNow(db),
+        })
         .from(agents)
         .where(
           and(
@@ -484,7 +515,7 @@ export function createPostgresAgentAdminStore(db: Database): AgentAdminStore {
         )
         .orderBy(asc(agents.createdAt), asc(agents.id))
         .limit(limit);
-      return rows.map((row) => agentOf(row.agent, row.teamName));
+      return rows.map((row) => agentOf(row.agent, row.teamName, row.ownerless));
     },
   };
 }

@@ -69,6 +69,8 @@ const detail: AgentRecord = {
     active_release_id: null,
     activation_revision: -1,
     auto_model_migration: true,
+    ownerless: false,
+    ownerless_since: null,
     created_by: OWNER_USER,
     created_at: AT,
     updated_at: AT,
@@ -141,6 +143,7 @@ function store(overrides: Partial<AgentStore> = {}): AgentStore {
       administered: 0,
       active: 1,
       draft: 0,
+      ownerless: 0,
     }),
     summaries: async () => new Map(),
     get: async () => detail,
@@ -492,6 +495,7 @@ describe("GET /v1/agents/counts", () => {
             administered: 3,
             active: 410,
             draft: 80,
+            ownerless: 2,
           };
         },
       }),
@@ -504,6 +508,7 @@ describe("GET /v1/agents/counts", () => {
         administered: 3,
         active: 410,
         draft: 80,
+        ownerless: 2,
       },
     });
     expect(asked[0]).toBe("owner-a");

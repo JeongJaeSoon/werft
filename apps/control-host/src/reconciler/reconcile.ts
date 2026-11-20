@@ -1,6 +1,7 @@
 import { integerSetting } from "@werft-ai/contracts/settings";
 import type {
   AnnouncedInputReturn,
+  OwnershipReconciled,
   ReconciledInterrupt,
   ReconciledLease,
   ReconciledOrphan,
@@ -32,6 +33,7 @@ export type ReconcilerRun = {
   webSessionsDeleted: number;
   // Sessions whose copied variable values this pass dropped.
   envStartsPurged: number;
+  ownership: OwnershipReconciled;
   // null on a dry run, which projects nothing.
   toolCalls: ToolCallProjection | null;
 };
@@ -124,6 +126,12 @@ export async function runReconciler(input: {
     dryRun: boolean;
     limit: number;
   }): Promise<number>;
+  // Agents no one live administers get their ownerless mark; agents that
+  // have someone again lose it.
+  reconcileOwnership(options: {
+    dryRun: boolean;
+    limit: number;
+  }): Promise<OwnershipReconciled>;
   // Tool calls for the usage API, from the events since the last pass. Last,
   // because it spends what is left of its own time budget catching up.
   projectToolCalls(): Promise<ToolCallProjection>;
@@ -218,6 +226,13 @@ export async function runReconciler(input: {
     dry_run: dryRun,
     purged_count: envStartsPurged,
   });
+  const ownership = await input.reconcileOwnership({ dryRun, limit });
+  input.logger.info("Agent ownership reconciled", {
+    dry_run: dryRun,
+    flagged_count: ownership.flagged.length,
+    cleared_count: ownership.cleared.length,
+    flagged_agent_ids: ownership.flagged,
+  });
   const toolCalls = dryRun ? null : await input.projectToolCalls();
   input.logger.info("Tool calls projected", {
     dry_run: dryRun,
@@ -253,6 +268,7 @@ export async function runReconciler(input: {
     toolAuditsExpired,
     webSessionsDeleted,
     envStartsPurged,
+    ownership,
     toolCalls,
   };
 }

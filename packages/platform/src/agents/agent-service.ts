@@ -434,7 +434,8 @@ export function createAgentService(deps: {
       (query.ids === undefined ||
         query.ids.some((id) => id.toLowerCase() === own.id.toLowerCase())) &&
       (query.connection_id === undefined ||
-        detail.active_release?.connection_id === query.connection_id);
+        detail.active_release?.connection_id === query.connection_id) &&
+      (query.ownerless === undefined || own.ownerless);
     return { items: kept ? [own] : [], next_cursor: null };
   }
 

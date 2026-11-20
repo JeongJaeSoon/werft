@@ -147,6 +147,7 @@ function agentCountsFrom(
         status: string;
         active_release_id: string | null;
         managing_team_id?: string | null;
+        ownerless?: boolean;
       }[];
     };
     const mine = administered
@@ -164,6 +165,7 @@ function agentCountsFrom(
         draft: items.filter(
           (a) => a.status !== "archived" && a.active_release_id === null,
         ).length,
+        ownerless: items.filter((a) => a.ownerless === true).length,
       },
     });
   };

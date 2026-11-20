@@ -358,6 +358,8 @@ describe("PUT /v1/agents/{id}/managing-team", () => {
       active_release_id: null,
       activation_revision: -1,
       auto_model_migration: true,
+      ownerless: false,
+      ownerless_since: null,
       created_by: USER,
       created_at: "2026-10-11T00:00:00.000Z",
       updated_at: "2026-10-11T00:00:00.000Z",

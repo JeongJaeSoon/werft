@@ -97,6 +97,18 @@ curl -sS "$API/v1/agents/$AID/admins" "${WEB[@]}" | jq '{users: [.users[].email]
 | `GET /v1/administered-agents` | Agents I administer |
 | `DELETE /v1/agents/{id}` | Delete the agent (console: **Settings** → **Danger zone**). It takes no new sessions, and its Slack connection and agent keys are cut in the same request. Past sessions stay readable; afterwards every request for the agent is `404`, and a new agent can take its slug. An API key cannot do it (`403`) |
 
+### Agents with no administrator
+
+An agent has no administrator when no live person administers it: no enabled individual administrator, no enabled member of an administrator team, and no enabled lead of its responsible team. Workspace owners and admins do not count; they are the ones who name a new administrator. An archived agent never counts as having none.
+
+- The agent row's `ownerless` is the judgement now (`true` or `false`). `ownerless_since` is when the platform first saw the agent with no administrator, and turns `null` once someone administers it again. The platform brings it up to date every few seconds.
+- `GET /v1/agents?ownerless=true` returns only such agents, and `ownerless` in `GET /v1/agents/counts` is how many there are. Both are read with the same permission as the list.
+- The console shows workspace owners and admins an alert and a **No admin** filter above the agent list, and marks such rows **No admin**. The agent page shows a warning with a button to the Admins tab.
+- An administrator is named again through the changes that already exist: add a person or a team as administrator, move the responsible team to a team with a lead, or make a member of the responsible team its lead. The first three clear the mark in the same request; a team role change clears it a few seconds later.
+- Existing sessions whose requester was disabled stay waiting for a takeover after a new administrator is named. Take them over separately.
+
+For now the platform only marks and warns. Blocking new runs of an agent that still has no administrator 14 days after `ownerless_since` is turned on in a later release; the date in the console warning is that point.
+
 ## Credential bindings
 
 The card lists only the names of the credentials to use, in `capabilities.credential_refs`. The values live outside Werft (a secret store, a remote MCP server connection). The binding that says this agent may use that name is created separately by an administrator. If any name listed on the card is not bound, activation returns 409 `CREDENTIAL_UNBOUND`.
