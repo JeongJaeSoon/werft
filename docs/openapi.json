@@ -31117,7 +31117,8 @@
               "type": "object",
               "properties": {
                 "path": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "The path in the stored tree (`skills/<name>/…`), which also holds the manifest the platform adds."
                 },
                 "executable": {
                   "type": "boolean"
@@ -31148,7 +31149,7 @@
                   "description": "Against the previous approved version; every file is `added` when there is none."
                 },
                 "diff": {
-                  "description": "A unified line diff from the previous approved version for a changed text file; null otherwise, and when the change is too large to show.",
+                  "description": "A unified line diff from the previous approved version for a changed text file, empty when only the execute bit changed; null otherwise, and when the change is too large to show.",
                   "type": [
                     "string",
                     "null"

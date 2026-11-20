@@ -159,6 +159,14 @@ describe("workspace skills", () => {
     expect(created.status).toBe(201);
     expect(seen).toBe(big);
     registerSkillResponseSchema.parse(await created.json());
+    seen = 0;
+    const slashed = await signedIn("owner", { register }).request(`${base}/`, {
+      method: "POST",
+      headers: cookieHeaders,
+      body: upload(big),
+    });
+    expect(slashed.status).toBe(201);
+    expect(seen).toBe(big);
 
     seen = 0;
     for (const refused of [

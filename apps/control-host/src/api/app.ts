@@ -611,7 +611,9 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
           authenticated.webSession !== undefined &&
           principal.kind === "user" &&
           EXTENSION_MANAGER_ROLES.includes(principal.role)
-          ? LARGE_BODY_LIMITS.get(`${context.req.method} ${context.req.path}`)
+          ? LARGE_BODY_LIMITS.get(
+              `${context.req.method} ${context.req.path.replace(/\/$/, "")}`,
+            )
           : undefined,
       );
       if (rejected) {

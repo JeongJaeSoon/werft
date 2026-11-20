@@ -180,7 +180,10 @@ export type AgentSkillList = z.infer<typeof agentSkillListSchema>;
 
 export const skillFileSchema = z
   .object({
-    path: z.string(),
+    path: z.string().meta({
+      description:
+        "The path in the stored tree (`skills/<name>/…`), which also holds the manifest the platform adds.",
+    }),
     executable: z.boolean(),
     size_bytes: z.number().int().nonnegative(),
     sha256: sha256HexSchema,
@@ -193,7 +196,7 @@ export const skillFileSchema = z
     }),
     diff: z.string().nullable().meta({
       description:
-        "A unified line diff from the previous approved version for a changed text file; null otherwise, and when the change is too large to show.",
+        "A unified line diff from the previous approved version for a changed text file, empty when only the execute bit changed; null otherwise, and when the change is too large to show.",
     }),
   })
   .strict();

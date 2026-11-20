@@ -11173,6 +11173,7 @@ export interface components {
             } | null;
             /** @description Every file of the stored tree, by path. */
             files: {
+                /** @description The path in the stored tree (`skills/<name>/…`), which also holds the manifest the platform adds. */
                 path: string;
                 executable: boolean;
                 size_bytes: number;
@@ -11184,7 +11185,7 @@ export interface components {
                  * @enum {string}
                  */
                 change: "added" | "changed" | "unchanged";
-                /** @description A unified line diff from the previous approved version for a changed text file; null otherwise, and when the change is too large to show. */
+                /** @description A unified line diff from the previous approved version for a changed text file, empty when only the execute bit changed; null otherwise, and when the change is too large to show. */
                 diff: string | null;
             }[];
             /** @description Files of the previous approved version this one drops. */

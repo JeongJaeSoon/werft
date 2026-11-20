@@ -644,16 +644,31 @@ describe("Agent Skills specification fields", () => {
     expect(rejected(one(extra)).some((i) => i.path === path)).toBe(true);
   });
 
-  test("a value that grows past the limit once quoted is refused as too long", () => {
-    const quotes = `'${'"'.repeat(600)}'`;
-    expect(rejected(one(`metadata:\n  a: ${quotes}\n`))).toContainEqual(
+  test("a value is measured by its own length, in the upload and in its stored tree alike", () => {
+    const quotes = `'${'"'.repeat(1024)}'`;
+    const { result } = emitted(
+      `license: ${quotes}\nmetadata:\n  a: ${quotes}\n  b: ${"m".repeat(1024)}\n`,
+    );
+    const stored = validateExtensionBundle({
+      slug: "acme",
+      files: result.bundle.files.map((f) => ({
+        path: f.path,
+        kind: "file" as const,
+        mode: f.mode,
+        bytes: f.bytes,
+      })),
+    });
+    if (!stored.ok) throw new Error(JSON.stringify(stored.issues));
+    expect(stored.bundle.digest).toBe(result.bundle.digest);
+
+    expect(rejected(one(`metadata:\n  a: '${'"'.repeat(1025)}'\n`))).toContainEqual(
       expect.objectContaining({
         path,
         code: "bad_frontmatter",
         message: 'metadata: "a" is too long.',
       }),
     );
-    expect(rejected(one(`license: ${quotes}\n`))).toContainEqual(
+    expect(rejected(one(`license: ${"l".repeat(1025)}\n`))).toContainEqual(
       expect.objectContaining({ path, message: '"license" is too long.' }),
     );
   });
