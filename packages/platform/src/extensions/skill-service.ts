@@ -3,6 +3,7 @@ import type {
   PutSkillAttachmentRequest,
   RegisterSkillRequest,
   RegisterSkillResponse,
+  RevertSkillResponse,
   ReviewSkillVersionRequest,
   SkillAttachmentResponse,
   SkillGitSource,
@@ -104,6 +105,7 @@ export function skillVersionViewOf(bundle: ExtensionBundle): SkillVersion {
     reviewed_by: bundle.reviewedBy,
     reviewed_at: bundle.reviewedAt?.toISOString() ?? null,
     archived_at: bundle.archivedAt?.toISOString() ?? null,
+    current: bundle.current,
   };
 }
 
@@ -189,11 +191,20 @@ export function createSkillService(deps: SkillServiceDeps) {
     name: string,
     request: PutSkillAttachmentRequest,
   ): Promise<SkillAttachmentResponse> {
-    const bundle = await versionOfName(caller, name, request.version_id);
+    const follow = "follow" in request;
+    const versions = (await store.list(caller.ownerId)).filter(
+      (row) => row.name === name,
+    );
+    // A following row names the skill; the store takes any of its versions.
+    const bundle = follow
+      ? versions[0]
+      : await versionOfName(caller, name, request.version_id);
+    if (bundle === undefined) throw NOT_FOUND();
     const result = await store.recordAttachment({
       receiptId: newId(),
       workspaceId: caller.ownerId,
       bundleId: bundle.id,
+      follow,
       ...(scope === null
         ? { scope: "workspace" as const }
         : { scope: "agent" as const, agentId: scope.agentId }),
@@ -204,11 +215,21 @@ export function createSkillService(deps: SkillServiceDeps) {
         scope === null ? EXTENSION_MANAGER_ROLES : agentManagerRoles,
     });
     if (result.outcome !== "recorded") attachmentRefusal(result);
+    // Read again: an approval since the read above may have moved it.
+    const current = follow
+      ? (await store.list(caller.ownerId)).find(
+          (row) => row.name === name && row.current,
+        )
+      : undefined;
     return {
       name,
       scope: scope === null ? "workspace" : "agent",
       agent_id: scope?.agentId ?? null,
-      attachment: { version_id: bundle.id, mode: request.mode },
+      attachment: {
+        version_id: follow ? (current?.id ?? null) : bundle.id,
+        follows: follow,
+        mode: request.mode,
+      },
       receipt_id: result.receiptId,
     };
   }
@@ -225,7 +246,7 @@ export function createSkillService(deps: SkillServiceDeps) {
       })
     ).find(
       (row) =>
-        row.bundle.name === name &&
+        row.name === name &&
         row.scope === (scope === null ? "workspace" : "agent"),
     );
     const response = {
@@ -234,11 +255,17 @@ export function createSkillService(deps: SkillServiceDeps) {
       agent_id: scope?.agentId ?? null,
       attachment: null,
     };
-    if (attached === undefined) return { ...response, receipt_id: null };
+    const bundleId = attached?.follows
+      ? (await store.list(caller.ownerId)).find((row) => row.name === name)?.id
+      : attached?.bundle?.id;
+    if (attached === undefined || bundleId === undefined) {
+      return { ...response, receipt_id: null };
+    }
     const result = await store.recordAttachment({
       receiptId: newId(),
       workspaceId: caller.ownerId,
-      bundleId: attached.bundle.id,
+      bundleId,
+      follow: attached.follows,
       ...(scope === null
         ? { scope: "workspace" as const }
         : { scope: "agent" as const, agentId: scope.agentId }),
@@ -278,7 +305,7 @@ export function createSkillService(deps: SkillServiceDeps) {
           .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
           .map(([name, versions]) => {
             const attached = attachments.find(
-              (row) => row.scope === "workspace" && row.bundle.name === name,
+              (row) => row.scope === "workspace" && row.name === name,
             );
             const git = sources.get(name) ?? null;
             return {
@@ -292,7 +319,11 @@ export function createSkillService(deps: SkillServiceDeps) {
               workspace_attachment:
                 attached === undefined
                   ? null
-                  : { version_id: attached.bundle.id, mode: attached.mode },
+                  : {
+                      version_id: attached.bundle?.id ?? null,
+                      follows: attached.follows,
+                      mode: attached.mode,
+                    },
             };
           }),
       };
@@ -522,6 +553,46 @@ export function createSkillService(deps: SkillServiceDeps) {
             "version_in_use",
             "A session that has not ended runs this version",
           );
+        case "current":
+          throw refused(
+            "version_current",
+            "The skill's current version is not archived; revert or reject it first",
+          );
+      }
+    },
+
+    /** Moves the current version one step back (decision skills-and-mcp.md 3). */
+    async revert(caller: Caller, name: string): Promise<RevertSkillResponse> {
+      webUser(caller);
+      await requirePermitted(authorization, caller, "workspace.manage", {
+        ...workspace(caller),
+      });
+      const result = await store.revert({
+        receiptId: newId(),
+        workspaceId: caller.ownerId,
+        name,
+        principal: caller,
+        managerRoles: EXTENSION_MANAGER_ROLES,
+      });
+      switch (result.outcome) {
+        case "reverted":
+          return {
+            name,
+            from: skillVersionViewOf(result.from),
+            to: skillVersionViewOf(result.to),
+            receipt_id: result.receiptId,
+          };
+        case "not_found":
+          throw NOT_FOUND();
+        case "actor_inactive":
+          throw ACTOR_INACTIVE();
+        case "outranked":
+          throw OUTRANKED();
+        case "no_previous_version":
+          throw refused(
+            "no_previous_version",
+            "No approved version that is not archived comes before the current one",
+          );
       }
     },
 
@@ -559,10 +630,11 @@ export function createSkillService(deps: SkillServiceDeps) {
       });
       return {
         items: rows.map((row) => ({
-          name: row.bundle.name,
+          name: row.name,
           scope: row.scope,
           mode: row.mode,
-          version: skillVersionViewOf(row.bundle),
+          follows: row.follows,
+          version: row.bundle === null ? null : skillVersionViewOf(row.bundle),
         })),
       };
     },

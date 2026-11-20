@@ -5,6 +5,7 @@ import type { ExtensionMode } from "../resolve.ts";
 import type {
   SkillGitLocation,
   SkillGitSource,
+  SkillProtectionEvidence,
   SkillSyncTrigger,
 } from "./skill-git-source-store.ts";
 
@@ -25,6 +26,13 @@ export type GitVersionInput = {
   >;
   /** The sync's lease token; a check that lost its lease writes nothing. */
   leaseToken?: string;
+  /**
+   * What GitHub showed about the commit, read for a source whose
+   * auto-approve was on, with the source's `grantId` then. It approves the
+   * version only when sync and auto-approve are still on with that same
+   * grant (no off, pause or resume since), under the source row's lock.
+   */
+  protection?: { grantId: string; evidence: SkillProtectionEvidence };
 };
 
 export const EXTENSION_BUNDLE_REVIEWS = [
@@ -67,6 +75,8 @@ export type ExtensionBundle = {
   version: number | null;
   /** Set once the version is archived: nothing may attach it again. */
   archivedAt: Date | null;
+  /** The skill's current version, which following attachments resolve to. */
+  current: boolean;
 };
 
 export type RegisterExtensionBundleResult =
@@ -99,6 +109,17 @@ export type ReviewExtensionBundleResult =
   /** The registrant, while another manager could review it. */
   | { outcome: "self_review" | "archived" };
 
+export type RevertSkillResult =
+  | {
+      outcome: "reverted";
+      from: ExtensionBundle;
+      to: ExtensionBundle;
+      receiptId: string;
+    }
+  | { outcome: "not_found" | "actor_inactive" | "outranked" }
+  /** No current version, or none approved and not archived below it. */
+  | { outcome: "no_previous_version" };
+
 export type AttachmentReceiptResult =
   | { outcome: "recorded"; receiptId: string }
   | { outcome: "bundle_not_found" | "agent_not_found" | "actor_inactive" }
@@ -112,8 +133,11 @@ export type ArchiveExtensionBundleResult =
   | { outcome: "archived"; bundle: ExtensionBundle; receiptId: string }
   | { outcome: "unchanged"; bundle: ExtensionBundle }
   | { outcome: "not_found" | "actor_inactive" | "outranked" | "self_review" }
-  /** A scope still attaches it, or a live session runs it. */
-  | { outcome: "attached" | "in_use" };
+  /**
+   * A scope still attaches it or follows it as the current version, or a
+   * live session runs it.
+   */
+  | { outcome: "attached" | "in_use" | "current" };
 
 /**
  * Stored bundles, one workspace's at a time. A bundle row is only ever written
@@ -172,6 +196,17 @@ export interface ExtensionBundleStore {
     managerRoles: readonly WorkspaceRole[];
   }): Promise<ReviewExtensionBundleResult>;
   /**
+   * Moves the skill's current version one step down: to the highest
+   * approved, not archived version below it. Writes `revert_extension`.
+   */
+  revert(input: {
+    receiptId: string;
+    workspaceId: string;
+    name: string;
+    principal: Principal;
+    managerRoles: readonly WorkspaceRole[];
+  }): Promise<RevertSkillResult>;
+  /**
    * Offers a bundle version to a workspace or to one agent (or takes it
    * back) and writes the `attach_extension` or `detach_extension` receipt in
    * the same transaction. A scope holds one version per bundle name:
@@ -179,12 +214,15 @@ export interface ExtensionBundleStore {
    * `scope` defaults to `agent`, which needs `agentId`; a `workspace`
    * attachment names no agent. `mode` defaults to `optional`. On an agent,
    * `managerRoles` are the workspace roles that manage every agent; the
-   * agent's own managers pass too.
+   * agent's own managers pass too. With `follow`, the row names the skill
+   * `bundleId` belongs to and follows its current version (never
+   * `forbidden`); a detach then takes back the following row.
    */
   recordAttachment(input: {
     receiptId: string;
     workspaceId: string;
     bundleId: string;
+    follow?: boolean;
     scope?: "agent" | "workspace";
     agentId?: string;
     mode?: ExtensionMode;
@@ -206,7 +244,8 @@ export interface ExtensionBundleStore {
   }): Promise<ArchiveExtensionBundleResult>;
   /**
    * The bundles the workspace offers, and with `agentId` those its agent
-   * offers, each with the version it names.
+   * offers, each with the version it names; a following row with the
+   * skill's current version, or null while it has none.
    */
   listAttachments(input: {
     workspaceId: string;
@@ -217,5 +256,7 @@ export interface ExtensionBundleStore {
 export type ExtensionAttachment = {
   scope: "workspace" | "agent";
   mode: ExtensionMode;
-  bundle: ExtensionBundle;
+  name: string;
+  follows: boolean;
+  bundle: ExtensionBundle | null;
 };

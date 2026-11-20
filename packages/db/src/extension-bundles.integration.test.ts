@@ -445,7 +445,7 @@ integration("extension bundles on PostgreSQL", () => {
           workspaceId,
           ...(id === undefined ? {} : { agentId: id }),
         })
-      ).map((a) => [a.scope, a.mode, a.bundle.id]);
+      ).map((a) => [a.scope, a.mode, a.bundle?.id]);
 
     await service.recordAttachment({
       principal: owner,
@@ -1064,6 +1064,268 @@ integration("extension bundles on PostgreSQL", () => {
       expect((await service.read(workspaceId, running.digest))?.digest).toBe(
         running.digest,
       );
+    });
+
+    const currentOf = async (workspaceId: string, name: string) =>
+      (
+        await db
+          .select({ version: extensionBundles.version })
+          .from(extensionBundles)
+          .where(
+            and(
+              eq(extensionBundles.workspaceId, workspaceId),
+              eq(extensionBundles.name, name),
+              eq(extensionBundles.current, true),
+            ),
+          )
+      ).map((row) => row.version);
+
+    test("approving a higher version makes it current, a lower one does not; rejecting the current one falls back", async () => {
+      const { service } = build();
+      const workspaceId = await workspace();
+      const owner = await person(workspaceId, "owner");
+      const admin = await person(workspaceId, "admin");
+      const [v1, v2, v3] = [
+        bundleOf(await registerSkill(service, owner, "research", "one\n")),
+        bundleOf(await registerSkill(service, owner, "research", "two\n")),
+        bundleOf(await registerSkill(service, owner, "research", "three\n")),
+      ];
+      const review = (bundleId: string, to: "approved" | "rejected") =>
+        service.review({ principal: admin, bundleId, review: to });
+      expect(await currentOf(workspaceId, "research")).toEqual([]);
+      expect(await review(v2.id, "approved")).toMatchObject({
+        outcome: "reviewed",
+        bundle: { current: true },
+      });
+      expect(await review(v1.id, "approved")).toMatchObject({
+        bundle: { current: false },
+      });
+      expect(await currentOf(workspaceId, "research")).toEqual([2]);
+      await review(v3.id, "approved");
+      expect(await currentOf(workspaceId, "research")).toEqual([3]);
+      const approvals = await receiptsOf(workspaceId, "approve_extension");
+      expect(
+        approvals.map((row) => (row.result as { current?: unknown }).current),
+      ).toEqual(
+        expect.arrayContaining([
+          { from: null, to: 2 },
+          { from: 2, to: 3 },
+          undefined,
+        ]),
+      );
+
+      expect(await review(v3.id, "rejected")).toMatchObject({
+        bundle: { review: "rejected", current: false },
+      });
+      expect(await currentOf(workspaceId, "research")).toEqual([2]);
+      await review(v2.id, "rejected");
+      expect(await currentOf(workspaceId, "research")).toEqual([1]);
+      await review(v1.id, "rejected");
+      expect(await currentOf(workspaceId, "research")).toEqual([]);
+    });
+
+    test("revert steps the current version down one approved version at a time, skipping the archived", async () => {
+      const { service, store } = build();
+      const workspaceId = await workspace();
+      const owner = await person(workspaceId, "owner");
+      const admin = await person(workspaceId, "admin");
+      const member = await person(workspaceId, "member");
+      const versions = [];
+      for (const body of ["one\n", "two\n", "three\n", "four\n"]) {
+        const version = bundleOf(
+          await registerSkill(service, owner, "research", body),
+        );
+        await service.review({
+          principal: admin,
+          bundleId: version.id,
+          review: "approved",
+        });
+        versions.push(version);
+      }
+      const archive = (bundleId: string) =>
+        store.archive({
+          receiptId: randomUUID(),
+          workspaceId,
+          bundleId,
+          principal: admin,
+          managerRoles: ["owner", "admin"],
+        });
+      expect(await archive(versions[3]?.id ?? "")).toEqual({
+        outcome: "current",
+      });
+      expect((await archive(versions[1]?.id ?? "")).outcome).toBe("archived");
+      const revert = (by: Caller = admin) =>
+        store.revert({
+          receiptId: randomUUID(),
+          workspaceId,
+          name: "research",
+          principal: by,
+          managerRoles: ["owner", "admin"],
+        });
+      expect(await revert(member)).toEqual({ outcome: "outranked" });
+      expect(await revert()).toMatchObject({
+        outcome: "reverted",
+        from: { version: 4, current: false },
+        to: { version: 3, current: true },
+      });
+      expect(await revert()).toMatchObject({
+        from: { version: 3 },
+        to: { version: 1 },
+      });
+      expect(await revert()).toEqual({ outcome: "no_previous_version" });
+      expect(await currentOf(workspaceId, "research")).toEqual([1]);
+      const reverts = await receiptsOf(workspaceId, "revert_extension");
+      expect(reverts).toHaveLength(2);
+      expect(reverts.map((row) => row.result)).toEqual(
+        expect.arrayContaining([
+          {
+            name: "research",
+            from: expect.objectContaining({ version: 4 }),
+            to: expect.objectContaining({ version: 3 }),
+          },
+          {
+            name: "research",
+            from: expect.objectContaining({ version: 3 }),
+            to: expect.objectContaining({ id: versions[0]?.id, version: 1 }),
+          },
+        ]),
+      );
+      expect(
+        await store.revert({
+          receiptId: randomUUID(),
+          workspaceId,
+          name: "missing",
+          principal: admin,
+          managerRoles: ["owner", "admin"],
+        }),
+      ).toEqual({ outcome: "not_found" });
+    });
+
+    test("a following attachment lists the current version, or none while there is none; detach takes it back", async () => {
+      const { service, store } = build();
+      const workspaceId = await workspace();
+      const owner = await person(workspaceId, "owner");
+      const admin = await person(workspaceId, "admin");
+      const pending = bundleOf(await registerSkill(service, owner, "research"));
+      const follow = (
+        kind: "attach" | "detach",
+        mode: "required" | "optional" | "forbidden" = "required",
+      ) =>
+        store.recordAttachment({
+          receiptId: randomUUID(),
+          workspaceId,
+          bundleId: pending.id,
+          follow: true,
+          scope: "workspace",
+          ...(kind === "attach" ? { mode } : {}),
+          kind,
+          principal: admin,
+          managerRoles: ["owner", "admin"],
+        });
+      expect((await follow("attach")).outcome).toBe("recorded");
+      expect(await store.listAttachments({ workspaceId })).toEqual([
+        {
+          scope: "workspace",
+          mode: "required",
+          name: "research",
+          follows: true,
+          bundle: null,
+        },
+      ]);
+      await service.review({
+        principal: admin,
+        bundleId: pending.id,
+        review: "approved",
+      });
+      const listed = await store.listAttachments({ workspaceId });
+      expect(listed).toMatchObject([
+        { follows: true, bundle: { id: pending.id, current: true } },
+      ]);
+      const v2 = bundleOf(
+        await registerSkill(service, owner, "research", "two\n"),
+      );
+      await service.review({
+        principal: admin,
+        bundleId: v2.id,
+        review: "approved",
+      });
+      expect(
+        (await store.listAttachments({ workspaceId }))[0]?.bundle?.id,
+      ).toBe(v2.id);
+      expect(
+        await store.archive({
+          receiptId: randomUUID(),
+          workspaceId,
+          bundleId: pending.id,
+          principal: admin,
+          managerRoles: ["owner", "admin"],
+        }),
+      ).toMatchObject({ outcome: "archived" });
+
+      const [attached] = await receiptsOf(workspaceId, "attach_extension");
+      expect(attached?.targetRef).toMatchObject({
+        resource: { kind: "skill", id: "research" },
+      });
+      expect((await follow("detach")).outcome).toBe("recorded");
+      expect(await store.listAttachments({ workspaceId })).toEqual([]);
+      expect((await follow("detach")).outcome).toBe("not_attached");
+      const row = {
+        workspaceId,
+        scope: "workspace",
+        name: "research",
+        createdBy: admin.actor?.userId ?? "",
+      };
+      expect(
+        await refusal(
+          db.insert(schema.extensionAttachments).values({
+            ...row,
+            id: randomUUID(),
+            follows: true,
+            mode: "forbidden",
+          }),
+        ),
+      ).toBe("extension_attachments_follows_check");
+      expect(
+        await refusal(
+          db.insert(schema.extensionAttachments).values({
+            ...row,
+            id: randomUUID(),
+            follows: false,
+            mode: "required",
+          }),
+        ),
+      ).toBe("extension_attachments_follows_check");
+    });
+
+    test("the table keeps one current version per name, and only an approved, unarchived one", async () => {
+      const { service } = build();
+      const workspaceId = await workspace();
+      const owner = await person(workspaceId, "owner");
+      const v1 = bundleOf(await registerSkill(service, owner, "research"));
+      const v2 = bundleOf(
+        await registerSkill(service, owner, "research", "two\n"),
+      );
+      expect(
+        await refusal(
+          db
+            .update(extensionBundles)
+            .set({ current: true })
+            .where(eq(extensionBundles.id, v1.id)),
+        ),
+      ).toBe("extension_bundles_current_check");
+      await approve(v1, v2);
+      await db
+        .update(extensionBundles)
+        .set({ current: true })
+        .where(eq(extensionBundles.id, v1.id));
+      expect(
+        await refusal(
+          db
+            .update(extensionBundles)
+            .set({ current: true })
+            .where(eq(extensionBundles.id, v2.id)),
+        ),
+      ).toBe("extension_bundles_workspace_name_current_idx");
     });
   });
 });

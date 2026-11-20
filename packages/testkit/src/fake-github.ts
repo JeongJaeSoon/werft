@@ -176,8 +176,11 @@ export type FakeGitHub = {
   setRateLimit(
     headers: { limit: number; remaining: number; reset: number } | undefined,
   ): void;
-  /** The next `count` REST calls (not token issues) answer `status`. */
-  failNext(count: number, status: number): void;
+  /**
+   * The next `count` REST calls (not token issues) answer `status`; with
+   * `path`, only those whose `/{rest}?{query}` under the repository matches.
+   */
+  failNext(count: number, status: number, path?: RegExp): void;
   /**
    * REST calls whose `/repos/{owner}/{name}/…` path matches wait, unanswered,
    * until `release`; `waiting` counts the ones that arrived.
@@ -228,7 +231,47 @@ export type FakeGitHub = {
   ): Promise<void>;
   /** What `GET /repos` and the git `HEAD` both report as the default. */
   setDefaultBranch(owner: string, name: string, branch: string): Promise<void>;
+  /**
+   * A ruleset's or a classic protection's pull request rule on `branch`
+   * with that many required approving reviews; null removes it. GitHub
+   * serves classic protection only to a token with `administration`.
+   */
+  setBranchRule(
+    owner: string,
+    name: string,
+    branch: string,
+    kind: "ruleset" | "branch_protection",
+    requiredReviews: number | null,
+  ): void;
+  /**
+   * A pull request by user `authorId` merged into `base` as `commit`, with
+   * its reviews in the order they were submitted. Returns its number.
+   */
+  addMergedPull(
+    owner: string,
+    name: string,
+    pull: {
+      base: string;
+      commit: string;
+      authorId: number;
+      reviews: FakeGitHubUserReview[];
+    },
+  ): number;
   stop(): Promise<void>;
+};
+
+/** A person's review as `GET /pulls/{n}/reviews` lists it. */
+export type FakeGitHubUserReview = {
+  userId: number;
+  state: "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED" | "DISMISSED";
+};
+
+type FakeGitHubMergedPull = {
+  number: number;
+  base: string;
+  commit: string;
+  authorId: number;
+  reviews: FakeGitHubUserReview[];
 };
 
 export type FakeGitHubOptions = {
@@ -286,6 +329,9 @@ type Served = {
   comments: Map<number, FakeGitHubComment[]>;
   runs: FakeGitHubWorkflowRun[];
   reviews: FakeGitHubReview[];
+  /** `<kind>:<branch>` → required approving reviews. */
+  branchRules: Map<string, number>;
+  mergedPulls: FakeGitHubMergedPull[];
 };
 
 /**
@@ -438,7 +484,10 @@ export async function startFakeGitHub(
       index: issued.size + 1,
       installationId,
       repositories: asked?.repositories ?? null,
-      permissions: asked?.permissions ?? { contents: "read", metadata: "read" },
+      // As on GitHub, a token that names no permissions holds what the
+      // installation grants.
+      permissions: asked?.permissions ??
+        grants ?? { contents: "read", metadata: "read" },
       expiresAt,
     });
     record(201);
@@ -501,7 +550,10 @@ export async function startFakeGitHub(
     retryAfter: number;
   } = { count: 0, limit: "secondary", retryAfter: 1 };
   let rateHeaders: Record<string, string> = {};
-  let failures = { count: 0, status: 500 };
+  let failures: { count: number; status: number; path?: RegExp | undefined } = {
+    count: 0,
+    status: 500,
+  };
   const users = new Map<string, number>();
   let failingUser = false;
   const appFailures = new Map<number, number>();
@@ -580,7 +632,11 @@ export async function startFakeGitHub(
     }
     const limit = rateLimited();
     if (limit) return limit;
-    if (failures.count > 0) {
+    if (
+      failures.count > 0 &&
+      (failures.path === undefined ||
+        failures.path.test(`${rest}${url.search}`))
+    ) {
       failures.count -= 1;
       return Response.json(
         { message: "Server Error" },
@@ -886,6 +942,74 @@ export async function startFakeGitHub(
         return undefined;
       }
     };
+    // A branch's pull request rules and the pull requests behind a commit.
+    const rules = /^\/rules\/branches\/(.+)$/.exec(rest);
+    if (rules?.[1] && method === "GET") {
+      if (!can("metadata", "read")) return forbidden();
+      const count = found.branchRules.get(
+        `ruleset:${decodeURIComponent(rules[1])}`,
+      );
+      return Response.json(
+        count === undefined
+          ? []
+          : [
+              {
+                type: "pull_request",
+                ruleset_id: 1,
+                parameters: { required_approving_review_count: count },
+              },
+            ],
+      );
+    }
+    const protection = /^\/branches\/(.+)\/protection$/.exec(rest);
+    if (protection?.[1] && method === "GET") {
+      if (!can("administration", "read")) return forbidden();
+      const count = found.branchRules.get(
+        `branch_protection:${decodeURIComponent(protection[1])}`,
+      );
+      return count === undefined
+        ? Response.json({ message: "Branch not protected" }, { status: 404 })
+        : Response.json({
+            required_pull_request_reviews: {
+              required_approving_review_count: count,
+            },
+          });
+    }
+    const commitPulls = /^\/commits\/([0-9a-f]{40})\/pulls$/.exec(rest);
+    if (commitPulls?.[1] && method === "GET") {
+      if (!can("pull_requests", "read")) return forbidden();
+      return Response.json(
+        found.mergedPulls
+          .filter((pull) => pull.commit === commitPulls[1])
+          .map((pull) => ({
+            number: pull.number,
+            state: "closed",
+            user: { id: pull.authorId },
+            base: { ref: pull.base },
+            merged_at: "2026-11-21T00:00:00Z",
+            merge_commit_sha: pull.commit,
+          })),
+      );
+    }
+    const pullReviews = /^\/pulls\/(\d+)\/reviews$/.exec(rest);
+    if (pullReviews?.[1] && method === "GET") {
+      if (!can("pull_requests", "read")) return forbidden();
+      const merged = found.mergedPulls.find(
+        (pull) => pull.number === Number(pullReviews[1]),
+      );
+      if (merged === undefined) return notFound();
+      const page = Number(url.searchParams.get("page") ?? "1");
+      const perPage = Number(url.searchParams.get("per_page") ?? "30");
+      return Response.json(
+        merged.reviews
+          .map((one, index) => ({
+            id: index + 1,
+            user: { id: one.userId },
+            state: one.state,
+          }))
+          .slice((page - 1) * perPage, page * perPage),
+      );
+    }
     const branch = /^\/branches\/(.+)$/.exec(rest);
     if (branch?.[1] && method === "GET") {
       if (!can("contents", "read")) return forbidden();
@@ -922,6 +1046,20 @@ export async function startFakeGitHub(
             { status: 422 },
           )
         : Response.json({ sha });
+    }
+    const tagRef = /^\/git\/ref\/tags\/(.+)$/.exec(rest);
+    if (tagRef?.[1] && method === "GET") {
+      if (!can("contents", "read")) return forbidden();
+      const name = decodeURIComponent(tagRef[1]);
+      const sha = (
+        await gitOr404(["rev-parse", "--verify", `refs/tags/${name}`])
+      )?.trim();
+      return sha === undefined
+        ? notFound()
+        : Response.json({
+            ref: `refs/tags/${name}`,
+            object: { sha, type: "commit" },
+          });
     }
     const gitCommit = /^\/git\/commits\/([0-9a-f]{40})$/.exec(rest);
     if (gitCommit?.[1] && method === "GET") {
@@ -1415,8 +1553,8 @@ export async function startFakeGitHub(
     addAppKey(key) {
       extraKeys.push(createPublicKey(key));
     },
-    failNext(count, status) {
-      failures = { count, status };
+    failNext(count, status, path) {
+      failures = { count, status, path };
     },
     holdRest(path) {
       let release = () => {};
@@ -1471,6 +1609,8 @@ export async function startFakeGitHub(
         comments: new Map(),
         runs: [],
         reviews: [],
+        branchRules: new Map(),
+        mergedPulls: [],
       });
     },
     seedBranch(owner, name, branch, bundle) {
@@ -1592,6 +1732,21 @@ export async function startFakeGitHub(
         join(root, owner, `${name}.git`),
       );
       found.defaultBranch = branch;
+    },
+    setBranchRule(owner, name, branch, kind, requiredReviews) {
+      const found = served.get(`${owner}/${name}`);
+      if (!found) throw new Error(`no repository ${owner}/${name}`);
+      if (requiredReviews === null)
+        found.branchRules.delete(`${kind}:${branch}`);
+      else found.branchRules.set(`${kind}:${branch}`, requiredReviews);
+    },
+    addMergedPull(owner, name, pull) {
+      const found = served.get(`${owner}/${name}`);
+      if (!found) throw new Error(`no repository ${owner}/${name}`);
+      // Numbered apart from the pull requests an App opens.
+      const number = 1000 + found.mergedPulls.length + 1;
+      found.mergedPulls.push({ number, ...pull });
+      return number;
     },
     async stop() {
       server.stop(true);

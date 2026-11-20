@@ -71,6 +71,7 @@ function fakeStore() {
         reviewedAt: null,
         version: input.skill === true ? 1 : null,
         archivedAt: null,
+        current: false,
       };
       rows.push(bundle);
       return { outcome: "registered", bundle, receiptId: input.receiptId };
@@ -82,6 +83,9 @@ function fakeStore() {
       return { outcome: "bundle_not_found" };
     },
     async archive() {
+      return { outcome: "not_found" };
+    },
+    async revert() {
       return { outcome: "not_found" };
     },
     async listAttachments() {

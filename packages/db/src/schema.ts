@@ -5130,6 +5130,8 @@ export const extensionBundles = pgTable(
     version: integer(),
     archivedBy: uuid("archived_by").references(() => users.id),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
+    // The skill's current version: what a following attachment resolves to.
+    current: boolean().notNull().default(false),
   },
   (table) => [
     uniqueIndex("extension_bundles_workspace_digest_idx").on(
@@ -5139,6 +5141,13 @@ export const extensionBundles = pgTable(
     uniqueIndex("extension_bundles_workspace_name_version_idx")
       .on(table.workspaceId, table.name, table.version)
       .where(sql`${table.version} IS NOT NULL`),
+    uniqueIndex("extension_bundles_workspace_name_current_idx")
+      .on(table.workspaceId, table.name)
+      .where(sql`${table.current}`),
+    check(
+      "extension_bundles_current_check",
+      sql`NOT ${table.current} OR (${table.review} = 'approved' AND ${table.archivedAt} IS NULL AND ${table.version} IS NOT NULL)`,
+    ),
     check(
       "extension_bundles_version_check",
       sql`${table.version} IS NULL OR ${table.version} >= 1`,
@@ -5169,7 +5178,12 @@ export const extensionBundles = pgTable(
     ),
     check(
       "extension_bundles_review_actor_check",
-      sql`(${table.review} = 'pending') = (${table.reviewedBy} IS NULL AND ${table.reviewedAt} IS NULL)`,
+      sql`(${table.review} = 'pending') = (${table.reviewedAt} IS NULL) AND (${table.reviewedBy} IS NULL OR ${table.reviewedAt} IS NOT NULL)`,
+    ),
+    // Only the sync approves without a person: under auto-approve.
+    check(
+      "extension_bundles_auto_review_check",
+      sql`${table.reviewedAt} IS NULL OR ${table.reviewedBy} IS NOT NULL OR (${table.review} = 'approved' AND ${table.git} IS NOT NULL)`,
     ),
     check("extension_bundles_size_check", sql`${table.sizeBytes} > 0`),
     check(
@@ -5213,6 +5227,18 @@ export const skillGitSources = pgTable(
     checkingToken: uuid("checking_token"),
     // The trigger that arrived while a check ran: it runs once more after.
     checkAgain: jsonb("check_again"),
+    // Protected-branch auto-approve: one manager requests, another
+    // consents (or the sole manager, the receipt says so).
+    autoApprove: text("auto_approve").notNull().default("off"),
+    autoApproveRequestedBy: uuid("auto_approve_requested_by").references(
+      () => users.id,
+    ),
+    autoApproveConsentedBy: uuid("auto_approve_consented_by").references(
+      () => users.id,
+    ),
+    // The receipt that last changed settings while on (the consent, a pause,
+    // a resume): evidence a check read under another approves nothing.
+    autoApproveGrantId: uuid("auto_approve_grant_id"),
     createdBy: uuid("created_by")
       .notNull()
       .references(() => users.id),
@@ -5237,6 +5263,10 @@ export const skillGitSources = pgTable(
     check(
       "skill_git_sources_ids_check",
       sql`${table.installationId} > 0 AND ${table.repositoryId} > 0`,
+    ),
+    check(
+      "skill_git_sources_auto_approve_check",
+      sql`${table.autoApprove} IN ('off', 'requested', 'on') AND (${table.autoApprove} = 'off') = (${table.autoApproveRequestedBy} IS NULL) AND (${table.autoApprove} = 'on') = (${table.autoApproveConsentedBy} IS NOT NULL) AND (${table.autoApprove} = 'on') = (${table.autoApproveGrantId} IS NOT NULL)`,
     ),
   ],
 );
@@ -5365,9 +5395,9 @@ export const extensionAttachments = pgTable(
       .references(() => workspaces.id),
     scope: text().notNull(),
     agentId: uuid("agent_id"),
-    bundleId: uuid("bundle_id")
-      .notNull()
-      .references(() => extensionBundles.id),
+    // Null when the row follows the skill's current version.
+    bundleId: uuid("bundle_id").references(() => extensionBundles.id),
+    follows: boolean().notNull().default(false),
     name: text().notNull(),
     mode: text().notNull(),
     createdBy: uuid("created_by")
@@ -5396,6 +5426,10 @@ export const extensionAttachments = pgTable(
     check(
       "extension_attachments_mode_check",
       sql`${table.mode} IN ('required', 'optional', 'forbidden')`,
+    ),
+    check(
+      "extension_attachments_follows_check",
+      sql`(${table.bundleId} IS NULL) = ${table.follows} AND (NOT ${table.follows} OR ${table.mode} <> 'forbidden')`,
     ),
     check(
       "extension_attachments_name_check",

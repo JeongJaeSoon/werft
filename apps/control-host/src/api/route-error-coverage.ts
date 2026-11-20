@@ -282,6 +282,8 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/workspace/skills/github",
     "POST /v1/workspace/skills/{name}/sync/check",
     "PUT /v1/workspace/skills/{name}/sync",
+    "PUT /v1/workspace/skills/{name}/sync/auto-approve",
+    "POST /v1/workspace/skills/{name}/revert",
     "GET /v1/workspace/skills/versions/{id}/files",
     "POST /v1/workspace/skills/versions/{id}/review",
     "POST /v1/workspace/skills/versions/{id}/archive",

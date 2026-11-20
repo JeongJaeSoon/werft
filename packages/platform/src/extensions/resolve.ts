@@ -40,6 +40,8 @@ export type ExtensionRefusalCode =
   | "not_optional"
   | "bundle_not_found"
   | "bundle_not_approved"
+  /** A required attachment follows a skill that has no current version. */
+  | "no_current_version"
   | "skill_name_collision"
   | "feature_unsupported"
   | "skill_tool_not_allowed";

@@ -8,6 +8,7 @@ import {
   createExtensionBundleService,
   EXTENSION_MANAGER_ROLES,
   type GitVersionInput,
+  type SkillProtectionEvidence,
   type SkillSyncTrigger,
 } from "@werft-ai/platform";
 import { createMemoryCheckpointObjectStore } from "@werft-ai/testkit/checkpoint-objects";
@@ -164,6 +165,7 @@ integration("Git skill sources on PostgreSQL", () => {
     by: SkillSyncTrigger,
     leaseToken: string | undefined,
     commit = COMMIT_B,
+    protection?: GitVersionInput["protection"],
   ) =>
     service().register({
       principal: { ownerId: workspaceId } as Caller,
@@ -175,20 +177,42 @@ integration("Git skill sources on PostgreSQL", () => {
       git: {
         ...git(commit, by),
         ...(leaseToken === undefined ? {} : { leaseToken }),
+        ...(protection === undefined ? {} : { protection }),
       },
     });
 
-  /** A version the sync writes under its own lease, as a check does. */
+  /**
+   * A version the sync writes under its own lease, as a check does, with
+   * evidence read under `grantId` (by default the source's grant now).
+   */
   async function synced(
     workspaceId: string,
     name: string,
     body: string,
     by: SkillSyncTrigger,
+    evidence?: SkillProtectionEvidence,
+    grantId?: string,
   ) {
+    let protection: GitVersionInput["protection"];
+    if (evidence !== undefined) {
+      const readUnder =
+        grantId ??
+        (await sources().get(workspaceId, name))?.autoApprove.grantId;
+      if (!readUnder) throw new Error("no consent to read evidence under");
+      protection = { grantId: readUnder, evidence };
+    }
     const begun = await sources().begin(workspaceId, name, by, 60_000);
     const token = begun.outcome === "started" ? begun.token : undefined;
     try {
-      return await syncWith(workspaceId, name, body, by, token);
+      return await syncWith(
+        workspaceId,
+        name,
+        body,
+        by,
+        token,
+        COMMIT_B,
+        protection,
+      );
     } finally {
       if (token !== undefined) {
         await sources().finish(workspaceId, name, 60_000, token);
@@ -456,6 +480,7 @@ integration("Git skill sources on PostgreSQL", () => {
         result: "github_unavailable",
         versionId: null,
         issues: [],
+        autoApproval: null,
       },
       old,
     );
@@ -585,5 +610,351 @@ integration("Git skill sources on PostgreSQL", () => {
     expect(await dueMine(new Date(before.getTime() + 120_000))).toEqual([
       { workspaceId: first.workspaceId, name: "daily-a" },
     ]);
+  });
+
+  const autoApprove = (
+    workspaceId: string,
+    name: string,
+    action: "request" | "consent" | "off",
+    by: Caller,
+  ) =>
+    sources().setAutoApprove({
+      workspaceId,
+      name,
+      action,
+      receiptId: randomUUID(),
+      principal: by,
+      managerRoles: EXTENSION_MANAGER_ROLES,
+    });
+  const MET: SkillProtectionEvidence = {
+    met: true,
+    rule: { kind: "ruleset", requiredReviews: 1 },
+    pullRequest: 12,
+  };
+
+  test("a self-consent queues behind a suspension of the managers instead of deadlocking it", async () => {
+    const { workspaceId, admin } = await registered("queued");
+    // The suspension below locks the lower user_id first; make that the
+    // other manager, the order in which the consent used to deadlock.
+    let owner = await person(workspaceId, "owner");
+    while (owner.userId > admin.userId)
+      owner = await person(workspaceId, "owner");
+    await autoApprove(workspaceId, "queued", "request", admin.caller);
+
+    // Replays setAccess's lock order: both users, then memberships in
+    // user_id order.
+    const suspender = await pool.connect();
+    try {
+      await suspender.query("BEGIN");
+      await suspender.query(
+        "SELECT id FROM users WHERE id = ANY($1) ORDER BY id FOR SHARE",
+        [[owner.userId, admin.userId]],
+      );
+      await suspender.query(
+        "SELECT user_id FROM memberships WHERE workspace_id = $1 AND user_id = $2 FOR UPDATE",
+        [workspaceId, owner.userId],
+      );
+      const consent = autoApprove(
+        workspaceId,
+        "queued",
+        "consent",
+        admin.caller,
+      );
+      const waiting = async () =>
+        (
+          await pool.query(
+            "SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+          )
+        ).rowCount;
+      for (let i = 0; i < 100 && !(await waiting()); i++) {
+        await Bun.sleep(20);
+      }
+      expect(await waiting()).toBeGreaterThan(0);
+      await suspender.query(
+        "SELECT user_id FROM memberships WHERE workspace_id = $1 AND user_id = $2 FOR UPDATE",
+        [workspaceId, admin.userId],
+      );
+      await suspender.query("COMMIT");
+      expect(await consent).toEqual({ outcome: "self_consent" });
+    } finally {
+      suspender.release();
+    }
+  });
+
+  test("auto-approve turns on only with a second manager's consent, unless the requester is the only one; off clears it", async () => {
+    const { workspaceId, admin } = await registered("auto");
+    const owner = await person(workspaceId, "owner");
+    const member = await person(workspaceId, "member");
+    expect(
+      (await autoApprove(workspaceId, "auto", "consent", owner.caller)).outcome,
+    ).toBe("not_requested");
+    expect(
+      await autoApprove(workspaceId, "auto", "request", admin.caller),
+    ).toMatchObject({
+      outcome: "updated",
+      source: {
+        autoApprove: {
+          state: "requested",
+          requestedBy: admin.userId,
+          consentedBy: null,
+        },
+      },
+    });
+    expect(
+      (await autoApprove(workspaceId, "auto", "request", owner.caller)).outcome,
+    ).toBe("unchanged");
+    expect(
+      (await autoApprove(workspaceId, "auto", "consent", admin.caller)).outcome,
+    ).toBe("self_consent");
+    expect(
+      (await autoApprove(workspaceId, "auto", "consent", member.caller))
+        .outcome,
+    ).toBe("outranked");
+    expect(
+      await autoApprove(workspaceId, "auto", "consent", owner.caller),
+    ).toMatchObject({
+      outcome: "updated",
+      source: {
+        autoApprove: {
+          state: "on",
+          requestedBy: admin.userId,
+          consentedBy: owner.userId,
+        },
+      },
+    });
+    expect(
+      await autoApprove(workspaceId, "auto", "off", member.caller),
+    ).toEqual({ outcome: "outranked" });
+    expect(
+      await autoApprove(workspaceId, "auto", "off", admin.caller),
+    ).toMatchObject({
+      outcome: "updated",
+      source: {
+        autoApprove: { state: "off", requestedBy: null, consentedBy: null },
+      },
+    });
+    const written = await db
+      .select()
+      .from(receipts)
+      .where(
+        and(
+          eq(receipts.ownerId, workspaceId),
+          eq(receipts.operation, "update_extension_sync"),
+        ),
+      );
+    expect(written.map((row) => row.result)).toEqual(
+      expect.arrayContaining([
+        { name: "auto", action: "auto_approve_request" },
+        {
+          name: "auto",
+          action: "auto_approve_consent",
+          requested_by: admin.userId,
+        },
+        { name: "auto", action: "auto_approve_off" },
+      ]),
+    );
+    expect(written).toHaveLength(3);
+
+    const alone = await registered("solo");
+    await autoApprove(alone.workspaceId, "solo", "request", alone.admin.caller);
+    const consented = await autoApprove(
+      alone.workspaceId,
+      "solo",
+      "consent",
+      alone.admin.caller,
+    );
+    if (consented.outcome !== "updated") throw new Error(consented.outcome);
+    expect(consented.source.autoApprove).toMatchObject({
+      state: "on",
+      grantId: consented.receiptId,
+    });
+    const [receipt] = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.id, consented.receiptId));
+    expect(receipt?.result).toMatchObject({ self_consent: "sole_manager" });
+  });
+
+  test("with auto-approve on, a synced version GitHub showed reviewed is approved and current; otherwise it stays pending", async () => {
+    const { workspaceId, admin } = await registered("deploy");
+    const owner = await person(workspaceId, "owner");
+    await autoApprove(workspaceId, "deploy", "request", admin.caller);
+    await autoApprove(workspaceId, "deploy", "consent", owner.caller);
+
+    const approved = await synced(
+      workspaceId,
+      "deploy",
+      "Two.",
+      trigger("webhook"),
+      MET,
+    );
+    if (approved.outcome !== "registered") throw new Error(approved.outcome);
+    expect(approved.bundle).toMatchObject({
+      version: 2,
+      review: "approved",
+      reviewedBy: null,
+      current: true,
+    });
+    expect(approved.bundle.reviewedAt).not.toBeNull();
+    expect(
+      (await sources().get(workspaceId, "deploy"))?.lastCheck,
+    ).toMatchObject({
+      result: "created",
+      autoApproval: {
+        result: "approved",
+        reason: null,
+        rule: { kind: "ruleset", requiredReviews: 1 },
+        pullRequest: 12,
+      },
+    });
+    const [approval] = await db
+      .select()
+      .from(receipts)
+      .where(
+        and(
+          eq(receipts.ownerId, workspaceId),
+          eq(receipts.operation, "approve_extension"),
+        ),
+      );
+    expect(approval?.result).toEqual({
+      digest: approved.bundle.digest,
+      from: "pending",
+      review: "approved",
+      by: "sync",
+      auto_approve: { requested_by: admin.userId, consented_by: owner.userId },
+      commit: COMMIT_B,
+      pull_request: 12,
+      rule: { kind: "ruleset", required_reviews: 1 },
+      current: { from: null, to: 2 },
+    });
+
+    const unmet = await synced(
+      workspaceId,
+      "deploy",
+      "Three.",
+      trigger("webhook"),
+      { met: false, reason: "no_reviewed_pull_request" },
+    );
+    if (unmet.outcome !== "registered") throw new Error(unmet.outcome);
+    expect(unmet.bundle).toMatchObject({ review: "pending", current: false });
+    expect(
+      (await sources().get(workspaceId, "deploy"))?.lastCheck?.autoApproval,
+    ).toEqual({
+      result: "pending",
+      reason: "no_reviewed_pull_request",
+      rule: null,
+      pullRequest: null,
+    });
+
+    // A person's check while paused still writes a version, never approved.
+    await sources().setEnabled({
+      workspaceId,
+      name: "deploy",
+      enabled: false,
+      receiptId: randomUUID(),
+      principal: admin.caller,
+      managerRoles: EXTENSION_MANAGER_ROLES,
+    });
+    const paused = await synced(
+      workspaceId,
+      "deploy",
+      "Four.",
+      trigger("manual", admin.userId),
+      MET,
+    );
+    if (paused.outcome !== "registered") throw new Error(paused.outcome);
+    expect(paused.bundle).toMatchObject({ review: "pending", current: false });
+    expect(
+      (await sources().get(workspaceId, "deploy"))?.lastCheck?.autoApproval,
+    ).toBeNull();
+
+    // Evidence read before auto-approve was turned off approves nothing.
+    await sources().setEnabled({
+      workspaceId,
+      name: "deploy",
+      enabled: true,
+      receiptId: randomUUID(),
+      principal: admin.caller,
+      managerRoles: EXTENSION_MANAGER_ROLES,
+    });
+    const firstConsent = (await sources().get(workspaceId, "deploy"))
+      ?.autoApprove.grantId;
+    await autoApprove(workspaceId, "deploy", "off", admin.caller);
+    const off = await synced(
+      workspaceId,
+      "deploy",
+      "Five.",
+      trigger("daily"),
+      MET,
+      firstConsent ?? undefined,
+    );
+    if (off.outcome !== "registered") throw new Error(off.outcome);
+    expect(off.bundle).toMatchObject({ review: "pending", current: false });
+
+    // Nor once it is on again under a new consent: GitHub may show
+    // something else by now (a dismissed review).
+    await autoApprove(workspaceId, "deploy", "request", admin.caller);
+    await autoApprove(workspaceId, "deploy", "consent", owner.caller);
+    const again = await sources().get(workspaceId, "deploy");
+    expect(again?.autoApprove.state).toBe("on");
+    expect(again?.autoApprove.grantId).not.toBe(firstConsent);
+    const stale = await synced(
+      workspaceId,
+      "deploy",
+      "Six.",
+      trigger("daily"),
+      MET,
+      firstConsent ?? undefined,
+    );
+    if (stale.outcome !== "registered") throw new Error(stale.outcome);
+    expect(stale.bundle).toMatchObject({ review: "pending", current: false });
+    expect(
+      (await sources().get(workspaceId, "deploy"))?.lastCheck?.autoApproval,
+    ).toBeNull();
+
+    // Nor across a pause and a resume, which leave the consent as it was.
+    const beforePause = again?.autoApprove.grantId ?? undefined;
+    for (const enabled of [false, true]) {
+      await sources().setEnabled({
+        workspaceId,
+        name: "deploy",
+        enabled,
+        receiptId: randomUUID(),
+        principal: admin.caller,
+        managerRoles: EXTENSION_MANAGER_ROLES,
+      });
+    }
+    const resumed = await sources().get(workspaceId, "deploy");
+    expect(resumed?.autoApprove).toMatchObject({
+      state: "on",
+      consentedBy: owner.userId,
+    });
+    expect(resumed?.autoApprove.grantId).not.toBe(beforePause);
+    const acrossPause = await synced(
+      workspaceId,
+      "deploy",
+      "Seven.",
+      trigger("daily"),
+      MET,
+      beforePause,
+    );
+    if (acrossPause.outcome !== "registered") {
+      throw new Error(acrossPause.outcome);
+    }
+    expect(acrossPause.bundle).toMatchObject({
+      review: "pending",
+      current: false,
+    });
+    const all = await db
+      .select()
+      .from(extensionBundles)
+      .where(
+        and(
+          eq(extensionBundles.workspaceId, workspaceId),
+          eq(extensionBundles.name, "deploy"),
+          eq(extensionBundles.current, true),
+        ),
+      );
+    expect(all.map((row) => row.version)).toEqual([2]);
   });
 });

@@ -1443,6 +1443,13 @@
       "when": 1795200115691,
       "tag": "0296_skill_git_sources",
       "breakpoints": true
+    },
+    {
+      "idx": 297,
+      "version": "7",
+      "when": 1795208679032,
+      "tag": "0297_skill_current_version",
+      "breakpoints": true
     }
   ]
 }

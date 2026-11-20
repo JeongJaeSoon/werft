@@ -9,6 +9,7 @@ import type { BundleInputFile } from "./bundle-validator.ts";
 import type {
   SkillGitSource,
   SkillGitSourceStore,
+  SkillProtectionEvidence,
   SkillSyncCheck,
   SkillSyncTrigger,
 } from "./ports/skill-git-source-store.ts";
@@ -133,6 +134,38 @@ function memorySources(initial: SkillGitSource[]) {
       rows.set(key, source);
       return { outcome: "updated", source, receiptId: input.receiptId };
     },
+    async setAutoApprove(input) {
+      const key = `${input.workspaceId}/${input.name}`;
+      const row = rows.get(key);
+      if (!row) return { outcome: "not_found" };
+      const userId = input.principal.actor?.userId ?? null;
+      const source: SkillGitSource = {
+        ...row,
+        autoApprove:
+          input.action === "off"
+            ? {
+                state: "off",
+                requestedBy: null,
+                consentedBy: null,
+                grantId: null,
+              }
+            : input.action === "request"
+              ? {
+                  state: "requested",
+                  requestedBy: userId,
+                  consentedBy: null,
+                  grantId: null,
+                }
+              : {
+                  ...row.autoApprove,
+                  state: "on",
+                  consentedBy: userId,
+                  grantId: input.receiptId,
+                },
+      };
+      rows.set(key, source);
+      return { outcome: "updated", source, receiptId: input.receiptId };
+    },
   };
   return { store, checks, rows };
 }
@@ -147,6 +180,12 @@ const source = (overrides: Partial<SkillGitSource> = {}): SkillGitSource => ({
   path: "skills/research",
   ref: "main",
   syncEnabled: true,
+  autoApprove: {
+    state: "off",
+    requestedBy: null,
+    consentedBy: null,
+    grantId: null,
+  },
   lastCheck: null,
   ...overrides,
 });
@@ -176,8 +215,19 @@ function fakeReader() {
       id: number;
       fullName: string;
     } | null,
+    protection: {
+      met: true,
+      rule: { kind: "ruleset", requiredReviews: 1 },
+      pullRequest: 12,
+    } as SkillProtectionEvidence | Error,
+    protected: [] as Array<string | null>,
   };
   const reader: GitHubSkillReader = {
+    async protection(_app, _installation, _repository, _ref, commit) {
+      state.protected.push(commit);
+      if (state.protection instanceof Error) throw state.protection;
+      return state.protection;
+    },
     async repository() {
       if (state.fail) throw state.fail;
       return state.repository;
@@ -215,6 +265,7 @@ function setup(
     commit: string;
     trigger: SkillSyncTrigger;
     newSource: boolean;
+    protection?: { grantId: string; evidence: SkillProtectionEvidence };
   }> = [];
   const failed: unknown[] = [];
   const sync = createSkillGitSync({
@@ -230,6 +281,10 @@ function setup(
           checkedAt: Date;
           newSource?: object;
           leaseToken?: string;
+          protection?: {
+            grantId: string;
+            evidence: SkillProtectionEvidence;
+          };
         };
         principal: { ownerId: string };
       }) {
@@ -240,6 +295,9 @@ function setup(
           commit: git.location.commit,
           trigger: git.trigger,
           newSource: git.newSource !== undefined,
+          ...(git.protection === undefined
+            ? {}
+            : { protection: git.protection }),
         });
         await sources.store.recordCheck(
           input.principal.ownerId,
@@ -251,6 +309,7 @@ function setup(
             result: "created",
             versionId: "v1",
             issues: [],
+            autoApproval: null,
           },
           git.leaseToken ?? "",
         );
@@ -283,6 +342,7 @@ function setup(
             reviewedAt: null,
             version: 1,
             archivedAt: null,
+            current: false,
           },
           receiptId: "019a0000-0000-7000-8000-0000000000f9",
         };
@@ -571,6 +631,110 @@ describe("the console", () => {
     expect((await noUrl.sync.views(WORKSPACE)).get("research")?.webhook).toBe(
       "no_public_url",
     );
+  });
+});
+
+describe("auto-approve", () => {
+  const on = {
+    state: "on" as const,
+    requestedBy: USER,
+    consentedBy: "u-2",
+    grantId: "c-1",
+  };
+
+  test("a check reads what GitHub shows only while auto-approve and sync are on, and hands it to the write", async () => {
+    for (const [overrides, read] of [
+      [{}, false],
+      [{ autoApprove: on, syncEnabled: false }, false],
+      [{ autoApprove: on }, true],
+    ] as const) {
+      const { sync, state, registered } = setup({
+        sources: [source(overrides)],
+      });
+      await sync.checkNow(caller(), "research");
+      expect(state.protected).toEqual(read ? [COMMIT_A] : []);
+      // With the consent it was read under, for the write to compare.
+      expect(registered[0]?.protection).toEqual(
+        read
+          ? {
+              grantId: "c-1",
+              evidence: state.protection as SkillProtectionEvidence,
+            }
+          : undefined,
+      );
+    }
+  });
+
+  test("GitHub failing on the protection read leaves the version pending as github_unreachable", async () => {
+    const { sync, state, registered } = setup({
+      sources: [source({ autoApprove: on })],
+    });
+    state.protection = new GitHubAppCheckError("github_unreachable");
+    expect((await sync.checkNow(caller(), "research")).outcome).toBe("checked");
+    expect(registered[0]?.protection).toEqual({
+      grantId: "c-1",
+      evidence: { met: false, reason: "github_unreachable" },
+    });
+  });
+
+  test("turning it on needs a branch with a rule; the store's refusals keep their codes", async () => {
+    const { sync, state, sources } = setup();
+    for (const reason of ["not_branch", "protection_missing"] as const) {
+      state.protection = { met: false, reason };
+      await expect(
+        sync.setAutoApprove(caller(), "research", "request"),
+      ).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        details: { reason_code: reason },
+      });
+    }
+    state.protection = new GitHubAppCheckError("github_unreachable");
+    await expect(
+      sync.setAutoApprove(caller(), "research", "consent"),
+    ).rejects.toMatchObject({ code: "GITHUB_UNAVAILABLE" });
+    expect(state.protected).toEqual([null, null, null]);
+    expect(sources.rows.get(`${WORKSPACE}/research`)?.autoApprove.state).toBe(
+      "off",
+    );
+
+    state.protection = {
+      met: true,
+      rule: { kind: "ruleset", requiredReviews: 1 },
+      pullRequest: null,
+    };
+    const requested = await sync.setAutoApprove(
+      caller(),
+      "research",
+      "request",
+    );
+    expect(requested.git.auto_approve).toEqual({
+      state: "requested",
+      requested_by: USER,
+      consented_by: null,
+    });
+    await expect(
+      sync.setAutoApprove(caller("member"), "research", "request"),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    state.protection = { met: false, reason: "protection_missing" };
+    const off = await sync.setAutoApprove(caller(), "research", "off");
+    expect(off.git.auto_approve.state).toBe("off");
+    expect(state.protected).toEqual([null, null, null, null]);
+
+    for (const [outcome, code, reason] of [
+      ["self_consent", "FORBIDDEN", "self_consent"],
+      ["not_requested", "BAD_REQUEST", "auto_approve_not_requested"],
+    ] as const) {
+      sources.store.setAutoApprove = async () => ({ outcome });
+      state.protection = {
+        met: true,
+        rule: { kind: "ruleset", requiredReviews: 1 },
+        pullRequest: null,
+      };
+      await expect(
+        sync.setAutoApprove(caller(), "research", "consent"),
+      ).rejects.toMatchObject({ code, details: { reason_code: reason } });
+    }
   });
 });
 

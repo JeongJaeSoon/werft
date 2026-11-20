@@ -1,0 +1,18 @@
+ALTER TABLE "extension_bundles" DROP CONSTRAINT "extension_bundles_review_actor_check";--> statement-breakpoint
+ALTER TABLE "extension_attachments" ALTER COLUMN "bundle_id" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "extension_attachments" ADD COLUMN "follows" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "extension_bundles" ADD COLUMN "current" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "skill_git_sources" ADD COLUMN "auto_approve" text DEFAULT 'off' NOT NULL;--> statement-breakpoint
+ALTER TABLE "skill_git_sources" ADD COLUMN "auto_approve_requested_by" uuid;--> statement-breakpoint
+ALTER TABLE "skill_git_sources" ADD COLUMN "auto_approve_consented_by" uuid;--> statement-breakpoint
+ALTER TABLE "skill_git_sources" ADD COLUMN "auto_approve_grant_id" uuid;--> statement-breakpoint
+ALTER TABLE "skill_git_sources" ADD CONSTRAINT "skill_git_sources_auto_approve_requested_by_users_id_fk" FOREIGN KEY ("auto_approve_requested_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "skill_git_sources" ADD CONSTRAINT "skill_git_sources_auto_approve_consented_by_users_id_fk" FOREIGN KEY ("auto_approve_consented_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "extension_bundles_workspace_name_current_idx" ON "extension_bundles" USING btree ("workspace_id","name") WHERE "extension_bundles"."current";--> statement-breakpoint
+ALTER TABLE "extension_attachments" ADD CONSTRAINT "extension_attachments_follows_check" CHECK (("extension_attachments"."bundle_id" IS NULL) = "extension_attachments"."follows" AND (NOT "extension_attachments"."follows" OR "extension_attachments"."mode" <> 'forbidden'));--> statement-breakpoint
+ALTER TABLE "extension_bundles" ADD CONSTRAINT "extension_bundles_current_check" CHECK (NOT "extension_bundles"."current" OR ("extension_bundles"."review" = 'approved' AND "extension_bundles"."archived_at" IS NULL AND "extension_bundles"."version" IS NOT NULL));--> statement-breakpoint
+ALTER TABLE "extension_bundles" ADD CONSTRAINT "extension_bundles_auto_review_check" CHECK ("extension_bundles"."reviewed_at" IS NULL OR "extension_bundles"."reviewed_by" IS NOT NULL OR ("extension_bundles"."review" = 'approved' AND "extension_bundles"."git" IS NOT NULL));--> statement-breakpoint
+ALTER TABLE "extension_bundles" ADD CONSTRAINT "extension_bundles_review_actor_check" CHECK (("extension_bundles"."review" = 'pending') = ("extension_bundles"."reviewed_at" IS NULL) AND ("extension_bundles"."reviewed_by" IS NULL OR "extension_bundles"."reviewed_at" IS NOT NULL));--> statement-breakpoint
+ALTER TABLE "skill_git_sources" ADD CONSTRAINT "skill_git_sources_auto_approve_check" CHECK ("skill_git_sources"."auto_approve" IN ('off', 'requested', 'on') AND ("skill_git_sources"."auto_approve" = 'off') = ("skill_git_sources"."auto_approve_requested_by" IS NULL) AND ("skill_git_sources"."auto_approve" = 'on') = ("skill_git_sources"."auto_approve_consented_by" IS NOT NULL) AND ("skill_git_sources"."auto_approve" = 'on') = ("skill_git_sources"."auto_approve_grant_id" IS NOT NULL));--> statement-breakpoint
+-- Each skill's current version starts as its highest approved, not archived one.
+UPDATE "extension_bundles" SET "current" = true WHERE "id" IN (SELECT DISTINCT ON ("workspace_id", "name") "id" FROM "extension_bundles" WHERE "version" IS NOT NULL AND "review" = 'approved' AND "archived_at" IS NULL ORDER BY "workspace_id", "name", "version" DESC);

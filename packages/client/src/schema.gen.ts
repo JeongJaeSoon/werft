@@ -3149,6 +3149,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/workspace/skills/{name}/sync/auto-approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Request, consent to or turn off a GitHub skill's auto-approve
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Auto-approve lets the sync approve a new version itself when its commit came in through a reviewed pull request on a protected branch. One manager `request`s it and another `consent`s (403 `self_consent` for the requester while another manager can; a workspace's only manager may, and the receipt says so); `off` turns it off at once. A request and a consent each check GitHub first: the ref must be a branch (400 `not_branch` for a tag or a commit) and a ruleset or classic branch protection on it must require a pull request with at least one approving review (400 `protection_missing`; classic protection is read only when the App may read administration, so without it the rule counts as missing); GitHub not answering is 502 `GITHUB_UNAVAILABLE`. A consent with nothing requested is 400 `auto_approve_not_requested`. While on, every check that makes a version reads the branch's rule and the pull requests of the commit: a merged pull request into that branch whose reviewers' last reviews include an approval by someone other than its author and no request for changes. The version is approved by the sync (an `approve_extension` receipt with who enabled and consented, the commit, the pull request and the rule); otherwise it stays `pending` and `last_check.auto_approval.reason` says why (`not_branch`, `protection_missing`, `no_reviewed_pull_request`, `github_unreachable`). Paused sync never auto-approves, not even POST …/sync/check. Each change writes an `update_extension_sync` receipt with the action; the state it already has answers `receipt_id: null`. A skill that is not from GitHub is 404.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** required.
+         */
+        put: operations["putSkillAutoApprove"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspace/skills/{name}/revert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a skill's current version one step back
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. The current version moves to the highest approved version below it that is not archived; refused with 400 `no_previous_version` when there is none (or no current version). New sessions of a following attachment then take that version; running ones keep theirs. The reverted version stays approved and becomes current again only through a higher version's approval, so it never comes back by itself. Sync and auto-approve stay as they are. Writes a `revert_extension` receipt with both versions.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["revertSkill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/workspace/skills/versions/{id}/files": {
         parameters: {
             query?: never;
@@ -3182,7 +3226,7 @@ export interface paths {
         put?: never;
         /**
          * Approve or reject a skill version
-         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. The one who registered the version may not review it while another live owner or admin can (403 `reason_code` `self_review`); a workspace with one manager lets that person review, and the `approve_extension` receipt then says `self_review: "sole_manager"`. An archived version is not reviewed (400 `version_archived`). The same decision again changes nothing and answers `receipt_id: null`. Rejecting a version a scope attaches stays allowed, as a recall: a `required` attachment then refuses every session start it reaches and an `optional` one is left out, until the attachment is taken back.
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. The one who registered the version may not review it while another live owner or admin can (403 `reason_code` `self_review`); a workspace with one manager lets that person review, and the `approve_extension` receipt then says `self_review: "sole_manager"`. An archived version is not reviewed (400 `version_archived`). The same decision again changes nothing and answers `receipt_id: null`. Rejecting a version a scope attaches stays allowed, as a recall: a `required` attachment then refuses every session start it reaches and an `optional` one is left out, until the attachment is taken back. Approving a version whose number is higher than the skill's current version makes it current; rejecting the current version moves it back to the highest approved version below that is not archived, or to none. The receipt then records `current` with both version numbers.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3204,7 +3248,7 @@ export interface paths {
         put?: never;
         /**
          * Archive a skill version
-         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. An archived version is never attached again and is not reviewed; its tree stays, so a session that ran it can still be read. Refused with 400 while a workspace or agent scope names it (`version_attached`) or a session that has not ended runs it (`version_in_use`), and with 403 `self_review` for the one who registered it while another manager can. Writes an `archive_extension` receipt; an archived version again answers `receipt_id: null`.
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. An archived version is never attached again and is not reviewed; its tree stays, so a session that ran it can still be read. Refused with 400 while a workspace or agent scope names it (`version_attached`), while it is the skill's current version (`version_current`: revert or reject it first) or a session that has not ended runs it (`version_in_use`), and with 403 `self_review` for the one who registered it while another manager can. Writes an `archive_extension` receipt; an archived version again answers `receipt_id: null`.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3225,7 +3269,7 @@ export interface paths {
         get?: never;
         /**
          * Name the skill version every agent of the workspace gets
-         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. `version_id` must be a version of `name` (400 `version_name_mismatch`), approved (`version_not_approved`) and not archived (`version_archived`); `mode: forbidden` takes any version that is not archived, approved or not, since it only keeps the name out. Replaces what the scope named before. A session takes it when it starts. Writes an `attach_extension` receipt.
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. `version_id` must be a version of `name` (400 `version_name_mismatch`), approved (`version_not_approved`) and not archived (`version_archived`); `mode: forbidden` takes any version that is not archived, approved or not, since it only keeps the name out. `follow: true` (with `required` or `optional`) instead follows the skill's current version: each new session takes the version current when it starts, so approving a higher version or reverting moves what the next session gets and never a running one. Replaces what the scope named before. A session takes it when it starts. Writes an `attach_extension` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -5164,7 +5208,7 @@ export interface components {
             repository_id?: string;
             /** @description Catalog repositories besides the session's own that it may fetch, push to and open pull requests on. Each one has to be listed in the agent release's GitHub settings (`github.repositories`), inside the workspace ceiling, and other than the session's repository; otherwise 403 `GITHUB_REFUSED` with `repository_not_allowed`, as is any list sent for an agent with no GitHub settings. A session started without a repository works on these alone, and names one in each push request. Omitted, the same as `[]`: the session starts with none besides its own, and its agent attaches others the release lists with the built-in MCP tool `attach_repository` when it needs them. */
             attached_repository_ids?: string[];
-            /** @description Turns extension bundles on or off for this session, by the bundle ids the workspace registered. Only a bundle its agent or workspace left `optional` can be named; a `required` one is always on and a `forbidden` one cannot be turned on, else `UNSUPPORTED_CAPABILITY` with `details.reason_code` naming why (`required_removed`, `required_replaced`, `forbidden_revived`, `not_optional`, `bundle_not_found`, `bundle_not_approved`, `skill_name_collision`, `feature_unsupported`) and `details.bundle` the bundle name. An `optional` bundle not named in `enable` stays off. The resolved list is fixed at create and returned as `extensions`. */
+            /** @description Turns extension bundles on or off for this session, by the bundle ids the workspace registered. Only a bundle its agent or workspace left `optional` can be named; a `required` one is always on and a `forbidden` one cannot be turned on, else `UNSUPPORTED_CAPABILITY` with `details.reason_code` naming why (`required_removed`, `required_replaced`, `forbidden_revived`, `not_optional`, `bundle_not_found`, `bundle_not_approved`, `no_current_version`, `skill_name_collision`, `feature_unsupported`) and `details.bundle` the bundle name. An attachment that follows a skill's current version uses the version current at create, and is left out (`optional`) or refused with `no_current_version` (`required`) while the skill has none. An `optional` bundle not named in `enable` stays off. The resolved list is fixed at create and returned as `extensions`. */
             extensions?: {
                 enable?: string[];
                 disable?: string[];
@@ -8065,7 +8109,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "delete_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_agent_usage" | "set_agent_caller_limits" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "request_surface_binding" | "resolve_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "merge_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_github_pull_request_settings" | "set_agent_pull_request_settings" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "create_connection" | "create_mcp_server" | "set_settings_credential" | "set_connection_auto_mode" | "set_connection_models" | "disable_connection" | "enable_connection" | "disable_mcp_server" | "set_mcp_server_workspaces" | "resolve_repository" | "set_agent_github" | "set_agent_mcp" | "set_agent_workspace_mcp" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement" | "set_env_variable" | "delete_env_variable" | "set_env_variable_grants" | "resolve_session_env" | "reject_session_env" | "resolve_session_engine_settings" | "set_workspace_engine_settings" | "set_agent_engine_settings" | "register_extension" | "approve_extension" | "attach_extension" | "detach_extension" | "archive_extension" | "update_extension_sync" | "create_login_provider" | "update_login_provider" | "refresh_login_provider_discovery" | "set_login_provider_secret" | "test_login_provider" | "enable_login_provider" | "disable_login_provider" | "delete_login_provider" | "link_login_method" | "unlink_login_method" | "set_password_login" | "set_emergency_admin" | "update_slack_settings" | "update_installation_config" | "create_workspace_mcp_server" | "delete_workspace_mcp_server" | "set_workspace_mcp_credential" | "connect_workspace_mcp_server" | "disconnect_workspace_mcp_server";
+            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "delete_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_agent_usage" | "set_agent_caller_limits" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "request_surface_binding" | "resolve_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "merge_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_github_pull_request_settings" | "set_agent_pull_request_settings" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "create_connection" | "create_mcp_server" | "set_settings_credential" | "set_connection_auto_mode" | "set_connection_models" | "disable_connection" | "enable_connection" | "disable_mcp_server" | "set_mcp_server_workspaces" | "resolve_repository" | "set_agent_github" | "set_agent_mcp" | "set_agent_workspace_mcp" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement" | "set_env_variable" | "delete_env_variable" | "set_env_variable_grants" | "resolve_session_env" | "reject_session_env" | "resolve_session_engine_settings" | "set_workspace_engine_settings" | "set_agent_engine_settings" | "register_extension" | "approve_extension" | "attach_extension" | "detach_extension" | "archive_extension" | "revert_extension" | "update_extension_sync" | "create_login_provider" | "update_login_provider" | "refresh_login_provider_discovery" | "set_login_provider_secret" | "test_login_provider" | "enable_login_provider" | "disable_login_provider" | "delete_login_provider" | "link_login_method" | "unlink_login_method" | "set_password_login" | "set_emergency_admin" | "update_slack_settings" | "update_installation_config" | "create_workspace_mcp_server" | "delete_workspace_mcp_server" | "set_workspace_mcp_credential" | "connect_workspace_mcp_server" | "disconnect_workspace_mcp_server";
             target_ref: {
                 /** Format: uuid */
                 session_id: string;
@@ -11209,6 +11253,13 @@ export interface components {
                     sync_enabled: boolean;
                     /** @enum {string} */
                     webhook: "ready" | "no_public_url" | "no_secret";
+                    /** @description Protected-branch auto-approve: one manager requests, another consents. */
+                    auto_approve: {
+                        /** @enum {string} */
+                        state: "off" | "requested" | "on";
+                        requested_by: string | null;
+                        consented_by: string | null;
+                    };
                     last_check: {
                         /** Format: date-time */
                         at: string;
@@ -11228,6 +11279,18 @@ export interface components {
                             code: string;
                             message: string;
                         }[];
+                        /** @description How the new version's auto-approval went (`created` with auto-approve on); null otherwise. */
+                        auto_approval: {
+                            /** @enum {string} */
+                            result: "approved" | "pending";
+                            reason: ("not_branch" | "protection_missing" | "no_reviewed_pull_request" | "github_unreachable") | null;
+                            rule: {
+                                /** @enum {string} */
+                                kind: "ruleset" | "branch_protection";
+                                required_reviews: number;
+                            } | null;
+                            pull_request: number | null;
+                        } | null;
                     } | null;
                 } | null;
                 pending_count: number;
@@ -11261,13 +11324,17 @@ export interface components {
                     registered_by: string | null;
                     /** Format: date-time */
                     registered_at: string;
+                    /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
                     reviewed_by: string | null;
                     reviewed_at: string | null;
                     archived_at: string | null;
+                    /** @description The skill's current version: what a following attachment uses in a new session. */
+                    current: boolean;
                 }[];
                 workspace_attachment: {
-                    /** Format: uuid */
-                    version_id: string;
+                    /** @description The version named; for a following attachment the current version, null while there is none. */
+                    version_id: string | null;
+                    follows: boolean;
                     /** @enum {string} */
                     mode: "required" | "optional" | "forbidden";
                 } | null;
@@ -11316,9 +11383,12 @@ export interface components {
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
+                /** @description The skill's current version: what a following attachment uses in a new session. */
+                current: boolean;
             };
             receipt_id: string | null;
         };
@@ -11362,6 +11432,18 @@ export interface components {
                     code: string;
                     message: string;
                 }[];
+                /** @description How the new version's auto-approval went (`created` with auto-approve on); null otherwise. */
+                auto_approval: {
+                    /** @enum {string} */
+                    result: "approved" | "pending";
+                    reason: ("not_branch" | "protection_missing" | "no_reviewed_pull_request" | "github_unreachable") | null;
+                    rule: {
+                        /** @enum {string} */
+                        kind: "ruleset" | "branch_protection";
+                        required_reviews: number;
+                    } | null;
+                    pull_request: number | null;
+                } | null;
             } | null;
         };
         PutSkillSyncRequest: {
@@ -11380,6 +11462,13 @@ export interface components {
                 sync_enabled: boolean;
                 /** @enum {string} */
                 webhook: "ready" | "no_public_url" | "no_secret";
+                /** @description Protected-branch auto-approve: one manager requests, another consents. */
+                auto_approve: {
+                    /** @enum {string} */
+                    state: "off" | "requested" | "on";
+                    requested_by: string | null;
+                    consented_by: string | null;
+                };
                 last_check: {
                     /** Format: date-time */
                     at: string;
@@ -11399,10 +11488,106 @@ export interface components {
                         code: string;
                         message: string;
                     }[];
+                    /** @description How the new version's auto-approval went (`created` with auto-approve on); null otherwise. */
+                    auto_approval: {
+                        /** @enum {string} */
+                        result: "approved" | "pending";
+                        reason: ("not_branch" | "protection_missing" | "no_reviewed_pull_request" | "github_unreachable") | null;
+                        rule: {
+                            /** @enum {string} */
+                            kind: "ruleset" | "branch_protection";
+                            required_reviews: number;
+                        } | null;
+                        pull_request: number | null;
+                    } | null;
                 } | null;
             };
             /** @description Null when sync already was in that state. */
             receipt_id: string | null;
+        };
+        PutSkillAutoApproveRequest: {
+            /**
+             * @description `request` and `consent` are by two managers (one, when the workspace has one); `off` turns it off at once.
+             * @enum {string}
+             */
+            action: "request" | "consent" | "off";
+        };
+        RevertSkillResponse: {
+            name: string;
+            from: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                /** @description The registration order of this name: 1, 2, … Null on a bundle registered before skills, which no new version can join. */
+                version: number | null;
+                digest: string;
+                /** @enum {string} */
+                source: "upload" | "github";
+                git: {
+                    repository_id: number;
+                    path: string;
+                    ref: string;
+                    commit: string;
+                    trigger: {
+                        /** @enum {string} */
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        delivery_id: string | null;
+                        user_id: string | null;
+                    };
+                } | null;
+                size_bytes: number;
+                has_scripts: boolean;
+                /** @enum {string} */
+                review: "pending" | "approved" | "rejected";
+                /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
+                registered_by: string | null;
+                /** Format: date-time */
+                registered_at: string;
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                reviewed_by: string | null;
+                reviewed_at: string | null;
+                archived_at: string | null;
+                /** @description The skill's current version: what a following attachment uses in a new session. */
+                current: boolean;
+            };
+            to: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                /** @description The registration order of this name: 1, 2, … Null on a bundle registered before skills, which no new version can join. */
+                version: number | null;
+                digest: string;
+                /** @enum {string} */
+                source: "upload" | "github";
+                git: {
+                    repository_id: number;
+                    path: string;
+                    ref: string;
+                    commit: string;
+                    trigger: {
+                        /** @enum {string} */
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        delivery_id: string | null;
+                        user_id: string | null;
+                    };
+                } | null;
+                size_bytes: number;
+                has_scripts: boolean;
+                /** @enum {string} */
+                review: "pending" | "approved" | "rejected";
+                /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
+                registered_by: string | null;
+                /** Format: date-time */
+                registered_at: string;
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                reviewed_by: string | null;
+                reviewed_at: string | null;
+                archived_at: string | null;
+                /** @description The skill's current version: what a following attachment uses in a new session. */
+                current: boolean;
+            };
+            /** Format: uuid */
+            receipt_id: string;
         };
         GitHubWebhookResponse: {
             /** @constant */
@@ -11438,9 +11623,12 @@ export interface components {
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
+                /** @description The skill's current version: what a following attachment uses in a new session. */
+                current: boolean;
             };
             previous_approved: {
                 /** Format: uuid */
@@ -11471,9 +11659,12 @@ export interface components {
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
+                /** @description The skill's current version: what a following attachment uses in a new session. */
+                current: boolean;
             } | null;
             /** @description Every file of the stored tree, by path. */
             files: {
@@ -11533,9 +11724,12 @@ export interface components {
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
+                /** @description The skill's current version: what a following attachment uses in a new session. */
+                current: boolean;
             };
             /** @description Null when the version already was in that state. */
             receipt_id: string | null;
@@ -11545,6 +11739,14 @@ export interface components {
             version_id: string;
             /** @enum {string} */
             mode: "required" | "optional" | "forbidden";
+        } | {
+            /**
+             * @description Follow the skill's current version: each new session takes the one current when it starts.
+             * @constant
+             */
+            follow: true;
+            /** @enum {string} */
+            mode: "required" | "optional";
         };
         SkillAttachmentResponse: {
             name: string;
@@ -11553,8 +11755,9 @@ export interface components {
             agent_id: string | null;
             /** @description The version and mode the scope now names; null once taken back. */
             attachment: {
-                /** Format: uuid */
-                version_id: string;
+                /** @description The version named; for a following attachment the current version, null while there is none. */
+                version_id: string | null;
+                follows: boolean;
                 /** @enum {string} */
                 mode: "required" | "optional" | "forbidden";
             } | null;
@@ -11568,6 +11771,8 @@ export interface components {
                 scope: "workspace" | "agent";
                 /** @enum {string} */
                 mode: "required" | "optional" | "forbidden";
+                follows: boolean;
+                /** @description The version named; for a following attachment the current version, null while there is none. */
                 version: {
                     /** Format: uuid */
                     id: string;
@@ -11597,10 +11802,13 @@ export interface components {
                     registered_by: string | null;
                     /** Format: date-time */
                     registered_at: string;
+                    /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
                     reviewed_by: string | null;
                     reviewed_at: string | null;
                     archived_at: string | null;
-                };
+                    /** @description The skill's current version: what a following attachment uses in a new session. */
+                    current: boolean;
+                } | null;
             }[];
         };
         PutAgentWorkspaceMcpServersRequest: {
@@ -33826,11 +34034,13 @@ export interface operations {
                      *               "registered_at": "2026-11-20T09:00:00.000Z",
                      *               "reviewed_by": "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21",
                      *               "reviewed_at": "2026-11-20T10:00:00.000Z",
-                     *               "archived_at": null
+                     *               "archived_at": null,
+                     *               "current": true
                      *             }
                      *           ],
                      *           "workspace_attachment": {
                      *             "version_id": "7c3e9a1f-2d4b-4e6a-8f0c-5b1d3e7a9c20",
+                     *             "follows": true,
                      *             "mode": "required"
                      *           }
                      *         }
@@ -33940,7 +34150,8 @@ export interface operations {
                      *         "registered_at": "2026-11-20T09:00:00.000Z",
                      *         "reviewed_by": null,
                      *         "reviewed_at": null,
-                     *         "archived_at": null
+                     *         "archived_at": null,
+                     *         "current": true
                      *       },
                      *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
                      *     }
@@ -34115,7 +34326,8 @@ export interface operations {
                      *         "registered_at": "2026-11-20T09:00:00.000Z",
                      *         "reviewed_by": null,
                      *         "reviewed_at": null,
-                     *         "archived_at": null
+                     *         "archived_at": null,
+                     *         "current": true
                      *       },
                      *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
                      *     }
@@ -34267,7 +34479,8 @@ export interface operations {
                      *         "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
                      *         "result": "unchanged",
                      *         "version_id": null,
-                     *         "issues": []
+                     *         "issues": [],
+                     *         "auto_approval": null
                      *       }
                      *     }
                      */
@@ -34397,6 +34610,11 @@ export interface operations {
                      *         "path": "skills/release-notes",
                      *         "ref": "main",
                      *         "sync_enabled": false,
+                     *         "auto_approve": {
+                     *           "state": "off",
+                     *           "requested_by": null,
+                     *           "consented_by": null
+                     *         },
                      *         "webhook": "no_public_url",
                      *         "last_check": {
                      *           "at": "2026-11-21T09:00:00.000Z",
@@ -34408,7 +34626,8 @@ export interface operations {
                      *           "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
                      *           "result": "unchanged",
                      *           "version_id": null,
-                     *           "issues": []
+                     *           "issues": [],
+                     *           "auto_approval": null
                      *         }
                      *       },
                      *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
@@ -34418,6 +34637,344 @@ export interface operations {
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    putSkillAutoApprove: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
+                "Idempotency-Key": string;
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                /** @description The skill's name. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "action": "request"
+                 *     }
+                 */
+                "application/json": components["schemas"]["PutSkillAutoApproveRequest"];
+            };
+        };
+        responses: {
+            /** @description The skill's source as it is now. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "name": "release-notes",
+                     *       "git": {
+                     *         "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                     *         "installation_id": 4242,
+                     *         "repository_id": 123456789,
+                     *         "repository": "acme/skills",
+                     *         "path": "skills/release-notes",
+                     *         "ref": "main",
+                     *         "sync_enabled": true,
+                     *         "auto_approve": {
+                     *           "state": "requested",
+                     *           "requested_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *           "consented_by": null
+                     *         },
+                     *         "webhook": "no_public_url",
+                     *         "last_check": {
+                     *           "at": "2026-11-21T09:00:00.000Z",
+                     *           "trigger": {
+                     *             "kind": "webhook",
+                     *             "delivery_id": "72d3162e-cc78-11e3-81ab-4c9367dc0958",
+                     *             "user_id": null
+                     *           },
+                     *           "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                     *           "result": "unchanged",
+                     *           "version_id": null,
+                     *           "issues": [],
+                     *           "auto_approval": null
+                     *         }
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SkillSyncResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `GITHUB_UNAVAILABLE`: GitHub did not give the App's installations or repositories. `error.details.reason_code` is `github_unavailable` (GitHub did not answer, answered 5xx, or rate-limited the App; try again later) or `github_app_auth_failed` (GitHub refused the App's JWT: the key was revoked or the App deleted; a retry does not help). */
+            502: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "GITHUB_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    revertSkill: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                /** @description The skill's name. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The version it left and the one now current. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "name": "release-notes",
+                     *       "from": {
+                     *         "id": "7c3e9a1f-2d4b-4e6a-8f0c-5b1d3e7a9c20",
+                     *         "name": "release-notes",
+                     *         "version": 3,
+                     *         "digest": "9f2c4e6a8b0d1f3e5a7c9b2d4f6e8a0c1b3d5f7e9a2c4b6d8f0e1a3c5b7d9f2e",
+                     *         "source": "upload",
+                     *         "git": null,
+                     *         "size_bytes": 4608,
+                     *         "has_scripts": true,
+                     *         "review": "approved",
+                     *         "registered_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "registered_at": "2026-11-20T09:00:00.000Z",
+                     *         "reviewed_by": "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21",
+                     *         "reviewed_at": "2026-11-20T10:00:00.000Z",
+                     *         "archived_at": null,
+                     *         "current": false
+                     *       },
+                     *       "to": {
+                     *         "id": "7c3e9a1f-2d4b-4e6a-8f0c-5b1d3e7a9c20",
+                     *         "name": "release-notes",
+                     *         "version": 2,
+                     *         "digest": "9f2c4e6a8b0d1f3e5a7c9b2d4f6e8a0c1b3d5f7e9a2c4b6d8f0e1a3c5b7d9f2e",
+                     *         "source": "upload",
+                     *         "git": null,
+                     *         "size_bytes": 4608,
+                     *         "has_scripts": true,
+                     *         "review": "approved",
+                     *         "registered_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "registered_at": "2026-11-20T09:00:00.000Z",
+                     *         "reviewed_by": "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21",
+                     *         "reviewed_at": "2026-11-20T10:00:00.000Z",
+                     *         "archived_at": null,
+                     *         "current": true
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["RevertSkillResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: . Fix the request before retrying. */
             400: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -34546,7 +35103,8 @@ export interface operations {
                      *         "registered_at": "2026-11-20T09:00:00.000Z",
                      *         "reviewed_by": null,
                      *         "reviewed_at": null,
-                     *         "archived_at": null
+                     *         "archived_at": null,
+                     *         "current": true
                      *       },
                      *       "previous_approved": null,
                      *       "files": [
@@ -34677,7 +35235,8 @@ export interface operations {
                      *         "registered_at": "2026-11-20T09:00:00.000Z",
                      *         "reviewed_by": "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21",
                      *         "reviewed_at": "2026-11-20T10:00:00.000Z",
-                     *         "archived_at": null
+                     *         "archived_at": null,
+                     *         "current": true
                      *       },
                      *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
                      *     }
@@ -34832,7 +35391,8 @@ export interface operations {
                      *         "registered_at": "2026-11-20T09:00:00.000Z",
                      *         "reviewed_by": "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21",
                      *         "reviewed_at": "2026-11-20T10:00:00.000Z",
-                     *         "archived_at": "2026-11-21T09:00:00.000Z"
+                     *         "archived_at": "2026-11-21T09:00:00.000Z",
+                     *         "current": true
                      *       },
                      *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
                      *     }
@@ -34973,6 +35533,7 @@ export interface operations {
                      *       "agent_id": null,
                      *       "attachment": {
                      *         "version_id": "7c3e9a1f-2d4b-4e6a-8f0c-5b1d3e7a9c20",
+                     *         "follows": false,
                      *         "mode": "required"
                      *       },
                      *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
@@ -35229,6 +35790,7 @@ export interface operations {
                      *           "name": "release-notes",
                      *           "scope": "workspace",
                      *           "mode": "required",
+                     *           "follows": true,
                      *           "version": {
                      *             "id": "7c3e9a1f-2d4b-4e6a-8f0c-5b1d3e7a9c20",
                      *             "name": "release-notes",
@@ -35243,7 +35805,8 @@ export interface operations {
                      *             "registered_at": "2026-11-20T09:00:00.000Z",
                      *             "reviewed_by": "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21",
                      *             "reviewed_at": "2026-11-20T10:00:00.000Z",
-                     *             "archived_at": null
+                     *             "archived_at": null,
+                     *             "current": true
                      *           }
                      *         }
                      *       ]
@@ -35357,6 +35920,7 @@ export interface operations {
                      *       "agent_id": "8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d",
                      *       "attachment": {
                      *         "version_id": "7c3e9a1f-2d4b-4e6a-8f0c-5b1d3e7a9c20",
+                     *         "follows": false,
                      *         "mode": "optional"
                      *       },
                      *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
