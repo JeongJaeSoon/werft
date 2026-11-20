@@ -82,7 +82,7 @@ import {
 import {
   PreviewChat,
   PublishDialog,
-  previewRelease,
+  releaseOf,
   usePublishAgent,
 } from "./agent-preview.tsx";
 import { agentRefusal } from "./agent-refusal.ts";
@@ -433,12 +433,13 @@ export function NewAgentFlow({
           }),
     )) as SaveAgentResponse;
     const { release: outcome, ...detail } = response;
-    // A save that changed nothing made no release; the one before stands.
+    // A save that changed nothing made no release: the one already made for
+    // what it saved stands, which another admin may have made meanwhile.
     const releaseId =
       outcome.status === "saved" || outcome.status === "applied"
         ? outcome.release_id
         : outcome.status === "unchanged"
-          ? (saved?.releaseId ?? previewRelease(detail)?.id ?? null)
+          ? (releaseOf(detail, outcome.version_id, connection)?.id ?? null)
           : null;
     const draft: SavedDraft = {
       agentId: detail.agent.id,

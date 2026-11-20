@@ -1901,6 +1901,151 @@ describe("게시 전 에이전트", () => {
     );
   });
 
+  const unchangedAt = (
+    server: ReturnType<typeof agentServer>,
+    versionId: string,
+  ) =>
+    json(200, {
+      ...server.detail(),
+      release: {
+        status: "unchanged",
+        reason: null,
+        release_id: null,
+        version_id: versionId,
+      },
+    });
+
+  test("다시 저장해 바뀐 것이 없다고 하면 그 버전의 릴리스를 미리 써 본다", async () => {
+    const server = agentServer();
+    const patch = server.routes[`PATCH /v1/agents/${AGENT_ID}`];
+    let unchanged = false;
+    const { api, history } = renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+      ...previewSession(),
+      [`PATCH /v1/agents/${AGENT_ID}`]: (request: Request) =>
+        unchanged ? unchangedAt(server, SECOND_VERSION) : patch(request),
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await fillJob(user);
+    await atStep("미리 써 보기");
+    // Another admin saved, as a release of its own, what this screen saves.
+    const first = server.versions[0] as (typeof server.versions)[number];
+    server.versions.push({
+      ...first,
+      id: SECOND_VERSION,
+      version_no: 2,
+      content_sha256: "f".repeat(64),
+    });
+    server.releases.push(
+      releaseFixture(5, { id: "rel-other", versionId: SECOND_VERSION }),
+    );
+    unchanged = true;
+    act(() => history.back());
+    await atStep("하는 일");
+    await user.click(
+      screen.getByRole("button", { name: "저장하고 미리 써 보기" }),
+    );
+    await atStep("미리 써 보기");
+    await user.type(screen.getByLabelText("보낼 메시지"), "안녕");
+    await user.click(screen.getByRole("button", { name: "보내기" }));
+    await screen.findByRole("link", { name: "세션 열기" });
+    expect(
+      (posted(api, "/v1/sessions") as { agent_release_id: string })
+        .agent_release_id,
+    ).toBe("rel-other");
+  });
+
+  test("마지막 저장의 릴리스를 만들지 못했으면 상세는 이전 릴리스 대신 이유를 보인다", async () => {
+    const server = agentServer();
+    await saveOnly(server, CARD);
+    await server.routes[`PATCH /v1/agents/${AGENT_ID}`](
+      new Request("https://console.test/", {
+        method: "PATCH",
+        body: JSON.stringify({
+          card: CARD,
+          connection_id: "connection_gone",
+          activate: false,
+        }),
+      }),
+    );
+    renderAt(DETAIL, { ...meOk, ...server.routes });
+    const notice = (
+      await screen.findByText("아직 게시하지 않았습니다")
+    ).closest("[data-status=unpublished]") as HTMLElement;
+    expect(notice.textContent).toContain(
+      "마지막으로 저장한 설정으로 릴리스를 만들지 못했습니다",
+    );
+    expect(within(notice).queryByRole("button")).toBeNull();
+  });
+
+  test("답을 받지 못한 다음 메시지는 다시 보내도 같은 키로 간다", async () => {
+    const server = agentServer();
+    await saveOnly(server, CARD);
+    const session = previewSession();
+    const answers = [
+      () => Promise.reject(new TypeError("Failed to fetch")),
+      session[`POST /v1/sessions/${PREVIEW_SESSION}/messages`],
+    ];
+    const { api } = renderAt(DETAIL, {
+      ...meOk,
+      ...server.routes,
+      ...session,
+      [`POST /v1/sessions/${PREVIEW_SESSION}/messages`]: () =>
+        (answers.shift() as () => Response | Promise<Response>)(),
+    });
+    const user = await setupUser();
+    const notice = (
+      await screen.findByText("아직 게시하지 않았습니다")
+    ).closest("[data-status=unpublished]") as HTMLElement;
+    await user.click(
+      within(notice).getByRole("button", { name: "미리 써 보기" }),
+    );
+    const preview = await screen.findByRole("dialog");
+    const field = within(preview).getByLabelText("보낼 메시지");
+    const sendButton = within(preview).getByRole("button", { name: "보내기" });
+    await user.type(field, "처음");
+    await user.click(sendButton);
+    await within(preview).findByRole("link", { name: "세션 열기" });
+    await user.type(field, "다음");
+    await user.click(sendButton);
+    await within(preview).findByRole("alert");
+    await user.click(sendButton);
+    await waitFor(() => expect((field as HTMLTextAreaElement).value).toBe(""));
+    const keys = api.calls
+      .filter((c) => c.path === `/v1/sessions/${PREVIEW_SESSION}/messages`)
+      .map((c) => c.headers.get("idempotency-key"));
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(keys[1] ?? "missing");
+  });
+
+  test("바뀐 것 없이 저장만 하고 미리 써 보기는 켜져 있는 릴리스로 미리보기를 연다", async () => {
+    const server = agentServer();
+    await seedRelease(server);
+    const on = server.detail().agent.active_release_id;
+    const { api } = renderAt(CARD_TAB, {
+      ...meOk,
+      ...server.routes,
+      ...previewSession(),
+      [`PATCH /v1/agents/${AGENT_ID}`]: () =>
+        unchangedAt(server, server.versions[0]?.id ?? "missing"),
+    });
+    const user = await setupUser();
+    await openCardEditor(user);
+    await user.click(
+      await screen.findByRole("button", { name: "저장만 하고 미리 써 보기" }),
+    );
+    const preview = await screen.findByRole("dialog");
+    await user.type(within(preview).getByLabelText("보낼 메시지"), "확인");
+    await user.click(within(preview).getByRole("button", { name: "보내기" }));
+    await within(preview).findByRole("link", { name: "세션 열기" });
+    expect(
+      (posted(api, "/v1/sessions") as { agent_release_id: string })
+        .agent_release_id,
+    ).toBe(on ?? "missing");
+  });
+
   test("상세는 게시 전이라고 알리고, 거기서 미리 써 보고 게시한다", async () => {
     const server = agentServer();
     await saveOnly(server, CARD);

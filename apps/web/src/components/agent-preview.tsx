@@ -6,19 +6,16 @@ import type {
   AgentDetail,
   AgentRelease,
   CreateSessionResponse,
+  PostSessionMessageResponse,
 } from "@werft-ai/contracts";
 import {
   agentSessionListsFilter,
   sessionQuery,
   sessionsQuery,
+  sessionTurnsQuery,
   waitingSessionsQuery,
 } from "@werft-ai/core";
-import {
-  useSendMessage,
-  useSessionEvents,
-  useSessionTurns,
-  useWerft,
-} from "@werft-ai/react";
+import { useSessionEvents, useSessionTurns, useWerft } from "@werft-ai/react";
 import { SessionChat } from "@werft-ai/react/blocks";
 import {
   Button,
@@ -44,24 +41,36 @@ import { FormError } from "./auth-page.tsx";
 
 const utf8 = new TextEncoder();
 
+const newest = (releases: readonly AgentRelease[]) =>
+  [...releases].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+
+/** The newest release of this version on this connection. */
+export function releaseOf(
+  detail: AgentDetail,
+  versionId: string | null,
+  connectionId: string,
+): AgentRelease | undefined {
+  return newest(
+    detail.releases.filter(
+      (release) =>
+        release.version_id === versionId &&
+        release.connection_id === connectionId,
+    ),
+  );
+}
+
 /**
  * The release a preview tries on this agent: the one its draft saved, else,
- * before any is published, the newest. None when nothing waits to be tried.
+ * with no draft and none published, the newest. None when nothing waits to
+ * be tried, or when the draft's release was never made: an older one would
+ * stand in for the settings last saved.
  */
 export function previewRelease(detail: AgentDetail): AgentRelease | undefined {
-  const newest = (releases: readonly AgentRelease[]) =>
-    [...releases].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
   const { draft } = detail;
-  const drafted = draft
-    ? newest(
-        detail.releases.filter(
-          (release) =>
-            release.version_id === draft.version_id &&
-            release.connection_id === draft.connection_id,
-        ),
-      )
-    : undefined;
-  if (drafted && drafted.id !== detail.agent.active_release_id) return drafted;
+  if (draft) {
+    const drafted = releaseOf(detail, draft.version_id, draft.connection_id);
+    return drafted?.id === detail.agent.active_release_id ? undefined : drafted;
+  }
   return detail.agent.active_release_id === null
     ? newest(detail.releases)
     : undefined;
@@ -73,6 +82,11 @@ type StartBody = {
   preview: true;
 };
 type Attempt = { readonly key: string; readonly body: StartBody };
+type FollowUp = {
+  readonly key: string;
+  readonly sessionId: string;
+  readonly message: string;
+};
 
 /**
  * Tries a release in a preview session: the first message starts one, the
@@ -124,7 +138,29 @@ export function PreviewChat({
       if (error.status >= 400 && error.status < 500) unanswered.current = null;
     },
   });
-  const send = useSendMessage(sessionId ?? "");
+  // The same holds for a later message: resent, it keeps its key.
+  const unsent = useRef<FollowUp | null>(null);
+  const send = useMutation<PostSessionMessageResponse, ApiError, FollowUp>({
+    mutationFn: ({ key, sessionId: id, message: text }) =>
+      unwrap(
+        client.POST("/v1/sessions/{id}/messages", {
+          params: { path: { id }, header: { "Idempotency-Key": key } },
+          body: { message: text, mode: "enqueue" },
+        }),
+      ) as Promise<PostSessionMessageResponse>,
+    onSuccess: (_, { sessionId: id }) => {
+      unsent.current = null;
+      setMessage("");
+      void queryClient.invalidateQueries({
+        ...sessionQuery(client, id),
+        exact: true,
+      });
+      void queryClient.invalidateQueries(sessionTurnsQuery(client, id));
+    },
+    onError: (error) => {
+      if (error.status >= 400 && error.status < 500) unsent.current = null;
+    },
+  });
   const open = sessionId !== null;
   const events = useSessionEvents(sessionId ?? "", open);
   const turns = useSessionTurns(sessionId ?? "", open);
@@ -145,7 +181,13 @@ export function PreviewChat({
     }
     if (tooLong) return;
     if (sessionId !== null) {
-      send.mutate({ message }, { onSuccess: () => setMessage("") });
+      const again = unsent.current;
+      const followUp =
+        again?.sessionId === sessionId && again.message === message
+          ? again
+          : { key: crypto.randomUUID(), sessionId, message };
+      unsent.current = followUp;
+      send.mutate(followUp);
       return;
     }
     const resend = unanswered.current;

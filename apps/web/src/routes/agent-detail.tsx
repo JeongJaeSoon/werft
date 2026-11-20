@@ -44,6 +44,7 @@ import { AccessTab } from "./agent-detail/access-tab.tsx";
 import { AdminsTab } from "./agent-detail/admins-tab.tsx";
 import { AgentNotFound } from "./agent-detail/agent-not-found.tsx";
 import { CardTab } from "./agent-detail/card-tab.tsx";
+import { saveFailureText } from "./agent-detail/effective-behavior.tsx";
 import { GitHubPanel, SlackPanel } from "./agent-detail/lazy-tabs.tsx";
 import {
   AGENT_TABS,
@@ -341,6 +342,13 @@ function UnpublishedAlert({
     <Alert variant="blue" data-status="unpublished">
       <AlertTitle>{t("agent.unpublished.title")}</AlertTitle>
       <AlertDescription>{t("agent.unpublished.body")}</AlertDescription>
+      {!release && detail.draft?.failure ? (
+        <AlertDescription>
+          {t("agent.unpublished.failed", {
+            reason: saveFailureText(t, detail.draft.failure),
+          })}
+        </AlertDescription>
+      ) : null}
       {release ? (
         <AlertActions>
           <Button

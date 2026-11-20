@@ -113,6 +113,8 @@ export const agentsKo = {
   "agent.unpublished.title": "아직 게시하지 않았습니다",
   "agent.unpublished.body":
     "이 에이전트의 관리자와 워크스페이스 관리자만 이 에이전트를 봅니다. 미리 써 본 뒤 게시하면 담당 팀이 씁니다.",
+  "agent.unpublished.failed":
+    "마지막으로 저장한 설정으로 릴리스를 만들지 못했습니다: {reason}. 상세 설정에서 다시 저장하면 미리 써 볼 수 있습니다.",
   "agent.published":
     "게시했습니다. 이제 담당 팀 {team}이(가) 이 에이전트를 씁니다.",
   "agent.releases.preview": "미리 써 보기",
@@ -607,6 +609,8 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.unpublished.title": "Not published yet",
   "agent.unpublished.body":
     "Only this agent's admins and the workspace's admins see this agent. Try it, then publish it for the responsible team.",
+  "agent.unpublished.failed":
+    "The settings saved last could not be released: {reason}. Save them again in Settings to try the agent.",
   "agent.published":
     "Published. The responsible team {team} now uses this agent.",
   "agent.releases.preview": "Preview",
@@ -1089,6 +1093,8 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.unpublished.title": "まだ公開していません",
   "agent.unpublished.body":
     "このエージェントの管理者とワークスペースの管理者だけがこのエージェントを見られます。試してから公開すると担当チームが使えます。",
+  "agent.unpublished.failed":
+    "最後に保存した設定でリリースを作れませんでした: {reason}。詳細設定で保存し直すと試せます。",
   "agent.published":
     "公開しました。担当チーム {team} がこのエージェントを使えます。",
   "agent.releases.preview": "プレビュー",

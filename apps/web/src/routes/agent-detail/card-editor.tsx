@@ -42,7 +42,7 @@ import {
   cardFromDraft,
   draftFromCard,
 } from "../../components/agent-card-form.tsx";
-import { previewRelease } from "../../components/agent-preview.tsx";
+import { releaseOf } from "../../components/agent-preview.tsx";
 import { agentRefusal } from "../../components/agent-refusal.ts";
 import type { Outcome } from "../../components/outcome.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
@@ -242,10 +242,18 @@ export function CardEditor({
         stored,
       );
       if (submitted.saveOnly && release.status !== "failed") {
-        // A save that changed nothing made no release: the one waiting is tried.
+        // A save that changed nothing made no release: the one already made
+        // for what it saved is tried, the active one included. With no
+        // connection sent the agent's own stays.
+        const connection =
+          releaseConnection ??
+          stored.draft?.connection_id ??
+          stored.active_release?.connection_id;
         const tried =
           stored.releases.find((r) => r.id === release.release_id) ??
-          previewRelease(stored);
+          (connection
+            ? releaseOf(stored, release.version_id, connection)
+            : undefined);
         if (tried) onPreview(tried);
       }
       await queryClient.invalidateQueries(agentListsFilter(client));
