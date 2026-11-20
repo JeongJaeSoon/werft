@@ -248,7 +248,7 @@
 ## 1-7. 확인 못 함
 - **Organization settings > Connectors**의 전체 탭 구성(Desktop 외의 탭 이름)과 Anthropic Directory connector를 조직에서 켜고 끄는 정확한 UI.
 - 원격 connector의 버전 관리. 문서상 "제거 후 재추가"만 있다.
-- 조직 skill과 plugin을 관리하는 공개 API(CRUD) 존재 여부. 공식 문서에서 찾지 못했다.
+- 조직 skill과 plugin을 관리하는 공개 API(CRUD) 존재 여부. 이 노트를 쓸 때는 공식 문서에서 찾지 못했다. 뒤의 조사에서 Claude Skills API와 Claude Plugins API(beta, Enterprise)를 찾았다. [설계 11절](skills-and-mcp.md#11-조사-요약과-시장-동향)의 표를 본다. claude.ai 조직 스킬 화면의 설정을 그대로 다루는 API인지는 여전히 확인하지 못했다.
 - Skills 사용에 Code Execution/File Creation이 필요하다는 조건. 검색 요약에서만 봤다.
 - Compliance API `activity_types` 전체 목록. 응답이 약 3.9MB라 앞부분만 읽었다.
 
