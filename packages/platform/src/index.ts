@@ -182,6 +182,7 @@ export * from "./extensions/bundle-service.ts";
 export * from "./extensions/bundle-validator.ts";
 export * from "./extensions/resolve.ts";
 export * from "./extensions/session-extensions.ts";
+export * from "./extensions/skill-service.ts";
 export * from "./workspace-mcp/ports.ts";
 export {
   type WorkspaceMcpRemoteDeps,

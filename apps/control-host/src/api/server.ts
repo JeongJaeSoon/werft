@@ -1,4 +1,3 @@
-import { REQUEST_BODY_MAX_BYTES } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   agentDeleted,
@@ -22,6 +21,7 @@ import {
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresEnvVariableStore,
+  createPostgresExtensionBundleStore,
   createPostgresGitHubAppManifestStore,
   createPostgresGitHubAppStore,
   createPostgresGitHubGateStore,
@@ -143,6 +143,7 @@ import {
   createSessionTitler,
   createSettingsConsoleService,
   createSettingsDocumentService,
+  createSkillService,
   createSurfaceBindingService,
   createTeamService,
   createUsageService,
@@ -185,7 +186,7 @@ import {
   apiReadinessConfigProblems,
   apiSettingsFromEnv,
 } from "./api-settings.ts";
-import { createApiApp } from "./app.ts";
+import { createApiApp, LARGEST_REQUEST_BODY_BYTES } from "./app.ts";
 import { bootstrapGateFromEnv, DatabaseIdentityStore } from "./auth.ts";
 import {
   installedRuntimeVersions,
@@ -203,6 +204,7 @@ import {
   checkpointObjectRouteSigner,
   checkpointStorageConfigFromEnv,
   createApiCheckpoints,
+  extensionBundleObjects,
   extensionBundleSource,
 } from "./checkpoints.ts";
 import {
@@ -277,6 +279,7 @@ import {
 import { registerLinkedAccountRoutes } from "./routes/musterrolle/linked-accounts.ts";
 import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
 import { registerSessionShareRoutes } from "./routes/musterrolle/session-shares.ts";
+import { registerSkillRoutes } from "./routes/musterrolle/skills.ts";
 import { registerTeamRoutes } from "./routes/musterrolle/teams.ts";
 import { registerWorkspaceMcpServerRoutes } from "./routes/musterrolle/workspace-mcp-servers.ts";
 import { registerWorkspaceRoutes } from "./routes/musterrolle/workspaces.ts";
@@ -1051,6 +1054,16 @@ const egressAuthorizer = egressAuthorizerConfigFromEnv(process.env);
 const githubMcpGrantKey =
   egressAuthorizer === null ? null : githubMcpGrantKeyOf(egressAuthorizer);
 const extensionBundles = extensionBundleSource(checkpointStorage, db);
+// Skill trees live in the checkpoint bucket; without one the routes are absent.
+const skillObjects = extensionBundleObjects(checkpointStorage);
+const skills =
+  skillObjects === undefined
+    ? undefined
+    : createSkillService({
+        authorization,
+        store: createPostgresExtensionBundleStore(db),
+        objects: skillObjects,
+      });
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),
   telemetry,
@@ -1371,6 +1384,7 @@ const app = createApiApp({
     registerCredentialBindingRoutes(router, credentialBindingService);
     registerEnvVariableRoutes(router, envVariableService);
     registerWorkspaceMcpServerRoutes(router, workspaceMcp);
+    if (skills !== undefined) registerSkillRoutes(router, skills);
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,
@@ -1410,9 +1424,9 @@ const server = Bun.serve({
   port: Number(process.env.PORT ?? 3000),
   // Bun's own cap (default 128 MiB) applies before any handler runs and
   // answers without the API's error envelope, so it sits above the contract
-  // limit: the app produces the documented 413 up to twice the limit, and
-  // only a grossly oversized upload is cut at the transport.
-  maxRequestBodySize: REQUEST_BODY_MAX_BYTES * 2,
+  // limit: the app produces the documented 413 up to twice the largest route
+  // limit, and only a grossly oversized upload is cut at the transport.
+  maxRequestBodySize: LARGEST_REQUEST_BODY_BYTES * 2,
   fetch(
     request: Request,
     server: { timeout(r: Request, seconds: number): void },

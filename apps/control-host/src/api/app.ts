@@ -11,6 +11,7 @@ import {
   REQUEST_BODY_MAX_BYTES,
   type RequestBodyInvalidDetails,
   readyResponseSchema,
+  SKILL_UPLOAD_BODY_MAX_BYTES,
 } from "@werft-ai/contracts";
 import {
   isConnectionFailure,
@@ -85,6 +86,16 @@ export type ApiEnvironment = {
 };
 
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
+
+// Authenticated routes whose documented body is larger than the default; the
+// route passes the same limit to parseJsonBody.
+const LARGE_BODY_LIMITS = new Map([
+  ["POST /v1/workspace/skills", SKILL_UPLOAD_BODY_MAX_BYTES],
+]);
+export const LARGEST_REQUEST_BODY_BYTES = Math.max(
+  REQUEST_BODY_MAX_BYTES,
+  ...LARGE_BODY_LIMITS.values(),
+);
 // What a connection gets while bytes are still expected; above
 // BODY_DEADLINE_MS, so a sender that stops outright gets the 408 too rather
 // than a reset.
@@ -280,10 +291,11 @@ function errorResponse(
 export async function parseJsonBody<T extends z.ZodType>(
   context: Context<ApiEnvironment>,
   schema: T,
+  maxBytes = REQUEST_BODY_MAX_BYTES,
 ): Promise<z.infer<T>> {
   // Measure the bytes actually received; Content-Length can be absent or lie.
   const raw = await context.req.arrayBuffer();
-  if (raw.byteLength > REQUEST_BODY_MAX_BYTES) {
+  if (raw.byteLength > maxBytes) {
     throw new ApiHttpError(413, "PAYLOAD_TOO_LARGE", "Request body too large");
   }
   let body: unknown;
@@ -591,7 +603,10 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
     // Ingest and bound the body under the idle clock, then hand the request
     // to the route with the handler's clock for its database work.
     if (!BODYLESS_METHODS.has(context.req.method)) {
-      const rejected = await ingestBody(context);
+      const rejected = await ingestBody(
+        context,
+        LARGE_BODY_LIMITS.get(`${context.req.method} ${context.req.path}`),
+      );
       if (rejected) {
         return rejected;
       }

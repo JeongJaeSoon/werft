@@ -33,23 +33,50 @@ export type ExtensionBundle = {
   registeredAt: Date;
   reviewedBy: string | null;
   reviewedAt: Date | null;
+  /**
+   * The registration order of a skill's name (1, 2, …). Null on a bundle
+   * from before skills: it keeps its slug and no new version joins it.
+   */
+  version: number | null;
+  /** Set once the version is archived: nothing may attach it again. */
+  archivedAt: Date | null;
 };
 
 export type RegisterExtensionBundleResult =
   | { outcome: "registered"; bundle: ExtensionBundle; receiptId: string }
   /** The same content was registered before: nothing changes, no receipt. */
   | { outcome: "already_registered"; bundle: ExtensionBundle }
-  | { outcome: "actor_inactive" | "outranked" };
+  /** A bundle from before skills holds the name as its slug. */
+  | { outcome: "actor_inactive" | "outranked" | "name_taken" };
 
 export type ReviewExtensionBundleResult =
-  | { outcome: "reviewed"; bundle: ExtensionBundle; receiptId: string }
+  | {
+      outcome: "reviewed";
+      bundle: ExtensionBundle;
+      receiptId: string;
+      /** The one manager of the workspace reviewed what they registered. */
+      selfReview: boolean;
+    }
   | { outcome: "unchanged"; bundle: ExtensionBundle }
-  | { outcome: "not_found" | "actor_inactive" | "outranked" };
+  | { outcome: "not_found" | "actor_inactive" | "outranked" }
+  /** The registrant, while another manager could review it. */
+  | { outcome: "self_review" | "archived" };
 
 export type AttachmentReceiptResult =
   | { outcome: "recorded"; receiptId: string }
   | { outcome: "bundle_not_found" | "agent_not_found" | "actor_inactive" }
-  | { outcome: "outranked" };
+  | { outcome: "outranked" }
+  /** Only an approved version is offered, and never an archived one. */
+  | { outcome: "not_approved" | "archived" }
+  /** A detach with nothing of that version attached there: no receipt. */
+  | { outcome: "not_attached" };
+
+export type ArchiveExtensionBundleResult =
+  | { outcome: "archived"; bundle: ExtensionBundle; receiptId: string }
+  | { outcome: "unchanged"; bundle: ExtensionBundle }
+  | { outcome: "not_found" | "actor_inactive" | "outranked" | "self_review" }
+  /** A scope still attaches it, or a live session runs it. */
+  | { outcome: "attached" | "in_use" };
 
 /**
  * Stored bundles, one workspace's at a time. A bundle row is only ever written
@@ -75,9 +102,12 @@ export interface ExtensionBundleStore {
   /**
    * Inserts the row and its `register_extension` receipt in one transaction.
    * A second registration of the same digest in the workspace leaves the
-   * first row as it is, whatever label or source it brings.
+   * first row as it is, whatever label or source it brings. With `skill`,
+   * the row takes the next version of its name, and a name a bundle from
+   * before skills holds is refused.
    */
   register(input: {
+    skill?: boolean;
     id: string;
     receiptId: string;
     workspaceId: string;
@@ -90,7 +120,11 @@ export interface ExtensionBundleStore {
     principal: Principal;
     managerRoles: readonly WorkspaceRole[];
   }): Promise<RegisterExtensionBundleResult>;
-  /** Sets the review state and writes the `approve_extension` receipt. */
+  /**
+   * Sets the review state and writes the `approve_extension` receipt. The
+   * registrant may review their own version only while no other member holds
+   * a manager role (decision skills-and-mcp.md 3); the receipt says so.
+   */
   review(input: {
     receiptId: string;
     workspaceId: string;
@@ -105,7 +139,9 @@ export interface ExtensionBundleStore {
    * the same transaction. A scope holds one version per bundle name:
    * attaching another version of a name replaces the earlier row.
    * `scope` defaults to `agent`, which needs `agentId`; a `workspace`
-   * attachment names no agent. `mode` defaults to `optional`.
+   * attachment names no agent. `mode` defaults to `optional`. On an agent,
+   * `managerRoles` are the workspace roles that manage every agent; the
+   * agent's own managers pass too.
    */
   recordAttachment(input: {
     receiptId: string;
@@ -118,6 +154,18 @@ export interface ExtensionBundleStore {
     principal: Principal;
     managerRoles: readonly WorkspaceRole[];
   }): Promise<AttachmentReceiptResult>;
+  /**
+   * Marks a version archived and writes the `archive_extension` receipt. A
+   * version a scope attaches or a session that has not ended runs is
+   * refused; the object stays for the checkpoints that name its digest.
+   */
+  archive(input: {
+    receiptId: string;
+    workspaceId: string;
+    bundleId: string;
+    principal: Principal;
+    managerRoles: readonly WorkspaceRole[];
+  }): Promise<ArchiveExtensionBundleResult>;
   /**
    * The bundles the workspace offers, and with `agentId` those its agent
    * offers, each with the version it names.

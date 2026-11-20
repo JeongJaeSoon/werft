@@ -68,6 +68,8 @@ function fakeStore() {
         registeredAt: new Date(0),
         reviewedBy: null,
         reviewedAt: null,
+        version: input.skill === true ? 1 : null,
+        archivedAt: null,
       };
       rows.push(bundle);
       return { outcome: "registered", bundle, receiptId: input.receiptId };
@@ -77,6 +79,9 @@ function fakeStore() {
     },
     async recordAttachment() {
       return { outcome: "bundle_not_found" };
+    },
+    async archive() {
+      return { outcome: "not_found" };
     },
     async listAttachments() {
       return [];

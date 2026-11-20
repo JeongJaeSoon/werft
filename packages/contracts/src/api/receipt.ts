@@ -211,6 +211,7 @@ export const RECEIPT_OPERATION_VALUES = [
   "approve_extension",
   "attach_extension",
   "detach_extension",
+  "archive_extension",
   // Sign-in providers, by the owner. Field names and counts only: never a
   // client secret, and of a stored one the last four characters.
   "create_login_provider",

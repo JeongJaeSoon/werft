@@ -1429,6 +1429,13 @@
       "when": 1795148819229,
       "tag": "0294_session_preview",
       "breakpoints": true
+    },
+    {
+      "idx": 295,
+      "version": "7",
+      "when": 1795175424752,
+      "tag": "0295_skill_versions",
+      "breakpoints": true
     }
   ]
 }

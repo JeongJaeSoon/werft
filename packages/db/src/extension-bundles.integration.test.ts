@@ -150,6 +150,20 @@ integration("extension bundles on PostgreSQL", () => {
     return result.bundle;
   }
 
+  /** A fixture: only an approved version is attached. */
+  async function approve(...bundles: { id: string; registeredBy: string }[]) {
+    for (const bundle of bundles) {
+      await db
+        .update(extensionBundles)
+        .set({
+          review: "approved",
+          reviewedBy: bundle.registeredBy,
+          reviewedAt: new Date(),
+        })
+        .where(eq(extensionBundles.id, bundle.id));
+    }
+  }
+
   test("the table carries the columns the ticket names", async () => {
     const columns = await db.execute<{ column_name: string }>(
       sql`SELECT column_name FROM information_schema.columns WHERE table_name = 'extension_bundles'`,
@@ -335,6 +349,7 @@ integration("extension bundles on PostgreSQL", () => {
     const other = await workspace();
     const owner = await person(workspaceId, "owner");
     const bundle = await register(service, owner);
+    await approve(bundle);
     const agentId = randomUUID();
     await db.insert(agents).values({
       id: agentId,
@@ -418,6 +433,7 @@ integration("extension bundles on PostgreSQL", () => {
     );
     expect(v2.digest).not.toBe(v1.digest);
     expect(v2.name).toBe(v1.name);
+    await approve(v1, v2);
     const agentId = await agentIn(workspaceId);
     const otherAgent = await agentIn(workspaceId);
     const listed = async (id?: string) =>
@@ -520,6 +536,7 @@ integration("extension bundles on PostgreSQL", () => {
         ),
       );
     }
+    await approve(...versions);
     const agentId = await agentIn(workspaceId);
     for (const scope of ["agent", "workspace"] as const) {
       const outcomes = await Promise.all(
@@ -744,5 +761,270 @@ integration("extension bundles on PostgreSQL", () => {
     expect(await refusal(insert({}))).toBe(
       "extension_bundles_workspace_digest_idx",
     );
+  });
+
+  describe("skills", () => {
+    const skillFiles = (name: string, body = "Do it.\n") => [
+      file(
+        `skills/${name}/SKILL.md`,
+        `---\nname: ${name}\ndescription: Use for ${name}\n---\n${body}`,
+      ),
+    ];
+    async function registerSkill(
+      service: ReturnType<typeof build>["service"],
+      by: Caller,
+      name: string,
+      body?: string,
+    ) {
+      return service.register({
+        principal: by,
+        slug: name,
+        files: skillFiles(name, body),
+        label: name,
+        source: "upload",
+        skill: true,
+      });
+    }
+    const bundleOf = (result: Awaited<ReturnType<typeof registerSkill>>) => {
+      if (result.outcome !== "registered") throw new Error(result.outcome);
+      return result.bundle;
+    };
+
+    test("each new content of a name is its next version; a bundle's slug is not a skill name", async () => {
+      const { service } = build();
+      const workspaceId = await workspace();
+      const owner = await person(workspaceId, "owner");
+      const v1 = bundleOf(await registerSkill(service, owner, "research"));
+      const v2 = bundleOf(
+        await registerSkill(service, owner, "research", "Again.\n"),
+      );
+      expect([v1.version, v2.version]).toEqual([1, 2]);
+      expect(
+        await registerSkill(service, owner, "research", "Again.\n"),
+      ).toMatchObject({ outcome: "already_registered", bundle: { id: v2.id } });
+      const at = await Promise.all(
+        ["a", "b", "c"].map((body) =>
+          registerSkill(service, owner, "lint", body),
+        ),
+      );
+      expect(
+        at.map((r) => bundleOf(r).version).sort((x, y) => (x ?? 0) - (y ?? 0)),
+      ).toEqual([1, 2, 3]);
+      const legacy = await register(service, owner, clean("tools"));
+      expect(legacy.version).toBeNull();
+      expect(await registerSkill(service, owner, "acme")).toEqual({
+        outcome: "name_taken",
+      });
+      const made = await receiptsOf(workspaceId, "register_extension");
+      expect(
+        made.find(
+          (r) => (r.result as { digest?: string } | null)?.digest === v2.digest,
+        )?.result,
+      ).toMatchObject({ name: "research", version: 2 });
+      expect((await service.read(workspaceId, v2.digest))?.digest).toBe(
+        v2.digest,
+      );
+    });
+
+    test("the registrant reviews only as the one manager, and the receipt says so", async () => {
+      const { service } = build();
+      const shared = await workspace();
+      const owner = await person(shared, "owner");
+      const admin = await person(shared, "admin");
+      const mine = bundleOf(await registerSkill(service, owner, "research"));
+      expect(
+        await service.review({
+          principal: owner,
+          bundleId: mine.id,
+          review: "approved",
+        }),
+      ).toEqual({ outcome: "self_review" });
+      expect(
+        await service.review({
+          principal: admin,
+          bundleId: mine.id,
+          review: "approved",
+        }),
+      ).toMatchObject({ outcome: "reviewed", selfReview: false });
+
+      const alone = await workspace();
+      const only = await person(alone, "owner");
+      await person(alone, "member");
+      const solo = bundleOf(await registerSkill(service, only, "research"));
+      expect(
+        await service.review({
+          principal: only,
+          bundleId: solo.id,
+          review: "approved",
+        }),
+      ).toMatchObject({ outcome: "reviewed", selfReview: true });
+      const [receipt] = await receiptsOf(alone, "approve_extension");
+      expect(receipt?.result).toMatchObject({
+        review: "approved",
+        self_review: "sole_manager",
+      });
+    });
+
+    test("only an approved, unarchived version is attached; forbidding needs neither", async () => {
+      const { service, store } = build();
+      const workspaceId = await workspace();
+      const owner = await person(workspaceId, "owner");
+      const pending = bundleOf(await registerSkill(service, owner, "research"));
+      const attach = (mode: "required" | "optional" | "forbidden") =>
+        service.recordAttachment({
+          principal: owner,
+          bundleId: pending.id,
+          scope: "workspace",
+          mode,
+          kind: "attach",
+        });
+      expect((await attach("required")).outcome).toBe("not_approved");
+      expect((await attach("optional")).outcome).toBe("not_approved");
+      expect((await attach("forbidden")).outcome).toBe("recorded");
+      expect(
+        (
+          await service.recordAttachment({
+            principal: owner,
+            bundleId: pending.id,
+            scope: "workspace",
+            kind: "detach",
+          })
+        ).outcome,
+      ).toBe("recorded");
+      expect(
+        (
+          await service.recordAttachment({
+            principal: owner,
+            bundleId: pending.id,
+            scope: "workspace",
+            kind: "detach",
+          })
+        ).outcome,
+      ).toBe("not_attached");
+      expect(await receiptsOf(workspaceId, "detach_extension")).toHaveLength(1);
+      await approve(pending);
+      expect(
+        await store.archive({
+          receiptId: randomUUID(),
+          workspaceId,
+          bundleId: pending.id,
+          principal: owner,
+          managerRoles: ["owner", "admin"],
+        }),
+      ).toMatchObject({ outcome: "archived" });
+      expect((await attach("forbidden")).outcome).toBe("archived");
+    });
+
+    test("an agent's own admin attaches to that agent, not to another or the workspace", async () => {
+      const { service, store } = build();
+      const workspaceId = await workspace();
+      const owner = await person(workspaceId, "owner");
+      const member = await person(workspaceId, "member");
+      const version = bundleOf(await registerSkill(service, owner, "research"));
+      await approve(version);
+      const mine = await agentIn(workspaceId);
+      const theirs = await agentIn(workspaceId);
+      await db.insert(schema.agentAdmins).values({
+        workspaceId,
+        agentId: mine,
+        userId: member.actor?.userId ?? "",
+      });
+      const attach = (agentId: string | null) =>
+        store.recordAttachment({
+          receiptId: randomUUID(),
+          workspaceId,
+          bundleId: version.id,
+          ...(agentId === null
+            ? { scope: "workspace" as const }
+            : { scope: "agent" as const, agentId }),
+          kind: "attach",
+          principal: member,
+          managerRoles: ["owner", "admin"],
+        });
+      expect((await attach(mine)).outcome).toBe("recorded");
+      expect((await attach(theirs)).outcome).toBe("outranked");
+      expect((await attach(null)).outcome).toBe("outranked");
+      const [receipt] = await receiptsOf(workspaceId, "attach_extension");
+      expect(receipt?.targetRef).toMatchObject({
+        resource: { kind: "agent", id: mine },
+      });
+    });
+
+    test("archive refuses an attached version, one a live session runs, and the registrant while another manager can", async () => {
+      const { service, store } = build();
+      const workspaceId = await workspace();
+      const owner = await person(workspaceId, "owner");
+      const admin = await person(workspaceId, "admin");
+      const archive = (bundleId: string, by: Caller = admin) =>
+        store.archive({
+          receiptId: randomUUID(),
+          workspaceId,
+          bundleId,
+          principal: by,
+          managerRoles: ["owner", "admin"],
+        });
+      const attached = bundleOf(
+        await registerSkill(service, owner, "research"),
+      );
+      await approve(attached);
+      await service.recordAttachment({
+        principal: owner,
+        bundleId: attached.id,
+        scope: "workspace",
+        mode: "required",
+        kind: "attach",
+      });
+      expect(await archive(attached.id)).toEqual({ outcome: "attached" });
+      expect(await archive(attached.id, owner)).toEqual({
+        outcome: "self_review",
+      });
+
+      const running = bundleOf(
+        await registerSkill(service, owner, "research", "v2\n"),
+      );
+      const accepted = await createPostgresSessionUnitOfWork(
+        db,
+      ).acceptInputAtomic({
+        limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
+        principal: owner,
+        idempotencyKey: randomUUID(),
+        payloadHash: "hash",
+        agentReleaseId: await fixtureRelease(db, workspaceId),
+        model: TEST_MODEL,
+        repository: {
+          id: "sample-app",
+          url: "https://example.invalid/app.git",
+          branch: "main",
+        },
+        message: "go",
+        extensions: [
+          {
+            bundle_id: running.id,
+            name: running.name,
+            digest: running.digest,
+            scope: "workspace",
+          },
+        ],
+      });
+      if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
+      expect(await archive(running.id)).toEqual({ outcome: "in_use" });
+      await db
+        .update(sessions)
+        .set({ status: "stopped" })
+        .where(eq(sessions.id, accepted.response.session_id));
+      const done = await archive(running.id);
+      expect(done).toMatchObject({ outcome: "archived" });
+      expect(await archive(running.id)).toMatchObject({ outcome: "unchanged" });
+      const receipts = await receiptsOf(workspaceId, "archive_extension");
+      expect(receipts).toHaveLength(1);
+      expect(receipts[0]?.result).toEqual({
+        name: "research",
+        digest: running.digest,
+        version: 2,
+      });
+      expect((await service.read(workspaceId, running.digest))?.digest).toBe(
+        running.digest,
+      );
+    });
   });
 });

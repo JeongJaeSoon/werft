@@ -45,7 +45,17 @@ export type BundleIssueCode =
   | "bad_plugin_json"
   | "bad_frontmatter"
   | "disallowed_frontmatter_key"
-  | "dynamic_context";
+  | "dynamic_context"
+  | "engine_manifest"
+  | "multiple_skills";
+
+/**
+ * `upload` is a tree a person sent: one skill, no engine manifest of theirs.
+ * `stored` is a tree the validator rebuilt, read again (it carries the
+ * validator's own `.claude-plugin/plugin.json`), or a bundle from before
+ * skills.
+ */
+export type BundleInputMode = "upload" | "stored";
 
 export type BundleIssue = {
   path: string;
@@ -87,12 +97,26 @@ export type BundleValidation =
 
 const NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const MAX_FRONTMATTER_VALUE = 1024;
+/** The Agent Skills specification's bound on `compatibility`. */
+const MAX_COMPATIBILITY = 500;
+const MAX_METADATA_KEYS = 32;
+const MAX_METADATA_KEY = 64;
+/**
+ * Also the order SKILL.md is re-emitted in. The specification's fields sit
+ * between the two that bundles had from the start, so a tree without them
+ * re-emits the bytes it always did.
+ */
 const SKILL_KEYS = [
   "name",
   "description",
+  "license",
+  "compatibility",
+  "metadata",
   "disable-model-invocation",
   "user-invocable",
 ] as const;
+/** Directories an engine reads as its own plugin manifest. */
+const ENGINE_MANIFEST_DIRS = new Set([".claude-plugin", ".codex-plugin"]);
 const PLUGIN_KEYS = ["name", "version", "description"] as const;
 /** Extensions that cannot be handed to an interpreter by name alone. */
 const DOCUMENT_EXTENSIONS = new Set([
@@ -125,7 +149,9 @@ const encoder = new TextEncoder();
 export function validateExtensionBundle(
   input: { slug: string; files: BundleInputFile[] },
   limits: BundleLimits = DEFAULT_BUNDLE_LIMITS,
+  mode: BundleInputMode = "stored",
 ): BundleValidation {
+  const upload = mode === "upload";
   const issues: BundleIssue[] = [];
   const issue = (path: string, code: BundleIssueCode, message: string) => {
     issues.push({ path, code, message });
@@ -171,7 +197,7 @@ export function validateExtensionBundle(
       // A directory entry is held to the same policy as a file: a bundle that
       // names hooks/ is refused even if the entry would carry no bytes.
       const dir = path.endsWith("/") ? path.slice(0, -1) : path;
-      const policy = pathPolicy(dir);
+      const policy = (upload && engineManifest(dir)) || pathPolicy(dir);
       if (policy) issue(path, policy.code, policy.message);
       else dirs.push(dir);
       continue;
@@ -247,7 +273,7 @@ export function validateExtensionBundle(
       continue;
     }
 
-    const policy = pathPolicy(path);
+    const policy = (upload && engineManifest(path)) || pathPolicy(path);
     if (policy) {
       issue(path, policy.code, policy.message);
       continue;
@@ -272,11 +298,19 @@ export function validateExtensionBundle(
       rest !== "SKILL.md" &&
       fold(rest.slice(rest.lastIndexOf("/") + 1)) === "skill.md"
     ) {
-      issue(
-        path,
-        "path_not_allowed",
-        "SKILL.md is only accepted at skills/<name>/SKILL.md.",
-      );
+      if (upload) {
+        issue(
+          path,
+          "multiple_skills",
+          "A skill is one directory; this SKILL.md is another skill.",
+        );
+      } else {
+        issue(
+          path,
+          "path_not_allowed",
+          "SKILL.md is only accepted at skills/<name>/SKILL.md.",
+        );
+      }
       continue;
     }
     const state = skills.get(skill) ?? {
@@ -315,6 +349,11 @@ export function validateExtensionBundle(
   }
   if (skills.size === 0 && issues.length === 0) {
     issue("", "no_skills", "The bundle has no skills/<name>/SKILL.md.");
+  }
+  if (upload && skills.size > 1) {
+    issue("", "multiple_skills", "A skill upload holds exactly one skill.");
+  } else if (upload && skills.size === 1 && !skills.has(input.slug)) {
+    issue("", "bad_slug", "The skill's directory must be its name.");
   }
   if (issues.length > 0) return { ok: false, issues };
 
@@ -374,6 +413,27 @@ function pathPolicy(
     path === "skills" ||
     (skillDir !== null && NAME.test(skillDir[1] ?? ""));
   return ok ? null : { code: "path_not_allowed", message: ALLOWED_SHAPES };
+}
+
+/**
+ * An engine's plugin manifest in an upload: the stored tree gets the
+ * validator's own `.claude-plugin/plugin.json`, never one a person wrote.
+ */
+function engineManifest(
+  path: string,
+): { code: BundleIssueCode; message: string } | null {
+  const segments = path.split("/");
+  const manifest =
+    segments.some((segment) => ENGINE_MANIFEST_DIRS.has(fold(segment))) ||
+    /^skills\/[^/]+\/plugin\.json$/i.test(path) ||
+    fold(path) === "plugin.json";
+  return manifest
+    ? {
+        code: "engine_manifest",
+        message:
+          "An engine's plugin manifest is not accepted; a skill is its SKILL.md directory.",
+      }
+    : null;
 }
 
 /** Case folding wider than toLowerCase: U+017F and U+03C2 fold to s and sigma. */
@@ -509,11 +569,20 @@ function canonicalSkillFile(
     return null;
   }
 
-  const values = new Map<string, string | boolean>();
+  const values = new Map<string, string | boolean | Map<string, string>>();
   let ok = true;
-  for (const line of lines.slice(1, end)) {
+  const front = lines.slice(1, end);
+  for (let at = 0; at < front.length; at++) {
+    const line = front[at] as string;
     if (line === "") continue;
-    const parsed = parseFrontmatterLine(line);
+    let parsed: [string, string | boolean | Map<string, string>] | string;
+    if (line === "metadata:") {
+      const block = metadataBlock(front, at + 1);
+      at = block.next - 1;
+      parsed = block.problem ?? ["metadata", block.entries];
+    } else {
+      parsed = parseFrontmatterLine(line);
+    }
     if (typeof parsed === "string") {
       report(path, "bad_frontmatter", parsed);
       ok = false;
@@ -524,7 +593,9 @@ function canonicalSkillFile(
       report(
         path,
         "disallowed_frontmatter_key",
-        `Frontmatter key "${key}" is not allowed.`,
+        key === "allowed-tools"
+          ? '"allowed-tools" would widen the agent\'s tool permissions and is not accepted.'
+          : `Frontmatter key "${key}" is not allowed.`,
       );
       ok = false;
     } else if (values.has(key)) {
@@ -570,15 +641,96 @@ function canonicalSkillFile(
       ok = false;
     }
   }
+  for (const field of ["license", "compatibility"]) {
+    const fieldValue = values.get(field);
+    if (fieldValue !== undefined && typeof fieldValue !== "string") {
+      report(path, "bad_frontmatter", `"${field}" must be a string.`);
+      ok = false;
+    }
+  }
+  const compatibility = values.get("compatibility");
+  if (
+    typeof compatibility === "string" &&
+    compatibility.length > MAX_COMPATIBILITY
+  ) {
+    report(
+      path,
+      "bad_frontmatter",
+      `"compatibility" is longer than ${MAX_COMPATIBILITY} characters.`,
+    );
+    ok = false;
+  }
+  const metadata = values.get("metadata");
+  if (metadata !== undefined && !(metadata instanceof Map)) {
+    report(
+      path,
+      "bad_frontmatter",
+      '"metadata" must be a block of indented key: value lines.',
+    );
+    ok = false;
+  }
   if (!ok) return null;
 
   const head = ["---"];
   for (const key of SKILL_KEYS) {
     const value = values.get(key);
-    if (value !== undefined) head.push(`${key}: ${JSON.stringify(value)}`);
+    if (value instanceof Map) {
+      head.push(`${key}:`);
+      for (const [entry, text] of value) {
+        head.push(`  ${entry}: ${JSON.stringify(text)}`);
+      }
+    } else if (value !== undefined) {
+      head.push(`${key}: ${JSON.stringify(value)}`);
+    }
   }
   head.push("---");
   return encoder.encode(`${[...head, ...body].join("\n")}`);
+}
+
+/**
+ * The lines under `metadata:`: one level, every line indented by the same
+ * spaces, each a single-line `key: value` held to the same rules as a
+ * top-level line. A value is always a string (`true` stays the text "true").
+ * The block ends at the first line that is not indented.
+ */
+function metadataBlock(
+  front: readonly string[],
+  from: number,
+): { entries: Map<string, string>; next: number; problem: string | null } {
+  const entries = new Map<string, string>();
+  let indent: string | null = null;
+  let problem: string | null = null;
+  let at = from;
+  for (; at < front.length; at++) {
+    const line = front[at] as string;
+    const lead = /^ +/.exec(line)?.[0];
+    if (lead === undefined) break;
+    indent ??= lead;
+    if (problem !== null) continue;
+    if (lead !== indent) {
+      problem = '"metadata" takes one level of keys, all indented alike.';
+      continue;
+    }
+    const parsed = parseFrontmatterLine(line.slice(lead.length));
+    if (typeof parsed === "string") {
+      problem = `metadata: ${parsed}`;
+      continue;
+    }
+    const [key, value] = parsed;
+    if (key.length > MAX_METADATA_KEY) {
+      problem = `metadata key "${truncate(key)}" is longer than ${MAX_METADATA_KEY} characters.`;
+    } else if (entries.has(key)) {
+      problem = `Duplicate metadata key "${key}".`;
+    } else if (entries.size === MAX_METADATA_KEYS) {
+      problem = `"metadata" holds more than ${MAX_METADATA_KEYS} keys.`;
+    } else {
+      entries.set(key, String(value));
+    }
+  }
+  if (problem === null && entries.size === 0) {
+    problem = '"metadata" needs at least one indented key: value line.';
+  }
+  return { entries, next: at, problem };
 }
 
 function parseFrontmatterLine(
