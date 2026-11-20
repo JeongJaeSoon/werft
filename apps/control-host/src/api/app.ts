@@ -26,6 +26,7 @@ import {
   type AuthorizationPolicy,
   type Caller,
   callerFor,
+  EXTENSION_MANAGER_ROLES,
   type IdentityStore,
   InstallationConfigUnavailableError,
   type ResolvedWebSession,
@@ -88,7 +89,9 @@ export type ApiEnvironment = {
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
 
 // Authenticated routes whose documented body is larger than the default; the
-// route passes the same limit to parseJsonBody.
+// route passes the same limit to parseJsonBody. Only a console session of a
+// role that may make the write gets it: anyone else is refused anyway, and
+// reads no more than the default.
 const LARGE_BODY_LIMITS = new Map([
   ["POST /v1/workspace/skills", SKILL_UPLOAD_BODY_MAX_BYTES],
 ]);
@@ -175,6 +178,8 @@ export interface CreateApiAppOptions {
   authorization?: AuthorizationPolicy;
   // Without one, requests are not traced and nothing else changes.
   tracer?: Tracer;
+  // The skill upload route is registered, so its larger body limit applies.
+  skillUploads?: boolean;
 }
 
 export class ApiHttpError extends Error {
@@ -385,6 +390,12 @@ async function ingestBody(
     );
   }
   if (read.size > maxBytes) {
+    if (read.cut) {
+      // The rest of the body was left unread: the connection cannot carry
+      // another request.
+      context.header("Connection", "close");
+      setIdleTimeout(CLOSING_IDLE_TIMEOUT_SECONDS);
+    }
     return errorResponse(
       context,
       413,
@@ -603,9 +614,15 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
     // Ingest and bound the body under the idle clock, then hand the request
     // to the route with the handler's clock for its database work.
     if (!BODYLESS_METHODS.has(context.req.method)) {
+      const principal = authenticated.principal;
       const rejected = await ingestBody(
         context,
-        LARGE_BODY_LIMITS.get(`${context.req.method} ${context.req.path}`),
+        options.skillUploads === true &&
+          authenticated.webSession !== undefined &&
+          principal.kind === "user" &&
+          EXTENSION_MANAGER_ROLES.includes(principal.role)
+          ? LARGE_BODY_LIMITS.get(`${context.req.method} ${context.req.path}`)
+          : undefined,
       );
       if (rejected) {
         return rejected;

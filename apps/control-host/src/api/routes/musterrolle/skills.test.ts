@@ -1,13 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import {
+  CSRF_HEADER_NAME,
+  CSRF_HEADER_VALUE,
   REQUEST_BODY_MAX_BYTES,
   registerSkillResponseSchema,
   SKILL_UPLOAD_BODY_MAX_BYTES,
+  SKILL_UPLOAD_FILES_MAX,
   type SkillVersion,
   skillAttachmentResponseSchema,
   skillListSchema,
+  WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
-import { SessionServiceError, type SkillService } from "@werft-ai/platform";
+import {
+  type IdentityStore,
+  SessionServiceError,
+  type SkillService,
+} from "@werft-ai/platform";
 import { errorOf } from "../../../testing/api-error.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerSkillRoutes } from "./skills.ts";
@@ -65,6 +73,36 @@ const send = async (
     ...(body === undefined ? {} : { body }),
   });
 
+// A console session of `role`, the way the cookie path resolves one.
+const signedIn = (
+  role: "owner" | "member",
+  service: Partial<SkillService>,
+  skillUploads = true,
+) =>
+  createApiApp({
+    identity: {
+      resolveWebSession: async () => ({
+        sessionId: "s1",
+        userId: ADMIN,
+        email: "admin@example.com",
+        displayName: "Admin",
+        locale: null,
+        workspaceId: WORKSPACE,
+        role,
+        expiresAt: new Date(Date.now() + 3_600_000),
+      }),
+      renewWebSession: async () => null,
+    } as unknown as IdentityStore,
+    skillUploads,
+    registerRoutes: (router) =>
+      registerSkillRoutes(router, service as SkillService),
+  });
+const cookieHeaders = {
+  "Content-Type": "application/json",
+  Cookie: `${WEB_SESSION_COOKIE_NAME}=token`,
+  [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
+};
+
 const upload = (bytes: number) =>
   JSON.stringify({
     name: "research",
@@ -107,17 +145,52 @@ describe("workspace skills", () => {
     ).toEqual([403, "FORBIDDEN", undefined]);
   });
 
-  test("an upload past the default body limit reaches the service; one past its own limit is 413", async () => {
+  test("only a console owner or admin gets the upload's larger body limit", async () => {
     let seen = 0;
     const register: SkillService["register"] = async (_caller, request) => {
       seen = request.files[0]?.content_base64.length ?? 0;
       return { outcome: "registered", version: VERSION, receipt_id: null };
     };
     const big = REQUEST_BODY_MAX_BYTES * 4;
-    const created = await send({ register }, "POST", base, upload(big));
+    const post = (app: ReturnType<typeof signedIn>, body: string) =>
+      app.request(base, { method: "POST", headers: cookieHeaders, body });
+    const created = await post(signedIn("owner", { register }), upload(big));
     expect(created.status).toBe(201);
     expect(seen).toBe(big);
     registerSkillResponseSchema.parse(await created.json());
+
+    seen = 0;
+    for (const refused of [
+      // A member is refused by the service anyway, so reads no more than any
+      // other route; so does a caller without a console session, and an
+      // installation that serves no skill routes.
+      post(signedIn("member", { register }), upload(big)),
+      post(signedIn("owner", { register }, false), upload(big)),
+      send({ register }, "POST", base, upload(big)),
+    ]) {
+      expect((await refused).status).toBe(413);
+    }
+    expect(seen).toBe(0);
+
+    const tooBig = await post(
+      signedIn("owner", { register }),
+      upload(SKILL_UPLOAD_BODY_MAX_BYTES),
+    );
+    expect(tooBig.status).toBe(413);
+    expect(seen).toBe(0);
+
+    const tooMany = await post(
+      signedIn("owner", { register }),
+      JSON.stringify({
+        name: "research",
+        files: Array.from({ length: SKILL_UPLOAD_FILES_MAX + 1 }, (_, i) => ({
+          path: `f${i}.md`,
+          content_base64: "QQ==",
+        })),
+      }),
+    );
+    expect(tooMany.status).toBe(400);
+    expect(seen).toBe(0);
 
     const again = await send(
       {
@@ -132,16 +205,6 @@ describe("workspace skills", () => {
       upload(8),
     );
     expect(again.status).toBe(200);
-
-    seen = 0;
-    const tooBig = await send(
-      { register },
-      "POST",
-      base,
-      upload(SKILL_UPLOAD_BODY_MAX_BYTES),
-    );
-    expect(tooBig.status).toBe(413);
-    expect(seen).toBe(0);
   });
 
   test("an upload's refusals", async () => {

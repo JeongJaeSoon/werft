@@ -14,7 +14,8 @@ import {
 
 /** A skill tree holds at most 8 MiB; base64 and JSON framing add about a third. */
 export const SKILL_UPLOAD_BODY_MAX_BYTES = 12 * 1024 * 1024;
-export const SKILL_UPLOAD_FILES_MAX = 256;
+/** A stored tree holds 256 files, one of them the manifest the platform adds. */
+export const SKILL_UPLOAD_FILES_MAX = 255;
 export const SKILL_UPLOAD_PATH_MAX = 1024;
 
 export const skillNameSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/, {

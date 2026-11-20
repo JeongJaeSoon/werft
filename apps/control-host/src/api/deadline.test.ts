@@ -205,8 +205,37 @@ describe("readBodyWithin", () => {
 
   test("drains an oversized body but keeps none of it", async () => {
     const read = await readBodyWithin(post("x".repeat(2048)), 1_000, 1024);
-    expect(read).toMatchObject({ kind: "read", size: 2048 });
+    expect(read).toMatchObject({ kind: "read", size: 2048, cut: false });
     if (read.kind !== "read") return;
     expect(read.bytes.byteLength).toBe(0);
+  });
+
+  test("stops reading past twice the limit, whatever the transport allows", async () => {
+    let pulled = 0;
+    let cancelled = false;
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        controller.enqueue(new Uint8Array(512));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const read = await readBodyWithin(post(endless), 1_000, 1024);
+    expect(read).toMatchObject({ kind: "read", cut: true });
+    expect(pulled).toBeLessThan(10);
+    await Bun.sleep(10);
+    expect(cancelled).toBe(true);
+  });
+
+  test("a declared length past twice the limit is refused unread", async () => {
+    const declared = new Request("http://api.test/v1/x", {
+      method: "POST",
+      body: "x".repeat(4096),
+      headers: { "Content-Length": "4096" },
+    });
+    const read = await readBodyWithin(declared, 1_000, 1024);
+    expect(read).toMatchObject({ kind: "read", size: 4096, cut: true });
   });
 });

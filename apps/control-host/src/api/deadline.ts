@@ -92,24 +92,37 @@ export function requestDeadline(options: RequestDeadlineOptions) {
 export const BODY_DEADLINE_MS = 15_000;
 
 export type BodyRead =
-  | { kind: "read"; bytes: ArrayBuffer; size: number }
+  // `cut`: the body ran past twice `keepBytes` and the rest was not read.
+  | { kind: "read"; bytes: ArrayBuffer; size: number; cut: boolean }
   | { kind: "timeout" };
 
-// Reads the whole body, keeping at most `keepBytes` of it (the caller refuses
-// anything larger, but draining the rest lets the client read that refusal
-// instead of a reset). On timeout the read is cancelled rather than left
-// pending behind the response.
+// Reads the body, keeping at most `keepBytes` of it. The caller refuses
+// anything larger; draining up to twice that lets the client read the refusal
+// instead of a reset, and past it the read is cancelled, so the server-wide
+// transport cap never decides how much a route reads. On timeout the read is
+// cancelled rather than left pending behind the response.
 export async function readBodyWithin(
   request: Request,
   deadlineMs: number,
   keepBytes: number,
 ): Promise<BodyRead> {
   if (!request.body) {
-    return { kind: "read", bytes: new ArrayBuffer(0), size: 0 };
+    return { kind: "read", bytes: new ArrayBuffer(0), size: 0, cut: false };
+  }
+  const declared = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > keepBytes * 2) {
+    request.body.cancel().catch(() => {});
+    return {
+      kind: "read",
+      bytes: new ArrayBuffer(0),
+      size: declared,
+      cut: true,
+    };
   }
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
+  let cut = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expired = new Promise<"timeout">((resolve) => {
     timer = setTimeout(() => resolve("timeout"), deadlineMs);
@@ -127,6 +140,10 @@ export async function readBodyWithin(
       size += next.value.byteLength;
       if (size <= keepBytes) {
         chunks.push(next.value);
+      } else if (size > keepBytes * 2) {
+        cut = true;
+        reader.cancel().catch(() => {});
+        break;
       }
     }
   } finally {
@@ -140,5 +157,5 @@ export async function readBodyWithin(
       offset += chunk.byteLength;
     }
   }
-  return { kind: "read", bytes: bytes.buffer, size };
+  return { kind: "read", bytes: bytes.buffer, size, cut };
 }

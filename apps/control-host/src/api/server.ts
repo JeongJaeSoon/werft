@@ -1266,6 +1266,7 @@ const app = createApiApp({
   keyStore: new DatabaseApiKeyStore(db),
   identity,
   authorization,
+  skillUploads: skills !== undefined,
   registerPublicRoutes: (router) => {
     registerPublicAuthRoutes(router, auth);
     registerSlackEventRoutes(router, {

@@ -18,6 +18,7 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresAgentStore } from "./agents.ts";
 import { createPostgresExtensionBundleStore } from "./extensions/extension-bundles.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
@@ -978,6 +979,41 @@ integration("extension bundles on PostgreSQL", () => {
       expect(await archive(attached.id, owner)).toEqual({
         outcome: "self_review",
       });
+
+      // A deleted agent takes its attachments with it, so what it named can
+      // be archived; nothing else reaches those rows.
+      const gone = bundleOf(
+        await registerSkill(service, owner, "lint", "for the agent\n"),
+      );
+      await approve(gone);
+      const agentId = await agentIn(workspaceId);
+      expect(
+        (
+          await service.recordAttachment({
+            principal: owner,
+            bundleId: gone.id,
+            scope: "agent",
+            agentId,
+            mode: "optional",
+            kind: "attach",
+          })
+        ).outcome,
+      ).toBe("recorded");
+      expect(await archive(gone.id)).toEqual({ outcome: "attached" });
+      const deleted = await createPostgresAgentStore(db).archive({
+        principal: owner,
+        workspaceId,
+        agentId,
+        deletedBy: owner.actor?.userId ?? "",
+        managerRoles: ["owner", "admin"],
+      });
+      expect(deleted.outcome).toBe("archived");
+      const [deletion] = await receiptsOf(workspaceId, "delete_agent");
+      expect(
+        (deletion?.result as { extension_attachment_ids?: string[] })
+          .extension_attachment_ids,
+      ).toHaveLength(1);
+      expect(await archive(gone.id)).toMatchObject({ outcome: "archived" });
 
       const running = bundleOf(
         await registerSkill(service, owner, "research", "v2\n"),

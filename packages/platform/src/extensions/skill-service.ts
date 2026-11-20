@@ -57,6 +57,12 @@ const SELF_REVIEW = () =>
     { reason_code: "self_review" },
   );
 
+// Registration order: two uploads in flight can take their numbers in the
+// other order from their `registered_at` (each is its transaction's start).
+const byVersion = (a: ExtensionBundle, b: ExtensionBundle) =>
+  (a.version ?? 0) - (b.version ?? 0) ||
+  a.registeredAt.getTime() - b.registeredAt.getTime();
+
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 function textOf(bytes: Uint8Array): string | null {
@@ -254,7 +260,7 @@ export function createSkillService(deps: SkillServiceDeps) {
             );
             return {
               name,
-              versions: versions.map(skillVersionViewOf),
+              versions: versions.sort(byVersion).map(skillVersionViewOf),
               workspace_attachment:
                 attached === undefined
                   ? null
@@ -333,9 +339,9 @@ export function createSkillService(deps: SkillServiceDeps) {
         ...workspace(caller),
       });
       const bundle = await version(caller, id);
-      const named = (await store.list(caller.ownerId)).filter(
-        (row) => row.name === bundle.name,
-      );
+      const named = (await store.list(caller.ownerId))
+        .filter((row) => row.name === bundle.name)
+        .sort(byVersion);
       const at = named.findIndex((row) => row.id === bundle.id);
       const previous =
         named

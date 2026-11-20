@@ -3050,7 +3050,7 @@ export interface paths {
         put?: never;
         /**
          * Upload a skill as its next version
-         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. `files` is one skill directory: `SKILL.md` at its root and the files beside it, each as base64, up to 256 files and 8 MiB unpacked (the body itself up to 12 MiB). The platform keeps only what its checker allows, rebuilt into a tree of its own, and that tree's digest names the version. Refused with 400 `reason_code` `skill_invalid` and `details.issues` (each with the uploaded `path` and a `code`): a second `SKILL.md` (`multiple_skills`), an engine manifest such as `.claude-plugin/plugin.json` (`engine_manifest`), a frontmatter `name` other than the request's `name` (`bad_slug`), `allowed-tools` or any key outside `name`, `description`, `license`, `compatibility`, `metadata`, `disable-model-invocation` and `user-invocable`. `metadata` is a one-level map of one-line strings, up to 32 keys. Content the workspace already has answers 200 with `already_registered` and that version; a name an older multi-skill bundle holds is 409 `ALREADY_EXISTS`. A new version is `pending` until another manager reviews it, and writes a `register_extension` receipt.
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. `files` is one skill directory: `SKILL.md` at its root and the files beside it, each as base64, up to 255 files (the stored tree adds a manifest of its own and holds at most 256) and 8 MiB stored (the body itself up to 12 MiB, read only for a console session of an owner or admin; anyone else gets the usual 64 KiB). The platform keeps only what its checker allows, rebuilt into a tree of its own, and that tree's digest names the version. Refused with 400 `reason_code` `skill_invalid` and `details.issues` (each with the uploaded `path` and a `code`): a second `SKILL.md` (`multiple_skills`), an engine manifest such as `.claude-plugin/plugin.json` (`engine_manifest`), a frontmatter `name` other than the request's `name` (`bad_frontmatter`), `allowed-tools` or any key outside `name`, `description`, `license`, `compatibility`, `metadata`, `disable-model-invocation` and `user-invocable`. `metadata` is a one-level map of one-line strings, up to 32 keys. Content the workspace already has answers 200 with `already_registered` and that version, archived or not; a name an older multi-skill bundle holds is 409 `ALREADY_EXISTS`. A new version is `pending` until another manager reviews it, and writes a `register_extension` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3070,7 +3070,7 @@ export interface paths {
         };
         /**
          * Read a skill version's files and its diff from the last approved one
-         * @description Every file of the stored tree with its text (null for a binary file), its hash, and how it differs from the previous approved version of the name: `added`, `changed` with a unified line diff, or `unchanged`; `removed` lists what that version had and this one drops. Only those who may review it read it: owners and admins.
+         * @description Every file of the stored tree with its text (null for a binary file), its hash, and how it differs from the previous approved version of the name: `added`, `changed` with a unified line diff, or `unchanged`; `removed` lists what that version had and this one drops. Owners and admins read it, with a console session or an API key; reviewing it takes a console session.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -3137,7 +3137,7 @@ export interface paths {
         get?: never;
         /**
          * Name the skill version every agent of the workspace gets
-         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. `version_id` must be a version of `name` (400 `version_name_mismatch`), approved (`version_not_approved`) and not archived (`version_archived`); `mode: forbidden` takes any version, since it only keeps the name out. Replaces what the scope named before. A session takes it when it starts. Writes an `attach_extension` receipt.
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. `version_id` must be a version of `name` (400 `version_name_mismatch`), approved (`version_not_approved`) and not archived (`version_archived`); `mode: forbidden` takes any version that is not archived, approved or not, since it only keeps the name out. Replaces what the scope named before. A session takes it when it starts. Writes an `attach_extension` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
