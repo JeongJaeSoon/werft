@@ -1317,6 +1317,36 @@ integration("surface bindings on PostgreSQL", () => {
       });
     });
 
+    test("a removal is read from the channel's events, whatever the membership says since", async () => {
+      const { owner, agentId, installationId } = await waiting();
+      await setAs(owner, agentId, { channelId: "C0GONE", home: true });
+      expect(await store().botRemovedFrom(installationId, "C0GONE")).toBe(
+        false,
+      );
+      await store().botLeft(installationId, "C0GONE", at(2));
+      const left = await store().resolveSlackChannel(installationId, "C0GONE");
+      if (left === null) throw new Error("no binding");
+      // A Slack error recorded after the removal replaces awaiting_invite.
+      await store().setMembership(left.id, {
+        state: "config_error",
+        error: "missing_scope",
+      });
+      expect(await store().botRemovedFrom(installationId, "C0GONE")).toBe(true);
+      // A join stamped at the leave's own time cannot be told from its retry.
+      await store().observeLifecycle(installationId, "C0GONE", at(2));
+      expect(await store().botRemovedFrom(installationId, "C0GONE")).toBe(true);
+      expect(
+        await store().observeLifecycle(installationId, "C0GONE", at(3)),
+      ).toBe(true);
+      await store().recordJoin(installationId, "C0GONE", left.id, at(3));
+      expect(await store().botRemovedFrom(installationId, "C0GONE")).toBe(
+        false,
+      );
+      expect(await store().botRemovedFrom(installationId, "C0NEVER")).toBe(
+        false,
+      );
+    });
+
     test("an event with no time cannot be ordered: the leave applies and nothing is noted", async () => {
       const { installationId } = await approved();
       expect(await store().botLeft(installationId, "G0SECRET", null)).toBe(

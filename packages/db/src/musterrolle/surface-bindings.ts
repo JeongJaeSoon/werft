@@ -421,6 +421,28 @@ export function createPostgresSurfaceBindingStore(
       observeJoin(db, installationId, channelId, at),
     botLeft: (installationId, channelId, at) =>
       botLeft(db, installationId, channelId, at),
+    async botRemovedFrom(installationId, channelId) {
+      if (!UUID.test(installationId)) return false;
+      const [noted] = await db
+        .select({
+          join: slackChannelLifecycle.lastJoinUs,
+          leave: slackChannelLifecycle.lastLeaveUs,
+        })
+        .from(slackChannelLifecycle)
+        .where(
+          and(
+            eq(
+              slackChannelLifecycle.installationId,
+              installationId.toLowerCase(),
+            ),
+            eq(slackChannelLifecycle.channelId, channelId),
+          ),
+        );
+      return (
+        noted?.leave != null &&
+        (noted.join === null || noted.leave >= noted.join)
+      );
+    },
     recordJoin: (installationId, channelId, bindingId, at) =>
       recordJoin(db, installationId, channelId, bindingId, at),
     approve: (input) => resolve(db, input, "approve"),

@@ -157,6 +157,7 @@ describe("joining a bound channel", () => {
         setMembership: async (id, membership) => {
           recorded.push([id, membership]);
         },
+        botRemovedFrom: async () => false,
       },
       slack: fake.slack,
       botToken: async () => token,
@@ -191,6 +192,7 @@ test("a public channel the bot was removed from is asked about but not joined ag
       setMembership: async (id, membership) => {
         recorded.push([id, membership]);
       },
+      botRemovedFrom: async () => false,
     },
     slack: {
       async channelMembership(_token, channelId) {
@@ -220,6 +222,103 @@ test("a public channel the bot was removed from is asked about but not joined ag
   expect(await joiner(removed)).toEqual({ state: "joined", error: null });
   expect(recorded).toEqual([["b1", { state: "joined", error: null }]]);
   expect(calls).toEqual(["info:C1", "info:C1"]);
+});
+
+describe("a removal the membership no longer shows", () => {
+  function joinerWith(opts: {
+    removed: () => boolean;
+    onAsk?: () => void;
+    lookup?: Error;
+  }) {
+    const calls: string[] = [];
+    const recorded: SurfaceMembership[] = [];
+    const joiner = createSlackChannelJoiner({
+      bindings: {
+        setMembership: async (_id, membership) => {
+          recorded.push(membership);
+        },
+        botRemovedFrom: async (installationId, channelId) => {
+          calls.push(`removed?:${installationId}:${channelId}`);
+          return opts.removed();
+        },
+      },
+      slack: {
+        channelMembership: async (_token, channelId) => {
+          calls.push(`info:${channelId}`);
+          opts.onAsk?.();
+          if (opts.lookup) throw opts.lookup;
+          return {
+            kind: "public_channel",
+            isMember: false,
+            isArchived: false,
+          };
+        },
+        joinChannel: async (_token, channelId) => {
+          calls.push(`join:${channelId}`);
+        },
+      },
+      botToken: async () => "bot-credential",
+    });
+    return { joiner, calls, recorded };
+  }
+  const binding = (membership: SurfaceMembership | null) =>
+    ({
+      id: "b1",
+      workspaceId: WORKSPACE,
+      agentId: AGENT,
+      installationId: INSTALLATION,
+      channelId: "C1",
+      mode: "on",
+      membership,
+    }) as SurfaceBindingRecord;
+
+  test("a Slack error recorded after the removal does not let the next run join", async () => {
+    const lookup = refusal("conversations.info", "missing_scope");
+    const first = joinerWith({ removed: () => true, lookup });
+    // The error replaces awaiting_invite on the binding.
+    expect(
+      await first.joiner(binding({ state: "awaiting_invite", error: null })),
+    ).toEqual({ state: "config_error", error: "missing_scope" });
+    expect(first.recorded).toEqual([
+      { state: "config_error", error: "missing_scope" },
+    ]);
+    // Fixed scope, next run: the membership says nothing of the removal,
+    // the channel's event record still does.
+    const next = joinerWith({ removed: () => true });
+    expect(
+      await next.joiner(
+        binding({ state: "config_error", error: "missing_scope" }),
+      ),
+    ).toEqual({ state: "awaiting_invite", error: null });
+    expect(next.calls).toEqual(["info:C1", `removed?:${INSTALLATION}:C1`]);
+  });
+
+  test("a leave noted while Slack was being asked stops the join", async () => {
+    let left = false;
+    const run = joinerWith({
+      removed: () => left,
+      onAsk: () => {
+        left = true;
+      },
+    });
+    expect(await run.joiner(binding({ state: "joined", error: null }))).toEqual(
+      { state: "awaiting_invite", error: null },
+    );
+    expect(run.calls).toEqual(["info:C1", `removed?:${INSTALLATION}:C1`]);
+  });
+
+  test("with no removal noted, a public channel is joined", async () => {
+    const run = joinerWith({ removed: () => false });
+    expect(await run.joiner(binding(null))).toEqual({
+      state: "joined",
+      error: null,
+    });
+    expect(run.calls).toEqual([
+      "info:C1",
+      `removed?:${INSTALLATION}:C1`,
+      "join:C1",
+    ]);
+  });
 });
 
 describe("the bot's invite", () => {

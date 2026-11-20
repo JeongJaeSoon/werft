@@ -198,6 +198,13 @@ export interface SurfaceBindingStore {
     channelId: string,
     at: number | null,
   ): Promise<boolean>;
+  /**
+   * Whether the newest join or leave noted for the channel is a leave (a
+   * tie counts as the leave, as in `recordJoin`). The channel's event record,
+   * not the binding's membership, which a later Slack answer or error writes
+   * over. False for a channel with nothing noted.
+   */
+  botRemovedFrom(installationId: string, channelId: string): Promise<boolean>;
   approve(
     input: ResolveSurfaceBindingInput,
   ): Promise<ResolveSurfaceBindingResult>;
