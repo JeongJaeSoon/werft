@@ -196,9 +196,7 @@ describe("two ports, one batch", () => {
     const source = await Bun.file(
       new URL("../api/server.ts", import.meta.url),
     ).text();
-    expect(source).toContain(
-      "maxRequestBodySize: LARGEST_REQUEST_BODY_BYTES * 2",
-    );
+    expect(source).toContain("maxRequestBodySize: REQUEST_BODY_MAX_BYTES * 2");
     expect(source).not.toContain("TRACE_INGEST_MAX_REQUEST_BYTES");
   });
 });

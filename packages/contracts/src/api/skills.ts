@@ -6,14 +6,20 @@ import {
   timestampSchema,
   userIdSchema,
 } from "../shared/index.ts";
+import { REQUEST_BODY_MAX_BYTES } from "./session.ts";
 
 // Skills a workspace registers, approves and attaches (decision
 // skills-and-mcp.md 2–4, 7). A skill is one `SKILL.md` directory; each
 // registration of new content is its next version. Every write comes from a
 // signed-in console session, never an API key.
 
-/** A skill tree holds at most 8 MiB; base64 and JSON framing add about a third. */
-export const SKILL_UPLOAD_BODY_MAX_BYTES = 12 * 1024 * 1024;
+/**
+ * The API server's transport cap, which Bun applies to every route alike and
+ * which it receives in full even when a handler refuses unread: raising it for
+ * one route would raise it for unauthenticated ones too. A stored tree may
+ * still hold 8 MiB; larger uploads need a path of their own.
+ */
+export const SKILL_UPLOAD_BODY_MAX_BYTES = REQUEST_BODY_MAX_BYTES * 2;
 /** A stored tree holds 256 files, one of them the manifest the platform adds. */
 export const SKILL_UPLOAD_FILES_MAX = 255;
 export const SKILL_UPLOAD_PATH_MAX = 1024;

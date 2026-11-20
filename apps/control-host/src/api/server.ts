@@ -1,3 +1,4 @@
+import { REQUEST_BODY_MAX_BYTES } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   agentDeleted,
@@ -186,7 +187,7 @@ import {
   apiReadinessConfigProblems,
   apiSettingsFromEnv,
 } from "./api-settings.ts";
-import { createApiApp, LARGEST_REQUEST_BODY_BYTES } from "./app.ts";
+import { createApiApp } from "./app.ts";
 import { bootstrapGateFromEnv, DatabaseIdentityStore } from "./auth.ts";
 import {
   installedRuntimeVersions,
@@ -1425,9 +1426,9 @@ const server = Bun.serve({
   port: Number(process.env.PORT ?? 3000),
   // Bun's own cap (default 128 MiB) applies before any handler runs and
   // answers without the API's error envelope, so it sits above the contract
-  // limit: the app produces the documented 413 up to twice the largest route
-  // limit, and only a grossly oversized upload is cut at the transport.
-  maxRequestBodySize: LARGEST_REQUEST_BODY_BYTES * 2,
+  // limit: the app produces the documented 413 up to twice the limit, and
+  // only a grossly oversized upload is cut at the transport.
+  maxRequestBodySize: REQUEST_BODY_MAX_BYTES * 2,
   fetch(
     request: Request,
     server: { timeout(r: Request, seconds: number): void },

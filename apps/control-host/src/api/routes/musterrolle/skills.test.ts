@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { connect } from "node:net";
 import {
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
@@ -151,7 +152,7 @@ describe("workspace skills", () => {
       seen = request.files[0]?.content_base64.length ?? 0;
       return { outcome: "registered", version: VERSION, receipt_id: null };
     };
-    const big = REQUEST_BODY_MAX_BYTES * 4;
+    const big = REQUEST_BODY_MAX_BYTES * 1.5;
     const post = (app: ReturnType<typeof signedIn>, body: string) =>
       app.request(base, { method: "POST", headers: cookieHeaders, body });
     const created = await post(signedIn("owner", { register }), upload(big));
@@ -205,6 +206,39 @@ describe("workspace skills", () => {
       upload(8),
     );
     expect(again.status).toBe(200);
+  });
+
+  test("past the transport cap an unauthenticated body is refused before any route runs", async () => {
+    let reached = 0;
+    const app = signedIn("owner", {});
+    const server = Bun.serve({
+      port: 0,
+      // server.ts's cap; ingest.integration.test.ts pins that line.
+      maxRequestBodySize: SKILL_UPLOAD_BODY_MAX_BYTES,
+      fetch: (request) => {
+        reached += 1;
+        return app.fetch(request);
+      },
+    });
+    try {
+      const socket = connect(Number(server.port), "127.0.0.1");
+      socket.on("error", () => {});
+      const answer = new Promise<string>((resolve) => {
+        socket.once("data", (chunk) => resolve(chunk.toString("latin1")));
+        socket.once("end", () => resolve(""));
+      });
+      await new Promise((resolve) => socket.once("connect", resolve));
+      const bytes = 1024 * 1024;
+      socket.write(
+        `POST ${base} HTTP/1.1\r\nHost: test\r\nContent-Type: application/json\r\nContent-Length: ${bytes}\r\n\r\n`,
+      );
+      socket.write(Buffer.alloc(bytes, 97));
+      expect(await answer).toStartWith("HTTP/1.1 413");
+      socket.destroy();
+      expect(reached).toBe(0);
+    } finally {
+      server.stop(true);
+    }
   });
 
   test("an upload's refusals", async () => {

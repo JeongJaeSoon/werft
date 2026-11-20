@@ -95,10 +95,6 @@ const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
 const LARGE_BODY_LIMITS = new Map([
   ["POST /v1/workspace/skills", SKILL_UPLOAD_BODY_MAX_BYTES],
 ]);
-export const LARGEST_REQUEST_BODY_BYTES = Math.max(
-  REQUEST_BODY_MAX_BYTES,
-  ...LARGE_BODY_LIMITS.values(),
-);
 // What a connection gets while bytes are still expected; above
 // BODY_DEADLINE_MS, so a sender that stops outright gets the 408 too rather
 // than a reset.
@@ -390,12 +386,6 @@ async function ingestBody(
     );
   }
   if (read.size > maxBytes) {
-    if (read.cut) {
-      // The rest of the body was left unread: the connection cannot carry
-      // another request.
-      context.header("Connection", "close");
-      setIdleTimeout(CLOSING_IDLE_TIMEOUT_SECONDS);
-    }
     return errorResponse(
       context,
       413,
