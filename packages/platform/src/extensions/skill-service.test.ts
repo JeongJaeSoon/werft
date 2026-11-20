@@ -340,6 +340,7 @@ describe("the skill service", () => {
       agentId: AGENT,
       kind: "attach",
       mode: "optional",
+      managerRoles: ["owner", "admin"],
     });
     expect(
       await service.deleteAgentAttachment(web, AGENT, "research"),

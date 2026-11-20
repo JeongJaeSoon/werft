@@ -3094,7 +3094,7 @@ export interface paths {
         put?: never;
         /**
          * Approve or reject a skill version
-         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. The one who registered the version may not review it while another live owner or admin can (403 `reason_code` `self_review`); a workspace with one manager lets that person review, and the `approve_extension` receipt then says `self_review: "sole_manager"`. An archived version is not reviewed (400 `version_archived`). The same decision again changes nothing and answers `receipt_id: null`.
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. The one who registered the version may not review it while another live owner or admin can (403 `reason_code` `self_review`); a workspace with one manager lets that person review, and the `approve_extension` receipt then says `self_review: "sole_manager"`. An archived version is not reviewed (400 `version_archived`). The same decision again changes nothing and answers `receipt_id: null`. Rejecting a version a scope attaches stays allowed, as a recall: a `required` attachment then refuses every session start it reaches and an `optional` one is left out, until the attachment is taken back.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3187,7 +3187,7 @@ export interface paths {
         get?: never;
         /**
          * Name the skill version the agent gets
-         * @description The agent's managers (owners, admins, the agent's own admins and its managing team's lead) signed in to the console; an API key is refused with 403 `reason_code` `web_session_required`. The version rules are the workspace scope's. Writes an `attach_extension` receipt on the agent.
+         * @description The agent's managers (owners, admins, the agent's own admins, members of its admin teams and its managing team's lead) signed in to the console; an API key is refused with 403 `reason_code` `web_session_required`. The version rules are the workspace scope's. Writes an `attach_extension` receipt on the agent.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
