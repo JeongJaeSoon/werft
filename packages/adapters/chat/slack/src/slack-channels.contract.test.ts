@@ -232,6 +232,8 @@ function joinSubject(slack: Slack): ChannelJoinSubject {
         setMembership: async (bindingId, membership) => {
           recorded.push({ bindingId, membership });
         },
+        botRemovedFrom: async () => false,
+        lastLeaveNoted: async () => null,
       },
       slack: slack.api,
       botToken: async () => token,

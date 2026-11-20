@@ -189,14 +189,31 @@ export interface SurfaceBindingStore {
    * join means the bot is back in: the binding is not `left`, and a `ready`
    * one waits for approval (`request_surface_binding`) unless its approval
    * already knew of this leave (`at` not after the newest event noted when
-   * it was given). A public channel's binding is left alone. False when the
-   * leave is older than a noted event.
+   * it was given). A public channel's binding keeps its status and approval;
+   * its membership becomes `awaiting_invite` when the leave is the newest
+   * event noted. False when the leave is older than a noted event.
    */
   botLeft(
     installationId: string,
     channelId: string,
     at: number | null,
   ): Promise<boolean>;
+  /**
+   * Whether the newest join or leave noted for the channel is a leave (a
+   * tie counts as the leave, as in `recordJoin`). The channel's event record,
+   * not the binding's membership, which a later Slack answer or error writes
+   * over. False for a channel with nothing noted.
+   */
+  botRemovedFrom(installationId: string, channelId: string): Promise<boolean>;
+  /**
+   * The time of the newest leave noted for the channel, null when none: read
+   * before Slack is asked, it is the mark `setMembership` checks the answer
+   * against.
+   */
+  lastLeaveNoted(
+    installationId: string,
+    channelId: string,
+  ): Promise<number | null>;
   approve(
     input: ResolveSurfaceBindingInput,
   ): Promise<ResolveSurfaceBindingResult>;
@@ -207,11 +224,15 @@ export interface SurfaceBindingStore {
    * Records what Slack said about the bot's place in a live binding's
    * channel. Observed state, not a setting: no revision, no receipt.
    * With `expected`, only while the binding still holds it, so a slow
-   * answer does not undo an invite recorded meanwhile.
+   * answer does not undo an invite recorded meanwhile. With `leaveNoted`
+   * (`lastLeaveNoted` before Slack was asked), only while no newer leave was
+   * noted: a leave can leave the membership as it was, and the value alone
+   * would not show it.
    */
   setMembership(
     bindingId: string,
     membership: SurfaceMembership,
     expected?: SurfaceMembership | null,
+    leaveNoted?: number | null,
   ): Promise<void>;
 }

@@ -149,7 +149,11 @@ function world(
       },
     },
     join: createSlackChannelJoiner({
-      bindings,
+      bindings: {
+        ...bindings,
+        botRemovedFrom: async () => false,
+        lastLeaveNoted: async () => null,
+      },
       slack: fake.slack,
       botToken: async () => "bot-credential",
     }),

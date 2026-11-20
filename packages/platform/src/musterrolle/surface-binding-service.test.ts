@@ -82,6 +82,8 @@ function service(
     reject: async () => ({ outcome: "not_found" }),
     observeLifecycle: async () => true,
     botLeft: async () => true,
+    botRemovedFrom: async () => false,
+    lastLeaveNoted: async () => null,
     recordJoin: async () => true,
     ...overrides,
     list: async () => [],

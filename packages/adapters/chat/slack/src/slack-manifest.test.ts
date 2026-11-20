@@ -39,6 +39,8 @@ describe("agent app manifest", () => {
       "message.groups",
       "member_joined_channel",
       "member_left_channel",
+      "channel_left",
+      "group_left",
       "app_uninstalled",
       "tokens_revoked",
     ]);

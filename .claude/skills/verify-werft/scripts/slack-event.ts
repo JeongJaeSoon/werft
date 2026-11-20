@@ -18,10 +18,14 @@ const [agentId, mode, channel = "C0VERIFY", seq = "1", parent, text] =
 const posted = mode === "mention" || mode === "plain" || mode === "reply";
 const uninstalled = mode === "uninstall" || mode === "uninstall-late";
 // `join` and `leave` are this app's bot entering or leaving `channel`
-// (private by the mock's G prefix). `seq` seconds are added to the current
-// time for event_ts, so a higher seq is a later event whatever order the
-// requests arrive in.
-const lifecycle = mode === "join" || mode === "leave";
+// (private by the mock's G prefix, public by C). `leave` is what Slack sends
+// the bot itself: `group_left` for a private channel, `channel_left` for a
+// public one; `leave-member` is the `member_left_channel` naming the bot.
+// `seq` seconds are added to the current time for event_ts, so a higher seq
+// is a later event whatever order the requests arrive in.
+const lifecycle =
+  mode === "join" || mode === "leave" || mode === "leave-member";
+const isPrivate = channel.startsWith("G");
 const ts = posted ? `${1792800000 + Number(seq)}.000001` : "1792800000.000001";
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 try {
@@ -55,19 +59,23 @@ try {
               : uninstalled
                 ? `EvVerifyUninstall${mode.replace("-", "")}${seq}`
                 : posted || lifecycle
-                  ? `EvVerify${mode}${channel}${seq}`
+                  ? `EvVerify${mode.replace("-", "")}${channel}${seq}`
                   : "EvVerify1",
           event: uninstalled
             ? { type: "app_uninstalled" }
             : lifecycle
               ? {
-                  type:
-                    mode === "join"
-                      ? "member_joined_channel"
-                      : "member_left_channel",
-                  user: `U${app.appId}BOT`,
+                  ...(mode === "leave"
+                    ? { type: isPrivate ? "group_left" : "channel_left" }
+                    : {
+                        type:
+                          mode === "join"
+                            ? "member_joined_channel"
+                            : "member_left_channel",
+                        user: `U${app.appId}BOT`,
+                        channel_type: isPrivate ? "G" : "C",
+                      }),
                   channel,
-                  channel_type: "G",
                   event_ts: `${Math.floor(Date.now() / 1000) + Number(seq)}.000001`,
                 }
               : mode === "plain" || mode === "reply"

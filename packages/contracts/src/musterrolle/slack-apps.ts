@@ -34,9 +34,12 @@ export const BOT_SCOPES = [
 /**
  * The bot events Finalize registers once the events route can answer the
  * app's signed challenge; creation registers none. `member_joined_channel`
- * is how an invite to a private channel is noticed, `member_left_channel`
- * how the bot being removed from one is. An app made before the latter
- * received it only after its manifest is sent again (events recheck).
+ * is how an invite to a private channel is noticed. The bot being removed
+ * from a channel comes to the bot itself as `channel_left` (public) or
+ * `group_left` (private); real Slack sent no `member_left_channel` for it,
+ * which is kept for what the mock and older apps send. An app made before
+ * an event was added receives it only after its manifest is sent again
+ * (events recheck).
  */
 export const SLACK_AGENT_BOT_EVENTS = [
   "app_mention",
@@ -45,6 +48,8 @@ export const SLACK_AGENT_BOT_EVENTS = [
   "message.groups",
   "member_joined_channel",
   "member_left_channel",
+  "channel_left",
+  "group_left",
   "app_uninstalled",
   "tokens_revoked",
 ] as const;

@@ -22,6 +22,7 @@ import {
   agents,
   receipts,
   slackChannelLifecycle,
+  slackInstallations,
   surfaceBindings,
 } from "../schema.ts";
 import { rowsOf } from "../statement-rows.ts";
@@ -358,6 +359,14 @@ export function createPostgresSurfaceBindingStore(
       const { actions, disclosure } = DEFAULT_SURFACE_CEILING;
       const bindingId = randomUUID();
       return db.transaction(async (tx) => {
+        // A public channel the bot was removed from at this join's own time
+        // or later is bound waiting for an invite, as `recordJoin` would leave
+        // it; a binding made `joined` here would outlive its refusal.
+        const membership =
+          channelKind === "public_channel" &&
+          (await removedByEvents(tx, id, channelId, { lock: true }))
+            ? "awaiting_invite"
+            : "joined";
         const inserted = rowsOf<{ id: string }>(
           await tx.execute(sql`
             INSERT INTO ${surfaceBindings} (id, workspace_id, agent_id, surface,
@@ -369,7 +378,7 @@ export function createPostgresSurfaceBindingStore(
               ARRAY[${sql.join(
                 actions.map((action) => sql`${action}`),
                 sql`, `,
-              )}]::text[], ${disclosure}, 'joined'
+              )}]::text[], ${disclosure}, ${membership}
             FROM ${agentIdentities} i
             WHERE i.installation_id = ${id} AND i.status = 'active'
             ON CONFLICT DO NOTHING
@@ -421,34 +430,72 @@ export function createPostgresSurfaceBindingStore(
       observeJoin(db, installationId, channelId, at),
     botLeft: (installationId, channelId, at) =>
       botLeft(db, installationId, channelId, at),
+    botRemovedFrom: (installationId, channelId) =>
+      UUID.test(installationId)
+        ? removedByEvents(db, installationId.toLowerCase(), channelId)
+        : Promise.resolve(false),
+    lastLeaveNoted: async (installationId, channelId) =>
+      UUID.test(installationId)
+        ? ((await noteOf(db, installationId.toLowerCase(), channelId))?.leave ??
+          null)
+        : null,
     recordJoin: (installationId, channelId, bindingId, at) =>
       recordJoin(db, installationId, channelId, bindingId, at),
     approve: (input) => resolve(db, input, "approve"),
     reject: (input) => resolve(db, input, "reject"),
-    async setMembership(bindingId, membership, expected) {
+    async setMembership(bindingId, membership, expected, leaveNoted) {
       if (!UUID.test(bindingId)) return;
-      await db
-        .update(surfaceBindings)
-        .set({
-          membership: membership.state,
-          membershipError: membership.error,
-          updatedAt: DB_NOW,
-        })
-        .where(
-          and(
-            eq(surfaceBindings.id, bindingId.toLowerCase()),
-            isNull(surfaceBindings.revokedAt),
-            // A channel the bot left is known to hold no bot; a Slack answer
-            // that was in flight when it left must not write over that.
-            ne(surfaceBindings.status, "left"),
-            expected === undefined
-              ? undefined
-              : and(
-                  sql`${surfaceBindings.membership} IS NOT DISTINCT FROM ${expected?.state ?? null}`,
-                  sql`${surfaceBindings.membershipError} IS NOT DISTINCT FROM ${expected?.error ?? null}`,
-                ),
-          ),
-        );
+      const id = bindingId.toLowerCase();
+      await db.transaction(async (tx) => {
+        if (leaveNoted !== undefined) {
+          const [channel] = await tx
+            .select({
+              installationId: surfaceBindings.installationId,
+              channelId: surfaceBindings.externalSurfaceId,
+            })
+            .from(surfaceBindings)
+            .where(eq(surfaceBindings.id, id));
+          // A timed leave noted since moves the mark forward, and so does one
+          // with no time while the bot was in by the record. One with no time
+          // on a channel already left by the record leaves it where it was.
+          if (
+            channel?.installationId &&
+            channel.channelId &&
+            ((
+              await noteOf(
+                tx,
+                channel.installationId.toLowerCase(),
+                channel.channelId,
+                { lock: true },
+              )
+            )?.leave ?? null) !== leaveNoted
+          ) {
+            return;
+          }
+        }
+        await tx
+          .update(surfaceBindings)
+          .set({
+            membership: membership.state,
+            membershipError: membership.error,
+            updatedAt: DB_NOW,
+          })
+          .where(
+            and(
+              eq(surfaceBindings.id, id),
+              isNull(surfaceBindings.revokedAt),
+              // A channel the bot left is known to hold no bot; a Slack answer
+              // that was in flight when it left must not write over that.
+              ne(surfaceBindings.status, "left"),
+              expected === undefined
+                ? undefined
+                : and(
+                    sql`${surfaceBindings.membership} IS NOT DISTINCT FROM ${expected?.state ?? null}`,
+                    sql`${surfaceBindings.membershipError} IS NOT DISTINCT FROM ${expected?.error ?? null}`,
+                  ),
+            ),
+          );
+      });
     },
   };
 }
@@ -682,6 +729,16 @@ async function recordJoin(
       tx,
       and(eq(surfaceBindings.id, id), isNull(surfaceBindings.revokedAt)),
     );
+    // A public channel keeps its status when the bot leaves, so the order of
+    // join and leave is read here, by the rule `botRemovedFrom` reads: a join
+    // that does not come after the newest leave records nothing, whichever
+    // of the two was handled first.
+    if (
+      current?.channelKind === "public_channel" &&
+      (await removedByEvents(tx, installationId.toLowerCase(), channelId))
+    ) {
+      return false;
+    }
     if (current?.status === "left") {
       // Back in: only a join stamped strictly after the last leave brings the
       // channel back, and then it waits for approval. A tie or a join with no
@@ -737,7 +794,23 @@ async function botLeft(
           ),
         );
     }
+    if (at === null) await noteUntimedLeave(tx, installation, channelId);
     const current = await lockBinding(tx, channelOf(installation, channelId));
+    // A public channel has no approval to void: the bot is out until it is
+    // invited again, which is what its membership says. The binding stays.
+    if (current?.channelKind === "public_channel") {
+      if (latest) {
+        await tx
+          .update(surfaceBindings)
+          .set({
+            membership: "awaiting_invite",
+            membershipError: null,
+            updatedAt: DB_NOW,
+          })
+          .where(eq(surfaceBindings.id, current.id));
+      }
+      return latest;
+    }
     if (
       !current ||
       current.channelKind !== "private_channel" ||
@@ -766,6 +839,72 @@ async function botLeft(
     }
     return latest;
   });
+}
+
+// The newest join or leave noted for the channel is a leave; a tie is the
+// leave, since a join at the leave's own time cannot be told from its retry.
+async function removedByEvents(
+  db: Database,
+  installationId: string,
+  channelId: string,
+  options: { lock?: boolean } = {},
+): Promise<boolean> {
+  const noted = await noteOf(db, installationId, channelId, options);
+  return (
+    noted?.leave != null && (noted.join === null || noted.leave >= noted.join)
+  );
+}
+
+// With `lock`, the record is made if missing (for an installation that
+// exists) and held to the end of the transaction, so a leave being noted is
+// waited for, not read past.
+async function noteOf(
+  db: Database,
+  installationId: string,
+  channelId: string,
+  { lock = false } = {},
+): Promise<{ join: number | null; leave: number | null } | undefined> {
+  if (lock) {
+    await db.execute(sql`
+      INSERT INTO ${slackChannelLifecycle} (installation_id, channel_id,
+        last_event_us)
+      SELECT ${installationId}::uuid, ${channelId}::text, 0
+      WHERE EXISTS (SELECT 1 FROM ${slackInstallations}
+        WHERE ${slackInstallations.id} = ${installationId})
+      ON CONFLICT DO NOTHING`);
+  }
+  const query = db
+    .select({
+      join: slackChannelLifecycle.lastJoinUs,
+      leave: slackChannelLifecycle.lastLeaveUs,
+    })
+    .from(slackChannelLifecycle)
+    .where(
+      and(
+        eq(slackChannelLifecycle.installationId, installationId),
+        eq(slackChannelLifecycle.channelId, channelId),
+      ),
+    );
+  const [noted] = lock ? await query.for("update") : await query;
+  return noted;
+}
+
+// A leave with no time orders nothing (the channel's newest time stays), yet
+// the bot is out: it is kept as a leave at the newest time noted, so a later
+// join brings the bot back and one that ties does not.
+async function noteUntimedLeave(
+  tx: Database,
+  installationId: string,
+  channelId: string,
+): Promise<void> {
+  await tx.execute(sql`
+    INSERT INTO ${slackChannelLifecycle} (installation_id, channel_id,
+      last_event_us, last_leave_us)
+    VALUES (${installationId}, ${channelId}, 0, 0)
+    ON CONFLICT (installation_id, channel_id) DO UPDATE
+      SET last_leave_us = GREATEST(${slackChannelLifecycle.lastEventUs},
+        COALESCE(${slackChannelLifecycle.lastJoinUs}, 0),
+        COALESCE(${slackChannelLifecycle.lastLeaveUs}, 0))`);
 }
 
 // The bot is out of a private channel: inactive, no home, no approval. The

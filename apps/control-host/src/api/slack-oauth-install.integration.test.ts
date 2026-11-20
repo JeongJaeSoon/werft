@@ -456,7 +456,7 @@ integration(
         request_url: `${PUBLIC}/v1/slack/events/${agentId}`,
         bot_events: [...SLACK_AGENT_BOT_EVENTS],
       });
-      expect(manifest.settings.event_subscriptions.bot_events).toHaveLength(8);
+      expect(manifest.settings.event_subscriptions.bot_events).toHaveLength(10);
       // apps.manifest.update replaces the whole manifest, scopes included.
       expect(manifest.oauth_config).toMatchObject({
         scopes: { bot: [...BOT_SCOPES] },

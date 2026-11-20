@@ -47,13 +47,16 @@ function refused(
 
 /**
  * Asks Slack whether the bot is in the channel and joins it when it is
- * public. A private channel waits for an invite (`member_joined_channel`).
- * Null when Slack could not be asked; joining twice is harmless.
+ * public and `mayJoin` allows; `mayJoin` is asked after Slack answered, just
+ * before the join. A private channel waits for an invite
+ * (`member_joined_channel`). Null when Slack could not be asked; joining
+ * twice is harmless.
  */
 export async function joinSlackChannel(
   slack: Pick<SlackBotApi, "channelMembership" | "joinChannel">,
   botToken: string,
   channelId: string,
+  mayJoin: () => boolean | Promise<boolean> = () => true,
 ): Promise<SurfaceMembership | null> {
   let seen: Awaited<ReturnType<SlackBotApi["channelMembership"]>>;
   try {
@@ -64,7 +67,7 @@ export async function joinSlackChannel(
   }
   if (seen.isArchived) return { state: "join_failed", error: "is_archived" };
   if (seen.isMember) return JOINED;
-  if (seen.kind !== "public_channel") {
+  if (seen.kind !== "public_channel" || !(await mayJoin())) {
     return { state: "awaiting_invite", error: null };
   }
   try {
@@ -172,11 +175,19 @@ export function createSlackMemberJoinedHandler(deps: {
   };
 }
 
-const memberLeftSchema = z.object({
-  type: z.literal("member_left_channel"),
-  user: z.string().min(1),
-  channel: z.string().min(1),
-});
+const memberLeftSchema = z.union([
+  z.object({
+    type: z.literal("member_left_channel"),
+    user: z.string().min(1),
+    channel: z.string().min(1),
+  }),
+  // Sent to the bot itself, so it names no user: the one who left is the
+  // bot whose app received it.
+  z.object({
+    type: z.enum(["channel_left", "group_left"]),
+    channel: z.string().min(1),
+  }),
+]);
 
 // join and leave events carry no `ts`; `event_ts` ("<seconds>.<micros>") is
 // the time Slack stamped them, and the envelope's time is the fallback. An
@@ -198,11 +209,12 @@ function lifecycleTime(claim: SlackInboundClaim): number | null {
 }
 
 /**
- * The `slack` role's handler for `member_left_channel`: when the one who
- * left is this app's bot (it was removed, or left), a private channel's
- * binding becomes `left`: inactive until the bot is invited again, and then
- * it waits for approval, so the old approval does not come back. Every other
- * event goes to `next`.
+ * The `slack` role's handler for the bot leaving a channel (it was removed,
+ * or left): `channel_left` or `group_left`, or `member_left_channel` naming
+ * this app's bot. A private channel's binding becomes `left`: inactive until
+ * the bot is invited again, and then it waits for approval, so the old
+ * approval does not come back. A public channel's binding waits for an
+ * invite. Every other event goes to `next`.
  */
 export function createSlackMemberLeftHandler(deps: {
   agents: Pick<AgentIdentityStore, "resolveSlackEvent">;
@@ -219,7 +231,11 @@ export function createSlackMemberLeftHandler(deps: {
       teamId: claim.teamId,
       agentId: claim.agentId,
     });
-    if (agent.status === "dropped" || parsed.data.user !== agent.botUserId) {
+    if (
+      agent.status === "dropped" ||
+      (parsed.data.type === "member_left_channel" &&
+        parsed.data.user !== agent.botUserId)
+    ) {
       return;
     }
     await deps.bindings.botLeft(
@@ -236,18 +252,44 @@ export function createSlackMemberLeftHandler(deps: {
  * is off, an app with no bot token, or a Slack that did not answer.
  */
 export function createSlackChannelJoiner(deps: {
-  bindings: Pick<SurfaceBindingStore, "setMembership">;
+  bindings: Pick<
+    SurfaceBindingStore,
+    "setMembership" | "botRemovedFrom" | "lastLeaveNoted"
+  >;
   slack: Pick<SlackBotApi, "channelMembership" | "joinChannel">;
   botToken(workspaceId: string, agentId: string): Promise<string | null>;
 }): ChannelJoinable {
   return async (binding) => {
-    if (binding.channelId === null || binding.mode === "off") return null;
+    const { channelId, installationId } = binding;
+    if (channelId === null || binding.mode === "off") return null;
     const botToken = await deps.botToken(binding.workspaceId, binding.agentId);
     if (botToken === null) return null;
+    // A person removed the bot from this public channel, so only an invite
+    // brings it back, not a release going live, a reinstall or a settings
+    // change. Slack is still asked, so an invite whose event was lost shows.
+    // The removal is read from the channel's event record, which a Slack
+    // error recorded on the membership does not erase, and only once Slack
+    // answered, so a leave noted while the question was out still counts.
+    // A leave Slack delivers after the join call cannot be seen here at all.
+    // The newest leave noted before the question guards the write: a leave
+    // noted meanwhile drops this answer, even where the membership it left
+    // is the one this run read.
+    const leaveNoted =
+      installationId === null
+        ? undefined
+        : await deps.bindings.lastLeaveNoted(installationId, channelId);
+    const mayJoin = async () =>
+      !(
+        (binding.membership?.state === "awaiting_invite" &&
+          binding.membership.error === null) ||
+        (installationId !== null &&
+          (await deps.bindings.botRemovedFrom(installationId, channelId)))
+      );
     const membership = await joinSlackChannel(
       deps.slack,
       botToken,
-      binding.channelId,
+      channelId,
+      mayJoin,
     );
     if (
       membership !== null &&
@@ -258,6 +300,7 @@ export function createSlackChannelJoiner(deps: {
         binding.id,
         membership,
         binding.membership,
+        leaveNoted,
       );
     }
     return membership;
