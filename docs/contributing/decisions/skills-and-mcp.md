@@ -364,8 +364,8 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 | 시점 | 확인 | 빠졌을 때 |
 |---|---|---|
 | 지정(워크스페이스·에이전트 범위) | `requires.mcp`의 서버가 워크스페이스에 등록돼 있고 이 에이전트가 켰는가. 워크스페이스 범위 지정은 그 워크스페이스의 에이전트 모두를 보고, 빠진 것을 에이전트 이름과 함께 담는다(`required`는 한 에이전트라도 빠지면 저장 거절). 나중에 생기는 에이전트는 release 활성화 때 걸린다. 도구 이름이 저장된 도구 목록에 있고 deny에 걸리지 않는가. `requires.rules`를 실행 규칙 판정기가 충족한다고 하는가. 에이전트의 엔진이 `engines`에 있는가 | `required`: 저장 거절, 빠진 것 목록(`missing: [{kind: "mcp", server, tool?}, {kind: "rule", …}, {kind: "engine", …}]`). `optional`: 저장은 하되 그 에이전트에서는 "켤 수 없음"과 이유를 보인다 |
-| release 활성화 | 위와 같다. 지금 `checkAgentExtensions`(`agent-service.ts:225-240`)가 하는 거절 경로에 더한다 | 활성화 거절, 같은 목록 |
-| 세션 시작 | 위와 같고, 더해 MCP 연결 상태(`active`인가, 정책이 이 요청자에게 허용하는가) | 서버 미등록·꺼짐·엔진 불일치·규칙 불충족은 시작 거절. 연결이 `needs_reauth`이거나 정책이 이 요청자를 막는 것은 시작은 하되 세션 시작 이벤트와 화면에 "이 플러그인의 MCP가 지금 쓸 수 없음"을 남긴다(런타임 상태라 지정 때는 알 수 없다) |
+| release 활성화 | 위와 같다. 지금 `checkAgentExtensions`(`agent-service.ts:225-240`)가 하는 거절 경로에 더한다. 지금 확인은 `includeOptional: true`로 세션이 켤 수 있는 optional까지 본다(`session-extensions.ts:127`, `resolve.ts:82-90`). 엔진 불일치나 빠진 의존성으로 이 에이전트에서 "켤 수 없음"인 optional은 그 확인에서 빼고, 이 release의 세션이 켤 수 있는 목록에서도 뺀다. 그래서 다른 엔진 전용의 optional 지정 하나가 이 에이전트의 활성화를 막지 않는다 | `required`가 빠지면 활성화 거절, 같은 목록. "켤 수 없음"인 optional은 활성화를 막지 않고 목록에 이유와 함께 남긴다 |
+| 세션 시작 | 위와 같고, 더해 MCP 연결 상태(`active`인가, 정책이 이 요청자에게 허용하는가) | 서버 미등록·꺼짐·엔진 불일치·규칙 불충족은 시작 거절(`required`, 그리고 세션이 켜 달라고 한 optional. 켜 달라고 하지 않은 "켤 수 없음" optional은 보지 않는다). 연결이 `needs_reauth`이거나 정책이 이 요청자를 막는 것은 시작은 하되 세션 시작 이벤트와 화면에 "이 플러그인의 MCP가 지금 쓸 수 없음"을 남긴다(런타임 상태라 지정 때는 알 수 없다) |
 
 이것이 처음 안의 스킬 메타데이터 `requires_mcp`(경고만)를 대신한다([2절](#2-두-개념)).
 
@@ -478,6 +478,7 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 | `packages/runtime-core` | 번들 digest와 archive(`extension-bundle-archive.ts`) |
 | `apps/control-host` | HTTP API(콘솔 세션만), Git 출처 읽기(워크스페이스 GitHub App), 세션 시작 때 해석 결과 고정 |
 | `packages/platform/src/workers/workspace-mcp-egress.ts`와 그 DB 쪽 | MCP 축 판정 요청(6절 "언제 무엇을 묻나"), (서버, 턴) subject 고정과 전송 세션 묶음 |
+| `apps/egress-proxy`와 인가 요청 계약(`apps/control-host/src/api/egress-authorizer.ts`) | 지금 proxy가 MCP 판정에 넘기는 것은 메서드와 도구 이름뿐이다(`egress-authorizer.ts:164-172`). S11은 `subscriptions/listen`의 구독 종류를, S12는 upstream이 준 `Mcp-Session-Id`와 요청이 실은 세션 id를 이 계약에 더한다. proxy가 JSON-RPC 본문과 응답 헤더에서 읽어 넘기고, 판정은 control-host가 한다. 엔진이 보내는 값을 그대로 믿지 않고 proxy가 실제 교환에서 읽은 값만 쓴다 |
 | `packages/adapters/runtimes/claude`, `codex`, `codex-codec` | 엔진 매핑과 탐색 닫기, 시작 확인, 엔진 plugin 출력, relay, descriptor의 스킬 칸 |
 | `apps/web` | 스킬 라이브러리, 에이전트 접근 탭의 스킬 칸, 새 세션의 optional 켜기 |
 
@@ -527,11 +528,11 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 
 | 단계 | 내용 | PR | 끝난 조건 | 앞선 단계 |
 |---|---|---|---|---|
-| S8 werft 플러그인 | manifest 스키마와 digest(`requires`·`instructions`는 비어 있어야 받는다. 채운 manifest는 `field_not_yet_supported`로 거절하고, `requires`는 S9가, `instructions`는 실행 규칙·지시 파일 설계의 지시 출력 단계가 연다. `engines`는 이 단계의 해석기가 엔진 불일치로 거절한다), 단일 스킬 플러그인 자동 생성, 지정 행이 플러그인 digest를 가리키는 migration(옛 번들 지정은 읽기 유지), 해석기의 플러그인 단위 접기·펼치기·`forbidden` 펼친 결과 검사·펼친 뒤 겹침 검사, 어댑터별 엔진 plugin 출력 | 2 | 해석기 시험: 스킬 `foo` 금지 아래에서 `foo`를 담은 다른 플러그인 지정이 지정·활성화·세션 시작 모두에서 `extension_forbidden`, 같은 digest 중복은 한 번 펼침, 다른 digest는 겹침, 스킬과 플러그인의 같은 이름 등록 거절, 스킬 새 버전이 앞 버전의 `requires`·`engines`를 이어받은 단일 스킬 플러그인 새 버전을 함께 만들고 한 번에 승인됨, 단일 스킬 플러그인의 `engines` 수정이 새 버전이 되어 본인 승인이 거절됨, `requires`·`instructions`를 채운 manifest가 `field_not_yet_supported`로 거절됨, `engines` 밖 엔진의 에이전트에 `required` 지정은 거절되고 `optional` 지정은 저장되되 그 에이전트에서 "켤 수 없음"과 이유가 보임. migration 시험: 옛 지정이 그대로 해석됨 | S1, S3, S4 |
+| S8 werft 플러그인 | manifest 스키마와 digest(`requires`·`instructions`는 비어 있어야 받는다. 채운 manifest는 `field_not_yet_supported`로 거절하고, `requires`는 S9가, `instructions`는 실행 규칙·지시 파일 설계의 지시 출력 단계가 연다. `engines`는 이 단계의 해석기가 엔진 불일치로 거절한다), 단일 스킬 플러그인 자동 생성, 지정 행이 플러그인 digest를 가리키는 migration(옛 번들 지정은 읽기 유지), 해석기의 플러그인 단위 접기·펼치기·`forbidden` 펼친 결과 검사·펼친 뒤 겹침 검사, 어댑터별 엔진 plugin 출력 | 2 | 해석기 시험: 스킬 `foo` 금지 아래에서 `foo`를 담은 다른 플러그인 지정이 지정·활성화·세션 시작 모두에서 `extension_forbidden`, 같은 digest 중복은 한 번 펼침, 다른 digest는 겹침, 스킬과 플러그인의 같은 이름 등록 거절, 스킬 새 버전이 앞 버전의 `requires`·`engines`를 이어받은 단일 스킬 플러그인 새 버전을 함께 만들고 한 번에 승인됨, 단일 스킬 플러그인의 `engines` 수정이 새 버전이 되어 본인 승인이 거절됨, `requires`·`instructions`를 채운 manifest가 `field_not_yet_supported`로 거절됨, `engines` 밖 엔진의 에이전트에 `required` 지정은 거절되고 `optional` 지정은 저장되되 그 에이전트에서 "켤 수 없음"과 이유가 보임, 워크스페이스의 Claude 전용 optional 플러그인이 있어도 Codex 에이전트의 release 활성화가 통과하고 그 세션에서 그 플러그인을 켜 달라는 요청은 거절됨. migration 시험: 옛 지정이 그대로 해석됨 | S1, S3, S4 |
 | S9 의존성 확인 | manifest의 `requires` 칸을 열기, 지정·release 활성화·세션 시작의 세 시점, `missing` 목록 응답, 실행 규칙 충족 판정 호출 | 1 | 시점마다 빠진 MCP 서버·도구·규칙·엔진이 이름으로 나오는 시험, 워크스페이스 범위 `required`가 한 에이전트에서만 빠져도 그 에이전트 이름과 함께 거절되는 시험, 세션 시작의 런타임 상태(재인증 필요)는 시작하고 이벤트를 남김 | S8, 실행 규칙 설계의 판정기 |
 | S10 라이브러리 | 검색·태그·분류·공개 범위·사용 현황(에이전트·세션 읽기 거름), 구성원 제출, receipt `update_extension_metadata`, 콘솔 화면 | 2 | 공개 범위 밖 구성원에게 목록·검색·상세·지정 화면에서 보이지 않음, 워크스페이스 범위 지정은 범위와 상관없이 보임, 사용 현황이 숨긴 에이전트를 세지 않음, 화면 기록 | S8, S6 |
-| S11 MCP 2026-07-28 개정 지원 | 6절 "전송 세션"의 세 자리: 등록 확인이 `server/discover`를 먼저 부르고 옛 개정이면 `initialize`로 되돌아감, egress가 `server/discover`와 `subscriptions/listen`(`toolsListChanged`만)을 라우팅, relay가 두 개정을 감지 | 1 | 두 개정의 fake 서버 각각을 등록·도구 호출까지 몰아 같은 결과, `subscriptions/listen`의 리소스 구독 거절, 옛 개정 서버의 기존 시험이 그대로 통과 | S5 |
-| S12 MCP 전송 세션의 subject 고정 | 6절 "언제 무엇을 묻나"(도구 없는 첫 판정, `tools/call` 판정)와 "전송 세션": (서버, 턴) subject 고정, 옛 개정의 `Mcp-Session-Id` 묶음, 2026-07-28 개정의 요청별 비교와 `subscriptions/listen` 묶음, 목록 캐시의 subject 분리, relay 재시작(Claude·Codex) | 1–2 | egress 통합 시험: 턴 도중 규칙 삭제 → 다음 요청 거절, subject가 바뀌는 판정 → `mcp_session_subject_changed`와 relay 재시작, 다른 subject의 세션 id 거절, 열린 스트림 도중 같은 subject로 다시 연결해 `generation`이 바뀌면 다음 `regrant`에서 스트림이 끊김, 두 개정의 fake 서버에서 같은 결과. 개인 연결 결과(B5)를 켜기 전에 머지한다 | A4, B2, S5, S11 |
+| S11 MCP 2026-07-28 개정 지원 | 6절 "전송 세션"의 세 자리: 등록 확인이 `server/discover`를 먼저 부르고 옛 개정이면 `initialize`로 되돌아감, egress가 `server/discover`와 `subscriptions/listen`(`toolsListChanged`만)을 라우팅(proxy가 구독 종류를 인가 요청에 싣는다, 13절), relay가 두 개정을 감지 | 1 | 두 개정의 fake 서버 각각을 등록·도구 호출까지 몰아 같은 결과, `subscriptions/listen`의 리소스 구독 거절, 옛 개정 서버의 기존 시험이 그대로 통과 | S5 |
+| S12 MCP 전송 세션의 subject 고정 | 6절 "언제 무엇을 묻나"(도구 없는 첫 판정, `tools/call` 판정)와 "전송 세션": (서버, 턴) subject 고정, 옛 개정의 `Mcp-Session-Id` 묶음(proxy가 upstream이 준 id와 요청이 실은 id를 인가 요청에 싣는다, 13절), 2026-07-28 개정의 요청별 비교와 `subscriptions/listen` 묶음, 목록 캐시의 subject 분리, relay 재시작(Claude·Codex) | 1–2 | egress 통합 시험: 턴 도중 규칙 삭제 → 다음 요청 거절, subject가 바뀌는 판정 → `mcp_session_subject_changed`와 relay 재시작, 다른 subject의 세션 id 거절, 열린 스트림 도중 같은 subject로 다시 연결해 `generation`이 바뀌면 다음 `regrant`에서 스트림이 끊김, 두 개정의 fake 서버에서 같은 결과. 개인 연결 결과(B5)를 켜기 전에 머지한다 | A4, B2, S5, S11 |
 
 ### 나중
 
