@@ -229,7 +229,11 @@ export function createSkillService(deps: SkillServiceDeps) {
       managerRoles:
         scope === null ? EXTENSION_MANAGER_ROLES : agentManagerRoles,
     });
-    if (result.outcome === "not_attached") {
+    // An agent deleted since the read took its attachments with it.
+    if (
+      result.outcome === "not_attached" ||
+      result.outcome === "agent_not_found"
+    ) {
       return { ...response, receipt_id: null };
     }
     if (result.outcome !== "recorded") attachmentRefusal(result);

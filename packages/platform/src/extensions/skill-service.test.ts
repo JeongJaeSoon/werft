@@ -275,9 +275,11 @@ describe("the skill service", () => {
     });
     const third = await service.files(web, modeOnly.version.id);
     expect(third.previous_approved?.id).toBe(first.version.id);
-    expect(
-      third.files.find((f) => f.path.endsWith("run.sh")),
-    ).toMatchObject({ change: "changed", executable: false, diff: null });
+    expect(third.files.find((f) => f.path.endsWith("run.sh"))).toMatchObject({
+      change: "changed",
+      executable: false,
+      diff: null,
+    });
   });
 
   test("store refusals map to their errors", async () => {
@@ -322,7 +324,7 @@ describe("the skill service", () => {
   });
 
   test("an agent attachment goes to the store with the agent's manager roles", async () => {
-    const { service, calls, attachments, rows } = setup();
+    const { service, calls, attachments, rows, outcomes } = setup();
     const web = caller("web");
     const { version } = await service.register(web, upload("research"));
     await service.putAgentAttachment(web, AGENT, "research", {
@@ -346,5 +348,11 @@ describe("the skill service", () => {
     const taken = await service.deleteAgentAttachment(web, AGENT, "research");
     expect(taken.receipt_id).not.toBeNull();
     expect(calls[1]).toMatchObject({ kind: "detach", bundleId: version.id });
+
+    // The agent was deleted between the read and the detach.
+    outcomes.attach = { outcome: "agent_not_found" };
+    expect(
+      await service.deleteAgentAttachment(web, AGENT, "research"),
+    ).toMatchObject({ attachment: null, receipt_id: null });
   });
 });

@@ -217,6 +217,10 @@ describe("workspace skills", () => {
   });
 
   test("past the transport cap an unauthenticated body is refused before any route runs", async () => {
+    // An upload limit above the transport cap could never be reached.
+    expect(SKILL_UPLOAD_BODY_MAX_BYTES).toBeLessThanOrEqual(
+      REQUEST_BODY_MAX_BYTES * 2,
+    );
     let reached = 0;
     const app = signedIn("owner", {});
     const server = Bun.serve({

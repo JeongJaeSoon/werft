@@ -662,7 +662,9 @@ describe("Agent Skills specification fields", () => {
     if (!stored.ok) throw new Error(JSON.stringify(stored.issues));
     expect(stored.bundle.digest).toBe(result.bundle.digest);
 
-    expect(rejected(one(`metadata:\n  a: '${'"'.repeat(1025)}'\n`))).toContainEqual(
+    expect(
+      rejected(one(`metadata:\n  a: '${'"'.repeat(1025)}'\n`)),
+    ).toContainEqual(
       expect.objectContaining({
         path,
         code: "bad_frontmatter",
