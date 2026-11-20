@@ -266,9 +266,7 @@ integration("starting an ownerless agent on PostgreSQL", () => {
     // admin on the agent itself locks the agent row and is waited for.
     const w = await world();
     await markedAgo(w.agentId, "30 days");
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
+    await holding(async (client) => {
       await client.query(
         "UPDATE memberships SET disabled_at = now() WHERE workspace_id = $1 AND user_id = $2",
         [w.ws, idOf(w.keeper)],
@@ -277,9 +275,7 @@ integration("starting an ownerless agent on PostgreSQL", () => {
         outcome: "accepted",
       });
       await client.query("COMMIT");
-    } finally {
-      client.release();
-    }
+    });
     expect(await create(w.owner, w.releaseId)).toEqual(REFUSED);
   });
 
@@ -289,9 +285,7 @@ integration("starting an ownerless agent on PostgreSQL", () => {
     // removal holds the agent row as the agent-side delete does.
     const w = await world();
     await markedAgo(w.agentId, "30 days");
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
+    await holding(async (client, started) => {
       const holder = await backendPid(client);
       await client.query(
         "SELECT 1 FROM agents WHERE id = $1 FOR NO KEY UPDATE",
@@ -301,12 +295,11 @@ integration("starting an ownerless agent on PostgreSQL", () => {
         w.agentId,
       ]);
       const judged = db.transaction((tx) => lockedNotRunnable(tx, w.releaseId));
+      started.push(judged);
       await waiting(holder, { onHolder: 1, onOthers: 0 });
       await client.query("COMMIT");
       expect(await judged).toBe("agent_ownerless");
-    } finally {
-      client.release();
-    }
+    });
     expect(await create(w.owner, w.releaseId)).toEqual(REFUSED);
   });
 
@@ -322,25 +315,23 @@ integration("starting an ownerless agent on PostgreSQL", () => {
       allowedTools: [],
       credentialRefs: [],
     });
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
+    await holding(async (client, started) => {
       const holder = await backendPid(client);
       await client.query(
         "SELECT 1 FROM agent_mcp_settings WHERE agent_id = $1 FOR UPDATE",
         [w.agentId],
       );
       const start = create(w.owner, w.releaseId);
+      started.push(start);
       await waiting(holder, { onHolder: 1, onOthers: 0 });
       // The removal waits on the start, not on the held settings row.
       const removal = removeKeeper(w);
+      started.push(removal);
       await waiting(holder, { onHolder: 1, onOthers: 1 });
       await client.query("COMMIT");
       expect(await start).toMatchObject({ outcome: "accepted" });
       expect(await removal).toMatchObject({ outcome: "removed" });
-    } finally {
-      client.release();
-    }
+    });
     expect(await create(w.owner, w.releaseId)).toEqual(REFUSED);
   });
 
@@ -391,6 +382,25 @@ integration("starting an ownerless agent on PostgreSQL", () => {
       outcome: "accepted",
     });
   });
+
+  // Runs `body` in a transaction on a client of its own. Whatever `body` did
+  // not commit is rolled back before the client goes back to the pool (after
+  // a COMMIT the ROLLBACK only warns), and the calls it started are settled,
+  // so a failed wait leaves no lock behind for the next test.
+  async function holding(
+    body: (client: PoolClient, started: Promise<unknown>[]) => Promise<void>,
+  ) {
+    const client = await pool.connect();
+    const started: Promise<unknown>[] = [];
+    try {
+      await client.query("BEGIN");
+      await body(client, started);
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+      await Promise.allSettled(started);
+    }
+  }
 
   async function backendPid(client: PoolClient) {
     const { rows } = await client.query<{ pid: number }>(
