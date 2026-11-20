@@ -10,7 +10,9 @@ import type { AgentDetail } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
 import {
   Alert,
+  AlertActions,
   AlertDescription,
+  AlertTitle,
   Button,
   buttonVariants,
   Page,
@@ -28,6 +30,11 @@ import {
 } from "../components/agent-access.tsx";
 import { AgentAvatar } from "../components/agent-avatar.tsx";
 import { OwnerlessAlert } from "../components/agent-ownerless.tsx";
+import {
+  PreviewDialog,
+  PublishDialog,
+  previewRelease,
+} from "../components/agent-preview.tsx";
 import { AgentStateBadge } from "../components/agent-state.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
@@ -293,6 +300,11 @@ function AgentView({
       <NewSessionReason reason={newSessionReason} />
       <OutcomeLine outcome={placed?.at === "page" ? placed.outcome : null} />
       <OwnerlessAlert agent={agent} onAdmins={() => open("admins")} />
+      {manages &&
+      agent.active_release_id === null &&
+      agent.status !== "archived" ? (
+        <UnpublishedAlert detail={detail} activation={activation} />
+      ) : null}
       {access === "read" ? (
         <Alert>
           <AlertDescription>{t("agent.readOnly")}</AlertDescription>
@@ -300,5 +312,71 @@ function AgentView({
       ) : null}
       <ManagesAgentProvider value={manages}>{body}</ManagesAgentProvider>
     </Page>
+  );
+}
+
+/**
+ * An agent with no active release is seen only by its admins: the way to
+ * try the release it saved, and to publish it to its team.
+ */
+function UnpublishedAlert({
+  detail,
+  activation,
+}: {
+  readonly detail: AgentDetail;
+  readonly activation: ReturnType<typeof useReleaseActivation>;
+}) {
+  const { t } = useI18n();
+  const release = previewRelease(detail);
+  const [previewing, setPreviewing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const busy = activation.activating !== undefined;
+  // The confirmation stays until the server answers.
+  const wasBusy = useRef(false);
+  useEffect(() => {
+    if (wasBusy.current && !busy) setConfirming(false);
+    wasBusy.current = busy;
+  }, [busy]);
+  return (
+    <Alert variant="blue" data-status="unpublished">
+      <AlertTitle>{t("agent.unpublished.title")}</AlertTitle>
+      <AlertDescription>{t("agent.unpublished.body")}</AlertDescription>
+      {release ? (
+        <AlertActions>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setPreviewing(true)}
+          >
+            {t("agents.flow.preview")}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={busy}
+            onClick={() => setConfirming(true)}
+          >
+            {t("agents.publish.confirm")}
+          </Button>
+        </AlertActions>
+      ) : null}
+      <PreviewDialog
+        release={previewing ? (release ?? null) : null}
+        agentName={detail.agent.name}
+        onClose={() => setPreviewing(false)}
+      />
+      <PublishDialog
+        open={confirming}
+        onOpenChange={(open) => {
+          if (!busy) setConfirming(open);
+        }}
+        team={detail.agent.managing_team_name}
+        busy={busy}
+        onConfirm={() => {
+          if (release) activation.activate(release);
+        }}
+      />
+    </Alert>
   );
 }

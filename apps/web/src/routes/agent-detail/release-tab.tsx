@@ -102,6 +102,13 @@ export function useReleaseActivation({
       setConflict(null);
       if (result.receipt_id === null) {
         onOutcome({ kind: "notice", text: t("agent.alreadyActive") });
+      } else if (result.previous_release_id === null) {
+        // The agent's first release: publishing, not a rollback.
+        await readAfterRollback();
+        onOutcome({
+          kind: "notice",
+          text: t("agent.published", { team: agent.managing_team_name }),
+        });
       } else {
         const after = await readAfterRollback();
         onOutcome({
@@ -229,6 +236,15 @@ export function ReleaseTab({
       versionNo={versionNo}
       result={
         <>
+          {/* A refused save says so where it was made; this is one waiting. */}
+          {detail.draft && detail.draft.failure === null ? (
+            <Alert variant="amber" data-status="draft">
+              <AlertTitle>{t("agent.draftPending.title")}</AlertTitle>
+              <AlertDescription>
+                {t("agent.draftPending.body")}
+              </AlertDescription>
+            </Alert>
+          ) : null}
           <PlacedOutcome placed={placed} at="releases" />
           <TakesFocus on={unbound}>
             {unbound ? (

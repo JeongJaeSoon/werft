@@ -5,6 +5,7 @@ import type {
   SessionUsageResponse,
 } from "@werft-ai/contracts";
 import {
+  Badge,
   Button,
   formatClockTime,
   PageFrame,
@@ -316,6 +317,11 @@ export function SessionDetail({
                   className="shrink-0 whitespace-nowrap"
                 />
               )}
+              {detail.preview ? (
+                <Badge variant="violet" className="shrink-0">
+                  {t("session.preview")}
+                </Badge>
+              ) : null}
             </span>
           </h1>
           <SessionControls

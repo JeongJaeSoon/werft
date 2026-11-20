@@ -20,6 +20,7 @@ import { type ReactNode, useState } from "react";
 import { memberSummariesQuery } from "../../api/queries.ts";
 import { useHasPermission } from "../../auth/guard.tsx";
 import { useManagesAgent } from "../../components/agent-access.tsx";
+import { PreviewDialog } from "../../components/agent-preview.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
 import { withNodes } from "../../components/with-nodes.tsx";
 import { type Translate, useI18n } from "../../i18n/i18n.tsx";
@@ -95,6 +96,7 @@ export function Releases({
   const { client } = useWerft();
   const manages = useManagesAgent();
   const [confirming, setConfirming] = useState<AgentRelease | null>(null);
+  const [previewing, setPreviewing] = useState<AgentRelease | null>(null);
   // Only roles that list members get names; anyone else reads "a member".
   // Read when the tab opens, not with every visit to the agent, and only
   // for the people who made a release.
@@ -310,19 +312,29 @@ export function Releases({
                   <GridTableCell hideNarrow className="wrap-anywhere">
                     {by}
                   </GridTableCell>
-                  <GridTableCell>
+                  <GridTableCell className="flex-wrap justify-end gap-2">
                     {active || !manages ? null : (
-                      <RowAction
-                        disabled={activating !== undefined}
-                        aria-label={t("agent.releases.rollbackFor", {
-                          release: label,
-                        })}
-                        onClick={() => setConfirming(item)}
-                      >
-                        {activating === item.id
-                          ? t("agent.releases.rollingBack")
-                          : t("agent.releases.rollback")}
-                      </RowAction>
+                      <>
+                        <RowAction
+                          aria-label={t("agent.releases.previewFor", {
+                            release: label,
+                          })}
+                          onClick={() => setPreviewing(item)}
+                        >
+                          {t("agent.releases.preview")}
+                        </RowAction>
+                        <RowAction
+                          disabled={activating !== undefined}
+                          aria-label={t("agent.releases.rollbackFor", {
+                            release: label,
+                          })}
+                          onClick={() => setConfirming(item)}
+                        >
+                          {activating === item.id
+                            ? t("agent.releases.rollingBack")
+                            : t("agent.releases.rollback")}
+                        </RowAction>
+                      </>
                     )}
                   </GridTableCell>
                 </GridTableRow>
@@ -344,6 +356,11 @@ export function Releases({
           if (confirming) onActivate(confirming);
           setConfirming(null);
         }}
+      />
+      <PreviewDialog
+        release={previewing}
+        agentName={detail.agent.name}
+        onClose={() => setPreviewing(null)}
       />
     </Section>
   );

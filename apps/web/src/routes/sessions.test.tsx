@@ -1658,6 +1658,28 @@ describe("sessions list", () => {
 });
 
 describe("session detail", () => {
+  test("a preview session says so beside its status", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, { ...detail, preview: true }),
+    });
+    const heading = await screen.findByRole("heading", { level: 1 });
+    await waitFor(() =>
+      expect(
+        heading.querySelector('[data-slot="badge"]')?.textContent ??
+          heading.parentElement?.querySelector('[data-slot="badge"]')
+            ?.textContent,
+      ).toBe("미리보기"),
+    );
+  });
+
+  test("a session that is not a preview has no preview mark", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.queryByText("미리보기")).toBeNull();
+  });
+
   test("shows status, cost, pending requests and streamed events", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
 

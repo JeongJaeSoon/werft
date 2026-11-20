@@ -188,7 +188,7 @@ describe("에이전트 상세 탭", () => {
       name: "결제 담당",
     });
     await waitFor(() =>
-      expect(heading.nextElementSibling?.textContent).toBe("초안"),
+      expect(heading.nextElementSibling?.textContent).toBe("미게시"),
     );
     expect(heading.nextElementSibling?.getAttribute("data-slot")).toBe("badge");
     const description = document.getElementById(

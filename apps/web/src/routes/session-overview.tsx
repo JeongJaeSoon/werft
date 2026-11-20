@@ -47,6 +47,7 @@ export function useSessionOverviewRowMessages(): SessionOverviewRowMessages {
     inProgress: t("sessionList.inProgress"),
     unknown: t("sessionList.unknown"),
     open: (name) => t("sessionList.open", { name }),
+    preview: t("session.preview"),
   };
 }
 

@@ -3,6 +3,7 @@ import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
   AgentCard,
   AgentDetail,
+  AgentRelease,
   AgentVersion,
   SaveAgentResponse,
 } from "@werft-ai/contracts";
@@ -41,6 +42,7 @@ import {
   cardFromDraft,
   draftFromCard,
 } from "../../components/agent-card-form.tsx";
+import { previewRelease } from "../../components/agent-preview.tsx";
 import { agentRefusal } from "../../components/agent-refusal.ts";
 import type { Outcome } from "../../components/outcome.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
@@ -53,6 +55,7 @@ export function CardEditor({
   detail,
   result,
   onOutcome,
+  onPreview,
   onClose,
   connectionId,
   onConnectionChange,
@@ -62,6 +65,8 @@ export function CardEditor({
   readonly onConnectionChange: (connectionId: string) => void;
   readonly result: ReactNode;
   readonly onOutcome: (outcome: Outcome | null) => void;
+  /** Opens a preview of the release a save-only save made. */
+  readonly onPreview: (release: AgentRelease) => void;
   /**
    * Back to the read-only card: on cancel, or after a save nothing was typed
    * after. Only a cancel hands the keyboard back; a save's result takes it.
@@ -112,6 +117,7 @@ export function CardEditor({
   const startConnection =
     detail.draft?.connection_id ?? releasedConnection(detail);
   const releaseConnection = connectionId ?? startConnection;
+  const unpublished = detail.agent.active_release_id === null;
   const save = useMutation<SaveAgentResponse, ApiError, Submitted>({
     mutationFn: ({
       baseName,
@@ -120,6 +126,7 @@ export function CardEditor({
       description,
       draft,
       sendsCard,
+      saveOnly,
     }) => {
       const sentCard = draft ? cardFromDraft(draft, base?.card) : undefined;
       return unwrap(
@@ -141,6 +148,9 @@ export function CardEditor({
                   ...(releaseConnection
                     ? { connection_id: releaseConnection }
                     : {}),
+                  // An unpublished agent is published only by its own
+                  // button, never by a settings save.
+                  ...(saveOnly || unpublished ? { activate: false } : {}),
                 }
               : {}),
           },
@@ -183,15 +193,19 @@ export function CardEditor({
                   ? t("agent.save.applied", {
                       version: saved?.version_no ?? "",
                     })
-                  : release.status === "superseded"
-                    ? t("agent.save.superseded")
-                    : isNew
-                      ? t("agent.saved", { version: saved.version_no })
-                      : saved && saved.id !== submitted.baseId
-                        ? t("agent.savedExisting", {
-                            version: saved.version_no,
-                          })
-                        : t("agent.savedNoChange"),
+                  : release.status === "saved"
+                    ? t("agent.save.savedOnly", {
+                        version: saved?.version_no ?? "",
+                      })
+                    : release.status === "superseded"
+                      ? t("agent.save.superseded")
+                      : isNew
+                        ? t("agent.saved", { version: saved.version_no })
+                        : saved && saved.id !== submitted.baseId
+                          ? t("agent.savedExisting", {
+                              version: saved.version_no,
+                            })
+                          : t("agent.savedNoChange"),
             },
       );
       if (sameEdit(latestEdit.current, submitted)) onClose(false);
@@ -227,6 +241,13 @@ export function CardEditor({
         queryKeysOf(client).agent(detail.agent.id),
         stored,
       );
+      if (submitted.saveOnly && release.status !== "failed") {
+        // A save that changed nothing made no release: the one waiting is tried.
+        const tried =
+          stored.releases.find((r) => r.id === release.release_id) ??
+          previewRelease(stored);
+        if (tried) onPreview(tried);
+      }
       await queryClient.invalidateQueries(agentListsFilter(client));
     },
     onError: (error) =>
@@ -247,8 +268,13 @@ export function CardEditor({
       edit.description.trim() === edit.baseDescription);
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    save.mutate({ ...edit, sendsCard });
+    save.mutate({ ...edit, sendsCard, saveOnly: false });
   };
+  const disabled =
+    save.isPending ||
+    // A save of the name or description alone sends no card,
+    // so the run settings' checks do not hold it back.
+    (draft !== null && sendsCard && !catalog.isSuccess);
 
   return (
     <Section
@@ -310,17 +336,21 @@ export function CardEditor({
             </FieldSet>
           ) : null}
           <div className="flex flex-wrap gap-2">
-            <Button
-              type="submit"
-              disabled={
-                save.isPending ||
-                // A save of the name or description alone sends no card,
-                // so the run settings' checks do not hold it back.
-                (draft !== null && sendsCard && !catalog.isSuccess)
-              }
-            >
+            <Button type="submit" disabled={disabled}>
               {save.isPending ? t("agent.card.saving") : t("agent.card.save")}
             </Button>
+            {draft !== null ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={disabled}
+                onClick={() =>
+                  save.mutate({ ...edit, sendsCard: true, saveOnly: true })
+                }
+              >
+                {t("agent.card.saveOnly")}
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="ghost"
@@ -354,6 +384,8 @@ interface Edit {
 interface Submitted extends Edit {
   /** Whether the card differs from its base; else only the row is saved. */
   readonly sendsCard: boolean;
+  /** Saves without turning the release on, then previews it. */
+  readonly saveOnly: boolean;
 }
 
 const sameEdit = (a: Edit, b: Edit) =>
