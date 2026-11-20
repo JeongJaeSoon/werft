@@ -43,6 +43,7 @@ import type {
   SessionShareService,
   SettingsConsoleService,
   SettingsDocumentService,
+  SkillService,
   SurfaceBindingService,
   TeamService,
   UsageService,
@@ -97,6 +98,7 @@ import {
 import { registerLinkedAccountRoutes } from "./routes/musterrolle/linked-accounts.ts";
 import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
 import { registerSessionShareRoutes } from "./routes/musterrolle/session-shares.ts";
+import { registerSkillRoutes } from "./routes/musterrolle/skills.ts";
 import { registerTeamRoutes } from "./routes/musterrolle/teams.ts";
 import { registerWorkspaceMcpServerRoutes } from "./routes/musterrolle/workspace-mcp-servers.ts";
 import {
@@ -199,6 +201,7 @@ function apiApp() {
       registerCredentialBindingRoutes(router, {} as CredentialBindingService);
       registerEnvVariableRoutes(router, {} as EnvVariableService);
       registerWorkspaceMcpServerRoutes(router, {} as WorkspaceMcpService);
+      registerSkillRoutes(router, {} as SkillService);
       registerPauseRoutes(router, {} as SessionService);
       registerCloseRoutes(router, {} as SessionService);
       registerUsageRoutes(router, {} as UsageService);

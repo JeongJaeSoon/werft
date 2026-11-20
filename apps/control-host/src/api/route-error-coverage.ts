@@ -275,6 +275,18 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/workspace/mcp-servers/{id}/disconnect",
     "POST /v1/workspace/mcp-servers/{id}/tools/refresh",
   ],
+  "routes/musterrolle/skills.test.ts": [
+    "GET /v1/workspace/skills",
+    "POST /v1/workspace/skills",
+    "GET /v1/workspace/skills/versions/{id}/files",
+    "POST /v1/workspace/skills/versions/{id}/review",
+    "POST /v1/workspace/skills/versions/{id}/archive",
+    "PUT /v1/workspace/skills/{name}/attachment",
+    "DELETE /v1/workspace/skills/{name}/attachment",
+    "GET /v1/agents/{id}/skills",
+    "PUT /v1/agents/{id}/skills/{name}",
+    "DELETE /v1/agents/{id}/skills/{name}",
+  ],
   "routes/musterrolle/env-variables.test.ts": [
     "GET /v1/workspace/variables",
     "PUT /v1/workspace/variables/{name}",

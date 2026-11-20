@@ -32,6 +32,8 @@ import {
   agentIdParamsSchema,
   agentMcpResponseSchema,
   agentPullRequestResponseSchema,
+  agentSkillListSchema,
+  agentSkillParamsSchema,
   agentUsageSchema,
   agentVariableParamsSchema,
   agentWorkspaceMcpServerListSchema,
@@ -248,6 +250,7 @@ import {
   putGitHubSettingsRequestSchema,
   putGitHubUserLinkAppRequestSchema,
   putGitHubUserLinkAppResponseSchema,
+  putSkillAttachmentRequestSchema,
   putSlackBindingRequestSchema,
   putSlackBindingResponseSchema,
   putSlackConfigTokenResponseSchema,
@@ -259,6 +262,8 @@ import {
   receiptAcceptedResponseSchema,
   receiptIdParamsSchema,
   recoveryDecisionRequestSchema,
+  registerSkillRequestSchema,
+  registerSkillResponseSchema,
   rejudgeSessionResponseSchema,
   requestBodyInvalidDetailsSchema,
   rerunWorkflowRequestSchema,
@@ -269,6 +274,7 @@ import {
   resumeSessionRequestSchema,
   reviewAchievementRequestSchema,
   reviewAchievementResponseSchema,
+  reviewSkillVersionRequestSchema,
   revokeAgentIdentityResponseSchema,
   revokeApiKeyResponseSchema,
   revokeCredentialBindingResponseSchema,
@@ -302,6 +308,12 @@ import {
   settingsConnectionImpactResponseSchema,
   settingsDocumentSchema,
   settingsIdParamsSchema,
+  skillAttachmentResponseSchema,
+  skillListSchema,
+  skillNameParamsSchema,
+  skillVersionChangeResponseSchema,
+  skillVersionFilesSchema,
+  skillVersionParamsSchema,
   slackAppParamsSchema,
   slackAppSecretParamsSchema,
   slackAppSettingsSchema,
@@ -723,6 +735,15 @@ const responseComponents = {
     disconnectWorkspaceMcpServerResponseSchema,
   DeleteWorkspaceMcpServerResponse: deleteWorkspaceMcpServerResponseSchema,
   AgentWorkspaceMcpServerList: agentWorkspaceMcpServerListSchema,
+  SkillList: skillListSchema,
+  RegisterSkillRequest: registerSkillRequestSchema,
+  RegisterSkillResponse: registerSkillResponseSchema,
+  SkillVersionFiles: skillVersionFilesSchema,
+  ReviewSkillVersionRequest: reviewSkillVersionRequestSchema,
+  SkillVersionChangeResponse: skillVersionChangeResponseSchema,
+  PutSkillAttachmentRequest: putSkillAttachmentRequestSchema,
+  SkillAttachmentResponse: skillAttachmentResponseSchema,
+  AgentSkillList: agentSkillListSchema,
   PutAgentWorkspaceMcpServersRequest: putAgentWorkspaceMcpServersRequestSchema,
   PutAgentWorkspaceMcpServersResponse:
     putAgentWorkspaceMcpServersResponseSchema,
@@ -1085,6 +1106,31 @@ const EXAMPLE_AGENT_WORKSPACE_MCP_SERVER = {
 };
 const WORKSPACE_MCP_MANAGERS =
   "Owners and admins signed in to the console as a person; never an API key.";
+const SKILL_MANAGERS =
+  "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`.";
+const EXAMPLE_SKILL_VERSION_ID = "7c3e9a1f-2d4b-4e6a-8f0c-5b1d3e7a9c20";
+const EXAMPLE_SKILL_VERSION = {
+  id: EXAMPLE_SKILL_VERSION_ID,
+  name: "release-notes",
+  version: 2,
+  digest: "9f2c4e6a8b0d1f3e5a7c9b2d4f6e8a0c1b3d5f7e9a2c4b6d8f0e1a3c5b7d9f2e",
+  source: "upload",
+  size_bytes: 4608,
+  has_scripts: true,
+  review: "approved",
+  registered_by: EXAMPLE_USER_ID,
+  registered_at: "2026-11-20T09:00:00.000Z",
+  reviewed_by: "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21",
+  reviewed_at: "2026-11-20T10:00:00.000Z",
+  archived_at: null,
+};
+const EXAMPLE_SKILL_ATTACHMENT = {
+  name: "release-notes",
+  scope: "workspace",
+  agent_id: null,
+  attachment: { version_id: EXAMPLE_SKILL_VERSION_ID, mode: "required" },
+  receipt_id: EXAMPLE_RECEIPT_ID,
+};
 const EXAMPLE_SLACK_APP_REDIRECT = `https://console.example.ts.net/agents/${EXAMPLE_AGENT_ID}/slack/callback`;
 const EXAMPLE_SLACK_APP = {
   id: "6a1d3e5f-2b4c-4d8e-9f0a-1b2c3d4e5f60",
@@ -6052,6 +6098,265 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "get",
+    path: "/v1/workspace/skills",
+    operationId: "listSkills",
+    tag: "Workspace settings",
+    summary: "List the workspace's skills and their versions",
+    description:
+      "Every skill name with all its versions, oldest first, and the version and mode the workspace scope names. A bundle registered before skills shows with `version: null`. Every member of the workspace reads it.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "SkillList",
+      description: "The skills by name.",
+      example: {
+        items: [
+          {
+            name: "release-notes",
+            versions: [EXAMPLE_SKILL_VERSION],
+            workspace_attachment: {
+              version_id: EXAMPLE_SKILL_VERSION_ID,
+              mode: "required",
+            },
+          },
+        ],
+      },
+    },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/workspace/skills",
+    operationId: "registerSkill",
+    tag: "Workspace settings",
+    summary: "Upload a skill as its next version",
+    description: `${SKILL_MANAGERS} \`files\` is one skill directory: \`SKILL.md\` at its root and the files beside it, each as base64, up to 255 files (the stored tree adds a manifest of its own and holds at most 256). The body is at most 128 KiB for a console session of an owner or admin and the usual 64 KiB for anyone else; past 128 KiB the server refuses it with 413 before any check, since its transport limit is one value for every route and is not raised for one. A stored tree may hold up to 8 MiB; larger trees will arrive through an upload path of their own. The platform keeps only what its checker allows, rebuilt into a tree of its own, and that tree's digest names the version. Refused with 400 \`reason_code\` \`skill_invalid\` and \`details.issues\` (each with the uploaded \`path\` and a \`code\`): a second \`SKILL.md\` (\`multiple_skills\`), an engine manifest such as \`.claude-plugin/plugin.json\` (\`engine_manifest\`), a frontmatter \`name\` other than the request's \`name\` (\`bad_frontmatter\`), \`allowed-tools\` or any key outside \`name\`, \`description\`, \`license\`, \`compatibility\`, \`metadata\`, \`disable-model-invocation\` and \`user-invocable\`. \`metadata\` is a one-level map of one-line strings, up to 32 keys. Content the workspace already has answers 200 with \`already_registered\` and that version, archived or not; a name an older multi-skill bundle holds is 409 \`ALREADY_EXISTS\`. A new version is \`pending\` until another manager reviews it, and writes a \`register_extension\` receipt.`,
+    auth: "session",
+    body: "RegisterSkillRequest",
+    requestExample: {
+      name: "release-notes",
+      files: [
+        {
+          path: "SKILL.md",
+          content_base64:
+            "LS0tCm5hbWU6IHJlbGVhc2Utbm90ZXMKZGVzY3JpcHRpb246IFdyaXRlIHJlbGVhc2Ugbm90ZXMKLS0tCg==",
+        },
+      ],
+    },
+    success: {
+      status: 201,
+      schema: "RegisterSkillResponse",
+      description:
+        "201 with the new version; 200 with `already_registered` when the workspace has that content.",
+      example: {
+        outcome: "registered",
+        version: {
+          ...EXAMPLE_SKILL_VERSION,
+          review: "pending",
+          reviewed_by: null,
+          reviewed_at: null,
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 409, 413, 503],
+    errorCodes: { 409: ["ALREADY_EXISTS"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/workspace/skills/versions/{id}/files",
+    operationId: "getSkillVersionFiles",
+    tag: "Workspace settings",
+    summary:
+      "Read a skill version's files and its diff from the last approved one",
+    description:
+      "Every file of the stored tree with its text (null for a binary file), its hash, and how it differs from the previous approved version of the name: `added`, `changed` with a unified line diff, or `unchanged`; `removed` lists what that version had and this one drops. Owners and admins read it from a signed-in console session, where they review it; an API key is refused with 403 `web_session_required`.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "SkillVersionFiles",
+      description: "The files, in path order.",
+      example: {
+        version: {
+          ...EXAMPLE_SKILL_VERSION,
+          review: "pending",
+          reviewed_by: null,
+          reviewed_at: null,
+        },
+        previous_approved: null,
+        files: [
+          {
+            path: "skills/release-notes/SKILL.md",
+            executable: false,
+            size_bytes: 61,
+            sha256:
+              "1d3f5b7a9c2e4f6a8b0d1c3e5f7a9b2d4c6e8f0a1b3d5c7e9f2a4b6c8d0e1f3a",
+            text: "---\nname: release-notes\ndescription: Write release notes\n---\n",
+            change: "added",
+            diff: null,
+          },
+        ],
+        removed: [],
+      },
+    },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/workspace/skills/versions/{id}/review",
+    operationId: "reviewSkillVersion",
+    tag: "Workspace settings",
+    summary: "Approve or reject a skill version",
+    description: `${SKILL_MANAGERS} The one who registered the version may not review it while another live owner or admin can (403 \`reason_code\` \`self_review\`); a workspace with one manager lets that person review, and the \`approve_extension\` receipt then says \`self_review: "sole_manager"\`. An archived version is not reviewed (400 \`version_archived\`). The same decision again changes nothing and answers \`receipt_id: null\`. Rejecting a version a scope attaches stays allowed, as a recall: a \`required\` attachment then refuses every session start it reaches and an \`optional\` one is left out, until the attachment is taken back.`,
+    auth: "session",
+    body: "ReviewSkillVersionRequest",
+    requestExample: { decision: "approved" },
+    success: {
+      status: 200,
+      schema: "SkillVersionChangeResponse",
+      description: "The version as it is now.",
+      example: {
+        version: EXAMPLE_SKILL_VERSION,
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/workspace/skills/versions/{id}/archive",
+    operationId: "archiveSkillVersion",
+    tag: "Workspace settings",
+    summary: "Archive a skill version",
+    description: `${SKILL_MANAGERS} An archived version is never attached again and is not reviewed; its tree stays, so a session that ran it can still be read. Refused with 400 while a workspace or agent scope names it (\`version_attached\`) or a session that has not ended runs it (\`version_in_use\`), and with 403 \`self_review\` for the one who registered it while another manager can. Writes an \`archive_extension\` receipt; an archived version again answers \`receipt_id: null\`.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "SkillVersionChangeResponse",
+      description: "The archived version.",
+      example: {
+        version: {
+          ...EXAMPLE_SKILL_VERSION,
+          archived_at: "2026-11-21T09:00:00.000Z",
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/workspace/skills/{name}/attachment",
+    operationId: "putWorkspaceSkillAttachment",
+    tag: "Workspace settings",
+    summary: "Name the skill version every agent of the workspace gets",
+    description: `${SKILL_MANAGERS} \`version_id\` must be a version of \`name\` (400 \`version_name_mismatch\`), approved (\`version_not_approved\`) and not archived (\`version_archived\`); \`mode: forbidden\` takes any version that is not archived, approved or not, since it only keeps the name out. Replaces what the scope named before. A session takes it when it starts. Writes an \`attach_extension\` receipt.`,
+    auth: "session",
+    body: "PutSkillAttachmentRequest",
+    requestExample: { version_id: EXAMPLE_SKILL_VERSION_ID, mode: "required" },
+    success: {
+      status: 200,
+      schema: "SkillAttachmentResponse",
+      description: "What the workspace scope names now.",
+      example: EXAMPLE_SKILL_ATTACHMENT,
+    },
+    errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/workspace/skills/{name}/attachment",
+    operationId: "deleteWorkspaceSkillAttachment",
+    tag: "Workspace settings",
+    summary: "Take a skill back from the workspace scope",
+    description: `${SKILL_MANAGERS} Writes a \`detach_extension\` receipt; when the scope names nothing for \`name\`, nothing is written and \`receipt_id\` is null.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "SkillAttachmentResponse",
+      description: "The scope with nothing named.",
+      example: { ...EXAMPLE_SKILL_ATTACHMENT, attachment: null },
+    },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}/skills",
+    operationId: "listAgentSkills",
+    tag: "Agents",
+    summary: "The skills the agent's sessions get",
+    description:
+      "The skills named for the agent and for the workspace, each with its scope, mode and version. Whoever manages the agent reads it, and so do the live members of its managing team.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "AgentSkillList",
+      description: "The skills by name and scope.",
+      example: {
+        items: [
+          {
+            name: "release-notes",
+            scope: "workspace",
+            mode: "required",
+            version: EXAMPLE_SKILL_VERSION,
+          },
+        ],
+      },
+    },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "put",
+    path: "/v1/agents/{id}/skills/{name}",
+    operationId: "putAgentSkillAttachment",
+    tag: "Agents",
+    summary: "Name the skill version the agent gets",
+    description: `The agent's managers (owners, admins, the agent's own admins, members of its admin teams and its managing team's lead) signed in to the console; an API key is refused with 403 \`reason_code\` \`web_session_required\`. The version rules are the workspace scope's. Writes an \`attach_extension\` receipt on the agent.`,
+    auth: "session",
+    body: "PutSkillAttachmentRequest",
+    requestExample: { version_id: EXAMPLE_SKILL_VERSION_ID, mode: "optional" },
+    success: {
+      status: 200,
+      schema: "SkillAttachmentResponse",
+      description: "What the agent scope names now.",
+      example: {
+        ...EXAMPLE_SKILL_ATTACHMENT,
+        scope: "agent",
+        agent_id: EXAMPLE_AGENT_ID,
+        attachment: { version_id: EXAMPLE_SKILL_VERSION_ID, mode: "optional" },
+      },
+    },
+    errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/agents/{id}/skills/{name}",
+    operationId: "deleteAgentSkillAttachment",
+    tag: "Agents",
+    summary: "Take a skill back from the agent",
+    description: `The agent's managers signed in to the console. Writes a \`detach_extension\` receipt on the agent; when it names nothing for \`name\`, nothing is written and \`receipt_id\` is null. An agent that never existed holds nothing, so an owner or admin gets the same answer; a deleted agent is 404, as on every agent route, and one deleted while the request runs gets the answer for nothing named.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "SkillAttachmentResponse",
+      description: "The agent scope with nothing named.",
+      example: {
+        ...EXAMPLE_SKILL_ATTACHMENT,
+        scope: "agent",
+        agent_id: EXAMPLE_AGENT_ID,
+        attachment: null,
+      },
+    },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
     path: "/v1/agents/{id}/variables",
     operationId: "listAgentVariables",
     tag: "Variables",
@@ -8898,12 +9203,14 @@ const PATH_PARAMETER_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "receipts/{id}": "The receipt's id.",
   "secrets/{purpose}": "Which of the Slack app's secrets.",
   "sessions/{id}": "The session's id.",
+  "skills/{name}": "The skill's name.",
   "slack-bindings/{binding_id}": "The Slack binding's id.",
   "teams/{team_id}": "The team's id.",
   "tools/{name}": "The tool's name as its `tool_use` event recorded it.",
   "turns/{turn_id}": "The turn's id.",
   "users/{user_id}": "The user's id.",
   "variables/{name}": "The variable's name.",
+  "versions/{id}": "The skill version's id.",
   "workflow-runs/{run_id}": "The GitHub Actions workflow run's id.",
   "workspaces/{id}": "The workspace's id.",
   "{kind}/{subject_id}": "The member's user id or the team's id, by `kind`.",
@@ -8988,6 +9295,11 @@ function paramsSchemaFor(path: string): z.ZodObject {
     return workspaceVariableParamsSchema;
   if (path.startsWith("/v1/workspace/mcp-servers/{id}"))
     return workspaceMcpServerParamsSchema;
+  if (path.startsWith("/v1/workspace/skills/versions/{id}"))
+    return skillVersionParamsSchema;
+  if (path.startsWith("/v1/workspace/skills/{name}"))
+    return skillNameParamsSchema;
+  if (path === "/v1/agents/{id}/skills/{name}") return agentSkillParamsSchema;
   if (path === "/v1/agents/{id}/variables/{name}")
     return agentVariableParamsSchema;
   if (path === "/v1/agents/{id}/identities/{identity_id}")

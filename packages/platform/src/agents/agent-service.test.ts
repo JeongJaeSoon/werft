@@ -966,6 +966,8 @@ describe("activation and the agent's extension bundles", () => {
       registeredAt: new Date(0),
       reviewedBy: OWNER,
       reviewedAt: new Date(0),
+      version: null,
+      archivedAt: null,
     },
   };
   const extensions = {

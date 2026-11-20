@@ -5123,11 +5123,27 @@ export const extensionBundles = pgTable(
       .defaultNow(),
     reviewedBy: uuid("reviewed_by").references(() => users.id),
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    // A skill's registration order within its name (1, 2, …). Null on a
+    // bundle from before skills, whose name is its slug.
+    version: integer(),
+    archivedBy: uuid("archived_by").references(() => users.id),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
   },
   (table) => [
     uniqueIndex("extension_bundles_workspace_digest_idx").on(
       table.workspaceId,
       table.digest,
+    ),
+    uniqueIndex("extension_bundles_workspace_name_version_idx")
+      .on(table.workspaceId, table.name, table.version)
+      .where(sql`${table.version} IS NOT NULL`),
+    check(
+      "extension_bundles_version_check",
+      sql`${table.version} IS NULL OR ${table.version} >= 1`,
+    ),
+    check(
+      "extension_bundles_archive_actor_check",
+      sql`(${table.archivedBy} IS NULL) = (${table.archivedAt} IS NULL)`,
     ),
     check(
       "extension_bundles_digest_check",

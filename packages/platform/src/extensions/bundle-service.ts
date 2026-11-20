@@ -58,8 +58,9 @@ export class BundleIntegrityError extends Error {
 
 export type RegisterBundleResult =
   | { outcome: "rejected"; issues: BundleIssue[] }
-  | { outcome: "registered" | "already_registered"; bundle: ExtensionBundle }
-  | { outcome: "actor_inactive" | "outranked" };
+  | { outcome: "registered"; bundle: ExtensionBundle; receiptId: string }
+  | { outcome: "already_registered"; bundle: ExtensionBundle }
+  | { outcome: "actor_inactive" | "outranked" | "name_taken" };
 
 /**
  * The only way a bundle gets into the store. The upload is thrown away after
@@ -77,17 +78,25 @@ export function createExtensionBundleService(deps: {
   const newId = deps.newId ?? randomUUID;
 
   return {
+    /**
+     * `skill: true` registers one skill as the next version of its name
+     * (decision skills-and-mcp.md 2–3): the upload is checked as a person's
+     * tree, so it holds one skill and no engine manifest.
+     */
     async register(input: {
       principal: Principal;
       slug: string;
       files: BundleInputFile[];
       label: string;
       source: ExtensionBundleSource;
+      skill?: boolean;
     }): Promise<RegisterBundleResult> {
       const workspaceId = input.principal.ownerId;
+      const skill = input.skill === true;
       const validation = validateExtensionBundle(
         { slug: input.slug, files: input.files },
         limits,
+        skill ? "upload" : "stored",
       );
       if (!validation.ok) {
         return { outcome: "rejected", issues: validation.issues };
@@ -144,9 +153,15 @@ export function createExtensionBundleService(deps: {
         manifest: bundle.manifest,
         principal: input.principal,
         managerRoles: EXTENSION_MANAGER_ROLES,
+        ...(skill ? { skill: true } : {}),
       });
       switch (result.outcome) {
         case "registered":
+          return {
+            outcome: result.outcome,
+            bundle: result.bundle,
+            receiptId: result.receiptId,
+          };
         case "already_registered":
           return { outcome: result.outcome, bundle: result.bundle };
         default:

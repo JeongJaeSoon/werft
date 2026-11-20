@@ -22,6 +22,7 @@ import {
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresEnvVariableStore,
+  createPostgresExtensionBundleStore,
   createPostgresGitHubAppManifestStore,
   createPostgresGitHubAppStore,
   createPostgresGitHubGateStore,
@@ -143,6 +144,7 @@ import {
   createSessionTitler,
   createSettingsConsoleService,
   createSettingsDocumentService,
+  createSkillService,
   createSurfaceBindingService,
   createTeamService,
   createUsageService,
@@ -203,6 +205,7 @@ import {
   checkpointObjectRouteSigner,
   checkpointStorageConfigFromEnv,
   createApiCheckpoints,
+  extensionBundleObjects,
   extensionBundleSource,
 } from "./checkpoints.ts";
 import {
@@ -277,6 +280,7 @@ import {
 import { registerLinkedAccountRoutes } from "./routes/musterrolle/linked-accounts.ts";
 import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
 import { registerSessionShareRoutes } from "./routes/musterrolle/session-shares.ts";
+import { registerSkillRoutes } from "./routes/musterrolle/skills.ts";
 import { registerTeamRoutes } from "./routes/musterrolle/teams.ts";
 import { registerWorkspaceMcpServerRoutes } from "./routes/musterrolle/workspace-mcp-servers.ts";
 import { registerWorkspaceRoutes } from "./routes/musterrolle/workspaces.ts";
@@ -1051,6 +1055,16 @@ const egressAuthorizer = egressAuthorizerConfigFromEnv(process.env);
 const githubMcpGrantKey =
   egressAuthorizer === null ? null : githubMcpGrantKeyOf(egressAuthorizer);
 const extensionBundles = extensionBundleSource(checkpointStorage, db);
+// Skill trees live in the checkpoint bucket; without one the routes are absent.
+const skillObjects = extensionBundleObjects(checkpointStorage);
+const skills =
+  skillObjects === undefined
+    ? undefined
+    : createSkillService({
+        authorization,
+        store: createPostgresExtensionBundleStore(db),
+        objects: skillObjects,
+      });
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),
   telemetry,
@@ -1253,6 +1267,7 @@ const app = createApiApp({
   keyStore: new DatabaseApiKeyStore(db),
   identity,
   authorization,
+  skillUploads: skills !== undefined,
   registerPublicRoutes: (router) => {
     registerPublicAuthRoutes(router, auth);
     registerSlackEventRoutes(router, {
@@ -1371,6 +1386,7 @@ const app = createApiApp({
     registerCredentialBindingRoutes(router, credentialBindingService);
     registerEnvVariableRoutes(router, envVariableService);
     registerWorkspaceMcpServerRoutes(router, workspaceMcp);
+    if (skills !== undefined) registerSkillRoutes(router, skills);
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,

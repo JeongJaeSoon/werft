@@ -11,6 +11,7 @@ import {
   REQUEST_BODY_MAX_BYTES,
   type RequestBodyInvalidDetails,
   readyResponseSchema,
+  SKILL_UPLOAD_BODY_MAX_BYTES,
 } from "@werft-ai/contracts";
 import {
   isConnectionFailure,
@@ -25,6 +26,7 @@ import {
   type AuthorizationPolicy,
   type Caller,
   callerFor,
+  EXTENSION_MANAGER_ROLES,
   type IdentityStore,
   InstallationConfigUnavailableError,
   type ResolvedWebSession,
@@ -85,6 +87,14 @@ export type ApiEnvironment = {
 };
 
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
+
+// Authenticated routes whose documented body is larger than the default; the
+// route passes the same limit to parseJsonBody. Only a console session of a
+// role that may make the write gets it: anyone else is refused anyway, and
+// reads no more than the default.
+const LARGE_BODY_LIMITS = new Map([
+  ["POST /v1/workspace/skills", SKILL_UPLOAD_BODY_MAX_BYTES],
+]);
 // What a connection gets while bytes are still expected; above
 // BODY_DEADLINE_MS, so a sender that stops outright gets the 408 too rather
 // than a reset.
@@ -164,6 +174,8 @@ export interface CreateApiAppOptions {
   authorization?: AuthorizationPolicy;
   // Without one, requests are not traced and nothing else changes.
   tracer?: Tracer;
+  // The skill upload route is registered, so its larger body limit applies.
+  skillUploads?: boolean;
 }
 
 export class ApiHttpError extends Error {
@@ -280,10 +292,11 @@ function errorResponse(
 export async function parseJsonBody<T extends z.ZodType>(
   context: Context<ApiEnvironment>,
   schema: T,
+  maxBytes = REQUEST_BODY_MAX_BYTES,
 ): Promise<z.infer<T>> {
   // Measure the bytes actually received; Content-Length can be absent or lie.
   const raw = await context.req.arrayBuffer();
-  if (raw.byteLength > REQUEST_BODY_MAX_BYTES) {
+  if (raw.byteLength > maxBytes) {
     throw new ApiHttpError(413, "PAYLOAD_TOO_LARGE", "Request body too large");
   }
   let body: unknown;
@@ -591,7 +604,18 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
     // Ingest and bound the body under the idle clock, then hand the request
     // to the route with the handler's clock for its database work.
     if (!BODYLESS_METHODS.has(context.req.method)) {
-      const rejected = await ingestBody(context);
+      const principal = authenticated.principal;
+      const rejected = await ingestBody(
+        context,
+        options.skillUploads === true &&
+          authenticated.webSession !== undefined &&
+          principal.kind === "user" &&
+          EXTENSION_MANAGER_ROLES.includes(principal.role)
+          ? LARGE_BODY_LIMITS.get(
+              `${context.req.method} ${context.req.path.replace(/\/$/, "")}`,
+            )
+          : undefined,
+      );
       if (rejected) {
         return rejected;
       }

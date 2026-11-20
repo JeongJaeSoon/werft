@@ -264,8 +264,9 @@ export interface AgentStore {
   /**
    * Deletes the agent: the row is kept as `archived` with who deleted it, and
    * every read treats it as missing. Its identities, surface bindings and
-   * agent keys are revoked and a `delete_agent` receipt written in the same
-   * transaction. A deleted agent is `not_found`.
+   * agent keys are revoked, its extension attachments removed, and a
+   * `delete_agent` receipt written in the same transaction. A deleted agent
+   * is `not_found`.
    */
   archive(
     input: ManagerRoles & {

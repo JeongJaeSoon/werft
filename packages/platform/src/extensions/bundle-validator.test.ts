@@ -509,3 +509,170 @@ describe("digest", () => {
     ]);
   });
 });
+
+describe("a skill upload", () => {
+  const upload = (files: BundleInputFile[], slug = "research") =>
+    validateExtensionBundle({ slug, files }, DEFAULT_BUNDLE_LIMITS, "upload");
+  const codesOf = (files: BundleInputFile[]) => {
+    const result = upload(files);
+    if (result.ok) throw new Error("expected the upload to be rejected");
+    return result.issues.map((i) => [i.path, i.code]);
+  };
+
+  test("one skill is accepted and its stored tree validates to the same digest", () => {
+    const result = upload(base());
+    if (!result.ok) throw new Error(JSON.stringify(result.issues));
+    const again = validateExtensionBundle({
+      slug: "research",
+      files: result.bundle.files.map((f) => ({
+        path: f.path,
+        kind: "file" as const,
+        mode: f.mode,
+        bytes: f.bytes,
+      })),
+    });
+    if (!again.ok) throw new Error(JSON.stringify(again.issues));
+    expect(again.bundle.digest).toBe(result.bundle.digest);
+    expect(result.bundle.expectedSkills).toEqual(["research:research"]);
+  });
+
+  test("a tree of two skills is refused", () => {
+    expect(
+      codesOf([...base(), file("skills/other/SKILL.md", skillMd("other"))]),
+    ).toContainEqual(["", "multiple_skills"]);
+    expect(
+      codesOf([
+        ...base(),
+        file("skills/research/inner/SKILL.md", skillMd("inner")),
+      ]),
+    ).toContainEqual(["skills/research/inner/SKILL.md", "multiple_skills"]);
+  });
+
+  test("the directory must be the name it is registered under", () => {
+    const result = upload(base(), "other");
+    if (result.ok) throw new Error("expected rejection");
+    expect(result.issues.map((i) => i.code)).toContain("bad_slug");
+  });
+
+  test.each([
+    ".claude-plugin/plugin.json",
+    "skills/research/.claude-plugin/plugin.json",
+    "skills/research/.codex-plugin/plugin.json",
+    "skills/research/plugin.json",
+  ])("an engine manifest at %s is refused", (path) => {
+    expect(codesOf([...base(), file(path, "{}")])).toContainEqual([
+      path,
+      "engine_manifest",
+    ]);
+  });
+
+  test("the stored mode still takes the validator's own plugin.json", () => {
+    const result = validate([
+      ...base(),
+      file(".claude-plugin/plugin.json", '{"name":"x"}'),
+    ]);
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe("Agent Skills specification fields", () => {
+  const path = "skills/research/SKILL.md";
+  const one = (extra: string) => [file(path, skillMd("research", extra))];
+  const emitted = (extra: string) => {
+    const result = validate(one(extra));
+    if (!result.ok) throw new Error(JSON.stringify(result.issues));
+    const skill = result.bundle.files.find((f) => f.path === path);
+    return { text: new TextDecoder().decode(skill?.bytes), result };
+  };
+
+  test("license, compatibility and metadata are kept in one canonical form", () => {
+    const { text, result } = emitted(
+      "user-invocable: false\nlicense: Apache-2.0\ncompatibility: Needs git\nmetadata:\n    owner: platform\n    reviewed: true\n",
+    );
+    expect(text).toBe(
+      '---\nname: "research"\ndescription: "Use for research"\nlicense: "Apache-2.0"\ncompatibility: "Needs git"\nmetadata:\n  owner: "platform"\n  reviewed: "true"\nuser-invocable: false\n---\nDo the thing.\n',
+    );
+    const again = validateExtensionBundle({
+      slug: "acme",
+      files: result.bundle.files.map((f) => ({
+        path: f.path,
+        kind: "file" as const,
+        mode: f.mode,
+        bytes: f.bytes,
+      })),
+    });
+    if (!again.ok) throw new Error(JSON.stringify(again.issues));
+    expect(again.bundle.digest).toBe(result.bundle.digest);
+  });
+
+  test("a tree without them re-emits what it always did", () => {
+    const { text } = emitted("disable-model-invocation: true\n");
+    expect(text).toBe(
+      '---\nname: "research"\ndescription: "Use for research"\ndisable-model-invocation: true\n---\nDo the thing.\n',
+    );
+  });
+
+  test("allowed-tools is refused with its reason", () => {
+    const issues = rejected(one("allowed-tools: Bash Read\n"));
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        path,
+        code: "disallowed_frontmatter_key",
+        message: expect.stringContaining("tool permissions"),
+      }),
+    );
+  });
+
+  const keys = Array.from({ length: 33 }, (_, n) => `  k${n}: v\n`).join("");
+  test.each([
+    ["a nested map", "metadata:\n  a:\n    b: c\n"],
+    ["a second indent", "metadata:\n  a: b\n   c: d\n"],
+    ["an anchor", "metadata:\n  a: &x b\n"],
+    ["an alias", "metadata:\n  a: *x\n"],
+    ["a tag", "metadata:\n  a: !!str b\n"],
+    ["a flow map", "metadata: {a: b}\n"],
+    ["a single-line value", "metadata: owner\n"],
+    ["a duplicate key", "metadata:\n  a: b\n  a: c\n"],
+    ["an empty block", "metadata:\n"],
+    ["a key too long", `metadata:\n  ${"k".repeat(65)}: v\n`],
+    ["a value too long", `metadata:\n  a: ${"v".repeat(1025)}\n`],
+    ["too many keys", `metadata:\n${keys}`],
+    ["a tab indent", "metadata:\n\ta: b\n"],
+    ["compatibility too long", `compatibility: ${"c".repeat(501)}\n`],
+    ["a boolean license", "license: true\n"],
+  ])("metadata or a field with %s is refused", (_label, extra) => {
+    expect(rejected(one(extra)).some((i) => i.path === path)).toBe(true);
+  });
+
+  test("a value is measured by its own length, in the upload and in its stored tree alike", () => {
+    const quotes = `'${'"'.repeat(1024)}'`;
+    const { text, result } = emitted(
+      `license: ${quotes}\ncompatibility: "a\\u2028b\\u2029c"\nmetadata:\n  a: ${quotes}\n  b: ${"m".repeat(1024)}\n`,
+    );
+    expect(text).toContain('compatibility: "a\\u2028b\\u2029c"');
+    const stored = validateExtensionBundle({
+      slug: "acme",
+      files: result.bundle.files.map((f) => ({
+        path: f.path,
+        kind: "file" as const,
+        mode: f.mode,
+        bytes: f.bytes,
+      })),
+    });
+    if (!stored.ok) throw new Error(JSON.stringify(stored.issues));
+    expect(stored.bundle.digest).toBe(result.bundle.digest);
+
+    expect(
+      rejected(one(`metadata:\n  a: '${'"'.repeat(1025)}'\n`)),
+    ).toContainEqual(
+      expect.objectContaining({
+        path,
+        code: "bad_frontmatter",
+        message: 'metadata: "a" is too long.',
+      }),
+    );
+    expect(rejected(one(`license: ${"l".repeat(1025)}\n`))).toContainEqual(
+      expect.objectContaining({ path, message: '"license" is too long.' }),
+    );
+  });
+});

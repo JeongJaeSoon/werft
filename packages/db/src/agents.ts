@@ -69,6 +69,7 @@ import {
   agentUsage,
   agentVersions,
   apiKeys,
+  extensionAttachments,
   memberTeams,
   receipts,
   surfaceBindings,
@@ -938,6 +939,12 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           .set({ revokedAt: DB_NOW })
           .where(and(eq(apiKeys.agentId, agent.id), isNull(apiKeys.revokedAt)))
           .returning({ id: apiKeys.id });
+        // No route reaches a deleted agent's attachments, and a version they
+        // name could never be archived.
+        const attachments = await tx
+          .delete(extensionAttachments)
+          .where(eq(extensionAttachments.agentId, agent.id))
+          .returning({ id: extensionAttachments.id });
         const receiptId = await writeReceipt(tx, input.principal, {
           operation: "delete_agent",
           workspaceId: input.workspaceId,
@@ -946,6 +953,9 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             agent_identity_ids: identityIds,
             surface_binding_ids: bindings.map((row) => row.id),
             api_key_ids: keys.map((row) => row.id),
+            ...(attachments.length === 0
+              ? {}
+              : { extension_attachment_ids: attachments.map((row) => row.id) }),
           },
         });
         return { outcome: "archived", receiptId };

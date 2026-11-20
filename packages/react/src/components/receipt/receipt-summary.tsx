@@ -99,6 +99,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   approve_extension: "확장 번들 검토 결과 변경",
   attach_extension: "확장 번들 연결",
   detach_extension: "확장 번들 연결 해제",
+  archive_extension: "스킬 버전 보관",
   create_login_provider: "로그인 공급자 추가",
   update_login_provider: "로그인 공급자 설정 변경",
   refresh_login_provider_discovery: "로그인 공급자 discovery 다시 확인",

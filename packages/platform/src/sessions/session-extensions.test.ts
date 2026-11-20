@@ -60,6 +60,8 @@ function bundle(
     registeredAt: new Date(0),
     reviewedBy: MEMBER,
     reviewedAt: new Date(0),
+    version: null,
+    archivedAt: null,
   };
 }
 

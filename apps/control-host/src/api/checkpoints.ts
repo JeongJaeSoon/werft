@@ -315,17 +315,26 @@ export function extensionBundleSource(
 ):
   | { archive(workspaceId: string, digest: string): Promise<Uint8Array | null> }
   | undefined {
-  if (config === "disabled") return undefined;
+  const objects = extensionBundleObjects(config);
+  if (objects === undefined) return undefined;
   const bundles = createExtensionBundleService({
     store: createPostgresExtensionBundleStore(db),
-    objects: createCheckpointObjectStore({
-      bucket: config.bucket,
-      client: checkpointS3Client(config),
-    }),
+    objects,
   });
   return {
     archive: (workspaceId, digest) => bundles.archive(workspaceId, digest),
   };
+}
+
+/** Where bundle tars live: the checkpoint bucket, or nowhere when it is off. */
+export function extensionBundleObjects(
+  config: CheckpointStorageConfig | "disabled",
+) {
+  if (config === "disabled") return undefined;
+  return createCheckpointObjectStore({
+    bucket: config.bucket,
+    client: checkpointS3Client(config),
+  });
 }
 
 function checkpointS3Client(config: CheckpointStorageConfig) {
