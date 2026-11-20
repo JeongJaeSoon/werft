@@ -22,6 +22,7 @@ import {
   agents,
   receipts,
   slackChannelLifecycle,
+  slackInstallations,
   surfaceBindings,
 } from "../schema.ts";
 import { rowsOf } from "../statement-rows.ts";
@@ -854,8 +855,9 @@ async function removedByEvents(
   );
 }
 
-// With `lock`, the record is made if missing and held to the end of the
-// transaction, so a leave being noted is waited for, not read past.
+// With `lock`, the record is made if missing (for an installation that
+// exists) and held to the end of the transaction, so a leave being noted is
+// waited for, not read past.
 async function noteOf(
   db: Database,
   installationId: string,
@@ -863,10 +865,13 @@ async function noteOf(
   { lock = false } = {},
 ): Promise<{ join: number | null; leave: number | null } | undefined> {
   if (lock) {
-    await db
-      .insert(slackChannelLifecycle)
-      .values({ installationId, channelId, lastEventUs: 0 })
-      .onConflictDoNothing();
+    await db.execute(sql`
+      INSERT INTO ${slackChannelLifecycle} (installation_id, channel_id,
+        last_event_us)
+      SELECT ${installationId}::uuid, ${channelId}::text, 0
+      WHERE EXISTS (SELECT 1 FROM ${slackInstallations}
+        WHERE ${slackInstallations.id} = ${installationId})
+      ON CONFLICT DO NOTHING`);
   }
   const query = db
     .select({
