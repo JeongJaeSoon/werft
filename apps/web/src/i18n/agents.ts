@@ -219,7 +219,11 @@ export const agentsKo = {
   "agent.releases.rollback": "되돌리기",
   "agent.releases.rollbackFor": "{release}(으)로 되돌리기",
   "agent.releases.rollingBack": "되돌리는 중…",
+  "agent.releases.turnOn": "켜기",
+  "agent.releases.turnOnFor": "{release} 켜기",
+  "agent.releases.turningOn": "켜는 중…",
   "agent.rollback.title": "{release}(으)로 되돌릴까요?",
+  "agent.turnOn.title": "{release}을(를) 켤까요?",
   "agent.rollback.content":
     "새 세션이 이 릴리스의 모델·지시·도구로 시작합니다.",
   "agent.rollback.settingsKept": "저장소와 GitHub 설정은 지금 그대로입니다.",
@@ -231,6 +235,9 @@ export const agentsKo = {
   "agent.rollback.movedMeanwhile":
     "{release}(으)로 되돌렸는지 확인하지 못했습니다. 응답을 받지 못했고, 그 사이 활성 릴리스가 다른 릴리스로 바뀌었습니다. 릴리스 목록에서 지금 활성 릴리스를 확인하세요.",
   "agent.rolledBack": "{release}(으)로 되돌렸습니다.",
+  "agent.turnedOn": "{release}을(를) 켰습니다.",
+  "agent.turnedOn.unchecked":
+    "{release}을(를) 켰습니다. 켠 뒤 설정을 다시 읽지 못해 결과는 확인하지 못했습니다.",
   "agent.rolledBack.unchecked":
     "{release}(으)로 되돌렸습니다. 되돌린 뒤 설정을 다시 읽지 못해 결과는 확인하지 못했습니다.",
   "agent.releases.empty": "아직 릴리스가 없습니다.",
@@ -313,7 +320,7 @@ export const agentsKo = {
   "agent.panel.none": "없음",
   "agent.card.releasedAt": "릴리스 {at}",
   "agent.overview.notActive":
-    "아직 켜지지 않았습니다. 상세 설정에서 모델 연결과 모델을 골라 저장하면 첫 릴리스가 만들어지고 새 세션이 이 에이전트를 씁니다.",
+    "아직 게시하지 않았습니다. 저장한 릴리스를 미리 써 본 뒤 게시하면 담당 팀의 새 세션이 이 에이전트를 씁니다.",
   "agent.overview.newerVersion":
     "최신 버전 {latest}은(는) 아직 쓰이지 않습니다. 새 세션은 버전 {active}(으)로 시작합니다.",
   "agent.overview.upToDate": "새 세션은 최신 버전으로 시작합니다.",
@@ -333,7 +340,7 @@ export const agentsKo = {
   "agent.newSession.blocked.paused":
     "일시 정지된 에이전트라 세션을 시작할 수 없습니다.",
   "agent.newSession.blocked.noRelease":
-    "활성 릴리스가 없어 세션을 시작할 수 없습니다. 상세 설정에서 모델 연결과 모델을 골라 저장하면 시작할 수 있습니다.",
+    "게시하기 전에는 세션을 시작할 수 없습니다. 미리 써 본 뒤 게시하면 시작할 수 있습니다.",
   "agent.glance.label": "에이전트 현황",
   "agent.glance.cost": "최근 7일 비용",
   "agent.glance.waiting": "답변 대기",
@@ -714,7 +721,11 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.rollback": "Roll back",
   "agent.releases.rollbackFor": "Roll back to {release}",
   "agent.releases.rollingBack": "Rolling back…",
+  "agent.releases.turnOn": "Turn on",
+  "agent.releases.turnOnFor": "Turn on {release}",
+  "agent.releases.turningOn": "Turning on…",
   "agent.rollback.title": "Roll back to {release}?",
+  "agent.turnOn.title": "Turn on {release}?",
   "agent.rollback.content":
     "New sessions start with this release's model, instructions and tools.",
   "agent.rollback.settingsKept":
@@ -727,6 +738,9 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.rollback.movedMeanwhile":
     "Could not confirm whether it was rolled back to {release}. No answer came back, and the active release has changed to a different one since. Check the active release in the list.",
   "agent.rolledBack": "Rolled back to {release}.",
+  "agent.turnedOn": "Turned on {release}.",
+  "agent.turnedOn.unchecked":
+    "Turned on {release}. The settings could not be read again, so the result is not checked.",
   "agent.rolledBack.unchecked":
     "Rolled back to {release}. The settings could not be read again, so the result is not checked.",
   "agent.releases.empty": "No releases yet.",
@@ -809,7 +823,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.panel.none": "None",
   "agent.card.releasedAt": "Released {at}",
   "agent.overview.notActive":
-    "Not turned on yet. Choose a model connection and model in Settings and save, and the first release is made and new sessions will use this agent.",
+    "Not published yet. Try a saved release, then publish it, and the responsible team's new sessions will use this agent.",
   "agent.overview.newerVersion":
     "Version {latest}, the latest, is not in use yet. New sessions start on version {active}.",
   "agent.overview.upToDate": "New sessions start on the latest version.",
@@ -829,7 +843,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.newSession.blocked.paused":
     "This agent is paused, so no session can start.",
   "agent.newSession.blocked.noRelease":
-    "This agent has no active release, so no session can start. Choose a model connection and model in Settings and save to start one.",
+    "No session can start before the agent is published. Try it, then publish it to start one.",
   "agent.glance.label": "Agent at a glance",
   "agent.glance.cost": "Cost, last 7 days",
   "agent.glance.waiting": "Waiting for an answer",
@@ -1200,7 +1214,11 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.rollback": "元に戻す",
   "agent.releases.rollbackFor": "{release}に戻す",
   "agent.releases.rollingBack": "戻しています…",
+  "agent.releases.turnOn": "有効にする",
+  "agent.releases.turnOnFor": "{release}を有効にする",
+  "agent.releases.turningOn": "有効にしています…",
   "agent.rollback.title": "{release}に戻しますか？",
+  "agent.turnOn.title": "{release}を有効にしますか？",
   "agent.rollback.content":
     "新しいセッションは、このリリースのモデル・指示・ツールで始まります。",
   "agent.rollback.settingsKept": "リポジトリと GitHub の設定は現在のままです。",
@@ -1212,6 +1230,9 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.rollback.movedMeanwhile":
     "{release}に戻したか確認できませんでした。応答を受け取れず、その間に有効なリリースが別のものに変わりました。一覧で現在有効なリリースを確認してください。",
   "agent.rolledBack": "{release}に戻しました。",
+  "agent.turnedOn": "{release}を有効にしました。",
+  "agent.turnedOn.unchecked":
+    "{release}を有効にしました。設定を読み直せなかったため、結果は確認できていません。",
   "agent.rolledBack.unchecked":
     "{release}に戻しました。設定を読み直せなかったため、結果は確認できていません。",
   "agent.releases.empty": "リリースはまだありません。",
@@ -1284,7 +1305,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.tabs.admins": "管理者",
   "agent.tabs.toRelease": "「リリース」タブへ移動",
   "agent.overview.notActive":
-    "まだ有効になっていません。「詳細設定」でモデル接続とモデルを選んで保存すると、最初のリリースが作成され、新しいセッションでこのエージェントが使われます。",
+    "まだ公開していません。保存したリリースを試してから公開すると、担当チームの新しいセッションでこのエージェントが使われます。",
   "agent.overview.newerVersion":
     "最新のバージョン {latest} はまだ使われていません。新しいセッションはバージョン {active} で開始します。",
   "agent.overview.upToDate": "新しいセッションは最新バージョンで開始します。",
@@ -1304,7 +1325,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.newSession.blocked.paused":
     "一時停止中のエージェントのため、セッションを開始できません。",
   "agent.newSession.blocked.noRelease":
-    "有効なリリースがないため、セッションを開始できません。「詳細設定」でモデル接続とモデルを選んで保存すると開始できます。",
+    "公開する前はセッションを開始できません。試してから公開すると開始できます。",
   "agent.glance.label": "エージェントの状況",
   "agent.glance.cost": "直近7日のコスト",
   "agent.glance.waiting": "回答待ち",

@@ -2206,9 +2206,12 @@ describe("게시 전 에이전트", () => {
     expect(
       within(preview).getByRole("heading", { name: /^미리 써 보기: / }),
     ).toBeDefined();
-    await user.type(within(preview).getByLabelText("보낼 메시지"), "안녕");
+    const field = within(preview).getByLabelText("보낼 메시지");
+    await user.type(field, "안녕");
     await user.click(within(preview).getByRole("button", { name: "보내기" }));
     await within(preview).findByRole("link", { name: "세션 열기" });
+    // The send button is disabled while pending; focus comes back to the field.
+    await waitFor(() => expect(document.activeElement === field).toBe(true));
     expect(posted(api, "/v1/sessions")).toEqual({
       agent_release_id: server.releases[0]?.id ?? "missing",
       message: "안녕",
@@ -2250,6 +2253,18 @@ describe("게시 전 에이전트", () => {
     const tries = screen.getAllByRole("button", { name: /^미리 써 보기: / });
     // Only the release that is not on can be tried.
     expect(tries).toHaveLength(1);
+    // A release newer than the active one is turned on, not rolled back to.
+    expect(screen.queryByRole("button", { name: /되돌리기$/ })).toBeNull();
+    const turnOn = screen.getByRole("button", { name: /^릴리스 .+ 켜기$/ });
+    expect(turnOn.textContent).toBe("켜기");
+    await user.click(turnOn);
+    const confirm = await screen.findByRole("dialog");
+    expect(
+      within(confirm).getByRole("heading", { name: /을\(를\) 켤까요\?$/ }),
+    ).toBeDefined();
+    expect(within(confirm).getByRole("button", { name: "켜기" })).toBeDefined();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await user.click(tries[0] as HTMLElement);
     const preview = await screen.findByRole("dialog");
     await user.type(within(preview).getByLabelText("보낼 메시지"), "확인");
@@ -2814,9 +2829,18 @@ describe("두 탭 동시 되돌리기", () => {
     ).toBeDefined();
     expect(b.getByText(`${label(2)} → ${label(1)}`)).toBeDefined();
 
-    await user.click(await b.findByRole("button", rollbackTo(2)));
-    await confirmRollback(user);
-    expect(await b.findByText(/되돌렸습니다/)).toBeDefined();
+    // Release 2 is now newer than the active one, so it is turned on.
+    await user.click(
+      await b.findByRole("button", { name: `${label(2)} 켜기` }),
+    );
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "켜기",
+      }),
+    );
+    expect(
+      await b.findByText(new RegExp(`${label(2)}을\\(를\\) 켰습니다`)),
+    ).toBeDefined();
     const retry = tabB.api.calls.filter((c) => c.path.endsWith("/activate"));
     expect(retry.at(-1)?.body).toEqual({
       release_id: second?.id,

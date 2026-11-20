@@ -31,7 +31,11 @@ import {
 } from "./github-activity.ts";
 import { previousRelease, releaseChanges } from "./release-changes.ts";
 import { ReleaseChangesSummary } from "./release-changes-view.tsx";
-import { type RollbackPreview, rollbackPreview } from "./rollback-preview.ts";
+import {
+  movesForward,
+  type RollbackPreview,
+  rollbackPreview,
+} from "./rollback-preview.ts";
 
 // The version, whose description runs longest, takes the leftover; the author
 // is cut at 8rem; the state, the time range and the actions are as wide as
@@ -47,6 +51,14 @@ export function releasedConnection(detail: AgentDetail): string | undefined {
     (release) => release.id === detail.agent.active_release_id,
   );
   return (active ?? detail.releases.at(-1))?.connection_id;
+}
+
+function turnsOn(detail: AgentDetail, release: AgentRelease): boolean {
+  return movesForward(
+    detail.releases,
+    detail.agent.active_release_id,
+    release.id,
+  );
 }
 
 type Receipt = components["schemas"]["Receipt"];
@@ -325,14 +337,21 @@ export function Releases({
                         </RowAction>
                         <RowAction
                           disabled={activating !== undefined}
-                          aria-label={t("agent.releases.rollbackFor", {
-                            release: label,
-                          })}
+                          aria-label={t(
+                            turnsOn(detail, item)
+                              ? "agent.releases.turnOnFor"
+                              : "agent.releases.rollbackFor",
+                            { release: label },
+                          )}
                           onClick={() => setConfirming(item)}
                         >
-                          {activating === item.id
-                            ? t("agent.releases.rollingBack")
-                            : t("agent.releases.rollback")}
+                          {turnsOn(detail, item)
+                            ? activating === item.id
+                              ? t("agent.releases.turningOn")
+                              : t("agent.releases.turnOn")
+                            : activating === item.id
+                              ? t("agent.releases.rollingBack")
+                              : t("agent.releases.rollback")}
                         </RowAction>
                       </>
                     )}
@@ -348,9 +367,18 @@ export function Releases({
         onOpenChange={(open) => {
           if (!open) setConfirming(null);
         }}
-        title={t("agent.rollback.title", { release: confirming?.label ?? "" })}
+        title={t(
+          confirming && turnsOn(detail, confirming)
+            ? "agent.turnOn.title"
+            : "agent.rollback.title",
+          { release: confirming?.label ?? "" },
+        )}
         consequence={<RollbackConsequence t={t} preview={preview} />}
-        confirmLabel={t("agent.releases.rollback")}
+        confirmLabel={
+          confirming && turnsOn(detail, confirming)
+            ? t("agent.releases.turnOn")
+            : t("agent.releases.rollback")
+        }
         cancelLabel={t("common.cancel")}
         onConfirm={() => {
           if (confirming) onActivate(confirming);

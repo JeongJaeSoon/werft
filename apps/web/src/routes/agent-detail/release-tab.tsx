@@ -24,7 +24,7 @@ import { CredentialUnbound, unboundRefs } from "./credentials.tsx";
 import { mcpSettingsQuery } from "./mcp-settings.ts";
 import { type Placed, PlacedOutcome, TakesFocus } from "./placement.tsx";
 import { Releases } from "./releases.tsx";
-import { rolledBackText } from "./rollback-preview.ts";
+import { movesForward, rolledBackText } from "./rollback-preview.ts";
 
 /** What the screen showed when its activation lost the race. */
 interface Conflict {
@@ -111,15 +111,24 @@ export function useReleaseActivation({
         });
       } else {
         const after = await readAfterRollback();
+        const forward = movesForward(
+          detail.releases,
+          result.previous_release_id,
+          result.active_release_id,
+        );
         onOutcome({
           kind: "notice",
           text: after
             ? rolledBackText(t, {
                 release: releaseLabel(result.active_release_id),
+                forward,
               })
-            : t("agent.rolledBack.unchecked", {
-                release: releaseLabel(result.active_release_id),
-              }),
+            : t(
+                forward
+                  ? "agent.turnedOn.unchecked"
+                  : "agent.rolledBack.unchecked",
+                { release: releaseLabel(result.active_release_id) },
+              ),
         });
       }
       await queryClient.invalidateQueries({
@@ -145,6 +154,11 @@ export function useReleaseActivation({
                   kind: "notice",
                   text: rolledBackText(t, {
                     release: releaseLabel(release.id),
+                    forward: movesForward(
+                      detail.releases,
+                      seenActive,
+                      release.id,
+                    ),
                   }),
                 }
               : after.agent.activation_revision === expected

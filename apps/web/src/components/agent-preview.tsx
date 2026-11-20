@@ -179,6 +179,21 @@ export function PreviewChat({
   });
   const status = session.data?.status;
   const pending = start.isPending || send.isPending;
+  // The send button turns off while sending, and focus falls to <body> or the
+  // dialog itself; give it back to the field unless the person moved on.
+  const field = useRef<HTMLTextAreaElement>(null);
+  const form = useRef<HTMLFormElement>(null);
+  const refocus = () => {
+    const page = field.current?.ownerDocument;
+    const active = page?.activeElement ?? page?.body;
+    if (
+      active &&
+      (active === page?.body ||
+        active.getAttribute("role") === "dialog" ||
+        (active !== field.current && form.current?.contains(active)))
+    )
+      field.current?.focus();
+  };
   const failure = start.error ?? send.error;
 
   const submit = (event: FormEvent) => {
@@ -196,7 +211,7 @@ export function PreviewChat({
           ? again
           : { key: crypto.randomUUID(), sessionId, message };
       unsent.current = followUp;
-      send.mutate(followUp);
+      send.mutate(followUp, { onSettled: refocus });
       return;
     }
     const resend = unanswered.current;
@@ -212,7 +227,7 @@ export function PreviewChat({
             },
           };
     unanswered.current = next;
-    start.mutate(next);
+    start.mutate(next, { onSettled: refocus });
   };
 
   return (
@@ -247,6 +262,7 @@ export function PreviewChat({
         </>
       )}
       <form
+        ref={form}
         onSubmit={submit}
         noValidate
         className="flex min-w-0 flex-col gap-3"
@@ -256,6 +272,7 @@ export function PreviewChat({
             {t("agents.preview.message")}
           </FieldLabel>
           <Textarea
+            ref={field}
             id={fieldId}
             rows={3}
             value={message}

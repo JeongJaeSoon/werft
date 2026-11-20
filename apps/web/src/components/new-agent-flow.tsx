@@ -1016,10 +1016,13 @@ function AgentSummary({
               { label: t("agents.name"), value: name.trim() || none },
               {
                 label: t("agents.slug"),
-                value: (
+                // The placeholder is a sentence, not an identifier.
+                value: slug ? (
                   <Text as="span" className="font-mono wrap-anywhere">
-                    {slug || none}
+                    {slug}
                   </Text>
+                ) : (
+                  none
                 ),
               },
               { label: t("agents.flow.team"), value: team || none },

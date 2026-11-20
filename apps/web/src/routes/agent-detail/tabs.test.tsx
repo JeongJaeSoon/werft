@@ -382,7 +382,7 @@ describe("에이전트 상세 탭", () => {
       await screen.findByRole("heading", { name: "켜기까지" })
     ).closest("section") as HTMLElement;
     expect(
-      await within(section).findByText(/아직 켜지지 않았습니다/),
+      await within(section).findByText(/아직 게시하지 않았습니다/),
     ).toBeDefined();
     within(section).getByRole("button", { name: "릴리스 탭으로" }).focus();
     await user.keyboard("{Enter}");
@@ -922,10 +922,10 @@ describe("에이전트 상세 탭", () => {
     expect(
       document.getElementById(button.getAttribute("aria-describedby") ?? "")
         ?.textContent,
-    ).toContain("활성 릴리스가 없어 세션을 시작할 수 없습니다");
+    ).toContain("게시하기 전에는 세션을 시작할 수 없습니다");
     expect(
       screen
-        .getAllByText(/활성 릴리스가 없어 세션을 시작할 수 없습니다/)
+        .getAllByText(/게시하기 전에는 세션을 시작할 수 없습니다/)
         .filter((node) => node.closest("[hidden]") === null),
     ).toHaveLength(1);
     await user.click(button);
