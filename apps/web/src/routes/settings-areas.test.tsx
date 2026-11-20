@@ -49,6 +49,7 @@ describe("settings areas", () => {
         ["로그인", "/settings/workspace/login"],
         ["실행 한도", "/settings/workspace/limits"],
         ["조직 관리 키", "/settings/workspace/api-keys"],
+        ["감사 기록", "/settings/workspace/audit-log"],
         ["연동", "/settings/workspace/integrations/slack"],
         ["모델 연결", "/settings/workspace/model-connections"],
         ["MCP 서버", "/settings/workspace/mcp-servers"],

@@ -96,7 +96,8 @@ export function FilterMenu({
       </PopoverTrigger>
       <PopoverContent
         align="end"
-        className="w-56 p-1"
+        // A long list (every member) scrolls within the room below the chip.
+        className="max-h-(--radix-popover-content-available-height) w-56 overflow-y-auto p-1"
         aria-labelledby={labelId}
         onOpenAutoFocus={(event) => {
           // Start on the current choice, as a select does.

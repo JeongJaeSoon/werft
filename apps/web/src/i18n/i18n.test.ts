@@ -30,6 +30,7 @@ import { agentAccessEn, agentAccessJa, agentAccessKo } from "./agent-access.ts";
 import { agentGitHubEn, agentGitHubJa, agentGitHubKo } from "./agent-github.ts";
 import { agentsEn, agentsJa, agentsKo } from "./agents.ts";
 import { apiKeysEn, apiKeysJa, apiKeysKo } from "./api-keys.ts";
+import { auditLogEn, auditLogJa, auditLogKo } from "./audit-log.ts";
 import { authEn, authJa, authKo } from "./auth.ts";
 import { commonEn, commonJa, commonKo } from "./common.ts";
 import { en, slackEn } from "./en.ts";
@@ -336,6 +337,7 @@ describe("i18n", () => {
         loginMethodsKo,
         loginProvidersKo,
         executionLimitsKo,
+        auditLogKo,
         outputsKo,
         apiKeysKo,
         workspaceKo,
@@ -369,6 +371,7 @@ describe("i18n", () => {
         loginMethodsJa,
         loginProvidersJa,
         executionLimitsJa,
+        auditLogJa,
         outputsJa,
         apiKeysJa,
         workspaceJa,
@@ -402,6 +405,7 @@ describe("i18n", () => {
         loginMethodsEn,
         loginProvidersEn,
         executionLimitsEn,
+        auditLogEn,
         outputsEn,
         apiKeysEn,
         workspaceEn,

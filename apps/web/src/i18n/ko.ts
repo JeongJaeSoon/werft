@@ -5,6 +5,7 @@ import { agentAccessKo } from "./agent-access.ts";
 import { agentGitHubKo } from "./agent-github.ts";
 import { agentsKo } from "./agents.ts";
 import { apiKeysKo } from "./api-keys.ts";
+import { auditLogKo } from "./audit-log.ts";
 import { authKo } from "./auth.ts";
 import { commonKo } from "./common.ts";
 import { errorsKo } from "./errors.ts";
@@ -239,6 +240,7 @@ export const ko = {
   ...loginMethodsKo,
   ...loginProvidersKo,
   ...executionLimitsKo,
+  ...auditLogKo,
   ...outputsKo,
   ...apiKeysKo,
   ...workspaceKo,

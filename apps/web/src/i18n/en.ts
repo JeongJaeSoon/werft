@@ -5,6 +5,7 @@ import { agentAccessEn } from "./agent-access.ts";
 import { agentGitHubEn } from "./agent-github.ts";
 import { agentsEn } from "./agents.ts";
 import { apiKeysEn } from "./api-keys.ts";
+import { auditLogEn } from "./audit-log.ts";
 import { authEn } from "./auth.ts";
 import { commonEn } from "./common.ts";
 import { errorsEn } from "./errors.ts";
@@ -234,6 +235,7 @@ export const en: Record<MessageKey, string> = {
   ...loginMethodsEn,
   ...loginProvidersEn,
   ...executionLimitsEn,
+  ...auditLogEn,
   ...outputsEn,
   ...apiKeysEn,
   ...workspaceEn,

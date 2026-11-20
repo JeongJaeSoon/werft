@@ -31,6 +31,7 @@ import {
   NewApiKeyScreen,
   OrgKeysScreen,
 } from "./routes/api-keys.tsx";
+import { AuditLogScreen } from "./routes/audit-log.tsx";
 import { BootstrapScreen } from "./routes/bootstrap.tsx";
 import { ExecutionLimitsScreen } from "./routes/execution-limits.tsx";
 import { HomeScreen } from "./routes/home.tsx";
@@ -392,6 +393,12 @@ const loginProvider = createRoute({
   component: LoginProviderScreen,
 });
 
+const auditLog = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/workspace/audit-log",
+  component: AuditLogScreen,
+});
+
 const loadOperations = () => import("./routes/operations.tsx");
 
 const operations = createRoute({
@@ -492,6 +499,7 @@ const routeTree = root.addChildren([
     loginProviders,
     loginProvider,
     executionLimits,
+    auditLog,
     operations.addChildren([
       operationsOverview,
       operationsUsage,
