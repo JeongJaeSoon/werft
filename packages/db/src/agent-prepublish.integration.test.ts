@@ -404,13 +404,9 @@ integration("unpublished agents and preview sessions on PostgreSQL", () => {
     return sessionId;
   }
 
+  // The reader does not judge shares; the policy asks visibleTo first.
   async function sessionPaths(w: World, caller: Caller, sessionId: string) {
     const viewer = { userId: idOf(caller), apiKeyId: null, keyAgentId: null };
-    const read = await createPostgresSessionReader(db).getSession(
-      w.ws,
-      sessionId,
-      viewer,
-    );
     const visible = await createPostgresSessionShareStore(db).visibleTo(
       w.ws,
       sessionId,
@@ -427,14 +423,14 @@ integration("unpublished agents and preview sessions on PostgreSQL", () => {
         agentReleaseId: w.releaseId,
       });
     });
-    return { read: read !== null, visible, locked: locked === "ok" };
+    return { visible, locked: locked === "ok" };
   }
 
   test("a workspace-wide session of an unpublished agent reaches its admins alone; a people share reaches whom it names", async () => {
     const w = await world();
     const wide = await sessionOf(w, "workspace");
-    const sees = { read: true, visible: true, locked: true };
-    const hidden = { read: false, visible: false, locked: false };
+    const sees = { visible: true, locked: true };
+    const hidden = { visible: false, locked: false };
     expect(await sessionPaths(w, w.lead, wide)).toEqual(sees);
     expect(await sessionPaths(w, w.directAdmin, wide)).toEqual(sees);
     expect(await sessionPaths(w, w.managingMember, wide)).toEqual(hidden);
