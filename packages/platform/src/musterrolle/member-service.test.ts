@@ -34,7 +34,7 @@ function serviceAnswering(result: SetAccessResult) {
         calls.push(input);
         return result;
       },
-      listAwaitingTakeover: async () => [],
+      listAwaitingTakeover: async () => ({ items: [], total: 0 }),
       takeOver: async () => ({ outcome: "not_found" }),
     },
   });

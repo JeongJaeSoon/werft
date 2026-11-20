@@ -131,13 +131,19 @@ export function createMemberService(deps: {
         kind: "workspace",
         id: caller.ownerId,
       });
-      const rows = await store.listAwaitingTakeover(
+      const { items, total } = await store.listAwaitingTakeover(
         caller.ownerId,
         TAKEOVER_LIST_LIMIT,
-        query.agent_id === undefined ? {} : { agentId: query.agent_id },
+        {
+          ...(query.agent_id === undefined ? {} : { agentId: query.agent_id }),
+          ...(query.session_id === undefined
+            ? {}
+            : { sessionId: query.session_id }),
+        },
       );
       return {
-        items: rows.map((row) => ({
+        total,
+        items: items.map((row) => ({
           session_id: row.sessionId,
           agent_id: row.agentId,
           departed_user_id: row.departedUserId,

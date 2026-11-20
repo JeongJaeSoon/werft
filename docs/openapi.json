@@ -447,6 +447,12 @@
             "type": "string",
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "session_id": {
+            "description": "Keeps this session, if it awaits a takeover.",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         }
       },
@@ -7934,10 +7940,17 @@
               ],
               "additionalProperties": false
             }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Every session the filters keep; `items` holds the first 200."
           }
         },
         "required": [
-          "items"
+          "items",
+          "total"
         ],
         "additionalProperties": false
       },
@@ -67979,7 +67992,7 @@
           "Admin"
         ],
         "summary": "Sessions waiting for an owner to take them over",
-        "description": "Sessions whose requester was offboarded, oldest wait first, at most 200. Each takes no further input until an owner takes it over. `agent_id` keeps the sessions created for that agent. API keys are refused.\n\n**Auth:** cookie session only; no scope.",
+        "description": "Sessions whose requester was offboarded, oldest wait first, at most 200; `total` counts them all. Each takes no further input until an owner takes it over. `agent_id` keeps the sessions created for that agent, and `session_id` that one session if it is waiting. API keys are refused.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
@@ -67992,6 +68005,17 @@
             "required": false,
             "schema": {
               "description": "Keeps the sessions created for this agent.",
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "Keeps this session, if it awaits a takeover.",
               "type": "string",
               "format": "uuid",
               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"

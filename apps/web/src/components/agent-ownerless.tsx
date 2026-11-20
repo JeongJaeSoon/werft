@@ -63,19 +63,24 @@ export function OwnerlessAlert({
   const { client } = useWerft();
   const readsTakeovers = useHasPermission("member.manage");
   const takeovers = useQuery({
-    ...takeoversQuery(client, agent.id),
+    ...takeoversQuery(client, { agentId: agent.id }),
     enabled: readsTakeovers,
   });
-  const waiting = readsTakeovers ? (takeovers.data?.items ?? []) : [];
-  if (!agent.ownerless && waiting.length === 0) return null;
+  const page = readsTakeovers ? takeovers.data : undefined;
+  const waiting = page?.items ?? [];
+  // Unknown after succession is not "none": the reader is told and may retry.
+  const failed = readsTakeovers && takeovers.isError;
+  if (!agent.ownerless && waiting.length === 0 && !failed) return null;
   const blockAt = ownerlessBlockAt(agent);
   return (
     <Alert variant="amber" className="border-0">
-      <AlertTitle>
-        {agent.ownerless
-          ? t("agent.ownerless.title")
-          : t("agent.takeovers.title")}
-      </AlertTitle>
+      {agent.ownerless || waiting.length > 0 ? (
+        <AlertTitle>
+          {agent.ownerless
+            ? t("agent.ownerless.title")
+            : t("agent.takeovers.title")}
+        </AlertTitle>
+      ) : null}
       <AlertDescription className="flex flex-col gap-2">
         {agent.ownerless ? (
           <Text as="span" variant="sub">
@@ -87,9 +92,9 @@ export function OwnerlessAlert({
             {t("agent.ownerless.takeoverHint")}
           </Text>
         ) : null}
-        {waiting.length > 0 ? (
-          <TakeoverList items={waiting} />
-        ) : readsTakeovers && takeovers.isError ? (
+        {page && waiting.length > 0 ? (
+          <TakeoverList items={waiting} total={page.total} />
+        ) : failed ? (
           <Text as="span" variant="sub" role="alert">
             {t("agent.takeovers.failed")}{" "}
             <Button
@@ -113,14 +118,25 @@ export function OwnerlessAlert({
   );
 }
 
-function TakeoverList({ items }: { readonly items: readonly Takeover[] }) {
+function TakeoverList({
+  items,
+  total,
+}: {
+  readonly items: readonly Takeover[];
+  readonly total: number;
+}) {
   const { t, locale } = useI18n();
   const labelId = useId();
   return (
     <>
       <Text as="span" id={labelId} variant="body" weight="medium">
-        {t("agent.takeovers.count", { count: items.length })}
+        {t("agent.takeovers.count", { count: total })}
       </Text>
+      {total > items.length ? (
+        <Text as="span" variant="meta">
+          {t("agent.takeovers.oldestOnly", { shown: items.length })}
+        </Text>
+      ) : null}
       <CompactList aria-labelledby={labelId}>
         {items.map((item) => (
           <CompactRow key={item.session_id}>

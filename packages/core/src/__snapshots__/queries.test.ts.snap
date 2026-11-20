@@ -255,7 +255,10 @@ exports[`query keys 1`] = `
     },
     "sessions",
     {
-      "takeovers": "id-1",
+      "takeovers": {
+        "agent_id": "id-1",
+        "session_id": null,
+      },
     },
   ],
   "team": [
@@ -980,9 +983,7 @@ exports[`query options and the request each query makes 1`] = `
         "/v1/takeovers",
         {
           "params": {
-            "query": {
-              "agent_id": "id-1",
-            },
+            "query": {},
           },
         },
       ],
@@ -995,7 +996,10 @@ exports[`query options and the request each query makes 1`] = `
         },
         "sessions",
         {
-          "takeovers": "id-1",
+          "takeovers": {
+            "agent_id": null,
+            "session_id": null,
+          },
         },
       ],
       "retry": false,

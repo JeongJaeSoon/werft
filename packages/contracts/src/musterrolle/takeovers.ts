@@ -35,10 +35,22 @@ export const listTakeoversQuerySchema = z.object({
   agent_id: agentIdSchema.optional().meta({
     description: "Keeps the sessions created for this agent.",
   }),
+  session_id: sessionIdSchema.optional().meta({
+    description: "Keeps this session, if it awaits a takeover.",
+  }),
 });
 
 export const listTakeoversResponseSchema = z
-  .object({ items: z.array(takeoverSchema).max(TAKEOVER_LIST_LIMIT) })
+  .object({
+    items: z.array(takeoverSchema).max(TAKEOVER_LIST_LIMIT),
+    total: z
+      .number()
+      .int()
+      .nonnegative()
+      .meta({
+        description: `Every session the filters keep; \`items\` holds the first ${TAKEOVER_LIST_LIMIT}.`,
+      }),
+  })
   .strict();
 
 // Required by the policy when the session is outside the taker's share.

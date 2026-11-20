@@ -211,6 +211,8 @@ export function agentServer({
     "GET /v1/agents": () =>
       json(200, { items: [detail().agent], next_cursor: null }),
     "GET /v1/connections": () => json(200, { items: CONNECTIONS }),
+    // The detail warning reads it for owners; none waits unless a test says.
+    "GET /v1/takeovers": () => json(200, { items: [], total: 0 }),
     "GET /v1/teams": () => json(200, { items: [TEAM], next_cursor: null }),
     [`GET /v1/teams/${TEAM_ID}`]: () =>
       json(200, {

@@ -200,8 +200,17 @@ export function queryKeysOf(client: ApiClient) {
     agentSessions: (agentId: string) =>
       [s, "sessions", { list: "agent", agent_id: agentId }] as const,
     // Under "sessions", so a takeover or any session change refreshes it.
-    takeovers: (agentId: string | undefined) =>
-      [s, "sessions", { takeovers: agentId ?? null }] as const,
+    takeovers: (filter: TakeoverFilter) =>
+      [
+        s,
+        "sessions",
+        {
+          takeovers: {
+            agent_id: filter.agentId ?? null,
+            session_id: filter.sessionId ?? null,
+          },
+        },
+      ] as const,
     session: (id: string) => [s, "sessions", id] as const,
     sessionUsage: (id: string) => [s, "sessions", id, "usage"] as const,
     sessionShare: (id: string) => [s, "sessions", id, "share"] as const,
@@ -401,14 +410,28 @@ export function invitesQuery(client: ApiClient) {
   });
 }
 
-/** Sessions awaiting a takeover, one agent's when `agentId` is given. */
-export function takeoversQuery(client: ApiClient, agentId?: string) {
+export type TakeoverFilter = {
+  readonly agentId?: string | undefined;
+  readonly sessionId?: string | undefined;
+};
+
+/** Sessions awaiting a takeover: one agent's, or one session, when given. */
+export function takeoversQuery(client: ApiClient, filter: TakeoverFilter = {}) {
   return queryOptions({
-    queryKey: queryKeysOf(client).takeovers(agentId),
+    queryKey: queryKeysOf(client).takeovers(filter),
     queryFn: () =>
       unwrap(
         client.GET("/v1/takeovers", {
-          params: { query: agentId === undefined ? {} : { agent_id: agentId } },
+          params: {
+            query: {
+              ...(filter.agentId === undefined
+                ? {}
+                : { agent_id: filter.agentId }),
+              ...(filter.sessionId === undefined
+                ? {}
+                : { session_id: filter.sessionId }),
+            },
+          },
         }),
       ) as Promise<ListTakeoversResponse>,
     retry: false,

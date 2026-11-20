@@ -79,11 +79,12 @@ export interface MemberStore {
     reason: string | null;
     receiptId: string;
   }): Promise<SetAccessResult>;
+  /** `total` counts every session the filter keeps, past `limit`. */
   listAwaitingTakeover(
     workspaceId: string,
     limit: number,
-    filter?: { agentId?: string },
-  ): Promise<TakeoverRecord[]>;
+    filter?: { agentId?: string; sessionId?: string },
+  ): Promise<{ items: TakeoverRecord[]; total: number }>;
   takeOver(input: {
     principal: Principal;
     workspaceId: string;

@@ -79,14 +79,23 @@ function routes(
             reject(new DOMException("aborted", "AbortError")),
           ),
         ),
-      "GET /v1/takeovers": () =>
-        json(200, { items: awaiting && !takenOver ? [waiting] : [] }),
+      "GET /v1/takeovers": (request: Request) => {
+        const asked = new URL(request.url).searchParams.get("session_id");
+        const items =
+          awaiting && !takenOver && (asked === null || asked === SESSION_ID)
+            ? [waiting]
+            : [];
+        return json(200, { items, total: items.length });
+      },
       [`POST /v1/sessions/${SESSION_ID}/takeover`]: async (
         request: Request,
       ) => {
         bodies.push(await request.json());
         takenOver = true;
-        return json(200, { receipt_id: crypto.randomUUID(), receipt_status: "succeeded" });
+        return json(200, {
+          receipt_id: crypto.randomUUID(),
+          receipt_status: "succeeded",
+        });
       },
     },
   };
@@ -114,9 +123,16 @@ describe("세션 상세: 인계", () => {
       api.calls.some(
         (c) =>
           c.path === "/v1/takeovers" &&
-          new URLSearchParams(c.search).get("agent_id") === AGENT_ID,
+          new URLSearchParams(c.search).get("session_id") === SESSION_ID,
       ),
     ).toBe(true);
+    // The trigger is gone; the keyboard lands on the notice.
+    await waitFor(() =>
+      expect(
+        document.activeElement?.textContent ===
+          "세션을 인계했습니다. 이제 내가 요청자입니다.",
+      ).toBe(true),
+    );
     expect(
       screen.queryByRole("button", { name: "세션 인계하기" }) === null,
     ).toBe(true);
@@ -129,7 +145,9 @@ describe("세션 상세: 인계", () => {
     await open();
     await user.click(screen.getByRole("button", { name: "인계하기" }));
     expect(
-      await screen.findByText("나에게 공유되지 않은 세션이라 사유가 필요합니다."),
+      await screen.findByText(
+        "나에게 공유되지 않은 세션이라 사유가 필요합니다.",
+      ),
     ).toBeDefined();
     expect(bodies).toEqual([]);
     await user.type(screen.getByLabelText("사유"), "퇴사자 세션 정리");
@@ -137,6 +155,13 @@ describe("세션 상세: 인계", () => {
     await waitFor(() =>
       expect(bodies).toEqual([{ justification: "퇴사자 세션 정리" }]),
     );
+    // Now readable, the session shows, and the notice moves under its header.
+    await screen.findByRole("heading", {
+      name: new RegExp(`^${SESSION_ID.slice(0, 8)}`),
+    });
+    expect(
+      screen.getByText("세션을 인계했습니다. 이제 내가 요청자입니다."),
+    ).toBeDefined();
   });
 
   test("인계 대기가 아닌 세션에는 동작이 없다", async () => {

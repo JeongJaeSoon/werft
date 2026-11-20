@@ -399,6 +399,7 @@ export const agentsKo = {
   "agent.takeovers.title": "인계를 기다리는 세션이 있습니다",
   "agent.takeovers.count": "인계를 기다리는 세션 {count}개",
   "agent.takeovers.since": "{at}부터 대기",
+  "agent.takeovers.oldestOnly": "가장 오래 기다린 {shown}개만 보입니다.",
   "agent.takeovers.failed": "인계를 기다리는 세션을 불러오지 못했습니다.",
   "agents.ownerless.alert": "관리자가 없는 에이전트 {count}개",
   "agents.ownerless.alertText":
@@ -842,6 +843,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.takeovers.title": "Sessions are waiting for a takeover",
   "agent.takeovers.count": "Sessions waiting for a takeover: {count}",
   "agent.takeovers.since": "Waiting since {at}",
+  "agent.takeovers.oldestOnly": "Showing the {shown} that have waited longest.",
   "agent.takeovers.failed":
     "Could not load the sessions waiting for a takeover.",
   "agents.ownerless.alert": "{count} agents have no admin",
@@ -1290,6 +1292,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.takeovers.title": "引き継ぎを待つセッションがあります",
   "agent.takeovers.count": "引き継ぎを待つセッション {count}件",
   "agent.takeovers.since": "{at}から待機中",
+  "agent.takeovers.oldestOnly": "待ち時間の長い{shown}件だけを表示しています。",
   "agent.takeovers.failed": "引き継ぎを待つセッションを読み込めませんでした。",
   "agents.ownerless.alert": "管理者がいないエージェント {count}件",
   "agents.ownerless.alertText":

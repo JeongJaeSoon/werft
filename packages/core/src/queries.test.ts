@@ -43,7 +43,7 @@ test("query keys", () => {
     agentAdmins: keys.agentAdmins("id-1"),
     team: keys.team("id-1"),
     session: keys.session("id-1"),
-    takeovers: keys.takeovers("id-1"),
+    takeovers: keys.takeovers({ agentId: "id-1" }),
     agentSessions: keys.agentSessions("id-1"),
     sessionUsage: keys.sessionUsage("id-1"),
     sessionShare: keys.sessionShare("id-1"),
@@ -102,15 +102,31 @@ test("query options and the request each query makes", async () => {
   expect(out).toMatchSnapshot();
 });
 
-test("the takeover list without an agent asks for the whole list", async () => {
+test("the takeover list asks with the filters it is given", async () => {
   const { client, calls } = recordingClient();
   const all = queries.takeoversQuery(client);
   await all.queryFn({} as Parameters<typeof all.queryFn>[0]);
-  expect(calls).toEqual([["/v1/takeovers", { params: { query: {} } }]]);
+  const one = queries.takeoversQuery(client, {
+    agentId: "a-1",
+    sessionId: "s-1",
+  });
+  await one.queryFn({} as Parameters<typeof one.queryFn>[0]);
+  expect(calls).toEqual([
+    ["/v1/takeovers", { params: { query: {} } }],
+    [
+      "/v1/takeovers",
+      { params: { query: { agent_id: "a-1", session_id: "s-1" } } },
+    ],
+  ]);
   expect(all.queryKey as unknown).toEqual([
     SCOPE,
     "sessions",
-    { takeovers: null },
+    { takeovers: { agent_id: null, session_id: null } },
+  ]);
+  expect(one.queryKey as unknown).toEqual([
+    SCOPE,
+    "sessions",
+    { takeovers: { agent_id: "a-1", session_id: "s-1" } },
   ]);
 });
 

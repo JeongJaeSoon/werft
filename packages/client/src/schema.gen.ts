@@ -2412,7 +2412,7 @@ export interface paths {
         };
         /**
          * Sessions waiting for an owner to take them over
-         * @description Sessions whose requester was offboarded, oldest wait first, at most 200. Each takes no further input until an owner takes it over. `agent_id` keeps the sessions created for that agent. API keys are refused.
+         * @description Sessions whose requester was offboarded, oldest wait first, at most 200; `total` counts them all. Each takes no further input until an owner takes it over. `agent_id` keeps the sessions created for that agent, and `session_id` that one session if it is waiting. API keys are refused.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -4970,6 +4970,11 @@ export interface components {
              * @description Keeps the sessions created for this agent.
              */
             agent_id?: string;
+            /**
+             * Format: uuid
+             * @description Keeps this session, if it awaits a takeover.
+             */
+            session_id?: string;
         };
         CountSessionsQuery: {
             /**
@@ -6664,6 +6669,8 @@ export interface components {
                 /** Format: date-time */
                 takeover_required_at: string;
             }[];
+            /** @description Every session the filters keep; `items` holds the first 200. */
+            total: number;
         };
         SessionShare: {
             /** Format: uuid */
@@ -28453,6 +28460,7 @@ export interface operations {
         parameters: {
             query?: {
                 agent_id?: string;
+                session_id?: string;
             };
             header?: never;
             path?: never;

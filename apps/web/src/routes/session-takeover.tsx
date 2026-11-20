@@ -23,11 +23,10 @@ import {
   FieldLabel,
   Textarea,
 } from "@werft-ai/ui";
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { queryKeysOf, takeoversQuery } from "../api/queries.ts";
 import { useHasPermission } from "../auth/guard.tsx";
 import { FormError } from "../components/auth-page.tsx";
-import { OutcomeLine } from "../components/outcome.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 
 /** contracts justificationSchema's max; apps/web imports contracts as types only. */
@@ -37,30 +36,28 @@ const REASON_MAX = 1000;
  * The takeover of a session whose requester was disabled, offered to whoever
  * may read the takeover list while the session is on it. `session` is
  * undefined when the caller cannot read it, and the server then wants a
- * reason.
+ * reason. `done` lives with the screen: a session the caller could not read
+ * becomes readable on success, and the notice moves under the header.
  */
 export function SessionTakeover({
   id,
   session,
+  done,
+  onDone,
 }: {
   readonly id: string;
   readonly session: SessionDetailData | undefined;
+  readonly done: boolean;
+  readonly onDone: () => void;
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
   const permitted = useHasPermission("member.manage");
-  const [done, setDone] = useState(false);
   const takeovers = useQuery({
-    ...takeoversQuery(client, session?.agent?.id),
-    enabled: permitted,
+    ...takeoversQuery(client, { sessionId: id }),
+    enabled: permitted && !done,
   });
-  if (done) {
-    return (
-      <OutcomeLine
-        outcome={{ kind: "notice", text: t("session.takeover.done") }}
-      />
-    );
-  }
+  if (done) return <TakenOver />;
   const sessionId = id.toLowerCase();
   const waiting =
     permitted &&
@@ -74,9 +71,25 @@ export function SessionTakeover({
         <TakeoverDialog
           id={id}
           reasonRequired={session === undefined}
-          onDone={() => setDone(true)}
+          onDone={onDone}
         />
       </AlertActions>
+    </Alert>
+  );
+}
+
+// The dialog's trigger goes with the takeover, so the keyboard lands here.
+function TakenOver() {
+  const { t } = useI18n();
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // After the dialog's own focus return, which runs on a zero timeout.
+    const timer = setTimeout(() => ref.current?.focus(), 0);
+    return () => clearTimeout(timer);
+  }, []);
+  return (
+    <Alert ref={ref} tabIndex={-1} role="status" className="border-0">
+      <AlertDescription>{t("session.takeover.done")}</AlertDescription>
     </Alert>
   );
 }

@@ -52,16 +52,19 @@ const outage = () =>
 function store(overrides: Partial<MemberStore> = {}): MemberStore {
   return {
     setAccess: async () => ({ outcome: "not_found" }),
-    listAwaitingTakeover: async () => [
-      {
-        sessionId: SESSION,
-        agentId: AGENT,
-        departedUserId: DEPARTED,
-        status: "running",
-        createdAt: new Date("2026-10-11T00:00:00.000Z"),
-        takeoverRequiredAt: new Date("2026-10-11T01:00:00.000Z"),
-      },
-    ],
+    listAwaitingTakeover: async () => ({
+      items: [
+        {
+          sessionId: SESSION,
+          agentId: AGENT,
+          departedUserId: DEPARTED,
+          status: "running",
+          createdAt: new Date("2026-10-11T00:00:00.000Z"),
+          takeoverRequiredAt: new Date("2026-10-11T01:00:00.000Z"),
+        },
+      ],
+      total: 1,
+    }),
     takeOver: async () => ({ outcome: "taken_over", receiptId: RECEIPT }),
     ...overrides,
   };
@@ -192,6 +195,7 @@ describe("GET /v1/takeovers", () => {
           takeover_required_at: "2026-10-11T01:00:00.000Z",
         },
       ],
+      total: 1,
     });
   });
 
@@ -201,12 +205,14 @@ describe("GET /v1/takeovers", () => {
       store({
         listAwaitingTakeover: async (_workspace, _limit, filter) => {
           filters.push(filter);
-          return [];
+          return { items: [], total: 0 };
         },
       }),
-    ).request(`/v1/takeovers?agent_id=${AGENT}`, { headers: owner });
+    ).request(`/v1/takeovers?agent_id=${AGENT}&session_id=${SESSION}`, {
+      headers: owner,
+    });
     expect(response.status).toBe(200);
-    expect(filters).toEqual([{ agentId: AGENT }]);
+    expect(filters).toEqual([{ agentId: AGENT, sessionId: SESSION }]);
   });
 
   test("refuses an agent filter that is not an id", async () => {

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { AuthMeResponse } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
-import { json, me, memberMe } from "../test-support/fake-api.ts";
+import { apiError, json, me, memberMe } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
@@ -131,9 +131,10 @@ describe("관리자 없는 에이전트: 상세", () => {
   const takeovers = {
     "GET /v1/takeovers": (request: Request) => {
       const agent = new URL(request.url).searchParams.get("agent_id");
-      return json(200, {
-        items: WAITING.filter((row) => agent === null || row.agent_id === agent),
-      });
+      const items = WAITING.filter(
+        (row) => agent === null || row.agent_id === agent,
+      );
+      return json(200, { items, total: items.length });
     },
   };
   const sessionLinks = () =>
@@ -156,9 +157,7 @@ describe("관리자 없는 에이전트: 상세", () => {
     expect(sessionLinks()).toEqual(
       mine.map((row) => `/sessions/${row.session_id}`),
     );
-    expect(sessionLinks()).not.toContain(
-      `/sessions/${WAITING[1]?.session_id}`,
-    );
+    expect(sessionLinks()).not.toContain(`/sessions/${WAITING[1]?.session_id}`);
     expect(
       api.calls.some(
         (c) =>
@@ -203,12 +202,41 @@ describe("관리자 없는 에이전트: 상세", () => {
     ).toBe(true);
   });
 
+  test("목록이 잘리면 수는 전체를 세고, 보이는 것이 가장 오래 기다린 일부라고 말한다", async () => {
+    const server = agentServer({ ownerlessSince: SINCE });
+    renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      "GET /v1/takeovers": () =>
+        json(200, { items: WAITING.slice(0, 1), total: 250 }),
+    });
+    expect(await screen.findByText("인계를 기다리는 세션 250개")).toBeDefined();
+    expect(screen.getByText("가장 오래 기다린 1개만 보입니다.")).toBeDefined();
+    expect(sessionLinks()).toHaveLength(1);
+  });
+
+  test("승계 뒤 인계 목록을 읽지 못하면 없는 것으로 치지 않고 다시 시도하게 한다", async () => {
+    const server = agentServer();
+    renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      "GET /v1/takeovers": () => apiError(503, "BACKEND_UNAVAILABLE", "down"),
+    });
+    const failed = await screen.findByText(
+      /인계를 기다리는 세션을 불러오지 못했습니다/,
+    );
+    const alert = failed.closest("[data-slot=alert]") as HTMLElement;
+    expect(
+      await within(alert).findByRole("button", { name: "다시 시도" }),
+    ).toBeDefined();
+  });
+
   test("관리하는 사람이 있으면 경고가 없다", async () => {
     const server = agentServer();
     const { api } = renderAt(DETAIL, {
       ...meAs(me()),
       ...server.routes,
-      "GET /v1/takeovers": () => json(200, { items: [] }),
+      "GET /v1/takeovers": () => json(200, { items: [], total: 0 }),
     });
     await screen.findByRole("tab", { name: "관리자" });
     await waitFor(() =>
@@ -217,8 +245,8 @@ describe("관리자 없는 에이전트: 상세", () => {
     expect(
       screen.queryByText("이 에이전트를 관리할 사람이 없습니다"),
     ).toBeNull();
-    expect(
-      screen.queryByText("인계를 기다리는 세션이 있습니다") === null,
-    ).toBe(true);
+    expect(screen.queryByText("인계를 기다리는 세션이 있습니다") === null).toBe(
+      true,
+    );
   });
 });

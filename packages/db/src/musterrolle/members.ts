@@ -356,8 +356,8 @@ export function createPostgresMemberStore(db: Database): MemberStore {
     async listAwaitingTakeover(
       workspaceId: string,
       limit: number,
-      filter: { agentId?: string } = {},
-    ): Promise<TakeoverRecord[]> {
+      filter: { agentId?: string; sessionId?: string } = {},
+    ): Promise<{ items: TakeoverRecord[]; total: number }> {
       const rows = await db
         .select({
           sessionId: sessions.id,
@@ -366,6 +366,8 @@ export function createPostgresMemberStore(db: Database): MemberStore {
           status: sessions.status,
           createdAt: sessions.createdAt,
           takeoverRequiredAt: sessions.takeoverRequiredAt,
+          // Counted before the limit cuts the rows.
+          total: sql<number>`(count(*) over ())::int`,
         })
         .from(sessions)
         .leftJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
@@ -373,15 +375,19 @@ export function createPostgresMemberStore(db: Database): MemberStore {
           and(
             eq(sessions.workspaceId, workspaceId),
             isNotNull(sessions.takeoverRequiredAt),
+            isNotNull(sessions.createdByUserId),
             ne(sessions.admissionState, "closed"),
             filter.agentId === undefined
               ? undefined
               : eq(agentReleases.agentId, filter.agentId.toLowerCase()),
+            filter.sessionId === undefined
+              ? undefined
+              : eq(sessions.id, filter.sessionId.toLowerCase()),
           ),
         )
         .orderBy(asc(sessions.takeoverRequiredAt), asc(sessions.id))
         .limit(limit);
-      return rows.flatMap((row) =>
+      const items = rows.flatMap((row) =>
         row.departedUserId === null || row.takeoverRequiredAt === null
           ? []
           : [
@@ -395,6 +401,7 @@ export function createPostgresMemberStore(db: Database): MemberStore {
               },
             ],
       );
+      return { items, total: rows[0]?.total ?? 0 };
     },
 
     takeOver(input): Promise<TakeOverResult> {

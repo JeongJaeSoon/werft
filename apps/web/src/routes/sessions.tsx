@@ -454,6 +454,7 @@ export function SessionDetailScreen() {
   const { tab } = sessionSearch(useSearch({ from: "/authed/sessions/$id" }));
   const navigate = useNavigate({ from: "/sessions/$id" });
   const unavailable = useUnavailable();
+  const [takenOver, setTakenOver] = useState<string | null>(null);
   return (
     // The screen fills the area under the top bar, so the chat reaches the bottom.
     <div className="flex flex-1 flex-col">
@@ -474,7 +475,12 @@ export function SessionDetailScreen() {
         )}
         timelineExtra={(session) => <SessionGitHubWork session={session} />}
         notice={(session) => (
-          <SessionTakeover key={id} id={id} session={session} />
+          <SessionTakeover
+            id={id}
+            session={session}
+            done={takenOver === id}
+            onDone={() => setTakenOver(id)}
+          />
         )}
         unavailable={unavailable}
         refusal={(error) => t(errorKey(error.code))}

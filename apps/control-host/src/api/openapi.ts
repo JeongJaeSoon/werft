@@ -5357,7 +5357,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Admin",
     summary: "Sessions waiting for an owner to take them over",
     description:
-      "Sessions whose requester was offboarded, oldest wait first, at most 200. Each takes no further input until an owner takes it over. `agent_id` keeps the sessions created for that agent. API keys are refused.",
+      "Sessions whose requester was offboarded, oldest wait first, at most 200; `total` counts them all. Each takes no further input until an owner takes it over. `agent_id` keeps the sessions created for that agent, and `session_id` that one session if it is waiting. API keys are refused.",
     auth: "session",
     query: "ListTakeoversQuery",
     success: { status: 200, schema: "ListTakeoversResponse" },
