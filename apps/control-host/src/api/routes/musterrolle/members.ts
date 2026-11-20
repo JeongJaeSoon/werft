@@ -1,6 +1,7 @@
 import {
   listMembersQuerySchema,
   listMembersResponseSchema,
+  listTakeoversQuerySchema,
   listTakeoversResponseSchema,
   memberUserParamsSchema,
   sessionIdParamsSchema,
@@ -74,8 +75,9 @@ export function registerMemberRoutes(
   }
 
   apiRoute(router, "listTakeovers", async (context) => {
+    const query = requireQuery(context, listTakeoversQuerySchema);
     const page = await mapped(() =>
-      service.listTakeovers(context.get("caller")),
+      service.listTakeovers(context.get("caller"), query),
     );
     return jsonWithSchema(context, listTakeoversResponseSchema, page);
   });

@@ -48,6 +48,7 @@ import { errorKey, useI18n } from "../i18n/i18n.tsx";
 import { SessionGitHubWork } from "./session-github-work.tsx";
 import { SessionOutputsPanel } from "./session-outputs.tsx";
 import { SessionsOverview } from "./session-overview.tsx";
+import { SessionTakeover } from "./session-takeover.tsx";
 
 export function loadError(error: unknown, onRetry: () => void) {
   if (isApiError(error, "FORBIDDEN")) {
@@ -453,6 +454,7 @@ export function SessionDetailScreen() {
   const { tab } = sessionSearch(useSearch({ from: "/authed/sessions/$id" }));
   const navigate = useNavigate({ from: "/sessions/$id" });
   const unavailable = useUnavailable();
+  const [takenOver, setTakenOver] = useState<string | null>(null);
   return (
     // The screen fills the area under the top bar, so the chat reaches the bottom.
     <div className="flex flex-1 flex-col">
@@ -472,6 +474,14 @@ export function SessionDetailScreen() {
           <SessionOutputsPanel session={session} onSummary={report} />
         )}
         timelineExtra={(session) => <SessionGitHubWork session={session} />}
+        notice={(session) => (
+          <SessionTakeover
+            id={id}
+            session={session}
+            done={takenOver === id}
+            onDone={() => setTakenOver(id)}
+          />
+        )}
         unavailable={unavailable}
         refusal={(error) => t(errorKey(error.code))}
       />

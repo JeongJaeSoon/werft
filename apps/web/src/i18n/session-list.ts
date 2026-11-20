@@ -26,6 +26,20 @@ export const sessionListKo = {
   "sessionList.relation.administered": "관리하는 에이전트",
   "sessionList.open": "세션 열기: {name}",
   "sessionList.unknown": "—",
+  "session.takeover.notice":
+    "요청자가 비활성화되어 이 세션은 인계를 기다립니다. 인계하면 내가 요청자가 되고, 쌓인 입력이 다시 실행됩니다.",
+  "session.takeover.open": "세션 인계하기",
+  "session.takeover.title": "이 세션을 인계할까요?",
+  "session.takeover.description": "사유는 감사 기록에 남습니다.",
+  "session.takeover.reason": "사유",
+  "session.takeover.reasonOptional": "사유 (선택)",
+  "session.takeover.reasonRequired":
+    "나에게 공유되지 않은 세션이라 사유가 필요합니다.",
+  "session.takeover.reasonTooLong": "사유는 {max}자까지 쓸 수 있습니다.",
+  "session.takeover.cancel": "취소",
+  "session.takeover.submit": "인계하기",
+  "session.takeover.submitting": "인계하는 중…",
+  "session.takeover.done": "세션을 인계했습니다. 이제 내가 요청자입니다.",
 };
 
 export const sessionListEn: Record<keyof typeof sessionListKo, string> = {
@@ -56,6 +70,22 @@ export const sessionListEn: Record<keyof typeof sessionListKo, string> = {
   "sessionList.relation.administered": "Agents I manage",
   "sessionList.open": "Open session: {name}",
   "sessionList.unknown": "—",
+  "session.takeover.notice":
+    "This session's requester was disabled, so it waits for a takeover. Take it over to become its requester; its queued input then runs again.",
+  "session.takeover.open": "Take over session",
+  "session.takeover.title": "Take over this session?",
+  "session.takeover.description": "The reason is kept in the audit log.",
+  "session.takeover.reason": "Reason",
+  "session.takeover.reasonOptional": "Reason (optional)",
+  "session.takeover.reasonRequired":
+    "This session is not shared with you, so a reason is required.",
+  "session.takeover.reasonTooLong":
+    "The reason can be at most {max} characters.",
+  "session.takeover.cancel": "Cancel",
+  "session.takeover.submit": "Take over",
+  "session.takeover.submitting": "Taking over…",
+  "session.takeover.done":
+    "You took over the session and are now its requester.",
 };
 
 export const sessionListJa: Record<keyof typeof sessionListKo, string> = {
@@ -86,4 +116,19 @@ export const sessionListJa: Record<keyof typeof sessionListKo, string> = {
   "sessionList.relation.administered": "管理するエージェント",
   "sessionList.open": "セッションを開く: {name}",
   "sessionList.unknown": "—",
+  "session.takeover.notice":
+    "依頼者が無効化されたため、このセッションは引き継ぎを待っています。引き継ぐとあなたが依頼者になり、たまっている入力がまた実行されます。",
+  "session.takeover.open": "セッションを引き継ぐ",
+  "session.takeover.title": "このセッションを引き継ぎますか？",
+  "session.takeover.description": "理由は監査記録に残ります。",
+  "session.takeover.reason": "理由",
+  "session.takeover.reasonOptional": "理由（任意）",
+  "session.takeover.reasonRequired":
+    "あなたに共有されていないセッションのため、理由が必要です。",
+  "session.takeover.reasonTooLong": "理由は{max}文字までです。",
+  "session.takeover.cancel": "キャンセル",
+  "session.takeover.submit": "引き継ぐ",
+  "session.takeover.submitting": "引き継ぎ中…",
+  "session.takeover.done":
+    "セッションを引き継ぎました。あなたが依頼者になりました。",
 };

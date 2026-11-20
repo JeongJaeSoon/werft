@@ -15,8 +15,9 @@ const BUDGET_BYTES: Record<string, number> = {
   // engine and channels and the session's turn time put it 26 bytes over 142,
   // so it moves to 143. The input-only validation schemas (trimmed names,
   // non-blank messages and answers, the allow-list rules) put ./forms 416
-  // bytes over 140, so it moves to 141.
-  "./schemas": 143 * 1024,
+  // bytes over 140, so it moves to 141. The takeover list's agent and its
+  // filter put ./schemas 58 bytes over 143, so it moves to 144.
+  "./schemas": 144 * 1024,
   "./forms": 141 * 1024,
 };
 

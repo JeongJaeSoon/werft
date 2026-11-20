@@ -30,6 +30,7 @@ const createApiApp = recordRouteErrors("routes/musterrolle/members.test.ts");
 
 const SESSION = "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d";
 const DEPARTED = "019a0000-0000-7000-8000-0000000000c1";
+const AGENT = "5e7f9a1b-2c3d-4e5f-8a6b-7c8d9e0f1a2b";
 const OWNER_USER = "019a0000-0000-7000-8000-0000000000a1";
 const RECEIPT = "4d6d1a3e-1f1c-4c3a-9f3e-2b1c1d1e1f10";
 
@@ -51,15 +52,19 @@ const outage = () =>
 function store(overrides: Partial<MemberStore> = {}): MemberStore {
   return {
     setAccess: async () => ({ outcome: "not_found" }),
-    listAwaitingTakeover: async () => [
-      {
-        sessionId: SESSION,
-        departedUserId: DEPARTED,
-        status: "running",
-        createdAt: new Date("2026-10-11T00:00:00.000Z"),
-        takeoverRequiredAt: new Date("2026-10-11T01:00:00.000Z"),
-      },
-    ],
+    listAwaitingTakeover: async () => ({
+      items: [
+        {
+          sessionId: SESSION,
+          agentId: AGENT,
+          departedUserId: DEPARTED,
+          status: "running",
+          createdAt: new Date("2026-10-11T00:00:00.000Z"),
+          takeoverRequiredAt: new Date("2026-10-11T01:00:00.000Z"),
+        },
+      ],
+      total: 1,
+    }),
     takeOver: async () => ({ outcome: "taken_over", receiptId: RECEIPT }),
     ...overrides,
   };
@@ -154,7 +159,8 @@ function app(
     options.person === false
       ? service
       : {
-          listTakeovers: (caller) => service.listTakeovers(asPerson(caller)),
+          listTakeovers: (caller, query) =>
+            service.listTakeovers(asPerson(caller), query),
           takeOverSession: (caller, id, justification) =>
             service.takeOverSession(asPerson(caller), id, justification),
           disableMember: (caller, id, reason) =>
@@ -182,13 +188,39 @@ describe("GET /v1/takeovers", () => {
       items: [
         {
           session_id: SESSION,
+          agent_id: AGENT,
           departed_user_id: DEPARTED,
           status: "running",
           created_at: "2026-10-11T00:00:00.000Z",
           takeover_required_at: "2026-10-11T01:00:00.000Z",
         },
       ],
+      total: 1,
     });
+  });
+
+  test("hands the agent filter to the store", async () => {
+    const filters: unknown[] = [];
+    const response = await app(
+      store({
+        listAwaitingTakeover: async (_workspace, _limit, filter) => {
+          filters.push(filter);
+          return { items: [], total: 0 };
+        },
+      }),
+    ).request(`/v1/takeovers?agent_id=${AGENT}&session_id=${SESSION}`, {
+      headers: owner,
+    });
+    expect(response.status).toBe(200);
+    expect(filters).toEqual([{ agentId: AGENT, sessionId: SESSION }]);
+  });
+
+  test("refuses an agent filter that is not an id", async () => {
+    const response = await app().request("/v1/takeovers?agent_id=nope", {
+      headers: owner,
+    });
+    expect(response.status).toBe(400);
+    expect((await errorOf(response)).code).toBe("BAD_REQUEST");
   });
 
   test("refuses an API key whatever its scopes", async () => {

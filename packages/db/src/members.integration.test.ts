@@ -1099,12 +1099,14 @@ integration("members, identity and takeover on PostgreSQL", () => {
       const { ws, owner, leaver, sessionId } = await awaiting();
       const store = createPostgresMemberStore(db);
       const listed = await store.listAwaitingTakeover(ws, 200);
-      expect(listed.map((row) => [row.sessionId, row.departedUserId])).toEqual([
-        [sessionId, leaver],
-      ]);
-      expect(await store.listAwaitingTakeover(await workspace(), 200)).toEqual(
-        [],
-      );
+      expect(
+        listed.items.map((row) => [row.sessionId, row.departedUserId]),
+      ).toEqual([[sessionId, leaver]]);
+      expect(listed.total).toBe(1);
+      expect(await store.listAwaitingTakeover(await workspace(), 200)).toEqual({
+        items: [],
+        total: 0,
+      });
 
       const taken = await store.takeOver({
         principal: asUser(ws, owner),

@@ -47,6 +47,7 @@ export const accessRefusal = refusals<SetAccessResult["outcome"]>({
 
 export type TakeoverRecord = {
   sessionId: string;
+  agentId: string | null;
   departedUserId: string;
   status: SessionStatus;
   createdAt: Date;
@@ -78,10 +79,12 @@ export interface MemberStore {
     reason: string | null;
     receiptId: string;
   }): Promise<SetAccessResult>;
+  /** `total` counts every session the filter keeps, past `limit`. */
   listAwaitingTakeover(
     workspaceId: string,
     limit: number,
-  ): Promise<TakeoverRecord[]>;
+    filter?: { agentId?: string; sessionId?: string },
+  ): Promise<{ items: TakeoverRecord[]; total: number }>;
   takeOver(input: {
     principal: Principal;
     workspaceId: string;

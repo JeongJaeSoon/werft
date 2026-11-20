@@ -28,6 +28,7 @@ import { actorStillMember } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
+  agentReleases,
   apiKeys,
   memberships,
   receipts,
@@ -355,31 +356,44 @@ export function createPostgresMemberStore(db: Database): MemberStore {
     async listAwaitingTakeover(
       workspaceId: string,
       limit: number,
-    ): Promise<TakeoverRecord[]> {
+      filter: { agentId?: string; sessionId?: string } = {},
+    ): Promise<{ items: TakeoverRecord[]; total: number }> {
       const rows = await db
         .select({
           sessionId: sessions.id,
+          agentId: agentReleases.agentId,
           departedUserId: sessions.createdByUserId,
           status: sessions.status,
           createdAt: sessions.createdAt,
           takeoverRequiredAt: sessions.takeoverRequiredAt,
+          // Counted before the limit cuts the rows.
+          total: sql<number>`(count(*) over ())::int`,
         })
         .from(sessions)
+        .leftJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
         .where(
           and(
             eq(sessions.workspaceId, workspaceId),
             isNotNull(sessions.takeoverRequiredAt),
+            isNotNull(sessions.createdByUserId),
             ne(sessions.admissionState, "closed"),
+            filter.agentId === undefined
+              ? undefined
+              : eq(agentReleases.agentId, filter.agentId.toLowerCase()),
+            filter.sessionId === undefined
+              ? undefined
+              : eq(sessions.id, filter.sessionId.toLowerCase()),
           ),
         )
         .orderBy(asc(sessions.takeoverRequiredAt), asc(sessions.id))
         .limit(limit);
-      return rows.flatMap((row) =>
+      const items = rows.flatMap((row) =>
         row.departedUserId === null || row.takeoverRequiredAt === null
           ? []
           : [
               {
                 sessionId: row.sessionId,
+                agentId: row.agentId,
                 departedUserId: row.departedUserId,
                 status: row.status as SessionStatus,
                 createdAt: row.createdAt,
@@ -387,6 +401,7 @@ export function createPostgresMemberStore(db: Database): MemberStore {
               },
             ],
       );
+      return { items, total: rows[0]?.total ?? 0 };
     },
 
     takeOver(input): Promise<TakeOverResult> {

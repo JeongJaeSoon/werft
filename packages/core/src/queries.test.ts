@@ -43,6 +43,7 @@ test("query keys", () => {
     agentAdmins: keys.agentAdmins("id-1"),
     team: keys.team("id-1"),
     session: keys.session("id-1"),
+    takeovers: keys.takeovers({ agentId: "id-1" }),
     agentSessions: keys.agentSessions("id-1"),
     sessionUsage: keys.sessionUsage("id-1"),
     sessionShare: keys.sessionShare("id-1"),
@@ -82,7 +83,7 @@ test("query options and the request each query makes", async () => {
     (entry): entry is [string, (client: ApiClient, id: string) => object] =>
       typeof entry[1] === "function" && entry[0].endsWith("Query"),
   );
-  expect(factories.length).toBe(34);
+  expect(factories.length).toBe(35);
   const out: Record<string, unknown> = {};
   for (const [name, factory] of factories.sort(([a], [b]) =>
     a.localeCompare(b),
@@ -99,6 +100,34 @@ test("query options and the request each query makes", async () => {
     else expect(first).toEqual(SCOPE);
   }
   expect(out).toMatchSnapshot();
+});
+
+test("the takeover list asks with the filters it is given", async () => {
+  const { client, calls } = recordingClient();
+  const all = queries.takeoversQuery(client);
+  await all.queryFn({} as Parameters<typeof all.queryFn>[0]);
+  const one = queries.takeoversQuery(client, {
+    agentId: "a-1",
+    sessionId: "s-1",
+  });
+  await one.queryFn({} as Parameters<typeof one.queryFn>[0]);
+  expect(calls).toEqual([
+    ["/v1/takeovers", { params: { query: {} } }],
+    [
+      "/v1/takeovers",
+      { params: { query: { agent_id: "a-1", session_id: "s-1" } } },
+    ],
+  ]);
+  expect(all.queryKey as unknown).toEqual([
+    SCOPE,
+    "sessions",
+    { takeovers: { agent_id: null, session_id: null } },
+  ]);
+  expect(one.queryKey as unknown).toEqual([
+    SCOPE,
+    "sessions",
+    { takeovers: { agent_id: "a-1", session_id: "s-1" } },
+  ]);
 });
 
 test("the session list asks for the next page by the last page's cursor", async () => {

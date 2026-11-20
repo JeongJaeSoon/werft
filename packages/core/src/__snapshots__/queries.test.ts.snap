@@ -248,6 +248,19 @@ exports[`query keys 1`] = `
     },
     "sessions",
   ],
+  "takeovers": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
+    "sessions",
+    {
+      "takeovers": {
+        "agent_id": "id-1",
+        "session_id": null,
+      },
+    },
+  ],
   "team": [
     {
       "actor": "user:u-1",
@@ -960,6 +973,34 @@ exports[`query options and the request each query makes 1`] = `
           "workspace": "w-1",
         },
         "sessions",
+      ],
+      "retry": false,
+    },
+  },
+  "takeoversQuery": {
+    "calls": [
+      [
+        "/v1/takeovers",
+        {
+          "params": {
+            "query": {},
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
+        "sessions",
+        {
+          "takeovers": {
+            "agent_id": null,
+            "session_id": null,
+          },
+        },
       ],
       "retry": false,
     },
