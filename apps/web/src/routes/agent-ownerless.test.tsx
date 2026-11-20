@@ -113,12 +113,112 @@ describe("관리자 없는 에이전트: 상세", () => {
     ).toBeDefined();
   });
 
+  const OTHER_AGENT = "00000000-0000-4000-8000-0000000000ff";
+  const waitingRow = (session: string, agent: string) => ({
+    session_id: session,
+    agent_id: agent,
+    departed_user_id: "019a0000-0000-7000-8000-0000000000c1",
+    status: "idle",
+    created_at: SINCE,
+    takeover_required_at: "2026-11-02T00:00:00.000Z",
+  });
+  const WAITING = [
+    waitingRow("0a000000-0000-4000-8000-000000000001", AGENT_ID),
+    waitingRow("0b000000-0000-4000-8000-000000000002", OTHER_AGENT),
+    waitingRow("0c000000-0000-4000-8000-000000000003", AGENT_ID),
+  ];
+  // The server's filter, so the screen's list can be held to it.
+  const takeovers = {
+    "GET /v1/takeovers": (request: Request) => {
+      const agent = new URL(request.url).searchParams.get("agent_id");
+      return json(200, {
+        items: WAITING.filter((row) => agent === null || row.agent_id === agent),
+      });
+    },
+  };
+  const sessionLinks = () =>
+    screen
+      .queryAllByRole("link")
+      .map((link) => link.getAttribute("href"))
+      .filter((href) => href?.startsWith("/sessions/"));
+
+  test("인계 목록을 읽는 사람에게 이 에이전트의 인계 대기 세션 수와 목록을 보인다", async () => {
+    const server = agentServer({ ownerlessSince: SINCE });
+    const { api } = renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      ...takeovers,
+    });
+    const mine = WAITING.filter((row) => row.agent_id === AGENT_ID);
+    expect(
+      await screen.findByText(`인계를 기다리는 세션 ${mine.length}개`),
+    ).toBeDefined();
+    expect(sessionLinks()).toEqual(
+      mine.map((row) => `/sessions/${row.session_id}`),
+    );
+    expect(sessionLinks()).not.toContain(
+      `/sessions/${WAITING[1]?.session_id}`,
+    );
+    expect(
+      api.calls.some(
+        (c) =>
+          c.path === "/v1/takeovers" &&
+          new URLSearchParams(c.search).get("agent_id") === AGENT_ID,
+      ),
+    ).toBe(true);
+    expect(
+      screen.getByText(/요청자가 비활성화된 기존 세션은 따로 인계해야 할 수/),
+    ).toBeDefined();
+  });
+
+  test("인계 목록 권한이 없으면 수도 목록도 묻지 않고, 고정 안내만 남는다", async () => {
+    const server = agentServer({ ownerlessSince: SINCE });
+    const { api } = renderAt(DETAIL, {
+      ...meAs(memberMe()),
+      ...server.routes,
+      ...takeovers,
+    });
+    expect(
+      await screen.findByText(
+        /요청자가 비활성화된 기존 세션은 따로 인계해야 할 수/,
+      ),
+    ).toBeDefined();
+    expect(screen.queryByText(/인계를 기다리는 세션/) === null).toBe(true);
+    expect(sessionLinks()).toEqual([]);
+    expect(api.calls.some((c) => c.path === "/v1/takeovers")).toBe(false);
+  });
+
+  test("승계 뒤에도 인계 대기 세션이 남으면 경고가 그 목록으로 남는다", async () => {
+    const server = agentServer();
+    renderAt(DETAIL, { ...meAs(me()), ...server.routes, ...takeovers });
+    expect(
+      await screen.findByText("인계를 기다리는 세션이 있습니다"),
+    ).toBeDefined();
+    expect(screen.getByText("인계를 기다리는 세션 2개")).toBeDefined();
+    expect(
+      screen.queryByText("이 에이전트를 관리할 사람이 없습니다") === null,
+    ).toBe(true);
+    expect(
+      screen.queryByRole("button", { name: "관리자 지정하기" }) === null,
+    ).toBe(true);
+  });
+
   test("관리하는 사람이 있으면 경고가 없다", async () => {
     const server = agentServer();
-    renderAt(DETAIL, { ...meAs(me()), ...server.routes });
+    const { api } = renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      "GET /v1/takeovers": () => json(200, { items: [] }),
+    });
     await screen.findByRole("tab", { name: "관리자" });
+    await waitFor(() =>
+      expect(api.calls.some((c) => c.path === "/v1/takeovers")).toBe(true),
+    );
     expect(
       screen.queryByText("이 에이전트를 관리할 사람이 없습니다"),
     ).toBeNull();
+    expect(
+      screen.queryByText("인계를 기다리는 세션이 있습니다") === null,
+    ).toBe(true);
   });
 });

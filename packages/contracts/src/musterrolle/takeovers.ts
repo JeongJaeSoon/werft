@@ -3,6 +3,7 @@ import { z } from "zod";
 import { receiptAcceptedResponseSchema } from "../api/receipt.ts";
 import { sessionStatusSchema } from "../api/session.ts";
 import {
+  agentIdSchema,
   sessionIdSchema,
   timestampSchema,
   userIdSchema,
@@ -16,6 +17,10 @@ import { justificationSchema } from "./session-shares.ts";
 export const takeoverSchema = z
   .object({
     session_id: sessionIdSchema,
+    agent_id: agentIdSchema.nullable().meta({
+      description:
+        "The agent the session was created for. Null for a session created without `agent_release_id`.",
+    }),
     /** The offboarded person who asked for the session. */
     departed_user_id: userIdSchema,
     status: sessionStatusSchema,
@@ -25,6 +30,12 @@ export const takeoverSchema = z
   .strict();
 
 export const TAKEOVER_LIST_LIMIT = 200;
+
+export const listTakeoversQuerySchema = z.object({
+  agent_id: agentIdSchema.optional().meta({
+    description: "Keeps the sessions created for this agent.",
+  }),
+});
 
 export const listTakeoversResponseSchema = z
   .object({ items: z.array(takeoverSchema).max(TAKEOVER_LIST_LIMIT) })
@@ -37,6 +48,8 @@ export const takeOverSessionRequestSchema = z
 
 export const takeOverSessionResponseSchema = receiptAcceptedResponseSchema;
 
+export type ListTakeoversQuery = z.infer<typeof listTakeoversQuerySchema>;
+export type Takeover = z.infer<typeof takeoverSchema>;
 export type ListTakeoversResponse = z.infer<typeof listTakeoversResponseSchema>;
 export type TakeOverSessionResponse = z.infer<
   typeof takeOverSessionResponseSchema

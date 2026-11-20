@@ -89,6 +89,13 @@ export interface SessionDetailProps extends SessionActionProps {
    * as a push waiting for approval.
    */
   readonly timelineExtra?: (session: SessionDetailData) => ReactNode;
+  /**
+   * The host's notice under the header, such as a takeover a manager may
+   * make. It is given undefined when the session is not found for the
+   * caller, and drawn under that message, since a manager may act on a
+   * session it cannot read.
+   */
+  readonly notice?: (session: SessionDetailData | undefined) => ReactNode;
 }
 
 export type SessionDetailTab = "chat" | "outputs";
@@ -118,6 +125,7 @@ export function SessionDetail({
   tab,
   onTabChange,
   timelineExtra,
+  notice,
   unavailable,
   refusal,
 }: SessionDetailProps) {
@@ -166,9 +174,12 @@ export function SessionDetail({
         {session.isPending ? (
           loading
         ) : isApiError(session.error, "NOT_FOUND") ? (
-          <p className="m-0 text-destructive" role="alert">
-            {t("session.notFound")}
-          </p>
+          <>
+            <p className="m-0 text-destructive" role="alert">
+              {t("session.notFound")}
+            </p>
+            {notice?.(undefined)}
+          </>
         ) : (
           renderError(session.error, () => void session.refetch())
         )}
@@ -324,6 +335,7 @@ export function SessionDetail({
         {usage.error
           ? renderError(usage.error, () => void usage.refetch())
           : null}
+        {notice?.(detail)}
       </header>
       <Tabs
         value={current}

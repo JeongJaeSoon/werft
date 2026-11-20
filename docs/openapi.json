@@ -439,6 +439,17 @@
           }
         }
       },
+      "ListTakeoversQuery": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "description": "Keeps the sessions created for this agent.",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        }
+      },
       "CountSessionsQuery": {
         "type": "object",
         "properties": {
@@ -7873,6 +7884,19 @@
                   "format": "uuid",
                   "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                 },
+                "agent_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The agent the session was created for. Null for a session created without `agent_release_id`."
+                },
                 "departed_user_id": {
                   "type": "string",
                   "format": "uuid",
@@ -7902,6 +7926,7 @@
               },
               "required": [
                 "session_id",
+                "agent_id",
                 "departed_user_id",
                 "status",
                 "created_at",
@@ -67954,13 +67979,25 @@
           "Admin"
         ],
         "summary": "Sessions waiting for an owner to take them over",
-        "description": "Sessions whose requester was offboarded. Each takes no further input until an owner takes it over. API keys are refused.\n\n**Auth:** cookie session only; no scope.",
+        "description": "Sessions whose requester was offboarded, oldest wait first, at most 200. Each takes no further input until an owner takes it over. `agent_id` keeps the sessions created for that agent. API keys are refused.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
           }
         ],
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "Keeps the sessions created for this agent.",
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Success",
@@ -67973,6 +68010,41 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ListTakeoversResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }

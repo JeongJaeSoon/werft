@@ -396,6 +396,10 @@ export const agentsKo = {
   "agent.ownerless.toAdmins": "관리자 지정하기",
   "agent.ownerless.takeoverHint":
     "요청자가 비활성화된 기존 세션은 따로 인계해야 할 수 있습니다.",
+  "agent.takeovers.title": "인계를 기다리는 세션이 있습니다",
+  "agent.takeovers.count": "인계를 기다리는 세션 {count}개",
+  "agent.takeovers.since": "{at}부터 대기",
+  "agent.takeovers.failed": "인계를 기다리는 세션을 불러오지 못했습니다.",
   "agents.ownerless.alert": "관리자가 없는 에이전트 {count}개",
   "agents.ownerless.alertText":
     "관리자를 지정하지 않으면 표시된 날부터 {days}일 뒤에 새 실행이 막힙니다.",
@@ -835,6 +839,11 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.ownerless.toAdmins": "Name an admin",
   "agent.ownerless.takeoverHint":
     "Existing sessions whose requester was disabled may need to be taken over separately.",
+  "agent.takeovers.title": "Sessions are waiting for a takeover",
+  "agent.takeovers.count": "Sessions waiting for a takeover: {count}",
+  "agent.takeovers.since": "Waiting since {at}",
+  "agent.takeovers.failed":
+    "Could not load the sessions waiting for a takeover.",
   "agents.ownerless.alert": "{count} agents have no admin",
   "agents.ownerless.alertText":
     "Unless someone is named an admin, new runs are blocked {days} days after an agent is marked.",
@@ -1278,6 +1287,10 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.ownerless.toAdmins": "管理者を指定",
   "agent.ownerless.takeoverHint":
     "依頼者が無効化された既存のセッションは、別途引き継ぎが必要な場合があります。",
+  "agent.takeovers.title": "引き継ぎを待つセッションがあります",
+  "agent.takeovers.count": "引き継ぎを待つセッション {count}件",
+  "agent.takeovers.since": "{at}から待機中",
+  "agent.takeovers.failed": "引き継ぎを待つセッションを読み込めませんでした。",
   "agents.ownerless.alert": "管理者がいないエージェント {count}件",
   "agents.ownerless.alertText":
     "管理者を指定しないと、表示された日から{days}日後に新しい実行が止まります。",

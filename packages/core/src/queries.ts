@@ -24,6 +24,7 @@ import type {
   ListPendingRequestsResponse,
   ListPushRequestsResponse,
   ListSessionsResponse,
+  ListTakeoversResponse,
   ListTeamsResponse,
   ListTurnsResponse,
   LoginMethodsResponse,
@@ -198,6 +199,9 @@ export function queryKeysOf(client: ApiClient) {
     agentSessionLists: [s, "sessions", { list: "agent" }] as const,
     agentSessions: (agentId: string) =>
       [s, "sessions", { list: "agent", agent_id: agentId }] as const,
+    // Under "sessions", so a takeover or any session change refreshes it.
+    takeovers: (agentId: string | undefined) =>
+      [s, "sessions", { takeovers: agentId ?? null }] as const,
     session: (id: string) => [s, "sessions", id] as const,
     sessionUsage: (id: string) => [s, "sessions", id, "usage"] as const,
     sessionShare: (id: string) => [s, "sessions", id, "share"] as const,
@@ -393,6 +397,20 @@ export function invitesQuery(client: ApiClient) {
     queryKey: queryKeysOf(client).invites,
     queryFn: () =>
       unwrap(client.GET("/v1/invites")) as Promise<ListInvitesResponse>,
+    retry: false,
+  });
+}
+
+/** Sessions awaiting a takeover, one agent's when `agentId` is given. */
+export function takeoversQuery(client: ApiClient, agentId?: string) {
+  return queryOptions({
+    queryKey: queryKeysOf(client).takeovers(agentId),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/takeovers", {
+          params: { query: agentId === undefined ? {} : { agent_id: agentId } },
+        }),
+      ) as Promise<ListTakeoversResponse>,
     retry: false,
   });
 }

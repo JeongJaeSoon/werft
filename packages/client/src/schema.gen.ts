@@ -2412,7 +2412,7 @@ export interface paths {
         };
         /**
          * Sessions waiting for an owner to take them over
-         * @description Sessions whose requester was offboarded. Each takes no further input until an owner takes it over. API keys are refused.
+         * @description Sessions whose requester was offboarded, oldest wait first, at most 200. Each takes no further input until an owner takes it over. `agent_id` keeps the sessions created for that agent. API keys are refused.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -4964,6 +4964,13 @@ export interface components {
             /** @description Comma-separated user ids, at most 100: keeps the members among them, in the list's order. An id of no member is left out. */
             user_ids?: string;
         };
+        ListTakeoversQuery: {
+            /**
+             * Format: uuid
+             * @description Keeps the sessions created for this agent.
+             */
+            agent_id?: string;
+        };
         CountSessionsQuery: {
             /**
              * @description Narrows the sessions the caller can read, never widens them; omitted, `all`. `started`: the caller started it (for an API key, the key or the person who created it). `shared`: someone else's session shared with the caller by name or through a team the caller is a member of; sessions every workspace member sees appear only under `all`. `administered`: a session of an agent the caller administers, directly or through a team.
@@ -6646,6 +6653,8 @@ export interface components {
             items: {
                 /** Format: uuid */
                 session_id: string;
+                /** @description The agent the session was created for. Null for a session created without `agent_release_id`. */
+                agent_id: string | null;
                 /** Format: uuid */
                 departed_user_id: string;
                 /** @enum {string} */
@@ -28442,7 +28451,9 @@ export interface operations {
     };
     listTakeovers: {
         parameters: {
-            query?: never;
+            query?: {
+                agent_id?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -28457,6 +28468,21 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ListTakeoversResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */

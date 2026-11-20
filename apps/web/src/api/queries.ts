@@ -23,6 +23,7 @@ export {
   queryKeys,
   queryKeysOf,
   scopedKey,
+  takeoversQuery,
   teamPagesQuery,
   teamQuery,
   teamsQuery,

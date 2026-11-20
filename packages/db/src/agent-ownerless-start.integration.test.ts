@@ -106,6 +106,10 @@ integration("starting an ownerless agent on PostgreSQL", () => {
     await db.insert(workspaces).values({ id: ws, slug, name: slug });
     const owner = await person(ws, "owner");
     const keeper = await person(ws);
+    return { ws, owner, keeper, ...(await agentIn(ws, owner, keeper)) };
+  }
+
+  async function agentIn(ws: string, owner: Caller, keeper: Caller) {
     const agentId = randomUUID();
     await db.insert(agents).values({
       id: agentId,
@@ -136,7 +140,7 @@ integration("starting an ownerless agent on PostgreSQL", () => {
     expect(await admin(owner, agentId, keeper)).toMatchObject({
       outcome: "added",
     });
-    return { ws, owner, keeper, agentId, releaseId };
+    return { agentId, releaseId };
   }
 
   const create = (by: Caller, releaseId: string, key = randomUUID()) =>
@@ -197,6 +201,14 @@ integration("starting an ownerless agent on PostgreSQL", () => {
       .where(eq(sessions.id, sessionId));
     return row?.at !== null && row?.at !== undefined;
   }
+
+  // The agent detail's count and list read this filter.
+  const listedFor = async (ws: string, agentId: string) =>
+    (
+      await createPostgresMemberStore(db).listAwaitingTakeover(ws, 200, {
+        agentId,
+      })
+    ).map((row) => row.sessionId);
 
   test("refused only once the mark is older than the grace period", async () => {
     const w = await world();
@@ -354,10 +366,45 @@ integration("starting an ownerless agent on PostgreSQL", () => {
     });
     // Succession names an admin; the session still waits for a requester.
     expect(await awaitingTakeover(sessionId)).toBe(true);
+    expect(await listedFor(w.ws, w.agentId)).toEqual([sessionId]);
     expect(await takeOver(w.owner, sessionId)).toMatchObject({
       outcome: "taken_over",
     });
     expect(await awaitingTakeover(sessionId)).toBe(false);
+    expect(await listedFor(w.ws, w.agentId)).toEqual([]);
+  });
+
+  test("the takeover list names each session's agent and keeps one agent's", async () => {
+    const w = await world();
+    const other = await agentIn(w.ws, w.owner, w.keeper);
+    const mine = await started(w.keeper, w.releaseId);
+    const theirs = await started(w.keeper, other.releaseId);
+    expect(await disable(w.owner, w.keeper)).toMatchObject({
+      outcome: "changed",
+    });
+
+    const all = await createPostgresMemberStore(db).listAwaitingTakeover(
+      w.ws,
+      200,
+    );
+    expect(all.map((row) => [row.sessionId, row.agentId]).sort()).toEqual(
+      [
+        [mine, w.agentId],
+        [theirs, other.agentId],
+      ].sort(),
+    );
+    for (const agentId of [w.agentId, other.agentId]) {
+      expect(await listedFor(w.ws, agentId)).toEqual(
+        all
+          .filter((row) => row.agentId === agentId)
+          .map((row) => row.sessionId),
+      );
+    }
+    expect(await listedFor(w.ws, w.agentId)).toEqual([mine]);
+    expect(await listedFor(w.ws, w.agentId.toUpperCase())).toEqual([mine]);
+    expect(await listedFor(w.ws, randomUUID())).toEqual([]);
+    // Another workspace's agent id finds nothing here.
+    expect(await listedFor((await world()).ws, w.agentId)).toEqual([]);
   });
 
   test("takeover first, then succession: each recovers its own part", async () => {
@@ -367,10 +414,12 @@ integration("starting an ownerless agent on PostgreSQL", () => {
       outcome: "changed",
     });
     await markedAgo(w.agentId, "30 days");
+    expect(await listedFor(w.ws, w.agentId)).toEqual([sessionId]);
 
     expect(await takeOver(w.owner, sessionId)).toMatchObject({
       outcome: "taken_over",
     });
+    expect(await listedFor(w.ws, w.agentId)).toEqual([]);
     // Taking over a session names its requester, not an admin of the agent.
     expect(await create(w.owner, w.releaseId)).toEqual(REFUSED);
 

@@ -28,6 +28,7 @@ import { actorStillMember } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
+  agentReleases,
   apiKeys,
   memberships,
   receipts,
@@ -355,21 +356,27 @@ export function createPostgresMemberStore(db: Database): MemberStore {
     async listAwaitingTakeover(
       workspaceId: string,
       limit: number,
+      filter: { agentId?: string } = {},
     ): Promise<TakeoverRecord[]> {
       const rows = await db
         .select({
           sessionId: sessions.id,
+          agentId: agentReleases.agentId,
           departedUserId: sessions.createdByUserId,
           status: sessions.status,
           createdAt: sessions.createdAt,
           takeoverRequiredAt: sessions.takeoverRequiredAt,
         })
         .from(sessions)
+        .leftJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
         .where(
           and(
             eq(sessions.workspaceId, workspaceId),
             isNotNull(sessions.takeoverRequiredAt),
             ne(sessions.admissionState, "closed"),
+            filter.agentId === undefined
+              ? undefined
+              : eq(agentReleases.agentId, filter.agentId.toLowerCase()),
           ),
         )
         .orderBy(asc(sessions.takeoverRequiredAt), asc(sessions.id))
@@ -380,6 +387,7 @@ export function createPostgresMemberStore(db: Database): MemberStore {
           : [
               {
                 sessionId: row.sessionId,
+                agentId: row.agentId,
                 departedUserId: row.departedUserId,
                 status: row.status as SessionStatus,
                 createdAt: row.createdAt,

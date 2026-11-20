@@ -48,6 +48,7 @@ import { errorKey, useI18n } from "../i18n/i18n.tsx";
 import { SessionGitHubWork } from "./session-github-work.tsx";
 import { SessionOutputsPanel } from "./session-outputs.tsx";
 import { SessionsOverview } from "./session-overview.tsx";
+import { SessionTakeover } from "./session-takeover.tsx";
 
 export function loadError(error: unknown, onRetry: () => void) {
   if (isApiError(error, "FORBIDDEN")) {
@@ -472,6 +473,9 @@ export function SessionDetailScreen() {
           <SessionOutputsPanel session={session} onSummary={report} />
         )}
         timelineExtra={(session) => <SessionGitHubWork session={session} />}
+        notice={(session) => (
+          <SessionTakeover key={id} id={id} session={session} />
+        )}
         unavailable={unavailable}
         refusal={(error) => t(errorKey(error.code))}
       />

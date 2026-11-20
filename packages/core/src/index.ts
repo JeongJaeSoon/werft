@@ -33,6 +33,7 @@ export {
   sessionsQuery,
   sessionTurnsQuery,
   sessionUsageQuery,
+  takeoversQuery,
   teamPagesQuery,
   teamQuery,
   teamsQuery,

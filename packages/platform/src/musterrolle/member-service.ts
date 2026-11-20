@@ -1,4 +1,5 @@
 import {
+  type ListTakeoversQuery,
   type ListTakeoversResponse,
   type MemberView,
   TAKEOVER_LIST_LIMIT,
@@ -122,7 +123,10 @@ export function createMemberService(deps: {
     disableUser: access("account", true),
     enableUser: access("account", false),
 
-    async listTakeovers(caller: Caller): Promise<ListTakeoversResponse> {
+    async listTakeovers(
+      caller: Caller,
+      query: ListTakeoversQuery = {},
+    ): Promise<ListTakeoversResponse> {
       await requirePermitted(authorization, caller, "member.manage", {
         kind: "workspace",
         id: caller.ownerId,
@@ -130,10 +134,12 @@ export function createMemberService(deps: {
       const rows = await store.listAwaitingTakeover(
         caller.ownerId,
         TAKEOVER_LIST_LIMIT,
+        query.agent_id === undefined ? {} : { agentId: query.agent_id },
       );
       return {
         items: rows.map((row) => ({
           session_id: row.sessionId,
+          agent_id: row.agentId,
           departed_user_id: row.departedUserId,
           status: row.status,
           created_at: row.createdAt.toISOString(),
