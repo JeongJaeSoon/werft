@@ -205,7 +205,11 @@ describe("Git 스킬 상세의 동기화", () => {
               sync_enabled: true,
               last_check: check({
                 at: "2026-11-21T04:00:00.000Z",
-                trigger: { kind: "resume", delivery_id: null, user_id: USER_ID },
+                trigger: {
+                  kind: "resume",
+                  delivery_id: null,
+                  user_id: USER_ID,
+                },
                 commit: hex("b", 40),
                 result: "created",
                 version_id: versionId(2),
@@ -301,19 +305,22 @@ describe("승인 대기 화면", () => {
   };
 
   test("scripts/ 파일이 먼저 보이고 그 바뀐 줄이 추가·삭제로 보인다", async () => {
-    renderAt(`/settings/workspace/skills/release-notes/versions/${pending.id}`, {
-      "GET /v1/auth/me": () => json(200, me()),
-      [`GET /v1/workspace/skills/versions/${pending.id}/files`]: () =>
-        json(200, files),
-    });
+    renderAt(
+      `/settings/workspace/skills/release-notes/versions/${pending.id}`,
+      {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`GET /v1/workspace/skills/versions/${pending.id}/files`]: () =>
+          json(200, files),
+      },
+    );
     const list = await screen.findByRole("list", { name: "파일 2개" });
     const [first, second] = within(list).getAllByRole("listitem");
-    expect(
-      within(first as HTMLElement).getByRole("heading").textContent,
-    ).toBe("scripts/collect.sh");
-    expect(
-      within(second as HTMLElement).getByRole("heading").textContent,
-    ).toBe("SKILL.md");
+    expect(within(first as HTMLElement).getByRole("heading").textContent).toBe(
+      "scripts/collect.sh",
+    );
+    expect(within(second as HTMLElement).getByRole("heading").textContent).toBe(
+      "SKILL.md",
+    );
     const diff = within(first as HTMLElement).getByRole("figure");
     const added = diff.querySelector('[data-kind="added"]');
     const removed = diff.querySelector('[data-kind="removed"]');
@@ -385,10 +392,11 @@ describe("에이전트 접근 탭의 스킬", () => {
     ).toEqual([versionId(1)]);
     await user.click(within(section).getByRole("button", { name: "지정" }));
     expect(
-      await within(section).findByText("release-notes을 지정했습니다."),
+      await within(section).findByText("release-notes을(를) 지정했습니다."),
     ).toBeDefined();
-    expect(
-      api.calls.find((call) => call.method === "PUT")?.body,
-    ).toEqual({ version_id: versionId(1), mode: "optional" });
+    expect(api.calls.find((call) => call.method === "PUT")?.body).toEqual({
+      version_id: versionId(1),
+      mode: "optional",
+    });
   });
 });

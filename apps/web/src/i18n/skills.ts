@@ -99,7 +99,6 @@ export const skillsKo = {
   "skills.reviewPage.change.unchanged": "같음",
   "skills.reviewPage.executable": "실행 파일",
   "skills.reviewPage.binary": "이진 파일 · {size} · sha256 {sha}",
-  "skills.reviewPage.size": "{size}",
   "skills.reviewPage.diff": "바뀐 줄",
   "skills.reviewPage.diffTooLarge":
     "바뀐 부분이 너무 커서 줄 단위로 비교하지 못했습니다. 아래 전체 내용을 확인하세요.",
@@ -110,9 +109,9 @@ export const skillsKo = {
   "skills.reviewPage.reject": "거절",
   "skills.reviewPage.approving": "승인하는 중…",
   "skills.reviewPage.rejecting": "거절하는 중…",
-  "skills.reviewPage.approved": "{version}을 승인했습니다.",
-  "skills.reviewPage.rejected": "{version}을 거절했습니다.",
-  "skills.reviewPage.rejectTitle": "{version}을 거절할까요?",
+  "skills.reviewPage.approved": "{version}을(를) 승인했습니다.",
+  "skills.reviewPage.rejected": "{version}을(를) 거절했습니다.",
+  "skills.reviewPage.rejectTitle": "{version}을(를) 거절할까요?",
   "skills.reviewPage.rejectDescription":
     "거절한 버전은 에이전트에 지정할 수 없습니다. 이미 지정된 버전이면, 필수 지정은 세션 시작을 막고 선택 지정은 빠집니다.",
   "skills.refused.self_review":
@@ -142,7 +141,7 @@ export const skillsKo = {
   "skills.uploadDialog.tooLarge": "128 KiB보다 큽니다.",
   "skills.uploadDialog.submit": "업로드",
   "skills.uploadDialog.pending": "올리는 중…",
-  "skills.uploaded": "{name} v{version}을 올렸습니다. 승인 대기입니다.",
+  "skills.uploaded": "{name} v{version}을(를) 올렸습니다. 승인 대기입니다.",
   "skills.alreadyRegistered": "{name}에 같은 내용의 버전이 이미 있습니다.",
   "skills.githubDialog.title": "GitHub에서 추가",
   "skills.githubDialog.description":
@@ -157,7 +156,8 @@ export const skillsKo = {
     "브랜치, 태그 또는 40자 커밋. 커밋은 움직이지 않아 동기화하지 않습니다.",
   "skills.githubDialog.submit": "추가",
   "skills.githubDialog.pending": "읽는 중…",
-  "skills.githubAdded": "{name} v{version}을 가져왔습니다. 승인 대기입니다.",
+  "skills.githubAdded":
+    "{name} v{version}을(를) 가져왔습니다. 승인 대기입니다.",
   "skills.home.title": "스킬 승인 대기 {count}개",
   "skills.home.note":
     "다른 어드민이 내용을 보고 승인해야 에이전트에 지정할 수 있습니다.",
@@ -173,7 +173,7 @@ export const skillsKo = {
   "agentSkills.noVersion": "현재 버전 없음",
   "agentSkills.remove": "빼기",
   "agentSkills.removeFor": "{name} 빼기",
-  "agentSkills.removed": "{name}을 뺐습니다.",
+  "agentSkills.removed": "{name}을(를) 뺐습니다.",
   "agentSkills.add": "스킬 지정",
   "agentSkills.skill": "스킬",
   "agentSkills.version": "버전",
@@ -182,7 +182,7 @@ export const skillsKo = {
   "agentSkills.noApproved": "승인된 버전이 있는 스킬이 없습니다.",
   "agentSkills.save": "지정",
   "agentSkills.saving": "지정하는 중…",
-  "agentSkills.saved": "{name}을 지정했습니다.",
+  "agentSkills.saved": "{name}을(를) 지정했습니다.",
   "newSession.skills": "선택 스킬",
   "newSession.skillsHint": "켠 스킬만 이 세션에 들어갑니다.",
   "newSession.skillToggle": "{name} 켜기",
@@ -289,7 +289,6 @@ export const skillsEn = {
   "skills.reviewPage.change.unchanged": "Unchanged",
   "skills.reviewPage.executable": "Executable",
   "skills.reviewPage.binary": "Binary · {size} · sha256 {sha}",
-  "skills.reviewPage.size": "{size}",
   "skills.reviewPage.diff": "Changed lines",
   "skills.reviewPage.diffTooLarge":
     "The change is too large to compare line by line. Read the full content below.",
@@ -482,7 +481,6 @@ export const skillsJa = {
   "skills.reviewPage.change.unchanged": "同じ",
   "skills.reviewPage.executable": "実行ファイル",
   "skills.reviewPage.binary": "バイナリ · {size} · sha256 {sha}",
-  "skills.reviewPage.size": "{size}",
   "skills.reviewPage.diff": "変更された行",
   "skills.reviewPage.diffTooLarge":
     "変更が大きすぎて行単位で比べられませんでした。下の全体の内容を確認してください。",

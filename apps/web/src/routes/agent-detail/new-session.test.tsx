@@ -221,9 +221,9 @@ describe("이 에이전트로 새 세션", () => {
     expect(within(dialog).queryByRole("switch", { name: "lint 켜기" })).toBe(
       null,
     );
-    expect(
-      within(dialog).queryByRole("switch", { name: "deploy 켜기" }),
-    ).toBe(null);
+    expect(within(dialog).queryByRole("switch", { name: "deploy 켜기" })).toBe(
+      null,
+    );
     await user.click(toggle);
     await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
     await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
