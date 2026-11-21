@@ -346,8 +346,10 @@ function WorkspaceAttachment({ skill }: { readonly skill: Skill }) {
     (item) => item.id === attached?.version_id,
   );
   const [mode, setMode] = useState<AttachMode>(attached?.mode ?? "required");
+  // Start on what the workspace names now, so changing only the mode keeps
+  // the version; the newest one otherwise.
   const [versionId, setVersionId] = useState(
-    () => attachable(skill, mode)[0]?.id ?? "",
+    () => attached?.version_id ?? attachable(skill, mode)[0]?.id ?? "",
   );
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const refused = (text: string) => setOutcome({ kind: "error", text });

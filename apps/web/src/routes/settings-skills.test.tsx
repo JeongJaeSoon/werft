@@ -282,7 +282,7 @@ describe("Git 스킬 상세의 동기화", () => {
       "GET /v1/auth/me": () => json(200, me()),
       ...listed(
         skill({
-          versions: [version(1), version(2, { review: "pending" })],
+          versions: [version(1), version(2), version(3, { review: "pending" })],
           workspace_attachment: {
             version_id: versionId(1),
             follows: false,
@@ -303,10 +303,13 @@ describe("Git 스킬 상세의 동기화", () => {
       selector: "select",
     }) as HTMLSelectElement;
     const mode = within(section).getByLabelText("모드", { selector: "select" });
-    // The pending v2 is offered only to keep the name out.
+    // It starts on the attached v1, not the newer approved v2, so changing
+    // only the mode keeps the version.
     expect(versions.value).toBe(versionId(1));
+    // The pending v3 is offered only to keep the name out.
     await user.selectOptions(mode, "forbidden");
     expect([...versions.options].map((o) => o.value)).toEqual([
+      versionId(3),
       versionId(2),
       versionId(1),
     ]);

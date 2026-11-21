@@ -280,7 +280,9 @@ export function NewSessionButton({
           {t("agent.newSession")}
         </ReasonButton>
       </DialogTrigger>
-      <DialogContent>
+      {/* Many optional skills would push the message and the buttons off
+          a short screen; the dialog scrolls instead, as teams.tsx's does. */}
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <form onSubmit={submit} className="grid min-w-0 gap-4" noValidate>
           <DialogHeader>
             <DialogTitle>{t("agent.newSession.title")}</DialogTitle>
