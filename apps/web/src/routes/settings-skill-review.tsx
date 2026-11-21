@@ -26,7 +26,7 @@ import {
   Skeleton,
   Text,
 } from "@werft-ai/ui";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
@@ -341,6 +341,17 @@ function ReviewActions({
   const manages = useHasPermission("workspace.manage");
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [confirming, setConfirming] = useState(false);
+  // The button just used goes once the re-read shows the decision; focus
+  // moves to the one that stays, so a keyboard keeps its place.
+  const actions = useRef<HTMLDivElement>(null);
+  const [refocusOn, setRefocusOn] = useState<SkillVersion["review"] | null>(
+    null,
+  );
+  useEffect(() => {
+    if (refocusOn === null || state !== refocusOn) return;
+    actions.current?.querySelector("button")?.focus();
+    setRefocusOn(null);
+  }, [refocusOn, state]);
   const review = useSkillWrite(
     (decision: ReviewSkillVersionRequest["decision"]) =>
       unwrap(
@@ -352,6 +363,7 @@ function ReviewActions({
     {
       onDone: (_answer, decision) => {
         setConfirming(false);
+        setRefocusOn(decision);
         setOutcome({
           kind: "notice",
           text: t(
@@ -376,7 +388,7 @@ function ReviewActions({
       <OutcomeLine outcome={outcome} live />
       {/* Rejecting an approved version stays allowed: it is the recall. */}
       {manages && state !== null ? (
-        <div className="flex flex-wrap gap-2">
+        <div ref={actions} className="flex flex-wrap gap-2">
           {state === "approved" ? null : (
             <Button
               type="button"

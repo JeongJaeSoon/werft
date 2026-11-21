@@ -380,7 +380,10 @@ function UploadSkill({
         uploadFilesOf(picked)
           .then((files) => {
             const body = { name: String(form.get("name")).trim(), files };
-            if (JSON.stringify(body).length > UPLOAD_MAX_BYTES) {
+            // The limit is on the request's bytes; a non-ASCII path is more
+            // bytes than characters.
+            const bytes = new TextEncoder().encode(JSON.stringify(body)).length;
+            if (bytes > UPLOAD_MAX_BYTES) {
               setError(t("skills.uploadDialog.tooLarge"));
               return;
             }

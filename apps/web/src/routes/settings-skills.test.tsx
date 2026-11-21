@@ -596,7 +596,10 @@ describe("승인 대기 화면", () => {
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "승인" })).toBe(null),
     );
-    expect(screen.getByRole("button", { name: "거절" })).toBeDefined();
+    // The used button is gone; the keyboard lands on the one that stays.
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("거절"),
+    );
     expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({
       decision: "approved",
     });
@@ -628,6 +631,57 @@ describe("업로드 파일", () => {
       ["collect.sh", true],
       ["SKILL.md", undefined],
     ]);
+  });
+});
+
+describe("에이전트 접근 탭의 스킬 다시 읽기", () => {
+  test("고른 버전이 다시 읽은 목록에서 빠지면 보이는 버전을 보낸다", async () => {
+    let v2Review: SkillVersion["review"] = "approved";
+    const { api, services } = renderAt(`/agents/${AGENT_ID}?tab=access`, {
+      ...agentServer().routes,
+      "GET /v1/auth/me": () => json(200, me()),
+      [SKILLS]: () =>
+        json(200, {
+          items: [
+            skill({ versions: [version(1), version(2, { review: v2Review })] }),
+          ],
+        }),
+      [`GET /v1/agents/${AGENT_ID}/skills`]: () => json(200, { items: [] }),
+      [`PUT /v1/agents/${AGENT_ID}/skills/release-notes`]: () =>
+        json(200, {
+          name: "release-notes",
+          scope: "agent",
+          agent_id: AGENT_ID,
+          attachment: {
+            version_id: versionId(1),
+            follows: false,
+            mode: "optional",
+          },
+          receipt_id: RECEIPT_ID,
+        }),
+    });
+    const user = await setupUser();
+    const section = (
+      await screen.findByRole("heading", { name: "스킬" })
+    ).closest("section") as HTMLElement;
+    await user.selectOptions(
+      await within(section).findByLabelText("스킬", { selector: "select" }),
+      "release-notes",
+    );
+    const versions = within(section).getByLabelText("버전", {
+      selector: "select",
+    }) as HTMLSelectElement;
+    expect(versions.value).toBe(versionId(2));
+    v2Review = "rejected";
+    await services.queryClient.refetchQueries({ type: "active" });
+    await waitFor(() => expect(versions.options).toHaveLength(1));
+    expect(versions.value).toBe(versionId(1));
+    await user.click(within(section).getByRole("button", { name: "지정" }));
+    await within(section).findByText("release-notes을(를) 지정했습니다.");
+    expect(api.calls.find((call) => call.method === "PUT")?.body).toEqual({
+      version_id: versionId(1),
+      mode: "optional",
+    });
   });
 });
 

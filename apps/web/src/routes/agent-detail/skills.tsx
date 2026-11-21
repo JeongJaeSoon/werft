@@ -264,15 +264,20 @@ function AttachForm({
   const versions = picked ? attachable(picked, mode) : [];
   const firstOf = (skill: Skill | undefined, next: Mode) =>
     skill ? (attachable(skill, next)[0]?.id ?? "") : "";
+  // A re-read may drop the picked version (rejected, archived): what is shown
+  // and what is sent are the same valid one.
+  const chosen = versions.some((item) => item.id === versionId)
+    ? versionId
+    : (versions[0]?.id ?? "");
   return (
     <form
       className="flex flex-col gap-3"
       onSubmit={(event) => {
         event.preventDefault();
-        if (picked === undefined || versionId === "" || save.isPending) return;
+        if (picked === undefined || chosen === "" || save.isPending) return;
         save.mutate({
           name: picked.name,
-          body: { version_id: versionId, mode },
+          body: { version_id: chosen, mode },
         });
       }}
     >
@@ -305,7 +310,7 @@ function AttachForm({
         <Field>
           <FieldLabel>{t("agentSkills.version")}</FieldLabel>
           <NativeSelect
-            value={versionId}
+            value={chosen}
             disabled={picked === undefined}
             onChange={(event) => setVersionId(event.target.value)}
           >
@@ -342,7 +347,7 @@ function AttachForm({
         <Button
           type="submit"
           variant="outline"
-          disabled={picked === undefined || versionId === "" || save.isPending}
+          disabled={picked === undefined || chosen === "" || save.isPending}
         >
           {save.isPending ? t("agentSkills.saving") : t("agentSkills.save")}
         </Button>
