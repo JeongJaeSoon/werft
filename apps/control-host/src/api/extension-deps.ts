@@ -14,6 +14,6 @@ import { installedRuntimes } from "./catalog-config.ts";
 export function extensionDepsFor(db: Database): SessionExtensionsDeps {
   return {
     store: createPostgresExtensionBundleStore(db),
-    offersSkills: (kind) => installedRuntimes.offers(kind, "skills"),
+    skillCalling: (kind) => installedRuntimes.skillCalling(kind),
   };
 }

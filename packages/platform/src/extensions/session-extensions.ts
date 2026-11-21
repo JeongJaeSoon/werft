@@ -1,4 +1,5 @@
 import type { RuntimeKind } from "@werft-ai/contracts";
+import type { SkillCalling } from "@werft-ai/runtime-core";
 import type {
   ExtensionBundle,
   ExtensionBundleStore,
@@ -12,7 +13,7 @@ import {
 
 export type SessionExtensionsDeps = {
   store: Pick<ExtensionBundleStore, "find" | "listAttachments">;
-  offersSkills(runtimeKind: RuntimeKind): boolean;
+  skillCalling(runtimeKind: RuntimeKind): SkillCalling | null;
 };
 
 const refOf = (bundle: ExtensionBundle): ExtensionRef => ({
@@ -118,7 +119,7 @@ export async function resolveSessionExtensions(
   return resolveExtensions({
     scopes,
     session: { enable: enable.found, disable: disable.found },
-    runtimeOffersSkills: deps.offersSkills(input.runtimeKind),
+    skills: deps.skillCalling(input.runtimeKind),
     tools: input.tools,
   });
 }
@@ -136,7 +137,7 @@ export async function checkAgentExtensions(
   if (isResolution(scopes)) return scopes;
   return resolveExtensions({
     scopes,
-    runtimeOffersSkills: deps.offersSkills(input.runtimeKind),
+    skills: deps.skillCalling(input.runtimeKind),
     tools: input.tools,
     includeOptional: true,
   });

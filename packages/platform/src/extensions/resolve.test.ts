@@ -31,8 +31,11 @@ const entry = (mode: ExtensionMode, r: ExtensionRef): ScopeEntry => ({
   ref: r,
 });
 
+const CLAUDE_SKILLS = { tool: "Skill", names: "bundle_qualified" } as const;
+const CODEX_SKILLS = { tool: null, names: "skill_only" } as const;
+
 const base = {
-  runtimeOffersSkills: true,
+  skills: CLAUDE_SKILLS,
   tools: ["Read", "Skill"],
 } as const;
 
@@ -209,6 +212,56 @@ describe("resolveExtensions: name collisions", () => {
       "lint",
     ]);
   });
+
+  test("an engine that shows skills by their own name sees the same skill of two bundles as one name", () => {
+    const scopes = {
+      workspace: [
+        entry("required", ref("lint", "a")),
+        entry("optional", ref("docs", "b")),
+      ],
+    };
+    const created = resolveExtensions({
+      ...base,
+      skills: CODEX_SKILLS,
+      scopes,
+      session: { enable: [ref("docs", "b")], disable: [] },
+    });
+    expect(refusalOf(created)).toEqual({
+      code: "skill_name_collision",
+      name: "docs",
+      message: `"lint" and "docs" both give the engine a skill named "review"`,
+    });
+    // Activation judges the optional one too, before any session asks for it.
+    const activated = resolveExtensions({
+      ...base,
+      skills: CODEX_SKILLS,
+      scopes,
+      includeOptional: true,
+    });
+    expect(refusalOf(activated).code).toBe("skill_name_collision");
+    expect(
+      resolveExtensions({ ...base, skills: CODEX_SKILLS, scopes }).ok,
+    ).toBe(true);
+  });
+
+  test("a bundle-qualified engine name is the bundle's slug, not its registered name", () => {
+    const renamed = (name: string, digestChar: string, slug: string) => {
+      const r = ref(name, digestChar);
+      return { ...r, manifest: { ...r.manifest, slug } };
+    };
+    const result = resolveExtensions({
+      ...base,
+      scopes: {
+        workspace: [
+          entry("required", renamed("lint", "a", "shared")),
+          entry("required", renamed("docs", "b", "shared")),
+        ],
+      },
+    });
+    expect(refusalOf(result).message).toBe(
+      `"lint" and "docs" both give the engine a skill named "shared:review"`,
+    );
+  });
 });
 
 describe("resolveExtensions: what the release can run", () => {
@@ -228,10 +281,26 @@ describe("resolveExtensions: what the release can run", () => {
     });
   });
 
+  test("the tool a bundle's skills need is the one the runtime's descriptor names", () => {
+    const scopes = { agent: [entry("required", ref("lint", "a"))] };
+    const named = { tool: "UseSkill", names: "bundle_qualified" } as const;
+    const refused = resolveExtensions({ ...base, skills: named, scopes });
+    expect(refusalOf(refused).message).toContain(`"UseSkill" tool`);
+    expect(
+      resolveExtensions({ ...base, skills: named, tools: ["UseSkill"], scopes })
+        .ok,
+    ).toBe(true);
+    // An engine that takes skills without a tool needs none listed.
+    expect(
+      resolveExtensions({ ...base, skills: CODEX_SKILLS, tools: [], scopes })
+        .ok,
+    ).toBe(true);
+  });
+
   test("a bundle with skills is refused where the runtime offers none", () => {
     const result = resolveExtensions({
       ...base,
-      runtimeOffersSkills: false,
+      skills: null,
       scopes: { agent: [entry("required", ref("lint", "a"))] },
     });
     expect(refusalOf(result).code).toBe("feature_unsupported");
@@ -240,7 +309,7 @@ describe("resolveExtensions: what the release can run", () => {
   test("a bundle without skills needs no runtime feature", () => {
     const result = resolveExtensions({
       ...base,
-      runtimeOffersSkills: false,
+      skills: null,
       scopes: { agent: [entry("required", ref("empty", "a", { skills: [] }))] },
     });
     expect(result.ok).toBe(true);

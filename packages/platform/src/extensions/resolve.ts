@@ -1,7 +1,7 @@
+import type { SkillCalling } from "@werft-ai/runtime-core";
 import type { BundleManifest } from "./bundle-validator.ts";
 
 export const EXTENSION_MODES = ["required", "optional", "forbidden"] as const;
-const SKILL_TOOL = "Skill";
 
 export type ExtensionMode = (typeof EXTENSION_MODES)[number];
 
@@ -87,7 +87,8 @@ const refuse = (
 export function resolveExtensions(input: {
   scopes: Partial<Record<Exclude<ExtensionScope, "session">, ScopeEntry[]>>;
   session?: SessionSelection;
-  runtimeOffersSkills: boolean;
+  /** The runtime's descriptor entry; null when it takes no skills. */
+  skills: SkillCalling | null;
   tools: readonly string[];
   includeOptional?: boolean;
 }): ExtensionResolution {
@@ -206,33 +207,42 @@ export function resolveExtensions(input: {
     }
   }
 
-  const skillNames = new Set<string>();
+  // Keyed by the name the engine shows, which is what the model calls.
+  const shownBy = new Map<string, string>();
   for (const state of judged) {
     const skills = state.ref.manifest.skills;
-    if (skills.length > 0 && !input.runtimeOffersSkills) {
+    if (skills.length === 0) continue;
+    const calling = input.skills;
+    if (calling === null) {
       return refuse(
         "feature_unsupported",
         state.ref.name,
         `"${state.ref.name}" carries skills, which this release's runtime does not offer`,
       );
     }
-    if (skills.length > 0 && !input.tools.includes(SKILL_TOOL)) {
+    if (calling.tool !== null && !input.tools.includes(calling.tool)) {
       return refuse(
         "skill_tool_not_allowed",
         state.ref.name,
-        `"${state.ref.name}" carries skills, which the model uses only through the "${SKILL_TOOL}" tool, and this release's tools do not list it.`,
+        `"${state.ref.name}" carries skills, which the model uses only through the "${calling.tool}" tool, and this release's tools do not list it.`,
       );
     }
     for (const skill of skills) {
-      const full = `${state.ref.name}:${skill.name}`;
-      if (skillNames.has(full)) {
+      const shown =
+        calling.names === "bundle_qualified"
+          ? `${state.ref.manifest.slug}:${skill.name}`
+          : skill.name;
+      const other = shownBy.get(shown);
+      if (other !== undefined) {
         return refuse(
           "skill_name_collision",
           state.ref.name,
-          `Skill "${full}" is listed twice`,
+          other === state.ref.name
+            ? `Skill "${shown}" is listed twice`
+            : `"${other}" and "${state.ref.name}" both give the engine a skill named "${shown}"`,
         );
       }
-      skillNames.add(full);
+      shownBy.set(shown, state.ref.name);
     }
   }
 

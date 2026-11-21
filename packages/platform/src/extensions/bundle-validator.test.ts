@@ -200,14 +200,27 @@ describe("SKILL.md frontmatter", () => {
       withSkill(
         skillMd(
           "research",
-          "disable-model-invocation: true\nuser-invocable: false\n",
+          "disable-model-invocation: false\nuser-invocable: false\n",
         ),
       ),
     );
     if (!result.ok) throw new Error(JSON.stringify(result.issues));
     const skill = new TextDecoder().decode(result.bundle.files[1]?.bytes);
-    expect(skill).toContain("disable-model-invocation: true");
+    expect(skill).toContain("disable-model-invocation: false");
     expect(skill).toContain("user-invocable: false");
+  });
+
+  test("a skill neither a person nor the model may call is rejected", () => {
+    expectIssue(
+      withSkill(
+        skillMd(
+          "research",
+          "disable-model-invocation: true\nuser-invocable: false\n",
+        ),
+      ),
+      path,
+      "bad_frontmatter",
+    );
   });
 
   test.each([

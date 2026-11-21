@@ -28,6 +28,17 @@ export interface RuntimeCapabilityTable {
   permissionModes: Readonly<Record<PermissionMode, Support>>;
 }
 
+/** How a skill an engine was handed reaches its model. */
+export interface SkillCalling {
+  /** The tool the model calls a skill through; null when it needs none. */
+  tool: string | null;
+  /**
+   * The name the engine shows a skill under: `<bundle slug>:<skill>`, or the
+   * skill's own name. Two skills one engine shows under one name collide.
+   */
+  names: "bundle_qualified" | "skill_only";
+}
+
 /**
  * Plain data: the control plane reads it without importing an engine SDK.
  * `kind` is the session's wire identifier, `checkpointEngine` the one stored
@@ -42,6 +53,7 @@ export interface RuntimeDescriptor {
   engineVersion: string;
   capabilities: RuntimeCapabilityTable;
   extraFeatures: Partial<Record<FeatureKey, Support>>;
+  skillCalling: SkillCalling;
   toolEnv: "engine_inherited" | "tool_scoped";
   /**
    * Whether the runtime may be given a secret variable. `none` until its

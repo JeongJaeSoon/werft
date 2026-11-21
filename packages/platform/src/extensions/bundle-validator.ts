@@ -641,6 +641,17 @@ function canonicalSkillFile(
       ok = false;
     }
   }
+  if (
+    values.get("disable-model-invocation") === true &&
+    values.get("user-invocable") === false
+  ) {
+    report(
+      path,
+      "bad_frontmatter",
+      'With "disable-model-invocation: true" and "user-invocable: false" neither a person nor the model could call the skill.',
+    );
+    ok = false;
+  }
   for (const field of ["license", "compatibility"]) {
     const fieldValue = values.get(field);
     if (fieldValue !== undefined && typeof fieldValue !== "string") {
