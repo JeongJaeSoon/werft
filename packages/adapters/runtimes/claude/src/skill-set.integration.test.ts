@@ -136,6 +136,43 @@ describe("the start check on the pinned engine", () => {
     expect(asked).not.toContain("dataviz");
   }, 60_000);
 
+  test("a resumed session that called a skill passes the check and calls it again", async () => {
+    const { config } = await session();
+    server = startFakeAnthropicServer((request) =>
+      JSON.stringify(request.body.messages.at(-1)).includes("tool_result")
+        ? textReply("done")
+        : toolReply("Skill", { skill: "lint:fix" }),
+    );
+    const first = start(config, server.url);
+    const firstFrames = consume(first);
+    await first.ready();
+    first.send({ message: "fix it", uuid: crypto.randomUUID() });
+    const sessionId = (await firstFrames)
+      .map((frame) => frame.envelope.message.session_id)
+      .find((value): value is string => typeof value === "string");
+    if (sessionId === undefined) throw new Error("no session id");
+
+    const resumed = start(
+      {
+        ...config,
+        localTranscriptResume: true,
+        mode: "resume",
+        resume: sessionId,
+      },
+      server.url,
+    );
+    const resumedFrames = consume(resumed);
+    await resumed.ready();
+    resumed.send({ message: "fix it again", uuid: crypto.randomUUID() });
+    await resumedFrames;
+    const launched = server.requests.filter((request) =>
+      JSON.stringify(request.body.messages.at(-1)).includes(
+        "Launching skill: lint:fix",
+      ),
+    );
+    expect(launched).toHaveLength(2);
+  }, 60_000);
+
   test("a hidden skill the session did not attach fails the start, and the tool the model asked for first never runs", async () => {
     const { config, plugin, workspace } = await session();
     const target = join(workspace, "written-by-the-model.txt");
