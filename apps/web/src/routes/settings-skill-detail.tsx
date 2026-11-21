@@ -307,7 +307,7 @@ function WorkspaceAttachment({ skill }: { readonly skill: Skill }) {
       title={t("skills.workspace.title")}
       rows={
         <SettingRow
-          title={t("skills.workspace.title")}
+          title={t("skills.workspace.scope")}
           meta={
             attached === null
               ? t("skills.workspace.none")
