@@ -695,4 +695,18 @@ describe("optionalSkills", () => {
     const forbidden = entry("agent", "forbidden");
     expect(optionalSkills([forbidden, workspace])).toEqual([]);
   });
+
+  test("쓸 수 없는 에이전트 optional은 빠지고 워크스페이스의 승인 버전이 남는다", () => {
+    const workspace = entry("workspace", "optional");
+    const base = entry("agent", "optional");
+    const rejected = {
+      ...base,
+      version: { ...base.version, review: "rejected" as const },
+    };
+    const missing = { ...entry("agent", "optional"), version: null };
+    for (const agent of [rejected, missing]) {
+      expect(optionalSkills([agent, workspace])).toEqual([workspace]);
+      expect(optionalSkills([workspace, agent])).toEqual([workspace]);
+    }
+  });
 });

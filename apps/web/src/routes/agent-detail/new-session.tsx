@@ -46,6 +46,8 @@ import { errorKey, type Translate, useI18n } from "../../i18n/i18n.tsx";
 import { agentSkillsQuery, versionLabel } from "../skills-data.ts";
 
 const utf8 = new TextEncoder();
+// The create request's `extensions.enable` limit.
+const ENABLE_MAX = 32;
 
 type AgentBlock = "archived" | "paused" | "noRelease";
 type ReleaseBlock = "connection";
@@ -137,9 +139,16 @@ export function optionalSkills(items: readonly AgentSkill[]): AgentSkill[] {
   const holds = (item: AgentSkill | undefined) =>
     item?.scope === "workspace" &&
     (item.mode === "required" || item.mode === "forbidden");
+  // As the server does, an optional row no session could use (no version,
+  // or one not approved) drops out before the scopes are weighed.
+  const usable = items.filter(
+    (item) =>
+      item.mode !== "optional" ||
+      (item.version !== null && item.version.review === "approved"),
+  );
   // The list's order is not a precedence: decide per name over both scopes.
   const deciding = new Map<string, AgentSkill>();
-  for (const item of items) {
+  for (const item of usable) {
     const other = deciding.get(item.name);
     if (
       other === undefined ||
@@ -309,17 +318,25 @@ export function NewSessionButton({
               <legend className="mb-1 font-medium text-control">
                 {t("newSession.skills")}
               </legend>
-              <Text variant="sub">{t("newSession.skillsHint")}</Text>
+              <Text variant="sub">
+                {enable.length >= ENABLE_MAX
+                  ? t("newSession.skillsLimit", { max: ENABLE_MAX })
+                  : t("newSession.skillsHint")}
+              </Text>
               {offered.map((item) => {
                 const id = item.version?.id ?? "";
+                const on = enabled.includes(id);
                 return (
                   <Field key={item.name} orientation="horizontal">
                     <Switch
                       aria-label={t("newSession.skillToggle", {
                         name: item.name,
                       })}
-                      checked={enabled.includes(id)}
-                      disabled={create.isPending}
+                      checked={on}
+                      disabled={
+                        create.isPending ||
+                        (!on && enable.length >= ENABLE_MAX)
+                      }
                       onCheckedChange={(next) => {
                         choiceMoved.current = true;
                         setEnabled((now) =>

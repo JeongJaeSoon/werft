@@ -195,6 +195,8 @@ export const skillsKo = {
   "agentSkills.saved": "{name}을(를) 지정했습니다.",
   "newSession.skills": "선택 스킬",
   "newSession.skillsHint": "켠 스킬만 이 세션에 들어갑니다.",
+  "newSession.skillsLimit":
+    "한 세션에 {max}개까지 켤 수 있습니다. 다른 스킬을 켜려면 하나를 끄세요.",
   "newSession.skillToggle": "{name} 켜기",
 } as const;
 
@@ -396,6 +398,8 @@ export const skillsEn = {
   "agentSkills.saved": "Attached {name}.",
   "newSession.skills": "Optional skills",
   "newSession.skillsHint": "Only the skills you turn on go into this session.",
+  "newSession.skillsLimit":
+    "A session can turn on up to {max}. Turn one off to turn on another.",
   "newSession.skillToggle": "Turn on {name}",
 } as const satisfies Record<keyof typeof skillsKo, string>;
 
@@ -599,5 +603,7 @@ export const skillsJa = {
   "agentSkills.saved": "{name} を指定しました。",
   "newSession.skills": "任意のスキル",
   "newSession.skillsHint": "オンにしたスキルだけがこのセッションに入ります。",
+  "newSession.skillsLimit":
+    "1 つのセッションでオンにできるのは {max} 個までです。別のスキルをオンにするには 1 つをオフにしてください。",
   "newSession.skillToggle": "{name} をオン",
 } as const satisfies Record<keyof typeof skillsKo, string>;
