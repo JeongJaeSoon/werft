@@ -396,7 +396,11 @@ export function FormDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent onCloseAutoFocus={focusBack(opener)}>
+      {/* A form with many fields scrolls on a short screen, as teams.tsx's. */}
+      <DialogContent
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
+        onCloseAutoFocus={focusBack(opener)}
+      >
         <DialogForm
           pending={pending}
           title={title}
