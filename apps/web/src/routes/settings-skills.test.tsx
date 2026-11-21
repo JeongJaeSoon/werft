@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import type {
   Skill,
   SkillGitSource,
@@ -18,7 +18,8 @@ import {
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor, within } = await appHarness();
+const { act, fireEvent, renderAt, screen, waitFor, within } =
+  await appHarness();
 // After the harness: the route module pulls in the UI, which needs the DOM.
 const { refusedBeforeReading, skillRefusalText, uploadFilesOf } = await import(
   "./settings-skills.tsx"
@@ -264,43 +265,58 @@ describe("Git 스킬 상세의 동기화", () => {
   test("다시 켠 확인이 앞 확인 뒤로 밀리면 끝날 때까지 다시 읽는다", async () => {
     let git = gitSource({ sync_enabled: false });
     let readsAfterResume: number | null = null;
-    renderAt("/settings/workspace/skills/triage", {
-      "GET /v1/auth/me": () => json(200, me()),
-      [SKILLS]: () => {
-        if (readsAfterResume !== null && ++readsAfterResume >= 2)
-          git = {
-            ...git,
-            last_check: check({
-              at: "2026-11-21T04:00:00.000Z",
-              trigger: { kind: "resume", delivery_id: null, user_id: USER_ID },
-              result: "created",
-              version_id: versionId(2),
-            }),
-          };
-        return json(200, { items: [{ ...gitSkill(), git }] satisfies Skill[] });
-      },
-      // The check resuming starts waits behind a running one.
-      "PUT /v1/workspace/skills/triage/sync": () => {
-        git = { ...git, sync_enabled: true };
-        readsAfterResume = 0;
-        return json(200, { name: "triage", git, receipt_id: RECEIPT_ID });
-      },
-    });
-    const user = await setupUser();
-    const sync = (
-      await screen.findByRole("heading", { name: "GitHub 동기화" })
-    ).closest("section") as HTMLElement;
-    await user.click(
-      await within(sync).findByRole("button", { name: "다시 켬" }),
-    );
-    expect(
-      await within(sync).findByText(
-        /다시 켬 · 새 버전을 승인 대기로 만듦/,
-        {},
-        { timeout: 8000 },
-      ),
-    ).toBeDefined();
-  }, 15000);
+    // The re-read waits on an interval; fake timers keep it off the clock
+    // state other files in the same process leave behind.
+    jest.useFakeTimers();
+    try {
+      renderAt("/settings/workspace/skills/triage", {
+        "GET /v1/auth/me": () => json(200, me()),
+        [SKILLS]: () => {
+          if (readsAfterResume !== null && ++readsAfterResume >= 2)
+            git = {
+              ...git,
+              last_check: check({
+                at: "2026-11-21T04:00:00.000Z",
+                trigger: {
+                  kind: "resume",
+                  delivery_id: null,
+                  user_id: USER_ID,
+                },
+                result: "created",
+                version_id: versionId(2),
+              }),
+            };
+          return json(200, {
+            items: [{ ...gitSkill(), git }] satisfies Skill[],
+          });
+        },
+        // The check resuming starts waits behind a running one.
+        "PUT /v1/workspace/skills/triage/sync": () => {
+          git = { ...git, sync_enabled: true };
+          readsAfterResume = 0;
+          return json(200, { name: "triage", git, receipt_id: RECEIPT_ID });
+        },
+      });
+      const settle = async (until: () => boolean) => {
+        for (let step = 0; step < 100 && !until(); step++)
+          await act(async () => {
+            jest.advanceTimersByTime(50);
+          });
+      };
+      await settle(
+        () => screen.queryByRole("button", { name: "다시 켬" }) !== null,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "다시 켬" }));
+      await settle(() => readsAfterResume === 1);
+      const resumed = /다시 켬 · 새 버전을 승인 대기로 만듦/;
+      expect(screen.queryByText(resumed)).toBeNull();
+
+      await settle(() => screen.queryByText(resumed) !== null);
+      expect(screen.getByText(resumed)).toBeDefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 
   test("webhook을 받지 못하는 설치에는 그 안내가 보인다", async () => {
     renderAt("/settings/workspace/skills/triage", {

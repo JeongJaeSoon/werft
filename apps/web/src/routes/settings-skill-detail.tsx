@@ -147,14 +147,14 @@ export function SkillDetailScreen() {
       <div className="flex flex-col gap-[var(--werft-space-section)]">
         {skill.git ? (
           <SyncPanel
-            key={skill.name}
+            key={`sync:${skill.name}`}
             name={skill.name}
             git={skill.git}
             readAt={skills.dataUpdatedAt}
           />
         ) : null}
         {/* Keyed so a move to another skill starts its form afresh. */}
-        <WorkspaceAttachment key={skill.name} skill={skill} />
+        <WorkspaceAttachment key={`attachment:${skill.name}`} skill={skill} />
         <Versions skill={skill} readAt={skills.dataUpdatedAt} />
       </div>
     </Page>
