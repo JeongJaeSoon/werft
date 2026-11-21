@@ -24,6 +24,7 @@ import { preferencesEn } from "./preferences.ts";
 import { sessionListEn } from "./session-list.ts";
 import { settingsEn } from "./settings.ts";
 import { shellEn } from "./shell.ts";
+import { skillsEn } from "./skills.ts";
 import { teamsEn } from "./teams.ts";
 import { usageEn } from "./usage.ts";
 import { workspaceEn } from "./workspace.ts";
@@ -240,6 +241,7 @@ export const en: Record<MessageKey, string> = {
   ...apiKeysEn,
   ...workspaceEn,
   ...workspaceMcpEn,
+  ...skillsEn,
   ...githubEn,
   ...githubUserLinkEn,
   ...agentGitHubEn,

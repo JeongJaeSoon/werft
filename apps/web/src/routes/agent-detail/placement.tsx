@@ -6,6 +6,7 @@ export type Place =
   | "card"
   | "mcp"
   | "workspaceMcp"
+  | "skills"
   | "credentials"
   | "releases"
   | "admins";

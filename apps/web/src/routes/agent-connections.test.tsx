@@ -8,6 +8,7 @@ const MODEL = "/settings/workspace/model-connections";
 const MCP = "/settings/workspace/mcp-servers";
 const OLD = "/settings/workspace/connections";
 const INTEGRATIONS = "/settings/workspace/integrations/slack";
+const SKILLS = "/settings/workspace/skills";
 const GROUP = "에이전트 연결";
 
 const owner = { "GET /v1/auth/me": () => json(200, me()) };
@@ -32,7 +33,7 @@ describe("설정 사이드바의 에이전트 연결 그룹", () => {
     ).toBe(MCP);
     expect(
       items.getAllByRole("link").map((link) => link.getAttribute("href")),
-    ).toEqual([INTEGRATIONS, MODEL, MCP]);
+    ).toEqual([INTEGRATIONS, MODEL, MCP, SKILLS]);
     expect(
       (await sidebar())
         .getAllByRole("group")
@@ -80,7 +81,7 @@ describe("설정 사이드바의 에이전트 연결 그룹", () => {
     const items = await group();
     expect(
       items.getAllByRole("link").map((link) => link.getAttribute("href")),
-    ).toEqual([INTEGRATIONS, MCP]);
+    ).toEqual([INTEGRATIONS, MCP, SKILLS]);
     const nav = await sidebar();
     expect(nav.queryByRole("link", { name: "모델 연결" }) === null).toBe(true);
   });

@@ -34,6 +34,7 @@ export const PLACE_TAB = {
   card: "card",
   mcp: "access",
   workspaceMcp: "access",
+  skills: "access",
   credentials: "access",
   releases: "release",
   admins: "admins",

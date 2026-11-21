@@ -95,6 +95,7 @@ import {
 } from "./session-overview.tsx";
 import { loadError, useUnavailable } from "./sessions.tsx";
 import { settingsConnectionsQuery } from "./settings-entries.tsx";
+import { usePendingSkillCount } from "./skills-data.ts";
 import { duration, usageSummaryQuery } from "./usage.tsx";
 
 // GET /v1/agents' cap on `ids` (contracts AGENT_IDS_MAX); this app imports
@@ -189,6 +190,7 @@ export function HomeScreen() {
     ...agentCountsQuery(client),
     enabled: managesAgents,
   });
+  const pendingSkills = usePendingSkillCount();
   const slackActions = useQuery({
     ...agentSlackActionsQuery(client),
     enabled: managesAgents,
@@ -750,10 +752,15 @@ export function HomeScreen() {
           already on its way rather than a second one asked when it shows. */}
       <div hidden={!settled} className="contents">
         {/* A failed refetch keeps the old page, which may name fixed agents. */}
-        {slackActions.data && !slackActions.isError ? (
+        {(slackActions.data && !slackActions.isError) || pendingSkills > 0 ? (
           <SlackTodo
-            agents={slackActions.data.items}
-            more={slackActions.data.more}
+            agents={
+              slackActions.data && !slackActions.isError
+                ? slackActions.data.items
+                : []
+            }
+            more={slackActions.data?.more ?? false}
+            pendingSkills={pendingSkills}
           />
         ) : null}
         {checklistShown ? <Checklist steps={steps} /> : null}
@@ -948,13 +955,16 @@ const TODO_LIMIT = 3;
 function SlackTodo({
   agents,
   more,
+  pendingSkills,
 }: {
   readonly agents: readonly AgentListItem[];
   /** The list went on past the page these came from. */
   readonly more: boolean;
+  /** Skill versions awaiting review; 0 for anyone who does not approve. */
+  readonly pendingSkills: number;
 }) {
   const { t } = useI18n();
-  if (agents.length === 0) return null;
+  if (agents.length === 0 && pendingSkills === 0) return null;
   return (
     <Section
       className="@container min-w-0"
@@ -970,6 +980,24 @@ function SlackTodo({
       }
     >
       <RowList variant="joined">
+        {pendingSkills > 0 ? (
+          <RowListItem>
+            <RowLines>
+              <Heading level={3} className="font-medium text-control">
+                {t("skills.home.title", { count: pendingSkills })}
+              </Heading>
+              <Text variant="meta">{t("skills.home.note")}</Text>
+            </RowLines>
+            <RowAction asChild>
+              <Link
+                to="/settings/workspace/skills"
+                aria-label={t("skills.home.ctaName")}
+              >
+                {t("skills.home.cta")}
+              </Link>
+            </RowAction>
+          </RowListItem>
+        ) : null}
         {agents.slice(0, TODO_LIMIT).map((agent) => {
           const action = agent.summary?.slack_action;
           if (!action) return null;

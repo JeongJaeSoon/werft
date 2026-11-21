@@ -75,6 +75,7 @@ import { preferencesEn, preferencesJa, preferencesKo } from "./preferences.ts";
 import { sessionListEn, sessionListJa, sessionListKo } from "./session-list.ts";
 import { settingsEn, settingsJa, settingsKo } from "./settings.ts";
 import { shellEn, shellJa, shellKo } from "./shell.ts";
+import { skillsEn, skillsJa, skillsKo } from "./skills.ts";
 import { teamsEn, teamsJa, teamsKo } from "./teams.ts";
 import { usageEn, usageJa, usageKo } from "./usage.ts";
 import { workspaceEn, workspaceJa, workspaceKo } from "./workspace.ts";
@@ -342,6 +343,7 @@ describe("i18n", () => {
         apiKeysKo,
         workspaceKo,
         workspaceMcpKo,
+        skillsKo,
         githubKo,
         githubUserLinkKo,
         agentGitHubKo,
@@ -376,6 +378,7 @@ describe("i18n", () => {
         apiKeysJa,
         workspaceJa,
         workspaceMcpJa,
+        skillsJa,
         githubJa,
         githubUserLinkJa,
         agentGitHubJa,
@@ -410,6 +413,7 @@ describe("i18n", () => {
         apiKeysEn,
         workspaceEn,
         workspaceMcpEn,
+        skillsEn,
         githubEn,
         githubUserLinkEn,
         agentGitHubEn,

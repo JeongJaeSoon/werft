@@ -24,6 +24,7 @@ import { preferencesJa } from "./preferences.ts";
 import { sessionListJa } from "./session-list.ts";
 import { settingsJa } from "./settings.ts";
 import { shellJa } from "./shell.ts";
+import { skillsJa } from "./skills.ts";
 import { teamsJa } from "./teams.ts";
 import { usageJa } from "./usage.ts";
 import { workspaceJa } from "./workspace.ts";
@@ -242,6 +243,7 @@ export const ja: Record<MessageKey, string> = {
   ...apiKeysJa,
   ...workspaceJa,
   ...workspaceMcpJa,
+  ...skillsJa,
   ...githubJa,
   ...githubUserLinkJa,
   ...agentGitHubJa,

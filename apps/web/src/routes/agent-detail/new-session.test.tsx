@@ -156,6 +156,94 @@ describe("이 에이전트로 새 세션", () => {
     expect(sent[0]?.headers.get("Idempotency-Key")).toBeTruthy();
   });
 
+  test("선택 스킬만 켤 수 있고, 켠 스킬의 버전을 세션에 싣는다", async () => {
+    const server = await released();
+    const skillVersion = (name: string, n: number) => ({
+      id: `9a8b7c6d-0000-4000-8000-00000000000${n}`,
+      name,
+      version: 1,
+      digest: String(n).repeat(64),
+      source: "upload" as const,
+      git: null,
+      size_bytes: 512,
+      has_scripts: false,
+      review: "approved" as const,
+      registered_by: null,
+      registered_at: "2026-11-21T03:00:00.000Z",
+      reviewed_by: null,
+      reviewed_at: null,
+      archived_at: null,
+      current: true,
+    });
+    const { api } = renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      [`GET ${PATH}/skills`]: () =>
+        json(200, {
+          items: [
+            {
+              name: "notes",
+              scope: "workspace",
+              mode: "optional",
+              follows: false,
+              version: skillVersion("notes", 1),
+            },
+            {
+              name: "lint",
+              scope: "workspace",
+              mode: "required",
+              follows: false,
+              version: skillVersion("lint", 2),
+            },
+            // The agent narrows a workspace optional to forbidden.
+            {
+              name: "deploy",
+              scope: "workspace",
+              mode: "optional",
+              follows: false,
+              version: skillVersion("deploy", 3),
+            },
+            {
+              name: "deploy",
+              scope: "agent",
+              mode: "forbidden",
+              follows: false,
+              version: skillVersion("deploy", 3),
+            },
+          ],
+        }),
+      "POST /v1/sessions": created,
+    });
+    const { user, dialog } = await openDialog();
+    const toggle = await within(dialog).findByRole("switch", {
+      name: "notes 켜기",
+    });
+    expect(within(dialog).queryByRole("switch", { name: "lint 켜기" })).toBe(
+      null,
+    );
+    expect(
+      within(dialog).queryByRole("switch", { name: "deploy 켜기" }),
+    ).toBe(null);
+    await user.click(toggle);
+    await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    await waitFor(() =>
+      expect(
+        api.calls.filter(
+          (call) => call.method === "POST" && call.path === "/v1/sessions",
+        ),
+      ).toHaveLength(1),
+    );
+    const sent = api.calls.find(
+      (call) => call.method === "POST" && call.path === "/v1/sessions",
+    );
+    expect(sent?.body).toEqual({
+      agent_release_id: server.detail().active_release?.id,
+      message: "요약해 줘",
+      extensions: { enable: ["9a8b7c6d-0000-4000-8000-000000000001"] },
+    });
+  });
+
   test("공백뿐인 메시지는 보내지 않고 이유를 보인다", async () => {
     const server = await released();
     const { api } = renderAt(DETAIL, {

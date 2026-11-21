@@ -89,7 +89,7 @@ function lcsLines(a: string[], b: string[]): DiffLine[] {
 }
 
 const MARK = { same: " ", added: "+", removed: "-" } as const;
-const LINE = {
+export const DIFF_LINE = {
   same: "block",
   added: "block bg-[var(--werft-tone-progress-bg)]",
   removed: "block bg-[var(--werft-tone-danger-bg)] line-through",
@@ -128,7 +128,7 @@ export function RevisionDiff({
               // Lines repeat, so position is the only stable identity here.
               // biome-ignore lint/suspicious/noArrayIndexKey: see above
               key={index}
-              className={LINE[line.kind]}
+              className={DIFF_LINE[line.kind]}
               data-kind={line.kind}
             >
               <span className="inline-block w-[1.5ch]" aria-hidden="true">

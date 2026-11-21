@@ -77,6 +77,9 @@ import {
 } from "./routes/sessions.tsx";
 import { ConnectionsScreen } from "./routes/settings-connections.tsx";
 import { McpServersScreen } from "./routes/settings-mcp-servers.tsx";
+import { SkillDetailScreen } from "./routes/settings-skill-detail.tsx";
+import { SkillVersionScreen } from "./routes/settings-skill-review.tsx";
+import { SkillsScreen } from "./routes/settings-skills.tsx";
 import { TeamDetailScreen, TeamsScreen } from "./routes/teams.tsx";
 import {
   gitHubSetupSearch,
@@ -362,6 +365,24 @@ const mcpServers = createRoute({
   component: McpServersScreen,
 });
 
+const skills = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/workspace/skills",
+  component: SkillsScreen,
+});
+
+const skill = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/workspace/skills/$name",
+  component: SkillDetailScreen,
+});
+
+const skillVersion = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/workspace/skills/$name/versions/$versionId",
+  component: SkillVersionScreen,
+});
+
 // Public: an authorization server sends the browser back here with a code.
 // Behind the session guard an expired session would put that code into the
 // login page's redirect address; the screen answers the 401 itself.
@@ -496,6 +517,9 @@ const routeTree = root.addChildren([
     orgKeys,
     connections,
     mcpServers,
+    skills,
+    skill,
+    skillVersion,
     loginProviders,
     loginProvider,
     executionLimits,
