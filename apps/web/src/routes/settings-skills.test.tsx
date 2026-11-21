@@ -10,10 +10,14 @@ import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import {
   apiError,
+  GITHUB_SETTINGS,
+  githubConnection,
+  githubSettings,
   json,
   me,
   memberMe,
   RECEIPT_ID,
+  REVIEWER_CONNECTION,
   USER_ID,
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
@@ -138,6 +142,52 @@ describe("스킬 라이브러리 목록", () => {
     expect(within(rowOf(github)).getByRole("link").textContent).toBe("triage");
     expect(within(rowOf(upload)).getByRole("link").textContent).toBe(
       "release-notes",
+    );
+  });
+
+  test("GitHub App을 읽지 못하면 이유와 다시 시도가 보이고 추가가 꺼지며, 다시 읽으면 App을 고를 수 있다", async () => {
+    let reads = 0;
+    const { services } = renderAt("/settings/workspace/skills", {
+      "GET /v1/auth/me": () => json(200, me()),
+      ...listed(skill()),
+      [`GET ${GITHUB_SETTINGS}`]: () =>
+        ++reads === 1
+          ? apiError(503, "BACKEND_UNAVAILABLE", "down")
+          : json(200, {
+              ...githubSettings(),
+              connections: [
+                githubConnection(),
+                githubConnection({
+                  connection_id: REVIEWER_CONNECTION,
+                  name: "werft-second",
+                }),
+              ],
+            }),
+    });
+    // The read retries with a backoff first; the failure is what is tested.
+    const { queryClient } = services;
+    queryClient.setDefaultOptions({
+      ...queryClient.getDefaultOptions(),
+      queries: { ...queryClient.getDefaultOptions().queries, retry: false },
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "GitHub에서 추가" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    const retry = await within(dialog).findByRole("button", {
+      name: "다시 시도",
+    });
+    const submit = within(dialog).getByRole("button", { name: "추가" });
+    expect(submit.getAttribute("aria-disabled")).toBe("true");
+    expect(within(dialog).queryByLabelText("읽을 GitHub App")).toBe(null);
+
+    await user.click(retry);
+    expect(
+      await within(dialog).findByLabelText("읽을 GitHub App"),
+    ).toBeDefined();
+    expect(within(dialog).queryByRole("button", { name: "다시 시도" })).toBe(
+      null,
     );
   });
 });
@@ -598,13 +648,21 @@ describe("승인 대기 화면", () => {
 
   test("승인하면 승인을 보내고, 다시 읽은 화면에는 승인 버튼 대신 거절만 남는다", async () => {
     let current = pending;
+    let decided = false;
     const { api } = renderAt(
       `/settings/workspace/skills/release-notes/versions/${pending.id}`,
       {
         "GET /v1/auth/me": () => json(200, me()),
+        // The list re-read ends after the files re-read shows the decision,
+        // so the buttons are still off when the used one goes.
+        [SKILLS]: async () => {
+          if (decided) await new Promise((done) => setTimeout(done, 200));
+          return json(200, { items: [] });
+        },
         [`GET /v1/workspace/skills/versions/${pending.id}/files`]: () =>
           json(200, { ...files, version: current }),
         [`POST /v1/workspace/skills/versions/${pending.id}/review`]: () => {
+          decided = true;
           current = { ...pending, review: "approved", reviewed_by: USER_ID };
           return json(200, { version: current, receipt_id: RECEIPT_ID });
         },

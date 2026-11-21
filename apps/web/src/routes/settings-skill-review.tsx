@@ -347,11 +347,6 @@ function ReviewActions({
   const [refocusOn, setRefocusOn] = useState<SkillVersion["review"] | null>(
     null,
   );
-  useEffect(() => {
-    if (refocusOn === null || state !== refocusOn) return;
-    actions.current?.querySelector("button")?.focus();
-    setRefocusOn(null);
-  }, [refocusOn, state]);
   const review = useSkillWrite(
     (decision: ReviewSkillVersionRequest["decision"]) =>
       unwrap(
@@ -383,6 +378,14 @@ function ReviewActions({
       },
     },
   );
+  // The write stays pending, its buttons off, until the list re-read ends;
+  // the files re-read can show the decision before that.
+  const writing = review.isPending;
+  useEffect(() => {
+    if (refocusOn === null || state !== refocusOn || writing) return;
+    actions.current?.querySelector("button")?.focus();
+    setRefocusOn(null);
+  }, [refocusOn, state, writing]);
   return (
     <>
       <OutcomeLine outcome={outcome} live />

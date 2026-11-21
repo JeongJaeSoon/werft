@@ -495,7 +495,8 @@ function AddGitHubSkill({
   const [error, setError] = useState<string | null>(null);
   // The server picks the author App only while there is one; with several,
   // the request has to name it. Each read asks GitHub, so only while open.
-  const authors = (useGitHubSettings(open).data?.connections ?? []).filter(
+  const settings = useGitHubSettings(open);
+  const authors = (settings.data?.connections ?? []).filter(
     (connection) => connection.role === "author",
   );
   const add = useSkillWrite(
@@ -523,6 +524,8 @@ function AddGitHubSkill({
       title={t("skills.githubDialog.title")}
       description={t("skills.githubDialog.description")}
       gated
+      // Until the Apps are known it cannot tell whether one must be picked.
+      blocked={settings.data === undefined}
       error={error}
       submitLabel={t("skills.githubDialog.submit")}
       pendingLabel={t("skills.githubDialog.pending")}
@@ -540,6 +543,12 @@ function AddGitHubSkill({
         });
       }}
     >
+      {settings.isError && settings.data === undefined ? (
+        <LoadFailure
+          error={settings.error}
+          onRetry={() => void settings.refetch()}
+        />
+      ) : null}
       <Field>
         <FieldLabel>{t("skills.uploadDialog.name")}</FieldLabel>
         <Input
