@@ -312,6 +312,62 @@ describe("이 에이전트로 새 세션", () => {
     ).toBeGreaterThan(1);
   });
 
+  test("켠 뒤 다시 읽어 승인 버전이 바뀌면 켠 채로 새 버전을 싣는다", async () => {
+    const server = await released();
+    let n = 1;
+    const notes = () => ({
+      name: "notes",
+      scope: "workspace",
+      mode: "optional",
+      follows: false,
+      version: {
+        id: `9a8b7c6d-0000-4000-8000-00000000000${n}`,
+        name: "notes",
+        version: n,
+        digest: String(n).repeat(64),
+        source: "upload",
+        git: null,
+        size_bytes: 512,
+        has_scripts: false,
+        review: "approved",
+        registered_by: null,
+        registered_at: "2026-11-21T03:00:00.000Z",
+        reviewed_by: null,
+        reviewed_at: null,
+        archived_at: null,
+        current: true,
+      },
+    });
+    const { api, services } = renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      [`GET ${PATH}/skills`]: () => json(200, { items: [notes()] }),
+      "POST /v1/sessions": created,
+    });
+    const { user, dialog } = await openDialog();
+    const toggle = await within(dialog).findByRole("switch", {
+      name: "notes 켜기",
+    });
+    await user.click(toggle);
+    n = 2;
+    await services.queryClient.refetchQueries({ type: "active" });
+    await waitFor(() => expect(dialog.textContent).toContain("notes · v2"));
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    await waitFor(() =>
+      expect(
+        api.calls.find(
+          (call) => call.method === "POST" && call.path === "/v1/sessions",
+        )?.body,
+      ).toEqual({
+        agent_release_id: server.detail().active_release?.id,
+        message: "요약해 줘",
+        extensions: { enable: ["9a8b7c6d-0000-4000-8000-000000000002"] },
+      }),
+    );
+  });
+
   test("공백뿐인 메시지는 보내지 않고 이유를 보인다", async () => {
     const server = await released();
     const { api } = renderAt(DETAIL, {

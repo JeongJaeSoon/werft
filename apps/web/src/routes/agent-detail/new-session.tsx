@@ -216,6 +216,8 @@ export function NewSessionButton({
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [blank, setBlank] = useState(false);
+  // By skill name: a re-read that brings a newer approved version keeps the
+  // switch on, and its label shows the version that will be sent.
   const [enabled, setEnabled] = useState<readonly string[]>([]);
   // Read once the dialog opens; someone who may not read the agent's skills
   // starts sessions without the choice, as before.
@@ -226,8 +228,8 @@ export function NewSessionButton({
   // A failed re-read keeps the last answer, so switches already on still send.
   const offered = skills.data ?? [];
   const enable = offered
-    .flatMap((item) => (item.version ? [item.version.id] : []))
-    .filter((id) => enabled.includes(id));
+    .filter((item) => enabled.includes(item.name))
+    .flatMap((item) => (item.version ? [item.version.id] : []));
   // The server's limit is UTF-8 bytes, so a character count would not match.
   const tooLong = utf8.encode(message).length > MESSAGE_MAX_BYTES;
   // An answer that never came may still have made the session. Sending the
@@ -369,8 +371,7 @@ export function NewSessionButton({
                   : t("newSession.skillsHint")}
               </Text>
               {offered.map((item) => {
-                const id = item.version?.id ?? "";
-                const on = enabled.includes(id);
+                const on = enabled.includes(item.name);
                 const switchId = `${fieldId}-skill-${item.name}`;
                 return (
                   <Field key={item.name} orientation="horizontal">
@@ -387,8 +388,8 @@ export function NewSessionButton({
                         choiceMoved.current = true;
                         setEnabled((now) =>
                           next
-                            ? [...now, id]
-                            : now.filter((other) => other !== id),
+                            ? [...now, item.name]
+                            : now.filter((other) => other !== item.name),
                         );
                       }}
                     />
