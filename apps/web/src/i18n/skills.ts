@@ -84,6 +84,8 @@ export const skillsKo = {
     "GitHub App의 webhook secret이 저장되어 있지 않아 push webhook을 받지 못합니다. 하루 한 번 확인과 지금 확인으로만 새 버전을 찾습니다.",
   "skills.workspace.title": "워크스페이스 지정",
   "skills.workspace.scope": "모든 에이전트",
+  "skills.workspace.description":
+    "워크스페이스에 지정하면 모든 에이전트의 새 세션에 적용됩니다. 필수와 금지는 에이전트가 바꿀 수 없습니다.",
   "skills.workspace.value": "{mode} · {version}",
   "skills.workspace.follows": "현재 버전 따라감",
   "skills.workspace.none": "워크스페이스 범위에는 지정하지 않았습니다.",
@@ -286,6 +288,8 @@ export const skillsEn = {
     "The GitHub App's webhook secret is not stored, so this installation gets no push webhooks. New versions are found only by the daily check and Check now.",
   "skills.workspace.title": "Workspace attachment",
   "skills.workspace.scope": "All agents",
+  "skills.workspace.description":
+    "Attached to the workspace, it applies to new sessions of every agent. An agent cannot change a required or forbidden attachment.",
   "skills.workspace.value": "{mode} · {version}",
   "skills.workspace.follows": "follows the current version",
   "skills.workspace.none": "Not attached at the workspace scope.",
@@ -489,6 +493,8 @@ export const skillsJa = {
     "GitHub App の webhook secret が保存されていないため、push webhook を受け取れません。新しいバージョンは 1 日 1 回の確認と今すぐ確認でのみ見つけます。",
   "skills.workspace.title": "ワークスペースの指定",
   "skills.workspace.scope": "すべてのエージェント",
+  "skills.workspace.description":
+    "ワークスペースに指定すると、すべてのエージェントの新しいセッションに適用されます。必須と禁止はエージェント側で変えられません。",
   "skills.workspace.value": "{mode} · {version}",
   "skills.workspace.follows": "現在のバージョンに追従",
   "skills.workspace.none": "ワークスペースの範囲には指定していません。",

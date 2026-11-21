@@ -4,6 +4,7 @@ import { unwrap } from "@werft-ai/client";
 import type {
   CheckSkillResponse,
   Skill,
+  SkillAttachmentResponse,
   SkillGitSource,
   SkillSyncCheck,
   SkillSyncResponse,
@@ -17,11 +18,15 @@ import {
   Button,
   Code,
   EmptyState,
+  Field,
+  FieldLabel,
   GridTable,
   GridTableCell,
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
+  NativeSelect,
+  NativeSelectOption,
   Page,
   PageBreadcrumb,
   PageBreadcrumbCurrent,
@@ -41,8 +46,11 @@ import { SkillSourceIcon } from "../components/skill-source.tsx";
 import { type Translate, useI18n } from "../i18n/i18n.tsx";
 import { useSkillWrite } from "./settings-skills.tsx";
 import {
+  type AttachMode,
+  attachable,
   digestShort,
   MODE_LABEL,
+  MODES,
   REVIEW_BADGE,
   REVIEW_LABEL,
   skillsQuery,
@@ -162,15 +170,22 @@ function SyncPanel({
   const manages = useHasPermission("workspace.manage");
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const refused = (text: string) => setOutcome({ kind: "error", text });
-  // A queued check finishes after the answer; read the list again until its
-  // last check moves, for at most QUEUED_WAIT_MS.
+  // `queued` means a check is running and this one runs once more after it:
+  // the last check moves twice, the second time with the asked-for result.
+  // Read the list again until then, for at most QUEUED_WAIT_MS.
   const lastAt = git.last_check?.at ?? null;
   const [queued, setQueued] = useState<{
-    readonly from: string | null;
+    readonly seen: string | null;
+    readonly moves: number;
     readonly until: number;
   } | null>(null);
   useEffect(() => {
-    if (queued !== null && lastAt !== queued.from) setQueued(null);
+    if (queued === null || lastAt === queued.seen) return;
+    setQueued(
+      queued.moves + 1 >= 2
+        ? null
+        : { ...queued, seen: lastAt, moves: queued.moves + 1 },
+    );
   }, [queued, lastAt]);
   useQuery({
     ...skillsQuery(client),
@@ -187,7 +202,11 @@ function SyncPanel({
     {
       onDone: (answer) => {
         if (answer.outcome === "queued")
-          setQueued({ from: lastAt, until: Date.now() + QUEUED_WAIT_MS });
+          setQueued({
+            seen: lastAt,
+            moves: 0,
+            until: Date.now() + QUEUED_WAIT_MS,
+          });
         setOutcome({
           kind: "notice",
           text:
@@ -320,13 +339,66 @@ function SyncPanel({
 
 function WorkspaceAttachment({ skill }: { readonly skill: Skill }) {
   const { t } = useI18n();
+  const { client } = useWerft();
+  const manages = useHasPermission("workspace.manage");
   const attached = skill.workspace_attachment;
   const version = skill.versions.find(
     (item) => item.id === attached?.version_id,
   );
+  const [mode, setMode] = useState<AttachMode>(attached?.mode ?? "required");
+  const [versionId, setVersionId] = useState(
+    () => attachable(skill, mode)[0]?.id ?? "",
+  );
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const refused = (text: string) => setOutcome({ kind: "error", text });
+  const versions = attachable(skill, mode);
+  // The list may have moved (a new approval, an archive) since the pick.
+  const picked = versions.some((item) => item.id === versionId)
+    ? versionId
+    : (versions[0]?.id ?? "");
+  const save = useSkillWrite(
+    (body: { version_id: string; mode: AttachMode }) =>
+      unwrap(
+        client.PUT("/v1/workspace/skills/{name}/attachment", {
+          params: { path: { name: skill.name } },
+          body,
+        }),
+      ) as Promise<SkillAttachmentResponse>,
+    {
+      onDone: () =>
+        setOutcome({
+          kind: "notice",
+          text: t("agentSkills.saved", { name: skill.name }),
+        }),
+      onRefused: refused,
+    },
+  );
+  const detach = useSkillWrite(
+    () =>
+      unwrap(
+        client.DELETE("/v1/workspace/skills/{name}/attachment", {
+          params: { path: { name: skill.name } },
+        }),
+      ) as Promise<SkillAttachmentResponse>,
+    {
+      onDone: () =>
+        setOutcome({
+          kind: "notice",
+          text: t("agentSkills.removed", { name: skill.name }),
+        }),
+      onRefused: refused,
+    },
+  );
+  const busy = save.isPending || detach.isPending;
   return (
     <SettingsSection
       title={t("skills.workspace.title")}
+      description={t("skills.workspace.description")}
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (picked === "" || busy) return;
+        save.mutate({ version_id: picked, mode });
+      }}
       rows={
         <SettingRow
           title={t("skills.workspace.scope")}
@@ -342,7 +414,68 @@ function WorkspaceAttachment({ skill }: { readonly skill: Skill }) {
                       : "",
                 })
           }
+          actions={
+            manages && attached !== null ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => detach.mutate(undefined)}
+              >
+                {t("agentSkills.remove")}
+              </Button>
+            ) : undefined
+          }
         />
+      }
+      foot={
+        manages ? (
+          <div className="flex w-full min-w-0 flex-col gap-3">
+            <OutcomeLine outcome={outcome} live />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field>
+                <FieldLabel>{t("agentSkills.version")}</FieldLabel>
+                <NativeSelect
+                  value={picked}
+                  disabled={versions.length === 0}
+                  onChange={(event) => setVersionId(event.target.value)}
+                >
+                  {versions.map((item) => (
+                    <NativeSelectOption key={item.id} value={item.id}>
+                      {versionLabel(t, item)}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </Field>
+              <Field>
+                <FieldLabel>{t("agentSkills.mode")}</FieldLabel>
+                <NativeSelect
+                  value={mode}
+                  onChange={(event) =>
+                    setMode(event.target.value as AttachMode)
+                  }
+                >
+                  {MODES.map((item) => (
+                    <NativeSelectOption key={item} value={item}>
+                      {t(MODE_LABEL[item])}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </Field>
+            </div>
+            <div>
+              <Button
+                type="submit"
+                variant="outline"
+                disabled={picked === "" || busy}
+              >
+                {save.isPending
+                  ? t("agentSkills.saving")
+                  : t("agentSkills.save")}
+              </Button>
+            </div>
+          </div>
+        ) : undefined
       }
     />
   );

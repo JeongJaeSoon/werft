@@ -32,30 +32,19 @@ import { SkillSourceIcon } from "../../components/skill-source.tsx";
 import { StatusScreen } from "../../components/status-screen.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import {
+  type AttachMode,
   agentSkillsKey,
   agentSkillsQuery,
+  attachable,
   MODE_LABEL,
+  MODES,
   skillRefusalKey,
   skillsQuery,
   versionLabel,
 } from "../skills-data.ts";
 
-type Mode = PutSkillAttachmentRequest["mode"];
+type Mode = AttachMode;
 type AgentSkill = AgentSkillList["items"][number];
-
-const MODES = ["required", "optional", "forbidden"] as const satisfies Mode[];
-
-/** Versions an agent can be given: approved and not archived, newest first. */
-// `forbidden` only keeps the name out, so it takes any unarchived version;
-// the other modes take approved ones.
-const attachable = (skill: Skill, mode: Mode) =>
-  skill.versions
-    .filter(
-      (item) =>
-        item.archived_at === null &&
-        (mode === "forbidden" || item.review === "approved"),
-    )
-    .reverse();
 
 export function AgentSkills({
   agentId,

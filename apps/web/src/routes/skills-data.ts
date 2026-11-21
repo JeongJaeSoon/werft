@@ -2,6 +2,8 @@ import { queryOptions, useQuery } from "@tanstack/react-query";
 import { type ApiClient, type ApiError, unwrap } from "@werft-ai/client";
 import type {
   AgentSkillList,
+  PutSkillAttachmentRequest,
+  Skill,
   SkillList,
   SkillVersion,
   SkillVersionFiles,
@@ -90,6 +92,27 @@ export const MODE_LABEL = {
   optional: "skills.mode.optional",
   forbidden: "skills.mode.forbidden",
 } as const satisfies Record<string, MessageKey>;
+
+export type AttachMode = PutSkillAttachmentRequest["mode"];
+export const MODES = [
+  "required",
+  "optional",
+  "forbidden",
+] as const satisfies AttachMode[];
+
+/**
+ * The versions a scope can name, newest first. `forbidden` only keeps the
+ * name out, so it takes any unarchived version; the other modes take
+ * approved ones.
+ */
+export const attachable = (skill: Skill, mode: AttachMode) =>
+  skill.versions
+    .filter(
+      (item) =>
+        item.archived_at === null &&
+        (mode === "forbidden" || item.review === "approved"),
+    )
+    .reverse();
 
 export const REVIEW_LABEL = {
   pending: "skills.review.pending",

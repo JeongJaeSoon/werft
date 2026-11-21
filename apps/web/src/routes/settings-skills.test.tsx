@@ -266,6 +266,66 @@ describe("Git 스킬 상세의 동기화", () => {
     ).toBeDefined();
   });
 
+  test("관리자는 워크스페이스에 지정하고 해제한다", async () => {
+    const attachedTo = (mode: "required" | null) =>
+      json(200, {
+        name: "release-notes",
+        scope: "workspace",
+        agent_id: null,
+        attachment:
+          mode === null
+            ? null
+            : { version_id: versionId(1), follows: false, mode },
+        receipt_id: RECEIPT_ID,
+      });
+    const { api } = renderAt("/settings/workspace/skills/release-notes", {
+      "GET /v1/auth/me": () => json(200, me()),
+      ...listed(
+        skill({
+          versions: [version(1), version(2, { review: "pending" })],
+          workspace_attachment: {
+            version_id: versionId(1),
+            follows: false,
+            mode: "optional",
+          },
+        }),
+      ),
+      "PUT /v1/workspace/skills/release-notes/attachment": () =>
+        attachedTo("required"),
+      "DELETE /v1/workspace/skills/release-notes/attachment": () =>
+        attachedTo(null),
+    });
+    const user = await setupUser();
+    const section = (
+      await screen.findByRole("heading", { name: "워크스페이스 지정" })
+    ).closest("section") as HTMLElement;
+    const versions = within(section).getByLabelText("버전", {
+      selector: "select",
+    }) as HTMLSelectElement;
+    const mode = within(section).getByLabelText("모드", { selector: "select" });
+    // The pending v2 is offered only to keep the name out.
+    expect(versions.value).toBe(versionId(1));
+    await user.selectOptions(mode, "forbidden");
+    expect([...versions.options].map((o) => o.value)).toEqual([
+      versionId(2),
+      versionId(1),
+    ]);
+    await user.selectOptions(mode, "required");
+    await user.click(within(section).getByRole("button", { name: "지정" }));
+    expect(
+      await within(section).findByText("release-notes을(를) 지정했습니다."),
+    ).toBeDefined();
+    await user.click(within(section).getByRole("button", { name: "빼기" }));
+    expect(
+      await within(section).findByText("release-notes을(를) 뺐습니다."),
+    ).toBeDefined();
+    const writes = api.calls.filter((call) => call.method !== "GET");
+    expect(writes.map((call) => [call.method, call.body])).toEqual([
+      ["PUT", { version_id: versionId(1), mode: "required" }],
+      ["DELETE", null],
+    ]);
+  });
+
   test("webhook을 받는 설치에는 그 안내가 없다", async () => {
     renderAt("/settings/workspace/skills/triage", {
       "GET /v1/auth/me": () => json(200, me()),
