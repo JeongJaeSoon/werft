@@ -321,6 +321,9 @@ function UploadSkill({
   const { t } = useI18n();
   const { client } = useWerft();
   const [error, setError] = useState<string | null>(null);
+  // Reading the files comes before the request; the dialog stays busy
+  // through both so it can be neither closed nor sent twice meanwhile.
+  const [reading, setReading] = useState(false);
   const upload = useSkillWrite(
     (body: UploadBody) =>
       unwrap(
@@ -342,7 +345,7 @@ function UploadSkill({
         setError(null);
         onOpenChange(next);
       }}
-      pending={upload.isPending}
+      pending={reading || upload.isPending}
       title={t("skills.uploadDialog.title")}
       description={t("skills.uploadDialog.description")}
       gated
@@ -360,14 +363,18 @@ function UploadSkill({
           setError(t("skills.uploadDialog.noFiles"));
           return;
         }
-        void uploadFilesOf(picked).then((files) => {
-          const body = { name: String(form.get("name")).trim(), files };
-          if (JSON.stringify(body).length > UPLOAD_MAX_BYTES) {
-            setError(t("skills.uploadDialog.tooLarge"));
-            return;
-          }
-          upload.mutate(body);
-        });
+        setReading(true);
+        uploadFilesOf(picked)
+          .then((files) => {
+            const body = { name: String(form.get("name")).trim(), files };
+            if (JSON.stringify(body).length > UPLOAD_MAX_BYTES) {
+              setError(t("skills.uploadDialog.tooLarge"));
+              return;
+            }
+            upload.mutate(body);
+          })
+          .catch(() => setError(t("skills.uploadDialog.readFailed")))
+          .finally(() => setReading(false));
       }}
     >
       <Field>
