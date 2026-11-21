@@ -125,6 +125,7 @@ export const skillsKo = {
   "skills.refused.source_mismatch":
     "이 스킬은 출처가 다릅니다. 출처를 바꾸려면 다른 이름으로 등록하세요.",
   "skills.refused.skill_invalid": "스킬 내용이 검사를 지나지 못했습니다.",
+  "skills.refused.moreIssues": "외 {count}개",
   "skills.refused.ref_not_found": "저장소에서 그 ref를 찾지 못했습니다.",
   "skills.refused.connection_required":
     "작성 App이 여럿이라 읽을 App을 골라야 합니다.",
@@ -150,6 +151,7 @@ export const skillsKo = {
     "디렉터리를 고르면 그 아래 파일을 모두 올립니다. 디렉터리 이름은 경로에서 뺍니다. 첫 줄이 #!인 파일은 실행 파일로 올립니다.",
   "skills.uploadDialog.noFiles": "디렉터리를 고르세요.",
   "skills.uploadDialog.tooLarge": "128 KiB보다 큽니다.",
+  "skills.uploadDialog.tooMany": "파일은 {max}개까지 올릴 수 있습니다.",
   "skills.uploadDialog.readFailed":
     "고른 파일을 읽지 못했습니다. 디렉터리를 다시 골라 주세요.",
   "skills.uploadDialog.submit": "업로드",
@@ -338,6 +340,7 @@ export const skillsEn = {
   "skills.refused.source_mismatch":
     "This skill has another source. To change the source, register it under another name.",
   "skills.refused.skill_invalid": "The skill did not pass the checks.",
+  "skills.refused.moreIssues": "and {count} more",
   "skills.refused.ref_not_found": "The ref was not found in the repository.",
   "skills.refused.connection_required":
     "There are several author Apps; choose the one to read with.",
@@ -364,6 +367,7 @@ export const skillsEn = {
     "Every file under the directory you pick is uploaded, without the directory's own name. A file whose first line starts with #! is uploaded as executable.",
   "skills.uploadDialog.noFiles": "Pick a directory.",
   "skills.uploadDialog.tooLarge": "It is larger than 128 KiB.",
+  "skills.uploadDialog.tooMany": "Up to {max} files can be uploaded.",
   "skills.uploadDialog.readFailed":
     "The chosen files could not be read. Choose the directory again.",
   "skills.uploadDialog.submit": "Upload",
@@ -550,6 +554,7 @@ export const skillsJa = {
   "skills.refused.source_mismatch":
     "このスキルは出所が異なります。出所を変えるには別の名前で登録してください。",
   "skills.refused.skill_invalid": "スキルの内容が検査を通りませんでした。",
+  "skills.refused.moreIssues": "ほか {count} 件",
   "skills.refused.ref_not_found":
     "リポジトリにその ref が見つかりませんでした。",
   "skills.refused.connection_required":
@@ -578,6 +583,8 @@ export const skillsJa = {
     "選んだディレクトリ以下のファイルをすべてアップロードします。ディレクトリ名はパスから除きます。1 行目が #! のファイルは実行ファイルとしてアップロードします。",
   "skills.uploadDialog.noFiles": "ディレクトリを選んでください。",
   "skills.uploadDialog.tooLarge": "128 KiB を超えています。",
+  "skills.uploadDialog.tooMany":
+    "アップロードできるファイルは {max} 個までです。",
   "skills.uploadDialog.readFailed":
     "選んだファイルを読めませんでした。ディレクトリを選び直してください。",
   "skills.uploadDialog.submit": "アップロード",

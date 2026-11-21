@@ -53,6 +53,8 @@ import { useGitHubSettings } from "./workspace-github-access.tsx";
 // The upload route's cap (SKILL_UPLOAD_BODY_MAX_BYTES); the server refuses
 // past it anyway, this only says so before the files are sent.
 const UPLOAD_MAX_BYTES = 128 * 1024;
+// contracts' SKILL_UPLOAD_FILES_MAX; apps/web takes only types from there.
+const UPLOAD_FILES_MAX = 255;
 
 type UploadFile = {
   path: string;
@@ -273,7 +275,39 @@ export function skillRefusalText(
   role: string | undefined,
 ): string {
   const known = skillRefusalKey(error);
-  return known ? t(known) : refusalText(t, error, "workspace.manage", role);
+  if (!known) return refusalText(t, error, "workspace.manage", role);
+  // `skill_invalid` names each file and check that failed.
+  const issues = issuesOf(error);
+  if (issues.length === 0) return t(known);
+  const shown = issues
+    .slice(0, ISSUES_SHOWN)
+    .map((issue) => `${issue.path || issue.code}: ${issue.message}`)
+    .join(" · ");
+  const more = issues.length - ISSUES_SHOWN;
+  return [
+    t(known),
+    shown,
+    more > 0 ? t("skills.refused.moreIssues", { count: more }) : "",
+  ]
+    .filter((part) => part !== "")
+    .join(" ");
+}
+
+const ISSUES_SHOWN = 5;
+
+type SkillIssue = { path: string; code: string; message: string };
+
+function issuesOf(error: ApiError): SkillIssue[] {
+  const issues = (error.details as { issues?: unknown } | null)?.issues;
+  if (!Array.isArray(issues)) return [];
+  return issues.filter((issue: unknown): issue is SkillIssue => {
+    const fields = issue as Partial<Record<keyof SkillIssue, unknown>> | null;
+    return (
+      typeof fields?.path === "string" &&
+      typeof fields.code === "string" &&
+      typeof fields.message === "string"
+    );
+  });
 }
 
 function registeredText(t: Translate, answer: RegisterSkillResponse): string {
@@ -298,6 +332,19 @@ function base64Of(bytes: Uint8Array): string {
 }
 
 /** The picked directory's files, their paths without the directory's own name. */
+/**
+ * What is refused before any file is read, so a huge directory is not held in
+ * memory first. base64 makes every byte 4/3, so files past 3/4 of the limit
+ * cannot fit however they encode; the exact body is measured after reading.
+ */
+export function refusedBeforeReading(
+  files: readonly File[],
+): "tooMany" | "tooLarge" | null {
+  if (files.length > UPLOAD_FILES_MAX) return "tooMany";
+  const raw = files.reduce((sum, file) => sum + file.size, 0);
+  return raw > (UPLOAD_MAX_BYTES * 3) / 4 ? "tooLarge" : null;
+}
+
 export async function uploadFilesOf(
   files: readonly File[],
 ): Promise<UploadFile[]> {
@@ -374,6 +421,15 @@ function UploadSkill({
         );
         if (picked.length === 0) {
           setError(t("skills.uploadDialog.noFiles"));
+          return;
+        }
+        const early = refusedBeforeReading(picked);
+        if (early !== null) {
+          setError(
+            early === "tooMany"
+              ? t("skills.uploadDialog.tooMany", { max: UPLOAD_FILES_MAX })
+              : t("skills.uploadDialog.tooLarge"),
+          );
           return;
         }
         setReading(true);

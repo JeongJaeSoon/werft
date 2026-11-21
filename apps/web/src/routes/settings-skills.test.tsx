@@ -20,7 +20,11 @@ import { appHarness } from "../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
 // After the harness: the route module pulls in the UI, which needs the DOM.
-const { uploadFilesOf } = await import("./settings-skills.tsx");
+const { refusedBeforeReading, skillRefusalText, uploadFilesOf } = await import(
+  "./settings-skills.tsx"
+);
+const { translate } = await import("../i18n/i18n.tsx");
+const { ApiError } = await import("@werft-ai/client");
 
 const SKILLS = "GET /v1/workspace/skills";
 const AT = "2026-11-21T03:00:00.000Z";
@@ -618,6 +622,36 @@ describe("승인 대기 화면", () => {
       }),
     ).toBeDefined();
     expect(screen.queryByRole("link", { name: "triage" })).toBe(null);
+  });
+});
+
+describe("업로드 거절", () => {
+  test("검사에 걸린 파일과 이유를 다섯 개까지 보이고 나머지는 개수로 말한다", () => {
+    const issues = Array.from({ length: 7 }, (_, n) => ({
+      path: `scripts/run-${n}.sh`,
+      code: "path_invalid",
+      message: `bad ${n}`,
+    }));
+    const text = skillRefusalText(
+      (key, vars) => translate("ko", key, vars),
+      new ApiError(400, "BAD_REQUEST", "invalid", {
+        details: { reason_code: "skill_invalid", issues },
+      }),
+      "owner",
+    );
+    expect(text).toBe(
+      "스킬 내용이 검사를 지나지 못했습니다. scripts/run-0.sh: bad 0 · scripts/run-1.sh: bad 1 · scripts/run-2.sh: bad 2 · scripts/run-3.sh: bad 3 · scripts/run-4.sh: bad 4 외 2개",
+    );
+  });
+
+  test("파일 수나 크기가 넘으면 읽기 전에 거절한다", () => {
+    const small = new File(["x"], "SKILL.md");
+    expect(refusedBeforeReading([small])).toBe(null);
+    const many = Array.from({ length: 256 }, () => small);
+    expect(refusedBeforeReading(many)).toBe("tooMany");
+    expect(
+      refusedBeforeReading([new File([new Uint8Array(100 * 1024)], "big")]),
+    ).toBe("tooLarge");
   });
 });
 
