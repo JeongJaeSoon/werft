@@ -139,7 +139,7 @@ describe("the start check on the pinned engine", () => {
   test("a resumed session that called a skill passes the check and calls it again", async () => {
     const { config } = await session();
     server = startFakeAnthropicServer((request) =>
-      JSON.stringify(request.body.messages.at(-1)).includes("tool_result")
+      JSON.stringify(request.body.messages?.at(-1)).includes("tool_result")
         ? textReply("done")
         : toolReply("Skill", { skill: "lint:fix" }),
     );
@@ -166,7 +166,7 @@ describe("the start check on the pinned engine", () => {
     resumed.send({ message: "fix it again", uuid: crypto.randomUUID() });
     await resumedFrames;
     const launched = server.requests.filter((request) =>
-      JSON.stringify(request.body.messages.at(-1)).includes(
+      JSON.stringify(request.body.messages?.at(-1)).includes(
         "Launching skill: lint:fix",
       ),
     );
