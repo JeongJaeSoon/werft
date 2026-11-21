@@ -246,7 +246,15 @@ function AttachForm({
     onError: onRefused,
     onSettled: onSaved,
   });
-  if (!library.isSuccess) return null;
+  // A failed re-read keeps the form on the last answer.
+  if (library.data === undefined) {
+    return library.isError && !isApiError(library.error, "FORBIDDEN") ? (
+      <LoadFailure
+        error={library.error}
+        onRetry={() => void library.refetch()}
+      />
+    ) : null;
+  }
   const choices = library.data.items.filter(
     (skill) => attachable(skill, "forbidden").length > 0,
   );

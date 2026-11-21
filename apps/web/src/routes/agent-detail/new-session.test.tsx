@@ -245,6 +245,69 @@ describe("이 에이전트로 새 세션", () => {
     });
   });
 
+  test("켠 뒤 스킬 목록을 다시 읽지 못해도 켠 스킬을 싣는다", async () => {
+    const server = await released();
+    let failing = false;
+    const { api, services } = renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      [`GET ${PATH}/skills`]: () =>
+        failing
+          ? apiError(500, "INTERNAL", "boom")
+          : json(200, {
+              items: [
+                {
+                  name: "notes",
+                  scope: "workspace",
+                  mode: "optional",
+                  follows: false,
+                  version: {
+                    id: "9a8b7c6d-0000-4000-8000-000000000001",
+                    name: "notes",
+                    version: 1,
+                    digest: "1".repeat(64),
+                    source: "upload",
+                    git: null,
+                    size_bytes: 512,
+                    has_scripts: false,
+                    review: "approved",
+                    registered_by: null,
+                    registered_at: "2026-11-21T03:00:00.000Z",
+                    reviewed_by: null,
+                    reviewed_at: null,
+                    archived_at: null,
+                    current: true,
+                  },
+                },
+              ],
+            }),
+      "POST /v1/sessions": created,
+    });
+    services.queryClient.setDefaultOptions({ queries: { retry: false } });
+    const { user, dialog } = await openDialog();
+    await user.click(
+      await within(dialog).findByRole("switch", { name: "notes 켜기" }),
+    );
+    failing = true;
+    await services.queryClient.refetchQueries({ type: "active" });
+    await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    await waitFor(() =>
+      expect(
+        api.calls.find(
+          (call) => call.method === "POST" && call.path === "/v1/sessions",
+        )?.body,
+      ).toEqual({
+        agent_release_id: server.detail().active_release?.id,
+        message: "요약해 줘",
+        extensions: { enable: ["9a8b7c6d-0000-4000-8000-000000000001"] },
+      }),
+    );
+    expect(
+      api.calls.filter((call) => call.path === `${PATH}/skills`).length,
+    ).toBeGreaterThan(1);
+  });
+
   test("공백뿐인 메시지는 보내지 않고 이유를 보인다", async () => {
     const server = await released();
     const { api } = renderAt(DETAIL, {

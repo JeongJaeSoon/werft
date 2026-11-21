@@ -9,6 +9,7 @@ import type {
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import {
+  apiError,
   json,
   me,
   memberMe,
@@ -18,6 +19,8 @@ import {
 import { appHarness } from "../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
+// After the harness: the route module pulls in the UI, which needs the DOM.
+const { uploadFilesOf } = await import("./settings-skills.tsx");
 
 const SKILLS = "GET /v1/workspace/skills";
 const AT = "2026-11-21T03:00:00.000Z";
@@ -267,31 +270,43 @@ describe("Git 스킬 상세의 동기화", () => {
   });
 
   test("관리자는 워크스페이스에 지정하고 해제한다", async () => {
-    const attachedTo = (mode: "required" | null) =>
-      json(200, {
+    // The list answers what the writes left, so a missed refetch shows.
+    let attachment: Skill["workspace_attachment"] = {
+      version_id: versionId(1),
+      follows: false,
+      mode: "optional",
+    };
+    const attachedTo = (next: Skill["workspace_attachment"]) => {
+      attachment = next;
+      return json(200, {
         name: "release-notes",
         scope: "workspace",
         agent_id: null,
-        attachment:
-          mode === null
-            ? null
-            : { version_id: versionId(1), follows: false, mode },
+        attachment,
         receipt_id: RECEIPT_ID,
       });
+    };
     const { api } = renderAt("/settings/workspace/skills/release-notes", {
       "GET /v1/auth/me": () => json(200, me()),
-      ...listed(
-        skill({
-          versions: [version(1), version(2), version(3, { review: "pending" })],
-          workspace_attachment: {
-            version_id: versionId(1),
-            follows: false,
-            mode: "optional",
-          },
+      [SKILLS]: () =>
+        json(200, {
+          items: [
+            skill({
+              versions: [
+                version(1),
+                version(2),
+                version(3, { review: "pending" }),
+              ],
+              workspace_attachment: attachment,
+            }),
+          ],
         }),
-      ),
       "PUT /v1/workspace/skills/release-notes/attachment": () =>
-        attachedTo("required"),
+        attachedTo({
+          version_id: versionId(1),
+          follows: false,
+          mode: "required",
+        }),
       "DELETE /v1/workspace/skills/release-notes/attachment": () =>
         attachedTo(null),
     });
@@ -318,10 +333,17 @@ describe("Git 스킬 상세의 동기화", () => {
     expect(
       await within(section).findByText("release-notes을(를) 지정했습니다."),
     ).toBeDefined();
+    expect(await within(section).findByText(/^필수 · v1/)).toBeDefined();
     await user.click(within(section).getByRole("button", { name: "빼기" }));
     expect(
       await within(section).findByText("release-notes을(를) 뺐습니다."),
     ).toBeDefined();
+    expect(
+      await within(section).findByText(
+        "워크스페이스 범위에는 지정하지 않았습니다.",
+      ),
+    ).toBeDefined();
+    expect(within(section).queryByRole("button", { name: "빼기" })).toBe(null);
     const writes = api.calls.filter((call) => call.method !== "GET");
     expect(writes.map((call) => [call.method, call.body])).toEqual([
       ["PUT", { version_id: versionId(1), mode: "required" }],
@@ -430,7 +452,47 @@ describe("승인 대기 화면", () => {
   });
 });
 
+describe("업로드 파일", () => {
+  test("첫 줄이 #!인 파일만 실행 파일로 올린다", async () => {
+    const files = await uploadFilesOf([
+      new File(["#!/bin/sh\necho hi\n"], "collect.sh"),
+      new File(["# Notes\n"], "SKILL.md"),
+    ]);
+    expect(files.map((file) => [file.path, file.executable])).toEqual([
+      ["collect.sh", true],
+      ["SKILL.md", undefined],
+    ]);
+  });
+});
+
 describe("에이전트 접근 탭의 스킬", () => {
+  test("라이브러리를 읽지 못하면 이유와 다시 시도가 보이고, 다시 읽으면 지정 폼이 나온다", async () => {
+    let failing = true;
+    renderAt(`/agents/${AGENT_ID}?tab=access`, {
+      ...agentServer().routes,
+      "GET /v1/auth/me": () => json(200, me()),
+      [SKILLS]: () =>
+        failing
+          ? apiError(500, "INTERNAL", "boom")
+          : json(200, { items: [skill()] }),
+      [`GET /v1/agents/${AGENT_ID}/skills`]: () => json(200, { items: [] }),
+    });
+    const user = await setupUser();
+    const section = (
+      await screen.findByRole("heading", { name: "스킬" })
+    ).closest("section") as HTMLElement;
+    const retry = await within(section).findByRole(
+      "button",
+      { name: "다시 시도" },
+      { timeout: 15000 },
+    );
+    failing = false;
+    await user.click(retry);
+    expect(
+      await within(section).findByLabelText("스킬", { selector: "select" }),
+    ).toBeDefined();
+  }, 20000);
+
   test("워크스페이스가 준 스킬은 바꿀 수 없고, 승인된 버전을 골라 이 에이전트에 지정한다", async () => {
     const { api } = renderAt(`/agents/${AGENT_ID}?tab=access`, {
       ...agentServer().routes,

@@ -54,7 +54,11 @@ import { useGitHubSettings } from "./workspace-github-access.tsx";
 // past it anyway, this only says so before the files are sent.
 const UPLOAD_MAX_BYTES = 128 * 1024;
 
-type UploadFile = { path: string; content_base64: string };
+type UploadFile = {
+  path: string;
+  content_base64: string;
+  executable?: true;
+};
 type UploadBody = { name: string; files: UploadFile[] };
 type GitHubBody = {
   connection_id?: string;
@@ -294,7 +298,9 @@ function base64Of(bytes: Uint8Array): string {
 }
 
 /** The picked directory's files, their paths without the directory's own name. */
-async function uploadFilesOf(files: readonly File[]): Promise<UploadFile[]> {
+export async function uploadFilesOf(
+  files: readonly File[],
+): Promise<UploadFile[]> {
   return Promise.all(
     files.map(async (file) => {
       const relative = file.webkitRelativePath || file.name;
@@ -302,7 +308,14 @@ async function uploadFilesOf(files: readonly File[]): Promise<UploadFile[]> {
         ? relative.slice(relative.indexOf("/") + 1)
         : relative;
       const bytes = new Uint8Array(await file.arrayBuffer());
-      return { path, content_base64: base64Of(bytes) };
+      // A browser cannot read a file's mode; a `#!` first line is taken as
+      // meant to run, and the review screen shows the bit to the approver.
+      const shebang = bytes[0] === 0x23 && bytes[1] === 0x21;
+      return {
+        path,
+        content_base64: base64Of(bytes),
+        ...(shebang ? { executable: true } : {}),
+      };
     }),
   );
 }

@@ -193,7 +193,8 @@ export function NewSessionButton({
     ...agentSkillsQuery(client, agentId, open),
     select: (list) => optionalSkills(list.items),
   });
-  const offered = skills.isSuccess ? skills.data : [];
+  // A failed re-read keeps the last answer, so switches already on still send.
+  const offered = skills.data ?? [];
   const enable = offered
     .flatMap((item) => (item.version ? [item.version.id] : []))
     .filter((id) => enabled.includes(id));

@@ -147,7 +147,7 @@ export const skillsKo = {
     "영어 소문자·숫자·대시. SKILL.md frontmatter의 name과 같아야 합니다.",
   "skills.uploadDialog.files": "스킬 디렉터리",
   "skills.uploadDialog.filesHint":
-    "디렉터리를 고르면 그 아래 파일을 모두 올립니다. 디렉터리 이름은 경로에서 뺍니다.",
+    "디렉터리를 고르면 그 아래 파일을 모두 올립니다. 디렉터리 이름은 경로에서 뺍니다. 첫 줄이 #!인 파일은 실행 파일로 올립니다.",
   "skills.uploadDialog.noFiles": "디렉터리를 고르세요.",
   "skills.uploadDialog.tooLarge": "128 KiB보다 큽니다.",
   "skills.uploadDialog.readFailed":
@@ -355,7 +355,7 @@ export const skillsEn = {
     "Lowercase letters, digits and dashes; the same as the name in the SKILL.md frontmatter.",
   "skills.uploadDialog.files": "Skill directory",
   "skills.uploadDialog.filesHint":
-    "Every file under the directory you pick is uploaded, without the directory's own name.",
+    "Every file under the directory you pick is uploaded, without the directory's own name. A file whose first line starts with #! is uploaded as executable.",
   "skills.uploadDialog.noFiles": "Pick a directory.",
   "skills.uploadDialog.tooLarge": "It is larger than 128 KiB.",
   "skills.uploadDialog.readFailed":
@@ -563,7 +563,7 @@ export const skillsJa = {
     "英小文字・数字・ダッシュ。SKILL.md の frontmatter の name と同じにします。",
   "skills.uploadDialog.files": "スキルのディレクトリ",
   "skills.uploadDialog.filesHint":
-    "選んだディレクトリ以下のファイルをすべてアップロードします。ディレクトリ名はパスから除きます。",
+    "選んだディレクトリ以下のファイルをすべてアップロードします。ディレクトリ名はパスから除きます。1 行目が #! のファイルは実行ファイルとしてアップロードします。",
   "skills.uploadDialog.noFiles": "ディレクトリを選んでください。",
   "skills.uploadDialog.tooLarge": "128 KiB を超えています。",
   "skills.uploadDialog.readFailed":
