@@ -90,7 +90,8 @@ function extensionDeps(
         return attachments;
       },
     },
-    offersSkills: () => skills,
+    skillCalling: () =>
+      skills ? { tool: "Skill", names: "bundle_qualified" as const } : null,
   };
 }
 

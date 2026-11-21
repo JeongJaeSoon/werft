@@ -27,6 +27,8 @@ export const CLAUDE_DESCRIPTOR: RuntimeDescriptor = {
   },
   // Spelled out: the platform runs no user hooks through Claude's own settings yet.
   extraFeatures: { subagents: "native", user_hooks: "none" },
+  // One local plugin per bundle, named by its slug.
+  skillCalling: { tool: "Skill", names: "bundle_qualified" },
   toolEnv: "engine_inherited",
   secretEnv: "none",
   instructionFiles: ["AGENTS.md", "CLAUDE.md"],

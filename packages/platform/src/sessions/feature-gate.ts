@@ -4,6 +4,7 @@ import {
   featureSupport,
   type RuntimeDescriptor,
   runtimeRequirementsOf,
+  type SkillCalling,
   unmetFeatures,
 } from "@werft-ai/runtime-core";
 
@@ -36,6 +37,12 @@ export class RuntimeFeatureGate {
         feature,
       ) !== "none"
     );
+  }
+
+  /** How a runtime of `kind` hands a skill to its model; null when it takes none. */
+  skillCalling(kind: RuntimeKind): SkillCalling | null {
+    if (!this.offers(kind, "skills")) return null;
+    return this.descriptors.get(kind)?.skillCalling ?? null;
   }
 
   /** Why a runtime of `kind` cannot run these settings; null when it can. */

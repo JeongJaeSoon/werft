@@ -111,6 +111,9 @@ const ENGINE_LANGUAGE_NAMES = {
 const ADMISSION_GUARD_REFUSED =
   "The platform could not record that this tool is starting, so it was not run. This is not a user decision.";
 
+const SKILL_SET_UNCONFIRMED =
+  "The engine's skills did not match the session's, so no tool runs in it. This is not a user decision.";
+
 /** The SDK driver `ClaudeAgentRuntime` wraps. */
 export class ClaudeSdkRuntime {
   constructor(
@@ -152,6 +155,9 @@ export class ClaudeSdkRuntime {
           launched,
           options.settings as Record<string, unknown>,
         ),
+        // Leaves the engine's bundled skills out of the model's listing and
+        // has its Skill tool refuse them.
+        ...(expectedSkills === undefined ? {} : { skills: expectedSkills.all }),
       },
     });
     return new ClaudeSdkRun(
@@ -352,6 +358,9 @@ export function buildSdkOptions(
                   },
                 };
               };
+              if (!(await ledger.startConfirmed)) {
+                return deny(SKILL_SET_UNCONFIRMED, "hook_deny");
+              }
               // The allowlist canUseTool enforces has to hold here too, in
               // every mode: a session rule lets the engine pass a call
               // without asking canUseTool at all, and a hook deny binds

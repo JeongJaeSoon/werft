@@ -45,6 +45,8 @@ export const CODEX_DESCRIPTOR: RuntimeDescriptor = {
     },
   },
   extraFeatures: { subagents: "none", user_hooks: "none" },
+  // Codex names a skill in the prompt; no tool stands between.
+  skillCalling: { tool: null, names: "skill_only" },
   toolEnv: "tool_scoped",
   secretEnv: "none",
   instructionFiles: ["AGENTS.md"],

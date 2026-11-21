@@ -19,7 +19,11 @@ import type {
 import type { AgentFrame, DriverRun, NativeSdkMessage } from "./driver.ts";
 import { frameFromNativeMessage, isEngineInit } from "./mapper.ts";
 import type { MirrorProgress } from "./mirror-progress.ts";
-import { missingSkills } from "./plugin-skills.ts";
+import {
+  type PluginSkills,
+  SkillSetMismatchError,
+  skillSetDifference,
+} from "./plugin-skills.ts";
 import type { ResumedHistory } from "./resumed-history.ts";
 import type { TurnLedger } from "./turn-ledger.ts";
 
@@ -154,8 +158,21 @@ export class ClaudeSdkRun implements DriverRun {
     private readonly toolDescriptions: () => ReadonlyMap<string, string> = () =>
       new Map(),
     private readonly mirror?: MirrorProgress,
-    private readonly expectedSkills?: readonly string[],
-  ) {}
+    expectedSkills?: PluginSkills,
+  ) {
+    if (expectedSkills === undefined) return;
+    // Started here, not in ready(): a tool the engine asks for first waits
+    // on it either way.
+    this.skillCheck = this.confirmSkills(expectedSkills);
+    ledger.holdToolsUntilConfirmed(
+      this.skillCheck.then(
+        () => true,
+        () => false,
+      ),
+    );
+  }
+
+  private readonly skillCheck: Promise<void> | undefined;
 
   get approvalCheckpoints(): boolean {
     return this.mirror !== undefined;
@@ -181,8 +198,20 @@ export class ClaudeSdkRun implements DriverRun {
 
   async ready(): Promise<void> {
     await this.history.uuids();
+    await this.sdkQuery.initializationResult();
+    await this.skillCheck;
+  }
+
+  /**
+   * Two lists, both before the first turn. The initialization reply's
+   * commands hold the user-invocable skills. `system/init.skills` was meant
+   * for the hidden ones, but engine 2.1.319 leaves `user-invocable: false`
+   * out of it too while the model still sees them; the skill reload lists
+   * what the model may call, hidden ones included and
+   * `disable-model-invocation: true` ones left out.
+   */
+  private async confirmSkills(expected: PluginSkills): Promise<void> {
     const initialized = await this.sdkQuery.initializationResult();
-    if (this.expectedSkills === undefined) return;
     if (initialized.plugins_applied !== true) {
       throw new Error(
         "The engine did not load the session's extension bundles",
@@ -193,11 +222,25 @@ export class ClaudeSdkRun implements DriverRun {
         "The engine's initialization reply did not list its commands, so the extension skills cannot be confirmed",
       );
     }
-    const missing = missingSkills(this.expectedSkills, initialized.commands);
-    if (missing.length > 0) {
+    const shown = skillSetDifference(
+      expected.userInvocable,
+      initialized.commands.map((command) => command.name),
+    );
+    if (shown !== null) {
+      throw new SkillSetMismatchError("user-invocable commands", shown);
+    }
+    const reloaded = await this.sdkQuery.reloadSkills();
+    if (!Array.isArray(reloaded?.skills)) {
       throw new Error(
-        `The engine did not report these extension skills: ${missing.join(", ")}`,
+        "The engine's skill reload did not list its skills, so the hidden extension skills cannot be confirmed",
       );
+    }
+    const modelShown = skillSetDifference(
+      expected.modelInvocable,
+      reloaded.skills.map((skill) => skill.name),
+    );
+    if (modelShown !== null) {
+      throw new SkillSetMismatchError("model-invocable skills", modelShown);
     }
   }
 

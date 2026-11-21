@@ -979,7 +979,7 @@ describe("activation and the agent's extension bundles", () => {
       find: async () => null,
       listAttachments: async () => [scripted],
     },
-    offersSkills: () => true,
+    skillCalling: () => ({ tool: "Skill", names: "bundle_qualified" as const }),
   };
   const WITH_SKILL = ["Read", "Grep", "Skill"];
   const overWith = (

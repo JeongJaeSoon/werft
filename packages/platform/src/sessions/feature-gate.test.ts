@@ -26,6 +26,7 @@ const full: RuntimeDescriptor = {
     },
   },
   extraFeatures: {},
+  skillCalling: { tool: "Skill", names: "bundle_qualified" },
   toolEnv: "engine_inherited",
   secretEnv: "none",
   instructionFiles: [],

@@ -61,6 +61,7 @@ export class TurnLedger {
    */
   private readonly settledTools = new Set<string>();
   #admissionGuard: ((toolUseId: string) => Promise<void>) | undefined;
+  #startConfirmed: Promise<boolean> = Promise.resolve(true);
 
   constructor(resume?: string) {
     this.sessionId = resume;
@@ -156,6 +157,18 @@ export class TurnLedger {
   /** What PreToolUse awaits before it admits a call, while a host holds one. */
   get admissionGuard(): ((toolUseId: string) => Promise<void>) | undefined {
     return this.#admissionGuard;
+  }
+
+  /**
+   * Every tool waits for the start check and runs only if it passed. Apart
+   * from the admission guard, which the host replaces at will.
+   */
+  holdToolsUntilConfirmed(confirmed: Promise<boolean>): void {
+    this.#startConfirmed = confirmed;
+  }
+
+  get startConfirmed(): Promise<boolean> {
+    return this.#startConfirmed;
   }
 
   holdAdmission(guard: (toolUseId: string) => Promise<void>): AdmissionHold {
