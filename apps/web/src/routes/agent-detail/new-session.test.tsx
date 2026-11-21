@@ -412,6 +412,26 @@ describe("이 에이전트로 새 세션", () => {
     );
   });
 
+  test("릴리스 도구에 Skill이 없어 거절하면 그 고치는 법을 보인다", async () => {
+    const server = await released();
+    renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      [`GET ${PATH}/skills`]: () => json(200, { items: [] }),
+      "POST /v1/sessions": () =>
+        apiError(409, "UNSUPPORTED_CAPABILITY", "no Skill tool", false, {
+          reason_code: "skill_tool_not_allowed",
+          bundle: "notes",
+        }),
+    });
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      "notes 스킬을 쓰려면 릴리스의 도구에 Skill이 있어야 합니다.",
+    );
+  });
+
   test("대화상자를 닫았다 열어도 쓰던 메시지가 남는다", async () => {
     const server = await released();
     renderAt(DETAIL, { ...meAs(me()), ...server.routes });

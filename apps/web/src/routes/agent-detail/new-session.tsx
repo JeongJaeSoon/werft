@@ -180,6 +180,7 @@ const SKILL_REFUSALS = new Set([
   "no_current_version",
   "skill_name_collision",
   "feature_unsupported",
+  "skill_tool_not_allowed",
 ]);
 
 function skillRefusalOf(
@@ -274,7 +275,9 @@ export function NewSessionButton({
     if (skill !== null)
       return skill.reason === "feature_unsupported"
         ? t("newSession.skillsUnsupported")
-        : t("newSession.skillRefused", { name: skill.bundle });
+        : skill.reason === "skill_tool_not_allowed"
+          ? t("newSession.skillToolMissing", { name: skill.bundle })
+          : t("newSession.skillRefused", { name: skill.bundle });
     const key = errorKey(error.code);
     return key === "error.UNKNOWN"
       ? (guidanceFor(error.code, locale) ?? t(key))

@@ -206,6 +206,8 @@ export const skillsKo = {
     "{name} 스킬의 지정이 바뀌어 이 선택으로는 시작할 수 없습니다. 목록을 다시 읽었으니 확인하고 다시 보내세요.",
   "newSession.skillsUnsupported":
     "이 에이전트의 실행 환경은 스킬을 지원하지 않습니다. 스킬을 끄고 보내세요.",
+  "newSession.skillToolMissing":
+    "{name} 스킬을 쓰려면 릴리스의 도구에 Skill이 있어야 합니다. 이 스킬을 끄거나 에이전트 카드의 도구에 Skill을 더해 새 릴리스를 만드세요.",
 } as const;
 
 export const skillsEn = {
@@ -417,6 +419,8 @@ export const skillsEn = {
     "The {name} skill's attachment changed, so the session cannot start with this choice. The list was read again; check it and send again.",
   "newSession.skillsUnsupported":
     "This agent's runtime does not support skills. Turn the skills off and send again.",
+  "newSession.skillToolMissing":
+    "The {name} skill needs the Skill tool in the release's tools. Turn the skill off, or add Skill to the agent card's tools and make a new release.",
 } as const satisfies Record<keyof typeof skillsKo, string>;
 
 export const skillsJa = {
@@ -630,4 +634,6 @@ export const skillsJa = {
     "{name} スキルの指定が変わったため、この選択では開始できません。一覧を読み直したので、確認してから送り直してください。",
   "newSession.skillsUnsupported":
     "このエージェントの実行環境はスキルに対応していません。スキルをオフにして送ってください。",
+  "newSession.skillToolMissing":
+    "{name} スキルを使うには、リリースのツールに Skill が必要です。このスキルをオフにするか、エージェントカードのツールに Skill を加えて新しいリリースを作ってください。",
 } as const satisfies Record<keyof typeof skillsKo, string>;
