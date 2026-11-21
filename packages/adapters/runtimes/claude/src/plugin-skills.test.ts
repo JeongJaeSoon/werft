@@ -260,6 +260,17 @@ describe("the start check: a run handed plugins is ready only once the engine sh
     ).rejects.toThrow("not attached lint:manual");
   });
 
+  test("a skill neither a person nor the model may call fails the start, since no engine list would show it lost", async () => {
+    const sealed: PluginSkills = {
+      all: [...lint.all, "lint:sealed"],
+      userInvocable: lint.userInvocable,
+      modelInvocable: lint.modelInvocable,
+    };
+    await expect(run(engineOf(), sealed).ready()).rejects.toThrow(
+      "skill_set_unconfirmable: lint:sealed",
+    );
+  });
+
   test("a reload reply without a skills list is a clear start failure", async () => {
     await expect(
       run({ ...engineOf(), reloaded: {} }, lint).ready(),

@@ -211,6 +211,18 @@ export class ClaudeSdkRun implements DriverRun {
    * `disable-model-invocation: true` ones left out.
    */
   private async confirmSkills(expected: PluginSkills): Promise<void> {
+    // The registration check refuses these; a version stored before it can
+    // still reach a session.
+    const unlisted = expected.all.filter(
+      (name) =>
+        !expected.userInvocable.includes(name) &&
+        !expected.modelInvocable.includes(name),
+    );
+    if (unlisted.length > 0) {
+      throw new Error(
+        `skill_set_unconfirmable: ${unlisted.join(", ")} may be called by neither a person nor the model, so no engine list shows whether it loaded`,
+      );
+    }
     const initialized = await this.sdkQuery.initializationResult();
     if (initialized.plugins_applied !== true) {
       throw new Error(
