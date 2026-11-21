@@ -334,8 +334,7 @@ export function NewSessionButton({
                       })}
                       checked={on}
                       disabled={
-                        create.isPending ||
-                        (!on && enable.length >= ENABLE_MAX)
+                        create.isPending || (!on && enable.length >= ENABLE_MAX)
                       }
                       onCheckedChange={(next) => {
                         choiceMoved.current = true;
