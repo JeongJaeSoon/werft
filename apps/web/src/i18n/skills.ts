@@ -101,6 +101,8 @@ export const skillsKo = {
   "skills.reviewPage.executable": "실행 파일",
   "skills.reviewPage.binary": "이진 파일 · {size} · sha256 {sha}",
   "skills.reviewPage.diff": "바뀐 줄",
+  "skills.reviewPage.diffOf": "{path}의 바뀐 줄",
+  "skills.reviewPage.contentOf": "{path}의 전체 내용",
   "skills.reviewPage.noDiff":
     "바뀐 줄을 보일 수 없습니다. 실행 비트만 바뀌었거나 바뀐 부분이 너무 큽니다. 아래 전체 내용을 확인하세요.",
   "skills.reviewPage.content": "전체 내용",
@@ -122,6 +124,13 @@ export const skillsKo = {
     "이 스킬은 출처가 다릅니다. 출처를 바꾸려면 다른 이름으로 등록하세요.",
   "skills.refused.skill_invalid": "스킬 내용이 검사를 지나지 못했습니다.",
   "skills.refused.ref_not_found": "저장소에서 그 ref를 찾지 못했습니다.",
+  "skills.refused.connection_required":
+    "작성 App이 여럿이라 읽을 App을 골라야 합니다.",
+  "skills.refused.connection_not_found":
+    "고른 GitHub App이 이 워크스페이스에 없습니다. 연동 > GitHub에서 확인하세요.",
+  "skills.refused.repository_not_installed":
+    "App이 이 저장소에 설치되어 있지 않아 읽지 못했습니다. 연동 > GitHub에서 설치를 확인하세요.",
+  "skills.refused.path_not_found": "그 ref에 이 경로가 없습니다.",
   "skills.refused.github_unreachable": "GitHub에 닿지 못했습니다.",
   "skills.refused.github_rejected": "GitHub가 App의 요청을 거절했습니다.",
   "skills.refused.not_approved": "승인된 버전만 지정할 수 있습니다.",
@@ -292,6 +301,8 @@ export const skillsEn = {
   "skills.reviewPage.executable": "Executable",
   "skills.reviewPage.binary": "Binary · {size} · sha256 {sha}",
   "skills.reviewPage.diff": "Changed lines",
+  "skills.reviewPage.diffOf": "Changed lines of {path}",
+  "skills.reviewPage.contentOf": "Full content of {path}",
   "skills.reviewPage.noDiff":
     "Changed lines cannot be shown: only the execute bit changed, or the change is too large. Read the full content below.",
   "skills.reviewPage.content": "Full content",
@@ -314,6 +325,13 @@ export const skillsEn = {
     "This skill has another source. To change the source, register it under another name.",
   "skills.refused.skill_invalid": "The skill did not pass the checks.",
   "skills.refused.ref_not_found": "The ref was not found in the repository.",
+  "skills.refused.connection_required":
+    "There are several author Apps; choose the one to read with.",
+  "skills.refused.connection_not_found":
+    "The chosen GitHub App is not in this workspace. Check Integrations > GitHub.",
+  "skills.refused.repository_not_installed":
+    "The App is not installed on this repository, so it could not read it. Check the installation in Integrations > GitHub.",
+  "skills.refused.path_not_found": "This path does not exist at that ref.",
   "skills.refused.github_unreachable": "GitHub could not be reached.",
   "skills.refused.github_rejected": "GitHub refused the App's request.",
   "skills.refused.not_approved": "Only an approved version can be attached.",
@@ -484,6 +502,8 @@ export const skillsJa = {
   "skills.reviewPage.executable": "実行ファイル",
   "skills.reviewPage.binary": "バイナリ · {size} · sha256 {sha}",
   "skills.reviewPage.diff": "変更された行",
+  "skills.reviewPage.diffOf": "{path} の変更された行",
+  "skills.reviewPage.contentOf": "{path} の全体の内容",
   "skills.reviewPage.noDiff":
     "変更行を表示できません。実行ビットだけが変わったか、変更が大きすぎます。下の全体の内容を確認してください。",
   "skills.reviewPage.content": "全体の内容",
@@ -506,6 +526,13 @@ export const skillsJa = {
   "skills.refused.skill_invalid": "スキルの内容が検査を通りませんでした。",
   "skills.refused.ref_not_found":
     "リポジトリにその ref が見つかりませんでした。",
+  "skills.refused.connection_required":
+    "作成用 App が複数あるため、読み取りに使う App を選んでください。",
+  "skills.refused.connection_not_found":
+    "選んだ GitHub App はこのワークスペースにありません。連携 > GitHub で確認してください。",
+  "skills.refused.repository_not_installed":
+    "App がこのリポジトリにインストールされていないため読めませんでした。連携 > GitHub でインストールを確認してください。",
+  "skills.refused.path_not_found": "その ref にこのパスはありません。",
   "skills.refused.github_unreachable": "GitHub に届きませんでした。",
   "skills.refused.github_rejected":
     "GitHub が App のリクエストを拒否しました。",

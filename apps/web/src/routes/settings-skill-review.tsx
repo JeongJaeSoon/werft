@@ -3,6 +3,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { unwrap } from "@werft-ai/client";
 import type {
   ReviewSkillVersionRequest,
+  SkillVersion,
   SkillVersionChangeResponse,
   SkillVersionFiles,
 } from "@werft-ai/contracts";
@@ -25,7 +26,7 @@ import {
   Skeleton,
   Text,
 } from "@werft-ai/ui";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
@@ -165,7 +166,7 @@ function ReviewBody({
         <ReviewActions
           versionId={version.id}
           label={versionLabel(t, version)}
-          pending={version.review === "pending" && version.archived_at === null}
+          review={version.archived_at === null ? version.review : null}
         />
       </div>
       <SettingsSection
@@ -237,14 +238,16 @@ function FileView({
           </Text>
         ) : (
           <>
-            {file.change === "changed" ? <FileDiff diff={file.diff} /> : null}
+            {file.change === "changed" ? (
+              <FileDiff path={path} diff={file.diff} />
+            ) : null}
             <div className="flex min-w-0 flex-col gap-1">
               <Text as="span" variant="meta">
                 {t("skills.reviewPage.content")}
               </Text>
-              <CodeBlock className="max-h-96 overflow-auto">
+              <ScrollCode label={t("skills.reviewPage.contentOf", { path })}>
                 {file.text}
-              </CodeBlock>
+              </ScrollCode>
             </div>
           </>
         )}
@@ -253,7 +256,34 @@ function FileView({
   );
 }
 
-function FileDiff({ diff }: { readonly diff: string | null }) {
+// A capped, scrolling block of code a keyboard has to reach, like Table's
+// scroller.
+function ScrollCode({
+  label,
+  children,
+}: {
+  readonly label: string;
+  readonly children: ReactNode;
+}) {
+  return (
+    <CodeBlock
+      role="region"
+      aria-label={label}
+      tabIndex={0}
+      className="max-h-96 overflow-auto focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
+    >
+      {children}
+    </CodeBlock>
+  );
+}
+
+function FileDiff({
+  path,
+  diff,
+}: {
+  readonly path: string;
+  readonly diff: string | null;
+}) {
   const { t } = useI18n();
   // The server gives no diff for an execute bit alone or a change too large.
   if (diff === null || diff === "")
@@ -266,7 +296,7 @@ function FileDiff({ diff }: { readonly diff: string | null }) {
           {t("skills.reviewPage.diff")}
         </Text>
       </figcaption>
-      <CodeBlock className="max-h-96 overflow-auto">
+      <ScrollCode label={t("skills.reviewPage.diffOf", { path })}>
         {lines.map((line, index) => {
           const kind = line.startsWith("@@") ? "same" : diffKind(line);
           return (
@@ -287,7 +317,7 @@ function FileDiff({ diff }: { readonly diff: string | null }) {
             </span>
           );
         })}
-      </CodeBlock>
+      </ScrollCode>
     </figure>
   );
 }
@@ -295,11 +325,12 @@ function FileDiff({ diff }: { readonly diff: string | null }) {
 function ReviewActions({
   versionId,
   label,
-  pending,
+  review: state,
 }: {
   readonly versionId: string;
   readonly label: string;
-  readonly pending: boolean;
+  /** Null for an archived version, which is not reviewed. */
+  readonly review: SkillVersion["review"] | null;
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
@@ -340,25 +371,30 @@ function ReviewActions({
   return (
     <>
       <OutcomeLine outcome={outcome} live />
-      {manages && pending ? (
+      {/* Rejecting an approved version stays allowed: it is the recall. */}
+      {manages && state !== null ? (
         <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            disabled={review.isPending}
-            onClick={() => review.mutate("approved")}
-          >
-            {review.isPending && review.variables === "approved"
-              ? t("skills.reviewPage.approving")
-              : t("skills.reviewPage.approve")}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={review.isPending}
-            onClick={() => setConfirming(true)}
-          >
-            {t("skills.reviewPage.reject")}
-          </Button>
+          {state === "approved" ? null : (
+            <Button
+              type="button"
+              disabled={review.isPending}
+              onClick={() => review.mutate("approved")}
+            >
+              {review.isPending && review.variables === "approved"
+                ? t("skills.reviewPage.approving")
+                : t("skills.reviewPage.approve")}
+            </Button>
+          )}
+          {state === "rejected" ? null : (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={review.isPending}
+              onClick={() => setConfirming(true)}
+            >
+              {t("skills.reviewPage.reject")}
+            </Button>
+          )}
         </div>
       ) : null}
       <ConfirmDialog

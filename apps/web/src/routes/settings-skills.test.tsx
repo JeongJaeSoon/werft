@@ -332,6 +332,28 @@ describe("승인 대기 화면", () => {
       within(second as HTMLElement).getByText(/Write notes\./),
     ).toBeDefined();
     expect(screen.getByRole("button", { name: "승인" })).toBeDefined();
+    // The capped blocks scroll by keyboard, each named by its file.
+    expect(
+      screen.getByRole("region", { name: "scripts/collect.sh의 바뀐 줄" })
+        .tabIndex,
+    ).toBe(0);
+    expect(
+      screen.getByRole("region", { name: "SKILL.md의 전체 내용" }).tabIndex,
+    ).toBe(0);
+  });
+
+  test("승인된 버전은 거절로 회수할 수 있고 다시 승인할 버튼은 없다", async () => {
+    const approved = version(1);
+    renderAt(
+      `/settings/workspace/skills/release-notes/versions/${approved.id}`,
+      {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`GET /v1/workspace/skills/versions/${approved.id}/files`]: () =>
+          json(200, { ...files, version: approved, previous_approved: null }),
+      },
+    );
+    expect(await screen.findByRole("button", { name: "거절" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "승인" })).toBe(null);
   });
 });
 
