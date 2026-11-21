@@ -1,4 +1,5 @@
 import { describe, expect, jest, test } from "bun:test";
+import { environmentManager } from "@tanstack/react-query";
 import type {
   Skill,
   SkillGitSource,
@@ -315,8 +316,11 @@ describe("Git 스킬 상세의 동기화", () => {
   test("다시 켠 확인이 앞 확인 뒤로 밀리면 끝날 때까지 다시 읽는다", async () => {
     let git = gitSource({ sync_enabled: false });
     let readsAfterResume: number | null = null;
-    // The re-read waits on an interval; fake timers keep it off the clock
-    // state other files in the same process leave behind.
+    // The re-read waits on an interval. Query decides once per process that
+    // it runs on a server, with no timers, when it loads before any DOM, as
+    // it can in a run of many files; this test needs the browser answer.
+    const server = environmentManager.isServer();
+    environmentManager.setIsServer(() => false);
     jest.useFakeTimers();
     try {
       renderAt("/settings/workspace/skills/triage", {
@@ -365,6 +369,7 @@ describe("Git 스킬 상세의 동기화", () => {
       expect(screen.getByText(resumed)).toBeDefined();
     } finally {
       jest.useRealTimers();
+      environmentManager.setIsServer(() => server);
     }
   });
 
