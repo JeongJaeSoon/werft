@@ -491,6 +491,8 @@ function Versions({
   readonly readAt: number;
 }) {
   const { t, locale } = useI18n();
+  // The files read behind the link needs workspace.manage.
+  const manages = useHasPermission("workspace.manage");
   // Newest first: the one awaiting review is the one read.
   const versions = [...skill.versions].reverse();
   return (
@@ -566,26 +568,28 @@ function Versions({
                 </Text>
               </GridTableCell>
               <GridTableCell>
-                <RowAction
-                  asChild
-                  aria-label={t(
-                    pending
-                      ? "skills.versions.reviewFor"
-                      : "skills.versions.filesFor",
-                    { version: label },
-                  )}
-                >
-                  <Link
-                    to="/settings/workspace/skills/$name/versions/$versionId"
-                    params={{ name: skill.name, versionId: version.id }}
-                  >
-                    {t(
+                {manages ? (
+                  <RowAction
+                    asChild
+                    aria-label={t(
                       pending
-                        ? "skills.versions.review"
-                        : "skills.versions.files",
+                        ? "skills.versions.reviewFor"
+                        : "skills.versions.filesFor",
+                      { version: label },
                     )}
-                  </Link>
-                </RowAction>
+                  >
+                    <Link
+                      to="/settings/workspace/skills/$name/versions/$versionId"
+                      params={{ name: skill.name, versionId: version.id }}
+                    >
+                      {t(
+                        pending
+                          ? "skills.versions.review"
+                          : "skills.versions.files",
+                      )}
+                    </Link>
+                  </RowAction>
+                ) : null}
               </GridTableCell>
             </GridTableRow>
           );

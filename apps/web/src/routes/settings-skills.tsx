@@ -422,8 +422,8 @@ function AddGitHubSkill({
   const { client } = useWerft();
   const [error, setError] = useState<string | null>(null);
   // The server picks the author App only while there is one; with several,
-  // the request has to name it.
-  const authors = (useGitHubSettings().data?.connections ?? []).filter(
+  // the request has to name it. Each read asks GitHub, so only while open.
+  const authors = (useGitHubSettings(open).data?.connections ?? []).filter(
     (connection) => connection.role === "author",
   );
   const add = useSkillWrite(

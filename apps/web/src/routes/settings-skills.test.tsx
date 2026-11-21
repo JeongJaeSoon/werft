@@ -329,6 +329,16 @@ describe("Git 스킬 상세의 동기화", () => {
     ]);
   });
 
+  test("버전의 파일 보기는 관리자에게만 보인다", async () => {
+    renderAt("/settings/workspace/skills/triage", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      ...listed(gitSkill()),
+    });
+    const table = await screen.findByRole("table", { name: "버전 기록" });
+    expect(within(table).getAllByRole("row")).toHaveLength(2);
+    expect(within(table).queryByRole("link")).toBe(null);
+  });
+
   test("webhook을 받는 설치에는 그 안내가 없다", async () => {
     renderAt("/settings/workspace/skills/triage", {
       "GET /v1/auth/me": () => json(200, me()),
