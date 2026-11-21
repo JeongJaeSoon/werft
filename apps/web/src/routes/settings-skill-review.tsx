@@ -83,10 +83,13 @@ const diffKind = (line: string) =>
 export function SkillVersionScreen() {
   const { t } = useI18n();
   const { client } = useWerft();
-  const { name, versionId } = useParams({
+  const { name: asked, versionId } = useParams({
     from: "/authed/settings/workspace/skills/$name/versions/$versionId",
   });
   const files = useQuery(skillFilesQuery(client, versionId));
+  // The version id decides what is approved, so its own skill names the page,
+  // whatever name the address carries.
+  const name = files.data?.version.name ?? asked;
   const label = files.data ? versionLabel(t, files.data.version) : versionId;
   const title = t("skills.reviewPage.title", { name, version: label });
   const breadcrumb = (

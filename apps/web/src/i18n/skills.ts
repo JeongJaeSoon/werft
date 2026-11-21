@@ -202,6 +202,10 @@ export const skillsKo = {
   "newSession.skillsLimit":
     "한 세션에 {max}개까지 켤 수 있습니다. 다른 스킬을 켜려면 하나를 끄세요.",
   "newSession.skillToggle": "{name} 켜기",
+  "newSession.skillRefused":
+    "{name} 스킬의 지정이 바뀌어 이 선택으로는 시작할 수 없습니다. 목록을 다시 읽었으니 확인하고 다시 보내세요.",
+  "newSession.skillsUnsupported":
+    "이 에이전트의 실행 환경은 스킬을 지원하지 않습니다. 스킬을 끄고 보내세요.",
 } as const;
 
 export const skillsEn = {
@@ -409,6 +413,10 @@ export const skillsEn = {
   "newSession.skillsLimit":
     "A session can turn on up to {max}. Turn one off to turn on another.",
   "newSession.skillToggle": "Turn on {name}",
+  "newSession.skillRefused":
+    "The {name} skill's attachment changed, so the session cannot start with this choice. The list was read again; check it and send again.",
+  "newSession.skillsUnsupported":
+    "This agent's runtime does not support skills. Turn the skills off and send again.",
 } as const satisfies Record<keyof typeof skillsKo, string>;
 
 export const skillsJa = {
@@ -618,4 +626,8 @@ export const skillsJa = {
   "newSession.skillsLimit":
     "1 つのセッションでオンにできるのは {max} 個までです。別のスキルをオンにするには 1 つをオフにしてください。",
   "newSession.skillToggle": "{name} をオン",
+  "newSession.skillRefused":
+    "{name} スキルの指定が変わったため、この選択では開始できません。一覧を読み直したので、確認してから送り直してください。",
+  "newSession.skillsUnsupported":
+    "このエージェントの実行環境はスキルに対応していません。スキルをオフにして送ってください。",
 } as const satisfies Record<keyof typeof skillsKo, string>;

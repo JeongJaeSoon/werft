@@ -192,6 +192,8 @@ function SyncPanel({
     refetchInterval: () =>
       queued !== null && Date.now() < queued.until ? QUEUED_POLL_MS : false,
   });
+  const waitQueued = () =>
+    setQueued({ seen: lastAt, moves: 0, until: Date.now() + QUEUED_WAIT_MS });
   const check = useSkillWrite(
     () =>
       unwrap(
@@ -201,12 +203,7 @@ function SyncPanel({
       ) as Promise<CheckSkillResponse>,
     {
       onDone: (answer) => {
-        if (answer.outcome === "queued")
-          setQueued({
-            seen: lastAt,
-            moves: 0,
-            until: Date.now() + QUEUED_WAIT_MS,
-          });
+        if (answer.outcome === "queued") waitQueued();
         setOutcome({
           kind: "notice",
           text:
@@ -232,13 +229,22 @@ function SyncPanel({
         }),
       ) as Promise<SkillSyncResponse>,
     {
-      onDone: (_answer, enabled) =>
+      onDone: (answer, enabled) => {
+        // Resuming checks once; behind a running check that one is queued
+        // and the answer still carries the old last check.
+        if (
+          enabled &&
+          answer.receipt_id !== null &&
+          (answer.git.last_check?.at ?? null) === lastAt
+        )
+          waitQueued();
         setOutcome({
           kind: "notice",
           text: t(
             enabled ? "skills.sync.resumed.done" : "skills.sync.paused.done",
           ),
-        }),
+        });
+      },
       onRefused: refused,
     },
   );

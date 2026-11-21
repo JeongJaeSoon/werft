@@ -169,6 +169,35 @@ export function optionalSkills(items: readonly AgentSkill[]): AgentSkill[] {
 const refusedByServer = (error: ApiError) =>
   error.status >= 400 && error.status < 500;
 
+// The create request's refusals about `extensions`, by `details.reason_code`.
+const SKILL_REFUSALS = new Set([
+  "required_removed",
+  "required_replaced",
+  "forbidden_revived",
+  "not_optional",
+  "bundle_not_found",
+  "bundle_not_approved",
+  "no_current_version",
+  "skill_name_collision",
+  "feature_unsupported",
+]);
+
+function skillRefusalOf(
+  error: ApiError,
+): { reason: string; bundle: string } | null {
+  if (error.code !== "UNSUPPORTED_CAPABILITY") return null;
+  const details = error.details as {
+    reason_code?: unknown;
+    bundle?: unknown;
+  } | null;
+  const reason = details?.reason_code;
+  if (typeof reason !== "string" || !SKILL_REFUSALS.has(reason)) return null;
+  return {
+    reason,
+    bundle: typeof details?.bundle === "string" ? details.bundle : "",
+  };
+}
+
 export function NewSessionButton({
   agentId,
   releaseId,
@@ -233,9 +262,19 @@ export function NewSessionButton({
     },
     onError: (error) => {
       if (refusedByServer(error)) unanswered.current = null;
+      // The attachments changed since the dialog read them.
+      if (skillRefusalOf(error) !== null)
+        void queryClient.invalidateQueries({
+          queryKey: agentSkillsQuery(client, agentId).queryKey,
+        });
     },
   });
   const refusal = (error: ApiError) => {
+    const skill = skillRefusalOf(error);
+    if (skill !== null)
+      return skill.reason === "feature_unsupported"
+        ? t("newSession.skillsUnsupported")
+        : t("newSession.skillRefused", { name: skill.bundle });
     const key = errorKey(error.code);
     return key === "error.UNKNOWN"
       ? (guidanceFor(error.code, locale) ?? t(key))

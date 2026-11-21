@@ -257,6 +257,47 @@ describe("Git 스킬 상세의 동기화", () => {
     ).toEqual([{ enabled: false }, { enabled: true }]);
   });
 
+  test("다시 켠 확인이 앞 확인 뒤로 밀리면 끝날 때까지 다시 읽는다", async () => {
+    let git = gitSource({ sync_enabled: false });
+    let readsAfterResume: number | null = null;
+    renderAt("/settings/workspace/skills/triage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [SKILLS]: () => {
+        if (readsAfterResume !== null && ++readsAfterResume >= 2)
+          git = {
+            ...git,
+            last_check: check({
+              at: "2026-11-21T04:00:00.000Z",
+              trigger: { kind: "resume", delivery_id: null, user_id: USER_ID },
+              result: "created",
+              version_id: versionId(2),
+            }),
+          };
+        return json(200, { items: [{ ...gitSkill(), git }] satisfies Skill[] });
+      },
+      // The check resuming starts waits behind a running one.
+      "PUT /v1/workspace/skills/triage/sync": () => {
+        git = { ...git, sync_enabled: true };
+        readsAfterResume = 0;
+        return json(200, { name: "triage", git, receipt_id: RECEIPT_ID });
+      },
+    });
+    const user = await setupUser();
+    const sync = (
+      await screen.findByRole("heading", { name: "GitHub 동기화" })
+    ).closest("section") as HTMLElement;
+    await user.click(
+      await within(sync).findByRole("button", { name: "다시 켬" }),
+    );
+    expect(
+      await within(sync).findByText(
+        /다시 켬 · 새 버전을 승인 대기로 만듦/,
+        {},
+        { timeout: 8000 },
+      ),
+    ).toBeDefined();
+  }, 15000);
+
   test("webhook을 받지 못하는 설치에는 그 안내가 보인다", async () => {
     renderAt("/settings/workspace/skills/triage", {
       "GET /v1/auth/me": () => json(200, me()),
@@ -450,6 +491,21 @@ describe("승인 대기 화면", () => {
     expect(await screen.findByRole("button", { name: "거절" })).toBeDefined();
     expect(screen.queryByRole("button", { name: "승인" })).toBe(null);
   });
+
+  test("주소의 이름이 달라도 그 버전의 스킬 이름으로 보인다", async () => {
+    renderAt(`/settings/workspace/skills/triage/versions/${pending.id}`, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET /v1/workspace/skills/versions/${pending.id}/files`]: () =>
+        json(200, files),
+    });
+    expect(
+      await screen.findByRole("heading", {
+        level: 1,
+        name: /^release-notes v2/,
+      }),
+    ).toBeDefined();
+    expect(screen.queryByRole("link", { name: "triage" })).toBe(null);
+  });
 });
 
 describe("업로드 파일", () => {
@@ -494,6 +550,8 @@ describe("에이전트 접근 탭의 스킬", () => {
   }, 20000);
 
   test("워크스페이스가 준 스킬은 바꿀 수 없고, 승인된 버전을 골라 이 에이전트에 지정한다", async () => {
+    // The attached list answers what the write left.
+    let saved = false;
     const { api } = renderAt(`/agents/${AGENT_ID}?tab=access`, {
       ...agentServer().routes,
       "GET /v1/auth/me": () => json(200, me()),
@@ -512,10 +570,22 @@ describe("에이전트 접근 탭의 스킬", () => {
               follows: false,
               version: version(1, { name: "triage", source: "github" }),
             },
+            ...(saved
+              ? [
+                  {
+                    name: "release-notes",
+                    scope: "agent" as const,
+                    mode: "optional" as const,
+                    follows: false,
+                    version: version(1),
+                  },
+                ]
+              : []),
           ],
         }),
-      [`PUT /v1/agents/${AGENT_ID}/skills/release-notes`]: () =>
-        json(200, {
+      [`PUT /v1/agents/${AGENT_ID}/skills/release-notes`]: () => {
+        saved = true;
+        return json(200, {
           name: "release-notes",
           scope: "agent",
           agent_id: AGENT_ID,
@@ -525,7 +595,8 @@ describe("에이전트 접근 탭의 스킬", () => {
             mode: "optional",
           },
           receipt_id: RECEIPT_ID,
-        }),
+        });
+      },
     });
     const user = await setupUser();
     const section = (
@@ -562,5 +633,8 @@ describe("에이전트 접근 탭의 스킬", () => {
       version_id: versionId(1),
       mode: "optional",
     });
+    await waitFor(() =>
+      expect(within(section).getAllByRole("listitem")).toHaveLength(2),
+    );
   });
 });
