@@ -122,6 +122,20 @@ describe("the start check on the pinned engine", () => {
     expect(asked).not.toContain("dataviz");
   }, 60_000);
 
+  test("a session with no skills attached is offered none, even with the Skill tool", async () => {
+    const { config } = await session();
+    const { plugins: _plugins, identities: _identities, ...bare } = config;
+    server = startFakeAnthropicServer(() => textReply("done"));
+    const run = start(bare, server.url);
+    const frames = consume(run);
+    await run.ready();
+    run.send({ message: "hello", uuid: crypto.randomUUID() });
+    await frames;
+    const asked = JSON.stringify(server.requests);
+    expect(asked).toContain("hello");
+    expect(asked).not.toContain("dataviz");
+  }, 60_000);
+
   test("a hidden skill the session did not attach fails the start, and the tool the model asked for first never runs", async () => {
     const { config, plugin, workspace } = await session();
     const target = join(workspace, "written-by-the-model.txt");

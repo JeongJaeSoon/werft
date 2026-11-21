@@ -156,8 +156,8 @@ export class ClaudeSdkRuntime {
           options.settings as Record<string, unknown>,
         ),
         // Leaves the engine's bundled skills out of the model's listing and
-        // has its Skill tool refuse them.
-        ...(expectedSkills === undefined ? {} : { skills: expectedSkills.all }),
+        // has its Skill tool refuse them; left out, the engine offers them all.
+        skills: expectedSkills?.all ?? [],
       },
     });
     return new ClaudeSdkRun(
