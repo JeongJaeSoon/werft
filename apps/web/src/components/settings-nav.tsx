@@ -15,6 +15,7 @@ import {
   useWorkspaceSettingsNavGroups,
 } from "./app-sidebar.tsx";
 import { MAIN_CONTENT_ID } from "./main.tsx";
+import { SkillPendingMarker } from "./skill-pending-marker.tsx";
 
 // A page's own sub-paths (a key's new page, the Slack link callback) keep
 // their item current; 일반 alone has a sibling under its path. An item that
@@ -72,6 +73,9 @@ export function SettingsLayout({
                 >
                   <Link to={item.to} activeOptions={{ exact: true }}>
                     {t(item.label)}
+                    {item.to === "/settings/workspace/skills" ? (
+                      <SkillPendingMarker />
+                    ) : null}
                   </Link>
                 </SideNavLink>
               ))}

@@ -26,6 +26,8 @@ import {
 import { appHarness } from "../../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
+// After the harness: the module pulls in the UI, which needs the DOM.
+const { optionalSkills } = await import("./new-session.tsx");
 
 const DETAIL = `/agents/${AGENT_ID}`;
 const PATH = `/v1/agents/${AGENT_ID}`;
@@ -156,6 +158,216 @@ describe("이 에이전트로 새 세션", () => {
     expect(sent[0]?.headers.get("Idempotency-Key")).toBeTruthy();
   });
 
+  test("선택 스킬만 켤 수 있고, 켠 스킬의 버전을 세션에 싣는다", async () => {
+    const server = await released();
+    const skillVersion = (name: string, n: number) => ({
+      id: `9a8b7c6d-0000-4000-8000-00000000000${n}`,
+      name,
+      version: 1,
+      digest: String(n).repeat(64),
+      source: "upload" as const,
+      git: null,
+      size_bytes: 512,
+      has_scripts: false,
+      review: "approved" as const,
+      registered_by: null,
+      registered_at: "2026-11-21T03:00:00.000Z",
+      reviewed_by: null,
+      reviewed_at: null,
+      archived_at: null,
+      current: true,
+    });
+    const { api } = renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      [`GET ${PATH}/skills`]: () =>
+        json(200, {
+          items: [
+            {
+              name: "notes",
+              scope: "workspace",
+              mode: "optional",
+              follows: false,
+              version: skillVersion("notes", 1),
+            },
+            {
+              name: "lint",
+              scope: "workspace",
+              mode: "required",
+              follows: false,
+              version: skillVersion("lint", 2),
+            },
+            // The agent narrows a workspace optional to forbidden.
+            {
+              name: "deploy",
+              scope: "workspace",
+              mode: "optional",
+              follows: false,
+              version: skillVersion("deploy", 3),
+            },
+            {
+              name: "deploy",
+              scope: "agent",
+              mode: "forbidden",
+              follows: false,
+              version: skillVersion("deploy", 3),
+            },
+          ],
+        }),
+      "POST /v1/sessions": created,
+    });
+    const { user, dialog } = await openDialog();
+    const toggle = await within(dialog).findByRole("switch", {
+      name: "notes 켜기",
+    });
+    expect(within(dialog).queryByRole("switch", { name: "lint 켜기" })).toBe(
+      null,
+    );
+    expect(within(dialog).queryByRole("switch", { name: "deploy 켜기" })).toBe(
+      null,
+    );
+    await user.click(toggle);
+    await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    await waitFor(() =>
+      expect(
+        api.calls.filter(
+          (call) => call.method === "POST" && call.path === "/v1/sessions",
+        ),
+      ).toHaveLength(1),
+    );
+    const sent = api.calls.find(
+      (call) => call.method === "POST" && call.path === "/v1/sessions",
+    );
+    expect(sent?.body).toEqual({
+      agent_release_id: server.detail().active_release?.id,
+      message: "요약해 줘",
+      extensions: { enable: ["9a8b7c6d-0000-4000-8000-000000000001"] },
+    });
+  });
+
+  test("켠 뒤 스킬 목록을 다시 읽지 못해도 켠 스킬을 싣는다", async () => {
+    const server = await released();
+    let failing = false;
+    const { api, services } = renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      [`GET ${PATH}/skills`]: () =>
+        failing
+          ? apiError(500, "INTERNAL", "boom")
+          : json(200, {
+              items: [
+                {
+                  name: "notes",
+                  scope: "workspace",
+                  mode: "optional",
+                  follows: false,
+                  version: {
+                    id: "9a8b7c6d-0000-4000-8000-000000000001",
+                    name: "notes",
+                    version: 1,
+                    digest: "1".repeat(64),
+                    source: "upload",
+                    git: null,
+                    size_bytes: 512,
+                    has_scripts: false,
+                    review: "approved",
+                    registered_by: null,
+                    registered_at: "2026-11-21T03:00:00.000Z",
+                    reviewed_by: null,
+                    reviewed_at: null,
+                    archived_at: null,
+                    current: true,
+                  },
+                },
+              ],
+            }),
+      "POST /v1/sessions": created,
+    });
+    services.queryClient.setDefaultOptions({ queries: { retry: false } });
+    const { user, dialog } = await openDialog();
+    const toggle = await within(dialog).findByRole("switch", {
+      name: "notes 켜기",
+    });
+    // The name is the switch's label: clicking it turns the skill on.
+    await user.click(within(dialog).getByText("notes"));
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    failing = true;
+    await services.queryClient.refetchQueries({ type: "active" });
+    await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    await waitFor(() =>
+      expect(
+        api.calls.find(
+          (call) => call.method === "POST" && call.path === "/v1/sessions",
+        )?.body,
+      ).toEqual({
+        agent_release_id: server.detail().active_release?.id,
+        message: "요약해 줘",
+        extensions: { enable: ["9a8b7c6d-0000-4000-8000-000000000001"] },
+      }),
+    );
+    expect(
+      api.calls.filter((call) => call.path === `${PATH}/skills`).length,
+    ).toBeGreaterThan(1);
+  });
+
+  test("켠 뒤 다시 읽어 승인 버전이 바뀌면 켠 채로 새 버전을 싣는다", async () => {
+    const server = await released();
+    let n = 1;
+    const notes = () => ({
+      name: "notes",
+      scope: "workspace",
+      mode: "optional",
+      follows: false,
+      version: {
+        id: `9a8b7c6d-0000-4000-8000-00000000000${n}`,
+        name: "notes",
+        version: n,
+        digest: String(n).repeat(64),
+        source: "upload",
+        git: null,
+        size_bytes: 512,
+        has_scripts: false,
+        review: "approved",
+        registered_by: null,
+        registered_at: "2026-11-21T03:00:00.000Z",
+        reviewed_by: null,
+        reviewed_at: null,
+        archived_at: null,
+        current: true,
+      },
+    });
+    const { api, services } = renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      [`GET ${PATH}/skills`]: () => json(200, { items: [notes()] }),
+      "POST /v1/sessions": created,
+    });
+    const { user, dialog } = await openDialog();
+    const toggle = await within(dialog).findByRole("switch", {
+      name: "notes 켜기",
+    });
+    await user.click(toggle);
+    n = 2;
+    await services.queryClient.refetchQueries({ type: "active" });
+    await waitFor(() => expect(dialog.textContent).toContain("notes · v2"));
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    await waitFor(() =>
+      expect(
+        api.calls.find(
+          (call) => call.method === "POST" && call.path === "/v1/sessions",
+        )?.body,
+      ).toEqual({
+        agent_release_id: server.detail().active_release?.id,
+        message: "요약해 줘",
+        extensions: { enable: ["9a8b7c6d-0000-4000-8000-000000000002"] },
+      }),
+    );
+  });
+
   test("공백뿐인 메시지는 보내지 않고 이유를 보인다", async () => {
     const server = await released();
     const { api } = renderAt(DETAIL, {
@@ -232,6 +444,51 @@ describe("이 에이전트로 새 세션", () => {
     await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
     expect((await within(dialog).findByRole("alert")).textContent).toContain(
       "연결",
+    );
+  });
+
+  test("스킬 선택을 거절하면 그 스킬과 이유를 보이고 목록을 다시 읽는다", async () => {
+    const server = await released();
+    const { api } = renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      [`GET ${PATH}/skills`]: () => json(200, { items: [] }),
+      "POST /v1/sessions": () =>
+        apiError(409, "UNSUPPORTED_CAPABILITY", "not optional", false, {
+          reason_code: "not_optional",
+          bundle: "notes",
+        }),
+    });
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      "notes 스킬의 지정이 바뀌어",
+    );
+    await waitFor(() =>
+      expect(
+        api.calls.filter((call) => call.path === `${PATH}/skills`).length,
+      ).toBeGreaterThan(1),
+    );
+  });
+
+  test("릴리스 도구에 Skill이 없어 거절하면 그 고치는 법을 보인다", async () => {
+    const server = await released();
+    renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      [`GET ${PATH}/skills`]: () => json(200, { items: [] }),
+      "POST /v1/sessions": () =>
+        apiError(409, "UNSUPPORTED_CAPABILITY", "no Skill tool", false, {
+          reason_code: "skill_tool_not_allowed",
+          bundle: "notes",
+        }),
+    });
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      "notes 스킬을 쓰려면 릴리스의 도구에 Skill이 있어야 합니다.",
     );
   });
 
@@ -557,6 +814,67 @@ describe("이 에이전트로 새 세션", () => {
       expect(agentsJa[key]?.trim()).toBeTruthy();
       expect(agentsEn[key] === agentsKo[key]).toBe(false);
       expect(agentsJa[key] === agentsKo[key]).toBe(false);
+    }
+  });
+});
+
+describe("optionalSkills", () => {
+  const entry = (
+    scope: "workspace" | "agent",
+    mode: "required" | "optional" | "forbidden",
+  ) => ({
+    name: "deploy",
+    scope,
+    mode,
+    follows: false,
+    version: {
+      id: `9a8b7c6d-0000-4000-8000-00000000000${scope === "agent" ? 1 : 2}`,
+      name: "deploy",
+      version: 1,
+      digest: "1".repeat(64),
+      source: "upload" as const,
+      git: null,
+      size_bytes: 512,
+      has_scripts: false,
+      review: "approved" as const,
+      registered_by: null,
+      registered_at: "2026-11-21T03:00:00.000Z",
+      reviewed_by: null,
+      reviewed_at: null,
+      archived_at: null,
+      current: true,
+    },
+  });
+
+  test("워크스페이스의 required·forbidden은 목록 순서와 상관없이 에이전트의 optional보다 앞선다", () => {
+    for (const mode of ["required", "forbidden"] as const) {
+      const workspace = entry("workspace", mode);
+      const agent = entry("agent", "optional");
+      expect(optionalSkills([agent, workspace])).toEqual([]);
+      expect(optionalSkills([workspace, agent])).toEqual([]);
+    }
+  });
+
+  test("워크스페이스가 optional이면 목록 순서와 상관없이 에이전트의 지정이 정한다", () => {
+    const workspace = entry("workspace", "optional");
+    const agent = entry("agent", "optional");
+    expect(optionalSkills([agent, workspace])).toEqual([agent]);
+    expect(optionalSkills([workspace, agent])).toEqual([agent]);
+    const forbidden = entry("agent", "forbidden");
+    expect(optionalSkills([forbidden, workspace])).toEqual([]);
+  });
+
+  test("쓸 수 없는 에이전트 optional은 빠지고 워크스페이스의 승인 버전이 남는다", () => {
+    const workspace = entry("workspace", "optional");
+    const base = entry("agent", "optional");
+    const rejected = {
+      ...base,
+      version: { ...base.version, review: "rejected" as const },
+    };
+    const missing = { ...entry("agent", "optional"), version: null };
+    for (const agent of [rejected, missing]) {
+      expect(optionalSkills([agent, workspace])).toEqual([workspace]);
+      expect(optionalSkills([workspace, agent])).toEqual([workspace]);
     }
   });
 });

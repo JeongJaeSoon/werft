@@ -4,6 +4,7 @@ import type { Outcome } from "../../components/outcome.tsx";
 import { McpSettings } from "./access.tsx";
 import { Credentials } from "./credentials.tsx";
 import { type Place, type Placed, PlacedOutcome } from "./placement.tsx";
+import { AgentSkills } from "./skills.tsx";
 import { AgentWorkspaceMcp } from "./workspace-mcp.tsx";
 
 export function AccessTab({
@@ -30,6 +31,11 @@ export function AccessTab({
         agentId={detail.agent.id}
         result={<PlacedOutcome placed={placed} at="workspaceMcp" />}
         onOutcome={outcomeAt("workspaceMcp")}
+      />
+      <AgentSkills
+        agentId={detail.agent.id}
+        result={<PlacedOutcome placed={placed} at="skills" />}
+        onOutcome={outcomeAt("skills")}
       />
       <Credentials
         detail={detail}

@@ -43,6 +43,7 @@ import {
   useI18n,
 } from "../i18n/i18n.tsx";
 import { MAIN_CONTENT_ID } from "./main.tsx";
+import { SkillPendingMarker } from "./skill-pending-marker.tsx";
 import { chooseTheme, THEMES, type Theme, useTheme } from "./theme.ts";
 
 type NavPath =
@@ -61,6 +62,7 @@ type NavPath =
   | "/settings/workspace/audit-log"
   | "/settings/workspace/model-connections"
   | "/settings/workspace/mcp-servers"
+  | "/settings/workspace/skills"
   | "/settings/linked-accounts"
   | "/settings/api-keys"
   | "/settings/preferences";
@@ -264,6 +266,15 @@ export function useWorkspaceSettingsNavGroups(): readonly NavGroup[] {
     agentConnections.push({
       to: "/settings/workspace/mcp-servers",
       label: "settings.mcp.nav",
+      icon: SettingsIcon,
+    });
+  }
+  // The managers register and approve skills. A member reads the library at
+  // its address, as with the other pages this group leaves out for them.
+  if (workspaceManage) {
+    agentConnections.push({
+      to: "/settings/workspace/skills",
+      label: "skills.nav",
       icon: SettingsIcon,
     });
   }
@@ -492,6 +503,7 @@ function NavSection({
             />
             <span className="min-w-0 flex-1 truncate">{t(item.label)}</span>
             {item.to === "/sessions" ? <WaitingBadge /> : null}
+            {item.to === "/settings/workspace" ? <SkillPendingMarker /> : null}
           </Link>
         ))}
       </div>

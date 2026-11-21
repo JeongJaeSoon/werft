@@ -53,6 +53,7 @@ describe("settings areas", () => {
         ["연동", "/settings/workspace/integrations/slack"],
         ["모델 연결", "/settings/workspace/model-connections"],
         ["MCP 서버", "/settings/workspace/mcp-servers"],
+        ["스킬 라이브러리", "/settings/workspace/skills"],
       ],
     ],
     [
@@ -64,6 +65,7 @@ describe("settings areas", () => {
         ["조직 관리 키", "/settings/workspace/api-keys"],
         ["연동", "/settings/workspace/integrations/slack"],
         ["MCP 서버", "/settings/workspace/mcp-servers"],
+        ["스킬 라이브러리", "/settings/workspace/skills"],
       ],
     ],
     [

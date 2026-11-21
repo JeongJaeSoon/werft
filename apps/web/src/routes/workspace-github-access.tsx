@@ -41,7 +41,9 @@ import { type OnOutcome, ReadOnlyMark } from "./workspace-settings.tsx";
 export const githubSettingsKey = (client: ApiClient, workspaceId: string) =>
   scopedKey(client, "workspace", workspaceId, "github-settings");
 
-export function useGitHubSettings(): UseQueryResult<GitHubSettingsResponse> {
+export function useGitHubSettings(
+  wanted = true,
+): UseQueryResult<GitHubSettingsResponse> {
   const { client } = useWerft();
   const workspaceId = useMe()?.workspace?.id ?? "";
   return useQuery({
@@ -52,7 +54,7 @@ export function useGitHubSettings(): UseQueryResult<GitHubSettingsResponse> {
           params: { path: { id: workspaceId } },
         }),
       ),
-    enabled: workspaceId !== "",
+    enabled: wanted && workspaceId !== "",
   });
 }
 

@@ -54,7 +54,7 @@ import {
 
 const UNITS = ["byte", "kilobyte", "megabyte", "gigabyte"] as const;
 
-function formatBytes(bytes: number, locale: string): string {
+export function formatBytes(bytes: number, locale: string): string {
   let value = bytes;
   let unit = 0;
   while (value >= 1024 && unit < UNITS.length - 1) {

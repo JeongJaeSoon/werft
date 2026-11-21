@@ -371,6 +371,7 @@ export function FormDialog({
   onSubmit,
   opener,
   gated = false,
+  blocked = false,
   children,
 }: {
   readonly open: boolean;
@@ -386,6 +387,8 @@ export function FormDialog({
   readonly onSubmit: (form: FormData) => void;
   /** Keeps the submit button off until every field holds what it accepts. */
   readonly gated?: boolean;
+  /** Keeps the submit button off while the form still lacks what it needs. */
+  readonly blocked?: boolean;
   readonly children: ReactNode;
 }) {
   return (
@@ -396,7 +399,11 @@ export function FormDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent onCloseAutoFocus={focusBack(opener)}>
+      {/* A form with many fields scrolls on a short screen, as teams.tsx's. */}
+      <DialogContent
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
+        onCloseAutoFocus={focusBack(opener)}
+      >
         <DialogForm
           pending={pending}
           title={title}
@@ -406,6 +413,7 @@ export function FormDialog({
           pendingLabel={pendingLabel}
           onSubmit={onSubmit}
           gated={gated}
+          blocked={blocked}
         >
           {children}
         </DialogForm>
@@ -424,6 +432,7 @@ function DialogForm({
   pendingLabel,
   onSubmit,
   gated,
+  blocked,
   children,
 }: {
   readonly pending: boolean;
@@ -434,11 +443,12 @@ function DialogForm({
   readonly pendingLabel: string;
   readonly onSubmit: (form: FormData) => void;
   readonly gated: boolean;
+  readonly blocked: boolean;
   readonly children: ReactNode;
 }) {
   const { t } = useI18n();
   const [filled, setFilled] = useState(!gated);
-  const off = pending || !filled;
+  const off = pending || !filled || blocked;
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!off) onSubmit(new FormData(event.currentTarget));

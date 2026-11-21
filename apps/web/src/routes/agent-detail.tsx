@@ -282,6 +282,7 @@ function AgentView({
         // The way back ends the row, the command before it.
         <div className="flex flex-1 flex-wrap items-start gap-2">
           <NewSessionButton
+            agentId={detail.agent.id}
             releaseId={detail.active_release?.id ?? null}
             reason={newSessionReason}
           />
