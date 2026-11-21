@@ -2,7 +2,7 @@ export const skillsKo = {
   "skills.nav": "스킬 라이브러리",
   "skills.title": "스킬 라이브러리",
   "skills.description":
-    "에이전트에 주는 스킬입니다. 새 버전은 등록한 사람이 아닌 다른 어드민이 내용을 보고 승인한 뒤에만 에이전트에 지정할 수 있습니다.",
+    "에이전트에 주는 스킬입니다. 새 버전은 등록한 사람이 아닌 다른 오너나 어드민이 내용을 보고 승인한 뒤에만 에이전트에 지정할 수 있습니다. 관리자가 한 명뿐인 워크스페이스에서는 그 사람이 승인합니다.",
   "skills.readOnly":
     "보기만 할 수 있습니다. 등록과 승인은 오너와 어드민이 합니다.",
   "skills.empty": "등록한 스킬이 없습니다.",
@@ -175,8 +175,7 @@ export const skillsKo = {
   "skills.githubAdded":
     "{name} v{version}을(를) 가져왔습니다. 승인 대기입니다.",
   "skills.home.title": "스킬 승인 대기 {count}개",
-  "skills.home.note":
-    "다른 어드민이 내용을 보고 승인해야 에이전트에 지정할 수 있습니다.",
+  "skills.home.note": "내용을 보고 승인해야 에이전트에 지정할 수 있습니다.",
   "skills.home.cta": "검토",
   "skills.home.ctaName": "스킬 승인 대기 검토",
   "agentSkills.title": "스킬",
@@ -216,7 +215,7 @@ export const skillsEn = {
   "skills.nav": "Skill library",
   "skills.title": "Skill library",
   "skills.description":
-    "Skills you give agents. A new version can be attached only after an admin other than the one who registered it reads and approves it.",
+    "Skills you give agents. A new version can be attached only after an owner or admin other than the one who registered it reads and approves it. In a workspace with a single manager, that person approves.",
   "skills.readOnly":
     "You can only view these. Owners and admins register and approve.",
   "skills.empty": "No skills are registered.",
@@ -391,7 +390,7 @@ export const skillsEn = {
   "skills.githubAdded": "Added {name} v{version}. It awaits review.",
   "skills.home.title": "{count} skill versions awaiting review",
   "skills.home.note":
-    "Another admin reads and approves a version before it can be attached.",
+    "A version can be attached once its content is read and approved.",
   "skills.home.cta": "Review",
   "skills.home.ctaName": "Review skills awaiting review",
   "agentSkills.title": "Skills",
@@ -431,7 +430,7 @@ export const skillsJa = {
   "skills.nav": "スキルライブラリ",
   "skills.title": "スキルライブラリ",
   "skills.description":
-    "エージェントに渡すスキルです。新しいバージョンは、登録した人とは別のアドミンが内容を確認して承認した後にのみエージェントに指定できます。",
+    "エージェントに渡すスキルです。新しいバージョンは、登録した人とは別のオーナーかアドミンが内容を確認して承認した後にのみエージェントに指定できます。管理者が 1 人だけのワークスペースでは、その人が承認します。",
   "skills.readOnly":
     "閲覧のみできます。登録と承認はオーナーとアドミンが行います。",
   "skills.empty": "登録したスキルはありません。",
@@ -608,8 +607,7 @@ export const skillsJa = {
   "skills.githubDialog.pending": "読み込んでいます…",
   "skills.githubAdded": "{name} v{version} を取得しました。承認待ちです。",
   "skills.home.title": "スキルの承認待ち {count} 件",
-  "skills.home.note":
-    "別のアドミンが内容を確認して承認すると、エージェントに指定できます。",
+  "skills.home.note": "内容を確認して承認すると、エージェントに指定できます。",
   "skills.home.cta": "確認",
   "skills.home.ctaName": "スキルの承認待ちを確認",
   "agentSkills.title": "スキル",
