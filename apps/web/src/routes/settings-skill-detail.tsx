@@ -3,6 +3,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { unwrap } from "@werft-ai/client";
 import type {
   CheckSkillResponse,
+  PutSkillAttachmentRequest,
   Skill,
   SkillAttachmentResponse,
   SkillGitSource,
@@ -60,6 +61,8 @@ import {
 const LIST = "/settings/workspace/skills";
 const QUEUED_POLL_MS = 3_000;
 const QUEUED_WAIT_MS = 2 * 60_000;
+// The version select's value for "keeps following the current version".
+const FOLLOW = "follow";
 
 const TRIGGER_LABEL = {
   register: "skills.sync.trigger.register",
@@ -144,12 +147,14 @@ export function SkillDetailScreen() {
       <div className="flex flex-col gap-[var(--werft-space-section)]">
         {skill.git ? (
           <SyncPanel
+            key={skill.name}
             name={skill.name}
             git={skill.git}
             readAt={skills.dataUpdatedAt}
           />
         ) : null}
-        <WorkspaceAttachment skill={skill} />
+        {/* Keyed so a move to another skill starts its form afresh. */}
+        <WorkspaceAttachment key={skill.name} skill={skill} />
         <Versions skill={skill} readAt={skills.dataUpdatedAt} />
       </div>
     </Page>
@@ -353,19 +358,27 @@ function WorkspaceAttachment({ skill }: { readonly skill: Skill }) {
   );
   const [mode, setMode] = useState<AttachMode>(attached?.mode ?? "required");
   // Start on what the workspace names now, so changing only the mode keeps
-  // the version; the newest one otherwise.
-  const [versionId, setVersionId] = useState(
-    () => attached?.version_id ?? attachable(skill, mode)[0]?.id ?? "",
+  // the version, or keeps following; the newest one otherwise.
+  const [versionId, setVersionId] = useState(() =>
+    attached?.follows
+      ? FOLLOW
+      : (attached?.version_id ?? attachable(skill, mode)[0]?.id ?? ""),
   );
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const refused = (text: string) => setOutcome({ kind: "error", text });
   const versions = attachable(skill, mode);
+  // Only an attachment that follows already may keep doing so here; starting
+  // to follow is a later screen's. Forbidden cannot follow.
+  const followable = attached?.follows === true && mode !== "forbidden";
   // The list may have moved (a new approval, an archive) since the pick.
-  const picked = versions.some((item) => item.id === versionId)
-    ? versionId
-    : (versions[0]?.id ?? "");
+  const picked =
+    versionId === FOLLOW && followable
+      ? FOLLOW
+      : versions.some((item) => item.id === versionId)
+        ? versionId
+        : (versions[0]?.id ?? "");
   const save = useSkillWrite(
-    (body: { version_id: string; mode: AttachMode }) =>
+    (body: PutSkillAttachmentRequest) =>
       unwrap(
         client.PUT("/v1/workspace/skills/{name}/attachment", {
           params: { path: { name: skill.name } },
@@ -405,7 +418,11 @@ function WorkspaceAttachment({ skill }: { readonly skill: Skill }) {
       onSubmit={(event) => {
         event.preventDefault();
         if (picked === "" || busy) return;
-        save.mutate({ version_id: picked, mode });
+        save.mutate(
+          picked === FOLLOW && mode !== "forbidden"
+            ? { follow: true, mode }
+            : { version_id: picked, mode },
+        );
       }}
       rows={
         <SettingRow
@@ -445,9 +462,14 @@ function WorkspaceAttachment({ skill }: { readonly skill: Skill }) {
                 <FieldLabel>{t("agentSkills.version")}</FieldLabel>
                 <NativeSelect
                   value={picked}
-                  disabled={versions.length === 0}
+                  disabled={versions.length === 0 && !followable}
                   onChange={(event) => setVersionId(event.target.value)}
                 >
+                  {followable ? (
+                    <NativeSelectOption value={FOLLOW}>
+                      {t("skills.workspace.follows")}
+                    </NativeSelectOption>
+                  ) : null}
                   {versions.map((item) => (
                     <NativeSelectOption key={item.id} value={item.id}>
                       {versionLabel(t, item)}

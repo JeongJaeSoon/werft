@@ -392,6 +392,90 @@ describe("Git 스킬 상세의 동기화", () => {
     ]);
   });
 
+  test("현재 버전을 따라가는 지정은 모드만 바꿔도 계속 따라간다", async () => {
+    const { api } = renderAt("/settings/workspace/skills/release-notes", {
+      "GET /v1/auth/me": () => json(200, me()),
+      ...listed(
+        skill({
+          workspace_attachment: {
+            version_id: versionId(1),
+            follows: true,
+            mode: "optional",
+          },
+        }),
+      ),
+      "PUT /v1/workspace/skills/release-notes/attachment": () =>
+        json(200, {
+          name: "release-notes",
+          scope: "workspace",
+          agent_id: null,
+          attachment: {
+            version_id: versionId(1),
+            follows: true,
+            mode: "required",
+          },
+          receipt_id: RECEIPT_ID,
+        }),
+    });
+    const user = await setupUser();
+    const section = (
+      await screen.findByRole("heading", { name: "워크스페이스 지정" })
+    ).closest("section") as HTMLElement;
+    const versions = within(section).getByLabelText("버전", {
+      selector: "select",
+    }) as HTMLSelectElement;
+    expect(versions.selectedOptions[0]?.textContent).toBe("현재 버전 따라감");
+    await user.selectOptions(
+      within(section).getByLabelText("모드", { selector: "select" }),
+      "required",
+    );
+    await user.click(within(section).getByRole("button", { name: "지정" }));
+    await within(section).findByText("release-notes을(를) 지정했습니다.");
+    expect(api.calls.find((call) => call.method === "PUT")?.body).toEqual({
+      follow: true,
+      mode: "required",
+    });
+  });
+
+  test("다른 스킬로 옮기면 지정 폼이 그 스킬의 것으로 새로 시작한다", async () => {
+    const { history } = renderAt("/settings/workspace/skills/release-notes", {
+      "GET /v1/auth/me": () => json(200, me()),
+      ...listed(
+        skill({
+          workspace_attachment: {
+            version_id: versionId(1),
+            follows: false,
+            mode: "forbidden",
+          },
+        }),
+        skill({ name: "triage", versions: [version(1, { name: "triage" })] }),
+      ),
+    });
+    await screen.findByRole("heading", { level: 1, name: "release-notes" });
+    const section = (
+      await screen.findByRole("heading", { name: "워크스페이스 지정" })
+    ).closest("section") as HTMLElement;
+    expect(
+      (
+        within(section).getByLabelText("모드", {
+          selector: "select",
+        }) as HTMLSelectElement
+      ).value,
+    ).toBe("forbidden");
+    history.push("/settings/workspace/skills/triage");
+    await screen.findByRole("heading", { level: 1, name: "triage" });
+    const next = (
+      await screen.findByRole("heading", { name: "워크스페이스 지정" })
+    ).closest("section") as HTMLElement;
+    expect(
+      (
+        within(next).getByLabelText("모드", {
+          selector: "select",
+        }) as HTMLSelectElement
+      ).value,
+    ).toBe("required");
+  });
+
   test("버전의 파일 보기는 관리자에게만 보인다", async () => {
     renderAt("/settings/workspace/skills/triage", {
       "GET /v1/auth/me": () => json(200, memberMe()),
@@ -490,6 +574,32 @@ describe("승인 대기 화면", () => {
     );
     expect(await screen.findByRole("button", { name: "거절" })).toBeDefined();
     expect(screen.queryByRole("button", { name: "승인" })).toBe(null);
+  });
+
+  test("승인하면 승인을 보내고, 다시 읽은 화면에는 승인 버튼 대신 거절만 남는다", async () => {
+    let current = pending;
+    const { api } = renderAt(
+      `/settings/workspace/skills/release-notes/versions/${pending.id}`,
+      {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`GET /v1/workspace/skills/versions/${pending.id}/files`]: () =>
+          json(200, { ...files, version: current }),
+        [`POST /v1/workspace/skills/versions/${pending.id}/review`]: () => {
+          current = { ...pending, review: "approved", reviewed_by: USER_ID };
+          return json(200, { version: current, receipt_id: RECEIPT_ID });
+        },
+      },
+    );
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "승인" }));
+    expect(await screen.findByText(/을\(를\) 승인했습니다\./)).toBeDefined();
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "승인" })).toBe(null),
+    );
+    expect(screen.getByRole("button", { name: "거절" })).toBeDefined();
+    expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({
+      decision: "approved",
+    });
   });
 
   test("주소의 이름이 달라도 그 버전의 스킬 이름으로 보인다", async () => {
