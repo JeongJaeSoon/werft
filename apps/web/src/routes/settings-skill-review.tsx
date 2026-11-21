@@ -255,10 +255,9 @@ function FileView({
 
 function FileDiff({ diff }: { readonly diff: string | null }) {
   const { t } = useI18n();
-  if (diff === null)
-    return <Text variant="meta">{t("skills.reviewPage.diffTooLarge")}</Text>;
-  if (diff === "")
-    return <Text variant="meta">{t("skills.reviewPage.modeOnly")}</Text>;
+  // The server gives no diff for an execute bit alone or a change too large.
+  if (diff === null || diff === "")
+    return <Text variant="meta">{t("skills.reviewPage.noDiff")}</Text>;
   const lines = diff.replace(/\n$/, "").split("\n");
   return (
     <figure className="m-0 flex min-w-0 flex-col gap-1">

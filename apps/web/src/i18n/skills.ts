@@ -101,9 +101,8 @@ export const skillsKo = {
   "skills.reviewPage.executable": "실행 파일",
   "skills.reviewPage.binary": "이진 파일 · {size} · sha256 {sha}",
   "skills.reviewPage.diff": "바뀐 줄",
-  "skills.reviewPage.diffTooLarge":
-    "바뀐 부분이 너무 커서 줄 단위로 비교하지 못했습니다. 아래 전체 내용을 확인하세요.",
-  "skills.reviewPage.modeOnly": "내용은 같고 실행 비트만 바뀌었습니다.",
+  "skills.reviewPage.noDiff":
+    "바뀐 줄을 보일 수 없습니다. 실행 비트만 바뀌었거나 바뀐 부분이 너무 큽니다. 아래 전체 내용을 확인하세요.",
   "skills.reviewPage.content": "전체 내용",
   "skills.reviewPage.removed": "이 버전에서 빠진 파일",
   "skills.reviewPage.approve": "승인",
@@ -147,6 +146,7 @@ export const skillsKo = {
   "skills.githubDialog.title": "GitHub에서 추가",
   "skills.githubDialog.description":
     "워크스페이스의 GitHub App으로 저장소를 읽습니다. 등록한 뒤에는 이 스킬의 새 버전이 동기화로만 들어옵니다.",
+  "skills.githubDialog.connection": "읽을 GitHub App",
   "skills.githubDialog.repository": "저장소",
   "skills.githubDialog.repositoryHint": "owner/name",
   "skills.githubDialog.path": "경로",
@@ -292,10 +292,8 @@ export const skillsEn = {
   "skills.reviewPage.executable": "Executable",
   "skills.reviewPage.binary": "Binary · {size} · sha256 {sha}",
   "skills.reviewPage.diff": "Changed lines",
-  "skills.reviewPage.diffTooLarge":
-    "The change is too large to compare line by line. Read the full content below.",
-  "skills.reviewPage.modeOnly":
-    "The content is the same; only the execute bit changed.",
+  "skills.reviewPage.noDiff":
+    "Changed lines cannot be shown: only the execute bit changed, or the change is too large. Read the full content below.",
   "skills.reviewPage.content": "Full content",
   "skills.reviewPage.removed": "Files this version drops",
   "skills.reviewPage.approve": "Approve",
@@ -341,6 +339,7 @@ export const skillsEn = {
   "skills.githubDialog.title": "Add from GitHub",
   "skills.githubDialog.description":
     "The workspace's GitHub App reads the repository. Once added, new versions of this skill come only from sync.",
+  "skills.githubDialog.connection": "GitHub App to read with",
   "skills.githubDialog.repository": "Repository",
   "skills.githubDialog.repositoryHint": "owner/name",
   "skills.githubDialog.path": "Path",
@@ -485,9 +484,8 @@ export const skillsJa = {
   "skills.reviewPage.executable": "実行ファイル",
   "skills.reviewPage.binary": "バイナリ · {size} · sha256 {sha}",
   "skills.reviewPage.diff": "変更された行",
-  "skills.reviewPage.diffTooLarge":
-    "変更が大きすぎて行単位で比べられませんでした。下の全体の内容を確認してください。",
-  "skills.reviewPage.modeOnly": "内容は同じで、実行ビットだけが変わりました。",
+  "skills.reviewPage.noDiff":
+    "変更行を表示できません。実行ビットだけが変わったか、変更が大きすぎます。下の全体の内容を確認してください。",
   "skills.reviewPage.content": "全体の内容",
   "skills.reviewPage.removed": "このバージョンで削除されたファイル",
   "skills.reviewPage.approve": "承認",
@@ -535,6 +533,7 @@ export const skillsJa = {
   "skills.githubDialog.title": "GitHub から追加",
   "skills.githubDialog.description":
     "ワークスペースの GitHub App でリポジトリを読みます。追加した後、このスキルの新しいバージョンは同期でのみ入ります。",
+  "skills.githubDialog.connection": "読み取りに使う GitHub App",
   "skills.githubDialog.repository": "リポジトリ",
   "skills.githubDialog.repositoryHint": "owner/name",
   "skills.githubDialog.path": "パス",

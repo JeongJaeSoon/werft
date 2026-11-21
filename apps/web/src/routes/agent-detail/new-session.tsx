@@ -134,13 +134,18 @@ type AgentSkill = AgentSkillList["items"][number];
  * the agent's own attachment does. The server judges again at create.
  */
 export function optionalSkills(items: readonly AgentSkill[]): AgentSkill[] {
+  const holds = (item: AgentSkill | undefined) =>
+    item?.scope === "workspace" &&
+    (item.mode === "required" || item.mode === "forbidden");
+  // The list's order is not a precedence: decide per name over both scopes.
   const deciding = new Map<string, AgentSkill>();
   for (const item of items) {
-    const outer = deciding.get(item.name);
-    const holds =
-      outer?.scope === "workspace" &&
-      (outer.mode === "required" || outer.mode === "forbidden");
-    if (outer === undefined || (item.scope === "agent" && !holds)) {
+    const other = deciding.get(item.name);
+    if (
+      other === undefined ||
+      holds(item) ||
+      (!holds(other) && item.scope === "agent")
+    ) {
       deciding.set(item.name, item);
     }
   }
@@ -189,6 +194,9 @@ export function NewSessionButton({
   // same key and the same body gets that session back; the release may have
   // changed by then, and the server hashes the whole body.
   const unanswered = useRef<Attempt | null>(null);
+  // Only a switch the person moved changes the choice: a skills read that
+  // failed or changed meanwhile must not turn a retry into a second session.
+  const choiceMoved = useRef(false);
   const create = useMutation<CreateSessionResponse, ApiError, Attempt>({
     mutationFn: ({ key, body }) =>
       unwrap(
@@ -236,7 +244,8 @@ export function NewSessionButton({
     // The release is left out of the match on purpose: see `unanswered`.
     const next =
       resend?.body.message === message &&
-      JSON.stringify(resend.body.extensions) === JSON.stringify(chosen)
+      (!choiceMoved.current ||
+        JSON.stringify(resend.body.extensions) === JSON.stringify(chosen))
         ? resend
         : {
             key: crypto.randomUUID(),
@@ -247,6 +256,7 @@ export function NewSessionButton({
             },
           };
     unanswered.current = next;
+    choiceMoved.current = false;
     create.mutate(next);
   };
   return (
@@ -310,13 +320,14 @@ export function NewSessionButton({
                       })}
                       checked={enabled.includes(id)}
                       disabled={create.isPending}
-                      onCheckedChange={(next) =>
+                      onCheckedChange={(next) => {
+                        choiceMoved.current = true;
                         setEnabled((now) =>
                           next
                             ? [...now, id]
                             : now.filter((other) => other !== id),
-                        )
-                      }
+                        );
+                      }}
                     />
                     <Text as="span" className="wrap-anywhere">
                       <Code size="inherit">{item.name}</Code>

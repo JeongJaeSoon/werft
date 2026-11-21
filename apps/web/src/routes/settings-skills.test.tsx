@@ -386,10 +386,17 @@ describe("에이전트 접근 탭의 스킬", () => {
     const versions = within(section).getByLabelText("버전", {
       selector: "select",
     });
-    // The pending v2 cannot be attached.
-    expect(
-      [...(versions as HTMLSelectElement).options].map((o) => o.value),
-    ).toEqual([versionId(1)]);
+    const values = () =>
+      [...(versions as HTMLSelectElement).options].map((o) => o.value);
+    // The pending v2 cannot be attached, except to keep the name out.
+    expect(values()).toEqual([versionId(1)]);
+    const mode = within(section).getByLabelText("모드", { selector: "select" });
+    await user.selectOptions(mode, "forbidden");
+    expect(values()).toEqual([versionId(2), versionId(1)]);
+    await user.selectOptions(versions, versionId(2));
+    await user.selectOptions(mode, "optional");
+    expect(values()).toEqual([versionId(1)]);
+    expect((versions as HTMLSelectElement).value).toBe(versionId(1));
     await user.click(within(section).getByRole("button", { name: "지정" }));
     expect(
       await within(section).findByText("release-notes을(를) 지정했습니다."),

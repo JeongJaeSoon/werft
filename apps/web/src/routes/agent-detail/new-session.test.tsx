@@ -24,6 +24,7 @@ import {
   SCOPE,
 } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
+import { optionalSkills } from "./new-session.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
 
@@ -646,5 +647,52 @@ describe("이 에이전트로 새 세션", () => {
       expect(agentsEn[key] === agentsKo[key]).toBe(false);
       expect(agentsJa[key] === agentsKo[key]).toBe(false);
     }
+  });
+});
+
+describe("optionalSkills", () => {
+  const entry = (
+    scope: "workspace" | "agent",
+    mode: "required" | "optional" | "forbidden",
+  ) => ({
+    name: "deploy",
+    scope,
+    mode,
+    follows: false,
+    version: {
+      id: `9a8b7c6d-0000-4000-8000-00000000000${scope === "agent" ? 1 : 2}`,
+      name: "deploy",
+      version: 1,
+      digest: "1".repeat(64),
+      source: "upload" as const,
+      git: null,
+      size_bytes: 512,
+      has_scripts: false,
+      review: "approved" as const,
+      registered_by: null,
+      registered_at: "2026-11-21T03:00:00.000Z",
+      reviewed_by: null,
+      reviewed_at: null,
+      archived_at: null,
+      current: true,
+    },
+  });
+
+  test("워크스페이스의 required·forbidden은 목록 순서와 상관없이 에이전트의 optional보다 앞선다", () => {
+    for (const mode of ["required", "forbidden"] as const) {
+      const workspace = entry("workspace", mode);
+      const agent = entry("agent", "optional");
+      expect(optionalSkills([agent, workspace])).toEqual([]);
+      expect(optionalSkills([workspace, agent])).toEqual([]);
+    }
+  });
+
+  test("워크스페이스가 optional이면 목록 순서와 상관없이 에이전트의 지정이 정한다", () => {
+    const workspace = entry("workspace", "optional");
+    const agent = entry("agent", "optional");
+    expect(optionalSkills([agent, workspace])).toEqual([agent]);
+    expect(optionalSkills([workspace, agent])).toEqual([agent]);
+    const forbidden = entry("agent", "forbidden");
+    expect(optionalSkills([forbidden, workspace])).toEqual([]);
   });
 });

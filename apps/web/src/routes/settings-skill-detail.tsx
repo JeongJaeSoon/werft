@@ -33,7 +33,7 @@ import {
   Skeleton,
   Text,
 } from "@werft-ai/ui";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
@@ -50,6 +50,8 @@ import {
 } from "./skills-data.ts";
 
 const LIST = "/settings/workspace/skills";
+const QUEUED_POLL_MS = 3_000;
+const QUEUED_WAIT_MS = 2 * 60_000;
 
 const TRIGGER_LABEL = {
   register: "skills.sync.trigger.register",
@@ -160,6 +162,21 @@ function SyncPanel({
   const manages = useHasPermission("workspace.manage");
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const refused = (text: string) => setOutcome({ kind: "error", text });
+  // A queued check finishes after the answer; read the list again until its
+  // last check moves, for at most QUEUED_WAIT_MS.
+  const lastAt = git.last_check?.at ?? null;
+  const [queued, setQueued] = useState<{
+    readonly from: string | null;
+    readonly until: number;
+  } | null>(null);
+  useEffect(() => {
+    if (queued !== null && lastAt !== queued.from) setQueued(null);
+  }, [queued, lastAt]);
+  useQuery({
+    ...skillsQuery(client),
+    refetchInterval: () =>
+      queued !== null && Date.now() < queued.until ? QUEUED_POLL_MS : false,
+  });
   const check = useSkillWrite(
     () =>
       unwrap(
@@ -168,7 +185,9 @@ function SyncPanel({
         }),
       ) as Promise<CheckSkillResponse>,
     {
-      onDone: (answer) =>
+      onDone: (answer) => {
+        if (answer.outcome === "queued")
+          setQueued({ from: lastAt, until: Date.now() + QUEUED_WAIT_MS });
         setOutcome({
           kind: "notice",
           text:
@@ -177,7 +196,8 @@ function SyncPanel({
               : t("skills.sync.checked", {
                   result: t(RESULT_LABEL[answer.last_check.result]),
                 }),
-        }),
+        });
+      },
       onRefused: refused,
     },
   );
@@ -271,16 +291,18 @@ function SyncPanel({
               )
             }
             actions={
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() => check.mutate(undefined)}
-              >
-                {check.isPending
-                  ? t("skills.sync.checking")
-                  : t("skills.sync.checkNow")}
-              </Button>
+              manages ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => check.mutate(undefined)}
+                >
+                  {check.isPending
+                    ? t("skills.sync.checking")
+                    : t("skills.sync.checkNow")}
+                </Button>
+              ) : undefined
             }
           />
         </>

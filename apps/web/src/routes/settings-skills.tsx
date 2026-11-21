@@ -26,6 +26,8 @@ import {
   GridTableHeader,
   GridTableRow,
   Input,
+  NativeSelect,
+  NativeSelectOption,
   Page,
   Skeleton,
   Text,
@@ -46,6 +48,7 @@ import {
   skillsQuery,
   versionLabel,
 } from "./skills-data.ts";
+import { useGitHubSettings } from "./workspace-github-access.tsx";
 
 // The upload route's cap (SKILL_UPLOAD_BODY_MAX_BYTES); the server refuses
 // past it anyway, this only says so before the files are sent.
@@ -54,6 +57,7 @@ const UPLOAD_MAX_BYTES = 128 * 1024;
 type UploadFile = { path: string; content_base64: string };
 type UploadBody = { name: string; files: UploadFile[] };
 type GitHubBody = {
+  connection_id?: string;
   name: string;
   repository: string;
   path: string;
@@ -347,11 +351,11 @@ function UploadSkill({
       pendingLabel={t("skills.uploadDialog.pending")}
       onSubmit={(form) => {
         setError(null);
-        const picked = form
-          .getAll("files")
-          .filter(
-            (item): item is File => item instanceof File && item.size > 0,
-          );
+        const picked = form.getAll("files").filter(
+          // An empty picker sends one nameless File; an empty file keeps
+          // its name and belongs to the skill.
+          (item): item is File => item instanceof File && item.name !== "",
+        );
         if (picked.length === 0) {
           setError(t("skills.uploadDialog.noFiles"));
           return;
@@ -410,6 +414,11 @@ function AddGitHubSkill({
   const { t } = useI18n();
   const { client } = useWerft();
   const [error, setError] = useState<string | null>(null);
+  // The server picks the author App only while there is one; with several,
+  // the request has to name it.
+  const authors = (useGitHubSettings().data?.connections ?? []).filter(
+    (connection) => connection.role === "author",
+  );
   const add = useSkillWrite(
     (body: GitHubBody) =>
       unwrap(
@@ -440,7 +449,9 @@ function AddGitHubSkill({
       pendingLabel={t("skills.githubDialog.pending")}
       onSubmit={(form) => {
         setError(null);
+        const connection = String(form.get("connection_id") ?? "");
         add.mutate({
+          ...(connection ? { connection_id: connection } : {}),
           name: String(form.get("name")).trim(),
           repository: String(form.get("repository")).trim(),
           path: String(form.get("path"))
@@ -462,6 +473,24 @@ function AddGitHubSkill({
         />
         <FieldDescription>{t("skills.uploadDialog.nameHint")}</FieldDescription>
       </Field>
+      {authors.length > 1 ? (
+        <Field>
+          <FieldLabel>{t("skills.githubDialog.connection")}</FieldLabel>
+          <NativeSelect name="connection_id" required defaultValue="">
+            <NativeSelectOption value="" disabled>
+              {t("agentSkills.pick")}
+            </NativeSelectOption>
+            {authors.map((connection) => (
+              <NativeSelectOption
+                key={connection.connection_id}
+                value={connection.connection_id}
+              >
+                {connection.name}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </Field>
+      ) : null}
       <Field>
         <FieldLabel>{t("skills.githubDialog.repository")}</FieldLabel>
         <Input

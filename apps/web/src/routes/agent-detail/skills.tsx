@@ -46,9 +46,15 @@ type AgentSkill = AgentSkillList["items"][number];
 const MODES = ["required", "optional", "forbidden"] as const satisfies Mode[];
 
 /** Versions an agent can be given: approved and not archived, newest first. */
-const attachable = (skill: Skill) =>
+// `forbidden` only keeps the name out, so it takes any unarchived version;
+// the other modes take approved ones.
+const attachable = (skill: Skill, mode: Mode) =>
   skill.versions
-    .filter((item) => item.review === "approved" && item.archived_at === null)
+    .filter(
+      (item) =>
+        item.archived_at === null &&
+        (mode === "forbidden" || item.review === "approved"),
+    )
     .reverse();
 
 export function AgentSkills({
@@ -253,12 +259,14 @@ function AttachForm({
   });
   if (!library.isSuccess) return null;
   const choices = library.data.items.filter(
-    (skill) => attachable(skill).length > 0,
+    (skill) => attachable(skill, "forbidden").length > 0,
   );
   if (choices.length === 0)
     return <Text variant="sub">{t("agentSkills.noApproved")}</Text>;
   const picked = choices.find((skill) => skill.name === name);
-  const versions = picked ? attachable(picked) : [];
+  const versions = picked ? attachable(picked, mode) : [];
+  const firstOf = (skill: Skill | undefined, next: Mode) =>
+    skill ? (attachable(skill, next)[0]?.id ?? "") : "";
   return (
     <form
       className="flex flex-col gap-3"
@@ -284,7 +292,7 @@ function AttachForm({
                 (skill) => skill.name === event.target.value,
               );
               setName(event.target.value);
-              setVersionId(next ? (attachable(next)[0]?.id ?? "") : "");
+              setVersionId(firstOf(next, mode));
             }}
           >
             <NativeSelectOption value="">
@@ -315,7 +323,15 @@ function AttachForm({
           <FieldLabel>{t("agentSkills.mode")}</FieldLabel>
           <NativeSelect
             value={mode}
-            onChange={(event) => setMode(event.target.value as Mode)}
+            onChange={(event) => {
+              const next = event.target.value as Mode;
+              setMode(next);
+              if (
+                picked &&
+                !attachable(picked, next).some((item) => item.id === versionId)
+              )
+                setVersionId(firstOf(picked, next));
+            }}
           >
             {MODES.map((item) => (
               <NativeSelectOption key={item} value={item}>
