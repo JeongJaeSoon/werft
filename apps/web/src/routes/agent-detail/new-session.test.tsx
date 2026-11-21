@@ -24,9 +24,10 @@ import {
   SCOPE,
 } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
-import { optionalSkills } from "./new-session.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
+// After the harness: the module pulls in the UI, which needs the DOM.
+const { optionalSkills } = await import("./new-session.tsx");
 
 const DETAIL = `/agents/${AGENT_ID}`;
 const PATH = `/v1/agents/${AGENT_ID}`;
@@ -285,9 +286,12 @@ describe("이 에이전트로 새 세션", () => {
     });
     services.queryClient.setDefaultOptions({ queries: { retry: false } });
     const { user, dialog } = await openDialog();
-    await user.click(
-      await within(dialog).findByRole("switch", { name: "notes 켜기" }),
-    );
+    const toggle = await within(dialog).findByRole("switch", {
+      name: "notes 켜기",
+    });
+    // The name is the switch's label: clicking it turns the skill on.
+    await user.click(within(dialog).getByText("notes"));
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
     failing = true;
     await services.queryClient.refetchQueries({ type: "active" });
     await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");

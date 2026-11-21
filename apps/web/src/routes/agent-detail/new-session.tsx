@@ -371,9 +371,11 @@ export function NewSessionButton({
               {offered.map((item) => {
                 const id = item.version?.id ?? "";
                 const on = enabled.includes(id);
+                const switchId = `${fieldId}-skill-${item.name}`;
                 return (
                   <Field key={item.name} orientation="horizontal">
                     <Switch
+                      id={switchId}
                       aria-label={t("newSession.skillToggle", {
                         name: item.name,
                       })}
@@ -390,12 +392,16 @@ export function NewSessionButton({
                         );
                       }}
                     />
-                    <Text as="span" className="wrap-anywhere">
+                    {/* Clicking the name moves the switch too. */}
+                    <FieldLabel
+                      htmlFor={switchId}
+                      className="wrap-anywhere font-normal"
+                    >
                       <Code size="inherit">{item.name}</Code>
                       {item.version
                         ? ` · ${versionLabel(t, item.version)}`
                         : ""}
-                    </Text>
+                    </FieldLabel>
                   </Field>
                 );
               })}
