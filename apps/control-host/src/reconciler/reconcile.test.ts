@@ -110,6 +110,10 @@ describe("reconciler run", () => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return 8;
       },
+      purgeSlackChannelMembers: async (options) => {
+        expect(options).toEqual({ dryRun: false, limit: 12 });
+        return 3;
+      },
       reconcileOwnership: async (options) => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return { flagged: ["agent-a"], cleared: ["agent-b", "agent-c"] };
@@ -136,6 +140,7 @@ describe("reconciler run", () => {
     expect(result.webSessionsDeleted).toBe(6);
     expect(result.envStartsPurged).toBe(4);
     expect(result.slackInboundPayloadsPurged).toBe(8);
+    expect(result.slackMembersPurged).toBe(3);
     expect(sink.records).toEqual([
       expect.objectContaining({
         level: "info",
@@ -218,6 +223,11 @@ describe("reconciler run", () => {
         level: "info",
         message: "Failed Slack inbound payloads purged",
         fields: { dry_run: false, purged_count: 8 },
+      }),
+      expect.objectContaining({
+        level: "info",
+        message: "Expired Slack channel member lists deleted",
+        fields: { dry_run: false, deleted_count: 3 },
       }),
       expect.objectContaining({
         level: "info",
@@ -308,6 +318,10 @@ describe("reconciler run", () => {
         seen.push(dryRun);
         return 1;
       },
+      purgeSlackChannelMembers: async ({ dryRun }) => {
+        seen.push(dryRun);
+        return 1;
+      },
       reconcileOwnership: async ({ dryRun }) => {
         seen.push(dryRun);
         return { flagged: [], cleared: [] };
@@ -318,6 +332,7 @@ describe("reconciler run", () => {
     });
 
     expect(seen).toEqual([
+      true,
       true,
       true,
       true,
@@ -388,6 +403,7 @@ describe("reconciler run", () => {
         deleteExpiredWebSessions: async () => 0,
         purgeExpiredEnvStart: async () => 0,
         purgeFailedSlackInboundPayloads: async () => 0,
+        purgeSlackChannelMembers: async () => 0,
         reconcileOwnership: async () => ({ flagged: [], cleared: [] }),
         projectToolCalls: async () => ({
           eventsRead: 10,
@@ -425,6 +441,7 @@ describe("reconciler run", () => {
     const deleteExpiredWebSessions = async () => 0;
     const purgeExpiredEnvStart = async () => 0;
     const purgeFailedSlackInboundPayloads = async () => 0;
+    const purgeSlackChannelMembers = async () => 0;
     const reconcileOwnership = async () => ({ flagged: [], cleared: [] });
     const projectToolCalls = async () => ({
       eventsRead: 0,
@@ -458,6 +475,7 @@ describe("reconciler run", () => {
           deleteExpiredWebSessions,
           purgeExpiredEnvStart,
           purgeFailedSlackInboundPayloads,
+          purgeSlackChannelMembers,
           reconcileOwnership,
           projectToolCalls,
         }),
@@ -480,6 +498,7 @@ describe("reconciler run", () => {
         deleteExpiredWebSessions,
         purgeExpiredEnvStart,
         purgeFailedSlackInboundPayloads,
+        purgeSlackChannelMembers,
         reconcileOwnership,
         projectToolCalls,
       }),
@@ -500,6 +519,7 @@ describe("reconciler run", () => {
         deleteExpiredWebSessions,
         purgeExpiredEnvStart,
         purgeFailedSlackInboundPayloads,
+        purgeSlackChannelMembers,
         reconcileOwnership,
         projectToolCalls,
       }),

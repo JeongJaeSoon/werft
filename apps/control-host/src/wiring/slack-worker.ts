@@ -3,11 +3,13 @@
 import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   AgentIdentityStore,
+  ChannelMemberStore,
   SurfaceBindingStore,
 } from "@werft-ai/platform";
 import {
   createRowDelivery,
   createSlackBotApi,
+  createSlackMemberCacheInvalidator,
   createSlackMemberJoinedHandler,
   createSlackMemberLeftHandler,
   createSlackSessionHandler,
@@ -29,6 +31,7 @@ export interface SlackInboundDeps {
   identities: AgentIdentityStore;
   links: Param<typeof createSlackSessionHandler>["links"];
   bindings: SurfaceBindingStore;
+  members: Pick<ChannelMemberStore, "forget">;
   settings: Param<typeof createSlackSessionHandler>["settings"];
   botTurns: Param<typeof createSlackSessionHandler>["botTurns"];
   sessionLinks: Param<typeof createSlackSessionHandler>["sessionLinks"];
@@ -43,7 +46,10 @@ export interface SlackInboundDeps {
   logger: StructuredLogger;
 }
 
-/** Left-handler wraps joined-handler wraps the session handler. */
+/**
+ * The member-cache void wraps the left-handler, which wraps the
+ * joined-handler, which wraps the session handler.
+ */
 export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
   const { secrets } = deps;
   const botToken = (workspaceId: string, slackAppId: string) =>
@@ -83,10 +89,14 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
     botToken,
     next: sessionHandler,
   });
-  return createSlackMemberLeftHandler({
+  return createSlackMemberCacheInvalidator({
     agents: deps.identities,
-    bindings: deps.bindings,
-    next: memberJoined,
+    members: deps.members,
+    next: createSlackMemberLeftHandler({
+      agents: deps.identities,
+      bindings: deps.bindings,
+      next: memberJoined,
+    }),
   });
 }
 
