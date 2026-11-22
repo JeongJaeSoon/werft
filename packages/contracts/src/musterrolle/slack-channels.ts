@@ -96,3 +96,16 @@ export type SlackChannel = z.infer<typeof slackChannelSchema>;
 export type SearchSlackChannelsResponse = z.infer<
   typeof searchSlackChannelsResponseSchema
 >;
+
+/**
+ * How long a channel's member list read from Slack answers the member check
+ * (design decision 24). Events cannot keep it right on their own: a deleted
+ * channel sends none, so this expiry is what bounds a stale answer.
+ */
+export const SLACK_MEMBER_CACHE_TTL_MS = 5 * 60_000;
+
+/**
+ * The most members a channel's list is read for: 50 pages of 200. A larger
+ * channel cannot be checked, so nobody counts as its member.
+ */
+export const SLACK_CHANNEL_MEMBER_LIMIT = 10_000;

@@ -437,6 +437,20 @@ export type SlackChannelPage = {
   nextCursor: string | null;
 };
 
+/** One page of a channel's members, the bot's own user among them. */
+export type SlackChannelMemberPage = {
+  memberIds: string[];
+  nextCursor: string | null;
+};
+
+/** `conversations.members` (`channels:read`, `groups:read`): Slack's Tier 4. */
+export interface SlackChannelMemberApi {
+  channelMembers(
+    botToken: string,
+    input: { channelId: string; cursor: string | null },
+  ): Promise<SlackChannelMemberPage>;
+}
+
 export type SlackChannelMembership = {
   kind: SurfaceChannelKind;
   isMember: boolean;
@@ -635,12 +649,20 @@ const listChannelsAnswer = z.object({
     .optional(),
 });
 
+const channelMembersAnswer = z.object({
+  members: z.array(slackId).max(1000),
+  response_metadata: z
+    .object({ next_cursor: z.string().max(4096).optional() })
+    .optional(),
+});
+
 export function createSlackBotApi(
   options?: SlackApiOptions,
 ): SlackBotApi &
   Required<Pick<SlackBotApi, "updateMessage" | "openView" | "updateView">> &
   SlackBotSender &
-  SlackBotDirectory {
+  SlackBotDirectory &
+  SlackChannelMemberApi {
   const call = slackCaller(options);
   const send = slackSender(options);
   return {
@@ -735,6 +757,25 @@ export function createSlackBotApi(
             : "public_channel",
         isMember: channel.is_member ?? false,
         isArchived: channel.is_archived ?? false,
+      };
+    },
+
+    async channelMembers(botToken, input) {
+      const answer = await call(
+        "conversations.members",
+        {
+          token: botToken,
+          body: new URLSearchParams({
+            channel: input.channelId,
+            limit: String(SLACK_CHANNEL_PAGE_SIZE),
+            ...(input.cursor === null ? {} : { cursor: input.cursor }),
+          }),
+        },
+        channelMembersAnswer,
+      );
+      return {
+        memberIds: answer.members,
+        nextCursor: answer.response_metadata?.next_cursor || null,
       };
     },
 

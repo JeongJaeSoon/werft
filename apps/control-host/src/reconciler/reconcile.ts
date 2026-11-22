@@ -33,6 +33,7 @@ export type ReconcilerRun = {
   webSessionsDeleted: number;
   // Sessions whose copied variable values this pass dropped.
   envStartsPurged: number;
+  slackMembersPurged: number;
   ownership: OwnershipReconciled;
   // null on a dry run, which projects nothing.
   toolCalls: ToolCallProjection | null;
@@ -123,6 +124,11 @@ export async function runReconciler(input: {
   }): Promise<number>;
   // Variable values an open session copied at accept and kept past retention.
   purgeExpiredEnvStart(options: {
+    dryRun: boolean;
+    limit: number;
+  }): Promise<number>;
+  // Slack channel member lists and voids past their TTL.
+  purgeSlackChannelMembers(options: {
     dryRun: boolean;
     limit: number;
   }): Promise<number>;
@@ -226,6 +232,14 @@ export async function runReconciler(input: {
     dry_run: dryRun,
     purged_count: envStartsPurged,
   });
+  const slackMembersPurged = await input.purgeSlackChannelMembers({
+    dryRun,
+    limit,
+  });
+  input.logger.info("Expired Slack channel member lists deleted", {
+    dry_run: dryRun,
+    deleted_count: slackMembersPurged,
+  });
   const ownership = await input.reconcileOwnership({ dryRun, limit });
   input.logger.info("Agent ownership reconciled", {
     dry_run: dryRun,
@@ -268,6 +282,7 @@ export async function runReconciler(input: {
     toolAuditsExpired,
     webSessionsDeleted,
     envStartsPurged,
+    slackMembersPurged,
     ownership,
     toolCalls,
   };

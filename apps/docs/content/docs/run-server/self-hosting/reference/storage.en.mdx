@@ -208,6 +208,7 @@ The platform never deletes sessions. There is no API that deletes one, and the r
 | Plain variable values a session copied | PostgreSQL | Until the session closes. For a session not closed, 30 days after the copy | At once on close; after 30 days the reconciler deletes them. The next claim of a session past 30 days is refused, so start a new one | No setting |
 | Authorization decision records | PostgreSQL | 90 days by default (30 to 3650 days) | The reconciler deletes rows past the period | The owner calls `POST /v1/workspaces/{id}/audit-retention` |
 | Sign-in sessions | PostgreSQL | 14 days, the latest 10 per user | On the next sign-in, or by the reconciler 30 days after expiry | No setting |
+| Slack private channel member lists (`slack_channel_member_cache`, Slack user ids and read times only) | PostgreSQL | 5 minutes | Unused after 5 minutes and deleted by the reconciler. A channel's list is dropped at once when someone joins or leaves it or the bot leaves it, and an install's lists when the app install is revoked | No setting |
 | Slack install state | PostgreSQL | 600 seconds | When used, or when a new link is made | No setting |
 | API keys, users, members, invites, linked accounts | PostgreSQL | Indefinitely | Never. Revoking a key or unlinking leaves a record | No setting |
 | Stored secrets | PostgreSQL (encrypted with the master key) | Indefinitely | Only when a person deletes that connection or App | No setting |
