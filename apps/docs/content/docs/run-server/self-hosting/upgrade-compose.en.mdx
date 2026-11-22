@@ -229,7 +229,7 @@ Migration `0305_drop_unused_tables` drops the `catalog_authority`, `owner_worksp
 <a id="slack-글을-입력-접수-표에-적는-릴리스" />
 ### The release that records Slack posts in the input table
 
-Migration `0313_conversation_inputs` adds the input table `conversation_inputs`. The slack role still turns a mention, a DM or a post in a linked thread into a session turn as before, and in the transaction that marks its inbox row processed it records the post as one input row. From this release it also fills `conversations` and `conversation_topics` from 0310. The upgrade needs nothing from you, and Slack and sessions behave as before.
+Migration `0314_conversation_inputs` adds the input table `conversation_inputs`. The slack role still turns a mention, a DM or a post in a linked thread into a session turn as before, and in the transaction that marks its inbox row processed it records the post as one input row. From this release it also fills `conversations` and `conversation_topics` from 0310. The upgrade needs nothing from you, and Slack and sessions behave as before.
 
 - An input row keeps the post's place (team, channel, ts), its number within the topic (the thread), the requester (a Werft user id, or the Slack user id of an allowed bot) and the turn it became. It keeps no message text.
 - A post that arrives as both a `message` and an `app_mention` event, or that Slack sends again, is one row per agent. A post that became no turn (refused or ignored) is not recorded.
