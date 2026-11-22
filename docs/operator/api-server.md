@@ -1289,6 +1289,23 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/slack-
 
 member는 `403`(`details.reason_code: role`), 다른 workspace는 `404`다. 켜도 guest는 Slack 계정을 연결해야 쓴다. Slack은 에이전트 기능(`agent_view`)을 켠 앱을 guest에게 막으므로, 이 설정은 그 기능을 끈 앱에만 의미가 있다. 이 경우 guest는 이 안내 대신 Slack의 차단 화면을 본다.
 
+### Slack 카드 버튼을 운영자가 누르기
+
+사람이 누르지 않고 카드 버튼 경로를 끝까지 확인할 때 API 컨테이너에서 돌린다. 그 에이전트 Slack 앱의 signing secret으로 Slack과 같은 `v0` 서명을 붙인 `block_actions` 요청을 `/v1/slack/interactions/<agent_id>`에 보낸다. 받는 쪽은 Slack이 보낸 요청과 같은 검사(서명, 5분 시간 창, 앱 id, 누른 사람의 `session.approve` 판정)를 거친다. `DATABASE_URL`과 `PLATFORM_SECRET_KEY`가 있어야 한다.
+
+```sh
+docker compose exec -T api bun run apps/control-host/src/api/slack-interaction-sign.ts \
+  --agent "$AGENT_ID" --action-id permission.allow --value "$BUTTON_VALUE" \
+  --channel C0123 --message-ts 1761300000.000100 --user U0123
+# {"status":200,"request_id":"…","error_code":null}
+```
+
+- `--action-id`와 `--value`는 카드 블록의 버튼에 있는 값을 그대로 쓴다(`--value`는 `{"s":"<session_id>","r":"<request_id>"}` 꼴의 JSON). `--message-ts`는 카드 메시지의 ts, `--user`는 누른 사람으로 칠 Slack 사용자다. 스레드 안 카드면 `--thread-ts`를 더한다.
+- 앱이 여러 Slack 팀에 설치돼 있으면 `--team`을 준다. 보낼 곳은 `--url`로 바꾼다(기본은 `http://127.0.0.1:$PORT`).
+- 출력은 stdout의 JSON 한 줄(HTTP 상태, 요청 id, 오류 코드)이다. signing secret과 서명값은 출력하지 않는다. 버튼 처리 결과는 응답이 아니라 api 로그의 `Slack interaction received`(`result`), `slack_outbox`, 세션 후속 답에서 본다.
+- 모달을 여는 버튼(`question.open`, `permission.allow_note`)은 진짜 trigger가 없어 `views.open`에서 멈춘다. 바로 처리되는 버튼(허용, 거절, 선택지, push 승인)에 쓴다.
+- 종료 코드는 0(2xx), 1(예상 못 한 오류), 2(사용법), 3(서명 키가 있는 에이전트 Slack 앱이나 설치된 팀이 없음), 4(그 밖의 HTTP 상태)다.
+
 ### 판정 감사와 보존 기간
 
 권한 판정(`authorize`)은 기록할 것을 `authz_decisions`에 한 행씩 남긴다. 거절(`deny`)·`redact`·`require_approval`은 모두 남는다. 허용은 관리 action(`workspace.manage`·`audit_retention.manage`·`audit_log.read`·`member.manage`·`team.manage`·`api_key.manage`·`api_key.manage_own`·`agent.create`·`agent.manage`·`agent.restore`·`agent.admin.manage`·`credential.bind`·`binding.manage`·`routine.manage`·`account.link`), 승인(`session.approve`), Slack 입력(Slack 표면의 `session.submit`)만 남는다. 에이전트 읽기(`agent.read`·`agent.settings_read`)의 허용은 남지 않는다. route edge의 scope 부족 403도 같은 판정을 거쳐 남는다. 행의 `request_id`는 응답의 `X-Request-Id`이고, 그 요청이 만든 receipt의 `receipts.request_id`와 같다. 그래서 "누가 시켰나"는 receipt에서 `request_id`로 판정 행을 찾아 답한다.
