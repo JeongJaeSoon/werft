@@ -115,6 +115,25 @@ export function createOutboxSlackNoticeSink(
         dedupeKey: `notice:${notice.onceKey}`,
       });
     },
+    // Posted like a turn that could not go on: in the thread, for everyone
+    // there, in the deployment's language since no one reader is named.
+    async recordInThread(notice) {
+      const locale = DEFAULT_USER_LOCALE;
+      const { message, ...link } = notice.notice;
+      await outbox.enqueue({
+        workspaceId: notice.workspaceId,
+        agentId: notice.agentId,
+        slackAppId: notice.slackAppId,
+        installationId: notice.installationId,
+        kind: "failure_notice",
+        channelId: notice.channelId,
+        threadTs: notice.threadTs,
+        slackUserId: null,
+        sessionId: notice.sessionId,
+        body: { text: SLACK_NOTICE_MESSAGES[locale][message], locale, ...link },
+        dedupeKey: `thread_notice:${notice.onceKey}`,
+      });
+    },
   };
 }
 

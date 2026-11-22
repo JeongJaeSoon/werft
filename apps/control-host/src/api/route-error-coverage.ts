@@ -341,6 +341,8 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/agents/{id}/slack/app/manifest",
     "GET /v1/agents/{id}/slack/app/settings",
     "PUT /v1/agents/{id}/slack/app/settings",
+    "GET /v1/agents/{id}/slack/app/bots",
+    "PUT /v1/agents/{id}/slack/app/bots",
     "POST /v1/agents/{id}/slack/app",
     "GET /v1/workspaces/{id}/slack/apps",
     "DELETE /v1/workspaces/{id}/slack/apps/{app_id}",

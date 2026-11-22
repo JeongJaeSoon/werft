@@ -64,6 +64,13 @@ export const slackKo = {
     "Slack 앱이나 워크스페이스가 일치하지 않아 설치하지 못했습니다. Slack 탭에서 다시 시작하세요.",
   "slack.error.cursor":
     "채널 목록이 바뀌었습니다. 새로고침하여 처음부터 검색하세요.",
+  "slack.error.botUnknown":
+    "이 Slack 워크스페이스의 활성 봇이 아닙니다. 지워졌거나 비활성이 된 봇, 또는 사람 계정입니다.",
+  "slack.error.botOwn": "이 에이전트 자신의 봇은 고를 수 없습니다.",
+  "slack.error.botWerftAgent":
+    "이 Werft에 있는 다른 에이전트의 봇입니다. 에이전트끼리는 Slack으로 부를 수 없습니다.",
+  "slack.error.botOtherTeam":
+    "다른 Slack 워크스페이스의 봇입니다. Slack Connect로 들어온 봇은 고를 수 없습니다.",
   "agent.tabs.slack": "Slack",
   "agents.flow.channels": "채널 연결",
   "slack.app": "Slack 앱",
@@ -185,6 +192,25 @@ export const slackKo = {
   "slack.on": "켜짐",
   "slack.inUseOf": "{channel}에서 사용",
   "slack.mentionOnly": "멘션했을 때만 반응",
+  "slack.bots": "답할 봇",
+  "slack.botsHint":
+    "고른 봇이 이 에이전트를 직접 @멘션하면 답합니다. 한 스레드에서 사람 없이 봇끼리 5번 주고받으면 멈추고, 사람이 글을 쓰면 다시 셉니다. 봇이 연 대화는 개인 연결을 쓰지 않습니다.",
+  "slack.botsNone": "없음",
+  "slack.botsCount": "{count}개",
+  "slack.botsEdit": "변경",
+  "slack.botsTitle": "답할 봇 고르기",
+  "slack.botsDialogHint":
+    "이 Slack 워크스페이스에 있는 봇만 고를 수 있습니다. 이 Werft의 다른 에이전트 봇은 고를 수 없습니다.",
+  "slack.botsEmpty": "고를 수 있는 봇이 없습니다.",
+  "slack.botsSave": "저장",
+  "slack.botsSaved": "답할 봇을 저장했습니다.",
+  "slack.botGone": "Slack에서 사라짐",
+  "slack.botsTruncated":
+    "워크스페이스가 커서 Slack 목록을 끝까지 읽지 못했습니다. 위에 없는 봇은 Slack 사용자 ID로 추가하세요. 추가하면 바로 저장됩니다.",
+  "slack.botAddById": "Slack 사용자 ID로 추가",
+  "slack.botAdd": "추가",
+  "slack.botAdded": "봇을 추가했습니다.",
+  "slack.botIdInvalid": "U 또는 W로 시작하는 Slack 사용자 ID를 넣으세요.",
   "slack.search": "채널 찾기",
   "slack.privateInvite": "/invite 필요",
   "slack.pendingApproval": "승인 대기",

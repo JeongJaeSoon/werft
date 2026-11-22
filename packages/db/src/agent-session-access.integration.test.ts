@@ -237,6 +237,7 @@ integration("agent access on PostgreSQL", () => {
         apiKeyId: who.apiKeyId,
         role,
         keyAgentId: who.keyAgentId ?? null,
+        slackBotUserId: null,
       };
       return lockSessionReach(tx, requester, {
         id: row.id,

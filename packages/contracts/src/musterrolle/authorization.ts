@@ -627,6 +627,9 @@ export const slackUserSchema = z.object({
   is_ultra_restricted: z.boolean().optional(),
   is_stranger: z.boolean().optional(),
   is_external: z.boolean().optional(),
+  is_bot: z.boolean().optional(),
+  /** A deleted or deactivated account. */
+  deleted: z.boolean().optional(),
 });
 
 /**
@@ -658,6 +661,9 @@ export const authorizationSurfaceSchema = z
     // for that agent alone, so a slack request without one is refused.
     agent_id: agentIdSchema.optional(),
     channel_id: opaqueIdSchema.optional(),
+    // The Slack bot user whose direct mention this is. It names no person:
+    // the agent's allow list is read again instead of a linked account.
+    slack_bot_user_id: opaqueIdSchema.optional(),
   })
   .strict()
   .superRefine((surface, ctx) => {
@@ -667,6 +673,7 @@ export const authorizationSurfaceSchema = z
       "ceiling",
       "agent_id",
       "channel_id",
+      "slack_bot_user_id",
     ] as const) {
       if (surface[key] !== undefined) {
         ctx.addIssue({

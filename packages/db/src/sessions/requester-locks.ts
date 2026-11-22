@@ -1,7 +1,7 @@
 import type { SessionScope, WorkspaceRole } from "@werft-ai/contracts";
 import { WORKSPACE_MANAGER_ROLES } from "@werft-ai/contracts";
 import type { Principal, UsageDecision } from "@werft-ai/platform";
-import { and, arrayContains, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, arrayContains, asc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { lockActorAccount } from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
 import { reachesBeforePublishNow } from "../musterrolle/index.ts";
@@ -43,8 +43,13 @@ export type Requester = {
   apiKeyId: string | null;
   /** The person's role now: the user's, or a personal key's creator's. */
   role: WorkspaceRole | null;
-  /** Set for a service key bound to one agent. */
+  /**
+   * Set for a service key bound to one agent, and for a Slack bot that
+   * agent allows.
+   */
   keyAgentId: string | null;
+  /** The allowed Slack bot whose mention this is; no person or key. */
+  slackBotUserId: string | null;
 };
 
 /**
@@ -63,10 +68,35 @@ export async function lockRequester(
     apiKeyId: actor?.apiKeyId?.toLowerCase() ?? null,
     role: null,
     keyAgentId: null,
+    slackBotUserId: actor?.slackBotUserId ?? null,
   };
   // AUTH_MODE=none and keys from before workspaces have no members to lose.
-  if (!actor?.workspaceId) return requester;
+  if (!actor?.workspaceId) {
+    return requester.slackBotUserId === null ? requester : null;
+  }
   const workspaceId = actor.workspaceId;
+  // A bot is no person and no key: it acts as the agent that allows it.
+  // The agent row comes later in the lock order, so lockAgentUsage holds
+  // the allow list; this read only turns a bot already removed away.
+  if (requester.slackBotUserId !== null) {
+    const agentId = actor.agentId?.toLowerCase() ?? null;
+    if (
+      agentId === null ||
+      requester.userId !== null ||
+      requester.apiKeyId !== null ||
+      actor.linkedAccount !== undefined ||
+      !(await allowsSlackBot(
+        tx,
+        workspaceId,
+        agentId,
+        requester.slackBotUserId,
+      ))
+    ) {
+      return null;
+    }
+    requester.keyAgentId = agentId;
+    return requester;
+  }
   if (requester.userId !== null) {
     await lockActorAccount(tx, requester.userId);
     const [member] = await tx
@@ -136,6 +166,27 @@ export async function lockRequester(
   return requester;
 }
 
+async function allowsSlackBot(
+  tx: Database,
+  workspaceId: string,
+  agentId: string,
+  botUserId: string,
+): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: agents.id })
+    .from(agents)
+    .where(
+      and(
+        eq(agents.workspaceId, workspaceId),
+        eq(agents.id, agentId.toLowerCase()),
+        ne(agents.status, "archived"),
+        arrayContains(agents.slackAllowedBotUserIds, [botUserId]),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
 /** Whether a key bound to an agent may act on what `releaseId` runs. */
 export async function keyReaches(
   tx: Database,
@@ -172,7 +223,7 @@ export async function lockAgentUsage(
     .where(eq(agentReleases.id, releaseId))
     .limit(1);
   if (!release) return { allowed: false };
-  return usageOf(tx, {
+  const usage = await usageOf(tx, {
     workspaceId,
     agentId: release.agentId,
     who: {
@@ -182,6 +233,21 @@ export async function lockAgentUsage(
     },
     lock: true,
   });
+  // usageOf holds the agent row now: a bot taken off its allow list since
+  // waits for this write or is seen here.
+  if (
+    usage.allowed &&
+    requester.slackBotUserId !== null &&
+    !(await allowsSlackBot(
+      tx,
+      workspaceId,
+      release.agentId,
+      requester.slackBotUserId,
+    ))
+  ) {
+    return { allowed: false };
+  }
+  return usage;
 }
 
 /**

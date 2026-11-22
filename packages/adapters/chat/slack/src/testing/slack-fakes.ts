@@ -1,6 +1,7 @@
 import type {
   SlackNoticeRecord,
   SlackNoticeSink,
+  SlackThreadNoticeRecord,
 } from "../slack-notice-sink.ts";
 
 export * from "./slack-store-fakes.ts";
@@ -11,11 +12,18 @@ export * from "./slack-store-fakes.ts";
  */
 export function createMemorySlackNoticeSink() {
   const notices: SlackNoticeRecord[] = [];
+  const threadNotices: SlackThreadNoticeRecord[] = [];
   const sink: SlackNoticeSink = {
     async record(notice) {
       if (notices.some((held) => held.onceKey === notice.onceKey)) return;
       notices.push(notice);
     },
+    async recordInThread(notice) {
+      if (threadNotices.some((held) => held.onceKey === notice.onceKey)) {
+        return;
+      }
+      threadNotices.push(notice);
+    },
   };
-  return { sink, notices };
+  return { sink, notices, threadNotices };
 }

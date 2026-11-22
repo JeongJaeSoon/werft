@@ -1130,6 +1130,7 @@ integration("the managing team on PostgreSQL", () => {
             apiKeyId: null,
             role: "member",
             keyAgentId: null,
+            slackBotUserId: null,
           },
           {
             id: randomUUID(),

@@ -21,6 +21,7 @@ import {
   createPostgresSlackGuestSetting,
   createPostgresSlackInboundEventStore,
   createPostgresSlackOutboxStore,
+  createPostgresSlackThreadBotTurnStore,
   createPostgresSurfaceBindingStore,
   type Database,
   getSlackAppSettings,
@@ -211,6 +212,7 @@ export function slackSessionHandler(deps: {
       getSettings: (workspaceId, agentId) =>
         getSlackAppSettings(db, workspaceId, agentId),
     },
+    botTurns: createPostgresSlackThreadBotTurnStore(db),
     sessionLinks: createPostgresSessionLinkStore(db),
     sessions,
     agentDetails: agentStore,

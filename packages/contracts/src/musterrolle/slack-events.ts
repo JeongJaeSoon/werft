@@ -35,6 +35,8 @@ export const SLACK_INBOUND_MAX_ATTEMPTS = 5;
  * - `app_mismatch`: the event names another app than the path agent's.
  * - `bot_message`: posted by a bot (`bot_id`).
  * - `own_bot_user`: posted as this app's bot user.
+ * - `werft_agent_bot`: posted by another agent's bot of this Werft install,
+ *   allowed or not.
  * - `message_subtype`: a message subtype the channel does not take.
  * - `unsupported_event`: an event type the app never subscribes to.
  * - `user_tokens_only`: `tokens_revoked` named no bot token.
@@ -48,6 +50,7 @@ export const SLACK_INBOUND_DROP_REASON_VALUES = [
   "app_mismatch",
   "bot_message",
   "own_bot_user",
+  "werft_agent_bot",
   "message_subtype",
   "unsupported_event",
   "user_tokens_only",

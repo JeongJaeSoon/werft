@@ -57,6 +57,13 @@ export const slackJa = {
     "Slack アプリまたはワークスペースが一致しません。Slack タブからやり直してください。",
   "slack.error.cursor":
     "チャンネル一覧が更新されました。更新して最初から検索してください。",
+  "slack.error.botUnknown":
+    "この Slack ワークスペースの有効なボットではありません。削除・無効化されたボットか、人のアカウントです。",
+  "slack.error.botOwn": "このエージェント自身のボットは選べません。",
+  "slack.error.botWerftAgent":
+    "この Werft にあるほかのエージェントのボットです。エージェント同士は Slack で呼び出せません。",
+  "slack.error.botOtherTeam":
+    "ほかの Slack ワークスペースのボットです。Slack Connect で入ってきたボットは選べません。",
   "agent.tabs.slack": "Slack",
   "agents.flow.channels": "チャンネル接続",
   "slack.app": "Slack アプリ",
@@ -181,6 +188,26 @@ export const slackJa = {
   "slack.on": "オン",
   "slack.inUseOf": "{channel} で使用",
   "slack.mentionOnly": "メンション時のみ応答",
+  "slack.bots": "応答するボット",
+  "slack.botsHint":
+    "選んだボットがこのエージェントを直接 @メンションすると応答します。1 つのスレッドで人を挟まずにボット同士が 5 回やり取りすると止まり、人が書き込むと数え直します。ボットが始めた会話では個人の接続を使いません。",
+  "slack.botsNone": "なし",
+  "slack.botsCount": "{count} 件",
+  "slack.botsEdit": "変更",
+  "slack.botsTitle": "応答するボットを選ぶ",
+  "slack.botsDialogHint":
+    "この Slack ワークスペースのボットだけを選べます。この Werft のほかのエージェントのボットは選べません。",
+  "slack.botsEmpty": "選べるボットがありません。",
+  "slack.botsSave": "保存",
+  "slack.botsSaved": "応答するボットを保存しました。",
+  "slack.botGone": "Slack から削除済み",
+  "slack.botsTruncated":
+    "ワークスペースが大きく、Slack の一覧を最後まで読めませんでした。上にないボットは Slack ユーザー ID で追加してください。追加するとすぐに保存されます。",
+  "slack.botAddById": "Slack ユーザー ID で追加",
+  "slack.botAdd": "追加",
+  "slack.botAdded": "ボットを追加しました。",
+  "slack.botIdInvalid":
+    "U または W で始まる Slack ユーザー ID を入力してください。",
   "slack.search": "チャンネルを検索",
   "slack.privateInvite": "/invite が必要",
   "slack.pendingApproval": "承認待ち",

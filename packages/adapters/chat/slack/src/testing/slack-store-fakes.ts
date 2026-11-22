@@ -254,6 +254,8 @@ export function createMemorySlackAppStore(input: {
   agents: Map<string, SlackAppAgent & { workspaceId: string; active: boolean }>;
   /** Workspace names by id, for link apps. */
   workspaces?: Map<string, string>;
+  /** Each agent's live install, by agent id. */
+  installs?: Map<string, { teamId: string; botUserId: string }>;
   now?: () => Date;
 }) {
   const clock = input.now ?? (() => new Date());
@@ -262,6 +264,7 @@ export function createMemorySlackAppStore(input: {
     string,
     Parameters<SlackAppStore["putSettings"]>[0]["settings"]
   >();
+  const allowedBots = new Map<string, string[]>();
   const faults = { finishCreate: 0 };
   const LIVE = new Set(["creating", "created", "deleting"]);
   const PURPOSES: SlackAppSecretPurpose[] = [
@@ -331,6 +334,24 @@ export function createMemorySlackAppStore(input: {
       const agent = input.agents.get(change.agentId);
       if (agent?.workspaceId !== change.workspaceId) return "not_found";
       settings.set(change.agentId, change.settings);
+      return "saved";
+    },
+    async getAllowedBots(workspaceId, agentId) {
+      const agent = input.agents.get(agentId);
+      if (agent?.workspaceId !== workspaceId) return null;
+      const install = input.installs?.get(agentId) ?? null;
+      return {
+        allowedBotUserIds: [...(allowedBots.get(agentId) ?? [])],
+        install,
+        werftBotUserIds: [...(input.installs?.values() ?? [])]
+          .filter((other) => other.teamId === install?.teamId)
+          .map((other) => other.botUserId),
+      };
+    },
+    async putAllowedBots(change) {
+      const agent = input.agents.get(change.agentId);
+      if (agent?.workspaceId !== change.workspaceId) return "not_found";
+      allowedBots.set(change.agentId, [...change.allowedBotUserIds]);
       return "saved";
     },
     async beginAgentApp(begin) {
@@ -823,6 +844,8 @@ export function createMemoryAgentIdentityStore(
   const identities: AgentIdentityRecord[] = [];
   /** Agents archived since the caller's right was checked. */
   const archived = new Set<string>();
+  /** Other Slack bots each agent answers, by agent id. */
+  const allowedBots = new Map<string, string[]>();
   const receipts: { id: string; identityId: string }[] = [];
   const unused = async (): Promise<never> => {
     throw new Error("not in the memory agent identity store");
@@ -910,10 +933,16 @@ export function createMemoryAgentIdentityStore(
         installationId: installation.id,
         botUserId: identity.externalPrincipalId,
         credentialRef: identity.credentialRef,
+        allowedBotUserIds: allowedBots.get(identity.agentId) ?? [],
+        werftBotUserIds: [...installations]
+          .filter(([at]) => at.endsWith(`|${key.teamId}`))
+          .flatMap(([, row]) =>
+            row.botUserId === null ? [] : [row.botUserId],
+          ),
       };
     },
   };
-  return { store, identities, receipts, archived };
+  return { store, identities, receipts, archived, allowedBots };
 }
 
 type MemoryInboundRow = SlackInboundEventInput & {

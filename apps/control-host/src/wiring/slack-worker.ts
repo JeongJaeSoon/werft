@@ -30,6 +30,7 @@ export interface SlackInboundDeps {
   links: Param<typeof createSlackSessionHandler>["links"];
   bindings: SurfaceBindingStore;
   settings: Param<typeof createSlackSessionHandler>["settings"];
+  botTurns: Param<typeof createSlackSessionHandler>["botTurns"];
   sessionLinks: Param<typeof createSlackSessionHandler>["sessionLinks"];
   sessions: Param<typeof createSlackSessionHandler>["sessions"];
   agentDetails: Param<typeof createSlackSessionHandler>["agentDetails"];
@@ -56,6 +57,7 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
     links: deps.links,
     bindings: deps.bindings,
     settings: deps.settings,
+    botTurns: deps.botTurns,
     sessionLinks: deps.sessionLinks,
     sessions: deps.sessions,
     agentDetails: deps.agentDetails,

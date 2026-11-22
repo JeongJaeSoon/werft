@@ -57,6 +57,13 @@ export const slackEn = {
     "The Slack app or workspace did not match. Start again from the Slack tab.",
   "slack.error.cursor":
     "The channel list changed. Refresh to search again from the beginning.",
+  "slack.error.botUnknown":
+    "Not an active bot of this Slack workspace: a deleted or deactivated bot, or a person's account.",
+  "slack.error.botOwn": "This agent's own bot cannot be chosen.",
+  "slack.error.botWerftAgent":
+    "This bot belongs to another agent of this Werft. Agents cannot call each other over Slack.",
+  "slack.error.botOtherTeam":
+    "A bot of another Slack workspace. Bots that come in through Slack Connect cannot be chosen.",
   "agent.tabs.slack": "Slack",
   "agents.flow.channels": "Connect channels",
   "slack.app": "Slack app",
@@ -179,6 +186,25 @@ export const slackEn = {
   "slack.on": "On",
   "slack.inUseOf": "Use in {channel}",
   "slack.mentionOnly": "Respond only when mentioned",
+  "slack.bots": "Bots to answer",
+  "slack.botsHint":
+    "Answers when a chosen bot @mentions this agent directly. In a thread, it stops after bots trade 5 turns with no person, and counts again once a person writes. Conversations a bot opens use no personal connections.",
+  "slack.botsNone": "None",
+  "slack.botsCount": "{count}",
+  "slack.botsEdit": "Change",
+  "slack.botsTitle": "Choose bots to answer",
+  "slack.botsDialogHint":
+    "Only bots in this Slack workspace can be chosen. Other agents' bots of this Werft cannot.",
+  "slack.botsEmpty": "No bots to choose from.",
+  "slack.botsSave": "Save",
+  "slack.botsSaved": "Bots to answer saved.",
+  "slack.botGone": "Gone from Slack",
+  "slack.botsTruncated":
+    "The workspace is too large to read Slack's whole list. Add a bot missing above by its Slack user ID; it is saved at once.",
+  "slack.botAddById": "Add by Slack user ID",
+  "slack.botAdd": "Add",
+  "slack.botAdded": "Bot added.",
+  "slack.botIdInvalid": "Enter a Slack user ID that starts with U or W.",
   "slack.search": "Find channels",
   "slack.privateInvite": "/invite required",
   "slack.pendingApproval": "Awaiting approval",

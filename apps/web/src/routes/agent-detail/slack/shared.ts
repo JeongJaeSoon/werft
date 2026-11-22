@@ -96,6 +96,14 @@ export function slackReason(error: unknown, t: Translate): string | undefined {
   if (code === "SLACK_INSTALL_REJECTED" || code === "SLACK_INSTALL_CONFLICT")
     return t("slack.error.rejected");
   if (code === "CURSOR_EXPIRED") return t("slack.error.cursor");
+  if (code === "BAD_REQUEST") {
+    const reason = reasonCodeOf(error);
+    if (reason === "slack_bot_own") return t("slack.error.botOwn");
+    if (reason === "slack_bot_werft_agent")
+      return t("slack.error.botWerftAgent");
+    if (reason === "slack_bot_other_team") return t("slack.error.botOtherTeam");
+    if (reason === "slack_bot_unknown") return t("slack.error.botUnknown");
+  }
   if (storeOff(error)) return t("workspace.tokenStoreUnavailable");
   if (code === "BACKEND_UNAVAILABLE") {
     const reason = reasonCodeOf(error);

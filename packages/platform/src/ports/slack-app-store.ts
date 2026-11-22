@@ -33,6 +33,17 @@ export type SlackAppRecord = {
   secrets: Record<SlackAppSecretPurpose, SecretSummary | null>;
 };
 
+/** The bots an agent answers, and its own install to read them against. */
+export type AgentBotAllowList = {
+  allowedBotUserIds: string[];
+  install: { teamId: string; botUserId: string } | null;
+  /**
+   * The bot users of every Slack app this Werft install has in the
+   * install's team, the agent's own among them. Empty without an install.
+   */
+  werftBotUserIds: string[];
+};
+
 /** What the manifest says about the agent, read with its active release. */
 export type SlackAppAgent = {
   id: string;
@@ -126,6 +137,20 @@ export interface SlackAppStore {
     agentId: string;
     actor: SlackAppActor;
     settings: SlackAppSettings;
+  }): Promise<"saved" | "not_found" | "actor_inactive" | "outranked">;
+  /**
+   * The Slack bots the agent answers, and its live install's team and bot
+   * user (null while it has none); null for no such agent.
+   */
+  getAllowedBots(
+    workspaceId: string,
+    agentId: string,
+  ): Promise<AgentBotAllowList | null>;
+  putAllowedBots(input: {
+    workspaceId: string;
+    agentId: string;
+    actor: SlackAppActor;
+    allowedBotUserIds: readonly string[];
   }): Promise<"saved" | "not_found" | "actor_inactive" | "outranked">;
   beginAgentApp(input: {
     workspaceId: string;

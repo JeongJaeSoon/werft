@@ -3625,6 +3625,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{id}/slack/app/bots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the Slack bots the agent may answer
+         * @description Reads the bot accounts of the agent's installed Slack workspace from Slack (`users.list`) now, without the bots of this Werft install's agents (the agent's own among them) or bots of other teams. Agents of one install do not call each other over Slack. Each says whether the agent answers it (`allowed`). The live bots come first, by name; then the allowed bots Slack deleted, deactivated or no longer lists (`state: gone`, `name` null when Slack lists it no longer). The agent answers an allowed bot only when that bot mentions it directly outside a DM; an empty list answers no bot. `truncated` is true when the workspace has more members than one read covers (20 pages of `users.list`): an allowed bot is then still read by its id, and a bot missing from `items` can be added by its Slack user id. 409 SLACK_NOT_INSTALLED while the agent's app is not installed; 503 while Slack limits or does not answer. Owners, admins, the agent's admins and the live members of its managing team, with a web session only.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["getSlackAppBots"];
+        /**
+         * Save which Slack bots the agent answers
+         * @description Replaces the agent's allowed bots with `allowed_user_ids` (at most 20 Slack user ids, none twice; empty answers no bot). A bot added must be a live bot of the installed Slack workspace that belongs to no agent of this Werft install; otherwise 400 with `details.reason_code` `slack_bot_own` (the agent's own bot), `slack_bot_werft_agent` (another agent's bot of this install), `slack_bot_other_team` (a bot of another team, Slack Connect's included) or `slack_bot_unknown` (no live bot), and `details.user_ids` naming the ids refused for that reason. A bot already allowed may stay after Slack lost it. The next event reads the list. A turn an allowed bot starts acts as the agent with no person behind it, so it uses no one's personal connection, and counts toward the session's cost limit. Answers the list as GET does. Agent managers with a web session only.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** required.
+         */
+        put: operations["putSlackAppBots"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{id}/github": {
         parameters: {
             query?: never;
@@ -9302,6 +9330,19 @@ export interface components {
         };
         SlackAppSettings: {
             mention_only: boolean;
+        };
+        GetSlackAppBotsResponse: {
+            items: {
+                user_id: string;
+                name: string | null;
+                /** @enum {string} */
+                state: "active" | "gone";
+                allowed: boolean;
+            }[];
+            truncated: boolean;
+        };
+        PutSlackAppBotsRequest: {
+            allowed_user_ids: string[];
         };
         CreateSlackAppResponse: {
             slack_app: {
@@ -38230,6 +38271,295 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getSlackAppBots: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The agent's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace's bots and the allowed ones that are gone. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "user_id": "U0REVIEW",
+                     *           "name": "code-review",
+                     *           "state": "active",
+                     *           "allowed": true
+                     *         }
+                     *       ],
+                     *       "truncated": false
+                     *     }
+                     */
+                    "application/json": components["schemas"]["GetSlackAppBotsResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `SLACK_NOT_INSTALLED`: The workspace has no verified Slack install for this team. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "SLACK_NOT_INSTALLED";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    putSlackAppBots: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
+                "Idempotency-Key": string;
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                /** @description The agent's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "allowed_user_ids": [
+                 *         "U0REVIEW"
+                 *       ]
+                 *     }
+                 */
+                "application/json": components["schemas"]["PutSlackAppBotsRequest"];
+            };
+        };
+        responses: {
+            /** @description The workspace's bots with the saved list. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "user_id": "U0REVIEW",
+                     *           "name": "code-review",
+                     *           "state": "active",
+                     *           "allowed": true
+                     *         }
+                     *       ],
+                     *       "truncated": false
+                     *     }
+                     */
+                    "application/json": components["schemas"]["GetSlackAppBotsResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `SLACK_NOT_INSTALLED`: The workspace has no verified Slack install for this team. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "SLACK_NOT_INSTALLED";
                         };
                     };
                 };

@@ -505,6 +505,7 @@ describe("OpenAPI document", () => {
         "/v1/agents/{id}/slack-bindings/{binding_id}/approve",
         "/v1/agents/{id}/slack-bindings/{binding_id}/reject",
         "/v1/agents/{id}/slack/app",
+        "/v1/agents/{id}/slack/app/bots",
         "/v1/agents/{id}/slack/app/events/recheck",
         "/v1/agents/{id}/slack/app/manifest",
         "/v1/agents/{id}/slack/app/settings",

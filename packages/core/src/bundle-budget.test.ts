@@ -23,8 +23,9 @@ const BUDGET_BYTES: Record<string, number> = {
   // The Git skill source and sync schemas put ./schemas 487 bytes over 145
   // and ./forms 257 bytes over 143, so they move to 146 and 144. The access
   // decision ask and result schemas put ./schemas 653 bytes over 146 and
-  // ./forms 317 bytes over 144, so they move to 147 and 145.
-  "./schemas": 147 * 1024,
+  // ./forms 317 bytes over 144, so they move to 147 and 145. The Slack bot
+  // allow list schemas put ./schemas 80 bytes over 147, so it moves to 148.
+  "./schemas": 148 * 1024,
   "./forms": 145 * 1024,
 };
 

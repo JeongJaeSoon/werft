@@ -81,7 +81,14 @@ async function run(
         installationId: "inst",
         botUserId: BOT,
         credentialRef: "ref",
+        allowedBotUserIds: [],
+        werftBotUserIds: [],
       }),
+    },
+    botTurns: {
+      reset: () => Promise.resolve(),
+      release: () => Promise.resolve(),
+      claim: () => Promise.resolve({ outcome: "counted" as const }),
     },
     sessionLinks: { find: async () => found },
     bindings: {

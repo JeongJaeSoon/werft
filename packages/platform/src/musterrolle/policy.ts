@@ -40,6 +40,11 @@ export type RecordedActor = {
   apiKeyKind?: DeciderKey["kind"] | null;
   /** The Slack link a person spoke through; a write re-reads it. */
   linkedAccount?: { id: string; revision: number };
+  /**
+   * The allowed Slack bot whose mention this is, for `agentId`; no person.
+   * A write re-reads the agent's allow list.
+   */
+  slackBotUserId?: string;
 };
 
 /** The partition a store reads and writes under. */
@@ -135,7 +140,10 @@ export type IdentityReading =
       status: "ok";
       principal: AuthenticatedPrincipal;
       keyCreator?: { userId: string; role: WorkspaceRole };
-      /** Set for an agent key: the one agent it reaches. */
+      /**
+       * Set for an agent key, and for a Slack bot the agent allows: the one
+       * agent it reaches, with no person behind it.
+       */
       keyAgentId?: string;
     }
   | {
@@ -412,7 +420,12 @@ function viewerOf(reading: {
       keyAgentId: reading.keyAgentId ?? null,
     };
   }
-  return { userId: null, apiKeyId: null, keyAgentId: null };
+  // An allowed bot looks as its agent, as that agent's key does.
+  return {
+    userId: null,
+    apiKeyId: null,
+    keyAgentId: reading.keyAgentId ?? null,
+  };
 }
 
 function claimedActorMatches(
@@ -647,6 +660,14 @@ export function createAuthorizationPolicy(
       ) {
         return ["guest_disabled", []];
       }
+      // A bot names no person: it is either the bot or a linked account.
+      if (
+        surface.slack_bot_user_id !== undefined &&
+        (subject.linked_account !== undefined ||
+          subject.actor_user_id !== undefined)
+      ) {
+        return ["error", []];
+      }
     }
 
     const reading = await identity.reread({
@@ -654,6 +675,13 @@ export function createAuthorizationPolicy(
       principal: subject.principal,
     });
     if (reading.status !== "ok") return [reading.status, []];
+    // An allowed bot is let in as its agent and nothing else.
+    if (
+      surface.slack_bot_user_id !== undefined &&
+      reading.keyAgentId?.toLowerCase() !== surface.agent_id?.toLowerCase()
+    ) {
+      return ["unlinked", []];
+    }
     if (!claimedActorMatches(subject, reading)) return ["error", []];
     if (resource.owner_scope !== ownerScopeOf(reading.principal)) {
       return ["not_found", []];

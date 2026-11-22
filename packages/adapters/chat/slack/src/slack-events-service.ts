@@ -213,7 +213,28 @@ export function createSlackEventsService(deps: {
     // member-joined handler needs exactly that one, so the bot rules apply
     // to messages only.
     if (event.type === "message" || event.type === "app_mention") {
-      if (event.bot_id !== undefined) {
+      // Another agent of this install is never heard over Slack, even when
+      // a stale allow list still names its bot.
+      if (
+        typeof event.user === "string" &&
+        event.user !== resolved.botUserId &&
+        resolved.werftBotUserIds.includes(event.user)
+      ) {
+        return { status: "dropped", dropReason: "werft_agent_bot" };
+      }
+      // Another bot is heard only when the agent allows it and it mentions
+      // the agent directly, outside a DM. The agent's own bot never is.
+      if (
+        event.bot_id !== undefined &&
+        !(
+          typeof event.user === "string" &&
+          resolved.allowedBotUserIds.includes(event.user) &&
+          event.channel_type !== "im" &&
+          (event.type === "app_mention" ||
+            (typeof event.text === "string" &&
+              new RegExp(`<@${resolved.botUserId}(?:\\||>)`).test(event.text)))
+        )
+      ) {
         return { status: "dropped", dropReason: "bot_message" };
       }
       if (event.user === resolved.botUserId) {
@@ -222,7 +243,13 @@ export function createSlackEventsService(deps: {
       if (
         event.type === "message" &&
         event.subtype !== undefined &&
-        !ACCEPTED_SUBTYPES.has(event.subtype)
+        !ACCEPTED_SUBTYPES.has(event.subtype) &&
+        // A person's file in a thread starts the bots' count there over.
+        !(
+          event.subtype === "file_share" &&
+          typeof event.thread_ts === "string" &&
+          event.bot_id === undefined
+        )
       ) {
         return { status: "dropped", dropReason: "message_subtype" };
       }

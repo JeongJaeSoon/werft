@@ -949,6 +949,7 @@ export function createPostgresAchievementJudgments(
             apiKeyId: null,
             role: me.role as WorkspaceRole,
             keyAgentId: null,
+            slackBotUserId: null,
           },
           session,
         );

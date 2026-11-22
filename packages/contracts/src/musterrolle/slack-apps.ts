@@ -219,6 +219,72 @@ export const slackAppSettingsSchema = z
   })
   .strict();
 
+/** How many bots one agent answers; a handful is all agents talk with. */
+export const SLACK_ALLOWED_BOTS_MAX = 20;
+
+/**
+ * Bot-started turns one Slack thread runs in a row with no person writing
+ * there; the next bot mention stops it (the `botTurnLimit` notice names it).
+ */
+export const SLACK_BOT_TURN_LIMIT = 5;
+
+/** `gone`: Slack deleted or deactivated the bot, or no longer lists it. */
+export const SLACK_BOT_STATE_VALUES = ["active", "gone"] as const;
+
+/** A bot of the agent's Slack workspace, and whether the agent answers it. */
+export const slackBotSchema = z
+  .object({
+    user_id: slackIdSchema,
+    /** Null when Slack lists it no longer. */
+    name: z.string().min(1).max(255).nullable(),
+    state: z.enum(SLACK_BOT_STATE_VALUES),
+    allowed: z.boolean(),
+  })
+  .strict();
+
+export const getSlackAppBotsResponseSchema = z
+  .object({
+    /** The workspace's live bots, then the allowed ones that are gone. */
+    items: z.array(slackBotSchema),
+    /**
+     * Slack's list was longer than what was read: a bot missing from
+     * `items` can still be added by its user id.
+     */
+    truncated: z.boolean(),
+  })
+  .strict();
+
+/**
+ * Why a bot id was refused: the agent's own, another agent's of this Werft
+ * install, another team's, no bot.
+ */
+export const SLACK_BOT_REFUSAL_VALUES = [
+  "slack_bot_own",
+  "slack_bot_werft_agent",
+  "slack_bot_other_team",
+  "slack_bot_unknown",
+] as const;
+
+export const putSlackAppBotsRequestSchema = z
+  .object({
+    allowed_user_ids: z
+      .array(slackIdSchema)
+      .max(SLACK_ALLOWED_BOTS_MAX)
+      .refine((ids) => new Set(ids).size === ids.length, {
+        message: "must not repeat a bot",
+      }),
+  })
+  .strict();
+
+export type SlackBot = z.infer<typeof slackBotSchema>;
+export type SlackBotRefusal = (typeof SLACK_BOT_REFUSAL_VALUES)[number];
+export type GetSlackAppBotsResponse = z.infer<
+  typeof getSlackAppBotsResponseSchema
+>;
+export type PutSlackAppBotsRequest = z.infer<
+  typeof putSlackAppBotsRequestSchema
+>;
+
 export const getSlackAppManifestResponseSchema = z
   .object({
     manifest_yaml: z.string(),

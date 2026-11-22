@@ -377,6 +377,21 @@ async function revoke(
  * identity. An event that waited in the inbox while its identity or install
  * was revoked resolves to a drop.
  */
+/**
+ * The bot users of every Slack app of this install in one Slack team,
+ * whichever workspace or state; a revoked app's bot may still post.
+ */
+export async function werftBotUserIds(
+  db: Database,
+  teamId: string,
+): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ botUserId: slackInstallations.botUserId })
+    .from(slackInstallations)
+    .where(eq(slackInstallations.teamId, teamId));
+  return rows.flatMap((row) => (row.botUserId === null ? [] : [row.botUserId]));
+}
+
 export async function resolveSlackEventAgent(
   db: Database,
   key: SlackEventKey,
@@ -395,6 +410,7 @@ export async function resolveSlackEventAgent(
       externalPrincipalId: agentIdentities.externalPrincipalId,
       credentialRef: agentIdentities.credentialRef,
       agentStatus: agents.status,
+      allowedBotUserIds: agents.slackAllowedBotUserIds,
     })
     .from(slackInstallations)
     .leftJoin(
@@ -447,6 +463,8 @@ export async function resolveSlackEventAgent(
     installationId: row.installationId,
     botUserId: row.externalPrincipalId,
     credentialRef: row.credentialRef,
+    allowedBotUserIds: row.allowedBotUserIds ?? [],
+    werftBotUserIds: await werftBotUserIds(db, key.teamId),
   };
 }
 

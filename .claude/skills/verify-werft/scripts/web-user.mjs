@@ -272,6 +272,7 @@ switch (cmd) {
         "malformed",
         "bot",
         "mention",
+        "bot-mention",
         "plain",
         "reply",
         "join",

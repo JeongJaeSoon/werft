@@ -1471,6 +1471,20 @@
       "when": 1795345494163,
       "tag": "0300_setup_links",
       "breakpoints": true
+    },
+    {
+      "idx": 301,
+      "version": "7",
+      "when": 1795350548073,
+      "tag": "0301_slack_bot_mentions",
+      "breakpoints": true
+    },
+    {
+      "idx": 302,
+      "version": "7",
+      "when": 1795350594476,
+      "tag": "0302_slack_werft_agent_bot",
+      "breakpoints": true
     }
   ]
 }
