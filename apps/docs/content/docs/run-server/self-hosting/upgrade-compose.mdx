@@ -146,7 +146,7 @@ SDK를 올리는 릴리스는 이미지가 싣는 런타임 버전을 바꾼다.
 
 ### 설정 문서는 빈 설치에 한 번만 들어간다
 
-이 릴리스부터 migrate는 설정 문서(`SETTINGS_DOCUMENT`, test-ops는 `PLATFORM_SETTINGS_DOCUMENT`)와 옛 설정 디렉터리(`/legacy-config`)를 빈 설치에만 한 번 넣는다(`settings seed`). 그 뒤 연결·저장소·MCP 서버는 콘솔(설정 > 에이전트 연결)에서 바꾼다. 문서를 고쳐 다시 배포해도 들어가지 않는다.
+이 릴리스부터 migrate는 설정 문서(`SETTINGS_DOCUMENT`, test-ops는 `PLATFORM_SETTINGS_DOCUMENT`)를 빈 설치에만 한 번 넣는다(`settings seed`). 그 뒤 연결·저장소·MCP 서버는 콘솔(설정 > 에이전트 연결)에서 바꾼다. 문서를 고쳐 다시 배포해도 들어가지 않는다.
 
 - migration `0282_settings_seed_decided`가 `settings_generation.seed_decided_at` 열을 더한다. 올린 뒤 첫 migrate가 이 시각을 적는다. 연결이나 MCP 서버가 이미 있는 설치(사용 중지한 것 포함)는 아무것도 가져오지 않고 그 시각만 적는다. 저장소 행만 있는 설치는 빈 설치로 보고 한 번 넣는다.
 - 가져오지 않을 때 migrate 로그에 값 없이 한 줄이 남는다: `note: <디렉터리와 문서> not imported: the installation already holds settings. They seed an empty installation only; change settings in the console`. 시각을 적은 뒤에는 `the automatic seed ran on <시각>`으로 나온다. 이 줄은 실패가 아니다.
@@ -165,7 +165,7 @@ SDK를 올리는 릴리스는 이미지가 싣는 런타임 버전을 바꾼다.
 - 실행 경로가 거절할 값(8바이트보다 짧거나 앞뒤 공백·제어 문자가 있는 키, RSA 개인 키 PEM이 아닌 App 키)과 8자보다 짧은 키(저장값은 끝 네 글자를 보여 준다)는 옮기지 않는다. 그 행은 빠지고 `<kind>:<id> is left out and not carried into the database: <이유>. Correct <이름> and restart the API`가 한 번 남는다. 이유에는 변수 이름만 나온다.
 - 명시적 App 저장소를 옮기면 자격 참조가 바뀌어 저장소 binding도 바뀐다. 같은 트랜잭션에서 그 저장소의 옛 binding을 그대로 가진 push 요청과 실행 중 세션의 저장소 토큰을 새 binding으로 옮긴다. 그래서 옮기기 전에 만든 push로 PR을 열고 병합할 수 있고, 실행 중 세션도 토큰을 다시 받는다. 옮긴 행 수는 로그(`… (N push requests and M worker credentials moved to its new binding)`)와 receipt의 `rebound`에 남는다. 아직 옮김을 읽지 않은 replica(10초마다 다시 읽는다)나 앞선 빌드가 그 뒤 옛 binding으로 쓰는 행은 DB가 쓰는 순간 새 binding으로 적는다(위 trigger). 되돌리기 SQL이 `carried_binding`을 비우면 trigger는 아무것도 바꾸지 않는다. 옮기는 트랜잭션은 두 표를 잠가 그동안 push 요청과 worker 토큰을 쓰는 요청이 기다린다. 5초 안에 잠그지 못하면 옮기지 않고 다음 읽기에서 다시 한다. 옮긴 뒤 그 App 키는 `POST /v1/installation/settings/repositories/{id}/credential`(owner·admin, RSA 개인 키 PEM)로 바꾼다. env를 바꿔도 읽지 않는다.
 - **이 릴리스로 올릴 때는 api를 하나로 줄이거나 옛 replica를 모두 내린 뒤 새 빌드를 띄운다.** replica는 저마다 10초마다 설정을 다시 읽으므로, 아직 옮김을 읽지 않은 replica가 그 사이 옮겨진 push 요청을 `catalog_changed`로 실패시키거나 실행 중 세션의 토큰 재발급을 거절할 수 있다. Compose의 api는 하나라 그대로 올리면 된다. Helm은 [Kubernetes 업그레이드](/run-server/self-hosting/upgrade-kubernetes)의 1단계를 따른다. 그렇게 실패한 push는 다시 요청하면 새 binding으로 push된다.
-- 옮긴 뒤 옛 문서를 손으로 `settings import`하면 옮긴 항목은 같은 id에 다른 내용이라 `conflicts`로 멈춘다(`--from-dir`의 저장소는 `kept`로 남는다). 그 항목을 문서에서 빼거나 `settings export`로 받은 문서를 쓴다.
+- 옮긴 뒤 옛 문서를 손으로 `settings import`하면 옮긴 항목은 같은 id에 다른 내용이라 `conflicts`로 멈춘다. 그 항목을 문서에서 빼거나 `settings export`로 받은 문서를 쓴다.
 - URL 저장소(`auth`가 `basic`·`bearer`)는 실행에 쓰이지 않으므로 옮기지 않는다.
 - 되돌리기: 앞선 빌드는 연결·MCP 서버의 저장값은 읽지만 명시적 App 저장소의 저장값은 거절해 그 저장소가 `invalid`로 빠진다. 되돌릴 때는 이 순서를 지킨다.
   1. 이 릴리스의 api replica를 모두 내린다. 하나라도 살아 있으면 다음 설정 읽기(10초 안)에 되돌린 행을 다시 옮긴다.
@@ -191,7 +191,7 @@ COMMIT;
 - 올리기 전에 env나 Secrets Manager를 가리키는 모델 연결마다 지금 릴리스 콘솔의 **화면에서 키 넣기**로 key를 넣어 둔다. 그러면 올린 뒤에도 그 연결의 세션이 멈추지 않는다. 올린 뒤에 넣어도 된다. MCP 서버와 저장소 App key는 지금 릴리스에서 옮길 길이 없으니 올린 뒤 바로 넣는다(아래).
 - 사용 중지한 연결이나 MCP 서버가 env나 Secrets Manager를 가리키면 올린 뒤에는 다시 켤 수 없다. 콘솔은 사용 중지한 행에 key를 받지 않고, key가 없는 행을 켜지 않는다. 그 연결을 계속 쓰려면 올리기 전에 켜고 **화면에서 키 넣기**로 key를 넣는다. MCP 서버는 올리기 전에 켜 두고 올린 뒤 key를 넣는다. 그러지 않았다면 올린 뒤 새 id로 연결이나 서버를 만든다. id는 다시 쓰지 않는다.
 - migration `0288_remove_external_credentials`는 env나 Secrets Manager를 가리키던 행을 값 없는 저장형 행으로 바꾼다. 그 행은 key가 들어갈 때까지 `needs_value`(화면에서 **값 필요**)이고, 그 행을 쓰는 세션은 돌지 않는다. 연결은 **API 키 설정**, MCP 서버는 **값 바꾸기**, 저장소 App key는 위 API로 넣는다. 옛 `auth`는 `carried_auth`에 기록으로만 남고 읽지 않는다. 명시적 App 저장소의 binding이 바뀌므로, 같은 migration이 그 저장소의 worker 자격 증명 binding을 새 값으로 옮긴다. push 요청의 binding은 그 저장소의 App key를 넣을 때 옮기므로, key를 넣기 전에는 올리기 전에 만든 push에서 PR을 열 수 없다. 앞선 api replica가 받은 key는 push를 옮기지 않으므로, 저장소 App key는 모든 api가 새 빌드로 바뀐 뒤 넣는다(먼저 넣었다면 한 번 더 넣는다).
-- 설정 문서의 `value_env`·`secret_id` 항목은 `"stored": true`로 바꾼 뒤 가져온다. 남아 있으면 `settings import`(API, CLI, `--from-dir`)가 400 `invalid_document`로 거절하고, CLI는 그 필드 이름을 오류에 적는다.
+- 설정 문서의 `value_env`·`secret_id` 항목은 `"stored": true`로 바꾼 뒤 가져온다. 남아 있으면 `settings import`(API, CLI)가 400 `invalid_document`로 거절하고, CLI는 그 필드 이름을 오류에 적는다.
 - 올린 뒤 api의 env에서 연결이 가리키던 key 변수(예: `ANTHROPIC_API_KEY`)와 `AWS_ENDPOINT_URL_SECRETS_MANAGER`를 지운다. api는 이 값을 읽지 않는다. Helm은 [Kubernetes 업그레이드](/run-server/self-hosting/upgrade-kubernetes)를 따른다.
 - 콘솔에서 만드는 연결과 MCP 서버는 key가 있어야 저장된다. 웹은 8자 이상을 넣기 전에 저장 버튼을 끄고, API는 key가 없거나 8바이트보다 짧거나 제어 문자·앞뒤 공백이 있으면 400으로 거절하며, DB는 값 없이 콘솔에서 만든 행을 같은 트랜잭션에서 거절한다. 외부 출처 연결을 저장형으로 바꾸던 콘솔의 "화면에서 키 넣기" 버튼과 `POST …/connections/{id}/convert` 경로는 없어졌다.
 - 위 0285 되돌리기 SQL은 이 릴리스 뒤에는 쓸 수 없다. `credential_source`는 `stored`만 허용된다.

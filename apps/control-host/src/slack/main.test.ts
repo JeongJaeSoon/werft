@@ -32,16 +32,13 @@ describe("slack role startup", () => {
     expect(secretKey).toBeInstanceOf(SecretKey);
   });
 
-  test("refuses a leftover file catalog until it is unset", () => {
-    expect(
-      failure(() => slackRoleStartup({ ...base, PLATFORM_CONFIG_DIR: "/c" })),
-    ).toContain("PLATFORM_CONFIG_DIR no longer read");
-    expect(
-      failure(() => slackRoleStartup({ ...base, SESSION_CATALOG_JSON: "{}" })),
-    ).toContain("SESSION_CATALOG_JSON no longer read");
-    expect(
-      slackRoleStartup({ ...base, PLATFORM_CONFIG_DIR: "" }),
-    ).toBeDefined();
+  test("reads no file catalog setting: a leftover one no longer stops it", () => {
+    const { secretKey } = slackRoleStartup({
+      ...base,
+      PLATFORM_CONFIG_DIR: "/c",
+      SESSION_CATALOG_JSON: "{}",
+    });
+    expect(secretKey).toBeInstanceOf(SecretKey);
   });
 
   test("a bad master key or setting stops it before any pass", () => {

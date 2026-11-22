@@ -1,16 +1,16 @@
 ---
 title: "既存 workspace の移行"
-description: "原本を保持しながら legacy workspace を現在の quota に移行します"
+description: "原本を保持しながら別の quota で作った workspace を現在の quota に移行します"
 pageId: "P19"
 docType: "作業"
 audience: "Docker 運用者"
-outcome: "原本を保持しながら legacy workspace を現在の quota に移行します"
+outcome: "原本を保持しながら別の quota で作った workspace を現在の quota に移行します"
 ---
 
 <a id="무엇을-하게-되나" />
 ## 作業内容
 
-label がない legacy volume、または byte quota が異なる workspace を、原本を保持しながら現在の契約に移行します。
+quota なし、または byte quota が異なる状態で作った workspace を、原本を保持しながら現在の契約に移行します。
 
 <a id="준비물" />
 ## 準備
@@ -20,7 +20,7 @@ label がない legacy volume、または byte quota が異なる workspace を�
 * **その volume を参照するコンテナがないこと。** 停止中のコンテナも含みます。再起動するとコピー中の原本へ書き込むためです。存在する場合は名前を表示して拒否します。実行中のセッションなら、先に terminate で停止し（コンテナが削除されます）、移行後に resume します。`docker rm` でコンテナを直接削除すると、進行中の turn が中断し、コンテナを失ったセッションとして処理されます。
 * **scheduler pass lock を取得すること。** pass の実行中は `A scheduler pass holds the lock` と表示して終了します。完了後に再実行します。コピー中は pass が実行されないため、GC も launch も二つの volume に触れません。
 * そのセッションに未完了の回収 claim がないこと。ある場合は次の pass が処理してから再実行します。
-* セッション row が存在し、`closed` でないこと。closed セッションの legacy volume は GC が回収します。row がないセッションの legacy volume には GC もこのコマンドも触れません。名前以外に所有の証拠がないためです。運用者が確認して手動で削除します。
+* セッション row が存在し、`closed` でないこと。closed セッションの workspace は GC が回収します。
 * helper イメージを **digest で固定**し、daemon に取得済みであること。既定値は busybox 1.36（`DEFAULT_MIGRATION_HELPER_IMAGE`）です。先に `docker pull busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662` を実行します。変更には `--helper-image` または `EXECUTION_WORKSPACE_MIGRATION_IMAGE` を使います。
 * quota preflight（`verifyWorkspaceQuota`）に先に合格すること。新しい volume は現在の設定の上限で作成されます。
 
@@ -44,7 +44,7 @@ docker exec "$SCHEDULER_CONTAINER" \
 3. 同じ helper が両方の manifest を比較します。対象はパス集合、種類、mode、uid/gid、symlink の参照先、通常ファイルのサイズ・mtime・SHA-256 です。ディレクトリのサイズと時刻、xattr、ACL は比較しません。busybox の `cp -a` は hard link を保持しないため、内容が同じ別々のファイルになります。その分ディスク使用量が増え、quota に達するとコピーは失敗します。mtime は秒単位まで比較します。
 4. 一致した場合、原本を削除する前に、同じ原本の別のコピーがないか再確認します。あれば別の実行がまだ作業中なので、自分のコピーを破棄して失敗します。原本が別のコンテナに保持されている場合も同じです。いずれでもなければ helper と pin を削除し、**原本を削除します。** この時点から新しい volume がそのセッションの workspace になります。
 
-途中で失敗すると原本は残ります。コピー失敗（quota 超過、helper が作れない device ファイルなど）、不一致、タイムアウト（`--deadline-sec`、既定 3600）、lock 喪失のいずれも同様です。失敗した helper は `docker logs` で確認できるよう残します。pin も残って原本を保持します。再実行すると、まず新しい pin で原本を保持します。その後、残った helper、以前の pin、未完成のコピー（`migration-source` が同じ原本を指すもの）を削除し、最初からコピーします。原本とコピーが共存する間は backend がそのセッションの起動を拒否し、GC は両方を候補から外します。そのためコピー途中のツリーで worker が起動したり、原本だけが先に回収されたりすることはありません。未完了のまま放置すると両方の volume が残るため、再実行するか手動で整理します。コピー作成後に、原本と同名の volume が再作成されている場合もあります。Docker は存在しない名前を mount すると空の volume を作るためです。この場合は作成時刻が一致しないため、コマンドはそのコピーを未完成と判断して削除せず、拒否します。コピーだけが完全な workspace である可能性があるので、両方を手動で比較して整理します。原本の削除後、新しい volume で worker を再起動します。起動するのは次の pass です。それ以前に失敗した launch が再試行待ちなら、その待機終了後の pass になります。legacy volume による launch 失敗も他の失敗と同じく回数が加算されます。上限に達するとセッションが `failed` になるため、できるだけ早く移行します。
+途中で失敗すると原本は残ります。コピー失敗（quota 超過、helper が作れない device ファイルなど）、不一致、タイムアウト（`--deadline-sec`、既定 3600）、lock 喪失のいずれも同様です。失敗した helper は `docker logs` で確認できるよう残します。pin も残って原本を保持します。再実行すると、まず新しい pin で原本を保持します。その後、残った helper、以前の pin、未完成のコピー（`migration-source` が同じ原本を指すもの）を削除し、最初からコピーします。原本とコピーが共存する間は backend がそのセッションの起動を拒否し、GC は両方を候補から外します。そのためコピー途中のツリーで worker が起動したり、原本だけが先に回収されたりすることはありません。未完了のまま放置すると両方の volume が残るため、再実行するか手動で整理します。コピー作成後に、原本と同名の volume が再作成されている場合もあります。Docker は存在しない名前を mount すると空の volume を作るためです。この場合は作成時刻が一致しないため、コマンドはそのコピーを未完成と判断して削除せず、拒否します。コピーだけが完全な workspace である可能性があるので、両方を手動で比較して整理します。原本の削除後、新しい volume で worker を再起動します。起動するのは次の pass です。それ以前に失敗した launch が再試行待ちなら、その待機終了後の pass になります。移行していない volume による launch 失敗も他の失敗と同じく回数が加算されます。上限に達するとセッションが `failed` になるため、できるだけ早く移行します。
 
 <a id="확인" />
 ## 確認

@@ -89,7 +89,6 @@ export async function collectWorkspaces(
   const ttls = await workspaceTtlsOf(options);
   let workspaces: ManagedWorkspace[];
   let retained: Set<string>;
-  let closedLegacy: Set<string>;
   try {
     // Workspaces first, then the rows. A session created between the two
     // calls is in the retained set, so its brand-new workspace is kept;
@@ -97,20 +96,13 @@ export async function collectWorkspaces(
     // unowned by the time it was listed.
     workspaces = await listWorkspaces.call(backend);
     if (workspaces.length === 0) return;
-    const labelled: string[] = [];
-    const named: string[] = [];
-    for (const { sessionFrom, sessionId } of workspaces) {
-      if (sessionId === null) continue;
-      (sessionFrom === "name" ? named : labelled).push(sessionId);
-    }
+    const labelled = workspaces.flatMap(({ sessionId }) =>
+      sessionId === null ? [] : [sessionId],
+    );
     retained =
       labelled.length === 0
         ? new Set<string>()
         : new Set(await store.filterRetainedSessions(labelled, ttls));
-    closedLegacy =
-      named.length === 0
-        ? new Set<string>()
-        : new Set(await store.filterClosedLegacySessions(named));
   } catch (error) {
     // Nothing was removed, so nothing is inconsistent; the next pass
     // reclaims whatever this one could not even look at. It is still a
@@ -131,15 +123,6 @@ export async function collectWorkspaces(
         created_at: workspace.createdAt.toISOString(),
         workspace_id: id,
       });
-      continue;
-    }
-    if (workspace.sessionFrom === "name") {
-      // A name is only a nomination: anything short of a closed row stays,
-      // a stopped one included — the TTL is for workspaces a label proves.
-      // Closed is final, so there is no resume for a claim to hold off.
-      if (!closedLegacy.has(sessionId)) continue;
-      lock.throwIfAborted();
-      await removeUnclaimed(removal, sessionId, id);
       continue;
     }
     if (retained.has(sessionId)) continue;

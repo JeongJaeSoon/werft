@@ -198,7 +198,6 @@ import {
   installedRuntimeVersions,
   launchableKindsFromEnv,
   loadSecretKey,
-  refuseFileCatalog,
   runtimeVersionsFromEnv,
 } from "./catalog-config.ts";
 import {
@@ -386,7 +385,6 @@ const settings = (() => {
     throw error;
   }
 })();
-refuseFileCatalog(process.env);
 const secretKey = loadSecretKey(process.env);
 
 // Checked before the pool exists: a bucket that is missing is a startup
