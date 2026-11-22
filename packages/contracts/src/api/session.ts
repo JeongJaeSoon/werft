@@ -481,12 +481,14 @@ export const sessionSummarySchema = z.object({
       release_label: releaseLabelSchema.nullable().default(null),
       // Null from a server before the field, for the same rollout reason.
       release_is_active: z.boolean().nullable().default(null),
+      // Null from a server before the field, for the same rollout reason.
+      archived: z.boolean().nullable().default(null),
     })
     .nullable()
     .default(null)
     .meta({
       description:
-        "The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.",
+        "The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on), `archived` whether the agent is archived when read (an archived agent runs no new session; its past sessions keep their agent). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.",
     }),
   preview: z.boolean().default(false).meta({
     description:

@@ -1558,6 +1558,7 @@ const EXAMPLE_SESSION_SUMMARY = {
     release_version_no: 3,
     release_label: "2026-10-11_17:00:00",
     release_is_active: true,
+    archived: false,
   },
   preview: false,
   agent_hidden: false,
