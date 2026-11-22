@@ -229,10 +229,10 @@ Migration `0305_drop_unused_tables` drops the `catalog_authority`, `owner_worksp
 <a id="처리한-slack-이벤트-원문을-지우는-릴리스" />
 ### The release that clears the body of processed Slack events
 
-Migration `0307_slack_inbound_payload_check` changes the CHECK on `slack_inbound_events`: a processed or failed row may go without its body (`payload`). This release's slack role clears the body when it finishes processing, and the reconciler clears it on failed rows received more than 7 days ago. The retention is in [Retention by data](/run-server/self-hosting/reference/storage#데이터별-보존).
+Migration `0308_slack_inbound_payload_check` changes the CHECK on `slack_inbound_events`: a processed or failed row may go without its body (`payload`). This release's slack role clears the body when it finishes processing, and the reconciler clears it on failed rows received more than 7 days ago. The retention is in [Retention by data](/run-server/self-hosting/reference/storage#데이터별-보존).
 
 - The new CHECK is looser than the old one. It accepts an earlier slack role that keeps the body, so rolling back to an image inside the support window is fine.
-- Once any row has lost its body, the old CHECK (`slack_inbound_events_dropped_check`) cannot be put back. Do not roll the schema below 0307. A cleared body does not come back.
+- Once any row has lost its body, the old CHECK (`slack_inbound_events_dropped_check`) cannot be put back. Do not roll the schema below 0308. A cleared body does not come back.
 
 <a id="mock-slack-env-이름" />
 ### Mock Slack variable names
