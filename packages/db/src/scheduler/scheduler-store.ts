@@ -983,31 +983,6 @@ export function createPostgresSchedulerStore(
       return [...unjudgeable, ...rows.map((row) => row.id)];
     },
 
-    async filterClosedLegacySessions(sessionIds) {
-      const judgeable = sessionIds.filter((id) => UUID.test(id));
-      if (judgeable.length === 0) return [];
-      // `closed` is final, so no lock is needed: nothing moves a session out
-      // of it, and a launch cannot reserve a slot for a closed session.
-      const rows = await db
-        .select({ id: sessions.id })
-        .from(sessions)
-        .where(
-          and(
-            inArray(sessions.id, judgeable),
-            inArray(sessions.admissionState, FINAL_ADMISSION_STATES),
-            notExists(
-              db
-                .select({ one: sql`1` })
-                .from(workerLaunches)
-                .where(
-                  and(eq(workerLaunches.sessionId, sessions.id), holdsSlot()),
-                ),
-            ),
-          ),
-        );
-      return rows.map((row) => row.id);
-    },
-
     async claimWorkspaceReclaim({
       sessionId,
       workspaceId,

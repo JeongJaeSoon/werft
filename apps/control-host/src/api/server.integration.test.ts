@@ -888,16 +888,8 @@ integration("API server on PostgreSQL", () => {
   );
 
   test(
-    "a leftover file catalog, no master key or a bad HEARTBEAT_TTL_SEC stops the server",
+    "no master key or a bad HEARTBEAT_TTL_SEC stops the server",
     async () => {
-      const leftover = await refusedStart({
-        PLATFORM_CONFIG_DIR: "/app/config",
-      });
-      expect(leftover.exitCode).not.toBe(0);
-      expect(leftover.stderr).toContain(
-        "PLATFORM_CONFIG_DIR no longer read: finish the import",
-      );
-
       const keyless = await refusedStart({ PLATFORM_SECRET_KEY: "" });
       expect(keyless.exitCode).not.toBe(0);
       expect(keyless.stderr).toContain("PLATFORM_SECRET_KEY is required");

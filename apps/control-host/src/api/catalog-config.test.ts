@@ -8,7 +8,6 @@ import {
   loadSecretKey,
   MasterKeyError,
   masterKeyConfigured,
-  refuseFileCatalog,
   runtimeVersionsFromEnv,
   SECRET_KEY_FILE_SETTING,
   SECRET_KEY_SETTING,
@@ -31,25 +30,6 @@ async function fixture(name: Fixture) {
 }
 
 describe("what no longer starts", () => {
-  test("a leftover file catalog is refused with the way out, until it is unset", () => {
-    for (const name of ["PLATFORM_CONFIG_DIR", "SESSION_CATALOG_JSON"]) {
-      expect(() => refuseFileCatalog({ [name]: "x" })).toThrow(
-        `${name} no longer read: finish the import with \`bun run settings import --from-dir <dir>\``,
-      );
-    }
-    expect(() =>
-      refuseFileCatalog({
-        PLATFORM_CONFIG_DIR: "/c",
-        SESSION_CATALOG_JSON: "{}",
-      }),
-    ).toThrow("then unset them");
-    // Compose passes an unset variable through as empty.
-    expect(() =>
-      refuseFileCatalog({ PLATFORM_CONFIG_DIR: "", SESSION_CATALOG_JSON: "" }),
-    ).not.toThrow();
-    expect(() => refuseFileCatalog({})).not.toThrow();
-  });
-
   test("a missing or empty master key is refused, a bad one without its value", () => {
     for (const env of [{}, { [SECRET_KEY_SETTING]: "" }]) {
       expect(() => loadSecretKey(env)).toThrow(

@@ -30,6 +30,16 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - `GET /v1/workspace/skills` 응답의 `review` 값을 `pending`·`approved`·`rejected` 셋으로만 가정하는 API client는 `superseded`를 다루도록 고친다. 대체를 일으킨 `approve_extension`·`revert_extension` receipt의 `result.superseded`에 닫힌 버전의 id와 순번이 남는다. 알림은 없다.
   - rolling deploy 중 옛 replica에서 한 승인은 아무것도 닫지 않는다. 그 사이 승인한 스킬에 남은 오래된 대기 버전은 관리자가 거절하거나 승인해서 닫는다.
 
+- **v0.1.0보다 앞선 설치만을 위한 경로가 없어진다. 그런 설치는 이 판으로 바로 올리지 못하므로, 먼저 이 판보다 앞선 release로 올려 옮긴다**(JeongJaeSoon/werft#2018). 호환 경로는 없다.
+
+  - 파일 카탈로그 가져오기: `settings import|seed --from-dir`(이제 `Unknown option`), compose migrate의 `/legacy-config` 마운트와 `PLATFORM_LEGACY_CONFIG_DIR`, Helm migrate Job의 옛 `catalog` ConfigMap 마운트와 그 seed 단계. compose migrate는 `SETTINGS_DOCUMENT`가 있을 때만 `settings seed --document`를 돈다.
+  - API·slack 역할은 남은 `PLATFORM_CONFIG_DIR`·`SESSION_CATALOG_JSON`으로 기동을 거부하지 않는다. 읽지 않고 뜬다. 정리하려면 지운다.
+  - 설정 CLI(`settings import --document`·`seed`)는 GitHub App 없는 저장소 항목(`auth`가 없거나 `basic`·`bearer`)을 `note:`와 함께 빼지 않고, API import처럼 문서 전체를 거절한다. 진행 중 세션이 가리키는 저장소가 빠지면 거절하던 검사와, DB 행을 남기고 결과의 `kept`로 알리던 규칙도 없어졌다(결과에 `kept`가 없다). test-ops도 그 문서를 컨테이너를 띄우기 전에 같은 메시지로 거절한다.
+  - test-ops는 `catalog_revision`만 적은 옛 `current.json`을 읽지 않는다(`manifest has unknown key catalog_revision`).
+  - 백업·복원: 내장 Gitea 데이터가 든 백업을 exit 3으로 거절하던 검사와, 남은 `<project>_gitea-data` volume에 대한 `backup`·`reset` 경고가 없어졌다. 그런 백업의 `gitea/`·`repos/`는 복원하지 않고 무시한다.
+  - local-docker: isolation contract 6보다 앞선 worker와 network를 위한 특별 처리(교체 전 확인이 실패한 contract 5 미만 worker를 공유 network에서 떼어 내기, contract 5 network의 host 주소 유예, worker 없이 남은 옛 network 재생성)가 없어졌다. contract 5 미만 worker는 다른 옛 contract 컨테이너처럼 stale로 교체되고, 확인이 실패하면 network에 붙은 채 다음 pass를 기다린다. launch와 교체 전 확인은 host 주소가 있는 network를 worker가 붙어 있든 없든 `gives the host an address on it`으로 거절하고 그 자리에서 다시 만들지 않는다. worker가 없어진 network는 `reconcileNetworks`가 지운다. 옛 worker가 남아 교체가 진행되지 않으면 운영자가 확인하고 그 컨테이너를 지운다.
+  - quota label 없이 이름으로 찾던 옛 workspace volume(`werft-ws-<installationId>-<sessionId>`)을 찾지도, GC로 회수하지도, `migrate-workspace`의 원본으로 쓰지도 않는다. 남아 있으면 운영자가 확인하고 `docker volume rm`으로 지운다. `migrate-workspace`는 다른 quota로 만든 label 있는 workspace를 옮기는 데 그대로 쓴다.
+
 - **Slack·GitHub 계정 연결의 일회용 state가 봉인된 cookie로 바뀌어, 올리는 순간 진행 중이던 연결은 한 번 실패한다**(JeongJaeSoon/werft#1997). `werft_slack_link`·`werft_github_link`의 값을 로그인 공급자 flow cookie와 같은 방식(AES-256-GCM, master key에서 뽑은 키)으로 봉인한다. 옛 형식의 cookie는 읽지 않으므로, 올리기 전에 연결을 시작해 동의 화면에 있던 사람은 callback에서 `400`(다시 시작 안내)을 받고 처음부터 다시 한다. 호환 경로는 없다. 데이터와 이미 연결된 계정에는 영향이 없다. Slack 연결도 이제 서버가 시작 뒤 10분을 검사한다(이전에는 브라우저의 cookie 만료에만 기댔다).
 
 - **설치 카탈로그 MCP(설치 owner가 콘솔이나 설정 문서의 `mcp_servers`로 더하던 원격 MCP 서버)가 없어진다. 워크스페이스 MCP 서버로 옮기지 않는다**(JeongJaeSoon/werft#1998).

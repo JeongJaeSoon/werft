@@ -30,10 +30,7 @@ export type SettingsSeedDecision =
   | { outcome: "empty" };
 
 /** One source of the seed, imported under the operator's import rules. */
-export type SettingsSeedStep = {
-  entries: SettingsEntries;
-  databaseOwnsRepositories: boolean;
-};
+export type SettingsSeedStep = { entries: SettingsEntries };
 
 export type SettingsSeedResult =
   | Exclude<SettingsSeedDecision, { outcome: "empty" }>
@@ -64,8 +61,6 @@ export interface SettingsDocumentStore {
     entries: SettingsEntries,
     options: {
       dryRun: boolean;
-      /** An import of an old catalog directory: see `SettingsImportPlan.kept`. */
-      databaseOwnsRepositories?: boolean;
       actor: TeamActor | null;
     },
   ): Promise<SettingsImportResult>;
@@ -79,20 +74,6 @@ export interface SettingsDocumentStore {
    * nothing written and nothing decided.
    */
   seedEntries(steps: readonly SettingsSeedStep[]): Promise<SettingsSeedResult>;
-
-  /**
-   * The sessions not yet `failed` or `stopped` that name one of `ids`: as
-   * the primary repository, in the attached list, or through the policy
-   * list an unset attached list falls back to. Only ids no live catalog row
-   * holds count: the ones an import leaves out.
-   */
-  sessionsOnRepositories(ids: readonly string[]): Promise<
-    Array<{
-      session_id: string;
-      repository_id: string;
-      via: "primary" | "attached" | "policy";
-    }>
-  >;
 
   /**
    * What runs on `connectionId` right now, and whether a workspace's judge

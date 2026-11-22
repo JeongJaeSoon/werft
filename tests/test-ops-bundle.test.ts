@@ -47,7 +47,6 @@ const EXPECTED_FILES = [
   "infra/compose.test-ops.localstack.yml",
   "infra/compose.test-ops.s3.yml",
   "infra/compose.test-ops.yml",
-  "infra/legacy-config/.gitkeep",
   "infra/localstack/init/10-create-resources.sh",
   "infra/test-ops.env.example",
   "infra/test-ops.release.example.json",
