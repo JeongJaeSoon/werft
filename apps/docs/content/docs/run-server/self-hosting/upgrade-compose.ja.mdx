@@ -168,8 +168,8 @@ SDK を上げるリリースでは、イメージが載せるランタイムの�
 
 このリリースから、migrate は設定文書(`SETTINGS_DOCUMENT`、test-ops では `PLATFORM_SETTINGS_DOCUMENT`)を、空のインストールにだけ一度入れます(`settings seed`)。その後、接続・リポジトリ・MCP サーバーはコンソール(設定 > エージェント接続)で変更します。文書を直して再デプロイしても取り込まれません。
 
-- migration `0282_settings_seed_decided` が `settings_generation.seed_decided_at` 列を追加します。アップグレード後の最初の migrate がこの時刻を記録します。接続や MCP サーバーがすでにあるインストール(使用停止したものを含む)は何も取り込まず、時刻だけを記録します。リポジトリ行だけがあるインストールは空とみなし、一度入れます。
-- 取り込まないとき、migrate のログに値を含まない一行が出ます: `note: <ディレクトリと文書> not imported: the installation already holds settings. They seed an empty installation only; change settings in the console`。時刻を記録した後は `the automatic seed ran on <時刻>` と表示されます。この行は失敗ではありません。
+- migration `0282_settings_seed_decided` が `settings_generation.seed_decided_at` 列を追加します。アップグレード後、設定文書を受け取った最初の migrate がこの時刻を記録します。`SETTINGS_DOCUMENT` がなければ migrate は seed を実行しないため、時刻もログも残りません。接続や MCP サーバーがすでにあるインストール(使用停止したものを含む)は何も取り込まず、時刻だけを記録します。リポジトリ行だけがあるインストールは空とみなし、一度入れます。
+- 取り込まないとき、migrate のログに値を含まない一行が出ます: `note: the settings document <ファイル> (SETTINGS_DOCUMENT) not imported: the installation already holds settings. It seeds an empty installation only; change settings in the console`。時刻を記録した後は `the automatic seed ran on <時刻>` と表示されます。この行は失敗ではありません。
 - 文書の内容を意図して入れ直すときは、owner が手で `settings import` を実行します。このコマンドは変わっていません。
 - test-ops の `upgrade` は、変わった文書を取り込まず、DB と比較もしません。文書の digest が変わると `upgrade: the settings document changed; it is not imported into a deployed installation, so change settings in the console` を記録します。`deploy` の確認はそのままです。
 - ロールバックすると、以前のリリースの migrate がデプロイのたびに文書を再び取り込みます。コンソールで変えた項目が文書の同じ id と異なると、その取り込みが拒否されて migrate が失敗し、API が起動しません。ロールバックの前に、そうした項目を文書から外すか、コンソールの値に合わせます。`seed_decided_at` 列は削除しません。以前のビルドはこの列を読みません。

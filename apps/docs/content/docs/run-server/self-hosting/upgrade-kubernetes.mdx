@@ -247,8 +247,7 @@ worker 이미지를 되돌리는 보통의 rollback은 `refused`다. 지금 이�
 
 ### 4. 파일 카탈로그 설치에서 오는 경우
 
-
-
+지금 chart는 옛 `catalog` ConfigMap을 가져오지 않고, migrate Job은 seed를 돌지 않는다. 파일 카탈로그로 돌던 설치는 이 판보다 앞선 release로 먼저 올려 설정을 DB로 옮긴 뒤 올린다([설정 문서 가져오기·내보내기](/run-server/self-hosting/reference/configuration#설정-문서-가져오기내보내기)). `api.extraEnv`에 남은 `PLATFORM_CONFIG_DIR`은 읽지 않으므로 기동을 막지 않는다. 정리하려면 지운다.
 
 ## 확인
 
