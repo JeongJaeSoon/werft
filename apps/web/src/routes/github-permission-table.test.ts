@@ -129,9 +129,10 @@ function copied(path: URL): string {
   const start = text.indexOf("const RANK");
   const fn = text.indexOf("function githubPermissionsMissing(");
   const end = text.indexOf("\n}\n", fn);
-  expect([start, fn, end].every((at) => at >= 0)).toBe(true);
+  const rankEnd = text.indexOf("\n};\n", start);
+  expect([start, rankEnd, fn, end].every((at) => at >= 0)).toBe(true);
   return [
-    text.slice(start, text.indexOf("\n};\n", start) + 3),
+    text.slice(start, rankEnd + 3),
     text.slice(fn, end + 2),
   ].join("\n");
 }
