@@ -211,6 +211,13 @@ migration `0308_turn_requester_auth`가 `turns.requester_auth`(jsonb)와 `tool_c
 - 옛 턴은 고치지 않는다. 턴 읽기 API의 `requester`가 null이거나 `auth_method`가 null로 보인다. `tool_call_audits`의 두 칸은 이 릴리스에서는 비어 있다.
 - 지원 창 안의 이미지로 되돌리면 새 칸을 읽지도 쓰지도 않는다. 그 이미지가 넣은 턴은 근거가 비어 있을 뿐이다.
 
+### 처리한 Slack 이벤트 원문을 지우는 릴리스
+
+migration `0308_slack_inbound_payload_check`가 `slack_inbound_events`의 CHECK를 바꾼다. 처리를 마친 행과 실패한 행은 원문(`payload`) 없이도 된다. 이 릴리스의 slack 역할은 처리를 마치면 원문을 지우고, reconciler는 받은 지 7일이 지난 실패 행의 원문을 지운다. 보존 기간은 [데이터별 보존](/run-server/self-hosting/reference/storage#데이터별-보존)에 있다.
+
+- 새 CHECK는 옛 CHECK보다 느슨하다. 원문을 남기는 앞선 slack 역할의 쓰기도 받으므로, 지원 창 안의 이미지로 되돌려도 된다.
+- 원문을 지운 행이 하나라도 생기면 옛 CHECK(`slack_inbound_events_dropped_check`)를 다시 걸 수 없다. 0308 아래로 스키마를 내리지 않는다. 지운 원문은 돌아오지 않는다.
+
 ### mock Slack env 이름
 
 mock Slack 시험 스택(`infra/compose.mock-slack.yml`)이 쓰던 `SLACK_API_URL`·`SLACK_OIDC_ISSUER`는 `MOCK_SLACK_API_URL`·`MOCK_SLACK_OIDC_ISSUER`로 바뀌었다. 옛 이름은 읽지 않고, 남아 있으면 `Ignored removed settings` 경고에 이름이 나온다. 새 이름에 값이 있으면 주소와 상관없이 시작할 때 `Mock Slack override in use: <이름>` 경고를 한 줄 남긴다. 운영 설정에는 두 이름 모두 두지 않는다.
