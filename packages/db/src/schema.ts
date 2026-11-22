@@ -5880,8 +5880,7 @@ export type CatalogRepositoryAuthKind =
 /**
  * The catalog's repositories. `github_app` rows use the console's GitHub
  * App: seeded or console rows from before, and rows an agent's pick
- * resolved. The other
- * kinds hold their own credential (§1). A row is never deleted, so a
+ * resolved. The other kinds hold their own credential. A row is never deleted, so a
  * catalog id never comes back meaning another repository.
  */
 export const catalogRepositories = pgTable(
