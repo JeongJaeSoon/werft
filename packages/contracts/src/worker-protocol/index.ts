@@ -1539,7 +1539,7 @@ export type ReleaseResponse = z.infer<typeof releaseResponseSchema>;
 // Every POST under /internal/worker. The control-host registers exactly
 // these, and the compatibility baseline (./compat) is keyed by them: a worker
 // still in the support window calls the routes and reads the responses of
-// its own release (docs/contributing/decisions/worker-compat.md).
+// its own release.
 export const WORKER_PROTOCOL_ROUTES = {
   "/bootstrap-claim": {
     request: bootstrapClaimRequestSchema,

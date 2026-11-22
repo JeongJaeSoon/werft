@@ -587,8 +587,8 @@ export function changelogReleases(
 
 /**
  * A table or column a migration drops or renames must be unused by every
- * release still in the support window, so old code reading it keeps working
- * (docs/contributing/decisions/worker-compat.md § 5). The migration names
+ * release still in the support window, so old code reading it keeps working.
+ * The migration names
  * the last release that used it in a `-- contract: <table>[.<column>] last
  * used by vX.Y.Z` line; that release needs RELEASES_AFTER_LAST_USE newer
  * ones in CHANGELOG.md.

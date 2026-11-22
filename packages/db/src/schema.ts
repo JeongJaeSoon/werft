@@ -2299,8 +2299,7 @@ export const authzDecisions = pgTable(
     justification: text(),
     policyVersion: text("policy_version").notNull(),
     requestId: text("request_id").notNull(),
-    // Access decisions (docs/contributing/decisions/access-decisions.md §7);
-    // null on every other row.
+    // Access decisions; null on every other row.
     accessAxis: text("access_axis").$type<AccessAxis>(),
     sessionId: uuid("session_id"),
     turnId: integer("turn_id"),
@@ -5512,8 +5511,7 @@ export const agentActivationEvents = pgTable(
   ],
 );
 
-// docs/contributing/decisions/achievement-rules.md §3: what a workspace counts
-// as an achievement. Categories group rules; a type is what a rule counts.
+// What a workspace counts as an achievement. Categories group rules; a type is what a rule counts.
 export const achievementCategories = pgTable(
   "achievement_categories",
   {

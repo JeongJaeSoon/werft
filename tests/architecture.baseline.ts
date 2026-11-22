@@ -1,7 +1,6 @@
 /**
  * Baselines and no-move lists for the dependency-direction rules in
- * tests/architecture.test.ts (docs/contributing/decisions/package-structure.md
- * section 5 and surface-action-modules.md section 8).
+ * tests/architecture.test.ts.
  *
  * Each baseline is today's violations, written down as they are. It only
  * shrinks: a PR that removes a violation deletes (or lowers) its entry, and a

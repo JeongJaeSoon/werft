@@ -39,7 +39,7 @@ proxy 로그의 `Credential route` 줄에 `purpose: packages`, `registry`, `sess
 
 ### GitHub Packages(사설 npm·gem)
 
-조직의 사설 npm·gem은 `<registry>` `github-npm`(`https://npm.pkg.github.com`)과 `github-rubygems`(`https://rubygems.pkg.github.com`)로 받는다. 공개 레지스트리와 달리 authorizer가 워크스페이스 오너·어드민이 등록한 bot classic PAT를 `Authorization: Bearer`로 붙여 준다. 이 값은 worker에 가지 않는다. 등록·허용 목록·감사의 설계는 [결정: GitHub Packages bot token](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/decisions/github-packages-bot-token.md)에 있다. 설정 작업은 [사설 패키지 registry 허용](/run-server/self-hosting/build-images#사설-패키지-registry-허용)을 따른다.
+조직의 사설 npm·gem은 `<registry>` `github-npm`(`https://npm.pkg.github.com`)과 `github-rubygems`(`https://rubygems.pkg.github.com`)로 받는다. 공개 레지스트리와 달리 authorizer가 워크스페이스 오너·어드민이 등록한 bot classic PAT를 `Authorization: Bearer`로 붙여 준다. 이 값은 worker에 가지 않는다. 설정 작업은 [사설 패키지 registry 허용](/run-server/self-hosting/build-images#사설-패키지-registry-허용)을 따른다.
 
 authorizer는 GitHub 요청을 경로로 판정한다. 허용 목록에 없는 패키지, 알아볼 수 없는 경로, token이 없거나 만료된 경우는 `403`이고 `fetch_github_package` receipt가 `failed`와 `reason_code`로 남는다. 허용한 요청도 같은 receipt가 `succeeded`로 남는다. receipt를 쓸 수 없으면 요청이 실패한다. 이 경로의 proxy 로그는 다른 packages 요청과 같다.
 

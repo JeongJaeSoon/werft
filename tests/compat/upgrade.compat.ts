@@ -6,8 +6,8 @@ import { engineFromEnv } from "../conformance/engines.ts";
 import { Api, e2eStack } from "../e2e/client.ts";
 
 /**
- * One stage of the upgrade tests/compat/run.sh walks a stack through
- * (docs/contributing/decisions/worker-compat.md § 4.1). Session A lives
+ * One stage of the upgrade tests/compat/run.sh walks a stack through.
+ * Session A lives
  * through all three; what a stage learned for the next is kept in
  * COMPAT_STATE.
  *

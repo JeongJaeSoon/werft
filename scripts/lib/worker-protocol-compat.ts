@@ -1,7 +1,6 @@
 /**
  * The worker protocol as data, and what a new control-host would break for a
- * worker of the baseline release
- * (docs/contributing/decisions/worker-compat.md § 3).
+ * worker of the baseline release.
  */
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";

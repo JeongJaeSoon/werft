@@ -2,8 +2,7 @@ import type { ProviderUsage } from "../index.ts";
 
 /**
  * The ledger of provider calls the egress proxy opened before calling
- * upstream and that no usage report has settled yet
- * (docs/contributing/decisions/provider-usage-ledger.md). An open is where
+ * upstream and that no usage report has settled yet. An open is where
  * a session's budget is judged with every call still in flight counted.
  */
 export interface ProviderExchangeLedger {

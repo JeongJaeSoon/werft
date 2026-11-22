@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# The old image sets the worker compatibility job runs against
-# (docs/contributing/decisions/worker-compat.md § 4.1). Appends to
+# The old image sets the worker compatibility job runs against. Appends to
 # GITHUB_OUTPUT:
 #
 #   olds=[{name, commit, control_host, worker, worker_codex, egress_proxy}]
@@ -19,9 +18,9 @@ release_tag="${RELEASE_TAG:-}"
 owner="$(printf '%s' "${GH_REPO%%/*}" | tr '[:upper:]' '[:lower:]')"
 prefix="ghcr.io/${owner}/werft"
 
-# The decision record, the matrix and the runner assume one old release.
+# The matrix and the runner assume one old release.
 if [ "$SUPPORT_WINDOW" != 1 ]; then
-  echo "::error::SUPPORT_WINDOW is ${SUPPORT_WINDOW}; the compatibility job and docs/contributing/decisions/worker-compat.md are written for 1. Change them together."
+  echo "::error::SUPPORT_WINDOW is ${SUPPORT_WINDOW}; the compatibility job and tests/compat/run.sh are written for 1. Change them together."
   exit 1
 fi
 

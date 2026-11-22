@@ -31,8 +31,7 @@ const unaccepted = (found: string[]) =>
 describe("worker protocol against the baseline release", () => {
   test("a worker of the baseline release can still talk to this control-host", () => {
     const open = unaccepted(problems);
-    // On failure: follow the expand → contract order in
-    // docs/contributing/decisions/worker-compat.md § 2, or, when the
+    // On failure: follow the expand → contract order, or, when the
     // difference cannot reach a worker of that release, list it in
     // scripts/lib/worker-protocol-accepted.ts with its proof. Never
     // regenerate the baseline to make this pass.

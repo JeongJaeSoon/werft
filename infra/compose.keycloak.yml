@@ -1,6 +1,5 @@
 # Opt-in overlay: a real Keycloak as a login provider, to drive provider
-# sign-in end to end against a server this repository did not write
-# (docs/contributing/decisions/oidc-login-providers.md, section 10).
+# sign-in end to end against a server this repository did not write.
 #
 # Keycloak joins the API's network namespace, so the API and a browser on
 # this host both reach the realm at http://localhost:${KEYCLOAK_PORT}: one

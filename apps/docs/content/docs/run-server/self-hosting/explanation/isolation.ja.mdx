@@ -49,7 +49,7 @@ proxy ログの `Credential route` 行には `purpose: packages`、`registry`、
 <a id="github-packages사설-npmgem" />
 ### GitHub Packages（プライベート npm・gem）
 
-組織のプライベート npm・gem は `<registry>` の `github-npm`（`https://npm.pkg.github.com`）と `github-rubygems`（`https://rubygems.pkg.github.com`）から取得します。公開 registry と異なり、authorizer がワークスペースのオーナー・アドミンの登録した bot classic PAT を `Authorization: Bearer` として付けます。この値は worker に渡しません。登録・allowlist・監査の設計は[決定：GitHub Packages bot token](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/decisions/github-packages-bot-token.md)を参照してください。設定は[プライベートなパッケージ registry の許可](/run-server/self-hosting/build-images#사설-패키지-registry-허용)に従います。
+組織のプライベート npm・gem は `<registry>` の `github-npm`（`https://npm.pkg.github.com`）と `github-rubygems`（`https://rubygems.pkg.github.com`）から取得します。公開 registry と異なり、authorizer がワークスペースのオーナー・アドミンの登録した bot classic PAT を `Authorization: Bearer` として付けます。この値は worker に渡しません。設定は[プライベートなパッケージ registry の許可](/run-server/self-hosting/build-images#사설-패키지-registry-허용)に従います。
 
 authorizer は GitHub 要求をパスで判定します。allowlist 外のパッケージ、不明なパス、token 不在または期限切れは `403` で、`fetch_github_package` receipt に `failed` と `reason_code` が残ります。許可した要求も同じ receipt に `succeeded` と記録します。receipt を書けなければ要求は失敗します。この経路の proxy ログは他の packages 要求と同じです。
 

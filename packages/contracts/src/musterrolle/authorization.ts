@@ -385,11 +385,9 @@ export const AUTHORIZATION_ACTION_VALUES = [
   // recorded under its own name rather than agent.manage.
   "usage.agent_read",
   // The installation's connections, repositories and remote MCP servers,
-  // and the settings document that exports and imports them: the owner
-  // (docs/contributing/decisions/settings-replace-file-catalog.md §3).
+  // and the settings document that exports and imports them: the owner.
   "installation.settings.manage",
-  // Achievement categories, types, rules and the judge settings
-  // (docs/contributing/decisions/achievement-rules.md §5).
+  // Achievement categories, types, rules and the judge settings.
   "achievement_rule.manage",
   // Confirming or rejecting an achievement: managers and its agent's admins.
   "achievement.review",
@@ -596,7 +594,7 @@ export const AUTHORIZATION_REASON_VALUES = [
   "last_owner",
   "emergency_admin",
   "scope_not_grantable",
-  // Access decisions (docs/contributing/decisions/access-decisions.md §2).
+  // Access decisions.
   // A workspace rule refused, or the policy could not be read.
   "access_policy_denied",
   "access_policy_unavailable",
@@ -746,7 +744,6 @@ export const authorizationResourceSchema = z
 
 // ---------------------------------------------------------------------------
 // Access decisions: memory, MCP connection and answer delivery
-// (docs/contributing/decisions/access-decisions.md §2)
 // ---------------------------------------------------------------------------
 
 export const ACCESS_AXIS_VALUES = ["memory", "mcp", "delivery"] as const;

@@ -1,6 +1,6 @@
 # GitHub sandbox (실제 GitHub)
 
-owner가 워크스페이스에 GitHub App을 등록하고 에이전트 상한을 정하면, 에이전트 릴리스의 GitHub 설정(저장소 범위·기능·Actions 허용 목록·push 승인) 안에서 세션이 실제 GitHub 저장소를 clone하고, 사람이 승인한 commit을 `agent/<session-id>`로 push하고, PR을 열고, 허용 목록의 workflow를 dispatch한다. 모든 토큰은 GitHub 게이트 한 곳이 발급하고, 발급과 거절은 receipt로 남는다. 계약은 `docs/contributing/decisions/github-agent.md`(8·9절이 werft-sandbox 실측 항목)다.
+owner가 워크스페이스에 GitHub App을 등록하고 에이전트 상한을 정하면, 에이전트 릴리스의 GitHub 설정(저장소 범위·기능·Actions 허용 목록·push 승인) 안에서 세션이 실제 GitHub 저장소를 clone하고, 사람이 승인한 commit을 `agent/<session-id>`로 push하고, PR을 열고, 허용 목록의 workflow를 dispatch한다. 모든 토큰은 GitHub 게이트 한 곳이 발급하고, 발급과 거절은 receipt로 남는다. 계약은 설계 문서: 결정: 에이전트 GitHub 설정과 기능별 권한(8·9절이 werft-sandbox 실측 항목)이다.
 
 ## Sub-features
 
@@ -211,7 +211,7 @@ N2는 같은 릴리스로 새 세션을 만들고 `attach_repository` 없이 위
 
 ## PR 본문 읽기와 꼬리 교체 (`get_pull_request`, `expected_body_sha256`)
 
-설계는 `docs/contributing/decisions/pull-request-read.md`의 C다. 위 1–5단계로 세션이 commit A를 push하고 PR을 연 뒤 한다. 릴리스의 `features`는 모두 false여도 된다. fake 모델의 GATE-SPEC으로 MCP 도구를 부르고, 도구 결과는 DB `events`의 `tool_result`에서 읽는다(`/v1/sessions/{id}/events`는 SSE라 `head`로 끊기지 않는다).
+설계는 설계 문서: 결정(설계안): 에이전트가 PR 본문을 읽는 도구와 기존 PR 꼬리 교체의 실제 확인의 C다. 위 1–5단계로 세션이 commit A를 push하고 PR을 연 뒤 한다. 릴리스의 `features`는 모두 false여도 된다. fake 모델의 GATE-SPEC으로 MCP 도구를 부르고, 도구 결과는 DB `events`의 `tool_result`에서 읽는다(`/v1/sessions/{id}/events`는 SSE라 `head`로 끊기지 않는다).
 
 ```sh
 # R1. 사람 글(CRLF 줄, HTML 주석, 끝 공백)과 옛 모양 꼬리로 본문을 바꾼다
