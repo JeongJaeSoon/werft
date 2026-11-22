@@ -71,9 +71,15 @@ const MANIFEST = ".claude-plugin/plugin.json";
 const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
 const textOf = (bytes: Uint8Array): string => decoder.decode(bytes);
 
-/** An authority as the parser cuts it: up to the path, query or fragment. */
-const AUTHORITY = /[^/?#\\]*/y;
-const TRAILING = /[.,;:!?)\]"'`]/;
+/**
+ * A URL ends where Markdown ends it: at whitespace, a line end or an angle
+ * bracket (CommonMark link destinations and autolinks hold none). Inside
+ * that, the authority runs to the path, query or fragment.
+ */
+const AUTHORITY = /[^/?#\\\s<>]*/y;
+/** The rest of the line up to the path, query or fragment. */
+const LINE_AUTHORITY = /[^/?#\\\n]*/y;
+const TRAILING = /[.,;:!?)\]"'`*_~]/;
 
 const count = (text: string, char: string): number =>
   text.split(char).length - 1;
@@ -81,25 +87,17 @@ const count = (text: string, char: string): number =>
 /** The host a client reaches, or null when no URL parser would take it. */
 function parsedHost(scheme: string, authority: string): string | null {
   try {
-    // Userinfo, ports, percent-escapes and IDN spellings resolve as a
-    // client resolves them.
+    // Userinfo, ports, percent-escapes, quotes and IDN spellings resolve as
+    // a client resolves them.
     return new URL(`${scheme}//${authority}`).hostname;
   } catch {
     return null;
   }
 }
 
-/** The host of a URL as prose ends it, for an authority no parser takes whole. */
-function proseHost(scheme: string, raw: string): string {
-  const space = raw.search(/[\s<>]/);
-  let authority = space === -1 ? raw : raw.slice(0, space);
-  // A quote ends a URL in prose, unless an "@" after it makes the quote
-  // userinfo: then the host is past it, where the parser reads it.
-  if (!authority.includes("@")) {
-    authority = /^[^"'`]*/.exec(authority)?.[0] ?? "";
-  }
-  // Markdown's closing ")" or "]", quotes and a sentence's end are not the
-  // URL's; a bracket that closes one opened before it (IPv6) is.
+/** Markdown's closing ")" or "]", quotes and a sentence's end at a URL's end. */
+function withoutTrailing(authority: string): string {
+  // A bracket that closes one opened before it (IPv6) is the URL's.
   const opened = { ")": count(authority, "("), "]": count(authority, "[") };
   const closed = { ")": count(authority, ")"), "]": count(authority, "]") };
   let cut = authority.length;
@@ -111,28 +109,37 @@ function proseHost(scheme: string, raw: string): string {
     }
     cut -= 1;
   }
-  authority = authority.slice(0, cut);
-  // Unparseable still: the raw authority, a host nobody named.
-  return parsedHost(scheme, authority) ?? authority;
+  return authority.slice(0, cut);
 }
 
 function hostsOf(text: string): Set<string> {
   const hosts = new Set<string>();
+  const add = (host: string) =>
+    hosts.add(host.toLowerCase().replace(/\.$/, ""));
   for (const start of text.matchAll(URL_START)) {
     const scheme = start[0].slice(0, start[0].indexOf(":") + 1);
-    // As the parser does: extra slashes before the host are skipped, and the
-    // authority runs to the path, query or fragment, past spaces, quotes and
-    // line ends. The next URL starts with "//", so no authority reaches into
-    // it and the text is read once.
+    // The parser skips extra slashes before the host. Each authority stops
+    // at the next URL's "//" at the latest, so the text is read once.
     let from = start.index + start[0].length;
     while (text[from] === "/" || text[from] === "\\") from++;
     AUTHORITY.lastIndex = from;
-    const raw = AUTHORITY.exec(text)?.[0] ?? "";
-    // The parser drops tabs and line ends before it reads.
-    const host =
-      parsedHost(scheme, raw.replace(/[\t\n\r]/g, "")) ??
-      proseHost(scheme, raw);
-    hosts.add(host.toLowerCase().replace(/\.$/, ""));
+    let authority = AUTHORITY.exec(text)?.[0] ?? "";
+    const next = text[from + authority.length];
+    const ended = next === undefined || /[\s<>]/.test(next);
+    // Punctuation is the sentence's only where the URL ends; before a path
+    // the parser keeps it in the host.
+    if (ended) authority = withoutTrailing(authority);
+    add(parsedHost(scheme, authority) ?? authority);
+    // A parser handed the whole line reads past a space, tab or angle
+    // bracket into userinfo when an "@" follows: that host counts too.
+    if (ended && next !== undefined && next !== "\n") {
+      LINE_AUTHORITY.lastIndex = from;
+      const line = LINE_AUTHORITY.exec(text)?.[0] ?? "";
+      if (line.indexOf("@", authority.length) !== -1) {
+        const host = parsedHost(scheme, line.replace(/[\t\r]/g, ""));
+        if (host !== null) add(host);
+      }
+    }
   }
   return hosts;
 }
@@ -257,8 +264,7 @@ export function checkSkillVersion(
       }
     }
 
-    // Hosts come from the whole file: the parser drops a line end inside a
-    // URL, so one URL can span lines that a view of added lines splits.
+    // Hosts come from the whole file, compared with every approved file's.
     for (const host of hostsOf(text)) {
       if (!beforeHosts.has(host)) flag("new_url", file.path, host);
     }

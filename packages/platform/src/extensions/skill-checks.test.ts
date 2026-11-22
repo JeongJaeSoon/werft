@@ -216,15 +216,13 @@ describe("what a check cannot be talked out of", () => {
     expect(hostOf("https://known.example\r@evil.example/")).toEqual([
       "evil.example",
     ]);
-    // What the parser reads past, the checks read past: spaces, angle
-    // brackets and NBSP in userinfo, a line end, extra slashes before the
-    // host, and tab padding of any length.
+    // A space, tab, NBSP or angle bracket before an "@" on the same line,
+    // extra slashes before the host, and tab padding of any length: the
+    // host a parser handed the line reaches counts too.
     for (const [text, host] of [
       ["https://known.example @evil.example/", "evil.example"],
       ["https://known.example<@evil.example/", "evil.example"],
       ["https://known.example\u{A0}@evil.example/", "evil.example"],
-      ["https://known.example\n.evil.example/", "known.example.evil.example"],
-      ["https://known.example\n@evil.example/", "evil.example"],
       [
         `https://known.example${"\t".repeat(1025)}@evil.example/`,
         "evil.example",
@@ -234,6 +232,14 @@ describe("what a check cannot be talked out of", () => {
     ] as const) {
       expect(hostOf(text)).toContain(host);
     }
+    // A line end ends a URL, as in Markdown: a link and the next line's
+    // text are not one URL, and nothing is read across.
+    expect(
+      hostOf("[API](https://evil.example)\n\nContact support@known.example/"),
+    ).toEqual(["evil.example"]);
+    expect(hostOf("[Docs](https://known.example)")).toBeUndefined();
+    expect(hostOf("https://known.example\n\nNotes")).toBeUndefined();
+    expect(hostOf("https://known.example\n@evil.example/")).toBeUndefined();
     // A quote or punctuation the parser keeps in the host is a new host.
     for (const text of [
       "https://known.example'evil.example/",
