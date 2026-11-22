@@ -51,7 +51,7 @@ Memory is 2 × peak rounded up to 512MiB increments. Session counts assume a nod
 sessions per node = floor((node allocatable memory - sum of other Pod requests on the node) / worker.memoryMb)
 ```
 
-With a dedicated worker node group (`worker.nodeSelector`, `worker.tolerations`), other Pod requests are mostly DaemonSets. Ignoring DaemonSet requests on a node with 30GiB allocatable gives:
+With a dedicated worker node group (`worker.nodeSelector`, `worker.tolerations`), other Pod requests are mostly DaemonSets. Counting DaemonSet requests as 0 on a node with 30GiB allocatable gives:
 
 | `worker.memoryMb` | Sessions/node |
 |---|---|
