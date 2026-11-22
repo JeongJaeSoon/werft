@@ -188,6 +188,7 @@ test("generated, executable and workflow files next to prose are not prose", () 
     "THIRD_PARTY_NOTICES.md",
     "CHANGELOG.md",
     "scripts/verify/github-sandbox/settings.json",
+    "scripts/verify/up.sh",
     ".github/workflows/ci.yml",
     ".github/actions/setup/README.md",
     ".github/scripts/ci-plan.sh",
