@@ -74,11 +74,13 @@ describe("translated pages keep the Korean code blocks", () => {
   }
 
   test("P01–P33 and the held pages have explicit language states", () => {
+    // P31 and P33 were the contributing page, which left the site.
+    const retired = new Set(["P31", "P33"]);
     for (const id of [
       ...Array.from(
         { length: 33 },
         (_, i) => `P${String(i + 1).padStart(2, "0")}`,
-      ),
+      ).filter((id) => !retired.has(id)),
       "H01",
       "H02",
     ]) {

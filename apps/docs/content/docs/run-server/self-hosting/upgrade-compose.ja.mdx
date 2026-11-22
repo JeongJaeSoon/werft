@@ -235,6 +235,13 @@ migration `0310_turn_requester_auth` が `turns.requester_auth`(jsonb)と `tool_
 - 古いターンは直さない。ターン読み取り API の `requester` が null、または `auth_method` が null に見える。`tool_call_audits` の二つの列はこのリリースでは空のままである。
 - サポート期間内のイメージに戻すと、新しい列は読みも書きもしない。そのイメージが入れたターンは根拠が空になるだけである。
 
+<a id="대화-층의-빈-표-셋을-더한-릴리스" />
+### 会話層の空の表を三つ追加したリリース
+
+migration `0310_conversation_scopes` が `channel_contexts`(チャンネルの単位)・`conversations`(エージェントのメイン会話)・`conversation_topics`(会話の話題)の表を空のまま作る。このリリースのコードはまだこれらの表を読み書きしないので、上げるときにすることはなく、Slack とセッションの動作も変わらない。
+
+- サポート期間内のイメージに戻しても影響はない。古いコードはこれらの表を知らない。
+
 <a id="처리한-slack-이벤트-원문을-지우는-릴리스" />
 ### 処理した Slack イベントの原文を消すリリース
 

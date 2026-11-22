@@ -235,6 +235,13 @@ Migration `0310_turn_requester_auth` adds `turns.requester_auth` (jsonb) and `to
 - Older turns are left as they are. The turn read API shows them with `requester` null or `auth_method` null. The two `tool_call_audits` columns stay empty in this release.
 - Rolling back to an image inside the support window neither reads nor writes the new columns. Turns that image queues simply have no credential recorded.
 
+<a id="대화-층의-빈-표-셋을-더한-릴리스" />
+### The release that adds three empty conversation tables
+
+Migration `0310_conversation_scopes` creates the `channel_contexts` (channel objects), `conversations` (an agent's main conversations) and `conversation_topics` (a conversation's topics) tables, empty. No code in this release reads or writes them yet, so the upgrade needs nothing from you, and Slack and sessions behave as before.
+
+- Rolling back to an image inside the support window is unaffected. Older code does not know these tables.
+
 <a id="처리한-slack-이벤트-원문을-지우는-릴리스" />
 ### The release that clears the body of processed Slack events
 

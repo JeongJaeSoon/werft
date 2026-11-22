@@ -41,7 +41,7 @@ bun examples/sdk-discovery/src/discover.ts
 
 各サンプルは失敗すると終了コード 1 になり、API エラーなら code・message・request ID を stderr に書きます。作ったセッションは最後に close して worker を返します。失敗した実行はセッションをそのまま残すので、出力された session ID でコンソールから確認して閉じます。
 
-単体テストは `bun test examples` です。サンプルの CLI をそのまま起動し、[testing/sample-server.ts](https://github.com/JeongJaeSoon/werft/blob/main/examples/testing/sample-server.ts) の偽の `/v1` に対して動かし、出力と送ったリクエストを確認します。CI はこのテストと型検査を実行し、`sdk-release` workflow は npm の配布物を空のプロジェクトにインストールして、すべてのサンプルの実行ファイルを `skipLibCheck` なしで型検査します。実際のスタックに対する実行は CI にありません。サンプル 1 つが worker の起動を含めて数十秒から数分かかり、`sdk-close` は drain の 60 秒を待ち、セッション経路の全体は `e2e` job(`tests/e2e`)が同じスタックですでに確認しているためです。
+単体テストは `bun test examples` です。サンプルの CLI をそのまま起動し、[testing/sample-server.ts](https://github.com/JeongJaeSoon/werft/blob/main/examples/testing/sample-server.ts) の偽の `/v1` に対して動かし、出力と送ったリクエストを確認します。
 
 ## どのサンプルがどの API を使うか
 

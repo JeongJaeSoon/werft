@@ -211,6 +211,12 @@ migration `0310_turn_requester_auth`가 `turns.requester_auth`(jsonb)와 `tool_c
 - 옛 턴은 고치지 않는다. 턴 읽기 API의 `requester`가 null이거나 `auth_method`가 null로 보인다. `tool_call_audits`의 두 칸은 이 릴리스에서는 비어 있다.
 - 지원 창 안의 이미지로 되돌리면 새 칸을 읽지도 쓰지도 않는다. 그 이미지가 넣은 턴은 근거가 비어 있을 뿐이다.
 
+### 대화 층의 빈 표 셋을 더한 릴리스
+
+migration `0310_conversation_scopes`가 `channel_contexts`(채널 개체)·`conversations`(에이전트의 메인 대화)·`conversation_topics`(대화의 주제) 표를 빈 채로 만든다. 이 릴리스의 코드는 아직 이 표를 읽거나 쓰지 않으므로 올릴 때 할 일은 없고, Slack과 세션의 동작도 그대로다.
+
+- 지원 창 안의 이미지로 되돌려도 영향이 없다. 옛 코드는 이 표를 모른다.
+
 ### 처리한 Slack 이벤트 원문을 지우는 릴리스
 
 migration `0308_slack_inbound_payload_check`가 `slack_inbound_events`의 CHECK를 바꾼다. 처리를 마친 행과 실패한 행은 원문(`payload`) 없이도 된다. 이 릴리스의 slack 역할은 처리를 마치면 원문을 지우고, reconciler는 받은 지 7일이 지난 실패 행의 원문을 지운다. 보존 기간은 [데이터별 보존](/run-server/self-hosting/reference/storage#데이터별-보존)에 있다.

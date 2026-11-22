@@ -37,6 +37,7 @@ scripts/test-ops.sh start
 After changing the env file, reapply the same release with `scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`. Do not assume `start` applies changed env values.
 
 Database and workspace volumes remain. LocalStack stores objects in memory without a volume, so removing its container loses checkpoint objects even without `-v`. The API refuses to start if the database has uncollected checkpoints but the bucket is empty. See the reseed conditions under [restarting a trial installation](/run-server/self-hosting/try-localstack#자주-막히는-곳).
+
 <a id="호스트-재부팅" />
 ### Reboot the host
 
