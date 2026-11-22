@@ -102,24 +102,13 @@ export function settingsSnapshot(
       });
     }
   }
-  const mcp_servers: Record<string, CatalogMcpServer> = {};
-  for (const { id, server } of settings.mcpServers) {
-    try {
-      const resolved = resolveSessionCatalog(
-        { repositories: {}, mcp_servers: { [id]: server } },
-        lookup,
-      ).mcp_servers?.[id];
-      if (resolved) mcp_servers[id] = resolved;
-    } catch (error) {
-      left_out.push({ entry: `mcp:${id}`, reason: describeConfigError(error) });
-    }
-  }
   return {
     generation: settings.generation,
     connections,
     judge_connections,
     repositories,
-    mcp_servers,
+    // The installation catalog MCP is retired: no host reads one.
+    mcp_servers: {},
     left_out,
     unavailable_repositories: unavailable,
     unavailable_connections: unavailableConnections,
@@ -184,19 +173,7 @@ export function settingsView(
     ),
     judge_connections: {},
     repositories,
-    mcp_servers: Object.fromEntries(
-      settings.mcpServers.map(({ id, server }) => [
-        id,
-        {
-          ...server,
-          auth: {
-            kind: "bearer" as const,
-            value: credential(),
-            ref: credentialRefOf(server.auth),
-          },
-        },
-      ]),
-    ),
+    mcp_servers: {},
     left_out: settings.invalid.map((entry) => ({
       entry,
       reason: "does not parse",

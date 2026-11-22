@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
-import { canonicalJsonOfJson, newMcpServerIdSchema } from "@werft-ai/contracts";
+import {
+  canonicalJsonOfJson,
+  RETIRED_CATALOG_MCP_MESSAGE,
+} from "@werft-ai/contracts";
 import { z } from "zod";
 import { repoRefOf } from "../action/ports/forge.ts";
 import {
   BILLING_NONE_ENDPOINT_MESSAGE,
   billingFitsEndpoint,
-  type CatalogMcpServerConfig,
   type CatalogProviderConfig,
   type CatalogRepositoryConfig,
   CONNECTION_ENDPOINT_DEFAULTS,
@@ -22,15 +24,16 @@ import {
 
 /**
  * The installation's settings as one document without a secret value:
- * connections, repositories and
- * remote MCP servers, each entry in the shape its file gave it. A value the
- * database stores is marked `stored: true` (with its `last4` on export)
- * and is never named: an imported `stored` entry always means its own row,
- * so a document cannot point one row at another's value.
+ * connections and repositories, each entry in the shape its file gave it. A
+ * value the database stores is marked `stored: true` (with its `last4` on
+ * export) and is never named: an imported `stored` entry always means its
+ * own row, so a document cannot point one row at another's value.
+ * `mcp_servers` is still read so an older export with none imports, but the
+ * installation catalog MCP is retired.
  */
 export const SETTINGS_DOCUMENT_VERSION = 1;
 
-export type SettingsKind = StoredOwnerKind;
+export type SettingsKind = Exclude<StoredOwnerKind, "mcp">;
 
 type Provider = CatalogProviderConfig;
 
@@ -46,18 +49,27 @@ export type SettingsEntries = {
   /** By connection id; a connection absent here offers no model. */
   connection_models?: Record<string, ConnectionModels>;
   repositories: Record<string, CatalogRepositoryConfig>;
-  mcp_servers: Record<string, CatalogMcpServerConfig>;
 };
 
 export type SettingsDocument = {
   version: typeof SETTINGS_DOCUMENT_VERSION;
   connections: Record<string, unknown>;
   repositories: Record<string, unknown>;
-  mcp_servers: Record<string, unknown>;
 };
 
 export class SettingsDocumentError extends Error {
   override name = "SettingsDocumentError";
+}
+
+/**
+ * A document naming any installation catalog MCP server is refused whole,
+ * naming the servers and never a value.
+ */
+export function refuseCatalogMcp(names: readonly string[]): void {
+  if (names.length === 0) return;
+  throw new SettingsDocumentError(
+    `The settings document is invalid: mcp_servers (${[...names].sort().join(", ")}): ${RETIRED_CATALOG_MCP_MESSAGE}`,
+  );
 }
 
 const documentShape = z
@@ -241,9 +253,9 @@ export function parseSettingsDocument(input: unknown): SettingsEntries {
       `The settings document is invalid: connections.${describeConfigError(connections.error)}`,
     );
   }
+  refuseCatalogMcp(Object.keys(document.mcp_servers));
   const catalog = sessionCatalogConfigSchema.safeParse({
     repositories: ownedAll("repository", "repositories", document.repositories),
-    mcp_servers: ownedAll("mcp", "mcp_servers", document.mcp_servers),
   });
   if (!catalog.success) {
     throw new SettingsDocumentError(
@@ -254,7 +266,6 @@ export function parseSettingsDocument(input: unknown): SettingsEntries {
     connections: connections.data,
     connection_models: split.models,
     repositories: catalog.data.repositories,
-    mcp_servers: catalog.data.mcp_servers ?? {},
   };
 }
 
@@ -318,7 +329,6 @@ export function settingsDocumentOf(
     version: SETTINGS_DOCUMENT_VERSION,
     connections,
     repositories: section(entries.repositories),
-    mcp_servers: section(entries.mcp_servers),
   };
 }
 
@@ -387,7 +397,6 @@ export type ExistingSettingsEntry = {
 export type ExistingSettings = {
   connections: ReadonlyMap<string, ExistingSettingsEntry>;
   repositories: ReadonlyMap<string, ExistingSettingsEntry>;
-  mcp_servers: ReadonlyMap<string, ExistingSettingsEntry>;
   /**
    * Stored values already sealed under a `<kind>:<id>`: a new row on that
    * id would take a value someone set for another destination.
@@ -402,8 +411,7 @@ export type SettingsImportAdd =
       entry: Provider;
       models?: ConnectionModels | undefined;
     }
-  | { kind: "repository"; id: string; entry: CatalogRepositoryConfig }
-  | { kind: "mcp"; id: string; entry: CatalogMcpServerConfig };
+  | { kind: "repository"; id: string; entry: CatalogRepositoryConfig };
 
 export type SettingsImportPlan = {
   add: SettingsImportAdd[];
@@ -415,8 +423,7 @@ export type SettingsImportPlan = {
   needs_value: string[];
   /**
    * Same id, other content; a GitHub repository another id already holds;
-   * a new stored entry whose id already has a value; or a new MCP server
-   * on a reserved name.
+   * or a new stored entry whose id already has a value.
    */
   conflicts: string[];
   /**
@@ -478,10 +485,6 @@ export function planSettingsImport(
         if (source === "stored" && !row.has_value) plan.needs_value.push(ref);
         continue;
       }
-      if (kind === "mcp" && !newMcpServerIdSchema.safeParse(id).success) {
-        plan.conflicts.push(ref);
-        continue;
-      }
       if (source === "stored") {
         if (existing.stored_values.has(ref)) {
           plan.conflicts.push(ref);
@@ -501,7 +504,6 @@ export function planSettingsImport(
   };
   visit("connection", incoming.connections, existing.connections);
   visit("repository", incoming.repositories, existing.repositories);
-  visit("mcp", incoming.mcp_servers, existing.mcp_servers);
 
   // The console App's rows are found by owner/name, one row each.
   const appNames = new Map<string, string>();

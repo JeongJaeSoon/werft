@@ -45,7 +45,7 @@ import type { Outcome } from "../../components/outcome.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
 import { StatusScreen } from "../../components/status-screen.tsx";
 import { type Translate, useI18n } from "../../i18n/i18n.tsx";
-import { mcpSettingsKey, mcpSettingsQuery } from "./mcp-settings.ts";
+import { nextVersion } from "./versions.tsx";
 
 /** Under the agent's key, so whatever refreshes the agent refreshes these. */
 const bindingsKey = (client: ApiClient, agentId: string) =>
@@ -95,16 +95,12 @@ export function Credentials({
   const invalidateBindings = () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: bindingsKey(client, agentId) }),
-      queryClient.invalidateQueries({
-        queryKey: mcpSettingsKey(client, agentId),
-      }),
       queryClient.invalidateQueries(agentListsFilter(client)),
     ]);
   const [revoking, setRevoking] = useState<CredentialBindingView | null>(null);
 
   const bindings = useQuery(credentialBindingsQuery(client, agentId));
-  const settings = useQuery(mcpSettingsQuery(client, agentId));
-  const named = settings.data?.settings.credential_refs ?? [];
+  const named = cardRefs(detail);
 
   const refused = (error: ApiError) =>
     error.code === "CREDENTIAL_REF_IN_USE"
@@ -319,20 +315,35 @@ export function Credentials({
 export function unboundRefs(
   error: ApiError,
   detail: AgentDetail,
-  settingsRefs: readonly string[] = [],
 ): readonly string[] | null {
   if (error.code !== "CREDENTIAL_UNBOUND") return null;
   const details = error.details as Partial<ActivationCredentialUnboundDetails>;
   if (details?.reason_code !== "credential_unbound") return [];
   const missing: unknown = details.missing;
   if (!Array.isArray(missing)) return [];
-  const named = new Set([
-    ...settingsRefs,
-    ...detail.versions.flatMap(
+  const named = new Set(
+    detail.versions.flatMap(
       (version) => version.card.capabilities.credential_refs ?? [],
     ),
-  ]);
+  );
   return missing.filter((ref) => named.has(ref));
+}
+
+/**
+ * The names the agent runs with: the active release's card and the one a next
+ * release would take, since activating it checks its names.
+ */
+export function cardRefs(detail: AgentDetail): readonly string[] {
+  const active = detail.versions.find(
+    (version) => version.id === detail.active_release?.version_id,
+  );
+  return [
+    ...new Set(
+      [active, nextVersion(detail)].flatMap(
+        (version) => version?.card.capabilities.credential_refs ?? [],
+      ),
+    ),
+  ];
 }
 
 /** Why activation stopped, with the way to the step that fixes it. */

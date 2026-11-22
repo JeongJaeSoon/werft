@@ -85,7 +85,6 @@ import {
   sql,
 } from "drizzle-orm";
 import { captureWorkspaceMcpStart } from "./agents/agent-workspace-mcp.ts";
-import { captureMcpStart } from "./agents/mcp-settings.ts";
 import { earlierInSecond, releaseLabel } from "./agents/release-labels.ts";
 import { workerRuntimeView } from "./checkpoints/checkpoint-runtime.ts";
 import {
@@ -477,12 +476,6 @@ export function createPostgresSessionUnitOfWork(
           const reason = await lockedNotRunnable(tx, input.agentReleaseId);
           if (reason !== null) return { outcome: "not_runnable", reason };
         }
-        // The settings are locked and read before the names are judged, so
-        // the session stores the very list that was checked.
-        const mcpStart =
-          input.agentReleaseId === undefined
-            ? null
-            : await captureMcpStart(tx, input.agentReleaseId);
         const workspaceMcpStart =
           input.agentReleaseId === undefined
             ? null
@@ -498,7 +491,6 @@ export function createPostgresSessionUnitOfWork(
         ) {
           const reach = await startReach(tx, {
             releaseId: input.agentReleaseId,
-            mcpStart,
             workspaceMcpStart,
             githubPolicySource: input.githubPolicySource ?? "release",
             repositoryIds: [
@@ -530,9 +522,6 @@ export function createPostgresSessionUnitOfWork(
             await lockUnboundRefs(tx, {
               workspaceId: scope.principal,
               releaseId: input.agentReleaseId,
-              ...(mcpStart === null
-                ? { fromRelease: true as const }
-                : { names: mcpStart.credential_refs }),
             })
           ).length > 0
         ) {
@@ -600,7 +589,6 @@ export function createPostgresSessionUnitOfWork(
           extensions: input.extensions ?? null,
           githubPolicySource: input.githubPolicySource ?? "release",
           githubPolicyStart,
-          mcpStart,
           workspaceMcpStart,
           envStart:
             envCapture.outcome === "resolved" ? envCapture.envStart : null,

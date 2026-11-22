@@ -14,7 +14,6 @@ const keyFile =
 
 type Seed = {
   connections?: Record<string, string>;
-  mcp_servers?: Record<string, string>;
   repositories?: string[];
 };
 const seed = JSON.parse(await Bun.stdin.text()) as Seed;
@@ -40,8 +39,6 @@ async function set(section: string, id: string, value: string) {
 
 for (const [id, value] of Object.entries(seed.connections ?? {}))
   await set("connections", id, value);
-for (const [id, value] of Object.entries(seed.mcp_servers ?? {}))
-  await set("mcp-servers", id, value);
 if (seed.repositories?.length) {
   const pem = readFileSync(keyFile, "utf8");
   for (const id of seed.repositories) await set("repositories", id, pem);

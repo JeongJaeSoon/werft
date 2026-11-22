@@ -7,7 +7,6 @@ import {
 import { type ApiClient, type ApiError, unwrap } from "@werft-ai/client";
 import type {
   ListSettingsConnectionsResponse,
-  ListSettingsMcpServersResponse,
   SettingsChangeResponse,
   SettingsCredentialView,
   SettingsEntryState,
@@ -44,16 +43,14 @@ import type { Outcome } from "../components/outcome.tsx";
 import { focusBack } from "../components/row-menu.tsx";
 import { type Translate, useI18n } from "../i18n/i18n.tsx";
 
-export type SettingsKind = "connection" | "mcp";
+export type SettingsKind = "connection";
 
 const SEGMENT = {
   connection: "connections",
-  mcp: "mcp-servers",
 } as const satisfies Record<SettingsKind, string>;
 
 const PERMISSION: Record<SettingsKind, ManagedPermission> = {
   connection: "installation.settings.manage",
-  mcp: "installation.settings.manage",
 };
 
 const listKey = (client: ApiClient, kind: SettingsKind) =>
@@ -126,18 +123,6 @@ function settingsConnectionImpactQuery(
     retry: false,
     staleTime: 0,
     gcTime: 0,
-  });
-}
-
-export function settingsMcpServersQuery(client: ApiClient, enabled = true) {
-  return queryOptions({
-    queryKey: listKey(client, "mcp"),
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/installation/settings/mcp-servers"),
-      ) as Promise<ListSettingsMcpServersResponse>,
-    enabled,
-    retry: false,
   });
 }
 
@@ -222,13 +207,6 @@ function setCredential(
           params,
         ),
       );
-    case "mcp-servers":
-      return unwrap(
-        client.POST(
-          "/v1/installation/settings/mcp-servers/{id}/credential",
-          params,
-        ),
-      );
   }
 }
 
@@ -246,17 +224,9 @@ function disableEntry(
           params,
         ),
       );
-    case "mcp-servers":
-      return unwrap(
-        client.POST(
-          "/v1/installation/settings/mcp-servers/{id}/disable",
-          params,
-        ),
-      );
   }
 }
 
-/** Connections only: an MCP server cannot be enabled again. */
 function enableConnection(
   client: ApiClient,
   id: string,

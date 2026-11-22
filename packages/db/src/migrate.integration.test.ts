@@ -10,7 +10,11 @@ import {
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLogger, MemoryLogSink } from "@werft-ai/observability";
+import {
+  createLogger,
+  type LogRecord,
+  MemoryLogSink,
+} from "@werft-ai/observability";
 import {
   createTempDatabase,
   testDatabaseUrl,
@@ -22,6 +26,9 @@ import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
 
 const integrationTest = testDatabaseUrl() ? test : test.skip;
 const totalMigrations = expectedMigrations().length;
+
+const withoutNotices = (records: readonly LogRecord[]) =>
+  records.filter((record) => record.message !== "db.migrate.notice");
 
 function captureLogger() {
   const sink = new MemoryLogSink();
@@ -75,7 +82,7 @@ integrationTest(
         total: totalMigrations,
       });
       expect(
-        sink.records.map(({ level, message, fields }) => ({
+        withoutNotices(sink.records).map(({ level, message, fields }) => ({
           level,
           message,
           fields,
@@ -201,10 +208,9 @@ integrationTest(
         applied: 0,
         total: totalMigrations,
       });
-      expect(sink.records.map(({ message }) => message)).toEqual([
-        "db.migrate.adopted",
-        "db.migrate.noop",
-      ]);
+      expect(
+        withoutNotices(sink.records).map(({ message }) => message),
+      ).toEqual(["db.migrate.adopted", "db.migrate.noop"]);
 
       const verified = new Pool({
         connectionString: testUrl.toString(),
@@ -248,9 +254,26 @@ integrationTest(
         applied: 0,
         total: totalMigrations,
       });
-      expect(sink.records.map(({ message }) => message)).toEqual([
-        "db.migrate.applied",
-        "db.migrate.noop",
+      // A migration's RAISE NOTICE reaches the log with its text; the
+      // server's own notices do not, and 0303 says nothing with nothing to
+      // retire.
+      expect(
+        sink.records.map(({ message, fields }) => [message, fields?.notice]),
+      ).toEqual([
+        [
+          "db.migrate.notice",
+          "0133: sessions.workspace_id filled from owner_id on 0 rows",
+        ],
+        [
+          "db.migrate.notice",
+          "0139: agent_admins filled from agents.created_by on 0 rows",
+        ],
+        [
+          "db.migrate.notice",
+          "0163: 0 workspace keys deleted, 0 sessions detached from them",
+        ],
+        ["db.migrate.applied", undefined],
+        ["db.migrate.noop", undefined],
       ]);
     } finally {
       await database.drop();

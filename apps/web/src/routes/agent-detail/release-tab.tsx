@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
   ActivateAgentResponse,
@@ -21,7 +21,6 @@ import type { Outcome } from "../../components/outcome.tsx";
 import { RevisionDiff } from "../../components/revision-diff.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { CredentialUnbound, unboundRefs } from "./credentials.tsx";
-import { mcpSettingsQuery } from "./mcp-settings.ts";
 import { type Placed, PlacedOutcome, TakesFocus } from "./placement.tsx";
 import { Releases } from "./releases.tsx";
 import { movesForward, rolledBackText } from "./rollback-preview.ts";
@@ -38,12 +37,10 @@ interface Conflict {
  */
 export function useReleaseActivation({
   detail,
-  manages,
   onOutcome,
   openRelease,
 }: {
   readonly detail: AgentDetail;
-  readonly manages: boolean;
   readonly onOutcome: (outcome: Outcome | null) => void;
   readonly openRelease: () => void;
 }) {
@@ -55,9 +52,6 @@ export function useReleaseActivation({
   const [conflict, setConflict] = useState<Conflict | null>(null);
   // The names the last refused activation found unbound.
   const [unbound, setUnbound] = useState<readonly string[] | null>(null);
-  const settingsRefs =
-    useQuery({ ...mcpSettingsQuery(client, agent.id), enabled: manages }).data
-      ?.settings.credential_refs ?? [];
   const releaseLabel = (releaseId: string | null) => {
     const release = detail.releases.find((r) => r.id === releaseId);
     return release
@@ -191,7 +185,7 @@ export function useReleaseActivation({
         openRelease();
         return;
       }
-      const missing = unboundRefs(error, detail, settingsRefs);
+      const missing = unboundRefs(error, detail);
       if (missing) {
         setUnbound(missing);
         openRelease();

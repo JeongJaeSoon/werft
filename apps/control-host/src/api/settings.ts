@@ -5,6 +5,7 @@ import { createLogger } from "@werft-ai/observability";
 import {
   messageOf,
   parseSettingsDocument,
+  refuseCatalogMcp,
   type SettingsDocument,
   SettingsDocumentError,
   type SettingsDocumentStore,
@@ -115,9 +116,9 @@ function parse(argv: string[]) {
 
 /**
  * The old catalog directory as a settings document: connections.yaml,
- * repositories.yaml and mcp-servers.yaml under their own rules. A
- * profiles.yaml is not read: profiles are gone, and a connection lists the
- * models agents may pick.
+ * repositories.yaml under their own rules, and mcp-servers.yaml only to be
+ * refused when it names a server. A profiles.yaml is not read: profiles are
+ * gone, and a connection lists the models agents may pick.
  */
 export async function documentFromDir(dir: string): Promise<{
   document: SettingsDocument;
@@ -127,10 +128,11 @@ export async function documentFromDir(dir: string): Promise<{
   const notes: string[] = [];
   const skipped: string[] = [];
   const config = await readCatalogConfig(dir, notes, skipped);
+  // The directory becomes a document, so it is refused as one would be.
+  refuseCatalogMcp(Object.keys(config.mcp_servers ?? {}));
   const entries: SettingsEntries = {
     connections: { ...(await readConnections(dir)) },
     repositories: config.repositories,
-    mcp_servers: config.mcp_servers ?? {},
   };
   if (await Bun.file(resolve(dir, PLATFORM_FILE)).exists()) {
     notes.push(

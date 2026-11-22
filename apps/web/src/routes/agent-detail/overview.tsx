@@ -42,8 +42,7 @@ import { withNodes } from "../../components/with-nodes.tsx";
 import { type Locale, useI18n } from "../../i18n/i18n.tsx";
 import { usagePeriod } from "../operations.tsx";
 import { usageSummaryQuery } from "../usage.tsx";
-import { credentialBindingsQuery } from "./credentials.tsx";
-import { mcpSettingsQuery } from "./mcp-settings.ts";
+import { cardRefs, credentialBindingsQuery } from "./credentials.tsx";
 import { ModelRemovedAlert } from "./model-removed.tsx";
 import { nextVersion, shownVersion } from "./versions.tsx";
 
@@ -206,11 +205,10 @@ export function AgentReadiness({
   const { client } = useWerft();
   const bindings = useQuery(credentialBindingsQuery(client, detail.agent.id));
   const { agent } = detail;
-  const settings = useQuery(mcpSettingsQuery(client, detail.agent.id));
   const active = detail.versions.find(
     (version) => version.id === detail.active_release?.version_id,
   );
-  const refs = settings.data?.settings.credential_refs ?? [];
+  const refs = cardRefs(detail);
   const bound = new Set(
     (bindings.data?.items ?? [])
       .filter((binding) => binding.revoked_at === null)
@@ -218,35 +216,29 @@ export function AgentReadiness({
   );
   const missing = refs.filter((ref) => !bound.has(ref));
 
-  const credentials: { state: StepState; desc: ReactNode } = settings.error
-    ? { state: "unknown", desc: null }
-    : settings.isPending
-      ? {
-          state: "pending",
-          desc: <Skeleton lines={1} label={t("status.loading.title")} />,
-        }
-      : refs.length === 0
-        ? { state: "done", desc: t("agent.ready.credentialsNone") }
-        : bindings.isPending
-          ? {
-              state: "pending",
-              desc: <Skeleton lines={1} label={t("status.loading.title")} />,
-            }
-          : bindings.error
-            ? { state: "unknown", desc: null }
-            : missing.length === 0
-              ? {
-                  state: "done",
-                  desc: t("agent.ready.credentialsBound", {
-                    count: refs.length,
-                  }),
-                }
-              : {
-                  state: "todo",
-                  desc: t("agent.ready.credentialsMissing", {
-                    names: missing.join(", "),
-                  }),
-                };
+  const credentials: { state: StepState; desc: ReactNode } =
+    refs.length === 0
+      ? { state: "done", desc: t("agent.ready.credentialsNone") }
+      : bindings.isPending
+        ? {
+            state: "pending",
+            desc: <Skeleton lines={1} label={t("status.loading.title")} />,
+          }
+        : bindings.error
+          ? { state: "unknown", desc: null }
+          : missing.length === 0
+            ? {
+                state: "done",
+                desc: t("agent.ready.credentialsBound", {
+                  count: refs.length,
+                }),
+              }
+            : {
+                state: "todo",
+                desc: t("agent.ready.credentialsMissing", {
+                  names: missing.join(", "),
+                }),
+              };
   const released = detail.releases.length > 0;
   const newer = nextVersion(detail);
   const upToDate =

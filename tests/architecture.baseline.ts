@@ -120,6 +120,7 @@ export const pathFixed: readonly string[] = [
   "packages/db/src/testing/launches.ts",
   "packages/db/src/testing/login-provider.ts",
   "packages/db/src/testing/member-manage-allow.ts",
+  "packages/db/src/testing/retired-catalog.ts",
   "packages/db/src/testing/setup-link.ts",
   "packages/db/src/testing/spec-pins.ts",
   "packages/platform/src/testing/agent-welcomable-contract.ts",

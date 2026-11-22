@@ -1,24 +1,20 @@
 import type {
   AuthorizationAction,
   CreateSettingsConnectionRequest,
-  CreateSettingsMcpServerRequest,
   DiscoverConnectionModelsResponse,
   ListSettingsConnectionsResponse,
-  ListSettingsMcpServersResponse,
   SettingsChangeResponse,
   SettingsConnection,
   SettingsConnectionImpactResponse,
   SettingsCredentialView,
   SettingsEntryOrigin,
   SettingsEntryState,
-  SettingsMcpServer,
 } from "@werft-ai/contracts";
 import {
   BILLING_NONE_ENDPOINT_MESSAGE,
   billingFitsEndpoint,
   type CatalogConnection,
   CatalogCredentialError,
-  type CatalogMcpServerConfig,
   type CatalogProviderConfig,
   CONNECTION_ENDPOINT_DEFAULTS,
   isRegisteredGitHubApp,
@@ -59,7 +55,6 @@ type GitHubAppAuthView = Parameters<typeof isRegisteredGitHubApp>[0];
 // the console only replaces the key of one naming its own GitHub App.
 const ACTION: Record<DocumentSettingsKind, AuthorizationAction> = {
   connection: "installation.settings.manage",
-  mcp: "installation.settings.manage",
   repository: "workspace.manage",
 };
 
@@ -83,13 +78,13 @@ function credentialOf(
 }
 
 /**
- * A connection's or MCP server's value as the catalog will take it, refused
- * before it is sealed: a value the catalog refuses would leave the row out
- * on every read. Counted in characters too, so the last four the console
- * shows never give away half of it.
+ * A connection's value as the catalog will take it, refused before it is
+ * sealed: a value the catalog refuses would leave the row out on every
+ * read. Counted in characters too, so the last four the console shows never
+ * give away half of it.
  */
 function headerValue(kind: SettingsKind, id: string, value: string): string {
-  const path = `${kind === "connection" ? "connections" : "mcp_servers"}.${id}.auth`;
+  const path = `connections.${id}.auth`;
   const ref = { stored: `${kind}:${id}` };
   try {
     resolveCredential(path, ref, () => value);
@@ -110,8 +105,8 @@ function headerValue(kind: SettingsKind, id: string, value: string): string {
 }
 
 /**
- * The installation settings from the console: the owner makes connections and MCP servers with a value they
- * type, replaces that value or disables the row. Writes go through the settings
+ * The installation settings from the console: the owner makes connections
+ * with a value they type, replaces that value or disables the row. Writes go through the settings
  * document store's own transaction and locks; no destination and no
  * operator reference is ever written here.
  */
@@ -217,8 +212,7 @@ export function createSettingsConsoleService(deps: {
     throw error;
   }
 
-  function parsed(
-    section: "connections" | "mcp_servers",
+  function parsedConnection(
     id: string,
     entry: Record<string, unknown>,
   ): SettingsImportAdd {
@@ -226,25 +220,16 @@ export function createSettingsConsoleService(deps: {
     try {
       entries = parseSettingsDocument({
         version: 1,
-        connections: {},
+        connections: { [id]: entry },
         repositories: {},
-        mcp_servers: {},
-        [section]: { [id]: entry },
       });
     } catch (error) {
       invalid(error);
     }
-    if (section === "connections") {
-      return {
-        kind: "connection",
-        id,
-        entry: entries.connections[id] as Provider,
-      };
-    }
     return {
-      kind: "mcp",
+      kind: "connection",
       id,
-      entry: entries.mcp_servers[id] as CatalogMcpServerConfig,
+      entry: entries.connections[id] as Provider,
     };
   }
 
@@ -465,36 +450,12 @@ export function createSettingsConsoleService(deps: {
       };
     },
 
-    async listMcpServers(
-      caller: Caller,
-    ): Promise<ListSettingsMcpServersResponse> {
-      await writer(caller, "mcp");
-      const items = await rowItems<SettingsMcpServer>(
-        "mcp",
-        (id, entry, meta) => {
-          const server = entry as CatalogMcpServerConfig;
-          return {
-            id,
-            origin: meta.origin,
-            state: meta.state,
-            url: server.url,
-            credential_ref: server.credential_ref,
-            workspaces: [...server.workspaces],
-            credential: credentialOf(server.auth, meta.last4),
-            created_at: meta.created_at,
-            disabled_at: meta.disabled_at,
-          };
-        },
-      );
-      return { items };
-    },
-
     createConnection(caller: Caller, request: CreateSettingsConnectionRequest) {
       return create(
         caller,
         "connection",
         () => {
-          const add = parsed("connections", request.id, {
+          const add = parsedConnection(request.id, {
             kind: request.kind,
             ...(request.endpoint === undefined
               ? {}
@@ -520,21 +481,6 @@ export function createSettingsConsoleService(deps: {
           }
           return add;
         },
-        request.value,
-      );
-    },
-
-    createMcpServer(caller: Caller, request: CreateSettingsMcpServerRequest) {
-      return create(
-        caller,
-        "mcp",
-        () =>
-          parsed("mcp_servers", request.id, {
-            url: request.url,
-            credential_ref: request.credential_ref,
-            auth: { kind: "bearer", stored: true },
-            workspaces: request.workspaces,
-          }),
         request.value,
       );
     },
@@ -630,23 +576,6 @@ export function createSettingsConsoleService(deps: {
     enableConnection(caller: Caller, id: string) {
       return onRow(caller, "connection", id, (actor) =>
         store.enableConnection(id, actor),
-      );
-    },
-
-    setMcpWorkspaces(caller: Caller, id: string, workspaces: string[]) {
-      // The catalog's rule for the field (catalogMcpServerSchema).
-      if (new Set(workspaces).size !== workspaces.length) {
-        return Promise.reject(
-          new SessionServiceError(
-            "BAD_REQUEST",
-            "workspaces: must not repeat a workspace",
-            undefined,
-            { reason_code: "invalid_entry" },
-          ),
-        );
-      }
-      return onRow(caller, "mcp", id, (actor) =>
-        store.setMcpWorkspaces(id, workspaces, actor),
       );
     },
   };

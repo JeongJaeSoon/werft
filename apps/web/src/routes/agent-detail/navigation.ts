@@ -32,7 +32,6 @@ export function agentSearch(search: Record<string, unknown>): AgentSearch {
 export const PLACE_TAB = {
   page: undefined,
   card: "card",
-  mcp: "access",
   workspaceMcp: "access",
   skills: "access",
   credentials: "access",

@@ -59,7 +59,6 @@ const ENTRIES: SettingsEntries = {
   },
   connection_models: {},
   repositories: {},
-  mcp_servers: {},
 };
 
 const PLAN = {
@@ -107,7 +106,6 @@ const DOCUMENT = {
     },
   },
   repositories: {},
-  mcp_servers: {},
 };
 
 describe("settings document service", () => {

@@ -4,12 +4,12 @@ import type { PGlite } from "@electric-sql/pglite";
 import * as schema from "@werft-ai/db";
 import {
   createPostgresMcpEgressStore,
-  createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
 } from "@werft-ai/db";
 import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import { launchSession } from "@werft-ai/db/testing/launches";
+import { beforeCatalogRetired } from "@werft-ai/db/testing/retired-catalog";
 import {
   releaseSpecColumns,
   TEST_CONNECTION_ID,
@@ -23,7 +23,7 @@ import {
 } from "@werft-ai/platform";
 import { acceptAllCheckpoints } from "@werft-ai/platform/testing/checkpoints";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { testCatalog } from "../testing/catalog.ts";
 import {
@@ -31,9 +31,14 @@ import {
   EGRESS_AUTHORIZER_PATH,
 } from "./egress-authorizer.ts";
 
-const AUTHORIZER_TOKEN = "authorizer-token-of-at-least-32-characters";
-const SERVICE_ACCOUNT = "sa-value-kept-from-the-worker";
+const AUTHORIZER_BEARER = "authorizer-test-value";
+const RETIRED = {
+  name: "fake",
+  url: "http://fake-mcp:4020/mcp",
+  credentialRef: "mcp/fake",
+};
 
+// A new host: the installation catalog holds no MCP server.
 const catalog: SessionCatalog = testCatalog({
   provider: {
     kind: "anthropic",
@@ -49,18 +54,6 @@ const catalog: SessionCatalog = testCatalog({
       url: "https://git.invalid/agent/app.git",
       branch: "main",
       auth: { kind: "github_app", registered: true } as const,
-    },
-  },
-  mcp_servers: {
-    fake: {
-      url: "http://fake-mcp:4020/mcp",
-      credential_ref: "mcp/fake",
-      auth: {
-        kind: "bearer",
-        value: SERVICE_ACCOUNT,
-        ref: { stored: "mcp:fake" },
-      },
-      workspaces: ["default"],
     },
   },
 });
@@ -86,7 +79,7 @@ beforeEach(async () => {
   authorize = createEgressAuthorizer({
     gateway,
     logger: createLogger({ sinks: [] }),
-    token: AUTHORIZER_TOKEN,
+    token: AUTHORIZER_BEARER,
   });
 });
 
@@ -94,11 +87,13 @@ afterEach(async () => {
   await client.close();
 });
 
-async function seeded(slug = "default") {
+// A session of a release made before migration 0303, whose card names the
+// catalog server `fake`; the credential it named was never bound.
+async function seeded() {
   const workspaceId = randomUUID();
   await db
     .insert(schema.workspaces)
-    .values({ id: workspaceId, slug, name: slug });
+    .values({ id: workspaceId, slug: "default", name: "default" });
   const userId = randomUUID();
   await db.insert(schema.users).values({
     id: userId,
@@ -117,52 +112,45 @@ async function seeded(slug = "default") {
     slug: "mcp-agent",
     name: "mcp agent",
   });
-  const versionId = randomUUID();
-  await db.insert(schema.agentVersions).values({
-    id: versionId,
-    agentId,
-    versionNo: 1,
-    card: {
-      role: "r",
-      instructions: "i",
-      model: "claude-sonnet-5",
-      capabilities: {
-        tools: null,
-        mcp: [{ server: "fake" }],
-        forbidden: [],
-        credential_refs: ["mcp/fake"],
-      },
-    },
-    contentSha256: "0".repeat(64),
-  });
   const releaseId = `rel-${randomUUID()}`;
-  await db.insert(schema.agentReleases).values({
-    id: releaseId,
-    agentId,
-    versionId,
-    cardSha256: "0".repeat(64),
-    connectionId: TEST_CONNECTION_ID,
-    ...releaseSpecColumns({ tools: ["Read"] }),
-    runtimeConfigSnapshot: { tools: ["Read"] },
-    effectiveTools: { tools: ["Read"], mcp: ["mcp__fake__whoami"] },
-    policyPins: {
-      tools: {
-        per_tool: {
-          Read: "allow",
-          mcp__fake__whoami: "allow",
-          mcp__fake__other: "ask",
+  await beforeCatalogRetired(db, RETIRED, async () => {
+    const versionId = randomUUID();
+    await db.insert(schema.agentVersions).values({
+      id: versionId,
+      agentId,
+      versionNo: 1,
+      card: {
+        role: "r",
+        instructions: "i",
+        model: "claude-sonnet-5",
+        capabilities: {
+          tools: null,
+          mcp: [{ server: "fake" }],
+          forbidden: [],
+          credential_refs: ["mcp/fake"],
         },
       },
-    },
-  });
-  const bindingId = randomUUID();
-  await db.insert(schema.credentialBindings).values({
-    id: bindingId,
-    workspaceId,
-    credentialRef: "mcp/fake",
-    target: "agent",
-    targetId: agentId,
-    boundBy: userId,
+      contentSha256: "0".repeat(64),
+    });
+    await db.insert(schema.agentReleases).values({
+      id: releaseId,
+      agentId,
+      versionId,
+      cardSha256: "0".repeat(64),
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns({ tools: ["Read"] }),
+      runtimeConfigSnapshot: { tools: ["Read"] },
+      effectiveTools: { tools: ["Read"], mcp: ["mcp__fake__whoami"] },
+      policyPins: {
+        tools: {
+          per_tool: {
+            Read: "allow",
+            mcp__fake__whoami: "allow",
+            mcp__fake__other: "ask",
+          },
+        },
+      },
+    });
   });
   const accepted = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
     limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
@@ -190,15 +178,16 @@ async function seeded(slug = "default") {
   const launch = await launchSession(db, {
     sessionId: accepted.response.session_id,
   });
-  const claim = await gateway.bootstrapClaim(
-    { kind: "bootstrap" },
-    {
-      execution_id: launch.executionId,
-      execution_generation: launch.generation,
-      credential: { kind: "launch_nonce", nonce: launch.nonce },
-    },
-  );
-  return { workspaceId, releaseId, bindingId, claim };
+  const claimOnce = () =>
+    gateway.bootstrapClaim(
+      { kind: "bootstrap" },
+      {
+        execution_id: launch.executionId,
+        execution_generation: launch.generation,
+        credential: { kind: "launch_nonce", nonce: launch.nonce },
+      },
+    );
+  return { releaseId, claim: await claimOnce(), claimOnce };
 }
 
 function ask(body: unknown) {
@@ -207,112 +196,75 @@ function ask(body: unknown) {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${AUTHORIZER_TOKEN}`,
+        authorization: `Bearer ${AUTHORIZER_BEARER}`,
       },
       body: JSON.stringify(body),
     }),
   );
 }
 
-const whoami = { method: "tools/call", tool: "whoami" };
-
-describe("the remote MCP route on stored rows", () => {
-  test("the claim carries the server and a route token, never the bearer", async () => {
-    const { releaseId, claim } = await seeded();
-    const [mcp] = claim.runtime_config.mcp_servers ?? [];
-    expect(mcp).toMatchObject({
-      name: "fake",
-      endpoint: "http://fake-mcp:4020/mcp",
-      binding: mcpBinding(
-        releaseId,
-        "fake",
-        catalog.mcp_servers?.fake ?? {
-          url: "",
-          credential_ref: "",
-        },
+const skipped = (sessionId: string) =>
+  db
+    .select({ payload: schema.events.payload })
+    .from(schema.events)
+    .where(
+      and(
+        eq(schema.events.sessionId, sessionId),
+        sql`${schema.events.payload} ->> 'subtype' = 'catalog_mcp_skipped'`,
       ),
-      access: { kind: "egress_token" },
-    });
-    expect(mcp?.access.token).toStartWith("wem_");
-    expect(claim.runtime_config.tools).toEqual(["Read", "mcp__fake__whoami"]);
-    expect(JSON.stringify(claim)).not.toContain(SERVICE_ACCOUNT);
-
-    const granted = await ask({
-      token: mcp?.access.token,
-      purpose: "mcp",
-      server: "fake",
-      rpc: whoami,
-    });
-    expect(granted.status).toBe(200);
-    expect(await granted.json()).toMatchObject({
-      session_id: claim.session_id,
-      upstream: {
-        url: "http://fake-mcp:4020/mcp",
-        headers: [["authorization", `Bearer ${SERVICE_ACCOUNT}`]],
-      },
-    });
-    expect(
-      (await ask({ token: mcp?.access.token, purpose: "provider" })).status,
-    ).toBe(401);
-    const other = await ask({
-      token: mcp?.access.token,
-      purpose: "mcp",
-      server: "fake",
-      rpc: { method: "tools/call", tool: "other" },
-    });
-    expect(other.status).toBe(403);
-    expect(await other.json()).not.toHaveProperty("receipt_id");
-  });
-
-  test("an unbound credential is refused with one retrievable failed receipt", async () => {
-    const { workspaceId, bindingId, claim } = await seeded();
-    const token = claim.runtime_config.mcp_servers?.[0]?.access.token;
-    await db
-      .update(schema.credentialBindings)
-      .set({ revokedAt: new Date() })
-      .where(eq(schema.credentialBindings.id, bindingId));
-    const body = { token, purpose: "mcp", server: "fake", rpc: whoami };
-    const refused = await ask(body);
-    expect(refused.status).toBe(403);
-    const answer = (await refused.json()) as {
-      code: string;
-      receipt_id: string;
-    };
-    expect(answer.code).toBe("CREDENTIAL_UNBOUND");
-    const again = (await (await ask(body)).json()) as { receipt_id: string };
-    expect(again.receipt_id).toBe(answer.receipt_id);
-
-    const stored = await db
-      .select()
-      .from(schema.receipts)
-      .where(eq(schema.receipts.operation, "call_mcp"));
-    expect(stored).toHaveLength(1);
-    const receipt = await createPostgresSessionReader(db).getReceipt(
-      workspaceId,
-      answer.receipt_id,
     );
-    expect(receipt).toMatchObject({
-      id: answer.receipt_id,
-      operation: "call_mcp",
-      status: "failed",
-      target_ref: { session_id: claim.session_id },
-      error: { code: "CREDENTIAL_UNBOUND" },
-    });
-    expect(JSON.stringify(receipt)).not.toContain(SERVICE_ACCOUNT);
+
+describe("a session of a release that named a retired catalog server", () => {
+  test("starts with that credential unbound, and claims without the server or its tools", async () => {
+    const { claim } = await seeded();
+    expect(claim.runtime_config.mcp_servers).toBeUndefined();
+    expect(claim.runtime_config.tools).toEqual(["Read"]);
   });
 
-  test("a workspace the catalog does not list is refused the same way", async () => {
-    const { claim } = await seeded("elsewhere");
+  test("is offered first the config a claim gave before, for a checkpoint taken with the server", async () => {
+    const { releaseId, claim } = await seeded();
+    const [first] = claim.restore_runtime_configs ?? [];
+    expect(first?.tools).toEqual(["Read", "mcp__fake__whoami"]);
+    expect(first?.mcp_servers).toEqual([
+      {
+        name: "fake",
+        endpoint: RETIRED.url,
+        binding: mcpBinding(releaseId, "fake", {
+          url: RETIRED.url,
+          credential_ref: RETIRED.credentialRef,
+        }),
+        access: { kind: "egress_token", token: expect.any(String) },
+      },
+    ]);
+  });
+
+  test("a call to the server after a restore is refused", async () => {
+    const { claim } = await seeded();
+    const token =
+      claim.restore_runtime_configs?.[0]?.mcp_servers?.[0]?.access.token;
     const refused = await ask({
-      token: claim.runtime_config.mcp_servers?.[0]?.access.token,
+      token,
       purpose: "mcp",
       server: "fake",
-      rpc: whoami,
+      rpc: { method: "tools/call", tool: "whoami" },
     });
-    expect(refused.status).toBe(403);
-    expect(await refused.json()).toMatchObject({
-      code: "CREDENTIAL_UNBOUND",
-      receipt_id: expect.any(String),
-    });
+    // The claim held no server, so no MCP token was issued to call it with.
+    expect(refused.status).toBe(401);
+  });
+
+  test("the skip is one line of the session, and a claim again adds none", async () => {
+    const { claim, claimOnce } = await seeded();
+    expect(await skipped(claim.session_id)).toEqual([
+      {
+        payload: {
+          type: "system",
+          subtype: "catalog_mcp_skipped",
+          server: "fake",
+        },
+      },
+    ]);
+    const again = await claimOnce();
+    expect(again.attempt_id).toBe(claim.attempt_id);
+    expect(await skipped(claim.session_id)).toHaveLength(1);
   });
 });

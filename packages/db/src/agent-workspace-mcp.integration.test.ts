@@ -313,7 +313,6 @@ integration("agent workspace MCP servers on PostgreSQL", () => {
     const none = await db.transaction((tx) =>
       startReach(tx, {
         releaseId,
-        mcpStart: null,
         workspaceMcpStart: null,
         githubPolicySource: "release",
         repositoryIds: [],

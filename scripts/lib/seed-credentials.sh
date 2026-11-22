@@ -1,11 +1,11 @@
 # Sourced: the seed document packages/testkit/src/seed-credentials-main.ts
 # reads on stdin, for a stack whose imported settings hold `"stored": true`
-# rows. Each argument is `connections:<id>=<VAR>`, `mcp_servers:<id>=<VAR>`
-# or `repositories:<id>` (the fake GitHub App's key, read in the container).
-# A value is read from the variable named, so it is in no argument and, with
-# xtrace switched off here, in no trace.
+# rows. Each argument is `connections:<id>=<VAR>` or `repositories:<id>`
+# (the fake GitHub App's key, read in the container). A value is read from
+# the variable named, so it is in no argument and, with xtrace switched off
+# here, in no trace.
 seed_document() {
-  local restore="" arg section id var value conn="" mcp="" repos=""
+  local restore="" arg section id var value conn="" repos=""
   case $- in *x*) restore=1; set +x ;; esac
   for arg in "$@"; do
     section="${arg%%:*}"
@@ -21,12 +21,10 @@ seed_document() {
     value="${value//\"/\\\"}"
     case "$section" in
       connections) conn+="${conn:+,}\"${id}\":\"${value}\"" ;;
-      mcp_servers) mcp+="${mcp:+,}\"${id}\":\"${value}\"" ;;
       *) echo "seed_document: unknown section in ${arg%%=*}" >&2; return 2 ;;
     esac
   done
-  printf '{"connections":{%s},"mcp_servers":{%s},"repositories":[%s]}\n' \
-    "$conn" "$mcp" "$repos"
+  printf '{"connections":{%s},"repositories":[%s]}\n' "$conn" "$repos"
   [ -z "$restore" ] || set -x
 }
 

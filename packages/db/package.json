@@ -16,6 +16,7 @@
     "./testing/member-manage-allow": "./src/testing/member-manage-allow.ts",
     "./testing/setup-link": "./src/testing/setup-link.ts",
     "./testing/login-provider": "./src/testing/login-provider.ts",
+    "./testing/retired-catalog": "./src/testing/retired-catalog.ts",
     "./testing/spec-pins": "./src/testing/spec-pins.ts"
   },
   "scripts": {

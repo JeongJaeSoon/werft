@@ -9,6 +9,7 @@ import {
   MCP_TOOL_PREFIX,
   type PermissionMode,
   type PolicyPins,
+  RETIRED_CATALOG_MCP_MESSAGE,
   RUNTIME_KINDS_WITH_AUTO_MODE,
   type RuntimeKind,
   type SpecSource,
@@ -17,8 +18,6 @@ import {
 import {
   type CatalogConnectionView,
   connectionModels,
-  pinnedMcpTools,
-  type SessionCatalog,
 } from "../catalog/index.ts";
 
 /**
@@ -155,7 +154,6 @@ export type ReleaseRun = {
 export function resolveReleaseContent(
   card: AgentCard,
   run: ReleaseRun,
-  mcpServers: SessionCatalog["mcp_servers"] = {},
 ):
   | {
       ok: true;
@@ -179,9 +177,17 @@ export function resolveReleaseContent(
   const policy = resolveToolPolicy(card, tools);
   if (!policy.ok) return policy;
   const policy_pins = policy.pins;
-  const mcp = resolveMcpServer(card, policy_pins, mcpServers);
-  if (!mcp.ok) return mcp;
-  const effective_tools: EffectiveTools = { tools, mcp: mcp.tools };
+  // Migration 0303 refuses the same version or release at the database.
+  if (card.capabilities.mcp !== undefined && card.capabilities.mcp !== null) {
+    return {
+      ok: false,
+      error: {
+        field: "card.capabilities.mcp",
+        message: RETIRED_CATALOG_MCP_MESSAGE,
+      },
+    };
+  }
+  const effective_tools: EffectiveTools = { tools, mcp: [] };
   return {
     ok: true,
     content: {
@@ -208,65 +214,6 @@ export function resolveReleaseContent(
       policy_pins,
     },
   };
-}
-
-function resolveMcpServer(
-  card: AgentCard,
-  pins: PolicyPins,
-  mcpServers: NonNullable<SessionCatalog["mcp_servers"]>,
-):
-  | { ok: true; tools: string[] }
-  | { ok: false; error: ReleaseCompatibilityError } {
-  const named = card.capabilities.mcp?.[0];
-  if (named === undefined) return { ok: true, tools: [] };
-  const server = Object.hasOwn(mcpServers, named.server)
-    ? mcpServers[named.server]
-    : undefined;
-  if (server === undefined) {
-    return {
-      ok: false,
-      error: {
-        field: "card.capabilities.mcp",
-        message: `MCP server ${named.server} is not in the catalog`,
-      },
-    };
-  }
-  if (
-    !(card.capabilities.credential_refs ?? []).includes(server.credential_ref)
-  ) {
-    return {
-      ok: false,
-      error: {
-        field: "card.capabilities.credential_refs",
-        message: `MCP server ${named.server} calls as ${server.credential_ref}, which the card must name`,
-      },
-    };
-  }
-  const tools = pinnedMcpTools(named.server, pins.tools?.per_tool ?? {});
-  // The pin is what the relay and the authorizer read, so a forbidden tool
-  // must never get one.
-  const forbidden = tools.filter((tool) =>
-    card.capabilities.forbidden.includes(tool),
-  );
-  if (forbidden.length > 0) {
-    return {
-      ok: false,
-      error: {
-        field: "card.capabilities.forbidden",
-        message: `${forbidden.join(", ")} is both forbidden and allowed`,
-      },
-    };
-  }
-  if (tools.length === 0) {
-    return {
-      ok: false,
-      error: {
-        field: "card.capabilities.tool_policy.per_tool",
-        message: `no ${MCP_TOOL_PREFIX}${named.server}__ tool is allowed`,
-      },
-    };
-  }
-  return { ok: true, tools };
 }
 
 /**

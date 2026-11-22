@@ -232,7 +232,7 @@ echo " 0 fail"
     // The key reaches the stored connection on the seed step's stdin, with
     // the owner's session by name.
     expect(await Bun.file(join(dir, "clean.argv.seed")).text()).toBe(
-      `cookie=present {"connections":{"anthropic":"${PROBE}"},"mcp_servers":{},"repositories":["sample-app"]}\n`,
+      `cookie=present {"connections":{"anthropic":"${PROBE}"},"repositories":["sample-app"]}\n`,
     );
     const record = await Bun.file(join(result.out, "record.txt")).text();
     expect(record).toContain("command: tests/e2e/run.sh --real-model");
@@ -344,14 +344,14 @@ echo " 0 fail"
     expect(argv).not.toContain(OVERLAY);
     expect(argv).toContain(`-f ${FAKE_MODEL}`);
     expect(argv).toContain(
-      "bun test ./tests/e2e/remote-mcp.e2e.ts ./tests/e2e/workspace-mcp.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts --timeout 900000",
+      "bun test ./tests/e2e/workspace-mcp.e2e.ts./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts --timeout 900000",
     );
     const record = await Bun.file(join(result.out, "record.txt")).text();
     expect(record).toContain("command: tests/e2e/run.sh\n");
     expect(record).not.toContain("model:");
     const seed = await Bun.file(join(dir, "fake.argv.seed")).text();
     expect(seed).toContain('"fake-messages":"local-placeholder-key"');
-    expect(seed).toContain('"mcp_servers":{"fake":');
+    expect(seed).not.toContain("mcp_servers");
     expect(seed).not.toContain(PROBE);
   });
 });

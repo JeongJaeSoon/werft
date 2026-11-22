@@ -7,6 +7,6 @@ export {
 export {
   creatorOf,
   releaseMcpOf,
+  retiredSessionMcpOf,
   sessionGitHubMcpOf,
-  sessionMcpOf,
 } from "./mcp-egress.ts";

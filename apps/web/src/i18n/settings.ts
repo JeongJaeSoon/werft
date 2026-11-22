@@ -21,9 +21,6 @@ export const settingsKo = {
   "settings.column.credential": "자격 증명",
   "settings.column.state": "상태",
   "settings.column.actions": "동작",
-  "settings.setValue": "값 바꾸기",
-  "settings.setFirstValue": "값 넣기",
-  "settings.setValueFor": "{id} 값 바꾸기",
   "settings.setValueTitle": "{id}의 값 바꾸기",
   "settings.setValueDescription":
     "새 값은 이 항목에만 묶여 저장됩니다. 도는 세션은 멈추지 않습니다.",
@@ -65,7 +62,6 @@ export const settingsKo = {
   "settings.done.created": "{id}를 만들었습니다.",
   "settings.done.value": "{id}의 값을 바꿨습니다.",
   "settings.done.disabled": "{id}를 사용 중지했습니다.",
-  "settings.done.changed": "{id}를 바꿨습니다.",
   "settings.error.already_exists":
     "이미 쓴 id입니다. 사용 중지한 id도 다시 쓸 수 없습니다.",
   "settings.error.not_stored":
@@ -105,21 +101,6 @@ export const settingsKo = {
   "settings.connections.nav": "모델 연결",
   "settings.mcp.nav": "MCP 서버",
   "settings.mcp.title": "MCP 서버",
-  "settings.mcp.description":
-    "에이전트 카드가 이름으로 부르는 원격 MCP 서버입니다. 서버의 도구는 세션이 서버에 닿을 때 알려지며, 이름은 서버마다 아래 이름 공간을 씁니다.",
-  "settings.mcp.add": "MCP 서버 추가",
-  "settings.mcp.empty": "MCP 서버가 없습니다.",
-  "settings.mcp.url": "URL",
-  "settings.mcp.credentialRef": "자격 증명 이름",
-  "settings.mcp.credentialRefHint":
-    "에이전트 카드의 credential_refs와 맞춰 보는 이름입니다. 소문자로 씁니다.",
-  "settings.mcp.workspaces": "워크스페이스",
-  "settings.mcp.workspacesHint": "쓸 수 있는 워크스페이스의 slug, 쉼표로 구분",
-  "settings.mcp.bearer": "Bearer 토큰 값",
-  "settings.mcp.tools": "도구 이름 공간",
-  "settings.mcp.editWorkspaces": "워크스페이스 바꾸기",
-  "settings.mcp.editWorkspacesFor": "{id} 워크스페이스 바꾸기",
-  "settings.mcp.editWorkspacesTitle": "{id}를 쓸 워크스페이스",
 
   "home.setup.connection": "모델 연결 추가하기",
   "home.setup.connectionHint":
@@ -197,9 +178,6 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.column.credential": "Credential",
   "settings.column.state": "State",
   "settings.column.actions": "Actions",
-  "settings.setValue": "Replace value",
-  "settings.setFirstValue": "Set value",
-  "settings.setValueFor": "Replace the value of {id}",
   "settings.setValueTitle": "Replace the value of {id}",
   "settings.setValueDescription":
     "The new value is stored for this entry alone. Running sessions keep running.",
@@ -241,7 +219,6 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.done.created": "{id} was created.",
   "settings.done.value": "The value of {id} was replaced.",
   "settings.done.disabled": "{id} was disabled.",
-  "settings.done.changed": "{id} was changed.",
   "settings.error.already_exists":
     "This id was used already. A disabled id is never used again either.",
   "settings.error.not_stored":
@@ -281,22 +258,6 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.connections.nav": "Model connections",
   "settings.mcp.nav": "MCP servers",
   "settings.mcp.title": "MCP servers",
-  "settings.mcp.description":
-    "Remote MCP servers an agent card names. A server's tools are known once a session reaches it, and are named in the server's namespace below.",
-  "settings.mcp.add": "Add MCP server",
-  "settings.mcp.empty": "No MCP servers.",
-  "settings.mcp.url": "URL",
-  "settings.mcp.credentialRef": "Credential name",
-  "settings.mcp.credentialRefHint":
-    "The name an agent card's credential_refs is matched against. Lowercase.",
-  "settings.mcp.workspaces": "Workspaces",
-  "settings.mcp.workspacesHint":
-    "The slugs of the workspaces that may use it, comma-separated",
-  "settings.mcp.bearer": "Bearer token",
-  "settings.mcp.tools": "Tool namespace",
-  "settings.mcp.editWorkspaces": "Change workspaces",
-  "settings.mcp.editWorkspacesFor": "Change the workspaces of {id}",
-  "settings.mcp.editWorkspacesTitle": "Workspaces that may use {id}",
 
   "home.setup.connection": "Add a model connection",
   "home.setup.connectionHint":
@@ -374,9 +335,6 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.column.credential": "資格情報",
   "settings.column.state": "状態",
   "settings.column.actions": "操作",
-  "settings.setValue": "値を変える",
-  "settings.setFirstValue": "値を入れる",
-  "settings.setValueFor": "{id} の値を変える",
   "settings.setValueTitle": "{id} の値を変える",
   "settings.setValueDescription":
     "新しい値はこの項目だけに結びつけて保存します。実行中のセッションは止まりません。",
@@ -418,7 +376,6 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.done.created": "{id} を作成しました。",
   "settings.done.value": "{id} の値を変えました。",
   "settings.done.disabled": "{id} を使用停止しました。",
-  "settings.done.changed": "{id} を変更しました。",
   "settings.error.already_exists":
     "使用済みの id です。使用停止した id も再利用できません。",
   "settings.error.not_stored":
@@ -458,21 +415,6 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.connections.nav": "モデル接続",
   "settings.mcp.nav": "MCP サーバー",
   "settings.mcp.title": "MCP サーバー",
-  "settings.mcp.description":
-    "エージェントカードが名前で呼ぶリモート MCP サーバーです。サーバーのツールはセッションが到達したときに分かり、名前はサーバーごとに下の名前空間を使います。",
-  "settings.mcp.add": "MCP サーバーを追加",
-  "settings.mcp.empty": "MCP サーバーがありません。",
-  "settings.mcp.url": "URL",
-  "settings.mcp.credentialRef": "資格情報名",
-  "settings.mcp.credentialRefHint":
-    "エージェントカードの credential_refs と照合する名前です。小文字で書きます。",
-  "settings.mcp.workspaces": "ワークスペース",
-  "settings.mcp.workspacesHint": "使えるワークスペースの slug、カンマ区切り",
-  "settings.mcp.bearer": "Bearer トークンの値",
-  "settings.mcp.tools": "ツールの名前空間",
-  "settings.mcp.editWorkspaces": "ワークスペースを変える",
-  "settings.mcp.editWorkspacesFor": "{id} のワークスペースを変える",
-  "settings.mcp.editWorkspacesTitle": "{id} を使えるワークスペース",
 
   "home.setup.connection": "モデル接続を追加する",
   "home.setup.connectionHint":

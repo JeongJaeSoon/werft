@@ -1,71 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import {
-  type Principal,
-  scopesForRole,
-  type WorkspaceRole,
-} from "@werft-ai/contracts";
-import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
+import { mcpToolOfServer } from "@werft-ai/contracts";
+import { mcpToolDenied } from "../catalog/index.ts";
 import { effectiveMcp } from "../sessions/mcp-settings.ts";
-import { createAgentMcpService } from "./agent-mcp-service.ts";
-import type { AgentMcpStore } from "./ports/agent-mcp-store.ts";
 
-const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
-const USER = "019a0000-0000-7000-8000-0000000000c1";
-const AGENT = "019a0000-0000-7000-8000-0000000000d1";
-
-const caller = () => {
-  const role: WorkspaceRole = "owner";
-  const principal: Principal = {
-    kind: "user",
-    id: USER,
-    workspace_id: WORKSPACE,
-    role,
-    scopes: [...scopesForRole(role)],
-  };
-  return callerFor(principal, { kind: "web" }, crypto.randomUUID());
-};
-
-function service(lockedDeny: string[] = []) {
-  const store: AgentMcpStore = {
-    agent: async () => ({ workspaceSlug: "acme", activeRelease: null }),
-    row: async () => null,
-    boundRefs: async () => [],
-    async put(input) {
-      input.check(null, null, lockedDeny);
-      return { outcome: "saved", revision: 1, receiptId: null };
-    },
-  };
-  return createAgentMcpService({
-    authorization: createAuthorizationPolicy(),
-    store,
-    catalog: {
-      mcp_servers: {
-        docs: {
-          url: "https://docs.invalid/",
-          credential_ref: "docs-key",
-          auth: { kind: "bearer" },
-          workspaces: ["acme"],
-        },
-      } as never,
-    },
-  });
-}
-
-const allowed = async (name: string, lockedDeny: string[] = []) => {
-  try {
-    await service(lockedDeny).put(caller(), AGENT, {
-      expected_revision: null,
-      settings: {
-        server: "docs",
-        allowed_tools: [name],
-        credential_refs: ["docs-key"],
-      },
-    });
-    return true;
-  } catch {
-    return false;
-  }
-};
+// What a save that adds `name` to the server `docs` takes: a whole tool of
+// the server that the release's deny does not block.
+const allowed = async (name: string, lockedDeny: string[] = []) =>
+  mcpToolOfServer(name, "docs") && !mcpToolDenied(lockedDeny, "docs", name);
 
 // The names of NAMES that are a whole tool of the listed server `docs`: the
 // only ones a deny has anything to block for.
@@ -99,7 +40,7 @@ const NAMES = [
 ];
 
 describe("one rule for allowing, blocking and running an mcp__ name", () => {
-  test("the agent's settings accept exactly the names that are a whole tool of the listed server", async () => {
+  test("the save rule accepts exactly the names that are a whole tool of the listed server", async () => {
     for (const name of NAMES) {
       expect({ name, allowed: await allowed(name) }).toEqual({
         name,

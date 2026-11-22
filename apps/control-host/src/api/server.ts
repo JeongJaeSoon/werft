@@ -10,7 +10,6 @@ import {
   createPostgresAgentCallerLimitsStore,
   createPostgresAgentGitHubStore,
   createPostgresAgentIdentityStore,
-  createPostgresAgentMcpStore,
   createPostgresAgentStore,
   createPostgresAgentUsageStore,
   createPostgresAgentWorkspaceMcpStore,
@@ -81,6 +80,7 @@ import {
   createProviderExchangeLedger,
   hasUncollectedCheckpoint,
   newSessionGitHubReaders,
+  reconcileRetiredCatalogDrafts,
   slackAppKind,
   workspaceRepositoryCeiling,
 } from "@werft-ai/db";
@@ -102,7 +102,6 @@ import {
   createAgentCallerLimitsService,
   createAgentGitHubService,
   createAgentIdentityService,
-  createAgentMcpService,
   createAgentPullRequestService,
   createAgentService,
   createAgentUsageService,
@@ -250,10 +249,7 @@ import { RequestTracing } from "./request-tracing.ts";
 import { registerAgentPullRequestRoutes } from "./routes/action/agent-pull-request.ts";
 import { registerPullRequestRoutes } from "./routes/action/pull-requests.ts";
 import { registerPushRequestRoutes } from "./routes/action/push-requests.ts";
-import {
-  registerAgentMcpRoutes,
-  registerAgentWorkspaceMcpRoutes,
-} from "./routes/agents/agent-mcp.ts";
+import { registerAgentWorkspaceMcpRoutes } from "./routes/agents/agent-mcp.ts";
 import {
   refuseDeletedAgents,
   registerAgentRoutes,
@@ -488,6 +484,23 @@ const readCatalog = (): void => {
 readCatalog();
 const neutralize = eventNeutralizer(logger);
 startNeutralFill(db, neutralize, logger, () => catalogRegistry.refresh());
+// Drafts saved while the catalog MCP lived; each start finds what is left.
+reconcileRetiredCatalogDrafts(db).then(
+  (drafts) => {
+    if (drafts.moved + drafts.unreadable > 0) {
+      logger.info("Drafts naming a retired catalog MCP server reconciled", {
+        moved: drafts.moved,
+        unreadable: drafts.unreadable,
+      });
+    }
+  },
+  (error: unknown) => {
+    logger.warn(
+      "Drafts naming a retired catalog MCP server could not be reconciled; the next start tries again",
+      { error_name: error instanceof Error ? error.name : typeof error },
+    );
+  },
+);
 if (checkpointStorage !== "disabled") {
   await assertCheckpointObjectsPresent(checkpointStorage, {
     hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
@@ -926,11 +939,6 @@ const agentGitHub = createAgentGitHubService({
   selection: githubRepositories.selection,
   pinned: { apps: githubAppStore, pins: githubPins },
 });
-const agentMcp = createAgentMcpService({
-  authorization,
-  store: createPostgresAgentMcpStore(db),
-  catalog,
-});
 const agentWorkspaceMcp = createAgentWorkspaceMcpService({
   authorization,
   store: createPostgresAgentWorkspaceMcpStore(db),
@@ -1166,6 +1174,12 @@ const workers = createWorkerGateway({
     logger.error("MCP refusal receipt not recorded", {
       error: error instanceof Error ? error.name : "error",
     }),
+  onRestoreConfigsDropped: ({ sessionId, dropped }) => {
+    logger.warn("claim.retired_catalog_restore_dropped", {
+      session_id: sessionId,
+      dropped,
+    });
+  },
   onToolAudit: ({ dropped, conflicts, unverified, sessionId, attemptId }) => {
     // Counts only: what the worker sent is never put in a log.
     const fields = { session_id: sessionId, attempt_id: attemptId };
@@ -1374,7 +1388,6 @@ const app = createApiApp({
     registerGitHubSettingsRoutes(router, githubSettings);
     registerGitHubPackagesRoutes(router, githubPackages);
     registerAgentGitHubRoutes(router, agentGitHub);
-    registerAgentMcpRoutes(router, agentMcp);
     registerAgentWorkspaceMcpRoutes(router, agentWorkspaceMcp);
     registerAgentPullRequestRoutes(router, agentPullRequest);
     registerSessionRoutes(router, sessions);

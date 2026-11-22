@@ -18,10 +18,10 @@ import {
 } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {
-  agentMcpSettings,
   agentReleases,
   agents,
   agentVersions,
+  credentialBindings,
   memberships,
   sessions,
   users,
@@ -316,27 +316,29 @@ integration("starting an ownerless agent on PostgreSQL", () => {
   });
 
   test("an admin removal waits for a start that holds the agent row", async () => {
-    // Holding the agent's MCP settings parks the start right after its agent
-    // lock, before it commits.
+    // Holding the agent's credential binding parks the start right after its
+    // agent lock, before it commits: the start share-locks the bindings.
     const w = await world();
     await markedAgo(w.agentId, "30 days");
-    await db.insert(agentMcpSettings).values({
-      agentId: w.agentId,
+    const bindingId = randomUUID();
+    await db.insert(credentialBindings).values({
+      id: bindingId,
       workspaceId: w.ws,
-      server: null,
-      allowedTools: [],
-      credentialRefs: [],
+      credentialRef: "unused-ref",
+      target: "agent",
+      targetId: w.agentId,
+      boundBy: idOf(w.owner),
     });
     await holding(async (client, started) => {
       const holder = await backendPid(client);
       await client.query(
-        "SELECT 1 FROM agent_mcp_settings WHERE agent_id = $1 FOR UPDATE",
-        [w.agentId],
+        "SELECT 1 FROM credential_bindings WHERE id = $1 FOR UPDATE",
+        [bindingId],
       );
       const start = create(w.owner, w.releaseId);
       started.push(start);
       await waiting(holder, { onHolder: 1, onOthers: 0 });
-      // The removal waits on the start, not on the held settings row.
+      // The removal waits on the start, not on the held binding row.
       const removal = removeKeeper(w);
       started.push(removal);
       await waiting(holder, { onHolder: 1, onOthers: 1 });

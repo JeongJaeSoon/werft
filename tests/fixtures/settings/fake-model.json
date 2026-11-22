@@ -23,16 +23,5 @@
         "stored": true
       }
     }
-  },
-  "mcp_servers": {
-    "fake": {
-      "url": "http://fake-mcp:4020/mcp",
-      "credential_ref": "mcp/fake",
-      "auth": {
-        "kind": "bearer",
-        "stored": true
-      },
-      "workspaces": ["verify"]
-    }
   }
 }

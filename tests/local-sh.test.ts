@@ -70,7 +70,6 @@ describe("scripts/local.sh", () => {
 printf '%s\\n' "$*" | head -n 1 >> "${dir}/docker-calls"
 case "$*" in
   *" exec -T fake-git bun -e "*) echo "__Host-werft_session=stub-cookie" ;;
-  *" exec -T fake-mcp printenv FAKE_MCP_BEARER") echo "stub-bearer" ;;
   *" ps -aq migrate") echo "$STUB_MIGRATE_ID" ;;
   "inspect --format {{json .}} migrate-id") cat "${dir}/migrate.json" ;;
   *" exec -T -e SEED_COOKIE fake-git bun run packages/testkit/src/seed-credentials-main.ts")
@@ -407,7 +406,7 @@ echo '{"status":"ready"}'
     );
     expect(docker).toContain(`${fakeUp} up -d --build`);
     expect(await seeded()).toBe(
-      'cookie=present\n{"connections":{"fake-messages":"local-placeholder-key"},"mcp_servers":{"fake":"stub-bearer"},"repositories":["sample-app"]}\n',
+      'cookie=present\n{"connections":{"fake-messages":"local-placeholder-key"},"repositories":["sample-app"]}\n',
     );
     expect(result.stderr).not.toContain("stub-cookie");
   });
@@ -421,7 +420,7 @@ echo '{"status":"ready"}'
     });
     expect(result.exitCode).toBe(0);
     expect(await seeded()).toBe(
-      'cookie=present\n{"connections":{"anthropic":"probe-key-value"},"mcp_servers":{},"repositories":["sample-app"]}\n',
+      'cookie=present\n{"connections":{"anthropic":"probe-key-value"},"repositories":["sample-app"]}\n',
     );
     expect((await calls("docker-calls")).join("\n")).not.toContain(
       "probe-key-value",
@@ -437,7 +436,7 @@ echo '{"status":"ready"}'
       "no key for connections:anthropic; enter it on the console",
     );
     expect(await seeded()).toBe(
-      'cookie=present\n{"connections":{},"mcp_servers":{},"repositories":["sample-app"]}\n',
+      'cookie=present\n{"connections":{},"repositories":["sample-app"]}\n',
     );
   });
 
@@ -449,7 +448,7 @@ echo '{"status":"ready"}'
     });
     expect(result.exitCode).toBe(0);
     expect(await seeded()).toBe(
-      'cookie=present\n{"connections":{"fake-responses":"local-placeholder-key"},"mcp_servers":{},"repositories":[]}\n',
+      'cookie=present\n{"connections":{"fake-responses":"local-placeholder-key"},"repositories":[]}\n',
     );
   });
 
@@ -518,7 +517,7 @@ echo '{"status":"ready"}'
     const result = await run(["store-keys"], {}, "__Host-werft_session=given");
     expect(result.exitCode).toBe(0);
     expect(await seeded()).toBe(
-      'cookie=present\n{"connections":{"fake-messages":"local-placeholder-key"},"mcp_servers":{"fake":"stub-bearer"},"repositories":["sample-app"]}\n',
+      'cookie=present\n{"connections":{"fake-messages":"local-placeholder-key"},"repositories":["sample-app"]}\n',
     );
     const docker = await calls("docker-calls");
     expect(docker).toContain(storeKeys(noMode));

@@ -488,12 +488,23 @@ export type SessionCatalogView = {
   mcp_servers?: Readonly<Record<string, unknown>> | undefined;
 };
 
-/** A remote MCP server the session's agent release names, as claimed. */
-export type SessionMcp = {
+/**
+ * The installation catalog server a claim gave the session before migration
+ * 0303 retired it, with its URL and credential name as `retired_catalog_mcp`
+ * holds them: offered in restore configs only, never run.
+ */
+export type RetiredSessionMcp = {
   releaseId: string;
   server: string;
-  /** The release's `mcp__<server>__*` tools pinned `allow`. */
+  url: string;
+  credentialRef: string;
+  /** The `mcp__<server>__*` tools the claim gave it (`effectiveMcp`). */
   tools: string[];
+  /**
+   * The session began before the server was retired, so a checkpoint of it
+   * may name the server; a later session never claimed it.
+   */
+  restorable: boolean;
 };
 
 /**

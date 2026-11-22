@@ -137,11 +137,6 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/installation/settings/connections/{id}/credential",
     "POST /v1/installation/settings/connections/{id}/disable",
     "POST /v1/installation/settings/connections/{id}/enable",
-    "GET /v1/installation/settings/mcp-servers",
-    "POST /v1/installation/settings/mcp-servers",
-    "PATCH /v1/installation/settings/mcp-servers/{id}",
-    "POST /v1/installation/settings/mcp-servers/{id}/credential",
-    "POST /v1/installation/settings/mcp-servers/{id}/disable",
     "POST /v1/installation/settings/repositories/{id}/credential",
   ],
   "routes/sessions/events.test.ts": ["GET /v1/sessions/{id}/events"],
@@ -205,10 +200,6 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "PUT /v1/agents/{id}/github/settings",
     "PUT /v1/agents/{id}/github/repository-access",
     "GET /v1/agents/{id}/github/activity",
-  ],
-  "routes/agents/agent-mcp.test.ts": [
-    "GET /v1/agents/{id}/mcp/settings",
-    "PUT /v1/agents/{id}/mcp/settings",
   ],
   "routes/agents/agent-workspace-mcp.test.ts": [
     "GET /v1/agents/{id}/mcp/workspace-servers",

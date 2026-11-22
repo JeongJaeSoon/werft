@@ -49,15 +49,6 @@ const OLD_CATALOG = {
       api_base: http://fake-git:3000
       stored: repository:bare
 `,
-  "mcp-servers.yaml": `mcp_servers:
-  fake:
-    url: http://fake-mcp:4020/mcp
-    credential_ref: mcp/fake
-    auth:
-      kind: bearer
-      stored: mcp:fake
-    workspaces: [verify]
-`,
   "profiles.yaml": `profiles:
   coding:
     runtime_kind: claude_agent_sdk
@@ -146,7 +137,6 @@ function fakeStore(
           },
         },
         repositories: {},
-        mcp_servers: {},
       },
       last4: new Map([["connection:main", "wxyz"]]),
     }),
@@ -450,15 +440,15 @@ describe("settings seed", () => {
       JSON.stringify({
         version: 1,
         connections: {},
-        repositories: {},
-        mcp_servers: {
-          docs: {
-            url: "https://mcp.example.invalid/mcp",
-            credential_ref: "mcp/docs",
-            auth: { kind: "bearer", stored: true },
-            workspaces: ["*"],
+        repositories: {
+          open: {
+            url: "https://github.com/a/b.git",
+            branch: "main",
+            auth: { kind: "github_app" },
           },
         },
+        // An older export's empty field is still taken.
+        mcp_servers: {},
       }),
     );
     const fake = fakeStore(appliedImport);
@@ -477,8 +467,8 @@ describe("settings seed", () => {
       "fake-messages",
     ]);
     expect(fromDocument?.databaseOwnsRepositories).toBe(false);
-    expect(Object.keys(fromDocument?.entries.mcp_servers ?? {})).toEqual([
-      "docs",
+    expect(Object.keys(fromDocument?.entries.repositories ?? {})).toEqual([
+      "open",
     ]);
     expect(err.at(-1)).toBe(
       `seeded from ${oldCatalog} and the settings document ${path} (SETTINGS_DOCUMENT); from here on settings are changed in the console`,
@@ -571,7 +561,7 @@ describe("settings CLI", () => {
       "bare",
       "sample-app",
     ]);
-    expect(Object.keys(entries.mcp_servers)).toEqual(["fake"]);
+    expect(document).not.toHaveProperty("mcp_servers");
     expect(notes).toEqual([
       "platform.yaml is not imported: set the master key in PLATFORM_SECRET_KEY",
       "profiles.yaml is not imported: profiles are removed; list each connection's models in the console or under connections.<id>.models",
@@ -588,12 +578,6 @@ describe("settings CLI", () => {
         "value_env: FAKE_KEY",
         "value_env",
       ],
-      [
-        "mcp-servers.yaml",
-        "stored: mcp:fake",
-        "secret_id: werft/fake",
-        "secret_id",
-      ],
     ] as const) {
       const dir = join(root, `external-${file}`);
       await mkdir(dir, { recursive: true });
@@ -609,6 +593,34 @@ describe("settings CLI", () => {
       );
       expect(refused).toContain(`.auth.${field} is no longer supported`);
     }
+  });
+
+  test("--from-dir refuses a directory whose mcp-servers.yaml names a server, naming only the server", async () => {
+    const dir = join(root, "catalog-mcp");
+    await mkdir(dir, { recursive: true });
+    for (const [name, text] of Object.entries(OLD_CATALOG)) {
+      await writeFile(join(dir, name), text);
+    }
+    await writeFile(
+      join(dir, "mcp-servers.yaml"),
+      `mcp_servers:
+  fake:
+    url: http://fake-mcp:4020/mcp
+    credential_ref: mcp/fake
+    auth:
+      kind: bearer
+      stored: mcp:fake
+    workspaces: [verify]
+`,
+    );
+    const refused = await documentFromDir(dir).then(
+      () => "",
+      (error: Error) => error.message,
+    );
+    expect(refused).toBe(
+      "The settings document is invalid: mcp_servers (fake): 설치 카탈로그 MCP는 없어졌다. 워크스페이스 MCP 서버로 등록해 고른다",
+    );
+    expect(refused).not.toContain("fake-mcp");
   });
 
   test("import --from-dir hands the operator's import every entry", async () => {

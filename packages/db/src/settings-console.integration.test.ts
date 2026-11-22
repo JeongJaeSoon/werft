@@ -19,7 +19,6 @@ import { Pool } from "pg";
 import { createPostgresInstallationSettingsStore } from "./installation-settings.ts";
 import * as schema from "./schema.ts";
 import {
-  mcpServers,
   memberships,
   providerConnections,
   receipts,
@@ -37,7 +36,7 @@ const KEY = SecretKey.fromHex("ef".repeat(32), "test key");
 
 /** The entry as the console service hands it over: stored under its own id. */
 function add(
-  section: "connections" | "repositories" | "mcp_servers",
+  section: "connections" | "repositories",
   id: string,
   entry: Record<string, unknown>,
 ): SettingsImportAdd {
@@ -45,14 +44,10 @@ function add(
     version: 1,
     connections: {},
     repositories: {},
-    mcp_servers: {},
     [section]: { [id]: entry },
   });
   if (section === "connections") {
     return { kind: "connection", id, entry: parsed.connections[id] as never };
-  }
-  if (section === "mcp_servers") {
-    return { kind: "mcp", id, entry: parsed.mcp_servers[id] as never };
   }
   return { kind: "repository", id, entry: parsed.repositories[id] as never };
 }
@@ -67,12 +62,6 @@ const DECISION = {
   kind: "openai_decisions",
   endpoint: "https://api.openai.com",
   auth: { kind: "api_key", stored: true },
-};
-const MCP = {
-  url: "https://mcp.example.invalid/docs",
-  credential_ref: "docs_token",
-  auth: { kind: "bearer", stored: true },
-  workspaces: ["acme"],
 };
 
 integration("settings console writes", () => {
@@ -368,7 +357,7 @@ integration("settings console writes", () => {
     });
   });
 
-  test("an admin or member may not write a connection or MCP server", async () => {
+  test("an admin or member may not write a connection", async () => {
     for (const role of ["admin", "member"] as const) {
       const someone = await person(role);
       expect(
@@ -378,130 +367,7 @@ integration("settings console writes", () => {
           someone,
         ),
       ).toEqual({ outcome: "actor_inactive" });
-      expect(
-        await store().create(
-          add("mcp_servers", `by-${role}`, MCP),
-          "v",
-          someone,
-        ),
-      ).toEqual({ outcome: "actor_inactive" });
     }
-  });
-
-  test("an imported MCP server needs its value and takes it from the console", async () => {
-    const owner = await person("owner");
-    const imported = await store().importEntries(
-      parseSettingsDocument({
-        version: 1,
-        connections: {},
-        repositories: {},
-        mcp_servers: { "imported-docs": MCP },
-      }),
-      { dryRun: false, actor: null },
-    );
-    expect(imported).toMatchObject({
-      outcome: "applied",
-      needs_value: ["mcp:imported-docs"],
-    });
-    const [row] = await db
-      .select()
-      .from(mcpServers)
-      .where(eq(mcpServers.id, "imported-docs"));
-    expect(row).toMatchObject({
-      origin: "import",
-      credentialSource: "stored",
-      auth: { kind: "bearer", stored: "mcp:imported-docs" },
-    });
-    expect(
-      (await settings().read({ openStored: true })).stored.has(
-        "mcp:imported-docs",
-      ),
-    ).toBe(false);
-    expect(
-      (
-        await store().setValue(
-          { kind: "mcp", id: "imported-docs" },
-          "imported-token-5678",
-          owner,
-        )
-      ).outcome,
-    ).toBe("done");
-    expect(
-      (await settings().read({ openStored: true })).stored.get(
-        "mcp:imported-docs",
-      ),
-    ).toBe("imported-token-5678");
-  });
-
-  test("a row naming another row's value is only disabled: no value, no workspaces change", async () => {
-    const owner = await person("owner");
-    await db.insert(mcpServers).values({
-      id: "operator-docs",
-      url: "https://mcp.example.invalid/op",
-      credentialRef: "op_token",
-      auth: { kind: "bearer", stored: "mcp:someone-else" },
-      credentialSource: "stored",
-      workspaces: ["acme"],
-      origin: "import",
-    });
-    expect(
-      await store().setValue({ kind: "mcp", id: "operator-docs" }, "v", owner),
-    ).toEqual({ outcome: "conflict", reason: "not_stored" });
-    expect(
-      await store().setMcpWorkspaces("operator-docs", ["other"], owner),
-    ).toEqual({ outcome: "conflict", reason: "not_stored" });
-    expect(
-      (await store().disable({ kind: "mcp", id: "operator-docs" }, owner))
-        .outcome,
-    ).toBe("done");
-    expect(
-      await store().disable({ kind: "mcp", id: "operator-docs" }, owner),
-    ).toEqual({ outcome: "conflict", reason: "disabled" });
-    expect(
-      await store().setValue({ kind: "mcp", id: "nowhere" }, "v", owner),
-    ).toEqual({ outcome: "not_found" });
-  });
-
-  test("a stored MCP server's value turns, its workspaces change in place, and a disabled row leaves the registry", async () => {
-    const owner = await person("owner");
-    expect(
-      (await store().create(add("mcp_servers", "docs", MCP), "first", owner))
-        .outcome,
-    ).toBe("done");
-    expect(
-      (await store().setValue({ kind: "mcp", id: "docs" }, "second", owner))
-        .outcome,
-    ).toBe("done");
-    expect(
-      (await settings().read({ openStored: true })).stored.get("mcp:docs"),
-    ).toBe("second");
-    const turned = (await receiptsOf("set_settings_credential")).find(
-      (one) =>
-        (one.result as { mcp_server_id?: string }).mcp_server_id === "docs",
-    );
-    expect(turned?.result).toEqual({ mcp_server_id: "docs", last4: "cond" });
-
-    expect(
-      (await store().setMcpWorkspaces("docs", ["acme", "labs"], owner)).outcome,
-    ).toBe("done");
-    const [row] = await db
-      .select()
-      .from(mcpServers)
-      .where(eq(mcpServers.id, "docs"));
-    expect(row?.workspaces).toEqual(["acme", "labs"]);
-
-    expect(
-      (await store().disable({ kind: "mcp", id: "docs" }, owner)).outcome,
-    ).toBe("done");
-    const read = await settings().read();
-    expect(read.mcpServers.map((item) => item.id)).not.toContain("docs");
-    expect(
-      await store().setValue({ kind: "mcp", id: "docs" }, "third", owner),
-    ).toEqual({ outcome: "conflict", reason: "disabled" });
-    // Re-made under the same id: never.
-    expect(
-      await store().create(add("mcp_servers", "docs", MCP), "again", owner),
-    ).toEqual({ outcome: "conflict", reason: "already_exists" });
   });
 
   test("a document naming an env or Secrets Manager reference is refused, naming the field", () => {

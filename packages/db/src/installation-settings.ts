@@ -1,8 +1,6 @@
 import {
-  type CatalogMcpServerConfig,
   type CatalogProviderConfig,
   type CatalogRepositoryConfig,
-  catalogMcpServerSchema,
   catalogProviderSchema,
   catalogRepositorySchema,
   type InstallationSettingsStore,
@@ -28,22 +26,12 @@ import { openSecretsOf, writeSecretInTx } from "./secrets/secret-values.ts";
 const PURPOSE = "settings_credential";
 
 type RepositoryRow = typeof catalogRepositories.$inferSelect;
-type McpRow = typeof mcpServers.$inferSelect;
 
 function repositoryConfigOf(row: RepositoryRow): unknown {
   return {
     url: row.url,
     branch: row.branch,
     ...(row.auth === null ? {} : { auth: row.auth }),
-  };
-}
-
-function mcpConfigOf(row: McpRow): unknown {
-  return {
-    url: row.url,
-    credential_ref: row.credentialRef,
-    auth: row.auth,
-    workspaces: row.workspaces,
   };
 }
 
@@ -248,29 +236,8 @@ export function createPostgresInstallationSettingsStore(
             if (ref !== null) refs.push(ref);
             repositories.push({ id: row.id, repository: parsed.data });
           }
-          const servers: Array<{ id: string; server: CatalogMcpServerConfig }> =
-            [];
-          for (const row of await tx
-            .select()
-            .from(mcpServers)
-            .where(isNull(mcpServers.disabledAt))
-            .orderBy(asc(mcpServers.id))) {
-            const parsed = catalogMcpServerSchema.safeParse(mcpConfigOf(row));
-            const ref = parsed.success
-              ? ownStoredRef(
-                  "mcp",
-                  row.id,
-                  row.credentialSource,
-                  parsed.data.auth,
-                )
-              : false;
-            if (!parsed.success || ref === false) {
-              invalid.push(`mcp:${row.id}`);
-              continue;
-            }
-            if (ref !== null) refs.push(ref);
-            servers.push({ id: row.id, server: parsed.data });
-          }
+          // `mcp_servers` is not read: the installation catalog MCP is
+          // retired (0303), and its values are never opened.
           let stored = new Map<string, string>();
           if (options?.openStored && key !== null && refs.length > 0) {
             const workspaceId = await secretOwnerWorkspace(tx);
@@ -288,7 +255,6 @@ export function createPostgresInstallationSettingsStore(
             generation,
             connections,
             repositories,
-            mcpServers: servers,
             stored,
             invalid,
           };

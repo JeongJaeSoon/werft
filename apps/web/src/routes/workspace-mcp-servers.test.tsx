@@ -92,7 +92,6 @@ const routes = (
 ): Record<string, () => Response> => ({
   "GET /v1/auth/me": () => json(200, signedIn),
   [`GET ${LIST}`]: () => json(200, { items, limit: 20 }),
-  "GET /v1/installation/settings/mcp-servers": () => json(200, { items: [] }),
 });
 
 const list = async () =>
@@ -500,15 +499,17 @@ describe("워크스페이스 MCP 서버", () => {
     expect(screen.queryByText("설치 카탈로그") === null).toBe(true);
   });
 
-  test("the owner sees the installation catalog below the workspace servers", async () => {
+  test("the owner sees the workspace servers and no installation catalog", async () => {
     renderAt(PAGE, routes([oauthServer()]));
     await list();
     const headings = screen
       .getAllByRole("heading")
       .map((heading) => heading.textContent);
-    expect(headings.indexOf("워크스페이스 서버")).toBeLessThan(
-      headings.indexOf("설치 카탈로그"),
-    );
+    expect(headings).toContain("워크스페이스 서버");
+    expect(headings).not.toContain("설치 카탈로그");
+    // Not in any copy either, the page description included.
+    expect(document.body.textContent).toContain("어드민이 등록하고 인증합니다");
+    expect(document.body.textContent).not.toContain("카탈로그");
   });
 });
 

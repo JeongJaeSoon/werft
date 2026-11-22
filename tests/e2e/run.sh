@@ -355,10 +355,6 @@ fi
 if [ -z "$real_model$local_model" ] && [ "$conformance" != codex_app_server ]; then
   export E2E_MESSAGES_URL="http://127.0.0.1:$(dc port fake-messages 4011 | sed 's/.*://')"
   export E2E_FAKE_MCP_URL="http://127.0.0.1:$(dc port fake-mcp 4021 | sed 's/.*://')"
-  # The bearer the fake MCP server accepts, which the seed step below stores.
-  E2E_FAKE_MCP_BEARER_HASH="$(dc exec -T fake-mcp printenv FAKE_MCP_BEARER |
-    tr -d '\r\n' | shasum -a 256 | cut -d' ' -f1)"
-  export E2E_FAKE_MCP_BEARER_HASH
 fi
 
 echo "== stored keys" >&2
@@ -378,10 +374,6 @@ else
     two_engines) seeds+=(connections:fake-messages=placeholder_key connections:fake-responses=placeholder_key) ;;
     *) seeds+=(connections:fake-messages=placeholder_key) ;;
   esac
-  if [ "$conformance" != codex_app_server ]; then
-    fake_mcp_bearer="$(dc exec -T fake-mcp printenv FAKE_MCP_BEARER | tr -d '\r\n')"
-    seeds+=(mcp_servers:fake=fake_mcp_bearer)
-  fi
 fi
 seed_credentials e2e_owner_cookie "${seeds[@]}" -- \
   dc exec -T -e SEED_COOKIE fake-git bun run packages/testkit/src/seed-credentials-main.ts \
@@ -409,7 +401,7 @@ elif [ -n "$real_model$local_model" ]; then
 else
   # The MCP suites first: the other suites leave their sessions holding
   # every execution slot.
-  suites=(./tests/e2e/remote-mcp.e2e.ts ./tests/e2e/workspace-mcp.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts)
+  suites=(./tests/e2e/workspace-mcp.e2e.ts./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts)
 fi
 # The suites drive the public API and never need the provider key.
 env -u ANTHROPIC_API_KEY bun test "${suites[@]}" --timeout 900000 \

@@ -173,12 +173,14 @@ describe("who may change workspace MCP servers", () => {
         }),
       ),
     ).toEqual({ code: "BAD_REQUEST", reason: "url_invalid" });
-    expect(
-      await refusal(service.create(admin, { ...oauthBody, name: "github" })),
-    ).toEqual({
-      code: "BAD_REQUEST",
-      reason: "name_reserved",
-    });
+    for (const name of ["github", "browser", "memory"]) {
+      expect(
+        await refusal(service.create(admin, { ...oauthBody, name })),
+      ).toEqual({
+        code: "BAD_REQUEST",
+        reason: "name_reserved",
+      });
+    }
     expect(remote.requests).toHaveLength(0);
   });
 });

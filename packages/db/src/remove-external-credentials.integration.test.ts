@@ -141,11 +141,8 @@ integration("only stored credentials", () => {
     ).toBe("accepted");
   });
 
-  test("an MCP server holds only its stored value", async () => {
-    const check = {
-      code: "23514",
-      constraint: "mcp_servers_credential_source_check",
-    };
+  test("an MCP server row is not written again, whatever its value (0303)", async () => {
+    const check = { code: "23514", constraint: undefined };
     expect(
       await mcp(
         "m-external",
@@ -163,8 +160,8 @@ integration("only stored credentials", () => {
     expect(
       await mcp("m-env", { kind: "bearer", value_env: "SOME_TOKEN" }),
     ).toEqual(check);
-    expect(await mcp("m-ok", { kind: "bearer", stored: "mcp:m-ok" })).toBe(
-      "accepted",
+    expect(await mcp("m-ok", { kind: "bearer", stored: "mcp:m-ok" })).toEqual(
+      check,
     );
   });
 
@@ -228,57 +225,42 @@ integration("only stored credentials", () => {
     ).toEqual(check);
   });
 
-  const consoleRow = (
-    table: "provider_connections" | "mcp_servers",
-    id: string,
-  ) =>
-    table === "provider_connections"
-      ? {
-          text: `INSERT INTO provider_connections (id, definition, credential_source, origin)
-                 VALUES ($1, $2, 'stored', 'console')`,
-          values: [
-            id,
-            JSON.stringify({
-              kind: "anthropic",
-              endpoint: "https://api.anthropic.invalid",
-              auth: { kind: "api_key", stored: `connection:${id}` },
-            }),
-          ],
-        }
-      : {
-          text: `INSERT INTO mcp_servers (id, url, credential_ref, auth, credential_source, workspaces, origin)
-                 VALUES ($1, 'https://mcp.example.invalid/x', 'x_token', $2, 'stored', '["acme"]', 'console')`,
-          values: [id, JSON.stringify({ kind: "bearer", stored: `mcp:${id}` })],
-        };
-
   const exists = async (table: string, id: string) =>
     (await pool.query(`SELECT 1 FROM ${table} WHERE id = $1`, [id]))
       .rowCount === 1;
 
-  for (const [table, constraint] of [
-    ["provider_connections", "provider_connections_console_value"],
-    ["mcp_servers", "mcp_servers_console_value"],
-  ] as const) {
-    test(`a console row in ${table} without its value fails at commit, not at the insert`, async () => {
-      const id = `console-${randomUUID().slice(0, 8)}`;
-      const client = await pool.connect();
-      let failed: Refused | "committed";
-      try {
-        await client.query("BEGIN");
-        const row = consoleRow(table, id);
-        // The insert itself passes: the value may still be sealed after it.
-        await client.query(row.text, row.values);
-        failed = await client
-          .query("COMMIT")
-          .then(() => "committed" as const, refusedBy);
-      } finally {
-        await client.query("ROLLBACK").catch(() => undefined);
-        client.release();
-      }
-      expect(failed).toEqual({ code: "23514", constraint });
-      expect(await exists(table, id)).toBe(false);
+  test("a console row in provider_connections without its value fails at commit, not at the insert", async () => {
+    const id = `console-${randomUUID().slice(0, 8)}`;
+    const client = await pool.connect();
+    let failed: Refused | "committed";
+    try {
+      await client.query("BEGIN");
+      // The insert itself passes: the value may still be sealed after it.
+      await client.query(
+        `INSERT INTO provider_connections (id, definition, credential_source, origin)
+         VALUES ($1, $2, 'stored', 'console')`,
+        [
+          id,
+          JSON.stringify({
+            kind: "anthropic",
+            endpoint: "https://api.anthropic.invalid",
+            auth: { kind: "api_key", stored: `connection:${id}` },
+          }),
+        ],
+      );
+      failed = await client
+        .query("COMMIT")
+        .then(() => "committed" as const, refusedBy);
+    } finally {
+      await client.query("ROLLBACK").catch(() => undefined);
+      client.release();
+    }
+    expect(failed).toEqual({
+      code: "23514",
+      constraint: "provider_connections_console_value",
     });
-  }
+    expect(await exists("provider_connections", id)).toBe(false);
+  });
 
   test("a console connection sealed in the same transaction commits", async () => {
     const id = `console-${randomUUID().slice(0, 8)}`;
@@ -537,15 +519,21 @@ integration(
         carried_auth: PROVIDER_AUTH,
         credential_source: "stored",
       });
+      // 0303 retired the catalog row; its restore record keeps no value.
       expect(
         await row(
           "SELECT auth, carried_auth, credential_source FROM mcp_servers WHERE id = $1",
           "docs",
         ),
+      ).toBeUndefined();
+      expect(
+        await row(
+          "SELECT url, credential_ref FROM retired_catalog_mcp WHERE name = $1",
+          "docs",
+        ),
       ).toEqual({
-        auth: { kind: "bearer", stored: "mcp:docs" },
-        carried_auth: MCP_AUTH,
-        credential_source: "stored",
+        url: "https://mcp.example.invalid/docs",
+        credential_ref: "docs_token",
       });
       const { value_env: _env, ...ghesNamed } = GHES_AUTH;
       const { secret_id: _sm, ...ghecNamed } = GHEC_AUTH;
@@ -583,7 +571,6 @@ integration(
       if (plan.outcome !== "dry_run") return;
       expect([...plan.needs_value].sort()).toEqual([
         "connection:main",
-        "mcp:docs",
         "repository:ghec",
         "repository:ghes",
       ]);

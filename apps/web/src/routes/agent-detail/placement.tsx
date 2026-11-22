@@ -4,7 +4,6 @@ import { type Outcome, OutcomeLine } from "../../components/outcome.tsx";
 export type Place =
   | "page"
   | "card"
-  | "mcp"
   | "workspaceMcp"
   | "skills"
   | "credentials"

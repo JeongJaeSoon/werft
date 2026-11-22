@@ -2,6 +2,7 @@ import {
   budgetEndedTerminal,
   type CheckpointBlockReason,
   type CheckpointRef,
+  catalogMcpSkippedEventDataSchema,
   checkpointBlockReasonSchema,
   ENDED_ATTEMPT_STATES,
   type EnvRefusal,
@@ -124,7 +125,10 @@ import {
 import { terminateReceiptResult } from "./control-unit-of-work.ts";
 import { encodeEventCursor } from "./cursors.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
-import { sessionGitHubMcpOf, sessionMcpOf } from "./github/mcp-egress.ts";
+import {
+  retiredSessionMcpOf,
+  sessionGitHubMcpOf,
+} from "./github/mcp-egress.ts";
 import { builtinToolsDenyOf } from "./musterrolle/agent-caller-limits.ts";
 import {
   envStartRefusal,
@@ -167,6 +171,7 @@ import {
   providerUsage,
   queueMessages,
   receipts,
+  retiredCatalogMcpNotices,
   sessions,
   settingsGeneration,
   turnContinuations,
@@ -1598,6 +1603,39 @@ function envOf(session: SessionRow): { env?: Record<string, string> } {
   return env === undefined ? {} : { env };
 }
 
+// The first claim that leaves a retired catalog server out says so in the
+// session's events; the notice row keeps a claim again from saying it twice.
+// The claim holds the session row, as every events writer must.
+async function noteRetiredCatalogMcp(
+  tx: Database,
+  input: {
+    sessionId: string;
+    attemptId: string;
+    retired: WorkerBinding["retiredMcp"];
+    now: Date;
+  },
+): Promise<void> {
+  if (input.retired == null) return;
+  const [noted] = await tx
+    .insert(retiredCatalogMcpNotices)
+    .values({ sessionId: input.sessionId, server: input.retired.server })
+    .onConflictDoNothing()
+    .returning({ sessionId: retiredCatalogMcpNotices.sessionId });
+  if (noted === undefined) return;
+  await recordEvent(tx, {
+    sessionId: input.sessionId,
+    type: "system",
+    payload: catalogMcpSkippedEventDataSchema.parse({
+      type: "system",
+      subtype: "catalog_mcp_skipped",
+      server: input.retired.server,
+    }),
+    turnRowId: null,
+    attemptId: input.attemptId,
+    now: input.now,
+  });
+}
+
 async function bindingOf(
   tx: Database,
   session: SessionRow,
@@ -1623,7 +1661,7 @@ async function bindingOf(
     )),
     costUsd: session.costUsd,
     providerTokens: session.providerTokens,
-    mcp: await sessionMcpOf(tx, session),
+    retiredMcp: await retiredSessionMcpOf(tx, session),
     workspaceMcp: await sessionWorkspaceMcpOf(tx, session),
     githubMcp: await sessionGitHubMcpOf(tx, session),
     ...(await releaseRunOf(tx, session)),
@@ -1828,7 +1866,6 @@ async function issueCredentials(
     | "repositoryId"
     | "agentReleaseId"
     | "githubPolicySource"
-    | "mcpStart"
     | "workspaceId"
     | "workspaceMcpStart"
   >,
@@ -1843,7 +1880,6 @@ async function issueCredentials(
     repositoryMode: session.repositoryMode,
     repositoryId: session.repositoryId,
     githubPolicySource: session.githubPolicySource,
-    mcp: await sessionMcpOf(tx, session),
     workspaceMcp: await sessionWorkspaceMcpOf(tx, session),
     githubMcp: await sessionGitHubMcpOf(tx, session),
   });
@@ -2318,12 +2354,16 @@ export function createPostgresWorkerUnitOfWork(
         await tx
           .delete(unassignedSessions)
           .where(eq(unassignedSessions.sessionId, session.id));
+        const binding = await bindingOf(tx, session, attempt, at, restore);
+        await noteRetiredCatalogMcp(tx, {
+          sessionId: session.id,
+          attemptId: attempt.id,
+          retired: binding.retiredMcp,
+          now: input.now,
+        });
         return {
           outcome: "claimed",
-          binding: withLaunchRuntime(
-            await bindingOf(tx, session, attempt, at, restore),
-            launch,
-          ),
+          binding: withLaunchRuntime(binding, launch),
         };
       });
     },

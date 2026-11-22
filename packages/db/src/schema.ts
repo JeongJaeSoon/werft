@@ -36,6 +36,7 @@ import {
   LINKED_ACCOUNT_PROVIDER_VALUES,
   LINKED_ACCOUNT_REVOKED_REASON_VALUES,
   LINKED_ACCOUNT_STATUS_VALUES,
+  MCP_RESERVED_SERVER_NAMES,
   MEMORY_BODY_MAX_BYTES,
   MEMORY_SCAN_STATUS_VALUES,
   MEMORY_SCOPE_VALUES,
@@ -91,7 +92,6 @@ import {
   USER_LOCALE_VALUES,
   type UserLocale,
   WAITING_PUSH_INTENT_STATUSES,
-  WORKSPACE_MCP_RESERVED_NAMES,
   WORKSPACE_ROLE_VALUES,
 } from "@werft-ai/contracts";
 import type {
@@ -4005,7 +4005,7 @@ export const workspaceMcpServers = pgTable(
     ),
     check(
       "workspace_mcp_servers_name_check",
-      sql`${table.name} ~ '^[a-z0-9](?:[a-z0-9-]|_(?!_)){0,31}$' AND ${table.name} NOT IN (${sqlLiterals(WORKSPACE_MCP_RESERVED_NAMES)})`,
+      sql`${table.name} ~ '^[a-z0-9](?:[a-z0-9-]|_(?!_)){0,31}$' AND ${table.name} NOT IN (${sqlLiterals(MCP_RESERVED_SERVER_NAMES)})`,
     ),
     check(
       "workspace_mcp_servers_auth_kind_check",
@@ -6137,6 +6137,50 @@ export const mcpServers = pgTable(
     check("mcp_servers_github_reserved_check", sql`${table.id} <> 'github'`),
   ],
 );
+
+/**
+ * The installation catalog MCP servers as their rows were deleted: no
+ * value, only what an old release's checkpoint fingerprint and credential
+ * names need (design correction 2). Read to restore and to leave out a
+ * retired server's reference; never shown.
+ */
+export const retiredCatalogMcp = pgTable("retired_catalog_mcp", {
+  name: text().primaryKey(),
+  url: text().notNull(),
+  credentialRef: text("credential_ref").notNull(),
+  retiredAt: timestamp("retired_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+/**
+ * Each agent's catalog MCP selection (`agent_mcp_settings`) as it was
+ * deleted, values only: the input a restore computes the session's old
+ * server and tools from (`effectiveMcp`).
+ */
+export const retiredAgentMcpSettings = pgTable("retired_agent_mcp_settings", {
+  agentId: uuid("agent_id").primaryKey(),
+  workspaceId: uuid("workspace_id").notNull(),
+  server: text(),
+  allowedTools: jsonb("allowed_tools").$type<string[]>().notNull(),
+  /** `updated_by` was null: a row copied from a release, not a person's. */
+  copied: boolean().notNull(),
+  retiredAt: timestamp("retired_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+/**
+ * The sessions whose event stream says their retired catalog server was left
+ * out: one row, so a claim again records the line no second time.
+ */
+export const retiredCatalogMcpNotices = pgTable("retired_catalog_mcp_notices", {
+  sessionId: uuid("session_id")
+    .primaryKey()
+    .references(() => sessions.id),
+  server: text().notNull(),
+  notedAt: timestamp("noted_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 /**
  * One row whose `generation` rises with every write to the installation's

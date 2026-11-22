@@ -3,8 +3,8 @@ export * from "./action/pull-request-settings.ts";
 export * from "./action/pull-requests.ts";
 export * from "./action/push-follow-ups.ts";
 export * from "./action/push-intents.ts";
-export * from "./agents/agent-mcp.ts";
 export * from "./agents/agent-workspace-mcp.ts";
+export * from "./agents/retired-catalog-drafts.ts";
 export * from "./agents.ts";
 export {
   listUnreleasedLaunchImages,

@@ -35,20 +35,18 @@ const DOCUMENT = {
       auth: { kind: "github_app" },
     },
   },
-  mcp_servers: {
-    docs: {
-      url: "https://mcp.example.invalid/docs",
-      credential_ref: "docs_token",
-      auth: { kind: "bearer", stored: true },
-      workspaces: ["acme"],
-    },
-  },
+};
+
+const CATALOG_MCP = {
+  url: "https://mcp.example.invalid/docs",
+  credential_ref: "docs_token",
+  auth: { kind: "bearer", stored: true },
+  workspaces: ["acme"],
 };
 
 const NONE: ExistingSettings = {
   connections: new Map(),
   repositories: new Map(),
-  mcp_servers: new Map(),
   stored_values: new Set(),
 };
 
@@ -63,19 +61,49 @@ describe("parseSettingsDocument", () => {
       kind: "api_key",
       stored: "connection:main",
     });
-    expect(entries.mcp_servers.docs?.auth).toEqual({
-      kind: "bearer",
-      stored: "mcp:docs",
-    });
+  });
+
+  test("a document naming an installation catalog MCP server is refused whole, by name only; an empty or missing field is taken", () => {
+    for (const servers of [
+      { docs: CATALOG_MCP },
+      { wiki: CATALOG_MCP, docs: CATALOG_MCP },
+    ]) {
+      const refused = (() => {
+        try {
+          parseSettingsDocument({ ...DOCUMENT, mcp_servers: servers });
+          return null;
+        } catch (error) {
+          return error;
+        }
+      })();
+      expect(refused).toBeInstanceOf(SettingsDocumentError);
+      const message = (refused as Error).message;
+      expect(message).toBe(
+        `The settings document is invalid: mcp_servers (${Object.keys(servers).sort().join(", ")}): 설치 카탈로그 MCP는 없어졌다. 워크스페이스 MCP 서버로 등록해 고른다`,
+      );
+      expect(message).not.toContain("mcp.example.invalid");
+      expect(message).not.toContain("docs_token");
+    }
+    const { mcp_servers: _none, ...missing } = {
+      ...DOCUMENT,
+      mcp_servers: {},
+    };
+    expect(parseSettingsDocument({ ...DOCUMENT, mcp_servers: {} })).toEqual(
+      parseSettingsDocument(missing),
+    );
+  });
+
+  test("an export has no mcp_servers field", () => {
+    expect(
+      settingsDocumentOf(parseSettingsDocument(DOCUMENT)),
+    ).not.toHaveProperty("mcp_servers");
   });
 
   test("refuses an env or Secrets Manager reference, naming the field", () => {
     const main = DOCUMENT.connections.main;
-    const docs = DOCUMENT.mcp_servers.docs;
     for (const [field, section, id, entry] of [
       ["value_env", "connections", "main", main],
       ["secret_id", "connections", "main", main],
-      ["value_env", "mcp_servers", "docs", docs],
     ] as const) {
       const document = {
         ...DOCUMENT,
@@ -131,10 +159,6 @@ describe("parseSettingsDocument", () => {
       { ...DOCUMENT, version: 2 },
       // A document from before profiles were removed.
       { ...DOCUMENT, profiles: {} },
-      {
-        ...DOCUMENT,
-        mcp_servers: { github: DOCUMENT.mcp_servers.docs },
-      },
       {
         ...DOCUMENT,
         repositories: {
@@ -254,39 +278,9 @@ describe("planSettingsImport", () => {
       "connection:main",
       "repository:app",
       "repository:open",
-      "mcp:docs",
     ]);
-    expect(plan.needs_value).toEqual([
-      "connection:console",
-      "connection:main",
-      "mcp:docs",
-    ]);
+    expect(plan.needs_value).toEqual(["connection:console", "connection:main"]);
     expect(plan.conflicts).toEqual([]);
-  });
-
-  test("a new MCP server on a reserved name is a conflict; a row that already holds it stays", () => {
-    const browser = parseSettingsDocument({
-      ...DOCUMENT,
-      mcp_servers: { browser: DOCUMENT.mcp_servers.docs },
-    });
-    const refused = planSettingsImport(browser, NONE);
-    expect(refused.conflicts).toEqual(["mcp:browser"]);
-    expect(refused.add.map((add) => add.id)).not.toContain("browser");
-    const held = planSettingsImport(browser, {
-      ...NONE,
-      mcp_servers: new Map([
-        [
-          "browser",
-          {
-            entry: browser.mcp_servers.browser,
-            active: true,
-            has_value: true,
-          },
-        ],
-      ]),
-    });
-    expect(held.conflicts).toEqual([]);
-    expect(held.unchanged).toContain("mcp:browser");
   });
 
   test("an id already held: same content unchanged, other content a conflict, an inactive row stays so", () => {
@@ -321,10 +315,8 @@ describe("planSettingsImport", () => {
     expect(plan.unchanged).toEqual(["connection:console", "connection:main"]);
     expect(plan.inactive).toEqual(["repository:app"]);
     expect(plan.conflicts).toEqual(["repository:open"]);
-    expect(plan.needs_value).toEqual(["connection:main", "mcp:docs"]);
-    expect(plan.add.map((add) => `${add.kind}:${add.id}`)).toEqual([
-      "mcp:docs",
-    ]);
+    expect(plan.needs_value).toEqual(["connection:main"]);
+    expect(plan.add).toEqual([]);
   });
 
   describe("a repository the console moved to another branch", () => {
@@ -333,7 +325,7 @@ describe("planSettingsImport", () => {
       branch,
       auth: { kind: "github_app" as const },
     });
-    const incoming = { connections: {}, mcp_servers: {} };
+    const incoming = { connections: {} };
     const row = (entry: unknown) => ({
       ...NONE,
       repositories: new Map([

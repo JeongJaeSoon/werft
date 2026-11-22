@@ -16,6 +16,13 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 - **Slack·GitHub 계정 연결의 일회용 state가 봉인된 cookie로 바뀌어, 올리는 순간 진행 중이던 연결은 한 번 실패한다**(JeongJaeSoon/werft#1997). `werft_slack_link`·`werft_github_link`의 값을 로그인 공급자 flow cookie와 같은 방식(AES-256-GCM, master key에서 뽑은 키)으로 봉인한다. 옛 형식의 cookie는 읽지 않으므로, 올리기 전에 연결을 시작해 동의 화면에 있던 사람은 callback에서 `400`(다시 시작 안내)을 받고 처음부터 다시 한다. 호환 경로는 없다. 데이터와 이미 연결된 계정에는 영향이 없다. Slack 연결도 이제 서버가 시작 뒤 10분을 검사한다(이전에는 브라우저의 cookie 만료에만 기댔다).
 
+- **설치 카탈로그 MCP(설치 owner가 콘솔이나 설정 문서의 `mcp_servers`로 더하던 원격 MCP 서버)가 없어진다. 워크스페이스 MCP 서버로 옮기지 않는다**(JeongJaeSoon/werft#1998).
+  - migration `0303_retire_catalog_mcp`가 카탈로그 행, 그 저장값, 에이전트의 카탈로그 선택을 지운다. migrate 로그 `db.migrate.notice`에 지운 서버의 수와 이름이 남는다(`0303: … catalog MCP servers retired (…)`). 계속 쓸 서버는 올리기 전에 이 이름을 적어 두고, 올린 뒤 워크스페이스 MCP 서버로 등록해 에이전트에서 고른다.
+  - 비어 있지 않은 `mcp_servers`를 담은 설정 문서는 가져오기가 `400 invalid_document`로 거절한다. 보관한 내보내기 파일과 seed 문서에서 그 칸을 지운다.
+  - `/v1/installation/settings/mcp-servers`와 `/v1/agents/{id}/mcp/settings` route가 없어졌다(`404`).
+  - 옛 release의 세션은 그 서버 없이 돈다. 그 서버를 넣고 찍은 checkpoint도 복원된다. 대안이 16개 찬 세션은 가장 오래된 대안 하나의 checkpoint를 복원하지 못할 수 있다. 그러면 API 로그에 `claim.retired_catalog_restore_dropped` 경고가 세션 id와 함께 남는다. 그 서버가 쓰던 credential 이름의 묶음을 풀어도 세션은 시작된다.
+  - rolling deploy 중 옛 replica가 카탈로그를 쓰면(가져오기·콘솔·카탈로그를 적은 카드 저장) DB가 거절한다. 올리는 동안 카탈로그를 바꾸지 않는다.
+
 - **worker가 `packages`가 없는 bootstrap claim을 계약 위반으로 거절한다**(JeongJaeSoon/werft#1991). 지원 창 안의 control-host(`v0.3.0`부터)는 claim마다 `packages`를 보내므로, control-host를 먼저 올리는 순서를 지키면 할 일은 없다. `packages`를 보내지 않는 더 옛 control-host에 이 worker 이미지를 붙이면 세션이 시작하지 않는다. 그런 control-host를 만났을 때 HOME의 npm·Bundler·Go 설정을 지우던 동작도 없어졌다.
 
 - **Slack 계정 연결(Sign in with Slack)이 로그인 공급자와 같은 주소 규칙과 id_token 검사를 받는다**(JeongJaeSoon/werft#1995).

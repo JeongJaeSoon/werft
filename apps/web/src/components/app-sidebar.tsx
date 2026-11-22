@@ -261,7 +261,7 @@ export function useWorkspaceSettingsNavGroups(): readonly NavGroup[] {
       icon: SettingsIcon,
     });
   }
-  // Workspace servers are the admins'; the installation catalog the owner's.
+  // The workspace's servers, registered by its admins.
   if (workspaceManage || installationManage) {
     agentConnections.push({
       to: "/settings/workspace/mcp-servers",

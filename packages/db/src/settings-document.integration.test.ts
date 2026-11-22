@@ -22,7 +22,6 @@ import { createPostgresInstallationSettingsStore } from "./installation-settings
 import * as schema from "./schema.ts";
 import {
   catalogRepositories,
-  mcpServers,
   memberships,
   providerConnections,
   receipts,
@@ -74,14 +73,6 @@ const DOCUMENT = {
       },
     },
   },
-  mcp_servers: {
-    docs: {
-      url: "https://mcp.example.invalid/docs",
-      credential_ref: "docs_token",
-      auth: { kind: "bearer", stored: true },
-      workspaces: ["acme"],
-    },
-  },
 };
 
 integration("settings document import and export", () => {
@@ -103,7 +94,6 @@ integration("settings document import and export", () => {
     await db.delete(receipts);
     await db.delete(secretValues);
     await db.delete(providerConnections);
-    await db.delete(mcpServers);
     await db.delete(catalogRepositories);
   }
 
@@ -113,7 +103,6 @@ integration("settings document import and export", () => {
   const rowCounts = async () => ({
     connections: (await db.select().from(providerConnections)).length,
     repositories: (await db.select().from(catalogRepositories)).length,
-    mcp: (await db.select().from(mcpServers)).length,
   });
 
   async function owner(): Promise<TeamActor> {
@@ -159,12 +148,7 @@ integration("settings document import and export", () => {
   const entries = (): SettingsEntries => parseSettingsDocument(DOCUMENT);
   const store = () => createPostgresSettingsDocumentStore(db);
   const operator = { dryRun: false, actor: null };
-  const STORED = [
-    "connection:console",
-    "connection:main",
-    "repository:ghec",
-    "mcp:docs",
-  ];
+  const STORED = ["connection:console", "connection:main", "repository:ghec"];
 
   test("an import, its export and the export imported again change nothing the second time", async () => {
     await clear();
@@ -179,7 +163,6 @@ integration("settings document import and export", () => {
     expect(first.add.map((add) => `${add.kind}:${add.id}`).sort()).toEqual([
       "connection:console",
       "connection:main",
-      "mcp:docs",
       "repository:app",
       "repository:ghec",
       "repository:open",
@@ -201,7 +184,7 @@ integration("settings document import and export", () => {
       receipt_ids: [],
     });
     if (again.outcome === "actor_inactive") throw new Error("unreachable");
-    expect(again.unchanged).toHaveLength(6);
+    expect(again.unchanged).toHaveLength(5);
     expect({
       generation: await generation(),
       rows: await rowCounts(),
@@ -358,12 +341,11 @@ integration("settings document import and export", () => {
     expect(await rowCounts()).toEqual({
       connections: 0,
       repositories: 0,
-      mcp: 0,
     });
 
     const applied = await store().importEntries(entries(), operator);
     if (applied.outcome !== "applied") throw new Error(applied.outcome);
-    expect(applied.receipt_ids).toHaveLength(6);
+    expect(applied.receipt_ids).toHaveLength(5);
     const written = await db
       .select()
       .from(receipts)
@@ -371,7 +353,6 @@ integration("settings document import and export", () => {
     expect(written.map((row) => row.operation).sort()).toEqual([
       "import_connection",
       "import_connection",
-      "import_mcp_server",
       "import_repository",
       "import_repository",
       "import_repository",
@@ -394,12 +375,6 @@ integration("settings document import and export", () => {
         "repository",
         "repository_id",
         "source",
-        "url",
-      ],
-      import_mcp_server: [
-        "credential_ref",
-        "credential_source",
-        "mcp_server_id",
         "url",
       ],
     } as Record<string, string[]>;
@@ -441,20 +416,11 @@ integration("settings document import and export", () => {
           },
         },
       },
-      mcp_servers: {
-        docs: {
-          ...DOCUMENT.mcp_servers.docs,
-          auth: { kind: "bearer", [field]: "X" },
-        },
-      },
     });
     for (const field of ["value_env", "secret_id"]) {
-      expect(() =>
-        parseSettingsDocument({ ...named(field), mcp_servers: {} }),
-      ).toThrow(`repositories.ghec.auth.${field} is no longer supported`);
-      expect(() =>
-        parseSettingsDocument({ ...named(field), repositories: {} }),
-      ).toThrow(`mcp_servers.docs.auth.${field} is no longer supported`);
+      expect(() => parseSettingsDocument(named(field))).toThrow(
+        `repositories.ghec.auth.${field} is no longer supported`,
+      );
     }
   });
 
@@ -468,7 +434,6 @@ integration("settings document import and export", () => {
         open: entries().repositories.open as never,
         app: entries().repositories.app as never,
       },
-      mcp_servers: {},
     };
     const applied = await store().importEntries(stored, api);
     expect(applied).toMatchObject({
@@ -525,7 +490,6 @@ integration("settings document import and export", () => {
       {
         connections: { console: entries().connections.console as never },
         repositories: {},
-        mcp_servers: {},
       },
       operator,
     );
@@ -596,7 +560,7 @@ integration("settings document import and export", () => {
       const seeded = await store().seedEntries([step(entries())]);
       expect(seeded.outcome).toBe("applied");
       const counts = await rowCounts();
-      expect(counts).toEqual({ connections: 2, repositories: 3, mcp: 1 });
+      expect(counts).toEqual({ connections: 2, repositories: 3 });
       const at = await decidedAt();
       if (at === null) throw new Error("the seed recorded no time");
 
@@ -627,7 +591,6 @@ integration("settings document import and export", () => {
       expect(await rowCounts()).toEqual({
         connections: 0,
         repositories: 0,
-        mcp: 0,
       });
     });
 
@@ -651,7 +614,6 @@ integration("settings document import and export", () => {
       expect(await rowCounts()).toEqual({
         connections: 0,
         repositories: 0,
-        mcp: 0,
       });
     });
 
@@ -672,7 +634,6 @@ integration("settings document import and export", () => {
       expect(await rowCounts()).toEqual({
         connections: 2,
         repositories: 3,
-        mcp: 1,
       });
     });
 
@@ -701,7 +662,6 @@ integration("settings document import and export", () => {
       expect(await rowCounts()).toEqual({
         connections: 0,
         repositories: 0,
-        mcp: 0,
       });
       expect(await decidedAt()).toBeNull();
       expect(await store().decideSeed()).toEqual({ outcome: "empty" });
@@ -720,7 +680,6 @@ integration("settings document import and export", () => {
       expect(await rowCounts()).toEqual({
         connections: 2,
         repositories: 3,
-        mcp: 1,
       });
     });
   });

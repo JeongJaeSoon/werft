@@ -50,6 +50,7 @@ import type {
   WorkerScope,
 } from "@werft-ai/contracts";
 import {
+  canonicalJsonOfJson,
   DEFAULT_WORKSPACE_ENFORCE,
   ENGINE_COAUTHOR_EMAILS,
   GITHUB_MCP_SERVER,
@@ -78,12 +79,12 @@ import {
   mcpBinding,
   providerPathAllowed,
   providerUpstreamOf,
+  type RetiredSessionMcp,
   repositoryBinding,
   repositoryUpstreamOf,
   runtimeConfigWithMcp,
   type SessionCatalog,
   type SessionGitHubMcp,
-  type SessionMcp,
   type SessionWorkspaceMcp,
   trustedGitHubTools,
   withoutDeniedTools,
@@ -174,6 +175,7 @@ import {
 import { createGitHubMcpEgress } from "./github-mcp-egress.ts";
 import {
   appendNew,
+  dedupe,
   legacyConfigsFromRow,
   servedLegacyConfig,
 } from "./legacy-runtime-configs.ts";
@@ -697,6 +699,12 @@ export function createWorkerGateway(deps: {
     error: unknown,
     cut: { sessionId: string; attemptId: string },
   ) => void;
+  // Called when a session the retired catalog server ran in has more
+  // restore configs than a claim carries; the oldest are not offered.
+  onRestoreConfigsDropped?: (finding: {
+    sessionId: string;
+    dropped: number;
+  }) => void;
   onToolAudit?: (finding: {
     sessionId: string;
     attemptId: string;
@@ -1144,34 +1152,21 @@ export function createWorkerGateway(deps: {
     return runnableOf.input;
   }
 
-  // The catalog server the release names, the workspace servers the session
-  // started with, then the built-in `github` when the release carries GitHub
-  // settings. The first entry's binding is the MCP token's, so a session
-  // with a catalog server holds its token to it as before.
+  // The workspace servers the session started with, then the built-in
+  // `github` when the release carries GitHub settings. The first entry's
+  // binding is the MCP token's. A retired catalog server is not claimed: a
+  // restore config names it (`retiredMcpServer`).
   function claimedMcp(
     session: {
-      mcp?: SessionMcp | null;
       workspaceMcp?: readonly SessionWorkspaceMcp[];
       githubMcp?: SessionGitHubMcp | null;
     },
-    servers: typeof catalog.mcp_servers,
     // The claiming worker announced `platform_tool_trust`; for one that did
     // not, the strict claim schema refuses the marks, so they are left off.
     trust = false,
   ): ClaimedMcpServer[] {
-    const { mcp, githubMcp } = session;
-    const server = mcp ? own(servers ?? {}, mcp.server) : undefined;
+    const { githubMcp } = session;
     return [
-      ...(mcp && server
-        ? [
-            {
-              name: mcp.server,
-              endpoint: server.url,
-              binding: mcpBinding(mcp.releaseId, mcp.server, server),
-              tools: mcp.tools,
-            },
-          ]
-        : []),
       ...(session.workspaceMcp ?? []).map((workspace) => ({
         name: workspace.name,
         endpoint: workspace.url,
@@ -1202,6 +1197,20 @@ export function createWorkerGateway(deps: {
     return runtimeConfigWithMcp(config, mcp, mcpToken);
   }
 
+  // The retired catalog server as a claim before migration 0303 put it first
+  // in the session's list, binding and all, for a checkpoint taken with it.
+  function retiredMcpServer(retired: RetiredSessionMcp): ClaimedMcpServer {
+    return {
+      name: retired.server,
+      endpoint: retired.url,
+      binding: mcpBinding(retired.releaseId, retired.server, {
+        url: retired.url,
+        credential_ref: retired.credentialRef,
+      }),
+      tools: retired.tools,
+    };
+  }
+
   // The configs the session's checkpoints were made under other than the
   // one it runs now (before its model moved): the worker accepts a restored
   // checkpoint made under any of them, and runs the engine on runtime_config.
@@ -1214,6 +1223,8 @@ export function createWorkerGateway(deps: {
       | "repository"
       | "callerToolsDeny"
       | "workspaceMcp"
+      | "retiredMcp"
+      | "sessionId"
     >,
     current: RuntimeConfig,
     providerToken: string,
@@ -1223,61 +1234,95 @@ export function createWorkerGateway(deps: {
     const kept = legacyConfigsFromRow(binding.legacyRuntimeConfigs).map(
       (config) => servedLegacyConfig(config, providerToken),
     );
-    // Checkpoints made before the built-in `github` server was attached
-    // name only the catalog server; they resume into a run that has both.
-    const legacy = mcp.filter((server) => server.name !== GITHUB_MCP_SERVER);
-    const attached = legacy.length !== mcp.length;
-    const github = mcp.find((server) => server.name === GITHUB_MCP_SERVER);
-    const beforeAdded =
-      github === undefined
-        ? []
-        : earlierGitHubServers(github).map((earlier) =>
-            mcp.map((server) => (server === github ? earlier : server)),
-          );
-    // Checkpoints made by a control-host that did not claim workspace
-    // servers (mid-deploy) name the others only.
-    const workspaceNames = new Set(
-      (binding.workspaceMcp ?? []).map((server) => server.name),
-    );
-    const withoutWorkspace = mcp.filter(
-      (server) => !workspaceNames.has(server.name),
-    );
-    const offerings = (config: RuntimeConfig, running: boolean) => [
-      ...(running ? [] : [withMcp(config, mcp, mcpToken)]),
-      ...(attached ? [withMcp(config, legacy, mcpToken)] : []),
-      ...(withoutWorkspace.length === mcp.length
-        ? []
-        : [withMcp(config, withoutWorkspace, mcpToken)]),
-    ];
-    const beforeAddition = (config: RuntimeConfig) =>
-      beforeAdded.map((servers) => withMcp(config, servers, mcpToken));
     // First, ahead of the cap: what the session ran before its limit removed
     // a tool is the config its own checkpoints carry.
     const unlimited = specConfigOf(
       { ...binding, callerToolsDeny: [] },
       providerToken,
     );
-    const beforeLimit =
-      unlimited.tools.length === current.tools.length
-        ? []
-        : offerings(unlimited, false);
-    // The lists from before a tool was added only fill what the cap leaves,
-    // so no config offered before is pushed out; the running one's first.
-    const offered = appendNew(
-      beforeLimit,
-      appendNew(
-        offerings(current, true),
+    // Every config a claim offers for the session's servers `mcp`; `running`
+    // leaves out the current config with them, the one the engine runs.
+    const offeredFor = (
+      mcp: readonly ClaimedMcpServer[],
+      running: boolean,
+    ): RuntimeConfig[] => {
+      // Checkpoints made before the built-in `github` server was attached
+      // name only the others; they resume into a run that has both.
+      const legacy = mcp.filter((server) => server.name !== GITHUB_MCP_SERVER);
+      const attached = legacy.length !== mcp.length;
+      const github = mcp.find((server) => server.name === GITHUB_MCP_SERVER);
+      const beforeAdded =
+        github === undefined
+          ? []
+          : earlierGitHubServers(github).map((earlier) =>
+              mcp.map((server) => (server === github ? earlier : server)),
+            );
+      // Checkpoints made by a control-host that did not claim workspace
+      // servers (mid-deploy) name the others only.
+      const workspaceNames = new Set(
+        (binding.workspaceMcp ?? []).map((server) => server.name),
+      );
+      const withoutWorkspace = mcp.filter(
+        (server) => !workspaceNames.has(server.name),
+      );
+      const offerings = (config: RuntimeConfig, runs: boolean) => [
+        ...(runs ? [] : [withMcp(config, mcp, mcpToken)]),
+        ...(attached ? [withMcp(config, legacy, mcpToken)] : []),
+        ...(withoutWorkspace.length === mcp.length
+          ? []
+          : [withMcp(config, withoutWorkspace, mcpToken)]),
+      ];
+      const beforeAddition = (config: RuntimeConfig) =>
+        beforeAdded.map((servers) => withMcp(config, servers, mcpToken));
+      const beforeLimit =
+        unlimited.tools.length === current.tools.length
+          ? []
+          : offerings(unlimited, false);
+      // The lists from before a tool was added only fill what the cap leaves,
+      // so no config offered before is pushed out; the running one's first.
+      return appendNew(
+        beforeLimit,
         appendNew(
-          kept.flatMap((config) => offerings(config, false)),
-          [
-            ...beforeAddition(current),
-            ...(beforeLimit.length === 0 ? [] : beforeAddition(unlimited)),
-            ...kept.flatMap(beforeAddition),
-          ],
+          offerings(current, running),
+          appendNew(
+            kept.flatMap((config) => offerings(config, false)),
+            [
+              ...beforeAddition(current),
+              ...(beforeLimit.length === 0 ? [] : beforeAddition(unlimited)),
+              ...kept.flatMap(beforeAddition),
+            ],
+          ),
         ),
+      );
+    };
+    const retired = binding.retiredMcp;
+    if (retired == null || !retired.restorable) {
+      const offered = offeredFor(mcp, true).slice(0, MAX_RESTORE_CONFIGS);
+      return offered.length === 0 ? {} : { restore_runtime_configs: offered };
+    }
+    // A session a claim gave the retired catalog server before migration
+    // 0303 is offered first what that claim offered, its running config
+    // first. That claim had no workspace server of the same name. The
+    // config run now needs no slot; past the cap the oldest are dropped.
+    const running = canonicalJsonOfJson(withMcp(current, mcp, mcpToken));
+    const beforeRetired = dedupe(
+      offeredFor(
+        [
+          retiredMcpServer(retired),
+          ...mcp.filter((server) => server.name !== retired.server),
+        ],
+        false,
       ),
+    ).filter((config) => canonicalJsonOfJson(config) !== running);
+    const dropped = beforeRetired.length - MAX_RESTORE_CONFIGS;
+    if (dropped > 0) {
+      deps.onRestoreConfigsDropped?.({ sessionId: binding.sessionId, dropped });
+    }
+    const offered = appendNew(
+      beforeRetired.slice(0, MAX_RESTORE_CONFIGS),
+      offeredFor(mcp, true),
     ).slice(0, MAX_RESTORE_CONFIGS);
-    return offered.length === 0 ? {} : { restore_runtime_configs: offered };
+    return { restore_runtime_configs: offered };
   }
 
   // What each egress token is held to, taken from the catalog at the moment
@@ -1285,31 +1330,18 @@ export function createWorkerGateway(deps: {
   // its entries exist here.
   function egressBindingsOf(
     session: Parameters<EgressIssue["bindingsOf"]>[0],
-    mcpServers: typeof catalog.mcp_servers,
   ): EgressBindings {
     if (connectionOf(catalog, session.connectionId) === undefined) {
       throw new Error("A claimed session has no runnable connection");
-    }
-    // Thrown inside the claim's transaction, so nothing is bound and the
-    // worker asks again, of a replica that has read or resolved the server.
-    const server = session.mcp?.server;
-    if (server !== undefined && own(mcpServers ?? {}, server) === undefined) {
-      throw new WorkerGatewayError(
-        503,
-        "BACKEND_UNAVAILABLE",
-        "The session's release names an MCP server this host's catalog does not hold",
-        true,
-      );
     }
     // The provider token is held to the session's spec: a session whose spec
     // was rewritten (its model moved) gets a token for the new one.
     const provider = session.specDigest;
     const object_store = sessionObjectPrefix(session.id);
-    // One token serves every server; it is held to the catalog server's
-    // binding when there is one, as the remote route checks.
-    const claimed = claimedMcp(session, mcpServers);
-    // The name checks on writes keep a workspace server off `github` and the
-    // catalog's ids; this is the last guard should one be missed.
+    // One token serves every server; it is held to the first one's binding.
+    const claimed = claimedMcp(session);
+    // The name check on writes keeps a workspace server off `github`; this
+    // is the last guard should one be missed.
     if (new Set(claimed.map((entry) => entry.name)).size !== claimed.length) {
       throw new WorkerGatewayError(
         503,
@@ -1635,9 +1667,6 @@ export function createWorkerGateway(deps: {
       const budget = await budgetNow();
       const workspaceEnforce = await workspaceEnforceNow();
       const claimable = claimCatalog();
-      // One read for the check, the token's binding and the response, so a
-      // refresh between them cannot drop a server the claim already bound.
-      const mcpServers = catalog.mcp_servers;
       const result = await work.claimAtomic({
         ...claimable,
         budget,
@@ -1664,7 +1693,7 @@ export function createWorkerGateway(deps: {
           objectStoreHash: hashWorkerToken(objectStoreToken),
           mcpHash: hashWorkerToken(mcpToken),
           packagesHash: hashWorkerToken(packagesToken),
-          bindingsOf: (session) => egressBindingsOf(session, mcpServers),
+          bindingsOf: (session) => egressBindingsOf(session),
         },
         leaseTtlMs,
         now: at,
@@ -1752,7 +1781,6 @@ export function createWorkerGateway(deps: {
           const binding = result.binding;
           const mcp = claimedMcp(
             binding,
-            mcpServers,
             request.capabilities?.platform_tool_trust === true,
           );
           const current = specConfigOf(binding, providerToken);

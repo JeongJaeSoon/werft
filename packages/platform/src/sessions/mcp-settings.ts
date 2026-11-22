@@ -1,12 +1,12 @@
 import { mcpStartSchema } from "@werft-ai/contracts";
 import { visibleMcpTools } from "../catalog/index.ts";
 
-/** The agent's saved MCP settings, as the readers need them. */
+/** The agent's catalog MCP selection as it was retired, as a restore reads it. */
 export type AgentMcpSettingsView = {
   server: string | null;
   allowedTools: readonly string[];
-  /** Null on a row copied from a release; only a person's save sets it. */
-  updatedBy: string | null;
+  /** A row copied from a release, not one a person saved. */
+  copied: boolean;
 };
 
 /** What a session's release says about MCP, read off its card and pins. */
@@ -33,7 +33,9 @@ export function mcpDenyOf(snapshot: unknown): string[] {
 }
 
 /**
- * The MCP server and tools one session may use now.
+ * The catalog MCP server and tools a claim gave one session before migration
+ * 0303 retired the catalog, from the inputs it had then: a restore offers the
+ * config they made, so a checkpoint taken with the server still resumes.
  *
  * A session that started with a snapshot (`start`) follows the agent's
  * settings: its server is fixed, and its tools are what the snapshot and the
@@ -72,7 +74,7 @@ export function effectiveMcp(input: {
 
   const { server } = input.release;
   if (server === null) return { server: null, tools: [] };
-  if (input.row === null || input.row.updatedBy === null) {
+  if (input.row === null || input.row.copied) {
     return { server, tools: within(server, input.release.tools) };
   }
   if (input.row.server !== server) return { server, tools: [] };
