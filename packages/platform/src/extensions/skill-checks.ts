@@ -1,4 +1,11 @@
 import type { SkillCheckFinding, SkillCheckRule } from "@werft-ai/contracts";
+import {
+  micromark,
+  parse as parseMarkdown,
+  postprocess,
+  preprocess,
+} from "micromark";
+import { parse, parseFragment } from "parse5";
 import { type CanonicalBundleFile, runsAsScript } from "./bundle-validator.ts";
 import { unifiedLineDiff } from "./line-diff.ts";
 
@@ -134,64 +141,47 @@ function hostsInText(text: string): Set<string> {
   return hosts;
 }
 
-// The character references a link most plausibly spells a URL with; any
-// other one stays as written, and "&" or "#" in a host is a new host anyway.
-const NAMED: Record<string, string> = {
-  amp: "&",
-  lt: "<",
-  gt: ">",
-  quot: '"',
-  apos: "'",
-  commat: "@",
-  sol: "/",
-  bsol: "\\",
-  colon: ":",
-  period: ".",
-  num: "#",
-  quest: "?",
-  percnt: "%",
-  lpar: "(",
-  rpar: ")",
-  lsqb: "[",
-  rsqb: "]",
-  nbsp: "\u{A0}",
-  Tab: "\t",
-  NewLine: "\n",
-};
-// Numeric references as HTML reads them: any length, the ";" optional.
-const ENTITY = /&(?:#(\d+);?|#[xX]([\da-fA-F]+);?|([A-Za-z]+);)/g;
-const ESCAPE = /\\([!-/:-@[-`{-~])/g;
-const ATTRIBUTE = /=\s*(?:"([^"]*)"|'([^']*)')/g;
-/**
- * A CommonMark link destination: after "](" in an inline link or after
- * "]:" in a reference definition, in angle brackets or as a run without
- * spaces whose parentheses balance one deep.
- */
-const DESTINATION =
-  /\](?:\(|:)\s*(?:<([^<>\n]*)>|((?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*\))+))/g;
+/** Markdown or HTML larger than this is not rendered: its hosts cannot be judged. */
+export const RENDER_LIMIT = 256 * 1024;
+/** The new_url sample of a file whose hosts cannot be judged. */
+export const UNREADABLE = "unreadable";
+const MARKDOWN = /\.(?:md|markdown|mdx)$/i;
+const HTML = /\.html?$/i;
 
-const decodeEntities = (text: string): string =>
-  text.replace(ENTITY, (whole, dec?: string, hex?: string, name?: string) => {
-    if (name !== undefined) return NAMED[name] ?? whole;
-    const code =
-      dec !== undefined ? Number(dec) : Number.parseInt(hex ?? "", 16);
-    return code > 0 && code <= 0x10ffff
-      ? String.fromCodePoint(code)
-      : "\u{FFFD}";
-  });
+/** The parse5 tree as far as the checks read it. */
+interface HtmlNode {
+  readonly nodeName: string;
+  readonly value?: string;
+  readonly data?: string;
+  readonly attrs?: readonly { readonly name: string; readonly value: string }[];
+  readonly childNodes?: readonly HtmlNode[];
+  readonly content?: HtmlNode;
+}
 
 /**
- * Hosts a URL in the text reaches as a reader of the file sees it: the
- * text as written, as CommonMark renders it (backslash escapes and character
- * references resolved), each CommonMark link destination, and each quoted
- * HTML attribute value that is a URL, with tabs and line ends dropped and
- * references resolved as a browser does.
- * Each view only adds hosts. URLs a script assembles, other encodings and
- * plain text broken across lines are not read.
+ * The Markdown with a reference to every link definition put first, so a
+ * definition nothing uses still renders as the link a reader of the source
+ * sees. First, not last: an unclosed code fence would swallow a tail.
  */
+function withDefinitionsUsed(text: string): string {
+  const events = postprocess(
+    parseMarkdown()
+      .document()
+      .write(preprocess()(text, undefined, true)),
+  );
+  const labels = events
+    .filter(
+      ([kind, token]) =>
+        kind === "enter" && token.type === "definitionLabelString",
+    )
+    .map(([, token, context]) => `[${context.sliceSerialize(token)}]`);
+  return labels.length === 0 ? text : `${labels.join("\n\n")}\n\n${text}`;
+}
+
 /** The host of a link target as a browser follows it, or null. */
 function targetHost(target: string): string | null {
-  const value = decodeEntities(target.replace(/[\t\n\r]/g, ""))
+  const value = target
+    .replace(/[\t\n\r]/g, "")
     // biome-ignore lint/suspicious/noControlCharactersInRegex: a browser strips C0 and space around a URL
     .replace(/^[\u{0}-\u{20}]+|[\u{0}-\u{20}]+$/gu, "");
   const url = value.startsWith("//") ? `https:${value}` : value;
@@ -203,23 +193,49 @@ function targetHost(target: string): string | null {
   }
 }
 
-function hostsOf(text: string): Set<string> {
-  const hosts = hostsInText(text);
-  const rendered = decodeEntities(text.replace(ESCAPE, "$1"));
-  if (rendered !== text) {
-    for (const host of hostsInText(rendered)) hosts.add(host);
+/**
+ * Hosts a file's URLs reach, read one way for the approved and the new
+ * version alike. Markdown is read as CommonMark renders it and HTML as a
+ * browser parses it: every attribute value that is a URL, and the text and
+ * comments by the plain-text rule. Any other file is plain text. URLs a
+ * script assembles, other encodings and plain text broken across lines are
+ * not read. null: too large to render, or the renderer failed.
+ */
+function hostsOf(path: string, text: string): Set<string> | null {
+  const markdown = MARKDOWN.test(path);
+  if (!markdown && !HTML.test(path)) return hostsInText(text);
+  if (text.length > RENDER_LIMIT) return null;
+  let root: HtmlNode;
+  try {
+    root = (markdown
+      ? parseFragment(
+          micromark(withDefinitionsUsed(text), {
+            allowDangerousHtml: true,
+            allowDangerousProtocol: true,
+          }),
+        )
+      : parse(text)) as unknown as HtmlNode;
+  } catch {
+    return null;
   }
-  const targets = [
-    ...[...text.matchAll(ATTRIBUTE)].map(
-      ([, double, single]) => double ?? single ?? "",
-    ),
-    ...[...text.matchAll(DESTINATION)].map(([, angled, bare]) =>
-      (angled ?? bare ?? "").replace(ESCAPE, "$1"),
-    ),
-  ];
-  for (const target of targets) {
-    const host = targetHost(target);
-    if (host !== null) hosts.add(host);
+  const hosts = new Set<string>();
+  const pending: HtmlNode[] = [root];
+  for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+    for (const attr of node.attrs ?? []) {
+      const host = targetHost(attr.value);
+      if (host !== null) hosts.add(host);
+    }
+    const shown =
+      node.nodeName === "#text"
+        ? node.value
+        : node.nodeName === "#comment"
+          ? node.data
+          : undefined;
+    if (shown !== undefined) {
+      for (const host of hostsInText(shown)) hosts.add(host);
+    }
+    for (const child of node.childNodes ?? []) pending.push(child);
+    if (node.content !== undefined) pending.push(node.content);
   }
   return hosts;
 }
@@ -302,7 +318,10 @@ export function checkSkillVersion(
 
   const beforeHosts = new Set<string>();
   for (const file of before ?? []) {
-    for (const host of hostsOf(textOf(file.bytes))) beforeHosts.add(host);
+    // A file that cannot be read names no host as approved.
+    for (const host of hostsOf(file.path, textOf(file.bytes)) ?? []) {
+      beforeHosts.add(host);
+    }
   }
 
   let changedLines = 0;
@@ -344,8 +363,11 @@ export function checkSkillVersion(
       }
     }
 
-    // Hosts come from the whole file, compared with every approved file's.
-    for (const host of hostsOf(text)) {
+    // Hosts come from the whole file, compared with every approved file's;
+    // a file whose hosts cannot be read fails the rule.
+    const hosts = hostsOf(file.path, text);
+    if (hosts === null) flag("new_url", file.path, UNREADABLE);
+    for (const host of hosts ?? []) {
       if (!beforeHosts.has(host)) flag("new_url", file.path, host);
     }
     for (const line of added) {

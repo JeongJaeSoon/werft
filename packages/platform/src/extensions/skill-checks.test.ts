@@ -6,6 +6,8 @@ import {
   checkSkillVersion,
   INSTRUCTION_PATTERNS,
   LARGE_CHANGE_LINES,
+  RENDER_LIMIT,
+  UNREADABLE,
 } from "./skill-checks.ts";
 
 const file = (
@@ -323,11 +325,72 @@ describe("what a check cannot be talked out of", () => {
   test("a large document full of URLs and brackets is read in linear time", () => {
     const many = `[${'"https://known.example/",'.repeat(12_000)}]`;
     const brackets = `https://known.example/${")".repeat(20_000)}`;
-    const known = [...base, file("more.md", "https://known.example/")];
+    const known = [...base, file("more.txt", "https://known.example/")];
     const started = performance.now();
-    expect(rules(known, [...base, file("more.md", many)])).toEqual([]);
-    expect(rules(known, [...base, file("more.md", brackets)])).toEqual([]);
+    expect(rules(known, [...base, file("more.txt", many)])).toEqual([]);
+    expect(rules(known, [...base, file("more.txt", brackets)])).toEqual([]);
     expect(performance.now() - started).toBeLessThan(1500);
+  });
+
+  test("Markdown or HTML past RENDER_LIMIT fails new_url as unreadable", () => {
+    const at = "x".repeat(RENDER_LIMIT);
+    expect(rules(base, [...base, file("big.md", at)])).not.toContain("new_url");
+    for (const path of ["big.md", "big.html"]) {
+      expect(
+        checkSkillVersion(base, [...base, file(path, `${at}x`)]).find(
+          (one) => one.rule === "new_url",
+        )?.samples,
+      ).toEqual([UNREADABLE]);
+    }
+    // An approved file too large to read names no host as approved.
+    const had = [...base, file("big.md", `https://known.example/ ${at}`)];
+    expect(
+      rules(had, [...base, file("more.txt", "https://known.example/")]),
+    ).toContain("new_url");
+  });
+
+  test("Codex round 12: one rendered reading for both versions, so no false host is approved and none is missed", () => {
+    const newUrl = (before: string, after: string) =>
+      checkSkillVersion(
+        [...base, file("more.md", before)],
+        [...base, file("more.md", after)],
+      ).find((one) => one.rule === "new_url")?.samples;
+    // Text after a link's ")" is not its destination: it approves nothing.
+    expect(
+      newUrl(
+        "[x](https://known.example)@evil.example/",
+        "[x](https://evil.example/)",
+      ),
+    ).toEqual(["evil.example"]);
+    expect(
+      newUrl(
+        "[x](https://known.example)",
+        "[x](https://known.example)and more",
+      ),
+    ).toBeUndefined();
+    // A quote in an HTML comment does not swallow the attribute after it.
+    expect(
+      newUrl(
+        "https://known.example/",
+        '<!-- =" -->\n<a href="ht\ttps://evil.example/">x</a>',
+      ),
+    ).toEqual(["evil.example"]);
+    // Every named character reference resolves as CommonMark resolves it.
+    expect(
+      newUrl(
+        "https://%26escr%3Bvil.example/",
+        "[x](https://&escr;vil.example/)",
+      ),
+    ).toEqual(["evil.example"]);
+    // Raw HTML keeps its backslash: the escape is Markdown's only.
+    expect(
+      newUrl(
+        '<a href="https://known.example\\@evil.example/">x</a>',
+        "[x](https://evil.example/)",
+      ),
+    ).toEqual(["evil.example"]);
+    // A definition nothing uses is still a link a reader of the source sees.
+    expect(newUrl("", "[x]: https://evil.example\n")).toEqual(["evil.example"]);
   });
 
   test("a long authority is read whole, so a shared start hides no host", () => {

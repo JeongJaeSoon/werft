@@ -225,11 +225,13 @@ function ChecksSection({
 }) {
   const { t } = useI18n();
   const sample = (rule: SkillCheck["rule"], value: string) =>
-    rule !== "large_change"
-      ? value
-      : value === "too_large"
-        ? t("skills.checks.tooLarge")
-        : t("skills.checks.lines", { count: Number(value) });
+    rule === "new_url" && value === "unreadable"
+      ? t("skills.checks.unreadable")
+      : rule !== "large_change"
+        ? value
+        : value === "too_large"
+          ? t("skills.checks.tooLarge")
+          : t("skills.checks.lines", { count: Number(value) });
   return (
     <SettingsSection
       title={t("skills.checks.title")}

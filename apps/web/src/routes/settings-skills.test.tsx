@@ -677,7 +677,7 @@ describe("승인 대기 화면", () => {
         {
           rule: "new_url",
           paths: ["skills/release-notes/scripts/collect.sh"],
-          samples: ["example.test"],
+          samples: ["example.test", "unreadable"],
         },
       ],
     };
@@ -709,7 +709,9 @@ describe("승인 대기 화면", () => {
       within(url as HTMLElement).getByText("파일: scripts/collect.sh"),
     ).toBeDefined();
     expect(
-      within(url as HTMLElement).getByText("걸린 값: example.test"),
+      within(url as HTMLElement).getByText(
+        "걸린 값: example.test, 너무 크거나 렌더링하지 못해 읽지 못함",
+      ),
     ).toBeDefined();
     // Above the file cards it points into.
     const fileList = screen.getByRole("list", { name: "파일 2개" });
