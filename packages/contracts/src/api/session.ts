@@ -280,8 +280,7 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
   // workers kept ending before they were ready for input, while preparing
   // the workspace or starting the engine. An engine that lacks a feature
   // the settings need stops it after the first launch. At the limit
-  // start_fresh launches again once the cause is fixed; close ends the
-  // session.
+  // start_fresh launches again once the cause is fixed; close ends the session.
   z.object({
     code: z.literal("STARTUP_FAILED"),
     reason: z.string().min(1),

@@ -486,8 +486,8 @@ function NavSection({
                 : undefined
             }
             onClick={onNavigate}
-            // The current page takes a light primary row;
-            // the icon follows the text colour, so it turns primary with it.
+            // The current page takes a light primary row; the icon follows the
+            // text colour, so it turns primary with it.
             className={cn(
               "flex h-8 items-center gap-2 rounded-control px-2 font-medium text-control text-foreground no-underline",
               "hover:bg-sidebar-hover",

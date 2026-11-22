@@ -256,9 +256,9 @@ describe("app Dockerfiles", () => {
     expect(basePins.worker.source).toMatch(/apt-get install .*\bxfsprogs\b/);
   });
 
-  // A session's LFS objects come through the repository route.
-  // Built from upstream's pinned source with a patched x/net; the
-  // notices name the same versions, and no Go reaches the runtime stage.
+  // A session's LFS objects come through the repository route. Built from
+  // upstream's pinned source with a patched x/net; the notices name the same
+  // versions, and no Go reaches the runtime stage.
   test("the worker carries git-lfs", () => {
     const source = basePins.worker.source;
     expect(source).toContain(`ARG GIT_LFS_VERSION=${GIT_LFS_VERSION}\n`);
@@ -876,9 +876,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     }
   });
 
-  // After a host restart only services with a restart policy come
-  // back. postgres, the API and LocalStack had none, so a rebooted single
-  // server stayed down until `test-ops.sh start`.
+  // After a host restart only services with a restart policy come back.
+  // postgres, the API and LocalStack had none, so a rebooted single server
+  // stayed down until `test-ops.sh start`.
   test("the test-ops stack restarts postgres, the API and LocalStack with the host, the local stack does not", () => {
     const testOps = layeredServices<ComposeService>([
       ...TEST_OPS_LAYERS,

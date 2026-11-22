@@ -388,9 +388,8 @@ describe("OneLogin: an issuer under a path, one client authentication per app, n
 
 describe("Entra ID: a tenant's issuer, no `email_verified`, an `email` only when the app registration adds it", () => {
   const ISSUER = `https://login.microsoftonline.com/${randomUUID()}/v2.0`;
-  // The lists of the v2.0 discovery document: no
-  // word on PKCE, and a UserInfo endpoint (Microsoft Graph's there, the
-  // stand-in's own here).
+  // The lists of the v2.0 discovery document: no word on PKCE, and a UserInfo
+  // endpoint (Microsoft Graph's there, the stand-in's own here).
   const DISCOVERY = {
     userinfo_endpoint: `${ISSUER}/userinfo`,
     response_types_supported: [
@@ -472,8 +471,7 @@ describe("Entra ID: a tenant's issuer, no `email_verified`, an `email` only when
       }),
     );
     const userinfo = new URL(`${ISSUER}/userinfo`).pathname;
-    // Without an address in the token UserInfo is asked, and has none to
-    // add.
+    // Without an address in the token UserInfo is asked, and has none to add.
     for (const [claims, email, lookups] of [
       [lee, "lee@acme.example", 0],
       [{ ...lee, email: null }, null, 1],

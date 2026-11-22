@@ -651,8 +651,8 @@ describe("maskBody: werft#1327 review", () => {
     ).toEqual([]);
     expect(leaked('<field name="password">syn-pw-12</field>')).toEqual([]);
     expect(leaked("<sid>syn-sid-13")).toEqual([]);
-    // Markup with a secret-like name is withheld whole (a close-tag scan
-    // can be bypassed); markup without one stays readable.
+    // Markup with a secret-like name is withheld whole (a close-tag scan can be
+    // bypassed); markup without one stays readable.
     expect(maskBody("<password>x</password><error>kept</error>")).toBe(
       "(markup with secret-like names withheld, 41 chars)",
     );
@@ -1095,9 +1095,9 @@ describe("maskBody: session as a word, not a key", () => {
   });
 });
 
-// Every input of the earlier masking reviews, in one table so a later change that reopens one of them fails
-// here. Secrets are built by concatenation from a placeholder word; `keep`
-// lists text that must stay readable.
+// Every input of the earlier masking reviews, in one table so a later change
+// that reopens one of them fails here. Secrets are built by concatenation from
+// a placeholder word; `keep` lists text that must stay readable.
 describe("maskBody: review inputs", () => {
   const S = ["SENT", "INEL"].join("");
   const str = JSON.stringify;

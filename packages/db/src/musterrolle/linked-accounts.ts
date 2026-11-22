@@ -116,8 +116,7 @@ async function link(
       return { outcome: "actor_inactive" };
     }
     // Every link in one Slack team queues here: the partial unique indexes
-    // would otherwise turn a race into a constraint error instead of an
-    // answer.
+    // would otherwise turn a race into a constraint error instead of an answer.
     await tx.execute(
       sql`SELECT pg_advisory_xact_lock(hashtext(${`linked_accounts:${account.provider}:${account.externalTenant}`}))`,
     );

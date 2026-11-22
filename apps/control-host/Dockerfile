@@ -47,8 +47,8 @@ RUN --mount=type=bind,source=scripts/image-prune.sh,target=/tmp/image-prune.sh \
 
 FROM ${BUN_IMAGE} AS runtime
 # git: the checkpoint verifier fetches each workspace bundle into a scratch
-# repository; without the executable every checkpoint finalize
-# fails with ENOENT and no pointer ever advances. The smoke test checks it.
+# repository; without the executable every checkpoint finalize fails with ENOENT
+# and no pointer ever advances. The smoke test checks it.
 # ca-certificates: the approved push runs git over https from this container
 # (packages/platform/src/action/change-request/push-executor.ts). --no-install-recommends
 # drops it from git, and without it every https push fails at ls-remote.

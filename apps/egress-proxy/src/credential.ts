@@ -1486,8 +1486,7 @@ export function startCredentialProxy(
       return reply(502, "an https upstream must be named", purpose);
     }
     // The address that was judged, and only it. A POST is never retried
-    // against a second address: its body may already have reached the
-    // first.
+    // against a second address: its body may already have reached the first.
     return { address: decision.addresses[0] ?? "", host, port };
   }
 

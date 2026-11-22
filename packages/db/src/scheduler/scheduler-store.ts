@@ -691,8 +691,7 @@ export function createPostgresSchedulerStore(
             eq(workerLaunches.launchAttempts, expectedAttempts),
             holdsSlot(),
             // A launch asked to go since the pass read it — by a terminate,
-            // or by the gateway failing its session — gets no new
-            // resource.
+            // or by the gateway failing its session — gets no new resource.
             exists(
               db
                 .select({ one: sql`1` })

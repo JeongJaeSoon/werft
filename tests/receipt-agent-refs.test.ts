@@ -5,11 +5,11 @@ import { RECEIPT_OPERATION_VALUES } from "@werft-ai/contracts";
 import { RECEIPT_AGENT_REFS } from "@werft-ai/platform";
 import * as ts from "typescript";
 
-// A receipt that names an agent or one of its releases is masked for
-// a reader who may not use that agent, through the table in
+// A receipt that names an agent or one of its releases is masked for a reader
+// who may not use that agent, through the table in
 // packages/platform/src/sessions/receipt-agent-refs.ts. This reads the code
-// that writes receipts and fails where an operation puts an agent or release
-// id in one and the table has no row for it.
+// that writes receipts and fails where an operation puts an agent or release id
+// in one and the table has no row for it.
 
 const root = join(import.meta.dir, "..");
 const roots = [

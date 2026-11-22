@@ -235,8 +235,7 @@ export function SessionOverviewRow({
     : session.admission_state;
   const atWork = AT_WORK.has(session.status);
   // A session at work is "in progress"; otherwise its finished turns' run
-  // time, so idle, paused and answer-waiting time between turns is not
-  // counted.
+  // time, so idle, paused and answer-waiting time between turns is not counted.
   const duration = atWork
     ? messages.inProgress
     : session.turn_time_ms > 0

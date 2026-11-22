@@ -599,9 +599,9 @@ exit 0
     ).toBeNull();
   });
 
-  // A stack a compose down or a host restart left down. deploy
-  // refuses it (a release is recorded) and upgrade needs a running postgres;
-  // start is the one way back, on the volumes that stayed.
+  // A stack a compose down or a host restart left down. deploy refuses it (a
+  // release is recorded) and upgrade needs a running postgres; start is the one
+  // way back, on the volumes that stayed.
   test.each(["start", "stop"])(
     "%s needs a deployed release and touches no container without one",
     async (verb) => {

@@ -755,8 +755,7 @@ const controlKill: Campaign = {
         turns.map((t) => unblock(ctx, t.sessionId, t.turnId)),
       );
       // A next turn the kill still cost (refused, or not completed) fails
-      // this row; it must not also keep the next service's round from
-      // starting.
+      // this row; it must not also keep the next service's round from starting.
       const nextTurns = await Promise.all(
         sessions.map((s) =>
           startTurn(ctx, s.sessionId, "normal").catch(

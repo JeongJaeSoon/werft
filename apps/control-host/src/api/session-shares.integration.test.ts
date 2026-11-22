@@ -418,9 +418,9 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
     ],
   ];
 
-  // What each person is told about answering, and what an answer
-  // gets. Past the policy the store finds no request "req_none" (404), so a
-  // 404 here is a permitted answer and a 403 a refused one.
+  // What each person is told about answering, and what an answer gets. Past the
+  // policy the store finds no request "req_none" (404), so a 404 here is a
+  // permitted answer and a 403 a refused one.
   async function answering(who: Who) {
     const list = await send(
       "GET",
@@ -723,8 +723,8 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
       asCookie(cookies.teammate),
     );
     expect(detail.status).toBe(200);
-    // The teammate sees it but may not answer for its creator; the
-    // owner, outside the team, does not even see it.
+    // The teammate sees it but may not answer for its creator; the owner,
+    // outside the team, does not even see it.
     expect(await answering("teammate")).toEqual({
       who: "teammate",
       listed: false,
