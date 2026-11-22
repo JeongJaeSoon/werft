@@ -560,6 +560,64 @@ describe("Slack events service", () => {
     }
   });
 
+  // Slack's message event shapes for what this app posts: the outbox's
+  // reply as the bot user, and an instruction under its sender's name.
+  const OWN_REPLY = {
+    type: "message",
+    channel: "C0CHAN",
+    ts: "1.2",
+    thread_ts: "1.1",
+    user: BOT_USER,
+    bot_id: "B0OWN",
+    app_id: APP_ID,
+    text: "Confirmed.",
+  };
+  const OWN_MIRROR = {
+    type: "message",
+    subtype: "bot_message",
+    channel: "C0CHAN",
+    ts: "1.3",
+    thread_ts: "1.1",
+    bot_id: "B0OWN",
+    app_id: APP_ID,
+    username: "Mina Park (웹 콘솔)",
+    text: "Run it",
+  };
+  const SLACKBOT_DM = {
+    type: "message",
+    channel: "D0SLACKBOT",
+    channel_type: "im",
+    user: "USLACK",
+    ts: "1.4",
+    text: "You were removed from #private by <@U0PERSON>.",
+  };
+
+  test("this app's echoes ride the bot allow list and Slackbot's DM is received", async () => {
+    const w = world();
+    await w.install();
+    w.readyChannels.set("C0CHAN", "public_channel");
+    const reasons = async () => {
+      const out = [];
+      for (const fields of [OWN_REPLY, OWN_MIRROR, SLACKBOT_DM]) {
+        const result = await w.service.receive(w.signed(w.event(fields)));
+        out.push(result.kind === "ack" ? (result.reason ?? result.status) : null);
+      }
+      return out;
+    };
+    expect(await reasons()).toEqual([
+      "bot_allowlist_empty",
+      "bot_allowlist_empty",
+      "received",
+    ]);
+    w.identities.allowedBots.set(AGENT, ["U0REVIEW"]);
+    w.inbox.rows.clear();
+    expect(await reasons()).toEqual([
+      "bot_not_allowed",
+      "bot_message",
+      "received",
+    ]);
+  });
+
   test("another agent's bot of this Werft install is dropped, even when the allow list still names it", async () => {
     const w = world();
     await w.install();
