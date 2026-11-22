@@ -60,6 +60,26 @@ API権限はbucket側のs3:ListBucket、s3:ListBucketVersions、s3:GetBucketVers
 
 EGRESS_CREDENTIAL_ALLOWLISTは既定全体を置き換えます。virtual-hosted bucket endpointを加える際はprovider・package registry・Git hostなど必要な項目をすべて書き直します。ドット入りbucketはリージョンのpath-style endpointを使います。AWS keyをworkerへ渡しません。
 
+<a id="보호-모드와-기동-검사" />
+## 保護モードと起動時の検査
+
+API は `S3_BUCKET`・`AWS_REGION`（任意で `AWS_ENDPOINT_URL`）がなければ起動しません。
+
+- **資格情報.** `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY` は両方渡すか、両方外します。片方だけだと起動しません。両方外すと AWS SDK の既定の credential chain が署名します。EKS では api ServiceAccount の IRSA role がその役割を担い、chart は `secrets.objectStoreKeys: false` でこの経路を使います。chain が credential を見つけられなければ、リクエストは署名なしで出ずに失敗します。
+- **保護モード.** `CHECKPOINT_OBJECT_PROTECTION` の既定は `locked` です。versioning が無効の bucket は `unversioned` を明示したときだけ起動します。このモードは key だけで読み、hold を掛けないため、commit 後の削除・上書きを防げず、復元時に digest の不一致として見つけるだけです。checkpoint GC とセッションイベントの保管も何もしません。`unversioned` から `locked` に変えると、それ以前の checkpoint は最初の復元時にハッシュし直して hold を掛けてから使います。
+- **object store なしで.** `CHECKPOINT_OBJECT_STORE=disabled` を明示すると、すべての checkpoint が拒否され、worker には `409 CHECKPOINT_UNAVAILABLE` で応答します。起動ログに警告が残ります。
+- **暗号化の検査.** API は起動時に bucket の既定の暗号化を読み、`AES256` でなければ（設定なし、`aws:kms` を含む）起動しません。SSE-KMS は worker のリクエストごとに KMS キーの権限が要るため受け付けません。別の設定で起動する必要があれば `CHECKPOINT_OBJECT_ENCRYPTION_CHECK=warn` を明示します。その場合は警告だけが残ります。
+
+<a id="비워진-bucket" />
+### 空になった bucket
+
+DB に未回収の checkpoint 行があるのに bucket に object version が一つもなければ（delete marker だけが残る場合を含む）、API は起動しません。DB だけが残って bucket を失ったか、設定が別の空の bucket を指している場合です。bucket を戻すか、元の bucket を指すようにします。未回収の checkpoint がある間は bucket を変えません。
+
+<a id="저장량" />
+### 保存量
+
+checkpoint が書くバイトは実行上限の保存量に数えません。`locked` ではすべての version に hold が掛かっているため、GC が hold を外して削除するまでは lifecycle 規則でも減りません。保存量は週次の checkpoint GC と bucket サイズの観察で管理します。
+
 <a id="확인" />
 ## 確認
 

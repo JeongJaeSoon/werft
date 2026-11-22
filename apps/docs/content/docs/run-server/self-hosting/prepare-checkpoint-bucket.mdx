@@ -54,6 +54,23 @@ API용 권한은 bucket의 `s3:ListBucket`, `s3:ListBucketVersions`, `s3:GetBuck
 
 `EGRESS_CREDENTIAL_ALLOWLIST` 값은 기본값을 통째로 대체하므로 virtual-hosted bucket endpoint를 넣을 때 provider와 패키지 registry, Git host 등 필요한 항목을 모두 다시 적는다. 점이 든 bucket은 리전의 path-style endpoint를 쓴다. worker에 AWS key를 전달하지 않는다.
 
+## 보호 모드와 기동 검사
+
+API는 `S3_BUCKET`·`AWS_REGION`(선택 `AWS_ENDPOINT_URL`)이 없으면 기동하지 않는다.
+
+- **자격 증명.** `AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY`는 둘 다 주거나 둘 다 뺀다. 하나만 있으면 기동하지 않는다. 둘 다 빼면 AWS SDK 기본 credential chain이 서명한다. EKS에서는 api ServiceAccount의 IRSA role이 그 자리에 오고, chart는 `secrets.objectStoreKeys: false`로 이 경로를 쓴다. chain이 credential을 찾지 못하면 요청은 서명 없이 나가지 않고 실패한다.
+- **보호 모드.** `CHECKPOINT_OBJECT_PROTECTION`의 기본은 `locked`다. versioning이 꺼진 bucket은 `unversioned`를 명시해야 뜬다. 이 모드는 key로만 읽고 hold를 걸지 않으므로 커밋 뒤의 삭제·덮어쓰기를 막지 못하고, 복원 때 digest 불일치로 발견할 뿐이다. checkpoint GC와 세션 이벤트 보관도 아무것도 하지 않는다. `unversioned`에서 `locked`로 바꾸면 그 전 checkpoint는 첫 복원 때 다시 해시하고 hold를 건 뒤에 쓴다.
+- **object store 없이.** `CHECKPOINT_OBJECT_STORE=disabled`를 명시하면 모든 checkpoint가 거절되고 worker에는 `409 CHECKPOINT_UNAVAILABLE`로 답한다. 기동 로그에 경고가 남는다.
+- **암호화 검사.** API는 기동 때 bucket 기본 암호화를 읽고 `AES256`이 아니면(설정 없음, `aws:kms` 포함) 기동하지 않는다. SSE-KMS는 worker 요청마다 KMS 키 권한이 필요해 받지 않는다. 다른 설정으로 띄워야 하면 `CHECKPOINT_OBJECT_ENCRYPTION_CHECK=warn`을 명시한다. 그러면 경고만 남는다.
+
+### 비워진 bucket
+
+DB에 수거되지 않은 checkpoint 행이 있는데 bucket에 object version이 하나도 없으면(delete marker만 남은 경우 포함) API는 기동하지 않는다. DB만 남고 bucket을 잃었거나, 설정이 다른 빈 bucket을 가리키는 경우다. bucket을 되살리거나 원래 bucket을 가리키게 한다. 미수거 checkpoint가 있는 동안 bucket을 바꾸지 않는다.
+
+### 저장량
+
+checkpoint가 쓰는 바이트는 실행 한도의 저장량에 세지 않는다. `locked`에서는 모든 version에 hold가 걸려 있어 GC가 hold를 풀고 지우기 전까지 lifecycle 규칙으로도 줄지 않는다. 저장량은 주간 checkpoint GC와 bucket 크기 관찰로 관리한다.
+
 ## 확인
 
 단일 서버는 S3를 명시한 preflight가 scratch 객체의 create-only put → hold → hold 확인/version 읽기 → hold 해제 → version 삭제를 모두 성공해야 한다. bucket 설정을 읽는 API 기동 검사만으로 쓰기·hold·삭제 권한을 대신 증명하지 않는다. AWS 생성 절차와 실제 S3 운영 설치는 실행 확인하지 않았다.

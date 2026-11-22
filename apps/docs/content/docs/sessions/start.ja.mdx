@@ -209,6 +209,7 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -c .reposi
 - 本物の実行である。同じツールと権限で動き、使用量と費用も数える。成果の判定には入らない。
 - セッション一覧と詳細の `preview` が `true` になる。
 
+<a id="공유-범위" />
 ## 共有範囲
 
 セッションを誰が見られるかは、共有範囲で読む。セッションを見られる人なら誰でも読める。scope は `sessions:read` である。

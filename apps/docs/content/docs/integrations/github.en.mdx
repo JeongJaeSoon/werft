@@ -21,11 +21,81 @@ To create a new App in the console, the API needs `CONSOLE_ORIGIN`, the origin w
 | --- | --- |
 | GitHub App | Repository permissions: Contents Read and write, Pull requests Read and write |
 
-Add the `Workflows` permission to the App only when the "Change workflow files" feature is on. The commits that get pushed are written by the agent, so with this permission a `.github/workflows/` file the agent edited would also be pushed and run in CI. Also protect the default branch with a repository ruleset. The operations docs describe how to set this up.
+Add the `Workflows` permission to the App only when the "Change workflow files" feature is on. The commits that get pushed are written by the agent, so with this permission a `.github/workflows/` file the agent edited would also be pushed and run in CI. Also protect the default branch with a repository ruleset ([Protecting the default branch](#기본-브랜치-보호)).
 
 ### The App's Setup URL
 
 An App made in the console gets its Setup URL filled in as `<CONSOLE_ORIGIN>/settings/workspace/integrations/github`. If you connected an App that already existed, set **Setup URL** to this address in the App's settings on GitHub (Developer settings > GitHub Apps > the App > General). After you add an organization, GitHub sends the browser back to this address, and the console records the installation from what comes back. An App whose Setup URL still points at the old `/settings/workspace/github` needs the new address; that path no longer exists. For an account that already has the App installed, GitHub returns to the console after you save the installation's settings only when the App's **Redirect on update** is on.
+
+<a id="기본-브랜치-보호" />
+### Protecting the default branch
+
+The platform pushes only to the session's `agent/<session-id>` branch (`agent/<session-id>-<suffix>` when the request body gives `branch`) and refuses the default branch. Block it once more on GitHub.
+
+1. In the repository's Settings → Rules → Rulesets → New branch ruleset, set Target to `Include default branch`.
+2. Turn on **Restrict updates**, **Restrict deletions** and **Block force pushes**. To accept only merges a person reviewed, also turn on **Require a pull request before merging**.
+3. Do not put the App in the Bypass list.
+
+- A separate ruleset that only applies **Block force pushes** to `agent/*` branches also stops anyone other than the platform from rewinding those branches.
+- If `agent/*` pushes need no CI, add `agent/**` to the workflow's `on.push.branches-ignore`. It only affects workflows that were not changed, so use it together with not granting the `Workflows` permission.
+- Automatic approval on protected branches reads the branch's ruleset (**Require a pull request before merging**, 1 or more approving reviews) with the writer App. A classic branch protection rule is visible only to an App with the **Administration: Read-only** permission, so on a repository with only branch protection and without that permission, automatic approval cannot be turned on (`protection_missing`).
+
+<a id="git-스킬-webhook" />
+### Git skill webhook
+
+A skill registered from GitHub finds new versions through a push webhook, a check once a day and the console's "Check now". The webhook works only when GitHub can reach this API. An installation GitHub cannot reach works with the other two.
+
+| Variable | Default | Allowed values |
+| --- | --- | --- |
+| `GITHUB_WEBHOOK_BASE_URL` | None (no webhook) | This API's `https` address that GitHub reaches from the internet. With a query, fragment or user info the API does not start. The webhook address is `<this value>/v1/github/webhook` |
+
+- With this value set, a writer App newly created in the console gets the webhook address and the `push` event in its manifest, and the webhook secret GitHub returns is stored encrypted like the App key.
+- For an existing App, turn on **Active** in the App settings on GitHub (General → Webhook), enter **Webhook URL** and **Secret**, then turn on the **Push** event under Permissions & events. An owner or admin enters the same secret with `PUT /v1/workspaces/{id}/github-apps/{role}/webhook-secret`.
+- The receiving path is the unauthenticated `POST /v1/github/webhook`, and an event is handled only after the body's `X-Hub-Signature-256` signature is verified. A missing or wrong signature is `401`, a body over 64 KiB is `413`, and going over the per-App per-minute limit is `429`.
+
+<a id="토큰-발급이-실패할-때" />
+### When token issuance fails
+
+Clone, push and pull requests use installation tokens the API gets with the App key. When issuance fails (wrong key or installation, the App uninstalled, a GitHub outage), the repository route closes with `503`, and clone fails at startup with the session attention `STARTUP_FAILED`. Read `status` on the `GitHub request failed` line (`request: installation token request`) in the API log.
+
+| status | What to check |
+| --- | --- |
+| `401` | Whether the App ID and the private key are a pair |
+| `404` | Whether the installation includes the repository |
+| `422` | The repository name |
+
+- If the console App is not installed on the repository, the same `503` comes with `GitHub App is not installed on <owner>/<repo>`.
+- For a repository that cannot be read without a login (a repository that does not exist, a private repository outside the installation), clone fails with `could not read Username`. An address GitHub redirects, such as an `http://` URL, fails with `upstream redirected`, so change the catalog URL to `https://`.
+- The API container must reach `api.github.com:443`, and the egress proxy must reach `github.com:443` (`EGRESS_CREDENTIAL_ALLOWLIST`). Putting `github.com` in the forward list (`EGRESS_ALLOWLIST`) makes the proxy refuse to start.
+
+<a id="github-enterprise-server" />
+### GitHub Enterprise Server
+
+Console Apps use github.com only. For a GHES repository, write the App directly in a settings document and import it ([Settings document import and export](/run-server/self-hosting/reference/configuration#설정-문서-가져오기내보내기)).
+
+```json
+{
+  "version": 1,
+  "connections": {},
+  "repositories": {
+    "ghes-app": {
+      "url": "https://<ghes-host>/<owner>/<repo>.git",
+      "branch": "main",
+      "auth": {
+        "kind": "github_app",
+        "app_id": 123456,
+        "installation_id": 7890123,
+        "stored": true,
+        "api_base": "https://<ghes-host>/api/v3"
+      }
+    }
+  }
+}
+```
+
+- After the import, an owner or admin enters the RSA private key PEM with `POST /v1/installation/settings/repositories/{id}/credential` (there is no console screen). Until then the repository is `needs_value` and sessions do not run. Use the same path to change the key.
+- `api_base` accepts `https` only, except that a private host inside the operator's network may use `http`. Changing `app_id`, `installation_id` or `api_base` changes the binding, and existing sessions of that repository become `CATALOG_MISMATCH`.
+- Open the API's way out to `<ghes-host>:443`, and add `<ghes-host>:443` to the proxy's `EGRESS_CREDENTIAL_ALLOWLIST` (`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` for a private address).
 
 ## What the user does
 
@@ -98,6 +168,24 @@ The agent in a session does the same work with built-in MCP tools: `open_pull_re
 
 With the workspace's permission, `merge_pull_request` squash-merges that PR. Without it, the call is refused with `GITHUB_REFUSED` (`merge_off`) before GitHub is called. The merge is pinned to the commit the push request pushed: a PR whose head is another commit is refused with `head_moved`, and a PR GitHub will not merge now (a required check pending, a review needed, an open conversation, a conflict) is refused with `merge_blocked`. That refusal's `details` state what GitHub reported (`mergeable_state`, `mergeable`, `draft`) and a `reason` sentence saying which condition failed; the reason names the state, it does not name which required check or review. So is a PR moved to another base than the one it was opened against, or one whose base is another open PR's head (a stacked PR), because GitHub's asynchronous merge also merges the pull requests it is stacked on. When GitHub accepted the merge but it has not finished within the wait, the call answers `forge_failed`; the merge may still complete, so check the PR and call again. A PR already merged on the same commit is answered with `changed: false`; one merged on another commit is refused with `head_moved`. A PR closed without a merge is refused with `pull_request_closed`. There is no admin bypass, no auto-merge and no other merge method. In a mode with no permission check (`bypassPermissions`), a session can merge without being told to while the switch is on. The merge request is sent with rule bypass off (`bypass_rules: false`) to GitHub's asynchronous merge API, so even if the author App is on a ruleset's bypass list it cannot skip required checks and reviews with that permission. Keeping the merging App off bypass lists is still the safer setup. A workflow that merges PRs, put on an agent's Actions allow list, is outside this switch.
 
+<a id="push가-거절되는-경우" />
+## When a push is refused
+
+The API pushes an approved request within a few seconds. It sends the one commit the request pinned to that branch (`refs/heads/agent/<session-id>` or `refs/heads/agent/<session-id>-<suffix>`) of that repository and never force-pushes. If the same commit is already there, the request is simply `pushed`. On failure, `refusal` in the `push` receipt gives the reason.
+
+| `refusal` | Error code | Meaning |
+| --- | --- | --- |
+| `non_fast_forward` | `REVISION_CONFLICT` | The remote branch's commit is not an ancestor of the commit to push |
+| `target_refused` | `FORBIDDEN` | The branch is neither `agent/<session-id>` nor `agent/<session-id>-<suffix>` |
+| `default_branch` | `FORBIDDEN` | The branch is the catalog's branch or the remote's default branch |
+| `no_push_credential` | `FORBIDDEN` | There is no credential to push to that repository |
+| `catalog_changed` | `CATALOG_MISMATCH` | The repository's URL or auth changed after the request, or the entry was removed. Nothing is sent to the remote. Request again and get a new approval |
+| `checkpoint_unavailable` | `CHECKPOINT_UNAVAILABLE` | The pinned checkpoint could not be read or verified |
+| `lease_expired` | `LEASE_EXPIRED` | The push went past its lease several times without finishing. A new request can be made |
+| `push_failed` | `BACKEND_UNAVAILABLE` | Token issuance failed, the remote refused, or the network failed. A push that changes workflow files without the `Workflows` permission also lands here |
+
+Messages from the remote are not put in the receipt. The `Push refused` and `Push failed` lines in the API log carry the `push_request_id` and the reason. The API pushes directly, so the API container must reach the repository host.
+
 ## How the pull request opens after a push
 
 When a push request carries a pull request request, the action-broker inside the control-host opens the pull request once the push ends as `pushed`. The agent does not have to call `open_pull_request` in a follow-up turn. This work starts with the control-host, and a stage that was already started is finished even if you restart it. Over REST, calling `POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request?schedule=true` before the push ends returns 202 with `status: "scheduled"` instead of 409 `PUSH_NOT_PUSHED`, and the pull request opens as soon as the push ends. Without the `schedule` query, or on a push request made on the legacy flow (`flow = legacy`), the call answers 409 as before.
@@ -135,6 +223,7 @@ If an attach fails on a connection error (an `upstream connection failed` answer
 - When the session restarts on another worker (a restore), the attached repositories' remotes are added again, at the commit the session first fetched rather than the branch's current tip. The code the session reads does not change when the remote branch moves or is rewritten in between. A CLAUDE.md in an attached repository is not read as instructions.
 - When that commit is gone from the remote and cannot be fetched again, the repository is no longer attached. A `system` event (`subtype: "repository_restore_failed"`, `repository_id`, `commit`) is recorded once in the session events, and `list_repositories` shows it as `failed` (`failure: restore_failed`, with the recorded `commit`). Attaching it again fetches the branch's current tip.
 
+<a id="내-github-계정-연결" />
 ## Link your GitHub account
 
 The GitHub App's bot account (`<App slug>[bot]`) is always the commit author. Link your GitHub account and the commits of turns you request also carry your name in a `Co-authored-by:` trailer, so GitHub shows the commit as your contribution too.

@@ -48,7 +48,7 @@ Earlier cards had "Role" (`role`) and "Instructions" (`instructions`) fields, an
 | Field | Required | Content |
 | --- | --- | --- |
 | `model` | Yes | Model name. Must be on the model list of the connection chosen when you create a release |
-| `capabilities.mcp` | Yes | One MCP server to use, by its operator catalog id, as `[{ "server": "<id>" }]`. `null` for none |
+| `capabilities.mcp` | Yes | The field of the retired installation catalog MCP. Leave it `null`; a new version or release that names a server is refused. Register MCP servers as workspace MCP servers and choose them on the agent's access tab |
 | `capabilities.forbidden` | | MCP tool names to forbid (`mcp__<server>__<tool>`). The web console puts `[]` on a new card, and only shows and clears an existing value |
 | `capabilities.tool_policy` | | `allow`, `ask`, or `deny` per MCP tool, under `per_tool` |
 | `capabilities.credential_refs` | | Names of the credentials to use (not the values). [Permissions](/agents/permissions) |

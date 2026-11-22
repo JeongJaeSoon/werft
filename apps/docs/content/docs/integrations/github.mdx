@@ -21,11 +21,77 @@ GitHub와 하는 일은 셋이다. 시작 저장소가 있는 세션은 시작�
 | --- | --- |
 | GitHub App | Repository permissions: Contents Read and write, Pull requests Read and write |
 
-`Workflows` 권한은 "워크플로 파일 수정" 기능을 켤 때만 App에 더한다. push되는 commit은 에이전트가 쓴 것이라, 이 권한이 있으면 에이전트가 고친 `.github/workflows/` 파일도 push되고 CI에서 실행된다. 기본 브랜치는 저장소 ruleset으로도 막아 둔다. 설정 방법은 운영 문서에 있다.
+`Workflows` 권한은 "워크플로 파일 수정" 기능을 켤 때만 App에 더한다. push되는 commit은 에이전트가 쓴 것이라, 이 권한이 있으면 에이전트가 고친 `.github/workflows/` 파일도 push되고 CI에서 실행된다. 기본 브랜치는 저장소 ruleset으로도 막아 둔다([기본 브랜치 보호](#기본-브랜치-보호)).
 
 ### App의 Setup URL
 
 콘솔에서 만든 App은 Setup URL이 `<CONSOLE_ORIGIN>/settings/workspace/integrations/github`로 채워진다. 이미 있던 App을 연결했다면 GitHub의 App 설정(Developer settings > GitHub Apps > 그 App > General)에서 **Setup URL**을 이 주소에 맞춘다. 조직을 추가하고 나면 GitHub가 브라우저를 이 주소로 돌려보내고, 콘솔은 돌아온 값으로 설치를 기록한다. Setup URL이 옛 `/settings/workspace/github`를 가리키는 App은 새 주소로 바꾼다. 그 경로는 없어졌다. 이미 설치한 계정에서 설치 설정을 저장한 뒤 콘솔로 돌아오는 것은 App의 **Redirect on update**가 켜져 있을 때만이다.
+
+### 기본 브랜치 보호
+
+플랫폼은 그 세션의 `agent/<session-id>` 브랜치(요청 본문에 `branch`를 주면 `agent/<session-id>-<suffix>`)에만 push하고 기본 브랜치는 거절한다. GitHub에서도 한 번 더 막는다.
+
+1. 저장소 Settings → Rules → Rulesets → New branch ruleset에서 Target을 `Include default branch`로 둔다.
+2. **Restrict updates**, **Restrict deletions**, **Block force pushes**를 켠다. 사람의 리뷰를 거친 머지만 받으려면 **Require a pull request before merging**도 켠다.
+3. Bypass list에는 App을 넣지 않는다.
+
+- `agent/*` 브랜치에 **Block force pushes**만 거는 ruleset을 따로 두면, 플랫폼이 아닌 누군가가 그 브랜치를 되돌리는 일도 막는다.
+- `agent/*` push에 CI가 필요 없으면 workflow의 `on.push.branches-ignore`에 `agent/**`를 넣는다. 바뀌지 않은 workflow에만 효과가 있으므로 `Workflows` 권한을 주지 않는 것과 함께 쓴다.
+- 보호된 브랜치 자동 승인은 브랜치의 ruleset(**Require a pull request before merging**, 승인 리뷰 1개 이상)을 작성용 App으로 읽는다. 옛 branch protection rule은 **Administration: Read-only** 권한이 있는 App만 읽으므로, 그 권한 없이 branch protection만 둔 저장소에서는 자동 승인을 켤 수 없다(`protection_missing`).
+
+### Git 스킬 webhook
+
+GitHub에서 등록한 스킬은 push webhook, 하루 한 번의 확인, 콘솔의 "지금 확인"으로 새 버전을 찾는다. webhook은 GitHub가 이 API에 닿을 때만 쓴다. 닿지 않는 설치는 나머지 둘로 동작한다.
+
+| 변수 | 기본값 | 허용 범위 |
+| --- | --- | --- |
+| `GITHUB_WEBHOOK_BASE_URL` | 없음(webhook 없음) | GitHub가 인터넷에서 닿는 이 API의 `https` 주소. query·fragment·사용자 정보가 있으면 API가 기동하지 않는다. webhook 주소는 `<이 값>/v1/github/webhook`이다 |
+
+- 이 값이 있으면 콘솔에서 새로 만드는 작성용 App에 webhook 주소와 `push` 이벤트가 들어가고, GitHub가 준 webhook secret이 App 키처럼 암호화돼 저장된다.
+- 이미 있는 App은 GitHub의 App 설정(General → Webhook)에서 **Active**를 켜고 **Webhook URL**과 **Secret**을 넣은 뒤, Permissions & events에서 **Push** 이벤트를 켠다. 같은 secret을 owner나 admin이 `PUT /v1/workspaces/{id}/github-apps/{role}/webhook-secret`으로 넣는다.
+- 받는 경로는 인증 없는 `POST /v1/github/webhook`이고, 본문의 `X-Hub-Signature-256` 서명을 검증한 뒤에만 이벤트를 처리한다. 서명이 없거나 틀리면 `401`, 본문이 64 KiB를 넘으면 `413`, App마다 분당 상한을 넘으면 `429`다.
+
+### 토큰 발급이 실패할 때
+
+clone·push·PR은 API가 App 키로 받은 설치 토큰을 쓴다. 발급이 실패하면(키·설치가 틀림, App 설치 해제, GitHub 장애) 저장소 route가 `503`으로 닫히고, clone이 시작 단계에서 실패해 세션 attention이 `STARTUP_FAILED`가 된다. API 로그의 `GitHub request failed`(`request: installation token request`) 줄에서 `status`를 본다.
+
+| status | 확인할 것 |
+| --- | --- |
+| `401` | App ID와 private key가 짝인지 |
+| `404` | 그 설치에 저장소가 들어 있는지 |
+| `422` | 저장소 이름 |
+
+- 콘솔 App이 그 저장소에 설치되어 있지 않으면 `GitHub App is not installed on <owner>/<repo>`로 같은 `503`이다.
+- 로그인 없이 읽을 수 없는 저장소(없는 저장소, 설치에 들지 않은 비공개 저장소)는 clone이 `could not read Username`으로 실패한다. `http://` URL처럼 GitHub가 redirect하는 주소는 `upstream redirected`로 실패하므로 카탈로그 URL을 `https://`로 고친다.
+- API 컨테이너에서 `api.github.com:443`으로, egress proxy에서 `github.com:443`(`EGRESS_CREDENTIAL_ALLOWLIST`)으로 나가는 길이 열려 있어야 한다. `github.com`을 forward 목록(`EGRESS_ALLOWLIST`)에 넣으면 proxy가 기동을 거부한다.
+
+### GitHub Enterprise Server
+
+콘솔 App은 github.com만 쓴다. GHES 저장소는 설정 문서에 App을 직접 적어 가져온다([설정 문서 가져오기·내보내기](/run-server/self-hosting/reference/configuration#설정-문서-가져오기내보내기)).
+
+```json
+{
+  "version": 1,
+  "connections": {},
+  "repositories": {
+    "ghes-app": {
+      "url": "https://<ghes-host>/<owner>/<repo>.git",
+      "branch": "main",
+      "auth": {
+        "kind": "github_app",
+        "app_id": 123456,
+        "installation_id": 7890123,
+        "stored": true,
+        "api_base": "https://<ghes-host>/api/v3"
+      }
+    }
+  }
+}
+```
+
+- 키는 가져온 뒤 owner나 admin이 `POST /v1/installation/settings/repositories/{id}/credential`로 RSA private key PEM을 넣는다(콘솔 화면은 없다). 넣기 전에는 그 저장소가 `needs_value`라 세션이 돌지 않는다. 키를 바꿀 때도 같은 경로를 쓴다.
+- `api_base`는 `https`만 받는다. 운영자 네트워크 안의 사설 host만 `http`도 받는다. `app_id`·`installation_id`·`api_base`를 바꾸면 binding이 바뀌어 그 저장소의 기존 세션이 `CATALOG_MISMATCH`가 된다.
+- API에서 `<ghes-host>:443`으로 나가는 길을 열고, proxy의 `EGRESS_CREDENTIAL_ALLOWLIST`(사설 주소면 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`)에 `<ghes-host>:443`을 더한다.
 
 ## 사용자가 할 일
 
@@ -97,6 +163,23 @@ PR 본문 끝에는 플랫폼이 쓰는 꼬리가 붙는다. 세션 id와 commit
 `get_pull_request`는 이 세션의 push 요청이 연 PR의 제목·본문·상태·head를 읽는다. 플랫폼 꼬리는 빼고, 비밀값 모양의 줄은 `[REDACTED]`로 가린다. 꼬리를 빼고 가린 본문이 64 KiB를 넘으면 앞부분만 주고 `body_truncated: true`와 `body_sha256: null`로 알린다. 본문은 사람이 쓴 글이므로 `untrusted: true`가 붙는다. 함께 오는 `body_sha256`을 `update_pull_request`의 `expected_body_sha256`으로 넘기면, 읽은 뒤 누가 본문을 고쳤을 때 아무것도 쓰지 않고 `body_changed`로 거절한다. 이 값과 함께 보낸 본문이 길어 잘리게 되면 자르지 않고 `body_too_long`으로 거절한다. 잘려 읽힌 본문에는 해시가 없으므로 에이전트가 다시 쓸 수 없다(`body_unverified`). 제목만 고치는 것은 된다. 읽기도 GitHub 사용 스위치와 저장소 범위를 따른다.
 
 워크스페이스가 허용하면 `merge_pull_request`로 그 PR을 squash로 머지한다. 허용하지 않았으면 GitHub를 부르기 전에 `GITHUB_REFUSED`(`merge_off`)로 거절한다. 머지는 push 요청이 푸시한 commit에 고정한다. PR의 head가 그 commit이 아니면 `head_moved`로 거절하고, 필수 check 대기·리뷰 필요·대화 미해결·충돌처럼 GitHub가 지금은 머지하지 않는 PR은 `merge_blocked`로 거절한다. 이 거절의 `details`에는 GitHub가 알려 준 상태(`mergeable_state`, `mergeable`, `draft`)와 어떤 조건이 맞지 않았는지 적은 `reason` 문장이 실린다. `reason`은 상태를 말할 뿐 어느 필수 check나 리뷰인지는 말하지 않는다. 열 때와 다른 base로 옮겨졌거나 base가 다른 열린 PR의 head인 PR(쌓인 PR)도 `merge_blocked`다. GitHub의 비동기 머지는 그 PR이 쌓인 아래 PR까지 함께 머지하기 때문이다. 머지 요청을 GitHub가 받았지만 기다리는 동안 끝나지 않으면 `forge_failed`로 답한다. 머지가 뒤늦게 끝날 수 있으니 PR을 확인하고 다시 부르면 된다. 이미 머지된 PR은 같은 commit이면 `changed: false`로 답하고, 다른 commit이면 `head_moved`로 거절한다. 머지되지 않고 닫힌 PR은 `pull_request_closed`로 거절한다. 관리자 우회, 자동 머지, 다른 머지 방식은 쓰지 않는다. 권한 확인이 없는 모드(`bypassPermissions`)의 세션은 켜져 있으면 지시 없이도 머지할 수 있다. 머지 요청은 규칙 우회를 끄고(`bypass_rules: false`) GitHub의 비동기 머지 API로 보내므로, 작성용 App이 저장소·조직 ruleset의 우회 대상이어도 그 권한으로 필수 check와 리뷰를 건너뛰지 못한다. 그래도 머지용 App은 우회 대상에 넣지 않는 편이 안전하다. 에이전트의 Actions 허용 목록에 PR을 머지하는 워크플로를 넣으면 이 스위치가 그 머지를 막지 못한다.
+
+## push가 거절되는 경우
+
+승인된 요청은 API가 몇 초 안에 push한다. 요청이 고정한 commit 하나를 그 저장소의 그 브랜치(`refs/heads/agent/<session-id>` 또는 `refs/heads/agent/<session-id>-<suffix>`)로 보내고, force push는 하지 않는다. 같은 commit이 이미 있으면 그대로 `pushed`다. 실패하면 `push` receipt의 `refusal`이 사유다.
+
+| `refusal` | 오류 코드 | 뜻 |
+| --- | --- | --- |
+| `non_fast_forward` | `REVISION_CONFLICT` | 원격 브랜치의 commit이 push할 commit의 조상이 아니다 |
+| `target_refused` | `FORBIDDEN` | 브랜치가 `agent/<session-id>`나 `agent/<session-id>-<suffix>`가 아니다 |
+| `default_branch` | `FORBIDDEN` | 카탈로그의 브랜치이거나 원격의 기본 브랜치다 |
+| `no_push_credential` | `FORBIDDEN` | 그 저장소에 push할 자격 증명이 없다 |
+| `catalog_changed` | `CATALOG_MISMATCH` | 요청 뒤 저장소의 URL이나 인증이 바뀌었거나 항목이 지워졌다. 원격에 아무것도 보내지 않는다. 새로 요청해 다시 승인받는다 |
+| `checkpoint_unavailable` | `CHECKPOINT_UNAVAILABLE` | 고정한 checkpoint를 읽거나 검증하지 못했다 |
+| `lease_expired` | `LEASE_EXPIRED` | push가 끝나지 않은 채 lease를 여러 번 넘겼다. 새로 요청할 수 있다 |
+| `push_failed` | `BACKEND_UNAVAILABLE` | 토큰 발급 실패, 원격의 거절, 네트워크. `Workflows` 권한 없이 workflow 파일을 바꾸는 push도 여기다 |
+
+원격이 보낸 메시지는 receipt에 넣지 않는다. API 로그의 `Push refused`·`Push failed` 줄에 `push_request_id`와 사유가 있다. push는 API가 직접 하므로 API 컨테이너에서 저장소 host로 나가는 길이 열려 있어야 한다.
 
 ## push가 끝난 뒤 PR이 열리는 방식
 

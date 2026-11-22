@@ -2,7 +2,7 @@
 # One session event archive pass (apps/control-host/src/api/
 # session-archive.ts): events of long-idle sessions move into held objects
 # under session-archive/, by the days and dry run saved in the console. Must
-# not overlap a backup (docs/operator/backup-restore.md).
+# not overlap a backup.
 apiVersion: batch/v1
 kind: CronJob
 metadata:

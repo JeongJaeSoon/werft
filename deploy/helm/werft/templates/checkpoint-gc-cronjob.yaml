@@ -1,6 +1,6 @@
 {{- if .Values.checkpointGc.enabled }}
 # One checkpoint garbage collection pass (apps/control-host/src/api/
-# checkpoint-gc.ts). Must not overlap a backup (docs/operator/backup-restore.md).
+# checkpoint-gc.ts). Must not overlap a backup.
 apiVersion: batch/v1
 kind: CronJob
 metadata:

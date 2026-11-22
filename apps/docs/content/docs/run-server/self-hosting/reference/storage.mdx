@@ -94,7 +94,7 @@ worker는 checkpoint마다 작업 디렉터리의 `out/` 아래 일반 파일을
 
 세션마다 `werft-ws-<installationId>-<sessionId>-<접미사>` volume 하나가 `/workspace`에 붙는다. 이 volume은 세대(generation)를 넘어 살아남는다. 컨테이너를 교체해도 세션의 작업 트리는 그대로여야 하기 때문이다. 그래서 **컨테이너를 지우는 `terminate`는 volume을 건드리지 않고**, 회수는 pass의 ④단계가 따로 한다.
 
-volume이 없어져도 세션은 마지막으로 commit된 checkpoint에서 이어 간다. 무엇이 남고 무엇이 사라지는지는 [workspace volume을 잃었을 때 남는 것](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#workspace-volume을-잃었을-때-남는-것)에 있다.
+volume이 없어져도 세션은 마지막으로 commit된 checkpoint에서 이어 간다. 무엇이 남고 무엇이 사라지는지는 [workspace volume을 잃었을 때](#workspace-volume을-잃었을-때)에 있다.
 
 volume은 이제 backend가 `POST /volumes/create`로 **명시적으로** 만든다. mount spec에 이름만 적으면 Docker가 label도 상한도 없는 volume을 알아서 만들어 버리기 때문이다. 만들 때 `werft.managed`·`.installation`·`.session-id`·`.workspace-quota` label을 찍고, GC는 이름을 파싱하지 않고 이 label만 본다.
 
@@ -188,3 +188,47 @@ claim이 남아 있는 동안 resume은 **503 `BACKEND_UNAVAILABLE`(`retryable: 
 기본 보호 모드 `locked`는 versioning, Object Lock, SSE-S3(`AES256`)를 요구한다. checkpoint의 객체 version은 legal hold로 보호한다. 기본 retention과 object version 만료 lifecycle은 두지 않는다. 복원은 DB 포인터가 가리키는 정확한 version을 필요로 한다. `/readyz`의 준비 상태만으로 그 데이터가 보존됐다고 판단하지 않는다.
 
 AWS 생성과 최소 권한은 [bucket 준비](/run-server/self-hosting/prepare-checkpoint-bucket), 백업·별도 대상 대조는 [복원 훈련](/run-server/self-hosting/backup-and-restore)을 따른다.
+
+## 데이터별 보존
+
+플랫폼은 세션을 지우지 않는다. 세션을 지우는 API도 없고, 닫아도 세션에 딸린 행은 남는다. 기간이 지나면 지우는 것은 아래 표에 기간을 적은 것뿐이다.
+
+| 데이터 | 위치 | 보존 | 삭제 | 바꾸기 |
+| --- | --- | --- | --- | --- |
+| 세션, turn과 입력 원문, receipt, 도구 호출 기록, push 요청과 PR 기록, 사용량 원장 | PostgreSQL | 무기한 | 없음. close는 상태만 바꾼다 | 없음 |
+| 세션 이벤트 | PostgreSQL, 오래 쉬면 bucket의 `session-archive/` | 무기한 | [세션 이벤트 보관](#세션-이벤트-보관)이 bucket으로 옮긴 뒤에만 DB 행을 뺀다 | 콘솔의 실행 한도 "세션 기록 보관" |
+| 세션이 복사한 일반 변수 값 | PostgreSQL | 세션이 닫힐 때까지. 닫히지 않은 세션은 복사한 뒤 30일 | 닫히면 바로, 30일이 지나면 reconciler가 지운다. 30일이 지난 세션은 다음 claim이 거절되므로 새로 시작한다 | 없음 |
+| 권한 판정 기록 | PostgreSQL | 기본 90일(30~3650일) | reconciler가 기간이 지난 행을 지운다 | owner가 `POST /v1/workspaces/{id}/audit-retention` |
+| 로그인 세션 | PostgreSQL | 14일, 사용자마다 최근 10개 | 다시 로그인할 때, 또는 만료 30일 뒤 reconciler가 지운다 | 없음 |
+| Slack 설치 state | PostgreSQL | 600초 | 쓰거나 새 링크를 만들 때 지운다 | 없음 |
+| API key, 사용자·구성원·초대·연동 계정 | PostgreSQL | 무기한 | 없음. key 폐기와 연동 해제는 기록만 남긴다 | 없음 |
+| 저장된 비밀값 | PostgreSQL(master key로 암호화) | 무기한 | 사람이 그 연결이나 App을 지울 때만 | 없음 |
+| transcript와 checkpoint 객체 | bucket의 `sessions/<id>/` | pointer와 그 부모 3개, 열린 push 요청이 고정한 revision | [checkpoint GC](/run-server/self-hosting/backup-and-restore#3-checkpoint-gc)만 지운다 | Helm `checkpointGc.*`, compose `CHECKPOINT_GC_DRY_RUN` |
+| 보관한 세션 이벤트 | bucket의 `session-archive/` | 무기한 | 없음 | 없음 |
+| 작업 공간 volume | Docker volume, Kubernetes PVC | 멈춘 세션은 24시간, 일시 정지한 세션은 24시간 | scheduler가 회수한다. 세션은 마지막 checkpoint에서 다시 연다 | 콘솔의 실행 한도 "멈춘 세션의 작업 공간"·"일시 정지한 세션의 작업 공간" |
+| 프로세스 stdout 로그 | compose json-file, 그 밖은 설치의 log driver | compose 서비스는 컨테이너마다 50 MB 파일 5개. scheduler가 띄운 worker 컨테이너는 Docker daemon 기본값 | 회전 | compose `x-logging`, worker 컨테이너와 그 밖은 Docker daemon·노드·수집기 설정 |
+| 아직 정산되지 않은 provider 호출의 사용량 예약 | PostgreSQL | 사용량 보고가 오면 바로. 과금되지 않았다고 풀린 호출은 7일. 풀리지 않은 호출은 나이로 지우지 않는다 | API와 reconciler | 없음 |
+
+- 내용(프롬프트, 답변, 도구 입출력)이 남는 곳은 turn의 입력 원문, 세션 이벤트, transcript, 보관한 이벤트다. 저장 전 가림은 [로그와 이벤트의 가림](/run-server/self-hosting/explanation/isolation#로그와-이벤트의-가림)에 있다. 입력 원문(`turns.message`)과 transcript는 가리지 않는다. transcript는 세션을 다시 열 때 엔진에 그대로 돌려주는 원본이라, 이벤트에서 가린 값도 transcript에는 남을 수 있다.
+- 풀리지 않은 사용량 예약은 세션 비용 상한 판정에 계속 더해진다. 보고가 유실된 호출의 비용을 놓치지 않기 위해서다. lease가 지나도 보고가 없으면 reconciler가 `Provider exchange reservation expired unsettled` 경고를 한 번 남긴다. 아직 흐르는 호출에도 남을 수 있으므로 경고만으로 비용이 빠졌다고 판단하지 않는다.
+- 트레이스는 기본으로 내보내지 않는다. 켜는 방법은 [트레이스 내보내기](/run-server/self-hosting/reference/configuration#트레이스-내보내기)에 있다.
+
+## 세션 이벤트 보관
+
+오래 쉰 세션의 이벤트 행을 checkpoint bucket으로 옮기는 주간 job이다. 이벤트 말고는 어떤 행도 바꾸지 않고, API는 옮긴 뒤에도 같은 응답을 준다.
+
+- **설정.** owner가 콘솔의 설정 > 워크스페이스 > 실행 한도 "세션 기록 보관"에서 정한다. 쉰 기간은 기본 180일이고, 0이면 끄며, 그 밖에는 30~3650일이다. 할 일은 "세기만 함"(기본)과 "실제로 옮김" 가운데 고른다. "세기만 함"이면 옮길 세션·이벤트·바이트 수만 로그(`Session archive completed`)에 남긴다.
+- **대상.** 마지막 활동이 쉰 기간보다 오래된 세션이다. 도는 turn, 답을 기다리는 승인·질문, 열린 push 요청이 있는 세션은 건너뛴다. 옮기는 사이에 세션이 다시 움직이면 그 세션은 그대로 둔다.
+- **쓰는 방식.** 이벤트 1000개 또는 8 MiB마다 `session-archive/<session id>/` 아래 JSONL.gz object 하나를 create-only로 쓰고, legal hold를 걸고, 다시 읽어 대조한 뒤에만 DB 행을 지운다. `locked` 보호 모드에서만 돈다. worker는 이 key를 읽지도 쓰지도 못한다.
+- **읽기.** 이벤트 목록 API, SSE와 `Last-Event-ID`, 세션 목록의 마지막 이벤트 시각이 보관된 범위를 그대로 반영한다. API가 object를 읽으므로 보관된 세션은 API에 checkpoint object store가 설정돼 있어야 읽힌다.
+- **일정.** compose는 `maintenance` 서비스가 checkpoint GC 뒤에 주 1회 돈다(`MAINTENANCE_INTERVAL_SEC`, 기본 604800초). 바로 한 번 돌리려면 `docker compose exec maintenance bun run apps/control-host/src/api/session-archive.ts`를 쓴다. Kubernetes는 CronJob(`sessionArchive.schedule`, 기본 `0 5 * * 0`)이 돈다.
+- **되돌리기.** `bun run apps/control-host/src/api/session-archive.ts restore <session id>`가 그 세션의 이벤트를 같은 id로 DB에 되돌린다. object는 hold가 걸린 채 남는다. 여전히 대상이면 다음 pass가 다시 옮기므로, DB에 계속 두려면 쉰 기간을 먼저 늘리거나 0으로 끈다.
+- **설정을 읽지 못할 때.** 저장된 값을 읽을 수 없으면 job은 아무것도 옮기지 않고 `Session archive refused: its settings cannot be read`를 남긴 뒤 1로 끝난다. 화면에서 값을 다시 저장하면 풀린다.
+- **백업.** 보관한 object는 그 이벤트의 유일한 사본이다. bucket은 DB와 함께 정본이므로 함께 지킨다([Kubernetes 설치](/run-server/self-hosting/backup-and-restore#kubernetes-설치)).
+
+## workspace volume을 잃었을 때
+
+세션을 이어 가는 정본은 volume이 아니라 checkpoint다. worker는 turn이 끝날 때마다 작업 디렉터리와 엔진 대화를 checkpoint로 object store에 올리고, DB의 pointer가 그 revision을 가리킨다. volume이 없어진 세션을 resume하면 scheduler가 빈 volume을 새로 만들어 worker를 띄우고, worker가 pointer의 checkpoint를 복원해 대화를 이어 간다.
+
+- **남는 것.** 마지막으로 commit된 checkpoint까지다. 어느 turn까지 들었는지는 세션 상세의 `checkpoint_revision`과 `durability.last_checkpointed_turn_id`로 본다. 이 값이 `durability.last_completed_turn_id`와 같으면 마지막으로 완료된 turn까지 들었다.
+- **사라지는 것.** 마지막 checkpoint 뒤의 작업, `.gitignore`·`.git/info/exclude`에 걸린 추적되지 않은 파일(빌드 결과, 의존성, ignore된 `.env`), 작업 디렉터리 밖의 상태(tmpfs HOME의 `git config --global` 등)다. 이미 추적되는 파일은 ignore 규칙에 걸려도 checkpoint에 든다. 남겨야 하는 성과물은 ignore되지 않은 경로(예: `out/`)에 쓴다.

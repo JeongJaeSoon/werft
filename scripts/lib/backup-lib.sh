@@ -255,8 +255,8 @@ expected_migrations() {
 
 # Refuses a backup whose applied migration list is not exactly this checkout's.
 # Older backups are refused too: restore is meant to reproduce a known state,
-# and running migrations against restored data is a separate, deliberate step
-# (see docs/operator/backup-restore.md). Prints the verdict; returns EXIT_SCHEMA_MISMATCH.
+# and running migrations against restored data is a separate, deliberate step.
+# Prints the verdict; returns EXIT_SCHEMA_MISMATCH.
 schema_check() {
   local manifest="$1"
   [ -r "$manifest" ] || die "manifest not found: $manifest"

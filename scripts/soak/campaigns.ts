@@ -2005,7 +2005,7 @@ const backupRestoreResume: Campaign = {
       RR_PROJECT: "soak135rr",
       // The stack's images, built from the RC, not from this tools checkout.
       RR_IMAGES_FROM: "soak135",
-      // Homebrew's bash 5.3 hangs on the backup's heredoc (docs/operator/backup-restore.md).
+      // Homebrew's bash 5.3 hangs on the backup's heredoc.
       PATH: `/bin:${process.env.PATH}`,
     });
     const record = join(rr, "record.txt");

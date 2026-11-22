@@ -7,7 +7,7 @@
  * between two live buckets; a backup is a directory. The restore therefore
  * re-pins: it finds the version each byte-identical object got in the new
  * bucket, rewrites each committed manifest with those versions under the
- * key it always had, and holds everything. See docs/operator/backup-restore.md.
+ * key it always had, and holds everything.
  *
  * Two passes live here, both refusing rather than guessing:
  *
