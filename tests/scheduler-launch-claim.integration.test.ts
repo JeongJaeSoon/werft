@@ -102,8 +102,8 @@ const claimed = await post("bootstrap-claim", nonce, {
   credential: { kind: "launch_nonce", nonce },
 });
 console.log("CLAIMED " + claimed.session_id + " " + claimed.attempt_id);
-// The claim carries a token for the credential route, never the key; the
-// route is on the proxy's own name, which NO_PROXY exempts.
+// The claim carries a token for the credential route, never the key; the route
+// is on the proxy's own name, which NO_PROXY exempts.
 console.log(
   "PROVIDER " +
     claimed.runtime_config.provider.auth.kind +
