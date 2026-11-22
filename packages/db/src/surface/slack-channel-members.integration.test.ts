@@ -206,6 +206,7 @@ integration("slack_channel_member_cache on PostgreSQL", () => {
       (await store().cached(t.installationId, "G0CHAN")).memberIds,
     ).toBeNull();
 
+    await Bun.sleep(2);
     const after = await store().cached(t.installationId, "G0CHAN");
     await store().remember(
       t.installationId,
@@ -213,6 +214,30 @@ integration("slack_channel_member_cache on PostgreSQL", () => {
       ["U0B"],
       after.checkedAt,
     );
+    expect(
+      (await store().cached(t.installationId, "G0CHAN")).memberIds,
+    ).toEqual(["U0B"]);
+  });
+
+  test("of two reads that began in one millisecond, the reply that comes second is not kept", async () => {
+    const t = await installedAgent();
+    const read = await store().cached(t.installationId, "G0CHAN");
+    expect(
+      await store().remember(
+        t.installationId,
+        "G0CHAN",
+        ["U0B"],
+        read.checkedAt,
+      ),
+    ).toBe(true);
+    expect(
+      await store().remember(
+        t.installationId,
+        "G0CHAN",
+        ["U0A"],
+        read.checkedAt,
+      ),
+    ).toBe(false);
     expect(
       (await store().cached(t.installationId, "G0CHAN")).memberIds,
     ).toEqual(["U0B"]);

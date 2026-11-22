@@ -110,7 +110,9 @@ export function createPostgresChannelMemberStore(
         ON CONFLICT (installation_id, channel_id) DO UPDATE
           SET member_ids = EXCLUDED.member_ids, fetched_at = EXCLUDED.fetched_at
           WHERE (${cache.invalidatedAt} IS NULL OR ${cache.invalidatedAt} < EXCLUDED.fetched_at)
-            AND (${cache.fetchedAt} IS NULL OR ${cache.fetchedAt} <= EXCLUDED.fetched_at)
+            -- Strict: of two reads in one millisecond, the later reply is
+            -- refused rather than allowed to overwrite a newer list.
+            AND (${cache.fetchedAt} IS NULL OR ${cache.fetchedAt} < EXCLUDED.fetched_at)
         RETURNING installation_id`);
       return rowsOf(kept).length === 1;
     },
