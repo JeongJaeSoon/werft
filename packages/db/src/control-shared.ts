@@ -19,6 +19,7 @@ import {
 } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
+  agents,
   attempts,
   idempotencyKeys,
   memberships,
@@ -163,6 +164,24 @@ export async function actorStillMember(
     .limit(1)
     .for("share", { of: memberships });
   return live.length > 0;
+}
+
+/**
+ * Whether the workspace has the agent, holding its row FOR KEY SHARE so it
+ * cannot be removed under a write that refers to it.
+ */
+export async function agentExists(
+  tx: Database,
+  workspaceId: string,
+  agentId: string,
+): Promise<boolean> {
+  const [agent] = await tx
+    .select({ id: agents.id })
+    .from(agents)
+    .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)))
+    .limit(1)
+    .for("key share");
+  return agent !== undefined;
 }
 
 export type ControlStageMeasure = <T>(

@@ -25,7 +25,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
-import { agentExists } from "../agents.ts";
+import { agentExists } from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {

@@ -9,8 +9,7 @@ import type {
 } from "@werft-ai/platform";
 import { receiptActorOf } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
-import { agentExists } from "../agents.ts";
-import { UUID } from "../control-shared.ts";
+import { agentExists, UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {

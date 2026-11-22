@@ -414,24 +414,6 @@ export async function agentDeleted(
 }
 
 /**
- * Whether the workspace has the agent, holding its row FOR KEY SHARE so it
- * cannot be removed under a write that refers to it.
- */
-export async function agentExists(
-  tx: Database,
-  workspaceId: string,
-  agentId: string,
-): Promise<boolean> {
-  const [agent] = await tx
-    .select({ id: agents.id })
-    .from(agents)
-    .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)))
-    .limit(1)
-    .for("key share");
-  return agent !== undefined;
-}
-
-/**
  * The agent row for a change to its settings, with the acting person's right
  * to make it read again under locks: their membership first, then the agent,
  * then what `holdsRight` rests on (agent-rbac R1). A managing-team change or
