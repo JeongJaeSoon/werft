@@ -53,9 +53,10 @@
 | `url` | `url` |
 | bearer 값(`credential_source = 'stored'`) | `auth_kind = 'bearer'`. workspace 연결 행을 `active`로 만들고 값은 `mcp_bearer_token`으로 **다시 암호화**한다(AAD가 owner와 워크스페이스를 묶어 복사할 수 없다) |
 | `credential_source = 'external'` | 값이 werft 밖에 있어 옮길 수 없다. 서버 행만 만들고 연결은 `none`. 옮기기 화면에 "다시 연결 필요"로 보인다 |
+| 꺼진 행(`disabled_at`이 있음, `0225_installation_settings.sql:10-11`) | 옮기지 않는다. 지금 카탈로그를 읽는 경로도 꺼진 행을 빼므로(`packages/db/src/installation-settings.ts:253-257`) 쓰이지 않는 서버다. 옮기면 운영자가 끈 자격이 `active`로 되살아난다. 그 행을 가리키던 에이전트 선택도 옮기지 않고, 옮기기 보고에 목록으로 보인다 |
 | 호스트 허용 목록 밖 | 옮기지 않는다. 지금 카탈로그는 경고만 하지만 워크스페이스 서버는 거절한다. 옮기기 전에 운영자가 허용 목록을 고치거나 행을 지운다. 옮기기 명령은 이런 행이 남아 있으면 시작하지 않고 목록을 보인다 |
-| `agent_mcp_settings`(서버 하나, 허용 도구) | `agent_workspace_mcp_servers` 켜기 한 행 + 에이전트 deny. 허용 목록 밖의 도구는 그 시점의 저장된 도구 목록에서 빼서 `mcp__<서버>__<도구>` deny로 바꾼다. 나중에 서버가 도구를 늘려도 다시 읽기 전에는 보이지 않으므로([mcp-credentials.md](mcp-credentials.md) 결정 5) 허용 목록의 뜻이 넓어지지 않는다 |
-| 설정 행이 없고(또는 사람이 저장한 적 없고) 릴리스 카드가 카탈로그 서버를 지정 | 지금은 카드의 서버와 release 핀의 도구가 그대로 쓰인다(`packages/platform/src/sessions/mcp-settings.ts:73-76`). 이것도 위와 같이 켜기 한 행 + deny로 옮긴다. 허용 도구는 카드의 서버와 release 도구 핀의 교집합(지금 `within`이 계산하는 것)이다 |
+| `agent_mcp_settings`(서버 하나, 허용 도구) | `agent_workspace_mcp_servers` 켜기 한 행 + **가져온 허용 목록**. 지금 카탈로그 판정은 호출을 에이전트의 `allowedTools`와 교집합한다(`packages/platform/src/sessions/mcp-settings.ts:63-68`, `:79-84`). 이것을 deny로 바꾸면 안 된다. 어드민이 "도구 다시 읽기"를 하면 서버의 저장된 도구 목록이 통째로 바뀌고 에이전트 deny는 그대로라(`packages/db/src/musterrolle/workspace-mcp.ts:1049-1056`), 새로 생긴 도구가 그 에이전트에 열린다. 그래서 옮긴 켜기 행에만 `imported_allowed_tools`(null이면 제한 없음)를 두고, 세션에 보이는 도구를 "저장된 목록 ∩ 가져온 허용 목록 − deny"로 계산한다. 이 칸은 넓어지지 않는다. 에이전트 관리자가 콘솔에서 "가져온 허용 목록 없애기"를 명시적으로 눌러야만 null이 된다(receipt를 남긴다). 새로 켜는 행은 이 칸이 언제나 null이다([mcp-credentials.md](mcp-credentials.md) 결정 5의 "allow 목록을 두지 않는다"는 새 선택에 그대로다) |
+| 설정 행이 없고(또는 사람이 저장한 적 없고) 릴리스 카드가 카탈로그 서버를 지정 | 지금은 카드의 서버와 release 핀의 도구가 그대로 쓰인다(`packages/platform/src/sessions/mcp-settings.ts:73-76`). 이것도 켜기 한 행 + 가져온 허용 목록으로 옮긴다. 허용 목록은 카드의 서버와 release 도구 핀의 교집합(지금 `within`이 계산하는 것)이다 |
 
 - **옛 세션.** 옮긴 뒤에도 카탈로그 경로를 받는 진행 중 세션이 끝날 때까지 egress는 그 경로를 계속 받는다. "카탈로그 경로를 받는 세션"은 `sessions.mcp_start`가 있는 세션만이 아니다. snapshot이 없는 세션도 release 카드와 핀으로 카탈로그 서버를 쓴다(`packages/db/src/github/mcp-egress.ts:70-103`). 그래서 닫히지 않은 세션 가운데 실제 판정 경로(`effectiveMcp`)가 카탈로그 서버를 내는 세션을 센다. 새 세션은 워크스페이스 서버만 snapshot한다. 그 수가 0이 된 뒤 카탈로그 테이블, `agent_mcp_settings`, claim의 카탈로그 항목, 릴리스 카드의 MCP 항목을 지운다(별도 단위 T5).
 - **화면.** "워크스페이스 서버 / 설치 카탈로그" 구분을 없애고 **MCP 서버** 목록 하나와 **MCP 서버 추가** 버튼 하나를 둔다.
@@ -175,7 +176,7 @@ agent·workspace 연결이 모두 `active`가 아니면 upstream 실패 없이 �
 
 개인 턴에서 에이전트가 **다른 서버**를 부르면, 그 호출의 인자에 개인 결과가 실릴 수 있고 게시 확인으로는 되돌릴 수 없다. 그래서 묻는다.
 
-- **대상.** 그 턴에서 personal로 넘어간 뒤, personal이 아닌 자격으로 나가는 호출: 다른 MCP 서버(agent·workspace 연결), 내장 `github` MCP, git push. personal로 넘어간 서버 자체의 호출은 대상이 아니다. 도구 annotation을 믿지 않으므로 읽기·쓰기를 가르지 않는다. 넘어가기 **전에** 시작된 호출은 대상이 아니다.
+- **대상.** 그 턴에서 처음 personal로 넘어간 서버(시작 서버) 밖으로 나가는 모든 호출이다. 자격 단계를 가리지 않는다: 다른 MCP 서버의 agent·workspace 연결, 내장 `github` MCP, git push, 그리고 **다른 서버가 뒤이어 personal로 넘어간 경우의 그 서버 호출**도 대상이다. 요청자 본인의 다른 서비스라도 그 서비스의 다른 독자(공유 문서, 팀 채널 등)에게 개인 결과가 실릴 수 있기 때문이다. 다른 서버가 personal로 넘어갈 때는 5절의 재시도가 그 서버로 가는 첫 호출이므로, 그 재시도를 ②로 멈춘다. relay는 서버마다 upstream client를 따로 두므로(`packages/adapters/runtimes/codex/src/mcp-relay.ts:118-146`, `packages/adapters/runtimes/claude/src/remote-mcp.ts:115-122`) 서버를 가르는 것은 egress 판정의 (서버, 턴) 단위로 충분하다. 시작 서버 자체의 호출만 대상이 아니다. 도구 annotation을 믿지 않으므로 읽기·쓰기를 가르지 않는다. 넘어가기 **전에** 시작된 호출은 대상이 아니다.
 - **처음 한 번만 멈춘다.** 그 턴에서 그 서버로 가는 첫 호출을 멈추고, 본인에게만 보이는 카드를 보낸다. 카드에는 서버 이름, 도구 이름, 인자의 첫 몇 줄 미리보기(줄 수와 글자 수 상한, 비밀 값 가리기를 지난 것)가 있다.
 - **"이 턴에서 허락"**이면 그 턴 동안 그 서버는 다시 묻지 않는다. 새 서버가 나올 때만 다시 묻는다.
 - **거절이나 24시간 동안 답 없음**이면 그 호출은 도구 오류로 돌아가고, 에이전트는 그것 없이 계속한다.
@@ -195,6 +196,7 @@ agent·workspace 연결이 모두 `active`가 아니면 upstream 실패 없이 �
 checkpoint는 턴이 끝날 때 commit되고 세션 pointer가 그것을 가리킨다. resume은 pointer의 revision만 채택하고, 그 revision은 transcript part, 작업 공간, 엔진 프로필을 함께 고정한다([세션 저장소](session-store.md), 작업 공간 capture는 `apps/worker/src/session-checkpoints.ts:90-95`). 이것을 그대로 쓴다.
 
 1. **보류.** 개인 턴이 끝나면 worker는 checkpoint revision을 만들되 세션 pointer로 **올리지 않는다**. 세션 행에 "보류 revision"과 게시 확인 요청 id를 둔다. 보류가 있는 동안 그 세션의 다음 턴은 시작하지 않는다(위 줄 서기).
+   - **턴 중간의 checkpoint도 같다.** 지금은 승인을 기다리는 동안에도 checkpoint를 잡고(`apps/worker/src/worker-host.ts:3108-3149`, point `approval_wait`), worker가 그 자리에서 멈추면 그 checkpoint를 세션 pointer로 올린다(`packages/db/src/worker-unit-of-work.ts:702`의 `parkOnApprovalCheckpoint`가 `:814-832`에서 `advanceCheckpointPointer`를 부른다). 개인 턴에서 이 길을 그대로 두면 ②·③을 기다리는 사이 worker가 죽었을 때 개인 결과가 든 revision이 동의 없이 pointer가 되고, 다음 실행이 그것을 이어 쓴다. 그래서 personal로 넘어간 뒤 그 턴에서 잡는 checkpoint는 모두 보류 revision이다. `parkOnApprovalCheckpoint`와 턴 끝의 승격은 그 턴에 personal 단계 행(5절 4단계)이 있으면 pointer를 올리지 않고 세션 행의 보류 칸만 갱신한다. 이어 가기는 보류 revision에서만 하고, 그 실행의 답도 ③을 다시 거친다. 공개 pointer는 개인 턴 앞의 revision에 남는다.
 2. **보내기**면 보류 revision을 pointer로 올리고 답을 게시한다. 한 transaction이다.
 3. **보내지 않음**이면 보류 revision을 버리고(pointer는 개인 턴 앞의 revision에 남는다), 아래 "기록에서 지우기"를 한 뒤 **다시 만들기 턴**을 돌린다.
    - 다시 만들기 턴은 개인 턴 앞의 checkpoint에서 **새 엔진 실행으로** 시작한다. 개인 턴을 돌린 엔진 프로세스는 그 메모리에 개인 결과를 갖고 있으므로 이어 쓰지 않는다. 작업 공간도 그 checkpoint의 것으로 되돌린다(개인 턴이 파일에 쓴 것이 남지 않게).
@@ -207,19 +209,31 @@ checkpoint는 턴이 끝날 때 commit되고 세션 pointer가 그것을 가리�
 | 곳 | 무엇이 있나 | 처리 |
 |---|---|---|
 | 엔진 프로세스와 엔진 로컬 상태(Claude config dir의 transcript, Codex `CODEX_HOME`의 rollout) | 개인 턴 전체 | 위 3단계: 그 실행을 끝내고 앞 checkpoint에서 새 실행으로 시작한다. 로컬 상태는 실행마다 새로 만들고 버리는 디렉터리라([스킬과 MCP 서버](skills-and-mcp.md) 6절 "자격") 같이 버려진다 |
-| transcript mirror(object store part) | 개인 턴의 part | 보류 revision만 가리키는 part를 지운다. 다음 실행은 pointer의 revision만 채택하므로 지우기 전에도 읽히지 않지만, 남겨 두지 않는다. 지우기는 checkpoint 수집 경로에서 하고, 실패하면 다시 시도한다 |
-| 보류 checkpoint의 작업 공간 capture | 개인 턴이 쓴 파일 | 보류 revision과 함께 지운다 |
+| transcript mirror(object store part) | 개인 턴의 part | 보류 revision만 가리키는 part를 **모든 version까지** 지운다(아래 "object store의 version"). 다음 실행은 pointer의 revision만 채택하므로 지우기 전에도 읽히지 않지만, 남겨 두지 않는다. 지우기는 checkpoint 수집 경로에서 하고, 실패하면 다시 시도한다 |
+| 보류 checkpoint의 manifest와 작업 공간 capture | 개인 턴의 상태와 개인 턴이 쓴 파일 | 보류 revision과 함께 모든 version까지 지운다 |
 | 세션 이벤트(`events`, `packages/db/src/schema.ts:1927`) | 개인 턴의 답·도구 호출 이벤트 | 개인 턴의 이벤트는 처음부터 보류 표시와 함께 쓰고, 세션 화면과 이벤트 스트림은 요청자에게만 보인다. 보내기면 표시를 풀고, 보내지 않음이면 지운다. 다시 만들기 턴의 이벤트가 그 자리에 온다 |
 | Slack | 요청자에게 보낸 ephemeral 미리보기와 카드 | ephemeral은 다른 사람에게 보이지 않는다. 확인이 끝나면 카드를 "끝남"으로 바꿔 미리보기를 없앤다 |
 | `pending_requests` | ②·③의 미리보기 | 답이 나면 `payload`의 미리보기를 지우고 해시만 남긴다 |
 | receipt(`call_mcp`), `tool_call_audits`, `authz_decisions` | 서버·도구 이름, 단계, 상태, 입력 해시(`tool_call_audits.input_sha256`). 본문은 없다 | 그대로 둔다. 감사 기록이고 본문이 없다 |
 | 로그·지표 | 본문 키는 로그에서 빠진다([로그 계약](logging-contract.md)) | 그대로 둔다 |
+| tracing span | 설치가 content mode `full`이면 답과 도구 결과가 span 속성으로 밖의 collector에 나간다(`apps/worker/src/worker-host.ts:1788-1799`가 턴의 mode를 정하고, `apps/worker/src/telemetry/turn-spans.ts:362-365`, `:410-414`가 `setContentAttribute`로 싣는다. `apps/worker/src/telemetry/content.ts:61-74`) | 나간 뒤에는 werft가 지울 수 없으므로 **싣지 않는다**. personal로 넘어간 순간부터 그 턴의 span emitter는 content 속성을 쓰지 않는다(mode를 그 턴만 `off`로 내린다). 넘어가기 전에 이미 실은 것은 개인 데이터를 보지 않은 결과다. span의 이름, 시간, 상태와 personal 단계 표시는 남는다. 보내기를 골라도 그 턴의 content는 다시 싣지 않는다 |
 | 다시 만들기 턴의 입력 문단 | 넘어가기 전 결과와, 넘어간 뒤 호출의 이름 | 개인 결과가 없다 |
 | ②에서 허락해 이미 나간 호출 | 다른 서버에 실린 인자 | 되돌릴 수 없다. 게시 확인 카드의 "이미 외부로 나간 것" 줄이 이것을 알린다 |
 
-- 위 표의 "지운다"가 요청자 본인에게서도 지우는 것인지(본인이 나중에 그 개인 턴을 다시 볼 수 있는지)는 **미정(질문 8)**. 어느 쪽이든 다른 사람의 화면과 그 뒤 턴의 컨텍스트에서는 빠진다.
+- **본인도 다시 볼 수 없다**(오너 결정 8). 위 표의 "지운다"는 요청자 본인에게서도 지우는 것이다. 남는 것은 본문 없는 감사 기록(서버·도구 이름, 단계, 상태, 입력 해시)뿐이다. 본인의 세션 화면에는 그 자리에 "개인 연결 결과 N건은 보내지 않아 지웠습니다" 한 줄만 보인다(N은 그 턴에서 personal로 보낸 `tools/call` 수, receipt에서 센다). 어드민의 사유 있는 감사 열람도 같은 것만 본다.
+
+**object store의 version.** 커밋된 checkpoint는 S3 versioning과 Object Lock legal hold로 고정되어, 같은 key를 덮어쓰거나 지워도 그 version이 남는다([백업과 복원](../../operator/backup-restore.md) "checkpoint 객체"). 그래서 정한다.
+
+- 보류 revision의 object(manifest, transcript part, 작업 공간 capture)에는 legal hold를 걸지 않는다. hold는 보내기로 pointer에 올릴 때 건다. 보내지 않음이면 hold 없는 그 object의 **모든 version과 delete marker**를 version id로 지운다(`s3:DeleteObjectVersion`, 그 문서의 권한 목록에 이미 있다). 보류 중에 worker가 죽거나 lease를 잃어 hold 없는 object가 남는 경우도 아래 장부가 다시 지운다.
+- 보류 revision의 object는 다른 revision과 key prefix를 나눠, 지울 때 다른 revision의 part를 건드리지 않는다.
+
+**백업.** werft는 운영자가 가진 DB 스냅샷과 백업 묶음(`scripts/backup.sh`)을 고쳐 쓸 수 없다. 그래서 지운 본문이 백업 복원으로 되살아나지 않게 하는 쪽으로 막는다. [기억 레이어](memory-layer.md) 9절의 삭제 장부와 같은 방식이다.
+
+- **지우기 장부.** 보내지 않음으로 지운 개인 턴마다 DB 백업과 따로 보관하는 append-only 장부에 한 줄을 쓴다: 세션 id, 턴 id, 보류 revision, 지운 object key와 version id, 지운 이벤트 범위, 시각. 본문은 없다. 장부는 checkpoint object store의 별도 prefix(Object Lock 보존, 덮어쓰기 불가)에 둔다. 기억 레이어의 삭제 장부가 생기면 같은 장부에 종류 칸으로 합친다.
+- **복원 뒤 다시 지우기.** 백업에서 복원한 설치의 control-host는 장부를 다시 적용하기 전까지 장부에 있는 세션의 이벤트 읽기, 세션 resume, checkpoint 복원을 거절한다(`personal_erasure_restoring`). 다시 적용은 장부의 줄마다 이벤트 범위를 지우고, 그 object version이 복원본에서 다시 보이면 지운다. 보류 중이던 턴(백업 시점에 아직 답이 없던 것)은 복원본에서 "보내지 않음"으로 처리한다. 답을 기다리던 사람이 복원 뒤의 카드를 믿을 수 없기 때문이다.
+- **백업 안의 본문.** 백업 묶음과 DB 스냅샷에는 그 백업을 만든 시점의 보류 중 본문이 남을 수 있다. 이것은 백업 보존 기간이 끝나야 사라진다. [백업과 복원](../../operator/backup-restore.md)과 [데이터 보존](../../operator/data-retention.md)에 이 사실과 장부 재적용 절차를 적고, 개인 연결을 켜는 화면(T14)의 안내에도 적는다.
 - 보내기를 고른 턴은 지우지 않는다. 본인이 동의해 스레드 컨텍스트로 남긴 것이다.
-- 개인 턴이 끝나기 전에 worker가 죽으면 그 턴의 checkpoint는 없다(지금 규칙). 그 턴의 이벤트는 보류 표시가 있으므로 운영자 결정(이어 가기 / 버리기)까지 요청자에게만 보이고, 버리면 위 표대로 지운다.
+- 개인 턴이 끝나기 전에 worker가 죽으면 그 턴에서 잡은 checkpoint는 위 1단계대로 보류 revision으로만 남는다. 그 턴의 이벤트는 보류 표시가 있으므로 운영자 결정(이어 가기 / 버리기)까지 요청자에게만 보인다. 이어 가기는 보류 revision에서 하고 답은 ③을 거친다. 버리면 "보내지 않음"과 같이 위 표대로 지운다.
 
 **개인 턴에서 나가는 다른 길.**
 
@@ -273,7 +287,7 @@ checkpoint는 턴이 끝날 때 commit되고 세션 pointer가 그것을 가리�
 |---|---|---|---|
 | T1 proxy의 401·403 보고 (P1) | `apps/egress-proxy`의 MCP 경로 보고, control-host 인가 API의 보고 받기와 실패 receipt, worker 응답 본문의 werft 거절 코드 | proxy 시험: upstream 401·403 → 보고와 본문 코드, `www-authenticate` 없음, 보고 실패 → 지금 동작. control-host 시험: 실패 receipt 모양 | — |
 | T2 egress 주체를 턴 요청자로 (P2) | `creatorOf` 세 곳, 도구 호출 감사 principal, `turns.caller_limit` 칸(migration)과 턴을 넣는 모든 경로에서 채우기, egress가 그것을 읽기 | 같은 세션에서 두 사람의 턴 → receipt actor가 각자. 첫 턴 전 요청 → 세션을 만든 사람. 릴리스 노트 | — |
-| T3 서버 목록 하나: 저장과 이전 | 옮기기 migration과 명령(다시 암호화, `external`·허용 목록 밖 처리, 허용 목록 → deny), egress가 옛 세션의 카탈로그 경로를 계속 받음 | 옮기기 시험(행·연결·비밀·deny), 진행 중 옛 세션이 계속 호출됨, 새 세션은 워크스페이스 서버만 | — |
+| T3 서버 목록 하나: 저장과 이전 | 옮기기 migration과 명령(다시 암호화, `external`·허용 목록 밖·꺼진 행 처리, 가져온 허용 목록 칸 `imported_allowed_tools`와 그것을 없애는 콘솔 동작), egress가 옛 세션의 카탈로그 경로를 계속 받음 | 옮기기 시험(행·연결·비밀·가져온 허용 목록), 꺼진 행 → 옮기지 않고 보고, 옮긴 뒤 도구 다시 읽기로 새 도구가 생겨도 그 에이전트에 보이지 않음, 진행 중 옛 세션이 계속 호출됨, 새 세션은 워크스페이스 서버만 | — |
 | T4 서버 목록 하나: 콘솔 | 목록 하나·추가 버튼 하나, 옮기기 상태(다시 연결 필요) | 화면 시험과 실제 스택 확인 | T3 |
 | T5 카탈로그 경로 제거 | 카탈로그 테이블, `agent_mcp_settings`, claim 카탈로그 항목, 카드 MCP 항목 지우기(contract) | 카탈로그 경로를 받는 세션 0 확인 뒤 migration. 옛 host 호환([새 control-host와 옛 worker의 호환 계약](worker-compat.md)) | T3, T4 |
 | T6 연결 subject 넓히기 | CHECK, owner_ref, 조회·잠금·비밀·receipt `generation`이 subject를 관통 | 세 subject의 저장·읽기·끊기 시험, 기존 `workspace` 행 그대로 | T3 |
@@ -281,10 +295,11 @@ checkpoint는 턴이 끝날 때 commit되고 세션 pointer가 그것을 가리�
 | T8 personal 연결 | 본인 OAuth·bearer 흐름, 내 연결 화면, 어드민 끊기, `cutOff`·서버 삭제·에이전트 삭제 때 끊기, RFC 7009 폐기(commit 뒤, 대기 행) | 본인 흐름, 남이 만들 수 없음, 탈퇴 → 모두 끊기고 폐기 요청 | T6 |
 | T9 권한 오류와 넘어가기 | 5절 전체(처음부터 personal인 경우 포함): 401 갱신 한 번, (서버, 턴, 단계) 고정과 한 번·한 방향, relay 멈춤·client 새로 만들기·한 번 재시도(Claude·Codex), 호출 id, 재시도 receipt와 실패 receipt 잇기, 전송 묶음 기록의 subject | 401·403 → 넘어감, 타임아웃·5xx·`isError` → 넘어가지 않음, 같은 실패에 두 번째 재시도 거절, 한 턴 두 번째 넘어가기 없음, 다음 턴 다시 agent·workspace부터 | T1, T7, T8, S12a |
 | T10 확인 ① 사용 확인 | `personal_mcp_use` 요청, 요청자만 답함, Slack ephemeral 카드와 콘솔 카드, (세션, 사람) 승인 행, 끄기 두 곳(카드 버튼, 콘솔 세션 화면), 개인 연결이 없을 때 한 번 안내 | 요청자 아닌 승인자 → 거절, 만료 → 원래 오류, 같은 세션 두 번째 넘어가기 → 묻지 않음, 새 세션 → 다시 물음, 끈 뒤 다음 호출 → agent·workspace만 | T9 |
-| T11 확인 ③과 컨텍스트·기록에서 빼기 | `personal_mcp_post`, 보류 revision, 보내기·보내지 않음·24시간, 다른 사람 턴 줄 서기, 다시 만들기 턴(새 엔진 실행, 작업 공간 되돌림, 도구 없음, 넘어가기 전 결과만, 빠졌다는 한 줄), 6절 "기록에서 지우기" 표, 보류 이벤트, 개인 턴의 위임 거절 | 보내지 않음 → 다음 턴 컨텍스트·세션 이벤트·mirror·작업 공간에 개인 결과 없음(fake 모델로 확인), 다시 만들기 턴에서 도구 호출 0, 보내기 → 다음 턴이 봄, 기다리는 동안 다른 사람 턴이 시작하지 않음 | T10 |
-| T12 확인 ② 다른 서버 호출 | `personal_mcp_outbound`, egress와 push 경로의 개인 턴 검사, (턴, 서버) 허락, 인자 미리보기와 답 뒤 지우기, 게시 확인의 "이미 외부로 나간 것" 줄 | 개인 턴의 다른 서버 첫 호출 → 멈춤, 허락 → 같은 서버 다시 묻지 않음·새 서버는 물음, 거절·24시간 → 도구 오류, 넘어가기 전 호출 → 묻지 않음 | T11 |
-| T13 E2E | 시험용 MCP 서버가 401·403을 내게 하고 로컬 스택에서 workspace → personal 넘어가기, mock Slack의 세 확인, 보내지 않음 뒤 컨텍스트와 기록 | 로컬 스택에서 전 과정, token이 worker 환경·로그·API 응답에 없음 | T12 |
-| T14 personal 켜기 | 아래 "켜기 울타리": 설치 설정의 최소 control-host 버전과 contract migration, worker capability `personal_mcp`, 켜기 설정 | 울타리 앞의 옛 host가 보류 revision을 pointer로 올리는 경로에서 오류로 실패하는 시험, capability 없는 worker가 claim한 세션 → personal 단계 없음, 켜기 전 → T8의 연결은 만들 수 있어도 egress가 personal을 고르지 않음 | T13 |
+| T11 확인 ③과 컨텍스트·기록에서 빼기 | `personal_mcp_post`, 보류 revision(승인 대기 checkpoint와 멈춘 worker의 승격 포함), 넘어간 뒤 그 턴의 span content 끄기, 보내기·보내지 않음·24시간, 다른 사람 턴 줄 서기, 다시 만들기 턴(새 엔진 실행, 작업 공간 되돌림, 도구 없음, 넘어가기 전 결과만, 빠졌다는 한 줄), 6절 "기록에서 지우기" 표, 보류 이벤트, 개인 턴의 위임 거절 | 보내지 않음 → 다음 턴 컨텍스트·세션 이벤트·mirror·작업 공간에 개인 결과 없음(fake 모델로 확인), 다시 만들기 턴에서 도구 호출 0, 보내기 → 다음 턴이 봄, 기다리는 동안 다른 사람 턴이 시작하지 않음, ③을 기다리는 중 worker를 죽임 → pointer가 개인 턴 앞에 남음, content mode `full`에서 넘어간 뒤 span에 답·도구 결과 속성 없음 | T10 |
+| T12 확인 ② 다른 서버 호출 | `personal_mcp_outbound`, egress와 push 경로의 개인 턴 검사, (턴, 서버) 허락, 인자 미리보기와 답 뒤 지우기, 게시 확인의 "이미 외부로 나간 것" 줄 | 개인 턴의 다른 서버 첫 호출 → 멈춤(agent·workspace 연결, 다른 서버의 personal 재시도 모두), 허락 → 같은 서버 다시 묻지 않음·새 서버는 물음, 거절·24시간 → 도구 오류, 넘어가기 전 호출 → 묻지 않음 | T11 |
+| T15 지우기 장부와 복원 | 보류 object에 hold를 늦게 걸기와 모든 version 지우기, 지우기 장부(object store 별도 prefix), 복원 뒤 다시 적용(`personal_erasure_restoring`), 본인 화면의 "N건 지웠습니다" 줄, 운영 문서(백업과 복원, 데이터 보존) | 복원 훈련 시험: 보내지 않음 → 백업 → 복원 → 재적용 전 그 세션 읽기 거절, 재적용 뒤 이벤트·object version 없음. 보류 중 백업 → 복원본에서 보내지 않음 | T11 |
+| T13 E2E | 시험용 MCP 서버가 401·403을 내게 하고 로컬 스택에서 workspace → personal 넘어가기, mock Slack의 세 확인, 보내지 않음 뒤 컨텍스트와 기록, 시험 collector의 span에 개인 결과 없음 | 로컬 스택에서 전 과정, token이 worker 환경·로그·API 응답에 없음 | T12, T15 |
+| T14 personal 켜기 | 아래 "켜기 울타리": 설치 설정의 최소 control-host 버전과 contract migration, worker capability `personal_mcp`, 켜기 설정 | 울타리 앞의 옛 host가 보류 revision을 pointer로 올리는 경로에서 오류로 실패하는 시험, capability 없는 worker가 claim한 세션 → personal 단계 없음, 켜기 전 → T8의 연결은 만들 수 있어도 egress가 personal을 고르지 않음 | T13, T15 |
 
 **켜기 울타리.** T8–T12는 personal을 쓰는 길을 하나씩 만든다. 그 사이의 배포에서 personal이 고객 요청에 쓰이면, 확인과 컨텍스트 빼기가 없는 채로 개인 결과가 채널에 나간다. 그래서 정한다.
 
@@ -306,7 +321,7 @@ T9는 S12a에 막힌다. [접근 판정](access-decisions.md) B5는 T6–T14로 
 
 ## 11. 설계 중 오너 결정 (2026-11-22)
 
-사양이 정하지 않은 제품 동작을 물었고, 오너가 1–6은 추천대로, 7은 "턴당 한 번 묶어 묻기"로 정했다. 8은 답을 기다린다.
+사양이 정하지 않은 제품 동작을 물었고, 오너가 1–6은 추천대로, 7은 "턴당 한 번 묶어 묻기", 8은 "지우고 본문 없는 기록만"으로 정했다.
 
 | 질문 | 결정 | 자리 |
 |---|---|---|
@@ -317,7 +332,7 @@ T9는 S12a에 막힌다. [접근 판정](access-decisions.md) B5는 T6–T14로 
 | 5. 다시 만든 답에 알리나 | 내용 없이 한 줄: "요청자의 개인 연결 결과는 빠졌습니다" | 6절 ③, T11 |
 | 6. 권한 오류인데 개인 연결이 없으면 | 원래 오류를 에이전트에 그대로 주고, 본인에게만 "개인 연결을 만들면 쓸 수 있다"는 안내(콘솔 링크)를 한 번 | 5절 "넘어가기" 2단계, T10 |
 | 7. 개인 턴의 다른 서버 호출 | 처음 한 번 멈추고 본인에게만 카드(서버, 도구, 인자 첫 몇 줄). "이 턴에서 허락"이면 그 턴 동안 같은 서버는 다시 묻지 않고 새 서버만 묻는다. 거절·24시간 무응답이면 도구 오류, 에이전트는 그것 없이 계속. 허락했으면 게시 확인에 "이미 외부로 나간 것" 한 줄 | 6절 ②, T12 |
-| 8. "보내지 않음" 뒤 본인이 그 개인 턴을 다시 볼 수 있나 | **미정**(오너 답 대기) | 6절 "기록에서 지우기", T11 |
+| 8. "보내지 않음" 뒤 본인이 그 개인 턴을 다시 볼 수 있나 | 못 본다. werft의 모든 저장 위치에서 본문을 지우고 본문 없는 감사 기록만 남긴다. 본인 화면에는 "개인 연결 결과 N건은 보내지 않아 지웠습니다" 한 줄. 백업은 지우기 장부로 복원 뒤 다시 지운다 | 6절 "기록에서 지우기", T11 |
 
 ## 범위 밖
 

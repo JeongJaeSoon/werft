@@ -4,7 +4,7 @@
 - 배경 문서: [번들 stdio MCP 서버를 worker relay 뒤에 둔다](stdio-mcp-relay.md), [에이전트 행동 도구 카탈로그](action-broker.md), [설정을 파일에서 DB로](settings-replace-file-catalog.md), [OIDC 로그인 제공자](oidc-login-providers.md).
 - 기준: `origin/main` `2da968643`. 파일 이름은 이 커밋에서 읽었다.
 - 이 문서는 같은 이름의 옛 설계안(에이전트 주체 OAuth, 서버별 egress token, 설치 비밀 값 범위 이전)을 대신한다. 옛 안에서 버린 것은 "옛 설계안에서 바뀐 것"에 모았다.
-- **[MCP 연결 세 단계](mcp-connection-tiers.md)가 이 문서의 일부를 대신한다.** 결정 1(자격 주체는 워크스페이스 하나)은 workspace · agent · personal 세 단계로, 결정 2와 "지금 있는 것"의 "설치 카탈로그는 그대로 둔다"는 카탈로그를 한 번에 옮기고 없애는 것으로, 결정 6의 "proxy는 바꾸지 않는다"는 upstream 401·403 보고로 바뀐다. LATER의 "에이전트별 외부 계정", "요청자 본인의 계정", "upstream 401을 연결 상태에 반영"은 그 문서가 연다. 결정 2의 "워크스페이스를 지우면 비밀 값이 같이 지워진다"는 코드와 다르다(그 문서 1절). 나머지 결정(등록 검사, OAuth 탐색·동의·갱신, 비밀 값 purpose, 도구 목록, deny)은 세 단계에 그대로 쓴다.
+- **[MCP 연결 세 단계](mcp-connection-tiers.md)가 이 문서의 일부를 대신한다.** 결정 1(자격 주체는 워크스페이스 하나)은 workspace · agent · personal 세 단계로, 결정 2와 "지금 있는 것"의 "설치 카탈로그는 그대로 둔다"는 카탈로그를 한 번에 옮기고 없애는 것으로, 결정 6의 "proxy는 바꾸지 않는다"는 upstream 401·403 보고로 바뀐다. LATER의 "에이전트별 외부 계정", "요청자 본인의 계정", "upstream 401을 연결 상태에 반영"은 그 문서가 연다. 결정 2의 "워크스페이스를 지우면 비밀 값이 같이 지워진다"는 코드와 다르다(그 문서 1절). 결정 5(allow 목록 없이 deny만)는 카탈로그에서 옮긴 켜기 행에만 예외를 둔다: 옮기기 전의 허용 도구를 `imported_allowed_tools`로 남겨 도구 다시 읽기로 넓어지지 않게 한다(그 문서 2절). 나머지 결정(등록 검사, OAuth 탐색·동의·갱신, 비밀 값 purpose, 도구 목록, 새 선택의 deny)은 세 단계에 그대로 쓴다.
 
 ## 요약
 
