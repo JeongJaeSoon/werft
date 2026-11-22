@@ -214,9 +214,8 @@ export type ApiKeyRevocation =
 
 /**
  * Revokes one key; a second revoke keeps the first timestamp. Only future
- * authentication is affected: the principal's running work is not
- * cancelled, and an open SSE
- * stream ends at its next credential re-check.
+ * authentication is affected: the principal's running work is not cancelled,
+ * and an open SSE stream ends at its next credential re-check.
  */
 export async function revokeApiKey(
   db: Database,

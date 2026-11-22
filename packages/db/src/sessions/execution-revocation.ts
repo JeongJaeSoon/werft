@@ -38,16 +38,15 @@ export type RevokeExecutionResult =
   | { outcome: "unsupported" };
 
 /**
- * The operator's execution
- * Grant revocation for one session. In one transaction it moves the auth
- * revision and the lease epoch on (every fenced write of the current binding
- * fails from here, whatever it authenticated with), revokes the session's
- * worker tokens (its next request is 401), records the bound generation's
- * kill intent with everything terminate writes, and blocks dispatch until
- * the operator restores it. It does not disable the owner or touch any other
- * session, and it does not claim the worker stopped: the receipt stays
- * `accepted` until the execution is observed gone and goes `unknown` past
- * the terminate deadline, as a terminate's does.
+ * The operator's execution Grant revocation for one session. In one transaction
+ * it moves the auth revision and the lease epoch on (every fenced write of the
+ * current binding fails from here, whatever it authenticated with), revokes the
+ * session's worker tokens (its next request is 401), records the bound
+ * generation's kill intent with everything terminate writes, and blocks
+ * dispatch until the operator restores it. It does not disable the owner or
+ * touch any other session, and it does not claim the worker stopped: the
+ * receipt stays `accepted` until the execution is observed gone and goes
+ * `unknown` past the terminate deadline, as a terminate's does.
  *
  * Lock order is launch, then session (lockSessionForControl), the order of
  * every gateway path: a finalize or heartbeat that took the session lock

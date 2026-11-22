@@ -1,9 +1,8 @@
-# The development overlay: `scripts/local.sh dev` adds it over compose.yaml,
-# so a saved file reaches the running stack without an image build
-# Paths are relative to the
-# repository root, compose.yaml's project directory; it does not merge over
-# infra/compose.yml alone. Images and Helm are untouched: nothing but the
-# development commands reads this file.
+# The development overlay: `scripts/local.sh dev` adds it over compose.yaml, so
+# a saved file reaches the running stack without an image build. Paths are
+# relative to the repository root, compose.yaml's project directory; it does not
+# merge over infra/compose.yml alone. Images and Helm are untouched: nothing but
+# the development commands reads this file.
 #
 # The control host's source is mounted read-only over the image's copy and
 # scripts/dev/hot-restart.ts restarts each role when a file of control-host

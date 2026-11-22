@@ -59,9 +59,9 @@ x-pass-loop-bun-options: &pass-loop-bun-options --smol
 # built from this repository, so amd64 and arm64 daemons run the same bytes
 # (tests/images.test.ts).
 #
-# Published ports are loopback only, and only for what a process on this
-# host uses: nothing here is meant for another machine,
-# and the postgres credentials are local defaults.
+# Published ports are loopback only, and only for what a process on this host
+# uses: nothing here is meant for another machine, and the postgres credentials
+# are local defaults.
 services:
   postgres:
     image: postgres:16@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
@@ -235,8 +235,8 @@ services:
   # `apps` profile: the sessions API and the scheduler.
   # `docker compose --profile apps up -d --build`.
   # Every value below has a working default. The local layer also reads a
-  # ../.env when present and never writes it; no other
-  # installation picks up a checkout's .env.
+  # ../.env when present and never writes it; no other installation picks up a
+  # checkout's .env.
   api:
     image: ${API_IMAGE:-werft-control-host:dev}
     logging: *logging

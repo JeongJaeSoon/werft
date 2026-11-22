@@ -297,8 +297,8 @@ export async function forbiddenImports(
   return offenders.sort();
 }
 
-// What stays behind the platform ports: the business
-// logic never sees a driver, an ORM, a cloud SDK or an agent SDK.
+// What stays behind the platform ports: the business logic never sees a driver,
+// an ORM, a cloud SDK or an agent SDK.
 const platformForbidden = [
   "@werft-ai/db",
   "@werft-ai/storage",
@@ -1385,11 +1385,11 @@ export async function toolHandlerGaps(
 }
 
 /**
- * A6: musterrolle is the bottom platform domain. Its product sources import another
- * domain only through that domain's ports/: not its internals and not its
- * index.ts. The package root is closed too, since it re-exports every domain:
- * a file directly under src, or the package's own name. The shared ports/ and
- * testing/ stay open, as in A2.
+ * A6: musterrolle is the bottom platform domain. Its product sources import
+ * another domain only through that domain's ports/: not its internals and not
+ * its index.ts. The package root is closed too, since it re-exports every
+ * domain: a file directly under src, or the package's own name. The shared
+ * ports/ and testing/ stay open, as in A2.
  */
 export async function musterrolleOutwardImports(
   repo: string,

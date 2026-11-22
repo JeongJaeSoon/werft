@@ -39,12 +39,12 @@
 # `up` runs the real Messages API: tests/fixtures/settings/real-model.json,
 # which migrate imports, the caller's ANTHROPIC_API_KEY, stored on the
 # `anthropic` connection by the seed step below when there is one, and the
-# real-model e2e's cost limits (infra/compose.real-model.yml).
-# The key is optional: it comes from the shell or,
-# failing that, the repository's .env, and without it the stack still starts
-# on this overlay with its connection waiting for a key (no session runs)
-# until the key is entered on the console's model connections screen. A
-# malformed .env line stops `up` before anything is touched.
+# real-model e2e's cost limits (infra/compose.real-model.yml). The key is
+# optional: it comes from the shell or, failing that, the repository's .env, and
+# without it the stack still starts on this overlay with its connection waiting
+# for a key (no session runs) until the key is entered on the console's model
+# connections screen. A malformed .env line stops `up` before anything is
+# touched.
 #
 # --fake-model runs without a key instead (infra/compose.fake-model.yml):
 # the compose fake Messages API answers from the script in each prompt
