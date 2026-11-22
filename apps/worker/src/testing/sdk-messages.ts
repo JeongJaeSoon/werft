@@ -15,7 +15,10 @@ export function resultMessage(sessionId: string, turn: number): EngineMessage {
   };
 }
 
-/** Commits every ready capture at the gateway's next revision. */
+/**
+ * Commits every ready capture at the gateway's next revision, so finalize
+ * always carries a checkpoint the fake gateway accepts.
+ */
 export function committedOn(gateway: FakeWorkerGateway): WorkerCheckpointPort {
   return {
     restorePlan: async () => ({ mode: "new" }),

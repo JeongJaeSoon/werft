@@ -41,8 +41,6 @@ const RESTORE = {
   manifest_sha256: "a".repeat(64),
 };
 
-// Every turn's capture commits at the pointer's next revision, so finalize
-// always carries a checkpoint the fake gateway accepts.
 // The claim's checkpoint restored as the engine session it names, from this
 // container's disk unless a restore says which revision it loaded.
 function resumedOn(

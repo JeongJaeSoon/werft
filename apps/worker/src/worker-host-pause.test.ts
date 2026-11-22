@@ -37,8 +37,6 @@ const timeouts: WorkerTimeouts = {
   startupTimeoutMs: 60_000,
 };
 
-// Every turn's capture commits at the pointer's next revision, so finalize
-// always carries a checkpoint the fake gateway accepts.
 const PAUSE: ControlIntent = {
   control_id: "0b6f7d1e-6a55-4c1e-9d59-2f7ad3a4c001",
   kind: "pause",
