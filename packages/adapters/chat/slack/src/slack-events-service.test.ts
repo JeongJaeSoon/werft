@@ -1331,6 +1331,29 @@ describe("Slack edits and deletes", () => {
     expect(JSON.stringify([...w.marks.edited.values()])).not.toContain("plan");
   });
 
+  test("an edit without its own time takes the envelope's", async () => {
+    const w = world();
+    await w.install();
+    await w.service.receive(
+      w.signed(
+        w.event(
+          {
+            ...EDITED,
+            message: { ...EDITED.message, edited: { user: "U0P" } },
+          },
+          { eventTime: NOW_SECONDS + 5 },
+        ),
+      ),
+    );
+    expect([...w.marks.edited.values()]).toEqual([
+      {
+        ...MARK,
+        ts: "1792800000.000100",
+        at: new Date((NOW_SECONDS + 5) * 1000),
+      },
+    ]);
+  });
+
   test("a delete wins over an edit of the same message", async () => {
     const w = world();
     await w.install();

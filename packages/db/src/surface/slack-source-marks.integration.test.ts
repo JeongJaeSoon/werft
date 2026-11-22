@@ -33,6 +33,51 @@ integration("Slack source marks on PostgreSQL", () => {
     await database?.drop();
   });
 
+  async function message() {
+    const workspaceId = randomUUID();
+    await db
+      .insert(workspaces)
+      .values({ id: workspaceId, slug: `ws-${workspaceId}`, name: "ws" });
+    return {
+      workspaceId,
+      teamId: "T0MARKS",
+      channelId: "C0MARKS",
+      ts: "1792800000.000100",
+    };
+  }
+  const at = new Date("2026-11-23T01:00:00.000Z");
+
+  test("a delete waits for an edit of the same message still in flight, then drops its mark", async () => {
+    const where = await message();
+    const marks = createPostgresSlackSourceMarkStore(db);
+    const editing = await pool.connect();
+    try {
+      await editing.query("BEGIN");
+      await drizzle(editing).execute(lockSlackSourceMark(where));
+      await editing.query(
+        "INSERT INTO edited_sources (workspace_id, team_id, channel_id, ts, edited_at) VALUES ($1, $2, $3, $4, $5)",
+        [where.workspaceId, where.teamId, where.channelId, where.ts, at],
+      );
+      let settled = false;
+      const deleting = marks.markDeleted({ ...where, at }).then((result) => {
+        settled = true;
+        return result;
+      });
+      await Bun.sleep(300);
+      expect(settled).toBe(false);
+      await editing.query("COMMIT");
+      expect(await deleting).toBe("recorded");
+    } finally {
+      editing.release();
+    }
+    expect(
+      await db
+        .select()
+        .from(editedSources)
+        .where(eq(editedSources.workspaceId, where.workspaceId)),
+    ).toEqual([]);
+  });
+
   test("an edit waits for a delete of the same message still in flight, and leaves no mark", async () => {
     const workspaceId = randomUUID();
     await db

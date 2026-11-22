@@ -252,18 +252,21 @@ function sourceChange(event: SlackEventCallback["event"]): SourceChange | null {
   const previous = event.previous_message as { ts?: unknown } | undefined;
   let kind: SourceChange["kind"];
   let ts: string | undefined;
-  let at = tsOf(event.event_ts);
+  let at: string | undefined;
   if (event.subtype === "message_deleted") {
+    at = tsOf(event.event_ts);
     kind = "deleted";
     ts = tsOf(event.deleted_ts) ?? tsOf(previous?.ts);
   } else if (event.subtype === "message_changed") {
     const inner = event.message as
       | { subtype?: unknown; edited?: { ts?: unknown } | null; ts?: unknown }
       | undefined;
-    if (inner?.subtype === "tombstone") kind = "deleted";
-    else if (typeof inner?.edited === "object" && inner.edited !== null) {
+    if (inner?.subtype === "tombstone") {
+      kind = "deleted";
+      at = tsOf(event.event_ts);
+    } else if (typeof inner?.edited === "object" && inner.edited !== null) {
       kind = "edited";
-      at = tsOf(inner.edited.ts) ?? at;
+      at = tsOf(inner.edited.ts);
     } else return null;
     ts = tsOf(inner.ts) ?? tsOf(previous?.ts);
   } else return null;
