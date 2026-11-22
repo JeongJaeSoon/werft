@@ -415,8 +415,10 @@ integration("budget accounts on PostgreSQL", () => {
       ledger().settle({ callId: "none", actual: { costUsd: -1, tokens: 0 } }),
     ).rejects.toThrow(RangeError);
     await expect(
-      db.execute(
-        sql`INSERT INTO budget_limits (workspace_id, subject, cost_usd) VALUES (${workspaceId}, 'person_default', 'NaN')`,
+      Promise.resolve().then(() =>
+        db.execute(
+          sql`INSERT INTO budget_limits (workspace_id, subject, cost_usd) VALUES (${workspaceId}, 'person_default', 'NaN')`,
+        ),
       ),
     ).rejects.toThrow();
   });

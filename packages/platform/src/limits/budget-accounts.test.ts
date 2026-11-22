@@ -93,8 +93,12 @@ describe("assertBudgetAmount", () => {
     ]) {
       expect(() => assertBudgetAmount(amount)).toThrow(RangeError);
     }
-    expect(() => assertBudgetAmount({ costUsd: 0.5, tokens: 10 })).not.toThrow();
-    expect(() => assertBudgetAmount({ costUsd: null, tokens: null })).not.toThrow();
+    expect(() =>
+      assertBudgetAmount({ costUsd: 0.5, tokens: 10 }),
+    ).not.toThrow();
+    expect(() =>
+      assertBudgetAmount({ costUsd: null, tokens: null }),
+    ).not.toThrow();
   });
 });
 
@@ -151,7 +155,12 @@ describe("admitsBudgetReserve", () => {
       reserved: { costUsd: 0, tokens: 0 },
     };
     expect(
-      admitsBudgetReserve({ rootKind: "user", limit, held, reserve: { costUsd: 0, tokens: 1 } }),
+      admitsBudgetReserve({
+        rootKind: "user",
+        limit,
+        held,
+        reserve: { costUsd: 0, tokens: 1 },
+      }),
     ).toBe(false);
   });
   test("spent counts with held, and the token limit alone stops it", () => {
@@ -177,4 +186,3 @@ describe("admitsBudgetReserve", () => {
     ).toBe(true);
   });
 });
-

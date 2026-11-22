@@ -119,9 +119,13 @@ export function assertBudgetAmount(amount: {
 }): void {
   const { costUsd, tokens } = amount;
   if (costUsd !== null && !(Number.isFinite(costUsd) && costUsd >= 0)) {
-    throw new RangeError(`budget cost must be a finite amount >= 0: ${costUsd}`);
+    throw new RangeError(
+      `budget cost must be a finite amount >= 0: ${costUsd}`,
+    );
   }
   if (tokens !== null && !(Number.isSafeInteger(tokens) && tokens >= 0)) {
-    throw new RangeError(`budget tokens must be a safe integer >= 0: ${tokens}`);
+    throw new RangeError(
+      `budget tokens must be a safe integer >= 0: ${tokens}`,
+    );
   }
 }
