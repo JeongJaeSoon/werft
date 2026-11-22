@@ -212,9 +212,9 @@ migration `0308_slack_inbound_payload_check`가 `slack_inbound_events`의 CHECK�
 
 ### 사람에게 바로 가는 Slack 글을 막는 릴리스
 
-migration `0308_slack_outbox_channel`이 `slack_outbox`에 CHECK `slack_outbox_channel_check`를 더한다. Slack 사용자 id(`U…`, Enterprise Grid의 `W…`)를 channel로 가진 줄은 모델 안내(`model_notice`)만 넣을 수 있다. 에이전트가 사람에게 DM을 먼저 열지 않게 하는 방어다. 지금까지 어느 릴리스도 그런 줄을 쓰지 않았으므로 보통은 할 일이 없다.
+migration `0309_slack_outbox_channel`이 `slack_outbox`에 CHECK `slack_outbox_channel_check`를 더한다. Slack 사용자 id(`U…`, Enterprise Grid의 `W…`)를 channel로 가진 줄은 모델 안내(`model_notice`)만 넣을 수 있다. 에이전트가 사람에게 DM을 먼저 열지 않게 하는 방어다. 지금까지 어느 릴리스도 그런 줄을 쓰지 않았으므로 보통은 할 일이 없다.
 
-- 그런 줄이 남아 있으면 migrate 로그 `db.migrate.notice`에 그 수가 남고(`0308: … slack_outbox rows name a Slack user as their channel`), migrate가 `VALIDATE CONSTRAINT`에서 멈춘다. 그때도 제약은 `NOT VALID`로 남아 새 줄을 막는다. 올리기 전에 아래 쿼리로 확인할 수 있다.
+- 그런 줄이 남아 있으면 migrate 로그 `db.migrate.notice`에 그 수가 남고(`0309: … slack_outbox rows name a Slack user as their channel`), migrate가 `VALIDATE CONSTRAINT`에서 멈춘다. 그때도 제약은 `NOT VALID`로 남아 새 줄을 막는다. 올리기 전에 아래 쿼리로 확인할 수 있다.
 
 ```sql
 SELECT kind, status, count(*) FROM slack_outbox
