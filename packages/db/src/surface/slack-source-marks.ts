@@ -1,4 +1,3 @@
-import type { SlackSourceMark, SlackSourceMarkStore } from "@werft-ai/platform";
 import { type SQL, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
@@ -9,6 +8,15 @@ import { rowsOf } from "../statement-rows.ts";
  * itself may still arrive after its delete or edit.
  */
 export const SLACK_SOURCE_MARK_UNKNOWN_RETENTION_MS = (10 + 60) * 60_000;
+
+/** A Slack message in one workspace and the time Slack gives its change. */
+export type SlackSourceMark = {
+  workspaceId: string;
+  teamId: string;
+  channelId: string;
+  ts: string;
+  at: Date;
+};
 
 /** The columns of one mark row, for a judgment over it. */
 export type SlackSourceMarkColumns = {
@@ -35,9 +43,10 @@ export function lockSlackSourceMark(mark: Omit<SlackSourceMark, "at">): SQL {
   return sql`SELECT pg_advisory_xact_lock(hashtext('slack_source_marks'), hashtext(concat_ws('|', ${mark.workspaceId}::text, ${mark.teamId}::text, ${mark.channelId}::text, ${mark.ts}::text)))`;
 }
 
-export function createPostgresSlackSourceMarkStore(
-  db: Database,
-): SlackSourceMarkStore {
+export function createPostgresSlackSourceMarkStore(db: Database): {
+  markDeleted(mark: SlackSourceMark): Promise<"recorded" | "duplicate">;
+  markEdited(mark: SlackSourceMark): Promise<"recorded" | "deleted">;
+} {
   const key = (mark: SlackSourceMark) =>
     sql`${mark.workspaceId}::uuid, ${mark.teamId}, ${mark.channelId}, ${mark.ts}`;
   return {

@@ -110,7 +110,6 @@ export * from "./sessions/ports/settings-document-store.ts";
 export * from "./ports/slack-app-store.ts";
 export * from "./ports/slack-config-token-store.ts";
 export * from "./ports/slack-inbound-event-store.ts";
-export * from "./ports/slack-source-mark-store.ts";
 export * from "./ports/slack-install-store.ts";
 export * from "./ports/slack-outbox-store.ts";
 export * from "./ports/bot-turn-store.ts";

@@ -258,7 +258,7 @@ GROUP BY 1, 2;
 - 送る側もそのような行を Slack に送らず、`failed`(`error_code` `user_channel`)で終える。
 - 以前のイメージもそのような行を書かないので、制約を残したまま戻してもよい。
 
-<a id="mock-slack-env-이름" />
+<a id="slack-글의-수정삭제-표식" />
 ### Slack メッセージの編集・削除の印
 
 migration `0311_slack_source_marks` が新しいテーブル `deleted_sources` と `edited_sources` を作る。このリリースから、Slack でメッセージを削除または編集したイベント（`message_deleted`、返信のあるメッセージを削除したときに届く墓標の `message_changed`、人が編集した `message_changed`）を捨てずに、そのメッセージの場所（team、チャンネル、ts）と時刻だけを印として残す。メッセージの本文とイベントの原文はどこにも保存せず、inbox の行は原文なしで `processed` になる。特にやることはない。
@@ -267,6 +267,7 @@ migration `0311_slack_source_marks` が新しいテーブル `deleted_sources` �
 - 捨てた理由 `message_subtype` で集計していたクエリは、編集・削除イベントがなくなった分だけ数が減る。リンクのプレビューのように人が編集していない `message_changed` は今までどおり捨てる。
 - テーブルを足すだけなので、サポート期間内のイメージに戻してもよい。前のイメージはこのテーブルを使わず、編集・削除イベントをまた捨てる。
 
+<a id="mock-slack-env-이름" />
 ### mock Slack の環境変数名
 
 mock Slack 試験スタック(`infra/compose.mock-slack.yml`)が使っていた `SLACK_API_URL`・`SLACK_OIDC_ISSUER` は `MOCK_SLACK_API_URL`・`MOCK_SLACK_OIDC_ISSUER` に変わりました。古い名前は読まず、残っていれば `Ignored removed settings` の警告に名前が出ます。新しい名前に値があると、アドレスに関係なく起動時に `Mock Slack override in use: <名前>` の警告を一行出します。運用設定にはどちらの名前も置きません。

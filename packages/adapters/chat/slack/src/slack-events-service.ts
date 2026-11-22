@@ -17,7 +17,6 @@ import type {
   SlackAppStore,
   SlackInboundEventInput,
   SlackInboundEventStore,
-  SlackSourceMarkStore,
 } from "@werft-ai/platform";
 import {
   agentForSlackEvent,
@@ -33,6 +32,33 @@ import { slackRequestSignature } from "./slack-signature.ts";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Bounds how long another API replica keeps a deleted app's secret. */
 export const SLACK_SIGNING_SECRET_TTL_MS = 60_000;
+
+/**
+ * A Slack message, as Slack names it inside one Werft workspace. Marks keep
+ * only this and a time: never the message's text.
+ */
+export type SlackSourceMark = {
+  workspaceId: string;
+  teamId: string;
+  channelId: string;
+  ts: string;
+  /** When Slack says the message was deleted or last edited. */
+  at: Date;
+};
+
+/**
+ * Marks of Slack messages someone deleted or edited. A delete wins: it drops
+ * the message's edit mark, and an edit after it leaves no mark.
+ */
+export interface SlackSourceMarkStore {
+  /** `duplicate` when the message already has its delete mark. */
+  markDeleted(mark: SlackSourceMark): Promise<"recorded" | "duplicate">;
+  /**
+   * Keeps the latest edit time of the message; `deleted` when it has a
+   * delete mark, which leaves it unchanged.
+   */
+  markEdited(mark: SlackSourceMark): Promise<"recorded" | "deleted">;
+}
 
 export type SlackSignatureCheck = "ok" | "bad_signature" | "stale";
 

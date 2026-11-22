@@ -178,6 +178,8 @@ describe("database schema", () => {
       "conversation_topics",
       "conversations",
       "credential_bindings",
+      "deleted_sources",
+      "edited_sources",
       "env_variable_grants",
       "env_variables",
       "events",

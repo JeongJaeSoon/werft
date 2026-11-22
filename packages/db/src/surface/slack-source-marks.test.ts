@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
-import type { SlackSourceMarkStore } from "@werft-ai/platform";
 import { asc, eq, sql } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "../migrate.ts";
@@ -20,7 +19,7 @@ const MINUTE_MS = 60_000;
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
-let marks: SlackSourceMarkStore;
+let marks: ReturnType<typeof createPostgresSlackSourceMarkStore>;
 
 beforeAll(async () => {
   client = new PGlite();

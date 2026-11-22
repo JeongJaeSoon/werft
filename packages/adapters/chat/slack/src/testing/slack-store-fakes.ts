@@ -32,8 +32,6 @@ import {
   type SlackInboundFence,
   type SlackInstallState,
   type SlackInstallStore,
-  type SlackSourceMark,
-  type SlackSourceMarkStore,
   secretOwnerRef,
 } from "@werft-ai/platform";
 import {
@@ -42,6 +40,10 @@ import {
   type SlackInstallApi,
   type SlackInstallGrant,
 } from "../slack-config-api.ts";
+import type {
+  SlackSourceMark,
+  SlackSourceMarkStore,
+} from "../slack-events-service.ts";
 
 /** Token-shaped values are made per run, never written into a file. */
 export function fakeSlackValue(prefix: string): string {
