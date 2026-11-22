@@ -5,6 +5,7 @@ import {
   type McpEgressDecision,
   type McpEgressRequest,
   mcpMethodRouted,
+  recordAndRefuse,
   uuidV5,
 } from "./mcp-egress.ts";
 import type {
@@ -73,9 +74,9 @@ export function createWorkspaceMcpEgress(deps: {
           status,
         ]),
       );
-      let recorded = true;
-      try {
-        await store.recordRefusal({
+      return recordAndRefuse(
+        store,
+        {
           id: receiptId,
           ownerId: state.ownerId,
           sessionId: fenced.sessionId,
@@ -92,18 +93,9 @@ export function createWorkspaceMcpEgress(deps: {
             reason: why,
           },
           message: REFUSAL_MESSAGES[why],
-        });
-      } catch (error) {
-        recorded = false;
-        deps.onReceiptError?.(error);
-      }
-      return {
-        kind: "refused",
-        status: 403,
-        code: "CREDENTIAL_UNBOUND",
-        message: REFUSAL_MESSAGES[why],
-        ...(recorded ? { receiptId } : {}),
-      };
+        },
+        deps,
+      );
     };
 
     if (!state.available || state.url === null || state.connection === null) {

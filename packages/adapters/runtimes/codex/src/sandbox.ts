@@ -3,7 +3,7 @@ import {
   CODEX_CLI_VERSION,
   CODEX_DESCRIPTOR,
 } from "@werft-ai/runtime-codex-codec";
-import { unsupportedFeaturesReason } from "@werft-ai/runtime-core";
+import { messageOf, unsupportedFeaturesReason } from "@werft-ai/runtime-core";
 
 import { sandboxProbeArgs } from "./config.ts";
 
@@ -33,7 +33,7 @@ export function probeSandbox(options: {
         stdio: ["ignore", "ignore", "pipe"],
       });
     } catch (error) {
-      resolve(error instanceof Error ? error.message : String(error));
+      resolve(messageOf(error));
       return;
     }
     const timer = setTimeout(() => {

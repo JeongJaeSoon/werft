@@ -15,6 +15,7 @@ import type {
   SlackPromptCard,
   ToolSummaryContext,
 } from "@werft-ai/platform";
+import { isSafeLink } from "./slack-presentation.ts";
 import { summarizeToolRequest } from "./slack-prompt-summary.ts";
 
 /** A request a session waits on that a person can settle in its thread. */
@@ -431,16 +432,6 @@ const plain = (text: string, max = PLAIN_TEXT_MAX) => ({
 });
 const mention = (slackUserId: string) =>
   SLACK_ID.test(slackUserId) ? `<@${slackUserId}>` : "";
-
-function isSafeLink(url: string): boolean {
-  if (/[<>|\s]/.test(url)) return false;
-  try {
-    const protocol = new URL(url).protocol;
-    return protocol === "https:" || protocol === "http:";
-  } catch {
-    return false;
-  }
-}
 
 export function slackPromptValue(
   prompt: Pick<SlackPrompt, "sessionId" | "requestId">,

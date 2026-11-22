@@ -193,6 +193,38 @@ function checkPeriod(
   );
 }
 
+function checkScope(
+  query: {
+    scope: string;
+    agent_id?: string | undefined;
+    group_by?: string | undefined;
+  },
+  ctx: z.RefinementCtx,
+) {
+  if (query.scope === "agent") {
+    if (query.agent_id === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "scope=agent needs agent_id",
+        path: ["agent_id"],
+      });
+    }
+    if (query.group_by !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "scope=agent takes no group_by",
+        path: ["group_by"],
+      });
+    }
+  } else if (query.agent_id !== undefined) {
+    ctx.addIssue({
+      code: "custom",
+      message: "agent_id goes only with scope=agent",
+      path: ["agent_id"],
+    });
+  }
+}
+
 export const USAGE_SUMMARY_GROUP_BY_VALUES = ["agent", "user"] as const;
 
 /** The summary's scopes: the period scopes and one agent's sessions. */
@@ -215,28 +247,7 @@ export const usageSummaryQuerySchema = usagePeriodQuerySchema
   })
   .superRefine((query, ctx) => {
     checkPeriod(query, ctx);
-    if (query.scope === "agent") {
-      if (query.agent_id === undefined) {
-        ctx.addIssue({
-          code: "custom",
-          message: "scope=agent needs agent_id",
-          path: ["agent_id"],
-        });
-      }
-      if (query.group_by !== undefined) {
-        ctx.addIssue({
-          code: "custom",
-          message: "scope=agent takes no group_by",
-          path: ["group_by"],
-        });
-      }
-    } else if (query.agent_id !== undefined) {
-      ctx.addIssue({
-        code: "custom",
-        message: "agent_id goes only with scope=agent",
-        path: ["agent_id"],
-      });
-    }
+    checkScope(query, ctx);
   });
 
 /**
@@ -251,28 +262,7 @@ export const usageOutcomesQuerySchema = usagePeriodQuerySchema
   })
   .superRefine((query, ctx) => {
     checkPeriod(query, ctx);
-    if (query.scope === "agent") {
-      if (query.agent_id === undefined) {
-        ctx.addIssue({
-          code: "custom",
-          message: "scope=agent needs agent_id",
-          path: ["agent_id"],
-        });
-      }
-      if (query.group_by !== undefined) {
-        ctx.addIssue({
-          code: "custom",
-          message: "scope=agent takes no group_by",
-          path: ["group_by"],
-        });
-      }
-    } else if (query.agent_id !== undefined) {
-      ctx.addIssue({
-        code: "custom",
-        message: "agent_id goes only with scope=agent",
-        path: ["agent_id"],
-      });
-    }
+    checkScope(query, ctx);
   });
 
 const DAY_MS = 86_400_000;

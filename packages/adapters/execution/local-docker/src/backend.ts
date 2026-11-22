@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type { ExecutionState } from "@werft-ai/contracts";
 import {
   ENV,
@@ -13,6 +12,7 @@ import {
   type ExecutionObservation,
   type ExecutionRef,
   hashWorkerToken,
+  isolationStampOf,
   type LaunchIntent,
   LaunchOutcomeUnknownError,
   LaunchSpecMismatchError,
@@ -24,6 +24,7 @@ import {
   sessionObjectPrefix,
   type TerminateExecutionResult,
   type TerminateOptions,
+  WORKER_LIMITS_PINNED,
   type WorkerLimits,
   type WorkspaceRemovalResult,
   workerLimitsOf,
@@ -193,8 +194,6 @@ export function isolationStampFor(config: LocalDockerBackendConfig): string {
   return stampOf(config, WORKER_LIMITS_PINNED);
 }
 
-const WORKER_LIMITS_PINNED = "worker-limits:pinned";
-
 /**
  * The stamp a host from before the worker limits were pinned gave the
  * containers it built, with that host's limits in it: `limits` are the ones
@@ -210,7 +209,7 @@ export function legacyIsolationStampFor(
 }
 
 function stampOf(config: LocalDockerBackendConfig, limits: unknown): string {
-  const shape = JSON.stringify([
+  return isolationStampOf(ISOLATION_CONTRACT, [
     config.egressProxyUrl,
     // A worker holding the old credential port would lose its provider.
     config.egressCredentialPort,
@@ -250,8 +249,6 @@ function stampOf(config: LocalDockerBackendConfig, limits: unknown): string {
       ? ["codex-sandbox:disabled"]
       : []),
   ]);
-  const digest = createHash("sha256").update(shape).digest("hex").slice(0, 16);
-  return `${ISOLATION_CONTRACT}:${digest}`;
 }
 
 /**

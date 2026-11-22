@@ -8,8 +8,8 @@ import { CLAUDE_AGENT_SDK_VERSION, CLAUDE_CODE_VERSION } from "./versions.ts";
 export type ToolBoundary = "local" | "egress" | "provider";
 
 export type BuiltinTool = {
-  boundary: ToolBoundary;
-  name: string;
+  readonly boundary: ToolBoundary;
+  readonly name: string;
 };
 
 /**
@@ -34,57 +34,45 @@ export type BuiltinToolCatalog = {
 
 const CLAUDE_RUNTIME_KIND = "claude_agent_sdk";
 
+// The 2.1 builds so far share these; a later one that differs spreads them.
+const TOOLS_2_1: readonly BuiltinTool[] = [
+  { name: "Read", boundary: "local" },
+  { name: "Edit", boundary: "local" },
+  { name: "Write", boundary: "local" },
+  { name: "Glob", boundary: "local" },
+  { name: "Grep", boundary: "local" },
+  { name: "NotebookEdit", boundary: "local" },
+  { name: "Bash", boundary: "local" },
+  { name: "AskUserQuestion", boundary: "local" },
+  { name: "WebFetch", boundary: "egress" },
+  { name: "WebSearch", boundary: "provider" },
+  { name: "Skill", boundary: "local" },
+];
+
+// What `tools` accepts under an old name and turns into the new one.
+const ALIASES_2_1: Readonly<Record<string, string>> = {
+  BashOutput: "TaskOutput",
+  KillBash: "TaskStop",
+  KillShell: "TaskStop",
+  Task: "Agent",
+};
+
 export const CLAUDE_TOOL_CATALOGS: readonly BuiltinToolCatalog[] = [
   {
     id: "claude_agent_sdk@0.3.270+claude-code@2.1.270",
     runtimeKind: CLAUDE_RUNTIME_KIND,
     sdkVersion: "0.3.270",
     engineVersion: "2.1.270",
-    tools: [
-      { name: "Read", boundary: "local" },
-      { name: "Edit", boundary: "local" },
-      { name: "Write", boundary: "local" },
-      { name: "Glob", boundary: "local" },
-      { name: "Grep", boundary: "local" },
-      { name: "NotebookEdit", boundary: "local" },
-      { name: "Bash", boundary: "local" },
-      { name: "AskUserQuestion", boundary: "local" },
-      { name: "WebFetch", boundary: "egress" },
-      { name: "WebSearch", boundary: "provider" },
-      { name: "Skill", boundary: "local" },
-    ],
-    // What `tools` accepts under an old name and turns into the new one.
-    aliases: {
-      BashOutput: "TaskOutput",
-      KillBash: "TaskStop",
-      KillShell: "TaskStop",
-      Task: "Agent",
-    },
+    tools: TOOLS_2_1,
+    aliases: ALIASES_2_1,
   },
   {
     id: "claude_agent_sdk@0.3.319+claude-code@2.1.319",
     runtimeKind: CLAUDE_RUNTIME_KIND,
     sdkVersion: "0.3.319",
     engineVersion: "2.1.319",
-    tools: [
-      { name: "Read", boundary: "local" },
-      { name: "Edit", boundary: "local" },
-      { name: "Write", boundary: "local" },
-      { name: "Glob", boundary: "local" },
-      { name: "Grep", boundary: "local" },
-      { name: "NotebookEdit", boundary: "local" },
-      { name: "Bash", boundary: "local" },
-      { name: "AskUserQuestion", boundary: "local" },
-      { name: "WebFetch", boundary: "egress" },
-      { name: "WebSearch", boundary: "provider" },
-      { name: "Skill", boundary: "local" },
-    ],
-    aliases: {
-      BashOutput: "TaskOutput",
-      KillBash: "TaskStop",
-      KillShell: "TaskStop",
-      Task: "Agent",
-    },
+    tools: TOOLS_2_1,
+    aliases: ALIASES_2_1,
   },
 ];
 

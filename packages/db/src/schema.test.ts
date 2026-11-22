@@ -4,6 +4,7 @@ import {
   ADMISSION_STATE_VALUES,
   AUTHORIZATION_ACTION_VALUES,
   CREDENTIAL_REF_PATTERN as CONTRACT_CREDENTIAL_REF_PATTERN,
+  RESOURCE_KIND_VALUES as CONTRACT_RESOURCE_KIND_VALUES,
   CREDENTIAL_BINDING_TARGET_VALUES,
   RECEIPT_STATUS_VALUES,
   SESSION_STATUS_VALUES,
@@ -19,6 +20,7 @@ import {
   events,
   GRANT_ACTION_VALUES,
   idempotencyKeys,
+  RESOURCE_KIND_VALUES,
   receiptStatus,
   receipts,
   sessionStatus,
@@ -57,6 +59,13 @@ describe("database schema", () => {
     const contract: readonly string[] = AUTHORIZATION_ACTION_VALUES;
     expect(
       GRANT_ACTION_VALUES.filter((action) => !contract.includes(action)),
+    ).toEqual([]);
+  });
+
+  test("grants name only resource kinds the contract defines", () => {
+    const known: readonly string[] = CONTRACT_RESOURCE_KIND_VALUES;
+    expect(
+      RESOURCE_KIND_VALUES.filter((kind) => !known.includes(kind)),
     ).toEqual([]);
   });
 

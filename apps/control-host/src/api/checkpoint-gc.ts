@@ -1,7 +1,5 @@
-import * as schema from "@werft-ai/db";
 import { createPostgresCheckpointStore } from "@werft-ai/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
-import { createLogger, type StructuredLogger } from "@werft-ai/observability";
+import type { StructuredLogger } from "@werft-ai/observability";
 import {
   type CheckpointCollectorDependencies,
   createCheckpointCollector,
@@ -9,9 +7,7 @@ import {
 import {
   createCheckpointObjectCollector,
   createCheckpointObjectStore,
-  createStorageS3Client,
 } from "@werft-ai/storage";
-import { drizzle } from "drizzle-orm/node-postgres";
 import { booleanFlag } from "../boolean-flag.ts";
 import {
   API_CHECKPOINT_CODECS,
@@ -19,6 +15,7 @@ import {
   type CheckpointStorageEnvironment,
   checkpointStorageConfigFromEnv,
 } from "./checkpoints.ts";
+import { exitWithJob, openJobConnections } from "./one-shot-job.ts";
 
 const BATCH_SIZE = 100;
 
@@ -123,28 +120,23 @@ function connect(
     bucket: string;
     databaseUrl: string;
   }) => {
-    const pool = createEnforcedPool(
+    const { client, db, close } = openJobConnections({
+      s3: config,
       databaseUrl,
       logger,
-      "checkpoint-gc",
-      JOB_POOL_TIMEOUTS,
-    );
-    const client = createStorageS3Client({ s3: config });
+      poolName: "checkpoint-gc",
+    });
     return {
       collector: createCheckpointObjectCollector({ bucket, client }),
       objects: createCheckpointObjectStore({ bucket, client }),
-      store: createPostgresCheckpointStore(drizzle(pool, { schema })),
-      async close() {
-        client.destroy();
-        await pool.end();
-      },
+      store: createPostgresCheckpointStore(db),
+      close,
     };
   };
 }
 
 if (import.meta.main) {
-  const logger = createLogger(
-    process.env.LOG_LEVEL === undefined ? {} : { level: process.env.LOG_LEVEL },
+  await exitWithJob((logger) =>
+    runCheckpointGc({ environment: process.env, logger }),
   );
-  process.exit(await runCheckpointGc({ environment: process.env, logger }));
 }

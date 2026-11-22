@@ -1,4 +1,5 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
+import { hashToken } from "../../token-hash.ts";
 import type {
   ClaimedJudgment,
   JudgmentEgressStore,
@@ -6,9 +7,7 @@ import type {
 
 export const JUDGMENT_TOKEN_PREFIX = "wej_";
 
-export function hashJudgmentToken(token: string): Uint8Array {
-  return createHash("sha256").update(token, "utf8").digest();
-}
+export const hashJudgmentToken = hashToken;
 
 /**
  * The claimed judgment's egress token, good for the judgment route only and

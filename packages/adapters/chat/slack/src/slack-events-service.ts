@@ -115,6 +115,36 @@ export function createSlackSigningSecrets(deps: {
   };
 }
 
+export type SlackSignedRequest = {
+  agentId: string;
+  rawBody: Uint8Array;
+  timestamp: string | null;
+  signature: string | null;
+};
+
+/**
+ * The agent a webhook request is for and its app, when the request carries a
+ * valid signature by that app's secret; null otherwise.
+ */
+export async function verifySlackRequest(
+  deps: { signingSecrets: Pick<SlackSigningSecrets, "forAgent"> },
+  request: SlackSignedRequest,
+  now: () => Date,
+): Promise<{ agentId: string; app: SlackEventsApp } | null> {
+  if (!UUID.test(request.agentId)) return null;
+  const agentId = request.agentId.toLowerCase();
+  const app = await deps.signingSecrets.forAgent(agentId);
+  if (app === null) return null;
+  const check = verifySlackSignature({
+    signingSecret: app.signingSecret,
+    timestamp: request.timestamp,
+    signature: request.signature,
+    rawBody: request.rawBody,
+    nowSeconds: Math.floor(now().getTime() / 1000),
+  });
+  return check === "ok" ? { agentId, app } : null;
+}
+
 export type SlackEventsOutcome =
   | { kind: "unauthorized" }
   | { kind: "bad_request" }
@@ -324,24 +354,10 @@ export function createSlackEventsService(deps: {
   }
 
   return {
-    async receive(request: {
-      agentId: string;
-      rawBody: Uint8Array;
-      timestamp: string | null;
-      signature: string | null;
-    }): Promise<SlackEventsOutcome> {
-      if (!UUID.test(request.agentId)) return { kind: "unauthorized" };
-      const agentId = request.agentId.toLowerCase();
-      const app = await deps.signingSecrets.forAgent(agentId);
-      if (app === null) return { kind: "unauthorized" };
-      const check = verifySlackSignature({
-        signingSecret: app.signingSecret,
-        timestamp: request.timestamp,
-        signature: request.signature,
-        rawBody: request.rawBody,
-        nowSeconds: Math.floor(now().getTime() / 1000),
-      });
-      if (check !== "ok") return { kind: "unauthorized" };
+    async receive(request: SlackSignedRequest): Promise<SlackEventsOutcome> {
+      const verified = await verifySlackRequest(deps, request, now);
+      if (verified === null) return { kind: "unauthorized" };
+      const { agentId, app } = verified;
 
       let body: unknown;
       try {

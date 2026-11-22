@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
 import {
   SESSION_SCOPE_VALUES,
@@ -18,7 +18,7 @@ import {
   touchApiKey,
 } from "@werft-ai/db";
 import { createLogger } from "@werft-ai/observability";
-import { messageOf } from "@werft-ai/platform";
+import { hashToken, messageOf } from "@werft-ai/platform";
 import { withJobDatabase } from "../job-database.ts";
 
 export interface ApiKeyStore {
@@ -45,9 +45,7 @@ export interface ApiKeyWriter {
   revoke(keyId: string): Promise<ApiKeyRevocation>;
 }
 
-export function hashApiKey(value: string): Uint8Array {
-  return createHash("sha256").update(value, "utf8").digest();
-}
+export const hashApiKey = hashToken;
 
 export function generateApiKey(): string {
   return `csp_${randomBytes(32).toString("base64url")}`;

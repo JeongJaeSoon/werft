@@ -1,4 +1,3 @@
-import { isIP } from "node:net";
 import {
   DEFAULT_INSTALLATION_ID,
   DEFAULT_WORKER_USER,
@@ -7,6 +6,7 @@ import {
   MIN_WORKSPACE_QUOTA_MB,
 } from "@werft-ai/contracts/execution";
 import { integerSetting } from "@werft-ai/contracts/settings";
+import { checkGatewayUrl, parseEgressProxyUrl } from "@werft-ai/platform";
 import {
   DEFAULT_DOCKER_API_VERSION,
   DEFAULT_DOCKER_HOST,
@@ -355,42 +355,14 @@ export function validateLocalDockerConfig(
       `EXECUTION_INSTALLATION_ID ${config.installationId} must be a short label-safe id`,
     );
   }
-  try {
-    new URL(config.gatewayUrl);
-  } catch {
-    throw new Error(`WORKER_GATEWAY_URL ${config.gatewayUrl} is not a URL`);
-  }
-  // Proxies are addressed over http even when they tunnel TLS, and every
-  // HTTP client reads the variable that way.
-  let proxy: URL;
-  try {
-    proxy = new URL(config.egressProxyUrl);
-  } catch {
-    // Not quoted: a value that failed to parse may still hold a credential.
-    throw new Error("EXECUTION_EGRESS_PROXY_URL is not a URL");
-  }
-  if (proxy.username !== "" || proxy.password !== "") {
-    throw new Error("EXECUTION_EGRESS_PROXY_URL must not carry credentials");
-  }
-  if (proxy.protocol !== "http:") {
-    throw new Error(
-      `EXECUTION_EGRESS_PROXY_URL ${config.egressProxyUrl} must be an http:// URL`,
-    );
-  }
-  if (proxy.pathname !== "/" || proxy.search !== "" || proxy.hash !== "") {
-    throw new Error(
-      `EXECUTION_EGRESS_PROXY_URL ${config.egressProxyUrl} must name only a host and port`,
-    );
-  }
+  checkGatewayUrl(config.gatewayUrl);
   // The worker finds the proxy through the alias it is given on each worker
   // network. An address would be right on at most one of them, and localhost
   // is the worker itself.
-  const proxyHost = proxy.hostname.replace(/^\[|\]$/g, "");
-  if (isIP(proxyHost) !== 0 || proxyHost === "localhost") {
-    throw new Error(
-      `EXECUTION_EGRESS_PROXY_URL ${config.egressProxyUrl} must name the proxy by a host name; it joins every worker network under that name`,
-    );
-  }
+  const proxy = parseEgressProxyUrl(
+    config.egressProxyUrl,
+    "the proxy by a host name; it joins every worker network under that name",
+  );
   if (
     !Number.isInteger(config.egressCredentialPort) ||
     config.egressCredentialPort < 1 ||
