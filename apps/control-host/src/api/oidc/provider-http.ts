@@ -64,6 +64,8 @@ export type ProviderRequestInit = {
   method?: "GET" | "POST";
   headers?: Record<string, string>;
   body?: string;
+  /** Ten seconds when absent. */
+  timeoutMs?: number;
 };
 export type ProviderResponse = { status: number; text: string };
 export type PinnedResponse = ProviderResponse & { headers: Headers };
@@ -114,14 +116,14 @@ export function createProviderRequest(
     lookup?: Lookup;
     fetch?: typeof fetch;
     /** The signal that ends one request; a test passes its own. */
-    deadline?: () => AbortSignal;
+    deadline?: (timeoutMs: number) => AbortSignal;
   } = {},
 ): PinnedRequest {
   const lookup: Lookup =
     deps.lookup ?? ((host) => dnsLookup(host, { all: true }));
   const send = deps.fetch ?? fetch;
   const startDeadline =
-    deps.deadline ?? (() => AbortSignal.timeout(TIMEOUT_MS));
+    deps.deadline ?? ((timeoutMs) => AbortSignal.timeout(timeoutMs));
 
   return async (url, init, policy) => {
     if (endpointProblem(url, policy) !== null) {
@@ -133,7 +135,7 @@ export function createProviderRequest(
     const original = new URL(url);
     const host = original.hostname.replace(/^\[|\]$/g, "");
     // One deadline for the whole request, name resolution included.
-    const deadline = startDeadline();
+    const deadline = startDeadline(init.timeoutMs ?? TIMEOUT_MS);
     const timedOut = new Promise<never>((_, reject) => {
       deadline.addEventListener("abort", () => reject(deadline.reason), {
         once: true,
@@ -148,6 +150,7 @@ export function createProviderRequest(
       throw new OidcUnavailableError(
         "unreachable",
         `Provider name did not resolve: ${error instanceof Error ? error.name : "error"}`,
+        { timedOut: deadline.aborted },
       );
     }
     const [first] = answers;
@@ -215,12 +218,14 @@ export function createProviderRequest(
       throw new OidcUnavailableError(
         "unreachable",
         `Provider unreachable: ${failure instanceof Error ? failure.name : "error"}`,
+        { timedOut: deadline.aborted },
       );
     }
     if (response.status >= 500) {
       throw new OidcUnavailableError(
         "answered",
         `Provider answered ${response.status}`,
+        { status: response.status },
       );
     }
     return { status: response.status, text, headers: response.headers };

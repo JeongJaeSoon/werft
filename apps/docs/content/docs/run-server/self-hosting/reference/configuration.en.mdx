@@ -81,7 +81,7 @@ Codex Pods are not placed on a node without the label, and stay `Pending` while 
 
 With neither runtime, no runtime reading or pin preservation applies. Previous-only or unreadable values reject startup. When configured, releases made with the previous image and their sessions keep running. A release pins the runtime version its image shipped when it was made, so a release whose version neither the current nor the previous image ships takes no new session; release that agent again.
 
-Set the following only to send GitHub Packages bot tokens to another host, such as GHES/test registries. URLs must be http(s) without userinfo/query/fragment, or startup fails. Hosts must also be in proxy EGRESS_CREDENTIAL_ALLOWLIST, or EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST for private addresses.
+Set the following only to send GitHub Packages bot tokens to another host, such as GHES/test registries. URLs must be http(s) without userinfo/query/fragment, or startup fails. Hosts must also be in proxy EGRESS_CREDENTIAL_ALLOWLIST, or EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST for private addresses. The API sends the token check only to the host:port of `GITHUB_PACKAGES_API_URL` and follows no redirect. The default (`https://api.github.com`) is called only when it resolves to a public address; a URL you set may be plain http or private. A name that resolves to a metadata or link-local address is refused either way.
 
 | Variable | Default | Meaning |
 |---|---|---|

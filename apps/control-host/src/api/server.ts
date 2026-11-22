@@ -221,7 +221,10 @@ import {
 } from "./egress-authorizer.ts";
 import { extensionDepsFor } from "./extension-deps.ts";
 import { githubCallbackUrl } from "./github-link.ts";
-import { githubPackagesConfigFromEnv } from "./github-packages-config.ts";
+import {
+  githubPackagesConfigFromEnv,
+  githubPackagesOutbound,
+} from "./github-packages-config.ts";
 import {
   createInstallationConfigAdmin,
   sessionArchiveStatusOf,
@@ -235,6 +238,7 @@ import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { createLoginSettingsAdmin } from "./login-settings.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
 import { endpointProblem } from "./oidc/provider-http.ts";
+import { oneHostOutbound } from "./outbound-http.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createProviderAdmin } from "./provider-admin.ts";
@@ -904,6 +908,7 @@ const githubPackages = createGitHubPackagesService({
   store: githubPackagesStore,
   verifier: createGitHubPackagesTokenVerifier({
     apiBase: githubPackagesConfig.apiBase,
+    http: githubPackagesOutbound(githubPackagesConfig.apiBase),
   }),
   secretsOn: true,
 });
@@ -1047,7 +1052,10 @@ const achievementJudge = createAchievementJudge({
         luna: {
           connections: judgeConnections,
           tokens: judgmentEgress,
-          decisions: createDecisionsClient({ egressUrl: judgeEgressUrl }),
+          decisions: createDecisionsClient({
+            egressUrl: judgeEgressUrl,
+            http: oneHostOutbound(judgeEgressUrl, { private: true }),
+          }),
         },
       }),
 }).start();
@@ -1194,6 +1202,7 @@ const workers = createWorkerGateway({
             store: titleStore,
             catalog,
             egressUrl: titleEgressUrl,
+            http: oneHostOutbound(titleEgressUrl, { private: true }),
             onError: (error, context) =>
               logger.warn(
                 "Session title not generated; the derived one stays",

@@ -1,13 +1,10 @@
-import {
-  type OutboundHttp,
-  WorkspaceMcpOutboundError,
-} from "@werft-ai/platform";
-import { OidcUnavailableError } from "./oidc/errors.ts";
+import type { OutboundHttp } from "@werft-ai/platform";
 import {
   createProviderRequest,
   hostPortOf,
   type PinnedRequest,
 } from "./oidc/provider-http.ts";
+import { outboundUnder } from "./outbound-http.ts";
 
 // The egress proxy's parseDestination, so both sides agree on what an entry names.
 function normalizeEntry(entry: string): string {
@@ -77,31 +74,10 @@ export function workspaceMcpOutbound(
   hosts: WorkspaceMcpHosts | null,
   request: PinnedRequest = createProviderRequest(),
 ): OutboundHttp {
-  const policy = {
-    plainHttp: "refuse" as const,
-    privateHosts: hosts?.private ?? [],
-  };
-  return async ({ url, method, headers, body }) => {
-    try {
-      return await request(
-        url,
-        {
-          method,
-          ...(headers ? { headers } : {}),
-          ...(body === undefined ? {} : { body }),
-        },
-        policy,
-      );
-    } catch (error) {
-      if (error instanceof OidcUnavailableError) {
-        throw new WorkspaceMcpOutboundError(error.kind, error.message);
-      }
-      throw new WorkspaceMcpOutboundError(
-        "unreachable",
-        `Request failed: ${error instanceof Error ? error.name : "error"}`,
-      );
-    }
-  };
+  return outboundUnder(
+    { plainHttp: "refuse", privateHosts: hosts?.private ?? [] },
+    request,
+  );
 }
 
 /** The console page an authorization server sends the admin back to. */

@@ -5,11 +5,17 @@
  */
 export class OidcUnavailableError extends Error {
   readonly kind: "unreachable" | "answered" | "address_not_allowed";
+  readonly detail: { status?: number; timedOut?: boolean };
 
-  constructor(kind: OidcUnavailableError["kind"], message: string) {
+  constructor(
+    kind: OidcUnavailableError["kind"],
+    message: string,
+    detail: OidcUnavailableError["detail"] = {},
+  ) {
     super(message);
     this.name = "OidcUnavailableError";
     this.kind = kind;
+    this.detail = detail;
   }
 }
 

@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionCatalog } from "../catalog/catalog.ts";
+import {
+  type OutboundRequest,
+  type OutboundResponse,
+  WorkspaceMcpOutboundError,
+} from "../ports/outbound-http.ts";
 import { testCatalog, testConnection } from "../testing/catalog-fakes.ts";
 import type {
   SessionTitleStore,
@@ -21,14 +26,20 @@ const issued: TitleRequestIssue = {
   model: "claude-sonnet-5",
 };
 
+const answered = (status: number, body: unknown): OutboundResponse => ({
+  status,
+  text: typeof body === "string" ? body : JSON.stringify(body),
+  headers: new Headers(),
+});
+
 function harness(options: {
   issue?: TitleRequestIssue;
-  answer?: () => Response | Promise<Response>;
+  answer?: () => OutboundResponse;
   catalog?: SessionCatalog;
 }) {
   const settled: Array<{ tokenHash: Uint8Array; title: string | null }> = [];
   const issuedHashes: Uint8Array[] = [];
-  const calls: Array<{ url: string; init: RequestInit }> = [];
+  const calls: OutboundRequest[] = [];
   const errors: unknown[] = [];
   const store: SessionTitleStore = {
     async issueAtomic(input) {
@@ -45,15 +56,15 @@ function harness(options: {
     store,
     catalog: options.catalog ?? catalog,
     egressUrl: "http://egress-proxy:3129/",
-    fetch: (async (url: string, init: RequestInit) => {
-      calls.push({ url, init });
+    http: async (request) => {
+      calls.push(request);
       return (
         options.answer?.() ??
-        Response.json({
+        answered(200, {
           content: [{ type: "text", text: "<title>Checkout fix</title>" }],
         })
       );
-    }) as unknown as typeof fetch,
+    },
     onError: (error) => errors.push(error),
   });
   return { titler, settled, issuedHashes, calls, errors };
@@ -66,11 +77,13 @@ describe("createSessionTitler", () => {
     expect(calls).toHaveLength(1);
     const [call] = calls;
     expect(call?.url).toBe("http://egress-proxy:3129/provider/v1/messages");
-    const headers = call?.init.headers as Record<string, string>;
+    expect(call?.method).toBe("POST");
+    expect(call?.timeoutMs).toBe(25_000);
+    const headers = call?.headers ?? {};
     expect(hashTitleToken(headers["x-api-key"] ?? "")).toEqual(
       issuedHashes[0] as Uint8Array,
     );
-    const body = JSON.parse(call?.init.body as string);
+    const body = JSON.parse(call?.body ?? "");
     expect(body.model).toBe("claude-sonnet-5");
     expect(body.tools).toBeUndefined();
     expect(body.messages[0].content).toContain("Fix the flaky checkout test");
@@ -105,17 +118,36 @@ describe("createSessionTitler", () => {
 
   test("a refused call settles with no title and reports why", async () => {
     const { titler, settled, errors } = harness({
-      answer: () => new Response("overloaded", { status: 529 }),
+      answer: () => {
+        throw new WorkspaceMcpOutboundError(
+          "answered",
+          "Provider answered 529",
+          {
+            status: 529,
+          },
+        );
+      },
     });
     expect(await titler.afterFirstTurn(session)).toBe("kept");
     expect(settled.map((entry) => entry.title)).toEqual([null]);
     expect(String(errors[0])).toContain("529");
   });
 
+  test("a redirect or a 4xx is not a title: the derived one stays", async () => {
+    for (const status of [302, 403]) {
+      const { titler, settled, errors } = harness({
+        answer: () => answered(status, ""),
+      });
+      expect(await titler.afterFirstTurn(session)).toBe("kept");
+      expect(settled.map((entry) => entry.title)).toEqual([null]);
+      expect(String(errors[0])).toContain(String(status));
+    }
+  });
+
   test("an untagged answer settles with no title so the derived one stays", async () => {
     const { titler, settled } = harness({
       answer: () =>
-        Response.json({
+        answered(200, {
           content: [{ type: "text", text: "제목: 사용자가 묻는 질문 분석" }],
         }),
     });
@@ -123,7 +155,7 @@ describe("createSessionTitler", () => {
     expect(settled.map((entry) => entry.title)).toEqual([null]);
   });
 
-  test("a thrown fetch never rejects", async () => {
+  test("a thrown request never rejects", async () => {
     const { titler, settled } = harness({
       answer: () => {
         throw new TypeError("connection refused");

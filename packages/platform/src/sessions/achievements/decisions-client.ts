@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  type OutboundHttp,
+  type OutboundResponse,
+  WorkspaceMcpOutboundError,
+} from "../../ports/outbound-http.ts";
 
 /** A call slower than this is a failed try. */
 export const DECISIONS_CALL_TIMEOUT_MS = 10_000;
@@ -53,6 +58,18 @@ export class DecisionsCallError extends Error {
   }
 }
 
+function failed(error: unknown): DecisionsCallError {
+  if (!(error instanceof WorkspaceMcpOutboundError)) {
+    return new DecisionsCallError("unreachable");
+  }
+  if (error.reason === "answered" && error.detail.status !== undefined) {
+    return new DecisionsCallError("status", error.detail.status);
+  }
+  return new DecisionsCallError(
+    error.detail.timedOut ? "timeout" : "unreachable",
+  );
+}
+
 export type DecisionsClient = {
   decide(token: string, request: DecisionsRequest): Promise<DecisionsResponse>;
 };
@@ -65,44 +82,37 @@ export type DecisionsClient = {
 export function createDecisionsClient(deps: {
   // The proxy's credential listener, e.g. http://egress-proxy:3129.
   egressUrl: string;
-  fetch?: typeof fetch;
+  /** Held to the egress proxy's host alone. */
+  http: OutboundHttp;
   timeoutMs?: number;
 }): DecisionsClient {
-  const send = deps.fetch ?? fetch;
   const timeoutMs = deps.timeoutMs ?? DECISIONS_CALL_TIMEOUT_MS;
   const url = `${deps.egressUrl.replace(/\/+$/, "")}/decisions/v1/decisions`;
   return {
     async decide(token, request) {
-      const signal = AbortSignal.timeout(timeoutMs);
-      const failed = (error: unknown) =>
-        error instanceof DecisionsCallError
-          ? error
-          : new DecisionsCallError(signal.aborted ? "timeout" : "unreachable");
-      let response: Response;
+      let response: OutboundResponse;
       try {
-        response = await send(url, {
+        response = await deps.http({
+          url,
           method: "POST",
           headers: {
             "content-type": "application/json",
             authorization: `Bearer ${token}`,
           },
           body: JSON.stringify(request),
-          signal,
+          timeoutMs,
         });
       } catch (error) {
         throw failed(error);
       }
-      if (!response.ok) {
-        await response.body?.cancel().catch(() => {});
+      if (response.status < 200 || response.status > 299) {
         throw new DecisionsCallError("status", response.status);
       }
       let body: unknown;
       try {
-        body = await response.json();
-      } catch (error) {
-        throw signal.aborted
-          ? failed(error)
-          : new DecisionsCallError("bad_response");
+        body = JSON.parse(response.text);
+      } catch {
+        throw new DecisionsCallError("bad_response");
       }
       const parsed = decisionsResponseSchema.safeParse(body);
       if (!parsed.success) throw new DecisionsCallError("bad_response");

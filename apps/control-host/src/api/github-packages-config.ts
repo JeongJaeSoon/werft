@@ -1,4 +1,10 @@
-import { GITHUB_API_BASE, GITHUB_PACKAGES_UPSTREAMS } from "@werft-ai/platform";
+import {
+  GITHUB_API_BASE,
+  GITHUB_PACKAGES_UPSTREAMS,
+  type OutboundHttp,
+} from "@werft-ai/platform";
+import type { PinnedRequest } from "./oidc/provider-http.ts";
+import { oneHostOutbound } from "./outbound-http.ts";
 
 export type GitHubPackagesConfig = {
   /** Where a registered token is checked (`GET /user`). */
@@ -49,4 +55,19 @@ export function githubPackagesConfigFromEnv(
       ),
     },
   };
+}
+
+/**
+ * Token checks go to the API host alone. GitHub's own is held to https and
+ * a public address; one the operator named may be plain http or private.
+ */
+export function githubPackagesOutbound(
+  apiBase: string,
+  request?: PinnedRequest,
+): OutboundHttp {
+  return oneHostOutbound(
+    apiBase,
+    { private: apiBase !== GITHUB_API_BASE },
+    request,
+  );
 }
