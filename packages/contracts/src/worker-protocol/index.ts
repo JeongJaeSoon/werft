@@ -827,8 +827,8 @@ export const heartbeatRequestSchema = workerScopeSchema
 export const heartbeatResponseSchema = z.object({
   lease_expires_at: timestampSchema,
   lease_remaining_ms: leaseRemainingMsSchema,
-  // The server stopped sending it (94S-1038): the write is fenced on the
-  // request's auth_revision, so it only echoed that. Nothing reads it.
+  // The server stopped sending it: the write is fenced on the request's
+  // auth_revision, so it only echoed that. Nothing reads it.
   auth_revision: epochSchema.optional(),
   control_pending: z.boolean(),
 });

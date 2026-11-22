@@ -44,11 +44,11 @@ export type LockedLoginSettings = {
 
 /**
  * The settings row, locked ahead of every provider, user, membership and
- * session row the transaction touches (design 5.6). `share` for a change
- * that only depends on the settings, `update` for one that changes them or
- * what they rest on. Everything that could take the emergency admin's
- * password or ownership away takes this first, so those who hold it for
- * update need no lock on that person's rows.
+ * session row the transaction touches. `share` for a change that only depends
+ * on the settings, `update` for one that changes them or what they rest on.
+ * Everything that could take the emergency admin's password or ownership away
+ * takes this first, so those who hold it for update need no lock on that
+ * person's rows.
  */
 export async function lockLoginSettings(
   tx: Database,
@@ -77,7 +77,7 @@ export const passwordOpenTo = (
 
 /**
  * Whether the user is an owner who can sign in with a password: account and
- * membership on, a password set (design 9.2).
+ * membership on, a password set.
  */
 async function ownerWithPassword(
   db: Database,
@@ -281,9 +281,8 @@ async function recordOf(
 }
 
 /**
- * The receipt of a change the operator CLI made (design 9.3). It has no
- * actor: a receipt's actor is a principal, and whoever runs the CLI is
- * whoever holds the database.
+ * The receipt of a change the operator CLI made. It has no actor: a receipt's
+ * actor is a principal, and whoever runs the CLI is whoever holds the database.
  */
 export async function writeOperatorReceipt(
   tx: Database,

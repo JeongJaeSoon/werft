@@ -64,9 +64,8 @@ const COLUMNS = [
 ] as const;
 
 /**
- * The model settings' connections:
- * the operator file's and the database's in one table, each marked by
- * where it comes from. Only the owner reads them.
+ * The model settings' connections: the operator file's and the database's in
+ * one table, each marked by where it comes from. Only the owner reads them.
  */
 export function ModelConnections() {
   const { t } = useI18n();

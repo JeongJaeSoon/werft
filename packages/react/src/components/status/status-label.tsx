@@ -13,7 +13,7 @@ import {
 export interface StatusLabelProps<A extends StatusAxis> {
   readonly axis: A;
   readonly state: StatusStateOf<A>;
-  /** Overrides the vocabulary copy; omit to use the §4.1 wording. */
+  /** Overrides the vocabulary copy; omit to use the vocabulary wording. */
   readonly label?: string | undefined;
   /** Overrides the axis name a screen reader hears first. */
   readonly axisLabel?: string | undefined;

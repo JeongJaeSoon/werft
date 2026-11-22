@@ -126,7 +126,7 @@ function defaultDisplayName(email: string): string {
   return clampDisplayName(email.split("@")[0] || email);
 }
 
-/** Mounted outside the auth middleware (03 §3.2 public allowlist). */
+/** Mounted outside the auth middleware (public allowlist). */
 export function registerPublicInviteRoutes(
   router: ApiRouter,
   deps: PublicInviteRouteDeps,

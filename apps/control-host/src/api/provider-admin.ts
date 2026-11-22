@@ -114,10 +114,9 @@ export async function requireSignInOwner(
 }
 
 /**
- * The owner's side of the sign-in providers (design 7): make one from its
- * discovery document, fill in the client, test it, turn it on and off.
- * Every method re-checks the caller; a secret's value goes in and never
- * comes back.
+ * The owner's side of the sign-in providers: make one from its discovery
+ * document, fill in the client, test it, turn it on and off. Every method
+ * re-checks the caller; a secret's value goes in and never comes back.
  */
 export function createProviderAdmin(deps: {
   authorization: AuthorizationPolicy;

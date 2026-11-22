@@ -527,8 +527,9 @@ function parentRevisionOf(session: SessionRow, attemptId: string) {
 const OUTPUT_ROWS_PER_INSERT = 5_000;
 
 /**
- * Whether this checkpoint's out/ list is new evidence: it differs from the parent revision's, path by path, or the session's
- * latest judgment could not read out/ and gave up.
+ * Whether this checkpoint's out/ list is new evidence: it differs from the
+ * parent revision's, path by path, or the session's latest judgment could not
+ * read out/ and gave up.
  */
 async function outputsAreEvidence(
   tx: Database,
@@ -678,10 +679,9 @@ export async function advanceCheckpointPointer(
 }
 
 /**
- * Crash park (design §6.2 E2): the execution went while its turn waited on
- * a person, and the approval-wait checkpoint taken there still holds. Every
- * condition below has to hold, or the turn stays for the caller to record
- * unknown as before (approval-wait design D-12):
+ * Crash park: the execution went while its turn waited on a person, and the
+ * approval-wait checkpoint taken there still holds. Every condition below has
+ * to hold, or the turn stays for the caller to record unknown as before:
  *
  * - the session takes work and the turn is its only one in flight, asked
  *   by an attempt the session still names, with no interrupt waiting on it;

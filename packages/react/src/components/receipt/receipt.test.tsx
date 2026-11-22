@@ -116,7 +116,7 @@ describe("ReceiptSummary", () => {
       "세션이 일시 정지 상태입니다 — 재개한 뒤 보내세요.",
     );
     expect(detail.textContent).toContain("session is paused");
-    // 할 일이 원문보다 먼저 온다 (§9).
+    // 할 일이 원문보다 먼저 온다.
     expect(
       guidance.compareDocumentPosition(detail) &
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -217,7 +217,7 @@ describe("ReceiptLink", () => {
       />,
     );
 
-    // 색만으로 상태를 말하지 않는다 (§4·§6): the dot carries the same signal,
+    // 색만으로 상태를 말하지 않는다: the dot carries the same signal,
     // so hiding this span would leave colour as the only difference.
     const status = container.querySelector(".werft-receipt-link__status");
     expect(status?.textContent).toBe("실패");

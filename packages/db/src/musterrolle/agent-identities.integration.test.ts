@@ -37,7 +37,7 @@ import { bindCredentialRef } from "./credential-bindings.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-// binding.manage's roles (design 4.1, "Slack 앱 설치·채널 설정").
+// binding.manage's roles.
 const MANAGERS: readonly WorkspaceRole[] = ["owner", "admin"];
 
 async function refusal(query: PromiseLike<unknown>): Promise<string> {

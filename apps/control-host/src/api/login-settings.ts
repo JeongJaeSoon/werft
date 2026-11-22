@@ -46,9 +46,9 @@ const viewOf = (record: LoginSettingsRecord): LoginSettingsView => ({
 });
 
 /**
- * The owner's password switch and emergency admin (design 9). Both methods
- * re-check the caller; the store refuses a change that would leave nobody,
- * or the owner asking, a way in.
+ * The owner's password switch and emergency admin. Both methods re-check the
+ * caller; the store refuses a change that would leave nobody, or the owner
+ * asking, a way in.
  */
 export function createLoginSettingsAdmin(deps: {
   authorization: AuthorizationPolicy;

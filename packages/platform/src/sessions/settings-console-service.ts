@@ -543,7 +543,7 @@ export function createSettingsConsoleService(deps: {
      * Replaces the value of a row that keeps its own. Of the repositories
      * only one naming its own GitHub App, whose value is the App's private
      * key, refused unless it is one; its id and App stay as they are. URL
-     * repositories stay out of the console (#1178).
+     * repositories stay out of the console.
      */
     setCredential(
       caller: Caller,

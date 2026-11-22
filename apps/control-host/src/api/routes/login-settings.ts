@@ -12,7 +12,7 @@ import {
 import type { LoginSettingsAdmin } from "../login-settings.ts";
 import { mapped } from "./errors.ts";
 
-/** The owner's password switch and emergency admin (design 9). */
+/** The owner's password switch and emergency admin. */
 export function registerLoginSettingsRoutes(
   router: ApiRouter,
   admin: LoginSettingsAdmin,

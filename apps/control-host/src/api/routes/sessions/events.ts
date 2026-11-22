@@ -9,9 +9,9 @@ import { ApiHttpError, type ApiRouter, apiRoute } from "../../app.ts";
 import type { SessionEventWakeup } from "../../session-notifier.ts";
 import { mapped, requireParams } from "../errors.ts";
 
-// api.md § 이벤트: 15 s keepalive, and a revoked key ends the stream within
-// the same window: a credential check is re-run every half interval and a
-// stream never outlives its last successful check by more than one.
+// SSE keepalive every 15 s, and a revoked key ends the stream within the same
+// window: a credential check is re-run every half interval and a stream never
+// outlives its last successful check by more than one.
 const SSE_KEEPALIVE_MS = 15_000;
 // Per-connection replay page: at most this many rows and, past the first
 // row, at most this many payload bytes are held in memory between writes.

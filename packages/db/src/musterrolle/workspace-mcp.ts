@@ -64,8 +64,7 @@ const slotOf = (
 
 /**
  * Held by both writers of an MCP server name, this table's and the
- * installation catalog's, so neither takes a name the other just did
- * (decision 2).
+ * installation catalog's, so neither takes a name the other just did.
  */
 export async function lockMcpServerName(
   tx: Database,
@@ -324,10 +323,10 @@ async function deleteSecrets(
 }
 
 /**
- * Disconnects every connection `userId` made, in one workspace or (null)
- * all of them, when their membership or account is disabled (decision 3).
- * The tokens are dropped without revocation: there is no outbound call
- * inside the offboarding transaction.
+ * Disconnects every connection `userId` made, in one workspace or (null) all of
+ * them, when their membership or account is disabled. The tokens are
+ * dropped without revocation: there is no outbound call inside the
+ * offboarding transaction.
  */
 export async function disconnectWorkspaceMcpOf(
   tx: Database,

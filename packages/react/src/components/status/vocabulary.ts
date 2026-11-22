@@ -9,7 +9,7 @@ import type { StatusDotStatus } from "@werft-ai/ui";
 
 /**
  * session·admission·turn·receipt·execution are separate axes and are never merged into
- * one badge (02 UX 설계 §4.1). A tone is a meaning; the hex lives in tokens.css.
+ * one badge. A tone is a meaning; the hex lives in tokens.css.
  */
 export const STATUS_AXIS_VALUES = [
   "session",
@@ -42,7 +42,7 @@ export type StatusStateOf<A extends StatusAxis> = A extends "session"
         : ExecutionState;
 
 export interface StatusDescriptor {
-  /** What a person reads. Korean operational copy, never uppercased (§6). */
+  /** What a person reads. Korean operational copy, never uppercased. */
   readonly label: string;
   readonly tone: StatusTone;
   /** True while the platform is still moving; drives the spinner. */
@@ -101,7 +101,7 @@ const turn: Record<TurnStatus, StatusDescriptor> = {
 };
 
 /*
- * `accepted` is deliberately not positive: 접수와 완료를 구분한다 (§1). Only
+ * `accepted` is deliberately not positive: 접수와 완료를 구분한다. Only
  * `succeeded` — the server's own confirmation — earns the success tone.
  */
 const receipt: Record<ReceiptStatus, StatusDescriptor> = {

@@ -115,7 +115,7 @@ describe("title requests on the provider route", () => {
         url: "https://api.anthropic.invalid",
         headers: [["x-api-key", "provider-key"]],
       },
-      // The proxy holds the title call's body to these (94S-1047).
+      // The proxy holds the title call's body to these.
       request_limits: {
         path: "/v1/messages",
         model: "claude-sonnet-5",

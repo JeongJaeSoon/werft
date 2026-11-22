@@ -325,8 +325,8 @@ async function acceptInviteOnce(
   input: AcceptInviteInput,
 ): Promise<AcceptInviteResult> {
   return db.transaction(async (tx) => {
-    // Ahead of every other lock here (design 5.6), and held to the end: an
-    // accept sets a password and signs in with it.
+    // Ahead of every other lock here, and held to the end: an accept sets a
+    // password and signs in with it.
     const settings = await lockLoginSettings(tx, "share");
     // External first sign-in creates accounts under this lock, then takes
     // invites; taking it first keeps the same order. An invite's email
@@ -503,8 +503,8 @@ async function changeMemberRole(
     roleRefusal,
   );
   return decided(async (tx) => {
-    // Ahead of the user rows (design 5.6): naming another emergency admin
-    // waits for this, and this sees who it named.
+    // Ahead of the user rows: naming another emergency admin waits for this,
+    // and this sees who it named.
     const settings = await lockLoginSettings(tx, "share");
     // Both people's user rows first, as setAccess takes them: re-checked
     // after a membership lock wait, a joined user row is still the old
@@ -568,7 +568,7 @@ async function changeMemberRole(
     if (target.role === "owner" && otherLiveOwners.length === 0) {
       return { outcome: "last_owner" };
     }
-    // Only an owner is the emergency admin (design 9.2).
+    // Only an owner is the emergency admin.
     if (settings.emergencyAdminUserId === userId) {
       return { outcome: "emergency_admin" };
     }

@@ -238,7 +238,7 @@ async function reauthenticate(
   return found.passwordHash;
 }
 
-/** Mounted outside the auth middleware (03 §3.2 public allowlist). */
+/** Mounted outside the auth middleware (public allowlist). */
 export function registerPublicAuthRoutes(
   router: ApiRouter,
   deps: AuthRouteDeps,
@@ -758,7 +758,7 @@ export function registerPublicAuthRoutes(
     });
   };
 
-  /** The end of a `login` flow: the first-entry rules decide (design 6.1). */
+  /** The end of a `login` flow: the first-entry rules decide. */
   const signIn = async (context: Context, answer: Answer) => {
     const { provider, identity, admission } = answer;
     const token = generateWebSessionToken();

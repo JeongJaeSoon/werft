@@ -930,7 +930,7 @@ function consoleWrites(
         if (held.disabled) {
           return { outcome: "conflict" as const, reason: "disabled" };
         }
-        // §2: an operator's reference is shown and disabled, nothing more.
+        // An operator's reference is shown and disabled, nothing more.
         if (!ownStoredOf("mcp", id, held)) {
           return { outcome: "conflict" as const, reason: "not_stored" };
         }
