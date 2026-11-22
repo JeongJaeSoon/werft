@@ -20,6 +20,7 @@ outcome: "자기 registry의 digest로 배포 입력을 만든다"
 ### 1. registry에 빌드
 
 게시된 이미지를 받을 수 없을 때(게시되지 않은 commit)의 경로다. 지원하는 아키텍처는 `amd64`와 `arm64`뿐이다. 설치할 commit의 checkout에서 세 이미지를 빌드해 호스트가 받을 수 있는 registry에 올리고, push가 돌려준 digest를 2단계의 release 파일에 적는다. 이미지는 빌드한 머신의 아키텍처로 만들어지므로 호스트와 같은 아키텍처에서 빌드한다.
+
 ```bash
 REGISTRY=<your-registry>
 PREFIX=werft

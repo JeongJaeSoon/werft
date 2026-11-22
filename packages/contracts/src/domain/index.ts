@@ -1,2 +1,3 @@
+export * from "./conversation.ts";
 export * from "./digest.ts";
 export * from "./memory.ts";

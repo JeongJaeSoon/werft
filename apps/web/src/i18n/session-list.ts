@@ -23,6 +23,7 @@ export const sessionListKo = {
   "sessionList.unknown": "—",
   "sessionList.agentNone": "에이전트 없음",
   "sessionList.agentHidden": "볼 수 없는 에이전트",
+  "sessionList.agentArchived": "보관됨",
   "session.takeover.notice":
     "요청자가 비활성화되어 이 세션은 인계를 기다립니다. 인계하면 내가 요청자가 되고, 쌓인 입력이 다시 실행됩니다.",
   "session.takeover.open": "세션 인계하기",
@@ -64,6 +65,7 @@ export const sessionListEn: Record<keyof typeof sessionListKo, string> = {
   "sessionList.unknown": "—",
   "sessionList.agentNone": "No agent",
   "sessionList.agentHidden": "Agent you can't view",
+  "sessionList.agentArchived": "Archived",
   "session.takeover.notice":
     "This session's requester was disabled, so it waits for a takeover. Take it over to become its requester; its queued input then runs again.",
   "session.takeover.open": "Take over session",
@@ -107,6 +109,7 @@ export const sessionListJa: Record<keyof typeof sessionListKo, string> = {
   "sessionList.unknown": "—",
   "sessionList.agentNone": "エージェントなし",
   "sessionList.agentHidden": "表示できないエージェント",
+  "sessionList.agentArchived": "アーカイブ済み",
   "session.takeover.notice":
     "依頼者が無効化されたため、このセッションは引き継ぎを待っています。引き継ぐとあなたが依頼者になり、たまっている入力がまた実行されます。",
   "session.takeover.open": "セッションを引き継ぐ",

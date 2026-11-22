@@ -1,3 +1,7 @@
+import {
+  SLACK_USER_CHANNEL_CODE,
+  slackOutboxChannelRefused,
+} from "@werft-ai/contracts";
 import type {
   Approvable,
   DeliveryInput,
@@ -172,6 +176,10 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     input: DeliveryInput<SlackOutboxClaim>,
   ): Promise<DeliveryOutcome> => {
     const { row: claim, attempts } = input;
+    // Before the token and any Slack call: such a row never goes out.
+    if (slackOutboxChannelRefused(claim.kind, claim.channelId)) {
+      return { kind: "failed", code: SLACK_USER_CHANNEL_CODE };
+    }
     let botToken: string | null;
     try {
       botToken = await deps.botToken(claim.workspaceId, claim.slackAppId);

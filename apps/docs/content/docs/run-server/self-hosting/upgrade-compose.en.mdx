@@ -226,6 +226,13 @@ Migration `0305_drop_unused_tables` drops the `catalog_authority`, `owner_worksp
 - The tables may still hold rows. `catalog_authority` may hold one revision activated in the days of the file catalog, `owner_workspace_map` owner-to-workspace mappings an operator inserted by hand, and `push_continuations` follow-up turn records made by `v0.1.1` or earlier. When there are rows, the migrate log `db.migrate.notice` records how many each table lost (`0305: dropped rows: …`). The values of the rows stay out of the log.
 - If you need those rows, back them up before the upgrade. Rolling the schema below 0305 does not bring them back.
 
+<a id="대화-층의-빈-표-셋을-더한-릴리스" />
+### The release that adds three empty conversation tables
+
+Migration `0310_conversation_scopes` creates the `channel_contexts` (channel objects), `conversations` (an agent's main conversations) and `conversation_topics` (a conversation's topics) tables, empty. No code in this release reads or writes them yet, so the upgrade needs nothing from you, and Slack and sessions behave as before.
+
+- Rolling back to an image inside the support window is unaffected. Older code does not know these tables.
+
 <a id="처리한-slack-이벤트-원문을-지우는-릴리스" />
 ### The release that clears the body of processed Slack events
 
@@ -233,6 +240,23 @@ Migration `0308_slack_inbound_payload_check` changes the CHECK on `slack_inbound
 
 - The new CHECK is looser than the old one. It accepts an earlier slack role that keeps the body, so rolling back to an image inside the support window is fine.
 - Once any row has lost its body, the old CHECK (`slack_inbound_events_dropped_check`) cannot be put back. Do not roll the schema below 0308. A cleared body does not come back.
+
+<a id="사람에게-바로-가는-slack-글을-막는-릴리스" />
+### The release that stops Slack posts aimed straight at a person
+
+Migration `0309_slack_outbox_channel` adds the CHECK `slack_outbox_channel_check` to `slack_outbox`. Only a model notice (`model_notice`) may have a Slack user id (`U…`, or `W…` on Enterprise Grid) as its channel. This keeps the agent from opening a direct message with a person first. No release so far wrote such a row, so there is usually nothing to do.
+
+- If such rows remain, the migrate log `db.migrate.notice` records how many (`0309: … slack_outbox rows name a Slack user as their channel`) and migrate stops at `VALIDATE CONSTRAINT`. The constraint then stays `NOT VALID` and still refuses new rows. You can check before the upgrade with this query:
+
+```sql
+SELECT kind, status, count(*) FROM slack_outbox
+WHERE channel_id ~ '^[UW]' AND kind <> 'model_notice'
+GROUP BY 1, 2;
+```
+
+- Rows it finds are rows that must not be sent. Delete them and run migrate again; every statement may run again.
+- The sender also never posts such a row to Slack: it ends `failed` with the `error_code` `user_channel`.
+- Earlier images write no such row either, so rolling back with the constraint in place is safe.
 
 <a id="mock-slack-env-이름" />
 ### Mock Slack variable names

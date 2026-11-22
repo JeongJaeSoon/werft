@@ -244,26 +244,8 @@
       "ja": "implemented"
     }
   },
-  "P31": {
-    "paths": ["contributing"],
-    "integrated": true,
-    "locales": {
-      "ko": "implemented",
-      "en": "korean-link",
-      "ja": "korean-link"
-    }
-  },
   "P32": {
     "paths": ["getting-started/client"],
-    "integrated": true,
-    "locales": {
-      "ko": "implemented",
-      "en": "korean-link",
-      "ja": "korean-link"
-    }
-  },
-  "P33": {
-    "paths": ["contributing"],
     "integrated": true,
     "locales": {
       "ko": "implemented",

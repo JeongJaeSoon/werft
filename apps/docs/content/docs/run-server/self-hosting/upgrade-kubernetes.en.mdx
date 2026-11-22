@@ -313,6 +313,7 @@ helm -n werft rollback werft <revision> --wait --timeout 10m
 ```
 
 Rollback does not run migrate hooks (they are not pre-rollback). Database schema stays new; old builds can still report ready on later schemas because readyz checks only that their migration list is a prefix of applied migrations. Do not roll back below a release the [changelog](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md) marks as irreversible ([Pre-upgrade gates](/run-server/self-hosting/upgrade-compose#실행-전-게이트)).
+
 Roll back only after shared gates and the direct check establish viability. Without hooks, rollback does not automatically enforce checks. Prefer roll-forward.
 
 <a id="옛-worker-이미지-지우기" />

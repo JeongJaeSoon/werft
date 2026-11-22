@@ -48,6 +48,7 @@ export function useSessionOverviewRowMessages(): SessionOverviewRowMessages {
     unknown: t("sessionList.unknown"),
     agentNone: t("sessionList.agentNone"),
     agentHidden: t("sessionList.agentHidden"),
+    agentArchived: t("sessionList.agentArchived"),
     open: (name) => t("sessionList.open", { name }),
     preview: t("session.preview"),
   };
