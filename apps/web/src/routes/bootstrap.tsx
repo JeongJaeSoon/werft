@@ -159,7 +159,11 @@ export function BootstrapScreen() {
 
   let body: ReactNode;
   if (setupToken === null) body = <LinkUnusable missing />;
-  else if (check.isError && check.error.status === 401)
+  // The link is the only input: a malformed one (400) is as unusable as a spent one.
+  else if (
+    check.isError &&
+    (check.error.status === 401 || check.error.status === 400)
+  )
     body = <LinkUnusable missing={false} />;
   else if (check.isError)
     body = (

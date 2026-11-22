@@ -315,21 +315,26 @@ describe("bootstrap", () => {
     expect(callsTo(api.calls, "/v1/auth/setup-link/check")).toEqual([]);
   });
 
-  test("쓸 수 없는 링크(401)는 폼 없이 다시 받는 법을 알린다", async () => {
-    renderAt(LINK, {
-      "POST /v1/auth/setup-link/check": () =>
-        apiError(401, "UNAUTHORIZED", "Setup link is unknown"),
+  for (const [status, code, message] of [
+    [401, "UNAUTHORIZED", "Setup link is unknown"],
+    [400, "BAD_REQUEST", "Request body is invalid"],
+  ] as const) {
+    test(`쓸 수 없는 링크(${status})는 폼과 다시 시도 없이 다시 받는 법을 알린다`, async () => {
+      renderAt(LINK, {
+        "POST /v1/auth/setup-link/check": () => apiError(status, code, message),
+      });
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("이 설정 링크는 쓸 수 없습니다");
+      expect(alert.textContent).toContain("24시간");
+      expect(screen.queryByLabelText("오너 이메일")).toBeNull();
+      expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull();
+      expect(
+        screen
+          .getByRole("link", { name: "로그인 화면으로" })
+          .getAttribute("href"),
+      ).toBe("/login");
     });
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("이 설정 링크는 쓸 수 없습니다");
-    expect(alert.textContent).toContain("24시간");
-    expect(screen.queryByLabelText("오너 이메일")).toBeNull();
-    expect(
-      screen
-        .getByRole("link", { name: "로그인 화면으로" })
-        .getAttribute("href"),
-    ).toBe("/login");
-  });
+  }
 
   test("링크를 확인한 뒤에야 폼을 보이고, 토큰 칸은 없다", async () => {
     const { api } = renderAt(LINK, {

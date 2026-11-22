@@ -430,7 +430,7 @@ integration("account recovery on PostgreSQL", () => {
     // The loser sees either the live owner (409) or the spent link (401).
     const [won, lost] = raced.map((r) => r.status).sort();
     expect(won).toBe(201);
-    expect([401, 409]).toContain(lost);
+    expect([401, 409]).toContain(lost ?? 0);
     expect(await db.$count(setupLinks)).toBe(0);
 
     await disableOwner();
@@ -495,6 +495,39 @@ integration("account recovery on PostgreSQL", () => {
       expect(check.status).toBe(401);
     });
   }
+
+  test("an owner restored while an issue is in flight waits for it and retires its link", async () => {
+    const { db, pool, ownerId } = await install();
+    await db
+      .update(users)
+      .set({ disabledAt: new Date() })
+      .where(eq(users.id, ownerId));
+    // An issue between its owner count and its commit.
+    const issue = await pool.connect();
+    try {
+      await issue.query("BEGIN");
+      await issue.query(
+        "SELECT pg_advisory_xact_lock(hashtext('auth.bootstrap'))",
+      );
+      await issue.query(
+        "INSERT INTO setup_links (token_hash, expires_at) VALUES (decode(md5('in-flight'), 'hex'), now() + interval '1 day')",
+      );
+      const restore = db
+        .update(users)
+        .set({ disabledAt: null })
+        .where(eq(users.id, ownerId));
+      const early = await Promise.race([
+        restore.then(() => "done"),
+        Bun.sleep(300).then(() => "waiting"),
+      ]);
+      expect(early).toBe("waiting");
+      await issue.query("COMMIT");
+      await restore;
+    } finally {
+      issue.release();
+    }
+    expect(await db.$count(setupLinks)).toBe(0);
+  });
 
   test("recovery waits for a member login in flight and revokes its session too", async () => {
     const { db, pool, start, ownerId, memberId } = await install();

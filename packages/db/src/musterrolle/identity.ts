@@ -280,7 +280,10 @@ export async function bootstrapOwner(
 
 /**
  * Under the bootstrap lock, so a link cannot be issued after a bootstrap
- * that made an owner has read the count but before it commits.
+ * that made an owner has read the count but before it commits. Every other
+ * write that can make an owner live takes the same lock shared (trigger
+ * `setup_links_retire`), so it either waits for this issue and deletes its
+ * link, or commits first and this count sees its owner.
  */
 export async function issueSetupLink(
   db: Database,

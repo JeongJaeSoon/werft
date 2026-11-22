@@ -6,9 +6,16 @@ CREATE TABLE "setup_links" (
 -- A setup link opens bootstrap only while no live owner exists. Whatever makes
 -- an owner live (bootstrap, an accepted owner invite, a role change, an account
 -- or membership enabled again) retires every link, so a link issued before
--- cannot reopen recovery once that owner is lost again.
+-- cannot reopen recovery once that owner is lost again. Before the write, the
+-- statement takes the bootstrap lock shared: issuing holds it exclusive, so an
+-- issue still in flight commits first and its link is seen by the delete, or
+-- waits and then sees the owner. Owner writes never wait on one another.
 CREATE OR REPLACE FUNCTION "setup_links_retire"() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+  IF TG_WHEN = 'BEFORE' THEN
+    PERFORM pg_advisory_xact_lock_shared(hashtext('auth.bootstrap'));
+    RETURN NULL;
+  END IF;
   DELETE FROM "setup_links"
   WHERE EXISTS (
     SELECT 1 FROM "memberships" m JOIN "users" u ON u."id" = m."user_id"
@@ -17,5 +24,7 @@ BEGIN
   RETURN NULL;
 END;
 $$;--> statement-breakpoint
+CREATE TRIGGER "setup_links_hold_on_membership" BEFORE INSERT OR UPDATE OF "role", "disabled_at" ON "memberships" FOR EACH STATEMENT EXECUTE FUNCTION "setup_links_retire"();--> statement-breakpoint
+CREATE TRIGGER "setup_links_hold_on_user" BEFORE UPDATE OF "disabled_at" ON "users" FOR EACH STATEMENT EXECUTE FUNCTION "setup_links_retire"();--> statement-breakpoint
 CREATE TRIGGER "setup_links_retire_on_membership" AFTER INSERT OR UPDATE OF "role", "disabled_at" ON "memberships" FOR EACH STATEMENT EXECUTE FUNCTION "setup_links_retire"();--> statement-breakpoint
 CREATE TRIGGER "setup_links_retire_on_user" AFTER UPDATE OF "disabled_at" ON "users" FOR EACH STATEMENT EXECUTE FUNCTION "setup_links_retire"();
