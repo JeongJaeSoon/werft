@@ -273,6 +273,9 @@ switch (cmd) {
         "bot",
         "mention",
         "bot-mention",
+        "own-reply",
+        "own-mirror",
+        "slackbot",
         "plain",
         "reply",
         "join",
@@ -289,8 +292,11 @@ switch (cmd) {
     const [channel = "C0VERIFY", seq = "1", parent, text] = rest.slice(1);
     if (!/^[A-Z0-9]{1,20}$/.test(channel) || !/^[0-9]{1,6}$/.test(seq))
       throw new Error("channel id and sequence number required");
-    if (mode === "reply" && !/^[0-9]{1,6}$/.test(parent ?? ""))
-      throw new Error("reply needs the parent post's sequence number");
+    if (
+      (mode === "reply" || mode === "own-reply" || mode === "own-mirror") &&
+      !/^[0-9]{1,6}$/.test(parent ?? "")
+    )
+      throw new Error(`${mode} needs the parent post's sequence number`);
     console.log(
       composeBun(
         readFileSync(new URL("./slack-event.ts", import.meta.url), "utf8"),
