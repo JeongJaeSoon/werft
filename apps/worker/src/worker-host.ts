@@ -583,10 +583,6 @@ export class WorkerHost {
       onControl: (control, poll) => this.onControl(control, poll),
       onAttachments: (orders) => this.onAttachments(claim, orders),
       onDecided: (decided) => this.turn?.spans.decided(decided),
-      onSettlementDetailRefused: (error) =>
-        this.logger.warn("worker.pending.settlement_detail_refused", {
-          reason: error.message,
-        }),
     });
     const toolAudit = new ToolAuditCollector({
       scrubber: () => this.scrubber,
@@ -3420,28 +3416,12 @@ export class WorkerHost {
     };
     const gateway = this.options.gateway;
     // A startup a signal cut short is not a failed one.
-    const releasing = (
-      this.stopping?.kind === "drain" && this.stopping.requested
-        ? gateway
-            .release({ ...request, stop_kind: "drain" })
-            .catch((error: unknown) => {
-              // A strict gateway older than this worker refuses the field
-              // . The session is still handed back without it, which
-              // that gateway counts as it counted every stop before
-              // a lapsed lease would count it all the same, only later.
-              if (
-                !(error instanceof WorkerGatewayRequestError) ||
-                error.code !== "BAD_REQUEST"
-              ) {
-                throw error;
-              }
-              this.logger.warn("worker.release.stop_kind_refused", {
-                reason: error.message,
-              });
-              return gateway.release(request);
-            })
-        : gateway.release(request)
-    )
+    const releasing = gateway
+      .release(
+        this.stopping?.kind === "drain" && this.stopping.requested
+          ? { ...request, stop_kind: "drain" }
+          : request,
+      )
       .then((response) => {
         this.logger.info("worker.released", { released: response.released });
         // Superseded by the pause release a stop gave up on.

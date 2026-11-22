@@ -905,7 +905,7 @@ integration("API server on PostgreSQL", () => {
       const ttl = await refusedStart({ HEARTBEAT_TTL_SEC: "30s" });
       expect(ttl.exitCode).not.toBe(0);
       expect(ttl.stderr).toContain(
-        "HEARTBEAT_TTL_SEC must be a number of seconds above 20",
+        "HEARTBEAT_TTL_SEC must be a number of seconds above 15",
       );
     },
     TEST_TIMEOUT_MS,

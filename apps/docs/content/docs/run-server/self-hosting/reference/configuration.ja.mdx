@@ -30,7 +30,7 @@ API は設置上限以外に次の値を起動時に一つの parser で読み�
 
 | 変数 | 既定値 | 許可範囲 |
 |---|---|---|
-| `HEARTBEAT_TTL_SEC` | 30 | 20 超、86400 以下。worker は lease 終了の 10 秒前に lease を手放し（`WORKER_LEASE_SAFETY_MARGIN_SEC`）、5 秒ごとに heartbeat を送ります（`WORKER_HEARTBEAT_INTERVAL_SEC`、以前の worker は 10 秒）。margin と 10 秒の合計以下なら、以前の worker の attempt は最初の heartbeat 頃に lease を失います。launcher は worker の両値を渡さないため、既定値で判定します |
+| `HEARTBEAT_TTL_SEC` | 30 | 15 超、86400 以下。worker は lease 終了の 10 秒前に lease を手放し（`WORKER_LEASE_SAFETY_MARGIN_SEC`）、5 秒ごとに heartbeat を送ります（`WORKER_HEARTBEAT_INTERVAL_SEC`）。両値の合計以下なら、attempt は最初の heartbeat 頃に lease を失います。launcher は worker の両値を渡さないため、既定値で判定します |
 | `SSE_MAX_STREAMS`・`SSE_MAX_STREAMS_PER_OWNER`・`SSE_REPLAY_MAX_BYTES` | 256・8・1 MiB | 正の整数 |
 | `LOG_LEVEL` | `info` | `debug`・`info`・`warn`・`error`（大文字・小文字不問、空値は `info`）。scheduler・reconciler loop と egress-proxy も同じ規則で起動を拒否します。worker は scheduler の値を受け取ります |
 | `WEB_DIST_DIR` | なし（Web コンソールを配信しない）。control-host イメージは `/app/apps/web/dist` | `index.html` のある絶対パス。Web コンソール（`apps/web`）のビルド結果です |

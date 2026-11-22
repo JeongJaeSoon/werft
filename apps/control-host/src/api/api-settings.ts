@@ -146,16 +146,9 @@ const MAX_HEARTBEAT_TTL_SEC = 86_400;
 // A worker gives its lease up this long before it runs out, and beats this
 // often; a lease no longer than both is lost at or near the first beat.
 // No launcher sets the worker's own values, so its defaults are
-// the ones every worker runs with. Workers built before the interval dropped
-// to 5s still beat every 10s, and a fleet mid-rollout runs both.
-const LEGACY_WORKER_HEARTBEAT_INTERVAL_MS = 10_000;
+// the ones every worker runs with.
 const MIN_HEARTBEAT_TTL_SEC =
-  (WORKER_LEASE_SAFETY_MARGIN_MS +
-    Math.max(
-      WORKER_HEARTBEAT_INTERVAL_MS,
-      LEGACY_WORKER_HEARTBEAT_INTERVAL_MS,
-    )) /
-  1000;
+  (WORKER_LEASE_SAFETY_MARGIN_MS + WORKER_HEARTBEAT_INTERVAL_MS) / 1000;
 
 export function heartbeatTtlMsFromEnv(value: string | undefined): number {
   if (value === undefined) return DEFAULT_LEASE_TTL_MS;

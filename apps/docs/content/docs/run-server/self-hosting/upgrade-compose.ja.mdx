@@ -293,7 +293,6 @@ worker が送る worker protocol フィールドを追加する場合も API が
 
 | フィールド | 先にデプロイ | 以前の API に接続した新 worker |
 |---|---|---|
-| pending-control 要求の `settled[].reason`・`settled[].answer_result` | API | `worker.pending.settlement_detail_refused` 警告を一度残し、その attempt 終了まで `outcome` だけを送ります。receipt は以前の規則で確定し、`pending_requests.settled_reason`・`settled_answer_result` は空です |
 | bootstrap-claim・pending-control 要求の `capabilities`、register-pending 要求の `remember_offer` | API | 互換再試行はありません。最初の要求 bootstrap-claim が 400 `BAD_REQUEST`（再試行不可）で拒否されると、worker はエラー終了し、turn を一つも実行しません。API だけ戻しても同じです。API を戻す前に、新 worker イメージを使うセッションがないことを確認します |
 
 <a id="db-스키마를-바꾸는-순서" />

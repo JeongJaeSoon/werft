@@ -269,7 +269,6 @@ worker가 보내는 worker protocol 필드를 새로 더할 때도 API가 먼저
 
 | 필드 | 먼저 배포 | 옛 API를 만난 새 worker |
 |---|---|---|
-| pending-control 요청 `settled[].reason`·`settled[].answer_result` | API | `worker.pending.settlement_detail_refused` 경고를 한 번 남기고, 그 attempt가 끝날 때까지 `outcome`만 보낸다. receipt는 예전 규칙대로 정산되고 `pending_requests.settled_reason`·`settled_answer_result`는 비어 있다 |
 | bootstrap-claim·pending-control 요청 `capabilities`, register-pending 요청 `remember_offer` | API | 호환 재시도가 없다. 새 worker의 첫 요청인 bootstrap-claim이 400 `BAD_REQUEST`(재시도 불가)로 거절되면 worker는 오류로 끝나고 turn을 하나도 돌리지 않는다. API만 되돌려도 같다. API를 되돌리기 전에 새 worker 이미지를 쓰는 세션이 없는지 본다 |
 
 ### DB 스키마를 바꾸는 순서

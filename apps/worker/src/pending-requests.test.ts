@@ -1256,11 +1256,11 @@ describe("PendingRequestRegistry", () => {
     expect(polls.every((after) => after >= 1)).toBe(true);
   });
 
-  test("settles by outcome alone, and says so, with a gateway older than reasons and answer results", async () => {
+  test("a poll refused for its settlements' reasons and answer results is not resent with outcomes alone", async () => {
     const gateway = new FakeWorkerGateway();
     const original = gateway.pendingControl.bind(gateway);
     let refused = 0;
-    // A strict schema from before the two fields: the whole poll is a 400.
+    // A strict schema without the two fields: the whole poll is a 400.
     gateway.pendingControl = async (request) => {
       const detailed = (request.settled ?? []).some(
         (item) => item.reason !== undefined || item.answer_result !== undefined,
@@ -1276,11 +1276,7 @@ describe("PendingRequestRegistry", () => {
       }
       return original(request);
     };
-    const warned: string[] = [];
-    const harness = registry({
-      gateway,
-      onSettlementDetailRefused: (error) => warned.push(error.message),
-    });
+    const harness = registry({ gateway });
     const allowed = harness.ask(permission("req-old-a"));
     const allowedId = await harness.idFor("req-old-a");
     gateway.answer({
@@ -1290,17 +1286,15 @@ describe("PendingRequestRegistry", () => {
     });
     await allowed;
     const cancelled = harness.ask(permission("req-old-b", "pwd"));
-    const cancelledId = await harness.idFor("req-old-b");
+    await harness.idFor("req-old-b");
     harness.registry.cancelAll("interrupt", "The turn was interrupted");
     await cancelled;
     await harness.registry.flush(1_000);
 
-    expect(refused).toBe(1);
-    expect(warned).toHaveLength(1);
-    expect(gateway.settled).toEqual([
-      { request_id: allowedId, outcome: "answered" },
-      { request_id: cancelledId, outcome: "cancelled" },
-    ]);
+    // Each refused settlement is dropped as any non-retryable refusal is,
+    // never stripped to its outcome and sent again.
+    expect(refused).toBe(2);
+    expect(gateway.settled).toEqual([]);
   });
 
   test("sends a settlement backlog larger than one call carries, in batches", async () => {
