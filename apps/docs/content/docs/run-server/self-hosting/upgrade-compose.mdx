@@ -241,6 +241,22 @@ migration `0305_drop_unused_tables`가 `catalog_authority`·`owner_workspace_map
 - 표에 행이 남아 있을 수 있다. `catalog_authority`에는 설정 파일 카탈로그 시절에 활성화한 revision 한 행, `owner_workspace_map`에는 운영자가 손으로 넣은 owner와 워크스페이스의 매핑, `push_continuations`에는 `v0.1.1` 이하가 만든 이어 턴 기록이 있을 수 있다. 행이 있으면 migrate 로그 `db.migrate.notice`에 표마다 지운 행 수가 남는다(`0305: dropped rows: …`). 행의 값은 로그에 남지 않는다.
 - 그 행이 필요하면 올리기 전에 백업한다. 0305 아래로 스키마를 내려도 행은 돌아오지 않는다.
 
+### 사람에게 바로 가는 Slack 글을 막는 릴리스
+
+migration `0306_slack_outbox_channel`이 `slack_outbox`에 CHECK `slack_outbox_channel_check`를 더한다. Slack 사용자 id(`U…`, Enterprise Grid의 `W…`)를 channel로 가진 줄은 모델 안내(`model_notice`)만 넣을 수 있다. 에이전트가 사람에게 DM을 먼저 열지 않게 하는 방어다. 지금까지 어느 릴리스도 그런 줄을 쓰지 않았으므로 보통은 할 일이 없다.
+
+- 그런 줄이 남아 있으면 migrate 로그 `db.migrate.notice`에 그 수가 남고(`0306: … slack_outbox rows name a Slack user as their channel`), migrate가 `VALIDATE CONSTRAINT`에서 멈춘다. 그때도 제약은 `NOT VALID`로 남아 새 줄을 막는다. 올리기 전에 아래 쿼리로 확인할 수 있다.
+
+```sql
+SELECT kind, status, count(*) FROM slack_outbox
+WHERE channel_id ~ '^[UW]' AND kind <> 'model_notice'
+GROUP BY 1, 2;
+```
+
+- 찾은 줄은 보내서는 안 되는 줄이다. 지운 뒤 migrate를 다시 돌린다. 각 문장은 다시 돌려도 된다.
+- 보내는 쪽도 그런 줄을 Slack에 보내지 않고 `failed`(`error_code` `user_channel`)로 끝낸다.
+- 앞선 이미지도 그런 줄을 쓰지 않으므로 제약을 둔 채 되돌려도 된다.
+
 ### mock Slack env 이름
 
 mock Slack 시험 스택(`infra/compose.mock-slack.yml`)이 쓰던 `SLACK_API_URL`·`SLACK_OIDC_ISSUER`는 `MOCK_SLACK_API_URL`·`MOCK_SLACK_OIDC_ISSUER`로 바뀌었다. 옛 이름은 읽지 않고, 남아 있으면 `Ignored removed settings` 경고에 이름이 나온다. 새 이름에 값이 있으면 주소와 상관없이 시작할 때 `Mock Slack override in use: <이름>` 경고를 한 줄 남긴다. 운영 설정에는 두 이름 모두 두지 않는다.

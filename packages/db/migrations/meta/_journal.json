@@ -1506,6 +1506,13 @@
       "when": 1795369392732,
       "tag": "0305_drop_unused_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 306,
+      "version": "7",
+      "when": 1795376470398,
+      "tag": "0306_slack_outbox_channel",
+      "breakpoints": true
     }
   ]
 }

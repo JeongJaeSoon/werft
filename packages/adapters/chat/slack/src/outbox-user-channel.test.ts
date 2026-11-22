@@ -66,11 +66,43 @@ async function deliver(row: SlackOutboxClaim) {
 
 // Design v3 decision 45: the agent never opens a direct message first, and
 // chat.postMessage with a user id as the channel would do just that.
+const REFUSED_KINDS: SlackOutboxKind[] = [
+  "instruction",
+  "reply",
+  "notice",
+  "failure_notice",
+  "input_notice",
+  "welcome",
+  "action_notice",
+];
+
 describe("an outbox row whose channel is a Slack user id", () => {
-  test("is posted as it stands", async () => {
-    const sent = await deliver(rowOf("reply", "U0PERSON"));
+  for (const kind of REFUSED_KINDS) {
+    for (const channelId of ["U0PERSON", "W0GRIDPERSON"]) {
+      test(`a ${kind} to ${channelId} fails before any Slack call`, async () => {
+        const sent = await deliver(rowOf(kind, channelId));
+        expect(sent.outcome).toEqual({ kind: "failed", code: "user_channel" });
+        expect(sent.begun).toBe(false);
+        expect(sent.calls).toEqual([]);
+        expect(sent.posted).toEqual([]);
+      });
+    }
+  }
+
+  test("a model notice still goes to the person as a direct message", async () => {
+    const sent = await deliver(rowOf("model_notice", "U0PERSON"));
     expect(sent.outcome.kind).toBe("sent");
-    expect(sent.begun).toBe(true);
     expect(sent.posted).toEqual(["U0PERSON"]);
   });
+});
+
+describe("an outbox row whose channel is a conversation", () => {
+  for (const channelId of ["C0PUBLIC", "G0PRIVATE", "D0DIRECT"]) {
+    test(`a reply to ${channelId} is posted`, async () => {
+      const sent = await deliver(rowOf("reply", channelId));
+      expect(sent.outcome.kind).toBe("sent");
+      expect(sent.begun).toBe(true);
+      expect(sent.posted).toEqual([channelId]);
+    });
+  }
 });
