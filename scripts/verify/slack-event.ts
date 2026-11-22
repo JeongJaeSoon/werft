@@ -18,8 +18,18 @@ const [agentId, mode, channel = "C0VERIFY", seq = "1", parent, text] =
 // `bot-mention` is the same mention from another app's bot U0REVIEWBOT (seed
 // it with /fake/users first); with `parent` it is a reply in that thread.
 const botMention = mode === "bot-mention";
+// `own-reply` is this app's bot answering in the thread `parent` opened;
+// `own-mirror` is the outbox posting an instruction there under its
+// sender's name (bot_message, only the app to tell it by). `slackbot` is
+// Slackbot's note in the DM `channel` (or a channel).
+const echo =
+  mode === "own-reply" || mode === "own-mirror" || mode === "slackbot";
 const posted =
-  mode === "mention" || mode === "plain" || mode === "reply" || botMention;
+  mode === "mention" ||
+  mode === "plain" ||
+  mode === "reply" ||
+  botMention ||
+  echo;
 const uninstalled = mode === "uninstall" || mode === "uninstall-late";
 // `join` and `leave` are this app's bot entering or leaving `channel`
 // (private by the mock's G prefix, public by C). `leave` is what Slack sends
@@ -82,30 +92,56 @@ try {
                   channel,
                   event_ts: `${Math.floor(Date.now() / 1000) + Number(seq)}.000001`,
                 }
-              : mode === "plain" || mode === "reply"
-                ? {
-                    type: "message",
-                    channel_type: "channel",
-                    user: "U0MOCK",
-                    channel,
-                    ts,
-                    text: text || "verify plain post",
-                    ...(mode === "reply"
-                      ? { thread_ts: `${1792800000 + Number(parent)}.000001` }
-                      : {}),
-                  }
-                : {
-                    type: "app_mention",
-                    user: botMention ? "U0REVIEWBOT" : "U0MOCK",
-                    channel: posted ? channel : "C0VERIFY",
-                    ts,
-                    text: text || "verify inbox",
-                    ...(mode === "bot" ? { bot_id: "B0VERIFY" } : {}),
-                    ...(botMention ? { bot_id: "B0REVIEW" } : {}),
-                    ...(botMention && parent
-                      ? { thread_ts: `${1792800000 + Number(parent)}.000001` }
-                      : {}),
-                  },
+              : echo
+                ? mode === "slackbot"
+                  ? {
+                      type: "message",
+                      channel_type: channel.startsWith("D") ? "im" : "channel",
+                      user: "USLACK",
+                      channel,
+                      ts,
+                      text: text || "You were removed from #verify.",
+                    }
+                  : {
+                      type: "message",
+                      channel_type: "channel",
+                      channel,
+                      ts,
+                      thread_ts: `${1792800000 + Number(parent)}.000001`,
+                      bot_id: "B0VERIFYOWN",
+                      app_id: app.appId,
+                      text: text || "verify echo",
+                      ...(mode === "own-mirror"
+                        ? {
+                            subtype: "bot_message",
+                            username: "Verify (웹 콘솔)",
+                          }
+                        : { user: `U${app.appId}BOT` }),
+                    }
+                : mode === "plain" || mode === "reply"
+                  ? {
+                      type: "message",
+                      channel_type: "channel",
+                      user: "U0MOCK",
+                      channel,
+                      ts,
+                      text: text || "verify plain post",
+                      ...(mode === "reply"
+                        ? { thread_ts: `${1792800000 + Number(parent)}.000001` }
+                        : {}),
+                    }
+                  : {
+                      type: "app_mention",
+                      user: botMention ? "U0REVIEWBOT" : "U0MOCK",
+                      channel: posted ? channel : "C0VERIFY",
+                      ts,
+                      text: text || "verify inbox",
+                      ...(mode === "bot" ? { bot_id: "B0VERIFY" } : {}),
+                      ...(botMention ? { bot_id: "B0REVIEW" } : {}),
+                      ...(botMention && parent
+                        ? { thread_ts: `${1792800000 + Number(parent)}.000001` }
+                        : {}),
+                    },
         };
   const body = mode === "malformed" ? "{" : JSON.stringify(payload);
   const timestamp = String(

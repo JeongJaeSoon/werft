@@ -74,6 +74,7 @@ import {
   SLACK_SURFACE_ACTION_VALUES,
   type SlackAppKind,
   type SlackAppState,
+  type SlackInboundDropFields,
   type SlackInboundDropReason,
   type SlackInboundEventStatus,
   type SlackMessageRef,
@@ -1196,6 +1197,12 @@ export const slackInboundEvents = pgTable(
     status: text().$type<SlackInboundEventStatus>().notNull(),
     dropReason: text("drop_reason").$type<SlackInboundDropReason>(),
     payload: jsonb().$type<Record<string, unknown>>(),
+    /**
+     * A row dropped at the door: who posted it (bot_id, app_id, user) and its
+     * subtypes, never its text, blocks or files. Null on rows that predate
+     * it and on rows the `slack` role dropped.
+     */
+    dropFields: jsonb("drop_fields").$type<SlackInboundDropFields>(),
     receivedAt: timestamp("received_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1232,6 +1239,10 @@ export const slackInboundEvents = pgTable(
     check(
       "slack_inbound_events_dropped_check",
       sql`(${table.status} = 'dropped') = (${table.dropReason} IS NOT NULL) AND (${table.status} = 'dropped') = (${table.payload} IS NULL)`,
+    ),
+    check(
+      "slack_inbound_events_drop_fields_check",
+      sql`${table.status} = 'dropped' OR ${table.dropFields} IS NULL`,
     ),
     check(
       "slack_inbound_events_conversation_check",
