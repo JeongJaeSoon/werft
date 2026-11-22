@@ -58,7 +58,6 @@ Secret は key ごとに一つのファイルを置いたディレクトリ（`0
 | `EGRESS_AUTHORIZER_TOKEN` | ランダムな値。api と egress proxy で同じ値を使います |
 | `PLATFORM_SECRET_KEY` | `openssl rand -hex 32` の 64 文字 hex。保存した資格情報を封印します。なければ Pod は起動しません |
 | `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` | object store key。IRSA で署名する場合は両 key を外し、values に `secrets.objectStoreKeys: false` と `serviceAccounts.api.annotations` を設定します |
-| `BOOTSTRAP_TOKEN` | 既定 API replica 2 個へ同じ 32–256 文字のトークンを渡す必要があります。Secret に作成し、下記 values に `secrets.bootstrapToken: true` を設定します |
 
 モデル key は Secret に置きません。設置後のコンソールの**設定 > エージェント接続 > モデル接続 > 接続を追加**で入れ、`PLATFORM_SECRET_KEY` で暗号化して DB に保存されます。
 
@@ -67,7 +66,7 @@ kubectl create namespace werft
 kubectl -n werft create secret generic werft --from-file=<secret-dir>
 ```
 
-Secret ディレクトリは 0700、ファイルは運用者だけが読める権限にします。既定 API replica は 2 個です。replica が二つ以上なら同じ `BOOTSTRAP_TOKEN`（32–256 文字）を Secret に追加し、`secrets.bootstrapToken: true` を設定します。その場合、Secret にその key がないと Pod は起動しません。
+Secret ディレクトリは 0700、ファイルは運用者だけが読める権限にします。
 
 <a id="3-설치별-values" />
 ### 3. 環境ごとの values
@@ -76,8 +75,6 @@ Secret ディレクトリは 0700、ファイルは運用者だけが読める�
 
 ```yaml
 installationId: werft-main
-secrets:
-  bootstrapToken: true
 config:
   checkpoints:
     bucket: <bucket>

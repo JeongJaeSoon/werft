@@ -1214,6 +1214,11 @@ const MUST_FAIL: [string, string[], RegExp][] = [
     ["-f", ciDigests, "--set-json", "secrets.catalogEnv=[]"],
     /secrets\.catalogEnv is removed/,
   ],
+  ...["true", "false"].map((on): [string, string[], RegExp] => [
+    `secrets.bootstrapToken=${on}`,
+    ["-f", ciDigests, "--set", `secrets.bootstrapToken=${on}`],
+    /secrets\.bootstrapToken is removed/,
+  ]),
   [
     "config.aws.secretsManagerEndpointUrl",
     [
@@ -1888,34 +1893,20 @@ errors.push(
     false,
   ),
 );
-// BOOTSTRAP_TOKEN reaches the api alone, from the Secret, and only on request.
-for (const on of [false, true]) {
-  for (const m of render([
-    "-f",
-    ciDigests,
-    "--set",
-    `secrets.bootstrapToken=${on}`,
-  ])) {
-    const pod = podSpecOf(m);
-    if (pod === undefined) continue;
-    const component = m.metadata.labels?.["app.kubernetes.io/component"] ?? "";
-    for (const c of [...(pod.initContainers ?? []), ...pod.containers]) {
-      const token = (c.env ?? []).find(
-        (v: { name: string }) => v.name === "BOOTSTRAP_TOKEN",
+// No container is handed a BOOTSTRAP_TOKEN: the first owner comes from a
+// setup link.
+for (const m of render(["-f", ciDigests])) {
+  const pod = podSpecOf(m);
+  if (pod === undefined) continue;
+  for (const c of [...(pod.initContainers ?? []), ...pod.containers]) {
+    if (
+      (c.env ?? []).some((v: { name: string }) =>
+        v.name.startsWith("BOOTSTRAP_TOKEN"),
+      )
+    ) {
+      errors.push(
+        `${m.kind}/${m.metadata.name}: container ${c.name} has BOOTSTRAP_TOKEN`,
       );
-      const want = on && component === "api" && c.name === "api";
-      if (Boolean(token) !== want) {
-        errors.push(
-          `secrets.bootstrapToken=${on}: ${m.kind}/${m.metadata.name}: container ${c.name} ${token ? "has" : "lacks"} BOOTSTRAP_TOKEN`,
-        );
-      } else if (
-        token &&
-        token.valueFrom?.secretKeyRef?.key !== "BOOTSTRAP_TOKEN"
-      ) {
-        errors.push(
-          `secrets.bootstrapToken=${on}: BOOTSTRAP_TOKEN is not read from the Secret`,
-        );
-      }
     }
   }
 }

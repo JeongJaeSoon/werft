@@ -30,6 +30,7 @@ import {
   users,
   workspaces,
 } from "../schema.ts";
+import { liveSetupLinkHash } from "../testing/setup-link.ts";
 import {
   createPostgresAchievementRuleStore,
   insertBuiltinAchievementTypes,
@@ -616,7 +617,7 @@ integration("built-in achievement types at bootstrap", () => {
       workspaceId,
       workspaceSlug: "first",
       workspaceName: "First",
-      bootstrapTokenHash: new Uint8Array([1, 2, 3]),
+      setupTokenHash: await liveSetupLinkHash(db),
       receiptId: randomUUID(),
       loginMethodId: randomUUID(),
     });

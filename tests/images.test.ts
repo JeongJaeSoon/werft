@@ -2767,10 +2767,6 @@ describe("compose layers", () => {
   const S3_ONLY = ["S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"];
   // And what only LocalStack's does: on s3 no upstream is private.
   const LOCALSTACK_ONLY = ["EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST"];
-  // The one value this layer fixes itself: the path the API writes a minted
-  // bootstrap token to and `scripts/test-ops.sh bootstrap-token` reads from.
-  // It is no operator setting, so it is not asked of the env file.
-  const FIXED_PATH = "BOOTSTRAP_TOKEN_FILE";
   const holdsKey = (service: string, variable: string) =>
     service === "api" ||
     (service === "maintenance" && variable.startsWith("AWS_"));
@@ -2990,7 +2986,6 @@ describe("compose layers", () => {
       [
         "WORKER_IMAGE",
         "SETTINGS_DOCUMENT",
-        FIXED_PATH,
         ...Object.keys(TEST_OPS_SECRETS),
         ...Object.keys(TEST_OPS_SETTINGS).filter(
           (name) =>
@@ -3056,10 +3051,7 @@ describe("compose layers", () => {
       for (const [name, service] of Object.entries(servicesOf(layer))) {
         const values = Object.entries(
           (service.environment ?? {}) as Record<string, string>,
-        ).filter(
-          ([variable]) =>
-            variable !== "SETTINGS_DOCUMENT" && variable !== FIXED_PATH,
-        );
+        ).filter(([variable]) => variable !== "SETTINGS_DOCUMENT");
         if (typeof service.image === "string") values.push(["", service.image]);
         for (const [variable, value] of values)
           expect({ name, value }).toEqual({
@@ -3370,47 +3362,23 @@ describe("compose layers", () => {
     COMPOSE_RENDER_TIMEOUT_MS,
   );
 
-  // A null entry leaves the variable out of the container, so the API
-  // generates its own token; an empty string would stop it from starting.
+  // The first owner comes from a setup link now; an env file left over from
+  // before still names BOOTSTRAP_TOKEN, and nothing may carry it in.
   test(
-    "the test-ops env file's BOOTSTRAP_TOKEN reaches the API alone, and stays unset without one",
+    "no test-ops service is handed a BOOTSTRAP_TOKEN, even from an env file that sets one",
     () => {
-      const token = `bootstrap-${crypto.randomUUID()}`;
-      for (const [variables, expected] of [
-        [{}, null],
-        [{ BOOTSTRAP_TOKEN: token }, token],
-      ] as const) {
-        const { exitCode, stderr, model } = render(LOCALSTACK_LAYERS, {
-          ...TEST_OPS_REQUIRED,
-          ...variables,
-        });
-        expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
-        for (const [name, service] of Object.entries(model?.services ?? {}))
-          expect({
-            name,
-            value: service.environment?.BOOTSTRAP_TOKEN ?? null,
-          }).toEqual({ name, value: name === "api" ? expected : null });
-      }
-    },
-    COMPOSE_RENDER_TIMEOUT_MS,
-  );
-
-  test(
-    "the test-ops API alone is told to leave a minted bootstrap token in a file",
-    () => {
-      const { exitCode, stderr, model } = render(
-        LOCALSTACK_LAYERS,
-        TEST_OPS_REQUIRED,
-      );
+      const { exitCode, stderr, model } = render(LOCALSTACK_LAYERS, {
+        ...TEST_OPS_REQUIRED,
+        BOOTSTRAP_TOKEN: "x".repeat(40),
+      });
       expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
       for (const [name, service] of Object.entries(model?.services ?? {}))
         expect({
           name,
-          value: service.environment?.BOOTSTRAP_TOKEN_FILE ?? null,
-        }).toEqual({
-          name,
-          value: name === "api" ? "/tmp/werft-bootstrap-token" : null,
-        });
+          names: Object.keys(service.environment ?? {}).filter((variable) =>
+            variable.startsWith("BOOTSTRAP_TOKEN"),
+          ),
+        }).toEqual({ name, names: [] });
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );

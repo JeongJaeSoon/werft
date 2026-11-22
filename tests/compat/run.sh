@@ -174,7 +174,13 @@ fi
 # It holds the stack's API key; $out is uploaded as an artifact.
 rm -f "$out/old/vars.sh"
 project="${E2E_COMPOSE_PROJECT:?the old run.sh names its compose project}"
-export BOOTSTRAP_TOKEN="${E2E_BOOTSTRAP_TOKEN:-}"
+# A release from before setup links hands its stack a BOOTSTRAP_TOKEN and
+# its run.sh names it E2E_BOOTSTRAP_TOKEN: the first owner is made from it the
+# old way, and every stage logs in with the password it seeds.
+if [ -z "${E2E_OWNER_SECRET:-}" ]; then
+  export E2E_OWNER_SECRET="${E2E_BOOTSTRAP_TOKEN:?the old run.sh names no first owner}"
+  env -u ANTHROPIC_API_KEY bun tests/compat/old-owner.ts
+fi
 # What stage 3 brings up, and the cleanup's view of the stack until then.
 if [ -n "$new_control_host" ]; then
   overlay "$root" "$new_control_host" "$out/overlay-new.yml"

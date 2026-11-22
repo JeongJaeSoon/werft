@@ -6,8 +6,3 @@ config:
     endpointUrl: http://localstack:4566
   egress:
     credentialPrivateAllowlist: "localstack:4566"
-# The Secret's BOOTSTRAP_TOKEN reaches the api, so up.sh can store the
-# settings' keys and the checks release their agent as the first owner
-# (release-key.sh); up.sh writes it.
-secrets:
-  bootstrapToken: true

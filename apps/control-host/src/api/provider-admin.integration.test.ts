@@ -39,8 +39,9 @@ import {
 import { like } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { liveSetupToken } from "../testing/setup-link.ts";
 import { createApiApp } from "./app.ts";
-import { createBootstrapGate, DatabaseIdentityStore } from "./auth.ts";
+import { DatabaseIdentityStore } from "./auth.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import { createProviderAdmin } from "./provider-admin.ts";
 import { createProviderLogin } from "./provider-login.ts";
@@ -49,7 +50,6 @@ import { registerLoginProviderRoutes } from "./routes/login-providers.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
-const BOOTSTRAP_TOKEN = "bootstrap-token-for-the-provider-admin-test";
 const PASSWORD = "correct horse battery staple";
 const CLIENT_ID = "werft-console";
 const CLIENT_SECRET = "the-secret-the-provider-takes";
@@ -185,7 +185,6 @@ integration("sign-in provider settings on PostgreSQL", () => {
     });
     const auth = {
       identity,
-      bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
       passwords: new PasswordChecks(),
       logger: new StructuredLogger({ sinks: [new MemoryLogSink()] }),
       providers,
@@ -212,7 +211,7 @@ integration("sign-in provider settings on PostgreSQL", () => {
 
     const created = await send("POST", "/v1/auth/bootstrap", {
       body: {
-        bootstrap_token: BOOTSTRAP_TOKEN,
+        setup_token: await liveSetupToken(db),
         email: "owner@example.com",
         password: PASSWORD,
         display_name: "Owner",

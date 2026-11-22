@@ -42,7 +42,7 @@ export const RECEIPT_OPERATION_VALUES = [
   // owner's receipt list so the owner sees why the session stopped.
   "revoke_execution",
   // Account recovery: a one-time link issued and the password set
-  // from it, and an owner added or restored by BOOTSTRAP_TOKEN when no live
+  // from it, and an owner added or restored from a setup link when no live
   // owner remained.
   "issue_password_reset",
   "reset_password",

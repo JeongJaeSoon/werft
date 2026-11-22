@@ -13,6 +13,7 @@ import {
   createPostgresDecisionLog,
   createPostgresInviteStore,
   type Database,
+  issueSetupLink,
   memberships,
   users,
 } from "@werft-ai/db";
@@ -257,6 +258,11 @@ export async function seedDemoAccounts(
           sql`SELECT pg_advisory_xact_lock(hashtext('auth.bootstrap'))`,
         );
         if ((await countUsers(tx)) > 0) return false;
+        // The seed is its own setup link, issued and spent in this transaction.
+        const setupTokenHash = hashWebSessionToken(
+          randomBytes(32).toString("base64url"),
+        );
+        await issueSetupLink(tx, setupTokenHash, 60_000);
         await bootstrapOwner(tx, {
           userId: randomUUID(),
           email: account.email,
@@ -265,10 +271,7 @@ export async function seedDemoAccounts(
           workspaceId: randomUUID(),
           workspaceSlug: "demo",
           workspaceName: "Demo",
-          // No BOOTSTRAP_TOKEN was presented; a fresh value spends nothing.
-          bootstrapTokenHash: hashWebSessionToken(
-            randomBytes(32).toString("base64url"),
-          ),
+          setupTokenHash,
           receiptId: randomUUID(),
           loginMethodId: randomUUID(),
         });

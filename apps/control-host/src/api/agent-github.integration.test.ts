@@ -53,8 +53,9 @@ import {
   TEST_RUNTIMES,
   testCatalog,
 } from "../testing/catalog.ts";
+import { liveSetupToken } from "../testing/setup-link.ts";
 import { createApiApp } from "./app.ts";
-import { createBootstrapGate, DatabaseIdentityStore } from "./auth.ts";
+import { DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import { registerAgentPullRequestRoutes } from "./routes/action/agent-pull-request.ts";
@@ -66,7 +67,6 @@ import { registerApiKeyRoutes } from "./routes/musterrolle/api-keys.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
-const BOOTSTRAP_TOKEN = "bootstrap-token-for-the-agent-github-tab";
 const PASSWORD = "correct horse battery staple";
 
 const catalog: SessionCatalog = testCatalog({
@@ -127,7 +127,6 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
     const logger = new StructuredLogger({ sinks: [new MemoryLogSink()] });
     const auth = {
       identity,
-      bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
       passwords: new PasswordChecks(),
       logger,
     };
@@ -369,7 +368,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
       "/v1/auth/bootstrap",
       {},
       {
-        bootstrap_token: BOOTSTRAP_TOKEN,
+        setup_token: await liveSetupToken(db),
         email: "owner@example.com",
         password: PASSWORD,
         display_name: "Owner",

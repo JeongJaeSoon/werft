@@ -7,8 +7,8 @@ API가 `WEB_DIST_DIR`(control-host 이미지는 `/app/apps/web/dist`)의 웹 콘
 - `serving` 페이지 경로는 `index.html`(`no-cache`, `script-src 'self'` CSP), `/assets/*`는 `immutable`, 없는 asset은 404.
 - `api-404` `/v1/nope`는 fallback되지 않는다: 인증 없으면 JSON 401, 인증하면 JSON 404.
 - `login-required` 로그인 없이 `/`를 열면 `/login?redirect=%2F`로 가고 "로그인이 필요합니다"와 "로그인하면 열려던 화면으로 돌아갑니다."가 보인다.
-- `bootstrap` `/bootstrap`은 제목 "첫 오너 만들기"로 열리고, 제출하면 `/login?notice=created`.
-- `bootstrap-done` 오너가 이미 있으면 제출 결과가 409라 `/bootstrap`에 머문 채 폼 아래 오류 줄에 "이미 오너가 있습니다. 로그인해 주세요. 로그인하기"(마지막 말이 `/login` 링크)가 보인다. `/login?notice=bootstrap_done` 안내는 그 주소로 직접 열 때만 나온다.
+- `bootstrap` 설정 링크(`/bootstrap#setup=…`)로 열면 제목 "첫 오너 만들기"의 폼이 보이고(설정 링크 칸은 없다), 제출하면 `/login?notice=created`.
+- `bootstrap-link` 링크 없이 `/bootstrap`을 열면 "설정 링크로 열어야 합니다", 모르는·만료된·쓴 링크면 "이 설정 링크는 쓸 수 없습니다"가 폼 대신 보인다. 로그인 화면에는 첫 오너 링크가 없다.
 - `login` 로그인하면 `/`에 workspace 이름, “답이 필요한 요청”·“최근 세션”, 새 run에서는 "시작하기 1 / 4 완료"와 항목 넷(오너 계정 만들기·구성원 초대하기·에이전트 준비하기·첫 세션 확인하기, 첫째만 완료).
 - `shell` 사이드바는 업무(홈·세션·에이전트), 워크스페이스(구성원·워크스페이스 설정, 설정은 권한 있을 때만), 내 설정(연동 계정·내 key·언어·테마). 머리에는 만들기 버튼이 없고, 각 목록 머리의 주 버튼(에이전트 "새 에이전트", 구성원 "초대 링크 만들기", 팀 "팀 만들기")이 만든다. 좁은 폭에서는 사이드바가 "메뉴 열기" 뒤에 숨는다.
 - `logout` 사이드바 아래 사용자 버튼(글자 `<첫 글자><이름>`, `aria-label` "<이름> · <역할>")이 메뉴(연동 계정·언어·테마·내 key·로그아웃)를 연다. "로그아웃"하면 `/login?notice=logged_out`, 다시 `/`를 열면 로그인 화면.
@@ -19,7 +19,7 @@ API가 `WEB_DIST_DIR`(control-host 이미지는 `/app/apps/web/dist`)의 웹 콘
 
 ## How to get to it (user POV)
 
-- 브라우저로 `$VERIFY_API/`를 연다. 첫 설치면 로그인 화면의 "첫 오너 만들기" 링크로 `/bootstrap`에 간다.
+- 브라우저로 `$VERIFY_API/`를 연다. 첫 설치면 운영자가 받은 설정 링크(`/bootstrap#setup=…`)를 연다.
 - 403(권한 없음) 화면은 cookie 세션이 `me`에서 403을 받아야 나오는데, 웹 사용자는 owner·member 모두 `sessions:read`를 가져 사용자 경로로는 만들 수 없다. 컴포넌트 테스트(`apps/web/src/app.test.tsx`)가 본다.
 
 ## Driving it with lib.sh
@@ -66,7 +66,7 @@ node $B <run id> stop                    # stopped pid N; profile removed
 - 폭(`W`, 기본 1280)·높이(`H`, 900)·테마(`THEME`, `light`|`dark`)는 명령마다 `Emulation.setDeviceMetricsOverride`·`setEmulatedMedia`로 다시 건다. 600px 미만은 mobile로 그린다.
 - 화면을 바꾼 PR은 `W=1440`으로 찍은 스크린샷을 [화면 구성 원칙](../../../../packages/ui/README.md#화면-구성-원칙)으로 점검하고, 위에서 아래로 나열만 된 곳이 있는지 PR의 검증 sticky comment에 적는다.
 - 다른 명령: `click <버튼 글자|css>`, `press <버튼 글자|css> [Key]`, `type <css|@N> <text>`, `select <css|@N> <value>`, `eval <expr>`, `shot <name> full`(페이지 전체). `@N`은 main 안 N번째 입력 칸(0부터)이다.
-- bootstrap 화면은 `node $B <run id> bootstrap <who>`로 몬다. `state.env`의 bootstrap token과 `users/<who>`(없으면 `web-user.mjs`와 같은 모양으로 만든다)로 폼 여섯 칸을 채워 제출하고, 값은 출력하지 않는다. 첫 제출은 `bootstrap owner -> /login?notice=created |`, 오너가 이미 있으면(`web-user.mjs bootstrap owner` 뒤 등) `bootstrap owner -> /bootstrap | <오류 줄 글자>`다. token과 비밀번호를 `type`으로 명령에 쓰지 않는다.
+- bootstrap 화면은 `node $B <run id> bootstrap <who>`로 몬다. `state.env`의 `VERIFY_SETUP_TOKEN`으로 `/bootstrap#setup=…`을 열고 `users/<who>`(없으면 `web-user.mjs`와 같은 모양으로 만든다)로 폼 다섯 칸을 채워 제출하며, 값은 출력하지 않는다. 첫 제출은 `bootstrap owner -> /login?notice=created |`, 링크를 이미 썼으면(`web-user.mjs bootstrap owner` 뒤 등) 폼 없이 `bootstrap owner -> /bootstrap | <화면 글자>`다. 링크와 비밀번호를 `type`으로 명령에 쓰지 않는다.
 - 포커스 회복(대화상자를 닫은 뒤, 보내기·삭제 뒤 포커스가 어디로 가는지)은 `press <버튼 글자|css> [Key]`로 본다. `click`은 `el.click()`이라 버튼에 포커스를 주지 않아, 키보드 사용자가 겪는 포커스 이동을 재현하지 못한다. `press`는 그 요소에 `focus()`를 한 뒤 CDP로 실제 키(기본 `Enter`)를 보내고, 끝난 뒤 `document.activeElement`(태그·이름·outline)를 출력한다. 찾지 못하면 `not found`, 찾았지만 포커스가 가지 않으면(disabled·숨김·포커스 불가 요소) `not focusable <태그> <글자>`만 출력하고 키를 보내지 않는다.
 
 Orca 브라우저(`orca tab`·`orca snapshot`)도 쓸 수 있다. 다른 스택이 같은 host에 로그인해 있으면 isolated profile(`orca tab profile create --scope isolated`)로 연다. 다만 Orca 탭이 hidden이면 `orca screenshot`이 "page did not draw a frame"으로 실패하고, 창 폭·color scheme·네트워크 실패를 바꾸지 못한다. 스크린샷·폭·상태 확인은 `browser.mjs`로 한다.
@@ -78,7 +78,7 @@ Orca 브라우저(`orca tab`·`orca snapshot`)도 쓸 수 있다. 다른 스택�
 - headless Chrome의 `--window-size=360,…`은 최소 창 폭(약 500px) 때문에 360px로 그려지지 않는다. `browser.mjs`는 창 크기 대신 device metrics를 바꿔서 390px도 그대로 그린다.
 - `__Host-werft_session`은 `Secure`지만 Chromium은 `http://127.0.0.1`을 안전한 origin으로 보아 cookie를 저장한다. 브라우저 profile이 run마다 따로라 다른 스택의 cookie와 섞이지 않는다.
 - `session-ended`를 몰려면 페이지에서 `fetch('/v1/auth/logout',{method:'POST',headers:{'x-requested-with':'werft-web'}})`로 세션을 끝내고, 30초(`me`의 staleTime) 뒤 `window.dispatchEvent(new Event('visibilitychange'))`로 포커스 복귀를 흉내 낸다. `document`에 보내면 React Query가 듣지 않는다.
-- bootstrap 완료 여부를 읽는 공개 GET이 없다. `/bootstrap`은 오너가 있어도 같은 폼("첫 오너 만들기")으로 열리고, 제출해야 409로 안다.
+- `/bootstrap`은 열 때 `POST /v1/auth/setup-link/check`로 링크를 확인한다(살아 있으면 204, 아니면 401). 오너가 생기면 링크가 모두 지워지므로 두 번째 방문은 "이 설정 링크는 쓸 수 없습니다"다.
 - `slowshot` 직후의 다음 명령은 페이지가 아직 불러오는 중일 수 있다. `open`으로 다시 연 뒤 이어 간다.
 - 화면 글자는 브라우저 언어를 따른다. `browser.mjs`의 Chrome은 OS 언어로 뜨므로(이 머신은 `navigator.languages` = `ko-KR,ko,…`) 이 map의 한국어 글자가 그대로 맞는다. 다른 언어로 첫 방문을 보려면 `start` 전에 `$VERIFY_RUN/browser/profile/Default/Preferences`를 `{"intl":{"accept_languages":"ja,en-US,en"}}`로 쓴다(Write 도구).
 - `click`은 보이는 글자만 맞춘다(`aria-label`은 보지 않는다). 글자 없는 버튼은 CSS로 누른다(예: `click '[aria-label="Slack 계정 연결"]'`).

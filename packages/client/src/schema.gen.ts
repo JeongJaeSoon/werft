@@ -90,6 +90,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/auth/setup-link/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Whether a setup link can still make the first owner
+         * @description The console asks this before it shows the first-owner form. A setup link is issued by the `setup-link` command only while no live owner exists, and stays valid for 24 hours, until it is used, or until the command issues a newer one. Does not spend the link.
+         *
+         *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
+         */
+        post: operations["checkSetupLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/bootstrap": {
         parameters: {
             query?: never;
@@ -101,7 +123,7 @@ export interface paths {
         put?: never;
         /**
          * Create the first owner and default workspace, or recover an owner
-         * @description Allowed only while no live owner exists (an owner whose account or membership is disabled is not live). On an installation that already has users it adds or restores the owner in the existing workspace, ignores workspace_name and workspace_slug, revokes every web session in the workspace and writes a `recover_owner` receipt. Each BOOTSTRAP_TOKEN works once per installation; a token presented while a live owner exists is spent. A wrong or spent token answers 401 before the owner state is looked at.
+         * @description Allowed only with a live setup link, which the `setup-link` command issues only while no live owner exists (an owner whose account or membership is disabled is not live). The link is spent in the same transaction that makes the owner. On an installation that already has users it adds or restores the owner in the existing workspace, ignores workspace_name and workspace_slug, revokes every web session in the workspace and writes a `recover_owner` receipt.
          *
          *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
          */
@@ -5660,13 +5682,16 @@ export interface components {
             };
         };
         BootstrapRequest: {
-            bootstrap_token: string;
+            setup_token: string;
             /** Format: email */
             email: string;
             password: string;
             display_name: string;
             workspace_name: string;
             workspace_slug: string;
+        };
+        SetupLinkCheckRequest: {
+            setup_token: string;
         };
         LoginRequest: {
             /** Format: email */
@@ -12270,6 +12295,111 @@ export interface operations {
             };
         };
     };
+    checkSetupLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "setup_token": "setup-link-token-from-the-setup-link-command"
+                 *     }
+                 */
+                "application/json": components["schemas"]["SetupLinkCheckRequest"];
+            };
+        };
+        responses: {
+            /** @description The link is live. */
+            204: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: The submitted credentials were rejected. The link is unknown, expired, replaced or already used. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
     bootstrap: {
         parameters: {
             query?: never;
@@ -12281,7 +12411,7 @@ export interface operations {
             content: {
                 /**
                  * @example {
-                 *       "bootstrap_token": "<the BOOTSTRAP_TOKEN printed at install>",
+                 *       "setup_token": "setup-link-token-from-the-setup-link-command",
                  *       "email": "owner@example.com",
                  *       "password": "correct horse battery staple",
                  *       "display_name": "Ada Owner",
@@ -12348,7 +12478,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `UNAUTHORIZED`: The submitted credentials were rejected. `bootstrap_token` is missing, does not match the installation's token, or was already used; checked first, before the owner state and the rest of the body. */
+            /** @description - `UNAUTHORIZED`: The submitted credentials were rejected. `setup_token` is missing, unknown, expired, replaced or already used; checked first, before the rest of the body. */
             401: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -12378,7 +12508,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `BOOTSTRAP_DONE`: An owner already exists; bootstrap runs once. A live owner exists, checked only after the token matched (the token is then spent); also the answer to the loser of two concurrent bootstraps. */
+            /** @description - `BOOTSTRAP_DONE`: An owner already exists; bootstrap runs once. The loser of two concurrent bootstraps with the same link: the other one made the owner. */
             409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

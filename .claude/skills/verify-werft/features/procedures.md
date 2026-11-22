@@ -59,7 +59,7 @@ ap_web GET /v1/auth/login-methods
 ap_web POST /v1/auth/providers/00000000-0000-4000-8000-000000000000/start '{}'
 ```
 
-기대: 처음 `/login?redirect=%2F`, “로그인이 필요합니다”. 잘못된 bootstrap 401, 첫 bootstrap 201, 두 번째 409 `BOOTSTRAP_DONE`. 잘못된 로그인 401, CSRF 없는 로그인 403. 이미 owner가 있는 화면 bootstrap은 “이미 오너가 있습니다” 오류와 로그인 링크. 화면 로그인은 `/`. API 로그인 200, me 200과 `principal`·`user`·`workspace`·`permissions`·`scopes`. login-methods는 `{"password":"on","providers":[]}`, 없는 공급자의 start는 404. 기본 run에서는 공급자 로그인의 성공 콜백을 검증하지 않는다. 공급자 버튼은 [web-settings.md](web-settings.md) 1로 띄운다.
+기대: 처음 `/login?redirect=%2F`, “로그인이 필요합니다”. 잘못된 bootstrap 401, 첫 bootstrap 201, 두 번째 401(쓴 링크). 잘못된 로그인 401, CSRF 없는 로그인 403. 이미 owner가 있는 화면 bootstrap은 폼 없이 “이 설정 링크는 쓸 수 없습니다”와 로그인 화면으로 가는 버튼. 화면 로그인은 `/`. API 로그인 200, me 200과 `principal`·`user`·`workspace`·`permissions`·`scopes`. login-methods는 `{"password":"on","providers":[]}`, 없는 공급자의 start는 404. 기본 run에서는 공급자 로그인의 성공 콜백을 검증하지 않는다. 공급자 버튼은 [web-settings.md](web-settings.md) 1로 띄운다.
 
 ```sh
 # Actor: owner.

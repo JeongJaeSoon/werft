@@ -14,6 +14,14 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **`BOOTSTRAP_TOKEN`·`BOOTSTRAP_TOKEN_FILE` 환경 값과 Helm `secrets.bootstrapToken`이 없어졌다. 첫 owner는 운영자가 받은 일회용 설정 링크로 만든다**(JeongJaeSoon/werft#1979).
+  - Helm values에 `secrets.bootstrapToken`이 남아 있으면(`true`든 `false`든) render가 멈춘다. values에서 지우고 Secret의 `BOOTSTRAP_TOKEN`도 지운다.
+  - compose·test-ops env 파일의 `BOOTSTRAP_TOKEN`은 어느 컨테이너에도 가지 않는다. 지운다.
+  - 링크는 live owner가 없을 때만 `bun run apps/control-host/src/api/setup-link.ts`(api 컨테이너·Pod 안. test-ops는 `scripts/test-ops.sh setup-link`)가 stdout에 한 번 출력한다. 로그나 파일에는 남지 않는다. 24시간 뒤 만료되고, 다시 실행하면 앞 링크는 무효가 된다. `scripts/test-ops.sh bootstrap-token`은 `setup-link`로 바뀌었다.
+  - `POST /v1/auth/bootstrap` 본문의 `bootstrap_token`이 `setup_token`으로 바뀌었다. 옛 필드만 보낸 요청은 `401`이다. 링크를 확인하는 공개 route `POST /v1/auth/setup-link/check`(살아 있으면 `204`, 아니면 `401`)가 더해졌다.
+  - 로그인 화면의 첫 owner 링크가 없어졌다. `/bootstrap`은 살아 있는 링크로 열었을 때만 폼을 보인다.
+  - owner를 모두 잃었을 때의 복구도 같은 링크로 한다. migration `0300_setup_links`가 `setup_links` 표를 더한다. 쓴 토큰을 적던 `bootstrap_token_uses` 표는 더 읽거나 쓰지 않고 남겨 둔다.
+  - rolling deploy 중 옛 replica는 링크를 모르고 새 replica는 옛 토큰을 받지 않는다. 첫 owner 만들기와 복구는 모든 api가 새 이미지로 바뀐 뒤에 한다.
 - **에이전트 slug 유일 색인이 지우지 않은 에이전트만 보는 부분 색인(`WHERE deleted_at IS NULL`)으로 바뀐다. 그래서 rolling deploy 중이나 되돌린 뒤 옛 코드에서는 에이전트 생성이 실패한다**(JeongJaeSoon/werft#1807).
   - 원인: 옛 replica의 `ON CONFLICT`에는 `WHERE`가 없어서 PostgreSQL이 맞는 색인을 찾지 못한다.
   - 대처: 모든 api replica가 새 이미지로 바뀔 때까지 에이전트를 만들지 않는다.
@@ -39,7 +47,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 사용 중지한 연결·MCP 서버가 아직 env나 Secrets Manager를 가리키면 올린 뒤 다시 켤 수 없다. 콘솔은 사용 중지한 행의 키를 받지 않고, 키 없는 행을 켜지 않는다. 그 연결을 계속 쓰려면 올리기 전에 켜고 **화면에서 키 넣기**로 키를 넣는다. MCP 서버는 올리기 전에 켜 두고 올린 뒤 키를 넣는다. 아니면 올린 뒤 새 id로 연결이나 서버를 만든다. id는 다시 쓰지 않는다.
   - migration `0288_remove_external_credentials`가 env·Secrets Manager를 가리키던 행을 값 없는 저장 행(`needs_value`)으로 바꾼다. 옛 `auth`는 `carried_auth`에 기록으로만 남는다. 명시적 App 저장소의 binding이 바뀌므로, worker 저장소 토큰의 binding은 같은 migration이 새 binding으로 옮기고, push 요청의 binding은 그 저장소의 키를 넣을 때 옮긴다(push 요청 표는 커지는 표라 migration 안에서 고치지 않는다). 키를 넣기 전에는 올리기 전에 만든 push에서 PR을 열 수 없다. 앞선 api replica가 받은 키는 push를 옮기지 않으므로, 저장소 App 키는 모든 api가 새 이미지로 바뀐 뒤 넣는다(먼저 넣었다면 한 번 더 넣는다). 키를 넣을 때까지 `needs_value` 행을 쓰는 세션은 돌지 않는다. 연결과 MCP 서버는 콘솔에서, 저장소 App 키는 `POST /v1/installation/settings/repositories/{id}/credential`(owner·admin, RSA 개인 키 PEM, 웹 화면 없음)로 넣는다.
   - 설정 문서의 `value_env`·`secret_id` 항목은 다시 가져오기 전에 `"stored": true`로 바꾼다. 가져오기(API, CLI, `--from-dir`)는 그 필드를 `400 invalid_document`로 거절하고, CLI는 필드 이름을 적는다.
-  - Helm values에서 `secrets.catalogEnv`와 `config.aws.secretsManagerEndpointUrl`을 지운다. 남아 있으면 render가 멈춘다. `catalogEnv`에 `BOOTSTRAP_TOKEN`을 넣었다면 대신 `secrets.bootstrapToken: true`를 둔다(api가 Secret에서 읽는다).
+  - Helm values에서 `secrets.catalogEnv`와 `config.aws.secretsManagerEndpointUrl`을 지운다. 남아 있으면 render가 멈춘다. `catalogEnv`에 `BOOTSTRAP_TOKEN`을 넣었다면 그것도 지운다(첫 owner는 설정 링크로 만든다. 위 항목).
   - compose의 api env에서 연결 키 변수(`ANTHROPIC_API_KEY` 등)와 `AWS_ENDPOINT_URL_SECRETS_MANAGER`를 지운다.
   - 키 없이는 저장하지 않는다. 콘솔은 8자를 넣기 전까지 저장 버튼을 켜지 않고, API는 8바이트 미만이거나 제어 문자·앞뒤 공백이 있는 값을 `400`으로 거절하며, DB도 CHECK와 trigger로 막는다. 연결 화면의 "화면에서 키 넣기" 버튼과 `POST /v1/installation/settings/connections/{id}/convert`는 없어졌다. v0.3.0의 0285 되돌리기 SQL은 이 릴리스 뒤에는 쓸 수 없다([외부 자격 증명 출처를 없앤 릴리스](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose#외부-자격-증명-출처를-없앤-릴리스)).
 

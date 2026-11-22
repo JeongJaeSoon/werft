@@ -44,8 +44,9 @@ import {
   releaseIn,
   sessionReleases,
 } from "../testing/releases.ts";
+import { liveSetupToken } from "../testing/setup-link.ts";
 import { createApiApp } from "./app.ts";
-import { createBootstrapGate, DatabaseIdentityStore } from "./auth.ts";
+import { DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -57,7 +58,6 @@ import { registerSessionRoutes } from "./routes/sessions/sessions.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
-const BOOTSTRAP_TOKEN = "integration-bootstrap-token-0123456789";
 const PASSWORD = "an adequately long password";
 const KEEPALIVE_MS = 300;
 const ALL = [...SESSION_SCOPE_VALUES] as SessionScope[];
@@ -79,7 +79,6 @@ integration("members and actors over HTTP on PostgreSQL", () => {
     const logger = new StructuredLogger({ sinks: [sink] });
     const auth = {
       identity,
-      bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
       passwords: new PasswordChecks(),
       logger,
     };
@@ -251,7 +250,7 @@ integration("members and actors over HTTP on PostgreSQL", () => {
 
   test("setup: an owner, a member, and their cookies", async () => {
     const boot = await post("/v1/auth/bootstrap", {
-      bootstrap_token: BOOTSTRAP_TOKEN,
+      setup_token: await liveSetupToken(db),
       email: "owner@example.com",
       password: PASSWORD,
       display_name: "Owner",

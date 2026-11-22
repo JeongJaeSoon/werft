@@ -34,9 +34,9 @@ import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { liveSetupToken } from "../testing/setup-link.ts";
 import { createApiApp } from "./app.ts";
 import {
-  createBootstrapGate,
   DatabaseIdentityStore,
   hashPassword,
   hashWebSessionToken,
@@ -55,7 +55,6 @@ import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
-const BOOTSTRAP_TOKEN = "integration-bootstrap-token-0123456789";
 const PASSWORD = "an adequately long password";
 const browser = { [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE };
 
@@ -74,7 +73,6 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
     const passwords = new PasswordChecks(undefined, new WorkGate(8, 8));
     const auth = {
       identity,
-      bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
       passwords,
     };
     const authorization = createAuthorizationPolicy({
@@ -192,7 +190,7 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
 
   test("setup: an owner and their cookie", async () => {
     const boot = await send("POST", "/v1/auth/bootstrap", {
-      bootstrap_token: BOOTSTRAP_TOKEN,
+      setup_token: await liveSetupToken(db),
       email: "owner@example.com",
       password: PASSWORD,
       display_name: "Owner",

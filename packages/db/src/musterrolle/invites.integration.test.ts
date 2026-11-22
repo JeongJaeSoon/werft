@@ -35,6 +35,7 @@ import {
 } from "../schema.ts";
 import { fixtureTeam } from "../testing/fixture-team.ts";
 import { allowFor, memberManageAllow } from "../testing/member-manage-allow.ts";
+import { liveSetupLinkHash } from "../testing/setup-link.ts";
 import { bootstrapOwner, createWebSession } from "./identity.ts";
 import { createPostgresInviteStore } from "./invites.ts";
 
@@ -1103,7 +1104,7 @@ integration("invites across owner recovery on PostgreSQL", () => {
       workspaceId: randomUUID(),
       workspaceSlug: "unused",
       workspaceName: "unused",
-      bootstrapTokenHash: hashOf("recovery token"),
+      setupTokenHash: await liveSetupLinkHash(db),
       receiptId: randomUUID(),
       loginMethodId: randomUUID(),
     });
@@ -1185,7 +1186,7 @@ integration("owner recovery racing an owner invite on PostgreSQL", () => {
         workspaceId: randomUUID(),
         workspaceSlug: "unused",
         workspaceName: "unused",
-        bootstrapTokenHash: hashOf("second recovery token"),
+        setupTokenHash: await liveSetupLinkHash(db),
         receiptId: randomUUID(),
         loginMethodId: randomUUID(),
       });

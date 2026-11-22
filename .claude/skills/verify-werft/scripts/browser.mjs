@@ -9,7 +9,8 @@
 //   browser.mjs <run> open <path|url>            prints path and title
 //   browser.mjs <run> login <who> [--here] | accept <who>  web-user.mjs credentials, typed, never printed
 //   browser.mjs <run> invite <who>               opens <who>'s invite page and stops there
-//   browser.mjs <run> bootstrap <who>            /bootstrap form from state.env's token and users/<who>
+//   browser.mjs <run> setup-link                 opens state.env's setup link (/bootstrap#setup=…), no submit
+//   browser.mjs <run> bootstrap <who>            the setup link's form, filled from users/<who> and submitted
 //   browser.mjs <run> shot <name> [full]         evidence/<name>.png, prints scrollWidth/innerWidth
 //   browser.mjs <run> mockshot <path> <responses.json> <name> [full]   GET response fixtures, explicitly recorded
 //   browser.mjs <run> blockshot <path> <url pattern> <name>   that request fails (error state)
@@ -402,9 +403,20 @@ switch (cmd) {
     console.log(`invite ${args[0]} -> ${await here()}`);
     break;
   }
+  case "setup-link": {
+    // Only opens state.env's setup link, for a capture before `bootstrap`
+    // submits; the link is checked, not used. The token stays off argv.
+    if (!state.VERIFY_SETUP_TOKEN)
+      throw new Error(
+        "no setup link in state.env: the stack had an owner at up",
+      );
+    await navigate(`/bootstrap#setup=${state.VERIFY_SETUP_TOKEN}`);
+    console.log(`setup-link -> ${await here()}`);
+    break;
+  }
   case "bootstrap": {
     // Like web-user.mjs bootstrap: the first use makes users/<who>; a later
-    // one reuses it, so a second submit shows the 409 screen.
+    // one reuses it, and the spent link shows the unusable-link screen.
     const file = userFile(args[0]);
     if (!existsSync(file)) {
       mkdirSync(join(run, "users"), { recursive: true, mode: 0o700 });
@@ -418,8 +430,20 @@ switch (cmd) {
       );
     }
     const c = JSON.parse(readFileSync(file, "utf8"));
-    await navigate("/bootstrap");
-    await fill("input[name=bootstrap_token]", state.VERIFY_BOOTSTRAP_TOKEN);
+    // The link up.sh took; the fragment never reaches a log or `here`.
+    if (!state.VERIFY_SETUP_TOKEN)
+      throw new Error(
+        "no setup link in state.env: the stack had an owner at up",
+      );
+    await navigate(`/bootstrap#setup=${state.VERIFY_SETUP_TOKEN}`);
+    if (!(await evaluate("!!document.querySelector('input[name=email]')"))) {
+      console.log(
+        `bootstrap ${args[0]} -> ${await here()} | ${await evaluate(
+          "(document.querySelector('main')?.innerText ?? '').replace(/\\s+/g, ' ')",
+        )}`,
+      );
+      break;
+    }
     await fill("input[name=email]", c.email);
     await fill(
       "input[name=display_name]",

@@ -4,9 +4,6 @@ export const authKo = {
   "login.password": "비밀번호",
   "login.submit": "로그인",
   "login.submitting": "로그인하는 중…",
-  "login.bootstrapPrompt":
-    "첫 오너는 설치 때 출력된 bootstrap 토큰으로 한 번만 만들 수 있습니다.",
-  "login.bootstrapLink": "첫 오너 만들기",
   "login.notice.bootstrapDone":
     "이미 오너가 있습니다. 그 계정으로 로그인하세요.",
   "login.notice.loggedOut": "로그아웃했습니다.",
@@ -34,8 +31,7 @@ export const authKo = {
 
   "bootstrap.title": "첫 오너 만들기",
   "bootstrap.intro":
-    "이 설치를 처음 설정할 때 첫 오너와 워크스페이스를 만드는 화면입니다. 설치 때 출력된 bootstrap 토큰이 필요하고, 이미 오너가 있으면 만들어지지 않습니다.",
-  "bootstrap.token": "Bootstrap 토큰",
+    "이 설치의 첫 오너와 워크스페이스를 만듭니다. 이 설정 링크는 한 번만 쓸 수 있습니다.",
   "bootstrap.email": "오너 이메일",
   "bootstrap.displayName": "이름",
   "bootstrap.password": "비밀번호",
@@ -46,10 +42,14 @@ export const authKo = {
     "워크스페이스를 서로 구분하는 이름이라 다른 워크스페이스와 겹칠 수 없고, 나중에 바꿀 수 없습니다. 영문 소문자, 숫자, 하이픈(-)",
   "bootstrap.submit": "오너 만들기",
   "bootstrap.submitting": "만드는 중…",
-  "bootstrap.tokenInvalid":
-    "Bootstrap 토큰이 맞지 않습니다 — 설치 때 출력된 값을 그대로 넣으세요.",
   "bootstrap.loginLink": "이미 오너가 있다면 로그인",
   "bootstrap.ownerExistsLogin": "로그인하기",
+  "bootstrap.linkMissing.title": "설정 링크로 열어야 합니다",
+  "bootstrap.linkMissing.body":
+    "첫 오너는 운영자가 setup-link 명령으로 만든 일회용 설정 링크로만 만들 수 있습니다. 그 링크를 그대로 여세요.",
+  "bootstrap.linkInvalid.title": "이 설정 링크는 쓸 수 없습니다",
+  "bootstrap.linkInvalid.body":
+    "이미 썼거나, {hours}시간이 지났거나, 더 새 링크로 바뀌었습니다. 아직 오너가 없다면 운영자에게 setup-link 명령을 다시 실행해 달라고 하세요.",
 
   "invite.title": "초대 수락",
   "invite.intro":
@@ -116,9 +116,6 @@ export const authEn: Record<keyof typeof authKo, string> = {
   "login.password": "Password",
   "login.submit": "Log in",
   "login.submitting": "Logging in…",
-  "login.bootstrapPrompt":
-    "The first owner is created once, with the bootstrap token printed during installation.",
-  "login.bootstrapLink": "Create the first owner",
   "login.notice.bootstrapDone":
     "An owner already exists. Log in with that account.",
   "login.notice.loggedOut": "You are logged out.",
@@ -146,8 +143,7 @@ export const authEn: Record<keyof typeof authKo, string> = {
 
   "bootstrap.title": "Create the first owner",
   "bootstrap.intro":
-    "Use this screen when you first set up this installation, to create the first owner and the workspace. You need the bootstrap token printed during installation. If an owner already exists, nothing is created.",
-  "bootstrap.token": "Bootstrap token",
+    "Create the first owner and the workspace of this installation. This setup link works once.",
   "bootstrap.email": "Owner email",
   "bootstrap.displayName": "Name",
   "bootstrap.password": "Password",
@@ -158,10 +154,14 @@ export const authEn: Record<keyof typeof authKo, string> = {
     "Tells workspaces apart, so no other workspace can use it, and it cannot be changed later. Lowercase letters, digits and hyphens (-)",
   "bootstrap.submit": "Create owner",
   "bootstrap.submitting": "Creating…",
-  "bootstrap.tokenInvalid":
-    "The bootstrap token is wrong — paste the value printed at install.",
   "bootstrap.loginLink": "Already have an owner? Log in",
   "bootstrap.ownerExistsLogin": "Log in",
+  "bootstrap.linkMissing.title": "Open this page from a setup link",
+  "bootstrap.linkMissing.body":
+    "The first owner can only be created from the one-time setup link an operator makes with the setup-link command. Open that link as it is.",
+  "bootstrap.linkInvalid.title": "This setup link can't be used",
+  "bootstrap.linkInvalid.body":
+    "It was already used, is more than {hours} hours old, or a newer link replaced it. If there is no owner yet, ask an operator to run the setup-link command again.",
 
   "invite.title": "Accept invite",
   "invite.intro":
@@ -230,9 +230,6 @@ export const authJa: Record<keyof typeof authKo, string> = {
   "login.password": "パスワード",
   "login.submit": "ログイン",
   "login.submitting": "ログイン中…",
-  "login.bootstrapPrompt":
-    "最初のオーナーは、インストール時に出力された bootstrap トークンで一度だけ作成できます。",
-  "login.bootstrapLink": "最初のオーナーを作成",
   "login.notice.bootstrapDone":
     "オーナーはすでに存在します。そのアカウントでログインしてください。",
   "login.notice.loggedOut": "ログアウトしました。",
@@ -261,8 +258,7 @@ export const authJa: Record<keyof typeof authKo, string> = {
 
   "bootstrap.title": "最初のオーナーを作成",
   "bootstrap.intro":
-    "このインストールの初期設定で、最初のオーナーとワークスペースを作成する画面です。インストール時に出力された bootstrap トークンが必要です。オーナーがすでに存在する場合は作成されません。",
-  "bootstrap.token": "bootstrap トークン",
+    "このインストールの最初のオーナーとワークスペースを作成します。この設定リンクは一度だけ使えます。",
   "bootstrap.email": "オーナーのメールアドレス",
   "bootstrap.displayName": "名前",
   "bootstrap.password": "パスワード",
@@ -273,10 +269,14 @@ export const authJa: Record<keyof typeof authKo, string> = {
     "ワークスペースを区別する名前のため、ほかのワークスペースと重複できず、あとから変更できません。英小文字・数字・ハイフン（-）",
   "bootstrap.submit": "オーナーを作成",
   "bootstrap.submitting": "作成中…",
-  "bootstrap.tokenInvalid":
-    "bootstrap トークンが正しくありません。インストール時に出力された値をそのまま入力してください。",
   "bootstrap.loginLink": "オーナーがすでにいる場合はログイン",
   "bootstrap.ownerExistsLogin": "ログイン",
+  "bootstrap.linkMissing.title": "設定リンクから開いてください",
+  "bootstrap.linkMissing.body":
+    "最初のオーナーは、運用者が setup-link コマンドで作る一回限りの設定リンクからのみ作成できます。そのリンクをそのまま開いてください。",
+  "bootstrap.linkInvalid.title": "この設定リンクは使えません",
+  "bootstrap.linkInvalid.body":
+    "すでに使われたか、{hours}時間が過ぎたか、新しいリンクに置き換えられました。まだオーナーがいない場合は、運用者に setup-link コマンドをもう一度実行してもらってください。",
 
   "invite.title": "招待を承諾",
   "invite.intro":

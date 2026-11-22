@@ -1,4 +1,4 @@
-import { Api, type E2eEnv, firstOwnerCookie } from "../e2e/client.ts";
+import { Api, type E2eEnv, e2eOwnerCookie } from "../e2e/client.ts";
 import type { EngineFixture } from "./engine.ts";
 
 /**
@@ -17,9 +17,7 @@ export async function pushAgent(
 ): Promise<PushAgent> {
   // A stack kept between runs still holds the earlier team and agent.
   const unique = `${name}-${crypto.randomUUID().slice(0, 6)}`;
-  const token = process.env.E2E_BOOTSTRAP_TOKEN;
-  if (!token) throw new Error("E2E_BOOTSTRAP_TOKEN is unset");
-  const cookie = await firstOwnerCookie(env.apiUrl, token);
+  const cookie = await e2eOwnerCookie(env.apiUrl);
   const web = async <T>(
     method: string,
     path: string,

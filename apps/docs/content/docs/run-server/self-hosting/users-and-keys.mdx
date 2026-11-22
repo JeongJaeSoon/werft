@@ -13,13 +13,13 @@ outcome: "사용자별 인증 수단과 실행 권한을 발급한다"
 
 ## 준비물
 
-[설치](/run-server/self-hosting)와 [접속 경로](/run-server/self-hosting/access)가 준비돼 있어야 한다. bootstrap 토큰과 로그는 운영자만 읽는다. Kubernetes는 여러 replica가 동일한 BOOTSTRAP_TOKEN을 받도록 Secret에 토큰을 두고 `secrets.bootstrapToken: true`를 설정한다.
+[설치](/run-server/self-hosting)와 [접속 경로](/run-server/self-hosting/access)가 준비돼 있어야 한다. 설정 링크는 운영자만 받아 다룬다.
 
 ## 단계
 
 ### 1. 첫 owner 만들기
 
-브라우저의 `/bootstrap`에 고정한 BOOTSTRAP_TOKEN, owner 정보, workspace 이름을 넣는다. 토큰을 설정하지 않은 test-ops 단일 API 설치에서는 `scripts/test-ops.sh bootstrap-token`이 자동 생성된 토큰을 한 번 출력한다. 다시 실행하면 토큰을 내지 않는다. 컨테이너 로그를 읽지 않는다. 다른 단일 API 구성(`scripts/local.sh` 등)은 API 시작 로그(`docker logs <this-installation-api-container-id>`)에 나온다. 기본 replica 2개인 Kubernetes에서는 자동 생성에 의존하지 말고 Secret의 고정 토큰을 사용한다. 첫 owner가 생긴 뒤 같은 토큰을 재사용하면 `409 BOOTSTRAP_DONE`이다. `/login`으로 로그인한다.
+운영자가 설치 쪽에서 일회용 설정 링크를 받는다. test-ops 단일 서버는 `scripts/test-ops.sh setup-link`, Kubernetes는 `kubectl -n werft exec deploy/werft-api -- bun run apps/control-host/src/api/setup-link.ts`, 그 밖의 compose 구성은 `docker compose --profile apps exec -T api bun run apps/control-host/src/api/setup-link.ts`다. 명령은 live owner가 없을 때만 링크를 stdout에 한 번 출력하고, 로그나 파일에는 남기지 않는다. `CONSOLE_ORIGIN`이 있으면 그 주소를 붙인 URL, 없으면 `/bootstrap#setup=…` 경로만 나오니 콘솔 주소 뒤에 붙인다. 링크를 브라우저로 열고 owner 정보와 workspace 이름을 넣는다. 링크는 한 번 쓰면 바로 무효이고 24시간 뒤 만료된다. 다시 실행하면 앞 링크는 무효가 되고 새 링크가 나온다. owner가 있으면 명령은 링크를 만들지 않고 종료 코드 1로 끝난다. `/login`으로 로그인한다.
 
 ### 2. 사용자별 key 발급
 
@@ -69,7 +69,7 @@ API_CONTAINER는 이 설치의 status와 Docker project label로 확인한 API �
 
 ## 자주 막히는 곳
 
-replica별 자동 bootstrap 토큰이 다르면 요청이 다른 Pod에 닿아 401이 날 수 있다. 고정 토큰을 모든 Pod에 전달한다. Secret에 이름이 빠져 있으면 Pod가 시작하지 않는다. CLI의 owner id에 workspace id를 넣지 않는다.
+링크가 "이 설정 링크는 쓸 수 없습니다"로 열리면 이미 썼거나, 24시간이 지났거나, 명령을 다시 실행해 바뀐 것이다. owner가 없으면 명령을 다시 실행해 새 링크를 받는다. CLI의 owner id에 workspace id를 넣지 않는다.
 
 ## 되돌리기
 

@@ -13,8 +13,8 @@
 #                                              stop, a compose down, or a host restart that left it down
 #   scripts/test-ops.sh status                  containers, release, /readyz, scheduler and reconciler health, disk
 #   scripts/test-ops.sh key create <owner> --scopes <scope>[,<scope>...] | key revoke <key_id>
-#   scripts/test-ops.sh bootstrap-token         print the first owner's bootstrap token once, when the
-#                                              env file sets no BOOTSTRAP_TOKEN; a second run prints nothing
+#   scripts/test-ops.sh setup-link              print a one-time link that creates the first owner, only
+#                                              while no owner exists; running it again replaces the link
 #   scripts/test-ops.sh backup [--stop]         stop admissions and writers, scripts/backup.sh, reopen
 #                                              (--stop: leave them stopped, before a planned restart)
 #   scripts/test-ops.sh restore-drill <backup-dir> [--bucket <new-empty-bucket>] [--port-base 25432] [--keep]
@@ -27,7 +27,7 @@
 #                                              print the deploy manifest of a GitHub Release's manifest
 #
 # From the release bundle (werft-test-ops-<tag>.tar.gz, no checkout, no host
-# bun) preflight, deploy, start, stop, status, key, bootstrap-token, reset and manifest run; the
+# bun) preflight, deploy, start, stop, status, key, setup-link, reset and manifest run; the
 # helper runs in the release's own control-host image. upgrade, backup,
 # reseed and restore-drill need the checkout at the release's source_commit.
 #
@@ -140,7 +140,7 @@ case "$VERB" in
       esac
     done
     ;;
-  status|start|stop|bootstrap-token)
+  status|start|stop|setup-link)
     [ $# -eq 0 ] || usage
     ;;
   backup)
@@ -748,7 +748,7 @@ deploy() {
   start_apps
   settings_applied
   record_release "$MANIFEST" deploy
-  log "deploy: done — the first owner's token (once; not needed when the env file sets BOOTSTRAP_TOKEN): scripts/test-ops.sh bootstrap-token"
+  log "deploy: done — the link that creates the first owner: scripts/test-ops.sh setup-link"
   log "deploy: then issue a key with scripts/test-ops.sh key create <owner> --scopes sessions:read,sessions:write"
 }
 
@@ -875,13 +875,13 @@ key() {
   ops_compose exec -T api bun run apps/control-host/src/api/keys.ts "$@" </dev/null
 }
 
-# The token is read out of the API container and deleted there by the same
-# command, so it reaches this terminal once and no log ever holds it.
-bootstrap_token() {
+# The link is made inside the API container and printed to this terminal
+# alone; no log holds it.
+setup_link() {
   load_current
   render
   check_identity
-  ops_compose exec -T api bun run apps/control-host/src/api/bootstrap-token-file.ts </dev/null
+  ops_compose exec -T api bun run apps/control-host/src/api/setup-link.ts </dev/null
 }
 
 backup() {
@@ -1091,7 +1091,7 @@ case "$VERB" in
   stop) stop ;;
   status) status_report ;;
   key) key "$@" ;;
-  bootstrap-token) bootstrap_token ;;
+  setup-link) setup_link ;;
   backup) backup ;;
   restore-drill) restore_drill ;;
   reseed) reseed ;;

@@ -3,7 +3,6 @@ import {
   BootstrapDoneError,
   type BootstrapInput,
   type BootstrapResult,
-  BootstrapTokenSpentError,
   type ConsumePasswordResetInput,
   type ExternalSignInInput,
   type ExternalSignInResult,
@@ -16,6 +15,7 @@ import {
   type LiveMembership,
   type MembershipRole,
   type ResolvedWebSession,
+  SetupLinkInvalidError,
 } from "@werft-ai/platform";
 import {
   and,
@@ -37,7 +37,6 @@ import { DB_NOW, fromDbNow } from "../db-clock.ts";
 import { ensureInstalledRepositoryCeiling } from "../github/index.ts";
 import type { Database } from "../queries.ts";
 import {
-  bootstrapTokenUses,
   invites,
   loginMethods,
   loginProviders,
@@ -45,6 +44,7 @@ import {
   memberships,
   passwordResets,
   receipts,
+  setupLinks,
   users,
   webSessions,
   workspaces,
@@ -68,6 +68,9 @@ export async function countUsers(db: Database): Promise<number> {
     .from(users);
   return Number(row?.count ?? 0);
 }
+
+// The epoch a setup link must still carry to work (setupLinks in schema.ts).
+const CURRENT_EPOCH = sql`(SELECT last_value FROM setup_link_epoch)`;
 
 // A disabled account and a disabled membership both leave nobody able to
 // act as owner, so either one makes the owner "not live".
@@ -107,13 +110,20 @@ export async function bootstrapOwner(
     // Ahead of the invite and user rows (design 5.6); written at the end.
     await lockLoginSettings(tx, "update");
     const [spent] = await tx
-      .insert(bootstrapTokenUses)
-      .values({ tokenHash: input.bootstrapTokenHash })
-      .onConflictDoNothing()
-      .returning({ tokenHash: bootstrapTokenUses.tokenHash });
+      .delete(setupLinks)
+      .where(
+        and(
+          eq(setupLinks.tokenHash, input.setupTokenHash),
+          gt(setupLinks.expiresAt, DB_NOW),
+          eq(setupLinks.epoch, CURRENT_EPOCH),
+        ),
+      )
+      .returning({ tokenHash: setupLinks.tokenHash });
     if (!spent) {
-      throw new BootstrapTokenSpentError();
+      throw new SetupLinkInvalidError();
     }
+    // Any other link dies with the owner it would have made.
+    await tx.delete(setupLinks);
     const [existing] = await tx
       .select()
       .from(workspaces)
@@ -272,14 +282,49 @@ export async function bootstrapOwner(
   });
 }
 
-export async function retireBootstrapToken(
+/**
+ * Under the bootstrap lock, so a link cannot be issued after a bootstrap
+ * that made an owner has read the count but before it commits. An owner made
+ * live some other way is not locked out here: the link only works while no
+ * live owner exists, and losing that owner later advances the epoch the link
+ * carries, so it never reopens recovery.
+ */
+export async function issueSetupLink(
   db: Database,
   tokenHash: Uint8Array,
-): Promise<void> {
-  await db
-    .insert(bootstrapTokenUses)
-    .values({ tokenHash })
-    .onConflictDoNothing();
+  ttlMs: number,
+): Promise<"issued" | "owner_exists"> {
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext('auth.bootstrap'))`,
+    );
+    if ((await countLiveOwners(tx)) > 0) {
+      return "owner_exists";
+    }
+    await tx.delete(setupLinks);
+    await tx
+      .insert(setupLinks)
+      .values({ tokenHash, expiresAt: fromDbNow(ttlMs), epoch: CURRENT_EPOCH });
+    return "issued";
+  });
+}
+
+export async function setupLinkIsLive(
+  db: Database,
+  tokenHash: Uint8Array,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ tokenHash: setupLinks.tokenHash })
+    .from(setupLinks)
+    .where(
+      and(
+        eq(setupLinks.tokenHash, tokenHash),
+        gt(setupLinks.expiresAt, DB_NOW),
+        eq(setupLinks.epoch, CURRENT_EPOCH),
+      ),
+    );
+  // An owner made live while the link was out: bootstrap would refuse it too.
+  return row !== undefined && (await countLiveOwners(db)) === 0;
 }
 
 /**

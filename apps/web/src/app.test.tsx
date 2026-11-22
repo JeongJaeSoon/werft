@@ -87,7 +87,7 @@ describe("상태 화면", () => {
       await screen.findByRole("heading", { name: "첫 오너 만들기" }),
     ).toBeDefined();
     expect(screen.queryByText("아직 오너가 없습니다")).toBeNull();
-    expect(screen.getAllByText(/설치 때 출력된/)).toHaveLength(1);
+    expect(screen.getAllByText(/setup-link 명령/)).toHaveLength(1);
     expect(screen.queryByText("로그인이 필요합니다")).toBeNull();
     expect(screen.queryByText("이 화면을 볼 권한이 없습니다")).toBeNull();
   });
@@ -286,13 +286,16 @@ describe("로그인", () => {
 });
 
 describe("bootstrap", () => {
+  const SETUP_TOKEN = "s".repeat(43);
+  const LINK = `/bootstrap#setup=${SETUP_TOKEN}`;
+  const live = () => new Response(null, { status: 204 });
+
   async function fill() {
     const user = await setupUser();
     await user.type(
-      await screen.findByLabelText("Bootstrap 토큰"),
-      "t".repeat(40),
+      await screen.findByLabelText("오너 이메일"),
+      "owner@example.com",
     );
-    await user.type(screen.getByLabelText("오너 이메일"), "owner@example.com");
     await user.type(screen.getByLabelText("이름"), "Owner");
     await user.type(screen.getByLabelText("비밀번호"), "correct horse battery");
     await user.type(screen.getByLabelText("워크스페이스 이름"), "Acme");
@@ -303,8 +306,50 @@ describe("bootstrap", () => {
     await user.click(screen.getByRole("button", { name: "오너 만들기" }));
   }
 
+  test("설정 링크 없이 열면 폼 없이 링크가 필요하다고만 한다", async () => {
+    const { api } = renderAt("/bootstrap", {});
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "설정 링크로 열어야 합니다",
+    );
+    expect(screen.queryByLabelText("오너 이메일")).toBeNull();
+    expect(callsTo(api.calls, "/v1/auth/setup-link/check")).toEqual([]);
+  });
+
+  for (const [status, code, message] of [
+    [401, "UNAUTHORIZED", "Setup link is unknown"],
+    [400, "BAD_REQUEST", "Request body is invalid"],
+  ] as const) {
+    test(`쓸 수 없는 링크(${status})는 폼과 다시 시도 없이 다시 받는 법을 알린다`, async () => {
+      renderAt(LINK, {
+        "POST /v1/auth/setup-link/check": () => apiError(status, code, message),
+      });
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("이 설정 링크는 쓸 수 없습니다");
+      expect(alert.textContent).toContain("24시간");
+      expect(screen.queryByLabelText("오너 이메일")).toBeNull();
+      expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull();
+      expect(
+        screen
+          .getByRole("link", { name: "로그인 화면으로" })
+          .getAttribute("href"),
+      ).toBe("/login");
+    });
+  }
+
+  test("링크를 확인한 뒤에야 폼을 보이고, 토큰 칸은 없다", async () => {
+    const { api } = renderAt(LINK, {
+      "POST /v1/auth/setup-link/check": live,
+    });
+    expect(await screen.findByLabelText("오너 이메일")).toBeDefined();
+    expect(callsTo(api.calls, "/v1/auth/setup-link/check")[0]?.body).toEqual({
+      setup_token: SETUP_TOKEN,
+    });
+    expect(document.querySelectorAll("input")).toHaveLength(5);
+    expect(screen.queryByText("로그인하기")).toBeNull();
+  });
+
   test("입력 힌트는 이름이 아니라 설명으로 붙는다", async () => {
-    renderAt("/bootstrap", {});
+    renderAt(LINK, { "POST /v1/auth/setup-link/check": live });
     const password = await screen.findByLabelText("비밀번호");
     const hint = document.getElementById(
       password.getAttribute("aria-describedby") ?? "",
@@ -312,44 +357,26 @@ describe("bootstrap", () => {
     expect(hint?.textContent).toBe("12자 이상");
   });
 
-  test("칸마다 서버의 길이 한도를 걸고, 짧은 토큰은 보내지 않는다", async () => {
+  test("칸마다 서버의 길이 한도를 건다", async () => {
     const limits = await import("./auth/limits.ts");
-    const { api } = renderAt("/bootstrap", {
-      "POST /v1/auth/bootstrap": () => json(201, {}),
-    });
-    const token = await screen.findByLabelText("Bootstrap 토큰");
+    renderAt(LINK, { "POST /v1/auth/setup-link/check": live });
+    await screen.findByLabelText("오너 이메일");
     expect(
       [
-        token.getAttribute("minlength"),
-        token.getAttribute("maxlength"),
         screen.getByLabelText("오너 이메일").getAttribute("maxlength"),
         screen.getByLabelText("이름").getAttribute("maxlength"),
         screen.getByLabelText("워크스페이스 이름").getAttribute("maxlength"),
       ].map(Number),
     ).toEqual([
-      limits.BOOTSTRAP_TOKEN_LENGTH.min,
-      limits.BOOTSTRAP_TOKEN_LENGTH.max,
       limits.EMAIL_MAX,
       limits.DISPLAY_NAME_MAX,
       limits.WORKSPACE_NAME_MAX,
     ]);
-    const user = await setupUser();
-    await user.type(token, "t".repeat(limits.BOOTSTRAP_TOKEN_LENGTH.min - 1));
-    await user.type(screen.getByLabelText("오너 이메일"), "owner@example.com");
-    await user.type(screen.getByLabelText("이름"), "Owner");
-    await user.type(screen.getByLabelText("비밀번호"), "correct horse battery");
-    await user.type(screen.getByLabelText("워크스페이스 이름"), "Acme");
-    await user.type(
-      screen.getByLabelText("워크스페이스 식별자 (slug)"),
-      "acme",
-    );
-    await user.click(screen.getByRole("button", { name: "오너 만들기" }));
-    expect((token as HTMLInputElement).validity.tooShort).toBe(true);
-    expect(callsTo(api.calls, "/v1/auth/bootstrap")).toEqual([]);
   });
 
-  test("만들고 나면 로그인으로 보낸다", async () => {
-    const { api, history } = renderAt("/bootstrap", {
+  test("만들고 나면 링크의 토큰과 함께 보낸 뒤 로그인으로 보낸다", async () => {
+    const { api, history } = renderAt(LINK, {
+      "POST /v1/auth/setup-link/check": live,
       "POST /v1/auth/bootstrap": () => json(201, {}),
     });
     await fill();
@@ -360,6 +387,7 @@ describe("bootstrap", () => {
     ).toBeDefined();
     expect(history.location.pathname).toBe("/login");
     expect(callsTo(api.calls, "/v1/auth/bootstrap")[0]?.body).toMatchObject({
+      setup_token: SETUP_TOKEN,
       email: "owner@example.com",
       workspace_slug: "acme",
     });
@@ -370,7 +398,8 @@ describe("bootstrap", () => {
   });
 
   test("이미 오너가 있으면(409) 그 자리에서 로그인 링크를 보인다", async () => {
-    const { history } = renderAt("/bootstrap", {
+    const { history } = renderAt(LINK, {
+      "POST /v1/auth/setup-link/check": live,
       "POST /v1/auth/bootstrap": () =>
         apiError(409, "BOOTSTRAP_DONE", "owner@example.com tttttttt"),
     });
@@ -389,19 +418,22 @@ describe("bootstrap", () => {
     expect(history.location.pathname).toBe("/bootstrap");
   });
 
-  test("토큰이 틀리면(401) 토큰 문구다", async () => {
-    renderAt("/bootstrap", {
+  test("보내는 사이 링크가 죽으면(401) 폼 대신 쓸 수 없는 링크 안내다", async () => {
+    renderAt(LINK, {
+      "POST /v1/auth/setup-link/check": live,
       "POST /v1/auth/bootstrap": () =>
-        apiError(401, "UNAUTHORIZED", "Bootstrap token is invalid"),
+        apiError(401, "UNAUTHORIZED", "Setup link is unknown"),
     });
     await fill();
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("Bootstrap 토큰이 맞지 않습니다");
-    expect(within(alert).queryByRole("link")).toBeNull();
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "이 설정 링크는 쓸 수 없습니다",
+    );
+    expect(screen.queryByLabelText("오너 이메일")).toBeNull();
   });
 
   test("입력이 틀리면(400) 입력 문구이고 로그인 안내가 없다", async () => {
-    renderAt("/bootstrap", {
+    renderAt(LINK, {
+      "POST /v1/auth/setup-link/check": live,
       "POST /v1/auth/bootstrap": () =>
         apiError(400, "BAD_REQUEST", "Request body is invalid"),
     });

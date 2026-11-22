@@ -46,8 +46,9 @@ export EXECUTION_INSTALLATION_ID="d2g${run_id}"
 export API_IMAGE="werft-control-host:${project}"
 export WORKER_IMAGE="werft-worker:${project}"
 export EGRESS_PROXY_IMAGE="werft-egress-proxy:${project}"
-# The first owner's token: the gate's agent is released as that owner.
-export BOOTSTRAP_TOKEN="$(openssl rand -hex 24)"
+# The seed of the first owner's password (tests/e2e/client.ts): the gate's
+# agent is released as that owner.
+export E2E_OWNER_SECRET="$(openssl rand -hex 24)"
 compose_files=(-f infra/compose.yml -f scripts/d2-gate/compose.yml)
 overrides="${D2_GATE_COMPOSE_OVERRIDE:-}"
 for file in ${overrides//:/ }; do
@@ -87,6 +88,10 @@ echo "== build (${project})" >&2
 echo "== stack" >&2
 dc up -d --wait postgres localstack fake-git gate-chaos gate-messages egress-proxy >"$out/up.log" 2>&1
 dc up -d --wait api >>"$out/up.log" 2>&1
+# The fresh stack's one setup link makes the first owner.
+E2E_SETUP_TOKEN="$(dc exec -T api bun run apps/control-host/src/api/setup-link.ts </dev/null 2>>"$out/up.log")" ||
+  { echo "the API issued no setup link" >&2; exit 1; }
+export E2E_SETUP_TOKEN="${E2E_SETUP_TOKEN##*#setup=}"
 
 port() { dc port "$1" "$2" | sed 's/.*://'; }
 
@@ -94,8 +99,7 @@ echo "== fixture" >&2
 # The settings' `"stored": true` keys, set as the first owner: gate-messages
 # takes any key, and gate-app's is the fake GitHub App's (fake-git's file).
 gate_owner_cookie() {
-  E2E_API_URL="http://127.0.0.1:$(port api 3000)" E2E_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN" \
-    bun run tests/e2e/owner-cookie.ts
+  E2E_API_URL="http://127.0.0.1:$(port api 3000)" bun run tests/e2e/owner-cookie.ts
 }
 gate_provider_key=gate-placeholder-not-a-credential
 seed_credentials gate_owner_cookie connections:gate-messages=gate_provider_key repositories:gate-app -- \

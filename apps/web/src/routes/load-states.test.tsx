@@ -264,7 +264,14 @@ describe("주소 이름 형식", () => {
   });
 
   for (const item of [
-    { path: "/bootstrap", label: "워크스페이스 식별자 (slug)", routes: {} },
+    {
+      path: `/bootstrap#setup=${"s".repeat(43)}`,
+      label: "워크스페이스 식별자 (slug)",
+      routes: {
+        "POST /v1/auth/setup-link/check": () =>
+          new Response(null, { status: 204 }),
+      },
+    },
   ]) {
     test(`${item.path}: 형식이 틀리면 허용 형식을 알려 준다`, async () => {
       renderAt(item.path, item.routes);

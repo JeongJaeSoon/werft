@@ -91,9 +91,6 @@ secrets:
   # leaves them out, and the object store signs with the AWS default
   # credential chain instead: IRSA through serviceAccounts.api on EKS.
   objectStoreKeys: true
-  # Hand the Secret's BOOTSTRAP_TOKEN to the api, for the first owner's
-  # bootstrap (POST /v1/auth/bootstrap). Turn it off once an owner exists.
-  bootstrapToken: false
   # Have the External Secrets Operator write the Secret above from a secret
   # store instead of creating it by hand. Needs the operator's CRDs.
   externalSecret:

@@ -316,6 +316,7 @@ import {
   settingsConnectionImpactResponseSchema,
   settingsDocumentSchema,
   settingsIdParamsSchema,
+  setupLinkCheckRequestSchema,
   skillAttachmentResponseSchema,
   skillListSchema,
   skillNameParamsSchema,
@@ -469,6 +470,7 @@ const requestComponents = {
     putAgentGitHubRepositoryAccessRequestSchema,
   PutAgentMcpSettingsRequest: putAgentMcpSettingsRequestSchema,
   BootstrapRequest: bootstrapRequestSchema,
+  SetupLinkCheckRequest: setupLinkCheckRequestSchema,
   LoginRequest: loginRequestSchema,
   PasswordResetRequest: passwordResetRequestSchema,
   SlackLinkCallbackRequest: slackLinkCallbackRequestSchema,
@@ -1684,17 +1686,37 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "post",
+    path: "/v1/auth/setup-link/check",
+    operationId: "checkSetupLink",
+    tag: "Auth",
+    summary: "Whether a setup link can still make the first owner",
+    description:
+      "The console asks this before it shows the first-owner form. A setup link is issued by the `setup-link` command only while no live owner exists, and stays valid for 24 hours, until it is used, or until the command issues a newer one. Does not spend the link.",
+    auth: "public",
+    body: "SetupLinkCheckRequest",
+    requestExample: {
+      setup_token: "setup-link-token-from-the-setup-link-command",
+    },
+    success: { status: 204, description: "The link is live." },
+    errors: [400, 401, 413, 503],
+    errorNotes: {
+      UNAUTHORIZED: "The link is unknown, expired, replaced or already used.",
+    },
+    idempotent: false,
+  },
+  {
+    method: "post",
     path: "/v1/auth/bootstrap",
     operationId: "bootstrap",
     tag: "Auth",
     summary:
       "Create the first owner and default workspace, or recover an owner",
     description:
-      "Allowed only while no live owner exists (an owner whose account or membership is disabled is not live). On an installation that already has users it adds or restores the owner in the existing workspace, ignores workspace_name and workspace_slug, revokes every web session in the workspace and writes a `recover_owner` receipt. Each BOOTSTRAP_TOKEN works once per installation; a token presented while a live owner exists is spent. A wrong or spent token answers 401 before the owner state is looked at.",
+      "Allowed only with a live setup link, which the `setup-link` command issues only while no live owner exists (an owner whose account or membership is disabled is not live). The link is spent in the same transaction that makes the owner. On an installation that already has users it adds or restores the owner in the existing workspace, ignores workspace_name and workspace_slug, revokes every web session in the workspace and writes a `recover_owner` receipt.",
     auth: "public",
     body: "BootstrapRequest",
     requestExample: {
-      bootstrap_token: "<the BOOTSTRAP_TOKEN printed at install>",
+      setup_token: "setup-link-token-from-the-setup-link-command",
       email: "owner@example.com",
       password: "correct horse battery staple",
       display_name: "Ada Owner",
@@ -1716,9 +1738,9 @@ export const API_ROUTE_DECLARATIONS = [
     errorCodes: { 409: ["BOOTSTRAP_DONE"] },
     errorNotes: {
       UNAUTHORIZED:
-        "`bootstrap_token` is missing, does not match the installation's token, or was already used; checked first, before the owner state and the rest of the body.",
+        "`setup_token` is missing, unknown, expired, replaced or already used; checked first, before the rest of the body.",
       BOOTSTRAP_DONE:
-        "A live owner exists, checked only after the token matched (the token is then spent); also the answer to the loser of two concurrent bootstraps.",
+        "The loser of two concurrent bootstraps with the same link: the other one made the owner.",
     },
     idempotent: false,
   },

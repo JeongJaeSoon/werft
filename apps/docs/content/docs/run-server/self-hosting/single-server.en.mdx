@@ -96,7 +96,6 @@ Open `/etc/werft/test-ops.env` in an editor and fill in the following. Tools suc
 | `POSTGRES_PASSWORD` | Random value using only letters, digits, `.`, `_`, `~`, and `-` |
 | `EGRESS_AUTHORIZER_TOKEN` | Random value of at least 32 characters |
 | `PLATFORM_SECRET_KEY` | 64-character hex from `openssl rand -hex 32`. Losing it prevents reading stored credentials |
-| `BOOTSTRAP_TOKEN` | Leave it commented out. The API generates the first owner's token, and `scripts/test-ops.sh bootstrap-token` shows it once after `deploy` in step 4. For a fixed value, uncomment it and enter a random 32–256-character token; the command then prints no token |
 | `CONSOLE_ORIGIN` | The browser console origin (`scheme://host[:port]`) required to create a GitHub App through the console. Without it, the Create on GitHub button is disabled. The Slack account-link redirect and the Slack events address are computed from it too (without it, Slack linking is off). The redirect URI of [SSO sign-in](/run-server/self-hosting/sso) providers is built from it as well; without it, no provider can be created. Add this line yourself; it is absent from the example env file. For an SSH tunnel, use `http://127.0.0.1:<tunnel port>`. To apply additions or changes after installation, reapply the current release with `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`, rather than `start` |
 
 Replace the example LocalStack values with production S3 values. Do not print secrets in command lines or logs.
@@ -167,7 +166,7 @@ DEPLOYMENT_DIR=/var/lib/werft/test-ops
 scripts/test-ops.sh manifest release-manifest.json /etc/werft/settings.json > "$DEPLOYMENT_DIR/release.json"
 ```
 
-Run step 4 and `bootstrap-token` from the bundle directory with the same commands. The bundle's `preflight` and `deploy` refuse the file if its commit or images differ from the bundle's release.
+Run step 4 and `setup-link` from the bundle directory with the same commands. The bundle's `preflight` and `deploy` refuse the file if its commit or images differ from the bundle's release.
 
 <a id="4-s3를-명시해-검사설치" />
 ### 4. Explicitly select S3, check, and install
@@ -179,13 +178,13 @@ TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh deploy "$DEPLOYMENT_DIR/release.jso
 
 preflight checks bucket protection and scratch version writes, holds, reads, hold release, and deletion. The scheduler checks quota during deploy. Both must succeed and services must become healthy. The object store mode cannot change after the first deploy.
 
-If the env file sets no `BOOTSTRAP_TOKEN`, get the first owner's token after deploy. It waits in an owner-only file inside the API container, not in the container log, and this command deletes it as it prints it.
+After deploy, get the one-time setup link that creates the first owner. This command prints it once on stdout; it is never written to a log or a file.
 
 ```bash
-scripts/test-ops.sh bootstrap-token
+scripts/test-ops.sh setup-link
 ```
 
-Paste the value into `/bootstrap` ([first owner and keys](/run-server/self-hosting/users-and-keys)). Running the command again prints no token and exits 1. If you missed the value and no owner exists yet, run `scripts/test-ops.sh stop` and `start` to restart the API, which mints a new token (the old one stops working). An installation that already sets `BOOTSTRAP_TOKEN` is unchanged.
+Open the printed link in a browser ([first owner and keys](/run-server/self-hosting/users-and-keys)). If only a path is printed, append it to the console's address. The link stops working once used and expires after 24 hours. If you missed it or it expired, run the command again: it prints a new link and the old one stops working. Once an owner exists, the command prints no link and exits 1.
 
 <a id="확인" />
 ## Verify

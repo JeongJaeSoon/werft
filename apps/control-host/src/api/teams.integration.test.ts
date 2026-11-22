@@ -38,8 +38,9 @@ import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { TEST_RUNTIMES } from "../testing/catalog.ts";
+import { liveSetupToken } from "../testing/setup-link.ts";
 import { createApiApp } from "./app.ts";
-import { createBootstrapGate, DatabaseIdentityStore } from "./auth.ts";
+import { DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import { registerAgentRoutes } from "./routes/agents/agents.ts";
@@ -48,7 +49,6 @@ import { registerTeamRoutes } from "./routes/musterrolle/teams.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
-const BOOTSTRAP_TOKEN = "integration-bootstrap-token-0123456789";
 const PASSWORD = "an adequately long password";
 
 const catalog: SessionCatalog = { connections: {}, repositories: {} };
@@ -79,7 +79,6 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
     const logger = new StructuredLogger({ sinks: [new MemoryLogSink()] });
     const auth = {
       identity,
-      bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
       passwords: new PasswordChecks(),
       logger,
     };
@@ -195,7 +194,7 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        bootstrap_token: BOOTSTRAP_TOKEN,
+        setup_token: await liveSetupToken(db),
         email: "owner@example.com",
         password: PASSWORD,
         display_name: "Owner",

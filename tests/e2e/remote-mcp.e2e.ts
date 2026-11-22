@@ -4,7 +4,7 @@ import {
   bash,
   type ErrorBody,
   e2eEnv,
-  firstOwnerCookie,
+  e2eOwnerCookie,
   poll,
   REPOSITORY_ID,
   type SseEvent,
@@ -18,18 +18,17 @@ import {
  * (tests/fixtures/settings/fake-model.json) calls it through the egress proxy
  * with its service account, on the stack tests/e2e/run.sh started. The
  * agent, its binding and the web key come from the stack's first owner
- * (firstOwnerCookie), in the `verify` workspace the settings allow. The
+ * (e2eOwnerCookie), in the `verify` workspace the settings allow. The
  * fake server's control
  * port reports how many tool calls reached it and the sha256 of each bearer
  * it accepted, never the bearer.
  */
 const env = e2eEnv();
-const bootstrapToken = process.env.E2E_BOOTSTRAP_TOKEN ?? "";
 const fakeMcpUrl = process.env.E2E_FAKE_MCP_URL ?? "";
 const seededSha256 = process.env.E2E_FAKE_MCP_BEARER_HASH ?? "";
-if (!bootstrapToken || !fakeMcpUrl || !seededSha256) {
+if (!fakeMcpUrl || !seededSha256) {
   throw new Error(
-    "E2E_BOOTSTRAP_TOKEN, E2E_FAKE_MCP_URL and E2E_FAKE_MCP_BEARER_HASH are unset: run tests/e2e/run.sh",
+    "E2E_FAKE_MCP_URL and E2E_FAKE_MCP_BEARER_HASH are unset: run tests/e2e/run.sh",
   );
 }
 const TIMEOUT = 600_000;
@@ -165,7 +164,7 @@ function textOf(event: SseEvent | undefined): string {
 }
 
 beforeAll(async () => {
-  cookie = await firstOwnerCookie(env.apiUrl, bootstrapToken);
+  cookie = await e2eOwnerCookie(env.apiUrl);
   const key = await web<{ secret: string }>("POST", "/v1/api-keys", {
     kind: "personal",
     scopes: [

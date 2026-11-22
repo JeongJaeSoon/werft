@@ -15,6 +15,7 @@ import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
   memberships,
+  setupLinks,
   users,
   webSessions,
 } from "@werft-ai/db";
@@ -37,11 +38,12 @@ import {
   releaseIn,
   sessionReleases,
 } from "../testing/releases.ts";
+import { liveSetupToken } from "../testing/setup-link.ts";
 import { createApiApp } from "./app.ts";
 import {
-  createBootstrapGate,
   DatabaseIdentityStore,
   hashWebSessionToken,
+  issueSetupToken,
   LoginLockout,
   WEB_SESSIONS_PER_USER,
 } from "./auth.ts";
@@ -53,7 +55,6 @@ import { registerSessionRoutes } from "./routes/sessions/sessions.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
-const BOOTSTRAP_TOKEN = "integration-bootstrap-token-0123456789";
 const PASSWORD = "an adequately long password";
 const WRONG = "an adequately wrong password";
 const KEEPALIVE_MS = 300;
@@ -100,7 +101,6 @@ integration("auth API on PostgreSQL", () => {
     const logger = new StructuredLogger({ sinks: [sink] });
     const auth = {
       identity,
-      bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
       passwords: new PasswordChecks(new LoginLockout({ now: () => now })),
       logger,
     };
@@ -170,7 +170,6 @@ integration("auth API on PostgreSQL", () => {
       body: JSON.stringify(body),
     });
   const bootstrapBody = {
-    bootstrap_token: BOOTSTRAP_TOKEN,
     email: "Owner@Example.com",
     password: PASSWORD,
     display_name: "Owner",
@@ -195,8 +194,17 @@ integration("auth API on PostgreSQL", () => {
   let cookie = "";
   let workspaceId = "";
 
-  test("bootstrap creates owner + workspace + membership once; second call is 409", async () => {
-    const first = await json("/v1/auth/bootstrap", bootstrapBody);
+  test("a setup link creates owner + workspace + membership once; reusing it is 401 and no new link is issued", async () => {
+    const setupToken = await liveSetupToken(db);
+    // Checking the link does not spend it.
+    const check = await json("/v1/auth/setup-link/check", {
+      setup_token: setupToken,
+    });
+    expect(check.status).toBe(204);
+    const first = await json("/v1/auth/bootstrap", {
+      ...bootstrapBody,
+      setup_token: setupToken,
+    });
     expect(first.status).toBe(201);
     const body = bootstrapResponseSchema.parse(await first.json());
     workspaceId = body.workspace.id;
@@ -210,10 +218,16 @@ integration("auth API on PostgreSQL", () => {
       role: "owner",
     });
 
-    const second = await json("/v1/auth/bootstrap", bootstrapBody);
-    expect(second.status).toBe(409);
-    expect((await second.json()).error.code).toBe("BOOTSTRAP_DONE");
+    expect(await db.$count(setupLinks)).toBe(0);
+
+    const second = await json("/v1/auth/bootstrap", {
+      ...bootstrapBody,
+      setup_token: setupToken,
+    });
+    expect(second.status).toBe(401);
     expect(await db.$count(users)).toBe(1);
+    expect(await issueSetupToken(new DatabaseIdentityStore(db))).toBeNull();
+    expect(await db.$count(setupLinks)).toBe(0);
   });
 
   test("login sets the cookie, stores only the hash, and me reads it back", async () => {

@@ -58,7 +58,6 @@ Create the Secret from a directory containing one file per key (`0700`, filename
 | `EGRESS_AUTHORIZER_TOKEN` | Random value shared by api and the egress proxy |
 | `PLATFORM_SECRET_KEY` | 64-character hex from `openssl rand -hex 32`, used to seal stored credentials. Without it, Pods cannot start |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Object store keys. To sign through IRSA, omit both and set `secrets.objectStoreKeys: false` and `serviceAccounts.api.annotations` in values |
-| `BOOTSTRAP_TOKEN` | Supply the same 32–256-character token to the default 2 API replicas. Create it in the Secret and set `secrets.bootstrapToken: true` in the values below |
 
 Model keys do not go in the Secret. Enter them after installation in the console under **Settings > Agent connections > Model connections > Add connection**; they are kept in the database, encrypted with `PLATFORM_SECRET_KEY`.
 
@@ -67,7 +66,7 @@ kubectl create namespace werft
 kubectl -n werft create secret generic werft --from-file=<secret-dir>
 ```
 
-Keep the Secret directory at 0700 and files readable only by operators. The default API replica count is 2. With multiple replicas, add the same `BOOTSTRAP_TOKEN` (32–256 characters) to the Secret and set `secrets.bootstrapToken: true`. Pods then start only when the Secret has that key.
+Keep the Secret directory at 0700 and files readable only by operators.
 
 <a id="3-설치별-values" />
 ### 3. Installation-specific values
@@ -76,8 +75,6 @@ Keep installation-specific settings in one `values-<installation>.yaml` file. At
 
 ```yaml
 installationId: werft-main
-secrets:
-  bootstrapToken: true
 config:
   checkpoints:
     bucket: <bucket>

@@ -287,10 +287,6 @@ services:
       # --scopes sessions:read,sessions:write`.
       # /internal routes carry their own worker authentication either way.
       AUTH_MODE: ${AUTH_MODE:-api-key}
-      # The first owner's bootstrap token (docs/operator/api-server.md). No value, not
-      # `:-`: unset, the API mints one and prints it to stderr; an empty value
-      # stops it from starting.
-      BOOTSTRAP_TOKEN:
       WORKER_IMAGE_RUNTIME: *worker-image-runtime
       WORKER_IMAGE_PREVIOUS_RUNTIME: *worker-image-previous-runtime
       WORKER_IMAGES: *worker-images

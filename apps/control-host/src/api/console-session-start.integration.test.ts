@@ -43,8 +43,9 @@ import {
   TEST_RUNTIMES,
   testCatalog,
 } from "../testing/catalog.ts";
+import { liveSetupToken } from "../testing/setup-link.ts";
 import { createApiApp } from "./app.ts";
-import { createBootstrapGate, DatabaseIdentityStore } from "./auth.ts";
+import { DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import { registerAgentRoutes } from "./routes/agents/agents.ts";
@@ -54,7 +55,6 @@ import { registerSessionRoutes } from "./routes/sessions/sessions.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
-const SETUP_TOKEN = "console-session-start-integration-setup";
 const LOGIN = "console-session-start-login";
 
 const catalog: SessionCatalog = testCatalog({
@@ -164,7 +164,6 @@ integration("starting an agent's session from the console", () => {
     const logger = new StructuredLogger({ sinks: [new MemoryLogSink()] });
     const auth = {
       identity,
-      bootstrap: createBootstrapGate(SETUP_TOKEN),
       passwords: new PasswordChecks(),
       logger,
     };
@@ -227,7 +226,7 @@ integration("starting an agent's session from the console", () => {
       "/v1/auth/bootstrap",
       {},
       {
-        bootstrap_token: SETUP_TOKEN,
+        setup_token: await liveSetupToken(db),
         email: "owner@example.com",
         password: LOGIN,
         display_name: "Owner",

@@ -41,9 +41,10 @@ export EXECUTION_INSTALLATION_ID=soak135
 export API_IMAGE="werft-control-host:${project}"
 export WORKER_IMAGE="werft-worker:${project}"
 export EGRESS_PROXY_IMAGE="werft-egress-proxy:${project}"
-# The first owner's token: the soak's agent is released as that owner
-# (scripts/d2-gate/release.ts). Kept across runs on a kept stack.
-export BOOTSTRAP_TOKEN="${SOAK_BOOTSTRAP_TOKEN:-soak-bootstrap-token-for-the-local-stack}"
+# The seed of the first owner's password (tests/e2e/client.ts): the soak's
+# agent is released as that owner (scripts/d2-gate/release.ts). Kept across
+# runs on a kept stack.
+export E2E_OWNER_SECRET="${SOAK_OWNER_SECRET:-soak-bootstrap-token-for-the-local-stack}"
 compose_files=(-f infra/compose.yml -f scripts/d2-gate/compose.yml -f scripts/soak/compose.yml)
 dc() { docker compose -p "$project" "${compose_files[@]}" --profile apps --profile worker "$@"; }
 
@@ -77,6 +78,10 @@ up() {
   echo "== stack (${project})" >&2
   dc up -d --wait postgres localstack fake-git gate-chaos gate-messages egress-proxy vm-lag host-echo >"$state/up.log" 2>&1
   dc up -d --wait api >>"$state/up.log" 2>&1
+  # A fresh stack's one setup link makes the first owner; a kept stack has
+  # its owner, and the command issues none.
+  E2E_SETUP_TOKEN="$(dc exec -T api bun run apps/control-host/src/api/setup-link.ts </dev/null 2>>"$state/up.log")" || E2E_SETUP_TOKEN=""
+  export E2E_SETUP_TOKEN="${E2E_SETUP_TOKEN##*#setup=}"
 
   port() { dc port "$1" "$2" | sed 's/.*://'; }
 
@@ -84,8 +89,7 @@ up() {
   # The gate settings' `"stored": true` keys, set as the first owner (as
   # scripts/d2-gate/run.sh does).
   soak_owner_cookie() {
-    E2E_API_URL="http://127.0.0.1:$(port api 3000)" E2E_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN" \
-      bun run tests/e2e/owner-cookie.ts
+    E2E_API_URL="http://127.0.0.1:$(port api 3000)" bun run tests/e2e/owner-cookie.ts
   }
   local gate_provider_key=gate-placeholder-not-a-credential
   seed_credentials soak_owner_cookie connections:gate-messages=gate_provider_key repositories:gate-app -- \

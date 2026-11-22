@@ -26,6 +26,7 @@ import {
   providerLoginCallbackRequestSchema,
   providerLoginCallbackResponseSchema,
   scopesForRole,
+  setupLinkCheckRequestSchema,
   startProviderInviteRequestSchema,
   startProviderLoginResponseSchema,
   unlinkMyLoginMethodResponseSchema,
@@ -37,13 +38,13 @@ import {
 import type { StructuredLogger } from "@werft-ai/observability";
 import {
   BootstrapDoneError,
-  BootstrapTokenSpentError,
   type IdentityStore,
   type IdentityWorkspace,
   type LoginMethodStore,
   type LoginSettingsStore,
   MANAGEMENT_ROLES,
   passwordResetIssueDenial,
+  SetupLinkInvalidError,
 } from "@werft-ai/platform";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
@@ -59,7 +60,6 @@ import {
   storageUnavailableError,
 } from "../app.ts";
 import {
-  type BootstrapGate,
   browserRequestViolation,
   clearWebSessionCookie,
   generatePasswordResetToken,
@@ -93,7 +93,6 @@ export function setLoginFlowCookie(context: Context, value: string): void {
 
 export interface AuthRouteDeps {
   identity: IdentityStore;
-  bootstrap: BootstrapGate;
   /** The same instance as invite acceptance's: one window for every account. */
   passwords: PasswordChecks;
   logger?: StructuredLogger;
@@ -112,7 +111,7 @@ const LINK_SESSION_MAX_AGE_MS = LOGIN_LINK_SESSION_MAX_AGE_MINUTES * 60 * 1000;
 const INVALID_CREDENTIALS = "Invalid email or password";
 const PASSWORD_RESET_TTL_MS = PASSWORD_RESET_TTL_MINUTES * 60 * 1000;
 // The recovery routes keep no failure window. Their tokens are 256 bits
-// (BOOTSTRAP_TOKEN at least 32 characters), so a window adds nothing against
+// (a setup link carries 32 random bytes), so a window adds nothing against
 // guessing, and with no address to key it on it would be one window for
 // every caller: anyone could keep recovery answering 429.
 
@@ -120,12 +119,16 @@ const PASSWORD_RESET_TTL_MS = PASSWORD_RESET_TTL_MINUTES * 60 * 1000;
 // validated, so a caller without it learns nothing about the schema and gets
 // 401 rather than 400. A body that is not a JSON object cannot carry a
 // token at all and stays a 400.
-const bootstrapTokenOnlySchema = z.looseObject({
-  bootstrap_token: z.unknown().optional(),
+const setupTokenOnlySchema = z.looseObject({
+  setup_token: z.unknown().optional(),
 });
 
-function invalidBootstrapToken(): ApiHttpError {
-  return new ApiHttpError(401, "UNAUTHORIZED", "Bootstrap token is invalid");
+function invalidSetupLink(): ApiHttpError {
+  return new ApiHttpError(
+    401,
+    "UNAUTHORIZED",
+    "Setup link is unknown, expired or already used",
+  );
 }
 
 async function storageMapped<T>(work: () => Promise<T>): Promise<T> {
@@ -262,34 +265,34 @@ export function registerPublicAuthRoutes(
     });
   });
 
+  apiRoute(router, "checkSetupLink", ingestThenStopClock, async (context) => {
+    const body = await parseJsonBody(context, setupLinkCheckRequestSchema);
+    const live = await storageMapped(() =>
+      deps.identity.setupLinkIsLive(hashWebSessionToken(body.setup_token)),
+    );
+    if (!live) throw invalidSetupLink();
+    return context.body(null, 204);
+  });
+
   apiRoute(router, "bootstrap", ingestThenStopClock, async (context) => {
-    const raw = await parseJsonBody(context, bootstrapTokenOnlySchema);
-    const token =
-      typeof raw.bootstrap_token === "string" ? raw.bootstrap_token : null;
-    if (token === null || !deps.bootstrap.matches(token)) {
-      deps.logger?.warn("Bootstrap refused: token mismatch");
-      throw invalidBootstrapToken();
-    }
-    // Looked at only once the token matched, so a caller without it cannot
-    // tell an install with a live owner from one without.
-    if ((await storageMapped(() => deps.identity.countLiveOwners())) > 0) {
-      // Startup spends a token configured while an owner is live, but only
-      // when it reaches the database; this covers a start that did not.
-      await storageMapped(() =>
-        deps.identity.retireBootstrapToken(hashWebSessionToken(token)),
-      );
-      throw new ApiHttpError(409, "BOOTSTRAP_DONE", "Bootstrap already done");
+    const raw = await parseJsonBody(context, setupTokenOnlySchema);
+    const token = typeof raw.setup_token === "string" ? raw.setup_token : null;
+    // A live link exists only while no live owner does, so a caller without
+    // one cannot tell an install with a live owner from one without.
+    const tokenHash = token === null ? null : hashWebSessionToken(token);
+    if (
+      tokenHash === null ||
+      !(await storageMapped(() => deps.identity.setupLinkIsLive(tokenHash)))
+    ) {
+      deps.logger?.warn("Bootstrap refused: setup link not live");
+      throw invalidSetupLink();
     }
     const parsed = bootstrapRequestSchema.safeParse(raw);
     if (!parsed.success) {
-      // The token stays unspent: a typo in the form is not a used install.
+      // The link stays live: a typo in the form is not a used install.
       throw new ApiHttpError(400, "BAD_REQUEST", "Request body is invalid");
     }
     const body = parsed.data;
-    if (!deps.bootstrap.consume(token)) {
-      // A concurrent request with the same token got there first.
-      throw new ApiHttpError(409, "BOOTSTRAP_DONE", "Bootstrap already done");
-    }
     try {
       const passwordHash = await hashPassword(body.password);
       const { user, workspace, recovered } = await storageMapped(() =>
@@ -301,7 +304,7 @@ export function registerPublicAuthRoutes(
           workspaceId: randomUUID(),
           workspaceSlug: body.workspace_slug,
           workspaceName: body.workspace_name,
-          bootstrapTokenHash: hashWebSessionToken(token),
+          setupTokenHash: tokenHash,
           receiptId: randomUUID(),
           loginMethodId: randomUUID(),
         }),
@@ -321,20 +324,12 @@ export function registerPublicAuthRoutes(
         201,
       );
     } catch (error) {
+      // The loser of two requests with one link: the winner made the owner.
       if (error instanceof BootstrapDoneError) {
         throw new ApiHttpError(409, "BOOTSTRAP_DONE", "Bootstrap already done");
       }
-      if (error instanceof BootstrapTokenSpentError) {
-        // Recorded in the database, so a restart does not revive it. Only
-        // the operator, reading the log, needs to know why.
-        deps.logger?.warn(
-          "Bootstrap refused: token already used; set a new BOOTSTRAP_TOKEN",
-        );
-        throw invalidBootstrapToken();
-      }
-      // The insert failed (storage down, slug race); the token is still the
-      // operator's to spend.
-      deps.bootstrap.release();
+      // Expired, or replaced by a newer link, since the check above.
+      if (error instanceof SetupLinkInvalidError) throw invalidSetupLink();
       throw error;
     }
   });
