@@ -194,7 +194,13 @@ describe("what a check cannot be talked out of", () => {
   });
 
   test("the host is the one a client reaches: userinfo with parentheses, escapes and IDN spellings do not hide it", () => {
-    const known = [...base, file("more.md", "https://known.example/ and https://xn--bcher-kva.example/")];
+    const known = [
+      ...base,
+      file(
+        "more.md",
+        "https://known.example/ and https://xn--bcher-kva.example/",
+      ),
+    ];
     const hostOf = (text: string) =>
       checkSkillVersion(known, [...base, file("more.md", text)]).find(
         (one) => one.rule === "new_url",
