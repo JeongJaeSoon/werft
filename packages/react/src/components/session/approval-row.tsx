@@ -10,13 +10,14 @@ import {
 import { Hourglass } from "lucide-react";
 import { type JSX, type ReactNode, useId, useState } from "react";
 
-import { DenialForm, NoteForm, useAnswerForm } from "./answer-form.tsx";
+import { AnswerForms, useAnswerForm } from "./answer-form.tsx";
 import type {
   ApprovalCardMessages,
   ApprovalCardProps,
 } from "./approval-card.tsx";
 import { Busy } from "./busy.tsx";
 import { useExpired, useExpiryFocus } from "./expiry.ts";
+import { inputText } from "./input-text.ts";
 import { ToolSummary } from "./tool-summary.tsx";
 
 export interface ApprovalRowMessages extends ApprovalCardMessages {
@@ -40,14 +41,6 @@ export interface ApprovalRowProps extends Omit<ApprovalCardProps, "messages"> {
   readonly heading?: ReactNode;
   /** The second line's lead, such as the session's short id and its wait. */
   readonly meta?: ReactNode;
-}
-
-function inputText(input: unknown): string {
-  try {
-    return JSON.stringify(input, null, 2) ?? String(input);
-  } catch {
-    return String(input);
-  }
 }
 
 /**
@@ -244,23 +237,17 @@ export function ApprovalRow({
         </CodeBlock>
       ) : null}
       <FieldError>{error}</FieldError>
-      {expired ? null : denial.shown ? (
-        <DenialForm
-          form={denial}
+      {expired ? null : (
+        <AnswerForms
+          denial={denial}
+          note={note}
           messages={messages}
           onDeny={onDeny}
-          pending={pending}
-          blocked={blocked}
-        />
-      ) : note.shown ? (
-        <NoteForm
-          form={note}
-          messages={messages}
           onAllow={onAllow}
           pending={pending}
           blocked={blocked}
         />
-      ) : null}
+      )}
     </article>
   );
 }

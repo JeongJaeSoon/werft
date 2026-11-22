@@ -215,3 +215,42 @@ export function NoteForm({
     </form>
   );
 }
+
+export interface AnswerFormsProps {
+  readonly denial: AnswerForm;
+  readonly note: AnswerForm;
+  readonly messages: DenialFormProps["messages"] & NoteFormProps["messages"];
+  readonly onDeny: DenialFormProps["onDeny"];
+  readonly onAllow: NoteFormProps["onAllow"];
+  readonly pending: boolean;
+  readonly blocked: boolean;
+}
+
+/** Whichever of a request's two forms is open, the denial first; else none. */
+export function AnswerForms({
+  denial,
+  note,
+  messages,
+  onDeny,
+  onAllow,
+  pending,
+  blocked,
+}: AnswerFormsProps): JSX.Element | null {
+  return denial.shown ? (
+    <DenialForm
+      form={denial}
+      messages={messages}
+      onDeny={onDeny}
+      pending={pending}
+      blocked={blocked}
+    />
+  ) : note.shown ? (
+    <NoteForm
+      form={note}
+      messages={messages}
+      onAllow={onAllow}
+      pending={pending}
+      blocked={blocked}
+    />
+  ) : null;
+}

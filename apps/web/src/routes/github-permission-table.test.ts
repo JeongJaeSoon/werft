@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
   githubConnection,
   githubInstallation,
@@ -119,5 +120,34 @@ describe("GitHub 기능별 권한 판정", () => {
       ),
     ).toBe("https://github.com/settings/apps/werft-agent/permissions");
     expect(permissionsUrl(githubConnection({ owner: null }))).toBeNull();
+  });
+});
+
+/** The rank table and the shortfall function, without the doc comment or `export`. */
+function copied(path: URL): string {
+  const text = readFileSync(path, "utf8");
+  const start = text.indexOf("const RANK");
+  const fn = text.indexOf("function githubPermissionsMissing(");
+  const end = text.indexOf("\n}\n", fn);
+  const rankEnd = text.indexOf("\n};\n", start);
+  expect([start, rankEnd, fn, end].every((at) => at >= 0)).toBe(true);
+  return [text.slice(start, rankEnd + 3), text.slice(fn, end + 2)].join("\n");
+}
+
+describe("contracts 사본", () => {
+  // A change to either file runs this test: contracts and the web app are
+  // in its CI domain.
+  test("RANK와 githubPermissionsMissing이 contracts와 글자가 같다", () => {
+    const web = copied(
+      new URL("./github-permission-table.ts", import.meta.url),
+    );
+    const contracts = copied(
+      new URL(
+        "../../../../packages/contracts/src/musterrolle/github-app.ts",
+        import.meta.url,
+      ),
+    );
+    expect(web).toContain("RANK[held] < RANK[level]");
+    expect(web).toBe(contracts);
   });
 });
