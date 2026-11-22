@@ -4,7 +4,7 @@
 -- Run inside the run's own postgres only:
 --   ap_compose exec -T postgres psql -U postgres -d sessions -v ON_ERROR_STOP=1 \
 --     -v sessions=50000 -v agents=2000 -v members=2000 -v teams=300 \
---     -v team_members=500 -v keys=1000 < scripts/seed-scale.sql
+--     -v team_members=500 -v keys=1000 < scripts/verify/seed-scale.sql
 -- Rows carry a "scale-" prefix; a second run adds nothing.
 \set ON_ERROR_STOP 1
 BEGIN;

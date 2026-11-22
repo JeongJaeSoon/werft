@@ -29,8 +29,8 @@ Preconditions:
 - owner가 [web-login.md](./web-login.md)로 login했다.
 
 ```sh
-. .claude/skills/verify-werft/scripts/lib.sh <run id>
-U=.claude/skills/verify-werft/scripts/web-user.mjs
+. scripts/verify/lib.sh <run id>
+U=scripts/verify/web-user.mjs
 node $U <run id> key owner personal sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover   # 201, secret은 keys/owner에만
 ap_as owner                                   # acting as owner (cookie, key of N chars)
 REL=<활성 release id>   # procedures.md P-API-AGENTS의 REL
@@ -48,8 +48,8 @@ body() { jq -nc --arg m "$1" --arg r "$REL" '{agent_release_id:$r, repository_id
 다른 구성원의 세션. 웹 `/sessions`는 로그인한 사람이 볼 수 있는 세션을 보여 준다. 특정 구성원이 만든 세션이 필요하면 그 사람의 개인 key로 만든다. 웹 `/settings/api-keys`의 "개인 key 발급"이 보내는 것과 같은 `POST /v1/api-keys`를 `web-user.mjs key`가 그 사람의 cookie로 보내고, secret은 run 디렉터리의 `keys/<who>`(0600)에만 둔다.
 
 ```sh
-. .claude/skills/verify-werft/scripts/lib.sh <run id>
-U=.claude/skills/verify-werft/scripts/web-user.mjs
+. scripts/verify/lib.sh <run id>
+U=scripts/verify/web-user.mjs
 node $U <run id> invite owner member member && node $U <run id> accept member   # owner는 web-login.md로 login했다
 node $U <run id> key member personal sessions:read,sessions:write   # 201, secret: (saved, N chars)
 ap_as member                                  # acting as member (cookie, key of N chars). KEY와 cookie가 member 것
@@ -57,7 +57,7 @@ created=$(ap_post /v1/sessions "$(body 'GATE-SPEC {"id":"v1","steps":[],"final":
 ap_web GET /v1/sessions | head -1 | jq -c '[.items[] | {id, status}]'   # member cookie로 SID가 보인다
 ```
 
-- 화면은 member로 로그인한 브라우저에서 `node .claude/skills/verify-werft/scripts/browser.mjs <run id> login member` 뒤 `open /sessions`. 제목 "세션" 아래 "답변 대기" 영역(없으면 "답을 기다리는 세션이 없습니다."), 그 아래 세션·상태·모델·저장소·최근 열의 행에 제목과 모델·저장소가 보인다. 완료된 행 상태는 "쉬는 중"이다. 권한 요청 대본으로 만든 세션이면 "답변 대기"에 "답을 기다리는 세션 1개", "권한 요청: Bash"와 "요청 내용 보기"·"허용"·"거부"가 있고, 표의 작업 상태는 "답변 대기"다. `click 허용` 뒤 turn 1이 `completed`, 영역은 다시 비고 행은 "쉬는 중"이 된다. 사이드바 세션 항목의 답변 대기 배지은 없을 때 `aria-label` "답변 대기 없음"이다.
+- 화면은 member로 로그인한 브라우저에서 `node scripts/verify/browser.mjs <run id> login member` 뒤 `open /sessions`. 제목 "세션" 아래 "답변 대기" 영역(없으면 "답을 기다리는 세션이 없습니다."), 그 아래 세션·상태·모델·저장소·최근 열의 행에 제목과 모델·저장소가 보인다. 완료된 행 상태는 "쉬는 중"이다. 권한 요청 대본으로 만든 세션이면 "답변 대기"에 "답을 기다리는 세션 1개", "권한 요청: Bash"와 "요청 내용 보기"·"허용"·"거부"가 있고, 표의 작업 상태는 "답변 대기"다. `click 허용` 뒤 turn 1이 `completed`, 영역은 다시 비고 행은 "쉬는 중"이 된다. 사이드바 세션 항목의 답변 대기 배지은 없을 때 `aria-label` "답변 대기 없음"이다.
 - 개인 key의 scope는 그 사람의 지금 scope 안에서만 된다(member는 `recover` 없음, 넘으면 `403 SCOPE_NOT_GRANTABLE`).
 
 ## Codex 엔진 세션

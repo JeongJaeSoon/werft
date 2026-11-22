@@ -29,16 +29,16 @@ Preconditions: 새 `up.sh` 직후(bootstrap 전). `<run id>`는 `up.sh`가 출�
 서빙은 curl로 본다.
 
 ```sh
-. .claude/skills/verify-werft/scripts/lib.sh <run id>
+. scripts/verify/lib.sh <run id>
 for p in / /login /bootstrap /sessions/deep/link; do curl -sS -o /dev/null -D - "$VERIFY_API$p" | grep -iE '^HTTP|cache-control|content-security'; done
 curl -sS -w '\n%{http_code}\n' "$VERIFY_API/v1/nope"            # 401 JSON
 curl -sS -o /dev/null -w '%{http_code}\n' "$VERIFY_API/assets/missing.js"   # 404
 ```
 
-화면은 이 run의 headless Chrome으로 몬다: `scripts/browser.mjs`. run 디렉터리 안의 전용 user-data-dir(`browser/profile`)로 띄우고 PID를 `browser/pid`에 적으며, `stop`은 그 PID만(명령줄에 이 profile이 있을 때만) 끝내고 profile을 지운다. 사람의 Chrome 프로필이나 다른 Chrome 프로세스는 건드리지 않는다. 쓰기 전에 `orch hold browser --note "<what>"`, 끝나면 `stop` 뒤 `orch release browser`.
+화면은 이 run의 headless Chrome으로 몬다: `scripts/verify/browser.mjs`. run 디렉터리 안의 전용 user-data-dir(`browser/profile`)로 띄우고 PID를 `browser/pid`에 적으며, `stop`은 그 PID만(명령줄에 이 profile이 있을 때만) 끝내고 profile을 지운다. 사람의 Chrome 프로필이나 다른 Chrome 프로세스는 건드리지 않는다. 쓰기 전에 `orch hold browser --note "<what>"`, 끝나면 `stop` 뒤 `orch release browser`.
 
 ```sh
-B=.claude/skills/verify-werft/scripts/browser.mjs
+B=scripts/verify/browser.mjs
 node $B <run id> start                   # started headless Chrome pid N
 node $B <run id> open /                  # /login?redirect=%2F | Werft
 node $B <run id> login owner             # web-user.mjs가 만든 users/owner로 /login 폼을 채운다 → "login owner -> /"
@@ -55,7 +55,7 @@ node $B <run id> select "footer select" ja   # 로그인 전 화면의 언어. h
 node $B <run id> stop                    # stopped pid N; profile removed
 ```
 
-- 간격·폭·정렬은 `measure`로 잰다. `W=1440 THEME=light node $B <run id> measure <set>-<화면>-1440-light`가 지금 화면의 `getBoundingClientRect` 값(사이드바 머리·topbar 경계선 y, 좌측 정렬선 x, 콘텐츠 폭, 머리→첫 섹션·섹션·블록 간격(상자와 글자 잉크 둘 다), 카드·목록 행 padding과 오른쪽 버튼 위치)을 `evidence/layout/<이름>.json`에 쓴다(`scripts/measure-layout.js`). 화면마다 1440·390 × light·dark로 잰 뒤 `node scripts/layout-report.mjs $EVIDENCE/layout <out dir> before after`가 v35 규칙(page-top 32·390은 16, page-head 24, section 32, block 16, 카드 안은 척도만, 필드 16, 카드 padding 16, 목록 행 12 16(따로 테두리 친 행 포함), topbar 52와 같은 선, 좌측선 하나, 본문 폭 wide 1200·narrow 840과 목록·표·패널이 그 폭을 다 씀, 가로 넘침 없음)과 비교한 `before-vs-after.md`와 접두사별 csv를 쓰고, 화면끼리 다른 값(제목 y·섹션 간격)도 따로 모은다.
+- 간격·폭·정렬은 `measure`로 잰다. `W=1440 THEME=light node $B <run id> measure <set>-<화면>-1440-light`가 지금 화면의 `getBoundingClientRect` 값(사이드바 머리·topbar 경계선 y, 좌측 정렬선 x, 콘텐츠 폭, 머리→첫 섹션·섹션·블록 간격(상자와 글자 잉크 둘 다), 카드·목록 행 padding과 오른쪽 버튼 위치)을 `evidence/layout/<이름>.json`에 쓴다(`scripts/verify/measure-layout.js`). 화면마다 1440·390 × light·dark로 잰 뒤 `node scripts/verify/layout-report.mjs $EVIDENCE/layout <out dir> before after`가 콘솔 간격 규칙(page-top 32·390은 16, page-head 24, section 32, block 16, 카드 안은 척도만, 필드 16, 카드 padding 16, 목록 행 12 16(따로 테두리 친 행 포함), topbar 52와 같은 선, 좌측선 하나, 본문 폭 wide 1200·narrow 840과 목록·표·패널이 그 폭을 다 씀, 가로 넘침 없음)과 비교한 `before-vs-after.md`와 접두사별 csv를 쓰고, 화면끼리 다른 값(제목 y·섹션 간격)도 따로 모은다.
 - 실패한 요청의 본문: 페이지 명령(`open`·`login`·`click`·`shot` …)은 끝에 4xx·5xx 응답마다 stderr에 `! failed request: POST /v1/auth/login?(query hidden) -> 401 | {"error":…}`를 한 줄씩 출력한다(메서드·경로·상태·본문). 본문은 2000자까지다(넘으면 "+N chars cut"). 쿼리 문자열은 싣지 않고, 초대 token은 경로가 여러 번 인코딩돼 있어도 `/invite/(token)`으로 바꾼다.
   - 가림의 기본은 **숨김**이다. 허용 목록에 있는 이름의 값만 보인다.
   - 파싱되는 JSON(그대로, 또는 `)]}'`·`while(1);` 같은 접두어 뒤): 키와 구조는 남는다. 숫자·`true`·`false`·`null`은 이름이 비밀이 아니면 남는다(`code` 단독의 숫자, 예: 404는 남는다). 문자열은 허용 목록 이름(`error`·`errors`·`message`·`title`·`reason`·`status`·`type`·`kind`·`role`·`scope(s)`·`id`·`request_id`·`retryable`·`path`·`field`·`method`·`count`·`total`, `error`·`errors` 아래의 `code`)에서만 보인다. 그 밖의 문자열은 `(hidden, N chars)`로 길이만 남는다. 비밀 이름(`token`·`password`·`api_key` …) 아래가 객체나 배열이면 그 아래 모든 문자열과 숫자는 이름과 상관없이 길이만 남는다(`id`·`message`·`type`도 가린다). session 객체는 키별로 읽어 `id`만 가리고 `status`는 남긴다. 문자열 안에 든 JSON은 같은 규칙으로 한 단계 더 들어가 가린다. 32단보다 깊은 중첩은 `(hidden: nested too deep)`이다.

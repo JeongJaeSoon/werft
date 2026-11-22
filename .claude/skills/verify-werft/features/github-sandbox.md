@@ -12,7 +12,7 @@ owner가 워크스페이스에 GitHub App을 등록하고 에이전트 상한을
 - `dispatch` `POST /v1/sessions/{id}/github/workflow-dispatches` `{workflow, ref, inputs?}`. 게이트 순서대로 거절한다: 목록 밖 `403 workflow_not_allowed`, `agent/…` ref `403 agent_ref_refused`, App에 권한이 없으면 `409 app_permission_missing`(GitHub가 발급을 거절). 성공은 201 `{receipt_id, run}`.
 - `runs` `GET …/github/workflow-runs/{run_id}`(`actions_read`), `POST …/workflow-runs/{run_id}/rerun` `{failed_only?}`(플랫폼이 dispatch한 run만, 아니면 `403 run_ref_unprovable`).
 - `achievement` 바로 인정(`always`) 규칙이 있으면 PR 근거가 생긴 뒤 판정기 loop(마지막 trigger 2분 뒤, 30초마다)가 `GET /v1/sessions/{id}/achievements`에 성과를 남긴다: `title` `owner/repo#번호`, `judge: "always"`, `review_state: "auto"`, `payload`(PR 상태 복사), 판정 `trigger: "evidence"` `succeeded`, 비용 0. Luna 규칙은 연결 저장 전이라 `skipped`(`judge_unavailable`)다.
-- `deps` 파생 worker(`github-sandbox/derived-worker.yml`, 실제 node·npm)에서 공개 npm 설치와 `git+https://github.com/…` 의존성 설치. 붙인 저장소는 저장소 route로 받고, 붙이지 않은 저장소는 route가 없어 실패한다. 아래 "npm 의존성 설치".
+- `deps` 파생 worker(`scripts/verify/github-sandbox/derived-worker.yml`, 실제 node·npm)에서 공개 npm 설치와 `git+https://github.com/…` 의존성 설치. 붙인 저장소는 저장소 route로 받고, 붙이지 않은 저장소는 route가 없어 실패한다. 아래 "npm 의존성 설치".
 - `receipts` `GET /v1/receipts/{id}`(거절은 `error.details.receipt_id`), `GET /v1/agents/{id}/github/activity`(그 에이전트의 게이트 receipt 최근 20개).
 
 ## How to get to it (user POV)
@@ -33,14 +33,14 @@ Preconditions:
 ```sh
 # 1. 띄우기 (같은 Bash 호출)
 export PLATFORM_SECRET_KEY="$(openssl rand -hex 32)"; echo "master key chars: ${#PLATFORM_SECRET_KEY}"   # 64
-orch heavy <program> -- .claude/skills/verify-werft/scripts/up.sh .claude/skills/verify-werft/github-sandbox/overlay.yml
+orch heavy <program> -- scripts/verify/up.sh scripts/verify/github-sandbox/overlay.yml
 ```
 
-`run id`를 기록하고 `doctor.sh <run id>`가 exit 0인지 본다. 아래 블록은 모두 `. .claude/skills/verify-werft/scripts/lib.sh <run id>`로 시작하고, 블록 사이의 id는 블록이 `NAME=값` 줄로 출력하고, 그 줄을 Write 도구로 `$VERIFY_RUN/ids.sh`(이 run 디렉터리)에 적는다(Bash의 `>>`·heredoc으로 만들지 않는다. Write는 파일 전체를 덮어쓰므로 지금까지의 줄을 모두 적는다). 다음 블록에서 `. "$VERIFY_RUN/ids.sh"`로 읽는다.
+`run id`를 기록하고 `doctor.sh <run id>`가 exit 0인지 본다. 아래 블록은 모두 `. scripts/verify/lib.sh <run id>`로 시작하고, 블록 사이의 id는 블록이 `NAME=값` 줄로 출력하고, 그 줄을 Write 도구로 `$VERIFY_RUN/ids.sh`(이 run 디렉터리)에 적는다(Bash의 `>>`·heredoc으로 만들지 않는다. Write는 파일 전체를 덮어쓰므로 지금까지의 줄을 모두 적는다). 다음 블록에서 `. "$VERIFY_RUN/ids.sh"`로 읽는다.
 
 ```sh
 # 2. owner와 App 등록
-U=.claude/skills/verify-werft/scripts/web-user.mjs
+U=scripts/verify/web-user.mjs
 node $U <run id> bootstrap owner; node $U <run id> login owner; ap_as owner
 WS=$(ap_web GET /v1/auth/me | head -1 | jq -r .workspace.id); printf 'WS=%s\n' "$WS"
 node $U <run id> github-app owner "$WS" "$SANDBOX_APP_ID" | tee "$EVIDENCE/gh-app-put.txt"
@@ -79,7 +79,7 @@ ap_web GET "/v1/workspaces/$WS/achievement-judge" | head -1 | jq -c '.achievemen
 
 ```sh
 # 4. 세션: clone → commit(Bash 권한 허용)
-. "$VERIFY_RUN/ids.sh"; U=.claude/skills/verify-werft/scripts/web-user.mjs
+. "$VERIFY_RUN/ids.sh"; U=scripts/verify/web-user.mjs
 node $U <run id> key owner personal sessions:read,sessions:write,sessions:approve; ap_as owner
 SPEC='GATE-SPEC {"id":"gh1","steps":[{"tool":"Bash","input":{"command":"mkdir -p notes && date -u +%FT%TZ > notes/verify-skill.txt && git add notes/verify-skill.txt && git commit -qm \"docs: verify-werft sandbox note\" && git log --oneline -1","description":"commit a note"}}],"final":"committed"}'
 SID=$(ap_post /v1/sessions "$(jq -nc --arg r "$REL" --arg m "$SPEC" '{agent_release_id:$r, message:$m}')" | head -1 | jq -r .session_id)
@@ -158,7 +158,7 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select operation, s
 ```sh
 # 7. 정리: 자기 PR 닫기, 스택 내리기(volume 유지), 잠금 놓기
 gh pr close <n> -R JeongJaeSoon/werft-sandbox --delete-branch
-orch heavy <program> -- .claude/skills/verify-werft/scripts/down.sh <run id>
+orch heavy <program> -- scripts/verify/down.sh <run id>
 orch release verify-stack
 ```
 
@@ -182,11 +182,11 @@ ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select payload-
 ap_compose logs egress-proxy 2>&1 | grep -c "lfs"
 ```
 
-기대: `git-lfs/…` 한 줄, `werft-sandbox LFS object for `로 시작하는 파일 내용 한 줄, `sha256sum`이 위 oid와 같다. oid가 내용의 sha256이므로 내용은 이 일치로 확인한다. LFS batch는 저장소 route(`/repository/sandbox/.git/info/lfs/objects/batch`)로, 객체는 `EGRESS_PACKAGES_REDIRECT_ALLOWLIST`의 `github-cloud.githubusercontent.com`으로 받는다. egress proxy 로그에는 `Credential route LFS object` 줄이 남는다. run `20261115-012625-32204`에서 내용과 sha256이 위 값과 같았다. 객체 주소는 batch 응답에서 온다. 그 host를 빼면(`egress-proxy`의 `EGRESS_PACKAGES_REDIRECT_ALLOWLIST: ""`를 둔 overlay를 up.sh에 마지막으로 더한다. 빈 값은 host 없음이다) proxy가 그 주소를 처음 검사할 때 거절해 객체 다운로드가 `502`다(`apps/egress-proxy/src/credential.ts`의 `lfsObject`). run `20261115-064258-12512`에서 `git lfs pull`이 `Server error http://egress-proxy:3129/repository/sandbox/.git/info/lfs/objects/e503fa2e…?size=38 from HTTP 502`로 exit 2였다. 파일은 pointer 그대로였고, proxy 로그에 `Credential route denied`(`purpose: repository`, `host: github-cloud.…`)가 git-lfs의 재시도마다 남았다. 끝나면 세션을 terminate한다.
+기대: `git-lfs/…` 한 줄, `werft-sandbox LFS object for `로 시작하는 파일 내용 한 줄, `sha256sum`이 위 oid와 같다. oid가 내용의 sha256이므로 내용은 이 일치로 확인한다. LFS batch는 저장소 route(`/repository/sandbox/.git/info/lfs/objects/batch`)로, 객체는 `EGRESS_PACKAGES_REDIRECT_ALLOWLIST`의 `github-cloud.githubusercontent.com`으로 받는다. egress proxy 로그에는 `Credential route LFS object` 줄이 남는다. 객체 주소는 batch 응답에서 온다. 그 host를 빼면(`egress-proxy`의 `EGRESS_PACKAGES_REDIRECT_ALLOWLIST: ""`를 둔 overlay를 up.sh에 마지막으로 더한다. 빈 값은 host 없음이다) proxy가 그 주소를 처음 검사할 때 거절해 객체 다운로드가 `502`다(`apps/egress-proxy/src/credential.ts`의 `lfsObject`). `git lfs pull`은 `Server error … from HTTP 502`로 exit 2다. 파일은 pointer 그대로였고, proxy 로그에 `Credential route denied`(`purpose: repository`, `host: github-cloud.…`)가 git-lfs의 재시도마다 남았다. 끝나면 세션을 terminate한다.
 
 ## npm 의존성 설치 (파생 worker 이미지)
 
-출하 worker 이미지에는 node·npm이 없다. `up.sh .claude/skills/verify-werft/github-sandbox/overlay.yml .claude/skills/verify-werft/github-sandbox/derived-worker.yml`로 띄운 run에서 한다(아래 Gotchas의 파생 이미지 항목). 에이전트는 설정 행이 있고 `repositories: ["sandbox"]`인 것(저장소 없이 시작)을 쓴다. git 의존성은 sandbox의 commit `738b715569f0ab7ba0bc414132c1a44c71df4a53`이다. 그 commit에만 `package.json`(`werft-sandbox-final-e2e`)이 있고 `main`에는 없다.
+출하 worker 이미지에는 node·npm이 없다. `up.sh scripts/verify/github-sandbox/overlay.yml scripts/verify/github-sandbox/derived-worker.yml`로 띄운 run에서 한다(아래 Gotchas의 파생 이미지 항목). 에이전트는 설정 행이 있고 `repositories: ["sandbox"]`인 것(저장소 없이 시작)을 쓴다. git 의존성은 sandbox의 commit `738b715569f0ab7ba0bc414132c1a44c71df4a53`이다. 그 commit에만 `package.json`(`werft-sandbox-final-e2e`)이 있고 `main`에는 없다.
 
 ```sh
 # N1. attach_repository → 공개 npm → 붙인 저장소의 git 의존성
@@ -279,7 +279,7 @@ ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select result::
 
 - **실제 GitHub App 흐름은 이 절차에서만 본다.** CI의 e2e 스택(`tests/e2e`)은 실제 GitHub가 아니라 로컬 가짜 git host와 가짜 App 키(fake-git이 만든 `FAKE_GITHUB_APP_KEY_FILE`, 콘솔 API로 저장소마다 저장)로 돈다. 그래서 실제 App 토큰이 있어야 하는 흐름(실제 저장소 clone, `attach_repository`로 붙이기, 실제 GitHub로의 push·PR, LFS 객체의 redirect)은 CI가 확인하지 않고, 이 로컬 sandbox run으로만 확인한다. 이 흐름을 바꾼 PR은 이 절차의 출력을 근거로 남긴다.
 
-- **파생 worker 이미지는 `derived-worker.yml`로 스택을 처음 띄울 때 함께 만든다.** 출하 worker 이미지에는 node·npm·go가 없고, Bun의 node shim 위 npm은 실제 npm과 다르게 실패해 결과를 근거로 쓸 수 없다. overlay의 `worker-deps` 서비스가 같은 `up --build`에서 `additional_contexts: base: service:worker`로 이 run의 worker 이미지를 base로 받아 `werft-worker-deps:<project>`를 build하고(`github-sandbox/derived-worker/Dockerfile`, node 이미지는 digest 고정), scheduler의 `WORKER_IMAGE`를 그 태그로 둔다. 그래서 첫 세션부터 그 이미지로 뜬다. 띄운 뒤 scheduler만 다시 만들지 않는다(바로 아래 master key 항목). `WORKER_IMAGES`는 두지 않는다(값이 있으면 스택이 멈춘다, `infra/compose.core.yml`). `worker-deps` 컨테이너는 `npm --version`을 찍고 exit 0으로 끝난다. 확인은 재생성과 다른 호출에서 한다: 세션 worker 컨테이너(`label=werft.installation=<project>`)의 `docker inspect` `.Config.Image`가 `werft-worker-deps:<project>`의 image id와 같고, base(`werft-worker:<project>`)의 id와는 다르다. run `20261115-064258-12512`에서 세 세션 worker가 모두 파생 이미지 id였고 scheduler env도 그 태그였다. `down.sh`가 이 태그를 run 태그와 함께 정확한 이름으로 지운다. `FROM`에 쓴 `node:24.22.1-bookworm-slim`은 run 밖 이미지라 지우지 않는다. go 같은 다른 도구가 필요하면 같은 Dockerfile에 더한다.
+- **파생 worker 이미지는 `derived-worker.yml`로 스택을 처음 띄울 때 함께 만든다.** 출하 worker 이미지에는 node·npm·go가 없고, Bun의 node shim 위 npm은 실제 npm과 다르게 실패해 결과를 근거로 쓸 수 없다. overlay의 `worker-deps` 서비스가 같은 `up --build`에서 `additional_contexts: base: service:worker`로 이 run의 worker 이미지를 base로 받아 `werft-worker-deps:<project>`를 build하고(`scripts/verify/github-sandbox/derived-worker/Dockerfile`, node 이미지는 digest 고정), scheduler의 `WORKER_IMAGE`를 그 태그로 둔다. 그래서 첫 세션부터 그 이미지로 뜬다. 띄운 뒤 scheduler만 다시 만들지 않는다(바로 아래 master key 항목). `WORKER_IMAGES`는 두지 않는다(값이 있으면 스택이 멈춘다, `infra/compose.core.yml`). `worker-deps` 컨테이너는 `npm --version`을 찍고 exit 0으로 끝난다. 확인은 재생성과 다른 호출에서 한다: 세션 worker 컨테이너(`label=werft.installation=<project>`)의 `docker inspect` `.Config.Image`가 `werft-worker-deps:<project>`의 image id와 같고, base(`werft-worker:<project>`)의 id와는 다르다. `down.sh`가 이 태그를 run 태그와 함께 정확한 이름으로 지운다. `FROM`에 쓴 `node:24.22.1-bookworm-slim`은 run 밖 이미지라 지우지 않는다. go 같은 다른 도구가 필요하면 같은 Dockerfile에 더한다.
 
 - **run 안에서 api(또는 master key를 받는 서비스)를 `ap_compose up -d`로 다시 만들지 않는다.** `PLATFORM_SECRET_KEY`는 `up.sh`를 부른 Bash 호출에만 있다. 다른 호출에서 컨테이너를 다시 만들면 그 값을 받지 못한다. key가 없으면 api가 `PLATFORM_SECRET_KEY is required`로 뜨지 않는다. 다른 key로 뜨면 등록한 App 키를 풀지 못해 clone이 실패한다(api 로그 `SecretDecryptError`, 2026-11-15 run이 이 경우였다). 코드를 바꿔 다시 봐야 하면 그 run을 내리고 새 run을 띄운다. `ap_compose restart`는 컨테이너를 다시 만들지 않는다(바로 아래의 주소 항목).
 - **카탈로그에 같은 GitHub 저장소를 두 항목으로 넣지 않는다.** `catalog_repositories_full_name_key`가 지워지지 않은 `github_app` 항목의 `lower(owner), lower(name)`을 unique로 묶는다. 그래서 같은 저장소를 가리키는 `github_app` 항목이 둘이면 migrate가 exit 1로 멈춘다. 다른 브랜치를 써야 하면(예: 시험용 브랜치) 기존 `sandbox` 항목의 `branch`를 바꾼 설정 문서를 overlay로 넣는다.

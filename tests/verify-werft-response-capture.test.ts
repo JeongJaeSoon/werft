@@ -10,8 +10,8 @@ import {
   READ_LIMIT,
   shortBody,
   wanted,
-  // @ts-expect-error plain .mjs next to the verify skill's scripts
-} from "../.claude/skills/verify-werft/scripts/response-capture.mjs";
+  // @ts-expect-error plain .mjs in scripts/verify
+} from "../scripts/verify/response-capture.mjs";
 
 describe("wanted", () => {
   test("keeps 4xx and 5xx, drops 2xx and 3xx", () => {
@@ -1356,7 +1356,7 @@ describe("maskBody: deep nesting", () => {
   // masker there on bodies as deep as the 64 KiB read limit allows.
   test("a deeply nested body is masked without throwing under node", () => {
     const script = `
-      import { maskBody } from ${JSON.stringify(`${import.meta.dir}/../.claude/skills/verify-werft/scripts/response-capture.mjs`)};
+      import { maskBody } from ${JSON.stringify(`${import.meta.dir}/../scripts/verify/response-capture.mjs`)};
       const arrays = "[".repeat(32000) + "1" + "]".repeat(32000);
       let obj = "1";
       for (let i = 0; i < 10000; i++) obj = '{"a":' + obj + "}";

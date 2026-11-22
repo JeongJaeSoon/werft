@@ -946,7 +946,7 @@ printf '%s\\n' "$@" > "${dir}/kubectl-args"
  */
 describe("verify-werft down.sh", () => {
   const repo = join(import.meta.dir, "..");
-  const downSh = join(repo, ".claude/skills/verify-werft/scripts/down.sh");
+  const downSh = join(repo, "scripts/verify/down.sh");
   const project = "verify-ap-20261025-000000-1";
   let dir: string;
   let runDir: string;

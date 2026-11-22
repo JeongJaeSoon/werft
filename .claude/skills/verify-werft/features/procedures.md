@@ -10,11 +10,11 @@ zsh(Claude Code Bash 도구) 또는 bash 4 이상에서 실행한다. macOS `/bi
 
 ```sh
 RUN='<run-id>'
-. .claude/skills/verify-werft/scripts/lib.sh "$RUN"
-U=.claude/skills/verify-werft/scripts/web-user.mjs
-B=.claude/skills/verify-werft/scripts/browser.mjs
+. scripts/verify/lib.sh "$RUN"
+U=scripts/verify/web-user.mjs
+B=scripts/verify/browser.mjs
 [ ! -f "$VERIFY_RUN/ids.sh" ] || . "$VERIFY_RUN/ids.sh"
-.claude/skills/verify-werft/scripts/doctor.sh "$RUN"
+scripts/verify/doctor.sh "$RUN"
 ```
 
 `ids.sh` 경로는 `echo "$VERIFY_RUN/ids.sh"`로 읽는다. ID 저장은 아래 `printf`처럼 값이 UUID인 ID에만 쓴다. key·cookie·OAuth 값은 `ids.sh`에 저장하지 않는다. 새 run에서는 그 run의 파일만 복원한다.
@@ -690,7 +690,7 @@ node "$B" "$RUN" slowshot /sessions sessions-loading 6000
 node "$B" "$RUN" open /sessions
 ```
 
-기대: 390px에서 sidebar가 “메뉴 열기” 뒤에 숨고 내용이 viewport보다 넓어지지 않는다. 구성원 320px은 표 내부만 스크롤된다. blockshot은 오류 안내·재시도, slowshot은 로딩 상태이며 빈 목록 성공으로 보이지 않는다. 마지막 open 뒤 실제 목록이 돌아온다. source: `apps/web/src/routes/layout.tsx`, `members.tsx`, `scripts/browser.mjs`.
+기대: 390px에서 sidebar가 “메뉴 열기” 뒤에 숨고 내용이 viewport보다 넓어지지 않는다. 구성원 320px은 표 내부만 스크롤된다. blockshot은 오류 안내·재시도, slowshot은 로딩 상태이며 빈 목록 성공으로 보이지 않는다. 마지막 open 뒤 실제 목록이 돌아온다. source: `apps/web/src/routes/layout.tsx`, `members.tsx`, `scripts/verify/browser.mjs`.
 
 ## P-API-CLEANUP — key·팀·로그아웃
 
@@ -737,7 +737,7 @@ node "$B" "$RUN" open /
 ```sh
 # Actor: stack operator; select owner after login below.
 export PLATFORM_SECRET_KEY=$(openssl rand -hex 32)
-.claude/skills/verify-werft/scripts/up.sh infra/compose.mock-slack.yml
+scripts/verify/up.sh infra/compose.mock-slack.yml
 ```
 
 새 RUN으로 P-SETUP·P-WEB-LOGIN의 owner 생성/로그인, P-API-AGENTS의 agent 생성·release·활성화까지만 실행한다(팀·관리자 부분 제외). WS·AID를 기록한다. config token은 helper로 저장한다.
@@ -865,11 +865,11 @@ node "$U" "$RUN" slack-click-bad "$AID"                  # 401 UNAUTHORIZED
 
 기대: `slack-event`는 200 `ok:true`, 카드는 스레드마다 새로 온다(몇 초 걸린다. 필요하면 `slack-cards`를 다시). `slack-click`은 `{"ok":true,"status":200,"body":{"ok":true}}`. 두 카드의 `last_update`는 각각 `*허용됨* · <@U0MOCK>`, `*거부됨* · <@U0MOCK>`으로 시작한다(뒤에 카드 요약이 붙는다). `pending_requests`에는 두 행이 생긴다. 하나는 `allow`이고 다른 하나는 `deny`이며, 둘 다 `remember`는 비어 있고 `settled_answer_result`는 `applied`, `remember_offer`는 비어 있다. 세션은 idle이 된다. push 카드를 누르면 카드가 `push 승인됨`으로 바뀌고 push 요청은 `approved`를 지나 처리된다. 기본 run에서는 fake-git이 받아 `pushed`가 되고 `agent/<SID>` 브랜치가 생긴다. push 자격이 없는 저장소면 `failed`(`no_push_credential`)로 끝난다. 거절 카드는 `push 거절됨`이 되고 요청은 `rejected`다. 틀린 서명은 401 `UNAUTHORIZED`.
 
-주의: "이 세션 동안 허용" 버튼(`permission.allow_session`)은 엔진이 그 호출을 덮는 규칙을 제안할 때(`remember_offer`)만 붙고, 그 규칙 문장이 너무 길면 빠진다. fake 연결의 release는 `auto`로 돌아서 묻기 규칙에 걸린 명령만 카드가 된다. mock run에서 본 묻기 규칙 카드 11건은 파이프가 없는 명령(`sed -n "w a.txt" README.md`)까지 모두 제안이 비어 있었다. 엔진이 제안을 보내지 않은 것인지 werft가 거른 것인지는 확인하지 않았다. 묻기 목록에 걸린 호출은 매번 사람이 보는 것을 의도로 두고 사용자 문서(Slack 카드 표, 승인 대기와 재개)에 지금의 동작으로 적었다. 코드는 버튼이 없음을 보장하지 않는다: `offerableRules`는 호출이 묻기 규칙에 걸렸는지 보지 않으므로 엔진이 제안을 주면 붙는다. 버튼이 나올 수 있는 곳은 `default` 모드에서 규칙 밖 호출을 물을 때다. 그래서 기본 mock run에서 `slack-click allow-session`은 `no open card offers permission.allow_session`으로 끝난다. 세션 허용은 단계마다 시험이 지킨다. 제안 거르기는 `packages/adapters/runtimes/claude/src/runtime.test.ts`의 "canUseTool hands the host only the allow rules it may offer…"가 맡는다. 버튼은 `packages/adapters/chat/slack/src/slack-prompts.test.ts`의 "an offered rule adds a button…"과 "an allow kept for the session says so…"가 맡는다. 저장과 전달은 `packages/db/src/pending-requests.integration.test.ts`의 "a request that offered rules takes the answer…"가, worker가 엔진에 넘기는 일은 `apps/worker/src/pending-requests.test.ts`의 "hands the run the registered rules with an allow that asked to remember"가 맡는다. 클릭 처리 중 Slack 호출이 실패하면(예: `users.info` 429) 클릭은 200을 받지만 답은 반영되지 않는다. 그때 누른 사람에게 "지금은 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요" ephemeral이 가고 카드는 그대로다. release에 `github` 설정(`push_approval`)을 넣으려면 GitHub App 등록이 필요해(`app_required`) 기본 mock run은 설정 없는 release, 곧 사람이 매 push를 승인하는 기본값으로 본다.
+주의: "이 세션 동안 허용" 버튼(`permission.allow_session`)은 엔진이 그 호출을 덮는 규칙을 제안할 때(`remember_offer`)만 붙고, 그 규칙 문장이 너무 길면 빠진다. fake 연결의 release는 `auto`로 돌아서 묻기 규칙에 걸린 명령만 카드가 된다. 기본 mock run의 묻기 규칙 카드에는 제안이 없어 이 버튼이 붙지 않는다. 코드는 버튼이 없음을 보장하지 않는다: `offerableRules`는 호출이 묻기 규칙에 걸렸는지 보지 않으므로 엔진이 제안을 주면 붙는다. 버튼이 나올 수 있는 곳은 `default` 모드에서 규칙 밖 호출을 물을 때다. 그래서 기본 mock run에서 `slack-click allow-session`은 `no open card offers permission.allow_session`으로 끝난다. 세션 허용은 단계마다 시험이 지킨다. 제안 거르기는 `packages/adapters/runtimes/claude/src/runtime.test.ts`의 "canUseTool hands the host only the allow rules it may offer…"가 맡는다. 버튼은 `packages/adapters/chat/slack/src/slack-prompts.test.ts`의 "an offered rule adds a button…"과 "an allow kept for the session says so…"가 맡는다. 저장과 전달은 `packages/db/src/pending-requests.integration.test.ts`의 "a request that offered rules takes the answer…"가, worker가 엔진에 넘기는 일은 `apps/worker/src/pending-requests.test.ts`의 "hands the run the registered rules with an allow that asked to remember"가 맡는다. 클릭 처리 중 Slack 호출이 실패하면(예: `users.info` 429) 클릭은 200을 받지만 답은 반영되지 않는다. 그때 누른 사람에게 "지금은 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요" ephemeral이 가고 카드는 그대로다. release에 `github` 설정(`push_approval`)을 넣으려면 GitHub App 등록이 필요해(`app_required`) 기본 mock run은 설정 없는 release, 곧 사람이 매 push를 승인하는 기본값으로 본다.
 
 ## P-GITHUB-SANDBOX — 실제 GitHub 별도 run
 
-전제: 새 run. 기본 run·Slack run과 같이 띄우지 않는다. `up.sh .claude/skills/verify-werft/github-sandbox/overlay.yml`과 버리는 master key로 띄우고, [github-sandbox.md](github-sandbox.md)의 1–7을 순서대로 실행한다(App 등록 → 상한 → 에이전트 릴리스 → 세션 clone·commit → push·PR → dispatch·rerun 거절과 receipt → 자기 PR 닫기·`down.sh`). 실제 GitHub에 브랜치와 PR이 생기므로 7의 정리까지가 한 절차다.
+전제: 새 run. 기본 run·Slack run과 같이 띄우지 않는다. `up.sh scripts/verify/github-sandbox/overlay.yml`과 버리는 master key로 띄우고, [github-sandbox.md](github-sandbox.md)의 1–7을 순서대로 실행한다(App 등록 → 상한 → 에이전트 릴리스 → 세션 clone·commit → push·PR → dispatch·rerun 거절과 receipt → 자기 PR 닫기·`down.sh`). 실제 GitHub에 브랜치와 PR이 생기므로 7의 정리까지가 한 절차다.
 
 ## P-DEMO-SEED — 데모 별도 run
 
@@ -877,7 +877,7 @@ node "$U" "$RUN" slack-click-bad "$AID"                  # 401 UNAUTHORIZED
 
 ```sh
 # Actor: stack operator; select demo-owner after login below.
-VERIFY_DEMO_ACCOUNTS=1 .claude/skills/verify-werft/scripts/up.sh
+VERIFY_DEMO_ACCOUNTS=1 scripts/verify/up.sh
 ```
 
 출력 id로 P-SETUP 후:
@@ -934,8 +934,8 @@ node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 # Actor: owner. 그 run의 postgres에서만 돈다. 두 번째 실행은 아무것도 더하지 않는다.
 ap_compose exec -T postgres psql -U postgres -d sessions -v ON_ERROR_STOP=1 \
   -v sessions=50000 -v agents=2000 -v members=2000 -v teams=300 \
-  -v team_members=500 -v keys=1000 < .claude/skills/verify-werft/scripts/seed-scale.sql
-. .claude/skills/verify-werft/scripts/bench-lists.sh
+  -v team_members=500 -v keys=1000 < scripts/verify/seed-scale.sql
+. scripts/verify/bench-lists.sh
 ap_as owner
 ap_bench 15 '/v1/sessions?limit=50'
 ap_bench 15 '/v1/sessions?limit=50&q=zzznomatch'
@@ -946,4 +946,4 @@ ap_bench_pages '/v1/agents?include=summary'
 
 기대: 시드 끝에 행 수 표(세션 50,001 등). `ap_bench`는 경로마다 200이 아닌 응답 수(`failed=`)·마지막 응답의 항목 수·200 응답만의 p50·p95를, `ap_bench_pages`는 limit=100으로 끝까지 읽은 페이지 수·항목 수·합계 시간을 한 줄씩 낸다. 200이 아닌 응답이 하나라도 있으면 둘 다 1로 끝난다(member로 `/v1/agents`는 403이라 `failed=3 of 3`). 시드는 sessions·agents·memberships·member_teams·api_keys만 키우고 events·pending_requests·session_shares는 늘리지 않으므로, 그 표에 기대는 서브쿼리 비용은 운영보다 작게 나온다.
 
-계획을 보려면 이 run의 postgres에서만 `LOAD 'auto_explain'` 뒤 `ALTER SYSTEM SET auto_explain.log_min_duration = 40`·`auto_explain.log_analyze = on`, `pg_reload_conf()`, `ap_compose restart api` 하고 `ap_compose logs postgres`를 읽는다. api를 재시작하면 ephemeral 포트가 바뀐다. 이후 호출 전에 `API=http://$(ap_compose port api 3000)`로 다시 잡는다(run 상태 파일의 `VERIFY_API`는 바뀌지 않는다). source: `scripts/seed-scale.sql`, `scripts/bench-lists.sh`.
+계획을 보려면 이 run의 postgres에서만 `LOAD 'auto_explain'` 뒤 `ALTER SYSTEM SET auto_explain.log_min_duration = 40`·`auto_explain.log_analyze = on`, `pg_reload_conf()`, `ap_compose restart api` 하고 `ap_compose logs postgres`를 읽는다. api를 재시작하면 ephemeral 포트가 바뀐다. 이후 호출 전에 `API=http://$(ap_compose port api 3000)`로 다시 잡는다(run 상태 파일의 `VERIFY_API`는 바뀌지 않는다). source: `scripts/verify/seed-scale.sql`, `scripts/verify/bench-lists.sh`.

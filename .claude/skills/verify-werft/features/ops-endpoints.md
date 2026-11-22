@@ -24,7 +24,7 @@ Preconditions:
 - `doctor.sh <run id>`가 ready. `/v1/*`에는 `sessions:read` key.
 
 ```sh
-. .claude/skills/verify-werft/scripts/lib.sh <run id>
+. scripts/verify/lib.sh <run id>
 ```
 
 - **준비.** `curl -sS "$API/readyz"` → 위 JSON.

@@ -1,5 +1,5 @@
 # Source this in every Bash call that drives the stack:
-#   . .claude/skills/verify-werft/scripts/lib.sh <run id | run dir>
+#   . scripts/verify/lib.sh <run id | run dir>
 # It loads the run's state (project, ports, setup link) and defines the
 # drive helpers. Each Bash call is a fresh shell, so source it every time.
 

@@ -11,7 +11,7 @@ shift
 repo=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 cd "$repo"
 # shellcheck disable=SC1091
-. .claude/skills/verify-werft/scripts/lib.sh "$run" >/dev/null
+. scripts/verify/lib.sh "$run" >/dev/null
 accounts="$run/demo-rich-accounts.json"
 # Its imports name apps/ from the repository root, as /app is in the image.
 # /app itself is root's; the script only needs to be readable there.

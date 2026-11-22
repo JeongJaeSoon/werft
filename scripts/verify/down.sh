@@ -43,7 +43,7 @@ fi
 
 failed=0
 if [ -f "$run/browser/pid" ]; then
-  node "$VERIFY_REPO/.claude/skills/verify-werft/scripts/browser.mjs" "$run" stop >&2 || failed=1
+  node "$VERIFY_REPO/scripts/verify/browser.mjs" "$run" stop >&2 || failed=1
 fi
 # Listed before anything goes: once the containers are gone, nothing links
 # their anonymous volumes to this run.

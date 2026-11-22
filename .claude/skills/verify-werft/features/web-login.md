@@ -19,7 +19,7 @@
 
 - 웹 콘솔의 `/bootstrap` 화면이 `POST /v1/auth/bootstrap`을 부른다.
 - 웹 콘솔의 `/login` 화면이 `GET /v1/auth/login-methods`와 `POST /v1/auth/login`(공급자를 고르면 `POST /v1/auth/providers/{id}/start`, 돌아온 `/auth/callback/<공급자 id>`가 `POST /v1/auth/oidc/callback`)을, 앱 부팅이 `GET /v1/auth/me`를, 로그아웃이 `POST /v1/auth/logout`을 부른다.
-- 자격 값이 본문에 드는 요청(bootstrap·login)은 `scripts/web-user.mjs`가 보내고, 나머지는 `ap_web`으로 보낸다. API reference(`/docs`)에도 같은 경로가 있다.
+- 자격 값이 본문에 드는 요청(bootstrap·login)은 `scripts/verify/web-user.mjs`가 보내고, 나머지는 `ap_web`으로 보낸다. API reference(`/docs`)에도 같은 경로가 있다.
 
 ## Driving it with lib.sh
 
@@ -31,8 +31,8 @@ Preconditions:
 비밀번호는 명령에 쓰지 않는다. 명령 텍스트에 비밀번호 JSON 리터럴이 있으면 agent-guard PreToolUse hook이 "secret-like value detected in shell command"로 그 호출을 거부한다. `web-user.mjs`가 처음 쓸 때 사람마다 무작위 비밀번호를 만들어 run 디렉터리의 `users/<who>`(0600)에 두고, 요청 본문을 스스로 만들어 응답 본문과 상태 코드만 출력한다. 이메일은 `<who>@example.test`다.
 
 ```sh
-. .claude/skills/verify-werft/scripts/lib.sh <run id>
-U=.claude/skills/verify-werft/scripts/web-user.mjs
+. scripts/verify/lib.sh <run id>
+U=scripts/verify/web-user.mjs
 ```
 
 - **로그인 전.** `ap_web GET /v1/auth/me` → `401`, `error.code` `UNAUTHORIZED`.

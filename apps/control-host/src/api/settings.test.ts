@@ -825,7 +825,7 @@ describe("settings CLI", () => {
   test("the verify GitHub sandbox document is one migrate accepts", async () => {
     const path = join(
       import.meta.dir,
-      "../../../../.claude/skills/verify-werft/github-sandbox/settings.json",
+      "../../../../scripts/verify/github-sandbox/settings.json",
     );
     const entries = parseSettingsDocument(await Bun.file(path).json());
     expect(Object.keys(entries.repositories).sort()).toEqual([
