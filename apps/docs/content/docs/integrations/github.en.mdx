@@ -51,7 +51,7 @@ A skill registered from GitHub finds new versions through a push webhook, a chec
 
 - With this value set, a writer App newly created in the console gets the webhook address and the `push` event in its manifest, and the webhook secret GitHub returns is stored encrypted like the App key.
 - For an existing App, turn on **Active** in the App settings on GitHub (General → Webhook), enter **Webhook URL** and **Secret**, then turn on the **Push** event under Permissions & events. An owner or admin enters the same secret with `PUT /v1/workspaces/{id}/github-apps/{role}/webhook-secret`.
-- The receiving path is the unauthenticated `POST /v1/github/webhook`, and the body is read only when the `X-Hub-Signature-256` signature matches. A missing or wrong signature is `401`, a body over 64 KiB is `413`, and going over the per-App per-minute limit is `429`.
+- The receiving path is the unauthenticated `POST /v1/github/webhook`, and an event is handled only after the body's `X-Hub-Signature-256` signature is verified. A missing or wrong signature is `401`, a body over 64 KiB is `413`, and going over the per-App per-minute limit is `429`.
 
 <a id="토큰-발급이-실패할-때" />
 ### When token issuance fails

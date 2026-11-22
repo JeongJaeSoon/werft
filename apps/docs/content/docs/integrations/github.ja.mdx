@@ -51,7 +51,7 @@ GitHub から登録したスキルは、push webhook、一日一回の確認、�
 
 - この値があると、コンソールで新しく作る作成用 App の manifest に webhook アドレスと `push` イベントが入り、GitHub が返した webhook secret は App キーと同じく暗号化して保存される。
 - 既存の App は、GitHub の App 設定(General → Webhook)で **Active** をオンにして **Webhook URL** と **Secret** を入れ、Permissions & events で **Push** イベントをオンにする。同じ secret を owner か admin が `PUT /v1/workspaces/{id}/github-apps/{role}/webhook-secret` で入れる。
-- 受け取る経路は認証なしの `POST /v1/github/webhook` で、`X-Hub-Signature-256` の署名が合うときだけ本文を読む。署名がないか誤っていれば `401`、本文が 64 KiB を超えれば `413`、App ごとの毎分の上限を超えれば `429` である。
+- 受け取る経路は認証なしの `POST /v1/github/webhook` で、本文の `X-Hub-Signature-256` の署名を検証したあとでだけイベントを処理する。署名がないか誤っていれば `401`、本文が 64 KiB を超えれば `413`、App ごとの毎分の上限を超えれば `429` である。
 
 <a id="토큰-발급이-실패할-때" />
 ### トークンの発行に失敗したとき

@@ -49,7 +49,7 @@ GitHub에서 등록한 스킬은 push webhook, 하루 한 번의 확인, 콘솔�
 
 - 이 값이 있으면 콘솔에서 새로 만드는 작성용 App에 webhook 주소와 `push` 이벤트가 들어가고, GitHub가 준 webhook secret이 App 키처럼 암호화돼 저장된다.
 - 이미 있는 App은 GitHub의 App 설정(General → Webhook)에서 **Active**를 켜고 **Webhook URL**과 **Secret**을 넣은 뒤, Permissions & events에서 **Push** 이벤트를 켠다. 같은 secret을 owner나 admin이 `PUT /v1/workspaces/{id}/github-apps/{role}/webhook-secret`으로 넣는다.
-- 받는 경로는 인증 없는 `POST /v1/github/webhook`이고, `X-Hub-Signature-256` 서명이 맞을 때만 본문을 읽는다. 서명이 없거나 틀리면 `401`, 본문이 64 KiB를 넘으면 `413`, App마다 분당 상한을 넘으면 `429`다.
+- 받는 경로는 인증 없는 `POST /v1/github/webhook`이고, 본문의 `X-Hub-Signature-256` 서명을 검증한 뒤에만 이벤트를 처리한다. 서명이 없거나 틀리면 `401`, 본문이 64 KiB를 넘으면 `413`, App마다 분당 상한을 넘으면 `429`다.
 
 ### 토큰 발급이 실패할 때
 

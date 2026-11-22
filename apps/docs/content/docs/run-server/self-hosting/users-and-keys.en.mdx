@@ -103,6 +103,17 @@ Authorization decisions record denials and the allows of management actions, app
 - **Export.** With `Accept: application/x-ndjson`, every filtered row is sent one per line, and the last line is `{"kind":"end",…}`. Up to 100,000 rows go at once; beyond that, continue with `next_cursor` on the end line. Only one runs per workspace at a time (a second gets `429`), and it is cut after 10 minutes. A file without the end line is incomplete, so call again with the `cursor` of the last line received.
 - **Retention.** 90 days by default. The owner changes it from a sign-in session with `POST /v1/workspaces/{id}/audit-retention` (`{"audit_retention_days": …}`, 30 to 3650). The current value is in `workspace.settings` of `GET /v1/auth/me`. The reconciler deletes decision rows past the period. Receipts are not deleted, but the audit log shows only those inside the retention period.
 
+<a id="7-공유-범위-밖의-세션" />
+### 7. Sessions outside the share scope
+
+Even for owners and admins, a session outside its share scope does not appear in lists, details or turns (`404`). Such sessions are handled only through the paths below. The reason (`justification`, up to 1000 characters) is kept in the decision record.
+
+- **Admin list.** `GET /v1/admin/sessions` shows owners and admins the workspace's sessions, newest first, whatever their scope. Entries hold metadata only, such as who made it, the agent release, state and share scope; no messages, titles or summaries.
+- **Audit read.** `POST /v1/sessions/{id}/audit-read` (`{"justification": "…"}`) returns the session detail and one page of turns (`cursor`, `limit`), and every read adds one audit record. It only reads, so messages, answers and termination stay `404` afterwards.
+- **Admin terminate.** `POST /v1/admin/sessions/{id}/terminate` (`{"expected_revision": …, "justification": "…"}`) lets owners and admins stop a session whatever its scope. The reason becomes the stop reason.
+- **Admin recovery.** `POST /v1/admin/sessions/{id}/recovery-decisions` lets only owners decide recovery whatever the scope. The body is the recovery decision of [Session recovery](/run-server/self-hosting/recover-sessions), and its `reason` is the justification.
+- **Takeover.** When a departed member's session is outside what the person taking it over can see, send `{"justification": "…"}` to `POST /v1/sessions/{id}/takeover`. Without it the answer is `403` (`reason_code: justification_required`).
+
 <a id="확인" />
 ## Verify
 

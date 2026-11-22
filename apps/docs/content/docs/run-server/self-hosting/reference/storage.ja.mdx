@@ -216,8 +216,10 @@ AWS での作成と最小権限は [bucket の準備](/run-server/self-hosting/p
 | 保管したセッションイベント | bucket の `session-archive/` | 無期限 | なし | なし |
 | 作業領域の volume | Docker volume、Kubernetes PVC | 停止したセッションは 24 時間、一時停止したセッションは 24 時間 | scheduler が回収します。セッションは最後の checkpoint から再開します | コンソールの実行上限「停止したセッションの作業領域」・「一時停止したセッションの作業領域」 |
 | プロセスの stdout ログ | compose は json-file、それ以外は設置の log driver | compose のサービスはコンテナごとに 50 MB のファイル 5 個。scheduler が起動した worker コンテナは Docker daemon の既定値 | ローテーション | compose の `x-logging`、worker コンテナとそれ以外は Docker daemon・ノード・collector の設定 |
+| まだ精算されていない provider 呼び出しの使用量予約 | PostgreSQL | 使用量の報告が来るまで。課金されなかったとして解放された呼び出しは 7 日。解放されていない呼び出しは経過時間では削除しません | API と reconciler | なし |
 
 - 内容（プロンプト、回答、ツールの入出力）が残るのは、turn の入力原文、セッションイベント、transcript、保管したイベントです。保存前のマスキングは[ログとイベントのマスキング](/run-server/self-hosting/explanation/isolation#로그와-이벤트의-가림)にあります。入力原文（`turns.message`）と transcript はマスキングしません。transcript はセッションを再開するときエンジンにそのまま返す原本なので、イベントでマスキングした値も transcript には残ることがあります。
+- 解放されていない使用量予約は、セッションのコスト上限の判定に加算され続けます。報告が失われた呼び出しのコストを見落とさないためです。lease が切れても報告がなければ、reconciler が `Provider exchange reservation expired unsettled` 警告を一度残します。まだ流れている呼び出しでも出ることがあるため、警告だけでコストが漏れたと判断しません。
 - トレースは既定ではエクスポートしません。有効にする方法は[トレースのエクスポート](/run-server/self-hosting/reference/configuration#트레이스-내보내기)にあります。
 
 <a id="세션-이벤트-보관" />

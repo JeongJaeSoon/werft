@@ -216,8 +216,10 @@ The platform never deletes sessions. There is no API that deletes one, and the r
 | Archived session events | `session-archive/` in the bucket | Indefinitely | Never | No setting |
 | Workspace volumes | Docker volume, Kubernetes PVC | 24 hours for a stopped session, 24 hours for a paused session | The scheduler reclaims them. The session reopens from its last checkpoint | "Stopped session workspace" and "Paused session workspace" in the console's execution limits |
 | Process stdout logs | compose json-file; otherwise the installation's log driver | compose services keep 5 files of 50 MB per container. Worker containers the scheduler starts follow the Docker daemon defaults | Rotation | compose `x-logging`; for worker containers and elsewhere, Docker daemon, node and collector settings |
+| Usage reservations of provider calls not yet settled | PostgreSQL | Until the usage report arrives. A call released as not billed: 7 days. An unreleased call is never deleted by age | The API and the reconciler | None |
 
 - Content (prompts, answers, tool input/output) stays in turn input text, session events, transcripts and archived events. Masking before storage is in [Masking in logs and events](/run-server/self-hosting/explanation/isolation#로그와-이벤트의-가림). Input text (`turns.message`) and transcripts are not masked. A transcript is the original handed back to the engine when the session reopens, so a value masked in events can remain in the transcript.
+- An unreleased usage reservation keeps counting toward the session cost limit, so the cost of a call whose report was lost is not missed. If no report has come when the lease runs out, the reconciler logs `Provider exchange reservation expired unsettled` once. A call still streaming can also cause it, so the warning alone does not mean a cost was lost.
 - Traces are not exported by default. How to turn them on is in [Trace export](/run-server/self-hosting/reference/configuration#트레이스-내보내기).
 
 <a id="세션-이벤트-보관" />

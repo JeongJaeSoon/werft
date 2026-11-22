@@ -94,6 +94,16 @@ owner나 admin이 로그인 세션으로 `POST /v1/members/{user_id}/disable`(�
 - **내보내기.** `Accept: application/x-ndjson`을 주면 거른 행 전체를 한 줄씩 보내고, 마지막 줄은 `{"kind":"end",…}`이다. 한 번에 100,000행까지이고, 넘으면 끝 줄의 `next_cursor`로 이어 받는다. 한 workspace에 동시에 하나만 돌고(둘째는 `429`), 10분이 지나면 끊는다. 끝 줄이 없는 파일은 완전하지 않으므로 받은 마지막 줄의 `cursor`로 다시 부른다.
 - **보존 기간.** 기본 90일이다. owner가 로그인 세션으로 `POST /v1/workspaces/{id}/audit-retention`(`{"audit_retention_days": …}`, 30~3650)으로 바꾼다. 지금 값은 `GET /v1/auth/me`의 `workspace.settings`에 있다. 기간이 지난 판정 행은 reconciler가 지운다. receipt는 지우지 않지만 감사 기록에는 보존 기간 안의 것만 나온다.
 
+### 7. 공유 범위 밖의 세션
+
+owner·admin에게도 공유 범위 밖 세션은 목록·상세·turn에 보이지 않는다(`404`). 그런 세션은 아래 길로만 다룬다. 사유(`justification`, 1000자까지)는 판정 기록에 남는다.
+
+- **관리 목록.** `GET /v1/admin/sessions`는 owner·admin이 범위와 관계없이 workspace의 세션을 최근 것부터 본다. 항목은 만든 사람, agent release, 상태, 공유 범위 같은 메타데이터뿐이고 메시지·제목·요약은 없다.
+- **감사 열람.** `POST /v1/sessions/{id}/audit-read`(`{"justification": "…"}`)는 세션 상세와 turn 한 페이지(`cursor`·`limit`)를 돌려주고, 읽을 때마다 감사 기록이 하나 남는다. 읽기만 하므로 그 뒤에도 메시지·응답·종료는 `404`다.
+- **관리 종료.** `POST /v1/admin/sessions/{id}/terminate`(`{"expected_revision": …, "justification": "…"}`)는 owner·admin이 범위와 관계없이 세션을 멈춘다. 사유가 stop 이유가 된다.
+- **관리 복구.** `POST /v1/admin/sessions/{id}/recovery-decisions`는 owner만 범위와 관계없이 복구 결정을 내린다. 본문은 [세션 복구](/run-server/self-hosting/recover-sessions)의 복구 결정과 같고, 그 `reason`이 사유다.
+- **인수.** 나간 멤버의 세션이 인수하는 사람에게 보이지 않는 범위면 `POST /v1/sessions/{id}/takeover`에 `{"justification": "…"}`를 준다. 없으면 `403`(`reason_code: justification_required`)이다.
+
 ## 확인
 
 각 사용자의 key로 `/v1/sessions`를 읽으면 허용 범위의 응답이 와야 하고, key 없이 요청하면 401이어야 한다. 폐기한 key는 인증되지 않아야 한다. grants 출력의 receipt와 execution 상태를 확인하여 수락과 실제 종료를 구분한다.

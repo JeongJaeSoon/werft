@@ -207,8 +207,10 @@ AWS 생성과 최소 권한은 [bucket 준비](/run-server/self-hosting/prepare-
 | 보관한 세션 이벤트 | bucket의 `session-archive/` | 무기한 | 없음 | 없음 |
 | 작업 공간 volume | Docker volume, Kubernetes PVC | 멈춘 세션은 24시간, 일시 정지한 세션은 24시간 | scheduler가 회수한다. 세션은 마지막 checkpoint에서 다시 연다 | 콘솔의 실행 한도 "멈춘 세션의 작업 공간"·"일시 정지한 세션의 작업 공간" |
 | 프로세스 stdout 로그 | compose json-file, 그 밖은 설치의 log driver | compose 서비스는 컨테이너마다 50 MB 파일 5개. scheduler가 띄운 worker 컨테이너는 Docker daemon 기본값 | 회전 | compose `x-logging`, worker 컨테이너와 그 밖은 Docker daemon·노드·수집기 설정 |
+| 아직 정산되지 않은 provider 호출의 사용량 예약 | PostgreSQL | 사용량 보고가 오면 바로. 과금되지 않았다고 풀린 호출은 7일. 풀리지 않은 호출은 나이로 지우지 않는다 | API와 reconciler | 없음 |
 
 - 내용(프롬프트, 답변, 도구 입출력)이 남는 곳은 turn의 입력 원문, 세션 이벤트, transcript, 보관한 이벤트다. 저장 전 가림은 [로그와 이벤트의 가림](/run-server/self-hosting/explanation/isolation#로그와-이벤트의-가림)에 있다. 입력 원문(`turns.message`)과 transcript는 가리지 않는다. transcript는 세션을 다시 열 때 엔진에 그대로 돌려주는 원본이라, 이벤트에서 가린 값도 transcript에는 남을 수 있다.
+- 풀리지 않은 사용량 예약은 세션 비용 상한 판정에 계속 더해진다. 보고가 유실된 호출의 비용을 놓치지 않기 위해서다. lease가 지나도 보고가 없으면 reconciler가 `Provider exchange reservation expired unsettled` 경고를 한 번 남긴다. 아직 흐르는 호출에도 남을 수 있으므로 경고만으로 비용이 빠졌다고 판단하지 않는다.
 - 트레이스는 기본으로 내보내지 않는다. 켜는 방법은 [트레이스 내보내기](/run-server/self-hosting/reference/configuration#트레이스-내보내기)에 있다.
 
 ## 세션 이벤트 보관
