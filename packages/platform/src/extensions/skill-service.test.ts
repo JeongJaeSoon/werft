@@ -11,6 +11,7 @@ import type {
   RevertSkillResult,
   ReviewExtensionBundleResult,
 } from "./ports/extension-bundle-store.ts";
+import { plainTextHostExtractor } from "./skill-checks.ts";
 import { createSkillService } from "./skill-service.ts";
 
 // The store's own rules (versions, self review, archive refusals) are in
@@ -130,6 +131,7 @@ function setup(options: { ownIds?: boolean } = {}) {
     authorization: createAuthorizationPolicy({}),
     store,
     objects,
+    hosts: plainTextHostExtractor,
     ...(options.ownIds === false ? {} : { newId }),
   });
   return {
@@ -346,7 +348,11 @@ describe("the skill service", () => {
     ]);
 
     // The sync's write of the next version, with auto-approve on.
-    const bundles = createExtensionBundleService({ store, objects });
+    const bundles = createExtensionBundleService({
+      store,
+      objects,
+      hosts: plainTextHostExtractor,
+    });
     const synced = await bundles.register({
       principal: { ownerId: WORKSPACE } as never,
       slug: "research",

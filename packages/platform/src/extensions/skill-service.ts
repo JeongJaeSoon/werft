@@ -40,7 +40,11 @@ import type {
   ExtensionBundle,
   ExtensionBundleStore,
 } from "./ports/extension-bundle-store.ts";
-import { checkBaseline, checkSkillVersion } from "./skill-checks.ts";
+import {
+  checkBaseline,
+  checkSkillVersion,
+  type HostExtractor,
+} from "./skill-checks.ts";
 
 // Skills: one SKILL.md directory per
 // registration, stored as a single-skill bundle whose slug is the skill's
@@ -137,6 +141,11 @@ export type SkillServiceDeps = {
   objects: Pick<CheckpointObjectStore, "get" | "putImmutable">;
   limits?: BundleLimits;
   newId?: () => string;
+  /**
+   * How `new_url` reads hosts. The bundle service this one builds gets the
+   * same one, so the review screen and auto-approve read alike.
+   */
+  hosts?: HostExtractor;
   /** GitHub skills' sources as the list shows them, by name. */
   gitSources?: (workspaceId: string) => Promise<Map<string, SkillGitSource>>;
 };
@@ -484,7 +493,11 @@ export function createSkillService(deps: SkillServiceDeps) {
             size_bytes: file.bytes.byteLength,
             sha256: file.sha256,
           })),
-        checks: checkSkillVersion(before?.files ?? null, tree.files),
+        checks: checkSkillVersion(
+          before?.files ?? null,
+          tree.files,
+          deps.hosts,
+        ),
       };
     },
 

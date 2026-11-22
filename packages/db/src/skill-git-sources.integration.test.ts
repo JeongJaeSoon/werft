@@ -9,6 +9,7 @@ import {
   EXTENSION_MANAGER_ROLES,
   type GitRegistration,
   type GitVersionInput,
+  plainTextHostExtractor,
   type SkillProtectionEvidence,
   type SkillSyncTrigger,
 } from "@werft-ai/platform";
@@ -79,7 +80,11 @@ integration("Git skill sources on PostgreSQL", () => {
   // One object store: the checks read the approved version's tree back.
   const objects = createMemoryCheckpointObjectStore();
   const service = (store = createPostgresExtensionBundleStore(db)) =>
-    createExtensionBundleService({ store, objects });
+    createExtensionBundleService({
+      store,
+      objects,
+      hosts: plainTextHostExtractor,
+    });
 
   async function workspace() {
     const workspaceId = randomUUID();

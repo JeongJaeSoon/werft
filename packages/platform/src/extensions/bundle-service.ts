@@ -26,7 +26,11 @@ import type {
   ReviewExtensionBundleResult,
 } from "./ports/extension-bundle-store.ts";
 import type { ExtensionMode } from "./resolve.ts";
-import { checkBaseline, checkSkillVersion } from "./skill-checks.ts";
+import {
+  checkBaseline,
+  checkSkillVersion,
+  type HostExtractor,
+} from "./skill-checks.ts";
 
 /** A GitHub version as the sync hands it in; the checks are run here. */
 export type GitRegistration = Omit<GitVersionInput, "protection"> & {
@@ -87,6 +91,8 @@ export function createExtensionBundleService(deps: {
   objects: Pick<CheckpointObjectStore, "get" | "putImmutable">;
   limits?: BundleLimits;
   newId?: () => string;
+  /** How `new_url` reads hosts; without it every changed file is unjudged. */
+  hosts?: HostExtractor;
 }) {
   const { store, objects } = deps;
   const limits = deps.limits ?? DEFAULT_BUNDLE_LIMITS;
@@ -185,7 +191,11 @@ export function createExtensionBundleService(deps: {
             ...protection,
             checks: {
               baselineId: baseline?.id ?? null,
-              findings: checkSkillVersion(before?.files ?? null, bundle.files),
+              findings: checkSkillVersion(
+                before?.files ?? null,
+                bundle.files,
+                deps.hosts,
+              ),
             },
           };
         }
