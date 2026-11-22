@@ -24,11 +24,12 @@ import {
   startMockSlackOidc,
 } from "@werft-ai/testkit/mock-slack-oidc";
 import { errorOf } from "../../../testing/api-error.ts";
+import type { SlackOidcConfig } from "../../../wiring/chat-slack.ts";
 import { GITHUB_LINK_COOKIE_NAME } from "../../github-link.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import {
+  createSlackOidcTransport,
   SLACK_LINK_COOKIE_NAME,
-  type SlackOidcConfig,
 } from "../../slack-link.ts";
 import {
   type LinkedAccountRouteDeps,
@@ -188,6 +189,7 @@ function app(
             : {
                 issuer: config.issuer,
                 clients: { ...fixedClients(config), ...options.clients },
+                oidc: createSlackOidcTransport(config.issuer),
               },
       }),
   });

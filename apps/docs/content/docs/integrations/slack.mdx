@@ -35,7 +35,7 @@ curl -sS "$API/v1/workspaces/$WS/slack-guest" "${WEB[@]}" \
 
 ## Slack 계정 연결
 
-Sign in with Slack(OpenID Connect)으로 연결한다. 운영자가 콘솔의 공개 주소 `CONSOLE_ORIGIN`을 설정하고, 워크스페이스 어드민이 설정 > 워크스페이스 > 연동 > Slack에 App Configuration Token을 넣어 계정 연결용 앱을 만들 수 있게 하며, 그 워크스페이스에 확인된 Slack 설치가 있어야 한다. 로컬 스택에는 `CONSOLE_ORIGIN`이 없어서 시작 요청이 503이다.
+Sign in with Slack(OpenID Connect)으로 연결한다. 운영자가 콘솔의 공개 주소 `CONSOLE_ORIGIN`을 설정하고, 워크스페이스 어드민이 설정 > 워크스페이스 > 연동 > Slack에 App Configuration Token을 넣어 계정 연결용 앱을 만들 수 있게 하며, 그 워크스페이스에 확인된 Slack 설치가 있어야 한다. 로컬 스택에는 `CONSOLE_ORIGIN`이 없어서 시작 요청이 503이다. API가 Slack에 보내는 요청과 id_token 검사는 로그인 공급자와 같다. Slack 주소는 https여야 하고, loopback·link-local·reserved 주소로 풀리면 보내지 않고 503으로 끝난다. id_token은 `exp`·`iat`·`sub`가 있어야 하고, `iat`는 앞으로 60초, 뒤로 11분까지만 받는다.
 
 ```bash
 curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack/start" "${WEB[@]}"

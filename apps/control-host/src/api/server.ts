@@ -327,7 +327,7 @@ import {
   slackEnvWarnings,
   slackIssuerFrom,
 } from "./slack-config.ts";
-import { signInWithSlackOff } from "./slack-link.ts";
+import { createSlackOidcTransport, signInWithSlackOff } from "./slack-link.ts";
 import {
   carryOverSlackSettings,
   createSlackSettingsAdmin,
@@ -1420,7 +1420,11 @@ const app = createApiApp({
       slack:
         consoleOrigin === null
           ? null
-          : { issuer: slackIssuer, clients: slackLinkApps },
+          : {
+              issuer: slackIssuer,
+              clients: slackLinkApps,
+              oidc: createSlackOidcTransport(slackIssuer),
+            },
       logger,
     });
     registerMemberRoutes(router, members, invites);

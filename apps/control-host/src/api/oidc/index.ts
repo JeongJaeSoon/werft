@@ -31,6 +31,7 @@ export { fetchJwks, type Jwk, selectKey } from "./jwks.ts";
 export {
   createProviderRequest,
   endpointProblem,
+  hostPortOf,
   type Lookup,
   type NetworkPolicy,
   type ProviderRequest,
