@@ -106,6 +106,10 @@ describe("reconciler run", () => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return 4;
       },
+      purgeFailedSlackInboundPayloads: async (options) => {
+        expect(options).toEqual({ dryRun: false, limit: 12 });
+        return 8;
+      },
       reconcileOwnership: async (options) => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return { flagged: ["agent-a"], cleared: ["agent-b", "agent-c"] };
@@ -131,6 +135,7 @@ describe("reconciler run", () => {
     expect(result.toolAuditsExpired).toBe(7);
     expect(result.webSessionsDeleted).toBe(6);
     expect(result.envStartsPurged).toBe(4);
+    expect(result.slackInboundPayloadsPurged).toBe(8);
     expect(sink.records).toEqual([
       expect.objectContaining({
         level: "info",
@@ -208,6 +213,11 @@ describe("reconciler run", () => {
         level: "info",
         message: "Expired session variable values purged",
         fields: { dry_run: false, purged_count: 4 },
+      }),
+      expect.objectContaining({
+        level: "info",
+        message: "Failed Slack inbound payloads purged",
+        fields: { dry_run: false, purged_count: 8 },
       }),
       expect.objectContaining({
         level: "info",
@@ -294,6 +304,10 @@ describe("reconciler run", () => {
         seen.push(dryRun);
         return 2;
       },
+      purgeFailedSlackInboundPayloads: async ({ dryRun }) => {
+        seen.push(dryRun);
+        return 1;
+      },
       reconcileOwnership: async ({ dryRun }) => {
         seen.push(dryRun);
         return { flagged: [], cleared: [] };
@@ -316,13 +330,21 @@ describe("reconciler run", () => {
       true,
       true,
       true,
+      true,
     ]);
     expect(run.toolCalls).toBeNull();
     expect(run.envStartsPurged).toBe(2);
+    expect(run.slackInboundPayloadsPurged).toBe(1);
     expect(sink.records).toContainEqual(
       expect.objectContaining({
         message: "Expired session variable values purged",
         fields: { dry_run: true, purged_count: 2 },
+      }),
+    );
+    expect(sink.records).toContainEqual(
+      expect.objectContaining({
+        message: "Failed Slack inbound payloads purged",
+        fields: { dry_run: true, purged_count: 1 },
       }),
     );
     expect(sink.records).toContainEqual(
@@ -365,6 +387,7 @@ describe("reconciler run", () => {
         expireToolAudits: async () => 0,
         deleteExpiredWebSessions: async () => 0,
         purgeExpiredEnvStart: async () => 0,
+        purgeFailedSlackInboundPayloads: async () => 0,
         reconcileOwnership: async () => ({ flagged: [], cleared: [] }),
         projectToolCalls: async () => ({
           eventsRead: 10,
@@ -401,6 +424,7 @@ describe("reconciler run", () => {
     const expireToolAudits = async () => 0;
     const deleteExpiredWebSessions = async () => 0;
     const purgeExpiredEnvStart = async () => 0;
+    const purgeFailedSlackInboundPayloads = async () => 0;
     const reconcileOwnership = async () => ({ flagged: [], cleared: [] });
     const projectToolCalls = async () => ({
       eventsRead: 0,
@@ -433,6 +457,7 @@ describe("reconciler run", () => {
           expireToolAudits,
           deleteExpiredWebSessions,
           purgeExpiredEnvStart,
+          purgeFailedSlackInboundPayloads,
           reconcileOwnership,
           projectToolCalls,
         }),
@@ -454,6 +479,7 @@ describe("reconciler run", () => {
         expireToolAudits,
         deleteExpiredWebSessions,
         purgeExpiredEnvStart,
+        purgeFailedSlackInboundPayloads,
         reconcileOwnership,
         projectToolCalls,
       }),
@@ -473,6 +499,7 @@ describe("reconciler run", () => {
         expireToolAudits,
         deleteExpiredWebSessions,
         purgeExpiredEnvStart,
+        purgeFailedSlackInboundPayloads,
         reconcileOwnership,
         projectToolCalls,
       }),

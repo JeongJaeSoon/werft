@@ -195,6 +195,7 @@ integration("reconciler process on PostgreSQL", () => {
     // The same pass drops the value an open session kept past retention and
     // leaves the name.
     expect(stdout).toContain("Expired session variable values purged");
+    expect(stdout).toContain("Failed Slack inbound payloads purged");
     expect(stdout).toContain('"purged_count":1');
     const [stale] = await db
       .select({ snapshot: sessions.envStart })
