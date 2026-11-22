@@ -72,6 +72,9 @@ export async function appHarness() {
       // Every fake answer is held to the contract; production only warns.
       validate,
       eventRetry: { initialMs: 1, maxMs: 4 },
+      // A failed read stays failed, as most tests expect; app.test.tsx
+      // covers the retry on screen.
+      readRetryDelaysMs: [],
       leave: (url) => left.push(url),
     });
     const history = createMemoryHistory({ initialEntries: [path] });
