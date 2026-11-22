@@ -9,7 +9,7 @@
  * `GET /v1/models`) therefore shows up in `requests` instead of being lost.
  */
 
-import { reusable } from "./reusable-response.ts";
+import { reusable } from "./fake-anthropic.ts";
 
 export type ResponsesRequest = {
   input?: unknown;

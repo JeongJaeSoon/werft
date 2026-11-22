@@ -4,8 +4,6 @@
  * fetch callers can all be pointed at it without a paid model call.
  */
 
-import { reusable } from "./reusable-response.ts";
-
 export type AnthropicRequest = {
   messages?: unknown[];
   model?: string;
@@ -248,6 +246,17 @@ export function errorResponse(failure: FakeFailure): Response {
       headers: { "request-id": `req_${crypto.randomUUID()}` },
     },
   );
+}
+
+// A scripted Response may be served more than once, so hand out a copy and
+// keep the original body unread.
+export function reusable(response: Response): Response {
+  const copy = response.clone();
+  return new Response(copy.body, {
+    headers: copy.headers,
+    status: copy.status,
+    statusText: copy.statusText,
+  });
 }
 
 function toResolver(replies: ReplyScript): ReplyResolver {
