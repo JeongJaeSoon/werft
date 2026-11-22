@@ -48,7 +48,7 @@ description: 名前・説明とリポジトリの CLAUDE.md・AGENTS.md の違�
 | フィールド | 必須 | 内容 |
 | --- | --- | --- |
 | `model` | はい | モデル名。リリースを作成するときに選んだ接続のモデル一覧になければならない |
-| `capabilities.mcp` | はい | 使う MCP サーバー 1 つを、運用者カタログの id で `[{ "server": "<id>" }]` のように書く。なければ `null` |
+| `capabilities.mcp` | はい | なくなった設置カタログ MCP の欄である。`null` にしておき、サーバーを書いた新しいバージョン・release は拒否される。MCP サーバーはワークスペース MCP サーバーとして登録し、エージェントのアクセスタブで選ぶ |
 | `capabilities.forbidden` | | 禁止する MCP ツール名 (`mcp__<サーバー>__<ツール>`)。Web コンソールは新しいカードに `[]` を入れ、既存の値は表示して消すことだけができる |
 | `capabilities.tool_policy` | | `per_tool` に MCP ツールごとの `allow`・`ask`・`deny` |
 | `capabilities.credential_refs` | | 使う認証情報の名前 (値ではない)。[権限](/agents/permissions) |
