@@ -195,6 +195,10 @@ export type SlackInteractionSignIo = {
 };
 
 const REQUEST_TIMEOUT_MS = 10_000;
+// The API's request ids are UUIDs; anything else in that place is not
+// printed, since a server at --url could echo the signature back there.
+const REQUEST_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Returns the exit code. No line it writes carries the secret. */
 export async function runSlackInteractionSign(
@@ -305,7 +309,9 @@ async function answerOf(response: Response) {
   return {
     status: response.status,
     request_id:
-      response.headers.get("X-Request-Id") ?? error?.request_id ?? null,
+      [response.headers.get("X-Request-Id"), error?.request_id].find(
+        (id) => typeof id === "string" && REQUEST_ID.test(id),
+      ) ?? null,
     error_code: error?.code ?? null,
   };
 }

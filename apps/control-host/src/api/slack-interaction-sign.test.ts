@@ -215,6 +215,37 @@ describe("slack-interaction-sign against the API's interactions receiver", () =>
     expect(printed).not.toContain("v0=");
   });
 
+  test("a request id that is not a UUID, such as an echoed signature, is not printed", async () => {
+    const run = io(api(SECRET).app, {
+      fetch: async (_url, init) => {
+        const signature =
+          new Headers(init.headers).get("X-Slack-Signature") ?? "";
+        return Response.json(
+          {
+            error: {
+              code: "UNAUTHORIZED",
+              message: "no",
+              retryable: false,
+              request_id: signature,
+              details: null,
+            },
+          },
+          { status: 401, headers: { "X-Request-Id": signature } },
+        );
+      },
+    });
+    expect(await runSlackInteractionSign(ARGV, run.io)).toBe(
+      SLACK_INTERACTION_SIGN_EXIT.refused,
+    );
+    expect(run.out).toEqual([
+      JSON.stringify({
+        status: 401,
+        request_id: null,
+        error_code: "UNAUTHORIZED",
+      }),
+    ]);
+  });
+
   test("an agent without a created app, or one installed in several teams, is exit 3", async () => {
     const app = api(SECRET).app;
     const none = io(app, { target: null });
