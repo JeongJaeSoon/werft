@@ -4,33 +4,6 @@
 # are created on the installed release, carried through an upgrade and then a
 # rollback, and must come out the other side as they went in.
 #
-#   1. install     up.sh with the fake model
-#   2. sessions    S1 waits for an approval (its worker stays); S2 finishes
-#                  turn 1 and is paused (checkpoint committed, no worker)
-#   3. upgrade     helm upgrade that rolls api, scheduler and reconciler:
-#                  upgrade-check says proceed; the hooks ran in order
-#                  (upgrade-check, then migrate, then the new Pods); S1 still
-#                  waits on the same request in the same worker Pod; S2
-#                  resumes from the checkpoint it paused with and runs turn 2;
-#                  the events each session had are still its first events
-#   4. rollback    helm rollback to the first revision: no hook ran; the old
-#                  Deployments are back; S1 is still waiting, is answered and
-#                  completes; S2 runs a third turn
-#   5. list        the single worker image A becomes images.workers [B, A, C]
-#                  through files/next-workers.jq (B: A rebuilt, C: Codex);
-#                  S3 waits on A in the same Pod; S2 resumes on B
-#   6. next-list   the control phase keeps that list, then [D, B, C] drops A:
-#                  refused for a stale approval alone, the rerun gives the
-#                  same file, and it proceeds while S3's launch on A holds a
-#                  slot (B restores what A seals); S3 completes on A and
-#                  pauses; S2 (paused on B) and S3 (paused on A) resume on D
-#   7. list-rollback
-#                  helm rollback from that list to the single image A: no hook
-#                  ran; api and scheduler are back on WORKER_IMAGE; S2 (paused
-#                  on D) resumes on A and a new S4 launches on A; then a list
-#                  that keeps A: S4's worker, started before it, runs turn 2
-#                  in the same Pod
-#
 #   deploy/kind/upgrade.sh         run all of it; delete the cluster and
 #                                  registry at the end if this run created them
 #   deploy/kind/upgrade.sh down    delete them (up.sh down)
@@ -71,27 +44,11 @@ if [ "${1:-}" = down ]; then
   exec "$here/up.sh" down
 fi
 
-fullname="$RELEASE"
-case "$RELEASE" in *werft*) ;; *) fullname="${RELEASE}-werft" ;; esac
-fullname="${fullname:0:50}"
-fullname="${fullname%-}"
-k() { kubectl -n "$NAMESPACE" "$@"; }
-step() { current="$1"; echo; echo "== k8s-upgrade: $*"; }
-pass() { echo "PASS ${current}"; }
-fail() { echo "FAIL ${current}: $*" >&2; exit 1; }
-
-# A kind or docker error must not read as "no cluster": the teardown below
-# would then delete a cluster this run did not create.
-clusters="$(kind get clusters)"
-created=""
-if printf '%s\n' "$clusters" | grep -qx "$CLUSTER_NAME"; then
-  [ "${REUSE_CLUSTER:-}" = 1 ] || {
-    echo "a cluster named ${CLUSTER_NAME} already exists; set CLUSTER_NAME, or REUSE_CLUSTER=1 to run on it" >&2
-    exit 1
-  }
-else
-  created=1
-fi
+# shellcheck source=lib.sh
+. "$here/lib.sh"
+kind_suite k8s-upgrade
+fullname="$(kind_fullname)"
+kind_claim_cluster
 
 forward_pid=""
 auth="$STATE_DIR/upgrade-auth-header"
@@ -122,6 +79,7 @@ finish() {
 }
 trap finish EXIT
 
+# up.sh with the fake model.
 step install
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR"
@@ -220,6 +178,8 @@ settle_receipt() {
   fail "${what} receipt ended ${status}"
 }
 
+# S1 waits for an approval (its worker stays); S2 finishes turn 1 and is paused
+# (checkpoint committed, no worker).
 step sessions
 new_session() {
   local spec="$1"
@@ -268,6 +228,11 @@ rollout() {
 }
 epoch() { jq -r "$2 | fromdateiso8601" <<<"$1"; }
 
+# A helm upgrade that rolls api, scheduler and reconciler: upgrade-check says
+# proceed; the hooks ran in order (upgrade-check, then migrate, then the new
+# Pods); S1 still waits on the same request in the same worker Pod; S2 resumes
+# from the checkpoint it paused with and runs turn 2; the events each session
+# had are still its first events.
 step upgrade
 snapshot_pods before-upgrade
 [ "$(marker api)" = unset ] || fail "the marker is on the api before the upgrade"
@@ -339,6 +304,8 @@ event_ids "$s1" >"$work/ids-s1-mid"
 event_ids "$s2" >"$work/ids-s2-mid"
 pass
 
+# helm rollback to the first revision: no hook ran; the old Deployments are
+# back; S1 is still waiting, is answered and completes; S2 runs a third turn.
 step rollback
 check_uid="$(echo "$check_job" | jq -r .metadata.uid)"
 migrate_uid="$(echo "$migrate_job" | jq -r .metadata.uid)"
@@ -394,6 +361,10 @@ pass
 # rebuilt with another label (another digest, the same runtime), C is the
 # Codex image. Nothing launches a Codex session here (kind has no fake
 # Responses API); the compose two_engines conformance runs both engines.
+#
+# The single worker image A becomes images.workers [B, A, C] through
+# files/next-workers.jq (B: A rebuilt, C: Codex); S3 waits on A in the same
+# Pod; S2 resumes on B.
 step list
 image_repo="localhost:${REGISTRY_PORT:-5001}/werft"
 # deployed_values <file>: the values of the deployed revision, as the docs read them.
@@ -532,6 +503,10 @@ wait_session "paused" '.admission_state == "paused"' "$s2"
 checkpoint_next="$(get "/v1/sessions/${s2}" | jq '.durability.checkpoint_revision')"
 pass
 
+# The control phase keeps that list, then [D, B, C] drops A: refused for a
+# stale approval alone, the rerun gives the same file, and it proceeds while
+# S3's launch on A holds a slot (B restores what A seals); S3 completes on A
+# and pauses; S2 (paused on B) and S3 (paused on A) resume on D.
 step next-list
 deployed_values "$work/deployed-list.json"
 next_workers control "$work/deployed-list.json" "$work/release-1.json" '{}' >"$work/control-phase.json"
@@ -599,6 +574,10 @@ echo "S2 resumed on D from B and ran turn 5; S3 resumed on D from A and ran turn
 [ "$(get "/v1/sessions/${s3}/usage" | jq .cost.reported_turn_count)" = 2 ] || fail "S3's two turns were not reported once each"
 pass
 
+# helm rollback from that list to the single image A: no hook ran; api and
+# scheduler are back on WORKER_IMAGE; S2 (paused on D) resumes on A and a new
+# S4 launches on A; then a list that keeps A: S4's worker, started before it,
+# runs turn 2 in the same Pod.
 step list-rollback
 # launch_images <sid>: the image of each of its launches, oldest first.
 launch_images() {

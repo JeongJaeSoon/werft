@@ -16,6 +16,7 @@ on:
       - deploy/helm/werft/templates/metrics.yaml
       - deploy/kind/netpol.sh
       - deploy/kind/up.sh
+      - deploy/kind/lib.sh
       - .github/workflows/k8s-netpol.yml
   workflow_dispatch:
 

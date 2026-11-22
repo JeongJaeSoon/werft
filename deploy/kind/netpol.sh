@@ -54,28 +54,14 @@ if [ "${1:-}" = down ]; then
   exec "$here/up.sh" down
 fi
 
-fullname="$RELEASE"
-case "$RELEASE" in *werft*) ;; *) fullname="${RELEASE}-werft" ;; esac
-fullname="${fullname:0:50}"
-fullname="${fullname%-}"
-k() { kubectl -n "$NAMESPACE" "$@"; }
-step() { current="$1"; echo; echo "== k8s-netpol: $*"; }
-pass() { echo "PASS ${current}"; }
-fail() { echo "FAIL ${current}: $*" >&2; exit 1; }
+# shellcheck source=lib.sh
+. "$here/lib.sh"
+kind_suite k8s-netpol
+fullname="$(kind_fullname)"
 
-# A kind or docker error must not read as "no cluster": the teardown below
-# would then delete a cluster this run did not create.
-clusters="$(kind get clusters)"
-created=""
-if printf '%s\n' "$clusters" | grep -qx "$CLUSTER_NAME"; then
-  # Its Pods and policies are not this run's to change or to trust.
-  [ "${REUSE_CLUSTER:-}" = 1 ] || {
-    echo "a cluster named ${CLUSTER_NAME} already exists; set CLUSTER_NAME, or REUSE_CLUSTER=1 to run on it" >&2
-    exit 1
-  }
-else
-  created=1
-fi
+# An existing cluster's Pods and policies are not this run's to change or to
+# trust.
+kind_claim_cluster
 finish() {
   local status=$?
   if [ "$status" != 0 ] && [ -f "$KUBECONFIG" ]; then
@@ -116,34 +102,8 @@ node_ip="$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type==
 outside_host="${OUTSIDE_ADDRESS%:*}"
 outside_port="${OUTSIDE_ADDRESS##*:}"
 
-# Addresses, not names: the probes themselves must not need DNS.
-probe_pod() {
-  local name="$1" labels="$2"
-  k delete pod "$name" --ignore-not-found --wait >/dev/null
-  k apply -f - >/dev/null <<EOF
-apiVersion: v1
-kind: Pod
-metadata:
-  name: ${name}
-  labels: {${labels}}
-spec:
-  automountServiceAccountToken: false
-  terminationGracePeriodSeconds: 0
-  restartPolicy: Never
-  securityContext: {runAsNonRoot: true, runAsUser: 65534, runAsGroup: 65534}
-  containers:
-    - name: probe
-      image: ${PROBE_IMAGE}
-      command: ["sleep", "1200"]
-      securityContext:
-        allowPrivilegeEscalation: false
-        readOnlyRootFilesystem: true
-        capabilities: {drop: [ALL]}
-EOF
-  k wait --for=condition=Ready "pod/${name}" --timeout=120s >/dev/null
-}
-probe_pod netpol-worker "app.kubernetes.io/part-of: werft, app.kubernetes.io/component: worker, werft.installation: \"${installation}\""
-probe_pod netpol-control "app: netpol-probe"
+probe_pod netpol-worker "app.kubernetes.io/part-of: werft, app.kubernetes.io/component: worker, werft.installation: \"${installation}\"" 1200
+probe_pod netpol-control "app: netpol-probe" 1200
 k get pod netpol-worker netpol-control --show-labels
 
 bad=0
