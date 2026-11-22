@@ -134,7 +134,7 @@ sudo reboot
 scripts/test-ops.sh reseed /var/lib/werft/test-ops/backups/backup-<timestamp>
 ```
 
-이 연속 절차와 checkpoint가 있는 재부팅은 실행 확인하지 않았다. `reseed`는 원본 project/bucket/checksum과 빈 bucket, 마지막 백업 이후 checkpoint 변화가 없음을 검사한다. 조건을 만족하지 않으면 거부한다. object를 잃고 API 기동 실패와 pending upgrade가 남은 상태에서는 `reseed`가 거부된다. `backup --stop`으로 남긴 백업이 있어도 이 차단은 풀리지 않는다. 이 상태에서 `reset`을 고르면 DB·세션·checkpoint를 버리며, 일반적인 재부팅의 복구 명령으로 사용하지 않는다.
+`reseed`는 원본 project/bucket/checksum과 빈 bucket, 마지막 백업 이후 checkpoint 변화가 없음을 검사한다. 조건을 만족하지 않으면 거부한다. object를 잃고 API 기동 실패와 pending upgrade가 남은 상태에서는 `reseed`가 거부된다. `backup --stop`으로 남긴 백업이 있어도 이 차단은 풀리지 않는다. 이 상태에서 `reset`을 고르면 DB·세션·checkpoint를 버리며, 일반적인 재부팅의 복구 명령으로 사용하지 않는다.
 
 ## 되돌리기
 

@@ -365,7 +365,7 @@ export function memoryWorkspaceMcpStore(
       if (pinned === null) return { outcome: "not_found" };
       stored.flow = {
         flowId: input.flowId,
-        stateSha256: input.stateSha256,
+        stateSha256: Buffer.from(input.stateSha256),
         startedByUserId: input.actorUserId,
         expiresAt: input.expiresAt,
         verifier: input.verifier,

@@ -4,7 +4,11 @@ import type {
   SlackCardRendered,
   SlackCardSettleStore,
 } from "@werft-ai/platform";
-import { type PushSource, pushApprovability } from "@werft-ai/platform";
+import {
+  messageOf,
+  type PushSource,
+  pushApprovability,
+} from "@werft-ai/platform";
 import {
   SlackApiError,
   type SlackBotApi,
@@ -343,7 +347,7 @@ export async function settleSlackCards(deps: {
         // One card's failure leaves the others, and the outbox, going.
         deps.logger.warn("Slack card step failed for a card", {
           ...ids,
-          error: error instanceof Error ? error.message : String(error),
+          error: messageOf(error),
         });
       }
     }

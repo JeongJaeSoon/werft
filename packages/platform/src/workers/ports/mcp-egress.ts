@@ -28,7 +28,8 @@ export type McpSessionState = {
   actor: ReceiptActor | null;
 };
 
-export type McpRefusalRecord = {
+/** A CREDENTIAL_UNBOUND receipt; `Result` is what it says of the exchange. */
+export type RefusalRecord<Result> = {
   id: string;
   ownerId: string;
   sessionId: string;
@@ -36,15 +37,17 @@ export type McpRefusalRecord = {
   /** `unknown` when an exchange already under way was cut. */
   status: Extract<ReceiptStatus, "failed" | "unknown">;
   actor: ReceiptActor | null;
-  result: {
-    attempt_id: string;
-    agent_id: string;
-    release_id: string;
-    server_id: string;
-    reason: McpRefusalReason;
-  };
+  result: Result;
   message: string;
 };
+
+export type McpRefusalRecord = RefusalRecord<{
+  attempt_id: string;
+  agent_id: string;
+  release_id: string;
+  server_id: string;
+  reason: McpRefusalReason;
+}>;
 
 /** The reads behind a session's MCP grant, and its refusal receipts. */
 export interface McpEgressStore {

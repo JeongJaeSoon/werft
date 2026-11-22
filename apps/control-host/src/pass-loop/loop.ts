@@ -1,5 +1,6 @@
 import { rename, writeFile } from "node:fs/promises";
 import { integerSetting } from "@werft-ai/contracts/settings";
+import { messageOf } from "@werft-ai/platform";
 
 /**
  * Runs a role's passes in a child process, forever. This loop is what turns
@@ -504,7 +505,7 @@ async function writeStatus(
   } catch (error) {
     // No crash: a status that stops updating already fails the healthcheck.
     logger.error("Pass status file could not be written", {
-      error: error instanceof Error ? error.message : String(error),
+      error: messageOf(error),
       path,
     });
   }

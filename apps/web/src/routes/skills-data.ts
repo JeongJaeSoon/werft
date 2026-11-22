@@ -118,12 +118,14 @@ export const REVIEW_LABEL = {
   pending: "skills.review.pending",
   approved: "skills.review.approved",
   rejected: "skills.review.rejected",
+  superseded: "skills.review.superseded",
 } as const satisfies Record<SkillVersion["review"], MessageKey>;
 
 export const REVIEW_BADGE = {
   pending: "amber",
   approved: "green",
   rejected: "red",
+  superseded: "gray",
 } as const satisfies Record<SkillVersion["review"], string>;
 
 const REFUSALS = {

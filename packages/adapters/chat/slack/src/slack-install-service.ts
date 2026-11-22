@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import {
   BOT_SCOPES,
   type CompleteSlackInstallRequest,
@@ -12,6 +12,7 @@ import {
   type AuthorizationPolicy,
   agentIdentityView,
   type Caller,
+  hashToken,
   MANAGEMENT_ROLES,
   NOT_FOUND,
   requirePermitted,
@@ -153,9 +154,6 @@ const unsettled = (what: string) =>
     `${what}; start the install again`,
   );
 
-const hashState = (state: string) =>
-  createHash("sha256").update(state, "utf8").digest();
-
 /** The bot token's name: the identity's `credential_ref` and `bot_token_ref`. */
 export const slackBotTokenRef = (slackAppId: string) =>
   `${secretOwnerRef({ kind: "slack_app", id: slackAppId })}/slack_bot_token`;
@@ -290,7 +288,7 @@ export function createSlackInstallService(deps: {
       );
       const state = randomBytes(32).toString("base64url");
       await states.issueState(
-        hashState(state),
+        hashToken(state),
         {
           workspaceId,
           agentId: agentId.toLowerCase(),
@@ -325,7 +323,7 @@ export function createSlackInstallService(deps: {
       const agentId = request.agent_id.toLowerCase();
       const userId = await permitAgent(caller, agentId);
       const { apps, states, secrets } = ready();
-      const state = await states.consumeState(hashState(request.state));
+      const state = await states.consumeState(hashToken(request.state));
       const app =
         state === null
           ? null

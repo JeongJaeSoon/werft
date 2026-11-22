@@ -1,5 +1,5 @@
 {
-  "id": "4cca484c-e119-42ec-ba27-2e05f6514b1e",
+  "id": "2c27956b-91d9-4fde-9c34-4fb7eeaffbc4",
   "prevId": "94b40103-8777-454a-8f1c-906e5b5afb39",
   "version": "7",
   "dialect": "postgresql",
@@ -5734,7 +5734,7 @@
         },
         "extension_bundles_review_check": {
           "name": "extension_bundles_review_check",
-          "value": "\"extension_bundles\".\"review\" IN ('pending','approved','rejected')"
+          "value": "\"extension_bundles\".\"review\" IN ('pending','approved','rejected','superseded')"
         },
         "extension_bundles_review_actor_check": {
           "name": "extension_bundles_review_actor_check",
@@ -5742,7 +5742,7 @@
         },
         "extension_bundles_auto_review_check": {
           "name": "extension_bundles_auto_review_check",
-          "value": "\"extension_bundles\".\"reviewed_at\" IS NULL OR \"extension_bundles\".\"reviewed_by\" IS NOT NULL OR (\"extension_bundles\".\"review\" = 'approved' AND \"extension_bundles\".\"git\" IS NOT NULL)"
+          "value": "\"extension_bundles\".\"reviewed_at\" IS NULL OR \"extension_bundles\".\"reviewed_by\" IS NOT NULL OR (\"extension_bundles\".\"review\" = 'approved' AND \"extension_bundles\".\"git\" IS NOT NULL) OR \"extension_bundles\".\"review\" = 'superseded'"
         },
         "extension_bundles_size_check": {
           "name": "extension_bundles_size_check",
@@ -15104,10 +15104,6 @@
         "slack_outbox_status_check": {
           "name": "slack_outbox_status_check",
           "value": "\"slack_outbox\".\"status\" IN ('pending', 'sending', 'sent', 'failed', 'uncertain')"
-        },
-        "slack_outbox_channel_check": {
-          "name": "slack_outbox_channel_check",
-          "value": "\"slack_outbox\".\"channel_id\" !~ '^[UW]' OR \"slack_outbox\".\"kind\" = 'model_notice'"
         },
         "slack_outbox_user_check": {
           "name": "slack_outbox_user_check",

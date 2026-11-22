@@ -25,6 +25,7 @@ import {
   parseSettingsDocument,
 } from "@werft-ai/platform";
 import type { CheckpointObjectStore } from "@werft-ai/runtime-core";
+import { messageOf } from "@werft-ai/runtime-core";
 import {
   createCheckpointObjectCollector,
   createCheckpointObjectStore,
@@ -181,9 +182,7 @@ async function repositoriesWithoutGitHubApp(file: string): Promise<string[]> {
         : { ...document, repositories },
     );
   } catch (error) {
-    return [
-      `settings document ${file}: ${error instanceof Error ? error.message : String(error)}`,
-    ];
+    return [`settings document ${file}: ${messageOf(error)}`];
   }
   return skipped.map(
     (id) =>
@@ -429,9 +428,7 @@ export async function probeRoundTrip(input: {
     try {
       return await run();
     } catch (error) {
-      throw new Error(
-        `${action} on ${key} failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      throw new Error(`${action} on ${key} failed: ${messageOf(error)}`);
     }
   };
   const body = new TextEncoder().encode(`test-ops preflight ${key}\n`);
@@ -799,9 +796,7 @@ if (import.meta.main) {
   try {
     code = await main(process.argv.slice(2));
   } catch (error) {
-    console.error(
-      `${process.argv[2]}: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    console.error(`${process.argv[2]}: ${messageOf(error)}`);
     code = 1;
   }
   process.exit(code);

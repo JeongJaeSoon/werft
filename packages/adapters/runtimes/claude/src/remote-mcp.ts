@@ -8,6 +8,7 @@ import {
   ListToolsRequestSchema,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
+import { messageOf } from "@werft-ai/runtime-core";
 
 const CALL_TIMEOUT_MS = 30 * 60_000;
 const MAX_LIST_PAGES = 50;
@@ -119,7 +120,7 @@ export function remoteMcpRelay(server: RemoteMcpServer): {
           timeout: CALL_TIMEOUT_MS,
         })) as CallToolResult;
       } catch (error) {
-        return failed(error instanceof Error ? error.message : String(error));
+        return failed(messageOf(error));
       }
     },
   );

@@ -469,11 +469,12 @@ describe("Slack events service", () => {
           ...message,
           subtype: "bot_message",
           bot_id: "B0OWN",
+          app_id: APP_ID,
           username: "Mina Park (웹 콘솔)",
           text: "Mina Park (웹 콘솔)\nRun it",
         },
         "dropped",
-        "bot_allowlist_empty",
+        "own_bot_user",
       ],
       [{ ...message, user: "U0P" }, "received", undefined],
       [
@@ -557,6 +558,162 @@ describe("Slack events service", () => {
       const result = await w.service.receive(w.signed(w.event(fields)));
       expect(result).toMatchObject({ kind: "ack", status });
       expect(result.kind === "ack" ? result.reason : null).toBe(reason);
+    }
+  });
+
+  // Slack's message event shapes for what this app posts: the outbox's
+  // reply as the bot user, and an instruction under its sender's name.
+  const OWN_REPLY = {
+    type: "message",
+    channel: "C0CHAN",
+    ts: "1.2",
+    thread_ts: "1.1",
+    user: BOT_USER,
+    bot_id: "B0OWN",
+    app_id: APP_ID,
+    text: "Confirmed.",
+  };
+  const OWN_MIRROR = {
+    type: "message",
+    subtype: "bot_message",
+    channel: "C0CHAN",
+    ts: "1.3",
+    thread_ts: "1.1",
+    bot_id: "B0OWN",
+    app_id: APP_ID,
+    username: "Mina Park (웹 콘솔)",
+    text: "Run it",
+  };
+  const SLACKBOT_DM = {
+    type: "message",
+    channel: "D0SLACKBOT",
+    channel_type: "im",
+    user: "USLACK",
+    ts: "1.4",
+    text: "You were removed from #private by <@U0PERSON>.",
+  };
+
+  test("this app's echoes and Slackbot drop under their own reasons, whatever the allow list holds", async () => {
+    const w = world();
+    await w.install();
+    w.readyChannels.set("C0CHAN", "public_channel");
+    const reasons = async () => {
+      const out = [];
+      for (const fields of [OWN_REPLY, OWN_MIRROR, SLACKBOT_DM]) {
+        const result = await w.service.receive(w.signed(w.event(fields)));
+        out.push(
+          result.kind === "ack" ? (result.reason ?? result.status) : null,
+        );
+      }
+      return out;
+    };
+    expect(await reasons()).toEqual([
+      "own_bot_user",
+      "own_bot_user",
+      "slackbot",
+    ]);
+    w.identities.allowedBots.set(AGENT, ["U0REVIEW"]);
+    w.inbox.rows.clear();
+    expect(await reasons()).toEqual([
+      "own_bot_user",
+      "own_bot_user",
+      "slackbot",
+    ]);
+
+    const cases = [
+      // The event's own app_id wins over its bot profile.
+      [
+        {
+          ...OWN_MIRROR,
+          app_id: "A0OTHER",
+          bot_profile: { app_id: APP_ID },
+        },
+        "dropped",
+        "bot_message",
+      ],
+      // Slack may name the app only in the bot's profile.
+      [
+        { ...OWN_MIRROR, app_id: undefined, bot_profile: { app_id: APP_ID } },
+        "dropped",
+        "own_bot_user",
+      ],
+      [
+        { ...SLACKBOT_DM, channel: "C0CHAN", channel_type: "channel" },
+        "dropped",
+        "slackbot",
+      ],
+      // Another app's post under a borrowed name is still a bot to allow.
+      [{ ...OWN_MIRROR, app_id: "A0OTHER" }, "dropped", "bot_message"],
+      [
+        { ...MENTION, user: "U0REVIEW", bot_id: "B0REVIEW" },
+        "received",
+        undefined,
+      ],
+    ] as const;
+    for (const [fields, status, reason] of cases) {
+      const result = await w.service.receive(w.signed(w.event(fields)));
+      expect(result).toMatchObject({ kind: "ack", status });
+      expect(result.kind === "ack" ? result.reason : null).toBe(reason);
+    }
+  });
+
+  test("a dropped row keeps who posted it and its subtypes, never text, blocks or files", async () => {
+    const w = world();
+    await w.install();
+    const body = {
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "Run it" } }],
+      attachments: [{ text: "Run it" }],
+      files: [{ id: "F0FILE", name: "notes.txt" }],
+    };
+    const cases = [
+      [
+        { ...OWN_MIRROR, ...body },
+        {
+          bot_id: "B0OWN",
+          app_id: APP_ID,
+          subtype: "bot_message",
+        },
+      ],
+      [{ ...SLACKBOT_DM, ...body }, { user: "USLACK" }],
+      [
+        {
+          type: "message",
+          subtype: "message_changed",
+          channel: "C0CHAN",
+          ts: "1.5",
+          message: {
+            subtype: "tombstone",
+            text: "This message was deleted.",
+            user: "U0P",
+          },
+          previous_message: { text: "secret plan", user: "U0P" },
+        },
+        { subtype: "message_changed", message: { subtype: "tombstone" } },
+      ],
+      [
+        { type: "reaction_added", user: "U0P", reaction: "eyes" },
+        { user: "U0P" },
+      ],
+    ] as const;
+    for (const [fields] of cases) {
+      await w.service.receive(w.signed(w.event(fields)));
+    }
+    const rows = [...w.inbox.rows.values()];
+    expect(rows.map((row) => row.status)).toEqual([
+      "dropped",
+      "dropped",
+      "dropped",
+      "dropped",
+    ]);
+    expect(
+      rows.map((row) => (row.status === "dropped" ? row.dropFields : null)),
+    ).toEqual(cases.map(([, kept]) => kept));
+    for (const row of rows) {
+      expect("payload" in row).toBe(false);
+      expect(JSON.stringify(row)).not.toContain("Run it");
+      expect(JSON.stringify(row)).not.toContain("secret plan");
+      expect(JSON.stringify(row)).not.toContain("notes.txt");
+      expect(JSON.stringify(row)).not.toContain("웹 콘솔");
     }
   });
 

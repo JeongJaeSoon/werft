@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
+import { messageOf } from "@werft-ai/platform";
 import type { PassLoopLogger } from "../pass-loop/loop.ts";
 
 /**
@@ -35,7 +36,7 @@ export async function verifyWorkspaceQuotaOnce(input: {
     input.logger.warn(
       "Workspace quota preflight passed but could not be noted; the next pass probes again",
       {
-        error: error instanceof Error ? error.message : String(error),
+        error: messageOf(error),
         path: marker,
       },
     );

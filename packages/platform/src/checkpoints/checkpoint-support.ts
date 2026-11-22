@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   type CheckpointManifest,
   type ObjectRef,
@@ -56,9 +55,7 @@ export function own<T>(record: Readonly<Record<string, T>>, key: string) {
   return Object.hasOwn(record, key) ? record[key] : undefined;
 }
 
-export function sha256(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
-}
+export { sha256Hex as sha256 } from "@werft-ai/runtime-core";
 
 /** Every bundle a workspace needs, in the order a restore fetches them. */
 export function chainOf(

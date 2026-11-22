@@ -1,3 +1,5 @@
+import { messageOf } from "@werft-ai/runtime-core";
+
 /**
  * The JSON-RPC conversation with a Codex app-server, behind a port so the run
  * is tested against an in-memory peer and the real process differs only in
@@ -131,7 +133,7 @@ export class JsonlTransport implements AppServerTransport {
               id,
               error: {
                 code: error instanceof RpcError ? error.code : -32603,
-                message: error instanceof Error ? error.message : String(error),
+                message: messageOf(error),
               },
             }),
           ),

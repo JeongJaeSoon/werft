@@ -122,6 +122,8 @@ export * from "./workers/ports/workspace-mcp-egress.ts";
 export * from "./checkpoints/ports/workspace-bundle-verifier.ts";
 export * from "./ports/workspace-settings.ts";
 export { messageOf } from "./scheduler/pass-context.ts";
+export * from "./token-hash.ts";
+export * from "./scheduler/execution-urls.ts";
 export * from "./scheduler/session-scheduler.ts";
 export * from "./scheduler/upgrade-check.ts";
 export * from "./scheduler/worker-images.ts";

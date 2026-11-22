@@ -3,6 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { PlatformMcpServer } from "@werft-ai/runtime-core";
+import { messageOf } from "@werft-ai/runtime-core";
 
 const CALL_TIMEOUT_MS = 30 * 60_000;
 const MAX_LIST_PAGES = 50;
@@ -144,7 +145,7 @@ export function startMcpRelay(
         timeout: CALL_TIMEOUT_MS,
       })) as ToolResult;
     } catch (error) {
-      return refused(error instanceof Error ? error.message : String(error));
+      return refused(messageOf(error));
     } finally {
       decision.done();
     }
@@ -204,11 +205,7 @@ export function startMcpRelay(
               tools: await listTools(server, request.signal),
             });
           } catch (error) {
-            return rpcError(
-              id,
-              -32603,
-              error instanceof Error ? error.message : String(error),
-            );
+            return rpcError(id, -32603, messageOf(error));
           }
         case "tools/call":
           return rpcResult(id, await callTool(server, params, request.signal));

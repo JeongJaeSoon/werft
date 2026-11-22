@@ -1,4 +1,5 @@
-import type { ReceiptActor, ReceiptStatus } from "@werft-ai/contracts";
+import type { ReceiptActor } from "@werft-ai/contracts";
+import type { RefusalRecord } from "./mcp-egress.ts";
 
 /**
  * Why a workspace MCP server's exchange was refused. Every one is a
@@ -43,26 +44,16 @@ export type WorkspaceMcpSessionState = {
   actor: ReceiptActor | null;
 };
 
-export type WorkspaceMcpRefusalRecord = {
-  id: string;
-  ownerId: string;
-  sessionId: string;
-  turnId: string | null;
-  /** `unknown` when an exchange already under way was cut. */
-  status: Extract<ReceiptStatus, "failed" | "unknown">;
-  actor: ReceiptActor | null;
-  result: {
-    attempt_id: string;
-    agent_id: string;
-    release_id: string;
-    server_id: string;
-    workspace_server_id: string;
-    /** The connection's generation when refused; null when the row is gone. */
-    connection_generation: number | null;
-    reason: WorkspaceMcpRefusalReason;
-  };
-  message: string;
-};
+export type WorkspaceMcpRefusalRecord = RefusalRecord<{
+  attempt_id: string;
+  agent_id: string;
+  release_id: string;
+  server_id: string;
+  workspace_server_id: string;
+  /** The connection's generation when refused; null when the row is gone. */
+  connection_generation: number | null;
+  reason: WorkspaceMcpRefusalReason;
+}>;
 
 /**
  * A tool call forwarded to a workspace server, under the connection whose

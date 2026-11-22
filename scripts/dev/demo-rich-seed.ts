@@ -14,6 +14,7 @@ import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import * as schema from "@werft-ai/db";
 import { createPostgresGitHubAppStore } from "@werft-ai/db";
+import { messageOf } from "@werft-ai/runtime-core";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { loadSecretKey } from "../../apps/control-host/src/api/catalog-config.ts";
@@ -40,9 +41,7 @@ async function step<T>(name: string, run: () => Promise<T>): Promise<T | null> {
   try {
     return await run();
   } catch (error) {
-    note(
-      `FAIL ${name}: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    note(`FAIL ${name}: ${messageOf(error)}`);
     return null;
   }
 }
@@ -1039,9 +1038,7 @@ function startFakeGitHub() {
     });
   } catch (error) {
     // Another run of this script already serves it.
-    note(
-      `fake github not started: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    note(`fake github not started: ${messageOf(error)}`);
     return null;
   }
 }

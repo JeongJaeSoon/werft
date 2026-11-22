@@ -17,9 +17,9 @@ Upgrade Compose after backup and compatibility checks. Approve checkpoint loss o
 
 Read the target version's operator actions in the [changelog](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md).
 
-You need current/target source commits, release inputs, settings digests, and image digests. Check a recent successful backup and restoration drill, and notify users of downtime. This full Compose upgrade has not been verified with published images.
+You need current/target source commits, release inputs, settings digests, and image digests. Check a recent successful backup and restoration drill, and notify users of downtime.
 
-Check the [shared pre-upgrade gates](#실행-전-게이트) first. On LocalStack trials, the first restart-policy change can recreate the container and lose checkpoint objects. Postpone unless `status` confirms 0 uncollected checkpoints. API startup failure with `pending.json` cannot be bypassed through reseed. The remaining escape, `reset`, discards all data: assess backup restoration first. `backup --stop` does not remove this block.
+Check the [shared pre-upgrade gates](#실행-전-게이트) first.
 
 <a id="단계" />
 ## Steps
@@ -80,36 +80,11 @@ Applying a previous release still follows upgrade checks and [gate](#실행-전-
 <a id="실행-전-게이트" />
 ## Pre-upgrade gates
 
-The first tag including both incremental checkpoints and release-tool restoration candidates is `v0.1.0`. That tag is the rollback floor, and the latest published release is `v0.1.2`. Release installations must not revert to images earlier than `v0.1.0`. Pre-release `main-<12>` installations must check this floor separately. Verify the commit and all three digests in the [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기) together.
+Before upgrading, read every [changelog](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md) entry between the deployed version and the target. When a release in that range has steps under [Per-release tasks](#릴리스별-작업) below, follow them too. When deploying, check the commit and the three digests of the [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기) together.
 
-Compare target changelog actions with your deployed version. Meet every applicable condition before enabling features or changing workers.
-
-| Change | Complete first | Rollback boundary |
-| --- | --- | --- |
-| Provider usage `inference_geo` | Replace API including migration, verify ready, then replace egress proxy | Old API rejects new proxy reports with 400, losing cost metering |
-| `openai_responses` connections and `/v1/responses` | Replace the egress proxy first. If you replaced the API first as in step 2, do not create an `openai_responses` connection until the proxy is replaced | The old proxy rejects `/v1/responses` with 404, so a session on that connection cannot call its model and fails. The `v0.1.3` proxy sends no field on `/v1/messages` calls that the `v0.1.2` API does not know, so it works with the `v0.1.2` API unchanged |
-| `billing: none` | Update all API replicas and all schedulers' WORKER_IMAGE before creating none sessions | No rollback to old API/workers while unmetered sessions remain |
-| Local branches in checkpoints (`workspace.sources`, `refs/checkpoint/source/*`) | All APIs, verifiers, GC and session-archive CronJobs → workers | Old APIs and verifiers reject the field and the refs. Out of order, only pushes are blocked while the new workers' checkpoints are rejected; no data is lost |
-| Transcript limits/reasons | Migration → all APIs → workers; align API finalize and worker capture/restore limits in the same release | No rollback to builds unaware of transcript reasons |
-| Manifest `outputs` | All APIs → workers | Both api and workers must remain on outputs-aware builds |
-| Model-blocked Slack DM (migration 0248) | Update every API that includes the migration, then the slack role | Rolling the image back after 0248 is safe: an old slack role finds no thread for a `model_notice` row, closes it as `not_addressed`, and sends no DM. To roll the schema below 0248, delete the `model_notice` rows first and restore the previous `slack_outbox_kind_check` list |
-| Required managing team (migration 0243) | Update every API that includes the migration | Rolling back after 0243 to the previous image, which already required a team, still creates agents but hides the holding team's agents' sessions again. Older images that insert without a team cannot create agents (`NOT NULL` violation). Going lower means stopping writes and dropping `NOT NULL`, and neither the backfill nor the earlier visibility is restored |
-| Slack private-channel removal handling (migration 0250) | Update every API that includes the migration → the slack role → send the manifest again for each existing agent app (events recheck) | An older image ignores the new `slack_channel_lifecycle` table, so rolling back keeps the data. An image that does not handle `member_left_channel` lets the old approval live again when the bot leaves a private channel and is invited back |
-| A bot that leaves a private channel leaves it `left` (inactive) (migration 0252) | Update every API that includes the migration → the slack role and the roles that run the outbox, cards and thread status, all with the same image | The `status` CHECK and the drop-reason CHECK of `slack_inbound_events` now accept `left` and `channel_left`. An older image that does not know `left` takes no input from that channel, but its outbox still sends there. Once the first `left` row exists, do not go below this image. If you must, stop writes and sends first and change the `left` rows to `pending_approval`, which loses the meaning of "inactive" |
-| Knowing the bot left a channel from `channel_left` and `group_left` (no migration) | Update every API → the slack role → send the manifest again for each existing agent app (events recheck): two more bot events, the same scopes | Rolling back keeps the data. An older image drops both events as `unsupported_event`, so a bot removed from a channel after that still shows as joined in the console |
-| Extension bundle attachments and session resolution (migration 0251) | Update every API that includes the migration | Rolling the image back after 0251 is safe: an old image does not read the `extension_attachments` table or the `sessions.extensions` column, so it ignores the bundle list a session was created with. To roll the schema below 0251, drop the `extension_attachments` table and the `sessions.extensions` column; the bundle lists already fixed on sessions are not restored |
+The current rollback floor is `v0.2.0`. Its migration `0270` deletes the profile data, so do not go back to older images ([Rollback floor of profile removal](#프로필-제거의-롤백-하한)). If the changelog marks a later release as irreversible, that release is the floor. To go back further than the floor, restore the database from the backup taken before the upgrade. Before considering a rollback, count the affected sessions with read-only SQL and decide first whether you can roll forward without losing data.
 
 Test new control-host with the previous worker before deployment: complete session turn 1 → remove worker → complete turn 2 from checkpoint, with no 400 BAD_REQUEST in API worker requests. Empty-installation ready 200 does not substitute. Look at turn 1 first. When the previous worker cannot read the new control-host's answer, the API answers 200 and the worker exits right after it starts, so the absence of 400s does not catch this failure. The profile removal release does not support this combination. When you upgrade to it, check that turn 1 completes with the new control-host and the new worker ([Upgrade order of the profile removal release](#프로필-제거-릴리스의-업그레이드-순서)).
-
-<a id="v010-이후-변경을-처음-적용할-때" />
-### First applying changes after v0.1.0
-
-- Apply every migration from `v0.1.0` through the target version (through `0262` for `v0.1.2`) with migrate. Old images ignore new `0239_connection_replaces_auth` columns, but this alone does not make other checkpoint/protocol rollback safe.
-- Compose at the `v0.1.0` tag refuses to render when `ANTHROPIC_API_KEY` is empty. When upgrading from `v0.1.0`, a key left in the env file can stay. The `v0.1.2` tag accepts it set or unset. Only re-applying `v0.1.0` sources requires a non-empty key.
-- Replace control-host before worker. Even with `platform_tool_trust` fallback, the transition uses old permission paths; keep the order.
-- Update API, Compose maintenance, and Kubernetes checkpointGc/sessionArchive CronJobs first, **confirm Jobs started from old images have finished**, then update workers. Old GC can delete pinned revisions, and old APIs and verifiers reject the local branches workers now always carry. `AGENT_ACTION_FLOWS` and `SESSION_PROMPT_REVISION` no longer exist and their values are ignored. The `v0.1.1` tag has no published artifacts, so do not use it; the release after `v0.1.0` is `v0.1.2`.
-
-Apply the conditions below after checking whether your installation already includes them. Before rollback, count affected sessions through read-only SQL. Prefer roll-forward without approving data loss where possible.
 
 <a id="compose-전용-checkpoint-검사" />
 ### Compose checkpoint checks
@@ -118,29 +93,20 @@ When worker images change, Compose upgrade checks calculate restoration plans fo
 
 On a worker image change, upgrade retains the old image in the state directory's `previous-worker` file. For each session, the scheduler matches checkpoint engine/SDK/CLI/profile digest scheme against current/previous images, preferring current if both match ([configuration](/run-server/self-hosting/reference/configuration)). The affected list therefore includes sessions restorable by neither image. If either image check fails closed, retain the new-image list unchanged. For rebuilt images with the same combination, the scheduler selects current: do not remove sessions unverified on current merely because previous can restore them. If either is too old to report its combination (a build without combination reporting), previous is not used and the gate retains the new-image list. The support window is one release: another upgrade can affect sessions left on the older image. In the profile removal release, no session launches on the previous image ([Upgrade order of the profile removal release](#프로필-제거-릴리스의-업그레이드-순서)).
 
-Do not use this upgrade on a stack that runs both engines (`infra/compose.two-engines.yml`). That stack keeps the other engine's (Claude) image in the previous image's place, and the upgrade rewrites that place with the image it replaces, dropping the Claude image. There is no compose procedure yet for changing a two-engine stack's worker images.
-
-<a id="runtime-프로필의-공통-준비" />
 <a id="runtime-버전의-공통-준비" />
 ### Shared runtime version preparation
 
-An SDK upgrade release changes the runtime version the image ships, and reviews the connection model lists in the example settings (`tests/fixtures/settings/`) with it. A release pins the runtime version its image shipped when it was made, and its sessions run that version. A new session on a release whose version neither the current nor the previous image ships is refused with `UNSUPPORTED_CAPABILITY`; release that agent again. Checkpoints resume only on images with the same engine/SDK/CLI combination they were made with, regardless of this check. The same release includes the built-in tool catalog of the new engine combination. For Kubernetes (helm) rollback steps and cautions, see [Kubernetes upgrade § Rollback](/run-server/self-hosting/upgrade-kubernetes#되돌리기).
+An SDK upgrade release changes the runtime version the image ships. A release pins the runtime version its image shipped when it was made, and its sessions run that version. A new session on a release whose version neither the current nor the previous image ships is refused with `UNSUPPORTED_CAPABILITY`; release that agent again. Checkpoints resume only on images with the same engine/SDK/CLI combination they were made with, regardless of this check. For Kubernetes (helm) rollback steps and cautions, see [Kubernetes upgrade § Rollback](/run-server/self-hosting/upgrade-kubernetes#되돌리기).
 
-<a id="workercontrol-host-롤백과-incremental-checkpoint" />
-### Worker/control-host rollback and incremental checkpoints
+<a id="릴리스별-작업" />
+## Per-release tasks
 
-Workers included in `v0.1.0` upload incremental bundles containing only new objects over the previous checkpoint chain. The manifest records this in `workspace.baseBundles`. Manifest `version` remains 2; only this field distinguishes incremental checkpoints. **Earlier builds cannot restore checkpoints containing it** because their manifest schemas reject unknown keys.
+Steps for particular releases that the changelog points to. Follow only the sections for releases between the deployed version and the target.
 
-- **Old worker images:** manifest decoding fails with `Invalid Claude checkpoint manifest: workspace Unrecognized key: "baseBundles"` before clearing the workspace or downloading bundles, so no partially restored workspace remains. The fixed manifest makes relaunch fail again with `worker.failed`.
-- **Old control-host:** restoration plans reject with `CHECKPOINT_UNAVAILABLE` without retreating to older revisions. Finalize also rejects incremental manifests and does not advance pointers. With new workers, only standalone bundles like initial checkpoints commit. Old GC skips undecodable sessions rather than deleting base bundles.
-- **Find affected sessions:** manifest contents are not in the database. Fetch manifests using `manifest_ref`/`manifest_version` from uncollected `checkpoints` rows (`collected_at IS NULL`) referenced by `sessions.checkpoint_revision`, then test `jq -e '.workspace.baseBundles | length > 0'`. Inspect parent rows too because restoration can retreat through `parent_revision`. Worker `worker.checkpoint.published` with `base_bundles` above 0 indicates incremental publication.
-- **Before rollback:** roll forward if affected sessions exist. No operator env/setting/CLI forces a new full bundle. Workers produce full bundles only when chains are absent/broken or reach length 32 (`MAX_WORKSPACE_BUNDLE_CHAIN`) or bundle limits. If rollback is unavoidable, affected sessions cannot restore during it; roll-forward restores them unchanged.
-
-<a id="control-host-롤백-하한-release-도구로-실행" />
 <a id="프로필-제거의-롤백-하한" />
 ### Rollback floor of the profile removal
 
-The release that removes run profiles runs migration `0270_remove_profiles`, which drops the profile tables and columns and deletes the releases made on profiles, their sessions, and the records under those sessions (turns, events, checkpoint rows and so on; 45 tables). Slack outbox rows that name no session (welcome notices and the like) are kept. Of the usage tables only `provider_usage`, which hangs off sessions, is emptied; `agent_usage` stays. A development or verify database that applied an earlier draft of this change (`0269_remove_profiles`) must be created again. Agents and their card versions, teams, keys and the installation settings stay. From then on every session runs the spec its release pinned (connection, model, runtime, tools), and an agent runs again once it is released on a connection. Each connection needs the model list (`models`) agents may pick from, and a release cannot use a model its connection does not list. `0270` fills only connections whose list is empty, with the models of the profiles that mapped to that connection. A connection no profile mapped to keeps an empty list, and a connection that already had a list gets nothing added. After the upgrade, check that every connection lists all the models its agents use, and add the missing ones. In the settings document, delete the top-level `profiles` key and the `profiles` of each repository entry. `settings import` (CLI and API) refuses a document with the top-level key. The CLI drops a repository entry's `profiles`, but the API refuses it. **You cannot roll back to a build older than this release.** To go back, restore the database from the backup taken before the upgrade.
+The release that removes run profiles runs migration `0270_remove_profiles`, which drops the profile tables and columns and deletes the releases made on profiles, their sessions, and the records under those sessions (turns, events, checkpoint rows and so on; 45 tables). Slack outbox rows that name no session (welcome notices and the like) are kept. Of the usage tables only `provider_usage`, which hangs off sessions, is emptied; `agent_usage` stays. Agents and their card versions, teams, keys and the installation settings stay. From then on every session runs the spec its release pinned (connection, model, runtime, tools), and an agent runs again once it is released on a connection. Each connection needs the model list (`models`) agents may pick from, and a release cannot use a model its connection does not list. `0270` fills only connections whose list is empty, with the models of the profiles that mapped to that connection. A connection no profile mapped to keeps an empty list, and a connection that already had a list gets nothing added. After the upgrade, check that every connection lists all the models its agents use, and add the missing ones. In the settings document, delete the top-level `profiles` key and the `profiles` of each repository entry. `settings import` (CLI and API) refuses a document with the top-level key. The CLI drops a repository entry's `profiles`, but the API refuses it. **You cannot roll back to a build older than this release.** To go back, restore the database from the backup taken before the upgrade.
 
 <a id="프로필-제거-릴리스의-업그레이드-순서" />
 ### Upgrade order of the profile removal release
@@ -150,8 +116,6 @@ Upgrade the control-host and worker images together, in one upgrade, to the prof
 - Do not do the intermediate release of [2. API → proxy → worker order](#2-api--proxy--worker-순서) or [step 1 of the Kubernetes upgrade](/run-server/self-hosting/upgrade-kubernetes#1-대상-chart와-제어-영역-우선-교체) for this release. While the new control-host runs with old workers, no new session starts. On Compose, `upgrade` straight to the final release. On Kubernetes, upgrade straight with the step 2 commands.
 - A worker image built before the profile removal is outside this release's support window. Do not put such an image in `images.workerPrevious` on purpose. But the Kubernetes [pre-upgrade check](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외) requires `images.workerPrevious` to be the deployed image in an upgrade that changes the worker image, and approval cannot bypass this. So pass the `worker-previous.json` that the step 2 script makes (the deployed worker image) unchanged in this upgrade. The `previous-worker` file that the Compose `upgrade` keeps is the same. No session launches on that image: `0270` empties the sessions, new sessions always start on the current image, and the current image seals the checkpoints after that. The next upgrade that changes the worker image replaces the previous image with this release's image.
 - After the upgrade, check that one new session completes turn 1.
-
-From the next release on, the support window of the current and previous images applies again. This release's worker is the previous image of the next release. When you remove a response field that the worker reads, follow the order below. First change the worker so that it accepts the answer without the field. Remove the field from the control-host only in a later release, when that worker is the oldest image in the support window. The profile removal release did not follow this order.
 
 <a id="지운-slack-연결-env" />
 ### Removed Slack linking variables
@@ -208,7 +172,6 @@ From this release on, migrate imports the settings document (`SETTINGS_DOCUMENT`
 - When nothing is imported, migrate logs one line without values: `note: <directory and document> not imported: the installation already holds settings. They seed an empty installation only; change settings in the console`. Once the time is recorded, it reads `the automatic seed ran on <time>`. This line is not a failure.
 - To import the document's content again on purpose, an owner runs `settings import` by hand. That command is unchanged.
 - test-ops `upgrade` neither imports a changed document nor compares it with the database. When the document's digest changes, it logs `upgrade: the settings document changed; it is not imported into a deployed installation, so change settings in the console`. The check in `deploy` is unchanged.
-- A development volume kept with `scripts/local.sh down --keep-volumes` does not get changes to the fixtures (`tests/fixtures/settings/`). Recreate the volume or run `settings import`.
 - After a rollback, the earlier release's migrate imports the document on every deploy again. When an item changed in the console differs from the same id in the document, that import is refused, migrate fails and the API does not start. Before rolling back, remove such items from the document or match them to the console. Keep the `seed_decided_at` column. Earlier builds do not read it.
 
 <a id="env로-가리키던-자격-증명은-db로-한-번-옮긴다" />
@@ -295,42 +258,3 @@ DELETE FROM provider_connections WHERE definition->>'kind' = 'openai_decisions';
 ```
 
 The stored key value stays. The connection id saved in the judge settings stays too, and the rolled-back build does not judge Luna rules. After upgrading again, create the connection again and pick it in the judge settings. Rolling back by restoring the pre-upgrade database backup needs no extra step.
-
-<a id="worker-protocol-필드를-걷어내는-순서" />
-### Removing worker protocol fields
-
-Existing worker containers keep running old images after API upgrades. Even idle workers remain for `WORKER_IDLE_TIMEOUT_SEC` (default 1800 seconds). First make receivers accept messages without a field; remove it from senders only after every receiver is updated. Do not change both in one release.
-
-| Field | Phase 1: receiver stops requiring it | Phase 2: sender removes it after phase 1 rollout |
-|---|---|---|
-| Heartbeat response `auth_revision` | Worker accepts responses without it. Every release's worker image since `v0.1.0` has this | The API stops sending it from the release after `v0.1.3`. Every published worker image is past phase 1, so there is nothing to check |
-| Append-events request `batch_key` | The API accepts requests without it from the release after `v0.1.3` | Worker stops sending it (not yet done). Before that, compare the deployed control-host image's tag or digest with the phase-1 release notes |
-
-Premature phase 2 makes old peers reject requests/responses as contract violations. Workers treat invalid heartbeat responses as nonretryable, assume lease loss at the first heartbeat, and stop.
-
-For adding checkpoint manifest fields, readers go first. Both control-host (precommit validation, restore planning, GC) and worker (restore) reject unknown keys. Update control-host first or within the same release, then workers. Once checkpoints use the field, old workers cannot restore them for the same reason as `baseBundles`.
-
-| Field | First: readers | Then: writers |
-|---|---|---|
-| `workerState` (approval-wait parking) | Control-host and worker accept manifests containing it | Worker writes it only when parking an approval-wait turn |
-
-API also goes first when adding worker-sent protocol fields. Its request schemas are strict: old APIs reject entire requests containing unknown fields with 400 `BAD_REQUEST`.
-
-| Field | Deploy first | New worker against old API |
-|---|---|---|
-| Bootstrap-claim/pending-control `capabilities`, register-pending `remember_offer` | API | No compatibility retry. A 400 `BAD_REQUEST` (nonretryable) on the first bootstrap-claim ends the worker without any turns. API-only rollback has the same effect: first confirm no sessions use new worker images |
-
-<a id="db-스키마를-바꾸는-순서" />
-### Database schema change order
-
-Migrations precede rollout, so old control-host runs briefly on new schemas and old workers remain during the support window. Keep every column/table they use until all old code is gone. Spread changes across three releases; never add and delete in one.
-
-| Phase | Action | What old code sees |
-|---|---|---|
-| 1. Expand | Add columns/tables. New columns must be nullable or have defaults. Defaults appear on existing rows and INSERTs omitting the column. Explicit NULL bypasses defaults: nullable columns store NULL, NOT NULL columns reject the INSERT. Choose based on existing rows and old INSERT behavior | Unknown columns appear; old writes omit them |
-| 2. Switch | New code starts writing new columns. While old code writes old columns, old columns remain authoritative. Dual-write but read old columns. Without a trigger or equivalent copying old writes, wait until all old writers disappear, perform a final backfill, then switch reads | Old columns remain readable/writable |
-| 3. Contract | Delete old columns/tables or strengthen NOT NULL/CHECK constraints only in a release after their images leave the support window and no such worker/control-host remains. Check existing rows and all current writers satisfy stronger constraints first | No remaining code uses those columns |
-
-Renaming also removes the old name, so use the same add/migrate/switch/delete order. `WORKER_IDLE_TIMEOUT_SEC` is idle time after the last turn, not maximum worker lifetime. Busy workers can survive longer: decide cleanup from actual remaining containers, not elapsed time.
-
-For example, checkpoint runtime combination columns `checkpoints.runtime_*` (migration `0196_checkpoint_runtime`) were phase 1: nullable without defaults, leaving older rows null. `0199_worker_image_runtime` (launch combinations, checkpoint digest scheme, `worker_image_refusals`) is also phase 1. A null checkpoint scheme reads as the first scheme (1).

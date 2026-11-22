@@ -1510,8 +1510,15 @@
     {
       "idx": 306,
       "version": "7",
-      "when": 1795376470398,
-      "tag": "0306_slack_outbox_channel",
+      "when": 1795373386774,
+      "tag": "0306_skill_superseded_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 307,
+      "version": "7",
+      "when": 1795376910063,
+      "tag": "0307_slack_drop_fields",
       "breakpoints": true
     }
   ]

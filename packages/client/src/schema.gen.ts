@@ -6191,7 +6191,7 @@ export interface components {
              */
             preview: boolean;
             /**
-             * @description True when the session has an agent the caller may not use (a private agent outside the caller's teams): `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. False otherwise, including a session with no agent.
+             * @description True when the session has an agent the caller is outside of (not an owner or admin, one of the agent's admins or a member of its managing team) or may not use: `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. An agent still held by the holding team of migration 0243 is named to every live member who can read the session (its `workspace` scope reaches them all); a private, people or team share still decides who reads it, and the agent's own page stays `404` to those outside. False otherwise, including a session with no agent.
              * @default false
              */
             agent_hidden: boolean;
@@ -6320,7 +6320,7 @@ export interface components {
              */
             preview: boolean;
             /**
-             * @description True when the session has an agent the caller may not use (a private agent outside the caller's teams): `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. False otherwise, including a session with no agent.
+             * @description True when the session has an agent the caller is outside of (not an owner or admin, one of the agent's admins or a member of its managing team) or may not use: `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. An agent still held by the holding team of migration 0243 is named to every live member who can read the session (its `workspace` scope reaches them all); a private, people or team share still decides who reads it, and the agent's own page stays `404` to those outside. False otherwise, including a session with no agent.
              * @default false
              */
             agent_hidden: boolean;
@@ -11205,13 +11205,16 @@ export interface components {
                     } | null;
                     size_bytes: number;
                     has_scripts: boolean;
-                    /** @enum {string} */
-                    review: "pending" | "approved" | "rejected";
+                    /**
+                     * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                     * @enum {string}
+                     */
+                    review: "pending" | "approved" | "rejected" | "superseded";
                     /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                     registered_by: string | null;
                     /** Format: date-time */
                     registered_at: string;
-                    /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                    /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                     reviewed_by: string | null;
                     reviewed_at: string | null;
                     archived_at: string | null;
@@ -11264,13 +11267,16 @@ export interface components {
                 } | null;
                 size_bytes: number;
                 has_scripts: boolean;
-                /** @enum {string} */
-                review: "pending" | "approved" | "rejected";
+                /**
+                 * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                 * @enum {string}
+                 */
+                review: "pending" | "approved" | "rejected" | "superseded";
                 /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11424,13 +11430,16 @@ export interface components {
                 } | null;
                 size_bytes: number;
                 has_scripts: boolean;
-                /** @enum {string} */
-                review: "pending" | "approved" | "rejected";
+                /**
+                 * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                 * @enum {string}
+                 */
+                review: "pending" | "approved" | "rejected" | "superseded";
                 /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11460,13 +11469,16 @@ export interface components {
                 } | null;
                 size_bytes: number;
                 has_scripts: boolean;
-                /** @enum {string} */
-                review: "pending" | "approved" | "rejected";
+                /**
+                 * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                 * @enum {string}
+                 */
+                review: "pending" | "approved" | "rejected" | "superseded";
                 /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11504,13 +11516,16 @@ export interface components {
                 } | null;
                 size_bytes: number;
                 has_scripts: boolean;
-                /** @enum {string} */
-                review: "pending" | "approved" | "rejected";
+                /**
+                 * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                 * @enum {string}
+                 */
+                review: "pending" | "approved" | "rejected" | "superseded";
                 /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11540,13 +11555,16 @@ export interface components {
                 } | null;
                 size_bytes: number;
                 has_scripts: boolean;
-                /** @enum {string} */
-                review: "pending" | "approved" | "rejected";
+                /**
+                 * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                 * @enum {string}
+                 */
+                review: "pending" | "approved" | "rejected" | "superseded";
                 /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11605,13 +11623,16 @@ export interface components {
                 } | null;
                 size_bytes: number;
                 has_scripts: boolean;
-                /** @enum {string} */
-                review: "pending" | "approved" | "rejected";
+                /**
+                 * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                 * @enum {string}
+                 */
+                review: "pending" | "approved" | "rejected" | "superseded";
                 /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11683,13 +11704,16 @@ export interface components {
                     } | null;
                     size_bytes: number;
                     has_scripts: boolean;
-                    /** @enum {string} */
-                    review: "pending" | "approved" | "rejected";
+                    /**
+                     * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                     * @enum {string}
+                     */
+                    review: "pending" | "approved" | "rejected" | "superseded";
                     /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                     registered_by: string | null;
                     /** Format: date-time */
                     registered_at: string;
-                    /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                    /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                     reviewed_by: string | null;
                     reviewed_at: string | null;
                     archived_at: string | null;

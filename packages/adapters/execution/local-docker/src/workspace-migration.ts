@@ -1,3 +1,4 @@
+import { messageOf } from "@werft-ai/platform";
 import {
   LABELS,
   LocalDockerBackend,
@@ -305,9 +306,7 @@ export class WorkspaceMigrator {
       );
     } catch (error) {
       await this.client.removeVolume(target).catch(() => undefined);
-      throw fail(
-        `${error instanceof Error ? error.message : String(error)}; ${source} is untouched`,
-      );
+      throw fail(`${messageOf(error)}; ${source} is untouched`);
     }
 
     signal?.throwIfAborted();

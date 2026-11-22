@@ -83,8 +83,7 @@ Bytes written by checkpoints do not count toward the storage limits of execution
 <a id="확인" />
 ## Verify
 
-For a single server, preflight with S3 explicitly selected must complete every scratch-object operation: create-only put → hold → verify hold/read version → release hold → delete version. The API startup check reads bucket settings; it does not prove write, hold, or deletion permissions. The AWS creation procedure and an actual production S3 installation have not been verified by execution.
-
+For a single server, preflight with S3 explicitly selected must complete every scratch-object operation: create-only put → hold → verify hold/read version → release hold → delete version. The API startup check reads bucket settings; it does not prove write, hold, or deletion permissions.
 <a id="자주-막히는-곳" />
 ## Troubleshooting
 

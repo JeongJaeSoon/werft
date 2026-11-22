@@ -11,7 +11,10 @@ import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresSessionShareStore } from "./musterrolle/session-shares.ts";
-import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
+import {
+  createPostgresSessionReader,
+  createPostgresSessionUnitOfWork,
+} from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {
   agentAdmins,
@@ -282,6 +285,33 @@ integration("agent access on PostgreSQL", () => {
     };
   }
 
+  /** The session's agent as `who` reads it in the list, the detail and the filter. */
+  async function agentShown(
+    workspaceId: string,
+    sessionId: string,
+    agentId: string,
+    who: SessionViewer,
+  ) {
+    const reader = createPostgresSessionReader(db);
+    const listed = (
+      await reader.listSessions(workspaceId, { limit: 100 }, who)
+    ).items.find((item) => item.id === sessionId);
+    const detail = await reader.getSession(workspaceId, sessionId, who);
+    const filtered = (
+      await reader.listSessions(
+        workspaceId,
+        { limit: 100, agent_id: agentId },
+        who,
+      )
+    ).items.map((item) => item.id);
+    return {
+      listed: listed?.agent?.id ?? null,
+      detail: detail?.agent?.id ?? null,
+      hidden: [listed?.agent_hidden, detail?.agent_hidden],
+      filtered,
+    };
+  }
+
   async function whoSees(
     c: Awaited<ReturnType<typeof cast>>,
     sessionId = c.id,
@@ -329,6 +359,16 @@ integration("agent access on PostgreSQL", () => {
       audienceLimited: false,
     });
     expect(await reaches(c.ws, c.id, viewer(c.outsider), "member")).toBe("ok");
+    // The agent's name goes with the session to everyone who sees it, in the
+    // list, the detail and the list's agent filter alike.
+    expect(await agentShown(c.ws, c.id, c.agentId, viewer(c.outsider))).toEqual(
+      {
+        listed: c.agentId,
+        detail: c.agentId,
+        hidden: [false, false],
+        filtered: [c.id],
+      },
+    );
 
     await db
       .update(agents)
@@ -340,6 +380,31 @@ integration("agent access on PostgreSQL", () => {
     });
     expect(await reaches(c.ws, c.id, viewer(c.outsider), "member")).toBe(
       "not_found",
+    );
+    // Shared to them by name, the session reaches them again, but a managed
+    // agent's name does not (#1801).
+    expect(
+      (
+        await shares().set({
+          principal: c.holder,
+          ownerId: c.ws,
+          workspaceId: c.ws,
+          sessionId: c.id,
+          scope: "people",
+          userIds: [idOf(c.outsider)],
+          teamIds: [],
+          updatedBy: idOf(c.holder),
+          receiptId: randomUUID(),
+        })
+      ).outcome,
+    ).toBe("changed");
+    expect(await agentShown(c.ws, c.id, c.agentId, viewer(c.outsider))).toEqual(
+      {
+        listed: null,
+        detail: null,
+        hidden: [true, true],
+        filtered: [],
+      },
     );
   });
 

@@ -54,7 +54,7 @@ API_CONTAINER를 이 설치의 status와 project label로 확인한다. 출력�
 
 ## 확인
 
-백업 종료 코드와 status를 확인한다. 훈련 로그의 실제 대조한 checkpoint 수·version 수·checksum 결과를 보관한다. `nothing was compared`는 빈 대조이며 데이터 복원의 증거가 아니다. 기존 LocalStack 실행은 object 0개·checkpoint 0행이었고, AWS S3 복원과 API를 띄운 실제 세션 재개는 확인하지 않았다. 복원한 API·worker로 세션이 이어지는 확인을 별도 격리 환경에서 수행해야 한다.
+백업 종료 코드와 status를 확인한다. 훈련 로그의 실제 대조한 checkpoint 수·version 수·checksum 결과를 보관한다. `nothing was compared`는 빈 대조이며 데이터 복원의 증거가 아니다. 복원한 API·worker로 세션이 이어지는 확인을 별도 격리 환경에서 수행해야 한다.
 
 ## 자주 막히는 곳
 

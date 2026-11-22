@@ -16,6 +16,7 @@ import {
   AGENT_IDENTITY_STATUS_VALUES,
   AGENT_PULL_REQUEST_FORMATTING_VALUES,
   AGENT_STATUS_VALUES,
+  AUDIENCE_KIND_VALUES,
   AUTHORIZATION_OUTCOME_VALUES,
   AUTO_REVIEWED_EVIDENCE_KIND_VALUES,
   type AuthorizationAction,
@@ -73,6 +74,7 @@ import {
   SLACK_SURFACE_ACTION_VALUES,
   type SlackAppKind,
   type SlackAppState,
+  type SlackInboundDropFields,
   type SlackInboundDropReason,
   type SlackInboundEventStatus,
   type SlackMessageRef,
@@ -162,6 +164,8 @@ export const GRANT_ACTION_VALUES = [
   "artifact.read",
   "delivery.send",
 ] as const satisfies readonly AuthorizationAction[];
+// Still exported from here, as before the contracts held it.
+export { AUDIENCE_KIND_VALUES };
 export const RESOURCE_KIND_VALUES = [
   "workspace",
   "session",
@@ -174,12 +178,6 @@ export const RESOURCE_KIND_VALUES = [
   "memory",
   "routine",
   "artifact",
-] as const;
-export const AUDIENCE_KIND_VALUES = [
-  "workspace",
-  "surface_binding",
-  "session_link",
-  "session",
 ] as const;
 // Which resource kinds each action may be granted on: `session.read` on a
 // workspace would be a workspace-wide read smuggled in through the resource.
@@ -227,9 +225,8 @@ const oneDimensional = (column: unknown) =>
 
 // Identity. One workspace per installation for now; every row added by the
 // interface track carries a workspace_id. Vocabularies are CHECK constraints
-// rather than pg enums so that widening one is a plain additive migration. Most
-// take their values from the contracts; RESOURCE_KIND_VALUES and
-// AUDIENCE_KIND_VALUES above are still hand copies.
+// rather than pg enums so that widening one is a plain additive migration. They
+// take their values from the contracts, RESOURCE_KIND_VALUES above a subset.
 export const workspaces = pgTable("workspaces", {
   id: uuid().primaryKey(),
   slug: text().notNull().unique(),
@@ -1200,6 +1197,12 @@ export const slackInboundEvents = pgTable(
     status: text().$type<SlackInboundEventStatus>().notNull(),
     dropReason: text("drop_reason").$type<SlackInboundDropReason>(),
     payload: jsonb().$type<Record<string, unknown>>(),
+    /**
+     * A row dropped at the door: who posted it (bot_id, app_id, user) and its
+     * subtypes, never its text, blocks or files. Null on rows that predate
+     * it and on rows the `slack` role dropped.
+     */
+    dropFields: jsonb("drop_fields").$type<SlackInboundDropFields>(),
     receivedAt: timestamp("received_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1236,6 +1239,10 @@ export const slackInboundEvents = pgTable(
     check(
       "slack_inbound_events_dropped_check",
       sql`(${table.status} = 'dropped') = (${table.dropReason} IS NOT NULL) AND (${table.status} = 'dropped') = (${table.payload} IS NULL)`,
+    ),
+    check(
+      "slack_inbound_events_drop_fields_check",
+      sql`${table.status} = 'dropped' OR ${table.dropFields} IS NULL`,
     ),
     check(
       "slack_inbound_events_conversation_check",
@@ -5135,6 +5142,7 @@ export const EXTENSION_BUNDLE_REVIEWS = [
   "pending",
   "approved",
   "rejected",
+  "superseded",
 ] as const;
 export const EXTENSION_BUNDLE_SOURCES = ["upload", "github"] as const;
 
@@ -5222,10 +5230,11 @@ export const extensionBundles = pgTable(
       "extension_bundles_review_actor_check",
       sql`(${table.review} = 'pending') = (${table.reviewedAt} IS NULL) AND (${table.reviewedBy} IS NULL OR ${table.reviewedAt} IS NOT NULL)`,
     ),
-    // Only the sync approves without a person: under auto-approve.
+    // Only the sync approves without a person: under auto-approve. A version
+    // the sync's approval superseded has no person either.
     check(
       "extension_bundles_auto_review_check",
-      sql`${table.reviewedAt} IS NULL OR ${table.reviewedBy} IS NOT NULL OR (${table.review} = 'approved' AND ${table.git} IS NOT NULL)`,
+      sql`${table.reviewedAt} IS NULL OR ${table.reviewedBy} IS NOT NULL OR (${table.review} = 'approved' AND ${table.git} IS NOT NULL) OR ${table.review} = 'superseded'`,
     ),
     check("extension_bundles_size_check", sql`${table.sizeBytes} > 0`),
     check(
