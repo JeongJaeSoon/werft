@@ -61,9 +61,8 @@ export const INSTRUCTION_PATTERNS: readonly { id: string; pattern: RegExp }[] =
 const HIDDEN =
   // biome-ignore lint/suspicious/noControlCharactersInRegex: finding control characters is the point
   /[\u{0}-\u{8}\u{B}\u{C}\u{E}-\u{1F}\u{7F}\u{61C}\u{180E}\u{200B}-\u{200F}\u{202A}-\u{202E}\u{2060}-\u{2064}\u{2066}-\u{2069}\u{FEFF}\u{E0000}-\u{E007F}]/gu;
-/** The authority's host: a bracketed IPv6 literal or a name, after any userinfo. */
-const URL_HOST =
-  /\bhttps?:\/\/(?:[^\s/?#"'<>()[\]`\\@]*@)?(\[[^\]\s/]*\]|[^\s/?#"'<>()[\]`\\:]+)/gi;
+/** A URL as far as text can carry one; the host is read by the WHATWG parser. */
+const URL_TEXT = /\bhttps?:\/\/[^\s"'<>`]+/gi;
 const SCRIPTS_DIR = /^skills\/[^/]+\/scripts\//;
 const MANIFEST = ".claude-plugin/plugin.json";
 
@@ -74,8 +73,27 @@ const textOf = (bytes: Uint8Array): string => decoder.decode(bytes);
 
 function hostsOf(text: string): Set<string> {
   const hosts = new Set<string>();
-  for (const match of text.matchAll(URL_HOST)) {
-    hosts.add((match[1] as string).toLowerCase().replace(/\.$/, ""));
+  for (const [found] of text.matchAll(URL_TEXT)) {
+    let url = found;
+    // Markdown's closing ")" or "]" and a sentence's end are not the URL's.
+    while (/[.,;:!?)\]]$/.test(url)) {
+      const last = url.at(-1) as string;
+      const open = last === ")" ? "(" : last === "]" ? "[" : null;
+      if (open !== null && url.split(open).length > url.split(last).length) {
+        break;
+      }
+      url = url.slice(0, -1);
+    }
+    let host: string;
+    try {
+      // The parser's host is what a client would reach: userinfo, ports,
+      // percent-escapes and IDN spellings are resolved the same way.
+      host = new URL(url).hostname;
+    } catch {
+      // Unparseable: the raw authority, so it is still a host nobody named.
+      host = url.replace(/^https?:\/\//i, "").split(/[/?#]/)[0] ?? "";
+    }
+    hosts.add(host.toLowerCase().replace(/\.$/, ""));
   }
   return hosts;
 }

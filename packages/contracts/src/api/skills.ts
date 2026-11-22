@@ -536,7 +536,8 @@ export const skillFileSchema = z
     size_bytes: z.number().int().nonnegative(),
     sha256: sha256HexSchema,
     text: z.string().nullable().meta({
-      description: "The file as UTF-8 text; null for a binary file.",
+      description:
+        "The file as UTF-8 text; null for a binary file. A document (`.md`, `.txt`, `.json`, `.yaml`, `.yml`, `.csv`) that is not clean UTF-8 is still text: bad bytes as U+FFFD and control characters as their visible symbols (U+2400 to U+2421), as the fixed-rule checks read it.",
     }),
     change: z.enum(["added", "changed", "unchanged"]).meta({
       description:

@@ -193,6 +193,24 @@ describe("what a check cannot be talked out of", () => {
     );
   });
 
+  test("the host is the one a client reaches: userinfo with parentheses, escapes and IDN spellings do not hide it", () => {
+    const known = [...base, file("more.md", "https://known.example/ and https://xn--bcher-kva.example/")];
+    const hostOf = (text: string) =>
+      checkSkillVersion(known, [...base, file("more.md", text)]).find(
+        (one) => one.rule === "new_url",
+      )?.samples;
+    expect(hostOf("https://known.example(user)@evil.example/x")).toEqual([
+      "evil.example",
+    ]);
+    expect(hostOf("https://ev%69l.example/")).toEqual(["evil.example"]);
+    // Known hosts in other spellings, and markdown around them, are not new.
+    expect(
+      hostOf(
+        "[a](https://Known.Example./a). https://known.example:443/b, (https://bücher.example/c)",
+      ),
+    ).toBeUndefined();
+  });
+
   test("an IPv6 host, with userinfo or a port, is a host like any other", () => {
     for (const url of [
       "https://[2606:4700:4700::1111]/",

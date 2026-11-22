@@ -11603,7 +11603,7 @@ export interface components {
                 executable: boolean;
                 size_bytes: number;
                 sha256: string;
-                /** @description The file as UTF-8 text; null for a binary file. */
+                /** @description The file as UTF-8 text; null for a binary file. A document (`.md`, `.txt`, `.json`, `.yaml`, `.yml`, `.csv`) that is not clean UTF-8 is still text: bad bytes as U+FFFD and control characters as their visible symbols (U+2400 to U+2421), as the fixed-rule checks read it. */
                 text: string | null;
                 /**
                  * @description Against the previous approved version; every file is `added` when there is none.

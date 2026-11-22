@@ -472,7 +472,8 @@ export function runsAsScript(
   return (mode & 0o111) !== 0 || !isDocument(path) || startsWithShebang(bytes);
 }
 
-function isDocument(path: string): boolean {
+/** A path whose extension names a document (`.md`, `.txt`, `.json`, …). */
+export function isDocument(path: string): boolean {
   const dot = path.lastIndexOf(".");
   const slash = path.lastIndexOf("/");
   if (dot <= slash + 1) return false;
