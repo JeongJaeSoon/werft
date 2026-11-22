@@ -748,4 +748,17 @@ integration("push follow-ups on PostgreSQL", () => {
         .where(eq(pushFollowUps.sessionId, sessionId)),
     ).toEqual([{ id: push }]);
   });
+  test("a rejection still queues the agent's turn when the branch has a pull request; an approval's hold drops it", async () => {
+    const { ownerId, sessionId, worker, turnId } = await runningTurn();
+    await finalize(worker, turnId, 0);
+    const push = await pushRequest(ownerId, sessionId);
+    await recordPullRequest(ownerId, sessionId, push);
+    expect(await hold(sessionId, push)).toBe("pull_request");
+    expect((await decide(ownerId, sessionId, push, "reject")).outcome).toBe(
+      "accepted",
+    );
+    expect((await turnRow(sessionId, 2)).requesterAuth).toMatchObject({
+      decision: "reject",
+    });
+  });
 });
