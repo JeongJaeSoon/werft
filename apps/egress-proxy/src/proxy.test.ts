@@ -621,8 +621,7 @@ describe("egress proxy", () => {
         talk.send(
           kept(`GET http://scripted.test:${scripted.port}/gated-body HTTP/1.1`),
         );
-        // The head promised to keep the connection; the client spoke too
-        // soon.
+        // The head promised to keep the connection; the client spoke too soon.
         expect(headOf(await talk.waitFor("\r\n\r\nok"))).not.toContain(
           "connection: close",
         );

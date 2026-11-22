@@ -774,8 +774,7 @@ public_event() {
 }
 
 # The one rule both opening and keeping a route follow: the outside label's
-# last event (as public_event read it) is a labeled by this machine's own
-# login.
+# last event (as public_event read it) is a labeled by this machine's own login.
 public_label_ours() {
   [ -n "$gh_user" ] && [ "$event" = labeled ] && [ "$actor" = "$gh_user" ]
 }

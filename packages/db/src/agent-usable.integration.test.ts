@@ -47,9 +47,9 @@ const integration = testDatabaseUrl() ? describe : describe.skip;
 const MANAGERS: readonly WorkspaceRole[] = ["owner", "admin"];
 const LIMITS = { queuedInputLimitPerSession: 10_000, storageLimitBytes: 1e15 };
 
-// The SQL predicate behind GET /v1/usable-agents and the hiding of a
-// private agent must answer what the start decision (`usageOf`) answers, for
-// every kind of requester, on the same rows.
+// The SQL predicate behind GET /v1/usable-agents and the hiding of a private
+// agent must answer what the start decision (`usageOf`) answers, for every kind
+// of requester, on the same rows.
 integration("agent_usable on PostgreSQL", () => {
   let database: TempDatabase;
   let pool: Pool;

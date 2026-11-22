@@ -1115,8 +1115,7 @@ function replayableBinding(
 }
 
 // A row of mode repository with no repository id predates the catalog and
-// matches nothing: the SQL tuple holds a NULL. The same predicate as
-// runsHere.
+// matches nothing: the SQL tuple holds a NULL. The same predicate as runsHere.
 export function runnableCondition(runnable: ClaimCatalog): SQL {
   const pairs = runnable.connections.flatMap((connection) =>
     connection.models.map((model) => sql`(${connection.id}, ${model})`),

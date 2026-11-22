@@ -113,8 +113,7 @@ if [ -n "$base" ]; then
     elif [ "$shared" = false ]; then
       # Only the web console (and prose) changed. The control-host image
       # bundles apps/web, so e2e and the product jobs stay on; what drops out
-      # is the work no changed path can reach. The surface domain owns
-      # apps/web.
+      # is the work no changed path can reach. The surface domain owns apps/web.
       site=true
       helm=false
       k8s=false

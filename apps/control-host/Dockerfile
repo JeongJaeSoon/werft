@@ -47,8 +47,8 @@ RUN --mount=type=bind,source=scripts/image-prune.sh,target=/tmp/image-prune.sh \
 
 FROM ${BUN_IMAGE} AS runtime
 # git: the checkpoint verifier fetches each workspace bundle into a scratch
-# repository; without the executable every checkpoint finalize
-# fails with ENOENT and no pointer ever advances. The smoke test checks it.
+# repository; without the executable every checkpoint finalize fails with ENOENT
+# and no pointer ever advances. The smoke test checks it.
 # ca-certificates: the approved push runs git over https from this container
 # (packages/platform/src/action/change-request/push-executor.ts). --no-install-recommends
 # drops it from git, and without it every https push fails at ls-remote.
@@ -64,8 +64,8 @@ RUN test "$(id -u bun)" = 1000
 WORKDIR /app
 COPY --from=pruned --chown=1000:1000 /app /app
 COPY --from=web --chown=1000:1000 /app/apps/web/dist /app/apps/web/dist
-# The corresponding source of every Debian package in this image;
-# see apps/worker/Dockerfile.
+# The corresponding source of every Debian package in this image; see
+# apps/worker/Dockerfile.
 RUN --mount=type=bind,source=scripts/third-party-notices.ts,target=/tmp/third-party-notices.ts \
   bun /tmp/third-party-notices.ts --debian-sources >DEBIAN_SOURCES.md
 USER 1000:1000

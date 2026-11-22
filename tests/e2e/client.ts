@@ -376,8 +376,7 @@ export class Api {
       : null,
   ): Promise<ApiResponse<T>> {
     // An answer, and a push request's approval or rejection, go under the
-    // other key: the one that started the session is refused
-    // (`self_approval`).
+    // other key: the one that started the session is refused (`self_approval`).
     const key =
       method === "POST" &&
       /\/answers$|\/push-requests\/[^/]+\/(approve|reject)$/.test(path)

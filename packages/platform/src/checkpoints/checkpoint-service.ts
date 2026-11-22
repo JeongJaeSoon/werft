@@ -951,8 +951,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         throw error;
       }
       if (verdict.status !== "restorable") {
-        // The bytes are the ones committed, so it is the verifier that
-        // changed.
+        // The bytes are the ones committed, so it is the verifier that changed.
         return refused(
           `workspace bundle ${bundle.key} cannot restore ${gitCommit}: ${verdict.reason}`,
         );

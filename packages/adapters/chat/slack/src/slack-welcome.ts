@@ -21,8 +21,8 @@ export function slackWelcomeText(agentName: string): string {
 
 /**
  * One welcome per home binding: a new release, a rollback or a home moved
- * back all find it taken. The store also refuses a channel that heard one
- * under another binding or under the earlier per-release key.
+ * back all find it taken. The store also refuses a channel that heard one under
+ * another binding or under the earlier per-release key.
  */
 export function deploymentWelcomeKey(
   agentId: string,

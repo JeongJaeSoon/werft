@@ -15,8 +15,8 @@ export type IconTileProps = {
 
 /**
  * An ink glyph on a quiet ink tile: the mark of a home card or a connection
- * section. Every tile is the same colour, so a page's only small colour is
- * its status dots. Beside two stacked lines it spans both.
+ * section. Every tile is the same colour, so a page's only small colour is its
+ * status dots. Beside two stacked lines it spans both.
  */
 export function IconTile({
   icon: Icon,

@@ -82,8 +82,7 @@ const LOCAL_DATABASE_HOSTS = new Set([
   "[::1]",
 ]);
 
-// The names a pod's resolver maps to the postgres Service of its own
-// namespace.
+// The names a pod's resolver maps to the postgres Service of its own namespace.
 function previewDatabaseHosts(namespace: string) {
   return new Set(
     [

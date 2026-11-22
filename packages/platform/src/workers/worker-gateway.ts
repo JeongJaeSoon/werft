@@ -1204,8 +1204,7 @@ export function createWorkerGateway(deps: {
 
   // The configs the session's checkpoints were made under other than the
   // one it runs now (before its model moved): the worker accepts a restored
-  // checkpoint made under any of them, and runs the engine on
-  // runtime_config.
+  // checkpoint made under any of them, and runs the engine on runtime_config.
   function restoreRuntimesOf(
     binding: Pick<
       WorkerBinding,

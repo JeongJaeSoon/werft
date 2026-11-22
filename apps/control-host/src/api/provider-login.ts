@@ -69,8 +69,7 @@ function entryOf(
   if (admission === null) return "domain_not_allowed";
   if (known === "linked") return "signs_in";
   // Past a connection, only an address the provider vouches for decides
-  // anything: without one no account is named, no invite found, nobody
-  // joins.
+  // anything: without one no account is named, no invite found, nobody joins.
   if (known === "refused" || !admission.ownsEmail) return "refused";
   if (known === "linkable") return "links";
   if (known === "account_exists") return "link_required";

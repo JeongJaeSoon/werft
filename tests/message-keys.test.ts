@@ -142,8 +142,7 @@ const UNREAD = [
   "session.workspaceLimit.unknown",
   "workspaceMcp.clientDcr",
   "workspaceMcp.clientManual",
-  // Decide before deleting: the session's outputs tab is meant to show
-  // these.
+  // Decide before deleting: the session's outputs tab is meant to show these.
   "session.outcomes.checkedAt",
   "session.outcomes.closedAt",
   "session.outcomes.mergedAt",

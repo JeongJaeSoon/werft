@@ -44,8 +44,8 @@ import {
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-// Every relation, search and count is a subset of what the share
-// already lets the viewer read.
+// Every relation, search and count is a subset of what the share already lets
+// the viewer read.
 integration("session list relations, search and counts on PostgreSQL", () => {
   let database: TempDatabase;
   let pool: Pool;

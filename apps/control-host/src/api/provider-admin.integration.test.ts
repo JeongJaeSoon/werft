@@ -542,8 +542,7 @@ integration("sign-in provider settings on PostgreSQL", () => {
     // Sign-ins never saw it.
     expect((await signIn(alice)).status).toBe(200);
 
-    // A test goes to the provider with the replacement about to be
-    // withdrawn.
+    // A test goes to the provider with the replacement about to be withdrawn.
     const early = await send("POST", path("/test/start"), { cookie: owner });
     const earlyCookie = cookieOf(early, LOGIN_FLOW_COOKIE_NAME);
     const earlyBack = await idp.authorize(

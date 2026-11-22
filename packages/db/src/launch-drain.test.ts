@@ -200,8 +200,7 @@ describe("launch drain", () => {
   test("a worker still starting up is busy until its first poll, which hands it no turn", async () => {
     const { ref, principal, scope } = await claimedSession();
     const store = schedulerStore();
-    // Claimed and restoring: torn down now, it would count as a failed
-    // startup.
+    // Claimed and restoring: torn down now, it would count as a failed startup.
     expect(await store.requestDrain(ref, 60_000)).toEqual({
       busy: true,
       overdue: false,

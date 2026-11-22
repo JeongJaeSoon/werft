@@ -1009,8 +1009,7 @@ describe("홈 요약", () => {
     ).toBeTruthy();
     expect(within(overview).getByText("추정 비용")).toBeTruthy();
     const recent = screen.getByRole("table", { name: "최근 세션" });
-    // A pill per status: amber for waiting, grey for idle; the text says
-    // which.
+    // A pill per status: amber for waiting, grey for idle; the text says which.
     expect(
       [...recent.querySelectorAll("[data-slot=badge]")].map(
         (badge) => badge.className.match(/tone-[a-z]+-bg/)?.[0],
