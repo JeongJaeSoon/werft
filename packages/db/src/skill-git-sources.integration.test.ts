@@ -1018,6 +1018,23 @@ integration("Git skill sources on PostgreSQL", () => {
     }
     expect(clean.bundle).toMatchObject({ review: "approved", current: true });
     expect(flagged.bundle).toMatchObject({ review: "pending", current: false });
+    // Approved, "clean" closes the pending v1 below it in the same write;
+    // held back, "flagged" closes nothing and both its versions wait.
+    const reviews = await db
+      .select({
+        name: extensionBundles.name,
+        version: extensionBundles.version,
+        review: extensionBundles.review,
+      })
+      .from(extensionBundles)
+      .where(eq(extensionBundles.workspaceId, workspaceId))
+      .orderBy(extensionBundles.name, extensionBundles.version);
+    expect(reviews).toEqual([
+      { name: "clean", version: 1, review: "superseded" },
+      { name: "clean", version: 2, review: "approved" },
+      { name: "flagged", version: 1, review: "pending" },
+      { name: "flagged", version: 2, review: "pending" },
+    ]);
     expect(
       (await sources().get(workspaceId, "clean"))?.lastCheck?.autoApproval,
     ).toMatchObject({ result: "approved", reason: null, checks: [] });
