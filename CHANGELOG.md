@@ -14,6 +14,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **api가 멈추기 시작하면 열린 세션 이벤트 스트림(SSE)을 바로 끝내, 열린 스트림이 있어도 종료가 드레인 상한(35초)을 기다리지 않는다**(JeongJaeSoon/werft#2032). 할 일은 없다. stop grace는 그대로 두어도 된다.
+  - api 재시작·재배포 때 콘솔과 SDK의 이벤트 스트림은 곧바로 끊기고, 새 api에 `Last-Event-ID`로 다시 붙어 놓친 이벤트 없이 이어진다. 이전에는 스트림이 드레인 상한까지 붙어 있다가 잘렸다.
+  - 로그 `SSE stream closed`의 `reason`에 `shutting_down`이 생긴다. 열린 스트림 때문에 `Drain deadline passed` 경고가 나던 종료는 이제 `In-flight requests drained`로 끝난다.
+
 - **대화 층의 빈 표 셋 `channel_contexts`·`conversations`·`conversation_topics`를 더한다**(JeongJaeSoon/werft#2023). migration `0310_conversation_scopes`가 만든다. 이 릴리스의 코드는 아직 읽거나 쓰지 않으므로 할 일은 없고 동작도 그대로다. 지원 창 안의 이미지로 되돌려도 영향이 없다.
 - **Slack inbox(`slack_inbound_events`)가 처리를 마친 이벤트의 원문(`payload`)을 바로 지우고, 실패한 이벤트의 원문은 받은 지 7일이 지나면 reconciler가 지운다**(JeongJaeSoon/werft#2025). 따로 할 일은 없다.
   - migration `0308_slack_inbound_payload_check`가 CHECK를 바꾼다. 처리된 행과 실패한 행은 원문이 없어도 되고, 받은 행은 원문이 있어야 하고, 버린 행은 지금처럼 원문이 없다. 새 CHECK를 `NOT VALID`로 더해 검증한 뒤 옛 CHECK를 지우고, 인덱스는 `CONCURRENTLY`로 만든다.
