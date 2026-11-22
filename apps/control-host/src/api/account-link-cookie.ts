@@ -17,7 +17,7 @@ const CLOCK_SKEW_MS = 60 * 1000;
 type Provider = "slack" | "github";
 
 /** One link, from its start request to its callback. */
-export type AccountLinkFlow = {
+type AccountLinkFlow = {
   purpose: "link";
   provider: Provider;
   /** Never logged. */
