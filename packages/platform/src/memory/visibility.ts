@@ -108,7 +108,7 @@ function canAdopt(document: MemoryDocumentFacts, viewer: MemoryViewer) {
 }
 
 /**
- * Step 4 of memory-layer.md §5 for one document. Search, read and injection
+ * The visibility step of memory enforcement for one document. Search, read and injection
  * see only active, clean documents whose whole lineage is alive and
  * unexpired. The candidate queue shows an unexpired candidate to its source's
  * owner until they release it, then to them and the people in its

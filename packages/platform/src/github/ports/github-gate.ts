@@ -24,7 +24,7 @@ export type GitHubWork = {
   purpose: GitHubPurpose;
   /**
    * Absent: the session's own repository, read off the session row. Another
-   * one only as its release lists it (session-multi-repository.md decision 5).
+   * one only as its release lists it.
    */
   repositoryId?: string;
   /** dispatch only: a branch name, never `refs/...`. */
@@ -237,7 +237,7 @@ export type RegisteredGitHubConnection = {
 /**
  * What can serve a catalog repository for a role: its own connection (a
  * catalog App), or the console's connections of that role, of which
- * the repository's pin picks one (decision github-agent.md 11).
+ * the repository's pin picks one.
  */
 export type GitHubConnectionSource =
   | { kind: "fixed"; connection: GitHubConnection }

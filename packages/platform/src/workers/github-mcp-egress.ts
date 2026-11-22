@@ -15,8 +15,7 @@ import {
 export const GITHUB_MCP_UPSTREAM_PATH = "/mcp/github";
 
 /**
- * The `/mcp/github` route's decision (design github-agent.md §3 "내장 MCP
- * 서버 github"), after the token's attempt was fenced to its session: the
+ * The `/mcp/github` route's decision, after the token's attempt was fenced to its session: the
  * release carries GitHub settings, the agent's switch is on, the session
  * names who started it, and a tool call names a tool the release exposes.
  * No receipt: a call the gate refuses leaves the gate's own.

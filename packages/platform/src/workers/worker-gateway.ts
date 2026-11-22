@@ -1360,8 +1360,8 @@ export function createWorkerGateway(deps: {
     return owners.npm.length + owners.rubygems.length === 0 ? null : owners;
   }
 
-  // The repositories besides its own the session's release lets it work on
-  // (session-multi-repository.md decision 2), reached with the attempt's
+  // The repositories besides its own the session's release lets it work on,
+  // reached with the attempt's
   // repository token on the route named for each. The list is not pinned at
   // the claim: the gate reads the release and catalog again on every fetch.
   // Each one's commit is, for a worker that parses it: the session's pin.
@@ -2175,7 +2175,7 @@ export function createWorkerGateway(deps: {
       }
       const other = request.repository_id;
       // A session started without a repository reaches only the ones it
-      // attached (session-repository-attachment.md decision 4).
+      // attached.
       if (result.repository === null) {
         if (other === undefined || result.binding !== ATTACHED_ONLY_BINDING) {
           moved("session's repository");

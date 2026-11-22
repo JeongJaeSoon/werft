@@ -255,7 +255,7 @@ export type AchievementRuleChangeResponse = z.infer<
   typeof achievementRuleChangeResponseSchema
 >;
 
-/** What queued a judgment (achievement-rules.md §4). */
+/** What queued a judgment. */
 export const ACHIEVEMENT_JUDGMENT_TRIGGER_VALUES = [
   "evidence",
   "turns",

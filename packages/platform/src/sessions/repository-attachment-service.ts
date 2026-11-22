@@ -60,7 +60,7 @@ function answer(
 }
 
 /**
- * `attach_repository` (session-repository-attachment.md decision 3): the
+ * `attach_repository`: the
  * release's list caps what may be attached, the row records it, and a worker
  * of the session fetches it. No person approves it (owner decision 3);
  * writing to it still waits for a push approval.

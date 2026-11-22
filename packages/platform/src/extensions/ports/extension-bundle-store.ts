@@ -10,7 +10,7 @@ import type {
 } from "./skill-git-source-store.ts";
 
 /**
- * A GitHub version of a skill (decision skills-and-mcp.md 3). With
+ * A GitHub version of a skill. With
  * `newSource` it is the first registration, by a person, and the source row
  * is written with it. Without, the principal is the sync: the version is
  * written under the source row's lock once its settings are read again, and
@@ -185,7 +185,7 @@ export interface ExtensionBundleStore {
   /**
    * Sets the review state and writes the `approve_extension` receipt. The
    * registrant may review their own version only while no other member holds
-   * a manager role (decision skills-and-mcp.md 3); the receipt says so.
+   * a manager role; the receipt says so.
    */
   review(input: {
     receiptId: string;

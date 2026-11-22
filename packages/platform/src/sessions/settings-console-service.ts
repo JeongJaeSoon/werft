@@ -110,8 +110,7 @@ function headerValue(kind: SettingsKind, id: string, value: string): string {
 }
 
 /**
- * The installation settings from the console (settings-replace-file-catalog.md
- * §2-§4): the owner makes connections and MCP servers with a value they
+ * The installation settings from the console: the owner makes connections and MCP servers with a value they
  * type, replaces that value or disables the row. Writes go through the settings
  * document store's own transaction and locks; no destination and no
  * operator reference is ever written here.

@@ -55,7 +55,7 @@ const noAuthorApp = () =>
   );
 
 /**
- * The workspace's GitHub ceiling (design github-agent.md decision 9): what
+ * The workspace's GitHub ceiling: what
  * its agents may turn on. Members read it; an owner or admin signed in to
  * the console changes it. The gate applies it at every token issue, so a
  * lowered ceiling refuses the next one.

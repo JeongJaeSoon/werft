@@ -260,7 +260,7 @@ export function createAgentService(deps: {
     });
 
   /**
-   * A release's GitHub settings as asked (design github-agent.md §4): App
+   * A release's GitHub settings as asked: App
    * repositories of the catalog, the release's own among them, no
    * allow-list without Actions, nothing over the workspace's ceiling. The
    * gate cuts the release down again at every token issue.

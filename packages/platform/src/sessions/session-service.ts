@@ -801,7 +801,7 @@ export function createSessionService(deps: {
       }
       const sent = input.body.attached_repository_ids;
       // Omitted, a session starts with none attached and attaches what it
-      // needs (session-repository-attachment.md decision 2).
+      // needs.
       const attached = sent ?? [];
       if (sent !== undefined) {
         // The switch is read at every use, not here, as for the session's

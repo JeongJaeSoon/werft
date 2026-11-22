@@ -527,8 +527,7 @@ function parentRevisionOf(session: SessionRow, attemptId: string) {
 const OUTPUT_ROWS_PER_INSERT = 5_000;
 
 /**
- * Whether this checkpoint's out/ list is new evidence (achievement-rules.md
- * §4): it differs from the parent revision's, path by path, or the session's
+ * Whether this checkpoint's out/ list is new evidence: it differs from the parent revision's, path by path, or the session's
  * latest judgment could not read out/ and gave up.
  */
 async function outputsAreEvidence(

@@ -1,6 +1,5 @@
 #!/bin/sh
-# Every client hook in the image's core.hooksPath is this one script
-# (design github-agent.md decision 5). It runs the repository's own hook of
+# Every client hook in the image's core.hooksPath is this one script. It runs the repository's own hook of
 # the same name, then for prepare-commit-msg and commit-msg fixes the
 # message's attribution (werft-trailers.sh). prepare-commit-msg is the one
 # that still runs under `git commit --no-verify`.

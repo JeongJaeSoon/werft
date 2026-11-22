@@ -8,8 +8,7 @@ import {
 } from "../shared/index.ts";
 import { REQUEST_BODY_MAX_BYTES } from "./session.ts";
 
-// Skills a workspace registers, approves and attaches (decision
-// skills-and-mcp.md 2–4, 7). A skill is one `SKILL.md` directory; each
+// Skills a workspace registers, approves and attaches. A skill is one `SKILL.md` directory; each
 // registration of new content is its next version. Every write comes from a
 // signed-in console session, never an API key.
 
@@ -57,7 +56,7 @@ export const registerSkillRequestSchema = z
   .strict();
 export type RegisterSkillRequest = z.infer<typeof registerSkillRequestSchema>;
 
-// A skill from GitHub (decision skills-and-mcp.md 3, "Git 출처의 동기화"):
+// A skill from GitHub:
 // its source is fixed by its first registration, and every later version
 // comes from one check that resolves the ref again through the API.
 

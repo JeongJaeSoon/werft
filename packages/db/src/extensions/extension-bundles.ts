@@ -76,8 +76,7 @@ const ofSkill = (workspaceId: string, name: string) =>
   );
 
 /**
- * One change of a skill's versions at a time (decision skills-and-mcp.md
- * 3): its name's lock, then its Git source row's, as a registration takes.
+ * One change of a skill's versions at a time: its name's lock, then its Git source row's, as a registration takes.
  */
 async function lockSkill(tx: Database, workspaceId: string, name: string) {
   await tx.execute(
@@ -329,8 +328,7 @@ export function createPostgresExtensionBundleStore(
         if (input.skill === true) {
           // One registration of a name at a time, so two uploads of new
           // content cannot both take the same next version. A skill's
-          // source is fixed by its first registration (decision
-          // skills-and-mcp.md 3, "출처는 스킬마다 하나다").
+          // source is fixed by its first registration.
           source = await lockSkill(tx, input.workspaceId, input.name);
           if ((git === undefined || git.newSource) && source) {
             return { outcome: "source_mismatch" };
@@ -339,7 +337,7 @@ export function createPostgresExtensionBundleStore(
           if (synced && source?.checkingToken !== git?.leaseToken) {
             return { outcome: "lease_lost" };
           }
-          // Only "지금 확인" runs while paused (decision skills-and-mcp.md 3).
+          // Only "지금 확인" runs while paused.
           if (
             synced &&
             git !== undefined &&
@@ -415,7 +413,7 @@ export function createPostgresExtensionBundleStore(
           await checked("unchanged", existing.id);
           return { outcome: "already_registered", bundle: bundleOf(existing) };
         }
-        // Auto-approve (decision skills-and-mcp.md 3): only a version the
+        // Auto-approve: only a version the
         // sync made, only while sync and auto-approve are both still on
         // under the source row's lock, with no settings change since GitHub
         // was read, and only on what GitHub showed.
@@ -612,8 +610,7 @@ export function createPostgresExtensionBundleStore(
           .returning();
         if (!updated) throw new Error("extension bundle vanished in its tx");
         // The current version moves forward only to a higher approved one;
-        // rejecting the current one falls back a step (decision
-        // skills-and-mcp.md 3, "현재 버전과 따라가는 지정").
+        // rejecting the current one falls back a step.
         // Undefined: no current version after this; null: unchanged.
         let after: Row | undefined | null = null;
         if (row.version !== null) {

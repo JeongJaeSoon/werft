@@ -55,7 +55,7 @@ const NEEDS_SESSION_REPOSITORY_PURPOSES: ReadonlySet<GitHubPurpose> = new Set([
 ]);
 
 /**
- * The one place a GitHub credential is issued (design github-agent.md §3).
+ * The one place a GitHub credential is issued.
  * Every grant reads the session, its release and agent again, so a switch
  * turned off or a ceiling lowered refuses the next piece of work even when
  * the connection still caches a token for it.
@@ -173,8 +173,7 @@ export function createGitHubGate(deps: {
         ? catalog.repositories[repositoryId]
         : undefined;
       // Another repository is fetched, pushed to and given pull requests;
-      // its workflows and reviews stay with the session's own
-      // (session-multi-repository.md decision 5).
+      // its workflows and reviews stay with the session's own.
       if (!own && !ANOTHER_REPOSITORY_PURPOSES.has(work.purpose)) {
         return await refuse("repository_not_allowed");
       }

@@ -27,8 +27,7 @@ const OUTRANKED = () =>
   );
 
 /**
- * The settings document through the API
- * (settings-replace-file-catalog.md §6): a signed-in owner exports it and
+ * The settings document through the API: a signed-in owner exports it and
  * imports one; its credentials are `stored: true` only.
  */
 export function createSettingsDocumentService(deps: {

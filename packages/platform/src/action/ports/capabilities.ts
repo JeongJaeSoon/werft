@@ -7,7 +7,7 @@ export type GrantWith<Api> = Omit<GitHubGrant, "api"> & {
 };
 
 // GitHubApi keeps one implementation; a service takes only what it calls.
-// Each name is one thing a caller can ask the forge to do (surface-action-modules.md 6.2).
+// Each name is one thing a caller can ask the forge to do.
 
 /** Repository metadata and file reads: the PR template and the push executor's default branch. */
 export type RepositoryReadable = Pick<

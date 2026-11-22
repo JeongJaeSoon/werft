@@ -813,8 +813,7 @@ export function webUiRatchet(
 }
 
 /*
- * Dependency direction: A1-A4 (package-structure.md section 5) and R2-R9
- * (surface-action-modules.md section 8). Each check takes the repository root
+ * Dependency direction: A1-A4 and R2-R9. Each check takes the repository root
  * so a fixture tree can stand in for it. A rule aimed at a path that does not
  * exist yet (platform surface/ and action/, packages/adapters/forge and chat)
  * finds nothing until the path appears, and applies from its first file.

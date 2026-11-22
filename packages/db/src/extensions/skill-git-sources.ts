@@ -224,8 +224,7 @@ export async function lockedSource(
 }
 
 /**
- * The actor's live role, and whether another live manager exists (decision
- * skills-and-mcp.md 3). The actor's user row, then the memberships of the
+ * The actor's live role, and whether another live manager exists. The actor's user row, then the memberships of the
  * actor and of every manager in user_id order, as a suspension and a role
  * change take them, so the "only manager" rule queues behind those instead
  * of deadlocking them; none of them loses the role before this commits.

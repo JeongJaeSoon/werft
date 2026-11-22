@@ -43,7 +43,7 @@ export function actorFor(
 ): PushActor {
   const { principal } = receiptActor;
   // No scope: a push decision refuses it, and a pull request opens only from
-  // a pushed request (design github-agent.md §2 decision 6).
+  // a pushed request.
   const unscoped = {
     kind: "api_key" as const,
     id: principal.id,

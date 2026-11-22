@@ -105,7 +105,7 @@ export const baseline: Baseline = {
 
 /**
  * Files that other things name by path, so a PR may edit them but not move or
- * delete them (package-structure.md section 3). A moved file breaks a package
+ * delete them. A moved file breaks a package
  * `exports` subpath, the test preload, an image-prune keep list, a CLI the
  * deploy files run, or a test that asserts the path. Paths are from the
  * repository root. When a reference itself is updated in the same PR, update

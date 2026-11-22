@@ -14,7 +14,7 @@ import {
 /**
  * What a memory is about, which decides who reads it: one session's notes, one
  * person (`subject_user_id`), one agent's work, or the workspace's curated
- * knowledge, reached only by promotion (memory-layer.md §2).
+ * knowledge, reached only by promotion.
  */
 export const MEMORY_SCOPE_VALUES = [
   "session",

@@ -48,7 +48,7 @@ import {
   WorkspaceMcpRemoteError,
 } from "./remote.ts";
 
-// Workspace MCP servers (decision mcp-credentials.md 2–5): owners and admins
+// Workspace MCP servers: owners and admins
 // register, connect and disconnect them from a console session; any member
 // reads them. No message or detail below carries a credential or an
 // upstream body.

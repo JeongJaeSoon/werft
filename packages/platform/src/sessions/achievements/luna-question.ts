@@ -148,7 +148,7 @@ export function pairAnswerOf(
   );
   if (answer === undefined) throw new DecisionsCallError("bad_response");
   // A refusal is not an achievement and is not asked again; the judgment
-  // records `judge_refused` (achievement-rules.md §4).
+  // records `judge_refused`.
   if (answer.type === "refusal") return { achieved: false, refused: true };
   const probability = answer.probabilities.find(
     (candidate) => candidate.value === "yes",

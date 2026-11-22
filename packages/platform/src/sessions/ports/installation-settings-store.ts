@@ -7,8 +7,7 @@ import type {
 } from "../../catalog/index.ts";
 
 /**
- * The installation's settings in one read (decision
- * settings-replace-file-catalog.md §1): connections and MCP servers not
+ * The installation's settings in one read: connections and MCP servers not
  * disabled, and repositories that carry their own credential or none (the
  * console App's rows are CatalogRepositoryStore's), each in the shape a
  * settings document gives the entry.

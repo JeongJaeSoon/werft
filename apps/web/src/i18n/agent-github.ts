@@ -1,4 +1,4 @@
-// The agent detail's GitHub tab (design github-agent.md §7). Kept apart from
+// The agent detail's GitHub tab. Kept apart from
 // github.ts, which the workspace connection screen owns.
 export const agentGitHubKo = {
   "agentGitHub.section.github": "GitHub",

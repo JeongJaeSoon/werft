@@ -23,8 +23,7 @@ import {
 } from "../tools/session-bound.ts";
 
 /**
- * The built-in `github` MCP server (design github-agent.md §3 "내장 MCP 서버
- * github"): the session's agent calls the same service functions as the
+ * The built-in `github` MCP server: the session's agent calls the same service functions as the
  * session API, for its own session only. The egress proxy reaches it with
  * a grant the authorizer signed for one session and attempt; nothing in a
  * request body picks the session.

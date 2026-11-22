@@ -110,7 +110,7 @@ const GITHUB: AgentGitHub = {
   actions_allow: [{ workflow: "ci.yml", ref: "release/*" }],
 };
 
-// Design github-agent.md §6 and decision 10: the agent's GitHub tab reads
+// The agent's GitHub tab reads
 // its switch, settings and activity; activity is found by target and keeps
 // sessions the caller cannot see out before the latest 20 are cut.
 integration("agent GitHub tab over HTTP on PostgreSQL", () => {
@@ -849,7 +849,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
     expect(items.map((item) => item.id)).not.toContain(foreign);
   });
 
-  // agent-wizard-rework.md item 1: the new-agent flow releases without a
+  // The new-agent flow releases without a
   // repository, and such an agent sets GitHub up from the tab first.
   test("a release without a repository saves its first settings", async () => {
     const created = await send("POST", "/v1/agents", asCookie(cookies.admin), {

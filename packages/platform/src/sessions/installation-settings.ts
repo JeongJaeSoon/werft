@@ -13,8 +13,8 @@ import {
 import type { InstallationSettings } from "./ports/installation-settings-store.ts";
 
 /**
- * What the registry runs from one read of the installation's settings
- * (settings-replace-file-catalog.md §1), credentials resolved.
+ * What the registry runs from one read of the installation's settings,
+ * credentials resolved.
  */
 export type SettingsSnapshot = {
   generation: number;

@@ -566,8 +566,7 @@ export function createPostgresPushRequests(
           receiptId,
         });
         // A policy that pushes without a person's approval decides here,
-        // in the request's own transaction (design github-agent.md
-        // decision 6); the executor sees an approved row as for any other.
+        // in the request's own transaction; the executor sees an approved row as for any other.
         const approval = input.policyApproval;
         const policy =
           approval === null

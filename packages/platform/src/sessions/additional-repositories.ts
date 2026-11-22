@@ -12,7 +12,7 @@ import type { GitHubSessionContext } from "../github/ports/github-gate.ts";
 
 /**
  * What decides whether a session may work on a repository other than its
- * own (design session-multi-repository.md decision 1): the release's list
+ * own: the release's list
  * caps it and the session row's attached list, when there is one, narrows
  * it. Read again on every use, so a repository the owner takes off the
  * release's list stops at the next fetch, push or pull request.

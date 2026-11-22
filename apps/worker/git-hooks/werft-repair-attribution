@@ -1,6 +1,6 @@
 #!/bin/sh
-# Remakes the session's own commits with the attribution the platform issued
-# (design github-agent.md decision 5), using git plumbing only. No rebase,
+# Remakes the session's own commits with the attribution the platform issued,
+# using git plumbing only. No rebase,
 # read-tree or merge: those rewrite pushed history, touch the working tree
 # (and with it uncommitted changes), or lose a merge's parents.
 #

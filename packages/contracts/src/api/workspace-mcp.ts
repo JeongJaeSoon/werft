@@ -13,8 +13,7 @@ import {
 } from "../shared/index.ts";
 
 // Remote MCP servers a workspace registers and authenticates once; every
-// agent that turns one on calls it with that one credential (decision
-// mcp-credentials.md). No value of a credential is ever in a response.
+// agent that turns one on calls it with that one credential. No value of a credential is ever in a response.
 
 export const WORKSPACE_MCP_SERVERS_MAX = 20;
 export const WORKSPACE_MCP_TOOLS_MAX = 200;

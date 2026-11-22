@@ -16,7 +16,7 @@ export type ProviderExchangesReconciled = {
 };
 
 /**
- * The provider exchange ledger's pass (provider-usage-ledger.md): rows a
+ * The provider exchange ledger's pass: rows a
  * report already settled are deleted, the rest whose lease ran out are
  * logged once each, and those long expired are deleted. Observation only;
  * it changes no cost and no limit.

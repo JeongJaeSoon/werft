@@ -130,8 +130,7 @@ const emptyPage = (
 });
 
 /**
- * The console's GitHub App repositories (settings-replace-file-catalog.md
- * §1.1): read from the author App's installations a page at a time, never
+ * The console's GitHub App repositories: read from the author App's installations a page at a time, never
  * registered. A pick resolves one to a catalog row, which a release names.
  */
 export function createGitHubRepositoryService(deps: {

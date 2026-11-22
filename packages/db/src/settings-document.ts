@@ -533,7 +533,7 @@ async function liveIn(
   return me?.live === true && roles.includes(me.role);
 }
 
-/** Who may write each kind (settings-replace-file-catalog.md §3). */
+/** Who may write each kind. */
 const WRITERS: Record<SettingsKind, readonly string[]> = {
   connection: ["owner"],
   mcp: ["owner"],

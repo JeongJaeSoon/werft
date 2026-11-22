@@ -1029,7 +1029,7 @@ const outcomeRefresher = createOutcomeRefresher({
   logger,
 }).start();
 // Each replica judges the sessions whose evidence changed; only it writes
-// achievements (achievement-rules.md §4).
+// achievements.
 const achievementJudgments = createPostgresAchievementJudgments(db);
 const judgmentEgress = createPostgresJudgmentEgress(db);
 // The judge calls Luna through the egress proxy's credential listener, the

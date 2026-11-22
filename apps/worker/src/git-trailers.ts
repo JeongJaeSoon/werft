@@ -12,8 +12,7 @@ import {
 } from "@werft-ai/runtime-core";
 
 // The image's commit-msg hook (apps/worker/git-hooks/werft-hook) reads this
-// file under the engine's HOME and adds each line as a `--trailer` argv
-// (design github-agent.md decision 5).
+// file under the engine's HOME and adds each line as a `--trailer` argv.
 export const GIT_TRAILERS_PATH = ".werft/git-trailers";
 // The image's system git config includes this file after its own
 // user.name/email (apps/worker/Dockerfile), so the session's author wins over

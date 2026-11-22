@@ -162,8 +162,8 @@ const ALLOW_NARROW_READ = "minmax(0,1fr)";
 const WIDE_ONLY_480 = "[@container(min-width:480px)]:hidden";
 const FOCUS_TARGET = "scroll-mt-4 outline-none";
 // The order the mockup lists them in: what most agents turn on first.
-// checks and issues stay in the contract but have no work behind them yet
-// (github-agent.md LATER), so they are not offered.
+// checks and issues stay in the contract but have no work behind them yet,
+// so they are not offered.
 const FEATURES = [
   "review",
   "actions",

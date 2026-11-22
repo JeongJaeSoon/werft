@@ -164,13 +164,12 @@ export const RECEIPT_OPERATION_VALUES = [
   // and after.
   "set_agent_workspace_mcp",
   // A catalog repository pinned to a GitHub App connection by a pick or an
-  // admin (decision github-agent.md 11).
+  // admin.
   "set_repository_github_app",
   "review_pull_request",
   "dispatch_workflow",
   "rerun_workflow",
-  // A session's agent attaching another repository mid-session
-  // (session-repository-attachment.md decision 3).
+  // A session's agent attaching another repository mid-session.
   "attach_repository",
   // The workspace's GitHub Packages bot token and package allowlist; the
   // receipt names the token's last four characters, never the value.

@@ -88,8 +88,7 @@ export function createExtensionBundleService(deps: {
 
   return {
     /**
-     * `skill: true` registers one skill as the next version of its name
-     * (decision skills-and-mcp.md 2–3): the upload is checked as a person's
+     * `skill: true` registers one skill as the next version of its name: the upload is checked as a person's
      * tree, so it holds one skill and no engine manifest.
      */
     async register(input: {

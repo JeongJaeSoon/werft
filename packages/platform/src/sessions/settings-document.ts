@@ -21,8 +21,8 @@ import {
 } from "../catalog/index.ts";
 
 /**
- * The installation's settings as one document without a secret value
- * (settings-replace-file-catalog.md §6): connections, repositories and
+ * The installation's settings as one document without a secret value:
+ * connections, repositories and
  * remote MCP servers, each entry in the shape its file gave it. A value the
  * database stores is marked `stored: true` (with its `last4` on export)
  * and is never named: an imported `stored` entry always means its own row,

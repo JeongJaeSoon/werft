@@ -90,8 +90,7 @@ export type DeleteGitHubAppResult =
 
 /**
  * Which connection a write is for. A role address serves a role with at most
- * one connection, as before several Apps a role (decision github-agent.md
- * 11.1); a connection id takes only a new key for the same App.
+ * one connection, as before several Apps a role; a connection id takes only a new key for the same App.
  */
 export type GitHubAppTarget =
   | { kind: "role"; role: GitHubAppRole }
@@ -134,8 +133,7 @@ export type SetGitHubPinResult =
   | { outcome: "not_found" | "role_mismatch" };
 
 /**
- * The connection each catalog repository's work uses (decision
- * github-agent.md 11, "저장소에 고정된 연결").
+ * The connection each catalog repository's work uses.
  */
 export interface GitHubPinStore {
   get(
@@ -217,8 +215,7 @@ export type GitHubAppManifestPut = {
 };
 
 /**
- * The workspace's GitHub App connections, any number a role (decision
- * github-agent.md 11). A role address still names one connection while its
+ * The workspace's GitHub App connections, any number a role. A role address still names one connection while its
  * role has at most one, so a caller that only knows a role never reads,
  * replaces or deletes a connection it cannot tell apart.
  */

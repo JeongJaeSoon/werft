@@ -113,7 +113,7 @@ function userOf(caller: Caller): string {
   return userId;
 }
 
-/** The author App's manifest (design github-app-manifest.md §5). */
+/** The author App's manifest. */
 export function githubAppManifest(input: {
   origin: string;
   callbackUrl: string;
@@ -168,8 +168,7 @@ export function rsaPrivateKey(raw: string): string {
 }
 
 /**
- * The workspace's GitHub App connections, any number per role (design
- * github-agent.md decision 11), set in the console by an owner or admin (`workspace.manage`)
+ * The workspace's GitHub App connections, any number per role, set in the console by an owner or admin (`workspace.manage`)
  * signed in to it. A key is checked against GitHub before it is kept, and
  * never leaves the server again.
  */
@@ -435,8 +434,7 @@ export function createGitHubAppService(deps: {
 
     /**
      * A manifest for a new author App and the GitHub URL the browser posts it
-     * to, with a single-use state bound to the caller (design
-     * github-app-manifest.md).
+     * to, with a single-use state bound to the caller.
      */
     async startManifest(
       caller: Caller,

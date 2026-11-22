@@ -9,7 +9,7 @@ import { GITHUB_REVIEW_EVENT_VALUES } from "./github-work.ts";
 import { GITHUB_GATE_RECEIPT_OPERATION_VALUES } from "./receipt.ts";
 
 /**
- * What a session made, by kind (design github-agent.md §10). Only the server
+ * What a session made, by kind. Only the server
  * writes an outcome; a type is added by a migration widening the table's
  * CHECK together with its states here.
  */
@@ -27,7 +27,7 @@ export const GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES = [
 /** A review is recorded once, when GitHub took it; it is not read again. */
 export const GITHUB_REVIEW_OUTCOME_STATE_VALUES = ["submitted"] as const;
 
-/** The most of a pull request's title an outcome keeps (achievement-rules.md §3). */
+/** The most of a pull request's title an outcome keeps. */
 export const PULL_REQUEST_OUTCOME_TITLE_MAX_LENGTH = 200;
 
 /** Why the last read of an outcome's state failed; its state is left as it was. */

@@ -65,7 +65,7 @@ export const auditRetentionDaysSchema = z
 
 export const ACHIEVEMENT_TRANSCRIPT_VALUES = ["none", "recent"] as const;
 
-/** How the workspace's achievement judge runs (achievement-rules.md §3). */
+/** How the workspace's achievement judge runs. */
 export const achievementJudgeSettingsSchema = z
   .object({
     /** An `openai_decisions` connection; null leaves `luna` rules unjudged. */

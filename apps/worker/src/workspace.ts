@@ -315,8 +315,7 @@ export class GitWorkspace implements WorkspacePreparer {
 
   /**
    * Adds each additional repository as a git remote named by its id, its
-   * branch fetched to `refs/remotes/<id>/<branch>` (session-multi-repository.md
-   * decision 2). Runs once the checkout is in place, a restored one included.
+   * branch fetched to `refs/remotes/<id>/<branch>`. Runs once the checkout is in place, a restored one included.
    * Fetched as `fetchThroughMirror` does: the network is reached only from a
    * scratch mirror this worker just made, never with the checkout's own
    * config, which the engine can write. One that fails is skipped.

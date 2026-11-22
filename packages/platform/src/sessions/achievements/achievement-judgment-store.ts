@@ -103,7 +103,7 @@ export type JudgmentContext = {
   judge: JudgeInForce;
   /**
    * What happened since the decision model was on without a break: older
-   * evidence is never judged (achievement-rules.md §4).
+   * evidence is never judged.
    */
   since: {
     /**
@@ -256,7 +256,7 @@ export type AchievementReview = {
   receiptId: string;
 };
 
-/** The judgment egress token's half of the store (achievement-rules.md §4). */
+/** The judgment egress token's half of the store. */
 export interface JudgmentEgressStore {
   /** Stores the token's hash on a judgment the lease still holds. */
   issueToken(
