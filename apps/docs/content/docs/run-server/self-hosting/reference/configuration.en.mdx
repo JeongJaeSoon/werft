@@ -89,6 +89,8 @@ Set the following only to send GitHub Packages bot tokens to another host, such 
 | `GITHUB_PACKAGES_NPM_URL` | `https://npm.pkg.github.com` | github-npm upstream |
 | `GITHUB_PACKAGES_RUBYGEMS_URL` | `https://rubygems.pkg.github.com` | github-rubygems upstream |
 
+Only the mock Slack test stack (`infra/compose.mock-slack.yml`) uses `MOCK_SLACK_API_URL` and `MOCK_SLACK_OIDC_ISSUER`. Do not set them in an operational installation. When either has a value, startup logs a `Mock Slack override in use` warning. `SLACK_API_URL` and `SLACK_OIDC_ISSUER` are not read; when present, the `Ignored removed settings` warning names them.
+
 <a id="웹에서-정하는-실행-한도" />
 ## Execution limits set on the web
 

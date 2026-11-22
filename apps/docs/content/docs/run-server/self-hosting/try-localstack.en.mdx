@@ -142,7 +142,7 @@ sudo reboot
 scripts/test-ops.sh reseed /var/lib/werft/test-ops/backups/backup-<timestamp>
 ```
 
-This sequence and rebooting with checkpoints have not been verified by execution. `reseed` checks the source project/bucket/checksum, an empty bucket, and absence of checkpoint changes since the last backup. It rejects unmet conditions. After object loss, with API startup failure and a pending upgrade, `reseed` is rejected. Even a backup made with `backup --stop` does not remove that block. Choosing `reset` in this state discards the database, sessions, and checkpoints. Do not use it as a routine reboot recovery command.
+`reseed` checks the source project/bucket/checksum, an empty bucket, and absence of checkpoint changes since the last backup. It rejects unmet conditions. After object loss, with API startup failure and a pending upgrade, `reseed` is rejected. Even a backup made with `backup --stop` does not remove that block. Choosing `reset` in this state discards the database, sessions, and checkpoints. Do not use it as a routine reboot recovery command.
 
 <a id="되돌리기" />
 ## Roll back

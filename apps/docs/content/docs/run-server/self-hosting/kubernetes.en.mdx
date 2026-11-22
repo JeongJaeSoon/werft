@@ -23,8 +23,7 @@ Install a production server using the published Helm chart. Prepare PostgreSQL a
 | S3-compatible object store | One bucket. Default protection mode `locked` requires versioning, Object Lock, and default SSE-S3 encryption (`AES256`). Otherwise api refuses to start |
 | External access | Download charts and images from `ghcr.io` without signing in |
 
-Follow the [deployment package contract](/run-server/self-hosting/reference/packages) to select charts and packages. For non-AWS endpoints, align `config.aws.endpointUrl` and the credential allowlist and verify the protection contract. An actual AWS installation has not been verified by execution.
-
+Follow the [deployment package contract](/run-server/self-hosting/reference/packages) to select charts and packages. For non-AWS endpoints, align `config.aws.endpointUrl` and the credential allowlist and verify the protection contract.
 The chart does not create PostgreSQL, object storage, or Secret values. It also does not create worker Pods: the scheduler creates them per session. Published images are indexes containing `linux/amd64` and `linux/arm64`, so nodes pull their architecture.
 
 The chart does not create a Git server. Workers must reach repository URLs in the settings document through the egress proxy. The kind test Git server is not a production repository.

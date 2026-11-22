@@ -36,12 +36,11 @@ scripts/test-ops.sh start
 
 After changing the env file, reapply the same release with `scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`. Do not assume `start` applies changed env values.
 
-Database and workspace volumes remain. LocalStack stores objects in memory without a volume, so removing its container loses checkpoint objects even without `-v`. The API refuses to start if the database has uncollected checkpoints but the bucket is empty. See the reseed conditions under [restarting a trial installation](/run-server/self-hosting/try-localstack#자주-막히는-곳). Starting LocalStack with uncollected checkpoints and the full production S3 reboot procedure have not been verified by execution.
-
+Database and workspace volumes remain. LocalStack stores objects in memory without a volume, so removing its container loses checkpoint objects even without `-v`. The API refuses to start if the database has uncollected checkpoints but the bucket is empty. See the reseed conditions under [restarting a trial installation](/run-server/self-hosting/try-localstack#자주-막히는-곳).
 <a id="호스트-재부팅" />
 ### Reboot the host
 
-Long-running services use `restart: unless-stopped`. They restart after reboot if Docker starts automatically and their containers still exist. If `stop` or `compose down` removed the containers, use `scripts/test-ops.sh start`. Installations from older releases with different restart policies retain their old behavior until the containers are recreated with the new policy. Recreating LocalStack loses objects; follow the [trial reboot warning](/run-server/self-hosting/try-localstack#자주-막히는-곳).
+Long-running services use `restart: unless-stopped`. They restart after reboot if Docker starts automatically and their containers still exist. If `stop` or `compose down` removed the containers, use `scripts/test-ops.sh start`. Recreating LocalStack loses objects; follow the [trial reboot warning](/run-server/self-hosting/try-localstack#자주-막히는-곳).
 
 Before rebooting, check active turns, status, and backups stored off the host. After rebooting, check NTP, XFS prjquota, Docker automatic startup, disk space and inodes, status, and readiness. Resume an existing session to confirm a new worker picks up its checkpoint.
 

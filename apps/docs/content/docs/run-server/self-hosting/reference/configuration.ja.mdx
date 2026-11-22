@@ -89,6 +89,8 @@ GitHub Packages bot tokenを別の host に送る必要がある場合だけ、�
 | `GITHUB_PACKAGES_NPM_URL` | `https://npm.pkg.github.com` | `github-npm` route の upstream |
 | `GITHUB_PACKAGES_RUBYGEMS_URL` | `https://rubygems.pkg.github.com` | `github-rubygems` route の upstream |
 
+mock Slack の試験スタック（`infra/compose.mock-slack.yml`）だけが `MOCK_SLACK_API_URL`・`MOCK_SLACK_OIDC_ISSUER` を使います。運用の設定には置きません。値があると起動時に `Mock Slack override in use` 警告が出ます。`SLACK_API_URL`・`SLACK_OIDC_ISSUER` は読まず、残っていると `Ignored removed settings` 警告に名前が出ます。
+
 <a id="웹에서-정하는-실행-한도" />
 ## Web で決める実行の上限
 
