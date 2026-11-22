@@ -60,7 +60,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 로그인 화면의 첫 owner 링크가 없어졌다. `/bootstrap`은 살아 있는 링크로 열었을 때만 폼을 보인다.
   - owner를 모두 잃었을 때의 복구도 같은 링크로 한다. migration `0300_setup_links`가 `setup_links` 표를 더한다. 쓴 토큰을 적던 `bootstrap_token_uses` 표는 더 읽거나 쓰지 않고 남겨 둔다.
   - rolling deploy 중 옛 replica는 링크를 모르고 새 replica는 옛 토큰을 받지 않는다. 첫 owner 만들기와 복구는 모든 api가 새 이미지로 바뀐 뒤에 한다.
-- **에이전트 release가 없는 열린 세션은 올린 뒤 API가 처음 기동할 때 닫힌다**(JeongJaeSoon/werft#2028). release를 요구하기 전에 접수된 세션이라 어떤 worker도 맡지 못하고 열린 채 남아 있던 것이다. recovery close와 같은 방식으로 닫힌다(대기 입력은 `SESSION_CLOSED`로 취소되고, 기다리던 제어 receipt는 `CONTROL_SUPERSEDED`로 실패한다). 닫은 수가 API 로그 `Sessions without an agent release closed` 한 줄로 남는다. 닫지 못한 세션은 세션 id와 함께 경고로 남고 다음 기동에서 다시 시도한다. 대상이 없으면 아무 일도 일어나지 않는다. 할 일은 없고, 그런 세션을 따로 보고 있었다면 로그를 확인한다.
+- **에이전트 release가 없는 열린 세션은 올린 뒤 API가 기동할 때 닫힌다**(JeongJaeSoon/werft#2028). 기동할 때마다 남은 것을 다시 찾으며, 요청을 받는 것과 함께 뒤에서 돌므로 요청을 받기 전에 끝난다는 보장은 없다. release를 요구하기 전에 접수된 세션이라 어떤 worker도 맡지 못하고 열린 채 남아 있던 것이다. recovery close와 같은 방식으로 닫힌다(대기 입력은 `SESSION_CLOSED`로 취소되고, 기다리던 제어 receipt는 `CONTROL_SUPERSEDED`로 실패한다). 닫은 수가 API 로그 `Sessions without an agent release closed` 한 줄로 남는다. 닫지 못한 세션은 세션 id와 함께 경고로 남고 다음 기동에서 다시 시도한다. 대상이 없으면 아무 일도 일어나지 않는다. 할 일은 없고, 그런 세션을 따로 보고 있었다면 로그를 확인한다.
 - **에이전트 slug 유일 색인이 지우지 않은 에이전트만 보는 부분 색인(`WHERE deleted_at IS NULL`)으로 바뀐다. 그래서 rolling deploy 중이나 되돌린 뒤 옛 코드에서는 에이전트 생성이 실패한다**(JeongJaeSoon/werft#1807).
   - 원인: 옛 replica의 `ON CONFLICT`에는 `WHERE`가 없어서 PostgreSQL이 맞는 색인을 찾지 못한다.
   - 대처: 모든 api replica가 새 이미지로 바뀔 때까지 에이전트를 만들지 않는다.

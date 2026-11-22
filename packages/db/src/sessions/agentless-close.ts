@@ -1,5 +1,9 @@
 import { publicStatus } from "@werft-ai/platform";
-import { and, asc, eq, isNull, ne } from "drizzle-orm";
+import { and, asc, isNull, ne } from "drizzle-orm";
+import {
+  lockSessionForControl,
+  transactionWithBindingRetry,
+} from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import { closeSessionRow } from "../recovery-control.ts";
@@ -42,7 +46,11 @@ export async function closeAgentlessSessions(
   const result: AgentlessSessionsClosed = { closed: [], failed: [] };
   for (const { id } of found) {
     try {
-      if (await db.transaction((tx) => closeOne(tx, id))) {
+      if (
+        await transactionWithBindingRetry(db, (tx, attempt) =>
+          closeOne(tx, id, attempt),
+        )
+      ) {
         result.closed.push(id);
       }
     } catch (error) {
@@ -52,13 +60,21 @@ export async function closeAgentlessSessions(
   return result;
 }
 
-async function closeOne(tx: Database, sessionId: string): Promise<boolean> {
-  const [session] = await tx
-    .select()
-    .from(sessions)
-    .where(and(eq(sessions.id, sessionId), withoutRelease))
-    .for("update");
-  if (session === undefined) return false;
+async function closeOne(
+  tx: Database,
+  sessionId: string,
+  attempt: number,
+): Promise<boolean> {
+  // The launch before the session, as every control write takes them: the
+  // worker's gone observation locks in that order too.
+  const session = await lockSessionForControl(tx, { sessionId, attempt });
+  if (
+    session === null ||
+    session.agentReleaseId !== null ||
+    session.admissionState === "closed"
+  ) {
+    return false;
+  }
   const now = await dbNow(tx);
   const { cancelledTurnCount } = await closeSessionRow(
     tx,
