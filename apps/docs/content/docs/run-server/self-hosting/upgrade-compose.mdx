@@ -205,7 +205,7 @@ migration `0305_drop_unused_tables`가 `catalog_authority`·`owner_workspace_map
 
 ### 턴에 요청자의 인증 근거를 남기는 릴리스
 
-migration `0308_turn_requester_auth`가 `turns.requester_auth`(jsonb)와 `tool_call_audits.requester_kind`·`requester_id`(text)를 더한다. 셋 다 nullable이고 기본값·색인·backfill이 없어 표를 다시 쓰지 않는다. 올릴 때 할 일은 없다.
+migration `0309_turn_requester_auth`가 `turns.requester_auth`(jsonb)와 `tool_call_audits.requester_kind`·`requester_id`(text)를 더한다. 셋 다 nullable이고 기본값·색인·backfill이 없어 표를 다시 쓰지 않는다. 올릴 때 할 일은 없다.
 
 - 이 릴리스부터 새 턴에 요청자가 들어온 자격이 남는다: 콘솔 로그인 세션 id, 개인 key id, 에이전트 key의 에이전트, Slack 설치와 연결 계정. key의 비밀, cookie, Slack 사용자 id는 담지 않는다.
 - 옛 턴은 고치지 않는다. 턴 읽기 API의 `requester`가 null이거나 `auth_method`가 null로 보인다. `tool_call_audits`의 두 칸은 이 릴리스에서는 비어 있다.
