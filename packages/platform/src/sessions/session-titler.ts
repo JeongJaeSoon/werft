@@ -4,6 +4,7 @@ import {
   connectionOf,
   type SessionCatalog,
 } from "../catalog/index.ts";
+import type { OutboundHttp } from "../ports/outbound-http.ts";
 import type { SessionTitleStore } from "./ports/session-title-store.ts";
 import { deriveSessionTitle } from "./session-title.ts";
 
@@ -34,16 +35,17 @@ export function createSessionTitler(deps: {
   catalog: SessionCatalog;
   // The proxy's credential listener, e.g. http://egress-proxy:3129.
   egressUrl: string;
-  fetch?: typeof fetch;
+  /** Held to the egress proxy's host alone. */
+  http: OutboundHttp;
   now?: () => Date;
   onError?: (error: unknown, context: { sessionId: string }) => void;
 }) {
-  const send = deps.fetch ?? fetch;
   const now = deps.now ?? (() => new Date());
   const base = deps.egressUrl.replace(/\/+$/, "");
 
   async function call(token: string, model: string, prompt: string) {
-    const response = await send(`${base}/provider${TITLE_PROVIDER_PATH}`, {
+    const response = await deps.http({
+      url: `${base}/provider${TITLE_PROVIDER_PATH}`,
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -56,13 +58,12 @@ export function createSessionTitler(deps: {
         system: TITLE_SYSTEM,
         messages: [{ role: "user", content: prompt }],
       }),
-      signal: AbortSignal.timeout(TITLE_CALL_TIMEOUT_MS),
+      timeoutMs: TITLE_CALL_TIMEOUT_MS,
     });
-    if (!response.ok) {
-      await response.body?.cancel();
+    if (response.status < 200 || response.status > 299) {
       throw new Error(`title call answered ${response.status}`);
     }
-    return titleOf(await response.json());
+    return titleOf(JSON.parse(response.text));
   }
 
   return {

@@ -44,7 +44,7 @@ Achievement rules need a decision model: an `openai_decisions` connection, whose
 
 While no decision model is enabled, the Achievement rules screen is locked and read-only: changing categories, types, rules or judging settings, confirming or rejecting an achievement, and judging again are all refused. Count-at-once rules do not count in that time either, and setting up a model does not go back and judge past sessions. A judgment reads only evidence from after a decision model was enabled: a PR whose state (merged, closed) changed after it, a review after it, the conversation of turns that ended after it, and `out/` files a checkpoint after it first uploaded. If every decision model is disabled and one is enabled again, counting starts over from then. Existing rules and achievements are kept, and disabling the decision model later locks the screen again.
 
-With no Luna connection picked, or with the picked one disabled, Luna rules are not judged and stay as "no judge". No agent runs on this connection. Judgments go through the egress proxy, so its allowlist (`EGRESS_CREDENTIAL_ALLOWLIST`) must hold `api.openai.com:443`.
+With no Luna connection picked, or with the picked one disabled, Luna rules are not judged and stay as "no judge". No agent runs on this connection. Judgments go through the egress proxy, so its allowlist (`EGRESS_CREDENTIAL_ALLOWLIST`) must hold `api.openai.com:443`. The API sends judgment calls only to the host:port of `SESSION_TITLE_EGRESS_URL` (the proxy) and follows no redirect.
 </Callout>
 
 ### When to judge, and limits

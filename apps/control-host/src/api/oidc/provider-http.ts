@@ -57,6 +57,26 @@ export function endpointProblem(
   return "insecure_endpoint";
 }
 
+// Cloud instance metadata services on addresses that otherwise classify as
+// private, so the private-host exception would let them through. Compared in
+// URL's canonical form, which also spells an IPv4 address carried in IPv6
+// (mapped, NAT64) one way. 169.254.169.254 is refused by class.
+const METADATA_HOSTS = new Set([
+  "100.100.100.200",
+  "[fd00:ec2::254]",
+  "[::ffff:6464:64c8]",
+  "[64:ff9b::6464:64c8]",
+]);
+
+export function isMetadataAddress(address: string): boolean {
+  const literal =
+    isIP(address.split("%")[0] ?? "") === 6
+      ? `[${address.split("%")[0]}]`
+      : address;
+  const host = URL.parse(`http://${literal}/`)?.hostname;
+  return host !== undefined && METADATA_HOSTS.has(host);
+}
+
 export type ResolvedAddress = { address: string; family: number };
 export type Lookup = (host: string) => Promise<readonly ResolvedAddress[]>;
 
@@ -64,6 +84,8 @@ export type ProviderRequestInit = {
   method?: "GET" | "POST";
   headers?: Record<string, string>;
   body?: string;
+  /** Ten seconds when absent. */
+  timeoutMs?: number;
 };
 export type ProviderResponse = { status: number; text: string };
 export type PinnedResponse = ProviderResponse & { headers: Headers };
@@ -114,14 +136,14 @@ export function createProviderRequest(
     lookup?: Lookup;
     fetch?: typeof fetch;
     /** The signal that ends one request; a test passes its own. */
-    deadline?: () => AbortSignal;
+    deadline?: (timeoutMs: number) => AbortSignal;
   } = {},
 ): PinnedRequest {
   const lookup: Lookup =
     deps.lookup ?? ((host) => dnsLookup(host, { all: true }));
   const send = deps.fetch ?? fetch;
   const startDeadline =
-    deps.deadline ?? (() => AbortSignal.timeout(TIMEOUT_MS));
+    deps.deadline ?? ((timeoutMs) => AbortSignal.timeout(timeoutMs));
 
   return async (url, init, policy) => {
     if (endpointProblem(url, policy) !== null) {
@@ -133,7 +155,7 @@ export function createProviderRequest(
     const original = new URL(url);
     const host = original.hostname.replace(/^\[|\]$/g, "");
     // One deadline for the whole request, name resolution included.
-    const deadline = startDeadline();
+    const deadline = startDeadline(init.timeoutMs ?? TIMEOUT_MS);
     const timedOut = new Promise<never>((_, reject) => {
       deadline.addEventListener("abort", () => reject(deadline.reason), {
         once: true,
@@ -148,6 +170,7 @@ export function createProviderRequest(
       throw new OidcUnavailableError(
         "unreachable",
         `Provider name did not resolve: ${error instanceof Error ? error.name : "error"}`,
+        { timedOut: deadline.aborted },
       );
     }
     const [first] = answers;
@@ -165,6 +188,7 @@ export function createProviderRequest(
       const addressClass = classifyAddress(address);
       if (
         REFUSED_CLASSES.includes(addressClass) ||
+        isMetadataAddress(address) ||
         (narrow
           ? !inside &&
             (addressClass === "private" || addressClass === "loopback")
@@ -182,7 +206,6 @@ export function createProviderRequest(
     // the certificate for the original name.
     const pinned = isIP(host) === 0;
     let response: Response | undefined;
-    let text = "";
     let failure: unknown;
     // A name with several addresses (IPv6 and IPv4, say) may have one this
     // host cannot reach. Each was judged above, so the next one is as safe.
@@ -203,7 +226,6 @@ export function createProviderRequest(
             ? { tls: { serverName: host } }
             : {}),
         });
-        text = await readCapped(response);
         break;
       } catch (error) {
         response = undefined;
@@ -215,12 +237,31 @@ export function createProviderRequest(
       throw new OidcUnavailableError(
         "unreachable",
         `Provider unreachable: ${failure instanceof Error ? failure.name : "error"}`,
+        { timedOut: deadline.aborted },
       );
+    }
+    // Read once the server has answered, and never retried on another
+    // address: the request was delivered, and sending it again could run it
+    // twice. A body that fails keeps an error answer's status.
+    let text = "";
+    let unread: unknown = null;
+    try {
+      text = await readCapped(response);
+    } catch (error) {
+      unread = error;
     }
     if (response.status >= 500) {
       throw new OidcUnavailableError(
         "answered",
         `Provider answered ${response.status}`,
+        { status: response.status },
+      );
+    }
+    if (unread !== null && response.status >= 200 && response.status < 300) {
+      throw new OidcUnavailableError(
+        "unreachable",
+        `Provider answer unread: ${unread instanceof Error ? unread.name : "error"}`,
+        { timedOut: deadline.aborted },
       );
     }
     return { status: response.status, text, headers: response.headers };

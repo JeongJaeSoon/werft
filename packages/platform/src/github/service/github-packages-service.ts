@@ -16,6 +16,10 @@ import {
   SessionServiceError,
 } from "../../musterrolle/index.ts";
 import type {
+  OutboundHttp,
+  OutboundResponse,
+} from "../../ports/outbound-http.ts";
+import type {
   GitHubPackagesStore,
   GitHubPackagesTokenVerifier,
   GitHubPackagesWriteRefusal,
@@ -212,36 +216,33 @@ export function scopesOf(header: string | null): string[] | null {
  */
 export function createGitHubPackagesTokenVerifier(deps: {
   apiBase: string;
-  fetch?: typeof fetch;
+  /** Held to the host of `apiBase`; no redirect is followed. */
+  http: OutboundHttp;
   timeoutMs?: number;
 }): GitHubPackagesTokenVerifier {
-  const fetchImpl = deps.fetch ?? fetch;
   return {
     async verify(token) {
-      let response: Response;
+      let response: OutboundResponse;
       try {
-        response = await fetchImpl(`${deps.apiBase.replace(/\/$/, "")}/user`, {
+        response = await deps.http({
+          url: `${deps.apiBase.replace(/\/$/, "")}/user`,
+          method: "GET",
           headers: {
             accept: "application/vnd.github+json",
             authorization: `Bearer ${token}`,
             "user-agent": "werft",
           },
-          redirect: "error",
-          signal: AbortSignal.timeout(deps.timeoutMs ?? 10_000),
+          timeoutMs: deps.timeoutMs ?? 10_000,
         });
       } catch {
         return { outcome: "unavailable" };
       }
       if (response.status === 401 || response.status === 403) {
-        await response.body?.cancel();
         return { outcome: "rejected", reason: "invalid", scopes: [] };
       }
-      if (response.status !== 200) {
-        await response.body?.cancel();
-        return { outcome: "unavailable" };
-      }
+      if (response.status !== 200) return { outcome: "unavailable" };
       const scopes = scopesOf(response.headers.get("x-oauth-scopes"));
-      const body = (await response.json().catch(() => null)) as {
+      const body = jsonOrNull(response.text) as {
         login?: unknown;
       } | null;
       if (
@@ -263,6 +264,14 @@ export function createGitHubPackagesTokenVerifier(deps: {
       };
     },
   };
+}
+
+function jsonOrNull(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }
 
 // GitHub writes it as `2026-12-31 00:00:00 UTC` or with an offset, `+0900`.

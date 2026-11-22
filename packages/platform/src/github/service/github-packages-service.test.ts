@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  type OutboundRequest,
+  WorkspaceMcpOutboundError,
+} from "../../ports/outbound-http.ts";
+import {
   createGitHubPackagesTokenVerifier,
   expiryOf,
   scopesOf,
@@ -10,13 +14,17 @@ function verifierAnswering(
   headers: Record<string, string>,
   body: unknown = { login: "acme-packages-bot" },
 ) {
-  const asked: Request[] = [];
+  const asked: OutboundRequest[] = [];
   const verifier = createGitHubPackagesTokenVerifier({
     apiBase: "http://fake-github.invalid/",
-    fetch: (async (input: string, init?: RequestInit) => {
-      asked.push(new Request(input, init));
-      return new Response(JSON.stringify(body), { status, headers });
-    }) as typeof fetch,
+    http: async (request) => {
+      asked.push(request);
+      return {
+        status,
+        text: JSON.stringify(body),
+        headers: new Headers(headers),
+      };
+    },
   });
   return { verifier, asked };
 }
@@ -35,7 +43,9 @@ describe("the GitHub Packages token verifier", () => {
       },
     });
     expect(asked[0]?.url).toBe("http://fake-github.invalid/user");
-    expect(asked[0]?.headers.get("authorization")).toBe("Bearer fake-classic");
+    expect(asked[0]?.method).toBe("GET");
+    expect(asked[0]?.timeoutMs).toBe(10_000);
+    expect(asked[0]?.headers?.authorization).toBe("Bearer fake-classic");
   });
 
   test("a wider token, or one with no scopes header, is rejected for its scopes", async () => {
@@ -59,16 +69,24 @@ describe("the GitHub Packages token verifier", () => {
     expect(await verifierAnswering(401, {}).verifier.verify("x")).toMatchObject(
       { outcome: "rejected", reason: "invalid" },
     );
-    expect(await verifierAnswering(502, {}).verifier.verify("x")).toEqual({
+    expect(await verifierAnswering(302, {}).verifier.verify("x")).toEqual({
       outcome: "unavailable",
     });
-    const thrown = createGitHubPackagesTokenVerifier({
-      apiBase: "http://fake-github.invalid",
-      fetch: (async () => {
-        throw new TypeError("network");
-      }) as unknown as typeof fetch,
-    });
-    expect(await thrown.verify("x")).toEqual({ outcome: "unavailable" });
+    for (const error of [
+      new WorkspaceMcpOutboundError("answered", "Provider answered 502", {
+        status: 502,
+      }),
+      new WorkspaceMcpOutboundError("address_not_allowed", "not the API host"),
+      new TypeError("network"),
+    ]) {
+      const thrown = createGitHubPackagesTokenVerifier({
+        apiBase: "http://fake-github.invalid",
+        http: async () => {
+          throw error;
+        },
+      });
+      expect(await thrown.verify("x")).toEqual({ outcome: "unavailable" });
+    }
   });
 
   test("scopes and expiry headers are read as GitHub writes them", () => {

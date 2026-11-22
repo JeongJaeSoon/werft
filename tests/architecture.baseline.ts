@@ -54,11 +54,7 @@ export const baseline: Baseline = {
   ],
   contractsBehaviour: {},
   surfaceActionImports: [],
-  directFetch: {
-    "github/service/github-packages-service.ts": 2,
-    "sessions/achievements/decisions-client.ts": 2,
-    "sessions/session-titler.ts": 2,
-  },
+  directFetch: {},
   slackFiles: [
     "ports/slack-app-store.ts",
     "ports/slack-config-token-store.ts",

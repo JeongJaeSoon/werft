@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  type OutboundRequest,
+  type OutboundResponse,
+  WorkspaceMcpOutboundError,
+} from "../../ports/outbound-http.ts";
+import {
   DECISIONS_CHOICE_RESPONSE_FIXTURE,
   DECISIONS_ERROR_RESPONSE_FIXTURE,
   DECISIONS_REFUSAL_RESPONSE_FIXTURE,
@@ -14,18 +19,23 @@ import {
 
 const REQUEST = DECISIONS_REQUEST_FIXTURE as unknown as DecisionsRequest;
 
+const answered = (status: number, text: string): OutboundResponse => ({
+  status,
+  text,
+  headers: new Headers({ "content-type": "application/json" }),
+});
+
 function client(
-  answer: (request: Request) => Response | Promise<Response>,
+  answer: (request: OutboundRequest) => OutboundResponse,
   timeoutMs?: number,
 ) {
-  const seen: Request[] = [];
+  const seen: OutboundRequest[] = [];
   const decisions = createDecisionsClient({
     egressUrl: "http://egress-proxy:3129/",
-    fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const request = new Request(input, init);
+    http: async (request) => {
       seen.push(request);
       return answer(request);
-    }) as typeof fetch,
+    },
     ...(timeoutMs === undefined ? {} : { timeoutMs }),
   });
   return { decisions, seen };
@@ -48,7 +58,7 @@ describe("decisions client", () => {
 
   test("posts the request to the proxy's judgment route with the judgment token, and parses the documented answer", async () => {
     const { decisions, seen } = client(() =>
-      Response.json(DECISIONS_CHOICE_RESPONSE_FIXTURE),
+      answered(200, JSON.stringify(DECISIONS_CHOICE_RESPONSE_FIXTURE)),
     );
     const answer = await decisions.decide("wej_token", REQUEST);
     expect(answer.answers).toEqual([
@@ -59,24 +69,35 @@ describe("decisions client", () => {
     expect(request?.url).toBe(
       "http://egress-proxy:3129/decisions/v1/decisions",
     );
-    expect(request?.headers.get("authorization")).toBe("Bearer wej_token");
-    expect(request?.headers.get("content-type")).toBe("application/json");
-    expect(await request?.json()).toEqual(DECISIONS_REQUEST_FIXTURE);
+    expect(request?.headers?.authorization).toBe("Bearer wej_token");
+    expect(request?.headers?.["content-type"]).toBe("application/json");
+    expect(request?.timeoutMs).toBe(DECISIONS_CALL_TIMEOUT_MS);
+    expect(JSON.parse(request?.body ?? "")).toEqual(DECISIONS_REQUEST_FIXTURE);
   });
 
   test("parses a refusal and tolerates fields the guide does not list", async () => {
     const { decisions } = client(() =>
-      Response.json({ id: "dec_1", ...DECISIONS_REFUSAL_RESPONSE_FIXTURE }),
+      answered(
+        200,
+        JSON.stringify({ id: "dec_1", ...DECISIONS_REFUSAL_RESPONSE_FIXTURE }),
+      ),
     );
     const answer = await decisions.decide("wej_token", REQUEST);
     expect(answer.answers).toEqual([{ type: "refusal", name: "achievement" }]);
   });
 
   test("an error answer fails with its status only: the body, which may name the key, is never kept", async () => {
-    for (const status of [401, 429, 500, 503]) {
-      const { decisions } = client(() =>
-        Response.json(DECISIONS_ERROR_RESPONSE_FIXTURE, { status }),
-      );
+    for (const status of [302, 401, 429, 500, 503]) {
+      const body = JSON.stringify(DECISIONS_ERROR_RESPONSE_FIXTURE);
+      // The port throws on a 5xx, as the outbound policy does.
+      const { decisions } = client(() => {
+        if (status < 500) return answered(status, body);
+        throw new WorkspaceMcpOutboundError(
+          "answered",
+          `Provider answered ${status}`,
+          { status },
+        );
+      });
       const error = await failure(decisions.decide("wej_token", REQUEST));
       expect(error.reason).toBe("status");
       expect(error.status).toBe(status);
@@ -85,26 +106,29 @@ describe("decisions client", () => {
   });
 
   test("an answer slower than the timeout fails as a timeout", async () => {
-    const { decisions } = client(
-      (request) =>
-        new Promise<Response>((_resolve, reject) =>
-          request.signal.addEventListener("abort", () =>
-            reject(request.signal.reason),
-          ),
-        ),
-      20,
-    );
+    const { decisions, seen } = client(() => {
+      throw new WorkspaceMcpOutboundError("unreachable", "late", {
+        timedOut: true,
+      });
+    }, 20);
     const error = await failure(decisions.decide("wej_token", REQUEST));
     expect(error.reason).toBe("timeout");
+    expect(seen[0]?.timeoutMs).toBe(20);
   });
 
-  test("an unreachable proxy fails as unreachable", async () => {
-    const { decisions } = client(() => {
-      throw new TypeError("fetch failed");
-    });
-    expect((await failure(decisions.decide("wej_token", REQUEST))).reason).toBe(
-      "unreachable",
-    );
+  test("an unreachable or refused proxy fails as unreachable", async () => {
+    for (const thrown of [
+      new WorkspaceMcpOutboundError("unreachable", "refused"),
+      new WorkspaceMcpOutboundError("address_not_allowed", "not the proxy"),
+      new TypeError("fetch failed"),
+    ]) {
+      const { decisions } = client(() => {
+        throw thrown;
+      });
+      expect(
+        (await failure(decisions.decide("wej_token", REQUEST))).reason,
+      ).toBe("unreachable");
+    }
   });
 
   test("an answer of another shape fails as a bad response", async () => {
@@ -133,12 +157,7 @@ describe("decisions client", () => {
         ],
       }),
     ]) {
-      const { decisions } = client(
-        () =>
-          new Response(body, {
-            headers: { "content-type": "application/json" },
-          }),
-      );
+      const { decisions } = client(() => answered(200, body));
       expect(
         (await failure(decisions.decide("wej_token", REQUEST))).reason,
       ).toBe("bad_response");

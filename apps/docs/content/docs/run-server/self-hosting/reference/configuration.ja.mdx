@@ -81,7 +81,7 @@ kubectl label node <node> werft.codex-seccomp-profile=installed
 
 両方なければ runtime の組み合わせを読まず、下記 pin 維持も適用しません。`WORKER_IMAGE_PREVIOUS_RUNTIME` だけがある、または値を読めなければ起動しません。設定すると、直前のイメージのバージョンで作ったリリースとそのセッションも動き続けます。リリースは作成時にイメージが載せていたランタイムのバージョンを固定するので、現在・直前のどちらのイメージも載せていないバージョンのリリースは新規セッションを受け付けません。そのエージェントはリリースし直します。
 
-GitHub Packages bot tokenを別の host に送る必要がある場合だけ、次を設定します。GitHub Enterprise Server や試験用の偽 registry が該当します。値は http(s) URL で、userinfo・query・fragment があると API は起動しません。registry host は proxy の `EGRESS_CREDENTIAL_ALLOWLIST`（プライベートアドレスなら `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`）にも必要です。
+GitHub Packages bot tokenを別の host に送る必要がある場合だけ、次を設定します。GitHub Enterprise Server や試験用の偽 registry が該当します。値は http(s) URL で、userinfo・query・fragment があると API は起動しません。registry host は proxy の `EGRESS_CREDENTIAL_ALLOWLIST`（プライベートアドレスなら `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`）にも必要です。API は token の確認を `GITHUB_PACKAGES_API_URL` の host:port にだけ送り、redirect はたどりません。既定値（`https://api.github.com`）は公開アドレスに解決されるときだけ呼び、自分で設定した URL は http やプライベートアドレスでも構いません。メタデータ・link-local アドレスに解決される名前はどちらでも拒否します。
 
 | 変数 | 既定値 | 意味 |
 |---|---|---|
