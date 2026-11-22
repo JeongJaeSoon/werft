@@ -11,37 +11,42 @@ import {
   transcriptWarnBytes,
 } from "@werft-ai/runtime-core";
 
-/**
- * What each refusal means for the session, once the runtime reports it.
- *
- * - `ordinary`: a turn in flight, or a run that has not started one. The next
- *   safe boundary checkpoints as usual; nothing is recorded.
- * - `blocking`: a dropped mirror batch. The stored transcript is short entries
- *   nobody can enumerate and every later turn builds on a session that cannot
- *   be restored, so it is recorded and holds work back until a checkpoint from
- *   *another* attempt commits (this run's transcript never recovers).
- * - `advisory`: the run was not quiescent — a tool still running, a background
- *   task (a dev server may run for hours, §1.1), or another checkpoint holding
- *   the lease. The previous generation stays the one to resume from and the
- *   reason is recorded so it is visible, but work goes on: holding turns back
- *   for a server the agent was asked to keep running would stall the session.
- *   Any later commit clears it, from this attempt or another.
- *   `publish_failed` is the same for a run that was ready but whose checkpoint
- *   could not be written — a workspace the capture refused, a manifest over
- *   the limits, a store that failed. The ones that persist (a workspace too
- *   large to capture) are not fixed by holding turns back, and a replaced
- * worker still refuses to go on past turns no checkpoint covers.
- * - `exhausted`: the transcript is past `TRANSCRIPT_LIMITS`, and it only ever
- *   grows, so no later checkpoint of this engine session can carry it. New
- *   turns are refused, as for `blocking`, but the session is not broken: the
- *   turn that crossed the limit ran and is recorded completed without a
- *   checkpoint, and the last committed checkpoint is still the one to resume
- *   from. It is cleared the way a blocking reason is, or by start_fresh.
- */
+/** What each refusal means for the session, once the runtime reports it. */
 export type CheckpointReasonKind =
+  /**
+   * The run was not quiescent — a tool still running, a background task (a
+   * dev server may run for hours, §1.1), or another checkpoint holding the
+   * lease. The previous generation stays the one to resume from and the
+   * reason is recorded so it is visible, but work goes on: holding turns back
+   * for a server the agent was asked to keep running would stall the session.
+   * Any later commit clears it, from this attempt or another.
+   * `publish_failed` is the same for a run that was ready but whose
+   * checkpoint could not be written — a workspace the capture refused, a
+   * manifest over the limits, a store that failed. The ones that persist (a
+   * workspace too large to capture) are not fixed by holding turns back, and
+   * a replaced worker still refuses to go on past turns no checkpoint covers.
+   */
   | "advisory"
+  /**
+   * A dropped mirror batch. The stored transcript is short entries nobody can
+   * enumerate and every later turn builds on a session that cannot be
+   * restored, so it is recorded and holds work back until a checkpoint from
+   * *another* attempt commits (this run's transcript never recovers).
+   */
   | "blocking"
+  /**
+   * The transcript is past `TRANSCRIPT_LIMITS`, and it only ever grows, so no
+   * later checkpoint of this engine session can carry it. New turns are
+   * refused, as for `blocking`, but the session is not broken: the turn that
+   * crossed the limit ran and is recorded completed without a checkpoint, and
+   * the last committed checkpoint is still the one to resume from. It is
+   * cleared the way a blocking reason is, or by start_fresh.
+   */
   | "exhausted"
+  /**
+   * A turn in flight, or a run that has not started one. The next safe
+   * boundary checkpoints as usual; nothing is recorded.
+   */
   | "ordinary";
 
 const CHECKPOINT_REASONS: Record<CheckpointBlockReason, CheckpointReasonKind> =

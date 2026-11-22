@@ -286,14 +286,28 @@ function guardResponseBody(body: unknown, idleMs: number): void {
 /** Bounded retries on top of {@link S3_REQUEST_BOUNDS}. */
 export const S3_MAX_ATTEMPTS = 3;
 
+/**
+ * A GetObject settles when the response *headers* arrive; the body is a stream
+ * consumed afterwards, and nothing in the AWS SDK bounds that read — neither
+ * `requestTimeout` nor an `abortSignal` passed to `send` reaches a stream the
+ * handler has already handed over. Destroying the stream is the only thing
+ * that ends the wait, so the bound lives here rather than in the client.
+ */
 export type BodyReadBounds = {
   /** Attempts at one object's body before the read is given up on. */
   readonly attempts: number;
-  /** Ceiling on what one body may accumulate in memory. */
+  /**
+   * Ceiling on what a body read whole (`get`) can make this process hold,
+   * which keeps a lying `Content-Length` from growing the heap without end. A
+   * streamed read (`streamObjectVersion`) holds nothing, so it leaves the
+   * limit to its consumer.
+   */
   readonly maxBytes: number;
   /**
-   * Budget for one whole body, however steadily it trickles. A streamed read
-   * stretches it to the body's size (`transferBudgetMs`); this is the floor.
+   * Budget for one whole body, however steadily it trickles: the backstop a
+   * per-chunk bound cannot be, since a peer dripping one byte just inside
+   * `stallMs` stays technically alive forever. A streamed read stretches it
+   * to the body's size (`transferBudgetMs`); this is the floor.
    */
   readonly maxReadMs: number;
   /**
@@ -302,29 +316,15 @@ export type BodyReadBounds = {
    * nothing, so waiting minutes for its response headers only holds the turn.
    */
   readonly requestTimeoutMs: number;
-  /** How long a body may deliver nothing before the read is abandoned. */
+  /**
+   * How long a body may deliver nothing before the read is abandoned: no
+   * bytes, no wait. The fast bound, and deliberately not a budget for the
+   * whole read, since a bundle of a few hundred MiB may legitimately take
+   * minutes on a healthy connection.
+   */
   readonly stallMs: number;
 };
 
-/**
- * A GetObject settles when the response *headers* arrive; the body is a stream
- * consumed afterwards, and nothing in the AWS SDK bounds that read — neither
- * `requestTimeout` nor an `abortSignal` passed to `send` reaches a stream the
- * handler has already handed over. Destroying the stream is the only thing
- * that ends the wait, so the bound lives here rather than in the client.
- *
- * Three bounds, because one cannot do the job:
- *
- * - `stallMs` is the fast one and the reason this exists: no bytes, no wait.
- *   It is deliberately not a budget for the whole read, since a bundle of a
- *   few hundred MiB may legitimately take minutes on a healthy connection.
- * - `maxReadMs` is the backstop a per-chunk bound cannot be: a peer dripping
- *   one byte just inside `stallMs` stays technically alive forever.
- * - `maxBytes` caps what a body read whole (`get`) can make this process
- *   hold, which keeps a lying `Content-Length` from growing the heap without
- *   end. A streamed read (`streamObjectVersion`) holds nothing, so it leaves
- *   the limit to its consumer.
- */
 export const DEFAULT_BODY_READ_BOUNDS: BodyReadBounds = {
   attempts: 3,
   maxBytes: 256 * 1024 * 1024,

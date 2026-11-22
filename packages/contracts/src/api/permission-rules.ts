@@ -9,14 +9,7 @@ import {
 /**
  * The deny rules a workspace or an agent may write, in the engine's own
  * rule spelling. v1 takes the narrow set the engine documents and the
- * platform can explain to a person:
- *
- * - a whole built-in tool by its catalog name (`WebSearch`), an older name
- *   stored as the current one;
- * - `Bash(<prefix>)`, `Read(<path>)`, `Edit(<path>)`, `WebFetch(domain:<host>)`;
- * - a whole `mcp__<server>__<tool>` name, or `mcp__<server>__*` for every
- *   tool of one server, which the platform's MCP path enforces and the
- *   engine is never given.
+ * platform can explain to a person (`parsePermissionRule`).
  *
  * Other tool-name globs (`B*`, `mcp__*`) are refused: the engine takes those out
  * of the model's tool list too, so they would blur the line between a whole

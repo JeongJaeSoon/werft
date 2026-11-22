@@ -36,11 +36,7 @@ export type LinkedAccountRef = { id: string; revision: number };
 
 /**
  * The external account as it resolves now (design A.7). Only `linked` names
- * someone to act as; the rest say why not:
- * - `unlinked`: never linked, or the person unlinked it.
- * - `stale`: the provider reported the account deactivated.
- * - `revoked`: the person was offboarded.
- * - `disabled`: the link is live but the user or membership is not.
+ * someone to act as; the rest say why not.
  */
 export type LinkedSubject =
   | {
@@ -50,8 +46,12 @@ export type LinkedSubject =
       workspaceId: string;
       role: WorkspaceRole;
     }
+  // Never linked, or the person unlinked it.
   | { status: "unlinked" }
   | {
+      // `stale`: the provider reported the account deactivated. `revoked`:
+      // the person was offboarded. `disabled`: the link is live but the user
+      // or membership is not.
       status: "stale" | "revoked" | "disabled";
       linkedAccount: LinkedAccountRef;
       userId: string;

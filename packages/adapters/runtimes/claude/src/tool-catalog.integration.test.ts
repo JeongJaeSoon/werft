@@ -25,15 +25,8 @@ import { buildSdkOptions } from "./runtime.ts";
 import { TurnLedger } from "./turn-ledger.ts";
 
 /**
- * The engine harness behind the built-in tool catalog. Every tool the pinned
- * build's catalog lists is driven through the real SDK and its bundled engine,
- * on the main loop and inside a subagent, and has to
- *   1. pass the PreToolUse gate — and the permission callback, where the
- *      engine consults it — and do what it is for, when the profile allows it;
- *   2. not run when the profile leaves it out: the SDK's tool set refuses it,
- *      and with the engine offering it anyway, the platform's own gates do;
- *   3. not run while a checkpoint lease is held.
- * A tool goes into the catalog only once all of this passes for it.
+ * The engine harness behind the built-in tool catalog. A tool goes into the
+ * catalog only once all of this passes for it.
  */
 
 const catalog = pinnedClaudeToolCatalog();

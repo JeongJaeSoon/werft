@@ -29,32 +29,29 @@ export const SLACK_INBOUND_EVENT_STATUS_VALUES = [
 /** Claims of one event, lease expiries included, before it is `failed`. */
 export const SLACK_INBOUND_MAX_ATTEMPTS = 5;
 
-/**
- * Why an event was dropped at the door: the install checks of
- * `SLACK_EVENT_DROP_REASON_VALUES`, plus
- * - `app_mismatch`: the event names another app than the path agent's.
- * - `bot_message`: posted by a bot (`bot_id`).
- * - `own_bot_user`: posted as this app's bot user.
- * - `werft_agent_bot`: posted by another agent's bot of this Werft install,
- *   allowed or not.
- * - `message_subtype`: a message subtype the channel does not take.
- * - `unsupported_event`: an event type the app never subscribes to.
- * - `user_tokens_only`: `tokens_revoked` named no bot token.
- * - `channel_pending_approval`: a message in a private channel that waits for
- *   approval and does not mention the bot; its text is not kept.
- * - `channel_left`: an event of a private channel the bot left (binding
- *   `left`); its text is not kept and nobody is answered.
- */
+/** Why an event was dropped at the door. */
 export const SLACK_INBOUND_DROP_REASON_VALUES = [
+  // The install checks.
   ...SLACK_EVENT_DROP_REASON_VALUES,
+  // The event names another app than the path agent's.
   "app_mismatch",
+  // Posted by a bot (`bot_id`).
   "bot_message",
+  // Posted as this app's bot user.
   "own_bot_user",
+  // Posted by another agent's bot of this Werft install, allowed or not.
   "werft_agent_bot",
+  // A message subtype the channel does not take.
   "message_subtype",
+  // An event type the app never subscribes to.
   "unsupported_event",
+  // `tokens_revoked` named no bot token.
   "user_tokens_only",
+  // A message in a private channel that waits for approval and does not
+  // mention the bot; its text is not kept.
   "channel_pending_approval",
+  // An event of a private channel the bot left (binding `left`); its text is
+  // not kept and nobody is answered.
   "channel_left",
 ] as const;
 

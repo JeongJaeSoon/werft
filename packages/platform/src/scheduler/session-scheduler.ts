@@ -29,21 +29,7 @@ export * from "./options.ts";
 
 /**
  * One scheduling pass. Each step is its own set of transactions so a crash
- * between them leaves only intents the next pass can pick up again:
- *
- * 1. Every live execution row is inspected; a missing resource is re-ensured
- *    from the stored intent, an exited one is recorded and reclaimed, and
- *    one with a kill intent is torn down.
- * 2. Provider resources without a matching row are logged and terminated,
- *    then isolation resources whose execution is gone are removed and the
- *    ones that lost their attachments repaired — before admission, so a
- *    launch never waits on an address pool held by a leak.
- * 3. Remaining slots are filled: reserve (commit) then ensure, never inside
- *    the transaction.
- * Terminate receipts whose kill was not confirmed within the deadline are
- * reported unknown once the rows have been reconciled.
- * 4. Workspaces of sessions nothing will come back to are reclaimed. Last,
- *    so a slow daemon listing never delays a launch.
+ * between them leaves only intents the next pass can pick up again.
  */
 export async function runScheduler(
   options: SchedulerOptions,
@@ -298,7 +284,9 @@ async function pass(
     workerLimitsUnread: limits.unread,
   };
 
-  // 1. Reconcile rows against the provider.
+  // 1. Reconcile rows against the provider: a missing resource is re-ensured
+  // from the stored intent, an exited one is recorded and reclaimed, and one
+  // with a kill intent is torn down.
   await reconcileRows(ctx);
   // Every kill intent had its chance this pass; what is still unconfirmed
   // past the deadline is reported to its caller as unknown, not as pending.
@@ -307,12 +295,16 @@ async function pass(
     deadlineMs: TERMINATE_DEADLINE_MS,
   });
 
-  // 2. Resources nobody owns.
+  // 2. Resources nobody owns: provider resources without a matching row are
+  // logged and terminated, then isolation resources whose execution is gone
+  // are removed and the ones that lost their attachments repaired. Before
+  // admission, so a launch never waits on an address pool held by a leak.
   await terminateOrphans(ctx);
   await reconcileNetworks(options, summary);
 
-  // 3. Fill free slots. Limits that cannot be read stop only the launches;
-  // what is running is still stopped and reclaimed.
+  // 3. Fill free slots: reserve (commit) then ensure, never inside the
+  // transaction. Limits that cannot be read stop only the launches; what is
+  // running is still stopped and reclaimed.
   if (limits.unread) {
     logger.warn("Launches skipped: the worker limits cannot be read", {
       setting: limits.key,
@@ -326,7 +318,8 @@ async function pass(
     });
   }
 
-  // 4. Workspaces nothing will come back to.
+  // 4. Workspaces of sessions nothing will come back to are reclaimed. Last,
+  // so a slow daemon listing never delays a launch.
   await collectWorkspaces(options, summary, lock);
 
   summary.activeAfter = (

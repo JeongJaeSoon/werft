@@ -37,18 +37,6 @@ export function wanted(status, url, pattern) {
 // Whether the value under a name is a secret. One function for a parsed
 // JSON key, a form key (a=b) and a name found in text (the run of name
 // characters around a secret word), so the three cannot drift apart.
-//   - a secret word anywhere in the name: "access_token", "client_secret[0]",
-//     "session_id", "session id", a whole-word "sid";
-//   - a name ending in "session" ("session", "current_session"): hidden,
-//     unless its value is an object, which is masked key by key so that its
-//     "id" is hidden and the rest stays readable; "sessions" (a list, or the
-//     scope sessions:read) is not a session;
-//   - "id" under such a parent;
-//   - an OAuth or device code (code, authCode, user_code), except under
-//     error/errors, where it is the error code a report is read for;
-//   - a path ("session.id", "session[user][id]", "auth[code]"): secret if any
-//     segment is, each read with the segment before it as its parent.
-// The name is %-decoded first. A secret word matches anywhere in it.
 const SECRET_WORDS =
   "token|secret|password|passwd|cookie|authorization|api[_-]?key|private[_-]?key|csrf|session[_ -]?(?:id|key)|e-?mail";
 const SECRET_KEY = new RegExp(`${SECRET_WORDS}|\\bsid\\b`, "i");

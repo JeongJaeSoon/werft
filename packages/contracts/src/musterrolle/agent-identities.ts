@@ -24,25 +24,24 @@ export const agentIdentityStatusSchema = z.enum(AGENT_IDENTITY_STATUS_VALUES);
 /**
  * Why a Slack event moves no agent. Every reason is a drop: the event is
  * acknowledged and nothing runs.
- * - `not_installed`: no install for the event's app in that team.
- * - `installation_unverified`: installed, but `auth.test` has not answered.
- * - `installation_revoked`: the app was uninstalled or revoked.
- * - `unidentified`: the install names no agent, now or before.
- * - `identity_revoked`: the install's agent identity was revoked.
- * - `bot_mismatch`: the install now answers as another bot than the one the
- *   identity pinned, so a reinstall needs a new link.
- * - `agent_mismatch`: the event came in for another agent than the one the
- *   app belongs to.
- * - `agent_archived`: the app's agent is archived.
  */
 export const SLACK_EVENT_DROP_REASON_VALUES = [
+  // No install for the event's app in that team.
   "not_installed",
+  // Installed, but `auth.test` has not answered.
   "installation_unverified",
+  // The app was uninstalled or revoked.
   "installation_revoked",
+  // The install names no agent, now or before.
   "unidentified",
+  // The install's agent identity was revoked.
   "identity_revoked",
+  // The install now answers as another bot than the one the identity pinned,
+  // so a reinstall needs a new link.
   "bot_mismatch",
+  // The event came in for another agent than the one the app belongs to.
   "agent_mismatch",
+  // The app's agent is archived.
   "agent_archived",
 ] as const;
 export const slackEventDropReasonSchema = z.enum(

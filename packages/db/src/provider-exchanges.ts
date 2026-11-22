@@ -284,22 +284,24 @@ export type ExpiredProviderExchange = {
 
 /**
  * The reconciler's pass over rows whose lease ran out, each step limited to
- * `limit` rows and skipping rows another transaction holds:
- *
- * - `settled`: rows a usage report of the same owner already settled (one an
- *   older API replica took, which deletes nothing) are deleted unlogged;
- * - `noticed`: the unreleased rest not yet logged are marked and returned to
- *   be logged once; a renewal clears the mark;
- * - `deleted`: rows released more than PROVIDER_EXCHANGE_KEEP_DAYS ago go.
- *
- * Every write repeats its condition, so a row renewed meanwhile is left.
+ * `limit` rows and skipping rows another transaction holds. Every write
+ * repeats its condition, so a row renewed meanwhile is left.
  */
 export async function reconcileProviderExchanges(
   db: Database,
   input: { limit: number; dryRun: boolean },
 ): Promise<{
+  /**
+   * Rows a usage report of the same owner already settled (one an older API
+   * replica took, which deletes nothing), deleted unlogged.
+   */
   settled: number;
+  /**
+   * The unreleased rest not yet logged, marked and returned to be logged
+   * once; a renewal clears the mark.
+   */
   noticed: ExpiredProviderExchange[];
+  /** Rows released more than PROVIDER_EXCHANGE_KEEP_DAYS ago, deleted. */
   deleted: number;
 }> {
   const expired = sql`${providerExchanges.leaseExpiresAt} < clock_timestamp()`;

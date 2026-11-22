@@ -46,40 +46,12 @@ export type SessionCollection =
 
 /**
  * Releases and deletes the checkpoint objects no restore can reach and no
- * finalize can still commit.
- *
- * Two kinds of version are collected. Under
- * `<session>/checkpoints/<revision>/<attempt>/`: manifests, workspace bundles
- * and untracked files, which each belong to the one attempt that wrote them.
- * Under `<session>/transcripts/generation-<n>/`: transcript parts, which every
- * revision that inherits them shares. Nothing else is touched.
- *
- * A version goes only when both hold:
- *
- * - *No restore needs it.* It is not named by the pointer's checkpoint, the
- *   `maxRestoreFallbacks` revisions below it along the parent chain, the
- *   fallback base the session was last restored from and as many below that
- *   (the window of the commit built on it), or a revision an open push
- *   request pinned and as many below that. Only the attempt that
- *   holds the fence restores anything that matters, and the pointer does not
- *   move until that attempt commits, so its plan is always among these.
- * - *No finalize can commit it.* For a checkpoint directory: it is at or
- *   below the pointer's revision — the pointer CAS accepts only the next
- *   one — or belongs to an attempt that lost its fence. Finalize accepts a
- *   manifest naming directory objects only in its own attempt's directory
- *   (`verifyAttemptManifest`), so whatever a finalize in flight has held
- *   sits in a directory that is neither, whatever order its hold, this
- *   collection and its CAS run in. For a transcript part: its generation is
- *   below the session's, so every attempt that could write it is fenced.
- *   Finalize accepts a part of another generation only when the checkpoint
- *   the candidate builds on names it (`strayTranscriptPart`) — the pointer,
- *   or the parent a fallback restored — and the pointer's window keeps both,
- *   so a part a finalize in flight has held is either of a generation this
- *   collection does not reach or one it keeps.
- *
- * Both conditions only ever grow more true, so reading the database before
- * listing the objects needs no lock — only the order the two reads run in
- * (`collectSession`).
+ * finalize can still commit: attempt directories under
+ * `<session>/checkpoints/<revision>/<attempt>/` and transcript parts under
+ * `<session>/transcripts/generation-<n>/`, nothing else. Both conditions only
+ * ever grow more true, so reading the database before listing the objects
+ * needs no lock — only the order the two reads run in (`collectSession`).
+ * What each condition keeps and lets go is in `checkpoint-collector.test.ts`.
  */
 export function createCheckpointCollector(
   deps: CheckpointCollectorDependencies,

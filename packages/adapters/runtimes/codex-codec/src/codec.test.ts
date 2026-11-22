@@ -92,6 +92,8 @@ describe("codex descriptor", () => {
     expect(capabilities.approvalCheckpoint).toBe(false);
     expect(capabilities.mcp).toBe("native");
     expect(capabilities.skills).toBe("none");
+    expect(capabilities.permissionModes.acceptEdits).toBe("emulated");
+    expect(capabilities.permissionModes.dontAsk).toBe("emulated");
     expect(capabilities.permissionModes.plan).toBe("none");
     expect(capabilities.permissionModes.auto).toBe("native");
     expect(

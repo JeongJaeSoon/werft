@@ -56,24 +56,9 @@ export type ClaudeSessionStoreOptions = TranscriptStoreOptions;
  *
  * Three properties carry the design:
  *
- * - Parts are write-once under unique keys, so an append that times out and is
- *   retried stores both copies. Reads deduplicate by entry `uuid`: an entry
- *   seen twice with an identical body is restored once, and the same `uuid`
- *   carrying a different body is corruption and is refused rather than
- *   silently resolved.
- * - `captureRevision` freezes the part list and each part's digest. Whatever
- *   the mirror appends afterwards is invisible to `loadRevision`, which is what
- *   makes "the mirror is current" and "this checkpoint is resumable" different
- *   statements.
- * - Each execution generation writes under its own prefix, and a resumed one
- *   adopts its predecessors only as far as the checkpoint it resumes pinned
- *   them. A worker that lost its lease can go on appending for as long as it
- *   keeps running; those parts land in its own generation, past the pinned
- *   revision, where no later generation ever looks. The pinned part list,
- *   whose keys name the generation that wrote each part, is the whole handoff
- *   chain: generation 3's capture lists the parts it adopted from 1 and 2
- *   ahead of its own, so restoring it needs nothing the manifest does not
- *   already say.
+ * - Parts are write-once under unique keys; reads deduplicate by entry `uuid`.
+ * - `captureRevision` freezes the part list; `loadRevision` sees nothing later.
+ * - A generation writes under its own prefix and adopts only what was pinned.
  */
 export class ClaudeSessionStore implements TranscriptStore, TranscriptMirror {
   /** The SDK appends to this very store while it runs. */

@@ -7,14 +7,8 @@ import { teamIdSchema } from "./teams.ts";
 // What a caller may do through an agent: rules stored per caller
 // target, edited by owners, admins and the agent's admins
 // (`agent.usage.manage`). This contract carries the data and the edit and
-// decides nothing about a session; the consumer reads the rules elsewhere.
-//
-// Meaning of a rule's lists, for whoever enforces them:
-//  - `tools_deny` and `credentials_deny` name what the caller may not use.
-//    Names are not checked against anything.
-//  - `repositories` and `mcp_servers` name all the caller may use. `null` is no
-//    limit, `[]` allows none. A repository id the catalog no longer holds is
-//    not an allowance: it may stay in a stored rule, and counts as absent.
+// decides nothing about a session; the platform's `caller-limit.ts` reads the
+// rules and enforces them.
 
 export const AGENT_CALLER_LIMIT_RULE_MAX = 100;
 export const AGENT_CALLER_LIMIT_NAME_MAX = 200;
@@ -36,9 +30,17 @@ const distinct = (list: readonly string[] | null) =>
 export const agentCallerLimitRuleSchema = z
   .object({
     target: agentCallerLimitTargetSchema,
+    /** What the caller may not use. Names are not checked against anything. */
     tools_deny: nameList(nameSchema),
+    /**
+     * All the caller may use: `null` is no limit, `[]` allows none. A
+     * repository id the catalog no longer holds is not an allowance: it may
+     * stay in a stored rule, and counts as absent.
+     */
     repositories: nameList(catalogRepositoryIdSchema).nullable(),
+    /** All the caller may use: `null` is no limit, `[]` allows none. */
     mcp_servers: nameList(nameSchema).nullable(),
+    /** What the caller may not use. Names are not checked against anything. */
     credentials_deny: nameList(nameSchema),
   })
   .strict()

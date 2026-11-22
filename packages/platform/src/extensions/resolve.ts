@@ -72,17 +72,6 @@ const refuse = (
 /**
  * Folds the scopes, outermost first, into the bundle list a session runs
  * with.
- *
- * - A `required` bundle stays required, at the version the outer scope
- *   named; an inner scope cannot forbid, relax or re-version it.
- * - A `forbidden` name stays forbidden; an inner scope cannot revive it.
- * - `optional` is off until the session turns it on, and the session can
- *   turn on or off only what a scope left `optional`.
- * - Two versions of one name in one scope are a skill-name collision: the
- *   engine sees skills as `<name>:<skill>`, so a name is the unit.
- *
- * `includeOptional` is the activation-time question: would every bundle a
- * session could turn on be allowed on this release?
  */
 export function resolveExtensions(input: {
   scopes: Partial<Record<Exclude<ExtensionScope, "session">, ScopeEntry[]>>;
@@ -90,6 +79,10 @@ export function resolveExtensions(input: {
   /** The runtime's descriptor entry; null when it takes no skills. */
   skills: SkillCalling | null;
   tools: readonly string[];
+  /**
+   * The activation-time question: would every bundle a session could turn on
+   * be allowed on this release?
+   */
   includeOptional?: boolean;
 }): ExtensionResolution {
   const states = new Map<string, State>();
