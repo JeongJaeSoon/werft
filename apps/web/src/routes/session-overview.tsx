@@ -46,6 +46,8 @@ export function useSessionOverviewRowMessages(): SessionOverviewRowMessages {
     channel: (channel) => t(`session.channel.${channel}`),
     inProgress: t("sessionList.inProgress"),
     unknown: t("sessionList.unknown"),
+    agentNone: t("sessionList.agentNone"),
+    agentHidden: t("sessionList.agentHidden"),
     open: (name) => t("sessionList.open", { name }),
     preview: t("session.preview"),
   };

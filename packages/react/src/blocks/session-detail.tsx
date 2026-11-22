@@ -630,15 +630,19 @@ function SessionShare({
 
 /**
  * The agent's name, opening its page when the viewer can read that agent;
- * plain text for a session with no agent, a deleted one, or one the viewer
- * may not read.
+ * plain text for a deleted one or one the viewer may not read. Without a
+ * name, a session the server hid the agent of says so rather than "none".
  */
 function AgentName({ session }: { readonly session: SessionDetailData }) {
   const { t } = useBlockText();
   const { renderLink } = useWerft();
   const agent = session.agent;
   const openable = useAgentOpenable(agent?.id);
-  if (!agent) return t("session.agent.none");
+  if (!agent) {
+    return t(
+      session.agent_hidden ? "session.agent.hidden" : "session.agent.none",
+    );
+  }
   if (!openable) return agent.name;
   return renderLink({
     to: "agent",

@@ -343,7 +343,16 @@ function WaitingSession({
     // why the request came to the reader. A long agent name or reason wraps;
     // the id and the wait stay whole.
     const parts = [
-      { key: "agent", text: session.agent?.name ?? t("session.agent.none") },
+      {
+        key: "agent",
+        text:
+          session.agent?.name ??
+          t(
+            session.agent_hidden
+              ? "session.agent.hidden"
+              : "session.agent.none",
+          ),
+      },
       { key: "id", text: session.title ? short : undefined, whole: true },
       { key: "waited", text: waited, whole: true },
       { key: "reason", text: reason && t(`inbox.why.${reason}`) },

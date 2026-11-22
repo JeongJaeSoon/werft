@@ -744,7 +744,8 @@ describe("ApprovalInbox", () => {
   });
 
   for (const agentHidden of [false, true]) {
-    test(`요약 줄은 관계를 모르면 이유를 빼고, 에이전트가 ${agentHidden ? "숨겨진" : "없는"} 세션은 시작한 사람이 아니라 '에이전트 없음'을 쓴다`, async () => {
+    const words = agentHidden ? "Agent you can't view" : "No agent";
+    test(`요약 줄은 관계를 모르면 이유를 빼고, 에이전트가 ${agentHidden ? "가려진" : "없는"} 세션은 시작한 사람이 아니라 '${words}'을 쓴다`, async () => {
       const view = renderInbox({
         open: [QUESTION],
         layout: "summary",
@@ -756,7 +757,7 @@ describe("ApprovalInbox", () => {
       const line = open.parentElement as HTMLElement;
       await waitFor(() =>
         expect(line.textContent).toMatch(
-          new RegExp(`\\?No agent · ${SHORT} · Waiting \\d+ min · Expires `),
+          new RegExp(`\\?${words} · ${SHORT} · Waiting \\d+ min · Expires `),
         ),
       );
       expect(line.textContent).not.toContain("Jaesoon Jeong");
