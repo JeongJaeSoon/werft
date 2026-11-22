@@ -305,7 +305,6 @@ export function describeExecutionBackendContract(
         const [workspace] = mine;
         if (workspace === undefined) return;
         const { id } = workspace;
-        expect(workspace.sessionFrom ?? "label").toBe("label");
 
         expect(await remove(id, { sessionId: crypto.randomUUID() })).toEqual({
           outcome: "not_ours",

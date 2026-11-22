@@ -2269,19 +2269,6 @@ describe("architecture", () => {
     expect(missing).toEqual([]);
   });
 
-  test("only the settings CLI reads a catalog directory", async () => {
-    const offenders: string[] = [];
-    for (const directory of await workspacePackages()) {
-      for (const file of await sourceFiles(join(directory, "src"))) {
-        if (isTestFile(file)) continue;
-        const source = await readFile(file, "utf8");
-        if (specifiers(source).some((s) => s.endsWith("/settings-from-dir.ts")))
-          offenders.push(relative(root, file));
-      }
-    }
-    expect(offenders).toEqual(["apps/control-host/src/api/settings.ts"]);
-  });
-
   test("no runtime source imports testkit", async () => {
     const offenders: string[] = [];
     for (const directory of await workspacePackages()) {

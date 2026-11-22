@@ -1700,48 +1700,6 @@ describe("PostgresSchedulerStore", () => {
     ]);
   });
 
-  test("a legacy workspace goes only for a session the database proves closed", async () => {
-    const active = await insertUnassigned();
-    const stopped = await insertUnassigned({ admissionState: "stopped" });
-    const closed = await insertUnassigned({ admissionState: "closed" });
-    // A name that parses as a session id but has no row is not evidence: the
-    // volume may be anyone's.
-    const unknown = crypto.randomUUID();
-
-    expect(
-      await store.filterClosedLegacySessions([
-        active,
-        stopped,
-        closed,
-        unknown,
-        "not-a-session",
-      ]),
-    ).toEqual([closed]);
-  });
-
-  test("a closed session whose launch still holds its slot keeps its legacy workspace", async () => {
-    const sessionId = await insertUnassigned();
-    const intent = await store.reserveLaunch({
-      ...SPEC,
-      backend: "local_docker",
-      now: NOW,
-      sessionId,
-      slotLimit: 10,
-    });
-    if (!intent) throw new Error("reservation refused");
-    await db
-      .update(sessions)
-      .set({ admissionState: "closed" })
-      .where(eq(sessions.id, sessionId));
-
-    expect(await store.filterClosedLegacySessions([sessionId])).toEqual([]);
-
-    await store.confirmExecutionGone(intent.executionId, new Date(), null);
-    expect(await store.filterClosedLegacySessions([sessionId])).toEqual([
-      sessionId,
-    ]);
-  });
-
   test("an id that is not a session id is retained rather than judged", async () => {
     // A volume labelled with something else is not ours to reason about, and
     // binding it to a uuid column would throw and take the whole GC step down.

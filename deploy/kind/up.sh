@@ -162,13 +162,9 @@ publish() {
   local ref="${image_repo}-$1:dev"
   [ "$CLUSTER_PROVIDER" = kind ] || ref="${image_repo}-$1:${IMAGE_TAG:-kind-dev}"
   # The control host's fake-git runs testkit from this image, so a stack takes
-  # its `local` target. A head from before the target existed (a preview of an
-  # older PR runs this script against that PR's tree) has none: its default
-  # image still carries testkit.
+  # its `local` target.
   local target=()
-  if [ "$1" = control-host ] && grep -q '^FROM .* AS local$' "$root/apps/$1/Dockerfile"; then
-    target=(--target local)
-  fi
+  [ "$1" != control-host ] || target=(--target local)
   # IMAGE_CACHE_ARCH (CI, after .github/actions/image-cache): read the layer
   # cache images.yml writes on main for this app and arch, never write it.
   docker build -q -f "$root/apps/$1/Dockerfile" -t "$ref" \

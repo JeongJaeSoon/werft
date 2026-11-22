@@ -1520,6 +1520,20 @@
       "when": 1795376910063,
       "tag": "0307_slack_drop_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 308,
+      "version": "7",
+      "when": 1795379190668,
+      "tag": "0308_slack_inbound_payload_check",
+      "breakpoints": true
+    },
+    {
+      "idx": 309,
+      "version": "7",
+      "when": 1795380896942,
+      "tag": "0309_slack_outbox_channel",
+      "breakpoints": true
     }
   ]
 }

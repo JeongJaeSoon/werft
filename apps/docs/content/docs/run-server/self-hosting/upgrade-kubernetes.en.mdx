@@ -260,11 +260,7 @@ With unchanged worker, rollback proceeds with empty approvals only if deployed p
 <a id="4-파일-카탈로그-설치에서-오는-경우" />
 ### 4. Migrate file-catalog installations
 
-The old chart's catalog ConfigMap no longer exists in the new chart. Helm deletes old resources only after hooks, so pre-upgrade migrate optionally mounts it at /legacy-config and runs `settings seed --from-dir /legacy-config`. It imports nothing when the database already holds a connection or an MCP server, and once decided it never imports again, even with the ConfigMap still there. Change settings in the console after that. Partial files or invalid values fail the Job without changing Deployments.
-
-1. Add PLATFORM_SECRET_KEY to the Secret first; preserve the same value if already present.
-2. Remove catalog from values, then helm upgrade. Remove PLATFORM_CONFIG_DIR from api.extraEnv if present.
-3. With an installed-version checkout and host Bun/kubectl, run `bun run settings:k8s export` to inspect additions. See procedure/rollback floors in [Settings document import and export](/run-server/self-hosting/reference/configuration#설정-문서-가져오기내보내기).
+The current chart does not import the old `catalog` ConfigMap, and the migrate Job runs no seed. An installation still on the file catalog first upgrades to a release before this one, which moves its settings into the database, and then upgrades ([Settings document import and export](/run-server/self-hosting/reference/configuration#설정-문서-가져오기내보내기)). A `PLATFORM_CONFIG_DIR` left in `api.extraEnv` is not read and no longer stops startup; remove it to tidy up.
 
 <a id="확인" />
 ## Verify

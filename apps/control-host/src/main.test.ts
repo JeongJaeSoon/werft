@@ -148,10 +148,10 @@ describe("control host executable", () => {
       const once = await run(["slack", "--once"], {
         DATABASE_URL: "postgres://nobody@127.0.0.1:1/none",
         PLATFORM_SECRET_KEY: "ab".repeat(32),
-        PLATFORM_CONFIG_DIR: "/config",
+        SLACK_ROLE_LEASE_SEC: "0",
       });
       expect(once.exitCode).not.toBe(0);
-      expect(once.stderr).toContain("PLATFORM_CONFIG_DIR no longer read");
+      expect(once.stderr).toContain("SLACK_ROLE_LEASE_SEC");
     },
     TIMEOUT_MS,
   );

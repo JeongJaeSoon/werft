@@ -61,24 +61,13 @@ api_init_smoke() {
     exit 1
   fi
   echo "without the master key: exit $status"
-  refused="$(timeout 60 docker run --rm --label "$smoke_label" \
-    -e DATABASE_URL=postgres://smoke:smoke@127.0.0.1:1/smoke \
-    -e CHECKPOINT_OBJECT_STORE=disabled \
-    -e EXECUTION_SLOT_LIMIT=1 \
-    -e "PLATFORM_SECRET_KEY=$key" \
-    -e PLATFORM_CONFIG_DIR=/config \
-    "$image" 2>&1)" && status=0 || status=$?
-  if [ "$status" = 0 ] || [ "$status" = 124 ] || [[ "$refused" != *"PLATFORM_CONFIG_DIR no longer read"* ]]; then
-    printf '%s\n' "$refused" >&2
-    echo "expected the API to refuse a leftover PLATFORM_CONFIG_DIR (exit $status)" >&2
-    exit 1
-  fi
-  echo "with PLATFORM_CONFIG_DIR: exit $status"
   # The default command, with a database that is never reached: the server
   # stays up (readiness answers 503) and nothing here needs it. The
-  # installation limits have no code default.
+  # installation limits have no code default. A leftover PLATFORM_CONFIG_DIR
+  # is not read: it no longer stops the API.
   cid="$(docker run -d --label "$smoke_label" \
     -e DATABASE_URL=postgres://smoke:smoke@127.0.0.1:1/smoke \
+    -e PLATFORM_CONFIG_DIR=/config \
     -e CHECKPOINT_OBJECT_STORE=disabled \
     -e EXECUTION_SLOT_LIMIT=1 \
     -e "PLATFORM_SECRET_KEY=$key" \
