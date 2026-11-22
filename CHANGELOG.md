@@ -20,7 +20,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 - **대화 층의 빈 표 셋 `channel_contexts`·`conversations`·`conversation_topics`를 더한다**(JeongJaeSoon/werft#2023). migration `0310_conversation_scopes`가 만든다. 이 릴리스의 코드는 아직 읽거나 쓰지 않으므로 할 일은 없고 동작도 그대로다. 지원 창 안의 이미지로 되돌려도 영향이 없다.
 
-- **Slack에서 글을 지우거나 고친 이벤트를 버리지 않고 그 글의 자리와 시각만 표식으로 남기며, migration `0311_slack_source_marks`가 표 `deleted_sources`·`edited_sources`를 더한다**(JeongJaeSoon/werft#PRNUM). 따로 할 일은 없다.
+- **Slack에서 글을 지우거나 고친 이벤트를 버리지 않고 그 글의 자리와 시각만 표식으로 남기며, migration `0311_slack_source_marks`가 표 `deleted_sources`·`edited_sources`를 더한다**(JeongJaeSoon/werft#2035). 따로 할 일은 없다.
   - `message_deleted`, 답이 달린 글을 지울 때 오는 묘비 `message_changed`는 삭제 표식, 사람이 고친 `message_changed`는 수정 표식이 된다. 글의 본문과 이벤트 원문은 저장하지 않고, inbox 행은 원문 없이 `processed`로 남는다. 같은 글이 지워지면 수정 표식은 지운다.
   - 표식은 만든 지 70분(판단 버퍼 10분과 1시간)이 지나면 reconciler가 지우고, 지운 수를 로그 `Unknown Slack source marks purged`에 남긴다.
   - 버린 이유 `message_subtype`으로 집계하던 질의는 수가 준다. 링크 미리보기처럼 사람이 고치지 않은 `message_changed`는 지금처럼 버린다.
