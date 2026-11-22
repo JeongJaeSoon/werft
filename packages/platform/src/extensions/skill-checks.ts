@@ -136,12 +136,15 @@ function hostsInText(text: string): Set<string> {
     // An autolink ends at its ">": what is inside it is all the URL's.
     const autolink = text[start.index - 1] === "<" && next === ">";
     if (ended && !autolink) authority = withoutTrailing(authority);
-    add(parsedHost(scheme, authority) ?? authority);
+    // No URL parser takes it, so no client reaches it: a placeholder such as
+    // "https://<host>/" or "example.com:PORT" names no host.
+    const host = parsedHost(scheme, authority);
+    if (host !== null) add(host);
   }
   return hosts;
 }
 
-/** Markdown or HTML larger than this is not rendered: its hosts cannot be judged. */
+/** Markdown or HTML larger than this many bytes is not rendered: its hosts cannot be judged. */
 export const RENDER_LIMIT = 256 * 1024;
 /** The new_url sample of a file whose hosts cannot be judged. */
 export const UNREADABLE = "unreadable";
@@ -201,10 +204,11 @@ function targetHost(target: string): string | null {
  * script assembles, other encodings and plain text broken across lines are
  * not read. null: too large to render, or the renderer failed.
  */
-function hostsOf(path: string, text: string): Set<string> | null {
+function hostsOf(path: string, bytes: Uint8Array): Set<string> | null {
+  const text = textOf(bytes);
   const markdown = MARKDOWN.test(path);
   if (!markdown && !HTML.test(path)) return hostsInText(text);
-  if (text.length > RENDER_LIMIT) return null;
+  if (bytes.length > RENDER_LIMIT) return null;
   let root: HtmlNode;
   try {
     root = (markdown
@@ -319,7 +323,7 @@ export function checkSkillVersion(
   const beforeHosts = new Set<string>();
   for (const file of before ?? []) {
     // A file that cannot be read names no host as approved.
-    for (const host of hostsOf(file.path, textOf(file.bytes)) ?? []) {
+    for (const host of hostsOf(file.path, file.bytes) ?? []) {
       beforeHosts.add(host);
     }
   }
@@ -365,7 +369,7 @@ export function checkSkillVersion(
 
     // Hosts come from the whole file, compared with every approved file's;
     // a file whose hosts cannot be read fails the rule.
-    const hosts = hostsOf(file.path, text);
+    const hosts = hostsOf(file.path, file.bytes);
     if (hosts === null) flag("new_url", file.path, UNREADABLE);
     for (const host of hosts ?? []) {
       if (!beforeHosts.has(host)) flag("new_url", file.path, host);

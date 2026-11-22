@@ -292,6 +292,9 @@ describe("what a check cannot be talked out of", () => {
       "evil.example",
     );
     expect(hostOf("<https://known.example!>")).toEqual(["known.example!"]);
+    // A placeholder no URL parser takes names no host.
+    expect(hostOf("Use https://example.com:PORT/api")).toBeUndefined();
+    expect(hostOf("Use https://<host>/api")).toBeUndefined();
     // A contact after a link is not a host.
     expect(
       hostOf("[x](https://known.example) Contact support@support.example/"),
@@ -342,6 +345,13 @@ describe("what a check cannot be talked out of", () => {
         )?.samples,
       ).toEqual([UNREADABLE]);
     }
+    // The limit counts bytes, not UTF-16 units.
+    const wide = "한".repeat(Math.ceil(RENDER_LIMIT / 3) + 1);
+    expect(
+      checkSkillVersion(base, [...base, file("wide.md", wide)]).find(
+        (one) => one.rule === "new_url",
+      )?.samples,
+    ).toEqual([UNREADABLE]);
     // An approved file too large to read names no host as approved.
     const had = [...base, file("big.md", `https://known.example/ ${at}`)];
     expect(
