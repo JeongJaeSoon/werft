@@ -30845,8 +30845,10 @@
                         "enum": [
                           "pending",
                           "approved",
-                          "rejected"
-                        ]
+                          "rejected",
+                          "superseded"
+                        ],
+                        "description": "`superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it."
                       },
                       "registered_by": {
                         "anyOf": [
@@ -30877,7 +30879,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
+                        "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did)."
                       },
                       "reviewed_at": {
                         "anyOf": [
@@ -31167,8 +31169,10 @@
                 "enum": [
                   "pending",
                   "approved",
-                  "rejected"
-                ]
+                  "rejected",
+                  "superseded"
+                ],
+                "description": "`superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it."
               },
               "registered_by": {
                 "anyOf": [
@@ -31199,7 +31203,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
+                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did)."
               },
               "reviewed_at": {
                 "anyOf": [
@@ -32028,8 +32032,10 @@
                 "enum": [
                   "pending",
                   "approved",
-                  "rejected"
-                ]
+                  "rejected",
+                  "superseded"
+                ],
+                "description": "`superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it."
               },
               "registered_by": {
                 "anyOf": [
@@ -32060,7 +32066,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
+                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did)."
               },
               "reviewed_at": {
                 "anyOf": [
@@ -32233,8 +32239,10 @@
                 "enum": [
                   "pending",
                   "approved",
-                  "rejected"
-                ]
+                  "rejected",
+                  "superseded"
+                ],
+                "description": "`superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it."
               },
               "registered_by": {
                 "anyOf": [
@@ -32265,7 +32273,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
+                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did)."
               },
               "reviewed_at": {
                 "anyOf": [
@@ -32468,8 +32476,10 @@
                 "enum": [
                   "pending",
                   "approved",
-                  "rejected"
-                ]
+                  "rejected",
+                  "superseded"
+                ],
+                "description": "`superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it."
               },
               "registered_by": {
                 "anyOf": [
@@ -32500,7 +32510,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
+                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did)."
               },
               "reviewed_at": {
                 "anyOf": [
@@ -32675,8 +32685,10 @@
                     "enum": [
                       "pending",
                       "approved",
-                      "rejected"
-                    ]
+                      "rejected",
+                      "superseded"
+                    ],
+                    "description": "`superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it."
                   },
                   "registered_by": {
                     "anyOf": [
@@ -32707,7 +32719,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
+                    "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did)."
                   },
                   "reviewed_at": {
                     "anyOf": [
@@ -32998,8 +33010,10 @@
                 "enum": [
                   "pending",
                   "approved",
-                  "rejected"
-                ]
+                  "rejected",
+                  "superseded"
+                ],
+                "description": "`superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it."
               },
               "registered_by": {
                 "anyOf": [
@@ -33030,7 +33044,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
+                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did)."
               },
               "reviewed_at": {
                 "anyOf": [
@@ -33396,8 +33410,10 @@
                           "enum": [
                             "pending",
                             "approved",
-                            "rejected"
-                          ]
+                            "rejected",
+                            "superseded"
+                          ],
+                          "description": "`superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it."
                         },
                         "registered_by": {
                           "anyOf": [
@@ -33428,7 +33444,7 @@
                               "type": "null"
                             }
                           ],
-                          "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
+                          "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did)."
                         },
                         "reviewed_at": {
                           "anyOf": [

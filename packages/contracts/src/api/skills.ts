@@ -27,7 +27,12 @@ export const skillNameSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/, {
   message: "must be lowercase letters, digits and dashes, 1-64 characters",
 });
 export const skillVersionIdSchema = z.uuid();
-export const skillReviewSchema = z.enum(["pending", "approved", "rejected"]);
+export const skillReviewSchema = z.enum([
+  "pending",
+  "approved",
+  "rejected",
+  "superseded",
+]);
 export const skillAttachmentModeSchema = z.enum([
   "required",
   "optional",
@@ -228,7 +233,10 @@ export const skillVersionSchema = z
     git: skillGitVersionSchema.nullable(),
     size_bytes: z.number().int().positive(),
     has_scripts: z.boolean(),
-    review: skillReviewSchema,
+    review: skillReviewSchema.meta({
+      description:
+        "`superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.",
+    }),
     registered_by: userIdSchema.nullable().meta({
       description:
         "Who registered it; null for a version the Git sync made (`git.trigger` says what started it).",
@@ -236,7 +244,7 @@ export const skillVersionSchema = z
     registered_at: timestampSchema,
     reviewed_by: userIdSchema.nullable().meta({
       description:
-        "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve.",
+        "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did).",
     }),
     reviewed_at: timestampSchema.nullable(),
     archived_at: timestampSchema.nullable(),

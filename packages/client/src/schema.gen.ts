@@ -11205,13 +11205,16 @@ export interface components {
                     } | null;
                     size_bytes: number;
                     has_scripts: boolean;
-                    /** @enum {string} */
-                    review: "pending" | "approved" | "rejected";
+                    /**
+                     * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                     * @enum {string}
+                     */
+                    review: "pending" | "approved" | "rejected" | "superseded";
                     /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                     registered_by: string | null;
                     /** Format: date-time */
                     registered_at: string;
-                    /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                    /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did). */
                     reviewed_by: string | null;
                     reviewed_at: string | null;
                     archived_at: string | null;
@@ -11264,13 +11267,16 @@ export interface components {
                 } | null;
                 size_bytes: number;
                 has_scripts: boolean;
-                /** @enum {string} */
-                review: "pending" | "approved" | "rejected";
+                /**
+                 * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                 * @enum {string}
+                 */
+                review: "pending" | "approved" | "rejected" | "superseded";
                 /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did). */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11424,13 +11430,16 @@ export interface components {
                 } | null;
                 size_bytes: number;
                 has_scripts: boolean;
-                /** @enum {string} */
-                review: "pending" | "approved" | "rejected";
+                /**
+                 * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                 * @enum {string}
+                 */
+                review: "pending" | "approved" | "rejected" | "superseded";
                 /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did). */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11460,13 +11469,16 @@ export interface components {
                 } | null;
                 size_bytes: number;
                 has_scripts: boolean;
-                /** @enum {string} */
-                review: "pending" | "approved" | "rejected";
+                /**
+                 * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                 * @enum {string}
+                 */
+                review: "pending" | "approved" | "rejected" | "superseded";
                 /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did). */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11504,13 +11516,16 @@ export interface components {
                 } | null;
                 size_bytes: number;
                 has_scripts: boolean;
-                /** @enum {string} */
-                review: "pending" | "approved" | "rejected";
+                /**
+                 * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                 * @enum {string}
+                 */
+                review: "pending" | "approved" | "rejected" | "superseded";
                 /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did). */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11540,13 +11555,16 @@ export interface components {
                 } | null;
                 size_bytes: number;
                 has_scripts: boolean;
-                /** @enum {string} */
-                review: "pending" | "approved" | "rejected";
+                /**
+                 * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                 * @enum {string}
+                 */
+                review: "pending" | "approved" | "rejected" | "superseded";
                 /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did). */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11605,13 +11623,16 @@ export interface components {
                 } | null;
                 size_bytes: number;
                 has_scripts: boolean;
-                /** @enum {string} */
-                review: "pending" | "approved" | "rejected";
+                /**
+                 * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                 * @enum {string}
+                 */
+                review: "pending" | "approved" | "rejected" | "superseded";
                 /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did). */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11683,13 +11704,16 @@ export interface components {
                     } | null;
                     size_bytes: number;
                     has_scripts: boolean;
-                    /** @enum {string} */
-                    review: "pending" | "approved" | "rejected";
+                    /**
+                     * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                     * @enum {string}
+                     */
+                    review: "pending" | "approved" | "rejected" | "superseded";
                     /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                     registered_by: string | null;
                     /** Format: date-time */
                     registered_at: string;
-                    /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                    /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did). */
                     reviewed_by: string | null;
                     reviewed_at: string | null;
                     archived_at: string | null;
