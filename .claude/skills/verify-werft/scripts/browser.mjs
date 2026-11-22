@@ -9,7 +9,8 @@
 //   browser.mjs <run> open <path|url>            prints path and title
 //   browser.mjs <run> login <who> [--here] | accept <who>  web-user.mjs credentials, typed, never printed
 //   browser.mjs <run> invite <who>               opens <who>'s invite page and stops there
-//   browser.mjs <run> bootstrap <who>            /bootstrap form from state.env's token and users/<who>
+//   browser.mjs <run> setup-link                 opens state.env's setup link (/bootstrap#setup=…), no submit
+//   browser.mjs <run> bootstrap <who>            the setup link's form, filled from users/<who> and submitted
 //   browser.mjs <run> shot <name> [full]         evidence/<name>.png, prints scrollWidth/innerWidth
 //   browser.mjs <run> mockshot <path> <responses.json> <name> [full]   GET response fixtures, explicitly recorded
 //   browser.mjs <run> blockshot <path> <url pattern> <name>   that request fails (error state)
@@ -400,6 +401,17 @@ switch (cmd) {
     const token = readFileSync(`${userFile(args[0])}.invite`, "utf8");
     await navigate(`/invite/${token}`);
     console.log(`invite ${args[0]} -> ${await here()}`);
+    break;
+  }
+  case "setup-link": {
+    // Only opens state.env's setup link, for a capture before `bootstrap`
+    // submits; the link is checked, not used. The token stays off argv.
+    if (!state.VERIFY_SETUP_TOKEN)
+      throw new Error(
+        "no setup link in state.env: the stack had an owner at up",
+      );
+    await navigate(`/bootstrap#setup=${state.VERIFY_SETUP_TOKEN}`);
+    console.log(`setup-link -> ${await here()}`);
     break;
   }
   case "bootstrap": {
