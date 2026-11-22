@@ -128,16 +128,18 @@ secret_key() {
     grep -q '^PLATFORM_SECRET_KEY=' "${AGENT_PLATFORM_DOTENV:-.env}"; then
     return 0
   fi
+  local stack
+  stack=$(rendered) || die "cannot render the compose stack; nothing was started"
   # A stack that names a key file takes its key from there alone: a key
   # beside it would differ, and every process reading both refuses it.
-  if [ -n "$(rendered | jq -r '.services.api.environment.PLATFORM_SECRET_KEY_FILE // empty')" ]; then
+  if [ -n "$(jq -r '.services.api.environment.PLATFORM_SECRET_KEY_FILE // empty' <<<"$stack")" ]; then
     export PLATFORM_SECRET_KEY=
     return 0
   fi
   local dir="${AGENT_PLATFORM_STATE_DIR:-$HOME/.local/state/werft}"
   # The project as compose resolves it (-p, the environment, .env or `name:`).
   local project
-  project=$(rendered | jq -r '.name // empty') && [ -n "$project" ] ||
+  project=$(jq -r '.name // empty' <<<"$stack") && [ -n "$project" ] ||
     die "cannot read the compose project name; nothing was started"
   local file="$dir/${project}.secret-key"
   if [ ! -s "$file" ]; then
