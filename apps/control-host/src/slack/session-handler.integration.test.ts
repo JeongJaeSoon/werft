@@ -763,6 +763,35 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     });
   });
 
+  test("a delete mark of a message taken as an input outlives the unknown-mark purge", async () => {
+    const fixture = await agentInSlack();
+    await deliver(fixture, mention("100.000100"));
+    await drain(handler().handle);
+    const marks = schema.createPostgresSlackSourceMarkStore(db);
+    const at = new Date();
+    for (const ts of ["100.000100", "100.000900"]) {
+      await marks.markDeleted({
+        workspaceId: fixture.workspaceId,
+        teamId: TEAM,
+        channelId: CHANNEL,
+        ts,
+        at,
+      });
+    }
+    await Bun.sleep(5);
+    expect(
+      await schema.purgeUnknownSlackSourceMarks(db, {
+        limit: 10,
+        dryRun: false,
+        retentionMs: 1,
+      }),
+    ).toEqual({ deleted: 1, edited: 0 });
+    const left = await db.execute(sql`SELECT ts FROM deleted_sources`);
+    expect(
+      (left as unknown as { rows: { ts: string }[] }).rows.map((row) => row.ts),
+    ).toEqual(["100.000100"]);
+  });
+
   test("a refused post takes no input", async () => {
     const fixture = await agentInSlack();
     await deliver(fixture, mention("100.000100", { user: "U0STRANGER" }));

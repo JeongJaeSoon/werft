@@ -229,11 +229,12 @@ migration `0305_drop_unused_tables` が `catalog_authority`・`owner_workspace_m
 <a id="slack-글을-입력-접수-표에-적는-릴리스" />
 ### Slack の投稿を入力受付の表に記録するリリース
 
-migration `0312_conversation_inputs` が入力受付の表 `conversation_inputs` を追加する。slack ロールはメンション・DM・紐づいたスレッドの投稿をこれまでどおりセッションのターンにし、inbox の行を処理済みにする同じ transaction で、その投稿を受付の行一つとして記録する。0310 が作った `conversations`・`conversation_topics` もこのリリースから埋める。上げるときにすることはなく、Slack とセッションの動作も変わらない。
+migration `0313_conversation_inputs` が入力受付の表 `conversation_inputs` を追加する。slack ロールはメンション・DM・紐づいたスレッドの投稿をこれまでどおりセッションのターンにし、inbox の行を処理済みにする同じ transaction で、その投稿を受付の行一つとして記録する。0310 が作った `conversations`・`conversation_topics` もこのリリースから埋める。上げるときにすることはなく、Slack とセッションの動作も変わらない。
 
 - 受付の行には投稿の場所(team、チャンネル、ts)、話題(スレッド)の中の番号、依頼者(Werft のユーザー id、許可したボットならそのボットの Slack ユーザー id)、その投稿がなったターンだけが残る。本文は残らない。
 - 一つの投稿が `message` と `app_mention` の二つのイベントで届いても、Slack が同じイベントを送り直しても、エージェントごとに一行になる。ターンにならなかった投稿(拒否、無視)は記録しない。
 - 番号はサーバーが受け付けた順になる。遅れて届いたイベントは、Slack の ts が先でも後の番号を受ける。
+- 受付の行がある投稿の削除・編集の印(`deleted_sources`・`edited_sources`)は、70 分が過ぎても reconciler が消さない。
 - サポート期間内のイメージに戻すと、その間の投稿は受付の行なしで、これまでどおりターンだけができる。
 
 <a id="대화-층의-빈-표-셋을-더한-릴리스" />
