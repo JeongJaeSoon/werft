@@ -15,7 +15,7 @@ import { createPostgresConversationStore } from "./conversation-store.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-integration("conversations and topics (0309)", () => {
+integration("conversations and topics (0310)", () => {
   let database: TempDatabase;
   let pool: Pool;
   let store: ConversationStore;
