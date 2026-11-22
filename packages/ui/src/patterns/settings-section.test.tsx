@@ -51,7 +51,7 @@ describe("SettingsSection", () => {
         title="앱"
         actions={
           <>
-            <button type="button" data-size="sm">
+            <button type="button" data-werft-button="" data-size="sm">
               추가
             </button>
             <button type="button" data-size="default">
@@ -64,9 +64,9 @@ describe("SettingsSection", () => {
     const slot = getByRole("button", { name: "추가" }).parentElement;
     const classes = (slot?.className ?? "").split(/\s+/);
     expect(classes).toContain(
-      "[&_[data-size=sm]]:h-[var(--werft-control-height)]",
+      "[&_[data-werft-button][data-size=sm]]:h-[var(--werft-control-height)]",
     );
-    expect(classes).toContain("[&_[data-size=sm]]:px-3");
+    expect(classes).toContain("[&_[data-werft-button][data-size=sm]]:px-3");
     expect(slot).toBe(getByRole("button", { name: "관리" }).parentElement);
   });
 

@@ -121,7 +121,7 @@ describe("Section", () => {
       <Section
         title="구성원"
         actions={
-          <button type="button" data-size="sm">
+          <button type="button" data-werft-button="" data-size="sm">
             초대
           </button>
         }
@@ -132,9 +132,9 @@ describe("Section", () => {
       ""
     ).split(/\s+/);
     expect(classes).toContain(
-      "[&_[data-size=sm]]:h-[var(--werft-control-height)]",
+      "[&_[data-werft-button][data-size=sm]]:h-[var(--werft-control-height)]",
     );
-    expect(classes).toContain("[&_[data-size=sm]]:px-3");
+    expect(classes).toContain("[&_[data-werft-button][data-size=sm]]:px-3");
   });
 });
 

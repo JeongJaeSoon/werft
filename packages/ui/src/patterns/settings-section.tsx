@@ -119,7 +119,7 @@ export function SettingsSection({
             {badge}
           </div>
           {actions ? (
-            <div className="flex min-w-0 flex-wrap items-center gap-2 [&_[data-size=sm]]:h-[var(--werft-control-height)] [&_[data-size=sm]]:px-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 [&_[data-werft-button][data-size=sm]]:h-[var(--werft-control-height)] [&_[data-werft-button][data-size=sm]]:px-3">
               {actions}
             </div>
           ) : null}
