@@ -25,7 +25,8 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - `GET /v1/workspace/skills` 응답의 `review` 값을 `pending`·`approved`·`rejected` 셋으로만 가정하는 API client는 `superseded`를 다루도록 고친다. 대체를 일으킨 `approve_extension`·`revert_extension` receipt의 `result.superseded`에 닫힌 버전의 id와 순번이 남는다. 알림은 없다.
   - rolling deploy 중 옛 replica에서 한 승인은 아무것도 닫지 않는다. 그 사이 승인한 스킬에 남은 오래된 대기 버전은 관리자가 거절하거나 승인해서 닫는다.
 
-- **v0.1.0보다 앞선 설치만을 위한 경로가 없어진다. 그런 설치는 이 판으로 바로 올리지 못하므로, 먼저 이 판보다 앞선 release로 올려 옮긴다**(JeongJaeSoon/werft#PRNUM). 호환 경로는 없다.
+- **v0.1.0보다 앞선 설치만을 위한 경로가 없어진다. 그런 설치는 이 판으로 바로 올리지 못하므로, 먼저 이 판보다 앞선 release로 올려 옮긴다**(JeongJaeSoon/werft#2018). 호환 경로는 없다.
+
   - 파일 카탈로그 가져오기: `settings import|seed --from-dir`(이제 `Unknown option`), compose migrate의 `/legacy-config` 마운트와 `PLATFORM_LEGACY_CONFIG_DIR`, Helm migrate Job의 옛 `catalog` ConfigMap 마운트와 그 seed 단계. compose migrate는 `SETTINGS_DOCUMENT`가 있을 때만 `settings seed --document`를 돈다.
   - API·slack 역할은 남은 `PLATFORM_CONFIG_DIR`·`SESSION_CATALOG_JSON`으로 기동을 거부하지 않는다. 읽지 않고 뜬다. 정리하려면 지운다.
   - 설정 CLI(`settings import --document`·`seed`)는 GitHub App 없는 저장소 항목(`auth`가 없거나 `basic`·`bearer`)을 `note:`와 함께 빼지 않고, API import처럼 문서 전체를 거절한다. 진행 중 세션이 가리키는 저장소가 빠지면 거절하던 검사와, DB 행을 남기고 결과의 `kept`로 알리던 규칙도 없어졌다(결과에 `kept`가 없다). test-ops도 그 문서를 컨테이너를 띄우기 전에 같은 메시지로 거절한다.
