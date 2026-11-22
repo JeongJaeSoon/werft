@@ -4,10 +4,9 @@ import type { ReadinessProbe } from "./readiness.ts";
 
 // Past the request deadline, so every /v1 request that is still running gets
 // to answer (its own 503 at the deadline at worst) before connections are
-// cut. SSE streams never finish on their own, so an open stream holds
-// shutdown to this bound; the client reconnects with Last-Event-ID either
-// way. Ending streams at drain start is left out until restart latency
-// matters (rolling deploys with many replicas).
+// cut. SSE streams never finish on their own, so they end on `stopWaiting`
+// with the long polls instead of holding the drain to this bound; the client
+// reconnects with Last-Event-ID.
 export const SHUTDOWN_DRAIN_MS = REQUEST_DEADLINE_MS + 5_000;
 // Cutting connections and closing the pools after the drain. A handler cut
 // mid-query still holds its client until the query returns (up to the pool's
@@ -40,7 +39,10 @@ export interface ShutdownOptions {
 export interface Shutdown {
   /** Answers not-ready from the moment shutdown starts, ahead of `probe`. */
   readiness(probe: ReadinessProbe): ReadinessProbe;
-  /** Aborted once the listeners stop accepting; long polls answer on it. */
+  /**
+   * Aborted once the listeners stop accepting; long polls answer on it and
+   * event streams end on it.
+   */
   readonly stopWaiting: AbortSignal;
   /**
    * readiness withdrawn → listeners stop accepting → long polls answer →
