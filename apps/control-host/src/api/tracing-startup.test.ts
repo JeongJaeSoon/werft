@@ -43,6 +43,26 @@ describe("collector on an egress allowlist", () => {
     expect(JSON.stringify(records)).not.toContain("SECRET-HEADER-VALUE");
   });
 
+  test("reads the list as the egress proxy does and compares the host only", () => {
+    const listed = (endpoint: string, list: string) =>
+      run(
+        { EGRESS_ALLOWLIST: list },
+        { ...ON, OTEL_EXPORTER_OTLP_ENDPOINT: endpoint },
+      ).warned;
+    const collector = "http://Collector.Internal:4318/v1/traces";
+    expect(
+      listed(collector, "api.anthropic.com:443, collector.internal:443"),
+    ).toBe(true);
+    expect(listed(collector, "collector.internal")).toBe(true);
+    expect(listed(collector, "other.internal:4318")).toBe(false);
+    expect(listed("http://[::1]:4318/v1/traces", "[::1]:4318")).toBe(true);
+    // A trailing dot names the same host to the proxy.
+    expect(listed(collector, "Collector.Internal.:4318")).toBe(true);
+    expect(
+      listed("http://collector.internal.:4318", "collector.internal:4318"),
+    ).toBe(true);
+  });
+
   test("stays silent for a collector that is not listed, and when export is off", () => {
     expect(run({ EGRESS_PRIVATE_ALLOWLIST: "other.internal:4318" })).toEqual({
       warned: false,

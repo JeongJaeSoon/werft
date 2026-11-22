@@ -60,6 +60,21 @@ describe("workspaceMcpHostsFromEnv", () => {
       hosts && workspaceMcpUrlProblem(hosts, "http://mcp.lan:8080/mcp"),
     ).toBe("url_insecure");
   });
+
+  test("the console's credential hosts are the list registration checks", () => {
+    const hosts = workspaceMcpHostsFromEnv({
+      EGRESS_CREDENTIAL_ALLOWLIST: " API.Anthropic.com:443, ,github.com.:443",
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "fake-messages:4010,github.com:443",
+    });
+    expect(hosts?.credential).toEqual([
+      "api.anthropic.com:443",
+      "github.com:443",
+      "fake-messages:4010",
+    ]);
+    expect(
+      hosts && workspaceMcpUrlProblem(hosts, "https://api.anthropic.com/mcp"),
+    ).toBeNull();
+  });
 });
 
 describe("workspaceMcpUrlProblem", () => {
