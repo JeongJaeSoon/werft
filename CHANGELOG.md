@@ -14,6 +14,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **api가 멈추기 시작하면 열린 세션 이벤트 스트림(SSE)을 바로 끝내, 열린 스트림이 있어도 종료가 드레인 상한(35초)을 기다리지 않는다**(JeongJaeSoon/werft#2032). 할 일은 없다. stop grace는 그대로 두어도 된다.
+  - api 재시작·재배포 때 콘솔과 SDK의 이벤트 스트림은 곧바로 끊기고, 새 api에 `Last-Event-ID`로 다시 붙어 놓친 이벤트 없이 이어진다. 이전에는 스트림이 드레인 상한까지 붙어 있다가 잘렸다.
+  - 로그 `SSE stream closed`의 `reason`에 `shutting_down`이 생긴다. 열린 스트림 때문에 `Drain deadline passed` 경고가 나던 종료는 이제 `In-flight requests drained`로 끝난다.
+
 - **Slack 입력에서 자기 앱의 메아리와 Slackbot 글의 버린 이유가 바뀌고, migration `0307_slack_drop_fields`가 `slack_inbound_events`에 `drop_fields` 칸을 더한다**(JeongJaeSoon/werft#2026). 할 일은 버린 이유로 집계하는 대시보드나 질의를 맞추는 것뿐이다.
   - 에이전트 자신의 앱이 `bot_id`를 달고 쓴 글(에이전트의 답, 웹 콘솔에서 사람 이름으로 올린 지시)은 bot 허용 목록보다 먼저 `own_bot_user`로 버린다. 이전에는 허용 목록 규칙에 걸려 `bot_allowlist_empty`·`bot_not_allowed`·`bot_message`로 남았다.
   - Slackbot(`USLACK`)의 글은 DM이든 채널이든 새 이유 `slackbot`으로 버린다. 이전에는 Slackbot DM을 사람 DM으로 처리해 실패하는 계정 연결 안내를 outbox에 넣었고, 채널 글도 사람 글로 받았다.
