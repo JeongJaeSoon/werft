@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -188,4 +188,76 @@ describe("the request_push precheck", () => {
       }),
     ).toBeNull();
   });
+});
+
+/**
+ * Puts `script` first on PATH as `git` until the returned function runs.
+ * `$REAL_GIT` in it names the git that was there before.
+ */
+async function fakeGit(script: string): Promise<() => void> {
+  const real = Bun.which("git");
+  if (real === null) throw new Error("no git on PATH");
+  const bin = await mkdtemp(join(root, "bin-"));
+  await writeFile(
+    join(bin, "git"),
+    `#!/bin/sh\nREAL_GIT=${real}\n${script}\n`,
+    { mode: 0o755 },
+  );
+  const path = process.env.PATH;
+  process.env.PATH = `${bin}:${path ?? ""}`;
+  return () => {
+    process.env.PATH = path;
+  };
+}
+
+/** Whether `pid` still runs; a zombie is dead (see workspace-capture.test). */
+async function running(pid: number): Promise<boolean> {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  if (process.platform !== "linux") return true;
+  const stat = await readFile(`/proc/${pid}/stat`, "utf8").catch(() => "");
+  return stat !== "" && !/^\d+ \(.*\) Z /.test(stat);
+}
+
+describe("each git the precheck runs", () => {
+  test("is killed with the helper it forked at the deadline, and lets the call through", async () => {
+    // Before the shared runner, a timeout signalled git alone and the call
+    // waited for the helper holding its pipes: here, 30 seconds.
+    const pidFile = join(root, "helper.pid");
+    const restorePath = await fakeGit(`sleep 30 &\necho $! > ${pidFile}\nwait`);
+    try {
+      const began = performance.now();
+      const precheck = createPushPrecheck(workspace, { deadlineMs: 1_000 });
+      expect(
+        await precheck(REQUEST_PUSH_TOOL, { source_ref: "orphan" }),
+      ).toBeNull();
+      expect(performance.now() - began).toBeLessThan(6_000);
+      await Bun.sleep(100);
+      const helper = Number((await readFile(pidFile, "utf8")).trim());
+      expect(await running(helper)).toBe(false);
+    } finally {
+      restorePath();
+    }
+  }, 15_000);
+
+  test.if(process.platform === "linux")(
+    "runs under the probe limits, CPU capped at its deadline",
+    async () => {
+      // Before, git ran with the worker's own, unlimited, CPU allowance.
+      const seen = join(root, "cpu-limit");
+      const restorePath = await fakeGit(
+        `ulimit -t > ${seen}\nexec "$REAL_GIT" "$@"`,
+      );
+      try {
+        const precheck = createPushPrecheck(workspace, { deadlineMs: 3_000 });
+        await precheck(REQUEST_PUSH_TOOL, { source_ref: "orphan" });
+        expect((await readFile(seen, "utf8")).trim()).toBe("3");
+      } finally {
+        restorePath();
+      }
+    },
+  );
 });

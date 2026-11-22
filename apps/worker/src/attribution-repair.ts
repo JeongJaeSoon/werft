@@ -14,6 +14,8 @@ import {
   type WorkerGatewayClient,
 } from "@werft-ai/runtime-core";
 import type { WorkerLogger } from "./console-logger.ts";
+import { type GitRunOptions, runGit } from "./workspace.ts";
+import { probeGitLimits } from "./workspace-capture.ts";
 
 const run = promisify(execFile);
 
@@ -21,6 +23,36 @@ const run = promisify(execFile);
 export const REPAIR_TOOL_PATH = "/usr/local/bin/werft-repair-attribution";
 const REPAIR_TIMEOUT_MS = 60_000;
 const GIT_TIMEOUT_MS = 30_000;
+const GIT_STDOUT_LIMIT_BYTES = 16 * 1024 * 1024;
+
+/**
+ * A local git under the worker's probe limits, killed with its helpers at
+ * the deadline. No transport: a missing object must not start a fetch from
+ * a remote the repository's config names.
+ */
+function probe(
+  cwd: string,
+  deadlineMs: number,
+  more: Pick<GitRunOptions, "input"> & {
+    config?: Array<[string, string]>;
+  } = {},
+) {
+  return {
+    cwd,
+    deadlineMs,
+    extra: {
+      config: more.config ?? [],
+      env: { GIT_NO_LAZY_FETCH: "1", GIT_ALLOW_PROTOCOL: "none", LC_ALL: "C" },
+    },
+    ...(more.input === undefined ? {} : { input: more.input }),
+    limits: probeGitLimits(deadlineMs),
+    maxStdoutBytes: GIT_STDOUT_LIMIT_BYTES,
+    network: null,
+    overrides: [],
+    redact: (text: string) => text,
+    signal: new AbortController().signal,
+  };
+}
 
 /**
  * Every outcome that ran the tool carries the commits the server protected:
@@ -148,12 +180,11 @@ export async function repairAttribution(input: {
       timeout: REPAIR_TIMEOUT_MS,
     });
     const line = stdout.trim();
-    const head = await run("git", ["rev-parse", "HEAD"], {
-      cwd: input.root,
-      env: { PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin" },
-      timeout: GIT_TIMEOUT_MS,
-    }).then(
-      ({ stdout: tip }) => tip.trim(),
+    const head = await runGit(
+      ["rev-parse", "HEAD"],
+      probe(input.root, GIT_TIMEOUT_MS),
+    ).then(
+      ({ code, stdout: tip }) => (code === 0 ? tip.trim() : undefined),
       () => undefined,
     );
     return line.startsWith("repaired ")
@@ -193,53 +224,29 @@ export async function workspaceMismatches(input: {
    * no way to tell those commits apart, the push's own check judges alone.
    */
   protectedCommits: readonly string[] | null;
+  /** For tests; otherwise each git gets 30 seconds. */
+  deadlineMs?: number;
 }): Promise<AttributionMismatch[]> {
   if (input.expectations.length === 0 || input.protectedCommits === null) {
     return [];
   }
+  const deadlineMs = input.deadlineMs ?? GIT_TIMEOUT_MS;
   try {
+    const options = probe(input.root, deadlineMs, {
+      config: [
+        ["log.showSignature", "false"],
+        ["gpg.program", "/bin/false"],
+        ["gpg.ssh.program", "/bin/false"],
+        ["gpg.x509.program", "/bin/false"],
+      ],
+    });
     const git = async (args: readonly string[]) => {
       try {
-        const { stdout } = await run(
-          "git",
-          [
-            "-c",
-            "core.fsmonitor=false",
-            "-c",
-            "core.hooksPath=/dev/null",
-            "-c",
-            "log.showSignature=false",
-            "-c",
-            "gpg.program=/bin/false",
-            "-c",
-            "gpg.ssh.program=/bin/false",
-            "-c",
-            "gpg.x509.program=/bin/false",
-            ...args,
-          ],
-          {
-            cwd: input.root,
-            env: {
-              PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
-              GIT_CONFIG_NOSYSTEM: "1",
-              GIT_CONFIG_GLOBAL: "/dev/null",
-              GIT_TERMINAL_PROMPT: "0",
-              // A missing object must not start a fetch from a remote the
-              // repository's config names; no transport is allowed here.
-              GIT_NO_LAZY_FETCH: "1",
-              GIT_ALLOW_PROTOCOL: "none",
-              LC_ALL: "C",
-            },
-            maxBuffer: 16 * 1024 * 1024,
-            timeout: GIT_TIMEOUT_MS,
-          },
-        );
-        return { exitCode: 0, stdout };
-      } catch (error) {
-        return {
-          exitCode: (error as { code?: number }).code ?? 1,
-          stdout: "",
-        };
+        const { code, stdout } = await runGit([...args], options);
+        return { exitCode: code, stdout: code === 0 ? stdout : "" };
+      } catch {
+        // Past the deadline, a limit or the output cap: not an answer.
+        return { exitCode: 1, stdout: "" };
       }
     };
     // Only the ones this repository holds can be excluded.
@@ -255,7 +262,7 @@ export async function workspaceMismatches(input: {
       not: ["--remotes", ...held],
       expectations: input.expectations,
       stripEmails: input.stripEmails,
-      trailersOf: isolatedTrailers,
+      trailersOf: (message) => isolatedTrailers(message, deadlineMs),
     });
     return judged.status === "ok" ? judged.mismatches : unverified(input.tip);
   } catch {
@@ -268,27 +275,16 @@ export async function workspaceMismatches(input: {
  * with no config, as the commit hook does: the workspace's own `trailer.*`
  * settings cannot rename a key and hide a line. Null when git fails.
  */
-async function isolatedTrailers(message: string): Promise<string | null> {
+async function isolatedTrailers(
+  message: string,
+  deadlineMs: number,
+): Promise<string | null> {
   try {
-    const pending = run(
-      "git",
+    const { code, stdout } = await runGit(
       ["interpret-trailers", "--parse", "--no-divider"],
-      {
-        cwd: "/",
-        env: {
-          PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
-          GIT_CONFIG_NOSYSTEM: "1",
-          GIT_CONFIG_GLOBAL: "/dev/null",
-          GIT_CONFIG_COUNT: "0",
-          GIT_TERMINAL_PROMPT: "0",
-          LC_ALL: "C",
-        },
-        maxBuffer: 16 * 1024 * 1024,
-        timeout: GIT_TIMEOUT_MS,
-      },
+      probe("/", deadlineMs, { input: message }),
     );
-    pending.child.stdin?.end(message);
-    return (await pending).stdout;
+    return code === 0 ? stdout : null;
   } catch {
     return null;
   }

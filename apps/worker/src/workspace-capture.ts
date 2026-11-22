@@ -195,6 +195,17 @@ export function checkpointGitLimits(
 }
 
 /**
+ * The same ceilings for a read-only probe (the request_push precheck, the
+ * attribution check) whose deadline is shorter: CPU gets that deadline.
+ */
+export function probeGitLimits(deadlineMs: number): GitResourceLimits {
+  return {
+    ...checkpointGitLimits(),
+    cpuSeconds: Math.ceil(deadlineMs / 1000),
+  };
+}
+
+/**
  * What any one git call in a capture may print before it is killed: the
  * tracked-file listings grow with the repository, and nothing else bounds
  * them.

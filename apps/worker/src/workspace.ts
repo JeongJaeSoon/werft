@@ -1328,6 +1328,8 @@ function bypassProxyFor(env: Record<string, string>, hostname: string): void {
 
 export type GitRunOptions = {
   cwd: string;
+  /** Written to git's stdin; unset, git reads nothing. */
+  input?: string;
   /** For tests; otherwise set by whether git may reach the network. */
   deadlineMs?: number;
   extra?: GitExtras;
@@ -1391,7 +1393,7 @@ const LIMIT_SIGNALS = new Set(["SIGKILL", "SIGXCPU", "SIGXFSZ"]);
 
 export async function runGit(
   args: string[],
-  options: GitRunOptions,
+  options: GitRunOptions & { maxStdoutBytes?: number },
 ): Promise<GitResult> {
   const result = await runGitBytes(args, options);
   return {
@@ -1424,7 +1426,10 @@ export async function runGitBytes(
     detached: true,
     env: gitEnvironment(network, options.overrides, options.extra),
     stderr: "pipe",
-    stdin: "ignore",
+    stdin:
+      options.input === undefined
+        ? "ignore"
+        : new TextEncoder().encode(options.input),
     stdout: "pipe",
   });
   let stopped = false;
