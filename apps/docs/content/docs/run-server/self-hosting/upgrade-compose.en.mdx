@@ -229,7 +229,7 @@ Migration `0305_drop_unused_tables` drops the `catalog_authority`, `owner_worksp
 <a id="턴에-요청자의-인증-근거를-남기는-릴리스" />
 ### The release that records each turn's requester credential
 
-Migration `0312_turn_requester_auth` adds `turns.requester_auth` (jsonb) and `tool_call_audits.requester_kind` and `requester_id` (text). All three are nullable with no default, index or backfill, so no table is rewritten. Nothing needs doing for the upgrade.
+Migration `0313_turn_requester_auth` adds `turns.requester_auth` (jsonb) and `tool_call_audits.requester_kind` and `requester_id` (text). All three are nullable with no default, index or backfill, so no table is rewritten. Nothing needs doing for the upgrade.
 
 - From this release a new turn records the credential its requester came in on: the console login session id, the personal key id, the agent of an agent key, the Slack installation and linked account. It holds no key secret, no cookie and no Slack user id.
 - Older turns are left as they are. The turn read API shows them with `requester` null or `auth_method` null. The two `tool_call_audits` columns stay empty in this release.
@@ -266,6 +266,15 @@ GROUP BY 1, 2;
 - Rows it finds are rows that must not be sent. Delete them and run migrate again; every statement may run again.
 - The sender also never posts such a row to Slack: it ends `failed` with the `error_code` `user_channel`.
 - Earlier images write no such row either, so rolling back with the constraint in place is safe.
+
+<a id="slack-글의-수정삭제-표식" />
+### Marks of edited and deleted Slack messages
+
+Migration `0312_slack_source_marks` creates two tables, `deleted_sources` and `edited_sources`. From this release, an event for a deleted or edited Slack message (`message_deleted`, the tombstone `message_changed` that comes when a message with replies is deleted, and a `message_changed` for a person's edit) is no longer dropped: it leaves a mark with only where the message was (team, channel, ts) and when. Neither the message text nor the event body is stored anywhere, and the inbox row stays `processed` without its body. There is nothing to do.
+
+- Werft keeps no record that points at a message yet, so the reconciler removes every mark 70 minutes after it was made (the 10-minute judgment buffer and an hour). The log `Unknown Slack source marks purged` records how many it removed. The retention is in [Retention by data](/run-server/self-hosting/reference/storage#데이터별-보존).
+- Queries that count the drop reason `message_subtype` see fewer rows, without the edits and deletes. A `message_changed` no person made, such as a link preview, is still dropped.
+- The migration only adds tables, so rolling back to an image inside the support window is fine. The earlier image does not use them and drops edits and deletes again.
 
 <a id="mock-slack-env-이름" />
 ### Mock Slack variable names

@@ -17,6 +17,7 @@ import {
   createMemorySlackAppStore,
   createMemorySlackInboundEventStore,
   createMemorySlackInstallStore,
+  createMemorySlackSourceMarkStore,
   fakeSlackValue,
 } from "./testing/slack-fakes.ts";
 
@@ -82,6 +83,7 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
   const installs = createMemorySlackInstallStore({ now: () => clock });
   const identities = createMemoryAgentIdentityStore(installs.installations);
   const inbox = createMemorySlackInboundEventStore();
+  const marks = createMemorySlackSourceMarkStore();
   const signingSecrets = createSlackSigningSecrets({
     apps: counted,
     secrets: secrets.store,
@@ -97,6 +99,7 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
     apps: apps.store,
     identities: identities.store,
     installs: installs.store,
+    sourceMarks: marks.store,
     bindings: {
       findLiveSlackChannel: async (_installationId, channelId) => {
         const kind = readyChannels.get(channelId);
@@ -189,6 +192,7 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
     service,
     signingSecrets,
     inbox,
+    marks,
     installs,
     identities,
     apps,
@@ -361,7 +365,7 @@ describe("Slack events service", () => {
     expect(row && "conversationKey" in row ? row.conversationKey : null).toBe(
       `${APP_ROW}:C0CHAN:1761300000.000100`,
     );
-    expect(row && "payload" in row ? row.payload.token : "none").toBe(
+    expect(row && "payload" in row ? row.payload?.token : "none").toBe(
       undefined,
     );
   });
@@ -1124,5 +1128,252 @@ describe("Slack events service", () => {
         w.signed(JSON.stringify({ type: "app_rate_limited" })),
       ),
     ).toEqual({ kind: "ack", result: "ignored" });
+  });
+});
+
+// Slack's documented shapes: an edit, a delete, and the tombstone a parent
+// with replies becomes when it is deleted.
+const EDITED = {
+  type: "message",
+  subtype: "message_changed",
+  hidden: true,
+  channel: "C0CHAN",
+  channel_type: "channel",
+  ts: "1792800000.000900",
+  event_ts: "1792800000.000900",
+  message: {
+    type: "message",
+    user: "U0P",
+    text: "the fixed plan",
+    ts: "1792800000.000100",
+    edited: { user: "U0P", ts: "1792800000.000900" },
+  },
+  previous_message: {
+    type: "message",
+    user: "U0P",
+    text: "the secret plan",
+    ts: "1792800000.000100",
+  },
+};
+const DELETED = {
+  type: "message",
+  subtype: "message_deleted",
+  hidden: true,
+  channel: "C0CHAN",
+  channel_type: "channel",
+  ts: "1792800000.000800",
+  deleted_ts: "1792800000.000100",
+  event_ts: "1792800000.000800",
+  previous_message: {
+    type: "message",
+    user: "U0P",
+    text: "the secret plan",
+    ts: "1792800000.000100",
+  },
+};
+const TOMBSTONE = {
+  type: "message",
+  subtype: "message_changed",
+  hidden: true,
+  channel: "D0DM",
+  channel_type: "im",
+  ts: "1792800000.000700",
+  event_ts: "1792800000.000700",
+  message: {
+    type: "message",
+    subtype: "tombstone",
+    user: "USLACKBOT",
+    hidden: true,
+    text: "This message was deleted.",
+    ts: "1792800000.000200",
+    thread_ts: "1792800000.000200",
+    reply_count: 1,
+  },
+  previous_message: {
+    type: "message",
+    user: "U0P",
+    text: "the secret plan",
+    ts: "1792800000.000200",
+    thread_ts: "1792800000.000200",
+  },
+};
+
+describe("Slack edits and deletes", () => {
+  const MARK = {
+    workspaceId: WORKSPACE,
+    teamId: TEAM,
+    channelId: "C0CHAN",
+    // Slack's own time of the change (event_ts, edited.ts), not the
+    // envelope's, which the world sets to NOW.
+    at: new Date(1792800000 * 1000),
+  };
+
+  test("a delete leaves one mark and an inbox row processed without its payload", async () => {
+    const w = world();
+    await w.install();
+    w.readyChannels.set("C0CHAN", "public_channel");
+    const reply = {
+      ...DELETED,
+      deleted_ts: "1792800000.000300",
+      previous_message: {
+        ...DELETED.previous_message,
+        ts: "1792800000.000300",
+        thread_ts: "1792800000.000100",
+      },
+    };
+    const bot = {
+      ...DELETED,
+      deleted_ts: "1792800000.000400",
+      previous_message: {
+        type: "message",
+        subtype: "bot_message",
+        bot_id: "B0OTHER",
+        text: "the secret plan",
+        ts: "1792800000.000400",
+      },
+    };
+    for (const fields of [DELETED, reply, bot]) {
+      expect(await w.service.receive(w.signed(w.event(fields)))).toMatchObject({
+        kind: "ack",
+        result: "recorded",
+        status: "processed",
+      });
+    }
+    // Slack's retry of one event, and another event for the same delete.
+    const again = w.event(DELETED, { eventId: "Ev0AGAIN" });
+    expect(await w.service.receive(w.signed(again))).toMatchObject({
+      result: "recorded",
+    });
+    expect(await w.service.receive(w.signed(again))).toMatchObject({
+      result: "duplicate",
+    });
+    expect([...w.marks.deleted.values()]).toEqual([
+      { ...MARK, ts: "1792800000.000100" },
+      { ...MARK, ts: "1792800000.000300" },
+      { ...MARK, ts: "1792800000.000400" },
+    ]);
+    const rows = [...w.inbox.rows.values()];
+    expect(rows).toHaveLength(4);
+    for (const row of rows) {
+      expect(row).toMatchObject({
+        status: "processed",
+        eventSubtype: "message_deleted",
+        payload: null,
+        conversationKey: null,
+      });
+      expect(JSON.stringify(row)).not.toContain("plan");
+    }
+  });
+
+  test("a parent's tombstone is a delete, in a channel and in a DM", async () => {
+    const w = world();
+    await w.install();
+    w.readyChannels.set("C0CHAN", "public_channel");
+    const inChannel = {
+      ...TOMBSTONE,
+      channel: "C0CHAN",
+      channel_type: "channel",
+      message: { ...TOMBSTONE.message, ts: "1792800000.000500" },
+    };
+    for (const fields of [TOMBSTONE, inChannel]) {
+      expect(await w.service.receive(w.signed(w.event(fields)))).toMatchObject({
+        status: "processed",
+      });
+    }
+    expect([...w.marks.deleted.values()]).toEqual([
+      { ...MARK, channelId: "D0DM", ts: "1792800000.000200" },
+      { ...MARK, ts: "1792800000.000500" },
+    ]);
+    expect(w.marks.edited.size).toBe(0);
+    for (const row of w.inbox.rows.values()) {
+      expect(row).toMatchObject({ status: "processed", payload: null });
+    }
+  });
+
+  test("an edit leaves only its mark; a change no one made is dropped as before", async () => {
+    const w = world();
+    await w.install();
+    w.readyChannels.set("C0CHAN", "public_channel");
+    expect(await w.service.receive(w.signed(w.event(EDITED)))).toMatchObject({
+      status: "processed",
+    });
+    // A later edit whose event Slack sent at the same envelope time.
+    const later = new Date((1792800000 + 60) * 1000);
+    await w.service.receive(
+      w.signed(
+        w.event(
+          {
+            ...EDITED,
+            message: {
+              ...EDITED.message,
+              edited: { user: "U0P", ts: "1792800060.000100" },
+            },
+          },
+          { eventId: "Ev0EDIT2" },
+        ),
+      ),
+    );
+    // An unfurl or a reply count: no `edited` on the message.
+    const { edited: _, ...unfurled } = EDITED.message;
+    expect(
+      await w.service.receive(
+        w.signed(w.event({ ...EDITED, message: unfurled })),
+      ),
+    ).toMatchObject({ status: "dropped", reason: "message_subtype" });
+    expect([...w.marks.edited.values()]).toEqual([
+      { ...MARK, ts: "1792800000.000100", at: later },
+    ]);
+    expect(w.marks.deleted.size).toBe(0);
+    for (const row of w.inbox.rows.values()) {
+      expect("payload" in row ? row.payload : null).toBeNull();
+    }
+    expect(JSON.stringify([...w.inbox.rows.values()])).not.toContain("plan");
+    expect(JSON.stringify([...w.marks.edited.values()])).not.toContain("plan");
+  });
+
+  test("an edit without its own time takes the envelope's", async () => {
+    const w = world();
+    await w.install();
+    await w.service.receive(
+      w.signed(
+        w.event(
+          {
+            ...EDITED,
+            message: { ...EDITED.message, edited: { user: "U0P" } },
+          },
+          { eventTime: NOW_SECONDS + 5 },
+        ),
+      ),
+    );
+    expect([...w.marks.edited.values()]).toEqual([
+      {
+        ...MARK,
+        ts: "1792800000.000100",
+        at: new Date((NOW_SECONDS + 5) * 1000),
+      },
+    ]);
+  });
+
+  test("a delete wins over an edit of the same message", async () => {
+    const w = world();
+    await w.install();
+    w.readyChannels.set("C0CHAN", "public_channel");
+    await w.service.receive(w.signed(w.event(EDITED)));
+    expect(w.marks.edited.size).toBe(1);
+    await w.service.receive(w.signed(w.event(DELETED)));
+    expect(w.marks.edited.size).toBe(0);
+    await w.service.receive(w.signed(w.event(EDITED, { eventId: "Ev0EDIT2" })));
+    expect(w.marks.edited.size).toBe(0);
+    expect(w.marks.deleted.size).toBe(1);
+  });
+
+  test("an edit or a delete for an app that is not this agent's is dropped and marks nothing", async () => {
+    const w = world({ linkTo: OTHER_AGENT });
+    await w.install();
+    expect(await w.service.receive(w.signed(w.event(DELETED)))).toMatchObject({
+      status: "dropped",
+      reason: "agent_mismatch",
+    });
+    expect(w.marks.deleted.size).toBe(0);
   });
 });

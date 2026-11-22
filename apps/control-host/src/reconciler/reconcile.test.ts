@@ -110,6 +110,10 @@ describe("reconciler run", () => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return 8;
       },
+      purgeSlackSourceMarks: async (options) => {
+        expect(options).toEqual({ dryRun: false, limit: 12 });
+        return { deleted: 3, edited: 2 };
+      },
       purgeSlackChannelMembers: async (options) => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return 3;
@@ -140,6 +144,7 @@ describe("reconciler run", () => {
     expect(result.webSessionsDeleted).toBe(6);
     expect(result.envStartsPurged).toBe(4);
     expect(result.slackInboundPayloadsPurged).toBe(8);
+    expect(result.slackSourceMarksPurged).toEqual({ deleted: 3, edited: 2 });
     expect(result.slackMembersPurged).toBe(3);
     expect(sink.records).toEqual([
       expect.objectContaining({
@@ -223,6 +228,11 @@ describe("reconciler run", () => {
         level: "info",
         message: "Failed Slack inbound payloads purged",
         fields: { dry_run: false, purged_count: 8 },
+      }),
+      expect.objectContaining({
+        level: "info",
+        message: "Unknown Slack source marks purged",
+        fields: { dry_run: false, deleted_count: 3, edited_count: 2 },
       }),
       expect.objectContaining({
         level: "info",
@@ -318,6 +328,10 @@ describe("reconciler run", () => {
         seen.push(dryRun);
         return 1;
       },
+      purgeSlackSourceMarks: async ({ dryRun }) => {
+        seen.push(dryRun);
+        return { deleted: 1, edited: 0 };
+      },
       purgeSlackChannelMembers: async ({ dryRun }) => {
         seen.push(dryRun);
         return 1;
@@ -332,6 +346,7 @@ describe("reconciler run", () => {
     });
 
     expect(seen).toEqual([
+      true,
       true,
       true,
       true,
@@ -403,6 +418,7 @@ describe("reconciler run", () => {
         deleteExpiredWebSessions: async () => 0,
         purgeExpiredEnvStart: async () => 0,
         purgeFailedSlackInboundPayloads: async () => 0,
+        purgeSlackSourceMarks: async () => ({ deleted: 0, edited: 0 }),
         purgeSlackChannelMembers: async () => 0,
         reconcileOwnership: async () => ({ flagged: [], cleared: [] }),
         projectToolCalls: async () => ({
@@ -441,6 +457,7 @@ describe("reconciler run", () => {
     const deleteExpiredWebSessions = async () => 0;
     const purgeExpiredEnvStart = async () => 0;
     const purgeFailedSlackInboundPayloads = async () => 0;
+    const purgeSlackSourceMarks = async () => ({ deleted: 0, edited: 0 });
     const purgeSlackChannelMembers = async () => 0;
     const reconcileOwnership = async () => ({ flagged: [], cleared: [] });
     const projectToolCalls = async () => ({
@@ -475,6 +492,7 @@ describe("reconciler run", () => {
           deleteExpiredWebSessions,
           purgeExpiredEnvStart,
           purgeFailedSlackInboundPayloads,
+          purgeSlackSourceMarks,
           purgeSlackChannelMembers,
           reconcileOwnership,
           projectToolCalls,
@@ -498,6 +516,7 @@ describe("reconciler run", () => {
         deleteExpiredWebSessions,
         purgeExpiredEnvStart,
         purgeFailedSlackInboundPayloads,
+        purgeSlackSourceMarks,
         purgeSlackChannelMembers,
         reconcileOwnership,
         projectToolCalls,
@@ -519,6 +538,7 @@ describe("reconciler run", () => {
         deleteExpiredWebSessions,
         purgeExpiredEnvStart,
         purgeFailedSlackInboundPayloads,
+        purgeSlackSourceMarks,
         purgeSlackChannelMembers,
         reconcileOwnership,
         projectToolCalls,

@@ -16,7 +16,7 @@
 //   web-user.mjs <run> demo-login <owner|member>  source-defined demo credentials
 //   web-user.mjs <run> slack-config <who> <workspace>  mock config token, never printed
 //   web-user.mjs <run> slack-install <who> <agent id>  mock OAuth with the person's cookie
-//   web-user.mjs <run> slack-event <agent> <mode> [channel seq [parent]]  signed mock inbound request (join|leave: the bot enters or leaves channel, leave as group_left/channel_left, leave-member as member_left_channel; a higher seq is later)
+//   web-user.mjs <run> slack-event <agent> <mode> [channel seq [parent]]  signed mock inbound request (join|leave: the bot enters or leaves channel, leave as group_left/channel_left, leave-member as member_left_channel; a higher seq is later; edit|delete|delete-bot|tombstone change post seq, parent 0 for none, the last word tags the event id)
 //   web-user.mjs <run> slack-cards <agent>           the mock's cards: ts, buttons, updates so far
 //   web-user.mjs <run> slack-click <agent> <allow|allow-session|allow-note|deny|push-approve|push-reject>  press that button on the newest card, signed by the mock
 //   web-user.mjs <run> slack-submit-note <agent> <text>  submit the newest filled note modal with that instruction, signed by the mock
@@ -283,6 +283,10 @@ switch (cmd) {
         "leave-member",
         "uninstall",
         "uninstall-late",
+        "edit",
+        "delete",
+        "delete-bot",
+        "tombstone",
       ].includes(mode)
     )
       throw new Error("agent UUID and event mode required");
