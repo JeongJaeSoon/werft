@@ -53,29 +53,28 @@ export const INSTRUCTION_PATTERNS: readonly { id: string; pattern: RegExp }[] =
     },
   ];
 
-/** Zero-width, bidi controls and tag characters: text a reviewer cannot see. */
+/**
+ * Text a reviewer cannot see: control characters other than tab and line
+ * ends (a NUL included), zero-width and invisible operators, bidi marks and
+ * controls, and tag characters.
+ */
 const HIDDEN =
-  /[\u{200B}-\u{200D}\u{2060}\u{FEFF}\u{202A}-\u{202E}\u{2066}-\u{2069}\u{E0000}-\u{E007F}]/gu;
-const URL_HOST = /\bhttps?:\/\/([^\s/?#"'<>()[\]`\\]+)/gi;
+  /[\u{0}-\u{8}\u{B}\u{C}\u{E}-\u{1F}\u{7F}\u{61C}\u{180E}\u{200B}-\u{200F}\u{202A}-\u{202E}\u{2060}-\u{2064}\u{2066}-\u{2069}\u{FEFF}\u{E0000}-\u{E007F}]/gu;
+/** The authority's host: a bracketed IPv6 literal or a name, after any userinfo. */
+const URL_HOST =
+  /\bhttps?:\/\/(?:[^\s/?#"'<>()[\]`\\@]*@)?(\[[^\]\s/]*\]|[^\s/?#"'<>()[\]`\\:]+)/gi;
 const SCRIPTS_DIR = /^skills\/[^/]+\/scripts\//;
 const MANIFEST = ".claude-plugin/plugin.json";
 
-const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
-function textOf(bytes: Uint8Array): string | null {
-  if (bytes.includes(0)) return null;
-  try {
-    return decoder.decode(bytes);
-  } catch {
-    return null;
-  }
-}
+// Not fatal: a NUL or a bad byte must not take a file out of the checks.
+// Bad bytes read as U+FFFD; a NUL is itself hidden text.
+const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
+const textOf = (bytes: Uint8Array): string => decoder.decode(bytes);
 
 function hostsOf(text: string): Set<string> {
   const hosts = new Set<string>();
   for (const match of text.matchAll(URL_HOST)) {
-    const authority = (match[1] as string).toLowerCase();
-    const host = authority.slice(authority.lastIndexOf("@") + 1);
-    hosts.add(host.replace(/:\d*$/, "").replace(/\.$/, ""));
+    hosts.add((match[1] as string).toLowerCase().replace(/\.$/, ""));
   }
   return hosts;
 }
@@ -158,8 +157,7 @@ export function checkSkillVersion(
 
   const beforeHosts = new Set<string>();
   for (const file of before ?? []) {
-    const text = textOf(file.bytes);
-    if (text !== null) for (const host of hostsOf(text)) beforeHosts.add(host);
+    for (const host of hostsOf(textOf(file.bytes))) beforeHosts.add(host);
   }
 
   let changedLines = 0;
@@ -180,10 +178,10 @@ export function checkSkillVersion(
     const text = textOf(file.bytes);
     const earlierText = earlier === undefined ? null : textOf(earlier.bytes);
     let added: string[] = [];
-    if (text !== null && earlierText === null) {
+    if (earlierText === null) {
       added = text.split("\n");
       changedLines += added.length;
-    } else if (text !== null && earlierText !== null) {
+    } else {
       const diff = unifiedLineDiff(earlierText, text);
       if (diff === null) {
         // Too large to compare: every line counts as new, and the size alone fails.
@@ -221,6 +219,13 @@ export function checkSkillVersion(
     ) {
       flag("description_changed", file.path);
     }
+  }
+  // A file dropped whole is a change of every line it had.
+  const kept = new Set(after.map((file) => file.path));
+  for (const file of before ?? []) {
+    if (file.path === MANIFEST || kept.has(file.path)) continue;
+    changedLines += textOf(file.bytes).split("\n").length;
+    changedPaths.push(file.path);
   }
   if (changedLines > LARGE_CHANGE_LINES) {
     const sample = Number.isFinite(changedLines)

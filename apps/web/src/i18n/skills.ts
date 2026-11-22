@@ -133,7 +133,7 @@ export const skillsKo = {
   "skills.checks.why.new_url":
     "앞 승인 버전 어디에도 없던 호스트를 가리키는 줄이 추가됐습니다.",
   "skills.checks.why.hidden_unicode":
-    "화면에 보이지 않는 문자(zero-width, 방향 제어, 태그 문자)가 추가됐습니다.",
+    "화면에 보이지 않는 문자(제어 문자, zero-width, 방향 표시·제어, 태그 문자)가 추가됐습니다.",
   "skills.checks.why.instruction_like":
     "지시를 무시하라, 비밀 값을 보내라, 사용자에게 숨기라 같은 문장이 추가됐습니다.",
   "skills.checks.why.description_changed":
@@ -391,7 +391,7 @@ export const skillsEn = {
   "skills.checks.why.new_url":
     "An added line points to a host no file of the previous approved version names.",
   "skills.checks.why.hidden_unicode":
-    "Characters you cannot see (zero-width, direction controls, tag characters) were added.",
+    "Characters you cannot see (control characters, zero-width, direction marks and controls, tag characters) were added.",
   "skills.checks.why.instruction_like":
     "A sentence like ignore your instructions, send the credentials, or hide this from the user was added.",
   "skills.checks.why.description_changed":
@@ -651,7 +651,7 @@ export const skillsJa = {
   "skills.checks.why.new_url":
     "前の承認済みバージョンのどこにもないホストを指す行が追加されました。",
   "skills.checks.why.hidden_unicode":
-    "画面に見えない文字（ゼロ幅、方向制御、タグ文字）が追加されました。",
+    "画面に見えない文字（制御文字、ゼロ幅、方向マーク・方向制御、タグ文字）が追加されました。",
   "skills.checks.why.instruction_like":
     "指示を無視せよ、秘密の値を送れ、ユーザーに隠せ、のような文が追加されました。",
   "skills.checks.why.description_changed":

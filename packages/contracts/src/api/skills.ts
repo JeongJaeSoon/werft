@@ -155,7 +155,7 @@ export const SKILL_CHECK_RULE_VALUES = [
   "large_change",
   // An added line names a URL host no file of the approved version does.
   "new_url",
-  // Zero-width, bidi control or tag characters in an added line or a new path.
+  // Control (a NUL included), zero-width, bidi or tag characters in an added line or a new path.
   "hidden_unicode",
   // An added line reads as an instruction to the agent (ignore instructions, send credentials, hide from the user).
   "instruction_like",

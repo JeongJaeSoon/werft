@@ -499,28 +499,29 @@ export function createPostgresExtensionBundleStore(
           source.autoApproveGrantId === git.protection.grantId
             ? git.protection.evidence
             : null;
-        // The fixed-rule checks only hold it back: any finding, or a
-        // baseline other than the one they ran against, leaves it pending.
+        // The fixed-rule checks only hold it back. A baseline other than the
+        // one they ran against comes first: their findings are then about
+        // another version and are not kept.
         const checks = git?.protection?.checks;
+        let findings = checks?.findings ?? [];
         if (auto?.met === true && checks !== undefined && version !== null) {
-          if (checks.findings.length > 0) {
+          const [baseline] = await tx
+            .select({ id: extensionBundles.id })
+            .from(extensionBundles)
+            .where(
+              and(
+                ofSkill(input.workspaceId, input.name),
+                eq(extensionBundles.review, "approved"),
+                lt(extensionBundles.version, version),
+              ),
+            )
+            .orderBy(desc(extensionBundles.version))
+            .limit(1);
+          if ((baseline?.id ?? null) !== checks.baselineId) {
+            auto = { met: false, reason: "baseline_changed" };
+            findings = [];
+          } else if (findings.length > 0) {
             auto = { met: false, reason: "checks_failed" };
-          } else {
-            const [baseline] = await tx
-              .select({ id: extensionBundles.id })
-              .from(extensionBundles)
-              .where(
-                and(
-                  ofSkill(input.workspaceId, input.name),
-                  eq(extensionBundles.review, "approved"),
-                  lt(extensionBundles.version, version),
-                ),
-              )
-              .orderBy(desc(extensionBundles.version))
-              .limit(1);
-            if ((baseline?.id ?? null) !== checks.baselineId) {
-              auto = { met: false, reason: "baseline_changed" };
-            }
           }
         }
         let autoApproval: SkillAutoApproval | null = null;
@@ -531,7 +532,7 @@ export function createPostgresExtensionBundleStore(
             reason: auto.reason,
             rule: null,
             pullRequest: null,
-            checks: checks?.findings ?? [],
+            checks: findings,
           };
         }
         await checked(
