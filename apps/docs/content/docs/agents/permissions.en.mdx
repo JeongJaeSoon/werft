@@ -71,7 +71,7 @@ Owners, admins, the agent's administrators and its responsible team's members ar
 - A session shared with `workspace` that members outside cannot see reads `audience_limited: true` in `GET /v1/sessions/{id}/share`.
 
 <Callout>
-Before, two workspace settings (`agent_outsider_access`, `agent_outsider_session_visibility`) chose how far members outside could see and use an agent. Those settings and `PATCH /v1/workspaces/{id}/agent-access` are gone, and the behaviour is always that of `none` and `managing_team`. Stored values stay but are not read, so a workspace that had `use` or `view` now hides its agents from members outside too.
+No workspace setting chooses how far members outside can see and use an agent. The behaviour is always that of `none` and `managing_team`, so agents are hidden from members outside.
 </Callout>
 
 This continues with `AID` and `WEB` from [Create](/agents/create).
