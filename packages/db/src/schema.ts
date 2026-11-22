@@ -1824,6 +1824,10 @@ export const turns = pgTable(
     requesterKind: text("requester_kind"),
     // Opaque text, as a principal's ids are elsewhere on the row.
     requesterId: text("requester_id"),
+    // The credential the requester came in on (`requesterAuthSchema`),
+    // written with the turn and never changed. Null before 0307. A reader
+    // takes a shape it cannot parse as no record.
+    requesterAuth: jsonb("requester_auth").$type<unknown>(),
     callerChannel: text("caller_channel"),
     callerLimitDigest: text("caller_limit_digest"),
   },
@@ -2382,6 +2386,10 @@ export const toolCallAudits = pgTable(
     actorUserId: uuid("actor_user_id"),
     principalKind: text("principal_kind"),
     principalId: text("principal_id"),
+    // The running turn's requester (turns.requester_kind/id). Null on rows
+    // from before it was recorded.
+    requesterKind: text("requester_kind"),
+    requesterId: text("requester_id"),
     surface: text().$type<SurfaceKind>(),
     pendingRequestId: text("pending_request_id"),
     answeredBy: jsonb("answered_by"),

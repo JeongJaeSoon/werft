@@ -24,4 +24,5 @@ export * from "./slack-notices.ts";
 export * from "./slack-secrets.ts";
 export * from "./takeovers.ts";
 export * from "./teams.ts";
+export * from "./turn-requester.ts";
 export * from "./workspaces.ts";

@@ -17,6 +17,7 @@ import {
   postSessionMessageResponseSchema,
   type Receipt,
   type ReceiptSessionTarget,
+  type RequesterAuth,
   type RuntimeKind,
   readStoredEvent,
   receiptSchema,
@@ -46,6 +47,7 @@ import type {
   EventPage,
   NeutralizeEvent,
   ReadEventsQuery,
+  RecordedActor,
   SessionDetailRecord,
   SessionReader,
   SessionRecord,
@@ -243,6 +245,51 @@ function usageRecord(usage: UsageDecision | null, requester: Requester) {
   };
 }
 
+/**
+ * The credential a turn's requester came in on. A person with no credential
+ * this can name (a caller assembled without a login) gets none; the input
+ * is not refused for it.
+ */
+function requesterAuthOf(
+  actor: RecordedActor | undefined,
+  requester: Requester,
+): RequesterAuth | null {
+  const installationId =
+    actor?.principal.kind === "installation" ? actor.principal.id : null;
+  if (requester.slackBotUserId !== null) {
+    return installationId === null || requester.keyAgentId === null
+      ? null
+      : {
+          method: "slack_bot",
+          installation_id: installationId,
+          agent_id: requester.keyAgentId,
+        };
+  }
+  if (requester.userId !== null) {
+    if (installationId !== null && actor?.linkedAccount !== undefined) {
+      return {
+        method: "slack_link",
+        installation_id: installationId,
+        linked_account_id: actor.linkedAccount.id,
+        linked_account_revision: actor.linkedAccount.revision,
+      };
+    }
+    if (requester.apiKeyId !== null) {
+      return { method: "personal_key", api_key_id: requester.apiKeyId };
+    }
+    return actor?.webSessionId === undefined
+      ? null
+      : { method: "web_session", web_session_id: actor.webSessionId };
+  }
+  if (requester.apiKeyId !== null) {
+    const agentId = requester.keyAgentId ?? actor?.agentId ?? null;
+    return agentId === null
+      ? { method: "service_key" }
+      : { method: "agent_key", agent_id: agentId };
+  }
+  return { method: "unauthenticated" };
+}
+
 function callerRecord(
   limit: CallerLimit | null,
   subject: AuthorizationSubject | undefined,
@@ -282,6 +329,7 @@ async function insertQueuedTurn(
     usageTeamId?: string | null;
     requesterKind?: string | null;
     requesterId?: string | null;
+    requesterAuth?: RequesterAuth | null;
   },
 ) {
   // now() is the transaction start, which can precede a competing append
@@ -303,6 +351,7 @@ async function insertQueuedTurn(
       usageTeamId: input.usageTeamId ?? null,
       requesterKind: input.requesterKind ?? null,
       requesterId: input.requesterId ?? null,
+      requesterAuth: input.requesterAuth ?? null,
       callerChannel: input.callerChannel ?? null,
       callerLimitDigest: input.callerLimitDigest ?? null,
     })
@@ -638,6 +687,7 @@ export function createPostgresSessionUnitOfWork(
           slackMessage: input.slackMessage ?? null,
           traceContext: input.traceContext ?? null,
           ...usageRecord(usage, requester),
+          requesterAuth: requesterAuthOf(actor, requester),
           ...callerRecord(callerLimit, input.callerSubject),
         });
 
@@ -880,6 +930,7 @@ export function createPostgresSessionUnitOfWork(
           slackMessage: input.slackMessage ?? null,
           traceContext: input.traceContext ?? null,
           ...usageRecord(usage, requester),
+          requesterAuth: requesterAuthOf(input.principal.actor, requester),
           ...callerRecord(senderLimit, input.callerSubject),
         });
         await tx
@@ -994,6 +1045,32 @@ function resultParts(resultJson: unknown): {
   return { result: resultJson ?? null, usage: null };
 }
 
+// As stored: a kind or method this build does not know is shown, not dropped.
+function requesterView(row: {
+  requesterKind: string | null;
+  requesterId: string | null;
+  requesterAuth: unknown;
+}): TurnSummary["requester"] {
+  if (!row.requesterKind || !row.requesterId) return null;
+  const auth =
+    row.requesterAuth !== null &&
+    typeof row.requesterAuth === "object" &&
+    !Array.isArray(row.requesterAuth)
+      ? (row.requesterAuth as Record<string, unknown>)
+      : null;
+  const method = auth?.method;
+  const carried = auth?.carried_from;
+  return {
+    kind: row.requesterKind,
+    id: row.requesterId,
+    auth_method: typeof method === "string" && method !== "" ? method : null,
+    carried:
+      carried !== null &&
+      typeof carried === "object" &&
+      !Array.isArray(carried),
+  };
+}
+
 function summarizeTurn(
   { turn: row, awaitingInput, creatorName }: TurnRead,
   checkpointRevision: number | null,
@@ -1009,6 +1086,7 @@ function summarizeTurn(
       row.actorId === null || creatorName === null
         ? null
         : { user_id: row.actorId, display_name: creatorName },
+    requester: requesterView(row),
     terminal_reason: row.terminalReason,
     checkpoint_revision: checkpointRevision,
     created_at: row.createdAt.toISOString(),

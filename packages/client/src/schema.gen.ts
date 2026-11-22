@@ -6568,6 +6568,16 @@ export interface components {
                 display_name: string;
             } | null;
             /**
+             * @description Who the instruction is recorded as coming from, as stored. `kind` is `user` (a person: console, linked Slack account or personal key), `api_key` (a key no person holds, `id` the key) or `slack_bot` (an allowed Slack bot, `id` its Slack user id); a client takes any other kind as unknown. `auth_method` is the credential it came in on: `web_session`, `personal_key`, `agent_key`, `service_key`, `slack_link`, `slack_bot` or `unauthenticated`, any other value read as unknown; null when none was recorded. `carried` is true for a turn that took its requester from an earlier one, such as the continuation after an approval. Null for a turn with no requester recorded: one from before it was, or one the platform queued itself.
+             * @default null
+             */
+            requester: {
+                kind: string;
+                id: string;
+                auth_method: string | null;
+                carried: boolean;
+            } | null;
+            /**
              * @description The Slack message the instruction came from, as the link Slack gave for it (`chat.getPermalink`); it opens only for someone who can read that message in Slack. Null for an instruction not from Slack, one from before links were kept, or when Slack did not give a link.
              * @default null
              */
@@ -6603,6 +6613,16 @@ export interface components {
                 /** Format: uuid */
                 user_id: string;
                 display_name: string;
+            } | null;
+            /**
+             * @description Who the instruction is recorded as coming from, as stored. `kind` is `user` (a person: console, linked Slack account or personal key), `api_key` (a key no person holds, `id` the key) or `slack_bot` (an allowed Slack bot, `id` its Slack user id); a client takes any other kind as unknown. `auth_method` is the credential it came in on: `web_session`, `personal_key`, `agent_key`, `service_key`, `slack_link`, `slack_bot` or `unauthenticated`, any other value read as unknown; null when none was recorded. `carried` is true for a turn that took its requester from an earlier one, such as the continuation after an approval. Null for a turn with no requester recorded: one from before it was, or one the platform queued itself.
+             * @default null
+             */
+            requester: {
+                kind: string;
+                id: string;
+                auth_method: string | null;
+                carried: boolean;
             } | null;
             /**
              * @description The Slack message the instruction came from, as the link Slack gave for it (`chat.getPermalink`); it opens only for someone who can read that message in Slack. Null for an instruction not from Slack, one from before links were kept, or when Slack did not give a link.
