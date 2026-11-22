@@ -111,7 +111,7 @@ integration(
       catalog,
       pendingRoutes: true,
     });
-    const { post } = flow;
+    const { base, post } = flow;
 
     const silent: WorkerLogger = {
       info: () => {},

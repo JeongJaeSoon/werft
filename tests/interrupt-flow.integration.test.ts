@@ -95,7 +95,7 @@ function capturing(): WorkerCheckpointPort {
 
 integration("POST /v1/sessions/{id}/interrupt end to end", () => {
   const flow = flowHarness({ prefix: "interrupt_e2e", catalog });
-  const { call, post } = flow;
+  const { base, call, post } = flow;
 
   async function receipt(id: string) {
     const response = await call(`/v1/receipts/${id}`);

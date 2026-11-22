@@ -171,7 +171,7 @@ integration(
         },
       },
     });
-    const { call, post } = flow;
+    const { base, call, post } = flow;
 
     async function detail(sessionId: string): Promise<SessionDetail> {
       const response = await call(`/v1/sessions/${sessionId}`);

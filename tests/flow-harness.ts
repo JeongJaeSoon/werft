@@ -53,6 +53,7 @@ export interface FlowHarness {
   readonly gateway: WorkerGateway;
   readonly owner: string;
   readonly releaseId: string;
+  base(): string;
   call(path: string, init?: RequestInit): Promise<Response>;
   post(path: string, body: unknown): Promise<Response>;
 }
@@ -200,6 +201,7 @@ export function flowHarness(options: FlowHarnessOptions): FlowHarness {
     get releaseId() {
       return releaseId;
     },
+    base,
     call,
     post,
   };

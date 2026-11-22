@@ -105,7 +105,7 @@ function capturing(
 
 integration("a drain parks a turn waiting on a person, end to end", () => {
   const flow = flowHarness({ prefix: "drain_park_e2e", catalog });
-  const { call, post } = flow;
+  const { base, call, post } = flow;
 
   async function turnStatus(sessionId: string, sequence: number) {
     const [row] = await flow.db
