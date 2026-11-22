@@ -261,7 +261,7 @@ GROUP BY 1, 2;
 <a id="slack-글의-수정삭제-표식" />
 ### Marks of edited and deleted Slack messages
 
-Migration `0311_slack_source_marks` creates two tables, `deleted_sources` and `edited_sources`. From this release, an event for a deleted or edited Slack message (`message_deleted`, the tombstone `message_changed` that comes when a message with replies is deleted, and a `message_changed` for a person's edit) is no longer dropped: it leaves a mark with only where the message was (team, channel, ts) and when. Neither the message text nor the event body is stored anywhere, and the inbox row stays `processed` without its body. There is nothing to do.
+Migration `0312_slack_source_marks` creates two tables, `deleted_sources` and `edited_sources`. From this release, an event for a deleted or edited Slack message (`message_deleted`, the tombstone `message_changed` that comes when a message with replies is deleted, and a `message_changed` for a person's edit) is no longer dropped: it leaves a mark with only where the message was (team, channel, ts) and when. Neither the message text nor the event body is stored anywhere, and the inbox row stays `processed` without its body. There is nothing to do.
 
 - Werft keeps no record that points at a message yet, so the reconciler removes every mark 70 minutes after it was made (the 10-minute judgment buffer and an hour). The log `Unknown Slack source marks purged` records how many it removed. The retention is in [Retention by data](/run-server/self-hosting/reference/storage#데이터별-보존).
 - Queries that count the drop reason `message_subtype` see fewer rows, without the edits and deletes. A `message_changed` no person made, such as a link preview, is still dropped.
