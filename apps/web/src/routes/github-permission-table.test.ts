@@ -131,10 +131,7 @@ function copied(path: URL): string {
   const end = text.indexOf("\n}\n", fn);
   const rankEnd = text.indexOf("\n};\n", start);
   expect([start, rankEnd, fn, end].every((at) => at >= 0)).toBe(true);
-  return [
-    text.slice(start, rankEnd + 3),
-    text.slice(fn, end + 2),
-  ].join("\n");
+  return [text.slice(start, rankEnd + 3), text.slice(fn, end + 2)].join("\n");
 }
 
 describe("contracts 사본", () => {
