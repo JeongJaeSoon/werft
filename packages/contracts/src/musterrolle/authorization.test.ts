@@ -5,6 +5,7 @@ import {
   AUTHORIZATION_REASON_VALUES,
   type AuthorizationDecision,
   type AuthorizationRequest,
+  accessAxisOf,
   actionAppliesTo,
   authorizationContextSchema,
   authorizationDecisionSchema,
@@ -19,6 +20,7 @@ import {
   receiptActorSchema,
   SESSION_SCOPE_VALUES,
   scopesForRole,
+  TARGET_SCOPE_VALUES,
 } from "./authorization.ts";
 
 const USER_ID = "019a0000-0000-7000-8000-0000000000b1";
@@ -453,5 +455,252 @@ describe("authorize contract", () => {
         scopes: [],
       }),
     ).toBe(WORKSPACE_ID);
+  });
+});
+
+describe("access decisions", () => {
+  const SERVER_ID = "019a0000-0000-7000-8000-0000000000b6";
+  const RULE_ID = "019a0000-0000-7000-8000-0000000000b7";
+  const key: Principal = {
+    kind: "api_key",
+    id: "owner-a",
+    owner_id: "owner-a",
+    workspace_id: null,
+    scopes: ["sessions:read"],
+  };
+  const turn = { session_id: SESSION_ID, turn_id: 3 };
+  const base = {
+    subject: { principal: key, surface: { kind: "api" as const } },
+    request_id: "req-1",
+  };
+  const memory: AuthorizationRequest = {
+    ...base,
+    action: "memory.read",
+    resource: { kind: "memory", id: null, owner_scope: "owner-a" },
+    access: { axis: "memory", scopes: ["session", "workspace"], ...turn },
+  };
+  const mcp: AuthorizationRequest = {
+    ...base,
+    action: "mcp.use",
+    resource: { kind: "mcp_server", id: SERVER_ID, owner_scope: "owner-a" },
+    access: {
+      axis: "mcp",
+      server_id: SERVER_ID,
+      tool: "search",
+      attempt_id: "att-1",
+      ...turn,
+    },
+  };
+  const delivery: AuthorizationRequest = {
+    ...base,
+    action: "delivery.send",
+    resource: { kind: "session", id: SESSION_ID, owner_scope: "owner-a" },
+    access: { axis: "delivery", ...turn },
+  };
+  const decided = {
+    effective_scopes: [],
+    policy_version: "m1",
+    decision_id: GRANT_ID,
+  };
+  const allowed = { ...decided, outcome: "allow", reason_code: "ok" } as const;
+  const denied = {
+    ...decided,
+    outcome: "deny",
+    reason_code: "access_policy_denied",
+  } as const;
+
+  test("each axis's ask and result survive a round trip", () => {
+    const pairs: [AuthorizationRequest, AuthorizationDecision][] = [
+      [
+        memory,
+        {
+          ...allowed,
+          access: {
+            rule: { mode: "fixed" },
+            granted: { axis: "memory", memory_scopes: ["session"] },
+          },
+        },
+      ],
+      [
+        mcp,
+        {
+          ...allowed,
+          access: {
+            rule: {
+              mode: "policy",
+              revision: 4,
+              rule_id: RULE_ID,
+              position: 0,
+            },
+            granted: {
+              axis: "mcp",
+              credential: { kind: "personal", user_id: USER_ID, generation: 2 },
+              fallback: false,
+            },
+          },
+        },
+      ],
+      [
+        mcp,
+        {
+          ...allowed,
+          access: {
+            rule: { mode: "transition" },
+            granted: {
+              axis: "mcp",
+              credential: { kind: "agent" },
+              fallback: true,
+            },
+          },
+        },
+      ],
+      [
+        delivery,
+        {
+          ...decided,
+          outcome: "redact",
+          reason_code: "delivery_audience_outside",
+          redact: { view: "summary" },
+          access: { rule: { mode: "fixed" }, granted: { axis: "delivery" } },
+        },
+      ],
+      [
+        delivery,
+        { ...denied, access: { rule: { mode: "fixed" }, granted: null } },
+      ],
+    ];
+    for (const [request, decision] of pairs) {
+      expect(authorizationRequestSchema.parse(request)).toEqual(request);
+      expect(authorizationDecisionSchema.parse(decision)).toEqual(decision);
+    }
+  });
+
+  test("an ask is for the axis its action decides", () => {
+    expect(accessAxisOf("memory.write")).toBe("memory");
+    expect(accessAxisOf("mcp.use")).toBe("mcp");
+    expect(accessAxisOf("delivery.send")).toBe("delivery");
+    expect(accessAxisOf("session.read")).toBeNull();
+    expect(
+      authorizationRequestSchema.safeParse({ ...memory, access: mcp.access })
+        .success,
+    ).toBe(false);
+    expect(
+      authorizationRequestSchema.safeParse({
+        ...base,
+        action: "session.read",
+        resource: { kind: "session", id: SESSION_ID, owner_scope: "owner-a" },
+        access: delivery.access,
+      }).success,
+    ).toBe(false);
+  });
+
+  test("the resource and the ask name the same thing", () => {
+    const otherServer = "019a0000-0000-7000-8000-0000000000b8";
+    expect(
+      authorizationRequestSchema.safeParse({
+        ...mcp,
+        resource: { ...mcp.resource, id: otherServer },
+      }).success,
+    ).toBe(false);
+    expect(
+      authorizationRequestSchema.safeParse({
+        ...delivery,
+        resource: { ...delivery.resource, id: GRANT_ID },
+      }).success,
+    ).toBe(false);
+    expect(actionAppliesTo("mcp.use", "mcp_server")).toBe(true);
+    expect(actionAppliesTo("mcp.use", "workspace")).toBe(false);
+  });
+
+  test("a caller cannot name the audience of a delivery", () => {
+    expect(
+      authorizationRequestSchema.safeParse({
+        ...delivery,
+        access: { axis: "delivery", ...turn, audience: "workspace" },
+      }).success,
+    ).toBe(false);
+  });
+
+  test("a memory ask names each scope once, and at least one", () => {
+    for (const scopes of [[], ["agent", "agent"], ["team"]]) {
+      expect(
+        authorizationRequestSchema.safeParse({
+          ...memory,
+          access: { axis: "memory", scopes, ...turn },
+        }).success,
+      ).toBe(false);
+    }
+    expect(TARGET_SCOPE_VALUES).toEqual([
+      "session",
+      "personal",
+      "agent",
+      "workspace",
+    ]);
+  });
+
+  test("only an allow, or a delivery's summary, hands something out", () => {
+    const memoryGranted = {
+      rule: { mode: "fixed" },
+      granted: { axis: "memory", memory_scopes: ["session"] },
+    };
+    for (const decision of [
+      { ...allowed, access: { rule: { mode: "fixed" }, granted: null } },
+      { ...denied, access: memoryGranted },
+      {
+        ...decided,
+        outcome: "redact",
+        reason_code: "delivery_audience_outside",
+        redact: { view: "summary" },
+        access: memoryGranted,
+      },
+      {
+        ...allowed,
+        access: {
+          rule: { mode: "fixed" },
+          granted: { axis: "memory", memory_scopes: [] },
+        },
+      },
+    ]) {
+      expect(authorizationDecisionSchema.safeParse(decision).success).toBe(
+        false,
+      );
+    }
+  });
+
+  test("a personal connection names its generation and a policy rule its place", () => {
+    expect(
+      authorizationDecisionSchema.safeParse({
+        ...allowed,
+        access: {
+          rule: { mode: "transition" },
+          granted: {
+            axis: "mcp",
+            credential: { kind: "personal", user_id: USER_ID },
+            fallback: false,
+          },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      authorizationDecisionSchema.safeParse({
+        ...denied,
+        access: { rule: { mode: "policy", revision: 1 }, granted: null },
+      }).success,
+    ).toBe(false);
+  });
+
+  test("names the refusals the access axes need", () => {
+    for (const reason of [
+      "access_policy_denied",
+      "access_policy_unavailable",
+      "requester_unresolved",
+      "requester_revoked",
+      "membership_stale",
+      "personal_scope_unavailable",
+      "personal_connection_unavailable",
+      "delivery_audience_outside",
+    ] as const) {
+      expect(AUTHORIZATION_REASON_VALUES).toContain(reason);
+    }
   });
 });

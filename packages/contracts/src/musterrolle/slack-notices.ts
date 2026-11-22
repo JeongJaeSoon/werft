@@ -136,6 +136,17 @@ const NOTICE_FOR: Record<
   last_owner: "noRight",
   emergency_admin: "noRight",
   scope_not_grantable: "noRight",
+  // Access decisions: a person whose basis is missing or no longer valid
+  // gets it back by linking again; the rest read as a missing right, and a
+  // policy or membership that could not be read as a passing failure.
+  requester_unresolved: "connect",
+  requester_revoked: "connect",
+  access_policy_denied: "noRight",
+  personal_scope_unavailable: "noRight",
+  personal_connection_unavailable: "noRight",
+  delivery_audience_outside: "noRight",
+  access_policy_unavailable: "failed",
+  membership_stale: "failed",
   no_requester: "failed",
   error: "failed",
 };

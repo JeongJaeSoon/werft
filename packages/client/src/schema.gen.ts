@@ -8118,7 +8118,7 @@ export interface components {
             } | {
                 resource: {
                     /** @enum {string} */
-                    kind: "workspace" | "session" | "invite" | "agent" | "agent_release" | "surface_binding" | "session_link" | "dispatch" | "memory" | "routine" | "artifact" | "api_key" | "team" | "extension_bundle";
+                    kind: "workspace" | "session" | "invite" | "agent" | "agent_release" | "surface_binding" | "session_link" | "dispatch" | "memory" | "routine" | "artifact" | "mcp_server" | "api_key" | "team" | "extension_bundle";
                     id: string;
                 };
                 workspace_id: string | null;
@@ -9552,7 +9552,7 @@ export interface components {
                 created_at: string;
             } | null;
             scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
-            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "audit_log.read" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.read" | "agent.settings_read" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "agent.usage.manage" | "credential.bind" | "variable.workspace.manage" | "variable.agent.manage" | "binding.manage" | "binding.approve" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "usage.installation_read" | "usage.agent_read" | "installation.settings.manage" | "achievement_rule.manage" | "achievement.review" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send")[];
+            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "audit_log.read" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.read" | "agent.settings_read" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "agent.usage.manage" | "credential.bind" | "variable.workspace.manage" | "variable.agent.manage" | "binding.manage" | "binding.approve" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "usage.installation_read" | "usage.agent_read" | "installation.settings.manage" | "achievement_rule.manage" | "achievement.review" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send" | "mcp.use")[];
         };
         UpdateAuthMeRequest: {
             /** @enum {string} */

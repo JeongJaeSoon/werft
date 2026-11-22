@@ -1450,6 +1450,13 @@
       "when": 1795208679032,
       "tag": "0297_skill_current_version",
       "breakpoints": true
+    },
+    {
+      "idx": 298,
+      "version": "7",
+      "when": 1795323578227,
+      "tag": "0298_access_decision_columns",
+      "breakpoints": true
     }
   ]
 }

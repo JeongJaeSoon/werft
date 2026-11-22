@@ -24,8 +24,18 @@ import {
 import { rowsOf } from "../statement-rows.ts";
 
 function decisionRow({ request, decision }: DecisionEntry) {
-  const { subject, resource } = request;
+  const { subject, resource, access } = request;
+  const rule = decision.access?.rule;
+  const policyRule = rule?.mode === "policy" ? rule : undefined;
   return {
+    accessAxis: access?.axis ?? null,
+    sessionId: access?.session_id ?? null,
+    turnId: access?.turn_id ?? null,
+    granted: decision.access?.granted ?? null,
+    ruleMode: rule?.mode ?? null,
+    accessPolicyRevision: policyRule?.revision ?? null,
+    ruleId: policyRule?.rule_id ?? null,
+    rulePosition: policyRule?.position ?? null,
     id: decision.decision_id,
     ownerId: resource.owner_scope,
     workspaceId: subject.principal?.workspace_id ?? null,
