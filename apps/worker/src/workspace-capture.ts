@@ -256,10 +256,12 @@ const SNAPSHOT_IDENTITY = {
  * approximated: an unborn HEAD, a shallow or partial clone, sparse checkout,
  * a split index, unmerged paths, entries marked assume-unchanged or
  * skip-worktree (their disk content is not what `add -u` stages), tracked
- * submodules, untracked symlinks or special files, and untracked nested
- * repositories. Ignored files are not captured at all — build output and
- * dependencies, but also an ignored `.env`; a resumed session starts without
- * them.
+ * submodules, untracked symlinks, a tracked path that is now a special file,
+ * and untracked nested repositories. An untracked special file (a FIFO,
+ * say) is neither refused nor captured: git does not list it as untracked,
+ * so it is left out, and a resumed session starts without it. Ignored
+ * files are not captured at all — build output and dependencies, but also an
+ * ignored `.env`; a resumed session starts without them.
  *
  * Git reads the repository's metadata as the engine left it, links
  * included: `.git/objects` or a ref pointed elsewhere is followed, and what
