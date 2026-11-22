@@ -86,7 +86,7 @@ scripts/test-ops.sh key create --workspace <workspace_id> --personal <user_id> \
 <a id="5-멤버-내보내기와-인수" />
 ### 5. メンバーの除外と引き継ぎ
 
-owner か admin がログインセッションで `POST /v1/members/{user_id}/disable`（本文 `{}` または `{"reason": "…"}`）を呼びます。owner を無効にできるのは owner だけで（`403 OWNER_PROTECTED`）、自分自身と最後の owner は無効にできません（`409 LAST_OWNER`）。
+owner か admin がログインセッションで `POST /v1/members/{user_id}/disable`（本文 `{}` または `{"reason": "…"}`）を呼びます。owner を無効にできるのは owner だけで（`403 OWNER_PROTECTED`）、自分自身は無効にできず（`403 SELF_PROTECTED`）、最後の owner も無効にできません（`409 LAST_OWNER`）。
 
 - 一度に membership を無効にし、その人のログインセッションすべてとその workspace の個人 key を失効させ、連携した Slack アカウントを回収します。エージェント key には触れません。
 - その人がリクエストした閉じていないセッションは引き継ぎ待ちになります。実行中の turn だけを終え、新しいメッセージは `409 TAKEOVER_REQUIRED` で拒否されます。owner が `GET /v1/takeovers` で一覧を見て `POST /v1/sessions/{id}/takeover` で引き継ぐと、その owner がリクエスト者になります。

@@ -75,6 +75,8 @@ clone・push・PR は、API が App キーで受け取った installation token 
 
 ```json
 {
+  "version": 1,
+  "connections": {},
   "repositories": {
     "ghes-app": {
       "url": "https://<ghes-host>/<owner>/<repo>.git",
@@ -87,7 +89,8 @@ clone・push・PR は、API が App キーで受け取った installation token 
         "api_base": "https://<ghes-host>/api/v3"
       }
     }
-  }
+  },
+  "mcp_servers": {}
 }
 ```
 

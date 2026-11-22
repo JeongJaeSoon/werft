@@ -78,7 +78,7 @@ scripts/test-ops.sh key create --workspace <workspace_id> --personal <user_id> \
 
 ### 5. 멤버 내보내기와 인수
 
-owner나 admin이 로그인 세션으로 `POST /v1/members/{user_id}/disable`(본문 `{}` 또는 `{"reason": "…"}`)을 부른다. owner는 owner만 비활성으로 만들 수 있고(`403 OWNER_PROTECTED`), 자기 자신과 마지막 owner는 비활성으로 만들 수 없다(`409 LAST_OWNER`).
+owner나 admin이 로그인 세션으로 `POST /v1/members/{user_id}/disable`(본문 `{}` 또는 `{"reason": "…"}`)을 부른다. owner는 owner만 비활성으로 만들 수 있고(`403 OWNER_PROTECTED`), 자기 자신은 비활성으로 만들 수 없고(`403 SELF_PROTECTED`), 마지막 owner도 비활성으로 만들 수 없다(`409 LAST_OWNER`).
 
 - 한 번에 membership을 비활성으로 만들고, 그 사람의 로그인 세션 전부와 그 workspace의 개인 key를 폐기하고, 연결된 Slack 계정을 회수한다. 에이전트 key는 건드리지 않는다.
 - 그 사람이 요청한 닫히지 않은 세션은 인수 대기가 된다. 돌던 turn까지만 마치고, 새 메시지는 `409 TAKEOVER_REQUIRED`로 거절된다. owner가 `GET /v1/takeovers`로 목록을 보고 `POST /v1/sessions/{id}/takeover`로 인수하면 그 owner가 요청자가 된다.

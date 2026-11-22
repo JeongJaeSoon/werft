@@ -86,7 +86,7 @@ scripts/test-ops.sh key create --workspace <workspace_id> --personal <user_id> \
 <a id="5-멤버-내보내기와-인수" />
 ### 5. Offboarding members and taking over sessions
 
-An owner or admin calls `POST /v1/members/{user_id}/disable` (body `{}` or `{"reason": "…"}`) from a sign-in session. Only an owner can disable an owner (`403 OWNER_PROTECTED`), and neither yourself nor the last owner can be disabled (`409 LAST_OWNER`).
+An owner or admin calls `POST /v1/members/{user_id}/disable` (body `{}` or `{"reason": "…"}`) from a sign-in session. Only an owner can disable an owner (`403 OWNER_PROTECTED`), you cannot disable yourself (`403 SELF_PROTECTED`), and the last owner cannot be disabled (`409 LAST_OWNER`).
 
 - In one step it disables the membership, revokes all of that person's sign-in sessions and their personal keys in that workspace, and revokes the linked Slack account. Agent keys are not touched.
 - Open sessions that person requested wait for takeover. They finish only the running turn, and new messages are refused with `409 TAKEOVER_REQUIRED`. An owner lists them with `GET /v1/takeovers` and takes one over with `POST /v1/sessions/{id}/takeover`, becoming its requester.

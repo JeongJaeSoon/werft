@@ -215,9 +215,9 @@ AWS での作成と最小権限は [bucket の準備](/run-server/self-hosting/p
 | transcript と checkpoint の object | bucket の `sessions/<id>/` | pointer とその親 3 個、開いている push リクエストが固定した revision | [checkpoint GC](/run-server/self-hosting/backup-and-restore#3-checkpoint-gc) だけが削除します | Helm `checkpointGc.*`、compose `CHECKPOINT_GC_DRY_RUN` |
 | 保管したセッションイベント | bucket の `session-archive/` | 無期限 | なし | なし |
 | 作業領域の volume | Docker volume、Kubernetes PVC | 停止したセッションは 24 時間、一時停止したセッションは 24 時間 | scheduler が回収します。セッションは最後の checkpoint から再開します | コンソールの実行上限「停止したセッションの作業領域」・「一時停止したセッションの作業領域」 |
-| プロセスの stdout ログ | compose は json-file、それ以外は設置の log driver | compose はコンテナごとに 50 MB のファイル 5 個 | ローテーション | compose の `x-logging`、それ以外は Docker・ノード・collector の設定 |
+| プロセスの stdout ログ | compose は json-file、それ以外は設置の log driver | compose のサービスはコンテナごとに 50 MB のファイル 5 個。scheduler が起動した worker コンテナは Docker daemon の既定値 | ローテーション | compose の `x-logging`、worker コンテナとそれ以外は Docker daemon・ノード・collector の設定 |
 
-- 内容（プロンプト、回答、ツールの入出力）が残るのは、turn の入力原文、セッションイベント、transcript、保管したイベントです。保存前のマスキングは[ログとイベントのマスキング](/run-server/self-hosting/explanation/isolation#로그와-이벤트의-가림)にあります。
+- 内容（プロンプト、回答、ツールの入出力）が残るのは、turn の入力原文、セッションイベント、transcript、保管したイベントです。保存前のマスキングは[ログとイベントのマスキング](/run-server/self-hosting/explanation/isolation#로그와-이벤트의-가림)にあります。入力原文（`turns.message`）と transcript はマスキングしません。transcript はセッションを再開するときエンジンにそのまま返す原本なので、イベントでマスキングした値も transcript には残ることがあります。
 - トレースは既定ではエクスポートしません。有効にする方法は[トレースのエクスポート](/run-server/self-hosting/reference/configuration#트레이스-내보내기)にあります。
 
 <a id="세션-이벤트-보관" />
