@@ -40,6 +40,35 @@ export type ReconciledLease = {
 };
 
 /**
+ * The candidate's launch, session and attempt rows FOR UPDATE, in the order
+ * every gateway path takes them.
+ */
+async function lockLaunchSessionAttempt(
+  tx: Database,
+  candidate: { id: string; executionId: string; sessionId: string },
+) {
+  await tx
+    .select({ executionId: workerLaunches.executionId })
+    .from(workerLaunches)
+    .where(eq(workerLaunches.executionId, candidate.executionId))
+    .limit(1)
+    .for("update");
+  const [session] = await tx
+    .select()
+    .from(sessions)
+    .where(eq(sessions.id, candidate.sessionId))
+    .limit(1)
+    .for("update");
+  const [attempt] = await tx
+    .select()
+    .from(attempts)
+    .where(eq(attempts.id, candidate.id))
+    .limit(1)
+    .for("update");
+  return { session, attempt };
+}
+
+/**
  * Expiry is judged on the database clock, like every fence in the gateway;
  * `now` only stamps the audit columns of what this pass ended.
  *
@@ -84,24 +113,10 @@ export async function reconcileExpiredLeases(
   const reconciled: ReconciledLease[] = [];
   for (const candidate of candidates) {
     const outcome = await db.transaction(async (tx) => {
-      await tx
-        .select({ executionId: workerLaunches.executionId })
-        .from(workerLaunches)
-        .where(eq(workerLaunches.executionId, candidate.executionId))
-        .limit(1)
-        .for("update");
-      const [session] = await tx
-        .select()
-        .from(sessions)
-        .where(eq(sessions.id, candidate.sessionId))
-        .limit(1)
-        .for("update");
-      const [attempt] = await tx
-        .select()
-        .from(attempts)
-        .where(eq(attempts.id, candidate.id))
-        .limit(1)
-        .for("update");
+      const { session, attempt } = await lockLaunchSessionAttempt(
+        tx,
+        candidate,
+      );
       if (!session || !attempt) return null;
       // Read after the locks: a heartbeat that held the attempt row may
       // have just extended the lease past this instant.
@@ -256,24 +271,10 @@ export async function reconcileOverdueInterrupts(
     const outcome = await db.transaction(async (tx) => {
       // Lock order of every gateway path: launch, session, attempt,
       // execution. A finalize that settles the interrupt meanwhile wins.
-      await tx
-        .select({ executionId: workerLaunches.executionId })
-        .from(workerLaunches)
-        .where(eq(workerLaunches.executionId, candidate.executionId))
-        .limit(1)
-        .for("update");
-      const [session] = await tx
-        .select()
-        .from(sessions)
-        .where(eq(sessions.id, candidate.sessionId))
-        .limit(1)
-        .for("update");
-      const [attempt] = await tx
-        .select()
-        .from(attempts)
-        .where(eq(attempts.id, candidate.id))
-        .limit(1)
-        .for("update");
+      const { session, attempt } = await lockLaunchSessionAttempt(
+        tx,
+        candidate,
+      );
       const [execution] = await tx
         .select({ desiredState: executions.desiredState })
         .from(executions)

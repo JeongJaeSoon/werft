@@ -53,6 +53,7 @@ import {
   users,
   webSessions,
 } from "../schema.ts";
+import { liveAdminTeam, liveAdminTeamMember } from "./administers.ts";
 import { decidedTransaction } from "./authz-decisions.ts";
 import { createWebSession } from "./identity.ts";
 import { keepsOwnerSignIn, lockLoginSettings } from "./login-settings.ts";
@@ -631,20 +632,8 @@ async function administeredAgents(
         name: agents.name,
       })
       .from(agentAdminTeams)
-      .innerJoin(
-        memberTeams,
-        and(
-          eq(memberTeams.id, agentAdminTeams.teamId),
-          isNull(memberTeams.archivedAt),
-        ),
-      )
-      .innerJoin(
-        memberTeamMembers,
-        and(
-          eq(memberTeamMembers.teamId, agentAdminTeams.teamId),
-          isNull(memberTeamMembers.removedAt),
-        ),
-      )
+      .innerJoin(memberTeams, liveAdminTeam())
+      .innerJoin(memberTeamMembers, liveAdminTeamMember())
       .innerJoin(
         agents,
         and(

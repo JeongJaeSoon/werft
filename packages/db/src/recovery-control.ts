@@ -23,6 +23,7 @@ import {
   INPUT_RECEIPT_OPERATIONS,
   lockIdempotencyScope,
   lockSessionForControl,
+  openControl,
   parseTurnSequence,
   transactionWithBindingRetry,
 } from "./control-shared.ts";
@@ -303,26 +304,14 @@ export function decideRecoveryAtomic(
   const decision = input.decision;
 
   return transactionWithBindingRetry(db, async (tx, attempt) => {
-    await lockIdempotencyScope(tx, scope);
-    const existing = await findIdempotent(tx, scope);
-    const replay = controlReplay(existing, input.payloadHash);
-    if (replay) return replay;
-    const session = await lockSessionForControl(tx, {
-      sessionId,
-      ownerId: scope.principal,
-      attempt,
+    const opened = await openControl(tx, attempt, scope, {
+      payloadHash: input.payloadHash,
+      expectedRevision: decision.expected_revision,
+      now: input.now,
+      startedAt,
     });
-    if (!session) return { outcome: "not_found" };
-    const now = controlClock(input.now, startedAt);
-    if (session.admissionState === "closed") {
-      return { outcome: "rejected", admissionState: "closed" };
-    }
-    if (session.revision !== decision.expected_revision) {
-      return {
-        outcome: "revision_conflict",
-        currentRevision: session.revision,
-      };
-    }
+    if ("done" in opened) return opened.done;
+    const { session, now } = opened;
     // Same refusal as terminate: a pod-lifecycle session has no execution
     // whose absence could be confirmed and no kill a close could record.
     if (session.podId !== null && session.executionId === null) {

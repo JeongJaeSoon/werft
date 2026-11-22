@@ -24,15 +24,11 @@ import { logControlResult } from "./control-observability.ts";
 import {
   BindingMoved,
   type ControlStageMeasure,
-  controlClock,
-  controlReplay,
   earliestUnknownTurn,
   expireOverdueReceipts,
-  findIdempotent,
   type IdempotencyScope,
   INPUT_RECEIPT_OPERATIONS,
-  lockIdempotencyScope,
-  lockSessionForControl,
+  openControl,
 } from "./control-shared.ts";
 import { dbNow, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
@@ -521,32 +517,15 @@ export function createPostgresSessionControl(
         tx: Database,
         attempt: number,
       ): Promise<TerminateSessionResult> {
-        await measure("idempotency_lock_ms", () =>
-          lockIdempotencyScope(tx, scope),
-        );
-        const existing = await measure("idempotency_lookup_ms", () =>
-          findIdempotent(tx, scope),
-        );
-        const replay = controlReplay(existing, input.payloadHash);
-        if (replay) return replay;
-
-        const session = await lockSessionForControl(tx, {
-          sessionId,
-          ownerId: scope.principal,
-          attempt,
+        const opened = await openControl(tx, attempt, scope, {
+          payloadHash: input.payloadHash,
+          expectedRevision: input.expectedRevision,
+          now: input.now,
+          startedAt,
           measure,
         });
-        if (!session) return { outcome: "not_found" };
-        const now = controlClock(input.now, startedAt);
-        if (session.admissionState === "closed") {
-          return { outcome: "rejected", admissionState: "closed" };
-        }
-        if (session.revision !== input.expectedRevision) {
-          return {
-            outcome: "revision_conflict",
-            currentRevision: session.revision,
-          };
-        }
+        if ("done" in opened) return opened.done;
+        const { session, now } = opened;
         // A session on the legacy pod lifecycle (pod_id without an
         // execution) has no kill outbox and no epoch its worker honours.
         // Accepting would promise a kill nothing can deliver, so it is

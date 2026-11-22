@@ -12,6 +12,7 @@ import {
   type SlackAppAgent,
   type SlackAppRecord,
   type SlackAppStore,
+  type SlackEventsCheck,
   secretOwnerRef,
 } from "@werft-ai/platform";
 import { and, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
@@ -73,6 +74,50 @@ const appOwner = (row: Pick<Row, "id">): SecretOwner => ({
   kind: "slack_app",
   id: row.id,
 });
+
+// One app once Slack has made it, as the conditions of an `and`.
+const createdApp = (workspaceId: string, slackAppId: string) => [
+  eq(slackApps.workspaceId, workspaceId),
+  eq(slackApps.id, slackAppId),
+  eq(slackApps.state, "created"),
+];
+
+const eventsColumns = (events: SlackEventsCheck) => ({
+  eventsState: events.state,
+  eventsCheckedAt:
+    events.checked_at === null ? null : new Date(events.checked_at),
+  eventsError: events.error ?? null,
+  updatedAt: DB_NOW,
+});
+
+/**
+ * What a begin does about the live app it found: reports one Slack has made
+ * or is still making, or abandons a lost `creating` row the caller asked to
+ * replace. Undefined when nothing stands in the way of a new one.
+ */
+async function standingApp(
+  tx: Database,
+  live: Row | undefined,
+  input: { staleBefore: Date; replaceUncertain: boolean },
+) {
+  if (!live) return undefined;
+  if (live.state !== "creating") {
+    return { outcome: "exists" as const, app: await recordOf(tx, live) };
+  }
+  const uncertain = live.createdAt < input.staleBefore;
+  if (!(uncertain && input.replaceUncertain)) {
+    return {
+      outcome: "creating" as const,
+      app: await recordOf(tx, live),
+      uncertain,
+    };
+  }
+  await tx
+    .update(slackApps)
+    .set({ state: "abandoned", updatedAt: DB_NOW })
+    .where(eq(slackApps.id, live.id));
+  return undefined;
+}
 
 function recordFrom(
   row: Row,
@@ -297,20 +342,8 @@ export function createPostgresSlackAppStore(
     async setEvents(workspaceId, slackAppId, events) {
       await db
         .update(slackApps)
-        .set({
-          eventsState: events.state,
-          eventsCheckedAt:
-            events.checked_at === null ? null : new Date(events.checked_at),
-          eventsError: events.error ?? null,
-          updatedAt: DB_NOW,
-        })
-        .where(
-          and(
-            eq(slackApps.workspaceId, workspaceId),
-            eq(slackApps.id, slackAppId),
-            eq(slackApps.state, "created"),
-          ),
-        );
+        .set(eventsColumns(events))
+        .where(and(...createdApp(workspaceId, slackAppId)));
     },
     async registerEventsUrl(workspaceId, slackAppId, url, checkedAt) {
       // Slack keeps a verified app's Request URL verified when a manifest
@@ -325,29 +358,15 @@ export function createPostgresSlackAppStore(
           eventsUrl: url,
           updatedAt: DB_NOW,
         })
-        .where(
-          and(
-            eq(slackApps.workspaceId, workspaceId),
-            eq(slackApps.id, slackAppId),
-            eq(slackApps.state, "created"),
-          ),
-        );
+        .where(and(...createdApp(workspaceId, slackAppId)));
     },
     async setEventsUnlessVerified(workspaceId, slackAppId, events) {
       await db
         .update(slackApps)
-        .set({
-          eventsState: events.state,
-          eventsCheckedAt:
-            events.checked_at === null ? null : new Date(events.checked_at),
-          eventsError: events.error ?? null,
-          updatedAt: DB_NOW,
-        })
+        .set(eventsColumns(events))
         .where(
           and(
-            eq(slackApps.workspaceId, workspaceId),
-            eq(slackApps.id, slackAppId),
-            eq(slackApps.state, "created"),
+            ...createdApp(workspaceId, slackAppId),
             ne(slackApps.eventsState, "verified"),
           ),
         );
@@ -470,23 +489,8 @@ export function createPostgresSlackAppStore(
             ),
           )
           .for("update");
-        if (live && live.state !== "creating") {
-          return { outcome: "exists" as const, app: await recordOf(tx, live) };
-        }
-        if (live) {
-          const uncertain = live.createdAt < input.staleBefore;
-          if (!(uncertain && input.replaceUncertain)) {
-            return {
-              outcome: "creating" as const,
-              app: await recordOf(tx, live),
-              uncertain,
-            };
-          }
-          await tx
-            .update(slackApps)
-            .set({ state: "abandoned", updatedAt: DB_NOW })
-            .where(eq(slackApps.id, live.id));
-        }
+        const standing = await standingApp(tx, live, input);
+        if (standing) return standing;
         if (!agent.active) return { outcome: "agent_not_active" as const };
         const [row] = await tx
           .insert(slackApps)
@@ -541,23 +545,8 @@ export function createPostgresSlackAppStore(
             ),
           )
           .for("update");
-        if (live && live.state !== "creating") {
-          return { outcome: "exists" as const, app: await recordOf(tx, live) };
-        }
-        if (live) {
-          const uncertain = live.createdAt < input.staleBefore;
-          if (!(uncertain && input.replaceUncertain)) {
-            return {
-              outcome: "creating" as const,
-              app: await recordOf(tx, live),
-              uncertain,
-            };
-          }
-          await tx
-            .update(slackApps)
-            .set({ state: "abandoned", updatedAt: DB_NOW })
-            .where(eq(slackApps.id, live.id));
-        }
+        const standing = await standingApp(tx, live, input);
+        if (standing) return standing;
         const [row] = await tx
           .insert(slackApps)
           .values({

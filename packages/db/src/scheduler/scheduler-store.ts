@@ -146,6 +146,21 @@ function holdsSlot() {
   return isNull(workerLaunches.slotReleasedAt);
 }
 
+/** The launch's execution is still meant to run: nothing asked it to go. */
+function launchStillWanted(db: Database) {
+  return exists(
+    db
+      .select({ one: sql`1` })
+      .from(executions)
+      .where(
+        and(
+          eq(executions.id, workerLaunches.executionId),
+          eq(executions.desiredState, DESIRED_RUNNING),
+        ),
+      ),
+  );
+}
+
 /**
  * The launch queue: the `unassigned_sessions` ⋈ `sessions` rows a scheduler
  * pass may launch, before its LIMIT. The platform metrics count the same
@@ -481,17 +496,7 @@ export function createPostgresSchedulerStore(
               isNull(workerLaunches.launchRetryAt),
               lte(workerLaunches.launchRetryAt, DB_NOW),
             ),
-            exists(
-              db
-                .select({ one: sql`1` })
-                .from(executions)
-                .where(
-                  and(
-                    eq(executions.id, workerLaunches.executionId),
-                    eq(executions.desiredState, DESIRED_RUNNING),
-                  ),
-                ),
-            ),
+            launchStillWanted(db),
           ),
         )
         .returning({ executionId: workerLaunches.executionId });
@@ -692,17 +697,7 @@ export function createPostgresSchedulerStore(
             holdsSlot(),
             // A launch asked to go since the pass read it — by a terminate,
             // or by the gateway failing its session — gets no new resource.
-            exists(
-              db
-                .select({ one: sql`1` })
-                .from(executions)
-                .where(
-                  and(
-                    eq(executions.id, workerLaunches.executionId),
-                    eq(executions.desiredState, DESIRED_RUNNING),
-                  ),
-                ),
-            ),
+            launchStillWanted(db),
           ),
         )
         .returning({ attempts: workerLaunches.launchAttempts });

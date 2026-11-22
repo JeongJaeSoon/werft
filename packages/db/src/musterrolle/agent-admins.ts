@@ -21,7 +21,13 @@ import {
 } from "../schema.ts";
 import { notDeleted } from "../soft-delete.ts";
 import { writeSucceededReceipt } from "../succeeded-receipt.ts";
-import { administers, hasOwner, liveMember } from "./administers.ts";
+import {
+  administers,
+  hasOwner,
+  liveAdminTeam,
+  liveAdminTeamMember,
+  liveMember,
+} from "./administers.ts";
 
 /**
  * `administers`, inside a write: the rows that make it true are share-locked
@@ -74,20 +80,8 @@ async function lockedAdminBasis(
     tx
       .select({ teamId: agentAdminTeams.teamId })
       .from(agentAdminTeams)
-      .innerJoin(
-        memberTeams,
-        and(
-          eq(memberTeams.id, agentAdminTeams.teamId),
-          isNull(memberTeams.archivedAt),
-        ),
-      )
-      .innerJoin(
-        memberTeamMembers,
-        and(
-          eq(memberTeamMembers.teamId, agentAdminTeams.teamId),
-          isNull(memberTeamMembers.removedAt),
-        ),
-      )
+      .innerJoin(memberTeams, liveAdminTeam())
+      .innerJoin(memberTeamMembers, liveAdminTeamMember())
       .where(
         and(
           eq(agentAdminTeams.workspaceId, workspaceId),

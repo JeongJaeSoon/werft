@@ -251,6 +251,140 @@ export async function lockAgentUsage(
 }
 
 /**
+ * The requester's own admin row of the agent, share-locked, and unless it is
+ * there, the teams the agent lists as admins, read without a lock.
+ */
+async function lockDirectAdmin(
+  tx: Database,
+  workspaceId: string,
+  agentId: string,
+  userId: string,
+): Promise<{ direct: boolean; adminTeams: string[] }> {
+  const direct = await tx
+    .select({ userId: agentAdmins.userId })
+    .from(agentAdmins)
+    .where(
+      and(
+        eq(agentAdmins.workspaceId, workspaceId),
+        eq(agentAdmins.agentId, agentId),
+        eq(agentAdmins.userId, userId),
+      ),
+    )
+    .limit(1)
+    .for("share");
+  if (direct.length > 0) return { direct: true, adminTeams: [] };
+  const adminTeams = (
+    await tx
+      .select({ teamId: agentAdminTeams.teamId })
+      .from(agentAdminTeams)
+      .where(
+        and(
+          eq(agentAdminTeams.workspaceId, workspaceId),
+          eq(agentAdminTeams.agentId, agentId),
+        ),
+      )
+  ).map((row) => row.teamId);
+  return { direct: false, adminTeams };
+}
+
+/** Those of `teamIds` not archived, share-locked in id order. */
+async function lockLiveTeams(
+  tx: Database,
+  workspaceId: string,
+  teamIds: string[],
+): Promise<Set<string>> {
+  return new Set(
+    (
+      await tx
+        .select({ id: memberTeams.id })
+        .from(memberTeams)
+        .where(
+          and(
+            eq(memberTeams.workspaceId, workspaceId),
+            inArray(memberTeams.id, teamIds),
+            isNull(memberTeams.archivedAt),
+          ),
+        )
+        .orderBy(asc(memberTeams.id))
+        .for("share")
+    ).map((row) => row.id),
+  );
+}
+
+/**
+ * Those of `teamIds` the agent still lists as admins, share-locked: a team
+ * removed from the agent since lockDirectAdmin read it is not lent any more.
+ */
+async function lockLending(
+  tx: Database,
+  workspaceId: string,
+  agentId: string,
+  teamIds: string[],
+): Promise<string[]> {
+  return (
+    await tx
+      .select({ teamId: agentAdminTeams.teamId })
+      .from(agentAdminTeams)
+      .where(
+        and(
+          eq(agentAdminTeams.workspaceId, workspaceId),
+          eq(agentAdminTeams.agentId, agentId),
+          inArray(agentAdminTeams.teamId, teamIds),
+        ),
+      )
+      .orderBy(asc(agentAdminTeams.teamId))
+      .for("share")
+  ).map((row) => row.teamId);
+}
+
+/** The requester's live rows in `teamIds` with their roles, share-locked. */
+function lockMemberRoles(tx: Database, teamIds: string[], userId: string) {
+  return tx
+    .select({ teamId: memberTeamMembers.teamId, role: memberTeamMembers.role })
+    .from(memberTeamMembers)
+    .where(
+      and(
+        inArray(memberTeamMembers.teamId, teamIds),
+        eq(memberTeamMembers.userId, userId),
+        isNull(memberTeamMembers.removedAt),
+      ),
+    )
+    .orderBy(asc(memberTeamMembers.id))
+    .for("share");
+}
+
+/**
+ * The admin rows of an agent whose row the caller holds, in the documented
+ * order: the requester's own admin row, the admin teams and the managing team
+ * that are live (id order), then the admin teams still lent. With `direct`
+ * nothing after it is read.
+ */
+async function lockAdminReach(
+  tx: Database,
+  workspaceId: string,
+  agentId: string,
+  managingTeamId: string,
+  userId: string,
+): Promise<{ direct: boolean; liveTeams: Set<string>; lending: string[] }> {
+  const { direct, adminTeams } = await lockDirectAdmin(
+    tx,
+    workspaceId,
+    agentId,
+    userId,
+  );
+  if (direct) return { direct, liveTeams: new Set(), lending: [] };
+  const teamIds = [...new Set([...adminTeams, managingTeamId])].sort();
+  const liveTeams = await lockLiveTeams(tx, workspaceId, teamIds);
+  if (liveTeams.size === 0) return { direct, liveTeams, lending: [] };
+  const liveAdminTeams = adminTeams.filter((id) => liveTeams.has(id));
+  const lending =
+    liveAdminTeams.length === 0
+      ? []
+      : await lockLending(tx, workspaceId, agentId, liveAdminTeams);
+  return { direct, liveTeams, lending };
+}
+
+/**
  * Whether the requester may start a session of `releaseId`'s agent, judged
  * again under the rows the policy's decision rests on: only those inside
  * the agent start it (agent-rbac (b)). After keyReaches, so an agent key is
@@ -283,67 +417,15 @@ export async function lockAgentUse(
     .for("share", { of: agents });
   if (!agent) return false;
   const published = agent.activeReleaseId !== null;
-  const direct = await tx
-    .select({ userId: agentAdmins.userId })
-    .from(agentAdmins)
-    .where(
-      and(
-        eq(agentAdmins.workspaceId, workspaceId),
-        eq(agentAdmins.agentId, agent.id),
-        eq(agentAdmins.userId, userId),
-      ),
-    )
-    .limit(1)
-    .for("share");
-  if (direct.length > 0) return true;
-  const adminTeams = (
-    await tx
-      .select({ teamId: agentAdminTeams.teamId })
-      .from(agentAdminTeams)
-      .where(
-        and(
-          eq(agentAdminTeams.workspaceId, workspaceId),
-          eq(agentAdminTeams.agentId, agent.id),
-        ),
-      )
-  ).map((row) => row.teamId);
-  const teamIds = [...new Set([...adminTeams, agent.managingTeamId])].sort();
-  const liveTeams = new Set(
-    (
-      await tx
-        .select({ id: memberTeams.id })
-        .from(memberTeams)
-        .where(
-          and(
-            eq(memberTeams.workspaceId, workspaceId),
-            inArray(memberTeams.id, teamIds),
-            isNull(memberTeams.archivedAt),
-          ),
-        )
-        .orderBy(asc(memberTeams.id))
-        .for("share")
-    ).map((row) => row.id),
+  const { direct, liveTeams, lending } = await lockAdminReach(
+    tx,
+    workspaceId,
+    agent.id,
+    agent.managingTeamId,
+    userId,
   );
+  if (direct) return true;
   if (liveTeams.size === 0) return false;
-  const liveAdminTeams = adminTeams.filter((id) => liveTeams.has(id));
-  // A team removed from the agent since the read above is not lent any more.
-  const lending =
-    liveAdminTeams.length === 0
-      ? []
-      : (
-          await tx
-            .select({ teamId: agentAdminTeams.teamId })
-            .from(agentAdminTeams)
-            .where(
-              and(
-                eq(agentAdminTeams.workspaceId, workspaceId),
-                eq(agentAdminTeams.agentId, agent.id),
-                inArray(agentAdminTeams.teamId, liveAdminTeams),
-              ),
-            )
-            .orderBy(asc(agentAdminTeams.teamId))
-            .for("share")
-        ).map((row) => row.teamId);
   const reaching = [
     ...lending,
     ...(liveTeams.has(agent.managingTeamId) ? [agent.managingTeamId] : []),
@@ -401,79 +483,16 @@ export async function lockPreviewManager(
     .limit(1)
     .for("share");
   if (!agent) return false;
-  const direct = await tx
-    .select({ userId: agentAdmins.userId })
-    .from(agentAdmins)
-    .where(
-      and(
-        eq(agentAdmins.workspaceId, workspaceId),
-        eq(agentAdmins.agentId, agentId),
-        eq(agentAdmins.userId, userId),
-      ),
-    )
-    .limit(1)
-    .for("share");
-  if (direct.length > 0) return true;
-  const adminTeams = (
-    await tx
-      .select({ teamId: agentAdminTeams.teamId })
-      .from(agentAdminTeams)
-      .where(
-        and(
-          eq(agentAdminTeams.workspaceId, workspaceId),
-          eq(agentAdminTeams.agentId, agentId),
-        ),
-      )
-  ).map((row) => row.teamId);
-  const teamIds = [...new Set([...adminTeams, agent.managingTeamId])].sort();
-  const liveTeams = new Set(
-    (
-      await tx
-        .select({ id: memberTeams.id })
-        .from(memberTeams)
-        .where(
-          and(
-            eq(memberTeams.workspaceId, workspaceId),
-            inArray(memberTeams.id, teamIds),
-            isNull(memberTeams.archivedAt),
-          ),
-        )
-        .orderBy(asc(memberTeams.id))
-        .for("share")
-    ).map((row) => row.id),
+  const { direct, liveTeams, lending } = await lockAdminReach(
+    tx,
+    workspaceId,
+    agentId,
+    agent.managingTeamId,
+    userId,
   );
+  if (direct) return true;
   if (liveTeams.size === 0) return false;
-  const liveAdminTeams = adminTeams.filter((id) => liveTeams.has(id));
-  // A team removed from the agent since the read above is not lent any more.
-  const lending =
-    liveAdminTeams.length === 0
-      ? []
-      : (
-          await tx
-            .select({ teamId: agentAdminTeams.teamId })
-            .from(agentAdminTeams)
-            .where(
-              and(
-                eq(agentAdminTeams.workspaceId, workspaceId),
-                eq(agentAdminTeams.agentId, agentId),
-                inArray(agentAdminTeams.teamId, liveAdminTeams),
-              ),
-            )
-            .orderBy(asc(agentAdminTeams.teamId))
-            .for("share")
-        ).map((row) => row.teamId);
-  const member = await tx
-    .select({ teamId: memberTeamMembers.teamId, role: memberTeamMembers.role })
-    .from(memberTeamMembers)
-    .where(
-      and(
-        inArray(memberTeamMembers.teamId, [...liveTeams]),
-        eq(memberTeamMembers.userId, userId),
-        isNull(memberTeamMembers.removedAt),
-      ),
-    )
-    .orderBy(asc(memberTeamMembers.id))
-    .for("share");
+  const member = await lockMemberRoles(tx, [...liveTeams], userId);
   return member.some(
     (row) =>
       lending.includes(row.teamId) ||
@@ -630,32 +649,12 @@ export async function lockSessionReach(
     }
   }
   if (agentId !== null && userId !== null) {
-    const direct = await tx
-      .select({ userId: agentAdmins.userId })
-      .from(agentAdmins)
-      .where(
-        and(
-          eq(agentAdmins.workspaceId, workspaceId),
-          eq(agentAdmins.agentId, agentId),
-          eq(agentAdmins.userId, userId),
-        ),
-      )
-      .limit(1)
-      .for("share");
-    directAdmin = direct.length > 0;
-    if (!directAdmin) {
-      adminTeams = (
-        await tx
-          .select({ teamId: agentAdminTeams.teamId })
-          .from(agentAdminTeams)
-          .where(
-            and(
-              eq(agentAdminTeams.workspaceId, workspaceId),
-              eq(agentAdminTeams.agentId, agentId),
-            ),
-          )
-      ).map((row) => row.teamId);
-    }
+    ({ direct: directAdmin, adminTeams } = await lockDirectAdmin(
+      tx,
+      workspaceId,
+      agentId,
+      userId,
+    ));
   }
 
   const leadTeams =
@@ -666,22 +665,7 @@ export async function lockSessionReach(
   const liveTeams =
     teamIds.length === 0
       ? new Set<string>()
-      : new Set(
-          (
-            await tx
-              .select({ id: memberTeams.id })
-              .from(memberTeams)
-              .where(
-                and(
-                  eq(memberTeams.workspaceId, workspaceId),
-                  inArray(memberTeams.id, teamIds),
-                  isNull(memberTeams.archivedAt),
-                ),
-              )
-              .orderBy(asc(memberTeams.id))
-              .for("share")
-          ).map((row) => row.id),
-        );
+      : await lockLiveTeams(tx, workspaceId, teamIds);
   await tx
     .select({ sessionId: sessionShares.sessionId })
     .from(sessionShares)
@@ -693,51 +677,26 @@ export async function lockSessionReach(
     .where(eq(sessionShareTargets.sessionId, session.id))
     .orderBy(asc(sessionShareTargets.id))
     .for("share");
-  // A team removed from the agent since the read above is not lent any more.
   const lending =
     agentId === null || adminTeams.length === 0
       ? new Set<string>()
       : new Set(
-          (
-            await tx
-              .select({ teamId: agentAdminTeams.teamId })
-              .from(agentAdminTeams)
-              .where(
-                and(
-                  eq(agentAdminTeams.workspaceId, workspaceId),
-                  eq(agentAdminTeams.agentId, agentId),
-                  inArray(
-                    agentAdminTeams.teamId,
-                    adminTeams.filter((id) => liveTeams.has(id)),
-                  ),
-                ),
-              )
-              .orderBy(asc(agentAdminTeams.teamId))
-              .for("share")
-          ).map((row) => row.teamId),
+          await lockLending(
+            tx,
+            workspaceId,
+            agentId,
+            adminTeams.filter((id) => liveTeams.has(id)),
+          ),
         );
   // Team id to the requester's role in it.
   const memberOf =
     userId === null || liveTeams.size === 0
       ? new Map<string, string>()
       : new Map(
-          (
-            await tx
-              .select({
-                teamId: memberTeamMembers.teamId,
-                role: memberTeamMembers.role,
-              })
-              .from(memberTeamMembers)
-              .where(
-                and(
-                  inArray(memberTeamMembers.teamId, [...liveTeams]),
-                  eq(memberTeamMembers.userId, userId),
-                  isNull(memberTeamMembers.removedAt),
-                ),
-              )
-              .orderBy(asc(memberTeamMembers.id))
-              .for("share")
-          ).map((row) => [row.teamId, row.role]),
+          (await lockMemberRoles(tx, [...liveTeams], userId)).map((row) => [
+            row.teamId,
+            row.role,
+          ]),
         );
 
   const inside =

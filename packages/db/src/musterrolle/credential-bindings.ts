@@ -9,7 +9,7 @@ import type {
 } from "@werft-ai/platform";
 import { receiptActorOf } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
-import { UUID } from "../control-shared.ts";
+import { agentExists, UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -325,20 +325,6 @@ export async function recordUnboundRefusal(
 export function createPostgresCredentialBindingStore(
   db: Database,
 ): CredentialBindingStore {
-  async function agentExists(
-    tx: Database,
-    workspaceId: string,
-    agentId: string,
-  ): Promise<boolean> {
-    const [agent] = await tx
-      .select({ id: agents.id })
-      .from(agents)
-      .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)))
-      .limit(1)
-      .for("key share");
-    return agent !== undefined;
-  }
-
   return {
     bind(input) {
       if (!UUID.test(input.agentId)) {

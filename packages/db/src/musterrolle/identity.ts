@@ -985,6 +985,40 @@ async function linkByVerifiedEmail(
 }
 
 /**
+ * The advisory lock of one external account, then its provider row FOR
+ * SHARE: false when the provider is no longer on with the settings the flow
+ * ran against. Every sign-in, sign-up and link through a provider opens with
+ * these two, in this order.
+ */
+export async function lockSubjectAndProvider(
+  tx: Database,
+  kind: "oidc",
+  input: {
+    issuer: string;
+    subject: string;
+    provider: { id: string; configRevision: number };
+  },
+): Promise<boolean> {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext(${`login:${kind}:${input.issuer}:${input.subject}`}))`,
+  );
+  const [provider] = await tx
+    .select({ id: loginProviders.id })
+    .from(loginProviders)
+    .where(
+      and(
+        eq(loginProviders.id, input.provider.id),
+        eq(loginProviders.enabled, true),
+        eq(loginProviders.issuer, input.issuer),
+        eq(loginProviders.configRevision, input.provider.configRevision),
+        notDeleted(loginProviders),
+      ),
+    )
+    .for("share");
+  return provider !== undefined;
+}
+
+/**
  * The first-entry rules for an external login (design 3.1, A.7), first
  * match wins: a linked (issuer, subject) signs in as its user; otherwise an
  * address the provider vouches for that already has an account is linked
@@ -1003,23 +1037,7 @@ export async function signInWithExternalIdentity(
   input: ExternalSignInInput,
 ): Promise<ExternalSignInResult> {
   return db.transaction(async (tx) => {
-    await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtext(${`login:${input.kind}:${input.issuer}:${input.subject}`}))`,
-    );
-    const [provider] = await tx
-      .select({ id: loginProviders.id })
-      .from(loginProviders)
-      .where(
-        and(
-          eq(loginProviders.id, input.provider.id),
-          eq(loginProviders.enabled, true),
-          eq(loginProviders.issuer, input.issuer),
-          eq(loginProviders.configRevision, input.provider.configRevision),
-          notDeleted(loginProviders),
-        ),
-      )
-      .for("share");
-    if (!provider) {
+    if (!(await lockSubjectAndProvider(tx, input.kind, input))) {
       return { outcome: "provider_off" };
     }
     const [linked] = await tx
@@ -1245,23 +1263,9 @@ export async function signUpWithInvite(
 ): Promise<InviteSignUpResult> {
   return db
     .transaction(async (tx): Promise<InviteSignUpResult> => {
-      await tx.execute(
-        sql`SELECT pg_advisory_xact_lock(hashtext(${`login:oidc:${input.issuer}:${input.subject}`}))`,
-      );
-      const [provider] = await tx
-        .select({ id: loginProviders.id })
-        .from(loginProviders)
-        .where(
-          and(
-            eq(loginProviders.id, input.provider.id),
-            eq(loginProviders.enabled, true),
-            eq(loginProviders.issuer, input.issuer),
-            eq(loginProviders.configRevision, input.provider.configRevision),
-            notDeleted(loginProviders),
-          ),
-        )
-        .for("share");
-      if (!provider) return { outcome: "provider_off" };
+      if (!(await lockSubjectAndProvider(tx, "oidc", input))) {
+        return { outcome: "provider_off" };
+      }
       // An invite's address never changes, so reading it unlocked is enough
       // to name the lock every path that creates an account takes.
       const [named] = await tx

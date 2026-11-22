@@ -25,6 +25,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import { agentExists } from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -111,20 +112,6 @@ function recordOf(
     updatedBy: row.updatedBy,
     updatedAt: row.updatedAt,
   };
-}
-
-async function agentExists(
-  tx: Database,
-  workspaceId: string,
-  agentId: string,
-): Promise<boolean> {
-  const [agent] = await tx
-    .select({ id: agents.id })
-    .from(agents)
-    .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)))
-    .limit(1)
-    .for("key share");
-  return agent !== undefined;
 }
 
 /**

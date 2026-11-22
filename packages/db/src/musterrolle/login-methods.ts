@@ -1,4 +1,3 @@
-import type { ReceiptOperation } from "@werft-ai/contracts";
 import type {
   LinkLoginMethodInput,
   LinkLoginMethodResult,
@@ -15,38 +14,16 @@ import {
   loginMethods,
   loginProviders,
   loginSettings,
-  receipts,
   users,
   webSessions,
 } from "../schema.ts";
 import { deletedBy, notDeleted } from "../soft-delete.ts";
-import { signUpWithInvite } from "./identity.ts";
-import { lockLoginSettings, passwordOpenTo } from "./login-settings.ts";
-
-async function writeReceipt(
-  tx: Database,
-  audit: { userId: string; workspaceId: string; receiptId: string },
-  operation: ReceiptOperation,
-  result: Record<string, unknown>,
-): Promise<void> {
-  await tx.insert(receipts).values({
-    id: audit.receiptId,
-    ownerId: audit.workspaceId,
-    operation,
-    targetRef: {
-      // The person is the actor; a receipt has no target kind for one.
-      resource: { kind: "workspace", id: audit.workspaceId },
-      workspace_id: audit.workspaceId,
-    },
-    status: "succeeded",
-    result,
-    actor: {
-      principal: { kind: "user", id: audit.userId },
-      actor_user_id: audit.userId,
-      agent_id: null,
-    },
-  });
-}
+import { lockSubjectAndProvider, signUpWithInvite } from "./identity.ts";
+import {
+  lockLoginSettings,
+  passwordOpenTo,
+  writeUserWorkspaceReceipt,
+} from "./login-settings.ts";
 
 /**
  * Links the external account to the user of the session the link was
@@ -59,23 +36,9 @@ async function linkLoginMethod(
   input: LinkLoginMethodInput,
 ): Promise<LinkLoginMethodResult> {
   return db.transaction(async (tx) => {
-    await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtext(${`login:oidc:${input.issuer}:${input.subject}`}))`,
-    );
-    const [provider] = await tx
-      .select({ id: loginProviders.id })
-      .from(loginProviders)
-      .where(
-        and(
-          eq(loginProviders.id, input.provider.id),
-          eq(loginProviders.enabled, true),
-          eq(loginProviders.issuer, input.issuer),
-          eq(loginProviders.configRevision, input.provider.configRevision),
-          notDeleted(loginProviders),
-        ),
-      )
-      .for("share");
-    if (!provider) return { outcome: "provider_off" };
+    if (!(await lockSubjectAndProvider(tx, "oidc", input))) {
+      return { outcome: "provider_off" };
+    }
     const [user] = await tx
       .select({ id: users.id })
       .from(users)
@@ -127,7 +90,7 @@ async function linkLoginMethod(
       subject: input.subject,
       emailAtLink: input.vouchedEmail,
     });
-    await writeReceipt(tx, input, "link_login_method", {
+    await writeUserWorkspaceReceipt(tx, input, "link_login_method", {
       login_method_id: input.newLoginMethodId,
       provider_id: input.provider.id,
       issuer: input.issuer,
@@ -317,7 +280,7 @@ async function unlinkLoginMethod(
       .update(loginMethods)
       .set(deletedBy(input.userId))
       .where(eq(loginMethods.id, target.id));
-    await writeReceipt(tx, input, "unlink_login_method", {
+    await writeUserWorkspaceReceipt(tx, input, "unlink_login_method", {
       login_method_id: target.id,
       kind: target.kind,
       issuer: target.issuer,

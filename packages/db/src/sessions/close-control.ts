@@ -13,13 +13,9 @@ import {
 } from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import {
-  controlClock,
-  controlReplay,
-  findIdempotent,
   type IdempotencyScope,
   liveDrainer,
-  lockIdempotencyScope,
-  lockSessionForControl,
+  openControl,
   transactionWithBindingRetry,
 } from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
@@ -137,26 +133,14 @@ export function closeAtomic(
   const startedAt = Date.now();
 
   return transactionWithBindingRetry(db, async (tx, attempt) => {
-    await lockIdempotencyScope(tx, scope);
-    const existing = await findIdempotent(tx, scope);
-    const replay = controlReplay(existing, input.payloadHash);
-    if (replay) return replay;
-    const session = await lockSessionForControl(tx, {
-      sessionId,
-      ownerId: scope.principal,
-      attempt,
+    const opened = await openControl(tx, attempt, scope, {
+      payloadHash: input.payloadHash,
+      expectedRevision: input.expectedRevision,
+      now: input.now,
+      startedAt,
     });
-    if (!session) return { outcome: "not_found" };
-    const now = controlClock(input.now, startedAt);
-    if (session.admissionState === "closed") {
-      return { outcome: "rejected", admissionState: "closed" };
-    }
-    if (session.revision !== input.expectedRevision) {
-      return {
-        outcome: "revision_conflict",
-        currentRevision: session.revision,
-      };
-    }
+    if ("done" in opened) return opened.done;
+    const { session, now } = opened;
     switch (session.admissionState) {
       case "active":
       case "paused":

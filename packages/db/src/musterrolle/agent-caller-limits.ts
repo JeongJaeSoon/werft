@@ -29,7 +29,7 @@ import {
 } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { captureMcpStart, captureWorkspaceMcpStart } from "../agents/index.ts";
-import { lockPeople, UUID } from "../control-shared.ts";
+import { UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import {
   agentGitHubSettingsOf,
@@ -48,7 +48,7 @@ import {
   memberTeams,
 } from "../schema.ts";
 import { writeSucceededReceipt } from "../succeeded-receipt.ts";
-import { lockEditRight } from "../usage/index.ts";
+import { lockAgentUsageForWrite, lockEditRight } from "../usage/index.ts";
 import { createPostgresDecisionLog } from "./authz-decisions.ts";
 
 // An edit takes rows in the order of agent-usage.ts: user → membership →
@@ -570,28 +570,14 @@ async function put(
     })),
   );
   return db.transaction(async (tx) => {
-    const people = await lockPeople(tx, workspaceId, [actor.userId]);
-    const me = people.find((p) => p.userId === actor.userId);
-    if (!me?.live) return { outcome: "actor_inactive" };
-    const manager = (input.managerRoles as readonly string[]).includes(me.role);
-
-    const [agent] = await tx
-      .select({ id: agents.id })
-      .from(agents)
-      .where(and(eq(agents.workspaceId, workspaceId), eq(agents.id, agentId)))
-      .for("no key update");
-    if (!agent) return { outcome: manager ? "not_found" : "actor_inactive" };
-
-    await tx
-      .insert(agentUsage)
-      .values({ agentId, workspaceId })
-      .onConflictDoNothing();
-    const [usage] = await tx
-      .select()
-      .from(agentUsage)
-      .where(eq(agentUsage.agentId, agentId))
-      .for("update");
-    if (!usage) throw new Error(`agent_usage ${agentId} vanished under a lock`);
+    const locked = await lockAgentUsageForWrite(tx, {
+      workspaceId,
+      agentId,
+      actorUserId: actor.userId,
+      managerRoles: input.managerRoles,
+    });
+    if ("outcome" in locked) return locked;
+    const { manager, usage } = locked;
 
     const stored = await readFacts(tx, agentId, false);
     if (!stored) throw new Error(`agent_usage ${agentId} vanished in its tx`);

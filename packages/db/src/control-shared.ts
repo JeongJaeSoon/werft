@@ -19,6 +19,7 @@ import {
 } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
+  agents,
   attempts,
   idempotencyKeys,
   memberships,
@@ -163,6 +164,24 @@ export async function actorStillMember(
     .limit(1)
     .for("share", { of: memberships });
   return live.length > 0;
+}
+
+/**
+ * Whether the workspace has the agent, holding its row FOR KEY SHARE so it
+ * cannot be removed under a write that refers to it.
+ */
+export async function agentExists(
+  tx: Database,
+  workspaceId: string,
+  agentId: string,
+): Promise<boolean> {
+  const [agent] = await tx
+    .select({ id: agents.id })
+    .from(agents)
+    .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)))
+    .limit(1)
+    .for("key share");
+  return agent !== undefined;
 }
 
 export type ControlStageMeasure = <T>(
@@ -378,6 +397,62 @@ export async function lockSessionForControl(
  */
 export function controlClock(callerNow: Date, startedAt: number): Date {
   return new Date(callerNow.getTime() + Math.max(0, Date.now() - startedAt));
+}
+
+/**
+ * How an owner's control on a session opens: the idempotency scope and a
+ * replay of its key, the session row (`scope.resource`) under
+ * lockSessionForControl, the clock, and the refusals every control shares.
+ * `done` is the result to return as it is.
+ */
+export async function openControl(
+  tx: Database,
+  attempt: number,
+  scope: IdempotencyScope,
+  input: {
+    payloadHash: string;
+    expectedRevision: number;
+    now: Date;
+    startedAt: number;
+    measure?: ControlStageMeasure;
+  },
+): Promise<
+  | {
+      done:
+        | NonNullable<ReturnType<typeof controlReplay>>
+        | { outcome: "not_found" }
+        | { outcome: "rejected"; admissionState: "closed" }
+        | { outcome: "revision_conflict"; currentRevision: number };
+    }
+  | { session: typeof sessions.$inferSelect; now: Date }
+> {
+  const measure = input.measure ?? (async (_stage, work) => work());
+  await measure("idempotency_lock_ms", () => lockIdempotencyScope(tx, scope));
+  const existing = await measure("idempotency_lookup_ms", () =>
+    findIdempotent(tx, scope),
+  );
+  const replay = controlReplay(existing, input.payloadHash);
+  if (replay) return { done: replay };
+  const session = await lockSessionForControl(tx, {
+    sessionId: scope.resource,
+    ownerId: scope.principal,
+    attempt,
+    ...(input.measure ? { measure: input.measure } : {}),
+  });
+  if (!session) return { done: { outcome: "not_found" } };
+  const now = controlClock(input.now, input.startedAt);
+  if (session.admissionState === "closed") {
+    return { done: { outcome: "rejected", admissionState: "closed" } };
+  }
+  if (session.revision !== input.expectedRevision) {
+    return {
+      done: {
+        outcome: "revision_conflict",
+        currentRevision: session.revision,
+      },
+    };
+  }
+  return { session, now };
 }
 
 /**
