@@ -97,7 +97,9 @@ Limitations:
 * Only plaintext **outer** ClientHello SNI is inspected. Without TLS termination, proxy cannot inspect HTTP Host/paths/bodies or allowed-service relays. CDN-side domain-fronting controls are separate.
 * IP literal allowlisting permits `IP:port`, not a hostname guarantee. Do not allowlist shared CDN edge IPs.
 * **Bun 1.3.10–1.3.13 fetch/node:https sends GREASE ECH and is rejected through CONNECT.** 1.3.14 does not. Bun `node:tls`/`Bun.connect({tls})`, Node, curl, and SDK-spawned Claude Code also omit it. Worker object-store access does not use CONNECT: plain HTTP goes to the worker-network proxy route; proxy establishes upstream TLS. AWS virtual-hosted routing requires `<bucket>.s3.<region>.amazonaws.com:443` in `EGRESS_CREDENTIAL_ALLOWLIST` (dotted buckets use path-style `s3.<region>.amazonaws.com:443`). Worker Bun HTTPS-upstream CONNECT clients are unsupported.
+
 **Workers cannot reach each other.** Separate networks prevent routing and name resolution. Proxy access to private addresses requires `EGRESS_PRIVATE_ALLOWLIST`. Other installations' workers/proxies are also unreachable through installation-specific networks and proxy selection.
+
 * Proxy is trusted and attached to every worker network: compromise reaches every worker in that installation. Do not put names resolving to workers in `EGRESS_PRIVATE_ALLOWLIST`.
 
 **Host processes are also unreachable.** Default `nat` internal bridges assign the host the first subnet address, letting workers directly reach host processes listening there or on wildcard addresses (not published ports). Worker networks use `gateway_mode_ipv4=isolated`, giving the host no address. This requires **Docker 28/API 1.48 or later**. Startup `verifyNetworkIsolation` rejects older APIs with `GatewayModeUnsupportedError`; no disable setting exists. Worker networks disable IPv6.

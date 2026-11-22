@@ -8,7 +8,7 @@ Translation of api-guide.mdx. The code blocks must stay identical to the Korean
 page: tests/docs-i18n-code.test.ts compares them. CI runs only the Korean page.
 */}
 
-This is a runnable guide for API users who want to find quickly "which endpoint to call in what order". The source of truth for request and response schemas is `docs/openapi.json`; the unauthenticated `GET /docs` of a deployed server serves a read-only reference together with `/docs/scalar.js` from the same origin. The [HTTP API pages](/reference/http-api/auth/getApiRoot) on this site are generated from the same spec. This guide does not copy schemas; it links to them by operation name. CI runs the `bash` blocks below as written against compose's fake Messages API, so they need no Anthropic account and cost nothing.
+This is a runnable guide for API users who want to find quickly "which endpoint to call in what order". The source of truth for request and response schemas is `docs/openapi.json`; the unauthenticated `GET /docs` of a deployed server serves a read-only reference together with `/docs/scalar.js` from the same origin. The [HTTP API pages](/reference/http-api/auth/getApiRoot) on this site are generated from the same spec. This guide does not copy schemas; it links to them by operation name. The `bash` blocks below run as written against compose's fake Messages API, so they need no Anthropic account and cost nothing.
 
 The examples use the local default address `http://127.0.0.1:3000`. For a deployed server, change only `API`.
 

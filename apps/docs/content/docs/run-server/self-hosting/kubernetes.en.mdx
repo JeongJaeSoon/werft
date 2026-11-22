@@ -24,6 +24,7 @@ Install a production server using the published Helm chart. Prepare PostgreSQL a
 | External access | Download charts and images from `ghcr.io` without signing in |
 
 Follow the [deployment package contract](/run-server/self-hosting/reference/packages) to select charts and packages. For non-AWS endpoints, align `config.aws.endpointUrl` and the credential allowlist and verify the protection contract.
+
 The chart does not create PostgreSQL, object storage, or Secret values. It also does not create worker Pods: the scheduler creates them per session. Published images are indexes containing `linux/amd64` and `linux/arm64`, so nodes pull their architecture.
 
 The chart does not create a Git server. Workers must reach repository URLs in the settings document through the egress proxy. The kind test Git server is not a production repository.

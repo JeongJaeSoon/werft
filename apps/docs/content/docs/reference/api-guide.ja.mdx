@@ -8,7 +8,7 @@ api-guide.mdx の翻訳です。コードブロックは韓国語ページと同
 tests/docs-i18n-code.test.ts が比較します。CI が実行するのは韓国語ページだけです。
 */}
 
-「どのエンドポイントをどの順で呼べばよいか」をすばやく知りたい API 利用者向けの、動かせるガイドです。リクエストとレスポンスのスキーマの正本は `docs/openapi.json` で、デプロイしたサーバーの認証不要な `GET /docs` が、同じオリジンの `/docs/scalar.js` とあわせて読み取り専用のリファレンスを返します。このサイトの [HTTP API ページ](/reference/http-api/auth/getApiRoot)も同じ仕様から生成されています。このガイドはスキーマを写さず、operation 名でリンクします。CI は下の `bash` ブロックを、compose の偽の Messages API に対して書かれたとおりに実行するので、Anthropic アカウントは要らず、費用もかかりません。
+「どのエンドポイントをどの順で呼べばよいか」をすばやく知りたい API 利用者向けの、動かせるガイドです。リクエストとレスポンスのスキーマの正本は `docs/openapi.json` で、デプロイしたサーバーの認証不要な `GET /docs` が、同じオリジンの `/docs/scalar.js` とあわせて読み取り専用のリファレンスを返します。このサイトの [HTTP API ページ](/reference/http-api/auth/getApiRoot)も同じ仕様から生成されています。このガイドはスキーマを写さず、operation 名でリンクします。下の `bash` ブロックは compose の偽の Messages API に対して書かれたとおりに動くので、Anthropic アカウントは要らず、費用もかかりません。
 
 例ではローカルの既定アドレス `http://127.0.0.1:3000` を使います。デプロイしたサーバーでは `API` だけを変えます。
 
