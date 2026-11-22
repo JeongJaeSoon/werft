@@ -14,6 +14,8 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **Slack·GitHub 계정 연결의 일회용 state가 봉인된 cookie로 바뀌어, 올리는 순간 진행 중이던 연결은 한 번 실패한다**(JeongJaeSoon/werft#1997). `werft_slack_link`·`werft_github_link`의 값을 로그인 공급자 flow cookie와 같은 방식(AES-256-GCM, master key에서 뽑은 키)으로 봉인한다. 옛 형식의 cookie는 읽지 않으므로, 올리기 전에 연결을 시작해 동의 화면에 있던 사람은 callback에서 `400`(다시 시작 안내)을 받고 처음부터 다시 한다. 호환 경로는 없다. 데이터와 이미 연결된 계정에는 영향이 없다. Slack 연결도 이제 서버가 시작 뒤 10분을 검사한다(이전에는 브라우저의 cookie 만료에만 기댔다).
+
 - **worker가 `packages`가 없는 bootstrap claim을 계약 위반으로 거절한다**(JeongJaeSoon/werft#1991). 지원 창 안의 control-host(`v0.3.0`부터)는 claim마다 `packages`를 보내므로, control-host를 먼저 올리는 순서를 지키면 할 일은 없다. `packages`를 보내지 않는 더 옛 control-host에 이 worker 이미지를 붙이면 세션이 시작하지 않는다. 그런 control-host를 만났을 때 HOME의 npm·Bundler·Go 설정을 지우던 동작도 없어졌다.
 
 - **Slack 계정 연결(Sign in with Slack)이 로그인 공급자와 같은 주소 규칙과 id_token 검사를 받는다**(JeongJaeSoon/werft#1995).
