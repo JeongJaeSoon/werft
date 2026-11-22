@@ -699,7 +699,9 @@ describe("Slack events service", () => {
       ),
     );
     expect(mention).toMatchObject({ status: "received" });
-    const [row] = [...w.inbox.rows.values()];
+    const [row] = [...w.inbox.rows.values()].flatMap((item) =>
+      item.status === "received" ? [item] : [],
+    );
     const event = (row?.payload as { event: Record<string, unknown> }).event;
     expect(event.bot_id).toBe("B0REVIEW");
     expect(event.text).toBe(`<@${BOT_USER}>`);
