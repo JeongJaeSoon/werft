@@ -411,6 +411,46 @@ integration("account recovery on PostgreSQL", () => {
     expect((await start().bootstrap()).status).toBe(201);
   });
 
+  test("racing redemptions of one link make one owner; a racing issue never outlives the owner", async () => {
+    const { db, start, ownerId } = await install();
+    const disableOwner = () =>
+      db
+        .update(users)
+        .set({ disabledAt: new Date() })
+        .where(eq(users.id, ownerId));
+    const identity = new DatabaseIdentityStore(db);
+
+    await disableOwner();
+    const link = await issueSetupToken(identity);
+    if (link === null) throw new Error("no link issued");
+    const raced = await Promise.all([
+      start().bootstrap(undefined, link),
+      start().bootstrap(undefined, link),
+    ]);
+    // The loser sees either the live owner (409) or the spent link (401).
+    const [won, lost] = raced.map((r) => r.status).sort();
+    expect(won).toBe(201);
+    expect([401, 409]).toContain(lost);
+    expect(await db.$count(setupLinks)).toBe(0);
+
+    await disableOwner();
+    const older = await issueSetupToken(identity);
+    if (older === null) throw new Error("no link issued");
+    const [redeemed, newer] = await Promise.all([
+      start().bootstrap(undefined, older),
+      issueSetupToken(identity),
+    ]);
+    if (redeemed.status === 201) {
+      // Bootstrap went first: the issue saw a live owner, or its link was retired.
+      expect(await db.$count(setupLinks)).toBe(0);
+    } else {
+      // The issue went first and replaced the link the bootstrap carried.
+      expect(redeemed.status).toBe(401);
+      expect(newer).not.toBeNull();
+      expect(await db.$count(setupLinks)).toBe(1);
+    }
+  });
+
   for (const comeback of ["account", "membership", "promotion"] as const) {
     test(`an owner made live by ${comeback} retires the open setup link`, async () => {
       const { db, start, ownerId, memberId } = await install();
