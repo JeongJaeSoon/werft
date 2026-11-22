@@ -232,8 +232,7 @@ export async function reachesBeforePublishNow(
 /**
  * True where `userId`, a live member of `workspaceId`, is inside `agentId`:
  * an owner or admin, one of its admins (`administers`), or a live member of
- * its live managing team (agent-rbac design (b)) once the agent is published
- * (`reachesBeforePublish`).
+ * its live managing team once the agent is published (`reachesBeforePublish`).
  */
 export function insideAgent(
   db: Database,

@@ -4523,9 +4523,9 @@ export const agentCallerLimits = pgTable(
   ],
 );
 
-// Who sees a session. No row reads as `workspace`, which is what every session
-// made before this table, and every web, API and channel session since, starts
-// as.
+// Who sees a session. No row reads as `workspace`, which is what every
+// session made before this table, and every web, API and channel session
+// since, starts as.
 export const sessionShares = pgTable(
   "session_shares",
   {

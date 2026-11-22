@@ -338,9 +338,9 @@ const TOOL_USE_FRAME_WAIT_MS = 10_000;
 const PARKED_STATE_MAX_BYTES = 1024 * 1024;
 const NOTHING_WAITING = "The turn is no longer waiting on a person alone";
 /**
- * The most an approval-wait checkpoint may take, lease to upload. Past it the
- * request is registered without one, and a crash leaves the turn unknown as
- * before.
+ * The most an approval-wait checkpoint may take, lease to upload. Past it
+ * the request is registered without one, and a crash leaves the turn unknown
+ * as before.
  */
 const APPROVAL_CHECKPOINT_MS = 10_000;
 

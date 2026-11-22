@@ -324,9 +324,9 @@ async function deleteSecrets(
 
 /**
  * Disconnects every connection `userId` made, in one workspace or (null) all of
- * them, when their membership or account is disabled. The tokens are dropped
- * without revocation: there is no outbound call inside the offboarding
- * transaction.
+ * them, when their membership or account is disabled. The tokens are
+ * dropped without revocation: there is no outbound call inside the
+ * offboarding transaction.
  */
 export async function disconnectWorkspaceMcpOf(
   tx: Database,

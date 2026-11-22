@@ -1023,9 +1023,9 @@ export async function lockSubjectAndProvider(
  * (issuer, subject) signs in as its user; otherwise an address the provider
  * vouches for that already has an account is linked to it
  * (linkByVerifiedEmail), and only an address with no account may be admitted by
- * a live invite or by JIT. Concurrent first logins of one external account are
- * serialised by the advisory lock, so the second one finds the link the first
- * made.
+ * a live invite or by JIT. Concurrent first logins of one external account
+ * are serialised by the advisory lock, so the second one finds the link the
+ * first made.
  *
  * Locks run subject, then provider row, then email, invite, user, login
  * method, session. The provider row is held FOR SHARE to the end, so
