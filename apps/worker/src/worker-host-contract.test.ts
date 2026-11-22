@@ -17,6 +17,7 @@ import { unwiredCheckpoints } from "./checkpoint.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
 import { ScriptedRun } from "./testing/scripted-run.ts";
+import { waitFor } from "./testing/wait-for.ts";
 import { WorkerHost, type WorkerLogger } from "./worker-host.ts";
 import { noWorkspace } from "./workspace.ts";
 
@@ -96,13 +97,6 @@ function host(
     workspace: noWorkspace,
   });
   return { gateway, worker };
-}
-
-async function until(condition: () => boolean, label: string): Promise<void> {
-  for (let waited = 0; !condition(); waited += 5) {
-    if (waited > 2_000) throw new Error(`Timed out waiting for ${label}`);
-    await Bun.sleep(5);
-  }
 }
 
 /** A tool call in the run's own words: no Claude message shape anywhere. */
@@ -928,7 +922,7 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     });
     gateway.enqueue("hello");
     const loop = worker.runLoop();
-    await until(() => gateway.registrations.length === 1, "the request");
+    await waitFor(() => gateway.registrations.length === 1, "the request");
 
     worker.drain("received SIGTERM");
     await loop;
@@ -1174,12 +1168,12 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     gateway.enqueue("first");
     gateway.enqueue("second");
     const loop = worker.runLoop();
-    await until(() => callSent, "call_1 sent");
+    await waitFor(() => callSent, "call_1 sent");
     await Bun.sleep(50);
     expect(gateway.registered()).toEqual([]);
     releaseCall?.();
     for (const id of ["call_1", "call_2"]) {
-      await until(
+      await waitFor(
         () =>
           gateway
             .registered()
@@ -1293,7 +1287,7 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     const { gateway, worker } = host(run);
     gateway.enqueue("deploy");
     const loop = worker.runLoop();
-    await until(() => gateway.registered().length === 1, "the registration");
+    await waitFor(() => gateway.registered().length === 1, "the registration");
     gateway.interrupt("1");
 
     await loop;
@@ -1330,7 +1324,10 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       const { gateway, worker } = host(run);
       gateway.enqueue("hello");
       const loop = worker.runLoop();
-      await until(() => gateway.registered().length === 1, "the registration");
+      await waitFor(
+        () => gateway.registered().length === 1,
+        "the registration",
+      );
       gateway.answer({
         request_id: gateway.requestIdFor("call_said"),
         kind: "permission",

@@ -16,6 +16,7 @@ import {
   quotaForTestDaemon,
   removeWorkerNetworks,
   startStandInProxy,
+  testDockerHost,
 } from "./testing.ts";
 import {
   DEFAULT_MIGRATION_HELPER_IMAGE,
@@ -36,19 +37,8 @@ const IMAGE = process.env.DOCKER_BACKEND_TEST_IMAGE ?? "busybox:1.36";
 const HELPER_IMAGE =
   process.env.EXECUTION_WORKSPACE_MIGRATION_IMAGE ||
   DEFAULT_MIGRATION_HELPER_IMAGE;
-const dockerHost = process.env.DOCKER_HOST ?? (await defaultDockerHost());
+const dockerHost = await testDockerHost();
 const QUOTA_BYTES = 64 * 1024 * 1024;
-
-async function defaultDockerHost(): Promise<string> {
-  const candidates = [
-    "/var/run/docker.sock",
-    `${process.env.HOME}/.docker/run/docker.sock`,
-  ];
-  for (const path of candidates) {
-    if (await Bun.file(path).exists()) return `unix://${path}`;
-  }
-  return "unix:///var/run/docker.sock";
-}
 
 /** A worker's tree: nested files, an owner that is not root, a symlink, modes. */
 const SEED = [

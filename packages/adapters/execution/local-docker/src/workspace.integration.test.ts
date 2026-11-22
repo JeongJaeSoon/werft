@@ -16,6 +16,7 @@ import {
   quotaForTestDaemon,
   removeWorkerNetworks,
   startStandInProxy,
+  testDockerHost,
 } from "./testing.ts";
 
 /**
@@ -36,7 +37,7 @@ import {
 const enabled = process.env.DOCKER_BACKEND_TEST === "1";
 const integration = enabled ? describe : describe.skip;
 const IMAGE = process.env.DOCKER_BACKEND_TEST_IMAGE ?? "busybox:1.36";
-const dockerHost = process.env.DOCKER_HOST ?? (await defaultDockerHost());
+const dockerHost = await testDockerHost();
 /** Small enough that filling it is a second of `dd`, not a minute. */
 const QUOTA_BYTES = 64 * 1024 * 1024;
 /** Small enough that exhausting it is a few seconds of `touch`. */
@@ -110,17 +111,6 @@ function exhaustInodes(limit: number): string {
     "done",
     "exit 5",
   ].join("\n");
-}
-
-async function defaultDockerHost(): Promise<string> {
-  const candidates = [
-    "/var/run/docker.sock",
-    `${process.env.HOME}/.docker/run/docker.sock`,
-  ];
-  for (const path of candidates) {
-    if (await Bun.file(path).exists()) return `unix://${path}`;
-  }
-  return "unix:///var/run/docker.sock";
 }
 
 integration("workspace volumes against a real daemon", () => {

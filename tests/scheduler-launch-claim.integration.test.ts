@@ -16,7 +16,10 @@ import {
   volumeLabelsOf,
   workspaceVolumePrefixFor,
 } from "@werft-ai/execution-local-docker";
-import { removeWorkerNetworks } from "@werft-ai/execution-local-docker/testing";
+import {
+  removeWorkerNetworks,
+  testDockerHost,
+} from "@werft-ai/execution-local-docker/testing";
 import { createLogger } from "@werft-ai/observability";
 import {
   admitsReservations,
@@ -63,18 +66,7 @@ const SHELL_IMAGE = process.env.DOCKER_BACKEND_TEST_IMAGE ?? "busybox:1.36";
 const PROXY_SOURCE = resolve(import.meta.dir, "..", "apps/egress-proxy");
 const MESSAGE = "hello from the scheduler";
 
-const dockerHost = process.env.DOCKER_HOST ?? (await defaultDockerHost());
-
-async function defaultDockerHost(): Promise<string> {
-  const candidates = [
-    "/var/run/docker.sock",
-    `${process.env.HOME}/.docker/run/docker.sock`,
-  ];
-  for (const path of candidates) {
-    if (await Bun.file(path).exists()) return `unix://${path}`;
-  }
-  return "unix:///var/run/docker.sock";
-}
+const dockerHost = await testDockerHost();
 
 /**
  * What the worker does, as a file on its workspace volume. A real worker is a
@@ -110,8 +102,8 @@ const claimed = await post("bootstrap-claim", nonce, {
   credential: { kind: "launch_nonce", nonce },
 });
 console.log("CLAIMED " + claimed.session_id + " " + claimed.attempt_id);
-// The claim carries a token for the credential route, never the key
-// (94S-252); the route is on the proxy's own name, which NO_PROXY exempts.
+// The claim carries a token for the credential route, never the key; the
+// route is on the proxy's own name, which NO_PROXY exempts.
 console.log(
   "PROVIDER " +
     claimed.runtime_config.provider.auth.kind +
