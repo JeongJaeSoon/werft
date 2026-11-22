@@ -27,6 +27,14 @@ export function knownSlackSource(_mark: SlackSourceMarkColumns): SQL {
   return sql`false`;
 }
 
+/**
+ * Holds one message's marks until the transaction ends: an edit that cannot
+ * see a delete not committed yet would otherwise leave its mark beside it.
+ */
+export function lockSlackSourceMark(mark: Omit<SlackSourceMark, "at">): SQL {
+  return sql`SELECT pg_advisory_xact_lock(hashtext('slack_source_marks'), hashtext(concat_ws('|', ${mark.workspaceId}::text, ${mark.teamId}::text, ${mark.channelId}::text, ${mark.ts}::text)))`;
+}
+
 export function createPostgresSlackSourceMarkStore(
   db: Database,
 ): SlackSourceMarkStore {
@@ -35,6 +43,7 @@ export function createPostgresSlackSourceMarkStore(
   return {
     markDeleted(mark) {
       return db.transaction(async (tx) => {
+        await tx.execute(lockSlackSourceMark(mark));
         const inserted = await tx.execute(sql`
           INSERT INTO deleted_sources (workspace_id, team_id, channel_id, ts, deleted_at)
           VALUES (${key(mark)}, ${mark.at.toISOString()}::timestamptz)
@@ -46,8 +55,10 @@ export function createPostgresSlackSourceMarkStore(
         return rowsOf(inserted).length > 0 ? "recorded" : "duplicate";
       });
     },
-    async markEdited(mark) {
-      const written = await db.execute(sql`
+    markEdited(mark) {
+      return db.transaction(async (tx) => {
+        await tx.execute(lockSlackSourceMark(mark));
+        const written = await tx.execute(sql`
         INSERT INTO edited_sources (workspace_id, team_id, channel_id, ts, edited_at)
         SELECT ${key(mark)}, ${mark.at.toISOString()}::timestamptz
         WHERE NOT EXISTS (
@@ -58,7 +69,8 @@ export function createPostgresSlackSourceMarkStore(
           SET edited_at = GREATEST(edited_sources.edited_at, EXCLUDED.edited_at),
               marked_at = now()
         RETURNING ts`);
-      return rowsOf(written).length > 0 ? "recorded" : "deleted";
+        return rowsOf(written).length > 0 ? "recorded" : "deleted";
+      });
     },
   };
 }

@@ -235,6 +235,8 @@ type SourceChange = {
   kind: "deleted" | "edited";
   channelId: string;
   ts: string;
+  /** Slack's time of the delete (`event_ts`) or of the edit (`edited.ts`). */
+  at: string | undefined;
 };
 
 /**
@@ -250,22 +252,24 @@ function sourceChange(event: SlackEventCallback["event"]): SourceChange | null {
   const previous = event.previous_message as { ts?: unknown } | undefined;
   let kind: SourceChange["kind"];
   let ts: string | undefined;
+  let at = tsOf(event.event_ts);
   if (event.subtype === "message_deleted") {
     kind = "deleted";
     ts = tsOf(event.deleted_ts) ?? tsOf(previous?.ts);
   } else if (event.subtype === "message_changed") {
     const inner = event.message as
-      | { subtype?: unknown; edited?: unknown; ts?: unknown }
+      | { subtype?: unknown; edited?: { ts?: unknown } | null; ts?: unknown }
       | undefined;
     if (inner?.subtype === "tombstone") kind = "deleted";
     else if (typeof inner?.edited === "object" && inner.edited !== null) {
       kind = "edited";
+      at = tsOf(inner.edited.ts) ?? at;
     } else return null;
     ts = tsOf(inner.ts) ?? tsOf(previous?.ts);
   } else return null;
   return channelId === undefined || ts === undefined
     ? null
-    : { kind, channelId, ts };
+    : { kind, channelId, ts, at };
 }
 
 function hasBotTokens(event: SlackEventCallback["event"]): boolean {
@@ -330,9 +334,11 @@ export function createSlackEventsService(deps: {
         channelId: change.channelId,
         ts: change.ts,
         at:
-          envelope.event_time === undefined
-            ? now()
-            : new Date(envelope.event_time * 1000),
+          change.at !== undefined
+            ? new Date(Number(change.at) * 1000)
+            : envelope.event_time === undefined
+              ? now()
+              : new Date(envelope.event_time * 1000),
       };
       await (change.kind === "deleted"
         ? deps.sourceMarks.markDeleted(mark)

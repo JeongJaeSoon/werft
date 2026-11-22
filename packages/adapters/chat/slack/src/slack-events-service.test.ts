@@ -1203,7 +1203,9 @@ describe("Slack edits and deletes", () => {
     workspaceId: WORKSPACE,
     teamId: TEAM,
     channelId: "C0CHAN",
-    at: NOW,
+    // Slack's own time of the change (event_ts, edited.ts), not the
+    // envelope's, which the world sets to NOW.
+    at: new Date(1792800000 * 1000),
   };
 
   test("a delete leaves one mark and an inbox row processed without its payload", async () => {
@@ -1295,13 +1297,20 @@ describe("Slack edits and deletes", () => {
     expect(await w.service.receive(w.signed(w.event(EDITED)))).toMatchObject({
       status: "processed",
     });
-    const later = new Date(NOW.getTime() + 60_000);
+    // A later edit whose event Slack sent at the same envelope time.
+    const later = new Date((1792800000 + 60) * 1000);
     await w.service.receive(
       w.signed(
-        w.event(EDITED, {
-          eventId: "Ev0EDIT2",
-          eventTime: NOW_SECONDS + 60,
-        }),
+        w.event(
+          {
+            ...EDITED,
+            message: {
+              ...EDITED.message,
+              edited: { user: "U0P", ts: "1792800060.000100" },
+            },
+          },
+          { eventId: "Ev0EDIT2" },
+        ),
       ),
     );
     // An unfurl or a reply count: no `edited` on the message.
