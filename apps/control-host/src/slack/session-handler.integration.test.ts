@@ -23,6 +23,7 @@ import {
   createPostgresAgentIdentityStore,
   createPostgresAgentStore,
   createPostgresCredentialBindingStore,
+  createPostgresGitHubMcpStore,
   createPostgresSessionLinkStore,
   createPostgresSessionReader,
   createPostgresSlackAppStore,
@@ -1660,6 +1661,14 @@ describe.each(ENGINES)("Slack bot mentions on %s", (engine) => {
     const [link] = await links();
     expect(link).toMatchObject({ sessionId: session?.id, createdBy: null });
     expect(notices).toEqual([]);
+    // The built-in GitHub tools judge a call by the session's creator, and
+    // this one has none: they stay closed to it, as no person stands behind
+    // a bot's turn.
+    const github = await createPostgresGitHubMcpStore(db).sessionState(
+      session?.id ?? "",
+    );
+    expect(github === null).toBe(false);
+    expect(github?.actor).toBeNull();
   });
 
   test("a bot not allowed, a deleted bot, one in a DM and an unmentioned bot reply start nothing", async () => {
