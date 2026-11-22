@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "./migrate.ts";
@@ -135,6 +136,23 @@ describe("0312 session link history", () => {
     ]);
   });
 
+  test("every statement runs again on a database it already changed", async () => {
+    // As migrate runs it on PGlite, which builds no index concurrently.
+    const statements = readFileSync(
+      join(MIGRATIONS_FOLDER, `${TAG}.sql`),
+      "utf8",
+    )
+      .split("--> statement-breakpoint")
+      .map((statement) =>
+        statement.replaceAll(/\bINDEX CONCURRENTLY\b/g, "INDEX"),
+      );
+    const built = await uniques("session_links");
+    for (const statement of statements) {
+      await client.exec(statement);
+    }
+    expect(await uniques("session_links")).toEqual(built);
+  });
+
   test("leaves the rows already there open and the outbox rows without a link", async () => {
     const link = await client.query(
       "SELECT closed_at, closed_reason FROM session_links WHERE id = $1",
@@ -221,7 +239,8 @@ describe("0312 session link history", () => {
     }
   });
 
-  test("an outbox row may name only a link that exists", async () => {
+  // Other outbox keys fail first on a bare row, so the definition is read.
+  test("the outbox row's link column refers to session_links", async () => {
     const { rows } = await client.query<{ def: string }>(
       "SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'slack_outbox_session_link_fk'",
     );
