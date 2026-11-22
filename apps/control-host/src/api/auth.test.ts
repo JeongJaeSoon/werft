@@ -1,16 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  existsSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import {
   apiErrorResponseSchema,
   authMeResponseSchema,
   bootstrapResponseSchema,
@@ -26,7 +15,6 @@ import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   BootstrapDoneError,
   type BootstrapInput,
-  BootstrapTokenSpentError,
   type ConsumePasswordResetInput,
   type ExternalSignInResult,
   type IdentityStore,
@@ -36,24 +24,24 @@ import {
   type IssuePasswordResetResult,
   type LoginSettingsStore,
   type ResolvedWebSession,
+  SetupLinkInvalidError,
 } from "@werft-ai/platform";
 import { Hono } from "hono";
 import { BODY_IDLE_TIMEOUT_SECONDS } from "./app.ts";
 import {
   apiKeyPrincipal,
-  bootstrapGateFromEnv,
   createAuthenticator,
-  createBootstrapGate,
   csrfViolation,
   hashPassword,
   hashWebSessionToken,
+  issueSetupToken,
   LoginLockout,
+  SETUP_LINK_TTL_MS,
   unauthenticatedPrincipal,
   WEB_SESSION_TTL_MS,
   WEB_SESSIONS_PER_USER,
   WorkGate,
 } from "./auth.ts";
-import { takeBootstrapTokenFile } from "./bootstrap-token-file.ts";
 import {
   REQUEST_IDLE_TIMEOUT_SECONDS,
   RESPONSE_IDLE_TIMEOUT_SECONDS,
@@ -96,7 +84,8 @@ class MemoryIdentityStore implements IdentityStore {
     expiresAt: Date;
     spent: boolean;
   }> = [];
-  spentBootstrapTokens = new Set<string>();
+  /** Setup link token hash (hex) to its expiry. */
+  setupLinks = new Map<string, number>();
   receipts: Array<{
     id: string;
     operation: string;
@@ -120,11 +109,10 @@ class MemoryIdentityStore implements IdentityStore {
     if ((await this.countLiveOwners()) > 0) {
       throw new BootstrapDoneError();
     }
-    const spent = Buffer.from(input.bootstrapTokenHash).toString("hex");
-    if (this.spentBootstrapTokens.has(spent)) {
-      throw new BootstrapTokenSpentError();
+    if (!this.linkIsLive(input.setupTokenHash)) {
+      throw new SetupLinkInvalidError();
     }
-    this.spentBootstrapTokens.add(spent);
+    this.setupLinks.clear();
     const recovered = this.users.length > 0;
     let workspace = this.workspaces[0];
     if (!workspace) {
@@ -185,8 +173,23 @@ class MemoryIdentityStore implements IdentityStore {
     }
     return { user, workspace, recovered };
   }
-  async retireBootstrapToken(tokenHash: Uint8Array) {
-    this.spentBootstrapTokens.add(Buffer.from(tokenHash).toString("hex"));
+  private linkIsLive(tokenHash: Uint8Array) {
+    const expiresAt = this.setupLinks.get(
+      Buffer.from(tokenHash).toString("hex"),
+    );
+    return expiresAt !== undefined && expiresAt > this.now();
+  }
+  async issueSetupLink(tokenHash: Uint8Array, ttlMs: number) {
+    if ((await this.countLiveOwners()) > 0) return "owner_exists" as const;
+    this.setupLinks.clear();
+    this.setupLinks.set(
+      Buffer.from(tokenHash).toString("hex"),
+      this.now() + ttlMs,
+    );
+    return "issued" as const;
+  }
+  async setupLinkIsLive(tokenHash: Uint8Array) {
+    return this.linkIsLive(tokenHash);
   }
   async issuePasswordReset(
     input: IssuePasswordResetInput,
@@ -377,7 +380,7 @@ class MemoryIdentityStore implements IdentityStore {
   }
 }
 
-const BOOTSTRAP_TOKEN = "t".repeat(40);
+const SETUP_TOKEN = "t".repeat(40);
 const PASSWORD = "correct horse battery staple";
 const WRONG = "not the password at all";
 const API_KEY = "csp_test-key";
@@ -396,17 +399,20 @@ function harness(
     authMode?: string;
     lockout?: LoginLockout;
     passwordWork?: WorkGate;
-    bootstrapToken?: string;
     loginSettings?: Pick<LoginSettingsStore, "read">;
   } = {},
 ) {
   const identity = new MemoryIdentityStore();
+  // As if the operator had run the setup-link command once.
+  identity.setupLinks.set(
+    Buffer.from(hashWebSessionToken(SETUP_TOKEN)).toString("hex"),
+    identity.now() + SETUP_LINK_TTL_MS,
+  );
   const sink = new MemoryLogSink();
   const logger = new StructuredLogger({ sinks: [sink] });
   const hooks: { beforeReauth?: () => void } = {};
   const auth = {
     identity,
-    bootstrap: createBootstrapGate(options.bootstrapToken ?? BOOTSTRAP_TOKEN),
     logger,
     passwords: new PasswordChecks(options.lockout, options.passwordWork),
     ...(options.loginSettings ? { loginSettings: options.loginSettings } : {}),
@@ -449,7 +455,7 @@ function harness(
     });
   const bootstrap = (overrides: Record<string, unknown> = {}) =>
     json("/v1/auth/bootstrap", {
-      bootstrap_token: options.bootstrapToken ?? BOOTSTRAP_TOKEN,
+      setup_token: SETUP_TOKEN,
       email: "Owner@Example.com",
       password: PASSWORD,
       display_name: "Owner",
@@ -475,7 +481,7 @@ async function errorCode(response: Response): Promise<string> {
 }
 
 describe("bootstrap", () => {
-  test("creates the first owner once, then answers 409 BOOTSTRAP_DONE", async () => {
+  test("a setup link creates the first owner once; using it again is refused", async () => {
     const h = harness();
     const first = await h.bootstrap();
     expect(first.status).toBe(201);
@@ -484,13 +490,37 @@ describe("bootstrap", () => {
     expect(body.workspace.slug).toBe("acme");
     expect(h.identity.users[0]?.email).toBe("owner@example.com");
     expect(h.identity.users[0]?.passwordHash).not.toContain(PASSWORD);
+    expect(h.identity.setupLinks.size).toBe(0);
 
-    const second = await h.bootstrap();
-    expect(second.status).toBe(409);
-    expect(await errorCode(second)).toBe("BOOTSTRAP_DONE");
+    const again = await h.bootstrap({ email: "second@example.com" });
+    expect(again.status).toBe(401);
+    expect(h.identity.users).toHaveLength(1);
   });
 
-  test("trims the owner's and the workspace's names, and refuses whitespace alone with the token unspent", async () => {
+  test("no link is issued while a live owner exists", async () => {
+    const h = harness();
+    expect((await h.bootstrap()).status).toBe(201);
+    expect(await issueSetupToken(h.identity)).toBeNull();
+    expect(h.identity.setupLinks.size).toBe(0);
+  });
+
+  test("issuing a link again replaces the one not yet used", async () => {
+    const h = harness();
+    const fresh = await issueSetupToken(h.identity);
+    expect(fresh).toHaveLength(43);
+    expect((await h.bootstrap()).status).toBe(401);
+    expect((await h.bootstrap({ setup_token: fresh })).status).toBe(201);
+  });
+
+  test("an expired link is refused", async () => {
+    const h = harness();
+    const issuedAt = Date.now();
+    h.identity.now = () => issuedAt + SETUP_LINK_TTL_MS + 1;
+    expect((await h.bootstrap()).status).toBe(401);
+    expect(h.identity.users).toHaveLength(0);
+  });
+
+  test("trims the owner's and the workspace's names, and refuses whitespace alone with the link unspent", async () => {
     const h = harness();
     for (const blank of [{ display_name: "  " }, { workspace_name: "\t\n" }]) {
       expect((await h.bootstrap(blank)).status).toBe(400);
@@ -505,19 +535,17 @@ describe("bootstrap", () => {
     expect(h.identity.users[0]?.displayName).toBe("Owner");
   });
 
-  test("refuses a missing or wrong token with 401 and keeps the token spendable", async () => {
+  test("refuses a missing or wrong token with 401 and keeps the link usable", async () => {
     const h = harness();
-    expect((await h.bootstrap({ bootstrap_token: undefined })).status).toBe(
+    expect((await h.bootstrap({ setup_token: undefined })).status).toBe(401);
+    expect((await h.bootstrap({ setup_token: "x".repeat(40) })).status).toBe(
       401,
     );
-    expect(
-      (await h.bootstrap({ bootstrap_token: "x".repeat(40) })).status,
-    ).toBe(401);
     expect(h.identity.users).toHaveLength(0);
     expect((await h.bootstrap()).status).toBe(201);
   });
 
-  test("an oversized body is 413 and leaves the token unspent", async () => {
+  test("an oversized body is 413 and leaves the link unspent", async () => {
     const h = harness();
     const oversized = await h.bootstrap({
       display_name: "x".repeat(65 * 1024),
@@ -527,7 +555,7 @@ describe("bootstrap", () => {
     expect((await h.bootstrap()).status).toBe(201);
   });
 
-  test("a failed insert releases the token for another try", async () => {
+  test("a failed insert leaves the link for another try", async () => {
     const h = harness();
     const original = h.identity.bootstrap.bind(h.identity);
     let fail = true;
@@ -544,56 +572,41 @@ describe("bootstrap", () => {
     expect((await h.bootstrap()).status).toBe(201);
   });
 
-  test("answers 401 before 400: the token is checked before the body", async () => {
+  test("answers 401 before 400: the link is checked before the body", async () => {
     const h = harness();
     const invalidBody = { password: "x", workspace_slug: "Not A Slug" };
     // Wrong, missing or non-string token with an invalid body: 401, not 400.
     expect(
-      (await h.bootstrap({ ...invalidBody, bootstrap_token: "y".repeat(40) }))
+      (await h.bootstrap({ ...invalidBody, setup_token: "y".repeat(40) }))
         .status,
     ).toBe(401);
     expect(
-      (await h.bootstrap({ ...invalidBody, bootstrap_token: undefined }))
-        .status,
+      (await h.bootstrap({ ...invalidBody, setup_token: undefined })).status,
     ).toBe(401);
     expect(
-      (await h.bootstrap({ ...invalidBody, bootstrap_token: 42 })).status,
+      (await h.bootstrap({ ...invalidBody, setup_token: 42 })).status,
     ).toBe(401);
-    // Right token, invalid body: 400, and the token is not spent.
+    // Live link, invalid body: 400, and the link is not spent.
     expect((await h.bootstrap(invalidBody)).status).toBe(400);
     expect((await h.bootstrap()).status).toBe(201);
-    // Once done, a wrong token still learns nothing about the install.
-    expect(
-      (await h.bootstrap({ ...invalidBody, bootstrap_token: "y".repeat(40) }))
-        .status,
-    ).toBe(401);
-    expect((await h.bootstrap(invalidBody)).status).toBe(409);
+    // Once done, the spent link learns nothing about the install either.
+    expect((await h.bootstrap(invalidBody)).status).toBe(401);
   });
 
-  test("a matching token presented while an owner is live is spent", async () => {
-    const h = harness();
-    expect((await h.bootstrap()).status).toBe(201);
-    h.identity.spentBootstrapTokens.clear();
-    expect((await h.bootstrap()).status).toBe(409);
-    expect(h.identity.spentBootstrapTokens).toContain(
-      Buffer.from(hashWebSessionToken(BOOTSTRAP_TOKEN)).toString("hex"),
-    );
-  });
-
-  test("failed attempts never lock out the right token", async () => {
+  test("failed attempts never lock out the live link", async () => {
     const h = harness({
       lockout: new LoginLockout({ now: () => 1_000_000 }),
     });
     for (let i = 0; i < 10; i += 1) {
       expect(
-        (await h.bootstrap({ bootstrap_token: `${"y".repeat(39)}${i}` }))
+        (await h.bootstrap({ setup_token: `wrong-${i}`.padEnd(40, "x") }))
           .status,
       ).toBe(401);
     }
     expect((await h.bootstrap()).status).toBe(201);
   });
 
-  test("two concurrent bootstraps with the right token create one owner", async () => {
+  test("two concurrent bootstraps with one link create one owner", async () => {
     const h = harness();
     const statuses = (await Promise.all([h.bootstrap(), h.bootstrap()]))
       .map((r) => r.status)
@@ -602,248 +615,35 @@ describe("bootstrap", () => {
     expect(h.identity.users).toHaveLength(1);
   });
 
-  test("a generated token is printed once, only while no live owner exists", async () => {
-    const identity = new MemoryIdentityStore();
-    const sink = new MemoryLogSink();
-    const logger = new StructuredLogger({ sinks: [sink] });
-    const printed: string[] = [];
-    const print = (line: string) => printed.push(line);
-    const gate = await bootstrapGateFromEnv(undefined, identity, logger, print);
-    expect(printed).toHaveLength(1);
-    const token = printed[0]?.replace("BOOTSTRAP_TOKEN=", "") ?? "";
-    expect(token).toHaveLength(43);
-    expect(JSON.stringify(sink.records)).not.toContain(token);
-    expect(gate.consume(token)).toBe(true);
-    expect(gate.consume(token)).toBe(false);
-
-    identity.users.push({ id: "u", disabledAt: null } as IdentityUser);
-    identity.memberships.push({
-      workspaceId: "w",
-      userId: "u",
-      role: "owner",
-      disabledAt: null,
-    });
-    printed.length = 0;
-    await bootstrapGateFromEnv(undefined, identity, logger, print);
-    expect(printed).toHaveLength(0);
-
-    const given = await bootstrapGateFromEnv(
-      "g".repeat(32),
-      identity,
-      logger,
-      print,
+  test("the check answers 204 for a live link without spending it, else 401", async () => {
+    const h = harness();
+    const check = (body: unknown) => h.json("/v1/auth/setup-link/check", body);
+    expect((await check({ setup_token: SETUP_TOKEN })).status).toBe(204);
+    expect((await check({ setup_token: SETUP_TOKEN })).status).toBe(204);
+    expect((await check({ setup_token: "z".repeat(40) })).status).toBe(401);
+    expect((await check({})).status).toBe(400);
+    expect((await check({ setup_token: "z".repeat(65 * 1024) })).status).toBe(
+      413,
     );
-    expect(printed).toHaveLength(0);
-    expect(given.consume("g".repeat(32))).toBe(true);
-    // Configured while an owner is live: spent, so it cannot recover later.
-    expect(identity.spentBootstrapTokens).toContain(
-      Buffer.from(hashWebSessionToken("g".repeat(32))).toString("hex"),
-    );
-
-    // A configured token the request schema would refuse can never be
-    // presented, so it is a startup error rather than a silent dead install.
-    await expect(
-      bootstrapGateFromEnv("short", identity, logger, print),
-    ).rejects.toThrow(/BOOTSTRAP_TOKEN/);
-  });
-
-  describe("with a BOOTSTRAP_TOKEN_FILE", () => {
-    const setup = () => {
-      const dir = mkdtempSync(join(tmpdir(), "bootstrap-token-"));
-      const sink = new MemoryLogSink();
-      return {
-        dir,
-        file: join(dir, "token"),
-        sink,
-        logger: new StructuredLogger({ sinks: [sink] }),
-        printed: [] as string[],
-      };
-    };
-
-    test("a minted token goes to the file once, never to the log or the output, and is gone after one take", async () => {
-      const t = setup();
-      try {
-        const gate = await bootstrapGateFromEnv(
-          undefined,
-          new MemoryIdentityStore(),
-          t.logger,
-          (line) => t.printed.push(line),
-          undefined,
-          t.file,
-        );
-        const token = readFileSync(t.file, "utf8");
-        expect(token).toHaveLength(43);
-        expect(statSync(t.file).mode & 0o777).toBe(0o600);
-        // Only the final name is left behind by the write-then-rename.
-        expect(readdirSync(t.dir)).toEqual(["token"]);
-        expect(gate.matches(token)).toBe(true);
-        expect(t.printed.join("\n")).not.toContain(token);
-        expect(JSON.stringify(t.sink.records)).not.toContain(token);
-
-        expect(takeBootstrapTokenFile(t.file)).toBe(token);
-        expect(existsSync(t.file)).toBe(false);
-        expect(takeBootstrapTokenFile(t.file)).toBeNull();
-        // Taking the value does not spend it: the gate still opens the install.
-        expect(gate.consume(token)).toBe(true);
-      } finally {
-        rmSync(t.dir, { recursive: true, force: true });
-      }
-    });
-
-    test("a second take finds nothing", async () => {
-      const t = setup();
-      try {
-        writeFileSync(t.file, "x".repeat(43));
-        const results = [
-          takeBootstrapTokenFile(t.file),
-          takeBootstrapTokenFile(t.file),
-        ];
-        expect(results.filter((r) => r !== null)).toEqual(["x".repeat(43)]);
-      } finally {
-        rmSync(t.dir, { recursive: true, force: true });
-      }
-    });
-
-    test("a restart replaces the file's token, and a restart after the first owner removes it", async () => {
-      const t = setup();
-      try {
-        const identity = new MemoryIdentityStore();
-        const start = () =>
-          bootstrapGateFromEnv(
-            undefined,
-            identity,
-            t.logger,
-            (line) => t.printed.push(line),
-            undefined,
-            t.file,
-          );
-        await start();
-        const first = readFileSync(t.file, "utf8");
-        await start();
-        expect(readFileSync(t.file, "utf8")).not.toBe(first);
-
-        identity.users.push({ id: "u", disabledAt: null } as IdentityUser);
-        identity.memberships.push({
-          workspaceId: "w",
-          userId: "u",
-          role: "owner",
-          disabledAt: null,
-        });
-        await start();
-        expect(existsSync(t.file)).toBe(false);
-      } finally {
-        rmSync(t.dir, { recursive: true, force: true });
-      }
-    });
-
-    test("an operator's own BOOTSTRAP_TOKEN writes no file", async () => {
-      const t = setup();
-      try {
-        await bootstrapGateFromEnv(
-          "g".repeat(32),
-          new MemoryIdentityStore(),
-          t.logger,
-          (line) => t.printed.push(line),
-          undefined,
-          t.file,
-        );
-        expect(existsSync(t.file)).toBe(false);
-      } finally {
-        rmSync(t.dir, { recursive: true, force: true });
-      }
-    });
-
-    test("a file that cannot be written leaves the token out of the output too", async () => {
-      const t = setup();
-      try {
-        const gate = await bootstrapGateFromEnv(
-          undefined,
-          new MemoryIdentityStore(),
-          t.logger,
-          (line) => t.printed.push(line),
-          undefined,
-          join(t.dir, "missing-dir", "token"),
-        );
-        expect(t.printed).toHaveLength(1);
-        expect(t.printed[0]).not.toMatch(/[A-Za-z0-9_-]{43}/);
-        expect(gate.matches("x".repeat(43))).toBe(false);
-        expect(readdirSync(t.dir)).toEqual([]);
-      } finally {
-        rmSync(t.dir, { recursive: true, force: true });
-      }
-    });
-  });
-
-  test("an unreachable database does not stop startup; the value is printed since owners are unknown", async () => {
-    const identity = new MemoryIdentityStore();
-    identity.countLiveOwners = async () => {
-      throw Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:1"), {
-        code: "ECONNREFUSED",
+    h.identity.setupLinkIsLive = async () => {
+      throw Object.assign(new Error("connection terminated"), {
+        code: "ECONNRESET",
       });
     };
-    const sink = new MemoryLogSink();
-    const logger = new StructuredLogger({ sinks: [sink] });
-    const printed: string[] = [];
-    const gate = await bootstrapGateFromEnv(
-      undefined,
-      identity,
-      logger,
-      (line) => printed.push(line),
-    );
-    expect(printed).toHaveLength(1);
-    const value = printed[0]?.replace("BOOTSTRAP_TOKEN=", "") ?? "";
-    expect(JSON.stringify(sink.records)).not.toContain(value);
-    expect(gate.matches(value)).toBe(true);
+    expect((await check({ setup_token: SETUP_TOKEN })).status).toBe(503);
   });
 
-  test("a configured token is spent once the database answers, if startup could not check it", async () => {
-    const identity = new MemoryIdentityStore();
-    identity.users.push({ id: "u", disabledAt: null } as IdentityUser);
-    identity.memberships.push({
-      workspaceId: "w",
-      userId: "u",
-      role: "owner",
-      disabledAt: null,
+  test("the check refuses a spent link", async () => {
+    const h = harness();
+    expect((await h.bootstrap()).status).toBe(201);
+    const spent = await h.json("/v1/auth/setup-link/check", {
+      setup_token: SETUP_TOKEN,
     });
-    const counted = identity.countLiveOwners.bind(identity);
-    let failures = 2;
-    identity.countLiveOwners = async () => {
-      if (failures > 0) {
-        failures -= 1;
-        throw Object.assign(new Error("connect ECONNREFUSED"), {
-          code: "ECONNREFUSED",
-        });
-      }
-      return counted();
-    };
-    const logger = new StructuredLogger({ sinks: [new MemoryLogSink()] });
-    await bootstrapGateFromEnv("g".repeat(32), identity, logger, () => {}, 5);
-    expect(identity.spentBootstrapTokens.size).toBe(0);
-    await Bun.sleep(100);
-    expect(identity.spentBootstrapTokens).toContain(
-      Buffer.from(hashWebSessionToken("g".repeat(32))).toString("hex"),
-    );
-  });
-
-  test("an empty BOOTSTRAP_TOKEN refuses to start instead of generating one", async () => {
-    const identity = new MemoryIdentityStore();
-    let counted = 0;
-    identity.countLiveOwners = async () => {
-      counted += 1;
-      return 0;
-    };
-    const logger = new StructuredLogger({ sinks: [new MemoryLogSink()] });
-    const printed: string[] = [];
-    await expect(
-      bootstrapGateFromEnv("", identity, logger, (line) => printed.push(line)),
-    ).rejects.toThrow(/BOOTSTRAP_TOKEN/);
-    expect(counted).toBe(0);
-    expect(printed).toHaveLength(0);
+    expect(spent.status).toBe(401);
   });
 });
 
 describe("account recovery", () => {
-  const OTHER_TOKEN = "n".repeat(40);
   const NEW_PASSWORD = "a brand new password here";
 
   async function withMember(h: ReturnType<typeof harness>) {
@@ -1120,7 +920,7 @@ describe("account recovery", () => {
     expect((await redeem(h, token)).status).toBe(401);
   });
 
-  test("with no live owner, a new token restores an owner in the same workspace and ends every session", async () => {
+  test("with no live owner, a new setup link restores an owner in the same workspace and ends every session", async () => {
     const h = harness();
     const { owner, member, workspace } = await withMember(h);
     await h.login("member@example.com");
@@ -1129,35 +929,24 @@ describe("account recovery", () => {
     );
     if (!ownerMembership) throw new Error("owner membership missing");
 
-    // A live owner still exists, but a token this process does not hold
-    // learns nothing about that.
-    expect((await h.bootstrap({ bootstrap_token: OTHER_TOKEN })).status).toBe(
-      401,
-    );
+    // A live owner still exists: no link is issued.
+    expect(await issueSetupToken(h.identity)).toBeNull();
 
     ownerMembership.disabledAt = new Date();
-    // A restart re-arms the process gate with the same value, but the
-    // install token is spent in the store for good.
-    const restart = (bootstrapToken: string) => {
-      const next = harness({ bootstrapToken });
-      next.identity = Object.assign(next.identity, {
-        users: h.identity.users,
-        workspaces: h.identity.workspaces,
-        memberships: h.identity.memberships,
-        sessions: h.identity.sessions,
-        spentBootstrapTokens: h.identity.spentBootstrapTokens,
-      });
-      return next;
-    };
-    const reused = await restart(BOOTSTRAP_TOKEN).bootstrap();
+    // The link that made the first owner stays spent.
+    const reused = await h.bootstrap();
     expect(reused.status).toBe(401);
-    // The same answer as a wrong token; only the log says why.
     expect(await reused.json()).toMatchObject({
-      error: { code: "UNAUTHORIZED", message: "Bootstrap token is invalid" },
+      error: {
+        code: "UNAUTHORIZED",
+        message: "Setup link is unknown, expired or already used",
+      },
     });
 
-    const recovery = restart(OTHER_TOKEN);
-    const restored = await recovery.bootstrap({
+    const recovery = await issueSetupToken(h.identity);
+    if (recovery === null) throw new Error("no setup link issued");
+    const restored = await h.bootstrap({
+      setup_token: recovery,
       workspace_slug: "ignored",
       workspace_name: "Ignored",
     });
@@ -1165,17 +954,15 @@ describe("account recovery", () => {
     const body = bootstrapResponseSchema.parse(await restored.json());
     expect(body.user_id).toBe(owner.id);
     expect(body.workspace.id).toBe(workspace.id);
-    expect(recovery.identity.workspaces).toHaveLength(1);
+    expect(h.identity.workspaces).toHaveLength(1);
     expect(ownerMembership.disabledAt).toBeNull();
-    expect(recovery.identity.sessions.every((s) => s.revokedAt !== null)).toBe(
-      true,
-    );
-    expect(recovery.identity.receipts[0]?.operation).toBe("recover_owner");
+    expect(h.identity.sessions.every((s) => s.revokedAt !== null)).toBe(true);
+    expect(h.identity.receipts[0]?.operation).toBe("recover_owner");
     expect(
       h.identity.memberships.find((m) => m.userId === member.id)?.role,
     ).toBe("member");
 
-    expect((await recovery.bootstrap()).status).toBe(409);
+    expect((await h.bootstrap({ setup_token: recovery })).status).toBe(401);
   });
 });
 

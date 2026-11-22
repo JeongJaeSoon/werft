@@ -53,7 +53,6 @@ Secret은 키마다 파일 하나인 디렉터리(`0700`, 파일 이름이 키)�
 | `EGRESS_AUTHORIZER_TOKEN` | 무작위 값. api와 egress proxy가 같은 값을 쓴다 |
 | `PLATFORM_SECRET_KEY` | `openssl rand -hex 32`의 64자 hex. 저장한 자격 증명을 봉인한다. 없으면 Pod가 뜨지 않는다 |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | object store key. IRSA로 서명하려면 두 키를 빼고 values에 `secrets.objectStoreKeys: false`와 `serviceAccounts.api.annotations`를 둔다 |
-| `BOOTSTRAP_TOKEN` | 기본 API replica 2개에 같은 32–256자 토큰을 공급해야 한다. Secret에 만들고 아래 values에 `secrets.bootstrapToken: true`를 둔다 |
 
 모델 key는 Secret에 두지 않는다. 설치 뒤 콘솔의 **설정 > 에이전트 연결 > 모델 연결 > 연결 추가**에서 넣고, DB에 `PLATFORM_SECRET_KEY`로 암호화돼 저장된다.
 
@@ -62,7 +61,7 @@ kubectl create namespace werft
 kubectl -n werft create secret generic werft --from-file=<secret-dir>
 ```
 
-Secret 디렉터리는 0700, 파일은 운영자만 읽을 수 있게 둔다. 기본 API replica는 2개다. replica가 둘 이상이면 같은 `BOOTSTRAP_TOKEN`(32–256자)을 Secret에 추가하고 `secrets.bootstrapToken: true`를 둔다. 그러면 Secret에 그 키가 있어야 Pod가 뜬다.
+Secret 디렉터리는 0700, 파일은 운영자만 읽을 수 있게 둔다.
 
 ### 3. 설치별 values
 
@@ -70,8 +69,6 @@ Secret 디렉터리는 0700, 파일은 운영자만 읽을 수 있게 둔다. �
 
 ```yaml
 installationId: werft-main
-secrets:
-  bootstrapToken: true
 config:
   checkpoints:
     bucket: <bucket>

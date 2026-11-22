@@ -44,7 +44,7 @@ PR마다 등급 하나를 정한다. 검증 sticky comment(`<!-- test-results --
 
 - **자기 스택만.** `up.sh`가 새 compose project(`verify-ap-<run id>`)와 installation id를 만들고, 모든 단계가 그 project에만 compose를 건다. 기본 project `werft`이나 다른 사람의 스택은 몰지도 내리지도 않는다.
 - **실제 모델 없이.** 항상 `--fake-model`이다. 세션은 프롬프트에 적은 GATE-SPEC 대본대로 돈다(`docs/quickstart.md` § 스크립트된 프롬프트). 실제 Claude(`local.sh up` 옵션 없음)는 유료라 이 스킬은 쓰지 않는다.
-- **비밀값을 출력하지 않는다.** API key는 변수에만 담고 길이만 보인다. bootstrap token은 이 run이 만든 일회용 테스트 값이고 `state.env`(700 디렉터리)에만 있다.
+- **비밀값을 출력하지 않는다.** API key는 변수에만 담고 길이만 보인다. 첫 owner 설정 링크의 token은 이 run의 빈 스택이 낸 일회용 값이고 `state.env`(700 디렉터리)에만 있다.
 - **자격 값을 명령에 쓰지 않는다.** 명령 텍스트에 비밀번호 JSON 리터럴이 있으면 agent-guard PreToolUse hook이 "secret-like value detected in shell command"로 그 호출을 거부한다. bootstrap·login·초대 수락·웹 key 발급은 `web-user.mjs`가 run 디렉터리의 값으로 보내고, 화면 로그인·수락은 `browser.mjs`가 같은 값을 칸에 넣는다.
 - **프로세스는 PID·project로.** `pkill`·`killall`·이름 패턴 종료는 쓰지 않는다. 내릴 때는 `down.sh`가 이 run의 project와 installation label만 지운다.
 - **run은 항상 이름으로.** 같은 머신의 여러 세션이 같은 root에 run을 만든다. 그래서 "마지막 run" 같은 기본값은 없다. `up.sh`가 출력한 run id를 기록해 두고 `lib.sh`·`doctor.sh`·`down.sh`에 매번 넘긴다. 인자 없이 부르면 사용법과 살아 있는 run 목록만 출력하고 exit 2로 끝난다(아무것도 내리지 않는다). 목록의 다른 run은 다른 세션의 것이니 넘기지 않는다.
@@ -54,7 +54,7 @@ PR마다 등급 하나를 정한다. 검증 sticky comment(`<!-- test-results --
 Claude Code의 Bash 호출은 매번 새 셸이다. 그래서 `up.sh`가 run 디렉터리를 만들고 거기에 상태를 쓴다.
 
 - run 디렉터리: `${VERIFY_AP_ROOT:-$TMPDIR/verify-werft}/<run id>/`
-- `state.env`: `COMPOSE_PROJECT_NAME`, `EXECUTION_INSTALLATION_ID`, `COMPOSE_FILE`(compose.yaml + 이 run의 ports overlay), `API_IMAGE`·`WORKER_IMAGE`·`EGRESS_PROXY_IMAGE`(run별 태그), `VERIFY_API`, `VERIFY_BOOTSTRAP_TOKEN`
+- `state.env`: `COMPOSE_PROJECT_NAME`, `EXECUTION_INSTALLATION_ID`, `COMPOSE_FILE`(compose.yaml + 이 run의 ports overlay), `API_IMAGE`·`WORKER_IMAGE`·`EGRESS_PROXY_IMAGE`(run별 태그), `VERIFY_API`, `VERIFY_SETUP_TOKEN`(데모 run에는 없다)
 - `users/<who>`(이메일·무작위 비밀번호), `users/<who>.invite`(초대 token), `keys/<who>`(웹에서 발급한 key secret), `cookie.<who>`: `web-user.mjs`가 쓴다. 모두 0600이고 `rm-volumes.sh`가 지운다
 - `browser/`: `browser.mjs`의 Chrome profile과 `pid`. `stop`(또는 `down.sh`)이 그 PID만 끝내고 profile을 지운다
 - `evidence/`: 증거. 내린 뒤에도 남는다
@@ -78,7 +78,7 @@ Claude Code의 Bash 호출은 매번 새 셸이다. 그래서 `up.sh`가 run 디
 - Codex 엔진 run은 `SETTINGS_DOCUMENT=/settings/fake-model-codex.json up.sh infra/compose.codex-worker.yml`이다. overlay가 worker 이미지를 Codex 엔진으로 빌드하고 가짜 Responses API(`fake-responses`)를 띄운다. 설정 문서에는 연결 `fake-responses`(`openai_responses`, 모델 `gpt-5.5`) 하나만 있고 저장소는 없다. `SETTINGS_DOCUMENT`를 빼면 `--fake-model`이 Claude용 설정(연결 `fake-messages`)을 넣어, worker는 Codex인데 연결이 없는 스택이 된다(release가 `422 connection_unknown`). worker 이미지 하나는 엔진 하나라 Claude 세션과 Codex 세션은 다른 run에서 본다. 세션은 [sessions.md](features/sessions.md)의 Codex 절로 몬다.
 - 실제 Keycloak을 로그인 공급자로 둔 run은 `scripts/keycloak-up.sh`다(`up.sh`를 직접 부르지 않는다). 래퍼가 빈 loopback 포트 둘을 골라 콘솔을 그 포트에 고정하고(`VERIFY_CONSOLE_PORT`: 공급자가 브라우저를 `CONSOLE_ORIGIN`으로 돌려보내므로 뜨기 전에 주소가 정해져 있어야 한다), realm의 client secret과 사용자 비밀번호를 `openssl rand`로 만들어 `infra/compose.keycloak.yml`을 겹친다. overlay가 요구하는 값은 `VERIFY_STATE_VARS`로 `state.env`에 적혀 `lib.sh`·`down.sh`의 compose 호출이 그대로 돈다. 값은 `browser.mjs … type-state <칸> <이름>`이 칸에 넣는다. 절차는 [keycloak-login.md](features/keycloak-login.md)다.
 - Orca 프로그램 안에서 돌면 무거운 작업 잠금으로 감싼다: `orch heavy <program> -- .claude/skills/verify-werft/scripts/up.sh`. 내릴 때도 같다.
-- 하는 일: run 디렉터리와 `ports.yml`(postgres·localstack·fake-git·api 포트를 `127.0.0.1::<port>` ephemeral로, api에 이 run의 `BOOTSTRAP_TOKEN`)을 만들고 `COMPOSE_PROJECT_NAME=verify-ap-… EXECUTION_INSTALLATION_ID=… COMPOSE_FILE=compose.yaml:ports.yml LOCAL_DEMO_ACCOUNTS=0 scripts/local.sh up --fake-model`을 돌린다(데모 계정 없이: 기능 절차가 bootstrap부터 한다). 끝나면 `docker compose port api 3000`으로 API 주소를 `state.env`에 적고 run 디렉터리를 stdout에, `run id: …`를 stderr에 출력한다. run id는 시작할 때도 stderr에 한 번 나온다. **이 run id를 기록한다.** 이후 모든 단계와 내릴 때 이것을 넘긴다. 빌드가 중간에 실패해도 시작할 때 나온 run id로 `down.sh`를 돌린다.
+- 하는 일: run 디렉터리와 `ports.yml`(postgres·localstack·fake-git·api 포트를 `127.0.0.1::<port>` ephemeral로)을 만들고 `COMPOSE_PROJECT_NAME=verify-ap-… EXECUTION_INSTALLATION_ID=… COMPOSE_FILE=compose.yaml:ports.yml LOCAL_DEMO_ACCOUNTS=0 scripts/local.sh up --fake-model`을 돌린다(데모 계정 없이: 기능 절차가 bootstrap부터 한다). 끝나면 `docker compose port api 3000`으로 API 주소를, `setup-link` 명령으로 받은 첫 owner 설정 링크의 `#setup=` 뒤를 `state.env`에 적고 run 디렉터리를 stdout에, `run id: …`를 stderr에 출력한다. run id는 시작할 때도 stderr에 한 번 나온다. **이 run id를 기록한다.** 이후 모든 단계와 내릴 때 이것을 넘긴다. 빌드가 중간에 실패해도 시작할 때 나온 run id로 `down.sh`를 돌린다.
 - 설정 문서의 키(`"stored": true`: fake model 연결, fake MCP bearer, 가짜 GitHub App 키)는 데모 계정이 없는 run에서 비어 있다. 세션을 몰기 전에 `web-user.mjs … bootstrap owner`·`login owner` 뒤 `ap_store_keys`(lib.sh)로 owner cookie를 stdin에 실어 `scripts/local.sh store-keys`를 돌린다. 이것을 빼면 release·세션이 `stored: <ref> is not set`으로 실패한다. `VERIFY_DEMO_ACCOUNTS=1` run은 `local.sh`가 데모 owner로 이미 넣는다.
 - worker 슬롯은 기본 3개, `VERIFY_DEMO_ACCOUNTS=1`이면 7개다. `up.sh`가 `state.env`에 `EXECUTION_SLOT_LIMIT`을 적어 scheduler가 그 수만큼만 worker를 띄운다. 데모 데이터는 worker를 쥔 채 끝나는 세션 6개(idle 2, 승인 뒤 idle 1, 권한 요청 1, 질문 1, 실행 중 1)에 terminate할 세션 하나를 더 몬다. 그보다 슬롯이 적으면 시드가 queued 세션을 기다리다 `timed out waiting for <session> to go idle`로 실패한다. 다른 값이 필요하면 `VERIFY_SLOT_LIMIT=5 up.sh`처럼 준다. 이 값이 언제나 우선한다(10000 미만의 양의 정수만). worker마다 `ap-net-*` 네트워크가 하나씩 생기므로 스택 하나가 쓰는 네트워크는 compose 기본 네트워크를 더해 최대 슬롯 + 1개다. 슬롯은 worker 컨테이너가 사라졌다고 scheduler가 확인할 때까지 풀리지 않는다(`slot_released_at`). 입력이 없는 worker도 `WORKER_IDLE_TIMEOUT_SEC`(1800초) 동안 슬롯을 쥔다. 그래서 세션이 슬롯보다 많으면 나머지는 queued로 기다리고, 앞 세션을 pause하거나 terminate하면 다음 pass에서 뜬다.
 - 주소 풀 확인: Docker 네트워크 하나가 기본 주소 풀에서 항목 하나를 가져간다. 풀은 머신마다 다르므로 `docker info --format '{{json .DefaultAddressPools}}'`로 본다(풀 하나의 항목 수는 2^(Size − base prefix)). 데몬이 풀을 보고하지 않으면 Docker 내장 기본값(172.17–31.0.0/16 각 1개, 192.168.0.0/16의 /20 16개)으로 센다. `up.sh`는 run 디렉터리를 만들기 전에 `scripts/address-pool.sh <슬롯 + 1>`로 남은 풀을 읽기만 해서 센다. 모자라면 아무것도 만들지 않고 exit 1이다. Docker를 읽지 못해도(daemon 무응답 등) 아무것도 만들지 않고 exit 1이며, 이때는 `check that Docker answers`라고 따로 안내한다. 부족 메시지는 `address-pool.sh: Docker's address pools are short: 7 free of 30, 41 needed` 다음에 쥐고 있는 풀 항목 수를 compose project(scheduler가 만든 네트워크는 installation id)별로 적는다(보통 네트워크 하나가 한 항목). 이때는 자기가 띄운 스택을 `down.sh`로 내리거나 `VERIFY_SLOT_LIMIT`를 줄인다. 남의 스택은 지우지 않는다. 확인과 실제 생성 사이에 다른 스택이 풀을 가져갈 수는 있다.
@@ -181,7 +181,7 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 - `__Host-` cookie는 `Secure`라 curl이 http에서 저장하지 않는다. `ap_web`이 `Set-Cookie`에서 직접 꺼내 보낸다.
 - key·cookie·OAuth `state`/`code`·config 값은 명령줄 인자에 두지 않는다. `ps`로 같은 머신의 누구나 본다. curl은 `ap_curl`·`ap_get`·`ap_post`·`ap_web`으로만 부르고(헤더와 본문이 `<(…)`로 간다), 컨테이너 안 스크립트에는 stdin으로 넘긴다. `VAR=값 ap_web …`처럼 앞에 붙인 대입은 curl의 환경으로 export되니 쓰지 않는다. `<(…)`를 배열에 담아 두면 curl이 돌기 전에 닫힌다(exit 26).
 - 로그인은 실패가 쌓이면 잠긴다(429 `RATE_LIMITED`, `Retry-After`). 틀린 비밀번호 시험은 한두 번만.
-- bootstrap은 사용자가 0명일 때 한 번만 된다. 두 번째는 409 `BOOTSTRAP_DONE`. 처음부터 다시 하려면 `down.sh` 뒤 `up.sh`.
+- bootstrap은 사용자가 0명일 때 한 번만 된다. 쓴 링크는 바로 무효라 두 번째는 401이다. 처음부터 다시 하려면 `down.sh` 뒤 `up.sh`.
 - macOS에는 `timeout`이 없다. 필요하면 `perl -e 'alarm N; exec @ARGV' <cmd>`.
 
 ## 유지

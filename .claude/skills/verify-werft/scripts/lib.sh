@@ -1,11 +1,11 @@
 # Source this in every Bash call that drives the stack:
 #   . .claude/skills/verify-werft/scripts/lib.sh <run id | run dir>
-# It loads the run's state (project, ports, bootstrap token) and defines the
+# It loads the run's state (project, ports, setup link) and defines the
 # drive helpers. Each Bash call is a fresh shell, so source it every time.
 
 # Without a loaded run every helper would fall through to the default
 # project, so refuse to define them at all.
-unset VERIFY_RUN VERIFY_REPO VERIFY_API VERIFY_BUILT_FROM VERIFY_BOOTSTRAP_TOKEN API EVIDENCE \
+unset VERIFY_RUN VERIFY_REPO VERIFY_API VERIFY_BUILT_FROM VERIFY_SETUP_TOKEN API EVIDENCE \
   COMPOSE_PROJECT_NAME COMPOSE_FILE EXECUTION_INSTALLATION_ID API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
 unset -f ap_compose ap_key ap_revoke ap_curl _ap_cookie_header ap_get ap_post ap_web ap_as 2>/dev/null
 # bash names a sourced file in BASH_SOURCE, zsh in $0.

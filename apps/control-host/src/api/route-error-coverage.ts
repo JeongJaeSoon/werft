@@ -17,6 +17,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "probes.test.ts": ["GET /healthz", "GET /readyz"],
   "auth.test.ts": [
     "POST /v1/auth/bootstrap",
+    "POST /v1/auth/setup-link/check",
     "POST /v1/auth/login",
     "POST /v1/auth/password-reset",
     "POST /v1/auth/logout",

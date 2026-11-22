@@ -60,12 +60,20 @@ export const passwordSchema = z
     `Password exceeds ${PASSWORD_MAX_BYTES} UTF-8 bytes`,
   );
 
-/** Generated at install, printed once, consumed once. */
-export const bootstrapTokenSchema = z.string().min(32).max(256);
+/**
+ * The secret in a setup link: issued by the setup-link command only while no
+ * live owner exists, valid for SETUP_LINK_TTL_HOURS, consumed once.
+ */
+export const setupTokenSchema = z.string().min(32).max(256);
+export const SETUP_LINK_TTL_HOURS = 24;
+
+export const setupLinkCheckRequestSchema = z
+  .object({ setup_token: setupTokenSchema })
+  .strict();
 
 export const bootstrapRequestSchema = z
   .object({
-    bootstrap_token: bootstrapTokenSchema,
+    setup_token: setupTokenSchema,
     email: emailSchema,
     password: passwordSchema,
     display_name: displayNameInputSchema,

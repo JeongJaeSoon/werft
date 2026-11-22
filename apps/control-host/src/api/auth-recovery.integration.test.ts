@@ -15,13 +15,13 @@ import {
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
-  bootstrapTokenUses,
   createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
   memberships,
   passwordResets,
   receipts,
+  setupLinks,
   users,
   webSessions,
 } from "@werft-ai/db";
@@ -31,16 +31,16 @@ import {
   createSessionService,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
-import { eq, isNull } from "drizzle-orm";
+import { eq, isNull, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { liveSetupToken } from "../testing/setup-link.ts";
 import { createApiApp } from "./app.ts";
 import {
-  bootstrapGateFromEnv,
-  createBootstrapGate,
   DatabaseIdentityStore,
   hashPassword,
   hashWebSessionToken,
+  issueSetupToken,
 } from "./auth.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -48,8 +48,6 @@ import { registerReceiptRoutes } from "./routes/sessions/receipts.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
-const INSTALL_TOKEN = "integration-install-token-0123456789abc";
-const RECOVERY_TOKEN = "integration-recovery-token-0123456789ab";
 const PASSWORD = "an adequately long password";
 const NEW_PASSWORD = "a different adequately long password";
 const BROWSER = { "X-Requested-With": "werft-web" };
@@ -85,14 +83,13 @@ integration("account recovery on PostgreSQL", () => {
     opened.push({ pool, database });
     const db: NodePgDatabase<typeof schema> = drizzle(pool, { schema });
     const sink = new MemoryLogSink();
-    // One process per token: an operator recovers by restarting the API
-    // with a new BOOTSTRAP_TOKEN.
-    const start = (bootstrapToken: string) => {
+    // An operator recovers by running the setup-link command again; a
+    // bootstrap without a token uses a link issued just for it.
+    const start = () => {
       const identity = new DatabaseIdentityStore(db);
       const logger = new StructuredLogger({ sinks: [sink] });
       const auth = {
         identity,
-        bootstrap: createBootstrapGate(bootstrapToken),
         passwords: new PasswordChecks(),
         logger,
       };
@@ -132,9 +129,9 @@ integration("account recovery on PostgreSQL", () => {
       return {
         app,
         json,
-        bootstrap: (email = "Owner@Example.com") =>
+        bootstrap: async (email = "Owner@Example.com", setupToken?: string) =>
           json("/v1/auth/bootstrap", {
-            bootstrap_token: bootstrapToken,
+            setup_token: setupToken ?? (await liveSetupToken(db)),
             email,
             password: PASSWORD,
             display_name: "Owner",
@@ -151,8 +148,9 @@ integration("account recovery on PostgreSQL", () => {
           ),
       };
     };
-    const first = start(INSTALL_TOKEN);
-    const created = await first.bootstrap();
+    const first = start();
+    const installToken = await liveSetupToken(db);
+    const created = await first.bootstrap(undefined, installToken);
     expect(created.status).toBe(201);
     const { user_id: ownerId, workspace } = bootstrapResponseSchema.parse(
       await created.json(),
@@ -169,7 +167,17 @@ integration("account recovery on PostgreSQL", () => {
       userId: memberId,
       role: "member",
     });
-    return { db, pool, sink, start, first, ownerId, memberId, workspace };
+    return {
+      db,
+      pool,
+      sink,
+      start,
+      first,
+      installToken,
+      ownerId,
+      memberId,
+      workspace,
+    };
   }
 
   const cookieOf = (response: Response) =>
@@ -263,16 +271,16 @@ integration("account recovery on PostgreSQL", () => {
   });
 
   for (const how of ["account", "membership"] as const) {
-    test(`owner ${how} disabled: a new BOOTSTRAP_TOKEN restores the owner, ends every session, then 409`, async () => {
-      const { db, start, first, ownerId, memberId, workspace } =
+    test(`owner ${how} disabled: a new setup link restores the owner, ends every session, then works no more`, async () => {
+      const { db, start, first, installToken, ownerId, memberId, workspace } =
         await install();
       await first.login("owner@example.com");
       await first.login("member@example.com");
 
-      // A live owner exists: done, and the token shown then is spent.
-      const early = start(`${RECOVERY_TOKEN}-early`);
-      expect((await early.bootstrap()).status).toBe(409);
-      expect(await db.$count(bootstrapTokenUses)).toBe(2);
+      // A live owner exists: no link is issued.
+      const identity = new DatabaseIdentityStore(db);
+      expect(await issueSetupToken(identity)).toBeNull();
+      expect(await db.$count(setupLinks)).toBe(0);
 
       if (how === "account") {
         await db
@@ -286,14 +294,13 @@ integration("account recovery on PostgreSQL", () => {
           .where(eq(memberships.userId, ownerId));
       }
 
-      // The install token is spent in the database, so a restart that
-      // still carries it cannot reopen recovery.
-      const stale = start(INSTALL_TOKEN);
-      const refused = await stale.bootstrap();
+      // The link that made the first owner is spent for good.
+      const refused = await start().bootstrap(undefined, installToken);
       expect(refused.status).toBe(401);
 
-      const recovery = start(RECOVERY_TOKEN);
-      const restored = await recovery.bootstrap();
+      const recovery = start();
+      const recoveryToken = await liveSetupToken(db);
+      const restored = await recovery.bootstrap(undefined, recoveryToken);
       expect(restored.status).toBe(201);
       const body = bootstrapResponseSchema.parse(await restored.json());
       expect(body.user_id).toBe(ownerId);
@@ -336,10 +343,9 @@ integration("account recovery on PostgreSQL", () => {
         .from(memberships)
         .where(eq(memberships.userId, memberId));
       expect(member?.role).toBe("member");
-      const again = start(`${RECOVERY_TOKEN}-other`);
-      const done = await again.bootstrap();
-      expect(done.status).toBe(409);
-      expect((await done.json()).error.code).toBe("BOOTSTRAP_DONE");
+      const done = await start().bootstrap(undefined, recoveryToken);
+      expect(done.status).toBe(401);
+      expect(await issueSetupToken(identity)).toBeNull();
       expect((await recovery.login("owner@example.com")).status).toBe(200);
     });
   }
@@ -380,22 +386,29 @@ integration("account recovery on PostgreSQL", () => {
     expect(ownerId).not.toBe(memberId);
   });
 
-  test("an install that predates the spent-token record retires its configured token at startup", async () => {
+  test("with no live owner, a newer link replaces the older one, and an expired link is refused", async () => {
     const { db, start, ownerId } = await install();
-    // What an install bootstrapped before 0134 looks like.
-    await db.delete(bootstrapTokenUses);
-    await bootstrapGateFromEnv(
-      INSTALL_TOKEN,
-      new DatabaseIdentityStore(db),
-      new StructuredLogger({ sinks: [new MemoryLogSink()] }),
-    );
-    expect(await db.$count(bootstrapTokenUses)).toBe(1);
     await db
       .update(users)
       .set({ disabledAt: new Date() })
       .where(eq(users.id, ownerId));
-    expect((await start(INSTALL_TOKEN).bootstrap()).status).toBe(401);
-    expect((await start(RECOVERY_TOKEN).bootstrap()).status).toBe(201);
+    const identity = new DatabaseIdentityStore(db);
+    const older = await issueSetupToken(identity);
+    const newer = await issueSetupToken(identity);
+    if (older === null || newer === null) throw new Error("no link issued");
+    expect(await db.$count(setupLinks)).toBe(1);
+    expect((await start().bootstrap(undefined, older)).status).toBe(401);
+
+    await db.execute(
+      sql`UPDATE setup_links SET expires_at = clock_timestamp() - interval '1 second'`,
+    );
+    const app = start();
+    const expired = await app.json("/v1/auth/setup-link/check", {
+      setup_token: newer,
+    });
+    expect(expired.status).toBe(401);
+    expect((await app.bootstrap(undefined, newer)).status).toBe(401);
+    expect((await start().bootstrap()).status).toBe(201);
   });
 
   test("recovery waits for a member login in flight and revokes its session too", async () => {
@@ -417,7 +430,7 @@ integration("account recovery on PostgreSQL", () => {
          VALUES ($1, $2, $3, now() + interval '1 hour')`,
         [sessionId, memberId, Buffer.from(hashWebSessionToken("aps_inflight"))],
       );
-      const recovery = start(RECOVERY_TOKEN).bootstrap();
+      const recovery = start().bootstrap();
       await Bun.sleep(300);
       await login.query("COMMIT");
       expect((await recovery).status).toBe(201);
@@ -446,7 +459,7 @@ integration("account recovery on PostgreSQL", () => {
         "SELECT 1 FROM users WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE",
         [[ownerId, memberId]],
       );
-      const recovery = start(RECOVERY_TOKEN).bootstrap();
+      const recovery = start().bootstrap();
       await Bun.sleep(300);
       await issue.query(
         `INSERT INTO password_resets
@@ -494,7 +507,7 @@ integration("account recovery on PostgreSQL", () => {
       await issue.query("SELECT 1 FROM users WHERE id = $1 FOR UPDATE", [
         ownerId,
       ]);
-      const recovery = start(RECOVERY_TOKEN).bootstrap("late@example.com");
+      const recovery = start().bootstrap("late@example.com");
       await Bun.sleep(300);
       await issue.query("SELECT 1 FROM users WHERE id = $1 FOR UPDATE", [
         lateId,
@@ -517,7 +530,7 @@ integration("account recovery on PostgreSQL", () => {
       .update(users)
       .set({ disabledAt: new Date() })
       .where(eq(users.id, ownerId));
-    const recovery = start(RECOVERY_TOKEN);
+    const recovery = start();
     expect((await recovery.bootstrap()).status).toBe(201);
     const stale = await recovery.json("/v1/auth/password-reset", {
       token,
@@ -554,7 +567,7 @@ integration("account recovery on PostgreSQL", () => {
       .update(users)
       .set({ disabledAt: new Date() })
       .where(eq(users.id, ownerId));
-    const recovery = start(RECOVERY_TOKEN);
+    const recovery = start();
     const restored = await recovery.bootstrap("rescuer@example.com");
     expect(restored.status).toBe(201);
     const body = bootstrapResponseSchema.parse(await restored.json());

@@ -404,7 +404,7 @@ switch (cmd) {
   }
   case "bootstrap": {
     // Like web-user.mjs bootstrap: the first use makes users/<who>; a later
-    // one reuses it, so a second submit shows the 409 screen.
+    // one reuses it, and the spent link shows the unusable-link screen.
     const file = userFile(args[0]);
     if (!existsSync(file)) {
       mkdirSync(join(run, "users"), { recursive: true, mode: 0o700 });
@@ -418,8 +418,20 @@ switch (cmd) {
       );
     }
     const c = JSON.parse(readFileSync(file, "utf8"));
-    await navigate("/bootstrap");
-    await fill("input[name=bootstrap_token]", state.VERIFY_BOOTSTRAP_TOKEN);
+    // The link up.sh took; the fragment never reaches a log or `here`.
+    if (!state.VERIFY_SETUP_TOKEN)
+      throw new Error(
+        "no setup link in state.env: the stack had an owner at up",
+      );
+    await navigate(`/bootstrap#setup=${state.VERIFY_SETUP_TOKEN}`);
+    if (!(await evaluate("!!document.querySelector('input[name=email]')"))) {
+      console.log(
+        `bootstrap ${args[0]} -> ${await here()} | ${await evaluate(
+          "(document.querySelector('main')?.innerText ?? '').replace(/\\s+/g, ' ')",
+        )}`,
+      );
+      break;
+    }
     await fill("input[name=email]", c.email);
     await fill(
       "input[name=display_name]",

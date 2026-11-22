@@ -618,9 +618,17 @@ export const passwordResets = pgTable(
   ],
 );
 
-// A BOOTSTRAP_TOKEN works once per installation, not once per process: a
-// value left in the environment after an install must not reopen recovery
-// the next time no live owner remains.
+// The one-time setup link that makes the first owner, kept here rather than
+// in a process so any API replica accepts it. At most one row: issuing a new
+// link deletes the old one, and the bootstrap that uses it deletes it.
+export const setupLinks = pgTable("setup_links", {
+  tokenHash: bytea("token_hash").primaryKey(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+
+// Spent BOOTSTRAP_TOKEN hashes from before setup links. Nothing reads or
+// writes it now; a later migration drops it once no release in the support
+// window does.
 export const bootstrapTokenUses = pgTable("bootstrap_token_uses", {
   tokenHash: bytea("token_hash").primaryKey(),
   usedAt: timestamp("used_at", { withTimezone: true }).notNull().defaultNow(),

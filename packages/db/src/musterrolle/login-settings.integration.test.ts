@@ -32,6 +32,7 @@ import {
 import { deletedBy } from "../soft-delete.ts";
 import { seedLoginProvider } from "../testing/login-provider.ts";
 import { allowFor, memberManageAllow } from "../testing/member-manage-allow.ts";
+import { liveSetupLinkHash } from "../testing/setup-link.ts";
 import {
   bootstrapOwner,
   consumePasswordReset,
@@ -256,7 +257,7 @@ integration("who may sign in with a password", () => {
       workspaceId,
       workspaceSlug: "acme",
       workspaceName: "Acme",
-      bootstrapTokenHash: newHash(),
+      setupTokenHash: await liveSetupLinkHash(db),
       receiptId: randomUUID(),
       loginMethodId: randomUUID(),
     });

@@ -57,7 +57,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { releaseIn } from "../testing/releases.ts";
 import { createApiApp } from "./app.ts";
-import { createBootstrapGate, DatabaseIdentityStore } from "./auth.ts";
+import { DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import { registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -1312,7 +1312,6 @@ integration("installation figures over HTTP on PostgreSQL", () => {
     });
     const auth = {
       identity,
-      bootstrap: createBootstrapGate(crypto.randomUUID()),
       passwords: new PasswordChecks(),
     };
     app = createApiApp({

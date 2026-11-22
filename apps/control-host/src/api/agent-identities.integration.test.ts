@@ -47,8 +47,9 @@ import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { liveSetupToken } from "../testing/setup-link.ts";
 import { createApiApp } from "./app.ts";
-import { createBootstrapGate, DatabaseIdentityStore } from "./auth.ts";
+import { DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -58,7 +59,6 @@ import { registerSlackChannelRoutes } from "./routes/surface/slack-channels.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
-const BOOTSTRAP_TOKEN = "integration-bootstrap-token-0123456789";
 const PASSWORD = "an adequately long password";
 const APP = { appId: "A0RESEARCH", teamId: "T0ACME" };
 
@@ -76,7 +76,6 @@ integration("agent identities over HTTP on PostgreSQL", () => {
     const identity = new DatabaseIdentityStore(db);
     const auth = {
       identity,
-      bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
       passwords: new PasswordChecks(),
     };
     authorization = createAuthorizationPolicy({
@@ -199,7 +198,7 @@ integration("agent identities over HTTP on PostgreSQL", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        bootstrap_token: BOOTSTRAP_TOKEN,
+        setup_token: await liveSetupToken(db),
         email: "owner@example.com",
         password: PASSWORD,
         display_name: "Owner",

@@ -174,9 +174,9 @@ if [ "$conformance" = two_engines ]; then
   export WORKER_IMAGE="werft-worker-codex:${project}" WORKER_IMAGE_PREVIOUS="$previous_image"
 fi
 export EGRESS_PROXY_IMAGE="werft-egress-proxy:${project}"
-# The first owner's, for firstOwnerCookie in tests/e2e/client.ts:
-# infra/compose.core.yml passes it to the API.
-export BOOTSTRAP_TOKEN="$(openssl rand -hex 24)"
+# The seed of the first owner's password, for tests/e2e/client.ts; no
+# container sees it.
+export E2E_OWNER_SECRET="$(openssl rand -hex 24)"
 label="werft.installation=${EXECUTION_INSTALLATION_ID}"
 volume_label="${EXECUTION_VOLUME_LABEL_NAMESPACE:-werft}.installation=${EXECUTION_INSTALLATION_ID}"
 # E2E_COMPOSE_OVERRIDE: one more overlay after ours; CI passes
@@ -346,7 +346,10 @@ export E2E_API_URL="http://127.0.0.1:$(dc port api 3000 | sed 's/.*://')"
 export E2E_API_KEY="$api_key"
 # Every suite signs in as the first owner to release its agent on the
 # stack's connection (tests/e2e/client.ts e2eStack): a session runs a release.
-export E2E_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN"
+# The owner comes from the one setup link this fresh stack issues.
+E2E_SETUP_TOKEN="$(dc exec -T api bun run apps/control-host/src/api/setup-link.ts </dev/null)" ||
+  { echo "e2e: the API issued no setup link" >&2; exit 1; }
+export E2E_SETUP_TOKEN="${E2E_SETUP_TOKEN##*#setup=}"
 if [ "$conformance" = codex_app_server ] || [ "$conformance" = two_engines ]; then
   export E2E_RESPONSES_URL="http://127.0.0.1:$(dc port fake-responses 4031 | sed 's/.*://')"
 fi
@@ -387,9 +390,6 @@ seed_credentials e2e_owner_cookie "${seeds[@]}" -- \
 export CONFORMANCE_RUNTIME_KIND="$conformance"
 # Lets a scenario read this stack's container logs and no other stack's.
 export E2E_COMPOSE_PROJECT="$project"
-# A conformance scenario that needs a person (an owner cookie) bootstraps the
-# stack the way every other suite does, whichever engine the stack runs.
-if [ -n "$conformance" ]; then export E2E_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN"; fi
 if [ "${E2E_UP_ONLY:-0}" = 1 ]; then
   export E2E_KEEP=1
   # Holds the API key, so only here and never in a CI artifact.

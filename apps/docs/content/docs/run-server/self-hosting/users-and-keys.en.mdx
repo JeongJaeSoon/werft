@@ -15,7 +15,7 @@ Create the first owner and workspace, then issue an API key for each user. Disti
 <a id="준비물" />
 ## Before you begin
 
-Complete [installation](/run-server/self-hosting) and [access configuration](/run-server/self-hosting/access). Restrict bootstrap tokens and logs to operators. On Kubernetes, put BOOTSTRAP_TOKEN in the Secret and set `secrets.bootstrapToken: true` so every replica receives the same token.
+Complete [installation](/run-server/self-hosting) and [access configuration](/run-server/self-hosting/access). Only operators receive and handle the setup link.
 
 <a id="1-첫-owner-만들기" />
 <a id="단계" />
@@ -23,7 +23,7 @@ Complete [installation](/run-server/self-hosting) and [access configuration](/ru
 
 ### 1. Create the first owner
 
-Open `/bootstrap` in a browser and enter the fixed BOOTSTRAP_TOKEN, owner details, and workspace name. On a test-ops single-API installation without a configured token, `scripts/test-ops.sh bootstrap-token` prints the generated token once; running it again prints nothing, and no container log is read. Other single-API setups (such as `scripts/local.sh`) print it in the API startup log (`docker logs <this-installation-api-container-id>`). On Kubernetes with the default 2 replicas, use a fixed token in the Secret rather than relying on automatic generation. Reusing the token after the first owner exists returns `409 BOOTSTRAP_DONE`. Sign in at `/login`.
+The operator gets a one-time setup link on the installation: `scripts/test-ops.sh setup-link` on a test-ops single server, `kubectl -n werft exec deploy/werft-api -- bun run apps/control-host/src/api/setup-link.ts` on Kubernetes, and `docker compose --profile apps exec -T api bun run apps/control-host/src/api/setup-link.ts` on other compose setups. The command prints the link once on stdout, only while no live owner exists, and never writes it to a log or a file. With `CONSOLE_ORIGIN` set it prints a full URL; otherwise it prints the `/bootstrap#setup=…` path, which you append to the console's address. Open the link in a browser and enter the owner details and workspace name. The link stops working once used and expires after 24 hours. Running the command again makes the old link stop working and prints a new one. While an owner exists, the command makes no link and exits 1. Sign in at `/login`.
 
 <a id="2-사용자별-key-발급" />
 ### 2. Issue per-user keys
@@ -77,7 +77,7 @@ Reading `/v1/sessions` with each user's key must return a response within its al
 <a id="자주-막히는-곳" />
 ## Troubleshooting
 
-Different automatically generated bootstrap tokens on replicas can cause 401 when a request reaches another Pod. Pass the fixed token to every Pod. A missing Secret key prevents the Pod from starting. Do not use a workspace id as the CLI owner id.
+If the link opens on "This setup link can't be used", it was already used, is more than 24 hours old, or was replaced by running the command again. While no owner exists, run the command again for a new link. Do not use a workspace id as the CLI owner id.
 
 <a id="되돌리기" />
 ## Roll back

@@ -8,7 +8,6 @@ import type {
   SessionService,
 } from "@werft-ai/platform";
 import { createApiApp } from "./app.ts";
-import type { BootstrapGate } from "./auth.ts";
 import { hashApiKey } from "./keys.ts";
 import { API_ROUTE_SCOPES } from "./openapi.ts";
 import { PasswordChecks } from "./password-checks.ts";
@@ -63,7 +62,6 @@ function appWithKey(scopes: readonly SessionScope[], calls: string[]) {
     registerRoutes: (router) => {
       registerAuthRoutes(router, {
         identity: {} as IdentityStore,
-        bootstrap: {} as BootstrapGate,
         passwords: new PasswordChecks(),
       });
       const sessions = recorder<SessionService>(calls);

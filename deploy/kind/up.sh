@@ -241,11 +241,11 @@ kubectl -n "$NAMESPACE" create configmap localstack-init \
 manifest "$root/deploy/kind/deps.yaml" | kubectl -n "$NAMESPACE" apply -f -
 deps=(postgres localstack)
 values=(-f "$root/deploy/kind/values.yaml")
-# A published chart from before secrets.bootstrapToken hands the api the
-# Secret's keys listed in secrets.catalogEnv, ANTHROPIC_API_KEY by default,
-# which this Secret no longer holds.
+# A published chart from before secrets.catalogEnv was removed hands the api
+# the Secret's keys listed there, ANTHROPIC_API_KEY by default, which this
+# Secret no longer holds: it names one the Secret holds and no api reads.
 if [ -n "${CHART_PACKAGE:-}" ] && helm show values "$CHART_PACKAGE" | grep -q '^  catalogEnv:'; then
-  values+=(--set-json 'secrets.catalogEnv=["BOOTSTRAP_TOKEN"]')
+  values+=(--set-json 'secrets.catalogEnv=["E2E_OWNER_SECRET"]')
 fi
 
 if [ "$KIND_MODEL" != none ]; then
@@ -268,7 +268,8 @@ fi
 
 # The Secret the chart reads. The authorizer token is random per cluster,
 # never printed and never on a command line, and so are the master key and
-# the bootstrap token; the rest are the stand-ins' local defaults.
+# the seed of the first owner's password; the rest are the stand-ins' local
+# defaults.
 if [ "$KIND_MODEL" = real ]; then
   set +x
   # shellcheck source=../../scripts/lib/real-model-key.sh
@@ -283,7 +284,7 @@ if ! kubectl -n "$NAMESPACE" get secret werft >/dev/null 2>&1; then
     --from-literal=DATABASE_URL=postgresql://postgres:dev@postgres:5432/sessions \
     --from-file=EGRESS_AUTHORIZER_TOKEN=<(openssl rand -hex 32 | tr -d '\n') \
     --from-file=PLATFORM_SECRET_KEY=<(openssl rand -hex 32 | tr -d '\n') \
-    --from-file=BOOTSTRAP_TOKEN=<(openssl rand -hex 32 | tr -d '\n') \
+    --from-file=E2E_OWNER_SECRET=<(openssl rand -hex 32 | tr -d '\n') \
     --from-literal=AWS_ACCESS_KEY_ID=test \
     --from-literal=AWS_SECRET_ACCESS_KEY=test >/dev/null
 elif [ "$(kubectl -n "$NAMESPACE" get secret werft -o 'go-template={{if .data.PLATFORM_SECRET_KEY}}set{{end}}')" != set ]; then
@@ -292,13 +293,17 @@ elif [ "$(kubectl -n "$NAMESPACE" get secret werft -o 'go-template={{if .data.PL
   kubectl -n "$NAMESPACE" patch secret werft --patch-file "$key_patch" >/dev/null
   rm -f "${key_patch:?}"
 fi
-# The first owner's token: the checks release their agent as that owner
-# (release-key.sh). A Secret from before it gets one.
-if [ "$(kubectl -n "$NAMESPACE" get secret werft -o 'go-template={{if .data.BOOTSTRAP_TOKEN}}set{{end}}')" != set ]; then
-  token_patch="$(mktemp)"
-  printf '{"data":{"BOOTSTRAP_TOKEN":"%s"}}' "$(openssl rand -hex 32 | tr -d '\n' | base64 | tr -d '\n')" >"$token_patch"
-  kubectl -n "$NAMESPACE" patch secret werft --patch-file "$token_patch" >/dev/null
-  rm -f "${token_patch:?}"
+# The seed of the first owner's password: the checks release their agent as
+# that owner (release-key.sh). A Secret from before it gets one: the old
+# BOOTSTRAP_TOKEN's value when it held one, so an owner made with it logs in.
+if [ "$(kubectl -n "$NAMESPACE" get secret werft -o 'go-template={{if .data.E2E_OWNER_SECRET}}set{{end}}')" != set ]; then
+  seed_patch="$(mktemp)"
+  seed="$(kubectl -n "$NAMESPACE" get secret werft -o 'go-template={{with .data.BOOTSTRAP_TOKEN}}{{.}}{{end}}')"
+  [ -n "$seed" ] || seed="$(openssl rand -hex 32 | tr -d '\n' | base64 | tr -d '\n')"
+  printf '{"data":{"E2E_OWNER_SECRET":"%s"}}' "$seed" >"$seed_patch"
+  unset seed
+  kubectl -n "$NAMESPACE" patch secret werft --patch-file "$seed_patch" >/dev/null
+  rm -f "${seed_patch:?}"
 fi
 # Kept unexported for the seed below, so no command before it inherits it.
 kind_model_key="${ANTHROPIC_API_KEY:-}"
@@ -358,9 +363,12 @@ done
 if [ "$KIND_MODEL" != none ] && [ "$status" = 0 ]; then
   # shellcheck source=../../scripts/lib/seed-credentials.sh
   . "$root/scripts/lib/seed-credentials.sh"
+  # shellcheck source=release-key.sh
+  . "$root/deploy/kind/release-key.sh"
   kind_owner_cookie() {
     E2E_API_URL="http://127.0.0.1:${FORWARD_PORT}" \
-      E2E_BOOTSTRAP_TOKEN="$(kubectl -n "$NAMESPACE" get secret werft -o 'go-template={{index .data "BOOTSTRAP_TOKEN" | base64decode}}')" \
+      E2E_OWNER_SECRET="$(kubectl -n "$NAMESPACE" get secret werft -o 'go-template={{index .data "E2E_OWNER_SECRET" | base64decode}}')" \
+      E2E_SETUP_TOKEN="$(kind_setup_link_token "$fullname")" \
       bun run "$root/tests/e2e/owner-cookie.ts"
   }
   # kubectl exec passes no environment: the cookie goes first on stdin.

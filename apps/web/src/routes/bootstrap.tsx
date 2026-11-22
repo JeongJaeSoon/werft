@@ -1,9 +1,10 @@
 import { useMutation } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import { useWerft } from "@werft-ai/react";
 import {
   Button,
+  buttonVariants,
   Field,
   FieldDescription,
   FieldLabel,
@@ -11,24 +12,19 @@ import {
   Text,
   Link as TextLink,
 } from "@werft-ai/ui";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import {
-  BOOTSTRAP_TOKEN_LENGTH,
   DISPLAY_NAME_MAX,
   EMAIL_MAX,
   PASSWORD_MIN_LENGTH,
+  SETUP_LINK_TTL_HOURS,
   WORKSPACE_NAME_MAX,
 } from "../auth/limits.ts";
 import { AuthPage, FormError } from "../components/auth-page.tsx";
+import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 
 const FIELDS = [
-  {
-    name: "bootstrap_token",
-    label: "bootstrap.token",
-    type: "password",
-    autoComplete: "off",
-  },
   {
     name: "email",
     label: "bootstrap.email",
@@ -89,17 +85,12 @@ type Form = Record<FieldName, string>;
 const LENGTHS: Partial<
   Record<FieldName, { minLength?: number; maxLength: number }>
 > = {
-  bootstrap_token: {
-    minLength: BOOTSTRAP_TOKEN_LENGTH.min,
-    maxLength: BOOTSTRAP_TOKEN_LENGTH.max,
-  },
   email: { maxLength: EMAIL_MAX },
   display_name: { maxLength: DISPLAY_NAME_MAX },
   workspace_name: { maxLength: WORKSPACE_NAME_MAX },
 };
 
 const EMPTY: Form = {
-  bootstrap_token: "",
   email: "",
   display_name: "",
   password: "",
@@ -107,9 +98,83 @@ const EMPTY: Form = {
   workspace_slug: "",
 };
 
-// No public read says whether bootstrap is done, so this screen learns it
-// from the answer: 409 BOOTSTRAP_DONE points the reader to log in.
+/** The token a setup link carries after `#setup=`, or null without one. */
+export function setupTokenFrom(hash: string): string | null {
+  const token = new URLSearchParams(hash.replace(/^#/, "")).get("setup");
+  return token ? token : null;
+}
+
+function LoginLink() {
+  const { t } = useI18n();
+  return (
+    <Link className={buttonVariants()} to="/login">
+      {t("login.provider.backToLogin")}
+    </Link>
+  );
+}
+
+function LinkUnusable({ missing }: { readonly missing: boolean }) {
+  const { t } = useI18n();
+  return (
+    <StatusScreen
+      kind="custom"
+      status={missing ? "setup-link-missing" : "setup-link-invalid"}
+      alert
+      title={t(
+        missing ? "bootstrap.linkMissing.title" : "bootstrap.linkInvalid.title",
+      )}
+      body={
+        missing
+          ? t("bootstrap.linkMissing.body")
+          : t("bootstrap.linkInvalid.body", { hours: SETUP_LINK_TTL_HOURS })
+      }
+      actions={<LoginLink />}
+    />
+  );
+}
+
+// The form shows only for a live setup link: the link is checked first, and
+// a link that dies before the submit (used, expired, replaced) ends the form.
 export function BootstrapScreen() {
+  const { t } = useI18n();
+  const { client } = useWerft();
+  // The token lives in the fragment, which no request carries.
+  const setupToken = useLocation({
+    select: (location) => setupTokenFrom(location.hash),
+  });
+
+  const check = useMutation<unknown, ApiError>({
+    meta: { public: true },
+    mutationFn: () =>
+      unwrap(
+        client.POST("/v1/auth/setup-link/check", {
+          body: { setup_token: setupToken ?? "" },
+        }),
+      ),
+  });
+  const { mutate } = check;
+  useEffect(() => {
+    if (setupToken !== null) mutate();
+  }, [setupToken, mutate]);
+
+  let body: ReactNode;
+  if (setupToken === null) body = <LinkUnusable missing />;
+  else if (check.isError && check.error.status === 401)
+    body = <LinkUnusable missing={false} />;
+  else if (check.isError)
+    body = (
+      <StatusScreen
+        kind="error"
+        detail={errorKey(check.error.code)}
+        onRetry={() => mutate()}
+      />
+    );
+  else if (!check.isSuccess) body = <StatusScreen kind="loading" />;
+  else body = <OwnerForm setupToken={setupToken} />;
+  return <AuthPage title={t("bootstrap.title")}>{body}</AuthPage>;
+}
+
+function OwnerForm({ setupToken }: { readonly setupToken: string }) {
   const { t } = useI18n();
   const { client } = useWerft();
   const navigate = useNavigate();
@@ -117,7 +182,12 @@ export function BootstrapScreen() {
 
   const create = useMutation<unknown, ApiError>({
     meta: { public: true },
-    mutationFn: () => unwrap(client.POST("/v1/auth/bootstrap", { body: form })),
+    mutationFn: () =>
+      unwrap(
+        client.POST("/v1/auth/bootstrap", {
+          body: { ...form, setup_token: setupToken },
+        }),
+      ),
     onSuccess: () =>
       navigate({
         to: "/login",
@@ -132,14 +202,11 @@ export function BootstrapScreen() {
     create.mutate();
   };
 
-  const errorText = create.error
-    ? create.error.status === 401
-      ? t("bootstrap.tokenInvalid")
-      : t(errorKey(create.error.code))
-    : null;
+  if (create.error?.status === 401) return <LinkUnusable missing={false} />;
+  const errorText = create.error ? t(errorKey(create.error.code)) : null;
 
   return (
-    <AuthPage title={t("bootstrap.title")}>
+    <>
       <Text variant="sub">{t("bootstrap.intro")}</Text>
       <form className="flex flex-col gap-4" onSubmit={submit}>
         {FIELDS.map((field) => {
@@ -195,6 +262,6 @@ export function BootstrapScreen() {
           <Link to="/login">{t("bootstrap.loginLink")}</Link>
         </TextLink>
       </Text>
-    </AuthPage>
+    </>
   );
 }

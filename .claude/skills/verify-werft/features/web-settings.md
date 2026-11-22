@@ -60,7 +60,7 @@ Preconditions: `up.sh infra/compose.mock-slack.yml`로 띄웠다(Orca에서는 `
 - 입력은 `orca click`으로 포커스한 뒤 `orca type`이 확실하다. `fill`은 값을 바꾸고도 React가 못 보는 일이 있었다. select는 `orca select`(label이 아니라 option의 value).
 - select를 바꾼 직후 버튼이 아직 비활성일 수 있다. 다시 snapshot해 `disabled`가 빠진 것을 보고 누른다.
 - macOS `head`는 `-n -1`을 받지 않는다. `ap_web` 출력에서 마지막 상태 줄을 뗄 때는 `head -1`.
-- 비밀값(key `csp_…`, invite token, bootstrap token)이 snapshot·state 출력에 섞인다. 화면에 key가 떠 있는 동안 snapshot을 출력하지 말고, 그 상태로 스크린샷을 남기지 않는다. 노출했으면 확인이 끝난 뒤 그 key를 폐기한다.
+- 비밀값(key `csp_…`, invite token, 설정 링크 token)이 snapshot·state 출력에 섞인다. 화면에 key가 떠 있는 동안 snapshot을 출력하지 말고, 그 상태로 스크린샷을 남기지 않는다. 노출했으면 확인이 끝난 뒤 그 key를 폐기한다.
 - host에서 mock IdP(`packages/testkit/src/mock-oidc-main.ts`)를 띄웠으면 `down.sh`가 모르므로 적어 둔 PID로 끈다.
 
 key 화면 제목은 “API key”이고 LinkTabs “개인 key”·“에이전트 key”는 로드 후 각 개수를, “조직 관리 key”는 개수 없이 보인다. API key 마지막 사용 시각·발급자 이름은 아직 main에 없다. workspace는 이름·ID·사용할 모델·감사 보존·Slack 게스트 Card로 나뉜다. ID는 SecretField 복사, 모델은 mono Badge, 저장은 CardFooter다. 소스: `apps/web/src/routes/api-keys.tsx`, `workspace-settings.tsx`, `i18n/api-keys.ts`. 절차: [procedures.md](procedures.md) P-WEB-SETTINGS.

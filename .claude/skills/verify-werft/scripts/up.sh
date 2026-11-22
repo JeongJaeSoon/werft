@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Start a verification stack of its own: scripts/local.sh up --fake-model
 # under a fresh compose project, with every host port ephemeral (loopback)
-# and a bootstrap token this run chose. Prints the run directory on stdout
+# and the first owner's setup link. Prints the run directory on stdout
 # and the run id on stderr; every later step names that run.
 #
 #   up.sh                      new project verify-ap-<run id>
@@ -63,8 +63,6 @@ chmod 700 "$run"
 
 # The same overrides as tests/e2e/compose.yml: ephemeral loopback ports, so
 # this stack never fights another one (this machine's 3000 may be taken).
-# The token is a throwaway for this run's empty database only.
-token=$(openssl rand -hex 24)
 umask 077
 cat >"$run/ports.yml" <<EOF
 services:
@@ -80,8 +78,6 @@ services:
   api:
     ports: !override
       - "127.0.0.1:${console_port}:3000"
-    environment:
-      BOOTSTRAP_TOKEN: "$token"
 EOF
 
 {
@@ -100,7 +96,6 @@ EOF
   printf 'export API_IMAGE=%q\n' "werft-control-host:$project"
   printf 'export WORKER_IMAGE=%q\n' "werft-worker:$project"
   printf 'export EGRESS_PROXY_IMAGE=%q\n' "werft-egress-proxy:$project"
-  printf 'VERIFY_BOOTSTRAP_TOKEN=%q\n' "$token"
   printf 'VERIFY_BUILT_FROM=%q\n' "$("$repo/.claude/skills/verify-werft/scripts/tree-id.sh" "$repo")"
 } >"$run/state.env"
 echo "run: $run (project $project)" >&2
@@ -118,5 +113,11 @@ fi
 
 api=$(docker compose --profile apps port api 3000 | head -n 1)
 echo "VERIFY_API=http://127.0.0.1:${api##*:}" >>"$run/state.env"
+# The first owner's one-time setup link, on an empty stack only (a demo run
+# has its owner, and the command issues none). state.env keeps the part
+# after #setup=; the console opens /bootstrap#setup=<it>.
+if link=$(docker compose --profile apps exec -T api bun run apps/control-host/src/api/setup-link.ts </dev/null 2>/dev/null); then
+  printf 'VERIFY_SETUP_TOKEN=%q\n' "${link##*#setup=}" >>"$run/state.env"
+fi
 echo "run id: $run_id" >&2
 echo "$run"

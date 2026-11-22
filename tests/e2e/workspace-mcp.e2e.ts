@@ -7,7 +7,7 @@ import {
   bash,
   type ErrorBody,
   e2eEnv,
-  firstOwnerCookie,
+  e2eOwnerCookie,
   poll,
   REPOSITORY_ID,
   type SseEvent,
@@ -31,13 +31,12 @@ import {
  * without the suite ever reading one.
  */
 const env = e2eEnv();
-const bootstrapToken = process.env.E2E_BOOTSTRAP_TOKEN ?? "";
 const fakeMcpUrl = process.env.E2E_FAKE_MCP_URL ?? "";
 const installation = process.env.EXECUTION_INSTALLATION_ID ?? "";
 const project = process.env.E2E_COMPOSE_PROJECT ?? "";
-if (!bootstrapToken || !fakeMcpUrl || !installation || !project) {
+if (!fakeMcpUrl || !installation || !project) {
   throw new Error(
-    "E2E_BOOTSTRAP_TOKEN, E2E_FAKE_MCP_URL, EXECUTION_INSTALLATION_ID and E2E_COMPOSE_PROJECT are unset: run tests/e2e/run.sh",
+    "E2E_FAKE_MCP_URL, EXECUTION_INSTALLATION_ID and E2E_COMPOSE_PROJECT are unset: run tests/e2e/run.sh",
   );
 }
 const TIMEOUT = 600_000;
@@ -297,7 +296,7 @@ async function workerEnvironments(): Promise<string[]> {
 const count = (text: string) => text.match(ISSUED)?.length ?? 0;
 
 beforeAll(async () => {
-  cookie = await firstOwnerCookie(env.apiUrl, bootstrapToken);
+  cookie = await e2eOwnerCookie(env.apiUrl);
   const key = await web<{ secret: string }>("POST", "/v1/api-keys", {
     kind: "personal",
     scopes: [

@@ -37,8 +37,8 @@ export type BootstrapInput = {
   workspaceId: string;
   workspaceSlug: string;
   workspaceName: string;
-  /** sha256 of the BOOTSTRAP_TOKEN presented; recorded as spent. */
-  bootstrapTokenHash: Uint8Array;
+  /** sha256 of the setup link's token; the link is deleted with the owner. */
+  setupTokenHash: Uint8Array;
   /** The recovery receipt's id, used only when an owner is recovered. */
   receiptId: string;
   /** The owner's kind=password login method, unless it already has one. */
@@ -173,8 +173,16 @@ export interface IdentityStore {
   /** Owners whose account and membership are both enabled. */
   countLiveOwners(): Promise<number>;
   bootstrap(input: BootstrapInput): Promise<BootstrapResult>;
-  /** Record a BOOTSTRAP_TOKEN as spent without using it. */
-  retireBootstrapToken(tokenHash: Uint8Array): Promise<void>;
+  /**
+   * Replace any setup link with this one, valid for `ttlMs`, unless a live
+   * owner exists.
+   */
+  issueSetupLink(
+    tokenHash: Uint8Array,
+    ttlMs: number,
+  ): Promise<"issued" | "owner_exists">;
+  /** Whether an unexpired setup link has this hash; does not spend it. */
+  setupLinkIsLive(tokenHash: Uint8Array): Promise<boolean>;
   issuePasswordReset(
     input: IssuePasswordResetInput,
   ): Promise<IssuePasswordResetResult>;
@@ -222,10 +230,10 @@ export class BootstrapDoneError extends Error {
   }
 }
 
-export class BootstrapTokenSpentError extends Error {
+export class SetupLinkInvalidError extends Error {
   constructor() {
-    super("This BOOTSTRAP_TOKEN has already been used");
-    this.name = "BootstrapTokenSpentError";
+    super("The setup link is unknown, expired or already used");
+    this.name = "SetupLinkInvalidError";
   }
 }
 

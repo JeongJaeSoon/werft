@@ -24,7 +24,7 @@ import {
   type MockOidcServer,
   startMockOidcServer,
 } from "@werft-ai/testkit/mock-oidc";
-import { createBootstrapGate, hashWebSessionToken, WorkGate } from "./auth.ts";
+import { hashWebSessionToken, WorkGate } from "./auth.ts";
 import { generateApiKey, hashApiKey } from "./keys.ts";
 import { createFlowSealer } from "./oidc/flow-cookie.ts";
 import { PasswordChecks } from "./password-checks.ts";
@@ -155,7 +155,6 @@ function harness(
   };
   const auth = {
     identity,
-    bootstrap: createBootstrapGate(made()),
     providers: createProviderLogin({
       providers: store,
       consoleOrigin:

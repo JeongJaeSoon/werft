@@ -38,9 +38,6 @@ spec:
               value: {{ .Values.config.tracing.ingestPort | quote }}
             {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 12 }}
             {{- include "ap.secretEnv" (dict "root" . "key" "EGRESS_AUTHORIZER_TOKEN") | nindent 12 }}
-            {{- if .Values.secrets.bootstrapToken }}
-            {{- include "ap.secretEnv" (dict "root" . "key" "BOOTSTRAP_TOKEN") | nindent 12 }}
-            {{- end }}
             - name: PLATFORM_SECRET_KEY
               valueFrom:
                 secretKeyRef:

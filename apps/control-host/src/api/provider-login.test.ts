@@ -26,7 +26,7 @@ import {
   type MockOidcServer,
   startMockOidcServer,
 } from "@werft-ai/testkit/mock-oidc";
-import { createBootstrapGate, WorkGate } from "./auth.ts";
+import { WorkGate } from "./auth.ts";
 import { createFlowSealer } from "./oidc/flow-cookie.ts";
 import { GOOGLE_ISSUER } from "./oidc/index.ts";
 import { PasswordChecks } from "./password-checks.ts";
@@ -978,7 +978,6 @@ describe("provider sign-in routes", () => {
         registerPublicAuthRoutes(router, {
           identity,
           logger,
-          bootstrap: createBootstrapGate("x".repeat(32)),
           passwords: new PasswordChecks(),
           ...(providers ? { providers } : {}),
           ...(options.providerWork

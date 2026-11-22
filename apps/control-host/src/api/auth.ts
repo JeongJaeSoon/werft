@@ -1,12 +1,12 @@
-import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
-  bootstrapTokenSchema,
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
   LOGIN_LOCKOUT_ATTEMPTS,
   LOGIN_LOCKOUT_WINDOW_MINUTES,
   type Principal,
   SESSION_SCOPE_VALUES,
+  SETUP_LINK_TTL_HOURS,
   scopesForRole,
   type UserLocale,
   WEB_SESSION_COOKIE_NAME,
@@ -22,11 +22,12 @@ import {
   findUserForLogin,
   findWorkspace,
   issuePasswordReset,
+  issueSetupLink as issueSetupLinkRow,
   renewWebSession,
   resolveWebSession,
-  retireBootstrapToken,
   revokeWebSession,
   setUserLocale,
+  setupLinkIsLive,
   signInWithExternalIdentity,
 } from "@werft-ai/db";
 import type { StructuredLogger } from "@werft-ai/observability";
@@ -40,10 +41,6 @@ import type {
 } from "@werft-ai/platform";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
-import {
-  removeBootstrapTokenFile,
-  writeBootstrapTokenFile,
-} from "./bootstrap-token-file.ts";
 import { type ApiKeyStore, hashApiKey } from "./keys.ts";
 
 // Principal resolution for /v1 (03 §3.2). A bearer key is evaluated alone —
@@ -67,8 +64,11 @@ export class DatabaseIdentityStore implements IdentityStore {
   bootstrap(input: BootstrapInput) {
     return bootstrapOwner(this.db, input);
   }
-  retireBootstrapToken(tokenHash: Uint8Array) {
-    return retireBootstrapToken(this.db, tokenHash);
+  issueSetupLink(tokenHash: Uint8Array, ttlMs: number) {
+    return issueSetupLinkRow(this.db, tokenHash, ttlMs);
+  }
+  setupLinkIsLive(tokenHash: Uint8Array) {
+    return setupLinkIsLive(this.db, tokenHash);
   }
   issuePasswordReset(input: IssuePasswordResetInput) {
     return issuePasswordReset(this.db, input);
@@ -162,164 +162,32 @@ export async function verifyPassword(
 }
 
 // ---------------------------------------------------------------------------
-// Bootstrap token
+// Setup link
 // ---------------------------------------------------------------------------
 
-export interface BootstrapGate {
-  /**
-   * Whether the candidate is the token, spent or not; does not spend it. A
-   * right token that a concurrent request already spent is a 409, not a 401.
-   */
-  matches(candidate: string): boolean;
-  /** True once, for the matching token; false afterwards and for any other. */
-  consume(candidate: string): boolean;
-  /** Undo a consume whose bootstrap did not complete. */
-  release(): void;
-}
+export const SETUP_LINK_TTL_MS = SETUP_LINK_TTL_HOURS * 60 * 60 * 1000;
 
-export function createBootstrapGate(token: string): BootstrapGate {
-  let pending: string | null = token;
-  const expected = Buffer.from(token, "utf8");
-  const matches = (candidate: string) => {
-    const given = Buffer.from(candidate, "utf8");
-    return given.length === expected.length && timingSafeEqual(given, expected);
-  };
-  return {
-    matches,
-    consume(candidate) {
-      if (pending === null || !matches(candidate)) return false;
-      pending = null;
-      return true;
-    },
-    release() {
-      pending = token;
-    },
-  };
-}
-
-const BOOTSTRAP_RETIRE_RETRY_MS = 30_000;
-
-/** Retries until `work` resolves once; the timer never holds the process. */
-function retryInBackground(work: () => Promise<void>, delayMs: number) {
-  const attempt = () => {
-    work().catch(() => {
-      setTimeout(attempt, delayMs).unref();
-    });
-  };
-  setTimeout(attempt, delayMs).unref();
-}
-
-function generateBootstrapToken(): string {
-  return randomBytes(32).toString("base64url");
-}
-
-/** False when the file cannot be written, so the caller prints the token instead. */
-function writeTokenFile(
-  path: string,
-  token: string,
-  logger: StructuredLogger,
-): boolean {
-  try {
-    writeBootstrapTokenFile(path, token);
-    return true;
-  } catch (error) {
-    logger.warn("BOOTSTRAP_TOKEN_FILE could not be written", {
-      error_name: error instanceof Error ? error.name : typeof error,
-    });
-    return false;
-  }
+/**
+ * The console path a setup link opens. The token rides in the fragment, so
+ * it reaches neither a server's access log nor a Referer header.
+ */
+export function setupLinkPath(token: string): string {
+  return `/bootstrap#setup=${token}`;
 }
 
 /**
- * Take the operator's token or mint one. A minted token is printed once, and
- * only while the install needs it — no live owner, first install or
- * recovery — so an established deployment that forgot the variable does
- * not print a secret nobody can use. It goes
- * through `print`, not the structured logger: that logger redacts any
- * `*token*` field on purpose, and this is the one value that must reach the
- * operator's terminal in the clear.
+ * Mint a setup link's token for an install with no live owner, replacing any
+ * earlier link. Null when an owner exists: nothing is issued then.
  */
-export async function bootstrapGateFromEnv(
-  value: string | undefined,
-  store: Pick<IdentityStore, "countLiveOwners" | "retireBootstrapToken">,
-  logger: StructuredLogger,
-  print: (line: string) => void = (line) => console.error(line),
-  retryMs = BOOTSTRAP_RETIRE_RETRY_MS,
-  tokenFile?: string,
-): Promise<BootstrapGate> {
-  if (value !== undefined) {
-    // The request schema bounds the token; a configured value outside it
-    // could never be presented, which would leave the install impossible to
-    // bootstrap with no error anywhere. Refuse to start instead. An empty
-    // value is a secret injection that failed, not a request to generate
-    // one and print it to a log the operator meant to keep it out of.
-    const parsed = bootstrapTokenSchema.safeParse(value);
-    if (!parsed.success) {
-      throw new Error(
-        "BOOTSTRAP_TOKEN must be 32 to 256 characters (or unset to generate one)",
-      );
-    }
-    // A value configured while an owner is live cannot be the new token a
-    // recovery needs, and an install that predates bootstrap_token_uses
-    // never recorded the one it used. Spend it now, or as soon as the
-    // database answers: left unchecked, it would still open recovery if the
-    // owners were lost later.
-    const tokenHash = hashWebSessionToken(parsed.data);
-    const retire = async () => {
-      if ((await store.countLiveOwners()) > 0) {
-        await store.retireBootstrapToken(tokenHash);
-      }
-    };
-    try {
-      await retire();
-    } catch (error) {
-      logger.warn("BOOTSTRAP_TOKEN could not be checked against live owners", {
-        error_name: error instanceof Error ? error.name : typeof error,
-      });
-      retryInBackground(retire, retryMs);
-    }
-    return createBootstrapGate(parsed.data);
-  }
-  const token = generateBootstrapToken();
-  let owners: number | null;
-  try {
-    owners = await store.countLiveOwners();
-  } catch (error) {
-    // The API starts without its database and answers readiness 503
-    // so an unreachable database cannot stop startup here. The
-    // count is unknown; print anyway, since the value only ever works while
-    // no live owner exists.
-    owners = null;
-    logger.warn("BOOTSTRAP_TOKEN not set and owners could not be counted", {
-      error_name: error instanceof Error ? error.name : typeof error,
-    });
-  }
-  if (owners === null || owners === 0) {
-    if (tokenFile !== undefined) {
-      // Never fall back to the log: the file is the operator's chosen way to
-      // keep the value out of it. A failed write leaves the install to a
-      // configured BOOTSTRAP_TOKEN.
-      if (writeTokenFile(tokenFile, token, logger)) {
-        print(
-          `BOOTSTRAP_TOKEN not set; the value for this process waits in ${tokenFile}. Take it once with the bootstrap-token command`,
-        );
-      } else {
-        print(
-          "BOOTSTRAP_TOKEN not set and its file could not be written; set BOOTSTRAP_TOKEN in the env file and restart",
-        );
-      }
-    } else {
-      logger.warn(
-        "BOOTSTRAP_TOKEN not set; a value for this process was printed to stderr",
-      );
-      print(`BOOTSTRAP_TOKEN=${token}`);
-    }
-  } else if (tokenFile !== undefined) {
-    // A restart after the first owner exists: the file left by the earlier
-    // process holds a value this process no longer accepts.
-    removeBootstrapTokenFile(tokenFile);
-  }
-  return createBootstrapGate(token);
+export async function issueSetupToken(
+  store: Pick<IdentityStore, "issueSetupLink">,
+): Promise<string | null> {
+  const token = randomBytes(32).toString("base64url");
+  const outcome = await store.issueSetupLink(
+    hashWebSessionToken(token),
+    SETUP_LINK_TTL_MS,
+  );
+  return outcome === "issued" ? token : null;
 }
 
 // ---------------------------------------------------------------------------

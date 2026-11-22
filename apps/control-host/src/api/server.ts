@@ -193,7 +193,7 @@ import {
   apiSettingsFromEnv,
 } from "./api-settings.ts";
 import { createApiApp } from "./app.ts";
-import { bootstrapGateFromEnv, DatabaseIdentityStore } from "./auth.ts";
+import { DatabaseIdentityStore } from "./auth.ts";
 import {
   installedRuntimeVersions,
   launchableKindsFromEnv,
@@ -1286,14 +1286,6 @@ const auth = {
   loginMethods: createPostgresLoginMethodStore(db),
   loginSettings: loginSettingsStore,
   passwords,
-  bootstrap: await bootstrapGateFromEnv(
-    process.env.BOOTSTRAP_TOKEN,
-    identity,
-    logger,
-    undefined,
-    undefined,
-    process.env.BOOTSTRAP_TOKEN_FILE || undefined,
-  ),
   logger,
 };
 const slackInteractions = wireSlackInteractions({

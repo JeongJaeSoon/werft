@@ -58,7 +58,7 @@ export const commonKo = {
     "필요하면 워크스페이스 오너나 어드민에게 권한을 요청하세요.",
   "status.bootstrapRequired.title": "아직 오너가 없습니다",
   "status.bootstrapRequired.body":
-    "설치 때 출력된 bootstrap 토큰으로 첫 오너를 만드세요.",
+    "운영자가 setup-link 명령으로 만든 일회용 설정 링크로 첫 오너를 만드세요.",
   "status.bootstrapRequired.action": "첫 오너 만들기",
   "status.error.title": "문제가 생겼습니다",
 
@@ -147,7 +147,7 @@ export const commonEn: Record<keyof typeof commonKo, string> = {
     "If you need access, ask a workspace owner or admin.",
   "status.bootstrapRequired.title": "There is no owner yet",
   "status.bootstrapRequired.body":
-    "Create the first owner with the bootstrap token printed during installation.",
+    "Create the first owner from the one-time setup link an operator makes with the setup-link command.",
   "status.bootstrapRequired.action": "Create the first owner",
   "status.error.title": "Something went wrong",
 
@@ -237,7 +237,7 @@ export const commonJa: Record<keyof typeof commonKo, string> = {
     "必要な場合は、ワークスペースのオーナーまたはアドミンに権限を依頼してください。",
   "status.bootstrapRequired.title": "オーナーがまだいません",
   "status.bootstrapRequired.body":
-    "インストール時に出力された bootstrap トークンで、最初のオーナーを作成してください。",
+    "運用者が setup-link コマンドで作る一回限りの設定リンクから、最初のオーナーを作成してください。",
   "status.bootstrapRequired.action": "最初のオーナーを作成",
   "status.error.title": "問題が発生しました",
 

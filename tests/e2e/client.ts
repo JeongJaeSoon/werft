@@ -43,28 +43,41 @@ export const REPOSITORY_ID = "sample-app";
 export const E2E_AGENT_SLUG = "e2e-runner";
 
 /**
- * Derived from the bootstrap token, so every suite on one stack, and a
+ * Derived from the stack's owner secret, so every suite on one stack, and a
  * second run on it, logs in as the people the first one made.
  */
-export function passwordOf(bootstrapToken: string, email: string): string {
+export function passwordOf(ownerSecret: string, email: string): string {
   return createHash("sha256")
-    .update(`${bootstrapToken}:${email}`)
+    .update(`${ownerSecret}:${email}`)
     .digest("base64url")
     .slice(0, 24);
 }
 
+/** The stack's first owner and workspace, as bootstrap takes them. */
+export function e2eOwnerBody(ownerSecret: string) {
+  const email = "e2e-owner@example.test";
+  return {
+    email,
+    password: passwordOf(ownerSecret, email),
+    display_name: "E2E Owner",
+    workspace_name: "Verify",
+    workspace_slug: "verify",
+  };
+}
+
 /**
  * The session cookie of the stack's first owner, in the `verify` workspace
- * tests/fixtures/settings/fake-model.json allows. A stack bootstraps once, so
- * every suite asks for the same owner: the first call makes it, the rest get
- * 409 and log in.
+ * tests/fixtures/settings/fake-model.json allows. A stack bootstraps once,
+ * from the setup link its runner took (`setupToken`), so every suite asks for
+ * the same owner: the first call makes it; the rest find the link spent (401)
+ * or the owner made (409) and log in.
  */
 export async function firstOwnerCookie(
   apiUrl: string,
-  bootstrapToken: string,
+  ownerSecret: string,
+  setupToken?: string,
 ): Promise<string> {
-  const email = "e2e-owner@example.test";
-  const password = passwordOf(bootstrapToken, email);
+  const owner = e2eOwnerBody(ownerSecret);
   const post = (path: string, body: unknown) =>
     fetch(`${apiUrl}${path}`, {
       method: "POST",
@@ -75,28 +88,44 @@ export async function firstOwnerCookie(
       },
       body: JSON.stringify(body),
     });
-  const booted = await post("/v1/auth/bootstrap", {
-    bootstrap_token: bootstrapToken,
-    email,
-    password,
-    display_name: "E2E Owner",
-    workspace_name: "Verify",
-    workspace_slug: "verify",
-  });
-  if (booted.status !== 201 && booted.status !== 409) {
-    throw new Error(`bootstrap answered ${booted.status}`);
+  if (setupToken) {
+    const booted = await post("/v1/auth/bootstrap", {
+      setup_token: setupToken,
+      ...owner,
+    });
+    if (![201, 401, 409].includes(booted.status)) {
+      throw new Error(`bootstrap answered ${booted.status}`);
+    }
   }
-  const login = await post("/v1/auth/login", { email, password });
+  const login = await post("/v1/auth/login", {
+    email: owner.email,
+    password: owner.password,
+  });
   const cookie = login.headers
     .getSetCookie()
     .find((value) => value.startsWith("__Host-werft_session="))
     ?.split(";")[0];
   if (login.status !== 200 || !cookie) {
     throw new Error(
-      `the first owner could not log in (${login.status}): another owner bootstrapped this stack`,
+      `the first owner could not log in (${login.status}): no setup link made it, or another owner bootstrapped this stack`,
     );
   }
   return cookie;
+}
+
+/** The stack's first owner, from E2E_OWNER_SECRET and E2E_SETUP_TOKEN. */
+export function e2eOwnerCookie(apiUrl: string): Promise<string> {
+  const ownerSecret = process.env.E2E_OWNER_SECRET ?? "";
+  if (!ownerSecret) {
+    throw new Error(
+      "E2E_OWNER_SECRET is unset: run tests/e2e/run.sh, or source its vars.sh (E2E_UP_ONLY=1)",
+    );
+  }
+  return firstOwnerCookie(
+    apiUrl,
+    ownerSecret,
+    process.env.E2E_SETUP_TOKEN || undefined,
+  );
 }
 
 /**
@@ -118,13 +147,7 @@ export async function e2eStack({
   repositoryId?: string;
 } = {}): Promise<E2eEnv & { releaseId: string }> {
   const env = e2eEnv({ needsMessages });
-  const bootstrapToken = process.env.E2E_BOOTSTRAP_TOKEN ?? "";
-  if (!bootstrapToken) {
-    throw new Error(
-      "E2E_BOOTSTRAP_TOKEN is unset: run tests/e2e/run.sh, or source its vars.sh (E2E_UP_ONLY=1)",
-    );
-  }
-  const cookie = await firstOwnerCookie(env.apiUrl, bootstrapToken);
+  const cookie = await e2eOwnerCookie(env.apiUrl);
   const web = async <T>(
     status: number,
     method: string,

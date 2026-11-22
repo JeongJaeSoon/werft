@@ -56,8 +56,9 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { liveSetupToken } from "../testing/setup-link.ts";
 import { createApiApp } from "./app.ts";
-import { createBootstrapGate, DatabaseIdentityStore } from "./auth.ts";
+import { DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -81,7 +82,6 @@ integration("the workspace's link app, made on the first Slack link", () => {
   let idp: MockSlackOidc;
   const webApi = createFakeSlackWebApi({ teamId: TEAM, userId: "U0ISSUER" });
   const key = SecretKey.fromHex(randomBytes(32).toString("hex"), "TEST_KEY");
-  const bootstrapToken = randomBytes(16).toString("hex");
   const password = randomBytes(12).toString("hex");
   const logs = new MemoryLogSink();
   const bodies: string[] = [];
@@ -103,7 +103,6 @@ integration("the workspace's link app, made on the first Slack link", () => {
     const identity = new DatabaseIdentityStore(db);
     const auth = {
       identity,
-      bootstrap: createBootstrapGate(bootstrapToken),
       passwords: new PasswordChecks(),
     };
     const authorization = createAuthorizationPolicy({
@@ -284,7 +283,7 @@ integration("the workspace's link app, made on the first Slack link", () => {
 
   test("setup: an owner and a member, and a verified Slack install", async () => {
     const boot = await send("POST", "/v1/auth/bootstrap", {
-      bootstrap_token: bootstrapToken,
+      setup_token: await liveSetupToken(db),
       email: "owner@example.com",
       password,
       display_name: "Owner",

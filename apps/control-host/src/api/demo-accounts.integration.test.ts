@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import * as schema from "@werft-ai/db";
 import { bootstrapOwner, memberships, users } from "@werft-ai/db";
+import { liveSetupLinkHash } from "@werft-ai/db/testing/setup-link";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { hashPassword, hashWebSessionToken, verifyPassword } from "./auth.ts";
+import { hashPassword, verifyPassword } from "./auth.ts";
 import {
   DEMO_ACCOUNTS,
   DEMO_PASSWORD,
@@ -49,7 +50,7 @@ integration("seedDemoAccounts on PostgreSQL", () => {
       workspaceId: randomUUID(),
       workspaceSlug: "someone",
       workspaceName: "Someone",
-      bootstrapTokenHash: hashWebSessionToken(randomBytes(32).toString("hex")),
+      setupTokenHash: await liveSetupLinkHash(db),
       receiptId: randomUUID(),
       loginMethodId: randomUUID(),
     });

@@ -5,15 +5,17 @@
 # owner's key to the 0600 header file, the owner's second key (which answers
 # requests: a key never answers a session it started) to <file>.approve, and
 # sets KIND_RELEASE_ID. The
-# bootstrap token is read from the Secret up.sh made and the key from the
-# script's stdout: neither reaches an argument or the log.
+# owner's password seed is read from the Secret up.sh made, a setup link
+# from the api while no owner exists, and the key from the script's stdout:
+# none reaches an argument or the log.
 kind_release_key() {
-  local api_url="$1" auth_file="$2" token vars key approve
+  local api_url="$1" auth_file="$2" secret setup vars key approve
   { set +x; } 2>/dev/null
-  token="$(kubectl -n "$NAMESPACE" get secret werft -o 'go-template={{index .data "BOOTSTRAP_TOKEN" | base64decode}}')"
-  [ -n "$token" ] || { echo "the werft Secret holds no BOOTSTRAP_TOKEN (deploy/kind/up.sh writes it)" >&2; return 1; }
-  vars="$(KIND_API_URL="$api_url" BOOTSTRAP_TOKEN="$token" bun "$(dirname "${BASH_SOURCE[0]}")/release.ts")" || return 1
-  unset token
+  secret="$(kubectl -n "$NAMESPACE" get secret werft -o 'go-template={{index .data "E2E_OWNER_SECRET" | base64decode}}')"
+  [ -n "$secret" ] || { echo "the werft Secret holds no E2E_OWNER_SECRET (deploy/kind/up.sh writes it)" >&2; return 1; }
+  setup="$(kind_setup_link_token "${fullname:?}")"
+  vars="$(KIND_API_URL="$api_url" E2E_OWNER_SECRET="$secret" E2E_SETUP_TOKEN="$setup" bun "$(dirname "${BASH_SOURCE[0]}")/release.ts")" || return 1
+  unset secret setup
   key="$(printf '%s\n' "$vars" | sed -n 's/^KIND_API_KEY=//p')"
   approve="$(printf '%s\n' "$vars" | sed -n 's/^KIND_APPROVE_KEY=//p')"
   KIND_RELEASE_ID="$(printf '%s\n' "$vars" | sed -n 's/^KIND_RELEASE_ID=//p')"
@@ -23,4 +25,12 @@ kind_release_key() {
     printf 'Authorization: Bearer %s\n' "$approve" >"${auth_file}.approve")
   unset key approve
   export KIND_RELEASE_ID
+}
+
+# kind_setup_link_token <fullname>: the token of a new setup link from the api
+# Deployment, or nothing once an owner exists (the command issues none then).
+kind_setup_link_token() {
+  local link
+  link="$(kubectl -n "$NAMESPACE" exec deploy/"$1"-api -- bun run apps/control-host/src/api/setup-link.ts </dev/null 2>/dev/null)" || return 0
+  printf '%s' "${link##*#setup=}"
 }

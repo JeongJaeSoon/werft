@@ -1,20 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Link,
-  useLocation,
-  useNavigate,
-  useSearch,
-} from "@tanstack/react-router";
+import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import { type ApiError, CSRF_HEADER_VALUE, unwrap } from "@werft-ai/client";
 import { useWerft } from "@werft-ai/react";
-import {
-  Button,
-  Field,
-  FieldLabel,
-  Input,
-  Text,
-  Link as TextLink,
-} from "@werft-ai/ui";
+import { Button, Field, FieldLabel, Input, Text } from "@werft-ai/ui";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { loginMethodsQuery } from "../api/queries.ts";
 import { AuthPage, FormError, Notice } from "../components/auth-page.tsx";
@@ -177,12 +165,6 @@ export function LoginScreen() {
         </Button>
       </form>
       {closed ? null : <ProviderChoices redirect={redirect} />}
-      <Text variant="sub">
-        {t("login.bootstrapPrompt")}{" "}
-        <TextLink asChild underline="always">
-          <Link to="/bootstrap">{t("login.bootstrapLink")}</Link>
-        </TextLink>
-      </Text>
     </AuthPage>
   );
 }

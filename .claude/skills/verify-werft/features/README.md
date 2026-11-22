@@ -4,7 +4,7 @@
 
 ## 기본 전제
 
-- `scripts/up.sh`로 이 run만의 스택을 띄웠고, 출력된 run id를 기록했다(fake model, ephemeral 포트, 이 run의 bootstrap token).
+- `scripts/up.sh`로 이 run만의 스택을 띄웠고, 출력된 run id를 기록했다(fake model, ephemeral 포트, 이 run의 첫 owner 설정 링크).
 - `scripts/doctor.sh <run id>`가 exit 0이고 checkout SHA가 확인하려는 커밋이다.
 - 드라이브하는 Bash 호출마다 `. .claude/skills/verify-werft/scripts/lib.sh <run id>`를 source한다. run id는 `up.sh`가 출력한 값이고 기본값은 없다.
 - 이 run이 띄우지 않은 스택(기본 project `werft`, 다른 `verify-ap-*`)은 몰지 않는다.

@@ -35,9 +35,9 @@ import {
 import { and, eq, isNull } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { liveSetupToken } from "../testing/setup-link.ts";
 import { createApiApp } from "./app.ts";
 import {
-  createBootstrapGate,
   DatabaseIdentityStore,
   hashPassword,
   hashWebSessionToken,
@@ -49,9 +49,8 @@ import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
 // Made per run: nothing here is a value anyone could use elsewhere.
-// 32 characters, the least a bootstrap token may be.
+// 32 characters, the least a setup link token may be.
 const made = () => randomBytes(24).toString("base64url");
-const BOOTSTRAP = made();
 const OWNER_WORD = made();
 const CLIENT_ID = "client-id.apps.example";
 const CLIENT_KEY = made();
@@ -216,7 +215,6 @@ integration(
       const identity = new DatabaseIdentityStore(db);
       const auth = {
         identity,
-        bootstrap: createBootstrapGate(BOOTSTRAP),
         passwords: new PasswordChecks(),
         logger: new StructuredLogger({ sinks: [new MemoryLogSink()] }),
         loginMethods: createPostgresLoginMethodStore(db),
@@ -239,7 +237,7 @@ integration(
       // A client secret is stored under a workspace, so the owner comes first.
       const created = await request("POST", "/v1/auth/bootstrap", {
         body: {
-          bootstrap_token: BOOTSTRAP,
+          setup_token: await liveSetupToken(db),
           email: "owner@example.com",
           password: OWNER_WORD,
           display_name: "Owner",

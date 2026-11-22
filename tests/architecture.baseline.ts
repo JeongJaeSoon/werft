@@ -125,6 +125,7 @@ export const pathFixed: readonly string[] = [
   "packages/db/src/testing/launches.ts",
   "packages/db/src/testing/login-provider.ts",
   "packages/db/src/testing/member-manage-allow.ts",
+  "packages/db/src/testing/setup-link.ts",
   "packages/db/src/testing/spec-pins.ts",
   "packages/platform/src/testing/agent-welcomable-contract.ts",
   "packages/platform/src/testing/approvable-contract.ts",
@@ -152,7 +153,6 @@ export const pathFixed: readonly string[] = [
   "packages/db/src/migrate.integration.test.ts",
   // entry points named by Dockerfile, compose, Helm, scripts and e2e commands
   "apps/control-host/src/main.ts",
-  "apps/control-host/src/api/bootstrap-token-file.ts",
   "apps/control-host/src/api/checkpoint-gc.ts",
   "apps/control-host/src/api/demo-accounts.ts",
   "apps/control-host/src/api/demo-data.ts",
@@ -161,5 +161,6 @@ export const pathFixed: readonly string[] = [
   "apps/control-host/src/api/route-error-coverage.ts",
   "apps/control-host/src/api/session-archive.ts",
   "apps/control-host/src/api/settings.ts",
+  "apps/control-host/src/api/setup-link.ts",
   "apps/control-host/src/api/upgrade-check.ts",
 ];

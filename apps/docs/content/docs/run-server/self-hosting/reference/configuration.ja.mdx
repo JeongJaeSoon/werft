@@ -312,7 +312,7 @@ Helm chart（`deploy/helm/werft`、設置手順は [Kubernetes 設置（Helm cha
 | `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` | api、checkpoint GC、session archive CronJob。`secrets.objectStoreKeys: true` の場合だけ。`false` なら AWS 既定 credential chain（IRSA）で署名します |
 | `PLATFORM_SECRET_KEY` | api、slack。必須。64 文字 hex の master key。コンソールに保存した資格情報を封印します。Secret にないと Pod は起動しません |
 
-モデル接続・MCP サーバー・リポジトリの GitHub App key は、Secret や環境変数では渡しません。コンソール（または credential API）で入れ、`PLATFORM_SECRET_KEY` で暗号化して DB に保存されます。`secrets.catalogEnv` と `config.aws.secretsManagerEndpointUrl` はなくなり、values に残っているとレンダリングが失敗します。`secrets.bootstrapToken: true` なら api は Secret の `BOOTSTRAP_TOKEN` を受け取ります（既定 `false`）。受け取らなければ、プロセスごとにトークンが自動生成されます。既定の API replica 2 個で最初の設置（bootstrap）をするには同じトークンを Secret で渡す必要があり、そうしないと replica ごとに別のトークンができ、一部のリクエストが 401 になります。replica が 1 個なら、自動生成されたトークンも使えます。
+モデル接続・MCP サーバー・リポジトリの GitHub App key は、Secret や環境変数では渡しません。コンソール（または credential API）で入れ、`PLATFORM_SECRET_KEY` で暗号化して DB に保存されます。`secrets.catalogEnv` と `config.aws.secretsManagerEndpointUrl` はなくなり、values に残っているとレンダリングが失敗します。`secrets.bootstrapToken` もなくなり、残っているとレンダリングが失敗します。最初の owner は、api Pod で `bun run apps/control-host/src/api/setup-link.ts` が出力する一回限りの設定リンクで作ります。リンクは DB にあるため、replica の数に関係なく使えます。
 
 | 値 | 変更対象 |
 |---|---|

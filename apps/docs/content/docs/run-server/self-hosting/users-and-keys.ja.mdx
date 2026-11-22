@@ -15,7 +15,7 @@ outcome: "利用者ごとの認証手段と実行権限を発行します"
 <a id="준비물" />
 ## 準備
 
-[設置](/run-server/self-hosting)と[アクセス経路](/run-server/self-hosting/access)の準備が必要です。bootstrap トークンとログは運用者だけが読み取ります。Kubernetes では複数 replica に同じ BOOTSTRAP_TOKEN を渡すよう Secret にトークンを置き、`secrets.bootstrapToken: true` を設定します。
+[設置](/run-server/self-hosting)と[アクセス経路](/run-server/self-hosting/access)の準備が必要です。設定リンクは運用者だけが受け取り、扱います。
 
 <a id="단계" />
 ## 手順
@@ -23,7 +23,7 @@ outcome: "利用者ごとの認証手段と実行権限を発行します"
 <a id="1-첫-owner-만들기" />
 ### 1. 最初の owner の作成
 
-ブラウザの `/bootstrap` に固定した BOOTSTRAP_TOKEN、owner 情報、workspace 名を入力します。トークン未設定の test-ops 単一 API 環境では、`scripts/test-ops.sh bootstrap-token` が自動生成されたトークンを一度だけ出力します。再実行しても出力されず、コンテナログは読みません。それ以外の単一 API 構成（`scripts/local.sh` など）では API の起動ログ（`docker logs <this-installation-api-container-id>`）に出力されます。既定 replica が 2 の Kubernetes では自動生成に頼らず、Secret の固定トークンを使います。最初の owner 作成後に同じトークンを再利用すると `409 BOOTSTRAP_DONE` です。`/login` でログインします。
+運用者が設置側で一回限りの設定リンクを受け取ります。test-ops 単一サーバーでは `scripts/test-ops.sh setup-link`、Kubernetes では `kubectl -n werft exec deploy/werft-api -- bun run apps/control-host/src/api/setup-link.ts`、それ以外の compose 構成では `docker compose --profile apps exec -T api bun run apps/control-host/src/api/setup-link.ts` です。コマンドは live owner がいないときだけリンクを stdout に一度出力し、ログやファイルには残しません。`CONSOLE_ORIGIN` があればそのアドレスを付けた URL、なければ `/bootstrap#setup=…` のパスだけが出るので、コンソールのアドレスの後ろに付けます。リンクをブラウザで開き、owner 情報と workspace 名を入力します。リンクは一度使うとすぐ無効になり、24 時間で期限切れになります。再実行すると前のリンクは無効になり、新しいリンクが出力されます。owner がいればコマンドはリンクを作らず、終了コード 1 で終わります。`/login` でログインします。
 
 <a id="2-사용자별-key-발급" />
 ### 2. 利用者ごとの key 発行
@@ -77,7 +77,7 @@ API_CONTAINER は、この環境の status と Docker project label で確認し
 <a id="자주-막히는-곳" />
 ## よくある問題
 
-replica ごとに自動生成した bootstrap トークンが異なると、別の Pod に届いた要求が 401 になる場合があります。固定トークンを全 Pod に渡します。Secret に名前が欠けていると Pod は起動しません。CLI の owner id に workspace id を指定しないでください。
+リンクが「この設定リンクは使えません」で開く場合は、すでに使ったか、24 時間が過ぎたか、コマンドの再実行で置き換わっています。owner がいなければ、コマンドを再実行して新しいリンクを受け取ります。CLI の owner id に workspace id を指定しないでください。
 
 <a id="되돌리기" />
 ## 元に戻す

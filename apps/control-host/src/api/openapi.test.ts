@@ -398,6 +398,7 @@ describe("OpenAPI document", () => {
         "/v1/auth/password-reset",
         "/v1/auth/providers/{id}/invite/start",
         "/v1/auth/providers/{id}/start",
+        "/v1/auth/setup-link/check",
         "/v1/login-providers",
         "/v1/login-providers/discover",
         "/v1/login-providers/{id}",

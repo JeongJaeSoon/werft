@@ -33,12 +33,9 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { liveSetupToken } from "../testing/setup-link.ts";
 import { createApiApp } from "./app.ts";
-import {
-  createBootstrapGate,
-  DatabaseIdentityStore,
-  hashWebSessionToken,
-} from "./auth.ts";
+import { DatabaseIdentityStore, hashWebSessionToken } from "./auth.ts";
 import { GOOGLE_ISSUER } from "./oidc/index.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import { createProviderLogin } from "./provider-login.ts";
@@ -46,7 +43,6 @@ import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
-const BOOTSTRAP_TOKEN = "bootstrap-token-for-provider-login-tests";
 const PASSWORD = "correct horse battery staple";
 const CLIENT_ID = "client-id.apps.example";
 const CLIENT_SECRET = "mock-provider-client-secret";
@@ -77,7 +73,6 @@ integration("provider sign-in first-entry rules on PostgreSQL", () => {
   function appFor(providerId: string, idp: MockOidcServer) {
     const auth = {
       identity,
-      bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
       passwords: new PasswordChecks(),
       logger: new StructuredLogger({ sinks: [new MemoryLogSink()] }),
       providers: createProviderLogin({
@@ -207,7 +202,7 @@ integration("provider sign-in first-entry rules on PostgreSQL", () => {
     const created = await appFor(randomUUID(), otherIdp).post(
       "/v1/auth/bootstrap",
       {
-        bootstrap_token: BOOTSTRAP_TOKEN,
+        setup_token: await liveSetupToken(db),
         email: "owner@example.com",
         password: PASSWORD,
         display_name: "Owner",

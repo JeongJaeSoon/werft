@@ -264,12 +264,16 @@ SDK reads its own (AWS_ENDPOINT_URL_S3, AWS_ROLE_ARN, AWS_PROFILE, ...).
 
 {{/*
 Fails on the values that handed the api model and MCP keys by environment or
-Secrets Manager: the api reads them nowhere now, and a silent render would
-leave every such connection without its key.
+Secrets Manager, or a bootstrap token: the api reads them nowhere now, and a
+silent render would leave a connection without its key, or an operator
+waiting on a token that no longer opens anything.
 */}}
 {{- define "ap.removedCredentialValues" -}}
 {{- if hasKey .Values.secrets "catalogEnv" -}}
-{{- fail "secrets.catalogEnv is removed: credentials are entered in the console and kept in the database; enter each key there, then delete secrets.catalogEnv (for BOOTSTRAP_TOKEN, set secrets.bootstrapToken true)" -}}
+{{- fail "secrets.catalogEnv is removed: credentials are entered in the console and kept in the database; enter each key there, then delete secrets.catalogEnv" -}}
+{{- end -}}
+{{- if hasKey .Values.secrets "bootstrapToken" -}}
+{{- fail "secrets.bootstrapToken is removed: the first owner comes from a one-time link the setup-link command prints in the api pod (bun run apps/control-host/src/api/setup-link.ts); delete secrets.bootstrapToken, and BOOTSTRAP_TOKEN from the Secret" -}}
 {{- end -}}
 {{- if hasKey .Values.config.aws "secretsManagerEndpointUrl" -}}
 {{- fail "config.aws.secretsManagerEndpointUrl is removed: the api reads no credential from Secrets Manager; delete it" -}}

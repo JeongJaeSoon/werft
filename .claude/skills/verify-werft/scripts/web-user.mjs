@@ -114,7 +114,7 @@ function report(r, drop = []) {
 }
 
 const bootstrapBody = (c, token) => ({
-  bootstrap_token: token,
+  setup_token: token,
   email: c.email,
   password: c.password,
   display_name: displayName(who),
@@ -361,7 +361,7 @@ switch (cmd) {
       await call(
         "POST",
         "/v1/auth/bootstrap",
-        bootstrapBody(creds(who, true), state.VERIFY_BOOTSTRAP_TOKEN),
+        bootstrapBody(creds(who, true), state.VERIFY_SETUP_TOKEN),
       ),
     );
     break;

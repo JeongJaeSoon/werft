@@ -96,7 +96,6 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 | `POSTGRES_PASSWORD` | ランダムな値。英字、数字、`.` `_` `~` `-` だけを使います |
 | `EGRESS_AUTHORIZER_TOKEN` | 32 文字以上のランダムな値 |
 | `PLATFORM_SECRET_KEY` | `openssl rand -hex 32` の 64 文字 hex。失うと保存した資格情報を読めなくなります |
-| `BOOTSTRAP_TOKEN` | コメントのままにします。最初の owner を作るトークンは API が生成し、手順 4 の `deploy` の後に `scripts/test-ops.sh bootstrap-token` が一度だけ表示します。固定値が必要なら、コメントを外して 32–256 文字のランダムな値を設定します。その場合、このコマンドはトークンを出力しません |
 | `CONSOLE_ORIGIN` | コンソールから GitHub App を作るときに必要な、ブラウザのコンソール origin（`scheme://host[:port]`）。なければ「GitHub で作成」ボタンは無効です。Slack アカウント連携のリダイレクトと Slack のイベントアドレスもこの値から計算します(なければ Slack 連携は無効です)。[SSO ログイン](/run-server/self-hosting/sso)のプロバイダーの redirect URI もこの値から作り、なければプロバイダーを作成できません。env の例にはこの行がないため、自分で追加します。SSH tunnel で開くなら `http://127.0.0.1:<tunnel port>` を指定します。設置後の追加・変更は `start` ではなく `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json` で現在の release を再適用して反映します |
 
 例の LocalStack 値を運用 S3 の値に変更します。秘密をコマンドラインやログへ出力しないでください。
@@ -167,7 +166,7 @@ DEPLOYMENT_DIR=/var/lib/werft/test-ops
 scripts/test-ops.sh manifest release-manifest.json /etc/werft/settings.json > "$DEPLOYMENT_DIR/release.json"
 ```
 
-手順 4 と `bootstrap-token` も、バンドルのディレクトリで同じコマンドを実行します。バンドルの `preflight` と `deploy` は、このファイルの commit やイメージがバンドルのリリースと違えば拒否します。
+手順 4 と `setup-link` も、バンドルのディレクトリで同じコマンドを実行します。バンドルの `preflight` と `deploy` は、このファイルの commit やイメージがバンドルのリリースと違えば拒否します。
 
 <a id="4-s3를-명시해-검사설치" />
 ### 4. S3 を明示して検査・設置
@@ -179,13 +178,13 @@ TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh deploy "$DEPLOYMENT_DIR/release.jso
 
 preflight は bucket の保護設定と scratch version の書き込み・hold・読み取り・hold 解除・削除を検査します。quota は deploy 時に scheduler が検査します。両方成功し、サービスが healthy になる必要があります。object store 方式は最初の deploy 後に変更できません。
 
-env ファイルに `BOOTSTRAP_TOKEN` を設定していない場合は、deploy の後で最初の owner のトークンを受け取ります。トークンはコンテナログではなく、API コンテナ内の owner 専用ファイルに置かれ、このコマンドが表示と同時に削除します。
+deploy の後で、最初の owner を作る一回限りの設定リンクを受け取ります。このコマンドが stdout に一度だけ出力し、ログやファイルには残りません。
 
 ```bash
-scripts/test-ops.sh bootstrap-token
+scripts/test-ops.sh setup-link
 ```
 
-表示された値を `/bootstrap` に貼り付けます（[最初の owner と key](/run-server/self-hosting/users-and-keys)）。同じコマンドを再実行してもトークンは出力されず、終了コード 1 で終わります。値を控え損ね、まだ owner がいない場合は、`scripts/test-ops.sh stop` と `start` で API を再起動すると新しいトークンが作られます（古いトークンは無効になります）。すでに `BOOTSTRAP_TOKEN` を設定している環境は変わりません。
+出力されたリンクをブラウザで開きます（[最初の owner と key](/run-server/self-hosting/users-and-keys)）。パスだけが出力された場合は、コンソールのアドレスの後ろに付けます。リンクは一度使うとすぐ無効になり、24 時間で期限切れになります。控え損ねたり期限が切れたりしたら、コマンドを再実行します。新しいリンクが出力され、前のリンクは無効になります。owner ができた後は、リンクを出力せず終了コード 1 で終わります。
 
 <a id="확인" />
 ## 確認

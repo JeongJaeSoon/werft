@@ -60,8 +60,9 @@ import {
   releaseIn,
   sessionReleases,
 } from "../testing/releases.ts";
+import { liveSetupToken } from "../testing/setup-link.ts";
 import { createApiApp } from "./app.ts";
-import { createBootstrapGate, DatabaseIdentityStore } from "./auth.ts";
+import { DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -78,7 +79,6 @@ import { PostgresSessionNotifier } from "./session-notifier.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
-const BOOTSTRAP_TOKEN = "integration-bootstrap-token-0123456789";
 const PASSWORD = "an adequately long password";
 // Long enough that only the share change's NOTIFY can end a stream in time.
 const KEEPALIVE_MS = 30_000;
@@ -120,7 +120,6 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
     const logger = new StructuredLogger({ sinks: [sink] });
     const auth = {
       identity,
-      bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
       passwords: new PasswordChecks(),
       logger,
     };
@@ -452,7 +451,7 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
       "/v1/auth/bootstrap",
       {},
       {
-        bootstrap_token: BOOTSTRAP_TOKEN,
+        setup_token: await liveSetupToken(db),
         email: "owner@example.com",
         password: PASSWORD,
         display_name: "Owner",

@@ -258,9 +258,9 @@ describe("invites hold no redeemable token", () => {
 });
 
 describe("auth requests", () => {
-  test("bootstrap needs the install token and everything a first owner implies", () => {
+  test("bootstrap needs the setup link's token and everything a first owner implies", () => {
     const body = {
-      bootstrap_token: "b".repeat(32),
+      setup_token: "b".repeat(32),
       email: "owner@example.com",
       password: PASSWORD,
       display_name: "Owner",
@@ -268,7 +268,7 @@ describe("auth requests", () => {
       workspace_slug: "acme",
     };
     expect(bootstrapRequestSchema.safeParse(body).success).toBe(true);
-    const { bootstrap_token: _omitted, ...withoutToken } = body;
+    const { setup_token: _omitted, ...withoutToken } = body;
     expect(bootstrapRequestSchema.safeParse(withoutToken).success).toBe(false);
     expect(
       bootstrapRequestSchema.safeParse({ ...body, password: "short" }).success,

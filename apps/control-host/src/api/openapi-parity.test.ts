@@ -51,7 +51,6 @@ import type {
   WorkspaceMcpService,
 } from "@werft-ai/platform";
 import { createApiApp } from "./app.ts";
-import type { BootstrapGate } from "./auth.ts";
 import type { InstallationConfigAdmin } from "./installation-config.ts";
 import type { LoginSettingsAdmin } from "./login-settings.ts";
 import { buildOpenApiDocument, DOCUMENTED_ROUTE_SCOPES } from "./openapi.ts";
@@ -145,7 +144,6 @@ const NON_API_ROUTES = new Set([
 function apiApp() {
   const auth = {
     identity: {} as IdentityStore,
-    bootstrap: {} as BootstrapGate,
     passwords: new PasswordChecks(),
   };
   return createApiApp({
