@@ -5,7 +5,7 @@ import {
   type FakeRemoteOptions,
   fakeRemote,
 } from "../testing/workspace-mcp-fakes.ts";
-import type { WorkspaceMcpOAuthPin } from "./ports.ts";
+import type { WorkspaceMcpOAuthPin } from "./ports/workspace-mcp-store.ts";
 import {
   bearerChallengeOf,
   discover,

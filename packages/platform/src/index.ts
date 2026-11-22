@@ -184,7 +184,7 @@ export * from "./extensions/resolve.ts";
 export * from "./extensions/session-extensions.ts";
 export * from "./extensions/skill-service.ts";
 export * from "./extensions/skill-git-sync.ts";
-export * from "./workspace-mcp/ports.ts";
+export * from "./workspace-mcp/ports/workspace-mcp-store.ts";
 export {
   type WorkspaceMcpRemoteDeps,
   WorkspaceMcpRemoteError,

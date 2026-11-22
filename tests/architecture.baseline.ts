@@ -40,17 +40,6 @@ export type Baseline = {
 export const baseline: Baseline = {
   crossDomainImports: [
     "action/change-request/push-decision.ts -> decision/push-approvability.ts",
-    "workers/github-mcp-egress.ts -> action/github/github-mcp-server.ts",
-    "workers/worker-gateway.ts -> checkpoints/checkpoint-service.ts",
-    "workers/worker-gateway.ts -> checkpoints/checkpoint-support.ts",
-    "workers/worker-gateway.ts -> checkpoints/durability.ts",
-    "workers/worker-gateway.ts -> extensions/bundle-service.ts",
-    "workers/worker-gateway.ts -> sessions/achievements/achievement-judgment-store.ts",
-    "workers/worker-gateway.ts -> sessions/achievements/judge-connections.ts",
-    "workers/worker-gateway.ts -> sessions/achievements/judgment-token.ts",
-    "workers/worker-gateway.ts -> sessions/event-codecs.ts",
-    "workers/worker-gateway.ts -> sessions/git-attribution.ts",
-    "workers/worker-gateway.ts -> sessions/session-titler.ts",
   ],
   contractsBehaviour: {},
   surfaceActionImports: [],
@@ -95,7 +84,7 @@ export const baseline: Baseline = {
     "packages/db/src/migration-folder.ts -> drizzle-kit/api",
     "packages/db/src/schema-drift.ts -> drizzle-kit/api",
     // The `bun test` preload, a test-only file whose path is fixed (below).
-    "packages/db/src/pglite-release.ts -> @electric-sql/pglite",
+    "packages/db/src/testing/pglite-release.ts -> @electric-sql/pglite",
   ],
 };
 
@@ -143,8 +132,8 @@ export const pathFixed: readonly string[] = [
   "packages/platform/src/testing/repository-readable-contract.ts",
   "packages/platform/src/testing/reviewable-contract.ts",
   "packages/platform/src/testing/workflow-runnable-contract.ts",
-  // bunfig.toml preload and scripts/image-prune.sh keep list
-  "packages/db/src/pglite-release.ts",
+  // bunfig.toml preload
+  "packages/db/src/testing/pglite-release.ts",
   // tests/integration-jobs.test.ts asserts this exact path
   "packages/db/src/migrate.integration.test.ts",
   // entry points named by Dockerfile, compose, Helm, scripts and e2e commands

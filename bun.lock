@@ -130,9 +130,6 @@
         "@werft-ai/contracts": "workspace:*",
         "@werft-ai/platform": "workspace:*",
       },
-      "devDependencies": {
-        "@werft-ai/execution-local-docker": "workspace:*",
-      },
     },
     "packages/adapters/execution/local-docker": {
       "name": "@werft-ai/execution-local-docker",

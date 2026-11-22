@@ -1,4 +1,4 @@
-import { describeExecutionBackendContract } from "@werft-ai/platform/testing";
+import { describeExecutionBackendContract } from "@werft-ai/platform/testing/execution-backend";
 import { KubernetesBackend } from "./backend.ts";
 import {
   createNamespace,

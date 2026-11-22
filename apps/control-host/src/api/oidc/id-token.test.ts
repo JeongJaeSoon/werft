@@ -1,14 +1,14 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import type { SigningAlg } from "./discovery.ts";
-import { OidcRejectedError, type OidcRejection } from "./errors.ts";
-import { verifyIdToken } from "./id-token.ts";
-import { type Jwk, selectKey } from "./jwks.ts";
 import {
   CLIENT_ID,
   ISSUER,
   makeSigner,
   type Signer,
-} from "./test-support/fake-provider.ts";
+} from "../../testing/oidc-fake-provider.ts";
+import type { SigningAlg } from "./discovery.ts";
+import { OidcRejectedError, type OidcRejection } from "./errors.ts";
+import { verifyIdToken } from "./id-token.ts";
+import { type Jwk, selectKey } from "./jwks.ts";
 
 const NOW = 1_800_000_000_000;
 const NOW_SECONDS = NOW / 1000;

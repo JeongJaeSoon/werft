@@ -92,19 +92,19 @@ import {
 } from "../catalog/index.ts";
 import {
   type CheckpointRequestDecision,
+  checkpointPendingReason,
+  own,
   type RestoreFallback,
   type RestorePlan,
   type RestorePlanResult,
   sessionObjectPrefix,
-} from "../checkpoints/checkpoint-service.ts";
-import { own } from "../checkpoints/checkpoint-support.ts";
-import { checkpointPendingReason } from "../checkpoints/durability.ts";
+} from "../checkpoints/index.ts";
 import type { CheckpointPointer } from "../checkpoints/ports/checkpoint-store.ts";
 import type {
   CheckpointOutputObject,
   CheckpointVerifier,
 } from "../checkpoints/ports/checkpoint-verifier.ts";
-import { BundleIntegrityError } from "../extensions/bundle-service.ts";
+import { BundleIntegrityError } from "../extensions/index.ts";
 import type { GitHubConnectionResolver } from "../github/index.ts";
 import {
   allowedOwners,
@@ -144,34 +144,28 @@ import type {
   WorkerFence,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
-import type { JudgmentEgressStore } from "../sessions/achievements/achievement-judgment-store.ts";
-import type { JudgeConnections } from "../sessions/achievements/judge-connections.ts";
-import {
-  hashJudgmentToken,
-  JUDGMENT_TOKEN_PREFIX,
-} from "../sessions/achievements/judgment-token.ts";
-import {
-  type NeutralizeEvent,
-  neutralFieldsOf,
-} from "../sessions/event-codecs.ts";
 import {
   appBotAuthor,
   claimGitOf,
   coAuthorOfLink,
-} from "../sessions/git-attribution.ts";
-import type {
-  ApprovalCheckpointCommit,
-  WorkerPendingStore,
-} from "../sessions/ports/pending-requests.ts";
-import type { SessionTitleStore } from "../sessions/ports/session-title-store.ts";
-import {
+  hashJudgmentToken,
   hashTitleToken,
+  JUDGMENT_TOKEN_PREFIX,
+  type JudgeConnections,
+  type JudgmentEgressStore,
+  type NeutralizeEvent,
+  neutralFieldsOf,
   type SessionTitler,
   TITLE_MAX_TOKENS,
   TITLE_PROVIDER_PATH,
   TITLE_TOKEN_PREFIX,
   titleRun,
-} from "../sessions/session-titler.ts";
+} from "../sessions/index.ts";
+import type {
+  ApprovalCheckpointCommit,
+  WorkerPendingStore,
+} from "../sessions/ports/pending-requests.ts";
+import type { SessionTitleStore } from "../sessions/ports/session-title-store.ts";
 import { createGitHubMcpEgress } from "./github-mcp-egress.ts";
 import {
   appendNew,

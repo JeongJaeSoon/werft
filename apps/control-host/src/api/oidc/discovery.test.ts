@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { discoveryDocument, ISSUER } from "../../testing/oidc-fake-provider.ts";
 import { discover } from "./discovery.ts";
 import {
   type DiscoveryProblem,
@@ -6,7 +7,6 @@ import {
   OidcUnavailableError,
 } from "./errors.ts";
 import type { NetworkPolicy, ProviderRequest } from "./provider-http.ts";
-import { discoveryDocument, ISSUER } from "./test-support/fake-provider.ts";
 
 const REFUSE: NetworkPolicy = { plainHttp: "refuse" };
 

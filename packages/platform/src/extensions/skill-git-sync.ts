@@ -1,10 +1,10 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import type {
   CheckSkillResponse,
   RegisterGitHubSkillRequest,
   RegisterSkillResponse,
   SkillSyncResponse,
 } from "@werft-ai/contracts";
+import { githubSignatureMatches } from "../github/index.ts";
 import type { GitHubAppCredential } from "../github/ports/github-app-store.ts";
 import {
   GitHubAppCheckError,
@@ -142,18 +142,6 @@ const unavailable = (error: unknown) =>
     undefined,
     { reason_code: githubUnavailableOf(error) },
   );
-
-/** `sha256=<hex>` of the body under `secret`, compared in constant time. */
-export function githubSignatureMatches(
-  secret: string,
-  body: Uint8Array,
-  header: string,
-): boolean {
-  const sent = /^sha256=([0-9a-f]{64})$/.exec(header)?.[1];
-  if (sent === undefined) return false;
-  const expected = createHmac("sha256", secret).update(body).digest();
-  return timingSafeEqual(expected, Buffer.from(sent, "hex"));
-}
 
 const asNumber = (value: unknown): number | null =>
   typeof value === "number" && Number.isSafeInteger(value) && value > 0

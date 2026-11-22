@@ -16,7 +16,7 @@ import {
   type OutboundHttp,
   type OutboundRequest,
   WorkspaceMcpOutboundError,
-} from "../workspace-mcp/ports.ts";
+} from "../workspace-mcp/ports/workspace-mcp-store.ts";
 import type {
   SettingsConsoleResult,
   SettingsDocumentStore,

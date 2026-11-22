@@ -32,7 +32,7 @@ import type {
   WorkspaceMcpRevocation,
   WorkspaceMcpServerRecord,
   WorkspaceMcpStore,
-} from "./ports.ts";
+} from "./ports/workspace-mcp-store.ts";
 import {
   authorizationUrl,
   discover,
