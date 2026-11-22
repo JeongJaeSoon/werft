@@ -200,7 +200,7 @@ AWS 생성과 최소 권한은 [bucket 준비](/run-server/self-hosting/prepare-
 | 권한 판정 기록 | PostgreSQL | 기본 90일(30~3650일) | reconciler가 기간이 지난 행을 지운다 | owner가 `POST /v1/workspaces/{id}/audit-retention` |
 | 로그인 세션 | PostgreSQL | 14일, 사용자마다 최근 10개 | 다시 로그인할 때, 또는 만료 30일 뒤 reconciler가 지운다 | 없음 |
 | Slack 설치 state | PostgreSQL | 600초 | 쓰거나 새 링크를 만들 때 지운다 | 없음 |
-| Slack 이벤트 inbox의 이벤트 원문(payload) | PostgreSQL | 처리할 때까지. 처리에 실패한 이벤트는 받은 뒤 7일. 버린 이벤트의 원문은 처음부터 저장하지 않는다 | 처리를 마치면 slack 역할이 바로, 실패한 이벤트는 7일이 지나면 reconciler가 지운다. 행(이벤트 종류·상태·버린 이유·시도 횟수)은 남는다. migration 0307 전에 처리한 행은 원문이 남아 있다 | 없음 |
+| Slack 이벤트 inbox의 이벤트 원문(payload) | PostgreSQL | 처리할 때까지. 처리에 실패한 이벤트는 받은 뒤 7일. 받을 때 버린 이벤트의 원문은 저장하지 않고, 처리하다 버린 이벤트의 원문은 그때 지운다 | 처리를 마치면 slack 역할이 바로, 실패한 이벤트는 7일이 지나면 reconciler가 지운다. 행(이벤트 종류·상태·버린 이유·시도 횟수)은 남는다. migration 0307 전에 처리한 행은 원문이 남아 있다 | 없음 |
 | API key, 사용자·구성원·초대·연동 계정 | PostgreSQL | 무기한 | 없음. key 폐기와 연동 해제는 기록만 남긴다 | 없음 |
 | 저장된 비밀값 | PostgreSQL(master key로 암호화) | 무기한 | 사람이 그 연결이나 App을 지울 때만 | 없음 |
 | transcript와 checkpoint 객체 | bucket의 `sessions/<id>/` | pointer와 그 부모 3개, 열린 push 요청이 고정한 revision | [checkpoint GC](/run-server/self-hosting/backup-and-restore#3-checkpoint-gc)만 지운다 | Helm `checkpointGc.*`, compose `CHECKPOINT_GC_DRY_RUN` |
