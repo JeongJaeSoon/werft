@@ -59,6 +59,7 @@ export const INSTRUCTION_PATTERNS: readonly { id: string; pattern: RegExp }[] =
  * controls, and tag characters.
  */
 const HIDDEN =
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: finding control characters is the point
   /[\u{0}-\u{8}\u{B}\u{C}\u{E}-\u{1F}\u{7F}\u{61C}\u{180E}\u{200B}-\u{200F}\u{202A}-\u{202E}\u{2060}-\u{2064}\u{2066}-\u{2069}\u{FEFF}\u{E0000}-\u{E007F}]/gu;
 /** The authority's host: a bracketed IPv6 literal or a name, after any userinfo. */
 const URL_HOST =
