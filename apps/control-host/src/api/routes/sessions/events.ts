@@ -34,6 +34,12 @@ export interface EventStreamOptions {
   maxStreams?: number;
   maxStreamsPerOwner?: number;
   logger?: Pick<StructuredLogger, "info" | "warn">;
+  /**
+   * Aborted when the process starts shutting down: every open stream ends
+   * then, so the drain does not wait on streams that never finish, and the
+   * client resumes on the next process with Last-Event-ID.
+   */
+  stopWaiting?: AbortSignal;
 }
 
 export interface EventStreamHandle {
@@ -216,6 +222,20 @@ export function registerEventRoutes(
     const disarmWatchdog = () => clearTimeout(watchdog);
     armWatchdog();
 
+    // Ended like a revocation, body included, so a read in flight or a write
+    // on backpressure cannot hold the drain. A request that arrives after the
+    // signal still gets its first read, then a stream that ends at once.
+    let onShutdown: (() => void) | undefined;
+    const shutDown = () => {
+      closeWith("shutting_down");
+      onShutdown?.();
+    };
+    const stopWaiting = options.stopWaiting;
+    const unlinkShutdown = () =>
+      stopWaiting?.removeEventListener("abort", shutDown);
+    if (stopWaiting?.aborted) closeWith("shutting_down");
+    else stopWaiting?.addEventListener("abort", shutDown, { once: true });
+
     let armed = armWait(closed.signal);
     // The first page is read before the response commits to a stream, so an
     // unknown session, a foreign owner, a bad cursor and a storage outage are
@@ -223,7 +243,7 @@ export function registerEventRoutes(
     let firstPage: EventPage;
     try {
       firstPage = await read(after);
-      if (closed.signal.aborted) {
+      if (closed.signal.aborted && closed.signal.reason !== "shutting_down") {
         throw new ApiHttpError(
           401,
           "UNAUTHORIZED",
@@ -236,6 +256,7 @@ export function registerEventRoutes(
       closeWith("read_failed");
       armed.release();
       disarmWatchdog();
+      unlinkShutdown();
       release();
       throw error;
     }
@@ -247,6 +268,7 @@ export function registerEventRoutes(
       // Abort the body too: a write blocked on backpressure or a read still
       // in flight would otherwise keep the connection open past the verdict.
       onRevoked = () => stream.abort();
+      onShutdown = () => stream.abort();
       stream.onAbort(() => closeWith("client_disconnected"));
       context.req.raw.signal.addEventListener(
         "abort",
@@ -365,6 +387,7 @@ export function registerEventRoutes(
       } finally {
         armed.release();
         disarmWatchdog();
+        unlinkShutdown();
         release();
         logger.info("SSE stream closed", {
           session_id: sessionId,

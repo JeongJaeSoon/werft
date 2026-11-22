@@ -15,6 +15,7 @@ import {
 } from "@werft-ai/platform";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import type { SessionEventWakeup } from "../../session-notifier.ts";
+import { createShutdown } from "../../shutdown.ts";
 import { registerEventRoutes } from "./events.ts";
 
 const createApiApp = recordRouteErrors("routes/sessions/events.test.ts");
@@ -76,6 +77,8 @@ class FakeStore {
   // Runs after a page is computed and before it is returned: a commit that
   // lands while the read is in flight.
   onRead: ((query: ReadEventsQuery) => void) | undefined;
+  // Awaited before the page is computed: a read that does not come back.
+  hold: ((query: ReadEventsQuery) => Promise<void> | undefined) | undefined;
 
   append(...items: SseEvent[]) {
     this.events.push(...items);
@@ -84,6 +87,7 @@ class FakeStore {
   reader(): SessionReader["readEvents"] {
     return async (ownerId, sessionId, query) => {
       this.reads.push(query);
+      await this.hold?.(query);
       if (ownerId !== this.owner || sessionId !== SESSION) return null;
       if (query.after !== undefined && !/^ev_[0-9a-z]+$/.test(query.after)) {
         throw new InvalidCursorError();
@@ -153,9 +157,13 @@ function harness(
     batchMaxBytes?: number;
     maxStreams?: number;
     maxStreamsPerOwner?: number;
+    stopWaiting?: AbortSignal;
+    logger?: { info(message: string, fields?: object): void; warn(): void };
+    store?: FakeStore;
   } = {},
 ) {
-  const store = new FakeStore();
+  const { store: given, ...routeOptions } = options;
+  const store = given ?? new FakeStore();
   const wakeup = new FakeWakeup();
   const service = createSessionService({
     limits: {
@@ -198,7 +206,7 @@ function harness(
       handle = registerEventRoutes(router, service, {
         wakeup,
         logger: { info() {}, warn() {} },
-        ...options,
+        ...routeOptions,
       });
     },
   });
@@ -1241,5 +1249,155 @@ describe("GET /v1/sessions/{id}/events", () => {
     const frames = new FrameReader(response);
     expect((await frames.next())?.id).toBe("ev_1");
     await frames.cancel();
+  });
+});
+
+describe("GET /v1/sessions/{id}/events on shutdown", () => {
+  function recordingLogger() {
+    const closes: unknown[] = [];
+    return {
+      closes,
+      logger: {
+        info(message: string, fields?: object) {
+          if (message === "SSE stream closed") closes.push(fields);
+        },
+        warn() {},
+      },
+    };
+  }
+
+  test("ends an open stream as shutting_down and the reconnect misses nothing", async () => {
+    const stop = new AbortController();
+    const { closes, logger } = recordingLogger();
+    const { app, store, wakeup, handle } = harness({
+      stopWaiting: stop.signal,
+      logger,
+      keepaliveMs: 5_000,
+    });
+    store.append(event(1));
+    const frames = new FrameReader(await open(app));
+    expect((await frames.next())?.id).toBe("ev_1");
+    await wakeup.armed();
+
+    stop.abort();
+    // Well inside one keepalive: the abort ends it, not the clock.
+    expect(await frames.ended(1_000)).toBe(true);
+    expect(closes).toEqual([
+      expect.objectContaining({ reason: "shutting_down", events_sent: 1 }),
+    ]);
+    expect(handle.activeStreams()).toBe(0);
+    expect(wakeup.waiters).toHaveLength(0);
+
+    // Written while no process served the stream; the next one replays it.
+    store.append(event(2), event(3));
+    const next = harness({ store });
+    const resumed = new FrameReader(
+      await open(next.app, { "Last-Event-ID": "ev_1" }),
+    );
+    expect((await resumed.next())?.id).toBe("ev_2");
+    expect((await resumed.next())?.id).toBe("ev_3");
+    await resumed.cancel();
+  });
+
+  test("ends a stream whose read never returns", async () => {
+    const stop = new AbortController();
+    const { app, store, wakeup } = harness({
+      stopWaiting: stop.signal,
+      keepaliveMs: 5_000,
+    });
+    store.append(event(1));
+    const frames = new FrameReader(await open(app));
+    expect((await frames.next())?.id).toBe("ev_1");
+    await wakeup.armed();
+    store.hold = () => new Promise(() => {});
+    const reads = store.reads.length;
+    wakeup.notify();
+    for (let i = 0; i < 50 && store.reads.length === reads; i += 1) {
+      await Bun.sleep(5);
+    }
+    expect(store.reads.length).toBe(reads + 1);
+
+    stop.abort();
+    expect(await frames.ended(1_000)).toBe(true);
+  });
+
+  test("a stream asked for once shutdown has started ends at once", async () => {
+    const stop = new AbortController();
+    stop.abort();
+    const { closes, logger } = recordingLogger();
+    const { app, store, handle } = harness({
+      stopWaiting: stop.signal,
+      logger,
+    });
+    store.append(event(1));
+    const response = await open(app);
+    // Not a 401: the closed stream is the shutdown's, not a revocation.
+    expect(response.status).toBe(200);
+    expect(await new FrameReader(response).ended(1_000)).toBe(true);
+    expect(closes).toEqual([
+      expect.objectContaining({ reason: "shutting_down", events_sent: 0 }),
+    ]);
+    expect(handle.activeStreams()).toBe(0);
+  });
+
+  async function drainWithOpenStream(wired: boolean) {
+    const steps: string[] = [];
+    const exits: number[] = [];
+    const shutdown = createShutdown({
+      logger: {
+        info: (message: string) => steps.push(message),
+        warn: (message: string) => steps.push(message),
+        error: (message: string) => steps.push(message),
+      },
+      exit: (code) => exits.push(code),
+      drainMs: 1_000,
+      closeMs: 1_000,
+    });
+    const { app, store, wakeup } = harness({
+      keepaliveMs: 5_000,
+      ...(wired ? { stopWaiting: shutdown.stopWaiting } : {}),
+    });
+    store.append(event(1));
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: app.fetch,
+    });
+    try {
+      const frames = new FrameReader(
+        await fetch(
+          `http://127.0.0.1:${server.port}/v1/sessions/${SESSION}/events`,
+          { headers: { "X-Owner-Id": OWNER } },
+        ),
+      );
+      expect((await frames.next())?.id).toBe("ev_1");
+      await wakeup.armed();
+      const startedAt = Date.now();
+      await shutdown.run("SIGTERM", [server], []);
+      const tookMs = Date.now() - startedAt;
+      await frames.cancel().catch(() => {});
+      return { steps, exits, tookMs };
+    } finally {
+      // Already stopped by the shutdown on the way here; a second stop on a
+      // stopped Bun server never resolves, so it is not awaited.
+      void server.stop(true);
+    }
+  }
+
+  test("an open stream no longer holds the drain to its bound", async () => {
+    // Before: the stream is cut only when the drain bound passes.
+    const held = await drainWithOpenStream(false);
+    expect(held.steps).toContain(
+      "Drain deadline passed; closing open connections",
+    );
+    expect(held.tookMs).toBeGreaterThanOrEqual(1_000);
+
+    const ended = await drainWithOpenStream(true);
+    expect(ended.steps).toContain("In-flight requests drained");
+    expect(ended.steps).not.toContain(
+      "Drain deadline passed; closing open connections",
+    );
+    expect(ended.tookMs).toBeLessThan(500);
+    expect(ended.exits).toEqual([0]);
   });
 });

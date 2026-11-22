@@ -1468,6 +1468,7 @@ const app = createApiApp({
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,
+      stopWaiting: shutdown.stopWaiting,
       ...settings.sse,
     });
   },
