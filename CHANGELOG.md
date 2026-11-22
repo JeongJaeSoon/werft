@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **migration `0312_budget_accounts`가 예산 계정 표 셋(`budget_limits`·`budget_accounts`·`budget_reservations`)을 빈 채로 만든다**(JeongJaeSoon/werft#2034). 따로 할 일은 없다.
+- **migration `0313_budget_accounts`가 예산 계정 표 셋(`budget_limits`·`budget_accounts`·`budget_reservations`)을 빈 채로 만든다**(JeongJaeSoon/werft#2034). 따로 할 일은 없다.
   - 이 릴리스에서는 어떤 호출도 이 표를 읽거나 쓰지 않는다. 세션 비용 한도와 토큰 한도는 그대로이고, 한도를 정하는 화면·API·운영자 명령은 아직 없다.
   - 새 표만 만들므로 지원 창 안의 이미지로 되돌려도 된다.
 
