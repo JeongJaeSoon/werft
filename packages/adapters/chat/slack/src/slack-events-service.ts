@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import {
   SLACK_ACCEPTED_MESSAGE_SUBTYPES,
   SLACK_INBOUND_EVENT_TYPES,
@@ -23,6 +23,7 @@ import {
   type SurfaceBindingStore,
 } from "@werft-ai/platform";
 import { slackConversationKey } from "./slack-inbox.ts";
+import { slackRequestSignature } from "./slack-signature.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Bounds how long another API replica keeps a deleted app's secret. */
@@ -47,10 +48,11 @@ export function verifySlackSignature(input: {
     return "bad_signature";
   }
   const expected = Buffer.from(
-    `v0=${createHmac("sha256", input.signingSecret)
-      .update(`v0:${timestamp}:`)
-      .update(input.rawBody)
-      .digest("hex")}`,
+    slackRequestSignature({
+      signingSecret: input.signingSecret,
+      timestamp,
+      rawBody: input.rawBody,
+    }),
   );
   const given = Buffer.from(signature);
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) {

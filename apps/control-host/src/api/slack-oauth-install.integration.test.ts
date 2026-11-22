@@ -8,12 +8,15 @@ import {
   createSlackEventsFinalize,
   createSlackEventsService,
   createSlackInstallService,
+  createSlackInteractionService,
   createSlackSigningSecrets,
   type SlackInstalled,
+  type SlackInteractionDeps,
 } from "@werft-ai/chat-slack";
 import {
   BOT_SCOPES,
   SLACK_AGENT_BOT_EVENTS,
+  SLACK_INTERACTION_ACTIONS,
   scopesForRole,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
@@ -59,6 +62,11 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { postgresSlackInteractionTargets } from "../wiring/slack-interaction-sign.ts";
+import {
+  runSlackInteractionSign,
+  SLACK_INTERACTION_SIGN_EXIT,
+} from "./slack-interaction-sign.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 const CONSOLE = "http://127.0.0.1:3000";
@@ -70,7 +78,8 @@ integration(
     let pool: Pool;
     let db: NodePgDatabase<typeof schema>;
     let slack: ReturnType<typeof startFakeSlackApi>;
-    const key = SecretKey.fromHex(randomBytes(32).toString("hex"), "TEST_KEY");
+    const KEY_HEX = randomBytes(32).toString("hex");
+    const key = SecretKey.fromHex(KEY_HEX, "TEST_KEY");
     const finalized: SlackInstalled[] = [];
     let clock = new Date();
 
@@ -562,6 +571,87 @@ integration(
           .from(slackInstallations)
           .where(eq(slackInstallations.appId, appId));
         expect(install?.status).toBe("revoked");
+      } finally {
+        listener.stop(true);
+      }
+    });
+
+    test("slack-interaction-sign presses a card with the installed app's secret and team", async () => {
+      const { agentId, appId } = await installed(PUBLIC);
+      const targets = postgresSlackInteractionTargets(db, key);
+      expect(await targets.forAgent(agentId)).toMatchObject({
+        appId,
+        teamIds: ["T0INSTALL"],
+      });
+      const results: string[] = [];
+      const interactions = createSlackInteractionService({
+        signingSecrets: createSlackSigningSecrets({
+          apps: createPostgresSlackAppStore(db, key),
+          secrets: createPostgresSecretStore(db, key),
+        }),
+        botToken: async () => null,
+        logger: { info() {}, warn() {} },
+      } as unknown as SlackInteractionDeps);
+      const listener = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        async fetch(request) {
+          const outcome = await interactions.receive({
+            agentId,
+            rawBody: new Uint8Array(await request.arrayBuffer()),
+            timestamp: request.headers.get("X-Slack-Request-Timestamp"),
+            signature: request.headers.get("X-Slack-Signature"),
+          });
+          if (outcome.kind === "ok") results.push(outcome.result);
+          return Response.json(null, {
+            status: outcome.kind === "unauthorized" ? 401 : 200,
+            headers: { "X-Request-Id": "019a0000-0000-7000-8000-0000000000e1" },
+          });
+        },
+      });
+      try {
+        const out: string[] = [];
+        const exit = await runSlackInteractionSign(
+          [
+            "--agent",
+            agentId,
+            "--action-id",
+            SLACK_INTERACTION_ACTIONS.permissionAllow,
+            "--value",
+            JSON.stringify({ s: randomUUID(), r: "toolu_1" }),
+            "--channel",
+            "C0CHAN",
+            "--message-ts",
+            "1761300000.000100",
+            "--user",
+            "U0PERSON",
+            "--url",
+            `http://127.0.0.1:${listener.port}/v1/slack/interactions/${agentId}`,
+          ],
+          {
+            env: {
+              DATABASE_URL: database.url,
+              PLATFORM_SECRET_KEY: KEY_HEX,
+            },
+            out: (line) => out.push(line),
+            err: (line) => out.push(line),
+            openTargets: async (_url, cliKey) => ({
+              targets: postgresSlackInteractionTargets(db, cliKey),
+              close: async () => {},
+            }),
+            fetch: (url, init) => fetch(url, init),
+          },
+        );
+        expect(out).toEqual([
+          JSON.stringify({
+            status: 200,
+            request_id: "019a0000-0000-7000-8000-0000000000e1",
+            error_code: null,
+          }),
+        ]);
+        expect(exit).toBe(SLACK_INTERACTION_SIGN_EXIT.ok);
+        // Past the signature and the payload, at the bot token.
+        expect(results).toEqual(["refused:no_bot_token"]);
       } finally {
         listener.stop(true);
       }
