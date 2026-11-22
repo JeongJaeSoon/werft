@@ -247,11 +247,7 @@ worker 이미지를 되돌리는 보통의 rollback은 `refused`다. 지금 이�
 
 ### 4. 파일 카탈로그 설치에서 오는 경우
 
-`catalog` 값을 쓰던 chart의 ConfigMap은 지금 chart에 없다. Helm은 hook이 끝난 뒤에 옛 리소스를 지우므로, pre-upgrade migrate Job이 같은 ConfigMap을 `/legacy-config`에 선택 마운트해 `settings seed --from-dir /legacy-config`로 가져온다. DB에 연결이나 MCP 서버가 이미 있으면 가져오지 않고, 한 번 정한 뒤로는 ConfigMap이 남아 있어도 다시 가져오지 않는다. 그 뒤 설정은 콘솔에서 바꾼다. 일부 파일만 있거나 값이 깨졌으면 Job이 실패하고 Deployment는 바뀌지 않는다.
-
-1. `PLATFORM_SECRET_KEY`를 Secret에 먼저 넣는다. 이미 있으면 같은 값을 그대로 둔다.
-2. values에서 `catalog` 절을 지우고 `helm upgrade`한다. `api.extraEnv`에 `PLATFORM_CONFIG_DIR`을 두었다면 지운다.
-3. 설치 버전의 저장소 checkout과 호스트 Bun·kubectl을 준비한 뒤 `bun run settings:k8s export`로 더해진 항목을 본다. 절차와 되돌리기 하한은 [설정 문서 가져오기·내보내기](/run-server/self-hosting/reference/configuration#설정-문서-가져오기내보내기)에 있다.
+지금 chart는 옛 `catalog` ConfigMap을 가져오지 않고, migrate Job은 seed를 돌지 않는다. 파일 카탈로그로 돌던 설치는 이 판보다 앞선 release로 먼저 올려 설정을 DB로 옮긴 뒤 올린다([설정 문서 가져오기·내보내기](/run-server/self-hosting/reference/configuration#설정-문서-가져오기내보내기)). `api.extraEnv`에 남은 `PLATFORM_CONFIG_DIR`은 읽지 않으므로 기동을 막지 않는다. 정리하려면 지운다.
 
 ## 확인
 
