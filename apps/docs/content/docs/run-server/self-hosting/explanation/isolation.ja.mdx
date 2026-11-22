@@ -93,6 +93,7 @@ CONNECT tunnel が運ぶのは TLS だけです。proxy は `200 Connection Esta
 * 対象は平文で見える**外側** ClientHello の SNI です。TLS を終端しないため、中の HTTP `Host`・パス・本文や、許可したサービスがさらに中継する宛先は確認できません。CDN 側での domain fronting 防止は別の制御です。
 * IP literal allowlist は `IP:port` へのアクセス権であり、hostname の保証ではありません。共有 CDN edge アドレスを IP で allowlist に入れないでください。
 * **Bun 1.3.10–1.3.13 の `fetch`・`node:https` は GREASE ECH を送るため、この proxy へ CONNECT すると拒否されます。** 1.3.14 は送りません。Bun の `node:tls`・`Bun.connect({tls})`、Node、curl、worker の SDK が spawn する Claude Code バイナリも送りません。worker の object store は CONNECT を使いません。worker ネットワーク内の proxy object store route に平文 http で送り、upstream TLS は proxy が接続します。AWS では route が virtual-hosted 名を使うため、`<bucket>.s3.<region>.amazonaws.com:443` が `EGRESS_CREDENTIAL_ALLOWLIST` に必要です（ドットを含む bucket 名は path-style の `s3.<region>.amazonaws.com:443`）。worker の Bun HTTP クライアントで https upstream を CONNECT 経由で呼ぶコードには対応しません。
+
 **worker 同士は互いに到達できません。** 同じネットワークにいないため相手のアドレスへの経路がなく、コンテナ名も解決されません。proxy 経由でも、プライベートアドレスは `EGRESS_PRIVATE_ALLOWLIST` になければ拒否されます。他の環境の worker・proxy にも到達しません。ネットワークと proxy の選択はいずれも環境別です。残る制限は次のとおりです。
 
 * proxy は全 worker ネットワークに接続する信頼コンポーネントです。侵害されるとその環境の全 worker に到達できます。`EGRESS_PRIVATE_ALLOWLIST` には worker に解決され得る名前を入れないでください。

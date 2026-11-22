@@ -6,11 +6,9 @@ description: 유즈케이스별로 어떤 API를 어떤 순서로 부르는지 �
 {/*
 Every ```bash block below runs, in order, in one `bash -euo pipefail`, in CI
 (the `quickstart` job, tests/e2e/quickstart.sh) on a fresh clone. Keep commands
-that are illustrative rather than executable in `sh`, `json`, or `text` blocks.
-This page is the only copy; docs/api-guide.md no longer exists.
-*/}
+that are illustrative rather than executable in `sh`, `json`, or `text` blocks.*/}
 
-이 문서는 API 사용자가 "어떤 endpoint를 어떤 순서로 호출하는가"를 빠르게 찾는 실행 가이드다. 요청·응답 스키마의 정본은 `docs/openapi.json`이며, 배포 서버의 인증 없는 `GET /docs`가 읽기 전용 참조를 같은 origin의 `/docs/scalar.js`와 함께 제공한다. 이 사이트의 [HTTP API 페이지](/reference/http-api/auth/getApiRoot)도 같은 명세에서 만든다. 여기서는 스키마를 복제하지 않고 operation 이름으로 연결한다. 아래 `bash` 블록은 CI가 compose의 fake Messages API로 그대로 실행하므로 Anthropic 계정이나 실제 호출 비용이 들지 않는다.
+이 문서는 API 사용자가 "어떤 endpoint를 어떤 순서로 호출하는가"를 빠르게 찾는 실행 가이드다. 요청·응답 스키마의 정본은 `docs/openapi.json`이며, 배포 서버의 인증 없는 `GET /docs`가 읽기 전용 참조를 같은 origin의 `/docs/scalar.js`와 함께 제공한다. 이 사이트의 [HTTP API 페이지](/reference/http-api/auth/getApiRoot)도 같은 명세에서 만든다. 여기서는 스키마를 복제하지 않고 operation 이름으로 연결한다. 아래 `bash` 블록은 compose의 fake Messages API로 그대로 돌아가므로 Anthropic 계정이나 실제 호출 비용이 들지 않는다.
 
 예시는 로컬 기본 주소 `http://127.0.0.1:3000`을 쓴다. 배포 환경에서는 `API`만 바꾼다.
 

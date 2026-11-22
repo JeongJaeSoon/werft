@@ -84,6 +84,7 @@ checkpoint が書くバイトは実行上限の保存量に数えません。`lo
 ## 確認
 
 単一サーバーではS3指定preflightでscratchのcreate-only put → hold → hold確認/version読み取り → hold解除 → version削除がすべて成功する必要があります。bucket設定を読むAPI起動検査は書き込み・hold・削除権限の証明にはなりません。
+
 <a id="자주-막히는-곳" />
 ## よくある問題
 
