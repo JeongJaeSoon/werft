@@ -613,7 +613,13 @@ async function running(pid: number): Promise<boolean> {
     return false;
   }
   if (process.platform !== "linux") return true;
-  const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+  let stat = "";
+  try {
+    stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+  } catch {
+    // Reaped between the two looks: gone.
+    return false;
+  }
   return !/^\d+ \(.*\) Z /.test(stat);
 }
 
