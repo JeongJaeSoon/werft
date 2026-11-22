@@ -429,11 +429,22 @@ describe("Slack events service", () => {
         "dropped",
         "message_subtype",
       ],
-      // A person's file in a thread is kept: it starts the bots' count over.
+      // A person's file or /me line in a thread is kept: it starts the
+      // bots' count over.
       [
         { ...message, user: "U0P", subtype: "file_share", thread_ts: "1.0" },
         "received",
         undefined,
+      ],
+      [
+        { ...message, user: "U0P", subtype: "me_message", thread_ts: "1.0" },
+        "received",
+        undefined,
+      ],
+      [
+        { ...message, user: "U0P", subtype: "me_message" },
+        "dropped",
+        "message_subtype",
       ],
       [
         {
@@ -560,10 +571,16 @@ describe("Slack events service", () => {
       teamId: TEAM,
       botUserId: "U0WRITER",
     });
-    w.identities.allowedBots.set(AGENT, ["U0WRITER", "U0REVIEW"]);
+    w.identities.allowedBots.set(AGENT, ["U0WRITER", "U0REVIEW", BOT_USER]);
     const writer = { user: "U0WRITER", bot_id: "B0WRITER" };
     const cases = [
       [{ ...MENTION, ...writer }, "dropped", "werft_agent_bot"],
+      // The agent's own bot is blocked too, under its own reason.
+      [
+        { ...MENTION, user: BOT_USER, bot_id: "B0OWN" },
+        "dropped",
+        "own_bot_user",
+      ],
       [
         {
           type: "message",

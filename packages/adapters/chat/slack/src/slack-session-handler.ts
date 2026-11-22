@@ -33,6 +33,7 @@ import {
   slackCallerOf,
 } from "./slack-decision.ts";
 import {
+  SLACK_PERSON_RESET_SUBTYPES,
   SlackInboundDropped,
   type SlackInboundHandler,
   type SlackInboxLogger,
@@ -164,13 +165,15 @@ export function createSlackSessionHandler(
     if (!parsed.success) return;
     const event = parsed.data;
     const ids = { id: claim.id, event_id: claim.eventId };
-    // A person's file only starts the bots' count over (below); files are
-    // not turns.
-    const fileOnly = event.subtype === "file_share";
+    // A person's file or /me line only starts the bots' count over (below);
+    // neither is a turn.
+    const resetOnly =
+      event.subtype !== undefined &&
+      SLACK_PERSON_RESET_SUBTYPES.has(event.subtype);
     if (
       event.subtype !== undefined &&
       event.subtype !== "thread_broadcast" &&
-      !fileOnly
+      !resetOnly
     ) {
       return;
     }
@@ -214,7 +217,7 @@ export function createSlackSessionHandler(
     if (!fromBot && event.thread_ts !== undefined) {
       await deps.botTurns.reset(thread, event.ts);
     }
-    if (fileOnly) return;
+    if (resetOnly) return;
     const found = await deps.sessionLinks.find(
       agent.installationId,
       surfaceRef,

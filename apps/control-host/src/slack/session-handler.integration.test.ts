@@ -1832,6 +1832,42 @@ describe.each(ENGINES)("Slack bot mentions on %s", (engine) => {
     expect(threadNotices).toHaveLength(1);
   });
 
+  test("a person's file or /me line in the thread starts the count over, and takes no turn", async () => {
+    const fixture = await agentInSlack();
+    await allowBots(fixture, [REVIEW_BOT]);
+    const { handle, threadNotices } = handler();
+    for (const [root, subtype] of [
+      ["100.000100", "file_share"],
+      ["200.000100", "me_message"],
+    ] as const) {
+      const [secs] = root.split(".");
+      await db.insert(schema.slackThreadBotTurns).values({
+        workspaceId: fixture.workspaceId,
+        teamId: TEAM,
+        channelId: CHANNEL,
+        threadTs: root,
+        countedTurns: [101, 102, 103, 104, 105].map(
+          (n) => `${secs}.000${n} ${OTHER_AGENT}`,
+        ),
+      });
+      await deliver(
+        fixture,
+        message(`${secs}.000106`, { subtype, thread_ts: root, text: "here" }),
+      );
+      await deliver(fixture, botMention(`${secs}.000107`, { thread_ts: root }));
+    }
+    expect(await drain(handle)).toMatchObject({ processed: 4 });
+    expect(threadNotices).toEqual([]);
+    const opened = await sessionsOf(fixture);
+    expect(opened).toHaveLength(2);
+    // Only the bots' mentions became turns.
+    for (const session of opened) {
+      expect(await turnsOf(session.id)).toEqual([
+        { sequence: 1, message: "review this", actorId: null },
+      ]);
+    }
+  });
+
   test("a stop whose line was lost posts it on the next stopped mention, once", async () => {
     const fixture = await agentInSlack();
     await allowBots(fixture, [REVIEW_BOT]);

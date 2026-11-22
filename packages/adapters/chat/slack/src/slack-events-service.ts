@@ -22,7 +22,10 @@ import {
   type SlackInstallStore,
   type SurfaceBindingStore,
 } from "@werft-ai/platform";
-import { slackConversationKey } from "./slack-inbox.ts";
+import {
+  SLACK_PERSON_RESET_SUBTYPES,
+  slackConversationKey,
+} from "./slack-inbox.ts";
 import { slackRequestSignature } from "./slack-signature.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -244,9 +247,10 @@ export function createSlackEventsService(deps: {
         event.type === "message" &&
         event.subtype !== undefined &&
         !ACCEPTED_SUBTYPES.has(event.subtype) &&
-        // A person's file in a thread starts the bots' count there over.
+        // A person's file or /me line in a thread starts the bots' count
+        // there over.
         !(
-          event.subtype === "file_share" &&
+          SLACK_PERSON_RESET_SUBTYPES.has(event.subtype) &&
           typeof event.thread_ts === "string" &&
           event.bot_id === undefined
         )
