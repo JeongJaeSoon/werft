@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { randomBytes } from "node:crypto";
 import {
   apiErrorResponseSchema,
   bootstrapResponseSchema,
@@ -37,16 +38,17 @@ import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { liveSetupToken } from "../testing/setup-link.ts";
+import {
+  createAccountLinkCookies,
+  SLACK_LINK_COOKIE_NAME,
+} from "./account-link-cookie.ts";
 import { createApiApp } from "./app.ts";
 import { DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerLinkedAccountRoutes } from "./routes/musterrolle/linked-accounts.ts";
-import {
-  createSlackOidcTransport,
-  SLACK_LINK_COOKIE_NAME,
-} from "./slack-link.ts";
+import { createSlackOidcTransport } from "./slack-link.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
@@ -95,6 +97,7 @@ integration("Sign in with Slack over HTTP on PostgreSQL", () => {
         registerAuthRoutes(router, auth);
         registerLinkedAccountRoutes(router, {
           service,
+          linkCookies: createAccountLinkCookies(randomBytes(32)),
           github: { oauth: { client: async () => null }, redirectUri: null },
           slack: {
             issuer: idp.url,

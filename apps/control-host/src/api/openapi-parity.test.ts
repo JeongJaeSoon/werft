@@ -50,6 +50,7 @@ import type {
   UsageService,
   WorkspaceMcpService,
 } from "@werft-ai/platform";
+import type { AccountLinkCookies } from "./account-link-cookie.ts";
 import { createApiApp } from "./app.ts";
 import type { InstallationConfigAdmin } from "./installation-config.ts";
 import type { LoginSettingsAdmin } from "./login-settings.ts";
@@ -195,6 +196,7 @@ function apiApp() {
       });
       registerLinkedAccountRoutes(router, {
         service: {} as LinkedAccountService,
+        linkCookies: {} as AccountLinkCookies,
         slack: null,
         github: { oauth: { client: async () => null }, redirectUri: null },
       });

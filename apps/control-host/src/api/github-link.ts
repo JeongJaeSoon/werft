@@ -1,10 +1,6 @@
-import { randomBytes } from "node:crypto";
 import { GITHUB_LOGIN_PATTERN } from "@werft-ai/contracts";
 import type { GitHubOAuthClient } from "@werft-ai/platform";
-import type { Context } from "hono";
-import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { providerFetch } from "./provider-fetch.ts";
-import { sameString as sameToken } from "./same-string.ts";
 
 // Linking a person's GitHub account through the author App's user
 // authorization. The user token answers
@@ -15,75 +11,6 @@ export function githubCallbackUrl(consoleOrigin: string | null): string | null {
   return consoleOrigin === null
     ? null
     : new URL("/settings/linked-accounts/github", consoleOrigin).toString();
-}
-
-// ---------------------------------------------------------------------------
-// State held by the browser: the callback spends its cookie, the server keeps
-// no record (as for Slack), and GitHub's code is single-use on its side
-// ---------------------------------------------------------------------------
-
-export const GITHUB_LINK_COOKIE_NAME = "werft_github_link";
-const GITHUB_LINK_COOKIE_PATH = "/v1/linked-accounts/github";
-export const GITHUB_LINK_TTL_MS = 10 * 60 * 1000;
-
-const cookieOptions = {
-  httpOnly: true,
-  secure: true,
-  sameSite: "Lax",
-  path: GITHUB_LINK_COOKIE_PATH,
-} as const;
-
-/**
- * The state rides in an HttpOnly cookie scoped to the callback and bound to
- * the person who started, the App connection whose client it was issued for,
- * and its expiry, which the callback checks.
- */
-export function issueGitHubLinkState(
-  context: Context,
-  userId: string,
-  connectionId: string,
-  expiresAt: Date,
-): string {
-  const state = randomBytes(32).toString("base64url");
-  setCookie(
-    context,
-    GITHUB_LINK_COOKIE_NAME,
-    `${state}.${userId}.${expiresAt.getTime()}.${connectionId}`,
-    { ...cookieOptions, expires: expiresAt },
-  );
-  return state;
-}
-
-/**
- * Spends the cookie whatever the outcome. The connection it was issued for
- * when it matches in time; null otherwise.
- */
-export function consumeGitHubLinkState(
-  context: Context,
-  state: string,
-  userId: string,
-  now: Date = new Date(),
-): string | null {
-  const raw = getCookie(context, GITHUB_LINK_COOKIE_NAME);
-  deleteCookie(context, GITHUB_LINK_COOKIE_NAME, cookieOptions);
-  const [cookieState, cookieUser, expires, connectionId, ...rest] =
-    raw?.split(".") ?? [];
-  if (
-    !cookieState ||
-    !cookieUser ||
-    !expires ||
-    !connectionId ||
-    rest.length > 0
-  ) {
-    return null;
-  }
-  const expiresAt = Number(expires);
-  if (!Number.isSafeInteger(expiresAt) || expiresAt <= now.getTime()) {
-    return null;
-  }
-  return sameToken(cookieState, state) && cookieUser === userId
-    ? connectionId
-    : null;
 }
 
 // ---------------------------------------------------------------------------

@@ -692,8 +692,8 @@ bun run apps/control-host/src/api/slack-app.ts create --kind link --workspace "$
 
 흐름은 다음과 같다.
 
-1. `POST /v1/linked-accounts/slack/start`가 `authorize_url`을 돌려주고, state·nonce를 HttpOnly cookie `werft_slack_link`(path `/v1/linked-accounts/slack`, 10분)에 둔다. 워크스페이스에 확인된 Slack 설치(`slack_installations`)가 없으면 `409 SLACK_NOT_INSTALLED`다. 설치가 하나면 그 team을 `team` 파라미터로 고정한다. 위 순서로 OIDC 앱을 정하고, 필요하면 이때 link 앱을 만든다.
-2. Slack이 그 앱의 redirect(`<CONSOLE_ORIGIN>/settings/linked-accounts/slack`)로 `code`·`state`를 붙여 돌려보낸다. 이 주소는 웹 화면이며, 화면이 둘을 `POST /v1/linked-accounts/slack/callback`에 `{code, state}`로 넘긴다. cookie는 이때 한 번 쓰고 지운다. 만료·불일치·IdP 거절은 모두 `400`(다시 시작 안내)이다.
+1. `POST /v1/linked-accounts/slack/start`가 `authorize_url`을 돌려주고, state·nonce·시작한 사람·시작 시각을 봉인한(AES-256-GCM, master key에서 이 용도로 뽑은 키) cookie `werft_slack_link`(HttpOnly·Secure·SameSite=Lax, path `/v1/linked-accounts/slack`, 10분)에 둔다. 브라우저는 그 값을 읽거나 고칠 수 없고, 서버는 따로 기록하지 않는다. 워크스페이스에 확인된 Slack 설치(`slack_installations`)가 없으면 `409 SLACK_NOT_INSTALLED`다. 설치가 하나면 그 team을 `team` 파라미터로 고정한다. 위 순서로 OIDC 앱을 정하고, 필요하면 이때 link 앱을 만든다.
+2. Slack이 그 앱의 redirect(`<CONSOLE_ORIGIN>/settings/linked-accounts/slack`)로 `code`·`state`를 붙여 돌려보낸다. 이 주소는 웹 화면이며, 화면이 둘을 `POST /v1/linked-accounts/slack/callback`에 `{code, state}`로 넘긴다. cookie는 이때 한 번 쓰고 지운다. 시작 뒤 10분이 지난 state(서버 시계로 검사), 쓴 state, 다른 사람이나 cookie가 없는 다른 브라우저의 state, 불일치, IdP 거절은 모두 `400`(다시 시작 안내)이다.
 3. API가 `code`를 id_token으로 바꾸고 로그인 공급자와 같은 OIDC 검증을 거친 뒤(서명(JWKS, RS256, 2048비트 이상 키)·`iss`·하나뿐인 `aud`·`azp`·`exp`·`iat`(앞으로 60초, 뒤로 11분까지)·`nbf`·`nonce`·`sub`) `https://slack.com/team_id`·`https://slack.com/user_id`로 연결한다. 설치된 team이 아니면 `409 LINK_TEAM_MISMATCH`, 그 Slack 계정이 다른 사람에게 연결돼 있으면 `409 LINK_TAKEN`, 같은 team에 이미 내 연결이 있으면 `409 LINK_EXISTS`다. 성공하면 `201`과 `link_account` receipt가 남는다.
 4. `GET /v1/linked-accounts`로 내 연결을 보고, `DELETE /v1/linked-accounts/{id}`로 해제한다(`unlink_account` receipt). 해제한 뒤에는 이미 대기 중인 입력도 처리 시점 재판정에서 거절된다. 목록 항목과 callback의 `linked_account`에 있는 `expires_at`은 provider 토큰의 만료 시각이다. 토큰을 보관하지 않거나 만료가 없으면 `null`이고, Slack 연결은 토큰을 보관하지 않으므로 늘 `null`이다. 1의 시작 응답에 있는 `expires_at`(연결 요청이 유효한 시각)과는 다른 값이다.
 
@@ -919,8 +919,8 @@ Slack DM이 만든 세션은 `private`로 시작한다(아래 "Slack 스레드�
 
 흐름은 다음과 같다.
 
-1. `POST /v1/linked-accounts/github/start`가 `authorize_url`을 돌려주고, state를 HttpOnly cookie `werft_github_link`(path `/v1/linked-accounts/github`, 10분, 시작한 사람에 묶임)에 둔다. App·client secret·콜백 URL 가운데 하나라도 없으면 `409 GITHUB_LINK_NOT_CONFIGURED`다.
-2. GitHub가 콜백 URL로 `code`·`state`를 붙여 돌려보낸다. 웹 화면이 둘을 `POST /v1/linked-accounts/github/callback`에 넘긴다. cookie는 이때 한 번 쓰고 지운다. 만료·재사용·다른 사람의 state·GitHub가 거절한 code는 모두 `400`이다.
+1. `POST /v1/linked-accounts/github/start`가 `authorize_url`을 돌려주고, state·시작한 사람·발급한 App 연결·시작 시각을 Slack과 같은 방식으로 봉인한 cookie `werft_github_link`(HttpOnly·Secure·SameSite=Lax, path `/v1/linked-accounts/github`, 10분)에 둔다. App·client secret·콜백 URL 가운데 하나라도 없으면 `409 GITHUB_LINK_NOT_CONFIGURED`다.
+2. GitHub가 콜백 URL로 `code`·`state`를 붙여 돌려보낸다. 웹 화면이 둘을 `POST /v1/linked-accounts/github/callback`에 넘긴다. cookie는 이때 한 번 쓰고 지운다. 만료·재사용·다른 사람이나 다른 브라우저의 state·GitHub가 거절한 code는 모두 `400`이다.
 3. API가 `code`를 user access token으로 바꿔 `GET /user`로 id·login만 읽고, token은 그 자리에서 버린다(저장하지 않는다). 그 GitHub 계정이 다른 사람에게 연결돼 있으면 `409 LINK_TAKEN`, 내게 이미 GitHub 연결이 있으면 `409 LINK_EXISTS`, GitHub가 답하지 않으면 `503`이다. 성공하면 `201`과 `link_account` receipt가 남는다. 해제는 Slack과 같은 `DELETE /v1/linked-accounts/{id}`다.
 
 **commit 트레일러.** claim의 `git.co_author`(시작자가 연결했을 때만)와 `git.session_url`을 worker가 `$HOME/.werft/git-trailers`에 쓰고, worker 이미지의 system `core.hooksPath`(`/usr/local/share/werft/git-hooks`)에 있는 `commit-msg` hook이 `git interpret-trailers --if-exists addIfDifferent`로 `Co-authored-by:`·`Agent-Session:`을 붙인다. 같은 줄은 한 번만 붙고, 저장소의 원래 hook(`.git/hooks/<이름>`)은 먼저 돈다. 시작자는 첫 turn을 보낸 사람, 없으면 세션을 만든 사람이다. web·개인 key·Slack은 사람이고, 에이전트 key·운영자 key는 사람이 없어 `Agent-Session`만 붙는다. 콘솔 origin이 없으면 `Agent-Session:`에는 세션 URL 대신 세션 id가 들어간다(PR 꼬리와 같은 값). 세션 상세의 성과물 탭 위 한 줄이 이 판정(`GET /v1/sessions/{id}/github/attribution`)을 보여 준다.

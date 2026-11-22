@@ -1,6 +1,3 @@
-import { randomBytes } from "node:crypto";
-import type { Context } from "hono";
-import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import {
   SlackOidcRejectedError,
   type SlackOidcTransport,
@@ -16,12 +13,11 @@ import {
   providerRequest,
   verifyIdToken,
 } from "./oidc/index.ts";
-import { sameString as sameToken } from "./same-string.ts";
 import { SLACK_ISSUER } from "./slack-config.ts";
 
-// The console side of Sign in with Slack: whether it is on, the one-time
-// state the browser holds, and the OIDC client the Slack adapter's code
-// exchange runs on.
+// The console side of Sign in with Slack: whether it is on, and the OIDC
+// client the Slack adapter's code exchange runs on. Its one-time state is in
+// account-link-cookie.ts.
 
 export function signInWithSlackOff(
   consoleOrigin: string | null,
@@ -34,65 +30,6 @@ export function signInWithSlackOff(
     return "Sign in with Slack is off: no link app can be made without PLATFORM_SECRET_KEY";
   }
   return null;
-}
-
-// ---------------------------------------------------------------------------
-// One-time state, held by the browser
-// ---------------------------------------------------------------------------
-
-export const SLACK_LINK_COOKIE_NAME = "werft_slack_link";
-const SLACK_LINK_COOKIE_PATH = "/v1/linked-accounts/slack";
-export const SLACK_LINK_TTL_MS = 10 * 60 * 1000;
-
-export type SlackLinkState = { state: string; nonce: string; userId: string };
-
-function token(): string {
-  return randomBytes(32).toString("base64url");
-}
-
-/**
- * State and nonce live in an HttpOnly cookie scoped to the callback, bound
- * to the person who started: a callback carrying someone else's code, or
- * replayed from another browser, finds no matching cookie.
- */
-export function issueSlackLinkState(
-  context: Context,
-  userId: string,
-  expiresAt: Date,
-): SlackLinkState {
-  const issued = { state: token(), nonce: token(), userId };
-  setCookie(
-    context,
-    SLACK_LINK_COOKIE_NAME,
-    `${issued.state}.${issued.nonce}.${userId}`,
-    {
-      httpOnly: true,
-      secure: true,
-      sameSite: "Lax",
-      path: SLACK_LINK_COOKIE_PATH,
-      expires: expiresAt,
-    },
-  );
-  return issued;
-}
-
-/** Spends the cookie whatever the outcome; null unless it matches. */
-export function consumeSlackLinkState(
-  context: Context,
-  state: string,
-  userId: string,
-): SlackLinkState | null {
-  const raw = getCookie(context, SLACK_LINK_COOKIE_NAME);
-  deleteCookie(context, SLACK_LINK_COOKIE_NAME, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "Lax",
-    path: SLACK_LINK_COOKIE_PATH,
-  });
-  const [cookieState, nonce, cookieUser, ...rest] = raw?.split(".") ?? [];
-  if (!cookieState || !nonce || !cookieUser || rest.length > 0) return null;
-  if (!sameToken(cookieState, state) || cookieUser !== userId) return null;
-  return { state: cookieState, nonce, userId: cookieUser };
 }
 
 // ---------------------------------------------------------------------------

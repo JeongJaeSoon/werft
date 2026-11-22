@@ -45,7 +45,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack
 503
 ```
 
-설정된 설치에서는 시작 요청이 `authorize_url`을 돌려준다. 그 주소에서 Slack에 동의하면 웹의 연결 화면이 `code`와 `state`를 callback에 넘기고 연결이 끝난다. 연결 상태는 `active`·`stale`·`revoked`다.
+설정된 설치에서는 시작 요청이 `authorize_url`을 돌려준다. 그 주소에서 Slack에 동의하면 웹의 연결 화면이 `code`와 `state`를 callback에 넘기고 연결이 끝난다. 시작한 브라우저에서 10분 안에 끝내야 한다. 시간이 지났거나 다른 브라우저에서 이어 가면 `400`이고, 처음부터 다시 시작한다. 연결 상태는 `active`·`stale`·`revoked`다.
 
 연결 응답과 `GET /v1/linked-accounts`의 각 항목에는 Slack이 연결 때 알려 준 이름도 있다. `external_user_name`은 Slack 표시 이름(id_token의 `name`), `external_tenant_name`은 Slack 워크스페이스 이름(`https://slack.com/team_name`)이다. 다시 연결하면 새 이름으로 바뀐다. 이름을 저장하기 전에 만든 연결이나 Slack이 이름을 주지 않은 연결은 `null`이고, 웹 화면은 그때 ID를 보인다. Slack 토큰은 저장하지 않는다. 그래서 provider 토큰의 만료 시각인 `expires_at`은 Slack 연결에서 늘 `null`이다. 시작 응답의 `expires_at`은 연결 요청이 유효한 시각이라 이 값과 다르다.
 

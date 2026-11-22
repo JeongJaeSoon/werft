@@ -45,7 +45,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack
 503
 ```
 
-With a configured installation, the start request returns an `authorize_url`. After you grant consent on Slack's authorization screen at that URL, the web link screen passes `code` and `state` to the callback and the link is complete. The link state is `active`, `stale`, or `revoked`.
+With a configured installation, the start request returns an `authorize_url`. After you grant consent on Slack's authorization screen at that URL, the web link screen passes `code` and `state` to the callback and the link is complete. Finish within ten minutes in the browser you started in: later, or from another browser, the callback answers `400` and you start over. The link state is `active`, `stale`, or `revoked`.
 
 The link response and each item of `GET /v1/linked-accounts` also carry the names Slack gave at linking: `external_user_name` is the Slack display name (the id_token's `name`), and `external_tenant_name` is the Slack workspace name (`https://slack.com/team_name`). Linking again replaces them. A link made before names were stored, or one Slack gave no name for, has `null`, and the web screen shows the ID instead. No Slack token is stored, so `expires_at`, the provider token's expiry, is always `null` for a Slack link. The `expires_at` of the start response is when that link request lapses, a different value.
 

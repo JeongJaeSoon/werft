@@ -25,6 +25,7 @@ import {
   SlackOidcUnavailableError,
   slackLinkAuthorizeUrl,
 } from "../../../wiring/chat-slack.ts";
+import type { AccountLinkCookies } from "../../account-link-cookie.ts";
 import {
   ApiHttpError,
   type ApiRouter,
@@ -33,19 +34,11 @@ import {
   parseJsonBody,
 } from "../../app.ts";
 import {
-  consumeGitHubLinkState,
   exchangeGitHubCode,
-  GITHUB_LINK_TTL_MS,
   GitHubOAuthRejectedError,
   GitHubOAuthUnavailableError,
   githubAuthorizeUrl,
-  issueGitHubLinkState,
 } from "../../github-link.ts";
-import {
-  consumeSlackLinkState,
-  issueSlackLinkState,
-  SLACK_LINK_TTL_MS,
-} from "../../slack-link.ts";
 import { mapped, requireParams } from "../errors.ts";
 
 export interface LinkedAccountRouteDeps {
@@ -55,6 +48,8 @@ export interface LinkedAccountRouteDeps {
     redirectUri: string | null;
   };
   service: LinkedAccountService;
+  /** The sealed one-time state of both links (createAccountLinkCookies). */
+  linkCookies: AccountLinkCookies;
   /** Null: Sign in with Slack is not configured on this installation. */
   slack: {
     issuer: string;
@@ -98,15 +93,14 @@ export function registerLinkedAccountRoutes(
     );
     // May make the workspace's link app, so only after the caller may link.
     const client = await mapped(() => slack.clients.clientForStart(caller));
-    const expiresAt = new Date(Date.now() + SLACK_LINK_TTL_MS);
-    const issued = issueSlackLinkState(context, userId, expiresAt);
+    const issued = deps.linkCookies.issueSlack(context, userId);
     return jsonWithSchema(context, startSlackLinkResponseSchema, {
       authorize_url: slackLinkAuthorizeUrl(
         oidcConfig(slack, client),
         issued,
         teams.length === 1 ? (teams[0] ?? null) : null,
       ),
-      expires_at: expiresAt.toISOString(),
+      expires_at: issued.expiresAt.toISOString(),
     });
   });
 
@@ -115,12 +109,13 @@ export function registerLinkedAccountRoutes(
     const slack = slackConfigured(deps);
     const body = await parseJsonBody(context, slackLinkCallbackRequestSchema);
     const userId = await mapped(() => deps.service.personFor(caller));
-    const issued = consumeSlackLinkState(context, body.state, userId);
+    const nonce = deps.linkCookies.consumeSlack(context, body.state, userId);
     // The client the start used, unless the workspace has lost it since.
-    const client = issued
-      ? await mapped(() => slack.clients.clientFor(caller.ownerId))
-      : null;
-    if (!issued || !client) {
+    const client =
+      nonce !== null
+        ? await mapped(() => slack.clients.clientFor(caller.ownerId))
+        : null;
+    if (nonce === null || !client) {
       throw new ApiHttpError(400, "BAD_REQUEST", LINK_MESSAGES.expired);
     }
     let verified: Awaited<ReturnType<typeof exchangeSlackCode>>;
@@ -129,7 +124,7 @@ export function registerLinkedAccountRoutes(
         oidcConfig(slack, client),
         slack.oidc,
         body.code,
-        issued.nonce,
+        nonce,
       );
     } catch (error) {
       if (error instanceof SlackOidcRejectedError) {
@@ -188,12 +183,10 @@ export function registerLinkedAccountRoutes(
     const caller = context.get("caller");
     const userId = await mapped(() => deps.service.personFor(caller));
     const { client, redirectUri } = await githubClientFor(caller.ownerId);
-    const expiresAt = new Date(Date.now() + GITHUB_LINK_TTL_MS);
-    const state = issueGitHubLinkState(
+    const { state, expiresAt } = deps.linkCookies.issueGitHub(
       context,
       userId,
       client.connectionId,
-      expiresAt,
     );
     return jsonWithSchema(context, startGitHubLinkResponseSchema, {
       authorize_url: githubAuthorizeUrl(client, redirectUri, state),
@@ -205,7 +198,11 @@ export function registerLinkedAccountRoutes(
     const caller = context.get("caller");
     const body = await parseJsonBody(context, githubLinkCallbackRequestSchema);
     const userId = await mapped(() => deps.service.personFor(caller));
-    const issuedFor = consumeGitHubLinkState(context, body.state, userId);
+    const issuedFor = deps.linkCookies.consumeGitHub(
+      context,
+      body.state,
+      userId,
+    );
     if (issuedFor === null) {
       throw new ApiHttpError(400, "BAD_REQUEST", LINK_MESSAGES.expired);
     }

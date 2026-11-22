@@ -186,6 +186,7 @@ import {
   wireSlackInteractions,
   wireSlackServices,
 } from "../wiring/slack-api.ts";
+import { createAccountLinkCookies } from "./account-link-cookie.ts";
 import {
   API_READINESS_REQUIRED_ENV,
   ApiSettingsError,
@@ -1416,6 +1417,9 @@ const app = createApiApp({
     registerInterruptRoutes(router, interrupts);
     registerLinkedAccountRoutes(router, {
       service: linkedAccounts,
+      linkCookies: createAccountLinkCookies(
+        derivedSecretKey(secretKey, "account-link-cookie"),
+      ),
       github: { oauth: githubOAuth, redirectUri: githubCallback },
       slack:
         consoleOrigin === null
