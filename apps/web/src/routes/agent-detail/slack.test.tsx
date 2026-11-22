@@ -1497,7 +1497,7 @@ describe("Slack management", () => {
     );
     expect(lock.textContent).not.toContain("Slack 앱에 넣을 주소");
     expect(lock.textContent).toContain(
-      "Event Subscriptions에서 Verify(또는 Retry)를 누르세요",
+      "확인 대기가 이어지면 앱 설정의 Event Subscriptions에서 Verify(또는 Retry)를 누르세요",
     );
     expect(lock.textContent).toContain("저절로 사라집니다");
     // The card is the only notice: none in the status card above.
