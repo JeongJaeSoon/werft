@@ -1,4 +1,4 @@
-import type { Principal } from "../musterrolle/index.ts";
+import type { Principal } from "../../musterrolle/index.ts";
 
 export type WorkspaceMcpAuthKind = "oauth" | "bearer";
 export type WorkspaceMcpConnectionState = "none" | "active" | "needs_reauth";
@@ -275,4 +275,4 @@ export {
   type OutboundRequest,
   type OutboundResponse,
   WorkspaceMcpOutboundError,
-} from "../ports/outbound-http.ts";
+} from "../../ports/outbound-http.ts";

@@ -8,7 +8,7 @@ import type {
   WorkspaceMcpRevocation,
   WorkspaceMcpServerRecord,
   WorkspaceMcpStore,
-} from "../workspace-mcp/ports.ts";
+} from "../workspace-mcp/ports/workspace-mcp-store.ts";
 
 export const FAKE_MCP_URL = "https://mcp.example.com/v1/mcp";
 export const FAKE_ISSUER = "https://auth.example.com";

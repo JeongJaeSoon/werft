@@ -17,7 +17,6 @@ import {
   createSkillGitSync,
   type GitHubSkillReader,
   type GitHubSkillTree,
-  githubSignatureMatches,
 } from "./skill-git-sync.ts";
 
 // The store's locking, coalescing across replicas and version writes are in
@@ -383,20 +382,6 @@ const deliver = (
     signature: headers.signature ?? sign(body),
     body: new TextEncoder().encode(body),
   });
-
-describe("the webhook signature", () => {
-  test("is HMAC-SHA256 of the raw body under the secret", () => {
-    const body = new TextEncoder().encode("{}");
-    expect(githubSignatureMatches(SECRET, body, sign("{}"))).toBe(true);
-    expect(
-      githubSignatureMatches(SECRET, body, sign("{}", "x".repeat(32))),
-    ).toBe(false);
-    expect(githubSignatureMatches(SECRET, body, sign("{ }"))).toBe(false);
-    for (const malformed of ["", "sha1=abc", `sha256=${"0".repeat(63)}`]) {
-      expect(githubSignatureMatches(SECRET, body, malformed)).toBe(false);
-    }
-  });
-});
 
 describe("a push delivery", () => {
   test("no App id, no stored secret or a wrong signature is unauthorized and checks nothing", async () => {

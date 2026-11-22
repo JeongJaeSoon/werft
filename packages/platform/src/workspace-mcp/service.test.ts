@@ -13,7 +13,7 @@ import {
   fakeRemote,
   memoryWorkspaceMcpStore,
 } from "../testing/workspace-mcp-fakes.ts";
-import type { OutboundRequest } from "./ports.ts";
+import type { OutboundRequest } from "./ports/workspace-mcp-store.ts";
 import { createWorkspaceMcpService } from "./service.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";

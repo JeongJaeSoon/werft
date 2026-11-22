@@ -1,5 +1,5 @@
 import { GITHUB_MCP_FIXED_TOOLS, githubMcpTools } from "@werft-ai/contracts";
-import { signGitHubMcpGrant } from "../action/github/github-mcp-server.ts";
+import { signGitHubMcpGrant } from "../action/index.ts";
 import type { GitHubMcpStore } from "../github/ports/github-mcp.ts";
 import {
   forbidden,

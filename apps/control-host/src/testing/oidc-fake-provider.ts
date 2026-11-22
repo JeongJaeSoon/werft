@@ -1,7 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { SigningAlg } from "../discovery.ts";
-import type { Jwk } from "../jwks.ts";
-import type { ProviderRequest, ProviderResponse } from "../provider-http.ts";
+import type { SigningAlg } from "../api/oidc/discovery.ts";
+import type { Jwk } from "../api/oidc/jwks.ts";
+import type {
+  ProviderRequest,
+  ProviderResponse,
+} from "../api/oidc/provider-http.ts";
 
 export type Signer = {
   alg: SigningAlg;

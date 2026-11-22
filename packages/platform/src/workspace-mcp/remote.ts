@@ -13,7 +13,7 @@ import {
   WorkspaceMcpOutboundError,
   type WorkspaceMcpTokens,
   type WorkspaceMcpTool,
-} from "./ports.ts";
+} from "./ports/workspace-mcp-store.ts";
 
 // Everything control-host says to a remote MCP server and its authorization
 // server itself. No upstream body is
