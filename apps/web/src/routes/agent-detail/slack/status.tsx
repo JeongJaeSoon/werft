@@ -1,23 +1,15 @@
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-  Badge,
-  Code,
-  IntegrationHeader,
-  Skeleton,
-} from "@werft-ai/ui";
+import { Badge, Code, IntegrationHeader, Skeleton } from "@werft-ai/ui";
 import { type ReactNode, useId } from "react";
 import { SlackTileMark } from "../../../components/brand-marks.tsx";
 import { LoadFailure } from "../../../components/load-failure.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
 import type { SlackApp } from "./actions.ts";
+import { SlackWarnings } from "./parts.tsx";
 import { useSlackBindings, useSlackChannels } from "./queries.ts";
 import {
   dmOn,
   SECTION,
   SECTION_TARGET,
-  SLACK_WARNING_KEY,
   STATE_BADGE,
   slackReason,
   slackState,
@@ -142,19 +134,7 @@ export function SlackHeader({
             onRetry={retry}
           />
         ) : null}
-        {warnings.map((warning) => (
-          <Alert key={warning.code} variant="amber">
-            <AlertTitle>{t(SLACK_WARNING_KEY[warning.code].title)}</AlertTitle>
-            <AlertDescription>
-              {t(SLACK_WARNING_KEY[warning.code].body, {
-                release: "release_id" in warning ? warning.release_id : "",
-                previous:
-                  "previous_user_id" in warning ? warning.previous_user_id : "",
-                user: "user_id" in warning ? warning.user_id : "",
-              })}
-            </AlertDescription>
-          </Alert>
-        ))}
+        <SlackWarnings warnings={warnings} />
       </IntegrationHeader>
     </section>
   );

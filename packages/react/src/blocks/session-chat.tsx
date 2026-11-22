@@ -16,6 +16,7 @@ import {
 } from "@werft-ai/ui";
 import { type JSX, type ReactNode, useMemo } from "react";
 import { Markdown, turnSummaryText } from "../components/index.ts";
+import { inputText } from "../components/session/input-text.ts";
 import type { EventStreamState, SessionEventFrame } from "../sessions.ts";
 import { SlackMessageLink } from "./slack-message-link.tsx";
 import { useBlockText } from "./text.ts";
@@ -150,14 +151,6 @@ export function groupTools(
     else out.push({ kind: "tools", id: `tools:${item.id}`, calls: [item] });
   }
   return out;
-}
-
-function inputText(input: unknown): string {
-  try {
-    return JSON.stringify(input, null, 2) ?? String(input);
-  } catch {
-    return String(input);
-  }
 }
 
 export interface SessionChatProps {

@@ -10,9 +10,10 @@ import {
 import { ShieldCheck } from "lucide-react";
 import { type JSX, type ReactNode, useId } from "react";
 
-import { DenialForm, NoteForm, useAnswerForm } from "./answer-form.tsx";
+import { AnswerForms, useAnswerForm } from "./answer-form.tsx";
 import { Busy } from "./busy.tsx";
 import { useExpired, useExpiryFocus } from "./expiry.ts";
+import { inputText } from "./input-text.ts";
 import { RequestCard } from "./request-card.tsx";
 
 export type PermissionRequest = Extract<PendingRequest, { kind: "permission" }>;
@@ -68,14 +69,6 @@ export interface ApprovalCardProps {
   /** What the request belongs to, such as a link to its session; shown on the title line. */
   readonly subject?: ReactNode;
   readonly className?: string | undefined;
-}
-
-function inputText(input: unknown): string {
-  try {
-    return JSON.stringify(input, null, 2) ?? String(input);
-  } catch {
-    return String(input);
-  }
 }
 
 export function ApprovalCard({
@@ -153,18 +146,12 @@ export function ApprovalCard({
         </div>
       </details>
       <FieldError>{error}</FieldError>
-      {expired ? null : denial.shown ? (
-        <DenialForm
-          form={denial}
+      {expired ? null : denial.shown || note.shown ? (
+        <AnswerForms
+          denial={denial}
+          note={note}
           messages={messages}
           onDeny={onDeny}
-          pending={pending}
-          blocked={blocked}
-        />
-      ) : note.shown ? (
-        <NoteForm
-          form={note}
-          messages={messages}
           onAllow={onAllow}
           pending={pending}
           blocked={blocked}

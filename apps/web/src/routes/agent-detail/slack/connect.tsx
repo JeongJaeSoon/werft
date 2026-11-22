@@ -1,33 +1,30 @@
-import { Link as RouterLink } from "@tanstack/react-router";
 import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
   Badge,
   Button,
   Code,
-  ConfirmDialog,
   DangerZone,
-  DangerZoneRow,
   FieldError,
   Heading,
-  Link,
   RowAction,
   RowList,
   SettingRow,
   Skeleton,
 } from "@werft-ai/ui";
 import { useEffect, useId, useRef, useState } from "react";
-import { useHasPermission, useMe } from "../../../auth/guard.tsx";
 import { LoadFailure } from "../../../components/load-failure.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
 import { useSlackApp } from "./actions.ts";
+import {
+  SlackDangerRows,
+  SlackRemovalDialog,
+  SlackTokenBlock,
+  SlackWarnings,
+} from "./parts.tsx";
 import {
   EVENTS_BADGE,
   SECTION,
   SECTION_BOX,
   SECTION_TARGET,
-  SLACK_WARNING_KEY,
   slackFailure,
   slackReason,
   slackState,
@@ -52,9 +49,6 @@ export function SlackConnect({
   readonly active?: boolean;
 }) {
   const { t } = useI18n();
-  const me = useMe();
-  // The workspace Slack screen is the workspace managers' (app-sidebar).
-  const manageWorkspace = useHasPermission("workspace.manage");
   const tokenBlockId = useId();
   const slack = useSlackApp(agentId);
   const {
@@ -64,8 +58,6 @@ export function SlackConnect({
     record,
     refresh,
     connect,
-    remove,
-    revoke,
     recheck,
     busy,
     pending,
@@ -77,9 +69,6 @@ export function SlackConnect({
   }, [notice]);
   const [deleting, setDeleting] = useState(false);
   const [revoking, setRevoking] = useState(false);
-  const appTarget = record?.app_id
-    ? `${t("slack.appId")} ${record.app_id}`
-    : undefined;
   // At most one reason sessions would fail, after any token issuer change.
   const warnings = app.data?.warnings ?? [];
   const { readError, saveError } = slack;
@@ -117,19 +106,7 @@ export function SlackConnect({
             {t(`slack.state.${status}`)}
           </Badge>
         </div>
-        {warnings.map((warning) => (
-          <Alert key={warning.code} variant="amber">
-            <AlertTitle>{t(SLACK_WARNING_KEY[warning.code].title)}</AlertTitle>
-            <AlertDescription>
-              {t(SLACK_WARNING_KEY[warning.code].body, {
-                release: "release_id" in warning ? warning.release_id : "",
-                previous:
-                  "previous_user_id" in warning ? warning.previous_user_id : "",
-                user: "user_id" in warning ? warning.user_id : "",
-              })}
-            </AlertDescription>
-          </Alert>
-        ))}
+        <SlackWarnings warnings={warnings} />
         {record ? (
           <RowList variant="joined" framed={false}>
             {record.app_id ? (
@@ -257,55 +234,20 @@ export function SlackConnect({
           </div>
         ) : null}
         {tokenBlock ? (
-          <p id={tokenBlockId} className="m-0 text-muted-foreground">
-            <span>{t(`slack.configToken.${tokenBlock}`)}</span>{" "}
-            {manageWorkspace ? (
-              <Link asChild underline="always">
-                <RouterLink to="/settings/workspace/integrations/slack">
-                  {t("slack.configToken.settings")}
-                </RouterLink>
-              </Link>
-            ) : (
-              t("slack.configToken.askAdmin")
-            )}
-          </p>
+          <SlackTokenBlock id={tokenBlockId} block={tokenBlock} />
         ) : null}
-        <ConfirmDialog
+        <SlackRemovalDialog
+          slack={slack}
+          action="delete"
           open={deleting}
           onOpenChange={setDeleting}
-          title={t("slack.delete")}
-          consequence={t("slack.deleteWarning")}
-          target={appTarget}
-          confirmLabel={t("slack.delete")}
-          cancelLabel={t("common.cancel")}
-          tone="danger"
-          busy={remove.isPending}
-          onConfirm={() =>
-            remove.mutate(undefined, { onSuccess: () => setDeleting(false) })
-          }
-        >
-          {remove.error ? (
-            <FieldError>{slackFailure(remove.error, t)}</FieldError>
-          ) : null}
-        </ConfirmDialog>
-        <ConfirmDialog
+        />
+        <SlackRemovalDialog
+          slack={slack}
+          action="revoke"
           open={revoking}
           onOpenChange={setRevoking}
-          title={t("slack.revoke")}
-          consequence={t("slack.revokeWarning")}
-          target={appTarget}
-          confirmLabel={t("slack.revoke")}
-          cancelLabel={t("common.cancel")}
-          tone="danger"
-          busy={revoke.isPending}
-          onConfirm={() =>
-            revoke.mutate(undefined, { onSuccess: () => setRevoking(false) })
-          }
-        >
-          {revoke.error ? (
-            <FieldError>{slackFailure(revoke.error, t)}</FieldError>
-          ) : null}
-        </ConfirmDialog>
+        />
       </section>
       {record ? (
         <DangerZone
@@ -315,23 +257,10 @@ export function SlackConnect({
           title={t("workspace.danger")}
           titleId={`${SECTION.danger}-title`}
         >
-          {identity ? (
-            <DangerZoneRow
-              title={t("slack.revokeTitle")}
-              description={t("slack.revokeWarning")}
-              actionLabel={t("slack.revoke")}
-              disabled={busy}
-              onAction={() => setRevoking(true)}
-            />
-          ) : null}
-          <DangerZoneRow
-            title={t("slack.deleteTitle")}
-            description={t("slack.deleteWarning")}
-            actionLabel={t("workspace.delete")}
-            // A delete Slack refused leaves the app "deleting"; asking
-            // again is how it finishes.
-            disabled={busy || record?.state === "creating" || !me?.workspace}
-            onAction={() => setDeleting(true)}
+          <SlackDangerRows
+            slack={slack}
+            onRevoke={() => setRevoking(true)}
+            onDelete={() => setDeleting(true)}
           />
         </DangerZone>
       ) : null}

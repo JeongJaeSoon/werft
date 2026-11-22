@@ -3,16 +3,13 @@ import {
   Badge,
   Button,
   Code,
-  ConfirmDialog,
   DangerZone,
-  DangerZoneRow,
   FieldError,
   GridTable,
   GridTableCell,
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
-  Link,
   RelativeTime,
   RowAction,
   RowLines,
@@ -21,7 +18,7 @@ import {
   Text,
 } from "@werft-ai/ui";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
-import { useHasPermission, useMe } from "../../../auth/guard.tsx";
+import { useHasPermission } from "../../../auth/guard.tsx";
 import {
   RowMenu,
   RowMenuItem,
@@ -29,6 +26,11 @@ import {
 } from "../../../components/row-menu.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
 import type { RecheckSite, SlackActionSite, SlackApp } from "./actions.ts";
+import {
+  SlackDangerRows,
+  SlackRemovalDialog,
+  SlackTokenBlock,
+} from "./parts.tsx";
 import {
   EVENTS_BADGE,
   SECTION,
@@ -236,7 +238,6 @@ export function SlackAppSection({
   readonly active: boolean;
 }) {
   const { t, locale } = useI18n();
-  const manageWorkspace = useHasPermission("workspace.manage");
   const tokenBlockId = useId();
   const { app, identities, identity, record, connect, busy, pending } = slack;
   const refreshing = busy || app.isFetching || identities.isFetching;
@@ -307,18 +308,7 @@ export function SlackAppSection({
           </Button>
         </div>
         {tokenBlock ? (
-          <p id={tokenBlockId} className="m-0 text-muted-foreground">
-            <span>{t(`slack.configToken.${tokenBlock}`)}</span>{" "}
-            {manageWorkspace ? (
-              <Link asChild underline="always">
-                <RouterLink to="/settings/workspace/integrations/slack">
-                  {t("slack.configToken.settings")}
-                </RouterLink>
-              </Link>
-            ) : (
-              t("slack.configToken.askAdmin")
-            )}
-          </p>
+          <SlackTokenBlock id={tokenBlockId} block={tokenBlock} />
         ) : null}
         <SaveError error={connect.error} />
         <Outcome slack={slack} at="app" />
@@ -445,14 +435,9 @@ export function SlackAppSection({
 /** Disconnect and delete, last, while there is an app to act on. */
 export function SlackDangerSection({ slack }: { readonly slack: SlackApp }) {
   const { t } = useI18n();
-  const me = useMe();
-  const { record, identity, busy, remove, revoke } = slack;
   const [deleting, setDeleting] = useState(false);
   const [revoking, setRevoking] = useState(false);
-  if (!record) return null;
-  const appTarget = record.app_id
-    ? `${t("slack.appId")} ${record.app_id}`
-    : undefined;
+  if (!slack.record) return null;
   return (
     <>
       <DangerZone
@@ -463,61 +448,24 @@ export function SlackDangerSection({ slack }: { readonly slack: SlackApp }) {
         titleAs="h3"
         titleId={`${SECTION.danger}-title`}
       >
-        {identity ? (
-          <DangerZoneRow
-            title={t("slack.revokeTitle")}
-            description={t("slack.revokeWarning")}
-            actionLabel={t("slack.revoke")}
-            disabled={busy}
-            onAction={() => setRevoking(true)}
-          />
-        ) : null}
-        <DangerZoneRow
-          title={t("slack.deleteTitle")}
-          description={t("slack.deleteWarning")}
-          actionLabel={t("workspace.delete")}
-          // A delete Slack refused leaves the app "deleting"; asking
-          // again is how it finishes.
-          disabled={busy || record.state === "creating" || !me?.workspace}
-          onAction={() => setDeleting(true)}
+        <SlackDangerRows
+          slack={slack}
+          onRevoke={() => setRevoking(true)}
+          onDelete={() => setDeleting(true)}
         />
       </DangerZone>
-      <ConfirmDialog
+      <SlackRemovalDialog
+        slack={slack}
+        action="delete"
         open={deleting}
         onOpenChange={setDeleting}
-        title={t("slack.delete")}
-        consequence={t("slack.deleteWarning")}
-        target={appTarget}
-        confirmLabel={t("slack.delete")}
-        cancelLabel={t("common.cancel")}
-        tone="danger"
-        busy={remove.isPending}
-        onConfirm={() =>
-          remove.mutate(undefined, { onSuccess: () => setDeleting(false) })
-        }
-      >
-        {remove.error ? (
-          <FieldError>{slackFailure(remove.error, t)}</FieldError>
-        ) : null}
-      </ConfirmDialog>
-      <ConfirmDialog
+      />
+      <SlackRemovalDialog
+        slack={slack}
+        action="revoke"
         open={revoking}
         onOpenChange={setRevoking}
-        title={t("slack.revoke")}
-        consequence={t("slack.revokeWarning")}
-        target={appTarget}
-        confirmLabel={t("slack.revoke")}
-        cancelLabel={t("common.cancel")}
-        tone="danger"
-        busy={revoke.isPending}
-        onConfirm={() =>
-          revoke.mutate(undefined, { onSuccess: () => setRevoking(false) })
-        }
-      >
-        {revoke.error ? (
-          <FieldError>{slackFailure(revoke.error, t)}</FieldError>
-        ) : null}
-      </ConfirmDialog>
+      />
     </>
   );
 }
