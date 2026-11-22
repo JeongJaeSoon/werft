@@ -61,8 +61,8 @@ export const INSTRUCTION_PATTERNS: readonly { id: string; pattern: RegExp }[] =
 const HIDDEN =
   // biome-ignore lint/suspicious/noControlCharactersInRegex: finding control characters is the point
   /[\u{0}-\u{8}\u{B}\u{C}\u{E}-\u{1F}\u{7F}\u{61C}\u{180E}\u{200B}-\u{200F}\u{202A}-\u{202E}\u{2060}-\u{2064}\u{2066}-\u{2069}\u{FEFF}\u{E0000}-\u{E007F}]/gu;
-/** A URL as far as text can carry one; the host is read by the WHATWG parser. */
-const URL_TEXT = /\bhttps?:\/\/[^\s"'<>`]+/gi;
+/** Where a URL starts; each start is read on its own, so one URL cannot swallow the next. */
+const URL_START = /\bhttps?:\/\//gi;
 const SCRIPTS_DIR = /^skills\/[^/]+\/scripts\//;
 const MANIFEST = ".claude-plugin/plugin.json";
 
@@ -73,13 +73,19 @@ const textOf = (bytes: Uint8Array): string => decoder.decode(bytes);
 
 function hostsOf(text: string): Set<string> {
   const hosts = new Set<string>();
-  for (const [found] of text.matchAll(URL_TEXT)) {
-    let url = found;
-    // Markdown's closing ")" or "]" and a sentence's end are not the URL's.
-    while (/[.,;:!?)\]]$/.test(url)) {
+  for (const start of text.matchAll(URL_START)) {
+    const wide = /^[^\s<>]+/.exec(text.slice(start.index))?.[0] ?? start[0];
+    const authority = wide.slice(start[0].length).split(/[/?#\\]/)[0] ?? "";
+    // A quote ends a URL in prose, unless an "@" after it makes the quote
+    // userinfo: then the host is past it, where the parser reads it.
+    let url = authority.includes("@")
+      ? wide
+      : (/^[^"'`]+/.exec(wide)?.[0] ?? wide);
+    // Markdown's closing ")" or "]", quotes and a sentence's end are not the URL's.
+    while (/[.,;:!?)\]"'`]$/.test(url)) {
       const last = url.at(-1) as string;
       const open = last === ")" ? "(" : last === "]" ? "[" : null;
-      if (open !== null && url.split(open).length > url.split(last).length) {
+      if (open !== null && url.split(open).length >= url.split(last).length) {
         break;
       }
       url = url.slice(0, -1);

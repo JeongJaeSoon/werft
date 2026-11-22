@@ -209,6 +209,17 @@ describe("what a check cannot be talked out of", () => {
       "evil.example",
     ]);
     expect(hostOf("https://ev%69l.example/")).toEqual(["evil.example"]);
+    // A quote or a backtick inside userinfo does not end the URL.
+    expect(hostOf("https://known.example'@evil.example/x")).toEqual([
+      "evil.example",
+    ]);
+    expect(hostOf("https://known.example`@evil.example/x")).toEqual([
+      "evil.example",
+    ]);
+    // URLs packed in quotes are each read: the second is not swallowed.
+    expect(hostOf('["https://known.example","https://evil.example"]')).toEqual([
+      "evil.example",
+    ]);
     // Known hosts in other spellings, and markdown around them, are not new.
     expect(
       hostOf(
@@ -221,6 +232,8 @@ describe("what a check cannot be talked out of", () => {
     for (const url of [
       "https://[2606:4700:4700::1111]/",
       "http://user@[2606:4700:4700::1111]:8443/x",
+      "https://[2606:4700:4700::1111]",
+      "(see https://[2606:4700:4700::1111])",
     ]) {
       expect(
         checkSkillVersion(base, [...base, file("more.md", url)]).find(
