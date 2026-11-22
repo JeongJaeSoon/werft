@@ -3,15 +3,12 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import {
   agentCardRequestSchema,
-  scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import {
   type Caller,
-  callerFor,
   createAgentService,
   createAuthorizationPolicy,
-  type TeamActor,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -30,6 +27,7 @@ import { createDatabaseIdentityReader } from "./musterrolle/identity-reader.ts";
 import { createPostgresTeamStore } from "./musterrolle/member-teams.ts";
 import * as schema from "./schema.ts";
 import { migrationsThrough } from "./testing/migrations-through.ts";
+import { acting, cast as agentCast, idOf, newTeam } from "./testing/people.ts";
 import { TEST_RUNTIMES, testSessionCatalog } from "./testing/spec-pins.ts";
 import { createPostgresAgentUsageStore } from "./usage/agent-usage.ts";
 
@@ -132,91 +130,7 @@ integration("agent usage on PostgreSQL", () => {
       runtimes: TEST_RUNTIMES,
     });
 
-  async function person(workspaceId: string, role: WorkspaceRole) {
-    const userId = randomUUID();
-    await db.insert(schema.users).values({
-      id: userId,
-      email: `${userId}@example.invalid`,
-      passwordHash: "argon2id$placeholder",
-      displayName: role,
-    });
-    await db.insert(schema.memberships).values({ workspaceId, userId, role });
-    return callerFor(
-      {
-        kind: "user",
-        id: userId,
-        workspace_id: workspaceId,
-        role,
-        scopes: [...scopesForRole(role)],
-      },
-      { kind: "web" },
-      randomUUID(),
-    );
-  }
-
-  const idOf = (caller: Caller) => caller.actor?.userId ?? "";
-  const acting = (caller: Caller): TeamActor => ({
-    principal: caller,
-    workspaceId: caller.ownerId,
-    userId: idOf(caller),
-  });
-
-  async function newTeam(by: Caller) {
-    const result = await teams().create({
-      actor: acting(by),
-      receiptId: randomUUID(),
-      teamId: randomUUID(),
-      name: `team-${randomUUID()}`,
-    });
-    if (result.outcome !== "created") throw new Error(result.outcome);
-    return result.team.id;
-  }
-
-  async function join(by: Caller, teamId: string, who: Caller, role?: "lead") {
-    const write = { actor: acting(by), teamId, userId: idOf(who) };
-    await teams().addMember({ ...write, receiptId: randomUUID() });
-    if (role) {
-      const set = await teams().setMemberRole({
-        ...write,
-        receiptId: randomUUID(),
-        role,
-      });
-      if (set.outcome !== "changed") throw new Error(set.outcome);
-    }
-  }
-
-  // An owner, the managing team's lead (so an admin of the agent), a plain
-  // member of that team, and a second team the lead is not in.
-  async function cast() {
-    const workspaceId = randomUUID();
-    await db.insert(schema.workspaces).values({
-      id: workspaceId,
-      slug: `ws-${workspaceId.slice(0, 8)}`,
-      name: "ws",
-    });
-    const owner = await person(workspaceId, "owner");
-    const lead = await person(workspaceId, "member");
-    const member = await person(workspaceId, "member");
-    const managing = await newTeam(owner);
-    const other = await newTeam(owner);
-    await join(owner, managing, lead, "lead");
-    await join(owner, managing, member);
-    const created = await agentService().createAgent(owner, {
-      slug: `agent-${randomUUID().slice(0, 8)}`,
-      name: "재무 분석가",
-      card,
-      managing_team_id: managing,
-    });
-    return {
-      workspaceId,
-      owner,
-      lead,
-      member,
-      managing,
-      other,
-      agentId: created.agent.id,
-    };
-  }
+  const cast = () => agentCast(db, agentService(), card);
 
   const put = (
     by: Caller,
@@ -422,7 +336,7 @@ integration("agent usage on PostgreSQL", () => {
   test("an archived team, a foreign team and an unknown agent answer not found", async () => {
     const first = await cast();
     const second = await cast();
-    const gone = await newTeam(first.owner);
+    const gone = await newTeam(db, first.owner);
     await teams().delete({
       actor: acting(first.owner),
       receiptId: randomUUID(),
@@ -517,7 +431,7 @@ integration("agent usage on PostgreSQL", () => {
 
   test("archiving a team removes it from every list, moves those revisions, and makes an earlier If-Match stale", async () => {
     const { agentId, owner, managing } = await cast();
-    const doomed = await newTeam(owner);
+    const doomed = await newTeam(db, owner);
     const second = await cast();
     // A second agent in the same workspace as the first lists the doomed team too.
     const created = await agentService().createAgent(owner, {
@@ -564,7 +478,7 @@ integration("agent usage on PostgreSQL", () => {
   test("archive and PUT together: no deadlock, and the end state agrees with whoever won", async () => {
     const { agentId, owner } = await cast();
     for (let round = 0; round < 12; round++) {
-      const team = await newTeam(owner);
+      const team = await newTeam(db, owner);
       const before = (await usage().get(owner.ownerId, agentId))?.revision ?? 0;
       const [archived, edited] = await Promise.all([
         teams().delete({
@@ -592,7 +506,7 @@ integration("agent usage on PostgreSQL", () => {
 
   test("an agent that starts listing the team while the archive waits for it is found by the next attempt", async () => {
     const { agentId, owner, workspaceId } = await cast();
-    const team = await newTeam(owner);
+    const team = await newTeam(db, owner);
     // The archive names no agent at first, then waits for the team row this
     // transaction holds; the agent's list gains the team before it commits.
     const result = await raced(

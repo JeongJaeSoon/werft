@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { decoded } from "./decoded.ts";
 
 const root = join(import.meta.dir, "..");
 
@@ -16,14 +17,6 @@ const REPO_DOC =
 // Known limits, none used by a link in this repository: a ref that itself
 // contains a root name (release/docs) and a path with a parenthesis.
 const REPO_ROOTS = new Set(["docs", "examples", "packages", "apps"]);
-
-function decoded(text: string): string {
-  try {
-    return decodeURIComponent(text);
-  } catch {
-    return text;
-  }
-}
 
 function repoPath(refAndPath: string): string {
   const segments = decoded(refAndPath)

@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
   agentCardRequestSchema,
-  scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import {
@@ -36,10 +35,10 @@ import {
   memberships,
   receipts,
   sessions,
-  users,
   workspaces,
 } from "./schema.ts";
 import { allowFor, allowOf } from "./testing/member-manage-allow.ts";
+import { person } from "./testing/people.ts";
 import {
   releaseSpecColumns,
   sessionPinColumns,
@@ -98,28 +97,6 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
     return workspaceId;
   }
 
-  async function person(workspaceId: string, role: WorkspaceRole) {
-    const userId = randomUUID();
-    await db.insert(users).values({
-      id: userId,
-      email: `${userId}@example.invalid`,
-      passwordHash: "argon2id$placeholder",
-      displayName: role,
-    });
-    await db.insert(memberships).values({ workspaceId, userId, role });
-    return callerFor(
-      {
-        kind: "user",
-        id: userId,
-        workspace_id: workspaceId,
-        role,
-        scopes: [...scopesForRole(role)],
-      },
-      { kind: "web" },
-      randomUUID(),
-    );
-  }
-
   /** A live team holding `members` as plain members. */
   async function team(workspaceId: string, ...members: Caller[]) {
     const teamId = randomUUID();
@@ -171,9 +148,9 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
 
   test("a member who creates an agent administers it and no other (D3)", async () => {
     const workspaceId = await workspace();
-    const owner = await person(workspaceId, "owner");
-    const member = await person(workspaceId, "member");
-    const other = await person(workspaceId, "member");
+    const owner = await person(db, workspaceId, "owner");
+    const member = await person(db, workspaceId, "member");
+    const other = await person(db, workspaceId, "member");
     const service = agentsService();
 
     const mine = await service.createAgent(member, {
@@ -218,9 +195,9 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
 
   test("an admin names no one owner and leaves owners alone", async () => {
     const workspaceId = await workspace();
-    const owner = await person(workspaceId, "owner");
-    const admin = await person(workspaceId, "admin");
-    const member = await person(workspaceId, "member");
+    const owner = await person(db, workspaceId, "owner");
+    const admin = await person(db, workspaceId, "admin");
+    const member = await person(db, workspaceId, "member");
     const store = createPostgresInviteStore(db);
     const change = (by: Caller, target: Caller, role: WorkspaceRole) =>
       store.changeMemberRole({
@@ -262,8 +239,8 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
   test("an agent key is a service key of its own workspace's agent", async () => {
     const workspaceId = await workspace();
     const elsewhere = await workspace();
-    const owner = await person(workspaceId, "owner");
-    const foreignOwner = await person(elsewhere, "owner");
+    const owner = await person(db, workspaceId, "owner");
+    const foreignOwner = await person(db, elsewhere, "owner");
     const agent = await agentsService().createAgent(owner, {
       slug: "bot",
       name: "bot",
@@ -323,8 +300,8 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
 
   test("keys issued, listed and revoked leave receipts and reach only their agent", async () => {
     const workspaceId = await workspace();
-    const owner = await person(workspaceId, "owner");
-    const member = await person(workspaceId, "member");
+    const owner = await person(db, workspaceId, "owner");
+    const member = await person(db, workspaceId, "member");
     const agent = await agentsService().createAgent(member, {
       slug: "bot",
       name: "bot",
@@ -545,8 +522,8 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
 
   test("a role lowered after the decision stops the key and narrows the list", async () => {
     const workspaceId = await workspace();
-    const owner = await person(workspaceId, "owner");
-    const demoted = await person(workspaceId, "owner");
+    const owner = await person(db, workspaceId, "owner");
+    const demoted = await person(db, workspaceId, "owner");
     const userId = demoted.actor?.userId ?? "";
     const agent = await agentsService().createAgent(owner, {
       slug: "bot",

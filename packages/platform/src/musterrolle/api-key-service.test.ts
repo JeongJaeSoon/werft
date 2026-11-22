@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   type CreateApiKeyRequest,
   SESSION_SCOPE_VALUES,
-  scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
+import { userPrincipal } from "@werft-ai/testkit/callers";
 import {
   type IssueKeyInput,
   keyIssueRefusal,
@@ -37,13 +37,7 @@ const agents: AgentAuthority = {
 
 function user(id: string, role: WorkspaceRole): Caller {
   return callerFor(
-    {
-      kind: "user",
-      id,
-      workspace_id: WORKSPACE,
-      role,
-      scopes: [...scopesForRole(role)],
-    },
+    userPrincipal(id, WORKSPACE, role),
     { kind: "web" },
     crypto.randomUUID(),
   );

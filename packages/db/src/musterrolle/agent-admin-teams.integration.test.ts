@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { scopesForRole, type WorkspaceRole } from "@werft-ai/contracts";
-import { type Caller, callerFor, type TeamActor } from "@werft-ai/platform";
+import type { WorkspaceRole } from "@werft-ai/contracts";
+import type { Caller } from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -16,11 +16,11 @@ import {
   agents,
   memberships,
   receipts,
-  users,
   workspaces,
 } from "../schema.ts";
 import { fixtureTeam } from "../testing/fixture-team.ts";
 import { allowOf } from "../testing/member-manage-allow.ts";
+import { acting, idOf, person } from "../testing/people.ts";
 import { createPostgresAgentAdminStore } from "./agent-admins.ts";
 import { createDatabaseAgentAuthority } from "./agent-authority.ts";
 import { createPostgresWorkspaceKeyStore } from "./api-keys.ts";
@@ -51,38 +51,6 @@ integration("teams as agent admins on PostgreSQL", () => {
     const slug = `ws-${workspaceId.slice(0, 8)}`;
     await db.insert(workspaces).values({ id: workspaceId, slug, name: slug });
     return workspaceId;
-  }
-
-  async function person(workspaceId: string, role: WorkspaceRole) {
-    const userId = randomUUID();
-    await db.insert(users).values({
-      id: userId,
-      email: `${userId}@example.invalid`,
-      passwordHash: "argon2id$placeholder",
-      displayName: role,
-    });
-    await db.insert(memberships).values({ workspaceId, userId, role });
-    return callerFor(
-      {
-        kind: "user",
-        id: userId,
-        workspace_id: workspaceId,
-        role,
-        scopes: [...scopesForRole(role)],
-      },
-      { kind: "web" },
-      randomUUID(),
-    );
-  }
-
-  const idOf = (caller: Caller) => caller.actor?.userId ?? "";
-
-  function acting(caller: Caller): TeamActor {
-    return {
-      principal: caller,
-      workspaceId: caller.ownerId,
-      userId: idOf(caller),
-    };
   }
 
   async function agent(workspaceId: string, createdBy: string) {
@@ -123,9 +91,9 @@ integration("teams as agent admins on PostgreSQL", () => {
 
   test("a team administers an agent through its live members, read at every decision", async () => {
     const workspaceId = await workspace();
-    const owner = await person(workspaceId, "owner");
-    const managed = await person(workspaceId, "member");
-    const outside = await person(workspaceId, "member");
+    const owner = await person(db, workspaceId, "owner");
+    const managed = await person(db, workspaceId, "member");
+    const outside = await person(db, workspaceId, "member");
     const agentId = await agent(workspaceId, idOf(owner));
     const team = await newTeam(owner);
     await member(owner, team.id, managed);
@@ -190,9 +158,9 @@ integration("teams as agent admins on PostgreSQL", () => {
 
   test("who may change an agent's admins, and to whom", async () => {
     const workspaceId = await workspace();
-    const owner = await person(workspaceId, "owner");
-    const creator = await person(workspaceId, "member");
-    const plain = await person(workspaceId, "member");
+    const owner = await person(db, workspaceId, "owner");
+    const creator = await person(db, workspaceId, "member");
+    const plain = await person(db, workspaceId, "member");
     const agentId = await agent(workspaceId, idOf(creator));
     const change = (
       by: Caller,
@@ -225,7 +193,7 @@ integration("teams as agent admins on PostgreSQL", () => {
       outcome: "subject_not_found",
     });
     // A disabled member cannot be named an admin.
-    const gone = await person(workspaceId, "member");
+    const gone = await person(db, workspaceId, "member");
     await db
       .update(memberships)
       .set({ disabledAt: new Date() })
@@ -237,7 +205,7 @@ integration("teams as agent admins on PostgreSQL", () => {
       outcome: "subject_not_found",
     });
     const elsewhere = await workspace();
-    const foreignTeam = await newTeam(await person(elsewhere, "owner"));
+    const foreignTeam = await newTeam(await person(db, elsewhere, "owner"));
     expect(await change(owner, { kind: "team", id: foreignTeam.id })).toEqual({
       outcome: "subject_not_found",
     });
@@ -280,9 +248,9 @@ integration("teams as agent admins on PostgreSQL", () => {
 
   test("only a team manager names an admin team; an agent admin only takes one off (94S-837)", async () => {
     const workspaceId = await workspace();
-    const owner = await person(workspaceId, "owner");
-    const manager = await person(workspaceId, "admin");
-    const lead = await person(workspaceId, "member");
+    const owner = await person(db, workspaceId, "owner");
+    const manager = await person(db, workspaceId, "admin");
+    const lead = await person(db, workspaceId, "member");
     const agentId = await agent(workspaceId, idOf(owner));
     const team = await newTeam(owner);
     await member(owner, team.id, lead);
@@ -353,10 +321,10 @@ integration("teams as agent admins on PostgreSQL", () => {
 
   test("two admins removing each other at once: one wins, the other is refused", async () => {
     const workspaceId = await workspace();
-    const owner = await person(workspaceId, "owner");
+    const owner = await person(db, workspaceId, "owner");
     for (let round = 0; round < 5; round++) {
-      const a = await person(workspaceId, "member");
-      const b = await person(workspaceId, "member");
+      const a = await person(db, workspaceId, "member");
+      const b = await person(db, workspaceId, "member");
       const agentId = await agent(workspaceId, idOf(owner));
       const change = (by: Caller, who: Caller, add = true) =>
         admins()[add ? "add" : "remove"]({
@@ -378,8 +346,8 @@ integration("teams as agent admins on PostgreSQL", () => {
 
   test("a team admin issues and sees the agent's keys until they leave the team", async () => {
     const workspaceId = await workspace();
-    const owner = await person(workspaceId, "owner");
-    const managed = await person(workspaceId, "member");
+    const owner = await person(db, workspaceId, "owner");
+    const managed = await person(db, workspaceId, "member");
     const agentId = await agent(workspaceId, idOf(owner));
     const team = await newTeam(owner);
     await member(owner, team.id, managed);
@@ -431,8 +399,8 @@ integration("teams as agent admins on PostgreSQL", () => {
 
   test("a member's key issue waits out a team delete instead of deadlocking it", async () => {
     const workspaceId = await workspace();
-    const owner = await person(workspaceId, "owner");
-    const managed = await person(workspaceId, "member");
+    const owner = await person(db, workspaceId, "owner");
+    const managed = await person(db, workspaceId, "member");
     const agentId = await agent(workspaceId, idOf(owner));
     const team = await newTeam(owner);
     await member(owner, team.id, managed);

@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   CREDENTIAL_REVOKE_NOTICE,
-  scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
+import { userPrincipal } from "@werft-ai/testkit/callers";
 import type {
   BindCredentialResult,
   CredentialBinding,
@@ -43,13 +43,7 @@ const BINDING: CredentialBinding = {
 
 function user(id: string, role: WorkspaceRole): Caller {
   return callerFor(
-    {
-      kind: "user",
-      id,
-      workspace_id: WORKSPACE,
-      role,
-      scopes: [...scopesForRole(role)],
-    },
+    userPrincipal(id, WORKSPACE, role),
     { kind: "web" },
     crypto.randomUUID(),
   );
