@@ -33,12 +33,18 @@ import type {
   BundleLimits,
   CanonicalBundleFile,
 } from "./bundle-validator.ts";
+import { isDocument } from "./bundle-validator.ts";
 import { unifiedLineDiff } from "./line-diff.ts";
 import type {
   AttachmentReceiptResult,
   ExtensionBundle,
   ExtensionBundleStore,
 } from "./ports/extension-bundle-store.ts";
+import {
+  checkBaseline,
+  checkSkillVersion,
+  type HostExtractor,
+} from "./skill-checks.ts";
 
 // Skills: one SKILL.md directory per
 // registration, stored as a single-skill bundle whose slug is the skill's
@@ -66,14 +72,34 @@ const byVersion = (a: ExtensionBundle, b: ExtensionBundle) =>
   a.registeredAt.getTime() - b.registeredAt.getTime();
 
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+const lenient = new TextDecoder("utf-8", { ignoreBOM: true });
+// biome-ignore lint/suspicious/noControlCharactersInRegex: showing control characters is the point
+const CONTROL = /[\u{0}-\u{8}\u{B}\u{C}\u{E}-\u{1F}\u{7F}]/gu;
 
-function textOf(bytes: Uint8Array): string | null {
-  if (bytes.includes(0)) return null;
-  try {
-    return decoder.decode(bytes);
-  } catch {
-    return null;
+/**
+ * The text a reviewer reads. A document (by its extension) that is not
+ * clean UTF-8 is still shown, as the checks read it: bad bytes as U+FFFD
+ * and control characters as their visible symbols (U+2400 to U+2421).
+ * Other files that are not text are null.
+ */
+function textOf(path: string, bytes: Uint8Array): string | null {
+  if (!bytes.includes(0)) {
+    try {
+      return decoder.decode(bytes);
+    } catch {
+      // shown below when it is a document
+    }
   }
+  if (!isDocument(path)) return null;
+  return lenient
+    .decode(bytes)
+    .replace(CONTROL, (char) =>
+      String.fromCodePoint(
+        char === String.fromCodePoint(0x7f)
+          ? 0x2421
+          : 0x2400 + (char.codePointAt(0) as number),
+      ),
+    );
 }
 
 export function skillVersionViewOf(bundle: ExtensionBundle): SkillVersion {
@@ -115,6 +141,11 @@ export type SkillServiceDeps = {
   objects: Pick<CheckpointObjectStore, "get" | "putImmutable">;
   limits?: BundleLimits;
   newId?: () => string;
+  /**
+   * How `new_url` reads hosts. The bundle service this one builds gets the
+   * same one, so the review screen and auto-approve read alike.
+   */
+  hosts?: HostExtractor;
   /** GitHub skills' sources as the list shows them, by name. */
   gitSources?: (workspaceId: string) => Promise<Map<string, SkillGitSource>>;
 };
@@ -409,15 +440,12 @@ export function createSkillService(deps: SkillServiceDeps) {
         ...workspace(caller),
       });
       const bundle = await version(caller, id);
-      const named = (await store.list(caller.ownerId))
-        .filter((row) => row.name === bundle.name)
-        .sort(byVersion);
-      const at = named.findIndex((row) => row.id === bundle.id);
-      const previous =
-        named
-          .slice(0, Math.max(0, at))
-          .filter((row) => row.review === "approved")
-          .at(-1) ?? null;
+      const previous = checkBaseline(
+        (await store.list(caller.ownerId)).filter(
+          (row) => row.name === bundle.name,
+        ),
+        bundle.id,
+      );
       const tree = await bundles.read(caller.ownerId, bundle.digest);
       if (tree === null) throw NOT_FOUND();
       const before =
@@ -432,7 +460,7 @@ export function createSkillService(deps: SkillServiceDeps) {
         previous_approved:
           previous === null ? null : skillVersionViewOf(previous),
         files: tree.files.map((file) => {
-          const text = textOf(file.bytes);
+          const text = textOf(file.path, file.bytes);
           const earlier = old.get(file.path);
           const change =
             earlier === undefined
@@ -441,7 +469,7 @@ export function createSkillService(deps: SkillServiceDeps) {
                 ? ("unchanged" as const)
                 : ("changed" as const);
           const earlierText =
-            earlier === undefined ? null : textOf(earlier.bytes);
+            earlier === undefined ? null : textOf(earlier.path, earlier.bytes);
           return {
             path: file.path,
             executable: file.mode === 0o755,
@@ -465,6 +493,11 @@ export function createSkillService(deps: SkillServiceDeps) {
             size_bytes: file.bytes.byteLength,
             sha256: file.sha256,
           })),
+        checks: checkSkillVersion(
+          before?.files ?? null,
+          tree.files,
+          deps.hosts,
+        ),
       };
     },
 

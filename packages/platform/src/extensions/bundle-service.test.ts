@@ -12,6 +12,7 @@ import type {
   ExtensionBundleStore,
   RegisterExtensionBundleResult,
 } from "./ports/extension-bundle-store.ts";
+import { plainTextHostExtractor } from "./skill-checks.ts";
 
 const WS_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const WS_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -102,6 +103,7 @@ function setup() {
   const service = createExtensionBundleService({
     store,
     objects,
+    hosts: plainTextHostExtractor,
     newId: () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`,
   });
   return { service, rows, objects, store };

@@ -14,9 +14,11 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **migration `0313_budget_accounts`가 예산 계정 표 셋(`budget_limits`·`budget_accounts`·`budget_reservations`)을 빈 채로 만든다**(JeongJaeSoon/werft#2034). 따로 할 일은 없다.
+- **migration `0314_budget_accounts`가 예산 계정 표 셋(`budget_limits`·`budget_accounts`·`budget_reservations`)을 빈 채로 만든다**(JeongJaeSoon/werft#2034). 따로 할 일은 없다.
   - 이 릴리스에서는 어떤 호출도 이 표를 읽거나 쓰지 않는다. 세션 비용 한도와 토큰 한도는 그대로이고, 한도를 정하는 화면·API·운영자 명령은 아직 없다.
   - 새 표만 만들므로 지원 창 안의 이미지로 되돌려도 된다.
+
+- **migration `0313_session_link_history`가 `session_links`에 `closed_at`·`closed_reason` 칸과 닫히지 않은 link만 보는 부분 unique 둘을, `slack_outbox`에 `session_link_id` 칸을 더한다**(JeongJaeSoon/werft#2038). 이 릴리스의 코드는 새 칸을 아직 읽거나 쓰지 않으므로 할 일은 없고 동작도 그대로다. 있던 줄은 모두 닫히지 않은 link로 남고, 옛 unique 둘은 뒤의 릴리스가 지울 때까지 남는다. 인덱스는 `CONCURRENTLY`로 만들고 CHECK와 외래 키는 `NOT VALID`로 더해 따로 검증하므로 쓰기를 오래 막지 않는다. 지원 창 안의 이미지로 되돌려도 된다.
 
 - **api가 멈추기 시작하면 열린 세션 이벤트 스트림(SSE)을 바로 끝내, 열린 스트림이 있어도 종료가 드레인 상한(35초)을 기다리지 않는다**(JeongJaeSoon/werft#2032). 할 일은 없다. stop grace는 그대로 두어도 된다.
   - api 재시작·재배포 때 콘솔과 SDK의 이벤트 스트림은 곧바로 끊기고, 새 api에 `Last-Event-ID`로 다시 붙어 놓친 이벤트 없이 이어진다. 이전에는 스트림이 드레인 상한까지 붙어 있다가 잘렸다.
@@ -40,6 +42,8 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 문에서 버린 줄의 `drop_fields`에는 보낸 쪽(`bot_id`·`app_id`·`user`)과 `subtype`·`message.subtype`만 남고 본문은 남지 않는다. 옛 줄과 slack 역할이 버린 줄은 비어 있다. CHECK는 `NOT VALID`로 더한 뒤 따로 검증하므로 검증 스캔 동안 쓰기를 막지 않는다(칸 추가와 CHECK 교체는 잠깐 잠금을 잡는다). 옛 이미지와 섞여 돌아도 된다.
 
 - **migration `slack_channel_member_cache`가 Slack 비공개 채널 멤버 확인용 임시 캐시 표를 더한다**(JeongJaeSoon/werft#2033). 할 일은 없다. 표에는 Slack 사용자 id와 읽은 시각만 5분 동안 남고, reconciler가 지난 줄을 지운다(로그 `Expired Slack channel member lists deleted`). 백업에 이 표가 빠져도 복원 뒤 Slack에서 다시 읽는다. 아직 이 캐시를 읽는 화면이나 API는 없다.
+
+- **보호 브랜치 자동 승인이 고정 규칙 검사에 걸린 스킬 버전에서 멈춘다**(JeongJaeSoon/werft#2024). 올린 뒤 자동 승인되던 스킬 버전이 승인 대기로 남을 수 있다. scripts·실행 파일 추가, 300줄 넘는 변경, 새 URL 호스트, 보이지 않는 유니코드, 지시처럼 보이는 문장, `description` 변경 중 하나라도 앞 승인 버전과 비교해 걸리면 그 스킬만 멈추고(`last_check.auto_approval.reason`: `checks_failed`), 같은 push의 다른 스킬은 그대로 자동 승인된다. 멈춘 버전은 스킬 상세의 "자동 승인" 행과 검토 화면 맨 위의 "고정 규칙 검사"에서 걸린 규칙을 보고 사람이 승인한다. 설정할 것은 없다.
 
 - **API가 EGRESS 허용 목록을 proxy와 같은 방식으로 한 번 읽어, 올린 뒤 콘솔 경고와 collector 경고가 달라질 수 있다**(JeongJaeSoon/werft#2009). 설정 값은 그대로 두어도 된다. 경고가 새로 나오면 목록을 확인한다.
   - 모델 연결 콘솔의 "egress 허용 목록 밖" 경고가 워크스페이스 MCP 등록 검사와 같은 목록을 쓴다. `API.Anthropic.com:443`이나 `github.com.:443`처럼 대소문자나 끝의 점이 다른 항목, `[fd00::1]:8443` 같은 IPv6 항목에 맞는 주소는 이제 경고하지 않는다. 쉼표와 공백만 있는 값은 "목록을 모름"으로 읽어 어떤 주소에도 경고하지 않는다(이전에는 모든 주소에 경고했다). 등록이 `credential_allowlist_unset`으로 거절하는 것과 같다.

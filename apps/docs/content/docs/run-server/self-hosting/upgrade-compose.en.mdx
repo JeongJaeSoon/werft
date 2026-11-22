@@ -261,7 +261,7 @@ GROUP BY 1, 2;
 <a id="예산-계정-표를-더하는-릴리스" />
 ### The release that adds the budget account tables
 
-Migration `0313_budget_accounts` creates three empty tables: `budget_limits` (the workspace's limit for every person, a person's own limit, an agent team's limit), `budget_accounts` (what a person's or a team's account spent and holds reserved each month, months cut in UTC), and `budget_reservations` (the reservation and settlement of each call). Nothing to do.
+Migration `0314_budget_accounts` creates three empty tables: `budget_limits` (the workspace's limit for every person, a person's own limit, an agent team's limit), `budget_accounts` (what a person's or a team's account spent and holds reserved each month, months cut in UTC), and `budget_reservations` (the reservation and settlement of each call). Nothing to do.
 
 - In this release no call reads or writes these tables. The session cost and token limits work as before, and there is no screen, API or operator command that sets a budget limit yet.
 - The migration only adds tables, so rolling back to an image inside the support window is fine.
@@ -274,6 +274,16 @@ Migration `0312_slack_source_marks` creates two tables, `deleted_sources` and `e
 - Werft keeps no record that points at a message yet, so the reconciler removes every mark 70 minutes after it was made (the 10-minute judgment buffer and an hour). The log `Unknown Slack source marks purged` records how many it removed. The retention is in [Retention by data](/run-server/self-hosting/reference/storage#데이터별-보존).
 - Queries that count the drop reason `message_subtype` see fewer rows, without the edits and deletes. A `message_changed` no person made, such as a link preview, is still dropped.
 - The migration only adds tables, so rolling back to an image inside the support window is fine. The earlier image does not use them and drops edits and deletes again.
+
+<a id="slack-스레드의-link-이력-칸을-더한-릴리스" />
+### The release that adds link history columns for Slack threads
+
+Migration `0313_session_link_history` adds the columns `closed_at` and `closed_reason` to `session_links`, with two partial uniques that cover only links not closed (`session_links_open_surface_ref_uniq`, `session_links_open_session_uniq`), and adds the column `session_link_id` to `slack_outbox`. Code in this release does not read or write the new columns yet, so there is nothing to do and behavior is unchanged. Every existing row stays an open link.
+
+- The two old uniques (`session_links_surface_ref_key`, `session_links_session_uniq`) stay. A later release drops them.
+- Indexes are built `CONCURRENTLY`, and the CHECKs and the foreign key are added `NOT VALID` and validated on their own, so writes are not blocked while they validate or build (adding the columns and constraints takes a brief lock).
+- Every statement may run again. If an index build is cut short, run migrate again: it drops the leftover INVALID index and builds it again.
+- Earlier images write without the new columns and resolve conflicts on the old uniques, so they keep working. Rolling back to an image in the support window is safe.
 
 <a id="mock-slack-env-이름" />
 ### Mock Slack variable names

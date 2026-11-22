@@ -5327,6 +5327,16 @@ export const agentReleases = pgTable(
   ],
 );
 
+/** Why a session link closed: done, cancelled, failed, or left idle. */
+export const SESSION_LINK_CLOSED_REASONS = [
+  "completed",
+  "cancelled",
+  "failed",
+  "abandoned",
+] as const;
+export type SessionLinkClosedReason =
+  (typeof SESSION_LINK_CLOSED_REASONS)[number];
+
 export const sessionLinks = pgTable(
   "session_links",
   {
@@ -5363,6 +5373,12 @@ export const sessionLinks = pgTable(
       .notNull()
       .defaultNow(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    /**
+     * Set when the link's work ends; the row stays as the thread's history.
+     * Null while open. `revoked_at` is not a close: it keeps the thread blocked.
+     */
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    closedReason: text("closed_reason").$type<SessionLinkClosedReason>(),
   },
   (table) => [
     foreignKey({
@@ -5387,6 +5403,21 @@ export const sessionLinks = pgTable(
     uniqueIndex("session_links_session_uniq")
       .on(table.sessionId)
       .where(sql`${table.sessionId} IS NOT NULL`),
+    // One open link per thread and per session; closed ones are history.
+    uniqueIndex("session_links_open_surface_ref_uniq")
+      .on(table.installationId, table.surfaceRef)
+      .where(sql`${table.closedAt} IS NULL`),
+    uniqueIndex("session_links_open_session_uniq")
+      .on(table.sessionId)
+      .where(sql`${table.sessionId} IS NOT NULL AND ${table.closedAt} IS NULL`),
+    check(
+      "session_links_closed_check",
+      sql`(${table.closedAt} IS NULL) = (${table.closedReason} IS NULL)`,
+    ),
+    check(
+      "session_links_closed_reason_check",
+      sql`${table.closedReason} IN (${sqlLiterals(SESSION_LINK_CLOSED_REASONS)})`,
+    ),
     check("session_links_surface_check", sql`${table.surface} = 'slack'`),
     check(
       "session_links_role_check",
@@ -5420,6 +5451,8 @@ export const slackOutbox = pgTable(
     threadTs: text("thread_ts").notNull(),
     slackUserId: text("slack_user_id"),
     sessionId: uuid("session_id").references(() => sessions.id),
+    /** The session link this row reports to; null on rows written before it. */
+    sessionLinkId: uuid("session_link_id"),
     /** The text before Slack controls are escaped, and the link it carries. */
     body: jsonb().$type<SlackOutboxBody>().notNull(),
     dedupeKey: text("dedupe_key").notNull(),
@@ -5472,6 +5505,11 @@ export const slackOutbox = pgTable(
       .where(
         sql`${table.kind} = 'input_notice' AND ${table.status} = 'sent' AND ${table.settleState} IS DISTINCT FROM 'abandoned' AND (${table.settleState} IS DISTINCT FROM 'settled' OR ${table.settleUncertainLatestAt} IS NOT NULL)`,
       ),
+    foreignKey({
+      name: "slack_outbox_session_link_fk",
+      columns: [table.sessionLinkId],
+      foreignColumns: [sessionLinks.id],
+    }),
     foreignKey({
       name: "slack_outbox_agent_fk",
       columns: [table.workspaceId, table.agentId],

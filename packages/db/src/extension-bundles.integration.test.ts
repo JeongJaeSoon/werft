@@ -8,6 +8,7 @@ import {
   createExtensionBundleService,
   EXTENSION_BUNDLE_REVIEWS,
   EXTENSION_BUNDLE_SOURCES,
+  plainTextHostExtractor,
 } from "@werft-ai/platform";
 import { createMemoryCheckpointObjectStore } from "@werft-ai/testkit/checkpoint-objects";
 import {
@@ -90,7 +91,11 @@ integration("extension bundles on PostgreSQL", () => {
     return {
       store,
       objects,
-      service: createExtensionBundleService({ store, objects }),
+      service: createExtensionBundleService({
+        store,
+        objects,
+        hosts: plainTextHostExtractor,
+      }),
     };
   }
 

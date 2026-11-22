@@ -29,6 +29,7 @@ import {
 import { and, asc, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { renderedHostExtractor } from "../wiring/skill-hosts.ts";
 import { createApiApp } from "./app.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { registerGitHubWebhookRoutes } from "./routes/github/github-webhook.ts";
@@ -70,6 +71,7 @@ integration("Git skill sync against fake GitHub", () => {
       bundles: createExtensionBundleService({
         store: createPostgresExtensionBundleStore(db),
         objects: createMemoryCheckpointObjectStore(),
+        hosts: renderedHostExtractor,
       }),
       reader: createGitHubSkillReader({ retryAfterBaseMs: 1 }),
       apps: async (workspaceId) =>

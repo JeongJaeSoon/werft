@@ -234,7 +234,7 @@ GROUP BY 1, 2;
 
 ### 예산 계정 표를 더하는 릴리스
 
-migration `0313_budget_accounts`가 빈 표 셋을 만든다. `budget_limits`(조직 전체 사람당 기본 한도, 사람마다의 한도, 에이전트 팀 한도), `budget_accounts`(사람·팀 계정의 달마다 쓴 것과 예약한 것, UTC 기준 달), `budget_reservations`(호출마다의 예약과 정산 기록)이다. 따로 할 일은 없다.
+migration `0314_budget_accounts`가 빈 표 셋을 만든다. `budget_limits`(조직 전체 사람당 기본 한도, 사람마다의 한도, 에이전트 팀 한도), `budget_accounts`(사람·팀 계정의 달마다 쓴 것과 예약한 것, UTC 기준 달), `budget_reservations`(호출마다의 예약과 정산 기록)이다. 따로 할 일은 없다.
 
 - 이 릴리스에서는 어떤 호출도 이 표를 읽거나 쓰지 않는다. 세션 비용 한도와 토큰 한도는 지금처럼 동작하고, 한도를 정하는 화면·API·운영자 명령도 없다.
 - 새 표만 만들므로 지원 창 안의 이미지로 되돌려도 된다.
@@ -246,6 +246,15 @@ migration `0312_slack_source_marks`가 새 표 `deleted_sources`와 `edited_sour
 - 지금은 Werft가 그 글을 가리키는 기록을 두지 않으므로, 모든 표식은 만든 지 70분(판단 버퍼 10분과 1시간)이 지나면 reconciler가 지운다. 로그 `Unknown Slack source marks purged`에 지운 수가 남는다. 보존 기간은 [데이터별 보존](/run-server/self-hosting/reference/storage#데이터별-보존)에 있다.
 - 버린 이유 `message_subtype`으로 집계하던 질의는 수정·삭제 이벤트가 빠진 만큼 수가 준다. 링크 미리보기처럼 사람이 고치지 않은 `message_changed`는 지금처럼 버린다.
 - 표를 더하기만 하므로 지원 창 안의 이미지로 되돌려도 된다. 앞선 이미지는 이 표를 쓰지 않고 수정·삭제 이벤트를 다시 버린다.
+
+### Slack 스레드의 link 이력 칸을 더한 릴리스
+
+migration `0313_session_link_history`가 `session_links`에 `closed_at`·`closed_reason` 칸과 닫히지 않은 link만 보는 부분 unique 둘(`session_links_open_surface_ref_uniq`, `session_links_open_session_uniq`)을 더하고, `slack_outbox`에 `session_link_id` 칸을 더한다. 이 릴리스의 코드는 새 칸을 아직 읽거나 쓰지 않으므로 할 일은 없고 동작도 그대로다. 있던 줄은 모두 닫히지 않은 link로 남는다.
+
+- 옛 unique 둘(`session_links_surface_ref_key`, `session_links_session_uniq`)은 그대로 남는다. 뒤의 릴리스가 지운다.
+- 인덱스는 `CONCURRENTLY`로 만들고, CHECK와 외래 키는 `NOT VALID`로 더한 뒤 따로 검증한다. 그래서 검증과 인덱스를 만드는 동안 쓰기를 막지 않는다(칸과 제약을 더할 때만 잠깐 잠금을 잡는다).
+- 각 문장은 다시 돌려도 된다. 인덱스 만들기가 중간에 끊기면 migrate를 다시 돌린다. 남은 INVALID 인덱스를 지우고 다시 만든다.
+- 앞선 이미지는 새 칸 없이 쓰고 옛 unique로 겹침을 가리므로 그대로 돈다. 지원 창 안의 이미지로 되돌려도 된다.
 
 ### mock Slack env 이름
 

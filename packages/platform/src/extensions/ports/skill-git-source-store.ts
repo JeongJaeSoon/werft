@@ -1,5 +1,6 @@
 import type {
   SkillAutoApprovalReason,
+  SkillCheckFinding,
   SkillSyncResult,
   SkillSyncTriggerKind,
   WorkspaceRole,
@@ -47,6 +48,8 @@ export type SkillAutoApproval = {
   reason: SkillAutoApprovalReason | null;
   rule: SkillProtectionRule | null;
   pullRequest: number | null;
+  /** The fixed-rule checks the version failed; empty when none. */
+  checks: SkillCheckFinding[];
 };
 
 export type SkillAutoApproveState = {

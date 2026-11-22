@@ -261,7 +261,7 @@ GROUP BY 1, 2;
 <a id="예산-계정-표를-더하는-릴리스" />
 ### 予算アカウントの表を加えるリリース
 
-migration `0313_budget_accounts` が空の表を三つ作る。`budget_limits`(組織全体の一人あたりの既定の上限、人ごとの上限、エージェントチームの上限)、`budget_accounts`(人・チームのアカウントが月ごとに使った分と予約した分。月は UTC で区切る)、`budget_reservations`(呼び出しごとの予約と精算の記録)だ。することはない。
+migration `0314_budget_accounts` が空の表を三つ作る。`budget_limits`(組織全体の一人あたりの既定の上限、人ごとの上限、エージェントチームの上限)、`budget_accounts`(人・チームのアカウントが月ごとに使った分と予約した分。月は UTC で区切る)、`budget_reservations`(呼び出しごとの予約と精算の記録)だ。することはない。
 
 - このリリースでは、どの呼び出しもこれらの表を読み書きしない。セッションのコスト上限とトークン上限はこれまでどおりで、上限を決める画面・API・運用者コマンドもまだない。
 - 新しい表を作るだけなので、サポート期間内のイメージに戻してもよい。
@@ -274,6 +274,16 @@ migration `0312_slack_source_marks` が新しいテーブル `deleted_sources` �
 - 今は Werft がそのメッセージを指す記録を持たないため、すべての印は作ってから 70 分（判断バッファの 10 分と 1 時間）を過ぎると reconciler が消す。ログ `Unknown Slack source marks purged` に消した数が残る。保持期間は[データごとの保持](/run-server/self-hosting/reference/storage#데이터별-보존)にある。
 - 捨てた理由 `message_subtype` で集計していたクエリは、編集・削除イベントがなくなった分だけ数が減る。リンクのプレビューのように人が編集していない `message_changed` は今までどおり捨てる。
 - テーブルを足すだけなので、サポート期間内のイメージに戻してもよい。前のイメージはこのテーブルを使わず、編集・削除イベントをまた捨てる。
+
+<a id="slack-스레드의-link-이력-칸을-더한-릴리스" />
+### Slack スレッドの link 履歴の列を加えたリリース
+
+migration `0313_session_link_history` が `session_links` に `closed_at`・`closed_reason` 列と、閉じていない link だけを見る部分 unique 二つ(`session_links_open_surface_ref_uniq`、`session_links_open_session_uniq`)を加え、`slack_outbox` に `session_link_id` 列を加える。このリリースのコードは新しい列をまだ読み書きしないので、することはなく動作も変わらない。既存の行はすべて閉じていない link のまま残る。
+
+- 古い unique 二つ(`session_links_surface_ref_key`、`session_links_session_uniq`)はそのまま残る。後のリリースが削除する。
+- インデックスは `CONCURRENTLY` で作り、CHECK と外部キーは `NOT VALID` で加えてから別に検証する。そのため検証とインデックスの作成のあいだ書き込みを止めない(列と制約を加えるときだけ短くロックを取る)。
+- どの文も再実行してよい。インデックスの作成が途中で切れたら migrate をもう一度実行する。残った INVALID インデックスを削除して作り直す。
+- 以前のイメージは新しい列なしで書き、古い unique で重なりを判定するので、そのまま動く。サポート期間内のイメージへ戻してもよい。
 
 <a id="mock-slack-env-이름" />
 ### mock Slack の環境変数名
