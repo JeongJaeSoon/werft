@@ -411,6 +411,51 @@ integration("account recovery on PostgreSQL", () => {
     expect((await start().bootstrap()).status).toBe(201);
   });
 
+  for (const comeback of ["account", "membership", "promotion"] as const) {
+    test(`an owner made live by ${comeback} retires the open setup link`, async () => {
+      const { db, start, ownerId, memberId } = await install();
+      await db
+        .update(users)
+        .set({ disabledAt: new Date() })
+        .where(eq(users.id, ownerId));
+      if (comeback === "membership") {
+        await db
+          .update(memberships)
+          .set({ disabledAt: new Date() })
+          .where(eq(memberships.userId, ownerId));
+        await db
+          .update(users)
+          .set({ disabledAt: null })
+          .where(eq(users.id, ownerId));
+      }
+      const link = await issueSetupToken(new DatabaseIdentityStore(db));
+      if (link === null) throw new Error("no link issued");
+      expect(await db.$count(setupLinks)).toBe(1);
+
+      if (comeback === "account") {
+        await db
+          .update(users)
+          .set({ disabledAt: null })
+          .where(eq(users.id, ownerId));
+      } else if (comeback === "membership") {
+        await db
+          .update(memberships)
+          .set({ disabledAt: null })
+          .where(eq(memberships.userId, ownerId));
+      } else {
+        await db
+          .update(memberships)
+          .set({ role: "owner" })
+          .where(eq(memberships.userId, memberId));
+      }
+      expect(await db.$count(setupLinks)).toBe(0);
+      const check = await start().json("/v1/auth/setup-link/check", {
+        setup_token: link,
+      });
+      expect(check.status).toBe(401);
+    });
+  }
+
   test("recovery waits for a member login in flight and revokes its session too", async () => {
     const { db, pool, start, ownerId, memberId } = await install();
     await db

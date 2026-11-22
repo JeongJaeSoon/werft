@@ -620,7 +620,8 @@ export const passwordResets = pgTable(
 
 // The one-time setup link that makes the first owner, kept here rather than
 // in a process so any API replica accepts it. At most one row: issuing a new
-// link deletes the old one, and the bootstrap that uses it deletes it.
+// link deletes the old one, and the bootstrap that uses it deletes it. Any
+// write that leaves a live owner deletes it too (trigger `setup_links_retire`).
 export const setupLinks = pgTable("setup_links", {
   tokenHash: bytea("token_hash").primaryKey(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
