@@ -4,6 +4,8 @@ import type {
   AgentSkillList,
   PutSkillAttachmentRequest,
   Skill,
+  SkillAutoApprovalReason,
+  SkillCheckRule,
   SkillList,
   SkillVersion,
   SkillVersionFiles,
@@ -127,6 +129,34 @@ export const REVIEW_BADGE = {
   rejected: "red",
   superseded: "gray",
 } as const satisfies Record<SkillVersion["review"], string>;
+
+export const CHECK_RULE_LABEL = {
+  scripts_added: "skills.checks.rule.scripts_added",
+  large_change: "skills.checks.rule.large_change",
+  new_url: "skills.checks.rule.new_url",
+  hidden_unicode: "skills.checks.rule.hidden_unicode",
+  instruction_like: "skills.checks.rule.instruction_like",
+  description_changed: "skills.checks.rule.description_changed",
+} as const satisfies Record<SkillCheckRule, MessageKey>;
+
+export const CHECK_RULE_WHY = {
+  scripts_added: "skills.checks.why.scripts_added",
+  large_change: "skills.checks.why.large_change",
+  new_url: "skills.checks.why.new_url",
+  hidden_unicode: "skills.checks.why.hidden_unicode",
+  instruction_like: "skills.checks.why.instruction_like",
+  description_changed: "skills.checks.why.description_changed",
+} as const satisfies Record<SkillCheckRule, MessageKey>;
+
+export const AUTO_APPROVAL_REASON = {
+  not_branch: "skills.sync.autoApproval.reason.not_branch",
+  protection_missing: "skills.sync.autoApproval.reason.protection_missing",
+  no_reviewed_pull_request:
+    "skills.sync.autoApproval.reason.no_reviewed_pull_request",
+  github_unreachable: "skills.sync.autoApproval.reason.github_unreachable",
+  checks_failed: "skills.sync.autoApproval.reason.checks_failed",
+  baseline_changed: "skills.sync.autoApproval.reason.baseline_changed",
+} as const satisfies Record<SkillAutoApprovalReason, MessageKey>;
 
 const REFUSALS = {
   self_review: "skills.refused.self_review",

@@ -37,6 +37,8 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 - **migration `slack_channel_member_cache`가 Slack 비공개 채널 멤버 확인용 임시 캐시 표를 더한다**(JeongJaeSoon/werft#2033). 할 일은 없다. 표에는 Slack 사용자 id와 읽은 시각만 5분 동안 남고, reconciler가 지난 줄을 지운다(로그 `Expired Slack channel member lists deleted`). 백업에 이 표가 빠져도 복원 뒤 Slack에서 다시 읽는다. 아직 이 캐시를 읽는 화면이나 API는 없다.
 
+- **보호 브랜치 자동 승인이 고정 규칙 검사에 걸린 스킬 버전에서 멈춘다**(JeongJaeSoon/werft#2024). 올린 뒤 자동 승인되던 스킬 버전이 승인 대기로 남을 수 있다. scripts·실행 파일 추가, 300줄 넘는 변경, 새 URL 호스트, 보이지 않는 유니코드, 지시처럼 보이는 문장, `description` 변경 중 하나라도 앞 승인 버전과 비교해 걸리면 그 스킬만 멈추고(`last_check.auto_approval.reason`: `checks_failed`), 같은 push의 다른 스킬은 그대로 자동 승인된다. 멈춘 버전은 스킬 상세의 "자동 승인" 행과 검토 화면 맨 위의 "고정 규칙 검사"에서 걸린 규칙을 보고 사람이 승인한다. 설정할 것은 없다.
+
 - **API가 EGRESS 허용 목록을 proxy와 같은 방식으로 한 번 읽어, 올린 뒤 콘솔 경고와 collector 경고가 달라질 수 있다**(JeongJaeSoon/werft#2009). 설정 값은 그대로 두어도 된다. 경고가 새로 나오면 목록을 확인한다.
   - 모델 연결 콘솔의 "egress 허용 목록 밖" 경고가 워크스페이스 MCP 등록 검사와 같은 목록을 쓴다. `API.Anthropic.com:443`이나 `github.com.:443`처럼 대소문자나 끝의 점이 다른 항목, `[fd00::1]:8443` 같은 IPv6 항목에 맞는 주소는 이제 경고하지 않는다. 쉼표와 공백만 있는 값은 "목록을 모름"으로 읽어 어떤 주소에도 경고하지 않는다(이전에는 모든 주소에 경고했다). 등록이 `credential_allowlist_unset`으로 거절하는 것과 같다.
   - OTLP collector가 worker 허용 목록(`EGRESS_ALLOWLIST`·`EGRESS_PRIVATE_ALLOWLIST`)에 있다는 기동 경고 `tracing.collector_on_egress_allowlist`가 host 끝의 점을 무시한다. `collector.internal.:4318` 같은 항목에도 이제 경고가 나온다.
