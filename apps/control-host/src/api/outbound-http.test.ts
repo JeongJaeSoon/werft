@@ -123,6 +123,7 @@ describe("the egress proxy's outbound (titles and judgments)", () => {
       "100.100.100.200",
       "fd00:ec2::254",
       "::ffff:100.100.100.200",
+      "64:ff9b::6464:64c8",
     ]) {
       const net = network({ "egress-proxy": [address] });
       const http = oneHostOutbound(PROXY, { private: true }, net.request);
@@ -146,21 +147,17 @@ describe("the egress proxy's outbound (titles and judgments)", () => {
   });
 
   test("an error answer keeps its status when its body is cut", async () => {
-    const refused = network({ "egress-proxy": ["172.18.0.5"] }, () =>
-      cutBody(401),
-    );
-    expect(
-      (
-        await oneHostOutbound(
-          PROXY,
-          { private: true },
-          refused.request,
-        )({
-          url: `${PROXY}/x`,
-          method: "POST",
-        })
-      ).status,
-    ).toBe(401);
+    for (const status of [302, 401]) {
+      const cut = network({ "egress-proxy": ["172.18.0.5"] }, () =>
+        cutBody(status),
+      );
+      const response = await oneHostOutbound(
+        PROXY,
+        { private: true },
+        cut.request,
+      )({ url: `${PROXY}/x`, method: "POST" });
+      expect([response.status, response.text]).toEqual([status, ""]);
+    }
     const down = network({ "egress-proxy": ["172.18.0.5"] }, () =>
       cutBody(503),
     );

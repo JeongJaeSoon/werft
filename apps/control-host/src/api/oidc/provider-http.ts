@@ -257,7 +257,7 @@ export function createProviderRequest(
         { status: response.status },
       );
     }
-    if (unread !== null && response.status < 400) {
+    if (unread !== null && response.status >= 200 && response.status < 300) {
       throw new OidcUnavailableError(
         "unreachable",
         `Provider answer unread: ${unread instanceof Error ? unread.name : "error"}`,
