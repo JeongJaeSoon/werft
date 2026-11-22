@@ -17,13 +17,17 @@ export type FakeSlackApp = {
 /** One call as the fake saw it: method and outcome, never a token. */
 export type FakeSlackCall = { method: string; ok: boolean; error?: string };
 
-/** A channel of the fake's one team; `members` are the apps whose bot is in it. */
+/**
+ * A channel of the fake's one team; `members` are the apps whose bot is in
+ * it, `people` the Slack users.
+ */
 export type FakeSlackListedChannel = {
   id: string;
   name: string;
   isPrivate: boolean;
   isArchived: boolean;
   members: string[];
+  people: string[];
 };
 
 export type SeedSlackChannel = {
@@ -31,6 +35,7 @@ export type SeedSlackChannel = {
   isPrivate?: boolean;
   isArchived?: boolean;
   members?: string[];
+  people?: string[];
 };
 
 export type FakeSlackWebApi = {
@@ -297,6 +302,7 @@ export function createFakeSlackWebApi(
         isPrivate: seed.isPrivate ?? false,
         isArchived: seed.isArchived ?? false,
         members: [...(seed.members ?? [])],
+        people: [...(seed.people ?? [])],
       };
       conversations.push(channel);
       channels.set(channel.id, { isPrivate: channel.isPrivate });
@@ -496,6 +502,46 @@ export function createFakeSlackWebApi(
           is_private: channel.isPrivate ?? false,
           is_mpim: channel.isMpim ?? false,
           ...membershipOf(context, id),
+        },
+      };
+    },
+
+    // A seeded channel's bots and people, paged as conversations.list is.
+    "conversations.members"(context) {
+      const app = installedBot(context);
+      const listed = conversations.find(
+        (candidate) => candidate.id === context.params.channel,
+      );
+      if (
+        !listed ||
+        (listed.isPrivate && !listed.members.includes(app.appId))
+      ) {
+        throw new SlackError("channel_not_found");
+      }
+      const limit = Math.min(
+        Math.max(Number(context.params.limit ?? 100) || 100, 1),
+        1000,
+      );
+      let offset = 0;
+      if (context.params.cursor) {
+        const match = /^offset:(\d+)$/.exec(
+          Buffer.from(context.params.cursor, "base64").toString("utf8"),
+        );
+        if (!match) throw new SlackError("invalid_cursor");
+        offset = Number(match[1]);
+      }
+      const everyone = [
+        ...listed.members.map((appId) => `U${appId}BOT`),
+        ...listed.people,
+      ];
+      const end = offset + limit;
+      return {
+        members: everyone.slice(offset, end),
+        response_metadata: {
+          next_cursor:
+            end < everyone.length
+              ? Buffer.from(`offset:${end}`).toString("base64")
+              : "",
         },
       };
     },
@@ -868,7 +914,14 @@ export function createFakeSlackWebApi(
             (seed) =>
               typeof seed?.name === "string" &&
               /^[a-z0-9_-]{1,80}$/.test(seed.name) &&
-              (seed.bot_member === undefined || appId !== null),
+              (seed.bot_member === undefined || appId !== null) &&
+              (seed.user_ids === undefined ||
+                (Array.isArray(seed.user_ids) &&
+                  seed.user_ids.length <= 1000 &&
+                  seed.user_ids.every(
+                    (id: unknown) =>
+                      typeof id === "string" && /^[UW][A-Z0-9]{1,20}$/.test(id),
+                  ))),
           );
         if (!valid) {
           return Response.json(
@@ -882,6 +935,7 @@ export function createFakeSlackWebApi(
             isPrivate: seed.is_private === true,
             isArchived: seed.is_archived === true,
             members: seed.bot_member === true && appId ? [appId] : [],
+            people: seed.user_ids ?? [],
           })),
         );
         return Response.json({
@@ -933,6 +987,46 @@ export function createFakeSlackWebApi(
         }
         listed.members = listed.members.filter((member) => member !== appId);
         return Response.json({ ok: true, bot_user_id: `U${appId}BOT` });
+      }
+      // For curl on the local stack: people join or leave a channel. The
+      // member_joined_channel or member_left_channel event is sent with
+      // /fake/events.
+      if (
+        url.pathname === "/fake/channel-members" &&
+        request.method === "POST"
+      ) {
+        const input = (await request.json().catch(() => null)) as {
+          channel_id?: unknown;
+          add?: unknown;
+          remove?: unknown;
+        } | null;
+        const listed = conversations.find(
+          (candidate) => candidate.id === input?.channel_id,
+        );
+        const ids = (value: unknown) =>
+          value === undefined
+            ? []
+            : Array.isArray(value) &&
+                value.length <= 1000 &&
+                value.every(
+                  (id) =>
+                    typeof id === "string" && /^[UW][A-Z0-9]{1,20}$/.test(id),
+                )
+              ? (value as string[])
+              : null;
+        const add = ids(input?.add);
+        const remove = ids(input?.remove);
+        if (!listed || add === null || remove === null) {
+          return Response.json(
+            { ok: false, error: "invalid_request" },
+            { status: 400 },
+          );
+        }
+        listed.people = [
+          ...listed.people.filter((id) => !remove.includes(id)),
+          ...add.filter((id) => !listed.people.includes(id)),
+        ];
+        return Response.json({ ok: true, people: listed.people });
       }
       if (url.pathname === "/fake/statuses" && request.method === "GET") {
         return Response.json({ ok: true, statuses });

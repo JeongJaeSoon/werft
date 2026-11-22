@@ -1,5 +1,5 @@
 {
-  "id": "07f6c11c-2519-4019-ae95-776f070b1e80",
+  "id": "fc0e91d1-2535-4773-a3fb-624725dde224",
   "prevId": "183279f2-7209-4329-9460-5270abad5a3c",
   "version": "7",
   "dialect": "postgresql",
@@ -14529,6 +14529,74 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.slack_channel_member_cache": {
+      "name": "slack_channel_member_cache",
+      "schema": "",
+      "columns": {
+        "installation_id": {
+          "name": "installation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "member_ids": {
+          "name": "member_ids",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "fetched_at": {
+          "name": "fetched_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "invalidated_at": {
+          "name": "invalidated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "slack_channel_member_cache_installation_fk": {
+          "name": "slack_channel_member_cache_installation_fk",
+          "tableFrom": "slack_channel_member_cache",
+          "tableTo": "slack_installations",
+          "columnsFrom": ["installation_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "slack_channel_member_cache_pk": {
+          "name": "slack_channel_member_cache_pk",
+          "columns": ["installation_id", "channel_id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "slack_channel_member_cache_size_check": {
+          "name": "slack_channel_member_cache_size_check",
+          "value": "cardinality(\"slack_channel_member_cache\".\"member_ids\") <= 10000"
+        },
+        "slack_channel_member_cache_time_check": {
+          "name": "slack_channel_member_cache_time_check",
+          "value": "\"slack_channel_member_cache\".\"fetched_at\" IS NOT NULL OR \"slack_channel_member_cache\".\"invalidated_at\" IS NOT NULL"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.slack_config_tokens": {
       "name": "slack_config_tokens",
       "schema": "",
@@ -16216,18 +16284,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "requester_kind": {
-          "name": "requester_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "requester_id": {
-          "name": "requester_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "surface": {
           "name": "surface",
           "type": "text",
@@ -17075,12 +17131,6 @@
         "requester_id": {
           "name": "requester_id",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "requester_auth": {
-          "name": "requester_auth",
-          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },

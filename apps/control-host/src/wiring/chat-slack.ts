@@ -18,6 +18,7 @@ export {
   createSlackInstallService,
   createSlackInteractionService,
   createSlackLinkAppService,
+  createSlackMemberCacheInvalidator,
   createSlackMemberJoinedHandler,
   createSlackMemberLeftHandler,
   createSlackSecretService,

@@ -3,6 +3,7 @@ import { and, eq, lt } from "drizzle-orm";
 import { revokeInstallationIdentities } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import { slackInstallations, slackInstallStates } from "../schema.ts";
+import { forgetInstallationMembers } from "./slack-channel-members.ts";
 import {
   registerSlackInstallation,
   revokeSlackInstallation,
@@ -101,6 +102,7 @@ export function createPostgresSlackInstallStore(
         // install. Also on a repeat: an install revoked before this
         // existed still has its identity active.
         await revokeInstallationIdentities(tx, revoked.installation.id);
+        await forgetInstallationMembers(tx, revoked.installation.id);
         return "revoked";
       });
     },
