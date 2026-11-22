@@ -230,22 +230,16 @@ describe("restore.sh on an older manifest v1", () => {
     }
   };
 
-  test("refuses one with Gitea data, naming the checkout that restores it", async () => {
-    await restoreManifest(
+  // One with Gitea data used to be refused with exit 3; its gitea/ and repos/
+  // are not read now.
+  test.each([
+    [
+      "Gitea data",
       {
         gitea: { version: "Gitea version 1.22", dir: "gitea" },
         repos: { bundled: [], empty: [], dir: "repos" },
       },
-      (result) => {
-        expect(result.stderr).toContain("this backup holds Gitea data");
-        expect(result.stderr).toContain("commit abc1234");
-        expect(result.stderr).not.toContain("checks passed");
-        expect(result.exitCode).toBe(3);
-      },
-    );
-  }, 30_000);
-
-  test.each([
+    ],
     ["`gitea: null`", { gitea: null, repos: { bundled: [], empty: [] } }],
     ["no `gitea` at all", {}],
   ])(
@@ -645,14 +639,14 @@ describe("backup.sh writers", () => {
     expect(result.stderr).not.toContain("gitea-data");
   }, 30_000);
 
-  test("names a Gitea volume left from an older stack, which it leaves out", async () => {
+  // It used to warn that the volume was left out.
+  test("says nothing of a Gitea volume left from an older stack", async () => {
     const result = await backup({
       FAKE_RUNNING: "postgres localstack api",
       FAKE_LEFT_VOLUME: "1",
     });
-    expect(result.stderr).toContain(
-      "volume fixture_gitea-data is left out of this backup",
-    );
+    expect(result.stderr).toContain("writers are running: api");
+    expect(result.stderr).not.toContain("gitea-data");
   }, 30_000);
 
   test("refuses while the reconciler runs", async () => {

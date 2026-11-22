@@ -73,6 +73,7 @@ export * from "./session-links.ts";
 export * from "./session-titles.ts";
 export * from "./sessions/achievement-judgments.ts";
 export * from "./sessions/achievement-rules.ts";
+export * from "./sessions/agentless-close.ts";
 export * from "./sessions/commit-attributions.ts";
 export * from "./sessions/execution-revocation.ts";
 export * from "./sessions/interrupt-control.ts";

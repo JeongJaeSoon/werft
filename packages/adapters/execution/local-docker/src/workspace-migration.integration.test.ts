@@ -7,8 +7,8 @@ import {
 import {
   LABELS,
   LocalDockerBackend,
-  legacyWorkspaceVolumeName,
   volumeLabelsOf,
+  workspaceVolumePrefixFor,
 } from "./backend.ts";
 import type { LocalDockerBackendConfig, WorkspaceQuota } from "./config.ts";
 import { DockerApiError, DockerClient } from "./docker-client.ts";
@@ -25,8 +25,8 @@ import {
 } from "./workspace-migration.ts";
 
 /**
- * Moving a legacy workspace onto the quota contract against a real daemon
- * . Opt in with `DOCKER_BACKEND_TEST=1`. Where the daemon can carry
+ * Moving a workspace made under another quota onto this host's against a
+ * real daemon. Opt in with `DOCKER_BACKEND_TEST=1`. Where the daemon can carry
  * a quota (the `workspace-quota` CI job) the copy lands under one; elsewhere
  * under `off`, which is the same procedure with a different stamp.
  */
@@ -117,16 +117,25 @@ integration("workspace migration against a real daemon", () => {
     };
   }
 
-  /** A session whose workspace predates the quota: unlabelled, at its derived name. */
+  /** A session whose workspace was made under another quota than this host's. */
   async function legacySession(): Promise<{
     sessionId: string;
     legacy: string;
   }> {
     const sessionId = crypto.randomUUID();
     sessionIds.push(sessionId);
-    const legacy = legacyWorkspaceVolumeName(sessionId, config());
-    // Exactly what a mount spec used to conjure: a volume with no labels.
-    await client.createVolume({ Driver: "local", Labels: {}, Name: legacy });
+    const legacy = `${workspaceVolumePrefixFor(sessionId, config())}00000000`;
+    const keys = volumeLabelsOf(config());
+    await client.createVolume({
+      Driver: "local",
+      Labels: {
+        [keys.installation]: installationId,
+        [keys.managed]: "true",
+        [keys.sessionId]: sessionId,
+        [keys.workspaceQuota]: supportsQuota ? "off" : "enforced:1",
+      },
+      Name: legacy,
+    });
     expect(await run(SEED, legacy)).toBe(0);
     return { legacy, sessionId };
   }
@@ -242,20 +251,23 @@ integration("workspace migration against a real daemon", () => {
       for (const volume of await workspacesOf(sessionId)) {
         await client.removeVolume(volume.Name).catch(() => {});
       }
+      // The empty stand-in a late pin's mount makes carries no label.
       await client
-        .removeVolume(legacyWorkspaceVolumeName(sessionId, config()))
+        .removeVolume(
+          `${workspaceVolumePrefixFor(sessionId, config())}00000000`,
+        )
         .catch(() => {});
     }
     if (proxy) await client.stopAndRemoveContainer(proxy, 1).catch(() => {});
     await removeWorkerNetworks(client, installationId).catch(() => {});
   }, 60_000);
 
-  test("a legacy workspace lands under the quota with its tree intact, and the session launches on it", async () => {
+  test("a workspace under another quota lands under this one with its tree intact, and the session launches on it", async () => {
     const { legacy, sessionId } = await legacySession();
     const backend = new LocalDockerBackend(config(), client);
-    // The container is gone and the legacy volume cannot be relaunched onto.
+    // The container is gone and the old volume cannot be relaunched onto.
     await expect(backend.ensureExecution(intentFor(sessionId))).rejects.toThrow(
-      "was created under quota <none>",
+      "was created under quota",
     );
 
     const result = await migrate(sessionId);
@@ -280,7 +292,7 @@ integration("workspace migration against a real daemon", () => {
     );
     expect(await run(VERIFY, result.target)).toBe(0);
 
-    // The relaunch the legacy volume refused now mounts the copy.
+    // The relaunch the old volume refused now mounts the copy.
     await backend.ensureExecution(intentFor(sessionId));
     const [worker] = await client.listContainers([
       `${LABELS.sessionId}=${sessionId}`,
@@ -313,25 +325,26 @@ integration("workspace migration against a real daemon", () => {
     expect(await run(VERIFY, legacy)).toBe(0);
     const leftovers = await workspacesOf(sessionId);
     expect(
-      leftovers.map(
-        (volume) => volume.Labels?.[volumeLabelsOf(config()).migratedFrom],
-      ),
+      leftovers
+        .map((volume) => volume.Labels?.[volumeLabelsOf(config()).migratedFrom])
+        .filter((from) => from !== undefined),
     ).toEqual([legacy]);
     // The unfinished copy is not something the session can launch onto.
     await expect(
       new LocalDockerBackend(config(), client).ensureExecution(
         intentFor(sessionId),
       ),
-    ).rejects.toThrow("finish the migration");
+    ).rejects.toThrow("only one can be mounted");
 
     expect(await run("rm /workspace/repo/zz-device", legacy)).toBe(0);
     const result = await migrate(sessionId);
     if (result.outcome !== "migrated") throw new Error(result.outcome);
     // The leftover went; only the new copy remains.
+    const leftover = leftovers.find((volume) => volume.Name !== legacy);
     expect(
       (await workspacesOf(sessionId)).map((volume) => volume.Name),
     ).toEqual([result.target]);
-    expect(result.target).not.toBe(leftovers[0]?.Name);
+    expect(result.target).not.toBe(leftover?.Name);
     expect(await run(VERIFY, result.target)).toBe(0);
   }, 180_000);
 
@@ -342,7 +355,9 @@ integration("workspace migration against a real daemon", () => {
     expect(await run("true", legacy, { keep: holder })).toBe(0);
 
     await expect(migrate(sessionId)).rejects.toThrow(`is mounted by ${holder}`);
-    expect(await workspacesOf(sessionId)).toEqual([]);
+    expect(
+      (await workspacesOf(sessionId)).map((volume) => volume.Name),
+    ).toEqual([legacy]);
     expect(await run(VERIFY, legacy)).toBe(0);
 
     await client.stopAndRemoveContainer(holder, 1);
@@ -386,7 +401,7 @@ integration("workspace migration against a real daemon", () => {
     const lock = new AbortController();
     const watch = (async () => {
       while (!lock.signal.aborted) {
-        if ((await workspacesOf(sessionId)).length > 0) lock.abort();
+        if ((await workspacesOf(sessionId)).length > 1) lock.abort();
         else await Bun.sleep(10);
       }
     })();
@@ -586,11 +601,12 @@ integration("workspace migration against a real daemon", () => {
     const { target } = finishedB as { target: string };
     expect(await client.inspectVolume(legacy)).not.toBeNull();
 
-    // The retry an operator would make refuses rather than discarding B's
-    // copy as a leftover of the empty stand-in.
-    await expect(migrate(sessionId)).rejects.toThrow(
-      "not from the one there now",
-    );
+    // The stand-in carries no label, so it is no source: the retry an
+    // operator would make finds B's copy current.
+    expect(await migrate(sessionId)).toEqual({
+      outcome: "current",
+      workspace: target,
+    });
     expect(await run(VERIFY, target)).toBe(0);
     expect(await toolContainers(sessionId)).toEqual([]);
   }, 180_000);
@@ -604,6 +620,8 @@ integration("workspace migration against a real daemon", () => {
         sessionId,
       }),
     ).rejects.toThrow("must be pinned by digest");
-    expect(await workspacesOf(sessionId)).toEqual([]);
+    expect(
+      (await workspacesOf(sessionId)).map((volume) => volume.Name),
+    ).toEqual([`${workspaceVolumePrefixFor(sessionId, config())}00000000`]);
   }, 60_000);
 });

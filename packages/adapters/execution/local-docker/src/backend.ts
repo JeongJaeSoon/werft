@@ -160,12 +160,6 @@ export { ENV, NO_PROXY_VALUE } from "@werft-ai/contracts/execution";
  */
 export const ISOLATION_CONTRACT = 7;
 
-/** The first contract whose workers each sit on a network of their own. */
-const PER_EXECUTION_NETWORK_CONTRACT = 5;
-
-/** The first contract whose networks leave the host no address on them. */
-const HOST_ISOLATED_NETWORK_CONTRACT = 6;
-
 /**
  * Without it even an internal bridge holds an address for the host (the
  * IPAM gateway), and whatever the host serves on that address or on a
@@ -341,20 +335,6 @@ export type VolumeNaming = Pick<
   LocalDockerBackendConfig,
   "installationId" | "volumeLabelNamespace" | "volumeNamePrefix"
 >;
-
-/**
- * Where a session's workspace lived before names became single-use: the
- * derived name a mount spec made Docker conjure, unlabelled and unbounded.
- */
-export function legacyWorkspaceVolumeName(
-  sessionId: string,
-  config: VolumeNaming,
-): string {
-  return `${config.volumeNamePrefix}${config.installationId}-${sessionId}`;
-}
-
-const SESSION_UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** What the volume's quota label holds, and part of the isolation stamp. */
 export function quotaStampOf(quota: WorkspaceQuota): string {
@@ -633,22 +613,15 @@ export class LocalDockerBackend implements ExecutionBackend {
   async listWorkspaces(): Promise<ManagedWorkspace[]> {
     const { installationId } = this.config;
     const keys = volumeLabelsOf(this.config);
-    const [labelled, named] = await Promise.all([
-      this.client.listVolumes([
-        `${keys.managed}=true`,
-        `${keys.installation}=${installationId}`,
-      ]),
-      this.client.listVolumes(
-        [],
-        `${this.config.volumeNamePrefix}${installationId}-`,
-      ),
+    const labelled = await this.client.listVolumes([
+      `${keys.managed}=true`,
+      `${keys.installation}=${installationId}`,
     ]);
     const youngerThan = Date.now() - this.config.workspaceGcMinAgeMs;
-    const labelledNames = new Set(labelled.map((volume) => volume.Name));
     // A migration that has not removed its source yet: the copy is not
     // known to be whole and the source is the only tree that is, so neither
     // is anyone's to reclaim until `migrateWorkspace` finishes.
-    const present = new Set([...labelledNames, ...named.map((v) => v.Name)]);
+    const present = new Set(labelled.map((volume) => volume.Name));
     const migrating = new Set<string>();
     for (const volume of labelled) {
       const source = volume.Labels?.[keys.migratedFrom];
@@ -658,31 +631,20 @@ export class LocalDockerBackend implements ExecutionBackend {
       }
     }
     const workspaces: ManagedWorkspace[] = [];
-    const add = (
-      volume: VolumeInspect,
-      workspace: Omit<ManagedWorkspace, "createdAt">,
-    ) => {
-      if (migrating.has(volume.Name)) return;
+    for (const volume of labelled) {
+      if (migrating.has(volume.Name)) continue;
       const createdAt = volume.CreatedAt ? new Date(volume.CreatedAt) : null;
       // The age gate is what keeps a launch in flight — volume created,
       // container not yet — from being reaped between the two calls. A
       // volume the daemon will not date cannot pass a gate it cannot be
       // measured against, so it is left alone.
-      if (createdAt === null || Number.isNaN(createdAt.getTime())) return;
-      if (createdAt.getTime() > youngerThan) return;
-      workspaces.push({ createdAt, ...workspace });
-    };
-    for (const volume of labelled) {
-      add(volume, {
+      if (createdAt === null || Number.isNaN(createdAt.getTime())) continue;
+      if (createdAt.getTime() > youngerThan) continue;
+      workspaces.push({
+        createdAt,
         id: volume.Name,
         sessionId: volume.Labels?.[keys.sessionId] ?? null,
       });
-    }
-    for (const volume of named) {
-      if (labelledNames.has(volume.Name)) continue;
-      const sessionId = legacySessionOf(volume, this.config);
-      if (sessionId === null) continue;
-      add(volume, { id: volume.Name, sessionFrom: "name", sessionId });
     }
     return workspaces;
   }
@@ -702,13 +664,7 @@ export class LocalDockerBackend implements ExecutionBackend {
       labels[keys.managed] === "true" &&
       labels[keys.installation] === this.config.installationId &&
       (owner === undefined || labels[keys.sessionId] === owner.sessionId);
-    // A legacy volume has no labels to prove it ours; only a session judged
-    // by the caller, whose derived name this is exactly, can claim it.
-    const legacy =
-      owner !== undefined &&
-      id === legacyWorkspaceVolumeName(owner.sessionId, this.config) &&
-      legacySessionOf(volume, this.config) === owner.sessionId;
-    if (!managed && !legacy) return { outcome: "not_ours" };
+    if (!managed) return { outcome: "not_ours" };
     try {
       await this.client.removeVolume(id);
     } catch (error) {
@@ -916,93 +872,20 @@ export class LocalDockerBackend implements ExecutionBackend {
    * still carries the name and `reconcileNetworks` leaves the network be
    * until it is gone.
    *
-   * A refusal leaves the old container running — except one from before
-   * contract 5, which sits on a network it shares with every other such
-   * worker. That one is taken off all its networks: the session is stalled
-   * either way until the replacement can launch, and left connected it
-   * could keep reaching its neighbours for as long as that takes.
+   * A refusal leaves the old container running.
    */
   async assertReplaceable(intent: LaunchIntent): Promise<void> {
-    try {
-      const proxy = await this.egressProxy();
-      await this.inspectedImage(intent.image);
-      const workspace = await this.assertWorkspaceReplaceable(intent.sessionId);
-      await this.ensureWorkerNetwork(
-        intent,
-        proxy,
-        await this.launchedContainer(intent),
-        { replacing: true },
-      );
-      if (workspace !== null) {
-        this.replacementWorkspaces.set(intent.sessionId, workspace);
-      }
-    } catch (error) {
-      const isolated = await this.isolateSharedNetworkWorker(intent).catch(
-        (cause) => `could not be taken off its networks (${messageOf(cause)})`,
-      );
-      // Appended rather than wrapped: callers tell refusals apart by class.
-      if (isolated !== null && error instanceof Error) {
-        error.message += `; the old container ${isolated}`;
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Disconnects this launch's pre-contract-5 container from every network,
-   * and says what happened; null when there is no such container. A
-   * container that is not this launch's is left alone.
-   */
-  private async isolateSharedNetworkWorker(
-    intent: LaunchIntent,
-  ): Promise<string | null> {
-    const existing = await this.client.inspectContainer(
-      containerNameFor(intent, this.config.installationId),
+    const proxy = await this.egressProxy();
+    await this.inspectedImage(intent.image);
+    const workspace = await this.assertWorkspaceReplaceable(intent.sessionId);
+    await this.ensureWorkerNetwork(
+      intent,
+      proxy,
+      await this.launchedContainer(intent),
     );
-    if (existing === null) return null;
-    const stamp = existing.Config.Labels?.[LABELS.isolation];
-    const version = Number(stamp?.split(":")[0]);
-    if (
-      Number.isInteger(version) &&
-      version >= PER_EXECUTION_NETWORK_CONTRACT
-    ) {
-      return null;
+    if (workspace !== null) {
+      this.replacementWorkspaces.set(intent.sessionId, workspace);
     }
-    try {
-      this.assertSameLaunch(intent, existing);
-    } catch {
-      return null;
-    }
-    // Only an unclaimed launch: a claimed one is torn down by the scheduler,
-    // with a SIGTERM to drain on, without asking this at all.
-    if ((await intent.bootstrapCredentialState()).claimed) return null;
-    const networks = Object.keys(existing.NetworkSettings?.Networks ?? {});
-    for (const network of networks) {
-      await this.client
-        .disconnectNetwork(network, existing.Id)
-        .catch(() => undefined);
-    }
-    // No fence spans the read above and the disconnects, so the claim is
-    // asked again: one that landed in between gets its networks back and is
-    // left to the scheduler's teardown like any other claimed worker.
-    if ((await intent.bootstrapCredentialState()).claimed) {
-      for (const network of networks) {
-        await this.client
-          .connectNetwork(network, existing.Id, [])
-          .catch(() => undefined);
-      }
-      const restored = await this.client.inspectContainer(existing.Id);
-      const back = Object.keys(restored?.NetworkSettings?.Networks ?? {});
-      const missing = networks.filter((network) => !back.includes(network));
-      return missing.length === 0
-        ? `(isolation ${stamp ?? "<none>"}) was claimed while being taken off its networks and was put back`
-        : `(isolation ${stamp ?? "<none>"}) was claimed while being taken off its networks and could NOT be put back on ${missing.sort().join(", ")}`;
-    }
-    const after = await this.client.inspectContainer(existing.Id);
-    const left = Object.keys(after?.NetworkSettings?.Networks ?? {});
-    return left.length === 0
-      ? `(isolation ${stamp ?? "<none>"}) was taken off its networks until the replacement can launch`
-      : `(isolation ${stamp ?? "<none>"}) could NOT be taken off ${left.sort().join(", ")}`;
   }
 
   async listManaged(): Promise<ManagedExecution[]> {
@@ -1196,16 +1079,7 @@ export class LocalDockerBackend implements ExecutionBackend {
     );
     const joined = network.Name in (container.NetworkSettings?.Networks ?? {});
     const problem =
-      workerNetworkProblem(network, ref, this.config.installationId, {
-        // A contract-5 worker keeps what contract 5 gave it until it is
-        // replaced or drained — including on a daemon the preflight
-        // refused, where no pass runs to replace it. No operation id is
-        // compared: the network never carried one, and a same-named worker
-        // of another operation is refused by every launch path anyway.
-        hostAddress: predatesHostIsolation(container, network)
-          ? "tolerated"
-          : "refused",
-      }) ??
+      workerNetworkProblem(network, ref, this.config.installationId) ??
       (labels[LABELS.installation] !== this.config.installationId ||
       labels[LABELS.executionId] !== ref.executionId ||
       labels[LABELS.generation] !== String(ref.generation)
@@ -1343,40 +1217,15 @@ export class LocalDockerBackend implements ExecutionBackend {
    * dials. Answers with the network as the daemon holds it; the container is
    * created against its id, so a network recreated under the same name in
    * between cannot stand in for it.
-   *
-   * A network from before contract 6 cannot be given the gateway mode in
-   * place. With no worker left on it, it is removed and made again. With
-   * this launch's contract-5 worker still on it, it is kept only for a
-   * `replacing` caller, whose teardown takes it along with that worker;
-   * anyone else is refused.
    */
   private async ensureWorkerNetwork(
     intent: LaunchIntent,
     proxy: ContainerSummary,
     worker: ContainerInspect | null,
-    { replacing = false }: { replacing?: boolean } = {},
   ): Promise<NetworkInspect> {
     const { installationId } = this.config;
     const name = networkNameFor(intent, installationId);
     let network = await this.client.inspectNetwork(name);
-    if (
-      network !== null &&
-      worker === null &&
-      workerNetworkProblem(network, intent, installationId, {
-        hostAddress: "tolerated",
-      }) === null &&
-      hostAddressProblem(network) !== null
-    ) {
-      // Left behind by a teardown whose removal did not hold. Anything but
-      // the proxy still on it makes this refuse, as it would anywhere else.
-      await this.removeUnusedNetwork(
-        network,
-        await this.client.listContainers([
-          `${LABELS.egressProxy}=${installationId}`,
-        ]),
-      );
-      network = null;
-    }
     if (network === null) {
       try {
         await this.client.createNetwork({
@@ -1407,12 +1256,7 @@ export class LocalDockerBackend implements ExecutionBackend {
         throw new NetworkIsolationError(name, "vanished as it was created");
       }
     }
-    const problem = workerNetworkProblem(network, intent, installationId, {
-      hostAddress:
-        replacing && worker !== null && predatesHostIsolation(worker, network)
-          ? "tolerated"
-          : "refused",
-    });
+    const problem = workerNetworkProblem(network, intent, installationId);
     if (problem !== null) throw new NetworkIsolationError(name, problem);
     // By id, not by name: a container under the worker's name that is not
     // this launch's was already refused by `launchedContainer`.
@@ -1659,33 +1503,11 @@ export class LocalDockerBackend implements ExecutionBackend {
     sessionId: string,
   ): Promise<VolumeInspect | null> {
     const keys = volumeLabelsOf(this.config);
-    const [found, legacy] = await Promise.all([
-      this.client.listVolumes([
-        `${keys.managed}=true`,
-        `${keys.installation}=${this.config.installationId}`,
-        `${keys.sessionId}=${sessionId}`,
-      ]),
-      // Before names became single-use, a workspace was whatever sat under
-      // the session's derived name — including the unlabelled volume Docker
-      // conjures out of a mount spec. Those are still looked for, because
-      // creating a fresh one beside such a volume would hand the session an
-      // empty tree and bury the one it had. What is wrong with it is left to
-      // `workspaceVolumeProblem`, which rejects it for the ceiling it cannot
-      // prove; `migrateWorkspace` is what moves it.
-      this.client.inspectVolume(
-        legacyWorkspaceVolumeName(sessionId, this.config),
-      ),
+    const found = await this.client.listVolumes([
+      `${keys.managed}=true`,
+      `${keys.installation}=${this.config.installationId}`,
+      `${keys.sessionId}=${sessionId}`,
     ]);
-    if (found.length === 0) return legacy;
-    if (legacy !== null && legacySessionOf(legacy, this.config) === sessionId) {
-      // A labelled workspace beside the legacy one is a migration that has
-      // not removed its source yet, so the copy is not known to be whole.
-      throw new WorkspaceQuotaError(
-        [legacy.Name, ...found.map((volume) => volume.Name)].sort().join(", "),
-        `session ${sessionId} has a legacy workspace beside a labelled one; ` +
-          "finish the migration (bun run migrate-workspace) before it can launch",
-      );
-    }
     if (found.length > 1) {
       // Reported, not resolved: choosing between two workspaces needs to
       // know which one a worker actually wrote to, which nothing here can
@@ -2009,31 +1831,6 @@ export class LocalDockerBackend implements ExecutionBackend {
 }
 
 /**
- * The session a legacy workspace belongs to, read from its name, or null
- * when the volume is not one: it must sit exactly at a session's derived
- * name and carry no label that says otherwise. The name only nominates a
- * session; whether the volume may go is the database's call.
- */
-export function legacySessionOf(
-  volume: VolumeInspect,
-  config: VolumeNaming,
-): string | null {
-  const { installationId } = config;
-  const keys = volumeLabelsOf(config);
-  const prefix = `${config.volumeNamePrefix}${installationId}-`;
-  if (!volume.Name.startsWith(prefix)) return null;
-  const sessionId = volume.Name.slice(prefix.length);
-  if (!SESSION_UUID.test(sessionId)) return null;
-  const labels = volume.Labels ?? {};
-  if (labels[keys.managed] !== undefined) return null;
-  const owner = labels[keys.installation];
-  if (owner !== undefined && owner !== installationId) return null;
-  const labelled = labels[keys.sessionId];
-  if (labelled !== undefined && labelled !== sessionId) return null;
-  return sessionId;
-}
-
-/**
  * What is wrong with an existing volume for `sessionId`, or null when it is
  * exactly the one this host would create. Shared by the launch path and the
  * pre-teardown check so the two can never disagree about what is acceptable.
@@ -2098,9 +1895,6 @@ function workerNetworkProblem(
   network: NetworkInspect,
   ref: ExecutionRef,
   installationId: string,
-  { hostAddress }: { hostAddress: "refused" | "tolerated" } = {
-    hostAddress: "refused",
-  },
 ): string | null {
   const labels = network.Labels ?? {};
   const name = networkNameFor(ref, installationId);
@@ -2126,38 +1920,7 @@ function workerNetworkProblem(
   if (network.EnableIPv6 === true) {
     return "has IPv6 enabled, an address family this host does not check";
   }
-  return hostAddress === "refused" ? hostAddressProblem(network) : null;
-}
-
-/**
- * A contract-5 worker on the network it was created on — the one worker a
- * network that gives the host an address is left standing for, until it is
- * replaced or drained and the network goes with it. Only contract 5: an
- * older worker sits on the shared network, which is handled apart.
- */
-function predatesHostIsolation(
-  container: ContainerInspect,
-  network: NetworkInspect,
-): boolean {
-  const stamp = container.Config.Labels?.[LABELS.isolation];
-  const version = Number(stamp?.split(":")[0]);
-  if (
-    !Number.isInteger(version) ||
-    version < PER_EXECUTION_NETWORK_CONTRACT ||
-    version >= HOST_ISOLATED_NETWORK_CONTRACT
-  ) {
-    return false;
-  }
-  const endpoint = container.NetworkSettings?.Networks?.[network.Name];
-  if (endpoint === undefined) return false;
-  if (endpoint.NetworkID === network.Id) return true;
-  // A container that never started records its network by name only; it
-  // runs nothing, so the name is enough. One that ran carries the id, and
-  // without this network's id it is on some other network of that name.
-  return (
-    (endpoint.NetworkID === undefined || endpoint.NetworkID === "") &&
-    container.State.Status === "created"
-  );
+  return hostAddressProblem(network);
 }
 
 /**

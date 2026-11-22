@@ -1237,9 +1237,12 @@ export const slackInboundEvents = pgTable(
       "slack_inbound_events_drop_reason_check",
       sql`${table.dropReason} IS NULL OR ${table.dropReason} IN (${sql.raw(sqlList(SLACK_INBOUND_DROP_REASON_VALUES))})`,
     ),
+    // A received row keeps its payload for the handler; a settled one may
+    // have it cleared (processed at once, failed after
+    // SLACK_INBOUND_FAILED_PAYLOAD_RETENTION_MS); a dropped one never has it.
     check(
-      "slack_inbound_events_dropped_check",
-      sql`(${table.status} = 'dropped') = (${table.dropReason} IS NOT NULL) AND (${table.status} = 'dropped') = (${table.payload} IS NULL)`,
+      "slack_inbound_events_payload_check",
+      sql`(${table.status} = 'dropped') = (${table.dropReason} IS NOT NULL) AND (${table.status} <> 'received' OR ${table.payload} IS NOT NULL) AND (${table.status} <> 'dropped' OR ${table.payload} IS NULL)`,
     ),
     check(
       "slack_inbound_events_drop_fields_check",
@@ -1259,6 +1262,9 @@ export const slackInboundEvents = pgTable(
     index("slack_inbound_events_conversation_idx")
       .on(table.conversationKey, table.eventTime, table.receivedAt)
       .where(sql`${table.status} = 'received'`),
+    index("slack_inbound_events_failed_payload_idx")
+      .on(table.receivedAt)
+      .where(sql`${table.status} = 'failed' AND ${table.payload} IS NOT NULL`),
   ],
 );
 

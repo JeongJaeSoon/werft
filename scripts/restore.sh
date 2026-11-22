@@ -22,9 +22,8 @@
 # is re-pinned to them and held, so the restored API runs `locked`.
 #
 # Refusals, by exit code: 2 usage, 3 schema mismatch (the backup's applied
-# migrations are not exactly this checkout's, or it holds Gitea data, which
-# only a checkout from before Gitea's removal restores), 4 target project or
-# bucket not new. A failed re-pin exits 1 and leaves a target to tear down,
+# migrations are not exactly this checkout's), 4 target project or bucket not
+# new. A failed re-pin exits 1 and leaves a target to tear down,
 # not to retry.
 #
 # Usage: scripts/restore.sh <backup-dir> --into <project> [--port-base 25432] [--check-only]
@@ -75,7 +74,6 @@ require_tools docker jq bun
 log "restore: checking $BACKUP"
 verify_checksums "$BACKUP" || die "SHA256SUMS mismatch in $BACKUP; the bundle is damaged or edited"
 MANIFEST="$BACKUP/manifest.json"
-no_gitea_data "$MANIFEST" || exit "$EXIT_SCHEMA_MISMATCH"
 schema_check "$MANIFEST" || exit "$EXIT_SCHEMA_MISMATCH"
 BUCKET="${BUCKET:-$(jq -r '.objects.bucket' "$MANIFEST")}"
 

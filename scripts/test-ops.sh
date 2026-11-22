@@ -230,7 +230,7 @@ check_env_file() {
 load_manifest() {
   local file="$1" out name value
   [ -r "$file" ] || die "manifest $file not found"
-  out="$(run_helper manifest "$file" ${2:+"$2"})" || die "manifest $file refused (above)"
+  out="$(run_helper manifest "$file")" || die "manifest $file refused (above)"
   while IFS='=' read -r name value; do
     case "$name" in
       SOURCE_COMMIT|API_IMAGE|WORKER_IMAGE|EGRESS_PROXY_IMAGE|SETTINGS_DIGEST) printf -v "$name" '%s' "$value" ;;
@@ -244,7 +244,7 @@ load_current() {
     && ! { [ "$VERB" = upgrade ] && cmp -s "$MANIFEST" "$PENDING"; }; then
     die "an upgrade to $PENDING did not finish and the installation may be stopped; rerun upgrade with that manifest"
   fi
-  load_manifest "$CURRENT" --deployed
+  load_manifest "$CURRENT"
 }
 
 # The rendered installation is the one deploy started: same project, same
@@ -482,7 +482,7 @@ mode_ok() {
 }
 
 # Compose bind-mounts host files (the release's init SQL, the settings
-# document, the legacy config directory) into containers that do not run as
+# document) into containers that do not run as
 # the operator, so a checkout or bundle made under umask 077 or 027 otherwise
 # surfaces only as an unhealthy postgres or a failed migrate after deploy has
 # created the database volume.
@@ -508,10 +508,7 @@ check_mount_modes() {
     mode_ok 5 "$uid" "$gid"
     dir_ok=("${MODE_OK[@]}")
     closed_at=(\( \( -type f ! \( "${file_ok[@]}" \) \) -o \( -type d ! \( "${dir_ok[@]}" \) \) \) -print0)
-    # The source itself, then what is under it except dot entries, which the
-    # legacy import skips (like the .gitkeep that keeps the directory).
-    if ! { find -H "$source" -maxdepth 0 "${closed_at[@]}" \
-      && find -H "$source" -mindepth 1 -name '.*' -prune -o "${closed_at[@]}"; } >"$found" 2>"$errs"; then
+    if ! find -H "$source" "${closed_at[@]}" >"$found" 2>"$errs"; then
       cat "$errs" >&2
       rm -f "$list" "$found" "$errs"
       die "cannot check the modes under $source (above)"
@@ -648,13 +645,6 @@ settings_applied() {
     import --document /settings/installation.json --dry-run </dev/null 2>"$notes" \
     | jq -e '.add == []' >/dev/null \
     || { cat "$notes" >&2; rm -f "${notes:?}"; die "the database does not hold the settings document the manifest names"; }
-  # The import leaves out a repository without a GitHub App and says so only
-  # here; `.add == []` alone would call that a settled document.
-  if grep -q 'note: repository .* is not imported' "$notes"; then
-    grep 'note: repository .* is not imported' "$notes" >&2
-    rm -f "${notes:?}"
-    die "the settings document names a repository the import leaves out (add \"auth\": {\"kind\": \"github_app\"}); the deployment would run with no repository"
-  fi
   rm -f "${notes:?}"
 }
 
@@ -959,9 +949,7 @@ reseed() {
 
 # Everything of this installation goes: containers, volumes (database, and in
 # LocalStack whatever is left), the workers and workspace volumes the scheduler
-# made, and the recorded release. Keys are gone with the database. A Gitea
-# volume from an older release is not deleted: no backup of this checkout holds
-# it, so it may be the last copy.
+# made, and the recorded release. Keys are gone with the database.
 reset() {
   local installation volume_namespace old
   take_lock
@@ -980,8 +968,6 @@ reset() {
   rm -f "$IDENTITY" "$PENDING"
   printf '%s reset by %s: project %s, release %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(id -un)" "$PROJECT" "$old" \
     >> "${STATE_DIR}/history.log"
-  ! docker volume inspect "${PROJECT}_gitea-data" >/dev/null 2>&1 \
-    || log "reset: warning — volume ${PROJECT}_gitea-data stays: no backup holds it. Copy what matters, then remove it, or deploy refuses this project"
   log "reset: done; deploy again with scripts/test-ops.sh deploy $old, then issue keys again"
 }
 

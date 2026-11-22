@@ -274,7 +274,7 @@ integration("settings document import and export", () => {
     expect(await row()).toEqual(before);
   });
 
-  test("an old directory leaves a GitHub App repository the console moved; a document still conflicts", async () => {
+  test("a GitHub App repository the console moved conflicts with the document that added it", async () => {
     await clear();
     await store().importEntries(entries(), operator);
     await db
@@ -285,16 +285,6 @@ integration("settings document import and export", () => {
     expect(await store().importEntries(entries(), operator)).toMatchObject({
       outcome: "refused",
       conflicts: ["repository:app"],
-    });
-    expect(
-      await store().importEntries(entries(), {
-        ...operator,
-        databaseOwnsRepositories: true,
-      }),
-    ).toMatchObject({
-      outcome: "applied",
-      conflicts: [],
-      kept: ["repository:app"],
     });
     const [row] = await db
       .select({ branch: catalogRepositories.branch })
@@ -534,10 +524,7 @@ integration("settings document import and export", () => {
     }
     const decidedAt = async () =>
       (await db.select().from(settingsGeneration))[0]?.seedDecidedAt ?? null;
-    const step = (from: SettingsEntries, databaseOwnsRepositories = false) => ({
-      entries: from,
-      databaseOwnsRepositories,
-    });
+    const step = (from: SettingsEntries) => ({ entries: from });
     const another = (): SettingsEntries =>
       parseSettingsDocument({
         version: 1,
@@ -629,7 +616,7 @@ integration("settings document import and export", () => {
         operator,
       );
       expect(await store().decideSeed()).toEqual({ outcome: "empty" });
-      const seeded = await store().seedEntries([step(entries(), true)]);
+      const seeded = await store().seedEntries([step(entries())]);
       expect(seeded.outcome).toBe("applied");
       expect(await rowCounts()).toEqual({
         connections: 2,
@@ -650,10 +637,7 @@ integration("settings document import and export", () => {
         repositories: {},
         mcp_servers: {},
       });
-      const refused = await store().seedEntries([
-        step(entries(), true),
-        step(clash),
-      ]);
+      const refused = await store().seedEntries([step(entries()), step(clash)]);
       expect(refused).toMatchObject({
         outcome: "refused",
         step: 1,

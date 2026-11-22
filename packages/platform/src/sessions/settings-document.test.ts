@@ -333,38 +333,17 @@ describe("planSettingsImport", () => {
       ]),
     });
 
-    test("stays as the database has it when an old directory is imported", () => {
-      const plan = planSettingsImport(
-        { ...incoming, repositories: { app: app("main") } },
-        row(app("develop")),
-        { databaseOwnsRepositories: true },
-      );
-      expect(plan.conflicts).toEqual([]);
-      expect(plan.kept).toEqual(["repository:app"]);
-      expect(plan.add).toEqual([]);
-    });
-
-    test("an old directory's second name for it is dropped, as the seed dropped it", () => {
-      const plan = planSettingsImport(
-        { ...incoming, repositories: { alias: app("main") } },
-        row(app("main")),
-        { databaseOwnsRepositories: true },
-      );
-      expect(plan.conflicts).toEqual([]);
-      expect(plan.kept).toEqual(["repository:alias"]);
-      expect(plan.add).toEqual([]);
-    });
-
-    test("is still a conflict from a settings document", () => {
+    test("is a conflict, and nothing is added", () => {
       const plan = planSettingsImport(
         { ...incoming, repositories: { app: app("main") } },
         row(app("develop")),
       );
       expect(plan.conflicts).toEqual(["repository:app"]);
-      expect(plan.kept).toBeUndefined();
+      expect(plan.add).toEqual([]);
+      expect(plan).not.toHaveProperty("kept");
     });
 
-    test("a legacy row of another auth kind is still a conflict, never replaced", () => {
+    test("a legacy row of another auth kind is a conflict, never replaced", () => {
       for (const auth of [
         undefined,
         { kind: "bearer", stored: "repository:app" },
@@ -372,7 +351,6 @@ describe("planSettingsImport", () => {
         const plan = planSettingsImport(
           { ...incoming, repositories: { app: app("main") } },
           row({ ...app("develop"), auth }),
-          { databaseOwnsRepositories: true },
         );
         expect(plan.conflicts).toEqual(["repository:app"]);
         expect(plan.add).toEqual([]);

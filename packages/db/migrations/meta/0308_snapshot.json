@@ -1,5 +1,5 @@
 {
-  "id": "699e10bd-273a-4c34-9abd-68506c17ad2b",
+  "id": "f881dcf9-88e7-4132-bd2d-bd6c2b55933b",
   "prevId": "016c281a-9000-48a5-b1c4-deea6e9a4d88",
   "version": "7",
   "dialect": "postgresql",
@@ -14196,74 +14196,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.slack_channel_member_cache": {
-      "name": "slack_channel_member_cache",
-      "schema": "",
-      "columns": {
-        "installation_id": {
-          "name": "installation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "channel_id": {
-          "name": "channel_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "member_ids": {
-          "name": "member_ids",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'"
-        },
-        "fetched_at": {
-          "name": "fetched_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "invalidated_at": {
-          "name": "invalidated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "slack_channel_member_cache_installation_fk": {
-          "name": "slack_channel_member_cache_installation_fk",
-          "tableFrom": "slack_channel_member_cache",
-          "tableTo": "slack_installations",
-          "columnsFrom": ["installation_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "slack_channel_member_cache_pk": {
-          "name": "slack_channel_member_cache_pk",
-          "columns": ["installation_id", "channel_id"]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "slack_channel_member_cache_size_check": {
-          "name": "slack_channel_member_cache_size_check",
-          "value": "cardinality(\"slack_channel_member_cache\".\"member_ids\") <= 10000"
-        },
-        "slack_channel_member_cache_time_check": {
-          "name": "slack_channel_member_cache_time_check",
-          "value": "\"slack_channel_member_cache\".\"fetched_at\" IS NOT NULL OR \"slack_channel_member_cache\".\"invalidated_at\" IS NOT NULL"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.slack_config_tokens": {
       "name": "slack_config_tokens",
       "schema": "",
@@ -14568,6 +14500,22 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "slack_inbound_events_failed_payload_idx": {
+          "name": "slack_inbound_events_failed_payload_idx",
+          "columns": [
+            {
+              "expression": "received_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"slack_inbound_events\".\"status\" = 'failed' AND \"slack_inbound_events\".\"payload\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -14617,9 +14565,9 @@
           "name": "slack_inbound_events_drop_reason_check",
           "value": "\"slack_inbound_events\".\"drop_reason\" IS NULL OR \"slack_inbound_events\".\"drop_reason\" IN ('not_installed','installation_unverified','installation_revoked','unidentified','identity_revoked','bot_mismatch','agent_mismatch','agent_archived','app_mismatch','bot_message','bot_allowlist_empty','bot_not_allowed','own_bot_user','werft_agent_bot','slackbot','message_subtype','unsupported_event','user_tokens_only','channel_pending_approval','channel_left')"
         },
-        "slack_inbound_events_dropped_check": {
-          "name": "slack_inbound_events_dropped_check",
-          "value": "(\"slack_inbound_events\".\"status\" = 'dropped') = (\"slack_inbound_events\".\"drop_reason\" IS NOT NULL) AND (\"slack_inbound_events\".\"status\" = 'dropped') = (\"slack_inbound_events\".\"payload\" IS NULL)"
+        "slack_inbound_events_payload_check": {
+          "name": "slack_inbound_events_payload_check",
+          "value": "(\"slack_inbound_events\".\"status\" = 'dropped') = (\"slack_inbound_events\".\"drop_reason\" IS NOT NULL) AND (\"slack_inbound_events\".\"status\" <> 'received' OR \"slack_inbound_events\".\"payload\" IS NOT NULL) AND (\"slack_inbound_events\".\"status\" <> 'dropped' OR \"slack_inbound_events\".\"payload\" IS NULL)"
         },
         "slack_inbound_events_drop_fields_check": {
           "name": "slack_inbound_events_drop_fields_check",

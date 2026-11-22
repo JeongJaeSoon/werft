@@ -54,7 +54,6 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
 import {
   loadSecretKey,
-  refuseFileCatalog,
   runtimeVersionsFromEnv,
 } from "../api/catalog-config.ts";
 import { extensionDepsFor } from "../api/extension-deps.ts";
@@ -104,7 +103,6 @@ export function slackRoleStartup(environment: Environment): {
 } {
   slackRoleSettings(environment);
   queueDatabaseUrl(environment);
-  refuseFileCatalog(environment);
   return { secretKey: loadSecretKey(environment) };
 }
 
