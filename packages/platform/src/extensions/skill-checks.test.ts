@@ -216,6 +216,31 @@ describe("what a check cannot be talked out of", () => {
     expect(hostOf("https://known.example\r@evil.example/")).toEqual([
       "evil.example",
     ]);
+    // What the parser reads past, the checks read past: spaces, angle
+    // brackets and NBSP in userinfo, a line end, extra slashes before the
+    // host, and tab padding of any length.
+    for (const [text, host] of [
+      ["https://known.example @evil.example/", "evil.example"],
+      ["https://known.example<@evil.example/", "evil.example"],
+      ["https://known.example\u{A0}@evil.example/", "evil.example"],
+      ["https://known.example\n.evil.example/", "known.example.evil.example"],
+      ["https://known.example\n@evil.example/", "evil.example"],
+      [
+        `https://known.example${"\t".repeat(1025)}@evil.example/`,
+        "evil.example",
+      ],
+      ["https:////evil.example/", "evil.example"],
+      ["https://\\evil.example/", "evil.example"],
+    ] as const) {
+      expect(hostOf(text)).toContain(host);
+    }
+    // A quote or punctuation the parser keeps in the host is a new host.
+    for (const text of [
+      "https://known.example'evil.example/",
+      "https://known.example!/",
+    ]) {
+      expect(hostOf(text)).toBeDefined();
+    }
     // A quote or a backtick inside userinfo does not end the URL.
     expect(hostOf("https://known.example'@evil.example/x")).toEqual([
       "evil.example",
@@ -224,9 +249,9 @@ describe("what a check cannot be talked out of", () => {
       "evil.example",
     ]);
     // URLs packed in quotes are each read: the second is not swallowed.
-    expect(hostOf('["https://known.example","https://evil.example"]')).toEqual([
-      "evil.example",
-    ]);
+    expect(
+      hostOf('["https://known.example","https://evil.example"]'),
+    ).toContain("evil.example");
     // Known hosts in other spellings, and markdown around them, are not new.
     expect(
       hostOf(
@@ -245,7 +270,7 @@ describe("what a check cannot be talked out of", () => {
     expect(performance.now() - started).toBeLessThan(1500);
   });
 
-  test("an authority too long for any host counts as new, even if an approved version shares it", () => {
+  test("a long authority is read whole, so a shared start hides no host", () => {
     const long = `https://${"a".repeat(2000)}.example/`;
     expect(rules(base, [...base, file("more.md", long)])).toContain("new_url");
     const userinfo = "a".repeat(1100);

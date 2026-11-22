@@ -71,61 +71,67 @@ const MANIFEST = ".claude-plugin/plugin.json";
 const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
 const textOf = (bytes: Uint8Array): string => decoder.decode(bytes);
 
-/**
- * No host is this long. A longer authority is not parsed and is new however
- * much of it an approved version shares: its host could be anywhere past it.
- */
-const AUTHORITY_CAP = 1024;
-const OVERLONG = "too_long:";
+/** An authority as the parser cuts it: up to the path, query or fragment. */
+const AUTHORITY = /[^/?#\\]*/y;
 const TRAILING = /[.,;:!?)\]"'`]/;
 
 const count = (text: string, char: string): number =>
   text.split(char).length - 1;
 
+/** The host a client reaches, or null when no URL parser would take it. */
+function parsedHost(scheme: string, authority: string): string | null {
+  try {
+    // Userinfo, ports, percent-escapes and IDN spellings resolve as a
+    // client resolves them.
+    return new URL(`${scheme}//${authority}`).hostname;
+  } catch {
+    return null;
+  }
+}
+
+/** The host of a URL as prose ends it, for an authority no parser takes whole. */
+function proseHost(scheme: string, raw: string): string {
+  const space = raw.search(/[\s<>]/);
+  let authority = space === -1 ? raw : raw.slice(0, space);
+  // A quote ends a URL in prose, unless an "@" after it makes the quote
+  // userinfo: then the host is past it, where the parser reads it.
+  if (!authority.includes("@")) {
+    authority = /^[^"'`]*/.exec(authority)?.[0] ?? "";
+  }
+  // Markdown's closing ")" or "]", quotes and a sentence's end are not the
+  // URL's; a bracket that closes one opened before it (IPv6) is.
+  const opened = { ")": count(authority, "("), "]": count(authority, "[") };
+  const closed = { ")": count(authority, ")"), "]": count(authority, "]") };
+  let cut = authority.length;
+  while (cut > 0 && TRAILING.test(authority[cut - 1] as string)) {
+    const last = authority[cut - 1];
+    if (last === ")" || last === "]") {
+      if (opened[last] >= closed[last]) break;
+      closed[last] -= 1;
+    }
+    cut -= 1;
+  }
+  authority = authority.slice(0, cut);
+  // Unparseable still: the raw authority, a host nobody named.
+  return parsedHost(scheme, authority) ?? authority;
+}
+
 function hostsOf(text: string): Set<string> {
   const hosts = new Set<string>();
   for (const start of text.matchAll(URL_START)) {
-    const from = start.index + start[0].length;
-    // Only the authority decides the host, so only it is read, and at most
-    // AUTHORITY_CAP of it: the text is read once per URL, not to its end.
-    // The URL parser drops tabs and CRs before it reads, so they end nothing.
-    const window = text
-      .slice(from, from + AUTHORITY_CAP + 1)
-      .replace(/[\t\r]/g, "");
-    const end = window.search(/[\s<>/?#\\]/);
-    if (end === -1 && window.length > AUTHORITY_CAP) {
-      hosts.add(`${OVERLONG}${window.slice(0, 64).toLowerCase()}`);
-      continue;
-    }
-    let authority = end === -1 ? window : window.slice(0, end);
-    // A quote ends a URL in prose, unless an "@" after it makes the quote
-    // userinfo: then the host is past it, where the parser reads it.
-    if (!authority.includes("@")) {
-      authority = /^[^"'`]*/.exec(authority)?.[0] ?? "";
-    }
-    // Markdown's closing ")" or "]", quotes and a sentence's end are not the
-    // URL's; a bracket that closes one opened before it (IPv6) is.
-    const opened = { ")": count(authority, "("), "]": count(authority, "[") };
-    const closed = { ")": count(authority, ")"), "]": count(authority, "]") };
-    let cut = authority.length;
-    while (cut > 0 && TRAILING.test(authority[cut - 1] as string)) {
-      const last = authority[cut - 1];
-      if (last === ")" || last === "]") {
-        if (opened[last] >= closed[last]) break;
-        closed[last] -= 1;
-      }
-      cut -= 1;
-    }
-    authority = authority.slice(0, cut);
-    let host: string;
-    try {
-      // The parser's host is what a client would reach: userinfo, ports,
-      // percent-escapes and IDN spellings are resolved the same way.
-      host = new URL(`${start[0]}${authority}`).hostname;
-    } catch {
-      // Unparseable: the raw authority, so it is still a host nobody named.
-      host = authority;
-    }
+    const scheme = start[0].slice(0, start[0].indexOf(":") + 1);
+    // As the parser does: extra slashes before the host are skipped, and the
+    // authority runs to the path, query or fragment, past spaces, quotes and
+    // line ends. The next URL starts with "//", so no authority reaches into
+    // it and the text is read once.
+    let from = start.index + start[0].length;
+    while (text[from] === "/" || text[from] === "\\") from++;
+    AUTHORITY.lastIndex = from;
+    const raw = AUTHORITY.exec(text)?.[0] ?? "";
+    // The parser drops tabs and line ends before it reads.
+    const host =
+      parsedHost(scheme, raw.replace(/[\t\n\r]/g, "")) ??
+      proseHost(scheme, raw);
     hosts.add(host.toLowerCase().replace(/\.$/, ""));
   }
   return hosts;
@@ -251,14 +257,14 @@ export function checkSkillVersion(
       }
     }
 
+    // Hosts come from the whole file: the parser drops a line end inside a
+    // URL, so one URL can span lines that a view of added lines splits.
+    for (const host of hostsOf(text)) {
+      if (!beforeHosts.has(host)) flag("new_url", file.path, host);
+    }
     for (const line of added) {
       for (const char of line.match(HIDDEN) ?? []) {
         flag("hidden_unicode", file.path, codePoint(char));
-      }
-      for (const host of hostsOf(line)) {
-        if (!beforeHosts.has(host) || host.startsWith(OVERLONG)) {
-          flag("new_url", file.path, host);
-        }
       }
       const plain = line.normalize("NFKC").replace(HIDDEN, "").toLowerCase();
       for (const { id, pattern } of INSTRUCTION_PATTERNS) {
