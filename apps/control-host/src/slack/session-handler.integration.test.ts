@@ -667,6 +667,18 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
         input,
       ]);
     }
+    // Each input names the turn its own message became: the second
+    // thread's first turn is no turn of the first thread's session.
+    const madeOf = new Map(
+      (
+        await db
+          .select({ id: turns.id, slackMessage: turns.slackMessage })
+          .from(turns)
+      ).map((turn) => [turn.id, turn.slackMessage?.ts ?? null]),
+    );
+    expect(inputs.map((input) => madeOf.get(input.turnId) ?? null)).toEqual(
+      inputs.map((input) => input.ts),
+    );
     expect(
       [...byTopic.values()]
         .map((rows) => rows.map((row) => [row.seq, row.ts]))

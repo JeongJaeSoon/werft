@@ -71,7 +71,8 @@ export type InboundInputReceipt = {
   channelId: string;
   ts: string;
   requester: { kind: "user" | "slack_bot"; id: string };
-  turnId: string;
+  /** The turn the message became: its session and its number there. */
+  turn: { sessionId: string; sequence: number };
 };
 
 /** What a write after a claim is fenced on. */

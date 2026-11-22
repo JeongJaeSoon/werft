@@ -548,13 +548,13 @@ export function createSlackSessionHandler(
     }
     // Once the session took the turn it counts, whatever fails after.
     let accepted = false;
-    let turnId: string;
+    let turn: { sessionId: string; sequence: number };
     try {
       if (link.sessionId === null && link.openedByTs !== event.ts) {
         link = await adoptOrReopen(link, event.ts);
       }
       if (link.sessionId === null || link.openedByTs === event.ts) {
-        turnId = await openSession(
+        turn = await openSession(
           caller,
           link,
           message,
@@ -565,13 +565,14 @@ export function createSlackSessionHandler(
           },
         );
       } else {
-        turnId = (
-          await deps.sessions.appendMessage(caller, link.sessionId, {
-            idempotencyKey: `${claim.teamId}:${event.channel}:${event.ts}`,
-            body: { message, mode: "enqueue" },
-            slackMessage,
-          })
-        ).turn_id;
+        const sessionId = link.sessionId;
+        const appended = await deps.sessions.appendMessage(caller, sessionId, {
+          idempotencyKey: `${claim.teamId}:${event.channel}:${event.ts}`,
+          body: { message, mode: "enqueue" },
+          slackMessage,
+        });
+        // A turn id is its number in the session.
+        turn = { sessionId, sequence: Number(appended.turn_id) };
       }
       // The turn's insert marks the thread's status due; the outbox pass
       // that follows this one sends it.
@@ -650,7 +651,7 @@ export function createSlackSessionHandler(
       channelId: event.channel,
       ts: event.ts,
       requester,
-      turnId,
+      turn,
     };
   };
 
@@ -677,7 +678,7 @@ export function createSlackSessionHandler(
     dm: boolean,
     slackMessage: SlackMessageRef,
     onCreated: () => void,
-  ): Promise<string> {
+  ): Promise<{ sessionId: string; sequence: number }> {
     const created = await deps.sessions.createSession(caller, {
       idempotencyKey: link.id,
       body: {
@@ -695,7 +696,7 @@ export function createSlackSessionHandler(
     if (attached.sessionId !== created.session_id) {
       throw new Error(`Slack thread ${link.id} already holds another session`);
     }
-    return created.turn_id;
+    return { sessionId: created.session_id, sequence: Number(created.turn_id) };
   }
 
   /** The message's link for the web; a turn goes on without one. */
