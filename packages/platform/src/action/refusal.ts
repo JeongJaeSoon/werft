@@ -33,15 +33,7 @@ export type PersonRejection = { pushRequestId: string; reason: string | null };
 
 /**
  * The refusal a service error stands for (catalog 5.7, "서비스 오류를 봉투로
- * 옮기는 순서"):
- * 1. the service's refusal (`details.refusal`) when the tool lists it;
- * 2. else its `details.reason_code` when the tool lists it;
- * 3. else the service code in lower case: listed codes keep their table
- *    entry, `BACKEND_UNAVAILABLE` and `GITHUB_REFUSED` are GitHub's, and any
- *    other is the platform's and final.
- * A pull request call refused as `not_pushed` on a push request a person
- * rejected is that person's refusal, and their words ride in
- * `details.reason`; one that failed is `push_failed`.
+ * 옮기는 순서").
  */
 export function refusalFromServiceError(
   tool: GitHubMcpTool,

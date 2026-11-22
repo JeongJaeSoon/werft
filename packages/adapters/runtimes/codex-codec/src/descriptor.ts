@@ -8,19 +8,6 @@ import { CODEX_CLI_VERSION } from "./versions.ts";
  * and probes are in the adapter's PR). A mode this engine cannot hold is
  * `none`, never an empty implementation: the host refuses it before the
  * first input.
- *
- * - `approvalCheckpoint: false`: the app-server has no point before a tool
- *   call where a host can hold admission, and a request cannot be resumed
- *   after a restart, so a turn cannot be parked at an approval. The adapter's
- *   real-binary test pins what a resume does with a pending approval: it is
- *   not asked again, and the call reads as aborted.
- * - `acceptEdits` and `dontAsk` are `emulated`: the adapter runs the engine
- *   with `untrusted` approval (every command it does not know to be safe,
- *   and every file change, is asked) and answers those requests itself.
- * - `plan`: the engine has no read-only planning mode.
- * - `auto` is `native`: commands run in the engine's bubblewrap sandbox and
- *   its `auto_review` reviewer judges each request to leave it. A worker
- *   whose sandbox cannot start refuses the session instead.
  */
 export const CODEX_DESCRIPTOR: RuntimeDescriptor = {
   contractVersion: "runtime-contract/v1",
@@ -31,16 +18,28 @@ export const CODEX_DESCRIPTOR: RuntimeDescriptor = {
   capabilities: {
     interrupt: true,
     checkpoint: true,
+    // The app-server has no point before a tool call where a host can hold
+    // admission, and a request cannot be resumed after a restart, so a turn
+    // cannot be parked at an approval. The adapter's real-binary test pins
+    // what a resume does with a pending approval: it is not asked again, and
+    // the call reads as aborted.
     approvalCheckpoint: false,
     resume: true,
     mcp: "native",
     skills: "none",
     permissionModes: {
       default: "native",
+      // Both emulated: the adapter runs the engine with `untrusted` approval
+      // (every command it does not know to be safe, and every file change,
+      // is asked) and answers those requests itself.
       acceptEdits: "emulated",
       dontAsk: "emulated",
+      // The engine has no read-only planning mode.
       plan: "none",
       bypassPermissions: "native",
+      // Commands run in the engine's bubblewrap sandbox and its `auto_review`
+      // reviewer judges each request to leave it. A worker whose sandbox
+      // cannot start refuses the session instead.
       auto: "native",
     },
   },

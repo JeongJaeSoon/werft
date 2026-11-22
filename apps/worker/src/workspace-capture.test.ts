@@ -574,6 +574,25 @@ exec "$REAL_GIT" "$@"`);
       });
     });
 
+    test("a partial clone", async () => {
+      await commitFiles({ "a.txt": "a\n" });
+      await git(root, "config", "uploadpack.allowFilter", "true");
+      const partial = join(scratch, "partial");
+      await git(
+        scratch,
+        "clone",
+        "--quiet",
+        "--filter=blob:none",
+        `file://${root}`,
+        partial,
+      );
+      root = partial;
+      expect(await capture()).toEqual({
+        status: "refused",
+        reason: "the workspace is a partial clone",
+      });
+    });
+
     test("sparse checkout", async () => {
       await commitFiles({ "a.txt": "a\n", "src/b.txt": "b\n" });
       await git(root, "sparse-checkout", "set", "src");
@@ -636,6 +655,16 @@ exec "$REAL_GIT" "$@"`);
       expect(await capture()).toEqual({
         status: "refused",
         reason: "a.txt has unresolved merge conflicts",
+      });
+    });
+
+    test("a tracked path that is now a special file", async () => {
+      await commitFiles({ "a.txt": "a\n" });
+      await rm(join(root, "a.txt"));
+      Bun.spawnSync(["mkfifo", join(root, "a.txt")]);
+      expect(await capture()).toMatchObject({
+        status: "refused",
+        reason: expect.stringMatching(/cannot be staged/),
       });
     });
 

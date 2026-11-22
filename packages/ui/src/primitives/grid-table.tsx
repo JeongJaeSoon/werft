@@ -87,16 +87,18 @@ const NarrowContext = createContext<
 
 /**
  * Where a column's header and cells sit, set once per column on the table so
- * the two cannot disagree:
- * - "start": text, names, roles, states, dates and relative times.
- * - "end": numbers compared down the column (counts, costs, tokens, times,
- *   ratios), in tabular figures on one line; and, as the last column, a
- *   switch whose visible header names the setting it turns on.
- * - "action": the row's controls, last; the header is read by screen
- *   readers only.
- * Nothing is centred. Stacked as cards (`narrowCards`), every column starts.
+ * the two cannot disagree. Nothing is centred. Stacked as cards
+ * (`narrowCards`), every column starts.
  */
-export type GridTableColumnAlign = "start" | "end" | "action";
+export type GridTableColumnAlign =
+  // Text, names, roles, states, dates and relative times.
+  | "start"
+  // Numbers compared down the column (counts, costs, tokens, times, ratios),
+  // in tabular figures on one line; and, as the last column, a switch whose
+  // visible header names the setting it turns on.
+  | "end"
+  // The row's controls, last; the header is read by screen readers only.
+  | "action";
 
 const AlignContext = createContext<readonly GridTableColumnAlign[]>([]);
 const ColumnContext = createContext<number | undefined>(undefined);

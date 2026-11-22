@@ -5,8 +5,8 @@ import type { AgentUsageScope } from "@werft-ai/contracts";
 // decideUsage, so the two cannot drift.
 
 /**
- * Why a requester may use the agent. Checked in this order, so a person who
- * qualifies twice is recorded under the narrower grant:
+ * Why a requester may use the agent. `decideUsage` picks the one recorded
+ * when several hold:
  * - `public`: the agent is open to the workspace.
  * - `team`: a live member of a team the private agent lists.
  * - `workspace`: a workspace owner or admin.

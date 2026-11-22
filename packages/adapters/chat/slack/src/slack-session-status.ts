@@ -17,12 +17,14 @@ export type SlackThreadStatus =
   | "active"
   | "closed";
 
-/**
- * - `recovery`: answers to its pending requests cannot carry the session on
- *   (recovery_required, a turn of unknown outcome, revoked execution).
- * - `paused`: nothing runs until a person resumes it.
- */
-export type SlackSessionLifecycle = "open" | "paused" | "recovery" | "closed";
+export type SlackSessionLifecycle =
+  | "open"
+  // Nothing runs until a person resumes it.
+  | "paused"
+  // Answers to its pending requests cannot carry the session on
+  // (recovery_required, a turn of unknown outcome, revoked execution).
+  | "recovery"
+  | "closed";
 
 /**
  * A push intent (L4) or a pull request stage (L5) of the session. No source

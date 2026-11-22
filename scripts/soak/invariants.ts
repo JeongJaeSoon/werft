@@ -7,16 +7,6 @@ import { soakEnv } from "./lib.ts";
  * the Docker daemon. Each returns the offending rows (capped), so a
  * violation arrives with its evidence. Zero rows everywhere is the pass.
  *
- * - context: no context silently reset (the Messages-side check lives in
- *   soak.ts, which sees what each turn's conversation carried);
- * - stale_write: no write accepted from an attempt after it ended or after
- *   a newer attempt of the session claimed;
- * - duplicate_execution: never two live attempts or two running workers for
- *   one session, and no turn run by two attempts;
- * - slot_leak: no slot held for a session that can no longer run, and never
- *   more slots than the limit;
- * - unconfirmed_success: nothing whose outcome is unknown reads as success.
- *
  * Timestamps are transaction starts (defaultNow()), so an ordering check
  * allows `toleranceMs` for a transaction that began just before the fence
  * committed and was serialized behind it.
@@ -30,15 +20,34 @@ export type InvariantOptions = {
   toleranceMs: number;
 };
 
+type Invariant =
+  /**
+   * No context silently reset (the Messages-side check lives in soak.ts,
+   * which sees what each turn's conversation carried).
+   */
+  | "context"
+  /**
+   * No write accepted from an attempt after it ended or after a newer attempt
+   * of the session claimed.
+   */
+  | "stale_write"
+  /**
+   * Never two live attempts or two running workers for one session, and no
+   * turn run by two attempts.
+   */
+  | "duplicate_execution"
+  /**
+   * No slot held for a session that can no longer run, and never more slots
+   * than the limit.
+   */
+  | "slot_leak"
+  /** Nothing whose outcome is unknown reads as success. */
+  | "unconfirmed_success";
+
 export type InvariantResult = {
   count: number;
   id: string;
-  invariant:
-    | "context"
-    | "stale_write"
-    | "duplicate_execution"
-    | "slot_leak"
-    | "unconfirmed_success";
+  invariant: Invariant;
   rows: unknown[];
   title: string;
 };
@@ -47,7 +56,7 @@ const ROW_CAP = 20;
 
 type Query = {
   id: string;
-  invariant: InvariantResult["invariant"];
+  invariant: Invariant;
   sql: string;
   title: string;
   params: (options: InvariantOptions) => unknown[];

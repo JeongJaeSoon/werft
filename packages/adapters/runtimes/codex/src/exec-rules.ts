@@ -11,16 +11,9 @@ import { WORKSPACE_POLICY, type WorkspacePolicy } from "@werft-ai/runtime-core";
  * the Claude engine.
  *
  * A policy pattern is the Claude rule syntax, where `*` matches any run of
- * characters. Only a few shapes of it have a prefix form:
- * - a lone `*` between tokens is dropped, so `git * --output*` asks for
- *   `git --output` (the option right after the program) and not after a
- *   verb;
- * - a token's trailing `*` is dropped, so `-C*` matches the token `-C` and
- *   not `-C..`;
- * - a leading `*` before an option is dropped the same way as a lone one,
- *   and `-*f*` becomes `-f`.
- * Every other pattern (a glob inside a token, a path, a secret's name after
- * a flag) has no prefix form and is returned in `unexpressed`.
+ * characters. Only a few shapes of it have a prefix form; every other pattern
+ * (a glob inside a token, a path, a secret's name after a flag) is returned
+ * in `unexpressed`.
  */
 export type ExecRule = { pattern: string[]; decision: "allow" | "prompt" };
 

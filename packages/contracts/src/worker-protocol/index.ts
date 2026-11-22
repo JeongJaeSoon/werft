@@ -84,43 +84,57 @@ export const checkpointRefSchema = z.object({
 // on the calls whose answer the server shapes by it (the claim and the
 // pending-control poll). The server never stores it: the worker that is
 // asking is the one that has to parse the answer. Each key is a promise to
-// parse a field an older worker's strict schemas refuse.
-//   approval_remember: a permission answer may carry `remember`
-//   platform_tool_trust: an `mcp_servers` entry may carry `platform` and
-//     `trusted`, and the worker lets the named tools past the engine's
-//     permission stage
-//   user_env: `runtime_config` may carry `env`, the user variables the engine
-//     process is started with
-//   permission_rules: `runtime_config` may carry `disallowed_tools`, the deny
-//     rules the engine is started with in every permission mode
-//   engine_settings: `runtime_config` may carry `engine_settings`, the
-//     merged permission and auto mode rules the engine's settings are
-//     extended with. Run rules no longer apply: the server sends neither
-//     field and ignores the key, which a worker in the support window may
-//     still announce
-//   response_language: `runtime_config` may carry `response_language`, the
-//     language the engine is asked to answer in
-//   answer_surface: a pending-control answer may carry `answer_surface`, where
-//     the person answered
-//   repository_pins: an additional repository and an attach order may carry
-//     `commit`, which the worker fetches instead of the branch tip, and the
-//     worker reports what it pinned on `/repository-pins`
-//   workspace_mcp: `runtime_config.mcp_servers` may hold the workspace's
-//     remote MCP servers besides a catalog server and `github`, up to
-//     `2 + AGENT_WORKSPACE_MCP_SERVERS_MAX` entries
-// A server older than a key refuses the body as a 400 whose `details.issues`
-// names it; the worker sends once more without the refused key, so neither
-// side has to deploy first.
+// parse a field an older worker's strict schemas refuse. A server older
+// than a key refuses the body as a 400 whose `details.issues` names it; the
+// worker sends once more without the refused key, so neither side has to
+// deploy first.
 export const workerCapabilitiesSchema = z
   .object({
+    /** A permission answer may carry `remember`. */
     approval_remember: z.literal(true).optional(),
+    /**
+     * An `mcp_servers` entry may carry `platform` and `trusted`, and the
+     * worker lets the named tools past the engine's permission stage.
+     */
     platform_tool_trust: z.literal(true).optional(),
+    /**
+     * `runtime_config` may carry `env`, the user variables the engine process
+     * is started with.
+     */
     user_env: z.literal(true).optional(),
+    /**
+     * `runtime_config` may carry `disallowed_tools`, the deny rules the engine
+     * is started with in every permission mode.
+     */
     permission_rules: z.literal(true).optional(),
+    /**
+     * `runtime_config` may carry `engine_settings`, the merged permission and
+     * auto mode rules the engine's settings are extended with. Run rules no
+     * longer apply: the server sends neither field and ignores the key, which
+     * a worker in the support window may still announce.
+     */
     engine_settings: z.literal(true).optional(),
+    /**
+     * `runtime_config` may carry `response_language`, the language the engine
+     * is asked to answer in.
+     */
     response_language: z.literal(true).optional(),
+    /**
+     * A pending-control answer may carry `answer_surface`, where the
+     * person answered.
+     */
     answer_surface: z.literal(true).optional(),
+    /**
+     * An additional repository and an attach order may carry `commit`, which
+     * the worker fetches instead of the branch tip, and the worker reports
+     * what it pinned on `/repository-pins`.
+     */
     repository_pins: z.literal(true).optional(),
+    /**
+     * `runtime_config.mcp_servers` may hold the workspace's remote MCP servers
+     * besides a catalog server and `github`, up to
+     * `2 + AGENT_WORKSPACE_MCP_SERVERS_MAX` entries.
+     */
     workspace_mcp: z.literal(true).optional(),
   })
   .strict();

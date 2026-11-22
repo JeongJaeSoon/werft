@@ -41,6 +41,7 @@ import {
   unassignedSessions,
   workspaces,
 } from "./schema.ts";
+import { createPostgresTurnInterrupts } from "./sessions/interrupt-control.ts";
 import { createPostgresWorkerPendingStore } from "./sessions/pending-control.ts";
 import { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
 import { insertDecisionModel } from "./testing/decision-model.ts";
@@ -682,6 +683,61 @@ integration("crash park on an approval-wait checkpoint", () => {
     await register(worker, { checkpoint: checkpointOf(worker) });
     // Its capture ran past the deadline: no checkpoint covers this one.
     await register(worker, { inputHash: HASH_B });
+
+    await executionGone(worker);
+    await expectUnknown(sessionId, worker);
+  });
+
+  test("a request past its expiry leaves the turn unknown", async () => {
+    const { sessionId, worker } = await runningSession();
+    const requestId = await register(worker, {
+      checkpoint: checkpointOf(worker),
+    });
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: new Date(Date.now() - 1_000) })
+      .where(eq(pendingRequests.requestId, requestId));
+
+    await executionGone(worker);
+    await expectUnknown(sessionId, worker);
+  });
+
+  test("an interrupt waiting on the turn leaves it unknown", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    await register(worker, { checkpoint: checkpointOf(worker) });
+    const interrupt = await createPostgresTurnInterrupts(db).interruptAtomic({
+      principal: owner,
+      sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      targetTurnId: "1",
+    });
+    expect(interrupt.outcome).toBe("accepted");
+
+    await executionGone(worker);
+    await expectUnknown(sessionId, worker);
+  });
+
+  test("a second turn in flight leaves the turn unknown", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    await register(worker, { checkpoint: checkpointOf(worker) });
+    const appended = await createPostgresSessionUnitOfWork(
+      db,
+    ).appendInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
+      principal: owner,
+      sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      message: "second input",
+    });
+    if (appended.outcome !== "accepted") throw new Error(appended.outcome);
+    // No worker runs two turns of a session at once; the row stands in for
+    // one that did.
+    await db
+      .update(turns)
+      .set({ status: "running" })
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 2)));
 
     await executionGone(worker);
     await expectUnknown(sessionId, worker);

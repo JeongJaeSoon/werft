@@ -1,38 +1,9 @@
 /**
- * What one Messages call used, read off the answer on its way to the worker
- * . The engine's own figure is its SDK's `total_cost_usd`, which a
- * tool calling the route with the engine's token never shows up in; the
- * proxy sees every call, so it is where those are counted.
- *
- * A JSON answer carries `usage` whole. A streamed one opens with
- * `message_start`, whose message has the input side, and each
- * `message_delta` carries running totals — the output count at least, and
- * the input side again on newer API versions — so the last one wins field
- * by field.
- *
- * Whatever the answer did not say is estimated high, never left out: the
- * budget errs on counting too much. A stream cut before `message_stop`
- * charges at least a token for every character of content it delivered,
- * and a web search for every search result it delivered. A
- * JSON answer with no usable usage (cut short, too big, not JSON) is
- * charged from its request: a token for every byte sent, and all the
- * output `max_tokens` allowed.
- *
- * The speed is priced too: the answer's `usage.speed`, or the
- * request's `speed` when the answer does not say. So are the server tools
- * the answer counted in `usage.server_tool_use`, and where it ran
- * the answer's `usage.inference_geo`, else the request's `inference_geo`,
- * else `unknown`, since a workspace's default may be the dearer one.
- *
- * A Responses call (`/v1/responses`) is read into the same figures. Its JSON
- * answer carries `usage` whole, and a streamed one ends with
- * `response.completed` (or `response.incomplete`), whose `response` has the
- * model and the usage; a stream cut before one is charged like a cut Messages
- * stream. Its `input_tokens` count the cached ones too, so the cached share
- * (`input_tokens_details.cached_tokens`) moves to `cache_read_input_tokens`
- * and only the rest stays input. The request's `max_output_tokens` bounds
- * the estimate where `max_tokens` does for Messages. Its reasoning tokens are
- * already inside `output_tokens`.
+ * What one model call used, read off the answer on its way to the worker: a
+ * tool calling the route with the engine's token never shows up in the
+ * engine's own figure (its SDK's `total_cost_usd`), and the proxy sees every
+ * call. Whatever the answer did not say is estimated high, never left out:
+ * the budget errs on counting too much.
  */
 
 /** The figures of one metered call, whichever API the answer came from. */
