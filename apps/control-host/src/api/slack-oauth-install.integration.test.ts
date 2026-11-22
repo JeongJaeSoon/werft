@@ -605,7 +605,7 @@ integration(
           if (outcome.kind === "ok") results.push(outcome.result);
           return Response.json(null, {
             status: outcome.kind === "unauthorized" ? 401 : 200,
-            headers: { "X-Request-Id": "req-1" },
+            headers: { "X-Request-Id": "019a0000-0000-7000-8000-0000000000e1" },
           });
         },
       });
@@ -645,7 +645,7 @@ integration(
         expect(out).toEqual([
           JSON.stringify({
             status: 200,
-            request_id: "req-1",
+            request_id: "019a0000-0000-7000-8000-0000000000e1",
             error_code: null,
           }),
         ]);
