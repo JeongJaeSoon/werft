@@ -8,7 +8,7 @@ const PLAIN_HTTP_HOSTS = new Set([
   "mock-slack",
 ]);
 
-const SLACK_ISSUER = "https://slack.com";
+export const SLACK_ISSUER = "https://slack.com";
 
 export class SlackConfigError extends Error {}
 

@@ -1,22 +1,27 @@
 import { randomBytes } from "node:crypto";
-import { messageOf } from "@werft-ai/platform";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
-import { verifyWithJwks } from "hono/jwt";
-import { providerFetch } from "./provider-fetch.ts";
+import {
+  SlackOidcRejectedError,
+  type SlackOidcTransport,
+  SlackOidcUnavailableError,
+} from "../wiring/chat-slack.ts";
+import {
+  fetchJwks,
+  hostPortOf,
+  type NetworkPolicy,
+  OidcRejectedError,
+  OidcUnavailableError,
+  type ProviderRequest,
+  providerRequest,
+  verifyIdToken,
+} from "./oidc/index.ts";
 import { sameString as sameToken } from "./same-string.ts";
+import { SLACK_ISSUER } from "./slack-config.ts";
 
-// Sign in with Slack (Slack's OpenID Connect), used only to prove which
-// Slack account a logged-in person holds (design A.7). No Slack token is
-// kept: the id_token is read once and dropped.
-
-export type SlackOidcConfig = {
-  clientId: string;
-  clientSecret: string;
-  redirectUri: string;
-  /** `https://slack.com`, or a mock IdP's base URL in tests and local runs. */
-  issuer: string;
-};
+// The console side of Sign in with Slack: whether it is on, the one-time
+// state the browser holds, and the OIDC client the Slack adapter's code
+// exchange runs on.
 
 export function signInWithSlackOff(
   consoleOrigin: string | null,
@@ -91,126 +96,72 @@ export function consumeSlackLinkState(
 }
 
 // ---------------------------------------------------------------------------
-// The OIDC exchange
+// The OIDC client
 // ---------------------------------------------------------------------------
 
-export function slackAuthorizeUrl(
-  config: SlackOidcConfig,
-  issued: SlackLinkState,
-  team: string | null,
-): string {
-  const url = new URL(`${config.issuer}/openid/connect/authorize`);
-  url.search = new URLSearchParams({
-    response_type: "code",
-    // No email: people are never matched by address.
-    scope: "openid profile",
-    client_id: config.clientId,
-    redirect_uri: config.redirectUri,
-    state: issued.state,
-    nonce: issued.nonce,
-    // Slack opens the consent screen on this team instead of asking.
-    ...(team ? { team } : {}),
-  }).toString();
-  return url.toString();
+/**
+ * Slack is https on the public internet. A mock IdP (MOCK_SLACK_OIDC_ISSUER)
+ * is the one host that may be plain http on a private or loopback address.
+ */
+export function slackNetworkPolicy(issuer: string): NetworkPolicy {
+  return issuer === SLACK_ISSUER
+    ? { plainHttp: "refuse" }
+    : { plainHttp: "refuse", privateHosts: [hostPortOf(new URL(issuer))] };
 }
 
-export type VerifiedSlackAccount = {
-  teamId: string;
-  userId: string;
-  teamName: string | null;
-  userName: string | null;
-};
-
-/** The IdP refused the code or returned a token that does not verify. */
-export class SlackOidcRejectedError extends Error {}
-/** The IdP could not be reached or answered with a server error. */
-export class SlackOidcUnavailableError extends Error {}
-
-function slackFetch(url: string, init: RequestInit): Promise<Response> {
-  return providerFetch(url, init, {
-    unreachable: (error) => new SlackOidcUnavailableError(messageOf(error)),
-    answered: (status) =>
-      new SlackOidcUnavailableError(`Slack answered ${status}`),
-  });
-}
-
-function claim(payload: Record<string, unknown>, name: string): string | null {
-  const value = payload[name];
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-/** A name too long for the API's 255 is dropped; the page shows the id. */
-function displayName(
-  payload: Record<string, unknown>,
-  name: string,
-): string | null {
-  const value = claim(payload, name)?.trim();
-  return value && value.length <= 255 ? value : null;
-}
-
-export async function exchangeSlackCode(
-  config: SlackOidcConfig,
-  code: string,
-  expectedNonce: string,
-): Promise<VerifiedSlackAccount> {
-  const response = await slackFetch(
-    `${config.issuer}/api/openid.connect.token`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        client_id: config.clientId,
-        client_secret: config.clientSecret,
-        code,
-        redirect_uri: config.redirectUri,
-      }),
-    },
-  );
-  const body = (await response.json().catch(() => null)) as {
-    ok?: boolean;
-    id_token?: unknown;
-    error?: unknown;
-  } | null;
-  if (!body?.ok || typeof body.id_token !== "string") {
-    throw new SlackOidcRejectedError(
-      `Slack refused the code: ${typeof body?.error === "string" ? body.error : "no id_token"}`,
-    );
-  }
-  const jwks = await slackFetch(`${config.issuer}/openid/connect/keys`, {});
-  const keys = ((await jwks.json().catch(() => null)) as { keys?: unknown })
-    ?.keys;
-  if (!Array.isArray(keys)) {
-    throw new SlackOidcUnavailableError("Slack answered no signing keys");
-  }
-  let payload: Record<string, unknown>;
+async function asSlackError<T>(run: () => Promise<T>): Promise<T> {
   try {
-    payload = (await verifyWithJwks(body.id_token, {
-      keys,
-      allowedAlgorithms: ["RS256"],
-      verification: { iss: config.issuer, aud: config.clientId },
-    })) as Record<string, unknown>;
+    return await run();
   } catch (error) {
-    throw new SlackOidcRejectedError(
-      `id_token did not verify: ${error instanceof Error ? error.name : "error"}`,
-    );
+    if (error instanceof OidcRejectedError) {
+      throw new SlackOidcRejectedError(
+        `id_token did not verify: ${error.reason}`,
+      );
+    }
+    if (error instanceof OidcUnavailableError) {
+      throw new SlackOidcUnavailableError(`${error.kind}: ${error.message}`);
+    }
+    throw error;
   }
-  const nonce = claim(payload, "nonce");
-  if (nonce === null || !sameToken(nonce, expectedNonce)) {
-    throw new SlackOidcRejectedError("id_token nonce does not match");
-  }
-  const teamId = claim(payload, "https://slack.com/team_id");
-  const userId =
-    claim(payload, "https://slack.com/user_id") ?? claim(payload, "sub");
-  if (teamId === null || userId === null) {
-    throw new SlackOidcRejectedError("id_token names no Slack team or user");
-  }
+}
+
+/**
+ * The platform's OIDC client for one issuer: every request under its network
+ * policy, the id_token held to the same checks as any sign-in provider's.
+ */
+export function createSlackOidcTransport(
+  issuer: string,
+  deps: { request?: ProviderRequest; now?: () => number } = {},
+): SlackOidcTransport {
+  const policy = slackNetworkPolicy(issuer);
+  const request = deps.request ?? providerRequest;
+  const now = deps.now ?? Date.now;
   return {
-    teamId,
-    userId,
-    // Display only, from the `profile` scope: `name` is the person's display
-    // name; the team name is the claim openid.connect.userInfo documents.
-    teamName: displayName(payload, "https://slack.com/team_name"),
-    userName: displayName(payload, "name"),
+    postForm: (url, form) =>
+      asSlackError(() =>
+        request(
+          url,
+          {
+            method: "POST",
+            headers: {
+              Accept: "application/json",
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: form.toString(),
+          },
+          policy,
+        ),
+      ),
+    verifyIdToken: (idToken, expected) =>
+      asSlackError(async () =>
+        verifyIdToken(idToken, {
+          keys: await fetchJwks(expected.jwksUri, policy, request),
+          algs: ["RS256"],
+          issuers: [expected.issuer],
+          clientId: expected.clientId,
+          nonce: expected.nonce,
+          now,
+        }),
+      ),
   };
 }

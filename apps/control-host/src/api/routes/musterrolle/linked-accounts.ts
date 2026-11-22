@@ -15,9 +15,15 @@ import type {
   GitHubOAuthStore,
   LinkedAccountService,
 } from "@werft-ai/platform";
-import type {
-  SlackLinkAppService,
-  SlackLinkClient,
+import {
+  exchangeSlackCode,
+  type SlackLinkAppService,
+  type SlackLinkClient,
+  type SlackOidcConfig,
+  SlackOidcRejectedError,
+  type SlackOidcTransport,
+  SlackOidcUnavailableError,
+  slackLinkAuthorizeUrl,
 } from "../../../wiring/chat-slack.ts";
 import {
   ApiHttpError,
@@ -37,13 +43,8 @@ import {
 } from "../../github-link.ts";
 import {
   consumeSlackLinkState,
-  exchangeSlackCode,
   issueSlackLinkState,
   SLACK_LINK_TTL_MS,
-  type SlackOidcConfig,
-  SlackOidcRejectedError,
-  SlackOidcUnavailableError,
-  slackAuthorizeUrl,
 } from "../../slack-link.ts";
 import { mapped, requireParams } from "../errors.ts";
 
@@ -58,6 +59,8 @@ export interface LinkedAccountRouteDeps {
   slack: {
     issuer: string;
     clients: Pick<SlackLinkAppService, "clientFor" | "clientForStart">;
+    /** The platform's OIDC client for `issuer` (createSlackOidcTransport). */
+    oidc: SlackOidcTransport;
   } | null;
   logger?: StructuredLogger;
 }
@@ -98,7 +101,7 @@ export function registerLinkedAccountRoutes(
     const expiresAt = new Date(Date.now() + SLACK_LINK_TTL_MS);
     const issued = issueSlackLinkState(context, userId, expiresAt);
     return jsonWithSchema(context, startSlackLinkResponseSchema, {
-      authorize_url: slackAuthorizeUrl(
+      authorize_url: slackLinkAuthorizeUrl(
         oidcConfig(slack, client),
         issued,
         teams.length === 1 ? (teams[0] ?? null) : null,
@@ -124,6 +127,7 @@ export function registerLinkedAccountRoutes(
     try {
       verified = await exchangeSlackCode(
         oidcConfig(slack, client),
+        slack.oidc,
         body.code,
         issued.nonce,
       );

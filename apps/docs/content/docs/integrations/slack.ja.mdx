@@ -35,7 +35,7 @@ curl -sS "$API/v1/workspaces/$WS/slack-guest" "${WEB[@]}" \
 
 ## Slack アカウントの連携
 
-Sign in with Slack(OpenID Connect)で連携する。運用者がコンソールの公開アドレス `CONSOLE_ORIGIN` を設定し、ワークスペースのアドミンが設定 > ワークスペース > 連携 > Slack に App Configuration Token を入れてアカウント連携用アプリを作れるようにし、そのワークスペースに確認済みの Slack インストールがある必要がある。ローカルスタックには `CONSOLE_ORIGIN` がないため、開始リクエストは 503 になる。
+Sign in with Slack(OpenID Connect)で連携する。運用者がコンソールの公開アドレス `CONSOLE_ORIGIN` を設定し、ワークスペースのアドミンが設定 > ワークスペース > 連携 > Slack に App Configuration Token を入れてアカウント連携用アプリを作れるようにし、そのワークスペースに確認済みの Slack インストールがある必要がある。ローカルスタックには `CONSOLE_ORIGIN` がないため、開始リクエストは 503 になる。API が Slack に送る要求と id_token の検査はログインプロバイダーと同じである。Slack のアドレスは https でなければならず、loopback・link-local・reserved アドレスに解決される名前には送らず 503 で終わる。id_token には `exp`・`iat`・`sub` が必要で、`iat` は 60 秒先から 11 分前までだけを受け付ける。
 
 ```bash
 curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack/start" "${WEB[@]}"
