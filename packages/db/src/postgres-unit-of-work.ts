@@ -108,7 +108,11 @@ import { DB_NOW } from "./db-clock.ts";
 import { captureGitHubPolicyStart } from "./github/github-settings.ts";
 import { admitInput } from "./input-limits.ts";
 import { readArchivedWorkspaceLimit } from "./limits/workspace-limit.ts";
-import { agentReachable, hasOwner } from "./musterrolle/administers.ts";
+import {
+  agentNamedInSession,
+  agentReachable,
+  hasOwner,
+} from "./musterrolle/administers.ts";
 import {
   inputRefusal,
   lockCallerLimit,
@@ -1355,7 +1359,7 @@ export function createPostgresSessionReader(
                 .where(
                   and(
                     inArray(agents.id, agentIds),
-                    agentReachable(
+                    agentNamedInSession(
                       executor,
                       agents.workspaceId,
                       {
@@ -1524,8 +1528,9 @@ export function createPostgresSessionReader(
                           and(
                             eq(agentReleases.agentId, query.agent_id),
                             // An agent the viewer may not use, or is outside,
-                            // filters like one that is not there.
-                            agentReachable(
+                            // filters like one that is not there, save one
+                            // the holding team holds, named on its sessions.
+                            agentNamedInSession(
                               db,
                               agents.workspaceId,
                               {

@@ -352,6 +352,38 @@ export function agentReachable(
   return and(agentUsable(db, workspaceId, who, agentId), or(...inside)) as SQL;
 }
 
+const heldAgent = alias(agents, "held_agent");
+const heldTeam = alias(memberTeams, "held_team");
+
+/**
+ * Whether a session's reader sees its agent by name: `agentReachable`, or a
+ * live member reading a session of an agent the holding team of migration
+ * 0243 still holds. Those sessions reach every member (session-shares.ts), so
+ * their agent's name goes with them; the agent's own page stays closed.
+ */
+export function agentNamedInSession(
+  db: Database,
+  workspaceId: string | SQLWrapper,
+  who: { userId: string | null; keyAgentId: string | null },
+  agentId: string | SQLWrapper,
+): SQL {
+  const reachable = agentReachable(db, workspaceId, who, agentId);
+  if (who.userId === null || !UUID.test(who.userId)) return reachable;
+  const held = exists(
+    db
+      .select({ one: sql`1` })
+      .from(heldAgent)
+      .innerJoin(heldTeam, eq(heldTeam.id, heldAgent.managingTeamId))
+      .where(
+        and(eq(heldAgent.id, agentId), eq(heldTeam.holdsUnassigned, true)),
+      ),
+  );
+  return or(
+    reachable,
+    and(held, liveMember(db, workspaceId, who.userId.toLowerCase())),
+  ) as SQL;
+}
+
 export function credentialsAllowed(
   workspaceId: string | SQLWrapper,
   userId: string | null,

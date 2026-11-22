@@ -6191,7 +6191,7 @@ export interface components {
              */
             preview: boolean;
             /**
-             * @description True when the session has an agent the caller may not use (a private agent outside the caller's teams): `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. False otherwise, including a session with no agent.
+             * @description True when the session has an agent the caller is outside of (not an owner or admin, one of the agent's admins or a member of its managing team) or may not use: `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. An agent still held by the holding team of migration 0243 is named to every live member who can read the session (its `workspace` scope reaches them all); a private, people or team share still decides who reads it, and the agent's own page stays `404` to those outside. False otherwise, including a session with no agent.
              * @default false
              */
             agent_hidden: boolean;
@@ -6320,7 +6320,7 @@ export interface components {
              */
             preview: boolean;
             /**
-             * @description True when the session has an agent the caller may not use (a private agent outside the caller's teams): `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. False otherwise, including a session with no agent.
+             * @description True when the session has an agent the caller is outside of (not an owner or admin, one of the agent's admins or a member of its managing team) or may not use: `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. An agent still held by the holding team of migration 0243 is named to every live member who can read the session (its `workspace` scope reaches them all); a private, people or team share still decides who reads it, and the agent's own page stays `404` to those outside. False otherwise, including a session with no agent.
              * @default false
              */
             agent_hidden: boolean;
