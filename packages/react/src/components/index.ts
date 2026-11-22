@@ -151,8 +151,6 @@ export {
 } from "./session/session-overview.tsx";
 export {
   RepositoryName,
-  RepositorySummary,
-  type RepositorySummaryMessages,
   repositoryLabel,
   type SessionRepositoryEntry,
   type SessionRepositorySource,

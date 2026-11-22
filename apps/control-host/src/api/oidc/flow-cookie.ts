@@ -148,5 +148,3 @@ export function createFlowSealer(key: Buffer, cookieName: string) {
     },
   };
 }
-
-export type FlowSealer = ReturnType<typeof createFlowSealer>;

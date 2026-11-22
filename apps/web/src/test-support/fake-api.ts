@@ -1,11 +1,11 @@
 import type { ApiClient } from "@werft-ai/client";
 import type {
   AuthMeResponse,
-  GitHubInstallationDetail,
   GitHubOAuth,
   GitHubSettingsConnection,
   GitHubSettingsInstallation,
   GitHubSettingsResponse,
+  githubInstallationDetailSchema,
   MemberActions,
   MemberRefusal,
   MemberRow,
@@ -18,6 +18,7 @@ import {
   queryScopeOf,
   withQueryScope,
 } from "@werft-ai/core";
+import type { z } from "zod";
 
 export interface Recorded {
   readonly method: string;
@@ -378,7 +379,9 @@ export function githubConnection(
 /** An active installation as owners read it; `detail: null` is a member's. */
 export function githubInstallation(
   over: Partial<Omit<GitHubSettingsInstallation, "detail">> & {
-    readonly detail?: Partial<GitHubInstallationDetail> | null;
+    readonly detail?: Partial<
+      z.infer<typeof githubInstallationDetailSchema>
+    > | null;
   } = {},
 ): GitHubSettingsInstallation {
   const { detail, ...rest } = over;

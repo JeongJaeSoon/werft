@@ -38,7 +38,6 @@ export const agentsKo = {
   "agents.slackAction.install": "앱 설치 대기",
   "agents.slackAction.reinstall": "다시 설치 필요",
   "agents.slackAction.home_unset": "홈 채널 지정 필요",
-  "agents.updated": "{at} 수정",
   "agents.state.draft": "미게시",
   "agents.state.published": "게시됨",
   "agents.state.released": "릴리스",
@@ -243,8 +242,6 @@ export const agentsKo = {
   "agent.rolledBack.unchecked":
     "{release}(으)로 되돌렸습니다. 되돌린 뒤 설정을 다시 읽지 못해 결과는 확인하지 못했습니다.",
   "agent.releases.empty": "아직 릴리스가 없습니다.",
-  "agent.releases.approved": "{at} 처음 활성화",
-  "agent.releases.notApproved": "아직 활성화된 적 없음",
   "agent.releases.active": "활성",
   "agent.releases.byUnknown": "작성자 정보 없음",
   "agent.releases.changesFirst": "첫 릴리스",
@@ -444,7 +441,6 @@ export const agentsKo = {
   "managingTeam.saved": "담당 팀을 {name}(으)로 정했습니다.",
   "managingTeam.notAllowed": "내가 속한 팀만 담당 팀으로 정할 수 있습니다.",
   "managingTeam.noChoices": "담당 팀으로 고를 수 있는 다른 팀이 없습니다.",
-  "agents.column.team": "담당 팀",
   "agent.ownerless.badge": "관리자 없음",
   "agent.ownerless.title": "이 에이전트를 관리할 사람이 없습니다",
   "agent.ownerless.blockOn":
@@ -541,7 +537,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.slackAction.install": "app not installed",
   "agents.slackAction.reinstall": "reinstall needed",
   "agents.slackAction.home_unset": "pick a home channel",
-  "agents.updated": "Updated {at}",
   "agents.state.draft": "Unpublished",
   "agents.state.published": "Published",
   "agents.state.released": "Released",
@@ -748,8 +743,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.rolledBack.unchecked":
     "Rolled back to {release}. The settings could not be read again, so the result is not checked.",
   "agent.releases.empty": "No releases yet.",
-  "agent.releases.approved": "First activated {at}",
-  "agent.releases.notApproved": "Never activated",
   "agent.releases.active": "Active",
   "agent.releases.byUnknown": "Author not recorded",
   "agent.releases.changesFirst": "First release",
@@ -947,7 +940,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "managingTeam.saved": "The responsible team is now {name}.",
   "managingTeam.notAllowed": "You can only pick a team you are in.",
   "managingTeam.noChoices": "There is no other team you can pick.",
-  "agents.column.team": "Responsible team",
   "agent.ownerless.badge": "No admin",
   "agent.ownerless.title": "No one administers this agent",
   "agent.ownerless.blockOn":
@@ -1035,7 +1027,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.slackAction.install": "アプリのインストール待ち",
   "agents.slackAction.reinstall": "再インストールが必要",
   "agents.slackAction.home_unset": "ホームチャンネルの設定が必要",
-  "agents.updated": "{at}に更新",
   "agents.state.draft": "未公開",
   "agents.state.published": "公開済み",
   "agents.state.released": "リリース済み",
@@ -1242,8 +1233,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.rolledBack.unchecked":
     "{release}に戻しました。設定を読み直せなかったため、結果は確認できていません。",
   "agent.releases.empty": "リリースはまだありません。",
-  "agent.releases.approved": "{at}に初回有効化",
-  "agent.releases.notApproved": "未有効化",
   "agent.releases.active": "有効",
   "agent.releases.byUnknown": "作成者の記録なし",
   "agent.releases.changesFirst": "最初のリリース",
@@ -1455,7 +1444,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "managingTeam.saved": "担当チームを「{name}」にしました。",
   "managingTeam.notAllowed": "自分が所属するチームだけを担当チームにできます。",
   "managingTeam.noChoices": "担当チームに選べるほかのチームがありません。",
-  "agents.column.team": "担当チーム",
   "agent.ownerless.badge": "管理者なし",
   "agent.ownerless.title": "このエージェントを管理する人がいません",
   "agent.ownerless.blockOn":

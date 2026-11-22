@@ -19,7 +19,6 @@
     "./testing/spec-pins": "./src/testing/spec-pins.ts"
   },
   "scripts": {
-    "bench:session-reads": "bun run bench/session-reads.ts",
     "bench:terminate": "bun run bench/terminate-control.ts",
     "typecheck": "tsc -p tsconfig.json",
     "db:generate": "bun run scripts/generate-migration.ts",

@@ -25,7 +25,6 @@ import {
   createAchievementRuleService,
   createAuthorizationPolicy,
   type IdentityStore,
-  NO_JUDGE_CONNECTIONS,
   type ResolvedWebSession,
 } from "@werft-ai/platform";
 import {
@@ -91,7 +90,7 @@ integration("achievement rule routes on PostgreSQL", () => {
             store: createPostgresAchievementRuleStore(db),
             // A decision model, without which every write is refused.
             judgeConnections: {
-              ...NO_JUDGE_CONNECTIONS,
+              upstream: async () => null,
               ids: async () => ["luna-main"],
             },
           }),

@@ -14,12 +14,6 @@ export interface JudgeConnections {
   ids(): Promise<readonly string[]>;
 }
 
-/** No connection resolves: for a process without installation settings. */
-export const NO_JUDGE_CONNECTIONS: JudgeConnections = {
-  upstream: async () => null,
-  ids: async () => [],
-};
-
 /**
  * Achievements need a decision model: with no enabled `openai_decisions`
  * connection, every achievement write is refused and nothing is judged,

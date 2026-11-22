@@ -1,10 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import {
-  type AgentCardRequest,
-  agentCardRequestSchema,
-  scopesForRole,
-} from "@werft-ai/contracts";
+import { agentCardRequestSchema, scopesForRole } from "@werft-ai/contracts";
 import {
   type AgentService,
   type Caller,
@@ -141,7 +137,7 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
   async function newAgent(
     caller: Caller,
     request: {
-      card?: AgentCardRequest;
+      card?: ReturnType<typeof agentCardRequestSchema.parse>;
       connection_id?: string;
     } = {},
   ) {

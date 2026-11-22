@@ -46,14 +46,14 @@ import {
   sessionReleases,
   startingInWorkspace,
 } from "../apps/control-host/src/testing/releases.ts";
-import { unwiredCheckpoints } from "../apps/worker/src/checkpoint.ts";
 import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
+import { noWorkspace } from "../apps/worker/src/testing/no-workspace.ts";
 import { ScriptedRun } from "../apps/worker/src/testing/scripted-run.ts";
+import { unwiredCheckpoints } from "../apps/worker/src/testing/unwired-checkpoints.ts";
 import {
   WorkerHost,
   type WorkerRunSummary,
 } from "../apps/worker/src/worker-host.ts";
-import { noWorkspace } from "../apps/worker/src/workspace.ts";
 
 /**
  * A release the control plane let through, run by a worker whose engine

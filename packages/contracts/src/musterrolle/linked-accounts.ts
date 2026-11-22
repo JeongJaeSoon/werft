@@ -34,9 +34,6 @@ export const LINKED_ACCOUNT_REVOKED_REASON_VALUES = [
   "unlinked",
   "offboarded",
 ] as const;
-export const linkedAccountRevokedReasonSchema = z.enum(
-  LINKED_ACCOUNT_REVOKED_REASON_VALUES,
-);
 
 export const linkedAccountIdSchema = z.uuid();
 

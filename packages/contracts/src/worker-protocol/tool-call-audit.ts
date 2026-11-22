@@ -185,4 +185,3 @@ export const toolCallAuditEntrySchema = z
     record_version: z.literal(TOOL_AUDIT_RECORD_VERSION),
   })
   .strict();
-export type ToolCallAuditEntry = z.infer<typeof toolCallAuditEntrySchema>;

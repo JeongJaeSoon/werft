@@ -10,7 +10,6 @@ export {
   listUnreleasedLaunchImages,
   listUpgradeSessions,
   type RuntimeFingerprint,
-  readPointerRuntime,
 } from "./checkpoints/checkpoint-runtime.ts";
 export * from "./checkpoints/checkpoint-store.ts";
 export * from "./control-unit-of-work.ts";

@@ -141,27 +141,6 @@ export const workspaceSchema = z
   })
   .strict();
 
-export const userSchema = z
-  .object({
-    id: userIdSchema,
-    email: emailSchema,
-    display_name: displayNameSchema,
-    created_at: timestampSchema,
-    /** Account suspension, kept distinct from losing one membership (A03). */
-    disabled_at: timestampSchema.nullable(),
-  })
-  .strict();
-
-export const membershipSchema = z
-  .object({
-    workspace_id: workspaceIdSchema,
-    user_id: userIdSchema,
-    role: workspaceRoleSchema,
-    created_at: timestampSchema,
-    disabled_at: timestampSchema.nullable(),
-  })
-  .strict();
-
 export const memberViewSchema = z
   .object({
     user_id: userIdSchema,

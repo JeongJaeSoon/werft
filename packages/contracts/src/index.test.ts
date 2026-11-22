@@ -37,7 +37,6 @@ import {
   TERMINAL_TURN_STATUS_VALUES,
   TURN_STATUS_VALUES,
   UNFINISHED_TURN_STATUSES,
-  unassignedSessionSignalSchema,
   workerScopeSchema,
 } from "./index.ts";
 
@@ -339,10 +338,6 @@ describe("session contracts", () => {
     expect(
       sessionMessageSchema.safeParse({ message: "a".repeat(32_768) }).success,
     ).toBe(true);
-    expect(unassignedSessionSignalSchema.parse(undefined)).toBeUndefined();
-    expect(
-      unassignedSessionSignalSchema.safeParse({ session_id: "leaks" }).success,
-    ).toBe(false);
   });
 });
 

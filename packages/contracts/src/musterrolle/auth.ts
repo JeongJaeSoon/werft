@@ -351,5 +351,4 @@ export const passwordResetResponseSchema = z
 
 export type AuthMeResponse = z.infer<typeof authMeResponseSchema>;
 export type UserLocale = z.infer<typeof userLocaleSchema>;
-export type LoginMethod = z.infer<typeof loginMethodSchema>;
 export type LoginMethodsResponse = z.infer<typeof loginMethodsResponseSchema>;

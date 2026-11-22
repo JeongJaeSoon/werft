@@ -186,18 +186,9 @@ export const muteDecisionSchema = z.discriminatedUnion("action", [
     .strict(),
 ]);
 
-export type ChatTrigger = z.infer<typeof chatTriggerSchema>;
 export type ChatInboundEnvelope = z.infer<typeof chatInboundEnvelopeSchema>;
 export type ScopedSessionBinding = z.infer<typeof scopedSessionBindingSchema>;
-export type ChatOutboundCategory = z.infer<typeof chatOutboundCategorySchema>;
-export type ChatContent = z.infer<typeof chatContentSchema>;
-export type ChatAudience = z.infer<typeof chatAudienceSchema>;
-export type ChatOutboundVisibility = z.infer<
-  typeof chatOutboundVisibilitySchema
->;
-export type ChatOutboundEnvelope = z.infer<typeof chatOutboundEnvelopeSchema>;
 /** What a producer builds; `visibility` may be left to its default. */
 export type ChatOutboundEnvelopeInput = z.input<
   typeof chatOutboundEnvelopeSchema
 >;
-export type MuteDecision = z.infer<typeof muteDecisionSchema>;

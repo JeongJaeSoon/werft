@@ -10,9 +10,9 @@ import {
   type ScriptedStep,
   scriptedRuntimes,
 } from "./testing/golden-runtime.ts";
+import { noWorkspace } from "./testing/no-workspace.ts";
 import { waitFor as pollFor } from "./testing/wait-for.ts";
 import { inputUuid, WorkerHost, type WorkerLogger } from "./worker-host.ts";
-import { noWorkspace } from "./workspace.ts";
 
 // What the worker publishes and finalizes for a scripted engine, pinned to the
 // bytes main produced before the runtime contract refactor.

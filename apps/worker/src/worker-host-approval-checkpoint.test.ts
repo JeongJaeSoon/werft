@@ -14,10 +14,10 @@ import {
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
+import { noWorkspace } from "./testing/no-workspace.ts";
 import { ScriptedRun } from "./testing/scripted-run.ts";
 import { waitFor } from "./testing/wait-for.ts";
 import { WorkerHost } from "./worker-host.ts";
-import { noWorkspace } from "./workspace.ts";
 
 const timeouts: WorkerTimeouts = {
   answerPollIntervalMs: 2,

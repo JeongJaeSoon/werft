@@ -16,8 +16,8 @@ import { createWorkerHost, workerRuntimeRegistry } from "./composition.ts";
 import type { WorkerConfig, WorkerTimeouts } from "./config.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
+import { noWorkspace } from "./testing/no-workspace.ts";
 import { WorkerHost, type WorkerLogger } from "./worker-host.ts";
-import { noWorkspace } from "./workspace.ts";
 
 const SESSION_ID = "33333333-3333-4333-8333-333333333333";
 const MODEL = "claude-sonnet-4-5";

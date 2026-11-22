@@ -2,17 +2,13 @@ import { z } from "zod";
 
 import {
   agentIdSchema,
-  agentReleaseIdSchema,
   installationIdSchema,
   OPAQUE_ID_MAX_LENGTH,
   opaqueIdSchema,
   ownerScopeSchema,
   revisionSchema,
-  sessionIdSchema,
-  sessionLinkIdSchema,
   surfaceBindingIdSchema,
   timestampSchema,
-  userIdSchema,
   workspaceIdSchema,
 } from "../shared/index.ts";
 
@@ -299,67 +295,6 @@ export function formatSurfaceRef(channelId: string, threadId: string): string {
   }
   return surfaceRefSchema.parse(canonicalSurfaceRef(channelId, threadId));
 }
-
-export const sessionLinkSchema = z
-  .object({
-    id: sessionLinkIdSchema,
-    workspace_id: workspaceIdSchema,
-    owner_id: ownerScopeSchema,
-    session_id: sessionIdSchema,
-    surface: surfaceKindSchema,
-    installation_id: installationIdSchema,
-    surface_binding_id: surfaceBindingIdSchema,
-    surface_ref: surfaceRefSchema,
-    channel_id: opaqueIdSchema.nullable(),
-    thread_id: opaqueIdSchema.nullable(),
-    agent_id: agentIdSchema,
-    release_id: agentReleaseIdSchema.nullable(),
-    role: sessionLinkRoleSchema,
-    visibility: sessionLinkVisibilitySchema,
-    muted: z.boolean(),
-    revision: revisionSchema,
-    created_by: userIdSchema.nullable(),
-    created_at: timestampSchema,
-    revoked_at: timestampSchema.nullable(),
-  })
-  .strict()
-  .superRefine((link, ctx) => {
-    // `(installation_id, surface_ref)` is a reserved natural key, so one
-    // conversation must have exactly one spelling. A writer that concatenated
-    // the ids itself would otherwise reserve a second key for the same thread
-    // and open a second session on it. Half an identity is worse than none: it
-    // skips canonicalisation and lets any spelling through.
-    if ((link.channel_id === null) !== (link.thread_id === null)) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["thread_id"],
-        message: "channel_id and thread_id are both set or both null",
-      });
-    } else if (link.channel_id !== null && link.thread_id !== null) {
-      // `canonicalSurfaceRef`, not the formatter: a `parse` here would throw
-      // out of `safeParse` instead of reporting an issue.
-      const canonical = canonicalSurfaceRef(link.channel_id, link.thread_id);
-      if (link.surface_ref !== canonical) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["surface_ref"],
-          message: "must be formatSurfaceRef(channel_id, thread_id)",
-        });
-      }
-    }
-    // `ScopedSessionBinding` — what every inbound message resolves to — needs
-    // the release pin. A live link missing it would be admitted here and then
-    // fail every bind, so it is not a state worth storing. Only a revoked link
-    // may have lost it.
-    if (link.revoked_at !== null) return;
-    if (link.release_id === null) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["release_id"],
-        message: "a live session link needs release_id",
-      });
-    }
-  });
 
 export type SurfaceKind = z.infer<typeof surfaceKindSchema>;
 export type SurfaceChannelKind = z.infer<typeof surfaceChannelKindSchema>;

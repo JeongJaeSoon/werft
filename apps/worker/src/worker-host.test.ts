@@ -23,11 +23,13 @@ import type {
   ScriptedStep,
 } from "@werft-ai/runtime-core/testing";
 
-import { unwiredCheckpoints, type WorkerCheckpointPort } from "./checkpoint.ts";
+import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import type { EngineExitWatch } from "./engine-processes.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
+import { noWorkspace } from "./testing/no-workspace.ts";
 import { scriptedRuntime, startScripted } from "./testing/scripted-engine.ts";
+import { unwiredCheckpoints } from "./testing/unwired-checkpoints.ts";
 import { waitFor } from "./testing/wait-for.ts";
 import {
   frameTurn,
@@ -37,7 +39,7 @@ import {
   type WorkerHostOptions,
   type WorkerLogger,
 } from "./worker-host.ts";
-import { noWorkspace, type WorkspacePreparer } from "./workspace.ts";
+import type { WorkspacePreparer } from "./workspace.ts";
 import type { WorkspaceLimitMode } from "./workspace-limit-mode.ts";
 import type { WorkspaceMeasurement } from "./workspace-meter.ts";
 import { WorkspaceObserver } from "./workspace-observer.ts";

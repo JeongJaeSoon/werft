@@ -51,9 +51,6 @@ export const turnIdParamsSchema = sessionIdParamsSchema.extend({
   turn_id: turnIdSchema,
 });
 export const receiptIdParamsSchema = z.object({ id: receiptIdSchema });
-export const idempotencyKeyHeadersSchema = z.object({
-  "idempotency-key": idempotencyKeySchema,
-});
 export const lastEventIdHeadersSchema = z.object({
   "last-event-id": opaqueCursorSchema.optional(),
 });

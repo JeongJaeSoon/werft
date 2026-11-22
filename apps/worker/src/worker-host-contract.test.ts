@@ -12,14 +12,13 @@ import {
   type TurnEnded,
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
-
-import { unwiredCheckpoints } from "./checkpoint.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
+import { noWorkspace } from "./testing/no-workspace.ts";
 import { ScriptedRun } from "./testing/scripted-run.ts";
+import { unwiredCheckpoints } from "./testing/unwired-checkpoints.ts";
 import { waitFor } from "./testing/wait-for.ts";
 import { WorkerHost, type WorkerLogger } from "./worker-host.ts";
-import { noWorkspace } from "./workspace.ts";
 
 // The host driven by a run that implements the contract directly, with no
 // Claude driver underneath, so nothing here leans on how the Claude adapter

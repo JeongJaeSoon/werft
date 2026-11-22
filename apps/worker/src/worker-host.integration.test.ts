@@ -21,6 +21,7 @@ import { runtimeStart } from "./composition.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
+import { noWorkspace } from "./testing/no-workspace.ts";
 import { waitFor as pollFor } from "./testing/wait-for.ts";
 import {
   inputUuid,
@@ -28,7 +29,6 @@ import {
   WorkerHost,
   type WorkerLogger,
 } from "./worker-host.ts";
-import { noWorkspace } from "./workspace.ts";
 
 const SESSION_ID = "22222222-2222-4222-8222-222222222222";
 const MODEL = "claude-sonnet-4-5";

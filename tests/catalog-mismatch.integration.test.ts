@@ -52,6 +52,7 @@ import {
 } from "../apps/control-host/src/testing/releases.ts";
 import type { WorkerCheckpointPort } from "../apps/worker/src/checkpoint.ts";
 import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
+import { noWorkspace } from "../apps/worker/src/testing/no-workspace.ts";
 import {
   SCRIPTED_KIND,
   startScripted,
@@ -62,7 +63,6 @@ import {
   type WorkerLogger,
   type WorkerRunSummary,
 } from "../apps/worker/src/worker-host.ts";
-import { noWorkspace } from "../apps/worker/src/workspace.ts";
 
 /**
  * Catalog mismatch end to end in one process: an operator

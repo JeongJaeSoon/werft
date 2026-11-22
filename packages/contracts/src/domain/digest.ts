@@ -113,7 +113,3 @@ export const sessionDigestViewSchema = sessionDigestRowSchema
     last_summarized_turn_id: true,
   })
   .extend({ unread: z.boolean() });
-
-export type DigestWaitingReason = z.infer<typeof digestWaitingReasonSchema>;
-export type SessionDigest = z.infer<typeof sessionDigestSchema>;
-export type SessionDigestView = z.infer<typeof sessionDigestViewSchema>;

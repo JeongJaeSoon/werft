@@ -1,15 +1,16 @@
 import {
   type AgentCard,
-  type AgentCardRequest,
   type AgentDetail,
   type AgentMcpSettings,
   type AgentRelease,
   type AgentVersion,
+  type agentCardRequestSchema,
   type ConnectionOption,
   CREDENTIAL_REVOKE_NOTICE,
   type CredentialBindingView,
   type TeamView,
 } from "@werft-ai/contracts";
+import type { z } from "zod";
 import {
   apiError,
   json,
@@ -36,7 +37,7 @@ const VERSION_IDS = [
 ];
 
 /** A card as the console writes it: no role or instructions. */
-export const CARD: AgentCardRequest = {
+export const CARD: z.infer<typeof agentCardRequestSchema> = {
   language: "ko",
   model: "claude-sonnet-5",
   capabilities: { mcp: null, forbidden: [] },

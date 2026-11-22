@@ -64,12 +64,12 @@ import {
 import type { WorkerCheckpointPort } from "../apps/worker/src/checkpoint.ts";
 import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
 import { drainOnSignals } from "../apps/worker/src/main.ts";
+import { noWorkspace } from "../apps/worker/src/testing/no-workspace.ts";
 import {
   inputUuid,
   WorkerHost,
   type WorkerLogger,
 } from "../apps/worker/src/worker-host.ts";
-import { noWorkspace } from "../apps/worker/src/workspace.ts";
 import { until } from "./until.ts";
 
 /**

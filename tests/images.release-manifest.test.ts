@@ -11,11 +11,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildManifest,
-  MANIFEST_ASSET,
   type ReleaseManifest,
 } from "../.github/scripts/release-manifest.ts";
 
 // The manifest a tag's GitHub Release carries, and the script that attaches it.
+
+const MANIFEST_ASSET = "release-manifest.json";
 
 const root = join(import.meta.dir, "..");
 const sha = "0123456789abcdef0123456789abcdef01234567";
