@@ -579,6 +579,38 @@ integration("account recovery on PostgreSQL", () => {
     expect((await start().bootstrap()).status).toBe(201);
   });
 
+  for (const loss of ["disable", "demotion", "deletion"] as const) {
+    test(`a link left beside a live owner stays shut once the owner is lost by ${loss}`, async () => {
+      const { db, start, ownerId } = await install();
+      // Left over from an overlap: issued at the epoch the migration set, while
+      // the owner is live, so this loss is the sequence's first advance.
+      const link = randomBytes(32).toString("base64url");
+      await db.execute(
+        sql`INSERT INTO setup_links (token_hash, expires_at, epoch) VALUES (${Buffer.from(hashWebSessionToken(link))}, now() + interval '1 day', (SELECT last_value FROM setup_link_epoch))`,
+      );
+      const check = () =>
+        start().json("/v1/auth/setup-link/check", { setup_token: link });
+      expect((await check()).status).toBe(401);
+
+      if (loss === "disable") {
+        await db
+          .update(users)
+          .set({ disabledAt: new Date() })
+          .where(eq(users.id, ownerId));
+      } else if (loss === "demotion") {
+        await db
+          .update(memberships)
+          .set({ role: "member" })
+          .where(eq(memberships.userId, ownerId));
+      } else {
+        await db.delete(memberships).where(eq(memberships.userId, ownerId));
+      }
+      expect((await check()).status).toBe(401);
+      expect((await start().bootstrap(undefined, link)).status).toBe(401);
+      expect((await start().bootstrap()).status).toBe(201);
+    });
+  }
+
   test("recovery waits for a member login in flight and revokes its session too", async () => {
     const { db, pool, start, ownerId, memberId } = await install();
     await db
