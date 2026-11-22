@@ -1,7 +1,10 @@
 import {
   type AuthorizationSubject,
+  type Principal,
   SESSION_SCOPE_VALUES,
   type SessionScope,
+  scopesForRole,
+  type WorkspaceRole,
 } from "@werft-ai/contracts";
 
 /**
@@ -25,5 +28,23 @@ export function testCaller(
       surface: { kind: "api" },
     },
     requestId: crypto.randomUUID(),
+  };
+}
+
+/**
+ * A web user holding what `role` grants, for the platform's `callerFor`:
+ * testkit does not depend on the platform.
+ */
+export function userPrincipal(
+  id: string,
+  workspaceId: string,
+  role: WorkspaceRole,
+): Principal {
+  return {
+    kind: "user",
+    id,
+    workspace_id: workspaceId,
+    role,
+    scopes: [...scopesForRole(role)],
   };
 }

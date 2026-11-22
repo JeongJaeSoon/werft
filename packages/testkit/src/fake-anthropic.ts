@@ -250,7 +250,7 @@ export function errorResponse(failure: FakeFailure): Response {
 
 // A scripted Response may be served more than once, so hand out a copy and
 // keep the original body unread.
-function reusable(response: Response): Response {
+export function reusable(response: Response): Response {
   const copy = response.clone();
   return new Response(copy.body, {
     headers: copy.headers,

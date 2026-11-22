@@ -1,12 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { scopesForRole, type WorkspaceRole } from "@werft-ai/contracts";
-import {
-  type Caller,
-  callerFor,
-  InvalidCursorError,
-  type TeamActor,
-} from "@werft-ai/platform";
+import { type Caller, InvalidCursorError } from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -24,6 +18,7 @@ import {
   users,
   workspaces,
 } from "../schema.ts";
+import { acting, idOf, person } from "../testing/people.ts";
 import { createPostgresTeamStore } from "./member-teams.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -52,38 +47,6 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
     return workspaceId;
   }
 
-  async function person(workspaceId: string, role: WorkspaceRole) {
-    const userId = randomUUID();
-    await db.insert(users).values({
-      id: userId,
-      email: `${userId}@example.invalid`,
-      passwordHash: "argon2id$placeholder",
-      displayName: role,
-    });
-    await db.insert(memberships).values({ workspaceId, userId, role });
-    return callerFor(
-      {
-        kind: "user",
-        id: userId,
-        workspace_id: workspaceId,
-        role,
-        scopes: [...scopesForRole(role)],
-      },
-      { kind: "web" },
-      randomUUID(),
-    );
-  }
-
-  const idOf = (caller: Caller) => caller.actor?.userId ?? "";
-
-  function acting(caller: Caller): TeamActor {
-    return {
-      principal: caller,
-      workspaceId: caller.ownerId,
-      userId: idOf(caller),
-    };
-  }
-
   const teams = () => createPostgresTeamStore(db);
 
   async function newTeam(by: Caller, name = `team-${randomUUID()}`) {
@@ -107,9 +70,9 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
 
   test("owners and admins create, rename and delete teams; names are unique while live", async () => {
     const workspaceId = await workspace();
-    const owner = await person(workspaceId, "owner");
-    const admin = await person(workspaceId, "admin");
-    const plain = await person(workspaceId, "member");
+    const owner = await person(db, workspaceId, "owner");
+    const admin = await person(db, workspaceId, "admin");
+    const plain = await person(db, workspaceId, "member");
 
     const team = await newTeam(owner, "research");
     expect(team).toMatchObject({ name: "research", memberCount: 0 });
@@ -188,7 +151,7 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
 
     // Another workspace's team does not exist here.
     const elsewhere = await workspace();
-    const stranger = await person(elsewhere, "owner");
+    const stranger = await person(db, elsewhere, "owner");
     expect(
       await teams().rename({
         actor: acting(stranger),
@@ -201,14 +164,14 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
 
   test("members join at once, leave at once, and the receipt names the person", async () => {
     const workspaceId = await workspace();
-    const owner = await person(workspaceId, "owner");
-    const joiner = await person(workspaceId, "member");
-    const disabled = await person(workspaceId, "member");
+    const owner = await person(db, workspaceId, "owner");
+    const joiner = await person(db, workspaceId, "member");
+    const disabled = await person(db, workspaceId, "member");
     await db
       .update(memberships)
       .set({ disabledAt: new Date() })
       .where(eq(memberships.userId, idOf(disabled)));
-    const outsider = await person(await workspace(), "member");
+    const outsider = await person(db, await workspace(), "member");
     const team = await newTeam(owner);
 
     const added = await member(owner, team.id, joiner);
@@ -270,9 +233,9 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
 
   test("the team list counts each team's current members", async () => {
     const workspaceId = await workspace();
-    const owner = await person(workspaceId, "owner");
-    const first = await person(workspaceId, "member");
-    const second = await person(workspaceId, "member");
+    const owner = await person(db, workspaceId, "owner");
+    const first = await person(db, workspaceId, "member");
+    const second = await person(db, workspaceId, "member");
     const team = await newTeam(owner, "a-staffed");
     const empty = await newTeam(owner, "b-empty");
 
@@ -293,9 +256,9 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
 
   test("a person's joined teams are the live teams they are in now; isMember agrees", async () => {
     const workspaceId = await workspace();
-    const owner = await person(workspaceId, "owner");
-    const mine = await person(workspaceId, "member");
-    const other = await person(workspaceId, "member");
+    const owner = await person(db, workspaceId, "owner");
+    const mine = await person(db, workspaceId, "member");
+    const other = await person(db, workspaceId, "member");
     const kept = await newTeam(owner, "b-kept");
     const left = await newTeam(owner, "c-left");
     const deleted = await newTeam(owner, "a-deleted");
@@ -343,9 +306,9 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
 
   test("a disabled member's team row is frozen: no removal, no role change, no receipt", async () => {
     const workspaceId = await workspace();
-    const owner = await person(workspaceId, "owner");
-    const off = await person(workspaceId, "member");
-    const suspended = await person(workspaceId, "member");
+    const owner = await person(db, workspaceId, "owner");
+    const off = await person(db, workspaceId, "member");
+    const suspended = await person(db, workspaceId, "member");
     const team = await newTeam(owner);
     await member(owner, team.id, off);
     await member(owner, team.id, suspended);
@@ -483,8 +446,8 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
 
   test("one's own teams page by name too", async () => {
     const workspaceId = await workspace();
-    const owner = await person(workspaceId, "owner");
-    const mine = await person(workspaceId, "member");
+    const owner = await person(db, workspaceId, "owner");
+    const mine = await person(db, workspaceId, "member");
     const joined = await seedTeams(workspaceId, ["c", "a", "e", "b", "d"]);
     for (const team of joined)
       if (team.name !== "b") await member(owner, team.id, mine);
@@ -501,7 +464,7 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
 
   test("a rename mid-walk moves that team only; the others show once", async () => {
     const workspaceId = await workspace();
-    const owner = await person(workspaceId, "owner");
+    const owner = await person(db, workspaceId, "owner");
     const [, , early] = await seedTeams(workspaceId, ["b", "c", "a", "d", "e"]);
     const first = await teams().list(workspaceId, { limit: 2 });
     expect(first.items.map((team) => team.name)).toEqual(["a", "b"]);
@@ -564,12 +527,12 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
 
   test("adding a member queues behind a suspension of them instead of deadlocking it", async () => {
     const workspaceId = await workspace();
-    const owner = await person(workspaceId, "owner");
+    const owner = await person(db, workspaceId, "owner");
     // The suspension below locks the lower user_id first; make that the
     // joiner, the order in which the add used to deadlock.
-    let joiner = await person(workspaceId, "member");
+    let joiner = await person(db, workspaceId, "member");
     while (idOf(joiner) > idOf(owner))
-      joiner = await person(workspaceId, "member");
+      joiner = await person(db, workspaceId, "member");
     const team = await newTeam(owner);
 
     // Replays setAccess's lock order: both users, then memberships in
@@ -609,7 +572,7 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
 
   test("a reused receipt id fails the write rather than reading as a name clash", async () => {
     const workspaceId = await workspace();
-    const owner = await person(workspaceId, "owner");
+    const owner = await person(db, workspaceId, "owner");
     const receiptId = randomUUID();
     const create = (name: string) =>
       teams().create({

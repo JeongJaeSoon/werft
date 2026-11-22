@@ -9,6 +9,8 @@
  * `GET /v1/models`) therefore shows up in `requests` instead of being lost.
  */
 
+import { reusable } from "./fake-anthropic.ts";
+
 export type ResponsesRequest = {
   input?: unknown;
   model?: string;
@@ -241,17 +243,6 @@ export function errorResponse(failure: FakeFailure): Response {
       headers: { "x-request-id": `req_${crypto.randomUUID()}` },
     },
   );
-}
-
-// A scripted Response may be served more than once, so hand out a copy and
-// keep the original body unread.
-function reusable(response: Response): Response {
-  const copy = response.clone();
-  return new Response(copy.body, {
-    headers: copy.headers,
-    status: copy.status,
-    statusText: copy.statusText,
-  });
 }
 
 function toResolver(replies: ResponsesScript): ReplyResolver {

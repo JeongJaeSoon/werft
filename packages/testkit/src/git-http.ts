@@ -97,19 +97,9 @@ export async function createServedRepository(
     for (const [path, contents] of Object.entries(files)) {
       await Bun.write(join(work, path), contents);
     }
-    await runTestGit(["add", "--all"], work);
-    await runTestGit(
-      [
-        "-c",
-        "user.name=testkit",
-        "-c",
-        "user.email=testkit@example.test",
-        "commit",
-        "--quiet",
-        "-m",
-        "initial",
-      ],
+    await commitAll(
       work,
+      "initial",
       commitDate === undefined
         ? {}
         : { GIT_AUTHOR_DATE: commitDate, GIT_COMMITTER_DATE: commitDate },
@@ -248,4 +238,27 @@ export async function runTestGit(
     );
   }
   return stdout;
+}
+
+/** Stages everything in `work` and commits it as testkit. */
+export async function commitAll(
+  work: string,
+  message: string,
+  env: Record<string, string> = {},
+): Promise<void> {
+  await runTestGit(["add", "--all"], work);
+  await runTestGit(
+    [
+      "-c",
+      "user.name=testkit",
+      "-c",
+      "user.email=testkit@example.test",
+      "commit",
+      "--quiet",
+      "-m",
+      message,
+    ],
+    work,
+    env,
+  );
 }

@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-  SESSION_SCOPE_VALUES,
-  scopesForRole,
-  type WorkspaceRole,
-} from "@werft-ai/contracts";
+import { SESSION_SCOPE_VALUES, type WorkspaceRole } from "@werft-ai/contracts";
+import { userPrincipal } from "@werft-ai/testkit/callers";
 import {
   type InviteRecord,
   type InviteStore,
@@ -44,13 +41,7 @@ const MEMBER_ROW: MemberRecord = {
 
 function user(id: string, role: WorkspaceRole): Caller {
   return callerFor(
-    {
-      kind: "user",
-      id,
-      workspace_id: WORKSPACE,
-      role,
-      scopes: [...scopesForRole(role)],
-    },
+    userPrincipal(id, WORKSPACE, role),
     { kind: "web" },
     crypto.randomUUID(),
   );

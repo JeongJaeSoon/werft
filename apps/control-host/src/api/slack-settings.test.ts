@@ -1,16 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import {
-  type Principal,
-  scopesForRole,
-  type WorkspaceRole,
-} from "@werft-ai/contracts";
+import { type Principal, scopesForRole } from "@werft-ai/contracts";
 import type { SlackSettingsStore } from "@werft-ai/db";
 import {
   type Caller,
   callerFor,
   createAuthorizationPolicy,
-  SessionServiceError,
 } from "@werft-ai/platform";
+import { refusal } from "@werft-ai/platform/testing/refusal";
+import { userPrincipal } from "@werft-ai/testkit/callers";
 import {
   carryOverSlackSettings,
   createSlackSettingsAdmin,
@@ -28,15 +25,11 @@ const CONSOLE = "https://werft.example.test";
 const EVENTS = "https://events.example.test/in";
 
 function caller(who: keyof typeof USERS): Caller {
-  const role: WorkspaceRole = who;
-  const principal: Principal = {
-    kind: "user",
-    id: USERS[who],
-    workspace_id: WORKSPACE,
-    role,
-    scopes: [...scopesForRole(role)],
-  };
-  return callerFor(principal, { kind: "web" }, crypto.randomUUID());
+  return callerFor(
+    userPrincipal(USERS[who], WORKSPACE, who),
+    { kind: "web" },
+    crypto.randomUUID(),
+  );
 }
 
 const apiKey = callerFor(
@@ -90,18 +83,6 @@ function admin(
       consoleOrigin,
     }),
   };
-}
-
-async function refusal(work: Promise<unknown>) {
-  try {
-    await work;
-  } catch (error) {
-    if (error instanceof SessionServiceError) {
-      return { code: error.code, details: error.details };
-    }
-    throw error;
-  }
-  throw new Error("expected a refusal");
 }
 
 describe("the Slack settings service", () => {

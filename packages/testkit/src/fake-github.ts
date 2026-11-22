@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GitBundleFixture } from "./git-bundle.ts";
 import {
+  commitAll,
   createServedRepository,
   runTestGit,
   seedServedBranch,
@@ -1692,20 +1693,7 @@ export async function startFakeGitHub(
             await Bun.write(join(work, path), contents);
           }
         }
-        await runTestGit(["add", "--all"], work);
-        await runTestGit(
-          [
-            "-c",
-            "user.name=testkit",
-            "-c",
-            "user.email=testkit@example.test",
-            "commit",
-            "--quiet",
-            "-m",
-            "files",
-          ],
-          work,
-        );
+        await commitAll(work, "files");
         await runTestGit(
           ["push", "--quiet", "origin", `HEAD:refs/heads/${branch}`],
           work,
