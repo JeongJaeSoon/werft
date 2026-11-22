@@ -1,5 +1,5 @@
 {
-  "id": "54bb9c28-02be-45c9-bf39-0a4ec4c0ca98",
+  "id": "f881dcf9-88e7-4132-bd2d-bd6c2b55933b",
   "prevId": "016c281a-9000-48a5-b1c4-deea6e9a4d88",
   "version": "7",
   "dialect": "postgresql",
@@ -3968,71 +3968,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.channel_contexts": {
-      "name": "channel_contexts",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "team_id": {
-          "name": "team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "channel_id": {
-          "name": "channel_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "channel_contexts_workspace_id_workspaces_id_fk": {
-          "name": "channel_contexts_workspace_id_workspaces_id_fk",
-          "tableFrom": "channel_contexts",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "channel_contexts_channel_uniq": {
-          "name": "channel_contexts_channel_uniq",
-          "nullsNotDistinct": false,
-          "columns": ["workspace_id", "team_id", "channel_id"]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "channel_contexts_ids_check": {
-          "name": "channel_contexts_ids_check",
-          "value": "\"channel_contexts\".\"team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"channel_contexts\".\"channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$'"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.checkpoint_output_objects": {
       "name": "checkpoint_output_objects",
       "schema": "",
@@ -4659,274 +4594,6 @@
         "control_intents_interrupt_target_check": {
           "name": "control_intents_interrupt_target_check",
           "value": "\"control_intents\".\"kind\" <> 'interrupt' OR (\"control_intents\".\"target_turn_id\" IS NOT NULL AND \"control_intents\".\"attempt_id\" IS NOT NULL)"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.conversation_topics": {
-      "name": "conversation_topics",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "conversation_id": {
-          "name": "conversation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "conversation_kind": {
-          "name": "conversation_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slack_team_id": {
-          "name": "slack_team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "slack_channel_id": {
-          "name": "slack_channel_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "slack_thread_ts": {
-          "name": "slack_thread_ts",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "channel_team_id": {
-          "name": "channel_team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "generated": {
-            "as": "CASE WHEN \"conversation_kind\" = 'channel' THEN \"slack_team_id\" END",
-            "type": "stored"
-          }
-        },
-        "channel_channel_id": {
-          "name": "channel_channel_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "generated": {
-            "as": "CASE WHEN \"conversation_kind\" = 'channel' THEN \"slack_channel_id\" END",
-            "type": "stored"
-          }
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "conversation_topics_conversation_idx": {
-          "name": "conversation_topics_conversation_idx",
-          "columns": [
-            {
-              "expression": "conversation_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "conversation_topics_conversation_fk": {
-          "name": "conversation_topics_conversation_fk",
-          "tableFrom": "conversation_topics",
-          "tableTo": "conversations",
-          "columnsFrom": [
-            "workspace_id",
-            "agent_id",
-            "conversation_id",
-            "conversation_kind"
-          ],
-          "columnsTo": ["workspace_id", "agent_id", "id", "kind"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "conversation_topics_channel_fk": {
-          "name": "conversation_topics_channel_fk",
-          "tableFrom": "conversation_topics",
-          "tableTo": "conversations",
-          "columnsFrom": [
-            "conversation_id",
-            "channel_team_id",
-            "channel_channel_id"
-          ],
-          "columnsTo": ["id", "team_id", "channel_id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "conversation_topics_slack_uniq": {
-          "name": "conversation_topics_slack_uniq",
-          "nullsNotDistinct": false,
-          "columns": [
-            "agent_id",
-            "slack_team_id",
-            "slack_channel_id",
-            "slack_thread_ts"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "conversation_topics_slack_check": {
-          "name": "conversation_topics_slack_check",
-          "value": "(\"conversation_topics\".\"slack_team_id\" IS NULL AND \"conversation_topics\".\"slack_channel_id\" IS NULL AND \"conversation_topics\".\"slack_thread_ts\" IS NULL) OR (\"conversation_topics\".\"slack_team_id\" IS NOT NULL AND \"conversation_topics\".\"slack_channel_id\" IS NOT NULL AND \"conversation_topics\".\"slack_thread_ts\" IS NOT NULL AND \"conversation_topics\".\"slack_team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_topics\".\"slack_channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_topics\".\"slack_thread_ts\" ~ '^[0-9]{1,20}\\.[0-9]{1,20}$')"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.conversations": {
-      "name": "conversations",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "team_id": {
-          "name": "team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "channel_id": {
-          "name": "channel_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "person_user_id": {
-          "name": "person_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "conversations_agent_fk": {
-          "name": "conversations_agent_fk",
-          "tableFrom": "conversations",
-          "tableTo": "agents",
-          "columnsFrom": ["workspace_id", "agent_id"],
-          "columnsTo": ["workspace_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "conversations_channel_fk": {
-          "name": "conversations_channel_fk",
-          "tableFrom": "conversations",
-          "tableTo": "channel_contexts",
-          "columnsFrom": ["workspace_id", "team_id", "channel_id"],
-          "columnsTo": ["workspace_id", "team_id", "channel_id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "conversations_person_fk": {
-          "name": "conversations_person_fk",
-          "tableFrom": "conversations",
-          "tableTo": "memberships",
-          "columnsFrom": ["workspace_id", "person_user_id"],
-          "columnsTo": ["workspace_id", "user_id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "conversations_channel_uniq": {
-          "name": "conversations_channel_uniq",
-          "nullsNotDistinct": false,
-          "columns": ["agent_id", "team_id", "channel_id"]
-        },
-        "conversations_dm_uniq": {
-          "name": "conversations_dm_uniq",
-          "nullsNotDistinct": false,
-          "columns": ["agent_id", "person_user_id"]
-        },
-        "conversations_agent_kind_key": {
-          "name": "conversations_agent_kind_key",
-          "nullsNotDistinct": false,
-          "columns": ["workspace_id", "agent_id", "id", "kind"]
-        },
-        "conversations_channel_key": {
-          "name": "conversations_channel_key",
-          "nullsNotDistinct": false,
-          "columns": ["id", "team_id", "channel_id"]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "conversations_kind_check": {
-          "name": "conversations_kind_check",
-          "value": "\"conversations\".\"kind\" IN ('channel','dm')"
-        },
-        "conversations_place_check": {
-          "name": "conversations_place_check",
-          "value": "(\"conversations\".\"kind\" = 'channel' AND \"conversations\".\"team_id\" IS NOT NULL AND \"conversations\".\"channel_id\" IS NOT NULL AND \"conversations\".\"person_user_id\" IS NULL) OR (\"conversations\".\"kind\" = 'dm' AND \"conversations\".\"person_user_id\" IS NOT NULL AND \"conversations\".\"team_id\" IS NULL AND \"conversations\".\"channel_id\" IS NULL)"
         }
       },
       "isRLSEnabled": false
@@ -14833,6 +14500,22 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "slack_inbound_events_failed_payload_idx": {
+          "name": "slack_inbound_events_failed_payload_idx",
+          "columns": [
+            {
+              "expression": "received_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"slack_inbound_events\".\"status\" = 'failed' AND \"slack_inbound_events\".\"payload\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -14882,9 +14565,9 @@
           "name": "slack_inbound_events_drop_reason_check",
           "value": "\"slack_inbound_events\".\"drop_reason\" IS NULL OR \"slack_inbound_events\".\"drop_reason\" IN ('not_installed','installation_unverified','installation_revoked','unidentified','identity_revoked','bot_mismatch','agent_mismatch','agent_archived','app_mismatch','bot_message','bot_allowlist_empty','bot_not_allowed','own_bot_user','werft_agent_bot','slackbot','message_subtype','unsupported_event','user_tokens_only','channel_pending_approval','channel_left')"
         },
-        "slack_inbound_events_dropped_check": {
-          "name": "slack_inbound_events_dropped_check",
-          "value": "(\"slack_inbound_events\".\"status\" = 'dropped') = (\"slack_inbound_events\".\"drop_reason\" IS NOT NULL) AND (\"slack_inbound_events\".\"status\" = 'dropped') = (\"slack_inbound_events\".\"payload\" IS NULL)"
+        "slack_inbound_events_payload_check": {
+          "name": "slack_inbound_events_payload_check",
+          "value": "(\"slack_inbound_events\".\"status\" = 'dropped') = (\"slack_inbound_events\".\"drop_reason\" IS NOT NULL) AND (\"slack_inbound_events\".\"status\" <> 'received' OR \"slack_inbound_events\".\"payload\" IS NOT NULL) AND (\"slack_inbound_events\".\"status\" <> 'dropped' OR \"slack_inbound_events\".\"payload\" IS NULL)"
         },
         "slack_inbound_events_drop_fields_check": {
           "name": "slack_inbound_events_drop_fields_check",

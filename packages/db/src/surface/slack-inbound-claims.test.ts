@@ -17,7 +17,10 @@ import {
   workspaces,
 } from "../schema.ts";
 import { fixtureTeam } from "../testing/fixture-team.ts";
-import { createPostgresSlackInboundEventStore } from "./slack-inbound-events.ts";
+import {
+  createPostgresSlackInboundEventStore,
+  purgeFailedSlackInboundPayloads,
+} from "./slack-inbound-events.ts";
 
 const migrations = join(import.meta.dir, "../../migrations");
 const LEASE = { leaseMs: 60_000, maxAttempts: SLACK_INBOUND_MAX_ATTEMPTS };
@@ -525,5 +528,147 @@ describe("migration 0160 over 0159 rows", () => {
     } finally {
       await pg.close();
     }
+  });
+});
+
+describe("the payload of a settled row", () => {
+  const DAY_MS = 24 * 60 * 60_000;
+
+  async function failed(app: App, ts: string) {
+    const id = await mention(app, { ts });
+    await db
+      .update(slackInboundEvents)
+      .set({ status: "failed" })
+      .where(eq(slackInboundEvents.eventId, id));
+    return id;
+  }
+
+  const receivedDaysAgo = (id: string, days: number) =>
+    db
+      .update(slackInboundEvents)
+      .set({ receivedAt: sql`now() - make_interval(days => ${days})` })
+      .where(eq(slackInboundEvents.eventId, id));
+
+  test("migration leaves the payload CHECK in place of the dropped-only one", async () => {
+    const found = await db.execute<{ conname: string; convalidated: boolean }>(
+      sql`SELECT conname, convalidated FROM pg_constraint
+        WHERE conrelid = 'slack_inbound_events'::regclass
+          AND conname IN ('slack_inbound_events_payload_check', 'slack_inbound_events_dropped_check')`,
+    );
+    expect(found.rows).toEqual([
+      { conname: "slack_inbound_events_payload_check", convalidated: true },
+    ]);
+  });
+
+  test("completing a row clears its payload; a retry keeps it", async () => {
+    await settle();
+    const app = await agentApp();
+    const done = await mention(app, { ts: "1792800000.000700" });
+    const retried = await mention(app, {
+      ts: "1792800000.000800",
+      channel: "C0OTHER",
+    });
+    const claims = await inbox.claim({ limit: 10, ...LEASE });
+    const claimOf = (eventId: string) => {
+      const claim = claims.find((c) => c.eventId === eventId);
+      if (!claim) throw new Error(`${eventId} not claimed`);
+      return claim;
+    };
+    expect(await inbox.complete(claimOf(done))).toBe(true);
+    expect(
+      await inbox.fail(claimOf(retried), {
+        retryInMs: backoffMs(1),
+        maxAttempts: SLACK_INBOUND_MAX_ATTEMPTS,
+      }),
+    ).toBe("retry");
+    expect(await row(done)).toMatchObject({
+      status: "processed",
+      payload: null,
+    });
+    expect(await row(retried)).toMatchObject({
+      status: "received",
+      payload: expect.objectContaining({ event_id: retried }),
+    });
+  });
+
+  test("a failed row loses its payload once received 7 days ago, not before", async () => {
+    await settle();
+    const app = await agentApp();
+    const old = await failed(app, "1792800000.000900");
+    const recent = await failed(app, "1792800000.001000");
+    const waiting = await mention(app, { ts: "1792800000.001100" });
+    await receivedDaysAgo(old, 8);
+    await receivedDaysAgo(recent, 6);
+    await receivedDaysAgo(waiting, 8);
+
+    expect(
+      await purgeFailedSlackInboundPayloads(db, { limit: 100, dryRun: true }),
+    ).toBe(1);
+    expect((await row(old)).payload).not.toBeNull();
+    expect(
+      await purgeFailedSlackInboundPayloads(db, { limit: 100, dryRun: false }),
+    ).toBe(1);
+    expect(await row(old)).toMatchObject({ status: "failed", payload: null });
+    expect((await row(recent)).payload).not.toBeNull();
+    expect((await row(waiting)).payload).not.toBeNull();
+    expect(
+      await purgeFailedSlackInboundPayloads(db, { limit: 100, dryRun: false }),
+    ).toBe(0);
+
+    // The clock moves on past the recent row's seventh day.
+    expect(
+      await purgeFailedSlackInboundPayloads(db, {
+        limit: 100,
+        dryRun: false,
+        retentionMs: 5 * DAY_MS,
+      }),
+    ).toBe(1);
+    expect((await row(recent)).payload).toBeNull();
+    expect((await row(waiting)).payload).not.toBeNull();
+  });
+
+  test("the CHECK takes the previous image's writes and refuses a received row without a payload", async () => {
+    await settle();
+    const app = await agentApp();
+    // The previous image completes a row and keeps the payload.
+    const kept = await mention(app, { ts: "1792800000.001200" });
+    await db
+      .update(slackInboundEvents)
+      .set({ status: "processed" })
+      .where(eq(slackInboundEvents.eventId, kept));
+    expect((await row(kept)).payload).not.toBeNull();
+
+    const refusal = async (write: PromiseLike<unknown>) => {
+      try {
+        await write;
+        return "accepted";
+      } catch (error) {
+        return String((error as { cause?: unknown }).cause ?? error);
+      }
+    };
+    const waiting = await mention(app, { ts: "1792800000.001300" });
+    expect(
+      await refusal(
+        db
+          .update(slackInboundEvents)
+          .set({ payload: null })
+          .where(eq(slackInboundEvents.eventId, waiting)),
+      ),
+    ).toContain("slack_inbound_events_payload_check");
+    const dropped = await mention(app, { ts: "1792800000.001400" });
+    expect(
+      await refusal(
+        db
+          .update(slackInboundEvents)
+          .set({
+            status: "dropped",
+            dropReason: "bot_message",
+            conversationKey: null,
+          })
+          .where(eq(slackInboundEvents.eventId, dropped)),
+      ),
+    ).toContain("slack_inbound_events_payload_check");
+    expect((await row(waiting)).payload).not.toBeNull();
+    expect((await row(dropped)).status).toBe("received");
   });
 });

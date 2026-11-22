@@ -166,10 +166,10 @@ SDK を上げるリリースでは、イメージが載せるランタイムの�
 <a id="설정-문서는-빈-설치에-한-번만-들어간다" />
 ### 設定文書は空のインストールに一度だけ入る
 
-このリリースから、migrate は設定文書(`SETTINGS_DOCUMENT`、test-ops では `PLATFORM_SETTINGS_DOCUMENT`)と旧設定ディレクトリ(`/legacy-config`)を、空のインストールにだけ一度入れます(`settings seed`)。その後、接続・リポジトリ・MCP サーバーはコンソール(設定 > エージェント接続)で変更します。文書を直して再デプロイしても取り込まれません。
+このリリースから、migrate は設定文書(`SETTINGS_DOCUMENT`、test-ops では `PLATFORM_SETTINGS_DOCUMENT`)を、空のインストールにだけ一度入れます(`settings seed`)。その後、接続・リポジトリ・MCP サーバーはコンソール(設定 > エージェント接続)で変更します。文書を直して再デプロイしても取り込まれません。
 
-- migration `0282_settings_seed_decided` が `settings_generation.seed_decided_at` 列を追加します。アップグレード後の最初の migrate がこの時刻を記録します。接続や MCP サーバーがすでにあるインストール(使用停止したものを含む)は何も取り込まず、時刻だけを記録します。リポジトリ行だけがあるインストールは空とみなし、一度入れます。
-- 取り込まないとき、migrate のログに値を含まない一行が出ます: `note: <ディレクトリと文書> not imported: the installation already holds settings. They seed an empty installation only; change settings in the console`。時刻を記録した後は `the automatic seed ran on <時刻>` と表示されます。この行は失敗ではありません。
+- migration `0282_settings_seed_decided` が `settings_generation.seed_decided_at` 列を追加します。アップグレード後、設定文書を受け取った最初の migrate がこの時刻を記録します。`SETTINGS_DOCUMENT` がなければ migrate は seed を実行しないため、時刻もログも残りません。接続や MCP サーバーがすでにあるインストール(使用停止したものを含む)は何も取り込まず、時刻だけを記録します。リポジトリ行だけがあるインストールは空とみなし、一度入れます。
+- 取り込まないとき、migrate のログに値を含まない一行が出ます: `note: the settings document <ファイル> (SETTINGS_DOCUMENT) not imported: the installation already holds settings. It seeds an empty installation only; change settings in the console`。時刻を記録した後は `the automatic seed ran on <時刻>` と表示されます。この行は失敗ではありません。
 - 文書の内容を意図して入れ直すときは、owner が手で `settings import` を実行します。このコマンドは変わっていません。
 - test-ops の `upgrade` は、変わった文書を取り込まず、DB と比較もしません。文書の digest が変わると `upgrade: the settings document changed; it is not imported into a deployed installation, so change settings in the console` を記録します。`deploy` の確認はそのままです。
 - ロールバックすると、以前のリリースの migrate がデプロイのたびに文書を再び取り込みます。コンソールで変えた項目が文書の同じ id と異なると、その取り込みが拒否されて migrate が失敗し、API が起動しません。ロールバックの前に、そうした項目を文書から外すか、コンソールの値に合わせます。`seed_decided_at` 列は削除しません。以前のビルドはこの列を読みません。
@@ -186,7 +186,7 @@ SDK を上げるリリースでは、イメージが載せるランタイムの�
 - 実行経路が拒否する値（8 バイトより短いキーや前後の空白・制御文字を含むキー、RSA 秘密鍵 PEM でない App のキー）と 8 文字より短いキー（保存値は末尾の四文字を表示します）は移しません。その行は外され、`<kind>:<id> is left out and not carried into the database: <理由>. Correct <名前> and restart the API` が一度出ます。理由には変数名だけが出ます。
 - 明示的な App のリポジトリを移すと資格情報の参照が変わり、リポジトリの binding も変わります。同じトランザクションで、そのリポジトリの古い binding をそのまま持つ push 要求と実行中のセッションのリポジトリトークンを新しい binding に移します。そのため、移す前の push からも PR を開いてマージでき、実行中のセッションもトークンを受け取り直せます。移した行数はログ（`… (N push requests and M worker credentials moved to its new binding)`）と receipt の `rebound` に残ります。まだ移したことを読んでいない replica（10 秒ごとに読み直します）や以前のビルドがそのあと古い binding で書く行は、DB が書き込む時点で新しい binding にします（上の trigger）。ロールバックの SQL が `carried_binding` を空にすると、trigger は何も変えません。移すトランザクションは二つの表をロックするため、その間 push 要求と worker トークンを書く要求は待ちます。5 秒以内にロックできなければ移さず、次の読み込みでやり直します。移したあと、その App のキーは `POST /v1/installation/settings/repositories/{id}/credential`（owner・admin、RSA 秘密鍵 PEM）で変えます。env を変えても読みません。
 - **このリリースへ上げるときは、api を一つに減らすか、以前の replica をすべて止めてから新しいビルドを起動します。** replica はそれぞれ 10 秒ごとに設定を読み直すため、まだ移したことを読んでいない replica がその間に、移した push 要求を `catalog_changed` で失敗させたり、実行中のセッションのトークン再発行を拒否したりすることがあります。Compose の api は一つなので、そのまま上げます。Helm は [Kubernetes のアップグレード](/run-server/self-hosting/upgrade-kubernetes)の手順 1 に従います。そうして失敗した push は、もう一度要求すれば新しい binding で push されます。
-- 移したあと古い文書を手で `settings import` すると、移した項目は同じ id で内容が違うため `conflicts` で止まります（`--from-dir` のリポジトリは `kept` で残ります）。その項目を文書から外すか、`settings export` で受け取った文書を使います。
+- 移したあと古い文書を手で `settings import` すると、移した項目は同じ id で内容が違うため `conflicts` で止まります。その項目を文書から外すか、`settings export` で受け取った文書を使います。
 - URL リポジトリ（`auth` が `basic`・`bearer`）は実行に使われないので移しません。
 - ロールバック: 以前のビルドは接続・MCP サーバーの保存値は読みますが、明示的な App のリポジトリの保存値は拒否し、そのリポジトリは `invalid` として外れます。ロールバックはこの順序で行います。
   1. このリリースの api replica をすべて止めます。一つでも動いていると、次の設定読み込み（10 秒以内）で戻した行をまた移します。
@@ -213,7 +213,7 @@ COMMIT;
 - アップグレードの前に、env か Secrets Manager を指すモデル接続ごとに、今のリリースのコンソールの**画面でキーを入れる**でキーを入れておきます。そうすればアップグレード後もその接続のセッションは止まりません。アップグレード後に入れてもかまいません。MCP サーバーとリポジトリの App key は今のリリースでは移す方法がないので、アップグレード直後に入れます（下記）。
 - 使用を停止した接続や MCP サーバーが env か Secrets Manager を指していると、アップグレード後は再び有効にできません。コンソールは停止した行にキーを受け付けず、キーのない行を有効にしません。その接続を使い続けるなら、アップグレード前に有効にして**画面でキーを入れる**でキーを入れます。MCP サーバーはアップグレード前に有効にしておき、アップグレード後にキーを入れます。そうしなかった場合は、アップグレード後に新しい id で接続やサーバーを作ります。id は再利用しません。
 - migration `0288_remove_external_credentials` は、env か Secrets Manager を指していた行を値のない保存型の行に変えます。その行はキーが入るまで `needs_value`（画面では**値が必要**）で、その行を使うセッションは動きません。接続は**API キーを設定**、MCP サーバーは**値を変える**、リポジトリの App key は上の API で入れます。古い `auth` は `carried_auth` に記録としてだけ残り、読まれません。明示的な App のリポジトリは binding が変わるため、同じ migration がそのリポジトリの worker 資格情報の binding を新しい値に移します。push リクエストの binding はそのリポジトリの App key を入れたときに移すため、それまでは上げる前に作った push から PR を開けません。以前の api replica が受け取ったキーでは push は移らないので、リポジトリの App key はすべての api が新しいビルドになってから入れます（先に入れたならもう一度入れます）。
-- 設定文書の `value_env`・`secret_id` の項目は `"stored": true` に変えてから import します。残っていると `settings import`（API、CLI、`--from-dir`）が 400 `invalid_document` で拒否し、CLI はそのフィールド名をエラーに出します。
+- 設定文書の `value_env`・`secret_id` の項目は `"stored": true` に変えてから import します。残っていると `settings import`（API、CLI）が 400 `invalid_document` で拒否し、CLI はそのフィールド名をエラーに出します。
 - アップグレード後、接続が指していたキーの変数（例: `ANTHROPIC_API_KEY`）と `AWS_ENDPOINT_URL_SECRETS_MANAGER` を api の env から消します。api はこれらを読みません。Helm は [Kubernetes のアップグレード](/run-server/self-hosting/upgrade-kubernetes)に従います。
 - コンソールで作る接続と MCP サーバーは、キーがあるときだけ保存されます。Web は 8 文字以上入れるまで保存ボタンを押せないようにし、API はキーがない、8 バイトより短い、制御文字や前後の空白を含むときに 400 で拒否し、DB は値なしでコンソールから作った行を同じトランザクションで拒否します。外部の出所の接続を保存型に変えていたコンソールの「画面でキーを入れる」ボタンと `POST …/connections/{id}/convert` の経路はなくなりました。
 - 上の 0285 のロールバック SQL は、このリリースの後では使えません。`credential_source` は `stored` だけを許します。
@@ -229,9 +229,17 @@ migration `0305_drop_unused_tables` が `catalog_authority`・`owner_workspace_m
 <a id="대화-층의-빈-표-셋을-더한-릴리스" />
 ### 会話層の空の表を三つ追加したリリース
 
-migration `0308_conversation_scopes` が `channel_contexts`(チャンネルの単位)・`conversations`(エージェントのメイン会話)・`conversation_topics`(会話の話題)の表を空のまま作る。このリリースのコードはまだこれらの表を読み書きしないので、上げるときにすることはなく、Slack とセッションの動作も変わらない。
+migration `0309_conversation_scopes` が `channel_contexts`(チャンネルの単位)・`conversations`(エージェントのメイン会話)・`conversation_topics`(会話の話題)の表を空のまま作る。このリリースのコードはまだこれらの表を読み書きしないので、上げるときにすることはなく、Slack とセッションの動作も変わらない。
 
 - サポート期間内のイメージに戻しても影響はない。古いコードはこれらの表を知らない。
+
+<a id="처리한-slack-이벤트-원문을-지우는-릴리스" />
+### 処理した Slack イベントの原文を消すリリース
+
+migration `0308_slack_inbound_payload_check` が `slack_inbound_events` の CHECK を変える。処理を終えた行と失敗した行は原文(`payload`)がなくてもよくなる。このリリースの slack ロールは処理を終えると原文を消し、reconciler は受け取ってから 7 日を過ぎた失敗行の原文を消す。保持期間は[データごとの保持](/run-server/self-hosting/reference/storage#데이터별-보존)にある。
+
+- 新しい CHECK は古い CHECK より緩い。原文を残す前の slack ロールの書き込みも受け付けるので、サポート期間内のイメージに戻してもよい。
+- 原文を消した行が一つでもできると、古い CHECK(`slack_inbound_events_dropped_check`)は戻せない。スキーマを 0308 より下げない。消した原文は戻らない。
 
 <a id="mock-slack-env-이름" />
 ### mock Slack の環境変数名

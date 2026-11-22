@@ -288,6 +288,8 @@ OpenAPI: [`closeSession`](/reference/http-api/session-control/closeSession), [`t
 
 close는 pause와 같은 방식으로 drain한다. worker가 붙은 `active` 세션은 `closing`이 되고, 진행 중 turn이 끝나 checkpoint가 확정되고 실행이 사라진 것을 본 뒤 `closed`가 된다. receipt도 그때 `succeeded`가 된다. worker가 없는 세션, `paused`, resume할 수 있는 `stopped`는 요청 안에서 바로 닫힌다. drain이 60초를 넘기면 세션 `attention`에 `CLOSE_BLOCKED`와 이유(`long_turn`, `pending_request`, `mirror_error`, `checkpoint_unavailable`, `execution_pending`)가 보인다. 열린 승인·질문은 close를 막는다. 답하거나 interrupt하면 풀린다. 끝내 닫지 못하면 receipt가 실패하고 세션은 `active`로 돌아간다. 이때 대기 입력은 그대로 남는다. 그 상태에서 빠져나오려면 terminate를 쓴다. 진행 중인 close는 `CONTROL_SUPERSEDED`로 실패한다.
 
+에이전트 release가 없는 세션(release를 요구하기 전에 접수된 세션)은 어떤 worker도 맡지 못한다. API는 기동할 때마다 이런 세션 중 닫히지 않은 것을 recovery close와 같은 방식으로 닫는다. 이때 receipt는 새로 생기지 않는다. 스트림에는 `status` 이벤트(`admission_state: "closed"`)와 `system` `subtype: session_closed`(`closed_by: "agentless_cleanup"`, `reason: "no_agent_release"`)가 남고, 기다리던 제어 receipt는 `CONTROL_SUPERSEDED`로 실패한다.
+
 자기 turn 안에서 자기 세션을 close하는 에이전트는 receipt를 기다리지 않는다. drain은 그 turn이 끝나기를 기다리므로, `accepted` 응답이 그 turn이 보는 마지막 답이다. 결과를 push하려면 close가 `succeeded`가 된 뒤 최종 checkpoint로 push를 요청한다. 마지막 turn 안에서 요청한 push는 요청 뒤 그 turn에서 commit을 더 만들었다면, close가 확정한 checkpoint의 commit이 달라 승인할 때 `CHECKPOINT_MOVED`로 거절된다. close는 push 요청을 건드리지 않는다.
 
 아래 예시는 별도 세션을 하나 만들어 turn을 마치고 닫는다.

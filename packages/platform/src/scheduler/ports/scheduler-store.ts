@@ -489,14 +489,6 @@ export interface SchedulerStore {
   ): Promise<string[]>;
 
   /**
-   * The subset of `sessionIds` that the database proves done with their
-   * workspace: a row exists, it is `closed`, and no launch holds its slot.
-   * For workspaces whose session was read off a name rather than a label,
-   * where a missing row is no evidence at all — the name may be a stranger's.
-   */
-  filterClosedLegacySessions(sessionIds: string[]): Promise<string[]>;
-
-  /**
    * Decides, under the session's lock, whether this workspace may be removed.
    * `unclaimed`: nothing can come back to the session (closed, or no row), so
    * the removal needs no claim. `claimed`: a stopped session past its TTL, or

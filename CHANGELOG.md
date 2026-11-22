@@ -14,7 +14,12 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **대화 층의 빈 표 셋 `channel_contexts`·`conversations`·`conversation_topics`를 더한다**(JeongJaeSoon/werft#2023). migration `0308_conversation_scopes`가 만든다. 이 릴리스의 코드는 아직 읽거나 쓰지 않으므로 할 일은 없고 동작도 그대로다. 지원 창 안의 이미지로 되돌려도 영향이 없다.
+- **대화 층의 빈 표 셋 `channel_contexts`·`conversations`·`conversation_topics`를 더한다**(JeongJaeSoon/werft#2023). migration `0309_conversation_scopes`가 만든다. 이 릴리스의 코드는 아직 읽거나 쓰지 않으므로 할 일은 없고 동작도 그대로다. 지원 창 안의 이미지로 되돌려도 영향이 없다.
+- **Slack inbox(`slack_inbound_events`)가 처리를 마친 이벤트의 원문(`payload`)을 바로 지우고, 실패한 이벤트의 원문은 받은 지 7일이 지나면 reconciler가 지운다**(JeongJaeSoon/werft#2025). 따로 할 일은 없다.
+  - migration `0308_slack_inbound_payload_check`가 CHECK를 바꾼다. 처리된 행과 실패한 행은 원문이 없어도 되고, 받은 행은 원문이 있어야 하고, 버린 행은 지금처럼 원문이 없다. 새 CHECK를 `NOT VALID`로 더해 검증한 뒤 옛 CHECK를 지우고, 인덱스는 `CONCURRENTLY`로 만든다.
+  - 처리된 행의 원문을 읽던 진단 SQL은 이제 빈 값을 본다. 행(이벤트 종류·상태·버린 이유·시도 횟수)은 남는다. 이 릴리스 전에 처리한 행의 원문은 아직 남아 있다.
+  - 이미지는 지원 창 안으로 되돌려도 된다. 원문을 지운 행이 생긴 뒤에는 옛 CHECK를 다시 걸 수 없으므로 0308 아래로 스키마를 내리지 않는다.
+
 - **Slack 입력에서 자기 앱의 메아리와 Slackbot 글의 버린 이유가 바뀌고, migration `0307_slack_drop_fields`가 `slack_inbound_events`에 `drop_fields` 칸을 더한다**(JeongJaeSoon/werft#2026). 할 일은 버린 이유로 집계하는 대시보드나 질의를 맞추는 것뿐이다.
   - 에이전트 자신의 앱이 `bot_id`를 달고 쓴 글(에이전트의 답, 웹 콘솔에서 사람 이름으로 올린 지시)은 bot 허용 목록보다 먼저 `own_bot_user`로 버린다. 이전에는 허용 목록 규칙에 걸려 `bot_allowlist_empty`·`bot_not_allowed`·`bot_message`로 남았다.
   - Slackbot(`USLACK`)의 글은 DM이든 채널이든 새 이유 `slackbot`으로 버린다. 이전에는 Slackbot DM을 사람 DM으로 처리해 실패하는 계정 연결 안내를 outbox에 넣었고, 채널 글도 사람 글로 받았다.
@@ -30,6 +35,16 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - migration `0306_skill_superseded_versions`가 이미 쌓인 승인 대기 버전 가운데 같은 스킬에 순번이 더 큰 승인 버전이 있는 것만 `superseded`로 바꾼다. 그 승인은 receipt를 새로 쓰지 않는다. 바뀔 행 수는 올리기 전에 이 쿼리로 센다: `SELECT count(*) FROM extension_bundles AS old WHERE old.review = 'pending' AND old.archived_at IS NULL AND old.version IS NOT NULL AND EXISTS (SELECT 1 FROM extension_bundles AS newer WHERE newer.workspace_id = old.workspace_id AND newer.name = old.name AND newer.review = 'approved' AND newer.version > old.version);`
   - `GET /v1/workspace/skills` 응답의 `review` 값을 `pending`·`approved`·`rejected` 셋으로만 가정하는 API client는 `superseded`를 다루도록 고친다. 대체를 일으킨 `approve_extension`·`revert_extension` receipt의 `result.superseded`에 닫힌 버전의 id와 순번이 남는다. 알림은 없다.
   - rolling deploy 중 옛 replica에서 한 승인은 아무것도 닫지 않는다. 그 사이 승인한 스킬에 남은 오래된 대기 버전은 관리자가 거절하거나 승인해서 닫는다.
+
+- **v0.1.0보다 앞선 설치만을 위한 경로가 없어진다. 그런 설치는 이 판으로 바로 올리지 못하므로, 먼저 이 판보다 앞선 release로 올려 옮긴다**(JeongJaeSoon/werft#2018). 호환 경로는 없다.
+
+  - 파일 카탈로그 가져오기: `settings import|seed --from-dir`(이제 `Unknown option`), compose migrate의 `/legacy-config` 마운트와 `PLATFORM_LEGACY_CONFIG_DIR`, Helm migrate Job의 옛 `catalog` ConfigMap 마운트와 그 seed 단계. compose migrate는 `SETTINGS_DOCUMENT`가 있을 때만 `settings seed --document`를 돈다.
+  - API·slack 역할은 남은 `PLATFORM_CONFIG_DIR`·`SESSION_CATALOG_JSON`으로 기동을 거부하지 않는다. 읽지 않고 뜬다. 정리하려면 지운다.
+  - 설정 CLI(`settings import --document`·`seed`)는 GitHub App 없는 저장소 항목(`auth`가 없거나 `basic`·`bearer`)을 `note:`와 함께 빼지 않고, API import처럼 문서 전체를 거절한다. 진행 중 세션이 가리키는 저장소가 빠지면 거절하던 검사와, DB 행을 남기고 결과의 `kept`로 알리던 규칙도 없어졌다(결과에 `kept`가 없다). test-ops도 그 문서를 컨테이너를 띄우기 전에 같은 메시지로 거절한다.
+  - test-ops는 `catalog_revision`만 적은 옛 `current.json`을 읽지 않는다(`manifest has unknown key catalog_revision`).
+  - 백업·복원: 내장 Gitea 데이터가 든 백업을 exit 3으로 거절하던 검사와, 남은 `<project>_gitea-data` volume에 대한 `backup`·`reset` 경고가 없어졌다. 그런 백업의 `gitea/`·`repos/`는 복원하지 않고 무시한다.
+  - local-docker: isolation contract 6보다 앞선 worker와 network를 위한 특별 처리(교체 전 확인이 실패한 contract 5 미만 worker를 공유 network에서 떼어 내기, contract 5 network의 host 주소 유예, worker 없이 남은 옛 network 재생성)가 없어졌다. contract 5 미만 worker는 다른 옛 contract 컨테이너처럼 stale로 교체되고, 확인이 실패하면 network에 붙은 채 다음 pass를 기다린다. launch와 교체 전 확인은 host 주소가 있는 network를 worker가 붙어 있든 없든 `gives the host an address on it`으로 거절하고 그 자리에서 다시 만들지 않는다. worker가 없어진 network는 `reconcileNetworks`가 지운다. 옛 worker가 남아 교체가 진행되지 않으면 운영자가 확인하고 그 컨테이너를 지운다.
+  - quota label 없이 이름으로 찾던 옛 workspace volume(`werft-ws-<installationId>-<sessionId>`)을 찾지도, GC로 회수하지도, `migrate-workspace`의 원본으로 쓰지도 않는다. 남아 있으면 운영자가 확인하고 `docker volume rm`으로 지운다. `migrate-workspace`는 다른 quota로 만든 label 있는 workspace를 옮기는 데 그대로 쓴다.
 
 - **Slack·GitHub 계정 연결의 일회용 state가 봉인된 cookie로 바뀌어, 올리는 순간 진행 중이던 연결은 한 번 실패한다**(JeongJaeSoon/werft#1997). `werft_slack_link`·`werft_github_link`의 값을 로그인 공급자 flow cookie와 같은 방식(AES-256-GCM, master key에서 뽑은 키)으로 봉인한다. 옛 형식의 cookie는 읽지 않으므로, 올리기 전에 연결을 시작해 동의 화면에 있던 사람은 callback에서 `400`(다시 시작 안내)을 받고 처음부터 다시 한다. 호환 경로는 없다. 데이터와 이미 연결된 계정에는 영향이 없다. Slack 연결도 이제 서버가 시작 뒤 10분을 검사한다(이전에는 브라우저의 cookie 만료에만 기댔다).
 
@@ -66,6 +81,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 로그인 화면의 첫 owner 링크가 없어졌다. `/bootstrap`은 살아 있는 링크로 열었을 때만 폼을 보인다.
   - owner를 모두 잃었을 때의 복구도 같은 링크로 한다. migration `0300_setup_links`가 `setup_links` 표를 더한다. 쓴 토큰을 적던 `bootstrap_token_uses` 표는 더 읽거나 쓰지 않고 남겨 둔다.
   - rolling deploy 중 옛 replica는 링크를 모르고 새 replica는 옛 토큰을 받지 않는다. 첫 owner 만들기와 복구는 모든 api가 새 이미지로 바뀐 뒤에 한다.
+- **에이전트 release가 없는 열린 세션은 올린 뒤 API가 기동할 때 닫힌다**(JeongJaeSoon/werft#2028). 기동할 때마다 남은 것을 다시 찾으며, 요청을 받는 것과 함께 뒤에서 돌므로 요청을 받기 전에 끝난다는 보장은 없다. release를 요구하기 전에 접수된 세션이라 어떤 worker도 맡지 못하고 열린 채 남아 있던 것이다. recovery close와 같은 방식으로 닫힌다(대기 입력은 `SESSION_CLOSED`로 취소되고, 기다리던 제어 receipt는 `CONTROL_SUPERSEDED`로 실패한다). 닫은 수가 API 로그 `Sessions without an agent release closed` 한 줄로 남는다. 닫지 못한 세션은 세션 id와 함께 경고로 남고 다음 기동에서 다시 시도한다. 대상이 없으면 아무 일도 일어나지 않는다. 할 일은 없고, 그런 세션을 따로 보고 있었다면 로그를 확인한다.
 - **에이전트 slug 유일 색인이 지우지 않은 에이전트만 보는 부분 색인(`WHERE deleted_at IS NULL`)으로 바뀐다. 그래서 rolling deploy 중이나 되돌린 뒤 옛 코드에서는 에이전트 생성이 실패한다**(JeongJaeSoon/werft#1807).
   - 원인: 옛 replica의 `ON CONFLICT`에는 `WHERE`가 없어서 PostgreSQL이 맞는 색인을 찾지 못한다.
   - 대처: 모든 api replica가 새 이미지로 바뀔 때까지 에이전트를 만들지 않는다.

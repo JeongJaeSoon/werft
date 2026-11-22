@@ -75,7 +75,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 
 `EXECUTION_INSTALLATION_ID=test-ops`、`PLATFORM_SETTINGS_DOCUMENT=/etc/werft/settings.json`、`EXECUTION_WORKSPACE_QUOTA=on` を使います。credential allowlist は `api.anthropic.com:443,github.com:443`、private credential allowlist は `localstack:4566` です。AWS key・region・bucket 変数は例のまま空にします。LocalStack は固定の試験 key と `claude-sessions` bucket を使います。
 
-設定文書は `/etc/werft/settings.json` に置き、セッションが使う GitHub リポジトリを書きます。最初の `deploy` が空のインストールに一度だけ入れ、その後は文書を直しても取り込まれないため、設定はコンソールで変更します。秘密情報は含みません。リポジトリ URL だけを実際の値に変更します。例は公開リポジトリ用です。リポジトリ項目には `"auth": { "kind": "github_app" }` が必要です。なければ import 時にそのリポジトリが除外され、`preflight` が設置を止めます。非公開リポジトリは、そのリポジトリに GitHub App をインストールします（[GitHub](/integrations/github)）。
+設定文書は `/etc/werft/settings.json` に置き、セッションが使う GitHub リポジトリを書きます。最初の `deploy` が空のインストールに一度だけ入れ、その後は文書を直しても取り込まれないため、設定はコンソールで変更します。秘密情報は含みません。リポジトリ URL だけを実際の値に変更します。例は公開リポジトリ用です。リポジトリ項目には `"auth": { "kind": "github_app" }` が必要です。なければ `preflight` が文書全体を拒否し、設置を止めます。非公開リポジトリは、そのリポジトリに GitHub App をインストールします（[GitHub](/integrations/github)）。
 
 migrate コンテナが読む必要があるため、ファイルは `0644` にします。先に空のファイルを作り、エディターで次の内容を入れます。
 

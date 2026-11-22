@@ -254,51 +254,6 @@ export function createPostgresSettingsDocumentStore(
       );
     },
 
-    async sessionsOnRepositories(ids) {
-      if (ids.length === 0) return [];
-      // The pre-deploy check of a settings import, keyed by id alone: a repository only the old file knew has no catalog row.
-      const result = await db.execute<{
-        session_id: string;
-        repository_id: string;
-        via: "primary" | "attached" | "policy";
-      }>(sql`
-        SELECT s.id AS session_id, x.repository_id, x.via
-        FROM sessions s
-        LEFT JOIN agent_releases r ON r.id = s.agent_release_id
-        LEFT JOIN agent_github_settings g ON g.agent_id = r.agent_id
-        CROSS JOIN LATERAL (
-          SELECT s.repository_id, 'primary'
-          UNION ALL
-          SELECT id, 'attached' FROM unnest(s.attached_repository_ids) AS id
-          UNION ALL
-          SELECT e, 'policy'
-          FROM (SELECT CASE s.github_policy_source
-                         WHEN 'release' THEN r.policy_pins #> '{github,repositories}'
-                         WHEN 'agent' THEN g.repositories
-                       END AS list) p,
-               jsonb_array_elements_text(
-                 CASE WHEN jsonb_typeof(p.list) = 'array' THEN p.list ELSE '[]' END
-               ) AS e
-          WHERE s.attached_repository_ids IS NULL
-        ) AS x(repository_id, via)
-        WHERE s.status NOT IN (${sqlLiterals(ENDED_SESSION_STATUSES)})
-          -- A row, even an invalid one, is the claim gate's to judge.
-          AND NOT EXISTS (
-            SELECT 1 FROM catalog_repositories c
-            WHERE c.id = x.repository_id AND c.removed_at IS NULL
-          )
-          AND x.repository_id IN (${sql.join(
-            ids.map((id) => sql`${id}`),
-            sql`, `,
-          )})
-        ORDER BY s.id, x.repository_id, x.via`);
-      return rowsOf<{
-        session_id: string;
-        repository_id: string;
-        via: "primary" | "attached" | "policy";
-      }>(result);
-    },
-
     async connectionUse({ connectionId }) {
       const result = await db.execute<{
         agents: string;
@@ -358,7 +313,6 @@ export function createPostgresSettingsDocumentStore(
           for (const [index, step] of steps.entries()) {
             const result = await importIn(tx, step.entries, {
               dryRun: false,
-              databaseOwnsRepositories: step.databaseOwnsRepositories,
               actor: null,
             });
             if (result.outcome === "actor_inactive") {
@@ -402,9 +356,8 @@ async function decideSeedIn(tx: Database): Promise<SettingsSeedDecision> {
     return { outcome: "decided", decided_at: generation.decidedAt };
   }
   // A connection or MCP server row, disabled ones too. Repositories alone do
-  // not count: the releases before connections moved into the database kept
-  // repository rows while their connections were the old directory's, and
-  // that directory is still to be imported.
+  // not count: the document's connections still seed an installation that
+  // holds only repository rows.
   const [row] = rowsOf<{ held: boolean }>(
     await tx.execute(
       sql`SELECT EXISTS (SELECT 1 FROM ${providerConnections})
@@ -422,7 +375,6 @@ async function importIn(
   entries: SettingsEntries,
   options: {
     dryRun: boolean;
-    databaseOwnsRepositories?: boolean;
     actor: TeamActor | null;
   },
 ): Promise<SettingsImportResult> {
@@ -431,9 +383,7 @@ async function importIn(
     return { outcome: "actor_inactive" as const };
   }
   const workspaceId = await firstWorkspace(tx);
-  const plan = planSettingsImport(entries, await existingIn(tx, workspaceId), {
-    databaseOwnsRepositories: options.databaseOwnsRepositories === true,
-  });
+  const plan = planSettingsImport(entries, await existingIn(tx, workspaceId));
   if (plan.conflicts.length > 0) {
     return { ...plan, outcome: "refused" as const, receipt_ids: [] };
   }

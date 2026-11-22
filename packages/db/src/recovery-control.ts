@@ -337,7 +337,7 @@ export function decideRecoveryAtomic(
           admissionState: session.admissionState,
         };
       }
-      await close(tx, session, now);
+      await closeSessionRow(tx, session, now);
     } else {
       // The exit that made the turn unknown must be observed before its
       // outcome is decided: until then the executions row is the only
@@ -725,8 +725,13 @@ async function confirmCompleted(
 // same kill outbox, and whatever control receipt was waiting on that kill
 // or on a resume is closed as superseded so nothing stays `accepted`.
 // outcome_unknown turns keep that status: closing does not answer them.
-async function close(tx: Database, session: SessionRow, now: Date) {
-  await cancelQueuedInput(tx, {
+export async function closeSessionRow(
+  tx: Database,
+  session: SessionRow,
+  now: Date,
+  supersededBy = "superseded by an operator close decision",
+): Promise<{ cancelledTurnCount: number }> {
+  const cancelled = await cancelQueuedInput(tx, {
     sessionId: session.id,
     terminalReason: "closed",
     error: {
@@ -772,7 +777,7 @@ async function close(tx: Database, session: SessionRow, now: Date) {
       status: "failed",
       error: {
         code: "CONTROL_SUPERSEDED",
-        message: "superseded by an operator close decision",
+        message: supersededBy,
       },
       updatedAt: now,
     })
@@ -795,6 +800,7 @@ async function close(tx: Database, session: SessionRow, now: Date) {
       updatedAt: now,
     })
     .where(eq(sessions.id, session.id));
+  return { cancelledTurnCount: cancelled.length };
 }
 
 /**
