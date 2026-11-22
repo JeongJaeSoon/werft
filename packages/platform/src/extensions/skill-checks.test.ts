@@ -209,6 +209,13 @@ describe("what a check cannot be talked out of", () => {
       "evil.example",
     ]);
     expect(hostOf("https://ev%69l.example/")).toEqual(["evil.example"]);
+    // A tab or a CR inside the authority is dropped as the parser drops it.
+    expect(hostOf("https://known.example\t@evil.example/")).toEqual([
+      "evil.example",
+    ]);
+    expect(hostOf("https://known.example\r@evil.example/")).toEqual([
+      "evil.example",
+    ]);
     // A quote or a backtick inside userinfo does not end the URL.
     expect(hostOf("https://known.example'@evil.example/x")).toEqual([
       "evil.example",

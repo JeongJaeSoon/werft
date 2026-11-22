@@ -88,7 +88,10 @@ function hostsOf(text: string): Set<string> {
     const from = start.index + start[0].length;
     // Only the authority decides the host, so only it is read, and at most
     // AUTHORITY_CAP of it: the text is read once per URL, not to its end.
-    const window = text.slice(from, from + AUTHORITY_CAP + 1);
+    // The URL parser drops tabs and CRs before it reads, so they end nothing.
+    const window = text
+      .slice(from, from + AUTHORITY_CAP + 1)
+      .replace(/[\t\r]/g, "");
     const end = window.search(/[\s<>/?#\\]/);
     if (end === -1 && window.length > AUTHORITY_CAP) {
       hosts.add(`${OVERLONG}${window.slice(0, 64).toLowerCase()}`);
