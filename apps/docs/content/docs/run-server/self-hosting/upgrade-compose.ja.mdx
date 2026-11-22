@@ -276,6 +276,16 @@ migration `0312_slack_source_marks` が新しいテーブル `deleted_sources` �
 - 捨てた理由 `message_subtype` で集計していたクエリは、編集・削除イベントがなくなった分だけ数が減る。リンクのプレビューのように人が編集していない `message_changed` は今までどおり捨てる。
 - テーブルを足すだけなので、サポート期間内のイメージに戻してもよい。前のイメージはこのテーブルを使わず、編集・削除イベントをまた捨てる。
 
+<a id="slack-스레드의-link-이력-칸을-더한-릴리스" />
+### Slack スレッドの link 履歴の列を加えたリリース
+
+migration `0313_session_link_history` が `session_links` に `closed_at`・`closed_reason` 列と、閉じていない link だけを見る部分 unique 二つ(`session_links_open_surface_ref_uniq`、`session_links_open_session_uniq`)を加え、`slack_outbox` に `session_link_id` 列を加える。このリリースのコードは新しい列をまだ読み書きしないので、することはなく動作も変わらない。既存の行はすべて閉じていない link のまま残る。
+
+- 古い unique 二つ(`session_links_surface_ref_key`、`session_links_session_uniq`)はそのまま残る。後のリリースが削除する。
+- インデックスは `CONCURRENTLY` で作り、CHECK と外部キーは `NOT VALID` で加えてから別に検証する。そのため検証とインデックスの作成のあいだ書き込みを止めない(列と制約を加えるときだけ短くロックを取る)。
+- どの文も再実行してよい。インデックスの作成が途中で切れたら migrate をもう一度実行する。残った INVALID インデックスを削除して作り直す。
+- 以前のイメージは新しい列なしで書き、古い unique で重なりを判定するので、そのまま動く。サポート期間内のイメージへ戻してもよい。
+
 <a id="mock-slack-env-이름" />
 ### mock Slack の環境変数名
 

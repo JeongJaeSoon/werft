@@ -22,9 +22,9 @@ import {
 import {
   type createExtensionBundleService,
   EXTENSION_MANAGER_ROLES,
+  type GitRegistration,
 } from "./bundle-service.ts";
 import type { BundleInputFile, BundleIssue } from "./bundle-validator.ts";
-import type { GitVersionInput } from "./ports/extension-bundle-store.ts";
 import type {
   SkillGitSource,
   SkillGitSourceStore,
@@ -221,6 +221,7 @@ export function skillGitSourceView(
                               check.autoApproval.rule.requiredReviews,
                           },
                     pull_request: check.autoApproval.pullRequest,
+                    checks: check.autoApproval.checks,
                   },
           },
   };
@@ -343,7 +344,7 @@ export function createSkillGitSync(
     if (tree.kind === "refused") return record("rejected", commit, tree.issues);
     // Read only while auto-approve is on; the write reads the settings
     // again under the source row's lock before it approves anything.
-    let protection: GitVersionInput["protection"];
+    let protection: GitRegistration["protection"];
     const grantId = source.autoApprove.grantId;
     if (
       source.autoApprove.state === "on" &&

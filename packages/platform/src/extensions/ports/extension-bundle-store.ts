@@ -1,4 +1,4 @@
-import type { WorkspaceRole } from "@werft-ai/contracts";
+import type { SkillCheckFinding, WorkspaceRole } from "@werft-ai/contracts";
 import type { Principal } from "../../musterrolle/index.ts";
 import type { BundleManifest } from "../bundle-validator.ts";
 import type { ExtensionMode } from "../resolve.ts";
@@ -32,7 +32,16 @@ export type GitVersionInput = {
    * version only when sync and auto-approve are still on with that same
    * grant (no off, pause or resume since), under the source row's lock.
    */
-  protection?: { grantId: string; evidence: SkillProtectionEvidence };
+  protection?: {
+    grantId: string;
+    evidence: SkillProtectionEvidence;
+    /**
+     * The fixed-rule checks of the tree against `baselineId`, the name's
+     * highest approved version when they ran (null: none). Any finding, or
+     * another highest approved version under the lock, leaves it `pending`.
+     */
+    checks: { baselineId: string | null; findings: SkillCheckFinding[] };
+  };
 };
 
 export const EXTENSION_BUNDLE_REVIEWS = [

@@ -1,5 +1,5 @@
 {
-  "id": "0b615479-a3a3-406e-a29e-3c825da09d0e",
+  "id": "227b6b2f-96fa-45f6-809a-a9913da2cdff",
   "prevId": "23c438e1-0f51-4ded-a06c-b3f4b0a2ed15",
   "version": "7",
   "dialect": "postgresql",
@@ -12415,6 +12415,18 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "closed_at": {
+          "name": "closed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "closed_reason": {
+          "name": "closed_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -12430,6 +12442,44 @@
           ],
           "isUnique": true,
           "where": "\"session_links\".\"session_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "session_links_open_surface_ref_uniq": {
+          "name": "session_links_open_surface_ref_uniq",
+          "columns": [
+            {
+              "expression": "installation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "surface_ref",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"session_links\".\"closed_at\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "session_links_open_session_uniq": {
+          "name": "session_links_open_session_uniq",
+          "columns": [
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"session_links\".\"session_id\" IS NOT NULL AND \"session_links\".\"closed_at\" IS NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -12501,6 +12551,14 @@
       },
       "policies": {},
       "checkConstraints": {
+        "session_links_closed_check": {
+          "name": "session_links_closed_check",
+          "value": "(\"session_links\".\"closed_at\" IS NULL) = (\"session_links\".\"closed_reason\" IS NULL)"
+        },
+        "session_links_closed_reason_check": {
+          "name": "session_links_closed_reason_check",
+          "value": "\"session_links\".\"closed_reason\" IN ('completed', 'cancelled', 'failed', 'abandoned')"
+        },
         "session_links_surface_check": {
           "name": "session_links_surface_check",
           "value": "\"session_links\".\"surface\" = 'slack'"
@@ -15417,6 +15475,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "session_link_id": {
+          "name": "session_link_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "body": {
           "name": "body",
           "type": "jsonb",
@@ -15654,6 +15718,15 @@
           "tableFrom": "slack_outbox",
           "tableTo": "sessions",
           "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "slack_outbox_session_link_fk": {
+          "name": "slack_outbox_session_link_fk",
+          "tableFrom": "slack_outbox",
+          "tableTo": "session_links",
+          "columnsFrom": ["session_link_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -16442,18 +16515,6 @@
         },
         "principal_id": {
           "name": "principal_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "requester_kind": {
-          "name": "requester_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "requester_id": {
-          "name": "requester_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -17305,12 +17366,6 @@
         "requester_id": {
           "name": "requester_id",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "requester_auth": {
-          "name": "requester_auth",
-          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },

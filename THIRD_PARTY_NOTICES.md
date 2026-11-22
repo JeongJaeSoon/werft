@@ -178,6 +178,8 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @smithy/types | 4.18.0 | Apache-2.0 | control-host, worker, worker-codex |
 | @smithy/types | 4.19.0 | Apache-2.0 | control-host, worker, worker-codex |
 | @stablelib/base64 | 1.0.1 | MIT | worker |
+| @types/debug | 4.1.13 | MIT | control-host |
+| @types/ms | 2.1.0 | MIT | control-host |
 | @types/node | 26.5.1 | MIT | control-host |
 | @types/pg | 8.15.5 | MIT | control-host |
 | @types/react | 19.3.0 | MIT | control-host |
@@ -194,6 +196,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | bytes | 3.1.2 | MIT | worker, worker-codex |
 | call-bind-apply-helpers | 1.0.2 | MIT | worker, worker-codex |
 | call-bound | 1.0.4 | MIT | worker, worker-codex |
+| character-entities | 2.0.2 | MIT | control-host |
 | class-variance-authority | 0.7.1 | Apache-2.0 | control-host |
 | clsx | 2.1.1 | MIT | control-host |
 | content-disposition | 1.1.0 | MIT | worker, worker-codex |
@@ -205,13 +208,17 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | cors | 2.8.6 | MIT | worker, worker-codex |
 | cross-spawn | 7.0.6 | MIT | worker, worker-codex |
 | csstype | 3.2.3 | MIT | control-host |
-| debug | 4.4.3 | MIT | worker, worker-codex |
+| debug | 4.4.3 | MIT | control-host, worker, worker-codex |
+| decode-named-character-reference | 1.3.0 | MIT | control-host |
 | depd | 2.0.0 | MIT | worker, worker-codex |
+| dequal | 2.0.3 | MIT | control-host |
 | detect-node-es | 1.1.0 | MIT | control-host |
+| devlop | 1.1.0 | MIT | control-host |
 | drizzle-orm | 0.45.2 | Apache-2.0 | control-host |
 | dunder-proto | 1.0.1 | MIT | worker, worker-codex |
 | ee-first | 1.1.1 | MIT | worker, worker-codex |
 | encodeurl | 2.0.0 | MIT | worker, worker-codex |
+| entities | 6.0.1 | BSD-2-Clause | control-host |
 | es-define-property | 1.0.1 | MIT | worker, worker-codex |
 | es-errors | 1.3.0 | MIT | worker, worker-codex |
 | es-object-atoms | 1.1.2 | MIT | worker, worker-codex |
@@ -252,9 +259,30 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | math-intrinsics | 1.1.0 | MIT | worker, worker-codex |
 | media-typer | 1.1.1 | MIT | worker, worker-codex |
 | merge-descriptors | 2.0.0 | MIT | worker, worker-codex |
+| micromark | 4.0.3 | MIT | control-host |
+| micromark-core-commonmark | 2.0.4 | MIT | control-host |
+| micromark-factory-destination | 2.0.1 | MIT | control-host |
+| micromark-factory-label | 2.0.1 | MIT | control-host |
+| micromark-factory-space | 2.1.0 | MIT | control-host |
+| micromark-factory-title | 2.0.1 | MIT | control-host |
+| micromark-factory-whitespace | 2.0.1 | MIT | control-host |
+| micromark-util-character | 2.1.1 | MIT | control-host |
+| micromark-util-chunked | 2.0.1 | MIT | control-host |
+| micromark-util-classify-character | 2.0.1 | MIT | control-host |
+| micromark-util-combine-extensions | 2.0.1 | MIT | control-host |
+| micromark-util-decode-numeric-character-reference | 2.0.2 | MIT | control-host |
+| micromark-util-edit-map | 1.0.0 | MIT | control-host |
+| micromark-util-encode | 2.0.1 | MIT | control-host |
+| micromark-util-html-tag-name | 2.0.1 | MIT | control-host |
+| micromark-util-normalize-identifier | 2.0.1 | MIT | control-host |
+| micromark-util-resolve-all | 2.0.1 | MIT | control-host |
+| micromark-util-sanitize-uri | 2.0.1 | MIT | control-host |
+| micromark-util-subtokenize | 2.1.0 | MIT | control-host |
+| micromark-util-symbol | 2.0.1 | MIT | control-host |
+| micromark-util-types | 2.0.3 | MIT | control-host |
 | mime-db | 1.54.0 | MIT | worker, worker-codex |
 | mime-types | 3.0.2 | MIT | worker, worker-codex |
-| ms | 2.1.3 | MIT | worker, worker-codex |
+| ms | 2.1.3 | MIT | control-host, worker, worker-codex |
 | negotiator | 1.1.0 | MIT | worker, worker-codex |
 | object-assign | 4.1.1 | MIT | worker, worker-codex |
 | object-inspect | 1.13.4 | MIT | worker, worker-codex |
@@ -263,6 +291,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | openapi-fetch | 0.17.0 | MIT | control-host |
 | openapi-typescript-helpers | 0.1.0 | MIT | control-host |
 | openapi3-ts | 4.6.1 | MIT | control-host |
+| parse5 | 7.3.0 | MIT | control-host |
 | parseurl | 1.3.3 | MIT | worker, worker-codex |
 | path-key | 3.1.1 | MIT | worker, worker-codex |
 | path-to-regexp | 8.4.2 | MIT | worker, worker-codex |
