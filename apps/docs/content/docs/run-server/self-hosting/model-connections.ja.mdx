@@ -99,7 +99,7 @@ models:
 - `GET /v1/sessions/{id}/usage` は `cost.kind: "unmetered"` で答え、`amount_usd` は `"0.000000"` です。このセッションには費用上限がかからないので `cost_limit_usd` は `null` で、上限到達の案内（`attention.reason`）にもドルの上限は出ません。`budget_exceeded` はトークン上限に達したときだけ `true` になります。
 - 課金の有無はセッション作成時にセッション行（`sessions.unmetered`）へ固定し、価格、claim 予算、usage 表示はこの値を読みます。接続が指す先（endpoint・種類・`billing`・資格情報の出どころ）は変わりません。別の値が必要なら新しい id で接続を加え、エージェントをリリースし直します。
 - セッションのトークン上限と時間・同時実行の上限（turn の時間、`EXECUTION_SLOT_LIMIT`、待機メッセージ）はそのままかかります（[Web で決める実行の上限](/run-server/self-hosting/reference/configuration#웹에서-정하는-실행-한도)）。`unmetered` 行のトークンも `sessions.provider_tokens` に加算されます。
-- API は endpoint の host がプライベートアドレス（10/8、172.16/12、192.168/16、100.64/10、127/8、169.254/16、`::1`、fc00::/7、fe80::/10）か、公開 DNS にない名前（ドットのない compose のサービス名、`localhost`、`.internal`・`.local`・`.localhost`・`.lan`・`.home.arpa`）のときだけ `none` を受け付けます。egress proxy 側ではその host を `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` に置きます。
+- API は endpoint の host がプライベートアドレス（10/8、172.16/12、192.168/16、100.64/10、127/8、`::1`、fc00::/7。link-local アドレスと、`::ffff:10.0.0.1` のように IPv6 の中に書いた IPv4 はプライベートとみなしません）か、公開 DNS にない名前（ドットのない compose のサービス名、`localhost`、`.internal`・`.local`・`.localhost`・`.lan`・`.home.arpa`）のときだけ `none` を受け付けます。egress proxy 側ではその host を `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` に置きます。
 - プライベートアドレスは必要条件にすぎません。プライベートネットワークの LiteLLM も有料の upstream を代理できます。`none` の宣言が正しいかは運用者の責任です。誤って宣言すると、有料の呼び出しが費用上限なしに出ていきます。セッションのトークン上限を決めておけば、そのときもセッションごとのトークンは縛られます。Datadog の `werft.provider.unmetered_tokens_1h`（直近 1 時間の `unmetered` 行のトークン合計）と provider のコンソールの使用量を一緒に見ます。
 
 有効にする前に[アップグレードのゲート](/run-server/self-hosting/upgrade-compose#실행-전-게이트)を満たす必要があります。

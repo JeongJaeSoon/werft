@@ -1,6 +1,6 @@
 {
   "name": "@werft-ai/system",
-  "description": "Kiel session runtime: Bun and OS helpers with no domain meaning (uncached DNS lookup, bounded git process, process group kill)",
+  "description": "Kiel session runtime: Bun and OS helpers with no domain meaning (uncached DNS lookup, bounded git process, process group kill, IP address classes)",
   "version": "0.0.0",
   "private": true,
   "license": "PolyForm-Small-Business-1.0.0",

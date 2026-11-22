@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { AddressClass } from "./policy.ts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
-  classifyAddress,
   decideEgress,
   type EgressPolicy,
   parseDestination,
@@ -9,55 +9,13 @@ import {
 } from "./policy.ts";
 
 describe("classifyAddress", () => {
-  test.each<[string, AddressClass]>([
-    ["8.8.8.8", "public"],
-    ["10.1.2.3", "private"],
-    ["172.16.0.1", "private"],
-    ["172.32.0.1", "public"],
-    ["192.168.1.1", "private"],
-    ["100.64.0.1", "private"],
-    ["127.0.0.1", "loopback"],
-    ["169.254.169.254", "link_local"],
-    ["224.0.0.1", "multicast"],
-    ["255.255.255.255", "reserved"],
-    ["0.0.0.0", "unspecified"],
-    ["198.18.0.1", "reserved"],
-    ["2606:4700::1111", "public"],
-    ["::1", "loopback"],
-    ["::", "unspecified"],
-    ["fe80::1", "link_local"],
-    ["fd00::1", "private"],
-    ["ff02::1", "multicast"],
-    ["2001:db8::1", "reserved"],
-    ["::ffff:169.254.169.254", "link_local"],
-    ["::ffff:10.0.0.1", "private"],
-    ["fec0::1", "private"],
-    ["fecf::1", "private"],
-    ["64:ff9b::a00:1", "private"],
-    ["64:ff9b::808:808", "public"],
-    // The translation prefixes a name could answer with instead.
-    ["::ffff:0:10.0.0.1", "private"],
-    ["::ffff:0:169.254.169.254", "link_local"],
-    ["64:ff9b:1:a00:0:100::", "reserved"],
-    ["2002:a00:1::1", "private"],
-    ["2002:0808:0808::1", "public"],
-  ])("%s is %s", (address, expected) => {
-    expect(classifyAddress(address)).toBe(expected);
-  });
-
-  test("a leading-zero octet is not read as decimal", () => {
-    // Some resolvers read 0177.0.0.1 as octal loopback; we refuse to guess.
-    expect(classifyAddress("0177.0.0.1")).toBeNull();
-    expect(classifyAddress("010.0.0.1")).toBeNull();
-  });
-
-  test("text that is not an address at all is null", () => {
-    expect(classifyAddress("example.com")).toBeNull();
-    expect(classifyAddress("1.2.3")).toBeNull();
-    expect(classifyAddress("1.2.3.4.5")).toBeNull();
-    expect(classifyAddress("256.1.1.1")).toBeNull();
-    expect(classifyAddress("1::2::3")).toBeNull();
-    expect(classifyAddress("1:2:3:4:5:6:7")).toBeNull();
+  test("runs the platform's address classes, copied byte for byte", () => {
+    const copy = readFileSync(join(import.meta.dir, "ip-address.ts"), "utf8");
+    const platform = readFileSync(
+      join(import.meta.dir, "../../../packages/system/src/ip-address.ts"),
+      "utf8",
+    );
+    expect(copy).toBe(platform);
   });
 });
 
@@ -173,6 +131,36 @@ describe("decideEgress", () => {
       allowed: false,
       failure: "denied",
       reason: "127.0.0.1 is loopback, not public",
+    });
+  });
+
+  // 6to4 tunnels through a relay we do not choose; it was judged as the
+  // IPv4 address it carried, so a public one passed.
+  test("a public entry that resolves to 6to4 is denied", async () => {
+    expect(
+      await decideEgress(
+        policy,
+        { host: "api.example.com", port: 443 },
+        resolver({ "api.example.com": ["2002:0808:0808::1"] }),
+      ),
+    ).toEqual({
+      allowed: false,
+      failure: "denied",
+      reason: "2002:0808:0808::1 is reserved",
+    });
+  });
+
+  test("a private entry that resolves to site-local fec0::/10 is denied", async () => {
+    expect(
+      await decideEgress(
+        policy,
+        { host: "host.docker.internal", port: 3000 },
+        resolver({ "host.docker.internal": ["fec0::1"] }),
+      ),
+    ).toEqual({
+      allowed: false,
+      failure: "denied",
+      reason: "fec0::1 is reserved",
     });
   });
 

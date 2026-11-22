@@ -1,5 +1,6 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { type AddressClass, classifyAddress } from "@werft-ai/system";
 import { OidcUnavailableError } from "./errors.ts";
 
 const TIMEOUT_MS = 10_000;
@@ -54,121 +55,6 @@ export function endpointProblem(
     return null;
   }
   return "insecure_endpoint";
-}
-
-export type AddressClass =
-  | "public"
-  | "private"
-  | "loopback"
-  | "link_local"
-  | "multicast"
-  | "reserved"
-  | "unspecified";
-
-function ipv4Bytes(address: string): number[] | null {
-  const parts = address.split(".");
-  if (parts.length !== 4) return null;
-  const bytes = parts.map((part) =>
-    /^\d{1,3}$/.test(part) ? Number(part) : -1,
-  );
-  return bytes.every((byte) => byte >= 0 && byte <= 255) ? bytes : null;
-}
-
-function ipv6Bytes(address: string): number[] | null {
-  const [head, tail, ...rest] = address.split("%")[0]?.split("::") ?? [];
-  if (head === undefined || rest.length > 0) return null;
-  const groups = (side: string): number[] | null => {
-    if (side === "") return [];
-    const out: number[] = [];
-    const parts = side.split(":");
-    for (const [index, part] of parts.entries()) {
-      if (index === parts.length - 1 && part.includes(".")) {
-        const quad = ipv4Bytes(part);
-        if (!quad) return null;
-        out.push(...quad);
-      } else if (/^[0-9a-f]{1,4}$/i.test(part)) {
-        const value = Number.parseInt(part, 16);
-        out.push(value >> 8, value & 0xff);
-      } else {
-        return null;
-      }
-    }
-    return out;
-  };
-  const left = groups(head);
-  const right = tail === undefined ? [] : groups(tail);
-  if (!left || !right) return null;
-  const missing = 16 - left.length - right.length;
-  if (tail === undefined ? missing !== 0 : missing < 2) return null;
-  return [...left, ...new Array<number>(missing).fill(0), ...right];
-}
-
-function classifyIpv4([a = 0, b = 0, c = 0]: number[]): AddressClass {
-  if (a === 0) return "unspecified";
-  if (a === 127) return "loopback";
-  if (a === 169 && b === 254) return "link_local";
-  if (a >= 224 && a <= 239) return "multicast";
-  if (a >= 240) return "reserved";
-  if (
-    (a === 192 && b === 0 && (c === 0 || c === 2)) ||
-    (a === 198 && (b === 18 || b === 19)) ||
-    (a === 198 && b === 51 && c === 100) ||
-    (a === 203 && b === 0 && c === 113)
-  ) {
-    return "reserved";
-  }
-  if (
-    a === 10 ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 100 && b >= 64 && b <= 127)
-  ) {
-    return "private";
-  }
-  return "public";
-}
-
-/** Null for text that is not an IP address. */
-export function classifyAddress(address: string): AddressClass | null {
-  const v4 = ipv4Bytes(address);
-  if (v4) return classifyIpv4(v4);
-  const bytes = ipv6Bytes(address);
-  if (!bytes) return null;
-  const zeroUntil = (end: number) =>
-    bytes.slice(0, end).every((byte) => byte === 0);
-  if (zeroUntil(16)) return "unspecified";
-  if (zeroUntil(15) && bytes[15] === 1) return "loopback";
-  // An IPv4 address carried inside IPv6 is judged as that IPv4 address, or a
-  // metadata address would pass in IPv6 clothes.
-  const mapped = zeroUntil(10) && bytes[10] === 0xff && bytes[11] === 0xff;
-  const nat64 =
-    bytes[0] === 0 &&
-    bytes[1] === 0x64 &&
-    bytes[2] === 0xff &&
-    bytes[3] === 0x9b &&
-    bytes.slice(4, 12).every((byte) => byte === 0);
-  if (mapped || nat64) return classifyIpv4(bytes.slice(12));
-  const [first = 0, second = 0, third = 0, fourth = 0] = bytes;
-  if (first === 0xfe && (second & 0xc0) === 0x80) return "link_local";
-  if (first === 0xff) return "multicast";
-  if ((first & 0xfe) === 0xfc) return "private";
-  // Only 2000::/3 is global unicast. The rest of the space is unassigned or
-  // set aside (discard-only 100::/64, site-local fec0::/10, ...).
-  if ((first & 0xe0) !== 0x20) return "reserved";
-  if (first === 0x20 && second === 0x01) {
-    // 2001::/23 is protocol assignments (Teredo, benchmarking, ORCHID) and
-    // 2001:db8::/32 is documentation.
-    if ((third & 0xfe) === 0 || (third === 0x0d && fourth === 0xb8)) {
-      return "reserved";
-    }
-  }
-  // 6to4 carries an IPv4 address that would go unjudged.
-  if (first === 0x20 && second === 0x02) return "reserved";
-  // 3fff::/20 is documentation.
-  if (first === 0x3f && second === 0xff && (third & 0xf0) === 0) {
-    return "reserved";
-  }
-  return "public";
 }
 
 export type ResolvedAddress = { address: string; family: number };

@@ -29,8 +29,6 @@ export {
 } from "./issuer-rules.ts";
 export { fetchJwks, type Jwk, selectKey } from "./jwks.ts";
 export {
-  type AddressClass,
-  classifyAddress,
   createProviderRequest,
   endpointProblem,
   type Lookup,
