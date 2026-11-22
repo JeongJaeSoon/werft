@@ -15,13 +15,12 @@ const GATEWAY_STATUSES = new Set([502, 503, 504]);
 
 /**
  * Whether the client already asked again before this error reached the
- * caller; a query retrying it too would multiply the requests.
+ * caller; a query retrying it too would multiply the requests. A
+ * NETWORK_ERROR is not known to be: the connection may have dropped while a
+ * body was read, after the fetch had answered.
  */
 export function retriedByClient(error: unknown): boolean {
-  return (
-    error instanceof ApiError &&
-    (error.status === 0 || GATEWAY_STATUSES.has(error.status))
-  );
+  return error instanceof ApiError && GATEWAY_STATUSES.has(error.status);
 }
 
 /**

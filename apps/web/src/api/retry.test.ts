@@ -120,7 +120,7 @@ describe("asking again after a gateway failure", () => {
       server(dropped).client.GET("/v1/auth/me"),
     ).catch((e) => e);
     expect(retriedByClient(gatewayError)).toBe(true);
-    expect(retriedByClient(dropError)).toBe(true);
+    expect(retriedByClient(dropError)).toBe(false);
     expect(
       retriedByClient(
         await unwrap(server(gateway(500)).client.GET("/v1/auth/me")).catch(
