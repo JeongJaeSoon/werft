@@ -9,7 +9,7 @@ export const errorsKo = {
   "error.BACKEND_UNAVAILABLE":
     "서버가 응답하지 않습니다 — 잠시 뒤 다시 시도하세요.",
   "error.NETWORK_ERROR":
-    "서버에 연결하지 못했습니다 — 네트워크 연결을 확인하세요.",
+    "서버에 연결하지 못했습니다 — 네트워크 연결을 확인하고 잠시 뒤 다시 시도하세요.",
   "error.LOGIN_LINK_REQUIRED":
     "이 공급자 계정을 같은 이메일의 콘솔 계정에 자동으로 연결할 수 없습니다 — 그 계정에 쓰던 수단으로 로그인하거나 오너에게 요청하세요.",
   "error.UNKNOWN": "처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
@@ -58,7 +58,8 @@ export const errorsEn: Record<keyof typeof errorsKo, string> = {
   "error.BOOTSTRAP_DONE": "An owner already exists. Please log in.",
   "error.RATE_LIMITED": "Too many attempts — try again shortly.",
   "error.BACKEND_UNAVAILABLE": "The server is unavailable — try again shortly.",
-  "error.NETWORK_ERROR": "Could not reach the server — check your connection.",
+  "error.NETWORK_ERROR":
+    "Could not reach the server — check your connection and try again shortly.",
   "error.LOGIN_LINK_REQUIRED":
     "This provider account can't be connected to the console account with the same email — log in the way you used to, or ask an owner.",
   "error.UNKNOWN": "Something went wrong — try again shortly.",
@@ -112,7 +113,7 @@ export const errorsJa: Record<keyof typeof errorsKo, string> = {
   "error.BACKEND_UNAVAILABLE":
     "サーバーを利用できません。しばらくしてからもう一度お試しください。",
   "error.NETWORK_ERROR":
-    "サーバーに接続できませんでした。ネットワーク接続を確認してください。",
+    "サーバーに接続できませんでした。ネットワーク接続を確認し、しばらくしてからもう一度お試しください。",
   "error.LOGIN_LINK_REQUIRED":
     "このプロバイダーのアカウントを、同じメールアドレスのコンソールアカウントに自動で接続できません。そのアカウントで使っていた方法でログインするか、オーナーに依頼してください。",
   "error.UNKNOWN":

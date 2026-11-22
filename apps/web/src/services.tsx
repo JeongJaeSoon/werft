@@ -1,13 +1,8 @@
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import { rootRouteId, useRouteContext } from "@tanstack/react-router";
-import {
-  type ApiClient,
-  type ApiClientOptions,
-  isApiError,
-  type RetryTiming,
-} from "@werft-ai/client";
+import { type ApiClient, isApiError, type RetryTiming } from "@werft-ai/client";
 import { useSyncExternalStore } from "react";
-import { createApiClient } from "./api/client.ts";
+import { createApiClient, type WebClientOptions } from "./api/client.ts";
 
 /**
  * What the app builds once at start. The client and the cache reach screens
@@ -42,7 +37,7 @@ interface Flag {
  * is gone: cached data would keep showing the old identity otherwise.
  */
 export function createServices(
-  options: ApiClientOptions & {
+  options: WebClientOptions & {
     readonly leave?: (url: string) => unknown;
     readonly eventRetry?: RetryTiming;
   } = {},
@@ -63,6 +58,12 @@ export function createServices(
     }),
     ...(options.eventRetry ? { eventRetry: options.eventRetry } : {}),
     queryClient: new QueryClient({
+      // The client already asks again for a read a gateway failed; a query
+      // retrying on top would multiply that, and a mutation is never resent.
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
       queryCache: new QueryCache({
         onError: (error) => {
           if (isApiError(error, "UNAUTHORIZED")) services.onUnauthorized();
