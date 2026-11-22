@@ -19,7 +19,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - OTLP collector가 worker 허용 목록(`EGRESS_ALLOWLIST`·`EGRESS_PRIVATE_ALLOWLIST`)에 있다는 기동 경고 `tracing.collector_on_egress_allowlist`가 host 끝의 점을 무시한다. `collector.internal.:4318` 같은 항목에도 이제 경고가 나온다.
   - proxy가 기동을 거절하는 항목(포트가 없거나 1~65535의 정수가 아닌 항목)은 API도 버린다. 콘솔 목록에서 빠지고, 포트 없는 `collector.internal`에는 collector 경고가 더는 나오지 않으며, `[fd00::1:443]` 같은 항목이 `[fd00::1]:443` 등록을 허용하지 않는다.
 
-- **스킬 버전의 `review`에 `superseded`(대체됨)가 생기고, 더 새로운 버전이 승인된 스킬의 승인 대기 버전은 올릴 때 대체됨으로 닫힌다**(JeongJaeSoon/werft#PR_NUMBER).
+- **스킬 버전의 `review`에 `superseded`(대체됨)가 생기고, 더 새로운 버전이 승인된 스킬의 승인 대기 버전은 올릴 때 대체됨으로 닫힌다**(JeongJaeSoon/werft#2019).
   - 새 버전이 승인되거나(사람의 승인, 동기화의 자동 승인) 되돌리기로 현재 버전이 되면, 그보다 순번이 작은 보관하지 않은 승인 대기 버전이 같은 transaction에서 `superseded`가 된다. 검토 목록과 승인 대기 수에서 빠지고, 버전 목록에는 '대체됨'으로 보인다. 관리자는 그 버전을 여전히 승인하거나 거절할 수 있고, 되돌리기는 지금처럼 승인된 버전만 고른다.
   - migration `0306_skill_superseded_versions`가 이미 쌓인 승인 대기 버전 가운데 같은 스킬에 순번이 더 큰 승인 버전이 있는 것만 `superseded`로 바꾼다. 그 승인은 receipt를 새로 쓰지 않는다. 바뀔 행 수는 올리기 전에 이 쿼리로 센다: `SELECT count(*) FROM extension_bundles AS old WHERE old.review = 'pending' AND old.archived_at IS NULL AND old.version IS NOT NULL AND EXISTS (SELECT 1 FROM extension_bundles AS newer WHERE newer.workspace_id = old.workspace_id AND newer.name = old.name AND newer.review = 'approved' AND newer.version > old.version);`
   - `GET /v1/workspace/skills` 응답의 `review` 값을 `pending`·`approved`·`rejected` 셋으로만 가정하는 API client는 `superseded`를 다루도록 고친다. 대체를 일으킨 `approve_extension`·`revert_extension` receipt의 `result.superseded`에 닫힌 버전의 id와 순번이 남는다. 알림은 없다.
