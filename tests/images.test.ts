@@ -3467,9 +3467,11 @@ describe("compose layers", () => {
     "the local stack takes an empty PLATFORM_SECRET_KEY as no key",
     () => {
       const keyOf = (variables: Record<string, string>) => {
+        // Not the checkout's .env, which the api's env_file would read.
         const { exitCode, stderr, model } = render(
           [...LOCAL_LAYERS],
           variables,
+          { noEnvResolution: true },
         );
         expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
         return ["api", "slack"].map(
