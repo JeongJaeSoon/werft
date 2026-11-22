@@ -68,8 +68,6 @@ export default async function Page(props: Props) {
     <DocsPage
       toc={toc}
       full={page.data.full ?? isHome}
-      // The layout's tree leaves contributing out of the sidebar; previous and
-      // next come from the whole tree so that page keeps its neighbours.
       footer={{ items: neighbours(source.getPageTree(lang), page.url) }}
     >
       {isHome ? null : (
@@ -124,8 +122,8 @@ function localizedHomeHero(lang: Locale) {
 }
 
 /**
- * Previous and next pages over the whole tree, contributing included. External
- * links such as the Scalar reference are not pages, so they are skipped.
+ * Previous and next pages over the whole tree. External links such as the
+ * Scalar reference are not pages, so they are skipped.
  */
 function neighbours(tree: Root, url: string) {
   const items = flattenTree(tree.children).filter((item) => !item.external);

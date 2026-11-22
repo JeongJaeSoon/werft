@@ -159,8 +159,6 @@ export function buildSidebarTree(tree: Root, labels: SidebarLabels): Root {
     ...sections,
   ];
 
-  // The contributing guide is reached from the header link only; the layout
-  // drops it from the sidebar, but it stays here so the llms index lists it.
   return {
     ...tree,
     children: [
@@ -168,7 +166,6 @@ export function buildSidebarTree(tree: Root, labels: SidebarLabels): Root {
       ...use,
       { type: "separator", $id: SECTION_DEPLOY, name: labels.deploy },
       ...deploy,
-      ...pick(["contributing"]),
     ],
   };
 }

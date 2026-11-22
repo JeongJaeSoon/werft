@@ -245,7 +245,7 @@
     }
   },
   "P31": {
-    "paths": ["contributing"],
+    "paths": [],
     "integrated": true,
     "locales": {
       "ko": "implemented",
@@ -263,7 +263,7 @@
     }
   },
   "P33": {
-    "paths": ["contributing"],
+    "paths": [],
     "integrated": true,
     "locales": {
       "ko": "implemented",
