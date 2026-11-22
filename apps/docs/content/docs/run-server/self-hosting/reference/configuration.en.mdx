@@ -412,7 +412,7 @@ When a session is created without `title`, the first message cut at 80 character
 
 | Variable | Default | Allowed values |
 |---|---|---|
-| `SESSION_TITLE_EGRESS_URL` | compose `http://egress-proxy:3129` | Address of the egress proxy's credential route. Empty turns the feature off |
+| `SESSION_TITLE_EGRESS_URL` | compose `http://egress-proxy:3129` | Address of the egress proxy's credential route. Empty turns the feature off. Sessions on a Codex connection (`openai_responses`) get no model-made title and keep the one made from the first message |
 
 - The call uses the session's connection and model through the provider route, so its cost goes into the first turn's usage and the session limits. The proxy sends only requests to `/v1/messages` with the session's model and `max_tokens` 64 or less.
 - The API sends only to this URL's host:port (metadata and link-local addresses are refused), follows no redirect, and gives up after 25 seconds.

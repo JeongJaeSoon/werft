@@ -49,13 +49,13 @@ proxy ログの `Credential route` 行には `purpose: packages`、`registry`、
 <a id="provider-키와-저장소-자격-증명" />
 ### provider キーとリポジトリの資格情報
 
-worker コンテナの env にも claim の応答にも、provider キーとリポジトリのログインはありません。claim は attempt ごとに新しく作った egress token 三つ（provider、リポジトリ、object store）だけを渡します。token は attempt と寿命が同じで、セッション spec、リポジトリ binding、セッションの object prefix に結び付きます。
+worker コンテナの env にも claim の応答にも、provider キーとリポジトリのログインはありません。claim は attempt ごとに新しく作った egress token（provider、リポジトリ、object store、MCP、パッケージ registry）だけを渡します。token は attempt と寿命が同じで、セッション spec、リポジトリ binding、セッションの object prefix に結び付きます。
 
-- **credential route.** egress proxy は forward proxy（3128）の横に `EGRESS_CREDENTIAL_PORT`（既定 3129）の listener を開きます。受け付けるのは provider の Messages API、リポジトリの clone（`git-upload-pack`）、セッション prefix 内の object store、リモート MCP サーバー、成果判定の呼び出しだけで、それ以外は 404 です。proxy はリクエストごとに API の authorizer（`EGRESS_AUTHORIZER_PORT`、`EGRESS_AUTHORIZER_TOKEN` bearer）に token を問い合わせ、worker の token を外してカタログの資格情報を付け、upstream に送ります。
-- **fail-closed.** 許可の応答はキャッシュしません。authorizer が止まっていれば 503 で、attempt を失った token は次のリクエストから 401・409 です。upstream の redirect には従わず、転送もしません（502）。
-- **engine.** `ANTHROPIC_BASE_URL` が `<route>/provider` を指します。token は env ではなく、engine の fd 3 に付けた socket で渡します（`CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR=3`）。engine は最初のリクエストの前に読んで fd を閉じるため、turn 内のツールは env からも `/proc/<pid>/environ` からも token を見つけられません。engine のメモリを読む経路（ptrace）は、ホストの `kernel.yama.ptrace_scope` が 1 以上なら塞がれます。LiteLLM の `bearer` 認証は fd の経路がないため `ANTHROPIC_AUTH_TOKEN` env で渡しますが、worker は常に egress token を使うため、この場合はありません。
+- **credential route.** egress proxy は forward proxy（3128）の横に `EGRESS_CREDENTIAL_PORT`（既定 3129）の listener を開きます。受け付けるのは provider API（Messages API、Codex 接続の Responses API）、リポジトリの clone（`git-upload-pack`）と Git LFS object、セッション prefix 内の object store、リモート MCP サーバー、パッケージ registry の読み取り（`GET`・`HEAD`）、成果判定の呼び出しのような決まった経路で、それ以外は 404 です。proxy はリクエストごとに API の authorizer（`EGRESS_AUTHORIZER_PORT`、`EGRESS_AUTHORIZER_TOKEN` bearer）に token を問い合わせ、worker の token を外してカタログの資格情報を付け、upstream に送ります。
+- **fail-closed.** 許可の応答はキャッシュしません。authorizer が止まっていれば 503 で、attempt を失った token は次のリクエストから 401・409 です。upstream の redirect には従わず、転送もしません（502）。パッケージ registry だけは例外で、許可リストの host への redirect を proxy が 5 回まで追い、付けた資格情報は渡しません。
+- **engine.** Claude エンジンでは `ANTHROPIC_BASE_URL` が `<route>/provider` を指します。token は env ではなく、engine の fd 3 に付けた socket で渡します（`CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR=3`）。engine は最初のリクエストの前に読んで fd を閉じるため、turn 内のツールは env からも `/proc/<pid>/environ` からも token を見つけられません。engine のメモリを読む経路（ptrace）は、ホストの `kernel.yama.ptrace_scope` が 1 以上なら塞がれます。LiteLLM の `bearer` 認証は fd の経路がないため `ANTHROPIC_AUTH_TOKEN` env で渡しますが、worker は常に egress token を使うため、この場合はありません。Codex エンジンは token をエンジン自身の env（`WERFT_EGRESS_TOKEN`）でだけ受け取ります。Codex が実行するコマンドは別に作った env（`shell_environment_policy`）を受け取るため、そこに token はありません。
 - **git.** clone は `<route>/repository` で行い、token は git の子プロセスのヘッダーにだけ入ります。clone 後の origin はログインを含まないカタログ URL です。push の経路はないため、セッションの `git push` は `git push does not reach GitHub here` の案内で終わります。push は、人が承認した後にプラットフォームの GitHub ツールが行います（[GitHub 連携](/integrations/github)）。
-- **compose.** `api` は `EGRESS_AUTHORIZER_PORT`（3100）を publish しません。`EGRESS_AUTHORIZER_TOKEN` の compose 既定値はローカルスタック専用なので、それ以外の場所では変更します。`EGRESS_AUTHORIZER_URL` と `EGRESS_AUTHORIZER_TOKEN` の一方だけがあると、API と proxy のどちらも起動を拒否します。
+- **compose.** `api` は `EGRESS_AUTHORIZER_PORT`（3100）を publish しません。`EGRESS_AUTHORIZER_TOKEN` の compose 既定値はローカルスタック専用なので、それ以外の場所では変更します。API は `EGRESS_AUTHORIZER_PORT` と `EGRESS_AUTHORIZER_TOKEN` を、proxy は `EGRESS_AUTHORIZER_URL` と `EGRESS_AUTHORIZER_TOKEN` を組で受け取ります。片方だけがあると、その役割は起動を拒否します。
 
 <a id="로그와-이벤트의-가림" />
 ### ログとイベントのマスキング

@@ -227,6 +227,13 @@ printf '%s\n' '{"services":{"x":{"image":"alpine:3"}},"networks":{"default":{}}}
 
 quota エラーは [XFS の準備](/run-server/self-hosting/prepare-xfs)、bucket の保護・権限エラーは [bucket の準備](/run-server/self-hosting/prepare-checkpoint-bucket)を確認します。env 権限エラーは[手順 2 のファイル mode](#2-비밀과-설정-문서)、settings digest エラーは[手順 3 の digest・release 入力生成](#3-release-입력-생성)を確認します。最初の deploy が失敗しても、正常デプロイの状態ファイルがあるとは考えないでください。
 
+設定文書のリポジトリ項目に `"auth": {"kind": "github_app"}` がないと、`preflight`・`deploy`・`upgrade` はイメージを取得する前に拒否し、コンテナも `pending.json` もできません。文書を直すと digest が変わるため、release ファイルの `settings_digest` も新しい値に直します。DB に同じ id の行がすでにあると、`auth` を足した項目は内容が違うため `conflicts` で拒否されます。文書からその項目を消すか、新しい id を付けます。この衝突で `upgrade` が `pending.json` を残して止まった場合は、直した release ファイルを `pending.json` にコピーしてから、そのファイルで `upgrade` を再実行します。
+
+```bash
+cp "$DEPLOYMENT_DIR/release.json" "$DEPLOYMENT_DIR/pending.json"
+TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade "$DEPLOYMENT_DIR/release.json"
+```
+
 <a id="되돌리기" />
 ## 元に戻す
 

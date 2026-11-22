@@ -227,6 +227,13 @@ If `preflight` stops with `path(s) the containers mount cannot be read by the us
 
 For quota errors, see [XFS preparation](/run-server/self-hosting/prepare-xfs); for bucket protection/permission errors, see [Bucket preparation](/run-server/self-hosting/prepare-checkpoint-bucket). For env permissions, check [step 2 file modes](#2-비밀과-설정-문서); for settings digest errors, check [step 3 digest and release generation](#3-release-입력-생성). A failed first deploy does not imply a successful deployment state file exists.
 
+If a repository entry in the settings document has no `"auth": {"kind": "github_app"}`, `preflight`, `deploy` and `upgrade` refuse before any image is pulled, and neither containers nor `pending.json` appear. Editing the document changes its digest, so update `settings_digest` in the release file too. If the database already holds a row with the same id, the entry with `auth` added differs from it and is refused as `conflicts`; remove that entry from the document or give it a new id. If that conflict stopped an `upgrade` with `pending.json` left behind, copy the fixed release file over `pending.json` and call `upgrade` again with it.
+
+```bash
+cp "$DEPLOYMENT_DIR/release.json" "$DEPLOYMENT_DIR/pending.json"
+TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade "$DEPLOYMENT_DIR/release.json"
+```
+
 <a id="되돌리기" />
 ## Roll back
 

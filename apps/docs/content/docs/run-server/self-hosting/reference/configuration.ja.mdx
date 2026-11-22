@@ -412,7 +412,7 @@ EGRESS_PRIVATE_ALLOWLIST=api:3000,host.docker.internal:3000,api:4319
 
 | 変数 | 既定値 | 許容範囲 |
 |---|---|---|
-| `SESSION_TITLE_EGRESS_URL` | compose `http://egress-proxy:3129` | egress proxy の credential route のアドレス。空にするとこの機能はオフになります |
+| `SESSION_TITLE_EGRESS_URL` | compose `http://egress-proxy:3129` | egress proxy の credential route のアドレス。空にするとこの機能はオフになります。Codex 接続（`openai_responses`）のセッションはモデルでタイトルを作らず、最初のメッセージから作ったタイトルをそのまま残します |
 
 - 呼び出しはセッションの接続とモデルで provider route を通るため、費用は最初の turn の usage とセッション上限に入ります。proxy は `/v1/messages`、セッションのモデル、`max_tokens` 64 以下のリクエストだけを送ります。
 - API はこの URL の host:port にだけ送り（メタデータ・link-local アドレスは拒否）、redirect には従わず、25 秒で打ち切ります。

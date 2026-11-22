@@ -217,6 +217,13 @@ printf '%s\n' '{"services":{"x":{"image":"alpine:3"}},"networks":{"default":{}}}
 
 quota 오류는 [XFS 준비](/run-server/self-hosting/prepare-xfs), bucket 보호·권한 오류는 [bucket 준비](/run-server/self-hosting/prepare-checkpoint-bucket)를 확인한다. env 권한 오류는 [2단계의 파일 모드](#2-비밀과-설정-문서), settings digest 오류는 [3단계의 digest·release 입력 생성](#3-release-입력-생성)을 확인한다. 첫 deploy가 실패해도 정상 배포의 상태 파일이 있다고 가정하지 않는다.
 
+설정 문서의 저장소 항목에 `"auth": {"kind": "github_app"}`가 없으면 `preflight`·`deploy`·`upgrade`가 이미지를 올리기 전에 거부하고, 컨테이너도 `pending.json`도 생기지 않는다. 문서를 고치면 digest가 바뀌므로 release 파일의 `settings_digest`도 새 값으로 고친다. DB에 같은 id의 행이 이미 있으면 `auth`를 더한 항목은 내용이 달라 `conflicts`로 거부되므로, 문서에서 그 항목을 지우거나 새 id를 준다. 이 충돌로 `upgrade`가 `pending.json`을 남기고 멈췄으면, 고친 release 파일을 `pending.json`에 복사한 뒤 그 파일로 `upgrade`를 다시 부른다.
+
+```bash
+cp "$DEPLOYMENT_DIR/release.json" "$DEPLOYMENT_DIR/pending.json"
+TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade "$DEPLOYMENT_DIR/release.json"
+```
+
 ## 되돌리기
 
 정상 설치는 [중지·재시작](/run-server/self-hosting/stop-compose)으로 데이터를 보존한다. 실패한 첫 deploy는 원인과 이 project가 만든 리소스를 먼저 조사한다. reset이나 volume 삭제를 기본 정리로 사용하지 않는다. 필요한 데이터가 없음을 확인한 설치만 별도 제거 절차를 따른다.
