@@ -1429,6 +1429,7 @@ export function createPostgresSessionReader(
               id: agents.id,
               name: agents.name,
               activeReleaseId: agents.activeReleaseId,
+              status: agents.status,
               release_version_no: agentVersions.versionNo,
               createdAt: agentReleases.createdAt,
               earlier: earlierInSecond(agentReleases),
@@ -1515,6 +1516,7 @@ export function createPostgresSessionReader(
                 release_label: releaseLabel(release.createdAt, release.earlier),
                 release_is_active:
                   release.activeReleaseId === release.releaseId,
+                archived: release.status === "archived",
               }
             : null,
         created_by:

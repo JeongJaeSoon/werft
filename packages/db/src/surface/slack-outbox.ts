@@ -6,6 +6,8 @@ import {
   type RuntimeKind,
   rememberRuleSchema,
   type SessionEventPayload,
+  SLACK_USER_CHANNEL_CODE,
+  slackOutboxChannelRefused,
   type UserLocale,
   withStoredNeutralFields,
 } from "@werft-ai/contracts";
@@ -73,6 +75,16 @@ import {
 } from "./slack-thread-status.ts";
 
 const t = slackOutbox;
+
+/** An outbox row that names a Slack user as its channel (slackOutboxChannelRefused). */
+export class SlackOutboxUserChannelError extends Error {
+  readonly code = SLACK_USER_CHANNEL_CODE;
+
+  constructor(readonly kind: string) {
+    super(`A ${kind} outbox row may not name a Slack user as its channel`);
+    this.name = "SlackOutboxUserChannelError";
+  }
+}
 
 // A turn stopped before it had anything to post.
 const STOPPED_TURNS = sqlLiterals(["interrupted", "cancelled"]);
@@ -641,6 +653,9 @@ export function createPostgresSlackOutboxStore(
     threadStatus: createPostgresSlackThreadStatusStore(db),
 
     async enqueue(input, whileHome) {
+      if (slackOutboxChannelRefused(input.kind, input.channelId)) {
+        throw new SlackOutboxUserChannelError(input.kind);
+      }
       return db.transaction(async (tx) => {
         if (whileHome) {
           const [home] = await tx

@@ -280,19 +280,6 @@ schema_check() {
   return "$EXIT_SCHEMA_MISMATCH"
 }
 
-# A backup taken from a Gitea (manifest `gitea` not null) holds repositories
-# this checkout has nowhere to put. The commit it names is a candidate, not a
-# promise: it can be `unknown`, and a dirty checkout's changes were not kept.
-no_gitea_data() {
-  local manifest="$1" commit
-  [ "$(jq -r '.gitea != null' "$manifest")" = true ] || return 0
-  commit="$(jq -r '.source.checkout_commit // "unknown"' "$manifest")"
-  [ "$(jq -r '.source.checkout_dirty // false' "$manifest")" != true ] || commit="$commit (with local changes)"
-  log "restore: this backup holds Gitea data (repos/ and gitea/), which this checkout cannot restore"
-  log "restore: use a checkout from before Gitea's removal at schema head $(jq -r '.schema.head_tag // "?"' "$manifest"); the backup was taken at commit $commit"
-  return "$EXIT_SCHEMA_MISMATCH"
-}
-
 # `unbundle_chain <bare-repository> <commit> <bundle>...`: a checkpoint's
 # bundles, oldest first, fetched into one empty repository the way a restore
 # stacks them. An incremental bundle needs commits only an earlier

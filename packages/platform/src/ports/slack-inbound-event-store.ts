@@ -1,8 +1,12 @@
-import type { SlackInboundDropReason } from "@werft-ai/contracts";
+import type {
+  SlackInboundDropFields,
+  SlackInboundDropReason,
+} from "@werft-ai/contracts";
 
 /**
- * One event as the events route stored it. A `dropped` row has a reason and
- * no payload; the others keep the envelope as Slack sent it.
+ * One event as the events route stored it. A `dropped` row has a reason,
+ * the sender fields and no payload; the others keep the envelope as Slack
+ * sent it.
  */
 export type SlackInboundEventInput = {
   workspaceId: string;
@@ -16,7 +20,11 @@ export type SlackInboundEventInput = {
   eventSubtype: string | null;
   eventTime: Date | null;
 } & (
-  | { status: "dropped"; dropReason: SlackInboundDropReason }
+  | {
+      status: "dropped";
+      dropReason: SlackInboundDropReason;
+      dropFields: SlackInboundDropFields;
+    }
   | {
       status: "received" | "processed";
       payload: Record<string, unknown>;
@@ -83,7 +91,7 @@ export interface SlackInboundEventStore {
   ): Promise<{
     installationStatus: SlackInboundClaim["installationStatus"];
   } | null>;
-  /** Marks the row `processed`. */
+  /** Marks the row `processed`, its payload cleared. */
   complete(fence: SlackInboundFence): Promise<boolean>;
   /** Ends the row `dropped` for `reason`, its payload and key cleared. */
   drop(

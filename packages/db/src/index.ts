@@ -13,6 +13,7 @@ export {
 } from "./checkpoints/checkpoint-runtime.ts";
 export * from "./checkpoints/checkpoint-store.ts";
 export * from "./control-unit-of-work.ts";
+export * from "./conversations/conversation-store.ts";
 export { decodeEventCursor, encodeEventCursor } from "./cursors.ts";
 export * from "./extensions/extension-bundles.ts";
 export { createPostgresSkillGitSourceStore } from "./extensions/skill-git-sources.ts";
@@ -73,6 +74,7 @@ export * from "./session-links.ts";
 export * from "./session-titles.ts";
 export * from "./sessions/achievement-judgments.ts";
 export * from "./sessions/achievement-rules.ts";
+export * from "./sessions/agentless-close.ts";
 export * from "./sessions/commit-attributions.ts";
 export * from "./sessions/execution-revocation.ts";
 export * from "./sessions/interrupt-control.ts";

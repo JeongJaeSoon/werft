@@ -7,6 +7,7 @@ import type {
 import { and, eq, gt, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { slackInboundEvents, slackInstallations } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 import { released } from "./slack-shared.ts";
 
 const t = slackInboundEvents;
@@ -62,6 +63,7 @@ export function createPostgresSlackInboundEventStore(
           eventTime: event.eventTime,
           status: event.status,
           dropReason: event.status === "dropped" ? event.dropReason : null,
+          dropFields: event.status === "dropped" ? event.dropFields : null,
           payload: event.status === "dropped" ? null : event.payload,
           conversationKey:
             event.status === "dropped" ? null : event.conversationKey,
@@ -148,7 +150,7 @@ export function createPostgresSlackInboundEventStore(
           .map(({ receivedAt: _, claimToken, payload, ...row }) => ({
             ...row,
             // Set by this very update, and received rows keep their payload
-            // (slack_inbound_events_dropped_check).
+            // (slack_inbound_events_payload_check).
             claimToken: claimToken as string,
             payload: payload as Record<string, unknown>,
           }));
@@ -169,7 +171,7 @@ export function createPostgresSlackInboundEventStore(
     async complete(fence) {
       const rows = await db
         .update(t)
-        .set({ status: "processed", ...released })
+        .set({ status: "processed", payload: null, ...released })
         .where(leaseHeld(fence))
         .returning({ id: t.id });
       return rows.length > 0;
@@ -205,4 +207,39 @@ export function createPostgresSlackInboundEventStore(
       return row.status === "failed" ? "failed" : "retry";
     },
   };
+}
+
+/** How long a failed row keeps its payload, counted from its receipt. */
+export const SLACK_INBOUND_FAILED_PAYLOAD_RETENTION_MS = 7 * 24 * 60 * 60_000;
+
+/**
+ * Clears the payload of failed rows received more than `retentionMs` ago;
+ * a row fails within minutes of its receipt (five claims, backoff capped at
+ * five minutes). Returns how many rows it changed; a dry run counts them, rows
+ * another transaction holds included. The reconciler runs it every pass.
+ */
+export async function purgeFailedSlackInboundPayloads(
+  db: Database,
+  options: { limit: number; dryRun: boolean; retentionMs?: number },
+): Promise<number> {
+  const retentionMs =
+    options.retentionMs ?? SLACK_INBOUND_FAILED_PAYLOAD_RETENTION_MS;
+  // The first two conditions repeat the predicate of
+  // slack_inbound_events_failed_payload_idx. Change one and the other follows.
+  const expired = sql`
+    SELECT id FROM slack_inbound_events
+    WHERE status = 'failed'
+      AND payload IS NOT NULL
+      AND received_at < now() - make_interval(secs => ${retentionMs / 1000})
+    ORDER BY received_at
+    LIMIT ${options.limit}`;
+  const result = await db.execute(
+    options.dryRun
+      ? expired
+      : sql`
+    UPDATE slack_inbound_events SET payload = NULL
+    WHERE id IN (${expired} FOR UPDATE SKIP LOCKED)
+    RETURNING id`,
+  );
+  return rowsOf<{ id: string }>(result).length;
 }

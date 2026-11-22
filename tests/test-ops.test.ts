@@ -242,8 +242,6 @@ describe("scripts/test-ops.sh", () => {
     async function directory(name: string, mode: number) {
       const path = join(dir, name);
       await mkdir(path);
-      await writeFile(join(path, ".gitkeep"), "");
-      await chmod(join(path, ".gitkeep"), 0o600);
       await chmod(path, mode);
       return path;
     }
@@ -358,35 +356,39 @@ describe("scripts/test-ops.sh", () => {
       },
     );
 
-    cleanTest(
-      "passes root readers and the legacy directory's dot entries",
-      async () => {
-        const script = await file("10-create-resources.sh", 0o700);
-        const owned = await file("only-root.conf", 0o600);
-        const legacy = await directory("legacy-config", 0o755);
-        // Not walked at all: an unwalkable one would otherwise stop the check.
-        await mkdir(join(legacy, ".cache"), { mode: 0o000 });
-        const result = await preflightWith({
-          localstack: {
-            binds: [script],
-            image: "localstack/localstack:3",
-          },
-          migrate: { binds: [legacy], user: `${other}:${other}` },
-          scheduler: { binds: [owned], user: "0:0" },
-        });
-        await chmod(join(legacy, ".cache"), 0o755);
-        expect(result.stderr).not.toContain(refusal);
-        expect(result.stderr).toContain(passed);
-      },
-    );
-
-    cleanTest("refuses a directory its reader cannot search", async () => {
-      const legacy = await directory("legacy-config", 0o700);
+    cleanTest("passes root readers", async () => {
+      const script = await file("10-create-resources.sh", 0o700);
+      const owned = await file("only-root.conf", 0o600);
       const result = await preflightWith({
-        migrate: { binds: [legacy], user: `${other}:${other}` },
+        localstack: {
+          binds: [script],
+          image: "localstack/localstack:3",
+        },
+        scheduler: { binds: [owned], user: "0:0" },
+      });
+      expect(result.stderr).not.toContain(refusal);
+      expect(result.stderr).toContain(passed);
+    });
+
+    // The legacy import skipped dot entries, so the check once did too.
+    cleanTest("checks dot entries like any other", async () => {
+      const mounted = await directory("mounted", 0o755);
+      const hidden = await file(join("mounted", ".hidden"), 0o600);
+      const result = await preflightWith({
+        migrate: { binds: [mounted], user: `${other}:${other}` },
       });
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain(`  ${legacy} (migrate, uid ${other})\n`);
+      expect(result.stderr).toContain(`  ${hidden} (migrate, uid ${other})\n`);
+      expect(result.stderr).toContain(`1 ${refusal}`);
+    });
+
+    cleanTest("refuses a directory its reader cannot search", async () => {
+      const mounted = await directory("mounted", 0o700);
+      const result = await preflightWith({
+        migrate: { binds: [mounted], user: `${other}:${other}` },
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(`  ${mounted} (migrate, uid ${other})\n`);
       expect(result.stderr).toContain(`1 ${refusal}`);
     });
 
@@ -401,14 +403,16 @@ describe("scripts/test-ops.sh", () => {
     });
 
     unprivilegedTest("stops when it cannot walk a source", async () => {
-      const legacy = await directory("legacy-config", 0o755);
-      await mkdir(join(legacy, "closed"), { mode: 0o000 });
+      const mounted = await directory("mounted", 0o755);
+      await mkdir(join(mounted, "closed"), { mode: 0o000 });
       const result = await preflightWith({
-        migrate: { binds: [legacy], user: `${other}:${other}` },
+        migrate: { binds: [mounted], user: `${other}:${other}` },
       });
-      await chmod(join(legacy, "closed"), 0o755);
+      await chmod(join(mounted, "closed"), 0o755);
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain(`cannot check the modes under ${legacy}`);
+      expect(result.stderr).toContain(
+        `cannot check the modes under ${mounted}`,
+      );
       expect(result.stderr).not.toContain(passed);
     });
 
@@ -416,9 +420,9 @@ describe("scripts/test-ops.sh", () => {
       const sql = await file("0000_m0.sql", 0o644);
       const settings = await file("installation.json", 0o644);
       const unknown = await file("other.conf", 0o644);
-      const legacy = await directory("legacy-config", 0o755);
+      const mounted = await directory("mounted", 0o755);
       const result = await preflightWith({
-        migrate: { binds: [settings, legacy], user: `${other}:${other}` },
+        migrate: { binds: [settings, mounted], user: `${other}:${other}` },
         postgres: { binds: [sql], image: "postgres:16" },
         tool: {
           binds: [unknown, join(dir, "missing")],
@@ -739,20 +743,6 @@ exit 0
     );
   });
 
-  // A repository the import leaves out adds nothing, so `.add == []` holds;
-  // the deployment would run with no repository.
-  test("deploy refuses when the import leaves a repository out", async () => {
-    await freshHost(
-      `echo '{"add":[]}'; echo 'note: repository sample-app is not imported: it names no GitHub App' >&2`,
-    );
-    const skipped = await run(["deploy", join(dir, "release.json")], env);
-    expect(skipped.exitCode).toBe(1);
-    expect(skipped.stderr).toContain("repository sample-app is not imported");
-    expect(skipped.stderr).toContain(
-      "the settings document names a repository the import leaves out",
-    );
-  });
-
   test("deploy with the document in the database records the release", async () => {
     await freshHost();
     const result = await run(["deploy", join(dir, "release.json")], env);
@@ -950,16 +940,15 @@ describe("release manifest", () => {
       [key: string]: unknown;
     };
 
-  test("the running release may predate settings documents; a new one may not", async () => {
+  // The running release's manifest was once read with `catalog_revision`
+  // in place of the digest; no release since wrote one.
+  test("a manifest from before settings documents is refused, running or not", async () => {
     const { settings_digest: _digest, ...rest } = await base();
     const old = { ...rest, catalog_revision: "sha256:abc" };
-    expect(parseReleaseManifest(old, { deployed: true }).settingsDigest).toBe(
-      "",
-    );
     expect(() => parseReleaseManifest(old)).toThrow(
       "manifest has unknown key catalog_revision",
     );
-    expect(() => parseReleaseManifest(rest, { deployed: true })).toThrow(
+    expect(() => parseReleaseManifest(rest)).toThrow(
       "settings_digest must be sha256:<64 hex>",
     );
   });
@@ -1470,7 +1459,7 @@ exit 0
   );
 
   test(
-    "refuses a repository without a GitHub App before anything starts, and says what to do",
+    "refuses a repository without a GitHub App before anything starts, naming the field",
     async () => {
       const model = render("localstack");
       for (const repositories of [
@@ -1483,10 +1472,11 @@ exit 0
           () => "",
           (error: Error) => error.message,
         );
-        expect(found).toContain("repository sample");
-        expect(found).toContain('"auth": {"kind": "github_app"}');
-        expect(found).toContain("remove the entry or give it a new id");
-        expect(found).toContain("copy the fixed manifest over it");
+        // Once skipped with a note and a fix to copy; now the import's own
+        // refusal, as migrate would give it.
+        expect(found).toContain(`settings document ${document}`);
+        expect(found).toMatch(/repositories\.sample\.(auth|branch)/);
+        expect(found).not.toContain("copy the fixed manifest over it");
       }
       await writeFile(
         document,

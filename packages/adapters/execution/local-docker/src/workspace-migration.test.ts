@@ -17,7 +17,8 @@ const config = {
   workspaceQuota: { mode: "enforced", sizeBytes: QUOTA },
 } as LocalDockerBackendConfig;
 const VOLUME_LABELS = volumeLabelsOf(config);
-const LEGACY = `werft-ws-inst-${SESSION}`;
+/** A volume a finished migration removed. */
+const GONE = `werft-ws-inst-${SESSION}-gone0000`;
 const CREATED = "2026-01-01T00:00:00Z";
 
 function volume(
@@ -53,67 +54,52 @@ function labelled(
   );
 }
 
-const plan = (
-  labelledVolumes: VolumeInspect[],
-  derived: VolumeInspect | null,
-) =>
+const plan = (labelledVolumes: VolumeInspect[]) =>
   planWorkspaceMigration({
     config,
-    derived,
     labelled: labelledVolumes,
     sessionId: SESSION,
   });
+const OLD = labelled("aaaa0003", "off");
 
 describe("planWorkspaceMigration", () => {
-  test("an unlabelled volume under the derived name is the source", () => {
-    expect(plan([], volume(LEGACY))).toEqual({
-      kind: "migrate",
-      leftovers: [],
-      source: LEGACY,
-    });
-  });
-
   test("a copy an earlier run made of that source is a leftover to redo", () => {
     const copy = labelled("aaaa0001", `enforced:${QUOTA}`, {
-      [VOLUME_LABELS.migratedFrom]: LEGACY,
+      [VOLUME_LABELS.migratedFrom]: OLD.Name,
       [VOLUME_LABELS.migrationSourceCreatedAt]: CREATED,
     });
-    expect(plan([copy], volume(LEGACY))).toEqual({
+    expect(plan([OLD, copy])).toEqual({
       kind: "migrate",
       leftovers: [copy.Name],
-      source: LEGACY,
+      source: OLD.Name,
     });
   });
 
   test("a copy of an earlier volume under the source's name is refused, not discarded", () => {
-    // Another run finished and removed the source; a late run's mount then
-    // made an empty volume under that name. The copy is the work.
     const copy = labelled("aaaa0010", `enforced:${QUOTA}`, {
-      [VOLUME_LABELS.migratedFrom]: LEGACY,
+      [VOLUME_LABELS.migratedFrom]: OLD.Name,
       [VOLUME_LABELS.migrationSourceCreatedAt]: CREATED,
     });
-    const recreated = { ...volume(LEGACY), CreatedAt: "2026-09-23T00:00:00Z" };
-    expect(plan([copy], recreated)).toEqual({
+    const recreated = { ...OLD, CreatedAt: "2026-09-23T00:00:00Z" };
+    expect(plan([recreated, copy])).toEqual({
       kind: "refused",
       reason: expect.stringContaining("not from the one there now"),
     });
     // Nor is a copy that does not say which one it came from.
     const unmarked = labelled("aaaa0011", `enforced:${QUOTA}`, {
-      [VOLUME_LABELS.migratedFrom]: LEGACY,
+      [VOLUME_LABELS.migratedFrom]: OLD.Name,
     });
-    expect(plan([unmarked], volume(LEGACY))).toMatchObject({
-      kind: "refused",
-    });
+    expect(plan([OLD, unmarked])).toMatchObject({ kind: "refused" });
   });
 
-  test("a workspace beside the legacy one that is not its copy is refused", () => {
+  test("a workspace beside the source that is not its copy is refused", () => {
     const other = labelled("aaaa0002", `enforced:${QUOTA}`);
-    expect(plan([other], volume(LEGACY))).toMatchObject({ kind: "refused" });
+    expect(plan([OLD, other])).toMatchObject({ kind: "refused" });
   });
 
   test("a labelled workspace under another quota is the source", () => {
     const old = labelled("aaaa0003", "off");
-    expect(plan([old], null)).toEqual({
+    expect(plan([old])).toEqual({
       kind: "migrate",
       leftovers: [],
       source: old.Name,
@@ -126,7 +112,7 @@ describe("planWorkspaceMigration", () => {
       [VOLUME_LABELS.migratedFrom]: old.Name,
       [VOLUME_LABELS.migrationSourceCreatedAt]: CREATED,
     });
-    expect(plan([old, copy], null)).toEqual({
+    expect(plan([old, copy])).toEqual({
       kind: "migrate",
       leftovers: [copy.Name],
       source: old.Name,
@@ -135,9 +121,9 @@ describe("planWorkspaceMigration", () => {
 
   test("a finished copy is current: its source is gone", () => {
     const copy = labelled("aaaa0004", `enforced:${QUOTA}`, {
-      [VOLUME_LABELS.migratedFrom]: LEGACY,
+      [VOLUME_LABELS.migratedFrom]: GONE,
     });
-    expect(plan([copy], null)).toEqual({
+    expect(plan([copy])).toEqual({
       kind: "current",
       workspace: copy.Name,
     });
@@ -146,9 +132,9 @@ describe("planWorkspaceMigration", () => {
   test("a copy whose source is long gone can itself be moved again", () => {
     // Migrated once under the old quota; the quota has changed since.
     const earlier = labelled("aaaa0009", "off", {
-      [VOLUME_LABELS.migratedFrom]: LEGACY,
+      [VOLUME_LABELS.migratedFrom]: GONE,
     });
-    expect(plan([earlier], null)).toEqual({
+    expect(plan([earlier])).toEqual({
       kind: "migrate",
       leftovers: [],
       source: earlier.Name,
@@ -156,36 +142,21 @@ describe("planWorkspaceMigration", () => {
   });
 
   test("no workspace at all is current, with nothing to move", () => {
-    expect(plan([], null)).toEqual({ kind: "current", workspace: null });
+    expect(plan([])).toEqual({ kind: "current", workspace: null });
   });
 
   test("two old-quota workspaces cannot be told apart", () => {
     expect(
-      plan(
-        [labelled("aaaa0005", "off"), labelled("aaaa0006", "enforced:1")],
-        null,
-      ),
+      plan([labelled("aaaa0005", "off"), labelled("aaaa0006", "enforced:1")]),
     ).toMatchObject({ kind: "refused" });
   });
 
   test("two current workspaces are not ours to choose between", () => {
     expect(
-      plan(
-        [
-          labelled("aaaa0007", `enforced:${QUOTA}`),
-          labelled("aaaa0008", `enforced:${QUOTA}`),
-        ],
-        null,
-      ),
-    ).toMatchObject({ kind: "refused" });
-  });
-
-  test("a derived name labelled for someone else is refused, not moved", () => {
-    expect(
-      plan([], volume(LEGACY, { [LABELS.installation]: "other" })),
-    ).toMatchObject({ kind: "refused" });
-    expect(
-      plan([], volume(LEGACY, { [LABELS.sessionId]: "someone-else" })),
+      plan([
+        labelled("aaaa0007", `enforced:${QUOTA}`),
+        labelled("aaaa0008", `enforced:${QUOTA}`),
+      ]),
     ).toMatchObject({ kind: "refused" });
   });
 });
@@ -212,9 +183,7 @@ describe("WorkspaceMigrator", () => {
         return {};
       },
       async inspectVolume(name: string) {
-        return name === LEGACY
-          ? { ...volume(LEGACY), CreatedAt: created }
-          : null;
+        return name === OLD.Name ? { ...OLD, CreatedAt: created } : null;
       },
       async listContainers() {
         return [];
@@ -223,7 +192,7 @@ describe("WorkspaceMigrator", () => {
         return [];
       },
       async listVolumes() {
-        return [];
+        return [OLD];
       },
       async removeVolume(name: string) {
         calls.push(`remove volume ${name}`);

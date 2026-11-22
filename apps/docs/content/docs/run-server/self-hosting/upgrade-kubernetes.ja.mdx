@@ -256,11 +256,7 @@ kubectl -n werft exec deploy/werft-api -- env \
 <a id="4-파일-카탈로그-설치에서-오는-경우" />
 ### 4. ファイル catalog の環境から移行する場合
 
-`catalog` 値を使っていた chart の ConfigMap は現在の chart にはありません。Helm は hook 完了後に以前のリソースを削除するため、pre-upgrade migrate Job が同じ ConfigMap を `/legacy-config` に optional mount し、`settings seed --from-dir /legacy-config` で取り込みます。DB にすでに接続か MCP サーバーがあれば取り込まず、一度決まった後は ConfigMap が残っていても再び取り込みません。その後の設定はコンソールで変更します。一部ファイルだけ存在する、または値が壊れていれば Job が失敗し、Deployment は変わりません。
-
-1. 先に `PLATFORM_SECRET_KEY` を Secret に設定します。既にあれば同じ値を維持します。
-2. values から `catalog` 節を削除して `helm upgrade` します。`api.extraEnv` の `PLATFORM_CONFIG_DIR` も、あれば削除します。
-3. 設置バージョンのリポジトリ checkout とホストの Bun・kubectl を準備し、`bun run settings:k8s export` で追加項目を確認します。手順と戻せる下限は [設定文書のインポートとエクスポート](/run-server/self-hosting/reference/configuration#설정-문서-가져오기내보내기)にあります。
+現在の chart は以前の `catalog` ConfigMap を取り込まず、migrate Job は seed を実行しません。ファイル catalog のままの環境は、まずこのリリースより前の release に上げて設定を DB に移してから上げます([設定文書のインポートとエクスポート](/run-server/self-hosting/reference/configuration#설정-문서-가져오기내보내기))。`api.extraEnv` に残った `PLATFORM_CONFIG_DIR` は読まないため、起動を止めません。整理する場合は削除します。
 
 <a id="확인" />
 ## 確認
