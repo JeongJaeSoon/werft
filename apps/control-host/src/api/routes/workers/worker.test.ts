@@ -881,7 +881,7 @@ describe("/internal/worker bundles", () => {
     ).toEqual({ status: 409, code: "LEASE_EXPIRED" });
   });
 
-  // 94S-731: a gateway call joins a turn trace only when its own session acts.
+  // A gateway call joins a turn trace only when its own session acts.
   test("a call joins its turn's trace only for the token's own session", async () => {
     const exported: string[] = [];
     const tracer = createOtelTracer({

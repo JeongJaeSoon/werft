@@ -19,7 +19,7 @@
  * A command that exits on its own starts again after a delay, as Docker's
  * restart policy would start the container outside dev: this process keeps the
  * container up, so that policy never sees the exit. A pass loop that gave up
- * on a dependency gone for a few seconds (a recreated egress proxy, 94S-1641)
+ * on a dependency gone for a few seconds (a recreated egress proxy)
  * thus comes back without a save. The delay doubles from DEV_RESTART_MIN_MS
  * (default 1000) to DEV_RESTART_MAX_MS (default 30000) while the command keeps
  * exiting within the longest delay, so a crash on a half-written file costs

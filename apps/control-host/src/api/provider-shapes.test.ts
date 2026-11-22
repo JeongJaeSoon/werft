@@ -207,8 +207,7 @@ const JIT = { jitRole: "member" as const };
 const UNVERIFIED = { kind: "rejected", reason: "email_unverified" } as const;
 
 describe("Google: one issuer for everyone, `hd` on a Workspace account, `iss` with or without the scheme", () => {
-  // The lists of https://accounts.google.com/.well-known/openid-configuration
-  // as read on 2026-11-13.
+  // The lists of https://accounts.google.com/.well-known/openid-configuration.
   const DISCOVERY = {
     userinfo_endpoint: "https://openidconnect.googleapis.com/v1/userinfo",
     response_types_supported: [
@@ -389,7 +388,7 @@ describe("OneLogin: an issuer under a path, one client authentication per app, n
 
 describe("Entra ID: a tenant's issuer, no `email_verified`, an `email` only when the app registration adds it", () => {
   const ISSUER = `https://login.microsoftonline.com/${randomUUID()}/v2.0`;
-  // The lists of the v2.0 discovery document as read on 2026-11-13: no
+  // The lists of the v2.0 discovery document: no
   // word on PKCE, and a UserInfo endpoint (Microsoft Graph's there, the
   // stand-in's own here).
   const DISCOVERY = {
@@ -588,8 +587,7 @@ describe("Keycloak: a realm's issuer, ES256, `email_verified: false` for an unve
   beforeAll(async () => {
     idp = await standIn(ISSUER, {
       signingAlg: "ES256",
-      // The lists of a Keycloak 26.8.1 realm's discovery document as read
-      // on 2026-11-13.
+      // The lists of a Keycloak 26.8.1 realm's discovery document.
       discovery: {
         response_types_supported: [
           "code",

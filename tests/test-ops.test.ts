@@ -599,7 +599,7 @@ exit 0
     ).toBeNull();
   });
 
-  // 94S-1419: a stack a compose down or a host restart left down. deploy
+  // A stack a compose down or a host restart left down. deploy
   // refuses it (a release is recorded) and upgrade needs a running postgres;
   // start is the one way back, on the volumes that stayed.
   test.each(["start", "stop"])(
@@ -1510,7 +1510,7 @@ exit 0
     "refuses a settings document migrate would refuse, with migrate's own message",
     async () => {
       const model = render("localstack");
-      // The owner run of 2026-11-06: ids with no credential source.
+      // An owner run: ids with no credential source.
       await writeFile(
         document,
         JSON.stringify({

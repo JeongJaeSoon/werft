@@ -52,7 +52,7 @@ export function postgresTurnTraceDirectory(
   };
 }
 
-/** The existing value-based masker. A pattern-based one (94S-730) replaces it behind the same port. */
+/** The existing value-based masker. A pattern-based one replaces it behind the same port. */
 export const valueMasker: ValueMasker = { mask: sanitizeText };
 
 /** Counts in memory and logs a running total at most once a minute per reason. */

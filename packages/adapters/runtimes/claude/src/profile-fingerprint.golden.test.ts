@@ -8,7 +8,7 @@ import {
 } from "./profile-fingerprint.ts";
 
 // The digests checkpoints are stamped with, pinned to the bytes main produced
-// before the runtime contract refactor (94S-827): a restore compares them, so
+// before the runtime contract refactor: a restore compares them, so
 // a refactor that moves this code must keep every one of them.
 // Regenerate only for an intended change: UPDATE_GOLDEN=1 bun test <file>.
 

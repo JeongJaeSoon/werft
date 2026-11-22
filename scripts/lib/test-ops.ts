@@ -48,7 +48,7 @@ const LOCAL_ONLY = ["localstack", "local-s3-init", "fake-messages", "fake-git"];
 
 /**
  * Where a test-ops installation keeps checkpoint objects: LocalStack, in
- * memory, while no AWS account is in use (2026-09-25), or AWS S3 itself.
+ * memory, while no AWS account is in use, or AWS S3 itself.
  */
 export type ObjectStoreMode = "localstack" | "s3";
 const OBJECT_STORE_MODES: readonly ObjectStoreMode[] = ["localstack", "s3"];

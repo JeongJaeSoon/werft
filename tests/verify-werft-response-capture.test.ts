@@ -651,8 +651,8 @@ describe("maskBody: werft#1327 review", () => {
     ).toEqual([]);
     expect(leaked('<field name="password">syn-pw-12</field>')).toEqual([]);
     expect(leaked("<sid>syn-sid-13")).toEqual([]);
-    // Markup with a secret-like name is withheld whole (werft#1327 round 4:
-    // every close-tag scan was bypassed); markup without one stays readable.
+    // Markup with a secret-like name is withheld whole (a close-tag scan
+    // can be bypassed); markup without one stays readable.
     expect(maskBody("<password>x</password><error>kept</error>")).toBe(
       "(markup with secret-like names withheld, 41 chars)",
     );
@@ -846,8 +846,7 @@ describe("formatCapture", () => {
   });
 });
 
-// Follow-ups of werft#1327 (hold queue 7 and 8). Values are placeholders; no
-// real-looking secret literal is used.
+// Values are placeholders; no real-looking secret literal is used.
 describe("maskBody: prefixed JSON and form bodies", () => {
   const leaks = (text: string) => maskBody(text).includes("SENTINEL");
 
@@ -988,7 +987,6 @@ describe("maskBody: form pairs inside a JSON string", () => {
   });
 });
 
-// Orchestrator review of werft#1327 at a16528c (Act-on 1 and 2).
 describe("maskBody: encoded separators and cut nested JSON", () => {
   const leaks = (text: string) => maskBody(text).includes("SENTINEL");
 
@@ -1027,7 +1025,6 @@ describe("maskBody: encoded separators and cut nested JSON", () => {
   });
 });
 
-// Orchestrator review of werft#1327 at 62a1f6c (Act-on 1-3 and Consider).
 // Secrets are built by concatenation from a placeholder word.
 describe("maskBody: quoted form values, form pairs and JSON inside strings", () => {
   const S = ["SENT", "INEL"].join("");
@@ -1098,8 +1095,7 @@ describe("maskBody: session as a word, not a key", () => {
   });
 });
 
-// Every input from the orchestrator reviews of werft#1327 (a16528c, 62a1f6c,
-// 0f37bf3), in one table so a later change that reopens one of them fails
+// Every input of the earlier masking reviews, in one table so a later change that reopens one of them fails
 // here. Secrets are built by concatenation from a placeholder word; `keep`
 // lists text that must stay readable.
 describe("maskBody: review inputs", () => {

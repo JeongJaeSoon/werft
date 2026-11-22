@@ -13,7 +13,7 @@ import { integerSetting } from "@werft-ai/contracts/settings";
  * The child (`main.ts <role> --serve`, see `servePasses`) runs one pass per
  * IPC request and stays for the next, because starting bun and loading a
  * role's modules costs several times the pass itself and an idle loop would
- * spend most of a core on it (94S-944). Each pass still opens and ends its own
+ * spend most of a core on it. Each pass still opens and ends its own
  * pool. A pass that fails, is stopped or times out takes its child with it, so
  * the next pass starts in a fresh process; a child that dies between passes is
  * a failure too. A command that exits after one pass (`--once`) works as well:

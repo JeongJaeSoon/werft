@@ -418,7 +418,7 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
     ],
   ];
 
-  // 94S-798: what each person is told about answering, and what an answer
+  // What each person is told about answering, and what an answer
   // gets. Past the policy the store finds no request "req_none" (404), so a
   // 404 here is a permitted answer and a 403 a refused one.
   async function answering(who: Who) {
@@ -598,7 +598,7 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
     );
   });
 
-  // 94S-804: renaming is answered as answering is.
+  // Renaming is answered as answering is.
   async function renaming(who: Who): Promise<{
     who: Who;
     status: number;
@@ -723,7 +723,7 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
       asCookie(cookies.teammate),
     );
     expect(detail.status).toBe(200);
-    // 94S-798: the teammate sees it but may not answer for its creator; the
+    // The teammate sees it but may not answer for its creator; the
     // owner, outside the team, does not even see it.
     expect(await answering("teammate")).toEqual({
       who: "teammate",
@@ -746,7 +746,7 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
       answer: 404,
       code: "NOT_FOUND",
     });
-    // 94S-804: renaming follows the same lines.
+    // Renaming follows the same lines.
     expect(await renaming("teammate")).toMatchObject({
       status: 403,
       details: { reason_code: "role" },

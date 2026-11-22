@@ -506,7 +506,7 @@ describe.each(ENGINES)("the deployment welcome on %s", (engine) => {
     const bound = await fixture.bind(home?.id ?? "", true);
     const { release } = await fixture.release();
     await fixture.activate(release.id);
-    // What a welcome sent before 94S-1298 left behind.
+    // What a welcome sent under the per-release key left behind.
     const legacy = `deployment-welcome:${fixture.agentId}:${release.id}:${bound.slack_binding.id}`;
     await db
       .update(slackOutbox)

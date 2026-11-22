@@ -346,7 +346,7 @@ describe("the tool envelope", () => {
     expect(attach).not.toMatch(/same answer|has been given|exists/i);
   });
 
-  // 94S-1479: the fetch leaves no working tree, so a model that attached
+  // The fetch leaves no working tree, so a model that attached
   // a repository and then looked for files with Read or Glob found nothing,
   // and one without Bash had no way to read it at all.
   test("attach_repository says the fetch leaves no working tree, how Bash reads it, and that a session without Bash cannot", () => {

@@ -28,7 +28,7 @@ import {
 
 // Public /v1 operations whose declaration still lacks a description, a
 // request example (when it takes a body), or a success example and
-// description. 94S-599 empties this list; an entry that is already complete
+// description. The list is meant to empty; an entry that is already complete
 // fails the test below, so the list only shrinks.
 const UNDOCUMENTED_OPERATIONS = new Set<ApiOperationId>([
   "getSessionShare",

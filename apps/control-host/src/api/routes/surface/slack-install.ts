@@ -88,7 +88,7 @@ export function registerSlackInstallRoutes(
         installation_id: completed.installation.id,
         identity_id: completed.agent_identity.id,
         finalized: completed.finalized,
-        // `reinstall_required` is kept nowhere else yet (94S-793 decides).
+        // `reinstall_required` is kept nowhere else yet.
         warnings: completed.warnings.map((warning) => warning.code),
       });
       return jsonWithSchema(

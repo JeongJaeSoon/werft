@@ -15,7 +15,7 @@ import { inputUuid, WorkerHost, type WorkerLogger } from "./worker-host.ts";
 import { noWorkspace } from "./workspace.ts";
 
 // What the worker publishes and finalizes for a scripted engine, pinned to
-// the bytes main produced before the runtime contract refactor (94S-827).
+// the bytes main produced before the runtime contract refactor.
 // Regenerate only for an intended change: UPDATE_GOLDEN=1 bun test <file>.
 
 const GOLDEN = join(import.meta.dir, "../../../tests/fixtures/golden/worker");

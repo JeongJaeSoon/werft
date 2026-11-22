@@ -334,7 +334,7 @@ describe("a private agent's usage", () => {
   });
 });
 
-// 94S-1512: a private agent the reader may not use reads as a missing one.
+// A private agent the reader may not use reads as a missing one.
 describe("reading a private agent", () => {
   const reading = (action: "agent.read" | "agent.settings_read", id: string) =>
     ({

@@ -464,9 +464,9 @@ describe("priceProviderUsage for an OpenAI model", () => {
     ).toBeCloseTo(24 + 90, 9);
   });
 
-  // Was 2x, the fast rate (#1515). A tier the page adds later, or one the
-  // answer names in a way the proxy does not map, may be dearer than fast:
-  // 94S-1545 prices it at the highest known multiple.
+  // A tier the page adds later, or one the answer names in a way the proxy
+  // does not map, may be dearer than fast: it is priced at the highest known
+  // multiple.
   test("a tier the model's card does not list is priced at the highest known multiple, not the fast one", () => {
     const call = { ...openAi, model: "gpt-5.5", outputTokens: 100_000 };
     const standard = priceProviderUsage(call).costUsd;
@@ -691,8 +691,8 @@ describe("priceProviderUsage for an OpenAI model", () => {
     expect(priced.costUsd).toBeGreaterThanOrEqual(50);
   });
 
-  // Was 2x for every speed (#1515, #1630): fast is now gpt-5.5's 2.5x, and a
-  // tier past fast the highest multiple the table knows (94S-1545).
+  // Fast is gpt-5.5's 2.5x, and a tier past fast the highest multiple the
+  // table knows.
   test("a model no table names is charged the dearest multiple of its tier away from the standard speed", () => {
     const call = { ...openAi, model: "gpt-9", outputTokens: 1_000_000 };
     const standard = priceProviderUsage(call).costUsd;
@@ -725,7 +725,7 @@ describe("priceProviderUsage for an OpenAI model", () => {
     const call = { ...openAi, model: "gpt-5.4-mini", inputTokens: 300_000 };
     const standard = priceProviderUsage(call);
     expect(standard.pricedBy).toBe("fallback");
-    // Was 2x (#1630); fast is now the dearest fast multiple, 2.5x (94S-1545).
+    // Fast is the dearest fast multiple, 2.5x.
     expect(priceProviderUsage({ ...call, speed: "fast" })).toEqual({
       costUsd: standard.costUsd * 2.5,
       pricedBy: "fallback",

@@ -342,8 +342,7 @@ function WaitingBadge() {
   const waiting = useWaitingSessions().data;
   if (!waiting || waiting.count === 0) return null;
   const { count, more } = waiting;
-  // A plain grey count; the accent dot marks what waits on the reader
-  // (owner, 2026-10-31).
+  // A plain grey count; the accent dot marks what waits on the reader.
   return (
     <>
       <span
@@ -487,7 +486,7 @@ function NavSection({
                 : undefined
             }
             onClick={onNavigate}
-            // The current page takes a light primary row (owner, 2026-11-11);
+            // The current page takes a light primary row;
             // the icon follows the text colour, so it turns primary with it.
             className={cn(
               "flex h-8 items-center gap-2 rounded-control px-2 font-medium text-control text-foreground no-underline",

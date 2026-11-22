@@ -4,7 +4,7 @@ import type { NativeSdkMessage } from "./driver.ts";
 import { TurnAccounting } from "./turn-accounting.ts";
 
 // What each turn is charged from the engine's running totals, pinned to the
-// bytes main produced before the runtime contract refactor (94S-827).
+// bytes main produced before the runtime contract refactor.
 // Regenerate only for an intended change: UPDATE_GOLDEN=1 bun test <file>.
 
 const GOLDEN = join(

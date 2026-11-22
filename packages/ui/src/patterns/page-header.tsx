@@ -20,7 +20,7 @@ export interface PageHeaderProps {
   /**
    * A `PageBreadcrumb` on the line above the title, where another page's
    * title starts. A detail screen's way back to its list is a button at
-   * the end of `actions` instead (user decision 2026-10-25).
+   * the end of `actions` instead.
    */
   readonly breadcrumb?: ReactNode | undefined;
   /**
@@ -30,7 +30,7 @@ export interface PageHeaderProps {
   readonly titleRef?: Ref<HTMLHeadingElement> | undefined;
   /**
    * Below this breakpoint the actions go under the description, so the
-   * title and description keep the full width (owner decision 2026-10-29).
+   * title and description keep the full width.
    * `lg` for a head whose title needs more room beside its actions.
    * `wrap` for a head whose actions change in number and width, such as a
    * session's commands: no breakpoint, the title column keeps at least

@@ -10,7 +10,7 @@ import { TurnLedger } from "./turn-ledger.ts";
 // this adapter hands the engine, not what a live engine does with a bundle
 // tree edited after launch. That runtime behavior (a hooks.json or an
 // `allowed-tools` frontmatter written once the session runs) needs a real
-// engine and is part of the live verification of 94S-879.
+// engine and is part of the live verification.
 
 const config: ClaudeRuntimeConfig = {
   claudeConfigDir: "/tenant/config",

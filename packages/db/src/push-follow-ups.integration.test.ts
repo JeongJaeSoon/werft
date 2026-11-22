@@ -61,7 +61,7 @@ const catalog: SessionCatalog = testSessionCatalog({
   },
 });
 
-// 94S-1269: a Slack push approval that lands while a turn runs waits for the
+// A Slack push approval that lands while a turn runs waits for the
 // turn to end, and becomes a turn only if no pull request was opened by then.
 integration("push follow-ups on PostgreSQL", () => {
   let database: TempDatabase;
