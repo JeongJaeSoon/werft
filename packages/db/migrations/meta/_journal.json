@@ -1520,6 +1520,13 @@
       "when": 1795376910063,
       "tag": "0307_slack_drop_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 308,
+      "version": "7",
+      "when": 1795379899821,
+      "tag": "0308_turn_requester_auth",
+      "breakpoints": true
     }
   ]
 }

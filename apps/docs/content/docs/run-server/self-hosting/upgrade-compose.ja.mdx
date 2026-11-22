@@ -229,7 +229,7 @@ migration `0305_drop_unused_tables` が `catalog_authority`・`owner_workspace_m
 <a id="턴에-요청자의-인증-근거를-남기는-릴리스" />
 ### ターンに依頼者の認証の根拠を残すリリース
 
-migration `0307_turn_requester_auth` が `turns.requester_auth`(jsonb)と `tool_call_audits.requester_kind`・`requester_id`(text)を加える。三つとも nullable で、既定値・インデックス・backfill がないため、表を書き直さない。上げるときにすることはない。
+migration `0308_turn_requester_auth` が `turns.requester_auth`(jsonb)と `tool_call_audits.requester_kind`・`requester_id`(text)を加える。三つとも nullable で、既定値・インデックス・backfill がないため、表を書き直さない。上げるときにすることはない。
 
 - このリリースから、新しいターンに依頼者が入ってきた資格が残る。コンソールのログインセッション id、個人 key の id、エージェント key のエージェント、Slack のインストールと連携アカウントである。key の秘密、cookie、Slack のユーザー id は入れない。
 - 古いターンは直さない。ターン読み取り API の `requester` が null、または `auth_method` が null に見える。`tool_call_audits` の二つの列はこのリリースでは空のままである。
