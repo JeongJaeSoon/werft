@@ -1,10 +1,11 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import {
   type CatalogConnection,
   connectionOf,
   type SessionCatalog,
 } from "../catalog/index.ts";
 import type { OutboundHttp } from "../ports/outbound-http.ts";
+import { hashToken } from "../token-hash.ts";
 import type { SessionTitleStore } from "./ports/session-title-store.ts";
 import { deriveSessionTitle } from "./session-title.ts";
 
@@ -118,9 +119,7 @@ export function createSessionTitler(deps: {
 
 export type SessionTitler = ReturnType<typeof createSessionTitler>;
 
-export function hashTitleToken(token: string): Uint8Array {
-  return createHash("sha256").update(token, "utf8").digest();
-}
+export const hashTitleToken = hashToken;
 
 /**
  * The connection and model a session's title call runs on: the session's

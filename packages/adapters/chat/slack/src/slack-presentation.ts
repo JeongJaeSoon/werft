@@ -29,6 +29,17 @@ export function isSafeUrl(value: string): boolean {
   }
 }
 
+/** A web link a button or a link line may carry: no mailto. */
+export function isSafeLink(url: string): boolean {
+  if (/[<>|\s]/.test(url)) return false;
+  try {
+    const protocol = new URL(url).protocol;
+    return protocol === "https:" || protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 function trustedControl(
   control: string,
   policy: SlackMentionPolicy | undefined,

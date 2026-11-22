@@ -1,9 +1,4 @@
-import {
-  createHash,
-  createHmac,
-  randomUUID,
-  timingSafeEqual,
-} from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   ADDITIONAL_REPOSITORY_ID_PATTERN,
   mcpServerIdSchema,
@@ -13,6 +8,7 @@ import type { StructuredLogger } from "@werft-ai/observability";
 import {
   GITHUB_MCP_UPSTREAM_PATH,
   type GitHubMcpGrant,
+  hashToken,
   type JsonRpcResponse,
   PACKAGE_REGISTRY_NAMES,
   type ProviderExchangeLedger,
@@ -287,10 +283,6 @@ async function readAtMost(
   return Buffer.concat(chunks, total);
 }
 
-function digest(value: string): Buffer {
-  return createHash("sha256").update(value, "utf8").digest();
-}
-
 function problem(status: number, code: string, message: string): Response {
   return Response.json({ code, message }, { status });
 }
@@ -358,7 +350,7 @@ export function createEgressAuthorizer(deps: {
       },
     };
   }
-  const expected = digest(`Bearer ${deps.token}`);
+  const expected = hashToken(`Bearer ${deps.token}`);
   const deadlineMs = deps.deadlineMs ?? AUTHORIZE_DEADLINE_MS;
   return async (request) => {
     const url = new URL(request.url);
@@ -378,7 +370,7 @@ export function createEgressAuthorizer(deps: {
     // leaks through timing.
     if (
       !timingSafeEqual(
-        digest(request.headers.get("authorization") ?? ""),
+        hashToken(request.headers.get("authorization") ?? ""),
         expected,
       )
     ) {

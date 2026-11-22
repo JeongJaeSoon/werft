@@ -1,3 +1,4 @@
+import { messageOf } from "@werft-ai/runtime-core";
 import {
   connectionOf,
   modelSuccessor,
@@ -99,7 +100,7 @@ export function createModelMoveRunner(deps: {
           retryAt.set(row.agentId, now() + retryMs);
           logger.warn("Agent model move failed", {
             agent: row.agentId,
-            error: error instanceof Error ? error.message : String(error),
+            error: messageOf(error),
           });
         }
       }
@@ -111,7 +112,7 @@ export function createModelMoveRunner(deps: {
   function start(intervalMs = MODEL_MOVE_POLL_INTERVAL_MS) {
     return startPolling(intervalMs, runOnce, (error) =>
       logger.warn("Model move runner could not read its candidates", {
-        error: error instanceof Error ? error.message : String(error),
+        error: messageOf(error),
       }),
     );
   }

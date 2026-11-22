@@ -12,13 +12,17 @@ import {
   type WorkspaceMcpSessionState,
 } from "@werft-ai/platform";
 import { and, eq, inArray } from "drizzle-orm";
-import { creatorOf, releaseMcpOf } from "../github/index.ts";
+import {
+  creatorOf,
+  recordMcpRefusal,
+  releaseMcpOf,
+  runningTurnId,
+} from "../github/index.ts";
 import type { Database } from "../queries.ts";
 import {
   agentWorkspaceMcpServers,
   receipts,
   sessions,
-  turns,
   workspaceMcpConnections,
   workspaceMcpServers,
 } from "../schema.ts";
@@ -176,17 +180,7 @@ export function createPostgresWorkspaceMcpEgressStore(
         started.tools.filter((tool) => stored.has(tool)),
         release.deny,
       );
-      const [turn] = await db
-        .select({ sequence: turns.sequence })
-        .from(turns)
-        .where(
-          and(
-            eq(turns.sessionId, input.sessionId),
-            eq(turns.attemptId, input.attemptId),
-            eq(turns.status, "running"),
-          ),
-        )
-        .limit(1);
+      const turnId = await runningTurnId(db, input);
       return {
         ownerId: session.ownerId,
         workspaceId: session.workspaceId,
@@ -207,32 +201,13 @@ export function createPostgresWorkspaceMcpEgressStore(
                 generation: row.generation ?? 0,
               },
         tools,
-        turnId: turn === undefined ? null : String(turn.sequence),
+        turnId,
         actor: creatorOf(session, release.agentId),
       };
     },
 
-    async recordRefusal(record: WorkspaceMcpRefusalRecord): Promise<void> {
-      await db.transaction(async (tx) => {
-        await tx
-          .insert(receipts)
-          .values({
-            id: record.id,
-            ownerId: record.ownerId,
-            operation: "call_mcp",
-            targetRef: {
-              session_id: record.sessionId,
-              turn_id: record.turnId,
-              request_id: null,
-            },
-            status: record.status,
-            result: record.result,
-            error: { code: "CREDENTIAL_UNBOUND", message: record.message },
-            actor: record.actor,
-          })
-          .onConflictDoNothing({ target: receipts.id });
-      });
-    },
+    recordRefusal: (record: WorkspaceMcpRefusalRecord) =>
+      recordMcpRefusal(db, record),
 
     async recordCall(record: WorkspaceMcpCallRecord): Promise<boolean> {
       return await db.transaction(async (tx) => {

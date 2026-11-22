@@ -1,24 +1,19 @@
-import * as schema from "@werft-ai/db";
 import {
   type ArchiveObjectStore,
   archiveSessionEvents,
   type Database,
   restoreSessionEvents,
 } from "@werft-ai/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
-import { createLogger, type StructuredLogger } from "@werft-ai/observability";
+import type { StructuredLogger } from "@werft-ai/observability";
 import { InstallationConfigUnavailableError } from "@werft-ai/platform";
-import {
-  createCheckpointObjectStore,
-  createStorageS3Client,
-} from "@werft-ai/storage";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { createCheckpointObjectStore } from "@werft-ai/storage";
 import { installationConfigOf } from "../wiring/installation-config.ts";
 import {
   assertCheckpointBucketProtection,
   type CheckpointStorageEnvironment,
   checkpointStorageConfigFromEnv,
 } from "./checkpoints.ts";
+import { exitWithJob, openJobConnections } from "./one-shot-job.ts";
 
 const BATCH_SIZE = 100;
 
@@ -164,39 +159,32 @@ function connect(
     databaseUrl: string;
   }): Promise<Stores> => {
     await assertCheckpointBucketProtection(config);
-    const pool = createEnforcedPool(
+    const { client, db, close } = openJobConnections({
+      s3: config,
       databaseUrl,
       logger,
-      "session-archive",
-      JOB_POOL_TIMEOUTS,
-    );
-    const client = createStorageS3Client({ s3: config });
+      poolName: "session-archive",
+    });
     const objects = createCheckpointObjectStore({ bucket, client });
     const hold = objects.hold?.bind(objects);
     if (hold === undefined) {
       throw new Error("The checkpoint object store cannot hold versions");
     }
     return {
-      db: drizzle(pool, { schema }),
+      db,
       objects: {
         get: (key, version) => objects.get(key, version),
         hold,
         putImmutable: (key, body) => objects.putImmutable(key, body),
       },
-      async close() {
-        client.destroy();
-        await pool.end();
-      },
+      close,
     };
   };
 }
 
 if (import.meta.main) {
-  const logger = createLogger(
-    process.env.LOG_LEVEL === undefined ? {} : { level: process.env.LOG_LEVEL },
-  );
-  process.exit(
-    await runSessionArchive({
+  await exitWithJob((logger) =>
+    runSessionArchive({
       argv: process.argv.slice(2),
       environment: process.env,
       logger,

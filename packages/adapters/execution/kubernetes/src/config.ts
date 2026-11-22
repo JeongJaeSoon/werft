@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { isIP } from "node:net";
 import {
   DEFAULT_INSTALLATION_ID,
   DEFAULT_WORKER_USER,
@@ -8,6 +7,7 @@ import {
   MIN_WORKSPACE_QUOTA_MB,
 } from "@werft-ai/contracts/execution";
 import { integerSetting } from "@werft-ai/contracts/settings";
+import { checkGatewayUrl, parseEgressProxyUrl } from "@werft-ai/platform";
 
 export type WorkerObjectStoreAccess = { bucket: string; region: string };
 
@@ -258,39 +258,13 @@ export function validateKubernetesConfig(
   if (config.homeDir === config.workspaceDir) {
     throw new Error("homeDir and workspaceDir must differ");
   }
-  try {
-    new URL(config.gatewayUrl);
-  } catch {
-    throw new Error(`WORKER_GATEWAY_URL ${config.gatewayUrl} is not a URL`);
-  }
-  let proxy: URL;
-  try {
-    proxy = new URL(config.egressProxyUrl);
-  } catch {
-    // Not quoted: a value that failed to parse may still hold a credential.
-    throw new Error("EXECUTION_EGRESS_PROXY_URL is not a URL");
-  }
-  if (proxy.username !== "" || proxy.password !== "") {
-    throw new Error("EXECUTION_EGRESS_PROXY_URL must not carry credentials");
-  }
-  if (proxy.protocol !== "http:") {
-    throw new Error(
-      `EXECUTION_EGRESS_PROXY_URL ${config.egressProxyUrl} must be an http:// URL`,
-    );
-  }
-  if (proxy.pathname !== "/" || proxy.search !== "" || proxy.hash !== "") {
-    throw new Error(
-      `EXECUTION_EGRESS_PROXY_URL ${config.egressProxyUrl} must name only a host and port`,
-    );
-  }
+  checkGatewayUrl(config.gatewayUrl);
   // A Service name is stable across proxy restarts; a Pod address is not,
   // and the NetworkPolicy selects the proxy by label, not by address.
-  const proxyHost = proxy.hostname.replace(/^\[|\]$/g, "");
-  if (isIP(proxyHost) !== 0 || proxyHost === "localhost") {
-    throw new Error(
-      `EXECUTION_EGRESS_PROXY_URL ${config.egressProxyUrl} must name the proxy Service by a host name`,
-    );
-  }
+  const proxy = parseEgressProxyUrl(
+    config.egressProxyUrl,
+    "the proxy Service by a host name",
+  );
   if (
     !Number.isInteger(config.egressCredentialPort) ||
     config.egressCredentialPort < 1 ||

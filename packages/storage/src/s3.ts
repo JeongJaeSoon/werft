@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { HttpRequest } from "@smithy/core/protocols";
@@ -368,9 +367,7 @@ export class BodyLimitError extends Error {
   }
 }
 
-export function sha256(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
-}
+export { sha256Hex as sha256 } from "@werft-ai/runtime-core";
 
 function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
   const combined = new Uint8Array(

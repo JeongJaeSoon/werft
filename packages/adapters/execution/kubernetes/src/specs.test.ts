@@ -243,6 +243,21 @@ describe("worker Pod", () => {
     expect(isolationStampFor(config, PROXY_ADDRESS)).toStartWith("2:");
   });
 
+  // Every running Pod carries one of these; a different value marks them all
+  // stale at once.
+  test("the isolation stamps of this config are pinned", () => {
+    const got = { maxTurnSeconds: 900, providerMaxRetries: 2 };
+    expect([
+      isolationStampFor(config, PROXY_ADDRESS),
+      legacyIsolationStampFor(config, PROXY_ADDRESS, got),
+      legacyIsolationStampFor(config, PROXY_ADDRESS, null),
+    ]).toEqual([
+      "2:f8db087b6e473ab1",
+      "2:bdb3697e7e8ef670",
+      "2:fe99af9c5ff1c874",
+    ]);
+  });
+
   test("a Pod that checked out at the mount's root reads as another stamp", () => {
     // This config's stamp before the checkout moved below the mount.
     expect(isolationStampFor(config, PROXY_ADDRESS)).not.toBe(

@@ -16,6 +16,7 @@ import {
   AGENT_IDENTITY_STATUS_VALUES,
   AGENT_PULL_REQUEST_FORMATTING_VALUES,
   AGENT_STATUS_VALUES,
+  AUDIENCE_KIND_VALUES,
   AUTHORIZATION_OUTCOME_VALUES,
   AUTO_REVIEWED_EVIDENCE_KIND_VALUES,
   type AuthorizationAction,
@@ -175,12 +176,6 @@ export const RESOURCE_KIND_VALUES = [
   "routine",
   "artifact",
 ] as const;
-export const AUDIENCE_KIND_VALUES = [
-  "workspace",
-  "surface_binding",
-  "session_link",
-  "session",
-] as const;
 // Which resource kinds each action may be granted on: `session.read` on a
 // workspace would be a workspace-wide read smuggled in through the resource.
 const ACTION_RESOURCE_KINDS: Record<
@@ -227,9 +222,8 @@ const oneDimensional = (column: unknown) =>
 
 // Identity. One workspace per installation for now; every row added by the
 // interface track carries a workspace_id. Vocabularies are CHECK constraints
-// rather than pg enums so that widening one is a plain additive migration. Most
-// take their values from the contracts; RESOURCE_KIND_VALUES and
-// AUDIENCE_KIND_VALUES above are still hand copies.
+// rather than pg enums so that widening one is a plain additive migration. They
+// take their values from the contracts, RESOURCE_KIND_VALUES above a subset.
 export const workspaces = pgTable("workspaces", {
   id: uuid().primaryKey(),
   slug: text().notNull().unique(),

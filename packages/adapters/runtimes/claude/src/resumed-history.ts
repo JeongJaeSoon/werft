@@ -5,6 +5,7 @@ import type {
   TranscriptEntry,
   TranscriptMirror,
 } from "@werft-ai/runtime-core";
+import { messageOf as describe } from "@werft-ai/runtime-core";
 
 /**
  * The entry uuids of the transcript a resumed run continues. A send whose uuid
@@ -284,8 +285,4 @@ export function savedCostOfEntry(
     return undefined;
   }
   return { usd, sessionId };
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

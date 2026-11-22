@@ -17,6 +17,7 @@ import {
   MAX_REPORTED_MISMATCHES,
   type ObjectRef,
   type RuntimeFingerprint,
+  sha256Hex,
   workspacePathProblem,
 } from "@werft-ai/runtime-core";
 import { z } from "zod";
@@ -42,9 +43,7 @@ export function digestParts(parts: readonly ObjectRef[]): string {
     .digest("hex");
 }
 
-export function sha256Hex(value: string): string {
-  return createHash("sha256").update(value, "utf8").digest("hex");
-}
+export { sha256Hex } from "@werft-ai/runtime-core";
 
 const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
 // Optional here, because whether versions are required is the deployment's

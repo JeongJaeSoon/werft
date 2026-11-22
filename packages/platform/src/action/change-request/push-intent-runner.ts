@@ -1,3 +1,4 @@
+import { messageOf } from "@werft-ai/runtime-core";
 import { startPolling } from "../../polling.ts";
 import type { PushIntentJob, PushIntentStore } from "../ports/push-intents.ts";
 
@@ -44,7 +45,7 @@ export function createPushIntentRunner(deps: {
       // The lease runs out and the intent is claimed again.
       logger.warn("Push intent could not be drained", {
         intent: job.id,
-        error: error instanceof Error ? error.message : String(error),
+        error: messageOf(error),
       });
     }
     return true;
@@ -58,7 +59,7 @@ export function createPushIntentRunner(deps: {
       },
       (error) =>
         logger.warn("Push intent runner could not claim", {
-          error: error instanceof Error ? error.message : String(error),
+          error: messageOf(error),
         }),
     );
   }

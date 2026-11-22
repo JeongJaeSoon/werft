@@ -16,6 +16,7 @@ import {
   type CheckpointLeaseGrant,
   type CheckpointPoint,
   type CheckpointPreparation,
+  messageOf,
   type NegotiatedCapabilities,
   type RejectedCheckpoint,
   type RuntimeEvent,
@@ -548,9 +549,7 @@ export class CodexRun implements AgentRun {
         const id = record(response.turn).id;
         if (typeof id === "string") turn.id = id;
       } catch (error) {
-        this.endTurnWith(
-          error instanceof Error ? error.message : String(error),
-        );
+        this.endTurnWith(messageOf(error));
       }
     })();
     await this.starting;
@@ -933,7 +932,7 @@ export class CodexRun implements AgentRun {
           ],
         });
       } catch (error) {
-        failure = error instanceof Error ? error.message : String(error);
+        failure = messageOf(error);
       }
       // Already said, by an end that could not wait for it.
       if (!this.steers.delete(steer)) return;

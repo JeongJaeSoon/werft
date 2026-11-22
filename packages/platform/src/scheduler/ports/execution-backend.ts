@@ -295,6 +295,28 @@ export function launchSpecFingerprint(
 }
 
 /**
+ * What a current isolation stamp holds where one from before the worker
+ * limits were pinned held those limits.
+ */
+export const WORKER_LIMITS_PINNED = "worker-limits:pinned";
+
+/**
+ * A backend's isolation stamp: its contract version and a fingerprint of the
+ * fields that shape its boundary. Every running worker whose stamp differs
+ * reads as stale, so neither part may change by accident.
+ */
+export function isolationStampOf(
+  contract: number,
+  fields: readonly unknown[],
+): string {
+  const digest = createHash("sha256")
+    .update(JSON.stringify(fields))
+    .digest("hex")
+    .slice(0, 16);
+  return `${contract}:${digest}`;
+}
+
+/**
  * `value` as worker limits, or null when it is not a pair a worker would
  * start with: within the bounds the installation setting takes, which also
  * keeps a drain deadline built from the turn a valid database interval.
