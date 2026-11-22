@@ -35,6 +35,7 @@ export type ReconcilerRun = {
   envStartsPurged: number;
   // Failed Slack inbox rows whose payload this pass cleared.
   slackInboundPayloadsPurged: number;
+  slackMembersPurged: number;
   ownership: OwnershipReconciled;
   // null on a dry run, which projects nothing.
   toolCalls: ToolCallProjection | null;
@@ -130,6 +131,11 @@ export async function runReconciler(input: {
   }): Promise<number>;
   // Payloads of Slack inbox rows that failed and were received 7 days ago.
   purgeFailedSlackInboundPayloads(options: {
+    dryRun: boolean;
+    limit: number;
+  }): Promise<number>;
+  // Slack channel member lists and voids past their TTL.
+  purgeSlackChannelMembers(options: {
     dryRun: boolean;
     limit: number;
   }): Promise<number>;
@@ -239,6 +245,14 @@ export async function runReconciler(input: {
     dry_run: dryRun,
     purged_count: slackInboundPayloadsPurged,
   });
+  const slackMembersPurged = await input.purgeSlackChannelMembers({
+    dryRun,
+    limit,
+  });
+  input.logger.info("Expired Slack channel member lists deleted", {
+    dry_run: dryRun,
+    deleted_count: slackMembersPurged,
+  });
   const ownership = await input.reconcileOwnership({ dryRun, limit });
   input.logger.info("Agent ownership reconciled", {
     dry_run: dryRun,
@@ -282,6 +296,7 @@ export async function runReconciler(input: {
     webSessionsDeleted,
     envStartsPurged,
     slackInboundPayloadsPurged,
+    slackMembersPurged,
     ownership,
     toolCalls,
   };

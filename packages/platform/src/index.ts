@@ -51,6 +51,7 @@ export * from "./surface/worker-image-replaced-notice.ts";
 export * from "./surface/ports/agent-welcomable.ts";
 export * from "./surface/ports/approvable.ts";
 export * from "./surface/ports/channel-joinable.ts";
+export * from "./surface/ports/channel-member-checkable.ts";
 export * from "./surface/ports/channel-kind-readable.ts";
 export * from "./surface/ports/delivery.ts";
 export * from "./surface/ports/notifiable.ts";

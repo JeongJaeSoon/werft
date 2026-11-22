@@ -29,6 +29,8 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - Slackbot(`USLACK`)의 글은 DM이든 채널이든 새 이유 `slackbot`으로 버린다. 이전에는 Slackbot DM을 사람 DM으로 처리해 실패하는 계정 연결 안내를 outbox에 넣었고, 채널 글도 사람 글로 받았다.
   - 문에서 버린 줄의 `drop_fields`에는 보낸 쪽(`bot_id`·`app_id`·`user`)과 `subtype`·`message.subtype`만 남고 본문은 남지 않는다. 옛 줄과 slack 역할이 버린 줄은 비어 있다. CHECK는 `NOT VALID`로 더한 뒤 따로 검증하므로 검증 스캔 동안 쓰기를 막지 않는다(칸 추가와 CHECK 교체는 잠깐 잠금을 잡는다). 옛 이미지와 섞여 돌아도 된다.
 
+- **migration `slack_channel_member_cache`가 Slack 비공개 채널 멤버 확인용 임시 캐시 표를 더한다**(JeongJaeSoon/werft#2033). 할 일은 없다. 표에는 Slack 사용자 id와 읽은 시각만 5분 동안 남고, reconciler가 지난 줄을 지운다(로그 `Expired Slack channel member lists deleted`). 백업에 이 표가 빠져도 복원 뒤 Slack에서 다시 읽는다. 아직 이 캐시를 읽는 화면이나 API는 없다.
+
 - **보호 브랜치 자동 승인이 고정 규칙 검사에 걸린 스킬 버전에서 멈춘다**(JeongJaeSoon/werft#2024). 올린 뒤 자동 승인되던 스킬 버전이 승인 대기로 남을 수 있다. scripts·실행 파일 추가, 300줄 넘는 변경, 새 URL 호스트, 보이지 않는 유니코드, 지시처럼 보이는 문장, `description` 변경 중 하나라도 앞 승인 버전과 비교해 걸리면 그 스킬만 멈추고(`last_check.auto_approval.reason`: `checks_failed`), 같은 push의 다른 스킬은 그대로 자동 승인된다. 멈춘 버전은 스킬 상세의 "자동 승인" 행과 검토 화면 맨 위의 "고정 규칙 검사"에서 걸린 규칙을 보고 사람이 승인한다. 설정할 것은 없다.
 
 - **API가 EGRESS 허용 목록을 proxy와 같은 방식으로 한 번 읽어, 올린 뒤 콘솔 경고와 collector 경고가 달라질 수 있다**(JeongJaeSoon/werft#2009). 설정 값은 그대로 두어도 된다. 경고가 새로 나오면 목록을 확인한다.
