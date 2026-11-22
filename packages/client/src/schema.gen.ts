@@ -11214,7 +11214,7 @@ export interface components {
                     registered_by: string | null;
                     /** Format: date-time */
                     registered_at: string;
-                    /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did). */
+                    /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                     reviewed_by: string | null;
                     reviewed_at: string | null;
                     archived_at: string | null;
@@ -11276,7 +11276,7 @@ export interface components {
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did). */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11439,7 +11439,7 @@ export interface components {
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did). */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11478,7 +11478,7 @@ export interface components {
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did). */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11525,7 +11525,7 @@ export interface components {
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did). */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11564,7 +11564,7 @@ export interface components {
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did). */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11632,7 +11632,7 @@ export interface components {
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did). */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11713,7 +11713,7 @@ export interface components {
                     registered_by: string | null;
                     /** Format: date-time */
                     registered_at: string;
-                    /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did). */
+                    /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                     reviewed_by: string | null;
                     reviewed_at: string | null;
                     archived_at: string | null;

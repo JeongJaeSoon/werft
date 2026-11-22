@@ -1315,6 +1315,48 @@ integration("extension bundles on PostgreSQL", () => {
       );
     });
 
+    test("a revert supersedes a version still awaiting review below the one it makes current", async () => {
+      const { service, store } = build();
+      const workspaceId = await workspace();
+      const owner = await person(workspaceId, "owner");
+      const admin = await person(workspaceId, "admin");
+      const [v1, v2, v3] = [
+        bundleOf(await registerSkill(service, owner, "research", "one\n")),
+        bundleOf(await registerSkill(service, owner, "research", "two\n")),
+        bundleOf(await registerSkill(service, owner, "research", "three\n")),
+      ];
+      for (const id of [v2.id, v3.id]) {
+        await service.review({
+          principal: admin,
+          bundleId: id,
+          review: "approved",
+        });
+      }
+      // What a replica from before superseding leaves: v1 still pending.
+      await db
+        .update(extensionBundles)
+        .set({ review: "pending", reviewedBy: null, reviewedAt: null })
+        .where(eq(extensionBundles.id, v1.id));
+      expect(
+        await store.revert({
+          receiptId: randomUUID(),
+          workspaceId,
+          name: "research",
+          principal: admin,
+          managerRoles: ["owner", "admin"],
+        }),
+      ).toMatchObject({ outcome: "reverted", to: { id: v2.id, version: 2 } });
+      expect((await reviewsOf(workspaceId, "research"))[0]).toEqual({
+        version: 1,
+        review: "superseded",
+        reviewedBy: admin.actor?.userId ?? null,
+      });
+      const [reverted] = await receiptsOf(workspaceId, "revert_extension");
+      expect(reverted?.result).toMatchObject({
+        superseded: [{ id: v1.id, version: 1 }],
+      });
+    });
+
     test("a following attachment lists the current version, or none while there is none; detach takes it back", async () => {
       const { service, store } = build();
       const workspaceId = await workspace();

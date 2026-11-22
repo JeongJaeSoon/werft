@@ -30879,7 +30879,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did)."
+                        "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed."
                       },
                       "reviewed_at": {
                         "anyOf": [
@@ -31203,7 +31203,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did)."
+                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed."
               },
               "reviewed_at": {
                 "anyOf": [
@@ -32066,7 +32066,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did)."
+                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed."
               },
               "reviewed_at": {
                 "anyOf": [
@@ -32273,7 +32273,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did)."
+                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed."
               },
               "reviewed_at": {
                 "anyOf": [
@@ -32510,7 +32510,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did)."
+                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed."
               },
               "reviewed_at": {
                 "anyOf": [
@@ -32719,7 +32719,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did)."
+                    "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed."
                   },
                   "reviewed_at": {
                     "anyOf": [
@@ -33044,7 +33044,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did)."
+                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed."
               },
               "reviewed_at": {
                 "anyOf": [
@@ -33444,7 +33444,7 @@
                               "type": "null"
                             }
                           ],
-                          "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did)."
+                          "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed."
                         },
                         "reviewed_at": {
                           "anyOf": [

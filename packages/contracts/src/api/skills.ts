@@ -244,7 +244,7 @@ export const skillVersionSchema = z
     registered_at: timestampSchema,
     reviewed_by: userIdSchema.nullable().meta({
       description:
-        "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one (null when the sync's auto-approve did).",
+        "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed.",
     }),
     reviewed_at: timestampSchema.nullable(),
     archived_at: timestampSchema.nullable(),
