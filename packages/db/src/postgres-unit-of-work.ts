@@ -799,6 +799,14 @@ export function createPostgresSessionUnitOfWork(
         if (!session) {
           return { outcome: "not_found" };
         }
+        // Before any check of the input itself: a follow-up already queued is
+        // the answer, whatever the session would say to a new one now.
+        if (
+          platform !== undefined &&
+          (await pushFollowUpQueued(tx, sessionId, platform.pushRequestId))
+        ) {
+          return { outcome: "already_queued" };
+        }
         if (!(await keyReaches(tx, requester, session.agentReleaseId))) {
           return { outcome: "actor_inactive" };
         }
@@ -934,12 +942,6 @@ export function createPostgresSessionUnitOfWork(
           limits: input.limits,
         });
         if (refused) return refused;
-        if (
-          platform !== undefined &&
-          (await pushFollowUpQueued(tx, sessionId, platform.pushRequestId))
-        ) {
-          return { outcome: "already_queued" };
-        }
         const [last] = await tx
           .select({ sequence: max(turns.sequence) })
           .from(turns)

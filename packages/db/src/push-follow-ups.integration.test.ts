@@ -761,4 +761,26 @@ integration("push follow-ups on PostgreSQL", () => {
       decision: "reject",
     });
   });
+
+  test("a follow-up already queued is the answer even when the session would refuse a new input", async () => {
+    const { ownerId, sessionId, worker, turnId } = await runningTurn();
+    const push = await pushRequest(ownerId, sessionId);
+    expect(await hold(sessionId, push)).toBe("held");
+    await finalize(worker, turnId, 0);
+    // The held turn fills the queue to its limit.
+    expect(
+      await decide(ownerId, sessionId, push, "approve", "at-limit", {
+        ...limits,
+        queuedInputLimitPerSession: 1,
+      }),
+    ).toEqual({ outcome: "already_queued" });
+    await db
+      .update(sessions)
+      .set({ admissionState: "pausing" })
+      .where(eq(sessions.id, sessionId));
+    expect(await decide(ownerId, sessionId, push, "approve", "paused")).toEqual(
+      { outcome: "already_queued" },
+    );
+    expect(await turnsOf(sessionId)).toHaveLength(2);
+  });
 });
