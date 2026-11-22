@@ -1,6 +1,6 @@
 # CI-only overlay: the `e2e` and `quickstart` jobs pull every
 # third-party image of the compose stack from the CI mirror
-# (ci-image-mirror.yml, docs/contributing/ci.md § 서드파티 이미지 미러) instead of Docker
+# (ci-image-mirror.yml) instead of Docker
 # Hub, by the very digests infra/compose.core.yml, infra/compose.local.yml
 # and the app Dockerfiles pin; the stack itself is unchanged. `e2e` passes it to tests/e2e/run.sh as
 # E2E_COMPOSE_OVERRIDE, `quickstart` through COMPOSE_FILE so that

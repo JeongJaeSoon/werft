@@ -369,7 +369,6 @@ release가 고정한 `permission_mode`는 `default`·`acceptEdits`·`dontAsk`·`
 - **`bypassPermissions`는 새 release가 고르지 않는다.** 그 모드로 고정된 release는 없다. `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS`는 이 판에서 아무것도 열지 않는다.
 - **남는 경계.** 사람 승인이 빠지면 남는 것은 세션마다 하나인 worker 컨테이너(root 아님), egress proxy 허용 목록(Messages API·저장소 route·object store route만), release의 도구 목록, 세션 비용 상한(실행 한도의 세션 비용, turn의 `maxBudgetUsd`)이다. `tools` 목록은 이 모드에서도 PreToolUse hook이 강제하고, 비용 상한과 checkpoint 중 도구 차단도 그대로다. 이 넷 중 하나라도 없는 설치(예: worker를 host 네트워크로 띄우는 경우)에서는 켜지 않는다. 저장소 자격 증명은 worker에 가지 않으므로([위 절](#provider-키와-저장소-자격-증명은-worker에-가지-않는다)) 자율 세션도 push할 수 없고, 바뀐 내용은 checkpoint로만 나간다.
 - **감사.** 세션 목록·상세의 `runtime.permission_mode`가 그 세션이 도는 모드다. worker의 claim 로그에도 `permission_mode`가 남는다. 모드는 세션에 고정되므로 receipt에는 따로 싣지 않는다.
-- 실제 모델로 확인하는 방법은 [real-claude.md](../real-claude.md#자율-모드-세션)에 있다.
 
 ### 예시 설정 문서
 

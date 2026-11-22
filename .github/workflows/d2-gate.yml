@@ -10,7 +10,7 @@ name: D2 gate
 # Deliberately NOT a required status check: it does not run on most pull
 # requests, so a required context would leave them waiting forever. A failure
 # on main lands in an issue instead. scripts/soak/rc.sh runs the same gate
-# before a release candidate's campaigns (docs/contributing/ci.md § D2 gate).
+# before a release candidate's campaigns.
 on:
   schedule:
     # 03:17 KST, off the hour and apart from main-push-run.yml's checks.

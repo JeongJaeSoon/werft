@@ -10,8 +10,7 @@ name: Keycloak login
 # Every night on main, and on the pull requests that change the sign-in path
 # or this check. Deliberately NOT a required status check, like the D2 gate:
 # it does not run on most pull requests, so a required context would leave
-# them waiting forever. A failure on main lands in an issue instead
-# (docs/contributing/ci.md § Keycloak 로그인 확인).
+# them waiting forever. A failure on main lands in an issue instead.
 on:
   schedule:
     # 03:47 KST, apart from the D2 gate (03:17) and main-push-run.yml.

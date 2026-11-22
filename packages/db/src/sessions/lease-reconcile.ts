@@ -43,8 +43,7 @@ export type ReconciledLease = {
  * Expiry is judged on the database clock, like every fence in the gateway;
  * `now` only stamps the audit columns of what this pass ended.
  *
- * architecture.md § lease 만료와 실행 결과 판정, row "execution 종료 미확인":
- * an attempt whose lease ran out loses the session — its epoch is discarded
+ * An attempt whose lease ran out loses the session — its epoch is discarded
  * so nothing it still sends can commit, and its execution is asked to go —
  * but nothing else is decided here. Whether its delivered turn is
  * `outcome_unknown` or its queued input can run again is judged once, in

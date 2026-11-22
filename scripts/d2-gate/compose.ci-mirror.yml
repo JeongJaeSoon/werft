@@ -1,5 +1,5 @@
 # CI-only overlay, after tests/e2e/compose.ci-mirror.yml: the gate's
-# own services pull bun from the CI mirror (docs/contributing/ci.md § 서드파티 이미지 미러)
+# own services pull bun from the CI mirror
 # by the digest compose.yml pins, as that file does for the product stack.
 # .github/workflows/d2-gate.yml passes both through D2_GATE_COMPOSE_OVERRIDE;
 # tests/ci-images.test.ts holds them to compose.yml and the mirror list.

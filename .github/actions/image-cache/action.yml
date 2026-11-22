@@ -2,7 +2,7 @@ name: Image build cache (read only)
 description: >-
   Lets this job's app image builds read the buildkit layer cache that
   images.yml writes on main (scope images-<app>-<arch>). Reading only: PR code
-  must not write that cache (docs/contributing/ci.md), so the compose overlay
+  must not write that cache, so the compose overlay
   and up.sh name `cache_from` and never a cache to write. A build that cannot
   read the cache builds the way it did without it.
 

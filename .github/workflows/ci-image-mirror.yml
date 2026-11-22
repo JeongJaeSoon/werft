@@ -13,7 +13,6 @@ name: CI image mirror
 # tests/ci-images.test.ts fails when ci.yml pulls an image that is not on it,
 # by another digest, or from anywhere but the mirror; each Docker job of
 # ci.yml also fails when its daemon ends up holding any other image.
-# docs/contributing/ci.md § 서드파티 이미지 미러 has the procedure for adding or bumping an image.
 #
 # Runs from main only, as images.yml publishes only from a tag: the token
 # can write every package this repository can, the release images included,
@@ -135,7 +134,7 @@ jobs:
           # suites through the Engine API, which sends no credentials.
           skopeo logout ghcr.io
           skopeo inspect --raw "docker://${target}@${DIGEST}" >/dev/null || {
-            echo "::error::${target} is not public; set the package's visibility to public (docs/contributing/ci.md § 서드파티 이미지 미러)"
+            echo "::error::${target} is not public; set the package's visibility to public"
             exit 1
           }
           echo "${target}@${DIGEST}" >>"$GITHUB_STEP_SUMMARY"

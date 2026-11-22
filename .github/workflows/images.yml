@@ -227,7 +227,7 @@ jobs:
 
   # The required check. One job name whatever the event, so branch
   # protection can hold on to it. `always()`, not `!cancelled()`: a skipped
-  # required check counts as passed (docs/contributing/ci.md), so it runs even when a
+  # required check counts as passed, so it runs even when a
   # build failed or the run was cancelled, and then fails for the missing
   # result: no image, no verdict. The npm audit runs here rather than in its
   # own workflow so that one check covers both. When a scan got no answer

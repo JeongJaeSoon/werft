@@ -39,8 +39,8 @@
 # `up` runs the real Messages API: tests/fixtures/settings/real-model.json,
 # which migrate imports, the caller's ANTHROPIC_API_KEY, stored on the
 # `anthropic` connection by the seed step below when there is one, and the
-# real-model e2e's cost limits (infra/compose.real-model.yml,
-# docs/real-claude.md). The key is optional: it comes from the shell or,
+# real-model e2e's cost limits (infra/compose.real-model.yml).
+# The key is optional: it comes from the shell or,
 # failing that, the repository's .env, and without it the stack still starts
 # on this overlay with its connection waiting for a key (no session runs)
 # until the key is entered on the console's model connections screen. A
@@ -162,7 +162,7 @@ mode() {
         # Never a quiet fallback to the fake: that stack would look fine. The
         # real-model stack starts with its connection waiting for a key
         # instead, and the key goes in on the console.
-        echo "local.sh: no ANTHROPIC_API_KEY in the shell or .env; the stack starts with the anthropic connection waiting for its key (not the fake). Set the key in the console: 설정 > 에이전트 연결 > 모델 연결 > anthropic > API 키 설정 (docs/real-claude.md)" >&2
+        echo "local.sh: no ANTHROPIC_API_KEY in the shell or .env; the stack starts with the anthropic connection waiting for its key (not the fake). Set the key in the console: 설정 > 에이전트 연결 > 모델 연결 > anthropic > API 키 설정" >&2
       fi
       overlay=infra/compose.real-model.yml
       ;;

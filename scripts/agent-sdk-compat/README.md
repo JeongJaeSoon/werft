@@ -2,7 +2,7 @@
 
 SDK·LiteLLM 버전을 올릴 때 돌리는 호환 harness다. 실제 Agent SDK가 실제 번들 Claude Code child process를 실행하고, local fake Anthropic upstream과 실제 LiteLLM proxy를 거쳐 왕복하는지 process 수준에서 확인한다. 채택 버전, 운영 제약, 버전을 고정하는 방식은 설계 문서에 있다(설계 문서: 결정: Agent SDK 버전은 정확히 고정하고 호환 harness로 확인한 뒤 올린다).
 
-workspace 밖의 독립 설치 단위다. 자기 `bun.lock`으로 SDK를 고정하고, `packages/testkit`은 상대 경로로 import한다. CI `agent-sdk-compat` job이 main push와 수동 실행에서만 돌린다([docs/contributing/ci.md](../../docs/contributing/ci.md)). 이 harness의 SDK 버전이 제품과 같은지는 `tests/agent-sdk-compat/sdk-version.test.ts`가 검사한다.
+workspace 밖의 독립 설치 단위다. 자기 `bun.lock`으로 SDK를 고정하고, `packages/testkit`은 상대 경로로 import한다. CI `agent-sdk-compat` job이 main push와 수동 실행에서만 돌린다. 이 harness의 SDK 버전이 제품과 같은지는 `tests/agent-sdk-compat/sdk-version.test.ts`가 검사한다.
 
 실제 Anthropic 계정, credential, 과금 호출은 쓰지 않는다. paid smoke는 별도 승인 대상이다.
 

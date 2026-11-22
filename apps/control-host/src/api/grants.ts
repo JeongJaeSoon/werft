@@ -10,7 +10,7 @@ import { messageOf } from "@werft-ai/platform";
 import { withJobDatabase } from "../job-database.ts";
 
 // The operator's execution Grant command. Alpha has no Grant
-// management API or UI (architecture.md 실행 권한 회수와 API key 회수), so
+// management API or UI, so
 // this runs where keys.ts runs: inside the API image, against its database.
 const USAGE = `Usage: bun run apps/control-host/src/api/grants.ts revoke <session_id> --reason <text>
        bun run apps/control-host/src/api/grants.ts restore <session_id> --reason <text>`;

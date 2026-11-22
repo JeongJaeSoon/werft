@@ -1,6 +1,6 @@
 # 문서 색인
 
-문서를 읽는 사람별로 나눴다. 운영자 문서는 `operator/`, 기여자 문서는 `contributing/`에 있다. 사용자 문서는 `docs` 바로 아래에 둔다.
+문서를 읽는 사람별로 나눴다. 운영자 문서는 `operator/`에 있다. 사용자 문서는 `docs` 바로 아래에 둔다.
 
 ## 사용자
 
@@ -35,18 +35,3 @@ API로 세션을 만들고 쓰는 사람.
 | [세션 데이터가 흐르는 길](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/session-data-flow/) | `events` 표, 비밀값 마스킹, 예제 OTLP 수집기 |
 | [플랫폼이 보존하는 데이터](operator/data-retention.md) | 데이터별 저장 위치·보존 기간·삭제 조건, 내용과 마스킹, 세션 하나 따라가기 |
 | [test-ops 운영 runbook](operator/test-ops.md) | test-ops 설치의 운영 절차 |
-
-## 기여자
-
-이 저장소의 코드를 고치는 사람.
-
-| 문서 | 내용 |
-| --- | --- |
-| [개발 환경과 검증](contributing/development.md) | 로컬 개발 환경, 테스트·스크립트 배치 |
-| [구성요소와 경계](contributing/architecture.md) | 저장소 구성, 앱과 패키지의 경계 |
-| [CI에서 실행되는 것](contributing/ci.md) | CI job과 그 조건 |
-| [변경 경로에 따른 CI 계획](contributing/ci-path-plan.md) | 바뀐 경로로 문서 전용·축소·전체 검증을 고르는 규칙과 required 판정 |
-| [콘솔 데모](contributing/console-demo.md) | 서버 없이 예시 데이터로 콘솔 화면을 보는 데모 모드 |
-| [로컬 모델로 확인하기](contributing/local-model.md) | Ollama·LiteLLM으로 확인 |
-| [콘솔·Slack 용어집](contributing/i18n-glossary.md) | 화면·Slack 알림에서 쓰는 한국어·일본어·영어 용어 |
-| [실제 Claude로 확인하기](real-claude.md) | 실제 Claude로 스택 확인 |

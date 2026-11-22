@@ -38,7 +38,7 @@ export type RevokeExecutionResult =
   | { outcome: "unsupported" };
 
 /**
- * architecture.md § 실행 권한 회수와 API key 회수: the operator's execution
+ * The operator's execution
  * Grant revocation for one session. In one transaction it moves the auth
  * revision and the lease epoch on (every fenced write of the current binding
  * fails from here, whatever it authenticated with), revokes the session's

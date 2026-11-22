@@ -35,8 +35,7 @@
 # tests/e2e/real-model.e2e.ts runs in place of the scripted suites. The key
 # comes from the shell or, failing that, the repository's .env. Without
 # a key it stops before touching Docker, and it fails if the key's value
-# turns up anywhere in E2E_OUT. Paid calls, so no CI job runs it;
-# docs/real-claude.md gives the command and its cost.
+# turns up anywhere in E2E_OUT. Paid calls, so no CI job runs it.
 #
 #   tests/e2e/run.sh --local-model
 #
@@ -44,7 +43,7 @@
 # tests/fixtures/settings/local-model.json, whose two connections call Ollama
 # directly and through a LiteLLM proxy (infra/compose.local-model.yml), and the suite runs once on
 # each. Needs Ollama on localhost:11434 with gemma4:26b-mlx pulled; nothing
-# is paid. docs/contributing/local-model.md says what it shows and what it does not.
+# is paid.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
