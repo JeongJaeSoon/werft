@@ -14,9 +14,9 @@ import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import * as schema from "@werft-ai/db";
 import { createPostgresGitHubAppStore } from "@werft-ai/db";
-import { SecretKey } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { loadSecretKey } from "../../apps/control-host/src/api/catalog-config.ts";
 import { DEMO_PASSWORD } from "../../apps/control-host/src/api/demo-accounts.ts";
 import { FAKE_MESSAGES_ENDPOINT } from "../../apps/control-host/src/api/demo-data.ts";
 
@@ -1054,14 +1054,10 @@ async function ensureGitHubApp(workspaceId: string) {
     [workspaceId],
   );
   if (held) return;
-  const value = process.env["PLATFORM_SECRET_KEY"];
-  if (!value)
-    throw new Error(
-      "the api runs without PLATFORM_SECRET_KEY; start the stack with one",
-    );
   const store = createPostgresGitHubAppStore(
     drizzle(db, { schema }),
-    SecretKey.fromHex(value, "PLATFORM_SECRET_KEY"),
+    // The API's own loader: the value or the file PLATFORM_SECRET_KEY_FILE names.
+    loadSecretKey(process.env),
   );
   const userId = ids["user:owner"]!;
   // A throwaway key: the fake never checks the App's signature.

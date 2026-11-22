@@ -6,8 +6,11 @@ import {
   installedRuntimeVersions,
   launchableKindsFromEnv,
   loadSecretKey,
+  MasterKeyError,
+  masterKeyConfigured,
   refuseFileCatalog,
   runtimeVersionsFromEnv,
+  SECRET_KEY_FILE_SETTING,
   SECRET_KEY_SETTING,
 } from "./catalog-config.ts";
 
@@ -64,6 +67,100 @@ describe("what no longer starts", () => {
     expect(
       loadSecretKey({ [SECRET_KEY_SETTING]: "ab".repeat(32) }),
     ).toBeDefined();
+  });
+});
+
+describe("the master key from a file", () => {
+  const HEX = "cd".repeat(32);
+  const files = (content: Record<string, string>) => (path: string) => {
+    const value = content[path];
+    if (value === undefined) throw new Error("ENOENT");
+    return value;
+  };
+  const codeOf = (run: () => unknown) => {
+    try {
+      run();
+    } catch (error) {
+      expect(error).toBeInstanceOf(MasterKeyError);
+      const { code, message } = error as MasterKeyError;
+      expect(message).not.toContain(HEX);
+      expect(message).not.toContain("ab".repeat(32));
+      return code;
+    }
+    throw new Error("loaded");
+  };
+
+  test("the file alone, with or without its trailing newline, gives the key", () => {
+    for (const content of [HEX, `${HEX}\n`, `${HEX}\r\n`]) {
+      const read = files({ "/run/secrets/k": content });
+      const fromFile = loadSecretKey(
+        { [SECRET_KEY_FILE_SETTING]: "/run/secrets/k" },
+        read,
+      );
+      const fromEnv = loadSecretKey({ [SECRET_KEY_SETTING]: HEX });
+      expect(fromFile.bytes().equals(fromEnv.bytes())).toBe(true);
+    }
+  });
+
+  test("both settings agreeing is the same key; differing is master_key_mismatch", () => {
+    const read = files({ "/k": HEX });
+    const both = { [SECRET_KEY_SETTING]: HEX, [SECRET_KEY_FILE_SETTING]: "/k" };
+    expect(loadSecretKey(both, read).bytes().toString("hex")).toBe(HEX);
+    // The same key in upper case in one place and lower case in the other.
+    expect(
+      loadSecretKey(
+        {
+          [SECRET_KEY_SETTING]: HEX.toUpperCase(),
+          [SECRET_KEY_FILE_SETTING]: "/k",
+        },
+        read,
+      )
+        .bytes()
+        .toString("hex"),
+    ).toBe(HEX);
+    expect(
+      codeOf(() =>
+        loadSecretKey(
+          {
+            [SECRET_KEY_SETTING]: "ab".repeat(32),
+            [SECRET_KEY_FILE_SETTING]: "/k",
+          },
+          read,
+        ),
+      ),
+    ).toBe("master_key_mismatch");
+  });
+
+  test("an unreadable or empty file is master_key_missing, a bad value master_key_invalid", () => {
+    const read = files({ "/empty": "\n", "/bad": "not-a-key\n" });
+    expect(
+      codeOf(() => loadSecretKey({ [SECRET_KEY_FILE_SETTING]: "/none" }, read)),
+    ).toBe("master_key_missing");
+    expect(
+      codeOf(() =>
+        loadSecretKey({ [SECRET_KEY_FILE_SETTING]: "/empty" }, read),
+      ),
+    ).toBe("master_key_missing");
+    expect(
+      codeOf(() => loadSecretKey({ [SECRET_KEY_FILE_SETTING]: "/bad" }, read)),
+    ).toBe("master_key_invalid");
+    expect(codeOf(() => loadSecretKey({}, read))).toBe("master_key_missing");
+    // Compose passes an unset variable through as empty.
+    expect(
+      codeOf(() =>
+        loadSecretKey(
+          { [SECRET_KEY_SETTING]: "", [SECRET_KEY_FILE_SETTING]: "" },
+          read,
+        ),
+      ),
+    ).toBe("master_key_missing");
+  });
+
+  test("masterKeyConfigured sees either setting", () => {
+    expect(masterKeyConfigured({})).toBe(false);
+    expect(masterKeyConfigured({ [SECRET_KEY_SETTING]: "" })).toBe(false);
+    expect(masterKeyConfigured({ [SECRET_KEY_SETTING]: HEX })).toBe(true);
+    expect(masterKeyConfigured({ [SECRET_KEY_FILE_SETTING]: "/k" })).toBe(true);
   });
 });
 

@@ -1,11 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import { randomBytes } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   createSlackInteractionService,
   type SlackInteractionDeps,
   type SlackInteractionOutcome,
 } from "@werft-ai/chat-slack";
 import { SLACK_INTERACTION_ACTIONS } from "@werft-ai/contracts";
+import {
+  openSecret,
+  type SecretAadFields,
+  SecretKey,
+  type SecretOwnerRef,
+  sealSecret,
+} from "@werft-ai/platform";
 import type { SlackInteractionTarget } from "../wiring/slack-interaction-sign.ts";
 import { createApiApp } from "./app.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
@@ -293,6 +303,110 @@ describe("slack-interaction-sign against the API's interactions receiver", () =>
       );
       expect(missing.sent).toEqual([]);
     }
+  });
+});
+
+describe("slack-interaction-sign and the master key", () => {
+  const sealedFields: SecretAadFields = {
+    id: "019a0000-0000-7000-8000-0000000000f1",
+    workspaceId: "019a0000-0000-7000-8000-0000000000a1",
+    ownerRef:
+      "slack_app:019a0000-0000-7000-8000-0000000000b1" as SecretOwnerRef,
+    purpose: "slack_signing_secret",
+    secretVersion: 1,
+    keyVersion: 1,
+  };
+
+  test("a signing secret sealed under another key is exit 5, master_key_mismatch, and nothing is sent", async () => {
+    const apiKey = SecretKey.fromHex(randomBytes(32).toString("hex"), "API");
+    const sealed = sealSecret(apiKey, sealedFields, SECRET);
+    const run = io(api(SECRET).app, {
+      // The CLI's own key, which is not the one the API sealed with.
+      openTargets: async (_url, cliKey) => ({
+        targets: {
+          forAgent: async () => ({
+            appId: APP_ID,
+            signingSecret: openSecret(cliKey, sealedFields, sealed),
+            teamIds: ["T0TEAM"],
+          }),
+        },
+        close: async () => {},
+      }),
+    });
+    expect(await runSlackInteractionSign(ARGV, run.io)).toBe(
+      SLACK_INTERACTION_SIGN_EXIT.key_mismatch,
+    );
+    expect(run.sent).toEqual([]);
+    expect(run.out).toEqual([]);
+    expect(run.err).toHaveLength(1);
+    expect(run.err[0]).toStartWith(
+      "slack-interaction-sign: master_key_mismatch: ",
+    );
+    expect(run.err[0]).not.toContain(KEY_HEX);
+    expect(run.err[0]).not.toContain(SECRET);
+  });
+
+  test("with the key only in the file PLATFORM_SECRET_KEY_FILE names, the press is signed and taken", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "slack-sign-key-"));
+    try {
+      const path = join(dir, "platform_secret_key");
+      await writeFile(path, `${KEY_HEX}\n`, { mode: 0o600 });
+      const apiKey = SecretKey.fromHex(KEY_HEX, "API");
+      const sealed = sealSecret(apiKey, sealedFields, SECRET);
+      const { app, outcomes } = api(SECRET);
+      const run = io(app, {
+        env: {
+          DATABASE_URL: "postgres://cli-test/db",
+          PLATFORM_SECRET_KEY_FILE: path,
+        },
+        openTargets: async (_url, cliKey) => ({
+          targets: {
+            forAgent: async () => ({
+              appId: APP_ID,
+              signingSecret: openSecret(cliKey, sealedFields, sealed),
+              teamIds: ["T0TEAM"],
+            }),
+          },
+          close: async () => {},
+        }),
+      });
+      expect(await runSlackInteractionSign(ARGV, run.io)).toBe(
+        SLACK_INTERACTION_SIGN_EXIT.ok,
+      );
+      expect(run.err).toEqual([]);
+      expect(outcomes).toEqual([
+        { kind: "ok", body: { ok: true }, result: "refused:no_bot_token" },
+      ]);
+      expect(run.out.join("\n")).not.toContain(KEY_HEX);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a missing or malformed key says which, without the value", async () => {
+    const app = api(SECRET).app;
+    const missing = io(app, {
+      env: { DATABASE_URL: "postgres://cli-test/db" },
+    });
+    expect(await runSlackInteractionSign(ARGV, missing.io)).toBe(
+      SLACK_INTERACTION_SIGN_EXIT.usage,
+    );
+    expect(
+      missing.err.map((line) => line.split(":").slice(0, 2).join(":")),
+    ).toEqual(["slack-interaction-sign: master_key_missing"]);
+    const malformed = io(app, {
+      env: {
+        DATABASE_URL: "postgres://cli-test/db",
+        PLATFORM_SECRET_KEY: "zz-not-hex",
+      },
+    });
+    expect(await runSlackInteractionSign(ARGV, malformed.io)).toBe(
+      SLACK_INTERACTION_SIGN_EXIT.usage,
+    );
+    expect(malformed.err[0]).toStartWith(
+      "slack-interaction-sign: master_key_invalid: ",
+    );
+    expect(malformed.err[0]).not.toContain("zz-not-hex");
   });
 });
 
