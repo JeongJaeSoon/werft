@@ -474,6 +474,22 @@ const SESSION_ENDED_STATES: ReadonlySet<string> = new Set(
   ENDED_ADMISSION_STATES,
 );
 
+// Whether the request can still be answered, as a select column.
+const openNow = (db: Database, sessionId: string, requestId: string) =>
+  sql<boolean>`EXISTS (${actionableRequest(
+    db,
+    sql`${requestId}`,
+    sql`${sessionId}::uuid`,
+  )})`;
+
+// The owner's request, over pending_requests joined to its session.
+const ownedRequest = (ownerId: string, sessionId: string, requestId: string) =>
+  and(
+    eq(pendingRequests.requestId, requestId),
+    eq(pendingRequests.sessionId, sessionId),
+    eq(sessions.ownerId, ownerId),
+  );
+
 export function createPostgresPendingRequests(
   db: Database,
 ): PendingRequestStore & PendingRequestDisplayReader {
@@ -483,21 +499,11 @@ export function createPostgresPendingRequests(
         .select({
           kind: pendingRequests.kind,
           answer: pendingRequests.answer,
-          open: sql<boolean>`EXISTS (${actionableRequest(
-            db,
-            sql`${requestId}`,
-            sql`${sessionId}::uuid`,
-          )})`,
+          open: openNow(db, sessionId, requestId),
         })
         .from(pendingRequests)
         .innerJoin(sessions, eq(sessions.id, pendingRequests.sessionId))
-        .where(
-          and(
-            eq(pendingRequests.requestId, requestId),
-            eq(pendingRequests.sessionId, sessionId),
-            eq(sessions.ownerId, ownerId),
-          ),
-        )
+        .where(ownedRequest(ownerId, sessionId, requestId))
         .limit(1);
       if (!row) return null;
       const kind = row.kind === "permission" ? "permission" : "question";
@@ -526,21 +532,11 @@ export function createPostgresPendingRequests(
           expiresAt: pendingRequests.expiresAt,
           expired: sql<boolean>`${pendingRequests.expiresAt} <= ${DB_NOW}`,
           admissionState: sessions.admissionState,
-          open: sql<boolean>`EXISTS (${actionableRequest(
-            db,
-            sql`${requestId}`,
-            sql`${sessionId}::uuid`,
-          )})`,
+          open: openNow(db, sessionId, requestId),
         })
         .from(pendingRequests)
         .innerJoin(sessions, eq(sessions.id, pendingRequests.sessionId))
-        .where(
-          and(
-            eq(pendingRequests.requestId, requestId),
-            eq(pendingRequests.sessionId, sessionId),
-            eq(sessions.ownerId, ownerId),
-          ),
-        )
+        .where(ownedRequest(ownerId, sessionId, requestId))
         .limit(1);
       if (!row) return null;
       const payload = row.payload as {

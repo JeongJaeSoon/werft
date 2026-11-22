@@ -131,6 +131,27 @@ function combinationOf(
   };
 }
 
+// The checkpoint a session's pointer names, as a join from sessions.
+const POINTER_CHECKPOINT = and(
+  eq(checkpoints.sessionId, sessions.id),
+  eq(checkpoints.revision, sessions.checkpointRevision),
+);
+
+// What readPointerImageRuntime's rules read of a session and that checkpoint.
+const POINTER_COLUMNS = {
+  runtimeKind: sql<
+    string | null
+  >`CASE WHEN jsonb_typeof(${sessions.runtimeSpec} -> 'runtime' -> 'kind') = 'string' THEN ${sessions.runtimeSpec} -> 'runtime' ->> 'kind' END`,
+  checkpointRevision: sessions.checkpointRevision,
+  checkpointPendingReason: sessions.checkpointPendingReason,
+  contextResetCheckpointRevision: sessions.contextResetCheckpointRevision,
+  runtimeEngine: checkpoints.runtimeEngine,
+  runtimeSdkVersion: checkpoints.runtimeSdkVersion,
+  runtimeCliVersion: checkpoints.runtimeCliVersion,
+  runtimeProfileSha256: checkpoints.runtimeProfileSha256,
+  runtimeProfileScheme: checkpoints.runtimeProfileScheme,
+};
+
 /**
  * The image combination the session's pointer was sealed under, for
  * choosing the image its next launch runs on, the revision it was read at
@@ -146,27 +167,9 @@ export async function readPointerImageRuntime(
   runtimeKind: string | null;
 }> {
   const [row] = await db
-    .select({
-      runtimeKind: sql<
-        string | null
-      >`CASE WHEN jsonb_typeof(${sessions.runtimeSpec} -> 'runtime' -> 'kind') = 'string' THEN ${sessions.runtimeSpec} -> 'runtime' ->> 'kind' END`,
-      checkpointRevision: sessions.checkpointRevision,
-      checkpointPendingReason: sessions.checkpointPendingReason,
-      contextResetCheckpointRevision: sessions.contextResetCheckpointRevision,
-      runtimeEngine: checkpoints.runtimeEngine,
-      runtimeSdkVersion: checkpoints.runtimeSdkVersion,
-      runtimeCliVersion: checkpoints.runtimeCliVersion,
-      runtimeProfileSha256: checkpoints.runtimeProfileSha256,
-      runtimeProfileScheme: checkpoints.runtimeProfileScheme,
-    })
+    .select(POINTER_COLUMNS)
     .from(sessions)
-    .leftJoin(
-      checkpoints,
-      and(
-        eq(checkpoints.sessionId, sessions.id),
-        eq(checkpoints.revision, sessions.checkpointRevision),
-      ),
-    )
+    .leftJoin(checkpoints, POINTER_CHECKPOINT)
     .where(eq(sessions.id, sessionId))
     .limit(1);
   // What the claim's restore skips (a start_fresh retired it, or a pending
@@ -204,13 +207,7 @@ export async function readPointerRuntime(
       runtimeProfileSha256: checkpoints.runtimeProfileSha256,
     })
     .from(sessions)
-    .innerJoin(
-      checkpoints,
-      and(
-        eq(checkpoints.sessionId, sessions.id),
-        eq(checkpoints.revision, sessions.checkpointRevision),
-      ),
-    )
+    .innerJoin(checkpoints, POINTER_CHECKPOINT)
     .where(eq(sessions.id, sessionId))
     .limit(1);
   return row === undefined ? null : runtimeOfColumns(row);
@@ -235,26 +232,10 @@ export async function listUpgradeSessions(db: Database): Promise<
     .select({
       sessionId: sessions.id,
       open: sql<boolean>`${sessions.admissionState} <> 'closed'`,
-      runtimeKind: sql<
-        string | null
-      >`CASE WHEN jsonb_typeof(${sessions.runtimeSpec} -> 'runtime' -> 'kind') = 'string' THEN ${sessions.runtimeSpec} -> 'runtime' ->> 'kind' END`,
-      checkpointRevision: sessions.checkpointRevision,
-      checkpointPendingReason: sessions.checkpointPendingReason,
-      contextResetCheckpointRevision: sessions.contextResetCheckpointRevision,
-      runtimeEngine: checkpoints.runtimeEngine,
-      runtimeSdkVersion: checkpoints.runtimeSdkVersion,
-      runtimeCliVersion: checkpoints.runtimeCliVersion,
-      runtimeProfileSha256: checkpoints.runtimeProfileSha256,
-      runtimeProfileScheme: checkpoints.runtimeProfileScheme,
+      ...POINTER_COLUMNS,
     })
     .from(sessions)
-    .leftJoin(
-      checkpoints,
-      and(
-        eq(checkpoints.sessionId, sessions.id),
-        eq(checkpoints.revision, sessions.checkpointRevision),
-      ),
-    )
+    .leftJoin(checkpoints, POINTER_CHECKPOINT)
     .where(
       or(
         ne(sessions.admissionState, "closed"),

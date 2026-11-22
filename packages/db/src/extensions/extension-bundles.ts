@@ -233,6 +233,51 @@ export function createPostgresExtensionBundleStore(
     return row;
   }
 
+  /**
+   * How a review or an archive opens: the manager, the skill's lock when the
+   * bundle is a version, then the row FOR UPDATE, which an attach of the
+   * version holds FOR SHARE.
+   */
+  async function lockBundleForManager(
+    tx: Database,
+    input: {
+      workspaceId: string;
+      principal: Principal;
+      managerRoles: readonly WorkspaceRole[];
+      bundleId: string;
+    },
+  ): Promise<
+    | { outcome: "actor_inactive" | "outranked" | "not_found" }
+    | { actor: { userId: string; another: boolean }; row: Row }
+  > {
+    const actor = await managerCheck(
+      tx,
+      input.workspaceId,
+      input.principal,
+      input.managerRoles,
+      true,
+    );
+    if (typeof actor === "string") return { outcome: actor };
+    const found = await byId(tx, input.workspaceId, input.bundleId);
+    if (!found) return { outcome: "not_found" };
+    if (found.version !== null) {
+      await lockSkill(tx, input.workspaceId, found.name);
+    }
+    const [row] = await tx
+      .select()
+      .from(extensionBundles)
+      .where(
+        and(
+          eq(extensionBundles.workspaceId, input.workspaceId),
+          eq(extensionBundles.id, input.bundleId.toLowerCase()),
+        ),
+      )
+      .limit(1)
+      .for("update");
+    if (!row) return { outcome: "not_found" };
+    return { actor, row };
+  }
+
   return {
     async find(workspaceId, id) {
       const row = await byId(db, workspaceId, id);
@@ -563,31 +608,9 @@ export function createPostgresExtensionBundleStore(
 
     review(input) {
       return db.transaction(async (tx) => {
-        const actor = await managerCheck(
-          tx,
-          input.workspaceId,
-          input.principal,
-          input.managerRoles,
-          true,
-        );
-        if (typeof actor === "string") return { outcome: actor };
-        const found = await byId(tx, input.workspaceId, input.bundleId);
-        if (!found) return { outcome: "not_found" };
-        if (found.version !== null) {
-          await lockSkill(tx, input.workspaceId, found.name);
-        }
-        const [row] = await tx
-          .select()
-          .from(extensionBundles)
-          .where(
-            and(
-              eq(extensionBundles.workspaceId, input.workspaceId),
-              eq(extensionBundles.id, input.bundleId.toLowerCase()),
-            ),
-          )
-          .limit(1)
-          .for("update");
-        if (!row) return { outcome: "not_found" };
+        const locked = await lockBundleForManager(tx, input);
+        if ("outcome" in locked) return locked;
+        const { actor, row } = locked;
         if (row.archivedAt !== null) return { outcome: "archived" };
         if (row.review === input.review) {
           return { outcome: "unchanged", bundle: bundleOf(row) };
@@ -803,32 +826,9 @@ export function createPostgresExtensionBundleStore(
 
     archive(input) {
       return db.transaction(async (tx) => {
-        const actor = await managerCheck(
-          tx,
-          input.workspaceId,
-          input.principal,
-          input.managerRoles,
-          true,
-        );
-        if (typeof actor === "string") return { outcome: actor };
-        const found = await byId(tx, input.workspaceId, input.bundleId);
-        if (!found) return { outcome: "not_found" };
-        if (found.version !== null) {
-          await lockSkill(tx, input.workspaceId, found.name);
-        }
-        // FOR UPDATE: an attach of this version holds it FOR SHARE.
-        const [row] = await tx
-          .select()
-          .from(extensionBundles)
-          .where(
-            and(
-              eq(extensionBundles.workspaceId, input.workspaceId),
-              eq(extensionBundles.id, input.bundleId.toLowerCase()),
-            ),
-          )
-          .limit(1)
-          .for("update");
-        if (!row) return { outcome: "not_found" };
+        const locked = await lockBundleForManager(tx, input);
+        if ("outcome" in locked) return locked;
+        const { actor, row } = locked;
         if (row.archivedAt !== null) {
           return { outcome: "unchanged", bundle: bundleOf(row) };
         }

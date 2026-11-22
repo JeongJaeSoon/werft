@@ -381,6 +381,62 @@ export function controlClock(callerNow: Date, startedAt: number): Date {
 }
 
 /**
+ * How an owner's control on a session opens: the idempotency scope and a
+ * replay of its key, the session row (`scope.resource`) under
+ * lockSessionForControl, the clock, and the refusals every control shares.
+ * `done` is the result to return as it is.
+ */
+export async function openControl(
+  tx: Database,
+  attempt: number,
+  scope: IdempotencyScope,
+  input: {
+    payloadHash: string;
+    expectedRevision: number;
+    now: Date;
+    startedAt: number;
+    measure?: ControlStageMeasure;
+  },
+): Promise<
+  | {
+      done:
+        | NonNullable<ReturnType<typeof controlReplay>>
+        | { outcome: "not_found" }
+        | { outcome: "rejected"; admissionState: "closed" }
+        | { outcome: "revision_conflict"; currentRevision: number };
+    }
+  | { session: typeof sessions.$inferSelect; now: Date }
+> {
+  const measure = input.measure ?? (async (_stage, work) => work());
+  await measure("idempotency_lock_ms", () => lockIdempotencyScope(tx, scope));
+  const existing = await measure("idempotency_lookup_ms", () =>
+    findIdempotent(tx, scope),
+  );
+  const replay = controlReplay(existing, input.payloadHash);
+  if (replay) return { done: replay };
+  const session = await lockSessionForControl(tx, {
+    sessionId: scope.resource,
+    ownerId: scope.principal,
+    attempt,
+    ...(input.measure ? { measure: input.measure } : {}),
+  });
+  if (!session) return { done: { outcome: "not_found" } };
+  const now = controlClock(input.now, input.startedAt);
+  if (session.admissionState === "closed") {
+    return { done: { outcome: "rejected", admissionState: "closed" } };
+  }
+  if (session.revision !== input.expectedRevision) {
+    return {
+      done: {
+        outcome: "revision_conflict",
+        currentRevision: session.revision,
+      },
+    };
+  }
+  return { session, now };
+}
+
+/**
  * Reports accepted receipts matching `overdue` as unknown, at most `limit`
  * of them: a backlog is worked off over several passes rather than
  * in one statement that can outlast the pass. The batch is read and locked

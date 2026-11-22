@@ -6,6 +6,7 @@ import {
 } from "@werft-ai/contracts";
 import type {
   AgentGitHubStore,
+  Principal,
   SetAgentGitHubRepositoryResult,
 } from "@werft-ai/platform";
 import { receiptActorOf } from "@werft-ai/platform";
@@ -156,6 +157,83 @@ async function seedOf(
   };
 }
 
+/** The agent's settings row FOR UPDATE; undefined before its first save. */
+async function lockSettings(tx: Database, agentId: string) {
+  const [held] = await tx
+    .select()
+    .from(agentGitHubSettings)
+    .where(eq(agentGitHubSettings.agentId, agentId))
+    .for("update");
+  return held;
+}
+
+/**
+ * Writes `next` as the agent's settings: its first row, or over `held` at
+ * the revision it was read at. Returns the new revision; undefined when
+ * another write got there first.
+ */
+async function writeSettings(
+  tx: Database,
+  agentId: string,
+  input: { workspaceId: string; userId: string },
+  held: { revision: number } | undefined,
+  next: Pick<typeof agentGitHubSettings.$inferInsert, keyof SettingsValues>,
+): Promise<number | undefined> {
+  if (held === undefined) {
+    const [inserted] = await tx
+      .insert(agentGitHubSettings)
+      .values({
+        agentId,
+        workspaceId: input.workspaceId,
+        ...next,
+        revision: 1,
+        updatedBy: input.userId,
+      })
+      .onConflictDoNothing({ target: agentGitHubSettings.agentId })
+      .returning({ revision: agentGitHubSettings.revision });
+    return inserted?.revision;
+  }
+  const [updated] = await tx
+    .update(agentGitHubSettings)
+    .set({
+      ...next,
+      revision: sql`${agentGitHubSettings.revision} + 1`,
+      updatedBy: input.userId,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(agentGitHubSettings.agentId, agentId),
+        eq(agentGitHubSettings.revision, held.revision),
+      ),
+    )
+    .returning({ revision: agentGitHubSettings.revision });
+  return updated?.revision;
+}
+
+/** The `set_agent_github` receipt of a change to the agent; returns its id. */
+async function writeAgentReceipt(
+  tx: Database,
+  input: { principal: Principal; workspaceId: string },
+  agentId: string,
+  result: Record<string, unknown>,
+): Promise<string> {
+  const receiptId = randomUUID();
+  await tx.insert(receipts).values({
+    id: receiptId,
+    ownerId: input.principal.ownerId,
+    actor: receiptActorOf(input.principal),
+    operation: "set_agent_github",
+    targetRef: {
+      resource: { kind: "agent", id: agentId },
+      workspace_id: input.workspaceId,
+    },
+    status: "succeeded",
+    result,
+  });
+  return receiptId;
+}
+
 export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
   const catalogStore = createPostgresCatalogRepositoryStore(db);
   const pinStore = createPostgresGitHubPinStore(db);
@@ -195,18 +273,9 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
           .update(agents)
           .set({ githubEnabled: input.enabled })
           .where(eq(agents.id, agentId));
-        const receiptId = randomUUID();
-        await tx.insert(receipts).values({
-          id: receiptId,
-          ownerId: input.principal.ownerId,
-          actor: receiptActorOf(input.principal),
-          operation: "set_agent_github",
-          targetRef: {
-            resource: { kind: "agent", id: agentId },
-            workspace_id: input.workspaceId,
-          },
-          status: "succeeded",
-          result: { agent_id: agentId, enabled: input.enabled },
+        const receiptId = await writeAgentReceipt(tx, input, agentId, {
+          agent_id: agentId,
+          enabled: input.enabled,
         });
         return { outcome: "saved" as const, receiptId };
       });
@@ -218,11 +287,7 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
         // Agent row first, then its settings: the order a session start takes.
         const locked = await lockAgentToChange(tx, input, agentId);
         if ("outcome" in locked) return locked;
-        const [held] = await tx
-          .select()
-          .from(agentGitHubSettings)
-          .where(eq(agentGitHubSettings.agentId, agentId))
-          .for("update");
+        const held = await lockSettings(tx, agentId);
         const heldRevision = held?.revision ?? null;
         if (heldRevision !== input.expectedRevision) {
           return { outcome: "conflict" as const, revision: heldRevision };
@@ -261,62 +326,16 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
             receiptId: null,
           };
         }
-        let revision: number;
-        if (held === undefined) {
-          const [inserted] = await tx
-            .insert(agentGitHubSettings)
-            .values({
-              agentId,
-              workspaceId: input.workspaceId,
-              ...next,
-              revision: 1,
-              updatedBy: input.userId,
-            })
-            .onConflictDoNothing({ target: agentGitHubSettings.agentId })
-            .returning({ revision: agentGitHubSettings.revision });
-          if (inserted === undefined) {
-            return { outcome: "conflict" as const, revision: null };
-          }
-          revision = inserted.revision;
-        } else {
-          const [updated] = await tx
-            .update(agentGitHubSettings)
-            .set({
-              ...next,
-              revision: sql`${agentGitHubSettings.revision} + 1`,
-              updatedBy: input.userId,
-              updatedAt: sql`now()`,
-            })
-            .where(
-              and(
-                eq(agentGitHubSettings.agentId, agentId),
-                eq(agentGitHubSettings.revision, held.revision),
-              ),
-            )
-            .returning({ revision: agentGitHubSettings.revision });
-          if (updated === undefined) {
-            return { outcome: "conflict" as const, revision: held.revision };
-          }
-          revision = updated.revision;
+        const revision = await writeSettings(tx, agentId, input, held, next);
+        if (revision === undefined) {
+          return { outcome: "conflict" as const, revision: heldRevision };
         }
-        const receiptId = randomUUID();
-        await tx.insert(receipts).values({
-          id: receiptId,
-          ownerId: input.principal.ownerId,
-          actor: receiptActorOf(input.principal),
-          operation: "set_agent_github",
-          targetRef: {
-            resource: { kind: "agent", id: agentId },
-            workspace_id: input.workspaceId,
-          },
-          status: "succeeded",
-          result: {
-            agent_id: agentId,
-            change: "settings",
-            agent_settings_revision: revision,
-            before: held === undefined ? null : valuesOf(held),
-            after: valuesOf(next),
-          },
+        const receiptId = await writeAgentReceipt(tx, input, agentId, {
+          agent_id: agentId,
+          change: "settings",
+          agent_settings_revision: revision,
+          before: held === undefined ? null : valuesOf(held),
+          after: valuesOf(next),
         });
         return { outcome: "saved" as const, revision, receiptId };
       });
@@ -337,11 +356,7 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
           }
           const locked = await lockAgentToChange(tx, input, agentId);
           if ("outcome" in locked) return locked;
-          const [held] = await tx
-            .select()
-            .from(agentGitHubSettings)
-            .where(eq(agentGitHubSettings.agentId, agentId))
-            .for("update");
+          const held = await lockSettings(tx, agentId);
           const heldRevision = held?.revision ?? null;
           if (
             input.expectedRevision !== undefined &&
@@ -463,68 +478,21 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
           if (held !== undefined && has === input.enabled) {
             revision = held.revision;
           } else {
-            if (held === undefined) {
-              const [inserted] = await tx
-                .insert(agentGitHubSettings)
-                .values({
-                  agentId,
-                  workspaceId: input.workspaceId,
-                  ...next,
-                  revision: 1,
-                  updatedBy: input.userId,
-                })
-                .onConflictDoNothing({ target: agentGitHubSettings.agentId })
-                .returning({ revision: agentGitHubSettings.revision });
-              if (inserted === undefined) {
-                throw new Abort({ outcome: "conflict", revision: null });
-              }
-              revision = inserted.revision;
-            } else {
-              const [updated] = await tx
-                .update(agentGitHubSettings)
-                .set({
-                  ...next,
-                  revision: sql`${agentGitHubSettings.revision} + 1`,
-                  updatedBy: input.userId,
-                  updatedAt: sql`now()`,
-                })
-                .where(
-                  and(
-                    eq(agentGitHubSettings.agentId, agentId),
-                    eq(agentGitHubSettings.revision, held.revision),
-                  ),
-                )
-                .returning({ revision: agentGitHubSettings.revision });
-              if (updated === undefined) {
-                throw new Abort({
-                  outcome: "conflict",
-                  revision: held.revision,
-                });
-              }
-              revision = updated.revision;
+            const written = await writeSettings(tx, agentId, input, held, next);
+            if (written === undefined) {
+              throw new Abort({ outcome: "conflict", revision: heldRevision });
             }
-            receiptId = randomUUID();
-            await tx.insert(receipts).values({
-              id: receiptId,
-              ownerId: input.principal.ownerId,
-              actor: receiptActorOf(input.principal),
-              operation: "set_agent_github",
-              targetRef: {
-                resource: { kind: "agent", id: agentId },
-                workspace_id: input.workspaceId,
-              },
-              status: "succeeded",
-              result: {
-                agent_id: agentId,
-                change: "repository",
-                agent_settings_revision: revision,
-                repository_id: repository.id,
-                repository: label,
-                github_repository_id: githubRepositoryId,
-                enabled: input.enabled,
-                before: held === undefined ? null : valuesOf(held),
-                after: valuesOf(next),
-              },
+            revision = written;
+            receiptId = await writeAgentReceipt(tx, input, agentId, {
+              agent_id: agentId,
+              change: "repository",
+              agent_settings_revision: revision,
+              repository_id: repository.id,
+              repository: label,
+              github_repository_id: githubRepositoryId,
+              enabled: input.enabled,
+              before: held === undefined ? null : valuesOf(held),
+              after: valuesOf(next),
             });
           }
 

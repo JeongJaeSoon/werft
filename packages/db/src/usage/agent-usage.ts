@@ -360,6 +360,50 @@ export async function lockEditRight(
   return { liveTeams, roleIn };
 }
 
+/**
+ * How an edit of an agent's usage or caller limits opens: the actor, the
+ * agent row, then the agent_usage row, which every writer of what the agent
+ * lists holds.
+ */
+export async function lockAgentUsageForWrite(
+  tx: Database,
+  input: {
+    workspaceId: string;
+    agentId: string;
+    actorUserId: string;
+    managerRoles: readonly string[];
+  },
+): Promise<
+  | { outcome: "actor_inactive" | "not_found" }
+  | { manager: boolean; usage: typeof agentUsage.$inferSelect }
+> {
+  const { workspaceId, agentId } = input;
+  const people = await lockPeople(tx, workspaceId, [input.actorUserId]);
+  const me = people.find((p) => p.userId === input.actorUserId);
+  if (!me?.live) return { outcome: "actor_inactive" };
+  const manager = input.managerRoles.includes(me.role);
+
+  const [agent] = await tx
+    .select({ id: agents.id })
+    .from(agents)
+    .where(and(eq(agents.workspaceId, workspaceId), eq(agents.id, agentId)))
+    .for("no key update");
+  if (!agent) return { outcome: manager ? "not_found" : "actor_inactive" };
+
+  // Every agent has its row; one inserted by hand without it gets it here.
+  await tx
+    .insert(agentUsage)
+    .values({ agentId, workspaceId })
+    .onConflictDoNothing();
+  const [usage] = await tx
+    .select()
+    .from(agentUsage)
+    .where(eq(agentUsage.agentId, agentId))
+    .for("update");
+  if (!usage) throw new Error(`agent_usage ${agentId} vanished under a lock`);
+  return { manager, usage };
+}
+
 async function put(
   db: Database,
   input: Parameters<AgentUsageStore["put"]>[0],
@@ -375,29 +419,14 @@ async function put(
     ...new Set(input.teamIds.map((id) => id.toLowerCase())),
   ].sort();
   return db.transaction(async (tx) => {
-    const people = await lockPeople(tx, workspaceId, [actor.userId]);
-    const me = people.find((p) => p.userId === actor.userId);
-    if (!me?.live) return { outcome: "actor_inactive" };
-    const manager = (input.managerRoles as readonly string[]).includes(me.role);
-
-    const [agent] = await tx
-      .select({ id: agents.id })
-      .from(agents)
-      .where(and(eq(agents.workspaceId, workspaceId), eq(agents.id, agentId)))
-      .for("no key update");
-    if (!agent) return { outcome: manager ? "not_found" : "actor_inactive" };
-
-    // Every agent has its row; one inserted by hand without it gets it here.
-    await tx
-      .insert(agentUsage)
-      .values({ agentId, workspaceId })
-      .onConflictDoNothing();
-    const [usage] = await tx
-      .select()
-      .from(agentUsage)
-      .where(eq(agentUsage.agentId, agentId))
-      .for("update");
-    if (!usage) throw new Error(`agent_usage ${agentId} vanished under a lock`);
+    const locked = await lockAgentUsageForWrite(tx, {
+      workspaceId,
+      agentId,
+      actorUserId: actor.userId,
+      managerRoles: input.managerRoles,
+    });
+    if ("outcome" in locked) return locked;
+    const { manager, usage } = locked;
 
     // Whoever writes this agent's targets holds its agent_usage row (this
     // edit, a team's archive), so the list cannot move under the reads below

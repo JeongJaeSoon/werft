@@ -1,8 +1,6 @@
-import type { ReceiptOperation } from "@werft-ai/contracts";
 import {
   type LoginProvider,
   type LoginProviderAdminStore,
-  type LoginProviderAudit,
   type LoginProviderEndpoints,
   type LoginProviderRecord,
   type LoginProviderSecretSlot,
@@ -19,7 +17,6 @@ import type { Database } from "../queries.ts";
 import {
   loginMethods,
   loginProviders,
-  receipts,
   secretValues,
   users,
   webSessions,
@@ -38,6 +35,7 @@ import {
   lockLoginSettings,
   openPasswordsAsOperator,
   writeOperatorReceipt,
+  writeUserWorkspaceReceipt,
 } from "./login-settings.ts";
 
 export const LOGIN_CLIENT_SECRET_PURPOSE = "login_client_secret";
@@ -162,31 +160,6 @@ async function lockedProvider(tx: Database, id: string): Promise<Row | null> {
     .where(and(eq(loginProviders.id, id), notDeleted(loginProviders)))
     .for("update");
   return row ?? null;
-}
-
-async function writeReceipt(
-  tx: Database,
-  audit: LoginProviderAudit,
-  operation: ReceiptOperation,
-  providerId: string,
-  result: Record<string, unknown>,
-): Promise<void> {
-  await tx.insert(receipts).values({
-    id: audit.receiptId,
-    ownerId: audit.workspaceId,
-    operation,
-    targetRef: {
-      resource: { kind: "workspace", id: audit.workspaceId },
-      workspace_id: audit.workspaceId,
-    },
-    status: "succeeded",
-    result: { provider_id: providerId, ...result },
-    actor: {
-      principal: { kind: "user", id: audit.userId },
-      actor_user_id: audit.userId,
-      agent_id: null,
-    },
-  });
 }
 
 const endpointColumns = (endpoints: LoginProviderEndpoints) => ({
@@ -356,10 +329,16 @@ export function createPostgresLoginProviderAdminStore(
           })
           .returning();
         if (!row) return { outcome: "issuer_taken" as const };
-        await writeReceipt(tx, input.audit, "create_login_provider", row.id, {
-          issuer: row.issuer,
-          display_name: row.displayName,
-        });
+        await writeUserWorkspaceReceipt(
+          tx,
+          input.audit,
+          "create_login_provider",
+          {
+            provider_id: row.id,
+            issuer: row.issuer,
+            display_name: row.displayName,
+          },
+        );
         return {
           outcome: "created" as const,
           provider: recordFrom(row, new Map()),
@@ -450,15 +429,21 @@ export function createPostgresLoginProviderAdminStore(
           .where(eq(loginProviders.id, row.id))
           .returning();
         if (!updated) throw new Error("login provider update returned no row");
-        await writeReceipt(tx, input.audit, "update_login_provider", row.id, {
-          // Named as the API names them.
-          fields: fields
-            .map((field) =>
-              field.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`),
-            )
-            .sort(),
-          config_revision: updated.configRevision,
-        });
+        await writeUserWorkspaceReceipt(
+          tx,
+          input.audit,
+          "update_login_provider",
+          {
+            provider_id: row.id,
+            // Named as the API names them.
+            fields: fields
+              .map((field) =>
+                field.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`),
+              )
+              .sort(),
+            config_revision: updated.configRevision,
+          },
+        );
         return {
           outcome: "updated" as const,
           provider: await recordOf(tx, updated),
@@ -492,12 +477,11 @@ export function createPostgresLoginProviderAdminStore(
           .where(eq(loginProviders.id, row.id))
           .returning();
         if (!updated) throw new Error("login provider update returned no row");
-        await writeReceipt(
+        await writeUserWorkspaceReceipt(
           tx,
           input.audit,
           "refresh_login_provider_discovery",
-          row.id,
-          { config_revision: updated.configRevision },
+          { provider_id: row.id, config_revision: updated.configRevision },
         );
         return {
           outcome: "updated" as const,
@@ -565,14 +549,13 @@ export function createPostgresLoginProviderAdminStore(
           .where(eq(loginProviders.id, row.id))
           .returning();
         if (!updated) throw new Error("login provider update returned no row");
-        await writeReceipt(
+        await writeUserWorkspaceReceipt(
           tx,
           input.audit,
           "set_login_provider_secret",
-          row.id,
           withdrawn
-            ? { slot, withdrawn: true }
-            : { slot, last4: input.value.slice(-4) },
+            ? { provider_id: row.id, slot, withdrawn: true }
+            : { provider_id: row.id, slot, last4: input.value.slice(-4) },
         );
         return {
           outcome: "stored" as const,
@@ -659,11 +642,17 @@ export function createPostgresLoginProviderAdminStore(
             updatedAt: DB_NOW,
           })
           .where(eq(loginProviders.id, row.id));
-        await writeReceipt(tx, input.audit, "test_login_provider", row.id, {
-          config_revision: row.configRevision,
-          slot: input.slot,
-          secret_replaced: input.slot === "next",
-        });
+        await writeUserWorkspaceReceipt(
+          tx,
+          input.audit,
+          "test_login_provider",
+          {
+            provider_id: row.id,
+            config_revision: row.configRevision,
+            slot: input.slot,
+            secret_replaced: input.slot === "next",
+          },
+        );
         return { outcome: "recorded" as const };
       });
     },
@@ -700,9 +689,15 @@ export function createPostgresLoginProviderAdminStore(
           .where(eq(loginProviders.id, row.id))
           .returning();
         if (!updated) throw new Error("login provider update returned no row");
-        await writeReceipt(tx, input.audit, "enable_login_provider", row.id, {
-          config_revision: updated.configRevision,
-        });
+        await writeUserWorkspaceReceipt(
+          tx,
+          input.audit,
+          "enable_login_provider",
+          {
+            provider_id: row.id,
+            config_revision: updated.configRevision,
+          },
+        );
         return {
           outcome: "enabled" as const,
           provider: await recordOf(tx, updated),
@@ -740,9 +735,15 @@ export function createPostgresLoginProviderAdminStore(
         }
         const off = await turnOff(tx, row.id);
         if (!off) return { outcome: "not_found" as const };
-        await writeReceipt(tx, input.audit, "disable_login_provider", row.id, {
-          sessions_revoked: off.sessionsRevoked,
-        });
+        await writeUserWorkspaceReceipt(
+          tx,
+          input.audit,
+          "disable_login_provider",
+          {
+            provider_id: row.id,
+            sessions_revoked: off.sessionsRevoked,
+          },
+        );
         return {
           outcome: "disabled" as const,
           provider: await recordOf(tx, off.row),
@@ -765,9 +766,15 @@ export function createPostgresLoginProviderAdminStore(
           .update(loginProviders)
           .set(deletedBy(input.audit.userId))
           .where(eq(loginProviders.id, row.id));
-        await writeReceipt(tx, input.audit, "delete_login_provider", row.id, {
-          issuer: row.issuer,
-        });
+        await writeUserWorkspaceReceipt(
+          tx,
+          input.audit,
+          "delete_login_provider",
+          {
+            provider_id: row.id,
+            issuer: row.issuer,
+          },
+        );
         return { outcome: "deleted" as const };
       });
     },

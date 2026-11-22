@@ -68,6 +68,19 @@ function inManagingTeam(
   );
 }
 
+// Admin through a team, as two joins from agent_admin_teams: the team, live,
+// and a live member row in it.
+export const liveAdminTeam = () =>
+  and(
+    eq(memberTeams.id, agentAdminTeams.teamId),
+    isNull(memberTeams.archivedAt),
+  );
+export const liveAdminTeamMember = () =>
+  and(
+    eq(memberTeamMembers.teamId, agentAdminTeams.teamId),
+    isNull(memberTeamMembers.removedAt),
+  );
+
 /**
  * True where `userId` administers `agentId` in `workspaceId`: an admin row of
  * their own, a live admin team they are a live member of, or the lead of the
@@ -94,20 +107,8 @@ export function administers(
   const viaTeam = db
     .select({ one: sql`1` })
     .from(agentAdminTeams)
-    .innerJoin(
-      memberTeams,
-      and(
-        eq(memberTeams.id, agentAdminTeams.teamId),
-        isNull(memberTeams.archivedAt),
-      ),
-    )
-    .innerJoin(
-      memberTeamMembers,
-      and(
-        eq(memberTeamMembers.teamId, agentAdminTeams.teamId),
-        isNull(memberTeamMembers.removedAt),
-      ),
-    )
+    .innerJoin(memberTeams, liveAdminTeam())
+    .innerJoin(memberTeamMembers, liveAdminTeamMember())
     .where(
       and(
         eq(agentAdminTeams.workspaceId, workspaceId),

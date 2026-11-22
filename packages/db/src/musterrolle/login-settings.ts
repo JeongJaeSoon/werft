@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ReceiptOperation } from "@werft-ai/contracts";
 import type {
-  LoginSettingsAudit,
   LoginSettingsRecord,
   LoginSettingsStore,
   PasswordLogin,
@@ -223,9 +222,14 @@ export async function revokePasswordSessions(
   return revoked.length;
 }
 
-async function writeReceipt(
+/**
+ * The receipt of a change a signed-in person made to how people sign in. The
+ * workspace is its target: a change to a person's own login methods has the
+ * person as its actor, and a receipt has no target kind for one.
+ */
+export async function writeUserWorkspaceReceipt(
   tx: Database,
-  audit: LoginSettingsAudit,
+  audit: { userId: string; workspaceId: string; receiptId: string },
   operation: ReceiptOperation,
   result: Record<string, unknown>,
 ): Promise<void> {
@@ -414,7 +418,7 @@ export function createPostgresLoginSettingsStore(
         await tx
           .update(loginSettings)
           .set({ passwordLogin: value, updatedAt: DB_NOW });
-        await writeReceipt(tx, audit, "set_password_login", {
+        await writeUserWorkspaceReceipt(tx, audit, "set_password_login", {
           password_login: value,
           sessions_revoked: sessionsRevoked,
         });
@@ -461,7 +465,7 @@ export function createPostgresLoginSettingsStore(
         await tx
           .update(loginSettings)
           .set({ emergencyAdminUserId: userId, updatedAt: DB_NOW });
-        await writeReceipt(tx, audit, "set_emergency_admin", {
+        await writeUserWorkspaceReceipt(tx, audit, "set_emergency_admin", {
           user_id: userId,
           previous_user_id: previous,
           sessions_revoked: sessionsRevoked,

@@ -11,7 +11,6 @@ import {
   type GitHubAppCredential,
   type GitHubAppRecord,
   type GitHubAppStore,
-  receiptActorOf,
   type SecretAudit,
   SecretDecryptError,
   type SecretKey,
@@ -50,6 +49,7 @@ import {
   writeSecretInTx,
 } from "../secrets/index.ts";
 import { deletedBy, notDeleted } from "../soft-delete.ts";
+import { workspaceReceiptRow } from "../succeeded-receipt.ts";
 import { ensureRepositoryCeilingWhenUnset } from "./github-settings.ts";
 
 type Row = typeof githubApps.$inferSelect;
@@ -154,26 +154,6 @@ export async function writeOAuthSecret(
       target: githubWorkspaceSettings.workspaceId,
       set: { oauthClientSecretSet: true, updatedAt: DB_NOW },
     });
-}
-
-function receiptRow(
-  audit: SecretAudit,
-  workspaceId: string,
-  operation: "set_github_app" | "delete_github_app",
-  result: Record<string, unknown>,
-) {
-  return {
-    id: audit.receiptId,
-    ownerId: workspaceId,
-    actor: receiptActorOf(audit.principal),
-    operation,
-    targetRef: {
-      resource: { kind: "workspace", id: workspaceId },
-      workspace_id: workspaceId,
-    },
-    status: "succeeded" as const,
-    result,
-  };
 }
 
 const appResult = (
@@ -467,7 +447,7 @@ export function createPostgresGitHubAppStore(
         // write the default repository ceiling if none is there (design 3.2).
         await ensureRepositoryCeilingWhenUnset(tx, workspaceId);
         await tx.insert(receipts).values(
-          receiptRow(audit, workspaceId, "set_github_app", {
+          workspaceReceiptRow(audit, workspaceId, "set_github_app", {
             ...appResult(row, role, app.permissions),
             ...(target.kind === "connection" ? { purpose: "private_key" } : {}),
             ...(pinsCleared > 0 ? { pins_cleared: pinsCleared } : {}),
@@ -543,7 +523,7 @@ export function createPostgresGitHubAppStore(
         await deleteSecretInTx(tx, oauthSecretSlot(row));
         await deleteSecretInTx(tx, webhookSlot(row));
         await tx.insert(receipts).values(
-          receiptRow(audit, workspaceId, "delete_github_app", {
+          workspaceReceiptRow(audit, workspaceId, "delete_github_app", {
             ...appResult(row, row.role),
             ...usage,
           }),
@@ -591,7 +571,7 @@ export function createPostgresGitHubAppStore(
         if (link !== null) await dropOAuthSecret(tx, link);
         await chooseUserLink(tx, workspaceId, row.id, userId);
         await tx.insert(receipts).values(
-          receiptRow(audit, workspaceId, "set_github_app", {
+          workspaceReceiptRow(audit, workspaceId, "set_github_app", {
             ...appResult(row, "author"),
             purpose: "user_link",
             before,
@@ -621,7 +601,7 @@ export function createPostgresGitHubAppStore(
           audit.principal.actor?.userId ?? null,
         );
         await tx.insert(receipts).values(
-          receiptRow(audit, workspaceId, "set_github_app", {
+          workspaceReceiptRow(audit, workspaceId, "set_github_app", {
             ...appResult(row, row.role),
             purpose: "webhook_secret",
           }),

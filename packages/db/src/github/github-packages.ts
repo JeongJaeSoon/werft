@@ -4,11 +4,9 @@ import {
 } from "@werft-ai/contracts";
 import type {
   GitHubPackagesStore,
-  SecretAudit,
   SecretKey,
   SecretSlot,
 } from "@werft-ai/platform";
-import { receiptActorOf } from "@werft-ai/platform";
 import { eq, sql } from "drizzle-orm";
 import { UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
@@ -27,6 +25,7 @@ import {
   secretAuditRefusal,
   writeSecretInTx,
 } from "../secrets/index.ts";
+import { workspaceReceiptRow } from "../succeeded-receipt.ts";
 import { creatorOf } from "./mcp-egress.ts";
 
 const tokenSlot = (workspaceId: string): SecretSlot => ({
@@ -40,29 +39,6 @@ const tokenSlot = (workspaceId: string): SecretSlot => ({
 function allowlistOf(value: unknown): GitHubPackagesAllowEntry[] {
   const parsed = githubPackagesAllowlistSchema.safeParse(value);
   return parsed.success ? parsed.data : [];
-}
-
-function receiptRow(
-  audit: SecretAudit,
-  workspaceId: string,
-  operation:
-    | "set_github_packages_token"
-    | "delete_github_packages_token"
-    | "set_github_packages_allowlist",
-  result: Record<string, unknown>,
-) {
-  return {
-    id: audit.receiptId,
-    ownerId: workspaceId,
-    actor: receiptActorOf(audit.principal),
-    operation,
-    targetRef: {
-      resource: { kind: "workspace", id: workspaceId },
-      workspace_id: workspaceId,
-    },
-    status: "succeeded" as const,
-    result,
-  };
 }
 
 // Serializes the settings row's writers: the token's facts and the
@@ -152,7 +128,7 @@ export function createPostgresGitHubPackagesStore(
             },
           });
         await tx.insert(receipts).values(
-          receiptRow(audit, id, "set_github_packages_token", {
+          workspaceReceiptRow(audit, id, "set_github_packages_token", {
             purpose: "github_packages_token",
             last4: token.slice(-4),
             login: facts.login,
@@ -176,7 +152,7 @@ export function createPostgresGitHubPackagesStore(
           .set({ tokenLogin: null, tokenExpiresAt: null })
           .where(eq(githubPackagesSettings.workspaceId, id));
         await tx.insert(receipts).values(
-          receiptRow(audit, id, "delete_github_packages_token", {
+          workspaceReceiptRow(audit, id, "delete_github_packages_token", {
             purpose: "github_packages_token",
             last4,
           }),
@@ -212,7 +188,7 @@ export function createPostgresGitHubPackagesStore(
             },
           });
         await tx.insert(receipts).values(
-          receiptRow(audit, id, "set_github_packages_allowlist", {
+          workspaceReceiptRow(audit, id, "set_github_packages_allowlist", {
             entries: allowlist.length,
             revision: revision + 1,
           }),

@@ -1,1 +1,5 @@
-export { lockEditRight, usageOf } from "./agent-usage.ts";
+export {
+  lockAgentUsageForWrite,
+  lockEditRight,
+  usageOf,
+} from "./agent-usage.ts";
