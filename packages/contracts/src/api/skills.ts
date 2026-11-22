@@ -136,6 +136,10 @@ export const SKILL_AUTO_APPROVAL_REASON_VALUES = [
   "no_reviewed_pull_request",
   // GitHub did not answer.
   "github_unreachable",
+  // The version failed a fixed-rule check; `checks` says which.
+  "checks_failed",
+  // Another version was approved while the checks ran; a person reviews.
+  "baseline_changed",
 ] as const;
 export const skillAutoApprovalReasonSchema = z.enum(
   SKILL_AUTO_APPROVAL_REASON_VALUES,
@@ -143,6 +147,37 @@ export const skillAutoApprovalReasonSchema = z.enum(
 export type SkillAutoApprovalReason = z.infer<
   typeof skillAutoApprovalReasonSchema
 >;
+
+export const SKILL_CHECK_RULE_VALUES = [
+  // A file under `scripts/`, with the execute bit or not a document, that the approved version did not run.
+  "scripts_added",
+  // More than 300 changed text lines, or a change too large to diff.
+  "large_change",
+  // An added line names a URL host no file of the approved version does.
+  "new_url",
+  // Zero-width, bidi control or tag characters in an added line or a new path.
+  "hidden_unicode",
+  // An added line reads as an instruction to the agent (ignore instructions, send credentials, hide from the user).
+  "instruction_like",
+  // The `SKILL.md` description, which decides when the skill is used, changed.
+  "description_changed",
+] as const;
+export const skillCheckRuleSchema = z.enum(SKILL_CHECK_RULE_VALUES);
+export type SkillCheckRule = z.infer<typeof skillCheckRuleSchema>;
+
+export const skillCheckFindingSchema = z
+  .object({
+    rule: skillCheckRuleSchema,
+    /** Up to 20 stored-tree paths that fail it. */
+    paths: z.array(z.string()),
+    /**
+     * Up to 20 values: the new hosts, the hidden code points (`U+200B`), the
+     * matched sentence ids, or the changed line count (`too_large`).
+     */
+    samples: z.array(z.string()),
+  })
+  .strict();
+export type SkillCheckFinding = z.infer<typeof skillCheckFindingSchema>;
 
 export const skillProtectionRuleSchema = z
   .object({
@@ -159,6 +194,10 @@ export const skillAutoApprovalSchema = z
     /** The rule that required review; null when none was found. */
     rule: skillProtectionRuleSchema.nullable(),
     pull_request: z.number().int().positive().nullable(),
+    checks: z.array(skillCheckFindingSchema).meta({
+      description:
+        "The fixed-rule checks the version failed against the approved version before it; empty when it failed none or was not checked.",
+    }),
   })
   .strict();
 
@@ -530,6 +569,10 @@ export const skillVersionFilesSchema = z
       .meta({
         description: "Files of the previous approved version this one drops.",
       }),
+    checks: z.array(skillCheckFindingSchema).meta({
+      description:
+        "The fixed-rule checks this version fails against `previous_approved`, one per rule; empty when it fails none. Shown to the reviewer; they never approve or reject.",
+    }),
   })
   .strict();
 export type SkillVersionFiles = z.infer<typeof skillVersionFilesSchema>;

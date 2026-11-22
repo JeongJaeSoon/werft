@@ -329,9 +329,7 @@ export function validateExtensionBundle(
     }
 
     const executable = (file.mode & 0o111) !== 0;
-    if (executable || !isDocument(rest) || startsWithShebang(file.bytes)) {
-      state.hasScripts = true;
-    }
+    if (runsAsScript(rest, file.mode, file.bytes)) state.hasScripts = true;
     out.set(path, canonicalFile(path, executable ? 0o755 : 0o644, file.bytes));
   }
 
@@ -463,6 +461,15 @@ function decodeText(bytes: Uint8Array): string | null {
   } catch {
     return null;
   }
+}
+
+/** A file an engine could run: an execute bit, a shebang, or not a document. */
+export function runsAsScript(
+  path: string,
+  mode: number,
+  bytes: Uint8Array,
+): boolean {
+  return (mode & 0o111) !== 0 || !isDocument(path) || startsWithShebang(bytes);
 }
 
 function isDocument(path: string): boolean {

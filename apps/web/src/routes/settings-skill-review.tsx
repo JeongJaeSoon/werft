@@ -9,6 +9,8 @@ import type {
 } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
 import {
+  Alert,
+  AlertDescription,
   Badge,
   Button,
   Code,
@@ -36,6 +38,8 @@ import { formatBytes } from "./session-outputs.tsx";
 import { triggerText } from "./settings-skill-detail.tsx";
 import { useSkillWrite } from "./settings-skills.tsx";
 import {
+  CHECK_RULE_LABEL,
+  CHECK_RULE_WHY,
   digestShort,
   REVIEW_BADGE,
   REVIEW_LABEL,
@@ -45,6 +49,7 @@ import {
 } from "./skills-data.ts";
 
 type SkillFile = SkillVersionFiles["files"][number];
+type SkillCheck = SkillVersionFiles["checks"][number];
 
 const CHANGE_LABEL = {
   added: "skills.reviewPage.change.added",
@@ -172,6 +177,7 @@ function ReviewBody({
           review={version.archived_at === null ? version.review : null}
         />
       </div>
+      <ChecksSection name={name} checks={data.checks} />
       <SettingsSection
         title={t("skills.reviewPage.files", { count: ordered.length })}
         description={t("skills.reviewPage.filesDescription")}
@@ -203,6 +209,72 @@ function ReviewBody({
         </SettingsSection>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The skill's fixed-rule checks, one row per rule it fails, above the files
+ * they point into. Nothing here says the version is safe.
+ */
+function ChecksSection({
+  name,
+  checks,
+}: {
+  readonly name: string;
+  readonly checks: SkillVersionFiles["checks"];
+}) {
+  const { t } = useI18n();
+  const sample = (rule: SkillCheck["rule"], value: string) =>
+    rule !== "large_change"
+      ? value
+      : value === "too_large"
+        ? t("skills.checks.tooLarge")
+        : t("skills.checks.lines", { count: Number(value) });
+  return (
+    <SettingsSection
+      title={t("skills.checks.title")}
+      description={t("skills.checks.description")}
+    >
+      {checks.length === 0 ? (
+        <Text variant="sub">{t("skills.checks.none")}</Text>
+      ) : (
+        <>
+          <Alert variant="red">
+            <AlertDescription>
+              {t("skills.checks.failed", { count: checks.length })}
+            </AlertDescription>
+          </Alert>
+          <RowList aria-label={t("skills.checks.title")}>
+            {checks.map((check) => (
+              <RowListItem key={check.rule}>
+                <RowLines>
+                  <Badge variant="red" className="self-start">
+                    {t(CHECK_RULE_LABEL[check.rule])}
+                  </Badge>
+                  <Text as="span" variant="sub">
+                    {t(CHECK_RULE_WHY[check.rule])}
+                  </Text>
+                  <Text as="span" variant="meta" className="wrap-anywhere">
+                    {t("skills.checks.paths")}:{" "}
+                    {check.paths
+                      .map((path) => relativeOf(name, path))
+                      .join(", ")}
+                  </Text>
+                  {check.samples.length > 0 ? (
+                    <Text as="span" variant="meta" className="wrap-anywhere">
+                      {t("skills.checks.samples")}:{" "}
+                      {check.samples
+                        .map((value) => sample(check.rule, value))
+                        .join(", ")}
+                    </Text>
+                  ) : null}
+                </RowLines>
+              </RowListItem>
+            ))}
+          </RowList>
+        </>
+      )}
+    </SettingsSection>
   );
 }
 

@@ -39,6 +39,7 @@ import type {
   ExtensionBundle,
   ExtensionBundleStore,
 } from "./ports/extension-bundle-store.ts";
+import { checkBaseline, checkSkillVersion } from "./skill-checks.ts";
 
 // Skills: one SKILL.md directory per
 // registration, stored as a single-skill bundle whose slug is the skill's
@@ -409,15 +410,12 @@ export function createSkillService(deps: SkillServiceDeps) {
         ...workspace(caller),
       });
       const bundle = await version(caller, id);
-      const named = (await store.list(caller.ownerId))
-        .filter((row) => row.name === bundle.name)
-        .sort(byVersion);
-      const at = named.findIndex((row) => row.id === bundle.id);
-      const previous =
-        named
-          .slice(0, Math.max(0, at))
-          .filter((row) => row.review === "approved")
-          .at(-1) ?? null;
+      const previous = checkBaseline(
+        (await store.list(caller.ownerId)).filter(
+          (row) => row.name === bundle.name,
+        ),
+        bundle.id,
+      );
       const tree = await bundles.read(caller.ownerId, bundle.digest);
       if (tree === null) throw NOT_FOUND();
       const before =
@@ -465,6 +463,7 @@ export function createSkillService(deps: SkillServiceDeps) {
             size_bytes: file.bytes.byteLength,
             sha256: file.sha256,
           })),
+        checks: checkSkillVersion(before?.files ?? null, tree.files),
       };
     },
 

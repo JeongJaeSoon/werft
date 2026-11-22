@@ -491,7 +491,7 @@ export function createPostgresExtensionBundleStore(
         // sync made, only while sync and auto-approve are both still on
         // under the source row's lock, with no settings change since GitHub
         // was read, and only on what GitHub showed.
-        const auto =
+        let auto =
           synced &&
           source?.syncEnabled === true &&
           source.autoApprove === "on" &&
@@ -499,6 +499,30 @@ export function createPostgresExtensionBundleStore(
           source.autoApproveGrantId === git.protection.grantId
             ? git.protection.evidence
             : null;
+        // The fixed-rule checks only hold it back: any finding, or a
+        // baseline other than the one they ran against, leaves it pending.
+        const checks = git?.protection?.checks;
+        if (auto?.met === true && checks !== undefined && version !== null) {
+          if (checks.findings.length > 0) {
+            auto = { met: false, reason: "checks_failed" };
+          } else {
+            const [baseline] = await tx
+              .select({ id: extensionBundles.id })
+              .from(extensionBundles)
+              .where(
+                and(
+                  ofSkill(input.workspaceId, input.name),
+                  eq(extensionBundles.review, "approved"),
+                  lt(extensionBundles.version, version),
+                ),
+              )
+              .orderBy(desc(extensionBundles.version))
+              .limit(1);
+            if ((baseline?.id ?? null) !== checks.baselineId) {
+              auto = { met: false, reason: "baseline_changed" };
+            }
+          }
+        }
         let autoApproval: SkillAutoApproval | null = null;
         let registered = inserted;
         if (auto !== null && !auto.met) {
@@ -507,6 +531,7 @@ export function createPostgresExtensionBundleStore(
             reason: auto.reason,
             rule: null,
             pullRequest: null,
+            checks: checks?.findings ?? [],
           };
         }
         await checked(
@@ -518,6 +543,7 @@ export function createPostgresExtensionBundleStore(
                 reason: null,
                 rule: auto.rule,
                 pullRequest: auto.pullRequest,
+                checks: [],
               }
             : autoApproval,
         );

@@ -551,6 +551,48 @@ describe("Git 스킬 상세의 동기화", () => {
     ).toBe("required");
   });
 
+  test("자동 승인이 고정 규칙 검사에 걸려 멈추면 승인 대기와 걸린 규칙, 검토 화면 링크가 보인다", async () => {
+    renderAt("/settings/workspace/skills/triage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      ...listed(
+        gitSkill({
+          last_check: check({
+            result: "created",
+            auto_approval: {
+              result: "pending",
+              reason: "checks_failed",
+              rule: null,
+              pull_request: null,
+              checks: [
+                {
+                  rule: "scripts_added",
+                  paths: ["skills/triage/run.py"],
+                  samples: [],
+                },
+                {
+                  rule: "description_changed",
+                  paths: ["skills/triage/SKILL.md"],
+                  samples: [],
+                },
+              ],
+            },
+          }),
+        }),
+      ),
+    });
+    expect(await screen.findByText("승인 대기")).toBeDefined();
+    expect(
+      screen.getByText(
+        "고정 규칙 검사에 걸려 자동 승인하지 않았습니다: 스크립트 추가, description 변경",
+      ),
+    ).toBeDefined();
+    expect(
+      screen
+        .getByRole("link", { name: "검토 화면에서 보기" })
+        .getAttribute("href"),
+    ).toBe(`/settings/workspace/skills/triage/versions/${versionId(1)}`);
+  });
+
   test("버전의 파일 보기는 관리자에게만 보인다", async () => {
     renderAt("/settings/workspace/skills/triage", {
       "GET /v1/auth/me": () => json(200, memberMe()),
@@ -620,7 +662,75 @@ describe("승인 대기 화면", () => {
       },
     ],
     removed: [],
+    checks: [],
   };
+
+  test("고정 규칙 검사에 걸리면 파일보다 먼저 규칙마다 이유·파일·값을 에러로 보인다", async () => {
+    const flagged: SkillVersionFiles = {
+      ...files,
+      checks: [
+        {
+          rule: "large_change",
+          paths: ["skills/release-notes/scripts/collect.sh"],
+          samples: ["too_large"],
+        },
+        {
+          rule: "new_url",
+          paths: ["skills/release-notes/scripts/collect.sh"],
+          samples: ["example.test"],
+        },
+      ],
+    };
+    renderAt(
+      `/settings/workspace/skills/release-notes/versions/${pending.id}`,
+      {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`GET /v1/workspace/skills/versions/${pending.id}/files`]: () =>
+          json(200, flagged),
+      },
+    );
+    const checks = await screen.findByRole("list", { name: "고정 규칙 검사" });
+    expect(
+      screen.getByText(
+        "규칙 2개에 걸렸습니다. 이 버전은 보호 브랜치 자동 승인 없이 승인 대기로 남고, 사람이 승인합니다.",
+      ),
+    ).toBeDefined();
+    const [large, url] = within(checks).getAllByRole(
+      "listitem",
+    ) as HTMLElement[];
+    expect(within(large as HTMLElement).getByText("큰 변경")).toBeDefined();
+    expect(
+      within(large as HTMLElement).getByText(
+        "걸린 값: 너무 커서 비교하지 못함",
+      ),
+    ).toBeDefined();
+    expect(within(url as HTMLElement).getByText("새 URL")).toBeDefined();
+    expect(
+      within(url as HTMLElement).getByText("파일: scripts/collect.sh"),
+    ).toBeDefined();
+    expect(
+      within(url as HTMLElement).getByText("걸린 값: example.test"),
+    ).toBeDefined();
+    // Above the file cards it points into.
+    const fileList = screen.getByRole("list", { name: "파일 2개" });
+    expect(
+      checks.compareDocumentPosition(fileList) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  test("고정 규칙 검사에 걸린 것이 없으면 그렇게만 말하고 에러 목록은 없다", async () => {
+    renderAt(
+      `/settings/workspace/skills/release-notes/versions/${pending.id}`,
+      {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`GET /v1/workspace/skills/versions/${pending.id}/files`]: () =>
+          json(200, files),
+      },
+    );
+    expect(await screen.findByText("걸린 규칙이 없습니다.")).toBeDefined();
+    expect(screen.queryByRole("list", { name: "고정 규칙 검사" })).toBe(null);
+  });
 
   test("scripts/ 파일이 먼저 보이고 그 바뀐 줄이 추가·삭제로 보인다", async () => {
     renderAt(

@@ -48,7 +48,9 @@ import { type Translate, useI18n } from "../i18n/i18n.tsx";
 import { useSkillWrite } from "./settings-skills.tsx";
 import {
   type AttachMode,
+  AUTO_APPROVAL_REASON,
   attachable,
+  CHECK_RULE_LABEL,
   digestShort,
   MODE_LABEL,
   MODES,
@@ -335,6 +337,13 @@ function SyncPanel({
               ) : undefined
             }
           />
+          {last?.auto_approval ? (
+            <AutoApprovalRow
+              name={name}
+              versionId={last.version_id}
+              approval={last.auto_approval}
+            />
+          ) : null}
         </>
       }
     >
@@ -345,6 +354,54 @@ function SyncPanel({
         </Alert>
       )}
     </SettingsSection>
+  );
+}
+
+/** How the last check's version went under auto-approve, and why it waits. */
+function AutoApprovalRow({
+  name,
+  versionId,
+  approval,
+}: {
+  readonly name: string;
+  readonly versionId: string | null;
+  readonly approval: NonNullable<SkillSyncCheck["auto_approval"]>;
+}) {
+  const { t } = useI18n();
+  const approved = approval.result === "approved";
+  const rules = approval.checks
+    .map((check) => t(CHECK_RULE_LABEL[check.rule]))
+    .join(", ");
+  return (
+    <SettingRow
+      title={t("skills.sync.autoApproval")}
+      badge={
+        <Badge variant={approved ? "green" : "amber"}>
+          {t(
+            approved
+              ? "skills.sync.autoApproval.approved"
+              : "skills.sync.autoApproval.pending",
+          )}
+        </Badge>
+      }
+      description={
+        approval.reason === null
+          ? undefined
+          : t(AUTO_APPROVAL_REASON[approval.reason], { rules })
+      }
+      actions={
+        versionId !== null && !approved ? (
+          <Button asChild variant="outline">
+            <Link
+              to="/settings/workspace/skills/$name/versions/$versionId"
+              params={{ name, versionId }}
+            >
+              {t("skills.sync.autoApproval.review")}
+            </Link>
+          </Button>
+        ) : undefined
+      }
+    />
   );
 }
 

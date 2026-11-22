@@ -26,6 +26,12 @@ import type {
   ReviewExtensionBundleResult,
 } from "./ports/extension-bundle-store.ts";
 import type { ExtensionMode } from "./resolve.ts";
+import { checkBaseline, checkSkillVersion } from "./skill-checks.ts";
+
+/** A GitHub version as the sync hands it in; the checks are run here. */
+export type GitRegistration = Omit<GitVersionInput, "protection"> & {
+  protection?: Omit<NonNullable<GitVersionInput["protection"]>, "checks">;
+};
 
 /** Who may register, review and attach bundles; the web console and API routes say the same. */
 export const EXTENSION_MANAGER_ROLES: readonly WorkspaceRole[] =
@@ -86,7 +92,7 @@ export function createExtensionBundleService(deps: {
   const limits = deps.limits ?? DEFAULT_BUNDLE_LIMITS;
   const newId = deps.newId ?? randomUUID;
 
-  return {
+  const service = {
     /**
      * `skill: true` registers one skill as the next version of its name: the upload is checked as a person's
      * tree, so it holds one skill and no engine manifest.
@@ -99,7 +105,7 @@ export function createExtensionBundleService(deps: {
       source: ExtensionBundleSource;
       skill?: boolean;
       /** A GitHub version; without `newSource`, the principal is the sync. */
-      git?: GitVersionInput;
+      git?: GitRegistration;
     }): Promise<RegisterBundleResult> {
       const workspaceId = input.principal.ownerId;
       const skill = input.skill === true;
@@ -158,6 +164,32 @@ export function createExtensionBundleService(deps: {
           `Object ${key} already holds different bytes.`,
         );
       }
+      let git: GitVersionInput | undefined;
+      if (input.git !== undefined) {
+        const { protection, ...rest } = input.git;
+        git = rest;
+        if (protection !== undefined) {
+          // Against what the reviewer's diff starts from; the write compares
+          // the baseline again under the lock.
+          const baseline = checkBaseline(
+            (await store.list(workspaceId)).filter(
+              (row) => row.name === bundle.slug,
+            ),
+            null,
+          );
+          const before =
+            baseline === null
+              ? null
+              : await service.read(workspaceId, baseline.digest);
+          git.protection = {
+            ...protection,
+            checks: {
+              baselineId: baseline?.id ?? null,
+              findings: checkSkillVersion(before?.files ?? null, bundle.files),
+            },
+          };
+        }
+      }
       const result = await store.register({
         id: newId(),
         receiptId: newId(),
@@ -171,7 +203,7 @@ export function createExtensionBundleService(deps: {
         principal: input.principal,
         managerRoles: EXTENSION_MANAGER_ROLES,
         ...(skill ? { skill: true } : {}),
-        ...(input.git === undefined ? {} : { git: input.git }),
+        ...(git === undefined ? {} : { git }),
       });
       switch (result.outcome) {
         case "registered":
@@ -280,4 +312,5 @@ export function createExtensionBundleService(deps: {
       return store.listAttachments(input);
     },
   };
+  return service;
 }

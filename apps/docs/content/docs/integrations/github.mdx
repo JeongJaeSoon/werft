@@ -38,6 +38,7 @@ GitHub와 하는 일은 셋이다. 시작 저장소가 있는 세션은 시작�
 - `agent/*` 브랜치에 **Block force pushes**만 거는 ruleset을 따로 두면, 플랫폼이 아닌 누군가가 그 브랜치를 되돌리는 일도 막는다.
 - `agent/*` push에 CI가 필요 없으면 workflow의 `on.push.branches-ignore`에 `agent/**`를 넣는다. 바뀌지 않은 workflow에만 효과가 있으므로 `Workflows` 권한을 주지 않는 것과 함께 쓴다.
 - 보호된 브랜치 자동 승인은 브랜치의 ruleset(**Require a pull request before merging**, 승인 리뷰 1개 이상)을 작성용 App으로 읽는다. 옛 branch protection rule은 **Administration: Read-only** 권한이 있는 App만 읽으므로, 그 권한 없이 branch protection만 둔 저장소에서는 자동 승인을 켤 수 없다(`protection_missing`).
+- 자동 승인 전에 새 버전을 앞 승인 버전과 비교해 고정 규칙으로 검사한다. scripts·실행 파일 추가, 300줄 넘는 변경, 새 URL 호스트, 보이지 않는 유니코드, 지시처럼 보이는 문장, `description` 변경 중 하나라도 걸리면 그 스킬의 버전만 승인 대기(`checks_failed`)로 남고, 같은 push의 다른 스킬은 그대로 자동 승인된다. 걸린 규칙과 파일은 스킬 상세와 검토 화면에 보인다. 검사는 승인을 막기만 하고 대신하지 않는다.
 
 ### Git 스킬 webhook
 
