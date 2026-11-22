@@ -95,7 +95,7 @@ clone・push・PR は、API が App キーで受け取った installation token 
 ```
 
 - インポート後に owner か admin が `POST /v1/installation/settings/repositories/{id}/credential` で RSA private key PEM を入れる(コンソール画面はない)。入れるまでそのリポジトリは `needs_value` で、セッションは動かない。キーを変えるときも同じ経路を使う。
-- `api_base` は `https` だけを受け付ける。`app_id`・`installation_id`・`api_base` を変えると binding が変わり、そのリポジトリの既存セッションは `CATALOG_MISMATCH` になる。
+- `api_base` は `https` だけを受け付ける。運用者のネットワーク内のプライベートな host だけは `http` も受け付ける。`app_id`・`installation_id`・`api_base` を変えると binding が変わり、そのリポジトリの既存セッションは `CATALOG_MISMATCH` になる。
 - API から `<ghes-host>:443` へ出る経路を開け、proxy の `EGRESS_CREDENTIAL_ALLOWLIST`(プライベートアドレスなら `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`)に `<ghes-host>:443` を加える。
 
 ## ユーザーがやること

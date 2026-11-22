@@ -404,7 +404,7 @@ EGRESS_PRIVATE_ALLOWLIST=api:3000,host.docker.internal:3000,api:4319
 - テナントヘッダーを設定しない設置では、すべてのワークスペースのトレースが一か所に集まります。収集バックエンドの画面は運用者だけが見られるようにします。
 - `TRACE_CONTENT_MODE=full` なら、プロンプト・回答・ツールの入出力が collector に送られます。送らないなら `metadata` にします。
 
-**span.** `/v1/**` リクエストごとに `{METHOD} {route_template}` span（例: `POST /v1/sessions/:id/turns`）が新しい root として作られます。クライアントが送った `traceparent` は親ではなく link としてだけ残り、その sampled フラグには従いません。ヘルス・メトリクスのパスと worker gateway には span がありません。turn をキューに入れたリクエストのトレースは worker に引き継がれ、その turn の span が同じトレースに付きます。
+**span.** `/v1/**` リクエストごとに `{METHOD} {route_template}` span（例: `POST /v1/sessions/:id/turns`）が新しい root として作られます。クライアントが送った `traceparent` は親ではなく link としてだけ残り、その sampled フラグには従いません。ヘルス・メトリクスのパスには span がありません。turn の span はセッションと turn 番号で決まる別のトレース（root `werft.turn`）に付き、turn をキューに入れたリクエストの span と前の turn の root とは link でつながります。worker gateway の呼び出しは、その turn トレースの `traceparent` を載せたときだけその下の子 span になり、それ以外の gateway 呼び出し（heartbeat、long poll など）には span がありません。
 
 ## セッションタイトルの生成 [#세션-제목-생성]
 

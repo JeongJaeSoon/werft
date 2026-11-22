@@ -43,6 +43,8 @@ scripts/test-ops.sh restore-drill /var/lib/werft/test-ops/backups/backup-<timest
 
 `--port-base` は訓練サービスの別開始ポートです。他の設置と重ならない値を選びます。LocalStack試験では `--bucket` を省きます。postgresとobject storeを復元し、すべてのcheckpoint pointerをversion単位で照合します。APIは起動しません。月1回と更新後の最初のバックアップで実施します。
 
+バックアップに記録された migration の一覧は、今の checkout と完全に一致する必要があります。古いバックアップも、checkout が知らない migration を含むバックアップも終了コード 3 で拒否します。更新前に取ったバックアップを復元するには、そのバックアップを取った release の `source_commit` を checkout して復元・検証し、migration は別の手順で実行します。
+
 ### 3. checkpoint GC
 
 バックアップと重ならない週次予定で先にdry-runします。

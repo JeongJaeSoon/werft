@@ -91,7 +91,7 @@ clone·push·PR은 API가 App 키로 받은 설치 토큰을 쓴다. 발급이 �
 ```
 
 - 키는 가져온 뒤 owner나 admin이 `POST /v1/installation/settings/repositories/{id}/credential`로 RSA private key PEM을 넣는다(콘솔 화면은 없다). 넣기 전에는 그 저장소가 `needs_value`라 세션이 돌지 않는다. 키를 바꿀 때도 같은 경로를 쓴다.
-- `api_base`는 `https`만 받는다. `app_id`·`installation_id`·`api_base`를 바꾸면 binding이 바뀌어 그 저장소의 기존 세션이 `CATALOG_MISMATCH`가 된다.
+- `api_base`는 `https`만 받는다. 운영자 네트워크 안의 사설 host만 `http`도 받는다. `app_id`·`installation_id`·`api_base`를 바꾸면 binding이 바뀌어 그 저장소의 기존 세션이 `CATALOG_MISMATCH`가 된다.
 - API에서 `<ghes-host>:443`으로 나가는 길을 열고, proxy의 `EGRESS_CREDENTIAL_ALLOWLIST`(사설 주소면 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`)에 `<ghes-host>:443`을 더한다.
 
 ## 사용자가 할 일

@@ -38,6 +38,8 @@ scripts/test-ops.sh restore-drill /var/lib/werft/test-ops/backups/backup-<timest
 
 `--port-base`는 훈련 서비스의 별도 시작 포트이며 다른 설치와 겹치지 않게 고른다. LocalStack 시험에서는 `--bucket`을 주지 않는다. 훈련은 postgres와 object store를 복원하고 모든 checkpoint pointer를 version 단위로 대조한다. API는 띄우지 않는다. 월 1회와 업그레이드 뒤 첫 백업마다 수행한다.
 
+백업에 적힌 migration 목록은 지금 checkout과 정확히 같아야 한다. 오래된 백업도, checkout이 모르는 migration이 든 백업도 종료 코드 3으로 거부한다. 업그레이드 전에 뜬 백업을 복원하려면 그 백업을 뜬 release의 `source_commit`을 checkout해 복원·검증한 뒤, migration은 별도 단계로 돌린다.
+
 ### 3. checkpoint GC
 
 백업과 겹치지 않는 주간 일정에 먼저 dry-run을 실행한다.

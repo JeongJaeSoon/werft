@@ -392,7 +392,7 @@ EGRESS_PRIVATE_ALLOWLIST=api:3000,host.docker.internal:3000,api:4319
 - 테넌트 헤더를 정하지 않은 설치에서는 모든 워크스페이스의 트레이스가 한곳에 모인다. 수집 백엔드의 화면은 운영자만 보게 한다.
 - `TRACE_CONTENT_MODE=full`이면 프롬프트·답변·도구 입출력이 수집기로 간다. 내보내지 않으려면 `metadata`로 둔다.
 
-**span.** `/v1/**` 요청마다 `{METHOD} {route_template}` span(예: `POST /v1/sessions/:id/turns`)이 새 root로 생긴다. 클라이언트가 보낸 `traceparent`는 부모가 아니라 link로만 남고, 그 sampled 플래그는 따르지 않는다. 헬스·지표 경로와 worker gateway에는 span이 없다. turn을 큐에 넣은 요청의 trace는 worker로 이어져, 그 turn의 span이 같은 트레이스에 달린다.
+**span.** `/v1/**` 요청마다 `{METHOD} {route_template}` span(예: `POST /v1/sessions/:id/turns`)이 새 root로 생긴다. 클라이언트가 보낸 `traceparent`는 부모가 아니라 link로만 남고, 그 sampled 플래그는 따르지 않는다. 헬스·지표 경로에는 span이 없다. turn의 span은 세션과 turn 번호로 정한 별도 트레이스(root `werft.turn`)에 달리고, turn을 큐에 넣은 요청의 span과 앞 turn의 root는 link로 이어진다. worker gateway 호출은 그 turn 트레이스의 `traceparent`를 실었을 때만 그 아래 자식 span이 되고, 그 밖의 gateway 호출(heartbeat, long poll 등)에는 span이 없다.
 
 ## 세션 제목 생성
 

@@ -95,7 +95,7 @@ Console Apps use github.com only. For a GHES repository, write the App directly 
 ```
 
 - After the import, an owner or admin enters the RSA private key PEM with `POST /v1/installation/settings/repositories/{id}/credential` (there is no console screen). Until then the repository is `needs_value` and sessions do not run. Use the same path to change the key.
-- `api_base` accepts `https` only. Changing `app_id`, `installation_id` or `api_base` changes the binding, and existing sessions of that repository become `CATALOG_MISMATCH`.
+- `api_base` accepts `https` only, except that a private host inside the operator's network may use `http`. Changing `app_id`, `installation_id` or `api_base` changes the binding, and existing sessions of that repository become `CATALOG_MISMATCH`.
 - Open the API's way out to `<ghes-host>:443`, and add `<ghes-host>:443` to the proxy's `EGRESS_CREDENTIAL_ALLOWLIST` (`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` for a private address).
 
 ## What the user does

@@ -404,7 +404,7 @@ EGRESS_PRIVATE_ALLOWLIST=api:3000,host.docker.internal:3000,api:4319
 - Without a tenant header, traces of every workspace land in one place. Let only operators see the backend's screens.
 - With `TRACE_CONTENT_MODE=full`, prompts, answers and tool input/output reach the collector. Use `metadata` to keep them out.
 
-**Spans.** Each `/v1/**` request starts a new root span `{METHOD} {route_template}` (for example `POST /v1/sessions/:id/turns`). A `traceparent` sent by the client is kept only as a link, not as the parent, and its sampled flag is not followed. Health and metrics paths and the worker gateway have no spans. The trace of a request that queued a turn continues into the worker, so that turn's spans hang off the same trace.
+**Spans.** Each `/v1/**` request starts a new root span `{METHOD} {route_template}` (for example `POST /v1/sessions/:id/turns`). A `traceparent` sent by the client is kept only as a link, not as the parent, and its sampled flag is not followed. Health and metrics paths have no spans. A turn's spans belong to a separate trace set by the session and turn number (root `werft.turn`), linked to the span of the request that queued the turn and to the previous turn's root. A worker gateway call becomes a child span in that turn trace only when it carries that trace's `traceparent`; other gateway calls (heartbeats, long polls and the like) have no spans.
 
 ## Session title generation [#세션-제목-생성]
 
