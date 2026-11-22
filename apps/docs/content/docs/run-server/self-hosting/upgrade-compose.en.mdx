@@ -263,6 +263,13 @@ Migration `0305_drop_unused_tables` drops the `catalog_authority`, `owner_worksp
 - The tables may still hold rows. `catalog_authority` may hold one revision activated in the days of the file catalog, `owner_workspace_map` owner-to-workspace mappings an operator inserted by hand, and `push_continuations` follow-up turn records made by `v0.1.1` or earlier. When there are rows, the migrate log `db.migrate.notice` records how many each table lost (`0305: dropped rows: …`). The values of the rows stay out of the log.
 - If you need those rows, back them up before the upgrade. Rolling the schema below 0305 does not bring them back.
 
+<a id="대화-층의-빈-표-셋을-더한-릴리스" />
+### The release that adds three empty conversation tables
+
+Migration `0306_conversation_scopes` creates the `channel_contexts` (channel objects), `conversations` (an agent's main conversations) and `conversation_topics` (a conversation's topics) tables, empty. No code in this release reads or writes them yet, so the upgrade needs nothing from you, and Slack and sessions behave as before.
+
+- Rolling back to an image inside the support window is unaffected. Older code does not know these tables.
+
 <a id="mock-slack-env-이름" />
 ### Mock Slack variable names
 

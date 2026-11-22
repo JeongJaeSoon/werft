@@ -65,6 +65,7 @@ export * from "./musterrolle/ports/agent-identity-store.ts";
 export * from "./agents/ports/agent-store.ts";
 export * from "./ports/api-key-store.ts";
 export * from "./ports/catalog-repository-store.ts";
+export * from "./ports/conversation-store.ts";
 export * from "./checkpoints/ports/checkpoint-collection.ts";
 export * from "./checkpoints/ports/checkpoint-store.ts";
 export * from "./checkpoints/ports/checkpoint-verifier.ts";

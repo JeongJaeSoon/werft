@@ -1,0 +1,421 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
+import { type ConversationId, conversationScopeKey } from "@werft-ai/contracts";
+import type { ConversationStore } from "@werft-ai/platform";
+import {
+  createTempDatabase,
+  type TempDatabase,
+  testDatabaseUrl,
+} from "@werft-ai/testkit/postgres";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+import * as schema from "../schema.ts";
+import { fixtureTeamSql } from "../testing/fixture-team.ts";
+import { createPostgresConversationStore } from "./conversation-store.ts";
+
+const integration = testDatabaseUrl() ? describe : describe.skip;
+
+integration("conversations and topics (0306)", () => {
+  let database: TempDatabase;
+  let pool: Pool;
+  let store: ConversationStore;
+  const workspaceId = randomUUID();
+  const otherWorkspaceId = randomUUID();
+  const agentId = randomUUID();
+  const secondAgentId = randomUUID();
+  const otherAgentId = randomUUID();
+  const member = randomUUID();
+  const outsider = randomUUID();
+  let channelSeq = 0;
+  const nextChannel = () => `C${String(++channelSeq).padStart(6, "0")}`;
+
+  beforeAll(async () => {
+    database = await createTempDatabase({ prefix: "conversations" });
+    pool = new Pool({ connectionString: database.url, max: 8 });
+    store = createPostgresConversationStore(drizzle(pool, { schema }));
+    for (const id of [workspaceId, otherWorkspaceId]) {
+      await pool.query(
+        "INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, 'ws')",
+        [id, `ws-${id.slice(0, 8)}`],
+      );
+    }
+    for (const id of [member, outsider]) {
+      await pool.query(
+        "INSERT INTO users (id, email, display_name) VALUES ($1, $2, 'u')",
+        [id, `${id}@example.invalid`],
+      );
+    }
+    await pool.query(
+      "INSERT INTO memberships (workspace_id, user_id, role) VALUES ($1, $2, 'member'), ($3, $4, 'member')",
+      [workspaceId, member, otherWorkspaceId, outsider],
+    );
+    for (const [id, workspace] of [
+      [agentId, workspaceId],
+      [secondAgentId, workspaceId],
+      [otherAgentId, otherWorkspaceId],
+    ] as const) {
+      const team = await fixtureTeamSql(pool, workspace);
+      await pool.query(
+        "INSERT INTO agents (id, workspace_id, managing_team_id, slug, name, status) VALUES ($1, $2, $3, $4, 'agent', 'active')",
+        [id, workspace, team, `agent-${id.slice(0, 8)}`],
+      );
+    }
+  }, 120_000);
+
+  afterAll(async () => {
+    await pool?.end();
+    await database?.drop();
+  });
+
+  // drizzle wraps the driver's error; the constraint is on its cause.
+  async function violates(work: Promise<unknown>, constraint: string) {
+    const error = await work.then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+    expect(
+      (error as { cause?: { constraint?: string } } | null)?.cause?.constraint,
+    ).toBe(constraint);
+  }
+
+  const count = async (table: string, where: string, values: unknown[]) => {
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS n FROM ${table} WHERE ${where}`,
+      values,
+    );
+    return rows[0]?.n as number;
+  };
+
+  test("two racing find-or-creates of one channel conversation leave one row", async () => {
+    for (let round = 0; round < 5; round += 1) {
+      const channelId = nextChannel();
+      const key = {
+        kind: "channel",
+        workspaceId,
+        agentId,
+        teamId: "T01",
+        channelId,
+      } as const;
+      const [a, b] = await Promise.all([
+        store.findOrCreateConversation(key),
+        store.findOrCreateConversation(key),
+      ]);
+      expect(a.id).toBe(b.id);
+      expect(
+        await count("conversations", "agent_id = $1 AND channel_id = $2", [
+          agentId,
+          channelId,
+        ]),
+      ).toBe(1);
+      expect(
+        await count("channel_contexts", "channel_id = $1", [channelId]),
+      ).toBe(1);
+    }
+  });
+
+  test("two racing find-or-creates of one DM conversation leave one row", async () => {
+    const key = {
+      kind: "dm",
+      workspaceId,
+      agentId: secondAgentId,
+      personUserId: member,
+    } as const;
+    const [a, b] = await Promise.all([
+      store.findOrCreateConversation(key),
+      store.findOrCreateConversation(key),
+    ]);
+    expect(a.id).toBe(b.id);
+    expect(a).toMatchObject({ kind: "dm", personUserId: member });
+    expect(
+      await count("conversations", "agent_id = $1 AND person_user_id = $2", [
+        secondAgentId,
+        member,
+      ]),
+    ).toBe(1);
+  });
+
+  test("two agents in one channel share its context and its scope key", async () => {
+    const channelId = nextChannel();
+    const place = {
+      kind: "channel",
+      workspaceId,
+      teamId: "T01",
+      channelId,
+    } as const;
+    const first = await store.findOrCreateConversation({ ...place, agentId });
+    const second = await store.findOrCreateConversation({
+      ...place,
+      agentId: secondAgentId,
+    });
+    expect(first.id).not.toBe(second.id);
+    expect(
+      await count("channel_contexts", "channel_id = $1", [channelId]),
+    ).toBe(1);
+    expect(conversationScopeKey(first)).toBe(conversationScopeKey(second));
+  });
+
+  test("one team and channel in two workspaces are two contexts and two scopes", async () => {
+    const channelId = nextChannel();
+    const here = await store.findOrCreateConversation({
+      kind: "channel",
+      workspaceId,
+      agentId,
+      teamId: "T01",
+      channelId,
+    });
+    const there = await store.findOrCreateConversation({
+      kind: "channel",
+      workspaceId: otherWorkspaceId,
+      agentId: otherAgentId,
+      teamId: "T01",
+      channelId,
+    });
+    expect(
+      await count("channel_contexts", "channel_id = $1", [channelId]),
+    ).toBe(2);
+    expect(conversationScopeKey(here)).not.toBe(conversationScopeKey(there));
+  });
+
+  test("a key naming another workspace than the agent's is refused", async () => {
+    await violates(
+      store.findOrCreateConversation({
+        kind: "channel",
+        workspaceId: otherWorkspaceId,
+        agentId,
+        teamId: "T01",
+        channelId: nextChannel(),
+      }),
+      "conversations_agent_fk",
+    );
+  });
+
+  test("a DM with a person outside the workspace is refused", async () => {
+    await violates(
+      store.findOrCreateConversation({
+        kind: "dm",
+        workspaceId,
+        agentId,
+        personUserId: outsider,
+      }),
+      "conversations_person_fk",
+    );
+  });
+
+  test("a row mixing a channel's and a DM's columns fails the place check", async () => {
+    const channelId = nextChannel();
+    await store.findOrCreateConversation({
+      kind: "channel",
+      workspaceId,
+      agentId,
+      teamId: "T01",
+      channelId,
+    });
+    const insert = (
+      kind: string,
+      team: string | null,
+      channel: string | null,
+      person: string | null,
+    ) =>
+      pool.query(
+        "INSERT INTO conversations (id, workspace_id, agent_id, kind, team_id, channel_id, person_user_id) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        [randomUUID(), workspaceId, secondAgentId, kind, team, channel, person],
+      );
+    for (const row of [
+      ["channel", "T01", channelId, member],
+      ["dm", "T01", channelId, member],
+      ["dm", null, null, null],
+      ["channel", "T01", null, null],
+    ] as const) {
+      await expect(insert(row[0], row[1], row[2], row[3])).rejects.toThrow(
+        /conversations_place_check/,
+      );
+    }
+    await expect(insert("group", "T01", channelId, null)).rejects.toThrow(
+      /conversations_kind_check/,
+    );
+  });
+
+  test("a channel id that could split a scope key is refused", async () => {
+    await expect(
+      pool.query(
+        "INSERT INTO channel_contexts (id, workspace_id, team_id, channel_id) VALUES ($1, $2, 'T01', 'C1:X')",
+        [randomUUID(), workspaceId],
+      ),
+    ).rejects.toThrow(/channel_contexts_ids_check/);
+  });
+
+  describe("topics", () => {
+    const channelConversation = async (channelId: string) =>
+      store.findOrCreateConversation({
+        kind: "channel",
+        workspaceId,
+        agentId,
+        teamId: "T01",
+        channelId,
+      });
+
+    test("two racing find-or-creates of one thread leave one topic", async () => {
+      const channelId = nextChannel();
+      const conversation = await channelConversation(channelId);
+      const thread = {
+        teamId: "T01",
+        channelId,
+        threadTs: "1700000000.000100",
+      };
+      const [a, b] = await Promise.all([
+        store.findOrCreateThreadTopic(conversation.id, thread),
+        store.findOrCreateThreadTopic(conversation.id, thread),
+      ]);
+      expect(a.id).toBe(b.id);
+      expect(a.thread).toEqual(thread);
+      expect(
+        await count("conversation_topics", "conversation_id = $1", [
+          conversation.id,
+        ]),
+      ).toBe(1);
+    });
+
+    test("another thread of the channel is another topic", async () => {
+      const channelId = nextChannel();
+      const conversation = await channelConversation(channelId);
+      const a = await store.findOrCreateThreadTopic(conversation.id, {
+        teamId: "T01",
+        channelId,
+        threadTs: "1700000000.000100",
+      });
+      const b = await store.findOrCreateThreadTopic(conversation.id, {
+        teamId: "T01",
+        channelId,
+        threadTs: "1700000000.000200",
+      });
+      expect(a.id).not.toBe(b.id);
+    });
+
+    test("a channel conversation refuses a thread of another channel", async () => {
+      const conversation = await channelConversation(nextChannel());
+      await expect(
+        store.findOrCreateThreadTopic(conversation.id, {
+          teamId: "T01",
+          channelId: nextChannel(),
+          threadTs: "1700000000.000100",
+        }),
+      ).rejects.toThrow(/is not in the channel/);
+      await expect(
+        store.findOrCreateThreadTopic(randomUUID() as ConversationId, {
+          teamId: "T01",
+          channelId: "C1",
+          threadTs: "1700000000.000100",
+        }),
+      ).rejects.toThrow(/does not exist/);
+    });
+
+    test("each agent in a thread has its own topic", async () => {
+      const channelId = nextChannel();
+      const thread = {
+        teamId: "T01",
+        channelId,
+        threadTs: "1700000000.000100",
+      };
+      const mine = await store.findOrCreateThreadTopic(
+        (await channelConversation(channelId)).id,
+        thread,
+      );
+      const theirs = await store.findOrCreateThreadTopic(
+        (
+          await store.findOrCreateConversation({
+            kind: "channel",
+            workspaceId,
+            agentId: secondAgentId,
+            teamId: "T01",
+            channelId,
+          })
+        ).id,
+        thread,
+      );
+      expect(mine.id).not.toBe(theirs.id);
+    });
+
+    test("a DM topic keeps its D… channel; a thread already another conversation's is refused", async () => {
+      const dm = await store.findOrCreateConversation({
+        kind: "dm",
+        workspaceId,
+        agentId,
+        personUserId: member,
+      });
+      const thread = {
+        teamId: "T01",
+        channelId: "D0001",
+        threadTs: "1700000000.000300",
+      };
+      const topic = await store.findOrCreateThreadTopic(dm.id, thread);
+      expect(topic.thread).toEqual(thread);
+      const other = await store.findOrCreateConversation({
+        kind: "dm",
+        workspaceId,
+        agentId,
+        personUserId: await pool
+          .query(
+            "INSERT INTO users (id, email, display_name) VALUES ($1, $2, 'u') RETURNING id",
+            [randomUUID(), `${randomUUID()}@example.invalid`],
+          )
+          .then(async ({ rows }) => {
+            await pool.query(
+              "INSERT INTO memberships (workspace_id, user_id, role) VALUES ($1, $2, 'member')",
+              [workspaceId, rows[0]?.id],
+            );
+            return rows[0]?.id as string;
+          }),
+      });
+      await expect(
+        store.findOrCreateThreadTopic(other.id, thread),
+      ).rejects.toThrow(/is a topic of conversation/);
+    });
+
+    test("a web topic has no alias until Slack places it; a partial alias is refused", async () => {
+      const conversation = await channelConversation(nextChannel());
+      const insert = (
+        team: string | null,
+        channel: string | null,
+        ts: string | null,
+      ) =>
+        pool.query(
+          "INSERT INTO conversation_topics (id, workspace_id, agent_id, conversation_id, slack_team_id, slack_channel_id, slack_thread_ts) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+          [
+            randomUUID(),
+            workspaceId,
+            agentId,
+            conversation.id,
+            team,
+            channel,
+            ts,
+          ],
+        );
+      await insert(null, null, null);
+      await insert(null, null, null);
+      expect(
+        await count("conversation_topics", "conversation_id = $1", [
+          conversation.id,
+        ]),
+      ).toBe(2);
+      for (const row of [
+        ["T01", null, null],
+        [null, "C1", "1700000000.000100"],
+        ["T01", "C1", "not-a-ts"],
+      ] as const) {
+        await expect(insert(row[0], row[1], row[2])).rejects.toThrow(
+          /conversation_topics_slack_check/,
+        );
+      }
+    });
+
+    test("a topic cannot sit under another agent's conversation", async () => {
+      const conversation = await channelConversation(nextChannel());
+      await expect(
+        pool.query(
+          "INSERT INTO conversation_topics (id, workspace_id, agent_id, conversation_id) VALUES ($1, $2, $3, $4)",
+          [randomUUID(), workspaceId, secondAgentId, conversation.id],
+        ),
+      ).rejects.toThrow(/conversation_topics_conversation_fk/);
+    });
+  });
+});
