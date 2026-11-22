@@ -121,37 +121,10 @@ const BUILT = [
  * Keys nothing read when this check came in. The list only shrinks: a key
  * read again or deleted leaves it, and no new key joins it.
  */
-const UNREAD = [
-  "agent.releases.approved",
-  "agent.releases.notApproved",
-  "agents.column.team",
-  "agents.updated",
-  "session.control",
-  "session.outcomes.changedFiles",
-  "session.outcomes.description",
-  "session.outcomes.kind.pullRequest",
-  "session.outcomes.notChecked",
-  "session.outcomes.submittedAt",
-  "session.outcomes.title",
-  "session.outcomes.usageUnmetered",
-  "session.outputs.emptyHint",
-  "session.outputs.title",
-  "session.workspaceLimit.hard",
-  "session.workspaceLimit.line",
-  "session.workspaceLimit.soft",
-  "session.workspaceLimit.unknown",
-  "workspaceMcp.clientDcr",
-  "workspaceMcp.clientManual",
-  // Decide before deleting: the session's outputs tab is meant to show these.
-  "session.outcomes.checkedAt",
-  "session.outcomes.closedAt",
-  "session.outcomes.mergedAt",
-  "session.outcomes.usage",
-  "session.outputs.files",
-];
+const UNREAD = ["session.control"];
 
 /** Lowered as UNREAD shrinks, so a key added to the list fails. */
-const UNREAD_AT_MOST = 25;
+const UNREAD_AT_MOST = 1;
 
 function matcher(built: string): RegExp {
   const parts = built
