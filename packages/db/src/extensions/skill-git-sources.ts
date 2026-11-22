@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 import {
   SKILL_AUTO_APPROVAL_REASON_VALUES,
+  SKILL_CHECK_RULE_VALUES,
   SKILL_SYNC_RESULT_VALUES,
   SKILL_SYNC_TRIGGER_VALUES,
   type SkillAutoApprovalReason,
+  type SkillCheckFinding,
+  type SkillCheckRule,
   type SkillSyncResult,
   type SkillSyncTriggerKind,
   type WorkspaceRole,
@@ -107,6 +110,7 @@ export function checkJson(check: SkillSyncCheck) {
                     required_reviews: auto.rule.requiredReviews,
                   },
             pull_request: auto.pullRequest,
+            checks: auto.checks,
           },
   };
 }
@@ -135,7 +139,30 @@ function autoApprovalOf(value: unknown): SkillAutoApproval | null {
           },
     pullRequest:
       typeof json.pull_request === "number" ? json.pull_request : null,
+    checks: checksOf(json.checks),
   };
+}
+
+/** A check written before the fixed-rule checks has none. */
+function checksOf(value: unknown): SkillCheckFinding[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const json = record(entry);
+    if (!(SKILL_CHECK_RULE_VALUES as readonly unknown[]).includes(json.rule)) {
+      return [];
+    }
+    const texts = (list: unknown) =>
+      Array.isArray(list)
+        ? list.filter((item) => typeof item === "string")
+        : [];
+    return [
+      {
+        rule: json.rule as SkillCheckRule,
+        paths: texts(json.paths),
+        samples: texts(json.samples),
+      },
+    ];
+  });
 }
 
 function checkOf(value: unknown): SkillSyncCheck | null {

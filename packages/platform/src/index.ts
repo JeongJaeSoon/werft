@@ -187,6 +187,13 @@ export * from "./extensions/bundle-validator.ts";
 export * from "./extensions/resolve.ts";
 export * from "./extensions/session-extensions.ts";
 export * from "./extensions/skill-service.ts";
+export {
+  checkSkillVersion,
+  type HostExtractor,
+  plainTextHostExtractor,
+  plainTextHosts,
+  UNREADABLE,
+} from "./extensions/skill-checks.ts";
 export * from "./extensions/skill-git-sync.ts";
 export * from "./workspace-mcp/ports/workspace-mcp-store.ts";
 export {

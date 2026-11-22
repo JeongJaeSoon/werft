@@ -3181,7 +3181,7 @@ export interface paths {
         get?: never;
         /**
          * Request, consent to or turn off a GitHub skill's auto-approve
-         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Auto-approve lets the sync approve a new version itself when its commit came in through a reviewed pull request on a protected branch. One manager `request`s it and another `consent`s (403 `self_consent` for the requester while another manager can; a workspace's only manager may, and the receipt says so); `off` turns it off at once. A request and a consent each check GitHub first: the ref must be a branch (400 `not_branch` for a tag or a commit) and a ruleset or classic branch protection on it must require a pull request with at least one approving review (400 `protection_missing`; classic protection is read only when the App may read administration, so without it the rule counts as missing); GitHub not answering is 502 `GITHUB_UNAVAILABLE`. A consent with nothing requested is 400 `auto_approve_not_requested`. While on, every check that makes a version reads the branch's rule and the pull requests of the commit: a merged pull request into that branch whose reviewers' last reviews include an approval by someone other than its author and no request for changes. The version is approved by the sync (an `approve_extension` receipt with who enabled and consented, the commit, the pull request and the rule); otherwise it stays `pending` and `last_check.auto_approval.reason` says why (`not_branch`, `protection_missing`, `no_reviewed_pull_request`, `github_unreachable`). Paused sync never auto-approves, not even POST …/sync/check. Each change writes an `update_extension_sync` receipt with the action; the state it already has answers `receipt_id: null`. A skill that is not from GitHub is 404.
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Auto-approve lets the sync approve a new version itself when its commit came in through a reviewed pull request on a protected branch. One manager `request`s it and another `consent`s (403 `self_consent` for the requester while another manager can; a workspace's only manager may, and the receipt says so); `off` turns it off at once. A request and a consent each check GitHub first: the ref must be a branch (400 `not_branch` for a tag or a commit) and a ruleset or classic branch protection on it must require a pull request with at least one approving review (400 `protection_missing`; classic protection is read only when the App may read administration, so without it the rule counts as missing); GitHub not answering is 502 `GITHUB_UNAVAILABLE`. A consent with nothing requested is 400 `auto_approve_not_requested`. While on, every check that makes a version reads the branch's rule and the pull requests of the commit: a merged pull request into that branch whose reviewers' last reviews include an approval by someone other than its author and no request for changes. The version is approved by the sync (an `approve_extension` receipt with who enabled and consented, the commit, the pull request and the rule); otherwise it stays `pending` and `last_check.auto_approval.reason` says why (`not_branch`, `protection_missing`, `no_reviewed_pull_request`, `github_unreachable`). Fixed-rule checks of the version against the last approved one hold it back too: a finding leaves it `pending` with `checks_failed` and the rules in `last_check.auto_approval.checks` (a script added, a large change, a new URL host, hidden Unicode, an instruction-like sentence, a changed description), and another version approved while they ran leaves it `pending` with `baseline_changed`. Only that skill stops; the other skills a push reaches go on. Paused sync never auto-approves, not even POST …/sync/check. Each change writes an `update_extension_sync` receipt with the action; the state it already has answers `receipt_id: null`. A skill that is not from GitHub is 404.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** required.
          */
@@ -3224,7 +3224,7 @@ export interface paths {
         };
         /**
          * Read a skill version's files and its diff from the last approved one
-         * @description Every file of the stored tree with its text (null for a binary file), its hash, and how it differs from the previous approved version of the name: `added`, `changed` with a unified line diff, or `unchanged`; `removed` lists what that version had and this one drops. Owners and admins read it from a signed-in console session, where they review it; an API key is refused with 403 `web_session_required`.
+         * @description Every file of the stored tree with its text (null for a binary file), its hash, and how it differs from the previous approved version of the name: `added`, `changed` with a unified line diff, or `unchanged`; `removed` lists what that version had and this one drops. `checks` holds the fixed-rule checks the version fails against that same version, one per rule (the ones that hold back protected-branch auto-approve); they never approve or reject. Owners and admins read it from a signed-in console session, where they review it; an API key is refused with 403 `web_session_required`.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -11194,13 +11194,20 @@ export interface components {
                         auto_approval: {
                             /** @enum {string} */
                             result: "approved" | "pending";
-                            reason: ("not_branch" | "protection_missing" | "no_reviewed_pull_request" | "github_unreachable") | null;
+                            reason: ("not_branch" | "protection_missing" | "no_reviewed_pull_request" | "github_unreachable" | "checks_failed" | "baseline_changed") | null;
                             rule: {
                                 /** @enum {string} */
                                 kind: "ruleset" | "branch_protection";
                                 required_reviews: number;
                             } | null;
                             pull_request: number | null;
+                            /** @description The fixed-rule checks the version failed against the approved version before it; empty when it failed none or was not checked. */
+                            checks: {
+                                /** @enum {string} */
+                                rule: "scripts_added" | "large_change" | "new_url" | "hidden_unicode" | "instruction_like" | "description_changed";
+                                paths: string[];
+                                samples: string[];
+                            }[];
                         } | null;
                     } | null;
                 } | null;
@@ -11353,13 +11360,20 @@ export interface components {
                 auto_approval: {
                     /** @enum {string} */
                     result: "approved" | "pending";
-                    reason: ("not_branch" | "protection_missing" | "no_reviewed_pull_request" | "github_unreachable") | null;
+                    reason: ("not_branch" | "protection_missing" | "no_reviewed_pull_request" | "github_unreachable" | "checks_failed" | "baseline_changed") | null;
                     rule: {
                         /** @enum {string} */
                         kind: "ruleset" | "branch_protection";
                         required_reviews: number;
                     } | null;
                     pull_request: number | null;
+                    /** @description The fixed-rule checks the version failed against the approved version before it; empty when it failed none or was not checked. */
+                    checks: {
+                        /** @enum {string} */
+                        rule: "scripts_added" | "large_change" | "new_url" | "hidden_unicode" | "instruction_like" | "description_changed";
+                        paths: string[];
+                        samples: string[];
+                    }[];
                 } | null;
             } | null;
         };
@@ -11409,13 +11423,20 @@ export interface components {
                     auto_approval: {
                         /** @enum {string} */
                         result: "approved" | "pending";
-                        reason: ("not_branch" | "protection_missing" | "no_reviewed_pull_request" | "github_unreachable") | null;
+                        reason: ("not_branch" | "protection_missing" | "no_reviewed_pull_request" | "github_unreachable" | "checks_failed" | "baseline_changed") | null;
                         rule: {
                             /** @enum {string} */
                             kind: "ruleset" | "branch_protection";
                             required_reviews: number;
                         } | null;
                         pull_request: number | null;
+                        /** @description The fixed-rule checks the version failed against the approved version before it; empty when it failed none or was not checked. */
+                        checks: {
+                            /** @enum {string} */
+                            rule: "scripts_added" | "large_change" | "new_url" | "hidden_unicode" | "instruction_like" | "description_changed";
+                            paths: string[];
+                            samples: string[];
+                        }[];
                     } | null;
                 } | null;
             };
@@ -11602,7 +11623,7 @@ export interface components {
                 executable: boolean;
                 size_bytes: number;
                 sha256: string;
-                /** @description The file as UTF-8 text; null for a binary file. */
+                /** @description The file as UTF-8 text; null for a binary file. A document (`.md`, `.txt`, `.json`, `.yaml`, `.yml`, `.csv`) that is not clean UTF-8 is still text: bad bytes as U+FFFD and control characters as their visible symbols (U+2400 to U+2421), as the fixed-rule checks read it. */
                 text: string | null;
                 /**
                  * @description Against the previous approved version; every file is `added` when there is none.
@@ -11617,6 +11638,13 @@ export interface components {
                 path: string;
                 size_bytes: number;
                 sha256: string;
+            }[];
+            /** @description The fixed-rule checks this version fails against `previous_approved`, one per rule; empty when it fails none. Shown to the reviewer; they never approve or reject. */
+            checks: {
+                /** @enum {string} */
+                rule: "scripts_added" | "large_change" | "new_url" | "hidden_unicode" | "instruction_like" | "description_changed";
+                paths: string[];
+                samples: string[];
             }[];
         };
         ReviewSkillVersionRequest: {
@@ -35161,7 +35189,8 @@ export interface operations {
                      *           "diff": null
                      *         }
                      *       ],
-                     *       "removed": []
+                     *       "removed": [],
+                     *       "checks": []
                      *     }
                      */
                     "application/json": components["schemas"]["SkillVersionFiles"];

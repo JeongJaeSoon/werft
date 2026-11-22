@@ -179,6 +179,7 @@ import {
 } from "../wiring/github-api.ts";
 import { createInstallationConfigSource } from "../wiring/installation-config.ts";
 import { releaseStartableIn } from "../wiring/release-startable.ts";
+import { renderedHostExtractor } from "../wiring/skill-hosts.ts";
 import {
   type SlackServicesStageDeps,
   wireSlackBot,
@@ -1114,6 +1115,8 @@ const githubMcpGrantKey =
 const extensionBundles = extensionBundleSource(checkpointStorage, db);
 // Skill trees live in the checkpoint bucket; without one the routes are absent.
 const skillObjects = extensionBundleObjects(checkpointStorage);
+// One host reader for auto-approve and the review screen, so they agree.
+const skillHosts = renderedHostExtractor;
 const skillGitSync =
   skillObjects === undefined
     ? undefined
@@ -1123,6 +1126,7 @@ const skillGitSync =
         bundles: createExtensionBundleService({
           store: createPostgresExtensionBundleStore(db),
           objects: skillObjects,
+          hosts: skillHosts,
         }),
         reader: wireGitHubSkillReader({ logger }),
         apps: (workspaceId) =>
@@ -1154,6 +1158,7 @@ const skills =
         authorization,
         store: createPostgresExtensionBundleStore(db),
         objects: skillObjects,
+        hosts: skillHosts,
         ...(skillGitSync === undefined
           ? {}
           : { gitSources: (workspaceId) => skillGitSync.views(workspaceId) }),

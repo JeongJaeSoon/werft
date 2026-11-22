@@ -110,6 +110,51 @@ export const skillsKo = {
     "바뀐 줄을 보일 수 없습니다. 실행 비트만 바뀌었거나 바뀐 부분이 너무 큽니다. 아래 전체 내용을 확인하세요.",
   "skills.reviewPage.content": "전체 내용",
   "skills.reviewPage.removed": "이 버전에서 빠진 파일",
+  "skills.checks.title": "고정 규칙 검사",
+  "skills.checks.description":
+    "앞 승인 버전과 비교해 코드가 정해진 규칙으로 봅니다. 규칙은 우회될 수 있어, 걸린 것이 없어도 바뀐 줄을 읽어야 합니다.",
+  "skills.checks.none": "걸린 규칙이 없습니다.",
+  "skills.checks.failed":
+    "규칙 {count}개에 걸렸습니다. 규칙에 걸린 버전은 보호 브랜치에서 자동 승인되지 않고, 사람이 승인해야 합니다.",
+  "skills.checks.paths": "파일",
+  "skills.checks.samples": "걸린 값",
+  "skills.checks.lines": "바뀐 줄 {count}줄",
+  "skills.checks.tooLarge": "너무 커서 비교하지 못함",
+  "skills.checks.unreadable": "너무 크거나 렌더링하지 못해 읽지 못함",
+  "skills.checks.rule.scripts_added": "스크립트 추가",
+  "skills.checks.rule.large_change": "큰 변경",
+  "skills.checks.rule.new_url": "새 URL",
+  "skills.checks.rule.hidden_unicode": "숨은 유니코드",
+  "skills.checks.rule.instruction_like": "지시처럼 보이는 문장",
+  "skills.checks.rule.description_changed": "description 변경",
+  "skills.checks.why.scripts_added":
+    "앞 승인 버전에서 실행되지 않던 파일이 실행될 수 있습니다. scripts/ 아래 파일, 실행 비트가 있는 파일, 문서가 아닌 파일입니다.",
+  "skills.checks.why.large_change":
+    "바뀐 줄이 300줄을 넘거나, 너무 커서 비교하지 못했습니다.",
+  "skills.checks.why.new_url":
+    "앞 승인 버전 어디에도 없던 호스트를 가리키는 줄이 추가됐습니다.",
+  "skills.checks.why.hidden_unicode":
+    "화면에 보이지 않는 문자(제어 문자, zero-width, 방향 표시·제어, 태그 문자)가 추가됐습니다.",
+  "skills.checks.why.instruction_like":
+    "지시를 무시하라, 비밀 값을 보내라, 사용자에게 숨기라 같은 문장이 추가됐습니다.",
+  "skills.checks.why.description_changed":
+    "스킬이 언제 불릴지 정하는 description이 바뀌었습니다.",
+  "skills.sync.autoApproval": "자동 승인",
+  "skills.sync.autoApproval.approved": "자동 승인함",
+  "skills.sync.autoApproval.pending": "승인 대기",
+  "skills.sync.autoApproval.review": "검토 화면에서 보기",
+  "skills.sync.autoApproval.reason.not_branch":
+    "브랜치가 아니라서 자동 승인하지 않았습니다.",
+  "skills.sync.autoApproval.reason.protection_missing":
+    "브랜치에 리뷰를 요구하는 규칙이 없어 자동 승인하지 않았습니다.",
+  "skills.sync.autoApproval.reason.no_reviewed_pull_request":
+    "리뷰 승인된 PR로 들어온 커밋이 아니라서 자동 승인하지 않았습니다.",
+  "skills.sync.autoApproval.reason.github_unreachable":
+    "GitHub가 답하지 않아 자동 승인하지 않았습니다.",
+  "skills.sync.autoApproval.reason.checks_failed":
+    "고정 규칙 검사에 걸려 자동 승인하지 않았습니다: {rules}",
+  "skills.sync.autoApproval.reason.baseline_changed":
+    "검사하는 동안 다른 버전이 승인되어 자동 승인하지 않았습니다.",
   "skills.reviewPage.approve": "승인",
   "skills.reviewPage.reject": "거절",
   "skills.reviewPage.approving": "승인하는 중…",
@@ -324,6 +369,51 @@ export const skillsEn = {
     "Changed lines cannot be shown: only the execute bit changed, or the change is too large. Read the full content below.",
   "skills.reviewPage.content": "Full content",
   "skills.reviewPage.removed": "Files this version drops",
+  "skills.checks.title": "Fixed-rule checks",
+  "skills.checks.description":
+    "Code reads the change from the previous approved version against fixed rules. Rules can be evaded, so read the changed lines even when nothing is caught.",
+  "skills.checks.none": "No rule caught anything.",
+  "skills.checks.failed":
+    "{count} rules caught this version. A version a rule catches is not auto-approved on a protected branch; a person has to approve it.",
+  "skills.checks.paths": "Files",
+  "skills.checks.samples": "Caught",
+  "skills.checks.lines": "{count} changed lines",
+  "skills.checks.tooLarge": "too large to compare",
+  "skills.checks.unreadable": "unread: too large or could not be rendered",
+  "skills.checks.rule.scripts_added": "Script added",
+  "skills.checks.rule.large_change": "Large change",
+  "skills.checks.rule.new_url": "New URL",
+  "skills.checks.rule.hidden_unicode": "Hidden Unicode",
+  "skills.checks.rule.instruction_like": "Instruction-like sentence",
+  "skills.checks.rule.description_changed": "Description changed",
+  "skills.checks.why.scripts_added":
+    "A file the previous approved version did not run can now run: a file under scripts/, one with the execute bit, or one that is not a document.",
+  "skills.checks.why.large_change":
+    "More than 300 lines changed, or the change was too large to compare.",
+  "skills.checks.why.new_url":
+    "An added line points to a host no file of the previous approved version names.",
+  "skills.checks.why.hidden_unicode":
+    "Characters you cannot see (control characters, zero-width, direction marks and controls, tag characters) were added.",
+  "skills.checks.why.instruction_like":
+    "A sentence like ignore your instructions, send the credentials, or hide this from the user was added.",
+  "skills.checks.why.description_changed":
+    "The description, which decides when the skill is used, changed.",
+  "skills.sync.autoApproval": "Auto-approve",
+  "skills.sync.autoApproval.approved": "Approved",
+  "skills.sync.autoApproval.pending": "Pending",
+  "skills.sync.autoApproval.review": "Open the review",
+  "skills.sync.autoApproval.reason.not_branch":
+    "Not approved: the ref is not a branch.",
+  "skills.sync.autoApproval.reason.protection_missing":
+    "Not approved: no rule on the branch requires a review.",
+  "skills.sync.autoApproval.reason.no_reviewed_pull_request":
+    "Not approved: the commit did not come in by a reviewed pull request.",
+  "skills.sync.autoApproval.reason.github_unreachable":
+    "Not approved: GitHub did not answer.",
+  "skills.sync.autoApproval.reason.checks_failed":
+    "Not approved: fixed-rule checks caught {rules}",
+  "skills.sync.autoApproval.reason.baseline_changed":
+    "Not approved: another version was approved while the checks ran.",
   "skills.reviewPage.approve": "Approve",
   "skills.reviewPage.reject": "Reject",
   "skills.reviewPage.approving": "Approving…",
@@ -540,6 +630,51 @@ export const skillsJa = {
     "変更行を表示できません。実行ビットだけが変わったか、変更が大きすぎます。下の全体の内容を確認してください。",
   "skills.reviewPage.content": "全体の内容",
   "skills.reviewPage.removed": "このバージョンで削除されたファイル",
+  "skills.checks.title": "固定ルール検査",
+  "skills.checks.description":
+    "前の承認済みバージョンとの差分を、コードが決まったルールで調べます。ルールは回避できるため、何も検出されなくても変更行を読んでください。",
+  "skills.checks.none": "検出されたルールはありません。",
+  "skills.checks.failed":
+    "{count}件のルールで検出されました。ルールで検出されたバージョンは保護ブランチで自動承認されず、人が承認する必要があります。",
+  "skills.checks.paths": "ファイル",
+  "skills.checks.samples": "検出した値",
+  "skills.checks.lines": "変更行 {count}行",
+  "skills.checks.tooLarge": "大きすぎて比較できません",
+  "skills.checks.unreadable": "大きすぎるか描画できず読めません",
+  "skills.checks.rule.scripts_added": "スクリプトの追加",
+  "skills.checks.rule.large_change": "大きな変更",
+  "skills.checks.rule.new_url": "新しい URL",
+  "skills.checks.rule.hidden_unicode": "見えない Unicode",
+  "skills.checks.rule.instruction_like": "指示のような文",
+  "skills.checks.rule.description_changed": "description の変更",
+  "skills.checks.why.scripts_added":
+    "前の承認済みバージョンでは実行されなかったファイルが実行される可能性があります。scripts/ の下のファイル、実行ビットのあるファイル、文書ではないファイルです。",
+  "skills.checks.why.large_change":
+    "変更行が300行を超えたか、大きすぎて比較できませんでした。",
+  "skills.checks.why.new_url":
+    "前の承認済みバージョンのどこにもないホストを指す行が追加されました。",
+  "skills.checks.why.hidden_unicode":
+    "画面に見えない文字（制御文字、ゼロ幅、方向マーク・方向制御、タグ文字）が追加されました。",
+  "skills.checks.why.instruction_like":
+    "指示を無視せよ、秘密の値を送れ、ユーザーに隠せ、のような文が追加されました。",
+  "skills.checks.why.description_changed":
+    "スキルがいつ呼ばれるかを決める description が変わりました。",
+  "skills.sync.autoApproval": "自動承認",
+  "skills.sync.autoApproval.approved": "自動承認済み",
+  "skills.sync.autoApproval.pending": "承認待ち",
+  "skills.sync.autoApproval.review": "レビュー画面で見る",
+  "skills.sync.autoApproval.reason.not_branch":
+    "ブランチではないため自動承認しませんでした。",
+  "skills.sync.autoApproval.reason.protection_missing":
+    "ブランチにレビューを求めるルールがないため自動承認しませんでした。",
+  "skills.sync.autoApproval.reason.no_reviewed_pull_request":
+    "レビュー承認された PR で入ったコミットではないため自動承認しませんでした。",
+  "skills.sync.autoApproval.reason.github_unreachable":
+    "GitHub が応答しないため自動承認しませんでした。",
+  "skills.sync.autoApproval.reason.checks_failed":
+    "固定ルール検査で検出されたため自動承認しませんでした: {rules}",
+  "skills.sync.autoApproval.reason.baseline_changed":
+    "検査中に別のバージョンが承認されたため自動承認しませんでした。",
   "skills.reviewPage.approve": "承認",
   "skills.reviewPage.reject": "却下",
   "skills.reviewPage.approving": "承認しています…",
