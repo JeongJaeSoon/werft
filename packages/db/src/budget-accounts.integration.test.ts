@@ -411,6 +411,11 @@ integration("budget accounts on PostgreSQL", () => {
 
   test("a NaN or negative amount is refused before it reaches a row, and by the table", async () => {
     await expect(reserveFor(person(), Number.NaN)).rejects.toThrow(RangeError);
+    // Checked as given: an unmetered call's cost is dropped only after.
+    await expect(reserveFor(person(), Number.NaN, 10, true)).rejects.toThrow(
+      RangeError,
+    );
+    await expect(reserveFor(person(), -0.0000001)).rejects.toThrow(RangeError);
     await expect(
       ledger().settle({ callId: "none", actual: { costUsd: -1, tokens: 0 } }),
     ).rejects.toThrow(RangeError);

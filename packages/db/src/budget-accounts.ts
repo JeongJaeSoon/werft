@@ -206,7 +206,8 @@ export function createBudgetLedger(db: Database): BudgetLedger {
     async reserve(input) {
       const costUsd = input.unmetered ? 0 : toStoredCost(input.reserve.costUsd);
       const tokens = input.reserve.tokens;
-      assertBudgetAmount({ costUsd, tokens });
+      // The amount as given, before an unmetered call's cost is dropped.
+      assertBudgetAmount(input.reserve);
       return db.transaction(async (tx) => {
         await lockBudgetCall(tx, input.callId);
         const replay = await replayOf(tx, input, costUsd);
