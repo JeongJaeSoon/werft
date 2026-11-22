@@ -153,7 +153,7 @@ describe("a person's GitHub link in the session's workspace", () => {
 });
 
 describe("the follow-up turn the platform queues", () => {
-  test("carries the requester of the turn whose intent made the push", async () => {
+  test("names no person even when a person's turn asked for the push", async () => {
     const ws = await workspace();
     const alice = await person();
     const sessionId = await session(ws);
@@ -178,7 +178,7 @@ describe("the follow-up turn the platform queues", () => {
       .orderBy(turns.sequence);
     expect(queued).toEqual([
       { actorId: alice, channel: "slack" },
-      { actorId: alice, channel: null },
+      { actorId: null, channel: null },
     ]);
   });
 

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { WorkerScope } from "@werft-ai/contracts";
 import {
   createWorkerGateway,
+  receiptActorOf,
   type SessionCatalog,
   type WorkerGateway,
   type WorkerPrincipal,
@@ -11,13 +12,14 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { holdPushFollowUp } from "./action/push-follow-ups.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {
+  agentReleases,
   pullRequests,
   pushFollowUps,
   pushIntents,
@@ -275,9 +277,53 @@ integration("push follow-ups on PostgreSQL", () => {
     expect(await db.select().from(pushFollowUps)).toEqual([]);
   });
 
-  test("the follow-up turn keeps the person who asked for the push as its actor", async () => {
-    const { ownerId, sessionId, worker, turnId } = await runningTurn();
-    const [asker] = await db
+  const work = () => createPostgresSessionUnitOfWork(db);
+
+  async function agentOf(sessionId: string): Promise<string> {
+    const [row] = await db
+      .select({ agentId: agentReleases.agentId })
+      .from(sessions)
+      .innerJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
+      .where(eq(sessions.id, sessionId));
+    if (row === undefined) throw new Error("no agent");
+    return row.agentId;
+  }
+
+  async function turnRow(sessionId: string, sequence: number) {
+    const [row] = await db
+      .select()
+      .from(turns)
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, sequence)));
+    if (row === undefined) throw new Error(`no turn ${sequence}`);
+    return row;
+  }
+
+  // The turn that asked for the push, as the push executor records it.
+  async function askedBy(
+    ownerId: string,
+    sessionId: string,
+    sequence: number,
+    push: string,
+    attemptId: string,
+  ) {
+    const asked = await turnRow(sessionId, sequence);
+    await db.insert(pushIntents).values({
+      id: crypto.randomUUID(),
+      ownerId,
+      sessionId,
+      turnId: asked.id,
+      attemptId,
+      repositoryId: "sample-app",
+      targetBranch: `agent/${sessionId}`,
+      status: "requested",
+      pinnedRevision: 0,
+      pushRequestId: push,
+      actor: { kind: "user", id: "u" },
+    });
+  }
+
+  async function asker(sessionId: string) {
+    const [person] = await db
       .insert(users)
       .values({
         id: crypto.randomUUID(),
@@ -286,36 +332,264 @@ integration("push follow-ups on PostgreSQL", () => {
         displayName: "asker",
       })
       .returning({ id: users.id });
+    if (person === undefined) throw new Error("no person");
+    const webSessionId = crypto.randomUUID();
     await db
       .update(turns)
-      .set({ actorId: asker?.id ?? null })
-      .where(eq(turns.sessionId, sessionId));
-    const push = await pushRequest(ownerId, sessionId);
-    const [asked] = await db
-      .select({ id: turns.id })
-      .from(turns)
-      .where(eq(turns.sessionId, sessionId));
-    await db.insert(pushIntents).values({
-      id: crypto.randomUUID(),
-      ownerId,
+      .set({
+        actorId: person.id,
+        requesterKind: "user",
+        requesterId: person.id,
+        requesterAuth: {
+          method: "web_session",
+          web_session_id: webSessionId,
+          carried_from: { turn: "0", reason: "continuation" },
+        },
+      })
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 1)));
+    return { userId: person.id, webSessionId };
+  }
+
+  // What the Slack decision asks for when no turn is running: the platform's
+  // own input, with no caller behind it.
+  const decide = (
+    ownerId: string,
+    sessionId: string,
+    push: string,
+    decision: "approve" | "reject",
+    idempotencyKey = `slack-push:${push}`,
+    inputLimits = limits,
+  ) =>
+    work().appendInputAtomic({
+      principal: { ownerId },
       sessionId,
-      turnId: asked?.id ?? 0,
-      attemptId: worker.scope.attempt_id,
-      repositoryId: "sample-app",
-      targetBranch: `agent/${sessionId}`,
-      status: "requested",
-      pinnedRevision: 0,
-      pushRequestId: push,
-      actor: { kind: "user", id: "u" },
+      idempotencyKey,
+      payloadHash: `${push}:${decision}`,
+      message: MESSAGE,
+      limits: inputLimits,
+      platform: { pushRequestId: push, decision },
     });
+
+  test("the held follow-up turn is the agent's: no person, the decision as its evidence, the asker as its root", async () => {
+    const { ownerId, sessionId, worker, turnId } = await runningTurn();
+    const { userId, webSessionId } = await asker(sessionId);
+    const push = await pushRequest(ownerId, sessionId);
+    await askedBy(ownerId, sessionId, 1, push, worker.scope.attempt_id);
     expect(await hold(sessionId, push)).toBe("held");
 
     await finalize(worker, turnId, 0);
 
-    expect((await turnsOf(sessionId)).map((t) => t.actorId)).toEqual([
-      asker?.id ?? null,
-      asker?.id ?? null,
+    const followUp = await turnRow(sessionId, 2);
+    expect({
+      actorId: followUp.actorId,
+      channel: followUp.channel,
+      requesterKind: followUp.requesterKind,
+      requesterId: followUp.requesterId,
+      requesterAuth: followUp.requesterAuth,
+    }).toEqual({
+      actorId: null,
+      channel: null,
+      requesterKind: "agent",
+      requesterId: await agentOf(sessionId),
+      requesterAuth: {
+        method: "push_decision",
+        push_request_id: push,
+        decision: "approve",
+        root: {
+          requester_kind: "user",
+          requester_id: userId,
+          requester_auth: {
+            method: "web_session",
+            web_session_id: webSessionId,
+          },
+          via: [],
+        },
+        carried_from: { turn: "1", reason: "push_follow_up" },
+      },
+    });
+    // The asker's own turn is untouched.
+    expect((await turnRow(sessionId, 1)).actorId).toBe(userId);
+  });
+
+  test("a rejection queued at once is the agent's turn too, under a receipt that names no person", async () => {
+    const { ownerId, sessionId, worker, turnId } = await runningTurn();
+    const { userId } = await asker(sessionId);
+    const push = await pushRequest(ownerId, sessionId);
+    await askedBy(ownerId, sessionId, 1, push, worker.scope.attempt_id);
+    await finalize(worker, turnId, 0);
+
+    const queued = await decide(ownerId, sessionId, push, "reject");
+    if (queued.outcome !== "accepted") throw new Error(queued.outcome);
+    expect(queued.response.turn_id).toBe("2");
+    const followUp = await turnRow(sessionId, 2);
+    expect(followUp.actorId).toBeNull();
+    expect(followUp.requesterKind).toBe("agent");
+    expect(followUp.requesterAuth).toMatchObject({
+      method: "push_decision",
+      decision: "reject",
+      root: { requester_kind: "user", requester_id: userId },
+    });
+    const [receipt] = await db
+      .select({ actor: receipts.actor })
+      .from(receipts)
+      .where(eq(receipts.id, queued.response.receipt_id));
+    expect(receipt?.actor ?? null).toEqual(receiptActorOf({ ownerId }));
+  });
+
+  test("the same decision twice queues one turn: a replay answers the first, another key hears it is already queued", async () => {
+    const { ownerId, sessionId, worker, turnId } = await runningTurn();
+    await finalize(worker, turnId, 0);
+    const push = await pushRequest(ownerId, sessionId);
+
+    const first = await decide(ownerId, sessionId, push, "approve");
+    expect(first.outcome).toBe("accepted");
+    const replay = await decide(ownerId, sessionId, push, "approve");
+    expect(replay).toMatchObject({
+      outcome: "replayed",
+      response: { turn_id: "2" },
+    });
+    expect(
+      await decide(ownerId, sessionId, push, "approve", "another-key"),
+    ).toEqual({ outcome: "already_queued" });
+    expect(await hold(sessionId, push)).toBe("queued");
+    expect(await turnsOf(sessionId)).toHaveLength(2);
+  });
+
+  test("two decisions of one push that race queue one turn", async () => {
+    const { ownerId, sessionId, worker, turnId } = await runningTurn();
+    await finalize(worker, turnId, 0);
+    const push = await pushRequest(ownerId, sessionId);
+
+    const outcomes = await Promise.all(
+      ["a", "b", "c"].map((key) =>
+        decide(ownerId, sessionId, push, "approve", key),
+      ),
+    );
+    expect(outcomes.map((o) => o.outcome).sort()).toEqual([
+      "accepted",
+      "already_queued",
+      "already_queued",
     ]);
+    expect(await turnsOf(sessionId)).toHaveLength(2);
+  });
+
+  test("a held follow-up queued by the turn end, then the decision queued at once: still one turn", async () => {
+    const { ownerId, sessionId, worker, turnId } = await runningTurn();
+    const push = await pushRequest(ownerId, sessionId);
+    expect(await hold(sessionId, push)).toBe("held");
+    await finalize(worker, turnId, 0);
+    expect(await turnsOf(sessionId)).toHaveLength(2);
+
+    expect(await decide(ownerId, sessionId, push, "approve")).toEqual({
+      outcome: "already_queued",
+    });
+    expect(await hold(sessionId, push)).toBe("queued");
+    expect(await turnsOf(sessionId)).toHaveLength(2);
+  });
+
+  test("the decision queued at once, then a hold and a turn end: still one turn", async () => {
+    const { ownerId, sessionId, worker, turnId } = await runningTurn();
+    const push = await pushRequest(ownerId, sessionId);
+    expect((await decide(ownerId, sessionId, push, "approve")).outcome).toBe(
+      "accepted",
+    );
+    expect(await hold(sessionId, push)).toBe("queued");
+    await finalize(worker, turnId, 0);
+    expect(await turnsOf(sessionId)).toHaveLength(2);
+    expect(
+      await db
+        .select()
+        .from(pushFollowUps)
+        .where(eq(pushFollowUps.sessionId, sessionId)),
+    ).toEqual([]);
+  });
+
+  test("the root does not nest: person, follow-up, another push, follow-up keeps the same person", async () => {
+    const { ownerId, sessionId, worker, turnId } = await runningTurn();
+    const { userId, webSessionId } = await asker(sessionId);
+    const first = await pushRequest(ownerId, sessionId);
+    await askedBy(ownerId, sessionId, 1, first, worker.scope.attempt_id);
+    await finalize(worker, turnId, 0);
+    expect((await decide(ownerId, sessionId, first, "approve")).outcome).toBe(
+      "accepted",
+    );
+    // The follow-up turn (2) asks for the second push.
+    const second = await pushRequest(
+      ownerId,
+      sessionId,
+      `agent/${sessionId}-second`,
+    );
+    await askedBy(ownerId, sessionId, 2, second, worker.scope.attempt_id);
+    expect((await decide(ownerId, sessionId, second, "approve")).outcome).toBe(
+      "accepted",
+    );
+
+    const root = {
+      requester_kind: "user",
+      requester_id: userId,
+      requester_auth: { method: "web_session", web_session_id: webSessionId },
+      via: [],
+    };
+    expect((await turnRow(sessionId, 2)).requesterAuth).toMatchObject({
+      root,
+      carried_from: { turn: "1", reason: "push_follow_up" },
+    });
+    const third = (await turnRow(sessionId, 3)).requesterAuth as Record<
+      string,
+      unknown
+    >;
+    expect(third).toMatchObject({
+      push_request_id: second,
+      root,
+      carried_from: { turn: "2", reason: "push_follow_up" },
+    });
+    expect(JSON.stringify(third.root)).not.toContain('"root"');
+  });
+
+  test("a push no turn asked for still queues the agent's turn, with no root or source turn", async () => {
+    const { ownerId, sessionId, worker, turnId } = await runningTurn();
+    await finalize(worker, turnId, 0);
+    const push = await pushRequest(ownerId, sessionId);
+    expect((await decide(ownerId, sessionId, push, "approve")).outcome).toBe(
+      "accepted",
+    );
+    const followUp = await turnRow(sessionId, 2);
+    expect(followUp.requesterKind).toBe("agent");
+    expect(followUp.requesterAuth).toEqual({
+      method: "push_decision",
+      push_request_id: push,
+      decision: "approve",
+    });
+  });
+
+  test("the session's own checks still hold for the agent's turn", async () => {
+    const { ownerId, sessionId, worker, turnId } = await runningTurn();
+    await finalize(worker, turnId, 0);
+    const push = await pushRequest(ownerId, sessionId);
+
+    expect(
+      await decide(ownerId, sessionId, push, "approve", "full", {
+        ...limits,
+        queuedInputLimitPerSession: 0,
+      }),
+    ).toEqual({ outcome: "queue_full" });
+
+    await db
+      .update(sessions)
+      .set({ takeoverRequiredAt: new Date() })
+      .where(eq(sessions.id, sessionId));
+    expect(
+      await decide(ownerId, sessionId, push, "approve", "takeover"),
+    ).toEqual({ outcome: "awaiting_takeover" });
+
+    await db
+      .update(sessions)
+      .set({ takeoverRequiredAt: null, admissionState: "pausing" })
+      .where(eq(sessions.id, sessionId));
+    expect(await decide(ownerId, sessionId, push, "approve", "paused")).toEqual(
+      { outcome: "rejected", admissionState: "pausing" },
+    );
+    expect(await turnsOf(sessionId)).toHaveLength(1);
   });
 
   test("a running turn that opens the pull request leaves no follow-up turn", async () => {

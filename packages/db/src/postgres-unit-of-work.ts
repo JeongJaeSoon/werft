@@ -86,6 +86,10 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import {
+  pushFollowUpQueued,
+  pushFollowUpRequester,
+} from "./action/push-follow-ups.ts";
 import { captureWorkspaceMcpStart } from "./agents/agent-workspace-mcp.ts";
 import { earlierInSecond, releaseLabel } from "./agents/release-labels.ts";
 import { workerRuntimeView } from "./checkpoints/checkpoint-runtime.ts";
@@ -250,6 +254,14 @@ function usageRecord(usage: UsageDecision | null, requester: Requester) {
  * this can name (a caller assembled without a login) gets none; the input
  * is not refused for it.
  */
+const NO_REQUESTER: Requester = {
+  userId: null,
+  apiKeyId: null,
+  role: null,
+  keyAgentId: null,
+  slackBotUserId: null,
+};
+
 function requesterAuthOf(
   actor: RecordedActor | undefined,
   requester: Requester,
@@ -745,11 +757,11 @@ export function createPostgresSessionUnitOfWork(
             response: postSessionMessageResponseSchema.parse(existing.result),
           };
         }
-        const requester = await lockRequester(
-          tx,
-          input.principal,
-          "sessions:write",
-        );
+        const platform = input.platform;
+        const requester =
+          platform === undefined
+            ? await lockRequester(tx, input.principal, "sessions:write")
+            : NO_REQUESTER;
         if (!requester) return { outcome: "actor_inactive" };
         // The session row lock serializes every append to one session, so
         // max(sequence)+1 below cannot be handed out twice or leave a gap.
@@ -794,7 +806,9 @@ export function createPostgresSessionUnitOfWork(
         // but said after it: a session the requester cannot see does not exist
         // for them, whoever its agent is.
         const usage =
-          session.agentReleaseId !== null && session.workspaceId !== null
+          platform === undefined &&
+          session.agentReleaseId !== null &&
+          session.workspaceId !== null
             ? await lockAgentUsage(
                 tx,
                 requester,
@@ -819,6 +833,7 @@ export function createPostgresSessionUnitOfWork(
         // member rows; said after it, and before the usage refusal, so a
         // creator who lost the agent hears why their preview stopped.
         const previewHeld =
+          platform !== undefined ||
           !session.preview ||
           (limitedAgentId !== null &&
             session.workspaceId !== null &&
@@ -829,7 +844,10 @@ export function createPostgresSessionUnitOfWork(
               session.workspaceId,
               limitedAgentId,
             )));
-        if ((await lockSessionReach(tx, requester, session)) !== "ok") {
+        if (
+          platform === undefined &&
+          (await lockSessionReach(tx, requester, session)) !== "ok"
+        ) {
           return { outcome: "not_found" };
         }
         if (!previewHeld) {
@@ -916,6 +934,12 @@ export function createPostgresSessionUnitOfWork(
           limits: input.limits,
         });
         if (refused) return refused;
+        if (
+          platform !== undefined &&
+          (await pushFollowUpQueued(tx, sessionId, platform.pushRequestId))
+        ) {
+          return { outcome: "already_queued" };
+        }
         const [last] = await tx
           .select({ sequence: max(turns.sequence) })
           .from(turns)
@@ -925,13 +949,30 @@ export function createPostgresSessionUnitOfWork(
           sessionId: sessionId,
           sequence,
           message: input.message,
-          actorId: input.principal.actor?.userId ?? null,
-          channel: input.channel ?? null,
-          slackMessage: input.slackMessage ?? null,
           traceContext: input.traceContext ?? null,
-          ...usageRecord(usage, requester),
-          requesterAuth: requesterAuthOf(input.principal.actor, requester),
-          ...callerRecord(senderLimit, input.callerSubject),
+          ...(platform === undefined
+            ? {
+                actorId: input.principal.actor?.userId ?? null,
+                channel: input.channel ?? null,
+                slackMessage: input.slackMessage ?? null,
+                ...usageRecord(usage, requester),
+                requesterAuth: requesterAuthOf(
+                  input.principal.actor,
+                  requester,
+                ),
+                ...callerRecord(senderLimit, input.callerSubject),
+              }
+            : {
+                // The agent's turn: no person, no surface, no usage basis.
+                actorId: null,
+                channel: null,
+                slackMessage: null,
+                ...(await pushFollowUpRequester(tx, {
+                  agentReleaseId: session.agentReleaseId,
+                  pushRequestId: platform.pushRequestId,
+                  decision: platform.decision,
+                })),
+              }),
         });
         await tx
           .update(sessions)
