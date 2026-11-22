@@ -14,6 +14,11 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **Slack inbox(`slack_inbound_events`)가 처리를 마친 이벤트의 원문(`payload`)을 바로 지우고, 실패한 이벤트의 원문은 받은 지 7일이 지나면 reconciler가 지운다**(JeongJaeSoon/werft#2025). 따로 할 일은 없다.
+  - migration `0307_slack_inbound_payload_check`가 CHECK를 바꾼다. 처리된 행과 실패한 행은 원문이 없어도 되고, 받은 행은 원문이 있어야 하고, 버린 행은 지금처럼 원문이 없다. 새 CHECK를 `NOT VALID`로 더해 검증한 뒤 옛 CHECK를 지우고, 인덱스는 `CONCURRENTLY`로 만든다.
+  - 처리된 행의 원문을 읽던 진단 SQL은 이제 빈 값을 본다. 행(이벤트 종류·상태·버린 이유·시도 횟수)은 남는다. 이 릴리스 전에 처리한 행의 원문은 아직 남아 있다.
+  - 이미지는 지원 창 안으로 되돌려도 된다. 원문을 지운 행이 생긴 뒤에는 옛 CHECK를 다시 걸 수 없으므로 0307 아래로 스키마를 내리지 않는다.
+
 - **API가 EGRESS 허용 목록을 proxy와 같은 방식으로 한 번 읽어, 올린 뒤 콘솔 경고와 collector 경고가 달라질 수 있다**(JeongJaeSoon/werft#2009). 설정 값은 그대로 두어도 된다. 경고가 새로 나오면 목록을 확인한다.
   - 모델 연결 콘솔의 "egress 허용 목록 밖" 경고가 워크스페이스 MCP 등록 검사와 같은 목록을 쓴다. `API.Anthropic.com:443`이나 `github.com.:443`처럼 대소문자나 끝의 점이 다른 항목, `[fd00::1]:8443` 같은 IPv6 항목에 맞는 주소는 이제 경고하지 않는다. 쉼표와 공백만 있는 값은 "목록을 모름"으로 읽어 어떤 주소에도 경고하지 않는다(이전에는 모든 주소에 경고했다). 등록이 `credential_allowlist_unset`으로 거절하는 것과 같다.
   - OTLP collector가 worker 허용 목록(`EGRESS_ALLOWLIST`·`EGRESS_PRIVATE_ALLOWLIST`)에 있다는 기동 경고 `tracing.collector_on_egress_allowlist`가 host 끝의 점을 무시한다. `collector.internal.:4318` 같은 항목에도 이제 경고가 나온다.
