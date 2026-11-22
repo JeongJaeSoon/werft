@@ -4732,7 +4732,7 @@
           },
           "agent_hidden": {
             "default": false,
-            "description": "True when the session has an agent the caller may not use (a private agent outside the caller's teams): `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. False otherwise, including a session with no agent.",
+            "description": "True when the session has an agent the caller is outside of (not an owner or admin, one of the agent's admins or a member of its managing team) or may not use: `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. An agent still held by the holding team of migration 0243 is named to every live member who can read the session (its `workspace` scope reaches them all); a private, people or team share still decides who reads it, and the agent's own page stays `404` to those outside. False otherwise, including a session with no agent.",
             "type": "boolean"
           },
           "created_by": {
@@ -5224,7 +5224,7 @@
           },
           "agent_hidden": {
             "default": false,
-            "description": "True when the session has an agent the caller may not use (a private agent outside the caller's teams): `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. False otherwise, including a session with no agent.",
+            "description": "True when the session has an agent the caller is outside of (not an owner or admin, one of the agent's admins or a member of its managing team) or may not use: `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. An agent still held by the holding team of migration 0243 is named to every live member who can read the session (its `workspace` scope reaches them all); a private, people or team share still decides who reads it, and the agent's own page stays `404` to those outside. False otherwise, including a session with no agent.",
             "type": "boolean"
           },
           "created_by": {
@@ -30845,8 +30845,10 @@
                         "enum": [
                           "pending",
                           "approved",
-                          "rejected"
-                        ]
+                          "rejected",
+                          "superseded"
+                        ],
+                        "description": "`superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it."
                       },
                       "registered_by": {
                         "anyOf": [
@@ -30877,7 +30879,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
+                        "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed."
                       },
                       "reviewed_at": {
                         "anyOf": [
@@ -31167,8 +31169,10 @@
                 "enum": [
                   "pending",
                   "approved",
-                  "rejected"
-                ]
+                  "rejected",
+                  "superseded"
+                ],
+                "description": "`superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it."
               },
               "registered_by": {
                 "anyOf": [
@@ -31199,7 +31203,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
+                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed."
               },
               "reviewed_at": {
                 "anyOf": [
@@ -32028,8 +32032,10 @@
                 "enum": [
                   "pending",
                   "approved",
-                  "rejected"
-                ]
+                  "rejected",
+                  "superseded"
+                ],
+                "description": "`superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it."
               },
               "registered_by": {
                 "anyOf": [
@@ -32060,7 +32066,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
+                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed."
               },
               "reviewed_at": {
                 "anyOf": [
@@ -32233,8 +32239,10 @@
                 "enum": [
                   "pending",
                   "approved",
-                  "rejected"
-                ]
+                  "rejected",
+                  "superseded"
+                ],
+                "description": "`superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it."
               },
               "registered_by": {
                 "anyOf": [
@@ -32265,7 +32273,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
+                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed."
               },
               "reviewed_at": {
                 "anyOf": [
@@ -32468,8 +32476,10 @@
                 "enum": [
                   "pending",
                   "approved",
-                  "rejected"
-                ]
+                  "rejected",
+                  "superseded"
+                ],
+                "description": "`superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it."
               },
               "registered_by": {
                 "anyOf": [
@@ -32500,7 +32510,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
+                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed."
               },
               "reviewed_at": {
                 "anyOf": [
@@ -32675,8 +32685,10 @@
                     "enum": [
                       "pending",
                       "approved",
-                      "rejected"
-                    ]
+                      "rejected",
+                      "superseded"
+                    ],
+                    "description": "`superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it."
                   },
                   "registered_by": {
                     "anyOf": [
@@ -32707,7 +32719,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
+                    "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed."
                   },
                   "reviewed_at": {
                     "anyOf": [
@@ -32998,8 +33010,10 @@
                 "enum": [
                   "pending",
                   "approved",
-                  "rejected"
-                ]
+                  "rejected",
+                  "superseded"
+                ],
+                "description": "`superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it."
               },
               "registered_by": {
                 "anyOf": [
@@ -33030,7 +33044,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
+                "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed."
               },
               "reviewed_at": {
                 "anyOf": [
@@ -33396,8 +33410,10 @@
                           "enum": [
                             "pending",
                             "approved",
-                            "rejected"
-                          ]
+                            "rejected",
+                            "superseded"
+                          ],
+                          "description": "`superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it."
                         },
                         "registered_by": {
                           "anyOf": [
@@ -33428,7 +33444,7 @@
                               "type": "null"
                             }
                           ],
-                          "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve."
+                          "description": "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed."
                         },
                         "reviewed_at": {
                           "anyOf": [

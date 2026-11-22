@@ -190,7 +190,7 @@ export interface WorkspaceMcpStore {
       workspaceId: string;
       serverId: string;
       flowId: string;
-      stateSha256: Buffer;
+      stateSha256: Uint8Array;
       expiresAt: Date;
       verifier: string;
       expectedClientId: string | null;

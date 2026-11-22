@@ -62,6 +62,7 @@ import {
   sanitizeToolDecision,
 } from "@werft-ai/contracts";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
+import { messageOf } from "@werft-ai/runtime-core";
 import type { CommitAttributionLedger } from "../action/ports/commit-attributions.ts";
 import { repoRefOf } from "../action/ports/forge.ts";
 import type {
@@ -166,6 +167,7 @@ import type {
   WorkerPendingStore,
 } from "../sessions/ports/pending-requests.ts";
 import type { SessionTitleStore } from "../sessions/ports/session-title-store.ts";
+import { hashToken } from "../token-hash.ts";
 import { createGitHubMcpEgress } from "./github-mcp-egress.ts";
 import {
   appendNew,
@@ -304,9 +306,7 @@ export const DEFAULT_PENDING_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_WAIT_MS = 25_000;
 const DEFAULT_POLL_INTERVAL_MS = 250;
 
-export function hashWorkerToken(value: string): Uint8Array {
-  return createHash("sha256").update(value, "utf8").digest();
-}
+export const hashWorkerToken = hashToken;
 
 /**
  * What a launched resource is labelled with so a later pass can tell which
@@ -510,7 +510,7 @@ async function checkpointInfrastructure<T>(call: () => Promise<T>): Promise<T> {
     throw new WorkerGatewayError(
       503,
       "BACKEND_UNAVAILABLE",
-      `Checkpoint storage could not be read: ${error instanceof Error ? error.message : String(error)}`,
+      `Checkpoint storage could not be read: ${messageOf(error)}`,
       true,
     );
   }
@@ -1072,7 +1072,7 @@ export function createWorkerGateway(deps: {
     new WorkerGatewayError(
       503,
       "BACKEND_UNAVAILABLE",
-      `${what} could not be read: ${error instanceof Error ? error.message : String(error)}`,
+      `${what} could not be read: ${messageOf(error)}`,
       true,
     );
   const budgetNow = async (): Promise<SessionBudget> => {

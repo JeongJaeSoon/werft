@@ -34,6 +34,7 @@ import {
   type AuthorizationPolicy,
   agentForSlackEvent,
   type Caller,
+  messageOf,
   type SessionService,
   SessionServiceError,
 } from "@werft-ai/platform";
@@ -48,8 +49,9 @@ import {
   slackCallerOf,
 } from "./slack-decision.ts";
 import {
+  type SlackSignedRequest,
   type SlackSigningSecrets,
-  verifySlackSignature,
+  verifySlackRequest,
 } from "./slack-events-service.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
 import { slackOutboxText } from "./slack-outbox-render.ts";
@@ -67,8 +69,6 @@ import {
 
 /** Redraws the card; `via` is "slack" when this press settled it. */
 type SettleCard = () => Promise<void>;
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * What the session reads once a push it asked for is decided in Slack.
@@ -171,7 +171,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     ((work: () => Promise<void>) => {
       void work().catch((error: unknown) => {
         deps.logger.warn("Slack interaction failed after its answer", {
-          error: error instanceof Error ? error.message : String(error),
+          error: messageOf(error),
         });
       });
     });
@@ -200,7 +200,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     } catch (error) {
       deps.logger.warn("Slack ephemeral for a press failed", {
         agent_id: pressed.agentId,
-        error: error instanceof Error ? error.message : String(error),
+        error: messageOf(error),
       });
     }
   }
@@ -260,7 +260,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     } catch (error) {
       deps.logger.warn("Slack card update failed", {
         agent_id: pressed.agentId,
-        error: error instanceof Error ? error.message : String(error),
+        error: messageOf(error),
       });
     }
   }
@@ -319,7 +319,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     } catch (error) {
       deps.logger.warn("Slack presser language unreadable; using the default", {
         agent_id: agentId,
-        error: error instanceof Error ? error.message : String(error),
+        error: messageOf(error),
       });
       return DEFAULT_USER_LOCALE;
     }
@@ -518,7 +518,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     } catch (error) {
       deps.logger.warn("Slack push flow not read", {
         agent_id: pressed.agentId,
-        code: error instanceof Error ? error.message : String(error),
+        code: messageOf(error),
       });
       await notice(pressed, "failed");
       return "failed";
@@ -587,7 +587,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       } catch (error) {
         deps.logger.warn("Slack push follow-up hold failed", {
           agent_id: pressed.agentId,
-          code: error instanceof Error ? error.message : String(error),
+          code: messageOf(error),
         });
       }
     }
@@ -638,7 +638,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       agent_id: pressed.agentId,
       session_id: value?.s ?? null,
       request_id: value?.r ?? null,
-      error: error instanceof Error ? error.message : String(error),
+      error: messageOf(error),
     });
   }
 
@@ -999,24 +999,12 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
   }
 
   return {
-    async receive(request: {
-      agentId: string;
-      rawBody: Uint8Array;
-      timestamp: string | null;
-      signature: string | null;
-    }): Promise<SlackInteractionOutcome> {
-      if (!UUID.test(request.agentId)) return { kind: "unauthorized" };
-      const agentId = request.agentId.toLowerCase();
-      const app = await deps.signingSecrets.forAgent(agentId);
-      if (app === null) return { kind: "unauthorized" };
-      const check = verifySlackSignature({
-        signingSecret: app.signingSecret,
-        timestamp: request.timestamp,
-        signature: request.signature,
-        rawBody: request.rawBody,
-        nowSeconds: Math.floor(now().getTime() / 1000),
-      });
-      if (check !== "ok") return { kind: "unauthorized" };
+    async receive(
+      request: SlackSignedRequest,
+    ): Promise<SlackInteractionOutcome> {
+      const verified = await verifySlackRequest(deps, request, now);
+      if (verified === null) return { kind: "unauthorized" };
+      const { agentId, app } = verified;
 
       let body: unknown;
       try {

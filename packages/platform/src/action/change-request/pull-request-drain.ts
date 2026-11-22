@@ -1,3 +1,4 @@
+import { messageOf } from "@werft-ai/runtime-core";
 import { startPolling } from "../../polling.ts";
 import {
   PULL_REQUEST_MAX_ATTEMPTS,
@@ -104,7 +105,7 @@ export function createPullRequestDrain(deps: {
       },
       (error) =>
         logger.warn("Pull request drain could not claim", {
-          error: error instanceof Error ? error.message : String(error),
+          error: messageOf(error),
         }),
     );
   }

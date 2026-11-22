@@ -23,6 +23,8 @@ import type {
   StoredLaunchIntent,
 } from "./ports/scheduler-store.ts";
 
+export { messageOf } from "@werft-ai/runtime-core";
+
 /** What every step of one pass reads: its settings resolved, its lock. */
 export type PassContext = {
   backend: ExecutionBackend;
@@ -155,8 +157,4 @@ export function countsAsLaunchFailure(error: unknown): boolean {
     error instanceof LaunchSpecMismatchError ||
     error instanceof LaunchOutcomeUnknownError
   );
-}
-
-export function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

@@ -1,4 +1,4 @@
-import { createHash, createPrivateKey, randomBytes } from "node:crypto";
+import { createPrivateKey, randomBytes } from "node:crypto";
 import {
   type CompleteGitHubAppManifestRequest,
   type CompleteGitHubAppManifestResponse,
@@ -35,6 +35,7 @@ import {
   SessionServiceError,
 } from "../../musterrolle/index.ts";
 import type { SecretAudit } from "../../ports/secret-store.ts";
+import { hashToken } from "../../token-hash.ts";
 import {
   GitHubAppCheckError,
   type GitHubAppCredential,
@@ -102,9 +103,6 @@ const ambiguousRole = () =>
     undefined,
     { reason_code: "ambiguous_role" },
   );
-
-const hashState = (state: string) =>
-  createHash("sha256").update(state, "utf8").digest();
 
 // managedStore has already refused anyone but a signed-in user.
 function userOf(caller: Caller): string {
@@ -461,7 +459,7 @@ export function createGitHubAppService(deps: {
       const login =
         body.owner.kind === "organization" ? body.owner.login : null;
       await manifests.states.issueState(
-        hashState(state),
+        hashToken(state),
         {
           workspaceId,
           actorUserId: userOf(caller),
@@ -514,7 +512,7 @@ export function createGitHubAppService(deps: {
         );
       }
       const body = await readBody();
-      const state = await manifests.states.consumeState(hashState(body.state));
+      const state = await manifests.states.consumeState(hashToken(body.state));
       const at = manifests.now?.() ?? new Date();
       const refusal =
         state === null
@@ -626,7 +624,7 @@ export function createGitHubAppService(deps: {
       );
       const state = randomBytes(32).toString("base64url");
       await installs.store.issueState(
-        hashState(state),
+        hashToken(state),
         {
           workspaceId,
           connectionId: record.id,
@@ -655,7 +653,7 @@ export function createGitHubAppService(deps: {
       const store = await managedStore(caller, workspaceId);
       const installs = installationsOn();
       const body = await readBody();
-      const state = await installs.store.consumeState(hashState(body.state));
+      const state = await installs.store.consumeState(hashToken(body.state));
       const at = installs.now?.() ?? new Date();
       const record =
         state === null

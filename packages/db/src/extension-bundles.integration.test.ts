@@ -1201,6 +1201,162 @@ integration("extension bundles on PostgreSQL", () => {
       ).toEqual({ outcome: "not_found" });
     });
 
+    const reviewsOf = async (workspaceId: string, name: string) =>
+      (
+        await db
+          .select({
+            version: extensionBundles.version,
+            review: extensionBundles.review,
+            reviewedBy: extensionBundles.reviewedBy,
+          })
+          .from(extensionBundles)
+          .where(
+            and(
+              eq(extensionBundles.workspaceId, workspaceId),
+              eq(extensionBundles.name, name),
+            ),
+          )
+      ).sort((a, b) => (a.version ?? 0) - (b.version ?? 0));
+
+    test("approving a version supersedes the older ones awaiting review, and a superseded one can still be approved", async () => {
+      const { service } = build();
+      const workspaceId = await workspace();
+      const owner = await person(workspaceId, "owner");
+      const admin = await person(workspaceId, "admin");
+      const [v1, v2, v3] = [
+        bundleOf(await registerSkill(service, owner, "research", "one\n")),
+        bundleOf(await registerSkill(service, owner, "research", "two\n")),
+        bundleOf(await registerSkill(service, owner, "research", "three\n")),
+      ];
+      const v4 = bundleOf(
+        await registerSkill(service, owner, "research", "four\n"),
+      );
+      const adminId = admin.actor?.userId ?? null;
+      const review = (bundleId: string, to: "approved" | "rejected") =>
+        service.review({ principal: admin, bundleId, review: to });
+      // Rejecting supersedes nothing.
+      await review(v2.id, "rejected");
+      expect((await reviewsOf(workspaceId, "research"))[0]?.review).toBe(
+        "pending",
+      );
+
+      expect(await review(v3.id, "approved")).toMatchObject({
+        bundle: { review: "approved", current: true },
+      });
+      expect(await reviewsOf(workspaceId, "research")).toEqual([
+        { version: 1, review: "superseded", reviewedBy: adminId },
+        { version: 2, review: "rejected", reviewedBy: adminId },
+        { version: 3, review: "approved", reviewedBy: adminId },
+        { version: 4, review: "pending", reviewedBy: null },
+      ]);
+      const [approval] = (await receiptsOf(workspaceId, "approve_extension"))
+        .map((row) => row.result as Record<string, unknown>)
+        .filter((result) => result.digest === v3.digest);
+      expect(approval).toMatchObject({
+        from: "pending",
+        review: "approved",
+        superseded: [{ id: v1.id, version: 1 }],
+      });
+
+      // A superseded version stays reviewable; approving it moves nothing.
+      expect(await review(v1.id, "approved")).toMatchObject({
+        outcome: "reviewed",
+        bundle: { review: "approved", current: false },
+      });
+      expect(await currentOf(workspaceId, "research")).toEqual([3]);
+      const again = (await receiptsOf(workspaceId, "approve_extension"))
+        .map((row) => row.result as Record<string, unknown>)
+        .filter((result) => result.digest === v1.digest);
+      expect(again).toEqual([
+        expect.objectContaining({ from: "superseded", review: "approved" }),
+      ]);
+      expect(again[0]).not.toHaveProperty("superseded");
+      expect(v4.review).toBe("pending");
+    });
+
+    test("revert still picks only an approved version, never a superseded one", async () => {
+      const { service, store } = build();
+      const workspaceId = await workspace();
+      const owner = await person(workspaceId, "owner");
+      const admin = await person(workspaceId, "admin");
+      const [v1, , v3] = [
+        bundleOf(await registerSkill(service, owner, "research", "one\n")),
+        bundleOf(await registerSkill(service, owner, "research", "two\n")),
+        bundleOf(await registerSkill(service, owner, "research", "three\n")),
+      ];
+      for (const id of [v1.id, v3.id]) {
+        await service.review({
+          principal: admin,
+          bundleId: id,
+          review: "approved",
+        });
+      }
+      expect((await reviewsOf(workspaceId, "research"))[1]?.review).toBe(
+        "superseded",
+      );
+      const revert = () =>
+        store.revert({
+          receiptId: randomUUID(),
+          workspaceId,
+          name: "research",
+          principal: admin,
+          managerRoles: ["owner", "admin"],
+        });
+      expect(await revert()).toMatchObject({
+        outcome: "reverted",
+        from: { version: 3 },
+        to: { id: v1.id, version: 1, current: true },
+      });
+      expect(await revert()).toEqual({ outcome: "no_previous_version" });
+      const [reverted] = await receiptsOf(workspaceId, "revert_extension");
+      expect(reverted?.result).not.toHaveProperty("superseded");
+      expect((await reviewsOf(workspaceId, "research"))[1]?.review).toBe(
+        "superseded",
+      );
+    });
+
+    test("a revert supersedes a version still awaiting review below the one it makes current", async () => {
+      const { service, store } = build();
+      const workspaceId = await workspace();
+      const owner = await person(workspaceId, "owner");
+      const admin = await person(workspaceId, "admin");
+      const [v1, v2, v3] = [
+        bundleOf(await registerSkill(service, owner, "research", "one\n")),
+        bundleOf(await registerSkill(service, owner, "research", "two\n")),
+        bundleOf(await registerSkill(service, owner, "research", "three\n")),
+      ];
+      for (const id of [v2.id, v3.id]) {
+        await service.review({
+          principal: admin,
+          bundleId: id,
+          review: "approved",
+        });
+      }
+      // What a replica from before superseding leaves: v1 still pending.
+      await db
+        .update(extensionBundles)
+        .set({ review: "pending", reviewedBy: null, reviewedAt: null })
+        .where(eq(extensionBundles.id, v1.id));
+      expect(
+        await store.revert({
+          receiptId: randomUUID(),
+          workspaceId,
+          name: "research",
+          principal: admin,
+          managerRoles: ["owner", "admin"],
+        }),
+      ).toMatchObject({ outcome: "reverted", to: { id: v2.id, version: 2 } });
+      expect((await reviewsOf(workspaceId, "research"))[0]).toEqual({
+        version: 1,
+        review: "superseded",
+        reviewedBy: admin.actor?.userId ?? null,
+      });
+      const [reverted] = await receiptsOf(workspaceId, "revert_extension");
+      expect(reverted?.result).toMatchObject({
+        superseded: [{ id: v1.id, version: 1 }],
+      });
+    });
+
     test("a following attachment lists the current version, or none while there is none; detach takes it back", async () => {
       const { service, store } = build();
       const workspaceId = await workspace();

@@ -5,7 +5,7 @@ import type {
   SlackUnpostedInstruction,
 } from "@werft-ai/platform";
 import { markdownToSlackMrkdwn, markdownToSlackParts } from "./slack-mrkdwn.ts";
-import { escapeSlackControls } from "./slack-presentation.ts";
+import { escapeSlackControls, isSafeLink } from "./slack-presentation.ts";
 
 /** chat.postMessage truncates `text` past this many characters. */
 export const SLACK_TEXT_MAX = 40_000;
@@ -58,16 +58,6 @@ export function slackInstructionSender(
   if (!name) return via;
   const suffix = ` (${via})`;
   return `${[...name].slice(0, SLACK_USERNAME_MAX - suffix.length).join("")}${suffix}`;
-}
-
-function isSafeLink(url: string): boolean {
-  if (/[<>|\s]/.test(url)) return false;
-  try {
-    const protocol = new URL(url).protocol;
-    return protocol === "https:" || protocol === "http:";
-  } catch {
-    return false;
-  }
 }
 
 /**

@@ -1007,6 +1007,24 @@ const COMMON_ERROR_CODES: Partial<Record<number, readonly ApiErrorCode[]>> = {
   503: ["BACKEND_UNAVAILABLE"],
 };
 
+// What an approval and a rejection of a push request are refused with.
+const PUSH_RESOLVE_REFUSALS: Pick<
+  RouteDeclaration,
+  "errors" | "errorCodes" | "errorNotes"
+> = {
+  errors: [...CONFLICTS, 413, 503],
+  errorCodes: {
+    403: ["FORBIDDEN"],
+    409: ["IDEMPOTENCY_CONFLICT", "PUSH_REQUEST_RESOLVED", "CHECKPOINT_MOVED"],
+  },
+  errorNotes: {
+    FORBIDDEN:
+      "Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`).",
+    CHECKPOINT_MOVED:
+      "Here: an approval whose `git_commit` is not the pinned one, or a session that checkpointed after the request; the request stays `requested`.",
+  },
+};
+
 // Example values shared across declarations, so the examples read as one
 // session's story.
 const EXAMPLE_SESSION_ID = "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01";
@@ -1083,6 +1101,26 @@ const EXAMPLE_ENV_VARIABLE = {
   engine_delivery: false,
   updated_by: EXAMPLE_USER_ID,
   updated_at: "2026-11-09T01:00:00.000Z",
+};
+const VARIABLE_PUT_REQUEST = { kind: "plain", value: "ap-northeast-1" };
+const VARIABLE_PUT_SUCCESS: RouteDeclaration["success"] = {
+  status: 200,
+  schema: "PutEnvVariableResponse",
+  description: "The variable's new `version` and its `grant_version`.",
+  example: { name: "REGION", version: 44, grant_version: 42 },
+};
+const VARIABLE_PUT_ERROR_CODES: RouteDeclaration["errorCodes"] = {
+  400: [
+    "BAD_REQUEST",
+    "VARIABLE_NAME_INVALID",
+    "VARIABLE_NAME_RESERVED",
+    "VARIABLE_VALUE_INVALID",
+    "VARIABLE_VALUE_TOO_LARGE",
+    "SECRET_ENV_UNSUPPORTED",
+  ],
+  409: ["VARIABLE_QUOTA_EXCEEDED"],
+  412: ["VERSION_MISMATCH"],
+  428: ["PRECONDITION_REQUIRED"],
 };
 const EXAMPLE_WORKSPACE_MCP_SERVER_ID = "6a1f0c2e-9b4d-4e7a-8c3f-1d5e7b9a2c40";
 const EXAMPLE_WORKSPACE_MCP_SERVER = {
@@ -1186,6 +1224,51 @@ const EXAMPLE_SKILL_ATTACHMENT = {
     mode: "required",
   },
   receipt_id: EXAMPLE_RECEIPT_ID,
+};
+const EXAMPLE_SLACK_CONFIG_TOKEN_SUMMARY = {
+  configured: true,
+  last4: "a9f3",
+  updated_at: "2026-10-23T09:00:00Z",
+  updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
+  urls: {
+    redirect_url: "https://werft.example.com/settings/linked-accounts/slack",
+    events_url_template: "https://werft.example.com/v1/slack/events/{agent_id}",
+  },
+  state: "active",
+  expires_at: "2026-10-23T21:00:00Z",
+  issuer: { user_id: "U0ISSUER", team_id: "T0TEAM" },
+};
+const EXAMPLE_AUTHOR_GITHUB_APP = {
+  app_id: 123456,
+  slug: "acme-agents",
+  name: "Acme agents",
+  html_url: "https://github.com/apps/acme-agents",
+  private_key: {
+    updated_at: "2026-10-30T09:00:00Z",
+    updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
+  },
+  created_at: "2026-10-30T09:00:00Z",
+  updated_at: "2026-10-30T09:00:00Z",
+};
+const EXAMPLE_REVIEWER_GITHUB_APP = {
+  role: "reviewer",
+  app_id: 234567,
+  slug: "acme-reviewer",
+  name: "Acme reviewer",
+  html_url: "https://github.com/apps/acme-reviewer",
+  private_key: {
+    updated_at: "2026-10-30T09:00:00Z",
+    updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
+  },
+  created_at: "2026-10-30T09:00:00Z",
+  updated_at: "2026-10-30T09:00:00Z",
+  permissions: {
+    contents: "read",
+    metadata: "read",
+    pull_requests: "write",
+  },
+  permissions_checked_at: "2026-10-30T09:00:00Z",
+  warnings: [],
 };
 const EXAMPLE_SLACK_APP_REDIRECT = `https://console.example.ts.net/agents/${EXAMPLE_AGENT_ID}/slack/callback`;
 const EXAMPLE_SLACK_APP = {
@@ -2011,21 +2094,7 @@ export const API_ROUTE_DECLARATIONS = [
       status: 200,
       schema: "SlackConfigTokenSummary",
       description: "The token's state; never its value.",
-      example: {
-        configured: true,
-        last4: "a9f3",
-        updated_at: "2026-10-23T09:00:00Z",
-        updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
-        urls: {
-          redirect_url:
-            "https://werft.example.com/settings/linked-accounts/slack",
-          events_url_template:
-            "https://werft.example.com/v1/slack/events/{agent_id}",
-        },
-        state: "active",
-        expires_at: "2026-10-23T21:00:00Z",
-        issuer: { user_id: "U0ISSUER", team_id: "T0TEAM" },
-      },
+      example: EXAMPLE_SLACK_CONFIG_TOKEN_SUMMARY,
     },
     errors: [401, 403, 404, 503],
   },
@@ -2047,19 +2116,7 @@ export const API_ROUTE_DECLARATIONS = [
       description:
         "Stored; the summary as GET now answers it, the receipt and any warnings.",
       example: {
-        configured: true,
-        last4: "a9f3",
-        updated_at: "2026-10-23T09:00:00Z",
-        updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
-        urls: {
-          redirect_url:
-            "https://werft.example.com/settings/linked-accounts/slack",
-          events_url_template:
-            "https://werft.example.com/v1/slack/events/{agent_id}",
-        },
-        state: "active",
-        expires_at: "2026-10-23T21:00:00Z",
-        issuer: { user_id: "U0ISSUER", team_id: "T0TEAM" },
+        ...EXAMPLE_SLACK_CONFIG_TOKEN_SUMMARY,
         receipt_id: EXAMPLE_RECEIPT_ID,
         warnings: [],
       },
@@ -2105,18 +2162,7 @@ export const API_ROUTE_DECLARATIONS = [
       schema: "GetGitHubAppResponse",
       description: "The App and its installations; never the private key.",
       example: {
-        github_app: {
-          app_id: 123456,
-          slug: "acme-agents",
-          name: "Acme agents",
-          html_url: "https://github.com/apps/acme-agents",
-          private_key: {
-            updated_at: "2026-10-30T09:00:00Z",
-            updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
-          },
-          created_at: "2026-10-30T09:00:00Z",
-          updated_at: "2026-10-30T09:00:00Z",
-        },
+        github_app: EXAMPLE_AUTHOR_GITHUB_APP,
         check: { state: "ok" },
         installations: [
           {
@@ -2157,18 +2203,7 @@ export const API_ROUTE_DECLARATIONS = [
       schema: "PutGitHubAppResponse",
       description: "Stored; the App as GET now answers it, and the receipt.",
       example: {
-        github_app: {
-          app_id: 123456,
-          slug: "acme-agents",
-          name: "Acme agents",
-          html_url: "https://github.com/apps/acme-agents",
-          private_key: {
-            updated_at: "2026-10-30T09:00:00Z",
-            updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
-          },
-          created_at: "2026-10-30T09:00:00Z",
-          updated_at: "2026-10-30T09:00:00Z",
-        },
+        github_app: EXAMPLE_AUTHOR_GITHUB_APP,
         receipt_id: EXAMPLE_RECEIPT_ID,
       },
     },
@@ -2214,26 +2249,7 @@ export const API_ROUTE_DECLARATIONS = [
       schema: "GetGitHubAppResponse",
       description: "The App and its installations; never the private key.",
       example: {
-        github_app: {
-          role: "reviewer",
-          app_id: 234567,
-          slug: "acme-reviewer",
-          name: "Acme reviewer",
-          html_url: "https://github.com/apps/acme-reviewer",
-          private_key: {
-            updated_at: "2026-10-30T09:00:00Z",
-            updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
-          },
-          created_at: "2026-10-30T09:00:00Z",
-          updated_at: "2026-10-30T09:00:00Z",
-          permissions: {
-            contents: "read",
-            metadata: "read",
-            pull_requests: "write",
-          },
-          permissions_checked_at: "2026-10-30T09:00:00Z",
-          warnings: [],
-        },
+        github_app: EXAMPLE_REVIEWER_GITHUB_APP,
         check: { state: "ok" },
         installations: [
           {
@@ -2281,26 +2297,7 @@ export const API_ROUTE_DECLARATIONS = [
       schema: "PutGitHubAppResponse",
       description: "Stored; the App as GET now answers it, and the receipt.",
       example: {
-        github_app: {
-          role: "reviewer",
-          app_id: 234567,
-          slug: "acme-reviewer",
-          name: "Acme reviewer",
-          html_url: "https://github.com/apps/acme-reviewer",
-          private_key: {
-            updated_at: "2026-10-30T09:00:00Z",
-            updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
-          },
-          created_at: "2026-10-30T09:00:00Z",
-          updated_at: "2026-10-30T09:00:00Z",
-          permissions: {
-            contents: "read",
-            metadata: "read",
-            pull_requests: "write",
-          },
-          permissions_checked_at: "2026-10-30T09:00:00Z",
-          warnings: [],
-        },
+        github_app: EXAMPLE_REVIEWER_GITHUB_APP,
         receipt_id: EXAMPLE_RECEIPT_ID,
       },
     },
@@ -4489,21 +4486,7 @@ export const API_ROUTE_DECLARATIONS = [
         resolution_receipt_id: "e1d2c3b4-a5f6-4789-9abc-def012345678",
       },
     },
-    errors: [...CONFLICTS, 413, 503],
-    errorCodes: {
-      403: ["FORBIDDEN"],
-      409: [
-        "IDEMPOTENCY_CONFLICT",
-        "PUSH_REQUEST_RESOLVED",
-        "CHECKPOINT_MOVED",
-      ],
-    },
-    errorNotes: {
-      FORBIDDEN:
-        "Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`).",
-      CHECKPOINT_MOVED:
-        "Here: an approval whose `git_commit` is not the pinned one, or a session that checkpointed after the request; the request stays `requested`.",
-    },
+    ...PUSH_RESOLVE_REFUSALS,
   },
   {
     method: "post",
@@ -4531,21 +4514,7 @@ export const API_ROUTE_DECLARATIONS = [
         resolution_receipt_id: "e1d2c3b4-a5f6-4789-9abc-def012345678",
       },
     },
-    errors: [...CONFLICTS, 413, 503],
-    errorCodes: {
-      403: ["FORBIDDEN"],
-      409: [
-        "IDEMPOTENCY_CONFLICT",
-        "PUSH_REQUEST_RESOLVED",
-        "CHECKPOINT_MOVED",
-      ],
-    },
-    errorNotes: {
-      FORBIDDEN:
-        "Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`).",
-      CHECKPOINT_MOVED:
-        "Here: an approval whose `git_commit` is not the pinned one, or a session that checkpointed after the request; the request stays `requested`.",
-    },
+    ...PUSH_RESOLVE_REFUSALS,
   },
   {
     method: "post",
@@ -5851,27 +5820,10 @@ export const API_ROUTE_DECLARATIONS = [
       "Owners and admins, signed in as a person; never an API key. `If-None-Match: *` creates, `If-Match: <version>` replaces the value. A new variable reaches no agent until it is granted. Only `kind: plain` is accepted for now: a secret answers 400 SECRET_ENV_UNSUPPORTED. The value is text of at most 48 KB without NUL bytes. Writes a `set_env_variable` receipt that names the variable and its version, never the value.",
     auth: "session",
     body: "PutEnvVariableRequest",
-    requestExample: { kind: "plain", value: "ap-northeast-1" },
-    success: {
-      status: 200,
-      schema: "PutEnvVariableResponse",
-      description: "The variable's new `version` and its `grant_version`.",
-      example: { name: "REGION", version: 44, grant_version: 42 },
-    },
+    requestExample: VARIABLE_PUT_REQUEST,
+    success: VARIABLE_PUT_SUCCESS,
     errors: [400, 401, 403, 409, 412, 413, 428, 503],
-    errorCodes: {
-      400: [
-        "BAD_REQUEST",
-        "VARIABLE_NAME_INVALID",
-        "VARIABLE_NAME_RESERVED",
-        "VARIABLE_VALUE_INVALID",
-        "VARIABLE_VALUE_TOO_LARGE",
-        "SECRET_ENV_UNSUPPORTED",
-      ],
-      409: ["VARIABLE_QUOTA_EXCEEDED"],
-      412: ["VERSION_MISMATCH"],
-      428: ["PRECONDITION_REQUIRED"],
-    },
+    errorCodes: VARIABLE_PUT_ERROR_CODES,
     ifMatch: "version",
     ifNoneMatch: true,
     idempotent: false,
@@ -6619,27 +6571,10 @@ export const API_ROUTE_DECLARATIONS = [
       "Owners, admins and that agent's admins, signed in as a person; never an API key. Preconditions, limits and receipt as for the workspace's variables; an agent holds 50. The agent's value wins over a workspace value of the same name.",
     auth: "session",
     body: "PutEnvVariableRequest",
-    requestExample: { kind: "plain", value: "ap-northeast-1" },
-    success: {
-      status: 200,
-      schema: "PutEnvVariableResponse",
-      description: "The variable's new `version` and its `grant_version`.",
-      example: { name: "REGION", version: 44, grant_version: 42 },
-    },
+    requestExample: VARIABLE_PUT_REQUEST,
+    success: VARIABLE_PUT_SUCCESS,
     errors: [400, 401, 403, 404, 409, 412, 413, 428, 503],
-    errorCodes: {
-      400: [
-        "BAD_REQUEST",
-        "VARIABLE_NAME_INVALID",
-        "VARIABLE_NAME_RESERVED",
-        "VARIABLE_VALUE_INVALID",
-        "VARIABLE_VALUE_TOO_LARGE",
-        "SECRET_ENV_UNSUPPORTED",
-      ],
-      409: ["VARIABLE_QUOTA_EXCEEDED"],
-      412: ["VERSION_MISMATCH"],
-      428: ["PRECONDITION_REQUIRED"],
-    },
+    errorCodes: VARIABLE_PUT_ERROR_CODES,
     ifMatch: "version",
     ifNoneMatch: true,
     idempotent: false,

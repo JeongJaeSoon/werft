@@ -7,6 +7,7 @@ import type {
   SlackOutboxSettle,
   SlackOutboxStore,
 } from "@werft-ai/platform";
+import { messageOf } from "@werft-ai/platform";
 import type { RowDelivery } from "./outbox-delivery.ts";
 import {
   SLACK_CARD_SETTLE_TIMING,
@@ -198,7 +199,7 @@ export async function drainSlackOutbox(deps: {
         drain.statuses = statuses.sent;
       } catch (error) {
         deps.logger.warn("Slack status step failed; going on", {
-          error: error instanceof Error ? error.message : String(error),
+          error: messageOf(error),
         });
       }
     }
@@ -218,7 +219,7 @@ export async function drainSlackOutbox(deps: {
       drain.cards = settled.sent;
     } catch (error) {
       deps.logger.warn("Slack card step failed; going on", {
-        error: error instanceof Error ? error.message : String(error),
+        error: messageOf(error),
       });
     }
   };

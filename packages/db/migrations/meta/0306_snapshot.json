@@ -1,5 +1,5 @@
 {
-  "id": "f21357a1-2b19-4c69-ab32-068d41c55746",
+  "id": "2c27956b-91d9-4fde-9c34-4fb7eeaffbc4",
   "prevId": "94b40103-8777-454a-8f1c-906e5b5afb39",
   "version": "7",
   "dialect": "postgresql",
@@ -3968,71 +3968,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.channel_contexts": {
-      "name": "channel_contexts",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "team_id": {
-          "name": "team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "channel_id": {
-          "name": "channel_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "channel_contexts_workspace_id_workspaces_id_fk": {
-          "name": "channel_contexts_workspace_id_workspaces_id_fk",
-          "tableFrom": "channel_contexts",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "channel_contexts_channel_uniq": {
-          "name": "channel_contexts_channel_uniq",
-          "nullsNotDistinct": false,
-          "columns": ["workspace_id", "team_id", "channel_id"]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "channel_contexts_ids_check": {
-          "name": "channel_contexts_ids_check",
-          "value": "\"channel_contexts\".\"team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"channel_contexts\".\"channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$'"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.checkpoint_output_objects": {
       "name": "checkpoint_output_objects",
       "schema": "",
@@ -4659,225 +4594,6 @@
         "control_intents_interrupt_target_check": {
           "name": "control_intents_interrupt_target_check",
           "value": "\"control_intents\".\"kind\" <> 'interrupt' OR (\"control_intents\".\"target_turn_id\" IS NOT NULL AND \"control_intents\".\"attempt_id\" IS NOT NULL)"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.conversation_topics": {
-      "name": "conversation_topics",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "conversation_id": {
-          "name": "conversation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slack_team_id": {
-          "name": "slack_team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "slack_channel_id": {
-          "name": "slack_channel_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "slack_thread_ts": {
-          "name": "slack_thread_ts",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "conversation_topics_conversation_idx": {
-          "name": "conversation_topics_conversation_idx",
-          "columns": [
-            {
-              "expression": "conversation_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "conversation_topics_conversation_fk": {
-          "name": "conversation_topics_conversation_fk",
-          "tableFrom": "conversation_topics",
-          "tableTo": "conversations",
-          "columnsFrom": ["workspace_id", "agent_id", "conversation_id"],
-          "columnsTo": ["workspace_id", "agent_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "conversation_topics_slack_uniq": {
-          "name": "conversation_topics_slack_uniq",
-          "nullsNotDistinct": false,
-          "columns": [
-            "agent_id",
-            "slack_team_id",
-            "slack_channel_id",
-            "slack_thread_ts"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "conversation_topics_slack_check": {
-          "name": "conversation_topics_slack_check",
-          "value": "(\"conversation_topics\".\"slack_team_id\" IS NULL AND \"conversation_topics\".\"slack_channel_id\" IS NULL AND \"conversation_topics\".\"slack_thread_ts\" IS NULL) OR (\"conversation_topics\".\"slack_team_id\" IS NOT NULL AND \"conversation_topics\".\"slack_channel_id\" IS NOT NULL AND \"conversation_topics\".\"slack_thread_ts\" IS NOT NULL AND \"conversation_topics\".\"slack_team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_topics\".\"slack_channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_topics\".\"slack_thread_ts\" ~ '^[0-9]{1,20}\\.[0-9]{1,20}$')"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.conversations": {
-      "name": "conversations",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "team_id": {
-          "name": "team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "channel_id": {
-          "name": "channel_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "person_user_id": {
-          "name": "person_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "conversations_agent_fk": {
-          "name": "conversations_agent_fk",
-          "tableFrom": "conversations",
-          "tableTo": "agents",
-          "columnsFrom": ["workspace_id", "agent_id"],
-          "columnsTo": ["workspace_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "conversations_channel_fk": {
-          "name": "conversations_channel_fk",
-          "tableFrom": "conversations",
-          "tableTo": "channel_contexts",
-          "columnsFrom": ["workspace_id", "team_id", "channel_id"],
-          "columnsTo": ["workspace_id", "team_id", "channel_id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "conversations_person_fk": {
-          "name": "conversations_person_fk",
-          "tableFrom": "conversations",
-          "tableTo": "memberships",
-          "columnsFrom": ["workspace_id", "person_user_id"],
-          "columnsTo": ["workspace_id", "user_id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "conversations_channel_uniq": {
-          "name": "conversations_channel_uniq",
-          "nullsNotDistinct": false,
-          "columns": ["agent_id", "team_id", "channel_id"]
-        },
-        "conversations_dm_uniq": {
-          "name": "conversations_dm_uniq",
-          "nullsNotDistinct": false,
-          "columns": ["agent_id", "person_user_id"]
-        },
-        "conversations_agent_id_key": {
-          "name": "conversations_agent_id_key",
-          "nullsNotDistinct": false,
-          "columns": ["workspace_id", "agent_id", "id"]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "conversations_kind_check": {
-          "name": "conversations_kind_check",
-          "value": "\"conversations\".\"kind\" IN ('channel','dm')"
-        },
-        "conversations_place_check": {
-          "name": "conversations_place_check",
-          "value": "(\"conversations\".\"kind\" = 'channel' AND \"conversations\".\"team_id\" IS NOT NULL AND \"conversations\".\"channel_id\" IS NOT NULL AND \"conversations\".\"person_user_id\" IS NULL) OR (\"conversations\".\"kind\" = 'dm' AND \"conversations\".\"person_user_id\" IS NOT NULL AND \"conversations\".\"team_id\" IS NULL AND \"conversations\".\"channel_id\" IS NULL)"
         }
       },
       "isRLSEnabled": false
@@ -6018,7 +5734,7 @@
         },
         "extension_bundles_review_check": {
           "name": "extension_bundles_review_check",
-          "value": "\"extension_bundles\".\"review\" IN ('pending','approved','rejected')"
+          "value": "\"extension_bundles\".\"review\" IN ('pending','approved','rejected','superseded')"
         },
         "extension_bundles_review_actor_check": {
           "name": "extension_bundles_review_actor_check",
@@ -6026,7 +5742,7 @@
         },
         "extension_bundles_auto_review_check": {
           "name": "extension_bundles_auto_review_check",
-          "value": "\"extension_bundles\".\"reviewed_at\" IS NULL OR \"extension_bundles\".\"reviewed_by\" IS NOT NULL OR (\"extension_bundles\".\"review\" = 'approved' AND \"extension_bundles\".\"git\" IS NOT NULL)"
+          "value": "\"extension_bundles\".\"reviewed_at\" IS NULL OR \"extension_bundles\".\"reviewed_by\" IS NOT NULL OR (\"extension_bundles\".\"review\" = 'approved' AND \"extension_bundles\".\"git\" IS NOT NULL) OR \"extension_bundles\".\"review\" = 'superseded'"
         },
         "extension_bundles_size_check": {
           "name": "extension_bundles_size_check",

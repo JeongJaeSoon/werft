@@ -1072,6 +1072,22 @@ test("a container started under another inode limit, or before one, is stale", (
   ).toBe(isolationStampFor(base));
 });
 
+// Every running container carries one of these; a different value marks them
+// all stale at once.
+test("the isolation stamps of this config are pinned", () => {
+  const base = configFor("unix:///fake.sock");
+  const got = { maxTurnSeconds: 900, providerMaxRetries: 2 };
+  expect([
+    isolationStampFor(base),
+    legacyIsolationStampFor(base, got),
+    legacyIsolationStampFor(base, null),
+  ]).toEqual([
+    "7:fb5e57a1b912665c",
+    "7:fffbdeddc7b2ee40",
+    "7:9a3522d0af15ca6a",
+  ]);
+});
+
 test("the isolation stamp leaves the worker limits to the launch", () => {
   const base = configFor("unix:///fake.sock");
   const limited = {

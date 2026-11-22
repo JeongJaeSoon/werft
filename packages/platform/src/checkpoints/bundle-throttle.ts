@@ -1,3 +1,5 @@
+import { messageOf } from "@werft-ai/runtime-core";
+
 // Bundles cooling down at once. A full table forgets the oldest entry, which
 // only lets that bundle be verified again early.
 export const MAX_COOLING_BUNDLES = 1024;
@@ -23,7 +25,7 @@ function createCooldown(cooldownMs: number, clock: () => number) {
     start(id: string, key: string, cause: unknown) {
       if (cooldownMs === 0) return;
       const until = clock() + cooldownMs;
-      const reason = cause instanceof Error ? cause.message : String(cause);
+      const reason = messageOf(cause);
       entries.delete(id);
       entries.set(id, {
         error: new Error(

@@ -6,7 +6,11 @@ import {
   mcpUpstreamOf,
   type SessionCatalog,
 } from "../catalog/index.ts";
-import type { McpEgressStore, McpRefusalReason } from "./ports/mcp-egress.ts";
+import type {
+  McpEgressStore,
+  McpRefusalReason,
+  RefusalRecord,
+} from "./ports/mcp-egress.ts";
 
 /**
  * The remote MCP route's decision, made on every exchange the egress proxy
@@ -79,6 +83,32 @@ export function uuidV5(name: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+/**
+ * Writes the refusal's receipt, then refuses. A receipt that cannot be
+ * written still refuses, only without naming it.
+ */
+export async function recordAndRefuse<Result>(
+  store: { recordRefusal(record: RefusalRecord<Result>): Promise<void> },
+  record: RefusalRecord<Result>,
+  deps: { onReceiptError?: (error: unknown) => void },
+): Promise<McpEgressDecision> {
+  const { id, message } = record;
+  let recorded = true;
+  try {
+    await store.recordRefusal(record);
+  } catch (error) {
+    recorded = false;
+    deps.onReceiptError?.(error);
+  }
+  return {
+    kind: "refused",
+    status: 403,
+    code: "CREDENTIAL_UNBOUND",
+    message,
+    ...(recorded ? { receiptId: id } : {}),
+  };
+}
+
 export function forbidden(message: string): McpEgressDecision {
   return { kind: "refused", status: 403, code: "FORBIDDEN", message };
 }
@@ -126,9 +156,9 @@ export function createMcpEgress(deps: {
           status,
         ]),
       );
-      let recorded = true;
-      try {
-        await store.recordRefusal({
+      return recordAndRefuse(
+        store,
+        {
           id: receiptId,
           ownerId: state.ownerId,
           sessionId: fenced.sessionId,
@@ -143,18 +173,9 @@ export function createMcpEgress(deps: {
             reason: why,
           },
           message: REFUSAL_MESSAGES[why],
-        });
-      } catch (error) {
-        recorded = false;
-        deps.onReceiptError?.(error);
-      }
-      return {
-        kind: "refused",
-        status: 403,
-        code: "CREDENTIAL_UNBOUND",
-        message: REFUSAL_MESSAGES[why],
-        ...(recorded ? { receiptId } : {}),
-      };
+        },
+        deps,
+      );
     }
     const { method, tool } = request.rpc;
     if (method !== null && !mcpMethodRouted(method)) {

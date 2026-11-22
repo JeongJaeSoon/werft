@@ -27,6 +27,7 @@ export const skillsKo = {
   "skills.review.pending": "승인 대기",
   "skills.review.approved": "승인됨",
   "skills.review.rejected": "거절됨",
+  "skills.review.superseded": "대체됨",
   "skills.archived": "보관됨",
   "skills.versions.title": "버전 기록",
   "skills.versions.description":
@@ -240,6 +241,7 @@ export const skillsEn = {
   "skills.review.pending": "Awaiting review",
   "skills.review.approved": "Approved",
   "skills.review.rejected": "Rejected",
+  "skills.review.superseded": "Superseded",
   "skills.archived": "Archived",
   "skills.versions.title": "Versions",
   "skills.versions.description":
@@ -455,6 +457,7 @@ export const skillsJa = {
   "skills.review.pending": "承認待ち",
   "skills.review.approved": "承認済み",
   "skills.review.rejected": "却下",
+  "skills.review.superseded": "置き換え済み",
   "skills.archived": "アーカイブ済み",
   "skills.versions.title": "バージョン履歴",
   "skills.versions.description":

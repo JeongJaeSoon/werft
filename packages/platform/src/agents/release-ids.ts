@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   type AgentCard,
   type AgentRelease,
@@ -15,6 +14,7 @@ import {
   type SpecSource,
   type ToolPolicy,
 } from "@werft-ai/contracts";
+import { sha256Hex } from "@werft-ai/runtime-core";
 import {
   type CatalogConnectionView,
   connectionModels,
@@ -82,10 +82,6 @@ export function movedPermissionMode(
 // one by accident. 5: the release names its connection and the runtime its
 // snapshot holds.
 export const RELEASE_ID_VERSION = 5;
-
-function sha256Hex(text: string): string {
-  return createHash("sha256").update(text, "utf8").digest("hex");
-}
 
 export function cardContentSha256(card: AgentCard): string {
   return sha256Hex(canonicalJsonOfJson(card));

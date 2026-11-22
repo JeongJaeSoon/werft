@@ -41,6 +41,7 @@ import {
   restoreCwdRefusal,
   runtimeFor,
   type StoredOutput,
+  sha256Hex,
   storedOutputs,
   TRANSCRIPT_LIMITS,
   TRANSCRIPT_MIRROR_DIRECTORY,
@@ -499,7 +500,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     signal.throwIfAborted();
     if (
       manifestBytes === undefined ||
-      sha256(manifestBytes) !== restoring.manifest_sha256
+      sha256Hex(manifestBytes) !== restoring.manifest_sha256
     ) {
       throw new RestoreRefused(
         "CHECKPOINT_UNAVAILABLE",
@@ -1237,7 +1238,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     const distinct = new Map<string, Uint8Array>();
     let unchanged = 0;
     const untracked: WorkspaceArtifact[] = capture.untracked.map((file) => {
-      const digest = sha256(file.bytes);
+      const digest = sha256Hex(file.bytes);
       const earlier = previousUntracked.get(file.path);
       const same =
         earlier !== undefined &&
@@ -1292,7 +1293,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
               ? {}
               : { limits: this.#options.outputLimits }),
             store: async ({ bytes, path }) => {
-              const digest = sha256(bytes);
+              const digest = sha256Hex(bytes);
               const earlier = earlierOutputs.get(digest);
               if (earlier !== undefined && earlier.bytes === bytes.byteLength) {
                 outputsInherited += 1;
@@ -1791,11 +1792,7 @@ function distinctRefs(untracked: readonly WorkspaceArtifact[]): ObjectRef[] {
 }
 
 function refOf(key: string, bytes: Uint8Array): ObjectRef {
-  return { bytes: bytes.byteLength, key, sha256: sha256(bytes) };
-}
-
-function sha256(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
+  return { bytes: bytes.byteLength, key, sha256: sha256Hex(bytes) };
 }
 
 async function inBatches<T>(
