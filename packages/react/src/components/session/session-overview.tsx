@@ -138,8 +138,12 @@ export interface SessionOverviewRowMessages {
   readonly channel: (channel: SurfaceKind) => string;
   /** The duration of a session still at work: "진행 중". */
   readonly inProgress: string;
-  /** Stands in for a value the session does not have: agent, channel, time. */
+  /** Stands in for a value the session does not have: channel, time. */
   readonly unknown: string;
+  /** The agent cell of a session made without an agent: "에이전트 없음". */
+  readonly agentNone: string;
+  /** The agent cell when the server hid the agent from the viewer: "볼 수 없는 에이전트". */
+  readonly agentHidden: string;
   /** Names the row's opener, e.g. "세션 열기: 배포 점검"; the name alone if unset. */
   readonly open?: ((name: string) => string) | undefined;
   /** The mark beside a preview session's title: "미리보기"; none if unset. */
@@ -279,7 +283,13 @@ export function SessionOverviewRow({
       </GridTableCell>
       <GridTableCell>
         <span className="min-w-0 truncate">
-          {session.agent?.name ?? messages.unknown}
+          {session.agent ? (
+            session.agent.name
+          ) : (
+            <span className="text-subtle-foreground">
+              {session.agent_hidden ? messages.agentHidden : messages.agentNone}
+            </span>
+          )}
         </span>
       </GridTableCell>
       <GridTableCell hideNarrow={true}>

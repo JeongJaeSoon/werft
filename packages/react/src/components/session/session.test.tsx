@@ -409,6 +409,8 @@ const OVERVIEW_MESSAGES = {
   channel: (channel: string) => `channel:${channel}`,
   inProgress: "in progress",
   unknown: "—",
+  agentNone: "에이전트 없음",
+  agentHidden: "볼 수 없는 에이전트",
 };
 
 const HEAD = {
@@ -501,14 +503,35 @@ describe("SessionOverviewRow", () => {
     );
   });
 
-  test("제목이 없으면 짧은 ID를 mono로 보이고 링크 이름은 전체 ID이며, 에이전트가 없으면 —다", () => {
+  test("제목이 없으면 짧은 ID를 mono로 보이고 링크 이름은 전체 ID이며, 에이전트가 없으면 '에이전트 없음'이다", () => {
     const { getByRole, getByText } = overviewRow(SESSION);
     const link = getByRole("link", { name: SESSION.id });
     expect(getByText(SESSION.id.slice(0, 8)).className).toContain("font-mono");
     const cells = cellsOf(link.closest('[role="row"]'));
-    expect(cells[1]?.textContent).toBe("—");
+    expect(cells[1]?.textContent).toBe("에이전트 없음");
     // An older session without a channel: a dash, not a guessed icon.
     expect(cells[2]?.textContent).toBe("—");
+  });
+
+  test("서버가 에이전트를 가린 세션은 '에이전트 없음'이 아니라 '볼 수 없는 에이전트'를 흐린 글자로 쓴다", () => {
+    const { getAllByRole, getByText } = overviewRow({
+      ...SESSION,
+      agent: null,
+      agent_hidden: true,
+    });
+    expect(cellsOf(getAllByRole("row")[1])[1]?.textContent).toBe(
+      "볼 수 없는 에이전트",
+    );
+    expect(getByText("볼 수 없는 에이전트").className).toContain(
+      "text-subtle-foreground",
+    );
+  });
+
+  test("에이전트 이름은 흐리지 않는다", () => {
+    const { getByText } = overviewRow({ ...SESSION, agent: AGENT });
+    expect(getByText("Release helper").className).not.toContain(
+      "text-subtle-foreground",
+    );
   });
 
   test("채널은 Slack 로고·웹·API 아이콘이고 이름은 스크린 리더와 툴팁으로 읽는다", () => {

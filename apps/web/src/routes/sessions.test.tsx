@@ -992,8 +992,9 @@ describe("sessions list", () => {
     expect(within(row).getByText(SESSION_ID.slice(0, 8))).toBeTruthy();
     const untitled = screen.getByRole("link", { name: opener(OTHER_ID) });
     const bare = untitled.closest('[role="row"]') as HTMLElement;
-    // No agent and no channel in the summary: placeholders, not guesses.
-    expect(within(bare).getAllByText("—")).toHaveLength(2);
+    // No agent and no channel in the summary: what is known, not guesses.
+    expect(within(bare).getByText("에이전트 없음")).toBeTruthy();
+    expect(within(bare).getAllByText("—")).toHaveLength(1);
   });
 
   test("a row shows its agent and its channel, not who started it", async () => {
@@ -4207,17 +4208,21 @@ describe("세션의 릴리스", () => {
   });
 
   test.each([
-    ["에이전트 없이 만든 세션", { agent: null }],
-    ["볼 수 없는 에이전트의 세션", { agent: null, agent_hidden: true }],
+    ["에이전트 없이 만든 세션", { agent: null }, "에이전트 없음"],
+    [
+      "볼 수 없는 에이전트의 세션",
+      { agent: null, agent_hidden: true },
+      "볼 수 없는 에이전트",
+    ],
   ])(
-    "%s의 에이전트 조각은 '에이전트 없음'뿐이고 릴리스를 그리지 않는다",
-    async (_, body) => {
+    "%s의 에이전트 조각은 '%s'뿐이고 릴리스를 그리지 않는다",
+    async (_, body, words) => {
       renderAt(`/sessions/${SESSION_ID}`, withSession(body));
       const meta = await sessionMeta();
       // The words stand alone, so their own element is the agent piece.
-      const piece = await within(meta).findByText("에이전트 없음");
-      expect(piece.textContent).toBe("에이전트: 에이전트 없음");
-      expect(spoken(piece)).toBe("에이전트: 에이전트 없음");
+      const piece = await within(meta).findByText(words);
+      expect(piece.textContent).toBe(`에이전트: ${words}`);
+      expect(spoken(piece)).toBe(`에이전트: ${words}`);
       expect(within(piece).queryByRole("link") === null).toBe(true);
       expect(piece.querySelectorAll("[data-slot=text]")).toHaveLength(0);
       // Nor anywhere else on the line, outside the piece.
