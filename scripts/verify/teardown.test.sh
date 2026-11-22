@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for teardown-lib.sh, down.sh, rm-volumes.sh and janitor.sh's dry run,
 # against a fake `docker` that only logs. Nothing here touches a real Docker.
-#   bash .claude/skills/verify-werft/scripts/teardown.test.sh
+#   bash scripts/verify/teardown.test.sh
 set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)

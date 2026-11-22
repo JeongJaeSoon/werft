@@ -654,7 +654,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       "tests/fixtures/settings/real-model.json": "sample-app",
       "tests/fixtures/settings/fake-model.json": "sample-app",
       "tests/fixtures/settings/local-model.json": "sample-app",
-      ".claude/skills/verify-werft/github-sandbox/settings.json": "sample-app",
+      "scripts/verify/github-sandbox/settings.json": "sample-app",
       "scripts/d2-gate/settings.json": "gate-app",
     };
     for (const [path, repository] of Object.entries(documents)) {

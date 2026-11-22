@@ -2,7 +2,7 @@
 
 로그인 공급자의 흐름 전체를 이 저장소가 쓰지 않은 서버로 확인한다. `keycloak-up.sh`가 띄운 run에는 realm `werft`를 가진 Keycloak이 API와 같은 네트워크 이름공간에 있어, API와 이 머신의 브라우저가 같은 issuer(`http://localhost:<KEYCLOAK_PORT>/realms/werft`)를 본다. owner가 화면으로 공급자를 더하고, Keycloak의 로그인 폼을 거쳐 테스트하고, 켜고, 사람들이 그 버튼으로 로그인·가입·연결하고, owner가 끄면 그 세션이 끝난다. mock IdP로 모는 같은 화면의 절차는 [web-settings.md](./web-settings.md) 1이고, 공급자별 모양의 차이는 계약 시험(`apps/control-host/src/api/provider-shapes.test.ts`)이 맡는다.
 
-이 절차는 `scripts/keycloak-login.sh`가 처음부터 끝까지 돈다. CI의 `Keycloak login` workflow(`.github/workflows/keycloak-login.yml`)도 같은 스크립트를 부른다. 단계마다 무엇을 누르고 무엇을 기대하는지는 그 스크립트가 유일한 기록이다.
+이 절차는 `scripts/verify/keycloak-login.sh`가 처음부터 끝까지 돈다. CI의 `Keycloak login` workflow(`.github/workflows/keycloak-login.yml`)도 같은 스크립트를 부른다. 단계마다 무엇을 누르고 무엇을 기대하는지는 그 스크립트가 유일한 기록이다.
 
 ## Sub-features
 
@@ -25,11 +25,11 @@
 
 ## Driving it with lib.sh
 
-Preconditions: `scripts/keycloak-up.sh`로 띄운 새 run이다(`up.sh` run에는 Keycloak이 없다). bootstrap 전이다. 스크립트가 bootstrap부터 하므로 한 run에서 한 번만 돈다. 다시 돌리려면 run을 내리고 새로 띄운다.
+Preconditions: `scripts/verify/keycloak-up.sh`로 띄운 새 run이다(`up.sh` run에는 Keycloak이 없다). bootstrap 전이다. 스크립트가 bootstrap부터 하므로 한 run에서 한 번만 돈다. 다시 돌리려면 run을 내리고 새로 띄운다.
 
 ```sh
-run=$(.claude/skills/verify-werft/scripts/keycloak-up.sh)
-.claude/skills/verify-werft/scripts/keycloak-login.sh "$run"
+run=$(scripts/verify/keycloak-up.sh)
+scripts/verify/keycloak-login.sh "$run"
 ```
 
 단계마다 `ok <sub-feature>`를 찍고 끝에 `keycloak-login.sh: every step held`로 exit 0이다. 처음 어긋난 단계에서 `FAIL <sub-feature>: <무엇>`을 찍고 `evidence/fail-<sub-feature>.png`를 남기고 exit 1이다. 통과한 단계의 화면은 `evidence/<sub-feature>.png`다(1280px). 다른 폭이나 테마의 캡처가 필요하면 스크립트가 끝난 run에서 `W=390 browser.mjs <run> shot <이름> full`로 더 찍는다. `kc-pkce` 단계 중간의 `! failed request: POST /v1/auth/oidc/callback -> 400`은 예상한 줄이다. 흐름이 속하지 않는 주소로 돌아온 콜백을 API가 본문 검증에서 거절해, code가 쓰이지 않은 채 남는다.

@@ -38,13 +38,13 @@ on:
       - packages/db/src/musterrolle/login-*.ts
       - infra/compose.keycloak.yml
       - infra/keycloak/**
-      - .claude/skills/verify-werft/scripts/keycloak-*.sh
-      - .claude/skills/verify-werft/scripts/pkce-*.mjs
-      - .claude/skills/verify-werft/scripts/browser.mjs
-      - .claude/skills/verify-werft/scripts/web-user.mjs
-      - .claude/skills/verify-werft/scripts/lib.sh
-      - .claude/skills/verify-werft/scripts/up.sh
-      - .claude/skills/verify-werft/scripts/down.sh
+      - scripts/verify/keycloak-*.sh
+      - scripts/verify/pkce-*.mjs
+      - scripts/verify/browser.mjs
+      - scripts/verify/web-user.mjs
+      - scripts/verify/lib.sh
+      - scripts/verify/up.sh
+      - scripts/verify/down.sh
       - tests/e2e/compose.ci-keycloak.yml
       - .github/workflows/keycloak-login.yml
       - '!**/*.test.ts'
@@ -80,7 +80,7 @@ jobs:
           # A run Keycloak never answered on is printed too, so the steps
           # below still collect its logs, tear it down and check the record.
           up=0
-          run=$(.claude/skills/verify-werft/scripts/keycloak-up.sh \
+          run=$(scripts/verify/keycloak-up.sh \
             tests/e2e/compose.ci-mirror.yml tests/e2e/compose.ci-cache.yml tests/e2e/compose.ci-keycloak.yml) || up=$?
           [ -n "$run" ] || { echo "::error::keycloak-up.sh started no run"; exit 1; }
           echo "run=$run" >>"$GITHUB_OUTPUT"
@@ -94,14 +94,14 @@ jobs:
       - name: keycloak-login.sh
         env:
           RUN: ${{ steps.up.outputs.run }}
-        run: .claude/skills/verify-werft/scripts/keycloak-login.sh "$RUN"
+        run: scripts/verify/keycloak-login.sh "$RUN"
       - if: always() && steps.up.outputs.run != ''
         name: Compose logs into the record
         env:
           RUN: ${{ steps.up.outputs.run }}
         run: |
           # shellcheck disable=SC1091
-          . .claude/skills/verify-werft/scripts/lib.sh "$RUN"
+          . scripts/verify/lib.sh "$RUN"
           ap_compose logs --no-color --timestamps >"$RUN/evidence/compose.log" 2>&1 || true
           cp "$RUN/browser/chrome.log" "$RUN/evidence/chrome.log" 2>/dev/null || true
       # Stops Chrome, then removes the stack and the images it built: on the
@@ -111,7 +111,7 @@ jobs:
         name: down.sh
         env:
           RUN: ${{ steps.up.outputs.run }}
-        run: .claude/skills/verify-werft/scripts/down.sh "$RUN"
+        run: scripts/verify/down.sh "$RUN"
       - if: '!cancelled()'
         name: Nothing pulled from Docker Hub
         run: .github/scripts/assert-no-docker-hub-images.sh docker
@@ -163,7 +163,7 @@ jobs:
             echo "<!-- ci-keycloak-login-failure -->"
             echo "The Keycloak login check ended \`${RESULT}\` on \`${GITHUB_REF_NAME}\` @ \`${GITHUB_SHA}\` (${GITHUB_EVENT_NAME}, [run ${GITHUB_RUN_ID}](${RUN_URL}))."
             echo
-            echo "The \`keycloak-login.sh\` step names the sub-feature that failed (\`FAIL <name>: …\`); the \`keycloak-login-record\` artifact has its screenshot, the compose logs and Chrome's log. Reproduce with \`.claude/skills/verify-werft/scripts/keycloak-up.sh\`, then \`keycloak-login.sh <run id>\`. Close this issue once the failure is understood; the next failure opens a new one."
+            echo "The \`keycloak-login.sh\` step names the sub-feature that failed (\`FAIL <name>: …\`); the \`keycloak-login-record\` artifact has its screenshot, the compose logs and Chrome's log. Reproduce with \`scripts/verify/keycloak-up.sh\`, then \`keycloak-login.sh <run id>\`. Close this issue once the failure is understood; the next failure opens a new one."
           } >body.md
           .github/scripts/upsert-ci-issue.sh ci-keycloak-login-failure \
             "CI: Keycloak login check failed (nightly)" body.md

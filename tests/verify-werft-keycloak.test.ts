@@ -2,21 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-// @ts-expect-error plain .mjs next to the verify skill's scripts
-import { pkceVerdict } from "../.claude/skills/verify-werft/scripts/pkce-refusal.mjs";
-// @ts-expect-error plain .mjs next to the verify skill's scripts
-import { parseRunState } from "../.claude/skills/verify-werft/scripts/run-state.mjs";
+// @ts-expect-error plain .mjs in scripts/verify
+import { pkceVerdict } from "../scripts/verify/pkce-refusal.mjs";
+// @ts-expect-error plain .mjs in scripts/verify
+import { parseRunState } from "../scripts/verify/run-state.mjs";
 
 /**
  * The helpers of the verify-werft skill's Keycloak run: what counts as
  * Keycloak refusing a wrong PKCE verifier, and how the run's state is read.
  */
 
-const script = join(
-  import.meta.dir,
-  "..",
-  ".claude/skills/verify-werft/scripts/pkce-verdict.mjs",
-);
+const script = join(import.meta.dir, "..", "scripts/verify/pkce-verdict.mjs");
 const refusal = {
   error: "invalid_grant",
   error_description: "PKCE verification failed: Code mismatch",

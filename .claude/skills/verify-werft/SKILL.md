@@ -13,7 +13,7 @@ description: Drive the Werft stack the way a user does — launch it locally wit
 | 웹 콘솔 | `apps/web`을 API가 같은 origin에서 서빙: `/login`·`/bootstrap`·`/`·`/members`·`/invite/{token}`·`/sessions`·`/members/teams`·`/agents`·`/operations/usage`·`/settings/*` | 이 run의 headless Chrome(`browser.mjs`: 폭·다크·오류·로딩 스크린샷), 서빙 헤더는 curl |
 | API | `/v1/sessions/**`, `/v1/receipts/{id}`, `/v1/usage/summary`, `/v1/sessions/counts`, `/docs`, `/readyz` (`/v1/limits`는 owner cookie로 `ap_web`) | `ap_get`·`ap_post` (Bearer key) |
 | CLI | key CLI(`apps/control-host/src/api/keys.ts`)의 `create`·`revoke` | `ap_key`·`ap_revoke` |
-| 실제 GitHub | `JeongJaeSoon/werft-sandbox`와 App `werft-sandbox-agent`: App 등록, 상한, 에이전트 GitHub 설정, clone·push·PR, workflow dispatch·run·rerun, 게이트 receipt | `github-sandbox/overlay.yml`로 띄운 run에서 `web-user.mjs github-app`·`ap_web`·`ap_post`, GitHub 쪽은 `gh`. [github-sandbox.md](features/github-sandbox.md) |
+| 실제 GitHub | `JeongJaeSoon/werft-sandbox`와 App `werft-sandbox-agent`: App 등록, 상한, 에이전트 GitHub 설정, clone·push·PR, workflow dispatch·run·rerun, 게이트 receipt | `scripts/verify/github-sandbox/overlay.yml`로 띄운 run에서 `web-user.mjs github-app`·`ap_web`·`ap_post`, GitHub 쪽은 `gh`. [github-sandbox.md](features/github-sandbox.md) |
 
 기능 map은 [features/README.md](features/README.md), 한 스택에서 순서대로 실행할 절차는 [features/procedures.md](features/procedures.md)에 있다. 이 스킬을 수정할 때는 구현과 대조하고 실행 결과와 구분한다. 증명할 때는 map에 적힌 진입점을 모두 몬다. 실제 GitHub 표면만 fake가 아니다. 그 run은 따로 띄운다(아래 Launch).
 
@@ -33,10 +33,10 @@ PR마다 등급 하나를 정한다. 검증 sticky comment(`<!-- test-results --
 
 ### T1 절차: 목 데이터로 바뀐 화면 보기
 
-전체 스택 없이 화면만 채운다. 웹 콘솔의 데모 모드를 쓴다. 아래 명령은 모두 이 저장소에서 실제로 돌려 확인했다.
+전체 스택 없이 화면만 채운다. 웹 콘솔의 데모 모드를 쓴다.
 
 0. 설치: worktree에서 `bun install --frozen-lockfile`(bun 1.3.14). 빌드가 남긴 `dist` 디렉터리(`apps/web/dist`, `packages/ui/dist` 등)와 `apps/web/dist-demo`는 `biome.json`의 `files.includes`가 검사에서 빼므로 `biome check` 전에 지우지 않아도 된다.
-1. **web dev 서버의 데모 모드**: `cd apps/web && bun --bun vite --mode demo --port <port> --host 127.0.0.1`. GET은 `src/demo/fixtures.json`에서 답하고 쓰기는 `DEMO_READ_ONLY`로 거절하며, 기록 없는 GET은 `NOT_FOUND` 화면이 된다. 들어 있는 자리표시자는 `/v1/auth/me`뿐이라 홈은 요청함이 `NOT_FOUND`로 그려진다. 바뀐 화면을 채우려면 `src/demo/fixtures.json`을 scratch에 복사해 그 화면이 부르는 GET을 `responses`에 더하고 `DEMO_FIXTURES=<json 경로>`로 주고 띄운다(구조는 `{ recorded_at, responses: { "<경로>": { status, json } } }`, 같은 경로의 기록이 있으면 query가 달라도 그 응답으로 답한다. 복사본의 `/v1/auth/me`를 바꿔 지금 읽히는지 확인했다). 라우트는 해시에 있다. 캡처: `W=390 node .claude/skills/verify-werft/scripts/page-shot.mjs http://127.0.0.1:<port> '/#/members' <out.png> [full]`. `W`·`H`·`THEME=dark`·`LOCALE=ja|en`·`SETTLE=<ms>`(기본 1500)를 환경에서 받고, `scrollWidth/innerWidth`와 페이지 오류를 출력한다(수집한 페이지 오류는 종료 코드에 반영하지 않으니 출력을 읽는다). 두 값이 같으면 가로로 넘치지 않는다. 데이터가 늦게 오는 페이지는 `SETTLE`을 늘려 원하는 상태가 그려진 뒤 찍는다. 설치한 Chrome과 저장소의 `playwright-core`를 쓴다.
+1. **web dev 서버의 데모 모드**: `cd apps/web && bun --bun vite --mode demo --port <port> --host 127.0.0.1`. GET은 `src/demo/fixtures.json`에서 답하고 쓰기는 `DEMO_READ_ONLY`로 거절하며, 기록 없는 GET은 `NOT_FOUND` 화면이 된다. 들어 있는 자리표시자는 `/v1/auth/me`뿐이라 홈은 요청함이 `NOT_FOUND`로 그려진다. 바뀐 화면을 채우려면 `src/demo/fixtures.json`을 scratch에 복사해 그 화면이 부르는 GET을 `responses`에 더하고 `DEMO_FIXTURES=<json 경로>`로 주고 띄운다(구조는 `{ recorded_at, responses: { "<경로>": { status, json } } }`, 같은 경로의 기록이 있으면 query가 달라도 그 응답으로 답한다). 라우트는 해시에 있다. 캡처: `W=390 node scripts/verify/page-shot.mjs http://127.0.0.1:<port> '/#/members' <out.png> [full]`. `W`·`H`·`THEME=dark`·`LOCALE=ja|en`·`SETTLE=<ms>`(기본 1500)를 환경에서 받고, `scrollWidth/innerWidth`와 페이지 오류를 출력한다(수집한 페이지 오류는 종료 코드에 반영하지 않으니 출력을 읽는다). 두 값이 같으면 가로로 넘치지 않는다. 데이터가 늦게 오는 페이지는 `SETTLE`을 늘려 원하는 상태가 그려진 뒤 찍는다. 설치한 Chrome과 저장소의 `playwright-core`를 쓴다.
 2. 캡처 규칙은 [features/web-console.md](features/web-console.md)와 같다. 390px·1280px을 light·dark로, 위 상태마다 찍고 `scrollWidth/innerWidth`를 적는다. 화면을 바꾼 PR은 [화면 구성 원칙](../../../packages/ui/README.md#화면-구성-원칙)으로 점검한다.
 3. sticky에 돌린 명령과 출력, 어떤 상태를 채웠는지, 캡처를 적는다. 목은 응답 모양을 그대로 믿으므로 실제 API 연동·권한·서버 경로, 그리고 fixture가 `contracts`와 맞는지는 확인하지 못한 것으로 적는다. 요청·응답 모양을 바꾸는 PR이면 T1이 아니라 T3다.
 
@@ -62,26 +62,26 @@ Claude Code의 Bash 호출은 매번 새 셸이다. 그래서 `up.sh`가 run 디
 드라이브하는 Bash 호출은 매번 이렇게 시작한다. `<run id>`는 `up.sh`가 출력한 값(예: `20261011-133324-76616`)이다. run 디렉터리 경로나 project 이름(`verify-ap-<run id>`)도 받는다.
 
 ```sh
-. .claude/skills/verify-werft/scripts/lib.sh <run id>
+. scripts/verify/lib.sh <run id>
 ```
 
 ## Launch
 
 ```sh
-.claude/skills/verify-werft/scripts/up.sh
+scripts/verify/up.sh
 ```
 
 - 선택형 overlay는 인자로 더한다: `up.sh infra/compose.mock-slack.yml`. mock Slack 하나가 Sign in with Slack IdP와 Slack Web API의 가짜(config token 발급 `/fake/config-tokens`, 앱 생성, 설치 동의 `/fake/oauth/authorize`)를 맡고, api의 `CONSOLE_ORIGIN`을 `http://127.0.0.1:3000`으로 두고 mock 시험 전용 `MOCK_SLACK_OIDC_ISSUER`·`MOCK_SLACK_API_URL`을 그쪽으로 돌린다(api는 시작할 때 "Mock Slack override in use" 경고 한 줄을 낸다). 계정 연결은 워크스페이스의 link 앱으로 한다. `COMPOSE_FILE`에 이어 붙으므로 이후 `lib.sh`·`down.sh`도 같은 스택을 본다.
 - Slack 비밀값(config token, 앱의 secret·bot token)은 master key가 있어야 저장된다. Slack 시나리오([musterrolle.md](features/musterrolle.md) c·g, [web-settings.md](features/web-settings.md) 4)는 run마다 `openssl rand -hex 32`로 만든 버리는 값을 `PLATFORM_SECRET_KEY`로 export하고 같은 Bash 호출에서 `up.sh`를 부른다(그 문서의 한 줄). 사람의 Keychain 항목은 읽지 않는다. 그 밖의 시나리오는 `scripts/local.sh`가 프로젝트별 key를 만들어 `~/.local/state/werft/<project>.secret-key`에 두고 쓴다. key 없는 api는 기동을 거부한다.
 - 빈 설치 검증: `SETTINGS_DOCUMENT= up.sh`로 띄우면 migrate가 설정 문서를 넣지 않는다. 연결·저장소·MCP 서버·상한이 하나도 없는 설치를 콘솔에서 채우는 절차를 몰 때 쓴다.
-- 실제 GitHub run은 `up.sh .claude/skills/verify-werft/github-sandbox/overlay.yml`이다. overlay는 migrate가 넣는 설정 문서를 sandbox 저장소(`auth: { kind: github_app }`)를 더한 `github-sandbox/settings.json`으로 바꾸고 egress proxy가 `github.com:443`에 자격을 붙이게 한다. `EGRESS_CREDENTIAL_ALLOWLIST`는 기본 목록을 통째로 바꾸므로, overlay는 기본 목록(공개 패키지 레지스트리 `registry.npmjs.org`·`rubygems.org`·`proxy.golang.org`·`sum.golang.org` 포함)을 다시 적고 `github.com:443`을 더한다. `infra/compose.core.yml`의 기본 목록이 바뀌면 overlay도 같이 고친다. App 키는 compose를 지나지 않는다. 스택이 뜬 뒤 `web-user.mjs github-app`이 키 파일을 읽어 API로 등록한다. App 등록은 master key가 있어야 저장되므로 Slack처럼 버리는 `PLATFORM_SECRET_KEY`를 같은 Bash 호출에서 넘긴다. 순서와 기대값은 [github-sandbox.md](features/github-sandbox.md). overlay 인자는 repo 기준 상대 경로라 repo 밖 overlay는 `../../…`로 넘긴다. 세션에 실제 node·npm이 필요하면 `github-sandbox/derived-worker.yml`을 그 뒤에 더한다. 같은 up에서 이 run의 worker 이미지로 파생 이미지를 build하고, scheduler가 처음부터 그 이미지로 worker를 띄운다.
+- 실제 GitHub run은 `up.sh scripts/verify/github-sandbox/overlay.yml`이다. overlay는 migrate가 넣는 설정 문서를 sandbox 저장소(`auth: { kind: github_app }`)를 더한 `scripts/verify/github-sandbox/settings.json`으로 바꾸고 egress proxy가 `github.com:443`에 자격을 붙이게 한다. `EGRESS_CREDENTIAL_ALLOWLIST`는 기본 목록을 통째로 바꾸므로, overlay는 기본 목록(공개 패키지 레지스트리 `registry.npmjs.org`·`rubygems.org`·`proxy.golang.org`·`sum.golang.org` 포함)을 다시 적고 `github.com:443`을 더한다. `infra/compose.core.yml`의 기본 목록이 바뀌면 overlay도 같이 고친다. App 키는 compose를 지나지 않는다. 스택이 뜬 뒤 `web-user.mjs github-app`이 키 파일을 읽어 API로 등록한다. App 등록은 master key가 있어야 저장되므로 Slack처럼 버리는 `PLATFORM_SECRET_KEY`를 같은 Bash 호출에서 넘긴다. 순서와 기대값은 [github-sandbox.md](features/github-sandbox.md). overlay 인자는 repo 기준 상대 경로라 repo 밖 overlay는 `../../…`로 넘긴다. 세션에 실제 node·npm이 필요하면 `scripts/verify/github-sandbox/derived-worker.yml`을 그 뒤에 더한다. 같은 up에서 이 run의 worker 이미지로 파생 이미지를 build하고, scheduler가 처음부터 그 이미지로 worker를 띄운다.
 - Codex 엔진 run은 `SETTINGS_DOCUMENT=/settings/fake-model-codex.json up.sh infra/compose.codex-worker.yml`이다. overlay가 worker 이미지를 Codex 엔진으로 빌드하고 가짜 Responses API(`fake-responses`)를 띄운다. 설정 문서에는 연결 `fake-responses`(`openai_responses`, 모델 `gpt-5.5`) 하나만 있고 저장소는 없다. `SETTINGS_DOCUMENT`를 빼면 `--fake-model`이 Claude용 설정(연결 `fake-messages`)을 넣어, worker는 Codex인데 연결이 없는 스택이 된다(release가 `422 connection_unknown`). worker 이미지 하나는 엔진 하나라 Claude 세션과 Codex 세션은 다른 run에서 본다. 세션은 [sessions.md](features/sessions.md)의 Codex 절로 몬다.
-- 실제 Keycloak을 로그인 공급자로 둔 run은 `scripts/keycloak-up.sh`다(`up.sh`를 직접 부르지 않는다). 래퍼가 빈 loopback 포트 둘을 골라 콘솔을 그 포트에 고정하고(`VERIFY_CONSOLE_PORT`: 공급자가 브라우저를 `CONSOLE_ORIGIN`으로 돌려보내므로 뜨기 전에 주소가 정해져 있어야 한다), realm의 client secret과 사용자 비밀번호를 `openssl rand`로 만들어 `infra/compose.keycloak.yml`을 겹친다. overlay가 요구하는 값은 `VERIFY_STATE_VARS`로 `state.env`에 적혀 `lib.sh`·`down.sh`의 compose 호출이 그대로 돈다. 값은 `browser.mjs … type-state <칸> <이름>`이 칸에 넣는다. 절차는 [keycloak-login.md](features/keycloak-login.md)다.
-- Orca 프로그램 안에서 돌면 무거운 작업 잠금으로 감싼다: `orch heavy <program> -- .claude/skills/verify-werft/scripts/up.sh`. 내릴 때도 같다.
+- 실제 Keycloak을 로그인 공급자로 둔 run은 `scripts/verify/keycloak-up.sh`다(`up.sh`를 직접 부르지 않는다). 래퍼가 빈 loopback 포트 둘을 골라 콘솔을 그 포트에 고정하고(`VERIFY_CONSOLE_PORT`: 공급자가 브라우저를 `CONSOLE_ORIGIN`으로 돌려보내므로 뜨기 전에 주소가 정해져 있어야 한다), realm의 client secret과 사용자 비밀번호를 `openssl rand`로 만들어 `infra/compose.keycloak.yml`을 겹친다. overlay가 요구하는 값은 `VERIFY_STATE_VARS`로 `state.env`에 적혀 `lib.sh`·`down.sh`의 compose 호출이 그대로 돈다. 값은 `browser.mjs … type-state <칸> <이름>`이 칸에 넣는다. 절차는 [keycloak-login.md](features/keycloak-login.md)다.
+- Orca 프로그램 안에서 돌면 무거운 작업 잠금으로 감싼다: `orch heavy <program> -- scripts/verify/up.sh`. 내릴 때도 같다.
 - 하는 일: run 디렉터리와 `ports.yml`(postgres·localstack·fake-git·api 포트를 `127.0.0.1::<port>` ephemeral로)을 만들고 `COMPOSE_PROJECT_NAME=verify-ap-… EXECUTION_INSTALLATION_ID=… COMPOSE_FILE=compose.yaml:ports.yml LOCAL_DEMO_ACCOUNTS=0 scripts/local.sh up --fake-model`을 돌린다(데모 계정 없이: 기능 절차가 bootstrap부터 한다). 끝나면 `docker compose port api 3000`으로 API 주소를, `setup-link` 명령으로 받은 첫 owner 설정 링크의 `#setup=` 뒤를 `state.env`에 적고 run 디렉터리를 stdout에, `run id: …`를 stderr에 출력한다. run id는 시작할 때도 stderr에 한 번 나온다. **이 run id를 기록한다.** 이후 모든 단계와 내릴 때 이것을 넘긴다. 빌드가 중간에 실패해도 시작할 때 나온 run id로 `down.sh`를 돌린다.
 - 설정 문서의 키(`"stored": true`: fake model 연결, fake MCP bearer, 가짜 GitHub App 키)는 데모 계정이 없는 run에서 비어 있다. 세션을 몰기 전에 `web-user.mjs … bootstrap owner`·`login owner` 뒤 `ap_store_keys`(lib.sh)로 owner cookie를 stdin에 실어 `scripts/local.sh store-keys`를 돌린다. 이것을 빼면 release·세션이 `stored: <ref> is not set`으로 실패한다. `VERIFY_DEMO_ACCOUNTS=1` run은 `local.sh`가 데모 owner로 이미 넣는다.
 - worker 슬롯은 기본 3개, `VERIFY_DEMO_ACCOUNTS=1`이면 7개다. `up.sh`가 `state.env`에 `EXECUTION_SLOT_LIMIT`을 적어 scheduler가 그 수만큼만 worker를 띄운다. 데모 데이터는 worker를 쥔 채 끝나는 세션 6개(idle 2, 승인 뒤 idle 1, 권한 요청 1, 질문 1, 실행 중 1)에 terminate할 세션 하나를 더 몬다. 그보다 슬롯이 적으면 시드가 queued 세션을 기다리다 `timed out waiting for <session> to go idle`로 실패한다. 다른 값이 필요하면 `VERIFY_SLOT_LIMIT=5 up.sh`처럼 준다. 이 값이 언제나 우선한다(10000 미만의 양의 정수만). worker마다 `ap-net-*` 네트워크가 하나씩 생기므로 스택 하나가 쓰는 네트워크는 compose 기본 네트워크를 더해 최대 슬롯 + 1개다. 슬롯은 worker 컨테이너가 사라졌다고 scheduler가 확인할 때까지 풀리지 않는다(`slot_released_at`). 입력이 없는 worker도 `WORKER_IDLE_TIMEOUT_SEC`(1800초) 동안 슬롯을 쥔다. 그래서 세션이 슬롯보다 많으면 나머지는 queued로 기다리고, 앞 세션을 pause하거나 terminate하면 다음 pass에서 뜬다.
-- 주소 풀 확인: Docker 네트워크 하나가 기본 주소 풀에서 항목 하나를 가져간다. 풀은 머신마다 다르므로 `docker info --format '{{json .DefaultAddressPools}}'`로 본다(풀 하나의 항목 수는 2^(Size − base prefix)). 데몬이 풀을 보고하지 않으면 Docker 내장 기본값(172.17–31.0.0/16 각 1개, 192.168.0.0/16의 /20 16개)으로 센다. `up.sh`는 run 디렉터리를 만들기 전에 `scripts/address-pool.sh <슬롯 + 1>`로 남은 풀을 읽기만 해서 센다. 모자라면 아무것도 만들지 않고 exit 1이다. Docker를 읽지 못해도(daemon 무응답 등) 아무것도 만들지 않고 exit 1이며, 이때는 `check that Docker answers`라고 따로 안내한다. 부족 메시지는 `address-pool.sh: Docker's address pools are short: 7 free of 30, 41 needed` 다음에 쥐고 있는 풀 항목 수를 compose project(scheduler가 만든 네트워크는 installation id)별로 적는다(보통 네트워크 하나가 한 항목). 이때는 자기가 띄운 스택을 `down.sh`로 내리거나 `VERIFY_SLOT_LIMIT`를 줄인다. 남의 스택은 지우지 않는다. 확인과 실제 생성 사이에 다른 스택이 풀을 가져갈 수는 있다.
+- 주소 풀 확인: Docker 네트워크 하나가 기본 주소 풀에서 항목 하나를 가져간다. 풀은 머신마다 다르므로 `docker info --format '{{json .DefaultAddressPools}}'`로 본다(풀 하나의 항목 수는 2^(Size − base prefix)). 데몬이 풀을 보고하지 않으면 Docker 내장 기본값(172.17–31.0.0/16 각 1개, 192.168.0.0/16의 /20 16개)으로 센다. `up.sh`는 run 디렉터리를 만들기 전에 `scripts/verify/address-pool.sh <슬롯 + 1>`로 남은 풀을 읽기만 해서 센다. 모자라면 아무것도 만들지 않고 exit 1이다. Docker를 읽지 못해도(daemon 무응답 등) 아무것도 만들지 않고 exit 1이며, 이때는 `check that Docker answers`라고 따로 안내한다. 부족 메시지는 `address-pool.sh: Docker's address pools are short: 7 free of 30, 41 needed` 다음에 쥐고 있는 풀 항목 수를 compose project(scheduler가 만든 네트워크는 installation id)별로 적는다(보통 네트워크 하나가 한 항목). 이때는 자기가 띄운 스택을 `down.sh`로 내리거나 `VERIFY_SLOT_LIMIT`를 줄인다. 남의 스택은 지우지 않는다. 확인과 실제 생성 사이에 다른 스택이 풀을 가져갈 수는 있다.
 - 준비 표시: stderr 끝에 `{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}`. 로그는 `evidence/up.log`.
 - 이미지 태그도 run마다 따로 둔다(`werft-*:verify-ap-…`, `tests/e2e/run.sh`와 같은 방식). 기본 `:dev` 태그를 덮어쓰면 다른 스택의 scheduler가 이 checkout의 worker를 띄우게 된다. `down.sh`가 이 태그만 지운다.
   - 공용 태그로 바꾸지 않는 이유: 빌드 캐시는 태그가 아니라 레이어 내용으로 맞춰지므로 새 태그로 빌드해도 같은 소스의 레이어를 재사용한다. 반면 scheduler가 `WORKER_IMAGE`로 worker를 띄우므로 공용 태그는 한 run의 빌드가 다른 run의 worker를 바꾼다. 비용은 태그가 남는 것이었고 `down.sh`가 푼다.
@@ -92,10 +92,10 @@ Claude Code의 Bash 호출은 매번 새 셸이다. 그래서 `up.sh`가 run 디
 ## Doctor
 
 ```sh
-.claude/skills/verify-werft/scripts/doctor.sh <run id>
+scripts/verify/doctor.sh <run id>
 ```
 
-run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 않은 변경 digest, `scripts/tree-id.sh`)와 지금 checkout, API 주소, 서비스별 상태, `/readyz`를 보여 준다. ready가 아니거나 `up.sh` 뒤 HEAD나 커밋하지 않은 변경(`.claude/` 밖)이 바뀌었으면 exit 1(바뀐 코드는 `down.sh` 뒤 `up.sh`로 다시 빌드한다). 이상해 보이면 먼저 이것을 돌린다. `api`·`scheduler`·`reconciler`·`postgres`·`localstack`·`fake-git`·`egress-proxy`·`fake-messages`·`fake-mcp`가 모두 `running`(healthcheck가 있으면 `healthy`)이 아니면 exit 1이다. doctor는 돌린 그 순간의 상태만 본다. doctor가 보는 서비스 중 restart 정책이 있는 것(`egress-proxy`·`scheduler`·`reconciler`·`slack`)은 모두 healthcheck가 있어서, 재시작을 되풀이하면 `restarting`일 때도 막 다시 떠 `starting`일 때도 exit 1이다. 다만 healthcheck를 통과한 뒤 다시 죽기 전에 돌리면 `healthy`라 exit 0이다. 의심되면 `ap_compose ps`의 상태 열(Up 시간)을 잠시 간격을 두고 두 번 보고 그 서비스의 로그를 본다. 이 run의 compose가 켜진 profile로 정의하는 `fake-responses`(Codex 엔진 run), `slack`(기본 run), `mock-slack`(mock Slack run)도 같은 조건으로 본다. `infra/compose.dev.yml` overlay run은 `slack`을 꺼 두므로 doctor가 `slack`을 점검하지 않는다. `slack`의 healthy는 pass loop가 돌고 있다는 뜻일 뿐, Slack에 닿는다는 뜻은 아니다. mock Slack run에서 2분씩 해 본 결과는 이렇다. `/fake/answers`로 500을 주면 전송이 `uncertain`으로 남는다. `/fake/rate-limits`로 429를 주면 이벤트가 `ratelimited`로 다시 시도된다. 두 경우 모두 `slack`은 healthy이고 doctor는 exit 0이다. `mock-slack`을 멈추거나(`stop`) `docker pause`하면 이벤트가 `unreachable`·`timeout`으로 다시 시도되고 `slack`은 healthy다. 이때 doctor는 `mock-slack`이 running이 아니라서 exit 1이다. 응답 실패는 `slack` 로그(`Slack send not delivered`, `Slack event failed`)에서 본다. `/readyz`는 database·schema·config만 보므로 scheduler가 죽어도 ready다. `up.sh` 직후에는 scheduler와 `slack`이 잠시(`slack`은 길면 30초) `starting`일 수 있으니 잠시 뒤 다시 돌린다(`migrate`·`worker`는 한 번 돌고 끝나 목록에 없다).
+run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 않은 변경 digest, `scripts/verify/tree-id.sh`)와 지금 checkout, API 주소, 서비스별 상태, `/readyz`를 보여 준다. ready가 아니거나 `up.sh` 뒤 HEAD나 커밋하지 않은 변경(`.claude/`·`scripts/verify/` 밖)이 바뀌었으면 exit 1(바뀐 코드는 `down.sh` 뒤 `up.sh`로 다시 빌드한다). 이상해 보이면 먼저 이것을 돌린다. `api`·`scheduler`·`reconciler`·`postgres`·`localstack`·`fake-git`·`egress-proxy`·`fake-messages`·`fake-mcp`가 모두 `running`(healthcheck가 있으면 `healthy`)이 아니면 exit 1이다. doctor는 돌린 그 순간의 상태만 본다. doctor가 보는 서비스 중 restart 정책이 있는 것(`egress-proxy`·`scheduler`·`reconciler`·`slack`)은 모두 healthcheck가 있어서, 재시작을 되풀이하면 `restarting`일 때도 막 다시 떠 `starting`일 때도 exit 1이다. 다만 healthcheck를 통과한 뒤 다시 죽기 전에 돌리면 `healthy`라 exit 0이다. 의심되면 `ap_compose ps`의 상태 열(Up 시간)을 잠시 간격을 두고 두 번 보고 그 서비스의 로그를 본다. 이 run의 compose가 켜진 profile로 정의하는 `fake-responses`(Codex 엔진 run), `slack`(기본 run), `mock-slack`(mock Slack run)도 같은 조건으로 본다. `infra/compose.dev.yml` overlay run은 `slack`을 꺼 두므로 doctor가 `slack`을 점검하지 않는다. `slack`의 healthy는 pass loop가 돌고 있다는 뜻일 뿐, Slack에 닿는다는 뜻은 아니다. mock Slack run에서는 이렇다. `/fake/answers`로 500을 주면 전송이 `uncertain`으로 남는다. `/fake/rate-limits`로 429를 주면 이벤트가 `ratelimited`로 다시 시도된다. 두 경우 모두 `slack`은 healthy이고 doctor는 exit 0이다. `mock-slack`을 멈추거나(`stop`) `docker pause`하면 이벤트가 `unreachable`·`timeout`으로 다시 시도되고 `slack`은 healthy다. 이때 doctor는 `mock-slack`이 running이 아니라서 exit 1이다. 응답 실패는 `slack` 로그(`Slack send not delivered`, `Slack event failed`)에서 본다. `/readyz`는 database·schema·config만 보므로 scheduler가 죽어도 ready다. `up.sh` 직후에는 scheduler와 `slack`이 잠시(`slack`은 길면 30초) `starting`일 수 있으니 잠시 뒤 다시 돌린다(`migrate`·`worker`는 한 번 돌고 끝나 목록에 없다).
 
 ## Drive
 
@@ -116,9 +116,9 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 
 | 스크립트 | 용도 |
 |---|---|
-| `node scripts/web-user.mjs <run id> <command> <who> …` | `bootstrap`·`bootstrap-bad-token`·`login`·`login-wrong`·`login-no-csrf`·`invite <inviter> <who> <role>`·`accept`·`key <who> <personal\|agent> <scopes> [agent id]`. 비밀번호·token·secret은 run 디렉터리에만 두고, 응답 본문(그 칸은 `(saved, N chars)`)과 상태 코드를 출력한다. [web-login.md](features/web-login.md) |
-| `node scripts/web-user.mjs <run id> github-app <who> <workspace id> <app id>` | `<who>`의 cookie로 `PUT /v1/workspaces/{id}/github-app`. 키는 `VERIFY_GITHUB_APP_KEY_FILE`(기본 `~/.config/werft/github-app.pem`, 오너의 파일)에서 스크립트가 읽어 본문에만 넣는다. 경로도 명령에 쓰지 않는다(agent-guard가 키 파일 모양의 경로를 막는다). [github-sandbox.md](features/github-sandbox.md) |
-| `node scripts/browser.mjs <run id> <command> …` | 이 run 전용 headless Chrome(CDP): `start`·`stop`, `open`, `login <who>`·`accept <who>`·`invite <who>`(초대 화면만 연다)·`bootstrap <who>`, `shot`(`W`·`THEME` env), `blockshot`(오류 상태), `slowshot`(로딩 상태), `click`·`press`(포커스 후 키)·`type`·`select`·`key`·`eval`, `measure`(간격·폭·정렬 실측, `layout-report.mjs`가 v35 규칙 표로). 모든 페이지 명령은 끝에 4xx·5xx 응답의 본문을 가려서 stderr의 `! failed request:` 줄로 남긴다(`CAPTURE_URL` glob으로 성공 응답도). [web-console.md](features/web-console.md) |
+| `node scripts/verify/web-user.mjs <run id> <command> <who> …` | `bootstrap`·`bootstrap-bad-token`·`login`·`login-wrong`·`login-no-csrf`·`invite <inviter> <who> <role>`·`accept`·`key <who> <personal\|agent> <scopes> [agent id]`. 비밀번호·token·secret은 run 디렉터리에만 두고, 응답 본문(그 칸은 `(saved, N chars)`)과 상태 코드를 출력한다. [web-login.md](features/web-login.md) |
+| `node scripts/verify/web-user.mjs <run id> github-app <who> <workspace id> <app id>` | `<who>`의 cookie로 `PUT /v1/workspaces/{id}/github-app`. 키는 `VERIFY_GITHUB_APP_KEY_FILE`(기본 `~/.config/werft/github-app.pem`, 오너의 파일)에서 스크립트가 읽어 본문에만 넣는다. 경로도 명령에 쓰지 않는다(agent-guard가 키 파일 모양의 경로를 막는다). [github-sandbox.md](features/github-sandbox.md) |
+| `node scripts/verify/browser.mjs <run id> <command> …` | 이 run 전용 headless Chrome(CDP): `start`·`stop`, `open`, `login <who>`·`accept <who>`·`invite <who>`(초대 화면만 연다)·`bootstrap <who>`, `shot`(`W`·`THEME` env), `blockshot`(오류 상태), `slowshot`(로딩 상태), `click`·`press`(포커스 후 키)·`type`·`select`·`key`·`eval`, `measure`(간격·폭·정렬 실측, `layout-report.mjs`가 콘솔 간격 규칙 표로). 모든 페이지 명령은 끝에 4xx·5xx 응답의 본문을 가려서 stderr의 `! failed request:` 줄로 남긴다(`CAPTURE_URL` glob으로 성공 응답도). [web-console.md](features/web-console.md) |
 
 기능별 명령과 기대 결과는 `features/*.md`에 있다. 가장 짧은 한 바퀴는 [web-login.md](features/web-login.md)다.
 
@@ -133,8 +133,8 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 ## Cleanup
 
 ```sh
-.claude/skills/verify-werft/scripts/down.sh <run id>         # 컨테이너·네트워크·이미지. volume은 남긴다
-.claude/skills/verify-werft/scripts/rm-volumes.sh <run id>   # 별도 단계: 이 run의 volume을 정확한 이름으로 rm
+scripts/verify/down.sh <run id>         # 컨테이너·네트워크·이미지. volume은 남긴다
+scripts/verify/rm-volumes.sh <run id>   # 별도 단계: 이 run의 volume을 정확한 이름으로 rm
 ```
 
 - run id는 필수다. 인자 없이, 또는 없는 run으로 부르면 사용법과 살아 있는 run 목록(run id, project, 실행 중인 컨테이너 수)을 stderr에 보이고 exit 2로 끝난다. 이때 compose는 하나도 부르지 않는다.
@@ -162,15 +162,15 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 ## 오래 남은 run 정리 (janitor)
 
 ```sh
-.claude/skills/verify-werft/scripts/janitor.sh                 # 드라이런: 목록만, 아무것도 지우지 않는다
-.claude/skills/verify-werft/scripts/janitor.sh --hours 6 --exclude <run id>
-.claude/skills/verify-werft/scripts/janitor.sh --apply         # 목록에 나온 것만 지운다
+scripts/verify/janitor.sh                 # 드라이런: 목록만, 아무것도 지우지 않는다
+scripts/verify/janitor.sh --hours 6 --exclude <run id>
+scripts/verify/janitor.sh --apply         # 목록에 나온 것만 지운다
 ```
 
 - 대상: 가장 새 자원(컨테이너·이미지·네트워크·볼륨)이 `--hours`(기본 24)보다 오래됐고 실행 중인 컨테이너가 없는 `verify-ap-<날짜>-<시각>-<pid>` project. 이미지·볼륨·네트워크를 project별로 출력한다.
 - 제외 판별: 실행 중인 컨테이너가 있으면 건너뛴다(쓰는 중인 스택). `werft.keep` label이 붙은 컨테이너·볼륨·네트워크가 있어도 건너뛴다. 그 밖에는 `--exclude <run id>`(여러 번 가능)로 이름을 준다. 완전히 멈춘 장기 실행 스택은 오래된 run과 구별되지 않으므로 `--apply` 전에 드라이런 목록을 읽고 제외한다.
 - 컨테이너가 이미 사라진 project의 익명 볼륨은 소유자를 알 수 없어 목록에 없다. 이것이 `down.sh`가 컨테이너를 지우기 전에 볼륨을 수집하는 이유다.
-- 삭제는 `down.sh`와 같은 정확한 이름 삭제이고 `-f`가 없다. 시험: `bash .claude/skills/verify-werft/scripts/teardown.test.sh`(가짜 `docker`, 실제 Docker를 건드리지 않는다).
+- 삭제는 `down.sh`와 같은 정확한 이름 삭제이고 `-f`가 없다. 시험: `bash scripts/verify/teardown.test.sh`(가짜 `docker`, 실제 Docker를 건드리지 않는다).
 
 ## 알려진 함정
 
@@ -193,7 +193,7 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 기본 `up.sh`는 `LOCAL_DEMO_ACCOUNTS=0`이다. bootstrap 검증과 데모 검증은 별도 run이다.
 
 ```sh
-VERIFY_DEMO_ACCOUNTS=1 .claude/skills/verify-werft/scripts/up.sh
+VERIFY_DEMO_ACCOUNTS=1 scripts/verify/up.sh
 ```
 
 이 모드는 `local.sh`에 `LOCAL_DEMO_ACCOUNTS=1`을 넘긴다. `LOCAL_DEMO_DATA=0`을 함께 주면 계정만 만든다. 기본값은 fake model 데모 에이전트·세션도 만든다. 절차는 `P-DEMO-SEED`다. 기존 사용자·데이터를 덮어쓰지 않는다.

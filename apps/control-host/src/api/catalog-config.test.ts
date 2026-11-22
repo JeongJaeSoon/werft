@@ -401,7 +401,7 @@ describe("where the settings documents' keys come from", () => {
     ...Object.values(FIXTURES),
     "tests/fixtures/settings/fake-model-codex.json",
     "tests/fixtures/settings/conformance-codex.json",
-    ".claude/skills/verify-werft/github-sandbox/settings.json",
+    "scripts/verify/github-sandbox/settings.json",
   ];
 
   // Every key is set through the console after the first owner exists
@@ -428,7 +428,7 @@ describe("where the settings documents' keys come from", () => {
     const files = [
       "infra/compose.local.yml",
       ...Object.values(FIXTURES),
-      ".claude/skills/verify-werft/github-sandbox/settings.json",
+      "scripts/verify/github-sandbox/settings.json",
       "deploy/helm/werft/values-aws.example.yaml",
       "packages/testkit/src/local-github-main.ts",
       "tests/e2e/run.sh",
