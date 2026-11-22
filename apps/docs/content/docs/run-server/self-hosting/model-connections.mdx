@@ -93,7 +93,7 @@ models:
 - `GET /v1/sessions/{id}/usage`는 `cost.kind: "unmetered"`로 답한다. `amount_usd`는 `"0.000000"`이다. 이 세션에는 비용 상한이 적용되지 않으므로 `cost_limit_usd`는 `null`이다. 상한 도달 안내(`attention.reason`)에도 달러 상한은 나오지 않는다. `budget_exceeded`는 토큰 상한에 닿았을 때만 `true`가 된다.
 - 과금 여부는 세션을 만들 때 세션 행(`sessions.unmetered`)에 고정된다. 가격·claim 예산·usage 표시는 이 값을 읽는다. 연결이 가리키는 곳(endpoint·종류·`billing`·자격 증명 출처)은 바뀌지 않는다. 다른 값이 필요하면 새 id로 연결을 더하고 에이전트를 다시 release한다.
 - 세션 토큰 상한과 시간·동시성 상한(턴 시간, `EXECUTION_SLOT_LIMIT`, 대기 메시지)은 그대로 걸린다([웹에서 정하는 실행 한도](/run-server/self-hosting/reference/configuration#웹에서-정하는-실행-한도)). `unmetered` 행의 토큰도 `sessions.provider_tokens`에 더해진다.
-- API는 endpoint host가 사설 주소(10/8, 172.16/12, 192.168/16, 100.64/10, 127/8, 169.254/16, `::1`, fc00::/7, fe80::/10)이거나 공개 DNS에 없는 이름(점 없는 compose 서비스 이름, `localhost`, `.internal`·`.local`·`.localhost`·`.lan`·`.home.arpa`)일 때만 `none`을 받는다. egress proxy 쪽에서는 그 host를 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`에 둔다.
+- API는 endpoint host가 사설 주소(10/8, 172.16/12, 192.168/16, 100.64/10, 127/8, `::1`, fc00::/7. link-local 주소와 `::ffff:10.0.0.1`처럼 IPv6 안에 쓴 IPv4는 사설로 보지 않는다)이거나 공개 DNS에 없는 이름(점 없는 compose 서비스 이름, `localhost`, `.internal`·`.local`·`.localhost`·`.lan`·`.home.arpa`)일 때만 `none`을 받는다. egress proxy 쪽에서는 그 host를 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`에 둔다.
 - 사설 주소는 필요조건일 뿐이다. 사설망의 LiteLLM도 유료 upstream을 대리할 수 있다. `none` 선언이 맞는지는 운영자가 책임진다. 잘못 선언하면 유료 호출이 비용 상한 없이 나간다. 세션 토큰 상한을 정해 두면 그때도 세션당 토큰은 묶인다. Datadog `werft.provider.unmetered_tokens_1h`(최근 1시간 `unmetered` 행 토큰 합)와 provider 콘솔의 사용량을 같이 본다.
 
 활성화 전에 [업그레이드 게이트](/run-server/self-hosting/upgrade-compose#실행-전-게이트)를 충족해야 한다.

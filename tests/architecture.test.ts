@@ -2453,7 +2453,7 @@ describe("architecture", () => {
   // storage, routes or the web framework, so the same code serves every
   // provider and every caller. A list of what it may import, not of what it
   // may not: a new dependency has to be added here on purpose.
-  test("the OIDC module imports only itself, same-string, contracts and Node built-ins", async () => {
+  test("the OIDC module imports only itself, same-string, contracts, system and Node built-ins", async () => {
     const api = join(root, "apps/control-host/src/api");
     const files = await productSourcesIn(join(api, "oidc"));
     expect(files.length).toBeGreaterThan(0);
@@ -2467,6 +2467,7 @@ describe("architecture", () => {
           target.startsWith("oidc/") ||
           target === "same-string.ts" ||
           target === "@werft-ai/contracts" ||
+          target === "@werft-ai/system" ||
           target.startsWith("node:")
         )
           continue;
@@ -2475,11 +2476,12 @@ describe("architecture", () => {
     expect(offenders).toEqual([]);
   });
 
-  test("platform depends on contracts, runtime-core and zod only", async () => {
+  test("platform depends on contracts, runtime-core, system and zod only", async () => {
     const directory = join(root, platform);
     const allowed = new Set([
       "@werft-ai/contracts",
       "@werft-ai/runtime-core",
+      "@werft-ai/system",
       "zod",
     ]);
     const declared = [...declaredDependencies(await manifest(directory))];

@@ -241,6 +241,15 @@ describe("billing", () => {
       "http://172.32.0.1:4000",
       "http://[2001:db8::1]:4000",
       "http://[fc::1]:4000",
+      // Link-local fitted before; the egress proxy never reaches it.
+      "http://169.254.10.10:4000",
+      "http://[fe80::1]:4000",
+      // IPv4 written inside IPv6 is not taken as private, whatever it carries.
+      "http://[::ffff:10.0.0.1]:4000",
+      "http://[::ffff:127.0.0.1]:4000",
+      "http://[64:ff9b::a00:1]:4000",
+      "http://[2002:a00:1::1]:4000",
+      "http://[fec0::1]:4000",
     ]) {
       expect(billingFitsEndpoint({ billing: "none", endpoint }), endpoint).toBe(
         false,

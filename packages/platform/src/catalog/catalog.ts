@@ -20,6 +20,7 @@ import {
   type RuntimeKind,
   startRepositoryOf,
 } from "@werft-ai/contracts";
+import { isPrivateAddress } from "@werft-ai/system";
 import { z } from "zod";
 import { type GitCredential, repoRefOf } from "../action/ports/forge.ts";
 import type { ToolCatalogs } from "./tool-names.ts";
@@ -185,18 +186,6 @@ const PRIVATE_NAME_SUFFIXES = [
   ".home.arpa",
 ];
 
-function privateIpv4(address: string): boolean {
-  const [a = 0, b = 0] = address.split(".").map(Number);
-  return (
-    a === 10 ||
-    a === 127 ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 169 && b === 254) ||
-    (a === 100 && b >= 64 && b <= 127)
-  );
-}
-
 /**
  * Whether a host can only be reached inside the operator's network: a
  * private address, or a name public DNS does not serve (a compose service,
@@ -205,15 +194,7 @@ function privateIpv4(address: string): boolean {
  */
 export function isPrivateEndpointHost(hostname: string): boolean {
   const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  switch (isIP(host)) {
-    case 4:
-      return privateIpv4(host);
-    // fc00::/7 and fe80::/10, written out to a full first group.
-    case 6:
-      return (
-        host === "::1" || /^(f[cd][0-9a-f]{2}|fe[89ab][0-9a-f]):/.test(host)
-      );
-  }
+  if (isIP(host) !== 0) return isPrivateAddress(host);
   const name = host.replace(/\.$/, "");
   return (
     !name.includes(".") ||

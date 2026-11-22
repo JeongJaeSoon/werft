@@ -1,8 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { OidcUnavailableError } from "./errors.ts";
 import {
-  type AddressClass,
-  classifyAddress,
   createProviderRequest,
   endpointProblem,
   type NetworkPolicy,
@@ -45,63 +43,6 @@ describe("endpointProblem", () => {
   for (const [value, policy, expected] of cases) {
     test(`${String(value)} under ${policy.plainHttp} is ${expected ?? "allowed"}`, () => {
       expect(endpointProblem(value, policy)).toBe(expected);
-    });
-  }
-});
-
-describe("classifyAddress", () => {
-  const cases: [string, AddressClass | null][] = [
-    ["8.8.8.8", "public"],
-    ["10.1.2.3", "private"],
-    ["172.16.0.1", "private"],
-    ["172.32.0.1", "public"],
-    ["192.168.1.1", "private"],
-    ["100.64.0.1", "private"],
-    ["127.0.0.1", "loopback"],
-    ["127.255.255.254", "loopback"],
-    ["169.254.169.254", "link_local"],
-    ["224.0.0.1", "multicast"],
-    ["255.255.255.255", "reserved"],
-    ["192.0.2.1", "reserved"],
-    ["198.18.0.1", "reserved"],
-    ["0.0.0.0", "unspecified"],
-    ["::", "unspecified"],
-    ["::1", "loopback"],
-    ["fe80::1", "link_local"],
-    ["fe80::1%eth0", "link_local"],
-    ["ff02::1", "multicast"],
-    ["fd00::1", "private"],
-    ["2001:db8::1", "reserved"],
-    ["2606:4700:4700::1111", "public"],
-    ["2a00:1450:4001::1", "public"],
-    // Outside global unicast, or set aside inside it.
-    ["100::1", "reserved"],
-    ["4000::1", "reserved"],
-    ["fec0::1", "reserved"],
-    ["64:ff9b:1::a9fe:a9fe", "reserved"],
-    ["2001::1", "reserved"],
-    ["2001:2::1", "reserved"],
-    ["2001:1ff:ffff::1", "reserved"],
-    ["2001:200::1", "public"],
-    ["2002:a9fe:a9fe::1", "reserved"],
-    ["3fff::1", "reserved"],
-    ["3fff:1000::1", "public"],
-    // IPv4 inside IPv6 is judged as the IPv4 address.
-    ["::ffff:169.254.169.254", "link_local"],
-    ["::ffff:a9fe:a9fe", "link_local"],
-    ["::ffff:127.0.0.1", "loopback"],
-    ["::ffff:8.8.8.8", "public"],
-    ["64:ff9b::a9fe:a9fe", "link_local"],
-    ["::169.254.169.254", "reserved"],
-    ["not-an-address", null],
-    ["1.2.3", null],
-    ["1.2.3.256", null],
-    ["1::2::3", null],
-    ["12345::1", null],
-  ];
-  for (const [address, expected] of cases) {
-    test(`${address} is ${expected ?? "not an address"}`, () => {
-      expect(classifyAddress(address)).toBe(expected);
     });
   }
 });
@@ -206,6 +147,9 @@ describe("provider request", () => {
       ],
     ],
     ["text that is not an address", [{ address: "bogus", family: 4 }]],
+    // Some resolvers read a leading zero as octal; this one was taken as
+    // private 10.0.0.1 before the classes were shared with the egress proxy.
+    ["a leading-zero IPv4 address", [{ address: "010.0.0.1", family: 4 }]],
   ];
   for (const [what, addresses] of refused) {
     test(`a name resolving to ${what} is refused before anything is sent`, async () => {
