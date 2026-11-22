@@ -189,14 +189,14 @@ Messages from the remote are not put in the receipt. The `Push refused` and `Pus
 
 ## How the pull request opens after a push
 
-When a push request carries a pull request request, the action-broker inside the control-host opens the pull request once the push ends as `pushed`. The agent does not have to call `open_pull_request` in a follow-up turn. This work starts with the control-host, and a stage that was already started is finished even if you restart it. Over REST, calling `POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request?schedule=true` before the push ends returns 202 with `status: "scheduled"` instead of 409 `PUSH_NOT_PUSHED`, and the pull request opens as soon as the push ends. Without the `schedule` query, or on a push request made with `flow = legacy`, the call answers 409.
+When a push request carries a pull request request, the control-host opens the pull request once the push ends as `pushed`. The agent does not have to call `open_pull_request` in a follow-up turn. A stage that was already started is finished even if you restart the control-host. Over REST, calling `POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request?schedule=true` before the push ends returns 202 with `status: "scheduled"` instead of 409 `PUSH_NOT_PUSHED`, and the pull request opens as soon as the push ends. Without the `schedule` query, or on a push request made with `flow = legacy`, the call answers 409.
 
 There is one pull request stage per push request, and its state moves like this.
 
 | State | Meaning |
 | --- | --- |
 | `due` | The push is done and it is time to open the pull request. A failed attempt is tried again after a delay (up to 3 times) |
-| `opening` | One action-broker is opening it. If that worker stops, another replica takes over |
+| `opening` | One control-host is opening it. If that one stops, another replica takes over |
 | `opened` | The pull request is open and recorded. Its number and link are on the pull request row |
 | `closed_unrecorded` | This push request's pull request was closed or merged before the platform recorded it. No new one is created |
 | `uncertain` | The platform could not confirm whether a pull request exists (the lookup failed three times, or the first lookup returned a full page of 10 and more may be on the next), or more than one fits. The platform does not choose |
@@ -205,7 +205,7 @@ There is one pull request stage per push request, and its state moves like this.
 
 Before opening, the platform looks the branch up in every state (open, closed, merged). That is why a retry after a lost answer does not create a second pull request. If a pull request is already open it is reused, and only its tail changes to the new commit. If the head of a pull request it found or created is not the pushed commit, nothing is recorded and the stage ends as `head_moved`. GitHub can show the old head for a moment after a push, so when that head is an ancestor of the pushed commit the stage waits for its next attempt instead. A head that is not an ancestor, or a compare that fails, ends it at once. The pull request that was created is not closed, so a person checks it. A marker in a pull request body can be written by anyone, so only pull requests with the same repository, head and base count as candidates.
 
-The result arrives as a notice in the session thread (opened, could not open, already closed, could not confirm). The text follows the language of the person who started the session (not the requester) and is created once per result. A notice is created only when the session is tied to a Slack thread that is not muted or restricted; otherwise the state changes and no notice row is written.
+The result arrives as a notice in the session thread (opened, could not open, already closed, could not confirm). The text follows the language of the person who started the session (not the requester) and is created once per result. A notice is created only when the session is tied to a Slack thread that is not muted or restricted; otherwise only the state changes and no notice arrives.
 
 There is a known limit. If a process stops for a long time just before the call and wakes up so that an already sent request arrives late, one more pull request can appear on the same branch, and the platform does not look for it after opening. GitHub has no conditional create, so the platform only checks again right before the call and looks the branch up before opening. If more than one pull request fits at open time, it creates none, leaves the stage `uncertain` and notifies. It never closes one automatically; a person chooses on GitHub.
 
