@@ -80,6 +80,13 @@ body {
   font-family: var(--werft-font-sans);
 }
 
+/* A heading with an identifier joined by "·" has no break opportunity, so
+   at 390px it set the page width. `anywhere` also lowers the min-content
+   size the flex heading would otherwise keep. */
+.prose :where(h1, h2, h3, h4) {
+  overflow-wrap: anywhere;
+}
+
 /* One focus look, the console's: Fumadocs leaves most controls on the
    browser's 1px ring and draws a box-shadow ring on the rest. */
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
