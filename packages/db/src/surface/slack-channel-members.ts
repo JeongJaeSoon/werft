@@ -66,8 +66,11 @@ export function createPostgresChannelMemberStore(
         checked_at: Date | string;
         member_ids: string[] | null;
       }>(
+        // A Date holds milliseconds. Cutting the read time down to them keeps
+        // it on the safe side: a read in the same millisecond as a void or a
+        // verify is refused by remember(), never kept stale.
         await db.execute(sql`
-          SELECT statement_timestamp() AS checked_at, (
+          SELECT date_trunc('milliseconds', statement_timestamp()) AS checked_at, (
             SELECT member_ids FROM ${cache}
             WHERE installation_id = ${installationId}
               AND channel_id = ${channelId}

@@ -81,6 +81,8 @@ integration("slack_channel_member_cache on PostgreSQL", () => {
       externalPrincipalId: "U0BOT",
       credentialRef: `ref-${agentId}`,
     });
+    // Read times are milliseconds: one in the verify's millisecond is refused.
+    await Bun.sleep(2);
     return { workspaceId, agentId, key, installationId: installation.id };
   }
 
@@ -313,6 +315,7 @@ integration("slack_channel_member_cache on PostgreSQL", () => {
         before.checkedAt,
       ),
     ).toBe(false);
+    await Bun.sleep(2);
     const after = await store().cached(t.installationId, "G0CHAN");
     expect(
       await store().remember(
