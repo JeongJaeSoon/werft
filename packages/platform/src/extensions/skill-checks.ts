@@ -71,33 +71,53 @@ const MANIFEST = ".claude-plugin/plugin.json";
 const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
 const textOf = (bytes: Uint8Array): string => decoder.decode(bytes);
 
+/** No host is this long; past it the authority counts as new unparsed. */
+const AUTHORITY_CAP = 1024;
+const TRAILING = /[.,;:!?)\]"'`]/;
+
+const count = (text: string, char: string): number =>
+  text.split(char).length - 1;
+
 function hostsOf(text: string): Set<string> {
   const hosts = new Set<string>();
   for (const start of text.matchAll(URL_START)) {
-    const wide = /^[^\s<>]+/.exec(text.slice(start.index))?.[0] ?? start[0];
-    const authority = wide.slice(start[0].length).split(/[/?#\\]/)[0] ?? "";
+    const from = start.index + start[0].length;
+    // Only the authority decides the host, so only it is read, and at most
+    // AUTHORITY_CAP of it: the text is read once per URL, not to its end.
+    const window = text.slice(from, from + AUTHORITY_CAP + 1);
+    const end = window.search(/[\s<>/?#\\]/);
+    if (end === -1 && window.length > AUTHORITY_CAP) {
+      hosts.add(window.slice(0, 64).toLowerCase());
+      continue;
+    }
+    let authority = end === -1 ? window : window.slice(0, end);
     // A quote ends a URL in prose, unless an "@" after it makes the quote
     // userinfo: then the host is past it, where the parser reads it.
-    let url = authority.includes("@")
-      ? wide
-      : (/^[^"'`]+/.exec(wide)?.[0] ?? wide);
-    // Markdown's closing ")" or "]", quotes and a sentence's end are not the URL's.
-    while (/[.,;:!?)\]"'`]$/.test(url)) {
-      const last = url.at(-1) as string;
-      const open = last === ")" ? "(" : last === "]" ? "[" : null;
-      if (open !== null && url.split(open).length >= url.split(last).length) {
-        break;
-      }
-      url = url.slice(0, -1);
+    if (!authority.includes("@")) {
+      authority = /^[^"'`]*/.exec(authority)?.[0] ?? "";
     }
+    // Markdown's closing ")" or "]", quotes and a sentence's end are not the
+    // URL's; a bracket that closes one opened before it (IPv6) is.
+    const opened = { ")": count(authority, "("), "]": count(authority, "[") };
+    const closed = { ")": count(authority, ")"), "]": count(authority, "]") };
+    let cut = authority.length;
+    while (cut > 0 && TRAILING.test(authority[cut - 1] as string)) {
+      const last = authority[cut - 1];
+      if (last === ")" || last === "]") {
+        if (opened[last] >= closed[last]) break;
+        closed[last] -= 1;
+      }
+      cut -= 1;
+    }
+    authority = authority.slice(0, cut);
     let host: string;
     try {
       // The parser's host is what a client would reach: userinfo, ports,
       // percent-escapes and IDN spellings are resolved the same way.
-      host = new URL(url).hostname;
+      host = new URL(`${start[0]}${authority}`).hostname;
     } catch {
       // Unparseable: the raw authority, so it is still a host nobody named.
-      host = url.replace(/^https?:\/\//i, "").split(/[/?#]/)[0] ?? "";
+      host = authority;
     }
     hosts.add(host.toLowerCase().replace(/\.$/, ""));
   }

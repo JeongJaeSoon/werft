@@ -692,7 +692,7 @@ describe("승인 대기 화면", () => {
     const checks = await screen.findByRole("list", { name: "고정 규칙 검사" });
     expect(
       screen.getByText(
-        "규칙 2개에 걸렸습니다. 이 버전은 보호 브랜치 자동 승인 없이 승인 대기로 남고, 사람이 승인합니다.",
+        "규칙 2개에 걸렸습니다. 규칙에 걸린 버전은 보호 브랜치에서 자동 승인되지 않고, 사람이 승인해야 합니다.",
       ),
     ).toBeDefined();
     const [large, url] = within(checks).getAllByRole(

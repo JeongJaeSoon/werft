@@ -228,6 +228,21 @@ describe("what a check cannot be talked out of", () => {
     ).toBeUndefined();
   });
 
+  test("a large document full of URLs and brackets is read in linear time", () => {
+    const many = `[${'"https://known.example/",'.repeat(12_000)}]`;
+    const brackets = `https://known.example/${")".repeat(20_000)}`;
+    const known = [...base, file("more.md", "https://known.example/")];
+    const started = performance.now();
+    expect(rules(known, [...base, file("more.md", many)])).toEqual([]);
+    expect(rules(known, [...base, file("more.md", brackets)])).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(1500);
+  });
+
+  test("an authority too long for any host counts as new", () => {
+    const long = `https://${"a".repeat(2000)}.example/`;
+    expect(rules(base, [...base, file("more.md", long)])).toContain("new_url");
+  });
+
   test("an IPv6 host, with userinfo or a port, is a host like any other", () => {
     for (const url of [
       "https://[2606:4700:4700::1111]/",

@@ -115,7 +115,7 @@ export const skillsKo = {
     "앞 승인 버전과 비교해 코드가 정해진 규칙으로 봅니다. 규칙은 우회될 수 있어, 걸린 것이 없어도 바뀐 줄을 읽어야 합니다.",
   "skills.checks.none": "걸린 규칙이 없습니다.",
   "skills.checks.failed":
-    "규칙 {count}개에 걸렸습니다. 이 버전은 보호 브랜치 자동 승인 없이 승인 대기로 남고, 사람이 승인합니다.",
+    "규칙 {count}개에 걸렸습니다. 규칙에 걸린 버전은 보호 브랜치에서 자동 승인되지 않고, 사람이 승인해야 합니다.",
   "skills.checks.paths": "파일",
   "skills.checks.samples": "걸린 값",
   "skills.checks.lines": "바뀐 줄 {count}줄",
@@ -373,7 +373,7 @@ export const skillsEn = {
     "Code reads the change from the previous approved version against fixed rules. Rules can be evaded, so read the changed lines even when nothing is caught.",
   "skills.checks.none": "No rule caught anything.",
   "skills.checks.failed":
-    "{count} rules caught this version. It stays pending without protected-branch auto-approve, and a person approves it.",
+    "{count} rules caught this version. A version a rule catches is not auto-approved on a protected branch; a person has to approve it.",
   "skills.checks.paths": "Files",
   "skills.checks.samples": "Caught",
   "skills.checks.lines": "{count} changed lines",
@@ -633,7 +633,7 @@ export const skillsJa = {
     "前の承認済みバージョンとの差分を、コードが決まったルールで調べます。ルールは回避できるため、何も検出されなくても変更行を読んでください。",
   "skills.checks.none": "検出されたルールはありません。",
   "skills.checks.failed":
-    "{count}件のルールで検出されました。このバージョンは保護ブランチの自動承認を受けずに承認待ちとなり、人が承認します。",
+    "{count}件のルールで検出されました。ルールで検出されたバージョンは保護ブランチで自動承認されず、人が承認する必要があります。",
   "skills.checks.paths": "ファイル",
   "skills.checks.samples": "検出した値",
   "skills.checks.lines": "変更行 {count}行",
