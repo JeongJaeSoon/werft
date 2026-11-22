@@ -69,6 +69,9 @@ export async function countUsers(db: Database): Promise<number> {
   return Number(row?.count ?? 0);
 }
 
+// The epoch a setup link must still carry to work (setupLinks in schema.ts).
+const CURRENT_EPOCH = sql`(SELECT last_value FROM setup_link_epoch)`;
+
 // A disabled account and a disabled membership both leave nobody able to
 // act as owner, so either one makes the owner "not live".
 export async function countLiveOwners(db: Database): Promise<number> {
@@ -112,6 +115,7 @@ export async function bootstrapOwner(
         and(
           eq(setupLinks.tokenHash, input.setupTokenHash),
           gt(setupLinks.expiresAt, DB_NOW),
+          eq(setupLinks.epoch, CURRENT_EPOCH),
         ),
       )
       .returning({ tokenHash: setupLinks.tokenHash });
@@ -280,10 +284,10 @@ export async function bootstrapOwner(
 
 /**
  * Under the bootstrap lock, so a link cannot be issued after a bootstrap
- * that made an owner has read the count but before it commits. Every other
- * write that can make an owner live takes the same lock shared (trigger
- * `setup_links_retire`), so it either waits for this issue and deletes its
- * link, or commits first and this count sees its owner.
+ * that made an owner has read the count but before it commits. An owner made
+ * live some other way is not locked out here: the link only works while no
+ * live owner exists, and losing that owner later advances the epoch the link
+ * carries, so it never reopens recovery.
  */
 export async function issueSetupLink(
   db: Database,
@@ -300,7 +304,7 @@ export async function issueSetupLink(
     await tx.delete(setupLinks);
     await tx
       .insert(setupLinks)
-      .values({ tokenHash, expiresAt: fromDbNow(ttlMs) });
+      .values({ tokenHash, expiresAt: fromDbNow(ttlMs), epoch: CURRENT_EPOCH });
     return "issued";
   });
 }
@@ -316,9 +320,11 @@ export async function setupLinkIsLive(
       and(
         eq(setupLinks.tokenHash, tokenHash),
         gt(setupLinks.expiresAt, DB_NOW),
+        eq(setupLinks.epoch, CURRENT_EPOCH),
       ),
     );
-  return row !== undefined;
+  // An owner made live while the link was out: bootstrap would refuse it too.
+  return row !== undefined && (await countLiveOwners(db)) === 0;
 }
 
 /**

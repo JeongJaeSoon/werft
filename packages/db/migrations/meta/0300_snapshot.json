@@ -1,5 +1,5 @@
 {
-  "id": "b15acf2b-0796-4cfe-ba04-c9625d0c311a",
+  "id": "64896187-4c6b-4023-a6d8-3dc431ee5536",
   "prevId": "e5b5a7ff-43a2-41b5-a6de-6cd2303ed87c",
   "version": "7",
   "dialect": "postgresql",
@@ -13670,6 +13670,12 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true
+        },
+        "epoch": {
+          "name": "epoch",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
         }
       },
       "indexes": {},
@@ -17888,6 +17894,16 @@
   "sequences": {
     "public.env_variable_versions_seq": {
       "name": "env_variable_versions_seq",
+      "schema": "public",
+      "increment": "1",
+      "startWith": "1",
+      "minValue": "1",
+      "maxValue": "9223372036854775807",
+      "cache": "1",
+      "cycle": false
+    },
+    "public.setup_link_epoch": {
+      "name": "setup_link_epoch",
       "schema": "public",
       "increment": "1",
       "startWith": "1",

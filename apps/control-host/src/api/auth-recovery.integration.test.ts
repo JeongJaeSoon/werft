@@ -6,7 +6,7 @@ import {
   expect,
   test,
 } from "bun:test";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   bootstrapResponseSchema,
   issuePasswordResetResponseSchema,
@@ -441,7 +441,7 @@ integration("account recovery on PostgreSQL", () => {
       issueSetupToken(identity),
     ]);
     if (redeemed.status === 201) {
-      // Bootstrap went first: the issue saw a live owner, or its link was retired.
+      // Bootstrap went first: the issue waited for it and saw the live owner.
       expect(await db.$count(setupLinks)).toBe(0);
     } else {
       // The issue went first and replaced the link the bootstrap carried.
@@ -452,7 +452,7 @@ integration("account recovery on PostgreSQL", () => {
   });
 
   for (const comeback of ["account", "membership", "promotion"] as const) {
-    test(`an owner made live by ${comeback} retires the open setup link`, async () => {
+    test(`an owner made live by ${comeback} shuts the open setup link, and losing every owner again keeps it shut`, async () => {
       const { db, start, ownerId, memberId } = await install();
       await db
         .update(users)
@@ -470,7 +470,9 @@ integration("account recovery on PostgreSQL", () => {
       }
       const link = await issueSetupToken(new DatabaseIdentityStore(db));
       if (link === null) throw new Error("no link issued");
-      expect(await db.$count(setupLinks)).toBe(1);
+      const check = () =>
+        start().json("/v1/auth/setup-link/check", { setup_token: link });
+      expect((await check()).status).toBe(204);
 
       if (comeback === "account") {
         await db
@@ -488,20 +490,24 @@ integration("account recovery on PostgreSQL", () => {
           .set({ role: "owner" })
           .where(eq(memberships.userId, memberId));
       }
-      expect(await db.$count(setupLinks)).toBe(0);
-      const check = await start().json("/v1/auth/setup-link/check", {
-        setup_token: link,
-      });
-      expect(check.status).toBe(401);
+      expect((await check()).status).toBe(401);
+
+      await db
+        .update(users)
+        .set({ disabledAt: new Date() })
+        .where(isNull(users.disabledAt));
+      expect((await check()).status).toBe(401);
+      expect((await start().bootstrap(undefined, link)).status).toBe(401);
+      expect((await start().bootstrap()).status).toBe(201);
     });
   }
 
-  test("an owner restored while an issue is in flight waits for it and retires its link", async () => {
-    const { db, pool, ownerId } = await install();
-    await db
-      .update(users)
-      .set({ disabledAt: new Date() })
-      .where(eq(users.id, ownerId));
+  test("an owner restored while an issue is in flight never lets that link reopen recovery", async () => {
+    const { db, pool, start, ownerId } = await install();
+    const setOwnerDisabled = (disabledAt: Date | null) =>
+      db.update(users).set({ disabledAt }).where(eq(users.id, ownerId));
+    await setOwnerDisabled(new Date());
+    const link = randomBytes(32).toString("base64url");
     // An issue between its owner count and its commit.
     const issue = await pool.connect();
     try {
@@ -510,23 +516,67 @@ integration("account recovery on PostgreSQL", () => {
         "SELECT pg_advisory_xact_lock(hashtext('auth.bootstrap'))",
       );
       await issue.query(
-        "INSERT INTO setup_links (token_hash, expires_at) VALUES (decode(md5('in-flight'), 'hex'), now() + interval '1 day')",
+        "INSERT INTO setup_links (token_hash, expires_at, epoch) VALUES ($1, now() + interval '1 day', (SELECT last_value FROM setup_link_epoch))",
+        [Buffer.from(hashWebSessionToken(link))],
       );
-      const restore = db
-        .update(users)
-        .set({ disabledAt: null })
-        .where(eq(users.id, ownerId));
-      const early = await Promise.race([
-        restore.then(() => "done"),
-        Bun.sleep(300).then(() => "waiting"),
-      ]);
-      expect(early).toBe("waiting");
+      // The owner comes back meanwhile; the issue never sees it.
+      await setOwnerDisabled(null);
       await issue.query("COMMIT");
-      await restore;
     } finally {
       issue.release();
     }
-    expect(await db.$count(setupLinks)).toBe(0);
+    const check = () =>
+      start().json("/v1/auth/setup-link/check", { setup_token: link });
+    expect((await check()).status).toBe(401);
+
+    await setOwnerDisabled(new Date());
+    expect((await check()).status).toBe(401);
+    expect((await start().bootstrap(undefined, link)).status).toBe(401);
+  });
+
+  test("account and membership restored by two overlapping transactions never let the old link reopen recovery", async () => {
+    const { db, pool, start, ownerId } = await install();
+    await db
+      .update(users)
+      .set({ disabledAt: new Date() })
+      .where(eq(users.id, ownerId));
+    await db
+      .update(memberships)
+      .set({ disabledAt: new Date() })
+      .where(eq(memberships.userId, ownerId));
+    const link = await issueSetupToken(new DatabaseIdentityStore(db));
+    if (link === null) throw new Error("no link issued");
+
+    // Each restore sees the other half still disabled.
+    const account = await pool.connect();
+    const membership = await pool.connect();
+    try {
+      await account.query("BEGIN");
+      await membership.query("BEGIN");
+      await account.query("UPDATE users SET disabled_at = NULL WHERE id = $1", [
+        ownerId,
+      ]);
+      await membership.query(
+        "UPDATE memberships SET disabled_at = NULL WHERE user_id = $1",
+        [ownerId],
+      );
+      await account.query("COMMIT");
+      await membership.query("COMMIT");
+    } finally {
+      account.release();
+      membership.release();
+    }
+    const check = () =>
+      start().json("/v1/auth/setup-link/check", { setup_token: link });
+    expect((await check()).status).toBe(401);
+
+    await db
+      .update(users)
+      .set({ disabledAt: new Date() })
+      .where(eq(users.id, ownerId));
+    expect((await check()).status).toBe(401);
+    expect((await start().bootstrap(undefined, link)).status).toBe(401);
+    expect((await start().bootstrap()).status).toBe(201);
   });
 
   test("recovery waits for a member login in flight and revokes its session too", async () => {

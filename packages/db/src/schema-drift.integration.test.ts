@@ -93,8 +93,8 @@ const MIGRATIONS_ONLY = [
   // 0273: entering paused stamps the workspace TTL's clock, leaving clears it.
   "function sessions_track_paused_at() trigger language plpgsql volatility=v parallel=u body md5 b076ce49aab13242b12bab969eadca0e",
   "function settings_console_value_check() trigger language plpgsql volatility=v parallel=u body md5 e883e3d7e91c7d7d3c2696f163ccb436",
-  // 0300: an owner made live by any path retires every setup link.
-  "function setup_links_retire() trigger language plpgsql volatility=v parallel=u body md5 80f069bfd3243f1c99f5b0f2403278b2",
+  // 0300: a live owner lost outdates every setup link issued before.
+  "function setup_link_epoch_bump() trigger language plpgsql volatility=v parallel=u body md5 386ede13af30baad69f5769e44fcff23",
   "function slack_thread_status_of_row() trigger language plpgsql volatility=v parallel=u body md5 82b785c73c74e41ac9d4ca426506e7d3",
   "function slack_thread_status_of_session() trigger language plpgsql volatility=v parallel=u body md5 2dfe6ae6f5da387e822bf624ebaeb999",
   "function slack_thread_status_touch(session uuid) void language sql volatility=v parallel=u body md5 c4d8bde1fd53798d7cd4a18e5187512f",
@@ -155,10 +155,9 @@ const MIGRATIONS_ONLY = [
   "trigger CREATE TRIGGER sessions_pin_required_insert BEFORE INSERT ON public.sessions FOR EACH ROW WHEN (((new.status <> ALL (ARRAY['failed'::session_status, 'stopped'::session_status])) AND ((new.agent_release_id IS NULL) OR (new.runtime_spec IS NULL) OR ((new.runtime_spec ->> 'model'::text) IS DISTINCT FROM new.model)))) EXECUTE FUNCTION sessions_pin_required() enabled=O",
   "trigger CREATE TRIGGER sessions_pin_required_update BEFORE UPDATE OF status, model, agent_release_id, runtime_spec, spec_source, spec_source_digest, spec_digest ON public.sessions FOR EACH ROW WHEN (((new.status <> ALL (ARRAY['failed'::session_status, 'stopped'::session_status])) AND ((new.agent_release_id IS NULL) OR (new.runtime_spec IS NULL) OR ((new.runtime_spec ->> 'model'::text) IS DISTINCT FROM new.model)))) EXECUTE FUNCTION sessions_pin_required() enabled=O",
   "trigger CREATE TRIGGER sessions_track_paused_at BEFORE UPDATE ON public.sessions FOR EACH ROW WHEN ((old.admission_state IS DISTINCT FROM new.admission_state)) EXECUTE FUNCTION sessions_track_paused_at() enabled=O",
-  "trigger CREATE TRIGGER setup_links_hold_on_membership BEFORE INSERT OR UPDATE OF role, disabled_at ON public.memberships FOR EACH STATEMENT EXECUTE FUNCTION setup_links_retire() enabled=O",
-  "trigger CREATE TRIGGER setup_links_hold_on_user BEFORE UPDATE OF disabled_at ON public.users FOR EACH STATEMENT EXECUTE FUNCTION setup_links_retire() enabled=O",
-  "trigger CREATE TRIGGER setup_links_retire_on_membership AFTER INSERT OR UPDATE OF role, disabled_at ON public.memberships FOR EACH STATEMENT EXECUTE FUNCTION setup_links_retire() enabled=O",
-  "trigger CREATE TRIGGER setup_links_retire_on_user AFTER UPDATE OF disabled_at ON public.users FOR EACH STATEMENT EXECUTE FUNCTION setup_links_retire() enabled=O",
+  "trigger CREATE TRIGGER setup_link_epoch_on_membership_change AFTER UPDATE OF role, disabled_at ON public.memberships FOR EACH ROW WHEN (((old.role = 'owner'::text) AND (old.disabled_at IS NULL) AND ((new.role IS DISTINCT FROM 'owner'::text) OR (new.disabled_at IS NOT NULL)))) EXECUTE FUNCTION setup_link_epoch_bump() enabled=O",
+  "trigger CREATE TRIGGER setup_link_epoch_on_membership_delete AFTER DELETE ON public.memberships FOR EACH ROW WHEN (((old.role = 'owner'::text) AND (old.disabled_at IS NULL))) EXECUTE FUNCTION setup_link_epoch_bump() enabled=O",
+  "trigger CREATE TRIGGER setup_link_epoch_on_user_disable AFTER UPDATE OF disabled_at ON public.users FOR EACH ROW WHEN (((old.disabled_at IS NULL) AND (new.disabled_at IS NOT NULL))) EXECUTE FUNCTION setup_link_epoch_bump() enabled=O",
   "trigger CREATE TRIGGER tool_call_audits_append_only BEFORE UPDATE ON public.tool_call_audits FOR EACH ROW EXECUTE FUNCTION tool_call_audits_refuse_update() enabled=O",
   "trigger CREATE TRIGGER tool_calls_count_delete AFTER DELETE ON public.tool_calls REFERENCING OLD TABLE AS removed_rows FOR EACH STATEMENT EXECUTE FUNCTION tool_call_outcomes_recount() enabled=O",
   "trigger CREATE TRIGGER tool_calls_count_insert AFTER INSERT ON public.tool_calls REFERENCING NEW TABLE AS added_rows FOR EACH STATEMENT EXECUTE FUNCTION tool_call_outcomes_add() enabled=O",

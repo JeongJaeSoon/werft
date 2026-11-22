@@ -18,7 +18,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - Helm values에 `secrets.bootstrapToken`이 남아 있으면(`true`든 `false`든) render가 멈춘다. values에서 지우고 Secret의 `BOOTSTRAP_TOKEN`도 지운다.
   - compose·test-ops env 파일의 `BOOTSTRAP_TOKEN`은 어느 컨테이너에도 가지 않는다. 지운다.
   - 링크는 live owner가 없을 때만 `bun run apps/control-host/src/api/setup-link.ts`(api 컨테이너·Pod 안. test-ops는 `scripts/test-ops.sh setup-link`)가 stdout에 한 번 출력한다. 로그나 파일에는 남지 않는다. 24시간 뒤 만료되고, 다시 실행하면 앞 링크는 무효가 된다. `scripts/test-ops.sh bootstrap-token`은 `setup-link`로 바뀌었다.
-  - `POST /v1/auth/bootstrap` 본문의 `bootstrap_token`이 `setup_token`으로 바뀌었다. 옛 필드는 `400`이다. 링크를 확인하는 공개 route `POST /v1/auth/setup-link/check`(살아 있으면 `204`, 아니면 `401`)가 더해졌다.
+  - `POST /v1/auth/bootstrap` 본문의 `bootstrap_token`이 `setup_token`으로 바뀌었다. 옛 필드만 보낸 요청은 `401`이다. 링크를 확인하는 공개 route `POST /v1/auth/setup-link/check`(살아 있으면 `204`, 아니면 `401`)가 더해졌다.
   - 로그인 화면의 첫 owner 링크가 없어졌다. `/bootstrap`은 살아 있는 링크로 열었을 때만 폼을 보인다.
   - owner를 모두 잃었을 때의 복구도 같은 링크로 한다. migration `0300_setup_links`가 `setup_links` 표를 더한다. 쓴 토큰을 적던 `bootstrap_token_uses` 표는 더 읽거나 쓰지 않고 남겨 둔다.
   - rolling deploy 중 옛 replica는 링크를 모르고 새 replica는 옛 토큰을 받지 않는다. 첫 owner 만들기와 복구는 모든 api가 새 이미지로 바뀐 뒤에 한다.
