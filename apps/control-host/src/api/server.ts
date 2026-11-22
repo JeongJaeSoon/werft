@@ -2,6 +2,7 @@ import { REQUEST_BODY_MAX_BYTES } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   agentDeleted,
+  closeAgentlessSessions,
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
   createPostgresAchievementJudgments,
@@ -493,6 +494,32 @@ reconcileRetiredCatalogDrafts(db).then(
   (error: unknown) => {
     logger.warn(
       "Drafts naming a retired catalog MCP server could not be reconciled; the next start tries again",
+      { error_name: error instanceof Error ? error.name : typeof error },
+    );
+  },
+);
+// Sessions accepted before a release was required; each start closes what
+// is left, so a session that failed here is tried again on the next.
+closeAgentlessSessions(db).then(
+  (sessions) => {
+    if (sessions.closed.length > 0) {
+      logger.info("Sessions without an agent release closed", {
+        sessions: sessions.closed.length,
+      });
+    }
+    for (const { sessionId, error } of sessions.failed) {
+      logger.warn(
+        "A session without an agent release could not be closed; the next start tries again",
+        {
+          session_id: sessionId,
+          error_name: error instanceof Error ? error.name : typeof error,
+        },
+      );
+    }
+  },
+  (error: unknown) => {
+    logger.warn(
+      "Sessions without an agent release could not be read; the next start tries again",
       { error_name: error instanceof Error ? error.name : typeof error },
     );
   },
