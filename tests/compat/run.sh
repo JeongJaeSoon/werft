@@ -7,9 +7,9 @@
 #   3  this checkout's control-host in every role, the old worker and proxy
 #
 # One compose project lives through all three, so the database, object
-# store, installation id and secrets stay. tests/compat/upgrade.compat.ts
-# drives one stage at a time; the pass is completed turns, not the absence
-# of a 400.
+# store, installation id and secrets stay, except the catalog MCP's.
+# tests/compat/upgrade.compat.ts drives one stage at a time; the pass is
+# completed turns, not the absence of a 400.
 #
 #   COMPAT_ENGINE              claude_agent_sdk | codex_app_server
 #   COMPAT_OLD_DIR             the old release's checkout, installed
@@ -29,8 +29,10 @@
 #
 # A release that read keys from Secrets Manager gets the fake GitHub App's
 # key handed into its secrets service after stage 1 comes up, and the keys
-# its settings named are stored as the first owner after the migrate, the
-# way an operator does after this upgrade.
+# of its connections and repositories are stored as the first owner after
+# the migrate, the way an operator does after this upgrade. The migrate
+# retires its catalog MCP servers with their stored values, so none is
+# stored for them.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
