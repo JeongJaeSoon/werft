@@ -33,7 +33,7 @@ worker 컨테이너 env에도, claim 응답에도 provider 키와 저장소 로�
 
 ## 운영자 카탈로그 (모델 연결 · repository)
 
-API와 slack 역할은 설정 파일을 읽지 않는다. 연결·저장소·MCP 서버·설치 상한은 모두 DB 행이고, 콘솔이나 설정 문서로 넣는다(설계 문서: 결정: 파일 카탈로그를 없애고 설치 설정을 DB와 콘솔로 옮긴다). 예전 변수 `PLATFORM_CONFIG_DIR`이나 `SESSION_CATALOG_JSON`이 남아 있으면 `finish the import ... then unset` 메시지와 함께 기동을 거부하고, `PLATFORM_SECRET_KEY`가 없어도 기동하지 않는다.
+API와 slack 역할은 설정 파일을 읽지 않는다. 연결·저장소·MCP 서버·설치 상한은 모두 DB 행이고, 콘솔이나 설정 문서로 넣는다. 예전 변수 `PLATFORM_CONFIG_DIR`이나 `SESSION_CATALOG_JSON`이 남아 있으면 `finish the import ... then unset` 메시지와 함께 기동을 거부하고, `PLATFORM_SECRET_KEY`가 없어도 기동하지 않는다.
 
 - **빈 설치에는 연결이 없다.** 새 DB에는 연결도 저장소도 없다. 콘솔에서 연결을 더하고(설정 > 에이전트 연결 > **모델 연결**) 그 연결에서 사용할 모델을 고른 뒤(만들면 공급자의 모델 목록이 바로 열린다), 에이전트를 그 연결로 release한다. 예시 스택(`scripts/local.sh up --fake-model`, E2E)은 `tests/fixtures/settings/`의 문서를 migrate 단계에서 가져와 미리 채운다(아래 "예시 설정 문서"). `SETTINGS_DOCUMENT=` 처럼 비워 띄우면 빈 설치를 그대로 볼 수 있다.
 - **설정 문서와 옛 디렉터리는 빈 설치에 한 번만 들어간다.** migrate는 `settings seed --from-dir /legacy-config [--document "$SETTINGS_DOCUMENT"]`를 돈다. 연결이나 MCP 서버 행이 하나도 없는(disabled 행도 센다) 첫 배포만 둘을 지금 순서(디렉터리 → 문서)로 한 트랜잭션에 넣고, 그 결정을 `settings_generation.seed_decided_at`에 남긴다. 그 뒤의 배포는 파일을 읽지 않고 `note: … not imported: …; change settings in the console` 한 줄만 낸다. 문서를 고쳐도 들어가지 않으니 콘솔에서 바꾸거나, 손으로 `settings import`를 돌린다. 이미 연결이 있는 설치는 이 릴리스의 첫 migrate가 그렇게 결정한다. 하나라도 거절되면 아무것도 쓰지 않고 결정도 남기지 않으므로, 파일을 고쳐 다시 올리면 된다. `local.sh down --keep-volumes` 뒤 다시 띄운 개발 스택도 같아서 fixture를 바꿔도 들어가지 않는다. volume째 내리고 띄운다.
@@ -156,12 +156,12 @@ github.com과 GitHub Enterprise Server(GHES)의 저장소도 다른 host와 같�
 
 #### GitHub App
 
-API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토큰을 proxy의 저장소 route에 내준다. 토큰은 1시간짜리라 API가 갱신한다. App은 콘솔에서 등록한다. 한 워크스페이스에 작성용·리뷰 승인용 App을 여럿 둘 수 있고, 저장소마다 어느 App이 토큰을 발급할지 고정한다(설계 문서: 결정: 에이전트 GitHub 설정과 기능별 권한, 결정 11).
+API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토큰을 proxy의 저장소 route에 내준다. 토큰은 1시간짜리라 API가 갱신한다. App은 콘솔에서 등록한다. 한 워크스페이스에 작성용·리뷰 승인용 App을 여럿 둘 수 있고, 저장소마다 어느 App이 토큰을 발급할지 고정한다.
 
 - **App 만들기:** 조직(또는 계정) Settings → Developer settings → GitHub Apps → New GitHub App. Webhook은 Git 스킬 동기화(아래 "Git 스킬 webhook")를 쓸 때만 켜고, 아니면 끈다. Repository permissions는 **Contents: Read and write**, **Pull requests: Read and write**, **Metadata: Read-only**(자동)다. clone은 Contents read만 쓰지만, push·PR(아래 절)이 같은 App을 쓰므로 처음부터 준다. 토큰을 발급할 때마다 그 요청이 쓰는 권한만 다시 좁히므로(아래) clone 토큰에는 쓰기 권한이 없다. 만든 뒤 페이지 위쪽의 **App ID**를 적어 두고, Private keys → Generate a private key로 PEM 파일을 받는다.
 - **콘솔에 등록:** owner나 admin이 설정 > 워크스페이스 > 연동 > GitHub에서 App ID를 넣고 PEM 파일을 고른다. API는 키가 RSA private key인지 보고(`400 invalid_private_key`), 그 키로 서명한 JWT로 `GET {api_base}/app`을 불러 GitHub가 받아 주는지 확인한 뒤에만 저장한다(`400 github_app_rejected`, GitHub가 답하지 않으면 `503 github_unreachable`). 키는 `PLATFORM_SECRET_KEY`(master key)로 암호화해 `secret_values`에 두고, App 이름·주소와 함께 `github_apps` 표에 남는다. 등록·교체·삭제는 `set_github_app`·`delete_github_app` receipt로 남고, 키는 응답·receipt·로그 어디에도 나오지 않는다. 내려받은 PEM 파일은 등록한 뒤 지운다. 같은 App의 키를 바꾸려면 GitHub에서 새 키를 만들고, 그 App 행의 ⋯ 메뉴 "새 키 등록"으로 같은 연결에 저장한 뒤, 새 키로 동작하는 것을 확인하고 GitHub에서 옛 키를 지운다. API는 10초마다 DB를 다시 읽으므로 다른 replica도 곧 새 키를 쓴다(등록한 replica는 바로).
 - **설치:** 화면의 **조직 추가**(App이 여럿이면 설치할 App을 고른다)로 GitHub의 설치 화면에 가서 저장소 owner를 고르고 **Only select repositories**로 쓸 저장소만 고른다. 콘솔에서 시작해 콘솔로 돌아온 설치는 연결한 사람을 남긴다. 화면은 App의 JWT로 GitHub에 물어 설치 표(계정 · 유형 · 저장소 · App · 연결한 사람 · 상태)를 보여 준다. installation id는 적지 않는다. API가 토큰을 받을 때 `GET /repos/{owner}/{repo}/installation`으로 찾는다.
-- **저장소:** 콘솔의 App을 쓰는 저장소는 등록하지 않는다. 에이전트 관리자가 에이전트의 GitHub 탭에서 App 설치에 들어 있는 저장소를 고르면 카탈로그 행이 생긴다. URL과 기본 브랜치는 GitHub에서 읽는다. owner나 admin은 설정 > 워크스페이스 > 연동 > GitHub > **저장소 관리**에서 설치별 저장소를 보고, 행 메뉴로 기본 브랜치와 그 저장소를 맡을 App을 바꾼다. 바꾼 것은 `set_repository_branch`·`set_repository_github_app` receipt로 남는다. 저장소는 DB 표 `catalog_repositories`에 있고, 재배포나 재기동은 필요 없다(다른 replica는 10초 안에 읽는다). 설계 문서: 결정: GitHub App 저장소를 DB 카탈로그로 옮긴다.
+- **저장소:** 콘솔의 App을 쓰는 저장소는 등록하지 않는다. 에이전트 관리자가 에이전트의 GitHub 탭에서 App 설치에 들어 있는 저장소를 고르면 카탈로그 행이 생긴다. URL과 기본 브랜치는 GitHub에서 읽는다. owner나 admin은 설정 > 워크스페이스 > 연동 > GitHub > **저장소 관리**에서 설치별 저장소를 보고, 행 메뉴로 기본 브랜치와 그 저장소를 맡을 App을 바꾼다. 바꾼 것은 `set_repository_branch`·`set_repository_github_app` receipt로 남는다. 저장소는 DB 표 `catalog_repositories`에 있고, 재배포나 재기동은 필요 없다(다른 replica는 10초 안에 읽는다).
 - **설정 문서:** `settings import`로도 같은 행을 더한다(`import_repository` receipt). 항목은 이렇게 적는다. 자기 App 키를 가진 저장소(아래 키를 직접 적는 방식)도 같은 문서로 가져오고, 키는 그 뒤 API로 넣는다.
 
   ```json
@@ -201,7 +201,7 @@ API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토�
 
 #### Git 스킬 webhook
 
-GitHub에서 등록한 스킬은 push webhook, 하루 한 번 확인, 콘솔의 "지금 확인" 셋으로 새 버전을 찾는다(설계 문서: 결정(설계): 스킬과 MCP 서버를 엔진에 상관없이 등록·지정하고, werft 플러그인으로 묶는다, 3절). webhook은 GitHub가 이 API에 닿을 때만 쓴다. 닿지 않는 설치는 하루 확인과 "지금 확인"만으로 동작한다.
+GitHub에서 등록한 스킬은 push webhook, 하루 한 번 확인, 콘솔의 "지금 확인" 셋으로 새 버전을 찾는다. webhook은 GitHub가 이 API에 닿을 때만 쓴다. 닿지 않는 설치는 하루 확인과 "지금 확인"만으로 동작한다.
 
 | 변수 | 기본값 | 허용 범위 |
 |---|---|---|
@@ -246,8 +246,6 @@ github.com의 비공개 저장소로 확인하는 절차다. `scripts/local.sh u
 ### push 규칙: 모든 저장소에 하나
 
 세션의 저장소가 무엇이든 push가 필요로 하는 승인은 규칙 하나로 정해진다. 에이전트의 `push_approval`(꺼져 있으면 `allow`, 아니면 `ask`)과 `push_attached` 중 더 엄격한 쪽이다. `deny`면 새 push 요청을 승인 요청 없이 거절한다. release의 pin에는 `push_attached`가 없어 `ask`로 읽으므로 release 세션은 정책 승인을 받지 못하고, 시작 스냅샷이 있는 세션은 이후 설정이 느슨해져도 스냅샷보다 느슨해지지 않는다. 설정이 없으면 최소 `ask`이고, 저장된 `deny`는 설정을 읽을 수 있는 한 그대로 `deny`다. 설정을 읽을 수 없으면(파싱 실패) 판정은 `ask`이고 자격 증명 gate가 따로 거절한다. 적용할 수 없는(unsupported) 설정도 gate가 거절한다. API, push intent runner, push 실행기, 자격 증명 gate는 모두 control-host 한 이미지에서 같은 함수로 계산한다. 설치 설정은 없다.
-
-이전에는 세션 저장소의 push가 `push_approval`만, 그 밖의 저장소의 push가 `push_attached`만 따랐다. 바뀌는 것은 두 값이 다를 때뿐이고, 덜 엄격하던 저장소가 더 엄격한 쪽을 따른다. `push_approval`이 꺼져 있고 `push_attached`가 `ask`(기본)이면 세션 저장소의 push가 `allow`에서 `ask`로, `deny`면 `allow`에서 `deny`로 바뀐다. `push_approval`이 켜져 있고 `push_attached`가 `allow`면 그 밖의 저장소의 push가 `allow`에서 `ask`로, `deny`면 세션 저장소의 push가 `ask`에서 `deny`로 바뀐다.
 
 세션에 저장소가 없으면 workflow·review 도구는 `409 workflow_review_need_session_repository`로 거절된다. 저장소가 없는 세션이 저장소를 직접 지정하는 작업(attach 등)의 거절 사유는 그대로다. 구버전 strict 응답 검증기는 새 enum을 `CLIENT_CONTRACT_MISMATCH`로 보고할 수 있고, 구버전 서버는 새 코드의 refusal receipt를 목록에서 걸러 기록이 안 보일 수 있다. 어느 쪽도 실행을 허용으로 바꾸지는 않는다.
 
@@ -357,7 +355,7 @@ API 프로세스가 3초마다 `approved` 요청을 하나씩 잡아 push한다.
 release가 고정한 `permission_mode`는 `default`·`acceptEdits`·`dontAsk`·`plan`·`bypassPermissions`·`auto` 중 하나다. 새 release는 카드의 모델이 Claude 모델이면 `auto`를, 그 밖에는 `default`를 고정한다(`packages/platform/src/agents/release-ids.ts`의 `releasePermissionMode`). Claude 모델은 `anthropic` 연결의 모델, 또는 `litellm` 연결에서 `claude-`·`anthropic/claude-`로 시작하거나 `sonnet`·`opus`·`haiku`·`fable`(`[1m]`이 붙어도 된다)과 정확히 같은 모델 id다. 계열 이름을 품기만 한 id(`my-sonnet-proxy`)는 아니다. Codex 연결(`openai_responses`)은 언제나 `default`다. `auto`와 `bypassPermissions`가 자율 모드로, 도구 호출을 사람의 승인 없이 실행한다.
 
 - `bypassPermissions`: 파일 쓰기·Bash·`git commit`을 포함해 모든 도구 호출을 그대로 실행한다. 권한 pending-request를 만들지 않는다.
-- `auto`: 엔진이 원래 물었을 도구 호출(예: Bash)마다 모델 분류기가 허용·거부를 정한다. 분류기 호출도 같은 provider route로 나가므로 세션 비용에 잡힌다(2026-10-13 실측: Bash 호출 하나에 분류기 요청 하나, 첫 요청 약 0.11달러, 이후 약 0.009달러). 분류기를 쓸 수 없으면 엔진은 그 호출을 거부한다(fail closed).
+- `auto`: 엔진이 원래 물었을 도구 호출(예: Bash)마다 모델 분류기가 허용·거부를 정한다. 분류기 호출도 같은 provider route로 나가므로 세션 비용에 잡힌다(실측: Bash 호출 하나에 분류기 요청 하나, 첫 요청 약 0.11달러, 이후 약 0.009달러). 분류기를 쓸 수 없으면 엔진은 그 호출을 거부한다(fail closed).
   - 작업 공간 규칙: `default`와 같은 `permissions`(`packages/runtime-core/src/workspace-policy.json`의 allow·ask)를 같이 받는다. 그래서 `git`·`gh`, `sed`, 작업 공간 안 쓰기·`mkdir`, 조회는 분류기 요청 없이 실행되고, ask에 걸린 호출(비밀 경로, `git --output`, 비밀 이름의 `git add` 등)은 분류기가 아니라 사람에게 간다(엔진 2.1.319에서 ask 일치는 분류기로 넘기지 않는다). 엔진은 auto에 들어갈 때 인터프리터·스크립트 실행기(`bun run`·`npm run`·`npx`·`bunx`·`python`·`node`·`bash` 등)의 allow를 지우므로 그 호출은 분류기가 판정한다.
   - 설정 파일: worker는 엔진을 시작할 때마다 합친 설정을 체크아웃 밖의 `$CLAUDE_CONFIG_DIR/launcher-settings.json`에 새로 쓰고 그 경로를 `--settings`로 넘긴다(`packages/adapters/runtimes/claude/src/runtime.ts`의 `writeEngineSettings`). 인자로 넘기지 않으므로 Linux 인자 하나의 한도(128 KiB)에 걸리지 않는다. 파일에는 그 파일의 편집을 막는 deny(`Edit(~/.claude/launcher-settings.json)`, `Edit(//<절대 경로>)`)가 들어가고, 앞선 파일은 지우고 새로 만들므로(링크를 따라가지 않는다) 세션 중의 편집은 다음 엔진 시작까지만 남는다. 저장소의 설정 파일을 읽지 않는 것(`settingSources: []`)은 그대로다.
   - 플랫폼 기본 규칙: 이 모드에서만 worker가 엔진에 `autoMode`를 flag settings로 넘긴다(`packages/adapters/runtimes/claude/src/auto-mode.ts`). 규칙은 도구가 아니라 행동 부류 단위의 영어 문장이고, 칸마다 `$defaults` 뒤에 붙는다. worker가 `platform_tool_trust`를 알리고 control-host가 `trusted` 도구를 보낸 세션에서는 push·PR·저장소 읽기 도구가 분류기를 거치지 않으므로(아래 "분류기를 거치지 않는 도구") allow는 Git Work(세션 작업 공간의 commit. 비밀값 commit은 `Not covered:`)와 Pull Request Merge만 남는다. 리뷰 제출(승인·변경 요청 포함)과 workflow dispatch·재실행은 허용에 든 적이 없는 행동이라, 예전에는 allow의 `Not covered:` 한 줄만 있어 아무것도 막지 못했다. 지금은 soft_deny의 Reviews and Workflows 한 줄이 막고, 사용자가 이 대화에서 그 행동을 요청했으면 풀린다. 알리지 않는 옛 worker, 또는 `platform_tool_trust`를 알렸는데 `trusted`가 없는 설정을 받은 worker에서는 예전 세 줄이 그대로다: Git Work(commit과, 플랫폼 push 흐름으로 이 세션의 저장된 checkpoint를 세션 자기 저장소, 또는 세션에 붙인 저장소의 플랫폼이 만든 세션 작업 브랜치에 push. 모든 저장소에 서버가 push 승인과 첨부 저장소 push 정책 중 더 엄격한 쪽으로 거절하거나 사람 승인을 붙인다), Pull Requests(그 브랜치에서 PR 열기, 이 세션이 연 PR의 제목·본문 수정, 코멘트, 닫기와 다시 열기), Repository Reading(허용된 저장소 목록과 읽기용 붙이기). `platform_tool_trust`를 모르는 옛 control-host는 새 worker의 claim 본문을 400으로 거절하지만, worker는 그 키만 거절당한 것을 오류 본문의 `details.issues`에서 읽으면 키를 뺀 `capabilities`로 한 번 다시 보낸다(`/pending-control` poll도 같다). 그래서 배포 순서 제약은 없고, 그 claim에서는 `trusted`가 없어 위 폴백(예전 세 줄, 모든 도구가 엔진 권한 단계)으로 돈다. 그 밖의 400은 그대로 실패한다. 각 줄의 `Not covered:`에 기본·보호 브랜치나 플랫폼이 만들지 않은 브랜치 push, force push, 머지·승인·닫기·리뷰 제출, 플랫폼 push 흐름이 아닌 경로의 push, 비밀값을 적는다. soft_deny 한 줄: GitHub Administration(저장소 설정·브랜치 보호·webhook·deploy key·Actions secret 변경, GitHub의 브랜치·저장소 삭제, PR 머지, 경로 무관). 도구 이름은 environment에서만 행동과 잇는다(`request_push`는 push, `open_pull_request`·`update_pull_request`·`comment_pull_request`는 PR, `list_repositories`·`attach_repository`는 저장소 읽기). 엔진은 `autoMode`를 user·flag·policy settings에서만 읽으므로 저장소의 `.claude/settings.json`은 이 규칙을 넓히거나 지우지 못한다(엔진 2.1.270에서 `claude --settings … auto-mode config`로 네 칸 모두 기본값 뒤에 합쳐지는 것을 확인). 이 상수는 세션 spec에 들어가지 않으므로 바꿔도 기존 세션이 `CATALOG_MISMATCH`가 되지 않는다. 끄는 방법은 따로 두지 않았다. push마다 사람 승인을 받게 하려면 에이전트의 push 승인을 켜거나 첨부 저장소 push 정책을 `ask`로 둔다(어느 쪽이든 모든 저장소에 적용된다. `default`로 바꿔도 `trusted` 도구는 엔진이 묻지 않는다). push 승인은 모드와 별개라 `auto`여도 둘 중 하나가 그렇게 되어 있으면 모든 저장소의 push마다 묻는다(정책이 `deny`면 묻지 않고 거절한다). GitHub 탭 첫 저장은 꺼진 채로 시작하지만(서버 `legacy_defaults`, 저장소 없는 release는 콘솔 `NO_REPOSITORY_DEFAULTS`), `policy_pins.github`가 없는 release는 켜진 것으로 읽는다. push가 승인 없이 가는 것은 push 승인이 꺼져 있고 첨부 저장소 push 정책이 `allow`일 때뿐이며, 세션 주 저장소와 붙인 저장소에 똑같이 적용된다(위 "push 규칙" 절). 정책이 `deny`면 거절하고, 그 밖에 둘 중 하나라도 `ask`면 사람 승인이다.
@@ -369,7 +367,6 @@ release가 고정한 `permission_mode`는 `default`·`acceptEdits`·`dontAsk`·`
 - **`bypassPermissions`는 새 release가 고르지 않는다.** 그 모드로 고정된 release는 없다. `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS`는 이 판에서 아무것도 열지 않는다.
 - **남는 경계.** 사람 승인이 빠지면 남는 것은 세션마다 하나인 worker 컨테이너(root 아님), egress proxy 허용 목록(Messages API·저장소 route·object store route만), release의 도구 목록, 세션 비용 상한(실행 한도의 세션 비용, turn의 `maxBudgetUsd`)이다. `tools` 목록은 이 모드에서도 PreToolUse hook이 강제하고, 비용 상한과 checkpoint 중 도구 차단도 그대로다. 이 넷 중 하나라도 없는 설치(예: worker를 host 네트워크로 띄우는 경우)에서는 켜지 않는다. 저장소 자격 증명은 worker에 가지 않으므로([위 절](#provider-키와-저장소-자격-증명은-worker에-가지-않는다)) 자율 세션도 push할 수 없고, 바뀐 내용은 checkpoint로만 나간다.
 - **감사.** 세션 목록·상세의 `runtime.permission_mode`가 그 세션이 도는 모드다. worker의 claim 로그에도 `permission_mode`가 남는다. 모드는 세션에 고정되므로 receipt에는 따로 싣지 않는다.
-- 실제 모델로 확인하는 방법은 [real-claude.md](../real-claude.md#자율-모드-세션)에 있다.
 
 ### 예시 설정 문서
 
@@ -385,7 +382,7 @@ curl -H 'X-Owner-Id: local-owner' http://127.0.0.1:3000/v1
 
 ## 트레이스 내보내기 (OTLP)
 
-API 서비스만 읽는 설정이다. 기본은 꺼짐이라 키를 하나도 주지 않으면 span을 만들지도, 요청을 보내지도 않는다. 로그의 `trace_id`·`span_id`는 활성 span 안에서만 찍힌다(설계 문서: 결정: 로그 레코드 계약과 에러 기록 규칙). 설계는 설계 문서 6절에 있다(설계 문서: 결정(설계): 관측(OTel) 방향과 도구 호출 감사).
+API 서비스만 읽는 설정이다. 기본은 꺼짐이라 키를 하나도 주지 않으면 span을 만들지도, 요청을 보내지도 않는다. 로그의 `trace_id`·`span_id`는 활성 span 안에서만 찍힌다.
 
 | 키 | 기본값 | 뜻 |
 |---|---|---|

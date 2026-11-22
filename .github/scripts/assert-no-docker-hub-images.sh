@@ -43,7 +43,7 @@ while IFS= read -r pulled; do
     *) continue ;;
     esac
   fi
-  echo "::error::${repository} came from Docker Hub; mirror it in ci-image-mirror.yml and pull it from there (docs/contributing/ci.md § 서드파티 이미지 미러)"
+  echo "::error::${repository} came from Docker Hub; mirror it in ci-image-mirror.yml and pull it from there"
   failed=1
 done <<<"$listing"
 exit "$failed"

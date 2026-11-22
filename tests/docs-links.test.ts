@@ -374,9 +374,9 @@ const NOT_SETTINGS: Record<string, string> = {
     "reports the local backend's validated quota mode",
   WORKER_WORKSPACE_ENFORCED_BY_STORAGE:
     "derived from the Kubernetes backend's operator declaration",
-  K8S_BACKEND_TEST: "tests only (docs/contributing/development.md)",
-  K8S_BACKEND_TEST_IMAGE: "tests only (docs/contributing/development.md)",
-  K8S_BACKEND_TEST_KEEP: "tests only (docs/contributing/development.md)",
+  K8S_BACKEND_TEST: "tests only",
+  K8S_BACKEND_TEST_IMAGE: "tests only",
+  K8S_BACKEND_TEST_KEEP: "tests only",
   GIT_ALLOW_PROTOCOL: "written into git's environment, not read",
   GIT_CONFIG_COUNT: "written into git's environment, not read",
   GIT_CONFIG_SYSTEM:
@@ -387,8 +387,7 @@ const NOT_SETTINGS: Record<string, string> = {
     "inlined into the console demo build by apps/web/vite.config.ts",
   DEMO_ACCOUNTS_PASSWORD:
     "a local stack's own demo password in place of the public one (scripts/local.sh)",
-  CHOKIDAR_USEPOLLING:
-    "the Vite dev server's file watcher (docs/contributing/development.md)",
+  CHOKIDAR_USEPOLLING: "the Vite dev server's file watcher",
   EXECUTION_VOLUME_LABEL_NAMESPACE:
     "kept out of public docs; an existing install sets it to keep its volumes",
   EXECUTION_VOLUME_NAME_PREFIX:
@@ -487,8 +486,10 @@ describe("Operator settings", () => {
       .join("\n");
     const names = shellSettings();
     expect(names).toContain("API_MEMORY_MB");
+    // Names the .env file the local-stack and e2e scripts read; local development only.
+    const localOnly = new Set(["AGENT_PLATFORM_DOTENV"]);
     const missing = [...names]
-      .filter((name) => !(name in NOT_SETTINGS))
+      .filter((name) => !(name in NOT_SETTINGS) && !localOnly.has(name))
       .filter((name) => !documented(docs, name))
       .sort();
     expect(missing).toEqual([]);

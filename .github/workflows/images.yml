@@ -225,15 +225,14 @@ jobs:
           path: digests/${{ matrix.app }}-${{ matrix.arch }}.json
           if-no-files-found: error
 
-  # The required check. One job name whatever the event, so branch
-  # protection can hold on to it. `always()`, not `!cancelled()`: a skipped
-  # required check counts as passed (docs/contributing/ci.md), so it runs even when a
-  # build failed or the run was cancelled, and then fails for the missing
-  # result: no image, no verdict. The npm audit runs here rather than in its
-  # own workflow so that one check covers both. When a scan got no answer
-  # from its advisory service, a pull request or main push only warns: an
-  # outage must not stop every merge, and the daily run and a publish
-  # still need a verdict.
+  # The required check. One job name whatever the event, so branch protection
+  # can hold on to it. `always()`, not `!cancelled()`: a skipped required check
+  # counts as passed, so it runs even when a build failed or the run was
+  # cancelled, and then fails for the missing result: no image, no verdict. The
+  # npm audit runs here rather than in its own workflow so that one check covers
+  # both. When a scan got no answer from its advisory service, a pull request or
+  # main push only warns: an outage must not stop every merge, and the daily run
+  # and a publish still need a verdict.
   supply-chain:
     needs: [plan, build]
     if: always()

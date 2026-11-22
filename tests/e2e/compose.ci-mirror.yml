@@ -1,11 +1,11 @@
-# CI-only overlay: the `e2e` and `quickstart` jobs pull every
-# third-party image of the compose stack from the CI mirror
-# (ci-image-mirror.yml, docs/contributing/ci.md § 서드파티 이미지 미러) instead of Docker
-# Hub, by the very digests infra/compose.core.yml, infra/compose.local.yml
-# and the app Dockerfiles pin; the stack itself is unchanged. `e2e` passes it to tests/e2e/run.sh as
-# E2E_COMPOSE_OVERRIDE, `quickstart` through COMPOSE_FILE so that
-# docs/quickstart.md runs as written. tests/ci-images.test.ts holds every
-# reference here to the compose file and the mirror list.
+# CI-only overlay: the `e2e` and `quickstart` jobs pull every third-party image
+# of the compose stack from the CI mirror (ci-image-mirror.yml) instead of
+# Docker Hub, by the very digests infra/compose.core.yml,
+# infra/compose.local.yml and the app Dockerfiles pin; the stack itself is
+# unchanged. `e2e` passes it to tests/e2e/run.sh as E2E_COMPOSE_OVERRIDE,
+# `quickstart` through COMPOSE_FILE so that docs/quickstart.md runs as written.
+# tests/ci-images.test.ts holds every reference here to the compose file and the
+# mirror list.
 x-mirror-build-args: &mirror-build-args
   BUN_IMAGE: ghcr.io/jeongjaesoon/werft-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
   # The Dockerfiles' `# syntax=docker/dockerfile:1.7`, which BuildKit would

@@ -158,8 +158,8 @@ services:
     environment:
       EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-fake-git:3000,fake-messages:4010,fake-mcp:4020,localstack:4566}
 
-  # A developer's overrides (docs/contributing/development.md). Not the reconciler's: it
-  # refuses to start with the API's HEARTBEAT_TTL_SEC.
+  # A developer's overrides. Not the reconciler's: it refuses to start with the
+  # API's HEARTBEAT_TTL_SEC.
   api:
     build:
       context: ..

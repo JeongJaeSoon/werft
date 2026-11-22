@@ -127,7 +127,7 @@ GitHub Packages bot token을 다른 host로 보내야 할 때만 아래 값을 �
 
 scheduler가 worker 컨테이너를 만들 때 읽는 값이다. 없으면 기본값을 쓰고, 형식이 틀리면 기동하지 않는다. user, HOME·workspace 경로, tmpfs 크기, credential 포트, stop timeout은 `werft.isolation` 지문에 들어간다([실행 기반과 worker 격리](/run-server/self-hosting/explanation/isolation)). 그래서 바꾸면 실행 중인 worker가 교체된다. CPU·메모리·PID 한도는 다음 launch부터 적용된다.
 
-`WORKER_MEMORY_MB`는 transcript 상한(`MAX_TRANSCRIPT_BYTES`)과 함께 정한 값이다. 둘의 관계, 실측, 노드당 세션 수, 바꾸는 방법은 [용량 관리](/run-server/self-hosting/capacity)에 있다.
+`WORKER_MEMORY_MB`는 transcript 상한(`MAX_TRANSCRIPT_BYTES`)과 함께 정한 값이다. 둘의 관계, 노드당 세션 수, 바꾸는 방법은 [용량 관리](/run-server/self-hosting/capacity)에 있다.
 
 scheduler는 `WORKER_IMAGE`와 `WORKER_IMAGE_RUNTIME`으로 현재 이미지를, `WORKER_IMAGE_PREVIOUS`와 `WORKER_IMAGE_PREVIOUS_RUNTIME`으로 직전 릴리스 이미지를 받는다. 런타임 값은 API와 같은 값이다(위 API 설정). 직전 이미지는 두 값을 함께 설정하고, 하나만 있으면 기동하지 않는다. `WORKER_IMAGE_RUNTIME`이 없으면 모든 launch가 `WORKER_IMAGE`로 뜬다. 설정하면 launch마다 세션의 checkpoint 포인터가 기록한 조합(engine·SDK·CLI·profile digest scheme)과 같은 이미지를 고르고, 둘 다 맞으면 현재 이미지를 쓴다. 새 세션, checkpoint가 없는 세션, 조합을 기록하지 않은 옛 checkpoint는 세션 엔진의 가장 새 이미지(현재 이미지, 그 엔진을 직전 이미지만 돌리면 직전 이미지)로 뜬다. 그 엔진의 이미지가 없으면 slot을 쓰지 않고 기다린다. 어느 이미지와도 맞지 않는 세션은 worker를 띄우지 않고 `recovery_required`(`incompatible_checkpoint`)로 멈추며, 세션 이벤트 `checkpoint_restore_failed`에 `detected_at: "launch"`가 남는다. `retry_restore`로 다시 시도할 수 있다.
 

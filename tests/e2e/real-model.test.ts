@@ -18,7 +18,7 @@ import { fixtureCatalog } from "./settings-fixture.ts";
  * without Docker or a key: the real-model settings migrate imports, the seed
  * step that stores the key through stdin alone, the overlay's cost limits, and
  * both scripts run against stand-ins for docker, bun and curl. The paid run
- * is the user's (docs/real-claude.md).
+ * is the user's.
  */
 const ROOT = join(import.meta.dir, "../..");
 const RUN = join(ROOT, "tests/e2e/run.sh");

@@ -42,7 +42,7 @@
 # install instead of the checkout's, with the images its values name: nothing
 # is built. KIND_MODEL stays none.
 #
-# CI pulls nothing from Docker Hub (docs/contributing/ci.md § 서드파티 이미지 미러):
+# CI pulls nothing from Docker Hub:
 #   KIND_NODE_IMAGE, REGISTRY_IMAGE  the node and registry images
 #   KIND_IMAGE_MIRROR                prefix the stand-ins' images are pulled
 #                                    from instead, by the same digest

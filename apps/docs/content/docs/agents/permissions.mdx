@@ -71,7 +71,7 @@ owner·admin, 에이전트 관리자, 담당 팀 구성원을 그 에이전트�
 - 공유 범위가 `workspace`인데 바깥 member가 못 보는 세션이면 `GET /v1/sessions/{id}/share`의 `audience_limited`가 `true`다.
 
 <Callout>
-이전에는 워크스페이스 설정 두 개(`agent_outsider_access`, `agent_outsider_session_visibility`)로 바깥 member가 에이전트를 보고 쓰는 범위를 골랐다. 지금은 그 설정과 `PATCH /v1/workspaces/{id}/agent-access`가 없고, 늘 `none`·`managing_team`처럼 동작한다. 저장해 둔 값은 남아 있지만 읽지 않는다. 그래서 `use`나 `view`로 두었던 워크스페이스에서도 바깥 member에게 에이전트가 보이지 않는다.
+바깥 member가 에이전트를 보고 쓰는 범위를 고르는 워크스페이스 설정은 없다. 동작은 늘 `none`·`managing_team`과 같아서, 바깥 member에게는 에이전트가 보이지 않는다.
 </Callout>
 
 [만들기](/agents/create)의 `AID`와 `WEB`을 이어 쓴다.

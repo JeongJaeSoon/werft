@@ -10,8 +10,7 @@
  *
  *   BENCH_DATABASE_URL=postgresql://… bun packages/db/bench/event-storage.ts [sessions] [events]
  *
- * A separate document store and the backup sizes are measured outside this
- * script (docs/operator/data-retention.md, "이벤트 저장 형태").
+ * A separate document store and the backup sizes are measured elsewhere.
  */
 import { performance } from "node:perf_hooks";
 import { Pool } from "pg";

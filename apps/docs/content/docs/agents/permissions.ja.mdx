@@ -71,7 +71,7 @@ owner・admin、エージェント管理者、担当チームのメンバーを�
 - 共有範囲が `workspace` でも外側の member に見えないセッションは、`GET /v1/sessions/{id}/share` の `audience_limited` が `true` になる。
 
 <Callout>
-以前は、ワークスペースの設定二つ(`agent_outsider_access`、`agent_outsider_session_visibility`)で、外側の member がエージェントを見て使える範囲を選んだ。今はその設定と `PATCH /v1/workspaces/{id}/agent-access` はなく、常に `none`・`managing_team` と同じように動く。保存済みの値は残るが読まない。そのため `use` や `view` にしていたワークスペースでも、外側の member にはエージェントが見えない。
+外側の member がエージェントを見て使える範囲を選ぶワークスペース設定はない。動作は常に `none`・`managing_team` と同じで、外側の member にはエージェントが見えない。
 </Callout>
 
 [作成](/agents/create)の `AID` と `WEB` を引き続き使う。

@@ -2,15 +2,6 @@
 title: "기여"
 ---
 
-저장소에서 개발하고 변경을 검증하는 문서는 [`docs/contributing/`](https://github.com/JeongJaeSoon/werft/tree/main/docs/contributing)에 있다.
-
-- [개발 환경과 검증](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/development.md)
-- [구성요소와 경계](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/architecture.md)
-- [CI에서 실행되는 것](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/ci.md)
-- [콘솔 데모 모드: 서버 없이 화면 보기](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/console-demo.md)
-- [로컬 모델(Ollama·LiteLLM)로 확인하기](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/local-model.md)
-- [콘솔·Slack 용어집](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/i18n-glossary.md)
-
 ## 릴리스 게시와 공급망
 
 이 절은 저장소에 게시 권한이 있는 릴리스 관리자의 절차다. 설치 운영자는 [배포 패키지 계약](/run-server/self-hosting/reference/packages)에서 이미 게시한 digest를 읽는다.
@@ -63,4 +54,3 @@ bun .github/scripts/npm-audit.ts /tmp/sc && cat /tmp/sc/npm.txt   # the npm verd
 .github/scripts/supply-chain-verdict.sh /tmp/sc warn              # verdict over the four result files (control-host, worker, egress-proxy, npm)
 ```
 
-제3자 고지(`THIRD_PARTY_NOTICES.md`와 이미지마다 `/app/DEBIAN_SOURCES.md`)를 만드는 방법은 [ci.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/ci.md)에 있다.

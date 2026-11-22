@@ -1,6 +1,6 @@
 # 단일 서버 배포
 
-이 문서는 빈 Linux 서버 한 대에 설치하고 첫 세션, 백업, 재부팅, 업그레이드와 롤백까지 확인하는 **상위 순서표**다. 실제 명령과 실패 복구는 [test-ops 운영 runbook](test-ops.md), [백업과 복원](backup-restore.md), 운영 참고([실행 기반](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/), [API 서버](api-server.md), [이미지와 공급망](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/images-and-supply-chain/), [설정 레퍼런스](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/)), [quickstart](../quickstart.md), [실제 Claude로 확인하기](../real-claude.md)의 해당 절을 정본으로 삼는다. 이 문서와 정본이 다르면 정본을 따른다.
+이 문서는 빈 Linux 서버 한 대에 설치하고 첫 세션, 백업, 재부팅, 업그레이드와 롤백까지 확인하는 **상위 순서표**다. 실제 명령과 실패 복구는 [test-ops 운영 runbook](test-ops.md), [백업과 복원](backup-restore.md), 운영 참고([실행 기반](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/), [API 서버](api-server.md), [이미지와 공급망](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/images-and-supply-chain/), [설정 레퍼런스](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/)), [quickstart](../quickstart.md)의 해당 절을 정본으로 삼는다. 이 문서와 정본이 다르면 정본을 따른다.
 
 **현재 상태:** 공식 릴리스가 아직 없다. `v*` 릴리스는 없고, npm의 `@werft-ai/sdk`는 게시돼 있다. 앱 이미지는 `main` 머지마다 [`main-<12>` 태그로 게시](test-ops.md#게시된-이미지를-쓸-때)되므로 그 digest로 설치한다. 게시본을 쓸 수 없으면 저장소 checkout에서 [세 이미지를 직접 빌드](test-ops.md#이미지를-직접-빌드한다)한다.
 
@@ -97,7 +97,7 @@ legal hold된 version을 lifecycle이나 수동 정리 대상으로 삼지 않�
 5. [첫 owner 절차](test-ops.md#첫-owner)대로 `scripts/test-ops.sh setup-link`가 출력한 일회용 설정 링크를 웹 콘솔에서 열어 첫 owner와 workspace를 만들고 `/login`으로 로그인한다. 같은 링크를 다시 열면 "이 설정 링크는 쓸 수 없습니다" 화면인지 확인한다. 링크와 비밀번호는 evidence에 남기지 않고 화면 결과만 적는다. owner가 생긴 뒤 `setup-link`를 한 번 더 실행하면 링크 없이 exit 1이어야 하고, `docker logs werft-test-ops-api-1 2>&1 | grep -c 'setup='`는 `0`이어야 한다.
 6. [API key 발급 절차](test-ops.md#api-key-발급과-폐기)로 첫 사용자의 owner와 key를 만든다. 평문 key는 한 번만 직접 전달하고 evidence에는 key id만 남긴다.
 7. [quickstart의 curl 준비](../quickstart.md#2-curl-준비)를 API key와 서버 endpoint에 맞춘다. 로컬 스택 기동·초기화 명령과 `GATE-SPEC` 대본은 실행하지 않고, `body`의 `agent_release_id`는 배포한 설치에서 실제 연결로 만든 release id를 쓴다.
-8. [실제 Claude 직접 대화](../real-claude.md#b-실제-claude와-직접-대화하기)의 첫 요청처럼 파일 작성·README 수정·commit을 명시한 자연어 작업으로 세션 하나를 만든다. 들어오는 permission 요청을 허용하고 세션이 `idle`이 될 때까지 기다린 뒤 turn 1이 `completed`인지와 SSE에 남은 `git commit` 실행 결과를 확인한다. worker는 push하지 않으므로 commit은 4단계의 sample repository에 올라가지 않고 worker의 작업 트리와 checkpoint에만 있다([실제 Claude 직접 대화](../real-claude.md#b-실제-claude와-직접-대화하기)의 커밋 작성자 설명). 아래 명령은 turn 1에서 `git commit`을 실행한 `tool_use`의 짝인 `tool_result`만 뽑는다. `is_error`가 `false`이고 `content`가 `[<branch> <hash>] <message>`로 시작하면 commit이 만들어진 것이다. 결과가 비어 있으면 Claude가 commit하지 않은 것이므로 실패로 판정한다. `curl: (28)`은 [quickstart ②](../quickstart.md#-이벤트-관찰)와 같이 정상이다.
+8. 파일 작성·README 수정·commit을 명시한 자연어 작업으로 세션 하나를 만든다. 들어오는 permission 요청을 허용하고 세션이 `idle`이 될 때까지 기다린 뒤 turn 1이 `completed`인지와 SSE에 남은 `git commit` 실행 결과를 확인한다. worker는 push하지 않으므로 commit은 4단계의 sample repository에 올라가지 않고 worker의 작업 트리와 checkpoint에만 있다. 아래 명령은 turn 1에서 `git commit`을 실행한 `tool_use`의 짝인 `tool_result`만 뽑는다. `is_error`가 `false`이고 `content`가 `[<branch> <hash>] <message>`로 시작하면 commit이 만들어진 것이다. 결과가 비어 있으면 Claude가 commit하지 않은 것이므로 실패로 판정한다. `curl: (28)`은 [quickstart ②](../quickstart.md#-이벤트-관찰)와 같이 정상이다.
 
    ```sh
    curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
@@ -109,7 +109,7 @@ legal hold된 version을 lifecycle이나 수동 정리 대상으로 삼지 않�
    ```
 
 9. 그 세션을 pause하고 checkpoint revision이 생긴 뒤 resume하여 admission state가 `active`가 되는 데까지만 확인한다. 첫 사용 smoke에서는 추가 메시지를 보내지 않아 실제 provider turn을 하나로 제한한다. 성공 판정은 응답 문장이 아니라 API·turn·admission 상태, 8단계의 `git commit` `tool_result`, checkpoint revision으로 한다. pause가 끝난 뒤 `checkpoint_revision`이 `null`이 아니면 그 commit을 담은 작업 트리가 checkpoint에 저장된 것이다.
-10. 세션 usage와 Anthropic Console의 실제 비용을 함께 기록한다. key 취급과 비용 판정 기준은 [실제 Claude 확인 문서](../real-claude.md#key-입력과-폐기)와 [비용 절](../real-claude.md#비용)을 따른다. 이 서버에서는 그 문서의 로컬 `local.sh` 명령을 실행하지 않는다.
+10. 세션 usage와 Anthropic Console의 실제 비용을 함께 기록한다. key는 증거에 남기지 않는다. 이 서버에서는 로컬 `local.sh` 명령을 실행하지 않는다.
 
 owner 모델은 **API-key owner**다. 같은 provider key를 쓰더라도 사용자마다 다른 owner/API key를 발급하며, 한 사용자의 key를 다른 사용자에게 공유하지 않는다.
 

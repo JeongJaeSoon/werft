@@ -55,7 +55,7 @@ const imageVariables = Object.values(ci.jobs).flatMap((job) =>
 describe("the mirror list", () => {
   test("names each digest once, from Docker Hub or quay.io", () => {
     expect(mirrored.length).toBeGreaterThan(0);
-    // A name may carry two digests while a bump is under way (docs/contributing/ci.md § 서드파티 이미지 미러).
+    // A name may carry two digests while a bump is under way.
     const keys = new Set(
       mirrored.map(({ name, digest }) => `${name}@${digest}`),
     );

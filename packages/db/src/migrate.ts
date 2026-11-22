@@ -9,7 +9,7 @@ import { createEnforcedPool, type PoolTimeouts } from "./pool.ts";
 // marker runs alone, each statement committing on its own, and its journal row
 // is written after the last one. A failure part way leaves the earlier
 // statements applied and the migration pending, so every statement in such a
-// file must be safe to run again (docs/contributing/development.md).
+// file must be safe to run again.
 export const NO_TRANSACTION_MARKER = "-- migrate:no-transaction";
 
 export function runsOutsideTransaction(statements: readonly string[]): boolean {

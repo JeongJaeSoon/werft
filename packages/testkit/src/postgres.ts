@@ -14,7 +14,7 @@ export type TempDatabase = {
 export type TempDatabaseOptions = {
   /**
    * Connection URL of a server the test may create databases on. Defaults to
-   * `QUEUE_DATABASE_URL`, the opt-in variable docs/contributing/development.md and CI already use.
+   * `QUEUE_DATABASE_URL`, the opt-in variable CI already uses.
    */
   adminUrl?: string;
   /**

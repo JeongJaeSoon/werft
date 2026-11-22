@@ -1,7 +1,6 @@
 # GitHub sandbox (실제 GitHub)
 
-owner가 워크스페이스에 GitHub App을 등록하고 에이전트 상한을 정하면, 에이전트 릴리스의 GitHub 설정(저장소 범위·기능·Actions 허용 목록·push 승인) 안에서 세션이 실제 GitHub 저장소를 clone하고, 사람이 승인한 commit을 `agent/<session-id>`로 push하고, PR을 열고, 허용 목록의 workflow를 dispatch한다. 모든 토큰은 GitHub 게이트 한 곳이 발급하고, 발급과 거절은 receipt로 남는다. 계약은 설계 문서에 있다(설계 문서: 결정: 에이전트 GitHub 설정과 기능별 권한, 8·9절이 werft-sandbox 실측 항목).
-
+owner가 워크스페이스에 GitHub App을 등록하고 에이전트 상한을 정하면, 에이전트 릴리스의 GitHub 설정(저장소 범위·기능·Actions 허용 목록·push 승인) 안에서 세션이 실제 GitHub 저장소를 clone하고, 사람이 승인한 commit을 `agent/<session-id>`로 push하고, PR을 열고, 허용 목록의 workflow를 dispatch한다. 모든 토큰은 GitHub 게이트 한 곳이 발급하고, 발급과 거절은 receipt로 남는다.
 ## Sub-features
 
 - `app-register` `PUT /v1/workspaces/{id}/github-app`(owner·admin, cookie만, master key 필요) → `github_app`(`app_id`, `slug`, `permissions`, `warnings`)과 `set_github_app` receipt. `GET`은 `check.state: "ok"`와 sandbox 저장소의 `installation_id`.
@@ -92,7 +91,7 @@ for i in $(seq 1 60); do [ "$(ap_get "/v1/sessions/$SID/turns/1" | head -1 | jq 
 ap_get "/v1/sessions/$SID/turns/1" | tee "$EVIDENCE/gh-turn.txt"
 ```
 
-기대: 세션 `201`(저장소 `sandbox`. 설정 행이 없는 에이전트라서이고, 행이 있는 에이전트는 `repository_id: null`로 시작한다). Bash 권한 요청은 올 때만 답한다. run `20261115-012625-32204`(2026-11-15)에서는 권한 요청 없이 Bash가 실행되어 `needs_input`을 거치지 않고 turn 1이 끝났다. 요청이 오면 `needs_input`에 하나, answers `202`(사람의 cookie로 답한다. 웹에서 발급한 개인 key로 자기 세션에 답하면 `403 FORBIDDEN` `self_approval`. run `20261115-064258-12512`에서 같은 요청에 key로 먼저 답해 `403`과 `receipt_id`, 이어서 cookie로 `202`를 받았다. 아래 "npm 의존성 설치"의 N1), turn 1 `completed`. clone이 실패하면 세션이 `failed`이고 이유는 6의 `mint_github_token` 거절 receipt에 있다.
+기대: 세션 `201`(저장소 `sandbox`. 설정 행이 없는 에이전트라서이고, 행이 있는 에이전트는 `repository_id: null`로 시작한다). Bash 권한 요청은 올 때만 답한다. 권한 요청 없이 Bash가 실행되어 `needs_input`을 거치지 않고 turn 1이 끝날 수 있다. 요청이 오면 `needs_input`에 하나, answers `202`(사람의 cookie로 답한다. 웹에서 발급한 개인 key로 자기 세션에 답하면 `403 FORBIDDEN` `self_approval`. key로 먼저 답하면 `403`과 `receipt_id`를 받고, 이어서 cookie로 답하면 `202`다. 아래 "npm 의존성 설치"의 N1), turn 1 `completed`. clone이 실패하면 세션이 `failed`이고 이유는 6의 `mint_github_token` 거절 receipt에 있다.
 
 ```sh
 # 4b. push 거절 3종 (승인 전 push 요청이 없는 상태에서, 5보다 먼저)
@@ -205,13 +204,13 @@ ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select payload-
 ap_compose logs --no-color egress-proxy 2>&1 | grep "$N1" | grep -c '"purpose":"repository","repository_id":"sandbox"'
 ```
 
-기대(run `20261115-064258-12512`): `node` `v24.22.1`, `npm` `11.19.1`. `public_exit=0`. git 의존성은 먼저 `npm http fetch GET 403 https://codeload.github.com/…/tar.gz/738b715…`(proxy 로그 `Egress denied` `codeload.github.com` `destination is not allowlisted`)이고, npm이 git clone으로 넘어가 `added 1 package`, `git_exit=0`, `node_modules`에 `is-number`와 `werft-sandbox-final-e2e`가 있다. clone은 engine HOME의 `insteadOf`로 저장소 route를 타므로 proxy 로그에 `Credential route`(`purpose: repository`, `repository_id: sandbox`) 줄이 남는다. npm 출력의 `ssh://git@github.com/…`은 npm이 붙이는 이름일 뿐이고 실제 요청은 그 route다.
+기대: `node` `v24.22.1`, `npm` `11.19.1`. `public_exit=0`. git 의존성은 먼저 `npm http fetch GET 403 https://codeload.github.com/…/tar.gz/738b715…`(proxy 로그 `Egress denied` `codeload.github.com` `destination is not allowlisted`)이고, npm이 git clone으로 넘어가 `added 1 package`, `git_exit=0`, `node_modules`에 `is-number`와 `werft-sandbox-final-e2e`가 있다. clone은 engine HOME의 `insteadOf`로 저장소 route를 타므로 proxy 로그에 `Credential route`(`purpose: repository`, `repository_id: sandbox`) 줄이 남는다. npm 출력의 `ssh://git@github.com/…`은 npm이 붙이는 이름일 뿐이고 실제 요청은 그 route다.
 
 N2는 같은 릴리스로 새 세션을 만들고 `attach_repository` 없이 위 `N`의 git 의존성 설치만 한다. 기대: `npm error code 128`, `ls-remote ssh://git@github.com/JeongJaeSoon/werft-sandbox.git`가 `ssh: not found`로 실패하고 `git_exit=128`, `node_modules` 없음. proxy 로그는 `codeload.github.com`과 `github.com`의 `Egress denied`(`destination is not allowlisted`)뿐이다. 요청이 저장소 route에 닿지 않아 게이트를 지나지 않으므로 `repository_not_allowed` receipt는 없다(같은 run에서 0건).
 
 ## PR 본문 읽기와 꼬리 교체 (`get_pull_request`, `expected_body_sha256`)
 
-설계는 C안이다(설계 문서: 결정(설계안): 에이전트가 PR 본문을 읽는 도구와 기존 PR 꼬리 교체의 실제 확인). 위 1–5단계로 세션이 commit A를 push하고 PR을 연 뒤 한다. 릴리스의 `features`는 모두 false여도 된다. fake 모델의 GATE-SPEC으로 MCP 도구를 부르고, 도구 결과는 DB `events`의 `tool_result`에서 읽는다(`/v1/sessions/{id}/events`는 SSE라 `head`로 끊기지 않는다).
+위 1–5단계로 세션이 commit A를 push하고 PR을 연 뒤 한다. 릴리스의 `features`는 모두 false여도 된다. fake 모델의 GATE-SPEC으로 MCP 도구를 부르고, 도구 결과는 DB `events`의 `tool_result`에서 읽는다(`/v1/sessions/{id}/events`는 SSE라 `head`로 끊기지 않는다).
 
 ```sh
 # R1. 사람 글(CRLF 줄, HTML 주석, 끝 공백)과 옛 모양 꼬리로 본문을 바꾼다
@@ -287,7 +286,7 @@ ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select result::
 
 - **api만 재시작하면 주소가 바뀐다.** `ap_compose restart api`는 ephemeral 포트를 새로 받아 `state.env`의 주소와 어긋난다. `lib.sh`를 source한 뒤 `ap_as` 다음 줄에 `API=http://127.0.0.1:$(ap_compose port api 3000 | cut -d: -f2)`로 바꿔야 `ap_*`가 닿는다(`VERIFY_API`가 아니라 `API`를 읽는다). `state.env`는 agent-guard가 막으므로 열지 않는다.
 
-- **운영자 단계에 달린 항목.** 목록 안 dispatch와 run 조회는 설계 문서 9절의 운영자 단계 1(App의 Actions 권한)과 4(werft-sandbox `main`의 `.github/workflows/`)에 달렸다. 1단계가 승인되지 않았으면 4단계와 무관하게 목록 안 dispatch가 `409 app_permission_missing`에서 멈춘다(GitHub가 `actions: write` 토큰 발급을 거절해 dispatch 호출까지 가지 않는다). run 조회(`actions_read`)도 같은 이유로 `409 app_permission_missing`이다. 1단계는 승인됐고 4단계의 워크플로만 없으면 토큰은 발급되고 GitHub가 dispatch 호출에 404로 답한다. 이때 API 응답은 404가 아니라 `503 BACKEND_UNAVAILABLE`(`details.receipt_id`)이고, 그 `dispatch_workflow` failed receipt의 `result.status`가 `404`다. 성공·run 조회·rerun 성공은 두 단계가 모두 끝난 뒤 같은 명령으로 확인한다.
+- **운영자 단계에 달린 항목.** 목록 안 dispatch와 run 조회는 App의 Actions 권한 승인과 werft-sandbox `main`의 `.github/workflows/` 워크플로 배치에 달렸다. Actions 권한이 승인되지 않았으면 워크플로 배치와 무관하게 목록 안 dispatch가 `409 app_permission_missing`에서 멈춘다(GitHub가 `actions: write` 토큰 발급을 거절해 dispatch 호출까지 가지 않는다). run 조회(`actions_read`)도 같은 이유로 `409 app_permission_missing`이다. Actions 권한은 승인됐고 워크플로만 없으면 토큰은 발급되고 GitHub가 dispatch 호출에 404로 답한다. 이때 API 응답은 404가 아니라 `503 BACKEND_UNAVAILABLE`(`details.receipt_id`)이고, 그 `dispatch_workflow` failed receipt의 `result.status`가 `404`다. 성공·run 조회·rerun 성공은 둘 다 갖춘 뒤 같은 명령으로 확인한다.
 - **릴리스 없는 세션은 GitHub 설정이 없다.** 개인 key로 `repository_id: "sandbox"`만 주고 만든 세션은 기본 설정(Actions 꺼짐)이라 dispatch가 `403 feature_off`다(코드 기준: `packages/platform/src/github/service/github-gate.ts`의 `settings === null`). dispatch를 보려면 위처럼 `agent_release_id`로 만든다.
 - **키 경로를 명령에 쓰지 않는다.** agent-guard가 키 파일 모양의 경로가 든 명령을 막는다. 다른 파일이면 `VERIFY_GITHUB_APP_KEY_FILE`을 따로 export하는 줄도 같은 이유로 막힐 수 있으니, 기본 경로에 둔다.
 - **머지는 사람의 리뷰가 있어야 한다.** werft-sandbox `main`의 ruleset이 승인 리뷰 1개를 요구해 `gh pr merge`가 거절된다. `--admin`으로 넘지 않는다. 그래서 머지 뒤 근거 상태(`merged`)와 Luna 규칙의 다시 판정은 이 절차로 보지 못한다(연결 저장 뒤 후속 검증).

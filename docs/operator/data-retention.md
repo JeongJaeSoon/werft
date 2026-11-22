@@ -147,13 +147,11 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml`, `deplo
 
 ## 토큰·비용·성과물
 
-이 절은 GA-4b 설계(설계 문서: 결정: 에이전트 GitHub 설정과 기능별 권한, 10절)가 정한 데이터를 그대로 따른다.
-
 - **호출마다의 사용량** — `provider_usage`(`schema.ts`의 `providerUsage`)
   - 담는 것: Messages 호출 하나의 모델, 토큰 다섯 종류, 도구 요청 수, 추정 비용. 비용·사용량의 정본이다.
   - 만드는 시점: egress proxy가 응답에서 사용량을 읽어 보내면 API가 쓴다(`apps/egress-proxy/src/usage.ts`, `worker-unit-of-work.ts`의 `recordProviderUsageAtomic`).
   - 보존 기간: 무기한. 삭제 조건: 없음.
-- **아직 정산되지 않은 호출** — `provider_exchanges`(`schema.ts`의 `providerExchanges`, 설계 문서: 결정(설계): 세션 사용량을 호출 시작 때부터 적는 장부)
+- **아직 정산되지 않은 호출** — `provider_exchanges`(`schema.ts`의 `providerExchanges`)
   - 담는 것: egress proxy가 upstream을 부르기 직전에 연 provider 호출 하나의 id, 세션·attempt, 요청에서 계산한 사용량 추정(`reserve`), 연 시각, lease 만료 시각, provider가 과금하지 않았다고 proxy가 알린 시각(`released_at`). 프롬프트나 응답 내용은 없다. 세션 비용에는 들어가지 않는다. 열기가 세션 상한을 판정할 때 풀리지 않은 줄의 `reserve`를 더한다.
   - 만드는 시점: proxy가 authorizer listener의 `POST /exchanges`로 연다(`apps/egress-proxy/src/credential.ts`). 열기는 세션의 과금 provider 호출(Messages, OpenAI Responses)만 하고 `count_tokens`와 판정 호출은 하지 않는다. 그 호출의 사용량 보고가 기록되는 트랜잭션에서 지운다(`packages/db/src/provider-exchanges.ts`, `recordProviderUsageAtomic`).
   - 보존 기간: 보고가 오면 바로 지운다. 풀린 줄(`released_at`이 있는 줄)은 풀린 지 7일이 지나면 지운다. 풀리지 않은 줄은 나이로 지우지 않는다. 보고가 유실된 호출의 예약을 계속 세기 위해서다. lease가 지난 풀리지 않은 줄은 reconciler가 본다. 같은 주인의 보고가 이미 `provider_usage`에 있으면 지우고, 없으면 `Provider exchange reservation expired unsettled` 경고를 한 번 남긴다(`reconcileProviderExchanges`). 경고만으로 비용이 빠졌다고 판단하지 않는다. 아직 흐르는 호출도 들어온다. migration `0280_provider_exchange_release`는 올릴 때 lease가 이미 지난 줄을 한 번 지운다.
@@ -183,8 +181,6 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml`, `deplo
   - worker는 예외다. 본문 필드를 빼지 않고 비밀값만 가린다(`apps/worker/src/console-logger.ts`의 `createConsoleLogger`). worker는 본문을 로그에 싣지 않는다는 전제이고, 빼는 규칙이 `input_id` 같은 필드까지 지우기 때문이다.
 
 ## 트레이스와 플랫폼 정본의 경계
-
-세션 관측(OTel) 방향 결정의 결론을 따른다. 이 결정을 이어받은 설계는 설계 문서에 있다(설계 문서: 결정(설계): 관측(OTel) 방향과 도구 호출 감사).
 
 - **혼합.** 기능이 기대는 이벤트는 DB `events` 표에 남기고, 이것이 세션 화면·SSE 재연결·turn 종료 판정·질문 알림·복구 판정의 정본이다. 트레이스는 운영자가 고른 OTLP 수집기로 내보내는 관측 신호이고 best effort다. 트레이스가 빠져도 플랫폼의 기록은 그대로다.
 - **OTLP 내보내기까지.** 플랫폼은 span을 만들어 표준 OTLP로 내보내는 데까지 맡는다. 수집기 선택, 수집기 안의 보존 기간, 대시보드는 운영자 몫이다. 그래서 트레이스의 보존 기간은 이 문서가 다루지 않는다.
@@ -240,25 +236,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml`, `deplo
 
 ## 이벤트 저장 형태
 
-**현재 형태 유지.** 이벤트 한 건이 `events` 한 행이고, 본문은 `payload jsonb`에 기본 압축(pglz)으로 둔다. payload에 GIN 인덱스는 두지 않는다. 다른 형태와 견준 결과다(2026-11-01).
-
-측정 조건: PostgreSQL 16과 MongoDB 7.0 컨테이너. 세션 20개에 이벤트 20,000건씩, 모두 40만 건이다. 그중 15%는 2~11 kB 도구 결과이고, payload 원문은 659 MB다. 페이지 읽기는 세션 중간에서 100건, 추가는 4 kB 도구 결과 1건이다. 둘 다 30번 잰 중앙값이다.
-
-| 형태 | 디스크 (heap + TOAST + 인덱스) | 페이지 읽기 | 추가 | 백업 |
-| --- | --- | --- | --- | --- |
-| 행 + jsonb, pglz (지금) | 475 MB (207 + 222 + 43) | 1.29 ms | 1.13 ms | 24.3 MB |
-| 행 + jsonb, TOAST lz4 | 498 MB (204 + 248 + 43) | 1.31 ms | 1.22 ms | 24.2 MB |
-| 세션당 jsonb 문서 하나 | 236 MB, 추가 31번 뒤 601 MB | 18.38 ms | 324.73 ms | 127.0 MB |
-| 별도 문서 저장소 (MongoDB) | 143 MB (131 + 인덱스 12) | 1 ms | 1 ms 미만 | 39.1 MB |
-
-백업은 PostgreSQL이 `pg_dump -Fc -t <표>`, MongoDB가 `mongodump --archive --gzip`의 바이트 수다.
-
-- **lz4로 바꾸지 않는다.** 압축되는 값(2 kB가 넘는 6만 건)에서 pglz보다 11% 크고(TOAST 248 MB 대 222 MB), 읽기와 추가 시간은 같다.
-- **세션당 문서는 쓰지 않는다.** 추가할 때마다 30 MB쯤 되는 문서 전체를 다시 쓴다. 그래서 추가가 300 ms를 넘고, vacuum 전까지 쓸 때마다 디스크가 는다. 페이지 하나를 읽어도 문서 전체를 풀어야 한다. worker 재전송을 걸러 내는 (`attempt_id`, `source_sequence`) 확인도 문서 안을 뒤져야 한다.
-- **별도 저장소로 옮기지 않는다.** 디스크는 3분의 1이다. 작은 값까지 블록 단위로 압축하기 때문이다. 하지만 읽기와 추가는 지금과 같다. 이벤트는 turn·대기 요청·receipt와 한 트랜잭션에 쓰인다(`worker-unit-of-work.ts`). 저장소가 둘이 되면 이 원자성과 백업 시점의 일치가 깨지고, 운영할 저장소가 하나 는다.
-- 디스크 크기는 이벤트 보존 기간과 trim 정책(아래 결정할 항목의 첫 줄)으로 다룬다.
-
-다시 재는 법. PostgreSQL 쪽은 빈 데이터베이스를 하나 만들어 `BENCH_DATABASE_URL=postgresql://… bun packages/db/bench/event-storage.ts 20 20000`을 돌린다. MongoDB 쪽은 같은 행을 `SELECT row_to_json(…) FROM ev_row`로 `mongoimport`에 넘긴다. 그다음 `(session_id, id)` 인덱스와 (`session_id`, `attempt_id`, `source_sequence`) unique 인덱스를 만들고, `db.events.stats()`와 같은 읽기·추가로 잰다.
+이벤트 한 건이 `events` 한 행이고, 본문은 `payload jsonb`에 기본 압축(pglz)으로 둔다. payload에 GIN 인덱스는 두지 않는다. TOAST lz4, 세션당 문서 하나, 별도 문서 저장소는 쓰지 않는다. 이벤트는 turn·대기 요청·receipt와 한 트랜잭션에 쓰이므로(`worker-unit-of-work.ts`) 저장소를 나누면 그 원자성이 깨진다. 디스크 크기는 이벤트 보존 기간과 trim 정책(아래 결정할 항목의 첫 줄)으로 다룬다. `packages/db/bench/event-storage.ts`로 PostgreSQL 쪽 읽기·추가·크기를 다시 잰다.
 
 ## 결정할 항목
 

@@ -132,7 +132,7 @@ GitHub Packages bot tokenを別の host に送る必要がある場合だけ、�
 
 scheduler が worker コンテナ作成時に読む値です。未設定は既定値、不正な形式では起動しません。user、HOME・workspace パス、tmpfs サイズ、credential ポート、stop timeout は `werft.isolation` fingerprint に含まれます（[実行基盤と worker の隔離](/run-server/self-hosting/explanation/isolation)）。変更すると実行中 worker が交代します。CPU・メモリ・PID 上限は次の launch から適用します。
 
-`WORKER_MEMORY_MB` は transcript 上限（`MAX_TRANSCRIPT_BYTES`）と合わせて決めた値です。両者の関係、実測、ノードごとのセッション数、変更方法は[容量管理](/run-server/self-hosting/capacity)を参照してください。
+`WORKER_MEMORY_MB` は transcript 上限（`MAX_TRANSCRIPT_BYTES`）と合わせて決めた値です。両者の関係、ノードごとのセッション数、変更方法は[容量管理](/run-server/self-hosting/capacity)を参照してください。
 
 scheduler は `WORKER_IMAGE`・`WORKER_IMAGE_RUNTIME` で現在のイメージ、`WORKER_IMAGE_PREVIOUS`・`WORKER_IMAGE_PREVIOUS_RUNTIME` で直前リリースのイメージを受け取ります。runtime 値は API と同じです（上記 API 設定）。直前イメージは両値を設定する必要があり、一つだけでは起動しません。`WORKER_IMAGE_RUNTIME` がなければ、すべての launch は `WORKER_IMAGE` で起動します。設定すると launch ごとに、セッションの checkpoint ポインターに記録された組み合わせ（engine・SDK・CLI・profile digest scheme）と合うイメージを選び、両方合えば現在のイメージを使います。新規セッション、checkpoint がないセッション、組み合わせ未記録の古い checkpoint は、セッションのエンジンの最も新しいイメージ（現在のイメージ、そのエンジンを動かすのが直前イメージだけなら直前イメージ）で起動します。そのエンジンのイメージがなければ slot を使わずに待ちます。どちらとも合わなければ worker を起動せず、`recovery_required`（`incompatible_checkpoint`）で停止し、セッションイベント `checkpoint_restore_failed` に `detected_at: "launch"` が残ります。`retry_restore` で再試行できます。
 
