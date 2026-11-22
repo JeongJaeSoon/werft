@@ -617,7 +617,7 @@ integration("who started a session on PostgreSQL", () => {
       firstTurnBy: bob,
       private: true,
     });
-    // Rows written before created_by_user_id existed: turn 1 names no one, or there is no turn.
+    // Turn 1 names no one, or there is no turn.
     await session("firstTurnNamesNoOne", {
       createdBy: alice,
       firstTurnBy: null,
