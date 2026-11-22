@@ -31,6 +31,7 @@ import {
   createPostgresSlackConfigTokenStore,
   createPostgresSlackInboundEventStore,
   createPostgresSlackInstallStore,
+  createPostgresSlackSourceMarkStore,
   createPostgresSurfaceBindingStore,
   memberships,
   secretValues,
@@ -507,6 +508,7 @@ integration(
         identities: createPostgresAgentIdentityStore(db),
         installs: createPostgresSlackInstallStore(db),
         bindings: createPostgresSurfaceBindingStore(db),
+        sourceMarks: createPostgresSlackSourceMarkStore(db),
       });
       const listener = Bun.serve({
         hostname: "127.0.0.1",
