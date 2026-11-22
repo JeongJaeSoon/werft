@@ -1588,6 +1588,10 @@ describe("Slack management", () => {
     expect(addresses.textContent).toContain("이벤트 요청 URL입니다");
     expect(within(addresses).getByText(SENT)).toBeDefined();
     expect(within(addresses).queryByRole("list") === null).toBe(true);
+    // The hint answers Slack's check only when Slack sends one.
+    expect(addresses.textContent).toContain(
+      "다시 확인하면 앱 설정에 지금 주소를 다시 보냅니다. Slack이 확인 요청을 보내면 자동으로 답합니다.",
+    );
     await within(addresses).findByText("Slack 확인 대기");
     await user.click(
       within(addresses).getByRole("button", { name: "다시 확인" }),

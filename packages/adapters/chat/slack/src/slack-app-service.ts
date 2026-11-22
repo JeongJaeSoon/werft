@@ -522,8 +522,9 @@ export function createSlackAppService(deps: {
     updateAgentAppManifest,
 
     /**
-     * Sends the app's manifest with its Request URL again, so Slack checks
-     * the URL anew; the answer to that check arrives as a url_verification.
+     * Sends the app's manifest with its Request URL again. Slack need not
+     * check an unchanged URL again; a check it does send arrives as a
+     * url_verification.
      */
     async recheckAgentAppEvents(
       caller: Caller,
