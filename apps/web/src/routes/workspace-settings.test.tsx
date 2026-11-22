@@ -1161,15 +1161,22 @@ describe("워크스페이스 설정", () => {
     ).toEqual(["Slack"]);
     const user = await setupUser();
     await user.click(within(start).getByRole("button", { name: "토큰 등록" }));
-    const link = within(start).getByRole("link", {
-      name: /api\.slack\.com\/apps를 엽니다/,
-    });
-    expect(link.getAttribute("href")).toBe("https://api.slack.com/apps");
-    expect(link.getAttribute("target")).toBe("_blank");
     const list = start.querySelector("[data-slot=steps]");
     if (!(list instanceof HTMLElement)) throw new Error("no steps");
     const steps = within(list).getAllByRole("listitem");
     expect(steps).toHaveLength(3);
+    const first = steps[0];
+    if (!first) throw new Error("no first step");
+    // Only the address is the link; the verb around it stays plain text.
+    const link = within(first).getByRole("link", {
+      name: "api.slack.com/apps (새 탭에서 열림)",
+    });
+    expect(link.firstChild?.textContent).toBe("api.slack.com/apps");
+    expect(first.textContent).toEndWith(
+      "api.slack.com/apps(새 탭에서 열림)를 엽니다.",
+    );
+    expect(link.getAttribute("href")).toBe("https://api.slack.com/apps");
+    expect(link.getAttribute("target")).toBe("_blank");
     expect(steps[2]?.textContent).toContain("Refresh Token(xoxe-1-로 시작)");
     expect(steps[2]?.textContent).toContain("Access Token이 아닙니다");
     expect(

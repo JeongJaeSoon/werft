@@ -76,7 +76,7 @@ export const workspaceKo = {
     "만들어진 두 값 중 Refresh Token(xoxe-1-로 시작)을 복사해 아래에 붙여 넣습니다. Access Token이 아닙니다.",
   "workspace.tokenStepGenerate":
     "Your App Configuration Tokens에서 이 Slack 워크스페이스의 Generate Token을 누릅니다.",
-  "workspace.tokenStepOpen": "api.slack.com/apps를 엽니다.",
+  "workspace.tokenStepOpen": "{url}를 엽니다.",
   "workspace.tokenReenter": "토큰 재등록",
   "workspace.tokenUnsetHint":
     "이미 만든 앱은 계속 동작합니다. 새 앱을 만들려면 토큰을 등록하세요.",
@@ -230,7 +230,7 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
     "Of the two values, copy the Refresh Token (starts with xoxe-1-) and paste it below. Not the Access Token.",
   "workspace.tokenStepGenerate":
     "Under Your App Configuration Tokens, click Generate Token for this Slack workspace.",
-  "workspace.tokenStepOpen": "Open api.slack.com/apps.",
+  "workspace.tokenStepOpen": "Open {url}.",
   "workspace.tokenReenter": "Re-register token",
   "workspace.tokenUnsetHint":
     "Apps already made keep working. Register a token to make new ones.",
@@ -387,7 +387,7 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
     "表示された 2 つの値のうち Refresh Token(xoxe-1- で始まる)をコピーして下に貼り付けます。Access Token ではありません。",
   "workspace.tokenStepGenerate":
     "Your App Configuration Tokens で、この Slack ワークスペースの Generate Token を押します。",
-  "workspace.tokenStepOpen": "api.slack.com/apps を開きます。",
+  "workspace.tokenStepOpen": "{url} を開きます。",
   "workspace.tokenReenter": "トークンを再登録",
   "workspace.tokenUnsetHint":
     "作成済みのアプリはそのまま動作します。新しいアプリを作成するにはトークンを登録してください。",
