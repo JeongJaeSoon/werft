@@ -226,6 +226,13 @@ Migration `0305_drop_unused_tables` drops the `catalog_authority`, `owner_worksp
 - The tables may still hold rows. `catalog_authority` may hold one revision activated in the days of the file catalog, `owner_workspace_map` owner-to-workspace mappings an operator inserted by hand, and `push_continuations` follow-up turn records made by `v0.1.1` or earlier. When there are rows, the migrate log `db.migrate.notice` records how many each table lost (`0305: dropped rows: …`). The values of the rows stay out of the log.
 - If you need those rows, back them up before the upgrade. Rolling the schema below 0305 does not bring them back.
 
+<a id="대화-층의-빈-표-셋을-더한-릴리스" />
+### The release that adds three empty conversation tables
+
+Migration `0310_conversation_scopes` creates the `channel_contexts` (channel objects), `conversations` (an agent's main conversations) and `conversation_topics` (a conversation's topics) tables, empty. No code in this release reads or writes them yet, so the upgrade needs nothing from you, and Slack and sessions behave as before.
+
+- Rolling back to an image inside the support window is unaffected. Older code does not know these tables.
+
 <a id="처리한-slack-이벤트-원문을-지우는-릴리스" />
 ### The release that clears the body of processed Slack events
 
@@ -253,7 +260,7 @@ GROUP BY 1, 2;
 
 ### The release that adds the budget account tables
 
-Migration `0310_budget_accounts` creates three empty tables: `budget_limits` (the workspace's limit for every person, a person's own limit, an agent team's limit), `budget_accounts` (what a person's or a team's account spent and holds reserved each month, months cut in UTC), and `budget_reservations` (the reservation and settlement of each call). Nothing to do.
+Migration `0311_budget_accounts` creates three empty tables: `budget_limits` (the workspace's limit for every person, a person's own limit, an agent team's limit), `budget_accounts` (what a person's or a team's account spent and holds reserved each month, months cut in UTC), and `budget_reservations` (the reservation and settlement of each call). Nothing to do.
 
 - In this release no call reads or writes these tables. The session cost and token limits work as before, and there is no screen, API or operator command that sets a budget limit yet.
 - The migration only adds tables, so rolling back to an image inside the support window is fine.

@@ -1,5 +1,5 @@
 {
-  "id": "e2a9eda6-6852-4f2a-9d8c-64ec59cb21a7",
+  "id": "183279f2-7209-4329-9460-5270abad5a3c",
   "prevId": "44023571-3de7-49a0-bb70-8eb01b60f19e",
   "version": "7",
   "dialect": "postgresql",
@@ -3642,339 +3642,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.budget_accounts": {
-      "name": "budget_accounts",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "owner_kind": {
-          "name": "owner_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "owner_id": {
-          "name": "owner_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "period_start": {
-          "name": "period_start",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "spent_cost_usd": {
-          "name": "spent_cost_usd",
-          "type": "numeric(14, 6)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "spent_tokens": {
-          "name": "spent_tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "reserved_cost_usd": {
-          "name": "reserved_cost_usd",
-          "type": "numeric(14, 6)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "reserved_tokens": {
-          "name": "reserved_tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "budget_accounts_workspace_id_workspaces_id_fk": {
-          "name": "budget_accounts_workspace_id_workspaces_id_fk",
-          "tableFrom": "budget_accounts",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "budget_accounts_owner_period_key": {
-          "name": "budget_accounts_owner_period_key",
-          "nullsNotDistinct": false,
-          "columns": ["workspace_id", "owner_kind", "owner_id", "period_start"]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "budget_accounts_owner_kind_check": {
-          "name": "budget_accounts_owner_kind_check",
-          "value": "\"budget_accounts\".\"owner_kind\" IN ('user','team')"
-        },
-        "budget_accounts_period_check": {
-          "name": "budget_accounts_period_check",
-          "value": "extract(day from \"budget_accounts\".\"period_start\") = 1"
-        },
-        "budget_accounts_nonneg_check": {
-          "name": "budget_accounts_nonneg_check",
-          "value": "\"budget_accounts\".\"spent_cost_usd\" >= 0 AND \"budget_accounts\".\"spent_tokens\" >= 0 AND \"budget_accounts\".\"reserved_cost_usd\" >= 0 AND \"budget_accounts\".\"reserved_tokens\" >= 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.budget_limits": {
-      "name": "budget_limits",
-      "schema": "",
-      "columns": {
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "subject": {
-          "name": "subject",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "subject_id": {
-          "name": "subject_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cost_usd": {
-          "name": "cost_usd",
-          "type": "numeric(14, 6)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tokens": {
-          "name": "tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "budget_limits_workspace_id_workspaces_id_fk": {
-          "name": "budget_limits_workspace_id_workspaces_id_fk",
-          "tableFrom": "budget_limits",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "budget_limits_subject_key": {
-          "name": "budget_limits_subject_key",
-          "nullsNotDistinct": true,
-          "columns": ["workspace_id", "subject", "subject_id"]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "budget_limits_subject_check": {
-          "name": "budget_limits_subject_check",
-          "value": "\"budget_limits\".\"subject\" IN ('person_default','user','team')"
-        },
-        "budget_limits_subject_id_check": {
-          "name": "budget_limits_subject_id_check",
-          "value": "(\"budget_limits\".\"subject\" = 'person_default') = (\"budget_limits\".\"subject_id\" IS NULL)"
-        },
-        "budget_limits_nonneg_check": {
-          "name": "budget_limits_nonneg_check",
-          "value": "\"budget_limits\".\"cost_usd\" >= 0 AND \"budget_limits\".\"tokens\" >= 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.budget_reservations": {
-      "name": "budget_reservations",
-      "schema": "",
-      "columns": {
-        "call_id": {
-          "name": "call_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "account_id": {
-          "name": "account_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "root_kind": {
-          "name": "root_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "unmetered": {
-          "name": "unmetered",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "cost_usd": {
-          "name": "cost_usd",
-          "type": "numeric(14, 6)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "tokens": {
-          "name": "tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'reserved'"
-        },
-        "settled_cost_usd": {
-          "name": "settled_cost_usd",
-          "type": "numeric(14, 6)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "settled_tokens": {
-          "name": "settled_tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "ended_at": {
-          "name": "ended_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "budget_reservations_account_idx": {
-          "name": "budget_reservations_account_idx",
-          "columns": [
-            {
-              "expression": "account_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "budget_reservations_workspace_id_workspaces_id_fk": {
-          "name": "budget_reservations_workspace_id_workspaces_id_fk",
-          "tableFrom": "budget_reservations",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "budget_reservations_account_id_budget_accounts_id_fk": {
-          "name": "budget_reservations_account_id_budget_accounts_id_fk",
-          "tableFrom": "budget_reservations",
-          "tableTo": "budget_accounts",
-          "columnsFrom": ["account_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "budget_reservations_root_kind_check": {
-          "name": "budget_reservations_root_kind_check",
-          "value": "\"budget_reservations\".\"root_kind\" IN ('user','key','none')"
-        },
-        "budget_reservations_state_check": {
-          "name": "budget_reservations_state_check",
-          "value": "\"budget_reservations\".\"state\" IN ('reserved','settled','released')"
-        },
-        "budget_reservations_ended_check": {
-          "name": "budget_reservations_ended_check",
-          "value": "(\"budget_reservations\".\"state\" = 'reserved') = (\"budget_reservations\".\"ended_at\" IS NULL)"
-        },
-        "budget_reservations_settled_check": {
-          "name": "budget_reservations_settled_check",
-          "value": "(\"budget_reservations\".\"state\" = 'settled') = (\"budget_reservations\".\"settled_cost_usd\" IS NOT NULL AND \"budget_reservations\".\"settled_tokens\" IS NOT NULL)"
-        },
-        "budget_reservations_nonneg_check": {
-          "name": "budget_reservations_nonneg_check",
-          "value": "\"budget_reservations\".\"cost_usd\" >= 0 AND \"budget_reservations\".\"tokens\" >= 0 AND \"budget_reservations\".\"settled_cost_usd\" >= 0 AND \"budget_reservations\".\"settled_tokens\" >= 0"
-        },
-        "budget_reservations_unmetered_check": {
-          "name": "budget_reservations_unmetered_check",
-          "value": "NOT \"budget_reservations\".\"unmetered\" OR (\"budget_reservations\".\"cost_usd\" = 0 AND coalesce(\"budget_reservations\".\"settled_cost_usd\", 0) = 0)"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.catalog_repositories": {
       "name": "catalog_repositories",
       "schema": "",
@@ -4297,6 +3964,71 @@
         "catalog_repository_github_apps_pinned_by_check": {
           "name": "catalog_repository_github_apps_pinned_by_check",
           "value": "\"catalog_repository_github_apps\".\"pinned_by\" IN ('selection', 'first_mint', 'admin', 'claim')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.channel_contexts": {
+      "name": "channel_contexts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "team_id": {
+          "name": "team_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "channel_contexts_workspace_id_workspaces_id_fk": {
+          "name": "channel_contexts_workspace_id_workspaces_id_fk",
+          "tableFrom": "channel_contexts",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "channel_contexts_channel_uniq": {
+          "name": "channel_contexts_channel_uniq",
+          "nullsNotDistinct": false,
+          "columns": ["workspace_id", "team_id", "channel_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "channel_contexts_ids_check": {
+          "name": "channel_contexts_ids_check",
+          "value": "\"channel_contexts\".\"team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"channel_contexts\".\"channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$'"
         }
       },
       "isRLSEnabled": false
@@ -4927,6 +4659,274 @@
         "control_intents_interrupt_target_check": {
           "name": "control_intents_interrupt_target_check",
           "value": "\"control_intents\".\"kind\" <> 'interrupt' OR (\"control_intents\".\"target_turn_id\" IS NOT NULL AND \"control_intents\".\"attempt_id\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.conversation_topics": {
+      "name": "conversation_topics",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "conversation_kind": {
+          "name": "conversation_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "slack_team_id": {
+          "name": "slack_team_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "slack_channel_id": {
+          "name": "slack_channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "slack_thread_ts": {
+          "name": "slack_thread_ts",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "channel_team_id": {
+          "name": "channel_team_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "generated": {
+            "as": "CASE WHEN \"conversation_kind\" = 'channel' THEN \"slack_team_id\" END",
+            "type": "stored"
+          }
+        },
+        "channel_channel_id": {
+          "name": "channel_channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "generated": {
+            "as": "CASE WHEN \"conversation_kind\" = 'channel' THEN \"slack_channel_id\" END",
+            "type": "stored"
+          }
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "conversation_topics_conversation_idx": {
+          "name": "conversation_topics_conversation_idx",
+          "columns": [
+            {
+              "expression": "conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "conversation_topics_conversation_fk": {
+          "name": "conversation_topics_conversation_fk",
+          "tableFrom": "conversation_topics",
+          "tableTo": "conversations",
+          "columnsFrom": [
+            "workspace_id",
+            "agent_id",
+            "conversation_id",
+            "conversation_kind"
+          ],
+          "columnsTo": ["workspace_id", "agent_id", "id", "kind"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "conversation_topics_channel_fk": {
+          "name": "conversation_topics_channel_fk",
+          "tableFrom": "conversation_topics",
+          "tableTo": "conversations",
+          "columnsFrom": [
+            "conversation_id",
+            "channel_team_id",
+            "channel_channel_id"
+          ],
+          "columnsTo": ["id", "team_id", "channel_id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "conversation_topics_slack_uniq": {
+          "name": "conversation_topics_slack_uniq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "agent_id",
+            "slack_team_id",
+            "slack_channel_id",
+            "slack_thread_ts"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "conversation_topics_slack_check": {
+          "name": "conversation_topics_slack_check",
+          "value": "(\"conversation_topics\".\"slack_team_id\" IS NULL AND \"conversation_topics\".\"slack_channel_id\" IS NULL AND \"conversation_topics\".\"slack_thread_ts\" IS NULL) OR (\"conversation_topics\".\"slack_team_id\" IS NOT NULL AND \"conversation_topics\".\"slack_channel_id\" IS NOT NULL AND \"conversation_topics\".\"slack_thread_ts\" IS NOT NULL AND \"conversation_topics\".\"slack_team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_topics\".\"slack_channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_topics\".\"slack_thread_ts\" ~ '^[0-9]{1,20}\\.[0-9]{1,20}$')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.conversations": {
+      "name": "conversations",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "team_id": {
+          "name": "team_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "person_user_id": {
+          "name": "person_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "conversations_agent_fk": {
+          "name": "conversations_agent_fk",
+          "tableFrom": "conversations",
+          "tableTo": "agents",
+          "columnsFrom": ["workspace_id", "agent_id"],
+          "columnsTo": ["workspace_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "conversations_channel_fk": {
+          "name": "conversations_channel_fk",
+          "tableFrom": "conversations",
+          "tableTo": "channel_contexts",
+          "columnsFrom": ["workspace_id", "team_id", "channel_id"],
+          "columnsTo": ["workspace_id", "team_id", "channel_id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "conversations_person_fk": {
+          "name": "conversations_person_fk",
+          "tableFrom": "conversations",
+          "tableTo": "memberships",
+          "columnsFrom": ["workspace_id", "person_user_id"],
+          "columnsTo": ["workspace_id", "user_id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "conversations_channel_uniq": {
+          "name": "conversations_channel_uniq",
+          "nullsNotDistinct": false,
+          "columns": ["agent_id", "team_id", "channel_id"]
+        },
+        "conversations_dm_uniq": {
+          "name": "conversations_dm_uniq",
+          "nullsNotDistinct": false,
+          "columns": ["agent_id", "person_user_id"]
+        },
+        "conversations_agent_kind_key": {
+          "name": "conversations_agent_kind_key",
+          "nullsNotDistinct": false,
+          "columns": ["workspace_id", "agent_id", "id", "kind"]
+        },
+        "conversations_channel_key": {
+          "name": "conversations_channel_key",
+          "nullsNotDistinct": false,
+          "columns": ["id", "team_id", "channel_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "conversations_kind_check": {
+          "name": "conversations_kind_check",
+          "value": "\"conversations\".\"kind\" IN ('channel','dm')"
+        },
+        "conversations_place_check": {
+          "name": "conversations_place_check",
+          "value": "(\"conversations\".\"kind\" = 'channel' AND \"conversations\".\"team_id\" IS NOT NULL AND \"conversations\".\"channel_id\" IS NOT NULL AND \"conversations\".\"person_user_id\" IS NULL) OR (\"conversations\".\"kind\" = 'dm' AND \"conversations\".\"person_user_id\" IS NOT NULL AND \"conversations\".\"team_id\" IS NULL AND \"conversations\".\"channel_id\" IS NULL)"
         }
       },
       "isRLSEnabled": false

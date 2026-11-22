@@ -226,6 +226,13 @@ migration `0305_drop_unused_tables` が `catalog_authority`・`owner_workspace_m
 - 表に行が残っている場合がある。`catalog_authority` には設定ファイルのカタログ時代に有効にした revision の一行、`owner_workspace_map` には運用者が手で入れた owner とワークスペースの対応、`push_continuations` には `v0.1.1` 以前が作った続きのターンの記録が残っている場合がある。行があれば、migrate のログ `db.migrate.notice` に表ごとの削除した行数が残る(`0305: dropped rows: …`)。行の値はログに残らない。
 - その行が必要なら、上げる前にバックアップする。0305 より下にスキーマを戻しても行は戻らない。
 
+<a id="대화-층의-빈-표-셋을-더한-릴리스" />
+### 会話層の空の表を三つ追加したリリース
+
+migration `0310_conversation_scopes` が `channel_contexts`(チャンネルの単位)・`conversations`(エージェントのメイン会話)・`conversation_topics`(会話の話題)の表を空のまま作る。このリリースのコードはまだこれらの表を読み書きしないので、上げるときにすることはなく、Slack とセッションの動作も変わらない。
+
+- サポート期間内のイメージに戻しても影響はない。古いコードはこれらの表を知らない。
+
 <a id="처리한-slack-이벤트-원문을-지우는-릴리스" />
 ### 処理した Slack イベントの原文を消すリリース
 
@@ -253,7 +260,7 @@ GROUP BY 1, 2;
 
 ### 予算アカウントの表を加えるリリース
 
-migration `0310_budget_accounts` が空の表を三つ作る。`budget_limits`(組織全体の一人あたりの既定の上限、人ごとの上限、エージェントチームの上限)、`budget_accounts`(人・チームのアカウントが月ごとに使った分と予約した分。月は UTC で区切る)、`budget_reservations`(呼び出しごとの予約と精算の記録)だ。することはない。
+migration `0311_budget_accounts` が空の表を三つ作る。`budget_limits`(組織全体の一人あたりの既定の上限、人ごとの上限、エージェントチームの上限)、`budget_accounts`(人・チームのアカウントが月ごとに使った分と予約した分。月は UTC で区切る)、`budget_reservations`(呼び出しごとの予約と精算の記録)だ。することはない。
 
 - このリリースでは、どの呼び出しもこれらの表を読み書きしない。セッションのコスト上限とトークン上限はこれまでどおりで、上限を決める画面・API・運用者コマンドもまだない。
 - 新しい表を作るだけなので、サポート期間内のイメージに戻してもよい。
