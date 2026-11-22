@@ -259,9 +259,9 @@ const SNAPSHOT_IDENTITY = {
  * submodules, untracked symlinks, a tracked path that is now a special file,
  * and untracked nested repositories. An untracked special file (a FIFO,
  * say) is neither refused nor captured: git does not list it as untracked,
- * so it is left out, and a resumed session starts without it. Ignored files are not captured at all — build output and
- * dependencies, but also an ignored `.env`; a resumed session starts without
- * them.
+ * so it is left out, and a resumed session starts without it. Ignored
+ * files are not captured at all — build output and dependencies, but also an
+ * ignored `.env`; a resumed session starts without them.
  *
  * Git reads the repository's metadata as the engine left it, links
  * included: `.git/objects` or a ref pointed elsewhere is followed, and what

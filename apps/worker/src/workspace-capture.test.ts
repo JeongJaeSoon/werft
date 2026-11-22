@@ -1019,7 +1019,8 @@ exit 91`);
 
     test("leaves an untracked FIFO out instead of reading or refusing it", async () => {
       await commitFiles({ "a.txt": "a\n" });
-      Bun.spawnSync(["mkfifo", join(root, "pipe")]);
+      expect(Bun.spawnSync(["mkfifo", join(root, "pipe")]).exitCode).toBe(0);
+      expect((await lstat(join(root, "pipe"))).isFIFO()).toBe(true);
       await writeFile(join(root, "plain"), "x\n");
 
       const result = await captured();
