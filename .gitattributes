@@ -1,1 +1,4 @@
 docs/api/scalar.js binary linguist-generated=true
+docs/api/index.html linguist-generated=true
+docs/openapi.json linguist-generated=true
+packages/client/src/schema.gen.ts linguist-generated=true

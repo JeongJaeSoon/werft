@@ -10,7 +10,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "bun test src"
+    "test:unit": "bun test src"
   },
   "dependencies": {
     "@octokit/auth-app": "8.3.1",

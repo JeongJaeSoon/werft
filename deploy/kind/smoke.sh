@@ -3,26 +3,6 @@
 # up.sh and checks, through the public API and kubectl, that the kubernetes
 # execution backend and the worker NetworkPolicy hold on a real cluster.
 #
-#   1. failed-install  on a fresh cluster with the fake model and no
-#                   EXTRA_VALUES: up.sh with a migrate Job that cannot be
-#                   scheduled leaves a failed release and no Deployment
-#   2. install      up.sh: chart up, /readyz and /docs 200. After step 1 this
-#                   is the retry, which upgrade-check must let through
-#   3. session      one session reaches turn 1 completed in a worker Pod the
-#                   scheduler launched, with sample-app cloned from the git
-#                   host and its usage recorded
-#   4. reclaim      after terminate, the session's worker Pod, nonce Secret
-#                   and workspace PVC are gone
-#   5. egress       a Pod with the worker labels reaches the egress proxy
-#                   (3128, 3129) and nothing else: api 3000, authorizer 3100,
-#                   postgres, localstack, cloud metadata and DNS are blocked;
-#                   an unlabelled Pod gets the opposite answers (the proxy
-#                   admits workers alone), so the network itself is up
-#   6. upgrade      a helm upgrade with the same values, no worker runtime set,
-#                   passes upgrade-check and the api stays ready
-#   7. contract     the KubernetesBackend contract and integration suites
-#                   (K8S_BACKEND_TEST=1) against this cluster
-#
 #   deploy/kind/smoke.sh        run all of it; delete the cluster and registry
 #                               at the end if this run created them (with
 #                               CLUSTER_PROVIDER=orbstack, the namespace)
@@ -79,14 +59,10 @@ case "$KIND_MODEL" in
   *) echo "KIND_MODEL must be fake or real, not '${KIND_MODEL}'" >&2; exit 1 ;;
 esac
 
-fullname="$RELEASE"
-case "$RELEASE" in *werft*) ;; *) fullname="${RELEASE}-werft" ;; esac
-fullname="${fullname:0:50}"
-fullname="${fullname%-}"
-k() { kubectl -n "$NAMESPACE" "$@"; }
-step() { current="$1"; echo; echo "== k8s-smoke: $*"; }
-pass() { echo "PASS ${current}"; }
-fail() { echo "FAIL ${current}: $*" >&2; exit 1; }
+# shellcheck source=lib.sh
+. "$here/lib.sh"
+kind_suite k8s-smoke
+fullname="$(kind_fullname)"
 
 # A kind or docker error must not read as "no cluster": the teardown below
 # would then delete a cluster this run did not create.
@@ -138,6 +114,9 @@ helm_status() {
 # up.sh takes one EXTRA_VALUES file, and KIND_MODEL=real refuses a second run.
 retried=""
 if [ -n "$created" ] && [ "$KIND_MODEL" = fake ] && [ -z "${EXTRA_VALUES:-}" ]; then
+  # On a fresh cluster with the fake model and no EXTRA_VALUES: up.sh with a
+  # migrate Job that cannot be scheduled leaves a failed release and no
+  # Deployment.
   step failed-install
   mkdir -p "$STATE_DIR"
   chmod 700 "$STATE_DIR"
@@ -164,6 +143,8 @@ EOF
   pass
 fi
 
+# up.sh: chart up, /readyz and /docs 200. After failed-install this is the
+# retry, which upgrade-check must let through.
 step install
 "$here/up.sh"
 # up.sh needed it for KIND_MODEL=real; nothing after this does.
@@ -174,6 +155,8 @@ if [ -n "$retried" ]; then
 fi
 pass
 
+# One session reaches turn 1 completed in a worker Pod the scheduler launched,
+# with sample-app cloned from the git host and its usage recorded.
 step session
 { set +x; } 2>/dev/null
 umask 077
@@ -251,6 +234,8 @@ echo "$usage" | jq -e '.token_count > 0 and .cost.reported_turn_count >= 1' >/de
   fail "no usage recorded"
 pass
 
+# After terminate, the session's worker Pod, nonce Secret and workspace PVC
+# are gone.
 step reclaim
 # This session's alone: the Pod and PVC by its id, the nonce Secret by the
 # execution the Pod ran.
@@ -276,6 +261,10 @@ session_resources 2>&1
 get "/v1/sessions/${sid}" | jq -c '{status, admission_state}'
 pass
 
+# A Pod with the worker labels reaches the egress proxy (3128, 3129) and
+# nothing else: api 3000, authorizer 3100, postgres, localstack, cloud metadata
+# and DNS are blocked; an unlabelled Pod gets the opposite answers (the proxy
+# admits workers alone), so the network itself is up.
 step egress
 cluster_ip() { kubectl -n "$1" get svc "$2" -o jsonpath='{.spec.clusterIP}'; }
 proxy_svc="$(k get svc -l app.kubernetes.io/component=egress-proxy -o name | head -n 1)"
@@ -285,34 +274,8 @@ authorizer="$(cluster_ip "$NAMESPACE" "${fullname}-api-authorizer")"
 postgres="$(cluster_ip "$NAMESPACE" postgres)"
 localstack="$(cluster_ip "$NAMESPACE" localstack)"
 dns="$(cluster_ip kube-system kube-dns)"
-# Addresses, not names: the probe itself must not need DNS.
-probe_pod() {
-  local name="$1" labels="$2"
-  k delete pod "$name" --ignore-not-found --wait >/dev/null
-  k apply -f - >/dev/null <<EOF
-apiVersion: v1
-kind: Pod
-metadata:
-  name: ${name}
-  labels: {${labels}}
-spec:
-  automountServiceAccountToken: false
-  terminationGracePeriodSeconds: 0
-  restartPolicy: Never
-  securityContext: {runAsNonRoot: true, runAsUser: 65534, runAsGroup: 65534}
-  containers:
-    - name: probe
-      image: ${PROBE_IMAGE}
-      command: ["sleep", "600"]
-      securityContext:
-        allowPrivilegeEscalation: false
-        readOnlyRootFilesystem: true
-        capabilities: {drop: [ALL]}
-EOF
-  k wait --for=condition=Ready "pod/${name}" --timeout=120s >/dev/null
-}
-probe_pod k8s-smoke-worker "app.kubernetes.io/part-of: werft, app.kubernetes.io/component: worker, werft.installation: \"${installation}\""
-probe_pod k8s-smoke-control "app: k8s-smoke-probe"
+probe_pod k8s-smoke-worker "app.kubernetes.io/part-of: werft, app.kubernetes.io/component: worker, werft.installation: \"${installation}\"" 600
+probe_pod k8s-smoke-control "app: k8s-smoke-probe" 600
 k get pod k8s-smoke-worker k8s-smoke-control --show-labels
 bad=0
 # check <pod> <what> <expected open|blocked> <command...>
@@ -349,6 +312,8 @@ k delete pod k8s-smoke-worker k8s-smoke-control --wait=false >/dev/null
 [ "$bad" = 0 ] || fail "a connection above is not what the NetworkPolicy should allow"
 pass
 
+# A helm upgrade with the same values, no worker runtime set, passes
+# upgrade-check and the api stays ready.
 step upgrade
 helm get values "$RELEASE" --namespace "$NAMESPACE" -o json >"$STATE_DIR/smoke-release-values.json"
 helm upgrade "$RELEASE" "$root/deploy/helm/werft" \
@@ -360,6 +325,8 @@ k rollout status "deploy/${fullname}-api" --timeout=300s
 curl -sS --fail-with-body "$API/readyz" | jq -c .
 pass
 
+# The KubernetesBackend contract and integration suites (K8S_BACKEND_TEST=1)
+# against this cluster.
 step contract
 cd "$root"
 log="$STATE_DIR/smoke-contract.log"

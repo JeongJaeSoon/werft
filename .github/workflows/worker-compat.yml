@@ -57,9 +57,6 @@ env:
   # The support window: the current release and this many before it. The
   # plan and tests/compat/run.sh are written for 1.
   SUPPORT_WINDOW: '1'
-  # The oldest commit the window serves: the profile removal. Releases built
-  # before it are outside the window.
-  FLOOR_COMMIT: ef3627954f2a7b031f4c9ac1fa774ea52d9b24d5
 
 jobs:
   plan:

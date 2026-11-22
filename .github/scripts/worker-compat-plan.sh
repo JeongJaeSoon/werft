@@ -7,12 +7,11 @@
 #
 # OLD (a dispatch) names one set: a release tag, or main-<12 hex> for main's
 # images of that commit. Without it the set is the SUPPORT_WINDOW newest
-# published releases other than RELEASE_TAG (the one being made), less any
-# built before FLOOR_COMMIT, the oldest commit the window promises to serve.
+# published releases other than RELEASE_TAG (the one being made).
 # An empty window is a pass, said in a warning and the step summary.
 set -euo pipefail
 
-: "${SUPPORT_WINDOW:?}" "${FLOOR_COMMIT:?}" "${GH_REPO:?}" "${GITHUB_OUTPUT:?}"
+: "${SUPPORT_WINDOW:?}" "${GH_REPO:?}" "${GITHUB_OUTPUT:?}"
 old="${OLD:-}"
 release_tag="${RELEASE_TAG:-}"
 owner="$(printf '%s' "${GH_REPO%%/*}" | tr '[:upper:]' '[:lower:]')"
@@ -83,12 +82,4 @@ releases="$(gh release list --exclude-drafts --exclude-pre-releases --limit 50 \
 newest="$(grep -vxF "${release_tag:-//none//}" <<<"$releases" | head -n "$SUPPORT_WINDOW" || true)"
 [ -n "$newest" ] || skip "no published release${release_tag:+ other than ${release_tag}}."
 set_json="$(from_release "$newest")"
-commit="$(jq -r '.commit' <<<"$set_json")"
-status=0
-git merge-base --is-ancestor "$FLOOR_COMMIT" "$commit" || status=$?
-case "$status" in
-  0) ;;
-  1) skip "the newest release ${newest} (${commit}) was built before ${FLOOR_COMMIT}, the oldest commit the support window serves; its workers are outside the window." ;;
-  *) echo "::error::cannot tell whether ${newest} (${commit}) contains ${FLOOR_COMMIT}"; exit 1 ;;
-esac
 emit "[${set_json}]" "$newest"

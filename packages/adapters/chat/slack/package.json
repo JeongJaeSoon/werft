@@ -11,7 +11,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "bun test src"
+    "test:unit": "bun test src"
   },
   "dependencies": {
     "@werft-ai/contracts": "workspace:*",

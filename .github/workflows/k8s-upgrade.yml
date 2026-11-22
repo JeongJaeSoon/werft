@@ -17,6 +17,7 @@ on:
       - apps/control-host/src/api/upgrade-check.ts
       - deploy/kind/upgrade.sh
       - deploy/kind/up.sh
+      - deploy/kind/lib.sh
       - .github/workflows/k8s-upgrade.yml
   workflow_dispatch:
 

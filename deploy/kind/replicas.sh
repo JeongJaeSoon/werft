@@ -64,27 +64,11 @@ if [ "${1:-}" = down ]; then
   exec "$here/up.sh" down
 fi
 
-fullname="$RELEASE"
-case "$RELEASE" in *werft*) ;; *) fullname="${RELEASE}-werft" ;; esac
-fullname="${fullname:0:50}"
-fullname="${fullname%-}"
-k() { kubectl -n "$NAMESPACE" "$@"; }
-step() { current="$1"; echo; echo "== k8s-replicas: $*"; }
-pass() { echo "PASS ${current}"; }
-fail() { echo "FAIL ${current}: $*" >&2; exit 1; }
-
-# A kind or docker error must not read as "no cluster": the teardown below
-# would then delete a cluster this run did not create.
-clusters="$(kind get clusters)"
-created=""
-if printf '%s\n' "$clusters" | grep -qx "$CLUSTER_NAME"; then
-  [ "${REUSE_CLUSTER:-}" = 1 ] || {
-    echo "a cluster named ${CLUSTER_NAME} already exists; set CLUSTER_NAME, or REUSE_CLUSTER=1 to run on it" >&2
-    exit 1
-  }
-else
-  created=1
-fi
+# shellcheck source=lib.sh
+. "$here/lib.sh"
+kind_suite k8s-replicas
+fullname="$(kind_fullname)"
+kind_claim_cluster
 
 pids=()
 auth="$STATE_DIR/replicas-auth-header"
