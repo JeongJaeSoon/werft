@@ -18,6 +18,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 하한은 worker의 lease 안전 마진(10초)과 heartbeat 간격(5초)의 합이다. 10초마다 heartbeat를 보내던 옛 worker는 지원 창 밖이다. 그런 worker가 아직 돌 때 TTL을 20초 이하로 낮추면 그 attempt는 첫 heartbeat 무렵 lease를 잃는다. TTL을 낮추기 전에 옛 worker가 남아 있지 않은지 본다.
   - worker는 strict API가 400으로 거절한 release(`stop_kind`)와 pending-control(`settled[].reason`·`answer_result`)을 그 필드를 뺀 채 다시 보내지 않는다. 로그 `worker.release.stop_kind_refused`·`worker.pending.settlement_detail_refused`도 더 나오지 않는다. 지원 창 안의 API는 이 필드를 모두 받으므로, control-host를 먼저 올리는 순서를 지키면 할 일은 없다.
 
+- **egress proxy와 API가 같은 IP 주소 판정을 쓴다. 경계 주소는 거절 쪽으로 바뀌었다**(JeongJaeSoon/werft#1987). 올리기 전에 allowlist에 둔 이름이 아래 주소로 풀리지 않는지 확인한다. 그런 이름이 있으면 그 목적지는 올린 뒤 `403`(proxy) 또는 `address_not_allowed`(API)가 된다.
+  - egress proxy는 6to4(`2002::/16`), Teredo를 포함한 `2001::/23`, `2000::/3` 밖의 IPv6(`::a.b.c.d`, `::ffff:0:a.b.c.d`, `4000::/2` 등), `3fff::/20`, site-local `fec0::/10`를 reserved로 거절한다. 이전에는 6to4와 `::a.b.c.d`를 안에 든 IPv4로 판정했고, 나머지는 public(`fec0::/10`은 private)으로 통과시켰다. `EGRESS_PRIVATE_ALLOWLIST` 목적지도 `fec0::/10`로 풀리면 거절된다.
+  - API의 IdP·모델 공급자·워크스페이스 MCP 요청은 앞자리가 0인 IPv4 답(`010.0.0.1`)을 거절한다. 이전에는 `10.0.0.1`로 읽었다.
+  - 연결의 `billing: none`과 저장소 `api_base`의 http 허용에서 link-local(`169.254.0.0/16`, `fe80::/10`)이 사설 주소에서 빠졌다. 그런 endpoint의 연결은 저장할 때 거절된다. egress proxy는 link-local에 닿지 않으므로 이 연결은 원래 동작하지 않았다. IPv6 안에 쓴 IPv4(`::ffff:10.0.0.1` 등)는 계속 사설로 보지 않는다.
 - **`BOOTSTRAP_TOKEN`·`BOOTSTRAP_TOKEN_FILE` 환경 값과 Helm `secrets.bootstrapToken`이 없어졌다. 첫 owner는 운영자가 받은 일회용 설정 링크로 만든다**(JeongJaeSoon/werft#1979).
   - Helm values에 `secrets.bootstrapToken`이 남아 있으면(`true`든 `false`든) render가 멈춘다. values에서 지우고 Secret의 `BOOTSTRAP_TOKEN`도 지운다.
   - compose·test-ops env 파일의 `BOOTSTRAP_TOKEN`은 어느 컨테이너에도 가지 않는다. 지운다.
