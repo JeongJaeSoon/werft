@@ -84,4 +84,4 @@ docker run --rm -i --network none --entrypoint bun <worker-image> \
   run apps/worker/src/image-runtime.ts <<<'{}' | jq -c 'del(.profiles)'
 ```
 
-[사용자 registry 빌드](/run-server/self-hosting/build-images)는 사용자 이미지의 digest를 끝까지 유지한다. 게시·승격 절차는 [기여자 문서](/ko/contributing#릴리스-게시와-공급망)를 따른다.
+[사용자 registry 빌드](/run-server/self-hosting/build-images)는 사용자 이미지의 digest를 끝까지 유지한다.

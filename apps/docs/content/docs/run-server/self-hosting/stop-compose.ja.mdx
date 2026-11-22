@@ -37,6 +37,7 @@ scripts/test-ops.sh start
 env ファイルの値を変えた環境には、`scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json` で同じ release を再適用します。start が env の変更を反映するとは考えないでください。
 
 DB と workspace volume は残ります。LocalStack は volume を使わずメモリに保存するため、コンテナを削除すると `-v` がなくても checkpoint object が消えます。DB に未回収 checkpoint があるのに bucket が空なら、API は起動を拒否します。[試験環境の再起動](/run-server/self-hosting/try-localstack#자주-막히는-곳)で reseed の条件を確認してください。
+
 <a id="호스트-재부팅" />
 ### ホストの再起動
 

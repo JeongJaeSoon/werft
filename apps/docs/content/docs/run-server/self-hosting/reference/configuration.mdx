@@ -178,6 +178,7 @@ egress-proxy와 API의 authorizer listener는 아래 값을 읽는다. 목록 �
 | `EGRESS_AUTHORIZER_TOKEN` | 운영 기본값 없음 | Secret의 같은 이름 key | API·proxy가 공유하는 최소 32자 비밀. API에서는 PORT, proxy에서는 URL과 짝으로 필수. 운영에서는 설치별로 생성하며 로컬 시험 값을 쓰지 않음 |
 
 compose의 세 포트와 두 내부 URL은 `infra/compose.core.yml` 상단의 `x-egress-ports` 한 곳에서 정한다. proxy의 `EGRESS_PROXY_PORT`·`EGRESS_CREDENTIAL_PORT`·`EGRESS_AUTHORIZER_URL`, api의 `EGRESS_AUTHORIZER_PORT`, scheduler의 `EXECUTION_EGRESS_PROXY_URL`·`EXECUTION_EGRESS_CREDENTIAL_PORT`는 모두 그 anchor를 쓴다. 포트를 바꿀 때는 같은 블록의 listener와 URL 짝을 함께 바꾼다.
+
 API 컨테이너의 메모리는 checkpoint bundle 검증이 정한다. 검증은 동시에 두 개까지 돌고, 검증마다 git fetch와 index-pack이 각자 `CHECKPOINT_GIT_MEMORY_MB`의 주소 공간 상한 아래에서 함께 돈다. 두 값은 함께 바꾼다. 상한만 올리면 OOM killer가 무엇을 죽일지 정하게 된다. 계산은 `infra/compose.core.yml`의 api 서비스 주석에 있다.
 
 | 변수 | 기본값 | 의미 |

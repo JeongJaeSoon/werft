@@ -38,22 +38,14 @@ export default async function Layout({ children, params }: Props) {
     );
   }
 
-  const { nav, ...base } = baseOptions(lang);
+  const { nav, ...base } = baseOptions();
   const tree = source.getPageTree(lang);
-  // The contributing guide is the header link's; the sidebar leaves it out.
-  const contributing = `/${lang}/contributing`;
-  const sidebarTree = {
-    ...tree,
-    children: tree.children.filter(
-      (node) => !(node.type === "page" && node.url === contributing),
-    ),
-  };
   return (
     <html lang={lang} suppressHydrationWarning>
       <body className="flex min-h-screen flex-col">
         <Provider lang={lang}>
           <DocsLayout
-            tree={sidebarTree}
+            tree={tree}
             {...base}
             sidebar={{ components: { Separator: SidebarSectionSeparator } }}
             nav={{

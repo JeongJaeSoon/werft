@@ -183,6 +183,7 @@ Proxy and API authorizer use these settings. Lists **replace**, rather than exte
 | `EGRESS_AUTHORIZER_TOKEN` | No production default | Same-name Secret key | Shared API/proxy secret, minimum 32 characters. Required with PORT in API and URL in proxy. Generate per installation; do not use local test values |
 
 Compose's three ports/two internal URLs come from x-egress-ports at the top of infra/compose.core.yml. Proxy EGRESS_PROXY_PORT/EGRESS_CREDENTIAL_PORT/EGRESS_AUTHORIZER_URL, API EGRESS_AUTHORIZER_PORT, and scheduler EXECUTION_EGRESS_PROXY_URL/EXECUTION_EGRESS_CREDENTIAL_PORT all use it. Change listener/URL pairs together.
+
 API memory is determined by checkpoint bundle validation: at most two validations concurrently, each running git fetch and index-pack together under individual CHECKPOINT_GIT_MEMORY_MB address-space limits. Change both settings together; raising only the limit leaves OOM victim selection to the kernel. See the api service comment in infra/compose.core.yml.
 
 | Variable | Default | Meaning |

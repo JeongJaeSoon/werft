@@ -14,7 +14,6 @@
     "run-server",
     "ui",
     "reference",
-    "sdk",
-    "contributing"
+    "sdk"
   ]
 }
