@@ -1904,7 +1904,7 @@ export const turns = pgTable(
     // Opaque text, as a principal's ids are elsewhere on the row.
     requesterId: text("requester_id"),
     // The credential the requester came in on (`requesterAuthSchema`),
-    // written with the turn and never changed. Null before 0314. A reader
+    // written with the turn and never changed. Null before 0315. A reader
     // takes a shape it cannot parse as no record.
     requesterAuth: jsonb("requester_auth").$type<unknown>(),
     callerChannel: text("caller_channel"),
