@@ -229,7 +229,7 @@ Migration `0305_drop_unused_tables` drops the `catalog_authority`, `owner_worksp
 <a id="턴에-요청자의-인증-근거를-남기는-릴리스" />
 ### The release that records each turn's requester credential
 
-Migration `0314_turn_requester_auth` adds `turns.requester_auth` (jsonb) and `tool_call_audits.requester_kind` and `requester_id` (text). All three are nullable with no default, index or backfill, so no table is rewritten. Nothing needs doing for the upgrade.
+Migration `0315_turn_requester_auth` adds `turns.requester_auth` (jsonb) and `tool_call_audits.requester_kind` and `requester_id` (text). All three are nullable with no default, index or backfill, so no table is rewritten. Nothing needs doing for the upgrade.
 
 - From this release a new turn records the credential its requester came in on: the console login session id, the personal key id, the agent of an agent key, the Slack installation and linked account. It holds no key secret, no cookie and no Slack user id.
 - Older turns are left as they are. The turn read API shows them with `requester` null or `auth_method` null. The two `tool_call_audits` columns stay empty in this release.
@@ -266,6 +266,14 @@ GROUP BY 1, 2;
 - Rows it finds are rows that must not be sent. Delete them and run migrate again; every statement may run again.
 - The sender also never posts such a row to Slack: it ends `failed` with the `error_code` `user_channel`.
 - Earlier images write no such row either, so rolling back with the constraint in place is safe.
+
+<a id="예산-계정-표를-더하는-릴리스" />
+### The release that adds the budget account tables
+
+Migration `0314_budget_accounts` creates three empty tables: `budget_limits` (the workspace's limit for every person, a person's own limit, an agent team's limit), `budget_accounts` (what a person's or a team's account spent and holds reserved each month, months cut in UTC), and `budget_reservations` (the reservation and settlement of each call). Nothing to do.
+
+- In this release no call reads or writes these tables. The session cost and token limits work as before, and there is no screen, API or operator command that sets a budget limit yet.
+- The migration only adds tables, so rolling back to an image inside the support window is fine.
 
 <a id="slack-글의-수정삭제-표식" />
 ### Marks of edited and deleted Slack messages

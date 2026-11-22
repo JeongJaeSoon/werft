@@ -229,7 +229,7 @@ migration `0305_drop_unused_tables` が `catalog_authority`・`owner_workspace_m
 <a id="턴에-요청자의-인증-근거를-남기는-릴리스" />
 ### ターンに依頼者の認証の根拠を残すリリース
 
-migration `0314_turn_requester_auth` が `turns.requester_auth`(jsonb)と `tool_call_audits.requester_kind`・`requester_id`(text)を加える。三つとも nullable で、既定値・インデックス・backfill がないため、表を書き直さない。上げるときにすることはない。
+migration `0315_turn_requester_auth` が `turns.requester_auth`(jsonb)と `tool_call_audits.requester_kind`・`requester_id`(text)を加える。三つとも nullable で、既定値・インデックス・backfill がないため、表を書き直さない。上げるときにすることはない。
 
 - このリリースから、新しいターンに依頼者が入ってきた資格が残る。コンソールのログインセッション id、個人 key の id、エージェント key のエージェント、Slack のインストールと連携アカウントである。key の秘密、cookie、Slack のユーザー id は入れない。
 - 古いターンは直さない。ターン読み取り API の `requester` が null、または `auth_method` が null に見える。`tool_call_audits` の二つの列はこのリリースでは空のままである。
@@ -266,6 +266,14 @@ GROUP BY 1, 2;
 - 見つかった行は送ってはならない行である。削除してから migrate をもう一度実行する。どの文も再実行してよい。
 - 送る側もそのような行を Slack に送らず、`failed`(`error_code` `user_channel`)で終える。
 - 以前のイメージもそのような行を書かないので、制約を残したまま戻してもよい。
+
+<a id="예산-계정-표를-더하는-릴리스" />
+### 予算アカウントの表を加えるリリース
+
+migration `0314_budget_accounts` が空の表を三つ作る。`budget_limits`(組織全体の一人あたりの既定の上限、人ごとの上限、エージェントチームの上限)、`budget_accounts`(人・チームのアカウントが月ごとに使った分と予約した分。月は UTC で区切る)、`budget_reservations`(呼び出しごとの予約と精算の記録)だ。することはない。
+
+- このリリースでは、どの呼び出しもこれらの表を読み書きしない。セッションのコスト上限とトークン上限はこれまでどおりで、上限を決める画面・API・運用者コマンドもまだない。
+- 新しい表を作るだけなので、サポート期間内のイメージに戻してもよい。
 
 <a id="slack-글의-수정삭제-표식" />
 ### Slack メッセージの編集・削除の印

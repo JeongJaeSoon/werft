@@ -21,6 +21,15 @@ import {
   AUTO_REVIEWED_EVIDENCE_KIND_VALUES,
   type AuthorizationAction,
   BINDING_MODE_VALUES,
+  BUDGET_LIMIT_SUBJECT_VALUES,
+  BUDGET_OWNER_KIND_VALUES,
+  BUDGET_RESERVATION_STATE_VALUES,
+  BUDGET_ROOT_KIND_VALUES,
+  type BudgetAccountId,
+  type BudgetLimitSubject,
+  type BudgetOwnerKind,
+  type BudgetReservationState,
+  type BudgetRootKind,
   CONVERSATION_KIND_VALUES,
   type ConversationKind,
   ENDED_ATTEMPT_STATES,
@@ -1895,7 +1904,7 @@ export const turns = pgTable(
     // Opaque text, as a principal's ids are elsewhere on the row.
     requesterId: text("requester_id"),
     // The credential the requester came in on (`requesterAuthSchema`),
-    // written with the turn and never changed. Null before 0314. A reader
+    // written with the turn and never changed. Null before 0315. A reader
     // takes a shape it cannot parse as no record.
     requesterAuth: jsonb("requester_auth").$type<unknown>(),
     callerChannel: text("caller_channel"),
@@ -3403,6 +3412,179 @@ export const providerExchanges = pgTable(
     index("provider_exchanges_session_held_idx")
       .on(table.sessionId)
       .where(sql`${table.releasedAt} IS NULL`),
+  ],
+);
+
+// A NaN cost passes `>= 0` (PostgreSQL sorts it above every number) and
+// would turn a limit off; tokens past 2^53 lose precision where the limits
+// are judged. Null passes both, as in any CHECK.
+const budgetCostOk = (column: AnyPgColumn) =>
+  sql`(${column} >= 0 AND ${column} <> 'NaN')`;
+const budgetTokensOk = (column: AnyPgColumn) =>
+  sql`${column} BETWEEN 0 AND ${sql.raw(String(Number.MAX_SAFE_INTEGER))}`;
+
+// Budget limits an organization admin sets (94S-1995): one for every person
+// in the workspace, one person's own in its place, one per agent team. An
+// absent row is no limit, and so is a row with neither limit. Nothing sets
+// them yet but the store.
+export const budgetLimits = pgTable(
+  "budget_limits",
+  {
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    subject: text().$type<BudgetLimitSubject>().notNull(),
+    // The user or the member team; null for `person_default`. No foreign
+    // key: the two kinds are different tables.
+    subjectId: uuid("subject_id"),
+    costUsd: numeric("cost_usd", { precision: 14, scale: 6, mode: "number" }),
+    tokens: bigint({ mode: "number" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("budget_limits_subject_key")
+      .on(table.workspaceId, table.subject, table.subjectId)
+      .nullsNotDistinct(),
+    check(
+      "budget_limits_subject_check",
+      sql`${table.subject} IN (${sql.raw(sqlList(BUDGET_LIMIT_SUBJECT_VALUES))})`,
+    ),
+    check(
+      "budget_limits_subject_id_check",
+      sql`(${table.subject} = 'person_default') = (${table.subjectId} IS NULL)`,
+    ),
+    check(
+      "budget_limits_nonneg_check",
+      sql`${budgetCostOk(table.costUsd)} AND ${budgetTokensOk(table.tokens)}`,
+    ),
+  ],
+);
+
+// One account's month: a person's in a workspace, or an agent team's. Rows
+// are made by the first reservation of the month (UTC), so a new month
+// starts at zero. Spent and reserved are counted here alone, apart from
+// provider_usage and its rollups.
+export const budgetAccounts = pgTable(
+  "budget_accounts",
+  {
+    id: uuid().$type<BudgetAccountId>().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    ownerKind: text("owner_kind").$type<BudgetOwnerKind>().notNull(),
+    // The user or the member team. No foreign key, as above.
+    ownerId: uuid("owner_id").notNull(),
+    // The first day of the month, UTC.
+    periodStart: date("period_start", { mode: "string" }).notNull(),
+    spentCostUsd: numeric("spent_cost_usd", {
+      precision: 14,
+      scale: 6,
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    spentTokens: bigint("spent_tokens", { mode: "number" })
+      .notNull()
+      .default(0),
+    reservedCostUsd: numeric("reserved_cost_usd", {
+      precision: 14,
+      scale: 6,
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    reservedTokens: bigint("reserved_tokens", { mode: "number" })
+      .notNull()
+      .default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("budget_accounts_owner_period_key").on(
+      table.workspaceId,
+      table.ownerKind,
+      table.ownerId,
+      table.periodStart,
+    ),
+    check(
+      "budget_accounts_owner_kind_check",
+      sql`${table.ownerKind} IN (${sql.raw(sqlList(BUDGET_OWNER_KIND_VALUES))})`,
+    ),
+    check(
+      "budget_accounts_period_check",
+      sql`extract(day from ${table.periodStart}) = 1`,
+    ),
+    check(
+      "budget_accounts_nonneg_check",
+      sql`${budgetCostOk(table.spentCostUsd)} AND ${budgetTokensOk(table.spentTokens)} AND ${budgetCostOk(table.reservedCostUsd)} AND ${budgetTokensOk(table.reservedTokens)}`,
+    ),
+  ],
+);
+
+// One call's reservation, by the call's id. A call with no account to
+// charge (a key of an agent with no team) is kept all the same, with its
+// root kind. A settled or released row stays, so the same id does not
+// count twice.
+export const budgetReservations = pgTable(
+  "budget_reservations",
+  {
+    callId: text("call_id").primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    accountId: uuid("account_id")
+      .$type<BudgetAccountId>()
+      .references(() => budgetAccounts.id),
+    rootKind: text("root_kind").$type<BudgetRootKind>().notNull(),
+    // The connection bills nothing: the costs stay 0 and only tokens count.
+    unmetered: boolean().notNull(),
+    costUsd: numeric("cost_usd", {
+      precision: 14,
+      scale: 6,
+      mode: "number",
+    }).notNull(),
+    tokens: bigint({ mode: "number" }).notNull(),
+    state: text().$type<BudgetReservationState>().notNull().default("reserved"),
+    settledCostUsd: numeric("settled_cost_usd", {
+      precision: 14,
+      scale: 6,
+      mode: "number",
+    }),
+    settledTokens: bigint("settled_tokens", { mode: "number" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("budget_reservations_account_idx").on(table.accountId),
+    check(
+      "budget_reservations_root_kind_check",
+      sql`${table.rootKind} IN (${sql.raw(sqlList(BUDGET_ROOT_KIND_VALUES))})`,
+    ),
+    check(
+      "budget_reservations_state_check",
+      sql`${table.state} IN (${sql.raw(sqlList(BUDGET_RESERVATION_STATE_VALUES))})`,
+    ),
+    check(
+      "budget_reservations_ended_check",
+      sql`(${table.state} = 'reserved') = (${table.endedAt} IS NULL)`,
+    ),
+    check(
+      "budget_reservations_settled_check",
+      sql`CASE WHEN ${table.state} = 'settled' THEN ${table.settledCostUsd} IS NOT NULL AND ${table.settledTokens} IS NOT NULL ELSE ${table.settledCostUsd} IS NULL AND ${table.settledTokens} IS NULL END`,
+    ),
+    check(
+      "budget_reservations_nonneg_check",
+      sql`${budgetCostOk(table.costUsd)} AND ${budgetTokensOk(table.tokens)} AND ${budgetCostOk(table.settledCostUsd)} AND ${budgetTokensOk(table.settledTokens)}`,
+    ),
+    check(
+      "budget_reservations_unmetered_check",
+      sql`NOT ${table.unmetered} OR (${table.costUsd} = 0 AND coalesce(${table.settledCostUsd}, 0) = 0)`,
+    ),
   ],
 );
 
