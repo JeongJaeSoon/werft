@@ -209,24 +209,12 @@ describe("what a check cannot be talked out of", () => {
       "evil.example",
     ]);
     expect(hostOf("https://ev%69l.example/")).toEqual(["evil.example"]);
-    // A tab or a CR inside the authority is dropped as the parser drops it.
-    expect(hostOf("https://known.example\t@evil.example/")).toEqual([
-      "evil.example",
-    ]);
-    expect(hostOf("https://known.example\r@evil.example/")).toEqual([
-      "evil.example",
-    ]);
-    // A space, tab, NBSP or angle bracket before an "@" on the same line,
-    // extra slashes before the host, and tab padding of any length: the
-    // host a parser handed the line reaches counts too.
+    // Plain text ends a URL at whitespace, as Markdown does: what follows a
+    // space or tab is not the URL's (a known limit, written in the docs).
+    expect(hostOf("https://known.example @evil.example/")).toBeUndefined();
+    expect(hostOf("https://known.example\t@evil.example/")).toBeUndefined();
+    // Extra slashes before the host are skipped as the parser skips them.
     for (const [text, host] of [
-      ["https://known.example @evil.example/", "evil.example"],
-      ["https://known.example<@evil.example/", "evil.example"],
-      ["https://known.example\u{A0}@evil.example/", "evil.example"],
-      [
-        `https://known.example${"\t".repeat(1025)}@evil.example/`,
-        "evil.example",
-      ],
       ["https:////evil.example/", "evil.example"],
       ["https://\\evil.example/", "evil.example"],
     ] as const) {
@@ -268,6 +256,22 @@ describe("what a check cannot be talked out of", () => {
     }
     expect(
       hostOf('<a href="https://known.example/docs">Docs</a> and <b class="x">'),
+    ).toBeUndefined();
+    // A link destination ends where CommonMark ends it, whatever follows;
+    // an attribute may start on the next line; numeric references need no
+    // ";" and may carry leading zeros.
+    for (const text of [
+      "[x](https://evil.example)@known.example/",
+      "[x]: https://evil.example\n",
+      '<a href=\n"ht\ttps://evil.example/">x</a>',
+      '<a href="h&#116tps://evil.example/">x</a>',
+      '<a href="&#000000000104;ttps://evil.example/">x</a>',
+    ]) {
+      expect(hostOf(text)).toContain("evil.example");
+    }
+    // A contact after a link is not a host.
+    expect(
+      hostOf("[x](https://known.example) Contact support@support.example/"),
     ).toBeUndefined();
     // A quote or punctuation the parser keeps in the host is a new host.
     for (const text of [

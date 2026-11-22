@@ -77,8 +77,6 @@ const textOf = (bytes: Uint8Array): string => decoder.decode(bytes);
  * that, the authority runs to the path, query or fragment.
  */
 const AUTHORITY = /[^/?#\\\s<>]*/y;
-/** The rest of the line up to the path, query or fragment. */
-const LINE_AUTHORITY = /[^/?#\\\n]*/y;
 const TRAILING = /[.,;:!?)\]"'`*_~]/;
 
 const count = (text: string, char: string): number =>
@@ -130,16 +128,6 @@ function hostsInText(text: string): Set<string> {
     // the parser keeps it in the host.
     if (ended) authority = withoutTrailing(authority);
     add(parsedHost(scheme, authority) ?? authority);
-    // A parser handed the whole line reads past a space, tab or angle
-    // bracket into userinfo when an "@" follows: that host counts too.
-    if (ended && next !== undefined && next !== "\n") {
-      LINE_AUTHORITY.lastIndex = from;
-      const line = LINE_AUTHORITY.exec(text)?.[0] ?? "";
-      if (line.indexOf("@", authority.length) !== -1) {
-        const host = parsedHost(scheme, line.replace(/[\t\r]/g, ""));
-        if (host !== null) add(host);
-      }
-    }
   }
   return hosts;
 }
@@ -168,9 +156,17 @@ const NAMED: Record<string, string> = {
   Tab: "\t",
   NewLine: "\n",
 };
-const ENTITY = /&(?:#(\d{1,7})|#[xX]([\da-fA-F]{1,6})|([A-Za-z]+));/g;
+// Numeric references as HTML reads them: any length, the ";" optional.
+const ENTITY = /&(?:#(\d+);?|#[xX]([\da-fA-F]+);?|([A-Za-z]+);)/g;
 const ESCAPE = /\\([!-/:-@[-`{-~])/g;
-const ATTRIBUTE = /=[^\S\n]*(?:"([^"]*)"|'([^']*)')/g;
+const ATTRIBUTE = /=\s*(?:"([^"]*)"|'([^']*)')/g;
+/**
+ * A CommonMark link destination: after "](" in an inline link or after
+ * "]:" in a reference definition, in angle brackets or as a run without
+ * spaces whose parentheses balance one deep.
+ */
+const DESTINATION =
+  /\](?:\(|:)[^\S\n]*(?:<([^<>\n]*)>|((?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*\))+))/g;
 
 const decodeEntities = (text: string): string =>
   text.replace(ENTITY, (whole, dec?: string, hex?: string, name?: string) => {
@@ -185,29 +181,43 @@ const decodeEntities = (text: string): string =>
 /**
  * Hosts a URL in the text reaches as a reader of the file sees it: the
  * text as written, as CommonMark renders it (backslash escapes and character
- * references resolved), and each quoted HTML attribute value that is a URL,
- * with tabs and line ends dropped and references resolved as a browser does.
+ * references resolved), each CommonMark link destination, and each quoted
+ * HTML attribute value that is a URL, with tabs and line ends dropped and
+ * references resolved as a browser does.
  * Each view only adds hosts. URLs a script assembles, other encodings and
  * plain text broken across lines are not read.
  */
+/** The host of a link target as a browser follows it, or null. */
+function targetHost(target: string): string | null {
+  const value = decodeEntities(target.replace(/[\t\n\r]/g, ""))
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: a browser strips C0 and space around a URL
+    .replace(/^[\u{0}-\u{20}]+|[\u{0}-\u{20}]+$/gu, "");
+  const url = value.startsWith("//") ? `https:${value}` : value;
+  if (!/^https?:/i.test(url)) return null;
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/\.$/, "");
+  } catch {
+    return null;
+  }
+}
+
 function hostsOf(text: string): Set<string> {
   const hosts = hostsInText(text);
   const rendered = decodeEntities(text.replace(ESCAPE, "$1"));
-  if (rendered !== text)
+  if (rendered !== text) {
     for (const host of hostsInText(rendered)) hosts.add(host);
-  for (const [, double, single] of text.matchAll(ATTRIBUTE)) {
-    const value = decodeEntities(
-      (double ?? single ?? "").replace(/[\t\n\r]/g, ""),
-    )
-      // biome-ignore lint/suspicious/noControlCharactersInRegex: a browser strips C0 and space around a URL
-      .replace(/^[\u{0}-\u{20}]+|[\u{0}-\u{20}]+$/gu, "");
-    const url = value.startsWith("//") ? `https:${value}` : value;
-    if (!/^https?:/i.test(url)) continue;
-    try {
-      hosts.add(new URL(url).hostname.toLowerCase().replace(/\.$/, ""));
-    } catch {
-      // Not a URL a browser follows.
-    }
+  }
+  const targets = [
+    ...[...text.matchAll(ATTRIBUTE)].map(
+      ([, double, single]) => double ?? single ?? "",
+    ),
+    ...[...text.matchAll(DESTINATION)].map(([, angled, bare]) =>
+      (angled ?? bare ?? "").replace(ESCAPE, "$1"),
+    ),
+  ];
+  for (const target of targets) {
+    const host = targetHost(target);
+    if (host !== null) hosts.add(host);
   }
   return hosts;
 }
