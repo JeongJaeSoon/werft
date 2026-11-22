@@ -32,7 +32,6 @@ export const GROWING_TABLES: readonly string[] = [
   "pending_requests",
   "provider_usage",
   "pull_requests",
-  "push_continuations",
   "push_requests",
   "receipts",
   "session_achievements",

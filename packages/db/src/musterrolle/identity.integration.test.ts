@@ -310,21 +310,18 @@ integration("0100 identity migration on PostgreSQL", () => {
           keys: string;
           receipts: string;
           workspaces: string;
-          mapped: string;
         }>(`
             SELECT
               (SELECT count(*)::text FROM turns) AS turns,
               (SELECT count(*)::text FROM api_keys) AS keys,
               (SELECT count(*)::text FROM receipts) AS receipts,
-              (SELECT count(*)::text FROM workspaces) AS workspaces,
-              (SELECT count(*)::text FROM owner_workspace_map) AS mapped
+              (SELECT count(*)::text FROM workspaces) AS workspaces
           `);
         expect(counts.rows[0]).toEqual({
           turns: "0",
           keys: "1",
           receipts: "1",
           workspaces: "0",
-          mapped: "0",
         });
         const key = await pool.query<{
           workspace_id: string | null;
@@ -457,11 +454,6 @@ integration("0100 identity migration on PostgreSQL", () => {
             `INSERT INTO invites (id, workspace_id, email, role, token_hash, invited_by, expires_at, accepted_at, revoked_at)
                VALUES ($1, $2, 'x@example.invalid', 'member', sha256('t'::bytea), $3, now(), now(), now())`,
             [randomUUID(), workspaceId, userId],
-          ],
-          [
-            "23503",
-            `INSERT INTO owner_workspace_map (owner_id, workspace_id, mapped_by) VALUES ('legacy', $1, $2)`,
-            [randomUUID(), userId],
           ],
           [
             "23514",
