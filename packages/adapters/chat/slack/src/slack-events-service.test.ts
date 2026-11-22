@@ -621,6 +621,16 @@ describe("Slack events service", () => {
     ]);
 
     const cases = [
+      // The event's own app_id wins over its bot profile.
+      [
+        {
+          ...OWN_MIRROR,
+          app_id: "A0OTHER",
+          bot_profile: { app_id: APP_ID },
+        },
+        "dropped",
+        "bot_message",
+      ],
       // Slack may name the app only in the bot's profile.
       [
         { ...OWN_MIRROR, app_id: undefined, bot_profile: { app_id: APP_ID } },
