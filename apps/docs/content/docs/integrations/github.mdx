@@ -29,7 +29,7 @@ GitHub와 하는 일은 셋이다. 시작 저장소가 있는 세션은 시작�
 
 ### 기본 브랜치 보호
 
-플랫폼은 `agent/<session-id>` 브랜치에만 push하고 기본 브랜치는 거절한다. GitHub에서도 한 번 더 막는다.
+플랫폼은 그 세션의 `agent/<session-id>` 브랜치(요청 본문에 `branch`를 주면 `agent/<session-id>-<suffix>`)에만 push하고 기본 브랜치는 거절한다. GitHub에서도 한 번 더 막는다.
 
 1. 저장소 Settings → Rules → Rulesets → New branch ruleset에서 Target을 `Include default branch`로 둔다.
 2. **Restrict updates**, **Restrict deletions**, **Block force pushes**를 켠다. 사람의 리뷰를 거친 머지만 받으려면 **Require a pull request before merging**도 켠다.
@@ -167,12 +167,12 @@ PR 본문 끝에는 플랫폼이 쓰는 꼬리가 붙는다. 세션 id와 commit
 
 ## push가 거절되는 경우
 
-승인된 요청은 API가 몇 초 안에 push한다. 요청이 고정한 commit 하나를 그 저장소의 `refs/heads/agent/<session-id>`로 보내고, force push는 하지 않는다. 같은 commit이 이미 있으면 그대로 `pushed`다. 실패하면 `push` receipt의 `refusal`이 사유다.
+승인된 요청은 API가 몇 초 안에 push한다. 요청이 고정한 commit 하나를 그 저장소의 그 브랜치(`refs/heads/agent/<session-id>` 또는 `refs/heads/agent/<session-id>-<suffix>`)로 보내고, force push는 하지 않는다. 같은 commit이 이미 있으면 그대로 `pushed`다. 실패하면 `push` receipt의 `refusal`이 사유다.
 
 | `refusal` | 오류 코드 | 뜻 |
 | --- | --- | --- |
 | `non_fast_forward` | `REVISION_CONFLICT` | 원격 브랜치의 commit이 push할 commit의 조상이 아니다 |
-| `target_refused` | `FORBIDDEN` | 브랜치가 `agent/<session-id>`가 아니다 |
+| `target_refused` | `FORBIDDEN` | 브랜치가 `agent/<session-id>`나 `agent/<session-id>-<suffix>`가 아니다 |
 | `default_branch` | `FORBIDDEN` | 카탈로그의 브랜치이거나 원격의 기본 브랜치다 |
 | `no_push_credential` | `FORBIDDEN` | 그 저장소에 push할 자격 증명이 없다 |
 | `catalog_changed` | `CATALOG_MISMATCH` | 요청 뒤 저장소의 URL이나 인증이 바뀌었거나 항목이 지워졌다. 원격에 아무것도 보내지 않는다. 새로 요청해 다시 승인받는다 |

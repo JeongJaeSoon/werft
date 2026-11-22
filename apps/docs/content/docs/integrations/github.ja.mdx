@@ -30,7 +30,7 @@ GitHub との間でやることは三つある。開始リポジトリがある�
 <a id="기본-브랜치-보호" />
 ### デフォルトブランチの保護
 
-プラットフォームは `agent/<session-id>` ブランチにだけ push し、デフォルトブランチは拒否する。GitHub でももう一度防ぐ。
+プラットフォームはそのセッションの `agent/<session-id>` ブランチ（リクエスト本文で `branch` を渡すと `agent/<session-id>-<suffix>`）にだけ push し、デフォルトブランチは拒否する。GitHub でももう一度防ぐ。
 
 1. リポジトリの Settings → Rules → Rulesets → New branch ruleset で、Target を `Include default branch` にする。
 2. **Restrict updates**、**Restrict deletions**、**Block force pushes** をオンにする。人のレビューを経たマージだけを受け付けるなら、**Require a pull request before merging** もオンにする。
@@ -172,12 +172,12 @@ PR 本文の末尾には、プラットフォームが書く末尾ブロック�
 <a id="push가-거절되는-경우" />
 ## push が拒否される場合
 
-承認されたリクエストは、API が数秒以内に push する。リクエストが固定した commit 一つをそのリポジトリの `refs/heads/agent/<session-id>` に送り、force push はしない。同じ commit がすでにあれば、そのまま `pushed` になる。失敗すると、`push` receipt の `refusal` が理由になる。
+承認されたリクエストは、API が数秒以内に push する。リクエストが固定した commit 一つをそのリポジトリのそのブランチ（`refs/heads/agent/<session-id>` または `refs/heads/agent/<session-id>-<suffix>`）に送り、force push はしない。同じ commit がすでにあれば、そのまま `pushed` になる。失敗すると、`push` receipt の `refusal` が理由になる。
 
 | `refusal` | エラーコード | 意味 |
 | --- | --- | --- |
 | `non_fast_forward` | `REVISION_CONFLICT` | リモートブランチの commit が、push する commit の祖先ではない |
-| `target_refused` | `FORBIDDEN` | ブランチが `agent/<session-id>` ではない |
+| `target_refused` | `FORBIDDEN` | ブランチが `agent/<session-id>` でも `agent/<session-id>-<suffix>` でもない |
 | `default_branch` | `FORBIDDEN` | カタログのブランチか、リモートのデフォルトブランチである |
 | `no_push_credential` | `FORBIDDEN` | そのリポジトリに push する資格情報がない |
 | `catalog_changed` | `CATALOG_MISMATCH` | リクエストの後にリポジトリの URL か認証が変わったか、項目が削除された。リモートには何も送らない。新しくリクエストして承認を受け直す |

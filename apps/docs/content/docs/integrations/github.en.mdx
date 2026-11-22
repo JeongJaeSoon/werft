@@ -30,7 +30,7 @@ An App made in the console gets its Setup URL filled in as `<CONSOLE_ORIGIN>/set
 <a id="기본-브랜치-보호" />
 ### Protecting the default branch
 
-The platform pushes only to `agent/<session-id>` branches and refuses the default branch. Block it once more on GitHub.
+The platform pushes only to the session's `agent/<session-id>` branch (`agent/<session-id>-<suffix>` when the request body gives `branch`) and refuses the default branch. Block it once more on GitHub.
 
 1. In the repository's Settings → Rules → Rulesets → New branch ruleset, set Target to `Include default branch`.
 2. Turn on **Restrict updates**, **Restrict deletions** and **Block force pushes**. To accept only merges a person reviewed, also turn on **Require a pull request before merging**.
@@ -172,12 +172,12 @@ With the workspace's permission, `merge_pull_request` squash-merges that PR. Wit
 <a id="push가-거절되는-경우" />
 ## When a push is refused
 
-The API pushes an approved request within a few seconds. It sends the one commit the request pinned to `refs/heads/agent/<session-id>` of that repository and never force-pushes. If the same commit is already there, the request is simply `pushed`. On failure, `refusal` in the `push` receipt gives the reason.
+The API pushes an approved request within a few seconds. It sends the one commit the request pinned to that branch (`refs/heads/agent/<session-id>` or `refs/heads/agent/<session-id>-<suffix>`) of that repository and never force-pushes. If the same commit is already there, the request is simply `pushed`. On failure, `refusal` in the `push` receipt gives the reason.
 
 | `refusal` | Error code | Meaning |
 | --- | --- | --- |
 | `non_fast_forward` | `REVISION_CONFLICT` | The remote branch's commit is not an ancestor of the commit to push |
-| `target_refused` | `FORBIDDEN` | The branch is not `agent/<session-id>` |
+| `target_refused` | `FORBIDDEN` | The branch is neither `agent/<session-id>` nor `agent/<session-id>-<suffix>` |
 | `default_branch` | `FORBIDDEN` | The branch is the catalog's branch or the remote's default branch |
 | `no_push_credential` | `FORBIDDEN` | There is no credential to push to that repository |
 | `catalog_changed` | `CATALOG_MISMATCH` | The repository's URL or auth changed after the request, or the entry was removed. Nothing is sent to the remote. Request again and get a new approval |
