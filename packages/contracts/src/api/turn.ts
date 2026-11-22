@@ -86,8 +86,6 @@ export const listTurnsQuerySchema = paginationQuerySchema;
 export const listTurnsResponseSchema = pageSchema(turnSummarySchema);
 export const getTurnResponseSchema = turnDetailSchema;
 
-export const unassignedSessionSignalSchema = z.undefined();
-
 export type PostSessionMessageRequest = z.infer<
   typeof postSessionMessageRequestSchema
 >;

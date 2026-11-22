@@ -1356,21 +1356,6 @@ export const updateAgentRequestSchema = z
     "at least one field is required",
   );
 
-/** One-line hiring: a small model fills the card, a person edits it. */
-export const draftAgentRequestSchema = z
-  .object({
-    prompt: z.string().min(1).max(4_000),
-    name: agentNameInputSchema.optional(),
-  })
-  .strict();
-export const draftAgentResponseSchema = z
-  .object({
-    agent_id: agentIdSchema,
-    version_id: agentVersionIdSchema,
-    card: agentCardSchema,
-  })
-  .strict();
-
 export const createAgentReleaseRequestSchema = z
   .object({
     version_id: agentVersionIdSchema,

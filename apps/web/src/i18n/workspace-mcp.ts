@@ -73,8 +73,6 @@ export const workspaceMcpKo = {
     "public client면 비워 두세요. 저장하면 다시 보이지 않습니다.",
   "workspaceMcp.clientSaved":
     "{name}의 client를 저장했습니다. 연결을 눌러 로그인하세요.",
-  "workspaceMcp.clientManual": "client를 손으로 넣음",
-  "workspaceMcp.clientDcr": "client 자동 등록",
   "workspaceMcp.redirectUri": "redirect URI",
   "workspaceMcp.delete": "삭제",
   "workspaceMcp.deleteFor": "{name} 삭제",
@@ -278,8 +276,6 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
   "workspaceMcp.clientSecretHint":
     "Leave empty for a public client. It is not shown again once saved.",
   "workspaceMcp.clientSaved": "Saved the client of {name}. Connect to sign in.",
-  "workspaceMcp.clientManual": "Client entered by hand",
-  "workspaceMcp.clientDcr": "Client registered automatically",
   "workspaceMcp.redirectUri": "Redirect URI",
   "workspaceMcp.delete": "Delete",
   "workspaceMcp.deleteFor": "Delete {name}",
@@ -487,8 +483,6 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
     "public client なら空のままにします。保存後は再表示されません。",
   "workspaceMcp.clientSaved":
     "{name} の client を保存しました。接続を押してログインしてください。",
-  "workspaceMcp.clientManual": "client を手入力",
-  "workspaceMcp.clientDcr": "client を自動登録",
   "workspaceMcp.redirectUri": "redirect URI",
   "workspaceMcp.delete": "削除",
   "workspaceMcp.deleteFor": "{name} を削除",

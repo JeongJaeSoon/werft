@@ -5,13 +5,6 @@ import { createLucideIcon } from "lucide-react";
  * lucide-react this package pins. The design's own nodes, so the icons match.
  */
 
-export const GitBranch = createLucideIcon("git-branch", [
-  ["line", { x1: "6", x2: "6", y1: "3", y2: "15", key: "git-branch-0" }],
-  ["circle", { cx: "18", cy: "6", r: "3", key: "git-branch-1" }],
-  ["circle", { cx: "6", cy: "18", r: "3", key: "git-branch-2" }],
-  ["path", { d: "M18 9a9 9 0 0 1-9 9", key: "git-branch-3" }],
-]);
-
 export const Sparkles = createLucideIcon("sparkles", [
   [
     "path",
@@ -24,11 +17,6 @@ export const Sparkles = createLucideIcon("sparkles", [
   ["path", { d: "M22 5h-4", key: "sparkles-2" }],
   ["path", { d: "M4 17v2", key: "sparkles-3" }],
   ["path", { d: "M5 18H3", key: "sparkles-4" }],
-]);
-
-export const CircleCheck = createLucideIcon("circle-check", [
-  ["circle", { cx: "12", cy: "12", r: "10", key: "circle-check-0" }],
-  ["path", { d: "m9 12 2 2 4-4", key: "circle-check-1" }],
 ]);
 
 export const Pause = createLucideIcon("pause", [

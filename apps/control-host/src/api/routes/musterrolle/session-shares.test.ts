@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  type AdminSession,
+  type adminSessionSchema,
   auditReadResponseSchema,
   listAdminSessionsResponseSchema,
   REQUEST_BODY_MAX_BYTES,
@@ -14,6 +14,7 @@ import {
   SessionServiceError,
   type SessionShareService,
 } from "@werft-ai/platform";
+import type { z } from "zod";
 import { errorOf } from "../../../testing/api-error.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerSessionShareRoutes } from "./session-shares.ts";
@@ -269,7 +270,7 @@ describe("POST /v1/sessions/{id}/audit-read", () => {
 });
 
 describe("GET /v1/admin/sessions", () => {
-  const ROW: AdminSession = {
+  const ROW: z.infer<typeof adminSessionSchema> = {
     session_id: SESSION,
     created_by_user_id: USER,
     created_by_api_key_id: null,

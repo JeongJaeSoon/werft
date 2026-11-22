@@ -1,12 +1,5 @@
 import type { SessionSummary } from "@werft-ai/contracts";
-import {
-  Code,
-  cn,
-  Text,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@werft-ai/ui";
+import { Code, cn } from "@werft-ai/ui";
 import type { JSX } from "react";
 
 /** What the session's repository fields say, which a screen reads as one list. */
@@ -102,71 +95,5 @@ export function RepositoryName({
         </span>
       ) : null}
     </Code>
-  );
-}
-
-export interface RepositorySummaryMessages {
-  /** For a session with no repository. */
-  readonly none: string;
-  /** Stands in for a repository with neither a name nor a key. */
-  readonly unknown: string;
-  /** Names the "+N" button; the list itself is its description. */
-  readonly more: (count: number) => string;
-}
-
-/**
- * None: a muted word. Otherwise the first repository and, for more, a "+N"
- * button that shows the rest on hover and focus and reads them out as its
- * description. A long list scrolls inside the note.
- */
-export function RepositorySummary({
-  repositories,
-  messages,
-  className,
-}: {
-  readonly repositories: readonly SessionRepositoryEntry[];
-  readonly messages: RepositorySummaryMessages;
-  readonly className?: string | undefined;
-}): JSX.Element {
-  const [first, ...more] = repositories;
-  if (first === undefined) {
-    return (
-      <Text as="span" variant="meta" className={cn("truncate", className)}>
-        {messages.none}
-      </Text>
-    );
-  }
-  return (
-    <span className={cn("flex min-w-0 items-center gap-2", className)}>
-      <RepositoryName repository={first} unknown={messages.unknown} />
-      {more.length > 0 ? (
-        <Tooltip>
-          <TooltipTrigger asChild={true}>
-            <button
-              type="button"
-              // The visible "+N" must open the name (WCAG 2.5.3, label in name).
-              aria-label={`+${more.length} ${messages.more(more.length)}`}
-              className="relative flex-none rounded-full border bg-background px-2 font-mono text-caption text-foreground focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
-            >
-              +{more.length}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="max-h-64 overflow-y-auto">
-            {repositories.map((repository, index) => (
-              <span
-                // The same id can come twice from a legacy row with no key.
-                key={`${repository.id ?? ""}:${index}`}
-                className="block font-mono text-caption"
-              >
-                {withBranch(
-                  repositoryLabel(repository, messages.unknown),
-                  repository.branch,
-                )}
-              </span>
-            ))}
-          </TooltipContent>
-        </Tooltip>
-      ) : null}
-    </span>
   );
 }

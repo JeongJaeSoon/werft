@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { unwiredCheckpoints } from "./checkpoint.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
+import { unwiredCheckpoints } from "./testing/unwired-checkpoints.ts";
 
 describe("unwiredCheckpoints", () => {
   test("refuses a restore", async () => {

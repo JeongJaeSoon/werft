@@ -1,11 +1,4 @@
-import {
-  afterAll,
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  test,
-} from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import type { ApiError } from "@werft-ai/client";
 import type { AgentCard, AgentDetail } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
@@ -30,14 +23,9 @@ import {
   me,
   memberMe,
 } from "../test-support/fake-api.ts";
-import { fakeIntersection } from "../test-support/intersection.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
 const { act, render, renderAt, screen, waitFor, within } = await appHarness();
-// Over happy-dom's, which setupDom put in place.
-const viewport = fakeIntersection();
-afterEach(() => viewport.show(() => true));
-afterAll(() => viewport.restore());
 // After the DOM exists: Radix picks a no-op layout effect when loaded before
 // it, and its dialogs then never reach the page.
 const { agentRefusal } = await import("../components/agent-refusal.ts");

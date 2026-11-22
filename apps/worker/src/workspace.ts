@@ -119,15 +119,6 @@ async function bytesUnder(path: string): Promise<number> {
   return total;
 }
 
-/** For hosts whose engine never touches a repository, like the fake. */
-export const noWorkspace: WorkspacePreparer = {
-  async prepare() {
-    return "reuse";
-  },
-  committedInstructions: () => null,
-  instructionsCommit: () => null,
-};
-
 /**
  * Past this the run is refused rather than handed part of the file: a cut can
  * drop the rule that mattered or end one mid-sentence, and a model cannot

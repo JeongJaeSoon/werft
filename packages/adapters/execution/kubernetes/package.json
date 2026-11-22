@@ -10,8 +10,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test:unit": "bun test src --path-ignore-patterns='**/*.integration.test.ts'",
-    "test:k8s": "K8S_BACKEND_TEST=1 bun test .integration.test.ts"
+    "test:unit": "bun test src --path-ignore-patterns='**/*.integration.test.ts'"
   },
   "dependencies": {
     "@werft-ai/contracts": "workspace:*",

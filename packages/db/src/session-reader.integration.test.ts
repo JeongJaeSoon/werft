@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import type { ReceiptResourceTarget } from "@werft-ai/contracts";
+import type { receiptResourceTargetSchema } from "@werft-ai/contracts";
 import { createLogger, MemoryLogSink } from "@werft-ai/observability";
 import {
   createTempDatabase,
@@ -516,7 +516,7 @@ integration("session reader on PostgreSQL", () => {
 
   test("a receipt with a resource target reads back as stored", async () => {
     const id = crypto.randomUUID();
-    const target: ReceiptResourceTarget = {
+    const target: ReturnType<typeof receiptResourceTargetSchema.parse> = {
       resource: { kind: "agent", id: "agent-1" },
       workspace_id: null,
     };

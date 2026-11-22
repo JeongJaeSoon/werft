@@ -21,7 +21,6 @@ import {
 } from "./chart-package.ts";
 
 const MANIFEST_SCHEMA = 1;
-export const MANIFEST_ASSET = "release-manifest.json";
 
 const APPS = [
   "control-host",

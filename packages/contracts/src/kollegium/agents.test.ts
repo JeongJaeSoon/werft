@@ -18,7 +18,6 @@ import {
   createAgentReleaseRequestSchema,
   createAgentRequestSchema,
   DEFAULT_TOOL_POLICY,
-  draftAgentRequestSchema,
   listAgentsQuerySchema,
   listAgentsResponseSchema,
   policyPinsSchema,
@@ -633,10 +632,6 @@ describe("agent, version and release", () => {
     expect(updateAgentRequestSchema.safeParse({ name: "  " }).success).toBe(
       false,
     );
-    const draft = (name: string) =>
-      draftAgentRequestSchema.safeParse({ prompt: "재무 분석가", name });
-    expect(draft(" 재무 ").data?.name).toBe("재무");
-    expect(draft("\t").success).toBe(false);
     expect(agentSchema.shape.name.safeParse(" padded ").success).toBe(true);
   });
 
@@ -818,9 +813,6 @@ describe("agent, version and release", () => {
       false,
     );
     expect(updateAgentRequestSchema.safeParse({ card }).success).toBe(true);
-    expect(draftAgentRequestSchema.safeParse({ prompt: "" }).success).toBe(
-      false,
-    );
   });
 
   test("a description is the row's: up to 2000 characters, null clears it on update", () => {

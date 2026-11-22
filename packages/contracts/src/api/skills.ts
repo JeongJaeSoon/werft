@@ -117,7 +117,6 @@ export const skillGitVersionSchema = z
     trigger: skillSyncTriggerSchema,
   })
   .strict();
-export type SkillGitVersion = z.infer<typeof skillGitVersionSchema>;
 
 export const skillIssueSchema = z
   .object({ path: z.string(), code: z.string(), message: z.string() })

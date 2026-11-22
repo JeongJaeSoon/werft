@@ -9,10 +9,12 @@ import type {
   ScriptedStep,
 } from "@werft-ai/runtime-core/testing";
 
-import { unwiredCheckpoints, type WorkerCheckpointPort } from "./checkpoint.ts";
+import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
+import { noWorkspace } from "./testing/no-workspace.ts";
 import { scriptedRuntime, startScripted } from "./testing/scripted-engine.ts";
+import { unwiredCheckpoints } from "./testing/unwired-checkpoints.ts";
 import { waitFor as pollFor } from "./testing/wait-for.ts";
 import {
   inputUuid,
@@ -20,7 +22,6 @@ import {
   WorkerHost,
   type WorkerLogger,
 } from "./worker-host.ts";
-import { noWorkspace } from "./workspace.ts";
 
 const SESSION_ID = "11111111-1111-4111-8111-111111111111";
 

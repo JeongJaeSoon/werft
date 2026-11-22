@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
   type AgentCard,
-  type AgentCardRequest,
   agentCardRequestSchema,
   type ListAgentsQuery,
   SESSION_SCOPE_VALUES,
@@ -210,7 +209,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
   async function newAgent(
     agents: AgentService,
     owner: Caller,
-    card: AgentCardRequest = cardWith("v1"),
+    card: ReturnType<typeof agentCardRequestSchema.parse> = cardWith("v1"),
   ) {
     return agents.createAgent(owner, {
       slug: `agent-${randomUUID().slice(0, 8)}`,

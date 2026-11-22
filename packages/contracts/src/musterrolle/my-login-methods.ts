@@ -57,7 +57,6 @@ export const unlinkMyLoginMethodResponseSchema = z
   })
   .strict();
 
-export type MyLoginMethod = z.infer<typeof myLoginMethodSchema>;
 export type ListMyLoginMethodsResponse = z.infer<
   typeof listMyLoginMethodsResponseSchema
 >;

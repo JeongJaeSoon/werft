@@ -1428,7 +1428,6 @@ export type AdditionalWorkspaceRepository = z.infer<
 >;
 export type ClaimPrincipal = z.infer<typeof claimPrincipalSchema>;
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
-export type EngineSettings = z.infer<typeof engineSettingsSchema>;
 export type PlatformPrompt = z.infer<typeof platformPromptSchema>;
 export type NextInputRequest = z.infer<typeof nextInputRequestSchema>;
 export type NextInputResponse = z.infer<typeof nextInputResponseSchema>;

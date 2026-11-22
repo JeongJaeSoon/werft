@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { RuntimeConfig } from "@werft-ai/contracts";
-import { unwiredCheckpoints } from "./checkpoint.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import { ExtensionBundleError } from "./extension-bundles.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
+import { noWorkspace } from "./testing/no-workspace.ts";
 import { ScriptedRun } from "./testing/scripted-run.ts";
+import { unwiredCheckpoints } from "./testing/unwired-checkpoints.ts";
 import { WorkerHost, type WorkerHostOptions } from "./worker-host.ts";
-import { noWorkspace } from "./workspace.ts";
 
 const timeouts: WorkerTimeouts = {
   answerPollIntervalMs: 2,

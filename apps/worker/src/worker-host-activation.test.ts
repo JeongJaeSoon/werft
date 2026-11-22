@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { WorkerGatewayRequestError } from "@werft-ai/runtime-core";
 import type { ScriptedStep } from "@werft-ai/runtime-core/testing";
-import { unwiredCheckpoints } from "./checkpoint.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import {
   FakeWorkerGateway,
   type FakeWorkerGatewayOptions,
 } from "./testing/fake-gateway.ts";
 import { scriptedRuntime, startScripted } from "./testing/scripted-engine.ts";
+import { unwiredCheckpoints } from "./testing/unwired-checkpoints.ts";
 import { waitFor as pollFor } from "./testing/wait-for.ts";
 import {
   type RuntimeRegistry,

@@ -11,7 +11,6 @@ export const RECOVERY_DECISION_VALUES = [
   "start_fresh",
   "retry_restore",
 ] as const;
-export const recoveryDecisionSchema = z.enum(RECOVERY_DECISION_VALUES);
 
 export const interruptSessionRequestSchema = z
   .object({ target_turn_id: turnIdSchema })

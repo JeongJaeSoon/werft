@@ -1,15 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import type { z } from "zod";
 import {
   CHAT_ENVELOPE_VERSION,
-  type ChatInboundEnvelope,
-  type ChatOutboundEnvelopeInput,
   chatInboundEnvelopeSchema,
   chatOutboundEnvelopeSchema,
   muteDecisionSchema,
   type ScopedSessionBinding,
   scopedSessionBindingSchema,
 } from "./envelope.ts";
-import { formatSurfaceRef, sessionLinkSchema } from "./surfaces.ts";
+import { formatSurfaceRef } from "./surfaces.ts";
 
 const WORKSPACE_ID = "019a0000-0000-7000-8000-0000000000f1";
 const INSTALLATION_ID = "019a0000-0000-7000-8000-0000000000f2";
@@ -19,7 +18,7 @@ const LINK_ID = "019a0000-0000-7000-8000-0000000000f5";
 const AGENT_ID = "019a0000-0000-7000-8000-0000000000f6";
 const AT = "2026-09-22T01:00:00Z";
 
-const inbound: ChatInboundEnvelope = {
+const inbound: z.infer<typeof chatInboundEnvelopeSchema> = {
   version: 1,
   interfaceKind: "slack",
   installationId: INSTALLATION_ID,
@@ -48,7 +47,7 @@ const scope: ScopedSessionBinding = {
   releaseId: "rel_9f2c",
 };
 
-const outbound: ChatOutboundEnvelopeInput = {
+const outbound: z.input<typeof chatOutboundEnvelopeSchema> = {
   deliveryId: "dlv_1",
   sourceEventId: "T01:A02:Ev03",
   scope,
@@ -246,36 +245,6 @@ describe("ScopedSessionBinding and ChatOutboundEnvelope", () => {
     expect(formatSurfaceRef("C01", "1758500000.0001")).toBe(
       "C01:1758500000.0001",
     );
-    const link = {
-      id: LINK_ID,
-      workspace_id: WORKSPACE_ID,
-      owner_id: "owner_1",
-      session_id: SESSION_ID,
-      surface: "slack",
-      installation_id: INSTALLATION_ID,
-      surface_binding_id: BINDING_ID,
-      surface_ref: formatSurfaceRef("C01", "1758500000.0001"),
-      channel_id: "C01",
-      thread_id: "1758500000.0001",
-      agent_id: AGENT_ID,
-      release_id: "rel_9f2c",
-      role: "primary",
-      visibility: "summary",
-      muted: false,
-      revision: 0,
-      created_by: null,
-      created_at: AT,
-      revoked_at: null,
-    };
-    expect(sessionLinkSchema.parse(link).surface_ref).toBe(
-      "C01:1758500000.0001",
-    );
-    expect(
-      sessionLinkSchema.safeParse({ ...link, surface_ref: "" }).success,
-    ).toBe(false);
-    expect(
-      sessionLinkSchema.safeParse({ ...link, role: "shadow" }).success,
-    ).toBe(false);
   });
 });
 

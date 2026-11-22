@@ -49,6 +49,7 @@ import {
   type FetchLike,
   HttpWorkerGatewayClient,
 } from "../apps/worker/src/gateway-client.ts";
+import { noWorkspace, noWorkspace } from "../apps/worker/src/testing/no-workspace.ts";
 import {
   SCRIPTED_KIND,
   startScripted,
@@ -57,7 +58,6 @@ import {
   WorkerHost,
   type WorkerLogger,
 } from "../apps/worker/src/worker-host.ts";
-import { noWorkspace } from "../apps/worker/src/workspace.ts";
 import { until as pollUntil } from "./until.ts";
 
 /** PostgreSQL lock, fencing and delayed-heartbeat contracts through HTTP. */

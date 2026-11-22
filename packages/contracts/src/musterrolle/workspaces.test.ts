@@ -23,7 +23,6 @@ import {
   memberViewSchema,
   normalizeEmail,
   updateMemberRequestSchema,
-  userSchema,
   workspaceSchema,
   workspaceSettingsSchema,
 } from "./workspaces.ts";
@@ -141,14 +140,6 @@ describe("workspace", () => {
   });
 
   test("separates a suspended account from a disabled membership", () => {
-    const user = userSchema.parse({
-      id: USER_ID,
-      email: "someone@example.com",
-      display_name: "Someone",
-      created_at: AT,
-      disabled_at: null,
-    });
-    expect(user.disabled_at).toBeNull();
     const member = memberViewSchema.parse({
       user_id: USER_ID,
       email: "someone@example.com",

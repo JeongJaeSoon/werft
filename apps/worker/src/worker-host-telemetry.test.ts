@@ -22,10 +22,10 @@ import {
 } from "./telemetry/session.ts";
 import { SpanEmitter } from "./telemetry/turn-spans.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
+import { noWorkspace } from "./testing/no-workspace.ts";
 import { ScriptedRun } from "./testing/scripted-run.ts";
 import { waitFor } from "./testing/wait-for.ts";
 import { WorkerHost } from "./worker-host.ts";
-import { noWorkspace } from "./workspace.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const timeouts: WorkerTimeouts = {
