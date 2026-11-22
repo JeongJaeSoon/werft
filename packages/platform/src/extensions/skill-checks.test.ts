@@ -238,9 +238,23 @@ describe("what a check cannot be talked out of", () => {
     expect(performance.now() - started).toBeLessThan(1500);
   });
 
-  test("an authority too long for any host counts as new", () => {
+  test("an authority too long for any host counts as new, even if an approved version shares it", () => {
     const long = `https://${"a".repeat(2000)}.example/`;
     expect(rules(base, [...base, file("more.md", long)])).toContain("new_url");
+    const userinfo = "a".repeat(1100);
+    const had = [
+      ...base,
+      file("more.md", `https://${userinfo}@known.example/`),
+    ];
+    expect(
+      rules(had, [
+        ...base,
+        file(
+          "more.md",
+          `https://${userinfo}@known.example/\nhttps://${userinfo}@new.example/`,
+        ),
+      ]),
+    ).toContain("new_url");
   });
 
   test("an IPv6 host, with userinfo or a port, is a host like any other", () => {

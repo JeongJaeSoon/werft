@@ -71,8 +71,12 @@ const MANIFEST = ".claude-plugin/plugin.json";
 const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
 const textOf = (bytes: Uint8Array): string => decoder.decode(bytes);
 
-/** No host is this long; past it the authority counts as new unparsed. */
+/**
+ * No host is this long. A longer authority is not parsed and is new however
+ * much of it an approved version shares: its host could be anywhere past it.
+ */
 const AUTHORITY_CAP = 1024;
+const OVERLONG = "too_long:";
 const TRAILING = /[.,;:!?)\]"'`]/;
 
 const count = (text: string, char: string): number =>
@@ -87,7 +91,7 @@ function hostsOf(text: string): Set<string> {
     const window = text.slice(from, from + AUTHORITY_CAP + 1);
     const end = window.search(/[\s<>/?#\\]/);
     if (end === -1 && window.length > AUTHORITY_CAP) {
-      hosts.add(window.slice(0, 64).toLowerCase());
+      hosts.add(`${OVERLONG}${window.slice(0, 64).toLowerCase()}`);
       continue;
     }
     let authority = end === -1 ? window : window.slice(0, end);
@@ -249,7 +253,9 @@ export function checkSkillVersion(
         flag("hidden_unicode", file.path, codePoint(char));
       }
       for (const host of hostsOf(line)) {
-        if (!beforeHosts.has(host)) flag("new_url", file.path, host);
+        if (!beforeHosts.has(host) || host.startsWith(OVERLONG)) {
+          flag("new_url", file.path, host);
+        }
       }
       const plain = line.normalize("NFKC").replace(HIDDEN, "").toLowerCase();
       for (const { id, pattern } of INSTRUCTION_PATTERNS) {
