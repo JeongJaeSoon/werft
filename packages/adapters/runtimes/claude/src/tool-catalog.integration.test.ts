@@ -26,7 +26,7 @@ import { TurnLedger } from "./turn-ledger.ts";
 
 /**
  * The engine harness behind the built-in tool catalog. A tool goes into the
- * catalog only once all of this passes for it.
+ * catalog only once the cases below pass for it.
  */
 
 const catalog = pinnedClaudeToolCatalog();

@@ -70,8 +70,7 @@ const refuse = (
 ): ExtensionResolution => ({ ok: false, refusal: { code, name, message } });
 
 /**
- * Folds the scopes, outermost first, into the bundle list a session runs
- * with.
+ * Folds the scopes, outermost first, into the bundle list a session runs with.
  */
 export function resolveExtensions(input: {
   scopes: Partial<Record<Exclude<ExtensionScope, "session">, ScopeEntry[]>>;
