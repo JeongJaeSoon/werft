@@ -35,7 +35,7 @@ const BATCH_SIZE = 100;
  * says so and exits 0.
  *
  * Returns the exit code: 1 when any session failed. Must not run while a
- * backup is being taken (docs/operator/backup-restore.md).
+ * backup is being taken.
  */
 export async function runCheckpointGc(input: {
   environment: CheckpointStorageEnvironment & {

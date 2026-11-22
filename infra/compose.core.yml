@@ -116,7 +116,7 @@ services:
         bun run --cwd packages/db db:migrate
         bun run apps/control-host/src/wiring/installation-config-carry.ts
         # The first deploy of an empty installation only; the console keeps
-        # the settings after (docs/operator/api-server.md).
+        # the settings after.
         if [ -n "$$SETTINGS_DOCUMENT" ]; then
           bun run apps/control-host/src/api/settings.ts seed --from-dir /legacy-config --document "$$SETTINGS_DOCUMENT"
         else
@@ -305,7 +305,7 @@ services:
       # The console's public origin, the one source of the addresses people
       # and Slack come back to: the GitHub link callback, Sign in with Slack's
       # redirect, the Slack events address and the session URL in commits and
-      # PRs (docs/operator/api-server.md). Unset keeps Slack linking off.
+      # PRs. Unset keeps Slack linking off.
       CONSOLE_ORIGIN: ${CONSOLE_ORIGIN:-}
       # The https address GitHub reaches this API at, for the push webhook
       # Git skills sync from. Unset, they sync by the daily check only.
@@ -336,9 +336,9 @@ services:
       CHECKPOINT_OBJECT_PROTECTION: ${CHECKPOINT_OBJECT_PROTECTION:-locked}
       # Sized with mem_limit above.
       CHECKPOINT_GIT_MEMORY_MB: ${CHECKPOINT_GIT_MEMORY_MB:-1536}
-      # Trace export (docs/operator/api-server.md "트레이스 내보내기"). Off
-      # unless OTEL_TRACES_EXPORTER=otlp; empty means unset to the API. Only
-      # the API gets these: workers receive their settings in the claim.
+      # Trace export. Off unless OTEL_TRACES_EXPORTER=otlp; empty means unset
+      # to the API. Only the API gets these: workers receive their settings
+      # in the claim.
       OTEL_TRACES_EXPORTER: ${OTEL_TRACES_EXPORTER:-none}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
@@ -560,7 +560,7 @@ services:
         condition: service_healthy
 
   # The weekly jobs: checkpoint GC, then the session event archive, whose
-  # days and dry run are the console's (docs/operator/data-retention.md).
+  # days and dry run are the console's.
   # It sleeps to the next multiple of the
   # interval since the Unix epoch, so restarts neither run them at once nor
   # push them back; `docker compose exec maintenance bun run <job>` runs one

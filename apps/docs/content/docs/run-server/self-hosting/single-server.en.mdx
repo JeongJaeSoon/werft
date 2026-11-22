@@ -110,9 +110,22 @@ Replace the example LocalStack values with production S3 values. Do not print se
 | `EGRESS_CREDENTIAL_ALLOWLIST` | Provider/Git hosts plus `<bucket>.s3.<region>.amazonaws.com:443`. For dotted bucket names, use `s3.<region>.amazonaws.com:443` |
 | `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | Empty. Remove `localstack:4566` |
 
+If a host port is already in use, put the following in the env file. Without a value the default is used, and any value opens on `127.0.0.1` only.
+
+| Variable | Default | Value |
+| --- | --- | --- |
+| `TEST_OPS_API_PORT` | `3000` | Host port of the API and web console. 1–65535 |
+| `TEST_OPS_POSTGRES_PORT` | `5432` | Host port of postgres. 1–65535 |
+| `TEST_OPS_LOCALSTACK_PORT` | `4566` | Host port of the [LocalStack trial install](/run-server/self-hosting/try-localstack). 1–65535. Ignored on an S3 install |
+| `TEST_OPS_API_URL` | `http://127.0.0.1:<TEST_OPS_API_PORT>` | The address where `deploy`, `upgrade` and `status` check `/readyz`. Set it only when a proxy sits in front of the host. The format is `scheme://host[:port]`, with no path and no trailing `/` |
+
+`preflight` refuses a port out of range, two services on the same port, and a malformed URL. To change a port after installing, edit the env file and apply the same release again with `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`. Change the port in the tunnel and in `curl` too. Changing `TEST_OPS_LOCALSTACK_PORT` recreates the LocalStack container and loses every object, so `preflight` refuses a value other than the running port. Take a backup with `scripts/test-ops.sh backup --stop`, edit the env file, then call `reseed` with that backup.
+
+If the env file is somewhere other than `/etc/werft/test-ops.env`, pass its path in `TEST_OPS_ENV_FILE` every time you call the script.
+
 Add model keys through console model connections after installation, so the `v0.1.2` tag leaves `ANTHROPIC_API_KEY` empty. On a `v0.1.0` tag checkout, however, compose requires it, and `preflight` exits 1 when it is empty. On that version, put the model key (or a placeholder you will replace later in the console) in the env file. The change that allows an empty value came in with [JeongJaeSoon/werft#1262](https://github.com/JeongJaeSoon/werft/pull/1262), and `v0.1.2` is the first published release that includes it. Back up `PLATFORM_SECRET_KEY` securely and separately: losing it prevents reading stored credentials.
 
-Put the settings document at `/etc/werft/settings.json`, listing the GitHub repositories sessions will use. The first `deploy` puts it into the empty installation once; after that, edits to the document are not imported, so change settings in the console. It contains no secrets. Replace only the repository URL with your actual value; this example assumes a public repository. Every repository entry needs `"auth": { "kind": "github_app" }`. Otherwise import omits it and `preflight` blocks installation. For private repository authentication, see the [API server documentation](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md).
+Put the settings document at `/etc/werft/settings.json`, listing the GitHub repositories sessions will use. The first `deploy` puts it into the empty installation once; after that, edits to the document are not imported, so change settings in the console. It contains no secrets. Replace only the repository URL with your actual value; this example assumes a public repository. Every repository entry needs `"auth": { "kind": "github_app" }`. Otherwise import omits it and `preflight` blocks installation. For a private repository, install the GitHub App on it ([GitHub](/integrations/github)).
 
 The migrate container must read the file, so use `0644`. Create an empty file, then fill in the following using an editor.
 

@@ -256,8 +256,7 @@ export function createPostgresSettingsDocumentStore(
 
     async sessionsOnRepositories(ids) {
       if (ids.length === 0) return [];
-      // The pre-deploy check of docs/operator/api-server.md, keyed by id
-      // alone: a repository only the old file knew has no catalog row.
+      // The pre-deploy check of a settings import, keyed by id alone: a repository only the old file knew has no catalog row.
       const result = await db.execute<{
         session_id: string;
         repository_id: string;

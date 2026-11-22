@@ -4,7 +4,7 @@ description: セッションイベントの保存先、秘密値を隠す場所�
 ---
 
 workerがエンジンから受け取ったセッションデータ(モデルの回答、ツール呼び出しと結果、権限リクエスト、状態の変化)は、DBの`events`テーブルに入ります。このテーブルが、機能が頼る正本です。このページでは、テーブルが何を持つか、途切れると何が壊れるか、秘密値をどこで隠すか、誰が内容を読めるかを説明し、Langfuseコレクターのサンプルを起動する方法を示します。
-現在の監視(stdoutのJSONログ、`/readyz`、DB queryをDatadog Agentが収集)は[Datadog監視基準](/run-server/self-hosting/operate/monitoring-datadog)にあります。トレースは、運用者が設定すると標準のOTLPで出力します(デフォルトはオフ。[キーと有効化の方法](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#트레이스-내보내기-otlp))。有効にすると、ログの`trace_id`と`span_id`がアクティブなspanの中で入ります。
+現在の監視(stdoutのJSONログ、`/readyz`、DB queryをDatadog Agentが収集)は[Datadog監視基準](/run-server/self-hosting/operate/monitoring-datadog)にあります。トレースは、運用者が設定すると標準のOTLPで出力します(デフォルトはオフ。[キーと有効化の方法](/run-server/self-hosting/reference/configuration#트레이스-내보내기))。有効にすると、ログの`trace_id`と`span_id`がアクティブなspanの中で入ります。
 
 ## 全体像
 
@@ -56,17 +56,17 @@ workerのイベント送信の段階が、イベントにattempt単位の`source
 
 1. **エンジンのメッセージ。** Claude adapterのメッセージ整形の段階が、エンジンのメッセージごとに、機密性の高いキーの値、`Bearer …`のような秘密の形の値、`password=…`のような名前付きの値を`[REDACTED]`に置き換えます。イベントはこの結果から作ります。
 2. **claimが渡した秘密値。** workerの秘密値を隠す段階が、このattemptが受け取った秘密値そのものを探して`<redacted>`に置き換えます。この処理は、イベントの送信と待機リクエストの登録に掛かります。エンジンがbase64のように再エンコードした値は捕まえられません。
-3. **プロセスのログ。** ログのマスキング規則が、APIとworkerのstdoutログを隠します。egress proxyは同じ規則のコピーを使います。規則の一覧は[APIサーバー](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)の「providerキーとリポジトリの認証情報はworkerに渡らない」の節にあります。この規則はログ用で、イベントには掛かりません。
+3. **プロセスのログ。** ログのマスキング規則が、APIとworkerのstdoutログを隠します。egress proxyは同じ規則のコピーを使います。規則の一覧は[ログとイベントのマスキング](/run-server/self-hosting/explanation/isolation#로그와-이벤트의-가림)にあります。この規則はログ用で、イベントには掛かりません。
 
 1と3のパターン規則は、隠す範囲が違います。ログの規則`sanitizeText`は、秘密の形の値や`token=`のような断片を1つでも見つけると、文字列全体を`[REDACTED]`に置き換えます。ログのフィールドの値が複数行なら、行単位で隠します。秘密の形をした値はその値がまたがる行だけを、`token=`のような断片はその行から最後までを隠します。mapperは多くの場合、一致した部分だけを置き換え、`name=value`の形で値の終わりが明確なら、値だけを隠します。ただし、mapperの`hideNamedValues`も、`password: …`のようにコロンでつながる値や、終わりを区切れない値を見つけると、テキスト全体を隠します。そのため、`password:`を含むYAMLファイルをReadしたツール結果は、イベントから丸ごと消えます。2つのファイルのパターン一覧も、互いに異なります。
 
 ## 誰が内容を読めるか
 
-セッションイベントは、`sessions:read` scopeを持つ主体がそのセッションを見られるときだけ読めます。まず、セッションが主体と同じ範囲にある必要があります。人は自分のworkspace、API keyはそのkeyのownerです。その中で、セッションの共有範囲が`workspace`(一度も変えていないセッションの既定)ならworkspaceの全メンバーが読め、`people`や`team`なら作成者と、指定された人・チームのメンバーだけが読めます。個人keyは、そのkeyを作った人として判定します。エージェントkeyはメンバーではないので、key自身として判定し(そのエージェントのセッションに限られます)、自分が作ったセッション(作成者のいないセッション)では、作成者の位置に立ちます。見られないセッションは404です。共有範囲の変え方と、ownerやadminによる監査閲覧は、[APIサーバー](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)の「セッションの共有範囲と監査閲覧」の節にあります。scopeはHTTPの境界で検査します。
+セッションイベントは、`sessions:read` scopeを持つ主体がそのセッションを見られるときだけ読めます。まず、セッションが主体と同じ範囲にある必要があります。人は自分のworkspace、API keyはそのkeyのownerです。その中で、セッションの共有範囲が`workspace`(一度も変えていないセッションの既定)ならworkspaceの全メンバーが読め、`people`や`team`なら作成者と、指定された人・チームのメンバーだけが読めます。個人keyは、そのkeyを作った人として判定します。エージェントkeyはメンバーではないので、key自身として判定し(そのエージェントのセッションに限られます)、自分が作ったセッション(作成者のいないセッション)では、作成者の位置に立ちます。見られないセッションは404です。共有範囲の変え方は[共有範囲](/sessions/start#공유-범위)に、ownerが読む監査記録は[監査記録と保持期間](/run-server/self-hosting/users-and-keys#6-감사-기록과-보존-기간)にあります。scopeはHTTPの境界で検査します。
 
 ## 保存期間
 
-`events`の内容は削除しません。長く止まっているセッションの行はobject storeに移り、APIはそのobjectから同じレスポンスを読みます([APIユースケースガイド](/reference/api-guide)の410 `CURSOR_EXPIRED`の説明)。保存期間のポリシーはまだありません。イベント以外にプラットフォームが残すデータ全体の場所・保存期間・削除条件と、セッション1つを追って確認する手順は、[プラットフォームが保持するデータ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md)にあります。
+`events`の内容は削除しません。長く止まっているセッションの行はobject storeに移り、APIはそのobjectから同じレスポンスを読みます([APIユースケースガイド](/reference/api-guide)の410 `CURSOR_EXPIRED`の説明)。保存期間のポリシーはまだありません。イベント以外にプラットフォームが残すデータの場所・保存期間・削除条件は、[データごとの保持](/run-server/self-hosting/reference/storage#데이터별-보존)にあります。
 
 ## Langfuseのサンプルコレクターを起動する
 

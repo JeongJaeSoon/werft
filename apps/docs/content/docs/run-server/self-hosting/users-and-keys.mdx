@@ -63,6 +63,37 @@ API_CONTAINER는 이 설치의 status와 Docker project label로 확인한 API �
 | grants revoke | 지정한 세션의 실행 권한과 자격 증명을 회수하고 실행 종료를 요청한다 |
 | grants restore | execution 부재가 확인된 뒤 실행 권한을 복원한다. 폐기한 API key를 되살리지 않는다 |
 
+### 4. 개인 key
+
+`keys create <owner_id>`로 만든 key는 운영자 key다. 웹 콘솔의 workspace 밖에서 그 owner를 묶음으로 쓴다. 멤버가 웹에서 만든 세션을 API에서도 같은 목록으로 보려면 그 멤버의 개인 key를 만든다.
+
+```bash
+scripts/test-ops.sh key create --workspace <workspace_id> --personal <user_id> \
+  --scopes sessions:read,sessions:write
+```
+
+- 개인 key는 key의 scope와 만든 사람의 지금 역할이 허용하는 scope의 교집합만 갖는다. 그 사람의 계정이나 membership이 비활성이 되면 다음 요청부터 `401`이다.
+- API key는 scope와 관계없이 관리 동작(멤버 관리, 세션 인수, key 발급)을 하지 못한다(`403`). 관리 동작은 사람의 로그인 세션으로 한다.
+- 개인 key와 에이전트 key는 그 key가 시작한 세션의 승인 요청에 답하지 못한다(`403`, `reason_code: self_approval`).
+
+### 5. 멤버 내보내기와 인수
+
+owner나 admin이 로그인 세션으로 `POST /v1/members/{user_id}/disable`(본문 `{}` 또는 `{"reason": "…"}`)을 부른다. owner는 owner만 비활성으로 만들 수 있고(`403 OWNER_PROTECTED`), 자기 자신과 마지막 owner는 비활성으로 만들 수 없다(`409 LAST_OWNER`).
+
+- 한 번에 membership을 비활성으로 만들고, 그 사람의 로그인 세션 전부와 그 workspace의 개인 key를 폐기하고, 연결된 Slack 계정을 회수한다. 에이전트 key는 건드리지 않는다.
+- 그 사람이 요청한 닫히지 않은 세션은 인수 대기가 된다. 돌던 turn까지만 마치고, 새 메시지는 `409 TAKEOVER_REQUIRED`로 거절된다. owner가 `GET /v1/takeovers`로 목록을 보고 `POST /v1/sessions/{id}/takeover`로 인수하면 그 owner가 요청자가 된다.
+- `POST /v1/members/{user_id}/enable`은 membership만 되살린다. 폐기한 로그인 세션, 개인 key, Slack 연결은 돌아오지 않으므로 다시 로그인하고 key를 새로 받는다. 아직 인수하지 않은 세션은 그 사람에게 돌아간다.
+- 계정 전체를 막으려면 `POST /v1/users/{user_id}/disable`·`/enable`을 쓴다. 대상이 호출한 사람이 owner나 admin인 workspace에만 속할 때 허용된다.
+- 외부 디렉터리(SCIM)와 동기화하지 않는다. 사내 SSO에서 사람을 내보내도 여기에는 반영되지 않으므로 이 API를 따로 부른다.
+
+### 6. 감사 기록과 보존 기간
+
+권한 판정은 거절과, 관리 동작·승인·Slack 입력의 허용을 감사 기록으로 남긴다. 기록은 고칠 수 없다. 행의 `request_id`는 응답의 `X-Request-Id`이고, 그 요청이 남긴 receipt와 같다.
+
+- **읽기.** owner는 콘솔의 설정 > 워크스페이스 > 감사 기록에서 기간·종류·사람으로 거르고, 같은 요청의 행을 이어 보고, NDJSON 파일로 내보낸다. 같은 내용을 로그인 세션으로 `GET /v1/audit/events`(`limit` 기본 50, 최대 200)로 읽는다. admin·member와 API key는 `403`이다.
+- **내보내기.** `Accept: application/x-ndjson`을 주면 거른 행 전체를 한 줄씩 보내고, 마지막 줄은 `{"kind":"end",…}`이다. 한 번에 100,000행까지이고, 넘으면 끝 줄의 `next_cursor`로 이어 받는다. 한 workspace에 동시에 하나만 돌고(둘째는 `429`), 10분이 지나면 끊는다. 끝 줄이 없는 파일은 완전하지 않으므로 받은 마지막 줄의 `cursor`로 다시 부른다.
+- **보존 기간.** 기본 90일이다. owner가 로그인 세션으로 `POST /v1/workspaces/{id}/audit-retention`(`{"audit_retention_days": …}`, 30~3650)으로 바꾼다. 지금 값은 `GET /v1/auth/me`의 `workspace.settings`에 있다. 기간이 지난 판정 행은 reconciler가 지운다. receipt는 지우지 않지만 감사 기록에는 보존 기간 안의 것만 나온다.
+
 ## 확인
 
 각 사용자의 key로 `/v1/sessions`를 읽으면 허용 범위의 응답이 와야 하고, key 없이 요청하면 401이어야 한다. 폐기한 key는 인증되지 않아야 한다. grants 출력의 receipt와 execution 상태를 확인하여 수락과 실제 종료를 구분한다.

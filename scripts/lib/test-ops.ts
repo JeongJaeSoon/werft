@@ -187,7 +187,7 @@ async function repositoriesWithoutGitHubApp(file: string): Promise<string[]> {
   }
   return skipped.map(
     (id) =>
-      `settings document ${file}: repository ${id} names no GitHub App, so the import would leave it out; add "auth": {"kind": "github_app"}. If the database already holds a repository ${id}, that edit conflicts with the row: remove the entry or give it a new id. If a run already stopped with pending.json left behind, copy the fixed manifest over it (docs/operator/test-ops.md)`,
+      `settings document ${file}: repository ${id} names no GitHub App, so the import would leave it out; add "auth": {"kind": "github_app"}. If the database already holds a repository ${id}, that edit conflicts with the row: remove the entry or give it a new id. If a run already stopped with pending.json left behind, copy the fixed manifest over it (https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/single-server/)`,
   );
 }
 
@@ -302,7 +302,7 @@ export async function checkRender(
     services.localstack?.ports?.[0]?.published !== running
   )
     problems.push(
-      `LocalStack runs on port ${running}, and moving it loses every object: keep the port, or take backup --stop and reseed (docs/operator/test-ops.md)`,
+      `LocalStack runs on port ${running}, and moving it loses every object: keep the port, or take backup --stop and reseed (https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/try-localstack/)`,
     );
   for (const required of ["api", "scheduler", "egress-proxy", "postgres"])
     if (!(required in services))

@@ -101,7 +101,7 @@ At each checkpoint, workers index regular files under working-directory `out/` r
 
 Each session mounts one `werft-ws-<installationId>-<sessionId>-<suffix>` volume at `/workspace`. It survives generations so replacing containers preserves the working tree. **Container `terminate` does not touch the volume**; pass stage ④ reclaims it separately.
 
-If the volume disappears, the session continues from its last committed checkpoint. See [what remains after losing a workspace volume](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#workspace-volume을-잃었을-때-남는-것) for retained and lost data.
+If the volume disappears, the session continues from its last committed checkpoint. See [what remains after losing a workspace volume](#workspace-volume을-잃었을-때) for retained and lost data.
 
 The backend now creates volumes **explicitly** with `POST /volumes/create`. Merely naming a volume in a mount spec lets Docker create it without labels or limits. Creation sets the `werft.managed`, `.installation`, `.session-id`, and `.workspace-quota` labels. GC reads these labels instead of parsing names.
 
@@ -196,3 +196,48 @@ While claimed, resume returns **503 `BACKEND_UNAVAILABLE` (`retryable: true`)** 
 Default `locked` protection requires versioning, Object Lock, and SSE-S3 (`AES256`). Checkpoint object versions are protected by legal holds. Do not configure default retention or object-version-expiring lifecycles. Restoration needs exact versions referenced by database pointers. `/readyz` alone does not establish data retention.
 
 For AWS creation/minimum permissions, see [Bucket preparation](/run-server/self-hosting/prepare-checkpoint-bucket); for backup and separate-destination comparison, see [Restoration drills](/run-server/self-hosting/backup-and-restore).
+
+<a id="데이터별-보존" />
+## Retention by data
+
+The platform never deletes sessions. There is no API that deletes one, and the rows that belong to a session stay after it is closed. Only the items with a period in the table below are deleted when the period runs out.
+
+| Data | Where | Kept | Deleted | Change it |
+| --- | --- | --- | --- | --- |
+| Sessions, turns and their input text, receipts, tool call records, push requests and pull request records, the usage ledger | PostgreSQL | Indefinitely | Never. Close only changes the state | No setting |
+| Session events | PostgreSQL; after a long idle period, `session-archive/` in the bucket | Indefinitely | Database rows leave only after the [session event archive](#세션-이벤트-보관) moved them to the bucket | "Session record archive" in the console's execution limits |
+| Plain variable values a session copied | PostgreSQL | Until the session closes. For a session not closed, 30 days after the copy | At once on close; after 30 days the reconciler deletes them. The next claim of a session past 30 days is refused, so start a new one | No setting |
+| Authorization decision records | PostgreSQL | 90 days by default (30 to 3650 days) | The reconciler deletes rows past the period | The owner calls `POST /v1/workspaces/{id}/audit-retention` |
+| Sign-in sessions | PostgreSQL | 14 days, the latest 10 per user | On the next sign-in, or by the reconciler 30 days after expiry | No setting |
+| Slack install state | PostgreSQL | 600 seconds | When used, or when a new link is made | No setting |
+| API keys, users, members, invites, linked accounts | PostgreSQL | Indefinitely | Never. Revoking a key or unlinking leaves a record | No setting |
+| Stored secrets | PostgreSQL (encrypted with the master key) | Indefinitely | Only when a person deletes that connection or App | No setting |
+| Transcript and checkpoint objects | `sessions/<id>/` in the bucket | The pointer and its 3 parents, and revisions pinned by open push requests | Only [checkpoint GC](/run-server/self-hosting/backup-and-restore#3-checkpoint-gc) deletes them | Helm `checkpointGc.*`, compose `CHECKPOINT_GC_DRY_RUN` |
+| Archived session events | `session-archive/` in the bucket | Indefinitely | Never | No setting |
+| Workspace volumes | Docker volume, Kubernetes PVC | 24 hours for a stopped session, 24 hours for a paused session | The scheduler reclaims them. The session reopens from its last checkpoint | "Stopped session workspace" and "Paused session workspace" in the console's execution limits |
+| Process stdout logs | compose json-file; otherwise the installation's log driver | compose keeps 5 files of 50 MB per container | Rotation | compose `x-logging`; otherwise Docker, node and collector settings |
+
+- Content (prompts, answers, tool input/output) stays in turn input text, session events, transcripts and archived events. Masking before storage is in [Masking in logs and events](/run-server/self-hosting/explanation/isolation#로그와-이벤트의-가림).
+- Traces are not exported by default. How to turn them on is in [Trace export](/run-server/self-hosting/reference/configuration#트레이스-내보내기).
+
+<a id="세션-이벤트-보관" />
+## Session event archive
+
+A weekly job moves the event rows of long-idle sessions to the checkpoint bucket. It changes no rows other than events, and the API gives the same responses after the move.
+
+- **Settings.** The owner sets them in the console under Settings > Workspace > Execution limits, "Session record archive". The idle period is 180 days by default, 0 turns it off, and otherwise it is 30 to 3650 days. Choose between "Count only" (default) and "Move". With "Count only", only the numbers of sessions, events and bytes to move are logged (`Session archive completed`).
+- **Targets.** Sessions whose last activity is older than the idle period. Sessions with a running turn, an approval or question waiting for an answer, or an open push request are skipped. If a session becomes active during the move, it is left as is.
+- **How it writes.** For every 1000 events or 8 MiB it writes one JSONL.gz object under `session-archive/<session id>/` create-only, puts a legal hold on it, reads it back to compare, and only then deletes the database rows. It runs only in `locked` protection mode. Workers can neither read nor write these keys.
+- **Reading.** The event list API, SSE with `Last-Event-ID`, and the last event time in the session list reflect archived ranges as before. The API reads the objects, so an archived session can be read only when the API has a checkpoint object store configured.
+- **Schedule.** In compose, the `maintenance` service runs it once a week after checkpoint GC (`MAINTENANCE_INTERVAL_SEC`, default 604800 seconds). To run it once now, use `docker compose exec maintenance bun run apps/control-host/src/api/session-archive.ts`. In Kubernetes, a CronJob (`sessionArchive.schedule`, default `0 5 * * 0`) runs it.
+- **Undo.** `bun run apps/control-host/src/api/session-archive.ts restore <session id>` puts that session's events back into the database with the same ids. The objects stay with their holds. If the session is still a target, the next pass moves it again, so to keep it in the database, raise the idle period first or turn it off with 0.
+- **When the settings cannot be read.** If the stored values cannot be read, the job moves nothing, logs `Session archive refused: its settings cannot be read` and exits 1. Saving the values again in the console clears it.
+- **Backup.** An archived object is the only copy of those events. The bucket is canonical together with the database, so protect both ([Kubernetes installations](/run-server/self-hosting/backup-and-restore#kubernetes-설치)).
+
+<a id="workspace-volume을-잃었을-때" />
+## When a workspace volume is lost
+
+What carries a session on is the checkpoint, not the volume. At the end of every turn the worker uploads the working directory and the engine conversation to the object store as a checkpoint, and the pointer in the database points to that revision. When a session whose volume is gone resumes, the scheduler creates a new empty volume and starts a worker, and the worker restores the pointer's checkpoint and continues the conversation.
+
+- **What remains.** Everything up to the last committed checkpoint. Which turn it covers is in `checkpoint_revision` and `durability.last_checkpointed_turn_id` on the session detail. When it equals `durability.last_completed_turn_id`, the last completed turn is included.
+- **What is lost.** Work after the last checkpoint, untracked files matched by `.gitignore` or `.git/info/exclude` (build output, dependencies, an ignored `.env`), and state outside the working directory (such as `git config --global` in the tmpfs HOME). Files already tracked go into the checkpoint even when an ignore rule matches them. Write outputs you need to keep to a path that is not ignored (for example `out/`).

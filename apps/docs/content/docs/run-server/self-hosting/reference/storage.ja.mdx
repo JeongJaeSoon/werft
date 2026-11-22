@@ -101,7 +101,7 @@ worker は checkpoint ごとに作業ディレクトリの `out/` 配下の通�
 
 セッションごとに `werft-ws-<installationId>-<sessionId>-<suffix>` volume 一つを `/workspace` に接続します。この volume は generation を超えて存続します。コンテナが交代してもセッションの作業ツリーを維持するためです。そのため**コンテナを削除する `terminate` は volume に触れず**、回収は pass の ④ 段階で別途実行します。
 
-volume が消えても、セッションは最後に commit した checkpoint から継続します。残るものと失うものは [workspace volume 消失時に残るもの](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#workspace-volume을-잃었을-때-남는-것)を参照してください。
+volume が消えても、セッションは最後に commit した checkpoint から継続します。残るものと失うものは [workspace volume 消失時に残るもの](#workspace-volume을-잃었을-때)を参照してください。
 
 volume は現在、backend が `POST /volumes/create` で**明示的に**作成します。mount spec に名前だけを書くと、Docker が label も上限もない volume を自動作成するためです。作成時に `werft.managed`・`.installation`・`.session-id`・`.workspace-quota` label を付け、GC は名前を解析せず、この label だけを参照します。
 
@@ -196,3 +196,48 @@ claim が残る間、resume は **503 `BACKEND_UNAVAILABLE`（`retryable: true`�
 既定の保護モード `locked` は versioning、Object Lock、SSE-S3（`AES256`）を要求します。checkpoint の object version は legal hold で保護します。既定 retention と object version を期限切れにする lifecycle は設定しません。復元には DB ポインターが指す正確な version が必要です。`/readyz` の準備状態だけで、そのデータが保持されたと判断しないでください。
 
 AWS での作成と最小権限は [bucket の準備](/run-server/self-hosting/prepare-checkpoint-bucket)、バックアップと別の対象での照合は[復元訓練](/run-server/self-hosting/backup-and-restore)に従います。
+
+<a id="데이터별-보존" />
+## データごとの保持
+
+プラットフォームはセッションを削除しません。セッションを削除する API もなく、閉じてもセッションに属する行は残ります。期間が過ぎると削除されるのは、下の表で期間を書いたものだけです。
+
+| データ | 場所 | 保持 | 削除 | 変更 |
+| --- | --- | --- | --- | --- |
+| セッション、turn と入力原文、receipt、ツール呼び出しの記録、push リクエストと PR の記録、使用量の台帳 | PostgreSQL | 無期限 | なし。close は状態を変えるだけです | なし |
+| セッションイベント | PostgreSQL、長く休止すると bucket の `session-archive/` | 無期限 | [セッションイベントの保管](#세션-이벤트-보관)が bucket に移した後にだけ DB の行を外します | コンソールの実行上限「セッション記録の保管」 |
+| セッションがコピーした通常変数の値 | PostgreSQL | セッションが閉じるまで。閉じていないセッションはコピーから 30 日 | 閉じるとすぐに、30 日を過ぎると reconciler が削除します。30 日を過ぎたセッションは次の claim が拒否されるため、新しく始めます | なし |
+| 権限判定の記録 | PostgreSQL | 既定 90 日（30〜3650 日） | reconciler が期間を過ぎた行を削除します | owner が `POST /v1/workspaces/{id}/audit-retention` |
+| ログインセッション | PostgreSQL | 14 日、利用者ごとに最新 10 個 | 再ログイン時、または期限切れの 30 日後に reconciler が削除します | なし |
+| Slack インストールの state | PostgreSQL | 600 秒 | 使ったとき、または新しいリンクを作るときに削除します | なし |
+| API key、利用者・メンバー・招待・連携アカウント | PostgreSQL | 無期限 | なし。key の失効と連携解除は記録を残すだけです | なし |
+| 保存した秘密値 | PostgreSQL（master key で暗号化） | 無期限 | 人がその接続や App を削除したときだけ | なし |
+| transcript と checkpoint の object | bucket の `sessions/<id>/` | pointer とその親 3 個、開いている push リクエストが固定した revision | [checkpoint GC](/run-server/self-hosting/backup-and-restore#3-checkpoint-gc) だけが削除します | Helm `checkpointGc.*`、compose `CHECKPOINT_GC_DRY_RUN` |
+| 保管したセッションイベント | bucket の `session-archive/` | 無期限 | なし | なし |
+| 作業領域の volume | Docker volume、Kubernetes PVC | 停止したセッションは 24 時間、一時停止したセッションは 24 時間 | scheduler が回収します。セッションは最後の checkpoint から再開します | コンソールの実行上限「停止したセッションの作業領域」・「一時停止したセッションの作業領域」 |
+| プロセスの stdout ログ | compose は json-file、それ以外は設置の log driver | compose はコンテナごとに 50 MB のファイル 5 個 | ローテーション | compose の `x-logging`、それ以外は Docker・ノード・collector の設定 |
+
+- 内容（プロンプト、回答、ツールの入出力）が残るのは、turn の入力原文、セッションイベント、transcript、保管したイベントです。保存前のマスキングは[ログとイベントのマスキング](/run-server/self-hosting/explanation/isolation#로그와-이벤트의-가림)にあります。
+- トレースは既定ではエクスポートしません。有効にする方法は[トレースのエクスポート](/run-server/self-hosting/reference/configuration#트레이스-내보내기)にあります。
+
+<a id="세션-이벤트-보관" />
+## セッションイベントの保管
+
+長く休止したセッションのイベント行を checkpoint bucket に移す週次の job です。イベント以外の行は変えず、API は移した後も同じ応答を返します。
+
+- **設定.** owner がコンソールの設定 > ワークスペース > 実行上限「セッション記録の保管」で決めます。休止期間は既定 180 日で、0 なら無効、それ以外は 30〜3650 日です。処理は「数えるだけ」（既定）と「実際に移す」から選びます。「数えるだけ」なら、移すセッション・イベント・バイトの数だけをログ（`Session archive completed`）に残します。
+- **対象.** 最後の活動が休止期間より古いセッションです。実行中の turn、回答を待つ承認・質問、開いている push リクエストがあるセッションは飛ばします。移している間にセッションが再び動けば、そのセッションはそのままにします。
+- **書き方.** イベント 1000 個または 8 MiB ごとに `session-archive/<session id>/` の下へ JSONL.gz の object を一つ create-only で書き、legal hold を掛け、読み直して照合した後にだけ DB の行を削除します。`locked` 保護モードでだけ動きます。worker はこの key を読むことも書くこともできません。
+- **読み取り.** イベント一覧 API、SSE と `Last-Event-ID`、セッション一覧の最後のイベント時刻は、保管した範囲もそのまま反映します。API が object を読むため、保管したセッションは API に checkpoint object store が設定されているときだけ読めます。
+- **日程.** compose では `maintenance` サービスが checkpoint GC の後に週 1 回実行します（`MAINTENANCE_INTERVAL_SEC`、既定 604800 秒）。すぐに一度実行するには `docker compose exec maintenance bun run apps/control-host/src/api/session-archive.ts` を使います。Kubernetes では CronJob（`sessionArchive.schedule`、既定 `0 5 * * 0`）が実行します。
+- **元に戻す.** `bun run apps/control-host/src/api/session-archive.ts restore <session id>` が、そのセッションのイベントを同じ id で DB に戻します。object は hold が掛かったまま残ります。まだ対象なら次の pass が再び移すため、DB に置き続けるには先に休止期間を延ばすか 0 で無効にします。
+- **設定を読めないとき.** 保存した値を読めなければ、job は何も移さず `Session archive refused: its settings cannot be read` を残して 1 で終わります。画面で値を保存し直すと解除されます。
+- **バックアップ.** 保管した object はそのイベントの唯一のコピーです。bucket は DB とともに正本なので、両方を守ります（[Kubernetes 設置](/run-server/self-hosting/backup-and-restore#kubernetes-설치)）。
+
+<a id="workspace-volume을-잃었을-때" />
+## workspace volume を失ったとき
+
+セッションを続ける正本は volume ではなく checkpoint です。worker は turn が終わるたびに作業ディレクトリとエンジンの会話を checkpoint として object store に上げ、DB の pointer がその revision を指します。volume がなくなったセッションを resume すると、scheduler が空の volume を新しく作って worker を起動し、worker が pointer の checkpoint を復元して会話を続けます。
+
+- **残るもの.** 最後に commit した checkpoint までです。どの turn まで含むかは、セッション詳細の `checkpoint_revision` と `durability.last_checkpointed_turn_id` で確認します。これが `durability.last_completed_turn_id` と同じなら、最後に完了した turn まで含みます。
+- **失うもの.** 最後の checkpoint の後の作業、`.gitignore`・`.git/info/exclude` に一致する追跡されていないファイル（ビルド結果、依存関係、ignore された `.env`）、作業ディレクトリの外の状態（tmpfs HOME の `git config --global` など）です。すでに追跡しているファイルは ignore 規則に一致しても checkpoint に入ります。残す必要のある成果物は ignore されないパス（例: `out/`）に書きます。

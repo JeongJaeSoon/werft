@@ -6,7 +6,7 @@
 # LocalStack keeps S3 in memory. A restart of its container, of Docker or of
 # the host loses every checkpoint object, and the API then refuses to start
 # until `test-ops.sh reseed` puts a backup's objects back or
-# `test-ops.sh reset` empties the installation. docs/operator/test-ops.md.
+# `test-ops.sh reset` empties the installation.
 services:
   localstack:
     restart: unless-stopped

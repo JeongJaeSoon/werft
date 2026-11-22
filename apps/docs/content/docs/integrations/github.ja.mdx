@@ -21,11 +21,79 @@ GitHub との間でやることは三つある。開始リポジトリがある�
 | --- | --- |
 | GitHub App | Repository permissions: Contents Read and write, Pull requests Read and write |
 
-`Workflows` 権限は「ワークフローファイルの変更」機能を有効にするときだけ App に加える。push される commit はエージェントが書いたものなので、この権限があるとエージェントが書き換えた `.github/workflows/` のファイルも push され、CI で実行される。デフォルトブランチはリポジトリの ruleset でも保護しておく。設定方法は運用ドキュメントにある。
+`Workflows` 権限は「ワークフローファイルの変更」機能を有効にするときだけ App に加える。push される commit はエージェントが書いたものなので、この権限があるとエージェントが書き換えた `.github/workflows/` のファイルも push され、CI で実行される。デフォルトブランチはリポジトリの ruleset でも保護しておく([デフォルトブランチの保護](#기본-브랜치-보호))。
 
 ### App の Setup URL
 
 コンソールで作った App は、Setup URL が `<CONSOLE_ORIGIN>/settings/workspace/integrations/github` で入る。すでにあった App を連携した場合は、GitHub の App 設定（Developer settings > GitHub Apps > その App > General）で **Setup URL** をこの住所に合わせる。組織を追加すると GitHub がブラウザーをこの住所へ戻し、コンソールは戻ってきた値でインストールを記録する。Setup URL が古い `/settings/workspace/github` を指している App は新しい住所に変える。その経路はなくなった。すでにインストール済みのアカウントで、インストールの設定を保存したあとコンソールへ戻るのは、App の **Redirect on update** がオンのときだけである。
+
+<a id="기본-브랜치-보호" />
+### デフォルトブランチの保護
+
+プラットフォームは `agent/<session-id>` ブランチにだけ push し、デフォルトブランチは拒否する。GitHub でももう一度防ぐ。
+
+1. リポジトリの Settings → Rules → Rulesets → New branch ruleset で、Target を `Include default branch` にする。
+2. **Restrict updates**、**Restrict deletions**、**Block force pushes** をオンにする。人のレビューを経たマージだけを受け付けるなら、**Require a pull request before merging** もオンにする。
+3. Bypass list に App を入れない。
+
+- `agent/*` ブランチに **Block force pushes** だけを掛ける ruleset を別に置くと、プラットフォーム以外の誰かがそのブランチを巻き戻すことも防げる。
+- `agent/*` の push で CI が要らなければ、workflow の `on.push.branches-ignore` に `agent/**` を入れる。変更されていない workflow にだけ効くため、`Workflows` 権限を与えないことと併せて使う。
+- 保護ブランチの自動承認は、ブランチの ruleset(**Require a pull request before merging**、承認レビュー 1 件以上)を作成用 App で読む。旧来の branch protection rule は **Administration: Read-only** 権限を持つ App にしか見えないため、その権限なしで branch protection だけを置いたリポジトリでは自動承認を有効にできない(`protection_missing`)。
+
+<a id="git-스킬-webhook" />
+### Git スキルの webhook
+
+GitHub から登録したスキルは、push webhook、一日一回の確認、コンソールの「今すぐ確認」で新しいバージョンを探す。webhook は GitHub がこの API に届くときだけ使う。届かない設置は残りの二つで動く。
+
+| 変数 | 既定値 | 許容範囲 |
+| --- | --- | --- |
+| `GITHUB_WEBHOOK_BASE_URL` | なし(webhook なし) | GitHub がインターネットから届くこの API の `https` アドレス。query・fragment・ユーザー情報があると API は起動しない。webhook のアドレスは `<この値>/v1/github/webhook` である |
+
+- この値があると、コンソールで新しく作る作成用 App の manifest に webhook アドレスと `push` イベントが入り、GitHub が返した webhook secret は App キーと同じく暗号化して保存される。
+- 既存の App は、GitHub の App 設定(General → Webhook)で **Active** をオンにして **Webhook URL** と **Secret** を入れ、Permissions & events で **Push** イベントをオンにする。同じ secret を owner か admin が `PUT /v1/workspaces/{id}/github-apps/{role}/webhook-secret` で入れる。
+- 受け取る経路は認証なしの `POST /v1/github/webhook` で、`X-Hub-Signature-256` の署名が合うときだけ本文を読む。署名がないか誤っていれば `401`、本文が 64 KiB を超えれば `413`、App ごとの毎分の上限を超えれば `429` である。
+
+<a id="토큰-발급이-실패할-때" />
+### トークンの発行に失敗したとき
+
+clone・push・PR は、API が App キーで受け取った installation token を使う。発行に失敗すると(キーやインストールの誤り、App のアンインストール、GitHub の障害)リポジトリ route が `503` で閉じ、clone が開始段階で失敗してセッションの attention が `STARTUP_FAILED` になる。API ログの `GitHub request failed`(`request: installation token request`)の行で `status` を見る。
+
+| status | 確認すること |
+| --- | --- |
+| `401` | App ID と private key が対になっているか |
+| `404` | そのインストールにリポジトリが含まれているか |
+| `422` | リポジトリ名 |
+
+- コンソールの App がそのリポジトリにインストールされていなければ、`GitHub App is not installed on <owner>/<repo>` で同じ `503` になる。
+- ログインなしで読めないリポジトリ(存在しないリポジトリ、インストールに含まれない非公開リポジトリ)は、clone が `could not read Username` で失敗する。`http://` URL のように GitHub が redirect するアドレスは `upstream redirected` で失敗するため、カタログの URL を `https://` に直す。
+- API コンテナから `api.github.com:443` へ、egress proxy から `github.com:443`(`EGRESS_CREDENTIAL_ALLOWLIST`)へ出られる必要がある。`github.com` を forward 一覧(`EGRESS_ALLOWLIST`)に入れると proxy は起動を拒否する。
+
+<a id="github-enterprise-server" />
+### GitHub Enterprise Server
+
+コンソールの App は github.com だけを使う。GHES のリポジトリは、設定文書に App を直接書いてインポートする([設定文書のインポートとエクスポート](/run-server/self-hosting/reference/configuration#설정-문서-가져오기내보내기))。
+
+```json
+{
+  "repositories": {
+    "ghes-app": {
+      "url": "https://<ghes-host>/<owner>/<repo>.git",
+      "branch": "main",
+      "auth": {
+        "kind": "github_app",
+        "app_id": 123456,
+        "installation_id": 7890123,
+        "stored": true,
+        "api_base": "https://<ghes-host>/api/v3"
+      }
+    }
+  }
+}
+```
+
+- インポート後に owner か admin が `POST /v1/installation/settings/repositories/{id}/credential` で RSA private key PEM を入れる(コンソール画面はない)。入れるまでそのリポジトリは `needs_value` で、セッションは動かない。キーを変えるときも同じ経路を使う。
+- `api_base` は `https` だけを受け付ける。`app_id`・`installation_id`・`api_base` を変えると binding が変わり、そのリポジトリの既存セッションは `CATALOG_MISMATCH` になる。
+- API から `<ghes-host>:443` へ出る経路を開け、proxy の `EGRESS_CREDENTIAL_ALLOWLIST`(プライベートアドレスなら `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`)に `<ghes-host>:443` を加える。
 
 ## ユーザーがやること
 
@@ -98,6 +166,24 @@ PR 本文の末尾には、プラットフォームが書く末尾ブロック�
 
 ワークスペースが許可していれば、`merge_pull_request` でその PR を squash でマージする。許可していなければ、GitHub を呼ぶ前に `GITHUB_REFUSED`(`merge_off`)で拒否する。マージは push 要求が push した commit に固定する。PR の head がその commit でなければ `head_moved` で、必須チェックの待ち・レビュー待ち・未解決の会話・競合など GitHub が今はマージしない PR は `merge_blocked` で拒否する。この拒否の `details` には、GitHub が返した状態(`mergeable_state`、`mergeable`、`draft`)と、どの条件が満たされなかったかを述べる `reason` の文が載る。`reason` は状態を述べるだけで、どの必須チェックやレビューかまでは述べない。開いたときと別の base に移された PR、または base が別の開いている PR の head である PR(積まれた PR)も `merge_blocked` である。GitHub の非同期マージは、その PR が積まれている下の PR も一緒にマージするためである。マージ要求を GitHub が受け付けても待つ間に終わらなければ `forge_failed` で答える。マージはあとから終わることがあるので、PR を確かめてからもう一度呼べばよい。すでにマージ済みの PR は、同じ commit なら `changed: false` で答え、別の commit なら `head_moved` で拒否する。マージされずに閉じられた PR は `pull_request_closed` で拒否する。管理者による回避、自動マージ、ほかのマージ方式は使わない。権限確認のないモード(`bypassPermissions`)のセッションは、オンの間は指示がなくてもマージできる。マージ要求はルールの回避をオフにして(`bypass_rules: false`)GitHub の非同期マージ API に送るため、作成用 App がルールセットの回避対象でも、その権限で必須チェックとレビューを飛ばせない。それでもマージ用の App は回避対象に入れないほうが安全である。エージェントの Actions 許可リストに PR をマージするワークフローを入れると、このスイッチはそのマージを止められない。
 
+<a id="push가-거절되는-경우" />
+## push が拒否される場合
+
+承認されたリクエストは、API が数秒以内に push する。リクエストが固定した commit 一つをそのリポジトリの `refs/heads/agent/<session-id>` に送り、force push はしない。同じ commit がすでにあれば、そのまま `pushed` になる。失敗すると、`push` receipt の `refusal` が理由になる。
+
+| `refusal` | エラーコード | 意味 |
+| --- | --- | --- |
+| `non_fast_forward` | `REVISION_CONFLICT` | リモートブランチの commit が、push する commit の祖先ではない |
+| `target_refused` | `FORBIDDEN` | ブランチが `agent/<session-id>` ではない |
+| `default_branch` | `FORBIDDEN` | カタログのブランチか、リモートのデフォルトブランチである |
+| `no_push_credential` | `FORBIDDEN` | そのリポジトリに push する資格情報がない |
+| `catalog_changed` | `CATALOG_MISMATCH` | リクエストの後にリポジトリの URL か認証が変わったか、項目が削除された。リモートには何も送らない。新しくリクエストして承認を受け直す |
+| `checkpoint_unavailable` | `CHECKPOINT_UNAVAILABLE` | 固定した checkpoint を読めないか、検証できなかった |
+| `lease_expired` | `LEASE_EXPIRED` | push が終わらないまま lease を何度も超えた。新しくリクエストできる |
+| `push_failed` | `BACKEND_UNAVAILABLE` | トークン発行の失敗、リモートの拒否、ネットワーク。`Workflows` 権限なしで workflow ファイルを変える push もここに入る |
+
+リモートが送ったメッセージは receipt に入れない。API ログの `Push refused`・`Push failed` の行に `push_request_id` と理由がある。push は API が直接行うため、API コンテナからリポジトリの host へ出られる必要がある。
+
 ## push の後に PR が作られる仕組み
 
 push リクエストに PR のリクエストが付いていると、push が `pushed` で終わった後に control-host の中の action-broker が PR を作成します。エージェントが続きのターンで `open_pull_request` をもう一度呼ぶ必要はありません。この処理は control-host の起動と一緒に始まり、再起動しても、すでに始まっている PR の段階は最後まで処理されます。REST では、push が終わる前に `POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request?schedule=true` を呼ぶと、409 `PUSH_NOT_PUSHED` の代わりに 202 と `status: "scheduled"` が返り、push が終わり次第 PR が作成されます。`schedule` クエリがない場合や、従来フロー（`flow = legacy`）で作成した push リクエストの場合は従来どおり 409 です。
@@ -135,6 +221,7 @@ attach が接続エラー(`upstream connection failed` の応答、または HTT
 - セッションが別の worker で再開すると（restore）、付けたリポジトリのリモートをもう一度付ける。このときブランチの今の先端ではなく、そのセッションが最初に取得した commit を取得する。その間にリモートのブランチが進んだり書き換えられたりしても、セッションが読むコードは変わらない。付けたリポジトリの CLAUDE.md は指示として読まない。
 - その commit がリモートから消えてもう一度取得できないと、そのリポジトリは付いていない扱いになる。セッションイベントに `system` イベント（`subtype: "repository_restore_failed"`、`repository_id`、`commit`）が一度残り、`list_repositories` はそのリポジトリを `failed`（`failure: restore_failed`、記録した `commit`）として示す。エージェントが付け直すと、ブランチの今の先端を取得する。
 
+<a id="내-github-계정-연결" />
 ## 自分の GitHub アカウントを連携する
 
 コミットの作成者は常に GitHub App の bot アカウント(`<App slug>[bot]`)だ。自分の GitHub アカウントを連携しておくと、自分が依頼したターンのコミットに `Co-authored-by:` トレーラーで自分の名前も入り、GitHub でそのコミットが自分の貢献としても表示される。

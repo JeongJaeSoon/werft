@@ -479,7 +479,7 @@ printf '%s\\0' "$CHANGED_PATH"
       expect(changed(path)).toEqual({ code: 0, output: "run=true\n" });
     });
   for (const path of [
-    "docs/operator/backup-restore.md",
+    "docs/quickstart.md",
     "apps/web/src/app.tsx",
     "packages/ui/src/index.ts",
     "README.md",

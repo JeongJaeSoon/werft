@@ -143,7 +143,7 @@ const K8S_PATHS = new Set([
 const prPlan = (path: string) => (K8S_PATHS.has(path) ? full : shared);
 
 test("prose-only PRs keep a small explicit plan", () => {
-  const result = plan(fixture(undefined, ["docs/operator/settings.md"]));
+  const result = plan(fixture(undefined, ["docs/settings.md"]));
   expect(result.exitCode).toBe(0);
   expect(result.output).toEqual({
     tests: "false",
@@ -198,9 +198,7 @@ test("generated, executable and workflow files next to prose are not prose", () 
 
 test("a web-only PR drops the domains, chart jobs and guides no changed path reaches", () => {
   for (const path of ["apps/web/src/app.tsx"]) {
-    const result = plan(
-      fixture(undefined, [path, "docs/operator/settings.md"]),
-    );
+    const result = plan(fixture(undefined, [path, "docs/settings.md"]));
     expect(result.exitCode).toBe(0);
     expect(result.output).toEqual({
       tests: "true",
@@ -304,9 +302,7 @@ test("mixed, unknown, workflow and dependency changes always use the full plan",
     "docs/page.MD",
     "apps/docs/content/docs/meta.json",
   ]) {
-    const result = plan(
-      fixture(undefined, ["docs/operator/settings.md", path]),
-    );
+    const result = plan(fixture(undefined, ["docs/settings.md", path]));
     expect(result.exitCode).toBe(0);
     expect(result.output).toEqual(prPlan(path));
   }
@@ -340,7 +336,7 @@ test("an empty diff with a matching checkout parent keeps full validation", () =
 
 test("a later prose commit cannot hide code already in the PR", () => {
   const f = fixture(undefined, ["packages/a.ts"]);
-  put(f.repo, "docs/operator/settings.md", "prose\n");
+  put(f.repo, "docs/settings.md", "prose\n");
   commit(f.repo);
   mergePullRequest(f);
   expect(plan(f).output).toEqual(shared);
@@ -370,8 +366,8 @@ test("renames and deletions classify the old path as well as the new one", () =>
   git(f.repo, "mv", "packages/a.ts", "docs/renamed.md");
   commit(f.repo);
   expect(plan(f).output).toEqual(shared);
-  const deleted = fixture(["README.md", "docs/operator/settings.md"]);
-  git(deleted.repo, "rm", "docs/operator/settings.md");
+  const deleted = fixture(["README.md", "docs/settings.md"]);
+  git(deleted.repo, "rm", "docs/settings.md");
   commit(deleted.repo);
   expect(plan(deleted).output.docs_only).toBe("true");
 });

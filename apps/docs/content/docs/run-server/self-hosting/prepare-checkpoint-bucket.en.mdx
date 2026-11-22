@@ -60,6 +60,26 @@ The API requires bucket permissions `s3:ListBucket`, `s3:ListBucketVersions`, `s
 
 `EGRESS_CREDENTIAL_ALLOWLIST` replaces the entire default list. When adding a virtual-hosted bucket endpoint, restate every required entry, including providers, package registries, and Git hosts. Buckets with dots in their names use the regional path-style endpoint. Do not pass AWS keys to workers.
 
+<a id="보호-모드와-기동-검사" />
+## Protection modes and startup checks
+
+The API does not start without `S3_BUCKET` and `AWS_REGION` (optionally `AWS_ENDPOINT_URL`).
+
+- **Credentials.** Give both `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` or neither. With only one, the API does not start. With neither, the AWS SDK default credential chain signs. On EKS the api ServiceAccount's IRSA role takes that place, and the chart uses this path with `secrets.objectStoreKeys: false`. If the chain finds no credential, requests fail instead of going out unsigned.
+- **Protection mode.** `CHECKPOINT_OBJECT_PROTECTION` defaults to `locked`. A bucket with versioning off starts only with `unversioned` set explicitly. That mode reads by key only and sets no holds, so it cannot stop deletion or overwriting after commit and only detects it as a digest mismatch on restore. Checkpoint GC and the session event archive do nothing in it. After switching from `unversioned` to `locked`, earlier checkpoints are rehashed and held on their first restore before use.
+- **Without an object store.** With `CHECKPOINT_OBJECT_STORE=disabled` set explicitly, every checkpoint is refused and workers get `409 CHECKPOINT_UNAVAILABLE`. The startup log carries a warning.
+- **Encryption check.** At startup the API reads the bucket's default encryption and does not start unless it is `AES256` (no configuration and `aws:kms` included). SSE-KMS is not accepted because every worker request would need KMS key permission. To start with another configuration, set `CHECKPOINT_OBJECT_ENCRYPTION_CHECK=warn` explicitly; then only a warning is logged.
+
+<a id="비워진-bucket" />
+### An emptied bucket
+
+If the database has uncollected checkpoint rows but the bucket has no object versions at all (including when only delete markers remain), the API does not start. This happens when only the database survived and the bucket was lost, or when the configuration points to another, empty bucket. Bring the bucket back or point to the original one. Do not change buckets while uncollected checkpoints remain.
+
+<a id="저장량" />
+### Storage use
+
+Bytes written by checkpoints do not count toward the storage limits of execution limits. Under `locked` every version is held, so lifecycle rules cannot shrink it until GC releases the hold and deletes. Manage storage with the weekly checkpoint GC and by watching the bucket size.
+
 <a id="확인" />
 ## Verify
 

@@ -70,7 +70,18 @@ API_CONTAINERを今回のstatusとproject labelで特定します。出力の保
 
 訓練ツールは終了時に今回のprojectを片付けます。調査用 `--keep` なら確認後そのprojectだけdownし、volumeは別の保持方針で処理します。訓練bucketを運用と区別し、再利用データがないことを確認して各versionのlegal hold解除 → version/delete marker削除 → 空bucket削除の順で処理します。retentionは迂回せず期限を待ちます。試験のために運用バックアップを消しません。
 
+<a id="kubernetes-설치" />
+## Kubernetes 設置
+
+Kubernetes 設置では compose 用のバックアップツールを使いません。AWS の機能が同じ役割を果たします。
+
+- **DB.** RDS の自動バックアップ（point-in-time 復元）と手動スナップショット。
+- **checkpoint の object.** S3 の versioning と Object Lock。commit した checkpoint は version で固定され legal hold が掛かっているため、同じ key を上書きまたは削除してもその version は残ります。復元は bucket をコピーせず、同じ bucket の version をそのまま指します。そのため未回収の checkpoint がある間は bucket を変えません。
+- **bucket は DB とともに正本です.** [セッションイベントの保管](/run-server/self-hosting/reference/storage#세션-이벤트-보관)が `session-archive/` に移したイベントは、その object が唯一のコピーです。DB だけを戻して bucket を失うと、そのセッションのイベントは読めません。
+- **lifecycle 規則.** 期限切れの規則は置きません。checkpoint の object を削除するのは chart の checkpoint GC CronJob（`checkpointGc.schedule`、既定 `0 4 * * 0`）だけです。lifecycle は DB を知らないため、hold が掛かる前の object や GC が hold を外した version を先に削除し、finalize や GC を壊します。`session-archive/` には storage class の移動だけを置き、API がすぐ読める class（`STANDARD_IA`、`ONEZONE_IA`、`GLACIER_IR`、archive tier を有効にしていない `INTELLIGENT_TIERING`）にだけ移します。`GLACIER`・`DEEP_ARCHIVE` に移すと、そのセッションのイベントを読めません。
+- **スナップショットと GC.** RDS スナップショットはその時点の pointer を含みます。スナップショットの後に GC が削除した revision をそのスナップショットの pointer が指すことがあるため、スナップショットの保持期間と GC の周期を合わせて決めます。
+
 <a id="다음에-읽을-곳" />
 ## 次に読む
 
-[Compose更新](/run-server/self-hosting/upgrade-compose)、[ストレージと上限](/run-server/self-hosting/reference/storage)。KubernetesのDB・S3復元は[運用バックアップ契約](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#kubernetes-설치)に従います。
+[Compose更新](/run-server/self-hosting/upgrade-compose)、[ストレージと上限](/run-server/self-hosting/reference/storage)。KubernetesのDB・S3復元は[Kubernetes 設置](#kubernetes-설치)に従います。

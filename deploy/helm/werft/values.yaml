@@ -118,9 +118,9 @@ config:
   # `none` mode /v1 takes any X-Owner-Id as the caller.
   authMode: api-key
   heartbeatTtlSec: 30
-  # Trace export is configured with the OTEL_* and TRACE_* keys in api.extraEnv
-  # (docs/operator/api-server.md). Only the port is here, because the Service
-  # and the NetworkPolicy need it too: set TRACE_INGEST_PORT nowhere else.
+  # Trace export is configured with the OTEL_* and TRACE_* keys in
+  # api.extraEnv. Only the port is here, because the Service and the
+  # NetworkPolicy need it too: set TRACE_INGEST_PORT nowhere else.
   tracing:
     ingestPort: 4319
   # Read by the api and the scheduler with one parser. The session limits
@@ -179,9 +179,8 @@ api:
   affinity: {}
   # Plain environment variables for the api, name: value. CONSOLE_ORIGIN is
   # the console's public origin; Slack's redirect and events addresses are
-  # computed from it (docs/operator/api-server.md). Unset, Slack accounts
-  # cannot be linked and an install leaves the app without an event
-  # subscription (events_url_unset).
+  # computed from it. Unset, Slack accounts cannot be linked and an install
+  # leaves the app without an event subscription (events_url_unset).
   # When this Ingress is in-house and Slack's events enter on a separate
   # internet-facing entrance routing just /v1/slack/events and
   # /v1/slack/interactions, an owner saves that entrance's https base in
@@ -304,7 +303,7 @@ upgrade:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 512Mi}
 
-# Must not run while a backup is being taken (docs/operator/backup-restore.md).
+# Must not run while a backup is being taken.
 checkpointGc:
   enabled: true
   schedule: "0 4 * * 0"
@@ -315,13 +314,12 @@ checkpointGc:
   nodeSelector: {}
   tolerations: []
 
-# Moves events of long-idle sessions into held objects under session-archive/
-# (docs/operator/data-retention.md). How long idle, and whether it only
-# counts, are the owner's in Settings > Workspace > Execution limits: an
-# afterDays or dryRun set here is carried there once by the migrate Job,
-# while nothing is saved, and read by nothing after. Runs only with
-# CHECKPOINT_OBJECT_PROTECTION=locked. Must not run while a backup is being
-# taken (docs/operator/backup-restore.md).
+# Moves events of long-idle sessions into held objects under session-archive/.
+# How long idle, and whether it only counts, are the owner's in Settings >
+# Workspace > Execution limits: an afterDays or dryRun set here is carried
+# there once by the migrate Job, while nothing is saved, and read by nothing
+# after. Runs only with CHECKPOINT_OBJECT_PROTECTION=locked. Must not run
+# while a backup is being taken.
 sessionArchive:
   enabled: true
   schedule: "0 5 * * 0"

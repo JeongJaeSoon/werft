@@ -4,7 +4,7 @@
 #   docker compose -f infra/compose.core.yml -f infra/compose.test-ops.yml \
 #     -f infra/compose.test-ops.<localstack|s3>.yml ...
 #
-# scripts/test-ops.sh is how it runs (docs/operator/test-ops.md): the release manifest
+# scripts/test-ops.sh is how it runs: the release manifest
 # names the three app images by digest, and the installation's env file,
 # outside the checkout, every other value below. The layer runs no local
 # dependency, builds nothing, and only requires values — it sets none — so

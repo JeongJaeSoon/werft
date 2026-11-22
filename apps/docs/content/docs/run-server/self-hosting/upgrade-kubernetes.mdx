@@ -255,7 +255,7 @@ worker 이미지를 되돌리는 보통의 rollback은 `refused`다. 지금 이�
 
 1. `PLATFORM_SECRET_KEY`를 Secret에 먼저 넣는다. 이미 있으면 같은 값을 그대로 둔다.
 2. values에서 `catalog` 절을 지우고 `helm upgrade`한다. `api.extraEnv`에 `PLATFORM_CONFIG_DIR`을 두었다면 지운다.
-3. 설치 버전의 저장소 checkout과 호스트 Bun·kubectl을 준비한 뒤 `bun run settings:k8s export`로 더해진 항목을 본다. 절차와 되돌리기 하한은 [api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#설정-문서-가져오기내보내기)에 있다.
+3. 설치 버전의 저장소 checkout과 호스트 Bun·kubectl을 준비한 뒤 `bun run settings:k8s export`로 더해진 항목을 본다. 절차와 되돌리기 하한은 [설정 문서 가져오기·내보내기](/run-server/self-hosting/reference/configuration#설정-문서-가져오기내보내기)에 있다.
 
 ## 확인
 

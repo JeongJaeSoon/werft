@@ -73,8 +73,7 @@ export const installationLimitsResponseSchema = z
           })
           .strict(),
         // Session events moved to the object store once their sessions went
-        // idle (docs/operator/data-retention.md), as stored, compressed;
-        // shown, never enforced.
+        // idle, as stored, compressed; shown, never enforced.
         archived_events: z
           .object({
             used_bytes: countSchema,

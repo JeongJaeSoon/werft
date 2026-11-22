@@ -70,7 +70,18 @@ Stop if the drill destination is the source or is not empty. If legal holds or r
 
 The drill tool cleans up its project when it exits. If you used `--keep` for investigation, bring down only that project after checking it, and handle volumes under a separate retention policy. Keep the drill bucket distinct from production. After confirming it contains no data to reuse, release each object version's legal hold, delete versions and delete markers, then delete the empty bucket. Wait for any remaining retention period to expire; do not bypass it. Do not delete production backups for a test.
 
+<a id="kubernetes-설치" />
+## Kubernetes installations
+
+Kubernetes installations do not use the compose backup tools. AWS features do the same job.
+
+- **Database.** RDS automated backups (point-in-time restore) and manual snapshots.
+- **Checkpoint objects.** S3 versioning and Object Lock. A committed checkpoint is pinned to a version and under a legal hold, so the version survives when the same key is overwritten or deleted. Restoring does not copy the bucket; it points at versions in the same bucket. So do not change buckets while uncollected checkpoints remain.
+- **The bucket is canonical together with the database.** Events the [session event archive](/run-server/self-hosting/reference/storage#세션-이벤트-보관) moved to `session-archive/` exist only in those objects. Restoring only the database and losing the bucket leaves those sessions' events unreadable.
+- **Lifecycle rules.** Add no expiration rules. Only the chart's checkpoint GC CronJob (`checkpointGc.schedule`, default `0 4 * * 0`) deletes checkpoint objects. A lifecycle rule does not know the database, so it can delete objects before their hold is set, or versions whose hold GC just released, and break finalize or GC. For `session-archive/`, use storage class transitions only, and only to classes the API can read at once (`STANDARD_IA`, `ONEZONE_IA`, `GLACIER_IR`, `INTELLIGENT_TIERING` without archive tiers). Moving to `GLACIER` or `DEEP_ARCHIVE` makes those sessions' events unreadable.
+- **Snapshots and GC.** An RDS snapshot holds the pointers of its moment. A snapshot's pointer can point to a revision GC deleted after the snapshot, so set the snapshot retention and the GC schedule together.
+
 <a id="다음에-읽을-곳" />
 ## Next steps
 
-[Upgrade Compose](/run-server/self-hosting/upgrade-compose), [Storage and limits](/run-server/self-hosting/reference/storage). For Kubernetes database and S3 restoration, follow the [operator backup contract](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#kubernetes-설치).
+[Upgrade Compose](/run-server/self-hosting/upgrade-compose), [Storage and limits](/run-server/self-hosting/reference/storage). For Kubernetes database and S3 restoration, follow [Kubernetes installations](#kubernetes-설치).

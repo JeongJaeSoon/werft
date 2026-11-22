@@ -104,7 +104,7 @@ An owner saves these under **Settings > Workspace > Execution limits**, not in e
 | Waiting messages (`QUEUED_INPUT_LIMIT_PER_SESSION`) | 20 | Integer 1–100000. Queued turns allowed per session | `429 RATE_LIMITED`, `retryable:true`, `Retry-After: 5` |
 | Kept input (`STORAGE_LIMIT_BYTES`) | 1073741824 (1 GiB) | Integer 1–9007199254740991 bytes. Installation-wide retained input-message UTF-8 bytes, excluding events/checkpoint objects/worker disk (workspace quotas cover disk) | `413 STORAGE_LIMIT_EXCEEDED`, `retryable:false` |
 | Workspace size (`WORKSPACE_ENFORCE`) | `warn` | `warn`, `fail`, or `off`: what a worker does when its workspace outgrows its quota. A worker takes the value at its claim, so one already running keeps the value it was given | `warn` only logs `worker.turn.workspace_quota_exceeded`, `fail` stops the turn that outgrew it, `off` does not measure |
-| Session event archive: idle before archiving (`SESSION_ARCHIVE_AFTER_DAYS`) | 180 | 0 (off), or a whole number of days from 30 to 3650. The archive job moves the events of sessions idle longer than this into bucket objects, and reads the value from the database on each run ([session event archive](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md#세션-이벤트-보관)) | Not applicable |
+| Session event archive: idle before archiving (`SESSION_ARCHIVE_AFTER_DAYS`) | 180 | 0 (off), or a whole number of days from 30 to 3650. The archive job moves the events of sessions idle longer than this into bucket objects, and reads the value from the database on each run ([session event archive](/run-server/self-hosting/reference/storage#세션-이벤트-보관)) | Not applicable |
 | Session event archive: what the archive job does (`SESSION_ARCHIVE_DRY_RUN`) | Count only (`true`) | Count only, or move the events. Counting only logs what it would move. The screen says so when, by the API's object store settings, the installation cannot archive | Not applicable |
 | Stopped sessions' workspaces (`EXECUTION_WORKSPACE_STOPPED_TTL_SEC`) | 86400 (a day) | A whole number from 0 to 315360000 seconds (3650 days). How long a `stopped` session's workspace (Docker volume, Kubernetes PVC) is kept from the stop. 0 reclaims it on the next reclaim. The scheduler reads it from the database on each reclaim ([worker workspaces](/run-server/self-hosting/reference/storage)) | The scheduler reclaims the workspace; the next resume restores from the checkpoint |
 | Paused sessions' workspaces (`EXECUTION_WORKSPACE_PAUSED_TTL_SEC`) | 86400 (a day) | A whole number from 0 to 315360000 seconds (3650 days). How long a `paused` session's workspace is kept from the pause, for a session with a checkpoint a resume accepts | As for stopped sessions |
@@ -297,7 +297,7 @@ healthz checks HTTP response only, not database. Use it for liveness; readyz che
 | migrate Job | 1 per install/upgrade | pre-install,pre-upgrade hook |
 | upgrade-check Job | 1 per upgrade | pre-upgrade before migrate; absent if scheduler.enabled: false ([checks](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외)) |
 | checkpoint GC CronJob | Weekly | checkpointGc.schedule |
-| session archive CronJob | Weekly | sessionArchive.schedule (default 0 5 * * 0), afterDays (default 180, 0=off, 30–3650), dryRun (default true). Moves long-idle session events to bucket ([retention](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md#세션-이벤트-보관)) |
+| session archive CronJob | Weekly | sessionArchive.schedule (default 0 5 * * 0), afterDays (default 180, 0=off, 30–3650), dryRun (default true). Moves long-idle session events to bucket ([retention](/run-server/self-hosting/reference/storage#세션-이벤트-보관)) |
 | NetworkPolicy | 5 | Workers only reach proxy; slack alone among control-plane Pods has outbound restrictions |
 | Ingress, ExternalSecret | Optional | ingress.enabled, secrets.externalSecret.enabled |
 | metrics Deployment + Service(9464) + NetworkPolicy | Optional, 1, Recreate | metrics.enabled ([metrics](/run-server/self-hosting/collect-metrics)) |
@@ -359,3 +359,73 @@ For static S3 credentials, set secrets.objectStoreKeys: true and supply both AWS
 | `DATABASE_URL` | Required, no default | Read-only database address; chart uses the same Secret key as other roles |
 | Limits in `config.limits` | [Configuration reference](/run-server/self-hosting/reference/configuration) | Launch queue uses scheduler-equivalent cost/token limits; chart supplies the same values |
 | `LOG_LEVEL` | `info` | Logging level for read failures |
+
+## Trace export [#트레이스-내보내기]
+
+Only the API reads these settings. Export is off by default: with none of the keys set, it creates no spans and sends nothing. When it is on, the `trace_id` and `span_id` in logs are filled inside an active span. Any collector that accepts OTLP/HTTP (protobuf) works. Example collectors are in [Observability](/observability).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `OTEL_TRACES_EXPORTER` | `none` | `none` or `otlp` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | None | Collector address. The first gets `/v1/traces` appended; the second is used as is. With `otlp` and neither set, the API does not start |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | Only this value is accepted |
+| `OTEL_EXPORTER_OTLP_HEADERS` / `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | None | `key=value,key=value` (values percent-encoded, printable ASCII only). For the same name, the second wins. A malformed value stops startup. These are secrets: give them only through an env file. Values never appear in logs or error messages |
+| `OTEL_SERVICE_NAME` | `werft-api` | Service name |
+| `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | `always_on` / `1.0` | `always_on`, `always_off`, `traceidratio` (ratio 0 to 1) |
+| `TRACE_TENANT_HEADER` | None | `<header name>: <value template>`. `{workspace_id}` in the template is replaced with the workspace id and the header is added to every batch |
+| `TRACE_INSTALL_TENANT` | None | Tenant value for spans with no workspace |
+| `TRACE_TENANT_HEADERS_FILE` | None | JSON file of per-workspace headers. The API does not start unless it is mode 600. For the same header name, this file wins over `TRACE_TENANT_HEADER` and `OTEL_EXPORTER_OTLP_HEADERS` |
+| `TRACE_INGEST_URL` | None | The API ingest address workers send spans to (`http` or `https`). With `otlp` and no value, the API does not start |
+| `TRACE_CONTENT_MODE` / `TRACE_CONTENT_MAX_BYTES` | `full` / `32768` | Whether prompts, answers and tool input/output go on spans (`full` or `metadata`), and the byte limit of one content attribute. One value applies to the whole installation |
+| `TRACE_INGEST_PORT` / `TRACE_INGEST_MAX_REQUEST_BYTES` / `TRACE_INGEST_MAX_BYTES_PER_MIN` / `TRACE_MAX_BYTES_PER_TRACE` / `TRACE_FENCED_GRACE_SEC` | `4319` / 4 MiB / 32 MiB / 20 MiB / `300` | Port and limits of the ingest listener. A value of 0, a negative value or a non-number stops startup with the key named |
+
+The format of `TRACE_TENANT_HEADERS_FILE` follows. The values are secrets, so keep the file out of the repository.
+
+```json
+{ "<workspace_id>": { "<header name>": "<secret value>" } }
+```
+
+**Minimal configuration.** Give the api these values. Prompts, answers and tool input/output travel as span attributes (`gen_ai.*`), so no log store is needed.
+
+```bash
+OTEL_TRACES_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.example.com:4318
+TRACE_INGEST_URL=http://api:4319
+EGRESS_PRIVATE_ALLOWLIST=api:3000,host.docker.internal:3000,api:4319
+```
+
+- **Compose.** Put the values in the shell that starts compose or in `.env`; they reach the api container under the same names. Workers reach the ingest listener through the egress proxy, so add `api:<TRACE_INGEST_PORT>` to the `EGRESS_PRIVATE_ALLOWLIST` default `api:3000,host.docker.internal:3000`.
+- **Kubernetes.** Give the keys in `api.extraEnv`. The Service and NetworkPolicy need the port too, so change it only with `config.tracing.ingestPort` (default `4319`) and do not set `TRACE_INGEST_PORT`. `TRACE_INGEST_URL` is `http://<api Service name>:4319`, and set `config.egress.privateAllowlist` to `<api Service name>:3000,<api Service name>:4319`.
+- Workers never call the collector. If the collector host is in `EGRESS_PRIVATE_ALLOWLIST` or `EGRESS_ALLOWLIST`, the api logs a warning at startup. `OTEL_*` keys are not passed to workers or the engine.
+
+**On the collector side.**
+
+- Set the collector's per-trace size limit above `TRACE_MAX_BYTES_PER_TRACE`. A smaller limit makes the collector drop large traces.
+- Without a tenant header, traces of every workspace land in one place. Let only operators see the backend's screens.
+- With `TRACE_CONTENT_MODE=full`, prompts, answers and tool input/output reach the collector. Use `metadata` to keep them out.
+
+**Spans.** Each `/v1/**` request starts a new root span `{METHOD} {route_template}` (for example `POST /v1/sessions/:id/turns`). A `traceparent` sent by the client is kept only as a link, not as the parent, and its sampled flag is not followed. Health and metrics paths and the worker gateway have no spans. The trace of a request that queued a turn continues into the worker, so that turn's spans hang off the same trace.
+
+## Session title generation [#세션-제목-생성]
+
+When a session is created without `title`, the first message cut at 80 characters becomes the title. When the first turn ends `completed`, the API asks once for a short title from that turn's message and answer, and replaces it.
+
+| Variable | Default | Allowed values |
+|---|---|---|
+| `SESSION_TITLE_EGRESS_URL` | compose `http://egress-proxy:3129` | Address of the egress proxy's credential route. Empty turns the feature off |
+
+- The call uses the session's connection and model through the provider route, so its cost goes into the first turn's usage and the session limits. The proxy sends only requests to `/v1/messages` with the session's model and `max_tokens` 64 or less.
+- The API sends only to this URL's host:port (metadata and link-local addresses are refused), follows no redirect, and gives up after 25 seconds.
+- A title the user gave, or one changed with `PATCH /v1/sessions/{id}`, is never overwritten. If the call fails or the answer is empty, the first-message title stays.
+
+## Settings document import and export [#설정-문서-가져오기내보내기]
+
+Model connections, repositories and MCP servers are database rows. Manage them one by one in the console, or put them in and take them out with one **settings document**. The migrate step of the first deploy puts the document into an empty installation once; later deploys do not read it. To add from a document after that, import it with the commands below.
+
+- **Format.** `{"version": 1, "connections": {…}, "repositories": {…}, "mcp_servers": {…}}`. Write credentials as `"auth": {"stored": true}` and enter the values in the console after the import. A row without a value is `needs_value`, and sessions that use it do not run. Export gives only `{"stored": true, "last4": "…"}`, never the value. The master key is not in the document. `value_env` and `secret_id` references and a top-level `profiles` are refused.
+- **Import only adds.** Each entry is `add` (new row), `unchanged` (same row), `inactive` (same id as a disabled row) or `needs_value`. The same id with different content, or the same GitHub repository under another id, is `conflicts`, and then nothing is written. Rows are never changed or deleted.
+- **Compose.** `bun run settings export > settings.json` writes the document to stdout and `digest sha256:…` to stderr. Check an import first with `bun run settings import --document - --dry-run < settings.json`, then run it again without `--dry-run`. The command runs inside the api container, so pass a host file as `-` (stdin). A refusal exits 1.
+- **Kubernetes.** `settings:k8s`, as in `bun run settings:k8s export`, runs the same CLI inside the api Pod.
+- **API.** `GET /v1/installation/settings/export` returns `{document, digest}`, and `POST /v1/installation/settings/import?dry_run=true` returns the verdicts. Only a signed-in session of the installation owner can call them; an API key gets `403`. A conflict is `409 REVISION_CONFLICT` and a malformed document is `400 BAD_REQUEST`.
+- **Installations that ran on a file catalog.** `PLATFORM_CONFIG_DIR` and `SESSION_CATALOG_JSON` are not read, and the api refuses to start while either still has a value. Before upgrading, remove both from the env and, on Compose, pass the old settings directory as `PLATFORM_LEGACY_CONFIG_DIR` (mounted read-only at `/legacy-config`). migrate imports that directory once; after that you may delete the directory and `PLATFORM_LEGACY_CONFIG_DIR`. To import by hand, use `bun run settings import --from-dir <dir>`.
+- **Rollback floor.** A database where an import wrote a repository row with `auth_kind` `github_app_explicit` is not rolled back to an older image that does not know `auth_kind`. That image reads the row as a console GitHub App repository.

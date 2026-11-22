@@ -205,7 +205,7 @@
       "name": "[Werft] Docker disk pressure",
       "type": "metric alert",
       "query": "avg(last_10m):max:system.disk.in_use{*} by {host,device} > 0.8",
-      "message": "Docker host disk usage exceeded 80%. Follow docs/operator/test-ops.md#감시-지점.",
+      "message": "Docker host disk usage exceeded 80%. Follow https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/monitoring-datadog/.",
       "tags": ["service:docker", "threshold_stage:first-week-tuning"],
       "options": {
         "thresholds": { "critical": 0.8 },

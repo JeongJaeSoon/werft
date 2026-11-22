@@ -70,7 +70,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 
 `EXECUTION_INSTALLATION_ID=test-ops`, `PLATFORM_SETTINGS_DOCUMENT=/etc/werft/settings.json`, `EXECUTION_WORKSPACE_QUOTA=on`을 사용한다. credential allowlist는 `api.anthropic.com:443,github.com:443`, private credential allowlist는 `localstack:4566`이다. AWS key·region·bucket 변수는 예시처럼 비워 둔다. LocalStack은 고정 시험 key와 `claude-sessions` bucket을 사용한다.
 
-설정 문서는 `/etc/werft/settings.json`에 둔다. 세션이 쓸 GitHub 저장소를 적는다. 첫 `deploy`가 빈 설치에 한 번 넣고, 그 뒤로는 문서를 고쳐도 들어가지 않으니 설정은 콘솔에서 바꾼다. 비밀이 없다. 저장소 URL만 실제 값으로 바꾼다. 예시는 공개 저장소 기준이다. 저장소 항목에는 `"auth": { "kind": "github_app" }`가 있어야 한다. 없으면 가져올 때 그 저장소가 빠져 `preflight`가 설치를 막는다. 비공개 저장소의 인증은 [API 서버 문서](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)를 따른다.
+설정 문서는 `/etc/werft/settings.json`에 둔다. 세션이 쓸 GitHub 저장소를 적는다. 첫 `deploy`가 빈 설치에 한 번 넣고, 그 뒤로는 문서를 고쳐도 들어가지 않으니 설정은 콘솔에서 바꾼다. 비밀이 없다. 저장소 URL만 실제 값으로 바꾼다. 예시는 공개 저장소 기준이다. 저장소 항목에는 `"auth": { "kind": "github_app" }`가 있어야 한다. 없으면 가져올 때 그 저장소가 빠져 `preflight`가 설치를 막는다. 비공개 저장소는 그 저장소에 GitHub App을 설치한다([GitHub](/integrations/github)).
 
 migrate 컨테이너가 읽어야 하므로 파일은 `0644`로 둔다. 빈 파일을 먼저 만들고 편집기로 아래 내용을 채운다.
 
