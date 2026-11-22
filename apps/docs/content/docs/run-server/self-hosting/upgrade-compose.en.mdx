@@ -243,6 +243,23 @@ Migration `0308_slack_inbound_payload_check` changes the CHECK on `slack_inbound
 - The new CHECK is looser than the old one. It accepts an earlier slack role that keeps the body, so rolling back to an image inside the support window is fine.
 - Once any row has lost its body, the old CHECK (`slack_inbound_events_dropped_check`) cannot be put back. Do not roll the schema below 0308. A cleared body does not come back.
 
+<a id="사람에게-바로-가는-slack-글을-막는-릴리스" />
+### The release that stops Slack posts aimed straight at a person
+
+Migration `0309_slack_outbox_channel` adds the CHECK `slack_outbox_channel_check` to `slack_outbox`. Only a model notice (`model_notice`) may have a Slack user id (`U…`, or `W…` on Enterprise Grid) as its channel. This keeps the agent from opening a direct message with a person first. No release so far wrote such a row, so there is usually nothing to do.
+
+- If such rows remain, the migrate log `db.migrate.notice` records how many (`0309: … slack_outbox rows name a Slack user as their channel`) and migrate stops at `VALIDATE CONSTRAINT`. The constraint then stays `NOT VALID` and still refuses new rows. You can check before the upgrade with this query:
+
+```sql
+SELECT kind, status, count(*) FROM slack_outbox
+WHERE channel_id ~ '^[UW]' AND kind <> 'model_notice'
+GROUP BY 1, 2;
+```
+
+- Rows it finds are rows that must not be sent. Delete them and run migrate again; every statement may run again.
+- The sender also never posts such a row to Slack: it ends `failed` with the `error_code` `user_channel`.
+- Earlier images write no such row either, so rolling back with the constraint in place is safe.
+
 <a id="mock-slack-env-이름" />
 ### Mock Slack variable names
 

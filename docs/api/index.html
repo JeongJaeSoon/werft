@@ -4682,7 +4682,7 @@
           },
           "agent": {
             "default": null,
-            "description": "The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.",
+            "description": "The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on), `archived` whether the agent is archived when read (an archived agent runs no new session; its past sessions keep their agent). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.",
             "anyOf": [
               {
                 "type": "object",
@@ -4719,6 +4719,13 @@
                       "boolean",
                       "null"
                     ]
+                  },
+                  "archived": {
+                    "default": null,
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
                   }
                 },
                 "required": [
@@ -4726,7 +4733,8 @@
                   "name",
                   "release_version_no",
                   "release_label",
-                  "release_is_active"
+                  "release_is_active",
+                  "archived"
                 ],
                 "additionalProperties": false
               },
@@ -5174,7 +5182,7 @@
           },
           "agent": {
             "default": null,
-            "description": "The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.",
+            "description": "The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on), `archived` whether the agent is archived when read (an archived agent runs no new session; its past sessions keep their agent). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.",
             "anyOf": [
               {
                 "type": "object",
@@ -5211,6 +5219,13 @@
                       "boolean",
                       "null"
                     ]
+                  },
+                  "archived": {
+                    "default": null,
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
                   }
                 },
                 "required": [
@@ -5218,7 +5233,8 @@
                   "name",
                   "release_version_no",
                   "release_label",
-                  "release_is_active"
+                  "release_is_active",
+                  "archived"
                 ],
                 "additionalProperties": false
               },
@@ -55049,7 +55065,8 @@
                         "name": "Checkout fixer",
                         "release_version_no": 3,
                         "release_label": "2026-10-11_17:00:00",
-                        "release_is_active": true
+                        "release_is_active": true,
+                        "archived": false
                       },
                       "preview": false,
                       "agent_hidden": false,
@@ -55517,7 +55534,8 @@
                     "name": "Checkout fixer",
                     "release_version_no": 3,
                     "release_label": "2026-10-11_17:00:00",
-                    "release_is_active": true
+                    "release_is_active": true,
+                    "archived": false
                   },
                   "preview": false,
                   "agent_hidden": false,
@@ -55798,7 +55816,8 @@
                     "name": "Checkout fixer",
                     "release_version_no": 3,
                     "release_label": "2026-10-11_17:00:00",
-                    "release_is_active": true
+                    "release_is_active": true,
+                    "archived": false
                   },
                   "preview": false,
                   "agent_hidden": false,

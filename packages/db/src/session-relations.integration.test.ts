@@ -467,11 +467,53 @@ integration("session list relations, search and counts on PostgreSQL", () => {
       release_version_no: 3,
       release_label: "2026-10-30_14:30:28",
       release_is_active: false,
+      archived: false,
     });
     expect(page.items[0]?.created_by).toEqual({
       user_id: people.alice.id,
       display_name: "Alice Kim",
     });
+  });
+
+  test("an archived agent stays named on its sessions and is marked archived", async () => {
+    const before = await db
+      .select({
+        status: agents.status,
+        deletedAt: agents.deletedAt,
+        deletedBy: agents.deletedBy,
+      })
+      .from(agents)
+      .where(eq(agents.id, agentX));
+    await db
+      .update(agents)
+      .set({
+        status: "archived",
+        deletedAt: new Date(),
+        deletedBy: people.alice.id,
+      })
+      .where(eq(agents.id, agentX));
+    try {
+      const page = await reader().listSessions(
+        workspaceId,
+        { limit: 50, q: "100%" },
+        viewer("bob"),
+      );
+      expect(page.items[0]?.agent).toMatchObject({
+        id: agentX,
+        name: "Checkout fixer",
+        archived: true,
+      });
+      expect(page.items[0]?.agent_hidden).toBe(false);
+    } finally {
+      await db
+        .update(agents)
+        .set({
+          status: before[0]?.status ?? "active",
+          deletedAt: before[0]?.deletedAt ?? null,
+          deletedBy: before[0]?.deletedBy ?? null,
+        })
+        .where(eq(agents.id, agentX));
+    }
   });
 
   test("a member outside an agent finds none of its sessions but those shared with them", async () => {
