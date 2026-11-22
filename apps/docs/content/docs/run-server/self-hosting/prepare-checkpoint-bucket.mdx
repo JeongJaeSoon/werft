@@ -73,8 +73,7 @@ checkpoint가 쓰는 바이트는 실행 한도의 저장량에 세지 않는다
 
 ## 확인
 
-단일 서버는 S3를 명시한 preflight가 scratch 객체의 create-only put → hold → hold 확인/version 읽기 → hold 해제 → version 삭제를 모두 성공해야 한다. bucket 설정을 읽는 API 기동 검사만으로 쓰기·hold·삭제 권한을 대신 증명하지 않는다. AWS 생성 절차와 실제 S3 운영 설치는 실행 확인하지 않았다.
-
+단일 서버는 S3를 명시한 preflight가 scratch 객체의 create-only put → hold → hold 확인/version 읽기 → hold 해제 → version 삭제를 모두 성공해야 한다. bucket 설정을 읽는 API 기동 검사만으로 쓰기·hold·삭제 권한을 대신 증명하지 않는다.
 ## 자주 막히는 곳
 
 기본 retention은 scratch 삭제와 checkpoint GC를 막는다. 암호화·versioning·Object Lock 중 하나가 없으면 API가 기동을 거부한다. allowlist endpoint가 다르면 worker가 checkpoint를 저장하지 못한다.

@@ -90,8 +90,7 @@ The chart does not create the database or change server settings. Apply the foll
 
 Then run `CREATE EXTENSION IF NOT EXISTS pg_stat_statements;` once in the platform database. You need extension creation privileges (`rds_superuser` on RDS). Migrations do not create the extension, so migrate can succeed on installations without those privileges.
 
-Search the database's log destination for `duration:` and `still waiting` (the `postgresql` log in CloudWatch Logs on RDS). Postgres in the kind verification environment (`deploy/kind/deps.yaml`) starts with the values in this table.
-
+Search the database's log destination for `duration:` and `still waiting` (the `postgresql` log in CloudWatch Logs on RDS).
 <a id="확인" />
 ## Verify
 

@@ -182,8 +182,7 @@ egress-proxy と API の authorizer listener は次の値を読みます。一�
 | `EGRESS_AUTHORIZER_URL` | proxy コード：なし。Compose：`http://api:3100`、chart：API authorizer Service | 自動生成 | http/https URL。proxy では token と両方設定するか両方省略。API listener ポートとの一致が必要です |
 | `EGRESS_AUTHORIZER_TOKEN` | 運用既定値なし | Secret の同名 key | API・proxy で共有する最小 32 文字の秘密。API では PORT、proxy では URL と対で必須。運用では環境ごとに生成し、ローカル試験値は使いません |
 
-compose の三つのポートと二つの内部 URL は、`infra/compose.core.yml` 冒頭の `x-egress-ports` 一箇所で定めます。proxy の `EGRESS_PROXY_PORT`・`EGRESS_CREDENTIAL_PORT`・`EGRESS_AUTHORIZER_URL`、api の `EGRESS_AUTHORIZER_PORT`、scheduler の `EXECUTION_EGRESS_PROXY_URL`・`EXECUTION_EGRESS_CREDENTIAL_PORT` はすべてその anchor を使います。ポート変更時は同じ block の listener と URL の対を同時に変更します。テストが `docker compose config` の結果で二つの URL のポートと三つの listener が一致することを確認します。
-
+compose の三つのポートと二つの内部 URL は、`infra/compose.core.yml` 冒頭の `x-egress-ports` 一箇所で定めます。proxy の `EGRESS_PROXY_PORT`・`EGRESS_CREDENTIAL_PORT`・`EGRESS_AUTHORIZER_URL`、api の `EGRESS_AUTHORIZER_PORT`、scheduler の `EXECUTION_EGRESS_PROXY_URL`・`EXECUTION_EGRESS_CREDENTIAL_PORT` はすべてその anchor を使います。ポート変更時は同じ block の listener と URL の対を同時に変更します。
 API コンテナのメモリは checkpoint bundle 検証によって決まります。検証は同時に二つまで動き、各検証では git fetch と index-pack がそれぞれ `CHECKPOINT_GIT_MEMORY_MB` のアドレス空間上限の下で同時に動きます。両値は一緒に変更します。上限だけを上げると OOM killer が終了対象を決めることになります。計算は `infra/compose.core.yml` の api サービスのコメントにあります。
 
 | 変数 | 既定値 | 意味 |

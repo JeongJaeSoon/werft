@@ -23,8 +23,7 @@ You need the source commit, Buildx, target registry write permissions, and targe
 <a id="1-registry에-빌드" />
 ### 1. Build into your registry
 
-Use this path when published images are unavailable for the commit. Only `amd64` and `arm64` are supported. From the installation commit's checkout, build three images, push to a registry the host can access, and put the returned digests in the step 2 release file. Images use the build machine's architecture, so build on the host's architecture. This path has not been verified by execution.
-
+Use this path when published images are unavailable for the commit. Only `amd64` and `arm64` are supported. From the installation commit's checkout, build three images, push to a registry the host can access, and put the returned digests in the step 2 release file. Images use the build machine's architecture, so build on the host's architecture.
 ```bash
 REGISTRY=<your-registry>
 PREFIX=werft
