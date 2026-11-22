@@ -71,7 +71,7 @@ pending.json이 남으면 start와 이전 release로의 upgrade가 거부된다.
 
 올리기 전에 지금 배포한 버전과 대상 버전 사이의 [변경 기록](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md)을 모두 읽는다. 그 사이에 든 릴리스의 절차가 아래 [릴리스별 작업](#릴리스별-작업)에 있으면 그 절차도 따른다. 배포할 때는 [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기)의 commit과 세 digest를 함께 확인한다.
 
-변경 기록이 되돌릴 수 없다고 적은 릴리스보다 앞선 이미지로는 돌아가지 않는다. 그보다 앞으로 되돌려야 하면 업그레이드 전 백업으로 DB를 복원한다. rollback을 생각하기 전에 영향 세션을 읽기 SQL로 세고, 데이터 손실 없이 roll-forward할 수 있는지 먼저 판단한다.
+지금 롤백 하한은 `v0.2.0`이다. 그 릴리스의 migration `0270`이 프로필 데이터를 지우므로 그보다 앞선 이미지로는 돌아가지 않는다([프로필 제거의 롤백 하한](#프로필-제거의-롤백-하한)). 그 뒤에 변경 기록이 되돌릴 수 없다고 적은 릴리스가 있으면 그 릴리스가 하한이다. 하한보다 앞선 버전으로 돌아가야 하면 업그레이드 전 백업으로 DB를 복원한다. rollback을 생각하기 전에 영향 세션을 읽기 SQL로 세고, 데이터 손실 없이 roll-forward할 수 있는지 먼저 판단한다.
 
 새 control-host와 직전 worker의 조합은 배포 전 시험 설치에서 확인한다. 세션 turn 1 완료 → worker 제거 → checkpoint에서 turn 2 완료를 보고 API의 worker 요청에 400 BAD_REQUEST가 없어야 한다. 빈 설치 ready 200으로 이를 대신하지 않는다. turn 1 완료를 먼저 본다. 직전 worker가 새 control-host의 응답을 읽지 못하면 API는 200을 주고 worker가 시작 직후 끝나므로, 400이 없다는 것만으로는 이 실패를 잡지 못한다. 프로필 제거 릴리스는 이 조합을 지원하지 않는다. 그 릴리스로 올릴 때는 새 control-host와 새 worker로 turn 1 완료를 본다([프로필 제거 릴리스의 업그레이드 순서](#프로필-제거-릴리스의-업그레이드-순서)).
 
@@ -202,6 +202,10 @@ migration `0305_drop_unused_tables`가 `catalog_authority`·`owner_workspace_map
 
 - 표에 행이 남아 있을 수 있다. `catalog_authority`에는 설정 파일 카탈로그 시절에 활성화한 revision 한 행, `owner_workspace_map`에는 운영자가 손으로 넣은 owner와 워크스페이스의 매핑, `push_continuations`에는 `v0.1.1` 이하가 만든 이어 턴 기록이 있을 수 있다. 행이 있으면 migrate 로그 `db.migrate.notice`에 표마다 지운 행 수가 남는다(`0305: dropped rows: …`). 행의 값은 로그에 남지 않는다.
 - 그 행이 필요하면 올리기 전에 백업한다. 0305 아래로 스키마를 내려도 행은 돌아오지 않는다.
+
+### mock Slack env 이름
+
+mock Slack 시험 스택(`infra/compose.mock-slack.yml`)이 쓰던 `SLACK_API_URL`·`SLACK_OIDC_ISSUER`는 `MOCK_SLACK_API_URL`·`MOCK_SLACK_OIDC_ISSUER`로 바뀌었다. 옛 이름은 읽지 않고, 남아 있으면 `Ignored removed settings` 경고에 이름이 나온다. 새 이름에 값이 있으면 주소와 상관없이 시작할 때 `Mock Slack override in use: <이름>` 경고를 한 줄 남긴다. 운영 설정에는 두 이름 모두 두지 않는다.
 
 ### 성과 판정 연결과 되돌리기
 

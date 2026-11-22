@@ -82,7 +82,7 @@ Applying a previous release still follows upgrade checks and [gate](#실행-전-
 
 Before upgrading, read every [changelog](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md) entry between the deployed version and the target. When a release in that range has steps under [Per-release tasks](#릴리스별-작업) below, follow them too. When deploying, check the commit and the three digests of the [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기) together.
 
-Do not go back to images older than a release the changelog marks as irreversible. To go back further than that, restore the database from the backup taken before the upgrade. Before considering a rollback, count the affected sessions with read-only SQL and decide first whether you can roll forward without losing data.
+The current rollback floor is `v0.2.0`. Its migration `0270` deletes the profile data, so do not go back to older images ([Rollback floor of profile removal](#프로필-제거의-롤백-하한)). If the changelog marks a later release as irreversible, that release is the floor. To go back further than the floor, restore the database from the backup taken before the upgrade. Before considering a rollback, count the affected sessions with read-only SQL and decide first whether you can roll forward without losing data.
 
 Test new control-host with the previous worker before deployment: complete session turn 1 → remove worker → complete turn 2 from checkpoint, with no 400 BAD_REQUEST in API worker requests. Empty-installation ready 200 does not substitute. Look at turn 1 first. When the previous worker cannot read the new control-host's answer, the API answers 200 and the worker exits right after it starts, so the absence of 400s does not catch this failure. The profile removal release does not support this combination. When you upgrade to it, check that turn 1 completes with the new control-host and the new worker ([Upgrade order of the profile removal release](#프로필-제거-릴리스의-업그레이드-순서)).
 
@@ -225,6 +225,11 @@ Migration `0305_drop_unused_tables` drops the `catalog_authority`, `owner_worksp
 
 - The tables may still hold rows. `catalog_authority` may hold one revision activated in the days of the file catalog, `owner_workspace_map` owner-to-workspace mappings an operator inserted by hand, and `push_continuations` follow-up turn records made by `v0.1.1` or earlier. When there are rows, the migrate log `db.migrate.notice` records how many each table lost (`0305: dropped rows: …`). The values of the rows stay out of the log.
 - If you need those rows, back them up before the upgrade. Rolling the schema below 0305 does not bring them back.
+
+<a id="mock-slack-env-이름" />
+### Mock Slack variable names
+
+`SLACK_API_URL` and `SLACK_OIDC_ISSUER`, used by the mock Slack test stack (`infra/compose.mock-slack.yml`), are now `MOCK_SLACK_API_URL` and `MOCK_SLACK_OIDC_ISSUER`. The old names are not read; if one is still set, the `Ignored removed settings` warning names it. When a new name has a value, startup logs one warning, `Mock Slack override in use: <names>`, whatever the address. Keep neither name in operational config.
 
 <a id="성과-판정-연결과-되돌리기" />
 ### Achievement judge connections and rollback

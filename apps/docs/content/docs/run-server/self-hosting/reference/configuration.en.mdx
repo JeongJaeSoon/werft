@@ -89,8 +89,6 @@ Set the following only to send GitHub Packages bot tokens to another host, such 
 | `GITHUB_PACKAGES_NPM_URL` | `https://npm.pkg.github.com` | github-npm upstream |
 | `GITHUB_PACKAGES_RUBYGEMS_URL` | `https://rubygems.pkg.github.com` | github-rubygems upstream |
 
-Only the mock Slack test stack (`infra/compose.mock-slack.yml`) uses `MOCK_SLACK_API_URL` and `MOCK_SLACK_OIDC_ISSUER`. Do not set them in an operational installation. When either has a value, startup logs a `Mock Slack override in use` warning. `SLACK_API_URL` and `SLACK_OIDC_ISSUER` are not read; when present, the `Ignored removed settings` warning names them.
-
 <a id="웹에서-정하는-실행-한도" />
 ## Execution limits set on the web
 
@@ -184,8 +182,7 @@ Proxy and API authorizer use these settings. Lists **replace**, rather than exte
 | `EGRESS_AUTHORIZER_URL` | Proxy code unset; Compose: `http://api:3100`; chart: API authorizer Service | Generated | http/https, paired with token or both omitted; must match API listener port |
 | `EGRESS_AUTHORIZER_TOKEN` | No production default | Same-name Secret key | Shared API/proxy secret, minimum 32 characters. Required with PORT in API and URL in proxy. Generate per installation; do not use local test values |
 
-Compose's three ports/two internal URLs come from x-egress-ports at the top of infra/compose.core.yml. Proxy EGRESS_PROXY_PORT/EGRESS_CREDENTIAL_PORT/EGRESS_AUTHORIZER_URL, API EGRESS_AUTHORIZER_PORT, and scheduler EXECUTION_EGRESS_PROXY_URL/EXECUTION_EGRESS_CREDENTIAL_PORT all use it. Change listener/URL pairs together. A test compares both URL ports with all three listeners in `docker compose config`.
-
+Compose's three ports/two internal URLs come from x-egress-ports at the top of infra/compose.core.yml. Proxy EGRESS_PROXY_PORT/EGRESS_CREDENTIAL_PORT/EGRESS_AUTHORIZER_URL, API EGRESS_AUTHORIZER_PORT, and scheduler EXECUTION_EGRESS_PROXY_URL/EXECUTION_EGRESS_CREDENTIAL_PORT all use it. Change listener/URL pairs together.
 API memory is determined by checkpoint bundle validation: at most two validations concurrently, each running git fetch and index-pack together under individual CHECKPOINT_GIT_MEMORY_MB address-space limits. Change both settings together; raising only the limit leaves OOM victim selection to the kernel. See the api service comment in infra/compose.core.yml.
 
 | Variable | Default | Meaning |
