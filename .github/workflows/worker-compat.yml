@@ -79,8 +79,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: .github/scripts/worker-compat-plan.sh
-      # A release's baseline must be the protocol of the release before it
-      # (decision § 3.5); a maintainer refreshes it in a pull request after
+      # A release's baseline must be the protocol of the release before it;
+      # a maintainer refreshes it in a pull request after
       # each tag. Elsewhere a stale baseline is only a warning.
       - if: steps.plan.outputs.baseline_ref != ''
         uses: ./.github/actions/bun-setup

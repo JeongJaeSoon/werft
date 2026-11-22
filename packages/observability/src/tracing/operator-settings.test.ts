@@ -87,7 +87,7 @@ describe("sampler keys", () => {
       false,
     );
     expect(sampleByTraceId("00000000000000007fffffffffffffff", 0.5)).toBe(true);
-    // The two vectors of the decision document §6.
+    // Two fixed vectors.
     expect(sampleByTraceId("0".repeat(32), 0.5)).toBe(true);
     expect(sampleByTraceId("f".repeat(32), 0.5)).toBe(false);
   });

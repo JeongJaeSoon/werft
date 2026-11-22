@@ -21,8 +21,8 @@ export function settingsSource(options: {
 
 /**
  * The egress proxy's credential allowlist when the api is given the same
- * value: the console warns about an endpoint outside it (owner decision 4,
- * a warning only). Null when unset: the api does not know it.
+ * value: the console warns about an endpoint outside it (a warning only).
+ * Null when unset: the api does not know it.
  */
 export function credentialHostsFromEnv(
   env: Record<string, string | undefined>,
