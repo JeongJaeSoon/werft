@@ -79,13 +79,13 @@ export const slackKo = {
   "slack.channelsLocked.title":
     "Request URL 확인 전에는 채널을 고를 수 없습니다",
   "slack.channelsLocked.bodyRecheck":
-    "Slack이 이 앱의 Request URL을 확인하기 전에는 초대·멘션·DM·채널 이벤트가 오지 않습니다. '다시 확인'으로 URL을 다시 보내고, 그래도 그대로면 앱 설정의 Event Subscriptions에서 Verify(또는 Retry)를 누르세요. 확인되면 이 안내는 저절로 사라집니다.",
+    "Slack이 이 앱의 Request URL을 확인하기 전에는 초대·멘션·DM·채널 이벤트가 오지 않습니다. '다시 확인'은 지금 주소를 Slack에 다시 보낼 뿐이고, 주소가 그대로면 Slack은 다시 확인하지 않을 수 있습니다. 확인 대기가 이어지면 앱 설정의 Event Subscriptions에서 Verify(또는 Retry)를 누르세요. 확인되면 이 안내는 저절로 사라집니다.",
   "slack.channelsLocked.body":
     "Slack이 이 앱의 Request URL을 확인하기 전에는 초대·멘션·DM·채널 이벤트가 오지 않습니다. 앱 설정의 Event Subscriptions에서 Verify(또는 Retry)를 누르세요. 확인되면 이 안내는 저절로 사라집니다.",
   "slack.channelsLocked.open": "Event Subscriptions 열기",
   "slack.eventsUrl.title": "이벤트 Request URL",
   "slack.eventsUrl.hint":
-    "Slack이 초대·멘션·DM을 보낼 주소입니다. 다시 확인하면 앱 설정에 URL을 다시 보내고 Slack의 확인 요청에 자동으로 답합니다.",
+    "Slack이 초대·멘션·DM을 보낼 주소입니다. 다시 확인하면 앱 설정에 지금 주소를 다시 보냅니다. Slack이 확인 요청을 보내면 자동으로 답합니다.",
   "slack.eventsUrl.verified": "Slack 확인됨",
   "slack.eventsUrl.pending": "Slack 확인 대기",
   "slack.eventsUrl.failed": "등록 실패",
@@ -93,7 +93,7 @@ export const slackKo = {
   "slack.eventsUrl.recheck": "다시 확인",
   "slack.eventsUrl.done": "Slack이 Request URL을 확인했습니다.",
   "slack.eventsUrl.sent":
-    "Request URL을 Slack에 다시 보냈습니다. Slack이 확인하면 상태가 바뀝니다.",
+    "Request URL을 Slack에 다시 보냈습니다. 주소가 그대로면 Slack은 다시 확인하지 않을 수 있습니다. 확인 대기가 이어지면 앱 설정의 Event Subscriptions에서 Retry를 누르세요.",
   "slack.repositoryRequired.title": "Slack에서는 세션을 시작할 수 없습니다",
   "slack.repositoryRequired.body":
     "활성 릴리스({release})로는 Slack 세션이 시작되지 못합니다. 릴리스의 저장소가 카탈로그에서 빠졌거나 워크스페이스 상한이 허용하지 않거나, 에이전트의 GitHub 설정을 읽을 수 없기 때문입니다. Slack 멘션과 DM은 거절되고 스레드에 안내만 남습니다. 연결은 할 수 있습니다. GitHub 설정을 확인하고 상세 설정에서 다시 저장하면 새 릴리스가 만들어집니다.",

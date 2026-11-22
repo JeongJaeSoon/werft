@@ -3864,7 +3864,7 @@ export interface paths {
         put?: never;
         /**
          * Send the agent app's Request URL to Slack again
-         * @description Sends the app's whole manifest again with its Request URL (`apps.manifest.update`), as the install does, so Slack checks the URL anew. Slack's check arrives as a signed `url_verification`, which the events route answers with its challenge and nothing else; the app then reads `events.state: verified`. An app already verified stays verified, also when the URL changes, since Slack carries a verified Request URL over a manifest update without checking it again; a refused update of a changed URL reads `failed`. `events.url` is the Request URL last sent to Slack, null before any. Owners, admins and the agent's admins from a signed-in console; API keys are refused.
+         * @description Sends the app's whole manifest again with its Request URL (`apps.manifest.update`), as the install does. Slack may not check an unchanged URL again; Retry (or Verify) on the app's Event Subscriptions page makes it check. Slack's check arrives as a signed `url_verification`, which the events route answers with its challenge and nothing else; the app then reads `events.state: verified`. An app already verified stays verified, also when the URL changes, since Slack carries a verified Request URL over a manifest update without checking it again; a refused update of a changed URL reads `failed`. `events.url` is the Request URL last sent to Slack, null before any. Owners, admins and the agent's admins from a signed-in console; API keys are refused.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */

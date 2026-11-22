@@ -1490,12 +1490,14 @@ describe("Slack management", () => {
     expect(lock.textContent).toContain(
       "초대·멘션·DM·채널 이벤트가 오지 않습니다",
     );
+    // Slack need not check an unchanged URL again, so the banner does not
+    // promise that a recheck gets it checked.
     expect(lock.textContent).toContain(
-      "'다시 확인'으로 URL을 다시 보내고, 그래도 그대로면",
+      "'다시 확인'은 지금 주소를 Slack에 다시 보낼 뿐이고, 주소가 그대로면 Slack은 다시 확인하지 않을 수 있습니다",
     );
     expect(lock.textContent).not.toContain("Slack 앱에 넣을 주소");
     expect(lock.textContent).toContain(
-      "Event Subscriptions에서 Verify(또는 Retry)를 누르세요",
+      "확인 대기가 이어지면 앱 설정의 Event Subscriptions에서 Verify(또는 Retry)를 누르세요",
     );
     expect(lock.textContent).toContain("저절로 사라집니다");
     // The card is the only notice: none in the status card above.
@@ -1586,6 +1588,10 @@ describe("Slack management", () => {
     expect(addresses.textContent).toContain("이벤트 요청 URL입니다");
     expect(within(addresses).getByText(SENT)).toBeDefined();
     expect(within(addresses).queryByRole("list") === null).toBe(true);
+    // The hint answers Slack's check only when Slack sends one.
+    expect(addresses.textContent).toContain(
+      "다시 확인하면 앱 설정에 지금 주소를 다시 보냅니다. Slack이 확인 요청을 보내면 자동으로 답합니다.",
+    );
     await within(addresses).findByText("Slack 확인 대기");
     await user.click(
       within(addresses).getByRole("button", { name: "다시 확인" }),
@@ -1631,7 +1637,7 @@ describe("Slack management", () => {
     fail = false;
     await user.click(recheck);
     const sent = await within(addresses).findByText(
-      "Request URL을 Slack에 다시 보냈습니다. Slack이 확인하면 상태가 바뀝니다.",
+      "Request URL을 Slack에 다시 보냈습니다. 주소가 그대로면 Slack은 다시 확인하지 않을 수 있습니다. 확인 대기가 이어지면 앱 설정의 Event Subscriptions에서 Retry를 누르세요.",
     );
     await waitFor(() => expect(document.activeElement === sent).toBe(true));
     expect(app.textContent).not.toContain("다시 보냈습니다");
@@ -1748,7 +1754,7 @@ describe("Slack management", () => {
     expect(within(lock).queryByRole("alert")).toBeNull();
     release();
     const sent = await within(channels).findByText(
-      "Request URL을 Slack에 다시 보냈습니다. Slack이 확인하면 상태가 바뀝니다.",
+      "Request URL을 Slack에 다시 보냈습니다. 주소가 그대로면 Slack은 다시 확인하지 않을 수 있습니다. 확인 대기가 이어지면 앱 설정의 Event Subscriptions에서 Retry를 누르세요.",
     );
     await waitFor(() => expect(document.activeElement === sent).toBe(true));
     expect(addresses.textContent).not.toContain("다시 보냈습니다");
