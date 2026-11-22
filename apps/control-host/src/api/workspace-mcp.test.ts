@@ -61,6 +61,22 @@ describe("workspaceMcpHostsFromEnv", () => {
     ).toBe("url_insecure");
   });
 
+  test("an entry the egress proxy refuses allows nothing", () => {
+    const hosts = workspaceMcpHostsFromEnv({
+      EGRESS_CREDENTIAL_ALLOWLIST:
+        "[fd00::1:443],mcp.example.com,zero.example.com:0,word.example.com:https,:443",
+    });
+    expect(hosts).toBeNull();
+    const kept = workspaceMcpHostsFromEnv({
+      EGRESS_CREDENTIAL_ALLOWLIST: "[fd00::1:443],mcp.example.com:443",
+    });
+    expect(kept?.credential).toEqual(["mcp.example.com:443"]);
+    // Read as a host:port string, [fd00::1:443] would name [fd00::1]:443.
+    expect(
+      kept && workspaceMcpUrlProblem(kept, "https://[fd00::1]:443/mcp"),
+    ).toBe("host_not_allowed");
+  });
+
   test("the console's credential hosts are the list registration checks", () => {
     const hosts = workspaceMcpHostsFromEnv({
       EGRESS_CREDENTIAL_ALLOWLIST: " API.Anthropic.com:443, ,github.com.:443",

@@ -53,7 +53,8 @@ describe("collector on an egress allowlist", () => {
     expect(
       listed(collector, "api.anthropic.com:443, collector.internal:443"),
     ).toBe(true);
-    expect(listed(collector, "collector.internal")).toBe(true);
+    // The proxy refuses to start on an entry without a port; it allows nothing.
+    expect(listed(collector, "collector.internal")).toBe(false);
     expect(listed(collector, "other.internal:4318")).toBe(false);
     expect(listed("http://[::1]:4318/v1/traces", "[::1]:4318")).toBe(true);
     // A trailing dot names the same host to the proxy.
