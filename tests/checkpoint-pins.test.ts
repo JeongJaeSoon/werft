@@ -77,7 +77,7 @@ const publishId = () => randomUUID().replaceAll("-", "");
 
 type Seeded = { manifest: CheckpointManifest; row: CheckpointRow };
 
-/** One committed checkpoint as a locked finalize leaves it (seed-checkpoint.ts). */
+/** One committed checkpoint as a locked finalize leaves it. */
 async function seed(
   objects: MemoryCheckpointObjectStore,
   untracked: readonly { path: string; text: string }[] = [],

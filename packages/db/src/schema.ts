@@ -71,6 +71,7 @@ import {
   type SessionOutcomeType,
   SLACK_APP_KIND_VALUES,
   SLACK_APP_STATE_VALUES,
+  SLACK_CHANNEL_MEMBER_LIMIT,
   SLACK_INBOUND_DROP_REASON_VALUES,
   SLACK_INBOUND_EVENT_STATUS_VALUES,
   SLACK_SURFACE_ACTION_VALUES,
@@ -4843,6 +4844,43 @@ export const slackChannelLifecycle = pgTable(
       columns: [table.installationId],
       foreignColumns: [slackInstallations.id],
     }),
+  ],
+);
+
+/**
+ * Temporary cache for the channel member check, kept 5 minutes
+ * (`SLACK_MEMBER_CACHE_TTL_MS`): the Slack user ids `conversations.members`
+ * answered and when, nothing a member wrote. A member event voids the list
+ * (`invalidated_at`), and a read that began before that cannot write it back.
+ */
+export const slackChannelMemberCache = pgTable(
+  "slack_channel_member_cache",
+  {
+    installationId: uuid("installation_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    memberIds: text("member_ids").array().notNull().default(sql`'{}'`),
+    /** When the read that wrote `member_ids` began; null after a void alone. */
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }),
+    invalidatedAt: timestamp("invalidated_at", { withTimezone: true }),
+  },
+  (table) => [
+    primaryKey({
+      name: "slack_channel_member_cache_pk",
+      columns: [table.installationId, table.channelId],
+    }),
+    foreignKey({
+      name: "slack_channel_member_cache_installation_fk",
+      columns: [table.installationId],
+      foreignColumns: [slackInstallations.id],
+    }).onDelete("cascade"),
+    check(
+      "slack_channel_member_cache_size_check",
+      sql`cardinality(${table.memberIds}) <= ${sql.raw(String(SLACK_CHANNEL_MEMBER_LIMIT))}`,
+    ),
+    check(
+      "slack_channel_member_cache_time_check",
+      sql`${table.fetchedAt} IS NOT NULL OR ${table.invalidatedAt} IS NOT NULL`,
+    ),
   ],
 );
 

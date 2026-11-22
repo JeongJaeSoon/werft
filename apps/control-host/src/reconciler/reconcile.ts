@@ -37,6 +37,7 @@ export type ReconcilerRun = {
   slackInboundPayloadsPurged: number;
   // Marks of deleted and edited Slack messages nothing points at.
   slackSourceMarksPurged: { deleted: number; edited: number };
+  slackMembersPurged: number;
   ownership: OwnershipReconciled;
   // null on a dry run, which projects nothing.
   toolCalls: ToolCallProjection | null;
@@ -141,6 +142,11 @@ export async function runReconciler(input: {
     dryRun: boolean;
     limit: number;
   }): Promise<{ deleted: number; edited: number }>;
+  // Slack channel member lists and voids past their TTL.
+  purgeSlackChannelMembers(options: {
+    dryRun: boolean;
+    limit: number;
+  }): Promise<number>;
   // Agents no one live administers get their ownerless mark; agents that
   // have someone again lose it.
   reconcileOwnership(options: {
@@ -256,6 +262,14 @@ export async function runReconciler(input: {
     deleted_count: slackSourceMarksPurged.deleted,
     edited_count: slackSourceMarksPurged.edited,
   });
+  const slackMembersPurged = await input.purgeSlackChannelMembers({
+    dryRun,
+    limit,
+  });
+  input.logger.info("Expired Slack channel member lists deleted", {
+    dry_run: dryRun,
+    deleted_count: slackMembersPurged,
+  });
   const ownership = await input.reconcileOwnership({ dryRun, limit });
   input.logger.info("Agent ownership reconciled", {
     dry_run: dryRun,
@@ -300,6 +314,7 @@ export async function runReconciler(input: {
     envStartsPurged,
     slackInboundPayloadsPurged,
     slackSourceMarksPurged,
+    slackMembersPurged,
     ownership,
     toolCalls,
   };

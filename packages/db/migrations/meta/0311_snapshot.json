@@ -1,5 +1,5 @@
 {
-  "id": "c146a2f0-31a3-44ba-8a7b-f19e79c4a822",
+  "id": "fc0e91d1-2535-4773-a3fb-624725dde224",
   "prevId": "183279f2-7209-4329-9460-5270abad5a3c",
   "version": "7",
   "dialect": "postgresql",
@@ -5070,168 +5070,6 @@
           "value": "\"credential_bindings\".\"credential_ref\" ~ '^[a-z0-9][a-z0-9._:/-]{0,127}$'"
         }
       },
-      "isRLSEnabled": false
-    },
-    "public.deleted_sources": {
-      "name": "deleted_sources",
-      "schema": "",
-      "columns": {
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "team_id": {
-          "name": "team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "channel_id": {
-          "name": "channel_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "ts": {
-          "name": "ts",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "marked_at": {
-          "name": "marked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "deleted_sources_marked_idx": {
-          "name": "deleted_sources_marked_idx",
-          "columns": [
-            {
-              "expression": "marked_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "deleted_sources_workspace_id_workspaces_id_fk": {
-          "name": "deleted_sources_workspace_id_workspaces_id_fk",
-          "tableFrom": "deleted_sources",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "deleted_sources_workspace_id_team_id_channel_id_ts_pk": {
-          "name": "deleted_sources_workspace_id_team_id_channel_id_ts_pk",
-          "columns": ["workspace_id", "team_id", "channel_id", "ts"]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.edited_sources": {
-      "name": "edited_sources",
-      "schema": "",
-      "columns": {
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "team_id": {
-          "name": "team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "channel_id": {
-          "name": "channel_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "ts": {
-          "name": "ts",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "edited_at": {
-          "name": "edited_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "marked_at": {
-          "name": "marked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "edited_sources_marked_idx": {
-          "name": "edited_sources_marked_idx",
-          "columns": [
-            {
-              "expression": "marked_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "edited_sources_workspace_id_workspaces_id_fk": {
-          "name": "edited_sources_workspace_id_workspaces_id_fk",
-          "tableFrom": "edited_sources",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "edited_sources_workspace_id_team_id_channel_id_ts_pk": {
-          "name": "edited_sources_workspace_id_team_id_channel_id_ts_pk",
-          "columns": ["workspace_id", "team_id", "channel_id", "ts"]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.env_variable_grants": {
@@ -14689,6 +14527,74 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.slack_channel_member_cache": {
+      "name": "slack_channel_member_cache",
+      "schema": "",
+      "columns": {
+        "installation_id": {
+          "name": "installation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "member_ids": {
+          "name": "member_ids",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "fetched_at": {
+          "name": "fetched_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "invalidated_at": {
+          "name": "invalidated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "slack_channel_member_cache_installation_fk": {
+          "name": "slack_channel_member_cache_installation_fk",
+          "tableFrom": "slack_channel_member_cache",
+          "tableTo": "slack_installations",
+          "columnsFrom": ["installation_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "slack_channel_member_cache_pk": {
+          "name": "slack_channel_member_cache_pk",
+          "columns": ["installation_id", "channel_id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "slack_channel_member_cache_size_check": {
+          "name": "slack_channel_member_cache_size_check",
+          "value": "cardinality(\"slack_channel_member_cache\".\"member_ids\") <= 10000"
+        },
+        "slack_channel_member_cache_time_check": {
+          "name": "slack_channel_member_cache_time_check",
+          "value": "\"slack_channel_member_cache\".\"fetched_at\" IS NOT NULL OR \"slack_channel_member_cache\".\"invalidated_at\" IS NOT NULL"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.slack_config_tokens": {

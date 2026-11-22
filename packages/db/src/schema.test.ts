@@ -250,6 +250,7 @@ describe("database schema", () => {
       "skill_git_sources",
       "slack_apps",
       "slack_channel_lifecycle",
+      "slack_channel_member_cache",
       "slack_config_tokens",
       "slack_inbound_events",
       "slack_install_states",
