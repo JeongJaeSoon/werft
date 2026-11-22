@@ -1406,23 +1406,6 @@ export const grants = pgTable(
   ],
 );
 
-// Legacy owner_id strings are never backfilled into a workspace:
-// a row here is an operator's explicit statement that this owner's sessions
-// and keys belong to that workspace. An unmapped owner stays visible only on
-// the api-key path.
-export const ownerWorkspaceMap = pgTable("owner_workspace_map", {
-  ownerId: text("owner_id").primaryKey(),
-  workspaceId: uuid("workspace_id")
-    .notNull()
-    .references(() => workspaces.id),
-  mappedBy: uuid("mapped_by")
-    .notNull()
-    .references(() => users.id),
-  mappedAt: timestamp("mapped_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
-
 export const sessions = pgTable(
   "sessions",
   {
@@ -1548,7 +1531,7 @@ export const sessions = pgTable(
       .notNull()
       .defaultNow(),
     // Interface track (I0-2). Null on every row from before it: legacy
-    // sessions are not backfilled, see owner_workspace_map.
+    // sessions are not backfilled.
     workspaceId: uuid("workspace_id").references(() => workspaces.id),
     createdByUserId: uuid("created_by_user_id").references(() => users.id),
     createdByApiKeyId: uuid("created_by_api_key_id").references(
@@ -2666,18 +2649,6 @@ export const turnContinuations = pgTable("turn_continuations", {
     .references(() => turns.id, { onDelete: "cascade" }),
 });
 
-// A turn whose request_push came before any checkpoint (94S-1243): when it
-// completes with one, the platform queues `continuation_turn_id` so the
-// model can ask again for the commits that checkpoint now holds.
-export const pushContinuations = pgTable("push_continuations", {
-  turnId: bigint("turn_id", { mode: "number" })
-    .primaryKey()
-    .references(() => turns.id, { onDelete: "cascade" }),
-  continuationTurnId: bigint("continuation_turn_id", { mode: "number" })
-    .unique()
-    .references(() => turns.id, { onDelete: "set null" }),
-});
-
 // A Slack push approval's follow-up turn, held while the session had a turn
 // running: that turn may open the pull request itself, so the next turn end
 // queues the follow-up only if no pull request is recorded by then, and
@@ -3645,7 +3616,7 @@ export const apiKeys = pgTable(
       .notNull()
       .defaultNow(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
-    /** Null on legacy keys until an owner_workspace_map row exists. */
+    /** Null on legacy keys: they predate workspaces and are not backfilled. */
     workspaceId: uuid("workspace_id").references(() => workspaces.id),
     /** Null on a key from before scopes: it holds none. */
     scopes: text().array(),
@@ -3703,21 +3674,6 @@ export const apiKeys = pgTable(
       sql`${table.scopes} IS NULL OR (${oneDimensional(table.scopes)} AND ${table.scopes} <@ ${SESSION_SCOPES_SQL})`,
     ),
   ],
-);
-
-// No code of this release reads or writes it. The table stays for one release
-// so a rolling replica or a rollback to the release before still finds what
-// it locks; the next compatibility-breaking release drops it.
-export const catalogAuthority = pgTable(
-  "catalog_authority",
-  {
-    id: integer().primaryKey(),
-    revision: text().notNull(),
-    activatedAt: timestamp("activated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [check("catalog_authority_singleton_check", sql`${table.id} = 1`)],
 );
 
 export const AGENT_ACTIVATION_EVENT_KINDS = [

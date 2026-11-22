@@ -256,6 +256,13 @@ COMMIT;
 - 上の 0285 のロールバック SQL は、このリリースの後では使えません。`credential_source` は `stored` だけを許します。
 
 <a id="mock-slack-env-이름" />
+### 使っていない三つの表を削除したリリース
+
+migration `0305_drop_unused_tables` が `catalog_authority`・`owner_workspace_map`・`push_continuations` の表を行ごと削除する。`v0.1.0` 以降、前の二つの表を読み書きしたリリースはなく、`push_continuations` を使った最後のリリースは `v0.1.1` である。そのため、サポート期間内のイメージに戻しても影響はない。
+
+- 表に行が残っている場合がある。`catalog_authority` には設定ファイルのカタログ時代に有効にした revision の一行、`owner_workspace_map` には運用者が手で入れた owner とワークスペースの対応、`push_continuations` には `v0.1.1` 以前が作った続きのターンの記録が残っている場合がある。行があれば、migrate のログ `db.migrate.notice` に表ごとの削除した行数が残る(`0305: dropped rows: …`)。行の値はログに残らない。
+- その行が必要なら、上げる前にバックアップする。0305 より下にスキーマを戻しても行は戻らない。
+
 ### mock Slack の環境変数名
 
 mock Slack 試験スタック(`infra/compose.mock-slack.yml`)が使っていた `SLACK_API_URL`・`SLACK_OIDC_ISSUER` は `MOCK_SLACK_API_URL`・`MOCK_SLACK_OIDC_ISSUER` に変わりました。古い名前は読まず、残っていれば `Ignored removed settings` の警告に名前が出ます。新しい名前に値があると、アドレスに関係なく起動時に `Mock Slack override in use: <名前>` の警告を一行出します。運用設定にはどちらの名前も置きません。
