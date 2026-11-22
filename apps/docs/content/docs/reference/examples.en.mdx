@@ -41,7 +41,7 @@ bun examples/sdk-discovery/src/discover.ts
 
 Each sample exits with code 1 on failure, and for an API error it writes the code, message and request ID to stderr. A session it created is closed at the end so the worker is returned. A failed run leaves the session as it is, so check it in the console with the printed session ID and close it.
 
-The unit tests run with `bun test examples`. They start the sample CLIs as they are, run them against the fake `/v1` of [testing/sample-server.ts](https://github.com/JeongJaeSoon/werft/blob/main/examples/testing/sample-server.ts), and check the output and the requests sent. CI runs these tests and the type check, and the `sdk-release` workflow installs the npm release into an empty project and type-checks every sample's runnable file without `skipLibCheck`. CI has no run against a real stack. One sample takes tens of seconds to several minutes including worker startup, `sdk-close` waits for the 60-second drain, and the `e2e` job (`tests/e2e`) already checks the whole session path on the same stack.
+The unit tests run with `bun test examples`. They start the sample CLIs as they are, run them against the fake `/v1` of [testing/sample-server.ts](https://github.com/JeongJaeSoon/werft/blob/main/examples/testing/sample-server.ts), and check the output and the requests sent.
 
 ## Which sample uses which API
 

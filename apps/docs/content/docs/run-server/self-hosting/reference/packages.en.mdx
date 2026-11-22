@@ -89,4 +89,4 @@ docker run --rm -i --network none --entrypoint bun <worker-image> \
   run apps/worker/src/image-runtime.ts <<<'{}' | jq -c 'del(.profiles)'
 ```
 
-[Custom registry builds](/run-server/self-hosting/build-images) retain your image digests throughout. For publication and promotion, follow the [contributor documentation](/ko/contributing#릴리스-게시와-공급망).
+[Custom registry builds](/run-server/self-hosting/build-images) retain your image digests throughout.

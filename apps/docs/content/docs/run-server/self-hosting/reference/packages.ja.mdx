@@ -89,4 +89,4 @@ docker run --rm -i --network none --entrypoint bun <worker-image> \
   run apps/worker/src/image-runtime.ts <<<'{}' | jq -c 'del(.profiles)'
 ```
 
-[自分の registry でのビルド](/run-server/self-hosting/build-images)では、自前イメージの digest を最後まで維持します。公開・昇格手順は[コントリビューター向け文書](/ko/contributing#릴리스-게시와-공급망)に従います。
+[自分の registry でのビルド](/run-server/self-hosting/build-images)では、自前イメージの digest を最後まで維持します。
