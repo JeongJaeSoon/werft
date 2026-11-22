@@ -1011,6 +1011,7 @@ describe("sessions list", () => {
                 release_version_no: 2,
                 release_label: "2026-10-30_14:30:28",
                 release_is_active: true,
+                archived: false,
               },
               created_by: { user_id: OTHER_ID, display_name: "김하나" },
               channel: "slack",
@@ -4097,6 +4098,7 @@ describe("세션의 릴리스", () => {
     release_version_no: 3,
     release_label: "2026-10-30_14:30:28-2",
     release_is_active: true,
+    archived: false,
   };
   const withSession = (body: Record<string, unknown>) => ({
     ...detailRoutes,
@@ -4191,6 +4193,51 @@ describe("세션의 릴리스", () => {
     );
     expectMetaParts(piece);
   });
+
+  test.each([
+    ["ko", "보관됨"],
+    ["en", "Archived"],
+    ["ja", "アーカイブ済み"],
+  ] as const)(
+    "보관된 에이전트는 이름 뒤, 릴리스 앞에 '보관됨' 배지를 붙이고 이름 링크는 그대로다: %s",
+    async (locale, word) => {
+      renderAt(
+        `/sessions/${SESSION_ID}`,
+        withSession({ agent: { ...AGENT, archived: true } }),
+        locale,
+      );
+      const meta = await sessionMeta();
+      const link = await within(meta).findByRole("link", {
+        name: "Release helper",
+      });
+      const piece = link.parentElement as HTMLElement;
+      const badge = within(piece).getByText(word);
+      expect(badge.getAttribute("data-slot")).toBe("badge");
+      expect(link.textContent).toBe("Release helper");
+      // Name, then the badge, then the release.
+      const order = [...piece.children].map(
+        (child) => child.getAttribute("data-slot") ?? child.tagName,
+      );
+      expect(order.indexOf("badge")).toBe(order.indexOf("A") + 1);
+      expect(
+        (piece.textContent ?? "").indexOf(word) <
+          (piece.textContent ?? "").indexOf("2026-10-30_14:30:28-2"),
+      ).toBe(true);
+    },
+  );
+
+  test.each([false, null])(
+    "보관되지 않은 에이전트에는 배지가 없다: archived=%p",
+    async (archived) => {
+      renderAt(
+        `/sessions/${SESSION_ID}`,
+        withSession({ agent: { ...AGENT, archived } }),
+      );
+      const { piece } = await agentPiece();
+      expect(piece.querySelector("[data-slot=badge]") === null).toBe(true);
+      expect((piece.textContent ?? "").includes("보관됨")).toBe(false);
+    },
+  );
 
   test("라벨도 버전도 없으면 릴리스를 그리지 않는다", async () => {
     // A server answering outside the contract; production only warns.

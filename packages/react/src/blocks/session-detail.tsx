@@ -630,8 +630,9 @@ function SessionShare({
 
 /**
  * The agent's name, opening its page when the viewer can read that agent;
- * plain text for a deleted one or one the viewer may not read. Without a
- * name, a session the server hid the agent of says so rather than "none".
+ * plain text for a deleted one or one the viewer may not read, marked when
+ * the agent is archived. Without a name, a session the server hid the agent
+ * of says so rather than "none".
  */
 function AgentName({ session }: { readonly session: SessionDetailData }) {
   const { t } = useBlockText();
@@ -643,13 +644,24 @@ function AgentName({ session }: { readonly session: SessionDetailData }) {
       session.agent_hidden ? "session.agent.hidden" : "session.agent.none",
     );
   }
-  if (!openable) return agent.name;
-  return renderLink({
-    to: "agent",
-    id: agent.id,
-    className: "text-(color:--werft-color-link) underline underline-offset-2",
-    children: agent.name,
-  });
+  const name = openable
+    ? renderLink({
+        to: "agent",
+        id: agent.id,
+        className:
+          "text-(color:--werft-color-link) underline underline-offset-2",
+        children: agent.name,
+      })
+    : agent.name;
+  if (!agent.archived) return name;
+  return (
+    <>
+      {name}
+      <Badge variant="gray" className="text-muted-foreground">
+        {t("session.agent.archived")}
+      </Badge>
+    </>
+  );
 }
 
 const MUTED = "text-muted-foreground";

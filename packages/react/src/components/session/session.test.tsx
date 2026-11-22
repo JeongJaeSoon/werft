@@ -411,6 +411,7 @@ const OVERVIEW_MESSAGES = {
   unknown: "—",
   agentNone: "에이전트 없음",
   agentHidden: "볼 수 없는 에이전트",
+  agentArchived: "보관됨",
 };
 
 const HEAD = {
@@ -428,6 +429,7 @@ const AGENT = {
   release_version_no: 3,
   release_label: "2026-10-30_14:30:28",
   release_is_active: true,
+  archived: false,
 };
 
 function overviewRow(session: SessionSummary, extra: object = {}) {
@@ -526,6 +528,28 @@ describe("SessionOverviewRow", () => {
       "text-subtle-foreground",
     );
   });
+
+  test.each([
+    [true, "Release helper보관됨", ["보관됨"]],
+    [false, "Release helper", []],
+    [null, "Release helper", []],
+  ])(
+    "보관된 에이전트만 이름 옆에 '보관됨' 배지를 붙인다: archived=%p",
+    (archived, text, badges) => {
+      const { getAllByRole } = overviewRow({
+        ...SESSION,
+        agent: { ...AGENT, archived },
+      });
+      const cell = cellsOf(getAllByRole("row")[1])[1];
+      expect(cell?.textContent).toBe(text);
+      const marks = [...(cell?.querySelectorAll("[data-slot=badge]") ?? [])];
+      expect(marks.map((mark) => mark.textContent)).toEqual(badges);
+      // The name still truncates on its own; the badge never shrinks away.
+      for (const mark of marks) {
+        expect(mark.classList.contains("shrink-0")).toBe(true);
+      }
+    },
+  );
 
   test("에이전트 이름은 흐리지 않는다", () => {
     const { getByText } = overviewRow({ ...SESSION, agent: AGENT });
