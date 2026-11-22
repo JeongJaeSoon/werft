@@ -8,8 +8,8 @@ import { CLAUDE_AGENT_SDK_VERSION, CLAUDE_CODE_VERSION } from "./versions.ts";
 export type ToolBoundary = "local" | "egress" | "provider";
 
 export type BuiltinTool = {
-  boundary: ToolBoundary;
-  name: string;
+  readonly boundary: ToolBoundary;
+  readonly name: string;
 };
 
 /**
