@@ -19,6 +19,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 - **`HEARTBEAT_TTL_SEC`의 하한이 20초 초과에서 15초 초과로 내려가고, worker가 옛 API를 위해 하던 호환 재시도가 없어진다**(JeongJaeSoon/werft#1983).
   - 하한은 worker의 lease 안전 마진(10초)과 heartbeat 간격(5초)의 합이다. 10초마다 heartbeat를 보내던 옛 worker는 지원 창 밖이다. 그런 worker가 아직 돌 때 TTL을 20초 이하로 낮추면 그 attempt는 첫 heartbeat 무렵 lease를 잃는다. TTL을 낮추기 전에 옛 worker가 남아 있지 않은지 본다.
   - worker는 strict API가 400으로 거절한 release(`stop_kind`)와 pending-control(`settled[].reason`·`answer_result`)을 그 필드를 뺀 채 다시 보내지 않는다. 로그 `worker.release.stop_kind_refused`·`worker.pending.settlement_detail_refused`도 더 나오지 않는다. 지원 창 안의 API는 이 필드를 모두 받으므로, control-host를 먼저 올리는 순서를 지키면 할 일은 없다.
+- **세션 제목 생성·Luna 판정·GitHub Packages token 확인 호출이 설정된 주소 밖으로 나가지 않는다. redirect를 따라가지 않고, 메타데이터·link-local 주소로 풀린 이름은 거절한다**(JeongJaeSoon/werft#1986).
+  - 제목·판정 호출은 `SESSION_TITLE_EGRESS_URL`의 host:port(egress proxy)에만 간다. 사설 주소와 plain http는 계속 된다. 모델 서버 주소는 전처럼 proxy가 판단하므로, 사설 모델 서버 때문에 새로 설정할 것은 없다.
+  - token 확인은 `GITHUB_PACKAGES_API_URL`의 host:port에만 간다. 기본값 `https://api.github.com`은 공인 주소로 풀릴 때만 부른다. 사내 DNS가 `api.github.com`을 사설 주소로 돌려주는 설치는 token 등록이 "확인할 수 없음"으로 실패한다. 이때는 `GITHUB_PACKAGES_API_URL`에 그 주소를 직접 적는다. 직접 적은 주소는 http이거나 사설 주소여도 된다.
+  - `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(workspace MCP 서버용)에 proxy를 넣을 필요는 없다. 넣지 않는다.
 
 - **egress proxy와 API가 같은 IP 주소 판정을 쓴다. 경계 주소는 거절 쪽으로 바뀌었다**(JeongJaeSoon/werft#1987). 올리기 전에 allowlist에 둔 이름이 아래 주소로 풀리지 않는지 확인한다. 그런 이름이 있으면 그 목적지는 올린 뒤 `403`(proxy) 또는 `address_not_allowed`(API)가 된다.
   - egress proxy는 6to4(`2002::/16`), Teredo를 포함한 `2001::/23`, `2000::/3` 밖의 IPv6(`::a.b.c.d`, `::ffff:0:a.b.c.d`, `4000::/2` 등), `3fff::/20`, site-local `fec0::/10`를 reserved로 거절한다. 이전에는 6to4와 `::a.b.c.d`를 안에 든 IPv4로 판정했고, 나머지는 public(`fec0::/10`은 private)으로 통과시켰다. `EGRESS_PRIVATE_ALLOWLIST` 목적지도 `fec0::/10`로 풀리면 거절된다.
