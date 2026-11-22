@@ -234,7 +234,7 @@ GROUP BY 1, 2;
 
 ### 예산 계정 표를 더하는 릴리스
 
-migration `0311_budget_accounts`가 빈 표 셋을 만든다. `budget_limits`(조직 전체 사람당 기본 한도, 사람마다의 한도, 에이전트 팀 한도), `budget_accounts`(사람·팀 계정의 달마다 쓴 것과 예약한 것, UTC 기준 달), `budget_reservations`(호출마다의 예약과 정산 기록)이다. 따로 할 일은 없다.
+migration `0312_budget_accounts`가 빈 표 셋을 만든다. `budget_limits`(조직 전체 사람당 기본 한도, 사람마다의 한도, 에이전트 팀 한도), `budget_accounts`(사람·팀 계정의 달마다 쓴 것과 예약한 것, UTC 기준 달), `budget_reservations`(호출마다의 예약과 정산 기록)이다. 따로 할 일은 없다.
 
 - 이 릴리스에서는 어떤 호출도 이 표를 읽거나 쓰지 않는다. 세션 비용 한도와 토큰 한도는 지금처럼 동작하고, 한도를 정하는 화면·API·운영자 명령도 없다.
 - 새 표만 만들므로 지원 창 안의 이미지로 되돌려도 된다.

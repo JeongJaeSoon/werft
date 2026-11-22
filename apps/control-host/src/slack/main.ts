@@ -7,6 +7,7 @@ import {
   createPostgresAgentStore,
   createPostgresCallerLimitGate,
   createPostgresCatalogRepositoryStore,
+  createPostgresChannelMemberStore,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresInstallationSettingsStore,
@@ -206,6 +207,7 @@ export function slackSessionHandler(deps: {
     identities,
     links: createPostgresLinkedAccountStore(db),
     bindings,
+    members: createPostgresChannelMemberStore(db),
     settings: {
       getSettings: (workspaceId, agentId) =>
         getSlackAppSettings(db, workspaceId, agentId),

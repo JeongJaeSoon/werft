@@ -1,5 +1,5 @@
 {
-  "id": "9899008c-c01b-4324-9dd3-afe7b84fd3e7",
+  "id": "fc0e91d1-2535-4773-a3fb-624725dde224",
   "prevId": "183279f2-7209-4329-9460-5270abad5a3c",
   "version": "7",
   "dialect": "postgresql",
@@ -3640,339 +3640,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.budget_accounts": {
-      "name": "budget_accounts",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "owner_kind": {
-          "name": "owner_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "owner_id": {
-          "name": "owner_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "period_start": {
-          "name": "period_start",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "spent_cost_usd": {
-          "name": "spent_cost_usd",
-          "type": "numeric(14, 6)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "spent_tokens": {
-          "name": "spent_tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "reserved_cost_usd": {
-          "name": "reserved_cost_usd",
-          "type": "numeric(14, 6)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "reserved_tokens": {
-          "name": "reserved_tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "budget_accounts_workspace_id_workspaces_id_fk": {
-          "name": "budget_accounts_workspace_id_workspaces_id_fk",
-          "tableFrom": "budget_accounts",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "budget_accounts_owner_period_key": {
-          "name": "budget_accounts_owner_period_key",
-          "nullsNotDistinct": false,
-          "columns": ["workspace_id", "owner_kind", "owner_id", "period_start"]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "budget_accounts_owner_kind_check": {
-          "name": "budget_accounts_owner_kind_check",
-          "value": "\"budget_accounts\".\"owner_kind\" IN ('user','team')"
-        },
-        "budget_accounts_period_check": {
-          "name": "budget_accounts_period_check",
-          "value": "extract(day from \"budget_accounts\".\"period_start\") = 1"
-        },
-        "budget_accounts_nonneg_check": {
-          "name": "budget_accounts_nonneg_check",
-          "value": "(\"budget_accounts\".\"spent_cost_usd\" >= 0 AND \"budget_accounts\".\"spent_cost_usd\" <> 'NaN') AND \"budget_accounts\".\"spent_tokens\" BETWEEN 0 AND 9007199254740991 AND (\"budget_accounts\".\"reserved_cost_usd\" >= 0 AND \"budget_accounts\".\"reserved_cost_usd\" <> 'NaN') AND \"budget_accounts\".\"reserved_tokens\" BETWEEN 0 AND 9007199254740991"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.budget_limits": {
-      "name": "budget_limits",
-      "schema": "",
-      "columns": {
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "subject": {
-          "name": "subject",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "subject_id": {
-          "name": "subject_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cost_usd": {
-          "name": "cost_usd",
-          "type": "numeric(14, 6)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tokens": {
-          "name": "tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "budget_limits_workspace_id_workspaces_id_fk": {
-          "name": "budget_limits_workspace_id_workspaces_id_fk",
-          "tableFrom": "budget_limits",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "budget_limits_subject_key": {
-          "name": "budget_limits_subject_key",
-          "nullsNotDistinct": true,
-          "columns": ["workspace_id", "subject", "subject_id"]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "budget_limits_subject_check": {
-          "name": "budget_limits_subject_check",
-          "value": "\"budget_limits\".\"subject\" IN ('person_default','user','team')"
-        },
-        "budget_limits_subject_id_check": {
-          "name": "budget_limits_subject_id_check",
-          "value": "(\"budget_limits\".\"subject\" = 'person_default') = (\"budget_limits\".\"subject_id\" IS NULL)"
-        },
-        "budget_limits_nonneg_check": {
-          "name": "budget_limits_nonneg_check",
-          "value": "(\"budget_limits\".\"cost_usd\" >= 0 AND \"budget_limits\".\"cost_usd\" <> 'NaN') AND \"budget_limits\".\"tokens\" BETWEEN 0 AND 9007199254740991"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.budget_reservations": {
-      "name": "budget_reservations",
-      "schema": "",
-      "columns": {
-        "call_id": {
-          "name": "call_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "account_id": {
-          "name": "account_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "root_kind": {
-          "name": "root_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "unmetered": {
-          "name": "unmetered",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "cost_usd": {
-          "name": "cost_usd",
-          "type": "numeric(14, 6)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "tokens": {
-          "name": "tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'reserved'"
-        },
-        "settled_cost_usd": {
-          "name": "settled_cost_usd",
-          "type": "numeric(14, 6)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "settled_tokens": {
-          "name": "settled_tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "ended_at": {
-          "name": "ended_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "budget_reservations_account_idx": {
-          "name": "budget_reservations_account_idx",
-          "columns": [
-            {
-              "expression": "account_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "budget_reservations_workspace_id_workspaces_id_fk": {
-          "name": "budget_reservations_workspace_id_workspaces_id_fk",
-          "tableFrom": "budget_reservations",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "budget_reservations_account_id_budget_accounts_id_fk": {
-          "name": "budget_reservations_account_id_budget_accounts_id_fk",
-          "tableFrom": "budget_reservations",
-          "tableTo": "budget_accounts",
-          "columnsFrom": ["account_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "budget_reservations_root_kind_check": {
-          "name": "budget_reservations_root_kind_check",
-          "value": "\"budget_reservations\".\"root_kind\" IN ('user','key','none')"
-        },
-        "budget_reservations_state_check": {
-          "name": "budget_reservations_state_check",
-          "value": "\"budget_reservations\".\"state\" IN ('reserved','settled','released')"
-        },
-        "budget_reservations_ended_check": {
-          "name": "budget_reservations_ended_check",
-          "value": "(\"budget_reservations\".\"state\" = 'reserved') = (\"budget_reservations\".\"ended_at\" IS NULL)"
-        },
-        "budget_reservations_settled_check": {
-          "name": "budget_reservations_settled_check",
-          "value": "CASE WHEN \"budget_reservations\".\"state\" = 'settled' THEN \"budget_reservations\".\"settled_cost_usd\" IS NOT NULL AND \"budget_reservations\".\"settled_tokens\" IS NOT NULL ELSE \"budget_reservations\".\"settled_cost_usd\" IS NULL AND \"budget_reservations\".\"settled_tokens\" IS NULL END"
-        },
-        "budget_reservations_nonneg_check": {
-          "name": "budget_reservations_nonneg_check",
-          "value": "(\"budget_reservations\".\"cost_usd\" >= 0 AND \"budget_reservations\".\"cost_usd\" <> 'NaN') AND \"budget_reservations\".\"tokens\" BETWEEN 0 AND 9007199254740991 AND (\"budget_reservations\".\"settled_cost_usd\" >= 0 AND \"budget_reservations\".\"settled_cost_usd\" <> 'NaN') AND \"budget_reservations\".\"settled_tokens\" BETWEEN 0 AND 9007199254740991"
-        },
-        "budget_reservations_unmetered_check": {
-          "name": "budget_reservations_unmetered_check",
-          "value": "NOT \"budget_reservations\".\"unmetered\" OR (\"budget_reservations\".\"cost_usd\" = 0 AND coalesce(\"budget_reservations\".\"settled_cost_usd\", 0) = 0)"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.catalog_repositories": {
@@ -14860,6 +14527,74 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.slack_channel_member_cache": {
+      "name": "slack_channel_member_cache",
+      "schema": "",
+      "columns": {
+        "installation_id": {
+          "name": "installation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "member_ids": {
+          "name": "member_ids",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "fetched_at": {
+          "name": "fetched_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "invalidated_at": {
+          "name": "invalidated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "slack_channel_member_cache_installation_fk": {
+          "name": "slack_channel_member_cache_installation_fk",
+          "tableFrom": "slack_channel_member_cache",
+          "tableTo": "slack_installations",
+          "columnsFrom": ["installation_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "slack_channel_member_cache_pk": {
+          "name": "slack_channel_member_cache_pk",
+          "columns": ["installation_id", "channel_id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "slack_channel_member_cache_size_check": {
+          "name": "slack_channel_member_cache_size_check",
+          "value": "cardinality(\"slack_channel_member_cache\".\"member_ids\") <= 10000"
+        },
+        "slack_channel_member_cache_time_check": {
+          "name": "slack_channel_member_cache_time_check",
+          "value": "\"slack_channel_member_cache\".\"fetched_at\" IS NOT NULL OR \"slack_channel_member_cache\".\"invalidated_at\" IS NOT NULL"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.slack_config_tokens": {
