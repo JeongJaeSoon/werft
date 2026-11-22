@@ -1267,7 +1267,7 @@ export function createPostgresSessionReader(
       ...new Set(rows.flatMap(({ session }) => session.agentReleaseId ?? [])),
     ];
     // Turn 1's actor started the session; a takeover rewrites
-    // created_by_user_id but leaves it. Rows from before #427 fall back.
+    // created_by_user_id but leaves it. Rows with no created_by_user_id fall back.
     const firstTurns = await executor
       .select({
         sessionId: turns.sessionId,

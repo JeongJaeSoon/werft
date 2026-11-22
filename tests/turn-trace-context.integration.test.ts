@@ -41,7 +41,7 @@ import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
 
 /**
  * The traceparent of the request that queued a turn travels through the
- * turns row to the worker's nextInput answer (94S-731).
+ * turns row to the worker's nextInput answer.
  */
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;

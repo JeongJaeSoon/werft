@@ -348,7 +348,7 @@ describe("agent.admin.manage by role (design 4.1)", () => {
     });
   }
 
-  // 94S-837: a team lends every member to the agent, so naming one is for
+  // A team lends every member to the agent, so naming one is for
   // the people who manage teams. The agent's admin only takes one off.
   for (const who of ["agent_admin", "team_member"] as const) {
     test(`${who} is refused naming a team, and may still take one off or name a person`, async () => {

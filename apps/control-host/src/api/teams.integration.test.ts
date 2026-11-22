@@ -275,7 +275,7 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
       { id: teamId, name: "research admins", role: "member" },
     ]);
     expect(await myTeams(admin)).toEqual([]);
-    // The member reads their own team, read only (94S-719), and no other.
+    // The member reads their own team, read only, and no other.
     const own = await send("GET", `/v1/teams/${teamId}`, member);
     expect(own.status).toBe(200);
     expect(teamDetailSchema.parse(await own.json())).toEqual(detail);

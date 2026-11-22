@@ -1293,7 +1293,7 @@ integration("usage summary on PostgreSQL", () => {
 });
 
 // What the console does: signed in with a cookie, through the route's scope
-// check and then the service's own (94S-864).
+// check and then the service's own.
 integration("installation figures over HTTP on PostgreSQL", () => {
   let database: TempDatabase;
   let pool: Pool;

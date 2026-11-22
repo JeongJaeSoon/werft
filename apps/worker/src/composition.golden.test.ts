@@ -7,7 +7,7 @@ import type { WorkerConfig } from "./config.ts";
 
 // The fingerprint a worker stamps a claim's checkpoints with, and the one a
 // restore plan asks for, pinned to the bytes main produced before the
-// runtime contract refactor (94S-827).
+// runtime contract refactor.
 // Regenerate only for an intended change: UPDATE_GOLDEN=1 bun test <file>.
 
 const GOLDEN = join(

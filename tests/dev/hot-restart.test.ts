@@ -171,7 +171,7 @@ describe("scripts/dev/hot-restart.ts", () => {
     }
   }, 20_000);
 
-  // A pass loop that gave up (94S-1641): no file changes, yet it is
+  // A pass loop that gave up: no file changes, yet it is
   // started again, the way Docker's restart policy would outside dev.
   test("a command that exits on its own starts again after a doubling delay, and a long run resets it", async () => {
     // Three quick exits, then a run longer than the longest delay. A quick

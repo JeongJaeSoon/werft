@@ -173,7 +173,7 @@ const TABLE: [
   ["멤버 초대·역할 변경", "member.manage", onWorkspace, "ooxxxx"],
   ["Slack guest 사용 켜기·끄기", "workspace.manage", onWorkspace, "ooxxxx"],
   ["감사 보존 기간 변경", "audit_retention.manage", onWorkspace, "oxxxxx"],
-  // 94S-762: figures summed over every owner, the owner's personal key
+  // Figures summed over every owner, the owner's personal key
   // included in the refusal.
   [
     "설치 전체 사용량·한도 읽기",

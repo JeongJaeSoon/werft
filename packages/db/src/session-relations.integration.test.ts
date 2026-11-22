@@ -44,7 +44,7 @@ import {
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-// 94S-811: every relation, search and count is a subset of what the share
+// Every relation, search and count is a subset of what the share
 // already lets the viewer read.
 integration("session list relations, search and counts on PostgreSQL", () => {
   let database: TempDatabase;
@@ -617,7 +617,7 @@ integration("who started a session on PostgreSQL", () => {
       firstTurnBy: bob,
       private: true,
     });
-    // Rows from before #427: turn 1 names no one, or there is no turn.
+    // Rows written before created_by_user_id existed: turn 1 names no one, or there is no turn.
     await session("firstTurnNamesNoOne", {
       createdBy: alice,
       firstTurnBy: null,

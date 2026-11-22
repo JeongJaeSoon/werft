@@ -39,7 +39,7 @@ import { registerUsageRoutes } from "./routes/usage/usage.ts";
 const integration = testDatabaseUrl() ? test : test.skip;
 
 // What the console's picked-tool section reads: signed in with a cookie, a session's
-// id and title only where the caller may read the session (94S-912).
+// id and title only where the caller may read the session.
 let database: TempDatabase;
 let pool: Pool;
 let db: NodePgDatabase<typeof schema>;
