@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **`BOOTSTRAP_TOKEN`·`BOOTSTRAP_TOKEN_FILE` 환경 값과 Helm `secrets.bootstrapToken`이 없어졌다. 첫 owner는 운영자가 받은 일회용 설정 링크로 만든다**(JeongJaeSoon/werft#PR).
+- **`BOOTSTRAP_TOKEN`·`BOOTSTRAP_TOKEN_FILE` 환경 값과 Helm `secrets.bootstrapToken`이 없어졌다. 첫 owner는 운영자가 받은 일회용 설정 링크로 만든다**(JeongJaeSoon/werft#1979).
   - Helm values에 `secrets.bootstrapToken`이 남아 있으면(`true`든 `false`든) render가 멈춘다. values에서 지우고 Secret의 `BOOTSTRAP_TOKEN`도 지운다.
   - compose·test-ops env 파일의 `BOOTSTRAP_TOKEN`은 어느 컨테이너에도 가지 않는다. 지운다.
   - 링크는 live owner가 없을 때만 `bun run apps/control-host/src/api/setup-link.ts`(api 컨테이너·Pod 안. test-ops는 `scripts/test-ops.sh setup-link`)가 stdout에 한 번 출력한다. 로그나 파일에는 남지 않는다. 24시간 뒤 만료되고, 다시 실행하면 앞 링크는 무효가 된다. `scripts/test-ops.sh bootstrap-token`은 `setup-link`로 바뀌었다.
