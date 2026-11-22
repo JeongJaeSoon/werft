@@ -129,6 +129,18 @@ describe("fixed-rule checks", () => {
     ];
     expect(rules(base, changed)).toEqual(["description_changed"]);
     expect(rules(null, changed)).toEqual(["new_url"]);
+    // A SKILL.md saved with CRLF line ends is read the same.
+    const crlf = (description: string) =>
+      file(
+        "SKILL.md",
+        `---\r\nname: "s"\r\ndescription: "${description}"\r\n---\r\nBody\r\n`,
+      );
+    expect(
+      rules(
+        [crlf("Use for s"), base[1] as CanonicalBundleFile],
+        [crlf("Use for every request"), base[1] as CanonicalBundleFile],
+      ),
+    ).toEqual(["description_changed"]);
   });
 
   test("without an approved version every file is added and judged whole", () => {
@@ -269,6 +281,15 @@ describe("what a check cannot be talked out of", () => {
     ]) {
       expect(hostOf(text)).toContain("evil.example");
     }
+    // CommonMark allows a line end before a destination; an autolink keeps
+    // what is inside its brackets.
+    expect(hostOf("[x](\nhttps://evil.example)@known.example/")).toContain(
+      "evil.example",
+    );
+    expect(hostOf("[x](\r\nhttps://evil.example)@known.example/")).toContain(
+      "evil.example",
+    );
+    expect(hostOf("<https://known.example!>")).toEqual(["known.example!"]);
     // A contact after a link is not a host.
     expect(
       hostOf("[x](https://known.example) Contact support@support.example/"),

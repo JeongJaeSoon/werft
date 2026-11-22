@@ -126,7 +126,9 @@ function hostsInText(text: string): Set<string> {
     const ended = next === undefined || /[\s<>]/.test(next);
     // Punctuation is the sentence's only where the URL ends; before a path
     // the parser keeps it in the host.
-    if (ended) authority = withoutTrailing(authority);
+    // An autolink ends at its ">": what is inside it is all the URL's.
+    const autolink = text[start.index - 1] === "<" && next === ">";
+    if (ended && !autolink) authority = withoutTrailing(authority);
     add(parsedHost(scheme, authority) ?? authority);
   }
   return hosts;
@@ -166,7 +168,7 @@ const ATTRIBUTE = /=\s*(?:"([^"]*)"|'([^']*)')/g;
  * spaces whose parentheses balance one deep.
  */
 const DESTINATION =
-  /\](?:\(|:)[^\S\n]*(?:<([^<>\n]*)>|((?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*\))+))/g;
+  /\](?:\(|:)\s*(?:<([^<>\n]*)>|((?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*\))+))/g;
 
 const decodeEntities = (text: string): string =>
   text.replace(ENTITY, (whole, dec?: string, hex?: string, name?: string) => {
@@ -224,7 +226,7 @@ function hostsOf(text: string): Set<string> {
 
 function descriptionOf(text: string | null): string | null {
   if (text === null) return null;
-  const lines = text.split("\n");
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
   const end = lines.indexOf("---", 1);
   return (
     lines
