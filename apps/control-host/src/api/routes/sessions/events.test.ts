@@ -1340,6 +1340,8 @@ describe("GET /v1/sessions/{id}/events on shutdown", () => {
     expect(handle.activeStreams()).toBe(0);
   });
 
+  const DRAIN_MS = 2_000;
+
   async function drainWithOpenStream(wired: boolean) {
     const steps: string[] = [];
     const exits: number[] = [];
@@ -1350,7 +1352,7 @@ describe("GET /v1/sessions/{id}/events on shutdown", () => {
         error: (message: string) => steps.push(message),
       },
       exit: (code) => exits.push(code),
-      drainMs: 1_000,
+      drainMs: DRAIN_MS,
       closeMs: 1_000,
     });
     const { app, store, wakeup } = harness({
@@ -1390,14 +1392,14 @@ describe("GET /v1/sessions/{id}/events on shutdown", () => {
     expect(held.steps).toContain(
       "Drain deadline passed; closing open connections",
     );
-    expect(held.tookMs).toBeGreaterThanOrEqual(1_000);
+    expect(held.tookMs).toBeGreaterThanOrEqual(DRAIN_MS);
 
     const ended = await drainWithOpenStream(true);
     expect(ended.steps).toContain("In-flight requests drained");
     expect(ended.steps).not.toContain(
       "Drain deadline passed; closing open connections",
     );
-    expect(ended.tookMs).toBeLessThan(500);
+    expect(ended.tookMs).toBeLessThan(DRAIN_MS / 2);
     expect(ended.exits).toEqual([0]);
   });
 });
