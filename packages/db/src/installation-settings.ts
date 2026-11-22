@@ -237,7 +237,7 @@ export function createPostgresInstallationSettingsStore(
             repositories.push({ id: row.id, repository: parsed.data });
           }
           // `mcp_servers` is not read: the installation catalog MCP is
-          // retired (0303), and its values are never opened.
+          // retired (0304), and its values are never opened.
           let stored = new Map<string, string>();
           if (options?.openStored && key !== null && refs.length > 0) {
             const workspaceId = await secretOwnerWorkspace(tx);

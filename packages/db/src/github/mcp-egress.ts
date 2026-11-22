@@ -83,7 +83,7 @@ export async function releaseMcpOf(
 
 /**
  * The catalog server and tools a claim gave the session before migration
- * 0303 retired them, from the inputs it read then: the session's snapshot
+ * 0304 retired them, from the inputs it read then: the session's snapshot
  * of the agent's selection, the selection's retired row, and the release.
  */
 async function retiredEffectiveMcp(
@@ -108,7 +108,7 @@ async function retiredEffectiveMcp(
 /**
  * The retired catalog server of a claimed session, for its restore configs
  * only; null when the claim gave it none, or the server was not a catalog
- * row migration 0303 recorded.
+ * row migration 0304 recorded.
  */
 export async function retiredSessionMcpOf(
   executor: Database,

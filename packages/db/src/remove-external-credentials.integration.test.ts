@@ -141,7 +141,7 @@ integration("only stored credentials", () => {
     ).toBe("accepted");
   });
 
-  test("an MCP server row is not written again, whatever its value (0303)", async () => {
+  test("an MCP server row is not written again, whatever its value (0304)", async () => {
     const check = { code: "23514", constraint: undefined };
     expect(
       await mcp(
@@ -519,7 +519,7 @@ integration(
         carried_auth: PROVIDER_AUTH,
         credential_source: "stored",
       });
-      // 0303 retired the catalog row; its restore record keeps no value.
+      // 0304 retired the catalog row; its restore record keeps no value.
       expect(
         await row(
           "SELECT auth, carried_auth, credential_source FROM mcp_servers WHERE id = $1",

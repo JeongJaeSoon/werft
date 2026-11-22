@@ -60,7 +60,7 @@ afterEach(async () => {
 });
 
 // An agent whose draft is the version its active release stands on, both
-// made before migration 0303 with a card naming the catalog server.
+// made before migration 0304 with a card naming the catalog server.
 async function agentOnCatalogDraft(card: AgentCard = CATALOG_CARD) {
   const workspaceId = randomUUID();
   await db
@@ -178,7 +178,7 @@ describe("reconciling drafts that name a retired catalog server", () => {
     expect((await agentRow(agentId))?.draftVersionId).toBe(kept);
   });
 
-  test("a server 0303 did not record keeps the card's names", async () => {
+  test("a server 0304 did not record keeps the card's names", async () => {
     const card: AgentCard = {
       ...CATALOG_CARD,
       capabilities: { ...CATALOG_CARD.capabilities, mcp: [{ server: "gone" }] },

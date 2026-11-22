@@ -59,7 +59,7 @@ const MIGRATIONS_ONLY = [
   "function authz_decisions_refuse_update() trigger language plpgsql volatility=v parallel=u body md5 f3f5febb7e684f1ec6da6675a5dc196c",
   // 0225: every installation settings write raises the one generation.
   "function bump_settings_generation() trigger language plpgsql volatility=v parallel=u body md5 ac57fd6125a65fb817be211cdd37b454",
-  // 0303: the installation catalog MCP is retired; its rows, selections and
+  // 0304: the installation catalog MCP is retired; its rows, selections and
   // the cards naming it are refused.
   "function card_names_catalog_mcp(card jsonb) boolean language sql volatility=i parallel=u body md5 9295a5cc33c6e789f4e9a3fbec017c13",
   // 0201: counters kept by statement triggers, so /metrics and the usage

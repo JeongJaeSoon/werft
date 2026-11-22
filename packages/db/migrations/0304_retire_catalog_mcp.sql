@@ -57,7 +57,7 @@ BEGIN
   SELECT count(*), COALESCE(string_agg("id", ', ' ORDER BY "id"), '') INTO servers, names FROM "mcp_servers";
   SELECT count(*) INTO selections FROM "agent_mcp_settings";
   IF servers > 0 OR selections > 0 THEN
-    RAISE NOTICE '0303: % catalog MCP servers retired (%), % agent catalog selections retired', servers, names, selections;
+    RAISE NOTICE '0304: % catalog MCP servers retired (%), % agent catalog selections retired', servers, names, selections;
   END IF;
 END $$;--> statement-breakpoint
 -- Taken after the agents lock, not now() (this transaction's start): every

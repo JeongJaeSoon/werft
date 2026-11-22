@@ -169,7 +169,7 @@ export function assertDeclaredEnvNames(card: AgentCard): void {
 
 /**
  * A card a save may store: its variable names are its own, and it names no
- * installation catalog MCP server (migration 0303 refuses such a version).
+ * installation catalog MCP server (migration 0304 refuses such a version).
  */
 function assertCardWritable(card: AgentCard): void {
   assertDeclaredEnvNames(card);

@@ -1492,6 +1492,13 @@
       "when": 1795364903636,
       "tag": "0303_slack_bot_drop_reasons",
       "breakpoints": true
+    },
+    {
+      "idx": 304,
+      "version": "7",
+      "when": 1795366332025,
+      "tag": "0304_retire_catalog_mcp",
+      "breakpoints": true
     }
   ]
 }

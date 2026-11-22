@@ -490,7 +490,7 @@ export type SessionCatalogView = {
 
 /**
  * The installation catalog server a claim gave the session before migration
- * 0303 retired it, with its URL and credential name as `retired_catalog_mcp`
+ * 0304 retired it, with its URL and credential name as `retired_catalog_mcp`
  * holds them: offered in restore configs only, never run.
  */
 export type RetiredSessionMcp = {

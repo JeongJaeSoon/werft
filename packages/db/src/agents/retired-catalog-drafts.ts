@@ -13,7 +13,7 @@ import { agents, agentVersions, retiredCatalogMcp } from "../schema.ts";
 /**
  * A draft card without the retired catalog server: no `capabilities.mcp`,
  * no `per_tool` entry for its tools, and not the credential name it used
- * (`retiredRef`, when migration 0303 recorded the server). `forbidden` and
+ * (`retiredRef`, when migration 0304 recorded the server). `forbidden` and
  * the card's other names stay.
  */
 export function withoutRetiredCatalog(
@@ -60,7 +60,7 @@ export type RetiredCatalogDrafts = {
  * Moves every draft whose card names a catalog server to a version without
  * it, made for the cleaned card or the agent's version that already holds
  * it; the version a release stands on is never changed. Run at each host
- * start: a draft already moved is not found again, and after 0303 no new
+ * start: a draft already moved is not found again, and after 0304 no new
  * one names the catalog.
  */
 export async function reconcileRetiredCatalogDrafts(

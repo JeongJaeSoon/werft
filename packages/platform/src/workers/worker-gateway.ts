@@ -1197,7 +1197,7 @@ export function createWorkerGateway(deps: {
     return runtimeConfigWithMcp(config, mcp, mcpToken);
   }
 
-  // The retired catalog server as a claim before migration 0303 put it first
+  // The retired catalog server as a claim before migration 0304 put it first
   // in the session's list, binding and all, for a checkpoint taken with it.
   function retiredMcpServer(retired: RetiredSessionMcp): ClaimedMcpServer {
     return {
@@ -1301,7 +1301,7 @@ export function createWorkerGateway(deps: {
       return offered.length === 0 ? {} : { restore_runtime_configs: offered };
     }
     // A session a claim gave the retired catalog server before migration
-    // 0303 is offered first what that claim offered, its running config
+    // 0304 is offered first what that claim offered, its running config
     // first. That claim had no workspace server of the same name. The
     // config run now needs no slot; past the cap the oldest are dropped.
     const running = canonicalJsonOfJson(withMcp(current, mcp, mcpToken));

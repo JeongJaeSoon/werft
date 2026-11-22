@@ -34,7 +34,7 @@ export function mcpDenyOf(snapshot: unknown): string[] {
 
 /**
  * The catalog MCP server and tools a claim gave one session before migration
- * 0303 retired the catalog, from the inputs it had then: a restore offers the
+ * 0304 retired the catalog, from the inputs it had then: a restore offers the
  * config they made, so a checkpoint taken with the server still resumes.
  *
  * A session that started with a snapshot (`start`) follows the agent's

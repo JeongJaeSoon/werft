@@ -36,11 +36,11 @@ const CATALOG_CARD = {
 };
 
 /**
- * 0303 against an old host's writer that holds its locks: the writer
+ * 0304 against an old host's writer that holds its locks: the writer
  * commits, the migration waits for it, and what it wrote is recorded and
  * cleaned. Neither side deadlocks.
  */
-integration("0303 beside an old host's writes", () => {
+integration("0304 beside an old host's writes", () => {
   let database: TempDatabase;
   let pool: Pool;
   let before: string;
@@ -53,7 +53,7 @@ integration("0303 beside an old host's writes", () => {
       prefix: "retire_catalog_locks",
     });
     pool = new Pool({ connectionString: database.url, max: 4 });
-    before = migrationsThrough("0303_retire_catalog_mcp", { exclusive: true });
+    before = migrationsThrough("0304_retire_catalog_mcp", { exclusive: true });
     await migrate(drizzle(pool), { migrationsFolder: before });
     workspaceId = randomUUID();
     await pool.query(
@@ -214,7 +214,7 @@ integration("0303 beside an old host's writes", () => {
       [agentId],
     );
     expect(named.rows).toEqual([{ named: true }]);
-    // After 0303 the same save is refused.
+    // After 0304 the same save is refused.
     const again = randomUUID();
     await expect(
       pool.query(
@@ -302,7 +302,7 @@ integration("0303 beside an old host's writes", () => {
       (record) => record.message === "db.migrate.notice",
     );
     expect(notices.map((record) => record.fields?.notice)).toEqual([
-      "0303: 1 catalog MCP servers retired (docs), 0 agent catalog selections retired",
+      "0304: 1 catalog MCP servers retired (docs), 0 agent catalog selections retired",
     ]);
     const written = JSON.stringify(sink.records);
     expect(written).not.toContain("docs.example.invalid");

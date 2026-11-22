@@ -255,7 +255,7 @@ integrationTest(
         total: totalMigrations,
       });
       // A migration's RAISE NOTICE reaches the log with its text; the
-      // server's own notices do not, and 0303 says nothing with nothing to
+      // server's own notices do not, and 0304 says nothing with nothing to
       // retire.
       expect(
         sink.records.map(({ message, fields }) => [message, fields?.notice]),

@@ -78,7 +78,7 @@ export type WorkerBinding = {
   costUsd: number;
   providerTokens: number;
   // The retired catalog server a claim gave the session before migration
-  // 0303; only its restore configs name it.
+  // 0304; only its restore configs name it.
   retiredMcp?: RetiredSessionMcp | null;
   // Absent or empty for a session that started with no workspace server on,
   // and for one whose servers all lost their tools before it started.

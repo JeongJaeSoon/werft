@@ -4,7 +4,7 @@ import type { Database } from "../queries.ts";
 import { retiredAgentMcpSettings } from "../schema.ts";
 
 /**
- * The agent's catalog MCP selection as migration 0303 retired it, or null for
+ * The agent's catalog MCP selection as migration 0304 retired it, or null for
  * none: only a restore reads it, to rebuild what a claim gave the session.
  */
 export async function retiredMcpSettingsOf(

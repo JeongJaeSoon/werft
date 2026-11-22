@@ -87,7 +87,7 @@ afterEach(async () => {
   await client.close();
 });
 
-// A session of a release made before migration 0303, whose card names the
+// A session of a release made before migration 0304, whose card names the
 // catalog server `fake`; the credential it named was never bound.
 async function seeded() {
   const workspaceId = randomUUID();

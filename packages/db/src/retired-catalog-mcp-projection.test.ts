@@ -26,7 +26,7 @@ const SEARCH = "mcp__docs__search";
 const BEFORE_RETIRE = new Date("2000-01-01T00:00:00Z");
 
 /**
- * Releases made while the installation catalog MCP lived, read after 0303
+ * Releases made while the installation catalog MCP lived, read after 0304
  * retired it: the session projection leaves the server, its tools and its
  * credential name out, and a restore still rebuilds what a claim gave.
  */
@@ -45,7 +45,7 @@ describe("a release that named a retired catalog server", () => {
   beforeAll(async () => {
     client = new PGlite();
     db = drizzle(client, { schema });
-    before = migrationsThrough("0303_retire_catalog_mcp", { exclusive: true });
+    before = migrationsThrough("0304_retire_catalog_mcp", { exclusive: true });
     await migrate(drizzle(client), { migrationsFolder: before });
 
     await client.query(
@@ -110,7 +110,7 @@ describe("a release that named a retired catalog server", () => {
         [releaseOf(agentId), agentId],
       );
     }
-    // `gone` was never a catalog row 0303 recorded.
+    // `gone` was never a catalog row 0304 recorded.
     await client.query(
       `INSERT INTO mcp_servers (id, url, credential_ref, auth, credential_source,
          workspaces, origin)
@@ -184,7 +184,7 @@ describe("a release that named a retired catalog server", () => {
         releaseId: releaseOf(followsRelease),
       }),
     ).toEqual(["other-ref"]);
-    // A server 0303 did not record keeps its name counted.
+    // A server 0304 did not record keeps its name counted.
     expect(
       await lockUnboundRefs(db, {
         workspaceId,
@@ -336,7 +336,7 @@ describe("a release that named a retired catalog server", () => {
     ).toBe(false);
   });
 
-  test("a server 0303 did not record gives no restore entry", async () => {
+  test("a server 0304 did not record gives no restore entry", async () => {
     expect(
       await retiredSessionMcpOf(db, {
         agentReleaseId: releaseOf(unrecorded),

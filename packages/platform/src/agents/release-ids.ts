@@ -177,7 +177,7 @@ export function resolveReleaseContent(
   const policy = resolveToolPolicy(card, tools);
   if (!policy.ok) return policy;
   const policy_pins = policy.pins;
-  // Migration 0303 refuses the same version or release at the database.
+  // Migration 0304 refuses the same version or release at the database.
   if (card.capabilities.mcp !== undefined && card.capabilities.mcp !== null) {
     return {
       ok: false,

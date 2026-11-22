@@ -213,7 +213,7 @@ async function seeded(
       },
     });
   };
-  // A remote release was made before migration 0303 retired the catalog.
+  // A remote release was made before migration 0304 retired the catalog.
   await (options.remote
     ? beforeCatalogRetired(
         db,

@@ -13,11 +13,11 @@ import {
 } from "./testing/spec-pins.ts";
 
 /**
- * 0303 deletes the installation catalog's MCP servers, their stored values
+ * 0304 deletes the installation catalog's MCP servers, their stored values
  * and the agents' catalog selections, keeps what a restore needs, and
  * refuses every later write that would bring a catalog entry back.
  */
-describe("0303 retires the installation catalog MCP", () => {
+describe("0304 retires the installation catalog MCP", () => {
   let client: PGlite;
   let before: string;
   const workspaceId = randomUUID();
@@ -54,7 +54,7 @@ describe("0303 retires the installation catalog MCP", () => {
 
   beforeAll(async () => {
     client = new PGlite();
-    before = migrationsThrough("0303_retire_catalog_mcp", { exclusive: true });
+    before = migrationsThrough("0304_retire_catalog_mcp", { exclusive: true });
     await migrate(drizzle(client), { migrationsFolder: before });
 
     await client.query(
