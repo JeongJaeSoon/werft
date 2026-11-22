@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The test-ops installation's lifecycle in one place (docs/operator/test-ops.md)
+# The test-ops installation's lifecycle in one place
 #
 #   scripts/test-ops.sh preflight [<manifest>]  check host, checkout, env file, settings document, and on s3 the bucket
 #                                              and S3 key (the deployed release when no manifest is named)
@@ -45,8 +45,7 @@
 # Exit codes: 2 usage, 3 upgrade refused, 1 anything else.
 #
 # LocalStack keeps S3 in memory: after a restart of its container, Docker or
-# the host the API refuses to start until reseed or reset
-# (docs/operator/test-ops.md).
+# the host the API refuses to start until reseed or reset.
 set -euo pipefail
 
 # A release bundle is a tree that carries BUNDLE and is not a git work tree of
@@ -54,7 +53,7 @@ set -euo pipefail
 # must be what its SHA256SUMS lists and nothing else before any of it runs: the
 # libraries sourced below and the helper image both come from the bundle.
 # SHA256SUMS catches damage and stray files, not a forged bundle, so fetch it
-# from the GitHub Release (docs/operator/test-ops.md).
+# from the GitHub Release.
 check_bundle_files() {
   local root="$1" listed actual
   [ -r "${root}/release-manifest.json" ] && [ -r "${root}/SHA256SUMS" ] \
@@ -179,7 +178,7 @@ esac
 if [ "$MODE" = bundle ]; then
   case "$VERB" in
     upgrade|backup|reseed|restore-drill)
-      die "$VERB is not in the release bundle: its gate and restore tools need the checkout. git clone the repository, git checkout the release's source_commit, bun install --frozen-lockfile, and run scripts/test-ops.sh from there with the same env file and state directory (docs/operator/test-ops.md)" ;;
+      die "$VERB is not in the release bundle: its gate and restore tools need the checkout. git clone the repository, git checkout the release's source_commit, bun install --frozen-lockfile, and run scripts/test-ops.sh from there with the same env file and state directory (https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/single-server/)" ;;
   esac
 fi
 [ -z "$APPROVED" ] || [ -r "$APPROVED" ] || die "approval file $APPROVED not found"
@@ -216,7 +215,7 @@ take_lock() {
 
 # --- settings ------------------------------------------------------------------
 check_env_file() {
-  [ -f "$ENV_FILE" ] || die "env file $ENV_FILE not found (set TEST_OPS_ENV_FILE; docs/operator/test-ops.md)"
+  [ -f "$ENV_FILE" ] || die "env file $ENV_FILE not found (set TEST_OPS_ENV_FILE; https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/single-server/)"
   [ -r "$ENV_FILE" ] || die "env file $ENV_FILE is not readable by $(id -un)"
   [ -z "$(find "$ENV_FILE" -prune \( -perm -g=r -o -perm -g=w -o -perm -o=r -o -perm -o=w \))" ] \
     || die "env file $ENV_FILE is open to group or others; chmod 600 it"
@@ -571,7 +570,7 @@ preflight() {
   else
     # LocalStack starts with the installation; the API checks its bucket at
     # startup, and deploy and upgrade wait for that.
-    log "preflight: object store is LocalStack on port $(printf '%s' "$RENDER" | jq -r '.services.localstack.ports[0].published'), in memory — a restart loses every checkpoint object (docs/operator/test-ops.md)"
+    log "preflight: object store is LocalStack on port $(printf '%s' "$RENDER" | jq -r '.services.localstack.ports[0].published'), in memory — a restart loses every checkpoint object (https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/try-localstack/)"
   fi
   log "preflight: passed — Docker Engine $engine, compose $compose_version, store $STORE, source $SOURCE_COMMIT, settings $SETTINGS_DIGEST, api $API_URL, postgres port $(printf '%s' "$RENDER" | jq -r '.services.postgres.ports[0].published')"
 }
@@ -587,7 +586,7 @@ start_apps() {
     log "the installation did not become healthy; last log lines of the services that fail first:"
     ops_compose logs --no-color --tail 30 migrate egress-proxy scheduler api >&2 || true
     # A first deploy that fails leaves no current.json, so `stop` has nothing to take down.
-    die "start failed (log lines above; for the scheduler, its quota or network preflight is the usual cause, docs/operator/test-ops.md). Containers that started stay up; take them down with: ${DOWN_BY_NAME} (never -v; the volumes stay)"
+    die "start failed (log lines above; for the scheduler, its quota or network preflight is the usual cause, https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/single-server/). Containers that started stay up; take them down with: ${DOWN_BY_NAME} (never -v; the volumes stay)"
   fi
   log "readyz: $(readyz)"
 }
@@ -824,7 +823,7 @@ start() {
   [ -r "$IDENTITY" ] || die "$IDENTITY is missing; it is written by deploy"
   preflight
   if [ "$STORE" = localstack ] && [ -z "$(ops_compose ps -q localstack)" ]; then
-    log "start: LocalStack was down, so its in-memory bucket is empty; if the API refuses to start, restore the objects with reseed (docs/operator/test-ops.md)"
+    log "start: LocalStack was down, so its in-memory bucket is empty; if the API refuses to start, restore the objects with reseed (https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/try-localstack/)"
   fi
   start_apps
   printf '%s start by %s: source %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(id -un)" "$SOURCE_COMMIT" \
@@ -945,9 +944,9 @@ reseed() {
   CLEANUPS+=("rm -f '$skip'")
   printf '%s\n' "$manifest_keys" > "$skip"
   object_store "$PROJECT" "$bucket" upload "$BACKUP_DIR/objects" "$skip" >/dev/null \
-    || die "the upload stopped; the installation stays stopped — reset it (docs/operator/test-ops.md)"
+    || die "the upload stopped; the installation stays stopped — reset it (https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/try-localstack/)"
   checkpoint_pins "$PROJECT" "$bucket" repin "$BACKUP_DIR/objects" >/dev/null \
-    || die "the re-pin refused, most likely because the database moved on since the backup; the installation stays stopped — reset it (docs/operator/test-ops.md)"
+    || die "the re-pin refused, most likely because the database moved on since the backup; the installation stays stopped — reset it (https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/try-localstack/)"
   expected="$(jq -r '.objects.count' "$BACKUP_DIR/manifest.json")"
   restored="$(object_store "$PROJECT" "$bucket" count)" || die "could not count the objects in $bucket"
   [ "$restored" = "$expected" ] \
@@ -1068,7 +1067,7 @@ STORE="$(sed -n 's/^object_store=//p' "$IDENTITY" 2>/dev/null || true)"
 if [ -z "$STORE" ]; then
   STORE="${TEST_OPS_OBJECT_STORE:-localstack}"
 elif [ -n "${TEST_OPS_OBJECT_STORE:-}" ] && [ "$TEST_OPS_OBJECT_STORE" != "$STORE" ]; then
-  die "the installation was deployed on $STORE; moving it to $TEST_OPS_OBJECT_STORE is a reset and a new deploy (docs/operator/test-ops.md)"
+  die "the installation was deployed on $STORE; moving it to $TEST_OPS_OBJECT_STORE is a reset and a new deploy (https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/single-server/)"
 fi
 case "$STORE" in
   localstack|s3) ;;

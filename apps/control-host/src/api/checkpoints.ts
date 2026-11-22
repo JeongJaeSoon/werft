@@ -386,7 +386,7 @@ export async function assertCheckpointBucketProtection(
  * gets. SSE-KMS is not accepted in its place: every worker would need
  * GenerateDataKey on the key, which is exactly the credential
  * narrows, and a worker without it fails its first write rather than this
- * check (docs/operator/api-server.md).
+ * check.
  */
 const CHECKPOINT_BUCKET_ENCRYPTION = "AES256";
 

@@ -350,7 +350,7 @@ get "/v1/sessions/$SID/usage" | jq .
 
 ### 백업 → 복원 → 검증 (수동)
 
-백업·복원의 정본 절차, writer 중지 순서, 새 project 복원, 검증과 정리는 [백업과 복원](operator/backup-restore.md#로컬에서-끝까지-돌려-보기)에 있다. 실서버에서는 이 로컬 예시 대신 [단일 서버 배포의 백업·복원 기준](operator/server-deployment.md#6-백업과-복원-기준을-운영한다)을 따른다.
+백업·복원 절차, writer 중지 순서, 새 project 복원과 검증은 [백업과 복원](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/backup-and-restore/)에 있다. 로컬 스택에서 백업부터 복원한 세션의 재개까지 끝까지 돌리는 실행 가능한 형태는 `tests/e2e/restore-resume.sh`다.
 
 ## 7. 정리
 
@@ -366,7 +366,7 @@ scripts/local.sh down
 
 호스트나 Docker 재시작 뒤에도 `scripts/local.sh up --fake-model`만 실행하면 된다. 빈 volume으로 처음 시작할 때도 versioning·Object Lock·기본 AES256 암호화를 자동 설정한다.
 
-bucket이 비어 있는데 PostgreSQL에 기존 checkpoint가 남아 있으면 API는 복구 결정을 할 때까지 기동을 거부한다. 보존한 백업이 있으면 [백업 절차](operator/backup-restore.md)대로 이전에 사용하지 않은 새 compose project에 복원한다. 복구할 백업이 없어 그 checkpoint를 포기하기로 했다면, 계정·워크스페이스·API key는 남기고 아래 명령으로 유실 참조만 해제한다.
+bucket이 비어 있는데 PostgreSQL에 기존 checkpoint가 남아 있으면 API는 복구 결정을 할 때까지 기동을 거부한다. 보존한 백업이 있으면 [백업 절차](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/backup-and-restore/)대로 이전에 사용하지 않은 새 compose project에 복원한다. 복구할 백업이 없어 그 checkpoint를 포기하기로 했다면, 계정·워크스페이스·API key는 남기고 아래 명령으로 유실 참조만 해제한다.
 
 ```bash
 scripts/local.sh forget-lost-checkpoints   # 잃은 checkpoint를 포기하고 그 세션을 출력한다

@@ -2,19 +2,15 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-// @ts-expect-error plain .mjs next to the verify skill's scripts
-import { parseRunState } from "../.claude/skills/verify-werft/scripts/run-state.mjs";
+// @ts-expect-error plain .mjs in scripts/verify
+import { parseRunState } from "../scripts/verify/run-state.mjs";
 
 /**
  * The verify-werft skill's up.sh and its address pool check against
  * a stand-in for docker: what the daemon reports as its pools and networks.
  */
 
-const scripts = join(
-  import.meta.dir,
-  "..",
-  ".claude/skills/verify-werft/scripts",
-);
+const scripts = join(import.meta.dir, "..", "scripts/verify");
 
 // OrbStack's shape: every pool a single /24.
 const orbstackPools = (n: number) => [

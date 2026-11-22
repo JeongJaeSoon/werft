@@ -1,11 +1,11 @@
-# The GitHub sandbox run: up.sh .claude/skills/verify-werft/github-sandbox/overlay.yml
+# The GitHub sandbox run: up.sh scripts/verify/github-sandbox/overlay.yml
 # The source is relative to the project directory (the repo root, where
 # compose.yaml is).
 services:
   migrate:
     volumes:
       - type: bind
-        source: ./.claude/skills/verify-werft/github-sandbox/settings.json
+        source: ./scripts/verify/github-sandbox/settings.json
         target: /settings/fake-model.json
         read_only: true
         bind:

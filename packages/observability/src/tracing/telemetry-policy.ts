@@ -59,24 +59,3 @@ export function createTelemetryPolicy(
     },
   };
 }
-
-/**
- * Whether `endpoint`'s host is on an egress allowlist
- * (`host[:port],host[:port]`). The collector must not be there: workers reach
- * it through the ingest listener, never directly. Compared by host only.
- */
-export function endpointOnEgressAllowlist(
-  endpoint: string,
-  allowlist: string | undefined,
-): boolean {
-  const host = new URL(endpoint).hostname.toLowerCase();
-  return (allowlist ?? "")
-    .split(",")
-    .map((entry) => entry.trim().toLowerCase())
-    .filter((entry) => entry !== "")
-    .some((entry) => {
-      const bare = entry.replace(/:\d+$/, "").replace(/^\[(.*)\]$/, "$1");
-      // URL#hostname keeps the brackets of an IPv6 literal.
-      return bare === host || `[${bare}]` === host;
-    });
-}

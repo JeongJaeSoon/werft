@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for teardown-lib.sh, down.sh, rm-volumes.sh and janitor.sh's dry run,
 # against a fake `docker` that only logs. Nothing here touches a real Docker.
-#   bash .claude/skills/verify-werft/scripts/teardown.test.sh
+#   bash scripts/verify/teardown.test.sh
 set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -152,7 +152,7 @@ grep -q '^volume rm werft-ws-' "$log"; check "rm-volumes.sh: a failing in-use ch
 [ -f "$VERIFY_AP_ROOT/$id/ports.yml" ]; check "rm-volumes.sh: a failing in-use check keeps ports.yml" 0 $?
 
 # The skill never tells the agent to build ids.sh from Bash (Write tool only).
-grep -rEq '>>? *"?\$(\{VERIFY_RUN\}|VERIFY_RUN)/ids\.sh' "$here/.." --include='*.md' --include='*.sh'; check "skill docs: no redirect into ids.sh" 1 $?
+grep -rEq '>>? *"?\$(\{VERIFY_RUN\}|VERIFY_RUN)/ids\.sh' "$here" "$here/../../.claude/skills/verify-werft" --include='*.md' --include='*.sh'; check "skill docs: no redirect into ids.sh" 1 $?
 
 # janitor: a dry run issues no removing command.
 : >"$log"

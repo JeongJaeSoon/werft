@@ -1,5 +1,5 @@
 # Response times of list routes, for P-LIST-SCALE. Source after lib.sh:
-#   . scripts/lib.sh <run id>; . scripts/bench-lists.sh; ap_as owner
+#   . scripts/verify/lib.sh <run id>; . scripts/verify/bench-lists.sh; ap_as owner
 #   ap_bench 20 '/v1/agents?limit=50&include=summary'
 #   ap_bench_pages '/v1/agents?include=summary'
 # Both go through the cookie, as the console does.

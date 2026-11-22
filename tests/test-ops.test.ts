@@ -538,7 +538,7 @@ exit 0
     ).rejects.toThrow();
   });
 
-  // The provider key rotation in docs/operator/test-ops.md: the deployed release again,
+  // A provider key rotation: the deployed release again,
   // worker unchanged, so nothing is approved ( found it dying under
   // `set -u` and leaving pending.json behind).
   // Each `upgrade` run costs about a second under CI load, so the three cases

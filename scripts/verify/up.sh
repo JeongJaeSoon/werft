@@ -96,7 +96,7 @@ EOF
   printf 'export API_IMAGE=%q\n' "werft-control-host:$project"
   printf 'export WORKER_IMAGE=%q\n' "werft-worker:$project"
   printf 'export EGRESS_PROXY_IMAGE=%q\n' "werft-egress-proxy:$project"
-  printf 'VERIFY_BUILT_FROM=%q\n' "$("$repo/.claude/skills/verify-werft/scripts/tree-id.sh" "$repo")"
+  printf 'VERIFY_BUILT_FROM=%q\n' "$("$repo/scripts/verify/tree-id.sh" "$repo")"
 } >"$run/state.env"
 echo "run: $run (project $project)" >&2
 echo "run id: $run_id  (record it; later: lib.sh $run_id, doctor.sh $run_id, down.sh $run_id)" >&2

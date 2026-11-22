@@ -69,6 +69,51 @@ Replace API_CONTAINER with the API container id identified from this installatio
 | grants revoke | Revokes the specified session's execution grant and credentials and requests execution termination |
 | grants restore | Restores the execution grant after execution is confirmed absent. It does not revive a revoked API key |
 
+<a id="4-개인-key" />
+### 4. Personal keys
+
+A key made with `keys create <owner_id>` is an operator key. It groups sessions under that owner outside the web console's workspace. To let a member see the sessions they made on the web in the same list through the API, make that member a personal key.
+
+```bash
+scripts/test-ops.sh key create --workspace <workspace_id> --personal <user_id> \
+  --scopes sessions:read,sessions:write
+```
+
+- A personal key has only the scopes both the key and its maker's current role allow. Once that person's account or membership is disabled, the next request gets `401`.
+- Whatever its scopes, an API key cannot perform management actions (member management, session takeover, key issuance) (`403`). Management actions use a person's sign-in session.
+- A personal key or an agent key cannot answer approval requests of sessions that key started (`403`, `reason_code: self_approval`).
+
+<a id="5-멤버-내보내기와-인수" />
+### 5. Offboarding members and taking over sessions
+
+An owner or admin calls `POST /v1/members/{user_id}/disable` (body `{}` or `{"reason": "…"}`) from a sign-in session. Only an owner can disable an owner (`403 OWNER_PROTECTED`), you cannot disable yourself (`403 SELF_PROTECTED`), and the last owner cannot be disabled (`409 LAST_OWNER`).
+
+- In one step it disables the membership, revokes all of that person's sign-in sessions and their personal keys in that workspace, and revokes the linked Slack account. Agent keys are not touched.
+- Open sessions that person requested wait for takeover. They finish only the running turn, and new messages are refused with `409 TAKEOVER_REQUIRED`. An owner lists them with `GET /v1/takeovers` and takes one over with `POST /v1/sessions/{id}/takeover`, becoming its requester.
+- `POST /v1/members/{user_id}/enable` restores only the membership. Revoked sign-in sessions, personal keys and Slack links do not come back, so the person signs in again and gets new keys. Sessions nobody took over yet go back to that person.
+- To block the whole account, use `POST /v1/users/{user_id}/disable` and `/enable`. It is allowed only when the target belongs only to workspaces where the caller is an owner or admin.
+- There is no sync with an external directory (SCIM). Removing a person from your company SSO is not reflected here, so call this API separately.
+
+<a id="6-감사-기록과-보존-기간" />
+### 6. Audit log and retention
+
+Authorization decisions record denials and the allows of management actions, approvals and Slack input in the audit log. Records cannot be changed. A row's `request_id` is the response's `X-Request-Id` and matches the receipt that request left.
+
+- **Reading.** The owner filters by period, kind and person, follows the rows of one request, and exports an NDJSON file under Settings > Workspace > Audit log in the console. The same content is read from a sign-in session with `GET /v1/audit/events` (`limit` default 50, max 200). Admins, members and API keys get `403`.
+- **Export.** With `Accept: application/x-ndjson`, every filtered row is sent one per line, and the last line is `{"kind":"end",…}`. Up to 100,000 rows go at once; beyond that, continue with `next_cursor` on the end line. Each API process runs only one per workspace at a time (a second in the same process gets `429`), and it is cut after 10 minutes. A file without the end line is incomplete, so call again with the `cursor` of the last line received.
+- **Retention.** 90 days by default. The owner changes it from a sign-in session with `POST /v1/workspaces/{id}/audit-retention` (`{"audit_retention_days": …}`, 30 to 3650). The current value is in `workspace.settings` of `GET /v1/auth/me`. The reconciler deletes decision rows past the period. Receipts are not deleted, but the audit log shows only those inside the retention period.
+
+<a id="7-공유-범위-밖의-세션" />
+### 7. Sessions outside the share scope
+
+Even for owners and admins, a session outside its share scope does not appear in lists, details or turns (`404`). Such sessions are handled only through the paths below. The reason (`justification`, up to 1000 characters) is kept in the decision record.
+
+- **Admin list.** `GET /v1/admin/sessions` shows owners and admins the workspace's sessions, newest first, whatever their scope. Entries hold metadata only, such as who made it, the agent release, state and share scope; no messages, titles or summaries.
+- **Audit read.** `POST /v1/sessions/{id}/audit-read` (`{"justification": "…"}`) returns the session detail and one page of turns (`cursor`, `limit`), and every read adds one audit record. It only reads, so messages, answers and termination stay `404` afterwards.
+- **Admin terminate.** `POST /v1/admin/sessions/{id}/terminate` (`{"expected_revision": …, "justification": "…"}`) lets owners and admins stop a session whatever its scope. The reason becomes the stop reason.
+- **Admin recovery.** `POST /v1/admin/sessions/{id}/recovery-decisions` lets only owners decide recovery whatever the scope. The body is the recovery decision of [Session recovery](/run-server/self-hosting/recover-sessions), and its `reason` is the justification.
+- **Takeover.** When a departed member's session is outside what the person taking it over can see, send `{"justification": "…"}` to `POST /v1/sessions/{id}/takeover`. Without it the answer is `403` (`reason_code: justification_required`).
+
 <a id="확인" />
 ## Verify
 

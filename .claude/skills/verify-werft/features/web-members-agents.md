@@ -29,9 +29,9 @@ owner·admin은 웹 콘솔 `/members`에서 초대 대화상자로 링크를 만
 Preconditions: [web-login.md](./web-login.md)대로 owner를 `web-user.mjs`로 bootstrap·login했다. 에이전트를 만들려면 그 뒤 `ap_store_keys`로 설정 문서의 키를 넣는다(안 넣으면 `GET /v1/connections`가 `{"items":[]}`이고, 마법사 ②단계의 모델 연결 칸 아래에 "켜진 모델 연결이 없습니다. …"가 바로 보인다. 모델 연결·모델 칸에는 고를 값이 없고, "저장하고 다음"은 켜져 있지만 누르면 모델 칸에 "필수 항목입니다."가 붙고 저장되지 않는다). `orch hold browser --note "<what>"`를 잡았다. 화면은 이 run의 headless Chrome(`browser.mjs`, [web-console.md](./web-console.md))으로 몬다. 비밀번호와 초대 token은 명령에 쓰지 않는다: `web-user.mjs invite`가 token을 `users/<who>.invite`에, 초대받는 사람의 무작위 비밀번호를 `users/<who>`에 두고, 수락은 API(`web-user.mjs accept`)나 화면(`browser.mjs accept`)이 그 파일에서 읽는다.
 
 ```sh
-. .claude/skills/verify-werft/scripts/lib.sh <run id>
-U=.claude/skills/verify-werft/scripts/web-user.mjs
-B=.claude/skills/verify-werft/scripts/browser.mjs
+. scripts/verify/lib.sh <run id>
+U=scripts/verify/web-user.mjs
+B=scripts/verify/browser.mjs
 node $U <run id> invite owner member member   # 201 {invite_id, invite_token: (saved, N chars), expires_at}
 node $B <run id> start                         # PID는 browser/pid에 남는다
 node $B <run id> accept member                 # 계정 확인에서 "처음"을 고르고 이름·비밀번호를 넣어 수락 → "accept member -> /"
@@ -101,7 +101,7 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select a.slug, a.ac
 ## Gotchas
 
 - 마법사 ②단계를 넘기면 에이전트가 켜진 채 저장된다. 같은 식별자로 다시 만들면 거절되니 run마다 이름을 바꾸거나 새 run에서 한다.
-- `orca click`이 접힌 영역 아래 버튼(상세의 "저장")을 누르지 못할 때가 있다. 겹친 요소는 없었다. `orca eval --expression "[...document.querySelectorAll('button')].find(b=>b.textContent==='저장').click()"`로 누른다. `browser.mjs click`은 처음부터 이렇게 누른다.
+- `orca click`이 접힌 영역 아래 버튼(상세의 "저장")을 누르지 못할 때가 있다. `orca eval --expression "[...document.querySelectorAll('button')].find(b=>b.textContent==='저장').click()"`로 누른다. `browser.mjs click`은 처음부터 이렇게 누른다.
 - 비활성된 사람의 탭은 열린 채로는 `me`의 staleTime(30초)이 지나고 포커스가 돌아와야 로그인 화면으로 간다. 다시 열면 바로 간다.
 - `GET /v1/members`가 owner·admin(`member.manage`) 전용이라 member는 구성원 목록을 못 본다. 권한 없음 화면이 맞는 결과다.
 - 웹 카드 폼에는 `credential_refs`가 없어 웹에서 만든 에이전트는 바로 활성화된다. API로 `capabilities.credential_refs`를 넣은 카드는 연결 전 활성화가 `409 CREDENTIAL_UNBOUND`다. 자격 연결은 접근 탭(`?tab=access`)에 있다. Slack 앱 설치 설정은 API로 한다([musterrolle.md](./musterrolle.md) f·g).

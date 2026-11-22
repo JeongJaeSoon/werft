@@ -104,7 +104,7 @@ GitHub Packages bot tokenを別の host に送る必要がある場合だけ、�
 | 待機メッセージ（`QUEUED_INPUT_LIMIT_PER_SESSION`） | 20 | 整数 1–100000。一つのセッションが蓄積できる `queued` turn 数 | `429 RATE_LIMITED`、`retryable:true`、`Retry-After: 5` |
 | 入力の保管（`STORAGE_LIMIT_BYTES`） | 1073741824（1 GiB） | 整数 1–9007199254740991 bytes。環境全体が保持する入力 message の UTF-8 bytes。event・checkpoint object・worker ディスクは数えません（ディスクは workspace quota が担当） | `413 STORAGE_LIMIT_EXCEEDED`、`retryable:false` |
 | 作業領域の容量（`WORKSPACE_ENFORCE`） | `warn` | `warn`・`fail`・`off`。worker の workspace が quota を超えたときの動作です。worker は claim 時に値を受けるため、すでに動いている worker は受けた値を使い続けます | `warn` はログ `worker.turn.workspace_quota_exceeded` だけを残し、`fail` は超えた turn を止め、`off` は測りません |
-| セッション記録の保管: 保管までの未使用期間（`SESSION_ARCHIVE_AFTER_DAYS`） | 180 | 0（無効）か、整数 30–3650 日。最後の活動がこれより古いセッションのイベントを、保管ジョブが bucket の object に移します。ジョブは実行のたびに DB から読みます（[セッションイベントの保管](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md#세션-이벤트-보관)） | 該当なし |
+| セッション記録の保管: 保管までの未使用期間（`SESSION_ARCHIVE_AFTER_DAYS`） | 180 | 0（無効）か、整数 30–3650 日。最後の活動がこれより古いセッションのイベントを、保管ジョブが bucket の object に移します。ジョブは実行のたびに DB から読みます（[セッションイベントの保管](/run-server/self-hosting/reference/storage#세션-이벤트-보관)） | 該当なし |
 | セッション記録の保管: 保管ジョブの動作（`SESSION_ARCHIVE_DRY_RUN`） | 数えるだけ（`true`） | 数えるだけ・実際に移す。数えるだけなら、移す数をログに残すだけです。API の object store の設定から見て保管できないインストールなら、画面がそう知らせます | 該当なし |
 | 停止したセッションの作業領域（`EXECUTION_WORKSPACE_STOPPED_TTL_SEC`） | 86400（1 日） | 整数 0–315360000 秒（3650 日）。`stopped` セッションの workspace（Docker volume、Kubernetes PVC）を stop から残しておく時間です。0 なら次の回収ですぐ回収します。scheduler は回収のたびに DB から読みます（[worker の作業領域](/run-server/self-hosting/reference/storage)） | scheduler が workspace を回収し、次の resume は checkpoint から復元します |
 | 一時停止したセッションの作業領域（`EXECUTION_WORKSPACE_PAUSED_TTL_SEC`） | 86400（1 日） | 整数 0–315360000 秒（3650 日）。resume が受け付ける checkpoint のある `paused` セッションの workspace を、pause から残しておく時間です | 停止したセッションと同じ |
@@ -164,7 +164,7 @@ worker は claim 時に、実際に自分のイメージに含む組み合わせ
 
 `EXECUTION_DOCKER_NETWORK`・`EXECUTION_DOCKER_NETWORK_ALLOWLIST` はもう読みません。値があれば起動を拒否します。
 
-egress-proxy と API の authorizer listener は次の値を読みます。一覧変数は既定値に追加せず、全体を置き換えます。GitHub・bucket host を追加するときは provider・パッケージ registry など必要な項目をすべて再記入します。公開 credential 一覧（`EGRESS_CREDENTIAL_ALLOWLIST`）は proxy と API で同じ値にします。private 一覧（`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`）は proxy の拒否基準であり、API はコンソール警告だけに使います。private 一覧も一致を推奨しますが強制はなく、core・local-model layer の role 別既定値も異なります。
+egress-proxy と API の authorizer listener は次の値を読みます。一覧変数は既定値に追加せず、全体を置き換えます。GitHub・bucket host を追加するときは provider・パッケージ registry など必要な項目をすべて再記入します。公開 credential 一覧（`EGRESS_CREDENTIAL_ALLOWLIST`）は proxy と API で同じ値にします。private 一覧（`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`）は proxy の拒否基準です。API では、ワークスペース MCP サーバーを http で登録し private アドレスで呼べる host を決め、コンソール警告にも使います。private 一覧も一致を推奨しますが強制はなく、core・local-model layer の role 別既定値も異なります。API は 2 つの credential 一覧を起動時に一度だけ、proxy と同じ方法で読みます。大文字小文字、host 末尾のドット、IPv6 アドレスの角括弧は区別せず、両方の一覧にある host は公開一覧の側として扱います。proxy が起動を拒否する項目（ポートがない、または 1〜65535 の整数でない項目）は何も許可しません。ワークスペース MCP サーバー登録の検査とモデル接続のコンソール警告は、この読み取り結果を共有します。
 
 | 変数 | 既定値 | Helm values | 意味と起動制約 |
 | --- | --- | --- | --- |
@@ -175,7 +175,7 @@ egress-proxy と API の authorizer listener は次の値を読みます。一�
 | `EGRESS_ALLOWLIST` | 空一覧 | `config.egress.allowlist` | forward public 宛先のカンマ区切り `host:port`。credential・redirect 一覧との重複禁止 |
 | `EGRESS_PRIVATE_ALLOWLIST` | Compose：`api:3000,host.docker.internal:3000`。chart：API Service の 3000 | `config.egress.privateAllowlist`（空なら API Service） | forward private 宛先。link-local・reserved アドレスは許可しません。両 forward 一覧が空なら proxy 起動拒否 |
 | `EGRESS_CREDENTIAL_ALLOWLIST` | Compose（core・local）：`api.anthropic.com:443,api.openai.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443`。単一サーバー（test-ops）：既定値なし、必須。chart：core・local と同じ既定値 | `config.egress.credentialAllowlist` | API・proxy の credential public 宛先。test-ops は未設定なら Compose が失敗します。既定値全体を置き換えるため、GitHub・checkpoint bucket host を追加する際は必要な全項目を再記入します |
-| `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | chart・Compose core proxy：空一覧。Compose core API・local proxy layer：`fake-git:3000,fake-messages:4010,fake-mcp:4020,localstack:4566` | `config.egress.credentialPrivateAllowlist` | proxy 拒否・API コンソール警告用の private 宛先。test-ops LocalStack 経路には `localstack:4566` が必須で、例もこの値だけを使います。local-model overlay は `fake-git:3000,localstack:4566,ollama.internal:11434,litellm:4000`。運用環境では試験 host を使いません |
+| `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | chart・Compose core proxy：空一覧。Compose core API・local proxy layer：`fake-git:3000,fake-messages:4010,fake-mcp:4020,localstack:4566` | `config.egress.credentialPrivateAllowlist` | proxy 拒否、API のワークスペース MCP private アクセスとコンソール警告に使う private 宛先。test-ops LocalStack 経路には `localstack:4566` が必須で、例もこの値だけを使います。local-model overlay は `fake-git:3000,localstack:4566,ollama.internal:11434,litellm:4000`。運用環境では試験 host を使いません |
 | `EGRESS_PACKAGES_REDIRECT_ALLOWLIST` | 空一覧 | `config.egress.packagesRedirectAllowlist` | packages redirect と Git LFS object の public 宛先。資格情報なしで取得し、forward 一覧との重複禁止 |
 | `EGRESS_AUTHORIZER_HOST` | `0.0.0.0` | 個別 key なし | API authorizer listener アドレス |
 | `EGRESS_AUTHORIZER_PORT` | API コード：未設定なら listener なし。Compose・chart：3100 | 自動生成 | API では token と両方設定するか両方省略。`AUTH_MODE=none` と併用すると起動拒否 |
@@ -297,7 +297,7 @@ Helm chart（`deploy/helm/werft`、設置手順は [Kubernetes 設置（Helm cha
 | migrate Job | install・upgrade ごとに 1 | `pre-install,pre-upgrade` hook |
 | upgrade-check Job | upgrade ごとに 1 | `pre-upgrade` hook、migrate より前。`scheduler.enabled: false` ならありません（[アップグレード前検査](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외)） |
 | checkpoint GC CronJob | 週 1 回 | `checkpointGc.schedule` |
-| session archive CronJob | 週 1 回 | `sessionArchive.schedule`（既定 `0 5 * * 0`）・`afterDays`（既定 180、0=無効、30–3650）・`dryRun`（既定 `true`）。長期間休止したセッションのイベントを bucket に移します（[data-retention.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md#세션-이벤트-보관)） |
+| session archive CronJob | 週 1 回 | `sessionArchive.schedule`（既定 `0 5 * * 0`）・`afterDays`（既定 180、0=無効、30–3650）・`dryRun`（既定 `true`）。長期間休止したセッションのイベントを bucket に移します（[セッションイベントの保管](/run-server/self-hosting/reference/storage#세션-이벤트-보관)） |
 | NetworkPolicy | 5 | worker は egress-proxy だけにアクセスします。制御領域 Pod で外部接続を遮断するのは slack だけです |
 | Ingress、ExternalSecret | 任意 | `ingress.enabled`、`secrets.externalSecret.enabled` |
 | metrics Deployment + Service（9464）+ NetworkPolicy | 任意、1、`Recreate` | `metrics.enabled`。プラットフォームメトリクスを返します（[プラットフォームメトリクス](/run-server/self-hosting/collect-metrics)） |
@@ -311,6 +311,8 @@ Helm chart（`deploy/helm/werft`、設置手順は [Kubernetes 設置（Helm cha
 | `EGRESS_AUTHORIZER_TOKEN` | api、egress-proxy（同じ値） |
 | `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` | api、checkpoint GC、session archive CronJob。`secrets.objectStoreKeys: true` の場合だけ。`false` なら AWS 既定 credential chain（IRSA）で署名します |
 | `PLATFORM_SECRET_KEY` | api、slack。必須。64 文字 hex の master key。コンソールに保存した資格情報を封印します。Secret にないと Pod は起動しません |
+
+master key は `PLATFORM_SECRET_KEY` の代わりに、key を入れたファイルのパスを `PLATFORM_SECRET_KEY_FILE` で渡せます（compose secret のようにマウントしたファイル。末尾の改行一つは無視します）。どちらか一方だけを置きます。両方あるときは同じ key でなければならず、違うと api と slack の役割は起動を拒否します（`master_key_mismatch`）。どちらもないか、ファイルを読めなければ `master_key_missing` です。コンテナ内で運用者コマンドを実行するときは、そのコマンドの環境にもどちらかが必要です。entrypoint がサーバープロセスにだけ key を渡す構成では、`docker compose exec` で起動したコマンドは key を受け取れないため、サービスの env に `PLATFORM_SECRET_KEY_FILE` を置きます。ローカルスタックの `scripts/local.sh up` は、api が `PLATFORM_SECRET_KEY_FILE` を受け取ると key を作らず、`PLATFORM_SECRET_KEY` を空の値で渡します。`infra/compose.local.yml` の開発用の既定 key はシェルにこの変数がまったくないときだけ入るため、`local.sh` を使わずに `docker compose` で起動するときはシェルに `PLATFORM_SECRET_KEY=`（空の値）を置きます。
 
 モデル接続・MCP サーバー・リポジトリの GitHub App key は、Secret や環境変数では渡しません。コンソール（または credential API）で入れ、`PLATFORM_SECRET_KEY` で暗号化して DB に保存されます。`secrets.catalogEnv` と `config.aws.secretsManagerEndpointUrl` はなくなり、values に残っているとレンダリングが失敗します。`secrets.bootstrapToken` もなくなり、残っているとレンダリングが失敗します。最初の owner は、api Pod で `bun run apps/control-host/src/api/setup-link.ts` が出力する一回限りの設定リンクで作ります。リンクは DB にあるため、replica の数に関係なく使えます。
 
@@ -359,3 +361,74 @@ Helm chart（`deploy/helm/werft`、設置手順は [Kubernetes 設置（Helm cha
 | `DATABASE_URL` | なし（必須） | 読み取り専用で開く DB アドレス。chart は他の role と同じ Secret key を設定します |
 | `config.limits` の上限 | [設定レファレンス](/run-server/self-hosting/reference/configuration) | launch キューを scheduler と同じ費用・token 上限で数えます。chart は scheduler と同じ値を設定します |
 | `LOG_LEVEL` | `info` | 読み取り失敗を記録するログレベル |
+
+## トレースのエクスポート [#트레이스-내보내기]
+
+API だけが読む設定です。既定はオフで、キーを一つも設定しなければ span を作らず、何も送りません。オンにすると、ログの `trace_id`・`span_id` がアクティブな span の中で記録されます。collector は OTLP/HTTP（protobuf）を受け取れるものなら何でも使えます。サンプル collector は[観測](/observability)にあります。
+
+| キー | 既定値 | 意味 |
+|---|---|---|
+| `OTEL_TRACES_EXPORTER` | `none` | `none` または `otlp` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | なし | collector のアドレス。前者は末尾に `/v1/traces` を付け、後者はそのまま使います。`otlp` なのにどちらもなければ起動しません |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | この値だけを受け付けます |
+| `OTEL_EXPORTER_OTLP_HEADERS` / `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | なし | `キー=値,キー=値`（値はパーセントエンコード、印字可能な ASCII のみ）。同じ名前なら後者が優先されます。形式が誤っていれば起動しません。秘密情報なので env ファイルでだけ渡し、値はログやエラーメッセージに出ません |
+| `OTEL_SERVICE_NAME` | `werft-api` | サービス名 |
+| `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | `always_on` / `1.0` | `always_on`、`always_off`、`traceidratio`（比率 0〜1） |
+| `TRACE_TENANT_HEADER` | なし | `<ヘッダー名>: <値テンプレート>`。テンプレートの `{workspace_id}` をワークスペース id に置き換え、batch ごとに付けます |
+| `TRACE_INSTALL_TENANT` | なし | ワークスペースのない span のテナント値 |
+| `TRACE_TENANT_HEADERS_FILE` | なし | ワークスペースごとのヘッダーを書いた JSON ファイル。mode 600 でなければ起動しません。同じヘッダー名なら、このファイルが `TRACE_TENANT_HEADER` と `OTEL_EXPORTER_OTLP_HEADERS` より優先されます |
+| `TRACE_INGEST_URL` | なし | worker が span を送る API の ingest アドレス（`http`・`https`）。`otlp` なのになければ起動しません |
+| `TRACE_CONTENT_MODE` / `TRACE_CONTENT_MAX_BYTES` | `full` / `32768` | プロンプト・回答・ツールの入出力を span に載せるか（`full`・`metadata`）と、内容属性一つのバイト上限。設置全体に一つだけ適用されます |
+| `TRACE_INGEST_PORT` / `TRACE_INGEST_MAX_REQUEST_BYTES` / `TRACE_INGEST_MAX_BYTES_PER_MIN` / `TRACE_MAX_BYTES_PER_TRACE` / `TRACE_FENCED_GRACE_SEC` | `4319` / 4 MiB / 32 MiB / 20 MiB / `300` | ingest listener のポートと上限。0・負の値・数値でない値なら、キー名を示して起動しません |
+
+`TRACE_TENANT_HEADERS_FILE` の形式です。値は秘密情報なので、リポジトリに置きません。
+
+```json
+{ "<workspace_id>": { "<header name>": "<secret value>" } }
+```
+
+**有効にする最小設定.** 次の値を api の env に渡します。プロンプト・回答・ツールの入出力は span 属性（`gen_ai.*`）に載るため、ログストアは別途要りません。
+
+```bash
+OTEL_TRACES_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.example.com:4318
+TRACE_INGEST_URL=http://api:4319
+EGRESS_PRIVATE_ALLOWLIST=api:3000,host.docker.internal:3000,api:4319
+```
+
+- **Compose.** 上の値を compose を起動するシェルか `.env` に置くと、同じ名前で api コンテナに渡ります。worker が ingest に向かう経路も egress proxy を通るため、`EGRESS_PRIVATE_ALLOWLIST` の既定値 `api:3000,host.docker.internal:3000` に `api:<TRACE_INGEST_PORT>` を加えます。
+- **Kubernetes.** キーは `api.extraEnv` に渡します。ポートは Service と NetworkPolicy も知る必要があるため、`config.tracing.ingestPort`（既定 `4319`）でだけ変え、`TRACE_INGEST_PORT` は渡しません。`TRACE_INGEST_URL` は `http://<api Service 名>:4319` で、`config.egress.privateAllowlist` を `<api Service 名>:3000,<api Service 名>:4319` に指定します。
+- worker は collector に直接接続しません。collector の host を `EGRESS_PRIVATE_ALLOWLIST` や `EGRESS_ALLOWLIST` に入れると、api が起動時に警告を残します。`OTEL_*` キーは worker とエンジンに渡りません。
+
+**collector 側の条件.**
+
+- トレース一つのサイズ上限を `TRACE_MAX_BYTES_PER_TRACE` より大きくします。小さいと collector が大きなトレースを捨てます。
+- テナントヘッダーを設定しない設置では、すべてのワークスペースのトレースが一か所に集まります。収集バックエンドの画面は運用者だけが見られるようにします。
+- `TRACE_CONTENT_MODE=full` なら、プロンプト・回答・ツールの入出力が collector に送られます。送らないなら `metadata` にします。
+
+**span.** `/v1/**` リクエストごとに `{METHOD} {route_template}` span（例: `POST /v1/sessions/:id/turns`）が新しい root として作られます。クライアントが送った `traceparent` は親ではなく link としてだけ残り、その sampled フラグには従いません。ヘルス・メトリクスのパスには span がありません。turn の span はセッションと turn 番号で決まる別のトレース（root `werft.turn`）に付き、turn をキューに入れたリクエストの span と前の turn の root とは link でつながります。worker gateway の呼び出しは、その turn トレースの `traceparent` を載せたときだけその下の子 span になり、それ以外の gateway 呼び出し（heartbeat、long poll など）には span がありません。
+
+## セッションタイトルの生成 [#세션-제목-생성]
+
+セッション作成時に `title` がなければ、最初のメッセージを 80 文字で切った値がタイトルになります。最初の turn が `completed` で終わると、API がその turn のメッセージと回答から短いタイトルを一度だけ取得して置き換えます。
+
+| 変数 | 既定値 | 許容範囲 |
+|---|---|---|
+| `SESSION_TITLE_EGRESS_URL` | compose `http://egress-proxy:3129` | egress proxy の credential route のアドレス。空にするとこの機能はオフになります。Codex 接続（`openai_responses`）のセッションはモデルでタイトルを作らず、最初のメッセージから作ったタイトルをそのまま残します |
+
+- 呼び出しはセッションの接続とモデルで provider route を通るため、費用は最初の turn の usage とセッション上限に入ります。proxy は `/v1/messages`、セッションのモデル、`max_tokens` 64 以下のリクエストだけを送ります。
+- API はこの URL の host:port にだけ送り（メタデータ・link-local アドレスは拒否）、redirect には従わず、25 秒で打ち切ります。
+- 利用者が付けたタイトルや `PATCH /v1/sessions/{id}` で変えたタイトルは上書きしません。呼び出しが失敗するか回答が空なら、最初のメッセージのタイトルが残ります。
+
+## 設定文書のインポートとエクスポート [#설정-문서-가져오기내보내기]
+
+モデル接続・リポジトリは DB の行です。コンソールで一つずつ扱うか、**設定文書** 一つで入れて取り出します。初回デプロイの migrate は空の設置にだけ文書を一度入れ、その後のデプロイは文書を読みません。その後に文書から追加するには、次のコマンドでインポートします。
+
+- **形式.** `{"version": 1, "connections": {…}, "repositories": {…}}`。`mcp_servers` 欄が空でない文書は文書全体を `400 BAD_REQUEST`（`reason_code: invalid_document`）で拒否し、エラーにはそのサーバー名と「設置カタログ MCP はなくなった」という案内だけが出ます。空の欄（`{}`）や欄のない文書は受け付け、エクスポートはその欄を書きません。資格情報は `"auth": {"stored": true}` と書き、値はインポート後にコンソールで入れます。値のない行は `needs_value` で、その行を使うセッションは動きません。エクスポートは `{"stored": true, "last4": "…"}` だけを出し、値は出しません。master key は文書に入りません。`value_env`・`secret_id` の参照と最上位の `profiles` は拒否します。
+- **インポートは追加だけを行います.** 項目ごとに `add`（新しい行）、`unchanged`（同じ行）、`inactive`（使用停止した行と同じ id）、`needs_value` に分けます。同じ id で内容が違うか、同じ GitHub リポジトリを別の id で書くと `conflicts` で、その場合は何も書きません。行を変更・削除することはありません。
+- **Compose.** `bun run settings export > settings.json` は文書を stdout に、`digest sha256:…` を stderr に出します。インポートは `bun run settings import --document - --dry-run < settings.json` で先に確認し、`--dry-run` を外してもう一度実行します。コマンドは api コンテナの中で動くため、ホストのファイルは `-`（stdin）で渡します。拒否されると 1 で終わります。
+- **Kubernetes.** `bun run settings:k8s export` のように、`settings:k8s` が api Pod の中で同じ CLI を実行します。
+- **API.** `GET /v1/installation/settings/export` は `{document, digest}` を、`POST /v1/installation/settings/import?dry_run=true` は判定結果を返します。設置 owner のログインセッションだけが呼び出せ、API key は `403` です。衝突は `409 REVISION_CONFLICT`、誤った文書は `400 BAD_REQUEST` です。
+- **ファイルカタログで動いていた設置.** `PLATFORM_CONFIG_DIR`・`SESSION_CATALOG_JSON` は読まず、値が残っていると api は起動を拒否します。上げる前に二つの値を env から消し、Compose では古い設定ディレクトリを `PLATFORM_LEGACY_CONFIG_DIR` で渡します（`/legacy-config` に読み取り専用でマウントされます）。`platform.yaml` はインポートしないため、master key は上げる前に同じ値で `PLATFORM_SECRET_KEY` に移します。値が違うと保存した資格情報を読めません。master key なしで動いていた設置は先に新しい key を入れます。なければ api と slack の役割は起動を拒否します。migrate がそのディレクトリを一度インポートし、その後はディレクトリと `PLATFORM_LEGACY_CONFIG_DIR` を消してかまいません。手でインポートするときは `bun run settings import --from-dir <dir>` を使います。ディレクトリからのインポート（migrate と `--from-dir`）ではリポジトリだけが例外で、認証の種類が同じで内容が違うリポジトリと、すでに行がある GitHub リポジトリの別名は `conflicts` ではなく `kept` とし、DB の行をそのまま使います。
+- **設置カタログ MCP.** 設置 owner がコンソールや設定文書の `mcp_servers` で追加していたリモート MCP サーバーは、migration `0304_retire_catalog_mcp` が削除します。カタログの行、その保存値、エージェントのカタログ選択が消え、migrate ログ `db.migrate.notice` に削除したサーバーの数と名前が残ります。ワークスペース MCP サーバーへは移さないため、使い続けるサーバーは上げる前に名前を控え、上げた後にワークスペース MCP サーバー（設定 > エージェント接続 > **MCP サーバー**）として登録し、エージェントのアクセスタブで選びます。新しく登録する名前に `github`・`browser`・`memory` は使えず（`memory` は既存のワークスペースサーバーならそのまま残ります）、名前はワークスペース内で重ならなければかまいません。そのためカタログの `memory` サーバーは別の名前で登録します。API の起動時、カタログサーバーを書いたエージェントの下書きは、そのサーバー（`capabilities.mcp`）、そのサーバーのツールの `tool_policy.per_tool` 項目、そのサーバーが使っていた `credential_ref` を除いた新しいバージョンに移されます（`forbidden` とカードの他の名前は残ります）。移したものがあれば `Drafts naming a retired catalog MCP server reconciled` ログにその数が残ります。既存の release は変わらず、再び有効化できます。古い release のセッションはそのサーバーなしで動き、そのサーバーが使っていた credential 名の紐付けを外しても開始します。セッションには「なくなったカタログ MCP `<名前>` はスキップ」という一行が一度残ります。そのサーバーを入れて撮った checkpoint も復元されます。ただし復元候補が 16 個埋まったセッションは、最も古い候補一つの checkpoint を復元できないことがあり、そのとき API ログに `claim.retired_catalog_restore_dropped` 警告がセッション id とともに残ります。rolling deploy 中に古い replica がカタログに書き込むと（インポート、コンソール、カタログサーバーを書いたカードの保存）DB が拒否するため、上げている間はカタログを変えません。
+- **戻せる下限.** インポートで `auth_kind` が `github_app_explicit` のリポジトリ行を書いた DB は、`auth_kind` を知らない古いイメージに戻しません。古いイメージはその行をコンソールの GitHub App リポジトリとして読みます。

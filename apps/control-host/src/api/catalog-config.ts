@@ -47,7 +47,7 @@ export function refuseFileCatalog(
   );
   if (leftover.length > 0) {
     throw new Error(
-      `${leftover.join(" and ")} no longer read: finish the import with \`bun run settings import --from-dir <dir>\` (docs/operator/api-server.md), then unset ${leftover.length === 1 ? "it" : "them"}`,
+      `${leftover.join(" and ")} no longer read: finish the import with \`bun run settings import --from-dir <dir>\` (https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/reference/configuration/#설정-문서-가져오기내보내기), then unset ${leftover.length === 1 ? "it" : "them"}`,
     );
   }
 }

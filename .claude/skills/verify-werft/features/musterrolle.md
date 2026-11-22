@@ -6,7 +6,7 @@ workspace 멤버 초대·관리, 팀, Slack 계정 연동, 권한별 API key(개
 
 - `a-member-lifecycle` owner 웹 로그인 → 초대 → 수락·로그인 → 역할 변경(admin 포함. admin은 owner 역할을 주거나 owner를 바꾸지 못해 `403 OWNER_PROTECTED`, 자기 역할 변경·비활성은 `403 SELF_PROTECTED`, 계정이 정지된 사람의 역할 변경·재활성은 `409 ACCOUNT_DISABLED`, 비활성 멤버십의 역할 변경은 `409 MEMBER_DISABLED`. 목록 행의 `actions`가 이 결과를, 목록의 `assignable_roles`가 초대할 수 있는 역할을 미리 싣는다) → 비활성화하면 그 사람의 cookie와 개인 key는 401, 그 사람이 발급한 에이전트 key는 계속 200 → 재활성화해도 끊긴 cookie·개인 key는 돌아오지 않고 다시 로그인한다.
 - `b-teams` 팀 생성 → 구성원 추가·제거(수락 없이, 그 사람을 대상으로 한 receipt가 알림 기록) → 팀을 에이전트 관리자로 지정 → 팀원은 그 에이전트를 관리하고, 팀에서 빠지거나 팀이 지워지면 다음 요청부터 403. owner·admin만 팀을 바꾼다.
-- `c-slack-signin` owner·admin의 config token 저장 → 에이전트 Slack 앱 생성·설치(install start → 동의 → complete, 확인된 설치와 에이전트 연결) → 연결 시작이 워크스페이스의 link 앱을 만들고 Sign in with Slack으로 연결·목록·해제, 처리 시점 재판정. 손으로 만든 앱은 설치 등록 CLI로. 실제 Slack 동의는 사람이 하고(`docs/operator/api-server.md` § Slack 계정 연결의 확인 절차), 자동 확인은 mock Slack과 버리는 master key로 한다.
+- `c-slack-signin` owner·admin의 config token 저장 → 에이전트 Slack 앱 생성·설치(install start → 동의 → complete, 확인된 설치와 에이전트 연결) → 연결 시작이 워크스페이스의 link 앱을 만들고 Sign in with Slack으로 연결·목록·해제, 처리 시점 재판정. 손으로 만든 앱은 설치 등록 CLI로. 실제 Slack 동의는 사람이 하고(사이트 `integrations/slack`의 Slack 계정 연결), 자동 확인은 mock Slack과 버리는 master key로 한다.
 - `c-slack-decision` 연결한 사람만 Slack에서 쓴다: 멘션·승인 버튼의 판정(`authorizeSlackInput`), 거절 안내 문구, guest 사용 설정(`POST /v1/workspaces/{id}/slack-guest`), Slack Connect 거절, 요약 상한 채널의 `redact`. Slack 채널(이벤트 수신)이 없어 판정은 api 컨테이너에서 함수로 부른다.
 - `d-scoped-keys` member는 개인 key만, owner·admin은 모든 에이전트의 에이전트 key, 에이전트 관리자(그 에이전트를 만든 사람)는 그 에이전트의 에이전트 key를 `POST /v1/api-keys`로 발급한다. `agent_id` 없는 key(workspace 전체 key)는 누구든 400. 권한이 없으면 403과 `details.reason_code`. 에이전트 key는 그 에이전트의 세션만 만들고 읽는다. key마다 `name`(1~64자, 필수 아님). 발급자의 지금 scope를 넘는 key는 403 `SCOPE_NOT_GRANTABLE`. API key로는 발급하지 못한다. 발급자를 내보내면 개인 key는 멈추고 에이전트 key는 계속 동작한다.
 - `f-credential-bindings` 에이전트 관리자가 card의 `credential_refs` 이름을 그 에이전트에 연결(`POST /v1/agents/{id}/credential-bindings`)해야 활성화가 된다. 해제하면 실행 중 세션은 그대로 두고(`running_sessions`, `revoke_notice`) 다음 세션 생성이 `409 CREDENTIAL_UNBOUND`(안내 문구·관리자·`mailto:` 링크)다.
@@ -30,7 +30,7 @@ workspace 멤버 초대·관리, 팀, Slack 계정 연동, 권한별 API key(개
 Preconditions:
 
 - 시나리오마다 필요한 사용자: owner는 [web-login.md](./web-login.md)의 bootstrap 뒤 login으로 만든다(bootstrap은 cookie를 주지 않는다). member·admin은 owner가 초대하고 수락해 만든다(a의 1). DB에 직접 넣지 않는다.
-- 자격 값이 본문에 드는 요청(bootstrap·login·초대 수락·key 발급)은 `scripts/web-user.mjs`로 보낸다. 비밀번호·초대 token·key secret을 명령에 쓰면 agent-guard가 그 호출을 거부한다. `web-user.mjs`는 그 값을 run 디렉터리(`users/<who>`, `users/<who>.invite`, `keys/<who>`)에 두고 출력하지 않는다. 사용법은 [web-login.md](./web-login.md)와 [sessions.md](./sessions.md)의 웹 사용자 세션.
+- 자격 값이 본문에 드는 요청(bootstrap·login·초대 수락·key 발급)은 `scripts/verify/web-user.mjs`로 보낸다. 비밀번호·초대 token·key secret을 명령에 쓰면 agent-guard가 그 호출을 거부한다. `web-user.mjs`는 그 값을 run 디렉터리(`users/<who>`, `users/<who>.invite`, `keys/<who>`)에 두고 출력하지 않는다. 사용법은 [web-login.md](./web-login.md)와 [sessions.md](./sessions.md)의 웹 사용자 세션.
 - `ap_web`은 cookie 파일 하나(`$VERIFY_RUN/cookie`)만 읽고 쓴다. `web-user.mjs login|accept <who>`는 그 cookie를 `cookie.<who>`에도 남기고, `ap_as <who>`가 그 사람의 cookie(와 `web-user.mjs key`로 발급한 key를 `$KEY`)로 바꾼다.
 - `ap_web`은 POST마다 새 `Idempotency-Key`를 붙인다. 이 헤더가 없으면 `400`인 것은 세션 POST(`POST /v1/sessions`, `/v1/sessions/{id}/{messages,answers,interrupt,pause,terminate,resume,recovery-decisions}`, `/v1/admin/sessions/{id}/{terminate,recovery-decisions}`)이고, 나머지 route는 이 헤더를 보지 않는다. 그래서 cookie로 부르는 것은 모두 `ap_web`, 스트림(`-N`)처럼 다른 curl 옵션이 필요하면 `ap_curl cookie`로 보낸다. key·cookie·본문을 curl 인자에 직접 쓰지 않는다(`ps`에 보인다).
 - 세션 생성 응답은 `{"session_id", "turn_id", "receipt_id", "status"}`다(`.session.id`가 아니다).
@@ -62,16 +62,16 @@ Preconditions:
 
   ```sh
   export PLATFORM_SECRET_KEY="$(openssl rand -hex 32)"; echo "master key chars: ${#PLATFORM_SECRET_KEY}"   # 64
-  orch heavy <program> -- .claude/skills/verify-werft/scripts/up.sh infra/compose.mock-slack.yml
+  orch heavy <program> -- scripts/verify/up.sh infra/compose.mock-slack.yml
   ```
 
   mock(`mock-slack:4020`)은 compose 네트워크 안에서만 닿는다. config token 발급(`/fake/config-tokens`)과 동의(`/fake/oauth/authorize`, 계정 연결은 IdP의 authorize)는 api 컨테이너에서 부른다. config token 값은 변수에만 담고 출력하지 않는다. owner cookie는 web-login.md로, member는 `web-user.mjs invite owner member member` → `accept member`로 만든다. `werft_slack_link` cookie도 `Secure`라 curl이 저장하지 않으니 직접 나른다: `ap_web`이 남긴 `$VERIFY_RUN/headers`에서 꺼내 `AP_COOKIE_EXTRA`에 담으면 `ap_web`이 세션 cookie 뒤에 붙인다. authorize URL·code·state도 명령줄 인자가 아니라 stdin과 `ap_web` 본문으로만 나른다.
 
   ```sh
-  . .claude/skills/verify-werft/scripts/lib.sh <run id>
+  . scripts/verify/lib.sh <run id>
   # owner bootstrap + login: web-login.md. WS는 login 응답의 workspace_id. member 초대·수락. 이후 ap_as owner
   # 1. config token (owner)
-  node .claude/skills/verify-werft/scripts/web-user.mjs <run id> slack-config owner "$WS"
+  node scripts/verify/web-user.mjs <run id> slack-config owner "$WS"
   # 2. 에이전트 앱 (owner). CARD는 d의 2. release를 활성화해야 앱을 만든다
   ap_web POST /v1/teams '{"name":"research"}'                  # MTID = team.id
   ap_web POST /v1/agents "{\"slug\":\"research\",\"name\":\"research\",\"managing_team_id\":\"$MTID\",\"card\":$CARD}"      # AID, VID = versions[0].id
@@ -79,7 +79,7 @@ Preconditions:
   ap_web POST "/v1/agents/$AID/activate" "{\"release_id\":\"$REL\",\"expected_revision\":-1}"
   ap_web POST "/v1/agents/$AID/slack/app" '{}'                  # APP = slack_app.app_id
   # 3. 설치 (owner): start → mock 동의 → complete
-  node .claude/skills/verify-werft/scripts/web-user.mjs <run id> slack-install owner "$AID"
+  node scripts/verify/web-user.mjs <run id> slack-install owner "$AID"
   ap_web GET "/v1/agents/$AID/identities"
   # 4. 연결 (member): 시작이 link 앱을 만든다
   ap_as member

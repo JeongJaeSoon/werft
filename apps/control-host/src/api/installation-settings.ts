@@ -19,27 +19,6 @@ export function settingsSource(options: {
   };
 }
 
-/**
- * The egress proxy's credential allowlist when the api is given the same
- * value: the console warns about an endpoint outside it (a warning only).
- * Null when unset: the api does not know it.
- */
-export function credentialHostsFromEnv(
-  env: Record<string, string | undefined>,
-): string[] | null {
-  const lists = [
-    env.EGRESS_CREDENTIAL_ALLOWLIST,
-    env.EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST,
-  ].filter((raw): raw is string => raw !== undefined && raw.trim() !== "");
-  if (lists.length === 0) return null;
-  return lists.flatMap((raw) =>
-    raw
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter((entry) => entry !== ""),
-  );
-}
-
 export function leftOutReporter(
   warn: (message: string, fields: Record<string, unknown>) => void,
 ): (snapshot: SettingsSnapshot) => void {

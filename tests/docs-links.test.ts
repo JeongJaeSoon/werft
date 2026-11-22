@@ -392,6 +392,9 @@ const NOT_SETTINGS: Record<string, string> = {
     "kept out of public docs; an existing install sets it to keep its volumes",
   EXECUTION_VOLUME_NAME_PREFIX:
     "kept out of public docs; an existing install sets it to keep its volumes",
+  WORKER_WORKSPACE_PVC_CAPACITY_BYTES:
+    "derived by the Kubernetes scheduler from the PVC's reported capacity",
+  PREVIEW_NAMESPACE: "set by the preview chart for its demo accounts only",
 };
 
 function withoutComments(source: string): string {
@@ -453,11 +456,8 @@ describe("Operator settings", () => {
   const documented = (text: string, name: string) =>
     new RegExp(`(?<![A-Z0-9_])${name}(?![A-Z0-9_])`).test(text);
 
-  test("every setting the code reads is in docs/operator/", () => {
-    const operator = [
-      ...scan("docs/operator/*.md"),
-      ...scan("apps/docs/content/docs/run-server/self-hosting/**/*.mdx"),
-    ]
+  test("every setting the code reads is on the docs site", () => {
+    const operator = scan("apps/docs/content/docs/**/*.mdx")
       .map((file) => readFileSync(join(root, file), "utf8"))
       .join("\n");
     const names = codeSettings();
@@ -480,14 +480,29 @@ describe("Operator settings", () => {
   test("every value compose or a script takes from the shell is in docs/", () => {
     const docs = [
       ...scan("docs/**/*.md"),
-      ...scan("apps/docs/content/docs/run-server/self-hosting/**/*.mdx"),
+      ...scan("apps/docs/content/docs/**/*.mdx"),
     ]
       .map((file) => readFileSync(join(root, file), "utf8"))
       .join("\n");
     const names = shellSettings();
     expect(names).toContain("API_MEMORY_MB");
-    // Names the .env file the local-stack and e2e scripts read; local development only.
-    const localOnly = new Set(["AGENT_PLATFORM_DOTENV"]);
+    // Local development and test overlays, never set on an installation.
+    const localOnly = new Set([
+      "AGENT_PLATFORM_DOTENV",
+      "AGENT_PLATFORM_STATE_DIR",
+      "KEYCLOAK_PORT",
+      "KEYCLOAK_WERFT_CLIENT_SECRET",
+      "KEYCLOAK_WERFT_USER_PASSWORD",
+      "MOCK_SLACK_TEAM_ID",
+      "MOCK_SLACK_TEAM_NAME",
+      "MOCK_SLACK_USER_ID",
+      "MOCK_SLACK_USER_NAME",
+      "SLACK_FUNNEL_HTTPS_PORT",
+      // scripts/restore.sh exports these from its --port-base.
+      "RESTORE_GIT_HOST_PORT",
+      "RESTORE_LOCALSTACK_PORT",
+      "RESTORE_POSTGRES_PORT",
+    ]);
     const missing = [...names]
       .filter((name) => !(name in NOT_SETTINGS) && !localOnly.has(name))
       .filter((name) => !documented(docs, name))

@@ -20,10 +20,7 @@ export type {
   IngestAttributeValue,
   IngestSpan,
 } from "./tracing/ingest-span.ts";
-export {
-  createTelemetryPolicy,
-  endpointOnEgressAllowlist,
-} from "./tracing/telemetry-policy.ts";
+export { createTelemetryPolicy } from "./tracing/telemetry-policy.ts";
 export { turnTraceId } from "./tracing/trace-id.ts";
 export {
   currentSpanContext,

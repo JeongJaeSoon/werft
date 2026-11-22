@@ -4,8 +4,9 @@
 # the pass. A package that cannot be pulled fails the job at the pull step.
 #
 #   release  read the release's manifest from GitHub, anonymously
-#   compose  docs/operator/test-ops.md on a host with an xfs prjquota Docker
-#            root: manifest, preflight, deploy at the release's source commit
+#   compose  the docs site's single-server install on a host with an xfs
+#            prjquota Docker root: manifest, preflight, deploy at the
+#            release's source commit
 #   kind     helm pull of the published chart, installed on kind
 #
 # The jobs use no image and no chart built from this checkout. The compose
@@ -88,7 +89,7 @@ jobs:
           echo "TEST_OPS_ENV_FILE=$RUNNER_TEMP/rehearsal/test-ops.env" >>"$GITHUB_ENV"
           echo "TEST_OPS_STATE_DIR=$RUNNER_TEMP/rehearsal/state" >>"$GITHUB_ENV"
       # The release's own source: the commit its manifest names, which is
-      # what docs/operator/test-ops.md tells an operator to check out.
+      # what the docs site's single-server page tells an operator to check out.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.release.outputs.commit }}
@@ -103,8 +104,8 @@ jobs:
         with:
           name: rehearsal-release-manifest
           path: ${{ runner.temp }}/manifest
-      # docs/operator/test-ops.md § 디스크: the scheduler's quota probe needs
-      # an xfs Docker root with prjquota, which a runner's ext4 does not have.
+      # The scheduler's quota probe needs an xfs Docker root with prjquota,
+      # which a runner's ext4 does not have.
       - name: Docker root on xfs with prjquota
         run: |
           command -v mkfs.xfs >/dev/null || { sudo apt-get update && sudo apt-get install -y xfsprogs; }

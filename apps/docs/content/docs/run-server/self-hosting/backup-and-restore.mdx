@@ -38,6 +38,8 @@ scripts/test-ops.sh restore-drill /var/lib/werft/test-ops/backups/backup-<timest
 
 `--port-base`는 훈련 서비스의 별도 시작 포트이며 다른 설치와 겹치지 않게 고른다. LocalStack 시험에서는 `--bucket`을 주지 않는다. 훈련은 postgres와 object store를 복원하고 모든 checkpoint pointer를 version 단위로 대조한다. API는 띄우지 않는다. 월 1회와 업그레이드 뒤 첫 백업마다 수행한다.
 
+백업에 적힌 migration 목록은 지금 checkout과 정확히 같아야 한다. 오래된 백업도, checkout이 모르는 migration이 든 백업도 종료 코드 3으로 거부한다. 업그레이드 전에 뜬 백업을 복원하려면 그 백업을 뜬 release의 `source_commit`을 checkout해 복원·검증한 뒤, migration은 별도 단계로 돌린다.
+
 ### 3. checkpoint GC
 
 백업과 겹치지 않는 주간 일정에 먼저 dry-run을 실행한다.
@@ -62,6 +64,16 @@ API_CONTAINER를 이 설치의 status와 project label로 확인한다. 출력�
 
 훈련 도구는 종료 시 이번 훈련 project를 정리한다. 조사용 `--keep`을 썼다면 확인 뒤 그 project만 down하고 volume은 별도 보존 정책으로 처리한다. 훈련 bucket은 운영 bucket과 구분하여 재사용할 데이터가 없음을 확인한 뒤, 각 object version의 legal hold 해제 → version과 delete marker 삭제 → 빈 bucket 삭제 순서로 정리한다. retention이 남으면 우회하지 않고 만료를 기다린다. 운영 백업본은 시험을 위해 지우지 않는다.
 
+## Kubernetes 설치
+
+Kubernetes 설치는 compose용 백업 도구를 쓰지 않는다. AWS 기능이 같은 일을 한다.
+
+- **DB.** RDS 자동 백업(point-in-time 복원)과 수동 스냅샷.
+- **checkpoint 객체.** S3 versioning과 Object Lock. 커밋된 checkpoint는 version으로 고정되고 legal hold가 걸려 있어, 같은 key를 덮어쓰거나 지워도 그 version은 남는다. 복원은 bucket을 복사하지 않고 같은 bucket의 version을 그대로 가리킨다. 그래서 미수거 checkpoint가 있는 동안 bucket을 바꾸지 않는다.
+- **bucket은 DB와 함께 정본이다.** [세션 이벤트 보관](/run-server/self-hosting/reference/storage#세션-이벤트-보관)이 `session-archive/`로 옮긴 이벤트는 그 object가 유일한 사본이다. DB만 되살리고 bucket을 잃으면 그 세션의 이벤트는 읽을 수 없다.
+- **lifecycle 규칙.** 만료 규칙은 두지 않는다. checkpoint 객체는 chart의 checkpoint GC CronJob(`checkpointGc.schedule`, 기본 `0 4 * * 0`)만 지운다. lifecycle은 DB를 모르므로, hold가 걸리기 전의 객체나 GC가 hold를 푼 version을 먼저 지워 finalize나 GC를 깨뜨린다. `session-archive/`에는 storage class 이동만 두고, API가 바로 읽을 수 있는 class(`STANDARD_IA`, `ONEZONE_IA`, `GLACIER_IR`, archive tier를 켜지 않은 `INTELLIGENT_TIERING`)로만 옮긴다. `GLACIER`·`DEEP_ARCHIVE`로 옮기면 그 세션의 이벤트를 읽지 못한다.
+- **스냅샷과 GC.** RDS 스냅샷은 그 시점의 pointer를 담는다. 스냅샷 뒤에 GC가 지운 revision을 그 스냅샷의 pointer가 가리킬 수 있으므로, 스냅샷 보존 기간과 GC 주기를 함께 정한다.
+
 ## 다음에 읽을 곳
 
-[Compose 업그레이드](/run-server/self-hosting/upgrade-compose), [저장소와 상한](/run-server/self-hosting/reference/storage). Kubernetes DB·S3 복원은 [운영자 백업 계약](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#kubernetes-설치)을 따른다.
+[Compose 업그레이드](/run-server/self-hosting/upgrade-compose), [저장소와 상한](/run-server/self-hosting/reference/storage). Kubernetes DB·S3 복원은 [Kubernetes 설치](#kubernetes-설치)를 따른다.

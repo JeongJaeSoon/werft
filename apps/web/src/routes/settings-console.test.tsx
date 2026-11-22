@@ -441,6 +441,28 @@ describe("모델 연결", () => {
     expect(table.textContent).not.toContain("luna");
   });
 
+  test("an IPv6 or trailing-dot endpoint matches the allowlist entry the API sends", async () => {
+    renderAt(
+      CONNECTIONS_PAGE,
+      routes(me(), ["fd00::1:8443", "llm.internal:443"]),
+    );
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "연결 추가" }));
+    const dialog = await screen.findByRole("dialog");
+    const endpoint = within(dialog).getByLabelText("엔드포인트");
+    // user-event reads "[" as a key name; "[[" types one.
+    await user.type(endpoint, "https://[[fd00::1]:8443/v1");
+    expect(within(dialog).queryByRole("status") === null).toBe(true);
+    await user.clear(endpoint);
+    await user.type(endpoint, "https://llm.internal./v1");
+    expect(within(dialog).queryByRole("status") === null).toBe(true);
+    await user.clear(endpoint);
+    await user.type(endpoint, "https://[[fd00::2]:8443/v1");
+    expect(within(dialog).getByRole("status").textContent).toContain(
+      "fd00::2:8443는 egress",
+    );
+  });
+
   test("without the allowlist known, nothing warns", async () => {
     renderAt(CONNECTIONS_PAGE, routes(me(), null));
     const user = await setupUser();

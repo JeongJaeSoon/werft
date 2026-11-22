@@ -42,12 +42,6 @@ const ALLOWED: Record<string, string> = {
     "the changelog is one repository file in Korean, holding what a release's generated notes cannot: security fixes and operator actions",
   "docs/quickstart.md":
     "the full local-stack runbook (session lap, restart, scripted prompts) that CI runs as written; the site's dev-server page carries the reader steps and the site links there",
-  "docs/operator/api-server.md":
-    "no site page yet; the API server reference is being moved separately",
-  "docs/operator/backup-restore.md":
-    "held: still calls an internal test script and has unfinished sections",
-  "docs/operator/data-retention.md":
-    "held: pins line numbers to a commit and has an open decisions section",
 };
 const ALLOWED_PREFIXES: Record<string, string> = {
   "examples/sdk-": "sample code directories and their per-sample READMEs",

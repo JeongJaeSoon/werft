@@ -48,7 +48,7 @@ description: 이름·설명과 저장소의 CLAUDE.md·AGENTS.md의 차이, 에�
 | 필드 | 필수 | 내용 |
 | --- | --- | --- |
 | `model` | 예 | 모델 이름. release를 만들 때 고른 연결의 모델 목록에 있어야 한다 |
-| `capabilities.mcp` | 예 | 쓸 MCP 서버 하나를 운영자 카탈로그의 id로 `[{ "server": "<id>" }]`처럼 적는다. 없으면 `null` |
+| `capabilities.mcp` | 예 | 없어진 설치 카탈로그 MCP의 칸이다. `null`로 두며, 서버를 적은 새 버전·release는 거절된다. MCP 서버는 워크스페이스 MCP 서버로 등록해 에이전트의 접근 탭에서 고른다 |
 | `capabilities.forbidden` | | 금지할 MCP 도구 이름(`mcp__<서버>__<도구>`). 웹 콘솔은 새 카드에 `[]`를 넣고, 기존 값은 보이고 지우기만 한다 |
 | `capabilities.tool_policy` | | `per_tool`에 MCP 도구별 `allow`·`ask`·`deny` |
 | `capabilities.credential_refs` | | 쓸 자격 증명의 이름(값이 아니다). [권한](/agents/permissions) |

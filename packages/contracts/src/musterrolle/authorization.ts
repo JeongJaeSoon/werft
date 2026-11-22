@@ -131,8 +131,7 @@ export const principalSchema = z
         // Uncapped for the reason principalRefSchema gives.
         id: z.string().min(1),
         owner_id: ownerScopeSchema,
-        // Legacy keys predate workspaces and stay unmapped until an explicit
-        // owner_workspace_map row exists.
+        // Legacy keys predate workspaces and are not backfilled into one.
         workspace_id: workspaceIdSchema.nullable(),
         scopes: z.array(sessionScopeSchema),
       })
