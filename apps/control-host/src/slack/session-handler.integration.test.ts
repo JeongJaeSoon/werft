@@ -553,6 +553,20 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(said).toEqual(["summarize the thread", "more"]);
   });
 
+  test("a top-level mention comes as message and app_mention with one ts, and the inbox processes both", async () => {
+    const fixture = await agentInSlack();
+    const { handle } = handler();
+    // As measured on Slack: the message event carries channel_type, the
+    // mention does not.
+    await deliver(fixture, rootMessage("100.000100"));
+    await deliver(fixture, mention("100.000100"));
+    expect(await drain(handle)).toMatchObject({ processed: 2 });
+    expect(await inboxStatuses()).toEqual(["processed", "processed"]);
+    const [session, ...others] = await sessionsOf(fixture);
+    expect(others).toEqual([]);
+    expect(await turnsOf(session?.id)).toHaveLength(1);
+  });
+
   test("an unlinked person gets no session and one notice per thread", async () => {
     const fixture = await agentInSlack();
     const { handle, notices } = handler();
