@@ -677,7 +677,9 @@ function endpointHost(endpoint: string): string | null {
     const url = new URL(endpoint);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
     const port = url.port || (url.protocol === "https:" ? "443" : "80");
-    return `${url.hostname}:${port}`;
+    // As the API writes an allowlist entry: IPv6 unbracketed, no trailing dot.
+    const host = url.hostname.replace(/^\[|\]$/g, "").replace(/\.$/, "");
+    return `${host}:${port}`;
   } catch {
     return null;
   }

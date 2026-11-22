@@ -116,7 +116,10 @@ export function createSettingsConsoleService(deps: {
   /** This replica's `<kind>:<id>` rows whose credential did not resolve. */
   leftOut: () => ReadonlyArray<{ entry: string }>;
   secretStoreOn: boolean;
-  /** EGRESS_CREDENTIAL_ALLOWLIST as `host:port`, or null when not given. */
+  /**
+   * The credential allowlists as `host:port`, read as the egress proxy
+   * reads them; null when neither is given.
+   */
   credentialHosts: readonly string[] | null;
   /** Reads the settings again after a write committed; never throws. */
   reread: () => Promise<void>;

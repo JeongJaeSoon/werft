@@ -10,7 +10,6 @@ import {
   SessionServiceError,
   type SettingsConsoleService,
 } from "@werft-ai/platform";
-import { credentialHostsFromEnv } from "../installation-settings.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerSettingsConsoleRoutes } from "./installation-settings.ts";
 
@@ -367,28 +366,4 @@ describe("settings console writes", () => {
       ).toBe(503);
     });
   }
-});
-
-describe("credentialHostsFromEnv", () => {
-  test("joins the public and private credential lists; neither set is unknown", () => {
-    expect(
-      credentialHostsFromEnv({
-        EGRESS_CREDENTIAL_ALLOWLIST: " api.anthropic.com:443, ,github.com:443",
-        EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "fake-messages:4010",
-      }),
-    ).toEqual([
-      "api.anthropic.com:443",
-      "github.com:443",
-      "fake-messages:4010",
-    ]);
-    expect(
-      credentialHostsFromEnv({
-        EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "fake-git:3000",
-      }),
-    ).toEqual(["fake-git:3000"]);
-    expect(
-      credentialHostsFromEnv({ EGRESS_CREDENTIAL_ALLOWLIST: " " }),
-    ).toBeNull();
-    expect(credentialHostsFromEnv({})).toBeNull();
-  });
 });

@@ -1,4 +1,5 @@
 import type { OutboundHttp } from "@werft-ai/platform";
+import { entryHostPort, parseEgressAllowlist } from "./egress-allowlist.ts";
 import {
   createProviderRequest,
   hostPortOf,
@@ -6,31 +7,14 @@ import {
 } from "./oidc/provider-http.ts";
 import { outboundUnder } from "./outbound-http.ts";
 
-// The egress proxy's parseDestination, so both sides agree on what an entry names.
-function normalizeEntry(entry: string): string {
-  const separator = entry.startsWith("[")
-    ? entry.indexOf("]:") + 1
-    : entry.lastIndexOf(":");
-  if (separator <= 0) return entry.toLowerCase();
-  const host = entry
-    .slice(0, separator)
-    .replace(/^\[(.*)\]$/, "$1")
-    .replace(/\.$/, "")
-    .toLowerCase();
-  return `${host}:${Number(entry.slice(separator + 1))}`;
-}
-
 const entriesOf = (raw: string | undefined): string[] =>
-  (raw ?? "")
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry !== "")
-    .map(normalizeEntry);
+  parseEgressAllowlist(raw).map(entryHostPort);
 
 /**
  * The egress proxy's credential allowlists as the api is given them: a
- * workspace server's host:port must be on one. Null when neither is set, and
- * then no workspace server can be registered.
+ * workspace server's host:port must be on one, and the console warns about a
+ * model connection endpoint outside `credential`. Null when neither is set,
+ * and then no workspace server can be registered.
  */
 export type WorkspaceMcpHosts = {
   credential: readonly string[];

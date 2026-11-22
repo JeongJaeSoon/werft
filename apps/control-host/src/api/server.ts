@@ -229,11 +229,7 @@ import {
   createInstallationConfigAdmin,
   sessionArchiveStatusOf,
 } from "./installation-config.ts";
-import {
-  credentialHostsFromEnv,
-  leftOutReporter,
-  settingsSource,
-} from "./installation-settings.ts";
+import { leftOutReporter, settingsSource } from "./installation-settings.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { createLoginSettingsAdmin } from "./login-settings.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
@@ -786,7 +782,7 @@ const settingsConsole = createSettingsConsoleService({
   store: settingsDocumentStore,
   leftOut: () => catalogRegistry.settings?.left_out ?? [],
   secretStoreOn: true,
-  credentialHosts: credentialHostsFromEnv(process.env),
+  credentialHosts: workspaceMcpHosts?.credential ?? null,
   reread: rereadSettings,
   discovery: {
     connection: (id) => catalogRegistry.settings?.connections[id],

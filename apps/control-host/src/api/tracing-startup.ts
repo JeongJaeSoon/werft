@@ -2,10 +2,9 @@ import {
   createPostgresTelemetryIngestStore,
   type Database,
 } from "@werft-ai/db";
-import {
-  endpointOnEgressAllowlist,
-  type StructuredLogger,
-  type TracingSettings,
+import type {
+  StructuredLogger,
+  TracingSettings,
 } from "@werft-ai/observability";
 import {
   LoggedDropCounter,
@@ -14,6 +13,10 @@ import {
   valueMasker,
 } from "../ingest/adapters.ts";
 import { type IngestListener, startIngestListener } from "../ingest/start.ts";
+import {
+  normalizeEgressHost,
+  parseEgressAllowlist,
+} from "./egress-allowlist.ts";
 
 const EGRESS_LISTS = ["EGRESS_PRIVATE_ALLOWLIST", "EGRESS_ALLOWLIST"] as const;
 
@@ -30,8 +33,10 @@ export function warnCollectorOnEgressAllowlist(
   logger: Pick<StructuredLogger, "warn">,
 ): boolean {
   if (settings === undefined) return false;
+  const host = normalizeEgressHost(new URL(settings.endpoint).hostname);
+  // By host only: the collector on any port of a listed host is reachable.
   const lists = EGRESS_LISTS.filter((name) =>
-    endpointOnEgressAllowlist(settings.endpoint, env[name]),
+    parseEgressAllowlist(env[name]).some((entry) => entry.host === host),
   );
   if (lists.length === 0) return false;
   logger.warn(

@@ -8,7 +8,6 @@ import { parseTracingSettings, type SamplerKind } from "./config.ts";
 import {
   createTelemetryPolicy,
   effectiveContentMode,
-  endpointOnEgressAllowlist,
 } from "./telemetry-policy.ts";
 import { sampleByTraceId } from "./tracer.ts";
 
@@ -193,28 +192,6 @@ describe("claim telemetry from settings", () => {
       sampler: "traceidratio",
       sampler_arg: 0.1,
     });
-  });
-});
-
-describe("egress allowlist", () => {
-  test("matches the collector host regardless of port or case", () => {
-    const collector = "http://Collector.Internal:4318/v1/traces";
-    expect(
-      endpointOnEgressAllowlist(
-        collector,
-        "api.anthropic.com:443, collector.internal:4318",
-      ),
-    ).toBe(true);
-    expect(endpointOnEgressAllowlist(collector, "collector.internal")).toBe(
-      true,
-    );
-    expect(endpointOnEgressAllowlist(collector, "other.internal:4318")).toBe(
-      false,
-    );
-    expect(endpointOnEgressAllowlist(collector, undefined)).toBe(false);
-    expect(
-      endpointOnEgressAllowlist("http://[::1]:4318/v1/traces", "[::1]:4318"),
-    ).toBe(true);
   });
 });
 
