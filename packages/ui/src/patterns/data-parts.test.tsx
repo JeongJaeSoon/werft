@@ -115,6 +115,27 @@ describe("Section", () => {
     expect(screen.getByText("3명").tagName).toBe("P");
     expect(screen.getByRole("button", { name: "초대" })).toBeTruthy();
   });
+
+  test("머리의 sm 버튼은 머리 높이(기본 버튼)와 같은 높이·좌우 여백으로 맞춘다", () => {
+    const screen = render(
+      <Section
+        title="구성원"
+        actions={
+          <button type="button" data-werft-button="" data-size="sm">
+            초대
+          </button>
+        }
+      />,
+    );
+    const classes = (
+      screen.getByRole("button", { name: "초대" }).parentElement?.className ??
+      ""
+    ).split(/\s+/);
+    expect(classes).toContain(
+      "[&_[data-werft-button][data-size=sm]]:h-[var(--werft-control-height)]",
+    );
+    expect(classes).toContain("[&_[data-werft-button][data-size=sm]]:px-3");
+  });
 });
 
 describe("SecretField", () => {
