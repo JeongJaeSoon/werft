@@ -22,6 +22,18 @@ import {
 
 type ConversationRow = typeof conversations.$inferSelect;
 
+// Postgres takes a uuid in either case and hands it back in lower case, so
+// ids are compared in lower case.
+function lowerIds(key: ConversationKey): ConversationKey {
+  const ids = {
+    workspaceId: key.workspaceId.toLowerCase(),
+    agentId: key.agentId.toLowerCase(),
+  };
+  return key.kind === "channel"
+    ? { ...key, ...ids }
+    : { ...key, ...ids, personUserId: key.personUserId.toLowerCase() };
+}
+
 function toConversation(row: ConversationRow): Conversation {
   const id = row.id as ConversationId;
   const base = { id, workspaceId: row.workspaceId, agentId: row.agentId };
@@ -45,8 +57,9 @@ export function createPostgresConversationStore(
   // An insert that loses a race inserts nothing; the winner's row is read by
   // the next statement, which sees what committed before it began.
   async function findOrCreateConversation(
-    key: ConversationKey,
+    input: ConversationKey,
   ): Promise<Conversation> {
+    const key = lowerIds(input);
     const id = randomUUID();
     if (key.kind === "channel") {
       const teamId = slackScopeSegmentSchema.parse(key.teamId);
@@ -126,9 +139,10 @@ export function createPostgresConversationStore(
   }
 
   async function findOrCreateThreadTopic(
-    conversationId: ConversationId,
+    givenId: ConversationId,
     thread: ThreadAlias,
   ): Promise<ConversationTopic> {
+    const conversationId = givenId.toLowerCase() as ConversationId;
     const alias = {
       slackTeamId: slackScopeSegmentSchema.parse(thread.teamId),
       slackChannelId: slackScopeSegmentSchema.parse(thread.channelId),
@@ -159,6 +173,7 @@ export function createPostgresConversationStore(
         workspaceId: conversation.workspaceId,
         agentId: conversation.agentId,
         conversationId,
+        conversationKind: conversation.kind,
         ...alias,
       })
       .onConflictDoNothing({

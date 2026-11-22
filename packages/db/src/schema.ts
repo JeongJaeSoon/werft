@@ -4855,11 +4855,18 @@ export const conversations = pgTable(
       table.channelId,
     ),
     unique("conversations_dm_uniq").on(table.agentId, table.personUserId),
-    // What conversation_topics references.
-    unique("conversations_agent_id_key").on(
+    // What conversation_topics references: its agent and kind, and for a
+    // channel conversation its channel.
+    unique("conversations_agent_kind_key").on(
       table.workspaceId,
       table.agentId,
       table.id,
+      table.kind,
+    ),
+    unique("conversations_channel_key").on(
+      table.id,
+      table.teamId,
+      table.channelId,
     ),
     check(
       "conversations_kind_check",
@@ -4875,8 +4882,8 @@ export const conversations = pgTable(
 
 // One top-level message and its thread is one topic. The id is the server's;
 // the Slack thread is its alias, empty for a web topic until Slack places it.
-// A channel topic's alias is in its conversation's channel (the store reads
-// it from the row); a DM topic's names the D… channel as Slack sent it.
+// A channel topic's alias is in its conversation's channel; a DM topic's
+// names the D… channel as Slack sent it.
 export const conversationTopics = pgTable(
   "conversation_topics",
   {
@@ -4884,9 +4891,22 @@ export const conversationTopics = pgTable(
     workspaceId: uuid("workspace_id").notNull(),
     agentId: uuid("agent_id").notNull(),
     conversationId: uuid("conversation_id").notNull(),
+    /** The conversation's, held to it by the FK below. */
+    conversationKind: text("conversation_kind")
+      .$type<ConversationKind>()
+      .notNull(),
     slackTeamId: text("slack_team_id"),
     slackChannelId: text("slack_channel_id"),
     slackThreadTs: text("slack_thread_ts"),
+    // The alias's channel when the conversation is a channel's, else null:
+    // the FK they feed holds a channel topic to its conversation's channel
+    // and skips DM and web topics, as a FK skips a row with a null.
+    channelTeamId: text("channel_team_id").generatedAlwaysAs(
+      sql`CASE WHEN "conversation_kind" = 'channel' THEN "slack_team_id" END`,
+    ),
+    channelChannelId: text("channel_channel_id").generatedAlwaysAs(
+      sql`CASE WHEN "conversation_kind" = 'channel' THEN "slack_channel_id" END`,
+    ),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -4894,11 +4914,30 @@ export const conversationTopics = pgTable(
   (table) => [
     foreignKey({
       name: "conversation_topics_conversation_fk",
-      columns: [table.workspaceId, table.agentId, table.conversationId],
+      columns: [
+        table.workspaceId,
+        table.agentId,
+        table.conversationId,
+        table.conversationKind,
+      ],
       foreignColumns: [
         conversations.workspaceId,
         conversations.agentId,
         conversations.id,
+        conversations.kind,
+      ],
+    }),
+    foreignKey({
+      name: "conversation_topics_channel_fk",
+      columns: [
+        table.conversationId,
+        table.channelTeamId,
+        table.channelChannelId,
+      ],
+      foreignColumns: [
+        conversations.id,
+        conversations.teamId,
+        conversations.channelId,
       ],
     }),
     // Unique per agent, as an input alias is: two agents in one thread each

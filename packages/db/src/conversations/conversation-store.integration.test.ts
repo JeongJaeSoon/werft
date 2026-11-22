@@ -15,7 +15,7 @@ import { createPostgresConversationStore } from "./conversation-store.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-integration("conversations and topics (0306)", () => {
+integration("conversations and topics (0307)", () => {
   let database: TempDatabase;
   let pool: Pool;
   let store: ConversationStore;
@@ -65,7 +65,7 @@ integration("conversations and topics (0306)", () => {
   afterAll(async () => {
     await pool?.end();
     await database?.drop();
-  });
+  }, 60_000);
 
   // drizzle wraps the driver's error; the constraint is on its cause.
   async function violates(work: Promise<unknown>, constraint: string) {
@@ -379,7 +379,7 @@ integration("conversations and topics (0306)", () => {
         ts: string | null,
       ) =>
         pool.query(
-          "INSERT INTO conversation_topics (id, workspace_id, agent_id, conversation_id, slack_team_id, slack_channel_id, slack_thread_ts) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+          "INSERT INTO conversation_topics (id, workspace_id, agent_id, conversation_id, conversation_kind, slack_team_id, slack_channel_id, slack_thread_ts) VALUES ($1, $2, $3, $4, 'channel', $5, $6, $7)",
           [
             randomUUID(),
             workspaceId,
@@ -412,10 +412,74 @@ integration("conversations and topics (0306)", () => {
       const conversation = await channelConversation(nextChannel());
       await expect(
         pool.query(
-          "INSERT INTO conversation_topics (id, workspace_id, agent_id, conversation_id) VALUES ($1, $2, $3, $4)",
+          "INSERT INTO conversation_topics (id, workspace_id, agent_id, conversation_id, conversation_kind) VALUES ($1, $2, $3, $4, 'channel')",
           [randomUUID(), workspaceId, secondAgentId, conversation.id],
         ),
       ).rejects.toThrow(/conversation_topics_conversation_fk/);
+    });
+
+    test("a written topic cannot leave its channel or claim another kind", async () => {
+      // The store refuses these too; the database must, for any other writer.
+      const channelId = nextChannel();
+      const conversation = await channelConversation(channelId);
+      const insert = (kind: string, channel: string) =>
+        pool.query(
+          "INSERT INTO conversation_topics (id, workspace_id, agent_id, conversation_id, conversation_kind, slack_team_id, slack_channel_id, slack_thread_ts) VALUES ($1, $2, $3, $4, $5, 'T01', $6, '1700000000.000900')",
+          [randomUUID(), workspaceId, agentId, conversation.id, kind, channel],
+        );
+      await expect(insert("channel", "C99")).rejects.toThrow(
+        /conversation_topics_channel_fk/,
+      );
+      await expect(insert("dm", "C99")).rejects.toThrow(
+        /conversation_topics_conversation_fk/,
+      );
+      await insert("channel", channelId);
+      await expect(
+        pool.query(
+          "UPDATE conversation_topics SET slack_channel_id = 'C99' WHERE conversation_id = $1",
+          [conversation.id],
+        ),
+      ).rejects.toThrow(/conversation_topics_channel_fk/);
+    });
+
+    test("ids in upper case find the same rows", async () => {
+      const channelId = nextChannel();
+      const lower = await store.findOrCreateConversation({
+        kind: "channel",
+        workspaceId,
+        agentId,
+        teamId: "T01",
+        channelId,
+      });
+      const upper = await store.findOrCreateConversation({
+        kind: "channel",
+        workspaceId: workspaceId.toUpperCase(),
+        agentId: agentId.toUpperCase(),
+        teamId: "T01",
+        channelId,
+      });
+      expect(upper.id).toBe(lower.id);
+      const thread = {
+        teamId: "T01",
+        channelId,
+        threadTs: "1700000000.000100",
+      };
+      const a = await store.findOrCreateThreadTopic(lower.id, thread);
+      const b = await store.findOrCreateThreadTopic(
+        lower.id.toUpperCase() as ConversationId,
+        thread,
+      );
+      expect(b.id).toBe(a.id);
+      const dm = await store.findOrCreateConversation({
+        kind: "dm",
+        workspaceId: workspaceId.toUpperCase(),
+        agentId: secondAgentId.toUpperCase(),
+        personUserId: member.toUpperCase(),
+      });
+      expect(dm).toMatchObject({
+        agentId: secondAgentId,
+        personUserId: member,
+      });
     });
   });
 });
