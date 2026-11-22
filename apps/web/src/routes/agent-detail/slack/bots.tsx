@@ -164,7 +164,8 @@ export function SlackAllowedBots({
               type="button"
               variant="outline"
               size="sm"
-              disabled={!bots.isSuccess}
+              // Opening resets both writes; one still running stays tracked.
+              disabled={!bots.isSuccess || busy}
               onClick={open}
             >
               {t("slack.botsEdit")}

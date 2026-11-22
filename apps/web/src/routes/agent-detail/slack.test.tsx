@@ -1158,9 +1158,27 @@ describe("Slack management", () => {
     // Each writes the whole list, so a save waits for the add.
     const save = within(dialog).getByRole("button", { name: "저장" });
     await waitFor(() => expect(save.hasAttribute("disabled")).toBe(true));
+    // Closed and opened again meanwhile, the picker still waits for it.
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "답할 봇 고르기" }) === null,
+      ).toBe(true),
+    );
+    const edit = within(basic).getByRole("button", { name: "변경" });
+    expect(edit.hasAttribute("disabled")).toBe(true);
     answer();
+    await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
+    await user.click(edit);
+    const reopened = await screen.findByRole("dialog", {
+      name: "답할 봇 고르기",
+    });
     await screen.findByText("봇을 추가했습니다.");
-    expect(save.hasAttribute("disabled")).toBe(false);
+    expect(
+      within(reopened)
+        .getByRole("button", { name: "저장" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
     const last = api.calls.filter(
       (call) => call.method === "PUT" && call.path.endsWith("/bots"),
     );
@@ -1168,9 +1186,15 @@ describe("Slack management", () => {
     expect(last.at(-1)?.body).toEqual({
       allowed_user_ids: ["U0REVIEW", "U0FAR"],
     });
-    const far = await within(dialog).findByRole("checkbox", { name: "far" });
+    const far = await within(reopened).findByRole("checkbox", { name: "far" });
     expect(far.getAttribute("aria-checked")).toBe("true");
-    expect((field as HTMLInputElement).value).toBe("");
+    expect(
+      (
+        within(reopened).getByLabelText(
+          "Slack 사용자 ID로 추가",
+        ) as HTMLInputElement
+      ).value,
+    ).toBe("");
   });
 
   test("a member reads the bots to answer without a way to change them, and a failed read says so", async () => {

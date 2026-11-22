@@ -494,20 +494,20 @@ export function createSlackSessionHandler(
           ...ids,
           first: counted.first,
         });
-        if (counted.first) {
-          await deps.notices.recordInThread({
-            workspaceId: agent.workspaceId,
-            agentId: agent.agentId,
-            installationId: agent.installationId,
-            slackAppId: claim.slackAppId,
-            teamId: claim.teamId,
-            channelId: event.channel,
-            threadTs,
-            sessionId: found?.sessionId ?? null,
-            notice: { message: "botTurnLimit" },
-            onceKey: `${claim.teamId}:${surfaceRef}:bot_turn_limit:${counted.stop}`,
-          });
-        }
+        // Every stopped mention asks for the one line; its key keeps it one,
+        // and a later mention posts it if the first one's write was lost.
+        await deps.notices.recordInThread({
+          workspaceId: agent.workspaceId,
+          agentId: agent.agentId,
+          installationId: agent.installationId,
+          slackAppId: claim.slackAppId,
+          teamId: claim.teamId,
+          channelId: event.channel,
+          threadTs,
+          sessionId: found?.sessionId ?? null,
+          notice: { message: "botTurnLimit" },
+          onceKey: `${claim.teamId}:${surfaceRef}:bot_turn_limit:${counted.stop}`,
+        });
         return;
       }
     }

@@ -401,6 +401,7 @@ function handler(
   return {
     notices: notices.notices,
     threadNotices: notices.threadNotices,
+    sink: notices.sink,
     handle: async (claim: SlackInboundClaim) => {
       await catalog.refresh();
       return handle(claim);
@@ -1829,6 +1830,53 @@ describe.each(ENGINES)("Slack bot mentions on %s", (engine) => {
     const [session] = await sessionsOf(fixture);
     expect(await turnsOf(session?.id)).toHaveLength(1);
     expect(threadNotices).toHaveLength(1);
+  });
+
+  test("a stop whose line was lost posts it on the next stopped mention, once", async () => {
+    const fixture = await agentInSlack();
+    await allowBots(fixture, [REVIEW_BOT]);
+    await db.insert(schema.slackThreadBotTurns).values({
+      workspaceId: fixture.workspaceId,
+      teamId: TEAM,
+      channelId: CHANNEL,
+      threadTs: "100.000100",
+      countedTurns: [101, 102, 103, 104, 105].map(
+        (n) => `100.000${n} ${OTHER_AGENT}`,
+      ),
+    });
+    const { handle, sink, threadNotices } = handler();
+    const record = sink.recordInThread;
+    let lost = 0;
+    sink.recordInThread = async (notice) => {
+      // Every try of the first stopped mention fails.
+      if (notice.onceKey.endsWith(`100.000106 ${fixture.agentId}`)) {
+        lost += 1;
+        throw new Error("outbox down");
+      }
+      return record(notice);
+    };
+    // Out of the thread's order, so the next mentions need not wait for its
+    // retries to run out.
+    await deliver(
+      fixture,
+      botMention("100.000106", { thread_ts: "100.000100" }),
+      { thread: false },
+    );
+    await drain(handle);
+    expect(lost).toBeGreaterThan(0);
+    expect(threadNotices).toEqual([]);
+    sink.recordInThread = record;
+    await deliver(
+      fixture,
+      botMention("100.000107", { thread_ts: "100.000100" }),
+    );
+    await deliver(
+      fixture,
+      botMention("100.000108", { thread_ts: "100.000100" }),
+    );
+    await drain(handle);
+    expect(threadNotices).toHaveLength(1);
+    expect(await sessionsOf(fixture)).toEqual([]);
   });
 
   test("a turn the session took stays counted when a later step fails", async () => {
