@@ -1,8 +1,7 @@
 import type { SessionTrigger } from "@werft-ai/contracts";
 
 /**
- * Who a session's commits and pull requests are attributed to (design
- * github-agent.md decision 5), read now: a link made or dropped mid-session
+ * Who a session's commits and pull requests are attributed to, read now: a link made or dropped mid-session
  * shows from the next claim on.
  */
 export type SessionAttributionRecord = {

@@ -147,13 +147,13 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml`, `deplo
 
 ## 토큰·비용·성과물
 
-이 절은 GA-4b 설계([github-agent.md 10절](../contributing/decisions/github-agent.md#10-세션-성과물))가 정한 데이터를 그대로 따른다.
+이 절은 GA-4b 설계(설계 문서: 결정: 에이전트 GitHub 설정과 기능별 권한, 10절)가 정한 데이터를 그대로 따른다.
 
 - **호출마다의 사용량** — `provider_usage`(`schema.ts`의 `providerUsage`)
   - 담는 것: Messages 호출 하나의 모델, 토큰 다섯 종류, 도구 요청 수, 추정 비용. 비용·사용량의 정본이다.
   - 만드는 시점: egress proxy가 응답에서 사용량을 읽어 보내면 API가 쓴다(`apps/egress-proxy/src/usage.ts`, `worker-unit-of-work.ts`의 `recordProviderUsageAtomic`).
   - 보존 기간: 무기한. 삭제 조건: 없음.
-- **아직 정산되지 않은 호출** — `provider_exchanges`(`schema.ts`의 `providerExchanges`, 설계는 [provider-usage-ledger.md](../contributing/decisions/provider-usage-ledger.md))
+- **아직 정산되지 않은 호출** — `provider_exchanges`(`schema.ts`의 `providerExchanges`, 설계 문서: 결정(설계): 세션 사용량을 호출 시작 때부터 적는 장부)
   - 담는 것: egress proxy가 upstream을 부르기 직전에 연 provider 호출 하나의 id, 세션·attempt, 요청에서 계산한 사용량 추정(`reserve`), 연 시각, lease 만료 시각, provider가 과금하지 않았다고 proxy가 알린 시각(`released_at`). 프롬프트나 응답 내용은 없다. 세션 비용에는 들어가지 않는다. 열기가 세션 상한을 판정할 때 풀리지 않은 줄의 `reserve`를 더한다.
   - 만드는 시점: proxy가 authorizer listener의 `POST /exchanges`로 연다(`apps/egress-proxy/src/credential.ts`). 열기는 세션의 과금 provider 호출(Messages, OpenAI Responses)만 하고 `count_tokens`와 판정 호출은 하지 않는다. 그 호출의 사용량 보고가 기록되는 트랜잭션에서 지운다(`packages/db/src/provider-exchanges.ts`, `recordProviderUsageAtomic`).
   - 보존 기간: 보고가 오면 바로 지운다. 풀린 줄(`released_at`이 있는 줄)은 풀린 지 7일이 지나면 지운다. 풀리지 않은 줄은 나이로 지우지 않는다. 보고가 유실된 호출의 예약을 계속 세기 위해서다. lease가 지난 풀리지 않은 줄은 reconciler가 본다. 같은 주인의 보고가 이미 `provider_usage`에 있으면 지우고, 없으면 `Provider exchange reservation expired unsettled` 경고를 한 번 남긴다(`reconcileProviderExchanges`). 경고만으로 비용이 빠졌다고 판단하지 않는다. 아직 흐르는 호출도 들어온다. migration `0280_provider_exchange_release`는 올릴 때 lease가 이미 지난 줄을 한 번 지운다.
@@ -184,7 +184,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml`, `deplo
 
 ## 트레이스와 플랫폼 정본의 경계
 
-세션 관측(OTel) 방향 결정의 결론을 따른다. 이 결정을 이어받은 설계는 [관측(OTel) 방향과 도구 호출 감사](../contributing/decisions/observability-otel-and-tool-call-audit.md)에 있다.
+세션 관측(OTel) 방향 결정의 결론을 따른다. 이 결정을 이어받은 설계는 설계 문서에 있다(설계 문서: 결정(설계): 관측(OTel) 방향과 도구 호출 감사).
 
 - **혼합.** 기능이 기대는 이벤트는 DB `events` 표에 남기고, 이것이 세션 화면·SSE 재연결·turn 종료 판정·질문 알림·복구 판정의 정본이다. 트레이스는 운영자가 고른 OTLP 수집기로 내보내는 관측 신호이고 best effort다. 트레이스가 빠져도 플랫폼의 기록은 그대로다.
 - **OTLP 내보내기까지.** 플랫폼은 span을 만들어 표준 OTLP로 내보내는 데까지 맡는다. 수집기 선택, 수집기 안의 보존 기간, 대시보드는 운영자 몫이다. 그래서 트레이스의 보존 기간은 이 문서가 다루지 않는다.

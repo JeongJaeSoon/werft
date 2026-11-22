@@ -1,8 +1,7 @@
 import { z } from "zod";
 
 /**
- * The result envelope of every tool the action-broker serves (decision
- * action-broker.md §4). A tool answers `{ ok: true, result }` or
+ * The result envelope of every tool the action-broker serves. A tool answers `{ ok: true, result }` or
  * `{ ok: false, refusal }`. There is no `message`: what a refusal means is
  * its `code`, who refused is `by`, and `details` carries ids, limits and
  * outside text as data.

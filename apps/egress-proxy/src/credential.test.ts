@@ -509,7 +509,7 @@ describe("secretsOf", () => {
   });
 });
 
-/** What the proxy sends the exchange ledger (provider-usage-ledger.md). */
+/** What the proxy sends the exchange ledger. */
 type LedgerRequest = {
   op: "open" | "renew" | "release";
   exchange_id: string;

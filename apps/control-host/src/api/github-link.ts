@@ -7,7 +7,7 @@ import { providerFetch } from "./provider-fetch.ts";
 import { sameString as sameToken } from "./same-string.ts";
 
 // Linking a person's GitHub account through the author App's user
-// authorization (design github-agent.md decision 5). The user token answers
+// authorization. The user token answers
 // one `GET /user` and is dropped; nothing of it is kept or logged.
 
 /** The console page GitHub sends the person back to. */
@@ -35,8 +35,8 @@ const cookieOptions = {
 
 /**
  * The state rides in an HttpOnly cookie scoped to the callback and bound to
- * the person who started, the App connection whose client it was issued for
- * (decision github-agent.md 11.3), and its expiry, which the callback checks.
+ * the person who started, the App connection whose client it was issued for,
+ * and its expiry, which the callback checks.
  */
 export function issueGitHubLinkState(
   context: Context,

@@ -100,8 +100,7 @@ export const pullRequestReadSchema = z
 export type PullRequestRead = z.infer<typeof pullRequestReadSchema>;
 
 /**
- * The built-in MCP server a session's agent reaches GitHub through (design
- * github-agent.md §3 "내장 MCP 서버 github"). A catalog MCP server may not
+ * The built-in MCP server a session's agent reaches GitHub through. A catalog MCP server may not
  * take this id.
  */
 export const GITHUB_MCP_SERVER = "github";

@@ -1337,8 +1337,7 @@ export function startCredentialProxy(
     }
   }
 
-  // A billed call's open in the exchange ledger (provider-usage-ledger.md,
-  // "2c-2"): "open" lets it go upstream, "budget" is the session's limit, and
+  // A billed call's open in the exchange ledger: "open" lets it go upstream, "budget" is the session's limit, and
   // anything else, an older API's 404 included, is "failed".
   async function openLedger(
     body: Readonly<Record<string, unknown>>,

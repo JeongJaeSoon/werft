@@ -64,7 +64,7 @@ function rowOf(row: {
   };
 }
 
-/** session-repository-attachment.md decision 3: what `attach_repository` writes. */
+/** What `attach_repository` writes. */
 export function createPostgresRepositoryAttachments(
   db: Database,
 ): RepositoryAttachmentStore {
@@ -183,8 +183,7 @@ export function createPostgresRepositoryAttachments(
             ],
             set: values,
           });
-        // A null list is the release's whole list already
-        // (session-repository-attachment.md decision 2): left null.
+        // A null list is the release's whole list already: left null.
         if (
           session.attached !== null &&
           !session.attached.includes(input.repositoryId)

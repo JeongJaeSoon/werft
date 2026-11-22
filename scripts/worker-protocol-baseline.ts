@@ -1,7 +1,6 @@
 /**
  * The worker protocol baseline: the protocol of the oldest worker in the
- * support window, which the contract test holds the current tree to
- * (docs/contributing/decisions/worker-compat.md § 3).
+ * support window, which the contract test holds the current tree to.
  *
  *   bun scripts/worker-protocol-baseline.ts                 this checkout, release null
  *   bun scripts/worker-protocol-baseline.ts --ref v1.2.3    that tag, from a temporary worktree

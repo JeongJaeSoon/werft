@@ -3,9 +3,7 @@ import { newMcpServerIdSchema } from "../kollegium/agents.ts";
 import { connectionKindSchema } from "../shared/provider-kind.ts";
 
 /**
- * The installation's settings without a secret value
- * (docs/contributing/decisions/settings-replace-file-catalog.md §6). Each
- * entry is checked on import against the catalog's own rules; this schema
+ * The installation's settings without a secret value. Each entry is checked on import against the catalog's own rules; this schema
  * holds only the document's outline.
  */
 export const settingsDocumentSchema = z

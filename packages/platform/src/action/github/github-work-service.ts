@@ -78,8 +78,7 @@ export interface GitHubWorkStore
 }
 
 /**
- * GitHub work a session asks for beyond push and pull requests (design
- * github-agent.md §3): dispatching an allow-listed workflow, reading a run,
+ * GitHub work a session asks for beyond push and pull requests: dispatching an allow-listed workflow, reading a run,
  * rerunning one the platform dispatched, reviewing a pull request. Each goes
  * through the gate, which decides and issues; this service calls GitHub and
  * writes the receipt. Neither a receipt nor a log keeps dispatch inputs, a
@@ -336,7 +335,7 @@ export function createGitHubWorkService(deps: {
     },
 
     /**
-     * A review with the reviewer App (design github-agent.md §2 decision 1).
+     * A review with the reviewer App.
      * The platform does not refuse a review of a pull request the same
      * agent opened; the receipt names both sides so it can be found later.
      */

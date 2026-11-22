@@ -6,7 +6,7 @@ import type {
 } from "@werft-ai/contracts";
 
 // The two places a channel hands a person's answer to the platform (R5 in
-// surface-action-modules.md). A channel takes these types, never a store.
+// tests/architecture.test.ts). A channel takes these types, never a store.
 // `Actor` is the caller type of the service behind the entrance: decision/
 // imports nothing from the domains that implement it, so those domains
 // depend on this file and not the other way round.

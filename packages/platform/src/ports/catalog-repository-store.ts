@@ -1,8 +1,7 @@
 import type { ReceiptActor, WorkspaceRole } from "@werft-ai/contracts";
 
 /**
- * A repository that uses the console's GitHub App, as the database holds it
- * (repository-catalog-db.md §1; settings-replace-file-catalog.md §1.1).
+ * A repository that uses the console's GitHub App, as the database holds it.
  * Removed rows are never listed.
  */
 export interface CatalogRepositoryRow {

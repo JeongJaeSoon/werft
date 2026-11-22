@@ -12,7 +12,7 @@ import { createPostgresSessionAttributionStore } from "./session-attribution.ts"
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-// The starter rule (design github-agent.md decision 5): turn 1's actor, else
+// The starter rule: turn 1's actor, else
 // the session's creator. Web, personal-key and Slack-linked starts name a
 // person; an agent key or the operator names no one.
 integration("session attribution on PostgreSQL", () => {

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** Design achievement-rules.md §4: a call slower than this is a failed try. */
+/** A call slower than this is a failed try. */
 export const DECISIONS_CALL_TIMEOUT_MS = 10_000;
 export const LUNA_MODEL = "gpt-6-luna";
 

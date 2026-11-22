@@ -49,43 +49,4 @@ API로 세션을 만들고 쓰는 사람.
 | [콘솔 데모](contributing/console-demo.md) | 서버 없이 예시 데이터로 콘솔 화면을 보는 데모 모드 |
 | [로컬 모델로 확인하기](contributing/local-model.md) | Ollama·LiteLLM으로 확인 |
 | [콘솔·Slack 용어집](contributing/i18n-glossary.md) | 화면·Slack 알림에서 쓰는 한국어·일본어·영어 용어 |
-| [결정: transcript 저장](contributing/decisions/session-store.md) | SessionStore를 고른 이유, 실패 계약, 그 계약을 지키는 테스트 |
-| [결정: Agent SDK 버전](contributing/decisions/agent-sdk.md) | SDK·LiteLLM 버전 고정 방식, 운영 제약, 호환 harness가 지키는 계약과 실행 방법 |
-| [결정: 에이전트 GitHub 설정과 기능별 권한](contributing/decisions/github-agent.md) | 기능별 권한의 교집합, 토큰 발급 게이트, 리뷰 승인용 App, 같은 역할에 App 여럿과 저장소에 고정된 연결, 세션 성과물 |
-| [결정(설계): 에이전트 행동 도구 카탈로그](contributing/decisions/action-broker.md) | 에이전트가 부르는 정형 도구(Slack 메시지·mrkdwn·의사결정 폼, commit, push, PR, `gh` 입구)의 입력·결과 봉투·실패 코드·멱등성, 그 뒤에서 일하는 control-host 모듈 action-broker의 실행 경로와 자격 증명 위치, 행동 부류 정책, 호출자 매핑, Slack 경계와 `pushApprovability` |
-| [결정(설계): surface·action 모듈, 어댑터, 시험 피라미드](contributing/decisions/surface-action-modules.md) | 사람 쪽 채널(surface)과 에이전트의 바깥 작업(action)의 경계와 목표 트리, `-able` 능력 인터페이스(`Notifiable`·`Approvable` 포함)와 시스템별 능력 표, 예정 능력 표, 설계 원칙별 적용, 의존 방향 규칙, 시험 층 기준과 지울·옮길·남길 시험, 이행 순서 |
-| [결정(설계): 패키지 구조화](contributing/decisions/package-structure.md) | 포트·내장 도구·큰 디렉터리의 구조화, 목표 트리, 의존 방향과 강제, 이행 순서 |
-| [결정(설계): 번들 stdio MCP 서버를 worker relay 뒤에 둔다](contributing/decisions/stdio-mcp-relay.md) | 승인된 번들의 stdio MCP 서버를 worker가 턴 단위로 띄우고 `type: "sdk"` relay 뒤에 두는 방법, 도구 해석·이름 충돌·거절 능력·`ready()` 의미·이벤트, 구현 단위와 선행 티켓 |
-| [결정(조사·설계): worker 브라우저·computer-use 도구](contributing/decisions/worker-browser-tools.md) | 브라우저 sidecar 추천, 같은 deny 우선 판정과 호출자 상한, egress·ECH·이미지 크기 실측, 턴 끝 상호작용, 구현 단위 표 |
-| [결정(설계): 세션 사용량을 호출 시작 때부터 적는 장부](contributing/decisions/provider-usage-ledger.md) | 세션 상한이 끝난 호출만 보는 이유, 호출을 시작할 때 예약을 적는 장부와 그 상태, 혼합 버전에서 깨지지 않게 하는 방법, 집행을 뒤 단계로 미룬 이유 |
-| [결정(설계): 한 배포에서 세션의 엔진에 맞는 worker 이미지를 고른다](contributing/decisions/engine-worker-images.md) | Claude·Codex 이미지를 한 목록에 두는 규칙, 세션 엔진으로 이미지를 고르는 방법, (kind, version) 허용 목록, 엔진 이미지가 없는 세션, claim의 엔진 검증, 배포 순서, 구현 단위 |
-| [결정(설계): worker supervisor와 엔진·git 자식 프로세스 사이의 경계](contributing/decisions/worker-supervisor-boundary.md) | 같은 UID의 `/proc` 읽기로 새는 값, supervisor non-dumpable과 fenced activation을 고른 이유, 막는 것과 못 막는 것, `hidepid`·UID 분리·컨테이너 분리와의 비교 |
-| [결정(설계안): 에이전트의 PR 본문 읽기](contributing/decisions/pull-request-read.md) | 에이전트가 PR 본문을 읽는 도구(`get_pull_request`), 덮어쓰기 막기(`expected_body_sha256`), 기존 PR 꼬리 교체의 실제 GitHub 확인 절차. 오너 결정 전 |
-| [결정: 워크스페이스 성과 규칙과 판정](contributing/decisions/achievement-rules.md) | 근거 사실과 성과 두 층, 구분·성과 type·규칙(1:1:1), 바로 인정과 Luna(OpenAI Decisions API) 판정, 판정 비용 원장, 성과당 비용 |
-| [결정: GitHub Packages bot token](contributing/decisions/github-packages-bot-token.md) | 조직 bot classic PAT를 proxy가 붙이는 방식: 저장·scope 확인, 경로 기반 허용 목록, 실패하면 닫히는 감사, npm·Bundler 설정 |
-| [결정: 워크스페이스가 원격 MCP 서버를 등록·인증하고 에이전트가 쓴다](contributing/decisions/mcp-credentials.md) | 워크스페이스 admin이 원격 MCP 서버를 등록하고 OAuth(PKCE, DCR) 또는 정적 token으로 한 번 인증하면 에이전트가 서버마다 켜고 끈다. Atlassian 원격 MCP의 클라이언트 등록 조사, 연결·갱신·끊기, 비밀 값 저장, 도구 목록, egress 판정, `mcp__서버__*` deny, "이 계정으로 동작함" 화면, 구현 단위 |
-| [결정: GitHub Packages와 App token](contributing/decisions/github-packages-app-token.md) | App installation token으로 사설 npm·gem을 읽을 수 없다는 실측과 근거, 대신 고른 bot PAT 주입 방식과 나머지 대안 |
-| [결정: GitHub App manifest](contributing/decisions/github-app-manifest.md) | 콘솔에서 작성용 App을 manifest로 만드는 흐름, 일회용 state, 키·client secret을 한 트랜잭션에 저장, 교체 확인, 로그 마스킹 |
-| [결정: 실행 프로필 DB 단일 관리(폐기)](contributing/decisions/profile-db.md) | 실행 프로필을 DB에서 관리하던 계약의 기록. 프로필은 migration 0270에서 지웠다 |
-| [결정: GitHub App 저장소를 DB 카탈로그로](contributing/decisions/repository-catalog-db.md) | App 저장소의 정본을 `catalog_repositories`로 옮기는 결정과 한 번만 읽는 yaml 시드(일부는 파일 카탈로그를 설정으로 옮긴 결정이 대체) |
-| [결정(설계): 한 세션에서 여러 저장소와 PR](contributing/decisions/session-multi-repository.md) | 개수 제한 없이 한 세션이 여러 저장소에 push하고 PR을 여는 설계, 원격 여러 개·push 대상·게이트의 저장소 인자 |
-| [결정: 세션에 저장소를 붙여 쓰기](contributing/decisions/session-repository-attachment.md) | 세션을 저장소에 묶지 않고 0개 이상으로 시작해 도중에 붙이는 방식, 기본 저장소, 상한과 사용 범위 |
-| [결정: 파일 카탈로그를 설정으로](contributing/decisions/settings-replace-file-catalog.md) | 연결·저장소·MCP 서버를 DB·콘솔로 옮기고 설정 파일 로더를 없애는 설계, 자격 증명 경계, 한 번에 옮기는 이전, 내보내기/가져오기, GitHub App 저장소는 설치 목록에서 고름 |
-| [결정(설계): Musterrolle 모듈 경계](contributing/decisions/musterrolle-boundary.md) | 흩어진 신원·역할·권한 코드의 위치 실측, 패키지마다 `musterrolle/` 디렉터리와 공개면 하나로 닫는 목표 경계, architecture 테스트 규칙, 단계별 PR 순서와 증명 방법 |
-| [결정(제안): 로그 레코드 계약과 에러 기록](contributing/decisions/logging-contract.md) | 세 logger의 출력 모양과 로그 소비자, 표준 레코드와 계약 테스트, proxy 무의존 유지, 에러를 문자열로 남기는 규칙, 로그 필드가 바뀌는 단계별 PR |
-| [결정(설계): 관측(OTel) 방향과 도구 호출 감사](contributing/decisions/observability-otel-and-tool-call-audit.md) | OTel 채택 범위와 Langfuse와의 관계, tracer 포트, trace_id·로그 필드, API span 규칙, OTLP 설정 키, 도구 호출 감사 레코드(입력은 해시만, 판정·근거, 가림 목록, 보존, 담당 모듈), 후속 티켓 순서표 |
-| [결정(제안): worker Pod를 누가 만드나](contributing/decisions/k8s-pull-execution.md) | 플랫폼 직접 생성 + 권한 축소(추천)와 KEDA ScaledJob pull의 비교, 두 안의 설계, PoC 실측, Codex 의견 |
-| [결정(설계): 새 에이전트 마법사 재작업](contributing/decisions/agent-wizard-rework.md) | 마법사의 저장소 지정 제거, 역할·지시 사항을 이름·설명으로(에이전트 지시문 칸은 이후 없앴다), 도구 선택과 실행 적용, 담당 팀과 팀 역할 권한, 구현 단위와 순서 |
-| [결정(설계): 접근 판정 하나로 기억 범위, MCP 자격, 에이전트 답변을 정한다](contributing/decisions/access-decisions.md) | 지금 판정 API에 기억 범위·MCP 자격·답변 전달 세 축을 더하는 모양(주체·대상·맥락·결과·규칙), werft 팀과 IdP 그룹 팀, 규칙이 없을 때의 동작, 실행 규칙·호출자 상한과의 자리, 판정 기록 칸, 닫힌 실패, 성능 예산, 이행, 최소 판정기부터의 단계 계획 |
-| [결정(설계): owner가 관리 기록을 목록으로 보고 내보낸다](contributing/decisions/audit-log-read.md) | `receipts`와 `authz_decisions`를 원천으로 한 owner 전용 목록 API(cursor 페이지)와 NDJSON 내보내기, 보존 창, `audit_log.read` 판정, 설정 화면, 다른 제품 조사와 따를 것·다르게 갈 것, 단계 계획 |
-| [결정(설계): 에이전트 담당 팀과 액션 RBAC](contributing/decisions/agent-rbac.md) | 에이전트·세션 action별 지금 권한 실측, 담당 팀 안팎 주체별 RBAC 표, 워크스페이스 설정 두 축(바깥쪽의 에이전트 접근, 세션 열람 상한), 담당 팀 필수와 기존 에이전트 이행, 앞선 결정과의 차이, 구현 단위 R1~R5 |
-| [결정(설계): 게시 전 시험 — 공개 상태와 미리보기](contributing/decisions/agent-prepublish-test.md) | 있는 것과 없는 것 실측, 활성 release로 정하는 게시·미게시와 미게시 가시성, 켜지 않은 release로 관리자가 혼자 돌리는 미리보기 세션(`preview`), 저장과 게시 분리(`activate: false`), 콘솔 흐름, 구현 단위 |
-| [결정(설계): 에이전트 소유·회수·승계](contributing/decisions/agent-ownership.md) | 담당 팀과 관리자로 정하는 소유자, 소유자 없음 표시(`ownerless_since`)와 reconciler, 14일 유예 뒤 새 실행 차단(`agent_ownerless`), 지금 있는 변경으로 하는 승계와 판정 기록, 팀 소유·해체·이동과 기억 설계 맞추기, 구현 단위 |
-| [결정(설계): 범용 OIDC 로그인 공급자](contributing/decisions/oidc-login-providers.md) | 공급자를 설정 행으로 두는 OIDC 모듈 구조, 검증 순서와 거절 경우, endpoint 고정과 주소 검사, 봉인한 흐름 cookie, `login_providers`·`login_methods`·세션의 로그인 수단 칸, 증명된 주소와 초대 token 가입·계정 연결 규칙, 관리자 화면과 테스트 로그인, 공급자 끄기와 세션 끊기, 비밀번호 끄기·비상 관리자·CLI 복구, 공급자별 차이, `GOOGLE_OIDC_*` 제거, 단계별 PR (Codex 설계 리뷰 승인, 구현 중) |
-| [결정(설계): 새 control-host와 지원 창 안 옛 worker의 호환 계약](contributing/decisions/worker-compat.md) | 요청·응답·JSON 밖의 약속·DB의 expand → contract 규칙, 직전 지원 릴리스의 worker protocol 고정본과 두 방향 계약 시험, 실제 이미지 매트릭스와 릴리스 gate, migration 삭제 검사 |
-| [결정(설계): egress proxy forward 연결 이어 쓰기](contributing/decisions/egress-proxy-keep-alive.md) | Bun fetch가 닫힐 proxy 연결을 다시 써서 끊기는 문제, 요청을 하나씩 받는 안을 고른 이유, 이어 쓰는 조건, 지키는 smuggling 방어와 시험 사례 |
-| [결정(설계): 에이전트 기억 레이어](contributing/decisions/memory-layer.md) | 세션·개인·에이전트·워크스페이스 네 범위와 개인 ≠ 에이전트인 이유, 에이전트 팀의 공유 지식 공간, 승격 흐름, 읽기·쓰기 집행 순서(RBAC → `memoryWritePolicy` → 데이터 접근 정책 → 가시성 → 감사), MCP 도구 넷, `MemoryService` 포트와 계약 시험, 정리(드리밍), 주입·개인 정보·삭제, 엔진 자체 기억 끄기, 단계 계획 |
-| [결정(설계): 스킬·MCP 서버·werft 플러그인, 엔진 중립 등록·지정](contributing/decisions/skills-and-mcp.md) | 스킬(`SKILL.md` 하나)·MCP 서버와 그것을 묶는 엔진 중립 werft 플러그인(엔진 플러그인은 어댑터 출력)으로, 태그·분류·공개 범위로 찾는 스킬 라이브러리와 의존성(MCP·실행 규칙·엔진) 확인, 등록(업로드·Git 커밋 고정)·승인·지정(`required`/`optional`/`forbidden`, 펼친 결과에도 금지)·버전 고정·배포, Claude·Codex·pi 어댑터 매핑과 시작 확인, 접근 판정의 MCP 축을 언제 묻는지와 전송 세션의 subject 고정(MCP 2026-07-28 개정 포함), 권한·receipt·콘솔 메뉴, pi coding agent와 Oh My Pi 검토와 추천, 조사 요약과 시장 동향, 따를 것과 다르게 갈 것, 아키텍처 적용, 단계 계획 |
-| [조사: 엔진과 관리 콘솔이 스킬·MCP·플러그인을 다루는 방법](contributing/decisions/skills-and-mcp-research.md) | Claude Team/Enterprise 관리 화면·권한·버전·감사, Claude Agent SDK 로딩, Codex 스킬·MCP·관리 설정, pi와 Oh My Pi의 구조·스킬·MCP·권한 모델(공개 자료, 2026-11-20) |
-| [결정(설계): 에이전트 지도 뷰 선택(폐기)](contributing/decisions/agent-map-views.md) | 그래프를 두고 줌 캔버스를 두 번째 뷰로 고르게 하던 설계의 기록. 에이전트 지도는 2026-11-14 오너 결정으로 지웠다 |
 | [실제 Claude로 확인하기](real-claude.md) | 실제 Claude로 스택 확인 |

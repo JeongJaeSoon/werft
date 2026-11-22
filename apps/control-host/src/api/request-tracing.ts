@@ -36,9 +36,8 @@ function sessionIdParam(context: Context): string | undefined {
 }
 
 /**
- * HTTP spans for the API, kept out of the Hono wiring so the rules in the
- * design (decision record "observability-otel-and-tool-call-audit", 4.2 and
- * 5.3) live in one place and run against any `Tracer`.
+ * HTTP spans for the API, kept out of the Hono wiring so the span rules live
+ * in one place and run against any `Tracer`.
  */
 export class RequestTracing {
   constructor(private readonly tracer: Tracer = noopTracer) {}

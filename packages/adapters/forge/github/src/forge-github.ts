@@ -1193,8 +1193,8 @@ function installationRepositoryOf(repository: {
 const SKILL_BLOB_READS = 4;
 
 /**
- * A skill directory read at one commit with an installation's token (decision
- * skills-and-mcp.md 3). Everything is addressed by repository id, so a
+ * A skill directory read at one commit with an installation's token.
+ * Everything is addressed by repository id, so a
  * renamed repository is still followed and a new one under the old name is
  * not. The tree's sizes are checked before any content is fetched.
  */

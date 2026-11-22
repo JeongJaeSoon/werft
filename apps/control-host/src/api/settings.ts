@@ -25,9 +25,8 @@ import {
   withoutLegacyRepositories,
 } from "./settings-from-dir.ts";
 
-// The operator's settings import and export
-// (docs/contributing/decisions/settings-replace-file-catalog.md §5, §6), and
-// migrate's seed of an empty installation.
+// The operator's settings import and export, and migrate's seed of an empty
+// installation.
 // Run where keys.ts runs, against the database. Its entries name `stored`
 // as the API's do; each value is set in the console or through the API.
 const USAGE = `Usage: bun run apps/control-host/src/api/settings.ts export

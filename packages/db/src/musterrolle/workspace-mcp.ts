@@ -33,8 +33,7 @@ import { deletedBy, notDeleted } from "../soft-delete.ts";
 import { writeSucceededReceipt } from "../succeeded-receipt.ts";
 import { lockedRole } from "./api-keys.ts";
 
-// Workspace MCP servers and their one connection (decision
-// mcp-credentials.md 1–4). Every write by a person re-reads their role under
+// Workspace MCP servers and their one connection. Every write by a person re-reads their role under
 // lock and writes a receipt in the same transaction; no receipt or error
 // carries a credential.
 

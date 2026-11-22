@@ -18,7 +18,7 @@ import { createPostgresGitHubAppStore } from "./github-apps.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-// The expand step of the GitHub agent settings (github-agent.md §5): what a
+// The expand step of the GitHub agent settings: what a
 // database from before it holds reads the same, and what the image from
 // before it writes still lands.
 integration("GitHub agent settings, expand", () => {

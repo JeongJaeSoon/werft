@@ -192,8 +192,7 @@ export const repositoryPinCommitSchema = z
   .string()
   .regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/);
 
-// Another catalog repository the session's release lets it work on
-// (session-multi-repository.md decision 2): a git remote named `id` in the
+// Another catalog repository the session's release lets it work on: a git remote named `id` in the
 // workspace, its `branch` fetched through the egress route for `id`, at
 // `commit` when the session has pinned one (sent only to a worker that
 // announced `repository_pins`).
@@ -557,7 +556,7 @@ export const claimGitAuthorSchema = z
 
 /**
  * The emails of the co-author lines engines add on their own, which no
- * session commit keeps (decision github-agent.md D1). The one list: claims
+ * session commit keeps. The one list: claims
  * hand it to the worker's hook, and the push check reads it here. A list only
  * grows while an image that still adds a removed email may run.
  */
@@ -726,7 +725,7 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
     .optional(),
   // The attempt's repository route token, also when the claim names no
   // repository: a repository the agent attaches mid-session is fetched with
-  // it (session-repository-attachment.md decision 3). Top-level so an older
+  // it. Top-level so an older
   // worker drops it.
   repository_access: egressTokenAuthSchema.optional(),
 });
@@ -994,8 +993,7 @@ export const parkedDeliverySchema = z
   .strict();
 
 // A repository the agent attached mid-session, for the worker to add as a
-// remote and fetch with the claim's `repository_access`
-// (session-repository-attachment.md decision 3). `receipt_id` names the
+// remote and fetch with the claim's `repository_access`. `receipt_id` names the
 // request: a result settles only the request it echoes, so a resent result
 // for an earlier one never settles a later request for the same repository.
 // `commit` is the session's pin of the repository, as on
@@ -1539,7 +1537,7 @@ export type ReleaseResponse = z.infer<typeof releaseResponseSchema>;
 // Every POST under /internal/worker. The control-host registers exactly
 // these, and the compatibility baseline (./compat) is keyed by them: a worker
 // still in the support window calls the routes and reads the responses of
-// its own release (docs/contributing/decisions/worker-compat.md).
+// its own release.
 export const WORKER_PROTOCOL_ROUTES = {
   "/bootstrap-claim": {
     request: bootstrapClaimRequestSchema,

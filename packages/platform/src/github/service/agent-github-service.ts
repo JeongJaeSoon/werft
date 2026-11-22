@@ -107,7 +107,7 @@ const writes = (level: string | undefined) =>
   level === "write" || level === "admin";
 
 /**
- * The agent's GitHub tab (design github-agent.md §6, §7): the switch that
+ * The agent's GitHub tab: the switch that
  * applies at once, the agent's saved settings (the active release's pins
  * while it has none), and what the tab may offer. Whoever manages the agent
  * reads it; the switch is turned and the settings are saved from a signed-in

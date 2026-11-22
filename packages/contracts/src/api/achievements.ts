@@ -13,7 +13,7 @@ import { GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES } from "./session-outcome.ts";
 
 /**
  * What the platform itself sees a session do. Fixed in code: adding one
- * takes code and a migration (docs/contributing/decisions/achievement-rules.md §3).
+ * takes code and a migration.
  */
 export const ACHIEVEMENT_EVIDENCE_KIND_VALUES = [
   "github_pull_request",
@@ -255,7 +255,7 @@ export type AchievementRuleChangeResponse = z.infer<
   typeof achievementRuleChangeResponseSchema
 >;
 
-/** What queued a judgment (achievement-rules.md §4). */
+/** What queued a judgment. */
 export const ACHIEVEMENT_JUDGMENT_TRIGGER_VALUES = [
   "evidence",
   "turns",

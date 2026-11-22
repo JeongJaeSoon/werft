@@ -13,7 +13,7 @@ import type {
 } from "./ports/workspace-mcp-egress.ts";
 
 /**
- * A workspace remote MCP server's route (mcp-credentials.md, decision 6),
+ * A workspace remote MCP server's route,
  * decided on every exchange from the rows as they are: the server the
  * session started with is still in its workspace and on for the agent, its
  * connection is active, the JSON-RPC method is a tool call's, and a called

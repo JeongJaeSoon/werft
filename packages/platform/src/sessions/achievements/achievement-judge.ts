@@ -173,7 +173,7 @@ function failureCodeOf(error: unknown): AchievementJudgmentError | null {
 
 /**
  * Judges each claimed judgment's session against the workspace's rules in
- * use (design achievement-rules.md §4). Each API replica runs one; a claim
+ * use. Each API replica runs one; a claim
  * leases its judgments, and the achievements and the result are written in
  * one transaction under that lease. With no decision model in the
  * installation, each judgment is skipped and nothing is counted. Otherwise

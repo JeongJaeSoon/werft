@@ -40,8 +40,7 @@ function hasControlCharacter(value: string): boolean {
 }
 
 /**
- * The settings rows a console-stored value belongs to
- * (settings-replace-file-catalog.md §2). A `stored` reference names its own
+ * The settings rows a console-stored value belongs to. A `stored` reference names its own
  * row, `<kind>:<id>`, so two rows alike in every other field still differ.
  */
 export const STORED_OWNER_KINDS = ["connection", "repository", "mcp"] as const;
@@ -147,7 +146,7 @@ export const catalogProviderSchema = z.discriminatedUnion("kind", [
       billing: billingSchema,
     })
     .strict(),
-  // The achievement judge's Luna (achievement-rules.md §4), never an agent's:
+  // The achievement judge's Luna, never an agent's:
   // no runtime speaks the Decisions API. A judgment is always priced.
   z
     .object({
@@ -617,7 +616,7 @@ export function deniedMcpTools(
     .sort();
 }
 
-/** The built-in `github` server a session's release attaches (design github-agent.md §3). */
+/** The built-in `github` server a session's release attaches. */
 export type SessionGitHubMcp = {
   releaseId: string;
   /** The `mcp__github__<tool>` names the release's features expose. */

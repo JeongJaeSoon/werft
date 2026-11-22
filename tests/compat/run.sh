@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # A new control-host against an old release's worker, the way an upgrade
-# meets it (docs/contributing/decisions/worker-compat.md § 4.1):
+# meets it:
 #
 #   1  the old release, from its own checkout and its own images
 #   2  this checkout's migrate (the new schema) under the old control-host

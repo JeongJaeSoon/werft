@@ -112,7 +112,7 @@ function gateOf(cause: JudgmentCause): SQL {
 }
 
 /**
- * Queues a judgment of the session (achievement-rules.md §4): `evidence` in
+ * Queues a judgment of the session: `evidence` in
  * the transaction that wrote its evidence, `turns` and `idle` in the one
  * that ended the turn or the session's run, each when the workspace's
  * judge setting asks for it; `manual` always. A pending one already there
@@ -1003,7 +1003,7 @@ export function createPostgresAchievementJudgments(
   };
 }
 
-/** The judgment egress token and its ledger (achievement-rules.md §4). */
+/** The judgment egress token and its ledger. */
 export function createPostgresJudgmentEgress(
   db: Database,
 ): JudgmentEgressStore {

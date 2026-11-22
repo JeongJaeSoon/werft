@@ -39,7 +39,7 @@ export const GITHUB_APP_CONFLICT_VALUES = [
   "in_use_for_user_link",
 ] as const;
 
-/** What removing a connection takes with it (decision github-agent.md 11.5). */
+/** What removing a connection takes with it. */
 export const githubAppUsageSchema = z
   .object({
     /** Catalog repositories pinned to it, for its role. */
@@ -129,7 +129,7 @@ export function githubPermissionsMissing(
 }
 
 /**
- * The most each role's App is told to hold (design github-agent.md §1):
+ * The most each role's App is told to hold:
  * the author's defaults plus its optional features, the reviewer's three.
  */
 export const GITHUB_APP_PERMISSION_GUIDANCE: Record<
@@ -204,7 +204,7 @@ export const githubAppSchema = z
     permissions: githubAppPermissionsSchema.nullable().optional(),
     permissions_checked_at: timestampSchema.nullable().optional(),
     /**
-     * The push webhook Git skills sync from (decision skills-and-mcp.md 3).
+     * The push webhook Git skills sync from.
      * `url` is what the App's webhook is set to on GitHub, null when this
      * installation has no address GitHub reaches; `secret_set` says whether
      * the App's webhook secret is stored here.

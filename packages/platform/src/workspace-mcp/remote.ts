@@ -16,7 +16,7 @@ import {
 } from "./ports.ts";
 
 // Everything control-host says to a remote MCP server and its authorization
-// server itself (decision mcp-credentials.md 3 and 5). No upstream body is
+// server itself. No upstream body is
 // put in an error message: a reason code and, from a token endpoint, the
 // OAuth `error` code are all that leave this module.
 

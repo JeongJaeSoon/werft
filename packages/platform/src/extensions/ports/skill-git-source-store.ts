@@ -6,7 +6,7 @@ import type {
 } from "@werft-ai/contracts";
 import type { Principal } from "../../musterrolle/index.ts";
 
-/** What started a check of a GitHub skill (decision skills-and-mcp.md 3). */
+/** What started a check of a GitHub skill. */
 export type SkillSyncTrigger = {
   kind: SkillSyncTriggerKind;
   /** `X-GitHub-Delivery` of a webhook; null for the other kinds. */

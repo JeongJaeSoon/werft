@@ -43,7 +43,7 @@ export const EGRESS_AUTHORIZER_PATH = "/authorize";
 // listener for the same reason: only the proxy may say what a session spent.
 export const EGRESS_USAGE_PATH = "/usage";
 // Where the proxy opens, renews and releases a provider call in the exchange
-// ledger before its usage is known (provider-usage-ledger.md); an open the
+// ledger before its usage is known; an open the
 // session's budget cannot hold is refused.
 export const EGRESS_EXCHANGES_PATH = "/exchanges";
 // A token, a purpose and, for the object store, one S3 request line and its
@@ -116,7 +116,7 @@ const authorizeRequestSchema = z.union([
       token: tokenSchema,
       purpose: z.enum(["provider", "repository"]),
       // repository only: the route named another repository than the
-      // session's own (session-multi-repository.md decision 2).
+      // session's own.
       repository_id: z
         .string()
         .regex(ADDITIONAL_REPOSITORY_ID_PATTERN)

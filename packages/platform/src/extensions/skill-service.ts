@@ -40,7 +40,7 @@ import type {
   ExtensionBundleStore,
 } from "./ports/extension-bundle-store.ts";
 
-// Skills (decision skills-and-mcp.md 2–4, 7): one SKILL.md directory per
+// Skills: one SKILL.md directory per
 // registration, stored as a single-skill bundle whose slug is the skill's
 // name. Every write is a signed-in console user's; reads follow the
 // workspace's and the agent's read rights.
@@ -561,7 +561,7 @@ export function createSkillService(deps: SkillServiceDeps) {
       }
     },
 
-    /** Moves the current version one step back (decision skills-and-mcp.md 3). */
+    /** Moves the current version one step back. */
     async revert(caller: Caller, name: string): Promise<RevertSkillResponse> {
       webUser(caller);
       await requirePermitted(authorization, caller, "workspace.manage", {

@@ -6,7 +6,6 @@ import {
 } from "../shared/index.ts";
 import { principalKindSchema } from "./authorization.ts";
 
-// docs/contributing/decisions/audit-log-read.md §4.
 export const AUDIT_EVENT_KIND_VALUES = ["decision", "receipt"] as const;
 export const auditEventKindSchema = z.enum(AUDIT_EVENT_KIND_VALUES);
 

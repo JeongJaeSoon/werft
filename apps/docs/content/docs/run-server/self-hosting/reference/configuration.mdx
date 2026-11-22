@@ -78,7 +78,7 @@ kubectl label node <node> werft.codex-seccomp-profile=installed
 
 둘 다 없으면 런타임 조합을 읽지 않으므로 아래 pin 유지도 적용되지 않는다. `WORKER_IMAGE_PREVIOUS_RUNTIME`만 있거나 값을 읽을 수 없으면 기동하지 않는다. 설정하면 직전 이미지 버전으로 만든 release와 그 세션도 계속 돈다. release는 만들 때 이미지가 싣던 런타임 버전을 고정하므로, 현재·직전 이미지 어느 쪽도 싣지 않는 버전의 release는 새 세션을 받지 않는다. 그 에이전트는 다시 release한다.
 
-GitHub Packages bot token([결정](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/decisions/github-packages-bot-token.md))을 다른 host로 보내야 할 때만 아래 값을 둔다. GitHub Enterprise Server나 테스트용 가짜 레지스트리가 그런 경우다. 값은 http(s) URL이고 userinfo·query·fragment가 있으면 API가 기동하지 않는다. 레지스트리 host는 proxy의 `EGRESS_CREDENTIAL_ALLOWLIST`(사설 주소면 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`)에도 있어야 한다.
+GitHub Packages bot token을 다른 host로 보내야 할 때만 아래 값을 둔다. GitHub Enterprise Server나 테스트용 가짜 레지스트리가 그런 경우다. 값은 http(s) URL이고 userinfo·query·fragment가 있으면 API가 기동하지 않는다. 레지스트리 host는 proxy의 `EGRESS_CREDENTIAL_ALLOWLIST`(사설 주소면 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`)에도 있어야 한다.
 
 | 변수 | 기본값 | 의미 |
 |---|---|---|

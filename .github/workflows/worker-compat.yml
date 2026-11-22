@@ -1,5 +1,5 @@
-# A new control-host against the workers of the releases in the support window
-# (docs/contributing/decisions/worker-compat.md § 4): the old release comes up
+# A new control-host against the workers of the releases in the support
+# window: the old release comes up
 # from its own checkout and images, this checkout's migrate runs under it, and
 # then this checkout's control-host replaces every control-host role while the
 # old worker and proxy stay. Completed turns and a resumed checkpoint are the
@@ -55,7 +55,7 @@ concurrency:
 
 env:
   # The support window: the current release and this many before it. The
-  # decision record, the plan and tests/compat/run.sh are written for 1.
+  # plan and tests/compat/run.sh are written for 1.
   SUPPORT_WINDOW: '1'
   # The oldest commit the window serves: the profile removal. Releases built
   # before it are outside the window.
@@ -79,8 +79,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: .github/scripts/worker-compat-plan.sh
-      # A release's baseline must be the protocol of the release before it
-      # (decision § 3.5); a maintainer refreshes it in a pull request after
+      # A release's baseline must be the protocol of the release before it;
+      # a maintainer refreshes it in a pull request after
       # each tag. Elsewhere a stale baseline is only a warning.
       - if: steps.plan.outputs.baseline_ref != ''
         uses: ./.github/actions/bun-setup

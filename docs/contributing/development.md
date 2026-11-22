@@ -232,8 +232,8 @@ gh는 로그인한 사용자의 인증을 쓰므로, 그 사용자의 세션에�
 
 - 문서에는 지금 동작만 적는다. 티켓 번호, PR 번호, "예전에는 …였다"·"~에서 바꿨다" 같은 작업 경위는 쓰지 않는다. 경위는 커밋·PR·티켓에 남는다.
 - heading에 번호나 날짜를 넣지 않는다. heading이 바뀌면 anchor가 바뀌어, 그 anchor를 가리키는 문서와 `infra/datadog` monitor 메시지의 링크가 깨진다.
-- 문서는 독자별 디렉터리에 둔다. 사용자 문서(quickstart·API 가이드)는 `docs/` 바로 아래, 운영자 문서는 `docs/operator/`, 기여자 문서는 `docs/contributing/`, 채택·선택 결정의 결론은 `docs/contributing/decisions/`에 둔다. 새 문서는 [docs/README.md](../README.md) 색인에 넣는다.
-- 조사용 코드(spike)는 저장소에 남기지 않는다. 결론은 결정 기록에 적고, 계속 지킬 계약은 제품 테스트나 `scripts/<이름>/` harness로 옮긴 뒤 지운다.
+- 문서는 독자별 디렉터리에 둔다. 사용자 문서(quickstart·API 가이드)는 `docs/` 바로 아래, 운영자 문서는 `docs/operator/`, 기여자 문서는 `docs/contributing/`에 둔다. 설계 문서는 저장소 밖(오너의 노트)에 둔다. 새 문서는 [docs/README.md](../README.md) 색인에 넣는다.
+- 조사용 코드(spike)는 저장소에 남기지 않는다. 결론은 설계 문서(저장소 밖, 오너의 노트)에 적고, 계속 지킬 계약은 제품 테스트나 `scripts/<이름>/` harness로 옮긴 뒤 지운다.
 - `tests/docs-links.test.ts`가 추적 중인 Markdown의 Linear 티켓 번호(`94S-` 뒤 숫자), 깨진 상대 링크, 맞지 않는 heading anchor를 검사한다. PR 번호와 작업 경위는 검사하지 않으니 리뷰에서 본다.
 
 ## migration 만들기
@@ -256,4 +256,4 @@ gh는 로그인한 사용자의 인증을 쓰므로, 그 사용자의 세션에�
   - CHECK·FOREIGN KEY는 `NOT VALID`로 더하고, `VALIDATE CONSTRAINT`는 다음 migration에서 한다. 같은 트랜잭션에서 하면 더할 때 잡은 배타 잠금 아래에서 표 전체를 읽는다. UNIQUE·PRIMARY KEY는 인덱스를 `CONCURRENTLY`로 만든 뒤 `USING INDEX`로 붙인다.
   - 새 열의 volatile DEFAULT(`gen_random_uuid()` 등), serial·identity·generated 열, 새 열에 붙인 UNIQUE·PRIMARY KEY·REFERENCES, 열 타입 변경, `SET NOT NULL`, DEFAULT 없는 `NOT NULL` 열은 쓰지 않는다. `now()` 같은 stable DEFAULT는 표를 다시 쓰지 않으니 괜찮다.
   - 커지는 표의 backfill(`UPDATE`·`DELETE`)은 migration 안에서 하지 않는다. 진행 cursor를 두고 앱이 batch로 채운다(`tool_call_progress`, `neutral_field_progress`).
-  - 표·열을 지우거나 이름을 바꾸는 일(`DROP TABLE`, `DROP COLUMN`, `RENAME COLUMN`, `RENAME TO`)은 지원 창 안의 어느 릴리스도 그것을 쓰지 않게 된 뒤에 한다. 먼저 새 이름·새 열을 더하고 코드가 그쪽만 쓰게 한 릴리스를 낸다. 지우는 migration에는 마지막으로 쓴 릴리스를 `-- contract: <표>[.<열>] last used by vX.Y.Z`로 적고, `CHANGELOG.md`에 그 릴리스보다 새 릴리스가 둘 이상 있어야 한다(지금 릴리스와 직전 릴리스가 지원 창이고, 릴리스 준비 PR이 태그보다 먼저 머지되기 때문). `contractProblems`가 `0273` 뒤의 migration을 이렇게 검사한다. 같은 migration에서 만든 표는 검사하지 않는다. 근거는 [worker 호환 결정](decisions/worker-compat.md#5-db-migration-검사) 5절이다.
+  - 표·열을 지우거나 이름을 바꾸는 일(`DROP TABLE`, `DROP COLUMN`, `RENAME COLUMN`, `RENAME TO`)은 지원 창 안의 어느 릴리스도 그것을 쓰지 않게 된 뒤에 한다. 먼저 새 이름·새 열을 더하고 코드가 그쪽만 쓰게 한 릴리스를 낸다. 지우는 migration에는 마지막으로 쓴 릴리스를 `-- contract: <표>[.<열>] last used by vX.Y.Z`로 적고, `CHANGELOG.md`에 그 릴리스보다 새 릴리스가 둘 이상 있어야 한다(지금 릴리스와 직전 릴리스가 지원 창이고, 릴리스 준비 PR이 태그보다 먼저 머지되기 때문). `contractProblems`가 `0273` 뒤의 migration을 이렇게 검사한다. 같은 migration에서 만든 표는 검사하지 않는다. 근거는 설계 문서 5절에 있다(설계 문서: 결정(설계): 새 control-host와 지원 창 안 옛 worker의 호환 계약).

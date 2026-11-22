@@ -160,7 +160,7 @@ export type AppendMessageInput = {
   channel?: SurfaceKind;
   slackMessage?: SlackMessageRef;
   // The request span's W3C traceparent, stored with the turn as opaque text;
-  // platform never parses it (decision record observability-otel…, 3.1).
+  // platform never parses it.
   traceContext?: string;
   // As `AcceptSessionInput.agentPrivate`: only a replay goes through.
   agentPrivate?: true;

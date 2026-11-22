@@ -53,8 +53,7 @@ function rateLimited(error: GitHubCallError): boolean {
 }
 
 /**
- * Reads the state of the pull requests the platform recorded (design
- * github-agent.md §10), one GET each, within each rate-limit unit's budget.
+ * Reads the state of the pull requests the platform recorded, one GET each, within each rate-limit unit's budget.
  * Each API replica runs one; a claim leases its rows, so no database lock is
  * held while GitHub answers and a late answer never overwrites a newer one.
  */

@@ -65,7 +65,7 @@ const relativeOf = (name: string, path: string) =>
     : path;
 
 /**
- * What runs is read first (decision skills-and-mcp.md 7): files under
+ * What runs is read first: files under
  * `scripts/` and files with the execute bit, then the rest, each by path.
  */
 export function reviewOrder(

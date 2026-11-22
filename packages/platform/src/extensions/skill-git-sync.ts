@@ -35,7 +35,7 @@ import type {
 } from "./ports/skill-git-source-store.ts";
 import { skillVersionViewOf } from "./skill-service.ts";
 
-// Git skills (decision skills-and-mcp.md 3, "Git 출처의 동기화"): a push
+// Git skills: a push
 // webhook, a daily check and "지금 확인" all run one check. It resolves the
 // ref through the API again, never trusting a webhook body for the commit
 // or the content, reads the tree at that commit and registers it as the
@@ -78,7 +78,7 @@ export interface GitHubSkillReader {
   /**
    * Whether `ref` is a branch whose rules require a pull request with an
    * approving review, and, given `commit`, whether it came in by a merged
-   * pull request whose reviews approve it (decision skills-and-mcp.md 3).
+   * pull request whose reviews approve it.
    */
   protection(
     app: AppKey,
@@ -765,7 +765,7 @@ export function createSkillGitSync(
     },
 
     /**
-     * Protected-branch auto-approve (decision skills-and-mcp.md 3): a
+     * Protected-branch auto-approve: a
      * request and a consent each check the branch and its rule on GitHub
      * first, and neither passes while they fail; turning it off needs none.
      */

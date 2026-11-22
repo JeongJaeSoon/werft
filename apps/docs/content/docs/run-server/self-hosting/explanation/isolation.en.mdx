@@ -53,7 +53,7 @@ Registry access is proxy-global: include the four hosts in `EGRESS_CREDENTIAL_AL
 <a id="github-packages사설-npmgem" />
 ### GitHub Packages (private npm/gems)
 
-Private packages use `github-npm` (`https://npm.pkg.github.com`) and `github-rubygems` (`https://rubygems.pkg.github.com`) registries. Unlike public registries, authorizer adds the bot classic PAT a workspace owner or admin registered as `Authorization: Bearer`; it never reaches workers. See the [design decision](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/decisions/github-packages-bot-token.md) for registration, allowlisting, and auditing, and [private registry setup](/run-server/self-hosting/build-images#사설-패키지-registry-허용) for configuration.
+Private packages use `github-npm` (`https://npm.pkg.github.com`) and `github-rubygems` (`https://rubygems.pkg.github.com`) registries. Unlike public registries, authorizer adds the bot classic PAT a workspace owner or admin registered as `Authorization: Bearer`; it never reaches workers. See [private registry setup](/run-server/self-hosting/build-images#사설-패키지-registry-허용) for configuration.
 
 Authorizer validates GitHub paths. Unlisted packages, unrecognized paths, or missing/expired tokens return `403`, recording `fetch_github_package` receipts with `failed`/`reason_code`; permitted requests record `succeeded`. Receipt write failure rejects requests. Proxy logs follow other packages requests.
 

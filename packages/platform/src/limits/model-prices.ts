@@ -250,7 +250,7 @@ export function priceProviderUsage(usage: ProviderUsage): {
 
 /**
  * The achievement judge's models, priced apart from any session: Luna
- * charges its input and nothing for its answer (achievement-rules.md §4).
+ * charges its input and nothing for its answer.
  */
 export const JUDGE_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
   "gpt-6-luna": price(0.1, 0, 0),

@@ -64,7 +64,7 @@ const COLUMNS = [
 ] as const;
 
 /**
- * The model settings' connections (settings-replace-file-catalog.md §1-§3):
+ * The model settings' connections:
  * the operator file's and the database's in one table, each marked by
  * where it comes from. Only the owner reads them.
  */

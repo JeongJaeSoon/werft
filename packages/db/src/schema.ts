@@ -811,8 +811,7 @@ export const githubApps = pgTable(
   ],
 );
 
-// A GitHub App manifest's single-use state, stored as its SHA-256 (design
-// github-app-manifest.md §3).
+// A GitHub App manifest's single-use state, stored as its SHA-256.
 export const githubAppManifestStates = pgTable(
   "github_app_manifest_states",
   {
@@ -935,8 +934,7 @@ export const githubWorkspaceSettings = pgTable("github_workspace_settings", {
 });
 
 /**
- * The connection each catalog repository's work uses, per role (decision
- * github-agent.md 11). A row is not deleted when its connection is: the
+ * The connection each catalog repository's work uses, per role. A row is not deleted when its connection is: the
  * connection id goes null and the gate refuses until an admin re-pins it or
  * the same App is added back.
  */
@@ -1415,8 +1413,7 @@ export const sessions = pgTable(
     unmetered: boolean().notNull().default(false),
     repositoryId: text("repository_id"),
     // The repositories besides its own the session was started with or
-    // attached since, narrowing what its release lists
-    // (session-repository-attachment.md). Null on a session that attaches
+    // attached since, narrowing what its release lists. Null on a session that attaches
     // none, and on rows from before an omitted list was stored as empty: the
     // release's list applies whole.
     attachedRepositoryIds: text("attached_repository_ids").array(),
@@ -1632,8 +1629,7 @@ export const sessions = pgTable(
     // while the session ran one config only.
     legacyRuntimeConfigs: jsonb("legacy_runtime_configs").$type<unknown>(),
     // The people whose personal memory this session has read. Only its owner
-    // may share or hand it over, and what it produces carries them as taint
-    // (memory-layer.md §2, §4).
+    // may share or hand it over, and what it produces carries them as taint.
     personalSubjects: uuid("personal_subjects")
       .array()
       .notNull()
@@ -1839,7 +1835,7 @@ export const pullRequests = pgTable(
   ],
 );
 
-// What a session made (design github-agent.md §10). Written by the server
+// What a session made. Written by the server
 // only; a pull request's row shares (session_id, url) and receipt_id with its
 // pull_requests row, without a foreign key, as the table will hold more types.
 export const sessionOutcomes = pgTable(
@@ -2299,8 +2295,7 @@ export const authzDecisions = pgTable(
     justification: text(),
     policyVersion: text("policy_version").notNull(),
     requestId: text("request_id").notNull(),
-    // Access decisions (docs/contributing/decisions/access-decisions.md §7);
-    // null on every other row.
+    // Access decisions; null on every other row.
     accessAxis: text("access_axis").$type<AccessAxis>(),
     sessionId: uuid("session_id"),
     turnId: integer("turn_id"),
@@ -2750,7 +2745,7 @@ export const pushRequests = pgTable(
       sql`(${table.state} = 'requested') = (${table.decidedAt} IS NULL) AND (${table.decidedAt} IS NULL) = (${table.decidedBy} IS NULL) AND (${table.decidedAt} IS NULL) = (${table.decisionReceiptId} IS NULL)`,
     ),
     // One open request per target: other repositories and branches of the
-    // session may each have their own (session-multi-repository.md).
+    // session may each have their own.
     uniqueIndex("push_requests_open_target_idx")
       .on(table.sessionId, table.repositoryId, table.targetBranch)
       .where(
@@ -2843,8 +2838,7 @@ export const pushIntents = pgTable(
   ],
 );
 
-// A repository the session's agent attached mid-session
-// (session-repository-attachment.md decision 3), one row per repository: a
+// A repository the session's agent attached mid-session, one row per repository: a
 // second call reads the row instead of attaching again. `pending` until a
 // worker of the session reports the fetch; a failed one goes back to
 // `pending` when asked again, with a new receipt.
@@ -3275,7 +3269,7 @@ export const providerUsage = pgTable(
 );
 
 // A provider call the egress proxy opened before calling upstream and that
-// no usage report has settled yet (provider-usage-ledger.md). A report for
+// no usage report has settled yet. A report for
 // the exchange deletes the row in its own transaction. Observation only: no
 // limit reads it yet.
 //
@@ -3914,8 +3908,7 @@ export const agentMcpSettings = pgTable(
   ],
 );
 
-// A remote MCP server a workspace registered (decision mcp-credentials.md
-// 2). `url` and `auth_kind` never change: delete and register again. The
+// A remote MCP server a workspace registered. `url` and `auth_kind` never change: delete and register again. The
 // credential is the connection's, below, and its values are secrets.
 export const workspaceMcpServers = pgTable(
   "workspace_mcp_servers",
@@ -5226,7 +5219,7 @@ export const extensionBundles = pgTable(
   ],
 );
 
-// A skill registered from GitHub (decision skills-and-mcp.md 3): its source
+// A skill registered from GitHub: its source
 // is fixed by the first registration, and its later versions come only from
 // the sync's check, at most one of which runs for a skill at a time.
 export const skillGitSources = pgTable(
@@ -5512,8 +5505,7 @@ export const agentActivationEvents = pgTable(
   ],
 );
 
-// docs/contributing/decisions/achievement-rules.md §3: what a workspace counts
-// as an achievement. Categories group rules; a type is what a rule counts.
+// What a workspace counts as an achievement. Categories group rules; a type is what a rule counts.
 export const achievementCategories = pgTable(
   "achievement_categories",
   {
@@ -5657,8 +5649,7 @@ export const achievementRules = pgTable(
   ],
 );
 
-// One judgment of a session's evidence against the workspace's rules
-// (achievement-rules.md §3, §4). A session has at most one queued; another
+// One judgment of a session's evidence against the workspace's rules. A session has at most one queued; another
 // trigger moves its `next_attempt_at`, so the judge picks it once triggers
 // have stopped for a while.
 export const achievementJudgments = pgTable(
@@ -5889,8 +5880,7 @@ export type CatalogRepositoryAuthKind =
 /**
  * The catalog's repositories. `github_app` rows use the console's GitHub
  * App: seeded or console rows from before, and rows an agent's pick
- * resolved (decision settings-replace-file-catalog.md §1.1). The other
- * kinds hold their own credential (§1). A row is never deleted, so a
+ * resolved. The other kinds hold their own credential. A row is never deleted, so a
  * catalog id never comes back meaning another repository.
  */
 export const catalogRepositories = pgTable(
@@ -5973,8 +5963,7 @@ export const catalogRepositories = pgTable(
 );
 
 /**
- * LLM provider connections a ceiling runs against (decision
- * settings-replace-file-catalog.md §1). A row never changes what it points
+ * LLM provider connections a ceiling runs against. A row never changes what it points
  * at: another endpoint, kind, billing or credential source is a new id.
  * Disabling is the only way to stop one.
  */
@@ -6146,7 +6135,7 @@ export const sessionCommitAttributions = pgTable(
 
 const SHA256_HEX_SQL = sql.raw(`'^[0-9a-f]{64}$'`);
 
-// Agent memory (memory-layer.md). A document lives in one scope and fills
+// Agent memory. A document lives in one scope and fills
 // that scope's key only; widening a scope is a new document plus a
 // promotion, never an update of this row. Nothing reads or writes these yet.
 export const memoryDocuments = pgTable(

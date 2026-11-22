@@ -9,7 +9,7 @@ import {
 import { workspaceParamsSchema } from "./workspaces.ts";
 
 // GitHub App repositories are read from the author App's installations, a
-// page at a time (decision settings-replace-file-catalog.md §1.1). The
+// page at a time. The
 // catalog keeps only the rows a pick resolved.
 
 export const CATALOG_REPOSITORY_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,99}$/;

@@ -865,7 +865,7 @@ const byApp = {
   },
 } as unknown as Partial<GitHubAppDirectory>;
 
-describe("several Apps of one role (decision github-agent.md 11)", () => {
+describe("several Apps of one role", () => {
   test("a pick pins the repository to the App holding the installation, once", async () => {
     const pins = memoryPins();
     const { pick } = serviceWith(byApp, twoAuthors, pins);

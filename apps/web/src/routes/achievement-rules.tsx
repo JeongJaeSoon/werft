@@ -97,7 +97,7 @@ const EVIDENCE_KINDS: readonly AchievementEvidenceKind[] = [
   "out_file",
   "conversation",
 ];
-// What a person must confirm before it counts (achievement-rules.md §3).
+// What a person must confirm before it counts.
 const NEEDS_REVIEW: ReadonlySet<AchievementEvidenceKind> = new Set([
   "out_file",
   "conversation",

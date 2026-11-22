@@ -771,8 +771,8 @@ export class WorkerHost {
   }
 
   /**
-   * Fetches the repositories the agent attached mid-session, one at a time
-   * (session-repository-attachment.md decision 3), and reports each outcome
+   * Fetches the repositories the agent attached mid-session, one at a time,
+   * and reports each outcome
    * on the next control poll. One whose fetch a stop cut short is left
    * unreported: it stays pending for the next attempt, whose claim already
    * carries it.

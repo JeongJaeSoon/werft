@@ -16,7 +16,7 @@ import {
 } from "../../app.ts";
 import { mapped, requireQuery } from "../errors.ts";
 
-// docs/contributing/decisions/audit-log-read.md §4, 내보내기.
+// Export limits.
 const EXPORT_PAGE_ROWS = 500;
 const EXPORT_MAX_MS = 10 * 60_000;
 // As the session event stream: a credential check is good for this long,
