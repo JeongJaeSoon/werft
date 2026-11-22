@@ -1,6 +1,6 @@
 import { scopesForRole, type WorkspaceRole } from "@werft-ai/contracts";
 import type { IdentityReader } from "@werft-ai/platform";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, arrayContains, eq, isNull, ne } from "drizzle-orm";
 import { UUID } from "../control-shared.ts";
 import {
   apiKeyRecordOf,
@@ -8,7 +8,13 @@ import {
   liveApiKey,
   selectLiveApiKey,
 } from "../queries.ts";
-import { apiKeys, linkedAccounts, memberships, users } from "../schema.ts";
+import {
+  agents,
+  apiKeys,
+  linkedAccounts,
+  memberships,
+  users,
+} from "../schema.ts";
 
 export async function findLiveRole(
   db: Database,
@@ -29,6 +35,29 @@ export async function findLiveRole(
     .where(and(eq(users.id, userId), isNull(users.disabledAt)))
     .limit(1);
   return (row?.role as WorkspaceRole | undefined) ?? null;
+}
+
+/** Whether the live agent answers `botUserId`'s mentions now. */
+export async function agentAllowsSlackBot(
+  db: Database,
+  workspaceId: string,
+  agentId: string,
+  botUserId: string,
+): Promise<boolean> {
+  if (!UUID.test(agentId)) return false;
+  const [row] = await db
+    .select({ id: agents.id })
+    .from(agents)
+    .where(
+      and(
+        eq(agents.workspaceId, workspaceId),
+        eq(agents.id, agentId.toLowerCase()),
+        ne(agents.status, "archived"),
+        arrayContains(agents.slackAllowedBotUserIds, [botUserId]),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
 }
 
 type LinkReading =
@@ -109,6 +138,29 @@ export function createDatabaseIdentityReader(db: Database): IdentityReader {
             },
           };
         }
+      }
+      // A bot's mention stands for no person: the agent that allows the bot
+      // now, read again here, is who acts, as its key would.
+      const { surface } = subject;
+      if (
+        principal.kind === "installation" &&
+        principal.workspace_id !== null &&
+        surface.kind === "slack" &&
+        surface.slack_bot_user_id !== undefined &&
+        surface.agent_id !== undefined
+      ) {
+        return (await agentAllowsSlackBot(
+          db,
+          principal.workspace_id,
+          surface.agent_id,
+          surface.slack_bot_user_id,
+        ))
+          ? {
+              status: "ok",
+              principal,
+              keyAgentId: surface.agent_id.toLowerCase(),
+            }
+          : { status: "unlinked" };
       }
       if (principal.kind === "installation") return { status: "unlinked" };
       if (principal.kind === "user") {

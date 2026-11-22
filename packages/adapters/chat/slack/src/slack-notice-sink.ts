@@ -21,6 +21,16 @@ export type SlackNoticeRecord = {
   onceKey: string;
 };
 
+/** A line everyone in the thread sees, once per `onceKey`. */
+export type SlackThreadNoticeRecord = Omit<
+  SlackNoticeRecord,
+  "slackUserId" | "reason"
+> & {
+  /** The thread's session when the agent has one there; null for none. */
+  sessionId: string | null;
+};
+
 export interface SlackNoticeSink {
   record(notice: SlackNoticeRecord): Promise<void>;
+  recordInThread(notice: SlackThreadNoticeRecord): Promise<void>;
 }

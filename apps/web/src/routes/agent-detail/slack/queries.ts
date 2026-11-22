@@ -87,6 +87,21 @@ export function useSlackSettings(agentId: string) {
   });
 }
 
+export function useSlackBots(agentId: string) {
+  const { client } = useWerft();
+  return useQuery({
+    queryKey: [...slackKey(client, agentId), "bots"],
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/agents/{id}/slack/app/bots", {
+          params: { path: { id: agentId } },
+        }),
+      ),
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
 export function useSlackChannels(
   agentId: string,
   query: string,

@@ -494,6 +494,28 @@ export interface SlackBotApi {
   ): Promise<void>;
 }
 
+/** A bot account of the Slack workspace, from `users.list`. */
+export type SlackWorkspaceBot = {
+  id: string;
+  teamId: string;
+  name: string;
+  /** Deleted or deactivated. */
+  deleted: boolean;
+};
+
+/** One page of the workspace's bot accounts. */
+export type SlackBotPage = {
+  bots: SlackWorkspaceBot[];
+  nextCursor: string | null;
+};
+
+/** `users.list` (`users:read`), Slack's Tier 2, read for the bot picker. */
+export interface SlackBotDirectory {
+  listBots(token: string, cursor: string | null): Promise<SlackBotPage>;
+  /** `users.info` for one id the list did not reach; null if no bot. */
+  findBot(token: string, userId: string): Promise<SlackWorkspaceBot | null>;
+}
+
 /** What the outbox sends with a bot token. */
 export interface SlackBotSender {
   /**
@@ -551,7 +573,35 @@ const userInfoAnswer = z.object({
     is_restricted: z.boolean().optional(),
     is_ultra_restricted: z.boolean().optional(),
     is_stranger: z.boolean().optional(),
+    is_bot: z.boolean().optional(),
+    deleted: z.boolean().optional(),
   }),
+});
+
+const slackMember = z.object({
+  id: slackId,
+  team_id: slackId,
+  name: z.string().min(1).max(255),
+  real_name: z.string().max(255).optional(),
+  profile: z
+    .object({ display_name: z.string().max(255).optional() })
+    .optional(),
+  is_bot: z.boolean().default(false),
+  deleted: z.boolean().default(false),
+});
+
+const botOf = (member: z.infer<typeof slackMember>): SlackWorkspaceBot => ({
+  id: member.id,
+  teamId: member.team_id,
+  name: member.profile?.display_name || member.real_name || member.name,
+  deleted: member.deleted,
+});
+
+const listUsersAnswer = z.object({
+  members: z.array(slackMember),
+  response_metadata: z
+    .object({ next_cursor: z.string().max(4096).optional() })
+    .optional(),
 });
 
 const conversationInfoAnswer = z.object({
@@ -589,10 +639,44 @@ export function createSlackBotApi(
   options?: SlackApiOptions,
 ): SlackBotApi &
   Required<Pick<SlackBotApi, "updateMessage" | "openView" | "updateView">> &
-  SlackBotSender {
+  SlackBotSender &
+  SlackBotDirectory {
   const call = slackCaller(options);
   const send = slackSender(options);
   return {
+    async listBots(token, cursor) {
+      const answer = await call(
+        "users.list",
+        {
+          token,
+          body: new URLSearchParams({
+            limit: String(SLACK_CHANNEL_PAGE_SIZE),
+            ...(cursor === null ? {} : { cursor }),
+          }),
+        },
+        listUsersAnswer,
+      );
+      return {
+        bots: answer.members.filter((member) => member.is_bot).map(botOf),
+        nextCursor: answer.response_metadata?.next_cursor || null,
+      };
+    },
+
+    async findBot(token, userId) {
+      try {
+        const { user } = await call(
+          "users.info",
+          { token, body: new URLSearchParams({ user: userId }) },
+          z.object({ user: slackMember }),
+        );
+        return user.is_bot ? botOf(user) : null;
+      } catch (error) {
+        if (error instanceof SlackApiError && error.code === "user_not_found")
+          return null;
+        throw error;
+      }
+    },
+
     async userInfo(botToken, userId) {
       const { user } = await call(
         "users.info",
@@ -611,6 +695,8 @@ export function createSlackBotApi(
         ...(user.is_stranger === undefined
           ? {}
           : { is_stranger: user.is_stranger }),
+        ...(user.is_bot === undefined ? {} : { is_bot: user.is_bot }),
+        ...(user.deleted === undefined ? {} : { deleted: user.deleted }),
       };
     },
 

@@ -14,6 +14,7 @@ import {
   SlackTokenSection,
 } from "./slack/app.tsx";
 import { SlackDmSetting, SlackMentionOnly } from "./slack/basic.tsx";
+import { SlackAllowedBots } from "./slack/bots.tsx";
 import { SlackChannels } from "./slack/channels.tsx";
 import { SlackSkeleton } from "./slack/connect.tsx";
 import { unverifiedApp, useSlackBindings } from "./slack/queries.ts";
@@ -147,6 +148,9 @@ export default function SlackTab({
               <>
                 <SlackDmSetting agentId={agentId} />
                 <SlackMentionOnly agentId={agentId} notify={notify} />
+                {installed ? (
+                  <SlackAllowedBots agentId={agentId} notify={notify} />
+                ) : null}
               </>
             }
           />

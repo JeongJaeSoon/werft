@@ -23,6 +23,7 @@ import {
   createPostgresAgentIdentityStore,
   createPostgresAgentStore,
   createPostgresCredentialBindingStore,
+  createPostgresGitHubMcpStore,
   createPostgresSessionLinkStore,
   createPostgresSessionReader,
   createPostgresSlackAppStore,
@@ -399,6 +400,8 @@ function handler(
   });
   return {
     notices: notices.notices,
+    threadNotices: notices.threadNotices,
+    sink: notices.sink,
     handle: async (claim: SlackInboundClaim) => {
       await catalog.refresh();
       return handle(claim);
@@ -1603,5 +1606,355 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     ).rejects.toMatchObject({ reason: "installation_revoked" });
     expect(await sessionsOf(fixture)).toEqual([]);
     expect(await links()).toEqual([]);
+  });
+});
+
+const REVIEW_BOT = "U0REVIEW";
+// The count holds agent ids as text; another agent needs no row here.
+const OTHER_AGENT = "019a0000-0000-7000-8000-0000000000e9";
+
+/** A post of another app's bot: Slack names its bot user and its bot id. */
+const botMention = (ts: string, extra: Record<string, unknown> = {}) =>
+  mention(ts, {
+    user: REVIEW_BOT,
+    bot_id: "B0REVIEW",
+    text: `<@${BOT_USER}> review this`,
+    ...extra,
+  });
+
+async function allowBots(fixture: Fixture, ids: string[]) {
+  await db
+    .update(agents)
+    .set({ slackAllowedBotUserIds: ids })
+    .where(eq(agents.id, fixture.agentId));
+}
+
+describe.each(ENGINES)("Slack bot mentions on %s", (engine) => {
+  useDatabase(engine);
+  beforeEach(() => {
+    slack.users.clear();
+    slack.users.set(REVIEW_BOT, { isBot: true, name: "code-review" });
+  });
+
+  test("an allowed bot's mention opens a session that names the bot and no person", async () => {
+    const fixture = await agentInSlack();
+    await allowBots(fixture, [REVIEW_BOT]);
+    const { handle, notices } = handler();
+    await deliver(fixture, botMention("100.000100"));
+    expect(await drain(handle)).toMatchObject({ processed: 1 });
+
+    const [session, ...others] = await sessionsOf(fixture);
+    expect(others).toEqual([]);
+    expect(session).toMatchObject({
+      createdByUserId: null,
+      createdByApiKeyId: null,
+      channel: "slack",
+      requesterKind: "slack_bot",
+      requesterId: REVIEW_BOT,
+    });
+    expect(await turnsOf(session?.id)).toEqual([
+      { sequence: 1, message: "review this", actorId: null },
+    ]);
+    const [turn] = await db
+      .select({ kind: turns.requesterKind, id: turns.requesterId })
+      .from(turns);
+    expect(turn).toEqual({ kind: "slack_bot", id: REVIEW_BOT });
+    const [link] = await links();
+    expect(link).toMatchObject({ sessionId: session?.id, createdBy: null });
+    expect(notices).toEqual([]);
+    // The built-in GitHub tools judge a call by the session's creator, and
+    // this one has none: they stay closed to it, as no person stands behind
+    // a bot's turn.
+    const github = await createPostgresGitHubMcpStore(db).sessionState(
+      session?.id ?? "",
+    );
+    expect(github === null).toBe(false);
+    expect(github?.actor).toBeNull();
+  });
+
+  test("a bot not allowed, a deleted bot, one in a DM and an unmentioned bot reply start nothing", async () => {
+    const fixture = await agentInSlack();
+    const { handle } = handler();
+    // Allowed by no one yet.
+    await deliver(fixture, botMention("100.000100"));
+    expect(await drain(handle)).toMatchObject({ processed: 1 });
+    expect(await sessionsOf(fixture)).toEqual([]);
+
+    await allowBots(fixture, [REVIEW_BOT, "U0GONE"]);
+    slack.users.set("U0GONE", { isBot: true, deleted: true });
+    // A person on the list is still no bot.
+    slack.users.set("U0PERSONBOT", {});
+    await allowBots(fixture, [REVIEW_BOT, "U0GONE", "U0PERSONBOT"]);
+    await deliver(fixture, botMention("100.000200", { user: "U0GONE" }));
+    await deliver(fixture, botMention("100.000300", { user: "U0PERSONBOT" }));
+    await deliver(
+      fixture,
+      botMention("100.000400", { channel: "D0DM", channel_type: "im" }),
+    );
+    await deliver(
+      fixture,
+      message("100.000500", {
+        user: REVIEW_BOT,
+        bot_id: "B0REVIEW",
+        thread_ts: "100.000100",
+      }),
+    );
+    expect(await drain(handle)).toMatchObject({ processed: 4 });
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(await links()).toEqual([]);
+  });
+
+  test("the bot taken off the list after its mention was queued runs no turn", async () => {
+    const fixture = await agentInSlack();
+    await allowBots(fixture, [REVIEW_BOT]);
+    await deliver(fixture, botMention("100.000100"));
+    await allowBots(fixture, []);
+    expect(await drain(handler().handle)).toMatchObject({ processed: 1 });
+    expect(await sessionsOf(fixture)).toEqual([]);
+  });
+
+  test("an allowed bot that turns out to be another Werft agent's runs no turn", async () => {
+    const fixture = await agentInSlack();
+    await allowBots(fixture, [REVIEW_BOT]);
+    await deliver(fixture, botMention("100.000100"));
+    // Another agent's app of this install, made after the mention was
+    // queued, is that bot.
+    await registerSlackInstallation(db, {
+      appId: "A0REVIEW",
+      teamId: TEAM,
+      workspaceId: fixture.workspaceId,
+    });
+    await verifySlackInstallation(db, {
+      appId: "A0REVIEW",
+      teamId: TEAM,
+      botUserId: REVIEW_BOT,
+    });
+    const { handle, notices } = handler();
+    expect(await drain(handle)).toMatchObject({ processed: 1 });
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(await links()).toEqual([]);
+    expect(notices).toEqual([]);
+  });
+
+  test("five bot turns in a row stop the sixth with one line in the thread; only a person starts the count over", async () => {
+    const fixture = await agentInSlack();
+    await allowBots(fixture, [REVIEW_BOT]);
+    const { handle, threadNotices } = handler();
+    const inThread = (ts: string) =>
+      botMention(ts, { thread_ts: "100.000100" });
+    await deliver(fixture, mention("100.000100"));
+    for (let n = 2; n <= 7; n += 1) {
+      await deliver(fixture, inThread(`100.00010${n}`));
+    }
+    // The same post again, as the message event beside the mention: one turn.
+    await deliver(
+      fixture,
+      message("100.000102", {
+        user: REVIEW_BOT,
+        bot_id: "B0REVIEW",
+        thread_ts: "100.000100",
+        text: `<@${BOT_USER}> review this`,
+      }),
+    );
+    expect(await drain(handle)).toMatchObject({ processed: 8 });
+    const [session] = await sessionsOf(fixture);
+    const counted = await turnsOf(session?.id);
+    expect(counted.map((turn) => turn.actorId)).toEqual([
+      fixture.ownerId,
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
+    expect(threadNotices).toHaveLength(1);
+    expect(threadNotices[0]).toMatchObject({
+      channelId: CHANNEL,
+      threadTs: "100.000100",
+      sessionId: session?.id,
+      notice: { message: "botTurnLimit" },
+    });
+
+    // A day later the bots are still stopped: time does not start over.
+    await deliver(fixture, inThread("186500.000100"));
+    expect(await drain(handle)).toMatchObject({ processed: 1 });
+    expect(await turnsOf(session?.id)).toHaveLength(6);
+    expect(threadNotices).toHaveLength(1);
+
+    // A person writes: the bot is answered again, and stops again after 5.
+    await deliver(
+      fixture,
+      message("186500.000200", { thread_ts: "100.000100" }),
+    );
+    for (let n = 3; n <= 8; n += 1) {
+      await deliver(fixture, inThread(`186500.00030${n}`));
+    }
+    expect(await drain(handle)).toMatchObject({ processed: 7 });
+    expect(await turnsOf(session?.id)).toHaveLength(12);
+    expect(threadNotices).toHaveLength(2);
+
+    // That person's message delivered again, late: it starts nothing over.
+    await deliver(
+      fixture,
+      message("186500.000200", { thread_ts: "100.000100" }),
+    );
+    await deliver(fixture, inThread("186500.000400"));
+    expect(await drain(handle)).toMatchObject({ processed: 2 });
+    expect(await turnsOf(session?.id)).toHaveLength(12);
+    expect(threadNotices).toHaveLength(2);
+  });
+
+  test("two agents in one thread share the count", async () => {
+    const fixture = await agentInSlack();
+    await allowBots(fixture, [REVIEW_BOT]);
+    const { handle, threadNotices } = handler();
+    const thread = { workspaceId: fixture.workspaceId, teamId: TEAM };
+    // Another agent's turns in this thread, counted before this one's.
+    await db.insert(schema.slackThreadBotTurns).values({
+      ...thread,
+      channelId: CHANNEL,
+      threadTs: "100.000100",
+      countedTurns: [101, 102, 103, 104].map(
+        (n) => `100.000${n} ${OTHER_AGENT}`,
+      ),
+    });
+    await deliver(
+      fixture,
+      botMention("100.000105", { thread_ts: "100.000100" }),
+    );
+    await deliver(
+      fixture,
+      botMention("100.000106", { thread_ts: "100.000100" }),
+    );
+    expect(await drain(handle)).toMatchObject({ processed: 2 });
+    const [session] = await sessionsOf(fixture);
+    expect(await turnsOf(session?.id)).toHaveLength(1);
+    expect(threadNotices).toHaveLength(1);
+  });
+
+  test("a person's file or /me line in the thread starts the count over, and takes no turn", async () => {
+    const fixture = await agentInSlack();
+    await allowBots(fixture, [REVIEW_BOT]);
+    const { handle, threadNotices } = handler();
+    for (const [root, subtype] of [
+      ["100.000100", "file_share"],
+      ["200.000100", "me_message"],
+    ] as const) {
+      const [secs] = root.split(".");
+      await db.insert(schema.slackThreadBotTurns).values({
+        workspaceId: fixture.workspaceId,
+        teamId: TEAM,
+        channelId: CHANNEL,
+        threadTs: root,
+        countedTurns: [101, 102, 103, 104, 105].map(
+          (n) => `${secs}.000${n} ${OTHER_AGENT}`,
+        ),
+      });
+      await deliver(
+        fixture,
+        message(`${secs}.000106`, { subtype, thread_ts: root, text: "here" }),
+      );
+      await deliver(fixture, botMention(`${secs}.000107`, { thread_ts: root }));
+    }
+    expect(await drain(handle)).toMatchObject({ processed: 4 });
+    expect(threadNotices).toEqual([]);
+    const opened = await sessionsOf(fixture);
+    expect(opened).toHaveLength(2);
+    // Only the bots' mentions became turns.
+    for (const session of opened) {
+      expect(await turnsOf(session.id)).toEqual([
+        { sequence: 1, message: "review this", actorId: null },
+      ]);
+    }
+  });
+
+  test("a stop whose line was lost posts it on the next stopped mention, once", async () => {
+    const fixture = await agentInSlack();
+    await allowBots(fixture, [REVIEW_BOT]);
+    await db.insert(schema.slackThreadBotTurns).values({
+      workspaceId: fixture.workspaceId,
+      teamId: TEAM,
+      channelId: CHANNEL,
+      threadTs: "100.000100",
+      countedTurns: [101, 102, 103, 104, 105].map(
+        (n) => `100.000${n} ${OTHER_AGENT}`,
+      ),
+    });
+    const { handle, sink, threadNotices } = handler();
+    const record = sink.recordInThread;
+    let lost = 0;
+    sink.recordInThread = async (notice) => {
+      // Every try of the first stopped mention fails.
+      if (notice.onceKey.endsWith(`100.000106 ${fixture.agentId}`)) {
+        lost += 1;
+        throw new Error("outbox down");
+      }
+      return record(notice);
+    };
+    // Out of the thread's order, so the next mentions need not wait for its
+    // retries to run out.
+    await deliver(
+      fixture,
+      botMention("100.000106", { thread_ts: "100.000100" }),
+      { thread: false },
+    );
+    await drain(handle);
+    expect(lost).toBeGreaterThan(0);
+    expect(threadNotices).toEqual([]);
+    sink.recordInThread = record;
+    await deliver(
+      fixture,
+      botMention("100.000107", { thread_ts: "100.000100" }),
+    );
+    await deliver(
+      fixture,
+      botMention("100.000108", { thread_ts: "100.000100" }),
+    );
+    await drain(handle);
+    expect(threadNotices).toHaveLength(1);
+    expect(await sessionsOf(fixture)).toEqual([]);
+  });
+
+  test("a turn the session took stays counted when a later step fails", async () => {
+    const fixture = await agentInSlack();
+    await allowBots(fixture, [REVIEW_BOT]);
+    const thread = {
+      workspaceId: fixture.workspaceId,
+      teamId: TEAM,
+      channelId: CHANNEL,
+      threadTs: "100.000100",
+    };
+    await db.insert(schema.slackThreadBotTurns).values({
+      ...thread,
+      countedTurns: [101, 102, 103, 104].map(
+        (n) => `100.000${n} ${OTHER_AGENT}`,
+      ),
+    });
+    await deliver(
+      fixture,
+      botMention("100.000105", { thread_ts: "100.000100" }),
+    );
+    // The session is made; tying it to the thread then fails.
+    await db.execute(
+      sql.raw(`CREATE FUNCTION fail_attach() RETURNS trigger LANGUAGE plpgsql
+        AS $$ BEGIN RAISE EXCEPTION 'attach lost'; END $$`),
+    );
+    await db.execute(
+      sql.raw(`CREATE TRIGGER fail_attach BEFORE UPDATE OF session_id
+        ON session_links FOR EACH ROW EXECUTE FUNCTION fail_attach()`),
+    );
+    try {
+      await drain(handler().handle);
+    } finally {
+      await db.execute(sql.raw("DROP TRIGGER fail_attach ON session_links"));
+      await db.execute(sql.raw("DROP FUNCTION fail_attach()"));
+    }
+    expect(await sessionsOf(fixture)).toHaveLength(1);
+    const [row] = await db
+      .select({ counted: schema.slackThreadBotTurns.countedTurns })
+      .from(schema.slackThreadBotTurns)
+      .where(eq(schema.slackThreadBotTurns.threadTs, thread.threadTs));
+    expect(row?.counted).toContain(`100.000105 ${fixture.agentId}`);
+    expect(row?.counted).toHaveLength(5);
   });
 });

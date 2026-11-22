@@ -11,6 +11,7 @@ import type {
 } from "@werft-ai/platform";
 import { receiptActorOf } from "@werft-ai/platform";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
@@ -371,6 +372,23 @@ async function revoke(
 }
 
 /**
+ * The bot users of every Slack app of this install in one Slack team,
+ * whichever workspace or state; a revoked app's bot may still post.
+ */
+export async function werftBotUserIds(
+  db: Database,
+  teamId: string,
+): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ botUserId: slackInstallations.botUserId })
+    .from(slackInstallations)
+    .where(eq(slackInstallations.teamId, teamId));
+  return rows.flatMap((row) => (row.botUserId === null ? [] : [row.botUserId]));
+}
+
+const teamBots = alias(slackInstallations, "team_bots");
+
+/**
  * The agent a Slack event's app and team name now (design A.7): the
  * install, its active identity and the agent, read in one statement so a
  * revoke committing between reads cannot pair a revoked install with a live
@@ -395,6 +413,11 @@ export async function resolveSlackEventAgent(
       externalPrincipalId: agentIdentities.externalPrincipalId,
       credentialRef: agentIdentities.credentialRef,
       agentStatus: agents.status,
+      allowedBotUserIds: agents.slackAllowedBotUserIds,
+      // In the same statement, so the event's snapshot holds these too.
+      werftBotUserIds: sql<
+        string[]
+      >`coalesce((select array_agg(distinct ${teamBots.botUserId}) from ${slackInstallations} ${teamBots} where ${teamBots.teamId} = ${slackInstallations.teamId} and ${teamBots.botUserId} is not null), '{}')`,
     })
     .from(slackInstallations)
     .leftJoin(
@@ -447,6 +470,8 @@ export async function resolveSlackEventAgent(
     installationId: row.installationId,
     botUserId: row.externalPrincipalId,
     credentialRef: row.credentialRef,
+    allowedBotUserIds: row.allowedBotUserIds ?? [],
+    werftBotUserIds: row.werftBotUserIds,
   };
 }
 

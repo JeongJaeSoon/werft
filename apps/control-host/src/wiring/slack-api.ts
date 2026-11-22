@@ -203,6 +203,7 @@ export function wireSlackServices(
     logger: deps.logger,
     onAgentAppChanged: (agentId) => signingSecrets.invalidate(agentId),
     activeReleaseWarning: deps.activeReleaseWarning,
+    bots: { secrets: secrets(), api: deps.botApi },
   });
   const events = createSlackEventsService({
     signingSecrets,

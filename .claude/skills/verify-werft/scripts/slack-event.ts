@@ -15,7 +15,11 @@ const [agentId, mode, channel = "C0VERIFY", seq = "1", parent, text] =
 // `mention` and `plain` are top-level posts by U0MOCK in `channel`, with
 // or without a mention; each sequence number is its own event and thread.
 // `reply` is an unmentioned post in the thread `parent` opened.
-const posted = mode === "mention" || mode === "plain" || mode === "reply";
+// `bot-mention` is the same mention from another app's bot U0REVIEWBOT (seed
+// it with /fake/users first); with `parent` it is a reply in that thread.
+const botMention = mode === "bot-mention";
+const posted =
+  mode === "mention" || mode === "plain" || mode === "reply" || botMention;
 const uninstalled = mode === "uninstall" || mode === "uninstall-late";
 // `join` and `leave` are this app's bot entering or leaving `channel`
 // (private by the mock's G prefix, public by C). `leave` is what Slack sends
@@ -92,11 +96,15 @@ try {
                   }
                 : {
                     type: "app_mention",
-                    user: "U0MOCK",
+                    user: botMention ? "U0REVIEWBOT" : "U0MOCK",
                     channel: posted ? channel : "C0VERIFY",
                     ts,
                     text: text || "verify inbox",
                     ...(mode === "bot" ? { bot_id: "B0VERIFY" } : {}),
+                    ...(botMention ? { bot_id: "B0REVIEW" } : {}),
+                    ...(botMention && parent
+                      ? { thread_ts: `${1792800000 + Number(parent)}.000001` }
+                      : {}),
                   },
         };
   const body = mode === "malformed" ? "{" : JSON.stringify(payload);

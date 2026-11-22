@@ -18,6 +18,7 @@ import {
   CSRF_HEADER_VALUE,
   createSlackAppResponseSchema,
   deleteSlackAppResponseSchema,
+  getSlackAppBotsResponseSchema,
   getSlackAppResponseSchema,
   listWorkspaceSlackAppsResponseSchema,
   putSlackSecretResponseSchema,
@@ -45,6 +46,7 @@ const IDLE_AGENT = "019a0000-0000-7000-8000-0000000000c2";
 const LOST_AGENT = "019a0000-0000-7000-8000-0000000000c3";
 const OTHER_AGENT = "019a0000-0000-7000-8000-0000000000c4";
 const NEXT_AGENT = "019a0000-0000-7000-8000-0000000000c5";
+const BOTS_AGENT = "019a0000-0000-7000-8000-0000000000c6";
 const AGENT_ADMIN = "019a0000-0000-7000-8000-0000000000d1";
 const ORIGIN = "https://console.example.ts.net";
 
@@ -126,8 +128,19 @@ const apps = createMemorySlackAppStore({
     agent(LOST_AGENT, WORKSPACE, true),
     agent(OTHER_AGENT, OTHER_WORKSPACE, true),
     agent(NEXT_AGENT, WORKSPACE, true),
+    agent(BOTS_AGENT, WORKSPACE, true),
+  ]),
+  installs: new Map([
+    [BOTS_AGENT, { teamId: "T0ACME", botUserId: "U0NOTES" }],
+    // Another agent of this install in the same Slack team.
+    [NEXT_AGENT, { teamId: "T0ACME", botUserId: "U0WRITER" }],
   ]),
 });
+const workspaceBots = [
+  { id: "U0REVIEW", teamId: "T0ACME", name: "code-review", deleted: false },
+  { id: "U0NOTES", teamId: "T0ACME", name: "notes", deleted: false },
+  { id: "U0WRITER", teamId: "T0ACME", name: "writer", deleted: false },
+];
 const issuedAppSecrets: string[] = [];
 const createApp = slack.api.createApp;
 slack.api.createApp = async (token, manifest) => {
@@ -160,6 +173,13 @@ function appWith(enabled: boolean) {
           api: slack.api,
           consoleOrigin: ORIGIN,
           eventsPublicUrl: async () => "https://events.example.test",
+          bots: {
+            secrets: secrets.store,
+            api: {
+              listBots: async () => ({ bots: workspaceBots, nextCursor: null }),
+              findBot: async () => null,
+            },
+          },
         }),
         secrets: createSlackSecretService({
           authorization,
@@ -722,12 +742,129 @@ describe("a Slack app's secrets", () => {
   });
 });
 
+describe("the agent's Slack bot allow list API", () => {
+  const path = `${appPath(BOTS_AGENT)}/bots`;
+
+  test("an agent without a working app answers 409, then the list saves and reads back", async () => {
+    const owner = cookieFor("owner");
+    const before = await call("GET", path, { cookie: owner });
+    expect(before.status).toBe(409);
+    expect(code(before.json).code).toBe("SLACK_NOT_INSTALLED");
+    expect(
+      (
+        await call("PUT", path, {
+          cookie: owner,
+          body: { allowed_user_ids: ["U0REVIEW"] },
+        })
+      ).status,
+    ).toBe(409);
+
+    const now = new Date();
+    const id = crypto.randomUUID();
+    apps.seed({
+      id,
+      workspaceId: WORKSPACE,
+      kind: "agent",
+      agentId: BOTS_AGENT,
+      state: "created",
+      appId: "A0BOTS",
+      clientId: "3000.1",
+      redirectUrl: `${ORIGIN}/bots`,
+      createdByTokenUser: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    secrets.write(
+      {
+        workspaceId: WORKSPACE,
+        owner: { kind: "slack_app", id },
+        purpose: "slack_bot_token",
+      },
+      `xoxb-${crypto.randomUUID()}`,
+    );
+    const saved = await call("PUT", path, {
+      cookie: owner,
+      body: { allowed_user_ids: ["U0REVIEW"] },
+    });
+    expect(saved.status).toBe(200);
+    const read = await call("GET", path, { cookie: owner });
+    expect(getSlackAppBotsResponseSchema.parse(read.json).items).toEqual([
+      {
+        user_id: "U0REVIEW",
+        name: "code-review",
+        state: "active",
+        allowed: true,
+      },
+    ]);
+  });
+
+  test("the agent's own bot, another Werft agent's, duplicates and members are refused", async () => {
+    const owner = cookieFor("owner");
+    for (const [id, reason] of [
+      ["U0NOTES", "slack_bot_own"],
+      ["U0WRITER", "slack_bot_werft_agent"],
+    ]) {
+      const refused = await call("PUT", path, {
+        cookie: owner,
+        body: { allowed_user_ids: [id] },
+      });
+      expect(refused.status).toBe(400);
+      expect(code(refused.json).details).toMatchObject({
+        reason_code: reason,
+        user_ids: [id],
+      });
+    }
+    expect(
+      (
+        await call("PUT", path, {
+          cookie: owner,
+          body: { allowed_user_ids: [], pad: "a".repeat(70_000) },
+        })
+      ).status,
+    ).toBe(413);
+    expect(
+      (
+        await call("PUT", path, {
+          cookie: owner,
+          body: { allowed_user_ids: ["U0REVIEW", "U0REVIEW"] },
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await call("PUT", path, {
+          cookie: cookieFor("member"),
+          body: { allowed_user_ids: [] },
+        })
+      ).status,
+    ).toBe(403);
+    expect((await call("GET", path, { key: true })).status).toBe(403);
+    expect(
+      (await call("GET", `${appPath(OTHER_AGENT)}/bots`, { cookie: owner }))
+        .status,
+    ).toBe(404);
+    expect(
+      (
+        await call("PUT", `${appPath(OTHER_AGENT)}/bots`, {
+          cookie: owner,
+          body: { allowed_user_ids: [] },
+        })
+      ).status,
+    ).toBe(404);
+  });
+});
+
 test("without a master key every route answers 503", async () => {
   const off = appWith(false);
   const owner = cookieFor("owner");
   for (const response of [
     await off("GET", appPath(AGENT), { cookie: owner }),
     await off("POST", appPath(AGENT), { cookie: owner, body: {} }),
+    await off("GET", `${appPath(BOTS_AGENT)}/bots`, { cookie: owner }),
+    await off("PUT", `${appPath(BOTS_AGENT)}/bots`, {
+      cookie: owner,
+      body: { allowed_user_ids: [] },
+    }),
     await off("GET", `/v1/workspaces/${WORKSPACE}/slack/apps`, {
       cookie: owner,
     }),

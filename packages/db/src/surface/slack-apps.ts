@@ -17,7 +17,11 @@ import {
 import { and, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import { UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
-import { holdsRight, lockedRole } from "../musterrolle/index.ts";
+import {
+  holdsRight,
+  lockedRole,
+  werftBotUserIds,
+} from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import {
   agentIdentities,
@@ -25,6 +29,7 @@ import {
   agents,
   agentVersions,
   slackApps,
+  slackInstallations,
   workspaces,
 } from "../schema.ts";
 import {
@@ -361,6 +366,72 @@ export function createPostgresSlackAppStore(
         const [row] = await tx
           .update(agents)
           .set({ slackMentionOnly: input.settings.mention_only })
+          .where(
+            and(
+              eq(agents.workspaceId, input.workspaceId),
+              eq(agents.id, input.agentId.toLowerCase()),
+            ),
+          )
+          .returning({ id: agents.id });
+        return row ? ("saved" as const) : ("not_found" as const);
+      });
+    },
+    async getAllowedBots(workspaceId, agentId) {
+      if (!UUID.test(agentId)) return null;
+      const [agent] = await db
+        .select({ allowed: agents.slackAllowedBotUserIds })
+        .from(agents)
+        .where(
+          and(
+            eq(agents.workspaceId, workspaceId),
+            eq(agents.id, agentId.toLowerCase()),
+          ),
+        );
+      if (!agent) return null;
+      // The install its live identity pins, as an event resolves it.
+      const [install] = await db
+        .select({
+          teamId: slackInstallations.teamId,
+          botUserId: slackInstallations.botUserId,
+        })
+        .from(agentIdentities)
+        .innerJoin(
+          slackInstallations,
+          eq(slackInstallations.id, agentIdentities.installationId),
+        )
+        .where(
+          and(
+            eq(agentIdentities.workspaceId, workspaceId),
+            eq(agentIdentities.agentId, agentId.toLowerCase()),
+            eq(agentIdentities.status, "active"),
+            eq(slackInstallations.status, "verified"),
+          ),
+        )
+        .limit(1);
+      return {
+        allowedBotUserIds: agent.allowed,
+        install:
+          install?.botUserId == null
+            ? null
+            : { teamId: install.teamId, botUserId: install.botUserId },
+        werftBotUserIds:
+          install === undefined
+            ? []
+            : await werftBotUserIds(db, install.teamId),
+      };
+    },
+    putAllowedBots(input) {
+      return db.transaction(async (tx) => {
+        const refused = await actorRefusal(
+          tx,
+          input.workspaceId,
+          input.agentId,
+          input.actor,
+        );
+        if (refused) return refused;
+        const [row] = await tx
+          .update(agents)
+          .set({ slackAllowedBotUserIds: [...input.allowedBotUserIds] })
           .where(
             and(
               eq(agents.workspaceId, input.workspaceId),

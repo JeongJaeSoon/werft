@@ -3,9 +3,11 @@ import {
   createSlackAppRequestSchema,
   createSlackAppResponseSchema,
   deleteSlackAppResponseSchema,
+  getSlackAppBotsResponseSchema,
   getSlackAppManifestResponseSchema,
   getSlackAppResponseSchema,
   listWorkspaceSlackAppsResponseSchema,
+  putSlackAppBotsRequestSchema,
   putSlackSecretRequestSchema,
   putSlackSecretResponseSchema,
   slackAppParamsSchema,
@@ -65,6 +67,27 @@ export function registerSlackAppRoutes(
       slackAppSettingsSchema,
       await mapped(() =>
         apps.putAgentAppSettings(context.get("caller"), params.id, settings),
+      ),
+    );
+  });
+  apiRoute(router, "getSlackAppBots", async (context) => {
+    const params = requireParams(context, agentIdParamsSchema);
+    return jsonWithSchema(
+      context,
+      getSlackAppBotsResponseSchema,
+      await mapped(() =>
+        apps.getAgentAppBots(context.get("caller"), params.id),
+      ),
+    );
+  });
+  apiRoute(router, "putSlackAppBots", async (context) => {
+    const params = requireParams(context, agentIdParamsSchema);
+    const body = await parseJsonBody(context, putSlackAppBotsRequestSchema);
+    return jsonWithSchema(
+      context,
+      getSlackAppBotsResponseSchema,
+      await mapped(() =>
+        apps.putAgentAppBots(context.get("caller"), params.id, body),
       ),
     );
   });

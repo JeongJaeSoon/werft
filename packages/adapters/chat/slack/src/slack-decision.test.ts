@@ -149,6 +149,8 @@ const deps = () => ({
             installationId: INSTALLATION,
             botUserId: "U0BOT",
             credentialRef: "slack_bot_token",
+            allowedBotUserIds: [],
+            werftBotUserIds: [],
           }
         : { status: "dropped" as const, reason: "not_installed" as const };
     },

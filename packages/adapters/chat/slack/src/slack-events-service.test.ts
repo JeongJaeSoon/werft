@@ -190,6 +190,7 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
     signingSecrets,
     inbox,
     installs,
+    identities,
     apps,
     secrets,
     lookups,
@@ -428,6 +429,34 @@ describe("Slack events service", () => {
         "dropped",
         "message_subtype",
       ],
+      // A person's file or /me line in a thread is kept: it starts the
+      // bots' count over.
+      [
+        { ...message, user: "U0P", subtype: "file_share", thread_ts: "1.0" },
+        "received",
+        undefined,
+      ],
+      [
+        { ...message, user: "U0P", subtype: "me_message", thread_ts: "1.0" },
+        "received",
+        undefined,
+      ],
+      [
+        { ...message, user: "U0P", subtype: "me_message" },
+        "dropped",
+        "message_subtype",
+      ],
+      [
+        {
+          ...message,
+          user: "U0BOTX",
+          bot_id: "B0OTHER",
+          subtype: "file_share",
+          thread_ts: "1.0",
+        },
+        "dropped",
+        "bot_message",
+      ],
       [
         { ...message, user: "U0P", subtype: "message_changed" },
         "dropped",
@@ -473,6 +502,118 @@ describe("Slack events service", () => {
       expect(result).toMatchObject({ kind: "ack", status });
       expect(result.kind === "ack" ? result.reason : null).toBe(reason);
     }
+  });
+
+  test("an allowed bot is kept only when it mentions the agent directly outside a DM", async () => {
+    const w = world();
+    await w.install();
+    w.readyChannels.set("C0CHAN", "public_channel");
+    w.identities.allowedBots.set(AGENT, ["U0REVIEW", BOT_USER]);
+    const bot = { user: "U0REVIEW", bot_id: "B0REVIEW" };
+    const message = { type: "message", channel: "C0CHAN", ts: "1.1", ...bot };
+    const cases = [
+      [{ ...MENTION, ...bot }, "received", undefined],
+      [
+        { ...message, text: `<@${BOT_USER}> review this` },
+        "received",
+        undefined,
+      ],
+      [
+        { ...message, text: `<@${BOT_USER}|notes> review this` },
+        "received",
+        undefined,
+      ],
+      // Talk in a thread without a direct mention, or a mention of another.
+      [
+        { ...message, text: "done", thread_ts: "1.0" },
+        "dropped",
+        "bot_message",
+      ],
+      [{ ...message, text: "<@U0OTHER> hi" }, "dropped", "bot_message"],
+      [
+        { ...message, text: `<@${BOT_USER}> hi`, channel_type: "im" },
+        "dropped",
+        "bot_message",
+      ],
+      // A bot not on the list, and the agent's own bot even when listed.
+      [
+        { ...MENTION, user: "U0STRANGER", bot_id: "B0STRANGER" },
+        "dropped",
+        "bot_message",
+      ],
+      [
+        { ...MENTION, user: BOT_USER, bot_id: "B0OWN" },
+        "dropped",
+        "own_bot_user",
+      ],
+      // A legacy bot_message names no user to allow.
+      [
+        { ...message, user: undefined, subtype: "bot_message" },
+        "dropped",
+        "bot_message",
+      ],
+    ] as const;
+    for (const [fields, status, reason] of cases) {
+      const result = await w.service.receive(w.signed(w.event(fields)));
+      expect(result).toMatchObject({ kind: "ack", status });
+      expect(result.kind === "ack" ? result.reason : null).toBe(reason);
+    }
+  });
+
+  test("another agent's bot of this Werft install is dropped, even when the allow list still names it", async () => {
+    const w = world();
+    await w.install();
+    w.readyChannels.set("C0CHAN", "public_channel");
+    // Another agent's app, in another workspace of the same install.
+    await w.installs.store.recordInstallation({
+      workspaceId: crypto.randomUUID(),
+      appId: "A0WRITER",
+      teamId: TEAM,
+      botUserId: "U0WRITER",
+    });
+    w.identities.allowedBots.set(AGENT, ["U0WRITER", "U0REVIEW", BOT_USER]);
+    const writer = { user: "U0WRITER", bot_id: "B0WRITER" };
+    const cases = [
+      [{ ...MENTION, ...writer }, "dropped", "werft_agent_bot"],
+      // The agent's own bot is blocked too, under its own reason.
+      [
+        { ...MENTION, user: BOT_USER, bot_id: "B0OWN" },
+        "dropped",
+        "own_bot_user",
+      ],
+      [
+        {
+          type: "message",
+          channel: "C0CHAN",
+          ts: "1.1",
+          text: `<@${BOT_USER}> hi`,
+          ...writer,
+        },
+        "dropped",
+        "werft_agent_bot",
+      ],
+      // A bot outside Werft on the list still goes on.
+      [
+        { ...MENTION, user: "U0REVIEW", bot_id: "B0REVIEW" },
+        "received",
+        undefined,
+      ],
+    ] as const;
+    for (const [fields, status, reason] of cases) {
+      const result = await w.service.receive(w.signed(w.event(fields)));
+      expect(result).toMatchObject({ kind: "ack", status });
+      expect(result.kind === "ack" ? result.reason : null).toBe(reason);
+    }
+  });
+
+  test("with an empty allow list every bot stays dropped", async () => {
+    const w = world();
+    await w.install();
+    w.readyChannels.set("C0CHAN", "public_channel");
+    const result = await w.service.receive(
+      w.signed(w.event({ ...MENTION, user: "U0REVIEW", bot_id: "B0REVIEW" })),
+    );
+    expect(result).toMatchObject({ status: "dropped", reason: "bot_message" });
   });
 
   test("in a channel waiting for approval, talk is dropped unread and a mention is kept without its text, files or blocks", async () => {
@@ -536,6 +677,34 @@ describe("Slack events service", () => {
       expect(JSON.stringify(row.payload)).not.toContain("1234");
       expect(JSON.stringify(row.payload)).not.toContain("secret");
     }
+  });
+
+  test("in a channel waiting for approval, an allowed bot's mention keeps its bot id", async () => {
+    const w = world();
+    await w.install();
+    w.identities.allowedBots.set(AGENT, ["U0REVIEW"]);
+    w.pendingChannels.add("G0WAIT");
+    const mention = await w.service.receive(
+      w.signed(
+        w.event({
+          type: "app_mention",
+          user: "U0REVIEW",
+          bot_id: "B0REVIEW",
+          text: `<@${BOT_USER}> the launch code is 1234`,
+          channel: "G0WAIT",
+          channel_type: "group",
+          ts: "1.2",
+          thread_ts: "1.1",
+        }),
+      ),
+    );
+    expect(mention).toMatchObject({ status: "received" });
+    const [row] = [...w.inbox.rows.values()].flatMap((item) =>
+      item.status === "received" ? [item] : [],
+    );
+    const event = (row?.payload as { event: Record<string, unknown> }).event;
+    expect(event.bot_id).toBe("B0REVIEW");
+    expect(event.text).toBe(`<@${BOT_USER}>`);
   });
 
   test("a pending channel changes nothing for a DM, another channel, or once it is approved", async () => {

@@ -1,6 +1,7 @@
 import {
   formatSurfaceRef,
   messageTextSchema,
+  SLACK_BOT_TURN_LIMIT,
   type SlackMessageRef,
   type SlackNotice,
   type SurfaceChannelKind,
@@ -9,6 +10,7 @@ import {
 import type {
   AgentIdentityStore,
   AgentStore,
+  BotTurnStore,
   LinkedAccountStore,
   SessionLinkRecord,
   SessionLinkStore,
@@ -31,6 +33,7 @@ import {
   slackCallerOf,
 } from "./slack-decision.ts";
 import {
+  SLACK_PERSON_RESET_SUBTYPES,
   SlackInboundDropped,
   type SlackInboundHandler,
   type SlackInboxLogger,
@@ -117,6 +120,8 @@ export type SlackSessionHandlerDeps = {
   >;
   /** Whether the agent waits for a mention in every channel in use. */
   settings: Pick<SlackAppStore, "getSettings">;
+  /** Bot-started turns in a row per thread, across the workspace's agents. */
+  botTurns: BotTurnStore;
   sessionLinks: SessionLinkStore;
   sessions: Pick<SessionService, "createSession" | "appendMessage">;
   /** The agent's active release, which a new thread's session runs. */
@@ -160,12 +165,21 @@ export function createSlackSessionHandler(
     if (!parsed.success) return;
     const event = parsed.data;
     const ids = { id: claim.id, event_id: claim.eventId };
+    // A person's file or /me line only starts the bots' count over (below);
+    // neither is a turn.
+    const resetOnly =
+      event.subtype !== undefined &&
+      SLACK_PERSON_RESET_SUBTYPES.has(event.subtype);
     if (
-      event.bot_id !== undefined ||
-      (event.subtype !== undefined && event.subtype !== "thread_broadcast")
+      event.subtype !== undefined &&
+      event.subtype !== "thread_broadcast" &&
+      !resetOnly
     ) {
       return;
     }
+    // Another app's bot: only a direct mention from a bot the agent allows
+    // goes on, and it acts as the agent, with no person behind it.
+    const fromBot = event.bot_id !== undefined;
     const agent = await agentForSlackEvent(deps.agents, {
       appId: claim.appId,
       teamId: claim.teamId,
@@ -179,10 +193,31 @@ export function createSlackSessionHandler(
       return;
     }
     if (event.user === agent.botUserId) return;
+    // The door drops these too; an agent whose app was made since then
+    // is caught here.
+    if (agent.werftBotUserIds.includes(event.user)) {
+      deps.logger.info("Slack message from another Werft agent; ignored", {
+        ...ids,
+        reason: "werft_agent_bot",
+      });
+      return;
+    }
 
     const dm = event.channel_type === "im";
     const threadTs = event.thread_ts ?? event.ts;
     const surfaceRef = formatSurfaceRef(event.channel, threadTs);
+    const thread = {
+      workspaceId: agent.workspaceId,
+      teamId: claim.teamId,
+      channelId: event.channel,
+      threadTs,
+    };
+    // A person wrote in the thread, whatever becomes of it: the bots there
+    // may go on again.
+    if (!fromBot && event.thread_ts !== undefined) {
+      await deps.botTurns.reset(thread, event.ts);
+    }
+    if (resetOnly) return;
     const found = await deps.sessionLinks.find(
       agent.installationId,
       surfaceRef,
@@ -203,6 +238,12 @@ export function createSlackSessionHandler(
     const mentioned =
       event.type === "app_mention" ||
       new RegExp(`<@${agent.botUserId}(?:\\||>)`).test(event.text);
+    if (
+      fromBot &&
+      (dm || !mentioned || !agent.allowedBotUserIds.includes(event.user))
+    ) {
+      return;
+    }
     // A stray reply is nobody's request in any mode; skip the lookup.
     if (found === null && !mentioned && !dm && event.thread_ts !== undefined)
       return;
@@ -246,14 +287,21 @@ export function createSlackSessionHandler(
       throw new Error("The Slack app has no bot token stored");
     }
     const user = await deps.slack.userInfo(botToken, event.user);
+    // Slack still lists a deleted or deactivated bot: its mention is not
+    // answered, as the console shows it gone.
+    if (fromBot && (user.is_bot !== true || user.deleted === true)) {
+      deps.logger.info("Slack bot is gone or no bot; mention ignored", ids);
+      return;
+    }
     const notice = async (
       reason: string,
       text: SlackNotice,
       wait?: { id: string; revision: number },
     ) => {
       // Someone talking unmentioned did not ask the agent, so a
-      // refusal is not theirs to read on every message.
-      if (found === null && !mentioned && !dm) return;
+      // refusal is not theirs to read on every message. A bot reads no
+      // ephemeral message.
+      if ((found === null && !mentioned && !dm) || fromBot) return;
       await deps.notices.record({
         workspaceId: agent.workspaceId,
         agentId: agent.agentId,
@@ -354,6 +402,7 @@ export function createSlackSessionHandler(
         agentId: claim.agentId,
       },
       user,
+      ...(fromBot ? { bot: true } : {}),
       action: "session.submit",
       channel: { id: event.channel, dm },
       resource,
@@ -435,34 +484,75 @@ export function createSlackSessionHandler(
     // A leave that lands after this read still finds the turn in flight.
     await stopIfLeft();
 
+    // Last before the turn, so only a turn about to run is counted.
+    const botTurn = { messageTs: event.ts, agentId: agent.agentId };
+    if (fromBot) {
+      const counted = await deps.botTurns.claim(
+        thread,
+        botTurn,
+        SLACK_BOT_TURN_LIMIT,
+      );
+      if (counted.outcome === "limit") {
+        deps.logger.info("Slack thread reached its bot-turn limit", {
+          ...ids,
+          first: counted.first,
+        });
+        // Every stopped mention asks for the one line; its key keeps it one,
+        // and a later mention posts it if the first one's write was lost.
+        await deps.notices.recordInThread({
+          workspaceId: agent.workspaceId,
+          agentId: agent.agentId,
+          installationId: agent.installationId,
+          slackAppId: claim.slackAppId,
+          teamId: claim.teamId,
+          channelId: event.channel,
+          threadTs,
+          sessionId: found?.sessionId ?? null,
+          notice: { message: "botTurnLimit" },
+          onceKey: `${claim.teamId}:${surfaceRef}:bot_turn_limit:${counted.stop}`,
+        });
+        return;
+      }
+    }
+
     let link: SessionLinkRecord;
     if (found !== null) {
       link = found;
     } else {
       if (binding === null || release === null) {
+        if (fromBot) await deps.botTurns.release(thread, botTurn);
         throw new Error("The channel's binding is gone since the decision");
       }
       link = (
-        await deps.sessionLinks.reserve({
-          workspaceId: agent.workspaceId,
-          installationId: agent.installationId,
-          surfaceBindingId: binding.id,
-          surfaceRef,
-          channelId: event.channel,
-          threadId: threadTs,
-          openedByTs: event.ts,
-          agentId: agent.agentId,
-          releaseId: release.id,
-          createdBy: decision.actorUserId,
-        })
+        await deps.sessionLinks
+          .reserve({
+            workspaceId: agent.workspaceId,
+            installationId: agent.installationId,
+            surfaceBindingId: binding.id,
+            surfaceRef,
+            channelId: event.channel,
+            threadId: threadTs,
+            openedByTs: event.ts,
+            agentId: agent.agentId,
+            releaseId: release.id,
+            createdBy: decision.actorUserId,
+          })
+          .catch(async (error: unknown) => {
+            if (fromBot) await deps.botTurns.release(thread, botTurn);
+            throw error;
+          })
       ).link;
     }
+    // Once the session took the turn it counts, whatever fails after.
+    let accepted = false;
     try {
       if (link.sessionId === null && link.openedByTs !== event.ts) {
         link = await adoptOrReopen(link, event.ts);
       }
       if (link.sessionId === null || link.openedByTs === event.ts) {
-        await openSession(caller, link, message, dm, slackMessage);
+        await openSession(caller, link, message, dm, slackMessage, () => {
+          accepted = true;
+        });
       } else {
         await deps.sessions.appendMessage(caller, link.sessionId, {
           idempotencyKey: `${claim.teamId}:${event.channel}:${event.ts}`,
@@ -473,6 +563,10 @@ export function createSlackSessionHandler(
       // The turn's insert marks the thread's status due; the outbox pass
       // that follows this one sends it.
     } catch (error) {
+      // No turn was taken, so the bot did not take one. A retry claims the
+      // same turn again; one taken before a later step failed stays counted,
+      // and its retry finds it so.
+      if (fromBot && !accepted) await deps.botTurns.release(thread, botTurn);
       if (
         !(error instanceof SessionServiceError) ||
         RETRYABLE_SESSION_CODES.has(error.code)
@@ -530,6 +624,7 @@ export function createSlackSessionHandler(
     message: string,
     dm: boolean,
     slackMessage: SlackMessageRef,
+    onCreated: () => void,
   ): Promise<void> {
     const created = await deps.sessions.createSession(caller, {
       idempotencyKey: link.id,
@@ -540,6 +635,7 @@ export function createSlackSessionHandler(
       ...(dm ? { shareScope: "private" as const } : {}),
       slackMessage,
     });
+    onCreated();
     const attached = await deps.sessionLinks.attachSession(
       link.id,
       created.session_id,

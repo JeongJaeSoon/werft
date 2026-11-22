@@ -263,6 +263,8 @@ describe("the agent a Slack event moves", () => {
     installationId: record.installationId,
     botUserId: "B0BOT",
     credentialRef: "slack-bot-token",
+    allowedBotUserIds: [],
+    werftBotUserIds: [],
   };
   const store = {
     resolveSlackEvent: async () => resolved,

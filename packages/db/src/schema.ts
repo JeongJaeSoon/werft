@@ -692,6 +692,43 @@ export const slackInstallations = pgTable(
   ],
 );
 
+// Bot-started turns in one Slack thread since a person last wrote there,
+// whichever of the workspace's agents ran them. Time never resets it.
+export const slackThreadBotTurns = pgTable(
+  "slack_thread_bot_turns",
+  {
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    teamId: text("team_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    threadTs: text("thread_ts").notNull(),
+    /**
+     * The turns counted since `human_ts`, each "<message ts> <agent id>", so
+     * a message Slack sends one agent twice counts once.
+     */
+    countedTurns: text("counted_turns").array().notNull().default([]),
+    /** The person's latest message in the thread. */
+    humanTs: text("human_ts"),
+    /** The turn the limit first stopped; it says the stop line. */
+    stopTurn: text("stop_turn"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "slack_thread_bot_turns_pkey",
+      columns: [
+        table.workspaceId,
+        table.teamId,
+        table.channelId,
+        table.threadTs,
+      ],
+    }),
+  ],
+);
+
 // Runtime secrets (Slack config token, app secrets), AES-256-GCM under the
 // API's master key.
 export const secretValues = pgTable(
@@ -3712,6 +3749,11 @@ export const agents = pgTable(
     activeReleaseId: text("active_release_id"),
     activationRevision: integer("activation_revision").notNull().default(-1),
     slackMentionOnly: boolean("slack_mention_only").notNull().default(true),
+    /** Slack bot users whose direct mention the agent answers; empty for none. */
+    slackAllowedBotUserIds: text("slack_allowed_bot_user_ids")
+      .array()
+      .notNull()
+      .default([]),
     /** Read at every GitHub token request, so turning it off is immediate. */
     githubEnabled: boolean("github_enabled").notNull().default(true),
     autoModelMigration: boolean("auto_model_migration").notNull().default(true),

@@ -209,6 +209,8 @@ function deps(): SlackInteractionDeps {
               installationId: INSTALLATION,
               botUserId: "U0BOT",
               credentialRef: "slack_bot_token",
+              allowedBotUserIds: [],
+              werftBotUserIds: [],
             }
           : { status: "dropped", reason: "not_installed" };
       },

@@ -25,6 +25,11 @@ export type SlackInput = {
   event: SlackEventKey & { agentId?: string };
   /** Who typed, or who pressed the button — never the thread's requester. */
   user: SlackUser;
+  /**
+   * `user` is a Slack bot the agent may answer: judged as the agent, with
+   * no linked account looked up.
+   */
+  bot?: boolean;
   action: SlackSurfaceAction;
   /**
    * Where it was typed or pressed. Every DM with the bot shares the
@@ -74,6 +79,7 @@ export function slackCallerOf(
   requestId: string,
 ): Caller {
   const link = decision.subject.linked_account;
+  const bot = decision.subject.surface.slack_bot_user_id;
   return {
     ownerId: decision.workspaceId,
     actor: {
@@ -84,6 +90,10 @@ export function slackCallerOf(
       ...(link === undefined
         ? {}
         : { linkedAccount: { id: link.id, revision: link.revision } }),
+      // A bot is recorded as itself, acting as the agent that allows it.
+      ...(bot === undefined
+        ? {}
+        : { agentId: decision.agentId, slackBotUserId: bot }),
     },
     subject: decision.subject,
     requestId,
@@ -143,11 +153,14 @@ export async function authorizeSlackInput(
         )
       : null;
 
-  const linked = await deps.links.resolveLinkedSubject({
-    provider: "slack",
-    externalTenant: input.event.teamId,
-    externalUserId: input.user.id,
-  });
+  const linked =
+    input.bot === true
+      ? ({ status: "unlinked" } as const)
+      : await deps.links.resolveLinkedSubject({
+          provider: "slack",
+          externalTenant: input.event.teamId,
+          externalUserId: input.user.id,
+        });
   const subject: AuthorizationSubject = {
     principal: {
       kind: "installation",
@@ -178,6 +191,7 @@ export async function authorizeSlackInput(
       ceiling: binding?.ceiling ?? NO_CEILING,
       agent_id: agentId,
       ...(input.channel.dm ? {} : { channel_id: input.channel.id }),
+      ...(input.bot === true ? { slack_bot_user_id: input.user.id } : {}),
     },
   };
   const { resource } = input;

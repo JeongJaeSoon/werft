@@ -177,6 +177,50 @@ describe("fake Slack Web API", () => {
     expect((await listed()).status).toBe(200);
   });
 
+  test("bots seeded over HTTP come back from users.list and users.info", async () => {
+    const bot = `xoxb-${crypto.randomUUID()}`;
+    slack.apps.set("A0USERS", {
+      appId: "A0USERS",
+      clientId: "9.8",
+      clientSecret: crypto.randomUUID(),
+      signingSecret: crypto.randomUUID(),
+      manifest: {},
+      botTokens: [bot],
+    });
+    const root = slack.url.replace(/\/api$/, "");
+    const seed = (users: unknown) =>
+      fetch(`${root}/fake/users`, {
+        method: "POST",
+        body: JSON.stringify({ users }),
+      });
+    expect(
+      (
+        await seed([
+          { id: "U0REVIEWBOT", name: "code-review", is_bot: true },
+          { id: "U0GONEBOT", name: "old", is_bot: true, deleted: true },
+        ])
+      ).status,
+    ).toBe(200);
+    expect((await seed([{ id: "not-an-id" }])).status).toBe(400);
+    const listed = (await post(`${slack.url}/users.list`, {}, bot)) as {
+      members: { id: string; is_bot: boolean; deleted: boolean }[];
+    };
+    expect(listed.members).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "U0REVIEWBOT",
+          name: "code-review",
+          is_bot: true,
+          deleted: false,
+        }),
+        expect.objectContaining({ id: "U0GONEBOT", deleted: true }),
+      ]),
+    );
+    expect(
+      await post(`${slack.url}/users.info`, { user: "U0REVIEWBOT" }, bot),
+    ).toMatchObject({ ok: true, user: { is_bot: true, deleted: false } });
+  });
+
   test("/fake/answers sets a method's next answer once, as text or JSON", async () => {
     const root = slack.url.replace(/\/api$/, "");
     const answer = (body: object) =>
@@ -258,6 +302,8 @@ describe("fake Slack bot calls, through the slack role's client", () => {
     expect(await api.userInfo(bot, "U0MEMBER")).toEqual({
       id: "U0MEMBER",
       team_id: "T0X",
+      is_bot: false,
+      deleted: false,
       is_restricted: false,
       is_ultra_restricted: false,
     });

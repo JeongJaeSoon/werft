@@ -12,7 +12,9 @@ import type {
 
 /**
  * `reply`: a turn's answer in its thread. `failure_notice`: a turn the model
- * could not finish, or a reply whose send nobody can vouch for. `input_notice`:
+ * could not finish, a reply whose send nobody can vouch for, or a bot's
+ * mention the thread's bot-turn limit stopped (no session then when the
+ * agent has none there). `input_notice`:
  * a request the session waits on, with the buttons that settle it. `notice`: a refusal,
  * ephemeral to the person who typed. `welcome`: a deployment's one message
  * in the agent's home channel, outside any thread (`threadTs` is "").

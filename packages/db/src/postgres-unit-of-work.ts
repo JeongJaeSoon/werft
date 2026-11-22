@@ -214,14 +214,17 @@ async function recordAcceptance(
 }
 
 // What a turn, and the session's first one, keep of who asked and why they
-// could. A key with no person is the requester itself.
+// could. A key with no person is the requester itself, and so is a Slack
+// bot the agent answers (its Slack user id).
 function usageRecord(usage: UsageDecision | null, requester: Requester) {
   const kind =
     requester.userId !== null
       ? ("user" as const)
       : requester.apiKeyId !== null
         ? ("api_key" as const)
-        : null;
+        : requester.slackBotUserId !== null
+          ? ("slack_bot" as const)
+          : null;
   return {
     usageBasis: usage?.allowed ? usage.basis : null,
     usageTeamId: usage?.allowed ? usage.teamId : null,
@@ -231,7 +234,9 @@ function usageRecord(usage: UsageDecision | null, requester: Requester) {
         ? requester.userId
         : kind === "api_key"
           ? requester.apiKeyId
-          : null,
+          : kind === "slack_bot"
+            ? requester.slackBotUserId
+            : null,
   };
 }
 

@@ -180,6 +180,8 @@ integration("agent identities on PostgreSQL", () => {
       installationId: linked.identity.installationId,
       botUserId: "B0BOT",
       credentialRef: "slack-bot-token",
+      allowedBotUserIds: [],
+      werftBotUserIds: ["B0BOT"],
     });
     const [receipt] = await db
       .select()

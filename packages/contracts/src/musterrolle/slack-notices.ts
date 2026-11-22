@@ -35,6 +35,8 @@ const SLACK_NOTICE_MESSAGES_KO = {
     "이 에이전트를 쓰는 사람에게 걸린 제한 때문에 이 세션의 MCP 서버를 쓸 수 없어요",
   callerLimitedTool:
     "이 에이전트를 쓰는 사람에게 걸린 제한 때문에 이 세션이 쓰는 도구를 쓸 수 없어요",
+  botTurnLimit:
+    "사람 없이 봇끼리 5번 주고받아 여기서 멈춰요. 사람이 이어 가야 해요",
 } as const;
 
 export type SlackNoticeMessage = keyof typeof SLACK_NOTICE_MESSAGES_KO;
@@ -75,6 +77,8 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "このエージェントを使う人に設定された制限のため、このセッションのMCPサーバーは使えません",
     callerLimitedTool:
       "このエージェントを使う人に設定された制限のため、このセッションが使うツールは使えません",
+    botTurnLimit:
+      "人を挟まずにボット同士で5回やり取りしたため、ここで止まります。続きは人が進めてください",
   },
   en: {
     connect: "Link your Slack account on the web",
@@ -105,6 +109,8 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "A limit set on the people who use this agent doesn't allow this session's MCP server",
     callerLimitedTool:
       "A limit set on the people who use this agent doesn't allow a tool this session uses",
+    botTurnLimit:
+      "Bots went back and forth 5 times with no person in between, so this stops here. A person needs to take it from here",
   },
 };
 

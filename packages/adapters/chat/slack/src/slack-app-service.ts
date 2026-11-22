@@ -1,13 +1,18 @@
-import type {
-  CreateSlackAppRequest,
-  CreateSlackAppResponse,
-  DeleteSlackAppResponse,
-  GetSlackAppResponse,
-  ListWorkspaceSlackAppsResponse,
-  SlackAgentWarning,
-  SlackApp,
-  SlackAppSettings,
-  SlackWarning,
+import {
+  type CreateSlackAppRequest,
+  type CreateSlackAppResponse,
+  type DeleteSlackAppResponse,
+  type GetSlackAppBotsResponse,
+  type GetSlackAppResponse,
+  type ListWorkspaceSlackAppsResponse,
+  type PutSlackAppBotsRequest,
+  SLACK_BINDING_MESSAGES,
+  type SlackAgentWarning,
+  type SlackApp,
+  type SlackAppSettings,
+  type SlackBot,
+  type SlackBotRefusal,
+  type SlackWarning,
 } from "@werft-ai/contracts";
 import {
   ACTOR_INACTIVE,
@@ -18,6 +23,7 @@ import {
   NOT_FOUND,
   OUTRANKED,
   requirePermitted,
+  type SecretStore,
   SessionServiceError,
   type SlackAppActor,
   type SlackAppRecord,
@@ -26,7 +32,10 @@ import {
 import {
   SLACK_APP_GONE_CODES,
   SlackApiError,
+  type SlackBotDirectory,
   type SlackConfigApi,
+  SlackRateLimitedError,
+  type SlackWorkspaceBot,
 } from "./slack-config-api.ts";
 import { type SlackConfigTokens, slackLacksApp } from "./slack-config-token.ts";
 import { slackEventsUrl } from "./slack-events-finalize.ts";
@@ -36,6 +45,7 @@ import {
   slackAppRedirectUrl,
 } from "./slack-manifest.ts";
 import { slackSecretSummaryOf } from "./slack-secret-service.ts";
+import { isTokenGone } from "./slack-token-gone.ts";
 
 const SLACK_INSTALL_ACTION = "binding.manage" as const;
 const WORKSPACE_ACTION = "workspace.manage" as const;
@@ -133,6 +143,45 @@ function issuerWarnings(
   ];
 }
 
+/** 200 accounts a page; a workspace past 4,000 lists only the first. */
+const SLACK_BOT_LIST_MAX_PAGES = 20;
+
+const SLACK_NOT_INSTALLED = () =>
+  new SessionServiceError(
+    "SLACK_NOT_INSTALLED",
+    SLACK_BINDING_MESSAGES.notInstalled,
+  );
+
+/**
+ * The live bots by name, each saying whether the agent answers it, then the
+ * allowed ones Slack deleted, deactivated or no longer lists.
+ */
+export function botItems(
+  allowed: readonly string[],
+  bots: readonly SlackWorkspaceBot[],
+): SlackBot[] {
+  const allow = new Set(allowed);
+  const byId = new Map(bots.map((bot) => [bot.id, bot]));
+  const live = bots
+    .filter((bot) => !bot.deleted)
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+    .map((bot) => ({
+      user_id: bot.id,
+      name: bot.name,
+      state: "active" as const,
+      allowed: allow.has(bot.id),
+    }));
+  const gone = allowed
+    .filter((id) => byId.get(id)?.deleted !== false)
+    .map((id) => ({
+      user_id: id,
+      name: byId.get(id)?.name ?? null,
+      state: "gone" as const,
+      allowed: true,
+    }));
+  return [...live, ...gone];
+}
+
 export type SlackAppService = ReturnType<typeof createSlackAppService>;
 
 export function createSlackAppService(deps: {
@@ -152,6 +201,11 @@ export function createSlackAppService(deps: {
   ) => Promise<SlackAgentWarning | null>;
   /** Where a Slack refusal's detail goes; the response carries only its code. */
   logger?: { warn(message: string, fields?: Record<string, unknown>): void };
+  /** Reads the install's bot accounts for the bot allow list; unset, it is off. */
+  bots?: {
+    secrets: Pick<SecretStore, "get">;
+    api: SlackBotDirectory;
+  };
   now?: () => Date;
   newId?: () => string;
 }) {
@@ -218,6 +272,108 @@ export function createSlackAppService(deps: {
     principal: caller,
     managerRoles: MANAGEMENT_ROLES[action] ?? [],
   });
+
+  /**
+   * The agent's allowed bots, and every bot account of its install's Slack
+   * workspace but its own, read from Slack now.
+   */
+  /**
+   * The install team's bots but the agent's own. When the list stops short
+   * of Slack's end, the allowed and `asked` ids it did not reach are read
+   * one by one, so none of them is taken for gone or unknown.
+   */
+  async function workspaceBots(
+    caller: Caller,
+    agentId: string,
+    asked: readonly string[] = [],
+  ): Promise<{
+    allowed: string[];
+    bots: SlackWorkspaceBot[];
+    truncated: boolean;
+    /** Why an id that is no live bot of ours cannot be allowed. */
+    refusalOf: (id: string) => SlackBotRefusal;
+  }> {
+    const { apps } = ready();
+    const facts = await apps.getAllowedBots(caller.ownerId, agentId);
+    if (facts === null) throw NOT_FOUND();
+    const record = await apps.findForAgent(caller.ownerId, agentId);
+    if (
+      deps.bots === undefined ||
+      facts.install === null ||
+      record === null ||
+      record.state !== "created"
+    ) {
+      throw SLACK_NOT_INSTALLED();
+    }
+    const { install } = facts;
+    const token = await deps.bots.secrets.get({
+      workspaceId: record.workspaceId,
+      owner: { kind: "slack_app", id: record.id },
+      purpose: "slack_bot_token",
+    });
+    if (token === null) throw SLACK_NOT_INSTALLED();
+    const bots: SlackWorkspaceBot[] = [];
+    // Bots of other teams Slack showed, Slack Connect's among them.
+    const foreign = new Set<string>();
+    // This install's agents, the agent itself among them: agents do not
+    // call each other over Slack.
+    const werft = new Set([...facts.werftBotUserIds, install.botUserId]);
+    const keep = (bot: SlackWorkspaceBot) => {
+      if (bot.teamId !== install.teamId) foreign.add(bot.id);
+      else if (!werft.has(bot.id)) bots.push(bot);
+    };
+    let cursor: string | null = null;
+    try {
+      for (let page = 0; page < SLACK_BOT_LIST_MAX_PAGES; page += 1) {
+        const read = await deps.bots.api.listBots(token, cursor);
+        for (const bot of read.bots) keep(bot);
+        cursor = read.nextCursor;
+        if (cursor === null) break;
+      }
+      if (cursor !== null) {
+        const seen = new Set([...bots.map((bot) => bot.id), ...foreign]);
+        for (const id of new Set([...facts.allowedBotUserIds, ...asked])) {
+          if (seen.has(id) || werft.has(id)) continue;
+          const found = await deps.bots.api.findBot(token, id);
+          if (found !== null) keep(found);
+        }
+      }
+    } catch (error) {
+      if (error instanceof SlackRateLimitedError) {
+        throw new SessionServiceError(
+          "BACKEND_UNAVAILABLE",
+          `Slack is limiting ${error.method}; try again shortly`,
+          { afterSeconds: error.retryAfterSeconds },
+        );
+      }
+      if (error instanceof SlackApiError && isTokenGone(error)) {
+        throw SLACK_NOT_INSTALLED();
+      }
+      if (error instanceof SlackApiError) {
+        throw new SessionServiceError(
+          "BACKEND_UNAVAILABLE",
+          `Slack did not answer ${error.method}; try again`,
+          { afterSeconds: 5 },
+        );
+      }
+      throw error;
+    }
+    return {
+      // A bot allowed before its agent's app was made here is out of the
+      // list, and a save that names it again is refused.
+      allowed: facts.allowedBotUserIds.filter((id) => !werft.has(id)),
+      bots,
+      truncated: cursor !== null,
+      refusalOf: (id) =>
+        id === install.botUserId
+          ? "slack_bot_own"
+          : werft.has(id)
+            ? "slack_bot_werft_agent"
+            : foreign.has(id)
+              ? "slack_bot_other_team"
+              : "slack_bot_unknown",
+    };
+  }
 
   async function finish(
     apps: SlackAppStore,
@@ -425,6 +581,62 @@ export function createSlackAppService(deps: {
       if (result === "actor_inactive") throw ACTOR_INACTIVE();
       if (result === "outranked") throw OUTRANKED();
       return settings;
+    },
+
+    async getAgentAppBots(
+      caller: Caller,
+      agentId: string,
+    ): Promise<GetSlackAppBotsResponse> {
+      await readAgent(caller, agentId);
+      const { allowed, bots, truncated } = await workspaceBots(caller, agentId);
+      return { items: botItems(allowed, bots), truncated };
+    },
+
+    /**
+     * Saves the bots the agent answers. A bot added must be a live bot of
+     * the install's Slack workspace and not the agent's own; one already
+     * allowed may stay after Slack lost it, shown as gone.
+     */
+    async putAgentAppBots(
+      caller: Caller,
+      agentId: string,
+      request: PutSlackAppBotsRequest,
+    ): Promise<GetSlackAppBotsResponse> {
+      await permitAgent(caller, agentId);
+      const { allowed, bots, truncated, refusalOf } = await workspaceBots(
+        caller,
+        agentId,
+        request.allowed_user_ids,
+      );
+      const live = new Set(bots.filter((bot) => !bot.deleted).map((b) => b.id));
+      const before = new Set(allowed);
+      const refused = request.allowed_user_ids.filter(
+        (id) => !before.has(id) && !live.has(id),
+      );
+      const [first] = refused;
+      if (first !== undefined) {
+        // One reason, named for the ids that share the first one's.
+        const reason = refusalOf(first);
+        throw new SessionServiceError(
+          "BAD_REQUEST",
+          "Only a live bot of the agent's Slack workspace can be allowed",
+          undefined,
+          {
+            reason_code: reason,
+            user_ids: refused.filter((id) => refusalOf(id) === reason),
+          },
+        );
+      }
+      const result = await ready().apps.putAllowedBots({
+        workspaceId: caller.ownerId,
+        agentId,
+        actor: actorOf(caller, SLACK_INSTALL_ACTION),
+        allowedBotUserIds: request.allowed_user_ids,
+      });
+      if (result === "not_found") throw NOT_FOUND();
+      if (result === "actor_inactive") throw ACTOR_INACTIVE();
+      if (result === "outranked") throw OUTRANKED();
+      return { items: botItems(request.allowed_user_ids, bots), truncated };
     },
 
     async listMadeApps(

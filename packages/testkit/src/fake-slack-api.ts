@@ -117,6 +117,10 @@ export type FakeSlackUser = {
   isUltraRestricted?: boolean;
   isStranger?: boolean;
   image48?: string;
+  /** A bot account: listed by users.list with its name. */
+  isBot?: boolean;
+  deleted?: boolean;
+  name?: string;
 };
 
 export type FakeSlackChannel = {
@@ -429,6 +433,22 @@ export function createFakeSlackWebApi(
       };
     },
 
+    // Only the users set here, in one page: people are not needed by the
+    // bot picker that reads it.
+    "users.list"(context) {
+      installedBot(context);
+      return {
+        members: [...users].map(([id, user]) => ({
+          id,
+          team_id: user.teamId ?? teamId,
+          name: user.name ?? id.toLowerCase(),
+          is_bot: user.isBot ?? false,
+          deleted: user.deleted ?? false,
+        })),
+        response_metadata: { next_cursor: "" },
+      };
+    },
+
     "users.info"(context) {
       installedBot(context);
       const id = context.params.user;
@@ -438,8 +458,8 @@ export function createFakeSlackWebApi(
         user: {
           id,
           team_id: user.teamId ?? teamId,
-          is_bot: false,
-          deleted: false,
+          is_bot: user.isBot ?? false,
+          deleted: user.deleted ?? false,
           is_restricted: user.isRestricted ?? false,
           is_ultra_restricted: user.isUltraRestricted ?? false,
           ...(user.isStranger === undefined
@@ -1016,6 +1036,39 @@ export function createFakeSlackWebApi(
           status: input.status as number,
           body: input.body,
         });
+        return Response.json({ ok: true });
+      }
+      // For curl on the local stack: people and bots users.list and
+      // users.info answer for, such as another app's bot to allow.
+      if (url.pathname === "/fake/users" && request.method === "POST") {
+        const input = (await request.json().catch(() => null)) as {
+          users?: unknown;
+        } | null;
+        const seeds = Array.isArray(input?.users) ? input.users : null;
+        const valid =
+          seeds !== null &&
+          seeds.length <= 100 &&
+          seeds.every(
+            (seed) =>
+              typeof seed?.id === "string" &&
+              /^[UW][A-Z0-9]{2,20}$/.test(seed.id) &&
+              (seed.name === undefined || typeof seed.name === "string") &&
+              (seed.team_id === undefined || typeof seed.team_id === "string"),
+          );
+        if (!valid) {
+          return Response.json(
+            { ok: false, error: "invalid_request" },
+            { status: 400 },
+          );
+        }
+        for (const seed of seeds) {
+          users.set(seed.id, {
+            ...(seed.team_id === undefined ? {} : { teamId: seed.team_id }),
+            ...(seed.name === undefined ? {} : { name: seed.name }),
+            isBot: seed.is_bot === true,
+            deleted: seed.deleted === true,
+          });
+        }
         return Response.json({ ok: true });
       }
       if (url.pathname === "/fake/config-tokens" && request.method === "POST") {

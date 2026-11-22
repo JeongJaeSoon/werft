@@ -109,6 +109,8 @@ function routes(app: typeof APP | null = null, installed = false) {
     [`GET ${PATH}/slack-bindings`]: () =>
       json(200, { items: installed ? [BINDING] : [] }),
     [`GET ${PATH}/slack/app/settings`]: () => json(200, { mention_only: true }),
+    [`GET ${PATH}/slack/app/bots`]: () =>
+      json(200, { items: [], truncated: false }),
     [`GET ${PATH}/slack/channels`]: () =>
       json(200, {
         items: [],
@@ -979,6 +981,236 @@ describe("Slack management", () => {
     expect(
       within(basic).queryByRole("switch", { name: "멘션했을 때만 반응" }),
     ).toBeNull();
+    expect(within(basic).getByRole("alert")).toBeDefined();
+    expect(document.body.textContent).not.toContain("internal message");
+  });
+
+  test("picks the bots to answer from Slack's list, shows a gone one, and saves with a toast", async () => {
+    type Bot =
+      components["schemas"]["GetSlackAppBotsResponse"]["items"][number];
+    let items: Bot[] = [
+      { user_id: "U0DEPLOY", name: "deploy", state: "active", allowed: false },
+      { user_id: "U0REVIEW", name: "review", state: "active", allowed: false },
+      { user_id: "U0OLD", name: "old", state: "gone", allowed: true },
+    ];
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app/bots`]: () =>
+        json(200, { items, truncated: false }),
+      [`PUT ${PATH}/slack/app/bots`]: async (request: Request) => {
+        const ids: string[] = (await request.json()).allowed_user_ids;
+        items = items
+          .filter((bot) => bot.state === "active" || ids.includes(bot.user_id))
+          .map((bot) => ({ ...bot, allowed: ids.includes(bot.user_id) }));
+        return json(200, { items, truncated: false });
+      },
+    });
+    const user = await setupUser();
+    const basic = await screen.findByRole("region", { name: "기본" });
+    await within(basic).findByText("1개");
+    expect(within(basic).getByText("Slack에서 사라짐")).toBeDefined();
+    await user.click(within(basic).getByRole("button", { name: "변경" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "답할 봇 고르기",
+    });
+    // Slack's whole list was read: no field to add a bot by its id.
+    expect(
+      within(dialog).queryByLabelText("Slack 사용자 ID로 추가") === null,
+    ).toBe(true);
+    const old = within(dialog).getByRole("checkbox", { name: /old/ });
+    expect(old.getAttribute("aria-checked")).toBe("true");
+    await user.click(old);
+    // A bot Slack lost can be let go, not picked again.
+    expect(old.hasAttribute("disabled")).toBe(true);
+    await user.click(within(dialog).getByRole("checkbox", { name: "review" }));
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    await screen.findByText("답할 봇을 저장했습니다.");
+    const saved = api.calls.find(
+      (call) => call.method === "PUT" && call.path === `${PATH}/slack/app/bots`,
+    );
+    expect(saved?.body).toEqual({ allowed_user_ids: ["U0REVIEW"] });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "답할 봇 고르기" }) === null,
+      ).toBe(true),
+    );
+    expect(within(basic).getByText("review")).toBeDefined();
+    expect(within(basic).queryByText("Slack에서 사라짐") === null).toBe(true);
+  });
+
+  test("keeps the bot picker open with Slack's refusal in words", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app/bots`]: () =>
+        json(200, {
+          items: [
+            {
+              user_id: "U0REVIEW",
+              name: "review",
+              state: "active",
+              allowed: false,
+            },
+          ],
+          truncated: false,
+        }),
+      [`PUT ${PATH}/slack/app/bots`]: () =>
+        apiError(400, "BAD_REQUEST", "internal message", false, {
+          reason_code: "slack_bot_unknown",
+          user_ids: ["U0REVIEW"],
+        }),
+    });
+    const user = await setupUser();
+    const basic = await screen.findByRole("region", { name: "기본" });
+    await within(basic).findByText("없음");
+    await user.click(within(basic).getByRole("button", { name: "변경" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "답할 봇 고르기",
+    });
+    await user.click(within(dialog).getByRole("checkbox", { name: "review" }));
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    await within(dialog).findByText(
+      "이 Slack 워크스페이스의 활성 봇이 아닙니다. 지워졌거나 비활성이 된 봇, 또는 사람 계정입니다.",
+    );
+    expect(document.body.textContent).not.toContain("internal message");
+  });
+
+  test("past a cut-short list, adds a bot by its Slack id and says why one is refused", async () => {
+    const refusals = {
+      U0NOTES: "slack_bot_own",
+      U0WRITER: "slack_bot_werft_agent",
+      U0FOREIGN: "slack_bot_other_team",
+      U0DEAD: "slack_bot_unknown",
+    } as const;
+    let items: components["schemas"]["GetSlackAppBotsResponse"]["items"] = [
+      { user_id: "U0REVIEW", name: "review", state: "active", allowed: true },
+    ];
+    let answer = () => {};
+    const held = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app/bots`]: () =>
+        json(200, { items, truncated: true }),
+      [`PUT ${PATH}/slack/app/bots`]: async (request: Request) => {
+        const ids: string[] = (await request.json()).allowed_user_ids;
+        const added = ids.at(-1) ?? "";
+        if (added in refusals) {
+          return apiError(400, "BAD_REQUEST", "internal message", false, {
+            reason_code: refusals[added as keyof typeof refusals],
+            user_ids: [added],
+          });
+        }
+        await held;
+        items = [
+          ...items,
+          { user_id: added, name: "far", state: "active", allowed: true },
+        ];
+        return json(200, { items, truncated: true });
+      },
+    });
+    const user = await setupUser();
+    const basic = await screen.findByRole("region", { name: "기본" });
+    await within(basic).findByText("1개");
+    await user.click(within(basic).getByRole("button", { name: "변경" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "답할 봇 고르기",
+    });
+    expect(
+      within(dialog).getByText(
+        "워크스페이스가 커서 Slack 목록을 끝까지 읽지 못했습니다. 위에 없는 봇은 Slack 사용자 ID로 추가하세요. 추가하면 바로 저장됩니다.",
+      ),
+    ).toBeDefined();
+    const field = within(dialog).getByLabelText("Slack 사용자 ID로 추가");
+    const add = within(dialog).getByRole("button", { name: "추가" });
+
+    await user.type(field, "not-an-id");
+    await user.click(add);
+    await within(dialog).findByText(
+      "U 또는 W로 시작하는 Slack 사용자 ID를 넣으세요.",
+    );
+    expect(
+      api.calls.some(
+        (call) => call.method === "PUT" && call.path.endsWith("/bots"),
+      ),
+    ).toBe(false);
+
+    const words = {
+      U0NOTES: "이 에이전트 자신의 봇은 고를 수 없습니다.",
+      U0WRITER:
+        "이 Werft에 있는 다른 에이전트의 봇입니다. 에이전트끼리는 Slack으로 부를 수 없습니다.",
+      U0FOREIGN:
+        "다른 Slack 워크스페이스의 봇입니다. Slack Connect로 들어온 봇은 고를 수 없습니다.",
+      U0DEAD:
+        "이 Slack 워크스페이스의 활성 봇이 아닙니다. 지워졌거나 비활성이 된 봇, 또는 사람 계정입니다.",
+    };
+    for (const [id, line] of Object.entries(words)) {
+      await user.clear(field);
+      await user.type(field, id);
+      await user.click(add);
+      await within(dialog).findByText(line);
+    }
+    expect(document.body.textContent).not.toContain("internal message");
+
+    await user.clear(field);
+    await user.type(field, "U0FAR");
+    await user.click(add);
+    // Each writes the whole list, so a save waits for the add.
+    const save = within(dialog).getByRole("button", { name: "저장" });
+    await waitFor(() => expect(save.hasAttribute("disabled")).toBe(true));
+    // Closed and opened again meanwhile, the picker still waits for it.
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "답할 봇 고르기" }) === null,
+      ).toBe(true),
+    );
+    const edit = within(basic).getByRole("button", { name: "변경" });
+    expect(edit.hasAttribute("disabled")).toBe(true);
+    answer();
+    await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
+    await user.click(edit);
+    const reopened = await screen.findByRole("dialog", {
+      name: "답할 봇 고르기",
+    });
+    await screen.findByText("봇을 추가했습니다.");
+    expect(
+      within(reopened)
+        .getByRole("button", { name: "저장" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+    const last = api.calls.filter(
+      (call) => call.method === "PUT" && call.path.endsWith("/bots"),
+    );
+    // Saved beside what was saved already.
+    expect(last.at(-1)?.body).toEqual({
+      allowed_user_ids: ["U0REVIEW", "U0FAR"],
+    });
+    const far = await within(reopened).findByRole("checkbox", { name: "far" });
+    expect(far.getAttribute("aria-checked")).toBe("true");
+    expect(
+      (
+        within(reopened).getByLabelText(
+          "Slack 사용자 ID로 추가",
+        ) as HTMLInputElement
+      ).value,
+    ).toBe("");
+  });
+
+  test("a member reads the bots to answer without a way to change them, and a failed read says so", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      [`GET ${PATH}/slack/app/bots`]: () =>
+        apiError(409, "SLACK_NOT_INSTALLED", "internal message"),
+    });
+    const basic = await screen.findByRole("region", { name: "기본" });
+    await waitFor(() =>
+      expect(within(basic).getAllByText("—").length).toBeGreaterThan(0),
+    );
+    expect(within(basic).queryByRole("button", { name: "변경" }) === null).toBe(
+      true,
+    );
     expect(within(basic).getByRole("alert")).toBeDefined();
     expect(document.body.textContent).not.toContain("internal message");
   });

@@ -22,7 +22,10 @@ import {
   type SlackInstallStore,
   type SurfaceBindingStore,
 } from "@werft-ai/platform";
-import { slackConversationKey } from "./slack-inbox.ts";
+import {
+  SLACK_PERSON_RESET_SUBTYPES,
+  slackConversationKey,
+} from "./slack-inbox.ts";
 import { slackRequestSignature } from "./slack-signature.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -135,6 +138,9 @@ type Classified =
 const PENDING_EVENT_FIELDS = [
   "type",
   "user",
+  // A bot's mention must not read as a person's, who would restart the
+  // bots' count in the thread.
+  "bot_id",
   "channel",
   "channel_type",
   "ts",
@@ -213,7 +219,28 @@ export function createSlackEventsService(deps: {
     // member-joined handler needs exactly that one, so the bot rules apply
     // to messages only.
     if (event.type === "message" || event.type === "app_mention") {
-      if (event.bot_id !== undefined) {
+      // Another agent of this install is never heard over Slack, even when
+      // a stale allow list still names its bot.
+      if (
+        typeof event.user === "string" &&
+        event.user !== resolved.botUserId &&
+        resolved.werftBotUserIds.includes(event.user)
+      ) {
+        return { status: "dropped", dropReason: "werft_agent_bot" };
+      }
+      // Another bot is heard only when the agent allows it and it mentions
+      // the agent directly, outside a DM. The agent's own bot never is.
+      if (
+        event.bot_id !== undefined &&
+        !(
+          typeof event.user === "string" &&
+          resolved.allowedBotUserIds.includes(event.user) &&
+          event.channel_type !== "im" &&
+          (event.type === "app_mention" ||
+            (typeof event.text === "string" &&
+              new RegExp(`<@${resolved.botUserId}(?:\\||>)`).test(event.text)))
+        )
+      ) {
         return { status: "dropped", dropReason: "bot_message" };
       }
       if (event.user === resolved.botUserId) {
@@ -222,7 +249,14 @@ export function createSlackEventsService(deps: {
       if (
         event.type === "message" &&
         event.subtype !== undefined &&
-        !ACCEPTED_SUBTYPES.has(event.subtype)
+        !ACCEPTED_SUBTYPES.has(event.subtype) &&
+        // A person's file or /me line in a thread starts the bots' count
+        // there over.
+        !(
+          SLACK_PERSON_RESET_SUBTYPES.has(event.subtype) &&
+          typeof event.thread_ts === "string" &&
+          event.bot_id === undefined
+        )
       ) {
         return { status: "dropped", dropReason: "message_subtype" };
       }

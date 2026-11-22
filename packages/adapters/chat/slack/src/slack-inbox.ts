@@ -8,6 +8,15 @@ import type {
 } from "@werft-ai/platform";
 
 /**
+ * A person's posts that take no turn but still start the bots' count in
+ * their thread over: a file, a `/me` line.
+ */
+export const SLACK_PERSON_RESET_SUBTYPES: ReadonlySet<string> = new Set([
+  "file_share",
+  "me_message",
+]);
+
+/**
  * The thread an event belongs to, `<slack_app_id>:<channel>:<thread_ts ??
  * ts>`: a message outside a thread starts its own, and a DM is a channel
  * too. Null for an event that is no channel message.

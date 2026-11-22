@@ -58,6 +58,13 @@ export type SlackEventAgent =
       installationId: string;
       botUserId: string;
       credentialRef: string;
+      /** Other Slack bots whose direct mention the agent answers. */
+      allowedBotUserIds: readonly string[];
+      /**
+       * The bot users of every Slack app this Werft install has in the
+       * event's team, this one's among them. Agents do not talk over Slack.
+       */
+      werftBotUserIds: readonly string[];
     }
   | { status: "dropped"; reason: SlackEventDropReason };
 

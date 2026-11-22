@@ -242,6 +242,7 @@ describe("database schema", () => {
       "slack_installations",
       "slack_outbox",
       "slack_settings",
+      "slack_thread_bot_turns",
       "slack_thread_status",
       "storage_usage",
       "surface_bindings",

@@ -56,6 +56,7 @@ import {
   getGitHubRepositoryAppPinsResponseSchema,
   getReceiptResponseSchema,
   getSessionResponseSchema,
+  getSlackAppBotsResponseSchema,
   getSlackAppManifestResponseSchema,
   getSlackAppResponseSchema,
   getTurnResponseSchema,
@@ -299,6 +300,8 @@ export const responseSchemas = {
   "PUT /v1/workspaces/{id}/slack/apps/{app_id}/secrets/{purpose}":
     putSlackSecretResponseSchema,
   "GET /v1/agents/{id}/slack/app": getSlackAppResponseSchema,
+  "GET /v1/agents/{id}/slack/app/bots": getSlackAppBotsResponseSchema,
+  "PUT /v1/agents/{id}/slack/app/bots": getSlackAppBotsResponseSchema,
   "POST /v1/agents/{id}/slack/app/events/recheck": getSlackAppResponseSchema,
   "GET /v1/agents/{id}/slack/app/manifest": getSlackAppManifestResponseSchema,
   "GET /v1/agents/{id}/slack/app/settings": slackAppSettingsSchema,
