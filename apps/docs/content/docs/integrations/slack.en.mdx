@@ -56,6 +56,13 @@ The link response and each item of `GET /v1/linked-accounts` also carry the name
 | 409 `LINK_TAKEN` | That Slack account is already linked to someone else |
 | 409 `LINK_EXISTS` | I already have a link for the same team |
 
+When the workspace has no account-link app, the first link start makes it on the spot. If Slack's answer to that creation is lost (timeout, dropped connection, failed save), the app stays in creation and every later link start answers `409 SLACK_APP_CREATING`. After 60 seconds `details.uncertain: true` is added. Then check api.slack.com/apps for an app made at that time and delete it, and run the following inside the API container to give up the lost creation and make a new app. It prints one JSON line. Exit code `6` means the app is still being created (under 60 seconds) or is being deleted.
+
+```bash
+docker compose --profile apps exec -T api \
+  bun run apps/control-host/src/api/slack-app.ts create --kind link --workspace "$WORKSPACE_ID" --replace-uncertain
+```
+
 ## Notice language
 
 The words the platform writes in Slack (refusal notices, failure and waiting-for-an-answer notices, the `Open on the web` link, and the `(Web console)` label on instructions sent from the web or the API) follow the language a user picks under **Language & theme** in the web console (한국어, 日本語 or English). The console saves the chosen language on the server (`PATCH /v1/auth/me`). With none saved, a console that opens in a language other than English (from the browser's language, for example) saves that one, so the console and Slack agree.

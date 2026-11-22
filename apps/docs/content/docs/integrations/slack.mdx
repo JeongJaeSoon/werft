@@ -56,6 +56,13 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack
 | 409 `LINK_TAKEN` | 그 Slack 계정이 다른 사람에게 연결돼 있다 |
 | 409 `LINK_EXISTS` | 같은 팀에 내 연결이 이미 있다 |
 
+계정 연결용 앱이 없으면 첫 연결 시작이 그 자리에서 앱을 만든다. Slack의 생성 응답을 잃으면(시간 초과, 연결 끊김, 저장 실패) 앱이 만드는 중으로 남고, 그 뒤의 연결 시작은 모두 `409 SLACK_APP_CREATING`이다. 60초가 지나면 `details.uncertain: true`가 붙는다. 그때 api.slack.com/apps에서 그 시각에 만들어진 앱을 확인해 지우고, API 컨테이너 안에서 다음을 실행해 잃어버린 생성을 포기하고 새로 만든다. 출력은 JSON 한 줄이다. 종료 코드 `6`은 앱이 아직 만드는 중(60초 전)이거나 지우는 중이라는 뜻이다.
+
+```bash
+docker compose --profile apps exec -T api \
+  bun run apps/control-host/src/api/slack-app.ts create --kind link --workspace "$WORKSPACE_ID" --replace-uncertain
+```
+
 ## 알림 언어
 
 플랫폼이 Slack에 쓰는 안내 문구(거절 안내, 실패·답변 대기 안내, `웹에서 열기` 링크, 웹·API로 보낸 지시의 `(웹 콘솔)` 표시)는 사용자가 웹 콘솔의 **언어·테마**에서 고른 언어(한국어·日本語·English)를 따른다. 콘솔이 고른 언어를 서버에 저장한다(`PATCH /v1/auth/me`). 저장한 언어가 없는데 콘솔이 영어가 아닌 언어로 열리면(브라우저 언어 등) 그 언어를 저장해, 콘솔과 Slack의 언어를 맞춘다.
