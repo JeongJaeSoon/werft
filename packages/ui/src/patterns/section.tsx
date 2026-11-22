@@ -63,7 +63,10 @@ export function Section({
           ) : null}
         </div>
         {actions ? (
-          <div className="flex flex-none items-center gap-2">{actions}</div>
+          // The head is 32px tall, so an `sm` button here takes its height too.
+          <div className="flex flex-none items-center gap-2 [&_[data-size=sm]]:h-[var(--werft-control-height)] [&_[data-size=sm]]:px-3">
+            {actions}
+          </div>
         ) : null}
       </div>
       {children}

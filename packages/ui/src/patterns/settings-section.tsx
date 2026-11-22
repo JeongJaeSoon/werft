@@ -29,7 +29,9 @@ export interface SettingsSectionProps {
   readonly descriptionId?: string | undefined;
   /**
    * The section's main action (an "add" button), on the right of the title
-   * row so it reads as belonging to this section's list.
+   * row so it reads as belonging to this section's list. Buttons here all
+   * take the title row's height and padding, `sm` ones too, so a primary
+   * and an outline button side by side or in two sections stay one size.
    */
   readonly actions?: ReactNode | undefined;
   /**
@@ -117,7 +119,7 @@ export function SettingsSection({
             {badge}
           </div>
           {actions ? (
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 [&_[data-size=sm]]:h-[var(--werft-control-height)] [&_[data-size=sm]]:px-3">
               {actions}
             </div>
           ) : null}
