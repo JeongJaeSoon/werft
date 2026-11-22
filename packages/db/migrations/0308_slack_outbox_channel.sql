@@ -13,7 +13,7 @@ BEGIN
   SELECT count(*) INTO found FROM "slack_outbox"
   WHERE "channel_id" ~ '^[UW]' AND "kind" <> 'model_notice';
   IF found > 0 THEN
-    RAISE NOTICE '0306: % slack_outbox rows name a Slack user as their channel', found;
+    RAISE NOTICE '0308: % slack_outbox rows name a Slack user as their channel', found;
   END IF;
 END $$;--> statement-breakpoint
 -- Added only when missing: a run again after a failed VALIDATE keeps the

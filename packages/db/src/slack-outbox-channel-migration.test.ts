@@ -6,7 +6,7 @@ import { migrate } from "./migrate.ts";
 import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
 import { migrationsThrough } from "./testing/migrations-through.ts";
 
-const TAG = "0306_slack_outbox_channel";
+const TAG = "0308_slack_outbox_channel";
 
 let client: PGlite;
 let before: string;
@@ -49,10 +49,10 @@ const constraintIds = async () =>
   ).rows.map((row) => row.oid);
 
 /**
- * 0306 refuses an outbox row whose channel is a Slack user id, but a model
+ * 0308 refuses an outbox row whose channel is a Slack user id, but a model
  * notice's direct message, and checks the rows already there.
  */
-describe("0306 slack_outbox_channel_check", () => {
+describe("0308 slack_outbox_channel_check", () => {
   test("validates over the rows releases wrote: conversations and model notices", async () => {
     await beforeIt([
       { kind: "reply", channelId: "C0PUBLIC" },

@@ -229,9 +229,9 @@ migration `0305_drop_unused_tables` が `catalog_authority`・`owner_workspace_m
 <a id="사람에게-바로-가는-slack-글을-막는-릴리스" />
 ### 人に直接届く Slack 投稿を止めるリリース
 
-migration `0306_slack_outbox_channel` が `slack_outbox` に CHECK `slack_outbox_channel_check` を加える。Slack のユーザー id(`U…`、Enterprise Grid では `W…`)を channel に持つ行は、モデルの案内(`model_notice`)だけが入れられる。エージェントが人との DM を先に開かないための防御である。これまでどのリリースもそのような行を書いていないので、通常はすることはない。
+migration `0308_slack_outbox_channel` が `slack_outbox` に CHECK `slack_outbox_channel_check` を加える。Slack のユーザー id(`U…`、Enterprise Grid では `W…`)を channel に持つ行は、モデルの案内(`model_notice`)だけが入れられる。エージェントが人との DM を先に開かないための防御である。これまでどのリリースもそのような行を書いていないので、通常はすることはない。
 
-- そのような行が残っていると、migrate のログ `db.migrate.notice` にその数が残り(`0306: … slack_outbox rows name a Slack user as their channel`)、migrate は `VALIDATE CONSTRAINT` で止まる。そのときも制約は `NOT VALID` のまま残り、新しい行を拒む。上げる前に次のクエリで確かめられる。
+- そのような行が残っていると、migrate のログ `db.migrate.notice` にその数が残り(`0308: … slack_outbox rows name a Slack user as their channel`)、migrate は `VALIDATE CONSTRAINT` で止まる。そのときも制約は `NOT VALID` のまま残り、新しい行を拒む。上げる前に次のクエリで確かめられる。
 
 ```sql
 SELECT kind, status, count(*) FROM slack_outbox

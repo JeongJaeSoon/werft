@@ -229,9 +229,9 @@ Migration `0305_drop_unused_tables` drops the `catalog_authority`, `owner_worksp
 <a id="사람에게-바로-가는-slack-글을-막는-릴리스" />
 ### The release that stops Slack posts aimed straight at a person
 
-Migration `0306_slack_outbox_channel` adds the CHECK `slack_outbox_channel_check` to `slack_outbox`. Only a model notice (`model_notice`) may have a Slack user id (`U…`, or `W…` on Enterprise Grid) as its channel. This keeps the agent from opening a direct message with a person first. No release so far wrote such a row, so there is usually nothing to do.
+Migration `0308_slack_outbox_channel` adds the CHECK `slack_outbox_channel_check` to `slack_outbox`. Only a model notice (`model_notice`) may have a Slack user id (`U…`, or `W…` on Enterprise Grid) as its channel. This keeps the agent from opening a direct message with a person first. No release so far wrote such a row, so there is usually nothing to do.
 
-- If such rows remain, the migrate log `db.migrate.notice` records how many (`0306: … slack_outbox rows name a Slack user as their channel`) and migrate stops at `VALIDATE CONSTRAINT`. The constraint then stays `NOT VALID` and still refuses new rows. You can check before the upgrade with this query:
+- If such rows remain, the migrate log `db.migrate.notice` records how many (`0308: … slack_outbox rows name a Slack user as their channel`) and migrate stops at `VALIDATE CONSTRAINT`. The constraint then stays `NOT VALID` and still refuses new rows. You can check before the upgrade with this query:
 
 ```sql
 SELECT kind, status, count(*) FROM slack_outbox
