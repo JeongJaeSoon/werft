@@ -263,6 +263,8 @@ egress는 `mcp.use`를 다음 두 때에 묻는다. 매번 정책의 규칙 목�
 
 #### 개인 연결의 전제
 
+> **[MCP 연결 세 단계](mcp-connection-tiers.md)가 이 절과 아래 "전송 세션"의 일부를 대신한다.** 개인 연결의 전제는 접근 판정 2절이 아니라 그 문서 6절이다(그 턴의 요청자 본인, 본인 확인 두 번, 게시하지 않은 결과를 컨텍스트에서 빼기). 전송 세션의 고정 단위는 (서버, 턴)이 아니라 (서버, 턴, 단계)이고, upstream 401·403 뒤 personal로 한 번 넘어가는 것은 `mcp_session_subject_changed`가 아니다(그 문서 5절). S12의 나머지(`Mcp-Session-Id` 묶음, 2026-07-28 개정, 목록 캐시 분리)는 그대로다. 연결 종류도 `agent`·`personal` 둘이 아니라 `workspace`·`agent`·`personal` 셋이다.
+
 개인 연결로 가져온 데이터는 transcript에 남아 세션을 읽는 사람에게 보인다. 그래서 `personal`을 쓸 수 있는 조건(요청자가 확인된 사람이고 세션 소유자, 세션 공유 범위 `private`, 판정이 세션 행을 `FOR UPDATE`로 잡고 개인 표시를 먼저 commit, 표시가 있는 세션의 공유·이관은 본인 확인)은 [접근 판정](access-decisions.md) 2절의 "개인 기억·개인 연결의 전제"가 정본이다. 처음 이 문서에 따로 적었던 전제(공유와 판정이 `FOR SHARE`로 경합)는 그 문서의 표시 commit 규칙으로 바뀌었다. MCP 쪽에서 더할 것은 하나다: 전제가 깨져 `personal`을 쓸 수 없게 되면 그 판정의 결과(`fallback: agent` 또는 최종 거절)가 고정한 subject와 달라지므로, 아래 전송 세션 규칙이 그 (서버, 턴)의 upstream 세션을 버리게 한다.
 
 #### 전송 세션
@@ -639,7 +641,7 @@ MIT 오픈소스 코딩 에이전트다. 저장소는 `earendil-works/pi`(옛 `b
 | S9 의존성 확인 | manifest의 `requires` 칸을 열기, 지정·release 활성화·세션 시작의 세 시점, `missing` 목록 응답, 실행 규칙 충족 판정 호출 | 1 | 시점마다 빠진 MCP 서버·도구·규칙·엔진이 이름으로 나오는 시험, 워크스페이스 범위 `required`가 한 에이전트에서만 빠져도 그 에이전트 이름과 함께 거절되는 시험, 세션 시작의 런타임 상태(재인증 필요)는 시작하고 이벤트를 남김 | S8, 실행 규칙 설계의 판정기 |
 | S10 라이브러리 | 검색·태그·분류·공개 범위·사용 현황(에이전트·세션 읽기 거름), 구성원 제출, receipt `update_extension_metadata`, 콘솔 화면 | 2 | 공개 범위 밖 구성원에게 목록·검색·상세·지정 화면에서 보이지 않음, 워크스페이스 범위 지정은 범위와 상관없이 보임, 사용 현황이 숨긴 에이전트를 세지 않음, 화면 기록 | S8, S6 |
 | S11 MCP 등록 확인과 relay: 새 개정 지원과 턴 밖 차단 | 6절 "전송 세션"의 세 자리: 등록 확인이 `server/discover`를 먼저 부르고 옛 개정이면 `initialize`로 되돌아감, egress가 `server/discover`와 `subscriptions/listen`(`toolsListChanged`만)을 라우팅(proxy가 구독 종류를 인가 요청에 싣는다, 13절), relay가 두 개정을 감지. 6절 "턴 밖에서는 upstream에 가지 않는다": 등록 확인이 입력 스키마도 저장(`cacheScope: private`이면 저장하지 않음), relay가 첫 턴 전 `tools/list`에 저장한 정의로 답하고, 정의가 빠진 서버는 턴 입력 전에 목록을 읽어 `list_changed`로 맞춘 뒤 입력을 넘김(엔진 버전마다 다시 읽기 확인). A4보다 먼저 머지한다(A4가 S11에 막힌다) | 1–2 | 두 개정의 fake 서버 각각을 등록·도구 호출까지 몰아 같은 결과, `subscriptions/listen`의 리소스 구독 거절, 옛 개정 서버의 기존 시험이 그대로 통과. 새 세션과 resume 모두 첫 턴 전에는 upstream 요청이 없고 엔진이 저장한 정의로 도구를 봄(Claude·Codex), `private` 목록이면 첫 턴 전에는 이름과 빈 스키마만 보이고, 필수 인자가 있는 그 서버의 도구를 모델이 첫 호출에서 바르게 부름(Claude·Codex) | S5 |
-| S12 MCP 전송 세션의 subject 고정 | 6절 "언제 무엇을 묻나"(도구 없는 첫 판정, `tools/call` 판정)와 "전송 세션": (서버, 턴) subject 고정, 옛 개정의 `Mcp-Session-Id` 묶음(proxy가 upstream이 준 id와 요청이 실은 id를 인가 요청에 싣는다, 13절), 2026-07-28 개정의 요청별 비교와 `subscriptions/listen` 묶음, 목록 캐시의 subject 분리, relay 재시작(Claude·Codex) | 1–2 | egress 통합 시험: 턴 도중 규칙 삭제 → 다음 요청 거절, subject가 바뀌는 판정 → `mcp_session_subject_changed`와 relay 재시작, 다른 subject의 세션 id 거절, 열린 스트림 도중 같은 subject로 다시 연결해 `generation`이 바뀌면 다음 `regrant`에서 스트림이 끊김, 두 개정의 fake 서버에서 같은 결과. 개인 연결 결과(B5)를 켜기 전에 머지한다(B5가 S12에 막힌다) | A4, B2, S5, S11 |
+| S12 MCP 전송 세션의 subject 고정 (고정 단위는 [MCP 연결 세 단계](mcp-connection-tiers.md) 5절의 (서버, 턴, 단계). 그 문서의 T9가 이 단계에 막힌다) | 6절 "언제 무엇을 묻나"(도구 없는 첫 판정, `tools/call` 판정)와 "전송 세션": (서버, 턴) subject 고정, 옛 개정의 `Mcp-Session-Id` 묶음(proxy가 upstream이 준 id와 요청이 실은 id를 인가 요청에 싣는다, 13절), 2026-07-28 개정의 요청별 비교와 `subscriptions/listen` 묶음, 목록 캐시의 subject 분리, relay 재시작(Claude·Codex) | 1–2 | egress 통합 시험: 턴 도중 규칙 삭제 → 다음 요청 거절, subject가 바뀌는 판정 → `mcp_session_subject_changed`와 relay 재시작, 다른 subject의 세션 id 거절, 열린 스트림 도중 같은 subject로 다시 연결해 `generation`이 바뀌면 다음 `regrant`에서 스트림이 끊김, 두 개정의 fake 서버에서 같은 결과. 개인 연결 결과(B5)를 켜기 전에 머지한다(B5가 S12에 막힌다) | A4, B2, S5, S11 |
 
 ### 나중
 
