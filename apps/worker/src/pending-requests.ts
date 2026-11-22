@@ -60,8 +60,6 @@ export type PendingRequestsOptions = {
    * poll until `reportAttached` has reported them.
    */
   onAttachments?: (orders: RepositoryAttachOrder[]) => void;
-  /** The gateway refused a settlement's reason or answer result; outcomes alone go from then on. */
-  onSettlementDetailRefused?: (error: WorkerGatewayRequestError) => void;
   // Observation only: the registry never waits on it.
   onDecided?: (decided: PendingDecided) => void;
   pollIntervalMs?: number;
@@ -178,7 +176,6 @@ export class PendingRequestRegistry {
   private polling: Promise<void> | undefined;
   private stopped = false;
   private watching = false;
-  private outcomeOnly = false;
   // A refresh needs a round that starts after it asks, so the loop is woken
   // from its sleep rather than waited out.
   private roundsStarted = 0;
@@ -736,14 +733,10 @@ export class PendingRequestRegistry {
       // left.
       let sent = false;
       const carried = [...this.settlements].slice(0, PENDING_SETTLEMENTS_MAX);
-      const batch = carried.map(([request_id, settled]) =>
-        this.outcomeOnly
-          ? { request_id, outcome: settled.outcome }
-          : { request_id, ...settled },
-      );
-      const detailed = batch.some(
-        (item) => "reason" in item || "answer_result" in item,
-      );
+      const batch = carried.map(([request_id, settled]) => ({
+        request_id,
+        ...settled,
+      }));
       const delivered = [...this.deliveries]
         .slice(0, PENDING_SETTLEMENTS_MAX)
         .map(([request_id, outcome]) => ({ request_id, outcome }));
@@ -798,18 +791,6 @@ export class PendingRequestRegistry {
           this.settlements.clear();
           this.stop();
           return;
-        }
-        // A strict gateway older than `reason` and `answer_result` refuses
-        // the whole poll. Their outcomes alone still settle the receipts as
-        // it always did, so they go again without them.
-        if (
-          detailed &&
-          error instanceof WorkerGatewayRequestError &&
-          error.code === "BAD_REQUEST"
-        ) {
-          this.outcomeOnly = true;
-          this.options.onSettlementDetailRefused?.(error);
-          continue;
         }
         // Resending would be refused the same way; the answers themselves
         // stay waiting for their own expiry.

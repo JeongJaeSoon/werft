@@ -30,7 +30,7 @@ At startup, API reads these through one parser. Unset values use defaults; inval
 
 | Variable | Default | Allowed range |
 |---|---|---|
-| `HEARTBEAT_TTL_SEC` | 30 | Greater than 20, at most 86400. Workers relinquish leases 10 seconds early (WORKER_LEASE_SAFETY_MARGIN_SEC) and heartbeat every 5 seconds (WORKER_HEARTBEAT_INTERVAL_SEC; older workers 10). A TTL at or below margin + 10 seconds loses old attempts around their first heartbeat. Launchers do not pass these two worker settings, so validation uses defaults |
+| `HEARTBEAT_TTL_SEC` | 30 | Greater than 15, at most 86400. Workers relinquish leases 10 seconds early (WORKER_LEASE_SAFETY_MARGIN_SEC) and heartbeat every 5 seconds (WORKER_HEARTBEAT_INTERVAL_SEC). A TTL at or below their sum loses attempts around their first heartbeat. Launchers do not pass these two worker settings, so validation uses defaults |
 | `SSE_MAX_STREAMS` · `SSE_MAX_STREAMS_PER_OWNER` · `SSE_REPLAY_MAX_BYTES` | 256 · 8 · 1 MiB | Positive integers |
 | `LOG_LEVEL` | `info` | debug/info/warn/error, case-insensitive; empty means info. Scheduler/reconciler loops and egress-proxy reject invalid values by the same rule. Workers inherit scheduler's value |
 | `WEB_DIST_DIR` | Unset (no console); control-host image: `/app/apps/web/dist` | Absolute path containing index.html, the apps/web build output |

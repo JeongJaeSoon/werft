@@ -293,7 +293,6 @@ API also goes first when adding worker-sent protocol fields. Its request schemas
 
 | Field | Deploy first | New worker against old API |
 |---|---|---|
-| Pending-control `settled[].reason`/`settled[].answer_result` | API | Logs `worker.pending.settlement_detail_refused` once, then sends only `outcome` for the rest of the attempt. Receipts settle under old rules; `pending_requests.settled_reason`/`settled_answer_result` remain empty |
 | Bootstrap-claim/pending-control `capabilities`, register-pending `remember_offer` | API | No compatibility retry. A 400 `BAD_REQUEST` (nonretryable) on the first bootstrap-claim ends the worker without any turns. API-only rollback has the same effect: first confirm no sessions use new worker images |
 
 <a id="db-스키마를-바꾸는-순서" />

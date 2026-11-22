@@ -169,8 +169,8 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   readonly attachReports: RepositoryAttachResult[] = [];
   /** Thrown by a release that answers a pause while set, as a refusal would be. */
   pauseRefusal: WorkerGatewayRequestError | undefined;
-  /** Set to refuse `stop_kind` the way a strict gateway older than it does. */
-  predatesStopKind = false;
+  /** Set to refuse a release that carries `stop_kind` as a 400. */
+  refusesStopKind = false;
   /** Every checkpoint request the worker made, rejected ones included. */
   readonly checkpointRequests: CheckpointRequest[] = [];
   readonly restorePlans: RestorePlanRequest[] = [];
@@ -693,7 +693,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     if (request.pause_control_id !== undefined && this.pauseRefusal) {
       throw this.pauseRefusal;
     }
-    if (request.stop_kind !== undefined && this.predatesStopKind) {
+    if (request.stop_kind !== undefined && this.refusesStopKind) {
       throw new WorkerGatewayRequestError(
         400,
         "BAD_REQUEST",

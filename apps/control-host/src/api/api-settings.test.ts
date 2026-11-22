@@ -97,6 +97,10 @@ describe("heartbeatTtlMsFromEnv", () => {
     expect(heartbeatTtlMsFromEnv(undefined)).toBe(30_000);
     expect(heartbeatTtlMsFromEnv("45")).toBe(45_000);
     expect(heartbeatTtlMsFromEnv("20.5")).toBe(20_500);
+    // 15 s (margin + interval) is the floor; 20 s, the floor while workers
+    // that beat every 10 s were supported, is now accepted.
+    expect(heartbeatTtlMsFromEnv("15.5")).toBe(15_500);
+    expect(heartbeatTtlMsFromEnv("20")).toBe(20_000);
   });
 
   test("anything else stops the API instead of becoming the default", () => {
@@ -106,11 +110,11 @@ describe("heartbeatTtlMsFromEnv", () => {
       " ",
       "0",
       "-5",
-      // At or under the worker's margin + interval (10 s + 10 s): every
+      // At or under the worker's margin + interval (10 s + 5 s): every
       // attempt would give its lease up at or near its first beat.
       "0.5",
       "10",
-      "20",
+      "15",
       "abc",
       "Infinity",
       "NaN",
@@ -118,7 +122,7 @@ describe("heartbeatTtlMsFromEnv", () => {
       "1e308",
     ]) {
       expect(() => heartbeatTtlMsFromEnv(value)).toThrow(
-        /^HEARTBEAT_TTL_SEC must be a number of seconds above 20 /,
+        /^HEARTBEAT_TTL_SEC must be a number of seconds above 15 /,
       );
     }
   });

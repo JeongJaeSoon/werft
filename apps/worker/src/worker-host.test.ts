@@ -2145,9 +2145,9 @@ describe("WorkerHost before the engine starts", () => {
     });
   });
 
-  test("a gateway older than stop_kind still gets the drained session back", async () => {
+  test("a release refused for stop_kind is not resent without it", async () => {
     const gateway = new FakeWorkerGateway();
-    gateway.predatesStopKind = true;
+    gateway.refusesStopKind = true;
     let started!: () => void;
     const preparing = new Promise<void>((resolve) => {
       started = resolve;
@@ -2171,12 +2171,10 @@ describe("WorkerHost before the engine starts", () => {
     const summary = await loop;
 
     expect(summary.outcome).toBe("drained");
-    // The strict gateway refused the field it does not know; the release
-    // without it is the one it kept.
-    expect(gateway.releases).toHaveLength(2);
+    // Every supported gateway knows the field, so a 400 is not a version
+    // gap to step around: the one release is all that goes.
+    expect(gateway.releases).toHaveLength(1);
     expect(gateway.releases[0]).toMatchObject({ stop_kind: "drain" });
-    expect(gateway.releases[1]).toMatchObject({ reason: "received SIGTERM" });
-    expect(gateway.releases[1]).not.toHaveProperty("stop_kind");
   });
 });
 
