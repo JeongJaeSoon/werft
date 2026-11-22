@@ -20,8 +20,6 @@ import {
   loadSecretKey,
   MASTER_KEY_MISMATCH,
   MasterKeyError,
-  SECRET_KEY_FILE_SETTING,
-  SECRET_KEY_SETTING,
 } from "./catalog-config.ts";
 
 // Presses a card button the way Slack would: a block_actions form signed
@@ -45,7 +43,7 @@ const USAGE = `Usage: ${SCRIPT} --agent <agent_id> --action-id <id> --value <val
   /v1/slack/interactions/<agent_id>, signed with that app's signing secret.
   --team     the Slack team; needed only when the app is installed in more than one
   --url      where to post; default http://127.0.0.1:$PORT/v1/slack/interactions/<agent_id>
-Environment: DATABASE_URL and the master key (required): ${SECRET_KEY_SETTING}, or ${SECRET_KEY_FILE_SETTING}
+Environment: DATABASE_URL and the master key (required): PLATFORM_SECRET_KEY, or PLATFORM_SECRET_KEY_FILE
              naming a file that holds it, as the API reads it; PORT (default 3000)
 Output: one line of JSON on stdout: the HTTP status, the request id and the error code.
         The secret and the signature are never printed.

@@ -182,23 +182,33 @@ export function loadSecretKey(
       );
     }
   }
-  if (fromFile !== undefined && value !== undefined && fromFile !== value) {
-    throw new MasterKeyError(
-      "master_key_mismatch",
-      `${SECRET_KEY_SETTING} and the file ${SECRET_KEY_FILE_SETTING} names hold different keys; set one of them`,
-    );
-  }
-  const key = fromFile ?? value;
-  if (key === undefined) {
+  if (fromFile === undefined && value === undefined) {
     throw new MasterKeyError(
       "master_key_missing",
       `${SECRET_KEY_SETTING} is required: 64 hex characters, from \`openssl rand -hex 32\` (or a file named by ${SECRET_KEY_FILE_SETTING}). Keep it with the database backup; stored credentials open only with it`,
     );
   }
-  const source =
-    fromFile === undefined ? SECRET_KEY_SETTING : SECRET_KEY_FILE_SETTING;
+  const fileKey =
+    fromFile === undefined ? null : parseKey(fromFile, SECRET_KEY_FILE_SETTING);
+  const envKey =
+    value === undefined ? null : parseKey(value, SECRET_KEY_SETTING);
+  // Compared as bytes: the same key in upper and lower case hex agrees.
+  if (
+    fileKey !== null &&
+    envKey !== null &&
+    !fileKey.bytes().equals(envKey.bytes())
+  ) {
+    throw new MasterKeyError(
+      "master_key_mismatch",
+      `${SECRET_KEY_SETTING} and the file ${SECRET_KEY_FILE_SETTING} names hold different keys; set one of them`,
+    );
+  }
+  return (fileKey ?? envKey) as SecretKey;
+}
+
+function parseKey(hex: string, source: string): SecretKey {
   try {
-    return SecretKey.fromHex(key, source);
+    return SecretKey.fromHex(hex, source);
   } catch (error) {
     throw new MasterKeyError(
       "master_key_invalid",

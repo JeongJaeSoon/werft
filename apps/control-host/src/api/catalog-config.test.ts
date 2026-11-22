@@ -106,6 +106,18 @@ describe("the master key from a file", () => {
     const read = files({ "/k": HEX });
     const both = { [SECRET_KEY_SETTING]: HEX, [SECRET_KEY_FILE_SETTING]: "/k" };
     expect(loadSecretKey(both, read).bytes().toString("hex")).toBe(HEX);
+    // The same key in upper case in one place and lower case in the other.
+    expect(
+      loadSecretKey(
+        {
+          [SECRET_KEY_SETTING]: HEX.toUpperCase(),
+          [SECRET_KEY_FILE_SETTING]: "/k",
+        },
+        read,
+      )
+        .bytes()
+        .toString("hex"),
+    ).toBe(HEX);
     expect(
       codeOf(() =>
         loadSecretKey(

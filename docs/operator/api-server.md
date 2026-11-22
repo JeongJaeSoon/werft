@@ -1305,7 +1305,7 @@ docker compose exec -T api bun run apps/control-host/src/api/slack-interaction-s
 - 앱이 여러 Slack 팀에 설치돼 있으면 `--team`을 준다. 보낼 곳은 `--url`로 바꾼다(기본은 `http://127.0.0.1:$PORT`).
 - 출력은 stdout의 JSON 한 줄(HTTP 상태, 요청 id, 오류 코드)이다. signing secret과 서명값은 출력하지 않는다. 버튼 처리 결과는 응답이 아니라 api 로그의 `Slack interaction received`(`result`), `slack_outbox`, 세션 후속 답에서 본다.
 - 모달을 여는 버튼(`question.open`, `permission.allow_note`)은 진짜 trigger가 없어 `views.open`에서 멈춘다. 바로 처리되는 버튼(허용, 거절, 선택지, push 승인)에 쓴다.
-- 종료 코드는 0(2xx), 1(예상 못 한 오류), 2(사용법, `master_key_missing`·`master_key_invalid` 포함), 3(서명 키가 있는 에이전트 Slack 앱이나 설치된 팀이 없음), 4(그 밖의 HTTP 상태), 5(`master_key_mismatch`: 저장된 signing secret이 이 키로 열리지 않음, 곧 API가 쓰는 키가 아님)다. 오류 줄에는 코드와 설정 이름만 나오고 키 값은 나오지 않는다.
+- 종료 코드는 0(2xx), 1(예상 못 한 오류), 2(사용법, `master_key_missing`·`master_key_invalid` 포함), 3(서명 키가 있는 에이전트 Slack 앱이나 설치된 팀이 없음), 4(그 밖의 HTTP 상태), 5(`master_key_mismatch`: 저장된 signing secret이 이 키로 열리지 않음, 곧 API가 쓰는 키가 아님. 또는 `PLATFORM_SECRET_KEY`와 `PLATFORM_SECRET_KEY_FILE`의 키가 다름)다. 오류 줄에는 코드와 설정 이름만 나오고 키 값은 나오지 않는다.
 
 ### 판정 감사와 보존 기간
 

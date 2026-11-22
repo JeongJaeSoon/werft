@@ -45,20 +45,27 @@ export function settingReads(source: string): number[] {
   const visit = (node: ts.Node) => {
     if (
       ts.isPropertyAccessExpression(node) &&
-      SETTING_NAMES.has(node.name.text)
+      (SETTING_NAMES.has(node.name.text) ||
+        SETTING_CONSTANTS.has(node.name.text))
+    ) {
+      // env.PLATFORM_SECRET_KEY, or the loader's constant off a namespace.
+      at(node);
+    } else if (ts.isStringLiteralLike(node) && SETTING_NAMES.has(node.text)) {
+      // A literal that is exactly a setting's name: an index, a local
+      // constant, a computed key. Text that only mentions one is fine.
+      at(node);
+    } else if (
+      ts.isImportSpecifier(node) &&
+      SETTING_CONSTANTS.has((node.propertyName ?? node.name).text)
+    ) {
+      // The constants stay in the loader, so no alias can index with them.
+      at(node);
+    } else if (
+      ts.isIdentifier(node) &&
+      SETTING_CONSTANTS.has(node.text) &&
+      !ts.isImportSpecifier(node.parent)
     ) {
       at(node);
-    } else if (ts.isElementAccessExpression(node)) {
-      const key = node.argumentExpression;
-      const name = nameOf(key);
-      if (
-        name !== null &&
-        (ts.isIdentifier(key)
-          ? SETTING_CONSTANTS.has(name)
-          : SETTING_NAMES.has(name))
-      ) {
-        at(node);
-      }
     } else if (ts.isBindingElement(node)) {
       const name = nameOf(node.propertyName ?? node.name);
       if (name !== null && SETTING_NAMES.has(name)) at(node);
@@ -66,7 +73,7 @@ export function settingReads(source: string): number[] {
     ts.forEachChild(node, visit);
   };
   visit(file);
-  return lines;
+  return [...new Set(lines)];
 }
 
 function callsLoader(source: string): boolean {
@@ -138,10 +145,15 @@ describe("one master key loader", () => {
           "const c = env[SECRET_KEY_SETTING];",
           "const { PLATFORM_SECRET_KEY: d } = env;",
           'const e = "PLATFORM_SECRET_KEY";',
-          "const f = env.OTHER_KEY;",
+          'import { SECRET_KEY_SETTING as S } from "./catalog-config.ts";',
+          "const { [SECRET_KEY_FILE_SETTING]: g } = process.env;",
+          "const h = env[cfg.SECRET_KEY_SETTING];",
+          "const i = `PLATFORM_SECRET_KEY_FILE`;",
+          'const j = "set PLATFORM_SECRET_KEY first";',
+          "const k = env.OTHER_KEY;",
         ].join("\n"),
       ),
-    ).toEqual([1, 2, 3, 4]);
+    ).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
     expect(
       callsLoader(
         'import { loadSecretKey } from "./catalog-config.ts";\nloadSecretKey(env);',
