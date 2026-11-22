@@ -358,6 +358,69 @@ integration("budget accounts on PostgreSQL", () => {
     ).toBeNull();
   });
 
+  test("the same reserve twice at once: one reserves, the other replays", async () => {
+    const choice = person();
+    if (choice.owner?.kind !== "user") throw new Error("person");
+    await saveBudgetLimit(
+      db,
+      workspaceId,
+      { kind: "user", userId: choice.owner.userId },
+      { costUsd: 10, tokens: null },
+    );
+    const input = {
+      callId: `call-${crypto.randomUUID()}`,
+      workspaceId,
+      choice,
+      reserve: { costUsd: 6, tokens: 60 },
+      unmetered: false,
+    };
+    const results = await Promise.all([
+      ledger().reserve(input),
+      ledger().reserve(input),
+    ]);
+    expect(results.map((result) => result.outcome).sort()).toEqual([
+      "replayed",
+      "reserved",
+    ]);
+  });
+
+  test("a replayed reserve and the call's settlement at once finish without a deadlock", async () => {
+    for (let round = 0; round < 5; round++) {
+      const input = {
+        callId: `call-${crypto.randomUUID()}`,
+        workspaceId,
+        choice: person(),
+        reserve: { costUsd: 6, tokens: 60 },
+        unmetered: false,
+      };
+      const first = await ledger().reserve(input);
+      if (first.outcome !== "reserved") throw new Error(first.outcome);
+      const [replay, settled] = await Promise.all([
+        ledger().reserve(input),
+        ledger().settle({
+          callId: input.callId,
+          actual: { costUsd: 4, tokens: 40 },
+        }),
+      ]);
+      expect(replay.outcome).toBe("replayed");
+      expect(settled).toBe("settled");
+      const account = await accountOf(first.accountId);
+      expect([account?.spentCostUsd, account?.reservedCostUsd]).toEqual([4, 0]);
+    }
+  });
+
+  test("a NaN or negative amount is refused before it reaches a row, and by the table", async () => {
+    await expect(reserveFor(person(), Number.NaN)).rejects.toThrow(RangeError);
+    await expect(
+      ledger().settle({ callId: "none", actual: { costUsd: -1, tokens: 0 } }),
+    ).rejects.toThrow(RangeError);
+    await expect(
+      db.execute(
+        sql`INSERT INTO budget_limits (workspace_id, subject, cost_usd) VALUES (${workspaceId}, 'person_default', 'NaN')`,
+      ),
+    ).rejects.toThrow();
+  });
+
   test("an installation with no team limit: an agent key's reserve always gets in", async () => {
     const choice = chooseBudgetAccount(
       { kind: "key", keyKind: "agent", createdByUserId: null },

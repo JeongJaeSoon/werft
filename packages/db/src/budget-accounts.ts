@@ -1,6 +1,7 @@
 import type { BudgetAccountId } from "@werft-ai/contracts";
 import {
   admitsBudgetReserve,
+  assertBudgetAmount,
   type BudgetLedger,
   type BudgetLimit,
   type BudgetOwner,
@@ -48,6 +49,7 @@ export async function saveBudgetLimit(
   target: BudgetLimitTarget,
   limit: BudgetLimit | null,
 ): Promise<void> {
+  if (limit !== null) assertBudgetAmount(limit);
   if (limit === null) {
     await db.delete(budgetLimits).where(subjectIs(workspaceId, target));
     return;
@@ -149,6 +151,20 @@ async function lockCurrentAccount(
   return account;
 }
 
+/**
+ * The first key of the two-key advisory lock every reserve, settle and
+ * release of one call takes first, before any row lock: so the three of one
+ * call run one after the other, and each takes the account row after it.
+ * Apart from the provider exchange ledger's spaces (provider-exchanges.ts).
+ */
+export const BUDGET_CALL_LOCK_SPACE = 1_380_271_444;
+
+async function lockBudgetCall(tx: Database, callId: string): Promise<void> {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(${BUDGET_CALL_LOCK_SPACE}::int, hashtext(${callId}))`,
+  );
+}
+
 export function createBudgetLedger(db: Database): BudgetLedger {
   async function replayOf(
     tx: Database,
@@ -190,7 +206,9 @@ export function createBudgetLedger(db: Database): BudgetLedger {
     async reserve(input) {
       const costUsd = input.unmetered ? 0 : toStoredCost(input.reserve.costUsd);
       const tokens = input.reserve.tokens;
+      assertBudgetAmount({ costUsd, tokens });
       return db.transaction(async (tx) => {
+        await lockBudgetCall(tx, input.callId);
         const replay = await replayOf(tx, input, costUsd);
         if (replay) return replay;
         const owner = input.choice.owner;
@@ -234,12 +252,8 @@ export function createBudgetLedger(db: Database): BudgetLedger {
           })
           .onConflictDoNothing()
           .returning({ callId: budgetReservations.callId });
-        // Another reserve of the same id, for another account, got in first.
-        if (inserted.length === 0) {
-          return (
-            (await replayOf(tx, input, costUsd)) ?? { outcome: "conflict" }
-          );
-        }
+        // Under the call's lock no other reserve of the id gets in.
+        if (inserted.length === 0) return { outcome: "conflict" };
         if (account) {
           await tx
             .update(budgetAccounts)
@@ -258,7 +272,9 @@ export function createBudgetLedger(db: Database): BudgetLedger {
     },
 
     async settle({ callId, actual }) {
+      assertBudgetAmount(actual);
       return db.transaction(async (tx) => {
+        await lockBudgetCall(tx, callId);
         const [row] = await tx
           .select()
           .from(budgetReservations)
@@ -266,7 +282,7 @@ export function createBudgetLedger(db: Database): BudgetLedger {
           .for("update");
         if (!row) return "unknown";
         if (row.state === "settled") return "already_settled";
-        const costUsd = row.unmetered ? 0 : actual.costUsd;
+        const costUsd = row.unmetered ? 0 : toStoredCost(actual.costUsd);
         // A released reserve was already taken off; a call billed after its
         // release still spent what the settlement says.
         const held = row.state === "reserved";
@@ -300,6 +316,7 @@ export function createBudgetLedger(db: Database): BudgetLedger {
 
     async release(callId) {
       return db.transaction(async (tx) => {
+        await lockBudgetCall(tx, callId);
         const [row] = await tx
           .select()
           .from(budgetReservations)

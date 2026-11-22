@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   admitsBudgetReserve,
+  assertBudgetAmount,
   type BudgetChoice,
   type BudgetRoot,
   chooseBudgetAccount,
@@ -80,6 +81,23 @@ describe("personLimitOf", () => {
   });
 });
 
+describe("assertBudgetAmount", () => {
+  test("refuses what would turn a limit off or lose precision", () => {
+    for (const amount of [
+      { costUsd: Number.NaN, tokens: 0 },
+      { costUsd: Number.POSITIVE_INFINITY, tokens: 0 },
+      { costUsd: -1, tokens: 0 },
+      { costUsd: 0, tokens: 1.5 },
+      { costUsd: 0, tokens: -1 },
+      { costUsd: 0, tokens: Number.MAX_SAFE_INTEGER + 1 },
+    ]) {
+      expect(() => assertBudgetAmount(amount)).toThrow(RangeError);
+    }
+    expect(() => assertBudgetAmount({ costUsd: 0.5, tokens: 10 })).not.toThrow();
+    expect(() => assertBudgetAmount({ costUsd: null, tokens: null })).not.toThrow();
+  });
+});
+
 describe("admitsBudgetReserve", () => {
   const reserve = { costUsd: 6, tokens: 100 };
   const empty = {
@@ -112,6 +130,30 @@ describe("admitsBudgetReserve", () => {
       );
     }
   });
+  test("a cost sum that reaches the limit exactly is reached, whatever floats say", () => {
+    // 0.7 + 0.1 + 0.1 is 0.8999999999999999 in floating point.
+    expect(
+      admitsBudgetReserve({
+        rootKind: "user",
+        limit: { costUsd: 0.9, tokens: null },
+        held: {
+          spent: { costUsd: 0.7, tokens: 0 },
+          reserved: { costUsd: 0.1, tokens: 0 },
+        },
+        reserve: { costUsd: 0.1, tokens: 0 },
+      }),
+    ).toBe(false);
+  });
+  test("token sums past 2^53 are exact", () => {
+    const limit = { costUsd: null, tokens: Number.MAX_SAFE_INTEGER };
+    const held = {
+      spent: { costUsd: 0, tokens: Number.MAX_SAFE_INTEGER - 1 },
+      reserved: { costUsd: 0, tokens: 0 },
+    };
+    expect(
+      admitsBudgetReserve({ rootKind: "user", limit, held, reserve: { costUsd: 0, tokens: 1 } }),
+    ).toBe(false);
+  });
   test("spent counts with held, and the token limit alone stops it", () => {
     const held = {
       spent: { costUsd: 0, tokens: 900 },
@@ -135,3 +177,4 @@ describe("admitsBudgetReserve", () => {
     ).toBe(true);
   });
 });
+

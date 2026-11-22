@@ -3354,6 +3354,14 @@ export const providerExchanges = pgTable(
   ],
 );
 
+// A NaN cost passes `>= 0` (PostgreSQL sorts it above every number) and
+// would turn a limit off; tokens past 2^53 lose precision where the limits
+// are judged. Null passes both, as in any CHECK.
+const budgetCostOk = (column: AnyPgColumn) =>
+  sql`(${column} >= 0 AND ${column} <> 'NaN')`;
+const budgetTokensOk = (column: AnyPgColumn) =>
+  sql`${column} BETWEEN 0 AND ${sql.raw(String(Number.MAX_SAFE_INTEGER))}`;
+
 // Budget limits an organization admin sets (94S-1995): one for every person
 // in the workspace, one person's own in its place, one per agent team. An
 // absent row is no limit, and so is a row with neither limit. Nothing sets
@@ -3388,7 +3396,7 @@ export const budgetLimits = pgTable(
     ),
     check(
       "budget_limits_nonneg_check",
-      sql`${table.costUsd} >= 0 AND ${table.tokens} >= 0`,
+      sql`${budgetCostOk(table.costUsd)} AND ${budgetTokensOk(table.tokens)}`,
     ),
   ],
 );
@@ -3450,7 +3458,7 @@ export const budgetAccounts = pgTable(
     ),
     check(
       "budget_accounts_nonneg_check",
-      sql`${table.spentCostUsd} >= 0 AND ${table.spentTokens} >= 0 AND ${table.reservedCostUsd} >= 0 AND ${table.reservedTokens} >= 0`,
+      sql`${budgetCostOk(table.spentCostUsd)} AND ${budgetTokensOk(table.spentTokens)} AND ${budgetCostOk(table.reservedCostUsd)} AND ${budgetTokensOk(table.reservedTokens)}`,
     ),
   ],
 );
@@ -3506,11 +3514,11 @@ export const budgetReservations = pgTable(
     ),
     check(
       "budget_reservations_settled_check",
-      sql`(${table.state} = 'settled') = (${table.settledCostUsd} IS NOT NULL AND ${table.settledTokens} IS NOT NULL)`,
+      sql`CASE WHEN ${table.state} = 'settled' THEN ${table.settledCostUsd} IS NOT NULL AND ${table.settledTokens} IS NOT NULL ELSE ${table.settledCostUsd} IS NULL AND ${table.settledTokens} IS NULL END`,
     ),
     check(
       "budget_reservations_nonneg_check",
-      sql`${table.costUsd} >= 0 AND ${table.tokens} >= 0 AND ${table.settledCostUsd} >= 0 AND ${table.settledTokens} >= 0`,
+      sql`${budgetCostOk(table.costUsd)} AND ${budgetTokensOk(table.tokens)} AND ${budgetCostOk(table.settledCostUsd)} AND ${budgetTokensOk(table.settledTokens)}`,
     ),
     check(
       "budget_reservations_unmetered_check",

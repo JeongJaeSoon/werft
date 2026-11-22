@@ -89,13 +89,39 @@ export function admitsBudgetReserve(input: {
   if (limit === null || (limit.costUsd === null && limit.tokens === null)) {
     return input.rootKind !== "none";
   }
-  const costUsd =
-    (held?.spent.costUsd ?? 0) +
-    (held?.reserved.costUsd ?? 0) +
-    reserve.costUsd;
-  const tokens =
-    (held?.spent.tokens ?? 0) + (held?.reserved.tokens ?? 0) + reserve.tokens;
-  if (limit.costUsd !== null && costUsd >= limit.costUsd) return false;
-  if (limit.tokens !== null && tokens >= limit.tokens) return false;
+  // Summed as integers, micro-USD at the columns' scale, so a sum that
+  // reaches the limit exactly is never read as just under it.
+  const sum = (pick: (amount: BudgetAmount) => number) =>
+    [held?.spent, held?.reserved, reserve].reduce(
+      (total, amount) => total + (amount ? BigInt(pick(amount)) : 0n),
+      0n,
+    );
+  const costMicros = sum((amount) => microsOf(amount.costUsd));
+  const tokens = sum((amount) => amount.tokens);
+  if (limit.costUsd !== null && costMicros >= BigInt(microsOf(limit.costUsd)))
+    return false;
+  if (limit.tokens !== null && tokens >= BigInt(limit.tokens)) return false;
   return true;
+}
+
+/** A cost at the ledger's scale (six decimals), as an integer. */
+export const microsOf = (costUsd: number): number =>
+  Math.round(costUsd * 1_000_000);
+
+/**
+ * Refuses what the ledger must not hold: a cost that is not a finite,
+ * non-negative number, or tokens that are not a non-negative safe integer.
+ * A NaN would pass every comparison and turn a limit off.
+ */
+export function assertBudgetAmount(amount: {
+  costUsd: number | null;
+  tokens: number | null;
+}): void {
+  const { costUsd, tokens } = amount;
+  if (costUsd !== null && !(Number.isFinite(costUsd) && costUsd >= 0)) {
+    throw new RangeError(`budget cost must be a finite amount >= 0: ${costUsd}`);
+  }
+  if (tokens !== null && !(Number.isSafeInteger(tokens) && tokens >= 0)) {
+    throw new RangeError(`budget tokens must be a safe integer >= 0: ${tokens}`);
+  }
 }
