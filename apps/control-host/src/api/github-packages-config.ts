@@ -3,7 +3,7 @@ import {
   GITHUB_PACKAGES_UPSTREAMS,
   type OutboundHttp,
 } from "@werft-ai/platform";
-import type { PinnedRequest } from "./oidc/provider-http.ts";
+import { hostPortOf, type PinnedRequest } from "./oidc/provider-http.ts";
 import { oneHostOutbound } from "./outbound-http.ts";
 
 export type GitHubPackagesConfig = {
@@ -65,9 +65,11 @@ export function githubPackagesOutbound(
   apiBase: string,
   request?: PinnedRequest,
 ): OutboundHttp {
-  return oneHostOutbound(
-    apiBase,
-    { private: apiBase !== GITHUB_API_BASE },
-    request,
-  );
+  const url = new URL(apiBase);
+  const github = new URL(GITHUB_API_BASE);
+  // Compared as host:port, so another spelling of GitHub's own host
+  // (case, :443, a trailing dot) is still held to a public address.
+  const own =
+    url.protocol === github.protocol && hostPortOf(url) === hostPortOf(github);
+  return oneHostOutbound(apiBase, { private: !own }, request);
 }

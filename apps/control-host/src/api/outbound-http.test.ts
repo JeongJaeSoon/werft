@@ -43,6 +43,19 @@ function network(
   return { request, sent, deadlines };
 }
 
+/** An answer whose body breaks off after the status line. */
+function cutBody(status: number): Response {
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("{"));
+        controller.error(new Error("connection reset"));
+      },
+    }),
+    { status },
+  );
+}
+
 async function refusal(promise: Promise<unknown>) {
   const error = await promise.then(
     () => null,
@@ -103,6 +116,68 @@ describe("the egress proxy's outbound (titles and judgments)", () => {
       ).toBe("address_not_allowed");
       expect(net.sent).toHaveLength(0);
     }
+  });
+
+  test("refuses cloud metadata addresses that classify as private, on the private host too", async () => {
+    for (const address of [
+      "100.100.100.200",
+      "fd00:ec2::254",
+      "::ffff:100.100.100.200",
+    ]) {
+      const net = network({ "egress-proxy": [address] });
+      const http = oneHostOutbound(PROXY, { private: true }, net.request);
+      expect(
+        (await refusal(http({ url: `${PROXY}/x`, method: "GET" }))).reason,
+      ).toBe("address_not_allowed");
+      expect(net.sent).toHaveLength(0);
+    }
+  });
+
+  test("a body cut after the server answered is not sent again to another address", async () => {
+    const net = network({ "egress-proxy": ["172.18.0.5", "172.18.0.6"] }, () =>
+      cutBody(200),
+    );
+    const http = oneHostOutbound(PROXY, { private: true }, net.request);
+    const failed = await refusal(
+      http({ url: `${PROXY}/decisions/v1/decisions`, method: "POST" }),
+    );
+    expect(failed.reason).toBe("unreachable");
+    expect(net.sent).toHaveLength(1);
+  });
+
+  test("an error answer keeps its status when its body is cut", async () => {
+    const refused = network({ "egress-proxy": ["172.18.0.5"] }, () =>
+      cutBody(401),
+    );
+    expect(
+      (
+        await oneHostOutbound(
+          PROXY,
+          { private: true },
+          refused.request,
+        )({
+          url: `${PROXY}/x`,
+          method: "POST",
+        })
+      ).status,
+    ).toBe(401);
+    const down = network({ "egress-proxy": ["172.18.0.5"] }, () =>
+      cutBody(503),
+    );
+    const answered = await refusal(
+      oneHostOutbound(
+        PROXY,
+        { private: true },
+        down.request,
+      )({
+        url: `${PROXY}/x`,
+        method: "POST",
+      }),
+    );
+    expect([answered.reason, answered.detail]).toEqual([
+      "answered",
+      { status: 503 },
+    ]);
   });
 
   test("hands a redirect back unfollowed", async () => {
@@ -217,6 +292,31 @@ describe("the GitHub Packages token check's outbound", () => {
     ).toBe("address_not_allowed");
     expect(inside.sent).toHaveLength(0);
     expect(net.sent).toHaveLength(1);
+  });
+
+  test("another spelling of GitHub's own API URL is still held to a public address", async () => {
+    for (const base of [
+      "https://API.GITHUB.COM",
+      "https://api.github.com:443",
+      "https://api.github.com.",
+    ]) {
+      const net = network({
+        "api.github.com": ["10.0.0.5"],
+        "API.GITHUB.COM": ["10.0.0.5"],
+        "api.github.com.": ["10.0.0.5"],
+      });
+      const failed = await refusal(
+        githubPackagesOutbound(
+          base,
+          net.request,
+        )({
+          url: `${base}/user`,
+          method: "GET",
+        }),
+      );
+      expect(failed.reason).toBe("address_not_allowed");
+      expect(net.sent).toHaveLength(0);
+    }
   });
 
   test("an API URL the operator set may be plain http and private, and is the only host reached", async () => {
