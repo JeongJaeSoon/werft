@@ -1485,6 +1485,13 @@
       "when": 1795350594476,
       "tag": "0302_slack_werft_agent_bot",
       "breakpoints": true
+    },
+    {
+      "idx": 303,
+      "version": "7",
+      "when": 1795364903636,
+      "tag": "0303_slack_bot_drop_reasons",
+      "breakpoints": true
     }
   ]
 }

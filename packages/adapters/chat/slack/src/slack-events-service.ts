@@ -230,18 +230,29 @@ export function createSlackEventsService(deps: {
       }
       // Another bot is heard only when the agent allows it and it mentions
       // the agent directly, outside a DM. The agent's own bot never is.
-      if (
-        event.bot_id !== undefined &&
-        !(
+      if (event.bot_id !== undefined) {
+        if (resolved.allowedBotUserIds.length === 0) {
+          return { status: "dropped", dropReason: "bot_allowlist_empty" };
+        }
+        if (
           typeof event.user === "string" &&
-          resolved.allowedBotUserIds.includes(event.user) &&
-          event.channel_type !== "im" &&
-          (event.type === "app_mention" ||
-            (typeof event.text === "string" &&
-              new RegExp(`<@${resolved.botUserId}(?:\\||>)`).test(event.text)))
-        )
-      ) {
-        return { status: "dropped", dropReason: "bot_message" };
+          !resolved.allowedBotUserIds.includes(event.user)
+        ) {
+          return { status: "dropped", dropReason: "bot_not_allowed" };
+        }
+        if (
+          !(
+            typeof event.user === "string" &&
+            event.channel_type !== "im" &&
+            (event.type === "app_mention" ||
+              (typeof event.text === "string" &&
+                new RegExp(`<@${resolved.botUserId}(?:\\||>)`).test(
+                  event.text,
+                )))
+          )
+        ) {
+          return { status: "dropped", dropReason: "bot_message" };
+        }
       }
       if (event.user === resolved.botUserId) {
         return { status: "dropped", dropReason: "own_bot_user" };
