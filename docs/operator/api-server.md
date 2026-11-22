@@ -156,7 +156,7 @@ github.com과 GitHub Enterprise Server(GHES)의 저장소도 다른 host와 같�
 
 #### GitHub App
 
-API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토큰을 proxy의 저장소 route에 내준다. 토큰은 1시간짜리라 API가 갱신한다. App은 콘솔에서 등록한다. 한 워크스페이스에 작성용·리뷰 승인용 App을 여럿 둘 수 있고, 저장소마다 어느 App이 토큰을 발급할지 고정한다(설계 문서: 결정: 에이전트 GitHub 설정과 기능별 권한의 결정 11).
+API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토큰을 proxy의 저장소 route에 내준다. 토큰은 1시간짜리라 API가 갱신한다. App은 콘솔에서 등록한다. 한 워크스페이스에 작성용·리뷰 승인용 App을 여럿 둘 수 있고, 저장소마다 어느 App이 토큰을 발급할지 고정한다(설계 문서: 결정: 에이전트 GitHub 설정과 기능별 권한, 결정 11).
 
 - **App 만들기:** 조직(또는 계정) Settings → Developer settings → GitHub Apps → New GitHub App. Webhook은 Git 스킬 동기화(아래 "Git 스킬 webhook")를 쓸 때만 켜고, 아니면 끈다. Repository permissions는 **Contents: Read and write**, **Pull requests: Read and write**, **Metadata: Read-only**(자동)다. clone은 Contents read만 쓰지만, push·PR(아래 절)이 같은 App을 쓰므로 처음부터 준다. 토큰을 발급할 때마다 그 요청이 쓰는 권한만 다시 좁히므로(아래) clone 토큰에는 쓰기 권한이 없다. 만든 뒤 페이지 위쪽의 **App ID**를 적어 두고, Private keys → Generate a private key로 PEM 파일을 받는다.
 - **콘솔에 등록:** owner나 admin이 설정 > 워크스페이스 > 연동 > GitHub에서 App ID를 넣고 PEM 파일을 고른다. API는 키가 RSA private key인지 보고(`400 invalid_private_key`), 그 키로 서명한 JWT로 `GET {api_base}/app`을 불러 GitHub가 받아 주는지 확인한 뒤에만 저장한다(`400 github_app_rejected`, GitHub가 답하지 않으면 `503 github_unreachable`). 키는 `PLATFORM_SECRET_KEY`(master key)로 암호화해 `secret_values`에 두고, App 이름·주소와 함께 `github_apps` 표에 남는다. 등록·교체·삭제는 `set_github_app`·`delete_github_app` receipt로 남고, 키는 응답·receipt·로그 어디에도 나오지 않는다. 내려받은 PEM 파일은 등록한 뒤 지운다. 같은 App의 키를 바꾸려면 GitHub에서 새 키를 만들고, 그 App 행의 ⋯ 메뉴 "새 키 등록"으로 같은 연결에 저장한 뒤, 새 키로 동작하는 것을 확인하고 GitHub에서 옛 키를 지운다. API는 10초마다 DB를 다시 읽으므로 다른 replica도 곧 새 키를 쓴다(등록한 replica는 바로).
@@ -201,7 +201,7 @@ API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토�
 
 #### Git 스킬 webhook
 
-GitHub에서 등록한 스킬은 push webhook, 하루 한 번 확인, 콘솔의 "지금 확인" 셋으로 새 버전을 찾는다(설계 문서: 결정(설계): 스킬과 MCP 서버를 엔진에 상관없이 등록·지정하고, werft 플러그인으로 묶는다의 3절). webhook은 GitHub가 이 API에 닿을 때만 쓴다. 닿지 않는 설치는 하루 확인과 "지금 확인"만으로 동작한다.
+GitHub에서 등록한 스킬은 push webhook, 하루 한 번 확인, 콘솔의 "지금 확인" 셋으로 새 버전을 찾는다(설계 문서: 결정(설계): 스킬과 MCP 서버를 엔진에 상관없이 등록·지정하고, werft 플러그인으로 묶는다, 3절). webhook은 GitHub가 이 API에 닿을 때만 쓴다. 닿지 않는 설치는 하루 확인과 "지금 확인"만으로 동작한다.
 
 | 변수 | 기본값 | 허용 범위 |
 |---|---|---|
@@ -385,7 +385,7 @@ curl -H 'X-Owner-Id: local-owner' http://127.0.0.1:3000/v1
 
 ## 트레이스 내보내기 (OTLP)
 
-API 서비스만 읽는 설정이다. 기본은 꺼짐이라 키를 하나도 주지 않으면 span을 만들지도, 요청을 보내지도 않는다. 로그의 `trace_id`·`span_id`는 활성 span 안에서만 찍힌다(설계 문서: 결정: 로그 레코드 계약과 에러 기록 규칙). 설계는 설계 문서: 결정(설계): 관측(OTel) 방향과 도구 호출 감사의 6절이다.
+API 서비스만 읽는 설정이다. 기본은 꺼짐이라 키를 하나도 주지 않으면 span을 만들지도, 요청을 보내지도 않는다. 로그의 `trace_id`·`span_id`는 활성 span 안에서만 찍힌다(설계 문서: 결정: 로그 레코드 계약과 에러 기록 규칙). 설계는 설계 문서 6절에 있다(설계 문서: 결정(설계): 관측(OTel) 방향과 도구 호출 감사).
 
 | 키 | 기본값 | 뜻 |
 |---|---|---|

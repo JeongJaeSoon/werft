@@ -167,7 +167,7 @@ D2 gate는 정상 경로와 장애 뒤 복원(A–E), reconciler sweep(R1–R2),
 
 ## Worker 호환 (릴리스 gate)
 
-`.github/workflows/worker-compat.yml`은 새 control-host를 지원 창 안의 직전 릴리스 worker·egress proxy 이미지와 두 엔진으로 돌린다. 설계와 근거는 설계 문서: 결정(설계): 새 control-host와 지원 창 안 옛 worker의 호환 계약의 4절이다.
+`.github/workflows/worker-compat.yml`은 새 control-host를 지원 창 안의 직전 릴리스 worker·egress proxy 이미지와 두 엔진으로 돌린다. 설계와 근거는 설계 문서 4절에 있다(설계 문서: 결정(설계): 새 control-host와 지원 창 안 옛 worker의 호환 계약).
 
 - **무엇을 하는가:** `plan`이 `.github/scripts/worker-compat-plan.sh`로 옛 이미지 묶음을 고른다. 프로필 제거(`FLOOR_COMMIT`) 전에 빌드한 릴리스는 지원 창 밖이라 빼고, 남은 것이 없으면 이유를 run summary에 남기고 통과한다. `compat`은 묶음 × 엔진마다 `tests/compat/run.sh`로 옛 릴리스를 그 checkout·이미지로 띄워 turn을 끝내고, 이 checkout의 migrate만 올린 뒤 turn을 하나 더 끝내고, control-host의 모든 역할을 새 이미지로 바꾼 뒤 새 세션의 turn과 checkpoint에서 재개한 세션의 turn을 끝낸다. 판정은 turn 완료다. compose·worker 로그는 `worker-compat-<묶음>-<엔진>` artifact에 있다. 시작하다 끝난 worker는 scheduler가 지우므로, 그 원인은 `compose.log`의 scheduler 줄 `Execution resource failed; log tail kept`에서 읽는다. 서드파티 이미지는 두 checkout 각자의 `tests/e2e/compose.ci-mirror.yml`로 미러에서 받는다.
 - **언제 도는가:** `images.yml`의 두 릴리스 길이 승격 전에 부른다(태그 push는 `promote` 앞, 자동 릴리스는 `release-approve` 앞). 실패하면 그 릴리스는 승격되지 않는다. 그 밖에 매일 13:41 KST(`schedule`, main), 수동 실행, 그리고 worker protocol·worker·worker 경로·migration·이 job 자신을 바꾼 pull request에서 돈다. 릴리스가 아닌 실행은 control-host를 이 checkout에서 빌드한다. 수동 실행의 `old`에 릴리스 태그나 `main-<12>`를 주면 그 이미지로 돌린다.
