@@ -25,8 +25,10 @@ const BUDGET_BYTES: Record<string, number> = {
   // decision ask and result schemas put ./schemas 653 bytes over 146 and
   // ./forms 317 bytes over 144, so they move to 147 and 145. The Slack bot
   // allow list schemas put ./schemas 80 bytes over 147, so it moves to 148.
+  // The turn requester schemas put ./forms 155 bytes over 145, so it moves
+  // to 146.
   "./schemas": 148 * 1024,
-  "./forms": 145 * 1024,
+  "./forms": 146 * 1024,
 };
 
 test("every entry has a budget", () => {
