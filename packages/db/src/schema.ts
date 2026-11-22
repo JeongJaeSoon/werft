@@ -5062,6 +5062,61 @@ export const conversationTopics = pgTable(
   ],
 );
 
+/**
+ * One input an agent took into a topic, numbered in the order the server took
+ * it. The Slack (team, channel, ts) is an alias, not the input's id. Holds no
+ * message text.
+ */
+export const conversationInputs = pgTable(
+  "conversation_inputs",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    // Of the same agent and workspace, which the receipt's insert checks.
+    topicId: uuid("topic_id")
+      .notNull()
+      .references(() => conversationTopics.id),
+    /** From 1 within the topic, in the order of receipt, never Slack's ts. */
+    seq: integer().notNull(),
+    slackTeamId: text("slack_team_id"),
+    slackChannelId: text("slack_channel_id"),
+    slackTs: text("slack_ts"),
+    // As on turns: `user` names a Werft user, `slack_bot` a Slack bot user.
+    requesterKind: text("requester_kind").notNull(),
+    requesterId: text("requester_id").notNull(),
+    /** The turn the input became. */
+    turnId: bigint("turn_id", { mode: "number" })
+      .notNull()
+      .references(() => turns.id),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("conversation_inputs_seq_uniq").on(table.topicId, table.seq),
+    // Unique per agent: two agents in one channel each take the message.
+    unique("conversation_inputs_slack_uniq").on(
+      table.agentId,
+      table.slackTeamId,
+      table.slackChannelId,
+      table.slackTs,
+    ),
+    // For the delete marks, which name a message by workspace, not agent.
+    index("conversation_inputs_slack_message_idx").on(
+      table.workspaceId,
+      table.slackTeamId,
+      table.slackChannelId,
+      table.slackTs,
+    ),
+    check("conversation_inputs_seq_check", sql`${table.seq} > 0`),
+    check(
+      "conversation_inputs_slack_check",
+      sql`(${table.slackTeamId} IS NULL AND ${table.slackChannelId} IS NULL AND ${table.slackTs} IS NULL) OR (${table.slackTeamId} IS NOT NULL AND ${table.slackChannelId} IS NOT NULL AND ${table.slackTs} IS NOT NULL AND ${table.slackTeamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackChannelId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackTs} ~ '^[0-9]{1,20}\\.[0-9]{1,20}$')`,
+    ),
+  ],
+);
+
 export const agentVersions = pgTable(
   "agent_versions",
   {

@@ -19,6 +19,7 @@ export const GROWING_TABLES: readonly string[] = [
   "checkpoint_outputs",
   "checkpoints",
   "control_intents",
+  "conversation_inputs",
   "conversation_topics",
   "conversations",
   "events",

@@ -20,6 +20,11 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - api 재시작·재배포 때 콘솔과 SDK의 이벤트 스트림은 곧바로 끊기고, 새 api에 `Last-Event-ID`로 다시 붙어 놓친 이벤트 없이 이어진다. 이전에는 스트림이 드레인 상한까지 붙어 있다가 잘렸다.
   - 로그 `SSE stream closed`의 `reason`에 `shutting_down`이 생긴다. 열린 스트림 때문에 `Drain deadline passed` 경고가 나던 종료는 이제 `In-flight requests drained`로 끝난다.
 
+- **Slack 글을 입력 접수 표 `conversation_inputs`에 적는다**(JeongJaeSoon/werft#PRNUM). migration `0312_conversation_inputs`가 표를 만든다. 할 일은 없고, Slack과 세션의 동작은 그대로다.
+  - slack 역할이 멘션·DM·묶인 스레드의 글을 지금처럼 턴으로 넣은 뒤, inbox 행을 처리됨으로 바꾸는 같은 transaction에서 접수 줄 하나를 적는다. 0310의 `conversations`·`conversation_topics`도 이때부터 채운다.
+  - 접수 줄에는 글의 자리(team, 채널, ts), 주제 안의 순번(서버가 접수한 순서), 요청자, 그 글이 된 턴만 남고 본문은 없다. `message`와 `app_mention`으로 두 번 와도, 재전송돼도 에이전트마다 한 줄이다.
+  - 지원 창 안의 이미지로 되돌리면 그동안의 글은 접수 줄 없이 턴만 생긴다.
+
 - **대화 층의 빈 표 셋 `channel_contexts`·`conversations`·`conversation_topics`를 더한다**(JeongJaeSoon/werft#2023). migration `0310_conversation_scopes`가 만든다. 이 릴리스의 코드는 아직 읽거나 쓰지 않으므로 할 일은 없고 동작도 그대로다. 지원 창 안의 이미지로 되돌려도 영향이 없다.
 
 - **Slack에서 글을 지우거나 고친 이벤트를 버리지 않고 그 글의 자리와 시각만 표식으로 남기며, migration `0312_slack_source_marks`가 표 `deleted_sources`·`edited_sources`를 더한다**(JeongJaeSoon/werft#2035). 따로 할 일은 없다.

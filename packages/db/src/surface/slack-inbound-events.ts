@@ -168,13 +168,49 @@ export function createPostgresSlackInboundEventStore(
       return row ?? null;
     },
 
-    async complete(fence) {
-      const rows = await db
-        .update(t)
-        .set({ status: "processed", payload: null, ...released })
-        .where(leaseHeld(fence))
-        .returning({ id: t.id });
-      return rows.length > 0;
+    complete(fence, input) {
+      return db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(t)
+          .set({ status: "processed", payload: null, ...released })
+          .where(leaseHeld(fence))
+          .returning({
+            workspaceId: t.workspaceId,
+            agentId: t.agentId,
+            teamId: t.teamId,
+          });
+        if (row === undefined) return false;
+        if (input === undefined) return true;
+        // One taker per topic at a time, so the topic's highest number plus
+        // one is free.
+        const topic = await tx.execute(sql`
+          SELECT id FROM conversation_topics
+          WHERE id = ${input.topicId}::uuid
+            AND workspace_id = ${row.workspaceId}::uuid
+            AND agent_id = ${row.agentId}::uuid
+          FOR UPDATE`);
+        if (rowsOf(topic).length === 0) {
+          throw new Error(
+            `topic ${input.topicId} is no topic of the event's agent`,
+          );
+        }
+        await tx.execute(sql`
+          INSERT INTO conversation_inputs (
+            id, workspace_id, agent_id, topic_id, seq,
+            slack_team_id, slack_channel_id, slack_ts,
+            requester_kind, requester_id, turn_id
+          )
+          SELECT ${randomUUID()}::uuid, ${row.workspaceId}::uuid,
+            ${row.agentId}::uuid, ${input.topicId}::uuid,
+            COALESCE(MAX(i.seq), 0) + 1,
+            ${row.teamId}, ${input.channelId}, ${input.ts},
+            ${input.requester.kind}, ${input.requester.id},
+            ${input.turnId}::bigint
+          FROM conversation_inputs i WHERE i.topic_id = ${input.topicId}::uuid
+          ON CONFLICT (agent_id, slack_team_id, slack_channel_id, slack_ts)
+            DO NOTHING`);
+        return true;
+      });
     },
 
     async drop(fence, reason) {

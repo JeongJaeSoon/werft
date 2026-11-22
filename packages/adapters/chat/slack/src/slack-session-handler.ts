@@ -11,6 +11,7 @@ import type {
   AgentIdentityStore,
   AgentStore,
   BotTurnStore,
+  ConversationStore,
   LinkedAccountStore,
   SessionLinkRecord,
   SessionLinkStore,
@@ -123,6 +124,8 @@ export type SlackSessionHandlerDeps = {
   /** Bot-started turns in a row per thread, across the workspace's agents. */
   botTurns: BotTurnStore;
   sessionLinks: SessionLinkStore;
+  /** Where a message made a turn of is taken as its topic's input. */
+  conversations: ConversationStore;
   sessions: Pick<SessionService, "createSession" | "appendMessage">;
   /** The agent's active release, which a new thread's session runs. */
   agentDetails: Pick<AgentStore, "get">;
@@ -545,20 +548,30 @@ export function createSlackSessionHandler(
     }
     // Once the session took the turn it counts, whatever fails after.
     let accepted = false;
+    let turnId: string;
     try {
       if (link.sessionId === null && link.openedByTs !== event.ts) {
         link = await adoptOrReopen(link, event.ts);
       }
       if (link.sessionId === null || link.openedByTs === event.ts) {
-        await openSession(caller, link, message, dm, slackMessage, () => {
-          accepted = true;
-        });
-      } else {
-        await deps.sessions.appendMessage(caller, link.sessionId, {
-          idempotencyKey: `${claim.teamId}:${event.channel}:${event.ts}`,
-          body: { message, mode: "enqueue" },
+        turnId = await openSession(
+          caller,
+          link,
+          message,
+          dm,
           slackMessage,
-        });
+          () => {
+            accepted = true;
+          },
+        );
+      } else {
+        turnId = (
+          await deps.sessions.appendMessage(caller, link.sessionId, {
+            idempotencyKey: `${claim.teamId}:${event.channel}:${event.ts}`,
+            body: { message, mode: "enqueue" },
+            slackMessage,
+          })
+        ).turn_id;
       }
       // The turn's insert marks the thread's status due; the outbox pass
       // that follows this one sends it.
@@ -599,7 +612,46 @@ export function createSlackSessionHandler(
       } else {
         await notice(error.code, { message: "failed" });
       }
+      return;
     }
+    // Beside the turn, not before it: the inbox row's completion takes it.
+    // A retry finds the same turn by its idempotency key.
+    const requester =
+      decision.actorUserId !== null
+        ? { kind: "user" as const, id: decision.actorUserId }
+        : fromBot
+          ? { kind: "slack_bot" as const, id: event.user }
+          : null;
+    if (requester === null) {
+      throw new Error("A Slack turn was taken with no requester");
+    }
+    const conversation = await deps.conversations.findOrCreateConversation(
+      dm
+        ? {
+            kind: "dm",
+            workspaceId: agent.workspaceId,
+            agentId: agent.agentId,
+            personUserId: requester.id,
+          }
+        : {
+            kind: "channel",
+            workspaceId: agent.workspaceId,
+            agentId: agent.agentId,
+            teamId: claim.teamId,
+            channelId: event.channel,
+          },
+    );
+    const topic = await deps.conversations.findOrCreateThreadTopic(
+      conversation.id,
+      { teamId: claim.teamId, channelId: event.channel, threadTs },
+    );
+    return {
+      topicId: topic.id,
+      channelId: event.channel,
+      ts: event.ts,
+      requester,
+      turnId,
+    };
   };
 
   /**
@@ -625,7 +677,7 @@ export function createSlackSessionHandler(
     dm: boolean,
     slackMessage: SlackMessageRef,
     onCreated: () => void,
-  ): Promise<void> {
+  ): Promise<string> {
     const created = await deps.sessions.createSession(caller, {
       idempotencyKey: link.id,
       body: {
@@ -643,6 +695,7 @@ export function createSlackSessionHandler(
     if (attached.sessionId !== created.session_id) {
       throw new Error(`Slack thread ${link.id} already holds another session`);
     }
+    return created.turn_id;
   }
 
   /** The message's link for the web; a turn goes on without one. */
