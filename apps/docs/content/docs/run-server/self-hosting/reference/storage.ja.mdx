@@ -209,6 +209,7 @@ AWS での作成と最小権限は [bucket の準備](/run-server/self-hosting/p
 | 権限判定の記録 | PostgreSQL | 既定 90 日（30〜3650 日） | reconciler が期間を過ぎた行を削除します | owner が `POST /v1/workspaces/{id}/audit-retention` |
 | ログインセッション | PostgreSQL | 14 日、利用者ごとに最新 10 個 | 再ログイン時、または期限切れの 30 日後に reconciler が削除します | なし |
 | Slack インストールの state | PostgreSQL | 600 秒 | 使ったとき、または新しいリンクを作るときに削除します | なし |
+| Slack イベント inbox のイベント原文（payload） | PostgreSQL | 処理するまで。処理に失敗したイベントは受け取ってから 7 日。捨てたイベントの原文は最初から保存しません | 処理が終わると slack ロールがすぐに、失敗したイベントは 7 日を過ぎると reconciler が削除します。行（イベントの種類・状態・捨てた理由・試行回数）は残ります。migration 0307 より前に処理した行は原文が残っています | なし |
 | API key、利用者・メンバー・招待・連携アカウント | PostgreSQL | 無期限 | なし。key の失効と連携解除は記録を残すだけです | なし |
 | 保存した秘密値 | PostgreSQL（master key で暗号化） | 無期限 | 人がその接続や App を削除したときだけ | なし |
 | transcript と checkpoint の object | bucket の `sessions/<id>/` | pointer とその親 3 個、開いている push リクエストが固定した revision | [checkpoint GC](/run-server/self-hosting/backup-and-restore#3-checkpoint-gc) だけが削除します | Helm `checkpointGc.*`、compose `CHECKPOINT_GC_DRY_RUN` |

@@ -209,6 +209,7 @@ The platform never deletes sessions. There is no API that deletes one, and the r
 | Authorization decision records | PostgreSQL | 90 days by default (30 to 3650 days) | The reconciler deletes rows past the period | The owner calls `POST /v1/workspaces/{id}/audit-retention` |
 | Sign-in sessions | PostgreSQL | 14 days, the latest 10 per user | On the next sign-in, or by the reconciler 30 days after expiry | No setting |
 | Slack install state | PostgreSQL | 600 seconds | When used, or when a new link is made | No setting |
+| Event body (payload) in the Slack event inbox | PostgreSQL | Until processed. An event that failed processing, 7 days after it was received. A dropped event's body is never stored | The slack role clears it as soon as processing ends; the reconciler clears a failed event's after 7 days. The row (event type, status, drop reason, attempts) stays. Rows processed before migration 0307 still hold their body | No setting |
 | API keys, users, members, invites, linked accounts | PostgreSQL | Indefinitely | Never. Revoking a key or unlinking leaves a record | No setting |
 | Stored secrets | PostgreSQL (encrypted with the master key) | Indefinitely | Only when a person deletes that connection or App | No setting |
 | Transcript and checkpoint objects | `sessions/<id>/` in the bucket | The pointer and its 3 parents, and revisions pinned by open push requests | Only [checkpoint GC](/run-server/self-hosting/backup-and-restore#3-checkpoint-gc) deletes them | Helm `checkpointGc.*`, compose `CHECKPOINT_GC_DRY_RUN` |

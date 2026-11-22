@@ -83,7 +83,7 @@ export interface SlackInboundEventStore {
   ): Promise<{
     installationStatus: SlackInboundClaim["installationStatus"];
   } | null>;
-  /** Marks the row `processed`. */
+  /** Marks the row `processed`, its payload cleared. */
   complete(fence: SlackInboundFence): Promise<boolean>;
   /** Ends the row `dropped` for `reason`, its payload and key cleared. */
   drop(
