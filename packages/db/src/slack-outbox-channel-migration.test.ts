@@ -72,5 +72,22 @@ describe("0306 slack_outbox_channel_check", () => {
 
     expect(failed).toContain("slack_outbox_channel_check");
     expect(await validated()).toEqual([false]);
+    const refused = await client
+      .query(
+        `INSERT INTO slack_outbox (id, workspace_id, agent_id, slack_app_id,
+           installation_id, kind, channel_id, thread_ts, body, dedupe_key)
+         VALUES (gen_random_uuid(), gen_random_uuid(), gen_random_uuid(),
+           gen_random_uuid(), gen_random_uuid(), 'reply', 'U0PERSON', '', '{"text":"x"}', 'new')`,
+      )
+      .then(
+        () => null,
+        (error: Error) => error.message,
+      );
+    expect(refused).toContain("slack_outbox_channel_check");
+
+    // The operator deletes the row and runs migrate again.
+    await client.exec("DELETE FROM slack_outbox");
+    await migrate(drizzle(client), { migrationsFolder: MIGRATIONS_FOLDER });
+    expect(await validated()).toEqual([true]);
   });
 });

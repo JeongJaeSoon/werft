@@ -43,9 +43,13 @@ async function deliver(row: SlackOutboxClaim) {
   fakeSlack.messages.length = 0;
   const before = fakeSlack.calls.length;
   let begun = false;
+  let tokenReads = 0;
   const delivery = createRowDelivery({
     slack: createSlackBotApi({ apiUrl: fakeSlack.url }),
-    botToken: async () => TOKEN,
+    botToken: async () => {
+      tokenReads += 1;
+      return TOKEN;
+    },
     consoleOrigin: null,
   });
   const outcome = await delivery.direct({
@@ -59,6 +63,7 @@ async function deliver(row: SlackOutboxClaim) {
   return {
     outcome,
     begun,
+    tokenReads,
     calls: fakeSlack.calls.slice(before).map((call) => call.method),
     posted: fakeSlack.messages.map((message) => message.channelId),
   };
@@ -83,6 +88,7 @@ describe("an outbox row whose channel is a Slack user id", () => {
         const sent = await deliver(rowOf(kind, channelId));
         expect(sent.outcome).toEqual({ kind: "failed", code: "user_channel" });
         expect(sent.begun).toBe(false);
+        expect(sent.tokenReads).toBe(0);
         expect(sent.calls).toEqual([]);
         expect(sent.posted).toEqual([]);
       });

@@ -16,6 +16,16 @@ BEGIN
     RAISE NOTICE '0306: % slack_outbox rows name a Slack user as their channel', found;
   END IF;
 END $$;--> statement-breakpoint
-ALTER TABLE "slack_outbox" DROP CONSTRAINT IF EXISTS "slack_outbox_channel_check";--> statement-breakpoint
-ALTER TABLE "slack_outbox" ADD CONSTRAINT "slack_outbox_channel_check" CHECK ("slack_outbox"."channel_id" !~ '^[UW]' OR "slack_outbox"."kind" = 'model_notice') NOT VALID;--> statement-breakpoint
+-- Added only when missing: a run again after a failed VALIDATE keeps the
+-- constraint in place rather than dropping it for a moment.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'slack_outbox_channel_check'
+      AND conrelid = '"slack_outbox"'::regclass
+  ) THEN
+    ALTER TABLE "slack_outbox" ADD CONSTRAINT "slack_outbox_channel_check" CHECK ("slack_outbox"."channel_id" !~ '^[UW]' OR "slack_outbox"."kind" = 'model_notice') NOT VALID;
+  END IF;
+END $$;--> statement-breakpoint
 ALTER TABLE "slack_outbox" VALIDATE CONSTRAINT "slack_outbox_channel_check";
