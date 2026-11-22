@@ -49,7 +49,7 @@ import {
   type FetchLike,
   HttpWorkerGatewayClient,
 } from "../apps/worker/src/gateway-client.ts";
-import { noWorkspace, noWorkspace } from "../apps/worker/src/testing/no-workspace.ts";
+import { noWorkspace } from "../apps/worker/src/testing/no-workspace.ts";
 import {
   SCRIPTED_KIND,
   startScripted,
