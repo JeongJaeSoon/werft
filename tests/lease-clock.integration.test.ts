@@ -58,6 +58,7 @@ import {
   type WorkerLogger,
 } from "../apps/worker/src/worker-host.ts";
 import { noWorkspace } from "../apps/worker/src/workspace.ts";
+import { until as pollUntil } from "./until.ts";
 
 /** PostgreSQL lock, fencing and delayed-heartbeat contracts through HTTP. */
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
@@ -90,18 +91,11 @@ const noCheckpoints: WorkerCheckpointPort = {
   capture: async () => null,
 };
 
-async function until(
+const until = (
   done: () => Promise<boolean> | boolean,
   label: string,
-  timeoutMs = 10_000,
-): Promise<void> {
-  const deadline = performance.now() + timeoutMs;
-  while (performance.now() < deadline) {
-    if (await done()) return;
-    await Bun.sleep(20);
-  }
-  throw new Error(`Timed out waiting for ${label}`);
-}
+  timeoutMs?: number,
+) => pollUntil(async () => (await done()) || undefined, label, timeoutMs);
 
 integration("worker lease on the monotonic clock end to end", () => {
   let database: TempDatabase;

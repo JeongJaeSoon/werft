@@ -15,6 +15,7 @@ import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
 import { ScriptedRun } from "./testing/scripted-run.ts";
+import { waitFor } from "./testing/wait-for.ts";
 import { WorkerHost } from "./worker-host.ts";
 import { noWorkspace } from "./workspace.ts";
 
@@ -76,13 +77,6 @@ function host(
   return { gateway, log, worker };
 }
 
-async function until(condition: () => boolean, label: string): Promise<void> {
-  for (let waited = 0; !condition(); waited += 5) {
-    if (waited > 2_000) throw new Error(`Timed out waiting for ${label}`);
-    await Bun.sleep(5);
-  }
-}
-
 function ask(run: ScriptedRun, sent: AgentInput, id: string): void {
   const input = { command: `run ${id}` };
   run.push(
@@ -139,7 +133,7 @@ async function waiting(
   };
   gateway.enqueue("go");
   const loop = worker.runLoop();
-  await until(
+  await waitFor(
     () => gateway.registrations.length === registrations,
     "the registration",
   );
@@ -160,7 +154,7 @@ describe("WorkerHost approval-wait checkpoints", () => {
       ...REF,
       answers_through: 0,
     });
-    await until(() => run.heldApprovalLeases === 0, "the lease release");
+    await waitFor(() => run.heldApprovalLeases === 0, "the lease release");
     expect(run.admissionGuard).toBeDefined();
     expect(gateway.invalidations).toEqual([]);
 
@@ -177,7 +171,7 @@ describe("WorkerHost approval-wait checkpoints", () => {
     const run = checkpointingRun();
     const { gateway, worker } = host(run, async () => REF);
     const { end } = await waiting(run, gateway, worker);
-    await until(() => run.admissionGuard !== undefined, "the guard");
+    await waitFor(() => run.admissionGuard !== undefined, "the guard");
     gateway.invalidationFailure = new Error("connection reset");
 
     expect(await run.admit("c2")).toBe(false);
@@ -267,7 +261,7 @@ describe("WorkerHost approval-wait checkpoints", () => {
     expect(
       gateway.registrations.map((entry) => entry.checkpoint_failure),
     ).toEqual([undefined, "verification_failed"]);
-    await until(() => run.heldApprovalLeases === 0, "the lease release");
+    await waitFor(() => run.heldApprovalLeases === 0, "the lease release");
     // Nothing committed it, so nothing guards the next tool.
     expect(run.admissionGuard).toBeUndefined();
     await end();

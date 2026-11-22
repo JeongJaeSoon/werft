@@ -27,6 +27,7 @@ import {
 } from "./backend.ts";
 import type { LocalDockerBackendConfig } from "./config.ts";
 import { DockerClient } from "./docker-client.ts";
+import { testDockerHost } from "./testing.ts";
 
 /**
  * The egress contract end to end, against a real daemon and no internet:
@@ -57,18 +58,7 @@ const LOCALSTACK_IMAGE =
 const REPOSITORY = resolve(import.meta.dir, "../../../../..");
 const PROXY_SOURCE = join(REPOSITORY, "apps/egress-proxy");
 const OBJECT_REGION = "ap-northeast-1";
-const dockerHost = process.env.DOCKER_HOST ?? (await defaultDockerHost());
-
-async function defaultDockerHost(): Promise<string> {
-  const candidates = [
-    "/var/run/docker.sock",
-    `${process.env.HOME}/.docker/run/docker.sock`,
-  ];
-  for (const path of candidates) {
-    if (await Bun.file(path).exists()) return `unix://${path}`;
-  }
-  return "unix:///var/run/docker.sock";
-}
+const dockerHost = await testDockerHost();
 
 integration("worker egress is confined to the proxy allowlist", () => {
   const client = new DockerClient(dockerHost, "v1.44", { timeoutMs: 120_000 });
