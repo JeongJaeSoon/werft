@@ -679,6 +679,32 @@ describe("Slack events service", () => {
     }
   });
 
+  test("in a channel waiting for approval, an allowed bot's mention keeps its bot id", async () => {
+    const w = world();
+    await w.install();
+    w.identities.allowedBots.set(AGENT, ["U0REVIEW"]);
+    w.pendingChannels.add("G0WAIT");
+    const mention = await w.service.receive(
+      w.signed(
+        w.event({
+          type: "app_mention",
+          user: "U0REVIEW",
+          bot_id: "B0REVIEW",
+          text: `<@${BOT_USER}> the launch code is 1234`,
+          channel: "G0WAIT",
+          channel_type: "group",
+          ts: "1.2",
+          thread_ts: "1.1",
+        }),
+      ),
+    );
+    expect(mention).toMatchObject({ status: "received" });
+    const [row] = [...w.inbox.rows.values()];
+    const event = (row?.payload as { event: Record<string, unknown> }).event;
+    expect(event.bot_id).toBe("B0REVIEW");
+    expect(event.text).toBe(`<@${BOT_USER}>`);
+  });
+
   test("a pending channel changes nothing for a DM, another channel, or once it is approved", async () => {
     const w = world();
     await w.install();

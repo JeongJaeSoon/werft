@@ -138,6 +138,9 @@ type Classified =
 const PENDING_EVENT_FIELDS = [
   "type",
   "user",
+  // A bot's mention must not read as a person's, who would restart the
+  // bots' count in the thread.
+  "bot_id",
   "channel",
   "channel_type",
   "ts",
