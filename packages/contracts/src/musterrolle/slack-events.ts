@@ -35,8 +35,13 @@ export const SLACK_INBOUND_DROP_REASON_VALUES = [
   ...SLACK_EVENT_DROP_REASON_VALUES,
   // The event names another app than the path agent's.
   "app_mismatch",
-  // Posted by a bot (`bot_id`).
+  // Posted by a bot (`bot_id`) the agent allows, but not as a direct mention
+  // outside a DM; also a legacy bot post that names no user.
   "bot_message",
+  // Posted by a bot while the agent's allow list is empty.
+  "bot_allowlist_empty",
+  // Posted by a bot that is not on the agent's allow list.
+  "bot_not_allowed",
   // Posted as this app's bot user.
   "own_bot_user",
   // Posted by another agent's bot of this Werft install, allowed or not.

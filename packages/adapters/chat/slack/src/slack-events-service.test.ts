@@ -421,7 +421,7 @@ describe("Slack events service", () => {
       [
         { ...message, user: "U0BOTX", bot_id: "B0OTHER" },
         "dropped",
-        "bot_message",
+        "bot_allowlist_empty",
       ],
       [{ ...message, user: BOT_USER }, "dropped", "own_bot_user"],
       [
@@ -455,14 +455,14 @@ describe("Slack events service", () => {
           thread_ts: "1.0",
         },
         "dropped",
-        "bot_message",
+        "bot_allowlist_empty",
       ],
       [
         { ...message, user: "U0P", subtype: "message_changed" },
         "dropped",
         "message_subtype",
       ],
-      [{ ...MENTION, bot_id: "B0OTHER" }, "dropped", "bot_message"],
+      [{ ...MENTION, bot_id: "B0OTHER" }, "dropped", "bot_allowlist_empty"],
       // An instruction the outbox posted under its sender's name.
       [
         {
@@ -473,7 +473,7 @@ describe("Slack events service", () => {
           text: "Mina Park (웹 콘솔)\nRun it",
         },
         "dropped",
-        "bot_message",
+        "bot_allowlist_empty",
       ],
       [{ ...message, user: "U0P" }, "received", undefined],
       [
@@ -539,7 +539,7 @@ describe("Slack events service", () => {
       [
         { ...MENTION, user: "U0STRANGER", bot_id: "B0STRANGER" },
         "dropped",
-        "bot_message",
+        "bot_not_allowed",
       ],
       [
         { ...MENTION, user: BOT_USER, bot_id: "B0OWN" },
@@ -606,12 +606,49 @@ describe("Slack events service", () => {
     }
   });
 
-  test("with an empty allow list every bot stays dropped", async () => {
+  test("with an empty allow list every bot stays dropped, under its own reason", async () => {
     const w = world();
     await w.install();
     w.readyChannels.set("C0CHAN", "public_channel");
     const result = await w.service.receive(
       w.signed(w.event({ ...MENTION, user: "U0REVIEW", bot_id: "B0REVIEW" })),
+    );
+    expect(result).toMatchObject({
+      status: "dropped",
+      reason: "bot_allowlist_empty",
+    });
+  });
+
+  test("a bot missing from a non-empty allow list is dropped as not allowed", async () => {
+    const w = world();
+    await w.install();
+    w.readyChannels.set("C0CHAN", "public_channel");
+    w.identities.allowedBots.set(AGENT, ["U0REVIEW"]);
+    const result = await w.service.receive(
+      w.signed(w.event({ ...MENTION, user: "U0OTHERBOT", bot_id: "B0OTHER" })),
+    );
+    expect(result).toMatchObject({
+      status: "dropped",
+      reason: "bot_not_allowed",
+    });
+  });
+
+  test("an allowed bot that does not mention the agent keeps the bot_message reason", async () => {
+    const w = world();
+    await w.install();
+    w.readyChannels.set("C0CHAN", "public_channel");
+    w.identities.allowedBots.set(AGENT, ["U0REVIEW"]);
+    const result = await w.service.receive(
+      w.signed(
+        w.event({
+          type: "message",
+          channel: "C0CHAN",
+          ts: "1.1",
+          user: "U0REVIEW",
+          bot_id: "B0REVIEW",
+          text: "no mention",
+        }),
+      ),
     );
     expect(result).toMatchObject({ status: "dropped", reason: "bot_message" });
   });
