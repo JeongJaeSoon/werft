@@ -63,6 +63,7 @@ import { SlackApps, useWorkspaceSlackApps } from "./workspace-slack-apps.tsx";
 import { SlackEventsSetting } from "./workspace-slack-events.tsx";
 
 const SLACK_APPS_URL = "https://api.slack.com/apps";
+const SLACK_APPS_LABEL = "api.slack.com/apps";
 
 const tokenKey = (client: ApiClient, workspaceId: string) =>
   scopedKey(client, "workspace", workspaceId, "slack-config-token");
@@ -665,6 +666,8 @@ function TokenForm({
     onSubmit(value);
   };
   const shownError = missing ? t("workspace.tokenMissing") : error;
+  // Only the address is the link; `{url}` marks where it sits in each language.
+  const [openBefore, openAfter] = t("workspace.tokenStepOpen").split("{url}");
 
   return (
     <form className="flex w-full flex-col gap-4" noValidate onSubmit={submit}>
@@ -673,13 +676,17 @@ function TokenForm({
           {
             id: "open",
             title: (
-              <Link
-                href={SLACK_APPS_URL}
-                target="_blank"
-                newTabLabel={t("slack.newTab")}
-              >
-                {t("workspace.tokenStepOpen")}
-              </Link>
+              <>
+                {openBefore}
+                <Link
+                  href={SLACK_APPS_URL}
+                  target="_blank"
+                  newTabLabel={t("slack.newTab")}
+                >
+                  {SLACK_APPS_LABEL}
+                </Link>
+                {openAfter}
+              </>
             ),
           },
           { id: "generate", title: t("workspace.tokenStepGenerate") },
