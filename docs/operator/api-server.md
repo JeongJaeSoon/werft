@@ -992,7 +992,8 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/identities" \
 **master key**
 
 - 32바이트를 16진수 64자로 쓴다. `openssl rand -hex 32`로 만든다.
-- `PLATFORM_SECRET_KEY` 환경 변수만 읽는다. 없으면 API와 slack 역할이 뜨지 않는다. 설정 문서에도 넣지 않는다.
+- `PLATFORM_SECRET_KEY` 환경 변수나, 키를 담은 파일의 경로를 주는 `PLATFORM_SECRET_KEY_FILE`(compose secret처럼 마운트한 파일, 끝의 줄바꿈 하나는 무시한다)에서 읽는다. 둘 다 있으면 값이 같아야 하고, 다르면 `master_key_mismatch`로 뜨지 않는다. 둘 다 없거나 파일을 읽지 못하면 API와 slack 역할이 뜨지 않는다(`master_key_missing`). 설정 문서에도 넣지 않는다.
+- API, slack 역할, 운영자 명령(`slack-app.ts`, `slack-interaction-sign.ts`)은 같은 로더로 키를 읽는다. 컨테이너 안에서 운영자 명령을 돌릴 때는 그 명령의 환경에도 `PLATFORM_SECRET_KEY`나 `PLATFORM_SECRET_KEY_FILE`이 있어야 한다. entrypoint가 서버 프로세스에만 키를 export하는 구성에서는 `docker compose exec`로 띄운 명령이 그 값을 받지 못하므로, 서비스 env에 `PLATFORM_SECRET_KEY_FILE`을 둔다.
 - 64 hex가 아니어도 뜨지 않는다. 오류에는 변수 이름만 나오고 값은 나오지 않는다.
 - `scripts/local.sh up`은 셸이나 `.env`에 값이 없으면 키를 만들어 `AGENT_PLATFORM_STATE_DIR`(기본 `~/.local/state/werft`)의 `<프로젝트>.secret-key`(권한 600)에 두고 다시 쓴다. 이 파일을 잃으면 저장한 자격 증명을 읽지 못한다.
 - compose는 이 키를 `api`와 `slack` 서비스에만 넘긴다(`tests/images.test.ts`가 검사한다). Helm은 api Deployment와 slack Deployment(`slack.enabled`일 때)에 Secret의 `PLATFORM_SECRET_KEY`를 넘긴다. Secret에 이 키가 없으면 Pod가 뜨지 않는다. slack role도 기동할 때 같은 키를 검증하기 때문이다. scheduler와 worker는 받지 않는다(`deploy/helm/render-check.ts`가 검사한다).
@@ -1291,7 +1292,7 @@ member는 `403`(`details.reason_code: role`), 다른 workspace는 `404`다. 켜�
 
 ### Slack 카드 버튼을 운영자가 누르기
 
-사람이 누르지 않고 카드 버튼 경로를 끝까지 확인할 때 API 컨테이너에서 돌린다. 그 에이전트 Slack 앱의 signing secret으로 Slack과 같은 `v0` 서명을 붙인 `block_actions` 요청을 `/v1/slack/interactions/<agent_id>`에 보낸다. 받는 쪽은 Slack이 보낸 요청과 같은 검사(서명, 5분 시간 창, 앱 id, 누른 사람의 `session.approve` 판정)를 거친다. `DATABASE_URL`과 `PLATFORM_SECRET_KEY`가 있어야 한다.
+사람이 누르지 않고 카드 버튼 경로를 끝까지 확인할 때 API 컨테이너에서 돌린다. 그 에이전트 Slack 앱의 signing secret으로 Slack과 같은 `v0` 서명을 붙인 `block_actions` 요청을 `/v1/slack/interactions/<agent_id>`에 보낸다. 받는 쪽은 Slack이 보낸 요청과 같은 검사(서명, 5분 시간 창, 앱 id, 누른 사람의 `session.approve` 판정)를 거친다. `DATABASE_URL`과 master key(`PLATFORM_SECRET_KEY` 또는 `PLATFORM_SECRET_KEY_FILE`, 위 "Slack 비밀값과 master key" 절)가 있어야 한다.
 
 ```sh
 docker compose exec -T api bun run apps/control-host/src/api/slack-interaction-sign.ts \
@@ -1304,7 +1305,7 @@ docker compose exec -T api bun run apps/control-host/src/api/slack-interaction-s
 - 앱이 여러 Slack 팀에 설치돼 있으면 `--team`을 준다. 보낼 곳은 `--url`로 바꾼다(기본은 `http://127.0.0.1:$PORT`).
 - 출력은 stdout의 JSON 한 줄(HTTP 상태, 요청 id, 오류 코드)이다. signing secret과 서명값은 출력하지 않는다. 버튼 처리 결과는 응답이 아니라 api 로그의 `Slack interaction received`(`result`), `slack_outbox`, 세션 후속 답에서 본다.
 - 모달을 여는 버튼(`question.open`, `permission.allow_note`)은 진짜 trigger가 없어 `views.open`에서 멈춘다. 바로 처리되는 버튼(허용, 거절, 선택지, push 승인)에 쓴다.
-- 종료 코드는 0(2xx), 1(예상 못 한 오류), 2(사용법), 3(서명 키가 있는 에이전트 Slack 앱이나 설치된 팀이 없음), 4(그 밖의 HTTP 상태)다.
+- 종료 코드는 0(2xx), 1(예상 못 한 오류), 2(사용법, `master_key_missing`·`master_key_invalid` 포함), 3(서명 키가 있는 에이전트 Slack 앱이나 설치된 팀이 없음), 4(그 밖의 HTTP 상태), 5(`master_key_mismatch`: 저장된 signing secret이 이 키로 열리지 않음, 곧 API가 쓰는 키가 아님)다. 오류 줄에는 코드와 설정 이름만 나오고 키 값은 나오지 않는다.
 
 ### 판정 감사와 보존 기간
 

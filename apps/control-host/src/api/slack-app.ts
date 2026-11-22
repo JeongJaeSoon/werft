@@ -10,6 +10,7 @@ import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
+  SecretDecryptError,
   type SecretKey,
   SessionServiceError,
   type SlackAppStore,
@@ -24,7 +25,12 @@ import {
   wireSlackCliEventsFinalize,
   wireSlackCliLinkAppService,
 } from "../wiring/slack-config-cli.ts";
-import { loadSecretKey, SECRET_KEY_SETTING } from "./catalog-config.ts";
+import {
+  loadSecretKey,
+  MASTER_KEY_MISMATCH,
+  MasterKeyError,
+  masterKeyConfigured,
+} from "./catalog-config.ts";
 import {
   consoleOriginFrom,
   SlackConfigError,
@@ -46,6 +52,7 @@ export const SLACK_APP_EXIT = {
   app_busy: 6,
   slack_error: 7,
   events_url_unset: 8,
+  key_mismatch: 9,
 } as const;
 
 const USAGE = `Usage: bun run apps/control-host/src/api/slack-app.ts create --workspace <workspace_id> --agent <agent_id> [--replace-uncertain]
@@ -57,7 +64,7 @@ const USAGE = `Usage: bun run apps/control-host/src/api/slack-app.ts create --wo
   finalize sends the agent app's manifest again with its event subscription
   (<CONSOLE_ORIGIN>/v1/slack/events/<agent_id>), as an install does;
   running it again changes nothing.
-Environment: DATABASE_URL and PLATFORM_SECRET_KEY (required),
+Environment: DATABASE_URL and PLATFORM_SECRET_KEY, or PLATFORM_SECRET_KEY_FILE naming a file that holds it (required),
              CONSOLE_ORIGIN (the console's public origin: create's OAuth redirect and finalize's events address,
              unless an owner saved one in Settings > Integrations > Slack)
 Test only:   MOCK_SLACK_API_URL (default https://slack.com/api; for the mock Slack stack)
@@ -68,7 +75,9 @@ Exit codes: 0 created, or the agent or workspace already had it, or finalized; 1
             6 the app is still being created or is being deleted (after checking
               api.slack.com/apps, --replace-uncertain gives up on a lost creation);
             7 Slack refused or could not be reached;
-            8 finalize: no https events address is known (events_url_unset), nothing was sent`;
+            8 finalize: no https events address is known (events_url_unset), nothing was sent;
+            9 master_key_mismatch: a stored secret does not open with this key
+              (not the key the API runs with), or the two settings hold different keys`;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -241,7 +250,7 @@ export async function runSlackApp(
     if (key === null) {
       return fail(
         SLACK_APP_EXIT.usage,
-        "the master key is not set (PLATFORM_SECRET_KEY); the app's secrets have nowhere to go",
+        "master_key_missing: the master key is not set (PLATFORM_SECRET_KEY or PLATFORM_SECRET_KEY_FILE); the app's secrets have nowhere to go",
       );
     }
 
@@ -327,6 +336,17 @@ export async function runSlackApp(
         `${error.code}: ${error.message}${reason}`,
       );
     }
+    if (error instanceof MasterKeyError) {
+      return fail(
+        error.code === "master_key_mismatch"
+          ? SLACK_APP_EXIT.key_mismatch
+          : SLACK_APP_EXIT.usage,
+        `${error.code}: ${error.message}`,
+      );
+    }
+    if (error instanceof SecretDecryptError) {
+      return fail(SLACK_APP_EXIT.key_mismatch, MASTER_KEY_MISMATCH);
+    }
     return fail(
       SLACK_APP_EXIT.unexpected,
       `unexpected error: ${error instanceof Error ? error.name : typeof error}`,
@@ -340,7 +360,7 @@ if (import.meta.main) {
     out: (line) => console.log(line),
     err: (line) => console.error(line),
     loadKey: async (env) =>
-      env[SECRET_KEY_SETTING] ? loadSecretKey(env) : null,
+      masterKeyConfigured(env) ? loadSecretKey(env) : null,
     async openDatabase(databaseUrl) {
       const pool = createEnforcedPool(
         databaseUrl,

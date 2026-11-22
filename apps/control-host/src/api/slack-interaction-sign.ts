@@ -8,7 +8,7 @@ import {
 import * as schema from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
-import type { SecretKey } from "@werft-ai/platform";
+import { SecretDecryptError, type SecretKey } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
   postgresSlackInteractionTargets,
@@ -16,7 +16,13 @@ import {
   type SlackInteractionTargets,
   slackRequestSignature,
 } from "../wiring/slack-interaction-sign.ts";
-import { loadSecretKey, SECRET_KEY_SETTING } from "./catalog-config.ts";
+import {
+  loadSecretKey,
+  MASTER_KEY_MISMATCH,
+  MasterKeyError,
+  SECRET_KEY_FILE_SETTING,
+  SECRET_KEY_SETTING,
+} from "./catalog-config.ts";
 
 // Presses a card button the way Slack would: a block_actions form signed
 // with the agent app's signing secret, so an operator can check a card's
@@ -28,6 +34,7 @@ export const SLACK_INTERACTION_SIGN_EXIT = {
   usage: 2,
   not_found: 3,
   refused: 4,
+  key_mismatch: 5,
 } as const;
 
 const SCRIPT = "bun run apps/control-host/src/api/slack-interaction-sign.ts";
@@ -38,12 +45,15 @@ const USAGE = `Usage: ${SCRIPT} --agent <agent_id> --action-id <id> --value <val
   /v1/slack/interactions/<agent_id>, signed with that app's signing secret.
   --team     the Slack team; needed only when the app is installed in more than one
   --url      where to post; default http://127.0.0.1:$PORT/v1/slack/interactions/<agent_id>
-Environment: DATABASE_URL and ${SECRET_KEY_SETTING} (required), PORT (default 3000)
+Environment: DATABASE_URL and the master key (required): ${SECRET_KEY_SETTING}, or ${SECRET_KEY_FILE_SETTING}
+             naming a file that holds it, as the API reads it; PORT (default 3000)
 Output: one line of JSON on stdout: the HTTP status, the request id and the error code.
         The secret and the signature are never printed.
 Exit codes: 0 the API answered 2xx; 1 unexpected error; 2 usage;
             3 no created Slack app with a signing secret for that agent, or no team;
-            4 the API answered another status`;
+            4 the API answered another status;
+            5 master_key_mismatch: the stored signing secret does not open with this key
+              (not the key the API runs with), or the two settings hold different keys`;
 
 export class SlackInteractionSignUsageError extends Error {}
 
@@ -191,6 +201,8 @@ export type SlackInteractionSignIo = {
     key: SecretKey,
   ) => Promise<{ targets: SlackInteractionTargets; close(): Promise<void> }>;
   fetch: (url: string, init: RequestInit) => Promise<Response>;
+  /** Reads the file PLATFORM_SECRET_KEY_FILE names; the default reads the disk. */
+  readFile?: (path: string) => string;
   now?: () => number;
 };
 
@@ -214,12 +226,7 @@ export async function runSlackInteractionSign(
     const press = parseSlackInteractionPress(argv);
     const databaseUrl = io.env.DATABASE_URL;
     if (!databaseUrl) return fail(usage, "DATABASE_URL is required");
-    let key: SecretKey;
-    try {
-      key = loadSecretKey(io.env);
-    } catch {
-      return fail(usage, `${SECRET_KEY_SETTING} is missing or malformed`);
-    }
+    const key = loadSecretKey(io.env, io.readFile);
     const opened = await io.openTargets(databaseUrl, key);
     let target: SlackInteractionTarget | null;
     try {
@@ -285,6 +292,20 @@ export async function runSlackInteractionSign(
   } catch (error) {
     if (error instanceof SlackInteractionSignUsageError) {
       return fail(usage, error.message);
+    }
+    if (error instanceof MasterKeyError) {
+      return fail(
+        error.code === "master_key_mismatch"
+          ? SLACK_INTERACTION_SIGN_EXIT.key_mismatch
+          : usage,
+        `${error.code}: ${error.message}`,
+      );
+    }
+    if (error instanceof SecretDecryptError) {
+      return fail(
+        SLACK_INTERACTION_SIGN_EXIT.key_mismatch,
+        MASTER_KEY_MISMATCH,
+      );
     }
     return fail(
       unexpected,

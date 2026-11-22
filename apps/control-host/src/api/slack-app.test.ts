@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { randomBytes } from "node:crypto";
-import { SecretKey } from "@werft-ai/platform";
+import { SecretDecryptError, SecretKey } from "@werft-ai/platform";
 import {
   parseSlackAppCommand,
   runSlackApp,
@@ -48,6 +48,7 @@ describe("slack-app command line", () => {
       app_busy: 6,
       slack_error: 7,
       events_url_unset: 8,
+      key_mismatch: 9,
     });
   });
 
@@ -132,6 +133,16 @@ describe("slack-app command line", () => {
     expect(await runSlackApp(ARGS, run.io)).toBe(SLACK_APP_EXIT.usage);
     expect(run.err.join("\n")).toContain("PLATFORM_SECRET_KEY");
     expect(run.opened).toEqual([]);
+  });
+
+  test("a stored secret the key does not open is exit 9 with master_key_mismatch", async () => {
+    const run = io(ENV);
+    run.io.openDatabase = async () => {
+      throw new SecretDecryptError();
+    };
+    expect(await runSlackApp(ARGS, run.io)).toBe(SLACK_APP_EXIT.key_mismatch);
+    expect(run.err).toHaveLength(1);
+    expect(run.err[0]).toStartWith("slack-app: master_key_mismatch: ");
   });
 
   test("an unexpected failure is exit 1 and prints only the error's name", async () => {
