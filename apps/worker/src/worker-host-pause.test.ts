@@ -5,19 +5,16 @@ import type {
   ReleaseResponse,
 } from "@werft-ai/contracts";
 import { WorkerGatewayRequestError } from "@werft-ai/runtime-core";
-import type {
-  EngineMessage,
-  ScriptedStep,
-} from "@werft-ai/runtime-core/testing";
+import type { ScriptedStep } from "@werft-ai/runtime-core/testing";
 
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
 import { noWorkspace } from "./testing/no-workspace.ts";
 import { scriptedRuntime, startScripted } from "./testing/scripted-engine.ts";
+import { committedOn, resultMessage } from "./testing/sdk-messages.ts";
 import { waitFor } from "./testing/wait-for.ts";
 import {
-  inputUuid,
   type RuntimeRegistry,
   WorkerHost,
   type WorkerLogger,
@@ -40,40 +37,12 @@ const timeouts: WorkerTimeouts = {
   startupTimeoutMs: 60_000,
 };
 
-// Every turn's capture commits at the pointer's next revision, so finalize
-// always carries a checkpoint the fake gateway accepts.
-function committedOn(gateway: FakeWorkerGateway): WorkerCheckpointPort {
-  return {
-    restorePlan: async () => ({ mode: "new" }),
-    capture: async (preparation) => {
-      if (preparation.status !== "ready") return null;
-      const revision = (gateway.checkpointRevision ?? -1) + 1;
-      return {
-        revision,
-        manifest_ref: `checkpoints/${revision}.json`,
-        manifest_sha256: "a".repeat(64),
-      };
-    },
-  };
-}
-
 const PAUSE: ControlIntent = {
   control_id: "0b6f7d1e-6a55-4c1e-9d59-2f7ad3a4c001",
   kind: "pause",
   target_turn_id: null,
   issued_at: "2026-09-23T00:00:00.000Z",
 };
-
-function resultMessage(turn: number): EngineMessage {
-  return {
-    type: "result",
-    subtype: "success",
-    session_id: "fake-session",
-    is_error: false,
-    usage: { input_tokens: 3 },
-    user_message_uuid: inputUuid(SESSION_ID, String(turn), `msg-${turn}`),
-  };
-}
 
 function harness(
   steps: ScriptedStep[],
@@ -123,7 +92,7 @@ describe("WorkerHost pause", () => {
           },
         ],
       },
-      { type: "emit", message: resultMessage(1) },
+      { type: "emit", message: resultMessage(SESSION_ID, 1) },
       { type: "await-input" },
     ]);
     gateway.enqueue("first message");
@@ -191,7 +160,7 @@ describe("WorkerHost pause", () => {
     const { host, log } = harness(
       [
         { type: "await-input" },
-        { type: "emit", message: resultMessage(1) },
+        { type: "emit", message: resultMessage(SESSION_ID, 1) },
         {
           type: "emit",
           message: {
@@ -469,7 +438,7 @@ describe("WorkerHost pause", () => {
   test("a refused pause keeps the lease and the engine, asking again, until something else stops the worker", async () => {
     const { gateway, host, log } = harness([
       { type: "await-input" },
-      { type: "emit", message: resultMessage(1) },
+      { type: "emit", message: resultMessage(SESSION_ID, 1) },
       { type: "await-input" },
     ]);
     gateway.pauseRefusal = new WorkerGatewayRequestError(

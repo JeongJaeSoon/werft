@@ -5,13 +5,12 @@ import {
   type ErrorBody,
   e2eEnv,
   e2eOwnerCookie,
-  poll,
   REPOSITORY_ID,
   type SseEvent,
   type Step,
   scripted,
-  type Turn,
 } from "./client.ts";
+import { settle } from "./settle.ts";
 
 /**
  * An agent whose card names the settings' `fake` MCP server
@@ -114,36 +113,9 @@ afterAll(async () => {
   }
 }, TIMEOUT);
 
+// The fake-messages release runs auto mode and the fake's safety check allows
+// every call, so only an ask rule (`GATE`) stops the turn for a person.
 const GATE: Step = bash('echo gate | sed -n "w gate.txt"');
-
-/**
- * Settles a turn, allowing each permission request as it comes; `before`
- * runs ahead of the answer to the n-th one (0-based). The fake-messages
- * release runs auto mode and the fake's safety check allows every call, so
- * only an ask rule (`GATE`) stops the turn for a person.
- */
-async function settle(
-  sessionId: string,
-  turnId: string,
-  before: Record<number, () => Promise<void>> = {},
-): Promise<Turn> {
-  const answered = new Set<string>();
-  return poll(`turn ${turnId} of ${sessionId}`, 180_000, async () => {
-    const turn = await api.turn(sessionId, turnId);
-    if (
-      ["completed", "failed", "interrupted", "cancelled"].includes(turn.status)
-    ) {
-      return turn;
-    }
-    for (const request of await api.pending(sessionId)) {
-      if (answered.has(request.request_id)) continue;
-      await before[answered.size]?.();
-      answered.add(request.request_id);
-      await approver.allow(sessionId, request.request_id);
-    }
-    return null;
-  });
-}
 
 async function toolResults(
   sessionId: string,
@@ -253,7 +225,9 @@ describe("remote MCP with the agent's service account", () => {
       );
       expect(started.status).toBe(201);
       const sessionId = started.body.session_id;
-      expect((await settle(sessionId, "1")).status).toBe("completed");
+      expect((await settle(api, approver, sessionId, "1")).status).toBe(
+        "completed",
+      );
       const [result] = await toolResults(sessionId);
       expect(textOf(result)).toContain("ok:fake-mcp");
       const after = await fakeMcp();
@@ -271,7 +245,9 @@ describe("remote MCP with the agent's service account", () => {
         'echo "files=$(grep -raoE "$pattern" /workspace "$HOME" /tmp 2>/dev/null | wc -l | tr -d " ")"',
       ].join("\n");
       await api.send(sessionId, scripted("mcp-scan", [bash(scan)], "scanned"));
-      expect((await settle(sessionId, "2")).status).toBe("completed");
+      expect((await settle(api, approver, sessionId, "2")).status).toBe(
+        "completed",
+      );
       const [counts] = await toolResults(sessionId, "2");
       expect(textOf(counts)).toMatch(/env=0\s+proc=0\s+files=1/);
       const stream = await api.events(
@@ -298,7 +274,9 @@ describe("remote MCP with the agent's service account", () => {
       );
       expect(started.status).toBe(201);
       const sessionId = started.body.session_id;
-      expect((await settle(sessionId, "1")).status).toBe("completed");
+      expect((await settle(api, approver, sessionId, "1")).status).toBe(
+        "completed",
+      );
       const [curl, other] = await toolResults(sessionId);
       expect(textOf(curl)).toMatch(/status=401\s+status=401/);
       expect(textOf(other)).toContain(
@@ -320,7 +298,7 @@ describe("remote MCP with the agent's service account", () => {
       );
       expect(started.status).toBe(201);
       const sessionId = started.body.session_id;
-      const turn = await settle(sessionId, "1", {
+      const turn = await settle(api, approver, sessionId, "1", {
         // The first call has run; the gate waits for its answer.
         0: async () => {
           const revoked = await web(

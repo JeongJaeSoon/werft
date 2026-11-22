@@ -7,7 +7,6 @@ import {
   completeGitHubAppManifestResponseSchema,
   getGitHubAppResponseSchema,
   startGitHubAppManifestResponseSchema,
-  WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import { createGitHubManifestConverter } from "@werft-ai/forge-github";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
@@ -20,12 +19,8 @@ import {
   type GitHubAppManifestState,
   type GitHubAppRecord,
   type GitHubAppStore,
-  type IdentityStore,
-  type MembershipRole,
-  type ResolvedWebSession,
 } from "@werft-ai/platform";
-import { generateWebSessionToken, hashWebSessionToken } from "../../auth.ts";
-import { hashApiKey } from "../../keys.ts";
+import { fakeWebSessions } from "../../../testing/web-session.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerGitHubAppRoutes } from "./github-app.ts";
 
@@ -45,48 +40,7 @@ const PEM = generateKeyPairSync("rsa", {
 const CLIENT_SECRET = `cs_${crypto.randomUUID()}`;
 const WEBHOOK_SECRET = `wh_${crypto.randomUUID()}`;
 
-const sessions = new Map<string, ResolvedWebSession>();
-function cookieFor(role: MembershipRole, workspaceId = WORKSPACE): string {
-  const token = generateWebSessionToken();
-  sessions.set(Buffer.from(hashWebSessionToken(token)).toString("hex"), {
-    sessionId: crypto.randomUUID(),
-    userId: crypto.randomUUID(),
-    email: `${role}@example.com`,
-    displayName: role,
-    locale: null,
-    workspaceId,
-    role,
-    expiresAt: new Date(Date.now() + 60_000),
-  });
-  return `${WEB_SESSION_COOKIE_NAME}=${token}`;
-}
-
-const identity = {
-  async resolveWebSession(tokenHash: Uint8Array) {
-    return sessions.get(Buffer.from(tokenHash).toString("hex")) ?? null;
-  },
-  async renewWebSession() {
-    return null;
-  },
-} as unknown as IdentityStore;
-
-const KEY = { plaintext: `csp_${crypto.randomUUID()}` };
-const keyStore = {
-  async find(candidate: Uint8Array) {
-    if (!Buffer.from(hashApiKey(KEY.plaintext)).equals(Buffer.from(candidate)))
-      return null;
-    return {
-      id: crypto.randomUUID(),
-      ownerId: WORKSPACE,
-      workspaceId: WORKSPACE,
-      kind: "personal" as const,
-      agentId: null,
-      createdByUserId: crypto.randomUUID(),
-      creatorRole: "owner" as const,
-      scopes: ["sessions:read" as const, "sessions:write" as const],
-    };
-  },
-};
+const { cookieFor, identity, keyStore, key: KEY } = fakeWebSessions(WORKSPACE);
 
 // The Postgres store's transaction is its own integration test; this one
 // decides `replaces` as it does and remembers what it was handed.

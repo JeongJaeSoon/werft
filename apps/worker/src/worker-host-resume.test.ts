@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { ControlIntent } from "@werft-ai/contracts";
 import { WorkerGatewayRequestError } from "@werft-ai/runtime-core";
 import type {
-  EngineMessage,
   ScriptedRuntimeOptions,
   ScriptedStep,
 } from "@werft-ai/runtime-core/testing";
@@ -12,9 +11,9 @@ import type { WorkerTimeouts } from "./config.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
 import { noWorkspace } from "./testing/no-workspace.ts";
 import { scriptedRuntime, startScripted } from "./testing/scripted-engine.ts";
+import { committedOn, resultMessage } from "./testing/sdk-messages.ts";
 import { waitFor } from "./testing/wait-for.ts";
 import {
-  inputUuid,
   type RuntimeRegistry,
   WorkerHost,
   type WorkerLogger,
@@ -41,23 +40,6 @@ const RESTORE = {
   manifest_ref: "checkpoints/4.json",
   manifest_sha256: "a".repeat(64),
 };
-
-// Every turn's capture commits at the pointer's next revision, so finalize
-// always carries a checkpoint the fake gateway accepts.
-function committedOn(gateway: FakeWorkerGateway): WorkerCheckpointPort {
-  return {
-    restorePlan: async () => ({ mode: "new" }),
-    capture: async (preparation) => {
-      if (preparation.status !== "ready") return null;
-      const revision = (gateway.checkpointRevision ?? -1) + 1;
-      return {
-        revision,
-        manifest_ref: `checkpoints/${revision}.json`,
-        manifest_sha256: "a".repeat(64),
-      };
-    },
-  };
-}
 
 // The claim's checkpoint restored as the engine session it names, from this
 // container's disk unless a restore says which revision it loaded.
@@ -98,17 +80,6 @@ const stale = () =>
     false,
   );
 
-function resultMessage(turn: number): EngineMessage {
-  return {
-    type: "result",
-    subtype: "success",
-    session_id: "fake-session",
-    is_error: false,
-    usage: { input_tokens: 3 },
-    user_message_uuid: inputUuid(SESSION_ID, String(turn), `msg-${turn}`),
-  };
-}
-
 function harness(
   steps: ScriptedStep[],
   overrides: {
@@ -146,7 +117,10 @@ describe("WorkerHost ready report", () => {
   test("reports ready with the restored revision before it asks for any input", async () => {
     const gateway = restoredGateway();
     const { host } = harness(
-      [{ type: "await-input" }, { type: "emit", message: resultMessage(1) }],
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(SESSION_ID, 1) },
+      ],
       { checkpoints: resumedOn(gateway), gateway },
     );
     gateway.enqueue("what did we decide yesterday?");
@@ -167,7 +141,10 @@ describe("WorkerHost ready report", () => {
   test("a restore reports the revision it loaded, not the claim's pointer", async () => {
     const gateway = restoredGateway();
     const { host } = harness(
-      [{ type: "await-input" }, { type: "emit", message: resultMessage(1) }],
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(SESSION_ID, 1) },
+      ],
       { checkpoints: resumedOn(gateway, 3), gateway },
     );
     gateway.enqueue("pick up where we left off");
@@ -262,9 +239,9 @@ describe("WorkerHost pause withdrawn by a resume", () => {
   test("a held worker whose pause was cancelled goes back to its input loop on the same engine", async () => {
     const { gateway, host, log, runtime } = harness([
       { type: "await-input" },
-      { type: "emit", message: resultMessage(1) },
+      { type: "emit", message: resultMessage(SESSION_ID, 1) },
       { type: "await-input" },
-      { type: "emit", message: resultMessage(2) },
+      { type: "emit", message: resultMessage(SESSION_ID, 2) },
       { type: "await-input" },
     ]);
     gateway.pauseRefusal = new WorkerGatewayRequestError(
@@ -317,9 +294,9 @@ describe("WorkerHost pause withdrawn by a resume", () => {
           },
         ],
       },
-      { type: "emit", message: resultMessage(1) },
+      { type: "emit", message: resultMessage(SESSION_ID, 1) },
       { type: "await-input" },
-      { type: "emit", message: resultMessage(2) },
+      { type: "emit", message: resultMessage(SESSION_ID, 2) },
       { type: "await-input" },
     ]);
     gateway.enqueue("first message");

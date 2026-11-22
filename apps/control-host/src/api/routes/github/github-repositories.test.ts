@@ -12,7 +12,6 @@ import {
   pickAgentGitHubRepositoryResponseSchema,
   REQUEST_BODY_MAX_BYTES,
   type RepositoryCeiling,
-  WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import { createGitHubAppDirectory } from "@werft-ai/forge-github";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
@@ -24,13 +23,9 @@ import {
   type GitHubAppStore,
   type GitHubPinStore,
   type GitHubRepositoryPin,
-  type IdentityStore,
-  type MembershipRole,
-  type ResolvedWebSession,
 } from "@werft-ai/platform";
 import { type FakeGitHub, startFakeGitHub } from "@werft-ai/testkit";
-import { generateWebSessionToken, hashWebSessionToken } from "../../auth.ts";
-import { hashApiKey } from "../../keys.ts";
+import { fakeWebSessions } from "../../../testing/web-session.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerGitHubRepositoryRoutes } from "./github-repositories.ts";
 
@@ -52,48 +47,7 @@ const keys = generateKeyPairSync("rsa", {
   publicKeyEncoding: { type: "spki", format: "pem" },
 });
 
-const sessions = new Map<string, ResolvedWebSession>();
-function cookieFor(role: MembershipRole): string {
-  const token = generateWebSessionToken();
-  sessions.set(Buffer.from(hashWebSessionToken(token)).toString("hex"), {
-    sessionId: crypto.randomUUID(),
-    userId: crypto.randomUUID(),
-    email: `${role}@example.com`,
-    displayName: role,
-    locale: null,
-    workspaceId: WORKSPACE,
-    role,
-    expiresAt: new Date(Date.now() + 60_000),
-  });
-  return `${WEB_SESSION_COOKIE_NAME}=${token}`;
-}
-
-const identity = {
-  async resolveWebSession(tokenHash: Uint8Array) {
-    return sessions.get(Buffer.from(tokenHash).toString("hex")) ?? null;
-  },
-  async renewWebSession() {
-    return null;
-  },
-} as unknown as IdentityStore;
-
-const KEY = { plaintext: `csp_${crypto.randomUUID()}` };
-const keyStore = {
-  async find(candidate: Uint8Array) {
-    if (!Buffer.from(hashApiKey(KEY.plaintext)).equals(Buffer.from(candidate)))
-      return null;
-    return {
-      id: crypto.randomUUID(),
-      ownerId: WORKSPACE,
-      workspaceId: WORKSPACE,
-      kind: "personal" as const,
-      agentId: null,
-      createdByUserId: crypto.randomUUID(),
-      creatorRole: "owner" as const,
-      scopes: ["sessions:read" as const, "sessions:write" as const],
-    };
-  },
-};
+const { cookieFor, identity, keyStore, key: KEY } = fakeWebSessions(WORKSPACE);
 
 let github: FakeGitHub;
 let appRegistered = true;

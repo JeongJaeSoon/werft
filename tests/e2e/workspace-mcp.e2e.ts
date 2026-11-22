@@ -8,13 +8,12 @@ import {
   type ErrorBody,
   e2eEnv,
   e2eOwnerCookie,
-  poll,
   REPOSITORY_ID,
   type SseEvent,
   type Step,
   scripted,
-  type Turn,
 } from "./client.ts";
+import { settle } from "./settle.ts";
 
 /**
  * A workspace admin registers the stack's fake MCP server
@@ -176,30 +175,6 @@ afterAll(async () => {
 
 /** As remote-mcp.e2e.ts: an ask rule that stops the turn for a person. */
 const GATE: Step = bash('echo gate | sed -n "w gate.txt"');
-
-/** As remote-mcp.e2e.ts: allows each permission request as it comes. */
-async function settle(
-  sessionId: string,
-  turnId: string,
-  before: Record<number, () => Promise<void>> = {},
-): Promise<Turn> {
-  const answered = new Set<string>();
-  return poll(`turn ${turnId} of ${sessionId}`, 180_000, async () => {
-    const turn = await api.turn(sessionId, turnId);
-    if (
-      ["completed", "failed", "interrupted", "cancelled"].includes(turn.status)
-    ) {
-      return turn;
-    }
-    for (const request of await api.pending(sessionId)) {
-      if (answered.has(request.request_id)) continue;
-      await before[answered.size]?.();
-      answered.add(request.request_id);
-      await approver.allow(sessionId, request.request_id);
-    }
-    return null;
-  });
-}
 
 async function streamOf(sessionId: string, turnId: string) {
   return api.events(
@@ -444,7 +419,9 @@ describe("workspace MCP servers an admin connects", () => {
       );
 
       const sessionId = await startSession([WHOAMI], "wsmcp-oauth");
-      expect((await settle(sessionId, "1")).status).toBe("completed");
+      expect((await settle(api, approver, sessionId, "1")).status).toBe(
+        "completed",
+      );
       const [result] = await toolResults(sessionId);
       expect(textOf(result)).toContain("ok:oauth:fake-account");
       const after = await workspaceCalls();
@@ -486,7 +463,9 @@ describe("workspace MCP servers an admin connects", () => {
         [WHOAMI, { tool: `mcp__${WIKI}__whoami`, input: {} }],
         "wsmcp-both",
       );
-      expect((await settle(sessionId, "1")).status).toBe("completed");
+      expect((await settle(api, approver, sessionId, "1")).status).toBe(
+        "completed",
+      );
       const [tracker, wiki] = await toolResults(sessionId);
       expect(textOf(tracker)).toContain("ok:oauth:fake-account");
       expect(textOf(wiki)).toContain("ok:static");
@@ -523,7 +502,7 @@ describe("workspace MCP servers an admin connects", () => {
       // While the gate waits for its answer the worker is running and has
       // made both calls.
       const worker: { seen?: string[] } = {};
-      const scanned = await settle(sessionId, "2", {
+      const scanned = await settle(api, approver, sessionId, "2", {
         0: async () => {
           worker.seen = await workerEnvironments();
         },
@@ -547,7 +526,7 @@ describe("workspace MCP servers an admin connects", () => {
       const before = await workspaceCalls();
       const sessionId = await startSession([WHOAMI, GATE, WHOAMI], "wsmcp-cut");
       const disconnected: { revoked?: boolean | null } = {};
-      const turn = await settle(sessionId, "1", {
+      const turn = await settle(api, approver, sessionId, "1", {
         // The first call has run; the gate waits for its answer.
         0: async () => {
           const cut = await web<{ server: Server; revoked: boolean | null }>(

@@ -22,17 +22,13 @@ import {
   getSlackAppResponseSchema,
   listWorkspaceSlackAppsResponseSchema,
   putSlackSecretResponseSchema,
-  WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   type AgentAuthority,
   createAuthorizationPolicy,
-  type IdentityStore,
-  type MembershipRole,
-  type ResolvedWebSession,
 } from "@werft-ai/platform";
-import { generateWebSessionToken, hashWebSessionToken } from "../../auth.ts";
+import { fakeWebSessions } from "../../../testing/web-session.ts";
 import { hashApiKey } from "../../keys.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerSlackAppRoutes } from "./slack-apps.ts";
@@ -50,33 +46,7 @@ const BOTS_AGENT = "019a0000-0000-7000-8000-0000000000c6";
 const AGENT_ADMIN = "019a0000-0000-7000-8000-0000000000d1";
 const ORIGIN = "https://console.example.ts.net";
 
-const sessions = new Map<string, ResolvedWebSession>();
-function cookieFor(
-  role: MembershipRole,
-  options: { workspaceId?: string; userId?: string } = {},
-): string {
-  const token = generateWebSessionToken();
-  sessions.set(Buffer.from(hashWebSessionToken(token)).toString("hex"), {
-    sessionId: crypto.randomUUID(),
-    userId: options.userId ?? crypto.randomUUID(),
-    email: `${role}@example.com`,
-    displayName: role,
-    locale: null,
-    workspaceId: options.workspaceId ?? WORKSPACE,
-    role,
-    expiresAt: new Date(Date.now() + 60_000),
-  });
-  return `${WEB_SESSION_COOKIE_NAME}=${token}`;
-}
-
-const identity = {
-  async resolveWebSession(tokenHash: Uint8Array) {
-    return sessions.get(Buffer.from(tokenHash).toString("hex")) ?? null;
-  },
-  async renewWebSession() {
-    return null;
-  },
-} as unknown as IdentityStore;
+const { cookieFor, identity } = fakeWebSessions(WORKSPACE);
 
 const KEY = { plaintext: `csp_${crypto.randomUUID()}` };
 const keyStore = {

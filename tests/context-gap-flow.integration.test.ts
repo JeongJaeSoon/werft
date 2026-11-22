@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
   type CheckpointRef,
   controlAcceptedResponseSchema,
@@ -10,11 +10,6 @@ import {
 import * as schema from "@werft-ai/db";
 import {
   attempts,
-  createPostgresSessionControl,
-  createPostgresSessionReader,
-  createPostgresSessionUnitOfWork,
-  createPostgresWorkerPendingStore,
-  createPostgresWorkerUnitOfWork,
   queueMessages,
   turns,
   unassignedSessions,
@@ -23,35 +18,12 @@ import {
   confirmExecutionGone,
   launchSession,
 } from "@werft-ai/db/testing/launches";
-import { createLogger } from "@werft-ai/observability";
-import {
-  createAuthorizationPolicy,
-  createSessionService,
-  createWorkerGateway,
-  type SessionCatalog,
-  type WorkerGateway,
-} from "@werft-ai/platform";
+import type { SessionCatalog } from "@werft-ai/platform";
 import type { CheckpointPreparation } from "@werft-ai/runtime-core";
 import type { EngineMessage } from "@werft-ai/runtime-core/testing";
 import { fakeRuntimeFor } from "@werft-ai/runtime-registry/testing";
-import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
-import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
-import { createApiApp } from "../apps/control-host/src/api/app.ts";
-import { registerEventRoutes } from "../apps/control-host/src/api/routes/sessions/events.ts";
-import { registerReceiptRoutes } from "../apps/control-host/src/api/routes/sessions/receipts.ts";
-import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessions/sessions.ts";
-import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/workers/worker.ts";
-import { PostgresSessionNotifier } from "../apps/control-host/src/api/session-notifier.ts";
 import { testCatalog } from "../apps/control-host/src/testing/catalog.ts";
-import {
-  allowingPolicy,
-  allowRepositories,
-  releaseIn,
-  sessionReleases,
-  startingInWorkspace,
-} from "../apps/control-host/src/testing/releases.ts";
 import type { WorkerCheckpointPort } from "../apps/worker/src/checkpoint.ts";
 import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
 import { noWorkspace } from "../apps/worker/src/testing/no-workspace.ts";
@@ -64,6 +36,7 @@ import {
   WorkerHost,
   type WorkerLogger,
 } from "../apps/worker/src/worker-host.ts";
+import { flowHarness } from "./flow-harness.ts";
 
 /**
  * The context-gap recovery path end to end: a session finishes
@@ -183,124 +156,22 @@ function failingPublishPort(
 integration(
   "a replaced worker without a covering checkpoint never silently drops the conversation",
   () => {
-    let database: TempDatabase;
-    let pool: Pool;
-    let db: NodePgDatabase<typeof schema>;
-    let notifier: PostgresSessionNotifier;
-    let gateway: WorkerGateway;
-    let server: ReturnType<typeof Bun.serve>;
-    const owner = crypto.randomUUID();
-    let releaseId = "";
-
-    beforeAll(async () => {
-      database = await createTempDatabase({ prefix: "context_gap_e2e" });
-      pool = new Pool({ connectionString: database.url, max: 16 });
-      db = drizzle(pool, { schema });
-      releaseId = await releaseIn(db, owner);
-      await allowRepositories(db, owner, ["sample-app"]);
-      const logger = createLogger({ sinks: [] });
-      notifier = new PostgresSessionNotifier(database.url, logger);
-      await notifier.start();
-      const sessions = startingInWorkspace(
-        createSessionService({
-          authorization: createAuthorizationPolicy(),
-          inputs: createPostgresSessionUnitOfWork(db),
-          controls: createPostgresSessionControl(db),
-          reader: createPostgresSessionReader(db),
-          catalog,
-          limits: {
-            queuedInputLimitPerSession: 1_000,
-            storageLimitBytes: 1e15,
-            sessionCostLimitUsd: 1_000,
-            sessionTokenLimit: null,
-          },
-          releases: sessionReleases(db, catalog),
-        }),
-        createSessionService({
-          authorization: allowingPolicy,
-          inputs: createPostgresSessionUnitOfWork(db),
-          controls: createPostgresSessionControl(db),
-          reader: createPostgresSessionReader(db),
-          catalog,
-          limits: {
-            queuedInputLimitPerSession: 1_000,
-            storageLimitBytes: 1e15,
-            sessionCostLimitUsd: 1_000,
-            sessionTokenLimit: null,
-          },
-          releases: sessionReleases(db, catalog),
-        }),
-      );
-      gateway = createWorkerGateway({
-        work: createPostgresWorkerUnitOfWork(db),
-        catalog,
-        checkpoints: { verify: async () => ({ status: "verified" }) },
-        // The gateway records a rejected capture only when a store is
-        // configured; the ports here never ask it for a key.
-        checkpointProtocol: {
-          async requestCheckpoint() {
-            throw new Error("no checkpoint store in these tests");
-          },
-          async getRestorePlan() {
-            throw new Error("no checkpoint store in these tests");
-          },
+    const flow = flowHarness({
+      prefix: "context_gap_e2e",
+      catalog,
+      interruptRoutes: false,
+      // The gateway records a rejected capture only when a store is
+      // configured; the ports here never ask it for a key.
+      checkpointProtocol: {
+        async requestCheckpoint() {
+          throw new Error("no checkpoint store in these tests");
         },
-        pending: createPostgresWorkerPendingStore(db),
-        options: {
-          leaseTtlMs: 30_000,
-          sessionBudget: { costUsd: 1_000, tokens: null },
+        async getRestorePlan() {
+          throw new Error("no checkpoint store in these tests");
         },
-      });
-      const app = createApiApp({
-        authMode: "none",
-        logger,
-        registerRoutes: (router) => {
-          registerSessionRoutes(router, sessions);
-          registerReceiptRoutes(router, sessions);
-          registerEventRoutes(router, sessions, {
-            wakeup: notifier,
-            keepaliveMs: 500,
-            logger,
-          });
-        },
-        registerInternalRoutes: (router) =>
-          registerWorkerRoutes(router, gateway),
-      });
-      server = Bun.serve({ port: 0, fetch: (request) => app.fetch(request) });
-    }, 60_000);
-
-    afterAll(async () => {
-      server?.stop(true);
-      await notifier?.close();
-      await pool?.end();
-      await database?.drop();
-    }, 60_000);
-
-    const base = () => `http://127.0.0.1:${server.port}`;
-
-    function call(path: string, init: RequestInit = {}) {
-      return fetch(`${base()}${path}`, {
-        ...init,
-        headers: {
-          "Content-Type": "application/json",
-          "X-Owner-Id": owner,
-          ...init.headers,
-        },
-      });
-    }
-
-    function post(path: string, body: unknown) {
-      return call(path, {
-        method: "POST",
-        headers: { "Idempotency-Key": crypto.randomUUID() },
-        // A session runs a release of the owner's workspace.
-        body: JSON.stringify(
-          path === "/v1/sessions"
-            ? { agent_release_id: releaseId, ...(body as object) }
-            : body,
-        ),
-      });
-    }
+      },
+    });
+    const { base, call, post } = flow;
 
     async function detail(sessionId: string): Promise<SessionDetail> {
       const response = await call(`/v1/sessions/${sessionId}`);
@@ -351,7 +222,7 @@ integration(
     }
 
     async function queueIdOf(sessionId: string, sequence: number) {
-      const [row] = await db
+      const [row] = await flow.db
         .select({ id: queueMessages.id })
         .from(queueMessages)
         .innerJoin(turns, eq(turns.id, queueMessages.turnId))
@@ -385,7 +256,9 @@ integration(
         | WorkerCheckpointPort
         | ((gateway: HttpWorkerGatewayClient) => WorkerCheckpointPort);
     }) {
-      const launch = await launchSession(db, { sessionId: input.sessionId });
+      const launch = await launchSession(flow.db, {
+        sessionId: input.sessionId,
+      });
       const executionId = launch.executionId;
       const runtime = fakeRuntimeFor(SCRIPTED_KIND, [
         { type: "await-input" },
@@ -461,11 +334,11 @@ integration(
         await created.json(),
       ).session_id;
       const partition = `context-gap-e2e-${crypto.randomUUID()}`;
-      await db
+      await flow.db
         .update(schema.sessions)
         .set({ partition })
         .where(eq(schema.sessions.id, sessionId));
-      await db
+      await flow.db
         .update(unassignedSessions)
         .set({ partition })
         .where(eq(unassignedSessions.sessionId, sessionId));
@@ -486,7 +359,7 @@ integration(
       // AC2: the checkpoint was attempted for the finished turn before the
       // worker went idle — a ready preparation reached the publisher.
       expect(firstPort.captures.map((p) => p.status)).toEqual(["ready"]);
-      const [released] = await db
+      const [released] = await flow.db
         .select({ endReason: attempts.endReason })
         .from(attempts)
         .where(eq(attempts.sessionId, sessionId));
@@ -501,7 +374,7 @@ integration(
 
       // 3. The scheduler observes the exit. The session is not handed to a
       // new worker: it waits on an operator and says why.
-      await confirmExecutionGone(db, first.executionId);
+      await confirmExecutionGone(flow.db, first.executionId);
       const held = await detail(sessionId);
       expect(held).toMatchObject({
         admission_state: "recovery_required",
@@ -543,7 +416,7 @@ integration(
       expect(
         ((await refused.json()) as { error: { code: string } }).error.code,
       ).toBe("RECOVERY_REQUIRED");
-      await expect(launchSession(db, { sessionId })).rejects.toThrow(
+      await expect(launchSession(flow.db, { sessionId })).rejects.toThrow(
         "not launchable",
       );
 
@@ -594,7 +467,7 @@ integration(
         { turnId: "2", status: "completed", reason: null },
       ]);
       expect(fresh.runtime.inputs.map((i) => i.message)).toEqual(["second"]);
-      await confirmExecutionGone(db, fresh.executionId);
+      await confirmExecutionGone(flow.db, fresh.executionId);
       const covered = await detail(sessionId);
       expect(covered).toMatchObject({
         admission_state: "active",
@@ -650,7 +523,7 @@ integration(
       ]);
     }, 60_000);
 
-    // 94S-668 pins today's path; the option it adopts flips the marked
+    // This pins today's path; whichever option a fix adopts flips the marked
     // expectations (retry: one more capture; hold: the 202; show: attention).
     test("a completed turn whose publish failed leaves an unannounced gap that becomes CONTEXT_GAP once its worker is replaced", async () => {
       const created = await post("/v1/sessions", {
@@ -662,11 +535,11 @@ integration(
         await created.json(),
       ).session_id;
       const partition = `publish-failed-gap-${crypto.randomUUID()}`;
-      await db
+      await flow.db
         .update(schema.sessions)
         .set({ partition })
         .where(eq(schema.sessions.id, sessionId));
-      await db
+      await flow.db
         .update(unassignedSessions)
         .set({ partition })
         .where(eq(unassignedSessions.sessionId, sessionId));
@@ -678,7 +551,7 @@ integration(
         engineSession: "engine-4c1e",
         checkpoints: checkpointPort(true).port,
       });
-      await confirmExecutionGone(db, first.executionId);
+      await confirmExecutionGone(flow.db, first.executionId);
       expect(
         (
           await post(`/v1/sessions/${sessionId}/messages`, {
@@ -747,7 +620,7 @@ integration(
       // 3. The worker is gone before any later publish succeeds: the
       // replacement could only restore revision 0, so the session goes to
       // an operator with CONTEXT_GAP and nothing is launched for it.
-      await confirmExecutionGone(db, second.executionId);
+      await confirmExecutionGone(flow.db, second.executionId);
       expect(await detail(sessionId)).toMatchObject({
         admission_state: "recovery_required",
         status: "failed",
@@ -762,7 +635,7 @@ integration(
           checkpoint_revision: 0,
         },
       });
-      await expect(launchSession(db, { sessionId })).rejects.toThrow(
+      await expect(launchSession(flow.db, { sessionId })).rejects.toThrow(
         "not launchable",
       );
     }, 60_000);

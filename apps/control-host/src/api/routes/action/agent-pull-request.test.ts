@@ -9,18 +9,13 @@ import {
   DEFAULT_AGENT_PULL_REQUEST_SETTINGS,
   putAgentPullRequestSettingsResponseSchema,
   REQUEST_BODY_MAX_BYTES,
-  WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import {
   createAgentPullRequestService,
   createAuthorizationPolicy,
-  type IdentityStore,
-  type MembershipRole,
   type PullRequestSettingsStore,
-  type ResolvedWebSession,
 } from "@werft-ai/platform";
-import { generateWebSessionToken, hashWebSessionToken } from "../../auth.ts";
-import { hashApiKey } from "../../keys.ts";
+import { fakeWebSessions } from "../../../testing/web-session.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerAgentPullRequestRoutes } from "./agent-pull-request.ts";
 
@@ -32,48 +27,7 @@ const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const AGENT = "019a0000-0000-7000-8000-0000000000c1";
 const MISSING = "019a0000-0000-7000-8000-0000000000c9";
 
-const sessions = new Map<string, ResolvedWebSession>();
-function cookieFor(role: MembershipRole): string {
-  const token = generateWebSessionToken();
-  sessions.set(Buffer.from(hashWebSessionToken(token)).toString("hex"), {
-    sessionId: crypto.randomUUID(),
-    userId: crypto.randomUUID(),
-    email: `${role}@example.com`,
-    displayName: role,
-    locale: null,
-    workspaceId: WORKSPACE,
-    role,
-    expiresAt: new Date(Date.now() + 60_000),
-  });
-  return `${WEB_SESSION_COOKIE_NAME}=${token}`;
-}
-
-const identity = {
-  async resolveWebSession(tokenHash: Uint8Array) {
-    return sessions.get(Buffer.from(tokenHash).toString("hex")) ?? null;
-  },
-  async renewWebSession() {
-    return null;
-  },
-} as unknown as IdentityStore;
-
-const KEY = { plaintext: `csp_${crypto.randomUUID()}` };
-const keyStore = {
-  async find(candidate: Uint8Array) {
-    if (!Buffer.from(hashApiKey(KEY.plaintext)).equals(Buffer.from(candidate)))
-      return null;
-    return {
-      id: crypto.randomUUID(),
-      ownerId: WORKSPACE,
-      workspaceId: WORKSPACE,
-      kind: "personal" as const,
-      agentId: null,
-      createdByUserId: crypto.randomUUID(),
-      creatorRole: "owner" as const,
-      scopes: ["sessions:read" as const, "sessions:write" as const],
-    };
-  },
-};
+const { cookieFor, identity, keyStore, key: KEY } = fakeWebSessions(WORKSPACE);
 
 // The Postgres store (the agent lock, the receipt, the session join) is its
 // own integration test (packages/db/src/action/pull-request-settings.integration.test.ts).

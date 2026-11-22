@@ -3,12 +3,9 @@ import type { PGlite } from "@electric-sql/pglite";
 import * as schema from "@werft-ai/db";
 import {
   createPostgresJudgmentEgress,
-  createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
   createProviderExchangeLedger,
 } from "@werft-ai/db";
-import { launchSession } from "@werft-ai/db/testing/launches";
-import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import { createLogger, type LogRecord } from "@werft-ai/observability";
 import {
   admitsReservations,
@@ -23,7 +20,8 @@ import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { testCatalog } from "../testing/catalog.ts";
-import { releaseIn, TEST_OWNER } from "../testing/releases.ts";
+import { claimed } from "../testing/claims.ts";
+import { TEST_OWNER } from "../testing/releases.ts";
 import { createApiApp } from "./app.ts";
 import {
   createEgressAuthorizer,
@@ -81,35 +79,6 @@ afterEach(async () => {
   await client.close();
 });
 
-async function claimed() {
-  const accepted = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
-    limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-    principal: { ownerId: TEST_OWNER },
-    idempotencyKey: crypto.randomUUID(),
-    payloadHash: "hash",
-    agentReleaseId: await releaseIn(db),
-    model: TEST_MODEL,
-    repository: {
-      id: "sample-app",
-      url: "https://git.invalid/agent/app.git",
-      branch: "main",
-    },
-    message: "hello",
-  });
-  if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
-  const launch = await launchSession(db, {
-    sessionId: accepted.response.session_id,
-  });
-  return await gateway.bootstrapClaim(
-    { kind: "bootstrap" },
-    {
-      execution_id: launch.executionId,
-      execution_generation: launch.generation,
-      credential: { kind: "launch_nonce", nonce: launch.nonce },
-    },
-  );
-}
-
 function ask(
   body: unknown,
   options: { bearer?: string | null; path?: string; method?: string } = {},
@@ -133,7 +102,7 @@ function ask(
 
 describe("egress authorizer", () => {
   test("turns a live token into its upstream and the credential to inject", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     const provider = await ask({
       token: claim.runtime_config.provider.auth.token,
       purpose: "provider",
@@ -150,7 +119,7 @@ describe("egress authorizer", () => {
   });
 
   test("a packages token opens a public registry with no credential, and nothing else", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     const packages = claim.packages?.access.token ?? "";
     expect(packages.startsWith("wek_")).toBe(true);
     const npm = await ask({
@@ -190,7 +159,7 @@ describe("egress authorizer", () => {
   });
 
   test("answers nothing without its own bearer, whatever the token", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     const body = {
       token: claim.runtime_config.provider.auth.token,
       purpose: "provider",
@@ -207,7 +176,7 @@ describe("egress authorizer", () => {
   });
 
   test("refuses anything but one small, well-formed request", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     const token = claim.runtime_config.provider.auth.token;
     expect(
       (await ask({ token, purpose: "provider" }, { path: "/" })).status,
@@ -253,7 +222,7 @@ describe("egress authorizer", () => {
   });
 
   test("an unknown token is 401, and a token for the other route too", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     expect(
       (await ask({ token: "wep_unknown", purpose: "provider" })).status,
     ).toBe(401);
@@ -268,7 +237,7 @@ describe("egress authorizer", () => {
   });
 
   test("is not a route on the API's own listener, which workers can reach", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     const app = createApiApp({
       authMode: "api-key",
       registerInternalRoutes: (router) => registerWorkerRoutes(router, gateway),
@@ -306,7 +275,7 @@ describe("usage reports", () => {
   };
 
   async function report(usage: Record<string, unknown>) {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     const exchangeId = crypto.randomUUID();
     const response = await ask(
       {
@@ -390,7 +359,7 @@ describe("usage reports", () => {
   });
 
   test("a row from before the migration still matches its old proxy's retry", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     const exchangeId = crypto.randomUUID();
     // Written as wrote it: no speed, no tool counts.
     await db.insert(schema.providerUsage).values({
@@ -491,7 +460,7 @@ describe("the provider exchange ledger route", () => {
   });
 
   test("an open makes a row once; repeating it extends it; renewing answers what is there", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     const open = {
       op: "open",
       exchange_id: crypto.randomUUID(),
@@ -528,7 +497,7 @@ describe("the provider exchange ledger route", () => {
   });
 
   test("an open for no such attempt is 404 and one under another owner's id is 409", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     const exchangeId = crypto.randomUUID();
     const missing = await send({
       op: "open",
@@ -545,7 +514,7 @@ describe("the provider exchange ledger route", () => {
       attempt_id: claim.attempt_id,
       reserve,
     });
-    const other = await claimed();
+    const other = await claimed(db, gateway);
     const conflict = await send({
       op: "open",
       exchange_id: exchangeId,
@@ -558,7 +527,7 @@ describe("the provider exchange ledger route", () => {
   });
 
   test("a usage report deletes the row; a late open then answers settled and makes none", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     const open = {
       op: "open",
       exchange_id: crypto.randomUUID(),
@@ -591,8 +560,8 @@ describe("the provider exchange ledger route", () => {
   });
 
   test("a report from another owner leaves the row and logs a warning", async () => {
-    const opener = await claimed();
-    const reporter = await claimed();
+    const opener = await claimed(db, gateway);
+    const reporter = await claimed(db, gateway);
     const exchangeId = crypto.randomUUID();
     await send({
       op: "open",
@@ -636,7 +605,7 @@ describe("the provider exchange ledger route", () => {
   });
 
   test("an open the session's budget cannot hold answers 403 BUDGET_EXCEEDED and makes no row", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     budget.costUsd = 0.000_001;
     const refused = await send({
       op: "open",
@@ -651,7 +620,7 @@ describe("the provider exchange ledger route", () => {
   });
 
   test("a release marks the call and its late open answers released; one for no such attempt is 404", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     const call = {
       exchange_id: crypto.randomUUID(),
       session_id: claim.session_id,
@@ -684,7 +653,7 @@ describe("the judgment route", () => {
 
   /** A running judgment of a claimed session, holding TOKEN. */
   async function judging(settings: Record<string, unknown>) {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     const workspaceId = crypto.randomUUID();
     await db.insert(schema.workspaces).values({
       id: workspaceId,
@@ -896,7 +865,7 @@ describe("the object store route's answers", () => {
     );
 
   test("signs a request under the session's prefix with the API's own key", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     const response = await objectAsk(
       signed(),
       claim.object_store.access.token,
@@ -927,7 +896,7 @@ describe("the object store route's answers", () => {
   });
 
   test("refuses what the session may not do, with the reason", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     const token = claim.object_store.access.token;
     for (const [method, target] of [
       ["GET", "/claude-sessions/sessions/another-session/x"],
@@ -946,7 +915,7 @@ describe("the object store route's answers", () => {
   });
 
   test("each token opens its own route and no other", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     const target = `/claude-sessions/sessions/${claim.session_id}/x`;
     const repository = claim.workspace.repository?.access;
     if (repository === undefined) throw new Error("no repository token");
@@ -970,7 +939,7 @@ describe("the object store route's answers", () => {
   });
 
   test("an API with no object store answers 503, and only for a live token", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     const target = `/claude-sessions/sessions/${claim.session_id}/x`;
     expect(
       (
@@ -988,7 +957,7 @@ describe("the object store route's answers", () => {
   });
 
   test("refuses a request line it cannot read", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     const token = claim.object_store.access.token;
     const target = `/claude-sessions/sessions/${claim.session_id}/x`;
     expect((await objectAsk(signed(), token, "get", target)).status).toBe(400);
