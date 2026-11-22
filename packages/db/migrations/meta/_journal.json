@@ -1517,8 +1517,15 @@
     {
       "idx": 307,
       "version": "7",
-      "when": 1795376393620,
-      "tag": "0307_conversation_scopes",
+      "when": 1795376910063,
+      "tag": "0307_slack_drop_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 308,
+      "version": "7",
+      "when": 1795379649285,
+      "tag": "0308_conversation_scopes",
       "breakpoints": true
     }
   ]

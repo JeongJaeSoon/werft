@@ -42,10 +42,13 @@ export const SLACK_INBOUND_DROP_REASON_VALUES = [
   "bot_allowlist_empty",
   // Posted by a bot that is not on the agent's allow list.
   "bot_not_allowed",
-  // Posted as this app's bot user.
+  // Posted by this app: as its bot user, or under another name (an
+  // instruction the outbox posted for its sender) with this app's `app_id`.
   "own_bot_user",
   // Posted by another agent's bot of this Werft install, allowed or not.
   "werft_agent_bot",
+  // Posted by Slackbot (`USLACK`), in a DM or a channel: never a person.
+  "slackbot",
   // A message subtype the channel does not take.
   "message_subtype",
   // An event type the app never subscribes to.
@@ -125,3 +128,15 @@ export type SlackInboundEventStatus =
 export type SlackInboundDropReason =
   (typeof SLACK_INBOUND_DROP_REASON_VALUES)[number];
 export type SlackEventCallback = z.infer<typeof slackEventCallbackSchema>;
+
+/**
+ * Who posted a dropped event and what kind it was, so a drop can be told
+ * apart afterwards. Never text, blocks, attachments or files.
+ */
+export type SlackInboundDropFields = {
+  bot_id?: string;
+  app_id?: string;
+  user?: string;
+  subtype?: string;
+  message?: { subtype: string };
+};
