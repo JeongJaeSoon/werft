@@ -35,7 +35,7 @@ const cookieOptions = {
 
 /**
  * The state rides in an HttpOnly cookie scoped to the callback and bound to
- * the person who started, the App connection whose client it was issued for
+ * the person who started, the App connection whose client it was issued for,
  * and its expiry, which the callback checks.
  */
 export function issueGitHubLinkState(
