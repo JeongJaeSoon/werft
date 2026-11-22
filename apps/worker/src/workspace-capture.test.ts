@@ -1017,6 +1017,16 @@ exit 91`);
       });
     });
 
+    test("leaves an untracked FIFO out instead of reading or refusing it", async () => {
+      await commitFiles({ "a.txt": "a\n" });
+      Bun.spawnSync(["mkfifo", join(root, "pipe")]);
+      await writeFile(join(root, "plain"), "x\n");
+
+      const result = await captured();
+
+      expect(result.untracked.map(({ path }) => path)).toEqual(["plain"]);
+    });
+
     test("refuses untracked files over the byte budget", async () => {
       await commitFiles({ "a.txt": "a\n" });
       await writeFile(join(root, "x"), "12345");
