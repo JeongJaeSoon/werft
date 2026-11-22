@@ -3,7 +3,7 @@ import type { ApiErrorCode } from "@werft-ai/contracts";
 import type { Locale } from "../../messages/index.ts";
 
 /**
- * 오류는 원문 대신 "할 일"을 먼저 말한다 (02 UX 설계 §9). The server message is
+ * 오류는 원문 대신 "할 일"을 먼저 말한다. The server message is
  * kept as the secondary line; this is what the reader acts on.
  */
 export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {

@@ -85,8 +85,8 @@ export const liveAdminTeamMember = () =>
  * True where `userId` administers `agentId` in `workspaceId`: an admin row of
  * their own, a live admin team they are a live member of, or the lead of the
  * agent's live managing team. Team membership is read here, at the decision,
- * never cached (design 4.7). Whether the person is still a live member of the
- * workspace is the caller's to join.
+ * never cached. Whether the person is still a live member of the workspace is
+ * the caller's to join.
  */
 export function administers(
   db: Database,

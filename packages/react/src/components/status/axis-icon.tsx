@@ -12,7 +12,7 @@ import type { StatusAxis } from "./vocabulary.ts";
 
 /*
  * Every axis gets its own silhouette, so two labels that happen to share a tone
- * are still told apart without reading the colour (§4.1, §6 dual encoding).
+ * are still told apart without reading the colour (dual encoding).
  */
 const SHAPE: Record<StatusAxis, LucideIcon> = {
   // A dot, not the turn's play mark: a session at rest must not read as playing.

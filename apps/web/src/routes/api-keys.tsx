@@ -262,8 +262,8 @@ export function expiryState(
 }
 
 /**
- * The agents an agent's admin may bind a key to (design 4.1). Owners and
- * admins bind to any agent and search for it instead, so they read none.
+ * The agents an agent's admin may bind a key to. Owners and admins bind to any
+ * agent and search for it instead, so they read none.
  */
 function useAdministeredAgents() {
   const { client } = useWerft();
@@ -276,8 +276,8 @@ function useAdministeredAgents() {
 
 /**
  * Whether this person issues agent keys at all: an owner or admin for every
- * agent, an agent's admin for that agent (design 4.1). While the agents load
- * it is not yet known, and the agent tab stays out of the way.
+ * agent, an agent's admin for that agent. While the agents load it is not yet
+ * known, and the agent tab stays out of the way.
  */
 function useIssuesAgentKeys(): boolean {
   const everyAgent = useHasPermission("api_key.manage");
@@ -362,10 +362,10 @@ function KeyScreenNav({
 }
 
 /**
- * API keys (design 4.2), one tab per kind laid out like GitHub's tokens:
- * a narrow list, a separate page to make one, the secret shown once. A
- * personal key acts as the person who made it and stops with them; an agent
- * key belongs to one agent and keeps working after its issuer leaves.
+ * API keys, one tab per kind laid out like GitHub's tokens: a narrow list, a
+ * separate page to make one, the secret shown once. A personal key acts as the
+ * person who made it and stops with them; an agent key belongs to one agent and
+ * keeps working after its issuer leaves.
  */
 function KeysScreen({ kind }: { readonly kind: KeyKind }) {
   const { t } = useI18n();

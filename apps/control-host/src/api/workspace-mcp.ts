@@ -29,8 +29,8 @@ const entriesOf = (raw: string | undefined): string[] =>
 
 /**
  * The egress proxy's credential allowlists as the api is given them: a
- * workspace server's host:port must be on one (decision 4). Null when
- * neither is set, and then no workspace server can be registered.
+ * workspace server's host:port must be on one. Null when neither is set, and
+ * then no workspace server can be registered.
  */
 export type WorkspaceMcpHosts = {
   credential: readonly string[];

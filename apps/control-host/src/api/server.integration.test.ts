@@ -444,8 +444,8 @@ integration("API server on PostgreSQL", () => {
         });
         expect(forged.status).toBe(401);
 
-        // The server listens before its first catalog read; a session asked
-        // for in between finds no connection (94S-1619).
+        // The server listens before its first catalog read; a session asked for
+        // in between finds no connection.
         expect(
           await Promise.race([
             stdout.catalogLoaded,

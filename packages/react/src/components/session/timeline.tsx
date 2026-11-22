@@ -117,9 +117,8 @@ export function timelineKind(
   }
 }
 
-// Console v4 `.ev .who`: the agent and its tools blue, what waits on a
-// person amber, the rest neutral. A failure stays red (lead decision C6),
-// where v4 draws it amber.
+// Console v4 `.ev .who`: the agent and its tools blue, what waits on a person
+// amber, the rest neutral. A failure stays red, where v4 draws it amber.
 const AGENT_TONE =
   "bg-[var(--werft-tone-progress-bg)] text-[var(--werft-tone-progress-fg)]";
 const KIND_TONE = {

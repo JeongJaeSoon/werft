@@ -31,9 +31,9 @@ import {
 } from "../schema.ts";
 import { administers, insideAgent } from "./administers.ts";
 
-// Session share scopes (design 4.6). Lock order: the people
-// involved (users, then memberships), the session, the named teams, then the
-// share row; the whole order is in requester-locks.ts.
+// Session share scopes. Lock order: the people involved (users, then
+// memberships), the session, the named teams, then the share row; the whole
+// order is in requester-locks.ts.
 
 const uuidOrNull = (value: string | null) =>
   value !== null && UUID.test(value) ? value.toLowerCase() : null;
@@ -65,9 +65,8 @@ function sharedWith(viewer: SessionViewer): SQL[] {
   ];
 }
 
-// Turn 1's actor, which a takeover leaves alone; created_by_user_id where
-// turn 1 names no one (rows from before #427). Qualified by hand: turns has
-// an id of its own.
+// Turn 1's actor, which a takeover leaves alone; created_by_user_id where turn
+// 1 names no one (older rows). Qualified by hand: turns has an id of its own.
 const starter = sql`coalesce((SELECT t.actor_id FROM ${turns} t WHERE t.session_id = ${sessions}.id AND t.sequence = 1), ${sessions}.created_by_user_id)`;
 
 // relation=started: the caller started the session, whoever holds it now.

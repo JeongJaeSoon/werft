@@ -152,7 +152,7 @@ function recordFrom(
   };
 }
 
-/** The provider row under the lock every change to it takes (design 5.6). */
+/** The provider row under the lock every change to it takes. */
 async function lockedProvider(tx: Database, id: string): Promise<Row | null> {
   const [row] = await tx
     .select()
@@ -707,9 +707,9 @@ export function createPostgresLoginProviderAdminStore(
 
     disable(input) {
       return db.transaction(async (tx) => {
-        // For update, and ahead of the provider row (design 5.6): two
-        // providers going off at once, or one going off as passwords are
-        // closed, queue here and the later one counts what is left.
+        // For update, and ahead of the provider row: two providers going off at
+        // once, or one going off as passwords are closed, queue here and the
+        // later one counts what is left.
         const settings = await lockLoginSettings(tx, "update");
         const row = await lockedProvider(tx, input.id);
         if (!row) return { outcome: "not_found" as const };
@@ -817,11 +817,11 @@ export function createPostgresLoginProviderAdminStore(
 }
 
 /**
- * The operator CLI's way in when sign-in through a provider is broken
- * (design 9.3): turns one provider off, or all of them, and ends their
- * sessions. If passwords are closed and this leaves no provider on, they
- * are opened first, in the same transaction, so the installation is never
- * left with nobody but the emergency admin able to sign in.
+ * The operator CLI's way in when sign-in through a provider is broken: turns
+ * one provider off, or all of them, and ends their sessions. If passwords are
+ * closed and this leaves no provider on, they are opened first, in the same
+ * transaction, so the installation is never left with nobody but the emergency
+ * admin able to sign in.
  */
 export async function disableLoginProvidersAsOperator(
   db: Database,

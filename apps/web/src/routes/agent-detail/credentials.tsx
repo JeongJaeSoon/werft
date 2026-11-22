@@ -65,10 +65,10 @@ export function credentialBindingsQuery(client: ApiClient, agentId: string) {
 }
 
 /**
- * The credential names an agent may use (design 4.4, D11). There is no
- * free-text field on purpose: a lowercase token pasted as a "name" would pass
- * the name pattern and reach the cache and the screen. Only names the cards
- * or the server already hold can be bound.
+ * The credential names an agent may use. There is no free-text field on
+ * purpose: a lowercase token pasted as a "name" would pass the name pattern and
+ * reach the cache and the screen. Only names the cards or the server already
+ * hold can be bound.
  */
 export function Credentials({
   detail,

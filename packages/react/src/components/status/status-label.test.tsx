@@ -34,7 +34,7 @@ describe("StatusLabel", () => {
 
     expect(admission?.getAttribute("data-axis")).toBe("admission");
     expect(turn?.getAttribute("data-axis")).toBe("turn");
-    // Different axes must not collapse into one badge (§4.1).
+    // Different axes must not collapse into one badge.
     expect(admission?.getAttribute("data-tone")).toBe("caution");
     expect(turn?.getAttribute("data-tone")).toBe("attention");
     expect(admission?.querySelector("svg")).not.toBeNull();

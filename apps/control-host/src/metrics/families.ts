@@ -5,7 +5,7 @@ import { ENDED_ADMISSION_STATES } from "@werft-ai/contracts";
 import type { PlatformMetricsSnapshot } from "@werft-ai/db";
 import { publicStatus } from "@werft-ai/platform";
 
-/** The one place the metric prefix is set (94S-1101, decision d95). */
+/** The one place the metric prefix is set. */
 export const METRIC_PREFIX = "werft";
 
 /** Upper bounds of the turn-duration histogram; the turn time defaults to 3600 s. */

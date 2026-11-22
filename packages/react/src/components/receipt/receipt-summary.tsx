@@ -177,7 +177,7 @@ export interface ReceiptSummaryProps {
 
 /**
  * Draws the receipt the server returned. It never infers a status: 접수(accepted)
- * is not completion, and `unknown` stays `unknown` (§1, §4.1).
+ * is not completion, and `unknown` stays `unknown`.
  */
 export function ReceiptSummary({
   operation,

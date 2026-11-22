@@ -147,8 +147,8 @@ async function setAccess(
     accessRefusal,
   );
   return decided(async (tx) => {
-    // Ahead of the user rows (design 5.6): naming another emergency admin
-    // waits for this, and this sees who it named.
+    // Ahead of the user rows: naming another emergency admin waits for this,
+    // and this sees who it named.
     const settings = await lockLoginSettings(tx, "share");
     // Lock order: user, then membership, then web session. The user rows
     // come first even when only a membership changes: re-checked after a
@@ -276,8 +276,8 @@ async function setAccess(
     if ((current !== null) === disabled) {
       return { outcome: "unchanged", member: memberRecord(target) };
     }
-    // Whichever scope: either would leave nobody to sign in with a
-    // password once passwords are closed (design 9.2).
+    // Whichever scope: either would leave nobody to sign in with a password
+    // once passwords are closed.
     if (disabled && settings.emergencyAdminUserId === userId) {
       return { outcome: "emergency_admin" };
     }

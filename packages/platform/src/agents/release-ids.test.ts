@@ -198,7 +198,7 @@ describe("deriveReleaseId", () => {
   });
 
   test("a release made from a card with a tone still verifies once read", () => {
-    // As written before 94S-761: the stored card, tone included, is hashed.
+    // As an older release stored it: the stored card, tone included, is hashed.
     const storedCard = { ...card, tone: "공손하게" };
     const storedSha = cardContentSha256(storedCard as AgentCard);
     const resolved = resolveReleaseContent(card, run);

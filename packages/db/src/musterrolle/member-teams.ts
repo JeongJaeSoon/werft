@@ -47,9 +47,9 @@ import {
 } from "../schema.ts";
 import { writeSucceededReceipt } from "../succeeded-receipt.ts";
 
-// Teams (design 4.7). Lock order, everywhere here: the people
-// involved (users, then memberships, in user_id order), the team, then team
-// member rows — the order the rest of the identity writes take.
+// Teams. Lock order, everywhere here: the people involved (users, then
+// memberships, in user_id order), the team, then team member rows — the order
+// the rest of the identity writes take.
 
 // Team lists page by (name, id), so a team renamed mid-walk can show again
 // or not at all; the rest show exactly once.
@@ -121,7 +121,7 @@ function joinedTeams(
     );
 }
 
-// D23: changing a team is the workspace's managers' alone.
+// Changing a team is the workspace's managers' alone.
 const TEAM_MANAGERS: readonly string[] = MANAGEMENT_ROLES["team.manage"] ?? [];
 
 type TeamOperation =

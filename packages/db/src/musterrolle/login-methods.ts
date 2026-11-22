@@ -26,10 +26,9 @@ import {
 } from "./login-settings.ts";
 
 /**
- * Links the external account to the user of the session the link was
- * started from (design 6.4). The provider's word is who the account is;
- * its address is not read. Locks run subject, provider row, user, login
- * methods (design 5.6).
+ * Links the external account to the user of the session the link was started
+ * from. The provider's word is who the account is; its address is not read.
+ * Locks run subject, provider row, user, login methods.
  */
 async function linkLoginMethod(
   db: Database,
@@ -174,28 +173,28 @@ async function listLoginMethods(
 }
 
 /**
- * Removes one of the user's ways to sign in, unless none they could use
- * would be left (design 6.4). The sessions made with it end in the same
- * transaction, and a password goes with its method: a password sign-in
- * reads the hash, not the method row.
+ * Removes one of the user's ways to sign in, unless none they could use would
+ * be left. The sessions made with it end in the same transaction, and a
+ * password goes with its method: a password sign-in reads the hash, not the
+ * method row.
  *
  * Only for the session that asks, read again under the user lock and once
  * more after the last wait: still live, and still within the age a change
  * is allowed from.
  *
- * The providers that are on are held FOR SHARE first (design 5.6: provider
- * rows come before the user row), so the count of what is left cannot be
- * undone by a provider being turned off while this runs. The user row is
- * the line a sign-in with the method stands in: it comes first and this
- * ends its session, or it comes second and finds no method.
+ * The providers that are on are held FOR SHARE first (provider rows come before
+ * the user row), so the count of what is left cannot be undone by a provider
+ * being turned off while this runs. The user row is the line a sign-in with the
+ * method stands in: it comes first and this ends its session, or it comes
+ * second and finds no method.
  */
 async function unlinkLoginMethod(
   db: Database,
   input: UnlinkLoginMethodInput,
 ): Promise<UnlinkLoginMethodResult> {
   return db.transaction(async (tx) => {
-    // Ahead of the provider rows (design 5.6). Closing passwords and naming
-    // an emergency admin wait for this; this counts by what they left.
+    // Ahead of the provider rows. Closing passwords and naming an emergency
+    // admin wait for this; this counts by what they left.
     const settings = await lockLoginSettings(tx, "share");
     const on = await tx
       .select({ issuer: loginProviders.issuer })
@@ -226,7 +225,7 @@ async function unlinkLoginMethod(
       .for("update");
     const target = methods.find((method) => method.id === input.loginMethodId);
     if (!target) return { outcome: "not_found" };
-    // The emergency admin is whoever still has a password (design 9.2).
+    // The emergency admin is whoever still has a password.
     if (
       target.kind === "password" &&
       settings.emergencyAdminUserId === input.userId

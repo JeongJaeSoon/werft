@@ -92,9 +92,9 @@ export async function countLiveOwners(db: Database): Promise<number> {
 /**
  * First owner + default workspace on an empty install; once users exist and
  * no live owner remains, the owner is added to (or restored in) the existing
- * workspace instead and every session in it ends (03 §3.1: one workspace).
- * The advisory lock serialises racing installers; the owner count is re-read
- * under it so the loser gets BootstrapDoneError, not a unique violation.
+ * workspace instead and every session in it ends (one workspace). The advisory
+ * lock serialises racing installers; the owner count is re-read under it so the
+ * loser gets BootstrapDoneError, not a unique violation.
  */
 export async function bootstrapOwner(
   db: Database,
@@ -107,7 +107,7 @@ export async function bootstrapOwner(
     if ((await countLiveOwners(tx)) > 0) {
       throw new BootstrapDoneError();
     }
-    // Ahead of the invite and user rows (design 5.6); written at the end.
+    // Ahead of the invite and user rows; written at the end.
     await lockLoginSettings(tx, "update");
     const [spent] = await tx
       .delete(setupLinks)
@@ -218,8 +218,8 @@ export async function bootstrapOwner(
         target: [memberships.workspaceId, memberships.userId],
         set: { role: "owner", disabledAt: null },
       });
-    // The only live owner, and one with a password: the emergency admin of
-    // a new installation, and of a recovered one (design 9.2).
+    // The only live owner, and one with a password: the emergency admin of a
+    // new installation, and of a recovered one.
     await tx
       .update(loginSettings)
       .set({ emergencyAdminUserId: user.id, updatedAt: DB_NOW });
@@ -339,7 +339,7 @@ export async function issuePasswordReset(
   input: IssuePasswordResetInput,
 ): Promise<IssuePasswordResetResult> {
   return db.transaction(async (tx) => {
-    // Ahead of the user rows (design 5.6).
+    // Ahead of the user rows.
     const settings = await lockLoginSettings(tx, "share");
     const locked = await tx
       .select({ id: users.id, passwordHash: users.passwordHash })
@@ -403,7 +403,7 @@ export async function issuePasswordReset(
     ) {
       return { outcome: "owner_elsewhere" };
     }
-    // A password nobody may sign in with is not handed out (design 9.1).
+    // A password nobody may sign in with is not handed out.
     if (!passwordOpenTo(settings, input.userId)) {
       return { outcome: "password_closed" };
     }
@@ -454,10 +454,10 @@ export async function issuePasswordReset(
 }
 
 /**
- * The operator CLI's link for an owner (design 9.3). The owner need have no
- * password, and nobody's password vouches for the issue: whoever runs the
- * CLI holds the database. Issuing changes nothing else. The emergency admin
- * is named when the link is used, never here.
+ * The operator CLI's link for an owner. The owner need have no password, and
+ * nobody's password vouches for the issue: whoever runs the CLI holds the
+ * database. Issuing changes nothing else. The emergency admin is named when the
+ * link is used, never here.
  */
 export async function issueOperatorPasswordReset(
   db: Database,
@@ -554,9 +554,9 @@ export async function consumePasswordReset(
     if (!candidate) {
       return null;
     }
-    // The operator CLI's link names its owner the emergency admin as it
-    // sets their password (design 9.3), so it takes the settings for
-    // update; an owner's link only depends on them.
+    // The operator CLI's link names its owner the emergency admin as it sets
+    // their password, so it takes the settings for update; an owner's link only
+    // depends on them.
     const byOperator = candidate.issuedBy === null;
     const settings = await lockLoginSettings(
       tx,
@@ -706,8 +706,8 @@ export async function findUserForLogin(
   return row ?? null;
 }
 
-// One workspace per installation for now (03 §3.1); with several the oldest
-// membership wins so the choice is stable across logins.
+// One workspace per installation for now; with several the oldest membership
+// wins so the choice is stable across logins.
 export async function findLiveMembership(
   db: Database,
   userId: string,
@@ -755,8 +755,8 @@ export async function createWebSession(
   },
 ): Promise<{ expiresAt: Date } | null> {
   return db.transaction(async (tx) => {
-    // Held until the session is in: closing passwords waits for this and
-    // then ends the session with the others (design 9.1).
+    // Held until the session is in: closing passwords waits for this and then
+    // ends the session with the others.
     const settings = await lockLoginSettings(tx, "share");
     if (!passwordOpenTo(settings, input.userId)) {
       return null;
@@ -1019,13 +1019,13 @@ export async function lockSubjectAndProvider(
 }
 
 /**
- * The first-entry rules for an external login (design 3.1, A.7), first
- * match wins: a linked (issuer, subject) signs in as its user; otherwise an
- * address the provider vouches for that already has an account is linked
- * to it (linkByVerifiedEmail), and only an address with no account may be
- * admitted by a live invite or by JIT. Concurrent first logins of one
- * external account are serialised by the advisory lock, so the second one
- * finds the link the first made.
+ * The first-entry rules for an external login, first match wins: a linked
+ * (issuer, subject) signs in as its user; otherwise an address the provider
+ * vouches for that already has an account is linked to it
+ * (linkByVerifiedEmail), and only an address with no account may be admitted by
+ * a live invite or by JIT. Concurrent first logins of one external account are
+ * serialised by the advisory lock, so the second one finds the link the first
+ * made.
  *
  * Locks run subject, then provider row, then email, invite, user, login
  * method, session. The provider row is held FOR SHARE to the end, so
@@ -1161,8 +1161,8 @@ export async function signInWithExternalIdentity(
         role: invite.role as MembershipRole,
       };
     } else {
-      // One workspace per installation (03 §3.1): JIT joins the oldest.
-      // An address the provider does not vouch for joins nothing by itself.
+      // One workspace per installation: JIT joins the oldest. An address the
+      // provider does not vouch for joins nothing by itself.
       const jitRole = input.ownsEmail ? input.jitRole : null;
       const [workspace] = jitRole
         ? await tx
@@ -1248,11 +1248,11 @@ export async function signInWithExternalIdentity(
 class InviteExpiredWhileWaiting extends Error {}
 
 /**
- * A sign-up through a provider by invite token (design 6.5). The invite is
- * what admits: the one the flow was started with, read again under its row
- * lock. The provider's word decides who is signing up, never which address
- * or which account; the first-entry rules of a sign-in are not consulted,
- * so a flow that began from an invite cannot end as an ordinary sign-in.
+ * A sign-up through a provider by invite token. The invite is what admits: the
+ * one the flow was started with, read again under its row lock. The provider's
+ * word decides who is signing up, never which address or which account; the
+ * first-entry rules of a sign-in are not consulted, so a flow that began from
+ * an invite cannot end as an ordinary sign-in.
  *
  * Locks run as in signInWithExternalIdentity: subject, provider row, the
  * invite's address, invite, then the new rows.

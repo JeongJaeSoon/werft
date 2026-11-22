@@ -96,7 +96,7 @@ function ListError({
   );
 }
 
-/** Teams: groups of people an owner or admin manages (design 4.7). */
+/** Teams: groups of people an owner or admin manages. */
 export function TeamsScreen() {
   const { t } = useI18n();
   const { client } = useWerft();
@@ -275,8 +275,8 @@ function TeamPage({ id }: { readonly id: string }) {
 }
 
 /**
- * The pencil beside the team's heading (owner, 2026-11-16): the name in a
- * dialog, so the page holds no form of its own above the members.
+ * The pencil beside the team's heading: the name in a dialog, so the page holds
+ * no form of its own above the members.
  */
 function TeamRenameDialog({ team }: { readonly team: TeamDetail }) {
   const { t } = useI18n();
@@ -357,10 +357,11 @@ function TeamRenameDialog({ team }: { readonly team: TeamDetail }) {
           type="button"
           variant="ghost"
           size="icon-sm"
-          // Under the 14px heading (owner, 2026-11-17): an 8px pencil, about
-          // half the heading's size as GitHub draws its title pencil, in the
-          // faint text colour; a heavier stroke keeps its lines visible. The 20px target meets WCAG 2.5.8 by spacing:
-          // nothing else to press sits within 24px of its centre.
+          // Under the 14px heading: an 8px pencil, about half the heading's
+          // size as GitHub draws its title pencil, in the faint text colour; a
+          // heavier stroke keeps its lines visible. The 20px target meets WCAG
+          // 2.5.8 by spacing: nothing else to press sits within 24px of its
+          // centre.
           className="size-5 shrink-0 text-subtle-foreground focus-visible:text-foreground"
           aria-label={t("teams.rename")}
         >

@@ -43,10 +43,10 @@ import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { type ApiKeyStore, hashApiKey } from "./keys.ts";
 
-// Principal resolution for /v1 (03 §3.2). A bearer key is evaluated alone —
-// a wrong key is never rescued by a cookie — and the cookie path
-// exists only when the app was given a session store. AUTH_MODE=none keeps
-// trusting X-Owner-Id and nothing else, exactly as before this file existed.
+// Principal resolution for /v1. A bearer key is evaluated alone — a wrong key
+// is never rescued by a cookie — and the cookie path exists only when the app
+// was given a session store. AUTH_MODE=none keeps trusting X-Owner-Id and
+// nothing else, exactly as before this file existed.
 
 export const WEB_SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 // A session's expiry slides forward at most this often, so an active tab
@@ -548,7 +548,7 @@ export function createAuthenticator(
 }
 
 // ---------------------------------------------------------------------------
-// CSRF (03 §3.2)
+// CSRF
 // ---------------------------------------------------------------------------
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);

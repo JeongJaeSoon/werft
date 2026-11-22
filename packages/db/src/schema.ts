@@ -225,11 +225,11 @@ const ACTIONS_FOR_RESOURCE_SQL = sql.raw(
 const oneDimensional = (column: unknown) =>
   sql`coalesce(array_ndims(${column}), 1) = 1`;
 
-// Identity (I0-2, 03 §3.1). One workspace per installation for now; every
-// row added by the interface track carries a workspace_id. Vocabularies are
-// CHECK constraints rather than pg enums so that widening one is a plain
-// additive migration. Most take their values from the contracts;
-// RESOURCE_KIND_VALUES and AUDIENCE_KIND_VALUES above are still hand copies.
+// Identity. One workspace per installation for now; every row added by the
+// interface track carries a workspace_id. Vocabularies are CHECK constraints
+// rather than pg enums so that widening one is a plain additive migration. Most
+// take their values from the contracts; RESOURCE_KIND_VALUES and
+// AUDIENCE_KIND_VALUES above are still hand copies.
 export const workspaces = pgTable("workspaces", {
   id: uuid().primaryKey(),
   slug: text().notNull().unique(),
@@ -1001,7 +1001,7 @@ export const catalogRepositoryGitHubApps = pgTable(
       onDelete: "set null",
     }),
     appId: bigint("app_id", { mode: "number" }).notNull(),
-    /** `claim`: made by a claim for its commit author (decision D11). */
+    /** `claim`: made by a claim for its commit author. */
     pinnedBy: text("pinned_by")
       .$type<"selection" | "first_mint" | "admin" | "claim">()
       .notNull(),
@@ -1254,9 +1254,9 @@ export const slackInboundEvents = pgTable(
   ],
 );
 
-// A person's account on another service (design A.2): today a Slack user,
-// linked through Sign in with Slack. Rows are revoked, never deleted, so the
-// receipts that name one keep their target; every status change bumps
+// A person's account on another service: today a Slack user, linked through
+// Sign in with Slack. Rows are revoked, never deleted, so the receipts that
+// name one keep their target; every status change bumps
 // `revision`, which a decision made on an older reading compares against.
 export const linkedAccounts = pgTable(
   "linked_accounts",
@@ -2578,11 +2578,11 @@ export const pendingRequests = pgTable(
   ],
 );
 
-// A checkpoint captured while a turn waited on a person (design §6.3 K),
-// committed with the request it covers. It reaches the session pointer only
-// when the execution goes with that wait intact (confirmExecutionGoneAtomic);
-// otherwise the turn's own checkpoint takes its revision and garbage
-// collection removes its objects like any other attempt directory.
+// A checkpoint captured while a turn waited on a person, committed with the
+// request it covers. It reaches the session pointer only when the execution
+// goes with that wait intact (confirmExecutionGoneAtomic); otherwise the turn's
+// own checkpoint takes its revision and garbage collection removes its objects
+// like any other attempt directory.
 export const approvalCheckpoints = pgTable("approval_checkpoints", {
   manifestRef: text("manifest_ref").primaryKey(),
   sessionId: uuid("session_id")
@@ -2960,11 +2960,10 @@ export const sessionRepositoryPins = pgTable(
   ],
 );
 
-// api.md § 승인·중단·강제 종료: a control request the worker has to act on,
-// kept apart from the input FIFO. An interrupt names its turn and the attempt
-// that turn is bound to — a running turn never moves to another attempt — and
-// stays unsettled until that turn reaches a terminal, which settles the
-// receipt in the same transaction.
+// A control request the worker has to act on, kept apart from the input FIFO.
+// An interrupt names its turn and the attempt that turn is bound to — a running
+// turn never moves to another attempt — and stays unsettled until that turn
+// reaches a terminal, which settles the receipt in the same transaction.
 export const controlIntents = pgTable(
   "control_intents",
   {
@@ -3841,8 +3840,8 @@ export const agents = pgTable(
   ],
 );
 
-// An agent's admins (design 4.1): a member gains that agent's management
-// actions. Whoever creates an agent is its first (D3). A team as admin is M13.
+// An agent's admins: a member gains that agent's management actions. Whoever
+// creates an agent is its first. A team as admin comes later.
 export const agentAdmins = pgTable(
   "agent_admins",
   {
@@ -4054,9 +4053,9 @@ export const agentWorkspaceMcpServers = pgTable(
   ],
 );
 
-// The credential a server's calls go with, one per subject (decision 1):
-// only the workspace's own for now. A sign-in in progress is the pending_*
-// columns; its PKCE verifier and the tokens are secrets of owner
+// The credential a server's calls go with, one per subject: only the
+// workspace's own for now. A sign-in in progress is the pending_* columns; its
+// PKCE verifier and the tokens are secrets of owner
 // `workspace_mcp:<server id>:<subject>`.
 export const workspaceMcpConnections = pgTable(
   "workspace_mcp_connections",
@@ -4263,8 +4262,8 @@ export const agentPullRequestSettings = pgTable(
   ],
 );
 
-// A group of people in a workspace (design 4.7). Named apart from the
-// session teams Lotse will add.
+// A group of people in a workspace. Named apart from the session teams Lotse
+// will add.
 export const memberTeams = pgTable(
   "member_teams",
   {
@@ -4524,9 +4523,9 @@ export const agentCallerLimits = pgTable(
   ],
 );
 
-// Who sees a session (design 4.6). No row reads as `workspace`, which is
-// what every session made before this table, and every web, API and channel
-// session since, starts as.
+// Who sees a session. No row reads as `workspace`, which is what every session
+// made before this table, and every web, API and channel session since, starts
+// as.
 export const sessionShares = pgTable(
   "session_shares",
   {
@@ -4603,9 +4602,9 @@ export const sessionShareTargets = pgTable(
   ],
 );
 
-// "This Slack app and bot is this agent" (design A.2, M8). App and team are
-// the install's; the bot user is pinned here, so a reinstall that answers as
-// another bot resolves to no one until linked again.
+// "This Slack app and bot is this agent". App and team are the install's; the
+// bot user is pinned here, so a reinstall that answers as another bot resolves
+// to no one until linked again.
 export const agentIdentities = pgTable(
   "agent_identities",
   {
@@ -4662,11 +4661,11 @@ export const agentIdentities = pgTable(
   ],
 );
 
-// How an agent answers in one place of a chat surface (03 §5, 94S-177): a
-// Slack channel of its app's install, or that install's DMs, which share one
-// row with no channel id. Rows are revoked, never deleted; a write replaces
-// the row and bumps `revision`. The install is the agent's own: the store
-// takes it from the agent's live identity.
+// How an agent answers in one place of a chat surface: a Slack channel of its
+// app's install, or that install's DMs, which share one row with no channel id.
+// Rows are revoked, never deleted; a write replaces the row and bumps
+// `revision`. The install is the agent's own: the store takes it from the
+// agent's live identity.
 export const surfaceBindings = pgTable(
   "surface_bindings",
   {
@@ -4983,8 +4982,8 @@ export const sessionLinks = pgTable(
 );
 
 // What the `slack` role sends: a linked turn's answer, its failure or input
-// notice, and refusals. A row whose send was under way when its lease ran
-// out becomes `uncertain` and is never sent again (design 94S-792).
+// notice, and refusals. A row whose send was under way when its lease ran out
+// becomes `uncertain` and is never sent again.
 export const slackOutbox = pgTable(
   "slack_outbox",
   {
@@ -5018,9 +5017,9 @@ export const slackOutbox = pgTable(
       .defaultNow(),
     // Send order: rows enqueued within one clock tick still go in order.
     seq: bigserial({ mode: "number" }).notNull(),
-    // A sent card's redraws once its request moves on (design
-    // slack-approval-ui §4): `due` to redraw, `settled` once an end state
-    // went out, `abandoned` when Slack will take no more edits.
+    // A sent card's redraws once its request moves on:
+    // `due` to redraw, `settled` once an end state went out, `abandoned` when
+    // Slack will take no more edits.
     settleState: text("settle_state"),
     /** What the posted card shows now: `open`, `reject_only` or an end state. */
     settleRendered: text("settle_rendered"),
@@ -5128,9 +5127,9 @@ export const slackThreadStatus = pgTable(
   ],
 );
 
-// The name of a credential an agent may use, never its value (design 4.4,
-// D11). A row is revoked, not deleted, so a later session start sees the
-// binding is gone while the receipt keeps who bound it.
+// The name of a credential an agent may use, never its value. A row is revoked,
+// not deleted, so a later session start sees the binding is gone while the
+// receipt keeps who bound it.
 export const credentialBindings = pgTable(
   "credential_bindings",
   {
@@ -5140,8 +5139,8 @@ export const credentialBindings = pgTable(
       .references(() => workspaces.id),
     credentialRef: text("credential_ref").notNull(),
     target: text().notNull(),
-    // An agent or an agent identity; the identity table comes later (M8),
-    // so the target has no foreign key and the store checks it exists.
+    // An agent or an agent identity; the identity table comes later, so the
+    // target has no foreign key and the store checks it exists.
     targetId: uuid("target_id").notNull(),
     boundBy: uuid("bound_by")
       .notNull()
@@ -6100,9 +6099,9 @@ export const providerConnections = pgTable(
 );
 
 /**
- * Remote MCP servers an agent card may name (§1). `url`, `credential_ref`
- * and the credential go into a session's MCP binding or its route, so they
- * never change; only the workspaces allowed to use one may.
+ * Remote MCP servers an agent card may name. `url`, `credential_ref` and the
+ * credential go into a session's MCP binding or its route, so they never
+ * change; only the workspaces allowed to use one may.
  */
 export const mcpServers = pgTable(
   "mcp_servers",

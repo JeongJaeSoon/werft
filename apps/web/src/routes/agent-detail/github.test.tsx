@@ -862,7 +862,7 @@ describe("에이전트 GitHub 탭", () => {
         expected_revision: null,
         settings: defaults,
         start_repository_id: null,
-        // What a first save starts from (owner decision D6).
+        // What a first save starts from.
         push_attached: "allow",
       },
     ]);

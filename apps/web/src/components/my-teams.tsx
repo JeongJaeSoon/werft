@@ -19,8 +19,8 @@ import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
 import { SECTION_BODY } from "./section-body.ts";
 
 /**
- * The teams the viewer is in, each linking to its page: a team's members
- * read it, and only managers change it (D23).
+ * The teams the viewer is in, each linking to its page: a team's members read
+ * it, and only managers change it.
  */
 export function MyTeams({
   showEmpty,
