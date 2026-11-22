@@ -112,7 +112,7 @@ function withoutTrailing(authority: string): string {
   return authority.slice(0, cut);
 }
 
-function hostsOf(text: string): Set<string> {
+function hostsInText(text: string): Set<string> {
   const hosts = new Set<string>();
   const add = (host: string) =>
     hosts.add(host.toLowerCase().replace(/\.$/, ""));
@@ -139,6 +139,74 @@ function hostsOf(text: string): Set<string> {
         const host = parsedHost(scheme, line.replace(/[\t\r]/g, ""));
         if (host !== null) add(host);
       }
+    }
+  }
+  return hosts;
+}
+
+// The character references a link most plausibly spells a URL with; any
+// other one stays as written, and "&" or "#" in a host is a new host anyway.
+const NAMED: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  commat: "@",
+  sol: "/",
+  bsol: "\\",
+  colon: ":",
+  period: ".",
+  num: "#",
+  quest: "?",
+  percnt: "%",
+  lpar: "(",
+  rpar: ")",
+  lsqb: "[",
+  rsqb: "]",
+  nbsp: "\u{A0}",
+  Tab: "\t",
+  NewLine: "\n",
+};
+const ENTITY = /&(?:#(\d{1,7})|#[xX]([\da-fA-F]{1,6})|([A-Za-z]+));/g;
+const ESCAPE = /\\([!-/:-@[-`{-~])/g;
+const ATTRIBUTE = /=[^\S\n]*(?:"([^"]*)"|'([^']*)')/g;
+
+const decodeEntities = (text: string): string =>
+  text.replace(ENTITY, (whole, dec?: string, hex?: string, name?: string) => {
+    if (name !== undefined) return NAMED[name] ?? whole;
+    const code =
+      dec !== undefined ? Number(dec) : Number.parseInt(hex ?? "", 16);
+    return code > 0 && code <= 0x10ffff
+      ? String.fromCodePoint(code)
+      : "\u{FFFD}";
+  });
+
+/**
+ * Hosts a URL in the text reaches as a reader of the file sees it: the
+ * text as written, as CommonMark renders it (backslash escapes and character
+ * references resolved), and each quoted HTML attribute value that is a URL,
+ * with tabs and line ends dropped and references resolved as a browser does.
+ * Each view only adds hosts. URLs a script assembles, other encodings and
+ * plain text broken across lines are not read.
+ */
+function hostsOf(text: string): Set<string> {
+  const hosts = hostsInText(text);
+  const rendered = decodeEntities(text.replace(ESCAPE, "$1"));
+  if (rendered !== text)
+    for (const host of hostsInText(rendered)) hosts.add(host);
+  for (const [, double, single] of text.matchAll(ATTRIBUTE)) {
+    const value = decodeEntities(
+      (double ?? single ?? "").replace(/[\t\n\r]/g, ""),
+    )
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: a browser strips C0 and space around a URL
+      .replace(/^[\u{0}-\u{20}]+|[\u{0}-\u{20}]+$/gu, "");
+    const url = value.startsWith("//") ? `https:${value}` : value;
+    if (!/^https?:/i.test(url)) continue;
+    try {
+      hosts.add(new URL(url).hostname.toLowerCase().replace(/\.$/, ""));
+    } catch {
+      // Not a URL a browser follows.
     }
   }
   return hosts;

@@ -240,6 +240,35 @@ describe("what a check cannot be talked out of", () => {
     expect(hostOf("[Docs](https://known.example)")).toBeUndefined();
     expect(hostOf("https://known.example\n\nNotes")).toBeUndefined();
     expect(hostOf("https://known.example\n@evil.example/")).toBeUndefined();
+    // Read as CommonMark renders it: a backslash escape or a character
+    // reference does not hide the host.
+    for (const text of [
+      "[x](https://known.example\\@evil.example/)",
+      "[x](https://known.example&#64;evil.example/)",
+      "[x](https://known.example&#x40;evil.example/)",
+      "[x](https://known.example&commat;evil.example/)",
+    ]) {
+      expect(hostOf(text)).toContain("evil.example");
+    }
+    // An HTML attribute value is read as a browser reads it: tabs and line
+    // ends dropped, references resolved.
+    for (const [text, host] of [
+      [
+        '<a href="https://known.example\n.evil.example/">Docs</a>',
+        "known.example.evil.example",
+      ],
+      ['<a href="ht\ttps://evil.example/">Docs</a>', "evil.example"],
+      [
+        "<a href='https://known.example&#64;evil.example/'>Docs</a>",
+        "evil.example",
+      ],
+      ['<img src=" //evil.example/x.png">', "evil.example"],
+    ] as const) {
+      expect(hostOf(text)).toContain(host);
+    }
+    expect(
+      hostOf('<a href="https://known.example/docs">Docs</a> and <b class="x">'),
+    ).toBeUndefined();
     // A quote or punctuation the parser keeps in the host is a new host.
     for (const text of [
       "https://known.example'evil.example/",
