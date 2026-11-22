@@ -914,6 +914,7 @@ describe("worker protocol", () => {
       object_store: {
         access: { kind: "egress_token", token: "object-store-token" },
       },
+      packages: { access: { kind: "egress_token", token: "p".repeat(32) } },
       principal: { owner_scope: "owner_1" },
       restore: null,
       remaining_budget_usd: 12.5,

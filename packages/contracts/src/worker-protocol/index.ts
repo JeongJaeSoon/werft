@@ -649,8 +649,7 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   // prefix for as long as the attempt owns the session.
   object_store: z.object({ access: egressTokenAuthSchema }).strict(),
   // The packages route's capability: public package registries, read
-  // through the egress proxy with no credential. Absent from an older API;
-  // a worker then points no package manager at the route.
+  // through the egress proxy with no credential.
   // `github` names the GitHub Packages owners the workspace allows, so the
   // worker can point their npm scopes and gem sources at the route; whether
   // a request is allowed is still the authorizer's to decide.
@@ -665,8 +664,7 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
         .strict()
         .optional(),
     })
-    .strict()
-    .optional(),
+    .strict(),
   principal: claimPrincipalSchema,
   restore: checkpointRefSchema.nullable(),
   // Present when the session's checkpoints up to `restore` were committed

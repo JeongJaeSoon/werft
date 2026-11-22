@@ -12,6 +12,7 @@ describe("claimSecrets", () => {
       },
       workspace: { repository: {} },
       object_store: { access: { token: "weo_1" } },
+      packages: { access: { token: "packages-token" } },
     } as unknown as BootstrapClaimResponse;
     expect(claimSecrets(claim, "nonce")).toContain("wem_1");
   });
@@ -27,6 +28,7 @@ describe("claimSecrets", () => {
         ],
       },
       object_store: { access: { token: "weo_1" } },
+      packages: { access: { token: "packages-token" } },
     } as unknown as BootstrapClaimResponse;
     expect(claimSecrets(claim, "nonce")).toContain("wer_1");
   });

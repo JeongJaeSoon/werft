@@ -217,7 +217,7 @@ export type WorkerHostOptions = {
   repositoryRoutes?: (workspace: WorkspaceDescriptor) => Promise<boolean>;
   /** Points the engine's package managers at the claim's packages route. */
   packageManagers?: (
-    token: string | undefined,
+    token: string,
     github?: { npm: string[]; rubygems: string[] },
     /** Go module paths fetched through the repository route (`GOPRIVATE`). */
     privateModules?: readonly string[],
@@ -755,8 +755,8 @@ export class WorkerHost {
     // private with no route to it would go to github.com directly.
     await this.options
       .packageManagers?.(
-        claim.packages?.access.token,
-        claim.packages?.github,
+        claim.packages.access.token,
+        claim.packages.github,
         routed ? goPrivateModules(claim.workspace) : [],
       )
       .catch((error: unknown) =>

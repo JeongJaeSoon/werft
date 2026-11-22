@@ -100,6 +100,9 @@ describe("HttpWorkerGatewayClient", () => {
         object_store: {
           access: { kind: "egress_token", token: "weo_object-store" },
         },
+        packages: {
+          access: { kind: "egress_token", token: "p".repeat(32) },
+        },
         principal: { owner_scope: "owner-a" },
         restore: null,
         remaining_budget_usd: 25,

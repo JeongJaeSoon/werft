@@ -1,4 +1,4 @@
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 /**
@@ -87,29 +87,23 @@ export function packageManagerFiles(
   };
 }
 
-/**
- * Writes this claim's package manager configuration, or removes it when the
- * claim carries no packages token (an API from before the route): a
- * configuration left pointing at the route would only fail every install.
- */
+/** Writes this claim's package manager configuration under HOME. */
 export async function writePackageManagerConfig(
   home: string,
   credentialUrl: string,
-  token: string | undefined,
+  token: string,
   github?: GitHubOwners,
   privateModules: readonly string[] = [],
 ): Promise<void> {
-  const contents =
-    token === undefined
-      ? null
-      : packageManagerFiles(credentialUrl, token, github, privateModules);
+  const contents = packageManagerFiles(
+    credentialUrl,
+    token,
+    github,
+    privateModules,
+  );
   for (const [manager, relative] of Object.entries(PACKAGE_MANAGER_FILES)) {
     const path = join(home, relative);
-    const content = contents?.[manager as keyof typeof PACKAGE_MANAGER_FILES];
-    if (content === undefined) {
-      await rm(path, { force: true });
-      continue;
-    }
+    const content = contents[manager as keyof typeof PACKAGE_MANAGER_FILES];
     await mkdir(dirname(path), { recursive: true });
     const staged = `${path}.${process.pid}.tmp`;
     // The token is attempt-scoped, but still nobody else's to read.
