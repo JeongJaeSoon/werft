@@ -77,12 +77,24 @@ export async function migrateDatabase(
     const adopted = await adoptLegacyM0Schema(pool, migrationsFolder);
     const before = await countJournal(pool);
     const client = await pool.connect();
+    // A migration's RAISE NOTICE is what it reports to the operator; the
+    // server's own notices ("… does not exist, skipping") are not.
+    const notice = (message: {
+      message: string | undefined;
+      where?: string | undefined;
+    }) => {
+      if (!message.where?.includes("at RAISE")) return;
+      // Not `message`: the logger drops a field named like a message body.
+      logger.info("db.migrate.notice", { notice: message.message ?? "" });
+    };
+    client.on("notice", notice);
     try {
       await applyPendingMigrations(
         client,
         readMigrationFiles({ migrationsFolder }),
       );
     } finally {
+      client.off("notice", notice);
       client.release();
     }
     const total = await countJournal(pool);

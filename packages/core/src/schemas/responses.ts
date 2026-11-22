@@ -14,7 +14,6 @@ import {
   agentEnvVariablesSchema,
   agentGitHubActivityResponseSchema,
   agentGitHubResponseSchema,
-  agentMcpResponseSchema,
   agentPullRequestResponseSchema,
   agentSkillListSchema,
   agentUsageSchema,
@@ -101,7 +100,6 @@ import {
   listSessionOutputsResponseSchema,
   listSessionsResponseSchema,
   listSettingsConnectionsResponseSchema,
-  listSettingsMcpServersResponseSchema,
   listSlackBindingsResponseSchema,
   listTakeoversResponseSchema,
   listTeamsResponseSchema,
@@ -126,7 +124,6 @@ import {
   putAgentGitHubEnabledResponseSchema,
   putAgentGitHubRepositoryAccessResponseSchema,
   putAgentGitHubSettingsResponseSchema,
-  putAgentMcpSettingsResponseSchema,
   putAgentPullRequestSettingsResponseSchema,
   putAgentUsageResponseSchema,
   putAgentWorkspaceMcpServersResponseSchema,
@@ -311,8 +308,6 @@ export const responseSchemas = {
   "PUT /v1/agents/{id}/github/settings": putAgentGitHubSettingsResponseSchema,
   "PUT /v1/agents/{id}/github/repository-access":
     putAgentGitHubRepositoryAccessResponseSchema,
-  "GET /v1/agents/{id}/mcp/settings": agentMcpResponseSchema,
-  "PUT /v1/agents/{id}/mcp/settings": putAgentMcpSettingsResponseSchema,
   "GET /v1/agents/{id}/mcp/workspace-servers":
     agentWorkspaceMcpServerListSchema,
   "PUT /v1/agents/{id}/mcp/workspace-servers":
@@ -527,15 +522,6 @@ export const responseSchemas = {
   "POST /v1/installation/settings/connections/{id}/disable":
     settingsChangeResponseSchema,
   "POST /v1/installation/settings/connections/{id}/enable":
-    settingsChangeResponseSchema,
-  "GET /v1/installation/settings/mcp-servers":
-    listSettingsMcpServersResponseSchema,
-  "POST /v1/installation/settings/mcp-servers": settingsChangeResponseSchema,
-  "PATCH /v1/installation/settings/mcp-servers/{id}":
-    settingsChangeResponseSchema,
-  "POST /v1/installation/settings/mcp-servers/{id}/credential":
-    settingsChangeResponseSchema,
-  "POST /v1/installation/settings/mcp-servers/{id}/disable":
     settingsChangeResponseSchema,
   "POST /v1/installation/settings/repositories/{id}/credential":
     settingsChangeResponseSchema,

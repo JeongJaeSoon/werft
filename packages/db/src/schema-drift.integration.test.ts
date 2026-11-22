@@ -59,6 +59,9 @@ const MIGRATIONS_ONLY = [
   "function authz_decisions_refuse_update() trigger language plpgsql volatility=v parallel=u body md5 f3f5febb7e684f1ec6da6675a5dc196c",
   // 0225: every installation settings write raises the one generation.
   "function bump_settings_generation() trigger language plpgsql volatility=v parallel=u body md5 ac57fd6125a65fb817be211cdd37b454",
+  // 0304: the installation catalog MCP is retired; its rows, selections and
+  // the cards naming it are refused.
+  "function card_names_catalog_mcp(card jsonb) boolean language sql volatility=i parallel=u body md5 9295a5cc33c6e789f4e9a3fbec017c13",
   // 0201: counters kept by statement triggers, so /metrics and the usage
   // panel read a few rows instead of aggregating their source tables.
   "function checkpoint_output_objects_add() trigger language plpgsql volatility=v parallel=u set enable_seqscan=off body md5 12b46065dfe5eb5ef1ee314816133e71",
@@ -82,6 +85,7 @@ const MIGRATIONS_ONLY = [
   "function push_requests_carried_binding() trigger language plpgsql volatility=v parallel=u body md5 1465c4cb3cdcbef3ad8805665fceb678",
   // 0000: the queue's admission count.
   "function queue_unassigned_session_count() double precision language sql volatility=s parallel=u body md5 77ab23e0fa3455549b846ff0e7980c2a",
+  "function refuse_catalog_mcp_write() trigger language plpgsql volatility=v parallel=u body md5 e8ec9e5377b643dbb783aed17b4548c5",
   // 0172: a system pause's reason is cleared once the session leaves it.
   "function sessions_clear_env_values() trigger language plpgsql volatility=v parallel=u body md5 dc88ade530dc71df6e1156e1525f8a04",
   "function sessions_clear_pause_reason() trigger language plpgsql volatility=v parallel=u body md5 42f7916898b6ee5d3ea948c318a3d61c",
@@ -111,6 +115,7 @@ const MIGRATIONS_ONLY = [
   "function tool_hist_step(state integer[], bucket integer, delta integer) integer[] language sql volatility=i parallel=s body md5 20e7f2741f305c44a7febf7acc1b90ff",
   "function tool_hist_sum(integer[]) integer[] language internal volatility=i parallel=u body md5 3eb6d2f5e7ee95ed566dd6cdda54dac3",
   "function tool_ms_bucket(ms bigint) integer language sql volatility=i parallel=s body md5 6a2f107430551d1a26c5afd7b02f7985",
+  "function version_names_catalog_mcp(version_id uuid) boolean language sql volatility=s parallel=u body md5 dbdc479590ff6c2047bb6f3c08f5298b",
   "function worker_credentials_carried_binding() trigger language plpgsql volatility=v parallel=u body md5 c177fc2107e2ae0bb773a103bc2b5a5f",
   // 0271: the sessions the variable purge reads. Its predicate calls
   // env_start_without_values, which exists only where the migrations ran; a
@@ -132,8 +137,12 @@ const MIGRATIONS_ONLY = [
   "trigger CREATE CONSTRAINT TRIGGER turns_slack_thread_status_insert AFTER INSERT ON public.turns DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
   "trigger CREATE CONSTRAINT TRIGGER turns_slack_thread_status_update AFTER UPDATE ON public.turns DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN ((old.status IS DISTINCT FROM new.status)) EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
   "trigger CREATE TRIGGER agent_activation_events_insert_only BEFORE DELETE OR UPDATE ON public.agent_activation_events FOR EACH ROW EXECUTE FUNCTION agents_reject_mutation() enabled=O",
+  "trigger CREATE TRIGGER agent_mcp_settings_retired BEFORE INSERT OR UPDATE ON public.agent_mcp_settings FOR EACH ROW EXECUTE FUNCTION refuse_catalog_mcp_write() enabled=O",
   "trigger CREATE TRIGGER agent_releases_approve_once BEFORE DELETE OR UPDATE ON public.agent_releases FOR EACH ROW EXECUTE FUNCTION agent_releases_approve_once() enabled=O",
+  "trigger CREATE TRIGGER agent_releases_catalog_mcp_retired BEFORE INSERT ON public.agent_releases FOR EACH ROW WHEN (version_names_catalog_mcp(new.version_id)) EXECUTE FUNCTION refuse_catalog_mcp_write() enabled=O",
+  "trigger CREATE TRIGGER agent_versions_catalog_mcp_retired BEFORE INSERT ON public.agent_versions FOR EACH ROW WHEN (card_names_catalog_mcp(new.card)) EXECUTE FUNCTION refuse_catalog_mcp_write() enabled=O",
   "trigger CREATE TRIGGER agent_versions_insert_only BEFORE DELETE OR UPDATE ON public.agent_versions FOR EACH ROW EXECUTE FUNCTION agents_reject_mutation() enabled=O",
+  "trigger CREATE TRIGGER agents_draft_catalog_mcp_retired BEFORE UPDATE OF draft_version_id ON public.agents FOR EACH ROW WHEN (((new.draft_version_id IS DISTINCT FROM old.draft_version_id) AND version_names_catalog_mcp(new.draft_version_id))) EXECUTE FUNCTION refuse_catalog_mcp_write() enabled=O",
   "trigger CREATE TRIGGER authz_decisions_append_only BEFORE UPDATE ON public.authz_decisions FOR EACH ROW EXECUTE FUNCTION authz_decisions_refuse_update() enabled=O",
   "trigger CREATE TRIGGER catalog_repositories_settings_generation AFTER INSERT OR DELETE OR UPDATE ON public.catalog_repositories FOR EACH ROW EXECUTE FUNCTION bump_settings_generation() enabled=O",
   "trigger CREATE TRIGGER checkpoint_outputs_count_delete AFTER DELETE ON public.checkpoint_outputs REFERENCING OLD TABLE AS removed_rows FOR EACH STATEMENT EXECUTE FUNCTION checkpoint_output_objects_forget() enabled=O",
@@ -141,6 +150,7 @@ const MIGRATIONS_ONLY = [
   "trigger CREATE TRIGGER checkpoint_outputs_count_truncate AFTER TRUNCATE ON public.checkpoint_outputs FOR EACH STATEMENT EXECUTE FUNCTION checkpoint_output_objects_clear() enabled=O",
   "trigger CREATE TRIGGER checkpoints_count_release AFTER UPDATE ON public.checkpoints REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION checkpoint_output_objects_release() enabled=O",
   "trigger CREATE TRIGGER credential_bindings_exclusive_target BEFORE INSERT OR UPDATE ON public.credential_bindings FOR EACH ROW EXECUTE FUNCTION credential_bindings_exclusive_target() enabled=O",
+  "trigger CREATE TRIGGER mcp_servers_retired BEFORE INSERT OR UPDATE ON public.mcp_servers FOR EACH ROW EXECUTE FUNCTION refuse_catalog_mcp_write() enabled=O",
   "trigger CREATE TRIGGER mcp_servers_settings_generation AFTER INSERT OR DELETE OR UPDATE ON public.mcp_servers FOR EACH ROW EXECUTE FUNCTION bump_settings_generation() enabled=O",
   "trigger CREATE TRIGGER memory_revisions_immutable BEFORE DELETE OR UPDATE ON public.memory_revisions FOR EACH ROW EXECUTE FUNCTION memory_revisions_immutable() enabled=O",
   "trigger CREATE TRIGGER provider_connections_judging_since BEFORE INSERT OR UPDATE OF disabled_at ON public.provider_connections FOR EACH ROW WHEN ((((new.definition ->> 'kind'::text) = 'openai_decisions'::text) AND (new.disabled_at IS NULL))) EXECUTE FUNCTION provider_connections_judging_since() enabled=O",

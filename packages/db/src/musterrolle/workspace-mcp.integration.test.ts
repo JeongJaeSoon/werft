@@ -16,9 +16,9 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "../schema.ts";
 import {
-  mcpServers,
   memberships,
   receipts,
+  retiredCatalogMcp,
   secretValues,
   users,
   workspaceMcpConnections,
@@ -27,11 +27,7 @@ import {
 } from "../schema.ts";
 import { memberManageAllow } from "../testing/member-manage-allow.ts";
 import { createPostgresMemberStore } from "./members.ts";
-import {
-  createPostgresWorkspaceMcpStore,
-  lockMcpServerName,
-  workspaceMcpNameTaken,
-} from "./workspace-mcp.ts";
+import { createPostgresWorkspaceMcpStore } from "./workspace-mcp.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -274,21 +270,17 @@ integration("workspace MCP servers on PostgreSQL", () => {
     expect(await receiptsOf(ws)).toEqual([]);
   });
 
-  test("a name is one tool prefix: not the catalog's, not twice in a workspace", async () => {
+  test("a name is one tool prefix in a workspace; a retired catalog server's name is free", async () => {
     const { ws, admin } = await team();
     const other = await team();
     const catalogName = `catalog-${randomUUID().slice(0, 8)}`;
-    await db.insert(mcpServers).values({
-      id: catalogName,
+    await db.insert(retiredCatalogMcp).values({
+      name: catalogName,
       url: "https://catalog.example.com/mcp",
-      credentialRef: "secret://example",
-      auth: { kind: "bearer", stored: `mcp:${catalogName}` },
-      credentialSource: "stored",
-      workspaces: [],
-      origin: "import",
+      credentialRef: "docs",
     });
     expect((await create(ws, admin, { name: catalogName })).outcome).toBe(
-      "name_taken",
+      "created",
     );
     await created(ws, admin, { name: "tracker" });
     expect((await create(ws, admin, { name: "tracker" })).outcome).toBe(
@@ -298,11 +290,16 @@ integration("workspace MCP servers on PostgreSQL", () => {
     expect(
       (await create(other.ws, other.admin, { name: "tracker" })).outcome,
     ).toBe("created");
-    const taken = await db.transaction(async (tx) => {
-      await lockMcpServerName(tx, "tracker");
-      return workspaceMcpNameTaken(tx, "tracker");
-    });
-    expect(taken).toBe(true);
+  });
+
+  // The service refuses `memory` for a new server; the table does not, so a
+  // server registered under it before keeps its name.
+  test("a server named memory stays", async () => {
+    const { ws, admin } = await team();
+    await created(ws, admin, { name: "memory" });
+    expect((await store.list(ws)).map((server) => server.name)).toEqual([
+      "memory",
+    ]);
   });
 
   test("a workspace holds no more servers than its limit", async () => {

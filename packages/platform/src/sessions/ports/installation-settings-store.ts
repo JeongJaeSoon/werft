@@ -1,5 +1,4 @@
 import type {
-  CatalogMcpServerConfig,
   CatalogProviderConfig,
   CatalogRepositoryConfig,
   ModelFamilies,
@@ -7,8 +6,8 @@ import type {
 } from "../../catalog/index.ts";
 
 /**
- * The installation's settings in one read: connections and MCP servers not
- * disabled, and repositories that carry their own credential or none (the
+ * The installation's settings in one read: connections not disabled, and
+ * repositories that carry their own credential or none (the
  * console App's rows are CatalogRepositoryStore's), each in the shape a
  * settings document gives the entry.
  */
@@ -27,7 +26,6 @@ export interface InstallationSettings {
     id: string;
     repository: CatalogRepositoryConfig;
   }>;
-  mcpServers: ReadonlyArray<{ id: string; server: CatalogMcpServerConfig }>;
   /**
    * Stored values by their reference (`connection:<id>`, …): only when the
    * read was asked to open them, and only a row's own.

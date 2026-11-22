@@ -509,82 +509,34 @@ describe("resolveReleaseContent", () => {
   });
 });
 
-describe("a card naming a remote MCP server", () => {
-  const servers = {
-    fake: {
-      url: "http://fake-mcp:4020/mcp",
-      credential_ref: "mcp/fake",
-      auth: {
-        kind: "bearer" as const,
-        value: "sa-value",
-        ref: { stored: "mcp:fake" },
-      },
-      workspaces: ["default"],
-    },
-  };
-  const mcpCard = agentCardSchema.parse({
-    ...card,
-    capabilities: {
-      ...card.capabilities,
-      mcp: [{ server: "fake" }],
-      credential_refs: ["mcp/fake"],
-      tool_policy: {
-        per_tool: { mcp__fake__whoami: "allow", mcp__fake__other: "ask" },
-      },
-    },
-  });
-  const resolve = (value: AgentCard) =>
-    resolveReleaseContent(value, run, servers);
-
-  test("pins the server's allowed tools, and only those", () => {
-    const resolved = resolve(mcpCard);
-    expect(resolved.ok && resolved.content.effective_tools).toEqual({
-      tools: ["Read", "Grep", "Edit", "Bash"],
-      mcp: ["mcp__fake__whoami"],
-    });
-    expect(JSON.stringify(resolved)).not.toContain("sa-value");
-  });
-
-  test("a card without one resolves as it did before the catalog had any", () => {
-    expect(resolveReleaseContent(card, run, servers)).toEqual(
-      resolveReleaseContent(card, run),
-    );
-  });
-
-  test("refuses a server the catalog lacks, a credential the card does not name, no allowed tool, or an allowed tool it forbids", () => {
-    const capabilities = mcpCard.capabilities;
-    for (const [value, field] of [
-      [
-        {
-          ...mcpCard,
-          capabilities: { ...capabilities, mcp: [{ server: "gone" }] },
-        },
-        "card.capabilities.mcp",
-      ],
-      [
-        { ...mcpCard, capabilities: { ...capabilities, credential_refs: [] } },
-        "card.capabilities.credential_refs",
-      ],
-      [
-        {
-          ...mcpCard,
+describe("a card naming an installation catalog MCP server", () => {
+  test("is refused with the retirement message, whatever the server", () => {
+    for (const mcp of [[{ server: "fake" }], [{ server: "gone" }]]) {
+      const resolved = resolveReleaseContent(
+        agentCardSchema.parse({
+          ...card,
           capabilities: {
-            ...capabilities,
-            tool_policy: { per_tool: { mcp__fake__whoami: "ask" } },
+            ...card.capabilities,
+            mcp,
+            credential_refs: ["mcp/fake"],
+            tool_policy: { per_tool: { mcp__fake__whoami: "allow" } },
           },
+        }),
+        run,
+      );
+      expect(resolved).toEqual({
+        ok: false,
+        error: {
+          field: "card.capabilities.mcp",
+          message:
+            "설치 카탈로그 MCP는 없어졌다. 워크스페이스 MCP 서버로 등록해 고른다",
         },
-        "card.capabilities.tool_policy.per_tool",
-      ],
-      [
-        {
-          ...mcpCard,
-          capabilities: { ...capabilities, forbidden: ["mcp__fake__whoami"] },
-        },
-        "card.capabilities.forbidden",
-      ],
-    ] as const) {
-      const resolved = resolve(agentCardSchema.parse(value));
-      expect(!resolved.ok && resolved.error.field).toBe(field);
+      });
     }
+  });
+
+  test("a card without one still resolves, with no MCP tool pinned", () => {
+    const resolved = resolveReleaseContent(card, run);
+    expect(resolved.ok && resolved.content.effective_tools.mcp).toEqual([]);
   });
 });

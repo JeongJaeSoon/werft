@@ -42,10 +42,6 @@ export async function fixtureCatalog(
     repositories: Object.entries(entries.repositories).map(
       ([id, repository]) => ({ id, repository }),
     ),
-    mcpServers: Object.entries(entries.mcp_servers).map(([id, server]) => ({
-      id,
-      server,
-    })),
     stored,
     invalid: [],
   });

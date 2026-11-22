@@ -23,6 +23,7 @@ export const MESSAGE_MAX_BYTES = 32 * 1024;
 export const WORKSPACE_MCP_RESERVED_NAMES: readonly string[] = [
   "github",
   "browser",
+  "memory",
 ];
 export const SLACK_INSTALL_CALLBACK = {
   state: /^[A-Za-z0-9_-]{1,512}$/,

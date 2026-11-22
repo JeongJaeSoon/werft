@@ -43,11 +43,8 @@ describe("다른 언어의 불러오는 중 표시", () => {
   const SCREENS = [
     {
       path: "/settings/workspace/mcp-servers",
-      reads: [
-        "GET /v1/workspace/mcp-servers",
-        "GET /v1/installation/settings/mcp-servers",
-      ],
-      placeholders: 2,
+      reads: ["GET /v1/workspace/mcp-servers"],
+      placeholders: 1,
     },
     {
       path: "/settings/workspace/login",

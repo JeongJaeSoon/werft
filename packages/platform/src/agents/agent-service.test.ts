@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  type AgentCard,
   type AgentGitHub,
   type AgentRelease,
+  RETIRED_CATALOG_MCP_MESSAGE,
   type RepositoryCeiling,
   storedAgentCardSchema,
 } from "@werft-ai/contracts";
@@ -1153,6 +1155,43 @@ describe("a card's declared variable names", () => {
     expect(error).toMatchObject({ code: "VARIABLE_NAME_RESERVED" });
     expect(writes).toBe(0);
     expect(memory.activations()).toBe(0);
+  });
+
+  test("saving and creating refuse a card naming a catalog MCP server with the retirement message", async () => {
+    const memory = memoryStore();
+    let writes = 0;
+    const store: AgentStore = {
+      ...memory.store,
+      create: async (...args) => {
+        writes += 1;
+        return memory.store.create(...args);
+      },
+      update: async (...args) => {
+        writes += 1;
+        return memory.store.update(...args);
+      },
+    };
+    const service = serviceOver(store);
+    const base = cardWith(["Read"]);
+    const catalog: AgentCard = {
+      ...base,
+      capabilities: { ...base.capabilities, mcp: [{ server: "docs" }] },
+    };
+    for (const attempt of [
+      service.updateAgent(owner, AGENT, { card: catalog }),
+      service.createAgent(owner, {
+        slug: "finance",
+        name: "재무 분석가",
+        managing_team_id: "6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b",
+        card: catalog,
+      }),
+    ]) {
+      expect(await attempt.catch((caught: unknown) => caught)).toMatchObject({
+        code: "UNSUPPORTED_CAPABILITY",
+        message: `card.capabilities.mcp: ${RETIRED_CATALOG_MCP_MESSAGE}`,
+      });
+    }
+    expect(writes).toBe(0);
   });
 
   test("activation refuses a release whose card declares a reserved name, without reaching the store", async () => {

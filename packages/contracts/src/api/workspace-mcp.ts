@@ -23,8 +23,14 @@ export const WORKSPACE_MCP_SECRET_MAX_LENGTH = 16 * 1024;
 export const WORKSPACE_MCP_URL_MAX = 2048;
 export const WORKSPACE_MCP_SCOPE_MAX = 1024;
 export const WORKSPACE_MCP_OAUTH_FLOW_TTL_SECONDS = 600;
-/** Names a workspace server may not take: the built-in server and a reserved one. */
-export const WORKSPACE_MCP_RESERVED_NAMES = MCP_RESERVED_SERVER_NAMES;
+/**
+ * Names a new workspace server may not take. `memory` is refused at
+ * registration only, so a server that already holds it keeps it.
+ */
+export const WORKSPACE_MCP_RESERVED_NAMES = [
+  ...MCP_RESERVED_SERVER_NAMES,
+  "memory",
+] as const;
 
 export const workspaceMcpServerIdSchema = z.uuid();
 export const workspaceMcpAuthKindSchema = z.enum(["oauth", "bearer"]);

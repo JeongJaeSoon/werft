@@ -11,6 +11,7 @@ import {
 } from "@werft-ai/db";
 import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import { launchSession } from "@werft-ai/db/testing/launches";
+import { beforeCatalogRetired } from "@werft-ai/db/testing/retired-catalog";
 import {
   releaseSpecColumns,
   TEST_CONNECTION_ID,
@@ -58,18 +59,6 @@ const catalog: SessionCatalog = testCatalog({
       url: "https://git.invalid/agent/app.git",
       branch: "main",
       auth: { kind: "github_app", registered: true } as const,
-    },
-  },
-  mcp_servers: {
-    fake: {
-      url: "http://fake-mcp:4020/mcp",
-      credential_ref: "mcp/fake",
-      auth: {
-        kind: "bearer",
-        value: "service-account-value",
-        ref: { stored: "mcp:fake" },
-      },
-      workspaces: ["default"],
     },
   },
 });
@@ -185,53 +174,57 @@ async function seeded(
     slug: "gh-agent",
     name: "gh agent",
   });
-  const versionId = randomUUID();
-  await db.insert(schema.agentVersions).values({
-    id: versionId,
-    agentId,
-    versionNo: 1,
-    card: {
-      role: "r",
-      instructions: "i",
-      model: "claude-sonnet-5",
-      capabilities: {
-        tools: null,
-        mcp: options.remote ? [{ server: "fake" }] : null,
-        forbidden: [],
-        credential_refs: options.remote ? ["mcp/fake"] : [],
-      },
-    },
-    contentSha256: "0".repeat(64),
-  });
   const releaseId = `rel-${randomUUID()}`;
-  await db.insert(schema.agentReleases).values({
-    id: releaseId,
-    agentId,
-    versionId,
-    cardSha256: "0".repeat(64),
-    connectionId: TEST_CONNECTION_ID,
-    ...releaseSpecColumns({ tools: ["Read"] }),
-    runtimeConfigSnapshot: { tools: ["Read"] },
-    effectiveTools: { tools: ["Read"], mcp: [] },
-    policyPins: {
-      tools: {
-        per_tool: options.remote
-          ? { Read: "allow", mcp__fake__whoami: "allow" }
-          : { Read: "allow" },
+  const write = async () => {
+    const versionId = randomUUID();
+    await db.insert(schema.agentVersions).values({
+      id: versionId,
+      agentId,
+      versionNo: 1,
+      card: {
+        role: "r",
+        instructions: "i",
+        model: "claude-sonnet-5",
+        capabilities: {
+          tools: null,
+          mcp: options.remote ? [{ server: "fake" }] : null,
+          forbidden: [],
+          credential_refs: options.remote ? ["mcp/fake"] : [],
+        },
       },
-      ...(github === null ? {} : { github }),
-    },
-  });
-  if (options.remote) {
-    await db.insert(schema.credentialBindings).values({
-      id: randomUUID(),
-      workspaceId,
-      credentialRef: "mcp/fake",
-      target: "agent",
-      targetId: agentId,
-      boundBy: userId,
+      contentSha256: "0".repeat(64),
     });
-  }
+    await db.insert(schema.agentReleases).values({
+      id: releaseId,
+      agentId,
+      versionId,
+      cardSha256: "0".repeat(64),
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns({ tools: ["Read"] }),
+      runtimeConfigSnapshot: { tools: ["Read"] },
+      effectiveTools: { tools: ["Read"], mcp: [] },
+      policyPins: {
+        tools: {
+          per_tool: options.remote
+            ? { Read: "allow", mcp__fake__whoami: "allow" }
+            : { Read: "allow" },
+        },
+        ...(github === null ? {} : { github }),
+      },
+    });
+  };
+  // A remote release was made before migration 0304 retired the catalog.
+  await (options.remote
+    ? beforeCatalogRetired(
+        db,
+        {
+          name: "fake",
+          url: "http://fake-mcp:4020/mcp",
+          credentialRef: "mcp/fake",
+        },
+        write,
+      )
+    : write());
   const accepted = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
     limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
     principal: {
@@ -357,11 +350,10 @@ describe("the built-in github MCP server on stored rows", () => {
     expect(JSON.stringify(claim)).not.toMatch(GITHUB_TOKEN_SHAPES);
   });
 
-  test("beside a catalog server, both share the attempt's token", async () => {
+  test("beside a retired catalog server it is claimed alone, and the token reaches no other", async () => {
     const { claim } = await seeded({ remote: true });
     const servers = claim.runtime_config.mcp_servers ?? [];
-    expect(servers.map((server) => server.name)).toEqual(["fake", "github"]);
-    expect(servers[0]?.access.token).toBe(servers[1]?.access.token ?? "");
+    expect(servers.map((server) => server.name)).toEqual(["github"]);
     const token = servers[0]?.access.token;
     const remote = await authorize({
       token,
@@ -369,7 +361,7 @@ describe("the built-in github MCP server on stored rows", () => {
       server: "fake",
       rpc: { method: "tools/call", tool: "whoami" },
     });
-    expect(remote.status).toBe(200);
+    expect(remote.status).toBe(403);
     const builtin = await relay(token, {
       jsonrpc: "2.0",
       id: 1,
@@ -401,7 +393,7 @@ describe("the built-in github MCP server on stored rows", () => {
     ]);
   });
 
-  test("beside a catalog server, the earlier checkpoints keep that server", async () => {
+  test("beside a retired catalog server, the configs a claim offered before come first, then today's", async () => {
     const { claim } = await seeded({ remote: true });
     expect(
       claim.restore_runtime_configs?.map((config) => [
@@ -410,8 +402,11 @@ describe("the built-in github MCP server on stored rows", () => {
         config.tools.some((tool) => tool.startsWith("mcp__github__")),
       ]),
     ).toEqual([
+      [["fake", "github"], true, true],
       [["fake"], false, false],
       [["fake", "github"], false, true],
+      [undefined, false, false],
+      [["github"], false, true],
     ]);
   });
 

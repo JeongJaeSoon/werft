@@ -29,7 +29,6 @@ import { createPostgresSessionUnitOfWork } from "../postgres-unit-of-work.ts";
 import * as schema from "../schema.ts";
 import {
   agentGitHubSettings,
-  agentMcpSettings,
   agentReleases,
   agents,
   agentVersions,
@@ -405,17 +404,12 @@ integration("caller limits on session create and input", () => {
       const owner = await person(ws, "owner");
       const member = await person(ws);
       const { agentId, releaseId } = await agentRelease(ws);
-      await db.insert(agentMcpSettings).values({
-        agentId,
-        workspaceId: ws,
-        server: "github",
-        allowedTools: [],
-        credentialRefs: [],
-      });
       await setRules(owner, agentId, [
         rule({ kind: "workspace" }, { mcp_servers: ["jira"] }),
       ]);
-      expect(await create(member, releaseId)).toEqual({
+      expect(
+        await create(member, releaseId, { githubPolicySource: "agent" }),
+      ).toEqual({
         outcome: "caller_limited",
         dimension: "mcp_server",
       });
@@ -552,14 +546,15 @@ integration("caller limits on session create and input", () => {
       const narrow = await person(ws);
       const repo = await repository();
       const { agentId, releaseId } = await agentRelease(ws);
-      await db.insert(agentMcpSettings).values({
-        agentId,
-        workspaceId: ws,
-        server: "github",
-        allowedTools: [],
-        credentialRefs: [],
-      });
       const id = await session(creator, releaseId, repo);
+      await db
+        .update(sessions)
+        .set({
+          workspaceMcpStart: {
+            servers: [{ id: randomUUID(), name: "docs", tools: [] }],
+          },
+        })
+        .where(eq(sessions.id, id));
       const narrowTeam = await team(owner, [narrow]);
       await setRules(owner, agentId, [
         rule({ kind: "team", id: narrowTeam }, { repositories: [] }),
@@ -587,36 +582,6 @@ integration("caller limits on session create and input", () => {
       issues: false,
       review: false,
     };
-
-    test("a tool the agent's MCP settings add counts, on create and on input", async () => {
-      const ws = await workspace();
-      const owner = await person(ws, "owner");
-      const member = await person(ws);
-      const { agentId, releaseId } = await agentRelease(ws);
-      await db.insert(agentMcpSettings).values({
-        agentId,
-        workspaceId: ws,
-        server: "jira",
-        allowedTools: ["mcp__jira__search"],
-        credentialRefs: [],
-      });
-      await setRules(owner, agentId, [
-        rule({ kind: "workspace" }, { tools_deny: ["mcp__jira__other"] }),
-      ]);
-      const id = await session(member, releaseId);
-
-      await setRules(owner, agentId, [
-        rule({ kind: "workspace" }, { tools_deny: ["mcp__jira__search"] }),
-      ]);
-      expect(await create(member, releaseId)).toEqual({
-        outcome: "caller_limited",
-        dimension: "tool",
-      });
-      expect(await append(member, id)).toEqual({
-        outcome: "caller_limited",
-        dimension: "tool",
-      });
-    });
 
     test("the built-in github server and its tools count", async () => {
       const ws = await workspace();

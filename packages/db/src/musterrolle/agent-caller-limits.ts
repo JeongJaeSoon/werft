@@ -6,8 +6,9 @@ import {
   effectiveGitHubPolicy,
   effectiveToolsSchema,
   GITHUB_MCP_SERVER,
-  type McpStart,
+  MCP_TOOL_PREFIX,
   mcpStartSchema,
+  retiredCatalogServerOf,
   type WorkspaceMcpStart,
   workspaceMcpStartSchema,
 } from "@werft-ai/contracts";
@@ -28,14 +29,10 @@ import {
   withLiveRepositories,
 } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
-import { captureMcpStart, captureWorkspaceMcpStart } from "../agents/index.ts";
+import { captureWorkspaceMcpStart } from "../agents/index.ts";
 import { UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
-import {
-  agentGitHubSettingsOf,
-  sessionGitHubMcpOf,
-  sessionMcpOf,
-} from "../github/index.ts";
+import { agentGitHubSettingsOf, sessionGitHubMcpOf } from "../github/index.ts";
 import type { Database } from "../queries.ts";
 import {
   agentCallerLimits,
@@ -46,6 +43,7 @@ import {
   catalogRepositories,
   memberTeamMembers,
   memberTeams,
+  retiredCatalogMcp,
 } from "../schema.ts";
 import { writeSucceededReceipt } from "../succeeded-receipt.ts";
 import { lockAgentUsageForWrite, lockEditRight } from "../usage/index.ts";
@@ -264,10 +262,13 @@ const strings = (value: unknown): string[] =>
     ? value.filter((item): item is string => typeof item === "string")
     : [];
 
+// What a release reaches less the retired catalog server its card names:
+// that server, its `mcp__<name>__` tools and the credential name it used.
 type ReleaseFacts = {
   agentId: string;
   credentialRefs: string[];
-  server: string | null;
+  /** `effective_tools.mcp` less the retired server's tools. */
+  mcpTools: string[];
   snapshot: unknown;
   effectiveTools: unknown;
 };
@@ -289,73 +290,71 @@ async function releaseFacts(
     .limit(1);
   if (!row) return null;
   const capabilities = (
-    row.card as {
-      capabilities?: { credential_refs?: unknown; mcp?: unknown };
-    } | null
+    row.card as { capabilities?: { credential_refs?: unknown } } | null
   )?.capabilities;
-  const first = Array.isArray(capabilities?.mcp)
-    ? (capabilities.mcp[0] as { server?: unknown } | undefined)
-    : undefined;
+  const retired = retiredCatalogServerOf(row.card);
+  const [retiredRow] =
+    retired === null
+      ? []
+      : await tx
+          .select({ credentialRef: retiredCatalogMcp.credentialRef })
+          .from(retiredCatalogMcp)
+          .where(eq(retiredCatalogMcp.name, retired))
+          .limit(1);
+  const effective = effectiveToolsSchema.safeParse(row.effectiveTools);
+  const retiredPrefix =
+    retired === null ? null : `${MCP_TOOL_PREFIX}${retired}__`;
   return {
     agentId: row.agentId,
-    credentialRefs: strings(capabilities?.credential_refs),
-    server: typeof first?.server === "string" ? first.server : null,
+    credentialRefs: strings(capabilities?.credential_refs).filter(
+      (ref) => ref !== retiredRow?.credentialRef,
+    ),
+    mcpTools: (effective.success ? effective.data.mcp : []).filter(
+      (tool) => retiredPrefix === null || !tool.startsWith(retiredPrefix),
+    ),
     snapshot: row.snapshot,
     effectiveTools: row.effectiveTools,
   };
 }
 
-// The union of what the card and the release declare and what the MCP route
-// and the built-in GitHub server expose to the session: a tool or server any
-// of them reaches counts. A workspace server counts with every tool it had
-// when the session started, connected or not.
+// The union of what the card and the release declare and what the built-in
+// GitHub server exposes to the session: a tool or server any of them reaches
+// counts. A workspace server counts with every tool it had when the session
+// started, connected or not. The retired catalog server is no reach.
 async function reachOf(
   tx: Database,
   releaseId: string,
   release: ReleaseFacts,
   input: {
     builtinTools: readonly string[];
-    mcpStart: McpStart | null;
     workspaceMcpStart: WorkspaceMcpStart | null;
+    /** A running session's `startRefsOf`, which wins over the card's. */
+    startRefs?: readonly string[] | null;
     githubPolicySource: string;
     repositories: readonly string[];
   },
 ): Promise<SessionReach> {
-  const exposed = await sessionMcpOf(tx, {
-    agentReleaseId: releaseId,
-    mcpStart: input.mcpStart,
-  });
   const github = await sessionGitHubMcpOf(tx, {
     agentReleaseId: releaseId,
     githubPolicySource: input.githubPolicySource,
   });
-  const declared =
-    input.mcpStart === null ? release.server : input.mcpStart.server;
   const servers = new Set<string>();
-  for (const server of [declared, exposed?.server ?? null]) {
-    if (server !== null) servers.add(server);
-  }
   if (github !== null && github.tools.length > 0)
     servers.add(GITHUB_MCP_SERVER);
   const workspaceServers = input.workspaceMcpStart?.servers ?? [];
   for (const server of workspaceServers) servers.add(server.name);
-  const effective = effectiveToolsSchema.safeParse(release.effectiveTools);
   return {
     tools: [
       ...new Set([
         ...input.builtinTools,
-        ...(effective.success ? effective.data.mcp : []),
-        ...(exposed?.tools ?? []),
+        ...release.mcpTools,
         ...(github?.tools ?? []),
         ...workspaceServers.flatMap((server) => server.tools),
       ]),
     ],
     repositories: input.repositories,
     mcp_servers: [...servers],
-    credentials:
-      input.mcpStart === null
-        ? release.credentialRefs
-        : input.mcpStart.credential_refs,
+    credentials: input.startRefs ?? release.credentialRefs,
   };
 }
 
@@ -369,7 +368,6 @@ export async function startReach(
   tx: Database,
   input: {
     releaseId: string;
-    mcpStart: McpStart | null;
     workspaceMcpStart: WorkspaceMcpStart | null;
     githubPolicySource: string;
     repositoryIds: readonly string[];
@@ -379,7 +377,6 @@ export async function startReach(
   if (!release) return null;
   return reachOf(tx, input.releaseId, release, {
     builtinTools: releaseBuiltinTools(release),
-    mcpStart: input.mcpStart,
     workspaceMcpStart: input.workspaceMcpStart,
     githubPolicySource: input.githubPolicySource,
     repositories: input.repositoryIds,
@@ -411,6 +408,26 @@ async function policyRepositories(
     : policy.settings.repositories;
 }
 
+// The names a session started with (`mcp_start`), less the one the retired
+// catalog server it names used: a selection could pick another server than
+// the card's. Null without a snapshot.
+async function startRefsOf(
+  tx: Database,
+  mcpStart: unknown,
+): Promise<string[] | null> {
+  const start = mcpStartSchema.safeParse(mcpStart).data;
+  if (start === undefined) return null;
+  const [retired] =
+    start.server === null
+      ? []
+      : await tx
+          .select({ credentialRef: retiredCatalogMcp.credentialRef })
+          .from(retiredCatalogMcp)
+          .where(eq(retiredCatalogMcp.name, start.server))
+          .limit(1);
+  return start.credential_refs.filter((ref) => ref !== retired?.credentialRef);
+}
+
 export async function sessionReach(
   tx: Database,
   session: {
@@ -436,9 +453,9 @@ export async function sessionReach(
     ));
   return reachOf(tx, session.agentReleaseId, release, {
     builtinTools: releaseBuiltinTools(release),
-    mcpStart: mcpStartSchema.safeParse(session.mcpStart).data ?? null,
     workspaceMcpStart:
       workspaceMcpStartSchema.safeParse(session.workspaceMcpStart).data ?? null,
+    startRefs: await startRefsOf(tx, session.mcpStart),
     githubPolicySource: session.githubPolicySource,
     repositories: [
       ...(session.repositoryId === null ? [] : [session.repositoryId]),
@@ -512,7 +529,6 @@ export function createPostgresCallerLimitGate(
       if (limit === null) return null;
       const reach = await startReach(db, {
         releaseId: input.releaseId,
-        mcpStart: await captureMcpStart(db, input.releaseId),
         workspaceMcpStart: await captureWorkspaceMcpStart(db, input.releaseId),
         githubPolicySource: input.githubPolicySource,
         repositoryIds: input.repositoryIds,

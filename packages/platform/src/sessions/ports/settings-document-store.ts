@@ -154,11 +154,6 @@ export interface SettingsDocumentStore {
     id: string,
     actor: TeamActor,
   ): Promise<SettingsConsoleResult>;
-  setMcpWorkspaces(
-    id: string,
-    workspaces: readonly string[],
-    actor: TeamActor,
-  ): Promise<SettingsConsoleResult>;
 }
 
 export type SettingsRow = {

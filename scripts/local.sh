@@ -397,12 +397,12 @@ settings_document() {
 }
 
 # The keys the imported settings leave to `"stored": true`, set as the demo
-# owner: the fake model's and the fake MCP server's, the ANTHROPIC_API_KEY on
-# `anthropic`, and the fake GitHub App's on every repository. The values go on
-# stdin alone (scripts/lib/seed-credentials.sh). $1 prints the owner's
-# cookie (default: the demo owner's).
+# owner: the fake model's, the ANTHROPIC_API_KEY on `anthropic`, and the fake
+# GitHub App's on every repository. The values go on stdin alone
+# (scripts/lib/seed-credentials.sh). $1 prints the owner's cookie (default:
+# the demo owner's).
 seed_stored_keys() {
-  local cookie_fn=${1:-demo_owner_cookie} doc row seeds=() console=() placeholder_key=local-placeholder-key fake_mcp_bearer=""
+  local cookie_fn=${1:-demo_owner_cookie} doc row seeds=() console=() placeholder_key=local-placeholder-key
   doc=$(settings_document)
   if [ -z "$doc" ] || [ ! -f "$doc" ]; then
     echo "local.sh: cannot read the imported settings document; enter the settings' keys on the console (설정 > 에이전트 연결)" >&2
@@ -410,18 +410,12 @@ seed_stored_keys() {
   fi
   for row in $(jq -r '
     (.connections // {} | to_entries[] | select(.value.auth.stored == true) | "connections:\(.key)"),
-    (.mcp_servers // {} | to_entries[] | select(.value.auth.stored == true) | "mcp_servers:\(.key)"),
     (.repositories // {} | to_entries[] | select(.value.auth.stored == true) | "repositories:\(.key)")' "$doc"); do
     case "$row" in
       repositories:*) seeds+=("$row") ;;
       connections:fake-*) seeds+=("$row=placeholder_key") ;;
       connections:anthropic)
         if [ -n "${ANTHROPIC_API_KEY:-}" ]; then seeds+=("$row=ANTHROPIC_API_KEY"); else console+=("$row"); fi
-        ;;
-      mcp_servers:fake)
-        fake_mcp_bearer=$(compose exec -T fake-mcp printenv FAKE_MCP_BEARER </dev/null | tr -d '\r\n') ||
-          die "cannot read the fake MCP server's bearer; the stack itself is up"
-        seeds+=("$row=fake_mcp_bearer")
         ;;
       *) console+=("$row") ;;
     esac

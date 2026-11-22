@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { AGENT_ID, agentServer } from "../../test-support/fake-agents.ts";
+import { AGENT_ID, agentServer, CARD } from "../../test-support/fake-agents.ts";
 import { apiError, json, keys, me } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
 
@@ -14,7 +14,10 @@ const BINDINGS = `/v1/agents/${AGENT_ID}/credential-bindings`;
 
 function serverNaming(...refs: string[]) {
   return agentServer({
-    mcpSettings: { server: null, allowed_tools: [], credential_refs: refs },
+    card: {
+      ...CARD,
+      capabilities: { ...CARD.capabilities, credential_refs: refs },
+    },
   });
 }
 

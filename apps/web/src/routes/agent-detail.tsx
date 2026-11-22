@@ -154,7 +154,6 @@ function AgentView({
   const credentialsTitle = useRef<HTMLHeadingElement>(null);
   const activation = useReleaseActivation({
     detail,
-    manages,
     onOutcome: outcomeAt("releases"),
     openRelease: () => open("release"),
   });

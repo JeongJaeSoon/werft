@@ -4,6 +4,7 @@ import {
   type AgentSlackAction,
   type AgentSummary,
   type RuntimeKind,
+  retiredCatalogServerOf,
   storedAgentCapabilitiesSchema,
 } from "@werft-ai/contracts";
 import type { SessionViewer } from "@werft-ai/platform";
@@ -18,12 +19,12 @@ import {
   agentAdminTeams,
   agentGitHubSettings,
   agentIdentities,
-  agentMcpSettings,
   agentReleases,
   agents,
   agentVersions,
   credentialBindings,
   memberTeams,
+  retiredCatalogMcp,
   sessions,
   slackApps,
   slackInstallations,
@@ -159,26 +160,6 @@ export async function agentSummaries(
     )
     .orderBy(asc(agentAdminTeams.createdAt), asc(agentAdminTeams.teamId)))
     push(admins, row.agentId, row.name);
-
-  // An agent with a settings row shows its server and names; the others show
-  // their card's, as before.
-  const mcpSettings = new Map(
-    (
-      await db
-        .select({
-          agentId: agentMcpSettings.agentId,
-          server: agentMcpSettings.server,
-          credentialRefs: agentMcpSettings.credentialRefs,
-        })
-        .from(agentMcpSettings)
-        .where(
-          and(
-            eq(agentMcpSettings.workspaceId, workspaceId),
-            inArray(agentMcpSettings.agentId, found),
-          ),
-        )
-    ).map((row) => [row.agentId, row]),
-  );
 
   const bound = new Map<string, string[]>();
   for (const row of await db
@@ -346,28 +327,50 @@ export async function agentSummaries(
       head.releasedAt ? releaseLabel(head.releasedAt, head.earlier) : null,
     ]),
   );
+  // A card's catalog server is retired: the summary shows neither it nor
+  // the credential name it used.
+  const retiredNames = [
+    ...new Set(
+      versions.flatMap((version) => {
+        const name = retiredCatalogServerOf({
+          capabilities: version.capabilities,
+        });
+        return name === null ? [] : [name];
+      }),
+    ),
+  ];
+  const retiredRefs = new Map(
+    retiredNames.length === 0
+      ? []
+      : (
+          await db
+            .select({
+              name: retiredCatalogMcp.name,
+              ref: retiredCatalogMcp.credentialRef,
+            })
+            .from(retiredCatalogMcp)
+            .where(inArray(retiredCatalogMcp.name, retiredNames))
+        ).map((row) => [row.name, row.ref]),
+  );
   const summaries = new Map<string, AgentSummary>();
   for (const version of versions) {
     const capabilities = storedAgentCapabilitiesSchema.parse(
       version.capabilities,
     );
-    const settings = mcpSettings.get(version.agentId);
+    const retired = retiredCatalogServerOf({
+      capabilities: version.capabilities,
+    });
+    const retiredRef = retired === null ? undefined : retiredRefs.get(retired);
     summaries.set(version.agentId, {
       version: {
         version_no: version.versionNo,
         role: version.role,
         instructions:
           version.instructions === null ? null : clip(version.instructions),
-        mcp_servers:
-          settings === undefined
-            ? (capabilities.mcp ?? []).map((mcp) => mcp.server)
-            : settings.server === null
-              ? []
-              : [settings.server],
-        credential_refs:
-          settings === undefined
-            ? (capabilities.credential_refs ?? [])
-            : settings.credentialRefs,
+        mcp_servers: [],
+        credential_refs: (capabilities.credential_refs ?? []).filter(
+          (ref) => ref !== retiredRef,
+        ),
       },
       connection_id: connections.get(version.agentId) ?? null,
       release_label: labels.get(version.agentId) ?? null,

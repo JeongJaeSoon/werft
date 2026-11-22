@@ -1,7 +1,6 @@
 export const workspaceMcpKo = {
-  "settings.mcp.catalogTitle": "설치 카탈로그",
   "settings.mcp.pageDescription":
-    "에이전트가 부르는 원격 MCP 서버입니다. 워크스페이스 서버는 어드민이 등록하고 인증하고, 설치 카탈로그는 설치 소유자가 정합니다.",
+    "에이전트가 부르는 원격 MCP 서버입니다. 어드민이 등록하고 인증합니다.",
   "workspaceMcp.title": "워크스페이스 서버",
   "workspaceMcp.description":
     "어드민이 등록하고 인증한 서버입니다. 서버를 켠 에이전트는 이 연결 하나로 부르고, token은 에이전트에게 보이지 않습니다.",
@@ -114,7 +113,7 @@ export const workspaceMcpKo = {
     "{name}을(를) 등록했습니다. client 설정에서 client를 넣은 뒤 연결하세요.",
   "workspaceMcp.registered.bearer": "{name}을(를) 등록하고 연결했습니다.",
   "workspaceMcp.error.ALREADY_EXISTS":
-    "이미 쓰는 이름입니다. 설치 카탈로그나 이 워크스페이스의 다른 서버가 쓰고 있습니다.",
+    "이미 쓰는 이름입니다. 이 워크스페이스의 다른 서버가 쓰고 있습니다.",
   "workspaceMcp.error.MCP_SERVER_QUOTA_EXCEEDED":
     "워크스페이스가 등록할 수 있는 서버 수에 닿았습니다. 쓰지 않는 서버를 지운 뒤 등록하세요.",
   "workspaceMcp.error.name_reserved":
@@ -203,9 +202,8 @@ export const workspaceMcpKo = {
 } as const;
 
 export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
-  "settings.mcp.catalogTitle": "Installation catalog",
   "settings.mcp.pageDescription":
-    "Remote MCP servers agents call. Workspace servers are registered and signed in to by the workspace's admins; the installation owner sets the catalog.",
+    "Remote MCP servers agents call, registered and signed in to by the workspace's admins.",
   "workspaceMcp.title": "Workspace servers",
   "workspaceMcp.description":
     "Servers an admin registered and signed in to. Agents that turn one on call it through this one connection and never see its token.",
@@ -317,7 +315,7 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
     "Registered {name}. Set its client, then connect.",
   "workspaceMcp.registered.bearer": "Registered and connected {name}.",
   "workspaceMcp.error.ALREADY_EXISTS":
-    "That name is taken by the installation catalog or another server of this workspace.",
+    "That name is taken by another server of this workspace.",
   "workspaceMcp.error.MCP_SERVER_QUOTA_EXCEEDED":
     "The workspace holds as many servers as it may. Delete one it no longer uses first.",
   "workspaceMcp.error.name_reserved":
@@ -408,9 +406,8 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
 };
 
 export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
-  "settings.mcp.catalogTitle": "インストールのカタログ",
   "settings.mcp.pageDescription":
-    "エージェントが呼ぶリモート MCP サーバーです。ワークスペースのサーバーはアドミンが登録して認証し、カタログはインストールの所有者が決めます。",
+    "エージェントが呼ぶリモート MCP サーバーです。アドミンが登録して認証します。",
   "workspaceMcp.title": "ワークスペースのサーバー",
   "workspaceMcp.description":
     "アドミンが登録して認証したサーバーです。サーバーをオンにしたエージェントはこの接続ひとつで呼び、token はエージェントに見えません。",
@@ -525,7 +522,7 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
     "{name} を登録しました。client を設定してから接続してください。",
   "workspaceMcp.registered.bearer": "{name} を登録して接続しました。",
   "workspaceMcp.error.ALREADY_EXISTS":
-    "この名前はインストールのカタログか、このワークスペースの別のサーバーが使っています。",
+    "この名前はこのワークスペースの別のサーバーが使っています。",
   "workspaceMcp.error.MCP_SERVER_QUOTA_EXCEEDED":
     "ワークスペースが登録できるサーバー数に達しました。使わないサーバーを削除してから登録してください。",
   "workspaceMcp.error.name_reserved": "github と browser は名前に使えません。",

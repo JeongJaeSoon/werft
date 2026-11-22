@@ -142,7 +142,6 @@ function service(
     setConnectionModels: record("setConnectionModels"),
     disable: record("disable"),
     enableConnection: record("enableConnection"),
-    setMcpWorkspaces: record("setMcpWorkspaces"),
   };
   const settings = createSettingsConsoleService({
     authorization: createAuthorizationPolicy({
@@ -185,21 +184,18 @@ const NEW_CONNECTION = {
 };
 
 describe("settings console service", () => {
-  test("connections and MCP servers are the signed-in owner's", async () => {
+  test("connections are the signed-in owner's", async () => {
     const { settings, writes } = service();
     for (const who of [caller("admin"), caller("member"), apiKey]) {
       expect((await refusal(settings.listConnections(who))).code).toBe(
         "FORBIDDEN",
       );
-      expect((await refusal(settings.listMcpServers(who))).code).toBe(
-        "FORBIDDEN",
-      );
       expect(
         (await refusal(settings.createConnection(who, NEW_CONNECTION))).code,
       ).toBe("FORBIDDEN");
-      expect((await refusal(settings.disable(who, "mcp", "docs"))).code).toBe(
-        "FORBIDDEN",
-      );
+      expect(
+        (await refusal(settings.disable(who, "connection", "c"))).code,
+      ).toBe("FORBIDDEN");
       expect(
         (await refusal(settings.setCredential(who, "connection", "c", "v")))
           .code,
@@ -338,26 +334,6 @@ describe("settings console service", () => {
         )
       ).code,
     ).toBe("BAD_REQUEST");
-    expect(
-      (
-        await refusal(
-          settings.createMcpServer(caller("owner"), {
-            id: "github",
-            url: "https://mcp.example.invalid/mcp",
-            credential_ref: "docs_mcp",
-            workspaces: ["acme"],
-            value: "example-bearer-1234",
-          }),
-        )
-      ).code,
-    ).toBe("BAD_REQUEST");
-    expect(
-      (
-        await refusal(
-          settings.setMcpWorkspaces(caller("owner"), "docs", ["a", "a"]),
-        )
-      ).code,
-    ).toBe("BAD_REQUEST");
     expect(writes).toEqual([]);
 
     const closed = service({ secretStoreOn: false });
@@ -371,7 +347,12 @@ describe("settings console service", () => {
     expect(
       (
         await refusal(
-          closed.settings.setCredential(caller("owner"), "mcp", "docs", "v"),
+          closed.settings.setCredential(
+            caller("owner"),
+            "connection",
+            "main",
+            "v",
+          ),
         )
       ).code,
     ).toBe("BACKEND_UNAVAILABLE");
@@ -390,22 +371,8 @@ describe("settings console service", () => {
         "connections.console.auth",
       ],
       [
-        settings.createMcpServer(caller("owner"), {
-          id: "docs",
-          url: "https://mcp.example.invalid/mcp",
-          credential_ref: "docs_mcp",
-          workspaces: ["acme"],
-          value: short,
-        }),
-        "mcp_servers.docs.auth",
-      ],
-      [
         settings.setCredential(caller("owner"), "connection", "main", short),
         "connections.main.auth",
-      ],
-      [
-        settings.setCredential(caller("owner"), "mcp", "docs", short),
-        "mcp_servers.docs.auth",
       ],
       [
         settings.setCredential(
@@ -427,15 +394,25 @@ describe("settings console service", () => {
     expect(
       (
         await refusal(
-          settings.setCredential(caller("owner"), "mcp", "docs", "ééééééé"),
+          settings.setCredential(
+            caller("owner"),
+            "connection",
+            "main",
+            "ééééééé",
+          ),
         )
       ).details,
     ).toEqual({ reason_code: "invalid_entry" });
     expect(writes).toEqual([]);
     expect(rereads()).toBe(0);
-    await settings.setCredential(caller("owner"), "mcp", "docs", "12345678");
+    await settings.setCredential(
+      caller("owner"),
+      "connection",
+      "main",
+      "12345678",
+    );
     expect(writes).toEqual([
-      ["setValue", { kind: "mcp", id: "docs" }, "12345678"],
+      ["setValue", { kind: "connection", id: "main" }, "12345678"],
     ]);
   });
 

@@ -7,7 +7,6 @@ import {
   type CatalogRepository,
   cardContentSha256,
   deriveReleaseId,
-  mcpBinding,
   parseSettingsDocument,
   releaseRunOf,
   repositoryBinding,
@@ -34,7 +33,6 @@ import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
 import * as schema from "./schema.ts";
 import {
   catalogRepositories,
-  mcpServers,
   providerConnections,
   settingsGeneration,
   workspaces,
@@ -54,7 +52,6 @@ const { privateKey: APP_PEM } = generateKeyPairSync("rsa", {
 const VALUES = {
   "connection:main": "file-provider-key",
   "repository:ghes": APP_PEM,
-  "mcp:docs": "file-mcp-bearer-token",
 };
 
 const MAIN: CatalogProviderConfig = {
@@ -82,14 +79,6 @@ const FILE: SessionCatalogConfig = sessionCatalogConfigSchema.parse({
       },
     },
   },
-  mcp_servers: {
-    docs: {
-      url: "https://mcp.example.invalid/docs",
-      credential_ref: "docs_token",
-      auth: { kind: "bearer", stored: "mcp:docs" },
-      workspaces: ["acme"],
-    },
-  },
 });
 const CONNECTIONS = { main: MAIN };
 const MODELS = { main: { models: ["claude-sonnet-5"] } };
@@ -98,12 +87,7 @@ const CARD: AgentCard = agentCardSchema.parse({
   role: "docs",
   instructions: "Answer from the docs.",
   model: "claude-sonnet-5",
-  capabilities: {
-    mcp: [{ server: "docs" }],
-    credential_refs: ["docs_token"],
-    tool_policy: { per_tool: { mcp__docs__search: "allow" } },
-    forbidden: [],
-  },
+  capabilities: { mcp: null, forbidden: [] },
 });
 
 // What a process reads from the stored rows: the settings with their
@@ -115,7 +99,6 @@ async function catalogOver(db: NodePgDatabase<typeof schema>) {
   return {
     connections: settings.connections,
     repositories: withConsoleRepositories(rows, settings.repositories),
-    mcp_servers: settings.mcp_servers,
     left_out: settings.left_out,
   };
 }
@@ -146,10 +129,8 @@ function pins(catalog: Awaited<ReturnType<typeof catalogOver>>) {
     string,
     CatalogRepository
   >;
-  const content = resolveReleaseContent(CARD, run.run, catalog.mcp_servers);
+  const content = resolveReleaseContent(CARD, run.run);
   if (!content.ok) throw new Error(content.error.message);
-  const docs = catalog.mcp_servers?.docs;
-  if (!docs) throw new Error("no docs server");
   const releaseId = deriveReleaseId({
     agent_id: "agent-1",
     card_sha256: cardContentSha256(CARD),
@@ -163,7 +144,6 @@ function pins(catalog: Awaited<ReturnType<typeof catalogOver>>) {
         return [id, repository ? repositoryBinding(id, repository) : null];
       }),
     ),
-    mcp: mcpBinding(releaseId, "docs", docs),
     releaseId,
   };
 }
@@ -185,7 +165,6 @@ async function importFile(db: NodePgDatabase<typeof schema>) {
         connections: CONNECTIONS,
         connection_models: MODELS,
         repositories: FILE.repositories,
-        mcp_servers: FILE.mcp_servers ?? {},
       }),
     ),
     { dryRun: false, actor: null },
@@ -218,7 +197,6 @@ integration("installation settings", () => {
 
   async function clear() {
     await db.delete(providerConnections);
-    await db.delete(mcpServers);
     await db.delete(catalogRepositories);
   }
 
@@ -230,7 +208,6 @@ integration("installation settings", () => {
     expect(catalog.connections.main?.models).toEqual(["claude-sonnet-5"]);
     const imported = pins(catalog);
     expect(Object.values(imported.bindings)).not.toContain(null);
-    expect(imported.mcp).toBeDefined();
   }, 30_000);
 
   test("an empty installation reads empty settings", async () => {
@@ -239,7 +216,6 @@ integration("installation settings", () => {
     expect(await store.read({ openStored: true })).toMatchObject({
       connections: [],
       repositories: [],
-      mcpServers: [],
       invalid: [],
     });
   });

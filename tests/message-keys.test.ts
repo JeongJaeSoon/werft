@@ -36,7 +36,6 @@ const BUILT = [
   "action.push.unapprovable.*",
   "action.tool.*",
   "agent.tabs.*",
-  "agentAccess.refused.*",
   "agentGitHub.activity.**",
   "agentGitHub.feature.*",
   "agentGitHub.feature.*Hint",

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { bootstrapClaimResponseSchema } from "@werft-ai/contracts";
+import {
+  bootstrapClaimResponseSchema,
+  MAX_RESTORE_CONFIGS,
+  type RuntimeConfig,
+} from "@werft-ai/contracts";
 import {
   mcpBinding,
   type SessionWorkspaceMcp,
@@ -14,6 +18,7 @@ import type {
 import type { WorkerPendingStore } from "../sessions/ports/pending-requests.ts";
 import { testBinding, testCatalog } from "../testing/catalog-fakes.ts";
 import { acceptAllCheckpoints } from "../testing/checkpoints.ts";
+import { storableLegacyConfig } from "./legacy-runtime-configs.ts";
 import type { McpEgressStore } from "./ports/mcp-egress.ts";
 import type {
   WorkspaceMcpEgressStore,
@@ -57,7 +62,6 @@ const binding = testBinding({
   ownerScope: "owner-a",
   restore: null,
   grants: [],
-  mcp: { releaseId: "rel-1", server: "fake", tools: ["mcp__fake__whoami"] },
   workspaceMcp: [docs],
   githubMcp: { releaseId: "rel-1", tools: ["mcp__github__request_push"] },
 });
@@ -116,7 +120,8 @@ type Claimed = {
     mcp_servers?: Array<{ name: string; endpoint: string; binding: string }>;
   };
   restore_runtime_configs?: Array<{
-    mcp_servers?: Array<{ name: string }>;
+    tools: string[];
+    mcp_servers?: Array<{ name: string; binding: string }>;
   }>;
 };
 
@@ -134,7 +139,7 @@ const bindingsInput = (
 });
 
 describe("workspace MCP servers in the claim", () => {
-  test("a worker that announced workspace_mcp gets catalog, workspace, then github entries", async () => {
+  test("a worker that announced workspace_mcp gets workspace, then github entries", async () => {
     const { claim, asked } = claimWith(
       { outcome: "claimed", binding },
       { workspace_mcp: true },
@@ -148,7 +153,6 @@ describe("workspace MCP servers in the claim", () => {
         server.binding,
       ]),
     ).toEqual([
-      ["fake", catalogServer.url, mcpBinding("rel-1", "fake", catalogServer)],
       ["docs", docs.url, workspaceMcpBinding(docs)],
       ["github", expect.any(String), expect.any(String)],
     ]);
@@ -165,12 +169,12 @@ describe("workspace MCP servers in the claim", () => {
       const response = (await claim) as Claimed;
       expect(
         response.runtime_config.mcp_servers?.map((server) => server.name),
-      ).toEqual(["fake", "github"]);
+      ).toEqual(["github"]);
       expect(
         response.restore_runtime_configs?.map((config) =>
           config.mcp_servers?.map((server) => server.name),
         ),
-      ).not.toContainEqual(["fake", "github"]);
+      ).not.toContainEqual(["github"]);
     }
   });
 
@@ -206,10 +210,167 @@ describe("workspace MCP servers in the claim", () => {
       response.restore_runtime_configs?.map((config) =>
         config.mcp_servers?.map((server) => server.name),
       ),
-    ).toContainEqual(["fake", "github"]);
+    ).toContainEqual(["github"]);
   });
 
-  test("the egress token is held to the catalog server first, else to the first workspace server", async () => {
+  const retired = {
+    releaseId: "rel-1",
+    server: "fake",
+    url: catalogServer.url,
+    credentialRef: catalogServer.credential_ref,
+    tools: ["mcp__fake__whoami"],
+    restorable: true,
+  };
+  const restore = {
+    revision: 1,
+    manifest_ref: "m",
+    manifest_sha256: "0".repeat(64),
+  };
+
+  test("a session a claim gave the retired catalog server claims without it, and is offered that claim's config first", async () => {
+    const { claim } = claimWith(
+      {
+        outcome: "claimed",
+        binding: {
+          ...binding,
+          retiredMcp: retired,
+          restore: {
+            revision: 1,
+            manifest_ref: "m",
+            manifest_sha256: "0".repeat(64),
+          },
+        },
+      },
+      { workspace_mcp: true },
+    );
+    const response = (await claim) as Claimed;
+    expect(
+      response.runtime_config.mcp_servers?.map((server) => server.name),
+    ).toEqual(["docs", "github"]);
+    expect(response.runtime_config.tools).not.toContain("mcp__fake__whoami");
+    const [first] = response.restore_runtime_configs ?? [];
+    expect(
+      first?.mcp_servers?.map((server) => [server.name, server.binding]),
+    ).toEqual([
+      ["fake", mcpBinding("rel-1", "fake", catalogServer)],
+      ["docs", workspaceMcpBinding(docs)],
+      ["github", expect.any(String)],
+    ]);
+    expect(first?.tools).toContain("mcp__fake__whoami");
+    expect(bootstrapClaimResponseSchema.safeParse(response).success).toBe(true);
+  });
+
+  test("a session created after the retire is not offered the retired server, even beside a workspace server of its name", async () => {
+    const { claim } = claimWith(
+      {
+        outcome: "claimed",
+        binding: {
+          ...binding,
+          workspaceMcp: [{ ...docs, name: "fake" }],
+          retiredMcp: { ...retired, restorable: false },
+          restore,
+        },
+      },
+      { workspace_mcp: true },
+    );
+    const response = (await claim) as Claimed;
+    const retiredBinding = mcpBinding("rel-1", "fake", catalogServer);
+    for (const config of response.restore_runtime_configs ?? []) {
+      const names = (config.mcp_servers ?? []).map((server) => server.name);
+      expect(new Set(names).size).toBe(names.length);
+      expect(
+        (config.mcp_servers ?? []).map((server) => server.binding),
+      ).not.toContain(retiredBinding);
+    }
+    expect(bootstrapClaimResponseSchema.safeParse(response).success).toBe(true);
+  });
+
+  describe("the retired server's configs under the restore cap", () => {
+    // One server, no workspace or github one: each kept config offers one
+    // config with the retired server, so the counts are the kept configs.
+    const bare = { ...binding, workspaceMcp: [], githubMcp: null };
+    type Served = {
+      runtime_config: RuntimeConfig;
+      restore_runtime_configs?: RuntimeConfig[];
+    };
+    const keptOf = async (models: string[]) => {
+      const live = (
+        (await claimWith({ outcome: "claimed", binding: bare }).claim) as Served
+      ).runtime_config;
+      return models.map((model) => storableLegacyConfig({ ...live, model }));
+    };
+    const claimKept = async (kept: RuntimeConfig[]) => {
+      const dropped: Array<{ sessionId: string; dropped: number }> = [];
+      const gateway = gatewayWith(
+        {
+          claimAtomic: async () => ({
+            outcome: "claimed",
+            binding: {
+              ...bare,
+              retiredMcp: retired,
+              restore,
+              legacyRuntimeConfigs: kept,
+            },
+          }),
+        },
+        { onRestoreConfigsDropped: (finding) => dropped.push(finding) },
+      );
+      const response = (await gateway.bootstrapClaim(
+        { kind: "bootstrap" },
+        {
+          execution_id: "e",
+          execution_generation: 1,
+          credential: { kind: "launch_nonce", nonce: "n" },
+        },
+      )) as Served;
+      const retiredModels = (response.restore_runtime_configs ?? [])
+        .filter((config) =>
+          (config.mcp_servers ?? []).some((server) => server.name === "fake"),
+        )
+        .map((config) => config.model);
+      return { response, dropped, retiredModels };
+    };
+    const models = (count: number) =>
+      Array.from({ length: count }, (_, at) => `sonnet-4-${at}`);
+
+    test("sixteen of them are all offered, the claim's running one first, and nothing is reported", async () => {
+      const { response, dropped, retiredModels } = await claimKept(
+        await keptOf(models(15)),
+      );
+      expect(response.restore_runtime_configs).toHaveLength(
+        MAX_RESTORE_CONFIGS,
+      );
+      expect(retiredModels).toEqual([
+        response.runtime_config.model,
+        ...models(15),
+      ]);
+      expect(dropped).toEqual([]);
+    });
+
+    test("ones the same once kept twice count once, and fit", async () => {
+      const kept = await keptOf([...models(8), ...models(8)]);
+      const { dropped, retiredModels } = await claimKept(kept);
+      expect(retiredModels).toHaveLength(9);
+      expect(new Set(retiredModels).size).toBe(9);
+      expect(dropped).toEqual([]);
+    });
+
+    test("seventeen lose the oldest one, and the drop is reported with the session and the count", async () => {
+      const { response, dropped, retiredModels } = await claimKept(
+        await keptOf(models(16)),
+      );
+      expect(response.restore_runtime_configs).toHaveLength(
+        MAX_RESTORE_CONFIGS,
+      );
+      expect(retiredModels).toEqual([
+        response.runtime_config.model,
+        ...models(15),
+      ]);
+      expect(dropped).toEqual([{ sessionId: SESSION, dropped: 1 }]);
+    });
+  });
+
+  test("the egress token is held to the first workspace server", async () => {
     const { claim, asked } = claimWith(
       { outcome: "claimed", binding },
       { workspace_mcp: true },
@@ -217,16 +378,12 @@ describe("workspace MCP servers in the claim", () => {
     await claim;
     const bindingsOf = asked[0]?.egress.bindingsOf;
     if (bindingsOf === undefined) throw new Error("no egress issue");
-    const mcp = { releaseId: "rel-1", server: "fake", tools: [] };
-    expect(bindingsOf(bindingsInput({ mcp, workspaceMcp: [docs] })).mcp).toBe(
-      mcpBinding("rel-1", "fake", catalogServer),
-    );
     expect(bindingsOf(bindingsInput({ workspaceMcp: [docs] })).mcp).toBe(
       workspaceMcpBinding(docs),
     );
   });
 
-  test("a workspace server named as the catalog server or github refuses the claim inside its transaction", async () => {
+  test("a workspace server named github refuses the claim inside its transaction", async () => {
     const { claim, asked } = claimWith(
       { outcome: "claimed", binding },
       { workspace_mcp: true },
@@ -234,18 +391,14 @@ describe("workspace MCP servers in the claim", () => {
     await claim;
     const bindingsOf = asked[0]?.egress.bindingsOf;
     if (bindingsOf === undefined) throw new Error("no egress issue");
-    const mcp = { releaseId: "rel-1", server: "fake", tools: [] };
-    for (const input of [
-      bindingsInput({ mcp, workspaceMcp: [{ ...docs, name: "fake" }] }),
-      bindingsInput({
-        workspaceMcp: [{ ...docs, name: "github" }],
-        githubMcp: { releaseId: "rel-1", tools: [] },
-      }),
-    ]) {
-      expect(() => bindingsOf(input)).toThrow(
-        expect.objectContaining({ status: 503, retryable: true }),
-      );
-    }
+    expect(() =>
+      bindingsOf(
+        bindingsInput({
+          workspaceMcp: [{ ...docs, name: "github" }],
+          githubMcp: { releaseId: "rel-1", tools: [] },
+        }),
+      ),
+    ).toThrow(expect.objectContaining({ status: 503, retryable: true }));
   });
 });
 

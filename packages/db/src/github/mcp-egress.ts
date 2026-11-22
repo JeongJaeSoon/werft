@@ -5,6 +5,7 @@ import {
   githubMcpTools,
   githubPolicySourceOf,
   type ReceiptActor,
+  retiredCatalogServerOf,
 } from "@werft-ai/contracts";
 import {
   deniedMcpTools,
@@ -16,12 +17,12 @@ import {
   type McpSessionState,
   mcpDenyOf,
   pinnedMcpTools,
+  type RetiredSessionMcp,
   type SessionGitHubMcp,
-  type SessionMcp,
   visibleMcpTools,
 } from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { mcpSettingsOfRelease } from "../agents/index.ts";
+import { retiredMcpSettingsOf } from "../agents/index.ts";
 import type { Database } from "../queries.ts";
 import {
   agentGitHubSettings,
@@ -30,6 +31,7 @@ import {
   agentVersions,
   credentialBindings,
   receipts,
+  retiredCatalogMcp,
   sessions,
   turns,
   workspaces,
@@ -38,7 +40,8 @@ import { githubPolicyColumns, githubPolicyOfRow } from "./github-settings.ts";
 
 type ReleaseMcp = {
   agentId: string;
-  server: string | null;
+  /** The retired catalog server the card names (`retiredCatalogServerOf`). */
+  retired: string | null;
   perTool: Record<string, string>;
   deny: string[];
 };
@@ -67,65 +70,76 @@ export async function releaseMcpOf(
     .where(eq(agentReleases.id, releaseId))
     .limit(1);
   if (!release) return null;
-  const card = release.card as {
-    capabilities?: { mcp?: Array<{ server?: unknown }> | null };
-  };
-  const server = card.capabilities?.mcp?.[0]?.server;
   const pins = release.policyPins as {
     tools?: { per_tool?: Record<string, string> };
   };
   return {
     agentId: release.agentId,
-    server: typeof server === "string" ? server : null,
+    retired: retiredCatalogServerOf(release.card),
     perTool: pins.tools?.per_tool ?? {},
     deny: mcpDenyOf(release.snapshot),
   };
 }
 
 /**
- * The server and tools a session's MCP route holds: its release's, or its
- * agent's settings when it started with a snapshot of them (`effectiveMcp`).
+ * The catalog server and tools a claim gave the session before migration
+ * 0304 retired them, from the inputs it read then: the session's snapshot
+ * of the agent's selection, the selection's retired row, and the release.
  */
-async function sessionEffectiveMcp(
+async function retiredEffectiveMcp(
   executor: Database,
-  session: { agentReleaseId: string; mcpStart: unknown },
+  session: { mcpStart: unknown },
   release: ReleaseMcp,
 ): Promise<EffectiveMcp> {
   return effectiveMcp({
     start: session.mcpStart,
-    row: await mcpSettingsOfRelease(executor, session.agentReleaseId),
+    row: await retiredMcpSettingsOf(executor, release.agentId),
     release: {
-      server: release.server,
+      server: release.retired,
       tools:
-        release.server === null
+        release.retired === null
           ? []
-          : pinnedMcpTools(release.server, release.perTool),
+          : pinnedMcpTools(release.retired, release.perTool),
       deny: [...release.deny, ...deniedMcpTools(release.perTool)],
     },
   });
 }
 
 /**
- * The MCP server a claimed session may reach, for its claim. A session whose
- * settings name no server gets no route.
+ * The retired catalog server of a claimed session, for its restore configs
+ * only; null when the claim gave it none, or the server was not a catalog
+ * row migration 0304 recorded.
  */
-export async function sessionMcpOf(
+export async function retiredSessionMcpOf(
   executor: Database,
-  session: { agentReleaseId: string | null; mcpStart: unknown },
-): Promise<SessionMcp | null> {
+  session: {
+    agentReleaseId: string | null;
+    mcpStart: unknown;
+    createdAt: Date;
+  },
+): Promise<RetiredSessionMcp | null> {
   if (session.agentReleaseId === null) return null;
   const release = await releaseMcpOf(executor, session.agentReleaseId);
   if (release === null) return null;
-  const effective = await sessionEffectiveMcp(
-    executor,
-    { agentReleaseId: session.agentReleaseId, mcpStart: session.mcpStart },
-    release,
-  );
+  const effective = await retiredEffectiveMcp(executor, session, release);
   if (effective.server === null) return null;
+  const [retired] = await executor
+    .select({
+      url: retiredCatalogMcp.url,
+      credentialRef: retiredCatalogMcp.credentialRef,
+      retiredAt: retiredCatalogMcp.retiredAt,
+    })
+    .from(retiredCatalogMcp)
+    .where(eq(retiredCatalogMcp.name, effective.server))
+    .limit(1);
+  if (retired === undefined) return null;
   return {
     releaseId: session.agentReleaseId,
     server: effective.server,
+    url: retired.url,
+    credentialRef: retired.credentialRef,
     tools: effective.tools,
+    restorable: session.createdAt < retired.retiredAt,
   };
 }
 
@@ -259,11 +273,9 @@ export function createPostgresMcpEgressStore(db: Database): McpEgressStore {
       if (!session || session.agentReleaseId === null) return null;
       const release = await releaseMcpOf(db, session.agentReleaseId);
       if (release === null) return null;
-      const effective = await sessionEffectiveMcp(
-        db,
-        { agentReleaseId: session.agentReleaseId, mcpStart: session.mcpStart },
-        release,
-      );
+      // A call still naming the retired server finds it in no catalog and is
+      // refused as `catalog_moved`.
+      const effective = await retiredEffectiveMcp(db, session, release);
       const bound =
         session.workspaceId === null
           ? []

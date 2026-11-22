@@ -18,8 +18,8 @@ import type { ImageRuntime, RuntimeFingerprint } from "@werft-ai/runtime-core";
 import type {
   ClaimCatalog,
   ModelMove,
+  RetiredSessionMcp,
   SessionGitHubMcp,
-  SessionMcp,
   SessionWorkspaceMcp,
 } from "../catalog/index.ts";
 import type { CheckpointPointer } from "../checkpoints/ports/checkpoint-store.ts";
@@ -77,7 +77,9 @@ export type WorkerBinding = {
   // What the session had spent when bound, read under the claim's row lock.
   costUsd: number;
   providerTokens: number;
-  mcp?: SessionMcp | null;
+  // The retired catalog server a claim gave the session before migration
+  // 0304; only its restore configs name it.
+  retiredMcp?: RetiredSessionMcp | null;
   // Absent or empty for a session that started with no workspace server on,
   // and for one whose servers all lost their tools before it started.
   workspaceMcp?: readonly SessionWorkspaceMcp[];
@@ -175,7 +177,6 @@ export type EgressIssue = {
     repositoryMode: "repository" | "none";
     repositoryId: string | null;
     githubPolicySource: string;
-    mcp?: SessionMcp | null;
     workspaceMcp?: readonly SessionWorkspaceMcp[];
     githubMcp?: SessionGitHubMcp | null;
   }): EgressBindings;

@@ -18,7 +18,7 @@ const row = (
 ) => ({
   server: "docs" as string | null,
   allowedTools: ["mcp__docs__read", "mcp__docs__search"],
-  updatedBy: "user-1" as string | null,
+  copied: false,
   ...over,
 });
 
@@ -44,7 +44,7 @@ describe("effectiveMcp, a session without a snapshot", () => {
     expect(
       effectiveMcp({
         start: null,
-        row: row({ updatedBy: null, allowedTools: [] }),
+        row: row({ copied: true, allowedTools: [] }),
         release,
       }).tools,
     ).toEqual(["mcp__docs__read", "mcp__docs__search"]);
@@ -114,7 +114,7 @@ describe("effectiveMcp, a session with a snapshot", () => {
     expect(
       effectiveMcp({
         start: start(),
-        row: row({ updatedBy: null, allowedTools: ["mcp__docs__read"] }),
+        row: row({ copied: true, allowedTools: ["mcp__docs__read"] }),
         release,
       }).tools,
     ).toEqual(["mcp__docs__read"]);

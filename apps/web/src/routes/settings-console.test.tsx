@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type {
-  SettingsConnection,
-  SettingsMcpServer,
-} from "@werft-ai/contracts";
+import type { SettingsConnection } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { apiError, json, me } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
@@ -37,24 +34,7 @@ const connection = (
   ...rest,
 });
 
-const mcp = (
-  id: string,
-  rest: Partial<SettingsMcpServer> = {},
-): SettingsMcpServer => ({
-  id,
-  origin: "console",
-  state: "active",
-  url: "https://mcp.example.com/sse",
-  credential_ref: "docs",
-  workspaces: ["acme"],
-  credential: { source: "stored", last4: "wxyz" },
-  created_at: AT,
-  disabled_at: null,
-  ...rest,
-});
-
 const CONNECTIONS = "/v1/installation/settings/connections";
-const MCP = "/v1/installation/settings/mcp-servers";
 
 const rowOf = (table: HTMLElement, id: string) => {
   const row = within(table)
@@ -62,13 +42,6 @@ const rowOf = (table: HTMLElement, id: string) => {
     .find((item) => item.textContent?.startsWith(id));
   if (row === undefined) throw new Error(`no row ${id}`);
   return row;
-};
-
-/** A dialog's field by its form name, for labels these tests do not spell. */
-const named = (dialog: HTMLElement, name: string) => {
-  const input = dialog.querySelector<HTMLElement>(`[name="${name}"]`);
-  if (input === null) throw new Error(`no field ${name}`);
-  return input;
 };
 
 /** Every call that changes something; reading a model list is a POST that does not. */
@@ -1064,22 +1037,6 @@ describe("모델 연결", () => {
       await within(await screen.findByRole("dialog")).findByRole("alert");
       expect(impactCalls(api.calls).length).toBe(2);
     });
-
-    test("an MCP server is disabled without reading any connection count", async () => {
-      const { api } = renderAt("/settings/workspace/mcp-servers", {
-        "GET /v1/auth/me": () => json(200, me()),
-        [`GET ${MCP}`]: () => json(200, { items: [mcp("docs")] }),
-        [`POST ${MCP}/docs/disable`]: () => json(200, CHANGE("docs")),
-      });
-      const user = await setupUser();
-      const table = await screen.findByRole("table", { name: "MCP 서버" });
-      await user.click(
-        within(table).getByRole("button", { name: "docs 사용 중지" }),
-      );
-      const confirm = await screen.findByRole("dialog");
-      expect(confirm.textContent).toContain("되돌릴 수 없습니다");
-      expect(impactCalls(api.calls)).toEqual([]);
-    });
   });
 
   describe("a disabled connection is enabled again from its row", () => {
@@ -1327,18 +1284,6 @@ describe("모델 연결", () => {
         "off-key 다시 켜기",
       ]);
     });
-
-    test("a disabled MCP server has no way back", async () => {
-      renderAt("/settings/workspace/mcp-servers", {
-        "GET /v1/auth/me": () => json(200, me()),
-        [`GET ${MCP}`]: () =>
-          json(200, {
-            items: [mcp("docs", { state: "disabled", disabled_at: AT })],
-          }),
-      });
-      const table = await screen.findByRole("table", { name: "MCP 서버" });
-      expect(within(table).queryAllByRole("button")).toEqual([]);
-    });
   });
 
   test("a connection cannot be made without a key: create stays off until one of 8 characters is typed", async () => {
@@ -1454,139 +1399,21 @@ describe("모델 연결", () => {
 });
 
 describe("MCP 서버", () => {
-  const routes = (signedIn = me()) => ({
-    "GET /v1/auth/me": () => json(200, signedIn),
-    [`GET ${MCP}`]: () =>
-      json(200, {
-        items: [
-          mcp("docs"),
-          mcp("search", { origin: "import", credential: { source: "none" } }),
-        ],
-      }),
-  });
-
-  test("each server shows its tool namespace and nothing that blocks a tool", async () => {
-    renderAt("/settings/workspace/mcp-servers", routes());
-    const table = await screen.findByRole("table", { name: "MCP 서버" });
-    expect(rowOf(table, "docs").textContent).toContain("mcp__docs__*");
-    expect(rowOf(table, "search").textContent).toContain("mcp__search__*");
-    expect(table.textContent).not.toMatch(/차단|block/i);
-    expect(screen.queryAllByRole("checkbox")).toEqual([]);
-    expect(screen.queryAllByRole("switch")).toEqual([]);
-    expect(
-      within(rowOf(table, "docs"))
-        .getAllByRole("button")
-        .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["docs 값 바꾸기", "docs 워크스페이스 바꾸기", "docs 사용 중지"]);
-    expect(
-      within(rowOf(table, "search"))
-        .getAllByRole("button")
-        .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["search 사용 중지"]);
-  });
-
-  test("the result line is a live region before the first result arrives", async () => {
-    renderAt("/settings/workspace/mcp-servers", routes());
-    await screen.findByRole("table", { name: "MCP 서버" });
-    const catalog = screen.getByRole("region", { name: "설치 카탈로그" });
-    expect(emptyLiveRegions(catalog)).toHaveLength(1);
-  });
-
-  test("the catalog result line sits above its table and the notice lands in the region already there", async () => {
-    renderAt("/settings/workspace/mcp-servers", {
-      ...routes(),
-      [`POST ${MCP}/docs/disable`]: () => json(200, CHANGE("docs")),
+  // The installation catalog is retired: only the workspace list is left.
+  for (const role of ["owner", "admin"] as const) {
+    test(`the ${role} gets the workspace servers and no catalog`, async () => {
+      const { api } = renderAt("/settings/workspace/mcp-servers", {
+        "GET /v1/auth/me": () => json(200, me(undefined, role)),
+        "GET /v1/workspace/mcp-servers": () =>
+          json(200, { items: [], limit: 20 }),
+      });
+      await screen.findByText("등록한 서버가 없습니다.", { exact: false });
+      expect(screen.queryByText("설치 카탈로그") === null).toBe(true);
+      expect(
+        api.calls.some((call) => call.path.startsWith("/v1/installation")),
+      ).toBe(false);
     });
-    const user = await setupUser();
-    const table = await screen.findByRole("table", { name: "MCP 서버" });
-    await expectNoticeInStandingRegion(
-      table,
-      async () => {
-        await user.click(
-          within(table).getByRole("button", { name: "docs 사용 중지" }),
-        );
-        const confirm = await screen.findByRole("dialog");
-        await user.click(
-          within(confirm).getByRole("button", { name: "사용 중지" }),
-        );
-      },
-      "docs를 사용 중지했습니다.",
-    );
-  });
-
-  test("a narrow table keeps every row's actions", async () => {
-    renderAt("/settings/workspace/mcp-servers", routes());
-    expectNarrowActions(await screen.findByRole("table", { name: "MCP 서버" }));
-  });
-
-  test("adding one and changing its workspaces send the slugs as a list", async () => {
-    const { api } = renderAt("/settings/workspace/mcp-servers", {
-      ...routes(),
-      [`POST ${MCP}`]: () => json(201, CHANGE("wiki")),
-      [`PATCH ${MCP}/docs`]: () => json(200, CHANGE("docs")),
-    });
-    const user = await setupUser();
-    await user.click(
-      await screen.findByRole("button", { name: "MCP 서버 추가" }),
-    );
-    const dialog = await screen.findByRole("dialog");
-    expect(dialog.textContent).toContain("바꾸려면 새 id로 만드세요");
-    await user.type(within(dialog).getByLabelText("id"), "wiki");
-    await user.type(
-      within(dialog).getByLabelText("URL"),
-      "https://wiki.example.com/mcp",
-    );
-    await user.type(named(dialog, "credential_ref"), "wiki");
-    await user.type(
-      within(dialog).getByLabelText("워크스페이스"),
-      "acme, acme-labs ,",
-    );
-    await user.type(named(dialog, "value"), "example-token");
-    await user.click(within(dialog).getByRole("button", { name: "만들기" }));
-    await screen.findByText("wiki를 만들었습니다.");
-
-    const table = screen.getByRole("table", { name: "MCP 서버" });
-    await user.click(
-      within(table).getByRole("button", { name: "docs 워크스페이스 바꾸기" }),
-    );
-    const edit = await screen.findByRole("dialog");
-    const field = within(edit).getByLabelText("워크스페이스");
-    expect((field as HTMLInputElement).value).toBe("acme");
-    await user.clear(field);
-    await user.type(field, "acme,beta");
-    await user.click(within(edit).getByRole("button", { name: "저장" }));
-    await screen.findByText("docs를 바꿨습니다.");
-    expect(
-      writes(api.calls).map((call) => [call.method, call.path, call.body]),
-    ).toEqual([
-      [
-        "POST",
-        MCP,
-        {
-          id: "wiki",
-          url: "https://wiki.example.com/mcp",
-          credential_ref: "wiki",
-          workspaces: ["acme", "acme-labs"],
-          value: "example-token",
-        },
-      ],
-      ["PATCH", `${MCP}/docs`, { workspaces: ["acme", "beta"] }],
-    ]);
-  });
-
-  test("an admin gets the workspace servers and no catalog read", async () => {
-    const { api } = renderAt("/settings/workspace/mcp-servers", {
-      ...routes(me(undefined, "admin")),
-      "GET /v1/workspace/mcp-servers": () =>
-        json(200, { items: [], limit: 20 }),
-    });
-    await screen.findByText("등록한 서버가 없습니다.", { exact: false });
-    expect(screen.queryByRole("table", { name: "MCP 서버" }) === null).toBe(
-      true,
-    );
-    expect(screen.queryByText("설치 카탈로그") === null).toBe(true);
-    expect(api.calls.some((call) => call.path === MCP)).toBe(false);
-  });
+  }
 });
 
 describe("설정의 모델 연결", () => {

@@ -53,13 +53,19 @@ function request(
 type Method = keyof SettingsConsoleService;
 
 // `/repositories/{id}/credential` is back for a repository naming its own
-// GitHub App only; the service answers 404 for any other.
-describe("removed URL repository routes", () => {
+// GitHub App only; the service answers 404 for any other. The installation
+// catalog MCP is retired, its routes with it.
+describe("removed URL repository and catalog MCP routes", () => {
   for (const [method, suffix] of [
     ["GET", "/repositories"],
     ["POST", "/repositories"],
     ["PATCH", "/repositories/legacy"],
     ["POST", "/repositories/legacy/disable"],
+    ["GET", "/mcp-servers"],
+    ["POST", "/mcp-servers"],
+    ["PATCH", "/mcp-servers/docs"],
+    ["POST", "/mcp-servers/docs/credential"],
+    ["POST", "/mcp-servers/docs/disable"],
   ] as const) {
     test(`${method} ${suffix} is not registered`, async () => {
       const response = await request({}, method, `${BASE}${suffix}`, {});
@@ -96,42 +102,20 @@ const WRITES: ReadonlyArray<{
   },
   {
     method: "POST",
-    path: `${BASE}/mcp-servers`,
-    service: "createMcpServer",
-    body: {
-      id: "docs",
-      url: "https://mcp.example.invalid/mcp",
-      credential_ref: "docs_mcp",
-      workspaces: ["acme"],
-      value: "example-bearer",
-    },
-    invalid: { id: "docs", workspaces: [] },
-    status: 201,
-    args: [],
+    path: `${BASE}/connections/console/credential`,
+    service: "setCredential",
+    body: { value: "example-key" },
+    invalid: { value: "" },
+    status: 200,
+    args: ["connection", "console", "example-key"],
   },
-  ...(
-    [
-      ["connections", "connection"],
-      ["mcp-servers", "mcp"],
-    ] as const
-  ).flatMap(([segment, kind]) => [
-    {
-      method: "POST" as const,
-      path: `${BASE}/${segment}/console/credential`,
-      service: "setCredential" as const,
-      body: { value: "example-key" },
-      invalid: { value: "" },
-      status: 200 as const,
-      args: [kind, "console", "example-key"],
-    },
-    {
-      method: "POST" as const,
-      path: `${BASE}/${segment}/console/disable`,
-      service: "disable" as const,
-      status: 200 as const,
-      args: [kind, "console"],
-    },
-  ]),
+  {
+    method: "POST",
+    path: `${BASE}/connections/console/disable`,
+    service: "disable",
+    status: 200,
+    args: ["connection", "console"],
+  },
   {
     method: "POST",
     path: `${BASE}/repositories/console/credential`,
@@ -156,15 +140,6 @@ const WRITES: ReadonlyArray<{
     invalid: { models: [""] },
     status: 200,
     args: ["console", { models: ["claude-sonnet-5"] }],
-  },
-  {
-    method: "PATCH",
-    path: `${BASE}/mcp-servers/console`,
-    service: "setMcpWorkspaces",
-    body: { workspaces: ["acme"] },
-    invalid: { workspaces: [] },
-    status: 200,
-    args: ["console", ["acme"]],
   },
 ];
 
@@ -202,7 +177,6 @@ describe("GET /v1/installation/settings/{kind}", () => {
     ).toHaveLength(1);
     for (const [service, segment] of [
       ["listConnections", "connections"],
-      ["listMcpServers", "mcp-servers"],
     ] as const) {
       const path = `${BASE}/${segment}`;
       expect(
@@ -213,52 +187,6 @@ describe("GET /v1/installation/settings/{kind}", () => {
         503,
       );
     }
-  });
-});
-
-describe("POST /v1/installation/settings/mcp-servers", () => {
-  // The id becomes the agent's tool prefix `mcp__<id>__`, so it takes the
-  // agent card's MCP id rule, and a name the platform's own servers use is
-  // refused.
-  test("refuses an id a tool name cannot carry or a reserved name, before the service", async () => {
-    const created: unknown[] = [];
-    const settings: Partial<SettingsConsoleService> = {
-      createMcpServer: async (_caller, input) => {
-        created.push(input.id);
-        return CHANGED;
-      },
-    };
-    const server = (id: string) => ({
-      id,
-      url: "https://mcp.example.invalid/mcp",
-      credential_ref: "docs_mcp",
-      workspaces: ["acme"],
-      value: "example-bearer",
-    });
-    for (const id of [
-      "github",
-      "browser",
-      "docs.v2",
-      "docs__v2",
-      "a".repeat(33),
-    ]) {
-      const response = await request(
-        settings,
-        "POST",
-        `${BASE}/mcp-servers`,
-        server(id),
-      );
-      expect(response.status).toBe(400);
-    }
-    expect(created).toEqual([]);
-    const fine = await request(
-      settings,
-      "POST",
-      `${BASE}/mcp-servers`,
-      server("docs_v2"),
-    );
-    expect(fine.status).toBe(201);
-    expect(created).toEqual(["docs_v2"]);
   });
 });
 

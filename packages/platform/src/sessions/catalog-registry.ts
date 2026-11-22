@@ -183,8 +183,7 @@ export function registryCatalog<R extends CatalogRepositoryView>(
     settings: SettingsSnapshot["repositories"] | undefined;
   } | null = null;
   let merged = base.repositories;
-  let serversFrom: SettingsSnapshot["mcp_servers"] | null = null;
-  let servers = base.mcp_servers;
+  const noServers: Record<string, CatalogMcpServer> = {};
   const noConnections: SessionCatalog["connections"] = {};
   return {
     get connections() {
@@ -210,14 +209,10 @@ export function registryCatalog<R extends CatalogRepositoryView>(
       }
       return merged;
     },
+    // The installation catalog MCP is retired: neither the settings nor
+    // `base.mcp_servers` gives a server.
     get mcp_servers() {
-      const settings = registry.settings;
-      if (settings === null) return base.mcp_servers;
-      if (settings.mcp_servers !== serversFrom) {
-        servers = { ...settings.mcp_servers, ...base.mcp_servers };
-        serversFrom = settings.mcp_servers;
-      }
-      return servers;
+      return noServers;
     },
     get settings_generation() {
       return registry.settings?.generation;

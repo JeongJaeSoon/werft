@@ -1,15 +1,12 @@
 import {
   createSettingsConnectionRequestSchema,
-  createSettingsMcpServerRequestSchema,
   discoverConnectionModelsResponseSchema,
   exportSettingsResponseSchema,
   importSettingsQuerySchema,
   importSettingsResponseSchema,
   listSettingsConnectionsResponseSchema,
-  listSettingsMcpServersResponseSchema,
   setConnectionModelsRequestSchema,
   setSettingsCredentialRequestSchema,
-  setSettingsMcpServerRequestSchema,
   settingsChangeResponseSchema,
   settingsConnectionImpactResponseSchema,
   settingsDocumentSchema,
@@ -48,11 +45,6 @@ export function registerInstallationSettingsRoutes(
   });
 }
 
-const KINDS = [
-  ["Connection", "connection"],
-  ["McpServer", "mcp"],
-] as const;
-
 export function registerSettingsConsoleRoutes(
   router: ApiRouter,
   settings: SettingsConsoleService,
@@ -78,16 +70,6 @@ export function registerSettingsConsoleRoutes(
       impact,
     );
   });
-  apiRoute(router, "listSettingsMcpServers", async (context) => {
-    const listed = await mapped(() =>
-      settings.listMcpServers(context.get("caller")),
-    );
-    return jsonWithSchema(
-      context,
-      listSettingsMcpServersResponseSchema,
-      listed,
-    );
-  });
 
   apiRoute(router, "createSettingsConnection", async (context) => {
     const body = await parseJsonBody(
@@ -99,37 +81,29 @@ export function registerSettingsConsoleRoutes(
     );
     return jsonWithSchema(context, settingsChangeResponseSchema, made, 201);
   });
-  apiRoute(router, "createSettingsMcpServer", async (context) => {
+  apiRoute(router, "setSettingsConnectionCredential", async (context) => {
+    const { id } = requireParams(context, settingsIdParamsSchema);
     const body = await parseJsonBody(
       context,
-      createSettingsMcpServerRequestSchema,
+      setSettingsCredentialRequestSchema,
     );
-    const made = await mapped(() =>
-      settings.createMcpServer(context.get("caller"), body),
+    const changed = await mapped(() =>
+      settings.setCredential(
+        context.get("caller"),
+        "connection",
+        id,
+        body.value,
+      ),
     );
-    return jsonWithSchema(context, settingsChangeResponseSchema, made, 201);
+    return jsonWithSchema(context, settingsChangeResponseSchema, changed);
   });
-
-  for (const [name, kind] of KINDS) {
-    apiRoute(router, `setSettings${name}Credential`, async (context) => {
-      const { id } = requireParams(context, settingsIdParamsSchema);
-      const body = await parseJsonBody(
-        context,
-        setSettingsCredentialRequestSchema,
-      );
-      const changed = await mapped(() =>
-        settings.setCredential(context.get("caller"), kind, id, body.value),
-      );
-      return jsonWithSchema(context, settingsChangeResponseSchema, changed);
-    });
-    apiRoute(router, `disableSettings${name}`, async (context) => {
-      const { id } = requireParams(context, settingsIdParamsSchema);
-      const changed = await mapped(() =>
-        settings.disable(context.get("caller"), kind, id),
-      );
-      return jsonWithSchema(context, settingsChangeResponseSchema, changed);
-    });
-  }
+  apiRoute(router, "disableSettingsConnection", async (context) => {
+    const { id } = requireParams(context, settingsIdParamsSchema);
+    const changed = await mapped(() =>
+      settings.disable(context.get("caller"), "connection", id),
+    );
+    return jsonWithSchema(context, settingsChangeResponseSchema, changed);
+  });
 
   apiRoute(router, "setSettingsRepositoryCredential", async (context) => {
     const { id } = requireParams(context, settingsIdParamsSchema);
@@ -175,17 +149,5 @@ export function registerSettingsConsoleRoutes(
       discoverConnectionModelsResponseSchema,
       listed,
     );
-  });
-
-  apiRoute(router, "setSettingsMcpServer", async (context) => {
-    const { id } = requireParams(context, settingsIdParamsSchema);
-    const body = await parseJsonBody(
-      context,
-      setSettingsMcpServerRequestSchema,
-    );
-    const changed = await mapped(() =>
-      settings.setMcpWorkspaces(context.get("caller"), id, body.workspaces),
-    );
-    return jsonWithSchema(context, settingsChangeResponseSchema, changed);
   });
 }

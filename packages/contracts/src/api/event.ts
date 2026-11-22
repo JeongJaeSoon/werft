@@ -67,6 +67,7 @@ export const PLATFORM_SYSTEM_SUBTYPE_VALUES = [
   "workspace_limit_mode",
   "approval_checkpoint_failed",
   "repository_restore_failed",
+  "catalog_mcp_skipped",
 ] as const;
 // Why an approval request waits without the checkpoint the worker tried to
 // take for it, so a crash during the wait cannot resume it: the capture
@@ -97,6 +98,16 @@ export const repositoryRestoreFailedEventDataSchema = z
     subtype: z.literal("repository_restore_failed"),
     repository_id: z.string().min(1),
     commit: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/),
+  })
+  .strict();
+// The installation catalog MCP server the session's release names was
+// retired, so the session runs without it. Written once per session, by the
+// first claim that leaves it out.
+export const catalogMcpSkippedEventDataSchema = z
+  .object({
+    type: z.literal("system"),
+    subtype: z.literal("catalog_mcp_skipped"),
+    server: z.string().min(1).max(32),
   })
   .strict();
 // `parked` when a park commits, `expired` when a parked group's last

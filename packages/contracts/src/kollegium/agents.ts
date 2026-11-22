@@ -119,16 +119,36 @@ export const mcpServerIdSchema = z
   .string()
   .regex(new RegExp(MCP_SERVER_ID_PATTERN), "must be a catalog MCP server id");
 /**
- * Names no new MCP server may take, in the catalog or a workspace: the
- * built-in server and one kept for a future built-in. A catalog document
- * refuses only `github`, so one saved before `browser` was kept still loads.
+ * Names no workspace MCP server holds, as the database checks them: the
+ * built-in server and one kept for a future built-in.
  */
 export const MCP_RESERVED_SERVER_NAMES = ["github", "browser"] as const;
-/** A new MCP server's id: the catalog rule, less the reserved names. */
-export const newMcpServerIdSchema = mcpServerIdSchema.refine(
-  (id) => !(MCP_RESERVED_SERVER_NAMES as readonly string[]).includes(id),
-  "is reserved",
-);
+/** Shown wherever an installation catalog MCP entry is refused. */
+export const RETIRED_CATALOG_MCP_MESSAGE =
+  "설치 카탈로그 MCP는 없어졌다. 워크스페이스 MCP 서버로 등록해 고른다";
+
+/**
+ * The installation catalog server a stored card names, or null. The one
+ * reader of `capabilities.mcp[0].server`: a session leaves that server, its
+ * tools, pins and credential name out, and only a restore brings it back.
+ */
+export function retiredCatalogServerOf(card: unknown): string | null {
+  const capabilities =
+    typeof card === "object" && card !== null
+      ? (card as { capabilities?: unknown }).capabilities
+      : undefined;
+  const mcp =
+    typeof capabilities === "object" && capabilities !== null
+      ? (capabilities as { mcp?: unknown }).mcp
+      : undefined;
+  const first: unknown = Array.isArray(mcp) ? mcp[0] : undefined;
+  const server =
+    typeof first === "object" && first !== null
+      ? (first as { server?: unknown }).server
+      : undefined;
+  return typeof server === "string" ? server : null;
+}
+
 export const cardMcpServerSchema = z
   .object({ server: mcpServerIdSchema })
   .strict();

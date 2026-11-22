@@ -278,10 +278,12 @@ integration("0100 identity migration on PostgreSQL", () => {
         total,
       });
       expect(second).toEqual({ adopted: 0, applied: 0, total });
-      expect(sink.records.map(({ message }) => message)).toEqual([
-        "db.migrate.applied",
-        "db.migrate.noop",
-      ]);
+      // The migrations' own notices aside (migrate.integration.test.ts).
+      expect(
+        sink.records
+          .map(({ message }) => message)
+          .filter((message) => message !== "db.migrate.notice"),
+      ).toEqual(["db.migrate.applied", "db.migrate.noop"]);
 
       await withPool(database.url, async (pool) => {
         // 0270 drops every session and what hangs off it (the profile

@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { newMcpServerIdSchema } from "../kollegium/agents.ts";
 import { connectionKindSchema } from "../shared/provider-kind.ts";
 
 /**
@@ -14,7 +13,13 @@ export const settingsDocumentSchema = z
       z.string().min(1),
       z.record(z.string(), z.unknown()),
     ),
-    mcp_servers: z.record(z.string().min(1), z.record(z.string(), z.unknown())),
+    /**
+     * The retired installation catalog MCP: an older export's empty field is
+     * taken, a server in it refuses the import, and an export leaves it out.
+     */
+    mcp_servers: z
+      .record(z.string().min(1), z.record(z.string(), z.unknown()))
+      .optional(),
   })
   .strict();
 
@@ -32,7 +37,7 @@ export const importSettingsQuerySchema = z
   .object({ dry_run: z.enum(["true", "false"]).optional() })
   .strict();
 
-/** Entries as `<kind>:<id>` (`connection:`, `repository:`, `mcp:`). */
+/** Entries as `<kind>:<id>` (`connection:`, `repository:`). */
 const entryList = z.array(z.string().min(1));
 
 export const importSettingsResponseSchema = z
@@ -137,23 +142,6 @@ export const listSettingsConnectionsResponseSchema = z
   })
   .strict();
 
-export const settingsMcpServerSchema = z
-  .object({
-    id: z.string().min(1),
-    origin: settingsEntryOriginSchema,
-    state: settingsEntryStateSchema,
-    url: z.string(),
-    credential_ref: z.string(),
-    workspaces: z.array(z.string()),
-    credential: settingsCredentialViewSchema,
-    ...entryTimes,
-  })
-  .strict();
-
-export const listSettingsMcpServersResponseSchema = z
-  .object({ items: z.array(settingsMcpServerSchema) })
-  .strict();
-
 export const createSettingsConnectionRequestSchema = z
   .object({
     id: consoleEntryId,
@@ -163,17 +151,6 @@ export const createSettingsConnectionRequestSchema = z
     billing: z.enum(["per_token", "none"]).optional(),
     /** `bearer` only for litellm. */
     auth_kind: z.enum(["api_key", "bearer"]),
-    value: credentialValue,
-  })
-  .strict();
-
-/** The id is a tool prefix (`mcp__<id>__`), so it takes the MCP server id rule. */
-export const createSettingsMcpServerRequestSchema = z
-  .object({
-    id: newMcpServerIdSchema,
-    url: z.string().min(1),
-    credential_ref: z.string().min(1),
-    workspaces: z.array(z.string().min(1)).min(1),
     value: credentialValue,
   })
   .strict();
@@ -192,10 +169,6 @@ export const setConnectionModelsRequestSchema = z
     models: z.array(z.string().trim().min(1).max(128)).max(64),
     model_families: connectionModelFamiliesSchema.nullable().optional(),
   })
-  .strict();
-
-export const setSettingsMcpServerRequestSchema = z
-  .object({ workspaces: z.array(z.string().min(1)).min(1) })
   .strict();
 
 export const settingsChangeResponseSchema = z
@@ -259,18 +232,11 @@ export type SettingsCredentialView = z.infer<
   typeof settingsCredentialViewSchema
 >;
 export type SettingsConnection = z.infer<typeof settingsConnectionSchema>;
-export type SettingsMcpServer = z.infer<typeof settingsMcpServerSchema>;
 export type ListSettingsConnectionsResponse = z.infer<
   typeof listSettingsConnectionsResponseSchema
 >;
-export type ListSettingsMcpServersResponse = z.infer<
-  typeof listSettingsMcpServersResponseSchema
->;
 export type CreateSettingsConnectionRequest = z.infer<
   typeof createSettingsConnectionRequestSchema
->;
-export type CreateSettingsMcpServerRequest = z.infer<
-  typeof createSettingsMcpServerRequestSchema
 >;
 export type SettingsChangeResponse = z.infer<
   typeof settingsChangeResponseSchema

@@ -33,10 +33,6 @@ import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
 import { lockPeople } from "./control-shared.ts";
 import { lockCatalogWrites } from "./github/catalog-repositories.ts";
 import { rebindCarriedPushes } from "./installation-settings.ts";
-import {
-  lockMcpServerName,
-  workspaceMcpNameTaken,
-} from "./musterrolle/workspace-mcp.ts";
 import type { Database } from "./queries.ts";
 import {
   catalogRepositories,
@@ -55,7 +51,6 @@ import { writeSucceededReceipt } from "./succeeded-receipt.ts";
 const PURPOSE = "settings_credential";
 
 type RepositoryRow = typeof catalogRepositories.$inferSelect;
-type McpRow = typeof mcpServers.$inferSelect;
 
 /** The row as its settings entry: what the file would have spelled. */
 function repositoryEntryOf(row: RepositoryRow): unknown {
@@ -65,15 +60,6 @@ function repositoryEntryOf(row: RepositoryRow): unknown {
     url: row.url,
     branch: row.branch,
     ...(auth === null ? {} : { auth }),
-  };
-}
-
-function mcpEntryOf(row: McpRow): unknown {
-  return {
-    url: row.url,
-    credential_ref: row.credentialRef,
-    auth: row.auth,
-    workspaces: row.workspaces,
   };
 }
 
@@ -140,11 +126,6 @@ async function existingIn(
         ),
       ),
     ),
-    mcp_servers: new Map(
-      (await tx.select().from(mcpServers)).map((row) =>
-        entryOf("mcp", row.id, mcpEntryOf(row), row.disabledAt === null),
-      ),
-    ),
     stored_values: new Set(values.keys()),
   };
 }
@@ -195,31 +176,12 @@ async function insertRow(
       });
       return;
     }
-    case "mcp":
-      // One tool prefix per name across the installation catalog and every
-      // workspace's own servers.
-      await lockMcpServerName(tx, add.id);
-      if (await workspaceMcpNameTaken(tx, add.id)) {
-        throw new Error(`a workspace already has an MCP server "${add.id}"`);
-      }
-      await tx.insert(mcpServers).values({
-        id: add.id,
-        url: add.entry.url,
-        credentialRef: add.entry.credential_ref,
-        auth: add.entry.auth,
-        credentialSource: "stored",
-        workspaces: [...add.entry.workspaces],
-        origin,
-        createdBy,
-      });
-      return;
   }
 }
 
 const OPERATIONS = {
   connection: "import_connection",
   repository: "import_repository",
-  mcp: "import_mcp_server",
 } as const;
 
 function auditOf(add: SettingsImportAdd): Record<string, unknown> {
@@ -247,13 +209,6 @@ function auditOf(add: SettingsImportAdd): Record<string, unknown> {
         source: "settings_document",
       };
     }
-    case "mcp":
-      return {
-        mcp_server_id: add.id,
-        url: add.entry.url,
-        credential_ref: add.entry.credential_ref,
-        credential_source,
-      };
   }
 }
 
@@ -273,7 +228,6 @@ export function createPostgresSettingsDocumentStore(
             connections: {},
             connection_models: {},
             repositories: {},
-            mcp_servers: {},
           };
           for (const row of await tx.select().from(providerConnections)) {
             if (row.disabledAt !== null) continue;
@@ -293,12 +247,6 @@ export function createPostgresSettingsDocumentStore(
             entries.repositories[row.id] = repositoryEntryOf(
               row,
             ) as CatalogRepositoryConfig;
-          }
-          for (const row of await tx.select().from(mcpServers)) {
-            if (row.disabledAt !== null) continue;
-            entries.mcp_servers[row.id] = mcpEntryOf(
-              row,
-            ) as SettingsEntries["mcp_servers"][string];
           }
           return { entries, last4 };
         },
@@ -536,7 +484,6 @@ async function liveIn(
 /** Who may write each kind. */
 const WRITERS: Record<SettingsKind, readonly string[]> = {
   connection: ["owner"],
-  mcp: ["owner"],
   repository: MANAGEMENT_ROLES["workspace.manage"] ?? [],
 };
 
@@ -562,20 +509,6 @@ async function heldRow(
       return row
         ? {
             entry: row.definition,
-            credentialSource: row.credentialSource,
-            disabled: row.disabledAt !== null,
-          }
-        : null;
-    }
-    case "mcp": {
-      const [row] = await tx
-        .select()
-        .from(mcpServers)
-        .where(eq(mcpServers.id, id))
-        .for("update");
-      return row
-        ? {
-            entry: mcpEntryOf(row),
             credentialSource: row.credentialSource,
             disabled: row.disabledAt !== null,
           }
@@ -662,17 +595,14 @@ async function judgeWithFirstDecisionModel(
 
 const CREATED: Record<SettingsKind, ReceiptOperation> = {
   connection: "create_connection",
-  mcp: "create_mcp_server",
   repository: "add_repository",
 };
 const DISABLED: Record<SettingsKind, ReceiptOperation> = {
   connection: "disable_connection",
-  mcp: "disable_mcp_server",
   repository: "remove_repository",
 };
 const TARGET: Record<SettingsKind, string> = {
   connection: "connection_id",
-  mcp: "mcp_server_id",
   repository: "repository_id",
 };
 
@@ -681,12 +611,7 @@ function consoleWrites(
   key: SecretKey | null,
 ): Pick<
   SettingsDocumentStore,
-  | "create"
-  | "setValue"
-  | "setConnectionModels"
-  | "disable"
-  | "enableConnection"
-  | "setMcpWorkspaces"
+  "create" | "setValue" | "setConnectionModels" | "disable" | "enableConnection"
 > {
   const sealIn = async (
     tx: Database,
@@ -741,7 +666,6 @@ function consoleWrites(
               add.kind === "connection" ? { [add.id]: add.entry } : {},
             repositories:
               add.kind === "repository" ? { [add.id]: add.entry } : {},
-            mcp_servers: add.kind === "mcp" ? { [add.id]: add.entry } : {},
           },
           await existingIn(tx, await firstWorkspace(tx)),
         );
@@ -749,12 +673,6 @@ function consoleWrites(
         // already sealed under it.
         if (plan.add.length !== 1) {
           return { outcome: "conflict" as const, reason: "already_exists" };
-        }
-        if (add.kind === "mcp") {
-          await lockMcpServerName(tx, add.id);
-          if (await workspaceMcpNameTaken(tx, add.id)) {
-            return { outcome: "conflict" as const, reason: "already_exists" };
-          }
         }
         if (credentialSourceOf(add.entry) !== "stored") {
           throw new Error("a console entry stores its own value");
@@ -849,12 +767,6 @@ function consoleWrites(
               .set({ disabledAt: at, disabledBy: actor.userId })
               .where(eq(providerConnections.id, owner.id));
             break;
-          case "mcp":
-            await tx
-              .update(mcpServers)
-              .set({ disabledAt: at, disabledBy: actor.userId })
-              .where(eq(mcpServers.id, owner.id));
-            break;
           case "repository":
             await tx
               .update(catalogRepositories)
@@ -922,32 +834,6 @@ function consoleWrites(
         return { outcome: "done" as const, receiptId };
       });
     },
-
-    setMcpWorkspaces(id, workspaces, actor) {
-      return asWriter("mcp", actor, async (tx) => {
-        const held = await heldRow(tx, "mcp", id);
-        if (held === null) return { outcome: "not_found" as const };
-        if (held.disabled) {
-          return { outcome: "conflict" as const, reason: "disabled" };
-        }
-        // An operator's reference is shown and disabled, nothing more.
-        if (!ownStoredOf("mcp", id, held)) {
-          return { outcome: "conflict" as const, reason: "not_stored" };
-        }
-        const before = isRecord(held.entry) ? held.entry.workspaces : null;
-        await tx
-          .update(mcpServers)
-          .set({ workspaces: [...workspaces] })
-          .where(eq(mcpServers.id, id));
-        const receiptId = await consoleReceipt(
-          tx,
-          actor,
-          "set_mcp_server_workspaces",
-          { mcp_server_id: id, before, workspaces: [...workspaces] },
-        );
-        return { outcome: "done" as const, receiptId };
-      });
-    },
   };
 }
 
@@ -979,17 +865,6 @@ function listRowsIn(db: Database): Pick<SettingsDocumentStore, "listRows"> {
                   );
                   return parsed.success ? parsed.data : null;
                 })(),
-              }));
-            case "mcp":
-              return (
-                await tx.select().from(mcpServers).orderBy(asc(mcpServers.id))
-              ).map((row) => ({
-                id: row.id,
-                entry: mcpEntryOf(row),
-                origin: row.origin,
-                last4: value(row.id),
-                createdAt: row.createdAt,
-                disabledAt: row.disabledAt,
               }));
             case "repository":
               return (

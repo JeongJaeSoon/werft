@@ -44,6 +44,7 @@ export type TurnEventMessageKey =
   | "session.event.workerImageReplaced"
   | `session.event.approvalCheckpointFailed.${ApprovalCheckpointFailure}`
   | "session.event.repositoryRestoreFailed"
+  | "session.event.catalogMcpSkipped"
   | "session.event.init"
   | "session.event.vcsChanged"
   | "session.event.thinkingTokens"
@@ -334,6 +335,19 @@ function system(data: Record<string, unknown>): TurnEventPresentation {
           message("session.event.repositoryRestoreFailed", {
             repository: clip(data.repository_id),
             commit: data.commit.slice(0, 12),
+          }),
+        ],
+      };
+    }
+    if (
+      data.subtype === "catalog_mcp_skipped" &&
+      typeof data.server === "string"
+    ) {
+      return {
+        label,
+        summary: [
+          message("session.event.catalogMcpSkipped", {
+            server: clip(data.server),
           }),
         ],
       };

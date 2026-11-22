@@ -24,6 +24,7 @@ import {
   type GitHubRefusal,
   githubFeaturesOverCeiling,
   type ListUsableAgentsResponse,
+  RETIRED_CATALOG_MCP_MESSAGE,
   type RepositoryCeiling,
   releaseModel,
   type SaveAgentResponse,
@@ -162,6 +163,20 @@ export function assertDeclaredEnvNames(card: AgentCard): void {
     throw new SessionServiceError(
       "VARIABLE_NAME_RESERVED",
       `The card declares ${reserved}, a name the platform sets itself`,
+    );
+  }
+}
+
+/**
+ * A card a save may store: its variable names are its own, and it names no
+ * installation catalog MCP server (migration 0304 refuses such a version).
+ */
+function assertCardWritable(card: AgentCard): void {
+  assertDeclaredEnvNames(card);
+  if (card.capabilities.mcp !== undefined && card.capabilities.mcp !== null) {
+    throw new SessionServiceError(
+      "UNSUPPORTED_CAPABILITY",
+      `card.capabilities.mcp: ${RETIRED_CATALOG_MCP_MESSAGE}`,
     );
   }
 }
@@ -522,11 +537,7 @@ export function createAgentService(deps: {
         return failed(reason);
       }
     }
-    const resolved = resolveReleaseContent(
-      version.card,
-      run,
-      catalog.mcp_servers,
-    );
+    const resolved = resolveReleaseContent(version.card, run);
     if (!resolved.ok) {
       return failed(
         resolved.error.field === "card.model"
@@ -674,7 +685,7 @@ export function createAgentService(deps: {
       activate?: boolean;
     },
   ): Promise<SaveAgentResponse> {
-    if (fields.card !== undefined) assertDeclaredEnvNames(fields.card);
+    if (fields.card !== undefined) assertCardWritable(fields.card);
     const done = (record: AgentRecord, release: SaveRelease) => ({
       ...withBehavior(record),
       release,
@@ -728,7 +739,7 @@ export function createAgentService(deps: {
         newest;
       // The card that would be released, sent or not: a save that names only
       // a connection re-releases the stored one.
-      if (asked && base !== undefined) assertDeclaredEnvNames(base);
+      if (asked && base !== undefined) assertCardWritable(base);
       const connectionId =
         fields.connection_id ??
         draft?.connection_id ??
@@ -1110,7 +1121,7 @@ export function createAgentService(deps: {
     ): Promise<SaveAgentResponse> {
       // Any member may; the store makes them the agent's admin (D3).
       const userId = await onWorkspace(caller, "agent.create");
-      assertDeclaredEnvNames(request.card);
+      assertCardWritable(request.card);
       const card = request.card;
       const result = await store.create({
         principal: caller,
@@ -1241,11 +1252,7 @@ export function createAgentService(deps: {
           `repository_id: ${refused}`,
         );
       }
-      const resolved = resolveReleaseContent(
-        version.card,
-        run,
-        catalog.mcp_servers,
-      );
+      const resolved = resolveReleaseContent(version.card, run);
       if (!resolved.ok) {
         throw new SessionServiceError(
           "UNSUPPORTED_CAPABILITY",

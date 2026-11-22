@@ -173,7 +173,7 @@ afterAll(async () => {
   }
 }, TIMEOUT);
 
-/** As remote-mcp.e2e.ts: an ask rule that stops the turn for a person. */
+/** An ask rule that stops the turn for a person. */
 const GATE: Step = bash('echo gate | sed -n "w gate.txt"');
 
 async function streamOf(sessionId: string, turnId: string) {

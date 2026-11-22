@@ -24,7 +24,6 @@ const settings: InstallationSettings = {
     },
   ],
   repositories: [],
-  mcpServers: [],
   stored: new Map([["connection:readable", "sk-test-readable-key"]]),
   invalid: ["connection:broken"],
 };

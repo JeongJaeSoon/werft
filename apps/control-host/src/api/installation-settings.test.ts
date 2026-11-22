@@ -25,7 +25,6 @@ function source(values: ReadonlyMap<string, string>[]) {
             },
           ],
           repositories: [],
-          mcpServers: [],
           stored: values[asked.length - 1] ?? new Map(),
           invalid: [],
         };

@@ -1503,47 +1503,12 @@ describe("WorkerGateway", () => {
     ).toThrow("no runnable connection");
   });
 
-  test("a claim needing an MCP server this host's catalog does not hold binds nothing and is retried", async () => {
-    const mcpOf = (server: string) => ({
-      releaseId: "rel-1",
-      server,
-      tools: [`mcp__${server}__search`],
-    });
-    const session = (server: string) => ({
-      id: "s-1",
-      connectionId: TEST_CONNECTION_ID,
-      specDigest: "sha256:spec",
-      model: "claude-sonnet-5",
-      repositoryMode: "none" as const,
-      githubPolicySource: "release",
-      repositoryId: null,
-      mcp: mcpOf(server),
-    });
-    const catalog = {
-      ...testCatalog(),
-      mcp_servers: {
-        kept: {
-          url: "https://mcp.example.invalid/kept",
-          credential_ref: "kept",
-          auth: {
-            kind: "bearer" as const,
-            value: "kept-token",
-            ref: { stored: "mcp:kept" },
-          },
-          workspaces: [],
-        },
-      } as SessionCatalog["mcp_servers"],
-    };
+  test("a session that named a retired catalog server claims without it on a host whose catalog holds none", async () => {
     const issued: ClaimInput["egress"][] = [];
-    let refreshMidClaim = false;
     const gateway = createWorkerGateway({
       work: work({
         claimAtomic: async (input) => {
           issued.push(input.egress);
-          if (!refreshMidClaim) return { outcome: "no_session" };
-          input.egress.bindingsOf(session("kept"));
-          // A registry refresh that drops the server lands mid-claim.
-          catalog.mcp_servers = {};
           return {
             outcome: "claimed",
             binding: testBinding({
@@ -1561,44 +1526,48 @@ describe("WorkerGateway", () => {
               restore: null,
               costUsd: 0,
               providerTokens: 0,
-              mcp: mcpOf("kept"),
+              retiredMcp: {
+                releaseId: "rel-1",
+                server: "gone",
+                url: "https://mcp.example.invalid/gone",
+                credentialRef: "gone",
+                tools: ["mcp__gone__search"],
+                restorable: true,
+              },
             }),
           };
         },
       }),
-      catalog,
+      catalog: { ...testCatalog(), mcp_servers: {} },
       checkpoints: acceptAllCheckpoints,
       options: {
         sessionBudget: { costUsd: 1_000, tokens: null },
         leaseTtlMs: 30_000,
       },
     });
-    const claim = () =>
-      gateway.bootstrapClaim(
-        { kind: "bootstrap" },
-        {
-          execution_id: "e",
-          execution_generation: 1,
-          credential: { kind: "launch_nonce", nonce: "n" },
-        },
-      );
-    await claim().catch(() => undefined);
+    const claimed = await gateway.bootstrapClaim(
+      { kind: "bootstrap" },
+      {
+        execution_id: "e",
+        execution_generation: 1,
+        credential: { kind: "launch_nonce", nonce: "n" },
+      },
+    );
+    expect(claimed.runtime_config.mcp_servers ?? []).toEqual([]);
+    expect(claimed.runtime_config.tools).not.toContain("mcp__gone__search");
     const [egress] = issued;
     if (!egress) throw new Error("claim was not asked to issue egress tokens");
-    expect(() => egress.bindingsOf(session("docs"))).toThrow(
-      expect.objectContaining({
-        status: 503,
-        code: "BACKEND_UNAVAILABLE",
-        retryable: true,
-      }),
-    );
-    expect(egress.bindingsOf(session("kept")).mcp).toBeDefined();
-
-    refreshMidClaim = true;
-    const claimed = await claim();
     expect(
-      claimed.runtime_config.mcp_servers?.map((server) => server.name),
-    ).toEqual(["kept"]);
+      egress.bindingsOf({
+        id: "s-1",
+        connectionId: TEST_CONNECTION_ID,
+        specDigest: "sha256:spec",
+        model: "claude-sonnet-5",
+        repositoryMode: "none",
+        githubPolicySource: "release",
+        repositoryId: null,
+      }).mcp,
+    ).toBeUndefined();
   });
 
   test("bootstrapClaim answers a launch whose session was failed for a catalog mismatch with a final 409", async () => {

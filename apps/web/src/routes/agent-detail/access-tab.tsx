@@ -1,7 +1,6 @@
 import type { AgentDetail } from "@werft-ai/contracts";
 import type { RefObject } from "react";
 import type { Outcome } from "../../components/outcome.tsx";
-import { McpSettings } from "./access.tsx";
 import { Credentials } from "./credentials.tsx";
 import { type Place, type Placed, PlacedOutcome } from "./placement.tsx";
 import { AgentSkills } from "./skills.tsx";
@@ -22,11 +21,6 @@ export function AccessTab({
 }) {
   return (
     <>
-      <McpSettings
-        agentId={detail.agent.id}
-        result={<PlacedOutcome placed={placed} at="mcp" />}
-        onOutcome={outcomeAt("mcp")}
-      />
       <AgentWorkspaceMcp
         agentId={detail.agent.id}
         result={<PlacedOutcome placed={placed} at="workspaceMcp" />}

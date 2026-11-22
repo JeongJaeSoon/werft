@@ -378,11 +378,9 @@ if [ "$KIND_MODEL" != none ] && [ "$status" = 0 ]; then
         "read -r SEED_COOKIE && export SEED_COOKIE SEED_API_URL=http://${fullname}-api:3000 && exec bun run packages/testkit/src/seed-credentials-main.ts"
   }
   if [ "$KIND_MODEL" = fake ]; then
-    # The fake model takes any key; the MCP server's is the compose
-    # fake-mcp's bearer, though no MCP server runs here.
+    # The fake model takes any key.
     kind_placeholder_key=local-placeholder-key
-    kind_mcp_bearer=local-fake-mcp-service-account
-    seeds=(connections:fake-messages=kind_placeholder_key mcp_servers:fake=kind_mcp_bearer)
+    seeds=(connections:fake-messages=kind_placeholder_key)
   else
     seeds=(connections:anthropic=kind_model_key)
   fi

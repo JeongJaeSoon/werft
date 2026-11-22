@@ -18,7 +18,6 @@ import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
   agentWorkspaceMcpServers,
-  mcpServers,
   secretValues,
   users,
   workspaceMcpConnections,
@@ -61,34 +60,6 @@ const slotOf = (
   serverId: string,
   purpose: SecretPurpose,
 ): SecretSlot => ({ workspaceId, owner: ownerOf(serverId), purpose });
-
-/**
- * Held by both writers of an MCP server name, this table's and the
- * installation catalog's, so neither takes a name the other just did.
- */
-export async function lockMcpServerName(
-  tx: Database,
-  name: string,
-): Promise<void> {
-  await tx.execute(
-    sql`SELECT pg_advisory_xact_lock(hashtextextended(${`mcp_server_name:${name}`}, 0))`,
-  );
-}
-
-/** Under lockMcpServerName: whether any workspace has a server of that name. */
-export async function workspaceMcpNameTaken(
-  tx: Database,
-  name: string,
-): Promise<boolean> {
-  const [row] = await tx
-    .select({ id: workspaceMcpServers.id })
-    .from(workspaceMcpServers)
-    .where(
-      and(eq(workspaceMcpServers.name, name), notDeleted(workspaceMcpServers)),
-    )
-    .limit(1);
-  return row !== undefined;
-}
 
 async function stillManager(
   tx: Database,
@@ -433,12 +404,6 @@ export function createPostgresWorkspaceMcpStore(
         await tx.execute(
           sql`SELECT pg_advisory_xact_lock(hashtextextended(${`workspace_mcp_servers:${workspaceId}`}, 0))`,
         );
-        await lockMcpServerName(tx, input.name);
-        const [catalog] = await tx
-          .select({ id: mcpServers.id })
-          .from(mcpServers)
-          .where(eq(mcpServers.id, input.name))
-          .limit(1);
         const [same] = await tx
           .select({ id: workspaceMcpServers.id })
           .from(workspaceMcpServers)
@@ -450,7 +415,7 @@ export function createPostgresWorkspaceMcpStore(
             ),
           )
           .limit(1);
-        if (catalog || same) return { outcome: "name_taken" as const };
+        if (same) return { outcome: "name_taken" as const };
         const [held] = await tx
           .select({ n: count() })
           .from(workspaceMcpServers)

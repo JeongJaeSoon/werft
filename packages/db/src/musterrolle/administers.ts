@@ -27,6 +27,7 @@ import {
   users,
 } from "../schema.ts";
 import { rowsOf } from "../statement-rows.ts";
+import { RELEASE_CARD_REFS } from "./release-card-refs.ts";
 
 // Aliased: callers pass an outer `agents.id` as `agentId`.
 const managed = alias(agents, "managed_agent");
@@ -371,13 +372,10 @@ export function credentialsAllowed(
       AND l.workspace_id = ${workspaceId}
       AND (l.target_kind = 'workspace' OR (l.target_kind = 'team' AND ${teams}))
       AND l.credentials_deny && ARRAY(
-        SELECT jsonb_array_elements_text(
-          CASE WHEN s.agent_id IS NOT NULL THEN s.credential_refs
-               ELSE coalesce(v.card -> 'capabilities' -> 'credential_refs', '[]'::jsonb) END)
+        SELECT jsonb_array_elements_text(${RELEASE_CARD_REFS})
         FROM agents a
         JOIN agent_releases r ON r.id = a.active_release_id
         JOIN agent_versions v ON v.id = r.version_id
-        LEFT JOIN agent_mcp_settings s ON s.agent_id = a.id
         WHERE a.id = ${agentId}))`;
 }
 
