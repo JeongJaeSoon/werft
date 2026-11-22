@@ -280,6 +280,97 @@ integration("slack_channel_member_cache on PostgreSQL", () => {
     ).toEqual([]);
   });
 
+  test("a read that began before a revoke, or before the install was verified again, is not kept", async () => {
+    const t = await installedAgent();
+    const before = await store().cached(t.installationId, "G0CHAN");
+    expect(
+      await createPostgresSlackInstallStore(db).revokeInstallation(t.key, null),
+    ).toBe("revoked");
+    expect(
+      await store().remember(
+        t.installationId,
+        "G0CHAN",
+        ["U0A"],
+        before.checkedAt,
+      ),
+    ).toBe(false);
+
+    // Installed again under the same row: the old read is still refused.
+    await registerSlackInstallation(db, {
+      ...t.key,
+      workspaceId: t.workspaceId,
+    });
+    const again = await verifySlackInstallation(db, {
+      ...t.key,
+      botUserId: "U0BOT",
+    });
+    expect(again.outcome).toBe("verified");
+    expect(
+      await store().remember(
+        t.installationId,
+        "G0CHAN",
+        ["U0A"],
+        before.checkedAt,
+      ),
+    ).toBe(false);
+    const after = await store().cached(t.installationId, "G0CHAN");
+    expect(
+      await store().remember(
+        t.installationId,
+        "G0CHAN",
+        ["U0A"],
+        after.checkedAt,
+      ),
+    ).toBe(true);
+    expect(
+      (await store().cached(t.installationId, "G0CHAN")).memberIds,
+    ).toEqual(["U0A"]);
+  });
+
+  test("a write waits for a revoke in flight and is then refused", async () => {
+    const t = await installedAgent();
+    const before = await store().cached(t.installationId, "G0CHAN");
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let locked = () => {};
+    const lockTaken = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    // The revoke's lock, status change and delete, held open while the write comes.
+    const revoke = db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT id FROM slack_installations WHERE id = ${t.installationId} FOR NO KEY UPDATE`,
+      );
+      await tx.execute(
+        sql`UPDATE slack_installations SET status = 'revoked', revoked_at = now() WHERE id = ${t.installationId}`,
+      );
+      await tx
+        .delete(slackChannelMemberCache)
+        .where(eq(slackChannelMemberCache.installationId, t.installationId));
+      locked();
+      await held;
+    });
+    await lockTaken;
+    const write = store().remember(
+      t.installationId,
+      "G0CHAN",
+      ["U0A"],
+      before.checkedAt,
+    );
+    await Bun.sleep(200);
+    release();
+    await revoke;
+    expect(await write).toBe(false);
+    expect(
+      await db
+        .select()
+        .from(slackChannelMemberCache)
+        .where(eq(slackChannelMemberCache.installationId, t.installationId)),
+    ).toEqual([]);
+  });
+
   test("the table refuses a list past the member limit", async () => {
     const t = await installedAgent();
     const ids = JSON.stringify(

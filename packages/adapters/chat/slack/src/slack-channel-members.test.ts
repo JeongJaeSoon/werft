@@ -58,14 +58,15 @@ function memoryStore(clock: () => number) {
     },
     async remember(installationId, channelId, memberIds, checkedAt) {
       const at = checkedAt.getTime();
-      if (at <= clock() - SLACK_MEMBER_CACHE_TTL_MS) return;
+      if (at <= clock() - SLACK_MEMBER_CACHE_TTL_MS) return false;
       const row = rows.get(key(installationId, channelId));
-      if (row?.voidedAt != null && row.voidedAt >= at) return;
+      if (row?.voidedAt != null && row.voidedAt >= at) return false;
       rows.set(key(installationId, channelId), {
         memberIds: [...memberIds],
         fetchedAt: at,
         voidedAt: row?.voidedAt ?? null,
       });
+      return true;
     },
     async forget(installationId, channelId) {
       rows.set(key(installationId, channelId), {
@@ -255,6 +256,7 @@ describe("Slack channel member check", () => {
         channel: t.inside.id,
       }),
     );
+    t.advance(1);
     expect(await t.ask(MEMBER)).toBe(false);
     expect(t.memberCalls()).toBe(2);
 
@@ -266,10 +268,12 @@ describe("Slack channel member check", () => {
         channel: t.inside.id,
       }),
     );
+    t.advance(1);
     expect(await t.ask(MEMBER)).toBe(true);
     expect(t.memberCalls()).toBe(3);
 
     await invalidate(claim({ type: "group_left", channel: t.inside.id }));
+    t.advance(1);
     expect(await t.ask(MEMBER)).toBe(true);
     expect(t.memberCalls()).toBe(4);
     expect(forwarded).toEqual([
@@ -303,6 +307,25 @@ describe("Slack channel member check", () => {
     expect(await t.ask(MEMBER)).toBe(true);
     // 452 with the bot, 200 a page.
     expect(t.memberCalls()).toBe(3);
+  });
+
+  test("a member event during the read leaves that read unused: false, and the next question reads again", async () => {
+    const t = setup();
+    const remember = t.memory.store.remember;
+    t.memory.store.remember = async (installationId, channelId, ids, at) => {
+      // The member left, and the void landed, while Slack was being read.
+      await t.memory.store.forget(installationId, channelId);
+      return remember(installationId, channelId, ids, at);
+    };
+    expect(await t.ask(MEMBER)).toBe(false);
+    expect(t.warnings).toEqual([
+      expect.objectContaining({ reason: "overtaken" }),
+    ]);
+
+    t.memory.store.remember = remember;
+    t.advance(1);
+    expect(await t.ask(MEMBER)).toBe(true);
+    expect(t.memberCalls()).toBe(2);
   });
 
   test("a channel over the member limit is not checked and not kept", async () => {

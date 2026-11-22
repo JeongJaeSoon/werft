@@ -25,6 +25,7 @@ export type SlackMemberCheckUnconfirmed =
   | "slack_error"
   | "slack_unanswered"
   | "too_many_members"
+  | "overtaken"
   | "failed";
 
 function unconfirmedOf(error: unknown): SlackMemberCheckUnconfirmed {
@@ -91,12 +92,18 @@ export function createSlackChannelMembers(deps: {
           cursor = answer.nextCursor;
           if (cursor === null) break;
         }
-        await deps.store.remember(
-          subject.installationId,
-          input.channelId,
-          [...members],
-          read.checkedAt,
-        );
+        // A list the store refused was overtaken (a member event, a
+        // revoke): it answers nothing, and the next question reads again.
+        if (
+          !(await deps.store.remember(
+            subject.installationId,
+            input.channelId,
+            [...members],
+            read.checkedAt,
+          ))
+        ) {
+          return unconfirmed("overtaken");
+        }
         return members.has(subject.slackUserId);
       } catch (error) {
         return unconfirmed(unconfirmedOf(error), error);

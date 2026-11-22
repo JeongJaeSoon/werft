@@ -40,15 +40,17 @@ export interface ChannelMemberStore {
    */
   cached(installationId: string, channelId: string): Promise<ChannelMemberRead>;
   /**
-   * Stores a list Slack answered for a read that began at `checkedAt`.
-   * Dropped when the channel was voided since, or the read outlived the TTL.
+   * Stores a list Slack answered for a read that began at `checkedAt`;
+   * true when kept. Dropped, and then the list must not answer either, when
+   * the channel was voided since, the install was revoked or verified again
+   * since, or the read outlived the TTL.
    */
   remember(
     installationId: string,
     channelId: string,
     memberIds: readonly string[],
     checkedAt: Date,
-  ): Promise<void>;
+  ): Promise<boolean>;
   /** Voids the channel's list: someone joined or left it. */
   forget(installationId: string, channelId: string): Promise<void>;
 }

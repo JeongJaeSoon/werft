@@ -85,17 +85,31 @@ export function createPostgresChannelMemberStore(
     async remember(installationId, channelId, memberIds, checkedAt) {
       // A void at or after the read's start wins, and so does a newer read;
       // a read older than the TTL is stale on arrival, which also covers a
-      // void the purge has already removed.
-      await db.execute(sql`
+      // void the purge has already removed. FOR SHARE queues behind a revoke
+      // (FOR NO KEY UPDATE, then its delete of the lists) and re-reads the
+      // install after it; a read that began before the install's latest
+      // verification belongs to the install that was revoked.
+      const at = checkedAt.toISOString();
+      const kept = await db.execute(sql`
+        WITH install AS (
+          SELECT id FROM ${slackInstallations}
+          WHERE id = ${installationId}
+            AND status = 'verified'
+            AND verified_at < ${at}::timestamptz
+          FOR SHARE
+        )
         INSERT INTO ${cache} (installation_id, channel_id, member_ids, fetched_at)
-        SELECT ${installationId}, ${channelId},
+        SELECT install.id, ${channelId},
           ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(memberIds)}::jsonb)),
-          ${checkedAt.toISOString()}::timestamptz
-        WHERE ${checkedAt.toISOString()}::timestamptz > statement_timestamp() - ${TTL}
+          ${at}::timestamptz
+        FROM install
+        WHERE ${at}::timestamptz > statement_timestamp() - ${TTL}
         ON CONFLICT (installation_id, channel_id) DO UPDATE
           SET member_ids = EXCLUDED.member_ids, fetched_at = EXCLUDED.fetched_at
           WHERE (${cache.invalidatedAt} IS NULL OR ${cache.invalidatedAt} < EXCLUDED.fetched_at)
-            AND (${cache.fetchedAt} IS NULL OR ${cache.fetchedAt} <= EXCLUDED.fetched_at)`);
+            AND (${cache.fetchedAt} IS NULL OR ${cache.fetchedAt} <= EXCLUDED.fetched_at)
+        RETURNING installation_id`);
+      return rowsOf(kept).length === 1;
     },
 
     async forget(installationId, channelId) {
