@@ -1084,6 +1084,10 @@ describe("Slack management", () => {
     let items: components["schemas"]["GetSlackAppBotsResponse"]["items"] = [
       { user_id: "U0REVIEW", name: "review", state: "active", allowed: true },
     ];
+    let answer = () => {};
+    const held = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
     const { api } = renderAt(DETAIL, {
       ...routes(APP, true),
       [`GET ${PATH}/slack/app/bots`]: () =>
@@ -1097,6 +1101,7 @@ describe("Slack management", () => {
             user_ids: [added],
           });
         }
+        await held;
         items = [
           ...items,
           { user_id: added, name: "far", state: "active", allowed: true },
@@ -1150,7 +1155,12 @@ describe("Slack management", () => {
     await user.clear(field);
     await user.type(field, "U0FAR");
     await user.click(add);
+    // Each writes the whole list, so a save waits for the add.
+    const save = within(dialog).getByRole("button", { name: "저장" });
+    await waitFor(() => expect(save.hasAttribute("disabled")).toBe(true));
+    answer();
     await screen.findByText("봇을 추가했습니다.");
+    expect(save.hasAttribute("disabled")).toBe(false);
     const last = api.calls.filter(
       (call) => call.method === "PUT" && call.path.endsWith("/bots"),
     );

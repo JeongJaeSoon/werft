@@ -110,12 +110,11 @@ export function resetBotTurns(
   messageTs: string,
 ): BotTurnState {
   if (state.humanTs !== null && !after(messageTs, state.humanTs)) return state;
+  // A stop on a later message was met before this person's message was
+  // read; that message opens the new run, so the next stop speaks again.
   return {
     counted: state.counted.filter((id) => after(tsOf(id), messageTs)),
     humanTs: messageTs,
-    stop:
-      state.stop !== null && after(tsOf(state.stop), messageTs)
-        ? state.stop
-        : null,
+    stop: null,
   };
 }

@@ -540,12 +540,16 @@ export function createSlackSessionHandler(
           })
       ).link;
     }
+    // Once the session took the turn it counts, whatever fails after.
+    let accepted = false;
     try {
       if (link.sessionId === null && link.openedByTs !== event.ts) {
         link = await adoptOrReopen(link, event.ts);
       }
       if (link.sessionId === null || link.openedByTs === event.ts) {
-        await openSession(caller, link, message, dm, slackMessage);
+        await openSession(caller, link, message, dm, slackMessage, () => {
+          accepted = true;
+        });
       } else {
         await deps.sessions.appendMessage(caller, link.sessionId, {
           idempotencyKey: `${claim.teamId}:${event.channel}:${event.ts}`,
@@ -556,10 +560,10 @@ export function createSlackSessionHandler(
       // The turn's insert marks the thread's status due; the outbox pass
       // that follows this one sends it.
     } catch (error) {
-      // No turn ran, so the bot did not take one. A retry claims the same
-      // turn again; one that ran before a later step failed may go
-      // uncounted if every retry fails too, which never stops the bots wrongly.
-      if (fromBot) await deps.botTurns.release(thread, botTurn);
+      // No turn was taken, so the bot did not take one. A retry claims the
+      // same turn again; one taken before a later step failed stays counted,
+      // and its retry finds it so.
+      if (fromBot && !accepted) await deps.botTurns.release(thread, botTurn);
       if (
         !(error instanceof SessionServiceError) ||
         RETRYABLE_SESSION_CODES.has(error.code)
@@ -617,6 +621,7 @@ export function createSlackSessionHandler(
     message: string,
     dm: boolean,
     slackMessage: SlackMessageRef,
+    onCreated: () => void,
   ): Promise<void> {
     const created = await deps.sessions.createSession(caller, {
       idempotencyKey: link.id,
@@ -627,6 +632,7 @@ export function createSlackSessionHandler(
       ...(dm ? { shareScope: "private" as const } : {}),
       slackMessage,
     });
+    onCreated();
     const attached = await deps.sessionLinks.attachSession(
       link.id,
       created.session_id,

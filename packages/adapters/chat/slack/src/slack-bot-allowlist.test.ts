@@ -137,6 +137,7 @@ function setup(
   });
   return {
     service,
+    apps,
     reads,
     looked,
     fail(error: Error) {
@@ -209,6 +210,33 @@ describe("the agent's Slack bot allow list", () => {
         (item) => item.allowed,
       ),
     ).toBe(false);
+  });
+
+  test("a bot allowed before it became another Werft agent's is out of the list and refused again", async () => {
+    const { service, apps } = setup([
+      [bot("U0REVIEW", "code-review"), bot(WERFT_BOT, "writer")],
+    ]);
+    // Saved while it was still any bot of the team.
+    await apps.store.putAllowedBots({
+      workspaceId: WORKSPACE,
+      agentId: AGENT,
+      actor: {} as never,
+      allowedBotUserIds: ["U0REVIEW", WERFT_BOT],
+    });
+    const listed = await service.getAgentAppBots(owner(), AGENT);
+    expect(listed.items.map((item) => item.user_id)).toEqual(["U0REVIEW"]);
+    await expect(
+      service.putAgentAppBots(owner(), AGENT, {
+        allowed_user_ids: ["U0REVIEW", WERFT_BOT],
+      }),
+    ).rejects.toMatchObject({
+      details: { reason_code: "slack_bot_werft_agent", user_ids: [WERFT_BOT] },
+    });
+    // Saving what the list shows lets it go.
+    const saved = await service.putAgentAppBots(owner(), AGENT, {
+      allowed_user_ids: ["U0REVIEW"],
+    });
+    expect(saved.items.filter((item) => item.allowed)).toHaveLength(1);
   });
 
   test("a member reads nothing and saves nothing; an agent without an install is told so", async () => {

@@ -94,6 +94,8 @@ export function SlackAllowedBots({
     },
     onSettled: () => cache.invalidateQueries({ queryKey: key }),
   });
+  // Both write the whole list: one at a time, or the later drops the other's.
+  const busy = save.isPending || add.isPending;
   const addTyped = () => {
     const id = typed.trim();
     setTypedError("");
@@ -224,14 +226,14 @@ export function SlackAllowedBots({
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
                       event.preventDefault();
-                      if (!add.isPending) addTyped();
+                      if (!busy) addTyped();
                     }
                   }}
                 />
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={add.isPending || typed.trim() === ""}
+                  disabled={busy || typed.trim() === ""}
                   onClick={addTyped}
                 >
                   {t("slack.botAdd")}
@@ -253,7 +255,7 @@ export function SlackAllowedBots({
             </Button>
             <Button
               type="button"
-              disabled={save.isPending}
+              disabled={busy}
               onClick={() => save.mutate(chosen)}
             >
               {t("slack.botsSave")}

@@ -76,18 +76,27 @@ describe("bot turns in a row in one thread", () => {
     expect(run(reset, [["10.000001", B]]).state).toBe(reset);
   });
 
-  test("a person writing after the stop lifts it; one before it does not", () => {
+  test("a person lifts the stop, even one read late, and the next stop speaks again", () => {
     const stopped = run(EMPTY, [
       ["5.1", A],
       ["5.2", A],
       ["5.3", A],
     ]).state;
-    expect(resetBotTurns(stopped, "5.25").stop).toBe("5.3 agent-a");
     expect(resetBotTurns(stopped, "5.4")).toEqual({
       counted: [],
       humanTs: "5.4",
       stop: null,
     });
+    // The person wrote before the stopped message but was read after it.
+    const late = resetBotTurns(stopped, "5.25");
+    expect(late.stop).toBe(null);
+    expect(
+      run(late, [
+        ["5.5", A],
+        ["5.6", A],
+        ["5.7", A],
+      ]).outcomes,
+    ).toEqual(["counted", "counted", "limit first"]);
   });
 
   test("ts compare as numbers, whatever their width", () => {

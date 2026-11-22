@@ -1830,4 +1830,47 @@ describe.each(ENGINES)("Slack bot mentions on %s", (engine) => {
     expect(await turnsOf(session?.id)).toHaveLength(1);
     expect(threadNotices).toHaveLength(1);
   });
+
+  test("a turn the session took stays counted when a later step fails", async () => {
+    const fixture = await agentInSlack();
+    await allowBots(fixture, [REVIEW_BOT]);
+    const thread = {
+      workspaceId: fixture.workspaceId,
+      teamId: TEAM,
+      channelId: CHANNEL,
+      threadTs: "100.000100",
+    };
+    await db.insert(schema.slackThreadBotTurns).values({
+      ...thread,
+      countedTurns: [101, 102, 103, 104].map(
+        (n) => `100.000${n} ${OTHER_AGENT}`,
+      ),
+    });
+    await deliver(
+      fixture,
+      botMention("100.000105", { thread_ts: "100.000100" }),
+    );
+    // The session is made; tying it to the thread then fails.
+    await db.execute(
+      sql.raw(`CREATE FUNCTION fail_attach() RETURNS trigger LANGUAGE plpgsql
+        AS $$ BEGIN RAISE EXCEPTION 'attach lost'; END $$`),
+    );
+    await db.execute(
+      sql.raw(`CREATE TRIGGER fail_attach BEFORE UPDATE OF session_id
+        ON session_links FOR EACH ROW EXECUTE FUNCTION fail_attach()`),
+    );
+    try {
+      await drain(handler().handle);
+    } finally {
+      await db.execute(sql.raw("DROP TRIGGER fail_attach ON session_links"));
+      await db.execute(sql.raw("DROP FUNCTION fail_attach()"));
+    }
+    expect(await sessionsOf(fixture)).toHaveLength(1);
+    const [row] = await db
+      .select({ counted: schema.slackThreadBotTurns.countedTurns })
+      .from(schema.slackThreadBotTurns)
+      .where(eq(schema.slackThreadBotTurns.threadTs, thread.threadTs));
+    expect(row?.counted).toContain(`100.000105 ${fixture.agentId}`);
+    expect(row?.counted).toHaveLength(5);
+  });
 });

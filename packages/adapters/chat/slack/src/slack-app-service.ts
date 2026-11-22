@@ -359,7 +359,9 @@ export function createSlackAppService(deps: {
       throw error;
     }
     return {
-      allowed: facts.allowedBotUserIds,
+      // A bot allowed before its agent's app was made here is out of the
+      // list, and a save that names it again is refused.
+      allowed: facts.allowedBotUserIds.filter((id) => !werft.has(id)),
       bots,
       truncated: cursor !== null,
       refusalOf: (id) =>
