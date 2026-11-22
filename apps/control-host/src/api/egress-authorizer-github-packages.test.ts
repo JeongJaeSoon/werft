@@ -1,12 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
 import * as schema from "@werft-ai/db";
-import {
-  createPostgresSessionUnitOfWork,
-  createPostgresWorkerUnitOfWork,
-} from "@werft-ai/db";
-import { launchSession } from "@werft-ai/db/testing/launches";
-import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
+import { createPostgresWorkerUnitOfWork } from "@werft-ai/db";
 import { createLogger } from "@werft-ai/observability";
 import {
   createWorkerGateway,
@@ -17,7 +12,8 @@ import { acceptAllCheckpoints } from "@werft-ai/platform/testing/checkpoints";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { testCatalog } from "../testing/catalog.ts";
-import { releaseIn, TEST_OWNER } from "../testing/releases.ts";
+import { claimed } from "../testing/claims.ts";
+import { TEST_OWNER } from "../testing/releases.ts";
 import {
   createEgressAuthorizer,
   EGRESS_AUTHORIZER_PATH,
@@ -96,35 +92,6 @@ afterEach(async () => {
   await client.close();
 });
 
-async function claimed() {
-  const accepted = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
-    limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-    principal: { ownerId: TEST_OWNER },
-    idempotencyKey: crypto.randomUUID(),
-    payloadHash: "hash",
-    agentReleaseId: await releaseIn(db),
-    model: TEST_MODEL,
-    repository: {
-      id: "sample-app",
-      url: "https://git.invalid/agent/app.git",
-      branch: "main",
-    },
-    message: "hello",
-  });
-  if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
-  const launch = await launchSession(db, {
-    sessionId: accepted.response.session_id,
-  });
-  return await gateway.bootstrapClaim(
-    { kind: "bootstrap" },
-    {
-      execution_id: launch.executionId,
-      execution_generation: launch.generation,
-      credential: { kind: "launch_nonce", nonce: launch.nonce },
-    },
-  );
-}
-
 const ask = (body: unknown) =>
   authorize(
     new Request(`http://authorizer.invalid${EGRESS_AUTHORIZER_PATH}`, {
@@ -139,13 +106,13 @@ const ask = (body: unknown) =>
 
 describe("GitHub Packages through the egress authorizer", () => {
   test("the claim names the allowed owners, never the bot credential", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     expect(claim.packages?.github).toEqual({ npm: ["acme"], rubygems: [] });
     expect(JSON.stringify(claim)).not.toContain(BOT);
   });
 
   test("an allowed package gets the bot credential; GitHub's tarball on the npm route too", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     const token = claim.packages?.access.token ?? "";
     for (const [registry, path] of [
       ["github-npm", "/@acme%2fui"],
@@ -178,7 +145,7 @@ describe("GitHub Packages through the egress authorizer", () => {
   });
 
   test("a package outside the allowlist is refused with its receipt", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     const response = await ask({
       token: claim.packages?.access.token ?? "",
       purpose: "packages",
@@ -195,7 +162,7 @@ describe("GitHub Packages through the egress authorizer", () => {
   });
 
   test("a GitHub registry without a path, or a regrant, records nothing new", async () => {
-    const claim = await claimed();
+    const claim = await claimed(db, gateway);
     const token = claim.packages?.access.token ?? "";
     expect(
       (await ask({ token, purpose: "packages", registry: "github-npm" }))

@@ -10,7 +10,6 @@ import {
   type PullRequestSettings,
   putGitHubPullRequestSettingsResponseSchema,
   REQUEST_BODY_MAX_BYTES,
-  WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import {
   createAuthorizationPolicy,
@@ -19,15 +18,11 @@ import {
   type GitHubAppDirectory,
   type GitHubAppStore,
   type GitHubSettingsStore,
-  type IdentityStore,
-  type MembershipRole,
   type PullRequestSettingsRead,
   type PullRequestSettingsStore,
-  type ResolvedWebSession,
 } from "@werft-ai/platform";
 import { fakeGitHubClientSecret } from "@werft-ai/platform/testing/github";
-import { generateWebSessionToken, hashWebSessionToken } from "../../auth.ts";
-import { hashApiKey } from "../../keys.ts";
+import { fakeWebSessions } from "../../../testing/web-session.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerGitHubSettingsRoutes } from "./github-settings.ts";
 
@@ -37,48 +32,7 @@ const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const OTHER_WORKSPACE = "019a0000-0000-7000-8000-0000000000b1";
 const AUTHOR_CONNECTION = "019a0000-0000-7000-8000-0000000000c9";
 
-const sessions = new Map<string, ResolvedWebSession>();
-function cookieFor(role: MembershipRole, workspaceId = WORKSPACE): string {
-  const token = generateWebSessionToken();
-  sessions.set(Buffer.from(hashWebSessionToken(token)).toString("hex"), {
-    sessionId: crypto.randomUUID(),
-    userId: crypto.randomUUID(),
-    email: `${role}@example.com`,
-    displayName: role,
-    locale: null,
-    workspaceId,
-    role,
-    expiresAt: new Date(Date.now() + 60_000),
-  });
-  return `${WEB_SESSION_COOKIE_NAME}=${token}`;
-}
-
-const identity = {
-  async resolveWebSession(tokenHash: Uint8Array) {
-    return sessions.get(Buffer.from(tokenHash).toString("hex")) ?? null;
-  },
-  async renewWebSession() {
-    return null;
-  },
-} as unknown as IdentityStore;
-
-const KEY = { plaintext: `csp_${crypto.randomUUID()}` };
-const keyStore = {
-  async find(candidate: Uint8Array) {
-    if (!Buffer.from(hashApiKey(KEY.plaintext)).equals(Buffer.from(candidate)))
-      return null;
-    return {
-      id: crypto.randomUUID(),
-      ownerId: WORKSPACE,
-      workspaceId: WORKSPACE,
-      kind: "personal" as const,
-      agentId: null,
-      createdByUserId: crypto.randomUUID(),
-      creatorRole: "owner" as const,
-      scopes: ["sessions:read" as const, "sessions:write" as const],
-    };
-  },
-};
+const { cookieFor, identity, keyStore, key: KEY } = fakeWebSessions(WORKSPACE);
 
 // The Postgres store (CAS, receipts) is its own integration test.
 function memoryStore() {
@@ -437,7 +391,7 @@ describe("the GitHub settings API", () => {
 
   test("another workspace's path is not found; a malformed body is refused", async () => {
     const { call, memory } = appWith();
-    const stranger = cookieFor("owner", OTHER_WORKSPACE);
+    const stranger = cookieFor("owner", { workspaceId: OTHER_WORKSPACE });
     expect((await call("GET", { cookie: stranger })).status).toBe(404);
     expect(
       (
@@ -585,7 +539,7 @@ describe("PUT the pull request settings", () => {
     expect(
       (
         await call("PUT", {
-          cookie: cookieFor("owner", OTHER_WORKSPACE),
+          cookie: cookieFor("owner", { workspaceId: OTHER_WORKSPACE }),
           path,
           body,
         })
@@ -637,7 +591,7 @@ describe("PUT the GitHub OAuth client secret", () => {
     expect(
       (
         await call("PUT", {
-          cookie: cookieFor("owner", OTHER_WORKSPACE),
+          cookie: cookieFor("owner", { workspaceId: OTHER_WORKSPACE }),
           path,
           body: {},
         })

@@ -13,7 +13,6 @@ import {
   putGitHubAppWebhookSecretResponseSchema,
   REQUEST_BODY_MAX_BYTES,
   startGitHubInstallationResponseSchema,
-  WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import { createGitHubAppDirectory } from "@werft-ai/forge-github";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
@@ -26,13 +25,10 @@ import {
   type GitHubAppTarget,
   type GitHubInstallationState,
   type GitHubInstallationStore,
-  type IdentityStore,
-  type MembershipRole,
-  type ResolvedWebSession,
 } from "@werft-ai/platform";
 import { type FakeGitHub, startFakeGitHub } from "@werft-ai/testkit";
-import { generateWebSessionToken, hashWebSessionToken } from "../../auth.ts";
-import { hashApiKey } from "../../keys.ts";
+import { fakeWebSessions } from "../../../testing/web-session.ts";
+import { hashWebSessionToken } from "../../auth.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerGitHubAppRoutes } from "./github-app.ts";
 
@@ -65,48 +61,13 @@ const REVIEWER_FAKE = {
 };
 const strangerKey = rsaPair().privateKey;
 
-const sessions = new Map<string, ResolvedWebSession>();
-function cookieFor(role: MembershipRole, workspaceId = WORKSPACE): string {
-  const token = generateWebSessionToken();
-  sessions.set(Buffer.from(hashWebSessionToken(token)).toString("hex"), {
-    sessionId: crypto.randomUUID(),
-    userId: crypto.randomUUID(),
-    email: `${role}@example.com`,
-    displayName: role,
-    locale: null,
-    workspaceId,
-    role,
-    expiresAt: new Date(Date.now() + 60_000),
-  });
-  return `${WEB_SESSION_COOKIE_NAME}=${token}`;
-}
-
-const identity = {
-  async resolveWebSession(tokenHash: Uint8Array) {
-    return sessions.get(Buffer.from(tokenHash).toString("hex")) ?? null;
-  },
-  async renewWebSession() {
-    return null;
-  },
-} as unknown as IdentityStore;
-
-const KEY = { plaintext: `csp_${crypto.randomUUID()}` };
-const keyStore = {
-  async find(candidate: Uint8Array) {
-    if (!Buffer.from(hashApiKey(KEY.plaintext)).equals(Buffer.from(candidate)))
-      return null;
-    return {
-      id: crypto.randomUUID(),
-      ownerId: WORKSPACE,
-      workspaceId: WORKSPACE,
-      kind: "personal" as const,
-      agentId: null,
-      createdByUserId: crypto.randomUUID(),
-      creatorRole: "owner" as const,
-      scopes: ["sessions:read" as const, "sessions:write" as const],
-    };
-  },
-};
+const {
+  sessions,
+  cookieFor,
+  identity,
+  keyStore,
+  key: KEY,
+} = fakeWebSessions(WORKSPACE);
 
 // The Postgres store's behaviour (audit, receipts, sealing) is its own
 // integration test; this one only remembers.
@@ -690,7 +651,7 @@ describe("the GitHub App API", () => {
   });
 
   test("another workspace's path is not found", async () => {
-    const stranger = cookieFor("owner", OTHER_WORKSPACE);
+    const stranger = cookieFor("owner", { workspaceId: OTHER_WORKSPACE });
     for (const method of ["GET", "PUT", "DELETE"] as const) {
       const response = await call(method, {
         cookie: stranger,
@@ -873,7 +834,7 @@ describe("the GitHub App API by role", () => {
       expect(
         (
           await call(method, {
-            cookie: cookieFor("owner", OTHER_WORKSPACE),
+            cookie: cookieFor("owner", { workspaceId: OTHER_WORKSPACE }),
             path,
             ...withBody,
           })
@@ -1066,7 +1027,7 @@ describe("the GitHub App API by role", () => {
       expect(
         (
           await call(method, {
-            cookie: cookieFor("owner", OTHER_WORKSPACE),
+            cookie: cookieFor("owner", { workspaceId: OTHER_WORKSPACE }),
             path,
             ...withBody,
           })
@@ -1274,7 +1235,7 @@ describe("who connected an installation started in the console", () => {
       installClock -= 3_600_000;
     }
 
-    const otherOwner = cookieFor("owner", OTHER_WORKSPACE);
+    const otherOwner = cookieFor("owner", { workspaceId: OTHER_WORKSPACE });
     const elsewhere = await complete(
       otherOwner,
       { state: await start(owner, connectionId), installation_id: 77 },

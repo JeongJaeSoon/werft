@@ -7,18 +7,14 @@ import {
   CSRF_HEADER_VALUE,
   REQUEST_BODY_MAX_BYTES,
   slackGuestResponseSchema,
-  WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import {
   type AuditRetentionStore,
   createAuthorizationPolicy,
   type DecisionLog,
-  type IdentityStore,
-  type MembershipRole,
-  type ResolvedWebSession,
   type SlackGuestSettingStore,
 } from "@werft-ai/platform";
-import { generateWebSessionToken, hashWebSessionToken } from "../../auth.ts";
+import { fakeWebSessions } from "../../../testing/web-session.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerWorkspaceRoutes } from "./workspaces.ts";
 
@@ -27,30 +23,7 @@ const createApiApp = recordRouteErrors("routes/musterrolle/workspaces.test.ts");
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const OTHER_WORKSPACE = "019a0000-0000-7000-8000-0000000000b1";
 
-const sessions = new Map<string, ResolvedWebSession>();
-function cookieFor(role: MembershipRole, workspaceId = WORKSPACE): string {
-  const token = generateWebSessionToken();
-  sessions.set(Buffer.from(hashWebSessionToken(token)).toString("hex"), {
-    sessionId: crypto.randomUUID(),
-    userId: crypto.randomUUID(),
-    email: `${role}@example.com`,
-    displayName: role,
-    locale: null,
-    workspaceId,
-    role,
-    expiresAt: new Date(Date.now() + 60_000),
-  });
-  return `${WEB_SESSION_COOKIE_NAME}=${token}`;
-}
-
-const identity = {
-  async resolveWebSession(tokenHash: Uint8Array) {
-    return sessions.get(Buffer.from(tokenHash).toString("hex")) ?? null;
-  },
-  async renewWebSession() {
-    return null;
-  },
-} as unknown as IdentityStore;
+const { cookieFor, identity } = fakeWebSessions(WORKSPACE);
 
 const recorded: AuthorizationRequest[] = [];
 const decisions: DecisionLog = {
@@ -184,7 +157,7 @@ test("another workspace, an unknown one or a malformed id does not exist", async
     const response = await setRetention(owner, 45, id);
     expect(response.status, id).toBe(404);
   }
-  const orphan = cookieFor("owner", OTHER_WORKSPACE);
+  const orphan = cookieFor("owner", { workspaceId: OTHER_WORKSPACE });
   expect((await setRetention(orphan, 45, OTHER_WORKSPACE)).status).toBe(404);
 });
 
@@ -282,7 +255,7 @@ test("the Slack guest setting needs a session and a workspace that is the caller
   expect(
     (await setSlackGuest(cookieFor("owner"), body, OTHER_WORKSPACE)).status,
   ).toBe(404);
-  const orphan = cookieFor("owner", OTHER_WORKSPACE);
+  const orphan = cookieFor("owner", { workspaceId: OTHER_WORKSPACE });
   expect((await setSlackGuest(orphan, body, OTHER_WORKSPACE)).status).toBe(404);
   storageDown = true;
   try {

@@ -4,19 +4,16 @@ import {
   approvalInputHash,
   type WorkerCheckpointState,
 } from "@werft-ai/runtime-core";
-import type {
-  EngineMessage,
-  ScriptedStep,
-} from "@werft-ai/runtime-core/testing";
+import type { ScriptedStep } from "@werft-ai/runtime-core/testing";
 
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
 import { noWorkspace } from "./testing/no-workspace.ts";
 import { scriptedRuntime, startScripted } from "./testing/scripted-engine.ts";
+import { resultMessage } from "./testing/sdk-messages.ts";
 import { waitFor } from "./testing/wait-for.ts";
 import {
-  inputUuid,
   type RuntimeRegistry,
   WorkerHost,
   type WorkerLogger,
@@ -51,17 +48,6 @@ const BASH_LS = {
   tool: "Bash",
   toolUseId: "toolu_ls",
 };
-
-function resultMessage(turn: number): EngineMessage {
-  return {
-    type: "result",
-    subtype: "success",
-    session_id: "fake-session",
-    is_error: false,
-    usage: { input_tokens: 3 },
-    user_message_uuid: inputUuid(SESSION_ID, String(turn), `msg-${turn}`),
-  };
-}
 
 /** Commits every ready capture, and keeps the worker state each was given. */
 function committedOn(
@@ -124,7 +110,7 @@ function askingTurn(): ScriptedStep[] {
   return [
     { type: "await-input" },
     { type: "permissions", requests: [BASH_LS] },
-    { type: "emit", message: resultMessage(1) },
+    { type: "emit", message: resultMessage(SESSION_ID, 1) },
     { type: "await-input" },
   ];
 }
@@ -333,7 +319,7 @@ describe("WorkerHost park", () => {
             { ...BASH_LS, requestId: "sdk-ls-2", toolUseId: "toolu_2" },
           ],
         },
-        { type: "emit", message: resultMessage(1) },
+        { type: "emit", message: resultMessage(SESSION_ID, 1) },
         { type: "await-input" },
       ],
       { gateway },
@@ -383,7 +369,7 @@ describe("WorkerHost park", () => {
       [
         { type: "await-input" },
         { type: "permissions", requests: [changed] },
-        { type: "emit", message: resultMessage(1) },
+        { type: "emit", message: resultMessage(SESSION_ID, 1) },
         { type: "await-input" },
       ],
       { gateway },

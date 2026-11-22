@@ -18,16 +18,10 @@ import {
   putSlackConfigTokenResponseSchema,
   REQUEST_BODY_MAX_BYTES,
   slackConfigTokenSummarySchema,
-  WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
-import {
-  createAuthorizationPolicy,
-  type IdentityStore,
-  type MembershipRole,
-  type ResolvedWebSession,
-} from "@werft-ai/platform";
-import { generateWebSessionToken, hashWebSessionToken } from "../../auth.ts";
+import { createAuthorizationPolicy } from "@werft-ai/platform";
+import { fakeWebSessions } from "../../../testing/web-session.ts";
 import { hashApiKey } from "../../keys.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerSlackSecretRoutes } from "./slack-secrets.ts";
@@ -37,30 +31,7 @@ const createApiApp = recordRouteErrors("routes/surface/slack-secrets.test.ts");
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const OTHER_WORKSPACE = "019a0000-0000-7000-8000-0000000000b1";
 
-const sessions = new Map<string, ResolvedWebSession>();
-function cookieFor(role: MembershipRole, workspaceId = WORKSPACE): string {
-  const token = generateWebSessionToken();
-  sessions.set(Buffer.from(hashWebSessionToken(token)).toString("hex"), {
-    sessionId: crypto.randomUUID(),
-    userId: crypto.randomUUID(),
-    email: `${role}@example.com`,
-    displayName: role,
-    locale: null,
-    workspaceId,
-    role,
-    expiresAt: new Date(Date.now() + 60_000),
-  });
-  return `${WEB_SESSION_COOKIE_NAME}=${token}`;
-}
-
-const identity = {
-  async resolveWebSession(tokenHash: Uint8Array) {
-    return sessions.get(Buffer.from(tokenHash).toString("hex")) ?? null;
-  },
-  async renewWebSession() {
-    return null;
-  },
-} as unknown as IdentityStore;
+const { cookieFor, identity } = fakeWebSessions(WORKSPACE);
 
 const KEYS = (["agent", "personal"] as const).map((kind) => ({
   kind,
@@ -309,13 +280,13 @@ describe("the Slack config token API", () => {
 
   test("another workspace's path is not found", async () => {
     const response = await call("GET", {
-      cookie: cookieFor("owner", OTHER_WORKSPACE),
+      cookie: cookieFor("owner", { workspaceId: OTHER_WORKSPACE }),
     });
     expect(response.status).toBe(404);
     expect(
       (
         await call("PUT", {
-          cookie: cookieFor("owner", OTHER_WORKSPACE),
+          cookie: cookieFor("owner", { workspaceId: OTHER_WORKSPACE }),
           body: put(paste()),
         })
       ).status,
@@ -323,7 +294,7 @@ describe("the Slack config token API", () => {
     expect(
       (
         await call("DELETE", {
-          cookie: cookieFor("owner", OTHER_WORKSPACE),
+          cookie: cookieFor("owner", { workspaceId: OTHER_WORKSPACE }),
         })
       ).status,
     ).toBe(404);
