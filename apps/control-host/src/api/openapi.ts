@@ -6368,6 +6368,7 @@ export const API_ROUTE_DECLARATIONS = [
           },
         ],
         removed: [],
+        checks: [],
       },
     },
     errors: [401, 403, 404, 503],

@@ -35169,7 +35169,8 @@ export interface operations {
                      *           "diff": null
                      *         }
                      *       ],
-                     *       "removed": []
+                     *       "removed": [],
+                     *       "checks": []
                      *     }
                      */
                     "application/json": components["schemas"]["SkillVersionFiles"];
