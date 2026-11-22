@@ -6172,7 +6172,7 @@ export interface components {
              */
             title: string | null;
             /**
-             * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
+             * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on), `archived` whether the agent is archived when read (an archived agent runs no new session; its past sessions keep their agent). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
              * @default null
              */
             agent: {
@@ -6184,6 +6184,8 @@ export interface components {
                 release_label: string | null;
                 /** @default null */
                 release_is_active: boolean | null;
+                /** @default null */
+                archived: boolean | null;
             } | null;
             /**
              * @description True for a preview session: started with `preview: true` by an agent's admin to try a release before publishing it. Fixed at create. False from a server older than the field.
@@ -6301,7 +6303,7 @@ export interface components {
              */
             title: string | null;
             /**
-             * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
+             * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on), `archived` whether the agent is archived when read (an archived agent runs no new session; its past sessions keep their agent). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
              * @default null
              */
             agent: {
@@ -6313,6 +6315,8 @@ export interface components {
                 release_label: string | null;
                 /** @default null */
                 release_is_active: boolean | null;
+                /** @default null */
+                archived: boolean | null;
             } | null;
             /**
              * @description True for a preview session: started with `preview: true` by an agent's admin to try a release before publishing it. Fixed at create. False from a server older than the field.
@@ -21592,7 +21596,8 @@ export interface operations {
                      *             "name": "Checkout fixer",
                      *             "release_version_no": 3,
                      *             "release_label": "2026-10-11_17:00:00",
-                     *             "release_is_active": true
+                     *             "release_is_active": true,
+                     *             "archived": false
                      *           },
                      *           "preview": false,
                      *           "agent_hidden": false,
@@ -22036,7 +22041,8 @@ export interface operations {
                      *         "name": "Checkout fixer",
                      *         "release_version_no": 3,
                      *         "release_label": "2026-10-11_17:00:00",
-                     *         "release_is_active": true
+                     *         "release_is_active": true,
+                     *         "archived": false
                      *       },
                      *       "preview": false,
                      *       "agent_hidden": false,
@@ -22195,7 +22201,8 @@ export interface operations {
                      *         "name": "Checkout fixer",
                      *         "release_version_no": 3,
                      *         "release_label": "2026-10-11_17:00:00",
-                     *         "release_is_active": true
+                     *         "release_is_active": true,
+                     *         "archived": false
                      *       },
                      *       "preview": false,
                      *       "agent_hidden": false,

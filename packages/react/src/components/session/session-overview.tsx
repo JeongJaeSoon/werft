@@ -144,6 +144,8 @@ export interface SessionOverviewRowMessages {
   readonly agentNone: string;
   /** The agent cell when the server hid the agent from the viewer: "볼 수 없는 에이전트". */
   readonly agentHidden: string;
+  /** The mark beside an archived agent's name: "보관됨". */
+  readonly agentArchived: string;
   /** Names the row's opener, e.g. "세션 열기: 배포 점검"; the name alone if unset. */
   readonly open?: ((name: string) => string) | undefined;
   /** The mark beside a preview session's title: "미리보기"; none if unset. */
@@ -282,15 +284,20 @@ export function SessionOverviewRow({
         ) : null}
       </GridTableCell>
       <GridTableCell>
-        <span className="min-w-0 truncate">
-          {session.agent ? (
-            session.agent.name
-          ) : (
-            <span className="text-subtle-foreground">
-              {session.agent_hidden ? messages.agentHidden : messages.agentNone}
-            </span>
-          )}
-        </span>
+        {session.agent ? (
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 truncate">{session.agent.name}</span>
+            {session.agent.archived ? (
+              <Badge variant="gray" className="shrink-0 text-muted-foreground">
+                {messages.agentArchived}
+              </Badge>
+            ) : null}
+          </span>
+        ) : (
+          <span className="min-w-0 truncate text-subtle-foreground">
+            {session.agent_hidden ? messages.agentHidden : messages.agentNone}
+          </span>
+        )}
       </GridTableCell>
       <GridTableCell hideNarrow={true}>
         {session.channel ? (
