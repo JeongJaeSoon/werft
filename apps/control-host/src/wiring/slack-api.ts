@@ -145,6 +145,7 @@ export interface SlackServicesStageDeps {
   tokenRevoked: SlackChannelsStage["tokenRevoked"];
   agentAuthority: Param<typeof createSlackChannelSearchService>["agents"];
   inbox: Param<typeof createSlackEventsService>["inbox"];
+  sourceMarks: Param<typeof createSlackEventsService>["sourceMarks"];
   identities: AgentIdentityStore;
   installs: SlackInstallStore;
   bindings: SurfaceBindingStore;
@@ -208,6 +209,7 @@ export function wireSlackServices(
   const events = createSlackEventsService({
     signingSecrets,
     inbox: deps.inbox,
+    sourceMarks: deps.sourceMarks,
     apps: appStore,
     identities: deps.identities,
     installs: deps.installs,
