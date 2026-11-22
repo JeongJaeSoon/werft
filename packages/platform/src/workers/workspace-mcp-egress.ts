@@ -94,7 +94,7 @@ export function createWorkspaceMcpEgress(deps: {
           },
           message: REFUSAL_MESSAGES[why],
         },
-        deps.onReceiptError,
+        deps,
       );
     };
 

@@ -1007,8 +1007,6 @@ const COMMON_ERROR_CODES: Partial<Record<number, readonly ApiErrorCode[]>> = {
   503: ["BACKEND_UNAVAILABLE"],
 };
 
-// Example values shared across declarations, so the examples read as one
-// session's story.
 // What an approval and a rejection of a push request are refused with.
 const PUSH_RESOLVE_REFUSALS: Pick<
   RouteDeclaration,
@@ -1027,6 +1025,8 @@ const PUSH_RESOLVE_REFUSALS: Pick<
   },
 };
 
+// Example values shared across declarations, so the examples read as one
+// session's story.
 const EXAMPLE_SESSION_ID = "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01";
 const EXAMPLE_RECEIPT_ID = "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c";
 

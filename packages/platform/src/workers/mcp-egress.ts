@@ -90,21 +90,22 @@ export function uuidV5(name: string): string {
 export async function recordAndRefuse<Result>(
   store: { recordRefusal(record: RefusalRecord<Result>): Promise<void> },
   record: RefusalRecord<Result>,
-  onReceiptError: ((error: unknown) => void) | undefined,
+  deps: { onReceiptError?: (error: unknown) => void },
 ): Promise<McpEgressDecision> {
+  const { id, message } = record;
   let recorded = true;
   try {
     await store.recordRefusal(record);
   } catch (error) {
     recorded = false;
-    onReceiptError?.(error);
+    deps.onReceiptError?.(error);
   }
   return {
     kind: "refused",
     status: 403,
     code: "CREDENTIAL_UNBOUND",
-    message: record.message,
-    ...(recorded ? { receiptId: record.id } : {}),
+    message,
+    ...(recorded ? { receiptId: id } : {}),
   };
 }
 
@@ -173,7 +174,7 @@ export function createMcpEgress(deps: {
           },
           message: REFUSAL_MESSAGES[why],
         },
-        deps.onReceiptError,
+        deps,
       );
     }
     const { method, tool } = request.rpc;

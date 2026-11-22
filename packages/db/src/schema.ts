@@ -163,6 +163,8 @@ export const GRANT_ACTION_VALUES = [
   "artifact.read",
   "delivery.send",
 ] as const satisfies readonly AuthorizationAction[];
+// Still exported from here, as before the contracts held it.
+export { AUDIENCE_KIND_VALUES };
 export const RESOURCE_KIND_VALUES = [
   "workspace",
   "session",
