@@ -25,7 +25,6 @@ import {
 export const SECRET_KEY_SETTING = "PLATFORM_SECRET_KEY";
 /** A path to a file holding the key, such as a mounted compose secret. */
 export const SECRET_KEY_FILE_SETTING = "PLATFORM_SECRET_KEY_FILE";
-const CONFIG_DIR_SETTING = "PLATFORM_CONFIG_DIR";
 
 /** The runtimes the worker image ships, as the control plane sees them. */
 export const installedRuntimes = new RuntimeFeatureGate(installedDescriptors);
@@ -37,20 +36,6 @@ export const installedRuntimeVersions: InstalledRuntimes = Object.fromEntries(
     descriptor.runtimeVersion,
   ]),
 );
-
-/** Compose passes an unset variable through as empty. */
-export function refuseFileCatalog(
-  env: Record<string, string | undefined>,
-): void {
-  const leftover = [CONFIG_DIR_SETTING, "SESSION_CATALOG_JSON"].filter(
-    (name) => env[name] !== undefined && env[name] !== "",
-  );
-  if (leftover.length > 0) {
-    throw new Error(
-      `${leftover.join(" and ")} no longer read: finish the import with \`bun run settings import --from-dir <dir>\` (https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/reference/configuration/#설정-문서-가져오기내보내기), then unset ${leftover.length === 1 ? "it" : "them"}`,
-    );
-  }
-}
 
 /**
  * The configured worker images' runtimes; undefined without them. Each kind

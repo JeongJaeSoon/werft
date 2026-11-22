@@ -523,17 +523,6 @@ class MemoryStore implements SchedulerStore {
     return sessionIds.filter((id) => this.retainedSessions.has(id));
   }
 
-  /** Sessions the database proves closed, for name-derived workspaces. */
-  readonly closedLegacySessions = new Set<string>();
-  readonly closedLegacyQueries: string[][] = [];
-  failClosedLegacy = false;
-
-  async filterClosedLegacySessions(sessionIds: string[]): Promise<string[]> {
-    this.closedLegacyQueries.push([...sessionIds]);
-    if (this.failClosedLegacy) throw new Error("database down");
-    return sessionIds.filter((id) => this.closedLegacySessions.has(id));
-  }
-
   /**
    * The verdict a claim gets under the session lock, per session; absent is
    * a finished session, which needs no claim.
@@ -680,8 +669,6 @@ class FakeBackend implements ExecutionBackend {
   private created = 0;
   /** Volume name -> the session label on it, null when it carries none. */
   readonly workspaces = new Map<string, string | null>();
-  /** Workspaces whose session comes from their name, not a label. */
-  readonly legacyWorkspaces = new Set<string>();
   readonly workspacesInUse = new Set<string>();
   failListWorkspaces = false;
   failRemoveWorkspaceFor = new Set<string>();
@@ -701,9 +688,6 @@ class FakeBackend implements ExecutionBackend {
         createdAt: new Date(0),
         id,
         sessionId,
-        ...(this.legacyWorkspaces.has(id)
-          ? { sessionFrom: "name" as const }
-          : {}),
       }));
     };
     this.removeWorkspace = async (id, owner) => {
@@ -5012,61 +4996,6 @@ describe("runScheduler workspace GC", () => {
     expect(records.some((r) => r.message.includes("carries no session"))).toBe(
       true,
     );
-  });
-
-  test("a legacy workspace goes only once the database proves its session closed", async () => {
-    const { backend, run, store } = harness();
-    backend.workspaces.set("ap-ws-legacy-closed", "session-closed");
-    backend.workspaces.set("ap-ws-legacy-open", "session-open");
-    backend.legacyWorkspaces.add("ap-ws-legacy-closed");
-    backend.legacyWorkspaces.add("ap-ws-legacy-open");
-    store.closedLegacySessions.add("session-closed");
-    // Stopped past its TTL, if it were labelled: a name is not enough for that.
-    store.claimVerdicts.set("session-open", "claimed");
-
-    const summary = await run();
-
-    expect(summary.workspacesReclaimed).toEqual(["ap-ws-legacy-closed"]);
-    expect([...backend.workspaces.keys()]).toEqual(["ap-ws-legacy-open"]);
-    expect(store.closedLegacyQueries).toEqual([
-      ["session-closed", "session-open"],
-    ]);
-    // Neither went near the labelled path: no retention query, no claim.
-    expect(store.retainedQueries).toEqual([]);
-    expect(store.pendingClaims.size).toBe(0);
-  });
-
-  test("a legacy workspace is removed for its own session only", async () => {
-    const { backend, run, store } = harness();
-    backend.workspaces.set("ap-ws-legacy", "session-closed");
-    backend.legacyWorkspaces.add("ap-ws-legacy");
-    store.closedLegacySessions.add("session-closed");
-    const removals: Array<[string, string | undefined]> = [];
-    const remove = backend.removeWorkspace;
-    if (!remove) throw new Error("fixture has no workspace GC");
-    backend.removeWorkspace = async (id, owner) => {
-      removals.push([id, owner?.sessionId]);
-      return remove(id, owner);
-    };
-
-    await run();
-
-    expect(removals).toEqual([["ap-ws-legacy", "session-closed"]]);
-  });
-
-  test("a failed legacy query reclaims nothing and fails the scan", async () => {
-    const { backend, run, store } = harness();
-    backend.workspaces.set("ap-ws-done", "session-done");
-    backend.workspaces.set("ap-ws-legacy", "session-closed");
-    backend.legacyWorkspaces.add("ap-ws-legacy");
-    store.closedLegacySessions.add("session-closed");
-    store.failClosedLegacy = true;
-
-    const summary = await run();
-
-    expect(summary.workspaceScanFailed).toBe(true);
-    expect(summary.workspacesReclaimed).toEqual([]);
-    expect(backend.workspaces.size).toBe(2);
   });
 
   test("a mounted workspace stays and is counted unresolved", async () => {

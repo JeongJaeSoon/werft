@@ -26,7 +26,6 @@ FILES=(
   infra/compose.test-ops.localstack.yml
   infra/compose.test-ops.s3.yml
   infra/localstack/init/10-create-resources.sh
-  infra/legacy-config/.gitkeep
   infra/test-ops.env.example
   infra/test-ops.release.example.json
 )

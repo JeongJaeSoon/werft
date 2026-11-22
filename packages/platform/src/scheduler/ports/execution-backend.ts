@@ -188,12 +188,6 @@ export type ManagedWorkspace = {
   id: string;
   /** null when the resource carries no session label and cannot be judged. */
   sessionId: string | null;
-  /**
-   * `name`: a legacy resource with no label, whose session was read off its
-   * name. That is a nomination, not evidence, so GC takes it only for a
-   * session the database knows and has closed. Absent means the label.
-   */
-  sessionFrom?: "label" | "name";
   createdAt: Date;
 };
 
