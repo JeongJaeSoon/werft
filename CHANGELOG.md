@@ -16,6 +16,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 - **worker가 `packages`가 없는 bootstrap claim을 계약 위반으로 거절한다**(JeongJaeSoon/werft#1991). 지원 창 안의 control-host(`v0.3.0`부터)는 claim마다 `packages`를 보내므로, control-host를 먼저 올리는 순서를 지키면 할 일은 없다. `packages`를 보내지 않는 더 옛 control-host에 이 worker 이미지를 붙이면 세션이 시작하지 않는다. 그런 control-host를 만났을 때 HOME의 npm·Bundler·Go 설정을 지우던 동작도 없어졌다.
 
+- **Slack 계정 연결(Sign in with Slack)이 로그인 공급자와 같은 주소 규칙과 id_token 검사를 받는다**(JeongJaeSoon/werft#1995).
+  - API는 Slack에 https로만 요청한다. `slack.com`이 loopback·link-local·reserved 주소로 풀리면 보내지 않고 연결이 `503`으로 끝난다. 그런 DNS·프록시를 두었다면 올리기 전에 바로잡는다.
+  - id_token은 `exp`·`iat`·`sub`가 있어야 하고, `aud`가 client 하나뿐이어야 한다. `iat`는 앞으로 60초, 뒤로 11분까지 받는다(이전에는 미래의 `iat`를 1초도 받지 않았다). 서버 시계가 크게 어긋나면 연결이 `400`으로 거절된다.
+  - mock Slack 시험 스택은 `MOCK_SLACK_OIDC_ISSUER`의 host:port에만 평문 http와 사설 주소를 허용한다.
 - **`HEARTBEAT_TTL_SEC`의 하한이 20초 초과에서 15초 초과로 내려가고, worker가 옛 API를 위해 하던 호환 재시도가 없어진다**(JeongJaeSoon/werft#1983).
   - 하한은 worker의 lease 안전 마진(10초)과 heartbeat 간격(5초)의 합이다. 10초마다 heartbeat를 보내던 옛 worker는 지원 창 밖이다. 그런 worker가 아직 돌 때 TTL을 20초 이하로 낮추면 그 attempt는 첫 heartbeat 무렵 lease를 잃는다. TTL을 낮추기 전에 옛 worker가 남아 있지 않은지 본다.
   - worker는 strict API가 400으로 거절한 release(`stop_kind`)와 pending-control(`settled[].reason`·`answer_result`)을 그 필드를 뺀 채 다시 보내지 않는다. 로그 `worker.release.stop_kind_refused`·`worker.pending.settlement_detail_refused`도 더 나오지 않는다. 지원 창 안의 API는 이 필드를 모두 받으므로, control-host를 먼저 올리는 순서를 지키면 할 일은 없다.
