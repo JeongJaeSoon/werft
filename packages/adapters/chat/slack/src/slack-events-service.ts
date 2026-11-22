@@ -17,6 +17,7 @@ import type {
   SlackAppStore,
   SlackInboundEventInput,
   SlackInboundEventStore,
+  SlackSourceMarkStore,
 } from "@werft-ai/platform";
 import {
   agentForSlackEvent,
@@ -161,6 +162,8 @@ export type SlackEventsOutcome =
 
 type Classified =
   | { status: "dropped"; dropReason: SlackInboundDropReason }
+  // An edit or a delete: its mark is made, and nothing of the event is kept.
+  | { status: "processed"; marked: true }
   | {
       status: "received" | "processed";
       redact?: { botUserId: string; mention: boolean };
@@ -226,6 +229,45 @@ function dropFields(
   return fields;
 }
 
+const SLACK_TS = /^\d{1,12}\.\d{1,12}$/;
+
+type SourceChange = {
+  kind: "deleted" | "edited";
+  channelId: string;
+  ts: string;
+};
+
+/**
+ * The message an edit or a delete changed. A parent with replies becomes a
+ * tombstone instead of being deleted; a `message_changed` without `edited`
+ * (an unfurl, a reply count) is no one's edit and changes nothing here.
+ */
+function sourceChange(event: SlackEventCallback["event"]): SourceChange | null {
+  if (event.type !== "message") return null;
+  const tsOf = (value: unknown) =>
+    typeof value === "string" && SLACK_TS.test(value) ? value : undefined;
+  const channelId = shortString(event.channel);
+  const previous = event.previous_message as { ts?: unknown } | undefined;
+  let kind: SourceChange["kind"];
+  let ts: string | undefined;
+  if (event.subtype === "message_deleted") {
+    kind = "deleted";
+    ts = tsOf(event.deleted_ts) ?? tsOf(previous?.ts);
+  } else if (event.subtype === "message_changed") {
+    const inner = event.message as
+      | { subtype?: unknown; edited?: unknown; ts?: unknown }
+      | undefined;
+    if (inner?.subtype === "tombstone") kind = "deleted";
+    else if (typeof inner?.edited === "object" && inner.edited !== null) {
+      kind = "edited";
+    } else return null;
+    ts = tsOf(inner.ts) ?? tsOf(previous?.ts);
+  } else return null;
+  return channelId === undefined || ts === undefined
+    ? null
+    : { kind, channelId, ts };
+}
+
 function hasBotTokens(event: SlackEventCallback["event"]): boolean {
   const tokens = event.tokens as { bot?: unknown } | undefined;
   return Array.isArray(tokens?.bot) && tokens.bot.length > 0;
@@ -240,6 +282,7 @@ export function createSlackEventsService(deps: {
   identities: Pick<AgentIdentityStore, "resolveSlackEvent">;
   installs: Pick<SlackInstallStore, "revokeInstallation">;
   bindings: Pick<SurfaceBindingStore, "findLiveSlackChannel" | "wasRejected">;
+  sourceMarks: SlackSourceMarkStore;
   now?: () => Date;
 }) {
   const now = deps.now ?? (() => new Date());
@@ -276,6 +319,25 @@ export function createSlackEventsService(deps: {
     });
     if (resolved.status === "dropped") {
       return { status: "dropped", dropReason: resolved.reason };
+    }
+    // Ahead of the bot rules: a bot's post is deleted or edited like a
+    // person's, and the event names neither.
+    const change = sourceChange(event);
+    if (change !== null) {
+      const mark = {
+        workspaceId: app.workspaceId,
+        teamId: envelope.team_id,
+        channelId: change.channelId,
+        ts: change.ts,
+        at:
+          envelope.event_time === undefined
+            ? now()
+            : new Date(envelope.event_time * 1000),
+      };
+      await (change.kind === "deleted"
+        ? deps.sourceMarks.markDeleted(mark)
+        : deps.sourceMarks.markEdited(mark));
+      return { status: "processed", marked: true };
     }
     // member_joined_channel names the bot when it is invited; the
     // member-joined handler needs exactly that one, so the bot rules apply
@@ -453,7 +515,9 @@ export function createSlackEventsService(deps: {
       };
       const { token: _token, ...unredacted } = envelope;
       const payload =
-        classified.status !== "dropped" && classified.redact !== undefined
+        classified.status !== "dropped" &&
+        "redact" in classified &&
+        classified.redact !== undefined
           ? {
               ...unredacted,
               event: redactedEvent(
@@ -466,15 +530,22 @@ export function createSlackEventsService(deps: {
       const row: SlackInboundEventInput =
         classified.status === "dropped"
           ? { ...base, ...classified, dropFields: dropFields(envelope.event) }
-          : {
-              ...base,
-              status: classified.status,
-              payload,
-              conversationKey: slackConversationKey(
-                app.slackAppId,
-                envelope.event,
-              ),
-            };
+          : "marked" in classified
+            ? {
+                ...base,
+                status: "processed",
+                payload: null,
+                conversationKey: null,
+              }
+            : {
+                ...base,
+                status: classified.status,
+                payload,
+                conversationKey: slackConversationKey(
+                  app.slackAppId,
+                  envelope.event,
+                ),
+              };
       const result = await deps.inbox.record(row);
       return {
         kind: "ack",

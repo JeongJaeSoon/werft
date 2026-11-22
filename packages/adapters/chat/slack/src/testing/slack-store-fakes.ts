@@ -32,6 +32,8 @@ import {
   type SlackInboundFence,
   type SlackInstallState,
   type SlackInstallStore,
+  type SlackSourceMark,
+  type SlackSourceMarkStore,
   secretOwnerRef,
 } from "@werft-ai/platform";
 import {
@@ -1039,7 +1041,8 @@ export function createMemorySlackInboundEventStore(
           eventSubtype: row.eventSubtype,
           eventTime: row.eventTime,
           conversationKey: row.conversationKey,
-          payload: row.payload,
+          // A row recorded without its payload is processed, never claimed.
+          payload: row.payload ?? {},
           installationStatus: options.installationStatus?.() ?? "verified",
         });
       }
@@ -1076,4 +1079,32 @@ export function createMemorySlackInboundEventStore(
     },
   };
   return { store, rows, lease, calls, faults };
+}
+
+/** Keyed by `workspace|team|channel|ts`, like the tables' primary keys. */
+export function createMemorySlackSourceMarkStore() {
+  const deleted = new Map<string, SlackSourceMark>();
+  const edited = new Map<string, SlackSourceMark>();
+  const keyOf = (mark: SlackSourceMark) =>
+    [mark.workspaceId, mark.teamId, mark.channelId, mark.ts].join("|");
+  const store: SlackSourceMarkStore = {
+    async markDeleted(mark) {
+      const key = keyOf(mark);
+      edited.delete(key);
+      if (deleted.has(key)) return "duplicate";
+      deleted.set(key, mark);
+      return "recorded";
+    },
+    async markEdited(mark) {
+      const key = keyOf(mark);
+      if (deleted.has(key)) return "deleted";
+      const before = edited.get(key);
+      edited.set(
+        key,
+        before !== undefined && before.at > mark.at ? before : mark,
+      );
+      return "recorded";
+    },
+  };
+  return { store, deleted, edited };
 }
