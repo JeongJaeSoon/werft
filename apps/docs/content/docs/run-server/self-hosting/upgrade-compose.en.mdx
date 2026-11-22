@@ -270,7 +270,7 @@ Migration `0312_slack_source_marks` creates two tables, `deleted_sources` and `e
 <a id="slack-스레드의-link-이력-칸을-더한-릴리스" />
 ### The release that adds link history columns for Slack threads
 
-Migration `0312_session_link_history` adds the columns `closed_at` and `closed_reason` to `session_links`, with two partial uniques that cover only links not closed (`session_links_open_surface_ref_uniq`, `session_links_open_session_uniq`), and adds the column `session_link_id` to `slack_outbox`. Code in this release does not read or write the new columns yet, so there is nothing to do and behavior is unchanged. Every existing row stays an open link.
+Migration `0313_session_link_history` adds the columns `closed_at` and `closed_reason` to `session_links`, with two partial uniques that cover only links not closed (`session_links_open_surface_ref_uniq`, `session_links_open_session_uniq`), and adds the column `session_link_id` to `slack_outbox`. Code in this release does not read or write the new columns yet, so there is nothing to do and behavior is unchanged. Every existing row stays an open link.
 
 - The two old uniques (`session_links_surface_ref_key`, `session_links_session_uniq`) stay. A later release drops them.
 - Indexes are built `CONCURRENTLY`, and the CHECKs and the foreign key are added `NOT VALID` and validated on their own, so writes are not blocked while they validate or build (adding the columns and constraints takes a brief lock).

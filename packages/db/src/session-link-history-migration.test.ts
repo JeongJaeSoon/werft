@@ -11,7 +11,7 @@ import * as schema from "./schema.ts";
 import { createPostgresSessionLinkStore } from "./session-links.ts";
 import { migrationsThrough } from "./testing/migrations-through.ts";
 
-const TAG = "0312_session_link_history";
+const TAG = "0313_session_link_history";
 
 let client: PGlite;
 let before: string;
@@ -19,7 +19,7 @@ const installationId = randomUUID();
 const oldLinkId = randomUUID();
 const oldSessionId = randomUUID();
 
-// What the host before 0312 writes: no closed_* columns, its ON CONFLICT
+// What the host before 0313 writes: no closed_* columns, its ON CONFLICT
 // naming the old (installation_id, surface_ref) key.
 const oldHostReserve = (surfaceRef: string, sessionId: string | null = null) =>
   client.query<{ id: string }>(
@@ -89,7 +89,7 @@ const uniques = async (table: string) =>
     )
   ).rows;
 
-describe("0312 session link history", () => {
+describe("0313 session link history", () => {
   test("adds the closed columns, the two open-only uniques beside the old two, and the outbox link column", async () => {
     const columns = (
       await client.query<{ table_name: string; column_name: string }>(
