@@ -68,6 +68,8 @@ describe("scripts/local.sh", () => {
       `#!/bin/sh
 # The first line alone: the demo owner's login is a multi-line bun -e.
 printf '%s\\n' "$*" | head -n 1 >> "${dir}/docker-calls"
+# Whether the master key reached docker, and how long: never the value.
+echo "\${PLATFORM_SECRET_KEY-unset}" | awk '{ print ($0 == "unset" ? $0 : length($0)) }' >> "${dir}/key-env"
 case "$*" in
   *" exec -T fake-git bun -e "*) echo "__Host-werft_session=stub-cookie" ;;
   *" ps -aq migrate") echo "$STUB_MIGRATE_ID" ;;
@@ -703,6 +705,35 @@ echo "$VITE_API_TARGET $*" >> "${dir}/bun-calls"
       AGENT_PLATFORM_DOTENV: dotenv,
     });
     expect(await stat(given).catch(() => null)).toBeNull();
+  });
+
+  test("up makes no master key for a stack whose api names a key file, and passes the variable empty", async () => {
+    const stack = JSON.parse(rendered("local"));
+    stack.services.api.environment = {
+      PLATFORM_SECRET_KEY_FILE: "/run/secrets/platform_secret_key",
+    };
+    await writeFile(config, JSON.stringify(stack));
+    const state = join(dir, "file-key-state");
+    const env = {
+      AGENT_PLATFORM_STATE_DIR: state,
+      COMPOSE_PROJECT_NAME: "ap-file",
+      PLATFORM_SECRET_KEY: "",
+      STUB_API: "127.0.0.1:43123",
+    };
+    // The key length docker saw on the last `up -d`.
+    const upKey = async () => {
+      const docker = await calls("docker-calls");
+      const up = docker.map((call) => / up -d\b/.test(call)).lastIndexOf(true);
+      expect(up).toBeGreaterThan(-1);
+      return (await calls("key-env"))[up];
+    };
+    expect((await run(["up", "--fake-model"], env)).exitCode).toBe(0);
+    expect(await stat(state).catch(() => null)).toBeNull();
+    expect(await upKey()).toBe("0");
+
+    await writeFile(config, rendered("local"));
+    expect((await run(["up", "--fake-model"], env)).exitCode).toBe(0);
+    expect(await upKey()).toBe("64");
   });
 
   describe("a project whose database volume exists but whose key file does not", () => {

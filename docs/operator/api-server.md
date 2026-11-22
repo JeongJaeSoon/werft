@@ -978,10 +978,10 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/identities" \
 **master key**
 
 - 32바이트를 16진수 64자로 쓴다. `openssl rand -hex 32`로 만든다.
-- `PLATFORM_SECRET_KEY` 환경 변수나, 키를 담은 파일의 경로를 주는 `PLATFORM_SECRET_KEY_FILE`(compose secret처럼 마운트한 파일, 끝의 줄바꿈 하나는 무시한다)에서 읽는다. 둘 다 있으면 값이 같아야 하고, 다르면 `master_key_mismatch`로 뜨지 않는다. 둘 다 없거나 파일을 읽지 못하면 API와 slack 역할이 뜨지 않는다(`master_key_missing`). 설정 문서에도 넣지 않는다.
+- `PLATFORM_SECRET_KEY` 환경 변수나, 키를 담은 파일의 경로를 주는 `PLATFORM_SECRET_KEY_FILE`(compose secret처럼 마운트한 파일, 끝의 줄바꿈 하나는 무시한다)에서 읽는다. 둘 중 하나만 둔다. 둘 다 있으면 값이 같아야 하고, 다르면 `master_key_mismatch`로 뜨지 않는다. 둘 다 없거나 파일을 읽지 못하면 API와 slack 역할이 뜨지 않는다(`master_key_missing`). 설정 문서에도 넣지 않는다.
 - API, slack 역할, 운영자 명령(`slack-app.ts`, `slack-interaction-sign.ts`)은 같은 로더로 키를 읽는다. 컨테이너 안에서 운영자 명령을 돌릴 때는 그 명령의 환경에도 `PLATFORM_SECRET_KEY`나 `PLATFORM_SECRET_KEY_FILE`이 있어야 한다. entrypoint가 서버 프로세스에만 키를 export하는 구성에서는 `docker compose exec`로 띄운 명령이 그 값을 받지 못하므로, 서비스 env에 `PLATFORM_SECRET_KEY_FILE`을 둔다.
 - 64 hex가 아니어도 뜨지 않는다. 오류에는 변수 이름만 나오고 값은 나오지 않는다.
-- `scripts/local.sh up`은 셸이나 `.env`에 값이 없으면 키를 만들어 `AGENT_PLATFORM_STATE_DIR`(기본 `~/.local/state/werft`)의 `<프로젝트>.secret-key`(권한 600)에 두고 다시 쓴다. 이 파일을 잃으면 저장한 자격 증명을 읽지 못한다.
+- `scripts/local.sh up`은 셸이나 `.env`에 값이 없으면 키를 만들어 `AGENT_PLATFORM_STATE_DIR`(기본 `~/.local/state/werft`)의 `<프로젝트>.secret-key`(권한 600)에 두고 다시 쓴다. 이 파일을 잃으면 저장한 자격 증명을 읽지 못한다. 스택의 api가 `PLATFORM_SECRET_KEY_FILE`을 주면(overlay) 키를 만들지 않고 `PLATFORM_SECRET_KEY`를 빈 값으로 넘긴다. `infra/compose.local.yml`의 개발용 기본 키는 셸에 변수가 아예 없을 때만 들어가고, 빈 값이면 들어가지 않는다. 그래서 그 스택에서는 `docker compose exec`로 띄운 명령도 파일의 키 하나만 받는다.
 - compose는 이 키를 `api`와 `slack` 서비스에만 넘긴다(`tests/images.test.ts`가 검사한다). Helm은 api Deployment와 slack Deployment(`slack.enabled`일 때)에 Secret의 `PLATFORM_SECRET_KEY`를 넘긴다. Secret에 이 키가 없으면 Pod가 뜨지 않는다. slack role도 기동할 때 같은 키를 검증하기 때문이다. scheduler와 worker는 받지 않는다(`deploy/helm/render-check.ts`가 검사한다).
 - 키를 잃으면 저장된 값을 읽을 수 없다. 새 키로 띄운 뒤 config token을 다시 넣고, 자동 생성한 앱은 다시 만들고, GitHub App은 새 private key로 다시 등록한다. 키 회전 도구는 아직 없고 `key_version`은 1이다.
 

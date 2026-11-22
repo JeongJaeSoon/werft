@@ -65,7 +65,8 @@
 #
 # PLATFORM_SECRET_KEY comes from the shell or .env; failing both, `up` makes
 # one per project under AGENT_PLATFORM_STATE_DIR (~/.local/state/werft)
-# and keeps it, since what the console stores opens with no other key. With no
+# and keeps it, since what the console stores opens with no other key. A
+# stack whose api names PLATFORM_SECRET_KEY_FILE gets none: it is set empty. With no
 # key file but the project's postgres-data volume present it makes none and stops.
 #
 # COMPOSE_PROJECT_NAME, COMPOSE_FILE and EXECUTION_INSTALLATION_ID are
@@ -125,6 +126,12 @@ secret_key() {
   [ -z "${PLATFORM_SECRET_KEY:-}" ] || return 0
   if [ -f "${AGENT_PLATFORM_DOTENV:-.env}" ] &&
     grep -q '^PLATFORM_SECRET_KEY=' "${AGENT_PLATFORM_DOTENV:-.env}"; then
+    return 0
+  fi
+  # A stack that names a key file takes its key from there alone: a key
+  # beside it would differ, and every process reading both refuses it.
+  if [ -n "$(rendered | jq -r '.services.api.environment.PLATFORM_SECRET_KEY_FILE // empty')" ]; then
+    export PLATFORM_SECRET_KEY=
     return 0
   fi
   local dir="${AGENT_PLATFORM_STATE_DIR:-$HOME/.local/state/werft}"
