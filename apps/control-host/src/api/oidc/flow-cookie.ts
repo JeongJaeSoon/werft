@@ -98,18 +98,22 @@ function flowOf(value: unknown): LoginFlow | null {
 }
 
 /**
- * Seals a flow into a cookie value and opens it again (AES-256-GCM). The
+ * Seals a value into a cookie value and opens it again (AES-256-GCM). The
  * browser holds the value and can neither read nor change it: what the
  * callback opens is exactly what the start request sealed. The cookie's
  * name and the format version are bound in, so a value sealed for anything
- * else does not open here.
+ * else does not open here. `shapeOf` turns what opened into a `T` or null.
  *
  * `key` is 32 bytes kept for this use alone.
  */
-export function createFlowSealer(key: Buffer, cookieName: string) {
+export function createCookieSealer<T>(
+  key: Buffer,
+  cookieName: string,
+  shapeOf: (value: unknown) => T | null,
+) {
   const aad = Buffer.from(`${cookieName}|v${FORMAT_VERSION}`, "utf8");
   return {
-    seal(flow: LoginFlow): string {
+    seal(flow: T): string {
       const nonce = randomBytes(NONCE_BYTES);
       const cipher = createCipheriv(ALGORITHM, key, nonce, {
         authTagLength: TAG_BYTES,
@@ -123,8 +127,8 @@ export function createFlowSealer(key: Buffer, cookieName: string) {
       ]).toString("base64url");
     },
 
-    /** Null for a value that does not open or is not a flow. */
-    open(value: string | undefined): LoginFlow | null {
+    /** Null for a value that does not open or is not a `T`. */
+    open(value: string | undefined): T | null {
       if (!value) return null;
       const bytes = Buffer.from(value, "base64url");
       if (bytes.length < NONCE_BYTES + TAG_BYTES) return null;
@@ -141,10 +145,15 @@ export function createFlowSealer(key: Buffer, cookieName: string) {
           decipher.update(bytes.subarray(NONCE_BYTES, -TAG_BYTES)),
           decipher.final(),
         ]).toString("utf8");
-        return flowOf(JSON.parse(text));
+        return shapeOf(JSON.parse(text));
       } catch {
         return null;
       }
     },
   };
+}
+
+/** A sign-in flow's sealer. */
+export function createFlowSealer(key: Buffer, cookieName: string) {
+  return createCookieSealer(key, cookieName, flowOf);
 }

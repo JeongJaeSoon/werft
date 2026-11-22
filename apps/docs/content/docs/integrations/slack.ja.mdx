@@ -45,7 +45,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack
 503
 ```
 
-設定済みのインストールでは、開始リクエストが `authorize_url` を返す。その URL の Slack の認可画面で同意すると、Web の連携画面が `code` と `state` を callback に渡し、連携が完了する。連携の状態は `active`·`stale`·`revoked` である。
+設定済みのインストールでは、開始リクエストが `authorize_url` を返す。その URL の Slack の認可画面で同意すると、Web の連携画面が `code` と `state` を callback に渡し、連携が完了する。開始したブラウザで 10 分以内に終える。時間が過ぎたか別のブラウザで続けると `400` になり、最初からやり直す。連携の状態は `active`·`stale`·`revoked` である。
 
 連携の応答と `GET /v1/linked-accounts` の各項目には、連携時に Slack が返した名前も入る。`external_user_name` は Slack の表示名（id_token の `name`）、`external_tenant_name` は Slack ワークスペース名（`https://slack.com/team_name`）である。もう一度連携すると新しい名前に置き換わる。名前を保存する前に作った連携や、Slack が名前を返さなかった連携は `null` で、Web 画面はそのとき ID を表示する。Slack のトークンは保存しない。そのため provider トークンの有効期限である `expires_at` は、Slack 連携では常に `null` である。開始応答の `expires_at` は連携リクエストの有効期限で、別の値である。
 

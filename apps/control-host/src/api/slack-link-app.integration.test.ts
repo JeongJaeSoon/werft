@@ -57,6 +57,10 @@ import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { liveSetupToken } from "../testing/setup-link.ts";
+import {
+  createAccountLinkCookies,
+  SLACK_LINK_COOKIE_NAME,
+} from "./account-link-cookie.ts";
 import { createApiApp } from "./app.ts";
 import { DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
@@ -65,10 +69,7 @@ import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerLinkedAccountRoutes } from "./routes/musterrolle/linked-accounts.ts";
 import { registerSlackAppRoutes } from "./routes/surface/slack-apps.ts";
 import { registerSlackSecretRoutes } from "./routes/surface/slack-secrets.ts";
-import {
-  createSlackOidcTransport,
-  SLACK_LINK_COOKIE_NAME,
-} from "./slack-link.ts";
+import { createSlackOidcTransport } from "./slack-link.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
@@ -127,6 +128,7 @@ integration("the workspace's link app, made on the first Slack link", () => {
       registerRoutes: (router) => {
         registerAuthRoutes(router, auth);
         registerLinkedAccountRoutes(router, {
+          linkCookies: createAccountLinkCookies(randomBytes(32)),
           service: createLinkedAccountService({
             authorization,
             store: createPostgresLinkedAccountStore(db),

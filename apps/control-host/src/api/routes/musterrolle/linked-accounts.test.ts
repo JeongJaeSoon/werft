@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { randomBytes } from "node:crypto";
 import {
   githubLinkCallbackResponseSchema,
   LINK_MESSAGES,
@@ -25,12 +26,15 @@ import {
 } from "@werft-ai/testkit/mock-slack-oidc";
 import { errorOf } from "../../../testing/api-error.ts";
 import type { SlackOidcConfig } from "../../../wiring/chat-slack.ts";
-import { GITHUB_LINK_COOKIE_NAME } from "../../github-link.ts";
-import { recordRouteErrors } from "../../route-error-coverage.ts";
 import {
-  createSlackOidcTransport,
+  ACCOUNT_LINK_TTL_MS,
+  createAccountLinkCookies,
+  GITHUB_LINK_COOKIE_NAME,
   SLACK_LINK_COOKIE_NAME,
-} from "../../slack-link.ts";
+} from "../../account-link-cookie.ts";
+import { createCookieSealer } from "../../oidc/flow-cookie.ts";
+import { recordRouteErrors } from "../../route-error-coverage.ts";
+import { createSlackOidcTransport } from "../../slack-link.ts";
 import {
   type LinkedAccountRouteDeps,
   registerLinkedAccountRoutes,
@@ -39,6 +43,15 @@ import {
 const createApiApp = recordRouteErrors(
   "routes/musterrolle/linked-accounts.test.ts",
 );
+
+const LINK_KEY = randomBytes(32);
+/** What a link cookie holds, as the routes sealed it. */
+const sealers = {
+  slack: createCookieSealer(LINK_KEY, SLACK_LINK_COOKIE_NAME, (v) => v),
+  github: createCookieSealer(LINK_KEY, GITHUB_LINK_COOKIE_NAME, (v) => v),
+};
+const opened = (provider: "slack" | "github", value: string) =>
+  sealers[provider].open(value) as Record<string, unknown> | null;
 
 const PERSON = "019a0000-0000-7000-8000-0000000000a1";
 const GITHUB_CONNECTION = "019a0000-0000-7000-8000-0000000000c9";
@@ -152,6 +165,7 @@ function app(
     slack?: SlackOidcConfig | null;
     clients?: Partial<SlackLinkClients>;
     github?: LinkedAccountRouteDeps["github"];
+    now?: () => number;
   } = {},
 ) {
   const config = options.slack === undefined ? slack : options.slack;
@@ -179,6 +193,7 @@ function app(
     registerRoutes: (router) =>
       registerLinkedAccountRoutes(router, {
         service: routed,
+        linkCookies: createAccountLinkCookies(LINK_KEY, options.now),
         github: options.github ?? {
           oauth: { client: async () => null },
           redirectUri: null,
@@ -389,6 +404,28 @@ describe("POST /v1/linked-accounts/slack/callback", () => {
     expect(response.headers.get("Set-Cookie")).toContain(
       `${SLACK_LINK_COOKIE_NAME}=;`,
     );
+  });
+
+  test("a state past ten minutes is 400, even with its cookie still sent", async () => {
+    // Before: only the browser's Expires ended a Slack link; the server
+    // took its cookie at any age.
+    const clock = { now: Date.now() };
+    const api = app(store(), { now: () => clock.now });
+    const { code, state, cookie } = await consented(api);
+    expect(opened("slack", cookie.split("=")[1] ?? "")).toMatchObject({
+      purpose: "link",
+      provider: "slack",
+      state,
+      userId: PERSON,
+    });
+    clock.now += ACCOUNT_LINK_TTL_MS;
+    const response = await callback(
+      api,
+      { code, state },
+      { ...owner, Cookie: cookie },
+    );
+    expect(response.status).toBe(400);
+    expect((await errorOf(response)).message).toBe(LINK_MESSAGES.expired);
   });
 
   test("exchanges the code with the workspace's client and never makes one", async () => {
@@ -801,7 +838,14 @@ describe("POST /v1/linked-accounts/github/start", () => {
     expect(url.searchParams.get("allow_signup")).toBe("false");
     expect(url.searchParams.has("scope")).toBe(false);
     expect(state.length).toBeGreaterThan(20);
-    expect(cookie.startsWith(`${state}.${PERSON}.`)).toBe(true);
+    expect(cookie).not.toContain(state);
+    expect(opened("github", cookie)).toMatchObject({
+      purpose: "link",
+      provider: "github",
+      state,
+      userId: PERSON,
+      connectionId: GITHUB_CONNECTION,
+    });
   });
 
   test("not configured is a typed 409 before anything is sent", async () => {
@@ -914,15 +958,15 @@ describe("POST /v1/linked-accounts/github/callback", () => {
   });
 
   test("an expired state is 400, even with its cookie still sent", async () => {
-    const api = githubApp();
+    const clock = { now: Date.now() };
+    const api = app(store(), { github: githubDeps(), now: () => clock.now });
     const exchangesBefore = githubExchanges.length;
     const { state, cookie } = await githubStarted(api);
-    const [value, user, , connection] = cookie.split(".");
-    const expired = `${value}.${user}.${Date.now() - 1}.${connection}`;
+    clock.now += ACCOUNT_LINK_TTL_MS;
     const response = await githubCallback(
       api,
       { code: "good", state },
-      { ...owner, Cookie: `${GITHUB_LINK_COOKIE_NAME}=${expired}` },
+      { ...owner, Cookie: `${GITHUB_LINK_COOKIE_NAME}=${cookie}` },
     );
     expect(response.status).toBe(400);
     expect((await errorOf(response)).message).toBe(LINK_MESSAGES.expired);
@@ -933,7 +977,7 @@ describe("POST /v1/linked-accounts/github/callback", () => {
     const api = githubApp();
     const exchangesBefore = githubExchanges.length;
     const { state, cookie } = await githubStarted(api);
-    expect(cookie.split(".")[3]).toBe(GITHUB_CONNECTION);
+    expect(opened("github", cookie)?.connectionId).toBe(GITHUB_CONNECTION);
     linkConnection = "019a0000-0000-7000-8000-0000000000ca";
     try {
       const response = await githubCallback(
@@ -953,10 +997,13 @@ describe("POST /v1/linked-accounts/github/callback", () => {
     const api = githubApp();
     const exchangesBefore = githubExchanges.length;
     const { state, cookie } = await githubStarted(api);
-    const [value, , expires] = cookie.split(".");
+    const someoneElses = sealers.github.seal({
+      ...opened("github", cookie),
+      userId: "019a0000-0000-7000-8000-0000000000ff",
+    });
     for (const [sentState, sentCookie] of [
       ["other-state", cookie],
-      [state, `${value}.019a0000-0000-7000-8000-0000000000ff.${expires}`],
+      [state, someoneElses],
       [state, undefined],
     ] as const) {
       const response = await githubCallback(
