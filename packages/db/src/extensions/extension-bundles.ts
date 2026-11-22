@@ -121,6 +121,35 @@ async function previousApproved(
   return row;
 }
 
+/**
+ * Closes the skill's not archived versions below `version` still awaiting
+ * review: a newer one is approved or current, so they leave the review list.
+ * `by` is who approved or moved it; null under the sync's auto-approve.
+ */
+async function supersedeBelow(
+  tx: Database,
+  workspaceId: string,
+  name: string,
+  version: number,
+  by: string | null,
+): Promise<{ id: string; version: number }[]> {
+  const rows = await tx
+    .update(extensionBundles)
+    .set({ review: "superseded", reviewedBy: by, reviewedAt: DB_NOW })
+    .where(
+      and(
+        ofSkill(workspaceId, name),
+        eq(extensionBundles.review, "pending"),
+        isNull(extensionBundles.archivedAt),
+        lt(extensionBundles.version, version),
+      ),
+    )
+    .returning({ id: extensionBundles.id, version: extensionBundles.version });
+  return rows
+    .map((row) => ({ id: row.id, version: row.version as number }))
+    .sort((a, b) => a.version - b.version);
+}
+
 /** Makes `id` the skill's current version, or leaves it none on null. */
 async function makeCurrent(
   tx: Database,
@@ -525,6 +554,13 @@ export function createPostgresExtensionBundleStore(
           if (advances) {
             await makeCurrent(tx, input.workspaceId, input.name, inserted.id);
           }
+          const superseded = await supersedeBelow(
+            tx,
+            input.workspaceId,
+            input.name,
+            version,
+            null,
+          );
           registered = await reread(tx, inserted.id);
           await writeReceipt(tx, input.principal, {
             id: randomUUID(),
@@ -548,6 +584,7 @@ export function createPostgresExtensionBundleStore(
               ...(advances
                 ? { current: { from: before?.version ?? null, to: version } }
                 : {}),
+              ...(superseded.length > 0 ? { superseded } : {}),
             },
           });
         }
@@ -587,6 +624,13 @@ export function createPostgresExtensionBundleStore(
               );
         if (!from || !to) return { outcome: "no_previous_version" };
         await makeCurrent(tx, input.workspaceId, input.name, to.id);
+        const superseded = await supersedeBelow(
+          tx,
+          input.workspaceId,
+          input.name,
+          to.version as number,
+          actor.userId,
+        );
         await writeReceipt(tx, input.principal, {
           id: input.receiptId,
           operation: "revert_extension",
@@ -595,6 +639,7 @@ export function createPostgresExtensionBundleStore(
             name: input.name,
             from: { id: from.id, version: from.version, digest: from.digest },
             to: { id: to.id, version: to.version, digest: to.digest },
+            ...(superseded.length > 0 ? { superseded } : {}),
           },
         });
         return {
@@ -660,6 +705,16 @@ export function createPostgresExtensionBundleStore(
           }
         }
         const moved = after !== null;
+        const superseded =
+          input.review === "approved" && row.version !== null
+            ? await supersedeBelow(
+                tx,
+                input.workspaceId,
+                row.name,
+                row.version,
+                actor.userId,
+              )
+            : [];
         await writeReceipt(tx, input.principal, {
           id: input.receiptId,
           operation: "approve_extension",
@@ -677,6 +732,7 @@ export function createPostgresExtensionBundleStore(
                   },
                 }
               : {}),
+            ...(superseded.length > 0 ? { superseded } : {}),
           },
         });
         return {

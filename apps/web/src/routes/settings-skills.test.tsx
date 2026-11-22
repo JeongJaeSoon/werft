@@ -561,6 +561,29 @@ describe("Git 스킬 상세의 동기화", () => {
     expect(within(table).queryByRole("link")).toBe(null);
   });
 
+  test("대체된 버전은 대체됨으로 보이고, 검토 대신 파일 보기로 간다", async () => {
+    renderAt("/settings/workspace/skills/release-notes", {
+      "GET /v1/auth/me": () => json(200, me()),
+      ...listed(
+        skill({
+          versions: [
+            version(1, { review: "superseded", reviewed_by: USER_ID }),
+            version(2),
+          ],
+        }),
+      ),
+    });
+    const table = await screen.findByRole("table", { name: "버전 기록" });
+    const superseded = within(table)
+      .getAllByRole("row")
+      .find((row) => row.textContent?.includes("v1 "));
+    if (!superseded) throw new Error("no v1 row");
+    const row = within(superseded);
+    expect(row.getAllByText("대체됨").length).toBeGreaterThan(0);
+    expect(row.queryByText("승인 대기")).toBe(null);
+    expect(row.getByRole("link").textContent).toBe("파일 보기");
+  });
+
   test("webhook을 받는 설치에는 그 안내가 없다", async () => {
     renderAt("/settings/workspace/skills/triage", {
       "GET /v1/auth/me": () => json(200, me()),
@@ -649,6 +672,23 @@ describe("승인 대기 화면", () => {
     );
     expect(await screen.findByRole("button", { name: "거절" })).toBeDefined();
     expect(screen.queryByRole("button", { name: "승인" })).toBe(null);
+  });
+
+  test("대체된 버전도 승인하거나 거절할 수 있다", async () => {
+    const superseded = version(1, {
+      review: "superseded",
+      reviewed_by: USER_ID,
+    });
+    renderAt(
+      `/settings/workspace/skills/release-notes/versions/${superseded.id}`,
+      {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`GET /v1/workspace/skills/versions/${superseded.id}/files`]: () =>
+          json(200, { ...files, version: superseded, previous_approved: null }),
+      },
+    );
+    expect(await screen.findByRole("button", { name: "승인" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "거절" })).toBeDefined();
   });
 
   test("승인하면 승인을 보내고, 다시 읽은 화면에는 승인 버튼 대신 거절만 남는다", async () => {

@@ -775,7 +775,7 @@ integration("Git skill sources on PostgreSQL", () => {
     expect(receipt?.result).toMatchObject({ self_consent: "sole_manager" });
   });
 
-  test("with auto-approve on, a synced version GitHub showed reviewed is approved and current; otherwise it stays pending", async () => {
+  test("with auto-approve on, a synced version GitHub showed reviewed is approved and current and supersedes the older pending one; otherwise it stays pending", async () => {
     const { workspaceId, admin } = await registered("deploy");
     const owner = await person(workspaceId, "owner");
     await autoApprove(workspaceId, "deploy", "request", admin.caller);
@@ -826,6 +826,27 @@ integration("Git skill sources on PostgreSQL", () => {
       pull_request: 12,
       rule: { kind: "ruleset", required_reviews: 1 },
       current: { from: null, to: 2 },
+      superseded: [{ id: expect.any(String), version: 1 }],
+    });
+    // No person closed it: the sync's approval did.
+    const [first] = await db
+      .select({
+        review: extensionBundles.review,
+        reviewedBy: extensionBundles.reviewedBy,
+        reviewedAt: extensionBundles.reviewedAt,
+      })
+      .from(extensionBundles)
+      .where(
+        and(
+          eq(extensionBundles.workspaceId, workspaceId),
+          eq(extensionBundles.name, "deploy"),
+          eq(extensionBundles.version, 1),
+        ),
+      );
+    expect(first).toEqual({
+      review: "superseded",
+      reviewedBy: null,
+      reviewedAt: expect.any(Date),
     });
 
     const unmet = await synced(

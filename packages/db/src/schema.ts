@@ -5129,6 +5129,7 @@ export const EXTENSION_BUNDLE_REVIEWS = [
   "pending",
   "approved",
   "rejected",
+  "superseded",
 ] as const;
 export const EXTENSION_BUNDLE_SOURCES = ["upload", "github"] as const;
 
@@ -5216,10 +5217,11 @@ export const extensionBundles = pgTable(
       "extension_bundles_review_actor_check",
       sql`(${table.review} = 'pending') = (${table.reviewedAt} IS NULL) AND (${table.reviewedBy} IS NULL OR ${table.reviewedAt} IS NOT NULL)`,
     ),
-    // Only the sync approves without a person: under auto-approve.
+    // Only the sync approves without a person: under auto-approve. A version
+    // the sync's approval superseded has no person either.
     check(
       "extension_bundles_auto_review_check",
-      sql`${table.reviewedAt} IS NULL OR ${table.reviewedBy} IS NOT NULL OR (${table.review} = 'approved' AND ${table.git} IS NOT NULL)`,
+      sql`${table.reviewedAt} IS NULL OR ${table.reviewedBy} IS NOT NULL OR (${table.review} = 'approved' AND ${table.git} IS NOT NULL) OR ${table.review} = 'superseded'`,
     ),
     check("extension_bundles_size_check", sql`${table.sizeBytes} > 0`),
     check(

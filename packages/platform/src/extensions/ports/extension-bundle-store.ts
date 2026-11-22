@@ -39,6 +39,8 @@ export const EXTENSION_BUNDLE_REVIEWS = [
   "pending",
   "approved",
   "rejected",
+  // Closed while awaiting review: a newer version was approved or made current.
+  "superseded",
 ] as const;
 export type ExtensionBundleReview = (typeof EXTENSION_BUNDLE_REVIEWS)[number];
 
@@ -191,7 +193,7 @@ export interface ExtensionBundleStore {
     receiptId: string;
     workspaceId: string;
     bundleId: string;
-    review: Exclude<ExtensionBundleReview, "pending">;
+    review: "approved" | "rejected";
     principal: Principal;
     managerRoles: readonly WorkspaceRole[];
   }): Promise<ReviewExtensionBundleResult>;
