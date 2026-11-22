@@ -6,7 +6,7 @@ import type {
 /**
  * One event as the events route stored it. A `dropped` row has a reason,
  * the sender fields and no payload; the others keep the envelope as Slack
- * sent it.
+ * sent it, but an edit or a delete, which keeps none.
  */
 export type SlackInboundEventInput = {
   workspaceId: string;
@@ -30,6 +30,13 @@ export type SlackInboundEventInput = {
       payload: Record<string, unknown>;
       /** slackConversationKey of the event; null outside a channel message. */
       conversationKey: string | null;
+    }
+  | {
+      // Handled where it arrived, and nothing of it is kept: an edit or a
+      // delete, which leaves only its mark.
+      status: "processed";
+      payload: null;
+      conversationKey: null;
     }
 );
 

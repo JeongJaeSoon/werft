@@ -1279,6 +1279,56 @@ export const slackInboundEvents = pgTable(
   ],
 );
 
+// A Slack message someone deleted: where it was and when, never its text. A
+// mark of a message nothing Werft keeps points at (knownSlackSource) is
+// removed SLACK_SOURCE_MARK_UNKNOWN_RETENTION_MS after `marked_at`, long
+// enough for the message itself to arrive after its delete.
+export const deletedSources = pgTable(
+  "deleted_sources",
+  {
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    teamId: text("team_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    ts: text().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull(),
+    markedAt: timestamp("marked_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.workspaceId, table.teamId, table.channelId, table.ts],
+    }),
+    index("deleted_sources_marked_idx").on(table.markedAt),
+  ],
+);
+
+// A Slack message someone edited, kept like a delete mark; a delete of the
+// same message replaces it. Each edit moves both times on.
+export const editedSources = pgTable(
+  "edited_sources",
+  {
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    teamId: text("team_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    ts: text().notNull(),
+    editedAt: timestamp("edited_at", { withTimezone: true }).notNull(),
+    markedAt: timestamp("marked_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.workspaceId, table.teamId, table.channelId, table.ts],
+    }),
+    index("edited_sources_marked_idx").on(table.markedAt),
+  ],
+);
+
 // A person's account on another service: today a Slack user, linked through
 // Sign in with Slack. Rows are revoked, never deleted, so the receipts that
 // name one keep their target; every status change bumps

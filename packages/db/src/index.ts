@@ -107,6 +107,7 @@ export * from "./surface/slack-inbound-events.ts";
 export * from "./surface/slack-install-states.ts";
 export * from "./surface/slack-installations.ts";
 export * from "./surface/slack-outbox.ts";
+export * from "./surface/slack-source-marks.ts";
 export * from "./surface/slack-thread-bot-turns.ts";
 export * from "./telemetry-ingest-store.ts";
 export * from "./usage/agent-usage.ts";
