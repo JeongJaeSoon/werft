@@ -1527,6 +1527,13 @@
       "when": 1795379190668,
       "tag": "0308_slack_inbound_payload_check",
       "breakpoints": true
+    },
+    {
+      "idx": 309,
+      "version": "7",
+      "when": 1795381020472,
+      "tag": "0309_slack_channel_member_cache",
+      "breakpoints": true
     }
   ]
 }
