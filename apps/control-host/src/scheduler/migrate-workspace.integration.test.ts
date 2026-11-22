@@ -11,7 +11,6 @@ import {
 import {
   removeWorkerNetworks,
   startStandInProxy,
-  testDockerHost,
 } from "@werft-ai/execution-local-docker/testing";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq, sql } from "drizzle-orm";
@@ -34,7 +33,11 @@ const IMAGE = process.env.DOCKER_BACKEND_TEST_IMAGE ?? "busybox:1.36";
 const HELPER_IMAGE =
   process.env.EXECUTION_WORKSPACE_MIGRATION_IMAGE ||
   DEFAULT_MIGRATION_HELPER_IMAGE;
-const dockerHost = await testDockerHost();
+const dockerHost =
+  process.env.DOCKER_HOST ??
+  ((await Bun.file(`${process.env.HOME}/.docker/run/docker.sock`).exists())
+    ? `unix://${process.env.HOME}/.docker/run/docker.sock`
+    : "unix:///var/run/docker.sock");
 
 integration("a legacy session relaunched after migrate-workspace", () => {
   let database: TempDatabase;

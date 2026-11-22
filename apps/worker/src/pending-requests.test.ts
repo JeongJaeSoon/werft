@@ -26,7 +26,6 @@ import {
   type PendingRequestsOptions,
 } from "./pending-requests.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
-import { waitFor as pollFor } from "./testing/wait-for.ts";
 
 const scope: WorkerScope = {
   session_id: "11111111-1111-4111-8111-111111111111",
@@ -37,8 +36,13 @@ const scope: WorkerScope = {
   auth_revision: 0,
 };
 
-const waitFor = (check: () => boolean, what: string) =>
-  pollFor(check, what, { stepMs: 1 });
+async function waitFor(check: () => boolean, what: string) {
+  const deadline = Date.now() + 2_000;
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await Bun.sleep(1);
+  }
+}
 
 function registry(
   options: Partial<PendingRequestsOptions> & { timeoutMs?: number } = {},
