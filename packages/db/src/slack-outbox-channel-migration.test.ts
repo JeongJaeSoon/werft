@@ -41,6 +41,13 @@ const validated = async () =>
     )
   ).rows.map((row) => row.convalidated);
 
+const constraintIds = async () =>
+  (
+    await client.query<{ oid: number }>(
+      "SELECT oid FROM pg_constraint WHERE conname = 'slack_outbox_channel_check'",
+    )
+  ).rows.map((row) => row.oid);
+
 /**
  * 0306 refuses an outbox row whose channel is a Slack user id, but a model
  * notice's direct message, and checks the rows already there.
@@ -84,10 +91,13 @@ describe("0306 slack_outbox_channel_check", () => {
         (error: Error) => error.message,
       );
     expect(refused).toContain("slack_outbox_channel_check");
+    const kept = await constraintIds();
 
-    // The operator deletes the row and runs migrate again.
+    // The operator deletes the row and runs migrate again: the same
+    // constraint is validated, never dropped and added anew.
     await client.exec("DELETE FROM slack_outbox");
     await migrate(drizzle(client), { migrationsFolder: MIGRATIONS_FOLDER });
     expect(await validated()).toEqual([true]);
+    expect(await constraintIds()).toEqual(kept);
   });
 });
