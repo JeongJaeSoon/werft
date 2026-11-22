@@ -255,7 +255,7 @@ From this release model connections, MCP servers and repository GitHub App keys 
 - A connection or MCP server made in the console is saved only with its key. The web keeps the save button off until 8 or more characters are typed; the API refuses with 400 a missing key, one shorter than 8 bytes, or one with control characters or surrounding whitespace; the database refuses a console-made row without its value in the same transaction. The console's "Enter key on screen" button, which turned an external connection into a stored one, and the `POST …/connections/{id}/convert` route are gone.
 - The 0285 rollback SQL above no longer applies after this release: `credential_source` allows `stored` only.
 
-<a id="mock-slack-env-이름" />
+<a id="쓰지-않는-표-셋을-지운-릴리스" />
 ### The release that drops three unused tables
 
 Migration `0305_drop_unused_tables` drops the `catalog_authority`, `owner_workspace_map` and `push_continuations` tables with their rows. No release since `v0.1.0` reads or writes the first two, and the last release that used `push_continuations` is `v0.1.1`. Rolling back to an image inside the support window is therefore unaffected.
@@ -263,6 +263,7 @@ Migration `0305_drop_unused_tables` drops the `catalog_authority`, `owner_worksp
 - The tables may still hold rows. `catalog_authority` may hold one revision activated in the days of the file catalog, `owner_workspace_map` owner-to-workspace mappings an operator inserted by hand, and `push_continuations` follow-up turn records made by `v0.1.1` or earlier. When there are rows, the migrate log `db.migrate.notice` records how many each table lost (`0305: dropped rows: …`). The values of the rows stay out of the log.
 - If you need those rows, back them up before the upgrade. Rolling the schema below 0305 does not bring them back.
 
+<a id="mock-slack-env-이름" />
 ### Mock Slack variable names
 
 `SLACK_API_URL` and `SLACK_OIDC_ISSUER`, used by the mock Slack test stack (`infra/compose.mock-slack.yml`), are now `MOCK_SLACK_API_URL` and `MOCK_SLACK_OIDC_ISSUER`. The old names are not read; if one is still set, the `Ignored removed settings` warning names it. When a new name has a value, startup logs one warning, `Mock Slack override in use: <names>`, whatever the address. Keep neither name in operational config.

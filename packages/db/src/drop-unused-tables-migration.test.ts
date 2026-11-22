@@ -22,6 +22,7 @@ describe("0305 drops the unused tables", () => {
   let before: string;
   const workspaceId = randomUUID();
   const userId = randomUUID();
+  const sessionId = randomUUID();
 
   const exists = async (table: string) =>
     (
@@ -60,6 +61,20 @@ describe("0305 drops the unused tables", () => {
       "INSERT INTO owner_workspace_map (owner_id, workspace_id, mapped_by) VALUES ('legacy', $1, $2)",
       [workspaceId, userId],
     );
+    await client.query(
+      "INSERT INTO sessions (id, owner_id, repo_url, branch) VALUES ($1, 'owner', 'https://example.invalid/repo.git', $2)",
+      [sessionId, `session/${sessionId}`],
+    );
+    const turns = await client.query(
+      `INSERT INTO turns (session_id, sequence, message, status)
+       VALUES ($1, 1, 'push', 'completed'), ($1, 2, 'again', 'queued') RETURNING id`,
+      [sessionId],
+    );
+    const [turn, continuation] = turns.rows as { id: number }[];
+    await client.query(
+      "INSERT INTO push_continuations (turn_id, continuation_turn_id) VALUES ($1, $2)",
+      [turn?.id, continuation?.id],
+    );
   });
 
   afterAll(async () => {
@@ -73,6 +88,7 @@ describe("0305 drops the unused tables", () => {
     }
     expect(await count("catalog_authority")).toBe(1);
     expect(await count("owner_workspace_map")).toBe(1);
+    expect(await count("push_continuations")).toBe(1);
   });
 
   test("after it, the tables are gone and what they named stays", async () => {
@@ -83,5 +99,6 @@ describe("0305 drops the unused tables", () => {
     }
     expect(await count("workspaces")).toBe(1);
     expect(await count("users")).toBe(1);
+    expect(await count("turns")).toBe(2);
   });
 });
