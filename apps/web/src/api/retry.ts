@@ -1,3 +1,5 @@
+import { ApiError } from "@werft-ai/client";
+
 /**
  * Waits before each new attempt of a safe read; one wait per retry, so its
  * length is the retry limit.
@@ -12,15 +14,30 @@ const SAFE_METHODS = new Set(["GET", "HEAD"]);
 const GATEWAY_STATUSES = new Set([502, 503, 504]);
 
 /**
+ * Whether the client already asked again before this error reached the
+ * caller; a query retrying it too would multiply the requests.
+ */
+export function retriedByClient(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    (error.status === 0 || GATEWAY_STATUSES.has(error.status))
+  );
+}
+
+/**
  * A fetch that asks again when a GET or HEAD meets a gateway status or a
  * dropped connection. Any other method is sent once: a write the server may
- * already have applied is never repeated.
+ * already have applied is never repeated. An event stream keeps its own
+ * reconnect, and an answer with Retry-After is left to the caller: the server
+ * said how long to wait.
  */
 export function retryingFetch(
   fetch: Fetch,
   delaysMs: readonly number[] = READ_RETRY_DELAYS_MS,
 ): Fetch {
   return async (request) => {
+    if (request.headers.get("accept")?.includes("text/event-stream"))
+      return fetch(request);
     const retries = SAFE_METHODS.has(request.method.toUpperCase())
       ? delaysMs
       : [];
@@ -37,7 +54,8 @@ export function retryingFetch(
         continue;
       }
       if (!GATEWAY_STATUSES.has(response.status)) return response;
-      if (last) return withErrorCode(response);
+      if (last || response.headers.has("retry-after"))
+        return withErrorCode(response);
       await response.body?.cancel();
       await wait(retries[attempt] ?? 0, request.signal);
     }
@@ -56,8 +74,13 @@ async function withErrorCode(response: Response): Promise<Response> {
   } catch {}
   if (typeof code === "string") return response;
   await response.body?.cancel();
-  const headers = new Headers(response.headers);
-  headers.set("content-type", "application/json");
+  // Only what still describes the new body: a copied Content-Length: 0 would
+  // have it skipped unread.
+  const headers = new Headers({ "content-type": "application/json" });
+  for (const name of ["x-request-id", "retry-after"]) {
+    const value = response.headers.get(name);
+    if (value !== null) headers.set(name, value);
+  }
   const body = {
     error: {
       code: "BACKEND_UNAVAILABLE",

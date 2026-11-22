@@ -200,9 +200,13 @@ describe("workspace shell", () => {
           )
         ).length,
       ).toBeGreaterThan(0);
-      expect(
-        callsTo(api.calls, "/v1/sessions").length % (retrying.length + 1),
-      ).toBe(0);
+      // Home reads several lists of sessions; each is asked exactly so often.
+      const perList = new Map<string, number>();
+      for (const { search } of callsTo(api.calls, "/v1/sessions"))
+        perList.set(search, (perList.get(search) ?? 0) + 1);
+      expect(perList.size).toBeGreaterThan(0);
+      for (const count of perList.values())
+        expect(count).toBe(retrying.length + 1);
     });
 
     test("502를 받은 로그아웃은 다시 보내지 않는다", async () => {

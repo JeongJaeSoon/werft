@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { unwrap } from "@werft-ai/client";
 import { apiError, json, me } from "../test-support/fake-api.ts";
 import { createApiClient } from "./client.ts";
-import { READ_RETRY_DELAYS_MS } from "./retry.ts";
+import { READ_RETRY_DELAYS_MS, retriedByClient } from "./retry.ts";
 
 const DELAYS = [1, 1, 1];
 
@@ -75,6 +75,59 @@ describe("asking again after a gateway failure", () => {
     const error = await unwrap(client.GET("/v1/auth/me")).catch((e) => e);
     expect(methods).toHaveLength(DELAYS.length + 1);
     expect(error).toMatchObject({ status: 0, code: "NETWORK_ERROR" });
+  });
+
+  test("an empty gateway answer says the server is unavailable too", async () => {
+    const { client } = server(
+      () =>
+        new Response(null, {
+          status: 503,
+          headers: { "content-length": "0" },
+        }),
+    );
+    const error = await unwrap(client.GET("/v1/auth/me")).catch((e) => e);
+    expect(error).toMatchObject({ status: 503, code: "BACKEND_UNAVAILABLE" });
+  });
+
+  test("an answer with Retry-After is not asked again here", async () => {
+    const { client, methods } = server(
+      () =>
+        new Response("busy", { status: 503, headers: { "retry-after": "60" } }),
+      ok,
+    );
+    const error = await unwrap(client.GET("/v1/auth/me")).catch((e) => e);
+    expect(methods).toEqual(["GET"]);
+    expect(error).toMatchObject({
+      code: "BACKEND_UNAVAILABLE",
+      retryAfterSeconds: 60,
+    });
+  });
+
+  test("an event stream keeps its own reconnect", async () => {
+    const { client, methods } = server(gateway(502), ok);
+    await client.GET("/v1/auth/me", {
+      headers: { accept: "text/event-stream" },
+    });
+    expect(methods).toEqual(["GET"]);
+  });
+
+  test("a query does not retry what the client already asked again", async () => {
+    const { client } = server(gateway(504));
+    const gatewayError = await unwrap(client.GET("/v1/auth/me")).catch(
+      (e) => e,
+    );
+    const dropError = await unwrap(
+      server(dropped).client.GET("/v1/auth/me"),
+    ).catch((e) => e);
+    expect(retriedByClient(gatewayError)).toBe(true);
+    expect(retriedByClient(dropError)).toBe(true);
+    expect(
+      retriedByClient(
+        await unwrap(server(gateway(500)).client.GET("/v1/auth/me")).catch(
+          (e) => e,
+        ),
+      ),
+    ).toBe(false);
   });
 
   test("an answer the API wrote keeps its code", async () => {

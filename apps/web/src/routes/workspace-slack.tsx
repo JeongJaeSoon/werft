@@ -44,6 +44,7 @@ import {
   useState,
 } from "react";
 import { scopedKey } from "../api/queries.ts";
+import { retriedByClient } from "../api/retry.ts";
 import {
   permissionReason,
   refusalText,
@@ -81,7 +82,8 @@ function useConfigToken() {
         }),
       ),
     enabled: workspaceId !== "" && canManage,
-    retry: (failures, error) => !storeOff(error) && failures < 3,
+    retry: (failures, error) =>
+      !storeOff(error) && !retriedByClient(error) && failures < 3,
   });
 }
 
