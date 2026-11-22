@@ -1126,7 +1126,8 @@ export function createSessionService(deps: {
         ...(agentPrivate ? { agentPrivate: true as const } : {}),
       });
       const response = await appended(actor.ownerId, result, agentPrivate);
-      if (response === null) throw new Error("Only a push follow-up is queued once");
+      if (response === null)
+        throw new Error("Only a push follow-up is queued once");
       return response;
     },
 
@@ -1151,7 +1152,9 @@ export function createSessionService(deps: {
       const result = await inputs.appendInputAtomic({
         principal: {
           ownerId,
-          ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
+          ...(input.requestId === undefined
+            ? {}
+            : { requestId: input.requestId }),
         },
         sessionId,
         idempotencyKey: input.idempotencyKey,
