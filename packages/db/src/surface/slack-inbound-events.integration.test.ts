@@ -106,6 +106,7 @@ integration("slack_inbound_events on PostgreSQL", () => {
       ...event(app, team, "Ev02"),
       status: "dropped",
       dropReason: "bot_message",
+      dropFields: { bot_id: "B0BOT", user: "U0BOT", subtype: "bot_message" },
     };
     expect(await inbox.record(dropped)).toBe("recorded");
     expect(
@@ -142,7 +143,9 @@ integration("slack_inbound_events on PostgreSQL", () => {
       status: "dropped",
       dropReason: "bot_message",
       payload: null,
+      dropFields: { bot_id: "B0BOT", user: "U0BOT", subtype: "bot_message" },
     });
+    expect(rows.find((row) => row.eventId === "Ev01")?.dropFields).toBeNull();
   });
 
   test("two pools claiming at once take every row exactly once", async () => {
@@ -330,7 +333,7 @@ integration("slack_inbound_events on PostgreSQL", () => {
     }
   });
 
-  test("the table refuses a dropped row with a payload or a reason on a kept one", async () => {
+  test("the table refuses a dropped row with a payload, or a reason or drop fields on a kept one", async () => {
     const app = await agentApp();
     const base = {
       id: randomUUID(),
@@ -358,10 +361,20 @@ integration("slack_inbound_events on PostgreSQL", () => {
     await expect(
       insert({
         ...base,
+        status: "received",
+        payload: {},
+        dropFields: { user: "U0P" },
+      }),
+    ).rejects.toThrow();
+    await expect(
+      insert({
+        ...base,
         status: "dropped",
         dropReason: "not_a_reason" as never,
       }),
     ).rejects.toThrow();
+    // A row dropped before drop_fields existed, or by the slack role.
+    await insert({ ...base, status: "dropped", dropReason: "slackbot" });
   });
 
   test("findAgentApp finds only a created agent app, by agent id alone", async () => {

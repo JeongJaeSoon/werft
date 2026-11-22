@@ -4,6 +4,7 @@ import {
   SLACK_INBOUND_EVENT_TYPES,
   SLACK_SIGNATURE_WINDOW_SECONDS,
   type SlackEventCallback,
+  type SlackInboundDropFields,
   type SlackInboundDropReason,
   type SlackInboundEventStatus,
   slackEventCallbackSchema,
@@ -194,6 +195,37 @@ function redactedEvent(
 const ACCEPTED_TYPES = new Set<string>(SLACK_INBOUND_EVENT_TYPES);
 const ACCEPTED_SUBTYPES = new Set<string>(SLACK_ACCEPTED_MESSAGE_SUBTYPES);
 
+/** Slackbot's user id in every workspace. */
+const SLACKBOT_USER_ID = "USLACK";
+
+function shortString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length <= 64 ? value : undefined;
+}
+
+/** The poster's app: Slack names it on the event or in its `bot_profile`. */
+function postingAppId(event: SlackEventCallback["event"]): string | undefined {
+  const profile = event.bot_profile as { app_id?: unknown } | undefined;
+  return shortString(event.app_id) ?? shortString(profile?.app_id);
+}
+
+function dropFields(
+  event: SlackEventCallback["event"],
+): SlackInboundDropFields {
+  const fields: SlackInboundDropFields = {};
+  const botId = shortString(event.bot_id);
+  const appId = postingAppId(event);
+  const user = shortString(event.user);
+  const subtype = shortString(event.subtype);
+  const inner = event.message as { subtype?: unknown } | undefined;
+  const innerSubtype = shortString(inner?.subtype);
+  if (botId !== undefined) fields.bot_id = botId;
+  if (appId !== undefined) fields.app_id = appId;
+  if (user !== undefined) fields.user = user;
+  if (subtype !== undefined) fields.subtype = subtype;
+  if (innerSubtype !== undefined) fields.message = { subtype: innerSubtype };
+  return fields;
+}
+
 function hasBotTokens(event: SlackEventCallback["event"]): boolean {
   const tokens = event.tokens as { bot?: unknown } | undefined;
   return Array.isArray(tokens?.bot) && tokens.bot.length > 0;
@@ -249,17 +281,30 @@ export function createSlackEventsService(deps: {
     // member-joined handler needs exactly that one, so the bot rules apply
     // to messages only.
     if (event.type === "message" || event.type === "app_mention") {
+      // This app's own posts come back as events; an instruction posted under
+      // its sender's name carries no bot user, only the app. Judged before
+      // the allow list, which may name other bots.
+      if (
+        event.user === resolved.botUserId ||
+        postingAppId(event) === app.appId
+      ) {
+        return { status: "dropped", dropReason: "own_bot_user" };
+      }
       // Another agent of this install is never heard over Slack, even when
       // a stale allow list still names its bot.
       if (
         typeof event.user === "string" &&
-        event.user !== resolved.botUserId &&
         resolved.werftBotUserIds.includes(event.user)
       ) {
         return { status: "dropped", dropReason: "werft_agent_bot" };
       }
+      // Slackbot's notes (left a channel, reminders) are no one's request,
+      // and an answer to its DM fails.
+      if (event.user === SLACKBOT_USER_ID) {
+        return { status: "dropped", dropReason: "slackbot" };
+      }
       // Another bot is heard only when the agent allows it and it mentions
-      // the agent directly, outside a DM. The agent's own bot never is.
+      // the agent directly, outside a DM.
       if (event.bot_id !== undefined) {
         if (resolved.allowedBotUserIds.length === 0) {
           return { status: "dropped", dropReason: "bot_allowlist_empty" };
@@ -283,9 +328,6 @@ export function createSlackEventsService(deps: {
         ) {
           return { status: "dropped", dropReason: "bot_message" };
         }
-      }
-      if (event.user === resolved.botUserId) {
-        return { status: "dropped", dropReason: "own_bot_user" };
       }
       if (
         event.type === "message" &&
@@ -423,7 +465,7 @@ export function createSlackEventsService(deps: {
           : unredacted;
       const row: SlackInboundEventInput =
         classified.status === "dropped"
-          ? { ...base, ...classified }
+          ? { ...base, ...classified, dropFields: dropFields(envelope.event) }
           : {
               ...base,
               status: classified.status,

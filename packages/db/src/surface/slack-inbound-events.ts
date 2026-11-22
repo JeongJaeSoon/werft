@@ -63,6 +63,7 @@ export function createPostgresSlackInboundEventStore(
           eventTime: event.eventTime,
           status: event.status,
           dropReason: event.status === "dropped" ? event.dropReason : null,
+          dropFields: event.status === "dropped" ? event.dropFields : null,
           payload: event.status === "dropped" ? null : event.payload,
           conversationKey:
             event.status === "dropped" ? null : event.conversationKey,

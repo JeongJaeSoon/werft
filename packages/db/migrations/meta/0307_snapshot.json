@@ -1,5 +1,5 @@
 {
-  "id": "5b3e82c1-298e-4503-8e50-01739eee12b2",
+  "id": "016c281a-9000-48a5-b1c4-deea6e9a4d88",
   "prevId": "2c27956b-91d9-4fde-9c34-4fb7eeaffbc4",
   "version": "7",
   "dialect": "postgresql",
@@ -14411,6 +14411,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "drop_fields": {
+          "name": "drop_fields",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "received_at": {
           "name": "received_at",
           "type": "timestamp with time zone",
@@ -14494,22 +14500,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "slack_inbound_events_failed_payload_idx": {
-          "name": "slack_inbound_events_failed_payload_idx",
-          "columns": [
-            {
-              "expression": "received_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"slack_inbound_events\".\"status\" = 'failed' AND \"slack_inbound_events\".\"payload\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -14557,11 +14547,15 @@
         },
         "slack_inbound_events_drop_reason_check": {
           "name": "slack_inbound_events_drop_reason_check",
-          "value": "\"slack_inbound_events\".\"drop_reason\" IS NULL OR \"slack_inbound_events\".\"drop_reason\" IN ('not_installed','installation_unverified','installation_revoked','unidentified','identity_revoked','bot_mismatch','agent_mismatch','agent_archived','app_mismatch','bot_message','bot_allowlist_empty','bot_not_allowed','own_bot_user','werft_agent_bot','message_subtype','unsupported_event','user_tokens_only','channel_pending_approval','channel_left')"
+          "value": "\"slack_inbound_events\".\"drop_reason\" IS NULL OR \"slack_inbound_events\".\"drop_reason\" IN ('not_installed','installation_unverified','installation_revoked','unidentified','identity_revoked','bot_mismatch','agent_mismatch','agent_archived','app_mismatch','bot_message','bot_allowlist_empty','bot_not_allowed','own_bot_user','werft_agent_bot','slackbot','message_subtype','unsupported_event','user_tokens_only','channel_pending_approval','channel_left')"
         },
-        "slack_inbound_events_payload_check": {
-          "name": "slack_inbound_events_payload_check",
-          "value": "(\"slack_inbound_events\".\"status\" = 'dropped') = (\"slack_inbound_events\".\"drop_reason\" IS NOT NULL) AND (\"slack_inbound_events\".\"status\" <> 'received' OR \"slack_inbound_events\".\"payload\" IS NOT NULL) AND (\"slack_inbound_events\".\"status\" <> 'dropped' OR \"slack_inbound_events\".\"payload\" IS NULL)"
+        "slack_inbound_events_dropped_check": {
+          "name": "slack_inbound_events_dropped_check",
+          "value": "(\"slack_inbound_events\".\"status\" = 'dropped') = (\"slack_inbound_events\".\"drop_reason\" IS NOT NULL) AND (\"slack_inbound_events\".\"status\" = 'dropped') = (\"slack_inbound_events\".\"payload\" IS NULL)"
+        },
+        "slack_inbound_events_drop_fields_check": {
+          "name": "slack_inbound_events_drop_fields_check",
+          "value": "\"slack_inbound_events\".\"status\" = 'dropped' OR \"slack_inbound_events\".\"drop_fields\" IS NULL"
         },
         "slack_inbound_events_conversation_check": {
           "name": "slack_inbound_events_conversation_check",

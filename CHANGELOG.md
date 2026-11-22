@@ -15,9 +15,14 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 ### 운영자가 할 일
 
 - **Slack inbox(`slack_inbound_events`)가 처리를 마친 이벤트의 원문(`payload`)을 바로 지우고, 실패한 이벤트의 원문은 받은 지 7일이 지나면 reconciler가 지운다**(JeongJaeSoon/werft#2025). 따로 할 일은 없다.
-  - migration `0307_slack_inbound_payload_check`가 CHECK를 바꾼다. 처리된 행과 실패한 행은 원문이 없어도 되고, 받은 행은 원문이 있어야 하고, 버린 행은 지금처럼 원문이 없다. 새 CHECK를 `NOT VALID`로 더해 검증한 뒤 옛 CHECK를 지우고, 인덱스는 `CONCURRENTLY`로 만든다.
+  - migration `0308_slack_inbound_payload_check`가 CHECK를 바꾼다. 처리된 행과 실패한 행은 원문이 없어도 되고, 받은 행은 원문이 있어야 하고, 버린 행은 지금처럼 원문이 없다. 새 CHECK를 `NOT VALID`로 더해 검증한 뒤 옛 CHECK를 지우고, 인덱스는 `CONCURRENTLY`로 만든다.
   - 처리된 행의 원문을 읽던 진단 SQL은 이제 빈 값을 본다. 행(이벤트 종류·상태·버린 이유·시도 횟수)은 남는다. 이 릴리스 전에 처리한 행의 원문은 아직 남아 있다.
-  - 이미지는 지원 창 안으로 되돌려도 된다. 원문을 지운 행이 생긴 뒤에는 옛 CHECK를 다시 걸 수 없으므로 0307 아래로 스키마를 내리지 않는다.
+  - 이미지는 지원 창 안으로 되돌려도 된다. 원문을 지운 행이 생긴 뒤에는 옛 CHECK를 다시 걸 수 없으므로 0308 아래로 스키마를 내리지 않는다.
+
+- **Slack 입력에서 자기 앱의 메아리와 Slackbot 글의 버린 이유가 바뀌고, migration `0307_slack_drop_fields`가 `slack_inbound_events`에 `drop_fields` 칸을 더한다**(JeongJaeSoon/werft#2026). 할 일은 버린 이유로 집계하는 대시보드나 질의를 맞추는 것뿐이다.
+  - 에이전트 자신의 앱이 `bot_id`를 달고 쓴 글(에이전트의 답, 웹 콘솔에서 사람 이름으로 올린 지시)은 bot 허용 목록보다 먼저 `own_bot_user`로 버린다. 이전에는 허용 목록 규칙에 걸려 `bot_allowlist_empty`·`bot_not_allowed`·`bot_message`로 남았다.
+  - Slackbot(`USLACK`)의 글은 DM이든 채널이든 새 이유 `slackbot`으로 버린다. 이전에는 Slackbot DM을 사람 DM으로 처리해 실패하는 계정 연결 안내를 outbox에 넣었고, 채널 글도 사람 글로 받았다.
+  - 문에서 버린 줄의 `drop_fields`에는 보낸 쪽(`bot_id`·`app_id`·`user`)과 `subtype`·`message.subtype`만 남고 본문은 남지 않는다. 옛 줄과 slack 역할이 버린 줄은 비어 있다. CHECK는 `NOT VALID`로 더한 뒤 따로 검증하므로 검증 스캔 동안 쓰기를 막지 않는다(칸 추가와 CHECK 교체는 잠깐 잠금을 잡는다). 옛 이미지와 섞여 돌아도 된다.
 
 - **API가 EGRESS 허용 목록을 proxy와 같은 방식으로 한 번 읽어, 올린 뒤 콘솔 경고와 collector 경고가 달라질 수 있다**(JeongJaeSoon/werft#2009). 설정 값은 그대로 두어도 된다. 경고가 새로 나오면 목록을 확인한다.
   - 모델 연결 콘솔의 "egress 허용 목록 밖" 경고가 워크스페이스 MCP 등록 검사와 같은 목록을 쓴다. `API.Anthropic.com:443`이나 `github.com.:443`처럼 대소문자나 끝의 점이 다른 항목, `[fd00::1]:8443` 같은 IPv6 항목에 맞는 주소는 이제 경고하지 않는다. 쉼표와 공백만 있는 값은 "목록을 모름"으로 읽어 어떤 주소에도 경고하지 않는다(이전에는 모든 주소에 경고했다). 등록이 `credential_allowlist_unset`으로 거절하는 것과 같다.
