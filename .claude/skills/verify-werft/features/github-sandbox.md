@@ -92,7 +92,7 @@ for i in $(seq 1 60); do [ "$(ap_get "/v1/sessions/$SID/turns/1" | head -1 | jq 
 ap_get "/v1/sessions/$SID/turns/1" | tee "$EVIDENCE/gh-turn.txt"
 ```
 
-기대: 세션 `201`(저장소 `sandbox`. 설정 행이 없는 에이전트라서이고, 행이 있는 에이전트는 `repository_id: null`로 시작한다). Bash 권한 요청은 올 때만 답한다. run `20261115-012625-32204`(2026-11-15)에서는 권한 요청 없이 Bash가 실행되어 `needs_input`을 거치지 않고 turn 1이 끝났다. 요청이 오면 `needs_input`에 하나, answers `202`(사람의 cookie로 답한다. 웹에서 발급한 개인 key로 자기 세션에 답하면 `403 FORBIDDEN` `self_approval`. run `20261115-064258-12512`에서 같은 요청에 key로 먼저 답해 `403`과 `receipt_id`, 이어서 cookie로 `202`를 받았다. 아래 "npm 의존성 설치"의 N1), turn 1 `completed`. clone이 실패하면 세션이 `failed`이고 이유는 6의 `mint_github_token` 거절 receipt에 있다.
+기대: 세션 `201`(저장소 `sandbox`. 설정 행이 없는 에이전트라서이고, 행이 있는 에이전트는 `repository_id: null`로 시작한다). Bash 권한 요청은 올 때만 답한다. 권한 요청 없이 Bash가 실행되어 `needs_input`을 거치지 않고 turn 1이 끝날 수 있다. 요청이 오면 `needs_input`에 하나, answers `202`(사람의 cookie로 답한다. 웹에서 발급한 개인 key로 자기 세션에 답하면 `403 FORBIDDEN` `self_approval`. key로 먼저 답하면 `403`과 `receipt_id`를 받고, 이어서 cookie로 답하면 `202`다. 아래 "npm 의존성 설치"의 N1), turn 1 `completed`. clone이 실패하면 세션이 `failed`이고 이유는 6의 `mint_github_token` 거절 receipt에 있다.
 
 ```sh
 # 4b. push 거절 3종 (승인 전 push 요청이 없는 상태에서, 5보다 먼저)
@@ -205,7 +205,7 @@ ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select payload-
 ap_compose logs --no-color egress-proxy 2>&1 | grep "$N1" | grep -c '"purpose":"repository","repository_id":"sandbox"'
 ```
 
-기대(run `20261115-064258-12512`): `node` `v24.22.1`, `npm` `11.19.1`. `public_exit=0`. git 의존성은 먼저 `npm http fetch GET 403 https://codeload.github.com/…/tar.gz/738b715…`(proxy 로그 `Egress denied` `codeload.github.com` `destination is not allowlisted`)이고, npm이 git clone으로 넘어가 `added 1 package`, `git_exit=0`, `node_modules`에 `is-number`와 `werft-sandbox-final-e2e`가 있다. clone은 engine HOME의 `insteadOf`로 저장소 route를 타므로 proxy 로그에 `Credential route`(`purpose: repository`, `repository_id: sandbox`) 줄이 남는다. npm 출력의 `ssh://git@github.com/…`은 npm이 붙이는 이름일 뿐이고 실제 요청은 그 route다.
+기대: `node` `v24.22.1`, `npm` `11.19.1`. `public_exit=0`. git 의존성은 먼저 `npm http fetch GET 403 https://codeload.github.com/…/tar.gz/738b715…`(proxy 로그 `Egress denied` `codeload.github.com` `destination is not allowlisted`)이고, npm이 git clone으로 넘어가 `added 1 package`, `git_exit=0`, `node_modules`에 `is-number`와 `werft-sandbox-final-e2e`가 있다. clone은 engine HOME의 `insteadOf`로 저장소 route를 타므로 proxy 로그에 `Credential route`(`purpose: repository`, `repository_id: sandbox`) 줄이 남는다. npm 출력의 `ssh://git@github.com/…`은 npm이 붙이는 이름일 뿐이고 실제 요청은 그 route다.
 
 N2는 같은 릴리스로 새 세션을 만들고 `attach_repository` 없이 위 `N`의 git 의존성 설치만 한다. 기대: `npm error code 128`, `ls-remote ssh://git@github.com/JeongJaeSoon/werft-sandbox.git`가 `ssh: not found`로 실패하고 `git_exit=128`, `node_modules` 없음. proxy 로그는 `codeload.github.com`과 `github.com`의 `Egress denied`(`destination is not allowlisted`)뿐이다. 요청이 저장소 route에 닿지 않아 게이트를 지나지 않으므로 `repository_not_allowed` receipt는 없다(같은 run에서 0건).
 

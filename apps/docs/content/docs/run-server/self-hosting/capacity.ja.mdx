@@ -27,55 +27,22 @@ outcome: "復元時の余裕を計算し、対応するリソースサイズを�
 
 開発用の `.env.example` は `WORKER_MEMORY_MB=2048` を設定しています。そのままでは上記の半分という基準を満たしません。大きな transcript の resume 試験では、その行を削除するか `WORKER_MEMORY_MB=4608` に変更します。実際のデプロイ入力で適用される値も確認します。
 
-<a id="측정-방법" />
-#### 測定方法
-
-比較条件は fake model・cgroup v2 の Compose 環境です。source worker が合成 transcript を mirror に入れ、checkpoint を作って pause します。続いて新しい worker がその checkpoint を復元し、最初の resume turn を実行します。その間、0.5 秒ごとに worker コンテナの cgroup（`memory.peak`、anon、file、shmem、swap、oom_kill）とプロセスごとの VmHWM を記録しました。`memory.peak` には回収可能な page cache（file）も含まれますが、基準にも含めました。worker イメージは claude-agent-sdk 0.3.270、Claude Code CLI 2.1.270 です。
-
-<a id="4608mib-한도-현재-기본값" />
-#### 4608MiB 上限（現在の既定値）
-
-| transcript | compaction | 最初の resume turn | memory.peak MiB（上限に対する割合） | anon | file | swap | OOM | worker(bun) VmHWM | CLI VmHWM |
-|---|---|---|---|---|---|---|---|---|---|
-| 511MiB | なし | 成功 | **1970 (43%)** | 1054 | 710 | 0 | 0 | 546 | 1129 |
-| 511MiB | あり | 成功 | 1338 (29%) | 533 | 716 | 0 | 0 | 588 | 237 |
-| 64MiB | なし | 成功 | 726 (16%) | 558 | 75 | 0 | 0 | 504 | 329 |
-
-<a id="6144mib-한도-비교-측정" />
-#### 6144MiB 上限（比較測定）
-
-| transcript | compaction | 最初の resume turn | memory.peak MiB（上限に対する割合） | anon | file | swap | worker(bun) VmHWM | CLI VmHWM |
-|---|---|---|---|---|---|---|---|---|
-| 600.0MiB | なし | 成功 | 2178 (35%) | 1301 | 745 | 0 | 626 | 1308 |
-| 600.1MiB | あり | 成功 | 1029 (17%) | 453 | 609 | 0 | 497 | 236 |
-| 799.4MiB | なし | 成功 | 2785 (45%) | 1669 | 852 | 0 | 597 | 1727 |
-| 799.1MiB | あり | 成功 | 1392 (23%) | 671 | 996 | 0 | 716 | 234 |
-| 64.9MiB | なし | 成功 | 839 (14%) | 508 | 279 | 0 | 437 | 326 |
-| 150.2MiB | なし | 成功 | 828 (13%) | 501 | 151 | 0 | 487 | 492 |
-
 <a id="읽는-법" />
 #### 表の読み方
 
 - worker(bun) は transcript のサイズにかかわらず 440–720MiB を使います。restore を part 単位でストリーミングするためです。
-- サイズに比例するのはエンジン（CLI）の使用量です。compaction なしでは、およそ **210 + 1.85 × T MiB** を使います（T は transcript の MiB）。511MiB では式の値は 1155MiB、実測は 1129MiB でした。compaction があれば、エンジンの使用量はサイズによらず約 235MiB です。
-- 全体 peak は page cache を加えると、150–800MiB の範囲で transcript 1MiB あたり約 3MiB 増加します（150.2MiB で 828MiB、600MiB で 2178MiB、800MiB で 2785MiB）。次の表の 256・400MiB は、この直線で補間した**推定値**です。
+- サイズに比例するのはエンジン（CLI）の使用量です。compaction なしでは、およそ **210 + 1.85 × T MiB** を使います（T は transcript の MiB）。compaction があれば、エンジンの使用量はサイズによらず約 235MiB です。
+- 全体 peak は page cache を加えると、150–800MiB の範囲で transcript 1MiB あたり約 3MiB 増加します。512MiB の transcript の peak は約 1970MiB で、4608MiB 上限の 43% です。
 
 <a id="2-transcript-상한과-메모리-선택" />
 ### 2. transcript 上限とメモリの選択
 
-候補となる上限ごとに必要メモリとノードごとのセッション数を比較しました。メモリは 2 × peak を 512MiB 単位で切り上げた値です。セッション数は allocatable 30GiB（30720MiB）のノードを基準としています。標本が小さいため、この表だけで運用環境の上限を決めないでください。
+メモリは 2 × peak を 512MiB 単位で切り上げた値です。セッション数は allocatable 30GiB（30720MiB）のノードを基準としています。標本が小さいため、この値だけで運用環境の上限を決めないでください。
 
-| 上限 | compaction なしの peak | 半分基準のメモリ | ノードごとのセッション | 分布中で上限以内 | 80% 警告 |
-|---|---|---|---|---|---|
-| 256MiB | 1146MiB（推定） | 2560MiB | 12 | 10/12 | 204.8MiB |
-| 400MiB | 1578MiB（推定） | 3584MiB | 8 | 10/12 | 320MiB |
-| **512MiB** | **1970MiB（実測）** | 4096MiB → **4608MiB** | **6** | **11/12** | **409.6MiB** |
-| 600MiB | 2178MiB（実測） | 4608MiB | 6 | 12/12 | 480MiB |
-| 800MiB | 2785MiB（実測） | 5632MiB | 5 | 12/12 | 640MiB |
-
-- 512MiB には観測した 12 件のうち 11 件が収まります。二番目に大きい 400.1MiB のセッションも警告に達しません。超えるのは 591.8MiB の一件です。このようなセッションは 409.6MiB で警告を受け、新しいセッションへ移ります。
-- 400MiB なら 400.1MiB セッションの checkpoint が直ちに拒否されます。256MiB なら 217MiB セッションも警告範囲に入ります。
-- メモリは 4096MiB ではなく 4608MiB です。512MiB の実測 peak 1970MiB に対し、4096MiB の半分（2048）では余裕が 78MiB しかありません。4608MiB なら 334MiB の余裕があります。
+- 512MiB 上限の peak は約 1970MiB で、半分基準のメモリは 4096MiB、既定値は余裕を加えた **4608MiB**（ノードごとに 6 セッション）です。
+- 512MiB には観測した transcript 12 件のうち 11 件が収まります。超える 1 件は 409.6MiB（上限の 80%）で警告を受け、新しいセッションへ移ります。
+- 上限を 400MiB に下げると 400MiB を超えるセッションの checkpoint が直ちに拒否され、256MiB に下げるとより小さいセッションも警告範囲に入ります。800MiB に上げるとメモリが 5632MiB 必要になり、ノードごとに 5 セッションです。
+- メモリが 4096MiB ではなく 4608MiB である理由: 4096MiB の半分（2048MiB）では、512MiB 上限の peak 1970MiB に対する余裕が 78MiB しかありません。4608MiB なら 334MiB の余裕があります。
 
 <a id="3-노드당-동시-세션-수" />
 ### 3. ノードごとの同時セッション数
@@ -106,7 +73,7 @@ local Docker 実行基盤では、一台のメモリを `EXECUTION_SLOT_LIMIT`�
 | ③ ノードグループを拡大する | worker ノード数またはノードサイズを増やします | セッションごとの保証を維持して総セッション数を増やします | 費用が増えます。コード変更はありません |
 | ④（現在未対応）セッションサイズ別の Pod サイズ | 復元する transcript のサイズから scheduler が Pod メモリを選びます | 小さなセッションは小さく、大きなセッションだけ大きく起動します | コード修正が必要です。scheduler が launch 前に checkpoint サイズを把握する必要があり、実行中に同じ Pod 内で transcript が大きくなる場合も別途扱う必要があります |
 
-上限（`MAX_TRANSCRIPT_BYTES`）だけを上げてメモリを据え置くことは推奨しません。compaction なしの大きな transcript の resume が上限に達すると、worker が再起動を繰り返し、セッションが `recovery_required` になります。上限変更時はこの文書の方法で再測定します。
+上限（`MAX_TRANSCRIPT_BYTES`）だけを上げてメモリを据え置くことは推奨しません。compaction なしの大きな transcript の resume が上限に達すると、worker が再起動を繰り返し、セッションが `recovery_required` になります。上限変更時は、fake model で合成 transcript を checkpoint し、新しい worker で resume して cgroup の `memory.peak` を記録する方法で再測定します。
 
 メモリ値は次の launch から適用され、実行中の worker は置き換わりません。上限を変更する自前ビルドでは API と worker を同じリリースにする必要があるため、[アップグレードゲート](/run-server/self-hosting/upgrade-compose#실행-전-게이트)に従います。
 
@@ -120,7 +87,7 @@ API だけが小さい transcript 上限を使うと、worker では上限以内
 <a id="확인" />
 ## 確認
 
-変更前後に同じ checkpoint を新しい worker で復元し、turn 完了、memory.peak、OOM、ディスク、inode、queue wait を比較します。表の数値は記載した SDK・CLI・合成 transcript の条件でのみ観測した値であり、運用環境や新しい runtime の実測の代わりにはなりません。
+変更前後に同じ checkpoint を新しい worker で復元し、turn 完了、memory.peak、OOM、ディスク、inode、queue wait を比較します。この文書の数値は合成 transcript の条件でのみ観測した値であり、運用環境や新しい runtime の実測の代わりにはなりません。
 
 <a id="자주-막히는-곳" />
 ## よくある問題

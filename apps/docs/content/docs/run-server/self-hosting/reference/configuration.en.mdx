@@ -132,7 +132,7 @@ The scheduler reads the turn time and model request retries each pass and pins t
 
 Scheduler reads these to create workers. Unset values use defaults; invalid formats reject startup. User, HOME/workspace paths, tmpfs sizes, credential port, and stop timeout enter werft.isolation ([isolation](/run-server/self-hosting/explanation/isolation)); changing them replaces running workers. CPU/memory/PID limits apply next launch.
 
-WORKER_MEMORY_MB is chosen with MAX_TRANSCRIPT_BYTES; see [capacity](/run-server/self-hosting/capacity) for measurements, node counts, and changes.
+WORKER_MEMORY_MB is chosen with MAX_TRANSCRIPT_BYTES; see [capacity](/run-server/self-hosting/capacity) for node counts and changes.
 
 Scheduler receives current WORKER_IMAGE/WORKER_IMAGE_RUNTIME and previous WORKER_IMAGE_PREVIOUS/WORKER_IMAGE_PREVIOUS_RUNTIME, using API-equivalent runtimes. Previous image/runtime must be set together; one alone fails. Without current runtime every launch uses current image. Otherwise, match each checkpoint engine/SDK/CLI/profile digest scheme to current/previous, preferring current when both match. New sessions, checkpoint-free sessions, and old unrecorded checkpoints use the newest image of the session's engine (current, or previous when only previous runs that engine); with no image of that engine they wait without a slot. No match stops before launch as recovery_required (incompatible_checkpoint), with checkpoint_restore_failed detected_at: "launch". retry_restore is available.
 
