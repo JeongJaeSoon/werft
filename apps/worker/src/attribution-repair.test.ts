@@ -604,3 +604,61 @@ describe("workspaceMismatches", () => {
     ).toEqual([{ commit: tip, problems: [...ATTRIBUTION_PROBLEMS] }]);
   });
 });
+
+/** Whether `pid` still runs; a zombie is dead (see workspace-capture.test). */
+async function running(pid: number): Promise<boolean> {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  if (process.platform !== "linux") return true;
+  let stat = "";
+  try {
+    stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+  } catch {
+    // Reaped between the two looks: gone.
+    return false;
+  }
+  return !/^\d+ \(.*\) Z /.test(stat);
+}
+
+describe("the attribution check's git", () => {
+  test("is killed with the helper it forked at the deadline, and the tip is not called clean", async () => {
+    // Before the shared runner, a timeout signalled git alone and the check
+    // waited for the helper holding its pipes: here, 30 seconds.
+    git(["update-ref", "refs/remotes/origin/main", commit("base")]);
+    const tip = commit("this turn's commit");
+    const real = Bun.which("git");
+    if (real === null) throw new Error("no git on PATH");
+    const bin = join(root, "bin");
+    mkdirSync(bin);
+    const pidFile = join(root, "helper.pid");
+    writeFileSync(
+      join(bin, "git"),
+      `#!/bin/sh\nfor arg; do [ "$arg" = log ] && { sleep 30 & echo $! > ${pidFile}; wait; }; done\nexec ${real} "$@"\n`,
+      { mode: 0o755 },
+    );
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}:${path ?? ""}`;
+    try {
+      const began = performance.now();
+      expect(
+        await workspaceMismatches({
+          root: repo,
+          tip,
+          expectations: [{ author: BOT, coAuthor: null, agentSession: null }],
+          stripEmails: [],
+          protectedCommits: [],
+          deadlineMs: 1_000,
+        }),
+      ).toEqual([{ commit: tip, problems: [...ATTRIBUTION_PROBLEMS] }]);
+      expect(performance.now() - began).toBeLessThan(6_000);
+      await Bun.sleep(100);
+      const helper = Number(readFileSync(pidFile, "utf8").trim());
+      expect(await running(helper)).toBe(false);
+    } finally {
+      process.env.PATH = path;
+    }
+  }, 15_000);
+});

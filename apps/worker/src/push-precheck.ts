@@ -1,9 +1,8 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-const run = promisify(execFile);
+import { runGit } from "./workspace.ts";
+import { probeGitLimits } from "./workspace-capture.ts";
 
 const GIT_TIMEOUT_MS = 10_000;
+const GIT_STDOUT_LIMIT_BYTES = 1024 * 1024;
 
 /** The platform's push tool as the engine names it. */
 export const REQUEST_PUSH_TOOL = "mcp__github__request_push";
@@ -24,39 +23,38 @@ type Git = (
  * itself checks again on the server with the remote's HEAD; this is advice
  * that saves a turn, never the gate. Whatever cannot be judged for sure (no
  * such ref, a shallow clone, git failing) lets the call through.
+ *
+ * Each git runs under the worker's probe limits and is killed with its
+ * helpers at the deadline; one that runs out of either is git failing.
  */
-export function createPushPrecheck(workspaceRoot: string) {
+export function createPushPrecheck(
+  workspaceRoot: string,
+  options: { deadlineMs?: number } = {},
+) {
+  const deadlineMs = options.deadlineMs ?? GIT_TIMEOUT_MS;
   const git: Git = async (args) => {
     try {
-      const { stdout } = await run(
-        "git",
-        [
-          "-c",
-          "core.fsmonitor=false",
-          "-c",
-          "core.hooksPath=/dev/null",
-          ...args,
-        ],
-        {
-          cwd: workspaceRoot,
+      const { code, stdout } = await runGit([...args], {
+        cwd: workspaceRoot,
+        deadlineMs,
+        extra: {
           env: {
-            PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
-            GIT_CONFIG_NOSYSTEM: "1",
-            GIT_CONFIG_GLOBAL: "/dev/null",
-            GIT_TERMINAL_PROMPT: "0",
             // No transport: a missing object is an answer, not a fetch.
             GIT_NO_LAZY_FETCH: "1",
             GIT_ALLOW_PROTOCOL: "none",
             LC_ALL: "C",
           },
-          maxBuffer: 1024 * 1024,
-          timeout: GIT_TIMEOUT_MS,
         },
-      );
-      return { ok: true, code: 0, out: stdout };
-    } catch (error) {
-      const code = (error as { code?: unknown }).code;
-      return { ok: false, code: typeof code === "number" ? code : -1, out: "" };
+        limits: probeGitLimits(deadlineMs),
+        maxStdoutBytes: GIT_STDOUT_LIMIT_BYTES,
+        network: null,
+        overrides: [],
+        redact: (text) => text,
+        signal: new AbortController().signal,
+      });
+      return { ok: code === 0, code, out: code === 0 ? stdout : "" };
+    } catch {
+      return { ok: false, code: -1, out: "" };
     }
   };
   return async (
