@@ -26,7 +26,7 @@ export function claimSecrets(
     ),
     claim.repository_access?.token,
     claim.object_store.access.token,
-    claim.packages?.access.token,
+    claim.packages.access.token,
     ...(claim.runtime_config.mcp_servers ?? []).map((s) => s.access.token),
   ];
 }

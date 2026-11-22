@@ -55,7 +55,7 @@ worker는 claim을 받을 때마다 engine의 HOME(tmpfs)에 user 수준 설정�
 
 허용 목록에 GitHub owner가 있으면 claim의 `packages.github`에 owner 이름만 실려 오고(token은 없다), worker는 위 파일에 다음을 더한다. `.npmrc`에는 `replace-registry-host=always`, owner마다 `@<owner>:registry=<route>/packages/github-npm/`, 그리고 `//<route host>/packages/github-npm/:_authToken=<token>`이 들어간다. `.bundle/config`에는 owner마다 `https://rubygems.pkg.github.com/<owner>/`를 `<route>/packages/github-rubygems/<owner>`로 돌리는 mirror가 들어간다. Bundler는 mirror 키를 소문자로 읽으므로 `Gemfile`의 `source`도 owner를 소문자로 적어야 mirror를 탄다. 저장소의 `.npmrc`가 `@<owner>:registry=https://npm.pkg.github.com`을 고정하면 그 설정이 HOME 설정을 이겨 요청이 credential route가 아니라 forward proxy로 가고, 거기서 거절된다. 그 줄은 저장소에서 빼야 한다.
 
-`GOPROXY`에 `direct`를 두지 않으므로 Go가 VCS host로 직접 나가지 않는다. `GONOSUMDB`·`GOPRIVATE`·`GONOSUMCHECK`는 두지 않아 모든 모듈이 checksum DB 검증을 받는다. 이 파일은 token을 포함하므로 0600이고, claim에 `packages`가 없는 옛 API를 만나면 지운다. 세션 안에서 사용자가 `go env -w`나 `npm config set`으로 바꿀 수는 있지만 경계는 proxy이므로 바꿔도 다른 곳에 닿지 않는다.
+`GOPROXY`에 `direct`를 두지 않으므로 Go가 VCS host로 직접 나가지 않는다. `GONOSUMDB`·`GOPRIVATE`·`GONOSUMCHECK`는 두지 않아 모든 모듈이 checksum DB 검증을 받는다. 이 파일은 token을 포함하므로 0600이다. claim에는 `packages`가 늘 있다. 없는 claim은 worker가 계약 위반으로 거절하고 세션을 시작하지 않는다. 세션 안에서 사용자가 `go env -w`나 `npm config set`으로 바꿀 수는 있지만 경계는 proxy이므로 바꿔도 다른 곳에 닿지 않는다.
 
 lockfile 밖 버전을 막는 일은 proxy가 하지 않는다. proxy는 lockfile을 모른다. 세션에서는 frozen 설치(`npm ci`, `bundle install --deployment` 또는 `BUNDLE_FROZEN=true`, `go mod download`와 `-mod=readonly`)를 쓴다. 저장소의 npm 설정이 registry를 고정할 때의 동작과 E2E 결과는 [이미지와 공급망 § worker 안의 패키지 도구](/run-server/self-hosting/build-images)에 있다.
 

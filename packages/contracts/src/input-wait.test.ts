@@ -301,6 +301,7 @@ describe("the worker's park contract", () => {
       },
       workspace: { repository: null },
       object_store: { access: { kind: "egress_token", token: "store" } },
+      packages: { access: { kind: "egress_token", token: "p".repeat(32) } },
       principal: { owner_scope: "owner" },
       restore: null,
       remaining_budget_usd: null,
@@ -315,6 +316,12 @@ describe("the worker's park contract", () => {
       bootstrapClaimResponseSchema.parse({ ...claim, grants: [grant] }).grants,
     ).toEqual([grant]);
     expect(bootstrapClaimResponseSchema.safeParse(claim).success).toBe(true);
+    // Every control-host in the support window sends `packages`, so a claim
+    // without it is a broken one, refused rather than run with no registry.
+    const { packages: _packages, ...withoutPackages } = claim;
+    expect(
+      bootstrapClaimResponseSchema.safeParse(withoutPackages).success,
+    ).toBe(false);
     // A worker built before the field reads a claim that carries it: the
     // response object is not strict, so the grant is dropped, not refused.
     const before = bootstrapClaimResponseSchema.omit({ grants: true });

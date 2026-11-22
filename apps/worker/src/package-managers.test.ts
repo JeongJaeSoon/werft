@@ -118,12 +118,4 @@ describe("writePackageManagerConfig", () => {
       expect((await stat(path)).mode & 0o777).toBe(0o600);
     }
   });
-
-  test("a claim with no packages token leaves no configuration behind", async () => {
-    await writePackageManagerConfig(home, ROUTE, TOKEN);
-    await writePackageManagerConfig(home, ROUTE, undefined);
-    for (const relative of Object.values(PACKAGE_MANAGER_FILES)) {
-      expect(await Bun.file(join(home, relative)).exists()).toBe(false);
-    }
-  });
 });

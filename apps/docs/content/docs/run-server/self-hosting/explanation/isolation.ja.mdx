@@ -65,7 +65,7 @@ worker は claim ごとに engine の HOME（tmpfs）へ user レベル設定だ
 
 allowlist に GitHub owner があれば、claim の `packages.github` には owner 名だけが入り（token は含みません）、worker は上記ファイルへ次を追加します。`.npmrc` には `replace-registry-host=always`、owner ごとの `@<owner>:registry=<route>/packages/github-npm/`、`//<route host>/packages/github-npm/:_authToken=<token>` が入ります。`.bundle/config` には owner ごとに `https://rubygems.pkg.github.com/<owner>/` を `<route>/packages/github-rubygems/<owner>` へ向ける mirror が入ります。Bundler は mirror key を小文字で読むため、`Gemfile` の `source` の owner も小文字にしないと mirror を使いません。リポジトリの `.npmrc` が `@<owner>:registry=https://npm.pkg.github.com` を固定すると HOME 設定より優先され、要求が credential route ではなく forward proxy へ送られて拒否されます。その行はリポジトリから外す必要があります。
 
-`GOPROXY` に `direct` を設定しないため、Go は VCS host へ直接出ません。`GONOSUMDB`・`GOPRIVATE`・`GONOSUMCHECK` は設定せず、全 module が checksum DB の検証を受けます。このファイルは token を含むため 0600 で、claim に `packages` がない以前の API に接続したら削除します。セッション内で利用者が `go env -w` や `npm config set` で変更することはできますが、境界は proxy なので、変更しても他の場所へ到達できません。
+`GOPROXY` に `direct` を設定しないため、Go は VCS host へ直接出ません。`GONOSUMDB`・`GOPRIVATE`・`GONOSUMCHECK` は設定せず、全 module が checksum DB の検証を受けます。このファイルは token を含むため 0600 です。claim には常に `packages` があります。ない claim は worker が契約違反として拒否し、セッションを始めません。セッション内で利用者が `go env -w` や `npm config set` で変更することはできますが、境界は proxy なので、変更しても他の場所へ到達できません。
 
 lockfile 外のバージョンを遮断するのは proxy の役割ではありません。proxy は lockfile を知りません。セッションでは frozen インストール（`npm ci`、`bundle install --deployment` または `BUNDLE_FROZEN=true`、`go mod download` と `-mod=readonly`）を使います。リポジトリの npm 設定が registry を固定した場合の動作と E2E 結果は[イメージとサプライチェーンの worker 内パッケージツール](/run-server/self-hosting/build-images)を参照してください。
 

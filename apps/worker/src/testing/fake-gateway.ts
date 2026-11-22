@@ -394,6 +394,9 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       object_store: {
         access: { kind: "egress_token", token: FAKE_OBJECT_STORE_TOKEN },
       },
+      packages: {
+        access: { kind: "egress_token", token: "fake-packages-token" },
+      },
       principal: { owner_scope: this.options.ownerScope },
       restore: this.options.restore ?? null,
       remaining_budget_usd: this.options.remainingBudgetUsd,
