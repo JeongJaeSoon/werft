@@ -222,11 +222,6 @@ case "$COMPAT_ENGINE" in
   claude_agent_sdk) seeds+=(connections:fake-messages=placeholder_key) ;;
   codex_app_server) seeds+=(connections:fake-responses=placeholder_key) ;;
 esac
-fake_mcp="$(container fake-mcp)"
-if [ "$COMPAT_ENGINE" = claude_agent_sdk ] && [ -n "$fake_mcp" ]; then
-  fake_mcp_bearer="$(docker exec "$fake_mcp" printenv FAKE_MCP_BEARER </dev/null)"
-  seeds+=(mcp_servers:fake=fake_mcp_bearer)
-fi
 seed_credentials compat_owner_cookie "${seeds[@]}" -- \
   docker exec -i -e SEED_COOKIE "$fake_git" bun run packages/testkit/src/seed-credentials-main.ts \
   >"$out/seed.log" 2>&1 || { cat "$out/seed.log" >&2; exit 1; }
