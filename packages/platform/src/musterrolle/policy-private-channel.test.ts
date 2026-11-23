@@ -705,42 +705,33 @@ describe("a direct message about a private channel's session", () => {
   const sessions = sessionsSeen();
   const privateChannels = (ownerId: string, sessionId: string | null) =>
     sessions.privateChannels?.(ownerId, sessionId) ?? Promise.resolve([]);
-  const answering = (answer: ChannelMembership) => ({
-    async membership() {
-      return answer;
-    },
-  });
   test.each([
+    ["a session outside any channel", OPEN_SESSION, "not_member", false, 0],
+    ["an account in the channel", PRIVATE_SESSION, "member", false, 1],
     [
-      "a session outside any channel",
-      OPEN_SESSION,
-      USERS.nonmember,
-      "not_member",
-      false,
-    ],
-    ["a member of the channel", PRIVATE_SESSION, USERS.member, "member", false],
-    [
-      "someone who left the channel",
+      "an account that left the channel",
       PRIVATE_SESSION,
-      USERS.requester,
       "not_member",
       true,
+      1,
     ],
-    [
-      "a membership not confirmed",
-      PRIVATE_SESSION,
-      USERS.member,
-      "unconfirmed",
-      true,
-    ],
-    ["a row naming no reader", PRIVATE_SESSION, undefined, "member", true],
-  ] as const)("%s", async (_name, sessionId, readerUserId, answer, outside) => {
+    ["a membership not confirmed", PRIVATE_SESSION, "unconfirmed", true, 1],
+  ] as const)("%s", async (_name, sessionId, answer, outside, asks) => {
+    const asked: PrivateChannelPlace[] = [];
     expect(
       await readerOutsideChannels(
-        { sessions: { privateChannels }, channelMembers: answering(answer) },
-        { workspaceId: WORKSPACE, sessionId, readerUserId },
+        { sessions: { privateChannels } },
+        {
+          workspaceId: WORKSPACE,
+          sessionId,
+          membership: async (place: PrivateChannelPlace) => {
+            asked.push(place);
+            return answer as ChannelMembership;
+          },
+        },
       ),
     ).toBe(outside);
+    expect(asked).toEqual(Array(asks).fill(PLACE));
   });
 
   test("counts as outside when the channels cannot be read", async () => {
@@ -750,12 +741,11 @@ describe("a direct message about a private channel's session", () => {
           sessions: {
             privateChannels: () => Promise.reject(new Error("db down")),
           },
-          channelMembers: answering("member"),
         },
         {
           workspaceId: WORKSPACE,
           sessionId: PRIVATE_SESSION,
-          readerUserId: USERS.member,
+          membership: async () => "member",
         },
       ),
     ).toBe(true);

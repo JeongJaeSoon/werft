@@ -130,6 +130,7 @@ function setup(options: { botToken?: boolean } = {}) {
     slack.calls.filter((call) => call.method === "conversations.members")
       .length;
   return {
+    members,
     slack,
     inside,
     outside,
@@ -358,5 +359,32 @@ describe("Slack channel member check", () => {
       expect.objectContaining({ reason: "too_many_members" }),
     ]);
     expect(t.memory.rows.size).toBe(0);
+  });
+});
+// Answer 15 (PR2): a session's direct message is checked against the account
+// it is addressed to. MEMBER is linked to U0MEMBER now; a row queued for an
+// account MEMBER linked before is asked about as that account.
+describe("Slack channel member check for one account", () => {
+  test("asks about the account itself, not whoever links it now", async () => {
+    const t = setup();
+    const of = (slackUserId: string) =>
+      t.members.slackMembership({
+        workspaceId: WORKSPACE,
+        agentId: AGENT,
+        channelId: t.inside.id,
+        installationId: INSTALL,
+        slackUserId,
+      });
+    expect(
+      await t.members.membership({
+        workspaceId: WORKSPACE,
+        agentId: AGENT,
+        channelId: t.inside.id,
+        userId: MEMBER,
+      }),
+    ).toBe("member");
+    expect(await of("U0MEMBER")).toBe("member");
+    expect(await of("U0FORMER")).toBe("not_member");
+    expect(await of("U0STRANGER")).toBe("not_member");
   });
 });

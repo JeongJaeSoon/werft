@@ -28,7 +28,10 @@ import type {
   SessionShareStore,
   SessionViewer,
 } from "../sessions/ports/session-share-store.ts";
-import type { ChannelMemberCheckable } from "../surface/ports/channel-member-checkable.ts";
+import type {
+  ChannelMemberCheckable,
+  ChannelMembership,
+} from "../surface/ports/channel-member-checkable.ts";
 import type { UsageDecision } from "./agent-usage-decision.ts";
 import type { ConversationAccess } from "./ports/conversation-access.ts";
 import type { DecisionLog } from "./ports/decision-log.ts";
@@ -366,21 +369,18 @@ export async function pushRequesterLeft(
 
 /**
  * Whether a direct message about a `private_channel` session would reach
- * someone who cannot see it: its reader is a member of none of the session's
- * channels, or that cannot be told (answer 15, PR2). A notice leaks on a
- * guess, so the unknown counts as outside, unlike `pushRequesterLeft`, where
- * the guess would widen an approval.
+ * someone who cannot see it: the account it is addressed to is a member of
+ * none of the session's channels, or that cannot be told (answer 15, PR2).
+ * `membership` asks about that account itself, not whoever links it now. A
+ * notice leaks on a guess, so the unknown counts as outside, unlike
+ * `pushRequesterLeft`, where the guess would widen an approval.
  */
 export async function readerOutsideChannels(
-  deps: {
-    sessions: Pick<SessionShareStore, "privateChannels">;
-    channelMembers: Pick<ChannelMemberCheckable, "membership">;
-  },
+  deps: { sessions: Pick<SessionShareStore, "privateChannels"> },
   input: {
     workspaceId: string;
     sessionId: string;
-    /** The person the message is for; unknown for a row from before. */
-    readerUserId: string | undefined;
+    membership: (place: PrivateChannelPlace) => Promise<ChannelMembership>;
   },
 ): Promise<boolean> {
   try {
@@ -389,18 +389,7 @@ export async function readerOutsideChannels(
       input.sessionId,
     );
     if (places.length === 0) return false;
-    const { readerUserId } = input;
-    if (readerUserId === undefined) return true;
-    const answers = await Promise.all(
-      places.map((place) =>
-        deps.channelMembers.membership({
-          workspaceId: input.workspaceId,
-          agentId: place.agentId.toLowerCase(),
-          channelId: place.channelId,
-          userId: readerUserId,
-        }),
-      ),
-    );
+    const answers = await Promise.all(places.map(input.membership));
     return !answers.includes("member");
   } catch {
     return true;

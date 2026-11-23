@@ -277,23 +277,33 @@ function slackReaderOutside(
   environment: Environment,
   logger: StructuredLogger,
 ) {
-  const deps = {
-    sessions: createPostgresSessionShareStore(db),
-    channelMembers: wireSlackChannelMembers({
-      apiUrl: slackApiUrlFrom(environment),
-      appStore: createPostgresSlackAppStore(db, secretKey),
-      secrets: () => createPostgresSecretStore(db, secretKey),
-      store: createPostgresChannelMemberStore(db),
-      logger,
-    }),
-  };
+  const sessions = createPostgresSessionShareStore(db);
+  const members = wireSlackChannelMembers({
+    apiUrl: slackApiUrlFrom(environment),
+    appStore: createPostgresSlackAppStore(db, secretKey),
+    secrets: () => createPostgresSecretStore(db, secretKey),
+    store: createPostgresChannelMemberStore(db),
+    logger,
+  });
+  // The account the row is addressed to, in the row's install: a person
+  // who relinked since is not asked about in its place.
   return async (claim: SlackOutboxClaim) =>
     claim.sessionId !== null &&
-    (await readerOutsideChannels(deps, {
-      workspaceId: claim.workspaceId,
-      sessionId: claim.sessionId,
-      readerUserId: claim.body.reader_user_id,
-    }));
+    (await readerOutsideChannels(
+      { sessions },
+      {
+        workspaceId: claim.workspaceId,
+        sessionId: claim.sessionId,
+        membership: (place) =>
+          members.slackMembership({
+            workspaceId: claim.workspaceId,
+            agentId: place.agentId.toLowerCase(),
+            channelId: place.channelId,
+            installationId: claim.installationId,
+            slackUserId: claim.channelId,
+          }),
+      },
+    ));
 }
 
 // The pass child serves pass after pass, so this flips each pass: statuses

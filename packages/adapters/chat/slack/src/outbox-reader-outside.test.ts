@@ -45,7 +45,7 @@ function rowOf(
     slackUserId: null,
     sessionId,
     sessionLinkId: null,
-    body: { text: "Done.", reader_user_id: "user-reader" },
+    body: { text: "Done." },
     dedupeKey: `${kind}:${sessionId}`,
   };
 }
