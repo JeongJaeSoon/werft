@@ -5965,6 +5965,8 @@ export const slackOutbox = pgTable(
     settleError: text("settle_error"),
     /** The sources of the turn the row answers or tells of; null for none. */
     sources: jsonb().$type<StoredSourceSet>(),
+    /** That turn's public id; null for none, and on rows written before it. */
+    sourcesTurn: integer("sources_turn"),
   },
   (table) => [
     unique("slack_outbox_dedupe_key").on(table.dedupeKey),
@@ -6001,7 +6003,7 @@ export const slackOutbox = pgTable(
     ),
     check(
       "slack_outbox_status_check",
-      sql`${table.status} IN ('pending', 'sending', 'sent', 'failed', 'uncertain')`,
+      sql`${table.status} IN ('pending', 'sending', 'sent', 'failed', 'uncertain', 'voided_by_delete')`,
     ),
     // slackOutboxChannelRefused: no row names a Slack user as its channel
     // but a model notice's direct message.

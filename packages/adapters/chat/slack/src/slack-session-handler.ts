@@ -765,6 +765,9 @@ export function createSlackSessionHandler(
         code: error.code,
         reason_code: reasonCodeOf(error.details),
       });
+      // Slack deleted what the turn would come from: nothing is said there,
+      // the warning above is the record.
+      if (error.code === "SOURCE_DELETED") return;
       if (
         // GITHUB_REFUSED: unreadable GitHub settings or the workspace ceiling.
         (error.code === "UNSUPPORTED_CAPABILITY" ||

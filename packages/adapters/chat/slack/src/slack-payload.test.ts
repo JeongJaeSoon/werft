@@ -485,6 +485,7 @@ describe("Slack payload fixtures: replies, instructions, notices", () => {
     channelId: "C0OPS",
     threadTs: "100.000100",
     sources: null,
+    sourcesTurn: null,
   };
 
   test("rows the enqueue paths write", async () => {

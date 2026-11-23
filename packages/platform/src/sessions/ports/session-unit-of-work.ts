@@ -151,6 +151,8 @@ export type AcceptSessionResult =
   | { outcome: "credential_unbound"; receiptId: string }
   /** A declared name has no value for this agent; no session was created. */
   | { outcome: "variables_refused"; reason: EnvRefusal; receiptId: string }
+  /** The Slack message it came from was deleted; no session was created. */
+  | { outcome: "source_deleted" }
   | InputLimitRefusal;
 
 export type AppendMessageInput = {
@@ -199,6 +201,11 @@ export type AppendMessageResult =
   // The input would revive a failed session that has no spec pin on its own
   // model, which an authoritative pin refuses; nothing is recorded.
   | { outcome: "pin_required" }
+  /**
+   * The turn would carry a Slack message that was deleted: the input's own,
+   * or one an earlier turn of the session came from. Nothing is recorded.
+   */
+  | { outcome: "source_deleted" }
   | InputLimitRefusal;
 
 // Storage rows carry the session's spec source; the service turns it into

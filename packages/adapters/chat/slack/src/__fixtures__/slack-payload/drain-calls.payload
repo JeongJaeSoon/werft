@@ -415,6 +415,7 @@
         "slackAppId": "app-1",
         "slackUserId": null,
         "sources": null,
+        "sourcesTurn": null,
         "threadTs": "100.000100",
         "workspaceId": "workspace-1"
       }

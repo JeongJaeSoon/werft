@@ -37,13 +37,16 @@ export type SlackOutboxKind =
 /**
  * `uncertain`: the send was under way when its lease ran out or its answer
  * never came, so Slack may hold the message; it is never sent again.
+ * `voided_by_delete`: one of its sources was deleted in Slack before its
+ * send began, so it was never sent (`error_code` `source_deleted`).
  */
 export type SlackOutboxStatus =
   | "pending"
   | "sending"
   | "sent"
   | "failed"
-  | "uncertain";
+  | "uncertain"
+  | "voided_by_delete";
 
 /**
  * What goes out, before Slack controls are escaped. `mention_user_ids`: the
@@ -87,6 +90,11 @@ export type SlackOutboxEntry = {
    * them; absent or null for none, and for a row of no one turn.
    */
   sources?: StoredSourceSet | null;
+  /**
+   * That turn's public id. An overflowed set is judged by the direct sources
+   * of it and the turns before it, not of turns that came later.
+   */
+  sourcesTurn?: number | null;
 };
 
 export type SlackOutboxFence = { id: string; claimToken: string };
@@ -158,6 +166,8 @@ export type SlackUnpostedInstruction = SlackLinkedTurnTarget & {
 export type SlackPendingPrompt = SlackLinkedTurnTarget & {
   /** The sources of the turn that asked. */
   sources: StoredSourceSet | null;
+  /** That turn's public id; null with no sources. */
+  sourcesTurn: number | null;
   /** The Slack account linked to whoever asked for the turn, if any. */
   requesterSlackUserId: string | null;
   prompt:
@@ -536,8 +546,12 @@ export interface SlackOutboxStore {
    * `pending` until beginSend, so a crash before the send is claimed again.
    */
   claim(input: { limit: number; leaseMs: number }): Promise<SlackOutboxClaim[]>;
-  /** `sending` from here on: a lease that runs out now leaves it `uncertain`. */
-  beginSend(fence: SlackOutboxFence): Promise<boolean>;
+  /**
+   * `sending` from here on: a lease that runs out now leaves it `uncertain`.
+   * `voided_by_delete`: a source of the row was deleted in Slack, and the
+   * row is settled so; nothing may go out.
+   */
+  beginSend(fence: SlackOutboxFence): Promise<boolean | "voided_by_delete">;
   /** False when the lease was lost: the row is someone else's now. */
   settle(fence: SlackOutboxFence, outcome: SlackOutboxSettle): Promise<boolean>;
 }

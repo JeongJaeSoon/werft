@@ -1,5 +1,5 @@
 {
-  "id": "103d9cc1-2931-481a-bf9b-2516b7e33e33",
+  "id": "d29a32b1-29be-4c20-902c-3bbc9b33f3b5",
   "prevId": "7332c1f9-4b15-465b-830d-9a0f14c53426",
   "version": "7",
   "dialect": "postgresql",
@@ -5814,12 +5814,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "buffer_expires_at": {
-          "name": "buffer_expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -5853,22 +5847,6 @@
           ],
           "isUnique": true,
           "where": "\"conversation_inputs\".\"client_message_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "conversation_inputs_buffer_expiry_idx": {
-          "name": "conversation_inputs_buffer_expiry_idx",
-          "columns": [
-            {
-              "expression": "buffer_expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"conversation_inputs\".\"buffer_expires_at\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5949,7 +5927,7 @@
       "checkConstraints": {
         "conversation_inputs_origin_check": {
           "name": "conversation_inputs_origin_check",
-          "value": "(\"conversation_inputs\".\"client_message_id\" IS NULL AND \"conversation_inputs\".\"body\" IS NULL AND \"conversation_inputs\".\"slack_mirror\" IS NULL AND \"conversation_inputs\".\"turn_id\" IS NOT NULL AND \"conversation_inputs\".\"buffer_expires_at\" IS NULL) OR (\"conversation_inputs\".\"client_message_id\" IS NOT NULL AND \"conversation_inputs\".\"client_message_id\" ~ '^[A-Za-z0-9_-]{1,128}$' AND \"conversation_inputs\".\"body\" IS NOT NULL AND \"conversation_inputs\".\"requester_kind\" = 'user' AND \"conversation_inputs\".\"slack_mirror\" IS NOT NULL AND \"conversation_inputs\".\"slack_mirror\" IN ('not_target','pending') AND \"conversation_inputs\".\"buffer_expires_at\" IS NULL) OR (\"conversation_inputs\".\"buffer_expires_at\" IS NOT NULL AND \"conversation_inputs\".\"client_message_id\" IS NULL AND \"conversation_inputs\".\"slack_mirror\" IS NULL AND \"conversation_inputs\".\"turn_id\" IS NULL AND \"conversation_inputs\".\"body\" IS NOT NULL AND \"conversation_inputs\".\"slack_ts\" IS NOT NULL AND \"conversation_inputs\".\"requester_kind\" = 'slack_user')"
+          "value": "(\"conversation_inputs\".\"client_message_id\" IS NULL AND \"conversation_inputs\".\"body\" IS NULL AND \"conversation_inputs\".\"slack_mirror\" IS NULL AND \"conversation_inputs\".\"turn_id\" IS NOT NULL) OR (\"conversation_inputs\".\"client_message_id\" IS NOT NULL AND \"conversation_inputs\".\"client_message_id\" ~ '^[A-Za-z0-9_-]{1,128}$' AND \"conversation_inputs\".\"body\" IS NOT NULL AND \"conversation_inputs\".\"requester_kind\" = 'user' AND \"conversation_inputs\".\"slack_mirror\" IS NOT NULL AND \"conversation_inputs\".\"slack_mirror\" IN ('not_target','pending'))"
         },
         "conversation_inputs_seq_check": {
           "name": "conversation_inputs_seq_check",
@@ -17009,6 +16987,12 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
+        },
+        "sources_turn": {
+          "name": "sources_turn",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -17180,7 +17164,7 @@
         },
         "slack_outbox_status_check": {
           "name": "slack_outbox_status_check",
-          "value": "\"slack_outbox\".\"status\" IN ('pending', 'sending', 'sent', 'failed', 'uncertain')"
+          "value": "\"slack_outbox\".\"status\" IN ('pending', 'sending', 'sent', 'failed', 'uncertain', 'voided_by_delete')"
         },
         "slack_outbox_channel_check": {
           "name": "slack_outbox_channel_check",
