@@ -7,11 +7,13 @@ import {
 import { and, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import {
   lockBudgetCall,
+  markBudgetUnknownIn,
   releaseBudgetIn,
   reserveBudgetIn,
   settleBudgetIn,
 } from "./budget-accounts.ts";
 import { DB_NOW, fromDbNow } from "./db-clock.ts";
+import { PROVIDER_EXCHANGE_LEASE_MS } from "./provider-exchanges.ts";
 import type { Database } from "./queries.ts";
 import {
   agents,
@@ -181,8 +183,9 @@ export function createPostgresConversationCalls(
               }
             : { outcome: "conflict" };
         }
-        // Bound and not settled is in flight: a release takes only an
-        // unbound row.
+        // Bound and not settled is in flight, its end unknown or not, held
+        // either way: a release takes only an unbound row. A late report
+        // settles an unknown one at what it says.
         const costUsd = unmetered
           ? 0
           : toStoredCost(input.priceFor({ unmetered }).costUsd);
@@ -204,6 +207,7 @@ export function createPostgresConversationCalls(
             costUsd,
             tokens,
             endedAt: DB_NOW,
+            unknownAt: null,
           })
           .where(eq(conversationCalls.id, input.callId));
         return { outcome: "settled", costUsd, unmetered };
@@ -247,6 +251,48 @@ export function createPostgresConversationCalls(
         if (done) released++;
       }
       return { released };
+    },
+
+    async markUnknown({ limit, dryRun }) {
+      const past = sql`${conversationCalls.startedAt} < ${fromDbNow(-PROVIDER_EXCHANGE_LEASE_MS)}`;
+      const stale = await db
+        .select({ id: conversationCalls.id })
+        .from(conversationCalls)
+        .where(
+          and(
+            eq(conversationCalls.state, "in_flight"),
+            isNull(conversationCalls.unknownAt),
+            past,
+          ),
+        )
+        .orderBy(conversationCalls.startedAt)
+        .limit(limit);
+      if (dryRun) return { unknown: stale.length };
+      let unknown = 0;
+      for (const { id } of stale) {
+        const done = await db.transaction(async (tx) => {
+          await lockBudgetCall(tx, id);
+          // Judged again under the call's lock: a report that settled it
+          // since keeps it.
+          const [call] = await tx
+            .update(conversationCalls)
+            .set({ unknownAt: DB_NOW })
+            .where(
+              and(
+                eq(conversationCalls.id, id),
+                eq(conversationCalls.state, "in_flight"),
+                isNull(conversationCalls.unknownAt),
+                past,
+              ),
+            )
+            .returning({ id: conversationCalls.id });
+          if (!call) return false;
+          await markBudgetUnknownIn(tx, id, true);
+          return true;
+        });
+        if (done) unknown++;
+      }
+      return { unknown };
     },
   };
 }

@@ -1,5 +1,5 @@
 {
-  "id": "a298a9cd-aef2-4bbe-8131-9bee47733444",
+  "id": "b2c43d54-c7cf-43aa-aff7-882a88500b7a",
   "prevId": "a35323ff-c07f-43d7-8c97-030dc8aadba2",
   "version": "7",
   "dialect": "postgresql",
@@ -3916,6 +3916,12 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "unknown_at": {
+          "name": "unknown_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -3930,6 +3936,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "budget_reservations_unknown_idx": {
+          "name": "budget_reservations_unknown_idx",
+          "columns": [
+            {
+              "expression": "account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"budget_reservations\".\"state\" = 'reserved' AND \"budget_reservations\".\"unknown_at\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5465,6 +5487,12 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "unknown_at": {
+          "name": "unknown_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -5510,6 +5538,22 @@
           ],
           "isUnique": false,
           "where": "\"conversation_calls\".\"state\" = 'reserved'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_calls_in_flight_started_idx": {
+          "name": "conversation_calls_in_flight_started_idx",
+          "columns": [
+            {
+              "expression": "started_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_calls\".\"state\" = 'in_flight' AND \"conversation_calls\".\"unknown_at\" IS NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -15194,12 +15238,6 @@
         "execution_revoked_reason": {
           "name": "execution_revoked_reason",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "source_deleted_at": {
-          "name": "source_deleted_at",
-          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
