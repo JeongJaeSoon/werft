@@ -67,9 +67,8 @@ export const agentGitHubResponseSchema = z.object({
   start_repository_id: z.string().nullable(),
   /**
    * Whether a push to an attached repository needs a person: the row's
-   * value, `ask` for a row saved before the column. While the agent has no
-   * row, what a first save writes (`allow`), as `legacy_defaults` shows the
-   * rest.
+   * value, `allow` for a row saved before the column and while the agent has
+   * no row (nobody chose to be asked).
    */
   push_attached: pushAttachedSchema,
   /**
