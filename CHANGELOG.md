@@ -14,6 +14,11 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **GitHub 도구 설명이 브랜치는 작업 공간에서 `git switch -c <브랜치> <repository_id>/<branch>`로 만든다고 알리고, 작업 공간 안의 git worktree나 clone이 checkpoint를 막는다고 적는다**(JeongJaeSoon/werft#PRNUM). migration은 없고 따로 할 일도 없다.
+  - `git worktree`는 지금처럼 작업 공간 안이든 밖이든 사람에게 묻는다. 묻기 규칙은 바뀌지 않았다.
+  - `request_push`·`attach_repository`·`get_push_request`의 설명에 위 사실과, 그때 push가 `turn_ended_without_checkpoint`로 취소된다는 것이 더해진다.
+  - checkpoint가 중첩 저장소나 submodule로 거절할 때의 이유 문구에 worktree·clone이 그 경우이고 `git switch -c`로 만든 브랜치는 아니라는 설명이 붙는다. 거절 자체는 그대로다.
+
 - **migration `0333_source_deleted`가 `sessions`에 `source_deleted_at`(timestamptz, nullable)을 더하고, 지운 Slack 글을 출처로 가진 턴이 있는 열린 세션을 멈춘다**(JeongJaeSoon/werft#2064). 따로 할 일은 없고, 지운 글이 없는 세션의 동작은 그대로다.
   - 직접 출처든 물려받은 출처든 턴 하나만 걸려도 세션 전체를 멈춘다. 글의 수정으로는 멈추지 않는다. 닫힌 세션은 건드리지 않는다.
   - 실행 중인 턴은 끊지 않고, 끝난 뒤 pause처럼 `paused`가 된다. 대기 중인 입력은 내보내지 않는다.

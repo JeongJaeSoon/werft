@@ -361,6 +361,28 @@ describe("the tool envelope", () => {
     );
   });
 
+  // A worktree inside the workspace is a nested repository the checkpoint
+  // refuses, and `git worktree` asks a person: a demo session stopped on both.
+  test("the push and attach tools name git switch -c in the workspace, not a worktree", () => {
+    const push = GITHUB_MCP_TOOL_DESCRIPTIONS.request_push;
+    expect(push).toContain(
+      "`git switch -c <branch> <repository_id>/<branch>` (`origin/<branch>` for the session's own repository)",
+    );
+    expect(push).toContain(
+      "`git worktree` waits for a person's approval, and a worktree or clone inside the workspace is a nested repository the checkpoint refuses, which ends the push as `turn_ended_without_checkpoint`",
+    );
+    const attach = GITHUB_MCP_TOOL_DESCRIPTIONS.attach_repository;
+    expect(attach).toContain(
+      "on a branch such as one made with `git switch -c <branch> <repository_id>/<branch>`",
+    );
+    expect(attach).toContain(
+      "one outside the workspace is left out, and one inside it is a nested repository the checkpoint refuses",
+    );
+    expect(GITHUB_MCP_TOOL_DESCRIPTIONS.get_push_request).toContain(
+      "`turn_ended_without_checkpoint` means the turn left no checkpoint to push from, as when a git worktree or clone inside the workspace made the checkpoint refuse it",
+    );
+  });
+
   test("list_repositories names the statuses it answers and the remote it reports", () => {
     const list = GITHUB_MCP_TOOL_DESCRIPTIONS.list_repositories;
     for (const word of [

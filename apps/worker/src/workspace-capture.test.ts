@@ -641,7 +641,8 @@ exec "$REAL_GIT" "$@"`);
       );
       expect(await capture()).toEqual({
         status: "refused",
-        reason: "vendor/lib is a submodule",
+        reason:
+          "vendor/lib is a submodule (a git worktree or clone inside the workspace, once added, is one; a branch made with git switch -c in the workspace itself is not)",
       });
     });
 
@@ -689,8 +690,28 @@ exec "$REAL_GIT" "$@"`);
       expect(await capture()).toEqual({
         status: "refused",
         reason:
-          "untracked vendor/lib/ is a nested repository, which a checkpoint cannot carry",
+          "untracked vendor/lib/ is a nested repository, which a checkpoint cannot carry (a git worktree or clone inside the workspace is one; a branch made with git switch -c in the workspace itself is not)",
       });
+    });
+
+    test("a linked git worktree inside the workspace", async () => {
+      await commitFiles({ "a.txt": "a\n" });
+      await git(root, "worktree", "add", "--quiet", "-b", "wt-branch", "wt");
+      await writeFile(join(root, "wt/b.txt"), "b\n");
+      await git(join(root, "wt"), "add", "b.txt");
+      await git(join(root, "wt"), "commit", "--quiet", "-m", "b");
+      expect(await capture()).toEqual({
+        status: "refused",
+        reason:
+          "untracked wt/ is a nested repository, which a checkpoint cannot carry (a git worktree or clone inside the workspace is one; a branch made with git switch -c in the workspace itself is not)",
+      });
+    });
+
+    test("a branch made with git switch -c in the workspace itself", async () => {
+      await commitFiles({ "a.txt": "a\n" });
+      await git(root, "switch", "--quiet", "-c", "feature", "main");
+      await commitFiles({ "b.txt": "b\n" });
+      expect(await capture()).toMatchObject({ status: "captured" });
     });
 
     test("more untracked files than a checkpoint carries", async () => {
