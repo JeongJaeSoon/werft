@@ -16,6 +16,7 @@ import {
   conversations,
   memberships,
   sessionShares,
+  sessionShareTargets,
   sessions,
   slackInstallations,
   surfaceBindings,
@@ -569,6 +570,105 @@ describe("private_channel sessions on the reads", () => {
     expect(await shares.privateChannels(ws, session)).toEqual([
       { conversationId: shared, agentId, channelId: "C0SHARED" },
     ]);
+  });
+
+  // Codex (94S-2052): a live binding that knows no kind does not hide a
+  // live public one.
+  test("a live binding of no kind leaves a live public one public", async () => {
+    const [publicInstall, partialInstall] = [randomUUID(), randomUUID()];
+    for (const [id, appId] of [
+      [publicInstall, "A0PCPUB"],
+      [partialInstall, "A0PCPART"],
+    ] as const) {
+      await db.insert(slackInstallations).values({
+        id,
+        workspaceId: ws,
+        appId,
+        teamId: "T0ACME",
+      });
+    }
+    for (const [installationId, surfaceKind, status] of [
+      [publicInstall, "public_channel", "ready"],
+      [partialInstall, null, "partial"],
+    ] as const) {
+      await db.insert(surfaceBindings).values({
+        id: randomUUID(),
+        workspaceId: ws,
+        agentId,
+        surface: "slack",
+        installationId,
+        externalSurfaceId: "C0MIXED",
+        surfaceKind,
+        mode: "on",
+        status,
+        ceilingActions: [],
+        ceilingDisclosure: "summary",
+      });
+    }
+    const mixed = randomUUID();
+    await db.insert(channelContexts).values({
+      id: randomUUID(),
+      workspaceId: ws,
+      teamId: "T0ACME",
+      channelId: "C0MIXED",
+    });
+    await db.insert(conversations).values({
+      id: mixed,
+      workspaceId: ws,
+      agentId,
+      kind: "channel",
+      teamId: "T0ACME",
+      channelId: "C0MIXED",
+    });
+    const session = randomUUID();
+    await db.insert(sessions).values({
+      id: session,
+      ownerId: ws,
+      workspaceId: ws,
+      repoUrl: "https://example.invalid/repo.git",
+      branch: "main",
+      createdByUserId: requester,
+      parentConversationId: mixed,
+    });
+    const shares = createPostgresSessionShareStore(db);
+    expect(
+      await shares.visibleTo(ws, session, { userId: member, apiKeyId: null }),
+    ).toBe(true);
+    expect(await shares.privateChannels(ws, session)).toEqual([]);
+  });
+
+  test("a people share from a private channel reaches a named member only", async () => {
+    const named = randomUUID();
+    await db.insert(sessions).values({
+      id: named,
+      ownerId: ws,
+      workspaceId: ws,
+      repoUrl: "https://example.invalid/repo.git",
+      branch: "main",
+      createdByUserId: requester,
+      parentConversationId: privateChannel,
+    });
+    await db.insert(sessionShares).values({
+      sessionId: named,
+      ownerId: ws,
+      workspaceId: ws,
+      scope: "people",
+      revision: 1,
+    });
+    await db.insert(sessionShareTargets).values({
+      id: randomUUID(),
+      workspaceId: ws,
+      sessionId: named,
+      userId: member,
+      addedBy: requester,
+    });
+    const shares = createPostgresSessionShareStore(db);
+    const sees = (userId: string, privateChannels: string[]) =>
+      shares.visibleTo(ws, named, { userId, apiKeyId: null, privateChannels });
+    expect(await sees(member, [privateChannel])).toBe(true);
+    expect(await sees(member, [])).toBe(false);
+    expect(await sees(requester, [privateChannel])).toBe(true);
+    expect(await sees(requester, [])).toBe(false);
   });
 
   // Architect: the admin list is how an audit read finds one, so it keeps
