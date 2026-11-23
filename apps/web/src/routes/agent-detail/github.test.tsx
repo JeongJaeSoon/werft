@@ -902,6 +902,63 @@ describe("에이전트 GitHub 탭", () => {
     }
   });
 
+  test("저장 막대가 뜰 때 초점이 탭 밖(다이얼로그 등)이면 화면을 움직이지 않고, 큰 초점 영역은 제 위쪽 끝까지만 올린다", async () => {
+    const { server } = await activeAgent();
+    renderAt(DETAIL, routesFor(server, TAB));
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
+    const push = switchNamed("push 전 사람 승인");
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    const rect = (top: number, bottom: number) =>
+      ({
+        top,
+        bottom,
+        left: 0,
+        right: 0,
+        width: 0,
+        height: bottom - top,
+        x: 0,
+        y: top,
+      }) as DOMRect;
+    const original = HTMLElement.prototype.getBoundingClientRect;
+    const scrolled: number[] = [];
+    const originalScrollBy = window.scrollBy;
+    let pushTop = 700;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      if (this === push) return rect(pushTop, 1400);
+      if (this === outside) return rect(900, 930);
+      if (this.className.includes("sticky")) return rect(700, 850);
+      return original.call(this);
+    };
+    window.scrollBy = ((_x: number, y: number) => {
+      scrolled.push(y);
+    }) as typeof window.scrollBy;
+    try {
+      // A change made while focus stays outside the tab: click() moves no focus.
+      outside.focus();
+      push.click();
+      expect(document.activeElement === outside).toBe(true);
+      await screen.findByRole("region", { name: "저장하지 않은 변경 1건" });
+      await user.click(screen.getByRole("button", { name: "되돌리기" }));
+      await waitFor(() =>
+        expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull(),
+      );
+      expect(scrolled).toEqual([]);
+
+      // A focused box taller than the room above the bar keeps its top.
+      pushTop = 200;
+      push.focus();
+      await user.keyboard(" ");
+      await screen.findByRole("region", { name: "저장하지 않은 변경 1건" });
+      expect(scrolled).toEqual([200]);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = original;
+      window.scrollBy = originalScrollBy;
+      outside.remove();
+    }
+  });
+
   test("설정이 없는 에이전트는 저장 전에도 머리글과 스위치가 같이 push 승인 꺼짐이다", async () => {
     const { server, release } = await activeAgent();
     release.policy_pins = {};
