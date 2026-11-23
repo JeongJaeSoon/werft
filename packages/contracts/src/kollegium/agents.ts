@@ -693,8 +693,7 @@ export function pushDecisionOf(policy: {
   const { settings } = policy;
   if (settings === "invalid")
     return meetPushAttached("ask", policy.pushAttached);
-  const approval: PushAttached =
-    settings?.push_approval ? "ask" : "allow";
+  const approval: PushAttached = settings?.push_approval ? "ask" : "allow";
   return meetPushAttached(approval, policy.pushAttached);
 }
 
