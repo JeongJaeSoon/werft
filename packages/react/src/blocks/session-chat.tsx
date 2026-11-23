@@ -72,11 +72,18 @@ export function chatItems(
     at: turn.created_at,
     turn,
   }));
-  const withheldTurns = new Set(
-    (turns ?? []).flatMap((turn) =>
+  // A frame marked withheld withholds its whole turn, the frames streamed
+  // before the delete too.
+  const withheldTurns = new Set([
+    ...(turns ?? []).flatMap((turn) =>
       turn.source_deleted_at ? [turn.turn_id] : [],
     ),
-  );
+    ...events.flatMap((frame) =>
+      frame.sourceDeletedAt !== undefined && frame.turnId !== null
+        ? [frame.turnId]
+        : [],
+    ),
+  ]);
   const heldReplies = new Set<string>();
   const tools = new Map<string, number>();
   const seen = new Set<string>();

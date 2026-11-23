@@ -140,4 +140,29 @@ describe("chatItems for a turn whose Slack message was deleted", () => {
       ["reply", "", true],
     ]);
   });
+
+  test("one frame marked withheld hides the frames of its turn streamed before it", () => {
+    const later = {
+      ...frame("5", "1", "2", {
+        event: "tool_result",
+        data: {
+          tool_result: { tool_call_id: "tu-1", is_error: false, text: "" },
+        },
+      }),
+      sourceDeletedAt: DELETED_AT,
+    };
+    expect(
+      shape(
+        chatItems(
+          [...EVENTS.slice(0, 2), later, EVENTS[3]!],
+          undefined,
+          format,
+        ),
+      ),
+    ).toEqual([
+      ["reply", "", true],
+      ["tool", "Read", {}, { text: "", error: false }, true],
+      ["reply", "Second answer", false],
+    ]);
+  });
 });
