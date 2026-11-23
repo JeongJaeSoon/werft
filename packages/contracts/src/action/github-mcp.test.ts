@@ -369,7 +369,7 @@ describe("the tool envelope", () => {
       "`git switch -c <branch> <repository_id>/<branch>` (`origin/<branch>` for the session's own repository)",
     );
     expect(push).toContain(
-      "`git worktree` waits for a person's approval, and a worktree or clone inside the workspace is a nested repository the checkpoint refuses, which ends the push as `turn_ended_without_checkpoint`",
+      "`git worktree` asks a person in a permission mode that asks at all, and a worktree or clone inside the workspace is a nested repository the checkpoint refuses, which ends the push as `turn_ended_without_checkpoint`",
     );
     const attach = GITHUB_MCP_TOOL_DESCRIPTIONS.attach_repository;
     expect(attach).toContain(

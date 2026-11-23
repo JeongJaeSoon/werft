@@ -516,6 +516,66 @@ describe.skipIf(!available)("the pinned codex app-server", () => {
     expect((await stat(join(work, "notes"))).isDirectory()).toBe(true);
   }, 60_000);
 
+  test("git switch -c runs unasked, and git worktree asks inside the workspace, outside it and in a compound", async () => {
+    const repo = async (dir: string) => {
+      for (const args of [
+        ["init", "-q", dir],
+        [
+          "-C",
+          dir,
+          "-c",
+          "user.name=t",
+          "-c",
+          "user.email=t@example.test",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "base",
+        ],
+      ]) {
+        expect(Bun.spawnSync(["git", ...args]).exitCode).toBe(0);
+      }
+    };
+    const branch = (dir: string) =>
+      Bun.spawnSync([
+        "git",
+        "-C",
+        dir,
+        "branch",
+        "--list",
+        "from-head",
+      ]).stdout.toString();
+    const inside = await firstAsk(
+      "worktree-inside",
+      ["git switch -c from-head HEAD", "git worktree add -b wt-in wt HEAD"],
+      repo,
+    );
+    expect(inside.asked).toBe("call_2");
+    expect(branch(inside.work)).toContain("from-head");
+    expect(await Bun.file(join(inside.work, "wt", ".git")).exists()).toBe(
+      false,
+    );
+    const outside = await firstAsk(
+      "worktree-outside",
+      ["git worktree add ../wt-out HEAD"],
+      repo,
+    );
+    expect(outside.asked).toBe("call_1");
+    expect(await Bun.file(join(root, "wt-out", ".git")).exists()).toBe(false);
+    const compound = await firstAsk(
+      "worktree-compound",
+      [
+        "git status && git worktree add -b wt-c wt-c HEAD && cd wt-c && git log --oneline -1",
+      ],
+      repo,
+    );
+    expect(compound.asked).toBe("call_1");
+    expect(await Bun.file(join(compound.work, "wt-c", ".git")).exists()).toBe(
+      false,
+    );
+  }, 120_000);
+
   test("a command no rule names asks, and a repository's own .codex/rules grants nothing", async () => {
     const { work, asked } = await firstAsk(
       "repo-rules",

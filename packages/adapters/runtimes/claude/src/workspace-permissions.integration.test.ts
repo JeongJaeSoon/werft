@@ -122,7 +122,12 @@ const steps: Step[] = [
   bash("git_branch_switch", "git switch -c feature/sample", false),
   // A branch from a start point is how a session works on a repository; a
   // worktree, inside the workspace or out, still asks.
-  bash("git_switch_from_start", "git switch -c from-head HEAD", false),
+  bash(
+    "git_switch_from_start",
+    "git switch -c from-head HEAD && git branch --show-current",
+    false,
+    "from-head",
+  ),
   {
     ...bash("git_worktree_inside", "git worktree add -b wt-in wt HEAD", true),
     effect: fileExists((_, w) => join(w, "wt")),
