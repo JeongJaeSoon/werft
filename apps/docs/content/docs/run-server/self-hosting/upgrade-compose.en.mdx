@@ -240,7 +240,7 @@ Migration `0320_session_parent_conversation` adds `sessions.parent_conversation_
 <a id="턴과-outbox-줄에-출처-집합을-적는-릴리스" />
 ### The release that records source sets on turns and outbox rows
 
-Migration `0321_source_sets` adds a source set column `sources` (jsonb, nullable) to `turns` and `slack_outbox`, with a GIN index on each (`turns_sources_idx`, `slack_outbox_sources_idx`). The upgrade needs nothing from you, and replies to Slack mentions and web or API sessions behave as before.
+Migration `0322_source_sets` adds a source set column `sources` (jsonb, nullable) to `turns` and `slack_outbox`, with a GIN index on each (`turns_sources_idx`, `slack_outbox_sources_idx`). The upgrade needs nothing from you, and replies to Slack mentions and web or API sessions behave as before.
 
 - A source set records which Slack messages a turn came from, only as each message's place (team, channel, ts) and its input row id. It never holds text. The turn's own input is a direct source (`direct`); the messages earlier turns of the same session came from are inherited sources (`inherited`).
 - A turn made from a Slack message has that message as its direct source. Later turns of the same session (a turn carrying a park on, a push follow-up, an instruction sent from the web or the API) inherit the sources of the turns before them. Turns of web or API sessions with no Slack in them have none.
