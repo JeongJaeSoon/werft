@@ -56,6 +56,14 @@ export interface SessionLinkStore {
    */
   openedSession(link: SessionLinkRecord): Promise<string | null>;
   /**
+   * The turn a Slack message became in `sessionId`, found by the message
+   * the turn records; null when it made none there.
+   */
+  slackTurn(
+    sessionId: string,
+    message: { teamId: string; channelId: string; ts: string },
+  ): Promise<{ sequence: number; requesterId: string | null } | null>;
+  /**
    * Hands the opening to another message while the link names no session;
    * the answer is the row as it stands.
    */

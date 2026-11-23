@@ -168,13 +168,73 @@ export function createPostgresSlackInboundEventStore(
       return row ?? null;
     },
 
-    async complete(fence) {
-      const rows = await db
-        .update(t)
-        .set({ status: "processed", payload: null, ...released })
-        .where(leaseHeld(fence))
-        .returning({ id: t.id });
-      return rows.length > 0;
+    complete(fence, input) {
+      return db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(t)
+          .set({ status: "processed", payload: null, ...released })
+          .where(leaseHeld(fence))
+          .returning({
+            workspaceId: t.workspaceId,
+            agentId: t.agentId,
+            teamId: t.teamId,
+          });
+        if (row === undefined) return false;
+        if (input === undefined) return true;
+        // One taker per topic at a time, so the topic's highest number plus
+        // one is free.
+        const topic = await tx.execute(sql`
+          SELECT id FROM conversation_topics
+          WHERE id = ${input.topicId}::uuid
+            AND workspace_id = ${row.workspaceId}::uuid
+            AND agent_id = ${row.agentId}::uuid
+          FOR UPDATE`);
+        if (rowsOf(topic).length === 0) {
+          throw new Error(
+            `topic ${input.topicId} is no topic of the event's agent`,
+          );
+        }
+        const [turn] = rowsOf<{
+          id: string;
+          requester_kind: string | null;
+          requester_id: string | null;
+        }>(
+          await tx.execute(sql`
+            SELECT t.id, t.requester_kind, t.requester_id
+            FROM turns t JOIN sessions s ON s.id = t.session_id
+            WHERE t.session_id = ${input.turn.sessionId}::uuid
+              AND t.sequence = ${input.turn.sequence}
+              AND s.workspace_id = ${row.workspaceId}::uuid`),
+        );
+        if (turn === undefined) {
+          throw new Error(
+            `turn ${input.turn.sequence} of session ${input.turn.sessionId} is missing`,
+          );
+        }
+        if (
+          (turn.requester_kind !== "user" &&
+            turn.requester_kind !== "slack_bot") ||
+          turn.requester_id === null
+        ) {
+          throw new Error(`turn ${turn.id} has no Slack requester`);
+        }
+        await tx.execute(sql`
+          INSERT INTO conversation_inputs (
+            id, workspace_id, agent_id, topic_id, seq,
+            slack_team_id, slack_channel_id, slack_ts,
+            requester_kind, requester_id, turn_id
+          )
+          SELECT ${randomUUID()}::uuid, ${row.workspaceId}::uuid,
+            ${row.agentId}::uuid, ${input.topicId}::uuid,
+            COALESCE(MAX(i.seq), 0) + 1,
+            ${row.teamId}, ${input.channelId}, ${input.ts},
+            ${turn.requester_kind}, ${turn.requester_id},
+            ${turn.id}::bigint
+          FROM conversation_inputs i WHERE i.topic_id = ${input.topicId}::uuid
+          ON CONFLICT (agent_id, slack_team_id, slack_channel_id, slack_ts)
+            DO NOTHING`);
+        return true;
+      });
     },
 
     async drop(fence, reason) {

@@ -1,4 +1,5 @@
 import type {
+  ConversationTopicId,
   SlackInboundDropFields,
   SlackInboundDropReason,
 } from "@werft-ai/contracts";
@@ -61,6 +62,21 @@ export type SlackInboundClaim = {
   installationStatus: "pending" | "verified" | "revoked" | null;
 };
 
+/**
+ * A message the handler made a turn of, taken as an input of its topic when
+ * its row completes. The row gives the workspace, agent and team.
+ */
+export type InboundInputReceipt = {
+  topicId: ConversationTopicId;
+  channelId: string;
+  ts: string;
+  /**
+   * The turn the message became: its session and its number there. The
+   * input's requester is the turn's.
+   */
+  turn: { sessionId: string; sequence: number };
+};
+
 /** What a write after a claim is fenced on. */
 export type SlackInboundFence = Pick<SlackInboundClaim, "id" | "claimToken">;
 
@@ -98,8 +114,15 @@ export interface SlackInboundEventStore {
   ): Promise<{
     installationStatus: SlackInboundClaim["installationStatus"];
   } | null>;
-  /** Marks the row `processed`, its payload cleared. */
-  complete(fence: SlackInboundFence): Promise<boolean>;
+  /**
+   * Marks the row `processed`, its payload cleared, and in the same
+   * transaction takes `input`: next in its topic, or nothing when the
+   * agent took that message already.
+   */
+  complete(
+    fence: SlackInboundFence,
+    input?: InboundInputReceipt,
+  ): Promise<boolean>;
   /** Ends the row `dropped` for `reason`, its payload and key cleared. */
   drop(
     fence: SlackInboundFence,
