@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **`private_channel` 세션의 DM 알림은 지금 채널 멤버에게만 가고, 인수는 채널 멤버가 한다**(JeongJaeSoon/werft#PR2). migration은 없고 따로 할 일도 없다.
+- **`private_channel` 세션의 DM 알림은 지금 채널 멤버에게만 가고, 인수는 채널 멤버가 한다**(JeongJaeSoon/werft#2066). migration은 없고 따로 할 일도 없다.
   - 세션에 관한 DM(모델이 허용 목록에서 빠짐, 다음 모델로 옮김, `runtime_retired`로 멈춤, worker 이미지 교체)은 보내기 직전에 받는 사람이 세션의 비공개 채널 중 하나의 지금 멤버인지 본다. 멤버가 아니거나 확인하지 못하면 보내지 않고 `failed`(`error_code` `reader_outside_channel`)로 끝난다. 에이전트 관리자도 같다. 에이전트 단위 알림(에이전트의 모델 이동)은 그대로다.
   - 요청자가 비활성화되어 인수를 기다리는 `private_channel` 세션은 그 채널의 지금 멤버이고 세션에 쓸 수 있는(`session.submit`) 사람이 `POST /v1/sessions/{id}/takeover`로 인수한다. 사유는 받지 않는다. owner·admin도 채널 멤버가 아니면 `404`다. 다른 세션의 인수는 그대로다.
   - 요청자가 채널을 나가도 세션은 멈추지 않는다. 보고와 카드는 지금처럼 그 채널의 스레드에만 가고, 봇이 채널에서 빠지면 어디에도 보내지 않는다.
