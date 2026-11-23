@@ -256,7 +256,7 @@ migration `0320_session_parent_conversation` が `sessions.parent_conversation_i
 <a id="웹-입력을-slack-거울과-잇는-릴리스" />
 ### Web 入力を Slack のミラーとつなぐリリース
 
-migration `0331_input_mirror` が、`slack_outbox` に種類 `input_mirror` と、その行が映す Web 入力の列 `input_id` を追加し、まだ Slack に映っていない Web 入力を探す部分索引を `conversation_inputs` に `CONCURRENTLY` で作る。上げるときにすることはない。このリリースには Web 入力を記録する route がないため新しい種類の行は作られず、Slack のメンションと返信、Web・API セッションの動作は変わらない。
+migration `0332_input_mirror` が、`slack_outbox` に種類 `input_mirror` と、その行が映す Web 入力の列 `input_id` を追加し、まだ Slack に映っていない Web 入力を探す部分索引を `conversation_inputs` に `CONCURRENTLY` で作る。上げるときにすることはない。このリリースには Web 入力を記録する route がないため新しい種類の行は作られず、Slack のメンションと返信、Web・API セッションの動作は変わらない。
 
 - Web 入力は `instruction` と同じ形（送信者名の後に「(Webコンソール)」）で Slack に投稿される。新しい話題の最初の入力はチャンネル（DM ならその人の DM）の最上位の投稿になり、残りはその話題のスレッドに投稿される。
 - 投稿に成功すると、同じトランザクションでその投稿の (team、チャンネル、ts) が入力の Slack 別名になり、新しい話題なら話題の Slack の場所にもなる。同じスレッドへの人の返信は、その話題の次の番号として受け付けられる。

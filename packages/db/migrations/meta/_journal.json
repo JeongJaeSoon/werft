@@ -1688,6 +1688,13 @@
       "when": 1795422022558,
       "tag": "0331_reset_skill_auto_approve",
       "breakpoints": true
+    },
+    {
+      "idx": 332,
+      "version": "7",
+      "when": 1795427191187,
+      "tag": "0332_input_mirror",
+      "breakpoints": true
     }
   ]
 }
