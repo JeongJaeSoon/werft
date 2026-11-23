@@ -241,7 +241,17 @@ export function createSlackSessionHandler(
             channelId: event.channel,
             ts: event.ts,
           });
-    if (sessionId !== null && taken !== null) {
+    if (found !== null && sessionId !== null && taken !== null) {
+      // The session was made but the pass died before the link learned it.
+      if (found.sessionId === null) {
+        const attached = await deps.sessionLinks.attachSession(
+          found.id,
+          sessionId,
+        );
+        if (attached.sessionId !== sessionId) {
+          throw new Error(`Slack thread ${found.id} holds another session`);
+        }
+      }
       return inputOf(
         { sessionId, sequence: taken.sequence },
         { dm, personUserId: taken.requesterId, channelId: event.channel },

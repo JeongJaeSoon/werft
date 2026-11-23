@@ -770,6 +770,24 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(notices).toEqual([]);
   });
 
+  test("a retry after the session was made but never linked links it and takes the input", async () => {
+    const fixture = await agentInSlack();
+    await deliver(fixture, mention("100.000100"));
+    const [claim] = await claimAll(30_000);
+    if (claim === undefined) throw new Error("nothing claimed");
+    expect(await handler(shortLease).handle(claim)).toBeDefined();
+    // As if the pass died between createSession and attachSession.
+    await db.update(sessionLinks).set({ sessionId: null });
+    await Bun.sleep(100);
+    expect(await drain(handler().handle)).toMatchObject({ processed: 1 });
+    const [session] = await sessionsOf(fixture);
+    const [linked] = await db
+      .select({ sessionId: sessionLinks.sessionId })
+      .from(sessionLinks);
+    expect(linked?.sessionId).toBe(session?.id ?? "missing");
+    expect(await inputsOf(fixture)).toHaveLength(1);
+  });
+
   test("a receipt whose row lost its lease takes nothing", async () => {
     const fixture = await agentInSlack();
     await deliver(fixture, mention("100.000100"));
