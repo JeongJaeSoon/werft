@@ -233,6 +233,15 @@ export function createPostgresSlackInboundEventStore(
           FROM conversation_inputs i WHERE i.topic_id = ${input.topicId}::uuid
           ON CONFLICT (agent_id, slack_team_id, slack_channel_id, slack_ts)
             DO NOTHING`);
+        await tx.execute(sql`
+          INSERT INTO conversation_engagements (
+            workspace_id, agent_id, team_id, channel_id, ts, kind, session_id
+          ) VALUES (
+            ${row.workspaceId}::uuid, ${row.agentId}::uuid, ${row.teamId},
+            ${input.channelId}, ${input.ts}, ${input.engagement},
+            ${input.turn.sessionId}::uuid
+          )
+          ON CONFLICT DO NOTHING`);
         return true;
       });
     },

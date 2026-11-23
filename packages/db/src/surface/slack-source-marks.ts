@@ -28,16 +28,22 @@ export type SlackSourceMarkColumns = {
 
 /**
  * Whether Werft keeps something that points at the marked message, so its
- * mark stays: an input row of any agent in the workspace. The engagement,
+ * mark stays: an input or engagement row of any agent in the workspace. The
  * source-set and summary records each add their own test here as they come.
  */
 export function knownSlackSource(mark: SlackSourceMarkColumns): SQL {
-  return sql`EXISTS (
+  return sql`(EXISTS (
     SELECT 1 FROM conversation_inputs i
     WHERE i.workspace_id = ${mark.workspaceId}
       AND i.slack_team_id = ${mark.teamId}
       AND i.slack_channel_id = ${mark.channelId}
-      AND i.slack_ts = ${mark.ts})`;
+      AND i.slack_ts = ${mark.ts})
+    OR EXISTS (
+    SELECT 1 FROM conversation_engagements e
+    WHERE e.workspace_id = ${mark.workspaceId}
+      AND e.team_id = ${mark.teamId}
+      AND e.channel_id = ${mark.channelId}
+      AND e.ts = ${mark.ts}))`;
 }
 
 /**

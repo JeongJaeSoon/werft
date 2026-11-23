@@ -204,7 +204,8 @@ AWS 생성과 최소 권한은 [bucket 준비](/run-server/self-hosting/prepare-
 | Slack 설치 state | PostgreSQL | 600초 | 쓰거나 새 링크를 만들 때 지운다 | 없음 |
 | Slack 이벤트 inbox의 이벤트 원문(payload) | PostgreSQL | 처리할 때까지. 처리에 실패한 이벤트는 받은 뒤 7일. 받을 때 버린 이벤트의 원문은 저장하지 않고, 처리하다 버린 이벤트의 원문은 그때 지운다 | 처리를 마치면 slack 역할이 바로, 실패한 이벤트는 7일이 지나면 reconciler가 지운다. 행(이벤트 종류·상태·버린 이유·시도 횟수)은 남는다. migration 0308 전에 처리한 행은 원문이 남아 있다 | 없음 |
 | Slack 글과 웹 입력의 입력 접수 줄(`conversation_inputs`) | PostgreSQL | 무기한. Slack 글의 줄은 글의 자리(team, 채널, ts), 주제 안 순번, 요청자, 그 글이 된 turn만 있고 본문은 없다. 웹 입력의 줄은 순번, 요청자, 클라이언트의 메시지 키와 본문을 갖는다(아직 웹 입력을 적는 route는 없다) | 없음 | 없음 |
-| Slack 글의 삭제·수정 표식(`deleted_sources`, `edited_sources`) | PostgreSQL | 만든 지 70분. 글의 자리(team, 채널, ts)와 시각만 있고 본문은 없다. 그 글의 입력 접수 줄이 있으면 남는다 | reconciler가 지운다 | 없음 |
+| 에이전트가 관여한 Slack 글의 관여 기록(`conversation_engagements`) | PostgreSQL | 무기한. 에이전트, 글의 자리(team, 채널, ts), 종류(멘션·답글·작업에 묶임), 그 글이 든 세션만 있고 본문·스레드·링크는 없다 | 없음 | 없음 |
+| Slack 글의 삭제·수정 표식(`deleted_sources`, `edited_sources`) | PostgreSQL | 만든 지 70분. 글의 자리(team, 채널, ts)와 시각만 있고 본문은 없다. 그 글의 입력 접수 줄이나 관여 기록이 있으면 남는다 | reconciler가 지운다 | 없음 |
 | API key, 사용자·구성원·초대·연동 계정 | PostgreSQL | 무기한 | 없음. key 폐기와 연동 해제는 기록만 남긴다 | 없음 |
 | 저장된 비밀값 | PostgreSQL(master key로 암호화) | 무기한 | 사람이 그 연결이나 App을 지울 때만 | 없음 |
 | transcript와 checkpoint 객체 | bucket의 `sessions/<id>/` | pointer와 그 부모 3개, 열린 push 요청이 고정한 revision | [checkpoint GC](/run-server/self-hosting/backup-and-restore#3-checkpoint-gc)만 지운다 | Helm `checkpointGc.*`, compose `CHECKPOINT_GC_DRY_RUN` |

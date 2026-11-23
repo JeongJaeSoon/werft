@@ -635,6 +635,7 @@ integration("web inputs in conversation_inputs (0319)", () => {
         channelId,
         ts,
         turn: { sessionId: session.sessionId, sequence: 1 },
+        engagement: "mention",
       }),
     ).toBe(true);
   }

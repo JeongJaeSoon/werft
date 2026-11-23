@@ -494,6 +494,18 @@ const inputsOf = (fixture: Fixture) =>
       asc(schema.conversationInputs.seq),
     );
 
+const engagementsOf = (fixture: Fixture) =>
+  db
+    .select({
+      channelId: schema.conversationEngagements.channelId,
+      ts: schema.conversationEngagements.ts,
+      kind: schema.conversationEngagements.kind,
+      sessionId: schema.conversationEngagements.sessionId,
+    })
+    .from(schema.conversationEngagements)
+    .where(eq(schema.conversationEngagements.agentId, fixture.agentId))
+    .orderBy(asc(schema.conversationEngagements.ts));
+
 const turnIdsOf = async (sessionId: string | undefined) =>
   (
     await db
@@ -773,6 +785,15 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(
       (await inputsOf(fixture)).map((input) => [input.seq, input.turnId]),
     ).toEqual([[1, turnIds[0] ?? 0]]);
+    // The retry finds the turn taken and still knows the post opened it.
+    expect(await engagementsOf(fixture)).toEqual([
+      {
+        channelId: CHANNEL,
+        ts: "100.000100",
+        kind: "mention",
+        sessionId: session?.id ?? "",
+      },
+    ]);
   });
 
   test("a retry after the turn takes its input as the turn's, though the person was unlinked meanwhile", async () => {
@@ -805,6 +826,12 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
         requesterId: fixture.ownerId,
         turnId: turnIds[1],
       },
+    ]);
+    expect(
+      (await engagementsOf(fixture)).map((row) => [row.ts, row.kind]),
+    ).toEqual([
+      ["100.000100", "mention"],
+      ["100.000200", "bound"],
     ]);
     expect(notices).toEqual([]);
   });
@@ -959,6 +986,179 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
         channelId: CHANNEL,
         ts,
         at,
+      });
+    }
+    await Bun.sleep(5);
+    expect(
+      await schema.purgeUnknownSlackSourceMarks(db, {
+        limit: 10,
+        dryRun: false,
+        retentionMs: 1,
+      }),
+    ).toEqual({ deleted: 1, edited: 0 });
+    const left = await db.execute(sql`SELECT ts FROM deleted_sources`);
+    expect(
+      (left as unknown as { rows: { ts: string }[] }).rows.map((row) => row.ts),
+    ).toEqual(["100.000100"]);
+  });
+
+  test("a mention leaves one engagement as a mention of its session; the thread's next posts are bound to it, mentioned or not", async () => {
+    const fixture = await agentInSlack();
+    const { handle } = handler();
+    await deliver(fixture, mention("100.000100"));
+    // The mention's own message event, and Slack sending the reply again.
+    await deliver(fixture, rootMessage("100.000100"));
+    await deliver(fixture, message("100.000200", { thread_ts: "100.000100" }));
+    const again = message("100.000300", {
+      thread_ts: "100.000100",
+      text: `<@${BOT_USER}> more`,
+    });
+    await deliver(fixture, again);
+    await deliver(fixture, { ...again, type: "app_mention" });
+    expect(await drain(handle)).toMatchObject({ processed: 5 });
+    const [session] = await sessionsOf(fixture);
+    const sessionId = session?.id ?? "";
+    expect(await engagementsOf(fixture)).toEqual([
+      { channelId: CHANNEL, ts: "100.000100", kind: "mention", sessionId },
+      { channelId: CHANNEL, ts: "100.000200", kind: "bound", sessionId },
+      { channelId: CHANNEL, ts: "100.000300", kind: "bound", sessionId },
+    ]);
+  });
+
+  test("a session an unmentioned top-level post opens is a reply; a DM's is a mention", async () => {
+    const fixture = await agentInSlack("main", { mentionOnly: false });
+    const { handle } = handler();
+    await deliver(fixture, message("100.000100"));
+    await deliver(fixture, message("100.000200", { thread_ts: "100.000100" }));
+    await deliver(fixture, {
+      type: "message",
+      channel: "D0OWNER",
+      channel_type: "im",
+      user: PERSON,
+      ts: "200.000100",
+      text: "hello",
+    });
+    await drain(handle);
+    expect(
+      (await engagementsOf(fixture)).map((row) => [row.ts, row.kind]),
+    ).toEqual([
+      ["100.000100", "reply"],
+      ["100.000200", "bound"],
+      ["200.000100", "mention"],
+    ]);
+  });
+
+  test("a refused or ignored post leaves no engagement", async () => {
+    const fixture = await agentInSlack();
+    await deliver(fixture, mention("100.000100", { user: "U0STRANGER" }));
+    await deliver(fixture, message("200.000100"));
+    await deliver(fixture, message("300.000200", { thread_ts: "300.000100" }));
+    await drain(handler().handle);
+    expect(await engagementsOf(fixture)).toEqual([]);
+  });
+
+  test("an engaged thread is one whose session the agent took part in, its link open, closed or revoked", async () => {
+    const fixture = await agentInSlack();
+    const other = await agentInSlack("main", {
+      appId: OTHER_APP_ID,
+      linkPerson: false,
+    });
+    const { handle } = handler();
+    await deliver(fixture, mention("100.000100"));
+    await drain(handle);
+    const [installation] = await db
+      .select()
+      .from(slackInstallations)
+      .where(eq(slackInstallations.workspaceId, fixture.workspaceId));
+    const engagements = schema.createPostgresEngagementStore(db);
+    const engaged = (
+      threadTs: string,
+      who: Fixture = fixture,
+      installationId = installation?.id ?? "",
+    ) =>
+      engagements.engagedThread({
+        agentId: who.agentId,
+        installationId,
+        channelId: CHANNEL,
+        threadTs,
+      });
+    expect(await engaged("100.000100")).toBe(true);
+    expect(await engaged("200.000100")).toBe(false);
+    // Another agent's engagement is not this one's.
+    expect(await engaged("100.000100", other)).toBe(false);
+    await db
+      .update(sessionLinks)
+      .set({ closedAt: new Date(), closedReason: "completed" });
+    expect(await engaged("100.000100")).toBe(true);
+    await db.update(sessionLinks).set({ revokedAt: new Date() });
+    expect(await engaged("100.000100")).toBe(true);
+  });
+
+  test("an engagement keeps no text, thread or link, and names a session or a conversation turn, exactly one", async () => {
+    const columns = await db.execute(
+      sql`SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'conversation_engagements' ORDER BY ordinal_position`,
+    );
+    expect(
+      (columns as unknown as { rows: { column_name: string }[] }).rows.map(
+        (row) => row.column_name,
+      ),
+    ).toEqual([
+      "workspace_id",
+      "agent_id",
+      "team_id",
+      "channel_id",
+      "ts",
+      "kind",
+      "session_id",
+      "conversation_turn_id",
+      "created_at",
+    ]);
+    const fixture = await agentInSlack();
+    await deliver(fixture, mention("100.000100"));
+    await drain(handler().handle);
+    const [session] = await sessionsOf(fixture);
+    const insert = async (ts: string, target: Record<string, string | null>) =>
+      await db.insert(schema.conversationEngagements).values({
+        workspaceId: fixture.workspaceId,
+        agentId: fixture.agentId,
+        teamId: TEAM,
+        channelId: CHANNEL,
+        ts,
+        kind: "bound",
+        sessionId: null,
+        conversationTurnId: null,
+        ...target,
+      });
+    const turnId = randomUUID();
+    await expect(insert("100.000700", {})).rejects.toThrow();
+    await expect(
+      insert("100.000800", {
+        sessionId: session?.id ?? "",
+        conversationTurnId: turnId,
+      }),
+    ).rejects.toThrow();
+    await insert("100.000900", { conversationTurnId: turnId });
+    expect((await engagementsOf(fixture)).map((row) => row.ts)).toEqual([
+      "100.000100",
+      "100.000900",
+    ]);
+  });
+
+  test("a delete mark of a message an engagement points at outlives the unknown-mark purge", async () => {
+    const fixture = await agentInSlack();
+    await deliver(fixture, mention("100.000100"));
+    await drain(handler().handle);
+    // The engagement alone points at the message now.
+    await db.delete(schema.conversationInputs);
+    const marks = schema.createPostgresSlackSourceMarkStore(db);
+    for (const ts of ["100.000100", "100.000900"]) {
+      await marks.markDeleted({
+        workspaceId: fixture.workspaceId,
+        teamId: TEAM,
+        channelId: CHANNEL,
+        ts,
+        at: new Date(),
       });
     }
     await Bun.sleep(5);
