@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **비공개 Slack 채널에서 이 릴리스 전에 만든 세션을 `private_channel`로 옮기는 운영자 명령 `private-channel-sessions.ts`가 생기고, 채널을 공개↔비공개로 바꾸면 그 채널의 binding과 세션이 따라 옮겨진다**(JeongJaeSoon/werft#PR). migration은 없다. 명령을 돌리기 전까지 옛 세션은 지금처럼 `workspace`로 읽히고, 새 세션만 `private_channel`로 생긴다.
+- **비공개 Slack 채널에서 이 릴리스 전에 만든 세션을 `private_channel`로 옮기는 운영자 명령 `private-channel-sessions.ts`가 생기고, 채널을 공개↔비공개로 바꾸면 그 채널의 binding과 세션이 따라 옮겨진다**(JeongJaeSoon/werft#2073). migration은 없다. 명령을 돌리기 전까지 옛 세션은 지금처럼 `workspace`로 읽히고, 새 세션만 `private_channel`로 생긴다.
   - **아직 돌리지 않는다.** 비공개 채널에서 만든 사람이 범위를 `private`로 좁혀 둔 세션에도 채널 확인을 먼저 거는 변경이 들어간 릴리스에서 돌린다. 그 전에 돌리면 그런 세션은 채널을 나간 만든 사람과 그 사람의 key에 계속 닿는다.
   - 순서: api 컨테이너에서 `bun run apps/control-host/src/api/private-channel-sessions.ts plan`으로 세션마다 못 보게 될 사람 수(`people_losing`)와 API key로 만든 턴 수(`key_turns`)를 보고, `apply`로 옮긴다. `--workspace <id>`나 `--agent <id>`로 하나만 고를 수 있다. 결과는 한 줄 JSON이고, 다시 돌려도 더 옮기는 것이 없다.
   - 보이는 변화: 옮긴 세션은 API key(개인 key·에이전트 key 모두)의 목록에서 빠지고 상세가 `404`다. 채널을 나간 만든 사람, 채널 멤버가 아닌 owner·admin, Slack을 연결하지 않은 멤버, 이름으로 공유받은 사람도 못 본다. 그 세션을 key로 폴링하던 연동은 끊긴다. 이름 공유 줄은 지우지 않지만 효력이 없다.
