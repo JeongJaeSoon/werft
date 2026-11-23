@@ -7,9 +7,9 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { fillSessionParents } from "./conversations/session-parents.ts";
 import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
-import { fillSessionParents } from "./conversations/session-parents.ts";
 import { makeFixtureRelease, TEST_MODEL } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;

@@ -4,10 +4,10 @@ import type { PGlite } from "@electric-sql/pglite";
 import type { ConversationId } from "@werft-ai/contracts";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle } from "drizzle-orm/pglite";
+import { fillSessionParents } from "./conversations/session-parents.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
-import { fillSessionParents } from "./conversations/session-parents.ts";
 import { makeFixtureRelease, TEST_MODEL } from "./testing/spec-pins.ts";
 
 /**
