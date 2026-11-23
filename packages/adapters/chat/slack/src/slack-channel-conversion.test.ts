@@ -48,7 +48,12 @@ function handler(
   const handle = createSlackChannelConversionHandler({
     agents: options.agents ?? resolved,
     bindings: {
-      channelKindChanged: async (place, kind): Promise<ChannelKindChanged> => {
+      channelKindChanged: async (
+        place,
+        kindNow,
+      ): Promise<ChannelKindChanged | null> => {
+        const kind = await kindNow();
+        if (kind === null) return null;
         calls.push([place, kind]);
         return {
           binding: "unchanged",
@@ -127,7 +132,8 @@ describe("channel conversion handler", () => {
     const h = createSlackChannelConversionHandler({
       agents: resolved,
       bindings: {
-        channelKindChanged: async () => {
+        channelKindChanged: async (_place, kindNow) => {
+          await kindNow();
           throw new Error("not reached");
         },
       },

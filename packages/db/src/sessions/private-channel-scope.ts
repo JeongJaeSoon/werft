@@ -74,6 +74,20 @@ const linkedSessionIds = (place: ChannelSessionPlace) => sql`
     AND l.agent_id = ${lower(place.agentId)}::uuid
     AND b.surface_kind IN ('public_channel', 'private_channel')`;
 
+/**
+ * Locks the sessions linked from the place's channel threads, in id order.
+ * The session row comes before its share, as a share change takes them
+ * (setShare), so scopes read after this see any change that held them.
+ */
+export async function lockChannelSessions(
+  tx: Database,
+  place: ChannelSessionPlace,
+): Promise<void> {
+  await tx.execute(sql`
+    SELECT id FROM sessions WHERE id IN (${linkedSessionIds(place)})
+    ORDER BY id FOR UPDATE`);
+}
+
 /** The sessions linked from the place's channel threads, each once. */
 export async function channelSessions(
   db: Database,
@@ -226,11 +240,7 @@ export async function moveChannelSessionScope(
   place: ChannelSessionPlace,
   kind: ChannelKindNow,
 ): Promise<ChannelScopePlan> {
-  // The session rows before their shares, as a share change takes them
-  // (setShare), so the scopes are read after any change holding them.
-  await tx.execute(sql`
-    SELECT id FROM sessions WHERE id IN (${linkedSessionIds(place)})
-    ORDER BY id FOR UPDATE`);
+  await lockChannelSessions(tx, place);
   const rows = await channelSessions(tx, place);
   const usable = usableChannel(place);
   let conversationId = usable ? await channelConversationId(tx, place) : null;

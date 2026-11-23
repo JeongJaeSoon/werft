@@ -290,13 +290,19 @@ async function run(
   let unchanged = 0;
   for (const place of places) {
     const ids = { agent_id: place.agentId, channel_id: place.channelId };
-    const read = await slack.kindOf(place);
-    if ("unconfirmed" in read) {
-      unconfirmedChannels.push({ ...ids, reason: read.unconfirmed });
-      continue;
-    }
     if (command.command === "apply") {
-      const changed = await bindings.channelKindChanged(place, read.kind);
+      let reason = "failed";
+      // Asked inside the move, after its lock on the channel.
+      const changed = await bindings.channelKindChanged(place, async () => {
+        const now = await slack.kindOf(place);
+        if ("kind" in now) return now.kind;
+        reason = now.unconfirmed;
+        return null;
+      });
+      if (changed === null) {
+        unconfirmedChannels.push({ ...ids, reason });
+        continue;
+      }
       if (changed.binding !== "unchanged") {
         bindingChanges.push({ ...ids, binding: changed.binding });
       }
@@ -317,6 +323,11 @@ async function run(
       }
       keptPrivate += changed.keptPrivate.length;
       unchanged += changed.unchanged.length;
+      continue;
+    }
+    const read = await slack.kindOf(place);
+    if ("unconfirmed" in read) {
+      unconfirmedChannels.push({ ...ids, reason: read.unconfirmed });
       continue;
     }
     const { rows, plan } = await readChannelScopePlan(db, place, read.kind);

@@ -2,6 +2,7 @@ import { SLACK_CHANNEL_CONVERSION_SUBTYPES } from "@werft-ai/contracts";
 import {
   type AgentIdentityStore,
   agentForSlackEvent,
+  type ChannelKindNow,
   type SurfaceBindingStore,
 } from "@werft-ai/platform";
 import { z } from "zod";
@@ -48,15 +49,31 @@ export function createSlackChannelConversionHandler(deps: {
       parsed.data.subtype === "channel_convert_to_private"
         ? "private_channel"
         : "public_channel";
-    const token = await deps.botToken(claim.workspaceId, claim.slackAppId);
-    // A failed read throws, and the inbox tries the event again.
-    const kind =
-      token === null
-        ? named === "private_channel"
-          ? named
-          : null
-        : await deps.slack.channelKind(token, parsed.data.channel);
-    if (kind !== "private_channel" && kind !== "public_channel") {
+    // Asked inside the move, after its lock on the channel. A failed read
+    // throws, and the inbox tries the event again.
+    let applied: ChannelKindNow | null = null;
+    const kindNow = async () => {
+      const token = await deps.botToken(claim.workspaceId, claim.slackAppId);
+      const kind =
+        token === null
+          ? named === "private_channel"
+            ? named
+            : null
+          : await deps.slack.channelKind(token, parsed.data.channel);
+      applied = kind === "dm" ? null : kind;
+      return applied;
+    };
+    const changed = await deps.bindings.channelKindChanged(
+      {
+        workspaceId: agent.workspaceId,
+        agentId: agent.agentId,
+        installationId: agent.installationId,
+        teamId: claim.teamId,
+        channelId: parsed.data.channel,
+      },
+      kindNow,
+    );
+    if (changed === null) {
       deps.logger.info(
         "Slack channel conversion not confirmed; left as it was",
         {
@@ -68,21 +85,11 @@ export function createSlackChannelConversionHandler(deps: {
       );
       return;
     }
-    const changed = await deps.bindings.channelKindChanged(
-      {
-        workspaceId: agent.workspaceId,
-        agentId: agent.agentId,
-        installationId: agent.installationId,
-        teamId: claim.teamId,
-        channelId: parsed.data.channel,
-      },
-      kind,
-    );
     deps.logger.info("Slack channel kind changed; sessions followed", {
       event: "slack.channel_kind_changed",
       agent_id: agent.agentId,
       channel_id: parsed.data.channel,
-      channel_kind: kind,
+      channel_kind: applied,
       binding: changed.binding,
       sessions_moved: changed.moves.length,
       sessions_skipped: changed.skipped.length,

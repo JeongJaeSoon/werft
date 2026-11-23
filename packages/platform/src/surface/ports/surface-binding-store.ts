@@ -259,8 +259,10 @@ export interface SurfaceBindingStore {
    * when no binding changed.
    */
   /**
-   * Slack says the channel is now `kind` (a conversion event, or the
-   * operator command asking Slack). In one transaction: a live binding still
+   * What the channel is now, as `kindNow` asks Slack inside the transaction
+   * after a lock on the channel, so of two conversions racing the later read
+   * is the one written (a conversion event, or the operator command). Null
+   * when `kindNow` cannot tell: nothing changes. In one transaction: a live binding still
    * of the other kind follows, a public one turned private waiting for
    * approval (reason `channel_now_private`), a private one turned public
    * ready (a `left` one stays, its kind checked by the table); then the
@@ -269,8 +271,8 @@ export interface SurfaceBindingStore {
    */
   channelKindChanged(
     place: ChannelSessionPlace,
-    kind: ChannelKindNow,
-  ): Promise<ChannelKindChanged>;
+    kindNow: () => Promise<ChannelKindNow | null>,
+  ): Promise<ChannelKindChanged | null>;
   channelDeleted(
     installationId: string,
     channelId: string,

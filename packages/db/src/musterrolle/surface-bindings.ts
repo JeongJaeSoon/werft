@@ -29,7 +29,10 @@ import {
   slackInstallations,
   surfaceBindings,
 } from "../schema.ts";
-import { moveChannelSessionScope } from "../sessions/index.ts";
+import {
+  lockChannelSessions,
+  moveChannelSessionScope,
+} from "../sessions/index.ts";
 import { rowsOf } from "../statement-rows.ts";
 import { callerHoldsRight } from "./agent-identities.ts";
 import { lockedRole } from "./api-keys.ts";
@@ -462,7 +465,8 @@ export function createPostgresSurfaceBindingStore(
         : null,
     recordJoin: (installationId, channelId, bindingId, at, kind) =>
       recordJoin(db, installationId, channelId, bindingId, at, kind),
-    channelKindChanged: (place, kind) => channelKindChanged(db, place, kind),
+    channelKindChanged: (place, kindNow) =>
+      channelKindChanged(db, place, kindNow),
     channelDeleted: (installationId, channelId, at) =>
       channelDeleted(db, installationId, channelId, at),
     channelNotFound: (installationId, channelId, askedAt) =>
@@ -1064,9 +1068,18 @@ const ACTIVE_OR_LEFT = new Set(["ready", "pending_approval", "left"]);
 async function channelKindChanged(
   db: Database,
   place: ChannelSessionPlace,
-  kind: ChannelKindNow,
-): Promise<ChannelKindChanged> {
+  kindNow: () => Promise<ChannelKindNow | null>,
+): Promise<ChannelKindChanged | null> {
   return db.transaction(async (tx) => {
+    // One change of a channel at a time, Slack asked after the lock: of two
+    // racing, the later read is written. Nothing else is held while asking.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(
+      ${`channel_kind:${place.installationId.toLowerCase()}:${place.channelId}`}, 0))`);
+    const kind = await kindNow();
+    if (kind === null) return null;
+    // The session rows before the binding, as an input takes a session
+    // before what it reads, so no input or archive waits in a cycle on it.
+    await lockChannelSessions(tx, place);
     let binding: ChannelKindChanged["binding"] = "unchanged";
     const current = UUID.test(place.installationId)
       ? await lockBinding(

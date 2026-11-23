@@ -221,7 +221,7 @@ integration(
         for (const place of places) {
           results[place.channelId] = await store.channelKindChanged(
             place,
-            kindOf(place.channelId),
+            async () => kindOf(place.channelId),
           );
         }
         return results;
@@ -316,8 +316,11 @@ integration(
       // and the binding is ready as a public channel's.
       const g1Place = places.find((place) => place.channelId === "G1");
       if (g1Place === undefined) throw new Error("no G1 place");
-      const back = await store.channelKindChanged(g1Place, "public_channel");
-      expect(back.binding).toBe("now_public");
+      const back = await store.channelKindChanged(
+        g1Place,
+        async () => "public_channel",
+      );
+      expect(back?.binding).toBe("now_public");
       expect((await scopes())[open]).toBe("workspace");
       expect((await scopes())[shared]).toBe("workspace");
       expect((await scopes())[narrowed]).toBe("private");
@@ -340,13 +343,16 @@ integration(
         "UPDATE session_shares SET scope = 'private', revision = revision + 1 WHERE session_id = $1",
         [open],
       );
-      const racing = store.channelKindChanged(g1Place, "private_channel");
+      const racing = store.channelKindChanged(
+        g1Place,
+        async () => "private_channel",
+      );
       await Bun.sleep(300);
       await holder.query("COMMIT");
       holder.release();
       const raced = await racing;
-      expect(raced.keptPrivate).toContain(open);
-      expect(raced.moves.map((move) => move.sessionId)).not.toContain(open);
+      expect(raced?.keptPrivate).toContain(open);
+      expect(raced?.moves.map((move) => move.sessionId)).not.toContain(open);
       expect((await scopes())[open]).toBe("private");
       expect((await scopes())[shared]).toBe("private_channel");
 
@@ -362,12 +368,67 @@ integration(
         "UPDATE sessions SET parent_conversation_id = $2 WHERE id = $1",
         [shared, g2Conversation],
       );
-      const widened = await store.channelKindChanged(g1Place, "public_channel");
-      expect(widened.skipped).toEqual([
+      const widened = await store.channelKindChanged(
+        g1Place,
+        async () => "public_channel",
+      );
+      expect(widened?.skipped).toEqual([
         { sessionId: shared, reason: "no_channel_conversation" },
       ]);
       expect((await scopes())[shared]).toBe("private_channel");
       expect((await scopes())[revoked]).toBe("workspace");
+
+      // Two conversions racing: the second waits on the channel before it
+      // asks Slack, so the later answer is the one written.
+      let answerFirst: (kind: "public_channel") => void = () => {};
+      const firstAsked = new Promise<"public_channel">((resolve) => {
+        answerFirst = resolve;
+      });
+      let secondAsked = false;
+      const earlier = store.channelKindChanged(g1Place, () => firstAsked);
+      await Bun.sleep(200);
+      const later = store.channelKindChanged(g1Place, async () => {
+        secondAsked = true;
+        return "private_channel";
+      });
+      await Bun.sleep(300);
+      expect(secondAsked).toBe(false);
+      answerFirst("public_channel");
+      await earlier;
+      expect((await later)?.binding).toBe("now_private");
+      expect((await scopes())[revoked]).toBe("private_channel");
+      const { rows: settledBinding } = await pool.query(
+        "SELECT surface_kind FROM surface_bindings WHERE id = $1",
+        [privateBinding],
+      );
+      expect(settledBinding).toEqual([{ surface_kind: "private_channel" }]);
+
+      // Unconfirmed: nothing is written.
+      const quiet = await totals();
+      expect(await store.channelKindChanged(g1Place, async () => null)).toBe(
+        null,
+      );
+      expect(await totals()).toEqual(quiet);
+
+      // The session rows come before the binding: a transaction holding a
+      // session and then taking the binding is waited for, not deadlocked.
+      const input = await pool.connect();
+      await input.query("BEGIN");
+      await input.query("SELECT id FROM sessions WHERE id = $1 FOR UPDATE", [
+        revoked,
+      ]);
+      const converting = store.channelKindChanged(
+        g1Place,
+        async () => "public_channel",
+      );
+      await Bun.sleep(300);
+      await input.query(
+        "SELECT id FROM surface_bindings WHERE id = $1 FOR UPDATE",
+        [privateBinding],
+      );
+      await input.query("COMMIT");
+      input.release();
+      expect((await converting)?.binding).toBe("now_public");
     });
   },
 );
