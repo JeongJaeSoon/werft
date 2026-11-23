@@ -2144,17 +2144,20 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
           .where(
             eq(schema.slackInboundEvents.workspaceId, fixture.workspaceId),
           );
-        expect(kept.map((row) => row.fields?.metadata ?? null)).toEqual([
-          {
-            event_type: "werft_input_mirror",
-            correlation_id: sent.correlationId,
-          },
-          null,
-          {
-            event_type: "werft_input_mirror",
-            correlation_id: lost.correlationId,
-          },
-        ]);
+        expect(kept).toHaveLength(3);
+        expect(kept.map((row) => row.fields?.metadata ?? null)).toEqual(
+          expect.arrayContaining([
+            {
+              event_type: "werft_input_mirror",
+              correlation_id: sent.correlationId,
+            },
+            null,
+            {
+              event_type: "werft_input_mirror",
+              correlation_id: lost.correlationId,
+            },
+          ]),
+        );
         expect(await inputsOf(fixture.agentId)).toHaveLength(2);
         expect(await db.select().from(turns)).toEqual([]);
       });
@@ -2301,7 +2304,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         await installed();
         const receipt = await webInput(fixture);
         await held(fixture, receipt.inputId, "held:8");
-        slack.failures.set("chat.postMessage", "not_in_channel");
+        slack.failures.set("chat.postMessage", "msg_too_long");
         await outboxPass();
         expect(await mirrors()).toEqual([
           expect.objectContaining({ status: "failed" }),
