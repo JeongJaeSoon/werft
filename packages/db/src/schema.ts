@@ -6268,8 +6268,8 @@ export const skillGitSources = pgTable(
     checkingToken: uuid("checking_token"),
     // The trigger that arrived while a check ran: it runs once more after.
     checkAgain: jsonb("check_again"),
-    // Protected-branch auto-approve: one manager requests, another
-    // consents (or the sole manager, the receipt says so).
+    // Auto-approve: one manager turns it on and fills both user columns;
+    // `requested` is from when a second manager consented.
     autoApprove: text("auto_approve").notNull().default("off"),
     autoApproveRequestedBy: uuid("auto_approve_requested_by").references(
       () => users.id,
@@ -6277,9 +6277,13 @@ export const skillGitSources = pgTable(
     autoApproveConsentedBy: uuid("auto_approve_consented_by").references(
       () => users.id,
     ),
-    // The receipt that last changed settings while on (the consent, a pause,
-    // a resume): evidence a check read under another approves nothing.
+    // The receipt that last changed settings while on (turning it on, a
+    // pause, a resume): a check that read them under another approves nothing.
     autoApproveGrantId: uuid("auto_approve_grant_id"),
+    // The grant again, written only by a host that approves on the fixed-rule
+    // checks alone. A host from before writes the grant and not this, so
+    // what it turned on, or paused and resumed, reads as off.
+    autoApproveChecksGrantId: uuid("auto_approve_checks_grant_id"),
     createdBy: uuid("created_by")
       .notNull()
       .references(() => users.id),

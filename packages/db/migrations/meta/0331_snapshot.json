@@ -1,5 +1,5 @@
 {
-  "id": "d7a37834-cebc-4a1e-b033-517cc4a0fb28",
+  "id": "a35323ff-c07f-43d7-8c97-030dc8aadba2",
   "prevId": "f64ab5ac-6c42-4896-8c14-187894b7610d",
   "version": "7",
   "dialect": "postgresql",
@@ -3916,12 +3916,6 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
-        },
-        "unknown_at": {
-          "name": "unknown_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -3936,22 +3930,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "budget_reservations_unknown_idx": {
-          "name": "budget_reservations_unknown_idx",
-          "columns": [
-            {
-              "expression": "account_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"budget_reservations\".\"state\" = 'reserved' AND \"budget_reservations\".\"unknown_at\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5487,12 +5465,6 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
-        },
-        "unknown_at": {
-          "name": "unknown_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -5538,22 +5510,6 @@
           ],
           "isUnique": false,
           "where": "\"conversation_calls\".\"state\" = 'reserved'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "conversation_calls_in_flight_started_idx": {
-          "name": "conversation_calls_in_flight_started_idx",
-          "columns": [
-            {
-              "expression": "started_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"conversation_calls\".\"state\" = 'in_flight' AND \"conversation_calls\".\"unknown_at\" IS NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -15778,6 +15734,12 @@
         },
         "auto_approve_grant_id": {
           "name": "auto_approve_grant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "auto_approve_checks_grant_id": {
+          "name": "auto_approve_checks_grant_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
