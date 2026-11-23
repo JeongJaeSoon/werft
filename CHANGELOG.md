@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **migration `0325_link_posting`이 Slack 스레드의 게시 설정을 `session_links`의 칸 셋(`report_mode`·`mirror_instructions`·`post_prompts`)으로 나누고, 채널 binding에 `report_mode` 기본값 `per_step`을 더한다**(JeongJaeSoon/werft#TBD). 따로 할 일은 없고, Slack에 올라가는 글의 종류와 횟수는 그대로다.
+- **migration `0325_link_posting`이 Slack 스레드의 게시 설정을 `session_links`의 칸 셋(`report_mode`·`mirror_instructions`·`post_prompts`)으로 나누고, 채널 binding에 `report_mode` 기본값 `per_step`을 더한다**(JeongJaeSoon/werft#2052). 따로 할 일은 없고, Slack에 올라가는 글의 종류와 횟수는 그대로다.
   - outbox는 이제 `visibility` 대신 새 칸을 본다. 답·실패·결과 알림은 `report_mode`(비면 채널 값), 웹·API 지시 거울은 `mirror_instructions`, 승인 카드·질문은 `post_prompts`다.
   - `full` link는 그대로 두고(기본값이 같은 뜻), `summary` link는 api 기동 때 도는 정리가 `none`·`false`·`false`로 옮긴다. 로그 `Summary session links moved`. 이 릴리스까지 `summary` link를 만드는 길은 없었다.
   - 칸을 더하기만 하므로 지원 창 안의 이미지로 되돌려도 된다. `visibility`는 뒤의 릴리스가 지운다.
