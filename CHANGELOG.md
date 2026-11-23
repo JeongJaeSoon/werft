@@ -14,6 +14,12 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **사람이 고른 적 없는 빈 값은 이제 GitHub push 승인을 묻지 않는다. 새 에이전트는 사람이 승인을 켜기 전까지 승인 없이 push한다**(JeongJaeSoon/werft#2061). migration은 없고 저장된 설정은 바꾸지 않는다. 판정을 읽는 방식만 바뀐다.
+  - 승인 없음으로 바뀌는 것: GitHub 설정을 저장하지 않은 에이전트와 github 설정이 없는 release(핀이 `push_approval: false`인 release 포함), 첨부 저장소 push 정책이 비어 있는(NULL) 설정. 에이전트 GitHub 탭과 `GET /v1/agents/{id}/github`의 `push_attached`도 이 경우 `allow`로 보인다.
+  - 그대로인 것: 사람이 켠 **push 전 사람 승인**, 정책 `ask`·`deny`, release 핀의 `push_approval: true`, 읽을 수 없는 설정(계속 사람에게 묻는다), push 승인과 정책 중 더 엄격한 쪽을 따르는 규칙.
+  - 올리는 즉시 이미 도는 세션의 다음 push부터 적용된다. 데모 설치에서는 25개 에이전트(NULL 행 9, 설정 없음 16)가 승인 없이 push하게 된다. 사람 승인을 계속 받을 에이전트는 올리기 전에 GitHub 탭에서 **push 전 사람 승인**을 켜고 저장한다.
+  - 지원 창 안의 옛 이미지로 되돌리면 빈 값이 다시 사람 승인으로 읽힌다(더 엄격해질 뿐이다).
+
 - **migration `0329_slack_outbox_voided_by_delete`가 outbox 상태 `voided_by_delete`와 칸 `sources_turn`을 더하고, Slack에서 지운 글에 걸린 답과 턴을 막는다**(JeongJaeSoon/werft#2058). 따로 할 일은 없고, 지운 글이 없는 Slack 멘션의 답과 웹·API 세션의 동작은 그대로다.
   - 출처(물려받은 것 포함)에 지운 글(묘비 포함)이 든 outbox 줄은 보내기 직전에 `voided_by_delete`(`error_code` `source_deleted`)로 끝나고 나가지 않는다. slack 역할이 `warn` 로그 `Slack send voided: a source was deleted`를 남긴다. 보내기 시작한 뒤의 삭제는 나간 글을 그대로 두고, 수정은 아무것도 막지 않는다.
   - 지운 글로는 세션을 만들거나 턴을 넣지 않는다. Slack에는 안내를 올리지 않고 `warn` 로그 `Slack input refused by the session`(`code` `SOURCE_DELETED`)만 남는다.
