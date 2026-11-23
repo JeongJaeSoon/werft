@@ -1049,6 +1049,36 @@ describe("Slack events service", () => {
     expect(JSON.stringify(kept[0])).not.toContain("1234");
   });
 
+  test("channel archive, rename and delete events are not subscribed: each is dropped unread", async () => {
+    const w = world();
+    await w.install();
+    w.readyChannels.set("C0LIFE", "public_channel");
+    for (const fields of [
+      { type: "channel_archive", channel: "C0LIFE", user: "U0P" },
+      { type: "channel_unarchive", channel: "C0LIFE", user: "U0P" },
+      { type: "group_archive", channel: "G0LIFE" },
+      { type: "group_unarchive", channel: "G0LIFE" },
+      {
+        type: "channel_rename",
+        channel: { id: "C0LIFE", name: "renamed", created: 1 },
+      },
+      {
+        type: "group_rename",
+        channel: { id: "G0LIFE", name: "renamed", created: 1 },
+      },
+      { type: "channel_deleted", channel: "C0LIFE" },
+      { type: "group_deleted", channel: "G0LIFE" },
+    ]) {
+      expect(
+        await w.service.receive(
+          w.signed(
+            w.event(fields, { eventId: `Ev${fields.type.replace("_", "")}` }),
+          ),
+        ),
+      ).toMatchObject({ status: "dropped", reason: "unsupported_event" });
+    }
+  });
+
   test("app_uninstalled and tokens_revoked revoke the install", async () => {
     for (const fields of [
       { type: "app_uninstalled" },
