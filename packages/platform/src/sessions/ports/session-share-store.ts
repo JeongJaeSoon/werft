@@ -17,19 +17,21 @@ export type SessionViewer = {
   /** The agent an agent key reaches; inside that agent (agent-rbac (b)). */
   keyAgentId?: string | null;
   /**
-   * The conversations of the private channels whose `private_channel`
-   * sessions the viewer sees: a person of the agent who is a member of the
+   * The conversations of the private channels whose sessions the viewer
+   * may pass the door of: a person of the agent who is a member of the
    * channel now, as the policy judged it for this request. Absent or empty,
    * every such session is hidden; a key never has any.
    */
   privateChannels?: readonly string[];
 };
 
-/** Where a `private_channel` session came from. */
+/** The private channel a session behind its door came from (decision 26). */
 export type PrivateChannelPlace = {
   conversationId: string;
   agentId: string;
   channelId: string;
+  /** No binding names the channel's kind: held private all the same. */
+  kindUnknown?: true;
 };
 
 /** Who made a session. A null user is a key's session (D21). */
@@ -106,8 +108,10 @@ export interface SessionShareStore {
   ): Promise<boolean>;
   originOf(ownerId: string, sessionId: string): Promise<SessionOrigin | null>;
   /**
-   * The private channels `private_channel` sessions came from: that
-   * session's, or with a null id every one of the owner's.
+   * The private channels of the sessions behind one's door (a
+   * `private_channel` share, or a parent conversation that is a private
+   * channel, whatever the share): that session's, or with a null id every
+   * one of the owner's.
    */
   privateChannels(
     ownerId: string,

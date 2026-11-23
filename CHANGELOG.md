@@ -14,6 +14,14 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **비공개 Slack 채널에서 생긴 세션은 공유 범위와 상관없이 채널 문을 먼저 지난다. 그래서 채널을 나간 만든 사람은 자기 `private` 세션을 못 보고, API key로는 그 세션에 닿지 않는다**(JeongJaeSoon/werft#2081). migration은 없고 따로 할 일도 없다. `share_scope` 값은 바뀌지 않는다.
+  - 세션의 부모 대화가 비공개 채널이면(그 워크스페이스에 있는 그 채널의 binding 가운데 종류를 아는 것의 `surface_kind`. 에이전트와 상관없이 보고, 살아 있는 binding을 먼저 보며, 그중 하나라도 비공개면 비공개다) 그 에이전트를 쓸 수 있는 지금 채널 멤버만 문을 지나고, 그다음 범위의 원래 규칙을 함께 본다. `private`는 만든 사람 본인, `people`·`team`은 지목된 사람, `workspace`는 워크스페이스 규칙이다. `private_channel` 세션은 지금과 같다.
+  - 보이는 변화: 비공개 채널의 `private` 세션은 채널을 나간 만든 사람도, 다른 채널 멤버도 목록에서 못 보고 상세가 `404`다. API key(개인 key·에이전트 key 모두)로는 읽기·쓰기·승인이 모두 `404`이고 판정 기록의 이유는 `private_channel_key`다. 공유를 넓혀도(`private`→`workspace` 등) 채널 밖 사람에게는 보이지 않고, 채널을 나간 만든 사람은 공유도 바꾸지 못한다(`404`).
+  - 이 릴리스 전에 비공개 채널에서 만든 `workspace`·`people`·`team` 세션도 같은 문을 지난다. 채널 밖의 워크스페이스 멤버와 key는 더 이상 보지 못한다(`private_channel`로 옮기기 전이어도 같다).
+  - binding이 없어 종류를 모르는 채널의 세션은 비공개로 본다. 그런 채널이 걸린 판정마다 `warn` 로그 `Channel kind unknown; held private`(`event` `session.private_channel.kind_unknown`, `conversation_count`)를 남긴다.
+  - 공개 채널·DM·웹·API로 만든 세션은 그대로다.
+  - 지원 창 안의 옛 이미지로 되돌리면 옛 판정(`private_channel` 범위만 채널 문을 지남)으로 돌아간다. 그동안 나간 만든 사람과 key가 다시 자기 `private` 세션에 닿는다.
+
 - **비공개 Slack 채널에서 이 릴리스 전에 만든 세션을 `private_channel`로 옮기는 운영자 명령 `private-channel-sessions.ts`가 생기고, 채널을 공개↔비공개로 바꾸면 그 채널의 binding과 세션이 따라 옮겨진다**(JeongJaeSoon/werft#2073). migration은 없다. 명령을 돌리기 전까지 옛 세션은 지금처럼 `workspace`로 읽히고, 새 세션만 `private_channel`로 생긴다.
   - **아직 돌리지 않는다.** 비공개 채널에서 만든 사람이 범위를 `private`로 좁혀 둔 세션에도 채널 확인을 먼저 거는 변경이 들어간 릴리스에서 돌린다. 그 전에 돌리면 그런 세션은 채널을 나간 만든 사람과 그 사람의 key에 계속 닿는다.
   - 순서: api 컨테이너에서 `bun run apps/control-host/src/api/private-channel-sessions.ts plan`으로 세션마다 못 보게 될 사람 수(`people_losing`)와 API key로 만든 턴 수(`key_turns`)를 보고, `apply`로 옮긴다. `--workspace <id>`나 `--agent <id>`로 하나만 고를 수 있다. 결과는 한 줄 JSON이고, 다시 돌려도 더 옮기는 것이 없다.
