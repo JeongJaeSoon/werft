@@ -224,12 +224,18 @@ export async function deleteConversationRecords(
       counts =
         (await db.transaction(async (tx) => {
           const seen = await recordsOf(tx, conversation);
-          // The order every write naming a message takes: its mark lock, then
-          // the conversation (a buffer hold), then the summary row, and the
-          // summary before any buffered row (a Slack channel delete).
+          // Mark locks first, as every write naming a message takes them. Then
+          // the summary row before the conversation: a Slack channel delete
+          // holds the summary while it waits on a buffer hold, which waits on
+          // the conversation.
           for (const ts of seen.touched) {
             await tx.execute(lockSlackSourceMark({ ...place, ts }));
           }
+          await tx.execute(sql`
+            SELECT 1 FROM channel_summaries
+            WHERE (workspace_id, team_id, channel_id) =
+              (${place.workspaceId}::uuid, ${place.teamId}, ${place.channelId})
+            FOR UPDATE`);
           await find(tx, true);
           const admin = await adminOf(tx);
           if (admin === undefined) return null;
