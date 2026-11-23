@@ -749,9 +749,24 @@ export const authorizationResourceSchema = z
      * is identified and still starts one.
      */
     release_id: agentReleaseIdSchema.optional(),
+    /**
+     * The push request a `session.approve` decides: on a private channel's
+     * session, the channel's members decide a push whose requester left.
+     */
+    push_request_id: z.string().min(1).optional(),
   })
   .strict()
   .superRefine((resource, ctx) => {
+    if (
+      resource.push_request_id !== undefined &&
+      (resource.kind !== "session" || resource.id === null)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["push_request_id"],
+        message: "a push request is decided on its session",
+      });
+    }
     for (const key of ["agent_id", "release_id"] as const) {
       if (key === "release_id" && resource.kind === "surface_binding") {
         continue;

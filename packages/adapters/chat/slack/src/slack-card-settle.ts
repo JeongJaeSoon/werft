@@ -18,6 +18,7 @@ import type { SlackInboxLogger } from "./slack-inbox.ts";
 import {
   slackDoneCard,
   slackRejectOnlyCard,
+  slackRequesterLeftCard,
   slackSettledCard,
   slackSettledResult,
 } from "./slack-prompts.ts";
@@ -54,10 +55,54 @@ type DrawnCard = {
 };
 
 /**
- * What the card should show now, from its request as stored. Null when the
- * request is gone from the owner's sessions.
+ * Whether a private channel push's requester left every channel of its
+ * session (the policy's pushRequesterLeft): a member may then decide it.
+ */
+export type SlackPushRequesterLeft = (push: {
+  workspaceId: string;
+  sessionId: string;
+  pushRequestId: string;
+}) => Promise<boolean>;
+
+/**
+ * What the card should show now: its request as stored, and a push still
+ * waiting says so when its requester left the private channel.
  */
 async function drawCard(
+  store: SlackCardSettleStore,
+  claim: SlackCardClaim,
+  deps: { pushSource?: PushSource; requesterLeft?: SlackPushRequesterLeft },
+): Promise<DrawnCard | null> {
+  const drawn = await drawChoice(store, claim, deps.pushSource);
+  const [prefix, , ...rest] = claim.dedupeKey.split(":");
+  if (
+    drawn === null ||
+    (drawn.rendered !== "open" && drawn.rendered !== "reject_only") ||
+    prefix !== "push" ||
+    claim.sessionId === null ||
+    deps.requesterLeft === undefined ||
+    !(await deps.requesterLeft({
+      workspaceId: claim.workspaceId,
+      sessionId: claim.sessionId,
+      pushRequestId: rest.join(":"),
+    }))
+  ) {
+    return drawn;
+  }
+  return {
+    rendered:
+      drawn.rendered === "open"
+        ? "open_requester_left"
+        : "reject_only_requester_left",
+    ...slackRequesterLeftCard(drawn, claim.body.locale ?? DEFAULT_USER_LOCALE),
+  };
+}
+
+/**
+ * What the card should show from its request as stored. Null when the
+ * request is gone from the owner's sessions.
+ */
+async function drawChoice(
   store: SlackCardSettleStore,
   claim: SlackCardClaim,
   pushSource: PushSource | undefined,
@@ -137,6 +182,7 @@ export async function settleSlackCards(deps: {
   botToken: (workspaceId: string, slackAppId: string) => Promise<string | null>;
   logger: SlackInboxLogger;
   pushSource?: PushSource;
+  requesterLeft?: SlackPushRequesterLeft;
   batchSize: number;
   deadline: number;
   only?: { channelId: string; slackTs: string };
@@ -179,7 +225,10 @@ export async function settleSlackCards(deps: {
           deps.pushSource,
         );
         const wanted = verdict.approvable ? "open" : "reject_only";
-        if (wanted !== push.rendered && (await store.markDueById(push.id))) {
+        if (
+          wanted !== push.rendered.replace("_requester_left", "") &&
+          (await store.markDueById(push.id))
+        ) {
           pass.due += 1;
         }
       }
@@ -224,7 +273,7 @@ export async function settleSlackCards(deps: {
           pass.deferred += 1;
           continue;
         }
-        const drawn = await drawCard(store, claim, deps.pushSource);
+        const drawn = await drawCard(store, claim, deps);
         if (drawn === null) {
           deps.logger.warn("Slack card's request is gone; left as it is", ids);
           await store.abandon(claim, "request_gone");

@@ -17,6 +17,7 @@ import type {
   SlackCardFence,
   SlackCardRendered,
   SlackCardSettleStore,
+  SlackOpenPushCard,
   SlackOutboxFence,
   SlackOutboxStore,
   SlackPendingPrompt,
@@ -386,7 +387,12 @@ const SENT_CARD = sql`
   o.kind = 'input_notice' AND o.status = 'sent' AND o.slack_ts IS NOT NULL
   AND o.settle_state IS DISTINCT FROM 'abandoned'`;
 
-const SHOWS_CHOICE = sql`coalesce(o.settle_rendered, 'open') IN ('open', 'reject_only')`;
+// Every SlackCardChoice: the card still waits on its request.
+const CHOICES = sql.raw(
+  "('open', 'reject_only', 'open_requester_left', 'reject_only_requester_left')",
+);
+
+const SHOWS_CHOICE = sql`coalesce(o.settle_rendered, 'open') IN ${CHOICES}`;
 
 const cardFenced = (fence: SlackCardFence) =>
   sql`id = ${fence.id} AND settle_claim_token = ${fence.claimToken}`;
@@ -398,7 +404,7 @@ const CARD_RELEASED = sql`
 // What a drawn card leaves the row: open or reject-only waits for the next
 // change, an end state is final.
 const settledAs = (rendered: SQL) =>
-  sql`CASE WHEN coalesce(${rendered}, 'open') IN ('open', 'reject_only') THEN NULL ELSE 'settled' END`;
+  sql`CASE WHEN coalesce(${rendered}, 'open') IN ${CHOICES} THEN NULL ELSE 'settled' END`;
 
 /** The `slack` role's redraws of posted cards (design slack-approval-ui §4). */
 function createPostgresSlackCardSettleStore(
@@ -436,6 +442,36 @@ function createPostgresSlackCardSettleStore(
       );
     },
 
+    async markPushCardsDueIn({ installationId, channelId, windowMs }) {
+      const inChannel = sql`${SENT_CARD} AND ${SHOWS_CHOICE}
+        AND o.dedupe_key LIKE 'push:%'
+        AND o.installation_id = ${installationId}
+        AND o.channel_id = ${channelId}`;
+      // One statement, so a redraw's finish lands wholly before or after it.
+      // A card being drawn now may have read the membership before this
+      // change: its edit is taken as uncertain (as recordUncertain does), so
+      // finish keeps it owed and it is drawn again a window later.
+      const drawing = sql`o.settle_claim_token IS NOT NULL`;
+      const rows = await rowsOf<Raw>(
+        await db.execute(sql`
+          UPDATE slack_outbox o SET
+            settle_state = 'due',
+            settle_uncertain_rev = settle_uncertain_rev
+              + CASE WHEN ${drawing} THEN 1 ELSE 0 END,
+            settle_uncertain_latest_at = CASE WHEN ${drawing}
+              THEN greatest(settle_uncertain_latest_at, now())
+              ELSE settle_uncertain_latest_at END,
+            settle_next_at = CASE WHEN ${drawing}
+              THEN greatest(settle_next_at,
+                greatest(settle_uncertain_latest_at, now()) + ${ms(windowMs)})
+              ELSE settle_next_at END
+          WHERE ${inChannel}
+            AND (o.settle_state IS NULL OR ${drawing})
+          RETURNING o.id`),
+      );
+      return rows.length;
+    },
+
     async markDueById(id) {
       return (
         (await markDueWhere(sql`o.id = ${id} AND o.settle_state IS NULL`)) > 0
@@ -457,7 +493,7 @@ function createPostgresSlackCardSettleStore(
             AND o.dedupe_key LIKE 'push:%' AND p.state = 'requested'
             AND ${SHOWS_CHOICE}
             AND (s.checkpoint_revision IS DISTINCT FROM p.checkpoint_revision
-              OR o.settle_rendered = 'reject_only')
+              OR o.settle_rendered LIKE 'reject_only%')
             AND (${afterSeq}::bigint IS NULL OR o.seq > ${afterSeq}::bigint)
           ORDER BY o.seq
           LIMIT ${limit}`),
@@ -466,7 +502,7 @@ function createPostgresSlackCardSettleStore(
         id: row.id as string,
         seq: Number(row.seq),
         sessionId: row.session_id as string,
-        rendered: row.rendered as "open" | "reject_only",
+        rendered: row.rendered as SlackOpenPushCard["rendered"],
         sessionCheckpointRevision:
           row.session_revision === null ? null : Number(row.session_revision),
         checkpointRevision: Number(row.checkpoint_revision),
@@ -1392,6 +1428,9 @@ export function createPostgresSlackOutboxStore(
               errorCode: null,
               // A posted card shows its buttons until its request moves on.
               settleRendered: sql`CASE WHEN ${t.kind} = 'input_notice' THEN 'open' ELSE ${t.settleRendered} END`,
+              // A push card is drawn once more at once: its requester may
+              // have left the channel before it was posted.
+              settleState: sql`CASE WHEN ${t.kind} = 'input_notice' AND ${t.dedupeKey} LIKE 'push:%' THEN 'due' ELSE ${t.settleState} END`,
             }
           : outcome.status === "pending"
             ? {

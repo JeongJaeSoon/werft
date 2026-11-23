@@ -45,6 +45,7 @@ import {
   createAuthorizationPolicy,
   createCatalogRegistry,
   createSessionService,
+  pushRequesterLeft,
   registryCatalog,
   repositoryView,
   type SecretKey,
@@ -240,8 +241,31 @@ export function slackSessionHandler(deps: {
     welcomeAgents: agentStore,
     welcomeApps: createPostgresSlackAppStore(db, secretKey),
     welcomeOutbox: createPostgresSlackOutboxStore(db),
+    cards: createPostgresSlackOutboxStore(db).cards,
     logger,
   });
+}
+
+/** The card's label and the policy ask the same question (answer 15). */
+function slackPushRequesterLeft(
+  db: Database,
+  secretKey: SecretKey,
+  environment: Environment,
+  logger: StructuredLogger,
+) {
+  const deps = {
+    sessions: createPostgresSessionShareStore(db),
+    channelMembers: wireSlackChannelMembers({
+      apiUrl: slackApiUrlFrom(environment),
+      appStore: createPostgresSlackAppStore(db, secretKey),
+      secrets: () => createPostgresSecretStore(db, secretKey),
+      store: createPostgresChannelMemberStore(db),
+      logger,
+    }),
+    logger,
+  };
+  return (push: Parameters<typeof pushRequesterLeft>[1]) =>
+    pushRequesterLeft(deps, push);
 }
 
 // The pass child serves pass after pass, so this flips each pass: statuses
@@ -319,6 +343,7 @@ export async function main(
       leaseMs: settings.leaseMs,
       deadline,
       statusesFirst: nextStatusesFirst(),
+      requesterLeft: slackPushRequesterLeft(db, secretKey, environment, logger),
     });
     if (sent.enqueued + sent.claimed + sent.uncertain > 0) {
       logger.info("Slack outbox pass", sent);
