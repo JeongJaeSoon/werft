@@ -21,10 +21,13 @@ import {
 } from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
-import type {
-  ChannelKindNow,
-  ChannelSessionPlace,
-  SecretKey,
+import {
+  type ChannelKindNow,
+  type ChannelSessionPlace,
+  SecretDecryptError,
+  type SecretKey,
+  type SecretStore,
+  type SurfaceAppStore,
 } from "@werft-ai/platform";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -35,6 +38,7 @@ import {
 } from "../wiring/chat-slack.ts";
 import {
   loadSecretKey,
+  MASTER_KEY_MISMATCH,
   MasterKeyError,
   masterKeyConfigured,
 } from "./catalog-config.ts";
@@ -68,7 +72,9 @@ Test only:   MOCK_SLACK_API_URL (default https://slack.com/api; for the mock Sla
 Output: one line of JSON on stdout, ids and counts only.
 Exit codes: 0 done (also when nothing had to change); 1 unexpected error; 2 usage;
             3 incomplete: a channel's kind could not be read (unconfirmed_channels) or a session
-              was not moved (skipped); those are left as they were, run it again after fixing them`;
+              was not moved (skipped); those are left as they were, run it again after fixing them.
+              A reason of master_key_mismatch: the stored bot token does not open with the key
+              this command got; give it the key the API runs with`;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -154,15 +160,19 @@ export type PrivateChannelSessionsIo = {
   openSlack?: (db: Database, key: SecretKey) => PrivateChannelSlack;
 };
 
+/**
+ * Why a channel went unread when the stored bot token does not open: the
+ * command's master key is not the one the API sealed it with.
+ */
+const KEY_MISMATCH = "master_key_mismatch";
+
 /** The Slack the command asks in production: the agent's own app. */
-export function slackOfAgents(
-  db: Database,
-  key: SecretKey,
-  apiUrl: string,
-): PrivateChannelSlack {
-  const apps = createPostgresSlackAppStore(db, key);
-  const secrets = createPostgresSecretStore(db, key);
-  const api = createSlackBotApi({ apiUrl });
+export function slackOfAgents(deps: {
+  apps: Pick<SurfaceAppStore, "findForAgent">;
+  secrets: Pick<SecretStore, "get">;
+  api: ReturnType<typeof createSlackBotApi>;
+}): PrivateChannelSlack {
+  const { apps, secrets, api } = deps;
   const kinds = createSlackChannelKinds({ apps, secrets, slack: api });
   return {
     async kindOf(place) {
@@ -174,6 +184,9 @@ export function slackOfAgents(
         );
         return kind === "dm" ? { unconfirmed: "dm" } : { kind };
       } catch (error) {
+        if (error instanceof SecretDecryptError) {
+          return { unconfirmed: KEY_MISMATCH };
+        }
         const code = (error as { code?: unknown }).code;
         return { unconfirmed: typeof code === "string" ? code : "failed" };
       }
@@ -278,7 +291,11 @@ async function run(
   command: PrivateChannelSessionsCommand,
   db: Database,
   slack: PrivateChannelSlack,
-): Promise<{ exit: number; line: Record<string, unknown> }> {
+): Promise<{
+  exit: number;
+  keyMismatch: boolean;
+  line: Record<string, unknown>;
+}> {
   const bindings = createPostgresSurfaceBindingStore(db);
   const places = await channelSessionPlaces(db, command.filter);
   const unconfirmedChannels: Record<string, string>[] = [];
@@ -383,6 +400,9 @@ async function run(
     exit: incomplete
       ? PRIVATE_CHANNEL_SESSIONS_EXIT.incomplete
       : PRIVATE_CHANNEL_SESSIONS_EXIT.ok,
+    keyMismatch: unconfirmedChannels.some(
+      (channel) => channel.reason === KEY_MISMATCH,
+    ),
     line: {
       outcome:
         command.command === "plan"
@@ -430,9 +450,21 @@ export async function runPrivateChannelSessions(
     try {
       const slack =
         io.openSlack?.(database.db, key) ??
-        slackOfAgents(database.db, key, slackApiUrlFrom(io.env));
-      const { exit, line } = await run(command, database.db, slack);
+        slackOfAgents({
+          apps: createPostgresSlackAppStore(database.db, key),
+          secrets: createPostgresSecretStore(database.db, key),
+          api: createSlackBotApi({ apiUrl: slackApiUrlFrom(io.env) }),
+        });
+      const { exit, keyMismatch, line } = await run(
+        command,
+        database.db,
+        slack,
+      );
       io.out(JSON.stringify(line));
+      // The JSON names the channels; this line says what to do about them.
+      if (keyMismatch) {
+        io.err(`private-channel-sessions: ${MASTER_KEY_MISMATCH}`);
+      }
       return exit;
     } finally {
       await database.close();

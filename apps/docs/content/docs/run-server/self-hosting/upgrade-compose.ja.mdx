@@ -244,6 +244,7 @@ docker compose --profile apps exec -T api bun run apps/control-host/src/api/priv
 
 - 結果は一行の JSON である。作成者が `private` に絞ったセッションは広げず `kept_private` として数える。公開チャンネルのセッションは変わらない(`unchanged`)。
 - コマンドはチャンネルごとにエージェントの bot token で Slack にチャンネルの種類を尋ねる。種類を確認できないチャンネルは `unconfirmed_channels`、移せないセッションは `skipped`(`no_channel_conversation`・`no_workspace`、移す間に範囲が変わったら `share_changed`)に残り、そのままにする。一つでもあれば終了コードは `3` である。直してからもう一度実行する。公開として結び付けたがいまはプライベートのチャンネルの binding は `private_channel` になり、承認をもう一度待つ(`bindings` に `now_private`)。
+- `unconfirmed_channels` の `reason` が `master_key_mismatch` なら、コマンドが受け取った master key では保存した bot token を開けなかったということで、stderr にも `master_key_mismatch` の行が一つ出る。コマンドには API が使う key を渡す。`docker compose exec` で起動したコマンドはコンテナに設定された env だけを受け取る。そのため entrypoint がサーバープロセスにだけ key を渡す構成では、サービスの env に `PLATFORM_SECRET_KEY_FILE` を置くか([設定](/run-server/self-hosting/reference/configuration) の「Secret と AWS values」)、その実行にだけ `-e PLATFORM_SECRET_KEY= -e PLATFORM_SECRET_KEY_FILE=<コンテナ内の key ファイルのパス>` を渡す。前者はコンテナの env に残った別の key を空にする。
 - ボットが抜けたチャンネルはメンバー一覧を読めず `members_unconfirmed: true` になる。移すとそのチャンネルのセッションは誰からも隠れる。残すチャンネルなら、コマンドの前にボットをもう一度招待する。
 - 上げたあとにチャンネルを公開↔プライベートに変えると、binding とそのチャンネルのセッションも一緒に移る。プライベートチャンネルを公開にすると、そのチャンネルの `private_channel` セッションはワークスペースに見える。
 - サポート期間内のイメージに戻してもよい。古いイメージは `private_channel` セッションを作成者にだけ見せる。

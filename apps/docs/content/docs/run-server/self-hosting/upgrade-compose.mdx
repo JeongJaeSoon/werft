@@ -229,6 +229,7 @@ docker compose --profile apps exec -T api bun run apps/control-host/src/api/priv
 
 - 결과는 한 줄 JSON이다. 만든 사람이 `private`로 좁혀 둔 세션은 넓히지 않고 `kept_private`로 센다. 공개 채널 세션은 그대로다(`unchanged`).
 - 명령은 채널마다 에이전트의 bot token으로 Slack에 채널 종류를 묻는다. 종류를 확인하지 못한 채널은 `unconfirmed_channels`, 옮기지 못한 세션은 `skipped`(`no_channel_conversation`·`no_workspace`, 옮기는 사이 범위가 바뀌면 `share_changed`)에 남고 그대로 둔다. 하나라도 있으면 종료 코드 `3`이다. 고친 뒤 다시 돌린다. 공개로 묶였지만 지금 비공개인 채널의 binding은 `private_channel`이 되고 다시 승인을 기다린다(`bindings`에 `now_private`).
+- `unconfirmed_channels`의 `reason`이 `master_key_mismatch`면 명령이 받은 master key로 저장된 bot token이 열리지 않은 것이고, stderr에 `master_key_mismatch` 한 줄이 함께 나온다. 명령은 API가 쓰는 키를 받아야 한다. `docker compose exec`로 띄운 명령은 컨테이너에 설정된 env만 받는다. 그래서 entrypoint가 서버 프로세스에만 키를 넘기는 구성에서는 서비스 env에 `PLATFORM_SECRET_KEY_FILE`을 두거나([설정](/run-server/self-hosting/reference/configuration)의 "Secret과 AWS values"), 그 실행에만 `-e PLATFORM_SECRET_KEY= -e PLATFORM_SECRET_KEY_FILE=<컨테이너 안의 키 파일 경로>`를 넘긴다. 앞의 것은 컨테이너 env에 남은 다른 키를 비운다.
 - 봇이 빠진 채널은 멤버 목록을 읽지 못해 `members_unconfirmed: true`다. 옮기면 그 채널의 세션은 모두에게 숨는다. 남길 채널이면 명령 전에 봇을 다시 초대한다.
 - 올린 뒤 채널을 공개↔비공개로 바꾸면 binding과 그 채널의 세션이 같이 옮겨진다. 비공개 채널을 공개로 바꾸면 그 채널의 `private_channel` 세션은 워크스페이스에 보인다.
 - 지원 창 안의 이미지로 되돌려도 된다. 옛 이미지는 `private_channel` 세션을 만든 사람에게만 보인다.
