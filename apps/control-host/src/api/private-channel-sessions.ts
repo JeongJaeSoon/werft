@@ -17,6 +17,8 @@ import {
   readChannelScopePlan,
   sessions,
   sessionVisibleTo,
+  slackInstallations,
+  surfaceBindings,
   users,
 } from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
@@ -29,7 +31,7 @@ import {
   type SecretStore,
   type SurfaceAppStore,
 } from "@werft-ai/platform";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
   agentSlackBotToken,
@@ -66,12 +68,16 @@ const USAGE = `Usage: bun run apps/control-host/src/api/private-channel-sessions
          made private stays private), a public channel's private_channel ones back to workspace,
          and a binding left of the other kind follows (one turned private waits for approval).
          Running it again changes nothing more.
+  A channel of an agent with no Slack install (SLACK_NOT_INSTALLED) is no_install: Slack cannot
+  be asked, so its binding's kind is used. A private binding, or a channel no binding knows the
+  kind of, narrows to private_channel; a public one is left as it is. Who would stop seeing them
+  cannot be told (people_losing "unconfirmed_no_install"); it is not a reason to exit 3.
   Without --workspace or --agent, every workspace.
 Environment: DATABASE_URL and PLATFORM_SECRET_KEY, or PLATFORM_SECRET_KEY_FILE naming a file that holds it (required)
 Test only:   MOCK_SLACK_API_URL (default https://slack.com/api; for the mock Slack stack)
 Output: one line of JSON on stdout, ids and counts only.
 Exit codes: 0 done (also when nothing had to change); 1 unexpected error; 2 usage;
-            3 incomplete: a channel's kind could not be read (unconfirmed_channels) or a session
+            3 incomplete: a channel's kind could not be read (unconfirmed_channels; no_install is not) or a session
               was not moved (skipped); those are left as they were, run it again after fixing them.
               A reason of master_key_mismatch: the stored bot token does not open with the key
               this command got; give it the key the API runs with`;
@@ -165,6 +171,50 @@ export type PrivateChannelSessionsIo = {
  * command's master key is not the one the API sealed it with.
  */
 const KEY_MISMATCH = "master_key_mismatch";
+
+/** Why a channel went unread when its agent has no Slack install. */
+const NOT_INSTALLED = "SLACK_NOT_INSTALLED";
+
+type BindingKind = "public_channel" | "private_channel" | "unknown";
+
+// The channel's kind as the private channel's door reads it from the
+// bindings (of those that know a kind, a live one first, then a private
+// one); "unknown" when none does, which the door holds private.
+async function bindingKindOf(
+  db: Database,
+  place: ChannelSessionPlace,
+): Promise<BindingKind> {
+  const [row] = await db
+    .select({ kind: surfaceBindings.surfaceKind })
+    .from(surfaceBindings)
+    .innerJoin(
+      slackInstallations,
+      eq(slackInstallations.id, surfaceBindings.installationId),
+    )
+    .where(
+      and(
+        eq(surfaceBindings.workspaceId, place.workspaceId),
+        eq(slackInstallations.teamId, place.teamId),
+        eq(surfaceBindings.externalSurfaceId, place.channelId),
+        isNotNull(surfaceBindings.surfaceKind),
+      ),
+    )
+    .orderBy(
+      sql`(${surfaceBindings.revokedAt} IS NULL) DESC`,
+      sql`(${surfaceBindings.surfaceKind} = 'private_channel') DESC`,
+      sql`${surfaceBindings.updatedAt} DESC`,
+      sql`${surfaceBindings.id} DESC`,
+    )
+    .limit(1);
+  return row?.kind === "public_channel" || row?.kind === "private_channel"
+    ? row.kind
+    : "unknown";
+}
+
+// Without Slack only narrowing is safe: a public binding may be stale, and
+// a session widened on it would already have been seen.
+const noInstallKind = (kind: BindingKind): ChannelKindNow | null =>
+  kind === "public_channel" ? null : "private_channel";
 
 /** The Slack the command asks in production: the agent's own app. */
 export function slackOfAgents(deps: {
@@ -303,21 +353,46 @@ async function run(
   const planned: PlannedSession[] = [];
   const moved: Record<string, string>[] = [];
   const bindingChanges: Record<string, string>[] = [];
+  const noInstallChannels: Record<string, string | number>[] = [];
+  const noInstallSessions: Omit<
+    PlannedSession,
+    "people_losing" | "members_unconfirmed"
+  >[] = [];
+  let noInstallMoved = 0;
+  const noInstall = (
+    ids: Record<string, string>,
+    kind: BindingKind,
+    sessionCount: number,
+  ) =>
+    noInstallChannels.push({
+      ...ids,
+      binding_kind: kind,
+      treated_as: noInstallKind(kind) ?? "unchanged",
+      sessions: sessionCount,
+    });
   let keptPrivate = 0;
   let unchanged = 0;
   for (const place of places) {
     const ids = { agent_id: place.agentId, channel_id: place.channelId };
     if (command.command === "apply") {
       let reason = "failed";
+      // Read before the move's transaction, which holds the connection.
+      const bound = await bindingKindOf(db, place);
       // Asked inside the move, after its lock on the channel.
       const changed = await bindings.channelKindChanged(place, async () => {
         const now = await slack.kindOf(place);
         if ("kind" in now) return now.kind;
         reason = now.unconfirmed;
-        return null;
+        return reason === NOT_INSTALLED ? noInstallKind(bound) : null;
       });
+      if (reason === NOT_INSTALLED) {
+        noInstall(ids, bound, changed?.moves.length ?? 0);
+        noInstallMoved += changed?.moves.length ?? 0;
+      }
       if (changed === null) {
-        unconfirmedChannels.push({ ...ids, reason });
+        if (reason !== NOT_INSTALLED) {
+          unconfirmedChannels.push({ ...ids, reason });
+        }
         continue;
       }
       if (changed.binding !== "unchanged") {
@@ -343,11 +418,22 @@ async function run(
       continue;
     }
     const read = await slack.kindOf(place);
-    if ("unconfirmed" in read) {
+    let kind: ChannelKindNow;
+    let bound: BindingKind | null = null;
+    if ("kind" in read) kind = read.kind;
+    else if (read.unconfirmed === NOT_INSTALLED) {
+      bound = await bindingKindOf(db, place);
+      const narrowed = noInstallKind(bound);
+      if (narrowed === null) {
+        noInstall(ids, bound, 0);
+        continue;
+      }
+      kind = narrowed;
+    } else {
       unconfirmedChannels.push({ ...ids, reason: read.unconfirmed });
       continue;
     }
-    const { rows, plan } = await readChannelScopePlan(db, place, read.kind);
+    const { rows, plan } = await readChannelScopePlan(db, place, kind);
     const live = await bindings.findLiveSlackChannel(
       place.installationId,
       place.channelId,
@@ -355,37 +441,49 @@ async function run(
     if (
       live !== null &&
       live.channelKind !== "dm" &&
-      live.channelKind !== read.kind &&
+      live.channelKind !== kind &&
       live.status !== "left"
     ) {
       bindingChanges.push({
         ...ids,
-        binding: read.kind === "private_channel" ? "now_private" : "now_public",
+        binding: kind === "private_channel" ? "now_private" : "now_public",
       });
+    }
+    const rowOf = new Map<string, ChannelSessionRow>(
+      rows.map((row) => [row.sessionId, row]),
+    );
+    const keyTurns = (move: { sessionId: string; to: string }) =>
+      move.to === "private_channel"
+        ? (rowOf.get(move.sessionId)?.keyTurns ?? 0)
+        : 0;
+    if (bound !== null) {
+      // Members cannot be read without the install: who loses is unknown.
+      noInstall(ids, bound, plan.moves.length);
+      for (const move of plan.moves) {
+        noInstallSessions.push({
+          session_id: move.sessionId,
+          ...ids,
+          from: move.from,
+          to: move.to,
+          key_turns: keyTurns(move),
+        });
+      }
     }
     const narrowing = plan.moves
       .filter((move) => move.to === "private_channel")
       .map((move) => move.sessionId);
-    const { losing, unconfirmed } = await peopleLosing(
-      db,
-      place,
-      narrowing,
-      slack,
-    );
-    const rowOf = new Map<string, ChannelSessionRow>(
-      rows.map((row) => [row.sessionId, row]),
-    );
-    for (const move of plan.moves) {
+    const { losing, unconfirmed } =
+      bound === null
+        ? await peopleLosing(db, place, narrowing, slack)
+        : { losing: new Map<string, number>(), unconfirmed: true };
+    for (const move of bound === null ? plan.moves : []) {
       planned.push({
         session_id: move.sessionId,
         ...ids,
         from: move.from,
         to: move.to,
         people_losing: losing.get(move.sessionId) ?? 0,
-        key_turns:
-          move.to === "private_channel"
-            ? (rowOf.get(move.sessionId)?.keyTurns ?? 0)
-            : 0,
+        key_turns: keyTurns(move),
         members_unconfirmed: move.to === "private_channel" && unconfirmed,
       });
     }
@@ -417,6 +515,21 @@ async function run(
       unchanged,
       skipped,
       unconfirmed_channels: unconfirmedChannels,
+      no_install: {
+        channel_count: noInstallChannels.length,
+        session_count:
+          command.command === "plan"
+            ? noInstallSessions.length
+            : noInstallMoved,
+        kind_unknown_as_private: noInstallChannels.filter(
+          (channel) => channel.binding_kind === "unknown",
+        ).length,
+        ...(command.command === "plan"
+          ? { people_losing: "unconfirmed_no_install" }
+          : {}),
+        channels: noInstallChannels,
+        ...(command.command === "plan" ? { sessions: noInstallSessions } : {}),
+      },
     },
   };
 }
