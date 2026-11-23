@@ -6,13 +6,23 @@
  * throws, so a caller hides what it cannot confirm.
  */
 export interface ChannelMemberCheckable {
-  isMember(input: {
-    workspaceId: string;
-    agentId: string;
-    channelId: string;
-    userId: string;
-  }): Promise<boolean>;
+  isMember(input: ChannelMemberQuestion): Promise<boolean>;
+  /**
+   * isMember with the unknown kept apart: `unconfirmed` whenever isMember
+   * would answer false without knowing. For a check that must not widen
+   * anything on a guess (a requester taken to have left).
+   */
+  membership(input: ChannelMemberQuestion): Promise<ChannelMembership>;
 }
+
+export type ChannelMemberQuestion = {
+  workspaceId: string;
+  agentId: string;
+  channelId: string;
+  userId: string;
+};
+
+export type ChannelMembership = "member" | "not_member" | "unconfirmed";
 
 /** A channel's cached member list; `checkedAt` is the database's clock. */
 export type ChannelMemberRead = {

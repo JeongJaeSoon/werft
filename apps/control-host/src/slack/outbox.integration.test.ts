@@ -3541,6 +3541,129 @@ describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
     expect(await cardRow()).toMatchObject({ settleState: "settled" });
   });
 
+  test("a push whose requester left the private channel says so and keeps its buttons; back in, the line goes (94S-2000)", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    if (!session) throw new Error("no session");
+    const receiptId = randomUUID();
+    await db.insert(receipts).values({
+      id: receiptId,
+      ownerId: session.ownerId,
+      operation: "request_push",
+      targetRef: { kind: "session", id: sessionId },
+    });
+    await db.insert(pushRequests).values({
+      id: randomUUID(),
+      ownerId: session.ownerId,
+      sessionId,
+      repositoryId: "sandbox",
+      checkpointRevision: 1,
+      gitCommit: "a".repeat(40),
+      targetBranch: `agent/${sessionId}`,
+      requestedBy: {
+        principal: { kind: "installation", id: "i" },
+        actor_user_id: null,
+        agent_id: null,
+      },
+      requestReceiptId: receiptId,
+    });
+    let left = true;
+    const requesterLeft = async () => left;
+    // The requester left before the card went out: the same pass draws it
+    // again at once.
+    await outboxPass({ requesterLeft });
+    await outboxPass({ requesterLeft });
+    const [card] = posted();
+    if (!card) throw new Error("no card");
+    const row = await cardRow();
+    const here = {
+      installationId: row.installationId,
+      channelId: row.channelId,
+      windowMs: W,
+    };
+    const drawn = lines(updated()[0]?.blocks ?? []);
+    const buttons = drawn.findIndex((line) => line?.includes("push.reject"));
+    expect(drawn[buttons - 1]).toBe(
+      ":information_source: 요청자가 채널을 나갔어요",
+    );
+    // Still a choice: not settled, and the next member change finds it.
+    expect(await cardRow()).toMatchObject({
+      settleRendered: "open_requester_left",
+      settleState: null,
+    });
+
+    // Back in: a member change elsewhere leaves the card; one in its channel
+    // redraws it without the line.
+    left = false;
+    expect(
+      await cards().markPushCardsDueIn({ ...here, channelId: "C0OTHER" }),
+    ).toBe(0);
+    expect(await cards().markPushCardsDueIn(here)).toBe(1);
+    await settler({ requesterLeft });
+    expect(updated()[1]?.blocks).toEqual(
+      JSON.parse(card.options.blocks ?? "[]"),
+    );
+    expect(await cardRow()).toMatchObject({
+      settleRendered: "open",
+      settleState: null,
+    });
+
+    // A change while the card is being drawn: that edit may have read the
+    // old membership, so finishing it leaves the card owed a window later.
+    expect(await cards().markPushCardsDueIn(here)).toBe(1);
+    const [claim] = await cards().claim({
+      limit: 1,
+      leaseMs: LEASE,
+      graceMs: GRACE,
+      only: { channelId: row.channelId, slackTs: row.slackTs ?? "" },
+    });
+    if (!claim) throw new Error("no claim");
+    expect(await cards().markPushCardsDueIn(here)).toBe(1);
+    expect(await cards().beginSend(claim, 0)).not.toBeNull();
+    expect(
+      await cards().finish(claim, {
+        rendered: "open",
+        uncertainRev: claim.uncertainRev,
+        windowMs: W,
+      }),
+    ).toBe(true);
+    const after = await cardRow();
+    expect(after.settleUncertainLatestAt).not.toBeNull();
+    expect(after.settleNextAt).not.toBeNull();
+
+    // The other order: a redraw that finished just before the change leaves
+    // the card idle, and the change marks it due.
+    await db
+      .update(slackOutbox)
+      .set({
+        settleState: "due",
+        settleUncertainLatestAt: null,
+        settleNextAt: null,
+      })
+      .where(eq(slackOutbox.id, row.id));
+    const [again] = await cards().claim({
+      limit: 1,
+      leaseMs: LEASE,
+      graceMs: GRACE,
+      only: { channelId: row.channelId, slackTs: row.slackTs ?? "" },
+    });
+    if (!again) throw new Error("no claim");
+    expect(await cards().beginSend(again, 0)).not.toBeNull();
+    await cards().finish(again, {
+      rendered: "open",
+      uncertainRev: again.uncertainRev,
+      windowMs: W,
+    });
+    expect(await cardRow()).toMatchObject({ settleState: null });
+    expect(await cards().markPushCardsDueIn(here)).toBe(1);
+    expect(await cardRow()).toMatchObject({ settleState: "due" });
+  });
+
   test("a turn's notice from before the cards ends as one handled line once its turn waits no more", async () => {
     const { sessionId, actorId } = await cardThread();
     const row = await cardRow();
