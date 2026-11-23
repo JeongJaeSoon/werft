@@ -94,5 +94,12 @@ export function createSlackChannelConversionHandler(deps: {
       sessions_moved: changed.moves.length,
       sessions_skipped: changed.skipped.length,
     });
+    // A session linked while it ran was left out; the inbox tries the event
+    // again, and the move, done once, takes the rest.
+    if (changed.skipped.some((skip) => skip.reason === "share_changed")) {
+      throw new Error(
+        "Slack channel conversion left sessions linked meanwhile; tried again",
+      );
+    }
   };
 }

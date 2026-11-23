@@ -151,6 +151,31 @@ describe("channel conversion handler", () => {
     );
   });
 
+  test("a session linked while it ran makes the inbox try the event again", async () => {
+    const h = createSlackChannelConversionHandler({
+      agents: resolved,
+      bindings: {
+        channelKindChanged: async (_place, kindNow) => {
+          await kindNow();
+          return {
+            binding: "now_private",
+            moves: [],
+            keptPrivate: [],
+            unchanged: [],
+            skipped: [{ sessionId: "s-late", reason: "share_changed" }],
+          };
+        },
+      },
+      slack: { channelKind: async () => "private_channel" },
+      botToken: async () => "bot-credential",
+      logger: { info: () => {} },
+      next: async () => {},
+    });
+    await expect(h(conversion("channel_convert_to_private"))).rejects.toThrow(
+      "tried again",
+    );
+  });
+
   test("any other message goes on to the next handler", async () => {
     const h = handler();
     for (const event of [
