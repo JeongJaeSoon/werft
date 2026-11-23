@@ -4,7 +4,7 @@ import type {
   UsageToolCallsFilter,
 } from "@werft-ai/platform";
 import { type SQL, sql } from "drizzle-orm";
-import { servedTitle } from "../conversations/deleted-sources.ts";
+import { servedTitle } from "../conversations/index.ts";
 import {
   decodeToolCallCursor,
   encodeToolCallCursor,

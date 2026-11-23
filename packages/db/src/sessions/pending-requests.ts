@@ -39,7 +39,7 @@ import {
   lockIdempotencyScope,
   UUID,
 } from "../control-shared.ts";
-import { directSourceDeletedAt } from "../conversations/deleted-sources.ts";
+import { directSourceDeletedAt } from "../conversations/index.ts";
 import { DB_NOW, dbNow } from "../db-clock.ts";
 import { toolSummaryContext } from "../push-requests.ts";
 import type { Database } from "../queries.ts";

@@ -264,6 +264,20 @@ Migration `0320_session_parent_conversation` adds `sessions.parent_conversation_
 - The log `Parent conversations filled` records how many were filled. A session that could not be filled is logged as a warning with its id and tried again on the next start.
 - Rolling back to an image inside the support window is safe. Slack sessions made meanwhile have no parent until the next upgraded start fills them.
 
+<a id="slack에서-지운-글이-든-턴을-가리는-릴리스" />
+### The release that withholds turns of deleted Slack messages
+
+There is no migration and nothing to do on upgrade. Nothing stored is erased: the API withholds it when read. A session with no deleted message reads as before.
+
+- A turn whose instruction is a Slack message that was deleted (including the tombstone of a parent with replies) reads with an empty `message` and a null `result` in the turn list and detail (`GET /v1/sessions/{id}/turns`, `…/turns/{turn_id}`) and in an audit read (`POST /v1/sessions/{id}/audit-read`), with the new field `source_deleted_at` holding when it was deleted. `usage` is kept.
+- Its events (`GET /v1/sessions/{id}/events` and SSE, archived events included) carry `source_deleted_at` in the envelope and leave out their text: the reply's text and thinking, a tool call's input, a tool result's text, a question's input and the result's answer. Tool names and ids, how the turn ended and its token count are kept. A client that already streamed them reads them again to see them withheld.
+- That turn's pending requests are not listed by `GET /v1/sessions/{id}/pending-requests`.
+- A title cut or made from the first message (`title_source` `derived` or `generated`) reads as a null `title` in the session list and detail once the first turn is withheld, with the new field `title_deleted_at` holding when it was deleted, and its words find nothing in a search. The session title is empty in the usage screen's tool calls and the achievements list too. A title a person gave is kept.
+- A web input is withheld the same way once the Slack message mirroring it is deleted.
+- A turn that only inherited the message, such as a later turn of the same session, is not withheld.
+- The web console shows "Deleted in Slack" in each withheld place.
+- Rolling back to an image in the support window reads the withheld text again, as what is stored is unchanged.
+
 <a id="웹-입력을-slack-거울과-잇는-릴리스" />
 ### The release that ties web inputs to their Slack mirror
 
@@ -278,19 +292,6 @@ Migration `0334_input_mirror` adds the kind `input_mirror` to `slack_outbox` wit
 - The CHECKs and the foreign key are added `NOT VALID` and validated in their own statements. Rolling back to an image in the support window is safe.
 
 <a id="끝을-모르는-호출을-표시하고-에이전트-스스로-하는-일을-먼저-멈추는-릴리스" />
-### The release that withholds turns of deleted Slack messages
-
-There is no migration and nothing to do on upgrade. Nothing stored is erased: the API withholds it when read. A session with no deleted message reads as before.
-
-- A turn whose instruction is a Slack message that was deleted (including the tombstone of a parent with replies) reads with an empty `message` and a null `result` in the turn list and detail (`GET /v1/sessions/{id}/turns`, `…/turns/{turn_id}`) and in an audit read (`POST /v1/sessions/{id}/audit-read`), with the new field `source_deleted_at` holding when it was deleted. `usage` is kept.
-- Its events (`GET /v1/sessions/{id}/events` and SSE, archived events included) carry `source_deleted_at` in the envelope and leave out their text: the reply's text and thinking, a tool call's input, a tool result's text, a question's input and the result's answer. Tool names and ids, how the turn ended and its token count are kept. A client that already streamed them reads them again to see them withheld.
-- That turn's pending requests are not listed by `GET /v1/sessions/{id}/pending-requests`.
-- A title cut or made from the first message (`title_source` `derived` or `generated`) reads as a null `title` in the session list and detail once the first turn is withheld, with the new field `title_deleted_at` holding when it was deleted, and its words find nothing in a search. The session title is empty in the usage screen's tool calls and the achievements list too. A title a person gave is kept.
-- A web input is withheld the same way once the Slack message mirroring it is deleted.
-- A turn that only inherited the message, such as a later turn of the same session, is not withheld.
-- The web console shows "Deleted in Slack" in each withheld place.
-- Rolling back to an image in the support window reads the withheld text again, as what is stored is unchanged.
-
 ### The release that marks calls of unknown end and stops the agent's own work first
 
 Migration `0332_unknown_budget_end` adds `unknown_at` (nullable), the column that marks a call of unknown end, to `budget_reservations` and `conversation_calls`, and two partial indexes the reconciler reads. The upgrade needs nothing from you. With no budget limit set, calls of people, keys and agents run as before.

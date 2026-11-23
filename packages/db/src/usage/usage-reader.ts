@@ -18,7 +18,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
-import { servedTitle } from "../conversations/deleted-sources.ts";
+import { servedTitle } from "../conversations/index.ts";
 import { INSTALLATION_STORAGE_SCOPE } from "../input-limits.ts";
 import { sessionVisibleTo } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
