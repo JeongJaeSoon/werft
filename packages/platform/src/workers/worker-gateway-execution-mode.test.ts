@@ -75,6 +75,22 @@ describe("restore candidates", () => {
 
   // A digest scheme 1 checkpoint hashed the mode the session ran before a
   // claim decided it again.
+  test("a limited spec recorded as default is offered both lists in that mode", async () => {
+    const response = await claim("default", {
+      spec: testSpecSource({
+        permission_mode: "default",
+        tools: ["Read", "Bash"],
+      }),
+      callerToolsDeny: ["Bash"],
+    });
+    expect(response.runtime_config.tools).toEqual(["Read"]);
+    expect(
+      response.restore_runtime_configs?.map(
+        (config) => `${config.tools.join("+")}/${config.permission_mode}`,
+      ),
+    ).toEqual(expect.arrayContaining(["Read/default", "Read+Bash/default"]));
+  });
+
   test("a spec recorded as default is offered its config in that mode", async () => {
     const response = await claim("default");
     expect(response.runtime_config.permission_mode).toBe("auto");
