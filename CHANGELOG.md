@@ -33,7 +33,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 요청자를 읽을 수 없는 턴, 세션 제목 짓기 호출, 실행 중인 턴이 없는 호출은 세션 한도만 본다. 제목 짓기 호출은 egress proxy가 open에 헤더로 알리므로 api와 egress proxy를 함께 올린다(proxy만 앞선 버전이면 그동안 제목 호출도 턴의 계정에 잡힌다). CHECK를 넓히기만 하므로 지원 창 안의 이미지로 되돌려도 된다.
 
 - **에이전트 앱이 Slack 채널의 보관·보관 해제·이름 변경·삭제 이벤트 여덟 개를 받고, 삭제된 채널의 binding을 새 상태 `gone`으로 둔다**(JeongJaeSoon/werft#2047). migration `0321_channel_lifecycle`이 대화에 채널 상태·이름 칸을 더하고 binding 상태에 `gone`을, inbox 버림 이유에 `channel_gone`을 더한다.
-  - **이미 만든 에이전트 앱은 콘솔 Slack 탭의 "다시 확인"(`POST /v1/agents/{id}/slack/app/events/recheck`)으로 manifest를 다시 보내야** 새 이벤트를 받는다. 보내지 않으면 지금처럼 삭제된 채널의 binding이 `ready`로 남는다(게시가 `channel_not_found`를 받으면 그때 바뀐다). 새 scope는 없다.
+  - **업그레이드 뒤 에이전트마다 콘솔 Slack 탭의 "다시 확인"(`POST /v1/agents/{id}/slack/app/events/recheck`) 또는 API 컨테이너의 `bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>`를 한 번 실행해야** 채널 삭제·보관·이름 변경 이벤트가 온다. 하지 않으면 삭제된 채널의 처리는 게시나 채널 조회가 `channel_not_found`를 받는 조회 실패 경로로만 동작한다(그때까지 binding은 `ready`로 남는다). 새 scope는 없다. 다시 보낸 manifest가 설치에 없는 scope를 요청하면 "다시 확인"도 응답의 `reinstall_required`와 콘솔 안내로 재설치를 알린다(JeongJaeSoon/werft#2056). [업그레이드 안내](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose#slack-채널-이벤트와-manifest-다시-보내기)
   - 삭제된 Slack 채널을 에이전트의 채널 목록에 "삭제됨"으로 보인다. `gone` 채널은 글을 받지도 보내지도 않는다. 살아 있는 채널의 멘션·세션·답은 그대로다.
   - 이벤트를 놓친 채널도 게시나 채널 조회의 `channel_not_found`로 공개 채널은 `gone`, bot이 있던 비공개 채널은 `left`가 된다. 429·Slack 장애·token 오류로는 바뀌지 않는다.
   - `GET`·`PUT /v1/agents/{id}/slack-bindings`의 `status`에 `gone`이 생긴다.

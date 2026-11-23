@@ -136,6 +136,11 @@ From this release on, the API no longer reads `SLACK_EVENTS_PUBLIC_URL`. When ev
 - Changing the saved address does not send it to apps already made. Press Recheck on the agent's Slack tab, or run `slack-app finalize`.
 - Keep the `slack_settings` table when rolling back. Earlier builds do not read it.
 
+<a id="slack-채널-이벤트와-manifest-다시-보내기" />
+### Slack channel events and sending the manifest again
+
+After upgrading, press Recheck on each agent's Slack tab once, or run `bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>` in the API container once per agent. Only then does an app made earlier receive channel deletion, archive and rename events. Without it, a deleted channel is handled only when a post or a channel lookup gets `channel_not_found`. When the manifest sent again asks for a scope the install lacks, Recheck's notice and the command's `warnings` (`reinstall_required`) say to install the app again.
+
 <a id="웹으로-옮긴-실행-한도" />
 ### Execution limits moved to the web
 
