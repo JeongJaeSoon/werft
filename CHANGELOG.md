@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **migration `0335_input_hold`가 웹 입력의 Slack 글 위치(ts)를 기다리는 Slack 줄을 보류하고, 게시가 `uncertain`으로 끝난 입력을 "Slack 반영을 확인하지 못했어요"(`unconfirmed`)로 남긴다**(JeongJaeSoon/werft#PR). 따로 할 일은 없다. 이 릴리스에는 웹 입력을 적는 route가 없어서 새 칸이 채워지는 줄은 생기지 않고, Slack 멘션과 답, 웹·API 세션의 동작은 그대로다.
+- **migration `0335_input_hold`가 웹 입력의 Slack 글 위치(ts)를 기다리는 Slack 줄을 보류하고, 게시가 `uncertain`으로 끝난 입력을 "Slack 반영을 확인하지 못했어요"(`unconfirmed`)로 남긴다**(JeongJaeSoon/werft#2074). 따로 할 일은 없다. 이 릴리스에는 웹 입력을 적는 route가 없어서 새 칸이 채워지는 줄은 생기지 않고, Slack 멘션과 답, 웹·API 세션의 동작은 그대로다.
   - 칸: `slack_outbox.correlation_id`(웹 입력의 Slack 글마다 새로 만드는 상관값), `slack_outbox.held_for_input_id`(그 입력의 글 스레드를 기다리는 줄), `conversation_inputs.slack_mirror`의 새 값 `unconfirmed`.
   - 웹 입력의 Slack 글에는 상관값이 message metadata(`event_type` `werft_input_mirror`)로 실린다. 다른 줄의 `chat.postMessage`에는 지금처럼 metadata가 없다.
   - `uncertain`이면 다시 보내지 않고 새 스레드도 만들지 않는다. 돌아온 자기 앱의 글이 그 상관값을 가진 `uncertain` 거울 하나를 정확히 가리킬 때만 그 글을 거울로 잇는다. 본문으로는 잇지 않는다.
