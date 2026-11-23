@@ -1,5 +1,5 @@
 import { type SQL, sql } from "drizzle-orm";
-import { sourceSetHoldsMark } from "../conversations/turn-sources.ts";
+import { sourceSetHoldsMark } from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
 

@@ -22,7 +22,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { newTurnSources } from "../conversations/turn-sources.ts";
+import { newTurnSources } from "../conversations/index.ts";
 import { dbNow } from "../db-clock.ts";
 import { enqueueEndedIntentNotices } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";

@@ -3,9 +3,9 @@ import type { ConversationInputId } from "@werft-ai/contracts";
 import {
   EMPTY_SOURCE_SET,
   mergeSources,
+  placeSource,
   SOURCE_SET_LIMIT,
   type SourceKey,
-  slackSource,
   sourceSetOf,
   storedSourceSet,
   turnSources,
@@ -14,8 +14,8 @@ import {
 const place = (ts: string) => ({ teamId: "T1", channelId: "C1", ts });
 const input = (n: number) =>
   `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` as ConversationInputId;
-const a = slackSource(place("1.1"));
-const b = slackSource(place("2.2"));
+const a = placeSource(place("1.1"));
+const b = placeSource(place("2.2"));
 
 describe("mergeSources", () => {
   test("is the union in first-seen order, each input once", () => {
@@ -36,7 +36,7 @@ describe("mergeSources", () => {
 
   test("past the limit keeps the first keys and says overflow", () => {
     const many = Array.from({ length: 5 }, (_, i) =>
-      slackSource(place(`${i + 1}.0`)),
+      placeSource(place(`${i + 1}.0`)),
     );
     const merged = mergeSources([many], 3);
     expect(merged.keys).toEqual(many.slice(0, 3));
@@ -67,7 +67,7 @@ describe("turnSources", () => {
 
   test("past the limit the direct keys stay and the oldest inherited ones fill the rest", () => {
     const old = Array.from({ length: 4 }, (_, i) =>
-      slackSource(place(`${i + 1}.0`)),
+      placeSource(place(`${i + 1}.0`)),
     );
     const set = turnSources({
       direct: [b],

@@ -5,7 +5,7 @@ import type {
   UserLocale,
 } from "@werft-ai/contracts";
 import type { PushRequestDisplay } from "../action/ports/push-requests.ts";
-import type { StoredSourceSet } from "../conversations/source-sets.ts";
+import type { StoredSourceSet } from "../conversations/index.ts";
 import type {
   PendingRequestDisplay,
   ToolSummaryContext,

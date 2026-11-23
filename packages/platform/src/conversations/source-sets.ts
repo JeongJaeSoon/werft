@@ -205,6 +205,6 @@ export function turnSources(input: {
 }
 
 /** A Slack message's key before its input row is known. */
-export function slackSource(place: SourcePlace): SourceKey {
+export function placeSource(place: SourcePlace): SourceKey {
   return { inputId: null, slack: place };
 }

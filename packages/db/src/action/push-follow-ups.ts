@@ -5,7 +5,7 @@ import type {
 } from "@werft-ai/contracts";
 import type { PushFollowUpStore } from "@werft-ai/platform";
 import { and, eq, max, or, sql } from "drizzle-orm";
-import { newTurnSources } from "../conversations/turn-sources.ts";
+import { newTurnSources } from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
 import {
   agentReleases,

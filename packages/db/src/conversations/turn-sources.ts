@@ -1,11 +1,11 @@
 import type { ConversationInputId, SlackMessageRef } from "@werft-ai/contracts";
 import {
+  placeSource,
   type SourceKey,
   type SourcePlace,
   type SourceSet,
   type StoredSourceSet,
   sameSource,
-  slackSource,
   sourceSetOf,
   storedSourceSet,
   turnSources,
@@ -54,7 +54,7 @@ async function withInputIds(
     const row = found.find((input) =>
       sameSource(
         key,
-        slackSource({
+        placeSource({
           teamId: input.slack_team_id,
           channelId: input.slack_channel_id,
           ts: input.slack_ts,
@@ -92,7 +92,7 @@ export async function newTurnSources(
     input.slackMessage === null
       ? []
       : [
-          slackSource({
+          placeSource({
             teamId: input.slackMessage.team_id,
             channelId: input.slackMessage.channel_id,
             ts: input.slackMessage.ts,
@@ -195,7 +195,7 @@ export async function recordSourceInput(
   const name = (stored: unknown) => {
     const set = sourceSetOf(stored);
     const fill = (key: SourceKey): SourceKey =>
-      key.inputId === null && sameSource(key, slackSource(input.place))
+      key.inputId === null && sameSource(key, placeSource(input.place))
         ? { ...key, inputId: input.inputId }
         : key;
     return storedSourceSet({

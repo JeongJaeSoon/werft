@@ -38,7 +38,7 @@ import {
 } from "drizzle-orm";
 import { releaseSuperseded } from "../agents.ts";
 import { UUID } from "../control-shared.ts";
-import { outboxSources } from "../conversations/turn-sources.ts";
+import { outboxSources } from "../conversations/index.ts";
 import {
   catalogName,
   createPostgresPushRequests,

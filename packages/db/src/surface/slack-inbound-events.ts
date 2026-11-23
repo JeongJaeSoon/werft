@@ -9,7 +9,7 @@ import { and, eq, gt, sql } from "drizzle-orm";
 import {
   lockSessionForSources,
   recordSourceInput,
-} from "../conversations/turn-sources.ts";
+} from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
 import { slackInboundEvents, slackInstallations } from "../schema.ts";
 import { rowsOf } from "../statement-rows.ts";
