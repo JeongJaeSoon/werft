@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **비공개 Slack 채널에서 시작한 세션은 새 공유 범위 `private_channel`로 생기고, 그 에이전트를 쓸 수 있는 지금 채널 멤버에게만 보인다**(JeongJaeSoon/werft#PRNUM). migration `0325_private_channel_share_scope`가 `session_shares`의 범위 CHECK에 `private_channel`을 더한다. 따로 할 일은 없다.
+- **비공개 Slack 채널에서 시작한 세션은 새 공유 범위 `private_channel`로 생기고, 그 에이전트를 쓸 수 있는 지금 채널 멤버에게만 보인다**(JeongJaeSoon/werft#2053). migration `0325_private_channel_share_scope`가 `session_shares`의 범위 CHECK에 `private_channel`을 더한다. 따로 할 일은 없다.
   - 보이는 변화: API key(개인 key·에이전트 key 모두, key 주인이 멤버여도)로는 이 세션이 목록에 없고 상세·turns·events·outputs·pending-requests가 `404`다. 판정 기록에는 이유 `private_channel_key`로 남는다. 채널을 나간 만든 사람과 멤버가 아닌 owner·admin도 못 본다(사유를 적은 감사 읽기는 된다). 공유 범위를 바꾸려 하면 409(`reason_code: private_channel_session`)다.
   - 멤버 확인은 api와 slack 역할이 bot token으로 `conversations.members`를 읽고 5분 캐시한다(`groups:read`, 새 scope 없음). 확인하지 못하면(429·Slack 장애·bot이 채널 밖) 멤버에게도 숨긴다. 세션 목록은 `private_channel` 세션이 있는 채널마다 한 번씩, 동시에 8개까지 확인한다.
   - 이 릴리스 전에 비공개 채널에서 만든 세션은 그대로 `workspace`다(옮기기는 다음 티켓).
