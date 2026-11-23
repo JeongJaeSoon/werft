@@ -6,9 +6,9 @@ import {
 } from "@werft-ai/contracts";
 import type {
   AgentStore,
-  SlackOutboxEntry,
   SurfaceBindingRecord,
   SurfaceBindingStore,
+  SurfaceOutboxEntry,
 } from "@werft-ai/platform";
 import { createSlackChannelJoiner } from "./slack-channel-join.ts";
 import {
@@ -98,7 +98,7 @@ function world(
   rows: SurfaceBindingRecord[],
   channels: Record<string, Partial<SlackChannelMembership>>,
 ) {
-  const outbox = new Map<string, SlackOutboxEntry>();
+  const outbox = new Map<string, SurfaceOutboxEntry>();
   const releases = new Map([R1, R2].map((release) => [release.id, release]));
   let active = R1.id;
   const bindings: Pick<SurfaceBindingStore, "list" | "setMembership"> = {

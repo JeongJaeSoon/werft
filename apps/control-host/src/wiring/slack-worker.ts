@@ -5,8 +5,8 @@ import type {
   AgentIdentityStore,
   ChannelMemberStore,
   JudgmentBufferStore,
-  SlackCardSettleStore,
   SurfaceBindingStore,
+  SurfaceCardSettleStore,
 } from "@werft-ai/platform";
 import {
   createRowDelivery,
@@ -36,7 +36,7 @@ export interface SlackInboundDeps {
   links: Param<typeof createSlackSessionHandler>["links"];
   bindings: SurfaceBindingStore;
   members: Pick<ChannelMemberStore, "forget">;
-  cards: Pick<SlackCardSettleStore, "markPushCardsDueIn"> | undefined;
+  cards: Pick<SurfaceCardSettleStore, "markPushCardsDueIn"> | undefined;
   settings: Param<typeof createSlackSessionHandler>["settings"];
   botTurns: Param<typeof createSlackSessionHandler>["botTurns"];
   sessionLinks: Param<typeof createSlackSessionHandler>["sessionLinks"];

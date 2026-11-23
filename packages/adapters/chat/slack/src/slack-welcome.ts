@@ -5,10 +5,10 @@ import {
 import type {
   AgentStore,
   ChannelJoinable,
-  SlackAppStore,
-  SlackOutboxEntry,
-  SlackOutboxStore,
+  SurfaceAppStore,
   SurfaceBindingStore,
+  SurfaceOutboxEntry,
+  SurfaceOutboxStore,
   WelcomeOutcome,
 } from "@werft-ai/platform";
 import { messageOf } from "@werft-ai/platform";
@@ -41,7 +41,7 @@ export function deploymentWelcome(input: {
   installationId: string;
   homeBindingId: string;
   channelId: string;
-}): SlackOutboxEntry {
+}): SurfaceOutboxEntry {
   return {
     workspaceId: input.workspaceId,
     agentId: input.agentId.toLowerCase(),
@@ -75,8 +75,8 @@ const WAITING_ON_SLACK = new Set<SlackWelcomeOutcome["status"]>([
 export function createSlackWelcome(deps: {
   agents: Pick<AgentStore, "get" | "releaseSuperseded">;
   bindings: Pick<SurfaceBindingStore, "list">;
-  apps: Pick<SlackAppStore, "findForAgent">;
-  outbox: Pick<SlackOutboxStore, "enqueue">;
+  apps: Pick<SurfaceAppStore, "findForAgent">;
+  outbox: Pick<SurfaceOutboxStore, "enqueue">;
   /** Null without a bot token source: membership is only what was stored. */
   join: ChannelJoinable | null;
   logger: SlackInboxLogger;

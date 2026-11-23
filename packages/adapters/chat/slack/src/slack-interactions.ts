@@ -27,8 +27,8 @@ import type {
   PushActor,
   PushFollowUpStore,
   PushRequestService,
-  SlackOutboxStore,
   SurfaceBindingStore,
+  SurfaceOutboxStore,
 } from "@werft-ai/platform";
 import {
   type AuthorizationPolicy,
@@ -108,7 +108,7 @@ export type SlackInteractionDeps = {
     Required<Pick<SlackBotApi, "updateMessage" | "openView" | "updateView">> &
     Pick<SlackBotSender, "postEphemeral">;
   botToken(workspaceId: string, slackAppId: string): Promise<string | null>;
-  outbox: Pick<SlackOutboxStore, "readerLocale" | "promptCard" | "cards">;
+  outbox: Pick<SurfaceOutboxStore, "readerLocale" | "promptCard" | "cards">;
   /** The web page where a person links their Slack account. */
   connectUrl: string;
   logger: SlackInboxLogger;

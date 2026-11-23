@@ -4,8 +4,8 @@ import {
   type AgentWelcomable,
   agentForSlackEvent,
   type ChannelJoinable,
-  type SlackInboundClaim,
   type SurfaceBindingStore,
+  type SurfaceInboundClaim,
 } from "@werft-ai/platform";
 import { z } from "zod";
 import { SlackApiError, type SlackBotApi } from "./slack-config-api.ts";
@@ -194,7 +194,7 @@ const memberLeftSchema = z.union([
 // join and leave events carry no `ts`; `event_ts` ("<seconds>.<micros>") is
 // the time Slack stamped them, and the envelope's time is the fallback. An
 // integer of microseconds, since a Date would tie two events in one ms.
-export function lifecycleTime(claim: SlackInboundClaim): number | null {
+export function lifecycleTime(claim: SurfaceInboundClaim): number | null {
   const stamp = (claim.payload.event as { event_ts?: unknown } | undefined)
     ?.event_ts;
   const parts =

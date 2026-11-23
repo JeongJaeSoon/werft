@@ -1,8 +1,8 @@
 import { type AgentDetail, DEFAULT_SURFACE_CEILING } from "@werft-ai/contracts";
 import type {
-  SlackAppRecord,
-  SlackOutboxEntry,
+  SurfaceAppRecord,
   SurfaceBindingRecord,
+  SurfaceOutboxEntry,
 } from "@werft-ai/platform";
 import {
   describeAgentWelcomableContract,
@@ -12,7 +12,7 @@ import {
 import { createSlackWelcome } from "./slack-welcome.ts";
 
 // `AgentWelcomable` against `createSlackWelcome` over in-memory stores. The
-// outbox keeps one row per dedupe key, as `SlackOutboxStore.enqueue` says.
+// outbox keeps one row per dedupe key, as `SurfaceOutboxStore.enqueue` says.
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const AGENT = "019a0000-0000-7000-8000-0000000000a1";
 const RELEASE = "rel_2";
@@ -47,7 +47,7 @@ async function subject(): Promise<WelcomeSubject> {
   let superseded = false;
   let installed = true;
   let failing = false;
-  const outbox = new Map<string, SlackOutboxEntry>();
+  const outbox = new Map<string, SurfaceOutboxEntry>();
   const welcome = createSlackWelcome({
     agents: {
       get: async () => {
@@ -61,7 +61,7 @@ async function subject(): Promise<WelcomeSubject> {
     bindings: { list: async () => rows },
     apps: {
       findForAgent: async () =>
-        installed ? ({ id: "slack-app-1" } as SlackAppRecord) : null,
+        installed ? ({ id: "slack-app-1" } as SurfaceAppRecord) : null,
     },
     outbox: {
       async enqueue(entry) {

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomBytes, randomUUID } from "node:crypto";
-import { SecretKey, type SlackInboundEventInput } from "@werft-ai/platform";
+import { SecretKey, type SurfaceInboundEventInput } from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -92,7 +92,7 @@ integration("slack_inbound_events on PostgreSQL", () => {
     const app = await agentApp();
     const inbox = createPostgresSlackInboundEventStore(db);
     const team = slackId("T");
-    const received: SlackInboundEventInput = {
+    const received: SurfaceInboundEventInput = {
       ...event(app, team, "Ev01"),
       status: "received",
       payload: { type: "event_callback", event_id: "Ev01" },
@@ -102,7 +102,7 @@ integration("slack_inbound_events on PostgreSQL", () => {
     expect(await inbox.record(received)).toBe("recorded");
     expect(await inbox.seen(app.appId, "Ev01")).toBe(true);
     expect(await inbox.record(received)).toBe("duplicate");
-    const dropped: SlackInboundEventInput = {
+    const dropped: SurfaceInboundEventInput = {
       ...event(app, team, "Ev02"),
       status: "dropped",
       dropReason: "bot_message",

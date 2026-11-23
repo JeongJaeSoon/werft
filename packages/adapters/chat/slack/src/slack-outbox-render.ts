@@ -1,8 +1,8 @@
 import { DEFAULT_USER_LOCALE, type UserLocale } from "@werft-ai/contracts";
 import type {
-  SlackOutboxClaim,
-  SlackOutboxEntry,
-  SlackUnpostedInstruction,
+  SurfaceOutboxClaim,
+  SurfaceOutboxEntry,
+  SurfaceUnpostedInstruction,
 } from "@werft-ai/platform";
 import { markdownToSlackMrkdwn, markdownToSlackParts } from "./slack-mrkdwn.ts";
 import { escapeSlackControls, isSafeLink } from "./slack-presentation.ts";
@@ -49,7 +49,7 @@ const SLACK_USERNAME_MAX = 80;
  * the name puts it on the text's first line instead.
  */
 export function slackInstructionSender(
-  channel: SlackUnpostedInstruction["channel"],
+  channel: SurfaceUnpostedInstruction["channel"],
   senderName: string | null,
   locale: UserLocale,
 ): string {
@@ -64,13 +64,13 @@ export function slackInstructionSender(
  * What goes to Slack: the body's Markdown as mrkdwn with every control
  * escaped, cut to fit with its link kept whole after it.
  */
-function outboxLink(body: SlackOutboxEntry["body"]): string {
+function outboxLink(body: SurfaceOutboxEntry["body"]): string {
   return body.link_url !== undefined && isSafeLink(body.link_url)
     ? `<${body.link_url}|${SLACK_OUTBOX_MESSAGES[body.locale ?? DEFAULT_USER_LOCALE].link}>`
     : "";
 }
 
-function outboxEscaper(body: SlackOutboxEntry["body"]) {
+function outboxEscaper(body: SurfaceOutboxEntry["body"]) {
   return (value: string) =>
     escapeSlackControls(value, {
       maskedLinks: "expand",
@@ -108,7 +108,7 @@ function sectionPieces(text: string): string[] | null {
  * the table as one line per row.
  */
 export function slackReplyBlocks(
-  body: SlackOutboxEntry["body"],
+  body: SurfaceOutboxEntry["body"],
 ): unknown[] | null {
   const parts = markdownToSlackParts(body.text);
   if (parts === null) return null;
@@ -138,7 +138,7 @@ export function slackReplyBlocks(
   return blocks.length <= 50 ? blocks : null;
 }
 
-export function slackOutboxText(body: SlackOutboxEntry["body"]): string {
+export function slackOutboxText(body: SurfaceOutboxEntry["body"]): string {
   const link = outboxLink(body) === "" ? "" : `\n\n${outboxLink(body)}`;
   const escaped = outboxEscaper(body);
   // Converted before the cut: the loop below re-escapes pieces of this text.
@@ -170,11 +170,11 @@ export function sessionUrl(consoleOrigin: string | null, sessionId: string) {
 }
 
 export function slackOutboxPresentation(
-  claim: Pick<SlackOutboxClaim, "kind" | "body">,
+  claim: Pick<SurfaceOutboxClaim, "kind" | "body">,
 ):
   | {
       kind: "instruction";
-      sender: NonNullable<SlackOutboxEntry["body"]["sender"]>;
+      sender: NonNullable<SurfaceOutboxEntry["body"]["sender"]>;
     }
   | { kind: "blocks"; blocks: unknown[]; fallback: boolean }
   | { kind: "text" } {
@@ -195,7 +195,7 @@ export function slackOutboxPresentation(
 }
 
 export function slackInstructionFallbackText(
-  body: SlackOutboxEntry["body"],
+  body: SurfaceOutboxEntry["body"],
   text: string,
   username: string,
 ): string {

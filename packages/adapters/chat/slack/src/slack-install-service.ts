@@ -18,10 +18,10 @@ import {
   requirePermitted,
   type SecretStore,
   SessionServiceError,
-  type SlackAppRecord,
-  type SlackAppStore,
-  type SlackInstallState,
-  type SlackInstallStore,
+  type SurfaceAppRecord,
+  type SurfaceAppStore,
+  type SurfaceInstallState,
+  type SurfaceInstallStore,
   secretOwnerRef,
 } from "@werft-ai/platform";
 import { slackAppView } from "./slack-app-service.ts";
@@ -141,7 +141,7 @@ const slackCallDetails = (error: SlackApiError) => ({
   ...(error.httpStatus === null ? {} : { http_status: error.httpStatus }),
   ...(error.failure === "slack_error" ? { slack_error: error.code } : {}),
 });
-const appGone = (app: SlackAppRecord) =>
+const appGone = (app: SurfaceAppRecord) =>
   new SessionServiceError(
     "SLACK_APP_GONE",
     "Slack no longer has this agent's app; delete it here and create it again",
@@ -172,8 +172,8 @@ export type SlackInstallService = ReturnType<typeof createSlackInstallService>;
 export function createSlackInstallService(deps: {
   authorization: AuthorizationPolicy;
   /** The three are null when the API runs without a master key. */
-  apps: SlackAppStore | null;
-  states: SlackInstallStore | null;
+  apps: SurfaceAppStore | null;
+  states: SurfaceInstallStore | null;
   secrets: SecretStore | null;
   tokens: SlackConfigTokens | null;
   identities: AgentIdentityStore;
@@ -225,9 +225,9 @@ export function createSlackInstallService(deps: {
   }
 
   function refusalOf(
-    state: SlackInstallState | null,
+    state: SurfaceInstallState | null,
     expected: { workspaceId: string; userId: string; agentId: string },
-    app: SlackAppRecord | null,
+    app: SurfaceAppRecord | null,
   ): StateRefusal | null {
     if (state === null) return "not_found";
     if (state.expiresAt.getTime() <= now().getTime()) return "expired";

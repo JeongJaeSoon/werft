@@ -44,23 +44,12 @@ export const baseline: Baseline = {
   contractsBehaviour: {},
   surfaceActionImports: [],
   directFetch: {},
-  slackFiles: [
-    "ports/slack-app-store.ts",
-    "ports/slack-config-token-store.ts",
-    "ports/slack-inbound-event-store.ts",
-    "ports/slack-install-store.ts",
-    "ports/slack-outbox-store.ts",
-  ],
+  slackFiles: [],
   slackExports: {
     "musterrolle/agent-identity-service.ts": 1,
     "musterrolle/policy.ts": 2,
     "musterrolle/ports/agent-identity-store.ts": 2,
     "musterrolle/ports/workspace-settings.ts": 1,
-    "ports/slack-app-store.ts": 7,
-    "ports/slack-config-token-store.ts": 1,
-    "ports/slack-inbound-event-store.ts": 4,
-    "ports/slack-install-store.ts": 3,
-    "ports/slack-outbox-store.ts": 25,
   },
   testRelativeImports: [
     // The package entry that exports this (`@werft-ai/react/components`)

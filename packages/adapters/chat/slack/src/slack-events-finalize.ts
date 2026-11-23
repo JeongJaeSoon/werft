@@ -1,4 +1,4 @@
-import { SessionServiceError, type SlackAppStore } from "@werft-ai/platform";
+import { SessionServiceError, type SurfaceAppStore } from "@werft-ai/platform";
 import type { SlackAppService } from "./slack-app-service.ts";
 import type {
   SlackFinalizeResult,
@@ -22,7 +22,7 @@ export type SlackEventsFinalizeTarget = Pick<
  */
 export function createSlackEventsFinalize(deps: {
   apps: Pick<SlackAppService, "updateAgentAppManifest">;
-  agents: Pick<SlackAppStore, "manifestAgent">;
+  agents: Pick<SurfaceAppStore, "manifestAgent">;
   publicUrl: () => Promise<string | null>;
 }): (target: SlackEventsFinalizeTarget) => Promise<SlackFinalizeResult> {
   return async (target) => {

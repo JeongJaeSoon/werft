@@ -13,7 +13,7 @@ import {
   type IdentityReader,
   type LinkedSubject,
   SessionServiceError,
-  type SlackPromptCard,
+  type SurfacePromptCard,
 } from "@werft-ai/platform";
 import {
   createSlackInteractionService,
@@ -70,7 +70,7 @@ let flow: "legacy" | "actions" | Error | null;
 let viewUpdateError: Error | null;
 let channelLeft: boolean;
 // null: derived from the request id; undefined: no card row found.
-let posted: SlackPromptCard["display"] | null | undefined;
+let posted: SurfacePromptCard["display"] | null | undefined;
 
 beforeEach(() => {
   calls = [];
@@ -96,7 +96,7 @@ const OTHER_USER = "019a0000-0000-7000-8000-000000000102";
 
 const toolDisplay = () =>
   displayFor("toolu_1") as Extract<
-    SlackPromptCard["display"],
+    SurfacePromptCard["display"],
     { kind: "permission" }
   >;
 
@@ -104,7 +104,7 @@ const toolDisplay = () =>
  * The request as the database holds it once the press landed: what the
  * presser decided, by them; a push as `pushState` says, else approved.
  */
-function displayFor(requestId: string): SlackPromptCard["display"] {
+function displayFor(requestId: string): SurfacePromptCard["display"] {
   const base = {
     decidedByUserId: USER,
     closedReason: null,

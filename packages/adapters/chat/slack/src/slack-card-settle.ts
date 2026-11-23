@@ -1,8 +1,8 @@
 import { DEFAULT_USER_LOCALE } from "@werft-ai/contracts";
 import type {
-  SlackCardClaim,
-  SlackCardRendered,
-  SlackCardSettleStore,
+  SurfaceCardClaim,
+  SurfaceCardRendered,
+  SurfaceCardSettleStore,
 } from "@werft-ai/platform";
 import {
   messageOf,
@@ -49,7 +49,7 @@ const CARD_GONE = new Set([
 const CARD_BAD_BLOCKS = new Set(["invalid_blocks", "msg_blocks_too_long"]);
 
 type DrawnCard = {
-  rendered: SlackCardRendered;
+  rendered: SurfaceCardRendered;
   text: string;
   blocks: unknown[];
 };
@@ -69,8 +69,8 @@ export type SlackPushRequesterLeft = (push: {
  * waiting says so when its requester left the private channel.
  */
 async function drawCard(
-  store: SlackCardSettleStore,
-  claim: SlackCardClaim,
+  store: SurfaceCardSettleStore,
+  claim: SurfaceCardClaim,
   deps: { pushSource?: PushSource; requesterLeft?: SlackPushRequesterLeft },
 ): Promise<DrawnCard | null> {
   const drawn = await drawChoice(store, claim, deps.pushSource);
@@ -103,8 +103,8 @@ async function drawCard(
  * request is gone from the owner's sessions.
  */
 async function drawChoice(
-  store: SlackCardSettleStore,
-  claim: SlackCardClaim,
+  store: SurfaceCardSettleStore,
+  claim: SurfaceCardClaim,
   pushSource: PushSource | undefined,
 ): Promise<DrawnCard | null> {
   const open = {
@@ -177,7 +177,7 @@ export type SlackCardSettlePass = {
  * path calls it for its own card with `only`.
  */
 export async function settleSlackCards(deps: {
-  store: SlackCardSettleStore;
+  store: SurfaceCardSettleStore;
   slack: Required<Pick<SlackBotApi, "updateMessage">>;
   botToken: (workspaceId: string, slackAppId: string) => Promise<string | null>;
   logger: SlackInboxLogger;
@@ -235,7 +235,7 @@ export async function settleSlackCards(deps: {
       if (page.length < deps.batchSize) break;
     }
   }
-  const failed = async (claim: SlackCardClaim, error: string) => {
+  const failed = async (claim: SurfaceCardClaim, error: string) => {
     const attempts = claim.attempts + 1;
     if (attempts >= timing.maxAttempts) {
       await store.abandon(claim, error);

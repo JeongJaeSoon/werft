@@ -4,7 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { SLACK_INBOUND_MAX_ATTEMPTS } from "@werft-ai/contracts";
-import type { SlackInboundEventStore } from "@werft-ai/platform";
+import type { SurfaceInboundEventStore } from "@werft-ai/platform";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "../migrate.ts";
@@ -36,7 +36,7 @@ const conversationKeyOf = (
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
-let inbox: SlackInboundEventStore;
+let inbox: SurfaceInboundEventStore;
 
 beforeAll(async () => {
   client = new PGlite();
@@ -154,7 +154,7 @@ describe("claiming the Slack inbox", () => {
     }
     const other = createPostgresSlackInboundEventStore(db);
     const taken: string[] = [];
-    const worker = async (store: SlackInboundEventStore) => {
+    const worker = async (store: SurfaceInboundEventStore) => {
       for (;;) {
         const batch = await store.claim({ limit: 5, ...LEASE });
         if (batch.length === 0) return;

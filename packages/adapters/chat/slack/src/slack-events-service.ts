@@ -17,15 +17,15 @@ import {
 import type {
   AgentIdentityStore,
   SecretStore,
-  SlackAppStore,
-  SlackInboundEventInput,
-  SlackInboundEventStore,
-  SlackOutboxStore,
+  SurfaceAppStore,
+  SurfaceInboundEventInput,
+  SurfaceInboundEventStore,
+  SurfaceOutboxStore,
 } from "@werft-ai/platform";
 import {
   agentForSlackEvent,
-  type SlackInstallStore,
   type SurfaceBindingStore,
+  type SurfaceInstallStore,
 } from "@werft-ai/platform";
 import {
   SLACK_PERSON_RESET_SUBTYPES,
@@ -114,7 +114,7 @@ export type SlackEventsApp = {
 export type SlackSigningSecrets = ReturnType<typeof createSlackSigningSecrets>;
 
 export function createSlackSigningSecrets(deps: {
-  apps: Pick<SlackAppStore, "findAgentApp">;
+  apps: Pick<SurfaceAppStore, "findAgentApp">;
   secrets: Pick<SecretStore, "get">;
   ttlMs?: number;
   now?: () => number;
@@ -361,14 +361,14 @@ export type SlackEventsService = ReturnType<typeof createSlackEventsService>;
 
 export function createSlackEventsService(deps: {
   signingSecrets: Pick<SlackSigningSecrets, "forAgent">;
-  inbox: SlackInboundEventStore;
-  apps: Pick<SlackAppStore, "setEventsUnlessVerified">;
+  inbox: SurfaceInboundEventStore;
+  apps: Pick<SurfaceAppStore, "setEventsUnlessVerified">;
   identities: Pick<AgentIdentityStore, "resolveSlackEvent">;
-  installs: Pick<SlackInstallStore, "revokeInstallation">;
+  installs: Pick<SurfaceInstallStore, "revokeInstallation">;
   bindings: Pick<SurfaceBindingStore, "findLiveSlackChannel" | "wasRejected">;
   sourceMarks: SlackSourceMarkStore;
   /** Links an uncertain mirror to its post when Slack sends the post back. */
-  mirrorEchoes: Pick<SlackOutboxStore, "matchMirrorEcho">;
+  mirrorEchoes: Pick<SurfaceOutboxStore, "matchMirrorEcho">;
   now?: () => Date;
 }) {
   const now = deps.now ?? (() => new Date());
@@ -660,7 +660,7 @@ export function createSlackEventsService(deps: {
               ),
             }
           : unredacted;
-      const row: SlackInboundEventInput =
+      const row: SurfaceInboundEventInput =
         classified.status === "dropped"
           ? { ...base, ...classified, dropFields: dropFields(envelope.event) }
           : "marked" in classified

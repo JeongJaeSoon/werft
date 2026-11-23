@@ -50,8 +50,8 @@ import {
   registryCatalog,
   repositoryView,
   type SecretKey,
-  type SlackInboundEventStore,
-  type SlackOutboxClaim,
+  type SurfaceInboundEventStore,
+  type SurfaceOutboxClaim,
   settingsView,
   withConsoleRepositories,
 } from "@werft-ai/platform";
@@ -173,7 +173,7 @@ export function slackSessionHandler(deps: {
   leaseMs: number;
   notices: SlackNoticeSink;
   slackApiUrl?: string;
-  inbox?: Pick<SlackInboundEventStore, "renew">;
+  inbox?: Pick<SurfaceInboundEventStore, "renew">;
   /** The pass's catalog, already read. No timer reads it again. */
   catalog?: ReturnType<typeof slackCatalog>;
 }): SlackInboundHandler {
@@ -300,7 +300,7 @@ function slackReaderOutside(
   });
   // The account the row is addressed to, in the row's install: a person
   // who relinked since is not asked about in its place.
-  return async (claim: SlackOutboxClaim) =>
+  return async (claim: SurfaceOutboxClaim) =>
     claim.sessionId !== null &&
     (await readerOutsideChannels(
       { sessions },
