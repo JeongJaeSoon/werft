@@ -267,7 +267,7 @@ Migration `0320_session_parent_conversation` adds `sessions.parent_conversation_
 <a id="웹-입력을-slack-거울과-잇는-릴리스" />
 ### The release that ties web inputs to their Slack mirror
 
-Migration `0333_input_mirror` adds the kind `input_mirror` to `slack_outbox` with the column `input_id`, the web input such a row shows, and builds a partial index on `conversation_inputs` `CONCURRENTLY` to find web inputs not yet shown in Slack. The upgrade needs nothing from you. No route records web inputs in this release, so no row of the new kind is made, and Slack mentions and replies and web and API sessions behave as before.
+Migration `0334_input_mirror` adds the kind `input_mirror` to `slack_outbox` with the column `input_id`, the web input such a row shows, and builds a partial index on `conversation_inputs` `CONCURRENTLY` to find web inputs not yet shown in Slack. The upgrade needs nothing from you. No route records web inputs in this release, so no row of the new kind is made, and Slack mentions and replies and web and API sessions behave as before.
 
 - A web input is posted to Slack as an `instruction` is: under its sender's name with "(Web console)" after it. A new topic's first input becomes a top-level post in the channel (for a DM, the person's DM); the rest go into that topic's thread.
 - Once the post succeeds, the same transaction makes its (team, channel, ts) the input's Slack alias, and the topic's Slack place for a new topic. A person's reply in that thread is taken as the topic's next input.
