@@ -571,8 +571,8 @@ export const AGENT_GITHUB_ACTIONS_ALLOW_MAX = 32;
 
 /**
  * What an agent's GitHub work may reach, pinned on its release. A release
- * without it runs as before: every repository the workspace ceiling allows, a person
- * approving each push, no optional permission.
+ * without it runs as before: every repository the workspace ceiling allows, no
+ * push approval, no optional permission.
  */
 export const agentGitHubSchema = z
   .object({
@@ -985,16 +985,11 @@ export function newSessionGitHubPolicy(
   agentRow: AgentGitHubSettingsRow | null,
   releasePin: unknown,
 ): EffectiveGitHubPolicy {
-  const policy = effectiveGitHubPolicy({
+  return effectiveGitHubPolicy({
     source: agentRow === null ? "release" : "agent",
     releasePin,
     agentRow,
   });
-  // No snapshot caps an existing session at `ask`; a new session's snapshot is
-  // taken from this value, so it starts at the row's own.
-  return agentRow !== null && policy.source === "agent"
-    ? { ...policy, pushAttached: pushAttachedOf(agentRow.pushAttached) }
-    : policy;
 }
 
 /**
