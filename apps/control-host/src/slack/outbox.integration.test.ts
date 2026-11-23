@@ -3637,6 +3637,17 @@ describe.each(ENGINES)("a link's posting columns on %s", (engine) => {
       () => db.update(sessionLinks).set({ postPrompts: false }),
       ["instruction:2", "reply:1", "reply:2"],
     ],
+    // Until v1-b every mode but none posts once per turn, as full did.
+    [
+      "report_mode progress on the link",
+      () => db.update(sessionLinks).set({ reportMode: "progress" }),
+      ["input_notice:2", "instruction:2", "reply:1", "reply:2"],
+    ],
+    [
+      "report_mode notify_only on the channel, unset on the link",
+      () => db.update(surfaceBindings).set({ reportMode: "notify_only" }),
+      ["input_notice:2", "instruction:2", "reply:1", "reply:2"],
+    ],
     [
       "report_mode none",
       () => db.update(sessionLinks).set({ reportMode: "none" }),

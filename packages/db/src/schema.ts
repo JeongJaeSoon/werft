@@ -5601,7 +5601,10 @@ export const sessionLinks = pgTable(
     agentId: uuid("agent_id").notNull(),
     releaseId: text("release_id").notNull(),
     role: text().$type<"primary" | "mirror">().notNull().default("primary"),
-    /** Read by hosts from before the three columns below; nothing reads it now. */
+    /**
+     * Read by hosts from before the three columns below. This release reads it
+     * only to keep a `summary` link the start pass has not moved silent.
+     */
     visibility: text().$type<"full" | "summary">().notNull().default("full"),
     /** Null: the binding's `report_mode`. Gates replies, failures and notices. */
     reportMode: text("report_mode").$type<SessionLinkReportMode>(),

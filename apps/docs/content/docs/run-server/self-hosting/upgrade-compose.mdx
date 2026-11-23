@@ -228,7 +228,7 @@ migration `0320_session_parent_conversation`이 `sessions.parent_conversation_id
 migration `0325_link_posting`이 `session_links`에 게시 칸 셋을, 채널 binding에 `report_mode` 기본값을 더한다. 스레드에 무엇이 올라가는지는 이제 `visibility` 대신 이 칸들이 정한다. 올릴 때 할 일은 없고, Slack에 올라가는 글의 종류와 횟수는 그대로다.
 
 - `report_mode`(nullable)는 답·실패·push와 PR 결과 알림을, `mirror_instructions`는 웹·API에서 보낸 지시를 스레드에 비추는 것을, `post_prompts`는 승인 카드와 질문을 정한다. link의 `report_mode`가 비어 있으면 그 채널 binding의 값을 쓴다. binding의 기본값은 `per_step`(지금처럼 턴마다 올림)이다.
-- `visibility = 'full'`인 link는 그대로 둔다. 새 칸의 기본값이 `full`과 같은 뜻이다. `summary`인 link는 api가 기동할 때마다 도는 정리가 `report_mode = 'none'`, 나머지 두 칸 `false`로 묶음으로 옮긴다(지금처럼 아무것도 올리지 않음). 옮긴 수는 로그 `Summary session links moved`에 남는다. 이 릴리스까지 `summary` link를 만드는 길은 없었으므로 보통 0이다.
+- `visibility = 'full'`인 link는 그대로 둔다. 새 칸의 기본값이 `full`과 같은 뜻이다. `summary`인 link는 api가 기동할 때마다 도는 정리가 `report_mode = 'none'`, 나머지 두 칸 `false`로 묶음으로 옮긴다(지금처럼 아무것도 올리지 않음). 옮기기 전에도 outbox는 `summary` link에 아무것도 올리지 않는다. 옮긴 수는 로그 `Summary session links moved`에 남는다. 이 릴리스까지 `summary` link를 만드는 길은 없었으므로 보통 0이다.
 - `none`은 옮긴 link에만 있는 값이다. binding의 CHECK는 `notify_only`·`progress`·`per_step`만 받는다. 이 릴리스에는 칸 셋을 바꾸는 화면·API가 없다.
 - `session_links`의 CHECK는 `NOT VALID`로 더한 뒤 따로 검증하므로 쓰기를 오래 막지 않는다. `visibility` 칸은 뒤의 릴리스가 지울 때까지 남는다.
 - 지원 창 안의 이미지로 되돌려도 된다. 옛 이미지는 `visibility`만 읽고, 새 이미지가 만든 link도 `visibility`가 `full`이라 지금처럼 올린다.

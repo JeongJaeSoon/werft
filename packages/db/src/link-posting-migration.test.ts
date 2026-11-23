@@ -181,6 +181,28 @@ describe("0325 link posting", () => {
     expect(moved).toEqual([{ report_mode: null }, { report_mode: "none" }]);
   });
 
+  test("the pass moves links past one batch, and none is left", async () => {
+    await client.query(
+      `INSERT INTO session_links (id, workspace_id, owner_id, installation_id,
+         surface_binding_id, surface_ref, channel_id, thread_id, opened_by_ts,
+         agent_id, release_id, visibility)
+       SELECT gen_random_uuid(), gen_random_uuid(), 'owner', gen_random_uuid(),
+         $1, 'T1:C1:' || n, 'C1', n::text, n::text, gen_random_uuid(), 'r1', 'summary'
+       FROM generate_series(1, 501) n`,
+      [bindingId],
+    );
+    expect(await moveSummaryLinks(db)).toBe(501);
+    expect(await moveSummaryLinks(db)).toBe(0);
+    const left = await client.query(
+      "SELECT count(*)::int AS n FROM session_links WHERE visibility = 'summary' AND report_mode IS NULL",
+    );
+    expect(left.rows).toEqual([{ n: 0 }]);
+    await client.query(
+      "DELETE FROM session_links WHERE visibility = 'summary' AND id <> $1",
+      [summaryId],
+    );
+  });
+
   test("a link an old host writes after the migration reads as full did", async () => {
     const { rows } = await oldHostLink();
     const [link] = (
