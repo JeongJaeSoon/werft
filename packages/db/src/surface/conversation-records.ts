@@ -231,11 +231,16 @@ export async function deleteConversationRecords(
           for (const ts of seen.touched) {
             await tx.execute(lockSlackSourceMark({ ...place, ts }));
           }
-          await tx.execute(sql`
+          // With no summary row there is nothing to lock or delete; one made
+          // since is after this delete, and is left.
+          const summaryHeld =
+            rowsOf(
+              await tx.execute(sql`
             SELECT 1 FROM channel_summaries
             WHERE (workspace_id, team_id, channel_id) =
               (${place.workspaceId}::uuid, ${place.teamId}, ${place.channelId})
-            FOR UPDATE`);
+            FOR UPDATE`),
+            ).length > 0;
           await find(tx, true);
           const admin = await adminOf(tx);
           if (admin === undefined) return null;
@@ -259,7 +264,9 @@ export async function deleteConversationRecords(
                 (${place.workspaceId}::uuid, ${place.teamId}, ${place.channelId})
               AND ts IN (${texts(records.marks)})`);
           }
-          const summary = await deleteChannelSummary(tx, place);
+          const summary = summaryHeld
+            ? await deleteChannelSummary(tx, place)
+            : { lines: 0, sourceTs: [] };
           if (!within(summary.sourceTs, seen.touched)) throw new RecordsMoved();
           // An engagement is written without the conversation's lock: all of
           // the conversation's go, and one not seen before starts again.
