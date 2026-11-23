@@ -28,17 +28,25 @@ const claim = (event: Record<string, unknown>) =>
     workspaceId: WORKSPACE,
     agentId: AGENT,
     appId: "A1",
+    slackAppId: "app-1",
     teamId: "T1",
     eventType: String(event.type),
     eventTime: null,
     payload: { event },
   }) as unknown as SlackInboundClaim;
 
-function handler(agents = resolved) {
+function handler(
+  options: {
+    agents?: never;
+    slackSays?: ChannelKindNow | "dm";
+    token?: string | null;
+  } = {},
+) {
   const calls: [ChannelSessionPlace, ChannelKindNow][] = [];
+  const asked: string[] = [];
   const passed: unknown[] = [];
   const handle = createSlackChannelConversionHandler({
-    agents,
+    agents: options.agents ?? resolved,
     bindings: {
       channelKindChanged: async (place, kind): Promise<ChannelKindChanged> => {
         calls.push([place, kind]);
@@ -51,12 +59,20 @@ function handler(agents = resolved) {
         };
       },
     },
+    slack: {
+      channelKind: async (_token, channel) => {
+        asked.push(channel);
+        return options.slackSays ?? "public_channel";
+      },
+    },
+    botToken: async () =>
+      options.token === undefined ? "bot-credential" : options.token,
     logger: { info: () => {} },
     next: async (claim) => {
       passed.push((claim.payload as { event: unknown }).event);
     },
   });
-  return { handle, calls, passed };
+  return { handle, calls, asked, passed };
 }
 
 const place = (channelId: string) => ({
@@ -67,27 +83,67 @@ const place = (channelId: string) => ({
   channelId,
 });
 
+const conversion = (subtype: string) =>
+  claim({ type: "message", subtype, channel: "C1", user: "U0P", ts: "1.1" });
+
 describe("channel conversion handler", () => {
   test.each([
     ["channel_convert_to_private", "private_channel"],
     ["channel_convert_to_public", "public_channel"],
   ] as const)(
-    "%s moves the channel's binding and sessions to %s and stops there",
+    "%s moves the channel's binding and sessions to %s, as Slack says now, and stops there",
     async (subtype, kind) => {
-      const h = handler();
-      await h.handle(
-        claim({
-          type: "message",
-          subtype,
-          channel: "C1",
-          user: "U0P",
-          ts: "1.1",
-        }),
-      );
+      const h = handler({ slackSays: kind });
+      await h.handle(conversion(subtype));
+      expect(h.asked).toEqual(["C1"]);
       expect(h.calls).toEqual([[place("C1"), kind]]);
       expect(h.passed).toEqual([]);
     },
   );
+
+  test("a late conversion to public, after the channel went private again, keeps it private", async () => {
+    const h = handler({ slackSays: "private_channel" });
+    await h.handle(conversion("channel_convert_to_public"));
+    expect(h.calls).toEqual([[place("C1"), "private_channel"]]);
+  });
+
+  test("without a bot token only a conversion to private is applied", async () => {
+    const toPrivate = handler({ token: null });
+    await toPrivate.handle(conversion("channel_convert_to_private"));
+    expect(toPrivate.calls).toEqual([[place("C1"), "private_channel"]]);
+    const toPublic = handler({ token: null });
+    await toPublic.handle(conversion("channel_convert_to_public"));
+    expect(toPublic.calls).toEqual([]);
+    expect(toPublic.asked).toEqual([]);
+  });
+
+  test("a channel Slack calls a DM changes nothing", async () => {
+    const h = handler({ slackSays: "dm" });
+    await h.handle(conversion("channel_convert_to_private"));
+    expect(h.calls).toEqual([]);
+  });
+
+  test("a failed Slack read throws, so the inbox tries again", async () => {
+    const h = createSlackChannelConversionHandler({
+      agents: resolved,
+      bindings: {
+        channelKindChanged: async () => {
+          throw new Error("not reached");
+        },
+      },
+      slack: {
+        channelKind: async () => {
+          throw new Error("slack unreachable");
+        },
+      },
+      botToken: async () => "bot-credential",
+      logger: { info: () => {} },
+      next: async () => {},
+    });
+    await expect(h(conversion("channel_convert_to_public"))).rejects.toThrow(
+      "slack unreachable",
+    );
+  });
 
   test("any other message goes on to the next handler", async () => {
     const h = handler();
@@ -109,20 +165,16 @@ describe("channel conversion handler", () => {
 
   test("an event of another app changes nothing", async () => {
     const h = handler({
-      resolveSlackEvent: async () => ({
-        status: "dropped",
-        reason: "unknown_app",
-      }),
-    } as never);
-    await h.handle(
-      claim({
-        type: "message",
-        subtype: "channel_convert_to_private",
-        channel: "C1",
-        ts: "1.1",
-      }),
-    );
+      agents: {
+        resolveSlackEvent: async () => ({
+          status: "dropped",
+          reason: "unknown_app",
+        }),
+      } as never,
+    });
+    await h.handle(conversion("channel_convert_to_private"));
     expect(h.calls).toEqual([]);
+    expect(h.asked).toEqual([]);
     expect(h.passed).toEqual([]);
   });
 });

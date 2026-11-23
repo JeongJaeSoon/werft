@@ -328,6 +328,46 @@ integration(
       expect(g1Binding).toEqual([
         { surface_kind: "public_channel", status: "ready" },
       ]);
+
+      // A share change holding the session row, as setShare does, is waited
+      // for; the move reads what it left and keeps the narrowed one private.
+      const holder = await pool.connect();
+      await holder.query("BEGIN");
+      await holder.query("SELECT id FROM sessions WHERE id = $1 FOR UPDATE", [
+        open,
+      ]);
+      await holder.query(
+        "UPDATE session_shares SET scope = 'private', revision = revision + 1 WHERE session_id = $1",
+        [open],
+      );
+      const racing = store.channelKindChanged(g1Place, "private_channel");
+      await Bun.sleep(300);
+      await holder.query("COMMIT");
+      holder.release();
+      const raced = await racing;
+      expect(raced.keptPrivate).toContain(open);
+      expect(raced.moves.map((move) => move.sessionId)).not.toContain(open);
+      expect((await scopes())[open]).toBe("private");
+      expect((await scopes())[shared]).toBe("private_channel");
+
+      // Going public again widens only the channel's own sessions: one whose
+      // parent is another channel's conversation keeps that channel.
+      const g2Conversation = (
+        await pool.query<{ id: string }>(
+          "SELECT id FROM conversations WHERE workspace_id = $1 AND channel_id = 'G2'",
+          [workspaceId],
+        )
+      ).rows[0]?.id as string;
+      await pool.query(
+        "UPDATE sessions SET parent_conversation_id = $2 WHERE id = $1",
+        [shared, g2Conversation],
+      );
+      const widened = await store.channelKindChanged(g1Place, "public_channel");
+      expect(widened.skipped).toEqual([
+        { sessionId: shared, reason: "no_channel_conversation" },
+      ]);
+      expect((await scopes())[shared]).toBe("private_channel");
+      expect((await scopes())[revoked]).toBe("workspace");
     });
   },
 );

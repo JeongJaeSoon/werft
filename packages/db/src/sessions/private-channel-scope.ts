@@ -66,6 +66,14 @@ export async function channelSessionPlaces(
   }));
 }
 
+const linkedSessionIds = (place: ChannelSessionPlace) => sql`
+  SELECT l.session_id FROM session_links l
+  JOIN surface_bindings b ON b.id = l.surface_binding_id
+  WHERE l.installation_id = ${lower(place.installationId)}::uuid
+    AND l.channel_id = ${place.channelId}
+    AND l.agent_id = ${lower(place.agentId)}::uuid
+    AND b.surface_kind IN ('public_channel', 'private_channel')`;
+
 /** The sessions linked from the place's channel threads, each once. */
 export async function channelSessions(
   db: Database,
@@ -86,13 +94,7 @@ export async function channelSessions(
           AND t.requester_kind = 'api_key') AS key_turns
       FROM sessions s
       LEFT JOIN session_shares sh ON sh.session_id = s.id
-      WHERE s.id IN (
-        SELECT l.session_id FROM session_links l
-        JOIN surface_bindings b ON b.id = l.surface_binding_id
-        WHERE l.installation_id = ${lower(place.installationId)}::uuid
-          AND l.channel_id = ${place.channelId}
-          AND l.agent_id = ${lower(place.agentId)}::uuid
-          AND b.surface_kind IN ('public_channel', 'private_channel'))
+      WHERE s.id IN (${linkedSessionIds(place)})
       ORDER BY s.id`),
   );
   return rows.map((row) => ({
@@ -134,9 +136,10 @@ async function channelConversationId(
  * What moving the place's sessions to match the channel's kind would do,
  * read alone: a private channel's sessions go to `private_channel` (a
  * `private` one stays), a public channel's `private_channel` ones to
- * `workspace`. A session whose parent is empty is moved once it is filled
- * with the channel's conversation; one whose parent is another
- * conversation is skipped.
+ * `workspace`. A session whose parent is empty is moved to
+ * `private_channel` once it is filled with the channel's conversation; one
+ * whose parent is another conversation is skipped either way, since it
+ * belongs to that channel.
  */
 export function planChannelScope(
   rows: readonly ChannelSessionRow[],
@@ -151,14 +154,22 @@ export function planChannelScope(
   };
   for (const row of rows) {
     if (kind === "public_channel") {
-      if (row.scope === "private_channel") {
+      if (row.scope !== "private_channel") {
+        plan.unchanged.push(row.sessionId);
+      } else if (
+        channel.conversationId === null ||
+        row.parentConversationId !== channel.conversationId
+      ) {
+        plan.skipped.push({
+          sessionId: row.sessionId,
+          reason: "no_channel_conversation",
+        });
+      } else {
         plan.moves.push({
           sessionId: row.sessionId,
           from: row.scope,
           to: "workspace",
         });
-      } else {
-        plan.unchanged.push(row.sessionId);
       }
       continue;
     }
@@ -208,13 +219,18 @@ export async function readChannelScopePlan(
  * transaction: an empty parent is filled with the channel's conversation
  * first (found or made), so the channel's members find the session. Named
  * share rows stay; under `private_channel` they take no effect. Running it
- * again moves nothing more.
+ * again moves nothing more. Only what was written is reported as moved.
  */
 export async function moveChannelSessionScope(
   tx: Database,
   place: ChannelSessionPlace,
   kind: ChannelKindNow,
 ): Promise<ChannelScopePlan> {
+  // The session rows before their shares, as a share change takes them
+  // (setShare), so the scopes are read after any change holding them.
+  await tx.execute(sql`
+    SELECT id FROM sessions WHERE id IN (${linkedSessionIds(place)})
+    ORDER BY id FOR UPDATE`);
   const rows = await channelSessions(tx, place);
   const usable = usableChannel(place);
   let conversationId = usable ? await channelConversationId(tx, place) : null;
@@ -226,6 +242,7 @@ export async function moveChannelSessionScope(
       )
     ).id;
   }
+  const moved: ChannelScopePlan["moves"] = [];
   for (const move of plan.moves) {
     const row = rows.find(
       (candidate) => candidate.sessionId === move.sessionId,
@@ -237,7 +254,8 @@ export async function moveChannelSessionScope(
         WHERE id = ${row.sessionId}::uuid AND parent_conversation_id IS NULL`);
     }
     // Only from the scope the plan read: a share changed meanwhile wins.
-    await tx.execute(sql`
+    const written = rowsOf<{ session_id: string }>(
+      await tx.execute(sql`
       INSERT INTO session_shares (session_id, owner_id, workspace_id, scope,
         updated_by, updated_at, revision)
       VALUES (${row.sessionId}::uuid, ${row.ownerId},
@@ -246,7 +264,16 @@ export async function moveChannelSessionScope(
         SET scope = EXCLUDED.scope, updated_by = NULL,
           updated_at = EXCLUDED.updated_at,
           revision = session_shares.revision + 1
-        WHERE session_shares.scope = ${move.from}`);
+        WHERE session_shares.scope = ${move.from}
+      RETURNING session_id`),
+    );
+    if (written.length === 0) {
+      plan.skipped.push({ sessionId: row.sessionId, reason: "share_changed" });
+      continue;
+    }
+    // Open streams re-read on this wakeup and end if they no longer see it.
+    await tx.execute(sql`SELECT pg_notify('session_events', ${row.sessionId})`);
+    moved.push(move);
   }
-  return plan;
+  return { ...plan, moves: moved };
 }

@@ -5,6 +5,7 @@ import {
   type SurfaceBindingStore,
 } from "@werft-ai/platform";
 import { z } from "zod";
+import type { SlackBotApi } from "./slack-config-api.ts";
 import type { SlackInboundHandler, SlackInboxLogger } from "./slack-inbox.ts";
 
 const conversionSchema = z.object({
@@ -19,10 +20,17 @@ const conversionSchema = z.object({
  * `channel_convert_to_public`): the channel's binding and its sessions
  * follow the new kind (answer 15, 94S-2001). The message itself is no one's
  * request and goes no further. Every other event goes to `next`.
+ *
+ * Conversions can arrive out of order, so the kind applied is the one Slack
+ * reports now, not the one the message names. Without a bot token only a
+ * conversion to private is applied: it narrows and never widens.
  */
 export function createSlackChannelConversionHandler(deps: {
   agents: Pick<AgentIdentityStore, "resolveSlackEvent">;
   bindings: Pick<SurfaceBindingStore, "channelKindChanged">;
+  slack: Pick<SlackBotApi, "channelKind">;
+  /** The app's bot token from the secret store; null when it has none. */
+  botToken(workspaceId: string, slackAppId: string): Promise<string | null>;
   logger: Pick<SlackInboxLogger, "info">;
   next: SlackInboundHandler;
 }): SlackInboundHandler {
@@ -36,10 +44,30 @@ export function createSlackChannelConversionHandler(deps: {
       agentId: claim.agentId,
     });
     if (agent.status === "dropped") return;
-    const kind =
+    const named =
       parsed.data.subtype === "channel_convert_to_private"
         ? "private_channel"
         : "public_channel";
+    const token = await deps.botToken(claim.workspaceId, claim.slackAppId);
+    // A failed read throws, and the inbox tries the event again.
+    const kind =
+      token === null
+        ? named === "private_channel"
+          ? named
+          : null
+        : await deps.slack.channelKind(token, parsed.data.channel);
+    if (kind !== "private_channel" && kind !== "public_channel") {
+      deps.logger.info(
+        "Slack channel conversion not confirmed; left as it was",
+        {
+          event: "slack.channel_kind_unconfirmed",
+          agent_id: agent.agentId,
+          channel_id: parsed.data.channel,
+          named,
+        },
+      );
+      return;
+    }
     const changed = await deps.bindings.channelKindChanged(
       {
         workspaceId: agent.workspaceId,

@@ -27,9 +27,12 @@ export type ChannelKindNow = "public_channel" | "private_channel";
  * Why a session of a private channel is not moved: its channel's
  * conversation cannot be decided (the link names no usable channel, or the
  * session's parent is another conversation), or it has no workspace to
- * share in.
+ * share in, or its share changed while it was being moved (run again).
  */
-export type ChannelSessionSkip = "no_channel_conversation" | "no_workspace";
+export type ChannelSessionSkip =
+  | "no_channel_conversation"
+  | "no_workspace"
+  | "share_changed";
 
 export type ChannelScopeMove = {
   sessionId: string;

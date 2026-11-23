@@ -91,4 +91,26 @@ describe("planChannelScope", () => {
     ]);
     expect(plan.unchanged).toEqual(["s-private", "s-people"]);
   });
+
+  test("going public widens only the channel's own sessions: another channel's parent or no conversation is skipped", () => {
+    // Before, both were moved to workspace whatever their parent was.
+    const rows = [
+      row("s-other", "private_channel", {
+        parentConversationId: "019a0000-0000-7000-8000-00000000dddd",
+      }),
+      row("s-orphan", "private_channel", { parentConversationId: null }),
+    ];
+    const plan = planChannelScope(rows, "public_channel", channel);
+    expect(plan.moves).toEqual([]);
+    expect(plan.skipped).toEqual([
+      { sessionId: "s-other", reason: "no_channel_conversation" },
+      { sessionId: "s-orphan", reason: "no_channel_conversation" },
+    ]);
+    expect(
+      planChannelScope(rows.slice(0, 1), "public_channel", {
+        usable: true,
+        conversationId: null,
+      }).skipped,
+    ).toEqual([{ sessionId: "s-other", reason: "no_channel_conversation" }]);
+  });
 });

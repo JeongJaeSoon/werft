@@ -108,6 +108,8 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
       agents: deps.identities,
       bindings: deps.bindings,
       logger: deps.logger,
+      slack: slackApi,
+      botToken,
       next: createSlackChannelLifecycleHandler({
         agents: deps.identities,
         bindings: deps.bindings,
