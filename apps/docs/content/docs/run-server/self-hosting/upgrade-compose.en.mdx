@@ -231,7 +231,7 @@ Migration `0336_conversation_records_deleted` adds `records_deleted_at` and `rec
 
 - The operator command `conversation-records.ts delete` comes in ([admin delete of conversation records](/run-server/self-hosting/reference/storage#대화-기록의-관리자-삭제)). Nothing changes unless it is run.
 - Every existing delete mark becomes `slack_deleted`. A mark the admin delete makes is `admin_deleted`, and turns `slack_deleted` if Slack later deletes the message. Every check treats both alike.
-- The columns are nullable or take a constant default, so no table is rewritten. The CHECK and the foreign key on `conversations` are added `NOT VALID` and validated separately, so writes are not blocked for long.
+- The columns are nullable or take a constant default, so no table is rewritten. The CHECK and the foreign key on `conversations` and the CHECK on `deleted_sources` are added `NOT VALID` and validated separately, so writes are not blocked for long.
 - Rolling back to an image within the support window is fine. Older images do not read the new columns and treat a mark the admin delete made like a Slack delete mark.
 
 ### The release that stops sessions holding a deleted Slack message

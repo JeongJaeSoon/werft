@@ -206,7 +206,7 @@ migration `0336_conversation_records_deleted`가 `conversations`에 `records_del
 
 - 운영자 명령 `conversation-records.ts delete`가 들어온다([대화 기록의 관리자 삭제](/run-server/self-hosting/reference/storage#대화-기록의-관리자-삭제)). 부르지 않으면 아무것도 바뀌지 않는다.
 - 있던 삭제 표식은 모두 `slack_deleted`가 된다. 관리자 삭제가 다는 표식은 `admin_deleted`이고, 그 글이 나중에 Slack에서 지워지면 `slack_deleted`로 바뀐다. 검사는 둘을 똑같이 본다.
-- 칸은 nullable이거나 상수 기본값이라 표를 다시 쓰지 않는다. `conversations`의 CHECK와 외래 키는 `NOT VALID`로 더한 뒤 따로 검증하므로 쓰기를 오래 막지 않는다.
+- 칸은 nullable이거나 상수 기본값이라 표를 다시 쓰지 않는다. `conversations`의 CHECK·외래 키와 `deleted_sources`의 CHECK는 `NOT VALID`로 더한 뒤 따로 검증하므로 쓰기를 오래 막지 않는다.
 - 지원 창 안의 이미지로 되돌려도 된다. 옛 이미지는 새 칸을 읽지 않고, 관리자 삭제가 단 표식도 Slack의 삭제 표식처럼 본다.
 
 ### 지운 Slack 글이 든 세션을 멈추는 릴리스
