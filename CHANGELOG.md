@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **migration `0319_session_parent_conversation`이 세션에 부모 대화 칸 `parent_conversation_id`(nullable)를 더하고, api가 기동할 때마다 Slack에 묶인 세션의 부모 대화를 채운다**(JeongJaeSoon/werft#2045). 따로 할 일은 없고, Slack·웹·세션 API의 동작은 그대로다.
+- **migration `0320_session_parent_conversation`이 세션에 부모 대화 칸 `parent_conversation_id`(nullable)를 더하고, api가 기동할 때마다 Slack에 묶인 세션의 부모 대화를 채운다**(JeongJaeSoon/werft#2045). 따로 할 일은 없고, Slack·웹·세션 API의 동작은 그대로다.
   - 새 Slack 세션은 만들 때 채운다. 채널 스레드의 세션은 그 채널의 메인 대화, DM 세션은 그 사람의 DM 메인 대화다. link가 없는 세션(웹의 "새 세션", 세션 API)은 비워 둔다.
   - 있던 세션은 api 기동 때 한 번씩 도는 정리가 묶음으로 채운다. 닫히거나 폐기된 link의 세션도 채운다. 세션마다 비어 있을 때만 채우므로 다시 기동해도, 여러 api가 함께 기동해도 결과가 같고, 중간에 멈추면 다음 기동이 남은 세션부터 잇는다.
   - DM 세션의 사람은 그 세션을 연 사람, 없거나 워크스페이스 멤버가 아니면 link를 만든 사람이다. 새 세션이 만들 때 고르는 사람과 같다. 둘 다 없으면 부모를 비워 두고 로그 `Linked DM sessions left without a parent conversation`에 이유별 수(`no_person`·`no_membership`)를 남긴다. 채운 수는 `Parent conversations filled`, 채우지 못한 세션은 경고 로그에 세션 id와 함께 남고 다음 기동에서 다시 시도한다.

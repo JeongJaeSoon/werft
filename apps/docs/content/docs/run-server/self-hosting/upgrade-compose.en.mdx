@@ -229,7 +229,7 @@ Migration `0305_drop_unused_tables` drops the `catalog_authority`, `owner_worksp
 <a id="세션에-부모-대화를-채우는-릴리스" />
 ### The release that fills each session's parent conversation
 
-Migration `0319_session_parent_conversation` adds `sessions.parent_conversation_id` (nullable, a foreign key to `conversations`). The key is added `NOT VALID` and validated on its own, so the table is not locked for long. The upgrade needs nothing from you, and Slack, the web console and the session API behave as before.
+Migration `0320_session_parent_conversation` adds `sessions.parent_conversation_id` (nullable, a foreign key to `conversations`). The key is added `NOT VALID` and validated on its own, so the table is not locked for long. The upgrade needs nothing from you, and Slack, the web console and the session API behave as before.
 
 - A new Slack session gets its parent conversation when it is made: a channel thread's session the channel's main conversation, a DM session that person's DM conversation. A session with no link (the web's "New session", the session API) has none.
 - Existing sessions are filled in batches by a pass that runs each time the api starts, sessions of closed or revoked links included. A session is filled only while it is empty, so starting again, or several api replicas starting at once, gives the same result, and a pass cut short is picked up by the next start.
